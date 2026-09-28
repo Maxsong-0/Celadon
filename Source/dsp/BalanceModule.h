@@ -14,6 +14,9 @@
         Tame 增强只作用于同帧频谱中的局部峰，共同电平变化保留原有基础力度
         自动 Tame 份额另需两侧宽带支撑与持续局部峰，原始帧起音触发短暂保护；同一声道清晰的 1:2:3 谱线关系减轻自动削减
         自动新增削减最多 2.5 dB；谐波关系只作保守保护证据，不识别人声或乐器
+        Recover 与 Tame 同时打开时，另按上行掩蔽把「已经被压下的主导段」分一部分给更高、仍有内容的被掩蔽邻段，
+        再用 A 计权把这部分的净增益拉回 0 附近。只有一侧打开、或谱本身已经平，这条路径不改目标。
+        这是公开心理声学里的上行扩展，不是 Gullfoss 的听觉模型，也不声称与 Gullfoss Master 等价。
       → 独立叠加 Brighten 倾斜（每十倍频程 3 dB × Brighten / 100）
       → 每段合计限制 −8 ～ +6 dB、−60 dBFS 静音门、每 hop 最多变 1 dB
       → 修正量 G[b]（dB）。
@@ -258,6 +261,7 @@ namespace celadon
         PerBand<double> automaticDeficitSeconds {}; // 自动 Recover 的连续缺口时长；仅利用现有频谱，每 hop 更新
         PerBand<double> automaticPeakSeconds {};    // 自动 Tame 的连续局部峰时长（起音保护期间不累计）
         PerBand<double> automaticOnsetHoldSeconds {};
+        PerBand<double> maskingBoostDb {};         // 上行掩蔽提升的平滑状态；Recover/Tame 不同时打开时保持 0
         PerBand<double> harmonicProtection {};     // 0 ～ 1，清晰谐波组的平滑保护证据；仅缩小自动 Tame 份额
         PerBand<double> previousBandPower {};       // 起音检测用原始帧，避免慢测量的余尾继续获得自动许可
         PerBand<double> hopStartGainDb {};      // 本 hop 开始时的 G[b]，插值起点
