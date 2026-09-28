@@ -92,6 +92,35 @@ namespace celadon
         constexpr double automaticTameSupportRatio = 1.0e-4;   // 两侧各至少两段，在本段之下 40 dB 内且高于门限
         constexpr double automaticTameMaxExtraDb   = 2.5;
 
+        // 上行掩蔽转移（Recover 与 Tame 同时 > 0 才启用）。斜率按 1/3 倍频程：低频掩蔽更高的邻段，
+        // 反向不在这里补。间隙大于 16 dB 的当作泄漏或滚降，不抬。端点与 6.3 kHz 以上不接收新的提升。
+        constexpr int    maskingMaxDistance    = 4;
+        constexpr int    maskingLowBand        = 2;
+        constexpr int    maskingHighBand       = 22;
+        constexpr double maskingFloorOffsetDb  = 2.0;
+        constexpr double maskingUpwardSlopeDb  = 4.0;
+        constexpr double maskingMinBuriedDb    = 0.70;
+        constexpr double maskingBoostSeconds   = 0.18;
+        constexpr double maskingMinCutDb       = 0.80;
+        constexpr double maskingMaxGapDb       = 16.0;
+        constexpr double maskingTransfer       = 0.35;
+        constexpr double maskingMaxBoostDb     = 1.25;
+        constexpr double maskingAnchorMinBoost = 0.12;
+        constexpr double maskingAnchorLimitDb  = 0.45;
+
+        // A 计权功率权重，1 kHz 附近为 1。只用来把掩蔽转移的净增益拉回 0 附近，不单独做均衡。
+        double maskingLoudnessWeight (int band)
+        {
+            const auto hz = 1000.0 * std::pow (2.0, ((double) band - 14.0) / 3.0);
+            const auto f2 = hz * hz;
+            const auto f4 = f2 * f2;
+            constexpr double c1 = 12194.217 * 12194.217;
+            const auto numerator = c1 * f4;
+            const auto denominator = (f2 + 424.36) * std::sqrt ((f2 + 11599.29) * (f2 + 544496.41)) * (f2 + c1);
+            const auto db = 20.0 * std::log10 (numerator / denominator) + 2.0;
+            return std::pow (10.0, juce::jmax (-14.0, db) / 10.0);
+        }
+
         // 不把单条持久谱线直接等同于问题。仅当同一声道的清晰谱峰构成 1:2:3 关系时保护这三段；
         // 低于六个 FFT bin 的基音分辨率不足，或泛音比基音弱超过约 17 dB，都不据此推断。
         // 保留 25% 自动许可，因此谐波相关也不是完全豁免；手动 Tame 始终按原曲线执行。
@@ -376,6 +405,7 @@ namespace celadon
             automaticDeficitSeconds[b] = 0.0;
             automaticPeakSeconds[b] = 0.0;
             automaticOnsetHoldSeconds[b] = 0.0;
+            maskingBoostDb[b] = 0.0;
             harmonicProtection[b] = 0.0;
             previousBandPower[b] = 0.0;
             hopStartGainDb[b]   = 0.0;
@@ -1303,6 +1333,8 @@ namespace celadon
         const auto automaticRecover = (double) frameParams.automaticRecover / 100.0;
         const auto automaticTame = (double) frameParams.automaticTame / 100.0;
         const auto brighten = (double) frameParams.brighten / 100.0;
+        const auto manualRecover = juce::jmax (0.0, recover - automaticRecover);
+        PerBand<double> proposed {}, untilted {}, recoverPermit {};
 
         if (automaticTame > 0.0)
             updateHarmonicProtection();
@@ -1429,15 +1461,133 @@ namespace celadon
 
                 // 手动色调控制独立，不再被 Recover/Tame 二次缩小，也不被自动 Recover 许可吞掉。
                 // 倾斜和动态修正的合计有界，随后统一走门限、原有每 hop 限速及插值。
+                untilted[b] = target;
                 target = juce::jlimit (-maxTameCorrectionDb, maxCorrectionDb, target + tiltPerBrighten[b] * brighten);
 
                 // 静音门：L[b] < −60 dBFS 的段修正量归零（不把底噪提起来），门上 6 dB 内线性淡入。
                 target *= gateWeight[b];
             }
 
-            // 变化速率限制：每 hop 最多变 1 dB，防自激、防抖。
-            targetGainDb[b] = juce::jlimit (hopStartGainDb[b] - maxStepPerHopDb, hopStartGainDb[b] + maxStepPerHopDb, target);
+            proposed[b] = target;
+            recoverPermit[b] = manualRecover + automaticRecover * automaticWeight;
         }
+
+        // 掩蔽转移放在限速之前。没有任何足够深的削减时 proposed 原样进入限速，与旧运算逐位相同。
+        if (! (recover > 0.0 && tame > 0.0))
+            maskingBoostDb.fill (0.0);
+        else
+        {
+            PerBand<double> boost {};
+
+            for (int masker = 0; masker < numBands; ++masker)
+            {
+                const auto maskerIndex = (size_t) masker;
+
+                if (! bandAlive[maskerIndex] || untilted[maskerIndex] > -maskingMinCutDb)
+                    continue;
+
+                const auto cut = -untilted[maskerIndex];
+
+                for (int distance = 1; distance <= maskingMaxDistance; ++distance)
+                {
+                    const auto band = masker + distance;
+
+                    if (band < maskingLowBand || band > maskingHighBand)
+                        continue;
+
+                    const auto index = (size_t) band;
+                    const auto permit = recoverPermit[index];
+
+                    if (permit < 0.05 || gateWeight[index] < 0.5)
+                        continue;
+
+                    const auto gap = fastLevelDb[maskerIndex] - fastLevelDb[index];
+
+                    if (gap <= 0.0 || gap > maskingMaxGapDb || fastLevelDb[index] < gateDb + 8.0)
+                        continue;
+
+                    const auto buried = gap - maskingFloorOffsetDb - maskingUpwardSlopeDb * (double) distance;
+
+                    if (buried < maskingMinBuriedDb)
+                        continue;
+
+                    const auto room = maskingMaxBoostDb - boost[index];
+
+                    if (room <= 0.0)
+                        continue;
+
+                    boost[index] += juce::jmin (room,
+                                                juce::jmin (maskingTransfer * cut, 0.22 * buried)
+                                                    * juce::jmin (permit, 1.0));
+                }
+            }
+
+            const auto boostCoeff = maskingBoostSeconds <= 0.0 ? 0.0 : std::exp (-hopSeconds / maskingBoostSeconds);
+            double totalBoost = 0.0;
+
+            for (size_t index = 0; index < (size_t) numBands; ++index)
+            {
+                // 原始提升一帧一帧地闪时，先沿 hop 平滑再拿去改目标，避免扫频在邻段上来回抖。
+                maskingBoostDb[index] = boost[index] + (maskingBoostDb[index] - boost[index]) * boostCoeff;
+
+                if (maskingBoostDb[index] < 1.0e-4)
+                    maskingBoostDb[index] = 0.0;
+
+                boost[index] = maskingBoostDb[index];
+                totalBoost += boost[index];
+            }
+
+            auto offset = 0.0;
+
+            if (totalBoost >= maskingAnchorMinBoost)
+            {
+                auto weightSum = 0.0;
+                auto gainSum = 0.0;
+
+                for (int band = maskingLowBand; band <= maskingHighBand; ++band)
+                {
+                    const auto index = (size_t) band;
+
+                    if (gateWeight[index] < 0.5 || (boost[index] <= 0.0 && untilted[index] > -0.2))
+                        continue;
+
+                    const auto weight = maskingLoudnessWeight (band) * gateWeight[index];
+                    weightSum += weight;
+                    gainSum += weight * (untilted[index] + boost[index]);
+                }
+
+                if (weightSum > 0.0)
+                    offset = juce::jlimit (-maskingAnchorLimitDb, maskingAnchorLimitDb, gainSum / weightSum);
+            }
+
+            if (totalBoost > 0.0 || offset != 0.0)
+            {
+                for (int band = 0; band < numBands; ++band)
+                {
+                    const auto index = (size_t) band;
+                    const auto interior = band >= maskingLowBand && band <= maskingHighBand && gateWeight[index] >= 0.5;
+                    const auto paysForAnchor = offset != 0.0 && interior && untilted[index] < -0.2;
+
+                    if (boost[index] <= 0.0 && ! paysForAnchor)
+                        continue;
+
+                    auto dynamic = untilted[index] + boost[index];
+
+                    if (interior && (boost[index] > 0.0 || untilted[index] < -0.2))
+                        dynamic -= offset;
+
+                    auto revised = juce::jlimit (-maxTameCorrectionDb, maxCorrectionDb,
+                                                 dynamic + tiltPerBrighten[index] * brighten);
+                    revised *= gateWeight[index];
+                    proposed[index] = revised;
+                }
+            }
+        }
+
+        for (size_t b = 0; b < (size_t) numBands; ++b)
+            targetGainDb[b] = juce::jlimit (hopStartGainDb[b] - maxStepPerHopDb,
+                                            hopStartGainDb[b] + maxStepPerHopDb,
+                                            proposed[b]);
     }
 
     void BalanceModule::publishGains() noexcept

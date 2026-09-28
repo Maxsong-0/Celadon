@@ -24,6 +24,10 @@
     Auto 释放保留快/慢双包络，另在低频持续、连续周期一致时给快释放设置周期下限，减少低音调制高频。
     观察器只在1×控制路运行，不增加音频延迟；孤立衰减鼓击不满足持续门，手动Release不受影响。
 
+    攻击整形仍在原来的前瞻长度内走完，所以峰值那一刻的增益与原来的矩形滑动平均同时到位；
+    矩形平均换成两级串联（三角窗），拐角连续，稳态增益不变。短于约 70 ms 的过载结束后，慢包络跟着快包络松开，
+    不把鼓点后面的声音按住；持续过载仍由慢包络压住泵感。手动 Release 不走这条瞬态分支。
+
     只依赖 juce_dsp，可在 Linux 上无头编译做自动测试。
 
   ==============================================================================
@@ -159,6 +163,7 @@ namespace celadon
         void observeLowFrequency (const float* const* channels, int index, int channelsToUse) noexcept;
         void updateLowFrequencyRelease() noexcept;
         void resetLowFrequencyRelease() noexcept;
+        void configureAttackShape() noexcept;
 
         void applyLookaheadChange();
         void resetLimiterState();
@@ -199,6 +204,7 @@ namespace celadon
         juce::AudioBuffer<float> detectorPeaks;       // [声道][maxBlockSize]：本段每个样本的真峰值
         SlidingMinimum requiredGainHold;
         MovingAverage attackRamp;
+        MovingAverage attackShape;   // 第二级滑动平均：与 attackRamp 串联后总建立时间仍等于 Lookahead
         std::vector<DelayLine> coreDelays;
         DelayLine ceilingDelay;
         int lookaheadSamples = 1;
@@ -227,6 +233,9 @@ namespace celadon
         double lowEnergyFast = 0.0, lowEnergySlow = 0.0, fullEnergyFast = 0.0;
         double lowPeriodSamples = 0.0, lowFrequencyReleaseMs = 30.0;
         int lowStableSamples = 0;
+        int deepReductionSamples = 0;
+        int transientReleaseSamples = 0;
+        int transientMaxSamples = 1;
 
         // 旁通
         std::vector<DelayLine> bypassDryDelays;

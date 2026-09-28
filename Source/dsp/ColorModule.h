@@ -7,8 +7,10 @@
     信号流（每块）：
 
       输入 ─┬─ Tone（100 Hz 低搁架 −Tone / 8 kHz 高搁架 +Tone，double 精度）
-            │   → Glue（前馈总线压缩：侧链 100 Hz 高通、左右联动峰值、2:1、6 dB 软拐点、
-            │           攻击 20 ms、释放 50 ～ 500 ms 按近 500 ms 平均压缩量自适应、自动补偿；Glue = 0 彻底关闭）
+      │   → Glue（前馈总线压缩：侧链 100 Hz 高通、左右联动峰值、2:1、6 dB 软拐点、
+      │           攻击 20 ms、释放 50 ～ 500 ms 按近 500 ms 平均压缩量自适应、自动补偿；Glue = 0 彻底关闭。
+      │           联动包络仍决定压缩量和表读数。低 / 高两侧若自己更轻，增益最多比联动增益高 3.2 dB，
+      │           响的一侧保持原来的压缩。三路增益相等时退回整段同一个增益。）
             │   → Heat（原声延迟 64 样本 + 非线性残差：M/S → 150 Hz 高通 → 同一 8× Tube(x)−x
             │           → 5 Hz 去直流 → M/S 解码；Heat = 0 时 20 ms 淡出到等长延迟原声）
             │   → Mix（干路 = 本模块输入经等长延迟）→ Output
@@ -149,6 +151,7 @@ namespace celadon
         static void snapToZero (double& value) noexcept;
         static BiquadCoefficients designShelf (double fs, double frequency, double gainDb, double q, bool isHighShelf);
         static BiquadCoefficients designHighpass (double fs, double frequency, double q);
+        static BiquadCoefficients designLowpass (double fs, double frequency, double q);
         static void configureTube (Saturator& saturator, float heat) noexcept;
         static const float* heatCompensationTable();
 
@@ -161,6 +164,7 @@ namespace celadon
 
         bool isToneIdle (int numChannelsToUse) const noexcept;
         void computeSidechainPeaks (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept;
+        void analyseGlueBands (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept;
         bool isHeatWetIdleCondition() const noexcept;
         void recordHeatHistory (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept;
         void copyHeatHistory (int readPosition, int length, int numChannelsToUse) noexcept;
@@ -198,6 +202,14 @@ namespace celadon
         BiquadCoefficients sidechainHighpass;
         std::vector<BiquadState> sidechainStates;
         std::vector<double> sidechainPeaks; // 本块每个样本的侧链峰值（左右取大）
+        // 分频只产生相对联动增益的差：检测器吃 100 Hz 高通后的低/高分裂，音频分裂用同一组系数的另一套状态。
+        BiquadCoefficients glueLowpass, glueHighpass;
+        std::vector<BiquadState> bandDetectorHpStates, bandDetectorLowStates, bandDetectorHighStates;
+        std::vector<BiquadState> audioLowStates, audioHighStates;
+        std::vector<double> glueLowPeaks, glueMidPeaks, glueHighPeaks;
+        std::vector<double> glueAudioLow, glueAudioHigh;   // [声道 × maxBlockSize + 样本]
+        double lowReductionDb = 0.0, midReductionDb = 0.0, highReductionDb = 0.0;
+        double lowBandAttackCoeff = 0.0, highBandAttackCoeff = 0.0;
         float glueForMapping = -1.0f;       // 当前阈值 / 补偿对应的 Glue 值
         double thresholdDb = 0.0;           // 阈值：0 → 0 dBFS，100 → −24 dBFS
         double kneeStartLinear = 0.0;       // 阈值 − 拐点宽度 / 2 的线性幅度：低于它压缩量必为 0，不用算 log

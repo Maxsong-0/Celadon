@@ -436,6 +436,7 @@ namespace celadon::test
             testHeatStereoSymmetryAndWidth();
             testHeatHighFrequencyProtection();
             testGlueGainReduction();
+            testMultibandGlueLetsLowSitAboveMid();
             testMeasuredLatencyMatchesReported();
             testBypassIsBitExact();
             testMixZeroIsBitExact();
@@ -897,6 +898,41 @@ namespace celadon::test
         // 区间按 2026-09-24 夜间修订：阈值 −24 dBFS、2:1、峰值检测时静态曲线的理论值就是 (−6 − (−24)) × (1 − 1/2) = 9 dB，
         // 初版写的 3 ～ 8 dB 把理论值本身排除在外（设计规格-Color「修订」）。实测约 8.5 dB（dB 域平滑让读数略低于静态值）。
         // 依据：规格「验收 4」原文。Glue 100 → 阈值 −24 dBFS，比率 2:1；读数是自上次读取以来的最大值，读完清零。
+        void testMultibandGlueLetsLowSitAboveMid()
+        {
+            beginTest ("glue compresses a loud mid tone more than a quieter low tone");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr double lowHz = 90.0;
+            constexpr double midHz = 2500.0;
+            constexpr double seconds = 2.0;
+            const auto lowAmp = juce::Decibels::decibelsToGain (-16.0f);
+            const auto midAmp = juce::Decibels::decibelsToGain (-8.0f);
+            auto input = makeSine (numChannels, sampleRate, lowHz, lowAmp, seconds);
+            const auto mid = makeSine (numChannels, sampleRate, midHz, midAmp, seconds, 0.4);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                for (size_t i = 0; i < input[(size_t) ch].size(); ++i)
+                    input[(size_t) ch][i] += mid[(size_t) ch][i];
+
+            ColorModule color;
+            prepareColor (color, sampleRate, makeParams (0.0f, 100.0f, 0.0f, 100.0f, 0.0f));
+            const auto output = runColor (color, input, maxBlock);
+            const auto start = (int) (1.4 * sampleRate);
+            const auto length = (int) (0.4 * sampleRate);
+            const auto lowIn = toneAmplitude (input[0], start, length, sampleRate, lowHz);
+            const auto midIn = toneAmplitude (input[0], start, length, sampleRate, midHz);
+            const auto lowOut = toneAmplitude (output[0], start, length, sampleRate, lowHz);
+            const auto midOut = toneAmplitude (output[0], start, length, sampleRate, midHz);
+            const auto lowChange = toDb (lowOut / lowIn);
+            const auto midChange = toDb (midOut / midIn);
+
+            logMessage ("  low " + juce::String (lowChange, 2) + " dB, mid " + juce::String (midChange, 2) + " dB");
+            expect (allFinite (output));
+            expect (midChange < -1.0f, "the loud mid tone must be compressed");
+            expect (lowChange > midChange + 1.0f, "the low tone must be compressed less than the mid tone");
+        }
+
         void testGlueGainReduction()
         {
             beginTest ("glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output");
