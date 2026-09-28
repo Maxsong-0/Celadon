@@ -65,6 +65,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace celadon
@@ -218,17 +219,26 @@ namespace celadon
 
         //==============================================================================
         // ④ 峰值守护（ADR-014，算法见文件头）。逐样本、状态与块长无关；prepare 按采样率分配，process / reset 不分配。
+        // T-024 起按段处理（状态在段内放局部变量），g 路径静止在全 1 时跳过（见 ClayModule.cpp 的 PeakGuard::processBlock），
+        // 输出、统计、代价格与改前逐样本的实现逐位相同。
         struct PeakGuard
         {
             void prepare (double fs, int channelCount);
             void reset() noexcept;
 
-            // 送进一个样本（核心输出时刻）：dry = 干路（输入延迟 D）、wet = ①～③ 与旁通淡化之后；out = G 个样本之前那个样本的
-            // 守护后输出。三个数组各 channels 个元素。
-            void process (const float* dry, const float* wet, float* out) noexcept;
+            // 送进一段样本（核心输出时刻，段长 ≤ 64）：dry[c] = 干路（输入延迟 D），io[c] 进 = ①～③ 与旁通淡化之后、
+            // 出 = 各自 G 个样本之前那个样本的守护后输出。numChannels = 调用方的声道数（1 或 2），不超过 prepare 的声道数时
+            // 按它处理（立体声模块偶尔收到单声道缓冲也不越界）。
+            void process (const float* const* dry, float* const* io, int numChannels, int numSamples) noexcept;
+
+            // 前瞻环（最近 G + 1 个样本）里还有「处理后 ≠ 干路」（逐位）的样本：它们还要再输出出去（isPassThrough 用）。
+            bool hasProcessedInRing() const noexcept   { return lastProcessed >= sampleCount - ringLength; }
 
             static int windowFor (double fs) noexcept;     // W
             static int attackFor (double fs) noexcept;     // A
+
+            template <int numChannels>
+            void processBlock (const float* const* dry, float* const* io, int numSamples) noexcept;
 
             int channels = 2;
             int window = 0;                    // W
@@ -237,34 +247,64 @@ namespace celadon
             double envelopeRetain = 0.0;       // P 每样本的衰减系数
             double releaseStep = 1.0;          // g 的线性释放：每样本最多回升这么多
 
-            std::array<std::vector<float>, 2> dryRing, wetRing;   // 长 G + 1：最新样本 m 到输出样本 m − G
-            std::vector<std::uint8_t> processedFlags;             // 该格「处理后 ≠ 干路」（逐位）
-            int ringLength = 1;
-            int writeIndex = 0;
-            int processedInRing = 0;
-
-            // 单调队列（固定容量的环）：局部峰值 E 的滑动最大（窗 2W + 1）、需求 g_req 的前瞻最小（窗 A + 1）。
-            struct MonotonicQueue
+            // 前瞻环（长 G + 1：最新样本 m 到输出样本 m − G）：一格放同一样本两声道的干路与处理后，读写都只碰一处。
+            struct Frame
             {
-                void prepare (int windowLength);
-                void clear() noexcept                 { head = 0; count = 0; }
-                void pushMax (std::int64_t index, double value) noexcept;   // 单调递减（队首 = 最大）
-                void pushMin (std::int64_t index, double value) noexcept;   // 单调递增（队首 = 最小）
-                void dropBefore (std::int64_t oldest) noexcept;             // 丢掉样本号 < oldest 的
-                double front() const noexcept         { return values[static_cast<std::size_t> (head)]; }
-
-                std::vector<std::int64_t> indices;
-                std::vector<double> values;
-                int capacity = 1, head = 0, count = 0;
+                std::array<float, 2> dry {}, wet {};
             };
 
-            MonotonicQueue peakQueue, requiredQueue;
+            std::vector<Frame> ring;
+            int ringLength = 1;
+            int writeIndex = 0;
+            std::int64_t lastProcessed = std::numeric_limits<std::int64_t>::min();   // 最近一个「处理后 ≠ 干路」（逐位）的样本号；prepare / reset 后在环之前
+
+            // 单调队列（固定容量的环，容量取 2 的幂、下标按位与回绕）：两个分段滑动窗（见下）里完整段的最值，每段进一次。
+            // 处理一段时队首位置与个数放在局部的 View 里（留在寄存器），段尾写回。
+            struct Entry
+            {
+                std::int64_t index = 0;
+                double value = 0.0;
+            };
+
+            struct MonotonicQueue
+            {
+                void prepare (int capacityAtLeast);
+                void clear() noexcept                 { head = 0; count = 0; }
+
+                std::vector<Entry> entries;
+                int mask = 0, head = 0, count = 0;
+            };
+
+            struct QueueView
+            {
+                Entry* entries;
+                int mask, head, count;
+
+                void pushMax (std::int64_t index, double value) noexcept;   // 单调递减（队首 = 最大）
+                void pushMin (std::int64_t index, double value) noexcept;   // 单调递增（队首 = 最小）
+                void dropThrough (std::int64_t last) noexcept;              // 丢掉编号 ≤ last 的（可以丢空）
+                double front() const noexcept         { return entries[head].value; }
+            };
+
+            // 两个滑动窗都分段算（T-024；段长 S = 2^segmentShift ≤ min(2W, A)、封顶 64，按从 reset 起的样本号 m 对齐，两个窗共用段界）：
+            // 窗 = 最老样本所在段的「从它到段尾」+ 中间的完整段 + 当前段的「从段首到最新样本」。
+            //   局部峰值 E：干路量级在 [m − 2W, m] 的最大；需求的前瞻最小 h：g_req 在 [m − A, m] 的最小（g_req 按算出它的样本号 m 存）。
+            int segmentShift = 0;
+            std::vector<double> magnitudes;    // 量级环（长 2 的幂 > 2W + S）：当前段存原始量级，段一完整就地换成「到段尾的最大」
+            int magnitudeMask = 0;
+            double prefixMax = 0.0;            // 当前段从段首到最新样本的最大
+            MonotonicQueue peakSegments;       // 完整段的最大值（编号 = 段号）
+            std::vector<double> requirements;  // g_req 环（长 2 的幂 > A + S）：同上，段一完整就地换成「到段尾的最小」
+            int requirementMask = 0;
+            double prefixMin = 1.0;            // 当前段从段首到最新样本的最小
+            MonotonicQueue requirementSegments;   // 完整段的最小值（编号 = 段号）
 
             std::vector<double> releaseRing;   // 长 A + 1：释放后的 r，滑动平均用
             int releaseIndex = 0;
             double releaseSum = 0.0;
             int releaseBelowOne = 0;           // 窗里 r < 1 的个数：0 时 g 精确为 1
             double released = 1.0;             // 上一个 r
+            bool gainIdle = true;              // g 路径静止在全 1（releaseBelowOne == 0 且 released == 1）：需求为 1 的样本可以跳过它
             double envelope = 0.0;             // P
             std::int64_t sampleCount = 0;      // 从 reset 起的样本号
 

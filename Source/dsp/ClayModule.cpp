@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 // 只用标量写法（不做 AArch64 两声道打包）：测试服务器是 x86_64，打包路径在那里既编不到也测不到；Clay 每立体声样本
 // 只有 5 次双二阶 + 4 级滑动和（切换分频点时：预热的 2(L − 1) 个样本里 12 级、淡化的 20 ms 里 8 级），标量已远在 CPU 预算内
@@ -514,7 +515,7 @@ namespace celadon
     {
         // 头文件的定义：此刻起输出 = 输入逐位延迟 D + G。旁通淡化中是处理后与干路的混合，不算；完全旁通（静止）时每个样本都取
         // 纯延迟线；否则要三级都不作用（单声道模块只看 ①）。④ 的前瞻环里还有「处理后 ≠ 干路」的样本时，它们还要再输出出去。
-        if (bypassRamp.isRamping() || peakGuard.processedInRing != 0)
+        if (bypassRamp.isRamping() || peakGuard.hasProcessedInRing())
             return false;
 
         return bypassRamp.to >= 1.0 || stagesIdle (numChannels);
@@ -730,15 +731,9 @@ namespace celadon
         lowpassBacklog    = backlog;
 
         // ④ 峰值守护：本段每个样本的 (干路, ①～③ 输出) 送进前瞻环，写回 G 个样本之前那个样本的守护后输出。
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float dry[2] { dryLefts[static_cast<std::size_t> (i)], dryRights[static_cast<std::size_t> (i)] };
-            const float wet[2] { left[i], right[i] };
-            float out[2] {};
-            peakGuard.process (dry, wet, out);
-            left[i]  = out[0];
-            right[i] = out[1];
-        }
+        const float* const dryChannels[] { dryLefts.data(), dryRights.data() };
+        float* const wetChannels[] { left, right };
+        peakGuard.process (dryChannels, wetChannels, 2, numSamples);
     }
 
     void ClayModule::processMono (float* samples, int numSamples) noexcept
@@ -814,14 +809,9 @@ namespace celadon
             lowpassBacklog = juce::jmax (0, lowpassBacklog - lowpassCatchUpRate * numSamples);
 
         // ④ 单声道守护（同立体声，一个声道）。
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float dry[1] { drySamples[static_cast<std::size_t> (i)] };
-            const float wet[1] { samples[i] };
-            float out[1] {};
-            peakGuard.process (dry, wet, out);
-            samples[i] = out[0];
-        }
+        const float* const dryChannels[] { drySamples.data() };
+        float* const wetChannels[] { samples };
+        peakGuard.process (dryChannels, wetChannels, 1, numSamples);
     }
 
 
@@ -836,6 +826,55 @@ namespace celadon
     //   |x + g·(y − x)| ≤ B(j)（{g : |x + g(y − x)| ≤ B} 是含 0 的区间，g_req 是它的右端）。
     // 逐样本、只依赖从 reset 起的样本号：输出与块长无关。滑动平均的和逐样本加减、按从 reset 起每 65536 样本的固定网格从环里
     //   精确重算；窗里全是 1 时直接给 1（g 精确为 1 → 输出逐位 = y）。
+    //
+    // 实现（T-024 起；输出、统计、代价格与之前逐样本的实现逐位相同，tools 见 docs/validation/2026-09-28-T024-clay-guard-perf/）：
+    //  - 按段处理，状态在段内放局部变量。
+    //  - 两个滑动窗（E 的最大、h 的最小）分段算，不用逐样本的单调队列：段长 S（通常 64），窗 = 最老样本所在段的「从它到段尾」
+    //    （段一完整就算好的后缀最值）+ 中间的完整段（段最值的单调队列，每段进一次）+ 当前段的前缀最值。每样本几次取大取小，
+    //    没有随数据走向的分支（之前单调队列的分支猜错是守护最大的一块开销）。取大取小是精确运算，窗里是同一组数——结果逐位相同。
+    //  - 快路：g 路径静止在全 1 = releaseBelowOne == 0 且 released == 1（r 的窗全是 1、releaseSum 已精确给成 A + 1；
+    //    released == 1 说明上一个 h == 1）。这时来一个 g_req == 1 的样本，全速跑的 4 ～ 6 步都原地不动：h = min(…, 1) 仍是 1
+    //    （窗里其余的 g_req 都是 1：上一个 h == 1 时它们就在窗里，之后进来的也都是 1）、r = min(1, 1 + 步长) = 1、环里 1 换 1、
+    //    计数不变、g 精确为 1、输出 = y、统计不记——只有释放环的写位置前进一格。所以这样的样本只推进写位置、直接取 y。
+    //    E、P、界 B、g_req 的环与代价格照常逐样本维护（出快路时必须是一直全速跑到这里的值）。「越界」= 某声道 |y| > B：
+    //    原判据「x、y 有限且 |y| > B」的必要条件，没越界时 g_req 恰为 1、代价格也不变；越界就走全速那一支，由它按原判据细判。
+    //    修坯中性时恒走快路；工作时只要守护没在动作也走。快路与全速逐位相同，不是近似：进出都不需要重建任何状态。
+    namespace
+    {
+        // 就地后缀最值：v[i] = pick (v[i], …, v[length − 1])，length 是 2 的幂。长度 ≥ 8 时分 4 段各算各的（4 条独立的依赖链，
+        // 不是一条 length 长的链），再把后面各段的最值并进前面的段。取大 / 取小是精确运算，任何求值顺序结果都一样。
+        template <typename Pick>
+        void suffixInPlace (double* v, int length, Pick pick) noexcept
+        {
+            if (length < 8)
+            {
+                for (int i = length - 2; i >= 0; --i)
+                    v[i] = pick (v[i], v[i + 1]);
+
+                return;
+            }
+
+            const auto quarter = length / 4;
+            double* const parts[4] { v, v + quarter, v + 2 * quarter, v + 3 * quarter };
+            double runs[4] { parts[0][quarter - 1], parts[1][quarter - 1], parts[2][quarter - 1], parts[3][quarter - 1] };
+
+            for (int i = quarter - 2; i >= 0; --i)
+                for (int p = 0; p < 4; ++p)
+                    parts[p][i] = runs[p] = pick (parts[p][i], runs[p]);
+
+            for (int p = 2; p >= 0; --p)
+            {
+                const auto later = parts[p + 1][0];   // 后面各段合起来的最值（那一段已经并好）
+
+                for (int i = 0; i < quarter; ++i)
+                    parts[p][i] = pick (parts[p][i], later);
+            }
+        }
+
+        struct PickMax { double operator() (double a, double b) const noexcept { return juce::jmax (a, b); } };
+        struct PickMin { double operator() (double a, double b) const noexcept { return juce::jmin (a, b); } };
+    }
+
     int ClayModule::PeakGuard::windowFor (double fs) noexcept
     {
         return fs > 0.0 ? static_cast<int> (std::lround (peakGuardWindowSeconds * fs)) : 0;
@@ -846,57 +885,43 @@ namespace celadon
         return fs > 0.0 ? static_cast<int> (std::lround (peakGuardAttackSeconds * fs)) : 0;
     }
 
-    void ClayModule::PeakGuard::MonotonicQueue::prepare (int windowLength)
+    void ClayModule::PeakGuard::MonotonicQueue::prepare (int capacityAtLeast)
     {
-        capacity = juce::jmax (1, windowLength + 1);
-        indices.assign (static_cast<std::size_t> (capacity), 0);
-        values.assign (static_cast<std::size_t> (capacity), 0.0);
+        // 容量取 2 的幂：下标按位与回绕，不做整数取模。
+        auto capacity = 1;
+
+        while (capacity < capacityAtLeast)
+            capacity *= 2;
+
+        entries.assign (static_cast<std::size_t> (capacity), Entry {});
+        mask = capacity - 1;
         clear();
     }
 
-    void ClayModule::PeakGuard::MonotonicQueue::pushMax (std::int64_t index, double value) noexcept
+    void ClayModule::PeakGuard::QueueView::pushMax (std::int64_t index, double value) noexcept
     {
-        // 队尾比新值小或相等的永远不会再是最大：弹掉。容量 = 窗长 + 1，调用方每推一个就 dropBefore，不会溢出。
-        while (count > 0)
-        {
-            const auto back = (head + count - 1) % capacity;
-
-            if (values[static_cast<std::size_t> (back)] > value)
-                break;
-
+        // 队尾比新值小或相等的永远不会再是最大：弹掉。容量按窗里最多的段数留了余量（见 prepare），不会溢出。
+        while (count > 0 && ! (entries[(head + count - 1) & mask].value > value))
             --count;
-        }
 
-        const auto slot = static_cast<std::size_t> ((head + count) % capacity);
-        indices[slot] = index;
-        values[slot] = value;
+        entries[(head + count) & mask] = { index, value };
         ++count;
     }
 
-    void ClayModule::PeakGuard::MonotonicQueue::pushMin (std::int64_t index, double value) noexcept
+    void ClayModule::PeakGuard::QueueView::pushMin (std::int64_t index, double value) noexcept
     {
-        while (count > 0)
-        {
-            const auto back = (head + count - 1) % capacity;
-
-            if (values[static_cast<std::size_t> (back)] < value)
-                break;
-
+        while (count > 0 && ! (entries[(head + count - 1) & mask].value < value))
             --count;
-        }
 
-        const auto slot = static_cast<std::size_t> ((head + count) % capacity);
-        indices[slot] = index;
-        values[slot] = value;
+        entries[(head + count) & mask] = { index, value };
         ++count;
     }
 
-    void ClayModule::PeakGuard::MonotonicQueue::dropBefore (std::int64_t oldest) noexcept
+    void ClayModule::PeakGuard::QueueView::dropThrough (std::int64_t last) noexcept
     {
-        // 至少留一个（刚推进去的那个样本号一定 ≥ oldest）。
-        while (count > 1 && indices[static_cast<std::size_t> (head)] < oldest)
+        while (count > 0 && entries[head].index <= last)
         {
-            head = head + 1 == capacity ? 0 : head + 1;
+            head = (head + 1) & mask;
             --count;
         }
     }
@@ -912,42 +937,59 @@ namespace celadon
         releaseStep    = fs > 0.0 ? 1.0 / (peakGuardReleaseSeconds * fs) : 1.0;
 
         ringLength = lookahead + 1;
-
-        for (auto& ring : dryRing)
-            ring.assign (static_cast<std::size_t> (ringLength), 0.0f);
-
-        for (auto& ring : wetRing)
-            ring.assign (static_cast<std::size_t> (ringLength), 0.0f);
-
-        processedFlags.assign (static_cast<std::size_t> (ringLength), static_cast<std::uint8_t> (0));
+        ring.assign (static_cast<std::size_t> (ringLength), Frame {});
         costBlockLength = fs > 0.0 ? juce::jmax (1, static_cast<int> (std::lround (0.01 * fs))) : 1;
-        peakQueue.prepare (2 * window + 1);
-        requiredQueue.prepare (attack + 1);
         releaseRing.assign (static_cast<std::size_t> (attack + 1), 1.0);
+
+        // 分段：段长 S = 2^segmentShift 取不超过 min(2W, A) 的最大者、封顶 64（A ≥ 64，即 21.3 kHz 起都是 64）。S ≤ 窗长 − 1
+        // 保证窗里最老的样本所在的段在用到时已经完整。环要装下窗再多一段（长 2 的幂 > 窗长 − 1 + S）；段最值的队列最多装窗里的
+        // 各段（窗长 / S + 2），再多一个刚推进来的。
+        segmentShift = 0;
+
+        while (segmentShift < 6 && (2 << segmentShift) <= juce::jmin (2 * window, attack))
+            ++segmentShift;
+
+        const auto segmentLength = 1 << segmentShift;
+        const auto powerOfTwoAbove = [] (int n)
+        {
+            auto length = 1;
+
+            while (length <= n)
+                length *= 2;
+
+            return length;
+        };
+
+        magnitudes.assign (static_cast<std::size_t> (powerOfTwoAbove (2 * window + segmentLength)), 0.0);
+        magnitudeMask = static_cast<int> (magnitudes.size()) - 1;
+        peakSegments.prepare (2 * window / segmentLength + 3);
+
+        requirements.assign (static_cast<std::size_t> (powerOfTwoAbove (attack + segmentLength)), 1.0);
+        requirementMask = static_cast<int> (requirements.size()) - 1;
+        requirementSegments.prepare (attack / segmentLength + 3);
 
         reset();
     }
 
     void ClayModule::PeakGuard::reset() noexcept
     {
-        // 「此前全是 0」：环里干路与处理后都是 0（逐位相同 → 不算处理过），g 全是 1、P = 0。
-        for (auto& ring : dryRing)
-            std::fill (ring.begin(), ring.end(), 0.0f);
-
-        for (auto& ring : wetRing)
-            std::fill (ring.begin(), ring.end(), 0.0f);
-
-        std::fill (processedFlags.begin(), processedFlags.end(), static_cast<std::uint8_t> (0));
+        // 「此前全是 0」：环里干路与处理后都是 0（逐位相同 → 不算处理过），g 全是 1（g 路径静止）、P = 0。
+        std::fill (ring.begin(), ring.end(), Frame {});
         std::fill (releaseRing.begin(), releaseRing.end(), 1.0);
+        std::fill (magnitudes.begin(), magnitudes.end(), 0.0);
+        std::fill (requirements.begin(), requirements.end(), 1.0);
 
         writeIndex = 0;
-        processedInRing = 0;
-        peakQueue.clear();
-        requiredQueue.clear();
+        lastProcessed = std::numeric_limits<std::int64_t>::min();
+        prefixMax = 0.0;
+        peakSegments.clear();
+        prefixMin = 1.0;
+        requirementSegments.clear();
         releaseIndex = 0;
         releaseSum = static_cast<double> (releaseRing.size());
         releaseBelowOne = 0;
         released = 1.0;
+        gainIdle = true;
         envelope = 0.0;
         sampleCount = 0;
         stats = PeakGuardStats {};
@@ -957,137 +999,269 @@ namespace celadon
         pressureBlocks = 0;
     }
 
-    void ClayModule::PeakGuard::process (const float* dry, const float* wet, float* out) noexcept
+    void ClayModule::PeakGuard::process (const float* const* dry, float* const* io, int numChannels, int numSamples) noexcept
     {
-        const auto m = sampleCount;
-        const auto slotOf = [this] (int samplesBack) noexcept
+        if (juce::jmin (numChannels, channels) >= 2)
+            processBlock<2> (dry, io, numSamples);
+        else
+            processBlock<1> (dry, io, numSamples);
+    }
+
+    template <int numChannels>
+    void ClayModule::PeakGuard::processBlock (const float* const* dry, float* const* io, int numSamples) noexcept
+    {
+        // 状态拷成局部量（段内留在寄存器；各环与队列的内容照常在内存里），段尾写回。逐样本的浮点算术与 T-024 之前逐样本的
+        // process 相同、顺序相同（表达式原样保留，乘加融合与否的判断也一样）；换了写法的只有整数下标、两个滑动窗与快路（见上）。
+        auto* const frames = ring.data();
+        const auto length = ringLength;
+        const auto w = window;
+        const auto peakSpan = 2 * static_cast<std::int64_t> (window);
+        const auto requirementSpan = static_cast<std::int64_t> (attack);
+        const auto retain = envelopeRetain;
+        const auto step = releaseStep;
+        const auto costLength = costBlockLength;
+        auto* const releases = releaseRing.data();
+        const auto releaseCount = static_cast<int> (releaseRing.size());
+        const auto releaseCountValue = static_cast<double> (releaseRing.size());
+
+        const auto shift = segmentShift;
+        const auto segmentLength = 1 << shift;
+        const auto segmentMask = static_cast<std::int64_t> (segmentLength - 1);
+        auto* const peakValues = magnitudes.data();
+        const auto peakMask = magnitudeMask;
+        auto* const lowValues = requirements.data();
+        const auto lowMask = requirementMask;
+
+        auto write = writeIndex;
+        auto m = sampleCount;
+        auto last = lastProcessed;
+        auto peakPrefix = prefixMax;
+        auto peakQueue = QueueView { peakSegments.entries.data(), peakSegments.mask, peakSegments.head, peakSegments.count };
+        auto lowPrefix = prefixMin;
+        auto lowQueue = QueueView { requirementSegments.entries.data(), requirementSegments.mask, requirementSegments.head, requirementSegments.count };
+        auto env = envelope;
+        auto costPosition = costBlockPosition;
+        auto costRatio = costBlockMaxRatio;
+        auto sumDb = pressureSumDb;
+        auto blocks = pressureBlocks;
+        auto idle = gainIdle;
+        auto releaseAt = releaseIndex;
+        auto releaseTotal = releaseSum;
+        auto belowOne = releaseBelowOne;
+        auto previous = released;
+        auto guardedSamples = stats.guardedSamples;
+        auto minGain = stats.minGain;
+
+        for (int i = 0; i < numSamples; ++i, ++m)
         {
-            const auto index = writeIndex - samplesBack;
-            return static_cast<std::size_t> (index < 0 ? index + ringLength : index);
-        };
+            // 1. 写环（覆盖的是 m − G − 1，上一个样本已经输出过它）；记「处理后 ≠ 干路」（逐位）的最近样本号；
+            //    局部峰值要的干路量级（非有限的干路不参与，链的 NaN 保护会整体 reset；E 只要有限的量级）。
+            auto& newest = frames[write];
+            auto processed = false;
+            auto magnitude = 0.0;
 
-        // 1. 写环（覆盖的是 m − G − 1，上一个样本已经输出过它）；记「处理后 ≠ 干路」的个数。
-        const auto newest = static_cast<std::size_t> (writeIndex);
-        auto processed = false;
-        auto magnitude = 0.0;
-
-        for (int c = 0; c < channels; ++c)
-        {
-            const auto channel = static_cast<std::size_t> (c);
-            dryRing[channel][newest] = dry[c];
-            wetRing[channel][newest] = wet[c];
-            processed = processed || ! sameBits (dry[c], wet[c]);
-
-            // 非有限的干路不参与局部峰值（链的 NaN 保护会整体 reset）；E 只要有限的量级。
-            const auto value = static_cast<double> (dry[c]);
-
-            if (std::isfinite (value))
-                magnitude = juce::jmax (magnitude, std::abs (value));
-        }
-
-        processedInRing += (processed ? 1 : 0) - (processedFlags[newest] != 0 ? 1 : 0);
-        processedFlags[newest] = static_cast<std::uint8_t> (processed ? 1 : 0);
-
-        // 2. 局部峰值 E(k)，k = m − W：干路 [k − W, k + W] = [m − 2W, m] 的最大。
-        peakQueue.pushMax (m, magnitude);
-        peakQueue.dropBefore (m - 2 * window);
-        const auto localPeak = peakQueue.front();
-
-        // 3. 包络 P(k) 与界 B(k)，需求 g_req(k)。
-        envelope = juce::jmax (localPeak, envelope * envelopeRetain);
-
-        if (envelope < peakGuardEnvelopeSnap)
-            envelope = 0.0;
-
-        const auto bound = juce::jmax (localPeak, juce::jmax (peakGuardRelativeGain * envelope, peakGuardFloor));
-        const auto k = slotOf (window);
-        auto required = 1.0;
-
-        for (int c = 0; c < channels; ++c)
-        {
-            const auto channel = static_cast<std::size_t> (c);
-            const auto x = static_cast<double> (dryRing[channel][k]);
-            const auto y = static_cast<double> (wetRing[channel][k]);
-
-            if (! std::isfinite (x) || ! std::isfinite (y) || ! (std::abs (y) > bound))
-                continue;
-
-            // |x| ≤ E ≤ B 而 |y| > B：越界在 y − x 的方向那一侧，g = (B − sgn(d)·x) / |d| ∈ [0, 1)。
-            const auto d = y - x;
-            const auto limit = (bound - (d > 0.0 ? x : -x)) / std::abs (d);
-            required = juce::jmin (required, juce::jlimit (0.0, 1.0, limit));
-            costBlockMaxRatio = juce::jmax (costBlockMaxRatio, std::abs (y) / bound);
-        }
-
-        // 代价格（压力反馈）：k 的时间轴上每 costBlockLength 个样本收一格。
-        if (++costBlockPosition >= costBlockLength)
-        {
-            pressureSumDb += costBlockMaxRatio > 1.0 ? 20.0 * std::log10 (costBlockMaxRatio) : 0.0;
-            ++pressureBlocks;
-            costBlockMaxRatio = 0.0;
-            costBlockPosition = 0;
-        }
-
-        // 4. 前瞻最小 h(j) = min g_req[j, j + A]，j = k − A = m − G。
-        const auto kIndex = m - window;
-        requiredQueue.pushMin (kIndex, required);
-        requiredQueue.dropBefore (kIndex - attack);
-        const auto held = requiredQueue.front();
-
-        // 5. 线性释放 r(j) 与长 A + 1 的滑动平均 g(j)。
-        const auto releasedNow = juce::jmin (held, released + releaseStep);
-        released = releasedNow;
-
-        const auto releaseSlot = static_cast<std::size_t> (releaseIndex);
-        const auto leaving = releaseRing[releaseSlot];
-        releaseRing[releaseSlot] = releasedNow;
-        releaseIndex = releaseIndex + 1 == static_cast<int> (releaseRing.size()) ? 0 : releaseIndex + 1;
-        releaseBelowOne += (releasedNow < 1.0 ? 1 : 0) - (leaving < 1.0 ? 1 : 0);
-        releaseSum += releasedNow - leaving;
-
-        if (releaseBelowOne == 0)
-        {
-            releaseSum = static_cast<double> (releaseRing.size());   // 全是 1：精确
-        }
-        else if (m % peakGuardResyncInterval == 0)
-        {
-            // 固定网格上按环的固定下标顺序精确重算（与块长无关）。
-            auto sum = 0.0;
-
-            for (const auto value : releaseRing)
-                sum += value;
-
-            releaseSum = sum;
-        }
-
-        const auto gain = releaseBelowOne == 0 ? 1.0 : juce::jlimit (0.0, 1.0, releaseSum / static_cast<double> (releaseRing.size()));
-
-        // 6. 输出样本 j = m − G：g 精确为 1 → 逐位 = y；否则 x + g·(y − x) 写成 y + (1 − g)·(x − y)（y 与 x 逐位相同时仍逐位 = y）。
-        const auto j = slotOf (lookahead);
-
-        for (int c = 0; c < channels; ++c)
-        {
-            const auto channel = static_cast<std::size_t> (c);
-            const auto y = wetRing[channel][j];
-
-            if (gain >= 1.0)
+            for (int c = 0; c < numChannels; ++c)
             {
-                out[c] = y;
-                continue;
+                const auto x = dry[c][i];
+                const auto y = io[c][i];
+                newest.dry[static_cast<std::size_t> (c)] = x;
+                newest.wet[static_cast<std::size_t> (c)] = y;
+                processed = processed || ! sameBits (x, y);
+
+                const auto value = static_cast<double> (x);
+
+                if (std::isfinite (value))
+                    magnitude = juce::jmax (magnitude, std::abs (value));
             }
 
-            const auto yd = static_cast<double> (y);
-            const auto xd = static_cast<double> (dryRing[channel][j]);
-            out[c] = static_cast<float> (yd + (xd - yd) * (1.0 - gain));
+            if (processed)
+                last = m;
+
+            // 段界：上一段 [m − S, m − 1] 刚完整——两个环里就地算「到段尾的最值」，整段的最值（= 段首那一格）进各自的队列。
+            // g_req 那一段全是 1 时（段最小 = 当前段前缀最小 = 1）后缀最小本来就全是 1，不用算。
+            const auto segmentStart = (m & segmentMask) == 0;
+
+            if (segmentStart && m > 0)
+            {
+                const auto completed = (m >> shift) - 1;
+                auto* const peakSegment = peakValues + ((m - segmentLength) & peakMask);
+                suffixInPlace (peakSegment, segmentLength, PickMax {});
+                peakQueue.pushMax (completed, peakSegment[0]);
+
+                auto* const lowSegment = lowValues + ((m - segmentLength) & lowMask);
+
+                if (lowPrefix < 1.0)
+                    suffixInPlace (lowSegment, segmentLength, PickMin {});
+
+                lowQueue.dropThrough (juce::jmax (m - requirementSpan, static_cast<std::int64_t> (0)) >> shift);
+                lowQueue.pushMin (completed, lowSegment[0]);
+            }
+
+            // 2. 局部峰值 E(k)，k = m − W：干路 [k − W, k + W] = [m − 2W, m] 的最大（reset 之前的样本都是 0，窗的左端不早于 0）。
+            peakPrefix = segmentStart ? magnitude : juce::jmax (peakPrefix, magnitude);
+            peakValues[m & peakMask] = magnitude;
+
+            const auto peakOldest = juce::jmax (m - peakSpan, static_cast<std::int64_t> (0));
+            const auto peakOldestSegment = peakOldest >> shift;
+            peakQueue.dropThrough (peakOldestSegment);
+            auto localPeak = peakPrefix;
+
+            if (peakOldestSegment != (m >> shift))
+            {
+                localPeak = juce::jmax (localPeak, peakValues[peakOldest & peakMask]);
+
+                if (peakQueue.count > 0)
+                    localPeak = juce::jmax (localPeak, peakQueue.front());
+            }
+
+            // 3. 包络 P(k) 与界 B(k)；样本 k 有没有越界（某声道 |y| > B）。
+            env = juce::jmax (localPeak, env * retain);
+
+            if (env < peakGuardEnvelopeSnap)
+                env = 0.0;
+
+            const auto bound = juce::jmax (localPeak, juce::jmax (peakGuardRelativeGain * env, peakGuardFloor));
+            const auto& atK = frames[write >= w ? write - w : write - w + length];
+            auto exceeds = false;
+
+            for (int c = 0; c < numChannels; ++c)
+                exceeds = exceeds || std::abs (static_cast<double> (atK.wet[static_cast<std::size_t> (c)])) > bound;
+
+            // 需求 g_req(k)：只有越界时才可能 < 1（判据与 T-024 之前逐字相同）。按算出它的样本号 m 存进环，两条路都存。
+            auto required = 1.0;
+
+            if (exceeds)
+            {
+                for (int c = 0; c < numChannels; ++c)
+                {
+                    const auto x = static_cast<double> (atK.dry[static_cast<std::size_t> (c)]);
+                    const auto y = static_cast<double> (atK.wet[static_cast<std::size_t> (c)]);
+
+                    if (! std::isfinite (x) || ! std::isfinite (y) || ! (std::abs (y) > bound))
+                        continue;
+
+                    // |x| ≤ E ≤ B 而 |y| > B：越界在 y − x 的方向那一侧，g = (B − sgn(d)·x) / |d| ∈ [0, 1)。
+                    const auto d = y - x;
+                    const auto limit = (bound - (d > 0.0 ? x : -x)) / std::abs (d);
+                    required = juce::jmin (required, juce::jlimit (0.0, 1.0, limit));
+                    costRatio = juce::jmax (costRatio, std::abs (y) / bound);
+                }
+            }
+
+            lowPrefix = segmentStart ? required : juce::jmin (lowPrefix, required);
+            lowValues[m & lowMask] = required;
+
+            // 代价格（压力反馈）：k 的时间轴上每 costBlockLength 个样本收一格。
+            if (++costPosition >= costLength)
+            {
+                sumDb += costRatio > 1.0 ? 20.0 * std::log10 (costRatio) : 0.0;
+                ++blocks;
+                costRatio = 0.0;
+                costPosition = 0;
+            }
+
+            // 输出样本 j = m − G：环里最老的一格（下一个样本会覆盖它）。
+            const auto& atJ = frames[write + 1 == length ? 0 : write + 1];
+
+            if (idle && ! exceeds)
+            {
+                // 快路（见本节开头）：g 精确为 1，输出逐位 = y；g 路径只有释放环的写位置前进。
+                releaseAt = releaseAt + 1 == releaseCount ? 0 : releaseAt + 1;
+
+                for (int c = 0; c < numChannels; ++c)
+                    io[c][i] = atJ.wet[static_cast<std::size_t> (c)];
+            }
+            else
+            {
+                // 4. 前瞻最小 h(j) = min g_req[j, j + A]，j = k − A = m − G：按样本号就是 g_req 在 [m − A, m] 的最小。
+                const auto lowOldest = juce::jmax (m - requirementSpan, static_cast<std::int64_t> (0));
+                const auto lowOldestSegment = lowOldest >> shift;
+                lowQueue.dropThrough (lowOldestSegment);
+                auto held = lowPrefix;
+
+                if (lowOldestSegment != (m >> shift))
+                {
+                    held = juce::jmin (held, lowValues[lowOldest & lowMask]);
+
+                    if (lowQueue.count > 0)
+                        held = juce::jmin (held, lowQueue.front());
+                }
+
+                // 5. 线性释放 r(j) 与长 A + 1 的滑动平均 g(j)。
+                const auto releasedNow = juce::jmin (held, previous + step);
+                previous = releasedNow;
+
+                const auto leaving = releases[releaseAt];
+                releases[releaseAt] = releasedNow;
+                releaseAt = releaseAt + 1 == releaseCount ? 0 : releaseAt + 1;
+                belowOne += (releasedNow < 1.0 ? 1 : 0) - (leaving < 1.0 ? 1 : 0);
+                releaseTotal += releasedNow - leaving;
+
+                if (belowOne == 0)
+                {
+                    releaseTotal = releaseCountValue;   // 全是 1：精确
+                }
+                else if (m % peakGuardResyncInterval == 0)
+                {
+                    // 固定网格上按环的固定下标顺序精确重算（与块长无关）。
+                    auto sum = 0.0;
+
+                    for (int r = 0; r < releaseCount; ++r)
+                        sum += releases[r];
+
+                    releaseTotal = sum;
+                }
+
+                const auto gain = belowOne == 0 ? 1.0 : juce::jlimit (0.0, 1.0, releaseTotal / releaseCountValue);
+
+                // 6. 输出样本 j：g 精确为 1 → 逐位 = y；否则 x + g·(y − x) 写成 y + (1 − g)·(x − y)（y 与 x 逐位相同时仍逐位 = y）。
+                for (int c = 0; c < numChannels; ++c)
+                {
+                    const auto y = atJ.wet[static_cast<std::size_t> (c)];
+
+                    if (gain >= 1.0)
+                    {
+                        io[c][i] = y;
+                        continue;
+                    }
+
+                    const auto yd = static_cast<double> (y);
+                    const auto xd = static_cast<double> (atJ.dry[static_cast<std::size_t> (c)]);
+                    io[c][i] = static_cast<float> (yd + (xd - yd) * (1.0 - gain));
+                }
+
+                if (gain < 1.0)
+                {
+                    ++guardedSamples;
+                    minGain = juce::jmin (minGain, static_cast<float> (gain));
+                }
+
+                idle = belowOne == 0 && previous == 1.0;
+            }
+
+            write = write + 1 == length ? 0 : write + 1;
         }
 
-        if (gain < 1.0)
-        {
-            ++stats.guardedSamples;
-            stats.minGain = juce::jmin (stats.minGain, static_cast<float> (gain));
-        }
-
-        writeIndex = writeIndex + 1 == ringLength ? 0 : writeIndex + 1;
-        ++sampleCount;
+        writeIndex = write;
+        sampleCount = m;
+        lastProcessed = last;
+        prefixMax = peakPrefix;
+        peakSegments.head = peakQueue.head;
+        peakSegments.count = peakQueue.count;
+        prefixMin = lowPrefix;
+        requirementSegments.head = lowQueue.head;
+        requirementSegments.count = lowQueue.count;
+        envelope = env;
+        costBlockPosition = costPosition;
+        costBlockMaxRatio = costRatio;
+        pressureSumDb = sumDb;
+        pressureBlocks = blocks;
+        gainIdle = idle;
+        releaseIndex = releaseAt;
+        releaseSum = releaseTotal;
+        releaseBelowOne = belowOne;
+        released = previous;
+        stats.guardedSamples = guardedSamples;
+        stats.minGain = minGain;
     }
 }

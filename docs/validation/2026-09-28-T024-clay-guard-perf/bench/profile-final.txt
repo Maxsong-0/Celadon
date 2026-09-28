@@ -1,0 +1,21 @@
+== neutral
+ 31.34% [.] celadon::ClayModuleRef::PeakGuard::process(float const*, float const*, float*) - - 
+ 12.21% [.] celadon::ClayModuleRef::processStereo(float*, float*, int) - - 
+ 11.59% [.] celadon::ClayModule::processStereo(float*, float*, int) - - 
+ 10.60% [.] void celadon::ClayModule::PeakGuard::processBlock<2>(float const* const*, float* const*, int) - - 
+ 7.34% [.] celadon::LinearPhaseLowpass::process(double) - - 
+ 7.05% [.] celadon::LinearPhaseLowpassRef::process(double) - - 
+== all
+ 32.35% [.] celadon::ClayModuleRef::PeakGuard::process(float const*, float const*, float*) - - 
+ 16.72% [.] void celadon::ClayModule::PeakGuard::processBlock<2>(float const* const*, float* const*, int) - - 
+ 15.06% [.] celadon::ClayModuleRef::processStereo(float*, float*, int) - - 
+ 14.32% [.] celadon::ClayModule::processStereo(float*, float*, int) - - 
+ 4.26% [.] celadon::LinearPhaseLowpass::process(double) - - 
+ 4.25% [.] celadon::LinearPhaseLowpassRef::process(double) - - 
+== dense-all
+ 30.35% [.] celadon::ClayModuleRef::PeakGuard::process(float const*, float const*, float*) - - 
+ 17.54% [.] void celadon::ClayModule::PeakGuard::processBlock<2>(float const* const*, float* const*, int) - - 
+ 13.53% [.] celadon::ClayModuleRef::processStereo(float*, float*, int) - - 
+ 13.04% [.] celadon::ClayModule::processStereo(float*, float*, int) - - 
+ 4.19% [.] celadon::LinearPhaseLowpassRef::process(double) - - 
+ 3.70% [.] celadon::LinearPhaseLowpass::process(double) - - 

@@ -1,0 +1,70 @@
+1,2c1,2
+< START 15:42:05
+< Random seed: 0x4a07c4b
+---
+> START 16:40:34
+> Random seed: 0x112668f
+117c117
+<   SSE2 processBlock: 38.11 ns per sample per channel (best of 15)
+---
+>   SSE2 processBlock: 38.04 ns per sample per channel (best of 15)
+321,325c321,325
+<   Color default: 0.204 % of one core
+<   Color GLAZE 100: 0.459 % of one core
+<   Color default, skipping off: 0.565 % of one core
+<   juce Oversampling 3 stages (reference): 1.993 % of one core
+<   ratio to reference: default 0.102, GLAZE 100 0.230, skipping off 0.283
+---
+>   Color default: 0.190 % of one core
+>   Color GLAZE 100: 0.533 % of one core
+>   Color default, skipping off: 0.557 % of one core
+>   juce Oversampling 3 stages (reference): 2.140 % of one core
+>   ratio to reference: default 0.089, GLAZE 100 0.249, skipping off 0.260
+617c617
+<   Balance (recover 60, tame 60, mid): best 0.692% (73.8 us / 512-sample block; passes 0.699%, 0.697%, 0.692%)
+---
+>   Balance (recover 60, tame 60, mid): best 0.559% (59.6 us / 512-sample block; passes 0.559%, 0.578%, 0.592%)
+619,621c619,621
+<   Balance bypassed (same settings): best 0.709% (75.6 us / 512-sample block; passes 0.745%, 0.709%, 0.744%)
+<   Color (heat 50, glue 50): best 0.617% (65.8 us / 512-sample block; passes 0.617%, 0.632%, 0.617%)
+<   CeladonChain (balance 60/60, color heat 50 glue 50, limit gain +9 dB): best 3.407% (363.4 us / 512-sample block; passes 3.407%, 3.425%, 3.427%); latency 1384 samples, limit GR 11.84 dB, glue GR 2.39 dB
+---
+>   Balance bypassed (same settings): best 0.609% (64.9 us / 512-sample block; passes 0.609%, 0.665%, 0.660%)
+>   Color (heat 50, glue 50): best 0.642% (68.4 us / 512-sample block; passes 0.726%, 0.653%, 0.642%)
+>   CeladonChain (balance 60/60, color heat 50 glue 50, limit gain +9 dB): best 3.131% (334.0 us / 512-sample block; passes 3.506%, 3.143%, 3.131%); latency 1384 samples, limit GR 11.84 dB, glue GR 2.39 dB
+626,628c626,628
+<   Balance comb, recover = tame = 100 @48k block 512: mean 0.948%, worst block 1.012% (108.0 us)
+<   Balance comb, recover = tame = 40 (= GLAZE 100 offsets) @48k block 512: mean 0.949%, worst block 1.059% (113.0 us)
+<   Balance comb, recover = tame = 100, mono (left channel only): mean 0.495%, worst block 0.525% (56.0 us) | stereo / mono 1.92
+---
+>   Balance comb, recover = tame = 100 @48k block 512: mean 0.950%, worst block 1.059% (113.0 us)
+>   Balance comb, recover = tame = 40 (= GLAZE 100 offsets) @48k block 512: mean 0.951%, worst block 1.041% (111.0 us)
+>   Balance comb, recover = tame = 100, mono (left channel only): mean 0.387%, worst block 0.413% (44.0 us) | stereo / mono 2.45
+632,635c632,635
+<   @192000 block 32 recover = tame = 0: one-shot mean 1.922%, worst block 153.000% (255.0 us) | sliced mean 2.373%, worst block 83.400% (139.0 us) | worst-block ratio 0.55
+<   @192000 block 32 recover = tame = 40: one-shot mean 3.458%, worst block 159.600% (266.0 us) | sliced mean 3.498%, worst block 80.400% (134.0 us) | worst-block ratio 0.50
+<   @192000 block 64 recover = tame = 0: one-shot mean 2.428%, worst block 98.100% (327.0 us) | sliced mean 2.083%, worst block 36.000% (120.0 us) | worst-block ratio 0.37
+<   @44100 block 1 recover = tame = 0: one-shot mean 0.511%, worst block 282.240% (64.0 us) | sliced mean 0.567%, worst block 194.040% (44.0 us) | worst-block ratio 0.69
+---
+>   @192000 block 32 recover = tame = 0: one-shot mean 2.390%, worst block 166.800% (278.0 us) | sliced mean 2.369%, worst block 84.000% (140.0 us) | worst-block ratio 0.50
+>   @192000 block 32 recover = tame = 40: one-shot mean 3.685%, worst block 246.600% (411.0 us) | sliced mean 3.765%, worst block 94.800% (158.0 us) | worst-block ratio 0.38
+>   @192000 block 64 recover = tame = 0: one-shot mean 2.394%, worst block 89.400% (298.0 us) | sliced mean 2.186%, worst block 44.400% (148.0 us) | worst-block ratio 0.50
+>   @44100 block 1 recover = tame = 0: one-shot mean 0.475%, worst block 260.190% (59.0 us) | sliced mean 0.511%, worst block 149.940% (34.0 us) | worst-block ratio 0.58
+639,642c639,642
+<   processor layer, default @48k block 512: mean 2.278%, worst block 2.700% (288.0 us)
+<   processor layer, default @48k block 64: mean 2.727%, worst block 5.100% (68.0 us)
+<   processor layer, typical @48k block 512: mean 3.414%, worst block 3.694% (394.0 us)
+<   processor layer, typical @48k block 64: mean 3.653%, worst block 6.900% (92.0 us)
+---
+>   processor layer, default @48k block 512: mean 2.120%, worst block 2.559% (273.0 us)
+>   processor layer, default @48k block 64: mean 2.575%, worst block 4.950% (66.0 us)
+>   processor layer, typical @48k block 512: mean 2.932%, worst block 3.769% (402.0 us)
+>   processor layer, typical @48k block 64: mean 3.023%, worst block 5.550% (74.0 us)
+836c836
+<   analyzer @48k block 512, learning (trial on): mean 20.34 us (0.191 % of one core), worst 24.00 us; not learning: mean 5.03 us, worst 8.00 us
+---
+>   analyzer @48k block 512, learning (trial on): mean 18.10 us (0.170 % of one core), worst 20.00 us; not learning: mean 5.15 us, worst 7.00 us
+1638c1638
+< END 15:46:40
+---
+> END 16:45:05

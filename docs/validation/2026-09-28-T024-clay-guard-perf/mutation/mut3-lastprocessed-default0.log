@@ -1,0 +1,2 @@
+MISMATCH programme/neutral/stereo/block512@48000 before prepare: isPassThrough new 0 old 1
+==== guard_compare: 1 cases, 1 failed; 0 samples in 0 blocks compared bit for bit; guarded samples 0 ====
