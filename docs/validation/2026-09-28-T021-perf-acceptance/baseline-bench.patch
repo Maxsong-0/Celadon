@@ -1,0 +1,35 @@
+66a67,85
+>     double medianOf (std::vector<double> v)
+>     {
+>         if (v.empty()) return 0.0;
+>         const auto mid = v.begin() + (std::ptrdiff_t) (v.size() / 2);
+>         std::nth_element (v.begin(), mid, v.end());
+>         return *mid;
+>     }
+> 
+>     constexpr long long structuralPeriodSamples = 65536;
+> 
+>     double structuralWorstOf (const std::vector<std::vector<double>>& byPhase, size_t minCount = 1)
+>     {
+>         double worst = 0;
+>         for (auto& v : byPhase)
+>             if (! v.empty() && v.size() >= minCount)
+>                 worst = juce::jmax (worst, medianOf (v));
+>         return worst;
+>     }
+> 
+268a288
+>                     const int numLongPhases = bs >= structuralPeriodSamples ? 1 : (int) (structuralPeriodSamples / bs);
+286a307
+>                     std::vector<std::vector<double>> byLongPhase ((size_t) numLongPhases);   // 按 65536 样本的相位（见 structuralPeriodSamples）
+302a324
+>                             byLongPhase[(size_t) ((samplePos % structuralPeriodSamples) / bs % numLongPhases)].push_back (times[(size_t) i]);
+326c348
+<                     std::printf ("GRID,%s,%s,%g,%d,avg%%=%.3f,worst%%=%.3f,p99.9%%=%.3f,p99%%=%.3f,maxAllPasses%%=%.3f,structWorst%%=%.3f,structTypical%%=%.3f,prepare_ms=%.3f,latency=%d,nonFinite=%d,blocks=%d,chk=%.6g\n",
+---
+>                     std::printf ("GRID,%s,%s,%g,%d,avg%%=%.3f,worst%%=%.3f,p99.9%%=%.3f,p99%%=%.3f,maxAllPasses%%=%.3f,structWorst%%=%.3f,structTypical%%=%.3f,structWorst64k%%=%.3f,prepare_ms=%.3f,latency=%d,nonFinite=%d,blocks=%d,chk=%.6g\n",
+328c350,351
+<                                  100.0 * structWorst / blockNs, 100.0 * structTypical / blockNs, prepareMs,
+---
+>                                  100.0 * structWorst / blockNs, 100.0 * structTypical / blockNs,
+>                                  100.0 * structuralWorstOf (byLongPhase) / blockNs, prepareMs,
