@@ -15,6 +15,10 @@
     ADR-012「先试后用」（设计规格-Clay-根治修订 3.5）：某项因「本曲试过会抬高峰值」被减量 / 否决时，气泡第 3 行写
     「本曲试过：低切会抬高峰值，已自动跳过」之类（clayCostLine）；优先级低于「点「重新聆听」后启用自动修坯」。
 
+    v0.1.8.0 界面改版（中英双语）：每条文案另有英文三行（titleEn / effectEn / adviceEn），带 Language 参数的重载按语言取；
+    不带语言参数的旧接口仍返回中文，逐字不变（测试按中文原文核对）。三灯指示改在 CLAY 卡片上逐行显示（每行一盏灯），
+    判定与文字仍在这里。
+
   ==============================================================================
 */
 
@@ -23,16 +27,7 @@
 #include <juce_core/juce_core.h>
 
 #include "../dsp/GlazeTypes.h"
-
-namespace celadon
-{
-    // 源码里的中文字面量是 UTF-8 字节。juce::String (const char*) 只接受 ASCII
-    // （遇到中文会在 Debug 版断言、显示乱码），所以中文一律经过这个函数转换。
-    inline juce::String utf8 (const char* text)
-    {
-        return juce::String (juce::CharPointer_UTF8 (text));
-    }
-}
+#include "Localisation.h"   // celadon::utf8 与 celadon::Language
 
 namespace celadon::help
 {
@@ -42,6 +37,9 @@ namespace celadon::help
         const char* title;    // 第 1 行：「名字 · 一句话作用」
         const char* effect;   // 第 2 行：效果
         const char* advice;   // 第 3 行：建议
+        const char* titleEn;  // 同上三行的英文（v0.1.8.0）
+        const char* effectEn;
+        const char* adviceEn;
     };
 
     // 全部条目。
@@ -50,8 +48,9 @@ namespace celadon::help
     // 按 ID 查；找不到返回 nullptr。
     const Entry* find (juce::StringRef id);
 
-    // 气泡文字：三行用 '\n' 连接（已转成正确的 Unicode）；找不到返回空串。
+    // 气泡文字：三行用 '\n' 连接（已转成正确的 Unicode）；找不到返回空串。不带语言参数 = 中文。
     juce::String tooltipFor (juce::StringRef id);
+    juce::String tooltipFor (juce::StringRef id, Language language);
 
     //==============================================================================
     // 修坯三灯指示（v0.1.7.0，设计规格-Clay 第 5 节）：三盏灯自上而下 = 修坯的三级（低切 / 收单 / 加宽，= ClayModule 的处理顺序）。
@@ -103,17 +102,21 @@ namespace celadon::help
     ClayLamp clayLampFor (const ClayReadout& readout, ClayStage stage) noexcept;
 
     // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接保护状态；旁通时写「修坯已旁通」。
-    juce::String clayLiveLine (const ClayReadout& readout);
+    juce::String clayLiveLine (const ClayReadout& readout, Language language = Language::chinese);
 
-    // 旧工程提示（气泡第 3 行与抽屉里的琥珀小字共用）：「点「重新聆听」后启用自动修坯」。
-    juce::String clayRelearnHint();
+    // 旧工程提示（气泡第 3 行与 CLAY 卡片的提示共用）：「点「重新聆听」后启用自动修坯」。
+    juce::String clayRelearnHint (Language language = Language::chinese);
 
     // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」，
     // 跳过 = 该项此刻实际值为 0（量化读数口径），否则是减量；多项按处理顺序用「、」连接，两种都有时写
     // 「……已自动跳过低切，减量收单」。没有被代价减量 / 否决的项时返回空串。不含句末「。」（与 clayRelearnHint 一样由气泡补）。
-    juce::String clayCostLine (const ClayReadout& readout);
+    juce::String clayCostLine (const ClayReadout& readout, Language language = Language::chinese);
 
     // 完整气泡：第 1 行 = 文案表 ui_clay_indicator 的第 1 行；第 2 行 = clayLiveLine；
     // 第 3 行按优先级：needsRelearn → clayRelearnHint + 「。」；否则有代价说明 → clayCostLine + 「。」；否则文案表的第 3 行。
-    juce::String clayIndicatorTooltip (const ClayReadout& readout);
+    juce::String clayIndicatorTooltip (const ClayReadout& readout, Language language = Language::chinese);
+
+    // CLAY 卡片每行右边的数值（v0.1.8.0）：「25 Hz」「120 Hz」「120 Hz · 80%」「+0.8 dB」「−0.5 dB」；该级没在处理时返回空串
+    //（由界面写「未启用」之类）。负号用 U+2212。
+    juce::String clayStageValue (const ClayReadout& readout, ClayStage stage);
 }

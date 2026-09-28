@@ -2,7 +2,7 @@
 
 <JUCERPROJECT id="CBwc4r" name="Celadon" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="Max Song"
-              version="0.1.7.1"
+              version="0.1.8.0"
               bundleIdentifier="me.maxsong.celadon" pluginManufacturerCode="Maxs"
               pluginCode="Cldn">
   <MAINGROUP id="UBEL9r" name="Celadon">
@@ -20,6 +20,8 @@
             file="Source/Parameters.h"/>
       <FILE id="v8iXGh" name="ParameterIds.h" compile="0" resource="0"
             file="Source/ParameterIds.h"/>
+      <FILE id="jw4Ky9" name="AnalyzerTap.h" compile="0" resource="0"
+            file="Source/AnalyzerTap.h"/>
       <GROUP id="{1D8BEABE-7186-812B-FA28-E7FEEDE815CD}" name="dsp">
         <FILE id="hGr0lD" name="LimiterModule.cpp" compile="1" resource="0"
               file="Source/dsp/LimiterModule.cpp"/>
@@ -103,62 +105,70 @@
               file="Source/dsp/LinearPhaseLowpass.h"/>
       </GROUP>
       <GROUP id="{DA677DFE-0229-E495-EDB4-DCBF113513B9}" name="ui">
-        <FILE id="Cs6Slc" name="CapsuleSelector.cpp" compile="1" resource="0"
-              file="Source/ui/CapsuleSelector.cpp"/>
-        <FILE id="Cs6Slh" name="CapsuleSelector.h" compile="0" resource="0"
-              file="Source/ui/CapsuleSelector.h"/>
         <FILE id="Gs6Txc" name="GlazeStatusText.cpp" compile="1" resource="0"
               file="Source/ui/GlazeStatusText.cpp"/>
         <FILE id="Gs6Txh" name="GlazeStatusText.h" compile="0" resource="0"
               file="Source/ui/GlazeStatusText.h"/>
-        <FILE id="Gs6Lnc" name="GlazeStatusLine.cpp" compile="1" resource="0"
-              file="Source/ui/GlazeStatusLine.cpp"/>
-        <FILE id="Gs6Lnh" name="GlazeStatusLine.h" compile="0" resource="0"
-              file="Source/ui/GlazeStatusLine.h"/>
-        <FILE id="Gs6Clc" name="GlazeStyleColumn.cpp" compile="1" resource="0"
-              file="Source/ui/GlazeStyleColumn.cpp"/>
-        <FILE id="Gs6Clh" name="GlazeStyleColumn.h" compile="0" resource="0"
-              file="Source/ui/GlazeStyleColumn.h"/>
-        <FILE id="xFXp2o" name="BalanceCurve.cpp" compile="1" resource="0"
-              file="Source/ui/BalanceCurve.cpp"/>
-        <FILE id="iSVASd" name="BalanceCurve.h" compile="0" resource="0"
-              file="Source/ui/BalanceCurve.h"/>
         <FILE id="nTCRsG" name="CeladonLookAndFeel.cpp" compile="1" resource="0"
               file="Source/ui/CeladonLookAndFeel.cpp"/>
         <FILE id="fseC38" name="CeladonLookAndFeel.h" compile="0" resource="0"
               file="Source/ui/CeladonLookAndFeel.h"/>
-        <FILE id="o6Eo5O" name="CrackleTexture.cpp" compile="1" resource="0"
-              file="Source/ui/CrackleTexture.cpp"/>
-        <FILE id="Z8FySu" name="CrackleTexture.h" compile="0" resource="0"
-              file="Source/ui/CrackleTexture.h"/>
         <FILE id="CJlQ8H" name="HelpText.cpp" compile="1" resource="0"
               file="Source/ui/HelpText.cpp"/>
         <FILE id="m6sV07" name="HelpText.h" compile="0" resource="0"
               file="Source/ui/HelpText.h"/>
-        <FILE id="wdjxNT" name="Knob.cpp" compile="1" resource="0"
-              file="Source/ui/Knob.cpp"/>
-        <FILE id="TBdVho" name="Knob.h" compile="0" resource="0"
-              file="Source/ui/Knob.h"/>
-        <FILE id="zT2Spn" name="LoudnessReadout.cpp" compile="1" resource="0"
-              file="Source/ui/LoudnessReadout.cpp"/>
-        <FILE id="5Hi6AN" name="LoudnessReadout.h" compile="0" resource="0"
-              file="Source/ui/LoudnessReadout.h"/>
-        <FILE id="GHh5AS" name="MeterBar.cpp" compile="1" resource="0"
-              file="Source/ui/MeterBar.cpp"/>
-        <FILE id="mhvXwd" name="MeterBar.h" compile="0" resource="0"
-              file="Source/ui/MeterBar.h"/>
-        <FILE id="hBjPNv" name="ModulePanel.cpp" compile="1" resource="0"
-              file="Source/ui/ModulePanel.cpp"/>
-        <FILE id="hPkm8P" name="ModulePanel.h" compile="0" resource="0"
-              file="Source/ui/ModulePanel.h"/>
-        <FILE id="Ad7Drc" name="AdvancedDrawer.cpp" compile="1" resource="0"
-              file="Source/ui/AdvancedDrawer.cpp"/>
-        <FILE id="Ad7Drh" name="AdvancedDrawer.h" compile="0" resource="0"
-              file="Source/ui/AdvancedDrawer.h"/>
-        <FILE id="Ci7Inc" name="ClayIndicator.cpp" compile="1" resource="0"
-              file="Source/ui/ClayIndicator.cpp"/>
-        <FILE id="Ci7Inh" name="ClayIndicator.h" compile="0" resource="0"
-              file="Source/ui/ClayIndicator.h"/>
+        <FILE id="rj5Rsy" name="Controls.cpp" compile="1" resource="0"
+              file="Source/ui/Controls.cpp"/>
+        <FILE id="w1CN8G" name="Controls.h" compile="0" resource="0"
+              file="Source/ui/Controls.h"/>
+        <FILE id="yc9W6n" name="GlazeKnob.cpp" compile="1" resource="0"
+              file="Source/ui/GlazeKnob.cpp"/>
+        <FILE id="MtVg0C" name="GlazeKnob.h" compile="0" resource="0"
+              file="Source/ui/GlazeKnob.h"/>
+        <FILE id="dBQqsZ" name="LevelMeters.cpp" compile="1" resource="0"
+              file="Source/ui/LevelMeters.cpp"/>
+        <FILE id="pkrzh0" name="LevelMeters.h" compile="0" resource="0"
+              file="Source/ui/LevelMeters.h"/>
+        <FILE id="47GD6M" name="Localisation.cpp" compile="1" resource="0"
+              file="Source/ui/Localisation.cpp"/>
+        <FILE id="7RjBPe" name="Localisation.h" compile="0" resource="0"
+              file="Source/ui/Localisation.h"/>
+        <FILE id="ol8S9V" name="MiddleLayer.cpp" compile="1" resource="0"
+              file="Source/ui/MiddleLayer.cpp"/>
+        <FILE id="LnN297" name="MiddleLayer.h" compile="0" resource="0"
+              file="Source/ui/MiddleLayer.h"/>
+        <FILE id="LO0GPK" name="ModuleCards.cpp" compile="1" resource="0"
+              file="Source/ui/ModuleCards.cpp"/>
+        <FILE id="yuWQbA" name="ModuleCards.h" compile="0" resource="0"
+              file="Source/ui/ModuleCards.h"/>
+        <FILE id="x0A4y7" name="ParticleField.cpp" compile="1" resource="0"
+              file="Source/ui/ParticleField.cpp"/>
+        <FILE id="0qq9W8" name="ParticleField.h" compile="0" resource="0"
+              file="Source/ui/ParticleField.h"/>
+        <FILE id="glrzxD" name="Popovers.cpp" compile="1" resource="0"
+              file="Source/ui/Popovers.cpp"/>
+        <FILE id="OkywP4" name="Popovers.h" compile="0" resource="0"
+              file="Source/ui/Popovers.h"/>
+        <FILE id="Ame5ut" name="Porcelain.cpp" compile="1" resource="0"
+              file="Source/ui/Porcelain.cpp"/>
+        <FILE id="ukbbB1" name="Porcelain.h" compile="0" resource="0"
+              file="Source/ui/Porcelain.h"/>
+        <FILE id="uoFXUK" name="SpectrumAnalyser.cpp" compile="1" resource="0"
+              file="Source/ui/SpectrumAnalyser.cpp"/>
+        <FILE id="nIF03E" name="SpectrumAnalyser.h" compile="0" resource="0"
+              file="Source/ui/SpectrumAnalyser.h"/>
+        <FILE id="p6g0jW" name="SpectrumView.cpp" compile="1" resource="0"
+              file="Source/ui/SpectrumView.cpp"/>
+        <FILE id="Xr9qG9" name="SpectrumView.h" compile="0" resource="0"
+              file="Source/ui/SpectrumView.h"/>
+        <FILE id="Fg6iN0" name="TopBar.cpp" compile="1" resource="0"
+              file="Source/ui/TopBar.cpp"/>
+        <FILE id="x7wiBR" name="TopBar.h" compile="0" resource="0"
+              file="Source/ui/TopBar.h"/>
+        <FILE id="yIpGlz" name="UiSettings.cpp" compile="1" resource="0"
+              file="Source/ui/UiSettings.cpp"/>
+        <FILE id="i6d8C3" name="UiSettings.h" compile="0" resource="0"
+              file="Source/ui/UiSettings.h"/>
       </GROUP>
     </GROUP>
   </MAINGROUP>

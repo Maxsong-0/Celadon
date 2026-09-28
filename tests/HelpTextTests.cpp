@@ -90,6 +90,31 @@ namespace celadon::test
             expectEquals (juce::StringArray::fromLines (tooltip).size(), 3, "tooltip line count for " + label);
             expect (! tooltip.containsChar ((juce::juce_wchar) 0xFFFD), "tooltip contains U+FFFD for " + label);
             expect (! tooltip.endsWithChar ('\n'), "tooltip has a trailing newline for " + label);
+
+            // v0.1.8.0 英文三行：同样的格式要求；不带语言参数的旧接口仍是中文；英文里不能混进中文字或全角标点（抄漏的行）。
+            checkLine (entry->titleEn,  label + " English title");
+            checkLine (entry->effectEn, label + " English effect");
+            checkLine (entry->adviceEn, label + " English advice");
+
+            const auto english = help::tooltipFor (id, Language::english);
+            expectEquals (juce::StringArray::fromLines (english).size(), 3, "English tooltip line count for " + label);
+            expectEquals (help::tooltipFor (id, Language::chinese), tooltip, "the Chinese overload equals the legacy call for " + label);
+            expect (english != tooltip, "English tooltip is still Chinese for " + label);
+            expect (! containsCjk (english), "English tooltip contains CJK text for " + label);
+        }
+
+        // 中日韩统一表意文字、中文标点（U+3000 ～ U+303F）、全角形式（U+FF00 ～ U+FFEF）。
+        static bool containsCjk (const juce::String& text)
+        {
+            for (auto p = text.getCharPointer(); ! p.isEmpty(); ++p)
+            {
+                const auto c = (juce::uint32) *p;
+
+                if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3000 && c <= 0x303F) || (c >= 0xFF00 && c <= 0xFFEF))
+                    return true;
+            }
+
+            return false;
         }
 
         // 单行文案：源字节非空且是合法 UTF-8；转成 juce::String 后长度 > 0、不含替换符、不含换行。
@@ -178,7 +203,8 @@ namespace celadon::test
             using help::ClayStage;
 
             // 依据：设计规格-Clay 第 5 节（抽屉每行的名字 低切 / 收单 / 加宽、三态 自动 / 关 / 手动、「Bypass 修坯」；
-            // 指示灯气泡第 1 行「修坯 · 立体声像与超低频清理」）与第 6 节（7 个参数 + ui_clay_indicator、ui_advanced 各有三行）。
+            // 指示灯气泡第 1 行「修坯 · 立体声像与超低频清理」）与第 6 节（7 个参数 + ui_clay_indicator 各有三行；v0.1.8.0 起
+            // 修坯都在 CLAY 卡片上，顶栏「高级」胶囊 ui_advanced 去掉了）。
             // 覆盖与三行格式由上面 HelpTextTests 的 allParameterIds / allUiIds 循环检查；这里查的是「文案说的是对的那个控件」。
             beginTest ("Clay entries name their control");
             {
@@ -195,7 +221,6 @@ namespace celadon::test
                     { param::clayWidthMode,  "加宽" }, { param::clayWidthDb,  "加宽" },
                     { param::clayBypass,     "Bypass" },
                     { uiid::clayIndicator,   "修坯" },
-                    { uiid::advanced,        "高级" },
                 };
 
                 for (const auto& expectation : expectations)
@@ -218,11 +243,11 @@ namespace celadon::test
                             expect (utf8Contains (utf8 (entry->effect), state),
                                     juce::String (id) + " effect line does not explain one of the three states");
 
-                // 三个旋钮参数都说明「自动」态旋钮不生效（规格第 5 节：「自动」态旋钮可拖但不生效）。
+                // 三个手动值参数都说明「自动」态手动值不生效（规格第 5 节；v0.1.8.0 起手动值在 CLAY 卡片上、「手动」时才可拖）。
                 for (const auto* id : { param::clayLowCutHz, param::clayMonoHz, param::clayWidthDb })
                     if (const auto* entry = help::find (id))
-                        expect (utf8Contains (utf8 (entry->effect), "「自动」时旋钮不生效"),
-                                juce::String (id) + " effect line does not say the knob is inactive in automatic mode");
+                        expect (utf8Contains (utf8 (entry->effect), "「自动」时手动值不生效"),
+                                juce::String (id) + " effect line does not say the manual value is inactive in automatic mode");
 
                 // 阳性对照（审核 V3-01）：字节精确的辅助真的会拦下「只有首字相同」的错字——juce::String::contains / startsWith
                 // 在这里会误报命中（只比前 1/3 的字节），换成它们上面几条断言就形同虚设。

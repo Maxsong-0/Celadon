@@ -94,10 +94,12 @@ set(CELADON_DSP_SOURCES
     Source/dsp/Saturator.cpp
     Source/dsp/TruePeak.cpp)
 
-# 界面里唯一只依赖 juce_core 的文件：提示文案（测试检查覆盖所有参数）。
+# 界面里只依赖 juce_core / juce_dsp 的文件：提示文案（测试检查覆盖所有参数）、GLAZE 状态行、界面语言表与频谱仪计算（v0.1.8.0）。
 set(CELADON_HEADLESS_UI_SOURCES
     Source/ui/GlazeStatusText.cpp
-    Source/ui/HelpText.cpp)
+    Source/ui/HelpText.cpp
+    Source/ui/Localisation.cpp
+    Source/ui/SpectrumAnalyser.cpp)
 
 add_executable(celadon_tests
     ${CELADON_DSP_SOURCES}
@@ -121,7 +123,9 @@ add_executable(celadon_tests
     tests/ClayGuardTests.cpp
     tests/ClayGlazeTests.cpp
     tests/LegacyFixtureTests.cpp
-    tests/AnalyzerTapTests.cpp)
+    tests/AnalyzerTapTests.cpp
+    tests/LocalisationTests.cpp
+    tests/SpectrumAnalyserTests.cpp)
 
 # 只对我们自己的代码开严格警告，JUCE 模块按 JUCE 自己的标准编。
 target_compile_options(celadon_tests PRIVATE -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion)
@@ -136,3 +140,101 @@ add_executable(celadon_render EXCLUDE_FROM_ALL
     tools/render/RenderMain.cpp)
 target_compile_options(celadon_render PRIVATE -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion)
 target_link_libraries(celadon_render PRIVATE celadon_juce)
+
+# ---- 界面截图工具（v0.1.8.0 界面改版；只在 Linux 上用，EXCLUDE_FROM_ALL）----
+# 把整个插件（处理器 + 编辑器）连同 JUCE 的界面模块编进一个命令行程序：喂合成的音乐、跑消息循环、把编辑器按几种状态
+#（中 / 英、A / B、警告、设置面板、不同缩放）离屏渲染成 PNG，用来对照 V4 设计稿。Mac 上照旧用 Xcode 看真插件。
+# 依赖 freetype2 / fontconfig / X11 的开发包（JUCE 界面模块在 Linux 上的要求）；DISPLAY 可以没有（xvfb-run 更稳）。
+# 用法：cmake --build <dir> --target celadon_ui_snapshot && <dir>/celadon_ui_snapshot --out <目录>（见 tools/ui-snapshot）。
+if(NOT APPLE)
+    find_package(PkgConfig QUIET)
+
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(CELADON_GUI_DEPS QUIET IMPORTED_TARGET freetype2 fontconfig x11)
+    endif()
+
+    if(CELADON_GUI_DEPS_FOUND)
+        add_library(celadon_juce_gui STATIC EXCLUDE_FROM_ALL
+            ${JUCE_MODULES}/juce_core/juce_core.cpp
+            ${JUCE_MODULES}/juce_core/juce_core_CompilationTime.cpp
+            ${JUCE_MODULES}/juce_core/juce_core_zlib.c
+            ${JUCE_MODULES}/juce_events/juce_events.cpp
+            ${JUCE_MODULES}/juce_data_structures/juce_data_structures.cpp
+            ${JUCE_MODULES}/juce_graphics/juce_graphics.cpp
+            ${JUCE_MODULES}/juce_graphics/juce_graphics_Harfbuzz.cpp
+            ${JUCE_MODULES}/juce_graphics/juce_graphics_Sheenbidi.c
+            ${JUCE_MODULES}/juce_graphics/juce_graphics_libjpg_1.c
+            ${JUCE_MODULES}/juce_graphics/juce_graphics_libjpg_2.c
+            ${JUCE_MODULES}/juce_graphics/juce_graphics_libjpg_3.c
+            ${JUCE_MODULES}/juce_graphics/juce_graphics_libpng.c
+            ${JUCE_MODULES}/juce_graphics/juce_graphics_lunasvg.c
+            ${JUCE_MODULES}/juce_gui_basics/juce_gui_basics.cpp
+            ${JUCE_MODULES}/juce_gui_basics/juce_gui_basics_2.cpp
+            ${JUCE_MODULES}/juce_gui_basics/juce_gui_basics_3.cpp
+            ${JUCE_MODULES}/juce_gui_basics/juce_gui_basics_4.cpp
+            ${JUCE_MODULES}/juce_gui_basics/juce_gui_basics_5.cpp
+            ${JUCE_MODULES}/juce_gui_extra/juce_gui_extra.cpp
+            ${JUCE_MODULES}/juce_audio_basics/juce_audio_basics.cpp
+            ${JUCE_MODULES}/juce_audio_formats/juce_audio_formats.cpp
+            ${JUCE_MODULES}/juce_audio_formats/juce_audio_formats_flac_1.c
+            ${JUCE_MODULES}/juce_audio_formats/juce_audio_formats_flac_2.c
+            ${JUCE_MODULES}/juce_audio_processors_headless/juce_audio_processors_headless.cpp
+            ${JUCE_MODULES}/juce_audio_processors/juce_audio_processors.cpp
+            ${JUCE_MODULES}/juce_dsp/juce_dsp.cpp)
+
+        target_include_directories(celadon_juce_gui SYSTEM PUBLIC ${JUCE_MODULES})
+        target_compile_definitions(celadon_juce_gui
+            PUBLIC
+                JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1
+                JUCE_STANDALONE_APPLICATION=1
+                JUCE_USE_CURL=0
+                JUCE_WEB_BROWSER=0
+                JUCE_USE_XRANDR=0
+                JUCE_USE_XINERAMA=0
+                JUCE_MODAL_LOOPS_PERMITTED=1
+                JUCE_MODULE_AVAILABLE_juce_core=1
+                JUCE_MODULE_AVAILABLE_juce_events=1
+                JUCE_MODULE_AVAILABLE_juce_data_structures=1
+                JUCE_MODULE_AVAILABLE_juce_graphics=1
+                JUCE_MODULE_AVAILABLE_juce_gui_basics=1
+                JUCE_MODULE_AVAILABLE_juce_gui_extra=1
+                JUCE_MODULE_AVAILABLE_juce_audio_basics=1
+                JUCE_MODULE_AVAILABLE_juce_audio_formats=1
+                JUCE_MODULE_AVAILABLE_juce_audio_processors_headless=1
+                JUCE_MODULE_AVAILABLE_juce_audio_processors=1
+                JUCE_MODULE_AVAILABLE_juce_dsp=1
+                $<$<CONFIG:Debug>:DEBUG=1 _DEBUG=1>
+                $<$<NOT:$<CONFIG:Debug>>:NDEBUG=1>)
+        target_link_libraries(celadon_juce_gui PUBLIC PkgConfig::CELADON_GUI_DEPS Threads::Threads ${CMAKE_DL_LIBS} rt)
+
+        # 插件源码 #include <JuceHeader.h>：给截图工具一份只含上面这些模块的 JuceHeader（工程里的那份还包括插件外壳与设备模块）。
+        file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ui-snapshot-include/JuceHeader.h
+"#pragma once
+#include <juce_core/juce_core.h>
+#include <juce_events/juce_events.h>
+#include <juce_data_structures/juce_data_structures.h>
+#include <juce_graphics/juce_graphics.h>
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_gui_extra/juce_gui_extra.h>
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <juce_audio_formats/juce_audio_formats.h>
+#include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
+namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char* const versionString = \"0.1.8.0\"; const int versionNumber = 0x10800; }
+")
+
+        file(GLOB CELADON_UI_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/*.cpp)
+
+        add_executable(celadon_ui_snapshot EXCLUDE_FROM_ALL
+            ${CELADON_DSP_SOURCES}
+            ${CELADON_UI_SOURCES}
+            Source/Parameters.cpp
+            Source/PluginProcessor.cpp
+            Source/PluginEditor.cpp
+            tools/ui-snapshot/SnapshotMain.cpp)
+        target_include_directories(celadon_ui_snapshot PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ui-snapshot-include)
+        target_compile_options(celadon_ui_snapshot PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/JuceLibraryCode/JucePluginDefines.h
+                                                           -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion)
+        target_link_libraries(celadon_ui_snapshot PRIVATE celadon_juce_gui)
+    endif()
+endif()
