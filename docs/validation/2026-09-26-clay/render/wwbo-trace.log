@@ -1,0 +1,89 @@
+render-linux.sh：同步源码到 maxsong@192.168.100.109 …
+render-linux.sh：同步歌曲 /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/c0303bb6-4133-4884-9848-982118085fe1/scratchpad/wwbo …
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-render-build/Celadon-d4b76f75e866
+[1/5] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/CeladonChain.cpp.o
+[2/5] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazeCalibrator.cpp.o
+[3/5] Building CXX object CMakeFiles/celadon_render.dir/tools/render/RenderMain.cpp.o
+FAILED: [code=1] CMakeFiles/celadon_render.dir/tools/render/RenderMain.cpp.o 
+/usr/bin/c++ -DCELADON_FP_CONTRACT_OFF=1 -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -ffp-contract=off -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_render.dir/tools/render/RenderMain.cpp.o -MF CMakeFiles/celadon_render.dir/tools/render/RenderMain.cpp.o.d -o CMakeFiles/celadon_render.dir/tools/render/RenderMain.cpp.o -c /home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp: In function ‘std::string {anonymous}::dbgCalibrationColumns(const celadon::glaze::GlazeController::TestProbe&)’:
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1030:34: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgPhase’
+ 1030 |         return std::to_string (p.dbgPhase) + "," + (p.dbgRoundActive ? "1" : "0") + "," + std::to_string (p.calibratorState) + ","
+      |                                  ^~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1030:55: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgRoundActive’; did you mean ‘roundActive’?
+ 1030 |         return std::to_string (p.dbgPhase) + "," + (p.dbgRoundActive ? "1" : "0") + "," + std::to_string (p.calibratorState) + ","
+      |                                                       ^~~~~~~~~~~~~~
+      |                                                       roundActive
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1031:34: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgBlockMask’
+ 1031 |              + std::to_string (p.dbgBlockMask) + "," + std::to_string (p.dbgGateMask) + "," + std::to_string (p.dbgCalRound) + ","
+      |                                  ^~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1031:74: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgGateMask’
+ 1031 |              + std::to_string (p.dbgBlockMask) + "," + std::to_string (p.dbgGateMask) + "," + std::to_string (p.dbgCalRound) + ","
+      |                                                                          ^~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1031:113: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalRound’
+ 1031 |              + std::to_string (p.dbgBlockMask) + "," + std::to_string (p.dbgGateMask) + "," + std::to_string (p.dbgCalRound) + ","
+      |                                                                                                                 ^~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1032:34: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalSubWindows’
+ 1032 |              + std::to_string (p.dbgCalSubWindows) + "," + fixed (p.dbgCalSubWindowSeconds, 2) + "," + fixed (p.dbgCalGuardSeconds, 2) + ","
+      |                                  ^~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1032:69: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalSubWindowSeconds’
+ 1032 |              + std::to_string (p.dbgCalSubWindows) + "," + fixed (p.dbgCalSubWindowSeconds, 2) + "," + fixed (p.dbgCalGuardSeconds, 2) + ","
+      |                                                                     ^~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1032:113: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalGuardSeconds’; did you mean ‘clayGuardSeconds’?
+ 1032 |              + std::to_string (p.dbgCalSubWindows) + "," + fixed (p.dbgCalSubWindowSeconds, 2) + "," + fixed (p.dbgCalGuardSeconds, 2) + ","
+      |                                                                                                                 ^~~~~~~~~~~~~~~~~~
+      |                                                                                                                 clayGuardSeconds
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1033:25: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalLastErrorDb’
+ 1033 |              + fixed (p.dbgCalLastErrorDb, 3) + "," + fixed (p.dbgCalSuggestedDb, 3) + "," + fixed (p.dbgCalTargetDb, 3) + ","
+      |                         ^~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1033:64: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalSuggestedDb’
+ 1033 |              + fixed (p.dbgCalLastErrorDb, 3) + "," + fixed (p.dbgCalSuggestedDb, 3) + "," + fixed (p.dbgCalTargetDb, 3) + ","
+      |                                                                ^~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1033:103: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalTargetDb’
+ 1033 |              + fixed (p.dbgCalLastErrorDb, 3) + "," + fixed (p.dbgCalSuggestedDb, 3) + "," + fixed (p.dbgCalTargetDb, 3) + ","
+      |                                                                                                       ^~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1034:19: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgCalValid’
+ 1034 |              + (p.dbgCalValid ? "1" : "0") + "," + fixed (p.appliedBiasDb, 4) + "," + fixed (p.executedBiasDb, 4) + ","
+      |                   ^~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1038:34: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgBarrierRejected’
+ 1038 |              + std::to_string (p.dbgBarrierRejected) + "," + std::to_string (p.dbgAccepted) + "," + std::to_string (p.dbgPairs) + ","
+      |                                  ^~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1038:80: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgAccepted’
+ 1038 |              + std::to_string (p.dbgBarrierRejected) + "," + std::to_string (p.dbgAccepted) + "," + std::to_string (p.dbgPairs) + ","
+      |                                                                                ^~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1038:119: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgPairs’
+ 1038 |              + std::to_string (p.dbgBarrierRejected) + "," + std::to_string (p.dbgAccepted) + "," + std::to_string (p.dbgPairs) + ","
+      |                                                                                                                       ^~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1039:34: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgBelowGate’
+ 1039 |              + std::to_string (p.dbgBelowGate) + "," + std::to_string (p.dbgInputDropped) + "," + std::to_string (p.dbgOutputDropped) + ","
+      |                                  ^~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1039:74: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgInputDropped’
+ 1039 |              + std::to_string (p.dbgBelowGate) + "," + std::to_string (p.dbgInputDropped) + "," + std::to_string (p.dbgOutputDropped) + ","
+      |                                                                          ^~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1039:117: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgOutputDropped’
+ 1039 |              + std::to_string (p.dbgBelowGate) + "," + std::to_string (p.dbgInputDropped) + "," + std::to_string (p.dbgOutputDropped) + ","
+      |                                                                                                                     ^~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1040:34: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgEligibleFrom’
+ 1040 |              + std::to_string (p.dbgEligibleFrom) + "," + std::to_string (p.dbgLastInputEnd) + "," + std::to_string (p.dbgLastOutputEnd) + ","
+      |                                  ^~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1040:77: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgLastInputEnd’
+ 1040 |              + std::to_string (p.dbgEligibleFrom) + "," + std::to_string (p.dbgLastInputEnd) + "," + std::to_string (p.dbgLastOutputEnd) + ","
+      |                                                                             ^~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1040:120: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgLastOutputEnd’
+ 1040 |              + std::to_string (p.dbgEligibleFrom) + "," + std::to_string (p.dbgLastInputEnd) + "," + std::to_string (p.dbgLastOutputEnd) + ","
+      |                                                                                                                        ^~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1041:34: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgPendingIn’
+ 1041 |              + std::to_string (p.dbgPendingIn) + "," + std::to_string (p.dbgPendingOut) + "," + std::to_string (p.dbgLatency);
+      |                                  ^~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1041:74: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgPendingOut’
+ 1041 |              + std::to_string (p.dbgPendingIn) + "," + std::to_string (p.dbgPendingOut) + "," + std::to_string (p.dbgLatency);
+      |                                                                          ^~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/Celadon/tools/render/RenderMain.cpp:1041:115: error: ‘const struct celadon::glaze::GlazeController::TestProbe’ has no member named ‘dbgLatency’
+ 1041 |              + std::to_string (p.dbgPendingIn) + "," + std::to_string (p.dbgPendingOut) + "," + std::to_string (p.dbgLatency);
+      |                                                                                                                   ^~~~~~~~~~
+[4/5] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazeController.cpp.o
+ninja: build stopped: subcommand failed.
+render-linux.sh：远端构建、自检或渲染失败（返回 1），看上面的输出
+EXIT=1

@@ -1,0 +1,82 @@
+[46/47] Linking CXX static library libceladon_juce.a
+[47/47] Linking CXX executable celadon_tests
+Random seed: 0x4237a04
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)...
+Completed tests in TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / never below the sample peak...
+Completed tests in TruePeakDetector / never below the sample peak
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)...
+Completed tests in TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / DC reads its own level (steady state)...
+Completed tests in TruePeakDetector / DC reads its own level (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)...
+  step overshoot: +1.133 dB
+Completed tests in TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax are bit-exact with processSample (SSE2 kernel)...
+!!! Test 309 failed: processBlock differs from processSample: near-denormal noise, pattern 0, DAZ only -- Expected value: 0, Actual value: 47936
+!!! Test 311 failed: processBlock differs from processSample: near-denormal noise, pattern 1, DAZ only -- Expected value: 0, Actual value: 47936
+!!! Test 313 failed: processBlock differs from processSample: near-denormal noise, pattern 2, DAZ only -- Expected value: 0, Actual value: 47936
+!!! Test 315 failed: processBlock differs from processSample: near-denormal noise, pattern 3, DAZ only -- Expected value: 0, Actual value: 47936
+!!! Test 317 failed: processBlock differs from processSample: near-denormal noise, pattern 4, DAZ only -- Expected value: 0, Actual value: 47936
+!!! Test 319 failed: processBlock differs from processSample: near-denormal noise, pattern 5, DAZ only -- Expected value: 0, Actual value: 47936
+!!! Test 321 failed: processBlock differs from processSample: near-denormal noise, pattern 6, DAZ only -- Expected value: 0, Actual value: 47936
+!!! Test 351 failed: processBlock differs from processSample: smallest denormals, pattern 0, DAZ only -- Expected value: 0, Actual value: 41281
+!!! Test 353 failed: processBlock differs from processSample: smallest denormals, pattern 1, DAZ only -- Expected value: 0, Actual value: 41281
+!!! Test 355 failed: processBlock differs from processSample: smallest denormals, pattern 2, DAZ only -- Expected value: 0, Actual value: 41281
+!!! Test 357 failed: processBlock differs from processSample: smallest denormals, pattern 3, DAZ only -- Expected value: 0, Actual value: 41281
+!!! Test 359 failed: processBlock differs from processSample: smallest denormals, pattern 4, DAZ only -- Expected value: 0, Actual value: 41281
+!!! Test 361 failed: processBlock differs from processSample: smallest denormals, pattern 5, DAZ only -- Expected value: 0, Actual value: 41281
+!!! Test 363 failed: processBlock differs from processSample: smallest denormals, pattern 6, DAZ only -- Expected value: 0, Actual value: 41281
+!!! Test 365 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 0, DAZ only -- Expected value: 0, Actual value: 17
+!!! Test 367 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 1, DAZ only -- Expected value: 0, Actual value: 17
+!!! Test 369 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 2, DAZ only -- Expected value: 0, Actual value: 17
+!!! Test 371 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 3, DAZ only -- Expected value: 0, Actual value: 17
+!!! Test 373 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 4, DAZ only -- Expected value: 0, Actual value: 17
+!!! Test 375 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 5, DAZ only -- Expected value: 0, Actual value: 17
+!!! Test 377 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 6, DAZ only -- Expected value: 0, Actual value: 17
+!!! Test 435 failed: processBlock differs from processSample: near-denormal noise, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 47936
+!!! Test 437 failed: processBlock differs from processSample: near-denormal noise, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 47936
+!!! Test 439 failed: processBlock differs from processSample: near-denormal noise, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 47936
+!!! Test 441 failed: processBlock differs from processSample: near-denormal noise, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 47936
+!!! Test 443 failed: processBlock differs from processSample: near-denormal noise, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 47936
+!!! Test 445 failed: processBlock differs from processSample: near-denormal noise, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 47936
+!!! Test 447 failed: processBlock differs from processSample: near-denormal noise, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 47936
+!!! Test 477 failed: processBlock differs from processSample: smallest denormals, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 41281
+!!! Test 479 failed: processBlock differs from processSample: smallest denormals, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 41281
+!!! Test 481 failed: processBlock differs from processSample: smallest denormals, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 41281
+!!! Test 483 failed: processBlock differs from processSample: smallest denormals, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 41281
+!!! Test 485 failed: processBlock differs from processSample: smallest denormals, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 41281
+!!! Test 487 failed: processBlock differs from processSample: smallest denormals, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 41281
+!!! Test 489 failed: processBlock differs from processSample: smallest denormals, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 41281
+!!! Test 491 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 17
+!!! Test 493 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 17
+!!! Test 495 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 17
+!!! Test 497 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 17
+!!! Test 499 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 17
+!!! Test 501 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 17
+!!! Test 503 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 17
+
+FAILED!!  42 tests failed, out of a total of 504
+
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processSample / processBlock / processBlockMax / in-place calls can be mixed on one detector...
+Completed tests in TruePeakDetector / processSample / processBlock / processBlockMax / in-place calls can be mixed on one detector
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call...
+Completed tests in TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax do not allocate...
+Completed tests in TruePeakDetector / processBlock / processBlockMax do not allocate
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / performance guard: SSE2 block detector per sample per channel...
+  SSE2 processBlock: 29.97 ns per sample per channel (best of 15)
+Completed tests in TruePeakDetector / performance guard: SSE2 block detector per sample per channel
+
+==== celadon_tests: 482 passed, 42 failed ====
+EXIT=1

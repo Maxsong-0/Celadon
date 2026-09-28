@@ -1,0 +1,96 @@
+### host: githubci  x86_64  g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+### object: /home/maxsong/.cache/celadon-build/Celadon-d4b76f75e866/CMakeFiles/celadon_tests.dir/Source/dsp/TruePeak.cpp.o  (mtime 2026-09-27 03:45:04.090562780 +0000)
+--- functions and max/cmp/blend instruction counts
+1 0000000000000800 <celadon::TruePeakDetector::processSample(int, float)>: :: maxss
+7 0000000000000c30 <celadon::TruePeakDetector::processChunk(celadon::TruePeakDetector::ChannelState&, float const*, int)>: :: andnps
+7 0000000000000c30 <celadon::TruePeakDetector::processChunk(celadon::TruePeakDetector::ChannelState&, float const*, int)>: :: cmpltps
+7 0000000000000c30 <celadon::TruePeakDetector::processChunk(celadon::TruePeakDetector::ChannelState&, float const*, int)>: :: orps
+--- compile flags
+     66 -O3
+### repro g++ -O2
+== MXCSR mode: IEEE
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=0,        cand=denormal  jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00022d85  maxss=00022d85
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: FTZ only
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=0,        cand=denormal  jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00022d85  maxss=00022d85
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: DAZ only
+  peak=denormal, cand=0        jmax=00000000  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=0,        cand=denormal  jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00000000  blend=00022d85  maxps=00000000  maxss=00000000   <-- differ
+  peak=denormal, cand=NaN      jmax=00000000  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: FTZ+DAZ (juce::ScopedNoDenormals)
+  peak=denormal, cand=0        jmax=00000000  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=0,        cand=denormal  jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00000000  blend=00022d85  maxps=00000000  maxss=00000000   <-- differ
+  peak=denormal, cand=NaN      jmax=00000000  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+### repro g++ -O0
+== MXCSR mode: IEEE
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=0,        cand=denormal  jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00022d85  maxss=00022d85
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: FTZ only
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=0,        cand=denormal  jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00022d85  maxss=00022d85
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: DAZ only
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=0,        cand=denormal  jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00000000  maxss=00000000   <-- differ
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: FTZ+DAZ (juce::ScopedNoDenormals)
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=0,        cand=denormal  jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00000000  maxss=00000000   <-- differ
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=00000000  maxss=00000000   <-- differ
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+### repro clang++ -O2
+== MXCSR mode: IEEE
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=0,        cand=denormal  jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00022d85  maxss=00022d85
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: FTZ only
+  peak=denormal, cand=0        jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=0,        cand=denormal  jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00022d85  blend=00022d85  maxps=00022d85  maxss=00022d85
+  peak=denormal, cand=NaN      jmax=000116c2  blend=000116c2  maxps=000116c2  maxss=000116c2
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: DAZ only
+  peak=denormal, cand=0        jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=0,        cand=denormal  jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=NaN      jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000
+== MXCSR mode: FTZ+DAZ (juce::ScopedNoDenormals)
+  peak=denormal, cand=0        jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=0,        cand=denormal  jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=1        jmax=3f800000  blend=3f800000  maxps=3f800000  maxss=3f800000
+  peak=2e-40,    cand=1e-40    jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=denormal, cand=NaN      jmax=00000000  blend=00000000  maxps=00000000  maxss=00000000
+  peak=NaN,      cand=denormal  jmax=7fc00000  blend=7fc00000  maxps=7fc00000  maxss=7fc00000

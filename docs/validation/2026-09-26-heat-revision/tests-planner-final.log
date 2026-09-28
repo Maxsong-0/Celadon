@@ -1,0 +1,103 @@
+[1/3] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazePlanner.cpp.o
+[2/3] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o
+[3/3] Linking CXX executable celadon_tests
+Random seed: 0x2f01397
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / GLAZE zero or NaN leaves every parameter untouched...
+Completed tests in GlazePlanner / GLAZE zero or NaN leaves every parameter untouched
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Increments and effective gain never decrease as GLAZE rises...
+Completed tests in GlazePlanner / Increments and effective gain never decrease as GLAZE rises
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Actual parameters stay inside their ranges...
+Completed tests in GlazePlanner / Actual parameters stay inside their ranges
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Auto increments respect each module budget...
+Completed tests in GlazePlanner / Auto increments respect each module budget
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Already loud material retains a bounded monotone drive request...
+Completed tests in GlazePlanner / Already loud material retains a bounded monotone drive request
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Gentle color is modeled even when there is no peak-reduction request...
+Completed tests in GlazePlanner / Gentle color is modeled even when there is no peak-reduction request
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / parallel Heat with no crest capacity does not block downstream loudness headroom...
+Completed tests in GlazePlanner / parallel Heat with no crest capacity does not block downstream loudness headroom
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Excess beyond the module limits lowers the target instead of squashing...
+Completed tests in GlazePlanner / Excess beyond the module limits lowers the target instead of squashing
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Constraint feedback caps the net gain...
+Completed tests in GlazePlanner / Constraint feedback caps the net gain
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Styles lean on the modules the spec names...
+  限幅峰值 GR 温润 / 冲击 / 通透：4.00 / 3.40 / 5.49 dB；削波深度 0.69 / 1.80 / 0.00 dB
+Completed tests in GlazePlanner / Styles lean on the modules the spec names
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Intermittent heavy lows ease the automatic Glue, sustained bass does not...
+Completed tests in GlazePlanner / Intermittent heavy lows ease the automatic Glue, sustained bass does not
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Low confidence tightens gain and processing...
+Completed tests in GlazePlanner / Low confidence tightens gain and processing
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / A less confident profile never plans more than the same profile fully trusted...
+  1200 comparisons, 0 where the unsure plan did more (worst net gain +0.00 dB)
+Completed tests in GlazePlanner / A less confident profile never plans more than the same profile fully trusted
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Turning a manual Heat or Glue knob never makes the planned loudness jump...
+  largest net-gain step per knob unit: 0.064 dB (-14.0 LUFS, style 2, Glue 100); swept module's auto increment drops at most 1.000, rises at most 0.000 per unit; manual + auto Heat over the drive cap by at most 0.000
+Completed tests in GlazePlanner / Turning a manual Heat or Glue knob never makes the planned loudness jump
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / On hot material Clip ramps in from GLAZE 0 instead of jumping...
+  largest Clip step per 0.1 % of GLAZE on hot material: 1.32
+Completed tests in GlazePlanner / On hot material Clip ramps in from GLAZE 0 instead of jumping
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Manual settings beyond a limit withdraw the auto part...
+Completed tests in GlazePlanner / Manual settings beyond a limit withdraw the auto part
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Same inputs give bit-identical plans...
+Completed tests in GlazePlanner / Same inputs give bit-identical plans
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Automatic weights sum to one and lean clean when unsure...
+Completed tests in GlazePlanner / Automatic weights sum to one and lean clean when unsure
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Blended constants interpolate between the styles...
+Completed tests in GlazePlanner / Blended constants interpolate between the styles
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Plans stay within the style limits on the real modules...
+  -20 LUFS 风格 1 GLAZE 50：目标净增益 4.90 dB，实测 4.84；Glue 均 / p95 0.00 / 0.01；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 0.00 / 0.00 / 0.00
+  -20 LUFS 风格 1 GLAZE 100：目标净增益 9.79 dB，实测 9.87；Glue 均 / p95 0.89 / 1.80；Clip 深度 0.70、活动 0.0001；Limit 峰值 / p95 / 均 4.00 / 1.95 / 0.37
+  -20 LUFS 风格 2 GLAZE 50：目标净增益 5.14 dB，实测 5.08；Glue 均 / p95 0.00 / 0.01；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 0.00 / 0.00 / 0.00
+  -20 LUFS 风格 2 GLAZE 100：目标净增益 10.29 dB，实测 10.06；Glue 均 / p95 0.40 / 1.07；Clip 深度 1.81、活动 0.0010；Limit 峰值 / p95 / 均 3.40 / 1.94 / 0.40
+  -20 LUFS 风格 3 GLAZE 50：目标净增益 5.00 dB，实测 4.94；Glue 均 / p95 0.00 / 0.01；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 0.00 / 0.00 / 0.00
+  -20 LUFS 风格 3 GLAZE 100：目标净增益 10.00 dB，实测 9.99；Glue 均 / p95 0.51 / 1.25；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 5.50 / 2.55 / 0.53
+  -14 LUFS 风格 1 GLAZE 50：目标净增益 1.97 dB，实测 1.80；Glue 均 / p95 0.02 / 0.08；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 2.38 / 0.62 / 0.11
+  -14 LUFS 风格 1 GLAZE 100：目标净增益 3.95 dB，实测 3.93；Glue 均 / p95 0.61 / 1.38；Clip 深度 0.50、活动 0.0001；Limit 峰值 / p95 / 均 3.87 / 1.85 / 0.35
+  -14 LUFS 风格 2 GLAZE 50：目标净增益 2.15 dB，实测 1.97；Glue 均 / p95 0.01 / 0.06；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 2.40 / 0.74 / 0.13
+  -14 LUFS 风格 2 GLAZE 100：目标净增益 4.31 dB，实测 4.10；Glue 均 / p95 0.41 / 1.09；Clip 深度 1.79、活动 0.0010；Limit 峰值 / p95 / 均 3.40 / 1.94 / 0.40
+  -14 LUFS 风格 3 GLAZE 50：目标净增益 2.00 dB，实测 1.82；Glue 均 / p95 0.01 / 0.07；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 2.72 / 0.71 / 0.13
+  -14 LUFS 风格 3 GLAZE 100：目标净增益 4.00 dB，实测 4.00；Glue 均 / p95 0.52 / 1.26；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 5.46 / 2.52 / 0.53
+Completed tests in GlazePlanner / Plans stay within the style limits on the real modules
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Planner mappings match the real modules...
+Completed tests in GlazePlanner / Planner mappings match the real modules
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Profile id follows the quantized content...
+Completed tests in GlazePlanner / Profile id follows the quantized content
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Profile and committed state survive a save and load bit-exactly...
+Completed tests in GlazePlanner / Profile and committed state survive a save and load bit-exactly
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Broken or newer saved data is rejected without touching the output...
+Completed tests in GlazePlanner / Broken or newer saved data is rejected without touching the output
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Calibration constants round-trip and reject unknown versions...
+Completed tests in GlazePlanner / Calibration constants round-trip and reject unknown versions
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Odd calibration snapshots still give finite plans...
+Completed tests in GlazePlanner / Odd calibration snapshots still give finite plans
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / makePlan and the helpers do not allocate...
+Completed tests in GlazePlanner / makePlan and the helpers do not allocate
+
+==== celadon_tests: 3421 passed, 0 failed ====

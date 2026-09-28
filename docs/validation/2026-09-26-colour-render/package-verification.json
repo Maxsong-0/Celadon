@@ -1,0 +1,13 @@
+{
+  "path": "/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-colour-render-preview-arm64.zip",
+  "bytes": 4069306,
+  "sha256": "f32ec8498c9c4385531a3e5627443d69c92cda0faf52a67bf91e5d988b5e3405",
+  "zip_integrity": "passed",
+  "entries": 59,
+  "contents": [
+    "Celadon.vst3",
+    "Celadon.component",
+    "试听说明.md",
+    "检查报告.md"
+  ]
+}

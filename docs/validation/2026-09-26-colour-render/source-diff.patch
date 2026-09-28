@@ -1,0 +1,2239 @@
+--- before/Source/PluginProcessor.cpp
++++ after/Source/PluginProcessor.cpp
+@@ -478,7 +478,7 @@
+     }
+ 
+     // ---- 信号链：IN 表 → Balance（v0.3）→ Color → Limit → OUT 表，由 CeladonChain 按顺序调（GLAZE 编排器在链里）----
+-    // 宿主时间线先交给链：编排器据此识别跳播 / 循环回绕、离线导出（不启动新的学习或校准）。
++    // 宿主时间线先交给链：编排器据此识别跳播 / 循环回绕；离线导出沿用相同的样本时间学习与校准。
+     chain.setHostInfo (readHostInfo());
+ 
+     // 宿主旁通走同一条链：链内把每个模块都置为旁通，输出是延迟补偿过的干信号，切换有 20 ms 交叉淡化。
+@@ -633,7 +633,7 @@
+ {
+     // DAW 存工程时调用：把整棵状态树存成 XML。根节点的属性（如界面缩放 celadon::uiid::uiScaleProperty）
+     // 会写成根元素的 XML 属性，与参数一起随工程保存。
+-    // GLAZE 的已提交版本（画像、方案、校准、标定快照）附在导出的 XML 末尾，不挂进 parameters.state：APVTS 的状态树里
++    // GLAZE 的已提交版本与独立执行快照附在导出的 XML 末尾，不挂进 parameters.state：APVTS 的状态树里
+     // 只许有参数节点（addMissingParameterNodes 在 Debug 版核对这一点），也不该让宿主的撤销 / 预设机制去碰它。
+     const auto state = parameters.copyState();
+ 
+--- before/Source/dsp/ColorModule.cpp
++++ after/Source/dsp/ColorModule.cpp
+@@ -50,14 +50,16 @@
+         constexpr double glueSnapDb               = 1.0e-6;  // 压缩量低于 1e-6 dB（增益差 1.2e-7）直接归零
+         constexpr double dbToNaturalLog           = 0.11512925464970229;   // ln(10) / 20：dB → exp 的指数
+ 
+-        // 母带 Heat：驱动量 d = 1 + h、不对称量 b = 0.04h，湿路在全范围按 0.25h 渐进混入。
+-        // 旧映射在 Heat 10 已全湿、Heat 100 驱动 10 倍，热母带会明显削平并产生很强的谐波 / 互调。
+-        // 降低驱动、保留至少 75% 干路，让满幅素材仍能保留瞬态；不增加分析器或自动增益环路。
++        // 低频原声保留，150 Hz 二阶高通只喂非线性支路；其残差加回延迟后的原声。
++        // Mid 保留温和偶次谐波；Side 奇对称且较轻，不把反相信号的偶次谐波变成虚假的中心声像。
+         constexpr float  heatDriveRange        = 1.0f;
+         constexpr float  heatMaxWetMix         = 0.25f;
+         constexpr float  heatMaxAsymmetry      = 0.04f;
++        constexpr float  heatSideDriveRange    = 0.5f;
++        constexpr float  heatSideResidualGain  = 0.75f;
++        constexpr double heatHighpassHz        = 150.0;
+         constexpr double heatDcBlockerHz       = 5.0;
+-        constexpr float  heatCalibrationDb     = -18.0f;   // 响度补偿的标定电平
++        constexpr float  heatCalibrationDb     = -18.0f;   // 旧曲线标定仅用作轻微残差makeup
+         constexpr int    heatTableSize         = 101;      // h = 0, 1, …, 100
+         constexpr int    heatCalibrationPoints = 1024;     // 标定正弦一个周期采多少点：与采样率无关，谐波远在 512 次以内衰尽
+ 
+@@ -283,8 +285,8 @@
+ 
+     const float* ColorModule::heatCompensationTable()
+     {
+-        // 对每个整数 Heat 值，用 −18 dBFS 正弦算 RMS(输入) / RMS(Tube 输出)：Heat 转大时 Tube 把波形压扁、
+-        // 有效值下降，乘上这个系数后响度基本不变（设计规格-Color「Heat」）。正弦在一个周期内均匀采样，
++        // 对每个整数 Heat 值，用 −18 dBFS 正弦算 RMS(输入) / RMS(Tube 输出)。现在这个轻微系数只乘残差，
++        // 保持高频染色强度接近原并联映射，不补偿或抬高原声。正弦在一个周期内均匀采样，
+         // 与采样率无关；用交流有效值（去掉均值）——不对称带来的直流会被 5 Hz 高通滤掉，不该算进响度。
+         // 标定走与音频路径同一个整段 Tube（processTubeBlock）：补偿系数对应的正是实际在用的曲线。
+         // 表只取决于常数，进程内第一次 prepare 时标定一次（C++ 保证函数内静态变量线程安全地只初始化一次），
+@@ -378,14 +380,19 @@
+         jassert (heatPrimeLength >= heatOversampler->getMemoryInSamples());
+ 
+         tube.setCurve (Saturator::Curve::Tube);
++        sideTube.setCurve (Saturator::Curve::Tube);
+         proxyTube.setCurve (Saturator::Curve::Tube);
+         configureTube (proxyTube, 0.0f);
+         heatCompensation = heatCompensationTable();
++        heatHighpass = designHighpass (sampleRate, heatHighpassHz, butterworthQ);
++        heatHighpassStates.assign ((size_t) numChannels, BiquadState {});
++        heatInputScratch.setSize (numChannels, maxBlockSize);
++        heatResidualScratch.assign ((size_t) maxBlockSize * (size_t) oversamplingFactor, 0.0f);
+ 
+         heatDryDelays.resize ((size_t) numChannels);
+         for (auto& d : heatDryDelays)   d.prepare (heatLatency, maxBlockSize);
+ 
+-        // 响度补偿要用「驱动这个样本时」的 Heat 值：湿路比输入晚 heatLatency 个样本，Heat 值也延迟同样长度。
++        // 残差makeup要用「驱动这个样本时」的 Heat 值：湿路比输入晚 heatLatency 个样本，Heat 值也延迟同样长度。
+         heatValueDelay.prepare (heatLatency, maxBlockSize);
+         heatDryScratch.setSize (numChannels, maxBlockSize);
+         heatScratch.assign ((size_t) maxBlockSize, 0.0f);
+@@ -394,7 +401,7 @@
+         heatHistory.setSize (numChannels, heatPrimeLength);
+         heatWorkScratch.setSize (numChannels, maxBlockSize);
+ 
+-        // 空闲时的近似湿路：Heat 过采样的第 1 级（同参数）来回，延迟 49；补 15 个样本与 64 对齐。
++        // 空闲时的近似残差：Heat 过采样的第 1 级（同参数）来回，延迟 49；补 15 个样本与 64 对齐。
+         heatProxyOversampler = std::make_unique<HalfBandOversampler> ((size_t) numChannels);
+         heatProxyOversampler->addOversamplingStage (0.05f, -90.0f, 0.06f, -75.0f);
+         heatProxyOversampler->initProcessing ((size_t) maxBlockSize);
+@@ -446,6 +453,7 @@
+         for (auto& s : highShelfStates)   s = BiquadState {};
+         for (auto& s : sidechainStates)   s = BiquadState {};
+         for (auto& s : dcBlockerStates)   s = 0.0;
++        for (auto& s : heatHighpassStates) s = BiquadState {};
+ 
+         heatOversampler->reset();
+         for (auto& d : heatDryDelays)   d.fill (0.0f);
+@@ -531,10 +539,7 @@
+         set (glueOnSmoothed, params.glue > 0.0f ? 1.0f : 0.0f);
+         set (heatSmoothed, params.heat);
+ 
+-        // Heat = 0 时整条饱和路淡出，走等长延迟的干路：d = 1 的 tanh 仍会轻微削顶，过采样来回一趟也到不了
+-        // −120 dB，只有逐位取干路才能精确 null（设计规格-Color 修订 2）。
+-        // d = 1 的 tanh 对热输入也会削顶；从 Heat 0 到 100 始终渐进混合，避免小值就变成全湿失真。
+-        // 干路等长延迟、过采样器线性相位；Heat 0 精确取干路，满值保留 75% 干路。
++        // 非线性残差从0到25%渐进加入原声。Heat0逐位取64样本干路；参数仍20ms平滑。
+         set (heatMixSmoothed, heatMaxWetMix * (params.heat / 100.0f));
+ 
+         // 除以 100（不是乘 0.01f）：100 / 100 精确等于 1.0f，Mix = 100% 时才能逐位取湿路。
+@@ -578,6 +583,7 @@
+     void ColorModule::updateHeatDrive (float heat) noexcept
+     {
+         configureTube (tube, heat);
++        sideTube.setDriveAndAsymmetry (1.0f + (heat / 100.0f) * heatSideDriveRange, 0.0f);
+         heatForTube = heat;
+     }
+ 
+@@ -600,7 +606,7 @@
+ 
+     void ColorModule::setHeatDcProxyEnabled (bool shouldUseProxy) noexcept
+     {
+-        // 关掉时：下一块起近似链停跑、直流阻断吃真实湿路；湿路若正在跳过，同上先预热再照常处理。
++        // 关掉时：下一块起近似链停跑、直流阻断吃真实8×残差；湿路若正在跳过，同上先预热再照常处理。
+         // 重新打开时：Heat 目标为 0 的那一块先从环形缓冲预热近似链（与一直在跑逐位相同）。
+         heatDcProxyEnabled = shouldUseProxy;
+     }
+@@ -1013,9 +1019,46 @@
+             && heatForTube == 0.0f;
+     }
+ 
++    void ColorModule::prepareHeatInput (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept
++    {
++        // 高通在1×始终运行，先编码M/S再滤波；不改变原声，重开Heat时IIR已经拥有完整历史。
++        for (int i = 0; i < numSamples; ++i)
++        {
++            if (numChannelsToUse == 2)
++            {
++                const auto left = channels[0][startSample + i];
++                const auto right = channels[1][startSample + i];
++                const auto mid = left * 0.5f + right * 0.5f; // 先减半，有限大输入不因L+R先溢出
++                const auto side = left * 0.5f - right * 0.5f;
++                heatInputScratch.setSample (0, i, (float) processBiquad ((double) mid, heatHighpass, heatHighpassStates[0]));
++                heatInputScratch.setSample (1, i, (float) processBiquad ((double) side, heatHighpass, heatHighpassStates[1]));
++            }
++            else
++            {
++                for (int ch = 0; ch < numChannelsToUse; ++ch)
++                    heatInputScratch.setSample (ch, i, (float) processBiquad ((double) channels[ch][startSample + i],
++                                                                             heatHighpass, heatHighpassStates[(size_t) ch]));
++            }
++        }
++        for (int ch = 0; ch < numChannelsToUse; ++ch)
++        {
++            snapToZero (heatHighpassStates[(size_t) ch].s1);
++            snapToZero (heatHighpassStates[(size_t) ch].s2);
++        }
++    }
++
++    void ColorModule::processResidualBlock (float* data, int numSamples, const Saturator& shaper) noexcept
++    {
++        // 同一8×链内相减，不把滤波器本身的线性频响误当染色，也不另开一条过采样干路。
++        std::memcpy (heatResidualScratch.data(), data, sizeof (float) * (size_t) numSamples);
++        shaper.processTubeBlock (data, numSamples);
++        for (int i = 0; i < numSamples; ++i)
++            data[i] -= heatResidualScratch[(size_t) i];
++    }
++
+     void ColorModule::recordHeatHistory (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept
+     {
+-        // 本块的 Heat 输入写进环形缓冲（只需要最后 heatPrimeLength 个）；写指针始终指向最旧的样本。
++        // 本块高通后的M/S输入写进环形缓冲；IIR不重跑，预热只复原有限记忆的半带FIR。
+         const auto count = juce::jmin (numSamples, heatPrimeLength);
+         const auto skipped = numSamples - count;
+         const auto position = (heatHistoryWrite + skipped) % heatPrimeLength;
+@@ -1050,12 +1093,12 @@
+ 
+     void ColorModule::primeHeatOversampler (int numChannelsToUse) noexcept
+     {
+-        // 湿路从空闲回到工作：清空过采样器，把本块之前的 heatPrimeLength 个 Heat 输入按原顺序、用 Heat 0 的 Tube
++        // 湿路从空闲回到工作：清空过采样器，把本块之前的 heatPrimeLength 个高通M/S输入按原顺序、用 Heat0 残差
+         // 重跑一遍（输出丢掉）。半带 FIR 是有限记忆（133 个 1× 样本 < 256），中间的 Tube 无记忆、这段里驱动量
+         // 一直是 Heat 0（进入空闲的条件保证了这 256 个样本都在空闲条件下），所以预热后的状态与一直在跑逐位相同。
+         jassert (heatForTube == 0.0f);
+ 
+-        // 延迟后的 Heat 值（响度补偿用）空闲时没有推：一直在跑时它此刻整条都是 0（Heat 静止在 0 已 ≥ 256 个样本，
++        // 延迟后的 Heat 值（残差makeup用）空闲时没有推：一直在跑时它此刻整条都是 0（Heat 静止在 0 已 ≥ 256 个样本，
+         // 比延迟 64 长），直接填 0 就与一直在跑逐位相同。
+         heatValueDelay.fill (0.0f);
+ 
+@@ -1075,7 +1118,8 @@
+             auto upsampled = heatOversampler->processSamplesUp (subBlock);
+ 
+             for (size_t ch = 0; ch < upsampled.getNumChannels(); ++ch)
+-                tube.processTubeBlock (upsampled.getChannelPointer (ch), (int) upsampled.getNumSamples());
++                processResidualBlock (upsampled.getChannelPointer (ch), (int) upsampled.getNumSamples(),
++                                      upsampled.getNumChannels() == 2 && ch == 1 ? sideTube : tube);
+ 
+             heatOversampler->processSamplesDown (subBlock);
+ 
+@@ -1086,7 +1130,7 @@
+ 
+     void ColorModule::runHeatProxy (int numSamples, int numChannelsToUse) noexcept
+     {
+-        // heatWorkScratch 里的 numSamples 个 Heat 输入原地换成「近似湿路」：Heat 过采样第 1 级（2×）来回 + Heat 0 的 Tube，
++        // heatWorkScratch里的高通M/S输入原地换成近似残差：已有第1级（2×）来回 + Heat0 的 Tube(x)−x，
+         // 直流增益补齐第 2、3 级，再延迟到与 Heat 的 64 样本对齐。
+         juce::dsp::AudioBlock<float> block (heatWorkScratch);
+         auto subBlock = block.getSubsetChannelBlock (0, (size_t) numChannelsToUse).getSubBlock (0, (size_t) numSamples);
+@@ -1101,7 +1145,7 @@
+             for (int j = 0; j < count; ++j)
+                 data[j] *= heatProxyUpGain;
+ 
+-            proxyTube.processTubeBlock (data, count);
++            processResidualBlock (data, count, proxyTube);
+         }
+ 
+         heatProxyOversampler->processSamplesDown (subBlock);
+@@ -1145,7 +1189,7 @@
+         heatUpdateCounter = (int) (((long long) heatUpdateCounter + (long long) numSamples * oversamplingFactor)
+                                     % coefficientUpdateInterval);
+ 
+-        // 这时每个样本的直流阻断输入本来就是近似湿路（见 processHeat「直流阻断的输入」），湿路淡化为 0、输出逐位是干路：
++        // 这时每个样本的直流阻断输入本来就是近似残差（见 processHeat），湿路淡化为 0、输出逐位是干路：
+         // 与不跳过时逐位相同。
+         for (int ch = 0; ch < numChannelsToUse; ++ch)
+         {
+@@ -1187,7 +1231,8 @@
+                 length = juce::jmin (length + coefficientUpdateInterval, numUpsampled - j);
+ 
+             for (size_t ch = 0; ch < upsampled.getNumChannels(); ++ch)
+-                tube.processTubeBlock (upsampled.getChannelPointer (ch) + j, length);
++                processResidualBlock (upsampled.getChannelPointer (ch) + j, length,
++                                      upsampled.getNumChannels() == 2 && ch == 1 ? sideTube : tube);
+ 
+             heatUpdateCounter = (heatUpdateCounter + length) % coefficientUpdateInterval;
+             j += length;
+@@ -1202,17 +1247,9 @@
+         for (int ch = 0; ch < numChannelsToUse; ++ch)
+             heatDryDelays[(size_t) ch].process (channels[ch] + startSample, heatDryScratch.getWritePointer (ch), numSamples);
+ 
+-        // ---- 直流阻断的输入（v0.5）----
+-        // 5 Hz 直流阻断是无限记忆的 IIR（时间常数 32 ms）：湿路要想在 Heat = 0 时整段跳过，就不能再让它吃真实湿路，
+-        // 否则重开时它的状态没法复原。所以定为：Heat 与湿路淡化都已落到 0（湿路对输出毫无作用）的每个样本上，
+-        // 直流阻断改吃「近似湿路」——Heat 过采样的第 1 级（2×，同一组滤波器）来回 + Heat 0 的 Tube，直流增益补齐
+-        // 第 2、3 级，延迟对齐到 64。跳过与不跳过都按这个定义算，所以两者逐位相同，也与块怎么切无关。
+-        // 与 v0.4（一直吃真实湿路）的差别：只在 Heat 从 0 重开后显现，按 32 ms 衰减、又乘着湿路 20 ms 的淡入。
+-        // 直流阻断只记得 5 Hz 以下的成分，近似只需在低频准：2× 下三阶和频最高 1.5 倍采样率，折到 0.5 ～ 1 倍采样率
+-        // 之间，正好被第 1 级下采样滤波器滤掉、到不了低频（1× 直接算 tanh 做不到：满幅白噪声下会差到 −58 dBFS）。
+-        // 实测（Heat 0 → 60 → 0 → 30 反复开关，与 setHeatDcProxyEnabled (false) 的 v0.4 定义比，ColorTests）：满幅白噪声最坏
+-        // −90.6 dBFS（48k；44.1k / 96k / 192k 为 −96.5 / −102.2 / −100.9），像音乐的信号 −138.5 dBFS。
+-        // 近似链只在 Heat 目标为 0 时跑（开始跑时从环形缓冲预热，状态与一直在跑逐位相同），Heat 开着时不花这份 CPU。
++        // 5 Hz直流阻断记忆无限长：Heat0时两种执行模式都改吃已有2×链的近似残差，
++        // 才能在跳过8×后精确接回同一状态。近似链与8×链共用高通后的M/S输入历史；
++        // HP始终推进，FIR按256个历史样本预热。代理只在Heat目标为0时运行，不增加第二条工作8×链。
+         const bool proxyWanted = heatDcProxyEnabled && heatSmoothed.getTargetValue() == 0.0f;
+ 
+         if (proxyWanted && ! heatProxyRunning)
+@@ -1222,14 +1259,16 @@
+ 
+         // ---- 湿路空闲跳过（v0.5 研究 P3 R3d）----
+         // 「Heat 与湿路淡化静止在 0、驱动量已是 Heat 0」连续成立 ≥ heatPrimeLength 个样本后，过采样 + Tube 整段不跑：
+-        // 输出本来就逐位是干路，直流阻断吃的本来就是近似湿路。条件一旦不成立（Heat 打开、或关掉跳过），
++        // 输出本来就逐位是干路，直流阻断吃的本来就是近似残差。条件一旦不成立（Heat 打开、或关掉跳过），
+         // 先用环形缓冲里本块之前的 heatPrimeLength 个输入预热过采样器（有限记忆，逐位复原），再照常处理本块。
+         if (idleSkippingEnabled && heatDcProxyEnabled && isHeatWetIdleCondition())
+         {
+             if (! heatWetIdle)
+             {
++                // 只按此前已处理的Heat0历史决定是否跳过本块；当前块尚未运行，不能预支其样本数。
++                // 例如333样本块的淡出刚结束时，延迟64样本的Heat尾巴可能仍非0，必须先让真实残差/DC跑完。
++                heatWetIdle = heatIdleSamples >= heatPrimeLength;
+                 heatIdleSamples = juce::jmin (heatIdleSamples + numSamples, heatPrimeLength);
+-                heatWetIdle = heatIdleSamples >= heatPrimeLength;
+             }
+         }
+         else
+@@ -1243,14 +1282,15 @@
+             }
+         }
+ 
+-        // 预热读的是「本块之前」的样本，所以本块的输入在判断之后才写进环形缓冲（湿路改写 io 之前）。
+-        recordHeatHistory (channels, startSample, numSamples, numChannelsToUse);
+-
+-        // 本块的近似湿路（Heat 目标为 0 时）。
++        // 先按旧历史预热，然后推进本块1×高通并记录其输出；不能用短历史重新初始化无限记忆的HP。
++        prepareHeatInput (channels, startSample, numSamples, numChannelsToUse);
++        recordHeatHistory (heatInputScratch.getArrayOfReadPointers(), 0, numSamples, numChannelsToUse);
++
++        // 本块的近似残差（Heat 目标为 0 时）。
+         if (heatProxyRunning)
+         {
+             for (int ch = 0; ch < numChannelsToUse; ++ch)
+-                std::memcpy (heatWorkScratch.getWritePointer (ch), channels[ch] + startSample, sizeof (float) * (size_t) numSamples);
++                std::memcpy (heatWorkScratch.getWritePointer (ch), heatInputScratch.getReadPointer (ch), sizeof (float) * (size_t) numSamples);
+ 
+             runHeatProxy (numSamples, numChannelsToUse);
+         }
+@@ -1282,12 +1322,13 @@
+         auto subBlock = block.getSubsetChannelBlock (0, (size_t) numChannelsToUse)
+                              .getSubBlock ((size_t) startSample, (size_t) numSamples);
+ 
+-        auto upsampled = heatOversampler->processSamplesUp (subBlock);
++        juce::dsp::AudioBlock<float> heatInput (heatInputScratch);
++        const auto filtered = heatInput.getSubsetChannelBlock (0, (size_t) numChannelsToUse).getSubBlock (0, (size_t) numSamples);
++        auto upsampled = heatOversampler->processSamplesUp (filtered);
+         processTubeSegments (upsampled);
+         heatOversampler->processSamplesDown (subBlock);
+ 
+-        // 下采样后：5 Hz 一阶高通去掉不对称必然带来的直流，乘响度补偿；最后与干路交叉淡化
+-        // （Heat 全范围采用渐进并联混合，参数变化有 20 ms 平滑；mix = 0 逐位取干路）。
++        // 下采样后仅给非线性残差去直流并轻微makeup；M/S解码后加入原声，低频不经过残差高通。
+         for (int i = 0; i < numSamples; ++i)
+         {
+             const auto compensation = heatCompensationFor (heatDelayedScratch[(size_t) i]);
+@@ -1296,7 +1337,7 @@
+             // v0.6 统计：有效 Heat = 驱动这个湿路样本的 Heat 值（已与湿路对齐）× 湿路淡化（只读）。
+             stats.heatDriveSum += (double) heatDelayedScratch[(size_t) i] * (double) mix;
+ 
+-            // 湿路淡化为 0、驱动这个湿路样本的 Heat 也是 0：直流阻断吃近似湿路（见上「直流阻断的输入」）。
++            // 湿路淡化为0、驱动这个残差样本的Heat也是0：直流阻断吃近似残差。
+             const bool useProxy = heatProxyRunning && mix <= 0.0f && heatDelayedScratch[(size_t) i] == 0.0f;
+ 
+             for (int ch = 0; ch < numChannelsToUse; ++ch)
+@@ -1305,12 +1346,20 @@
+                 const auto dcInput = useProxy ? heatWorkScratch.getReadPointer (ch)[i] : sample;
+                 const auto y = dcBlock ((double) dcInput, dcBlockerStates[(size_t) ch]);
+ 
+-                const auto wet = (float) y * compensation;
++                sample = (float) y * compensation; // 此时仍是M/S残差，所有声道DC先处理完再解码
++            }
++            if (numChannelsToUse == 2)
++            {
++                const auto mid = channels[0][startSample + i];
++                const auto side = channels[1][startSample + i] * heatSideResidualGain;
++                channels[0][startSample + i] = mid + side;
++                channels[1][startSample + i] = mid - side;
++            }
++            for (int ch = 0; ch < numChannelsToUse; ++ch)
++            {
++                auto& sample = channels[ch][startSample + i];
+                 const auto dry = heatDryScratch.getReadPointer (ch)[i];
+-
+-                if (mix >= 1.0f)       sample = wet;
+-                else if (mix <= 0.0f)  sample = dry;
+-                else                   sample = dry + (wet - dry) * mix;
++                sample = mix <= 0.0f ? dry : dry + sample * mix;
+             }
+         }
+ 
+--- before/Source/dsp/ColorModule.h
++++ after/Source/dsp/ColorModule.h
+@@ -9,25 +9,26 @@
+       输入 ─┬─ Tone（100 Hz 低搁架 −Tone / 8 kHz 高搁架 +Tone，double 精度）
+             │   → Glue（前馈总线压缩：侧链 100 Hz 高通、左右联动峰值、2:1、6 dB 软拐点、
+             │           攻击 20 ms、释放 50 ～ 500 ms 按近 500 ms 平均压缩量自适应、自动补偿；Glue = 0 彻底关闭）
+-            │   → Heat（自带 8× 过采样包住 Saturator::Tube，5 Hz 一阶高通去直流，响度补偿查表；
+-            │           Heat = 0 时 20 ms 淡出到等长延迟干路）
++            │   → Heat（原声延迟 64 样本 + 非线性残差：M/S → 150 Hz 高通 → 同一 8× Tube(x)−x
++            │           → 5 Hz 去直流 → M/S 解码；Heat = 0 时 20 ms 淡出到等长延迟原声）
+             │   → Mix（干路 = 本模块输入经等长延迟）→ Output
+             │                                                         │
+             └──────── 等长延迟的干路 ─────────── Bypass 交叉淡化 ←──────┘
+ 
+-    Heat 的 h = Heat / 100：驱动 1 + h、不对称 0.04h、湿路比例 0.25h；满值仍保留 75% 干路。
++    Heat 的 h = Heat / 100：Mid 驱动 1+h、不对称 0.04h、残差比例 0.25h；Side 驱动 1+0.5h、
++    严格奇对称，残差比例再乘 0.75。原声不经过支路高通；纯 Side 不生成 Mid、mono 不生成 Side。
++    旧 −18 dB 曲线标定表仅作轻微残差 makeup，不补偿或改变低频原声的电平。
+     延迟固定 = Heat 过采样延迟（整数 64 样本，与采样率、参数都无关）。
+     只依赖 juce_dsp，可无头编译做自动测试。
+ 
+-    v0.5 性能优化（研究 P3 R1 ～ R4；听感设计不变）：
++    沿用 v0.5 性能优化（研究 P3 R1 ～ R4），已适配当前残差拓扑：
+       - Heat 的 8× 过采样换成块式 SIMD 半带 FIR（HalfBandOversampler：同系数、同线性相位、同延迟 64）；
+       - Tube 在驱动量不变的一段上整段调用 Saturator::processTubeBlock（4 路并行有理式 tanh）；
+       - 空闲整段跳过：Tone 归零且状态落到 0、Glue 完全关掉、Mix / Output / Bypass 都静止、Heat 湿路静止在 0
+         持续 ≥ 256 样本时，各自整段跳过，都与不跳过逐位相同（含 ±0 与 NaN / Inf 输入；Heat 重开时用最近 256 个
+-        输入预热过采样器）；为此 Heat 与湿路淡化落到 0 期间，5 Hz 直流阻断改吃 2× 近似湿路——这是与 v0.4 唯一
+-        不止舍入级的差别，只在 Heat 从 0 重开后的几十毫秒里显现（量级见 .cpp processHeat 与 ColorTests）；
++        高通后的 M/S 输入预热过采样器）；150 Hz 高通一直运行，空闲时 5 Hz 直流阻断吃已有 2× 链的近似残差；
+       - 三条 64 样本延迟按块拷贝；ARM 上 Tone 搁架与 Glue 侧链高通两声道打包（与标量写法逐位相同）；
+-      - Heat 响度补偿表与采样率无关，进程内只标定一次。
++      - Heat 残差 makeup 表与采样率无关，进程内只标定一次。
+ 
+   ==============================================================================
+ */
+@@ -99,8 +100,8 @@
+         // 被跳过的级不做算术，不会把这些样本冲成 0——差别 < 1.2e-38（约 −758 dBFS）；不含非规格化数的输入仍逐位相同。
+         void setIdleSkippingEnabled (bool shouldSkip) noexcept;
+ 
+-        // 测试用。默认开着：Heat 与湿路淡化都落到 0 时，5 Hz 直流阻断改吃「近似湿路」（见 .cpp processHeat）。
+-        // 关掉 = v0.4 的定义（直流阻断永远吃真实湿路），这时 Heat 湿路不能空闲跳过；只用来量近似带来的差别有多小。
++        // 测试用。默认开着：Heat 与湿路淡化都落到 0 时，5 Hz 直流阻断改吃「近似残差」（见 .cpp processHeat）。
++        // 关掉 = 直流阻断永远吃真实8×残差，这时 Heat 湿路不能空闲跳过；只用来量代理近似的差别。
+         void setHeatDcProxyEnabled (bool shouldUseProxy) noexcept;
+ 
+         // 最近处理的一段里哪些级走了空闲跳过（测试用：确认跳过路径真的走到了；与 process 同一线程调用）。
+@@ -164,6 +165,8 @@
+         void primeHeatProxy (int numChannelsToUse) noexcept;
+         void runHeatProxy (int numSamples, int numChannelsToUse) noexcept;
+         void processHeatWhileIdle (float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept;
++        void prepareHeatInput (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept;
++        void processResidualBlock (float* data, int numSamples, const Saturator& shaper) noexcept;
+         void processTubeSegments (juce::dsp::AudioBlock<float>& upsampled) noexcept;
+         double dcBlock (double x, double& state) const noexcept;   // 5 Hz 一阶高通的一步，湿路与空闲近似共用
+ 
+@@ -200,31 +203,35 @@
+         double attackCoeff = 0.0, releaseCoeff = 0.0, averageCoeff = 0.0;
+         int adaptCounter = 0;
+ 
+-        // Heat：8× 过采样包住 Tube，之后 5 Hz 一阶高通去直流、响度补偿查表、Heat = 0 时淡出到干路。
++        // Heat：仅高通后的 M/S 非线性残差过采样，原声沿固定 64 样本干路保留。
+         std::unique_ptr<HalfBandOversampler> heatOversampler;
+         int heatLatency = 0;                // = getLatencySamples()，整数 64
+         int oversamplingFactor = 1;
+-        Saturator tube;
++        Saturator tube, sideTube;
++        BiquadCoefficients heatHighpass;
++        std::vector<BiquadState> heatHighpassStates; // 1×，包括 Heat0 时也推进，不能靠有限历史重建 IIR
++        juce::AudioBuffer<float> heatInputScratch;   // 高通后的 M/S（mono = Mid），也是预热历史的唯一来源
++        std::vector<float> heatResidualScratch;     // 8× 曲线整形前的输入副本，所有声道顺序共用
+         float heatForTube = -1.0f;          // 当前驱动量对应的 Heat 值
+         int heatUpdateCounter = 0;          // 过采样域计数器，跨块延续
+-        const float* heatCompensation = nullptr;   // h = 0 … 100 的响度补偿系数（进程内只标定一次）
++        const float* heatCompensation = nullptr;   // h = 0 … 100 的轻微残差 makeup（进程内只标定一次）
+         std::vector<BlockDelay> heatDryDelays;
+-        BlockDelay heatValueDelay;          // 平滑后的 Heat 值延迟 heatLatency，响度补偿与湿路对齐
++        BlockDelay heatValueDelay;          // 平滑后的 Heat 值延迟 heatLatency，残差makeup与湿路对齐
+         juce::AudioBuffer<float> heatDryScratch;
+         std::vector<float> heatScratch;             // 本块每个样本平滑后的 Heat 值
+         std::vector<float> heatDelayedScratch;      // 同上经 heatLatency 延迟
+         double dcBlockerB0 = 1.0, dcBlockerB1 = 0.0, dcBlockerA1 = 0.0;   // 一阶高通（转置直接 II 型，一个状态）
+         std::vector<double> dcBlockerStates;
+ 
+-        // Heat 湿路空闲跳过（见 processHeat）：最近 heatPrimeLength 个 Heat 输入的环形缓冲，重开时预热过采样器用。
++        // Heat 湿路空闲跳过：最近 heatPrimeLength 个高通后的 M/S 输入，重开时预热同一个过采样器。
+         juce::AudioBuffer<float> heatHistory;
+         int heatHistoryWrite = 0;           // 下一个写入位置 = 最旧样本的位置
+-        int heatIdleSamples = 0;            // 「湿路静止在 0」已连续成立的样本数（封顶 heatPrimeLength）
++        int heatIdleSamples = 0;            // 此前已处理的「湿路静止在0」连续样本数（封顶heatPrimeLength）
+         bool heatWetIdle = false;           // 湿路正在跳过
+         juce::AudioBuffer<float> heatWorkScratch;   // 预热与空闲时直流阻断近似驱动的临时区
+ 
+-        // 近似湿路：Heat 与湿路淡化都落到 0 时驱动 5 Hz 直流阻断（见 processHeat「直流阻断的输入」）。
+-        // Heat 过采样的第 1 级（2×，同一组滤波器）来回 + Heat 0 的 Tube，直流增益补齐第 2、3 级，再延迟到与 64 对齐。
++        // 近似残差：Heat 与湿路淡化都落到0时驱动5 Hz直流阻断（见processHeat）。
++        // Heat 过采样的第 1 级（2×，同一组滤波器）来回 + Heat0 的 Tube(x)−x，补齐直流增益并延迟到64。
+         std::unique_ptr<HalfBandOversampler> heatProxyOversampler;
+         std::vector<BlockDelay> heatProxyAlignDelays;
+         Saturator proxyTube;                // 固定为 Heat 0 的 Tube（即 tanh）
+--- before/Source/dsp/GlazeConstants.cpp
++++ after/Source/dsp/GlazeConstants.cpp
+@@ -35,7 +35,7 @@
+         Constants makeFactoryConstants() noexcept
+         {
+             Constants c;   // A2 追加的字段（模型、映射、换算表）的默认值就是出厂值，这里只写风格与阶段 0 字段
+-            c.version = 4;
++            c.version = 5;
+             c.algorithmVersion = currentAlgorithmVersion;
+ 
+             auto& warm = c.warm;
+--- before/Source/dsp/GlazeConstants.h
++++ after/Source/dsp/GlazeConstants.h
+@@ -167,23 +167,23 @@
+         std::array<float, (size_t) heatTableAmounts> heatTableAmount { 0.0f, 5.0f, 10.0f, 15.0f, 20.0f, 30.0f, 40.0f, 60.0f, 100.0f };
+         // [电平格点 × heatTableAmounts + Heat 格点]。实测（48 kHz、块 512）：tests/GlazeBehaviourReport 的类音乐素材
+         // （底鼓 + 军鼓 + 贝斯 + 和弦，PLR 13 dB）按真峰值缩放到各格点，只开 Heat，量整体响度与真峰值的变化。
+-        // v0.6.2 实测：并联 Heat（湿路最高 25%，drive 最高 2），Mix 100 %、Output 0；每行相对 Heat 0。
+-        // 证据：docs/validation/2026-09-26-heat-revision/heat-table.log。改 Heat 映射时必须重新测量并升级版本。
++        // 算法5实测：保留原声，150 Hz高通后的M/S残差染色，Mix 100 %、Output 0；每行相对 Heat 0。
++        // 证据：docs/validation/2026-09-26-colour-render/heat-table.log。改 Heat 映射时必须重新测量并升级版本。
+         std::array<float, (size_t) heatTableSize> heatLoudnessDb
+         {
+-             0.00000f, -0.00016f, -0.00025f, -0.00026f, -0.00018f,  0.00025f,  0.00108f,  0.00408f,  0.01642f,    // -18 dBTP
+-             0.00000f, -0.00047f, -0.00091f, -0.00134f, -0.00176f, -0.00253f, -0.00322f, -0.00432f, -0.00524f,    // -12 dBTP
+-             0.00000f, -0.00163f, -0.00346f, -0.00550f, -0.00777f, -0.01303f, -0.01932f, -0.03527f, -0.08220f,    // -6 dBTP
+-             0.00000f, -0.00575f, -0.01238f, -0.01993f, -0.02844f, -0.04839f, -0.07240f, -0.13303f, -0.30585f,    // +0 dBTP
+-             0.00000f, -0.01741f, -0.03711f, -0.05911f, -0.08338f, -0.13867f, -0.20281f, -0.35663f, -0.75952f    // +6 dBTP
++             0.00000f, -0.00001f, -0.00001f, -0.00001f, -0.00002f, -0.00003f, -0.00004f, -0.00005f, -0.00006f,    // -18 dBTP
++             0.00000f, -0.00002f, -0.00004f, -0.00006f, -0.00009f, -0.00014f, -0.00021f, -0.00037f, -0.00081f,    // -12 dBTP
++             0.00000f, -0.00007f, -0.00016f, -0.00026f, -0.00037f, -0.00063f, -0.00094f, -0.00176f, -0.00422f,    // -6 dBTP
++             0.00000f, -0.00029f, -0.00063f, -0.00102f, -0.00146f, -0.00251f, -0.00379f, -0.00711f, -0.01702f,    // +0 dBTP
++             0.00000f, -0.00105f, -0.00226f, -0.00364f, -0.00519f, -0.00881f, -0.01313f, -0.02383f, -0.05284f    // +6 dBTP
+         };
+         std::array<float, (size_t) heatTableSize> heatPeakDb
+         {
+-             0.00000f,  0.00338f,  0.00679f,  0.01024f,  0.01373f,  0.02086f,  0.02821f,  0.04378f,  0.07946f,    // -18 dBTP
+-             0.00000f,  0.00157f,  0.00288f,  0.00392f,  0.00467f,  0.00529f,  0.00469f, -0.00050f, -0.02843f,    // -12 dBTP
+-             0.00000f, -0.00503f, -0.01138f, -0.01908f, -0.02818f, -0.05076f, -0.07935f, -0.15545f, -0.38671f,    // -6 dBTP
+-             0.00000f, -0.02398f, -0.05148f, -0.08243f, -0.11682f, -0.19565f, -0.28747f, -0.50776f, -1.08011f,    // +0 dBTP
+-             0.00000f, -0.05542f, -0.11523f, -0.17914f, -0.24689f, -0.39297f, -0.55191f, -0.90386f, -1.72702f    // +6 dBTP
++             0.00000f,  0.00000f,  0.00000f, -0.00000f, -0.00000f, -0.00001f, -0.00003f, -0.00008f, -0.00029f,    // -18 dBTP
++             0.00000f,  0.00000f,  0.00001f,  0.00001f,  0.00001f, -0.00000f, -0.00002f, -0.00009f, -0.00040f,    // -12 dBTP
++             0.00000f,  0.00001f,  0.00003f,  0.00004f,  0.00005f,  0.00006f,  0.00008f,  0.00005f, -0.00023f,    // -6 dBTP
++             0.00000f,  0.00005f,  0.00011f,  0.00017f,  0.00023f,  0.00035f,  0.00047f,  0.00071f,  0.00109f,    // +0 dBTP
++             0.00000f,  0.00015f,  0.00030f,  0.00045f,  0.00061f,  0.00093f,  0.00124f,  0.00184f,  0.00274f    // +6 dBTP
+         };
+ 
+         // Clip 模块的参数映射【映射】（LimiterModule.cpp：阈值 dB = jmap (Clip, 0 → +12, 100 → Ceiling)；Saturator SoftClip）
+--- before/Source/dsp/GlazeController.cpp
++++ after/Source/dsp/GlazeController.cpp
+@@ -17,8 +17,8 @@
+         p95、Heat 驱动）按 100 ms 音乐时隙、保护层同样的窗口口径（3 s 窗、累计超出 ≥ 1 s）判定，容差 Glue 0.1 dB、Heat 0.5；
+         p95 近似为「超过 p95 上限的时隙 > 5 %」（与保护层同一近似）。保护层的「方案受限」按进入的那一刻（边沿）计一次，
+         它在下限停留期间不重复触发（它要等恢复才清除，否则同一次超限会连降好几档）。
+-      - 已提交版本的发布：提交、校准结束、约束反馈、读取时立即尝试；只有方案随 GLAZE / 手动值变了时最多每 100 ms 音频发布一次
+-        （方案随工程保存，只在旧算法版本时照用；少发几次不影响任何声音）。音频线程只 try-lock，拿不到下块再发。
++      - 已提交版本与执行快照每块尝试发布：固定大小拷贝，音频线程只 try-lock，拿不到下块再发，不分配或等待。
++        执行快照保存刚刚听到的参数依据，未完成的候选与校准不混入正式版本。
+       - 状态快照用单写者序列锁（seqlock）：音频线程每块写一次，读者（界面 30 ms 一次）读前后两次序号、不相等就重读，
+         数据字按 32 位原子量逐字存取（没有数据竞争）；重试有上限（64 次），用完（实际碰不到）给最后一次读到的内容。
+       - 播放位置不连续的判定容差 max(2 样本, 1 ms)：宿主报的位置偶有一两个样本的舍入；真正的跳播远大于此。
+@@ -71,7 +71,7 @@
+ 
+         constexpr const char* controllerTag = "GLAZE_CONTROLLER";
+         constexpr int controllerFormatVersion = 1;
+-        constexpr int heatCurveMigrationAlgorithmVersion = 3;  // v3 改变 Heat 传递曲线，旧表的补偿 Gain 不能配新 DSP 沿用。
++        constexpr int heatCurveMigrationAlgorithmVersion = 5;  // v5 改变 Heat 拓扑，旧表/执行快照的补偿不能配新 DSP 沿用。
+ 
+         bool isFinite (float x) noexcept   { return std::isfinite (x); }
+ 
+@@ -116,6 +116,20 @@
+             r.limitGainDb    = mix (a.limitGainDb,    b.limitGainDb);
+             r.limitClip      = mix (a.limitClip,      b.limitClip);
+             return r;
++        }
++
++        bool sameCalibrationPlan (const Plan& a, const Plan& b) noexcept
++        {
++            const auto& x = a.increments;
++            const auto& y = b.increments;
++            return a.algorithmVersion == b.algorithmVersion && a.constantsVersion == b.constantsVersion
++                && sameBits (x.balanceRecover, y.balanceRecover) && sameBits (x.balanceTame, y.balanceTame)
++                && sameBits (x.colorToneDb, y.colorToneDb) && sameBits (x.colorGlue, y.colorGlue)
++                && sameBits (x.colorHeat, y.colorHeat) && sameBits (x.limitGainDb, y.limitGainDb)
++                && sameBits (x.limitClip, y.limitClip) && sameBits (a.effectiveGainDb, b.effectiveGainDb)
++                && sameBits (a.effectiveTargetLufs, b.effectiveTargetLufs)
++                && sameBits (a.weights.warm, b.weights.warm) && sameBits (a.weights.punchy, b.weights.punchy)
++                && sameBits (a.weights.clean, b.weights.clean);
+         }
+ 
+         // 决策器会读到的手动值是否逐位相同（glazePercent / glazeStyle 另算）。浮点按位比，布尔与枚举按值比。
+@@ -252,7 +266,7 @@
+             Status status;
+             Phase committedPhase = Phase::unlearned;   // 不算聆听时的阶段（重新聆听被取消后回到它）
+             float minListenSeconds = 15.0f;
+-            bool offline = false;                      // 离线渲染中：挂起的「重新聆听」请求留到回到实时才接，状态不叠加它
++            bool offline = false;                      // 宿主离线标记；音频状态机仍按同一规则运行
+         };
+ 
+         //==============================================================================
+@@ -402,6 +416,7 @@
+         {
+             CommittedState committed;
+             float feedbackMaxGainDb = unlimitedGainDb;
++            ExecutionState execution;
+         };
+ 
+         juce::String floatToHex (float value)
+@@ -465,6 +480,13 @@
+         bool savedPlanMode = false;
+         bool savedPlanGlazeKnown = false;
+         float savedPlanGlaze = 0.0f;
++        ExecutionState execution, lastExecution;
++        bool executionHeld = false;
++        bool restoredTamePending = false;
++        bool heldBiasKnown = false;
++        bool executionRequiresCalibration = false;
++        float heldBiasDb = 0.0f, calibrationBaseBiasDb = 0.0f;
++        CalibrationReference heldBiasReference;
+ 
+         // ---- 聆听 ----
+         Learning learning = Learning::none;
+@@ -590,18 +612,29 @@
+         const PlanSlot& toSlot() const noexcept   { return slots[(size_t) toIndex]; }
+         PlanSlot& fromSlot() noexcept             { return slots[(size_t) (1 - toIndex)]; }
+ 
+-        bool hostPlaying() const noexcept   { return ! host.hasPlayState || host.isPlaying; }
++        bool hostPlaying() const noexcept   { return offline || ! host.hasPlayState || host.isPlaying; }
+ 
+         //==============================================================================
+         // ---- 方案源 ----
+ 
+-        // 此刻应当生效的方案源：已提交版本；未学习时首次聆听的候选画像（实时）或保守方案（没画像、离线导出）。
++        // 此刻方案源：适用的执行快照、已提交版本，或首次聆听的候选；实时与离线遵循相同规则。
+         PlanSource desiredSource() noexcept
+         {
+             PlanSource s;
+             s.style = currentStyle;
+ 
+-            if (committed.hasProfile)
++            if (executionHeld)
++            {
++                s.hasProfile = execution.hasProfile;
++                s.profile = execution.profile;
++                s.hasLockedWeights = true;
++                s.lockedWeights = execution.plan.weights;
++                s.constants = execution.constants;
++                s.maxGainDb = feedbackMaxGainDb;
++                s.useSavedPlan = true;
++                s.savedPlan = execution.plan;
++            }
++            else if (committed.hasProfile)
+             {
+                 s.hasProfile = true;
+                 s.profile = committed.profile;
+@@ -617,7 +650,7 @@
+                 s.constants = constants;
+                 s.maxGainDb = feedbackMaxGainDb;   // 首次聆听中画像失配给的上限（提交时回到不限）
+ 
+-                if (learning == Learning::firstListen && ! offline)
++                if (learning == Learning::firstListen)
+                 {
+                     s.hasProfile = true;
+                     s.profile = analyzer.getCandidateProfile();
+@@ -850,6 +883,11 @@
+             committed.lockedWeights = resolveAutomaticWeights (candidate, constants);
+             committed.constants = constants;
+             committed.calibration = Calibration {};
++            executionHeld = false;
++            execution.valid = false;
++            heldBiasKnown = false;
++            executionRequiresCalibration = false;
++            restoredTamePending = false;
+ 
+             stopLearning();
+             feedbackMaxGainDb = unlimitedGainDb;
+@@ -872,14 +910,14 @@
+             if (learning == Learning::none)
+                 return;
+ 
+-            // 离线导出时照常累计（同一首歌的数据），但不提交：提交会在导出中途换方案。
+-            if (! offline && listeningComplete (analyzer.getCandidateProfile()))
++            // 提交依据有效音频样本数，实时与离线一致；不能因导出标志放弃已有候选或另换保守方案。
++            if (listeningComplete (analyzer.getCandidateProfile()))
+             {
+                 commitCandidate();
+                 return;
+             }
+ 
+-            if (learning == Learning::firstListen && ! offline)
++            if (learning == Learning::firstListen && ! executionHeld)
+             {
+                 samplesSinceLearningUpdate += n;
+ 
+@@ -893,10 +931,10 @@
+         }
+ 
+         // 「重新聆听」：首次聆听中 = 从 0 重来；候选在建 = 取消（奇数次）；已学过 = 开始建候选（奇数次）；
+-        // 没学过又没在听（还没播放）= 现在就开始首次聆听。离线导出期间不接（「不启动新的学习」），留到回到实时。
++        // 实时与离线接受相同的显式请求；有效音乐证据不足时不会提交。
+         void consumeRelearnRequests() noexcept
+         {
+-            if (offline || ! prepared || pendingRelearn.load (std::memory_order_relaxed) == 0)
++            if (! prepared || pendingRelearn.load (std::memory_order_relaxed) == 0)
+                 return;
+ 
+             const auto count = pendingRelearn.exchange (0, std::memory_order_acq_rel);
+@@ -960,20 +998,68 @@
+ 
+         void onHostReset() noexcept
+         {
+-            // 宿主 reset：清运行状态——分析窗口、校准当前子窗、保护偏移归 0、上游监视清空、过渡与校准偏差直接到目标；
+-            // 已提交的画像与方案、聆听已累计的有效时长都保留（不调 analyzer.reset：那会清掉候选累计）。
++            // reset 与保存重开采用同一块实际执行量：检测器清空，已听到的偏差和音色保留。
++            // 参数已经改变、GLAZE 0、旧算法或没有有效执行块时沿用原清理规则，不能套用过期快照。
++            const auto keepExecution = active && ! savedPlanMode && lastExecution.valid
++                && lastExecution.plan.algorithmVersion == currentAlgorithmVersion
++                && lastExecution.constants.algorithmVersion == currentAlgorithmVersion
++                && GlazeCalibrator::referenceMatches (lastExecution.reference, makeReference (manual));
++            if (keepExecution)
++            {
++                adoptExecution (lastExecution);
++                snapTo (desiredSource());
++                calibrator.reset();
++                roundActive = false;
++                haveLastAttempt = false;
++                if (committedPhase == Phase::calibrating)
++                    committedPhase = Phase::locked;
++            }
++            else
++            {
++                calibrator.invalidateCurrentWindow();
++                snapTransitions();
++            }
++            // 聆听已累计的有效时长保留；不调 analyzer.reset，那会清掉候选累计。
+             analyzer.handleDiscontinuity (Discontinuity::hostReset);
+-            calibrator.invalidateCurrentWindow();
+             guard.reset();
+             guardWasPlanLimited = false;
+             clearGuardCarry();
+             monitor.clear();
+-            snapTransitions();
+             snapBias = true;
+-            liveToneOffsetDb = 0.0f;
+-            liveToneProfileId = 0;
++            if (! executionHeld)
++            {
++                liveToneOffsetDb = 0.0f;
++                liveToneProfileId = 0;
++            }
+             clearMismatch();
+             ++probe.hostResets;
++        }
++
++        // 保存重开和宿主 reset 共用执行快照入口；不恢复检测器/滤波器历史，不把未完成校准标成完成。
++        void adoptExecution (const ExecutionState& saved) noexcept
++        {
++            execution = saved;
++            executionHeld = execution.valid;
++            restoredTamePending = execution.valid;
++            heldBiasKnown = execution.valid;
++            executionRequiresCalibration = execution.valid && (execution.requiresCalibration
++                || execution.protectionDb != 0.0f
++                || (committed.calibration.valid && ! sameCalibrationPlan (execution.plan, committed.plan)));
++            heldBiasDb = execution.gainBiasDb;
++            heldBiasReference = execution.reference;
++            calibrationBaseBiasDb = 0.0f;
++            if (executionHeld)
++            {
++                // 保护检测器归零，但其已执行退让吸收到计划/偏差，避免冷启动第一块突然撤回保护。
++                const auto absorbed = juce::jmax (-execution.plan.increments.limitGainDb, execution.protectionDb);
++                execution.plan.increments.limitGainDb += absorbed;
++                execution.plan.effectiveGainDb += absorbed;
++                execution.plan.effectiveTargetLufs += absorbed;
++                heldBiasDb += execution.protectionDb - absorbed;
++                execution.protectionDb = 0.0f;
++            }
++            liveToneOffsetDb = execution.valid ? execution.liveToneOffsetDb : 0.0f;
++            liveToneProfileId = execution.valid && committed.hasProfile ? committed.profileId : 0;
+         }
+ 
+         void setHostInfo (const HostInfo& info) noexcept
+@@ -981,12 +1067,15 @@
+             host = info;
+             hostFresh = true;
+             offline = info.offline;
+-            analyzer.setHostInfo (info);
++            auto analysisHost = info;
++            if (offline)
++                analysisHost.isPlaying = true; // 部分宿主导出时报告 transport stopped，但连续送来的音频仍有有效位置。
++            analyzer.setHostInfo (analysisHost);
+ 
+             if (! info.hasPosition || ! expectKnown)
+                 return;
+ 
+-            const auto playingNow = ! info.hasPlayState || info.isPlaying;
++            const auto playingNow = hostPlaying();
+             const auto difference = info.positionSamples - expectedPosition;
+ 
+             if (std::abs (difference) <= positionTolerance || ! playingNow)
+@@ -1046,7 +1135,7 @@
+ 
+         bool calibrationApplicable() const noexcept
+         {
+-            return committed.hasProfile && committed.calibration.valid && referenceKnown
++            return committed.hasProfile && committed.calibration.valid && ! executionRequiresCalibration && referenceKnown
+                 && GlazeCalibrator::referenceMatches (committed.calibration.reference, currentReference);
+         }
+ 
+@@ -1058,6 +1147,7 @@
+ 
+         void beginRound() noexcept
+         {
++            calibrationBaseBiasDb = heldBiasKnown ? heldBiasDb : 0.0f;
+             calibrator.setConstants (committed.constants);
+             calibrator.begin (toSlot().plan.effectiveGainDb, correctionLimitDb(), currentReference, lastLatency);
+             roundActive = true;
+@@ -1072,6 +1162,11 @@
+         void finishRound() noexcept
+         {
+             committed.calibration = calibrator.getResult();
++            committed.calibration.gainBiasDb = juce::jlimit (-correctionLimitDb(), correctionLimitDb(),
++                calibrationBaseBiasDb + committed.calibration.gainBiasDb);
++            heldBiasKnown = false;
++            executionRequiresCalibration = false;
++            calibrationBaseBiasDb = 0.0f;
+             roundActive = false;
+             committedPhase = Phase::locked;
+             stateDirtyUrgent = true;
+@@ -1101,25 +1196,25 @@
+                 }
+                 else
+                 {
+-                    if (paused || offline || ! active || transitionActive || ! matches || toSlot().plan.limitedByManual)
++                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.limitedByManual)
+                         calibrator.invalidateCurrentWindow();
+ 
+                     calibrator.process (inputBlocks.data(), numInput, outputBlocks.data(), numOutput,
+-                                        executedBiasDb, guard.isEngaged(), (int) n);
++                                        executedBiasDb - calibrationBaseBiasDb, guard.isEngaged(), (int) n);
+ 
+                     if (calibrator.getState() == GlazeCalibrator::State::finished)
+                         finishRound();
+                 }
+             }
+ 
+-            // 开新一轮：已学过、GLAZE > 0、实时、不在宿主旁通、没有方案过渡、不受手动限制、已提交的校准对此刻不适用、
++            // 开新一轮：已学过、GLAZE > 0、不在宿主旁通、没有方案过渡、不受手动限制、已提交的校准对此刻不适用、
+             // 条件连续 1 s 没变，且不是刚刚对同一条件试过（试过而失败的不反复重试，等条件变了再说）。
+             // 保护层：在参考状态（g_保护 = 0）才开；它若停在某个退让值上一直不动（超过它自己「安全多久才恢复」的等待 + 1 s，
+             // 说明卡在回差区、不会自己回来），也开——这一轮会因保护层持续介入结束为「预算受限」，约束反馈把这点退让吸收进方案
+             // （规格「不无限等待」）。正在退让或恢复时不开：量了也不能用，还会白白耗掉这一轮的保护预算。
+             const auto guardSettled = ! guard.isEngaged() || guardSteadySamples >= guardStuckSamples;
+ 
+-            if (! roundActive && committed.hasProfile && active && ! offline && ! paused && ! transitionActive
++            if (! roundActive && committed.hasProfile && active && ! paused && ! transitionActive
+                 && ! toSlot().plan.limitedByManual && guardSettled && referenceKnown && ! calibrationApplicable()
+                 && referenceStableSamples >= stableSamples
+                 && ! (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference)))
+@@ -1137,18 +1232,23 @@
+ 
+             auto target = 0.0f;
+ 
+-            if (calibratorRunning() && ! offline)
++            if (calibratorRunning())
+             {
+                 const auto matches = GlazeCalibrator::referenceMatches (roundReference, currentReference);
+-                target = matches && ! paused ? calibrator.getResult().gainBiasDb : appliedBiasDb;
+-            }
++                target = matches && ! paused ? calibrationBaseBiasDb + calibrator.getResult().gainBiasDb : appliedBiasDb;
++            }
++            // 第一块只恢复真正执行的偏差；之后已验证、计划未变的目标继续以原有 1 dB/s 追完。
++            // 保护吸收/计划改写后校准不适用，保留偏差作为新轮基线，不能把旧目标补回去。
++            else if (heldBiasKnown && (snapBias || ! calibrationApplicable()))
++                target = heldBiasDb;
+             else if (calibrationApplicable())
+             {
+                 const auto limit = correctionLimitDb();
+                 target = juce::jlimit (-limit, limit, committed.calibration.gainBiasDb);
+             }
+ 
+-            return isFinite (target) ? target : 0.0f;
++            const auto limit = correctionLimitDb();
++            return isFinite (target) ? juce::jlimit (-limit, limit, target) : 0.0f;
+         }
+ 
+         // 下一块要施加的校准偏差（按 1 dB/s 线性走向目标；要求直接到位时落到目标）。
+@@ -1230,6 +1330,7 @@
+ 
+             feedbackMaxGainDb = next;
+             savedPlanMode = false;
++            executionHeld = false;
+ 
+             if (committed.hasProfile)
+                 committedPhase = Phase::planTransition;   // 首次聆听中（还没提交）阶段仍是「聆听中」
+@@ -1269,7 +1370,7 @@
+             const auto& source = toSlot().source;
+             const auto& profileLoudness = source.profile.integratedLufs;
+ 
+-            if (! active || offline || source.useSavedPlan || ! source.hasProfile || ! profileLoudness.valid || ! isFinite (profileLoudness.value)
++            if (! active || savedPlanMode || ! source.hasProfile || ! profileLoudness.valid || ! isFinite (profileLoudness.value)
+                 || toSlot().plan.limitedByManual)
+             {
+                 clearMismatch();
+@@ -1347,7 +1448,7 @@
+ 
+             guardWasPlanLimited = planLimited;
+ 
+-            if (! active || ! committed.hasProfile || offline || transitionActive || toSlot().plan.limitedByManual
++            if (! active || ! toSlot().source.hasProfile || transitionActive || toSlot().plan.limitedByManual
+                 || samplesSinceFeedback < feedbackCooldownSamples)
+                 return;
+ 
+@@ -1460,6 +1561,7 @@
+                 const auto& snapshot = toSlot().source.constants;
+                 if (evidence.valid && isFinite (evidence.value) && snapshot.tameEvidenceFullDb > 0.0f)
+                 {
++                    restoredTamePending = false;
+                     const auto caps = blendConstants (snapshot, toSlot().plan.weights);
+                     const auto glaze = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f);
+                     const auto tameCap = isFinite (caps.tameCap) ? juce::jlimit (0.0f, 100.0f, caps.tameCap) : 0.0f;
+@@ -1469,6 +1571,11 @@
+                         manual.balance.tame + juce::jmax (increments.balanceTame, liveTame));
+                     effective.balance.automaticTame = juce::jmax (0.0f, effective.balance.tame - manual.balance.tame);
+                 }
++                else if (restoredTamePending)
++                {
++                    effective.balance.tame = juce::jlimit (0.0f, 100.0f, manual.balance.tame + execution.liveTame);
++                    effective.balance.automaticTame = juce::jmax (0.0f, effective.balance.tame - manual.balance.tame);
++                }
+             }
+ 
+             if (active && ! savedPlanMode && committed.hasProfile && liveToneProfileId == committed.profileId
+@@ -1537,6 +1644,22 @@
+             // 第一块与刚读取工程的这一块：方案源按此刻的风格直接落到位（读取后立即生效，不做过渡）。
+             const auto style = styleFromIndex (manual.glazeStyle);
+ 
++            if (prepared && executionHeld)
++            {
++                auto reference = makeReference (manual);
++                reference.style = style;
++                if (! GlazeCalibrator::referenceMatches (execution.reference, reference))
++                {
++                    executionHeld = false;
++                    execution.valid = false;
++                    heldBiasKnown = false;
++                    executionRequiresCalibration = false;
++                    restoredTamePending = false;
++                    liveToneOffsetDb = 0.0f;
++                    snapTo (desiredSource());
++                }
++            }
++
+             if (restored || ! styleKnown)
+             {
+                 currentStyle = style;
+@@ -1581,33 +1704,15 @@
+                 }
+             }
+ 
+-            // 首次聆听：没学过、实时、开始播放（宿主不报播放状态时有音频流就算）即自动进入。
+-            if (prepared && ! committed.hasProfile && learning == Learning::none && ! offline && hostPlaying())
++            // 实时与导出都按音频样本学习。离线宿主可能不报告 Playing，但传来的有效音乐同样是证据。
++            if (prepared && ! committed.hasProfile && learning == Learning::none && (hostPlaying() || offline))
+                 startLearning (Learning::firstListen);
+ 
+-            // 从没学过的实例被离线导出：全程固定的保守方案（不随聆听变化）。
+-            if (offline && ! committed.hasProfile)
+-            {
+-                // 首次聆听进行中（实时播过几秒）也一样是「从没学过的实例」：停止这一轮（时间线第 7 节「离线渲染不学习」），
+-                // 状态行才会写「未学习，导出使用保守方案」，而不是一路「聆听中」、导出结束就用导出期间的数据提交并清掉提示。
+-                // 回到实时并开始播放时首次聆听从 0 重来。
+-                if (learning == Learning::firstListen)
+-                    stopLearning();
+-
+-                // 候选画像的方案（或正从它过渡）还在生效：直接换成保守方案。换风格这类两端都是保守方案的过渡照常走。
+-                const auto candidateInUse = toSlot().source.hasProfile || (transitionActive && fromSlot().source.hasProfile)
+-                                             || (hasPending && pendingSource.hasProfile);
+-
+-                if (candidateInUse)
+-                    snapTo (desiredSource());
+-
+-                if (active)
+-                    unlearnedOfflineWarning = true;
+-            }
+-            else if (! offline && ! committed.hasProfile && learning == Learning::firstListen && ! toSlot().source.hasProfile
++            unlearnedOfflineWarning = false;
++            if (! committed.hasProfile && learning == Learning::firstListen && ! executionHeld && ! toSlot().source.hasProfile
+                      && ! transitionActive && ! hasPending)
+             {
+-                requestSource (desiredSource(), learningUpdateSamples);   // 离线结束 / 刚开始听：接到候选画像上（1 s）
++                requestSource (desiredSource(), learningUpdateSamples);
+             }
+ 
+             // 校准参考条件（只在 GLAZE > 0 时有意义；GLAZE 0 时视为一直在变）。「条件稳定」只看用户能动的那几项
+@@ -1649,6 +1754,12 @@
+                 referenceStableSamples = 0;
+             }
+ 
++            if (prepared && heldBiasKnown && (! referenceKnown || ! GlazeCalibrator::referenceMatches (heldBiasReference, currentReference)))
++            {
++                heldBiasKnown = false;
++                executionRequiresCalibration = false;
++            }
++
+             if (! active)
+             {
+                 // GLAZE ≤ 0：实际参数就是手动值（逐位，不经任何运算）；过渡落到终点、校准偏差归零（保护层在 endBlock 里清）。
+@@ -1657,6 +1768,7 @@
+                 executedBiasDb = executedGuardDb = 0.0f;
+                 increments = AutoIncrements {};
+                 effective = manual;
++                lastExecution.valid = false;
+                 return effective;
+             }
+ 
+@@ -1670,7 +1782,39 @@
+             }
+ 
+             computeEffective();
++            captureExecution();
+             return effective;
++        }
++
++        void captureExecution() noexcept
++        {
++            auto& state = lastExecution;
++            state.valid = active && toSlot().valid;
++            if (! state.valid)
++                return;
++            state.hasProfile = toSlot().source.hasProfile;
++            state.provisional = ! committed.hasProfile;
++            state.requiresCalibration = executionRequiresCalibration;
++            state.profile = toSlot().source.profile;
++            state.constants = toSlot().source.constants;
++            state.plan = toSlot().plan;
++            state.plan.increments = increments;
++            if (transitionActive && transitionLength > 0)
++            {
++                const auto t = (float) juce::jlimit (0.0, 1.0, (double) transitionElapsed / transitionLength);
++                const auto& from = fromSlot().plan;
++                auto mix = [t] (float a, float b) { return a + (b - a) * t; };
++                state.plan.effectiveGainDb = mix (from.effectiveGainDb, state.plan.effectiveGainDb);
++                state.plan.effectiveTargetLufs = mix (from.effectiveTargetLufs, state.plan.effectiveTargetLufs);
++                state.plan.weights.warm = mix (from.weights.warm, state.plan.weights.warm);
++                state.plan.weights.punchy = mix (from.weights.punchy, state.plan.weights.punchy);
++                state.plan.weights.clean = mix (from.weights.clean, state.plan.weights.clean);
++            }
++            state.reference = makeReference (manual);
++            state.gainBiasDb = executedBiasDb;
++            state.protectionDb = executedGuardDb;
++            state.liveToneOffsetDb = liveToneOffsetDb;
++            state.liveTame = effective.balance.automaticTame;
+         }
+ 
+         //==============================================================================
+@@ -1714,7 +1858,7 @@
+                 guardSteadySamples = sameBits (guardDb, lastGuardDb) ? guardSteadySamples + n : 0;
+                 lastGuardDb = guardDb;
+ 
+-                if (committed.hasProfile)
++                if (toSlot().source.hasProfile)
+                     monitor.add (guardStats.glueGrMeanDb, guardStats.heatDrive, (int) n, guardStats.musicActive);
+             }
+             else if (! guardClean)
+@@ -1763,7 +1907,7 @@
+ 
+             s.phase = learning != Learning::none ? Phase::listening : committedPhase;
+             s.profileReady = committed.hasProfile;
+-            s.planReady = committed.hasProfile;
++            s.planReady = committed.hasProfile || executionHeld;
+             s.calibrationValid = calibrationApplicable();
+ 
+             if (learning != Learning::none)
+@@ -1779,7 +1923,7 @@
+                 s.requiredSeconds = (float) constants.minListenSeconds;
+             }
+ 
+-            s.effectiveTargetLufs = committed.hasProfile && active && toSlot().valid && isFinite (plan.effectiveTargetLufs)
++            s.effectiveTargetLufs = (committed.hasProfile || executionHeld) && active && toSlot().valid && isFinite (plan.effectiveTargetLufs)
+                                         ? plan.effectiveTargetLufs : std::numeric_limits<float>::quiet_NaN();
+             s.protectionDb = active ? executedGuardDb : 0.0f;
+             s.planLimited = active && guard.isPlanLimited();
+@@ -1792,7 +1936,7 @@
+                                                                                                                        : StyleWeights {}));
+             s.unlearnedOfflineWarning = unlearnedOfflineWarning && ! committed.hasProfile;
+             s.profileMismatch = active && profileMismatch && committed.hasProfile;
+-            s.waitingForPlayback = host.hasPlayState && ! host.isPlaying;
++            s.waitingForPlayback = ! hostPlaying();
+             s.savedPlanFromOlderAlgorithm = savedPlanMode;
+ 
+             p.committedPhase = committedPhase;
+@@ -1810,9 +1954,8 @@
+         {
+             samplesSincePublish += n;
+ 
+-            const auto due = stateDirtyUrgent || (stateDirtyLazy && samplesSincePublish >= statePublishSamples);
+-
+-            if (! due || ! stateLock.tryEnter())
++            // 每块发布执行快照，保存不落后 100 ms；仅 try-lock 和固定大小拷贝，不分配或等待。
++            if (! stateLock.tryEnter())
+                 return;   // 拿不到锁（消息线程正在读 / 写）：下块再发，不等
+ 
+             // 消息线程刚读入一份存档、音频线程还没接到（restorePending 在锁里置位）：published 已经是那份存档，
+@@ -1826,6 +1969,11 @@
+ 
+             published.committed = committed;
+             published.feedbackMaxGainDb = feedbackMaxGainDb;
++            published.execution = lastExecution;
++            // 本块末尾可能刚提交画像/安全上限：执行量仍是实际听到的，参考绑定本次保存的正式状态。
++            published.execution.reference = makeReference (manual);
++            published.execution.provisional = ! committed.hasProfile;
++            published.execution.requiresCalibration = executionRequiresCalibration;
+             stateLock.exit();
+ 
+             stateDirtyUrgent = stateDirtyLazy = false;
+@@ -1847,12 +1995,14 @@
+ 
+             if (learning != Learning::none)
+                 stopLearning();
++            analyzer.handleDiscontinuity (Discontinuity::hostReset); // 旧实例的实时频谱不能覆盖新恢复的执行量。
+ 
+             committed = restored.committed;
+             feedbackMaxGainDb = isFinite (restored.feedbackMaxGainDb) ? restored.feedbackMaxGainDb : unlimitedGainDb;
+             committedPhase = committed.hasProfile ? Phase::locked : Phase::unlearned;
+             savedPlanMode = committed.hasProfile && committed.plan.algorithmVersion != currentAlgorithmVersion;
+             savedPlanGlazeKnown = false;
++            adoptExecution (restored.execution);
+ 
+             if (! committed.hasProfile)
+                 committed.constants = constants;
+@@ -1860,8 +2010,6 @@
+             roundActive = false;
+             calibrator.reset();
+             haveLastAttempt = false;
+-            liveToneOffsetDb = 0.0f;
+-            liveToneProfileId = 0;
+             guard.reset();
+             guardClean = true;
+             guardWasPlanLimited = planLimitedLatched = false;
+@@ -1889,8 +2037,11 @@
+             const auto& c = state.committed;
+ 
+             s.phase = c.hasProfile ? Phase::locked : Phase::unlearned;
+-            s.profileReady = s.planReady = c.hasProfile;
+-            s.calibrationValid = c.hasProfile && c.calibration.valid;
++            s.profileReady = c.hasProfile;
++            s.planReady = c.hasProfile || state.execution.valid;
++            s.calibrationValid = c.hasProfile && c.calibration.valid
++                && (! state.execution.valid || (! state.execution.requiresCalibration && state.execution.protectionDb == 0.0f
++                    && sameCalibrationPlan (state.execution.plan, c.plan)));
+             s.requiredSeconds = (float) constants.minListenSeconds;
+             s.effectiveTargetLufs = c.hasProfile && isFinite (c.plan.effectiveTargetLufs) ? c.plan.effectiveTargetLufs
+                                                                                            : std::numeric_limits<float>::quiet_NaN();
+@@ -1906,9 +2057,8 @@
+         // 已点、音频线程还没接到的「重新聆听」立刻反映在状态上（宿主停着时按钮也马上换字）。规则同 consumeRelearnRequests。
+         static void overlayPendingRelearn (StatusPayload& p, int count) noexcept
+         {
+-            // 离线渲染中音频线程不接请求（回到实时才接），这里也不叠加：否则整个导出期间写「聆听中 0 / 15 s」、按钮写
+-            // 「聆听中…」，其实并没有在听（v0.6 验收 V2-06）。
+-            if (count <= 0 || p.offline)
++            // 与音频线程相同的请求语义；实时和离线均接收重新聆听。
++            if (count <= 0)
+                 return;
+ 
+             auto& s = p.status;
+@@ -1955,6 +2105,13 @@
+     {
+         auto& s = *impl;
+ 
++        if (s.prepared && s.roundActive && s.referenceKnown)
++        {
++            s.heldBiasKnown = true;
++            s.heldBiasDb = s.executedBiasDb;
++            s.heldBiasReference = s.currentReference;
++        }
++
+         if (spec.sampleRate > 0.0 && std::isfinite (spec.sampleRate))
+             s.sampleRate = spec.sampleRate;
+ 
+@@ -1982,6 +2139,7 @@
+         s.calibrator.prepare (s.sampleRate, (int) spec.maximumBlockSize);
+         s.calibrator.setConstants (s.activeConstants());
+         s.roundActive = false;
++        s.calibrationBaseBiasDb = 0.0f;
+ 
+         if (s.committedPhase == Phase::calibrating)
+             s.committedPhase = Phase::locked;
+@@ -2065,6 +2223,8 @@
+         auto* controller = xml->createNewChildElement (controllerTag);
+         controller->setAttribute ("formatVersion", controllerFormatVersion);
+         controller->setAttribute ("feedbackMaxGainDb", floatToHex (copy.feedbackMaxGainDb));
++        if (copy.execution.valid)
++            xml->addChildElement (toXml (copy.execution).release());
+         return xml;
+     }
+ 
+@@ -2083,6 +2243,16 @@
+             {
+                 parsed.committed = state;
+                 ok = true;
++                if (const auto* execution = xml->getChildByName (executionTag))
++                {
++                    ExecutionState candidate;
++                    if (fromXml (*execution, candidate) && candidate.valid
++                        && candidate.plan.algorithmVersion == currentAlgorithmVersion
++                        && candidate.constants.algorithmVersion == currentAlgorithmVersion
++                        && candidate.reference.profileId == (state.hasProfile ? state.profileId : 0u)
++                        && candidate.provisional == ! state.hasProfile)
++                        parsed.execution = candidate;
++                }
+ 
+                 if (const auto* controller = xml->getChildByName (controllerTag))
+                 {
+@@ -2113,6 +2283,7 @@
+             state.plan.algorithmVersion = currentAlgorithmVersion;
+             state.calibration = Calibration {};
+             parsed.feedbackMaxGainDb = unlimitedGainDb;
++            parsed.execution = ExecutionState {};
+         }
+ 
+         // 快照先写（getStatus 看到 restorePending 时它已经是这一份）；published / pendingRestore 与 restorePending 在同一把锁里写，
+@@ -2182,6 +2353,7 @@
+         p.guardDb = s.guard.getProtectionDb();
+         p.feedbackMaxGainDb = s.feedbackMaxGainDb;
+         p.savedPlanMode = s.savedPlanMode;
++        p.executionSnapshotActive = s.executionHeld;
+         p.offline = s.offline;
+         p.increments = s.increments;
+         p.targetPlan = s.toSlot().plan;
+--- before/Source/dsp/GlazeController.h
++++ after/Source/dsp/GlazeController.h
+@@ -115,7 +115,8 @@
+ 
+         std::unique_ptr<juce::XmlElement> createStateXml() const;
+ 
+-        // xml 为空或读取失败 → 未学习。恢复后立即生效：不重学，不做 3 s 过渡，平滑器同时设当前值与目标值。
++        // xml 为空或正式状态读取失败 → 未学习；有效 EXECUTION 独立恢复当前执行量。
++        // 临时画像仍未正式学习完成，重新积累证据期间保持已听到的执行方案；不序列化滤波器/检测器音频历史。
+         void restoreStateXml (const juce::XmlElement* xml);
+ 
+         // ---- 任何线程 ----
+@@ -158,6 +159,7 @@
+             float guardDb = 0.0f;            // 保护层自己的 g_保护
+             float feedbackMaxGainDb = 0.0f;  // 约束反馈上限（不限时是一个很大的数）
+             bool savedPlanMode = false;      // 照用保存的旧算法方案
++            bool executionSnapshotActive = false; // 同算法执行快照（不等同正式画像/有效校准）
+             bool offline = false;
+             AutoIncrements increments;       // 上一块交给模块的自动增量（过渡混合后）
+             Plan targetPlan;                 // 目标方案（过渡终点）
+--- before/Source/dsp/GlazeProfile.cpp
++++ after/Source/dsp/GlazeProfile.cpp
+@@ -320,6 +320,89 @@
+         return true;
+     }
+ 
++    std::unique_ptr<juce::XmlElement> toXml (const ExecutionState& state)
++    {
++        auto xml = std::make_unique<juce::XmlElement> (executionTag);
++        xml->setAttribute ("formatVersion", 1);
++        xmlio::Writer writer (*xml);
++        writer.field ("valid", state.valid);
++        writer.field ("hasProfile", state.hasProfile);
++        writer.field ("provisional", state.provisional);
++        writer.field ("requiresCalibration", state.requiresCalibration);
++        writer.field ("gainBiasDb", state.gainBiasDb);
++        writer.field ("protectionDb", state.protectionDb);
++        writer.field ("liveToneOffsetDb", state.liveToneOffsetDb);
++        writer.field ("liveTame", state.liveTame);
++        // 复用既有严格序列化格式；这里只借用 reference 容器，不宣称有有效校准。
++        Calibration reference;
++        reference.reference = state.reference;
++        auto* conditions = xml->createNewChildElement ("REFERENCE");
++        xmlio::Writer referenceWriter (*conditions);
++        visitCalibration (referenceWriter, reference);
++        xml->addChildElement (toXml (state.profile).release());
++        xml->addChildElement (toXml (state.constants).release());
++        auto* plan = xml->createNewChildElement ("PLAN");
++        xmlio::Writer planWriter (*plan);
++        visitPlan (planWriter, state.plan);
++        return xml;
++    }
++
++    bool fromXml (const juce::XmlElement& xml, ExecutionState& out)
++    {
++        int version = 0;
++        if (! xml.hasTagName (executionTag) || ! readVersion (xml, 1, 1, version))
++            return false;
++        ExecutionState parsed;
++        xmlio::Reader reader (xml);
++        reader.field ("valid", parsed.valid);
++        reader.field ("hasProfile", parsed.hasProfile);
++        reader.field ("provisional", parsed.provisional);
++        if (xml.hasAttribute ("requiresCalibration"))
++            reader.field ("requiresCalibration", parsed.requiresCalibration);
++        reader.field ("gainBiasDb", parsed.gainBiasDb);
++        reader.field ("protectionDb", parsed.protectionDb);
++        reader.field ("liveToneOffsetDb", parsed.liveToneOffsetDb);
++        reader.field ("liveTame", parsed.liveTame);
++        const auto* conditions = xml.getChildByName ("REFERENCE");
++        const auto* profile = xml.getChildByName (profileTag);
++        const auto* constants = xml.getChildByName (constantsTag);
++        const auto* plan = xml.getChildByName ("PLAN");
++        if (! reader.ok || conditions == nullptr || profile == nullptr || constants == nullptr || plan == nullptr
++            || ! fromXml (*profile, parsed.profile) || ! fromXml (*constants, parsed.constants))
++            return false;
++        Calibration reference;
++        xmlio::Reader referenceReader (*conditions);
++        visitCalibration (referenceReader, reference);
++        parsed.reference = reference.reference;
++        xmlio::Reader planReader (*plan);
++        visitPlan (planReader, parsed.plan);
++        const auto& inc = parsed.plan.increments;
++        const auto& weights = parsed.plan.weights;
++        for (const auto value : { parsed.gainBiasDb, parsed.protectionDb, parsed.liveToneOffsetDb, parsed.liveTame,
++                                 inc.balanceRecover, inc.balanceTame, inc.colorToneDb, inc.colorGlue, inc.colorHeat,
++                                 inc.limitGainDb, inc.limitClip, parsed.reference.glazePercent,
++                                 parsed.reference.ceilingDb, parsed.reference.lookaheadMs,
++                                 parsed.plan.requestedTargetLufs, parsed.plan.effectiveTargetLufs,
++                                 parsed.plan.requestedGainDb, parsed.plan.effectiveGainDb, parsed.plan.estimatedExcessDb,
++                                 weights.warm, weights.punchy, weights.clean })
++            if (! std::isfinite (value))
++                return false;
++        const auto percent = [] (float value) { return value >= 0.0f && value <= 100.0f; };
++        if (! referenceReader.ok || ! planReader.ok || parsed.protectionDb > 0.0f || parsed.protectionDb < -24.0f
++            || std::abs (parsed.gainBiasDb) > 24.0f || std::abs (parsed.liveToneOffsetDb) > 6.0f
++            || ! percent (parsed.liveTame) || ! percent (parsed.reference.glazePercent)
++            || ! percent (inc.balanceRecover) || ! percent (inc.balanceTame) || ! percent (inc.colorGlue)
++            || ! percent (inc.colorHeat) || ! percent (inc.limitClip) || std::abs (inc.colorToneDb) > 3.0f
++            || inc.limitGainDb < 0.0f || inc.limitGainDb > 24.0f
++            || weights.warm < 0.0f || weights.warm > 1.0f || weights.punchy < 0.0f || weights.punchy > 1.0f
++            || weights.clean < 0.0f || weights.clean > 1.0f || ! (weights.warm + weights.punchy + weights.clean > 0.0f)
++            || ! (parsed.reference.sampleRate > 0.0)
++            || ! std::isfinite (parsed.reference.sampleRate))
++            return false;
++        out = parsed;
++        return true;
++    }
++
+     bool bitwiseEqual (const MusicProfile& a, const MusicProfile& b)
+     {
+         return toXml (a)->isEquivalentTo (toXml (b).get(), false);
+--- before/Source/dsp/GlazeProfile.h
++++ after/Source/dsp/GlazeProfile.h
+@@ -5,7 +5,8 @@
+     GLAZE 随工程保存的内容（设计规格-GLAZE-时间线与保存 第 5 节）：已提交版本 = 画像 + 锁定的风格权重 + 方案 +
+     校准 + 标定快照。保存 / 读取用 juce::XmlElement（juce_core，无头测试可用），处理器再挂进 APVTS 状态树。
+ 
+-      - 不保存：保护层偏移、短期检测器、聆听中的候选版本（聆听中途保存 = 旧的完整已提交版本，不会半新半旧）；
++      - 已提交版本不混入候选；另有独立执行快照记录当前听到的方案、临时画像和执行偏差，不冒充学习/校准完成；
++      - 不保存音频延迟线/检测器内部历史；从同一快照和同一起点重新渲染可复现；
+       - 画像 formatVersion 与方案 algorithmVersion、常数 version 各自独立；读到未知的更高 formatVersion 按读取失败处理；
+       - 读取失败时 out 不变、返回 false（编排器按「未学习」处理），不抛异常；
+       - 浮点一律按 IEEE 位写成十六进制（GlazeConstants.h 的 xmlio）：保存再读取逐位相同，与宿主区域设置无关。
+@@ -37,6 +38,27 @@
+         Constants constants;             // 标定快照（旧工程按它保存时的常数生成方案）
+     };
+ 
++    // 最近一块实际执行的参数依据，独立于正式画像。平凡拷贝；XML 只在消息线程生成。
++    struct ExecutionState
++    {
++        bool valid = false;
++        bool hasProfile = false;
++        bool provisional = false;       // 临时画像，绝不等同 CommittedState::hasProfile
++        bool requiresCalibration = false; // 保护/计划改写后的执行量待验证；跨再次保存保留，不改正式校准记录
++        MusicProfile profile;
++        Constants constants;
++        Plan plan;                      // 当时过渡混合后的计划；保护退让在恢复时吸收为更小的 Gain
++        CalibrationReference reference;
++        float gainBiasDb = 0.0f;         // 已执行校准偏差，包括未完成轮次
++        float protectionDb = 0.0f;       // 已执行安全退让
++        float liveToneOffsetDb = 0.0f;
++        float liveTame = 0.0f;           // 分析窗口重新稳定前保持的自动 Tame 份额
++    };
++
++    inline constexpr const char* executionTag = "EXECUTION";
++    std::unique_ptr<juce::XmlElement> toXml (const ExecutionState&);
++    bool fromXml (const juce::XmlElement&, ExecutionState& out);
++
+     // 画像内容的哈希（逐字段量化后 FNV-1a；同画像同值）。
+     std::uint32_t computeProfileId (const MusicProfile&) noexcept;
+ 
+--- before/Source/dsp/GlazeTypes.h
++++ after/Source/dsp/GlazeTypes.h
+@@ -21,7 +21,7 @@
+ namespace celadon::glaze
+ {
+     // 方案默认值和出厂常数共用版本，GLAZE 0 学完后保存的空方案也必须属于当前算法。
+-    inline constexpr int currentAlgorithmVersion = 4;
++    inline constexpr int currentAlgorithmVersion = 5;
+     inline constexpr int numBands = 27;   // 与 BalanceModule::numBands 相同（1/3 倍频程，40 Hz ～ 16 kHz）
+ 
+     // 风格：顺序 = 参数 glaze_style 的选项顺序（AudioParameterChoice 下标）。
+@@ -139,7 +139,7 @@
+     // 宿主信息（处理器每块从 AudioPlayHead 读；拿不到的项 has* = false）。编排器据此识别跳播 / 循环回绕、离线导出。
+     struct HostInfo
+     {
+-        bool offline = false;            // 宿主标记离线渲染：不启动新的学习或校准，只用已提交方案
++        bool offline = false;            // 宿主离线渲染；已有执行状态继续按同一音频样本时间运行。
+         bool hasPlayState = false;
+         bool isPlaying = true;
+         bool hasPosition = false;
+@@ -165,7 +165,7 @@
+         float protectionDb = 0.0f;           // g_保护，∈ [−3, 0]
+         bool planLimited = false;            // 「方案受限」
+         bool limitedByManual = false;        // 「受手动设置限制」
+-        bool calibrationPaused = false;      // Listen / 旁通中
++        bool calibrationPaused = false;      // 宿主旁通中
+         bool relearnInProgress = false;      // 候选版本在建
+         Style resolvedStyle = Style::clean;  // 自动时此刻偏向哪种
+         bool unlearnedOfflineWarning = false;
+--- before/Source/ui/HelpText.cpp
++++ after/Source/ui/HelpText.cpp
+@@ -76,8 +76,8 @@
+ 
+             { param::colorHeat,
+               "Heat · 温度",
+-              "渐进的并联电子管染色：增加谐波厚度，同时保留主体和瞬态。",
+-              "20～50；超过 70 染色明显。" },
++              "保留低频主体的并联电子管染色；为中高频增加厚度，两侧声像采用更轻的染色。",
++              "20～50；超过 70 染色明显，可用 Listen 等响试听比较。" },
+ 
+             { param::colorMix,
+               "Mix · 干湿",
+--- before/tests/ColorTests.cpp
++++ after/tests/ColorTests.cpp
+@@ -171,6 +171,101 @@
+             const auto fundamental = toneAmplitude (signal, start, length, sampleRate, frequency);
+             const auto fundamentalPower = fundamental * fundamental * 0.5;
+             return fundamentalPower > 0.0 ? std::sqrt (juce::jmax (0.0, acPower - fundamentalPower) / fundamentalPower) : 1.0;
++        }
++
++        // 冻结的 v0.1.6.2 全带并联 Heat 声学参照（2026-09-26 低频/M-S 修订之前）。
++        // 仅限 Tone/Glue=0、固定整数 Heat 的测试，独立重现旧公开曲线、8x FIR、补偿和64样本干路；
++        // 不调用 Color 私有实现，不依赖工作区外快照。用于在相同高频谐波量下比较互调，而非只比较相同旋钮值。
++        Signal renderLegacyFullbandHeat (const Signal& input, double sampleRate, int heat)
++        {
++            const auto channels = (int) input.size();
++            const auto h = (float) heat / 100.0f;
++            Saturator tube;
++            tube.setCurve (Saturator::Curve::Tube);
++            tube.setDriveAndAsymmetry (1.0f + h, 0.04f * h);
++            constexpr int calibrationPoints = 1024;
++            std::array<float, calibrationPoints> calibration {};
++            const auto amplitude = juce::Decibels::decibelsToGain (-18.0f);
++            double inputPower = 0.0;
++            for (int i = 0; i < calibrationPoints; ++i)
++            {
++                calibration[(size_t) i] = amplitude * (float) std::sin (juce::MathConstants<double>::twoPi * i / calibrationPoints);
++                inputPower += (double) calibration[(size_t) i] * calibration[(size_t) i];
++            }
++            tube.processTubeBlock (calibration.data(), calibrationPoints);
++            double sum = 0.0, power = 0.0;
++            for (auto x : calibration) { sum += x; power += (double) x * x; }
++            const auto mean = sum / calibrationPoints;
++            const auto compensation = (float) std::sqrt ((inputPower / calibrationPoints)
++                / juce::jmax (1.0e-30, power / calibrationPoints - mean * mean));
++
++            HalfBandOversampler oversampler ((size_t) channels);
++            oversampler.addOversamplingStage (0.05f, -90.0f, 0.06f, -75.0f);
++            oversampler.addOversamplingStage (0.10f, -80.0f, 0.12f, -70.0f);
++            oversampler.addOversamplingStage (0.10f, -65.0f, 0.15f, -55.0f);
++            oversampler.initProcessing (maxBlock);
++            const auto latency = juce::roundToInt (oversampler.getLatencyInSamples());
++            const auto k = std::tan (juce::MathConstants<double>::pi * 5.0 / sampleRate);
++            const auto b0 = 1.0 / (1.0 + k), b1 = -b0, a1 = (k - 1.0) / (k + 1.0);
++            std::vector<double> dc ((size_t) channels, 0.0);
++            auto output = input;
++            juce::AudioBuffer<float> block (channels, maxBlock);
++            for (int start = 0; start < (int) input.front().size(); start += maxBlock)
++            {
++                const auto length = juce::jmin (maxBlock, (int) input.front().size() - start);
++                for (int ch = 0; ch < channels; ++ch)
++                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
++                juce::dsp::AudioBlock<float> whole (block);
++                auto part = whole.getSubBlock (0, (size_t) length);
++                auto up = oversampler.processSamplesUp (part);
++                for (int ch = 0; ch < channels; ++ch)
++                    tube.processTubeBlock (up.getChannelPointer ((size_t) ch), (int) up.getNumSamples());
++                oversampler.processSamplesDown (part);
++                for (int ch = 0; ch < channels; ++ch)
++                    for (int i = 0; i < length; ++i)
++                    {
++                        const auto x = (double) block.getReadPointer (ch)[i];
++                        const auto y = b0 * x + dc[(size_t) ch];
++                        dc[(size_t) ch] = b1 * x - a1 * y;
++                        const auto dryIndex = start + i - latency;
++                        const auto dry = dryIndex >= 0 ? input[(size_t) ch][(size_t) dryIndex] : 0.0f;
++                        const auto wet = (float) y * compensation;
++                        output[(size_t) ch][(size_t) (start + i)] = dry + (wet - dry) * (0.25f * h);
++                    }
++            }
++            return output;
++        }
++
++        double highHarmonicRatio (const Signal& signal, int start, int length, double sampleRate)
++        {
++            const auto carrier = toneAmplitude (signal[0], start, length, sampleRate, 6000.0);
++            const auto second = toneAmplitude (signal[0], start, length, sampleRate, 12000.0);
++            const auto third = toneAmplitude (signal[0], start, length, sampleRate, 18000.0);
++            return std::hypot (second, third) / juce::jmax (1.0e-30, carrier);
++        }
++
++        double highIntermodulationRatio (const Signal& signal, int start, int length, double sampleRate)
++        {
++            double power = 0.0;
++            for (auto frequency : { 5880.0, 5940.0, 6060.0, 6120.0 })
++            {
++                const auto amplitude = toneAmplitude (signal[0], start, length, sampleRate, frequency);
++                power += amplitude * amplitude;
++            }
++            return std::sqrt (power) / juce::jmax (1.0e-30, toneAmplitude (signal[0], start, length, sampleRate, 6000.0));
++        }
++
++        double sideToMidRatio (const Signal& signal, int start, int length)
++        {
++            double midPower = 0.0, sidePower = 0.0;
++            for (int i = start; i < start + length; ++i)
++            {
++                const auto mid = 0.5 * ((double) signal[0][(size_t) i] + signal[1][(size_t) i]);
++                const auto side = 0.5 * ((double) signal[0][(size_t) i] - signal[1][(size_t) i]);
++                midPower += mid * mid;
++                sidePower += side * side;
++            }
++            return std::sqrt (sidePower / juce::jmax (1.0e-30, midPower));
+         }
+ 
+         int peakIndexOf (const std::vector<float>& channel)
+@@ -336,6 +431,9 @@
+             testHeatRemainsGentleOnHotInput();
+             testHeatIntermodulationWithToneHotspots();
+             testHeatFullRangeAutomationOnHotInput();
++            testBassSafeHeatAtMatchedHarmonics();
++            testHeatPreservesLowFundamentals();
++            testHeatStereoSymmetryAndWidth();
+             testGlueGainReduction();
+             testMeasuredLatencyMatchesReported();
+             testBypassIsBitExact();
+@@ -359,6 +457,7 @@
+             testSaturatorProcessSampleUnchanged();
+             testFastTanhAccuracyAndTubeBlock();
+             testIdleSkippingIsBitExact();
++            testHeatIdleAfterPartialFadeBlock();
+             testBlockSizeIndependenceUnderAutomation();
+             testIdleSkippingWithSpecialValues();
+             testHeatReenableAfterLongIdle();
+@@ -613,6 +712,141 @@
+                           "after heat returns to zero, output must be exactly the Tone-only reference");
+         }
+ 
++        void testBassSafeHeatAtMatchedHarmonics()
++        {
++            beginTest ("bass-safe Heat lowers 60 Hz / 6 kHz intermodulation at matched upper harmonics");
++            constexpr double sampleRate = 48000.0;
++            constexpr double seconds = 0.4;
++            constexpr int start = 14400, length = 4800;
++            constexpr int legacyHeat = 60;
++            const auto highOnly = makeSine (numChannels, sampleRate, 6000.0, 0.20f, seconds);
++            const auto legacyHigh = renderLegacyFullbandHeat (highOnly, sampleRate, legacyHeat);
++            const auto target = highHarmonicRatio (legacyHigh, start, length, sampleRate);
++            expect (target > 1.0e-4, "the old reference must have measurable coloration");
++
++            const auto render = [&] (const Signal& input, float heat)
++            {
++                ColorModule color;
++                prepareColor (color, sampleRate, makeParams (0.0f, 0.0f, heat, 100.0f, 0.0f));
++                return runColor (color, input, maxBlock);
++            };
++            // 调节新 Heat 匹配同一 6 kHz 单音的 H2+H3/基波，而非把两边都设成一个旋钮刻度。
++            expect (highHarmonicRatio (render (highOnly, 100.0f), start, length, sampleRate) >= target,
++                    "new Heat must still be capable of the reference harmonic strength");
++            float lower = 0.0f, upper = 100.0f;
++            for (int iteration = 0; iteration < 10; ++iteration)
++            {
++                const auto midpoint = 0.5f * (lower + upper);
++                const auto ratio = highHarmonicRatio (render (highOnly, midpoint), start, length, sampleRate);
++                if (ratio < target) lower = midpoint;
++                else upper = midpoint;
++            }
++            const auto heat = 0.5f * (lower + upper);
++            const auto matched = render (highOnly, heat);
++            const auto matchDb = toDb (highHarmonicRatio (matched, start, length, sampleRate) / target);
++            expect (std::abs (matchDb) <= 0.5f, "upper harmonic strength must match within 0.5 dB");
++            expect (heat > 10.0f, "comparison must exercise meaningful Heat rather than near-bypass");
++
++            auto bassAndHigh = makeSine (numChannels, sampleRate, 60.0, 0.72f, seconds);
++            for (size_t ch = 0; ch < bassAndHigh.size(); ++ch)
++                for (size_t i = 0; i < bassAndHigh[ch].size(); ++i)
++                    bassAndHigh[ch][i] += highOnly[ch][i];
++            const auto legacy = renderLegacyFullbandHeat (bassAndHigh, sampleRate, legacyHeat);
++            const auto output = render (bassAndHigh, heat);
++            const auto oldImd = highIntermodulationRatio (legacy, start, length, sampleRate);
++            const auto newImd = highIntermodulationRatio (output, start, length, sampleRate);
++            const auto improvement = toDb (oldImd / juce::jmax (1.0e-30, newImd));
++            logMessage ("  legacy Heat 60 vs new " + juce::String (heat, 3) + ": harmonic match " + juce::String (matchDb, 3)
++                        + " dB, IMD " + juce::String (100.0 * oldImd, 4) + "% -> " + juce::String (100.0 * newImd, 4)
++                        + "% (" + juce::String (improvement, 2) + " dB improvement)");
++            expect (allFinite (output));
++            expect (oldImd > 0.001, "reference low/high mixture must expose intermodulation");
++            expect (improvement >= 6.0f, "bass protection must reduce IMD by at least 6 dB at matched coloration");
++        }
++
++        void testHeatPreservesLowFundamentals()
++        {
++            beginTest ("Heat preserves 40 / 60 / 100 Hz fundamentals on quiet and hot bass");
++            for (auto sampleRate : { 44100.0, 48000.0, 96000.0 })
++                for (auto frequency : { 40.0, 60.0, 100.0 })
++                    for (auto inputDb : { -12.0f, -0.5f })
++                    {
++                        const auto input = makeSine (numChannels, sampleRate, frequency, juce::Decibels::decibelsToGain (inputDb), 0.6);
++                        const auto start = (int) std::lround (0.4 * sampleRate);
++                        const auto length = (int) std::lround (0.2 * sampleRate); // 所有低频整周期
++                        const auto dryAmplitude = toneAmplitude (input[0], start, length, sampleRate, frequency);
++                        for (auto heat : { 30.0f, 100.0f })
++                        {
++                            ColorModule color;
++                            prepareColor (color, sampleRate, makeParams (0.0f, 0.0f, heat, 100.0f, 0.0f));
++                            const auto output = runColor (color, input, maxBlock);
++                            const auto delta = toDb (toneAmplitude (output[0], start, length, sampleRate, frequency) / dryAmplitude);
++                            const auto distortion = toneDistortionRatio (output[0], start, length, sampleRate, frequency);
++                            const auto tag = juce::String (frequency, 0) + " Hz @ " + juce::String (sampleRate, 0)
++                                + ", input " + juce::String (inputDb, 1) + ", Heat " + juce::String (heat, 0);
++                            expect (allFinite (output), tag);
++                            expect (std::abs (delta) <= 0.25f, tag + ": fundamental drift " + juce::String (delta, 4) + " dB");
++                            expect (distortion < 0.01, tag + ": low-frequency distortion " + juce::String (100.0 * distortion, 4) + "%");
++                        }
++                    }
++        }
++
++        void testHeatStereoSymmetryAndWidth()
++        {
++            beginTest ("Heat preserves pure Side, channel exchange symmetry and the Mid / Side energy ratio");
++            constexpr double sampleRate = 48000.0;
++            constexpr double seconds = 0.6;
++            constexpr int start = 19200, length = 9600;
++            auto sideOnly = makeSine (numChannels, sampleRate, 1000.0, 0.72f, seconds);
++            const auto high = makeSine (numChannels, sampleRate, 6000.0, 0.12f, seconds);
++            for (size_t i = 0; i < sideOnly[0].size(); ++i)
++            {
++                sideOnly[0][i] += high[0][i];
++                sideOnly[1][i] = -sideOnly[0][i];
++            }
++            for (auto heat : { 30.0f, 100.0f })
++            {
++                const auto params = makeParams (0.0f, 0.0f, heat, 100.0f, 0.0f);
++                ColorModule side;
++                prepareColor (side, sampleRate, params);
++                const auto output = runColor (side, sideOnly, 73);
++                double midPeak = 0.0;
++                for (size_t i = 0; i < output[0].size(); ++i)
++                    midPeak = juce::jmax (midPeak, std::abs (0.5 * ((double) output[0][i] + output[1][i])));
++                expect (midPeak < nullThreshold, "odd Side coloration must not generate a phantom Mid channel");
++
++                auto source = makeMusicLike (sampleRate, seconds, 9312);
++                auto swapped = source;
++                std::swap (swapped[0], swapped[1]);
++                ColorModule original, exchanged;
++                prepareColor (original, sampleRate, params);
++                prepareColor (exchanged, sampleRate, params);
++                const auto a = runColor (original, source, 73);
++                auto b = runColor (exchanged, swapped, 73);
++                std::swap (b[0], b[1]);
++                expectEquals ((int) countBitDifferences (a, b), 0, "left/right exchange must commute with Heat");
++
++                for (auto midFrequency : { 60.0, 1200.0 })
++                {
++                    const auto mid = makeSine (numChannels, sampleRate, midFrequency, 0.65f, seconds);
++                    const auto sideSignal = makeSine (numChannels, sampleRate, 3000.0, 0.25f, seconds);
++                    auto stereo = mid;
++                    for (size_t i = 0; i < stereo[0].size(); ++i)
++                    {
++                        stereo[0][i] += sideSignal[0][i];
++                        stereo[1][i] -= sideSignal[0][i];
++                    }
++                    ColorModule color;
++                    prepareColor (color, sampleRate, params);
++                    const auto coloured = runColor (color, stereo, maxBlock);
++                    const auto widthDrift = toDb (sideToMidRatio (coloured, start, length) / sideToMidRatio (stereo, start, length));
++                    const auto tag = "Heat " + juce::String (heat, 0) + ", Mid " + juce::String (midFrequency, 0) + " Hz";
++                    logMessage ("  " + tag + ": S/M change " + juce::String (widthDrift, 3) + " dB");
++                    expect (std::abs (widthDrift) <= 0.75f, tag + ": stereo energy balance must remain within 0.75 dB");
++                }
++            }
++        }
++
+         // 验收 4：Glue = 100、−6 dBFS 1 kHz 正弦 → getAndResetGainReductionDb 在 3 ～ 10 dB 之间，输出无 NaN / Inf。
+         // 区间按 2026-09-24 夜间修订：阈值 −24 dBFS、2:1、峰值检测时静态曲线的理论值就是 (−6 − (−24)) × (1 − 1/2) = 9 dB，
+         // 初版写的 3 ～ 8 dB 把理论值本身排除在外（设计规格-Color「修订」）。实测约 8.5 dB（dB 域平滑让读数略低于静态值）。
+@@ -1641,6 +1875,37 @@
+             expect (idle.tone && idle.glue && idle.heatWet && idle.output, "all four idle paths must be taken with neutral parameters");
+         }
+ 
++        void testHeatIdleAfterPartialFadeBlock()
++        {
++            beginTest ("Heat 0 / 60 with 333-sample blocks preserves the partial fade and delayed tail before idle skipping");
++            constexpr double sampleRate = 48000.0;
++            constexpr int blockSize = 333;
++            constexpr int blockCount = 110;
++            const auto input = makeMusicLike (sampleRate, (double) (blockSize * blockCount) / sampleRate, 20260927);
++            const Schedule schedule = [] (double t)
++            {
++                const auto sampleIndex = (std::int64_t) std::llround (t * sampleRate);
++                const auto blockIndex = (int) (sampleIndex / blockSize);
++                const auto enabled = (blockIndex >= 10 && blockIndex < 30)
++                                  || (blockIndex >= 34 && blockIndex < 54)
++                                  || (blockIndex >= 58 && blockIndex < 78)
++                                  || blockIndex >= 100;
++                return makeParams (0.0f, 0.0f, enabled ? 60.0f : 0.0f, 100.0f, 0.0f);
++            };
++            // 20 ms = 960 samples；3×333 −960 =39，少于64样本补偿延迟，更未满足256样本预热历史。
++            // 第三个淡出块完成后，下一333块不可提前视为全部空闲；随后重开会暴露被污染的DC/残差状态。
++            // 两次关掉后恰好4×333就重开，避免DC误差在长静音里衰减消失；最后再覆盖长关后重开。
++            ColorModule skipping, full;
++            prepareColor (skipping, sampleRate, schedule (0.0));
++            prepareColor (full, sampleRate, schedule (0.0));
++            full.setIdleSkippingEnabled (false);
++            const auto actual = runColorScheduled (skipping, input, sampleRate, blockSize, schedule);
++            const auto reference = runColorScheduled (full, input, sampleRate, blockSize, schedule);
++            expect (allFinite (actual) && allFinite (reference));
++            expectEquals ((int) countBitDifferences (actual, reference), 0,
++                          "partial fade, 64-sample tail and re-enabled Heat must be bit-identical with skipping disabled");
++        }
++
+         // 参数自动化下仍与块长无关：参数只在 512 的整数倍样本处变化（每块开头按「本块首样本向下取整到 512」的时刻取参数），
+         // 块长 128 / 64 / 16 / 1 的输出与块 512 逐位相同——跳过的进入 / 退出、Heat 预热、近似链启停、平滑、系数更新计数都
+         // 落在同样的绝对样本位置上。9 个参数剧本 × 44.1k / 48k。
+--- before/tests/GlazeBehaviourReport.cpp
++++ after/tests/GlazeBehaviourReport.cpp
+@@ -13,8 +13,8 @@
+       ④ 同一段类音乐推到真峰值 −0.3 dBTP（约 −13 LUFS 的热混音，限幅器真正介入）。
+ 
+     每种素材：先在 GLAZE 0 下按出厂常数学一份画像（带播放位置、素材不循环），存档；再对 自动 / 温润 / 冲击 / 通透 × GLAZE 50 / 100
+-    从同一份存档起步、离线渲染前 10 s（离线 = 只用已提交方案，不校准、不做约束反馈：记录的是纯前馈方案本身的结果），
+-    记录：输出整体响度与方案目标（effectiveTarget，二者之差 = 前馈误差，校准器要修的量）、真峰值、PLR（真峰值 − 整体响度）、
++    从同一份存档起步、离线渲染前 10 s（算法5起，离线与实时均运行相同的学习、校准与安全反馈），
++    记录：输出整体响度与方案目标（effectiveTarget，二者之差含尚未收敛的校准与动态保护）、真峰值、PLR（真峰值 − 整体响度）、
+     Limit GR 最大 / 平均（每块最大值的均值）、Glue GR 最大、方案的七项增量、是否受约束。另记 GLAZE 0 的一行作对照。
+ 
+     只断言输出全有限、整链真峰值 ≤ Ceiling + 0.01 dB（ADR-004 口径）；其余一律只记录。
+--- before/tests/GlazeControllerTests.cpp
++++ after/tests/GlazeControllerTests.cpp
+@@ -212,7 +212,7 @@
+                 chain.setParams (params, hostBypassed);
+                 const auto nonFinite = chain.process (buffer);
+ 
+-                if (host.isPlaying && advancePosition)
++                if ((host.isPlaying || host.offline) && advancePosition)
+                     position += blockLength;
+ 
+                 ++blocksRun;
+@@ -325,6 +325,7 @@
+             testRelearnCandidateAndCancel();
+             testDiscontinuitiesClearTheirOwnState();
+             testOfflineDoesNotLearnOrCalibrate();
++            testExecutionSnapshots();
+             testSaveAndRestore();
+             testSampleRateChange();
+             testGlazeAutomationPath();
+@@ -670,59 +671,215 @@
+             }
+         }
+ 
+-        // 6. 离线导出：
+-        //    - 没学过的实例：不启动聆听；GLAZE > 0 时全程同一套保守方案（每一块的自动增量逐位相同，= 决策器 profile 为空的方案），
+-        //      状态置「未学习，导出使用保守方案」；回到实时后才开始聆听。
+-        //    - 学过的实例：离线期间点「重新聆听」不接（留到回到实时）、条件变了也不开校准。
+-        // 依据：时间线第 7 节「宿主标记离线渲染时不启动新的学习或校准，只用已提交方案」「从没学过的实例被导出：全程固定的保守方案」。
++        // v5: the offline flag is not a different mastering strategy. Both paths advance on sample counts.
++        void expectSameContinuation (Rig& realtime, Rig& render, double seconds, const juce::String& label)
++        {
++            bool paramsEqual = true;
++            float maximumAudioDifference = 0.0f, maximumGainDifference = 0.0f;
++            for (int b = 0; b < realtime.blocksFor (seconds); ++b)
++            {
++                realtime.step();
++                render.step();
++                paramsEqual = paramsEqual && sameParams (realtime.chain.getEffectiveParams(), render.chain.getEffectiveParams());
++                maximumGainDifference = juce::jmax (maximumGainDifference,
++                    std::abs (realtime.chain.getEffectiveParams().limit.gainDb - render.chain.getEffectiveParams().limit.gainDb));
++                for (int ch = 0; ch < numChannels; ++ch)
++                    for (int i = 0; i < realtime.blockLength; ++i)
++                        maximumAudioDifference = juce::jmax (maximumAudioDifference,
++                            std::abs (realtime.buffer.getSample (ch, i) - render.buffer.getSample (ch, i)));
++            }
++            expect (paramsEqual, label + ": all executed parameters equal; max gain difference " + juce::String (maximumGainDifference, 8));
++            expectEquals (maximumAudioDifference, 0.0f, label + ": sample-identical output");
++            expectEquals (render.probe().commits, realtime.probe().commits, label + ": same genuine learning commits");
++        }
++
+         void testOfflineDoesNotLearnOrCalibrate()
+         {
+-            beginTest ("offline: no new learning or calibration; an unlearned instance renders with one fixed conservative plan");
+-
+-            {
+-                Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 17, 0.5f), defaultParams (60.0f, 2));
+-                rig.host.offline = true;
+-
+-                glaze::PlanInputs in;
+-                in.profile = nullptr;
+-                in.style = glaze::Style::punchy;
+-                in.glazePercent = 60.0f;
+-                in.manual = rig.params;
+-                const auto conservative = glaze::makePlan (in);
+-
+-                bool fixed = true;
+-                rig.run (6.0, [&] (int) { fixed = fixed && sameIncrements (rig.probe().increments, conservative.increments); });
+-
+-                expect (fixed, "every block uses the same conservative plan (bit for bit)");
+-                expectEquals (rig.probe().learningStarts, 0, "no listening while offline");
+-                expect (rig.phase() == Phase::unlearned);
+-                expect (rig.status().unlearnedOfflineWarning, "status: unlearned, export used the conservative plan");
+-
+-                rig.host.offline = false;
+-                rig.run (0.2);
+-                expect (rig.phase() == Phase::listening, "back to realtime: listening starts");
+-            }
+-
+-            {
+-                Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 18, 0.5f));
+-                rig.params.glazePercent = 50.0f;
+-                expect (rig.learnAndCalibrate(), "learned first");
+-
+-                const auto begins = rig.probe().calibrationBegins;
+-                rig.host.offline = true;
+-                rig.chain.requestGlazeRelearn();
+-                rig.params.glazePercent = 65.0f;           // 条件变了：实时下 1 s 后就会重新校准
+-                rig.run (4.0);
+-
+-                expect (! rig.probe().relearning, "no relearn starts while offline");
+-                expect (! rig.status().relearnInProgress && rig.status().phase != glaze::Phase::listening,
+-                        "while offline the pending request is not shown as listening (v0.6 acceptance V2-06)");
+-                expectEquals (rig.probe().calibrationBegins, begins, "no calibration starts while offline");
+-                expect (! rig.status().unlearnedOfflineWarning, "learned instance: no unlearned-export warning");
+-
+-                rig.host.offline = false;
+-                rig.step();
+-                expect (rig.probe().relearning, "the pending relearn is taken up once back in realtime");
++            beginTest ("realtime and offline use the same learning, calibration and loud-section safety state machine");
++            const auto music = makeMusic (defaultRate, 8.0, 17, 0.2f);
++            Rig realtime (fastConstants(), music, defaultParams (60.0f, 2));
++            Rig offline (fastConstants(), music, realtime.params);
++            offline.host.offline = true;
++            offline.host.isPlaying = false; // Real hosts may report a stopped transport throughout a render.
++            expectSameContinuation (realtime, offline, 15.0, "new instances from the beginning");
++            expect (offline.committed().hasProfile && offline.probe().calibrationBegins > 0);
++            expect (! offline.status().unlearnedOfflineWarning);
++            expect (! offline.status().waitingForPlayback);
++            realtime.sourceGain = offline.sourceGain = 5.0f;
++            expectSameContinuation (realtime, offline, 8.0, "loud chorus after the profile locks");
++            expectEquals (offline.probe().mismatchSteps, realtime.probe().mismatchSteps);
++            expectEquals (offline.probe().feedbackSteps, realtime.probe().feedbackSteps);
++
++            auto slow = fastConstants();
++            slow.minListenSeconds = 15.0;
++            slow.maxListenSeconds = 30.0;
++            Rig a (slow, music, defaultParams (60.0f, 2)), b (slow, music, a.params);
++            expectSameContinuation (a, b, 5.0, "first five seconds of listening");
++            expect (! a.committed().hasProfile);
++            b.host.offline = true;
++            expectSameContinuation (a, b, 18.0, "switch to offline while learning");
++        }
++
++        void testExecutionSnapshots()
++        {
++            beginTest ("execution snapshot preserves unfinished learning, applied calibration and deterministic replay");
++            const auto music = makeMusic (defaultRate, 8.0, 172, 0.2f);
++            auto slow = fastConstants();
++            slow.minListenSeconds = 15.0;
++            slow.maxListenSeconds = 30.0;
++            Rig donor (slow, music, defaultParams (60.0f, 3));
++            donor.run (5.0);
++            const auto heard = donor.chain.getEffectiveParams();
++            const auto xml = donor.chain.createGlazeStateXml();
++            expect (xml->getChildByName (glaze::executionTag) != nullptr);
++            expect (! donor.committed().hasProfile && ! donor.status().calibrationValid);
++            Rig a (slow, music, donor.params), b (slow, music, donor.params);
++            a.chain.restoreGlazeStateXml (xml.get());
++            b.chain.restoreGlazeStateXml (xml.get());
++            b.host.offline = true;
++            a.step(); b.step();
++            expect (a.probe().executionSnapshotActive && ! a.status().profileReady && ! a.status().calibrationValid,
++                    "provisional execution does not pretend to be a finished profile or calibration");
++            expectWithinAbsoluteError (a.chain.getEffectiveParams().limit.gainDb, heard.limit.gainDb, 1.0e-5f, "first block keeps the audible Gain");
++            expectWithinAbsoluteError (a.chain.getEffectiveParams().color.heat, heard.color.heat, 1.0e-5f, "first block keeps the audible Heat");
++            expectSameContinuation (a, b, 18.0, "two provisional restores, realtime versus offline");
++            expect (a.committed().hasProfile, "new evidence eventually produces a genuine committed profile");
++
++            Rig changed (slow, music, donor.params);
++            changed.params.glazePercent += 10.0f;
++            changed.chain.restoreGlazeStateXml (xml.get());
++            changed.step();
++            expect (! changed.probe().executionSnapshotActive, "different manual/macro conditions invalidate execution");
++            Rig changedRate (slow, music, donor.params);
++            changedRate.reprepare (44100.0);
++            changedRate.chain.restoreGlazeStateXml (xml.get());
++            changedRate.step();
++            expect (! changedRate.probe().executionSnapshotActive, "a different sample rate invalidates execution");
++
++            // Strong manual Tone gives the real chain a measurable loudness change absent from the feed-forward level model.
++            auto params = defaultParams (75.0f, 3);
++            params.color.toneDb = 2.0f;
++            Rig calibrating (fastConstants(), music, params), uninterrupted (fastConstants(), music, params);
++            bool foundAppliedBias = false;
++            for (int i = 0; i < calibrating.blocksFor (35.0); ++i)
++            {
++                calibrating.step(); uninterrupted.step();
++                if (calibrating.phase() == Phase::calibrating && std::abs (calibrating.probe().executedBiasDb) > 0.02f)
++                {
++                    foundAppliedBias = true;
++                    break;
++                }
++            }
++            expect (foundAppliedBias, "capture a real unfinished correction; executed bias " + juce::String (calibrating.probe().executedBiasDb, 6));
++            const auto biasXml = calibrating.chain.createGlazeStateXml();
++            const auto biasGain = calibrating.chain.getEffectiveParams().limit.gainDb;
++            const auto executedBias = calibrating.probe().executedBiasDb;
++            calibrating.host.offline = true;
++            expectSameContinuation (uninterrupted, calibrating, 8.0, "switch offline during an applied calibration correction");
++            Rig c (fastConstants(), music, params), d (fastConstants(), music, params);
++            c.chain.restoreGlazeStateXml (biasXml.get());
++            d.chain.restoreGlazeStateXml (biasXml.get());
++            d.host.offline = true;
++            c.step(); d.step();
++            expectWithinAbsoluteError (c.chain.getEffectiveParams().limit.gainDb, biasGain, 1.0e-5f, "restoring an unfinished round does not drop audible compensation");
++            expectWithinAbsoluteError (c.probe().executedBiasDb, executedBias, 1.0e-5f, "the actually applied bias is retained");
++            expectSameContinuation (c, d, 10.0, "two unfinished-calibration restores");
++
++            beginTest ("a completed calibration cannot replace the saved executed bias before its slew has finished");
++            auto oneRound = fastConstants();
++            oneRound.calibrationRounds = 1;
++            auto boostedBass = defaultParams (60.0f, 3);
++            boostedBass.color.toneDb = -3.0f;
++            Rig finishing (oneRound, music, boostedBass);
++            const auto finished = finishing.runUntil (25.0, [&] { return finishing.probe().calibrationFinishes > 0; });
++            const auto finishedBias = finishing.probe().executedBiasDb;
++            const auto finishedGain = finishing.chain.getEffectiveParams().limit.gainDb;
++            const auto correctionStillPending = std::abs (finishing.committed().calibration.gainBiasDb - finishedBias);
++            expect (finished && finishing.committed().calibration.valid && correctionStillPending > 0.02f,
++                    "real audio produces a finished correction before it is applied; executed " + juce::String (finishedBias, 6)
++                    + ", target " + juce::String (finishing.committed().calibration.gainBiasDb, 6)
++                    + ", finishes " + juce::String (finishing.probe().calibrationFinishes));
++            const auto finishedXml = finishing.chain.createGlazeStateXml();
++            Rig completedRestore (oneRound, music, boostedBass), completedOffline (oneRound, music, boostedBass);
++            completedRestore.chain.restoreGlazeStateXml (finishedXml.get());
++            completedOffline.chain.restoreGlazeStateXml (finishedXml.get());
++            completedOffline.host.offline = true;
++            completedRestore.step();
++            completedOffline.step();
++            expectWithinAbsoluteError (completedRestore.probe().executedBiasDb, finishedBias, 1.0e-5f,
++                                       "completed target cannot overwrite the last heard correction");
++            expectWithinAbsoluteError (completedRestore.chain.getEffectiveParams().limit.gainDb, finishedGain, 1.0e-5f,
++                                       "save on the finishing block preserves actual Gain");
++
++            float largestBiasStep = 0.0f, replayDifference = 0.0f;
++            auto previousBias = completedRestore.probe().executedBiasDb;
++            bool continuationEqual = true;
++            for (int i = 0; i < completedRestore.blocksFor (correctionStillPending + 0.1); ++i)
++            {
++                completedRestore.step(); completedOffline.step();
++                const auto bias = completedRestore.probe().executedBiasDb;
++                largestBiasStep = juce::jmax (largestBiasStep, std::abs (bias - previousBias));
++                previousBias = bias;
++                continuationEqual = continuationEqual && sameParams (completedRestore.chain.getEffectiveParams(), completedOffline.chain.getEffectiveParams());
++                for (int ch = 0; ch < numChannels; ++ch)
++                    for (int sample = 0; sample < blockSize; ++sample)
++                        replayDifference = juce::jmax (replayDifference,
++                            std::abs (completedRestore.buffer.getSample (ch, sample) - completedOffline.buffer.getSample (ch, sample)));
++            }
++            expect (largestBiasStep <= (float) (blockSize / defaultRate) + 1.0e-6f,
++                    "completed correction resumes at no more than 1 dB/s; largest block step " + juce::String (largestBiasStep, 8));
++            expectWithinAbsoluteError (completedRestore.probe().executedBiasDb, finishing.committed().calibration.gainBiasDb, 1.0e-5f,
++                                       "the pending completed correction actually reaches its target");
++            expectEquals (completedRestore.probe().calibrationBegins, 0, "an unchanged completed plan does not need another measurement round");
++            expect (continuationEqual, "finished correction continuation has identical real-time/offline parameters");
++            expectEquals (replayDifference, 0.0f, "finished correction continuation has sample-identical real-time/offline output");
++
++            // The guard may have consumed both the base increment and part of a positive calibration correction.
++            glaze::ExecutionState protectedExecution;
++            const auto* finishedExecution = finishedXml->getChildByName (glaze::executionTag);
++            expect (finishedExecution != nullptr);
++            if (finishedExecution != nullptr && glaze::fromXml (*finishedExecution, protectedExecution))
++            {
++                protectedExecution.plan.increments.limitGainDb = 0.1f;
++                protectedExecution.gainBiasDb = 0.3f;
++                protectedExecution.protectionDb = -0.2f;
++                auto protectedXml = std::make_unique<juce::XmlElement> (*finishedXml);
++                protectedXml->removeChildElement (protectedXml->getChildByName (glaze::executionTag), true);
++                protectedXml->addChildElement (glaze::toXml (protectedExecution).release());
++                Rig protectedRestore (oneRound, music, boostedBass);
++                protectedRestore.chain.restoreGlazeStateXml (protectedXml.get());
++                protectedRestore.step();
++                expectWithinAbsoluteError (protectedRestore.chain.getEffectiveParams().limit.gainDb,
++                                           boostedBass.limit.gainDb + 0.2f, 1.0e-5f,
++                                           "protection beyond the saved base increment remains absorbed in the held correction");
++                expect (protectedRestore.committed().calibration.valid && ! protectedRestore.status().calibrationValid,
++                        "rebased execution needs verification without rewriting the saved completed calibration record");
++                const auto rebasedXml = protectedRestore.chain.createGlazeStateXml();
++                glaze::ExecutionState rebasedExecution;
++                expect (glaze::fromXml (*rebasedXml->getChildByName (glaze::executionTag), rebasedExecution)
++                        && rebasedExecution.requiresCalibration && rebasedExecution.protectionDb == 0.0f,
++                        "pending verification survives serialization after the protection was absorbed");
++                Rig rebasedRealtime (oneRound, music, boostedBass), rebasedOffline (oneRound, music, boostedBass);
++                rebasedRealtime.chain.restoreGlazeStateXml (rebasedXml.get());
++                rebasedOffline.chain.restoreGlazeStateXml (rebasedXml.get());
++                rebasedOffline.host.offline = true;
++                expect (! rebasedRealtime.status().calibrationValid, "a second reopen still reports the rebased execution as unverified");
++                rebasedRealtime.step(); rebasedOffline.step();
++                expectWithinAbsoluteError (rebasedRealtime.chain.getEffectiveParams().limit.gainDb,
++                                           boostedBass.limit.gainDb + 0.2f, 1.0e-5f, "a second reopen retains the protected first-block Gain");
++                expectSameContinuation (rebasedRealtime, rebasedOffline, 8.0, "protected execution verification after a second reopen");
++                expect (rebasedRealtime.probe().calibrationBegins > 0 && rebasedRealtime.probe().calibrationFinishes > 0,
++                        "protection-rebased execution completes a genuine verification round; begins "
++                        + juce::String (rebasedRealtime.probe().calibrationBegins) + ", finishes "
++                        + juce::String (rebasedRealtime.probe().calibrationFinishes));
++
++                beginTest ("malformed execution increments cannot override manual controls");
++                protectedExecution.plan.increments.balanceRecover = -100.0f;
++                glaze::ExecutionState ignored;
++                expect (! glaze::fromXml (*glaze::toXml (protectedExecution), ignored), "negative Recover rejected");
++                protectedExecution.plan.increments.balanceRecover = 0.0f;
++                protectedExecution.plan.effectiveGainDb = std::numeric_limits<float>::infinity();
++                expect (! glaze::fromXml (*glaze::toXml (protectedExecution), ignored), "non-finite plan metadata rejected");
+             }
+         }
+ 
+@@ -745,7 +902,7 @@
+             expect (xml != nullptr && xml->hasTagName (glaze::stateTag));
+ 
+             const auto steadyIncrements = original.probe().increments;
+-            const auto steadyBias = original.probe().appliedBiasDb;
++            const auto steadyBias = original.probe().executedBiasDb;
+ 
+             auto restoredRig = [&]
+             {
+@@ -770,7 +927,7 @@
+             expectEquals (b->probe().learningStarts, 0, "no relearning after a restore");
+             expect (! b->probe().transitionActive, "no plan transition after a restore");
+             expect (sameIncrements (b->probe().increments, steadyIncrements), "first block already uses the saved plan's increments");
+-            expectEquals (b->probe().appliedBiasDb, steadyBias, "calibration offset in place on the first block");
++            expectEquals (b->probe().executedBiasDb, steadyBias, "actually executed calibration offset in place on the first block");
+ 
+             // 从同一起点重渲染（宿主在渲染前 reset）：两条读回的链逐位相同；原链 reset 之后也一样。
+             c->step();
+@@ -780,14 +937,29 @@
+                 rig->chain.reset();
+                 rig->sourceIndex = 0;
+                 rig->position = 0;
+-            }
++                rig->step();
++            }
++
++            const auto resetOriginal = original.chain.getEffectiveParams();
++            const auto resetRestored = b->chain.getEffectiveParams();
++            expect (sameParams (resetOriginal, resetRestored),
++                    "reset and restore cold-start from the same executed parameters; Gain "
++                    + juce::String (resetOriginal.limit.gainDb - resetRestored.limit.gainDb, 8)
++                    + ", bias " + juce::String (original.probe().executedBiasDb - b->probe().executedBiasDb, 8)
++                    + ", Tone " + juce::String (resetOriginal.color.toneDb - resetRestored.color.toneDb, 8)
++                    + ", Tame " + juce::String (resetOriginal.balance.tame - resetRestored.balance.tame, 8));
+ 
+             const auto outB = outputOf (*b, 4.0);
+             const auto outC = outputOf (*c, 4.0);
+             const auto outOriginal = outputOf (original, 4.0);
+ 
+             expect (sameSignal (outB, outC), "two restores render bit-identically from the same start");
+-            expect (sameSignal (outB, outOriginal), "a restore renders like the original after a reset (same start, same state)");
++            float largestResetDifference = 0.0f;
++            for (size_t ch = 0; ch < outB.size(); ++ch)
++                for (size_t i = 0; i < outB[ch].size(); ++i)
++                    largestResetDifference = juce::jmax (largestResetDifference, std::abs (outB[ch][i] - outOriginal[ch][i]));
++            expect (sameSignal (outB, outOriginal), "a restore renders like the original after a reset (same start, same state); max sample difference "
++                    + juce::String (largestResetDifference, 9));
+             expectEquals (b->probe().guardDb, 0.0f, "(the comparison ran with the guard at rest)");
+ 
+             // 读空 / 读坏 = 未学习（状态立刻反映）。
+@@ -976,10 +1148,10 @@
+             expect (state.hasProfile);
+             const auto profileId = state.profileId;
+             const auto profile = state.profile;
+-            state.constants.algorithmVersion = 2;
++            state.constants.algorithmVersion = 4;
+             state.constants.heatLoudnessDb.fill (-20.0f);
+             state.constants.heatPeakDb.fill (-24.0f);
+-            state.plan.algorithmVersion = 2;
++            state.plan.algorithmVersion = 4;
+             state.plan.increments.colorHeat = 60.0f;
+             state.plan.increments.limitGainDb = 23.0f;
+             state.calibration.valid = true;
+@@ -1138,10 +1310,11 @@
+                 const auto silentTone = rig.chain.getEffectiveParams().color.toneDb;
+                 rig.run (3.0);
+                 expectEquals (rig.chain.getEffectiveParams().color.toneDb, silentTone, "silence freezes tonal correction");
++                const auto heardBeforeReset = rig.chain.getEffectiveParams().color.toneDb;
+                 rig.chain.reset();
+                 rig.step();
+-                expectWithinAbsoluteError (rig.chain.getEffectiveParams().color.toneDb, rig.probe().increments.colorToneDb, 1.0e-6f,
+-                                           "host reset clears runtime Tone drift, preserving the saved plan");
++                expectWithinAbsoluteError (rig.chain.getEffectiveParams().color.toneDb, heardBeforeReset, 1.0e-6f,
++                                           "host reset preserves the last heard Tone while resetting spectral windows");
+                 rig.params.glazePercent = 0.0f;
+                 rig.step();
+                 expect (sameParams (rig.chain.getEffectiveParams(), rig.params));
+@@ -1172,7 +1345,7 @@
+             expectWithinAbsoluteError (steady.chain.getEffectiveParams().color.toneDb, steady.probe().increments.colorToneDb, 0.015f,
+                                        "identical spectrum with a narrow peak does not cause false broad-band drift");
+ 
+-            state.constants.algorithmVersion = 3;
++            state.constants.algorithmVersion = glaze::currentAlgorithmVersion;
+             state.plan.algorithmVersion = 3;
+             state.plan.increments.colorToneDb = 0.23f;
+             state.plan.increments.balanceTame = 7.0f;
+--- before/tools/perf/bench.mm
++++ after/tools/perf/bench.mm
+@@ -5,6 +5,7 @@
+ //   celadon_bench grid    <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>
+ //   celadon_bench modules <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>
+ //   celadon_bench gui
++//   celadon_bench rendercheck  （真实处理器实时/离线及执行快照恢复验收）
+ //   celadon_bench statecheck   （真实处理器默认启动、旧工程缺参、显式零值与状态往返验收）
+ //   celadon_bench ecore   <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>   （后台 QoS：只在能效核上跑）
+ //   srs / bss 用逗号分隔，例如 44100,48000,96000,192000  32,64,128,256,512,1024
+@@ -673,6 +674,163 @@
+         std::fflush (stdout);
+         editor.reset();
+     }
++    // Through the actual host-facing processor API: identical input/block timeline,
++    // isNonRealtime changes, APVTS state round-trips and both host prepare orders.
++    int runRenderCheck()
++    {
++        constexpr double sr = 48000.0;
++        constexpr int bs = 256;
++        int failures = 0;
++        auto check = [&] (bool ok, const juce::String& name)
++        {
++            std::printf ("RENDER,%s,%s\n", ok ? "PASS" : "FAIL", name.toRawUTF8());
++            if (! ok) ++failures;
++        };
++        auto material = makeSignal (sr, 8.0);
++        juce::MidiBuffer midi;
++        auto fill = [&] (juce::AudioBuffer<float>& block, int absolute)
++        {
++            for (int ch = 0; ch < 2; ++ch)
++                for (int i = 0; i < bs; ++i)
++                    block.setSample (ch, i, material.getSample (ch, (absolute + i) % material.getNumSamples())
++                                                   * (absolute + i < (int) (35.0 * sr) ? 0.22f : 0.90f));
++        };
++        auto difference = [&] (const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
++        {
++            double peak = 0.0;
++            for (int ch = 0; ch < 2; ++ch)
++                for (int i = 0; i < bs; ++i)
++                {
++                    const auto x = a.getSample (ch, i), y = b.getSample (ch, i);
++                    if (! std::isfinite (x) || ! std::isfinite (y)) return 1.0e30;
++                    peak = std::max (peak, std::abs ((double) x - y));
++                }
++            return peak;
++        };
++        auto parameterError = [] (const celadon::ChainParams& a, const celadon::ChainParams& b)
++        {
++            return std::max ({ std::abs (a.balance.recover - b.balance.recover), std::abs (a.balance.tame - b.balance.tame),
++                               std::abs (a.color.toneDb - b.color.toneDb), std::abs (a.color.glue - b.color.glue),
++                               std::abs (a.color.heat - b.color.heat), std::abs (a.limit.gainDb - b.limit.gainDb),
++                               std::abs (a.limit.clip - b.limit.clip) });
++        };
++        auto restorePair = [&] (CeladonAudioProcessor& source, int offset, const char* tag)
++        {
++            juce::MemoryBlock state;
++            source.getStateInformation (state);
++            auto xml = juce::AudioProcessor::getXmlFromBinary (state.getData(), (int) state.getSize());
++            auto* glaze = xml ? xml->getChildByName ("GLAZE_STATE") : nullptr;
++            check (glaze && glaze->getChildByName ("EXECUTION"), juce::String (tag) + " saves execution independently");
++            const auto expected = source.getGlazeEffectiveParamsForUi();
++            for (bool prepareFirst : { false, true })
++            {
++                CeladonAudioProcessor rt, offline;
++                offline.setNonRealtime (true);
++                if (prepareFirst) { rt.prepareToPlay (sr, bs); offline.prepareToPlay (sr, bs); }
++                rt.setStateInformation (state.getData(), (int) state.getSize());
++                offline.setStateInformation (state.getData(), (int) state.getSize());
++                if (! prepareFirst) { rt.prepareToPlay (sr, bs); offline.prepareToPlay (sr, bs); }
++                juce::AudioBuffer<float> a (2, bs), b (2, bs);
++                double peak = 0.0;
++                float firstError = 0.0f;
++                for (int pos = 0; pos < (int) (2.0 * sr); pos += bs)
++                {
++                    fill (a, offset + pos); b.makeCopyOf (a, true);
++                    rt.processBlock (a, midi); offline.processBlock (b, midi);
++                    peak = std::max (peak, difference (a, b));
++                    if (pos == 0) firstError = parameterError (expected, rt.getGlazeEffectiveParamsForUi());
++                }
++                const auto label = juce::String (tag) + (prepareFirst ? " prepare-before-restore" : " restore-before-prepare");
++                std::printf ("RENDER,INFO,%s peakDifference=%.9g firstParameterError=%.9g\n", label.toRawUTF8(), peak, firstError);
++                check (peak == 0.0, label + " realtime/offline audio matches exactly");
++                check (firstError < 0.002f, label + " retains executed controls on first block");
++                rt.releaseResources(); offline.releaseResources();
++            }
++            // Offline hosts often choose a larger block. Adaptive controls are block
++            // quantised: measure audible level and final controls instead of bit identity.
++            struct BlockResult { double energy = 0.0; float integrated = 0.0f; std::array<float, 20> shortTerm {}; celadon::ChainParams params; };
++            auto changedBlockRender = [&] (int blockSize)
++            {
++                CeladonAudioProcessor processor;
++                processor.setNonRealtime (blockSize > bs);
++                processor.setStateInformation (state.getData(), (int) state.getSize());
++                processor.prepareToPlay (sr, blockSize);
++                juce::AudioBuffer<float> block (2, blockSize);
++                BlockResult result;
++                constexpr int total = 60 * 48000;
++                celadon::LoudnessMeter meter;
++                meter.prepare ({ sr, (juce::uint32) blockSize, 2 });
++                for (int pos = 0; pos < total; pos += blockSize)
++                {
++                    const auto count = juce::jmin (blockSize, total - pos);
++                    block.setSize (2, count, false, false, true);
++                    for (int ch = 0; ch < 2; ++ch)
++                        for (int i = 0; i < count; ++i)
++                            block.setSample (ch, i, material.getSample (ch, (offset + pos + i) % material.getNumSamples())
++                                                          * (offset + pos + i < 35 * 48000 ? 0.22f : 0.90f));
++                    processor.processBlock (block, midi);
++                    for (int done = 0; done < count;)
++                    {
++                        const auto nextWindow = ((pos + done) / 144000 + 1) * 144000;
++                        const auto take = juce::jmin (count - done, nextWindow - pos - done);
++                        juce::AudioBuffer<float> slice (block.getArrayOfWritePointers(), 2, done, take);
++                        meter.process (slice);
++                        done += take;
++                        if (pos + done == nextWindow)
++                            result.shortTerm[(size_t) (nextWindow / 144000 - 1)] = meter.getShortTermLufs();
++                    }
++                    for (int ch = 0; ch < 2; ++ch)
++                        for (int i = 0; i < count; ++i)
++                            if (pos + i >= 48000)
++                                result.energy += (double) block.getSample (ch, i) * block.getSample (ch, i);
++                }
++                result.params = processor.getGlazeEffectiveParamsForUi();
++                result.integrated = meter.getIntegratedLufs();
++                processor.releaseResources();
++                return result;
++            };
++            const auto small = changedBlockRender (64), large = changedBlockRender (1024);
++            const auto levelDelta = 10.0 * std::log10 (large.energy / small.energy);
++            const auto gainDelta = large.params.limit.gainDb - small.params.limit.gainDb;
++            std::printf ("RENDER,INFO,%s 64-vs-1024 RMSdelta=%.6g dB gainDelta=%.6g dB parameterMaxDelta=%.6g\n",
++                         tag, levelDelta, gainDelta, parameterError (small.params, large.params));
++            float windowDelta = 0.0f;
++            for (size_t i = 0; i < small.shortTerm.size(); ++i)
++                windowDelta = std::max (windowDelta, std::abs (large.shortTerm[i] - small.shortTerm[i]));
++            const auto integratedDelta = large.integrated - small.integrated;
++            std::printf ("RENDER,INFO,%s 60s integratedDelta=%.6g LU max3sDelta=%.6g LU\n", tag, integratedDelta, windowDelta);
++            check (std::isfinite (levelDelta) && std::abs (integratedDelta) <= 0.1f && windowDelta <= 0.2f && std::abs (gainDelta) <= 0.25,
++                   juce::String (tag) + " changed block size keeps loudness and gain close for 60s");
++        };
++        CeladonAudioProcessor realtime, alwaysOffline, switchOffline;
++        alwaysOffline.setNonRealtime (true);
++        realtime.prepareToPlay (sr, bs); alwaysOffline.prepareToPlay (sr, bs); switchOffline.prepareToPlay (sr, bs);
++        juce::AudioBuffer<float> a (2, bs), b (2, bs), c (2, bs);
++        double fromStartError = 0.0, switchedError = 0.0;
++        bool savedLearning = false, savedCalibration = false, savedChorus = false;
++        for (int offset = 0; offset < (int) (55.0 * sr); offset += bs)
++        {
++            if (offset >= (int) (5.0 * sr)) switchOffline.setNonRealtime (true);
++            fill (a, offset); b.makeCopyOf (a, true); c.makeCopyOf (a, true);
++            realtime.processBlock (a, midi); alwaysOffline.processBlock (b, midi); switchOffline.processBlock (c, midi);
++            fromStartError = std::max (fromStartError, difference (a, b));
++            switchedError = std::max (switchedError, difference (a, c));
++            const auto status = realtime.getGlazeStatus();
++            if (! savedLearning && offset >= (int) (5.0 * sr))
++            { restorePair (realtime, offset + bs, "learning at 5s"); savedLearning = true; }
++            if (! savedCalibration && status.phase == celadon::glaze::Phase::calibrating)
++            { restorePair (realtime, offset + bs, "calibration running"); savedCalibration = true; }
++            if (! savedChorus && offset >= (int) (44.0 * sr))
++            { restorePair (realtime, offset + bs, "loud chorus"); savedChorus = true; }
++        }
++        std::printf ("RENDER,INFO,fromStartDifference=%.9g switchedDifference=%.9g\n", fromStartError, switchedError);
++        check (fromStartError == 0.0, "fresh realtime/offline whole render matches exactly");
++        check (switchedError == 0.0, "switching to offline at 5s leaves audio unchanged");
++        check (savedCalibration, "fixture actually reaches a running calibration");
++        realtime.releaseResources(); alwaysOffline.releaseResources(); switchOffline.releaseResources();
++        return failures == 0 ? 0 : 1;
++    }
++
+     int runStateCheck()
+     {
+         int failures = 0;
+@@ -769,6 +927,8 @@
+     const juce::String mode (argc > 1 ? argv[1] : "grid");
+     if (mode == "statecheck")
+         return runStateCheck();
++    if (mode == "rendercheck")
++        return runRenderCheck();
+     const juce::String label (
+        #if defined (NDEBUG)
+         "release"

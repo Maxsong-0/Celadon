@@ -1,0 +1,4 @@
+HOST,colour-render-preview,auto100,48000,64,avg%=1.166,worst%=2.731,p99.9%=2.253,create_ms=174.9,prepare_ms=2.93,latency=282,blocks=3000
+HOST,colour-render-preview,auto100,48000,512,avg%=1.079,worst%=1.297,p99.9%=1.297,create_ms=0.6,prepare_ms=0.72,latency=282,blocks=375
+HOST,colour-render-preview,auto100,96000,64,avg%=2.315,worst%=5.625,p99.9%=4.975,create_ms=0.7,prepare_ms=1.36,latency=378,blocks=6000
+HOST,colour-render-preview,auto100,96000,512,avg%=2.104,worst%=2.580,p99.9%=2.580,create_ms=0.6,prepare_ms=1.29,latency=378,blocks=750

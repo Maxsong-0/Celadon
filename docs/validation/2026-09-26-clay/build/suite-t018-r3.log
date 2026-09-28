@@ -1,0 +1,47 @@
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-build/Celadon-d4b76f75e866
+[1/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/LinearPhaseLowpass.cpp.o
+[2/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o
+[3/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/CeladonChain.cpp.o
+[4/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ClayModule.cpp.o
+[5/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ClayGuard.cpp.o
+[6/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/HelpTextTests.cpp.o
+[7/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o
+FAILED: [code=1] CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o 
+/usr/bin/c++ -DCELADON_FP_CONTRACT_OFF=1 -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -ffp-contract=off -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o -MF CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o.d -o CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp: In member function ‘void celadon::test::GlazePlannerTests::testClayFormulas()’:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp:2095:25: warning: unused variable ‘c’ [-Wunused-variable]
+ 2095 |             const auto& c = factoryConstants();
+      |                         ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp: In member function ‘void celadon::test::GlazePlannerTests::testClayCostFactor()’:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp:2317:30: error: no matching function for call to ‘celadon::test::GlazePlannerTests::expectEquals(int, const uint8_t&, juce::String)’
+ 2317 |                 expectEquals (maskOf (faint), clayCostLimitedWidth, utf8 ("低切本来就不开：不置低切位；收单从不置位"));
+      |                 ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp:2317:30: note: there is 1 candidate
+In file included from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/JUCE/modules/juce_core/juce_core.h:365,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/JUCE/modules/juce_audio_basics/juce_audio_basics.h:66,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/JUCE/modules/juce_dsp/juce_dsp.h:67,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/TestHelpers.h:12,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp:24:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:215:10: note: candidate 1: ‘template<class ValueType> void juce::UnitTest::expectEquals(ValueType, ValueType, juce::String)’
+  215 |     void expectEquals (ValueType actual, ValueType expected, String failureMessage = String())
+      |          ^~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:215:10: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/tests/GlazePlannerTests.cpp:2317:30: note:   deduced conflicting types for parameter ‘ValueType’ (‘int’ and ‘unsigned char’)
+ 2317 |                 expectEquals (maskOf (faint), clayCostLimitedWidth, utf8 ("低切本来就不开：不置低切位；收单从不置位"));
+      |                 ~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[8/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazePlanner.cpp.o
+[9/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalancePerformanceTests.cpp.o
+[10/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/MusicAnalyzer.cpp.o
+[11/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeBehaviourReport.cpp.o
+[12/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/LegacyFixtureTests.cpp.o
+[13/20] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeController.cpp.o
+[14/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeTests.cpp.o
+[15/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayGuardTests.cpp.o
+[16/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/ChainTests.cpp.o
+[17/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayTests.cpp.o
+[18/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayGlazeTests.cpp.o
+[19/20] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeControllerTests.cpp.o
+ninja: build stopped: subcommand failed.
+EXIT=1

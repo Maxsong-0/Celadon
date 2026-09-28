@@ -1,0 +1,103 @@
+[1/2] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeCalibrationTests.cpp.o
+[2/2] Linking CXX executable celadon_tests
+Random seed: 0x743cb8b
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / limit stats: sine over the ceiling reads the expected GR, max equals the meter...
+  expected GR 1.3500 dB; worst |mean - expected| 0.00000, worst |max - expected| 0.00000
+Completed tests in GlazeCalibration / limit stats: sine over the ceiling reads the expected GR, max equals the meter
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / limit stats: zero when not limiting, clip stats zero when the clip stage is idle, bypass still reports...
+Completed tests in GlazeCalibration / limit stats: zero when not limiting, clip stats zero when the clip stage is idle, bypass still reports
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / limit stats: clip activity and depth match the sine geometry...
+  expected fraction 0.2997, depth 1.0000 dB; worst errors 0.00503 / 0.00000 dB
+Completed tests in GlazeCalibration / limit stats: clip activity and depth match the sine geometry
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / block stats cover the whole process call when it is split into chunks...
+Completed tests in GlazeCalibration / block stats cover the whole process call when it is split into chunks
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / color stats: glue GR on a steady square wave matches the static curve, max equals the meter...
+  expected glue GR 5.979 dB; worst |mean - expected| 0.0987, worst |max - expected| 0.0987
+Completed tests in GlazeCalibration / color stats: glue GR on a steady square wave matches the static curve, max equals the meter
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / color stats: heat drive is the effective (wet-faded) heat...
+Completed tests in GlazeCalibration / color stats: heat drive is the effective (wet-faded) heat
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / modules with block stats do not allocate on the audio path...
+Completed tests in GlazeCalibration / modules with block stats do not allocate on the audio path
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: retreats at 1 dB/s once a constraint has been exceeded for 1 s, caps at -3 dB and flags plan limited...
+Completed tests in GlazeCalibration / guard: retreats at 1 dB/s once a constraint has been exceeded for 1 s, caps at -3 dB and flags plan limited
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: protection trajectory is identical for any block size (sample-time based), silence never changes it...
+Completed tests in GlazeCalibration / guard: protection trajectory is identical for any block size (sample-time based), silence never changes it
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: retreat stops once the constraint is satisfied (small overshoot), then holds...
+  settled at -2.260 dB (needed -2.0 dB)
+Completed tests in GlazeCalibration / guard: retreat stops once the constraint is satisfied (small overshoot), then holds
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: recovers at 0.3 dB/s after 5 s of safe music, silence does not count, never above 0...
+Completed tests in GlazeCalibration / guard: recovers at 0.3 dB/s after 5 s of safe music, silence does not count, never above 0
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: recovery stops inside the hysteresis band below the limit...
+  recovery stopped at -0.698 dB (hysteresis line at -0.7 dB)
+Completed tests in GlazeCalibration / guard: recovery stops inside the hysteresis band below the limit
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: plan-limited flag latches at the floor and clears once recovery starts...
+Completed tests in GlazeCalibration / guard: plan-limited flag latches at the floor and clears once recovery starts
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: isolated peaks do not trigger a retreat, dense ones do...
+Completed tests in GlazeCalibration / guard: isolated peaks do not trigger a retreat, dense ones do
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: glue p95, clip activity and clip depth constraints...
+Completed tests in GlazeCalibration / guard: glue p95, clip activity and clip depth constraints
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: inactive before limits are set or when no cap is configured; bad stats never produce NaN...
+Completed tests in GlazeCalibration / guard: inactive before limits are set or when no cap is configured; bad stats never produce NaN
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard does not allocate...
+Completed tests in GlazeCalibration / guard does not allocate
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: converges to a known chain deviation in two rounds, independent of block size and latency...
+  +1.3 dB deviation: bias 1.30000 dB, finished at 27.20 s, rounds 2
+Completed tests in GlazeCalibration / calibrator: converges to a known chain deviation in two rounds, independent of block size and latency
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: a deviation inside the tolerance is verified in one round...
+Completed tests in GlazeCalibration / calibrator: a deviation inside the tolerance is verified in one round
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: a remaining deviation after round two ends as a conservative partial result...
+Completed tests in GlazeCalibration / calibrator: a remaining deviation after round two ends as a conservative partial result
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: an interruption drops only the current sub-window...
+Completed tests in GlazeCalibration / calibrator: an interruption drops only the current sub-window
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: anti-windup is directional at the correction limits...
+Completed tests in GlazeCalibration / calibrator: anti-windup is directional at the correction limits
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: feedback uses the executed bias, a saturated actuator is not wound up...
+Completed tests in GlazeCalibration / calibrator: feedback uses the executed bias, a saturated actuator is not wound up
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: a persistently engaged guard ends the calibration as budget-limited...
+Completed tests in GlazeCalibration / calibrator: a persistently engaged guard ends the calibration as budget-limited
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: silence and a brief guard episode only pause the collection...
+Completed tests in GlazeCalibration / calibrator: silence and a brief guard episode only pause the collection
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: sub-windows disagreeing in direction end as partial...
+  alternating +/-1.2 dB: bias -0.164 dB, rounds 2, last e 0.000
+Completed tests in GlazeCalibration / calibrator: sub-windows disagreeing in direction end as partial
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: reference conditions are compared item by item...
+Completed tests in GlazeCalibration / calibrator: reference conditions are compared item by item
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: bad inputs never produce NaN, non-finite targets end immediately as invalid...
+Completed tests in GlazeCalibration / calibrator: bad inputs never produce NaN, non-finite targets end immediately as invalid
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator does not allocate...
+Completed tests in GlazeCalibration / calibrator does not allocate
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator and guard wired together: no tug of war, calibration ends budget-limited, guard recovers...
+  finished at 26.71 s, lowest guard -1.250 dB, guard now 0.000 dB
+Completed tests in GlazeCalibration / calibrator and guard wired together: no tug of war, calibration ends budget-limited, guard recovers
+
+==== celadon_tests: 670 passed, 0 failed ====

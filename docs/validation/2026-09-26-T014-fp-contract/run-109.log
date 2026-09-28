@@ -1,0 +1,249 @@
+### github-2  x86_64  g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0  |  Ubuntu clang version 21.1.8 (6ubuntu1)
+### GCC 默认 fp-contract（C++17 ISO / gnu++17）：
+  -ffp-contract=[off|on|fast] 		fast
+  -ffp-contract=[off|on|fast] 		fast
+### GCC -march=x86-64-v3 是否定义 __FP_FAST_FMAF / __FMA__（基线对照）：
+  基线：都没有
+#define __FP_FAST_FMA 1
+#define __FP_FAST_FMAF 1
+#define __FMA__ 1
+### GCC xmmintrin.h 里 _mm_add_ps / _mm_mul_ps 的实现：
+_mm_add_ps (__m128 __A, __m128 __B)
+{
+  return (__m128) ((__v4sf)__A + (__v4sf)__B);
+}
+--
+_mm_mul_ps (__m128 __A, __m128 __B)
+{
+  return (__m128) ((__v4sf)__A * (__v4sf)__B);
+}
+### celadon_tests [base] CXX_FLAGS=''
+  警告数：0
+  编译命令：/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-436155c747e4/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o -MF CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o.d -o CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-436155c747e4/Celadon/Source/dsp/HalfBandOversampler.cpp
+  退出码 0；==== celadon_tests: 81884 passed, 0 failed ====
+228:==== celadon_tests: 81884 passed, 0 failed ====
+### celadon_tests [v3] CXX_FLAGS='-march=x86-64-v3'
+  警告数：0
+  编译命令：/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-436155c747e4/Celadon/../JUCE/modules -march=x86-64-v3 -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o -MF CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o.d -o CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-436155c747e4/Celadon/Source/dsp/HalfBandOversampler.cpp
+  退出码 1；==== celadon_tests: 81526 passed, 358 failed ====
+26:!!! Test 1 failed: processBlock differs from processSample: white noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 12082
+27:!!! Test 2 failed: processBlockMax differs from the jmax fold: white noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 12082
+28:!!! Test 3 failed: processBlock differs from processSample: white noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 12082
+29:!!! Test 4 failed: processBlockMax differs from the jmax fold: white noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 1951
+30:!!! Test 5 failed: processBlock differs from processSample: white noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 12082
+31:!!! Test 6 failed: processBlockMax differs from the jmax fold: white noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 255
+32:!!! Test 7 failed: processBlock differs from processSample: white noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 12082
+33:!!! Test 8 failed: processBlockMax differs from the jmax fold: white noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 32
+34:!!! Test 9 failed: processBlock differs from processSample: white noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 12082
+35:!!! Test 10 failed: processBlockMax differs from the jmax fold: white noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 3
+36:!!! Test 11 failed: processBlock differs from processSample: white noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 12082
+37:!!! Test 12 failed: processBlockMax differs from the jmax fold: white noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 143
+38:!!! Test 13 failed: processBlock differs from processSample: white noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 12082
+39:!!! Test 14 failed: processBlockMax differs from the jmax fold: white noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 27
+40:!!! Test 29 failed: processBlock differs from processSample: 20 ms burst, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 418
+41:!!! Test 30 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 418
+42:!!! Test 31 failed: processBlock differs from processSample: 20 ms burst, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 418
+43:!!! Test 32 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 46
+44:!!! Test 33 failed: processBlock differs from processSample: 20 ms burst, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 418
+45:!!! Test 35 failed: processBlock differs from processSample: 20 ms burst, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 418
+46:!!! Test 37 failed: processBlock differs from processSample: 20 ms burst, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 418
+47:!!! Test 39 failed: processBlock differs from processSample: 20 ms burst, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 418
+48:!!! Test 40 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 2
+49:!!! Test 41 failed: processBlock differs from processSample: 20 ms burst, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 418
+50:!!! Test 43 failed: processBlock differs from processSample: +60 dBFS noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 11921
+51:!!! Test 44 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 11921
+52:!!! Test 45 failed: processBlock differs from processSample: +60 dBFS noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 11921
+53:!!! Test 46 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 1915
+54:!!! Test 47 failed: processBlock differs from processSample: +60 dBFS noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 11921
+55:!!! Test 48 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 205
+56:!!! Test 49 failed: processBlock differs from processSample: +60 dBFS noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 11921
+57:!!! Test 50 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 23
+58:!!! Test 51 failed: processBlock differs from processSample: +60 dBFS noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 11921
+59:!!! Test 52 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 2
+60:!!! Test 53 failed: processBlock differs from processSample: +60 dBFS noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 11921
+61:!!! Test 54 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 123
+62:!!! Test 55 failed: processBlock differs from processSample: +60 dBFS noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 11921
+63:!!! Test 56 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 19
+64:!!! Test 71 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 23998
+65:!!! Test 72 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 23998
+### celadon_tests [v3-nocontract] CXX_FLAGS='-march=x86-64-v3 -ffp-contract=off'
+  警告数：0
+  编译命令：/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-436155c747e4/Celadon/../JUCE/modules -march=x86-64-v3 -ffp-contract=off -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o -MF CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o.d -o CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-436155c747e4/Celadon/Source/dsp/HalfBandOversampler.cpp
+  退出码 0；==== celadon_tests: 81884 passed, 0 failed ====
+228:==== celadon_tests: 81884 passed, 0 failed ====
+### dump [gcc-base] g++ 
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 1 (0x3f800000)  fastTanh(7.9053111) = 1 (0x3f800000)  fastTanh(10) = 1
+  fastTanh exhaustive [0, 8]: hash 3c3965482570860f, |y| > 1: 0, max y 1 (0x3f800000), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 0 / 48000 samples differ
+  融合乘加指令数（vfmadd / vfmsub / vfnmadd / vfnmsub）：
+    HalfBandOversampler  合计    0
+    Saturator            合计    0
+    TruePeak             合计    0
+### dump [gcc-v3] g++ -march=x86-64-v3
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 0.999999762 (0x3f7ffffc)  fastTanh(7.9053111) = 0.999999762 (0x3f7ffffc)  fastTanh(10) = 0.999999762
+  fastTanh exhaustive [0, 8]: hash 716aa1f9560b648a, |y| > 1: 0, max y 0.99999994 (0x3f7fffff), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 11978 / 48000 samples differ
+  融合乘加指令数（vfmadd / vfmsub / vfnmadd / vfnmsub）：
+    HalfBandOversampler  合计   24
+           4  celadon::HalfBandOversampler::designFilter(float, float)
+          16  celadon::HalfBandOversampler::processSamplesDown(juce::dsp::AudioBlock<float>&)
+           4  celadon::HalfBandOversampler::processSamplesUp(juce::dsp::AudioBlock<float const> const&)
+    Saturator            合计   91
+          18  celadon::Saturator::fastTanhBlock(float*, int)
+           9  celadon::Saturator::fastTanh(float)
+          20  celadon::Saturator::processTubeBlock(float*, int) const
+          11  celadon::Saturator::setAsymmetry(float)
+          11  celadon::Saturator::setDriveAndAsymmetry(float, float)
+          11  celadon::Saturator::setDrive(float)
+          11  celadon::Saturator::updateTube()
+    TruePeak             合计    8
+           7  celadon::TruePeakDetector::processChunk(celadon::TruePeakDetector::ChannelState&, float const*, int)
+           1  celadon::TruePeakDetector::TruePeakDetector()
+### dump [gcc-v3-nocontract] g++ -march=x86-64-v3 -ffp-contract=off
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 1 (0x3f800000)  fastTanh(7.9053111) = 1 (0x3f800000)  fastTanh(10) = 1
+  fastTanh exhaustive [0, 8]: hash 3c3965482570860f, |y| > 1: 0, max y 1 (0x3f800000), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 0 / 48000 samples differ
+  融合乘加指令数（vfmadd / vfmsub / vfnmadd / vfnmsub）：
+    HalfBandOversampler  合计    0
+    Saturator            合计    0
+    TruePeak             合计    0
+### dump [gcc-scalar] g++ -DCELADON_FORCE_SCALAR_SIMD
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 1 (0x3f800000)  fastTanh(7.9053111) = 1 (0x3f800000)  fastTanh(10) = 1
+  fastTanh exhaustive [0, 8]: hash 3c3965482570860f, |y| > 1: 0, max y 1 (0x3f800000), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 0 / 48000 samples differ
+  融合乘加指令数（vfmadd / vfmsub / vfnmadd / vfnmsub）：
+    HalfBandOversampler  合计    0
+    Saturator            合计    0
+    TruePeak             合计    0
+### dump [gcc-scalar-v3] g++ -DCELADON_FORCE_SCALAR_SIMD -march=x86-64-v3
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 0.999999762 (0x3f7ffffc)  fastTanh(7.9053111) = 0.999999762 (0x3f7ffffc)  fastTanh(10) = 0.999999762
+  fastTanh exhaustive [0, 8]: hash 716aa1f9560b648a, |y| > 1: 0, max y 0.99999994 (0x3f7fffff), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 11978 / 48000 samples differ
+  融合乘加指令数（vfmadd / vfmsub / vfnmadd / vfnmsub）：
+    HalfBandOversampler  合计  218
+           4  celadon::HalfBandOversampler::designFilter(float, float)
+         142  celadon::HalfBandOversampler::processSamplesDown(juce::dsp::AudioBlock<float>&)
+          72  celadon::HalfBandOversampler::processSamplesUp(juce::dsp::AudioBlock<float const> const&)
+    Saturator            合计   36
+           9  celadon::Saturator::fastTanhBlock(float*, int)::{lambda(celadon::(anonymous namespace)::Vec)#1}::operator()(celadon::(anonymous namespace)::Vec) c
+           9  celadon::Saturator::fastTanh(float)
+          10  celadon::Saturator::processTubeBlock(float*, int) const::{lambda(celadon::(anonymous namespace)::Vec)#1}::operator()(celadon::(anonymous namespace
+           2  celadon::Saturator::setAsymmetry(float)
+           2  celadon::Saturator::setDriveAndAsymmetry(float, float)
+           2  celadon::Saturator::setDrive(float)
+           2  celadon::Saturator::updateTube()
+    TruePeak             合计    8
+           7  celadon::TruePeakDetector::processChunk(celadon::TruePeakDetector::ChannelState&, float const*, int)
+           1  celadon::TruePeakDetector::TruePeakDetector()
+### dump [clang-v3] clang++ -march=x86-64-v3
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 1 (0x3f800000)  fastTanh(7.9053111) = 1 (0x3f800000)  fastTanh(10) = 1
+  fastTanh exhaustive [0, 8]: hash 3c3965482570860f, |y| > 1: 0, max y 1 (0x3f800000), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 0 / 48000 samples differ
+  融合乘加指令数（vfmadd / vfmsub / vfnmadd / vfnmsub）：
+    HalfBandOversampler  合计    5
+           5  celadon::HalfBandOversampler::designFilter(float, float)
+    Saturator            合计    8
+           2  celadon::Saturator::setAsymmetry(float)
+           2  celadon::Saturator::setDriveAndAsymmetry(float, float)
+           2  celadon::Saturator::setDrive(float)
+           2  celadon::Saturator::updateTube()
+    TruePeak             合计    1
+           1  celadon::TruePeakDetector::TruePeakDetector()
+### dump [clang-v3-fast] clang++ -march=x86-64-v3 -ffp-contract=fast
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 0.999999762 (0x3f7ffffc)  fastTanh(7.9053111) = 0.999999762 (0x3f7ffffc)  fastTanh(10) = 0.999999762
+  fastTanh exhaustive [0, 8]: hash 716aa1f9560b648a, |y| > 1: 0, max y 0.99999994 (0x3f7fffff), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 0 / 48000 samples differ
+  融合乘加指令数（vfmadd / vfmsub / vfnmadd / vfnmsub）：
+    HalfBandOversampler  合计   49
+           5  celadon::HalfBandOversampler::designFilter(float, float)
+          27  celadon::HalfBandOversampler::processSamplesDown(juce::dsp::AudioBlock<float>&)
+          17  celadon::HalfBandOversampler::processSamplesUp(juce::dsp::AudioBlock<float const> const&)
+    Saturator            合计   91
+          18  celadon::Saturator::fastTanhBlock(float*, int)
+           9  celadon::Saturator::fastTanh(float)
+          20  celadon::Saturator::processTubeBlock(float*, int) const
+          11  celadon::Saturator::setAsymmetry(float)
+          11  celadon::Saturator::setDriveAndAsymmetry(float, float)
+          11  celadon::Saturator::setDrive(float)
+          11  celadon::Saturator::updateTube()
+    TruePeak             合计   78
+           7  celadon::TruePeakDetector::processBlock(int, float const*, float*, int)
+           7  celadon::TruePeakDetector::processBlockMax(int, float const*, int)
+           7  celadon::TruePeakDetector::processChunk(celadon::TruePeakDetector::ChannelState&, float const*, int)
+          56  celadon::TruePeakDetector::processSample(int, float)
+           1  celadon::TruePeakDetector::TruePeakDetector()
+### 逐位比较（相对 gcc-base）
+gcc-base vs gcc-v3
+  fasttanh-sweep.bin       590616 / 1048588  differ   max      7 ulp   max |diff| 4.17e-07
+  halfband-down.bin         51905 / 95232    differ   max  28928 ulp   max |diff| 2.38e-07
+  halfband-up.bin          361207 / 761856   differ   max 239997 ulp   max |diff| 4.77e-07
+  truepeak-block.bin        11978 / 48000    differ   max      5 ulp   max |diff| 3.58e-07
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin            18651 / 48000    differ   max    162 ulp   max |diff| 5.96e-08
+gcc-base vs gcc-v3-nocontract
+  fasttanh-sweep.bin            0 / 1048588  differ   max      0 ulp   max |diff| 0
+  halfband-down.bin             0 / 95232    differ   max      0 ulp   max |diff| 0
+  halfband-up.bin               0 / 761856   differ   max      0 ulp   max |diff| 0
+  truepeak-block.bin            0 / 48000    differ   max      0 ulp   max |diff| 0
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin                0 / 48000    differ   max      0 ulp   max |diff| 0
+gcc-base vs gcc-scalar
+  fasttanh-sweep.bin            0 / 1048588  differ   max      0 ulp   max |diff| 0
+  halfband-down.bin             0 / 95232    differ   max      0 ulp   max |diff| 0
+  halfband-up.bin               0 / 761856   differ   max      0 ulp   max |diff| 0
+  truepeak-block.bin            0 / 48000    differ   max      0 ulp   max |diff| 0
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin                0 / 48000    differ   max      0 ulp   max |diff| 0
+gcc-base vs gcc-scalar-v3
+  fasttanh-sweep.bin       590616 / 1048588  differ   max      7 ulp   max |diff| 4.17e-07
+  halfband-down.bin         49874 / 95232    differ   max  22528 ulp   max |diff| 2.38e-07
+  halfband-up.bin          339670 / 761856   differ   max 239997 ulp   max |diff| 4.77e-07
+  truepeak-block.bin        11978 / 48000    differ   max      5 ulp   max |diff| 3.58e-07
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin            18651 / 48000    differ   max    162 ulp   max |diff| 5.96e-08
+gcc-base vs clang-v3
+  fasttanh-sweep.bin            0 / 1048588  differ   max      0 ulp   max |diff| 0
+  halfband-down.bin             0 / 95232    differ   max      0 ulp   max |diff| 0
+  halfband-up.bin               0 / 761856   differ   max      0 ulp   max |diff| 0
+  truepeak-block.bin            0 / 48000    differ   max      0 ulp   max |diff| 0
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin                0 / 48000    differ   max      0 ulp   max |diff| 0
+gcc-base vs clang-v3-fast
+  fasttanh-sweep.bin       590616 / 1048588  differ   max      7 ulp   max |diff| 4.17e-07
+  halfband-down.bin         51905 / 95232    differ   max  28928 ulp   max |diff| 2.38e-07
+  halfband-up.bin          361207 / 761856   differ   max 239997 ulp   max |diff| 4.77e-07
+  truepeak-block.bin        11978 / 48000    differ   max      5 ulp   max |diff| 3.58e-07
+  truepeak-sample.bin       11978 / 48000    differ   max      5 ulp   max |diff| 3.58e-07
+  tube-block.bin            18651 / 48000    differ   max    162 ulp   max |diff| 5.96e-08
+gcc-v3 vs gcc-scalar-v3（开 FMA 后 SSE2 路径与标量回退是否还相同）
+  fasttanh-sweep.bin            0 / 1048588  differ   max      0 ulp   max |diff| 0
+  halfband-down.bin         38152 / 95232    differ   max  14336 ulp   max |diff| 2.38e-07
+  halfband-up.bin          175449 / 761856   differ   max  41438 ulp   max |diff| 3.58e-07
+  truepeak-block.bin            0 / 48000    differ   max      0 ulp   max |diff| 0
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin                0 / 48000    differ   max      0 ulp   max |diff| 0
+### clang 交叉编 aarch64 小样本（NEON 封装写法 / 两条语句 / 一个表达式）
+  clang --target=aarch64-linux-gnu -O3 （默认）
+    _Z13vectorPattern13__Float32x4_tS_S_:         fmul
+    _Z13vectorPattern13__Float32x4_tS_S_:         fadd
+    _Z19scalarTwoStatementsfff:                   fmul
+    _Z19scalarTwoStatementsfff:                   fadd
+    _Z19scalarOneExpressionfff:                   fmadd
+  clang --target=aarch64-linux-gnu -O3 -ffp-contract=fast
+    _Z13vectorPattern13__Float32x4_tS_S_:         fmla
+    _Z19scalarTwoStatementsfff:                   fmadd
+    _Z19scalarOneExpressionfff:                   fmadd
+  clang --target=aarch64-linux-gnu -O3 -ffp-contract=off
+    _Z13vectorPattern13__Float32x4_tS_S_:         fmul
+    _Z13vectorPattern13__Float32x4_tS_S_:         fadd
+    _Z19scalarTwoStatementsfff:                   fmul
+    _Z19scalarTwoStatementsfff:                   fadd
+    _Z19scalarOneExpressionfff:                   fmul
+    _Z19scalarOneExpressionfff:                   fadd

@@ -1,0 +1,9 @@
+{
+  "source": "/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-intelligent-preview/Celadon.vst3",
+  "installed": "/Users/maxsong/Library/Audio/Plug-Ins/VST3/Celadon.vst3",
+  "backup": "/Users/maxsong/All-Project/Celadon/artifacts/plugin-backups/20260926-184827-875044/Celadon.vst3",
+  "installed_verified": true,
+  "backup_verified": true,
+  "binary_sha256": "b9228cbbc59ecbc5eb5568880251fbf57996f4b5b1fe7cfcaafb0863524b3a16",
+  "old_binary_sha256": "4aeeac0d6a0396a8d0cfa358beb63c4978abe02489eaac7a5e456eda3395c7c8"
+}

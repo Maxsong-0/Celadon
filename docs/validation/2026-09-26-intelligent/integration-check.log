@@ -1,0 +1,316 @@
+[1/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeConstants.cpp.o
+[2/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeCalibrator.cpp.o
+[3/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/CeladonChain.cpp.o
+[4/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeController.cpp.o
+/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeController.cpp:1902:93: warning: implicit conversion from 'std::int64_t' (aka 'long long') to 'double' may lose precision [-Wimplicit-int-float-conversion]
+ 1902 |                 const auto t = (float) juce::jlimit (0.0, 1.0, (double) transitionElapsed / transitionLength);
+      |                                                                                           ~ ^~~~~~~~~~~~~~~~
+1 warning generated.
+[5/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeGuard.cpp.o
+[6/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o
+[7/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazePlanner.cpp.o
+[8/17] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/MusicAnalyzer.cpp.o
+[9/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalancePerformanceTests.cpp.o
+[10/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/ChainTests.cpp.o
+[11/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeBehaviourReport.cpp.o
+[12/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeTests.cpp.o
+[13/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o
+[14/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o
+[15/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeCalibrationTests.cpp.o
+[16/17] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeControllerTests.cpp.o
+/Users/maxsong/All-Project/Celadon/tests/GlazeControllerTests.cpp:284:16: warning: unused function 'outputOf' [-Wunused-function]
+  284 |         Signal outputOf (Rig& rig, double seconds)
+      |                ^~~~~~~~
+1 warning generated.
+[17/17] Linking CXX executable celadon_tests
+Random seed: 0x7748298
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / latency == balance + color + limit latency, impulse confirms it...
+Completed tests in CeladonChain / latency == balance + color + limit latency, impulse confirms it
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / null when everything is neutral and input is below ceiling...
+Completed tests in CeladonChain / null when everything is neutral and input is below ceiling
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / host bypass is bit-exact delayed input with every module maxed out...
+Completed tests in CeladonChain / host bypass is bit-exact delayed input with every module maxed out
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / restartWithFadeIn: silence for the whole latency, then fade, then bit-exact again...
+  fade step 0.02879 vs steady 0.02879
+Completed tests in CeladonChain / restartWithFadeIn: silence for the whole latency, then fade, then bit-exact again
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / true peak <= ceiling + 0.01 dB with color engaged before the limiter...
+  worst overshoot: -0.3500 dB  [100 Hz square clip=50 balance=0]
+  GR through chain: limit 16.31 dB, glue 5.38 dB
+Completed tests in CeladonChain / true peak <= ceiling + 0.01 dB with color engaged before the limiter
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / setParams / process / restartWithFadeIn / meter reads never allocate...
+Completed tests in CeladonChain / setParams / process / restartWithFadeIn / meter reads never allocate
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / reset after running == fresh prepare, bit-exact (same-spec prepareToPlay only resets)...
+Completed tests in CeladonChain / reset after running == fresh prepare, bit-exact (same-spec prepareToPlay only resets)
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / Listen measures whole-chain gain, Color and limiting; OUT stays before monitoring gain...
+  measured Listen error 0.000 LU mode=0 @44100
+  measured Listen error 0.000 LU mode=1 @44100
+  measured Listen error 0.002 LU mode=2 @44100
+  measured Listen error 0.000 LU mode=0 @48000
+  measured Listen error 0.000 LU mode=1 @48000
+  measured Listen error 0.002 LU mode=2 @48000
+Completed tests in CeladonChain / Listen measures whole-chain gain, Color and limiting; OUT stays before monitoring gain
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / Listen is independent of host block partition and never boosts a quieter master...
+Completed tests in CeladonChain / Listen is independent of host block partition and never boosts a quieter master
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / neutral Listen must not attenuate isolated impulses that cross a 100 ms window boundary...
+Completed tests in CeladonChain / neutral Listen must not attenuate isolated impulses that cross a 100 ms window boundary
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / Listen freezes in silence, follows edits, ramps toggles, and recovers from bypass/reset/latency changes...
+  Listen after 6 dB output edit, final 1 s of 3 s: -0.0241 LU
+Completed tests in CeladonChain / Listen freezes in silence, follows edits, ramps toggles, and recovers from bypass/reset/latency changes
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / freezing a Guard slot one sample before its boundary cannot fragment large callbacks into single samples...
+Completed tests in CeladonChain / freezing a Guard slot one sample before its boundary cannot fragment large callbacks into single samples
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / GLAZE 0, Listen off: chain == hand-wired modules with the manual params, bit-exact, 90 scenarios...
+  90 scenarios, 0 with any difference
+Completed tests in GlazeChain / GLAZE 0, Listen off: chain == hand-wired modules with the manual params, bit-exact, 90 scenarios
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / GLAZE > 0 acts only through the params handed to the modules (reference fed the same params is bit-exact)...
+   @48000 ch2 lifecycle covered: commits 1, calibration rounds 2, feedback steps 1, deepest executed protection -3.00 dB; largest change vs input 1.683
+   @44100 ch1 lifecycle covered: commits 1, calibration rounds 1, feedback steps 1, deepest executed protection -2.04 dB; largest change vs input 1.799
+Completed tests in GlazeChain / GLAZE > 0 acts only through the params handed to the modules (reference fed the same params is bit-exact)
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / Listen toggles change monitoring only: GLAZE params, pre-Listen meters and calibration stay identical...
+Completed tests in GlazeChain / Listen toggles change monitoring only: GLAZE params, pre-Listen meters and calibration stay identical
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / latency is the same at GLAZE 0 and 100 and while turning it...
+Completed tests in GlazeChain / latency is the same at GLAZE 0 and 100 and while turning it
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / GLAZE sweep leaves no block-rate sidebands (<= -95 dBFS), and the metric catches an unsmoothed control...
+  block-rate sidebands: real GLAZE sweep -113.0 dBFS; unsmoothed control -76.2 dBFS; threshold -95.0 dBFS
+Completed tests in GlazeChain / GLAZE sweep leaves no block-rate sidebands (<= -95 dBFS), and the metric catches an unsmoothed control
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / sweeping GLAZE 0 -> 100 -> 0 over 4 s on a learned profile: finite, no clicks (per-block bound, negative control)...
+  music-like: worst sweep / stationary first-difference ratio 1.017, lowest local threshold 0.0221
+  steady tones: worst sweep / stationary first-difference ratio 1.002, lowest local threshold 0.0376
+Completed tests in GlazeChain / sweeping GLAZE 0 -> 100 -> 0 over 4 s on a learned profile: finite, no clicks (per-block bound, negative control)
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / true peak <= ceiling + 0.01 dB through the whole GLAZE lifecycle at GLAZE 100, user gain +6...
+  1 kHz sine 0 dBFS: overshoot own meter -0.3500 dB, 16x reference -0.3492 dB; commits 1, calibration rounds 0, feedback steps 0
+  music-like: overshoot own meter -0.3500 dB, 16x reference -0.2005 dB; commits 1, calibration rounds 2, feedback steps 1
+Completed tests in GlazeChain / true peak <= ceiling + 0.01 dB through the whole GLAZE lifecycle at GLAZE 100, user gain +6
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / after learning, integrated loudness rises with GLAZE (0 / 25 / 50 / 75 / 100), and never dips at small values...
+  learned: I -24.06 LUFS (confidence 1.00), true peak -9.41 dBTP
+  GLAZE 0 -> -23.97 LUFS; 0.1 -> -23.971; 1.0 -> -23.861; 5.0 -> -23.361; 25 -> -20.86 (+3.11); 50 -> -17.74 (+3.12); 75 -> -14.71 (+3.03); 100 -> -11.64 (+3.06);
+Completed tests in GlazeChain / after learning, integrated loudness rises with GLAZE (0 / 25 / 50 / 75 / 100), and never dips at small values
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / styles lean on the modules the spec names (warm: Glue / Heat, punchy: Clip, clean: least Heat)...
+  style 0: glue 100.0 heat 56.1 clip 72.3 gain 8.66 dB tone -0.05 | measured glue GR 0.19 dB, limit GR 0.50 dB
+  style 1: glue 100.0 heat 70.0 clip 72.0 gain 8.13 dB tone -0.30 | measured glue GR 0.20 dB, limit GR 0.43 dB
+  style 2: glue 100.0 heat 50.0 clip 77.7 gain 8.79 dB tone 0.00 | measured glue GR 0.19 dB, limit GR 0.47 dB
+  style 3: glue 100.0 heat 20.0 clip 61.0 gain 9.23 dB tone 0.00 | measured glue GR 0.19 dB, limit GR 0.68 dB
+Completed tests in GlazeChain / styles lean on the modules the spec names (warm: Glue / Heat, punchy: Clip, clean: least Heat)
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / fresh insert: only GLAZE 50 activates loudness, spectral processing and colour automatically...
+  fresh GLAZE 50 loudness increase: 6.07 LU
+Completed tests in GlazeChain / fresh insert: only GLAZE 50 activates loudness, spectral processing and colour automatically
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / a learned profile with no spectral evidence still tames a new resonance, without relearning or allocation...
+Completed tests in GlazeChain / a learned profile with no spectral evidence still tames a new resonance, without relearning or allocation
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / sub-blocks: 100 ms K-weighted mean squares with sample timestamps; S and true peak agree with the meter...
+Completed tests in MusicAnalyzer / sub-blocks: 100 ms K-weighted mean squares with sample timestamps; S and true peak agree with the meter
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / sub-block ring: overflow reports a negative count; requestReset keeps the sequence; loudness off produces none...
+Completed tests in MusicAnalyzer / sub-block ring: overflow reports a negative count; requestReset keeps the sequence; loudness off produces none
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / frame snapshots: timestamps, both units, identical with and without slicing, bypass and settings...
+Completed tests in MusicAnalyzer / frame snapshots: timestamps, both units, identical with and without slicing, bypass and settings
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / M / S / I of a stereo 1 kHz sine match the BS.1770-4 formula...
+Completed tests in MusicAnalyzer / M / S / I of a stereo 1 kHz sine match the BS.1770-4 formula
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / integrated loudness applies the absolute and relative gates (EBU R128 / Tech 3341)...
+Completed tests in MusicAnalyzer / integrated loudness applies the absolute and relative gates (EBU R128 / Tech 3341)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / loudness range follows EBU Tech 3342 (P95 - P10 of gated short-term values)...
+Completed tests in MusicAnalyzer / loudness range follows EBU Tech 3342 (P95 - P10 of gated short-term values)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / PLR and PSR come from the same true-peak detector as the meter...
+Completed tests in MusicAnalyzer / PLR and PSR come from the same true-peak detector as the meter
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / spectrum: pink noise has no evidence, a flat slope and 5/27 shares; white noise tilts +3 dB/oct...
+  pink @48000: worst tame 0.0000 dB, worst recover 0.0000 dB, slope -0.020 dB/oct, low 0.191, high 0.183
+  pink @96000: worst tame 0.0000 dB, worst recover 0.0000 dB, slope -0.016 dB/oct, low 0.189, high 0.183
+Completed tests in MusicAnalyzer / spectrum: pink noise has no evidence, a flat slope and 5/27 shares; white noise tilts +3 dB/oct
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / spectrum: a notch yields Recover evidence in its band only, a peak Tame evidence in its band only...
+  band 13 notch: evidence 4.85 dB
+  band 14 peak: evidence 5.61 dB
+  band 8 notch: evidence 4.06 dB
+  band 20 peak: evidence 5.70 dB
+Completed tests in MusicAnalyzer / spectrum: a notch yields Recover evidence in its band only, a peak Tame evidence in its band only
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile...
+Completed tests in MusicAnalyzer / live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / live broad-band slope follows stopped learning, and rejects narrow tones and silence...
+Completed tests in MusicAnalyzer / live broad-band slope follows stopped learning, and rejects narrow tones and silence
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / Recover stays conservative: roll-offs, edge bands and intermittent gaps are not filled...
+Completed tests in MusicAnalyzer / Recover stays conservative: roll-offs, edge bands and intermittent gaps are not filled
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / channels combine by power: R = -L equals R = L (bit-exact), mono equals identical stereo...
+Completed tests in MusicAnalyzer / channels combine by power: R = -L equals R = L (bit-exact), mono equals identical stereo
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: click trains are counted exactly (2, 4, 8 and 16 per second)...
+Completed tests in MusicAnalyzer / onsets: click trains are counted exactly (2, 4, 8 and 16 per second)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: sustained low sines and sustained bass (beating, tremolo) never trigger...
+Completed tests in MusicAnalyzer / onsets: sustained low sines and sustained bass (beating, tremolo) never trigger
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: a dense drum pattern gives a plausible density, corroborated by the high-band flux...
+  drums: density 1.975 /s, strength 9.38 dB, flux onsets 6.77 /s, agreement 1.00, low-band range 24.0 dB
+Completed tests in MusicAnalyzer / onsets: a dense drum pattern gives a plausible density, corroborated by the high-band flux
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / effective time counts only new, audible samples (silence and passages 20 LU below I do not count)...
+Completed tests in MusicAnalyzer / effective time counts only new, audible samples (silence and passages 20 LU below I do not count)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / learning interval: data before startLearning is excluded, stopLearning freezes the profile...
+Completed tests in MusicAnalyzer / learning interval: data before startLearning is excluded, stopLearning freezes the profile
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / unknown is not zero: invalid until measured; LRA confidence stays below 1 for the first 60 s...
+Completed tests in MusicAnalyzer / unknown is not zero: invalid until measured; LRA confidence stays below 1 for the first 60 s
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / discontinuities: windows refill (M 0.4 s, S 3 s), accumulations are kept, splices are not onsets...
+Completed tests in MusicAnalyzer / discontinuities: windows refill (M 0.4 s, S 3 s), accumulations are kept, splices are not onsets
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / host resets and module-only resets: learning continues on the new time axis...
+Completed tests in MusicAnalyzer / host resets and module-only resets: learning continues on the new time axis
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / one spectral delivery per host block is independent of input statistics slices; resets and missing Balance remain detectable...
+!!! Test 2 failed: Tame sees the identical delivered frames -- Expected value: 1.08532, Actual value: 1.08531
+!!! Test 3 failed: Tone sees the identical delivered frames -- Expected value: 0.0240444, Actual value: 0.0240319
+!!! Test 4 failed: no false discontinuities remove learned spectral duration -- Expected value: 5.96267, Actual value: 5.94133
+!!! Test 6 failed: spectral evidence refills after reset
+
+FAILED!!  4 tests failed, out of a total of 7
+
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / representativeness: repeated loops add nothing; without a host position it is capped at 0.75...
+  4 s loop x 5: representativeness 0.267, effective 19.60 s
+Completed tests in MusicAnalyzer / representativeness: repeated loops add nothing; without a host position it is capped at 0.75
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / the profile is bit-identical for any host block size (1 ... 4096, random)...
+Completed tests in MusicAnalyzer / the profile is bit-identical for any host block size (1 ... 4096, random)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / the audio-thread API does not allocate...
+Completed tests in MusicAnalyzer / the audio-thread API does not allocate
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning)...
+  analyzer @48k block 512, learning: mean 2.11 us (0.020 % of one core), worst 2.71 us
+Completed tests in MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / phases: unlearned until playback, listening, plan transition, calibrating, locked; ready flags follow...
+  phase sequence: unlearned listening planTransition calibrating locked | probe: learning starts 1, commits 1, calibration rounds begun 1
+Completed tests in GlazeController / phases: unlearned until playback, listening, plan transition, calibrating, locked; ready flags follow
+-----------------------------------------------------------------
+Starting tests in: GlazeController / GLAZE 0 learns but never calibrates or touches the manual values; turning it up calibrates; back to 0 is bit-exact...
+Completed tests in GlazeController / GLAZE 0 learns but never calibrates or touches the manual values; turning it up calibrates; back to 0 is bit-exact
+-----------------------------------------------------------------
+Starting tests in: GlazeController / first listen: the button restarts the round from zero, visible in the status before the next block...
+Completed tests in GlazeController / first listen: the button restarts the round from zero, visible in the status before the next block
+-----------------------------------------------------------------
+Starting tests in: GlazeController / relearn builds a candidate while the committed version plays on; cancel, mid-listen save, swap with a transition...
+  relearn swap: worst per-block step 0.0006 dB (Limit Gain; Glue / 10)
+Completed tests in GlazeController / relearn builds a candidate while the committed version plays on; cancel, mid-listen save, swap with a transition
+-----------------------------------------------------------------
+Starting tests in: GlazeController / transport jump, loop wrap and host reset each clear their own runtime state...
+Completed tests in GlazeController / transport jump, loop wrap and host reset each clear their own runtime state
+-----------------------------------------------------------------
+Starting tests in: GlazeController / internal input slices retain host-position coverage, looping and missing-position semantics...
+Completed tests in GlazeController / internal input slices retain host-position coverage, looping and missing-position semantics
+-----------------------------------------------------------------
+Starting tests in: GlazeController / realtime and offline use the same learning, calibration and loud-section safety state machine...
+Completed tests in GlazeController / realtime and offline use the same learning, calibration and loud-section safety state machine
+-----------------------------------------------------------------
+Starting tests in: GlazeController / execution snapshot preserves unfinished learning, applied calibration and deterministic replay...
+Completed tests in GlazeController / execution snapshot preserves unfinished learning, applied calibration and deterministic replay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a completed calibration cannot replace the saved executed bias before its slew has finished...
+Completed tests in GlazeController / a completed calibration cannot replace the saved executed bias before its slew has finished
+-----------------------------------------------------------------
+Starting tests in: GlazeController / malformed execution increments cannot override manual controls...
+Completed tests in GlazeController / malformed execution increments cannot override manual controls
+-----------------------------------------------------------------
+Starting tests in: GlazeController / save / restore: takes effect at once, re-renders bit-exactly from the same start; empty or broken data = unlearned...
+  reset/restore trajectory: first parameter block=-1, first audio block=-1
+Completed tests in GlazeController / save / restore: takes effect at once, re-renders bit-exactly from the same start; empty or broken data = unlearned
+-----------------------------------------------------------------
+Starting tests in: GlazeController / sample-rate change keeps profile and style weights, marks calibration pending, recalibrates when stable...
+Completed tests in GlazeController / sample-rate change keeps profile and style weights, marks calibration pending, recalibrates when stable
+-----------------------------------------------------------------
+Starting tests in: GlazeController / GLAZE automation: no relearn, no transition, no new calibration; increments follow the deterministic mapping...
+  automated 282 blocks; applied bias now 0.000 dB
+Completed tests in GlazeController / GLAZE automation: no relearn, no transition, no new calibration; increments follow the deterministic mapping
+-----------------------------------------------------------------
+Starting tests in: GlazeController / switching style is one plan transition, then calibration for the new conditions...
+Completed tests in GlazeController / switching style is one plan transition, then calibration for the new conditions
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a plan saved by an older algorithm keeps its saved increments until GLAZE is turned...
+Completed tests in GlazeController / a plan saved by an older algorithm keeps its saved increments until GLAZE is turned
+-----------------------------------------------------------------
+Starting tests in: GlazeController / old Heat model snapshots are replanned with current compensation, preserving the profile and manual controls...
+Completed tests in GlazeController / old Heat model snapshots are replanned with current compensation, preserving the profile and manual controls
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority...
+Completed tests in GlazeController / locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone...
+Completed tests in GlazeController / locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone
+-----------------------------------------------------------------
+Starting tests in: GlazeController / dense bright sections gently reduce only planned automatic Heat/Glue and sparse sections recover...
+Completed tests in GlazeController / dense bright sections gently reduce only planned automatic Heat/Glue and sparse sections recover
+-----------------------------------------------------------------
+Starting tests in: GlazeController / live coloration survives save/reset and old missing execution fields default to neutral...
+Completed tests in GlazeController / live coloration survives save/reset and old missing execution fields default to neutral
+-----------------------------------------------------------------
+Starting tests in: GlazeController / dynamic color remains compatible with calibration and unfinished execution replay...
+  adaptive/fixed color net gain: dense 2.6839/2.9998 dB, recovered sparse 3.5843/3.4132 dB; target 3.0000 dB; applied bias -1.1662/-1.3372 dB
+Completed tests in GlazeController / dynamic color remains compatible with calibration and unfinished execution replay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection...
+Completed tests in GlazeController / Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection
+-----------------------------------------------------------------
+Starting tests in: GlazeController / constraint feedback lowers the plan step by step, converges and does not oscillate...
+  feedback steps 2 (budget 0, guard limited 0, upstream 0, stuck guard 0); max gain now 1.57 dB; last change at 3.1 s; guard 0.00 dB; tail direction changes 0; output true peak -1.350 dBTP
+Completed tests in GlazeController / constraint feedback lowers the plan step by step, converges and does not oscillate
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked with an applicable calibration: a guard stuck on a partial retreat is absorbed into the plan...
+  source x2.0: feedback steps 0 (stuck 0, budget 0, guard limited 0, upstream 0); lowest guard 0.00 dB; now guard 0.00 / executed 0.00 dB; output true peak -3.368 dBTP
+  source x5.0: feedback steps 1 (stuck 1, budget 0, guard limited 0, upstream 0); lowest guard -1.03 dB; now guard 0.00 / executed 0.00 dB; output true peak -1.350 dBTP
+Completed tests in GlazeController / locked with an applicable calibration: a guard stuck on a partial retreat is absorbed into the plan
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a profile learned on a quiet intro is capped by the loud section at once, with a relearn hint...
+  learned I -45.0 LUFS; mismatch steps 3 (first at +1.59 s into the loud part); feedback cap 2.13 dB; limiter GR peak after 5 s 2.57 dB; status mismatch 1
+Completed tests in GlazeController / a profile learned on a quiet intro is capped by the loud section at once, with a relearn hint
+-----------------------------------------------------------------
+Starting tests in: GlazeController / pattern loops without loop info, a jittery playhead and stale positions still learn, calibrate and lock...
+  pattern loop 4 s: locked 1, jumps 11, commits 1, calibration rounds 1
+  jitter +-64 samples: locked 1, jumps 0, commits 1, calibration rounds 1
+  stale position every 4th block: locked 1, jumps 0, commits 1, calibration rounds 1
+Completed tests in GlazeController / pattern loops without loop info, a jittery playhead and stale positions still learn, calibrate and lock
+-----------------------------------------------------------------
+Starting tests in: GlazeController / manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic...
+  deepest executed protection offset -1.23 dB with manual gain 3 dB
+Completed tests in GlazeController / manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic
+-----------------------------------------------------------------
+Starting tests in: GlazeController / non-finite output: cleared, restarted, reported; the IN meter measures loudness...
+Completed tests in GlazeController / non-finite output: cleared, restarted, reported; the IN meter measures loudness
+-----------------------------------------------------------------
+Starting tests in: GlazeController / setHostInfo / setParams / process / getStatus never allocate through every GLAZE path...
+  paths exercised: learning starts 2, commits 2, plan transitions 8, calibration rounds 11, feedback steps 5, resets 1, jumps 1, wraps 1
+Completed tests in GlazeController / setHostInfo / setParams / process / getStatus never allocate through every GLAZE path
+
+==== celadon_tests: 5779 passed, 4 failed ====

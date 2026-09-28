@@ -1,0 +1,15 @@
+{
+  "Celadon.component": {
+    "codesign_exit": 0
+  },
+  "Celadon.vst3": {
+    "codesign_exit": 0
+  },
+  "archive": {
+    "path": "/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-adaptive-preview-arm64.zip",
+    "bytes": 4031851,
+    "sha256": "4410b9fd0163bd3ae4d7bffe7176b28a1a2c4a64d327eac3a9716b65baf4a45b",
+    "unzip_exit": 0,
+    "crc_check": "passed"
+  }
+}

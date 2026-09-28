@@ -1,0 +1,37 @@
+[0/2] Re-checking globbed directories...
+[1/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/BalanceModule.cpp.o
+[2/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginEditor.cpp.o
+[3/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginProcessor.cpp.o
+[4/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/CeladonChain.cpp.o
+[5/18] Building OBJCXX object CMakeFiles/celadon_bench.dir/bench.mm.o
+[6/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeConstants.cpp.o
+[7/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeCalibrator.cpp.o
+[8/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeGuard.cpp.o
+[9/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeController.cpp.o
+[10/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeProfile.cpp.o
+[11/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazePlanner.cpp.o
+[12/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LimiterModule.cpp.o
+[13/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/MusicAnalyzer.cpp.o
+[14/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusText.cpp.o
+[15/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/HelpText.cpp.o
+[16/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/BalanceCurve.cpp.o
+[17/18] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusLine.cpp.o
+[18/18] Linking CXX executable celadon_bench
+POWER,11:52:46,source=AC Power,lowpowermode=0
+GRID,release,default,48000,64,avg%=0.858,worst%=2.681,p99.9%=2.016,p99%=1.366,maxAllPasses%=3.516,structWorst%=1.175,structTypical%=0.737,prepare_ms=1.152,latency=282,nonFinite=0,blocks=3000,chk=1452.05
+GRID,release,default,48000,512,avg%=0.776,worst%=1.042,p99.9%=1.042,p99%=0.923,maxAllPasses%=1.073,structWorst%=0.765,structTypical%=0.765,prepare_ms=0.762,latency=282,nonFinite=0,blocks=375,chk=172.907
+GRID,release,default,96000,64,avg%=1.698,worst%=6.319,p99.9%=4.300,p99%=3.125,maxAllPasses%=6.881,structWorst%=3.019,structTypical%=1.475,prepare_ms=1.330,latency=378,nonFinite=0,blocks=6000,chk=2914.16
+GRID,release,default,96000,512,avg%=1.526,worst%=2.273,p99.9%=2.273,p99%=1.970,maxAllPasses%=3.798,structWorst%=1.684,structTypical%=1.337,prepare_ms=1.282,latency=378,nonFinite=0,blocks=750,chk=367.101
+GRID,release,auto50,48000,64,avg%=1.188,worst%=3.797,p99.9%=3.038,p99%=1.688,maxAllPasses%=7.963,structWorst%=1.625,structTypical%=1.181,prepare_ms=0.737,latency=282,nonFinite=0,blocks=3000,chk=1630.23
+GRID,release,auto50,48000,512,avg%=1.090,worst%=1.556,p99.9%=1.556,p99%=1.373,maxAllPasses%=3.723,structWorst%=1.213,structTypical%=1.213,prepare_ms=0.799,latency=282,nonFinite=0,blocks=375,chk=193.453
+GRID,release,auto50,96000,64,avg%=2.348,worst%=6.531,p99.9%=5.088,p99%=3.919,maxAllPasses%=12.581,structWorst%=3.919,structTypical%=2.363,prepare_ms=1.314,latency=378,nonFinite=0,blocks=6000,chk=3273.02
+GRID,release,auto50,96000,512,avg%=2.152,worst%=3.805,p99.9%=3.805,p99%=2.627,maxAllPasses%=5.029,structWorst%=2.556,structTypical%=2.212,prepare_ms=1.319,latency=378,nonFinite=0,blocks=750,chk=412.698
+GRID,release,auto100,48000,64,avg%=1.204,worst%=2.753,p99.9%=2.372,p99%=1.831,maxAllPasses%=9.359,structWorst%=1.653,structTypical%=1.197,prepare_ms=0.699,latency=282,nonFinite=0,blocks=3000,chk=1835.72
+GRID,release,auto100,48000,512,avg%=1.096,worst%=1.582,p99.9%=1.582,p99%=1.313,maxAllPasses%=2.172,structWorst%=1.221,structTypical%=1.221,prepare_ms=0.726,latency=282,nonFinite=0,blocks=375,chk=217.498
+GRID,release,auto100,96000,64,avg%=2.353,worst%=5.688,p99.9%=4.669,p99%=3.819,maxAllPasses%=7.856,structWorst%=3.944,structTypical%=2.387,prepare_ms=1.397,latency=378,nonFinite=0,blocks=6000,chk=3680.44
+GRID,release,auto100,96000,512,avg%=2.160,worst%=3.593,p99.9%=3.593,p99%=2.630,maxAllPasses%=4.568,structWorst%=2.612,structTypical%=2.264,prepare_ms=1.324,latency=378,nonFinite=0,blocks=750,chk=464.821
+GRID,release,typical,48000,64,avg%=1.235,worst%=3.731,p99.9%=3.156,p99%=1.756,maxAllPasses%=9.113,structWorst%=1.675,structTypical%=1.225,prepare_ms=0.765,latency=282,nonFinite=0,blocks=3000,chk=2662.96
+GRID,release,typical,48000,512,avg%=1.142,worst%=1.698,p99.9%=1.698,p99%=1.316,maxAllPasses%=2.277,structWorst%=1.257,structTypical%=1.257,prepare_ms=0.711,latency=282,nonFinite=0,blocks=375,chk=324.153
+GRID,release,typical,96000,64,avg%=2.457,worst%=6.962,p99.9%=5.438,p99%=4.169,maxAllPasses%=11.125,structWorst%=3.987,structTypical%=2.431,prepare_ms=1.346,latency=378,nonFinite=0,blocks=6000,chk=5463.95
+GRID,release,typical,96000,512,avg%=2.267,worst%=3.000,p99.9%=3.000,p99%=2.786,maxAllPasses%=4.622,structWorst%=2.684,structTypical%=2.320,prepare_ms=1.293,latency=378,nonFinite=0,blocks=750,chk=691.232
+POWER,11:52:51,source=AC Power,lowpowermode=0

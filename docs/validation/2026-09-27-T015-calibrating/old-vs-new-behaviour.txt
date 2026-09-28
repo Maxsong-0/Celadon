@@ -1,0 +1,43 @@
+组合（两遍各一份追踪）                              修前行为: 开轮 反馈 过渡 校准中s 过渡中s 末态        | 修后
+12223__g35_clay-auto_auto                 1  0  0   27.1   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+12223__g35_clay-auto_auto__listen         2  1  2   43.7  21.0 3/0          |  1  1  2   26.2  21.0 4/1
+12223__g35_clay-off_auto                  1  0  0   27.2   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+12223__g35_clay-off_auto__listen          2  1  2   43.7  21.0 3/0          |  1  1  2   26.2  21.0 4/1
+12223__g70_clay-auto_auto                 3  2  2   58.1   6.0 3/0          |  0  0  0    0.0   0.0 4/1
+12223__g70_clay-auto_auto__listen         3  2  3   36.0  24.0 3/0          |  2  2  3   19.9  24.0 4/1
+12223__g70_clay-off_auto                  3  2  2   58.0   6.0 3/0          |  0  0  0    0.0   0.0 4/1
+12223__g70_clay-off_auto__listen          3  2  3   35.8  24.0 3/0          |  2  2  3   19.7  24.0 4/1
+WTF__g35_clay-auto_auto                   0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+WTF__g35_clay-auto_auto__listen           2  1  2   53.3  21.0 4/1          |  1  1  2   25.7  21.0 4/1
+WTF__g35_clay-off_auto                    0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+WTF__g35_clay-off_auto__listen            2  1  2   52.3  21.0 4/1          |  1  1  2   25.0  21.0 4/1
+WTF__g70_clay-auto_auto                   0  0  0    0.0   0.0 4/1          |  0  1  1    0.0   3.0 4/1
+WTF__g70_clay-auto_auto__listen           5  4  5  123.8  30.0 4/1          |  1  4  5   23.1  30.0 4/1
+WTF__g70_clay-off_auto                    0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+WTF__g70_clay-off_auto__listen            3  2  3   55.0  24.0 4/1          |  2  2  3   41.7  24.0 4/1
+l_kskdhjf__g35_clay-auto_auto             0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+l_kskdhjf__g35_clay-auto_auto__listen     3  2  3   82.0  24.0 4/1          |  1  1  2   27.2  21.0 4/1
+l_kskdhjf__g35_clay-off_auto              0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+l_kskdhjf__g35_clay-off_auto__listen      3  2  3   81.6  24.0 4/1          |  1  1  2   27.1  21.0 4/1
+l_kskdhjf__g70_clay-auto_auto             0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+l_kskdhjf__g70_clay-auto_auto__listen     3  2  3   90.2  24.0 4/1          |  1  1  2   35.3  21.0 4/1
+l_kskdhjf__g70_clay-off_auto              0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+l_kskdhjf__g70_clay-off_auto__listen      2  1  2   56.3  21.0 4/1          |  2  1  2   56.3  21.0 4/1
+wildtom__g35_clay-auto_auto               1  0  0   13.3   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+wildtom__g35_clay-auto_auto__listen       4  3  4  100.6  27.0 3/0          |  1  2  3   25.8  24.0 4/1
+wildtom__g35_clay-off_auto                1  0  0   13.3   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+wildtom__g35_clay-off_auto__listen        4  3  4  101.2  27.0 3/0          |  1  3  4   25.7  27.0 4/1
+wildtom__g70_clay-auto_auto               0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+wildtom__g70_clay-auto_auto__listen       2  1  2   61.4  21.0 4/1          |  2  1  2   61.4  21.0 4/1
+wildtom__g70_clay-off_auto                0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+wildtom__g70_clay-off_auto__listen        2  1  2   61.4  21.0 4/1          |  2  1  2   61.4  21.0 4/1
+will we be okay__g35_clay-auto_auto       0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+will we be okay__g35_clay-auto_auto__lis  2  1  2   52.3  21.0 4/1          |  1  1  2   25.0  21.0 4/1
+will we be okay__g35_clay-off_auto        0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+will we be okay__g35_clay-off_auto__list  2  1  2   51.4  21.0 4/1          |  1  1  2   24.1  21.0 4/1
+will we be okay__g70_clay-auto_auto       0  0  0    0.0   0.0 4/1          |  0  0  0    0.0   0.0 4/1
+will we be okay__g70_clay-auto_auto__lis  3  3  4   80.8  27.0 4/1          |  2  3  4   53.6  27.0 4/1
+will we be okay__g70_clay-off_auto        0  0  0    0.0   0.0 4/1          |  1  0  0   27.0   0.0 4/1
+will we be okay__g70_clay-off_auto__list  3  3  4   65.4  27.0 4/1          |  2  3  4   38.2  27.0 4/1
+合计 修前: 开轮 65 反馈 41 过渡 61 校准中 1525 s 过渡中 483 s
+合计 修后: 开轮 29 反馈 34 过渡 54 校准中 695 s 过渡中 462 s

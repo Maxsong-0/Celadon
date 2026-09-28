@@ -1,0 +1,31 @@
+render-linux.sh：同步源码到 maxsong@192.168.100.109 …
+render-linux.sh：同步歌曲 /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/c0303bb6-4133-4884-9848-982118085fe1/scratchpad/one-song …
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-render-build/Celadon-d4b76f75e866
+ninja: no work to do.
+通过  低频相关度 左右相同：ρ = 1.000000000000（期望 1）
+通过  低频相关度 左右反相：ρ = -1.000000000000（期望 -1）
+通过  低频相关度 右 = 0.5 × 左：ρ = 0.800000000000（期望 2g / (1 + g²) = 0.8）
+通过  低频相关度 不相关噪声：ρ = -0.0186（期望 |ρ| < 0.1）
+通过  真次声占比 10 Hz + 1 kHz：-3.038 dB（期望 -3.013 ± 0.05 dB）
+通过  整体响度 1 kHz 两声道 -20 dBFS：-19.993 LUFS（期望 -20.0 ± 0.1）
+通过  真峰值 1 kHz 幅度 0.5：-6.020 dBTP（期望 -6.021 ± 0.1）
+通过  成品哈希：相同音频哈希相同；改一个样本的最低位后哈希变了
+通过  成品文件名：Song A__g35_clay-auto_auto.wav、Song A__g12.5_clay-off_warm.wav
+通过  链延迟：1384 样本（期望 1384：48 kHz / Lookahead 2 ms 的 282 + Clay 的 D + G）
+通过  成品长度：208800 样本（期望 208800）
+通过  延迟对齐：互相关最大在滞后 0，值 1.0000（期望滞后 0、值 > 0.9）
+通过  GLAZE 0 修坯自动与全关逐位相同：两组成品哈希相同
+通过  同决策重放复现自动链：修坯手动照填重放与自动链成品逐位相同（1911 块；Limit Gain 被 GLAZE 改过的块 1911，自动低切开着的块 1911）
+通过  重放全关的延迟与长度：1384 / 976800 样本（自动链 1384 / 976800）
+自检全部通过
+celadon_render：1 首歌 × 1 组（GLAZE 35 × 修坯 auto × 风格 auto），宿主块长 512，对齐到 -16.0 LUFS
+输出目录：/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-20260928-075000-19878
+[1/1] ST.wav：48000 Hz，立体声，0:20.1
+  原始输入：-19.78 LUFS，真峰值 -9.22 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB
+  [1/1] g35 clay-auto auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.5 s → -16.38 LUFS，真峰值 -5.82 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB，对齐 +0.38 dB（只出指标，不写文件）
+      重放全关：-16.38 LUFS，真峰值 -5.82 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB，对齐 +0.38 dB（只出指标，不写文件）
+完成：0 个成品，0 处失败，用时 2.8 s；指标表 /home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-20260928-075000-19878/metrics.md、metrics.csv
+render-linux.sh：拉回结果到 /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/c0303bb6-4133-4884-9848-982118085fe1/scratchpad/one-song-out …
+render-linux.sh：完成，结果在 /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/c0303bb6-4133-4884-9848-982118085fe1/scratchpad/one-song-out（先盲听、再看 metrics.md；盲听做法见 tools/render/README.md）

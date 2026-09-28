@@ -1,0 +1,24 @@
+song                       g clay          phase2         phase3   dLUFS  dGRmean   dInPk hash
+12223                     35 auto        locked/1       locked/1  -0.194   -0.192  +0.000 changed
+12223                     35 off         locked/1       locked/1  -0.176   -0.152  +0.000 changed
+12223                     70 auto   calibrating/0       locked/1  -0.214   +0.023  +0.453 changed
+12223                     70 off    calibrating/0       locked/1  -0.217   +0.021  +0.452 changed
+WTF                       35 auto        locked/1       locked/1  -0.152   -0.219  +0.000 changed
+WTF                       35 off         locked/1       locked/1  -0.170   -0.198  +0.000 changed
+WTF                       70 auto        locked/1       locked/1  +0.185   +0.245  +0.978 changed
+emmmayiyu                 70 auto        locked/1       locked/1  -0.186   -0.063  -0.195 changed
+emmmayiyu                 70 off         locked/1       locked/1  +0.038   +0.027  -0.072 changed
+l_kskdhjf                 35 auto        locked/1       locked/1  +0.184   +0.205  +0.432 changed
+l_kskdhjf                 35 off         locked/1       locked/1  +0.091   +0.122  +0.307 changed
+l_kskdhjf                 70 auto        locked/1       locked/1  -0.100   -0.111  +0.471 changed
+somggggg                  35 auto   calibrating/0       locked/1  +0.044   +0.068  +0.000 changed
+somggggg                  35 off    calibrating/0       locked/1  +0.030   +0.054  +0.000 changed
+wildtom                   35 auto        locked/1       locked/1  +0.190   +0.144  +0.257 changed
+wildtom                   35 off         locked/1       locked/1  +0.134   +0.099  +0.178 changed
+will we be okay           35 auto        locked/1       locked/1  -0.175   -0.242  +0.000 changed
+will we be okay           35 off         locked/1       locked/1  -0.206   -0.293  +0.000 changed
+will we be okay           70 auto        locked/1       locked/1  -0.013   -0.022  +0.000 changed
+will we be okay           70 off         locked/1       locked/1  -0.135   -0.252  +0.000 changed
+
+render rows bit-identical 112, changed 20; GLAZE 0 rows changed: []
+GLAZE>0 rows not locked+valid: gate2 27, gate3 17

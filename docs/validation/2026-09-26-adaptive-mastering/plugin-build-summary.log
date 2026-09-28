@@ -1,0 +1,30 @@
+warning: Building targets in manual order is deprecated - check "Parallelize build for command-line builds" in the project editor, or set DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING in any of the targets in the current build to suppress this warning
+/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-adaptive-preview/juce_vst3_helper: valid on disk
+/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-adaptive-preview/juce_vst3_helper: satisfies its Designated Requirement
+/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-adaptive-preview/Celadon.vst3: valid on disk
+/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-adaptive-preview/Celadon.vst3: satisfies its Designated Requirement
+Preview build: install step disabled
+/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-adaptive-preview/Celadon.component: valid on disk
+/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-adaptive-preview/Celadon.component: satisfies its Designated Requirement
+Preview build: install step disabled
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/juce_vst3_helper' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/Contents' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/Contents/Info.plist' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/Contents/MacOS' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/Contents/MacOS/Celadon' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/Contents/PkgInfo' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/Contents/Resources' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/Contents/Resources/RecentFilesMenuTemplate.nib' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.vst3/_CodeSignature' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/libCeladon.a' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/Contents' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/Contents/Info.plist' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/Contents/MacOS' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/Contents/MacOS/Celadon' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/Contents/PkgInfo' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/Contents/Resources' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/Contents/Resources/RecentFilesMenuTemplate.nib' is located outside of the allowed root paths.
+warning: Stale file '/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-preview/Celadon.component/_CodeSignature' is located outside of the allowed root paths.
+** BUILD SUCCEEDED **

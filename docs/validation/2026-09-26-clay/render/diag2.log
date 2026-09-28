@@ -1,0 +1,30 @@
+render-linux.sh：同步源码到 maxsong@192.168.100.109 …
+render-linux.sh：同步歌曲 /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/c0303bb6-4133-4884-9848-982118085fe1/scratchpad/diag-songs …
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-render-build/Celadon-d4b76f75e866
+[1/2] Building CXX object CMakeFiles/celadon_render.dir/tools/render/RenderMain.cpp.o
+[2/2] Linking CXX executable celadon_render
+celadon_render：6 首歌 × 1 组（GLAZE 70 × 修坯 auto × 风格 auto），宿主块长 512，对齐到 -16.0 LUFS
+输出目录：/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-20260926-233429-61870
+[1/6] KINOSEI - DREAMER.wav：44100 Hz，立体声，2:39.4
+  原始输入：-10.48 LUFS，真峰值 0.41 dBTP，PLR 10.89 dB，低频相关度 0.968，次声 -30.0 dB
+  [1/1] g70 clay-auto auto：聆听 3.5 s（第一遍末 已锁定 · 校准有效）→ 成品 4.3 s → -10.78 LUFS，真峰值 -1.35 dBTP，PLR 9.43 dB，低频相关度 0.971，次声 -29.6 dB，对齐 -5.22 dB（只出指标，不写文件）
+[2/6] WTF.wav：48000 Hz，立体声，3:06.2
+  原始输入：-8.18 LUFS，真峰值 1.21 dBTP，PLR 9.39 dB，低频相关度 0.997，次声 -35.5 dB
+  [1/1] g70 clay-auto auto：聆听 4.5 s（第一遍末 已锁定 · 校准有效）→ 成品 5.5 s → -8.62 LUFS，真峰值 -1.35 dBTP，PLR 7.27 dB，低频相关度 0.997，次声 -38.1 dB，对齐 -7.38 dB（只出指标，不写文件）
+[3/6] l_kskdhjf.wav：48000 Hz，立体声，3:22.5
+  原始输入：-8.66 LUFS，真峰值 0.73 dBTP，PLR 9.39 dB，低频相关度 0.781，次声 -39.4 dB
+  [1/1] g70 clay-auto auto：聆听 5.2 s（第一遍末 已锁定 · 校准有效）→ 成品 6.6 s → -9.00 LUFS，真峰值 -1.35 dBTP，PLR 7.65 dB，低频相关度 0.996，次声 -37.7 dB，对齐 -7.00 dB（只出指标，不写文件）
+[4/6] somggggg.wav：48000 Hz，立体声，0:36.7
+  原始输入：-9.01 LUFS，真峰值 0.45 dBTP，PLR 9.46 dB，低频相关度 0.976，次声 -37.2 dB
+  [1/1] g70 clay-auto auto：聆听 1.0 s（第一遍末 方案过渡）→ 成品 1.2 s → -8.42 LUFS，真峰值 -1.35 dBTP，PLR 7.07 dB，低频相关度 0.979，次声 -40.3 dB，对齐 -7.58 dB（只出指标，不写文件）
+[5/6] wildtom.wav：48000 Hz，立体声，3:13.5
+  原始输入：-9.47 LUFS，真峰值 1.74 dBTP，PLR 11.21 dB，低频相关度 0.981，次声 -30.5 dB
+  [1/1] g70 clay-auto auto：聆听 4.5 s（第一遍末 已锁定 · 校准有效）→ 成品 5.7 s → -10.12 LUFS，真峰值 -1.35 dBTP，PLR 8.77 dB，低频相关度 0.986，次声 -30.1 dB，对齐 -5.88 dB（只出指标，不写文件）
+[6/6] will we be okay.wav：48000 Hz，立体声，3:06.2
+  原始输入：-7.62 LUFS，真峰值 1.29 dBTP，PLR 8.91 dB，低频相关度 0.993，次声 -35.1 dB
+  [1/1] g70 clay-auto auto：聆听 4.6 s（第一遍末 已锁定 · 校准有效）→ 成品 5.5 s → -8.45 LUFS，真峰值 -1.35 dBTP，PLR 7.10 dB，低频相关度 0.997，次声 -38.9 dB，对齐 -7.55 dB（只出指标，不写文件）
+完成：0 个成品，0 处失败，用时 58.9 s；指标表 /home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-20260926-233429-61870/metrics.md、metrics.csv
+render-linux.sh：拉回结果到 artifacts/render-diag2-2026-09-26 …
+render-linux.sh：完成，结果在 artifacts/render-diag2-2026-09-26（先盲听、再看 metrics.md；盲听做法见 tools/render/README.md）

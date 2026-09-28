@@ -1,0 +1,16 @@
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+POWER,18:45:28,source=AC Power,lowpowermode=0
+WARM,manual,48000,32,seconds=2.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,48000,32,avg%=0.973,worst%=4.331,p99.9%=2.106,p99%=1.706,maxAllPasses%=6.162,structWorst%=1.656,structTypical%=0.856,prepare_ms=0.994,latency=282,nonFinite=0,blocks=6000,chk=8116.45
+WARM,manual,48000,64,seconds=2.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,48000,64,avg%=0.928,worst%=1.544,p99.9%=1.494,p99%=1.275,maxAllPasses%=3.619,structWorst%=1.219,structTypical%=0.825,prepare_ms=0.780,latency=282,nonFinite=0,blocks=3000,chk=4057.71
+WARM,manual,96000,32,seconds=2.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,96000,32,avg%=1.951,worst%=9.200,p99.9%=5.588,p99%=4.575,maxAllPasses%=474.263,structWorst%=4.562,structTypical%=1.700,prepare_ms=1.413,latency=378,nonFinite=0,blocks=12000,chk=16014.2
+WARM,manual,96000,64,seconds=2.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,96000,64,avg%=1.842,worst%=4.175,p99.9%=3.675,p99%=3.100,maxAllPasses%=6.938,structWorst%=3.075,structTypical%=1.650,prepare_ms=1.324,latency=378,nonFinite=0,blocks=6000,chk=8006.81
+WARM,manual,192000,32,seconds=2.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,192000,32,avg%=3.836,worst%=30.975,p99.9%=16.650,p99%=14.500,maxAllPasses%=54.575,structWorst%=14.525,structTypical%=3.400,prepare_ms=2.956,latency=570,nonFinite=0,blocks=24000,chk=32423.8
+WARM,manual,192000,64,seconds=2.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,192000,64,avg%=3.694,worst%=11.075,p99.9%=9.950,p99%=8.987,maxAllPasses%=309.375,structWorst%=8.950,structTypical%=3.312,prepare_ms=2.862,latency=570,nonFinite=0,blocks=12000,chk=16212
+POWER,18:45:30,source=AC Power,lowpowermode=0

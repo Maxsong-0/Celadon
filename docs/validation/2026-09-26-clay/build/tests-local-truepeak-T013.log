@@ -1,0 +1,68 @@
+[1/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ClayGuard.cpp.o
+[2/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeCalibrator.cpp.o
+[3/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/CeladonChain.cpp.o
+[4/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeController.cpp.o
+[5/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/LoudnessMeter.cpp.o
+[6/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazePlanner.cpp.o
+[7/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/LimiterModule.cpp.o
+[8/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/TruePeak.cpp.o
+[9/26] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/MusicAnalyzer.cpp.o
+[10/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/TestMain.cpp.o
+[11/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/LimiterTests.cpp.o
+[12/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/DspPartsTests.cpp.o
+[13/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/ChainTests.cpp.o
+[14/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalancePerformanceTests.cpp.o
+[15/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/ColorTests.cpp.o
+[16/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeTests.cpp.o
+[17/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeBehaviourReport.cpp.o
+[18/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalanceTests.cpp.o
+[19/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o
+[20/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeCalibrationTests.cpp.o
+[21/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeControllerTests.cpp.o
+[22/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayTests.cpp.o
+[23/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o
+[24/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayGuardTests.cpp.o
+[25/26] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayGlazeTests.cpp.o
+[26/26] Linking CXX executable celadon_tests
+Random seed: 0x3eab26
+-----------------------------------------------------------------
+Starting tests in: Saturator / SoftClip: linear below knee, never above threshold, monotonic...
+Completed tests in Saturator / SoftClip: linear below knee, never above threshold, monotonic
+-----------------------------------------------------------------
+Starting tests in: Saturator / Tube: y(0) = 0 and unit slope at origin...
+Completed tests in Saturator / Tube: y(0) = 0 and unit slope at origin
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)...
+Completed tests in TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / never below the sample peak...
+Completed tests in TruePeakDetector / never below the sample peak
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)...
+Completed tests in TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / DC reads its own level (steady state)...
+Completed tests in TruePeakDetector / DC reads its own level (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)...
+  step overshoot: +1.133 dB
+Completed tests in TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax are bit-exact with processSample (NEON kernel)...
+Completed tests in TruePeakDetector / processBlock / processBlockMax are bit-exact with processSample (NEON kernel)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processSample / processBlock / processBlockMax / in-place calls can be mixed on one detector...
+Completed tests in TruePeakDetector / processSample / processBlock / processBlockMax / in-place calls can be mixed on one detector
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call...
+Completed tests in TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax do not allocate...
+Completed tests in TruePeakDetector / processBlock / processBlockMax do not allocate
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / performance guard: NEON block detector per sample per channel...
+  NEON processBlock: 9.88 ns per sample per channel (best of 15)
+Completed tests in TruePeakDetector / performance guard: NEON block detector per sample per channel
+
+==== celadon_tests: 80991 passed, 0 failed ====
+EXIT=0

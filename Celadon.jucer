@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<JUCERPROJECT id="CBwc4r" name="Celadon" projectType="audioplug" useAppConfig="0"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="Max Song"
+              version="0.1.7.1"
+              bundleIdentifier="me.maxsong.celadon" pluginManufacturerCode="Maxs"
+              pluginCode="Cldn">
+  <MAINGROUP id="UBEL9r" name="Celadon">
+    <GROUP id="{F12BFE77-CEA6-8166-B0BD-60BFAC6A04D0}" name="Source">
+      <FILE id="ElBXPs" name="PluginProcessor.cpp" compile="1" resource="0"
+            file="Source/PluginProcessor.cpp"/>
+      <FILE id="mP7mlv" name="PluginProcessor.h" compile="0" resource="0"
+            file="Source/PluginProcessor.h"/>
+      <FILE id="kCnb79" name="PluginEditor.cpp" compile="1" resource="0"
+            file="Source/PluginEditor.cpp"/>
+      <FILE id="MO7eyC" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="a08Q6I" name="Parameters.cpp" compile="1" resource="0"
+            file="Source/Parameters.cpp"/>
+      <FILE id="OSjJKY" name="Parameters.h" compile="0" resource="0"
+            file="Source/Parameters.h"/>
+      <FILE id="v8iXGh" name="ParameterIds.h" compile="0" resource="0"
+            file="Source/ParameterIds.h"/>
+      <GROUP id="{1D8BEABE-7186-812B-FA28-E7FEEDE815CD}" name="dsp">
+        <FILE id="hGr0lD" name="LimiterModule.cpp" compile="1" resource="0"
+              file="Source/dsp/LimiterModule.cpp"/>
+        <FILE id="ZHKAGp" name="LimiterModule.h" compile="0" resource="0"
+              file="Source/dsp/LimiterModule.h"/>
+        <FILE id="2hVbFo" name="LoudnessMeter.cpp" compile="1" resource="0"
+              file="Source/dsp/LoudnessMeter.cpp"/>
+        <FILE id="YL8sAg" name="LoudnessMeter.h" compile="0" resource="0"
+              file="Source/dsp/LoudnessMeter.h"/>
+        <FILE id="iCibat" name="Saturator.cpp" compile="1" resource="0"
+              file="Source/dsp/Saturator.cpp"/>
+        <FILE id="AmyJON" name="Saturator.h" compile="0" resource="0"
+              file="Source/dsp/Saturator.h"/>
+        <FILE id="9w6KFn" name="TruePeak.cpp" compile="1" resource="0"
+              file="Source/dsp/TruePeak.cpp"/>
+        <FILE id="1FZoxd" name="TruePeak.h" compile="0" resource="0"
+              file="Source/dsp/TruePeak.h"/>
+        <FILE id="ecbLo2" name="BalanceModule.cpp" compile="1" resource="0"
+              file="Source/dsp/BalanceModule.cpp"/>
+        <FILE id="G1lOch" name="BalanceModule.h" compile="0" resource="0"
+              file="Source/dsp/BalanceModule.h"/>
+        <FILE id="BK8VYQ" name="AtomicHelpers.h" compile="0" resource="0"
+              file="Source/dsp/AtomicHelpers.h"/>
+        <FILE id="NpKFzf" name="CeladonChain.cpp" compile="1" resource="0"
+              file="Source/dsp/CeladonChain.cpp"/>
+        <FILE id="9Hq5as" name="CeladonChain.h" compile="0" resource="0"
+              file="Source/dsp/CeladonChain.h"/>
+        <FILE id="1avpNM" name="ColorModule.cpp" compile="1" resource="0"
+              file="Source/dsp/ColorModule.cpp"/>
+        <FILE id="RSoDLZ" name="ColorModule.h" compile="0" resource="0"
+              file="Source/dsp/ColorModule.h"/>
+        <FILE id="ah3mGq" name="DelayLine.h" compile="0" resource="0"
+              file="Source/dsp/DelayLine.h"/>
+        <FILE id="Hb5Ovc" name="HalfBandOversampler.cpp" compile="1" resource="0"
+              file="Source/dsp/HalfBandOversampler.cpp"/>
+        <FILE id="Hb5Ovh" name="HalfBandOversampler.h" compile="0" resource="0"
+              file="Source/dsp/HalfBandOversampler.h"/>
+        <FILE id="Cp6Prh" name="ChainParams.h" compile="0" resource="0"
+              file="Source/dsp/ChainParams.h"/>
+        <FILE id="Gz6Tyh" name="GlazeTypes.h" compile="0" resource="0"
+              file="Source/dsp/GlazeTypes.h"/>
+        <FILE id="Gz6Csc" name="GlazeConstants.cpp" compile="1" resource="0"
+              file="Source/dsp/GlazeConstants.cpp"/>
+        <FILE id="Gz6Csh" name="GlazeConstants.h" compile="0" resource="0"
+              file="Source/dsp/GlazeConstants.h"/>
+        <FILE id="Gz6Prc" name="GlazeProfile.cpp" compile="1" resource="0"
+              file="Source/dsp/GlazeProfile.cpp"/>
+        <FILE id="Gz6Prh" name="GlazeProfile.h" compile="0" resource="0"
+              file="Source/dsp/GlazeProfile.h"/>
+        <FILE id="Gz6Plc" name="GlazePlanner.cpp" compile="1" resource="0"
+              file="Source/dsp/GlazePlanner.cpp"/>
+        <FILE id="Gz6Plh" name="GlazePlanner.h" compile="0" resource="0"
+              file="Source/dsp/GlazePlanner.h"/>
+        <FILE id="Ma6Anc" name="MusicAnalyzer.cpp" compile="1" resource="0"
+              file="Source/dsp/MusicAnalyzer.cpp"/>
+        <FILE id="Ma6Anh" name="MusicAnalyzer.h" compile="0" resource="0"
+              file="Source/dsp/MusicAnalyzer.h"/>
+        <FILE id="Gz6Cac" name="GlazeCalibrator.cpp" compile="1" resource="0"
+              file="Source/dsp/GlazeCalibrator.cpp"/>
+        <FILE id="Gz6Cah" name="GlazeCalibrator.h" compile="0" resource="0"
+              file="Source/dsp/GlazeCalibrator.h"/>
+        <FILE id="Gz6Gdc" name="GlazeGuard.cpp" compile="1" resource="0"
+              file="Source/dsp/GlazeGuard.cpp"/>
+        <FILE id="Gz6Gdh" name="GlazeGuard.h" compile="0" resource="0"
+              file="Source/dsp/GlazeGuard.h"/>
+        <FILE id="Gz6Ctc" name="GlazeController.cpp" compile="1" resource="0"
+              file="Source/dsp/GlazeController.cpp"/>
+        <FILE id="Gz6Cth" name="GlazeController.h" compile="0" resource="0"
+              file="Source/dsp/GlazeController.h"/>
+        <FILE id="Cl7Mdc" name="ClayModule.cpp" compile="1" resource="0"
+              file="Source/dsp/ClayModule.cpp"/>
+        <FILE id="Cl7Mdh" name="ClayModule.h" compile="0" resource="0"
+              file="Source/dsp/ClayModule.h"/>
+        <FILE id="Cl7Gdc" name="ClayGuard.cpp" compile="1" resource="0"
+              file="Source/dsp/ClayGuard.cpp"/>
+        <FILE id="Cl7Gdh" name="ClayGuard.h" compile="0" resource="0"
+              file="Source/dsp/ClayGuard.h"/>
+        <FILE id="Lp7Lpc" name="LinearPhaseLowpass.cpp" compile="1" resource="0"
+              file="Source/dsp/LinearPhaseLowpass.cpp"/>
+        <FILE id="Lp7Lph" name="LinearPhaseLowpass.h" compile="0" resource="0"
+              file="Source/dsp/LinearPhaseLowpass.h"/>
+      </GROUP>
+      <GROUP id="{DA677DFE-0229-E495-EDB4-DCBF113513B9}" name="ui">
+        <FILE id="Cs6Slc" name="CapsuleSelector.cpp" compile="1" resource="0"
+              file="Source/ui/CapsuleSelector.cpp"/>
+        <FILE id="Cs6Slh" name="CapsuleSelector.h" compile="0" resource="0"
+              file="Source/ui/CapsuleSelector.h"/>
+        <FILE id="Gs6Txc" name="GlazeStatusText.cpp" compile="1" resource="0"
+              file="Source/ui/GlazeStatusText.cpp"/>
+        <FILE id="Gs6Txh" name="GlazeStatusText.h" compile="0" resource="0"
+              file="Source/ui/GlazeStatusText.h"/>
+        <FILE id="Gs6Lnc" name="GlazeStatusLine.cpp" compile="1" resource="0"
+              file="Source/ui/GlazeStatusLine.cpp"/>
+        <FILE id="Gs6Lnh" name="GlazeStatusLine.h" compile="0" resource="0"
+              file="Source/ui/GlazeStatusLine.h"/>
+        <FILE id="Gs6Clc" name="GlazeStyleColumn.cpp" compile="1" resource="0"
+              file="Source/ui/GlazeStyleColumn.cpp"/>
+        <FILE id="Gs6Clh" name="GlazeStyleColumn.h" compile="0" resource="0"
+              file="Source/ui/GlazeStyleColumn.h"/>
+        <FILE id="xFXp2o" name="BalanceCurve.cpp" compile="1" resource="0"
+              file="Source/ui/BalanceCurve.cpp"/>
+        <FILE id="iSVASd" name="BalanceCurve.h" compile="0" resource="0"
+              file="Source/ui/BalanceCurve.h"/>
+        <FILE id="nTCRsG" name="CeladonLookAndFeel.cpp" compile="1" resource="0"
+              file="Source/ui/CeladonLookAndFeel.cpp"/>
+        <FILE id="fseC38" name="CeladonLookAndFeel.h" compile="0" resource="0"
+              file="Source/ui/CeladonLookAndFeel.h"/>
+        <FILE id="o6Eo5O" name="CrackleTexture.cpp" compile="1" resource="0"
+              file="Source/ui/CrackleTexture.cpp"/>
+        <FILE id="Z8FySu" name="CrackleTexture.h" compile="0" resource="0"
+              file="Source/ui/CrackleTexture.h"/>
+        <FILE id="CJlQ8H" name="HelpText.cpp" compile="1" resource="0"
+              file="Source/ui/HelpText.cpp"/>
+        <FILE id="m6sV07" name="HelpText.h" compile="0" resource="0"
+              file="Source/ui/HelpText.h"/>
+        <FILE id="wdjxNT" name="Knob.cpp" compile="1" resource="0"
+              file="Source/ui/Knob.cpp"/>
+        <FILE id="TBdVho" name="Knob.h" compile="0" resource="0"
+              file="Source/ui/Knob.h"/>
+        <FILE id="zT2Spn" name="LoudnessReadout.cpp" compile="1" resource="0"
+              file="Source/ui/LoudnessReadout.cpp"/>
+        <FILE id="5Hi6AN" name="LoudnessReadout.h" compile="0" resource="0"
+              file="Source/ui/LoudnessReadout.h"/>
+        <FILE id="GHh5AS" name="MeterBar.cpp" compile="1" resource="0"
+              file="Source/ui/MeterBar.cpp"/>
+        <FILE id="mhvXwd" name="MeterBar.h" compile="0" resource="0"
+              file="Source/ui/MeterBar.h"/>
+        <FILE id="hBjPNv" name="ModulePanel.cpp" compile="1" resource="0"
+              file="Source/ui/ModulePanel.cpp"/>
+        <FILE id="hPkm8P" name="ModulePanel.h" compile="0" resource="0"
+              file="Source/ui/ModulePanel.h"/>
+        <FILE id="Ad7Drc" name="AdvancedDrawer.cpp" compile="1" resource="0"
+              file="Source/ui/AdvancedDrawer.cpp"/>
+        <FILE id="Ad7Drh" name="AdvancedDrawer.h" compile="0" resource="0"
+              file="Source/ui/AdvancedDrawer.h"/>
+        <FILE id="Ci7Inc" name="ClayIndicator.cpp" compile="1" resource="0"
+              file="Source/ui/ClayIndicator.cpp"/>
+        <FILE id="Ci7Inh" name="ClayIndicator.h" compile="0" resource="0"
+              file="Source/ui/ClayIndicator.h"/>
+      </GROUP>
+    </GROUP>
+  </MAINGROUP>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_plugin_client" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_dsp" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+  </MODULES>
+  <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
+  <EXPORTFORMATS>
+    <XCODE_MAC targetFolder="Builds/MacOSX">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="Celadon" macOSDeploymentTarget="12.0"
+                       osxCompatibility="12.0 SDK" customXcodeFlags="ENABLE_USER_SCRIPT_SANDBOXING=NO"
+                       optimisation="4" enablePluginBinaryCopyStep="0"/>
+        <CONFIGURATION isDebug="0" name="Release" targetName="Celadon" macOSDeploymentTarget="12.0"
+                       osxCompatibility="12.0 SDK" customXcodeFlags="ENABLE_USER_SCRIPT_SANDBOXING=NO"
+                       optimisation="3" linkTimeOptimisation="1" enablePluginBinaryCopyStep="1"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_dsp" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../JUCE/modules"/>
+      </MODULEPATHS>
+    </XCODE_MAC>
+  </EXPORTFORMATS>
+</JUCERPROJECT>

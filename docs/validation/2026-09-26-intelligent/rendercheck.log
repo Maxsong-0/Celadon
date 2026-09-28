@@ -1,0 +1,56 @@
+[0/2] Re-checking globbed directories...
+[1/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/BalanceModule.cpp.o
+[2/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginEditor.cpp.o
+[3/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginProcessor.cpp.o
+[4/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/CeladonChain.cpp.o
+[5/19] Building OBJCXX object CMakeFiles/celadon_bench.dir/bench.mm.o
+[6/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeConstants.cpp.o
+[7/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeCalibrator.cpp.o
+[8/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/ColorModule.cpp.o
+[9/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeGuard.cpp.o
+[10/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeProfile.cpp.o
+[11/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeController.cpp.o
+[12/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazePlanner.cpp.o
+[13/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LimiterModule.cpp.o
+[14/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/MusicAnalyzer.cpp.o
+[15/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusText.cpp.o
+[16/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/HelpText.cpp.o
+[17/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/BalanceCurve.cpp.o
+[18/19] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusLine.cpp.o
+[19/19] Linking CXX executable celadon_bench
+POWER,18:44:54,source=AC Power,lowpowermode=0
+RENDER,PASS,learning at 5s saves execution independently
+RENDER,INFO,learning at 5s restore-before-prepare peakDifference=0 firstParameterError=0
+RENDER,PASS,learning at 5s restore-before-prepare realtime/offline audio matches exactly
+RENDER,PASS,learning at 5s restore-before-prepare retains executed controls on first block
+RENDER,INFO,learning at 5s prepare-before-restore peakDifference=0 firstParameterError=0
+RENDER,PASS,learning at 5s prepare-before-restore realtime/offline audio matches exactly
+RENDER,PASS,learning at 5s prepare-before-restore retains executed controls on first block
+RENDER,INFO,learning at 5s 64-vs-1024 RMSdelta=0.000300802 dB gainDelta=0 dB parameterMaxDelta=0
+RENDER,INFO,learning at 5s 60s integratedDelta=0.000311852 LU max3sDelta=0.00374031 LU
+RENDER,PASS,learning at 5s changed block size keeps loudness and gain close for 60s
+RENDER,PASS,calibration running saves execution independently
+RENDER,INFO,calibration running restore-before-prepare peakDifference=0 firstParameterError=0
+RENDER,PASS,calibration running restore-before-prepare realtime/offline audio matches exactly
+RENDER,PASS,calibration running restore-before-prepare retains executed controls on first block
+RENDER,INFO,calibration running prepare-before-restore peakDifference=0 firstParameterError=0
+RENDER,PASS,calibration running prepare-before-restore realtime/offline audio matches exactly
+RENDER,PASS,calibration running prepare-before-restore retains executed controls on first block
+RENDER,INFO,calibration running 64-vs-1024 RMSdelta=-0.000123351 dB gainDelta=0 dB parameterMaxDelta=0
+RENDER,INFO,calibration running 60s integratedDelta=-0.000152588 LU max3sDelta=0.00270844 LU
+RENDER,PASS,calibration running changed block size keeps loudness and gain close for 60s
+RENDER,PASS,loud chorus saves execution independently
+RENDER,INFO,loud chorus restore-before-prepare peakDifference=0 firstParameterError=0
+RENDER,PASS,loud chorus restore-before-prepare realtime/offline audio matches exactly
+RENDER,PASS,loud chorus restore-before-prepare retains executed controls on first block
+RENDER,INFO,loud chorus prepare-before-restore peakDifference=0 firstParameterError=0
+RENDER,PASS,loud chorus prepare-before-restore realtime/offline audio matches exactly
+RENDER,PASS,loud chorus prepare-before-restore retains executed controls on first block
+RENDER,INFO,loud chorus 64-vs-1024 RMSdelta=-1.01254e-14 dB gainDelta=0 dB parameterMaxDelta=0
+RENDER,INFO,loud chorus 60s integratedDelta=0 LU max3sDelta=0 LU
+RENDER,PASS,loud chorus changed block size keeps loudness and gain close for 60s
+RENDER,INFO,fromStartDifference=0 switchedDifference=0
+RENDER,PASS,fresh realtime/offline whole render matches exactly
+RENDER,PASS,switching to offline at 5s leaves audio unchanged
+RENDER,PASS,fixture actually reaches a running calibration
+POWER,18:45:02,source=AC Power,lowpowermode=0

@@ -1,0 +1,174 @@
+[48/49] Linking CXX static library libceladon_juce.a
+[49/49] Linking CXX executable celadon_tests
+Random seed: 0x164231a
+-----------------------------------------------------------------
+Starting tests in: ClayModule / fixed latency 2 (L_max - 1) + peak-guard lookahead: 1013 / 1102 / 2206 / 4414 samples whatever the parameters, confirmed with impulses...
+Completed tests in ClayModule / fixed latency 2 (L_max - 1) + peak-guard lookahead: 1013 / 1102 / 2206 / 4414 samples whatever the parameters, confirmed with impulses
+-----------------------------------------------------------------
+Starting tests in: ClayModule / stages at zero: the output is the input delayed by D, bit for bit, for every block size (+-0 and extreme values too)...
+Completed tests in ClayModule / stages at zero: the output is the input delayed by D, bit for bit, for every block size (+-0 and extreme values too)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / after all stages return to zero the output is the bit-exact delayed input again...
+Completed tests in ClayModule / after all stages return to zero the output is the bit-exact delayed input again
+-----------------------------------------------------------------
+Starting tests in: ClayModule / low cut: -3 dB point within 1 % of the set frequency; 25 Hz leaves 50 Hz and above within 0.1 dB...
+  low cut 10 Hz @ 44100: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 44100: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 44100: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 10 Hz @ 48000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 48000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 48000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 10 Hz @ 96000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 96000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 96000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 10 Hz @ 192000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 192000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 192000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+Completed tests in ClayModule / low cut: -3 dB point within 1 % of the set frequency; 25 Hz leaves 50 Hz and above within 0.1 dB
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono: a = 1 at 120 Hz removes >= 12 dB of 50 Hz side, matching |1 - a H0| of the linear-phase complement; mid untouched...
+  a = 1, 120 Hz: 50 Hz side -23.893 dB (analytic -23.893 dB) @ 48000
+  a = 0.5, 120 Hz: 240 Hz side -0.876 dB (analytic -0.876 dB) @ 48000
+  a = 1, 120 Hz: 50 Hz side -23.892 dB (analytic -23.892 dB) @ 192000
+  a = 0.5, 120 Hz: 240 Hz side -0.876 dB (analytic -0.876 dB) @ 192000
+Completed tests in ClayModule / mono: a = 1 at 120 Hz removes >= 12 dB of 50 Hz side, matching |1 - a H0| of the linear-phase complement; mid untouched
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono a = 1: the pure-side impulse response is symmetric about D (<= 1e-9), linear phase...
+  40 Hz @ 44100: asymmetry 0.000, centre 0.015586
+  80 Hz @ 44100: asymmetry 0.000, centre 0.015546
+  120 Hz @ 44100: asymmetry 0.000, centre 0.015507
+  300 Hz @ 44100: asymmetry 0.000, centre 0.015327
+  40 Hz @ 48000: asymmetry 0.000, centre 0.015589
+  80 Hz @ 48000: asymmetry 0.000, centre 0.015553
+  120 Hz @ 48000: asymmetry 0.000, centre 0.015516
+  300 Hz @ 48000: asymmetry 0.000, centre 0.015351
+  40 Hz @ 96000: asymmetry 0.000, centre 0.015607
+  80 Hz @ 96000: asymmetry 0.000, centre 0.015589
+  120 Hz @ 96000: asymmetry 0.000, centre 0.015571
+  300 Hz @ 96000: asymmetry 0.000, centre 0.015490
+  40 Hz @ 192000: asymmetry 0.000, centre 0.015616
+  80 Hz @ 192000: asymmetry 0.000, centre 0.015607
+  120 Hz @ 192000: asymmetry 0.000, centre 0.015598
+  300 Hz @ 192000: asymmetry 0.000, centre 0.015557
+Completed tests in ClayModule / mono a = 1: the pure-side impulse response is symmetric about D (<= 1e-9), linear phase
+-----------------------------------------------------------------
+Starting tests in: ClayModule / crossover change: a 20 ms crossfade between the old and new low-pass, then the same as a module set there from the start...
+  150 -> 60 Hz @ 48000: after the switch, max difference to the new setting 0.000000000000
+  300 -> 40 Hz @ 44100: after the switch, max difference to the new setting 0.000000000000
+  80 -> 160 Hz @ 192000: after the switch, max difference to the new setting 0.000000000000
+Completed tests in ClayModule / crossover change: a 20 ms crossfade between the old and new low-pass, then the same as a module set there from the start
+-----------------------------------------------------------------
+Starting tests in: ClayModule / dragging the crossover (a new value every 64 samples, a = 1) is click-free and settles on the final low-pass...
+  crossover drag: worst 5 ms high-band rise 0.000 dB
+Completed tests in ClayModule / dragging the crossover (a new value every 64 samples, a = 1) is click-free and settles on the final low-pass
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono 0 -> 1: pure delay before, 20 ms linear crossfade, then bit-identical to an always-on module (the low-pass kept running)...
+Completed tests in ClayModule / mono 0 -> 1: pure delay before, 20 ms linear crossfade, then bit-identical to an always-on module (the low-pass kept running)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / pure mid input produces no side (<= -120 dBFS) with every stage active and sweeping...
+  worst side from a pure mid input: -200.0 dBFS
+Completed tests in ClayModule / pure mid input produces no side (<= -120 dBFS) with every stage active and sweeping
+-----------------------------------------------------------------
+Starting tests in: ClayModule / swapping left and right swaps the output exactly...
+Completed tests in ClayModule / swapping left and right swaps the output exactly
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono input: only the low cut is applied, then the fixed delay...
+Completed tests in ClayModule / mono input: only the low cut is applied, then the fixed delay
+-----------------------------------------------------------------
+Starting tests in: ClayModule / width shelf: 16 kHz side gain = widthDb and 2 kHz = widthDb / 2 (+-0.1 dB); mid and low side untouched...
+Completed tests in ClayModule / width shelf: 16 kHz side gain = widthDb and 2 kHz = widthDb / 2 (+-0.1 dB); mid and low side untouched
+-----------------------------------------------------------------
+Starting tests in: ClayModule / output is identical for block sizes 1 / 17 / 333 / 2048 / 4096 (static and with sweeps at the same sample positions)...
+Completed tests in ClayModule / output is identical for block sizes 1 / 17 / 333 / 2048 / 4096 (static and with sweeps at the same sample positions)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / parameter sweeps (min <-> max within 20 ms) raise no 5 ms high-band energy by more than 1 dB...
+  low cut off -> 60 Hz: worst 5 ms high-band rise 0.001 dB
+  low cut 60 Hz -> off: worst 5 ms high-band rise 0.000 dB
+  low cut 10 -> 60 Hz: worst 5 ms high-band rise 0.001 dB
+  low cut 60 -> 10 Hz: worst 5 ms high-band rise 0.001 dB
+  crossover 40 -> 300 Hz (a = 1): worst 5 ms high-band rise 0.000 dB
+  crossover 300 -> 40 Hz (a = 1): worst 5 ms high-band rise 0.000 dB
+  mono amount 0 -> 1 (300 Hz): worst 5 ms high-band rise 0.000 dB
+  mono amount 1 -> 0 (300 Hz): worst 5 ms high-band rise 0.000 dB
+  width -3 -> +3 dB: worst 5 ms high-band rise 0.054 dB
+  width +3 -> -3 dB: worst 5 ms high-band rise 0.000 dB
+  positive control, 0.5 single-sample click: 2.71 dB
+Completed tests in ClayModule / parameter sweeps (min <-> max within 20 ms) raise no 5 ms high-band energy by more than 1 dB
+-----------------------------------------------------------------
+Starting tests in: ClayModule / bypass: bit-exact delayed dry when engaged, 20 ms linear crossfade, seamless return thanks to shadow running...
+Completed tests in ClayModule / bypass: bit-exact delayed dry when engaged, 20 ms linear crossfade, seamless return thanks to shadow running
+-----------------------------------------------------------------
+Starting tests in: ClayModule / low cut off / on: 20 ms output crossfade D samples later, bit-exact delayed dry while off, no restart transient when back on...
+Completed tests in ClayModule / low cut off / on: 20 ms output crossfade D samples later, bit-exact delayed dry while off, no restart transient when back on
+-----------------------------------------------------------------
+Starting tests in: ClayModule / reset clears every filter, low-pass and delay line and lands the smoothers on their targets...
+Completed tests in ClayModule / reset clears every filter, low-pass and delay line and lands the smoothers on their targets
+-----------------------------------------------------------------
+Starting tests in: ClayModule / setParams / process / reset never allocate (stereo and mono, blocks up to 4096, crossover switches)...
+Completed tests in ClayModule / setParams / process / reset never allocate (stereo and mono, blocks up to 4096, crossover switches)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / a NaN in the input is delayed untouched while idle and never latches the shadow filters or the low-pass...
+Completed tests in ClayModule / a NaN in the input is delayed untouched while idle and never latches the shadow filters or the low-pass
+-----------------------------------------------------------------
+Starting tests in: ClayModule / peak guard (ADR-014): every output sample stays within max(local dry peak, -6 dB of the peak envelope, -40 dBFS)...
+  stereo: worst |out| / bound 1.0000000; without the guard 1.22 dB over; guarded samples 8165, min g 0.0000
+  mono: worst |out| / bound 1.0000000; without the guard 2.06 dB over; guarded samples 17278, min g 0.0000
+Completed tests in ClayModule / peak guard (ADR-014): every output sample stays within max(local dry peak, -6 dB of the peak envelope, -40 dBFS)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / peak guard (ADR-014): steady low tones through the low cut / mono are left alone; a real peak raise is not...
+Completed tests in ClayModule / peak guard (ADR-014): steady low tones through the low cut / mono are left alone; a real peak raise is not
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / lengths and delays follow L = max(2, round(0.24 fs / fc)) and 2 (L - 1)...
+Completed tests in LinearPhaseLowpass / lengths and delays follow L = max(2, round(0.24 fs / fc)) and 2 (L - 1)
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / impulse response: the exact 4-box B-spline, symmetric about 2 (L - 1), DC gain 1...
+Completed tests in LinearPhaseLowpass / impulse response: the exact 4-box B-spline, symmetric about 2 (L - 1), DC gain 1
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / complementary high-pass at fc/2, fc, 2fc, 4fc: -20.8 / -9.9 / -1.9 / 0 dB (+-0.3), any sample rate...
+  complement 40 Hz @ 44100 (L 265): -20.81 -9.86 -1.84 -0.00 dB
+  complement 80 Hz @ 44100 (L 132): -20.88 -9.92 -1.87 -0.00 dB
+  complement 120 Hz @ 44100 (L 88): -20.88 -9.92 -1.87 -0.00 dB
+  complement 160 Hz @ 44100 (L 66): -20.88 -9.92 -1.87 -0.00 dB
+  complement 300 Hz @ 44100 (L 35): -20.98 -10.00 -1.91 -0.00 dB
+  complement 40 Hz @ 48000 (L 288): -20.84 -9.88 -1.85 -0.00 dB
+  complement 80 Hz @ 48000 (L 144): -20.84 -9.88 -1.85 -0.00 dB
+  complement 120 Hz @ 48000 (L 96): -20.84 -9.88 -1.85 -0.00 dB
+  complement 160 Hz @ 48000 (L 72): -20.84 -9.88 -1.85 -0.00 dB
+  complement 300 Hz @ 48000 (L 38): -21.02 -10.04 -1.93 -0.00 dB
+  complement 40 Hz @ 96000 (L 576): -20.84 -9.88 -1.85 -0.00 dB
+  complement 80 Hz @ 96000 (L 288): -20.84 -9.88 -1.85 -0.00 dB
+  complement 120 Hz @ 96000 (L 192): -20.84 -9.88 -1.85 -0.00 dB
+  complement 160 Hz @ 96000 (L 144): -20.84 -9.88 -1.85 -0.00 dB
+  complement 300 Hz @ 96000 (L 77): -20.80 -9.85 -1.83 -0.00 dB
+  complement 40 Hz @ 192000 (L 1152): -20.84 -9.88 -1.85 -0.00 dB
+  complement 80 Hz @ 192000 (L 576): -20.84 -9.88 -1.85 -0.00 dB
+  complement 120 Hz @ 192000 (L 384): -20.84 -9.88 -1.85 -0.00 dB
+  complement 160 Hz @ 192000 (L 288): -20.84 -9.88 -1.85 -0.00 dB
+  complement 300 Hz @ 192000 (L 154): -20.79 -9.85 -1.83 -0.00 dB
+Completed tests in LinearPhaseLowpass / complementary high-pass at fc/2, fc, 2fc, 4fc: -20.8 / -9.9 / -1.9 / 0 dB (+-0.3), any sample rate
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / running sums match direct convolution before and after the resync grid points (<= 1e-12)...
+  L = 288: worst error vs direct convolution 0.000, vs the L + 1 kernel 0.002407
+  L = 1152: worst error vs direct convolution 0.000, vs the L + 1 kernel 0.000588
+  L = 35: worst error vs direct convolution 0.000, vs the L + 1 kernel 0.015871
+Completed tests in LinearPhaseLowpass / running sums match direct convolution before and after the resync grid points (<= 1e-12)
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / after the input goes silent, the resync grid brings the state back to exactly zero...
+  L = 288: 190992 non-zero residue samples before 327680, 0 after
+  L = 38: 191992 non-zero residue samples before 327680, 0 after
+Completed tests in LinearPhaseLowpass / after the input goes silent, the resync grid brings the state back to exactly zero
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / reset + the last 4 (L - 1) inputs reproduce a running low-pass of the same length (<= 1e-12)...
+  L = 96: rebuilt vs running 0.000, one sample short 0.000 (last tap 0.000)
+  L = 288: rebuilt vs running 0.000, one sample short 0.000 (last tap 0.000)
+  L = 38: rebuilt vs running 0.000, one sample short 0.000 (last tap 0.000)
+Completed tests in LinearPhaseLowpass / reset + the last 4 (L - 1) inputs reproduce a running low-pass of the same length (<= 1e-12)
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / reset clamps the length; NaN / Inf / huge inputs are sanitised and never latch...
+Completed tests in LinearPhaseLowpass / reset clamps the length; NaN / Inf / huge inputs are sanitised and never latch
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / reset / process never allocate...
+Completed tests in LinearPhaseLowpass / reset / process never allocate
+
+==== celadon_tests: 597 passed, 0 failed ====
+exit=0

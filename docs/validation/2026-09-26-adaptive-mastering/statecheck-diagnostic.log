@@ -1,0 +1,12 @@
+[0/2] Re-checking globbed directories...
+[1/2] Building OBJCXX object CMakeFiles/celadon_bench.dir/bench.mm.o
+[2/2] Linking CXX executable celadon_bench
+POWER,15:03:17,source=AC Power,lowpowermode=0
+STATE,PASS,fresh instance starts at 35 percent
+STATE,PASS,fresh instance uses song-adaptive Auto style
+STATE,INFO,after two seconds: GLAZE=35.00 Gain=0.049 Tame=3.391 Heat=1.694
+STATE,FAIL,fresh instance applies automatic mastering within two seconds
+STATE,PASS,explicit saved zero stays manual
+STATE,PASS,missing legacy GLAZE resets an already-used instance to zero
+STATE,PASS,missing legacy GLAZE overrides fresh default safely
+STATE,PASS,explicit current parameters survive save and reopen

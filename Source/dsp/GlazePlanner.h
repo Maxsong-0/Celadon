@@ -1,0 +1,93 @@
+/*
+  ==============================================================================
+
+    GlazePlanner.h
+    GLAZE 决策器（设计规格-GLAZE-决策与校准 第 1～5、8 节）：纯函数，同输入必同输出，无状态、不分配。
+
+    输入：画像、风格、GLAZE 量、用户手动参数、标定快照、置信度缩放、约束反馈给出的增益上限。
+    输出：方案（两个目标 + 各参数自动增量 + 风格权重 + 是否受限）。
+
+    保证（测试按性质验证）：
+      - GLAZE ≤ 0 或 NaN → 自动增量全为 0、目标 = 输入响度（+ 手动链的预计净增益；手动中性且输入不超 Ceiling 时它就是 0）；
+      - 随 GLAZE 单调（各增量与 effectiveGain 不减）；
+      - 永不超过各模块上限；自动增量叠加手动值后仍在参数范围内；
+      - 输入已不低于风格偏好 → 仍可请求少量推进（出厂满刻度 3 dB），有效提升服从峰值与动态约束；
+      - 轻量频谱修正与染色保持可用，具体动作受当前频谱、置信度、风格上限和动态预算约束；
+      - 画像无效 / 置信度低 → 按置信度收紧正向增益与处理量；
+      - 手动设置已超约束 → 撤回自动增量并标 limitedByManual，不反向改手动值。
+
+    方案字段的口径（v0.6 A2 定，编排器 / 校准器 / 界面按此使用）：
+      - requestedGainDb / effectiveGainDb 是整条链的预计净增益（输出响度 − 输入响度），含手动设置本身的贡献：
+          requested = 手动链净增益 + GLAZE × 满强度请求（风格与 GLAZE 想要的）
+          effective = 手动链净增益 + 强度 × 受约束的满强度增益（置信度、约束、maxGainDb 之后）
+        校准器用 effectiveGainDb 作「目标净提升」：手动改了，目标跟着手动走，校准不会去抵消手动修改（规格第 8 节）。
+        GLAZE ≤ 0 时没有方案（增量全 0、也不校准），两者都等于手动链的预计净增益：GLAZE 从 0 拧起来时净增益连续、单调。
+      - requested / effectiveTargetLufs = 画像测到的输入响度（没测到用保守默认值）+ 对应的净增益；界面「目标」写 effective。
+      - maxGainDb 与 effectiveGainDb 同一口径（整链净增益上限）。低于手动链净增益 → 自动全部撤回、limitedByManual。
+      - limitedByConstraints：满强度请求因模块约束降低过、或约束反馈 / 叠加手动后的核对压低了强度（置信度收紧不算）。
+      - limitGainDb 不含校准偏差与保护偏移（二者由编排器另加）；各增量叠加手动值后仍在参数范围内（applyIncrements 钳位）。
+
+    修坯 Clay（v0.1.7.0，算法 7；设计规格-Clay-分析决策与验收第 2 节、ADR-009；ADR-012 / 设计规格-Clay-根治修订 3.3 修订）：
+    方案另给 Plan::clay——「自动」态下交给 ClayModule 的绝对值（低切频率、高频加宽；收单自动态恒为中性，ADR-015），不是叠加在手动值上的
+    增量（三态合成见 ClayGuard.h resolveClayParams）。口径与保证（GlazePlanner.cpp planClay，测试按性质验证）：
+      - 只看画像的立体声 / 次声特征与「先试后用」量到的峰值代价、GLAZE 与风格权重（f_t、s_w 用方案的 weights 混合）；与手动值、
+        约束反馈 maxGainDb、强度 κ 都无关，也不进响度 / 峰值的前向模型（Clay 对响度的影响由校准器吸收）；反过来画像有没有 Clay
+        特征也不改变方案的其余字段（逐位）；
+      - 需要度：低切看真次声占比（< 16 Hz）、加宽看高频侧中比；收单自动态不做（ADR-015：收单只改立体声，单声道回放不变）；
+        每项再乘代价系数 f = ramp(代价, clayCostZeroDb, clayCostFullDb)（出厂 ≤ 0.2 dB 照做、≥ 0.6 dB 不做、其间线性）；
+      - GLAZE ≤ 0 或 NaN、没有画像 → ClayPlan{}（全中性）；某项所需特征无效（旧画像）或不可信、所需代价无效（没试过）、
+        代价常数不是合法的反向斜坡（旧快照）→ 该项中性；
+      - costLimitedMask：某项按需要度本应动作、但 f < 1 让它减量或否决时置位（clayCostLimited*），只给界面解释，不影响处理；
+      - 低切、加宽都随 GLAZE 单调不减；收单比例恒为 0、分频点恒为默认 80 Hz；
+      - 不超上限：低切为 0 或在 [地板, f_t] 内、加宽 0 ～ clayWidthMaxDb 且按画像预测的加宽后高频相关度不低于
+        clayMinCorrelationAfterWidth；
+        再都钳进 ClayModule 的参数范围；
+      - 旧快照（clay* 常数缺字段按 0 读）→ 两项全部中性、costLimitedMask 为 0；
+      - 置信度低的画像不比同一份画像置信度拉满时给得多（makePlan 的封顶照样覆盖 Clay 各项）。
+
+    性能：makePlan 只有定长局部变量，不分配；典型一次约 1 µs（GLAZE 连续自动化时编排器可每块调一次，见 IMPL-A2 实测）。
+
+  ==============================================================================
+*/
+
+#pragma once
+
+#include "ChainParams.h"
+#include "GlazeConstants.h"
+#include "GlazeTypes.h"
+
+namespace celadon::glaze
+{
+    struct PlanInputs
+    {
+        const MusicProfile* profile = nullptr;   // 可为空（未学习）：按低置信度保守方案
+        Style style = Style::automatic;
+        float glazePercent = 0.0f;               // 0 ～ 100
+        ChainParams manual;             // 用户在各模块旋钮上的值（手动基准）
+        const Constants* constants = nullptr;    // 标定快照（为空时用出厂常数）
+        float maxGainDb = 1.0e9f;                // 约束反馈给出的净提升上限（保护层 / 实测超限时降低）；默认不限
+        const StyleWeights* lockedWeights = nullptr;   // 画像锁定的风格权重（自动风格用它，不重新判断）
+    };
+
+    // 按画像算「自动」风格的混合权重（锁定画像时调一次，之后随画像保存）。置信不足时偏向通透（最保守）。
+    StyleWeights resolveAutomaticWeights (const MusicProfile&, const Constants&) noexcept;
+
+    // 本方案实际用的权重：离散风格是独热（温润 = {1, 0, 0} …），「自动」用画像锁定的 automaticWeights。
+    StyleWeights weightsFor (Style, const StyleWeights& automaticWeights) noexcept;
+
+    // 三种风格的偏好与约束按权重混合（各项线性加权）。保护层用它作生效的约束上限，决策器生成方案也用它。
+    StyleConstants blendConstants (const Constants&, const StyleWeights&) noexcept;
+
+    // 生成方案。
+    Plan makePlan (const PlanInputs&) noexcept;
+
+    // 实际值 = clamp(手动值 + 自动增量)，各参数在自己的映射域叠加。返回交给模块的参数（不含校准偏差与保护偏移）。
+    ChainParams applyIncrements (const ChainParams& manual, const AutoIncrements&) noexcept;
+
+    // ---- v0.6 A2 追加 ----
+
+    // 画像的强度系数 κ ∈ [底强度, 1]（makePlan 里正向增益与处理量就按它收紧）：置信度 = 输入响度、真峰值、代表性三者里
+    // 最没把握的那个。规格要求「正向增益与校准额度一起按比例收紧」——编排器给校准器的修正范围用
+    // calibrationMaxDb × GLAZE / 100 × confidenceScale(...)，与方案同一个 κ。profile 为空 = 未学习（κ = 底强度）。纯函数、不分配。
+    float confidenceScale (const MusicProfile* profile, const Constants&) noexcept;
+}

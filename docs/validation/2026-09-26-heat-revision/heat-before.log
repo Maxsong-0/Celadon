@@ -1,0 +1,25 @@
+THD level=-18.0 heat=0 thd=0.0000% fundamental_delta=-0.0000dB
+THD level=-18.0 heat=10 thd=0.5014% fundamental_delta=-0.0078dB
+THD level=-18.0 heat=25 thd=1.5146% fundamental_delta=-0.0087dB
+THD level=-18.0 heat=50 thd=4.1366% fundamental_delta=-0.0151dB
+THD level=-18.0 heat=100 thd=10.8547% fundamental_delta=-0.0585dB
+THD level=-6.0 heat=0 thd=0.0000% fundamental_delta=0.0000dB
+THD level=-6.0 heat=10 thd=6.2107% fundamental_delta=-1.5523dB
+THD level=-6.0 heat=25 thd=13.6800% fundamental_delta=-3.5030dB
+THD level=-6.0 heat=50 thd=23.5574% fundamental_delta=-6.3024dB
+THD level=-6.0 heat=100 thd=33.4734% fundamental_delta=-9.4013dB
+THD level=-0.5 heat=0 thd=0.0000% fundamental_delta=0.0000dB
+THD level=-0.5 heat=10 thd=15.3359% fundamental_delta=-4.2759dB
+THD level=-0.5 heat=25 thd=25.4987% fundamental_delta=-7.7251dB
+THD level=-0.5 heat=50 thd=33.8844% fundamental_delta=-11.3798dB
+THD level=-0.5 heat=100 thd=39.7560% fundamental_delta=-14.7892dB
+THD level=6.0 heat=0 thd=0.0000% fundamental_delta=0.0000dB
+THD level=6.0 heat=10 thd=29.1925% fundamental_delta=-9.6333dB
+THD level=6.0 heat=25 thd=36.4990% fundamental_delta=-13.8733dB
+THD level=6.0 heat=50 thd=40.6552% fundamental_delta=-17.7702dB
+THD level=6.0 heat=100 thd=42.7717% fundamental_delta=-21.2568dB
+IMD heat=0 sideband=-168.5837dBc hf_delta=0.0000dB
+IMD heat=10 sideband=-5.9283dBc hf_delta=-5.8018dB
+IMD heat=25 sideband=-0.7114dBc hf_delta=-10.4663dB
+IMD heat=50 sideband=1.6788dBc hf_delta=-14.9220dB
+IMD heat=100 sideband=2.4640dBc hf_delta=-18.6322dB

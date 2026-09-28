@@ -1,0 +1,88 @@
+[0/2] Re-checking globbed directories...
+-- GLOB mismatch!
+The following files were added:
+  +/Users/maxsong/All-Project/Celadon/Source/dsp/ClayGuard.cpp
+  +/Users/maxsong/All-Project/Celadon/Source/dsp/ClayModule.cpp
+  +/Users/maxsong/All-Project/Celadon/Source/dsp/LinearPhaseLowpass.cpp
+-- GLOB mismatch!
+The following files were added:
+  +/Users/maxsong/All-Project/Celadon/Source/ui/AdvancedDrawer.cpp
+  +/Users/maxsong/All-Project/Celadon/Source/ui/ClayIndicator.cpp
+[1/2] Re-running CMake...
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: /private/var/folders/px/sdjpfb9x39n_l1b9fmldshw80000gn/T/celadon-perf-XcodeRelease-d4b76f75e866
+[0/2] Re-checking globbed directories...
+[1/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_formats_flac_1.c.o
+[2/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_formats_flac_2.c.o
+[3/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_basics.mm.o
+[4/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_devices.mm.o
+[5/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors_headless_ara.cpp.o
+[6/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors_headless_lv2_libs.cpp.o
+[7/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_formats.mm.o
+[8/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors.mm.o
+[9/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_core_CompilationTime.cpp.o
+[10/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_core_zlib.c.o
+[11/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_data_structures.mm.o
+[12/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_utils.mm.o
+[13/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_events.mm.o
+[14/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors_headless.mm.o
+[15/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_dsp.mm.o
+[16/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_Sheenbidi.c.o
+[17/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_core.mm.o
+[18/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_2.c.o
+[19/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_1.c.o
+[20/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_3.c.o
+[21/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libpng.c.o
+[22/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_lunasvg.c.o
+[23/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_2.cpp.o
+[24/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics.mm.o
+[25/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_3.cpp.o
+[26/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_Harfbuzz.cpp.o
+[27/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_4.cpp.o
+[28/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics.mm.o
+[29/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_5.cpp.o
+[30/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/Parameters.cpp.o
+[31/68] Building OBJCXX object CMakeFiles/celadon_bench.dir/bench.mm.o
+[32/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginEditor.cpp.o
+[33/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_extra.mm.o
+[34/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginProcessor.cpp.o
+[35/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/CeladonChain.cpp.o
+[36/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/BalanceModule.cpp.o
+[37/68] Linking CXX static library libjuce_units.a
+[38/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/ClayGuard.cpp.o
+[39/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/ClayModule.cpp.o
+[40/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/ColorModule.cpp.o
+[41/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeCalibrator.cpp.o
+[42/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeConstants.cpp.o
+[43/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeGuard.cpp.o
+[44/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazePlanner.cpp.o
+[45/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeController.cpp.o
+[46/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeProfile.cpp.o
+[47/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/HalfBandOversampler.cpp.o
+[48/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LinearPhaseLowpass.cpp.o
+[49/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LimiterModule.cpp.o
+[50/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LoudnessMeter.cpp.o
+[51/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/Saturator.cpp.o
+[52/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/MusicAnalyzer.cpp.o
+[53/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/TruePeak.cpp.o
+[54/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/AdvancedDrawer.cpp.o
+[55/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/BalanceCurve.cpp.o
+[56/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/CapsuleSelector.cpp.o
+[57/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/CeladonLookAndFeel.cpp.o
+[58/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusText.cpp.o
+[59/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/ClayIndicator.cpp.o
+[60/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/CrackleTexture.cpp.o
+[61/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusLine.cpp.o
+[62/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/HelpText.cpp.o
+[63/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStyleColumn.cpp.o
+[64/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/Knob.cpp.o
+[65/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/LoudnessReadout.cpp.o
+[66/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/MeterBar.cpp.o
+[67/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/ModulePanel.cpp.o
+[68/68] Linking CXX executable celadon_bench
+POWER,10:15:15,source=AC Power,lowpowermode=0
+MODULES,release,auto50xover,48000,512,total_avg%=1.582,total_worst%=2.000,nanGuardIn_avg%=0.004,nanGuardIn_share=0.2%,nanGuardIn_worst%=0.005,meterIn_avg%=0.154,meterIn_share=9.7%,meterIn_worst%=0.345,params+glaze_avg%=0.179,params+glaze_share=11.3%,params+glaze_worst%=0.340,balance_avg%=0.176,balance_share=11.1%,balance_worst%=0.260,clay_avg%=0.240,clay_share=15.2%,clay_worst%=0.358,color_avg%=0.417,color_share=26.4%,color_worst%=0.589,limit_avg%=0.253,limit_share=16.0%,limit_worst%=0.371,nanGuardOut_avg%=0.004,nanGuardOut_share=0.2%,nanGuardOut_worst%=0.004,meterOut_avg%=0.151,meterOut_share=9.5%,meterOut_worst%=0.190,glazeEnd_avg%=0.005,glazeEnd_share=0.3%,glazeEnd_worst%=0.017,latency=1384
+XOVER,release,auto50xover,48000,512,hz=40/42,period_ms=50,events=18,switch_clay_med_us=30.67,switch_clay_worst_us=38.21,other_clay_med_us=23.58,other_clay_worst_us=30.67,switch_extra_us=7.08,switch_extra%=0.066,switch_block_med%=1.625,switch_block_worst%=1.784,other_block_med%=1.557,other_block_worst%=2.000
+POWER,10:15:16,source=AC Power,lowpowermode=0
+exit=0

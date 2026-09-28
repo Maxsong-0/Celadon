@@ -1,0 +1,93 @@
+[1/3] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/MusicAnalyzer.cpp.o
+[2/3] Building CXX object CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o
+[3/3] Linking CXX executable celadon_tests
+Random seed: 0x3c595a7
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / sub-blocks: 100 ms K-weighted mean squares with sample timestamps; S and true peak agree with the meter...
+Completed tests in MusicAnalyzer / sub-blocks: 100 ms K-weighted mean squares with sample timestamps; S and true peak agree with the meter
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / sub-block ring: overflow reports a negative count; requestReset keeps the sequence; loudness off produces none...
+Completed tests in MusicAnalyzer / sub-block ring: overflow reports a negative count; requestReset keeps the sequence; loudness off produces none
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / frame snapshots: timestamps, both units, identical with and without slicing, bypass and settings...
+Completed tests in MusicAnalyzer / frame snapshots: timestamps, both units, identical with and without slicing, bypass and settings
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / M / S / I of a stereo 1 kHz sine match the BS.1770-4 formula...
+Completed tests in MusicAnalyzer / M / S / I of a stereo 1 kHz sine match the BS.1770-4 formula
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / integrated loudness applies the absolute and relative gates (EBU R128 / Tech 3341)...
+Completed tests in MusicAnalyzer / integrated loudness applies the absolute and relative gates (EBU R128 / Tech 3341)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / loudness range follows EBU Tech 3342 (P95 - P10 of gated short-term values)...
+Completed tests in MusicAnalyzer / loudness range follows EBU Tech 3342 (P95 - P10 of gated short-term values)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / PLR and PSR come from the same true-peak detector as the meter...
+Completed tests in MusicAnalyzer / PLR and PSR come from the same true-peak detector as the meter
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / spectrum: pink noise has no evidence, a flat slope and 5/27 shares; white noise tilts +3 dB/oct...
+  pink @48000: worst tame 0.0000 dB, worst recover 0.0000 dB, slope -0.020 dB/oct, low 0.191, high 0.183
+  pink @96000: worst tame 0.0000 dB, worst recover 0.0000 dB, slope -0.016 dB/oct, low 0.189, high 0.183
+Completed tests in MusicAnalyzer / spectrum: pink noise has no evidence, a flat slope and 5/27 shares; white noise tilts +3 dB/oct
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / spectrum: a notch yields Recover evidence in its band only, a peak Tame evidence in its band only...
+  band 13 notch: evidence 4.85 dB
+  band 14 peak: evidence 5.61 dB
+  band 8 notch: evidence 4.06 dB
+  band 20 peak: evidence 5.70 dB
+Completed tests in MusicAnalyzer / spectrum: a notch yields Recover evidence in its band only, a peak Tame evidence in its band only
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile...
+Completed tests in MusicAnalyzer / live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / live broad-band slope follows stopped learning, and rejects narrow tones and silence...
+Completed tests in MusicAnalyzer / live broad-band slope follows stopped learning, and rejects narrow tones and silence
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / Recover stays conservative: roll-offs, edge bands and intermittent gaps are not filled...
+Completed tests in MusicAnalyzer / Recover stays conservative: roll-offs, edge bands and intermittent gaps are not filled
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / channels combine by power: R = -L equals R = L (bit-exact), mono equals identical stereo...
+Completed tests in MusicAnalyzer / channels combine by power: R = -L equals R = L (bit-exact), mono equals identical stereo
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: click trains are counted exactly (2, 4, 8 and 16 per second)...
+Completed tests in MusicAnalyzer / onsets: click trains are counted exactly (2, 4, 8 and 16 per second)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: sustained low sines and sustained bass (beating, tremolo) never trigger...
+Completed tests in MusicAnalyzer / onsets: sustained low sines and sustained bass (beating, tremolo) never trigger
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: a dense drum pattern gives a plausible density, corroborated by the high-band flux...
+  drums: density 1.975 /s, strength 9.38 dB, flux onsets 6.77 /s, agreement 1.00, low-band range 24.0 dB
+Completed tests in MusicAnalyzer / onsets: a dense drum pattern gives a plausible density, corroborated by the high-band flux
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / effective time counts only new, audible samples (silence and passages 20 LU below I do not count)...
+Completed tests in MusicAnalyzer / effective time counts only new, audible samples (silence and passages 20 LU below I do not count)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / learning interval: data before startLearning is excluded, stopLearning freezes the profile...
+Completed tests in MusicAnalyzer / learning interval: data before startLearning is excluded, stopLearning freezes the profile
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / unknown is not zero: invalid until measured; LRA confidence stays below 1 for the first 60 s...
+Completed tests in MusicAnalyzer / unknown is not zero: invalid until measured; LRA confidence stays below 1 for the first 60 s
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / discontinuities: windows refill (M 0.4 s, S 3 s), accumulations are kept, splices are not onsets...
+Completed tests in MusicAnalyzer / discontinuities: windows refill (M 0.4 s, S 3 s), accumulations are kept, splices are not onsets
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / host resets and module-only resets: learning continues on the new time axis...
+Completed tests in MusicAnalyzer / host resets and module-only resets: learning continues on the new time axis
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / one spectral delivery per host block is independent of input statistics slices; resets and missing Balance remain detectable...
+Completed tests in MusicAnalyzer / one spectral delivery per host block is independent of input statistics slices; resets and missing Balance remain detectable
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / representativeness: repeated loops add nothing; without a host position it is capped at 0.75...
+  4 s loop x 5: representativeness 0.267, effective 19.60 s
+Completed tests in MusicAnalyzer / representativeness: repeated loops add nothing; without a host position it is capped at 0.75
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / the profile is bit-identical for any host block size (1 ... 4096, random)...
+Completed tests in MusicAnalyzer / the profile is bit-identical for any host block size (1 ... 4096, random)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / the audio-thread API does not allocate...
+Completed tests in MusicAnalyzer / the audio-thread API does not allocate
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning)...
+  analyzer @48k block 512, learning: mean 2.07 us (0.019 % of one core), worst 2.58 us
+Completed tests in MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning)
+
+==== celadon_tests: 3404 passed, 0 failed ====

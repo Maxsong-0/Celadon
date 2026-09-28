@@ -1,0 +1,23 @@
+[0/2] Re-checking globbed directories...
+[1/2] Building OBJCXX object CMakeFiles/celadon_bench.dir/bench.mm.o
+[2/2] Linking CXX executable celadon_bench
+POWER,11:54:05,source=AC Power,lowpowermode=0
+WARM,auto100,48000,32,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,48000,32,avg%=1.276,worst%=6.019,p99.9%=3.175,p99%=2.131,maxAllPasses%=13.231,structWorst%=2.056,structTypical%=1.144,prepare_ms=1.098,latency=282,nonFinite=0,blocks=12000,chk=7903.57
+WARM,auto100,48000,64,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,48000,64,avg%=1.259,worst%=3.156,p99.9%=2.484,p99%=1.797,maxAllPasses%=10.131,structWorst%=1.591,structTypical%=1.137,prepare_ms=0.753,latency=282,nonFinite=0,blocks=6000,chk=3961.35
+WARM,auto100,48000,512,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,48000,512,avg%=1.171,worst%=1.691,p99.9%=1.691,p99%=1.396,maxAllPasses%=1.993,structWorst%=1.157,structTypical%=1.157,prepare_ms=0.786,latency=282,nonFinite=0,blocks=750,chk=472.116
+WARM,auto100,96000,32,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,96000,32,avg%=2.557,worst%=12.963,p99.9%=7.350,p99%=5.500,maxAllPasses%=23.625,structWorst%=5.438,structTypical%=2.300,prepare_ms=1.472,latency=378,nonFinite=0,blocks=24000,chk=15934.5
+WARM,auto100,96000,64,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,96000,64,avg%=2.522,worst%=8.844,p99.9%=5.513,p99%=4.050,maxAllPasses%=12.506,structWorst%=3.850,structTypical%=2.281,prepare_ms=1.432,latency=378,nonFinite=0,blocks=12000,chk=7986.54
+WARM,auto100,96000,512,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,96000,512,avg%=2.330,worst%=3.833,p99.9%=3.548,p99%=2.869,maxAllPasses%=6.841,structWorst%=2.475,structTypical%=2.113,prepare_ms=1.325,latency=378,nonFinite=0,blocks=1500,chk=1012.55
+WARM,auto100,192000,32,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,192000,32,avg%=5.094,worst%=38.975,p99.9%=18.525,p99%=16.300,maxAllPasses%=51.150,structWorst%=16.325,structTypical%=4.575,prepare_ms=3.068,latency=570,nonFinite=0,blocks=48000,chk=31723.6
+WARM,auto100,192000,64,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,192000,64,avg%=5.031,worst%=18.038,p99.9%=12.812,p99%=10.688,maxAllPasses%=32.962,structWorst%=10.438,structTypical%=4.538,prepare_ms=3.083,latency=570,nonFinite=0,blocks=24000,chk=15838.1
+WARM,auto100,192000,512,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,192000,512,avg%=4.652,worst%=9.181,p99.9%=7.759,p99%=6.288,maxAllPasses%=9.516,structWorst%=5.663,structTypical%=4.222,prepare_ms=2.838,latency=570,nonFinite=0,blocks=3000,chk=1987.01
+POWER,11:54:23,source=AC Power,lowpowermode=0

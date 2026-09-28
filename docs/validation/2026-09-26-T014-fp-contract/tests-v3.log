@@ -1,0 +1,606 @@
+Random seed: 0x45f7f58
+-----------------------------------------------------------------
+Starting tests in: Saturator / SoftClip: linear below knee, never above threshold, monotonic...
+Completed tests in Saturator / SoftClip: linear below knee, never above threshold, monotonic
+-----------------------------------------------------------------
+Starting tests in: Saturator / Tube: y(0) = 0 and unit slope at origin...
+Completed tests in Saturator / Tube: y(0) = 0 and unit slope at origin
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)...
+Completed tests in TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / never below the sample peak...
+Completed tests in TruePeakDetector / never below the sample peak
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)...
+Completed tests in TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / DC reads its own level (steady state)...
+Completed tests in TruePeakDetector / DC reads its own level (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)...
+  step overshoot: +1.133 dB
+Completed tests in TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax are bit-exact with processSample (SSE2 kernel)...
+!!! Test 1 failed: processBlock differs from processSample: white noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 2 failed: processBlockMax differs from the jmax fold: white noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 3 failed: processBlock differs from processSample: white noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 4 failed: processBlockMax differs from the jmax fold: white noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 1951
+!!! Test 5 failed: processBlock differs from processSample: white noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 6 failed: processBlockMax differs from the jmax fold: white noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 255
+!!! Test 7 failed: processBlock differs from processSample: white noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 8 failed: processBlockMax differs from the jmax fold: white noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 32
+!!! Test 9 failed: processBlock differs from processSample: white noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 10 failed: processBlockMax differs from the jmax fold: white noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 3
+!!! Test 11 failed: processBlock differs from processSample: white noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 12 failed: processBlockMax differs from the jmax fold: white noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 143
+!!! Test 13 failed: processBlock differs from processSample: white noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 12082
+!!! Test 14 failed: processBlockMax differs from the jmax fold: white noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 27
+!!! Test 29 failed: processBlock differs from processSample: 20 ms burst, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 30 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 31 failed: processBlock differs from processSample: 20 ms burst, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 32 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 46
+!!! Test 33 failed: processBlock differs from processSample: 20 ms burst, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 35 failed: processBlock differs from processSample: 20 ms burst, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 37 failed: processBlock differs from processSample: 20 ms burst, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 39 failed: processBlock differs from processSample: 20 ms burst, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 40 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 2
+!!! Test 41 failed: processBlock differs from processSample: 20 ms burst, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 418
+!!! Test 43 failed: processBlock differs from processSample: +60 dBFS noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 44 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 45 failed: processBlock differs from processSample: +60 dBFS noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 46 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 1915
+!!! Test 47 failed: processBlock differs from processSample: +60 dBFS noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 48 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 205
+!!! Test 49 failed: processBlock differs from processSample: +60 dBFS noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 50 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 23
+!!! Test 51 failed: processBlock differs from processSample: +60 dBFS noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 52 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 2
+!!! Test 53 failed: processBlock differs from processSample: +60 dBFS noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 54 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 123
+!!! Test 55 failed: processBlock differs from processSample: +60 dBFS noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 11921
+!!! Test 56 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 19
+!!! Test 71 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 72 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 73 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 74 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 6854
+!!! Test 75 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 76 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 748
+!!! Test 77 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 78 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 92
+!!! Test 79 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 80 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 10
+!!! Test 81 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 82 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 408
+!!! Test 83 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 23998
+!!! Test 84 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 74
+!!! Test 85 failed: processBlock differs from processSample: 0.45 fs sine, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 86 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 87 failed: processBlock differs from processSample: 0.45 fs sine, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 88 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 1378
+!!! Test 89 failed: processBlock differs from processSample: 0.45 fs sine, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 91 failed: processBlock differs from processSample: 0.45 fs sine, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 93 failed: processBlock differs from processSample: 0.45 fs sine, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 95 failed: processBlock differs from processSample: 0.45 fs sine, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 96 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 14
+!!! Test 97 failed: processBlock differs from processSample: 0.45 fs sine, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 9612
+!!! Test 113 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 114 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 0, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 115 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 116 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 1, IEEE denormals -- Expected value: 0, Actual value: 946
+!!! Test 117 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 118 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 2, IEEE denormals -- Expected value: 0, Actual value: 60
+!!! Test 119 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 3, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 121 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 4, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 123 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 124 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 5, IEEE denormals -- Expected value: 0, Actual value: 35
+!!! Test 125 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 6, IEEE denormals -- Expected value: 0, Actual value: 5751
+!!! Test 127 failed: processBlock differs from processSample: white noise, pattern 0, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 128 failed: processBlockMax differs from the jmax fold: white noise, pattern 0, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 129 failed: processBlock differs from processSample: white noise, pattern 1, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 130 failed: processBlockMax differs from the jmax fold: white noise, pattern 1, FTZ only -- Expected value: 0, Actual value: 1951
+!!! Test 131 failed: processBlock differs from processSample: white noise, pattern 2, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 132 failed: processBlockMax differs from the jmax fold: white noise, pattern 2, FTZ only -- Expected value: 0, Actual value: 255
+!!! Test 133 failed: processBlock differs from processSample: white noise, pattern 3, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 134 failed: processBlockMax differs from the jmax fold: white noise, pattern 3, FTZ only -- Expected value: 0, Actual value: 32
+!!! Test 135 failed: processBlock differs from processSample: white noise, pattern 4, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 136 failed: processBlockMax differs from the jmax fold: white noise, pattern 4, FTZ only -- Expected value: 0, Actual value: 3
+!!! Test 137 failed: processBlock differs from processSample: white noise, pattern 5, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 138 failed: processBlockMax differs from the jmax fold: white noise, pattern 5, FTZ only -- Expected value: 0, Actual value: 143
+!!! Test 139 failed: processBlock differs from processSample: white noise, pattern 6, FTZ only -- Expected value: 0, Actual value: 12082
+!!! Test 140 failed: processBlockMax differs from the jmax fold: white noise, pattern 6, FTZ only -- Expected value: 0, Actual value: 27
+!!! Test 155 failed: processBlock differs from processSample: 20 ms burst, pattern 0, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 156 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 0, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 157 failed: processBlock differs from processSample: 20 ms burst, pattern 1, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 158 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 1, FTZ only -- Expected value: 0, Actual value: 46
+!!! Test 159 failed: processBlock differs from processSample: 20 ms burst, pattern 2, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 161 failed: processBlock differs from processSample: 20 ms burst, pattern 3, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 163 failed: processBlock differs from processSample: 20 ms burst, pattern 4, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 165 failed: processBlock differs from processSample: 20 ms burst, pattern 5, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 166 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 5, FTZ only -- Expected value: 0, Actual value: 2
+!!! Test 167 failed: processBlock differs from processSample: 20 ms burst, pattern 6, FTZ only -- Expected value: 0, Actual value: 418
+!!! Test 169 failed: processBlock differs from processSample: +60 dBFS noise, pattern 0, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 170 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 0, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 171 failed: processBlock differs from processSample: +60 dBFS noise, pattern 1, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 172 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 1, FTZ only -- Expected value: 0, Actual value: 1915
+!!! Test 173 failed: processBlock differs from processSample: +60 dBFS noise, pattern 2, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 174 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 2, FTZ only -- Expected value: 0, Actual value: 205
+!!! Test 175 failed: processBlock differs from processSample: +60 dBFS noise, pattern 3, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 176 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 3, FTZ only -- Expected value: 0, Actual value: 23
+!!! Test 177 failed: processBlock differs from processSample: +60 dBFS noise, pattern 4, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 178 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 4, FTZ only -- Expected value: 0, Actual value: 2
+!!! Test 179 failed: processBlock differs from processSample: +60 dBFS noise, pattern 5, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 180 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 5, FTZ only -- Expected value: 0, Actual value: 123
+!!! Test 181 failed: processBlock differs from processSample: +60 dBFS noise, pattern 6, FTZ only -- Expected value: 0, Actual value: 11921
+!!! Test 182 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 6, FTZ only -- Expected value: 0, Actual value: 19
+!!! Test 197 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 0, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 198 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 0, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 199 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 1, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 200 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 1, FTZ only -- Expected value: 0, Actual value: 6854
+!!! Test 201 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 2, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 202 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 2, FTZ only -- Expected value: 0, Actual value: 748
+!!! Test 203 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 3, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 204 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 3, FTZ only -- Expected value: 0, Actual value: 92
+!!! Test 205 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 4, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 206 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 4, FTZ only -- Expected value: 0, Actual value: 10
+!!! Test 207 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 5, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 208 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 5, FTZ only -- Expected value: 0, Actual value: 408
+!!! Test 209 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 6, FTZ only -- Expected value: 0, Actual value: 23998
+!!! Test 210 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 6, FTZ only -- Expected value: 0, Actual value: 74
+!!! Test 211 failed: processBlock differs from processSample: 0.45 fs sine, pattern 0, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 212 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 0, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 213 failed: processBlock differs from processSample: 0.45 fs sine, pattern 1, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 214 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 1, FTZ only -- Expected value: 0, Actual value: 1378
+!!! Test 215 failed: processBlock differs from processSample: 0.45 fs sine, pattern 2, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 217 failed: processBlock differs from processSample: 0.45 fs sine, pattern 3, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 219 failed: processBlock differs from processSample: 0.45 fs sine, pattern 4, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 221 failed: processBlock differs from processSample: 0.45 fs sine, pattern 5, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 222 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 5, FTZ only -- Expected value: 0, Actual value: 14
+!!! Test 223 failed: processBlock differs from processSample: 0.45 fs sine, pattern 6, FTZ only -- Expected value: 0, Actual value: 9612
+!!! Test 239 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 0, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 240 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 0, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 241 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 1, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 242 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 1, FTZ only -- Expected value: 0, Actual value: 946
+!!! Test 243 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 2, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 244 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 2, FTZ only -- Expected value: 0, Actual value: 60
+!!! Test 245 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 3, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 247 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 4, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 249 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 5, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 250 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 5, FTZ only -- Expected value: 0, Actual value: 35
+!!! Test 251 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 6, FTZ only -- Expected value: 0, Actual value: 5751
+!!! Test 253 failed: processBlock differs from processSample: white noise, pattern 0, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 254 failed: processBlockMax differs from the jmax fold: white noise, pattern 0, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 255 failed: processBlock differs from processSample: white noise, pattern 1, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 256 failed: processBlockMax differs from the jmax fold: white noise, pattern 1, DAZ only -- Expected value: 0, Actual value: 1951
+!!! Test 257 failed: processBlock differs from processSample: white noise, pattern 2, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 258 failed: processBlockMax differs from the jmax fold: white noise, pattern 2, DAZ only -- Expected value: 0, Actual value: 255
+!!! Test 259 failed: processBlock differs from processSample: white noise, pattern 3, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 260 failed: processBlockMax differs from the jmax fold: white noise, pattern 3, DAZ only -- Expected value: 0, Actual value: 32
+!!! Test 261 failed: processBlock differs from processSample: white noise, pattern 4, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 262 failed: processBlockMax differs from the jmax fold: white noise, pattern 4, DAZ only -- Expected value: 0, Actual value: 3
+!!! Test 263 failed: processBlock differs from processSample: white noise, pattern 5, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 264 failed: processBlockMax differs from the jmax fold: white noise, pattern 5, DAZ only -- Expected value: 0, Actual value: 143
+!!! Test 265 failed: processBlock differs from processSample: white noise, pattern 6, DAZ only -- Expected value: 0, Actual value: 12082
+!!! Test 266 failed: processBlockMax differs from the jmax fold: white noise, pattern 6, DAZ only -- Expected value: 0, Actual value: 27
+!!! Test 281 failed: processBlock differs from processSample: 20 ms burst, pattern 0, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 282 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 0, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 283 failed: processBlock differs from processSample: 20 ms burst, pattern 1, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 284 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 1, DAZ only -- Expected value: 0, Actual value: 46
+!!! Test 285 failed: processBlock differs from processSample: 20 ms burst, pattern 2, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 287 failed: processBlock differs from processSample: 20 ms burst, pattern 3, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 289 failed: processBlock differs from processSample: 20 ms burst, pattern 4, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 291 failed: processBlock differs from processSample: 20 ms burst, pattern 5, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 292 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 5, DAZ only -- Expected value: 0, Actual value: 2
+!!! Test 293 failed: processBlock differs from processSample: 20 ms burst, pattern 6, DAZ only -- Expected value: 0, Actual value: 418
+!!! Test 295 failed: processBlock differs from processSample: +60 dBFS noise, pattern 0, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 296 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 0, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 297 failed: processBlock differs from processSample: +60 dBFS noise, pattern 1, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 298 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 1, DAZ only -- Expected value: 0, Actual value: 1915
+!!! Test 299 failed: processBlock differs from processSample: +60 dBFS noise, pattern 2, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 300 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 2, DAZ only -- Expected value: 0, Actual value: 205
+!!! Test 301 failed: processBlock differs from processSample: +60 dBFS noise, pattern 3, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 302 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 3, DAZ only -- Expected value: 0, Actual value: 23
+!!! Test 303 failed: processBlock differs from processSample: +60 dBFS noise, pattern 4, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 304 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 4, DAZ only -- Expected value: 0, Actual value: 2
+!!! Test 305 failed: processBlock differs from processSample: +60 dBFS noise, pattern 5, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 306 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 5, DAZ only -- Expected value: 0, Actual value: 123
+!!! Test 307 failed: processBlock differs from processSample: +60 dBFS noise, pattern 6, DAZ only -- Expected value: 0, Actual value: 11921
+!!! Test 308 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 6, DAZ only -- Expected value: 0, Actual value: 19
+!!! Test 323 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 0, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 324 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 0, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 325 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 1, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 326 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 1, DAZ only -- Expected value: 0, Actual value: 6854
+!!! Test 327 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 2, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 328 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 2, DAZ only -- Expected value: 0, Actual value: 748
+!!! Test 329 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 3, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 330 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 3, DAZ only -- Expected value: 0, Actual value: 92
+!!! Test 331 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 4, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 332 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 4, DAZ only -- Expected value: 0, Actual value: 10
+!!! Test 333 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 5, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 334 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 5, DAZ only -- Expected value: 0, Actual value: 408
+!!! Test 335 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 6, DAZ only -- Expected value: 0, Actual value: 23998
+!!! Test 336 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 6, DAZ only -- Expected value: 0, Actual value: 74
+!!! Test 337 failed: processBlock differs from processSample: 0.45 fs sine, pattern 0, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 338 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 0, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 339 failed: processBlock differs from processSample: 0.45 fs sine, pattern 1, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 340 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 1, DAZ only -- Expected value: 0, Actual value: 1378
+!!! Test 341 failed: processBlock differs from processSample: 0.45 fs sine, pattern 2, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 343 failed: processBlock differs from processSample: 0.45 fs sine, pattern 3, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 345 failed: processBlock differs from processSample: 0.45 fs sine, pattern 4, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 347 failed: processBlock differs from processSample: 0.45 fs sine, pattern 5, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 348 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 5, DAZ only -- Expected value: 0, Actual value: 14
+!!! Test 349 failed: processBlock differs from processSample: 0.45 fs sine, pattern 6, DAZ only -- Expected value: 0, Actual value: 9612
+!!! Test 365 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 0, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 366 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 0, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 367 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 1, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 368 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 1, DAZ only -- Expected value: 0, Actual value: 946
+!!! Test 369 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 2, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 370 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 2, DAZ only -- Expected value: 0, Actual value: 60
+!!! Test 371 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 3, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 373 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 4, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 375 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 5, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 376 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 5, DAZ only -- Expected value: 0, Actual value: 35
+!!! Test 377 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 6, DAZ only -- Expected value: 0, Actual value: 5751
+!!! Test 379 failed: processBlock differs from processSample: white noise, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 380 failed: processBlockMax differs from the jmax fold: white noise, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 381 failed: processBlock differs from processSample: white noise, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 382 failed: processBlockMax differs from the jmax fold: white noise, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 1951
+!!! Test 383 failed: processBlock differs from processSample: white noise, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 384 failed: processBlockMax differs from the jmax fold: white noise, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 255
+!!! Test 385 failed: processBlock differs from processSample: white noise, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 386 failed: processBlockMax differs from the jmax fold: white noise, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 32
+!!! Test 387 failed: processBlock differs from processSample: white noise, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 388 failed: processBlockMax differs from the jmax fold: white noise, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 3
+!!! Test 389 failed: processBlock differs from processSample: white noise, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 390 failed: processBlockMax differs from the jmax fold: white noise, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 143
+!!! Test 391 failed: processBlock differs from processSample: white noise, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 12082
+!!! Test 392 failed: processBlockMax differs from the jmax fold: white noise, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 27
+!!! Test 407 failed: processBlock differs from processSample: 20 ms burst, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 408 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 409 failed: processBlock differs from processSample: 20 ms burst, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 410 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 46
+!!! Test 411 failed: processBlock differs from processSample: 20 ms burst, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 413 failed: processBlock differs from processSample: 20 ms burst, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 415 failed: processBlock differs from processSample: 20 ms burst, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 417 failed: processBlock differs from processSample: 20 ms burst, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 418 failed: processBlockMax differs from the jmax fold: 20 ms burst, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 2
+!!! Test 419 failed: processBlock differs from processSample: 20 ms burst, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 418
+!!! Test 421 failed: processBlock differs from processSample: +60 dBFS noise, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 422 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 423 failed: processBlock differs from processSample: +60 dBFS noise, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 424 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 1915
+!!! Test 425 failed: processBlock differs from processSample: +60 dBFS noise, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 426 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 205
+!!! Test 427 failed: processBlock differs from processSample: +60 dBFS noise, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 428 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23
+!!! Test 429 failed: processBlock differs from processSample: +60 dBFS noise, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 430 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 2
+!!! Test 431 failed: processBlock differs from processSample: +60 dBFS noise, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 432 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 123
+!!! Test 433 failed: processBlock differs from processSample: +60 dBFS noise, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 11921
+!!! Test 434 failed: processBlockMax differs from the jmax fold: +60 dBFS noise, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 19
+!!! Test 449 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 450 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 451 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 452 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 6854
+!!! Test 453 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 454 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 748
+!!! Test 455 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 456 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 92
+!!! Test 457 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 458 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 10
+!!! Test 459 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 460 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 408
+!!! Test 461 failed: processBlock differs from processSample: fs/4 sine at 45 deg, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 23998
+!!! Test 462 failed: processBlockMax differs from the jmax fold: fs/4 sine at 45 deg, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 74
+!!! Test 463 failed: processBlock differs from processSample: 0.45 fs sine, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 464 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 465 failed: processBlock differs from processSample: 0.45 fs sine, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 466 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 1378
+!!! Test 467 failed: processBlock differs from processSample: 0.45 fs sine, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 469 failed: processBlock differs from processSample: 0.45 fs sine, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 471 failed: processBlock differs from processSample: 0.45 fs sine, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 473 failed: processBlock differs from processSample: 0.45 fs sine, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 474 failed: processBlockMax differs from the jmax fold: 0.45 fs sine, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 14
+!!! Test 475 failed: processBlock differs from processSample: 0.45 fs sine, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 9612
+!!! Test 491 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+!!! Test 492 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 0, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+!!! Test 493 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+!!! Test 494 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 1, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 946
+!!! Test 495 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+!!! Test 496 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 2, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 60
+!!! Test 497 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 3, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+!!! Test 499 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 4, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+!!! Test 501 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+!!! Test 502 failed: processBlockMax differs from the jmax fold: extremes incl. NaN / Inf, pattern 5, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 35
+!!! Test 503 failed: processBlock differs from processSample: extremes incl. NaN / Inf, pattern 6, FTZ + DAZ (ScopedNoDenormals) -- Expected value: 0, Actual value: 5751
+
+FAILED!!  292 tests failed, out of a total of 504
+
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processSample / processBlock / processBlockMax / in-place calls can be mixed on one detector...
+!!! Test 1 failed: white noise -- Expected value: 0, Actual value: 5771
+!!! Test 3 failed: 20 ms burst -- Expected value: 0, Actual value: 270
+!!! Test 4 failed: +60 dBFS noise -- Expected value: 0, Actual value: 5670
+!!! Test 6 failed: fs/4 sine at 45 deg -- Expected value: 0, Actual value: 11480
+!!! Test 7 failed: 0.45 fs sine -- Expected value: 0, Actual value: 4584
+!!! Test 9 failed: extremes incl. NaN / Inf -- Expected value: 0, Actual value: 2614
+
+FAILED!!  6 tests failed, out of a total of 9
+
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call...
+Completed tests in TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax do not allocate...
+Completed tests in TruePeakDetector / processBlock / processBlockMax do not allocate
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / performance guard: SSE2 block detector per sample per channel...
+  SSE2 processBlock: 17.35 ns per sample per channel (best of 15)
+Completed tests in TruePeakDetector / performance guard: SSE2 block detector per sample per channel
+-----------------------------------------------------------------
+Starting tests in: ColorModule / null when tone = glue = heat = 0, mix 100, output 0 (loud input)...
+  @44100: latency 64, residual -200.0 dBFS
+  @48000: latency 64, residual -200.0 dBFS
+  @96000: latency 64, residual -200.0 dBFS
+Completed tests in ColorModule / null when tone = glue = heat = 0, mix 100, output 0 (loud input)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / no aliasing below 10 kHz at heat = 100 (10 kHz sine, -6 dBFS)...
+  fundamental bin 3413, worst in-band component -97.4 dB re fundamental at 9972.66 Hz
+Completed tests in ColorModule / no aliasing below 10 kHz at heat = 100 (10 kHz sine, -6 dBFS)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat loudness compensation keeps -18 dBFS sine within +/-1 dB...
+  heat 10: -0.00 dB re heat 0
+  heat 20: -0.00 dB re heat 0
+  heat 30: -0.00 dB re heat 0
+  heat 40: -0.01 dB re heat 0
+  heat 50: -0.01 dB re heat 0
+  heat 60: -0.01 dB re heat 0
+  heat 70: -0.02 dB re heat 0
+  heat 80: -0.02 dB re heat 0
+  heat 90: -0.03 dB re heat 0
+  heat 100: -0.03 dB re heat 0
+Completed tests in ColorModule / heat loudness compensation keeps -18 dBFS sine within +/-1 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat stays below 4% distortion and 1.25 dB level loss on near-full-scale input...
+  input -18.0 dBFS, heat 10: 0.004% distortion, -0.001 dB RMS change
+  input -18.0 dBFS, heat 30: 0.018% distortion, -0.004 dB RMS change
+  input -18.0 dBFS, heat 100: 0.179% distortion, -0.033 dB RMS change
+  input -6.0 dBFS, heat 10: 0.055% distortion, -0.015 dB RMS change
+  input -6.0 dBFS, heat 30: 0.222% distortion, -0.060 dB RMS change
+  input -6.0 dBFS, heat 100: 1.481% distortion, -0.413 dB RMS change
+  input -0.5 dBFS, heat 10: 0.144% distortion, -0.042 dB RMS change
+  input -0.5 dBFS, heat 30: 0.530% distortion, -0.163 dB RMS change
+  input -0.5 dBFS, heat 100: 2.689% distortion, -0.940 dB RMS change
+Completed tests in ColorModule / heat stays below 4% distortion and 1.25 dB level loss on near-full-scale input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / parallel heat bounds bass/treble intermodulation with tone +/-3 dB...
+  tone -3, heat 30: 0.102% IMD, 0.002 dB RMS change
+  tone -3, heat 100: 0.806% IMD, 0.018 dB RMS change
+  tone 3, heat 30: 0.032% IMD, 0.001 dB RMS change
+  tone 3, heat 100: 0.290% IMD, 0.006 dB RMS change
+Completed tests in ColorModule / parallel heat bounds bass/treble intermodulation with tone +/-3 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / full heat sweep and reset remain continuous with hot input and tone boost...
+Completed tests in ColorModule / full heat sweep and reset remain continuous with hot input and tone boost
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bass-safe Heat lowers 60 Hz / 6 kHz intermodulation at matched upper harmonics...
+  legacy Heat 60 vs new 59.912: harmonic match -0.011 dB, IMD 3.5425% -> 0.1778% (25.99 dB improvement)
+Completed tests in ColorModule / bass-safe Heat lowers 60 Hz / 6 kHz intermodulation at matched upper harmonics
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat preserves 40 / 60 / 100 Hz fundamentals on quiet and hot bass...
+Completed tests in ColorModule / Heat preserves 40 / 60 / 100 Hz fundamentals on quiet and hot bass
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat preserves pure Side, channel exchange symmetry and the Mid / Side energy ratio...
+  Heat 30, Mid 60 Hz: S/M change -0.010 dB
+  Heat 30, Mid 1200 Hz: S/M change 0.084 dB
+  Heat 100, Mid 60 Hz: S/M change -0.059 dB
+  Heat 100, Mid 1200 Hz: S/M change 0.553 dB
+Completed tests in ColorModule / Heat preserves pure Side, channel exchange symmetry and the Mid / Side energy ratio
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat high-frequency budget reduces generated upper harmonics while preserving the dry mix...
+  Heat upper harmonic improvement=4.712 dB, RMS delta=0.340 dB @44100
+!!! Test 5 failed: linked residual guard must follow sample time across arbitrary block sizes -- Expected value: 0, Actual value: 5522
+  Heat upper harmonic improvement=4.954 dB, RMS delta=0.354 dB @48000
+!!! Test 11 failed: linked residual guard must follow sample time across arbitrary block sizes -- Expected value: 0, Actual value: 3608
+  Heat upper harmonic improvement=6.410 dB, RMS delta=0.436 dB @96000
+!!! Test 17 failed: linked residual guard must follow sample time across arbitrary block sizes -- Expected value: 0, Actual value: 9020
+
+FAILED!!  3 tests failed, out of a total of 18
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output...
+  gain reduction 8.54 dB
+Completed tests in ColorModule / glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output
+-----------------------------------------------------------------
+Starting tests in: ColorModule / impulse latency == reported latency (heat 0 and heat 50)...
+Completed tests in ColorModule / impulse latency == reported latency (heat 0 and heat 50)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bypass is bit-exact delayed input...
+Completed tests in ColorModule / bypass is bit-exact delayed input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / mix = 0 is bit-exact delayed input...
+Completed tests in ColorModule / mix = 0 is bit-exact delayed input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue = 0 reports zero gain reduction on loud input...
+Completed tests in ColorModule / glue = 0 reports zero gain reduction on loud input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output independent of block size...
+!!! Test 3 failed: block size 1 -- Expected value: 0, Actual value: 2.38419e-07
+!!! Test 5 failed: block size 17 -- Expected value: 0, Actual value: 2.38419e-07
+
+FAILED!!  2 tests failed, out of a total of 7
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output trim applies the requested gain...
+Completed tests in ColorModule / output trim applies the requested gain
+-----------------------------------------------------------------
+Starting tests in: ColorModule / tone tilts: +tone brightens 20 kHz and dims 24 Hz, -tone the opposite...
+  tone 3 @24 Hz: -2.99 dB
+  tone 3 @20000 Hz: 3.00 dB
+  tone -3 @24 Hz: 2.99 dB
+  tone -3 @20000 Hz: -3.00 dB
+Completed tests in ColorModule / tone tilts: +tone brightens 20 kHz and dims 24 Hz, -tone the opposite
+-----------------------------------------------------------------
+Starting tests in: ColorModule / latency is 64 samples at 44.1k / 48k / 96k / 192k...
+Completed tests in ColorModule / latency is 64 samples at 44.1k / 48k / 96k / 192k
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue 100 -> 0: no level dip, bit-exact again shortly after...
+  before -11.54 dB, after -9.01 dB, deepest dip 0.00 dB
+Completed tests in ColorModule / glue 100 -> 0: no level dip, bit-exact again shortly after
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat on / off crossfade has no jump, bit-exact after off...
+  steady step 0.01447, on 0.01446, off 0.01447
+Completed tests in ColorModule / heat on / off crossfade has no jump, bit-exact after off
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bypass switched on mid-stream is bit-exact after the crossfade...
+Completed tests in ColorModule / bypass switched on mid-stream is bit-exact after the crossfade
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue GR is not reported while bypassed...
+Completed tests in ColorModule / glue GR is not reported while bypassed
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat stays gradual from 0.1 through 100 on a -0.5 dBFS sine...
+  heat 0.1: level change -0.0004 dB
+  heat 1.0: level change -0.0037 dB
+  heat 5.0: level change -0.0198 dB
+  heat 10.0: level change -0.0425 dB
+  heat 30.0: level change -0.1629 dB
+  heat 50.0: level change -0.3301 dB
+  heat 75.0: level change -0.6021 dB
+  heat 100.0: level change -0.9402 dB
+Completed tests in ColorModule / heat stays gradual from 0.1 through 100 on a -0.5 dBFS sine
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue re-enabled after being fully off starts fresh: no dip below steady - 0.2 dB...
+  steady (glue 1) -8.950 dB; lowest 10 ms window after re-enable -8.999 dB
+Completed tests in ColorModule / glue re-enabled after being fully off starts fresh: no dip below steady - 0.2 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler matches juce::dsp::Oversampling (< -120 dBFS) with the same integer latency...
+  3 stages, plain: up -128.9 dBFS, down -132.5 dBFS
+  3 stages, tube between: up -128.9 dBFS, down -147.0 dBFS
+  2 stages, plain: up -132.5 dBFS, down -132.5 dBFS
+  2 stages, tube between: up -132.5 dBFS, down -147.0 dBFS
+Completed tests in ColorModule / HalfBandOversampler matches juce::dsp::Oversampling (< -120 dBFS) with the same integer latency
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler output is bit-identical for any block size...
+!!! Test 1 failed: upsampled, 3 stages, block 1 -- Expected value: 0, Actual value: 181099
+!!! Test 2 failed: downsampled, 3 stages, block 1 -- Expected value: 0, Actual value: 24019
+!!! Test 3 failed: upsampled, 3 stages, block 17 -- Expected value: 0, Actual value: 21350
+!!! Test 4 failed: downsampled, 3 stages, block 17 -- Expected value: 0, Actual value: 7126
+!!! Test 5 failed: upsampled, 3 stages, block 333 -- Expected value: 0, Actual value: 1691
+!!! Test 6 failed: downsampled, 3 stages, block 333 -- Expected value: 0, Actual value: 556
+!!! Test 9 failed: upsampled, 2 stages, block 1 -- Expected value: 0, Actual value: 68926
+!!! Test 10 failed: downsampled, 2 stages, block 1 -- Expected value: 0, Actual value: 21983
+!!! Test 11 failed: upsampled, 2 stages, block 17 -- Expected value: 0, Actual value: 6120
+!!! Test 12 failed: downsampled, 2 stages, block 17 -- Expected value: 0, Actual value: 4467
+!!! Test 13 failed: upsampled, 2 stages, block 333 -- Expected value: 0, Actual value: 562
+!!! Test 14 failed: downsampled, 2 stages, block 333 -- Expected value: 0, Actual value: 421
+
+FAILED!!  12 tests failed, out of a total of 16
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler: re-running the last getMemoryInSamples() inputs restores its state bit-exactly...
+  3 stages: memory 133 samples
+!!! Test 2 failed: upsampled, 3 stages, primed with 133 -- Expected value: 0, Actual value: 15
+!!! Test 3 failed: downsampled, 3 stages, primed with 133 -- Expected value: 0, Actual value: 7
+!!! Test 4 failed: upsampled, 3 stages, primed with 256 -- Expected value: 0, Actual value: 32
+!!! Test 5 failed: downsampled, 3 stages, primed with 256 -- Expected value: 0, Actual value: 3
+  2 stages: memory 124 samples
+!!! Test 8 failed: downsampled, 2 stages, primed with 124 -- Expected value: 0, Actual value: 6
+!!! Test 9 failed: upsampled, 2 stages, primed with 256 -- Expected value: 0, Actual value: 13
+!!! Test 10 failed: downsampled, 2 stages, primed with 256 -- Expected value: 0, Actual value: 11
+
+FAILED!!  7 tests failed, out of a total of 10
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Saturator::processSample is bit-identical to v0.4 (soft clip and tube)...
+Completed tests in ColorModule / Saturator::processSample is bit-identical to v0.4 (soft clip and tube)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / fast tanh is accurate, odd, bounded and NaN / Inf safe; tube block matches processSample within -120 dBFS...
+  fastTanh max |error| 0.0000002566 at x = -5.2128, largest drop between grid points 0.0000003576
+!!! Test 8 failed: fastTanh (+Inf) -- Expected value: 1, Actual value: 1
+!!! Test 9 failed: fastTanh (-Inf) -- Expected value: -1, Actual value: -1
+  tube block vs processSample, heat 0: -135.0 dBFS
+  tube block vs processSample, heat 5: -136.3 dBFS
+  tube block vs processSample, heat 30: -140.8 dBFS
+  tube block vs processSample, heat 60: -146.9 dBFS
+  tube block vs processSample, heat 100: -149.8 dBFS
+
+FAILED!!  2 tests failed, out of a total of 21
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / idle skipping is bit-identical to full processing (9 scenarios x 3 rates x 3 block sizes)...
+!!! Test 4 failed: tone 0/2/0/-1.5/0 @44100 block 512 -- Expected value: 0, Actual value: 1
+!!! Test 5 failed: tone 0/2/0/-1.5/0 @44100 block 64 -- Expected value: 0, Actual value: 1
+!!! Test 21 failed: heat 0/60 + glue 60 @44100 block 17 -- Expected value: 0, Actual value: 2
+!!! Test 48 failed: heat 0/60 + glue 60 @48000 block 17 -- Expected value: 0, Actual value: 2
+!!! Test 51 failed: glaze automation @48000 block 17 -- Expected value: 0, Actual value: 79
+!!! Test 55 failed: neutral @192000 block 512 -- Expected value: 0, Actual value: 5
+!!! Test 56 failed: neutral @192000 block 64 -- Expected value: 0, Actual value: 5
+!!! Test 57 failed: neutral @192000 block 17 -- Expected value: 0, Actual value: 5
+!!! Test 58 failed: tone 0/2/0/-1.5/0 @192000 block 512 -- Expected value: 0, Actual value: 23
+!!! Test 59 failed: tone 0/2/0/-1.5/0 @192000 block 64 -- Expected value: 0, Actual value: 16
+!!! Test 60 failed: tone 0/2/0/-1.5/0 @192000 block 17 -- Expected value: 0, Actual value: 29
+!!! Test 61 failed: glue 0/50/0/100/0 @192000 block 512 -- Expected value: 0, Actual value: 9
+!!! Test 62 failed: glue 0/50/0/100/0 @192000 block 64 -- Expected value: 0, Actual value: 9
+!!! Test 63 failed: glue 0/50/0/100/0 @192000 block 17 -- Expected value: 0, Actual value: 8
+!!! Test 67 failed: heat 0/60 every 0.7 s @192000 block 512 -- Expected value: 0, Actual value: 6
+!!! Test 68 failed: heat 0/60 every 0.7 s @192000 block 64 -- Expected value: 0, Actual value: 6
+!!! Test 69 failed: heat 0/60 every 0.7 s @192000 block 17 -- Expected value: 0, Actual value: 6
+!!! Test 70 failed: heat 0/5 every 0.7 s @192000 block 512 -- Expected value: 0, Actual value: 8
+!!! Test 71 failed: heat 0/5 every 0.7 s @192000 block 64 -- Expected value: 0, Actual value: 9
+!!! Test 72 failed: heat 0/5 every 0.7 s @192000 block 17 -- Expected value: 0, Actual value: 9
+!!! Test 76 failed: glaze automation @192000 block 512 -- Expected value: 0, Actual value: 33
+!!! Test 77 failed: glaze automation @192000 block 64 -- Expected value: 0, Actual value: 46
+!!! Test 78 failed: glaze automation @192000 block 17 -- Expected value: 0, Actual value: 16
+
+FAILED!!  23 tests failed, out of a total of 91
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat 0 / 60 with 333-sample blocks preserves the partial fade and delayed tail before idle skipping...
+!!! Test 2 failed: partial fade, 64-sample tail and re-enabled Heat must be bit-identical with skipping disabled -- Expected value: 0, Actual value: 1
+
+FAILED!!  1 test failed, out of a total of 2
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output independent of block size under automation (changes on 512-sample boundaries)...
+!!! Test 20 failed: heat 0/60 every 0.7 s @44100 block 1 -- Expected value: 0, Actual value: 6581
+!!! Test 24 failed: heat 0/5 every 0.7 s @44100 block 1 -- Expected value: 0, Actual value: 669
+!!! Test 28 failed: heat 0/60 + glue 60 @44100 block 1 -- Expected value: 0, Actual value: 6260
+!!! Test 32 failed: glaze automation @44100 block 1 -- Expected value: 0, Actual value: 3166
+!!! Test 36 failed: glaze 100 -> 0 -> 0.1 @44100 block 1 -- Expected value: 0, Actual value: 1486
+!!! Test 56 failed: heat 0/60 every 0.7 s @48000 block 1 -- Expected value: 0, Actual value: 7380
+!!! Test 60 failed: heat 0/5 every 0.7 s @48000 block 1 -- Expected value: 0, Actual value: 750
+!!! Test 64 failed: heat 0/60 + glue 60 @48000 block 1 -- Expected value: 0, Actual value: 6804
+!!! Test 68 failed: glaze automation @48000 block 1 -- Expected value: 0, Actual value: 3395
+!!! Test 72 failed: glaze 100 -> 0 -> 0.1 @48000 block 1 -- Expected value: 0, Actual value: 1671
+
+FAILED!!  10 tests failed, out of a total of 72
+
+-----------------------------------------------------------------
+Starting tests in: ColorModule / idle skipping stays bit-identical with -0, denormal, NaN and Inf input samples...
+Completed tests in ColorModule / idle skipping stays bit-identical with -0, denormal, NaN and Inf input samples
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat re-enabled after a long idle stretch is continuous and stays close to the v0.4 dc-blocker definition...
+  vs v0.4 dc-blocker definition, music-like @48000: -150.5 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @44100: -127.6 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @48000: -121.6 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @96000: -119.9 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @192000: -135.0 dBFS
+Completed tests in ColorModule / heat re-enabled after a long idle stretch is continuous and stays close to the v0.4 dc-blocker definition
+-----------------------------------------------------------------
+Starting tests in: ColorModule / stereo with L = R is bit-identical to mono (packed stereo biquads == scalar biquads)...
+Completed tests in ColorModule / stereo with L = R is bit-identical to mono (packed stereo biquads == scalar biquads)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / setParams / process allocate nothing (skipping, priming, glue restart, test switches)...
+Completed tests in ColorModule / setParams / process allocate nothing (skipping, priming, glue restart, test switches)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)...
+  Color default: 0.175 % of one core
+  Color GLAZE 100: 0.458 % of one core
+  Color default, skipping off: 0.492 % of one core
+  juce Oversampling 3 stages (reference): 3.111 % of one core
+  ratio to reference: default 0.056, GLAZE 100 0.147, skipping off 0.158
+Completed tests in ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)
+
+==== celadon_tests: 81526 passed, 358 failed ====

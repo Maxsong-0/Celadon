@@ -1,0 +1,46 @@
+  HalfBandOversampler.cpp:31:#pragma GCC optimize ("fp-contract=off")
+  Saturator.cpp:28:#pragma GCC optimize ("fp-contract=off")
+  TruePeak.cpp:59:#pragma GCC optimize ("fp-contract=off")
+### dump [gcc-v3-contract-on] g++ -march=x86-64-v3 -ffp-contract=on
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 1 (0x3f800000)  fastTanh(7.9053111) = 1 (0x3f800000)  fastTanh(10) = 1
+  fastTanh exhaustive [0, 8]: hash 3c3965482570860f, |y| > 1: 0, max y 1 (0x3f800000), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 0 / 48000 samples differ
+    HalfBandOversampler  融合乘加合计    1
+           1  celadon::HalfBandOversampler::designFilter(float, float)
+    Saturator            融合乘加合计    8
+           2  celadon::Saturator::setAsymmetry(float)
+           2  celadon::Saturator::setDriveAndAsymmetry(float, float)
+           2  celadon::Saturator::setDrive(float)
+           2  celadon::Saturator::updateTube()
+    TruePeak             融合乘加合计    2
+           2  celadon::TruePeakDetector::TruePeakDetector()
+  相对 gcc-base：
+  fasttanh-sweep.bin            0 / 1048588  differ   max      0 ulp   max |diff| 0
+  halfband-down.bin             0 / 95232    differ   max      0 ulp   max |diff| 0
+  halfband-up.bin               0 / 761856   differ   max      0 ulp   max |diff| 0
+  truepeak-block.bin            0 / 48000    differ   max      0 ulp   max |diff| 0
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin                0 / 48000    differ   max      0 ulp   max |diff| 0
+### dump [gcc-v3-pragma] g++ -march=x86-64-v3
+  halfband: 761856 up, 95232 down samples
+  fastTanh(+Inf) = 1 (0x3f800000)  fastTanh(7.9053111) = 1 (0x3f800000)  fastTanh(10) = 1
+  fastTanh exhaustive [0, 8]: hash 3c3965482570860f, |y| > 1: 0, max y 1 (0x3f800000), odd failures 0
+  truepeak: kernel SSE2, processBlock vs processSample in this build: 0 / 48000 samples differ
+    HalfBandOversampler  融合乘加合计    0
+    Saturator            融合乘加合计    0
+    TruePeak             融合乘加合计    1
+           1  celadon::TruePeakDetector::TruePeakDetector()
+  相对 gcc-base：
+  fasttanh-sweep.bin            0 / 1048588  differ   max      0 ulp   max |diff| 0
+  halfband-down.bin             0 / 95232    differ   max      0 ulp   max |diff| 0
+  halfband-up.bin               0 / 761856   differ   max      0 ulp   max |diff| 0
+  truepeak-block.bin            0 / 48000    differ   max      0 ulp   max |diff| 0
+  truepeak-sample.bin           0 / 48000    differ   max      0 ulp   max |diff| 0
+  tube-block.bin                0 / 48000    differ   max      0 ulp   max |diff| 0
+### -ffp-contract=off 时的预定义宏（守卫能否只靠编译器宏判断）：
+#define __FP_FAST_FMA 1
+#define __FP_FAST_FMAF 1
+#define __FMA__ 1
+### GCC -march=x86-64-v3 默认 -mtune：
+  -mtune=                     		generic

@@ -1,0 +1,4 @@
+Release arm64 AU/VST3 BUILD SUCCEEDED
+CFBundleShortVersionString / CFBundleVersion = 0.1.6.2
+codesign --verify --deep --strict passed for both bundles
+All Source/ contents unchanged from 0.6.2 audition build

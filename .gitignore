@@ -1,0 +1,23 @@
+# Celadon 不入库的内容（ADR-017）
+
+# macOS
+.DS_Store
+
+# Projucer 生成的 Xcode 工程与 Xcode 构建产物（由 Celadon.jucer 重存即可再生）
+/Builds/
+xcuserdata/
+*.xcuserstate
+
+# 渲染 / 试听 / 打包产物：体积 6 GB 以上，含真歌音频，只放本机
+/artifacts/
+
+# 本机 CMake 构建目录（docs/validation/**/build/ 是验收日志证据，照常入库）
+/build/
+/cmake-build-*/
+
+# Python
+__pycache__/
+*.pyc
+
+# Claude Code 本机设置
+.claude/settings.local.json

@@ -1,0 +1,10 @@
+{
+  "Celadon.component": {
+    "version": "0.1.6.2",
+    "sha256": "85f2557ca789c53acb11fb96a9344ffb125559399e3fb6b6897998f830700a48"
+  },
+  "Celadon.vst3": {
+    "version": "0.1.6.2",
+    "sha256": "12c33d956bd44bb5116a5fad3668edf07c965f1cb39597e9ccbc107dcfd870d1"
+  }
+}

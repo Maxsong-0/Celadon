@@ -1,0 +1,65 @@
+song                               g   dInPk  dGRmax   dLUFS  guard%   inv%    pg% scale     lc   mono      w         cost
+12223                             35  -0.035  +0.039  +0.007    0.00   0.00  51.67  1.00   0.00 0.1244  0.000             
+12223                             70  -0.050  +0.014  -0.016    0.00   0.00  51.87  1.00   0.00 0.1777  0.000             
+Ansun - Faultless                 35  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000       lowcut
+Ansun - Faultless                 70  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000       lowcut
+KINOSEI - DREAMER                 35  +0.000  +0.000  -0.010   10.77   1.09   4.46  1.00   0.00 0.0000  0.000             
+KINOSEI - DREAMER                 70  +0.000  +0.000  -0.010   10.77   1.09   4.45  1.00   0.00 0.0000  0.000             
+ST                                35  +0.000  +0.000  -0.006    0.00   0.00  34.32  1.00   0.00 0.0381  0.050             
+ST                                70  +0.000  +0.000  -0.009    0.00   0.00  34.52  1.00   0.00 0.0544  0.100             
+Sometimes                         35  +0.000  +0.000  -0.005    0.00   0.00  41.71  1.00   0.00 0.0312  0.047             
+Sometimes                         70  +0.000  +0.000  -0.007    0.00   0.00  42.79  1.00   0.00 0.0445  0.094             
+WTF                               35  +0.289  +0.331  +0.129   15.84  10.43  15.52  0.00   0.00 0.0000  0.000       lowcut
+WTF                               70  -0.231  +0.339  +0.162   15.84  10.43  15.49  0.00   0.00 0.0000  0.000       lowcut
+Will We Be OKay (Extended Mix)    35  +0.000  +0.000  -0.002   12.08   7.98  11.46  1.00   0.00 0.0000  0.000             
+Will We Be OKay (Extended Mix)    70  +0.000  +0.000  -0.001   12.08   7.98  11.43  1.00   0.00 0.0000  0.000             
+emmmayiyu                         35  -0.159  -0.160  -0.041   12.46   9.44  71.04  1.00   0.00 0.7000  0.000             
+emmmayiyu                         70  -0.195  +0.064  +0.151    0.00   9.44  72.94  1.00   0.00 1.0000  0.000             
+emomax                            35  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000       lowcut
+emomax                            70  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000       lowcut
+emotapes                          35  -0.307  -0.307  -0.044    0.00   0.00  83.23  1.00  11.58 0.0084  0.000       lowcut
+emotapes                          70  -0.333  -0.333  -0.043    0.00   0.00  82.42  1.00  12.33 0.0120  0.000       lowcut
+fule                              35  +0.000  +0.000  -0.036    0.00   0.00  70.26  1.00  12.15 0.0000  0.000             
+fule                              70  +0.001  +0.000  -0.042    0.00   0.00  70.09  1.00  13.20 0.0000  0.000             
+juednvn                           35  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000             
+juednvn                           70  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000             
+l_kskdhjf                         35  -0.031  +0.039  -0.077   38.60  17.36  55.20  1.00   0.00 0.6631  0.000             
+l_kskdhjf                         70  -0.027  +0.291  +0.000   35.25  17.36  57.12  1.00   0.00 0.9473  0.000             
+meme                              35  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000             
+meme                              70  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000             
+ooaa                              35  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000       lowcut
+ooaa                              70  +0.000  +0.000  +0.000    0.00   0.00   0.00  1.00   0.00 0.0000  0.000       lowcut
+sh_t 118bpm                       35  -0.015  -0.131  -0.037    0.00   0.47  51.62  1.00   0.00 0.2490  0.000         mono
+sh_t 118bpm                       70  -0.137  -0.191  -0.030    0.00   0.47  54.55  1.00   0.00 0.3557  0.000         mono
+somggggg                          35  -0.068  +0.034  +0.054    0.00   0.00  81.04  1.00  11.24 0.0000  0.000       lowcut
+somggggg                          70  -0.137  +0.034  +0.032    0.00   0.00  80.92  1.00  11.82 0.0000  0.000       lowcut
+somggggg_mp3                      35  +0.002  +0.077  -0.009    0.00   0.00  77.35  1.00  11.42 0.0000  0.000             
+somggggg_mp3                      70  +0.008  +0.012  -0.004    0.00   0.00  77.18  1.00  12.09 0.0000  0.000             
+untitled                          35  +0.000  +0.000  -0.022   87.82  19.94  70.61  1.00   0.00 1.0000  0.000             
+untitled                          70  +0.000  +0.000  -0.022   87.82  19.94  70.68  1.00   0.00 1.0000  0.000             
+wildtom                           35  +0.000  +0.000  -0.007   26.63  15.93  21.85  1.00   0.00 0.0000  0.000             
+wildtom                           70  +0.000  +0.023  +0.003   26.63  15.93  21.92  1.00   0.00 0.0000  0.000             
+will we be okay                   35  +0.000  -0.080  -0.032   16.12  11.61  14.86  0.00   0.00 0.0000  0.000  lowcut+mono
+will we be okay                   70  +0.000  +0.000  -0.001   16.12  11.61  14.74  0.00   0.00 0.0000  0.000  lowcut+mono
+woqu                              35  -0.153  -0.152  -0.150    0.00   0.00  80.27  1.00  16.25 0.0000  0.000             
+woqu                              70  -0.173  -0.173  -0.173    0.00   0.00  73.37  1.00  20.00 0.0000  0.000             
+
+FAILS: 0
+NOTES (exempt / explained): 17
+  - KINOSEI - DREAMER g35: phase guard 10.8 % — exempt: plugin slow ρ < −0.2 for 1.09 % of valid blocks
+  - KINOSEI - DREAMER g70: phase guard 10.8 % — exempt: plugin slow ρ < −0.2 for 1.09 % of valid blocks
+  - WTF g35: phase guard 15.8 % — exempt: plugin slow ρ < −0.2 for 10.43 % of valid blocks
+  - WTF g70: phase guard 15.8 % — exempt: plugin slow ρ < −0.2 for 10.43 % of valid blocks
+  - Will We Be OKay (Extended Mix) g35: phase guard 12.1 % — exempt: plugin slow ρ < −0.2 for 7.98 % of valid blocks
+  - Will We Be OKay (Extended Mix) g70: phase guard 12.1 % — exempt: plugin slow ρ < −0.2 for 7.98 % of valid blocks
+  - emmmayiyu g35: phase guard 12.5 % — exempt: plugin slow ρ < −0.2 for 9.44 % of valid blocks
+  - l_kskdhjf g35: phase guard 38.6 % — exempt: plugin slow ρ < −0.2 for 17.36 % of valid blocks
+  - l_kskdhjf g70: phase guard 35.2 % — exempt: plugin slow ρ < −0.2 for 17.36 % of valid blocks
+  - untitled g35: phase guard 87.8 % — exempt: plugin slow ρ < −0.2 for 19.94 % of valid blocks
+  - untitled g70: phase guard 87.8 % — exempt: plugin slow ρ < −0.2 for 19.94 % of valid blocks
+  - wildtom g35: phase guard 26.6 % — exempt: plugin slow ρ < −0.2 for 15.93 % of valid blocks
+  - wildtom g70: phase guard 26.6 % — exempt: plugin slow ρ < −0.2 for 15.93 % of valid blocks
+  - will we be okay g35: phase guard 16.1 % — exempt: plugin slow ρ < −0.2 for 11.61 % of valid blocks
+  - will we be okay g70: phase guard 16.1 % — exempt: plugin slow ρ < −0.2 for 11.61 % of valid blocks
+  - woqu g35: loudness -0.150 LU with limiter input peak -0.153 dB (dropped together: removed low energy, less limiting)
+  - woqu g70: loudness -0.173 LU with limiter input peak -0.173 dB (dropped together: removed low energy, less limiting)

@@ -1,0 +1,8 @@
+WARM,auto100,48000,64,seconds=45.0,profileReady=1,calibrationValid=0,phase=2
+GRID,release,auto100,48000,64,avg%=1.377,worst%=4.822,p99.9%=3.428,p99%=1.928,maxAllPasses%=107.663,structWorst%=1.694,structTypical%=1.225,prepare_ms=3.010,latency=282,nonFinite=0,blocks=3000,chk=1904.19
+WARM,auto100,48000,512,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,48000,512,avg%=1.215,worst%=1.407,p99.9%=1.407,p99%=1.364,maxAllPasses%=1.618,structWorst%=1.204,structTypical%=1.204,prepare_ms=0.767,latency=282,nonFinite=0,blocks=375,chk=229.94
+WARM,auto100,96000,64,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,96000,64,avg%=2.641,worst%=6.731,p99.9%=5.450,p99%=4.319,maxAllPasses%=15.906,structWorst%=3.900,structTypical%=2.375,prepare_ms=1.460,latency=378,nonFinite=0,blocks=6000,chk=3785.04
+WARM,auto100,96000,512,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,auto100,96000,512,avg%=2.400,worst%=3.301,p99.9%=3.301,p99%=2.898,maxAllPasses%=3.330,structWorst%=2.567,structTypical%=2.220,prepare_ms=1.440,latency=378,nonFinite=0,blocks=750,chk=474.643

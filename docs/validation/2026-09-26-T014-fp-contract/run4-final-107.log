@@ -1,0 +1,30 @@
+### githubci  g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+  共享缓存：CMAKE_CXX_FLAGS:STRING=
+  共享缓存：CMAKE_C_FLAGS:STRING=
+### [base] 警告数 0
+  TruePeak.cpp 的相关选项：-DCELADON_FP_CONTRACT_OFF=1 -ffp-contract=off 
+  退出码 0；==== celadon_tests: 129304 passed, 0 failed ====
+### [v3] 警告数 0
+  TruePeak.cpp 的相关选项：-DCELADON_FP_CONTRACT_OFF=1 -march=x86-64-v3 -ffp-contract=off 
+  退出码 0；==== celadon_tests: 129304 passed, 0 failed ====
+### 守卫绊线（-fsyntax-only；期望：报错 = #error 生效，通过 = 不误伤）
+  对 报错 g++      -march=x86-64-v3                                               HalfBandOversampler #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CELADO
+  对 报错 g++      -march=x86-64-v3                                               Saturator #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CELADO
+  对 报错 g++      -march=x86-64-v3                                               TruePeak #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CELADO
+  对 通过 g++      -march=x86-64-v3 -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 HalfBandOversampler 
+  对 通过 g++      -march=x86-64-v3 -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 Saturator 
+  对 通过 g++      -march=x86-64-v3 -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 TruePeak 
+  对 通过 g++                                                                     HalfBandOversampler 
+  对 通过 g++                                                                     Saturator 
+  对 通过 g++                                                                     TruePeak 
+  对 报错 g++      -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 -ffast-math      HalfBandOversampler #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（A
+  对 报错 g++      -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 -ffast-math      Saturator #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（A
+  对 报错 g++      -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 -ffast-math      TruePeak #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（A
+  对 通过 clang++  -march=x86-64-v3                                               HalfBandOversampler 
+  对 通过 clang++  -march=x86-64-v3                                               Saturator 
+  对 通过 clang++  -march=x86-64-v3                                               TruePeak 
+  对 报错 clang++  -ffast-math                                                    HalfBandOversampler #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（A
+  对 报错 clang++  -ffast-math                                                    Saturator #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（A
+  对 报错 clang++  -ffast-math                                                    TruePeak #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（A
+  绊线合计：对 18 / 错 0
+final exit 0

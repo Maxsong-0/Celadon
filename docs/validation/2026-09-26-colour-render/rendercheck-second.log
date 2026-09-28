@@ -1,0 +1,39 @@
+[0/2] Re-checking globbed directories...
+[1/2] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeController.cpp.o
+[2/2] Linking CXX executable celadon_bench
+POWER,15:40:06,source=AC Power,lowpowermode=0
+RENDER,PASS,learning at 5s saves execution independently
+RENDER,INFO,learning at 5s restore-before-prepare peakDifference=0 firstParameterError=0
+RENDER,PASS,learning at 5s restore-before-prepare realtime/offline audio matches exactly
+RENDER,PASS,learning at 5s restore-before-prepare retains executed controls on first block
+RENDER,INFO,learning at 5s prepare-before-restore peakDifference=0 firstParameterError=0
+RENDER,PASS,learning at 5s prepare-before-restore realtime/offline audio matches exactly
+RENDER,PASS,learning at 5s prepare-before-restore retains executed controls on first block
+RENDER,INFO,learning at 5s 64-vs-1024 RMSdelta=0.0010859 dB gainDelta=0 dB parameterMaxDelta=0
+RENDER,INFO,learning at 5s 60s integratedDelta=0.00118065 LU max3sDelta=0.0136929 LU
+RENDER,PASS,learning at 5s changed block size keeps loudness and gain close for 60s
+RENDER,PASS,calibration running saves execution independently
+RENDER,INFO,calibration running restore-before-prepare peakDifference=0 firstParameterError=0
+RENDER,PASS,calibration running restore-before-prepare realtime/offline audio matches exactly
+RENDER,PASS,calibration running restore-before-prepare retains executed controls on first block
+RENDER,INFO,calibration running prepare-before-restore peakDifference=0 firstParameterError=0
+RENDER,PASS,calibration running prepare-before-restore realtime/offline audio matches exactly
+RENDER,PASS,calibration running prepare-before-restore retains executed controls on first block
+RENDER,INFO,calibration running 64-vs-1024 RMSdelta=-0.000413826 dB gainDelta=-0.00646192 dB parameterMaxDelta=0.0732422
+RENDER,INFO,calibration running 60s integratedDelta=-0.000458717 LU max3sDelta=0.00734901 LU
+RENDER,PASS,calibration running changed block size keeps loudness and gain close for 60s
+RENDER,PASS,loud chorus saves execution independently
+RENDER,INFO,loud chorus restore-before-prepare peakDifference=0 firstParameterError=0
+RENDER,PASS,loud chorus restore-before-prepare realtime/offline audio matches exactly
+RENDER,PASS,loud chorus restore-before-prepare retains executed controls on first block
+RENDER,INFO,loud chorus prepare-before-restore peakDifference=0 firstParameterError=0
+RENDER,PASS,loud chorus prepare-before-restore realtime/offline audio matches exactly
+RENDER,PASS,loud chorus prepare-before-restore retains executed controls on first block
+RENDER,INFO,loud chorus 64-vs-1024 RMSdelta=-1.01254e-14 dB gainDelta=0 dB parameterMaxDelta=0
+RENDER,INFO,loud chorus 60s integratedDelta=0 LU max3sDelta=0 LU
+RENDER,PASS,loud chorus changed block size keeps loudness and gain close for 60s
+RENDER,INFO,fromStartDifference=0 switchedDifference=0
+RENDER,PASS,fresh realtime/offline whole render matches exactly
+RENDER,PASS,switching to offline at 5s leaves audio unchanged
+RENDER,PASS,fixture actually reaches a running calibration
+POWER,15:40:14,source=AC Power,lowpowermode=0

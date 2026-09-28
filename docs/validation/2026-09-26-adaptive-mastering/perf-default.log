@@ -1,0 +1,12 @@
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+POWER,15:05:01,source=AC Power,lowpowermode=0
+WARM,default,48000,64,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,default,48000,64,avg%=1.241,worst%=6.303,p99.9%=2.553,p99%=1.869,maxAllPasses%=9.512,structWorst%=1.578,structTypical%=1.125,prepare_ms=1.280,latency=282,nonFinite=0,blocks=3000,chk=1633.49
+WARM,default,48000,512,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,default,48000,512,avg%=1.173,worst%=1.456,p99.9%=1.456,p99%=1.352,maxAllPasses%=1.517,structWorst%=1.173,structTypical%=1.173,prepare_ms=0.778,latency=282,nonFinite=0,blocks=375,chk=195.463
+WARM,default,96000,64,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,default,96000,64,avg%=2.448,worst%=5.706,p99.9%=5.000,p99%=4.094,maxAllPasses%=6.319,structWorst%=3.744,structTypical%=2.225,prepare_ms=1.314,latency=378,nonFinite=0,blocks=6000,chk=3273.95
+WARM,default,96000,512,seconds=45.0,profileReady=1,calibrationValid=0,phase=3
+GRID,release,default,96000,512,avg%=2.315,worst%=2.991,p99.9%=2.991,p99%=2.795,maxAllPasses%=3.012,structWorst%=2.442,structTypical%=2.098,prepare_ms=1.290,latency=378,nonFinite=0,blocks=750,chk=411.744
+POWER,15:05:05,source=AC Power,lowpowermode=0

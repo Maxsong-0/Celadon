@@ -1,0 +1,37 @@
+M default       48000   32 avg= 1.178 worst=  6.100 struct=  2.019 clay_avg= 0.205 clay_worst=  2.419 lat=1384
+M default       48000  512 avg= 1.065 worst=  1.507 struct=  1.062 clay_avg= 0.200 clay_worst=  0.310 lat=1384
+M default      192000   32 avg= 4.715 worst= 38.125 struct= 16.275 clay_avg= 0.892 clay_worst= 11.150 lat=4984
+M default      192000  512 avg= 4.231 worst=  7.725 struct=  5.386 clay_avg= 0.811 clay_worst=  1.630 lat=4984
+M manual        48000   32 avg= 1.197 worst= 17.031 struct=  2.062 clay_avg= 0.213 clay_worst=  5.825 lat=1384
+M manual        48000  512 avg= 1.119 worst=  3.783 struct=  1.091 clay_avg= 0.209 clay_worst=  0.741 lat=1384
+M manual       192000   32 avg= 4.641 worst= 59.275 struct= 16.625 clay_avg= 0.825 clay_worst=  9.050 lat=4984
+M manual       192000  512 avg= 4.086 worst=  5.800 struct=  5.178 clay_avg= 0.769 clay_worst=  1.139 lat=4984
+M auto50        48000   32 avg= 1.617 worst=  4.688 struct=  2.631 clay_avg= 0.213 clay_worst=  1.656 lat=1384
+M auto50        48000  512 avg= 1.445 worst=  1.671 struct=  1.454 clay_avg= 0.206 clay_worst=  0.329 lat=1384
+M auto50       192000   32 avg= 6.305 worst= 30.775 struct= 18.425 clay_avg= 0.842 clay_worst= 13.250 lat=4984
+M auto50       192000  512 avg= 5.652 worst=  8.053 struct=  6.763 clay_avg= 0.813 clay_worst=  1.359 lat=4984
+M auto100       48000   32 avg= 1.608 worst=  3.981 struct=  2.612 clay_avg= 0.210 clay_worst=  1.644 lat=1384
+M auto100       48000  512 avg= 1.434 worst=  1.630 struct=  1.441 clay_avg= 0.203 clay_worst=  0.254 lat=1384
+M auto100      192000   32 avg= 6.384 worst= 25.600 struct= 18.600 clay_avg= 0.841 clay_worst=  7.575 lat=4984
+M auto100      192000  512 avg= 5.826 worst=  9.305 struct=  7.075 clay_avg= 0.825 clay_worst=  1.317 lat=4984
+M typical       48000   32 avg= 1.478 worst=  3.175 struct=  2.500 clay_avg= 0.210 clay_worst=  0.662 lat=1384
+M typical       48000  512 avg= 1.331 worst=  1.503 struct=  1.340 clay_avg= 0.204 clay_worst=  0.252 lat=1384
+M typical      192000   32 avg= 5.804 worst= 34.825 struct= 18.075 clay_avg= 0.843 clay_worst=  8.775 lat=4984
+M typical      192000  512 avg= 5.236 worst=  7.639 struct=  6.355 clay_avg= 0.815 clay_worst=  1.303 lat=4984
+M auto50xover   48000   32 avg= 1.630 worst=  4.481 struct=  2.638 clay_avg= 0.233 clay_worst=  1.581 lat=1384
+X  48000   32 period_ms=50.0208 events=995 switch_phases=8/16 switch_clay_med_us=6.17 switch_clay_worst_us=9.54 other_clay_med_us=1.50 switch_extra_us=4.67 switch_extra%=0.700 switch_block_med%=2.250 other_block_med%=1.519 switch_block_worst%=3.519 other_block_worst%=4.481 switch_block_structWorst%=3.350 other_block_structWorst%=2.631 worst_increase_pp=0.719
+M auto50xover   48000  512 avg= 1.457 worst=  1.600 struct=  1.469 clay_avg= 0.226 clay_worst=  0.330 lat=1384
+X  48000  512 period_ms=50.0208 events=995 switch_phases=1/1 switch_clay_med_us=29.25 switch_clay_worst_us=32.67 other_clay_med_us=22.42 switch_extra_us=6.83 switch_extra%=0.064 switch_block_med%=1.508 other_block_med%=1.449 switch_block_worst%=1.600 other_block_worst%=1.564 switch_block_structWorst%=1.508 other_block_structWorst%=1.449 worst_increase_pp=0.059
+M auto50xover  192000   32 avg= 6.411 worst= 37.075 struct= 18.725 clay_avg= 0.925 clay_worst= 14.575 lat=4984
+X 192000   32 period_ms=50.0052 events=995 switch_phases=32/64 switch_clay_med_us=19.71 switch_clay_worst_us=23.75 other_clay_med_us=1.50 switch_extra_us=18.21 switch_extra%=10.925 switch_block_med%=17.125 other_block_med%=6.050 switch_block_worst%=31.025 other_block_worst%=36.875 switch_block_structWorst%=29.575 other_block_structWorst%=18.725 worst_increase_pp=10.850
+M auto50xover  192000  512 avg= 5.780 worst=  8.280 struct=  6.917 clay_avg= 0.909 clay_worst=  2.077 lat=4984
+X 192000  512 period_ms=50.0052 events=995 switch_phases=4/4 switch_clay_med_us=42.75 switch_clay_worst_us=53.50 other_clay_med_us=22.88 switch_extra_us=19.88 switch_extra%=0.745 switch_block_med%=6.347 other_block_med%=5.561 switch_block_worst%=8.125 other_block_worst%=7.914 switch_block_structWorst%=7.664 other_block_structWorst%=6.903 worst_increase_pp=0.761
+M auto50       192000   32 avg= 6.479 worst= 40.125 struct= 18.825 clay_avg= 0.877 clay_worst= 10.650 lat=4984
+M auto50xover  192000   32 avg= 6.672 worst= 41.000 struct= 19.000 clay_avg= 0.962 clay_worst= 19.150 lat=4984
+X 192000   32 period_ms=50.0052 events=995 switch_phases=32/64 switch_clay_med_us=20.00 switch_clay_worst_us=30.50 other_clay_med_us=1.50 switch_extra_us=18.50 switch_extra%=11.100 switch_block_med%=17.425 other_block_med%=6.125 switch_block_worst%=35.275 other_block_worst%=41.000 switch_block_structWorst%=30.375 other_block_structWorst%=19.000 worst_increase_pp=11.375
+M auto50       192000   32 avg= 6.468 worst= 38.450 struct= 18.850 clay_avg= 0.872 clay_worst= 10.175 lat=4984
+M auto50xover  192000   32 avg= 6.559 worst= 37.025 struct= 18.925 clay_avg= 0.956 clay_worst= 17.650 lat=4984
+X 192000   32 period_ms=50.0052 events=995 switch_phases=32/64 switch_clay_med_us=19.96 switch_clay_worst_us=29.42 other_clay_med_us=1.50 switch_extra_us=18.46 switch_extra%=11.075 switch_block_med%=17.325 other_block_med%=6.025 switch_block_worst%=31.950 other_block_worst%=37.025 switch_block_structWorst%=29.800 other_block_structWorst%=18.900 worst_increase_pp=10.900
+M auto50       192000   32 avg= 6.472 worst= 45.375 struct= 18.850 clay_avg= 0.875 clay_worst= 10.475 lat=4984
+M auto50xover  192000   32 avg= 6.601 worst= 38.225 struct= 18.900 clay_avg= 0.964 clay_worst= 16.025 lat=4984
+X 192000   32 period_ms=50.0052 events=995 switch_phases=32/64 switch_clay_med_us=19.96 switch_clay_worst_us=26.71 other_clay_med_us=1.50 switch_extra_us=18.46 switch_extra%=11.075 switch_block_med%=17.300 other_block_med%=6.025 switch_block_worst%=31.575 other_block_worst%=38.225 switch_block_structWorst%=29.900 other_block_structWorst%=18.875 worst_increase_pp=11.025

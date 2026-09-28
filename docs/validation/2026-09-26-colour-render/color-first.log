@@ -1,0 +1,184 @@
+Random seed: 0x5bf88f3
+-----------------------------------------------------------------
+Starting tests in: ColorModule / null when tone = glue = heat = 0, mix 100, output 0 (loud input)...
+  @44100: latency 64, residual -200.0 dBFS
+  @48000: latency 64, residual -200.0 dBFS
+  @96000: latency 64, residual -200.0 dBFS
+Completed tests in ColorModule / null when tone = glue = heat = 0, mix 100, output 0 (loud input)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / no aliasing below 10 kHz at heat = 100 (10 kHz sine, -6 dBFS)...
+  fundamental bin 3413, worst in-band component -97.4 dB re fundamental at 9972.66 Hz
+Completed tests in ColorModule / no aliasing below 10 kHz at heat = 100 (10 kHz sine, -6 dBFS)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat loudness compensation keeps -18 dBFS sine within +/-1 dB...
+  heat 10: -0.00 dB re heat 0
+  heat 20: -0.00 dB re heat 0
+  heat 30: -0.00 dB re heat 0
+  heat 40: -0.01 dB re heat 0
+  heat 50: -0.01 dB re heat 0
+  heat 60: -0.01 dB re heat 0
+  heat 70: -0.02 dB re heat 0
+  heat 80: -0.02 dB re heat 0
+  heat 90: -0.03 dB re heat 0
+  heat 100: -0.03 dB re heat 0
+Completed tests in ColorModule / heat loudness compensation keeps -18 dBFS sine within +/-1 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat stays below 4% distortion and 1.25 dB level loss on near-full-scale input...
+  input -18.0 dBFS, heat 10: 0.004% distortion, -0.001 dB RMS change
+  input -18.0 dBFS, heat 30: 0.018% distortion, -0.004 dB RMS change
+  input -18.0 dBFS, heat 100: 0.179% distortion, -0.033 dB RMS change
+  input -6.0 dBFS, heat 10: 0.055% distortion, -0.015 dB RMS change
+  input -6.0 dBFS, heat 30: 0.222% distortion, -0.060 dB RMS change
+  input -6.0 dBFS, heat 100: 1.481% distortion, -0.413 dB RMS change
+  input -0.5 dBFS, heat 10: 0.144% distortion, -0.042 dB RMS change
+  input -0.5 dBFS, heat 30: 0.530% distortion, -0.163 dB RMS change
+  input -0.5 dBFS, heat 100: 2.689% distortion, -0.940 dB RMS change
+Completed tests in ColorModule / heat stays below 4% distortion and 1.25 dB level loss on near-full-scale input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / parallel heat bounds bass/treble intermodulation with tone +/-3 dB...
+  tone -3, heat 30: 0.102% IMD, 0.002 dB RMS change
+  tone -3, heat 100: 0.806% IMD, 0.018 dB RMS change
+  tone 3, heat 30: 0.032% IMD, 0.001 dB RMS change
+  tone 3, heat 100: 0.290% IMD, 0.006 dB RMS change
+Completed tests in ColorModule / parallel heat bounds bass/treble intermodulation with tone +/-3 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / full heat sweep and reset remain continuous with hot input and tone boost...
+Completed tests in ColorModule / full heat sweep and reset remain continuous with hot input and tone boost
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bass-safe Heat lowers 60 Hz / 6 kHz intermodulation at matched upper harmonics...
+  legacy Heat 60 vs new 59.912: harmonic match -0.011 dB, IMD 3.5425% -> 0.1778% (25.99 dB improvement)
+Completed tests in ColorModule / bass-safe Heat lowers 60 Hz / 6 kHz intermodulation at matched upper harmonics
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat preserves 40 / 60 / 100 Hz fundamentals on quiet and hot bass...
+Completed tests in ColorModule / Heat preserves 40 / 60 / 100 Hz fundamentals on quiet and hot bass
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat preserves pure Side, channel exchange symmetry and the Mid / Side energy ratio...
+  Heat 30, Mid 60 Hz: S/M change -0.010 dB
+  Heat 30, Mid 1200 Hz: S/M change 0.084 dB
+  Heat 100, Mid 60 Hz: S/M change -0.059 dB
+  Heat 100, Mid 1200 Hz: S/M change 0.553 dB
+Completed tests in ColorModule / Heat preserves pure Side, channel exchange symmetry and the Mid / Side energy ratio
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output...
+  gain reduction 8.54 dB
+Completed tests in ColorModule / glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output
+-----------------------------------------------------------------
+Starting tests in: ColorModule / impulse latency == reported latency (heat 0 and heat 50)...
+Completed tests in ColorModule / impulse latency == reported latency (heat 0 and heat 50)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bypass is bit-exact delayed input...
+Completed tests in ColorModule / bypass is bit-exact delayed input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / mix = 0 is bit-exact delayed input...
+Completed tests in ColorModule / mix = 0 is bit-exact delayed input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue = 0 reports zero gain reduction on loud input...
+Completed tests in ColorModule / glue = 0 reports zero gain reduction on loud input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output independent of block size...
+Completed tests in ColorModule / output independent of block size
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output trim applies the requested gain...
+Completed tests in ColorModule / output trim applies the requested gain
+-----------------------------------------------------------------
+Starting tests in: ColorModule / tone tilts: +tone brightens 20 kHz and dims 24 Hz, -tone the opposite...
+  tone 3 @24 Hz: -2.99 dB
+  tone 3 @20000 Hz: 3.00 dB
+  tone -3 @24 Hz: 2.99 dB
+  tone -3 @20000 Hz: -3.00 dB
+Completed tests in ColorModule / tone tilts: +tone brightens 20 kHz and dims 24 Hz, -tone the opposite
+-----------------------------------------------------------------
+Starting tests in: ColorModule / latency is 64 samples at 44.1k / 48k / 96k / 192k...
+Completed tests in ColorModule / latency is 64 samples at 44.1k / 48k / 96k / 192k
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue 100 -> 0: no level dip, bit-exact again shortly after...
+  before -11.54 dB, after -9.01 dB, deepest dip 0.00 dB
+Completed tests in ColorModule / glue 100 -> 0: no level dip, bit-exact again shortly after
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat on / off crossfade has no jump, bit-exact after off...
+  steady step 0.01447, on 0.01446, off 0.01447
+Completed tests in ColorModule / heat on / off crossfade has no jump, bit-exact after off
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bypass switched on mid-stream is bit-exact after the crossfade...
+Completed tests in ColorModule / bypass switched on mid-stream is bit-exact after the crossfade
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue GR is not reported while bypassed...
+Completed tests in ColorModule / glue GR is not reported while bypassed
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat stays gradual from 0.1 through 100 on a -0.5 dBFS sine...
+  heat 0.1: level change -0.0004 dB
+  heat 1.0: level change -0.0037 dB
+  heat 5.0: level change -0.0198 dB
+  heat 10.0: level change -0.0425 dB
+  heat 30.0: level change -0.1629 dB
+  heat 50.0: level change -0.3301 dB
+  heat 75.0: level change -0.6021 dB
+  heat 100.0: level change -0.9402 dB
+Completed tests in ColorModule / heat stays gradual from 0.1 through 100 on a -0.5 dBFS sine
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue re-enabled after being fully off starts fresh: no dip below steady - 0.2 dB...
+  steady (glue 1) -8.950 dB; lowest 10 ms window after re-enable -8.999 dB
+Completed tests in ColorModule / glue re-enabled after being fully off starts fresh: no dip below steady - 0.2 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler matches juce::dsp::Oversampling (< -120 dBFS) with the same integer latency...
+  3 stages, plain: up -126.4 dBFS, down -132.5 dBFS
+  3 stages, tube between: up -126.4 dBFS, down -147.0 dBFS
+  2 stages, plain: up -132.5 dBFS, down -132.5 dBFS
+  2 stages, tube between: up -132.5 dBFS, down -147.0 dBFS
+Completed tests in ColorModule / HalfBandOversampler matches juce::dsp::Oversampling (< -120 dBFS) with the same integer latency
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler output is bit-identical for any block size...
+Completed tests in ColorModule / HalfBandOversampler output is bit-identical for any block size
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler: re-running the last getMemoryInSamples() inputs restores its state bit-exactly...
+  3 stages: memory 133 samples
+  2 stages: memory 124 samples
+Completed tests in ColorModule / HalfBandOversampler: re-running the last getMemoryInSamples() inputs restores its state bit-exactly
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Saturator::processSample is bit-identical to v0.4 (soft clip and tube)...
+Completed tests in ColorModule / Saturator::processSample is bit-identical to v0.4 (soft clip and tube)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / fast tanh is accurate, odd, bounded and NaN / Inf safe; tube block matches processSample within -120 dBFS...
+  fastTanh max |error| 0.0000003247 at x = -5.9465, largest drop between grid points 0.0000004172
+  tube block vs processSample, heat 0: -135.0 dBFS
+  tube block vs processSample, heat 5: -135.0 dBFS
+  tube block vs processSample, heat 30: -141.0 dBFS
+  tube block vs processSample, heat 60: -144.5 dBFS
+  tube block vs processSample, heat 100: -148.6 dBFS
+Completed tests in ColorModule / fast tanh is accurate, odd, bounded and NaN / Inf safe; tube block matches processSample within -120 dBFS
+-----------------------------------------------------------------
+Starting tests in: ColorModule / idle skipping is bit-identical to full processing (9 scenarios x 3 rates x 3 block sizes)...
+Completed tests in ColorModule / idle skipping is bit-identical to full processing (9 scenarios x 3 rates x 3 block sizes)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat 0 / 60 with 333-sample blocks preserves the partial fade and delayed tail before idle skipping...
+Completed tests in ColorModule / Heat 0 / 60 with 333-sample blocks preserves the partial fade and delayed tail before idle skipping
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output independent of block size under automation (changes on 512-sample boundaries)...
+Completed tests in ColorModule / output independent of block size under automation (changes on 512-sample boundaries)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / idle skipping stays bit-identical with -0, denormal, NaN and Inf input samples...
+Completed tests in ColorModule / idle skipping stays bit-identical with -0, denormal, NaN and Inf input samples
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat re-enabled after a long idle stretch is continuous and stays close to the v0.4 dc-blocker definition...
+  vs v0.4 dc-blocker definition, music-like @48000: -144.5 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @44100: -127.6 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @48000: -121.6 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @96000: -119.9 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @192000: -135.0 dBFS
+Completed tests in ColorModule / heat re-enabled after a long idle stretch is continuous and stays close to the v0.4 dc-blocker definition
+-----------------------------------------------------------------
+Starting tests in: ColorModule / stereo with L = R is bit-identical to mono (packed stereo biquads == scalar biquads)...
+Completed tests in ColorModule / stereo with L = R is bit-identical to mono (packed stereo biquads == scalar biquads)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / setParams / process allocate nothing (skipping, priming, glue restart, test switches)...
+Completed tests in ColorModule / setParams / process allocate nothing (skipping, priming, glue restart, test switches)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)...
+  Color default: 0.150 % of one core
+  Color GLAZE 100: 0.360 % of one core
+  Color default, skipping off: 0.414 % of one core
+  juce Oversampling 3 stages (reference): 1.268 % of one core
+  ratio to reference: default 0.119, GLAZE 100 0.284, skipping off 0.327
+Completed tests in ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)
+
+==== celadon_tests: 623 passed, 0 failed ====

@@ -1,0 +1,119 @@
+/*
+  ==============================================================================
+
+    HelpText.h
+    全部控件的提示文案（设计规格-界面 第 4 节，逐字一致）。
+
+    只依赖 juce_core 与 dsp/GlazeTypes.h（纯数据类型，不含 JUCE）：插件和无头测试都能编。测试会检查 ParameterIds.h 里的
+    每个参数、每个界面元素、每个 Balance 占位都有三行非空文案。
+
+    v0.1.7.0 修坯（设计规格-Clay 第 5 节）：BALANCE→COLOR 箭头上的三灯指示（ClayIndicator）悬停气泡沿用三行格式，但第 2 行是
+    此刻的实际值（「低切 25 Hz · 未收单 · 高频加宽 +0.8 dB · 低频反相：单声道播放会丢低音」）。这一行的文字、三盏灯的颜色类别，
+    都由本文件末尾的纯函数从编排器的状态快照算出（ClayReadout）。放在这里而不是 ClayIndicator 里：HelpText 是界面里少数
+    进无头测试编译的文件之一（CMakeLists 的 CELADON_HEADLESS_UI_SOURCES），判定与文字才能有自动测试——与 GlazeStatusText
+    把状态行的判定与颜色类别放在无头文件里是同一种做法。
+    ADR-012「先试后用」（设计规格-Clay-根治修订 3.5）：某项因「本曲试过会抬高峰值」被减量 / 否决时，气泡第 3 行写
+    「本曲试过：低切会抬高峰值，已自动跳过」之类（clayCostLine）；优先级低于「点「重新聆听」后启用自动修坯」。
+
+  ==============================================================================
+*/
+
+#pragma once
+
+#include <juce_core/juce_core.h>
+
+#include "../dsp/GlazeTypes.h"
+
+namespace celadon
+{
+    // 源码里的中文字面量是 UTF-8 字节。juce::String (const char*) 只接受 ASCII
+    // （遇到中文会在 Debug 版断言、显示乱码），所以中文一律经过这个函数转换。
+    inline juce::String utf8 (const char* text)
+    {
+        return juce::String (juce::CharPointer_UTF8 (text));
+    }
+}
+
+namespace celadon::help
+{
+    struct Entry
+    {
+        const char* id;       // 参数 ID（ParameterIds.h）或界面元素 ID（celadon::uiid）
+        const char* title;    // 第 1 行：「名字 · 一句话作用」
+        const char* effect;   // 第 2 行：效果
+        const char* advice;   // 第 3 行：建议
+    };
+
+    // 全部条目。
+    const juce::Array<Entry>& allEntries();
+
+    // 按 ID 查；找不到返回 nullptr。
+    const Entry* find (juce::StringRef id);
+
+    // 气泡文字：三行用 '\n' 连接（已转成正确的 Unicode）；找不到返回空串。
+    juce::String tooltipFor (juce::StringRef id);
+
+    //==============================================================================
+    // 修坯三灯指示（v0.1.7.0，设计规格-Clay 第 5 节）：三盏灯自上而下 = 修坯的三级（低切 / 收单 / 加宽，= ClayModule 的处理顺序）。
+    enum class ClayStage : int { lowCut = 0, mono = 1, width = 2 };
+    inline constexpr int numClayStages = 3;
+
+    // 一盏灯的颜色类别：暗（35% 灰青，没在处理）/ 亮（梅子青，实际值非 0）/ 保护（琥珀，该级的实时保护正在介入）。
+    // 界面按 palette::textDim × comingSoonAlpha / accent / reduction 画（琥珀与 GR 表同色：「在压 / 保护中」同一种语义）。
+    enum class ClayLamp : int { off = 0, on = 1, guard = 2 };
+
+    // 界面从参数读到的用户设置里，只影响「显示什么」的那几项。
+    struct ClayUserState
+    {
+        bool lowCutAuto = true;   // clay_lowcut_mode == 自动
+        bool monoAuto   = true;   // clay_mono_mode == 自动：低频反相提示只在收单选「自动」时报（ADR-015；「手动」「关」= 用户接管）
+        bool widthAuto  = true;   // clay_width_mode == 自动：宽度保护同理
+        bool bypassed   = false;  // clay_bypass：旁通时什么都没在处理，三灯全暗
+    };
+
+    // 指示灯与气泡此刻要显示的内容：只含决定颜色与文字的量，已量化到显示精度（Hz 取整、收单比例取整百分比、加宽 0.1 dB）。
+    // 两份相等 = 灯和气泡一个像素都不会变：编辑器每 30 ms 算一份，灯只在颜色类别变了时重画，气泡只在读数变了时重拼文字。
+    // 实际值非 0 时显示值至少是 1 个单位（灯亮着，文字就不写「0 %」「+0.0 dB」）。
+    struct ClayReadout
+    {
+        int lowCutHz = 0;            // 0 = 未低切；否则整数 Hz
+        int monoHz = 0;              // 收单分频点（整数 Hz）；monoPercent = 0 时清成 0
+        int monoPercent = 0;         // 收单比例 0 ～ 100 %
+        int widthTenthsDb = 0;       // 高频加宽 × 10，带符号（负 = 收窄，只有手动给得出）
+        bool phaseGuard = false;     // 低频反相提示中（只在收单选「自动」时；ADR-015 起不改声音）
+        bool widthGuard = false;     // 宽度保护介入中（只算自动态的加宽）
+        bool needsRelearn = false;   // 有自动态的项、但已提交画像缺立体声 / 超低频特征（旧工程）：气泡第 3 行提示「重新聆听」
+        bool bypassed = false;       // Bypass 修坯：以上各项的值与保护全清零，第 2 行写「修坯已旁通」
+        // ADR-012「先试后用」：该项（自动态）因本曲试过会抬高峰值而被决策器减量 / 否决（Status::clayCostLimitedMask）。
+        // 该项的保护正在介入时不算（第 2 行已写「…保护中」，此刻的实际值由保护定，不是代价的结果）；旁通时全清零。
+        bool lowCutCostLimited = false;
+        bool monoCostLimited = false;
+        bool widthCostLimited = false;
+
+        bool operator== (const ClayReadout& other) const noexcept;
+        bool operator!= (const ClayReadout& other) const noexcept   { return ! operator== (other); }
+    };
+
+    // status = 编排器的状态快照（clay* 字段是上一块交给 ClayModule 的实际值与保护状态）；user = 三态与旁通。
+    // 非有限的实际值按 0（不亮）处理。
+    ClayReadout clayReadoutFor (const glaze::Status& status, const ClayUserState& user) noexcept;
+
+    // 某一盏灯的颜色类别：保护介入 → 琥珀（压过「亮」：宽度保护把加宽收到 0 时灯仍是琥珀，说明「想加宽、被保护拦住」）；
+    // 否则实际值非 0 → 梅子青；否则暗。旁通时 readout 里全是 0 → 全暗。
+    ClayLamp clayLampFor (const ClayReadout& readout, ClayStage stage) noexcept;
+
+    // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接保护状态；旁通时写「修坯已旁通」。
+    juce::String clayLiveLine (const ClayReadout& readout);
+
+    // 旧工程提示（气泡第 3 行与抽屉里的琥珀小字共用）：「点「重新聆听」后启用自动修坯」。
+    juce::String clayRelearnHint();
+
+    // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」，
+    // 跳过 = 该项此刻实际值为 0（量化读数口径），否则是减量；多项按处理顺序用「、」连接，两种都有时写
+    // 「……已自动跳过低切，减量收单」。没有被代价减量 / 否决的项时返回空串。不含句末「。」（与 clayRelearnHint 一样由气泡补）。
+    juce::String clayCostLine (const ClayReadout& readout);
+
+    // 完整气泡：第 1 行 = 文案表 ui_clay_indicator 的第 1 行；第 2 行 = clayLiveLine；
+    // 第 3 行按优先级：needsRelearn → clayRelearnHint + 「。」；否则有代价说明 → clayCostLine + 「。」；否则文案表的第 3 行。
+    juce::String clayIndicatorTooltip (const ClayReadout& readout);
+}

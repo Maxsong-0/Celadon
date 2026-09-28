@@ -1,0 +1,20 @@
+KINOSEI - DREAMER  g35 auto 不变 lufs -10.766->-10.766  grMean 0.404->0.404  phase locked/1->locked/1
+KINOSEI - DREAMER  g35 off  不变 lufs -10.756->-10.756  grMean 0.406->0.406  phase locked/1->locked/1
+KINOSEI - DREAMER  g70 auto 不变 lufs -10.771->-10.771  grMean 0.406->0.406  phase locked/1->locked/1
+KINOSEI - DREAMER  g70 off  不变 lufs -10.761->-10.761  grMean 0.408->0.408  phase locked/1->locked/1
+WTF                g35 auto 变了 lufs -8.303->-8.455  grMean 0.897->0.678  phase locked/1->locked/1
+WTF                g35 off  变了 lufs -8.432->-8.602  grMean 0.707->0.509  phase locked/1->locked/1
+WTF                g70 auto 变了 lufs -8.479->-8.294  grMean 0.654->0.899  phase locked/1->locked/1
+WTF                g70 off  不变 lufs -8.641->-8.641  grMean 0.477->0.477  phase locked/1->locked/1
+l_kskdhjf          g35 auto 变了 lufs -8.985->-8.801  grMean 0.600->0.805  phase locked/1->locked/1
+l_kskdhjf          g35 off  变了 lufs -8.908->-8.817  grMean 0.732->0.854  phase locked/1->locked/1
+l_kskdhjf          g70 auto 变了 lufs -9.011->-9.111  grMean 0.596->0.485  phase locked/1->locked/1
+l_kskdhjf          g70 off  不变 lufs -9.011->-9.011  grMean 0.621->0.621  phase locked/1->locked/1
+will we be okay    g35 auto 变了 lufs -8.110->-8.285  grMean 0.800->0.558  phase locked/1->locked/1
+will we be okay    g35 off  变了 lufs -8.078->-8.284  grMean 0.851->0.558  phase locked/1->locked/1
+will we be okay    g70 auto 变了 lufs -8.046->-8.059  grMean 0.921->0.899  phase locked/1->locked/1
+will we be okay    g70 off  变了 lufs -8.045->-8.180  grMean 0.922->0.670  phase locked/1->locked/1
+woqu               g35 auto 不变 lufs -12.825->-12.825  grMean 0.001->0.001  phase locked/1->locked/1
+woqu               g35 off  不变 lufs -12.675->-12.675  grMean 0.002->0.002  phase locked/1->locked/1
+woqu               g70 auto 不变 lufs -11.581->-11.581  grMean 0.025->0.025  phase calibrating/0->calibrating/0
+woqu               g70 off  不变 lufs -11.408->-11.408  grMean 0.035->0.035  phase locked/1->locked/1

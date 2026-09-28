@@ -1,0 +1,196 @@
+diff -ru -x t014 o/Celadon/CMakeLists.txt p/Celadon/CMakeLists.txt
+--- o/Celadon/CMakeLists.txt	2026-09-26 22:07:37
++++ p/Celadon/CMakeLists.txt	2026-09-26 22:15:56
+@@ -14,6 +14,15 @@
+ set(CMAKE_CXX_STANDARD 17)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ 
++# 全工程的逐位契约（HalfBand / Saturator / TruePeak 的各路径与块长无关、Color / Limiter 的空闲跳过、GLAZE 整链与参照……）
++# 都要求乘和加各自舍入（ADR-013，BUG-002）。GCC 对 C++ 默认 -ffp-contract=fast：目标有 FMA（-march=x86-64-v3 / native、aarch64）
++# 时跨语句合并成融合乘加，且各循环不一样。GCC 一律关掉；宏给 HalfBand / Saturator / TruePeak 的编译期守卫看。
++# clang 保持默认 on（只合并同一表达式），与 Xcode 的正式构建一致。
++if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
++    add_compile_options(-ffp-contract=off)
++    add_compile_definitions(CELADON_FP_CONTRACT_OFF=1)
++endif()
++
+ set(CELADON_JUCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../JUCE" CACHE PATH "JUCE 9.0.2 根目录（与 .jucer 的 ../JUCE/modules 同一份）")
+ set(JUCE_MODULES "${CELADON_JUCE_DIR}/modules")
+ 
+diff -ru -x t014 o/Celadon/Source/dsp/HalfBandOversampler.cpp p/Celadon/Source/dsp/HalfBandOversampler.cpp
+--- o/Celadon/Source/dsp/HalfBandOversampler.cpp	2026-09-26 21:58:16
++++ p/Celadon/Source/dsp/HalfBandOversampler.cpp	2026-09-26 22:07:37
+@@ -11,8 +11,8 @@
+ #include <cstring>
+ 
+ // SIMD 路径：ARM 用 NEON；x86 / x64 用 SSE2（x64 的基线指令集，一定有）；其他平台用标量回退。
+-// 三条路径做的是同一串 IEEE 单精度运算（先加对称对、再乘、再累加，各自舍入），结果逐位相同。
+-// CELADON_FORCE_SCALAR_SIMD 只给验证用：在 ARM / x86 上强制走标量回退，与 SIMD 路径逐位对比。
++// 三条路径做的是同一串 IEEE 单精度运算（先加对称对、再乘、再累加，各自舍入），结果逐位相同——前提是编译器不把乘和加
++// 融合成 FMA（见下面的守卫）。CELADON_FORCE_SCALAR_SIMD 只给验证用：在 ARM / x86 上强制走标量回退，与 SIMD 路径逐位对比。
+ #if ! defined (CELADON_FORCE_SCALAR_SIMD) && defined (__ARM_NEON)
+  #define CELADON_HALFBAND_NEON 1
+  #include <arm_neon.h>
+@@ -21,6 +21,16 @@
+  #include <emmintrin.h>
+ #endif
+ 
++// 编译前提（ADR-013，BUG-002）：乘和加必须各自舍入。GCC 对 C++ 默认 -ffp-contract=fast，目标有 FMA（-mfma / -march=x86-64-v3 /
++// native、aarch64）时会跨函数合并成融合乘加，而且各循环合并得不一样；构建须给 -ffp-contract=off 并定义 CELADON_FP_CONTRACT_OFF=1
++// （CMakeLists.txt 已做；关了合并 __FP_FAST_FMAF 照样有，只能看这个宏）。clang 的 -ffp-contract=fast 编译期识别不出，同样不许用。
++#if defined (__GNUC__) && ! defined (__clang__) && defined (__FP_FAST_FMAF) && ! defined (CELADON_FP_CONTRACT_OFF)
++ #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CELADON_FP_CONTRACT_OFF=1（ADR-013）"
++#endif
++#if defined (__FAST_MATH__) || defined (_M_FP_FAST) || defined (_M_FP_CONTRACT)
++ #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（ADR-013）"
++#endif
++
+ // 向量封装与核函数一律强制内联：Debug（-O0 / -O1）构建里也不留函数调用，免得 Debug 版慢到爆音（v0.5 研究 P1 / P2）。
+ #if defined (_MSC_VER)
+  #define CELADON_SIMD_INLINE __forceinline
+@@ -87,9 +97,9 @@
+             odd  = _mm_shuffle_ps (a, b, _MM_SHUFFLE (3, 1, 3, 1));
+         }
+        #else
+-        // 标量回退：每条「向量运算」是 4 次独立的单精度运算，写在各自的函数里——不会被编译器合并成乘加
+-        // （clang / MSVC 默认只在同一个表达式内合并；GCC 的 -ffp-contract=fast 在有 FMA 的目标上可能合并，
+-        // 那样结果只差舍入，不影响正确性）。
++        // 标量回退：每条「向量运算」是 4 次独立的单精度运算，写在各自的函数里——clang / MSVC 默认只在同一个表达式内合并，
++        // 不会把它们合并成乘加。GCC 的 -ffp-contract=fast 在有 FMA 的目标上会跨函数合并，而且与 SIMD 路径、主循环与尾循环
++        // 合并得不一样，三条路径与块长无关都会失效（BUG-002，109 实测）——所以文件头的守卫要求 GCC 关掉合并。
+         struct Vec { float v[4]; };
+ 
+         CELADON_SIMD_INLINE Vec vLoad (const float* p) noexcept          { return { { p[0], p[1], p[2], p[3] } }; }
+diff -ru -x t014 o/Celadon/Source/dsp/HalfBandOversampler.h p/Celadon/Source/dsp/HalfBandOversampler.h
+--- o/Celadon/Source/dsp/HalfBandOversampler.h	2026-09-26 21:58:16
++++ p/Celadon/Source/dsp/HalfBandOversampler.h	2026-09-26 22:07:37
+@@ -16,7 +16,7 @@
+       （与 JUCE 逐项同一公式；滤波器长 4n + 3，除中心外奇数位系数为 0。）
+       每块只搬一次历史（memmove），不再逐样本平移。
+     并行方向是「输出样本」：一次算 16 个（尾部 4 个）相邻输出，每个输出都按抽头对 m = 0 … n 的顺序
+-    「先加对称对、再乘系数、再累加」，三步各自舍入（不用融合乘加）。所以：
++    「先加对称对、再乘系数、再累加」，三步各自舍入（不用融合乘加；编译器也不许替我们合并，GCC 要关 -ffp-contract，ADR-013）。所以：
+       - 每个输出的运算与块长、分组方式无关 → 输出与块长无关，逐位相同；
+       - ARM（NEON）、x86（SSE2）与其他平台的标量回退算出的是同一串 IEEE 运算 → 三条路径逐位相同；
+       - x86 上不依赖 FMA 指令（没开 FMA 时 std::fma 是软件实现，极慢）。
+diff -ru -x t014 o/Celadon/Source/dsp/Saturator.cpp p/Celadon/Source/dsp/Saturator.cpp
+--- o/Celadon/Source/dsp/Saturator.cpp	2026-09-26 21:58:16
++++ p/Celadon/Source/dsp/Saturator.cpp	2026-09-26 22:07:37
+@@ -9,7 +9,8 @@
+ #include "Saturator.h"
+ 
+ // SIMD 路径：ARM 用 NEON；x86 / x64 用 SSE2；其他平台用标量回退。三条路径是同一串 IEEE 单精度运算
+-// （先乘后加、各自舍入，不用融合乘加），结果逐位相同。CELADON_FORCE_SCALAR_SIMD 只给验证用。
++// （先乘后加、各自舍入，不用融合乘加），结果逐位相同——前提是编译器也不替我们合并（见下面的守卫）。
++// CELADON_FORCE_SCALAR_SIMD 只给验证用。
+ #if ! defined (CELADON_FORCE_SCALAR_SIMD) && defined (__ARM_NEON)
+  #define CELADON_SATURATOR_NEON 1
+  #include <arm_neon.h>
+@@ -18,6 +19,16 @@
+  #include <emmintrin.h>
+ #endif
+ 
++// 编译前提（ADR-013，BUG-002）：乘和加必须各自舍入。GCC 对 C++ 默认 -ffp-contract=fast，目标有 FMA（-mfma / -march=x86-64-v3 /
++// native、aarch64）时会跨函数合并成融合乘加，而且各循环合并得不一样；构建须给 -ffp-contract=off 并定义 CELADON_FP_CONTRACT_OFF=1
++// （CMakeLists.txt 已做；关了合并 __FP_FAST_FMAF 照样有，只能看这个宏）。clang 的 -ffp-contract=fast 编译期识别不出，同样不许用。
++#if defined (__GNUC__) && ! defined (__clang__) && defined (__FP_FAST_FMAF) && ! defined (CELADON_FP_CONTRACT_OFF)
++ #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CELADON_FP_CONTRACT_OFF=1（ADR-013）"
++#endif
++#if defined (__FAST_MATH__) || defined (_M_FP_FAST) || defined (_M_FP_CONTRACT)
++ #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（ADR-013）"
++#endif
++
+ // 向量封装与核函数一律强制内联：Debug（-O0 / -O1）构建里也不留函数调用，免得 Debug 版慢到爆音（v0.5 研究 P1 / P2）。
+ #if defined (_MSC_VER)
+  #define CELADON_SIMD_INLINE __forceinline
+@@ -118,6 +129,7 @@
+         //==============================================================================
+         // tanh 的有理式逼近（Eigen generic_fast_tanh_float：分子 13 次奇多项式、分母 6 次偶多项式）。
+         // 钳位常数取 Eigen「不用 FMA」那组：按下面先乘后加的求值顺序，p/q 在 ±7.9053 处恰好到 ±1。
++        // （若被编译器合并成 FMA，钳位处只到 ±0.999999762，±Inf 也就不再恰为 ±1——BUG-002 实测，所以文件头要求不合并。）
+         constexpr float tanhClamp = 7.90531110763549805f;
+         constexpr float tanhTiny  = 0.0004f;
+ 
+diff -ru -x t014 o/Celadon/Source/dsp/Saturator.h p/Celadon/Source/dsp/Saturator.h
+--- o/Celadon/Source/dsp/Saturator.h	2026-09-26 21:58:16
++++ p/Celadon/Source/dsp/Saturator.h	2026-09-26 22:07:37
+@@ -61,7 +61,8 @@
+         //   |x| < 4e-4 直接返回 x（略去的 x³/3 < 2.2e-11）；|x| > 7.9053 钳位（结果已是 ±1）；其余 p(x) / q(x)。
+         //   与 double tanh 的最大绝对误差 4.10e-7（−127.7 dB，x ≈ 5.83；逐个 float 穷举），奇对称逐位成立，|y| ≤ 1，
+         //   ±0 保号，NaN 进 NaN 出，±Inf → ±1。不是逐 ulp 单调（相邻 float 最多回落 8 ulp ≈ 4.8e-7，与逼近误差同量级）。
+-        // 各平台（NEON / SSE2 / 标量回退）是同一串 IEEE 运算，结果逐位相同（ARM 上 NEON 与标量回退逐字节对比过）。
++        // 各平台（NEON / SSE2 / 标量回退）是同一串 IEEE 运算，结果逐位相同（ARM 上 NEON 与标量回退逐字节对比过）；
++        // 前提是编译器不把乘和加融合成 FMA（GCC 要关 -ffp-contract，ADR-013）。
+         static void fastTanhBlock (float* data, int numSamples) noexcept;
+         static float fastTanh (float x) noexcept;
+ 
+diff -ru -x t014 o/Celadon/Source/dsp/TruePeak.cpp p/Celadon/Source/dsp/TruePeak.cpp
+--- o/Celadon/Source/dsp/TruePeak.cpp	2026-09-26 21:58:16
++++ p/Celadon/Source/dsp/TruePeak.cpp	2026-09-26 22:07:37
+@@ -12,7 +12,8 @@
+           ARM64（NEON）：融合乘加（一次舍入）= 旧代码在 Xcode Release（-O3 + LTO）与 Debug 下编出的 fmadd 串行链，
+                          所以装进 DAW 的版本读数与 v0.4 逐位相同；
+           其他平台（x86 的 SSE2，将来的 Windows 版；或纯标量）：先乘后加、各自舍入。
+-        不依赖编译器怎么编（旧代码在 -O2 下会编成「先乘后加」，与 -O3 结果不同；新写法不再随编译选项变）。
++        不依赖编译器怎么编（旧代码在 -O2 下会编成「先乘后加」，与 -O3 结果不同；新写法不再随编译选项变）——前提是编译器
++        不替非 NEON 路径合并乘加：GCC 开 FMA 后会把 SSE2 核合并、参照实现却没合并（BUG-002），所以 GCC 要关 -ffp-contract（ADR-013）。
+       - 8 个插值点取大（下面的 keepLarger）也按平台固定成同一种写法，冲零模式（FTZ / DAZ，宿主与
+         juce::ScopedNoDenormals 常开）下两条路径才逐位相同（BUG-001）：
+           x86（SSE2）：参照实现与向量核都用 max 指令（maxss / maxps）；
+@@ -51,9 +52,20 @@
+ #endif
+ 
+ // 非 NEON 平台的逐项乘加必须「先乘后加、各自舍入」，参照实现与 SSE2 核才逐位相同：不许编译器把乘和加融合成 FMA。
+-// （clang 的 pragma 写在各函数体开头；MSVC 默认 /fp:precise 本来就不融合，这里写死以防工程改成 /fp:contract。）
++// （clang 的 pragma 写在各函数体开头，但只在默认 -ffp-contract=on 下管用：-ffp-contract=fast 时 clang 不认它，109 实测参照实现
++// 照样被合并。MSVC 默认 /fp:precise 本来就不融合，这里写死以防工程改成 /fp:contract。GCC 两种 pragma 都不认，靠下面的守卫。）
+ #if ! CELADON_TRUE_PEAK_NEON && defined (_MSC_VER) && ! defined (__clang__)
+  #pragma fp_contract (off)
++#endif
++
++// 编译前提（ADR-013，BUG-002）：乘和加必须各自舍入。GCC 对 C++ 默认 -ffp-contract=fast，目标有 FMA（-mfma / -march=x86-64-v3 /
++// native、aarch64）时会跨函数合并成融合乘加，而且各循环合并得不一样；构建须给 -ffp-contract=off 并定义 CELADON_FP_CONTRACT_OFF=1
++// （CMakeLists.txt 已做；关了合并 __FP_FAST_FMAF 照样有，只能看这个宏）。clang 的 -ffp-contract=fast 编译期识别不出，同样不许用。
++#if defined (__GNUC__) && ! defined (__clang__) && defined (__FP_FAST_FMAF) && ! defined (CELADON_FP_CONTRACT_OFF)
++ #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CELADON_FP_CONTRACT_OFF=1（ADR-013）"
++#endif
++#if defined (__FAST_MATH__) || defined (_M_FP_FAST) || defined (_M_FP_CONTRACT)
++ #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（ADR-013）"
+ #endif
+ 
+ namespace celadon
+diff -ru -x t014 o/Celadon/Source/dsp/TruePeak.h p/Celadon/Source/dsp/TruePeak.h
+--- o/Celadon/Source/dsp/TruePeak.h	2026-09-26 21:58:16
++++ p/Celadon/Source/dsp/TruePeak.h	2026-09-26 22:07:37
+@@ -22,6 +22,7 @@
+       - processSample 是逐样本的参照实现（直接型，7 相 × 64 抽头逐项累加），测试与离线测量用。
+     两者算的是同一个滤波器、同一种舍入（每个输出、每个相位都按抽头顺序逐项乘加）、同一种取大（同一条指令），
+     结果逐位相同——非规格化数按 IEEE 算或冲零（FTZ / DAZ）都是——可以在同一个检测器上交替调用（DspPartsTests 有逐位对照）。
++    前提是编译器不替我们合并乘加（GCC 要关 -ffp-contract，ADR-013）。
+ 
+   ==============================================================================
+ */
+diff -ru -x t014 o/Celadon/tools/perf/CMakeLists.txt p/Celadon/tools/perf/CMakeLists.txt
+--- o/Celadon/tools/perf/CMakeLists.txt	2026-09-26 21:58:16
++++ p/Celadon/tools/perf/CMakeLists.txt	2026-09-26 22:07:37
+@@ -16,7 +16,8 @@
+ set(CMAKE_OSX_DEPLOYMENT_TARGET 12.0)
+ get_filename_component(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
+ get_filename_component(JUCE_MODULES "${ROOT}/../JUCE/modules" ABSOLUTE)
+-set(FLAVOUR "XcodeRelease" CACHE STRING "XcodeRelease | XcodeDebug | DebugO1 | DebugO0NoHardening | ReleaseO2NoLto | ReleaseFastMath")
++# 原有的 ReleaseFastMath 一档已删：任何构建都不许 -ffast-math（ADR-007、ADR-013，三个逐位契约文件的守卫会报错）。
++set(FLAVOUR "XcodeRelease" CACHE STRING "XcodeRelease | XcodeDebug | DebugO1 | DebugO0NoHardening | ReleaseO2NoLto")
+ 
+ include(units.cmake)
+ # CONFIGURE_DEPENDS：以后 Source 里加 / 删 .cpp，重新构建时自动重扫，不必手工重跑 cmake 配置。
+@@ -35,10 +36,6 @@
+   set(OPT_FLAGS -O0 -g)
+   set(CFG_DEFS DEBUG=1 _DEBUG=1)
+   set(LINK_FLAGS_FLAVOUR -O0)
+-elseif(FLAVOUR STREQUAL "ReleaseFastMath")
+-  set(OPT_FLAGS -O3 -flto -ffast-math)
+-  set(CFG_DEFS NDEBUG=1 _NDEBUG=1)
+-  set(LINK_FLAGS_FLAVOUR -O3 -flto -ffast-math -Wl,-dead_strip)
+ elseif(FLAVOUR STREQUAL "ReleaseO2NoLto")
+   set(OPT_FLAGS -O2)
+   set(CFG_DEFS NDEBUG=1 _NDEBUG=1)

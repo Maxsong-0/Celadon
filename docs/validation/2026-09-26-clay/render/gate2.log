@@ -1,0 +1,161 @@
+render-linux.sh：同步源码到 maxsong@192.168.100.109 …
+render-linux.sh：同步歌曲 /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/c0303bb6-4133-4884-9848-982118085fe1/scratchpad/gate-songs …
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-render-build/Celadon-d4b76f75e866
+[1/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazeGuard.cpp.o
+[2/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazeConstants.cpp.o
+[3/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazeCalibrator.cpp.o
+[4/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/ClayGuard.cpp.o
+[5/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/CeladonChain.cpp.o
+[6/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazeProfile.cpp.o
+[7/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/ClayModule.cpp.o
+[8/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazePlanner.cpp.o
+[9/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/MusicAnalyzer.cpp.o
+[10/12] Building CXX object CMakeFiles/celadon_render.dir/Source/dsp/GlazeController.cpp.o
+[11/12] Building CXX object CMakeFiles/celadon_render.dir/tools/render/RenderMain.cpp.o
+[12/12] Linking CXX executable celadon_render
+通过  低频相关度 左右相同：ρ = 1.000000000000（期望 1）
+通过  低频相关度 左右反相：ρ = -1.000000000000（期望 -1）
+通过  低频相关度 右 = 0.5 × 左：ρ = 0.800000000000（期望 2g / (1 + g²) = 0.8）
+通过  低频相关度 不相关噪声：ρ = -0.0186（期望 |ρ| < 0.1）
+通过  真次声占比 10 Hz + 1 kHz：-3.038 dB（期望 -3.013 ± 0.05 dB）
+通过  整体响度 1 kHz 两声道 -20 dBFS：-19.993 LUFS（期望 -20.0 ± 0.1）
+通过  真峰值 1 kHz 幅度 0.5：-6.020 dBTP（期望 -6.021 ± 0.1）
+通过  成品哈希：相同音频哈希相同；改一个样本的最低位后哈希变了
+通过  成品文件名：Song A__g35_clay-auto_auto.wav、Song A__g12.5_clay-off_warm.wav
+通过  链延迟：1384 样本（期望 1384：48 kHz / Lookahead 2 ms 的 282 + Clay 的 D + G）
+通过  成品长度：208800 样本（期望 208800）
+通过  延迟对齐：互相关最大在滞后 0，值 1.0000（期望滞后 0、值 > 0.9）
+通过  GLAZE 0 修坯自动与全关逐位相同：两组成品哈希相同
+自检全部通过
+celadon_render：22 首歌 × 6 组（GLAZE 0 / 35 / 70 × 修坯 auto / off × 风格 auto），宿主块长 512，对齐到 -16.0 LUFS
+输出目录：/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-20260927-002937-73771
+[1/22] 12223.wav：48000 Hz，立体声，1:04.7
+  原始输入：-8.61 LUFS，真峰值 0.84 dBTP，PLR 9.45 dB，低频相关度 0.999，次声 -32.9 dB
+  [1/6] g0 clay-auto auto：聆听 1.5 s（第一遍末 已锁定）→ 成品 1.9 s → -9.22 LUFS，真峰值 -1.35 dBTP，PLR 7.87 dB，低频相关度 0.999，次声 -32.7 dB，对齐 -6.78 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 1.5 s（第一遍末 已锁定）→ 成品 1.9 s → -9.22 LUFS，真峰值 -1.35 dBTP，PLR 7.87 dB，低频相关度 0.999，次声 -32.7 dB，对齐 -6.78 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 1.7 s（第一遍末 校准中）→ 成品 2.0 s → -9.11 LUFS，真峰值 -1.35 dBTP，PLR 7.76 dB，低频相关度 0.999，次声 -32.7 dB，对齐 -6.89 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 1.7 s（第一遍末 校准中）→ 成品 2.0 s → -9.12 LUFS，真峰值 -1.35 dBTP，PLR 7.77 dB，低频相关度 0.999，次声 -32.7 dB，对齐 -6.88 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 1.8 s（第一遍末 校准中）→ 成品 2.2 s → -8.85 LUFS，真峰值 -1.35 dBTP，PLR 7.50 dB，低频相关度 0.999，次声 -32.8 dB，对齐 -7.15 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 1.8 s（第一遍末 校准中）→ 成品 2.2 s → -8.83 LUFS，真峰值 -1.35 dBTP，PLR 7.48 dB，低频相关度 0.999，次声 -32.8 dB，对齐 -7.17 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[2/22] Ansun - Faultless.wav：44100 Hz，立体声，3:49.2
+  原始输入：-7.29 LUFS，真峰值 0.00 dBTP，PLR 7.29 dB，低频相关度 1.000，次声 -35.4 dB
+  [1/6] g0 clay-auto auto：聆听 4.8 s（第一遍末 已锁定）→ 成品 6.2 s → -8.29 LUFS，真峰值 -1.35 dBTP，PLR 6.94 dB，低频相关度 1.000，次声 -35.3 dB，对齐 -7.71 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 4.8 s（第一遍末 已锁定）→ 成品 6.2 s → -8.29 LUFS，真峰值 -1.35 dBTP，PLR 6.94 dB，低频相关度 1.000，次声 -35.3 dB，对齐 -7.71 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 5.3 s（第一遍末 已锁定 · 校准有效）→ 成品 6.6 s → -8.30 LUFS，真峰值 -1.35 dBTP，PLR 6.95 dB，低频相关度 1.000，次声 -35.1 dB，对齐 -7.70 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 5.3 s（第一遍末 已锁定 · 校准有效）→ 成品 6.6 s → -8.30 LUFS，真峰值 -1.35 dBTP，PLR 6.95 dB，低频相关度 1.000，次声 -35.1 dB，对齐 -7.70 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 5.4 s（第一遍末 已锁定 · 校准有效）→ 成品 6.6 s → -8.32 LUFS，真峰值 -1.35 dBTP，PLR 6.97 dB，低频相关度 1.000，次声 -35.0 dB，对齐 -7.68 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 5.5 s（第一遍末 已锁定 · 校准有效）→ 成品 6.6 s → -8.32 LUFS，真峰值 -1.35 dBTP，PLR 6.97 dB，低频相关度 1.000，次声 -35.0 dB，对齐 -7.68 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[3/22] KINOSEI - DREAMER.wav：44100 Hz，立体声，2:39.4
+  原始输入：-10.48 LUFS，真峰值 0.41 dBTP，PLR 10.89 dB，低频相关度 0.968，次声 -30.0 dB
+  [1/6] g0 clay-auto auto：聆听 3.3 s（第一遍末 已锁定）→ 成品 4.3 s → -10.93 LUFS，真峰值 -1.35 dBTP，PLR 9.58 dB，低频相关度 0.965，次声 -29.7 dB，对齐 -5.07 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 3.3 s（第一遍末 已锁定）→ 成品 4.3 s → -10.93 LUFS，真峰值 -1.35 dBTP，PLR 9.58 dB，低频相关度 0.965，次声 -29.7 dB，对齐 -5.07 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 3.7 s（第一遍末 已锁定 · 校准有效）→ 成品 4.5 s → -10.77 LUFS，真峰值 -1.35 dBTP，PLR 9.42 dB，低频相关度 0.970，次声 -29.6 dB，对齐 -5.23 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 3.7 s（第一遍末 已锁定 · 校准有效）→ 成品 4.5 s → -10.76 LUFS，真峰值 -1.35 dBTP，PLR 9.41 dB，低频相关度 0.963，次声 -29.6 dB，对齐 -5.24 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 3.7 s（第一遍末 已锁定 · 校准有效）→ 成品 4.5 s → -10.77 LUFS，真峰值 -1.35 dBTP，PLR 9.42 dB，低频相关度 0.970，次声 -29.6 dB，对齐 -5.23 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 3.7 s（第一遍末 已锁定 · 校准有效）→ 成品 4.5 s → -10.76 LUFS，真峰值 -1.35 dBTP，PLR 9.41 dB，低频相关度 0.963，次声 -29.6 dB，对齐 -5.24 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[4/22] ST.wav：48000 Hz，立体声，0:20.1
+  原始输入：-19.78 LUFS，真峰值 -9.22 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB
+  [1/6] g0 clay-auto auto：聆听 0.5 s（第一遍末 已锁定）→ 成品 0.6 s → -19.78 LUFS，真峰值 -9.22 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB，对齐 +3.78 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 0.5 s（第一遍末 已锁定）→ 成品 0.6 s → -19.78 LUFS，真峰值 -9.22 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB，对齐 +3.78 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -16.39 LUFS，真峰值 -5.83 dBTP，PLR 10.56 dB，低频相关度 0.754，次声 -51.8 dB，对齐 +0.39 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -16.38 LUFS，真峰值 -5.82 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB，对齐 +0.38 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -13.05 LUFS，真峰值 -2.54 dBTP，PLR 10.51 dB，低频相关度 0.758，次声 -51.7 dB，对齐 -2.95 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -13.04 LUFS，真峰值 -2.52 dBTP，PLR 10.52 dB，低频相关度 0.743，次声 -51.7 dB，对齐 -2.96 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[5/22] Sometimes.wav：48000 Hz，立体声，0:20.2
+  原始输入：-20.12 LUFS，真峰值 -8.69 dBTP，PLR 11.43 dB，低频相关度 0.750，次声 -50.7 dB
+  [1/6] g0 clay-auto auto：聆听 0.5 s（第一遍末 已锁定）→ 成品 0.6 s → -20.12 LUFS，真峰值 -8.69 dBTP，PLR 11.43 dB，低频相关度 0.750，次声 -50.7 dB，对齐 +4.12 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 0.5 s（第一遍末 已锁定）→ 成品 0.6 s → -20.12 LUFS，真峰值 -8.69 dBTP，PLR 11.43 dB，低频相关度 0.750，次声 -50.7 dB，对齐 +4.12 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -16.60 LUFS，真峰值 -5.18 dBTP，PLR 11.42 dB，低频相关度 0.758，次声 -50.7 dB，对齐 +0.60 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -16.60 LUFS，真峰值 -5.17 dBTP，PLR 11.43 dB，低频相关度 0.750，次声 -50.7 dB，对齐 +0.60 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -13.16 LUFS，真峰值 -1.71 dBTP，PLR 11.45 dB，低频相关度 0.760，次声 -50.6 dB，对齐 -2.84 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -13.15 LUFS，真峰值 -1.69 dBTP，PLR 11.47 dB，低频相关度 0.749，次声 -50.6 dB，对齐 -2.85 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[6/22] WTF.wav：48000 Hz，立体声，3:06.2
+  原始输入：-8.18 LUFS，真峰值 1.21 dBTP，PLR 9.39 dB，低频相关度 0.997，次声 -35.5 dB
+  [1/6] g0 clay-auto auto：聆听 4.2 s（第一遍末 已锁定）→ 成品 5.5 s → -8.66 LUFS，真峰值 -1.35 dBTP，PLR 7.32 dB，低频相关度 0.997，次声 -34.6 dB，对齐 -7.34 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 4.2 s（第一遍末 已锁定）→ 成品 5.5 s → -8.66 LUFS，真峰值 -1.35 dBTP，PLR 7.32 dB，低频相关度 0.997，次声 -34.6 dB，对齐 -7.34 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 5.2 s（第一遍末 已锁定 · 校准有效）→ 成品 6.5 s → -8.30 LUFS，真峰值 -1.35 dBTP，PLR 6.95 dB，低频相关度 0.997，次声 -33.6 dB，对齐 -7.70 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 5.2 s（第一遍末 已锁定 · 校准有效）→ 成品 6.4 s → -8.43 LUFS，真峰值 -1.35 dBTP，PLR 7.08 dB，低频相关度 0.997，次声 -34.0 dB，对齐 -7.57 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 5.2 s（第一遍末 已锁定 · 校准有效）→ 成品 6.4 s → -8.48 LUFS，真峰值 -1.35 dBTP，PLR 7.13 dB，低频相关度 0.997，次声 -34.0 dB，对齐 -7.52 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 5.2 s（第一遍末 已锁定 · 校准有效）→ 成品 6.4 s → -8.64 LUFS，真峰值 -1.35 dBTP，PLR 7.29 dB，低频相关度 0.997，次声 -34.3 dB，对齐 -7.36 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[7/22] Will We Be OKay (Extended Mix).wav：48000 Hz，立体声，4:08.3
+  原始输入：-7.09 LUFS，真峰值 1.42 dBTP，PLR 8.51 dB，低频相关度 0.995，次声 -38.3 dB
+  [1/6] g0 clay-auto auto：聆听 5.6 s（第一遍末 已锁定）→ 成品 7.3 s → -8.01 LUFS，真峰值 -1.35 dBTP，PLR 6.66 dB，低频相关度 0.994，次声 -36.4 dB，对齐 -7.99 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 5.6 s（第一遍末 已锁定）→ 成品 7.3 s → -8.01 LUFS，真峰值 -1.35 dBTP，PLR 6.66 dB，低频相关度 0.994，次声 -36.4 dB，对齐 -7.99 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 6.4 s（第一遍末 已锁定 · 校准有效）→ 成品 7.9 s → -8.04 LUFS，真峰值 -1.35 dBTP，PLR 6.69 dB，低频相关度 0.995，次声 -36.4 dB，对齐 -7.96 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 6.6 s（第一遍末 已锁定 · 校准有效）→ 成品 8.1 s → -8.04 LUFS，真峰值 -1.35 dBTP，PLR 6.69 dB，低频相关度 0.994，次声 -36.4 dB，对齐 -7.96 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 9.6 s（第一遍末 已锁定 · 校准有效）→ 成品 7.9 s → -8.08 LUFS，真峰值 -1.35 dBTP，PLR 6.73 dB，低频相关度 0.994，次声 -36.3 dB，对齐 -7.92 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 6.5 s（第一遍末 已锁定 · 校准有效）→ 成品 7.8 s → -8.08 LUFS，真峰值 -1.35 dBTP，PLR 6.73 dB，低频相关度 0.994，次声 -36.3 dB，对齐 -7.92 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[8/22] emmmayiyu.wav：48000 Hz，立体声，2:09.4
+  原始输入：-13.81 LUFS，真峰值 0.00 dBTP，PLR 13.81 dB，低频相关度 0.964，次声 -32.6 dB
+  [1/6] g0 clay-auto auto：聆听 2.9 s（第一遍末 已锁定）→ 成品 3.8 s → -13.81 LUFS，真峰值 -1.35 dBTP，PLR 12.46 dB，低频相关度 0.964，次声 -32.6 dB，对齐 -2.19 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 2.9 s（第一遍末 已锁定）→ 成品 3.8 s → -13.81 LUFS，真峰值 -1.35 dBTP，PLR 12.46 dB，低频相关度 0.964，次声 -32.6 dB，对齐 -2.19 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 3.8 s（第一遍末 已锁定 · 校准有效）→ 成品 4.6 s → -11.22 LUFS，真峰值 -1.35 dBTP，PLR 9.87 dB，低频相关度 0.983，次声 -32.2 dB，对齐 -4.78 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 3.7 s（第一遍末 已锁定 · 校准有效）→ 成品 4.6 s → -11.18 LUFS，真峰值 -1.35 dBTP，PLR 9.83 dB，低频相关度 0.966，次声 -32.2 dB，对齐 -4.82 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 3.8 s（第一遍末 校准中）→ 成品 4.6 s → -10.79 LUFS，真峰值 -1.35 dBTP，PLR 9.44 dB，低频相关度 0.987，次声 -32.0 dB，对齐 -5.21 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 3.8 s（第一遍末 校准中）→ 成品 4.6 s → -10.94 LUFS，真峰值 -1.35 dBTP，PLR 9.59 dB，低频相关度 0.968，次声 -32.0 dB，对齐 -5.06 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[9/22] emomax.wav：48000 Hz，立体声，0:18.6
+  原始输入：-12.11 LUFS，真峰值 -1.73 dBTP，PLR 10.38 dB，低频相关度 0.955，次声 -32.6 dB
+  [1/6] g0 clay-auto auto：聆听 0.4 s（第一遍末 已锁定）→ 成品 0.6 s → -12.11 LUFS，真峰值 -1.73 dBTP，PLR 10.38 dB，低频相关度 0.955，次声 -32.6 dB，对齐 -3.89 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 0.4 s（第一遍末 已锁定）→ 成品 0.5 s → -12.11 LUFS，真峰值 -1.73 dBTP，PLR 10.38 dB，低频相关度 0.955，次声 -32.6 dB，对齐 -3.89 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -11.06 LUFS，真峰值 -1.35 dBTP，PLR 9.71 dB，低频相关度 0.955，次声 -32.6 dB，对齐 -4.94 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -11.06 LUFS，真峰值 -1.35 dBTP，PLR 9.71 dB，低频相关度 0.955，次声 -32.6 dB，对齐 -4.94 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -10.24 LUFS，真峰值 -1.35 dBTP，PLR 8.89 dB，低频相关度 0.951，次声 -32.8 dB，对齐 -5.76 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -10.24 LUFS，真峰值 -1.35 dBTP，PLR 8.89 dB，低频相关度 0.951，次声 -32.8 dB，对齐 -5.76 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[10/22] emotapes.wav：48000 Hz，立体声，0:34.8
+  原始输入：-12.74 LUFS，真峰值 -0.24 dBTP，PLR 12.50 dB，低频相关度 0.790，次声 -36.2 dB
+  [1/6] g0 clay-auto auto：聆听 0.8 s（第一遍末 已锁定）→ 成品 1.0 s → -12.75 LUFS，真峰值 -1.35 dBTP，PLR 11.40 dB，低频相关度 0.790，次声 -36.2 dB，对齐 -3.25 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 0.8 s（第一遍末 已锁定）→ 成品 1.0 s → -12.75 LUFS，真峰值 -1.35 dBTP，PLR 11.40 dB，低频相关度 0.790，次声 -36.2 dB，对齐 -3.25 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 1.0 s（第一遍末 已锁定 · 校准有效）→ 成品 1.2 s → -11.69 LUFS，真峰值 -1.35 dBTP，PLR 10.34 dB，低频相关度 0.790，次声 -33.7 dB，对齐 -4.31 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 1.0 s（第一遍末 已锁定 · 校准有效）→ 成品 1.2 s → -11.65 LUFS，真峰值 -1.35 dBTP，PLR 10.30 dB，低频相关度 0.791，次声 -36.2 dB，对齐 -4.35 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 1.0 s（第一遍末 已锁定 · 校准有效）→ 成品 1.2 s → -10.69 LUFS，真峰值 -1.35 dBTP，PLR 9.34 dB，低频相关度 0.791，次声 -33.3 dB，对齐 -5.31 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 1.0 s（第一遍末 已锁定 · 校准有效）→ 成品 1.2 s → -10.65 LUFS，真峰值 -1.35 dBTP，PLR 9.30 dB，低频相关度 0.790，次声 -36.1 dB，对齐 -5.35 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[11/22] fule.wav：48000 Hz，立体声，0:16.5
+  原始输入：-16.10 LUFS，真峰值 0.33 dBTP，PLR 16.43 dB，低频相关度 0.946，次声 -35.1 dB
+  [1/6] g0 clay-auto auto：聆听 0.4 s（第一遍末 已锁定）→ 成品 0.5 s → -16.13 LUFS，真峰值 -1.35 dBTP，PLR 14.78 dB，低频相关度 0.945，次声 -35.2 dB，对齐 +0.13 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 0.4 s（第一遍末 已锁定）→ 成品 0.5 s → -16.13 LUFS，真峰值 -1.35 dBTP，PLR 14.78 dB，低频相关度 0.945，次声 -35.2 dB，对齐 +0.13 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 0.5 s（第一遍末 方案过渡）→ 成品 0.6 s → -15.00 LUFS，真峰值 -1.35 dBTP，PLR 13.65 dB，低频相关度 0.944，次声 -36.1 dB，对齐 -1.00 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 0.5 s（第一遍末 方案过渡）→ 成品 0.6 s → -14.97 LUFS，真峰值 -1.35 dBTP，PLR 13.62 dB，低频相关度 0.944，次声 -35.3 dB，对齐 -1.03 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 0.5 s（第一遍末 方案过渡）→ 成品 0.6 s → -13.74 LUFS，真峰值 -1.35 dBTP，PLR 12.39 dB，低频相关度 0.943，次声 -35.8 dB，对齐 -2.26 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 0.5 s（第一遍末 方案过渡）→ 成品 0.6 s → -13.69 LUFS，真峰值 -1.35 dBTP，PLR 12.34 dB，低频相关度 0.944，次声 -35.4 dB，对齐 -2.31 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[12/22] juednvn.wav：48000 Hz，立体声，0:32.7
+  原始输入：-11.48 LUFS，真峰值 -2.11 dBTP，PLR 9.37 dB，低频相关度 0.968，次声 -39.8 dB
+  [1/6] g0 clay-auto auto：聆听 0.8 s（第一遍末 已锁定）→ 成品 1.0 s → -11.48 LUFS，真峰值 -2.11 dBTP，PLR 9.37 dB，低频相关度 0.968，次声 -39.8 dB，对齐 -4.52 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 0.8 s（第一遍末 已锁定）→ 成品 1.0 s → -11.48 LUFS，真峰值 -2.11 dBTP，PLR 9.37 dB，低频相关度 0.968，次声 -39.8 dB，对齐 -4.52 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 1.0 s（第一遍末 已锁定 · 校准有效）→ 成品 1.2 s → -10.57 LUFS，真峰值 -1.35 dBTP，PLR 9.22 dB，低频相关度 0.967，次声 -39.9 dB，对齐 -5.43 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 1.0 s（第一遍末 已锁定 · 校准有效）→ 成品 1.2 s → -10.57 LUFS，真峰值 -1.35 dBTP，PLR 9.22 dB，低频相关度 0.967，次声 -39.9 dB，对齐 -5.43 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 1.0 s（第一遍末 校准中）→ 成品 1.2 s → -9.43 LUFS，真峰值 -1.35 dBTP，PLR 8.08 dB，低频相关度 0.964，次声 -39.3 dB，对齐 -6.57 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 1.0 s（第一遍末 校准中）→ 成品 1.2 s → -9.43 LUFS，真峰值 -1.35 dBTP，PLR 8.08 dB，低频相关度 0.964，次声 -39.3 dB，对齐 -6.57 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[13/22] l_kskdhjf.wav：48000 Hz，立体声，3:22.5
+  原始输入：-8.66 LUFS，真峰值 0.73 dBTP，PLR 9.39 dB，低频相关度 0.781，次声 -39.4 dB
+  [1/6] g0 clay-auto auto：聆听 4.6 s（第一遍末 已锁定）→ 成品 6.0 s → -9.18 LUFS，真峰值 -1.35 dBTP，PLR 7.83 dB，低频相关度 0.772，次声 -38.8 dB，对齐 -6.82 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 4.6 s（第一遍末 已锁定）→ 成品 5.9 s → -9.18 LUFS，真峰值 -1.35 dBTP，PLR 7.83 dB，低频相关度 0.772，次声 -38.8 dB，对齐 -6.82 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 5.4 s（第一遍末 已锁定 · 校准有效）→ 成品 6.3 s → -8.98 LUFS，真峰值 -1.35 dBTP，PLR 7.64 dB，低频相关度 0.929，次声 -38.2 dB，对齐 -7.02 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 5.3 s（第一遍末 已锁定 · 校准有效）→ 成品 6.3 s → -8.91 LUFS，真峰值 -1.35 dBTP，PLR 7.56 dB，低频相关度 0.765，次声 -38.2 dB，对齐 -7.09 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 5.4 s（第一遍末 已锁定 · 校准有效）→ 成品 6.3 s → -9.01 LUFS，真峰值 -1.35 dBTP，PLR 7.66 dB，低频相关度 0.947，次声 -38.1 dB，对齐 -6.99 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 5.1 s（第一遍末 已锁定 · 校准有效）→ 成品 6.3 s → -9.01 LUFS，真峰值 -1.35 dBTP，PLR 7.66 dB，低频相关度 0.766，次声 -38.3 dB，对齐 -6.99 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[14/22] meme.wav：48000 Hz，立体声，0:32.1
+  原始输入：-8.18 LUFS，真峰值 0.02 dBTP，PLR 8.20 dB，低频相关度 0.997，次声 -42.0 dB
+  [1/6] g0 clay-auto auto：聆听 0.8 s（第一遍末 已锁定）→ 成品 1.0 s → -8.92 LUFS，真峰值 -1.35 dBTP，PLR 7.57 dB，低频相关度 0.997，次声 -42.5 dB，对齐 -7.08 dB（只出指标，不写文件）
+  [2/6] g0 clay-off auto：聆听 0.8 s（第一遍末 已锁定）→ 成品 1.0 s → -8.92 LUFS，真峰值 -1.35 dBTP，PLR 7.57 dB，低频相关度 0.997，次声 -42.5 dB，对齐 -7.08 dB（只出指标，不写文件）
+  [3/6] g35 clay-auto auto：聆听 1.0 s（第一遍末 已锁定）→ 成品 1.2 s → -8.69 LUFS，真峰值 -1.35 dBTP，PLR 7.34 dB，低频相关度 0.997，次声 -42.2 dB，对齐 -7.31 dB（只出指标，不写文件）
+  [4/6] g35 clay-off auto：聆听 1.0 s（第一遍末 已锁定）→ 成品 1.2 s → -8.69 LUFS，真峰值 -1.35 dBTP，PLR 7.34 dB，低频相关度 0.997，次声 -42.2 dB，对齐 -7.31 dB（只出指标，不写文件）
+  [5/6] g70 clay-auto auto：聆听 1.0 s（第一遍末 校准中）→ 成品 1.2 s → -8.82 LUFS，真峰值 -1.35 dBTP，PLR 7.47 dB，低频相关度 0.997，次声 -42.4 dB，对齐 -7.18 dB（只出指标，不写文件）
+  [6/6] g70 clay-off auto：聆听 1.0 s（第一遍末 校准中）→ 成品 1.2 s → -8.82 LUFS，真峰值 -1.35 dBTP，PLR 7.47 dB，低频相关度 0.997，次声 -42.4 dB，对齐 -7.18 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+[15/22] ooaa.wav：48000 Hz，立体声，0:45.3
+Terminated                 nice -n 10 "$BUILD/celadon_render" --in "$HOME/$CELADON_SONGS" --out "$HOME/$CELADON_OUT" "$@"

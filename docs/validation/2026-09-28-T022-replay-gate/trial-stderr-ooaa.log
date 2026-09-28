@@ -1,0 +1,11 @@
+celadon_render：1 首歌 × 4 组（GLAZE 0 / 70 × 修坯 auto / off × 风格 auto），宿主块长 512，对齐到 -16.0 LUFS
+输出目录：/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-t015-074803-18980/ooaa
+[1/1] ooaa.wav：48000 Hz，立体声，0:45.3
+  原始输入：-6.28 LUFS，真峰值 0.46 dBTP，PLR 6.74 dB，低频相关度 0.827，次声 -38.0 dB
+  [1/4] g0 clay-auto auto：聆听 1.0 s（第一遍末 已锁定）→ 成品 1.0 s → -7.29 LUFS，真峰值 -1.35 dBTP，PLR 5.94 dB，低频相关度 0.814，次声 -38.2 dB，对齐 -8.71 dB（只出指标，不写文件）
+  [2/4] g0 clay-off auto：聆听 1.0 s（第一遍末 已锁定）→ 成品 1.0 s → -7.29 LUFS，真峰值 -1.35 dBTP，PLR 5.94 dB，低频相关度 0.814，次声 -38.2 dB，对齐 -8.71 dB（只出指标，不写文件）
+  [3/4] g70 clay-auto auto：聆听 1.2 s（第一遍末 校准中）→ 成品 1.1 s → -7.27 LUFS，真峰值 -1.35 dBTP，PLR 5.92 dB，低频相关度 0.809，次声 -38.3 dB，对齐 -8.73 dB（只出指标，不写文件）
+      重放全关：-7.27 LUFS，真峰值 -1.35 dBTP，PLR 5.92 dB，低频相关度 0.809，次声 -38.3 dB，对齐 -8.73 dB（只出指标，不写文件）
+  [4/4] g70 clay-off auto：聆听 1.2 s（第一遍末 校准中）→ 成品 1.1 s → -7.27 LUFS，真峰值 -1.35 dBTP，PLR 5.92 dB，低频相关度 0.809，次声 -38.3 dB，对齐 -8.73 dB（只出指标，不写文件）
+  GLAZE 0 · 风格 auto：修坯「自动」与「全关」两组成品逐位相同（阳性对照通过）
+完成：0 个成品，0 处失败，用时 13.7 s；指标表 /home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-t015-074803-18980/ooaa/metrics.md、metrics.csv

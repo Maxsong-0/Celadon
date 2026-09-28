@@ -1,0 +1,212 @@
+START 07:50:54
+-- The C compiler identification is AppleClang 21.0.0.21000334
+-- The CXX compiler identification is AppleClang 21.0.0.21000334
+-- The OBJC compiler identification is AppleClang 21.0.0.21000334
+-- The OBJCXX compiler identification is AppleClang 21.0.0.21000334
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Detecting OBJC compiler ABI info
+-- Detecting OBJC compiler ABI info - done
+-- Check for working OBJC compiler: /usr/bin/cc - skipped
+-- Detecting OBJCXX compiler ABI info
+-- Detecting OBJCXX compiler ABI info - done
+-- Check for working OBJCXX compiler: /usr/bin/c++ - skipped
+-- Configuring done (1.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase-build
+[0/2] Re-checking globbed directories...
+[1/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_formats_flac_1.c.o
+[2/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_formats_flac_2.c.o
+[3/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_basics.mm.o
+[4/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_devices.mm.o
+[5/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_processors_headless_ara.cpp.o
+[6/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_processors_headless_lv2_libs.cpp.o
+[7/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_formats.mm.o
+[8/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_processors.mm.o
+[9/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_core_CompilationTime.cpp.o
+[10/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_core_zlib.c.o
+[11/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_data_structures.mm.o
+[12/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_utils.mm.o
+[13/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_events.mm.o
+[14/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_audio_processors_headless.mm.o
+[15/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_dsp.mm.o
+[16/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics_Sheenbidi.c.o
+[17/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_core.mm.o
+[18/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_2.c.o
+[19/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_1.c.o
+[20/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_3.c.o
+[21/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics_libpng.c.o
+[22/63] Building C object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics_lunasvg.c.o
+[23/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_gui_basics_2.cpp.o
+[24/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_gui_basics.mm.o
+[25/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_gui_basics_3.cpp.o
+[26/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics_Harfbuzz.cpp.o
+[27/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_gui_basics_4.cpp.o
+[28/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_graphics.mm.o
+[29/63] Building CXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_gui_basics_5.cpp.o
+[30/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/Parameters.cpp.o
+[31/63] Building OBJCXX object CMakeFiles/celadon_bench.dir/bench.mm.o
+[32/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/PluginEditor.cpp.o
+[33/63] Building OBJCXX object CMakeFiles/juce_units.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/JuceLibraryCode/include_juce_gui_extra.mm.o
+[34/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/PluginProcessor.cpp.o
+[35/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/BalanceModule.cpp.o
+[36/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/CeladonChain.cpp.o
+[37/63] Linking CXX static library libjuce_units.a
+[38/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/GlazeConstants.cpp.o
+[39/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/GlazeCalibrator.cpp.o
+[40/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/ColorModule.cpp.o
+[41/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/GlazeGuard.cpp.o
+[42/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/GlazeController.cpp.o
+[43/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/GlazeProfile.cpp.o
+[44/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/GlazePlanner.cpp.o
+[45/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/HalfBandOversampler.cpp.o
+[46/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/LimiterModule.cpp.o
+[47/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/LoudnessMeter.cpp.o
+[48/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/MusicAnalyzer.cpp.o
+[49/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/Saturator.cpp.o
+[50/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/dsp/TruePeak.cpp.o
+[51/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/BalanceCurve.cpp.o
+[52/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/CapsuleSelector.cpp.o
+[53/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/CeladonLookAndFeel.cpp.o
+[54/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/CrackleTexture.cpp.o
+[55/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/GlazeStatusText.cpp.o
+[56/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/HelpText.cpp.o
+[57/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/GlazeStatusLine.cpp.o
+[58/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/GlazeStyleColumn.cpp.o
+[59/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/Knob.cpp.o
+[60/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/LoudnessReadout.cpp.o
+[61/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/MeterBar.cpp.o
+[62/63] Building CXX object CMakeFiles/celadon_bench.dir/private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/45dcdf5e-784a-40a9-a841-fcbf92fc5286/scratchpad/perfbase/Celadon/Source/ui/ModulePanel.cpp.o
+[63/63] Linking CXX executable celadon_bench
+POWER,07:51:57,source=AC Power,lowpowermode=0
+WARM,default,44100,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,44100,32,avg%=1.401,worst%=9.176,p99.9%=4.852,p99%=2.676,maxAllPasses%=18.323,structWorst%=2.211,structTypical%=1.206,structWorst64k%=2.274,prepare_ms=2.911,latency=274,nonFinite=0,blocks=13782,chk=12572.6
+WARM,default,44100,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,44100,64,avg%=1.351,worst%=4.307,p99.9%=3.399,p99%=2.245,maxAllPasses%=7.310,structWorst%=1.680,structTypical%=1.180,structWorst64k%=1.812,prepare_ms=0.779,latency=274,nonFinite=0,blocks=6891,chk=6270.55
+WARM,default,44100,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,44100,512,avg%=1.244,worst%=1.877,p99.9%=1.877,p99%=1.661,maxAllPasses%=3.398,structWorst%=1.234,structTypical%=1.234,structWorst64k%=1.274,prepare_ms=0.833,latency=274,nonFinite=0,blocks=862,chk=783.228
+WARM,default,48000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,48000,32,avg%=1.486,worst%=9.394,p99.9%=5.125,p99%=2.700,maxAllPasses%=15.863,structWorst%=2.369,structTypical%=1.312,structWorst64k%=2.381,prepare_ms=0.748,latency=282,nonFinite=0,blocks=15000,chk=13522.5
+WARM,default,48000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,48000,64,avg%=1.430,worst%=5.716,p99.9%=3.872,p99%=2.291,maxAllPasses%=8.809,structWorst%=1.794,structTypical%=1.269,structWorst64k%=1.822,prepare_ms=0.707,latency=282,nonFinite=0,blocks=7500,chk=6778.05
+WARM,default,48000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,48000,512,avg%=1.341,worst%=4.214,p99.9%=4.214,p99%=1.842,maxAllPasses%=8.456,structWorst%=1.324,structTypical%=1.324,structWorst64k%=1.352,prepare_ms=0.921,latency=282,nonFinite=0,blocks=938,chk=807.512
+WARM,default,96000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,96000,32,avg%=3.034,worst%=98.363,p99.9%=14.787,p99%=7.187,maxAllPasses%=279.325,structWorst%=6.100,structTypical%=2.650,structWorst64k%=6.200,prepare_ms=1.381,latency=378,nonFinite=0,blocks=30000,chk=26998.1
+WARM,default,96000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,96000,64,avg%=2.855,worst%=18.525,p99.9%=9.919,p99%=5.288,maxAllPasses%=73.269,structWorst%=4.319,structTypical%=2.575,structWorst64k%=4.412,prepare_ms=1.590,latency=378,nonFinite=0,blocks=15000,chk=13534.5
+WARM,default,96000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,96000,512,avg%=2.659,worst%=5.523,p99.9%=4.805,p99%=3.797,maxAllPasses%=8.935,structWorst%=2.812,structTypical%=2.434,structWorst64k%=2.853,prepare_ms=1.543,latency=378,nonFinite=0,blocks=1875,chk=1710.58
+WARM,default,192000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,192000,32,avg%=5.853,worst%=56.975,p99.9%=21.700,p99%=17.425,maxAllPasses%=576.000,structWorst%=17.450,structTypical%=5.225,structWorst64k%=17.475,prepare_ms=3.172,latency=570,nonFinite=0,blocks=60000,chk=53591.2
+WARM,default,192000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,192000,64,avg%=5.514,worst%=24.413,p99.9%=13.512,p99%=11.250,maxAllPasses%=56.350,structWorst%=11.175,structTypical%=5.025,structWorst64k%=11.213,prepare_ms=2.963,latency=570,nonFinite=0,blocks=30000,chk=26773.5
+WARM,default,192000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,192000,512,avg%=5.112,worst%=9.386,p99.9%=7.066,p99%=6.659,maxAllPasses%=16.675,structWorst%=6.205,structTypical%=4.714,structWorst64k%=6.239,prepare_ms=3.072,latency=570,nonFinite=0,blocks=3750,chk=3364.52
+WARM,manual,44100,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,44100,32,avg%=1.039,worst%=7.252,p99.9%=3.882,p99%=2.165,maxAllPasses%=40.500,structWorst%=1.711,structTypical%=0.879,structWorst64k%=1.740,prepare_ms=0.796,latency=274,nonFinite=0,blocks=13782,chk=16422.8
+WARM,manual,44100,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,44100,64,avg%=0.967,worst%=4.884,p99.9%=1.625,p99%=1.367,maxAllPasses%=26.474,structWorst%=1.286,structTypical%=0.873,structWorst64k%=1.329,prepare_ms=0.781,latency=274,nonFinite=0,blocks=6891,chk=8205.57
+WARM,manual,44100,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,44100,512,avg%=0.886,worst%=1.088,p99.9%=1.088,p99%=0.998,maxAllPasses%=1.209,structWorst%=0.881,structTypical%=0.881,structWorst64k%=0.890,prepare_ms=0.717,latency=274,nonFinite=0,blocks=862,chk=1025.67
+WARM,manual,48000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,48000,32,avg%=1.069,worst%=2.631,p99.9%=1.988,p99%=1.869,maxAllPasses%=14.225,structWorst%=1.844,structTypical%=0.950,structWorst64k%=1.862,prepare_ms=0.700,latency=282,nonFinite=0,blocks=15000,chk=17622.1
+WARM,manual,48000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,48000,64,avg%=1.047,worst%=2.356,p99.9%=2.034,p99%=1.587,maxAllPasses%=7.078,structWorst%=1.366,structTypical%=0.925,structWorst64k%=1.375,prepare_ms=0.687,latency=282,nonFinite=0,blocks=7500,chk=8838.53
+WARM,manual,48000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,48000,512,avg%=0.964,worst%=1.146,p99.9%=1.146,p99%=1.033,maxAllPasses%=1.979,structWorst%=0.960,structTypical%=0.960,structWorst64k%=0.973,prepare_ms=0.819,latency=282,nonFinite=0,blocks=938,chk=1055.92
+WARM,manual,96000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,96000,32,avg%=2.148,worst%=9.200,p99.9%=6.400,p99%=5.013,maxAllPasses%=31.663,structWorst%=4.975,structTypical%=1.913,structWorst64k%=5.000,prepare_ms=1.306,latency=378,nonFinite=0,blocks=30000,chk=34301.8
+WARM,manual,96000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,96000,64,avg%=2.079,worst%=5.487,p99.9%=4.487,p99%=3.587,maxAllPasses%=22.731,structWorst%=3.394,structTypical%=1.850,structWorst64k%=3.419,prepare_ms=1.429,latency=378,nonFinite=0,blocks=15000,chk=17198.2
+WARM,manual,96000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,96000,512,avg%=1.936,worst%=3.098,p99.9%=2.627,p99%=2.377,maxAllPasses%=4.609,structWorst%=2.098,structTypical%=1.741,structWorst64k%=2.130,prepare_ms=1.262,latency=378,nonFinite=0,blocks=1875,chk=2176.9
+WARM,manual,192000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,192000,32,avg%=4.252,worst%=23.450,p99.9%=17.600,p99%=15.325,maxAllPasses%=571.450,structWorst%=15.500,structTypical%=3.800,structWorst64k%=15.525,prepare_ms=2.852,latency=570,nonFinite=0,blocks=60000,chk=65721.3
+WARM,manual,192000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,192000,64,avg%=4.124,worst%=14.487,p99.9%=11.987,p99%=9.588,maxAllPasses%=56.575,structWorst%=9.512,structTypical%=3.675,structWorst64k%=9.537,prepare_ms=2.921,latency=570,nonFinite=0,blocks=30000,chk=32847.7
+WARM,manual,192000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,192000,512,avg%=3.862,worst%=8.072,p99.9%=6.506,p99%=5.441,maxAllPasses%=21.334,structWorst%=4.930,structTypical%=3.458,structWorst64k%=4.959,prepare_ms=2.817,latency=570,nonFinite=0,blocks=3750,chk=4118.43
+WARM,auto50,44100,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,44100,32,avg%=1.407,worst%=6.833,p99.9%=4.439,p99%=2.791,maxAllPasses%=10.037,structWorst%=2.205,structTypical%=1.212,structWorst64k%=2.245,prepare_ms=0.777,latency=274,nonFinite=0,blocks=13782,chk=13201.3
+WARM,auto50,44100,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,44100,64,avg%=1.346,worst%=4.008,p99.9%=3.052,p99%=2.090,maxAllPasses%=7.821,structWorst%=1.671,structTypical%=1.174,structWorst64k%=1.757,prepare_ms=0.735,latency=274,nonFinite=0,blocks=6891,chk=6584.93
+WARM,auto50,44100,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,44100,512,avg%=1.248,worst%=1.818,p99.9%=1.818,p99%=1.609,maxAllPasses%=15.381,structWorst%=1.245,structTypical%=1.245,structWorst64k%=1.272,prepare_ms=0.779,latency=274,nonFinite=0,blocks=862,chk=822.521
+WARM,auto50,48000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,48000,32,avg%=1.445,worst%=6.756,p99.9%=3.162,p99%=2.381,maxAllPasses%=25.425,structWorst%=2.369,structTypical%=1.312,structWorst64k%=2.387,prepare_ms=0.753,latency=282,nonFinite=0,blocks=15000,chk=14191.5
+WARM,auto50,48000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,48000,64,avg%=1.422,worst%=3.747,p99.9%=2.650,p99%=2.028,maxAllPasses%=8.950,structWorst%=1.800,structTypical%=1.275,structWorst64k%=1.834,prepare_ms=0.730,latency=282,nonFinite=0,blocks=7500,chk=7112.74
+WARM,auto50,48000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,48000,512,avg%=1.340,worst%=2.267,p99.9%=2.267,p99%=1.568,maxAllPasses%=11.147,structWorst%=1.334,structTypical%=1.334,structWorst64k%=1.355,prepare_ms=0.813,latency=282,nonFinite=0,blocks=938,chk=846.784
+WARM,auto50,96000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,96000,32,avg%=2.962,worst%=16.850,p99.9%=8.700,p99%=6.162,maxAllPasses%=48.675,structWorst%=6.025,structTypical%=2.638,structWorst64k%=6.050,prepare_ms=1.445,latency=378,nonFinite=0,blocks=30000,chk=28240.8
+WARM,auto50,96000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,96000,64,avg%=2.780,worst%=6.744,p99.9%=5.581,p99%=4.375,maxAllPasses%=18.394,structWorst%=4.237,structTypical%=2.538,structWorst64k%=4.256,prepare_ms=1.500,latency=378,nonFinite=0,blocks=15000,chk=14157.7
+WARM,auto50,96000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,96000,512,avg%=2.608,worst%=4.295,p99.9%=4.287,p99%=3.325,maxAllPasses%=7.384,structWorst%=2.811,structTypical%=2.436,structWorst64k%=2.847,prepare_ms=1.386,latency=378,nonFinite=0,blocks=1875,chk=1789.75
+WARM,auto50,192000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,192000,32,avg%=5.944,worst%=44.075,p99.9%=23.975,p99%=17.650,maxAllPasses%=455.525,structWorst%=17.550,structTypical%=5.250,structWorst64k%=17.625,prepare_ms=2.951,latency=570,nonFinite=0,blocks=60000,chk=56494
+WARM,auto50,192000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,192000,64,avg%=5.617,worst%=35.413,p99.9%=14.900,p99%=11.938,maxAllPasses%=371.238,structWorst%=11.263,structTypical%=5.050,structWorst64k%=11.338,prepare_ms=3.179,latency=570,nonFinite=0,blocks=30000,chk=28226.3
+WARM,auto50,192000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto50,192000,512,avg%=5.305,worst%=10.223,p99.9%=9.494,p99%=7.603,maxAllPasses%=45.212,structWorst%=6.358,structTypical%=4.812,structWorst64k%=6.439,prepare_ms=2.903,latency=570,nonFinite=0,blocks=3750,chk=3546.91
+WARM,auto100,44100,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,44100,32,avg%=1.403,worst%=7.591,p99.9%=4.628,p99%=2.624,maxAllPasses%=16.572,structWorst%=2.228,structTypical%=1.235,structWorst64k%=2.274,prepare_ms=0.755,latency=274,nonFinite=0,blocks=13782,chk=14980.9
+WARM,auto100,44100,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,44100,64,avg%=1.351,worst%=6.362,p99.9%=4.137,p99%=2.145,maxAllPasses%=42.819,structWorst%=1.694,structTypical%=1.197,structWorst64k%=1.766,prepare_ms=0.764,latency=274,nonFinite=0,blocks=6891,chk=7484.54
+WARM,auto100,44100,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,44100,512,avg%=1.263,worst%=2.161,p99.9%=2.161,p99%=1.732,maxAllPasses%=2.395,structWorst%=1.261,structTypical%=1.261,structWorst64k%=1.294,prepare_ms=0.711,latency=274,nonFinite=0,blocks=862,chk=926.826
+WARM,auto100,48000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,48000,32,avg%=1.513,worst%=11.444,p99.9%=5.181,p99%=2.781,maxAllPasses%=32.825,structWorst%=2.387,structTypical%=1.331,structWorst64k%=2.438,prepare_ms=0.716,latency=282,nonFinite=0,blocks=15000,chk=16064.7
+WARM,auto100,48000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,48000,64,avg%=1.453,worst%=7.484,p99.9%=3.694,p99%=2.284,maxAllPasses%=31.500,structWorst%=1.828,structTypical%=1.303,structWorst64k%=1.878,prepare_ms=0.712,latency=282,nonFinite=0,blocks=7500,chk=8050.14
+WARM,auto100,48000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,48000,512,avg%=1.349,worst%=1.953,p99.9%=1.953,p99%=1.709,maxAllPasses%=5.586,structWorst%=1.349,structTypical%=1.349,structWorst64k%=1.382,prepare_ms=0.730,latency=282,nonFinite=0,blocks=938,chk=956.361
+WARM,auto100,96000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,96000,32,avg%=3.035,worst%=24.825,p99.9%=9.688,p99%=6.488,maxAllPasses%=39.962,structWorst%=6.075,structTypical%=2.675,structWorst64k%=6.138,prepare_ms=1.416,latency=378,nonFinite=0,blocks=30000,chk=31760.1
+WARM,auto100,96000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,96000,64,avg%=2.813,worst%=6.938,p99.9%=5.431,p99%=4.506,maxAllPasses%=51.869,structWorst%=4.263,structTypical%=2.575,structWorst64k%=4.287,prepare_ms=1.385,latency=378,nonFinite=0,blocks=15000,chk=15893.2
+WARM,auto100,96000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,96000,512,avg%=2.606,worst%=3.845,p99.9%=3.415,p99%=3.092,maxAllPasses%=12.930,structWorst%=2.818,structTypical%=2.447,structWorst64k%=2.878,prepare_ms=1.307,latency=378,nonFinite=0,blocks=1875,chk=2007.51
+WARM,auto100,192000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,192000,32,avg%=5.966,worst%=71.150,p99.9%=23.725,p99%=17.650,maxAllPasses%=145.925,structWorst%=17.575,structTypical%=5.300,structWorst64k%=17.700,prepare_ms=3.067,latency=570,nonFinite=0,blocks=60000,chk=61134.3
+WARM,auto100,192000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,192000,64,avg%=5.771,worst%=42.113,p99.9%=16.675,p99%=12.400,maxAllPasses%=444.225,structWorst%=11.425,structTypical%=5.150,structWorst64k%=11.750,prepare_ms=3.063,latency=570,nonFinite=0,blocks=30000,chk=30554
+WARM,auto100,192000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,auto100,192000,512,avg%=5.397,worst%=11.041,p99.9%=9.148,p99%=7.672,maxAllPasses%=70.634,structWorst%=6.394,structTypical%=4.870,structWorst64k%=6.469,prepare_ms=2.821,latency=570,nonFinite=0,blocks=3750,chk=3863.42
+WARM,typical,44100,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,44100,32,avg%=1.245,worst%=6.403,p99.9%=3.732,p99%=2.446,maxAllPasses%=464.290,structWorst%=2.079,structTypical%=1.080,structWorst64k%=2.113,prepare_ms=0.767,latency=274,nonFinite=0,blocks=13782,chk=16443.2
+WARM,typical,44100,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,44100,64,avg%=1.211,worst%=5.079,p99.9%=2.865,p99%=1.947,maxAllPasses%=30.945,structWorst%=1.548,structTypical%=1.057,structWorst64k%=1.591,prepare_ms=0.824,latency=274,nonFinite=0,blocks=6891,chk=8215.82
+WARM,typical,44100,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,44100,512,avg%=1.133,worst%=2.049,p99.9%=2.049,p99%=1.517,maxAllPasses%=4.010,structWorst%=1.106,structTypical%=1.106,structWorst64k%=1.157,prepare_ms=0.787,latency=274,nonFinite=0,blocks=862,chk=1026.73
+WARM,typical,48000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,48000,32,avg%=1.355,worst%=7.963,p99.9%=4.094,p99%=2.650,maxAllPasses%=31.431,structWorst%=2.244,structTypical%=1.181,structWorst64k%=2.281,prepare_ms=0.716,latency=282,nonFinite=0,blocks=15000,chk=17675.8
+WARM,typical,48000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,48000,64,avg%=1.323,worst%=4.881,p99.9%=3.459,p99%=2.306,maxAllPasses%=21.675,structWorst%=1.672,structTypical%=1.147,structWorst64k%=1.728,prepare_ms=0.836,latency=282,nonFinite=0,blocks=7500,chk=8862.39
+WARM,typical,48000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,48000,512,avg%=1.216,worst%=1.970,p99.9%=1.970,p99%=1.608,maxAllPasses%=2.732,structWorst%=1.189,structTypical%=1.189,structWorst64k%=1.224,prepare_ms=0.864,latency=282,nonFinite=0,blocks=938,chk=1060.51
+WARM,typical,96000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,96000,32,avg%=2.685,worst%=17.938,p99.9%=9.263,p99%=6.050,maxAllPasses%=34.737,structWorst%=5.763,structTypical%=2.363,structWorst64k%=5.812,prepare_ms=1.416,latency=378,nonFinite=0,blocks=30000,chk=34437.2
+WARM,typical,96000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,96000,64,avg%=2.621,worst%=14.838,p99.9%=7.025,p99%=4.844,maxAllPasses%=23.306,structWorst%=3.994,structTypical%=2.288,structWorst64k%=4.044,prepare_ms=1.391,latency=378,nonFinite=0,blocks=15000,chk=17262.8
+WARM,typical,96000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,96000,512,avg%=2.424,worst%=7.196,p99.9%=4.188,p99%=3.509,maxAllPasses%=19.211,structWorst%=2.533,structTypical%=2.155,structWorst64k%=2.630,prepare_ms=1.446,latency=378,nonFinite=0,blocks=1875,chk=2184.4
+WARM,typical,192000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,192000,32,avg%=5.431,worst%=49.725,p99.9%=22.450,p99%=17.300,maxAllPasses%=1613.725,structWorst%=17.175,structTypical%=4.725,structWorst64k%=17.300,prepare_ms=3.072,latency=570,nonFinite=0,blocks=60000,chk=66057.3
+WARM,typical,192000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,192000,64,avg%=5.155,worst%=28.913,p99.9%=14.438,p99%=11.738,maxAllPasses%=137.338,structWorst%=10.800,structTypical%=4.562,structWorst64k%=10.900,prepare_ms=2.897,latency=570,nonFinite=0,blocks=30000,chk=33024.5
+WARM,typical,192000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,typical,192000,512,avg%=4.794,worst%=24.664,p99.9%=12.842,p99%=7.172,maxAllPasses%=1591.878,structWorst%=5.872,structTypical%=4.336,structWorst64k%=5.928,prepare_ms=2.863,latency=570,nonFinite=0,blocks=3750,chk=4144.63
+POWER,07:53:49,source=AC Power,lowpowermode=0
+exit=0
+END 07:53:49

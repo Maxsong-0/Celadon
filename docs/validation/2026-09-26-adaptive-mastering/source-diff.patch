@@ -1,0 +1,2000 @@
+--- before/Source/Parameters.cpp
++++ after/Source/Parameters.cpp
+@@ -153,9 +153,9 @@
+ 
+         layout.add (makeBool (balanceBypass, "Balance Bypass", false, kParamVersionBalance));
+ 
+-        // ---- GLAZE 总旋钮（ADR-006；v0.4 引入，版本号 4）：0 ～ 100 %，默认 0 = 不叠加任何偏移 ----
++        // 新实例从温和的自动处理开始；0 仍是严格手动。旧工程缺参的回退值在处理器中独立保留为 0。
+         layout.add (makeFloat (glazeAmount, "Glaze",
+-                               { 0.0f, 100.0f, 0.1f }, 0.0f, integerAttributes ("%"), kParamVersionGlaze));
++                               { 0.0f, 100.0f, 0.1f }, 35.0f, integerAttributes ("%"), kParamVersionGlaze));
+ 
+         // ---- GLAZE 风格（ADR-008；v0.6 引入，版本号 6）：自动 / 温润 / 冲击 / 通透，默认自动 ----
+         // 选项名用英文（宿主自动化列表里显示，与 Balance Speed 一致）；界面胶囊显示中文。顺序 = glaze::Style 的下标。
+--- before/Source/PluginProcessor.cpp
++++ after/Source/PluginProcessor.cpp
+@@ -683,8 +683,8 @@
+     // 旧版本存的状态里没有后来才加的参数（v0.3 之前没有 Balance、v0.4 之前没有 GLAZE）。APVTS 换树时对缺席的参数
+     // 只补一个空节点、保留实例当前值（juce_AudioProcessorValueTreeState.cpp updateParameterConnectionsToChildTrees），
+     // 于是对「已经在用的实例」读旧预设 / 旧片段（Ableton Hot-Swap、FL 预设）时，GLAZE 会沿用读之前的值，而不是
+-    // 回到默认 0（2026-09-25 评审 v0.4 R2-01）。这里给每个缺席的参数补一个只带 id、不带 value 的节点：
+-    // setNewState 读不到 value 就用参数默认值，读旧状态的结果与「新实例读旧状态」一致。
++    // 回到旧版的 0（2026-09-25 评审 v0.4 R2-01）。新实例的 GLAZE 默认已改为 35，因此缺参恢复必须显式写 0；
++    // 其余缺席参数补只带 id 的节点，由 setNewState 使用参数默认值。
+     // 节点类型与属性名是 APVTS 的状态格式（每个参数一个 PARAM 子节点，属性 id / value），与 copyState 存出来的一致。
+     static const juce::Identifier parameterNodeType { "PARAM" }, parameterIdProperty { "id" };
+ 
+@@ -698,7 +698,12 @@
+     for (auto* parameter : juce::AudioProcessor::getParameters())
+         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
+             if (! newState.getChildWithProperty (parameterIdProperty, withId->paramID).isValid())
+-                newState.appendChild (juce::ValueTree (parameterNodeType, { { parameterIdProperty, withId->paramID } }), nullptr);
++            {
++                juce::ValueTree node (parameterNodeType, { { parameterIdProperty, withId->paramID } });
++                if (withId->paramID == celadon::param::glazeAmount)
++                    node.setProperty ("value", 0.0f, nullptr);
++                newState.appendChild (node, nullptr);
++            }
+ }
+ 
+ //==============================================================================
+--- before/Source/dsp/BalanceModule.cpp
++++ after/Source/dsp/BalanceModule.cpp
+@@ -81,6 +81,16 @@
+         constexpr double automaticRecoverStartSeconds = 0.15;
+         constexpr double automaticRecoverFullSeconds  = 0.50;
+         constexpr double automaticRecoverSupportDb    = 1.0;
++
++        // 自动 Tame 仅处理有两侧宽带内容的持续局部峰。起音时重新等待，短脉冲不会积累成长期共振。
++        // 判定全在固定 hop 网格上，复用原始功率，不增加 FFT、音频延迟或分配。
++        constexpr double automaticTameStartSeconds = 0.18;
++        constexpr double automaticTameFullSeconds  = 0.45;
++        constexpr double automaticTameOnsetHoldSeconds = 0.06;
++        constexpr double automaticTameOnsetPowerRatio  = 4.0;  // 相邻原始帧上升 6 dB
++        constexpr double automaticTamePresentRatio = 0.5;
++        constexpr double automaticTameSupportRatio = 1.0e-4;   // 两侧各至少两段，在本段之下 40 dB 内且高于门限
++        constexpr double automaticTameMaxExtraDb   = 2.5;
+ 
+         constexpr int    referenceLockHops  = 8;         // 段复活后参考锁在偏差 0 的 hop 数（≈ 85 ms：一整窗 + Mid 攻击时间）
+ 
+@@ -351,6 +361,9 @@
+             gateWeight[b]       = 0.0;
+             targetGainDb[b]     = 0.0;
+             automaticDeficitSeconds[b] = 0.0;
++            automaticPeakSeconds[b] = 0.0;
++            automaticOnsetHoldSeconds[b] = 0.0;
++            previousBandPower[b] = 0.0;
+             hopStartGainDb[b]   = 0.0;
+             gainForCoefficients[b] = 0.0;
+             activeBands[b]      = 0;
+@@ -374,7 +387,9 @@
+         params.recover  = std::isfinite (newParams.recover) ? juce::jlimit (0.0f, 100.0f, newParams.recover) : 0.0f;
+         params.automaticRecover = std::isfinite (newParams.automaticRecover)
+                                     ? juce::jlimit (0.0f, params.recover, newParams.automaticRecover) : 0.0f;
+-        params.tame     = juce::jlimit (0.0f, 100.0f, newParams.tame);
++        params.tame     = std::isfinite (newParams.tame) ? juce::jlimit (0.0f, 100.0f, newParams.tame) : 0.0f;
++        params.automaticTame = std::isfinite (newParams.automaticTame)
++                                 ? juce::jlimit (0.0f, params.tame, newParams.automaticTame) : 0.0f;
+         params.brighten = std::isfinite (newParams.brighten) ? juce::jlimit (-100.0f, 100.0f, newParams.brighten) : 0.0f;
+         params.speed    = static_cast<Speed> (juce::jlimit (0, numSpeeds - 1, static_cast<int> (newParams.speed)));
+         params.bypass   = newParams.bypass;
+@@ -1077,12 +1092,51 @@
+         const auto tame     = (double) frameParams.tame / 100.0;
+         const auto recover  = (double) frameParams.recover / 100.0;
+         const auto automaticRecover = (double) frameParams.automaticRecover / 100.0;
++        const auto automaticTame = (double) frameParams.automaticTame / 100.0;
+         const auto brighten = (double) frameParams.brighten / 100.0;
+ 
+         for (size_t b = 0; b < (size_t) numBands; ++b)
+         {
+             double target = 0.0;
+             double automaticWeight = 0.0;
++            double automaticTameWeight = 0.0;
++
++            if (automaticTame > 0.0)
++            {
++                const auto rising = bandPower[b] > automaticTameOnsetPowerRatio * juce::jmax (powerFloor, previousBandPower[b]);
++                automaticOnsetHoldSeconds[b] = rising ? automaticTameOnsetHoldSeconds
++                    : juce::jmax (0.0, automaticOnsetHoldSeconds[b] - hopSeconds);
++
++                // 不用紧邻段作唯一支撑：单音的 Hann 主瓣/泄漏可能占住邻段。两侧各取距离 2、3 的段，
++                // 都须有可信内容；端点或孤立持续单音没有这样的宽带参照，不擅自把它当作共振削掉。
++                int leftSupport = 0, rightSupport = 0;
++                for (int distance = 2; distance <= kernelRadius; ++distance)
++                {
++                    const auto supported = [&] (size_t neighbour)
++                    {
++                        return gateWeight[neighbour] >= 0.5
++                            && quickPower[neighbour] >= bandPower[b] * automaticTameSupportRatio;
++                    };
++                    if ((int) b >= distance && supported (b - (size_t) distance)) ++leftSupport;
++                    if (b + (size_t) distance < (size_t) numBands && supported (b + (size_t) distance)) ++rightSupport;
++                }
++
++                const auto persistentPeak = bandAlive[b] && leftSupport == 2 && rightSupport == 2
++                    && fastLevelDb[b] - smoothedLevelDb[b] > deadZoneDb
++                    && bandPower[b] >= averagedPower[b] * automaticTamePresentRatio
++                    && automaticOnsetHoldSeconds[b] <= 0.0;
++                automaticPeakSeconds[b] = persistentPeak
++                    ? juce::jmin (automaticTameFullSeconds, automaticPeakSeconds[b] + hopSeconds) : 0.0;
++                automaticTameWeight = juce::jlimit (0.0, 1.0,
++                    (automaticPeakSeconds[b] - automaticTameStartSeconds)
++                        / (automaticTameFullSeconds - automaticTameStartSeconds));
++            }
++            else
++            {
++                automaticPeakSeconds[b] = 0.0;
++                automaticOnsetHoldSeconds[b] = 0.0;
++            }
++            previousBandPower[b] = bandPower[b];
+ 
+             if (automaticRecover > 0.0 && bandAlive[b] && b > 0 && b + 1 < (size_t) numBands)
+             {
+@@ -1139,6 +1193,16 @@
+                     const auto localPeakExcess = juce::jmax (0.0, fastLevelDb[b] - smoothedLevelDb[b] - deadZoneDb);
+                     const auto extra = tame * tame * juce::jmin (excess, localPeakExcess);
+                     target = -juce::jmin (excess * tame + extra, maxTameCorrectionDb * tame);
++                    if (automaticTame > 0.0)
++                    {
++                        // 曲线非线性：先保留完整手动曲线，再限制「总量减手动量」的自动增量。
++                        // automaticTame = 0 完全不进此分支，手动行为和原运算顺序不变。
++                        const auto manualTame = juce::jmax (0.0, tame - automaticTame);
++                        const auto manualExtra = manualTame * manualTame * juce::jmin (excess, localPeakExcess);
++                        const auto manualDepth = juce::jmin (excess * manualTame + manualExtra, maxTameCorrectionDb * manualTame);
++                        const auto automaticDepth = juce::jlimit (0.0, automaticTameMaxExtraDb, -target - manualDepth);
++                        target = -(manualDepth + automaticDepth * automaticTameWeight);
++                    }
+                 }
+                 else if (excess < 0.0 && recover > 0.0)
+                 {
+--- before/Source/dsp/BalanceModule.h
++++ after/Source/dsp/BalanceModule.h
+@@ -12,6 +12,7 @@
+                        + 全段共同电平 C（各段 60 ms 快电平的稳健位置估计，整体变响 / 变轻时立刻跟上）
+       → 偏差 D[b] = Lfast − R → 死区 ±1 dB → Tame 压 / Recover 提
+         Tame 增强只作用于同帧频谱中的局部峰，共同电平变化保留原有基础力度
++        自动 Tame 份额另需两侧宽带支撑与持续局部峰，原始帧起音触发短暂保护，自动新增削减最多 2.5 dB
+       → 独立叠加 Brighten 倾斜（每十倍频程 3 dB × Brighten / 100）
+       → 每段合计限制 −8 ～ +6 dB、−60 dBFS 静音门、每 hop 最多变 1 dB
+       → 修正量 G[b]（dB）。
+@@ -60,6 +61,7 @@
+             Speed speed    = Speed::mid;
+             bool  bypass   = false;
+             float automaticRecover = 0.0f; // 0 ～ recover：Recover 中由自动编排加入的份额；仅这部分保护滚降/短暂缺口
++            float automaticTame = 0.0f;    // 0 ～ tame：Tame 中的自动份额；逐段持续许可/起音保护，新增削减最多 2.5 dB
+         };
+ 
+         using BandGains = std::array<float, (size_t) numBands>;
+@@ -234,6 +236,9 @@
+         PerBand<double> gateWeight {};          // 静音门软权重 0 ～ 1
+         PerBand<double> targetGainDb {};        // 本 hop 决定的 G[b]，下一个 hop 到达时滤波器正好等于它
+         PerBand<double> automaticDeficitSeconds {}; // 自动 Recover 的连续缺口时长；仅利用现有频谱，每 hop 更新
++        PerBand<double> automaticPeakSeconds {};    // 自动 Tame 的连续局部峰时长（起音保护期间不累计）
++        PerBand<double> automaticOnsetHoldSeconds {};
++        PerBand<double> previousBandPower {};       // 起音检测用原始帧，避免慢测量的余尾继续获得自动许可
+         PerBand<double> hopStartGainDb {};      // 本 hop 开始时的 G[b]，插值起点
+         double commonLevelDb = 0.0;             // 全段共同的电平 C：各段 (quickLevel − S) 的稳健位置估计，每 hop 直接重估
+         double quickCoeff = 0.0;                // quickPower 的 hop 一阶系数
+--- before/Source/dsp/CeladonChain.cpp
++++ after/Source/dsp/CeladonChain.cpp
+@@ -42,6 +42,9 @@
+         inputMeter.prepare (spec);
+         outputMeter.prepare (spec);
+         controller.prepare (spec);
++        listenSampleRate = spec.sampleRate;
++        listenGain.reset (listenSampleRate, 0.02);
++        resetListenMeasurement (true);
+     }
+ 
+     void CeladonChain::reset()
+@@ -50,6 +53,7 @@
+         color.reset();
+         limiter.reset();
+         controller.hostReset();
++        resetListenMeasurement (false);
+     }
+ 
+     void CeladonChain::restartWithFadeIn()
+@@ -64,6 +68,7 @@
+ 
+         // 编排器按宿主 reset 清运行状态（分析窗口、校准当前子窗、保护偏移），已提交的画像与方案保留。
+         controller.hostReset();
++        resetListenMeasurement (false);
+     }
+ 
+     void CeladonChain::setHostInfo (const glaze::HostInfo& info) noexcept
+@@ -73,9 +78,8 @@
+ 
+     void CeladonChain::setParams (const Params& newParams, bool hostBypassed)
+     {
+-        // GLAZE 放在链里（ADR-008）：编排器按手动值 + 自动增量（+ 校准偏差、保护偏移）算出实际参数。Listen 用的是实际 Gain，
+-        // 等响度对比仍然成立。交给编排器的是用户的手动值（旁通标志未被宿主旁通改写：宿主旁通只暂停校准，不重算方案）。
+-        effective = controller.beginBlock (newParams, hostBypassed || newParams.limit.listen);
++        // Listen 增益在输出测点之后独立施加，不反馈到方案、校准、保护层或响度估计。
++        effective = controller.beginBlock (newParams, hostBypassed);
+ 
+         // 宿主旁通不另走一条路，而是把每个模块都置为旁通：各模块自带等长延迟的干路与 20 ms 交叉淡化
+         // （Balance 零延迟，干路就是输入本身），整条链旁通后输出仍是延迟补偿过的干信号——延迟不变、
+@@ -87,10 +91,17 @@
+         balanceParams.bypass = balanceParams.bypass || hostBypassed;
+         colorParams.bypass   = colorParams.bypass   || hostBypassed;
+         limitParams.bypass   = limitParams.bypass   || hostBypassed;
++        limitParams.listen = false;   // 独立 Limiter 仍支持旧 Listen；整链使用实测的全链监听补偿。
+ 
+         balance.setParams (balanceParams);
+         color.setParams (colorParams);
+         limiter.setParams (limitParams);
++        listenRequested = newParams.limit.listen;
++        const auto bypassChanged = hostIsBypassed != hostBypassed;
++        hostIsBypassed = hostBypassed;
++        if (listenSampleRate > 0.0 && (bypassChanged || listenLatency != getLatencySamples()))
++            resetListenMeasurement (false);
++        updateListenTarget();
+     }
+ 
+     bool CeladonChain::process (juce::AudioBuffer<float>& io)
+@@ -141,7 +152,131 @@
+         stats.musicActive = false;   // 编排器按分析器的有效信号门限填
+ 
+         controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples());
++        processListen (io);
+         return nonFinite;
++    }
++
++    void CeladonChain::resetListenMeasurement (bool resetGain)
++    {
++        listenLatency = getLatencySamples();
++        listenHasEstimate = false;
++        listenInputEnergy = listenOutputEnergy = 0.0;
++        listenInputHistory.fill ({});
++        listenWindowIn.fill (0.0);
++        listenWindowOut.fill (0.0);
++        listenWindowWrite = listenWindowCount = 0;
++        // 表不随宿主 reset 清空；丢弃旧子块，并避开跨 reset 的部分窗口与延迟尾巴。
++        std::array<LoudnessMeter::SubBlock, LoudnessMeter::subBlockRingCapacity> discarded;
++        listenInputCursor = listenOutputCursor = 0;
++        inputMeter.readSubBlocksSince (listenInputCursor, discarded.data(), (int) discarded.size());
++        outputMeter.readSubBlocksSince (listenOutputCursor, discarded.data(), (int) discarded.size());
++        listenIgnoreThrough = outputMeter.getProcessedSamples() + listenLatency + 2 * outputMeter.getSubBlockLength();
++        if (resetGain)
++        {
++            listenEstimateDb = 0.0f;
++            listenGain.setCurrentAndTargetValue (1.0f);
++        }
++    }
++
++    void CeladonChain::updateListenTarget()
++    {
++        // 只衰减：较轻的处理结果不会被抬高，避免监听补偿制造新的峰值超限。
++        const auto db = listenRequested && ! hostIsBypassed ? listenEstimateDb : 0.0f;
++        listenGain.setTargetValue (juce::Decibels::decibelsToGain (db));
++    }
++
++    void CeladonChain::applyListenGain (juce::AudioBuffer<float>& io, int start, int length)
++    {
++        if (! listenGain.isSmoothing() && listenGain.getCurrentValue() == 1.0f)
++            return;   // Listen 关着时保持原有逐位路径。
++        for (int i = start; i < start + length; ++i)
++        {
++            const auto gain = listenGain.getNextValue();
++            for (int ch = 0; ch < io.getNumChannels(); ++ch)
++                io.getWritePointer (ch)[i] *= gain;
++        }
++    }
++
++    void CeladonChain::processListen (juce::AudioBuffer<float>& io)
++    {
++        constexpr int capacity = LoudnessMeter::subBlockRingCapacity;
++        auto& in = listenInputRead;
++        auto& out = listenOutputRead;
++        const auto inputs = inputMeter.readSubBlocksSince (listenInputCursor, in.data(), capacity);
++        const auto outputs = outputMeter.readSubBlocksSince (listenOutputCursor, out.data(), capacity);
++        if (inputs < 0 || outputs < 0)
++        {
++            // 超大宿主块或计量中断导致环形数据丢失：保持已有监听增益，等连续新窗口，不能配错旧数据。
++            resetListenMeasurement (false);
++            applyListenGain (io, 0, io.getNumSamples());
++            return;
++        }
++        const auto blockLength = inputMeter.getSubBlockLength();
++        for (int i = 0; i < inputs; ++i)
++            listenInputHistory[(size_t) ((in[(size_t) i].endSample / blockLength) % capacity)] = in[(size_t) i];
++        const auto inputAt = [&] (std::int64_t end) -> const LoudnessMeter::SubBlock*
++        {
++            if (end <= 0) return nullptr;
++            const auto& entry = listenInputHistory[(size_t) ((end / blockLength) % capacity)];
++            return entry.endSample == end ? &entry : nullptr;
++        };
++        const auto latencyBlocks = listenLatency / blockLength;
++        const auto fraction = (double) (listenLatency % blockLength) / blockLength;
++        const auto startSample = outputMeter.getProcessedSamples() - io.getNumSamples();
++        int applied = 0;
++        for (int i = 0; i < outputs; ++i)
++        {
++            const auto& output = out[(size_t) i];
++            const auto offset = (int) juce::jlimit ((std::int64_t) 0, (std::int64_t) io.getNumSamples(), output.endSample - startSample);
++            applyListenGain (io, applied, offset - applied);
++            applied = offset;
++            if (hostIsBypassed || output.endSample <= listenIgnoreThrough) continue;
++            const auto* current = inputAt (output.endSample - (std::int64_t) latencyBlocks * blockLength);
++            const auto* previous = inputAt (output.endSample - (std::int64_t) (latencyBlocks + 1) * blockLength);
++            if (current == nullptr || (fraction > 0.0 && previous == nullptr)) continue;
++            // 延迟移动一个 100 ms 均方窗口：按重叠比例近似；不能重建窗口内瞬态的位置。
++            const auto input = (1.0 - fraction) * current->meanSquare + (previous != nullptr ? fraction * previous->meanSquare : 0.0);
++            if (! std::isfinite (input) || ! std::isfinite (output.meanSquare))
++                continue;
++            // 必须先累计完整窗口，静音也进入：不能把跨 100 ms 边界的一次鼓点的部分 IN 与完整 OUT 比较。
++            const auto newest = listenWindowWrite;
++            listenWindowIn[(size_t) newest] = input;
++            listenWindowOut[(size_t) newest] = output.meanSquare;
++            listenWindowWrite = (listenWindowWrite + 1) % listenWindowBlocks;
++            listenWindowCount = juce::jmin (listenWindowBlocks, listenWindowCount + 1);
++            if (listenWindowCount < listenWindowBlocks) continue;
++            double windowInput = 0.0, windowOutput = 0.0;
++            for (int j = 0; j < listenWindowBlocks; ++j)
++            {
++                windowInput += listenWindowIn[(size_t) j];
++                windowOutput += listenWindowOut[(size_t) j];
++            }
++            // 绝对门限约 −60 LUFS；静音与长尾冻结，不把噪底误当需补偿的音乐。
++            if (windowInput < 1.0e-6 * listenWindowBlocks || windowOutput < 1.0e-6 * listenWindowBlocks)
++                continue;
++            // 延迟插值只能近似窗口两端。边缘某子块占总能量 >20% 时，等该瞬态移进窗口内部；
++            // 持续信号每块约10%，孤立边缘脉冲接近100%。这道可靠性门避免错误深衰减冻结到下一击。
++            const auto oldest = listenWindowWrite;
++            if (juce::jmax (listenWindowIn[(size_t) oldest], listenWindowIn[(size_t) newest]) > 0.2 * windowInput
++                || juce::jmax (listenWindowOut[(size_t) oldest], listenWindowOut[(size_t) newest]) > 0.2 * windowOutput)
++                continue;
++            if (! listenHasEstimate)
++            {
++                listenInputEnergy = windowInput;
++                listenOutputEnergy = windowOutput;
++                listenHasEstimate = true;
++            }
++            else
++            {
++                // 1 s 窗口之外每 100 ms 平滑，约 0.28 s 时间常数；监听开着也持续估计，便于边调边听。
++                listenInputEnergy += 0.3 * (windowInput - listenInputEnergy);
++                listenOutputEnergy += 0.3 * (windowOutput - listenOutputEnergy);
++            }
++            const auto measuredDb = (float) (10.0 * std::log10 (listenInputEnergy / listenOutputEnergy));
++            listenEstimateDb = juce::jlimit (-24.0f, 0.0f, measuredDb);
++            updateListenTarget();
++        }
++        applyListenGain (io, applied, io.getNumSamples() - applied);
+     }
+ 
+     int CeladonChain::getLatencySamples() const noexcept
+--- before/Source/dsp/CeladonChain.h
++++ after/Source/dsp/CeladonChain.h
+@@ -11,8 +11,9 @@
+     入口分析与出口监测都在链内，整条 GLAZE 行为才能无头测试。每块的顺序：
+       setHostInfo → setParams（编排器 beginBlock 算实际参数，再交给三个模块）→
+       process：编排器接上一块的 Balance 帧 → IN 表 → 编排器入口分析 → Balance → Color → Limit → 输出非有限值清零并重启淡入 →
+-               OUT 表 → 编排器 endBlock。
+-    GLAZE 一直为 0 时实际参数逐位等于手动值：模块收到的参数、输出、表读数都与 v0.5 逐位相同。
++               OUT 表 → 编排器 endBlock → Listen 监听补偿。
++    Listen 在链末端按实测响度只衰减，不抬高较轻的母带；OUT 表始终显示监听补偿前的母带输出。
++    复用 100 ms K 加权能量，按延迟占子块的比例近似配对；不是样本精确的对齐测量。
+ 
+   ==============================================================================
+ */
+@@ -29,6 +30,7 @@
+ #include "LoudnessMeter.h"
+ 
+ #include <memory>
++#include <array>
+ 
+ namespace celadon
+ {
+@@ -57,7 +59,7 @@
+ 
+         // 音频线程每块调一次。编排器按 GLAZE 算出实际参数，再交给各模块——各模块自带的 20 ms 平滑 / 开关交叉淡化照常生效，
+         // 拧 GLAZE 不会有拉链噪声或咔哒。hostBypassed = 宿主旁通：强制旁通全部模块（各模块自带延迟补偿与 20 ms 交叉淡化），
+-        // 同时让编排器暂停校准（Limit Listen 也暂停校准）。
++        // 同时让编排器暂停校准；Listen 只影响测点后的监听增益，校准照常。
+         void setParams (const Params& newParams, bool hostBypassed);
+ 
+         // 原地处理。返回 true = 这一块输出出现了非有限值（内部溢出）：已清零、整链重启淡入，交给处理器计数。
+@@ -73,11 +75,11 @@
+         float getAndResetLimitGainReductionDb() noexcept;
+         float getAndResetGlueGainReductionDb() noexcept;
+ 
+-        // IN / OUT 真峰值：自上次读取以来的最大值（dBTP），读完清零。
++        // IN / OUT 真峰值：自上次读取以来的最大值（dBTP），读完清零；OUT 在 Listen 监听补偿之前。
+         float getAndResetInputTruePeakDb() noexcept          { return inputMeter.getAndResetTruePeakDb(); }
+         float getAndResetOutputTruePeakDb() noexcept         { return outputMeter.getAndResetTruePeakDb(); }
+ 
+-        // OUT 的短期 / 整体响度（界面右侧读数）。
++        // OUT 的短期 / 整体响度（界面右侧读数）：Listen 监听补偿之前的母带输出。
+         float getOutputShortTermLufs() const noexcept        { return outputMeter.getShortTermLufs(); }
+         float getOutputIntegratedLufs() const noexcept       { return outputMeter.getIntegratedLufs(); }
+ 
+@@ -104,6 +106,11 @@
+         const LoudnessMeter& getOutputMeter() const noexcept               { return outputMeter; }
+ 
+     private:
++        void resetListenMeasurement (bool resetGain);
++        void processListen (juce::AudioBuffer<float>& io);
++        void applyListenGain (juce::AudioBuffer<float>& io, int start, int length);
++        void updateListenTarget();
++
+         BalanceModule balance;
+         ColorModule color;
+         LimiterModule limiter;
+@@ -113,6 +120,20 @@
+ 
+         Params effective;
+ 
++        double listenSampleRate = 0.0;
++        bool listenRequested = false, hostIsBypassed = false, listenHasEstimate = false;
++        int listenLatency = 0;
++        std::int64_t listenInputCursor = 0, listenOutputCursor = 0, listenIgnoreThrough = 0;
++        std::array<LoudnessMeter::SubBlock, LoudnessMeter::subBlockRingCapacity> listenInputHistory {};
++        // 固定读缓冲重用，避免极小宿主块每次都清零两份 128 子块数组。
++        std::array<LoudnessMeter::SubBlock, LoudnessMeter::subBlockRingCapacity> listenInputRead {}, listenOutputRead {};
++        static constexpr int listenWindowBlocks = 10; // 1 s，静音子块也纳入窗口
++        std::array<double, listenWindowBlocks> listenWindowIn {}, listenWindowOut {};
++        int listenWindowWrite = 0, listenWindowCount = 0;
++        double listenInputEnergy = 0.0, listenOutputEnergy = 0.0;
++        float listenEstimateDb = 0.0f;
++        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> listenGain;
++
+         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CeladonChain)
+     };
+ }
+--- before/Source/dsp/GlazeConstants.cpp
++++ after/Source/dsp/GlazeConstants.cpp
+@@ -35,7 +35,7 @@
+         Constants makeFactoryConstants() noexcept
+         {
+             Constants c;   // A2 追加的字段（模型、映射、换算表）的默认值就是出厂值，这里只写风格与阶段 0 字段
+-            c.version = 3;
++            c.version = 4;
+             c.algorithmVersion = currentAlgorithmVersion;
+ 
+             auto& warm = c.warm;
+--- before/Source/dsp/GlazeConstants.h
++++ after/Source/dsp/GlazeConstants.h
+@@ -34,6 +34,8 @@
+ {
+     // 标定快照的数据格式版本（XML 结构，不是常数取值的版本）：读到比它高的格式 → 读取失败（按未学习处理）。
+     inline constexpr int constantsFormatVersion = 1;
++    // 算法 v4 的宽带容忍区；属于算法语义，旧算法保存的计划不重新解释。
++    inline constexpr float automaticToneSlopeDeadbandDbPerOct = 0.35f;
+ 
+     // Heat 换算表的格点（设计规格-GLAZE-决策与校准 第 5 节「驱动 → 非线性程度」表）。
+     inline constexpr int heatTableLevels = 5;    // Heat 入口真峰值格点数
+@@ -55,14 +57,14 @@
+         float limitGrPeakCapDb = 0.0f;
+         float recoverCap = 0.0f;             // Balance Recover 自动增量上限（0 ～ 100）
+         float tameCap = 0.0f;                // Balance Tame 自动增量上限（0 ～ 100）
+-        float toneMaxDb = 0.75f;             // Tone 自动增量上限（× GLAZE）
++        float toneMaxDb = 0.75f;             // Tone 自动增量绝对值上限（× GLAZE）
+         // 分配权重：初始方案里超限估计按此分给四个模块（只影响初始方案，最终以约束与实测为准）
+         float shareHeat = 0.0f, shareGlue = 0.0f, shareClip = 0.0f, shareLimit = 1.0f;
+ 
+         // ---- v0.6 A2 追加（默认值是中性占位，与上面的 heatDriveCap = 0 一致；各风格的出厂值见 GlazeConstants.cpp）----
+         // Heat「标定后的非线性程度」上限：Heat 入口真峰值处被削掉的量（dB，查 Heat 换算表）。与 heatDriveCap 同时生效。
+         float heatPeakReductionCapDb = 0.0f;
+-        // Tone 自动提亮的参考频谱斜率（dB / 倍频程，Balance 段内总功率口径：粉噪 = 0）：比它暗多少就提亮多少。
++        // Tone 双向修正的参考频谱斜率（dB / 倍频程，Balance 段内总功率口径：粉噪 = 0）。
+         float toneReferenceSlopeDbPerOct = -3.0f;
+     };
+ 
+@@ -199,7 +201,7 @@
+         float clipMinimumDepthDb = 0.25f;        // 【设计】分到 Clip 的削波深度小于它就不开 Clip（零点几 dB 的超出交给限幅器）
+ 
+         // Tone 与 Balance【设计】
+-        float toneDbPerSlopeDb = 0.5f;           // 比参考斜率暗 1 dB / 倍频程 → Tone 提亮本项 dB（再封顶 toneMaxDb × GLAZE）
++        float toneDbPerSlopeDb = 0.5f;           // 超出斜率容忍区后每 dB / oct 的双向 Tone 修正量
+         float recoverEvidenceFullDb = 1.5f;      // Recover 证据（27 段按置信加权的均方根，dB）到此 → 增量到上限
+         float tameEvidenceFullDb = 1.0f;         // Tame 证据同上（Recover 比 Tame 保守：同样的证据给得更少）
+ 
+--- before/Source/dsp/GlazeController.cpp
++++ after/Source/dsp/GlazeController.cpp
+@@ -130,12 +130,12 @@
+                 && sameBits (a.limit.gainDb, b.limit.gainDb) && sameBits (a.limit.ceilingDb, b.limit.ceilingDb)
+                 && sameBits (a.limit.releaseMs, b.limit.releaseMs) && a.limit.autoRelease == b.limit.autoRelease
+                 && sameBits (a.limit.lookaheadMs, b.limit.lookaheadMs) && sameBits (a.limit.clip, b.limit.clip)
+-                && a.limit.listen == b.limit.listen && a.limit.bypass == b.limit.bypass;
++                && a.limit.bypass == b.limit.bypass;
+         }
+ 
+         // 校准参考条件里「影响声音的手动参数」的哈希：各项量化到 1e-4（旋钮归一化来回一趟的舍入不算改动）后 FNV-1a。
+         // 另把约束反馈上限与「照用旧算法方案」并进来——它们改变方案、却不在参考条件的其他项里（「不同方案的数据绝不混用」）。
+-        // Listen 不算：它只让校准暂停，不改变方案。Ceiling / Lookahead 是参考条件自己的项。
++        // Listen 不算：它在所有测点之后施加监听增益，不改变方案或校准。Ceiling / Lookahead 是参考条件自己的项。
+         struct Fnv1a
+         {
+             std::uint32_t h = 2166136261u;
+@@ -486,7 +486,7 @@
+         ChainParams effective;
+         AutoIncrements increments;
+         bool active = false;             // 本块 GLAZE > 0
+-        bool paused = false;             // 本块校准暂停（宿主旁通 / Listen）
++        bool paused = false;             // 本块宿主旁通：暂停校准与 Tone 跟随；Listen 只影响最终监听增益。
+         Style currentStyle = Style::automatic;
+         bool styleKnown = false;
+         float executedBiasDb = 0.0f, executedGuardDb = 0.0f;
+@@ -508,6 +508,9 @@
+         std::int64_t referenceStableSamples = 0, roundMismatchSamples = 0;
+         float appliedBiasDb = 0.0f;
+         bool snapBias = true;
++        // 短期明暗只叠在固定画像的 Tone 上，不改变风格、响度目标或保存的计划。
++        float liveToneOffsetDb = 0.0f; // 满强度单位；GLAZE / 置信度在应用时缩放。
++        std::uint32_t liveToneProfileId = 0;
+ 
+         // ---- 保护层与约束反馈 ----
+         bool guardClean = true;
+@@ -939,7 +942,7 @@
+             // 校准子窗不作废：校准器按插件自己处理过的样本时间轴把输入、输出子块配对（链的延迟线是连续的），宿主时间线怎么跳
+             // 都不影响这一配对，量到的仍是「这条链对正在播的音乐」的净增益。原来按规格在这里作废当前子窗、再等 settle，
+             // 在 FL Studio 的 Pattern 模式（几秒一循环、不报循环信息，每次回到开头都像跳播）下校准永远凑不满，状态一直「校准中」
+-            // （v0.6 验收后 Max 报告；设计规格-GLAZE-实现修订 第 7 节）。真会让配对失效的——宿主 reset、改参数、Listen / 旁通、
++            // （v0.6 验收后 Max 报告；设计规格-GLAZE-实现修订 第 7 节）。真会让配对失效的——宿主 reset、改参数、宿主旁通、
+             // 保护层改了实际增益——照旧作废。
+             analyzer.handleDiscontinuity (Discontinuity::transportJump);
+             clearMismatch();
+@@ -949,6 +952,7 @@
+         void onLoopWrap() noexcept
+         {
+             // 循环回绕：同跳播（校准子窗同样不作废）；另外分析器按宿主位置识别重复覆盖，同一段反复循环不增加代表性（它自己记覆盖图）。
++            // live Tone 保持当前值，等新的频谱窗口稳定后继续慢速跟随；跳播同样不把它硬切回计划。
+             analyzer.handleDiscontinuity (Discontinuity::loopWrap);
+             clearMismatch();
+             ++probe.loopWraps;
+@@ -966,6 +970,8 @@
+             monitor.clear();
+             snapTransitions();
+             snapBias = true;
++            liveToneOffsetDb = 0.0f;
++            liveToneProfileId = 0;
+             clearMismatch();
+             ++probe.hostResets;
+         }
+@@ -1106,7 +1112,7 @@
+                 }
+             }
+ 
+-            // 开新一轮：已学过、GLAZE > 0、实时、不在 Listen / 旁通、没有方案过渡、不受手动限制、已提交的校准对此刻不适用、
++            // 开新一轮：已学过、GLAZE > 0、实时、不在宿主旁通、没有方案过渡、不受手动限制、已提交的校准对此刻不适用、
+             // 条件连续 1 s 没变，且不是刚刚对同一条件试过（试过而失败的不反复重试，等条件变了再说）。
+             // 保护层：在参考状态（g_保护 = 0）才开；它若停在某个退让值上一直不动（超过它自己「安全多久才恢复」的等待 + 1 s，
+             // 说明卡在回差区、不会自己回来），也开——这一轮会因保护层持续介入结束为「预算受限」，约束反馈把这点退让吸收进方案
+@@ -1382,6 +1388,65 @@
+         //==============================================================================
+         // ---- 实际参数 ----
+ 
++        void updateLiveTone (std::int64_t n) noexcept
++        {
++            if (! active || savedPlanMode || ! committed.hasProfile)
++            {
++                liveToneOffsetDb = 0.0f;
++                liveToneProfileId = 0;
++                return;
++            }
++            if (liveToneProfileId != committed.profileId)
++            {
++                liveToneProfileId = committed.profileId;
++                liveToneOffsetDb = 0.0f;
++            }
++
++            const auto& view = analyzer.getShortTermView();
++            const auto& learned = committed.profile.spectralSlopeDbPerOct;
++            const auto& current = view.liveSpectralSlopeDbPerOct;
++            if (paused || transitionActive || manual.color.bypass || ! (manual.color.mixPercent > 0.0f)
++                || ! view.musicActive || ! current.valid || ! isFinite (current.value) || current.confidence < 0.6f
++                || ! learned.valid || ! isFinite (learned.value) || learned.confidence < 0.5f
++                || ! view.momentaryLufs.valid || view.momentaryLufs.value < -50.0f
++                || (committed.profile.integratedLufs.valid
++                    && view.momentaryLufs.value < committed.profile.integratedLufs.value - 15.0f))
++                return; // 不足证据和静音保持已听到的音色，绝不追着底噪提亮。
++
++            const auto& c = toSlot().source.constants;
++            const auto caps = blendConstants (c, toSlot().plan.weights);
++            const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * confidenceScale (&committed.profile, c);
++            if (! (strength > 0.0f) || ! isFinite (caps.toneMaxDb) || ! (caps.toneMaxDb > 0.0f)
++                || ! isFinite (c.toneDbPerSlopeDb))
++                return;
++            // 与实时回归完全相同的段和稳健权重：长期 OLS 与实时 Huber 不能直接相减，
++            // 否则同一段带窄峰的素材也会产生假漂移。画像本身及其风格仍固定。
++            double sw = 0.0, sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0, trustedWeight = 0.0;
++            for (int b = 0; b < numBands; ++b)
++            {
++                const auto w = (double) view.liveSlopeWeights[(size_t) b];
++                const auto y = committed.profile.bandLongTermDb[(size_t) b];
++                const auto confidence = committed.profile.bandConfidence[(size_t) b];
++                if (! isFinite (y) || (w > 0.0 && (! isFinite (confidence) || ! (confidence > 0.0f))))
++                    return;
++                trustedWeight += w * juce::jlimit (0.0f, 1.0f, confidence);
++                const auto x = (double) b / 3.0;
++                sw += w; sx += w * x; sy += w * y; sxx += w * x * x; sxy += w * x * y;
++            }
++            const auto denominator = sw * sxx - sx * sx;
++            if (! (denominator > 1.0e-9) || trustedWeight < 0.5 * sw)
++                return;
++            const auto referenceSlope = (float) ((sw * sxy - sx * sy) / denominator);
++            const auto difference = referenceSlope - current.value;
++            const auto outside = std::copysign (juce::jmax (0.0f, std::abs (difference) - automaticToneSlopeDeadbandDbPerOct), difference);
++            const auto base = toSlot().plan.increments.colorToneDb / strength;
++            const auto target = juce::jlimit (-caps.toneMaxDb, caps.toneMaxDb,
++                                             base + outside * juce::jmax (0.0f, c.toneDbPerSlopeDb)) - base;
++            // 最快满量 0.15 dB/s；一次镲片/短暂编曲空洞只可能带来极小变化。纯样本时间，导出同逻辑。
++            const auto step = 0.15f * (float) ((double) n / sampleRate);
++            liveToneOffsetDb += juce::jlimit (-step, step, target - liveToneOffsetDb);
++        }
++
+         void computeEffective() noexcept
+         {
+             increments = currentIncrements();
+@@ -1402,12 +1467,32 @@
+                                         * juce::jlimit (0.0f, 1.0f, evidence.value / snapshot.tameEvidenceFullDb);
+                     effective.balance.tame = juce::jlimit (0.0f, 100.0f,
+                         manual.balance.tame + juce::jmax (increments.balanceTame, liveTame));
++                    effective.balance.automaticTame = juce::jmax (0.0f, effective.balance.tame - manual.balance.tame);
++                }
++            }
++
++            if (active && ! savedPlanMode && committed.hasProfile && liveToneProfileId == committed.profileId
++                && ! manual.color.bypass && manual.color.mixPercent > 0.0f && toSlot().valid)
++            {
++                const auto& c = toSlot().source.constants;
++                const auto cap = blendConstants (c, toSlot().plan.weights).toneMaxDb;
++                const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * confidenceScale (&committed.profile, c);
++                if (isFinite (cap) && cap > 0.0f)
++                {
++                    // 0.01 dB 量化避免稳定段不断重算搁架系数；模块仍以原来的平滑器过渡。
++                    const auto offset = std::round (liveToneOffsetDb * 100.0f) * 0.01f;
++                    const auto tone = juce::jlimit (-cap * strength, cap * strength, increments.colorToneDb + offset * strength);
++                    if (tone != increments.colorToneDb && isFinite (manual.color.toneDb))
++                        effective.color.toneDb = juce::jlimit (-3.0f, 3.0f, manual.color.toneDb + tone);
+                 }
+             }
+ 
+             // 旧算法存档沿用原来的 Recover 行为；用户主动重算后才启用新增的自动逐段保护。
+             if (savedPlanMode)
++            {
+                 effective.balance.automaticRecover = manual.balance.automaticRecover;
++                effective.balance.automaticTame = manual.balance.automaticTame;
++            }
+ 
+             executedBiasDb = 0.0f;
+             executedGuardDb = 0.0f;
+@@ -1439,13 +1524,13 @@
+             executedGuardDb = effective.limit.gainDb - withBias;
+         }
+ 
+-        const ChainParams& beginBlock (const ChainParams& newManual, bool calibrationPaused) noexcept
++        const ChainParams& beginBlock (const ChainParams& newManual, bool hostBypassed) noexcept
+         {
+             const auto restored = consumeRestore();
+             consumeRelearnRequests();
+ 
+             manual = newManual;
+-            paused = calibrationPaused;
++            paused = hostBypassed;
+             active = manual.glazePercent > 0.0f;   // 「> 0」：NaN 与负数都当作 0
+ 
+             // 换风格：方案源换成新风格（约束反馈上限回到不限），3 s 过渡；GLAZE ≤ 0 时直接到位。
+@@ -1620,9 +1705,8 @@
+             {
+                 updateGuardLimits();
+ 
+-                const auto hostBypassed = paused && ! manual.limit.listen;
+                 auto guardStats = stats;
+-                guardStats.musicActive = view.musicActive && ! hostBypassed && ! manual.color.bypass && ! manual.limit.bypass;
++                guardStats.musicActive = view.musicActive && ! paused && ! manual.color.bypass && ! manual.limit.bypass;
+                 guard.process (guardStats);
+                 guardClean = false;
+ 
+@@ -1650,6 +1734,7 @@
+             updateMismatch (n, juce::Decibels::gainToDecibels (inputMeter.getLastBlockTruePeakLinear(), -100.0f));
+             updateFeedback (n);
+             updateBias (n);
++            updateLiveTone (n);
+ 
+             if (guardCarryLength > 0)
+             {
+@@ -1775,6 +1860,8 @@
+             roundActive = false;
+             calibrator.reset();
+             haveLastAttempt = false;
++            liveToneOffsetDb = 0.0f;
++            liveToneProfileId = 0;
+             guard.reset();
+             guardClean = true;
+             guardWasPlanLimited = planLimitedLatched = false;
+@@ -1935,9 +2022,9 @@
+         }
+     }
+ 
+-    const ChainParams& GlazeController::beginBlock (const ChainParams& manual, bool calibrationPaused) noexcept
++    const ChainParams& GlazeController::beginBlock (const ChainParams& manual, bool hostBypassed) noexcept
+     {
+-        return impl->beginBlock (manual, calibrationPaused);
++        return impl->beginBlock (manual, hostBypassed);
+     }
+ 
+     void GlazeController::analyzeInput (const juce::AudioBuffer<float>& input, const LoudnessMeter& inputMeter) noexcept
+--- before/Source/dsp/GlazeController.h
++++ after/Source/dsp/GlazeController.h
+@@ -87,9 +87,9 @@
+         void handleDiscontinuity (Discontinuity kind) noexcept;
+ 
+         // 每块处理前调：manual = 用户在各模块旋钮上的值（含 glazePercent、glazeStyle）；
+-        // calibrationPaused = 宿主旁通或 Limit Listen（校准暂停、当前子窗作废，状态行显示「校准暂停」）。
++        // hostBypassed = 宿主旁通（校准暂停、当前子窗作废）。Listen 位于测点之后，不暂停校准或频谱跟随。
+         // 返回本块交给三个模块的实际参数（引用在下一次 beginBlock 之前有效）。时间只在 endBlock 里按 stats.numSamples 推进。
+-        const ChainParams& beginBlock (const ChainParams& manual, bool calibrationPaused) noexcept;
++        const ChainParams& beginBlock (const ChainParams& manual, bool hostBypassed) noexcept;
+ 
+         // 模块处理前：input = 链入口原始输入；inputMeter 已处理过这一块。
+         void analyzeInput (const juce::AudioBuffer<float>& input, const LoudnessMeter& inputMeter) noexcept;
+--- before/Source/dsp/GlazePlanner.cpp
++++ after/Source/dsp/GlazePlanner.cpp
+@@ -1350,7 +1350,9 @@
+         {
+             const auto slope = lerp (ctx.sc.toneReferenceSlopeDbPerOct,
+                                      valueOr (profile, &MusicProfile::spectralSlopeDbPerOct, ctx.sc.toneReferenceSlopeDbPerOct), slopeTrust);
+-            const auto toneFull = clampTo ((ctx.sc.toneReferenceSlopeDbPerOct - slope) * nonNegative (c.toneDbPerSlopeDb), 0.0f, ctx.sc.toneMaxDb);
++            const auto difference = ctx.sc.toneReferenceSlopeDbPerOct - slope;
++            const auto outside = std::copysign (nonNegative (std::abs (difference) - automaticToneSlopeDeadbandDbPerOct), difference);
++            const auto toneFull = clampTo (outside * nonNegative (c.toneDbPerSlopeDb), -ctx.sc.toneMaxDb, ctx.sc.toneMaxDb);
+             inc.colorToneDb = toneFull * spectralStrength;
+         }
+ 
+@@ -1437,7 +1439,9 @@
+         const auto& cap = bound.increments;
+         inc.balanceRecover = juce::jmin (inc.balanceRecover, cap.balanceRecover);
+         inc.balanceTame = juce::jmin (inc.balanceTame, cap.balanceTame);
+-        inc.colorToneDb = juce::jmin (inc.colorToneDb, cap.colorToneDb);
++        // 带符号的 Tone 按幅度保守封顶；另一份方案方向相反时撤回，不能靠 min 把负向修正越夹越强。
++        inc.colorToneDb = inc.colorToneDb * cap.colorToneDb > 0.0f
++            ? std::copysign (juce::jmin (std::abs (inc.colorToneDb), std::abs (cap.colorToneDb)), inc.colorToneDb) : 0.0f;
+         inc.colorGlue = juce::jmin (inc.colorGlue, cap.colorGlue);
+         inc.colorHeat = juce::jmin (inc.colorHeat, cap.colorHeat);
+         inc.limitGainDb = juce::jmin (inc.limitGainDb, cap.limitGainDb);
+@@ -1519,6 +1523,8 @@
+         if (isFinite (inc.balanceRecover) && inc.balanceRecover > 0.0f)
+             p.balance.automaticRecover = nonNegative (p.balance.recover - manual.balance.recover);
+         p.balance.tame    = addClamped (manual.balance.tame,    inc.balanceTame,    0.0f, 100.0f);
++        if (isFinite (inc.balanceTame) && inc.balanceTame > 0.0f)
++            p.balance.automaticTame = nonNegative (p.balance.tame - manual.balance.tame);
+         p.color.toneDb    = addClamped (manual.color.toneDb,    inc.colorToneDb,   -3.0f,   3.0f);
+         p.color.glue      = addClamped (manual.color.glue,      inc.colorGlue,      0.0f, 100.0f);
+         p.color.heat      = addClamped (manual.color.heat,      inc.colorHeat,      0.0f, 100.0f);
+--- before/Source/dsp/GlazeTypes.h
++++ after/Source/dsp/GlazeTypes.h
+@@ -21,7 +21,7 @@
+ namespace celadon::glaze
+ {
+     // 方案默认值和出厂常数共用版本，GLAZE 0 学完后保存的空方案也必须属于当前算法。
+-    inline constexpr int currentAlgorithmVersion = 3;
++    inline constexpr int currentAlgorithmVersion = 4;
+     inline constexpr int numBands = 27;   // 与 BalanceModule::numBands 相同（1/3 倍频程，40 Hz ～ 16 kHz）
+ 
+     // 风格：顺序 = 参数 glaze_style 的选项顺序（AudioParameterChoice 下标）。
+--- before/Source/dsp/MusicAnalyzer.cpp
++++ after/Source/dsp/MusicAnalyzer.cpp
+@@ -488,6 +488,8 @@
+             livePositiveSeconds.fill (0.0);
+             liveTameEvidence = 0.0;
+             invalidate (view.liveTameEvidenceDb);
++            invalidate (view.liveSpectralSlopeDbPerOct);
++            view.liveSlopeWeights.fill (0.0f);
+             framesSinceRestart = 0;
+             havePreviousFrame = false;
+             recentFrameWrite = 0;
+@@ -1120,6 +1122,7 @@
+             {
+                 livePositiveSeconds.fill (0.0);
+                 updateLiveTame (0.0);
++                invalidate (view.liveSpectralSlopeDbPerOct);
+             }
+ 
+             recentFramePower[(size_t) recentFrameWrite] = power;
+@@ -1209,6 +1212,34 @@
+                 weights[b] = gate[b] * (magnitude > toleranceDb ? toleranceDb / magnitude : 1.0);
+             }
+ 
++            // 用同一份电平与稳健权重估计宽带斜率。至少 16 段、跨 4 oct，且当下仍有能量；
++            // 独奏窄音、已结束的镲片和静音尾巴不能被当作整首歌的明暗。只做 27 段回归，无新 FFT。
++            double sw = 0.0, sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
++            int slopeBands = 0, firstSlopeBand = numBands, lastSlopeBand = 0;
++            for (int b = 0; b < numBands; ++b)
++            {
++                const auto i = (size_t) b;
++                view.liveSlopeWeights[i] = 0.0f;
++                if (gate[i] < 0.5 || currentPower[i] < averagedPower[i] * liveTamePresentRatio)
++                    continue;
++                const auto w = weights[i];
++                view.liveSlopeWeights[i] = (float) w;
++                const auto x = (double) b / 3.0;
++                sw += w; sx += w * x; sy += w * level[i]; sxx += w * x * x; sxy += w * x * level[i];
++                ++slopeBands;
++                firstSlopeBand = juce::jmin (firstSlopeBand, b);
++                lastSlopeBand = b;
++            }
++            const auto denominator = sw * sxx - sx * sx;
++            if (slopeBands >= 16 && lastSlopeBand - firstSlopeBand >= 12 && sw >= 12.0 && denominator > 1.0e-9)
++            {
++                setFeature (view.liveSpectralSlopeDbPerOct, (sw * sxy - sx * sy) / denominator,
++                            (double) framesSinceRestart * hop / sampleRate);
++                view.liveSpectralSlopeDbPerOct.confidence = (float) juce::jlimit (0.0, 1.0, sw / 20.0);
++            }
++            else
++                invalidate (view.liveSpectralSlopeDbPerOct);
++
+             // 第二遍：残差 → 超出容忍区间的正 / 负偏离分别累计（按本段静音门权重）。
+             double liveSumSquares = 0.0, liveWeights = 0.0;
+             const auto hopSeconds = (double) hop / sampleRate;
+--- before/Source/dsp/MusicAnalyzer.h
++++ after/Source/dsp/MusicAnalyzer.h
+@@ -59,6 +59,8 @@
+         Feature shortTermLufs;      // S：3 s
+         Feature psr3sDb;            // 最近 3 s 真峰值最大值 − S
+         Feature liveTameEvidenceDb; // 持续突出频段的短期均方根证据；复用 Balance 帧，停止学习后仍更新，不进入保存画像。
++        Feature liveSpectralSlopeDbPerOct; // 门上宽带内容的短期斜率；窄带/静音无效，不进入保存画像。
++        std::array<float, (size_t) numBands> liveSlopeWeights {}; // 基准画像须用相同段/权重回归，避免统计口径造成假漂移。
+         bool musicActive = false;   // 本块在有效信号门限之上
+     };
+ 
+--- before/Source/ui/GlazeStatusText.cpp
++++ after/Source/ui/GlazeStatusText.cpp
+@@ -65,7 +65,6 @@
+             && hasTarget == other.hasTarget
+             && targetTenthsLufs == other.targetTenthsLufs
+             && yieldedTenthsDb == other.yieldedTenthsDb
+-            && pausedByListen == other.pausedByListen
+             && pausedByTransport == other.pausedByTransport
+             && olderPlan == other.olderPlan;
+     }
+@@ -73,6 +72,7 @@
+     //==============================================================================
+     View classify (const glaze::Status& status, float glazePercent, glaze::Style chosenStyle, bool listenOn) noexcept
+     {
++        juce::ignoreUnused (listenOn); // 全链 Listen 位于校准测点之后，不再暂停处理或校准。
+         View view;
+ 
+         // 「> 0」而不是「!= 0」：NaN 与负数都当作 0（与音频线程判断 GLAZE 是否起作用同一写法）。
+@@ -134,12 +134,11 @@
+ 
+         if (glazeActive)
+         {
+-            // 5：校准暂停——只在此刻本该校准时（生成方案后的过渡、校准中、待校准）。原因：Listen / 旁通（编排器暂停了校准），
++            // 5：校准暂停——只在此刻本该校准时（生成方案后的过渡、校准中、待校准）。原因：宿主旁通，
+             //    或宿主停止播放（没有音乐，校准原地不动；不写「校准中」，免得看起来一直在校准却校准不完）。
+             if (status.calibrationPaused && (settingUp || awaiting))
+             {
+                 view.kind = Kind::calibrationPaused;
+-                view.pausedByListen = listenOn;
+                 return view;
+             }
+ 
+@@ -211,7 +210,6 @@
+ 
+             case Kind::calibrationPaused:
+                 return view.pausedByTransport ? utf8 ("校准暂停（未播放）")
+-                     : view.pausedByListen    ? utf8 ("校准暂停（Listen）")
+                                               : utf8 ("校准暂停（旁通）");
+ 
+             case Kind::awaitingCalibration:
+--- before/Source/ui/GlazeStatusText.h
++++ after/Source/ui/GlazeStatusText.h
+@@ -16,7 +16,7 @@
+         3b. 与聆听时的音乐差很多 · 建议重新聆听      琥珀   已提交画像与此刻的音乐严重不符（如只听到安静前奏），编排器已按
+                                                            这一段压低增益（v0.6 验收 F-01；设计规格-GLAZE-实现修订 第 3 节）
+         4. 未学习 · 播放后自动聆听（导出将用保守方案） 灰青   ；已按保守方案离线导出过则写「未学习，导出使用保守方案」
+-        5. 校准暂停（Listen）                        灰青   Listen / 旁通打开且此刻本该校准（生成方案后的过渡、校准中、待校准）
++        5. 校准暂停（旁通）                          灰青   宿主旁通且此刻本该校准（生成方案后的过渡、校准中、待校准）
+         6. 校准中                                   梅子青  方案过渡（约 3 s）与校准都算
+         7. 已锁定 · 待校准（条件已变，稳定后自动校准） 灰青
+         8. 已锁定 · 自动→温润 · 目标 −9.6 LUFS       灰青   目标写 effectiveTarget；读到旧算法存的方案时风格换成「沿用旧版方案」
+@@ -46,7 +46,7 @@
+         unlearnedExported,      // 未学习，导出使用保守方案（设计规格-GLAZE-时间线与保存 第 7 节）
+         listening,              // 聆听中 9 / 15 s
+         calibrating,            // 校准中
+-        calibrationPaused,      // 校准暂停（Listen）/ 校准暂停（旁通）/ 校准暂停（未播放）
++        calibrationPaused,      // 校准暂停（旁通）/ 校准暂停（未播放）
+         awaitingCalibration,    // 已锁定 · 待校准（条件已变，稳定后自动校准）
+         locked,                 // 已锁定 · 自动→温润 · 目标 −9.6 LUFS
+         planLimited,            // 方案受限 · 已退让 1.5 dB
+@@ -70,7 +70,6 @@
+         bool hasTarget = false;                                 // 已锁定：effectiveTarget 可显示（有限值）
+         int targetTenthsLufs = 0;                               // 已锁定：effectiveTarget × 10，四舍五入
+         int yieldedTenthsDb = 0;                                // 方案受限：|g_保护| × 10，四舍五入，0 ～ 30
+-        bool pausedByListen = false;                            // 校准暂停：原因是 Limit Listen（否则是旁通）
+         bool pausedByTransport = false;                         // 校准暂停：原因是宿主停止播放（聆听与校准都要有音乐）
+         bool olderPlan = false;                                 // 已锁定：照用旧算法保存的方案（GLAZE > 0 时才提示）
+ 
+@@ -79,7 +78,7 @@
+     };
+ 
+     // status = 编排器的状态快照；glazePercent = GLAZE 参数值（0 ～ 100，NaN / 负数按 0）；
+-    // chosenStyle = 参数 glaze_style；listenOn = 参数 limit_listen 是否打开（只用来区分「校准暂停」的原因）。
++    // chosenStyle = 参数 glaze_style；listenOn 为调用接口兼容保留，试听补偿不再暂停校准。
+     View classify (const glaze::Status& status, float glazePercent, glaze::Style chosenStyle, bool listenOn) noexcept;
+ 
+     // 文字（数字保留一位小数，负号用 U+2212「−」，与规格的写法一致）。
+--- before/Source/ui/HelpText.cpp
++++ after/Source/ui/HelpText.cpp
+@@ -55,8 +55,8 @@
+ 
+             { param::limitListen,
+               "Listen · 等响度试听",
+-              "把推进去的 Gain 减回来，在同样音量下听处理有没有让声音变差。",
+-              "调完 Gain 后开关几次对比，再关掉。" },
++              "测量整条处理链的响度提升并衰减试听，减少音量差对判断的影响；输出表显示试听衰减前的母带。",
++              "播放数秒后比较；只衰减不加大音量，自动处理与校准照常进行。导出前关闭。" },
+ 
+             { param::limitBypass,
+               "Bypass · 旁通 Limit",
+@@ -103,7 +103,7 @@
+             { param::balanceTame,
+               "Tame · 驯服",
+               "把突出刺耳或发闷的频段压下去，箱音和刺耳感减少。",
+-              "从 30～50 起；太大声音会变平、失去个性。" },
++              "GLAZE 的自动部分优先处理持续突出并保护起音；手动从 30～50 起。" },
+ 
+             { param::balanceBrighten,
+               "Brighten · 倾向",
+@@ -128,8 +128,8 @@
+             // ---- 总览区 ----
+             { param::glazeAmount,
+               "Glaze · 施釉（总旋钮）",
+-              "自动推响度、跟随频谱修正并加入温和染色；越大处理越强，达到动态保护上限后会停止加压。",
+-              "放在母带轨，保持自动风格，从 0 慢慢拉高；播放时自动聆听，通常只需这个旋钮。" },
++              "按歌曲自动推响度、修正持续共振、调整明暗并加入温和染色；达到动态保护上限后停止加压。",
++              "新实例默认 35% 和自动风格，播放时持续聆听；按需要增加力度，0% 回到手动。" },
+ 
+             { param::glazeStyle,
+               "风格 · 母带取向",
+--- before/tests/BalanceTests.cpp
++++ after/tests/BalanceTests.cpp
+@@ -231,17 +231,33 @@
+             return count > 0 ? std::sqrt (energy / (double) count) : 0.0;
+         }
+ 
+-        double toneMagnitude (const Signal& signal, double sampleRate, double frequency, int fromSample)
++        double toneMagnitude (const Signal& signal, double sampleRate, double frequency, int fromSample, int toSample = -1)
+         {
+             double cosine = 0.0, sine = 0.0;
+             const auto& channel = signal.front();
+-            for (int i = fromSample; i < (int) channel.size(); ++i)
++            const auto end = toSample < 0 ? (int) channel.size() : juce::jmin (toSample, (int) channel.size());
++            for (int i = fromSample; i < end; ++i)
+             {
+                 const auto phase = juce::MathConstants<double>::twoPi * frequency * (double) i / sampleRate;
+                 cosine += (double) channel[(size_t) i] * std::cos (phase);
+                 sine += (double) channel[(size_t) i] * std::sin (phase);
+             }
+             return std::hypot (cosine, sine);
++        }
++
++        // 2 ms 淡入/淡出避免用硬剪接的宽带点击冒充该频段的起音。
++        void addToneEvent (Signal& signal, double sampleRate, double frequency, float amplitude,
++                           double startSeconds, double durationSeconds)
++        {
++            const auto start = (int) std::lround (startSeconds * sampleRate);
++            const auto end = juce::jmin ((int) signal.front().size(), start + (int) std::lround (durationSeconds * sampleRate));
++            const auto ramp = sampleRate * 0.002;
++            for (int i = start; i < end; ++i)
++            {
++                const auto envelope = juce::jmin (1.0, juce::jmin ((double) (i - start) / ramp, (double) (end - 1 - i) / ramp));
++                const auto sample = (float) (amplitude * envelope * std::sin (juce::MathConstants<double>::twoPi * frequency * i / sampleRate));
++                for (auto& channel : signal) channel[(size_t) i] += sample;
++            }
+         }
+ 
+         float samplePeakOf (const Signal& signal)
+@@ -460,9 +476,147 @@
+             testAutomaticRecoverPreservesManualPortion();
+             testAutomaticRecoverSanitisesAndDoesNotAllocate();
+             testAutomaticRecoverDoesNotSwallowBrighten();
++            testAutomaticTameSelectivity();
++            testAutomaticTameManualAndSupport();
++            testAutomaticTameBlockSizesAndAllocations();
+         }
+ 
+     private:
++        void testAutomaticTameSelectivity()
++        {
++            beginTest ("automatic Tame reduces sustained peaks but preserves short events in the same and other bands");
++            constexpr double sampleRate = 48000.0;
++            constexpr double seconds = 6.0;
++            auto params = makeParams (0.0f, 100.0f);
++            params.automaticTame = 100.0f;
++            const auto noise = makePinkNoise (numChannels, (int) (seconds * sampleRate), -30.0f, 9301);
++            auto sustained = noise;
++            addToneEvent (sustained, sampleRate, 1000.0, 0.2f, 1.0, 5.0);
++            // 持续 1 kHz 共振提高全局处理权限时，4 kHz 的正常短起音仍须由自己的逐段证据决定。
++            addToneEvent (sustained, sampleRate, 4000.0, 0.2f, 4.0, 0.08);
++            BalanceModule balance;
++            prepareBalance (balance, sampleRate, params);
++            std::vector<BandGains> frames;
++            const auto output = runBalance (balance, sustained, maxBlock, &frames);
++            const auto gainAt = [&] (const Signal& dry, const Signal& wet, double frequency, double start, double end)
++            {
++                const auto first = (int) std::lround (start * sampleRate);
++                const auto last = (int) std::lround (end * sampleRate);
++                return 20.0 * std::log10 (toneMagnitude (wet, sampleRate, frequency, first, last)
++                                      / toneMagnitude (dry, sampleRate, frequency, first, last));
++            };
++            const auto sustainedGain = gainAt (sustained, output, 1000.0, 5.0, 5.9);
++            const auto otherOnsetGain = gainAt (sustained, output, 4000.0, 4.0, 4.08);
++            logMessage ("  sustained 1 kHz " + juce::String (sustainedGain, 3)
++                        + " dB, concurrent 4 kHz onset " + juce::String (otherOnsetGain, 3) + " dB");
++            expect (sustainedGain < -1.5 && sustainedGain > -3.5, "the real sustained resonance is reduced with bounded depth");
++            expect (std::abs (otherOnsetGain) < 0.5, "another band's short attack is not sacrificed to the persistent resonance");
++            float lowestGain = 0.0f, highestGain = 0.0f;
++            for (const auto& frame : frames)
++                for (auto gain : frame)
++                {
++                    lowestGain = juce::jmin (lowestGain, gain);
++                    highestGain = juce::jmax (highestGain, gain);
++                }
++            expect (lowestGain >= -2.5001f && highestGain <= 0.0001f, "automatic-only correction has a 2.5 dB per-band cut ceiling");
++
++            auto pulses = noise;
++            for (auto start : { 1.0, 2.5, 4.0 }) addToneEvent (pulses, sampleRate, 1000.0, 0.2f, start, 0.08);
++            BalanceModule pulsed;
++            prepareBalance (pulsed, sampleRate, params);
++            const auto pulseOutput = runBalance (pulsed, pulses, maxBlock);
++            for (auto start : { 1.0, 2.5, 4.0 })
++            {
++                const auto gain = gainAt (pulses, pulseOutput, 1000.0, start, start + 0.08);
++                expect (std::abs (gain) < 0.5, "short same-frequency events do not accumulate into a persistent resonance");
++            }
++            expect (allFinite (output) && allFinite (pulseOutput));
++        }
++
++        void testAutomaticTameManualAndSupport()
++        {
++            beginTest ("automatic Tame preserves the manual share and rejects isolated tones and unsupported edge bands");
++            constexpr double sampleRate = 48000.0;
++            auto automatic = makeParams (0.0f, 100.0f);
++            automatic.automaticTame = 100.0f;
++            for (auto frequency : { 40.0, 1000.0, 16000.0 })
++            {
++                const auto input = makeSine (numChannels, sampleRate, frequency, 0.2f, 3.0);
++                BalanceModule isolated;
++                prepareBalance (isolated, sampleRate, automatic);
++                const auto output = runBalance (isolated, input, maxBlock);
++                expectEquals (countDifferentSamples (input, output), 0, "an isolated sustained tone has no broadband reference at " + juce::String (frequency));
++            }
++
++            const auto input = makeSine (numChannels, sampleRate, 1000.0, 0.2f, 3.0);
++            const auto manual = makeParams (0.0f, 40.0f, 30.0f);
++            auto mixed = manual;
++            mixed.tame = 80.0f;
++            mixed.automaticTame = 40.0f;
++            BalanceModule manualOnly, withAutomatic;
++            prepareBalance (manualOnly, sampleRate, manual);
++            prepareBalance (withAutomatic, sampleRate, mixed);
++            const auto reference = runBalance (manualOnly, input, maxBlock);
++            expectEquals (countDifferentSamples (reference, runBalance (withAutomatic, input, maxBlock)), 0,
++                          "unpermitted automatic share leaves manual Tame and Brighten bit-exact");
++
++            auto rich = makeRichSignal (sampleRate, 2.0, 9302);
++            const auto legacy = makeParams (25.0f, 60.0f, 20.0f);
++            BalanceModule oldParams;
++            prepareBalance (oldParams, sampleRate, legacy);
++            const auto oldOutput = runBalance (oldParams, rich, maxBlock);
++            for (auto share : { 0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity() })
++            {
++                auto p = legacy;
++                p.automaticTame = share;
++                BalanceModule b;
++                prepareBalance (b, sampleRate, p);
++                expectEquals (countDifferentSamples (oldOutput, runBalance (b, rich, maxBlock)), 0,
++                              "zero or invalid automatic share retains existing manual behavior");
++            }
++        }
++
++        void testAutomaticTameBlockSizesAndAllocations()
++        {
++            beginTest ("automatic Tame is bounded, block-size independent and allocation-free");
++            constexpr double sampleRate = 48000.0;
++            auto input = makePinkNoise (numChannels, (int) (3.0 * sampleRate), -30.0f, 9303);
++            addToneEvent (input, sampleRate, 1000.0, 0.2f, 0.5, 2.5);
++            addToneEvent (input, sampleRate, 4000.0, 0.2f, 2.0, 0.08);
++            auto p = makeParams (0.0f, 60.0f);
++            p.automaticTame = 60.0f;
++            BalanceModule baseline;
++            prepareBalance (baseline, sampleRate, p);
++            const auto reference = runBalance (baseline, input, maxBlock);
++            for (auto blockSize : { 73, 2048 })
++            {
++                BalanceModule b;
++                prepareBalance (b, sampleRate, p);
++                expectEquals (countDifferentSamples (reference, runBalance (b, input, blockSize)), 0,
++                              "fixed-hop permission must not depend on host block size");
++            }
++            auto excessive = p;
++            excessive.automaticTame = 1000.0f;
++            BalanceModule bounded;
++            prepareBalance (bounded, sampleRate, excessive);
++            expectEquals (countDifferentSamples (reference, runBalance (bounded, input, maxBlock)), 0,
++                          "the automatic share cannot exceed total Tame");
++
++            juce::AudioBuffer<float> block (numChannels, maxBlock);
++            std::uint64_t allocations = 0;
++            bounded.reset();
++            for (int start = 0; start + maxBlock <= (int) input.front().size(); start += maxBlock)
++            {
++                for (int ch = 0; ch < numChannels; ++ch)
++                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, maxBlock);
++                const auto before = allocationCountOnThisThread();
++                bounded.setParams (p);
++                bounded.process (block);
++                allocations += allocationCountOnThisThread() - before;
++            }
++            expectEquals ((juce::int64) allocations, (juce::int64) 0, "automatic Tame never allocates on the audio thread");
++        }
++
+         void testAutomaticRecoverProtectsRollOff()
+         {
+             beginTest ("automatic Recover repairs an interior notch without filling natural roll-off or edge bands");
+--- before/tests/ChainTests.cpp
++++ after/tests/ChainTests.cpp
+@@ -128,6 +128,37 @@
+             signals.push_back ({ "20 ms burst",        makeBurst (numChannels, sampleRate, 1.0f, 0.3) });
+             return signals;
+         }
++
++        // 监听验收独立测最终实际样本的最后 1 秒，不读取链的补偿前 OUT 表。
++        float tailLufs (const Signal& signal, double sampleRate)
++        {
++            LoudnessMeter meter;
++            meter.prepare (makeSpec (sampleRate));
++            juce::AudioBuffer<float> block (numChannels, maxBlock);
++            const auto samples = (int) signal.front().size();
++            for (int pos = juce::jmax (0, samples - (int) sampleRate); pos < samples; pos += maxBlock)
++            {
++                const auto count = juce::jmin (maxBlock, samples - pos);
++                block.setSize (numChannels, count, false, false, true);
++                for (int ch = 0; ch < numChannels; ++ch)
++                    block.copyFrom (ch, 0, signal[(size_t) ch].data() + pos, count);
++                meter.process (block);
++            }
++            return meter.getIntegratedLufs();
++        }
++
++        Signal makeListenMaterial (double sampleRate, double seconds)
++        {
++            auto input = makeSine (numChannels, sampleRate, 880.0, 0.22f, seconds);
++            for (const auto component : { std::pair<double, float> { 55.0, 0.12f }, { 4600.0, 0.04f } })
++            {
++                const auto tone = makeSine (numChannels, sampleRate, component.first, component.second, seconds);
++                for (size_t ch = 0; ch < input.size(); ++ch)
++                    for (size_t i = 0; i < input[ch].size(); ++i)
++                        input[ch][i] += tone[ch][i];
++            }
++            return input;
++        }
+     }
+ 
+     class ChainTests  : public juce::UnitTest
+@@ -144,9 +175,183 @@
+             testTruePeakStillBelowCeiling();
+             testAudioPathDoesNotAllocate();
+             testResetEqualsFreshPrepare();
++            testListenMatchesWholeChain();
++            testListenBlockSizeAndAttenuationOnly();
++            testListenSparseTransients();
++            testListenSilenceAutomationAndBypass();
+         }
+ 
+     private:
++        void testListenMatchesWholeChain()
++        {
++            beginTest ("Listen measures whole-chain gain, Color and limiting; OUT stays before monitoring gain");
++            for (const auto sampleRate : { 44100.0, 48000.0 })
++            {
++                for (int mode = 0; mode < 3; ++mode)
++                {
++                    auto params = makeNeutralParams();
++                    params.limit.listen = true;
++                    if (mode == 0) params.limit.gainDb = 18.0f;
++                    if (mode == 1) params.color.outputDb = 6.0f;
++                    if (mode == 2)
++                    {
++                        params.color.toneDb = 3.0f;
++                        params.color.heat = 100.0f;
++                        params.color.glue = 35.0f;
++                        params.color.outputDb = 3.0f;
++                        params.limit.gainDb = 12.0f;
++                        params.limit.clip = 30.0f;
++                    }
++                    const auto input = mode == 2 ? makeListenMaterial (sampleRate, 4.0)
++                                                 : makeSine (numChannels, sampleRate, 1000.0, 0.03f, 3.0);
++                    CeladonChain chain;
++                    prepareChain (chain, sampleRate, params);
++                    const auto output = runChain (chain, input, 333);
++                    const auto delta = tailLufs (output, sampleRate) - tailLufs (input, sampleRate);
++                    const auto tag = "mode=" + juce::String (mode) + " @" + juce::String (sampleRate, 0);
++                    expect (allFinite (output), tag);
++                    expect (std::abs (delta) <= (mode == 2 ? 0.3f : 0.1f), "audible LU difference " + juce::String (delta, 3) + " " + tag);
++                    expect (chain.getOutputShortTermLufs() > tailLufs (output, sampleRate) + 3.0f,
++                            "OUT must measure the louder master before Listen " + tag);
++                    if (mode == 2)
++                        expect (chain.getAndResetLimitGainReductionDb() > 1.0f, "case must exercise actual limiting");
++                    logMessage ("  measured Listen error " + juce::String (delta, 3) + " LU " + tag);
++                }
++            }
++        }
++
++        void testListenBlockSizeAndAttenuationOnly()
++        {
++            beginTest ("Listen is independent of host block partition and never boosts a quieter master");
++            constexpr double sampleRate = 48000.0;
++            auto params = makeNeutralParams();
++            params.color.outputDb = 6.0f;
++            params.limit.listen = true;
++            const auto input = makeSine (numChannels, sampleRate, 1000.0, 0.08f, 3.0);
++            CeladonChain small, oversized;
++            prepareChain (small, sampleRate, params);
++            prepareChain (oversized, sampleRate, params);
++            const auto a = runChain (small, input, 17);
++            const auto b = runChain (oversized, input, 2048); // prepare maxBlock is only 512
++            expect (maxAbsDifference (a, b, 0, (int) input[0].size()) < 1.0e-6f,
++                    "100 ms estimate events must occur at the same sample within different host blocks");
++
++            params.color.outputDb = -6.0f;
++            CeladonChain quieter, normal;
++            prepareChain (quieter, sampleRate, params);
++            params.limit.listen = false;
++            prepareChain (normal, sampleRate, params);
++            const auto monitored = runChain (quieter, input, maxBlock);
++            const auto master = runChain (normal, input, maxBlock);
++            expectEquals (maxAbsDifference (monitored, master, 0, (int) input[0].size()), 0.0f,
++                          "quieter output is not boosted: preserve headroom instead of claiming exact matching");
++            expect (tailLufs (monitored, sampleRate) < tailLufs (input, sampleRate) - 5.9f);
++        }
++
++        void testListenSparseTransients()
++        {
++            beginTest ("neutral Listen must not attenuate isolated impulses that cross a 100 ms window boundary");
++            constexpr double sampleRate = 48000.0;
++            auto params = makeNeutralParams();
++            params.limit.listen = true;
++            auto input = makeSilence (numChannels, (int) (4.5 * sampleRate));
++            for (const auto seconds : { 0.5, 1.8, 3.1, 4.4 })
++                for (auto& channel : input)
++                    channel[(size_t) (seconds * sampleRate) - 2] = 0.5f;
++            for (const auto block : { 64, 2048 })
++            {
++                CeladonChain chain;
++                prepareChain (chain, sampleRate, params);
++                const auto output = runChain (chain, input, block);
++                const auto residual = maxAbsDifference (input, output, chain.getLatencySamples(),
++                                                       (int) input[0].size() - chain.getLatencySamples());
++                expect (residual < 1.0e-5f, "neutral sparse pulse changed by " + juce::String (residual, 6)
++                                          + " block=" + juce::String (block));
++            }
++        }
++
++        void testListenSilenceAutomationAndBypass()
++        {
++            beginTest ("Listen freezes in silence, follows edits, ramps toggles, and recovers from bypass/reset/latency changes");
++            constexpr double sampleRate = 48000.0;
++            auto params = makeNeutralParams();
++            params.color.outputDb = 6.0f;
++            params.limit.gainDb = 6.0f;
++            params.limit.listen = true;
++            CeladonChain chain;
++            prepareChain (chain, sampleRate, params);
++            const auto tone = makeSine (numChannels, sampleRate, 1000.0, 0.05f, 3.0);
++            runChain (chain, tone, maxBlock);
++            const auto silence = runChain (chain, makeSilence (numChannels, (int) sampleRate), 333);
++            float silentTail = 0.0f;
++            for (const auto& channel : silence)
++                for (size_t i = channel.size() / 2; i < channel.size(); ++i)
++                    silentTail = juce::jmax (silentTail, std::abs (channel[i]));
++            expectEquals (silentTail, 0.0f, "silence must not produce a gain/noise burst");
++            const auto onsetInput = makeSine (numChannels, sampleRate, 1000.0, 0.05f, 0.2);
++            const auto onset = runChain (chain, onsetInput, 333);
++            expect (maxAbsDifference (onsetInput, onset, chain.getLatencySamples(), 4000) < 0.001f,
++                    "the learned gain must survive silence, including the next onset");
++
++            params.color.outputDb = 0.0f; // ongoing Listen must relearn while the user edits the master
++            chain.setParams (params, false);
++            auto changed = runChain (chain, tone, maxBlock);
++            const auto editedDelta = tailLufs (changed, sampleRate) - tailLufs (tone, sampleRate);
++            logMessage ("  Listen after 6 dB output edit, final 1 s of 3 s: " + juce::String (editedDelta, 4) + " LU");
++            expect (std::abs (editedDelta) < 0.15f,
++                    "Listen must follow a gain edit without feeding its own attenuation into the estimate; error="
++                    + juce::String (editedDelta, 4) + " LU");
++
++            // 对照同一时刻的未补偿母带，量出增益斜坡；正弦过零处不相除。
++            auto masterParams = params;
++            masterParams.limit.listen = false;
++            CeladonChain reference;
++            prepareChain (reference, sampleRate, masterParams);
++            runChain (reference, tone, maxBlock);
++            const auto shortTone = makeSine (numChannels, sampleRate, 1000.0, 0.05f, 0.05);
++            float previousGain = juce::Decibels::decibelsToGain (-6.0f);
++            for (int toggle = 0; toggle < 4; ++toggle)
++            {
++                params.limit.listen = toggle % 2 == 1;
++                chain.setParams (params, false);
++                const auto listening = runChain (chain, shortTone, 64);
++                const auto unmonitored = runChain (reference, shortTone, 64);
++                float maxGainStep = 0.0f;
++                for (size_t i = 0; i < listening[0].size(); ++i)
++                    if (std::abs (unmonitored[0][i]) > 0.03f)
++                    {
++                        const auto gain = listening[0][i] / unmonitored[0][i];
++                        maxGainStep = juce::jmax (maxGainStep, std::abs (gain - previousGain));
++                        previousGain = gain;
++                    }
++                expect (maxGainStep < 0.01f, "Listen switch must ramp, max gain jump=" + juce::String (maxGainStep, 5));
++            }
++
++            chain.setParams (params, true);
++            const auto bypassed = runChain (chain, tone, 333);
++            const auto latency = chain.getLatencySamples();
++            float bypassError = 0.0f;
++            for (size_t i = (size_t) (sampleRate / 4); i < bypassed[0].size(); ++i)
++                bypassError = juce::jmax (bypassError, std::abs (bypassed[0][i] - tone[0][i - (size_t) latency]));
++            expectEquals (bypassError, 0.0f, "host bypass must return the unattenuated delayed input");
++            chain.setParams (params, false);
++            changed = runChain (chain, tone, maxBlock);
++            expect (std::abs (tailLufs (changed, sampleRate) - tailLufs (tone, sampleRate)) < 0.15f, "resume after host bypass");
++            params.limit.lookaheadMs = 7.0f;
++            chain.setParams (params, false);
++            chain.restartWithFadeIn();
++            changed = runChain (chain, tone, maxBlock);
++            expect (allFinite (changed));
++            expect (std::abs (tailLufs (changed, sampleRate) - tailLufs (tone, sampleRate)) < 0.15f, "reset and latency change must relearn safely");
++
++            // 一个块跨越 128 个 K 子块，确实覆盖读环；保持旧增益并丢弃旧配对，随后能正常学习。
++            const auto hugeSilence = makeSilence (numChannels, (int) (13.0 * sampleRate));
++            const auto hugeOutput = runChain (chain, hugeSilence, (int) hugeSilence[0].size());
++            expect (allFinite (hugeOutput), "oversized block/ring loss must be safe");
++            changed = runChain (chain, tone, 2048);
++            expect (std::abs (tailLufs (changed, sampleRate) - tailLufs (tone, sampleRate)) < 0.15f, "recovery after lost metering history");
++        }
++
+         // 1. getLatencySamples() = Balance 延迟（0）+ Color 延迟 + Limit 延迟（用同样参数单独建三个模块对照），
+         //    脉冲实测峰值位置 = position + latency（Color 中性、Limit Gain 0：−6 dBFS 脉冲的真峰值就是它自己，不触发限幅，
+         //    输出只是整数延迟的输入），三个采样率 × 三档 Lookahead；Lookahead 改动后 setParams 立即反映在延迟上。
+--- before/tests/GlazeControllerTests.cpp
++++ after/tests/GlazeControllerTests.cpp
+@@ -117,6 +117,7 @@
+         {
+             return sameBits (a.balance.recover, b.balance.recover) && sameBits (a.balance.tame, b.balance.tame)
+                 && sameBits (a.balance.automaticRecover, b.balance.automaticRecover)
++                && sameBits (a.balance.automaticTame, b.balance.automaticTame)
+                 && sameBits (a.balance.brighten, b.balance.brighten) && a.balance.speed == b.balance.speed
+                 && a.balance.bypass == b.balance.bypass
+                 && sameBits (a.color.toneDb, b.color.toneDb) && sameBits (a.color.glue, b.color.glue)
+@@ -331,6 +332,8 @@
+             testOlderAlgorithmPlanIsKept();
+             testOldHeatModelIsMigrated();
+             testLiveTameAfterProfileLocks();
++            testLiveToneAfterProfileLocks();
++            testListenDoesNotPauseCalibration();
+             testConstraintFeedbackConverges();
+             testStuckGuardIsAbsorbed();
+             testProfileMismatch();
+@@ -510,6 +513,7 @@
+                 tameBounded = tameBounded && effective.balance.tame >= rig.params.balance.tame + plannedBefore.balanceTame - 1.0e-4f
+                                           && effective.balance.tame <= juce::jmin (100.0f, rig.params.balance.tame + tameCap) + 1.0e-4f;
+                 effective.balance.tame = effectiveBefore.balance.tame;
++                effective.balance.automaticTame = effectiveBefore.balance.automaticTame;
+                 effectiveUnchanged = effectiveUnchanged && sameParams (effective, effectiveBefore);
+             });
+ 
+@@ -1006,6 +1010,180 @@
+             expect (sameParams (restored.params, params), "migration never rewrites manual controls");
+         }
+ 
++        void testListenDoesNotPauseCalibration()
++        {
++            beginTest ("Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection");
++            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 11, 0.5f));
++            rig.params.glazePercent = 50.0f;
++            rig.params.limit.listen = true;
++            expect (rig.learnAndCalibrate(), "a fresh instance learns and completes calibration with Listen enabled");
++            expect (! rig.status().calibrationPaused);
++
++            const auto before = rig.probe();
++            rig.hostBypassed = true;
++            rig.params.glazePercent = 55.0f;
++            rig.run (0.1);
++            const auto protection = rig.status().protectionDb;
++            rig.run (3.0);
++            expect (rig.status().calibrationPaused, "host bypass is recognised even when Listen is also enabled");
++            expectEquals (rig.probe().calibrationBegins, before.calibrationBegins);
++            expectEquals (rig.status().protectionDb, protection, "dry bypass statistics do not drive the guard");
++            expect (! rig.status().calibrationValid);
++
++            rig.hostBypassed = false;
++            int blocks = 0;
++            const auto resumed = rig.runUntil (30.0, [&]
++            {
++                // Switching a monitoring control during a round must not invalidate the measurement or restart the plan.
++                rig.params.limit.listen = (++blocks / rig.blocksFor (0.2)) % 2 == 0;
++                return rig.phase() == Phase::locked && rig.status().calibrationValid;
++            });
++            expect (resumed, "calibration resumes with the new knob setting while Listen keeps toggling");
++            expect (! rig.status().calibrationPaused);
++            expect (rig.probe().calibrationFinishes > before.calibrationFinishes);
++            expectEquals (rig.probe().planTransitions, before.planTransitions, "Listen never changes the processing plan");
++        }
++
++        void testLiveToneAfterProfileLocks()
++        {
++            beginTest ("locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone");
++            const auto bright = makeNoise (numChannels, (int) (8.0 * defaultRate), 0.08f, 147);
++            auto dark = bright;
++            // One-pole low pass changes the broad slope without creating an isolated spectral peak.
++            const auto retain = std::exp (-juce::MathConstants<double>::twoPi * 250.0 / defaultRate);
++            double sourcePower = 0.0, darkPower = 0.0;
++            for (size_t ch = 0; ch < dark.size(); ++ch)
++            {
++                double z = 0.0;
++                for (size_t i = 0; i < dark[ch].size(); ++i)
++                {
++                    z = bright[ch][i] + (z - bright[ch][i]) * retain;
++                    dark[ch][i] = (float) z;
++                    sourcePower += (double) bright[ch][i] * bright[ch][i];
++                    darkPower += z * z;
++                }
++            }
++            scale (dark, (float) std::sqrt (sourcePower / darkPower));
++            Rig learned (fastConstants(), bright);
++            learned.run (4.0);
++            auto state = learned.committed();
++            expect (state.hasProfile);
++            state.profile.spectralSlopeDbPerOct.confidence = 1.0f;
++            state.profile.bandConfidence.fill (1.0f);
++            state.profile.representativeness = 1.0f;
++            state.profile.integratedLufs.confidence = state.profile.truePeakDbtp.confidence = 1.0f;
++            state.profileId = glaze::computeProfileId (state.profile);
++            state.plan = glaze::Plan {};
++            state.calibration = glaze::Calibration {};
++            const auto saved = glaze::toXml (state);
++            float realtimeTone = 0.0f;
++            std::vector<float> realtimeToneTrajectory;
++            for (const auto offline : { false, true })
++            {
++                Rig rig (fastConstants(), bright, defaultParams (50.0f, 3));
++                rig.host.offline = offline;
++                rig.chain.restoreGlazeStateXml (saved.get());
++                rig.run (4.0);
++                const auto baseline = rig.chain.getEffectiveParams().color.toneDb;
++                const auto plan = rig.probe().targetPlan;
++                expect (baseline < -0.1f, "bright learned material receives a negative Tone correction");
++                rig.source = dark;
++                rig.sourceIndex = 0;
++                rig.run (0.1);
++                expect (std::abs (rig.chain.getEffectiveParams().color.toneDb - baseline) < 0.02f, "a short event cannot swing the tone");
++                auto previous = rig.chain.getEffectiveParams().color.toneDb;
++                bool bounded = true, smooth = true;
++                std::uint64_t allocations = 0;
++                for (int b = 0; b < rig.blocksFor (14.0); ++b)
++                {
++                    // The second pass switches only Listen while following the same samples: the Tone path must remain identical.
++                    rig.params.limit.listen = offline && (b / rig.blocksFor (0.5)) % 2 == 0;
++                    const auto before = allocationCountOnThisThread();
++                    rig.step();
++                    allocations += allocationCountOnThisThread() - before;
++                    const auto tone = rig.chain.getEffectiveParams().color.toneDb;
++                    bounded = bounded && std::abs (tone) <= state.constants.clean.toneMaxDb * 0.5f + 1.0e-6f;
++                    smooth = smooth && std::abs (tone - previous) <= 0.011f;
++                    previous = tone;
++                    if (offline)
++                        expectEquals (tone, realtimeToneTrajectory[(size_t) b], "Listen does not pause or alter tonal adaptation");
++                    else
++                        realtimeToneTrajectory.push_back (tone);
++                }
++                expect (previous > 0.1f, "sustained dark section changes the direction without relearning");
++                expect (bounded && smooth);
++                expectEquals ((int) allocations, 0);
++                expect (glaze::bitwiseEqual (rig.committed().profile, state.profile));
++                expectEquals ((juce::int64) rig.committed().profileId, (juce::int64) state.profileId);
++                expectEquals (rig.probe().targetPlan.weights.clean, plan.weights.clean);
++                expectEquals (rig.probe().targetPlan.effectiveTargetLufs, plan.effectiveTargetLufs);
++                if (offline)
++                    expectWithinAbsoluteError (previous, realtimeTone, 1.0e-5f);
++                else
++                    realtimeTone = previous;
++
++                rig.params.limit.listen = true;
++                rig.hostBypassed = true;
++                rig.source = bright;
++                rig.sourceIndex = 0;
++                rig.step();
++                const auto bypassedTone = rig.chain.getEffectiveParams().color.toneDb;
++                rig.run (2.0);
++                expectEquals (rig.chain.getEffectiveParams().color.toneDb, bypassedTone, "host bypass plus Listen freezes live Tone");
++                rig.hostBypassed = false;
++
++                rig.source = makeSilence (numChannels, (int) defaultRate);
++                rig.sourceIndex = 0;
++                rig.run (1.0);
++                const auto silentTone = rig.chain.getEffectiveParams().color.toneDb;
++                rig.run (3.0);
++                expectEquals (rig.chain.getEffectiveParams().color.toneDb, silentTone, "silence freezes tonal correction");
++                rig.chain.reset();
++                rig.step();
++                expectWithinAbsoluteError (rig.chain.getEffectiveParams().color.toneDb, rig.probe().increments.colorToneDb, 1.0e-6f,
++                                           "host reset clears runtime Tone drift, preserving the saved plan");
++                rig.params.glazePercent = 0.0f;
++                rig.step();
++                expect (sameParams (rig.chain.getEffectiveParams(), rig.params));
++                rig.params.glazePercent = 50.0f;
++                rig.params.color.bypass = true;
++                rig.step();
++                expectEquals (rig.chain.getEffectiveParams().color.toneDb, rig.params.color.toneDb);
++            }
++
++            // Same broad spectrum plus a stationary narrow peak must not create a mismatch between the two regression methods.
++            auto peaked = bright;
++            const auto sine = makeSine (numChannels, defaultRate, 2000.0, 0.12f, 8.0);
++            for (size_t ch = 0; ch < peaked.size(); ++ch)
++                for (size_t i = 0; i < peaked[ch].size(); ++i)
++                    peaked[ch][i] += sine[ch][i];
++            Rig peakLearner (fastConstants(), peaked);
++            peakLearner.run (4.0);
++            auto peakState = peakLearner.committed();
++            peakState.profile.spectralSlopeDbPerOct.confidence = 1.0f;
++            peakState.profile.bandConfidence.fill (1.0f);
++            peakState.profileId = glaze::computeProfileId (peakState.profile);
++            peakState.plan = glaze::Plan {};
++            // Neutral reference leaves room in both directions, so cap saturation cannot hide drift.
++            peakState.constants.clean.toneReferenceSlopeDbPerOct = peakState.profile.spectralSlopeDbPerOct.value;
++            Rig steady (fastConstants(), peaked, defaultParams (50.0f, 3));
++            steady.chain.restoreGlazeStateXml (glaze::toXml (peakState).get());
++            steady.run (12.0);
++            expectWithinAbsoluteError (steady.chain.getEffectiveParams().color.toneDb, steady.probe().increments.colorToneDb, 0.015f,
++                                       "identical spectrum with a narrow peak does not cause false broad-band drift");
++
++            state.constants.algorithmVersion = 3;
++            state.plan.algorithmVersion = 3;
++            state.plan.increments.colorToneDb = 0.23f;
++            state.plan.increments.balanceTame = 7.0f;
++            Rig legacy (fastConstants(), dark, defaultParams (50.0f, 3));
++            legacy.chain.restoreGlazeStateXml (glaze::toXml (state).get());
++            legacy.run (10.0);
++            expect (legacy.probe().savedPlanMode);
++            expectEquals (legacy.chain.getEffectiveParams().color.toneDb, 0.23f);
++            expectEquals (legacy.chain.getEffectiveParams().balance.automaticTame, 0.0f);
++        }
++
+         void testLiveTameAfterProfileLocks()
+         {
+             beginTest ("locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority");
+@@ -1065,6 +1243,8 @@
+                 }
+                 expect (highest > baseline + 2.0f, "current resonance gains authority despite no stored evidence");
+                 expect (highest <= 0.5f * state.constants.clean.tameCap + 1.0e-4f, "current style and macro still cap live authority");
++                expectEquals (rig.chain.getEffectiveParams().balance.automaticTame,
++                              rig.chain.getEffectiveParams().balance.tame - rig.params.balance.tame);
+                 expectEquals ((int) allocations, 0);
+                 expectEquals ((juce::int64) rig.committed().profileId, (juce::int64) state.profileId);
+                 expect (glaze::bitwiseEqual (rig.committed().profile, state.profile));
+--- before/tests/GlazePlannerTests.cpp
++++ after/tests/GlazePlannerTests.cpp
+@@ -75,6 +75,7 @@
+         {
+             return sameBits (a.balance.recover, b.balance.recover) && sameBits (a.balance.tame, b.balance.tame)
+                 && sameBits (a.balance.automaticRecover, b.balance.automaticRecover)
++                && sameBits (a.balance.automaticTame, b.balance.automaticTame)
+                 && sameBits (a.balance.brighten, b.balance.brighten) && a.balance.speed == b.balance.speed && a.balance.bypass == b.balance.bypass
+                 && sameBits (a.color.toneDb, b.color.toneDb) && sameBits (a.color.glue, b.color.glue) && sameBits (a.color.heat, b.color.heat)
+                 && sameBits (a.color.mixPercent, b.color.mixPercent) && sameBits (a.color.outputDb, b.color.outputDb) && a.color.bypass == b.color.bypass
+@@ -401,6 +402,7 @@
+             testModuleBudgets();
+             testAlreadyLoudStillRequestsDrive();
+             testGentleColorWithHeadroom();
++            testBidirectionalTone();
+             testExcessLowersTarget();
+             testMaxGainFeedback();
+             testStyleDirections();
+@@ -474,9 +476,52 @@
+         }
+ 
+         //==============================================================================
++        void testBidirectionalTone()
++        {
++            beginTest ("automatic Tone follows both spectral directions, with a dead zone and conservative signed caps");
++            for (auto style : { Style::warm, Style::punchy, Style::clean })
++            {
++                const auto& caps = constantsFor (factoryConstants(), style);
++                for (auto difference : { -4.0f, -0.1f, 0.0f, 0.1f, 4.0f })
++                {
++                    auto p = makeProfile (-20.0f, -8.0f);
++                    setFeature (p.spectralSlopeDbPerOct, caps.toneReferenceSlopeDbPerOct - difference);
++                    const auto full = planFor (&p, style, 100.0f).increments.colorToneDb;
++                    const auto half = planFor (&p, style, 50.0f).increments.colorToneDb;
++                    expect (std::abs (full) <= caps.toneMaxDb);
++                    expectWithinAbsoluteError (half, full * 0.5f, 1.0e-6f);
++                    if (std::abs (difference) <= automaticToneSlopeDeadbandDbPerOct)
++                        expectEquals (full, 0.0f);
++                    else
++                        expect (full * difference > 0.0f, "dark material brightens; bright material softens");
++                    auto lastMagnitude = std::abs (full);
++                    for (auto confidence : { 0.6f, 0.3f, 0.0f })
++                    {
++                        p.spectralSlopeDbPerOct.confidence = confidence;
++                        const auto tone = planFor (&p, style, 100.0f).increments.colorToneDb;
++                        expect (std::abs (tone) <= lastMagnitude + 1.0e-6f && tone * full >= 0.0f);
++                        lastMagnitude = std::abs (tone);
++                    }
++                    p.spectralSlopeDbPerOct.valid = false;
++                    expectEquals (planFor (&p, style, 100.0f).increments.colorToneDb, 0.0f);
++                }
++            }
++
++            auto manual = defaultManual();
++            manual.color.toneDb = -2.9f;
++            manual.balance.tame = 96.0f;
++            AutoIncrements inc;
++            inc.colorToneDb = -0.75f;
++            inc.balanceTame = 20.0f;
++            const auto effective = applyIncrements (manual, inc);
++            expectEquals (effective.color.toneDb, -3.0f);
++            expectEquals (effective.balance.automaticTame, 4.0f, "automatic Tame is the actual share remaining after clamping");
++            expect (sameParams (applyIncrements (manual, {}), manual));
++        }
++
+         void testMonotonicInGlaze()
+         {
+-            beginTest ("Increments and effective gain never decrease as GLAZE rises");
++            beginTest ("Processing magnitudes and effective gain never decrease as GLAZE rises");
+ 
+             // 依据：设计规格-GLAZE 验收总表第 2 条「随 GLAZE 单调」；决策与校准第 4 节（约束边界上也不许倒退）。
+             juce::Random random (0x5eed01);
+@@ -494,7 +539,8 @@
+                     const auto& b = previous.increments;
+ 
+                     const bool ok = a.balanceRecover >= b.balanceRecover && a.balanceTame >= b.balanceTame
+-                                 && a.colorToneDb >= b.colorToneDb && a.colorGlue >= b.colorGlue && a.colorHeat >= b.colorHeat
++                                 && std::abs (a.colorToneDb) >= std::abs (b.colorToneDb) && a.colorToneDb * b.colorToneDb >= 0.0f
++                                 && a.colorGlue >= b.colorGlue && a.colorHeat >= b.colorHeat
+                                  && a.limitGainDb >= b.limitGainDb && a.limitClip >= b.limitClip
+                                  && plan.requestedGainDb >= previous.requestedGainDb && plan.effectiveGainDb >= previous.effectiveGainDb
+                                  && plan.effectiveTargetLufs >= previous.effectiveTargetLufs && plan.requestedTargetLufs >= previous.requestedTargetLufs;
+@@ -603,7 +649,7 @@
+                     expect (inc.colorHeat <= sc.heatDriveCap + 1.0e-3f, utf8 ("Heat 超过驱动上限"));
+                     expect (inc.balanceRecover <= sc.recoverCap * g + 1.0e-3f, utf8 ("Recover 超过上限 × GLAZE"));
+                     expect (inc.balanceTame <= sc.tameCap * g + 1.0e-3f, utf8 ("Tame 超过上限 × GLAZE"));
+-                    expect (inc.colorToneDb >= 0.0f && inc.colorToneDb <= sc.toneMaxDb * g + 1.0e-4f, utf8 ("Tone 超出 0 ～ 0.75 dB × GLAZE"));
++                    expect (std::abs (inc.colorToneDb) <= sc.toneMaxDb * g + 1.0e-4f, utf8 ("Tone 超出 ±0.75 dB × GLAZE"));
+                     expect (inc.colorGlue >= 0.0f && inc.limitClip >= 0.0f && inc.limitGainDb >= 0.0f);
+                 }
+             }
+@@ -637,12 +683,13 @@
+             expectWithinAbsoluteError (some.increments.balanceRecover, c.warm.recoverCap * 1.2f / c.recoverEvidenceFullDb, 1.0e-3f);
+             expect (some.increments.balanceRecover < c.warm.recoverCap, utf8 ("同样的证据 Recover 应给得比上限少（比 Tame 保守）"));
+ 
+-            // Tone：比参考斜率暗 → 提亮；比参考亮 → 不动（Tone 自动只提亮，Brighten 不自动）。
++            // Tone：比参考斜率暗 → 提亮；比参考亮 → 收暗，两个方向均保留容忍区（Brighten 不自动）。
+             setFeature (profile.spectralSlopeDbPerOct, c.warm.toneReferenceSlopeDbPerOct - 3.0f);
+             expectEquals (planFor (&profile, Style::warm, 100.0f).increments.colorToneDb, c.warm.toneMaxDb);
+             expectWithinAbsoluteError (planFor (&profile, Style::warm, 40.0f).increments.colorToneDb, c.warm.toneMaxDb * 0.4f, 1.0e-3f);
+             setFeature (profile.spectralSlopeDbPerOct, c.warm.toneReferenceSlopeDbPerOct + 1.0f);
+-            expectEquals (planFor (&profile, Style::warm, 100.0f).increments.colorToneDb, 0.0f);
++            expectWithinAbsoluteError (planFor (&profile, Style::warm, 100.0f).increments.colorToneDb,
++                                       -(1.0f - automaticToneSlopeDeadbandDbPerOct) * c.toneDbPerSlopeDb, 1.0e-6f);
+         }
+ 
+         //==============================================================================
+@@ -958,7 +1005,8 @@
+                     const bool ok = low.effectiveGainDb <= high.effectiveGainDb + 1.0e-4f
+                                  && a.colorGlue <= b.colorGlue + 1.0e-4f && a.colorHeat <= b.colorHeat + 1.0e-4f
+                                  && a.limitGainDb <= b.limitGainDb + 1.0e-4f && a.limitClip <= b.limitClip + 1.0e-4f
+-                                 && a.colorToneDb <= b.colorToneDb + 1.0e-5f && a.balanceRecover <= b.balanceRecover + 1.0e-4f
++                                 && std::abs (a.colorToneDb) <= std::abs (b.colorToneDb) + 1.0e-5f && a.colorToneDb * b.colorToneDb >= 0.0f
++                                 && a.balanceRecover <= b.balanceRecover + 1.0e-4f
+                                  && a.balanceTame <= b.balanceTame + 1.0e-4f;
+ 
+                     if (! ok)
+--- before/tests/GlazeStatusTextTests.cpp
++++ after/tests/GlazeStatusTextTests.cpp
+@@ -113,7 +113,7 @@
+ 
+                 auto paused = learned (Phase::calibrating);
+                 paused.calibrationPaused = true;
+-                expectEquals (show (paused, 50.0f, Style::automatic, true), utf8 ("校准暂停（Listen）"));
++                expectEquals (show (paused, 50.0f, Style::automatic, true), utf8 ("校准暂停（旁通）"));
+                 expect (toneOf (paused, 50.0f, Style::automatic, true) == gs::Tone::dim);
+             }
+ 
+@@ -177,7 +177,7 @@
+                 auto stoppedListen = learned (Phase::calibrating);
+                 stoppedListen.waitingForPlayback = true;
+                 stoppedListen.calibrationPaused = true;
+-                expectEquals (show (stoppedListen, 50.0f, Style::automatic, true), utf8 ("校准暂停（Listen）"), "an explicit pause reason comes first");
++                expectEquals (show (stoppedListen, 50.0f, Style::automatic, true), utf8 ("校准暂停（旁通）"), "an explicit pause reason comes first");
+ 
+                 expect (gs::classify (stopped, 50.0f, Style::automatic, false) != gs::classify (learned (Phase::calibrating), 50.0f, Style::automatic, false));
+             }
+@@ -206,12 +206,14 @@
+                 expectEquals (show (locked(), -5.0f), utf8 ("已锁定 · 自动→温润"));
+             }
+ 
+-            // 依据：设计规格-GLAZE-决策与校准 第 6 节（切 Listen / 旁通时校准暂停）；聆听分析的是入口，不受 Listen 影响。
++            // 全链 Listen 在计量之后；只有宿主旁通暂停校准，Listen 不改变状态显示。
+             beginTest ("calibration pause shows only while calibration would run, with the right reason");
+             {
+                 auto paused = learned (Phase::calibrating);
+                 paused.calibrationPaused = true;
+                 expectEquals (show (paused, 50.0f, Style::automatic, false), utf8 ("校准暂停（旁通）"));
++                expectEquals (show (learned (Phase::calibrating), 50.0f, Style::automatic, true), utf8 ("校准中"), "Listen does not pause calibration");
++                expectEquals (show (paused, 50.0f, Style::automatic, true), utf8 ("校准暂停（旁通）"), "simultaneous Listen does not hide host bypass");
+ 
+                 auto awaitingPaused = locked();
+                 awaitingPaused.calibrationValid = false;
+--- before/tests/GlazeTests.cpp
++++ after/tests/GlazeTests.cpp
+@@ -55,6 +55,7 @@
+         {
+             return sameBits (a.balance.recover, b.balance.recover) && sameBits (a.balance.tame, b.balance.tame)
+                 && sameBits (a.balance.automaticRecover, b.balance.automaticRecover)
++                && sameBits (a.balance.automaticTame, b.balance.automaticTame)
+                 && sameBits (a.balance.brighten, b.balance.brighten) && a.balance.speed == b.balance.speed
+                 && a.balance.bypass == b.balance.bypass
+                 && sameBits (a.color.toneDb, b.color.toneDb) && sameBits (a.color.glue, b.color.glue)
+@@ -315,7 +316,8 @@
+                 p.limit.autoRelease = (b / 25) % 2 == 0;
+                 p.limit.lookaheadMs = 1.0f + 0.5f * (float) ((b / 40) % 19);
+                 p.limit.clip        = (b / 35) % 2 == 0 ? 0.0f : 100.0f * wave;
+-                p.limit.listen      = (b / 60) % 2 == 1;
++                // 非 Listen 路径仍逐位对照三个裸模块；Listen 已是整链实测监听，独立用例在 ChainTests 验证。
++                p.limit.listen      = false;
+                 p.limit.bypass      = (b / 110) % 2 == 1;
+                 p.glazeStyle        = (b / 20) % 4;
+             }
+@@ -416,6 +418,7 @@
+         {
+             testGlazeZeroEqualsReferenceChain();
+             testGlazeActsOnlyThroughEffectiveParams();
++            testListenDoesNotChangeMastering();
+             testLatencyUnchanged();
+             testSweepHasNoBlockRateSidebands();
+             testSweepHasNoClicks();
+@@ -438,7 +441,7 @@
+         //    实际参数逐位等于手动值（不经任何额外运算）」；CeladonChain.h 的处理顺序。
+         void testGlazeZeroEqualsReferenceChain()
+         {
+-            beginTest ("GLAZE 0 from the start: chain == hand-wired modules with the manual params, bit-exact, 90 scenarios");
++            beginTest ("GLAZE 0, Listen off: chain == hand-wired modules with the manual params, bit-exact, 90 scenarios");
+ 
+             struct Pattern { const char* name; int fixed; int maxLength; };
+             const Pattern patterns[] = { { "512", 512, 0 }, { "64", 64, 0 }, { "333", 333, 0 }, { "rand", 0, 700 }, { "2048", 2048, 0 } };
+@@ -689,6 +692,79 @@
+             expect (probe.commits >= 1 && probe.calibrationBegins >= 1, "went through learning and calibration" + tag);
+             expect (deepestGuard < 0.0f, "the guard acted on the hot half" + tag);
+             expect (identical, "chain output == three modules fed the effective params, bit for bit" + tag);
++        }
++
++        void testListenDoesNotChangeMastering()
++        {
++            beginTest ("Listen toggles change monitoring only: GLAZE params, pre-Listen meters and calibration stay identical");
++            constexpr double sampleRate = 48000.0;
++            constexpr int numChannels = 2;
++            auto constants = glaze::factoryConstants();
++            constants.minListenSeconds = 2.0;
++            constants.maxListenSeconds = 3.0;
++            constants.planTransitionSeconds = 0.5;
++            constants.calibrationSettleSeconds = 0.5;
++            constants.calibrationWindowSeconds = 2.0;
++            Params params;
++            params.glazePercent = 80.0f;
++            params.glazeStyle = 2;
++            params.color.toneDb = 0.5f;
++            params.color.heat = 15.0f;
++            params.limit.ceilingDb = -1.0f;
++            CeladonChain monitoring, reference;
++            for (auto* chain : { &monitoring, &reference })
++            {
++                chain->getGlazeController().setConstantsForTesting (constants);
++                chain->setParams (params, false);
++                chain->prepare (makeSpec (sampleRate, numChannels));
++            }
++            auto input = makeMusicLikeSignal (numChannels, sampleRate, 12.0, 260926, 0.2f);
++            for (auto& channel : input)
++                for (size_t i = 3 * channel.size() / 4; i < channel.size(); ++i)
++                    channel[i] *= 3.0f;
++            juce::AudioBuffer<float> a (numChannels, maxBlock), b (numChannels, maxBlock);
++            glaze::HostInfo host;
++            host.hasPlayState = host.isPlaying = host.hasPosition = true;
++            bool paramsIdentical = true, metersIdentical = true;
++            float largestAutoGain = 0.0f, largestMonitorDifference = 0.0f;
++            for (int start = 0, block = 0; start + maxBlock <= (int) input[0].size(); start += maxBlock, ++block)
++            {
++                for (int ch = 0; ch < numChannels; ++ch)
++                {
++                    a.copyFrom (ch, 0, input[(size_t) ch].data() + start, maxBlock);
++                    b.copyFrom (ch, 0, input[(size_t) ch].data() + start, maxBlock);
++                }
++                host.positionSamples = start;
++                monitoring.setHostInfo (host);
++                reference.setHostInfo (host);
++                auto listenParams = params;
++                listenParams.limit.listen = (block / 47) % 2 == 1;
++                monitoring.setParams (listenParams, false);
++                reference.setParams (params, false);
++                auto effective = monitoring.getEffectiveParams();
++                effective.limit.listen = false; // only the explicit monitor request differs
++                paramsIdentical = paramsIdentical && sameParams (effective, reference.getEffectiveParams());
++                largestAutoGain = juce::jmax (largestAutoGain, effective.limit.gainDb - params.limit.gainDb);
++                monitoring.process (a);
++                reference.process (b);
++                metersIdentical = metersIdentical
++                    && sameBits (monitoring.getAndResetOutputTruePeakDb(), reference.getAndResetOutputTruePeakDb())
++                    && sameBits (monitoring.getOutputShortTermLufs(), reference.getOutputShortTermLufs())
++                    && sameBits (monitoring.getOutputIntegratedLufs(), reference.getOutputIntegratedLufs());
++                for (int ch = 0; ch < numChannels; ++ch)
++                    for (int i = 0; i < maxBlock; ++i)
++                        largestMonitorDifference = juce::jmax (largestMonitorDifference, std::abs (a.getSample (ch, i) - b.getSample (ch, i)));
++            }
++            const auto aProbe = monitoring.getGlazeController().getProbeForTesting();
++            const auto bProbe = reference.getGlazeController().getProbeForTesting();
++            expect (paramsIdentical, "Listen toggles must not restart planning or alter effective mastering params");
++            expect (metersIdentical, "uncompensated master OUT readings must remain bit-exact across Listen switches");
++            expect (largestAutoGain > 0.2f && largestMonitorDifference > 0.001f, "both GLAZE and Listen must actually be active");
++            expect (aProbe.commits >= 1 && aProbe.calibrationBegins >= 1, "test must cover committed planning and calibration");
++            expectEquals (aProbe.calibrationBegins, bProbe.calibrationBegins, "Listen must not pause/restart calibration");
++            expectEquals (aProbe.calibrationFinishes, bProbe.calibrationFinishes, "calibration progress is unaffected");
++            expect (sameBits (aProbe.executedBiasDb, bProbe.executedBiasDb)
++                    && sameBits (aProbe.executedGuardDb, bProbe.executedGuardDb), "Listen must not alter calibration bias or protection");
+         }
+ 
+         // 3. 延迟不随 GLAZE 变：同一 Lookahead、同一采样率下 GLAZE 0 与 100 的 getLatencySamples 相同；同一条链上拧 GLAZE 延迟不动。
+--- before/tests/MusicAnalyzerTests.cpp
++++ after/tests/MusicAnalyzerTests.cpp
+@@ -546,6 +546,7 @@
+             testPinkAndWhiteNoise();
+             testNotchAndPeakEvidence();
+             testLiveTameAfterLearning();
++            testLiveBroadbandSlope();
+             testRecoverIsConservative();
+             testChannelsCombineByPower();
+             testClickTrains();
+@@ -1089,6 +1090,30 @@
+         // 依据：分析器第 4 节（正偏离 → Tame 证据、负偏离 → Recover 证据，分开统计）。粉噪上 −12 dB 的 1/3 倍频程缺口（段 13
+         // 精确中心 794 Hz）：该段 Recover 证据 ≥ 3 dB，其余各段两种证据都 < 0.2 dB（轮廓按 Huber 降权重算，缺口不会把邻段的
+         // 轮廓拉低、凭空记上 Tame）；+12 dB 的峰（段 14，1 kHz）对称。
++        void testLiveBroadbandSlope()
++        {
++            beginTest ("live broad-band slope follows stopped learning, and rejects narrow tones and silence");
++            constexpr double rate = 48000.0;
++            const auto flat = makePinkNoise (numChannels, (int) (8.0 * rate), -20.0f, 871);
++            const auto bright = makeWhiteNoise (numChannels, (int) (8.0 * rate), -20.0f, 872);
++            Rig rig (rate);
++            rig.analyzer.startLearning();
++            rig.feed (flat, 512);
++            rig.analyzer.stopLearning();
++            const auto frozen = rig.profile();
++            const auto baseline = rig.analyzer.getShortTermView().liveSpectralSlopeDbPerOct;
++            expect (baseline.valid && std::abs (baseline.value) < 0.4f);
++            rig.feed (bright, 512);
++            const auto slope = rig.analyzer.getShortTermView().liveSpectralSlopeDbPerOct;
++            expect (slope.valid && slope.value > 2.5f && slope.value < 3.5f);
++            expect (sameProfile (frozen, rig.profile()), "live slope never changes the committed learning result");
++            rig.feed (makeSilence (numChannels, (int) (2.0 * rate)), 512);
++            expect (! rig.analyzer.getShortTermView().liveSpectralSlopeDbPerOct.valid);
++            rig.analyzer.handleDiscontinuity (Discontinuity::hostReset);
++            rig.feed (makeSine (numChannels, rate, 1000.0, 0.1f, 5.0), 512);
++            expect (! rig.analyzer.getShortTermView().liveSpectralSlopeDbPerOct.valid, "a narrow instrument is not a broad tonal balance");
++        }
++
+         void testLiveTameAfterLearning()
+         {
+             beginTest ("live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile");
+--- before/tools/perf/bench.mm
++++ after/tools/perf/bench.mm
+@@ -5,6 +5,7 @@
+ //   celadon_bench grid    <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>
+ //   celadon_bench modules <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>
+ //   celadon_bench gui
++//   celadon_bench statecheck   （真实处理器默认启动、旧工程缺参、显式零值与状态往返验收）
+ //   celadon_bench ecore   <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>   （后台 QoS：只在能效核上跑）
+ //   srs / bss 用逗号分隔，例如 44100,48000,96000,192000  32,64,128,256,512,1024
+ #include <JuceHeader.h>
+@@ -672,6 +673,89 @@
+         std::fflush (stdout);
+         editor.reset();
+     }
++    int runStateCheck()
++    {
++        int failures = 0;
++        auto check = [&] (bool ok, const char* name)
++        {
++            std::printf ("STATE,%s,%s\n", ok ? "PASS" : "FAIL", name);
++            if (! ok) ++failures;
++        };
++        auto value = [] (CeladonAudioProcessor& processor, const char* id)
++        {
++            return processor.getParameters().getRawParameterValue (id)->load();
++        };
++        auto setValue = [] (CeladonAudioProcessor& processor, const char* id, float raw)
++        {
++            auto* parameter = processor.getParameters().getParameter (id);
++            parameter->setValueNotifyingHost (parameter->convertTo0to1 (raw));
++        };
++        auto fresh = std::make_unique<CeladonAudioProcessor>();
++        check (value (*fresh, "glaze_amount") == 35.0f, "fresh instance starts at 35 percent");
++        check (value (*fresh, "glaze_style") == 0.0f, "fresh instance uses song-adaptive Auto style");
++        auto firstTwoSeconds = [&] (CeladonAudioProcessor& processor, float inputGain)
++        {
++            processor.prepareToPlay (48000.0, 256);
++            auto signal = makeSignal (48000.0, 2.0);
++            signal.applyGain (inputGain);
++            juce::MidiBuffer midi;
++            for (int offset = 0; offset < signal.getNumSamples(); offset += 256)
++            {
++                const auto count = juce::jmin (256, signal.getNumSamples() - offset);
++                juce::AudioBuffer<float> block (signal.getArrayOfWritePointers(), 2, offset, count);
++                processor.processBlock (block, midi);
++            }
++            return processor.getGlazeEffectiveParamsForUi();
++        };
++        const auto effective = firstTwoSeconds (*fresh, 1.0f);
++        std::printf ("STATE,INFO,after two seconds: GLAZE=%.2f Gain=%.3f Tame=%.3f Heat=%.3f\n",
++                     effective.glazePercent, effective.limit.gainDb, effective.balance.tame, effective.color.heat);
++        // 此基准素材接近满刻度且密集；启动判断不能要求已经很响的输入再被强行增响。
++        check (effective.balance.tame > 0.0f && effective.color.heat > 0.0f,
++               "fresh instance applies spectral processing and colour within two seconds");
++        auto quiet = std::make_unique<CeladonAudioProcessor>();
++        const auto quietEffective = firstTwoSeconds (*quiet, 0.25f);
++        std::printf ("STATE,INFO,with input headroom: Gain=%.3f Tame=%.3f Heat=%.3f\n",
++                     quietEffective.limit.gainDb, quietEffective.balance.tame, quietEffective.color.heat);
++        check (quietEffective.limit.gainDb > 0.1f && quietEffective.limit.gainDb > effective.limit.gainDb,
++               "fresh instance adds more gain when the same material has headroom");
++        quiet->releaseResources();
++
++        setValue (*fresh, "glaze_amount", 0.0f);
++        juce::MemoryBlock zeroState;
++        fresh->getStateInformation (zeroState);
++        auto restored = std::make_unique<CeladonAudioProcessor>();
++        restored->setStateInformation (zeroState.getData(), (int) zeroState.getSize());
++        check (value (*restored, "glaze_amount") == 0.0f, "explicit saved zero stays manual");
++
++        auto legacyXml = juce::AudioProcessor::getXmlFromBinary (zeroState.getData(), (int) zeroState.getSize());
++        for (auto* child = legacyXml->getFirstChildElement(); child != nullptr;)
++        {
++            auto* next = child->getNextElement();
++            if (child->getStringAttribute ("id") == "glaze_amount")
++                legacyXml->removeChildElement (child, true);
++            child = next;
++        }
++        juce::MemoryBlock legacyState;
++        juce::AudioProcessor::copyXmlToBinary (*legacyXml, legacyState);
++        setValue (*restored, "glaze_amount", 83.0f);
++        restored->setStateInformation (legacyState.getData(), (int) legacyState.getSize());
++        check (value (*restored, "glaze_amount") == 0.0f, "missing legacy GLAZE resets an already-used instance to zero");
++        auto legacyFresh = std::make_unique<CeladonAudioProcessor>();
++        legacyFresh->setStateInformation (legacyState.getData(), (int) legacyState.getSize());
++        check (value (*legacyFresh, "glaze_amount") == 0.0f, "missing legacy GLAZE overrides fresh default safely");
++
++        setValue (*restored, "glaze_amount", 68.0f);
++        setValue (*restored, "color_heat", 42.0f);
++        juce::MemoryBlock currentState;
++        restored->getStateInformation (currentState);
++        legacyFresh->setStateInformation (currentState.getData(), (int) currentState.getSize());
++        check (std::abs (value (*legacyFresh, "glaze_amount") - 68.0f) < 0.01f
++               && std::abs (value (*legacyFresh, "color_heat") - 42.0f) < 0.01f,
++               "explicit current parameters survive save and reopen");
++        fresh->releaseResources();
++        return failures == 0 ? 0 : 1;
++    }
+ }
+ 
+ int main (int argc, char* argv[])
+@@ -683,6 +767,8 @@
+     juce::ScopedJuceInitialiser_GUI init;
+ 
+     const juce::String mode (argc > 1 ? argv[1] : "grid");
++    if (mode == "statecheck")
++        return runStateCheck();
+     const juce::String label (
+        #if defined (NDEBUG)
+         "release"

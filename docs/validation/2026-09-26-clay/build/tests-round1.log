@@ -1,0 +1,442 @@
+-- Configuring done (0.4s)
+-- Generating done (0.1s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-build/Celadon-d4b76f75e866
+[1/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeConstants.cpp.o
+FAILED: [code=1] CMakeFiles/celadon_tests.dir/Source/dsp/GlazeConstants.cpp.o 
+/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/Source/dsp/GlazeConstants.cpp.o -MF CMakeFiles/celadon_tests.dir/Source/dsp/GlazeConstants.cpp.o.d -o CMakeFiles/celadon_tests.dir/Source/dsp/GlazeConstants.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeConstants.cpp
+In file included from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeConstants.h:25,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeConstants.cpp:32:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                            ^~~~~~
+      |                            std::size_t
+In file included from /usr/include/c++/15/bits/version.h:51,
+                 from /usr/include/c++/15/compare:38,
+                 from /usr/include/c++/15/array:40,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:18:
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:44: error: template argument 2 is invalid
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:44: error: template argument 2 is invalid
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:44: error: template argument 2 is invalid
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:44: error: template argument 2 is invalid
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:44: error: template argument 2 is invalid
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:44: error: template argument 2 is invalid
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:44: error: template argument 2 is invalid
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                                            ^
+[2/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeGuard.cpp.o
+FAILED: [code=1] CMakeFiles/celadon_tests.dir/Source/dsp/GlazeGuard.cpp.o 
+/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/Source/dsp/GlazeGuard.cpp.o -MF CMakeFiles/celadon_tests.dir/Source/dsp/GlazeGuard.cpp.o.d -o CMakeFiles/celadon_tests.dir/Source/dsp/GlazeGuard.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeGuard.cpp
+In file included from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeConstants.h:25,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeGuard.h:34,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeGuard.cpp:28:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                            ^~~~~~
+      |                            std::size_t
+In file included from /usr/include/c++/15/bits/version.h:51,
+                 from /usr/include/c++/15/compare:38,
+                 from /usr/include/c++/15/array:40,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:18:
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:44: error: template argument 2 is invalid
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:44: error: template argument 2 is invalid
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:44: error: template argument 2 is invalid
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:44: error: template argument 2 is invalid
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:44: error: template argument 2 is invalid
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:44: error: template argument 2 is invalid
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:44: error: template argument 2 is invalid
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                                            ^
+[3/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeCalibrator.cpp.o
+FAILED: [code=1] CMakeFiles/celadon_tests.dir/Source/dsp/GlazeCalibrator.cpp.o 
+/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/Source/dsp/GlazeCalibrator.cpp.o -MF CMakeFiles/celadon_tests.dir/Source/dsp/GlazeCalibrator.cpp.o.d -o CMakeFiles/celadon_tests.dir/Source/dsp/GlazeCalibrator.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeCalibrator.cpp
+In file included from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeConstants.h:25,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeCalibrator.h:32,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeCalibrator.cpp:24:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                            ^~~~~~
+      |                            std::size_t
+In file included from /usr/include/c++/15/bits/version.h:51,
+                 from /usr/include/c++/15/compare:38,
+                 from /usr/include/c++/15/array:40,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:18:
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:44: error: template argument 2 is invalid
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:44: error: template argument 2 is invalid
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:44: error: template argument 2 is invalid
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:44: error: template argument 2 is invalid
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:44: error: template argument 2 is invalid
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:44: error: template argument 2 is invalid
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:44: error: template argument 2 is invalid
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                                            ^
+[4/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o
+FAILED: [code=1] CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o 
+/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o -MF CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o.d -o CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o -c /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp
+In file included from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeConstants.h:25,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.h:24,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:30:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                            ^~~~~~
+      |                            std::size_t
+In file included from /usr/include/c++/15/bits/version.h:51,
+                 from /usr/include/c++/15/compare:38,
+                 from /usr/include/c++/15/array:40,
+                 from /home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:18:
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:58:44: error: template argument 2 is invalid
+   58 |         std::array<float, (size_t) numBands> bandLongTermDb {};      // 27 段长期电平原始统计（段内总功率口径）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:59:44: error: template argument 2 is invalid
+   59 |         std::array<float, (size_t) numBands> tameEvidenceDb {};      // 超出容忍区间的正偏离累计（Tame 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:60:44: error: template argument 2 is invalid
+   60 |         std::array<float, (size_t) numBands> recoverEvidenceDb {};   // 超出容忍区间的负偏离累计（Recover 证据）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:61:44: error: template argument 2 is invalid
+   61 |         std::array<float, (size_t) numBands> bandConfidence {};      // 每段可信度 0 ～ 1
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:71:44: error: template argument 2 is invalid
+   71 |         std::array<float, (size_t) numBands> bandSideToMidDb {};     // 逐段 S/M（dB）；该段没有有效统计时为 0 且 bandStereoConfidence = 0
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:72:44: error: template argument 2 is invalid
+   72 |         std::array<float, (size_t) numBands> bandCorrelation {};     // 逐段相关度 −1 ～ 1；同上
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:28: error: ‘size_t’ was not declared in this scope; did you mean ‘std::size_t’?
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                            ^~~~~~
+      |                            std::size_t
+/usr/include/x86_64-linux-gnu/c++/15/bits/c++config.h:338:33: note: ‘std::size_t’ declared here
+  338 |   typedef __SIZE_TYPE__         size_t;
+      |                                 ^~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeTypes.h:73:44: error: template argument 2 is invalid
+   73 |         std::array<float, (size_t) numBands> bandStereoConfidence {};// 逐段立体声统计可信度 0 ～ 1（观测充分度口径同 bandConfidence）
+      |                                            ^
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp: In function ‘void celadon::glaze::{anonymous}::clearClayFeatures(celadon::glaze::MusicProfile&)’:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:105:31: error: request for member ‘fill’ in ‘p.celadon::glaze::MusicProfile::bandSideToMidDb’, which is of non-class type ‘int’
+  105 |             p.bandSideToMidDb.fill (0.0f);
+      |                               ^~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:106:31: error: request for member ‘fill’ in ‘p.celadon::glaze::MusicProfile::bandCorrelation’, which is of non-class type ‘int’
+  106 |             p.bandCorrelation.fill (0.0f);
+      |                               ^~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:107:36: error: request for member ‘fill’ in ‘p.celadon::glaze::MusicProfile::bandStereoConfidence’, which is of non-class type ‘int’
+  107 |             p.bandStereoConfidence.fill (0.0f);
+      |                                    ^~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp: In function ‘uint32_t celadon::glaze::computeProfileId(const MusicProfile&)’:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:261:18: error: no matching function for call to ‘addArray(celadon::glaze::{anonymous}::Fnv1a&, const int&, const double&)’
+  261 |         addArray (h, p.bandLongTermDb, levelStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:261:18: note: there is 1 candidate
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: candidate 1: ‘template<long unsigned int N> void celadon::glaze::{anonymous}::addArray(Fnv1a&, const std::array<float, N>&, double)’
+  237 |         void addArray (Fnv1a& h, const std::array<float, N>& values, double step) noexcept
+      |              ^~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:261:18: note:   mismatched types ‘const std::array<float, N>’ and ‘const int’
+  261 |         addArray (h, p.bandLongTermDb, levelStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:262:18: error: no matching function for call to ‘addArray(celadon::glaze::{anonymous}::Fnv1a&, const int&, const double&)’
+  262 |         addArray (h, p.tameEvidenceDb, levelStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:262:18: note: there is 1 candidate
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: candidate 1: ‘template<long unsigned int N> void celadon::glaze::{anonymous}::addArray(Fnv1a&, const std::array<float, N>&, double)’
+  237 |         void addArray (Fnv1a& h, const std::array<float, N>& values, double step) noexcept
+      |              ^~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:262:18: note:   mismatched types ‘const std::array<float, N>’ and ‘const int’
+  262 |         addArray (h, p.tameEvidenceDb, levelStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:263:18: error: no matching function for call to ‘addArray(celadon::glaze::{anonymous}::Fnv1a&, const int&, const double&)’
+  263 |         addArray (h, p.recoverEvidenceDb, levelStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:263:18: note: there is 1 candidate
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: candidate 1: ‘template<long unsigned int N> void celadon::glaze::{anonymous}::addArray(Fnv1a&, const std::array<float, N>&, double)’
+  237 |         void addArray (Fnv1a& h, const std::array<float, N>& values, double step) noexcept
+      |              ^~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:263:18: note:   mismatched types ‘const std::array<float, N>’ and ‘const int’
+  263 |         addArray (h, p.recoverEvidenceDb, levelStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:264:18: error: no matching function for call to ‘addArray(celadon::glaze::{anonymous}::Fnv1a&, const int&, const double&)’
+  264 |         addArray (h, p.bandConfidence, fractionStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:264:18: note: there is 1 candidate
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: candidate 1: ‘template<long unsigned int N> void celadon::glaze::{anonymous}::addArray(Fnv1a&, const std::array<float, N>&, double)’
+  237 |         void addArray (Fnv1a& h, const std::array<float, N>& values, double step) noexcept
+      |              ^~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:264:18: note:   mismatched types ‘const std::array<float, N>’ and ‘const int’
+  264 |         addArray (h, p.bandConfidence, fractionStep);
+      |         ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:280:22: error: no matching function for call to ‘addArray(celadon::glaze::{anonymous}::Fnv1a&, const int&, const double&)’
+  280 |             addArray (h, p.bandSideToMidDb, levelStep);
+      |             ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:280:22: note: there is 1 candidate
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: candidate 1: ‘template<long unsigned int N> void celadon::glaze::{anonymous}::addArray(Fnv1a&, const std::array<float, N>&, double)’
+  237 |         void addArray (Fnv1a& h, const std::array<float, N>& values, double step) noexcept
+      |              ^~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:280:22: note:   mismatched types ‘const std::array<float, N>’ and ‘const int’
+  280 |             addArray (h, p.bandSideToMidDb, levelStep);
+      |             ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:281:22: error: no matching function for call to ‘addArray(celadon::glaze::{anonymous}::Fnv1a&, const int&, const double&)’
+  281 |             addArray (h, p.bandCorrelation, fractionStep);
+      |             ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:281:22: note: there is 1 candidate
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: candidate 1: ‘template<long unsigned int N> void celadon::glaze::{anonymous}::addArray(Fnv1a&, const std::array<float, N>&, double)’
+  237 |         void addArray (Fnv1a& h, const std::array<float, N>& values, double step) noexcept
+      |              ^~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:281:22: note:   mismatched types ‘const std::array<float, N>’ and ‘const int’
+  281 |             addArray (h, p.bandCorrelation, fractionStep);
+      |             ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:282:22: error: no matching function for call to ‘addArray(celadon::glaze::{anonymous}::Fnv1a&, const int&, const double&)’
+  282 |             addArray (h, p.bandStereoConfidence, fractionStep);
+      |             ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:282:22: note: there is 1 candidate
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: candidate 1: ‘template<long unsigned int N> void celadon::glaze::{anonymous}::addArray(Fnv1a&, const std::array<float, N>&, double)’
+  237 |         void addArray (Fnv1a& h, const std::array<float, N>& values, double step) noexcept
+      |              ^~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:237:14: note: template argument deduction/substitution failed:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeProfile.cpp:282:22: note:   mismatched types ‘const std::array<float, N>’ and ‘const int’
+  282 |             addArray (h, p.bandStereoConfidence, fractionStep);
+      |             ~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[5/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/LoudnessMeter.cpp.o
+[6/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ClayModule.cpp.o
+[7/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/CeladonChain.cpp.o
+[8/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o
+[9/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ClayGuard.cpp.o
+[10/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/BalanceModule.cpp.o
+[11/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazePlanner.cpp.o
+[12/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ColorModule.cpp.o
+[13/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/LimiterModule.cpp.o
+[14/38] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeController.cpp.o
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp: In member function ‘void celadon::glaze::GlazeController::Impl::captureExecution()’:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp:2142:93: warning: conversion from ‘int64_t’ {aka ‘long int’} to ‘double’ may change value [-Wconversion]
+ 2142 |                 const auto t = (float) juce::jlimit (0.0, 1.0, (double) transitionElapsed / transitionLength);
+      |                                                                                             ^~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp: In instantiation of ‘bool celadon::glaze::{anonymous}::SeqLockSnapshot<Payload>::read(Payload&) const [with Payload = celadon::glaze::{anonymous}::StatusPayload]’:
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp:2708:56:   required from here
+ 2708 |             haveSnapshot = impl->restoredSnapshot.read (payload);
+      |                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp:335:37: warning: ‘void* memcpy(void*, const void*, size_t)’ copying an object of non-trivial type ‘struct celadon::glaze::{anonymous}::StatusPayload’ from an array of ‘std::array<unsigned int, 17>::value_type’ {aka ‘unsigned int’} [-Wclass-memaccess]
+  335 |                         std::memcpy (&out, raw.data(), sizeof (Payload));
+      |                         ~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp:352:16: note: ‘struct celadon::glaze::{anonymous}::StatusPayload’ declared here
+  352 |         struct StatusPayload
+      |                ^~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp:340:29: warning: ‘void* memcpy(void*, const void*, size_t)’ copying an object of non-trivial type ‘struct celadon::glaze::{anonymous}::StatusPayload’ from an array of ‘std::array<unsigned int, 17>::value_type’ {aka ‘unsigned int’} [-Wclass-memaccess]
+  340 |                 std::memcpy (&out, raw.data(), sizeof (Payload));
+      |                 ~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/maxsong/.cache/celadon-tests/Celadon-d4b76f75e866/Celadon/Source/dsp/GlazeController.cpp:352:16: note: ‘struct celadon::glaze::{anonymous}::StatusPayload’ declared here
+  352 |         struct StatusPayload
+      |                ^~~~~~~~~~~~~
+ninja: build stopped: subcommand failed.
+EXIT=1

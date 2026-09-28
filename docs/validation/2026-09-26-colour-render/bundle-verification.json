@@ -1,0 +1,18 @@
+[
+  {
+    "bundle": "/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-colour-render-preview/Celadon.vst3",
+    "version": "0.1.6.2",
+    "build": "0.1.6.2",
+    "signature": "verified deep strict",
+    "architecture": "arm64",
+    "binary_sha256": "4aeeac0d6a0396a8d0cfa358beb63c4978abe02489eaac7a5e456eda3395c7c8"
+  },
+  {
+    "bundle": "/Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-colour-render-preview/Celadon.component",
+    "version": "0.1.6.2",
+    "build": "0.1.6.2",
+    "signature": "verified deep strict",
+    "architecture": "arm64",
+    "binary_sha256": "b849f381b428c26e5cfd238d48c8bd1392daba317bcfe7a76d74419f466a8e29"
+  }
+]

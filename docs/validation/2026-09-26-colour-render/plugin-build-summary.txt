@@ -1,0 +1,6 @@
+CodeSign /Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-colour-render-preview/juce_vst3_helper (in target 'Celadon - VST3 Manifest Helper' from project 'Celadon')
+Preview build: install step disabled
+CodeSign /Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-colour-render-preview/Celadon.vst3 (in target 'Celadon - VST3' from project 'Celadon')
+Preview build: install step disabled
+CodeSign /Users/maxsong/All-Project/Celadon/artifacts/Celadon-0.1.6.2-colour-render-preview/Celadon.component (in target 'Celadon - AU' from project 'Celadon')
+** BUILD SUCCEEDED **

@@ -1,0 +1,197 @@
+[1/14] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/CeladonChain.cpp.o
+[2/14] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazePlanner.cpp.o
+[3/14] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/BalanceModule.cpp.o
+[4/14] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeController.cpp.o
+[5/14] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/MusicAnalyzer.cpp.o
+[6/14] Building CXX object CMakeFiles/celadon_tests.dir/tests/ChainTests.cpp.o
+[7/14] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalancePerformanceTests.cpp.o
+[8/14] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalanceTests.cpp.o
+[9/14] Building CXX object CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o
+FAILED: CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o 
+/usr/bin/c++ -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /Users/maxsong/All-Project/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -arch arm64 -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -MD -MT CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o -MF CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o.d -o CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o -c /Users/maxsong/All-Project/Celadon/tests/MusicAnalyzerTests.cpp
+In file included from /Users/maxsong/All-Project/Celadon/tests/MusicAnalyzerTests.cpp:18:
+In file included from /Users/maxsong/All-Project/Celadon/tests/TestHelpers.h:12:
+In file included from /Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_dsp/juce_dsp.h:67:
+In file included from /Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_audio_basics/juce_audio_basics.h:66:
+In file included from /Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/juce_core.h:365:
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: error: overload resolution selected deleted operator '<<'
+  358 |             failureMessage << "Expected value" << (compDescription.isEmpty() ? "" : " ")
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  359 |                            << compDescription << ": " << valueToCompareTo
+      |                            ~~~~~~~~~~~~~~~~~~~~~~~~~~ ^  ~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:218:9: note: in instantiation of function template specialization 'juce::UnitTest::expectResultAndPrint<bool>' requested here
+  218 |         expectResultAndPrint (actual, expected, result, "", failureMessage);
+      |         ^
+/Users/maxsong/All-Project/Celadon/tests/MusicAnalyzerTests.cpp:1131:13: note: in instantiation of function template specialization 'juce::UnitTest::expectEquals<bool>' requested here
+ 1131 |             expectEquals (liveAfterRelearn.valid, liveBeforeRelearn.valid);
+      |             ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1479:23: note: candidate function has been explicitly deleted
+ 1479 | String& JUCE_CALLTYPE operator<< (String&, bool) = delete;
+      |                       ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1462:32: note: candidate function
+ 1462 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, int number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1438:32: note: candidate function
+ 1438 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, char characterToAppend);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1440:32: note: candidate function
+ 1440 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, wchar_t characterToAppend);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1458:32: note: candidate function
+ 1458 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, uint8 number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1460:32: note: candidate function
+ 1460 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, short number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1464:32: note: candidate function
+ 1464 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, long number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1466:32: note: candidate function
+ 1466 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, unsigned long number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1468:32: note: candidate function
+ 1468 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, int64 number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1470:32: note: candidate function
+ 1470 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, uint64 number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1472:32: note: candidate function
+ 1472 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, float number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1474:32: note: candidate function
+ 1474 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, double number);
+      |                                ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, int)
+  359 |                            << compDescription << ": " << valueToCompareTo
+      |                                                       ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(int, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(long long, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(__int128, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned int, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned long long, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, unsigned int)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, unsigned long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, unsigned long long)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/unit_tests/juce_UnitTest.h:359:55: note: built-in candidate operator<<(unsigned __int128, unsigned __int128)
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1447:32: note: candidate function not viable: no known conversion from 'bool' to 'const char *' for 2nd argument
+ 1447 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, const char* string2);
+      |                                ^                            ~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1449:32: note: candidate function not viable: no known conversion from 'bool' to 'const wchar_t *' for 2nd argument
+ 1449 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, const wchar_t* string2);
+      |                                ^                            ~~~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1451:32: note: candidate function not viable: no known conversion from 'bool' to 'const String' for 2nd argument
+ 1451 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, const String& string2);
+      |                                ^                            ~~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1453:32: note: candidate function not viable: no known conversion from 'bool' to 'StringRef' for 2nd argument
+ 1453 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, StringRef string2);
+      |                                ^                            ~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1455:32: note: candidate function not viable: no known conversion from 'bool' to 'const std::string' (aka 'const basic_string<char>') for 2nd argument
+ 1455 | JUCE_API String& JUCE_CALLTYPE operator<< (String& string1, const std::string& string2);
+      |                                ^                            ~~~~~~~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_NewLine.h:87:16: note: candidate function not viable: no known conversion from 'bool' to 'const NewLine' for 2nd argument
+   87 | inline String& operator<< (String& string1, const NewLine&) { return string1 += NewLine::getDefault(); }
+      |                ^                            ~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:254:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  254 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, int number);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:257:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  257 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, int64 number);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:260:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  260 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, double number);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:263:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  263 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, char character);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:269:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  269 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, const MemoryBlock& data);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_MemoryOutputStream.h:143:29: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  143 | OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, const MemoryOutputStream& streamToRead);
+      |                             ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/maths/juce_BigInteger.h:352:29: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  352 | OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, const BigInteger& value);
+      |                             ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1529:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+ 1529 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, const String& stringToWrite);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1532:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+ 1532 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, StringRef stringToWrite);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:266:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  266 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, const char* text);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:272:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  272 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, const File& fileToRead);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:275:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  275 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, InputStream& streamToRead);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/streams/juce_OutputStream.h:284:38: note: candidate function not viable: no known conversion from 'String' to 'OutputStream &' for 1st argument
+  284 | JUCE_API OutputStream& JUCE_CALLTYPE operator<< (OutputStream& stream, const NewLine&);
+      |                                      ^           ~~~~~~~~~~~~~~~~~~~~
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1514:50: note: candidate template ignored: could not match 'std::basic_ostream<char, traits>' against 'String'
+ 1514 | std::basic_ostream <char, traits>& JUCE_CALLTYPE operator<< (std::basic_ostream <char, traits>& stream, const String& stringToWrite)
+      |                                                  ^
+/Users/maxsong/All-Project/Celadon/../JUCE/modules/juce_core/text/juce_String.h:1523:53: note: candidate template ignored: could not match 'std::basic_ostream<wchar_t, traits>' against 'String'
+ 1523 | std::basic_ostream <wchar_t, traits>& JUCE_CALLTYPE operator<< (std::basic_ostream <wchar_t, traits>& stream, const String& stringToWrite)
+      |                                                     ^
+1 error generated.
+[10/14] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeTests.cpp.o
+[11/14] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeBehaviourReport.cpp.o
+[12/14] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o
+ninja: build stopped: subcommand failed.

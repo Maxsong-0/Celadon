@@ -1,0 +1,106 @@
+START 07:57:56
+有其他编译在跑，等 10 秒……
+有其他编译在跑，等 10 秒……
+有其他编译在跑，等 10 秒……
+有其他编译在跑，等 10 秒……
+[0/2] Re-checking globbed directories...
+[1/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_formats_flac_1.c.o
+[2/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_formats_flac_2.c.o
+[3/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_basics.mm.o
+[4/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_devices.mm.o
+[5/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors_headless_ara.cpp.o
+[6/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_formats.mm.o
+[7/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors_headless_lv2_libs.cpp.o
+[8/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors.mm.o
+[9/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_core_CompilationTime.cpp.o
+[10/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_core_zlib.c.o
+[11/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_data_structures.mm.o
+[12/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_utils.mm.o
+[13/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_events.mm.o
+[14/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_audio_processors_headless.mm.o
+[15/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_core.mm.o
+[16/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_dsp.mm.o
+[17/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_Sheenbidi.c.o
+[18/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_2.c.o
+[19/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_3.c.o
+[20/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libjpg_1.c.o
+[21/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_libpng.c.o
+[22/68] Building C object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_lunasvg.c.o
+[23/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_2.cpp.o
+[24/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics.mm.o
+[25/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_3.cpp.o
+[26/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics_Harfbuzz.cpp.o
+[27/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_graphics.mm.o
+[28/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_4.cpp.o
+[29/68] Building CXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_basics_5.cpp.o
+[30/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/Parameters.cpp.o
+[31/68] Building OBJCXX object CMakeFiles/celadon_bench.dir/bench.mm.o
+[32/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginEditor.cpp.o
+[33/68] Building OBJCXX object CMakeFiles/juce_units.dir/Users/maxsong/All-Project/Celadon/JuceLibraryCode/include_juce_gui_extra.mm.o
+[34/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/BalanceModule.cpp.o
+[35/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/PluginProcessor.cpp.o
+[36/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/CeladonChain.cpp.o
+[37/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/ClayGuard.cpp.o
+[38/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/ClayModule.cpp.o
+[39/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/ColorModule.cpp.o
+[40/68] Linking CXX static library libjuce_units.a
+[41/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeCalibrator.cpp.o
+[42/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeConstants.cpp.o
+[43/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeGuard.cpp.o
+[44/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeController.cpp.o
+[45/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazeProfile.cpp.o
+[46/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/GlazePlanner.cpp.o
+[47/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/HalfBandOversampler.cpp.o
+[48/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LinearPhaseLowpass.cpp.o
+[49/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LoudnessMeter.cpp.o
+[50/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/LimiterModule.cpp.o
+[51/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/Saturator.cpp.o
+[52/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/MusicAnalyzer.cpp.o
+[53/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/dsp/TruePeak.cpp.o
+[54/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/AdvancedDrawer.cpp.o
+[55/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/BalanceCurve.cpp.o
+[56/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/CapsuleSelector.cpp.o
+[57/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/CeladonLookAndFeel.cpp.o
+[58/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusText.cpp.o
+[59/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/ClayIndicator.cpp.o
+[60/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/CrackleTexture.cpp.o
+[61/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStatusLine.cpp.o
+[62/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/HelpText.cpp.o
+[63/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/GlazeStyleColumn.cpp.o
+[64/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/Knob.cpp.o
+[65/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/LoudnessReadout.cpp.o
+[66/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/MeterBar.cpp.o
+[67/68] Building CXX object CMakeFiles/celadon_bench.dir/Users/maxsong/All-Project/Celadon/Source/ui/ModulePanel.cpp.o
+[68/68] Linking CXX executable celadon_bench
+POWER,07:59:37,source=AC Power,lowpowermode=0
+WARM,default,44100,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,44100,32,avg%=1.616,worst%=8.585,p99.9%=4.163,p99%=2.883,maxAllPasses%=23.916,structWorst%=2.550,structTypical%=1.447,structWorst64k%=2.624,prepare_ms=1.686,latency=1287,nonFinite=0,blocks=13782,chk=11730.6
+WARM,default,44100,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,44100,64,avg%=1.572,worst%=7.985,p99.9%=3.609,p99%=2.446,maxAllPasses%=9.971,structWorst%=1.967,structTypical%=1.401,structWorst64k%=2.064,prepare_ms=0.779,latency=1287,nonFinite=0,blocks=6891,chk=5931.67
+WARM,default,44100,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,44100,512,avg%=1.448,worst%=2.316,p99.9%=2.316,p99%=1.718,maxAllPasses%=2.617,structWorst%=1.452,structTypical%=1.452,structWorst64k%=1.524,prepare_ms=0.861,latency=1287,nonFinite=0,blocks=862,chk=745.831
+WARM,default,48000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,48000,32,avg%=1.736,worst%=14.406,p99.9%=4.844,p99%=2.919,maxAllPasses%=17.056,structWorst%=2.712,structTypical%=1.562,structWorst64k%=2.769,prepare_ms=0.778,latency=1384,nonFinite=0,blocks=15000,chk=13530.7
+WARM,default,48000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,48000,64,avg%=1.689,worst%=5.131,p99.9%=3.441,p99%=2.619,maxAllPasses%=10.303,structWorst%=2.138,structTypical%=1.531,structWorst64k%=2.266,prepare_ms=0.720,latency=1384,nonFinite=0,blocks=7500,chk=6783.11
+WARM,default,48000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,48000,512,avg%=1.568,worst%=2.525,p99.9%=2.525,p99%=1.859,maxAllPasses%=5.507,structWorst%=1.564,structTypical%=1.564,structWorst64k%=1.607,prepare_ms=0.717,latency=1384,nonFinite=0,blocks=938,chk=858.987
+WARM,default,96000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,96000,32,avg%=3.406,worst%=13.125,p99.9%=8.963,p99%=6.763,maxAllPasses%=31.862,structWorst%=6.737,structTypical%=3.137,structWorst64k%=6.788,prepare_ms=1.328,latency=2584,nonFinite=0,blocks=30000,chk=25694.1
+WARM,default,96000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,96000,64,avg%=3.340,worst%=15.706,p99.9%=7.475,p99%=5.544,maxAllPasses%=20.444,structWorst%=4.869,structTypical%=3.013,structWorst64k%=5.075,prepare_ms=1.426,latency=2584,nonFinite=0,blocks=15000,chk=12795.3
+WARM,default,96000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,96000,512,avg%=3.106,worst%=5.173,p99.9%=5.083,p99%=4.007,maxAllPasses%=5.914,structWorst%=3.313,structTypical%=2.913,structWorst64k%=3.362,prepare_ms=1.399,latency=2584,nonFinite=0,blocks=1875,chk=1595.64
+WARM,default,192000,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,192000,32,avg%=6.917,worst%=72.725,p99.9%=24.200,p99%=18.875,maxAllPasses%=98.450,structWorst%=19.025,structTypical%=6.250,structWorst64k%=19.225,prepare_ms=3.085,latency=4984,nonFinite=0,blocks=60000,chk=51841
+WARM,default,192000,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,192000,64,avg%=6.550,worst%=31.075,p99.9%=15.438,p99%=12.675,maxAllPasses%=63.625,structWorst%=12.388,structTypical%=6.013,structWorst64k%=12.475,prepare_ms=3.145,latency=4984,nonFinite=0,blocks=30000,chk=26065.5
+WARM,default,192000,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,default,192000,512,avg%=6.105,worst%=10.309,p99.9%=9.117,p99%=7.948,maxAllPasses%=29.119,structWorst%=7.230,structTypical%=5.702,structWorst64k%=7.339,prepare_ms=2.916,latency=4984,nonFinite=0,blocks=3750,chk=3248.25
+WARM,manual,44100,32,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,44100,32,avg%=1.240,worst%=5.880,p99.9%=3.796,p99%=2.176,maxAllPasses%=15.010,structWorst%=2.021,structTypical%=1.103,structWorst64k%=2.084,prepare_ms=0.776,latency=1287,nonFinite=0,blocks=13782,chk=16385.1
+WARM,manual,44100,64,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,44100,64,avg%=1.179,worst%=3.296,p99.9%=2.552,p99%=1.737,maxAllPasses%=7.614,structWorst%=1.533,structTypical%=1.077,structWorst64k%=1.576,prepare_ms=0.718,latency=1287,nonFinite=0,blocks=6891,chk=8280.35
+WARM,manual,44100,512,seconds=20.0,profileReady=0,calibrationValid=0,phase=1
+GRID,release,manual,44100,512,avg%=1.089,worst%=1.284,p99.9%=1.284,p99%=1.202,maxAllPasses%=2.309,structWorst%=1.095,structTypical%=1.095,structWorst64k%=1.123,prepare_ms=0.751,latency=1287,nonFinite=0,blocks=862,chk=1028.06
+/Users/maxsong/All-Project/Celadon/scripts/perf-local.sh: line 47: 26182 Terminated: 15          "$BUILD/celadon_bench" "$@"

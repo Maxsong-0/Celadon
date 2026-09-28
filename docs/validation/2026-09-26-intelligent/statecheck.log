@@ -1,0 +1,14 @@
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+POWER,18:45:02,source=AC Power,lowpowermode=0
+STATE,PASS,fresh instance starts at 35 percent
+STATE,PASS,fresh instance uses song-adaptive Auto style
+STATE,INFO,after two seconds: GLAZE=35.00 Gain=0.047 Tame=3.391 Heat=2.816
+STATE,PASS,fresh instance applies spectral processing and colour within two seconds
+STATE,INFO,with input headroom: Gain=0.680 Tame=3.391 Heat=1.694
+STATE,PASS,fresh instance adds more gain when the same material has headroom
+STATE,PASS,explicit saved zero stays manual
+STATE,PASS,missing legacy GLAZE resets an already-used instance to zero
+STATE,PASS,missing legacy GLAZE overrides fresh default safely
+STATE,PASS,explicit current parameters survive save and reopen
+POWER,18:45:02,source=AC Power,lowpowermode=0

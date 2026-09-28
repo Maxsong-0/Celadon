@@ -1,0 +1,58 @@
+### 补丁 · [fix-base] CXX_FLAGS=''   警告数 0
+  TruePeak.cpp 的相关选项：-DCELADON_FP_CONTRACT_OFF=1 -ffp-contract=off 
+  退出码 1；==== celadon_tests: 128063 passed, 16 failed ====
+!!! Test 1 failed: 风格 1：低切 GLAZE 100 -- Expected value  within 0.0001 of: 14.1421, Actual value: 20
+!!! Test 5 failed: 风格 1：低切 GLAZE 25 -- Expected value  within 0.0001 of: 11.8921, Actual value: 14.1421
+!!! Test 10 failed: 风格 2：低切 GLAZE 100 -- Expected value  within 0.0001 of: 15.8114, Actual value: 25
+!!! Test 14 failed: 风格 2：低切 GLAZE 25 -- Expected value  within 0.0001 of: 12.5743, Actual value: 15.8114
+!!! Test 19 failed: 风格 3：低切 GLAZE 100 -- Expected value  within 0.0001 of: 16.7332, Actual value: 28
+!!! Test 23 failed: 风格 3：低切 GLAZE 25 -- Expected value  within 0.0001 of: 12.9357, Actual value: 16.7332
+!!! Test 30 failed: need 0：不低切 -- Expected value: 0, Actual value: 23.5848
+!!! Test 31 failed: k ≤ 0.001：不低切 -- Expected value: 0, Actual value: 23.605
+!!! Test 32 failed: k 刚过门槛：从地板 10 Hz 起步 -- Expected value  within 0.001 of: 10.0862, Actual value: 23.788
+!!! Test 41 failed: 置信度 0.4：低切 -- Expected value  within 0.0001 of: 12.9357, Actual value: 16.7332
+!!! Test 6 failed: Expected value  within 0.0001 of: 15.4919, Actual value: 24
+!!! Test 10 failed: Expected value  within 0.0001 of: 15.0938, Actual value: 22.7823
+!!! Test 12 failed: Expected value: -30, Actual value: -40
+!!! Test 13 failed: Expected value: -18, Actual value: -28
+!!! Test 29 failed: Expected value: 0, Actual value: -0.2
+!!! Test 1 failed: Expected value: 0, Actual value: -0.2
+### 补丁 · [fix-v3] CXX_FLAGS='-march=x86-64-v3'   警告数 0
+  TruePeak.cpp 的相关选项：-DCELADON_FP_CONTRACT_OFF=1 -march=x86-64-v3 -ffp-contract=off 
+  退出码 1；==== celadon_tests: 128063 passed, 16 failed ====
+!!! Test 1 failed: 风格 1：低切 GLAZE 100 -- Expected value  within 0.0001 of: 14.1421, Actual value: 20
+!!! Test 5 failed: 风格 1：低切 GLAZE 25 -- Expected value  within 0.0001 of: 11.8921, Actual value: 14.1421
+!!! Test 10 failed: 风格 2：低切 GLAZE 100 -- Expected value  within 0.0001 of: 15.8114, Actual value: 25
+!!! Test 14 failed: 风格 2：低切 GLAZE 25 -- Expected value  within 0.0001 of: 12.5743, Actual value: 15.8114
+!!! Test 19 failed: 风格 3：低切 GLAZE 100 -- Expected value  within 0.0001 of: 16.7332, Actual value: 28
+!!! Test 23 failed: 风格 3：低切 GLAZE 25 -- Expected value  within 0.0001 of: 12.9357, Actual value: 16.7332
+!!! Test 30 failed: need 0：不低切 -- Expected value: 0, Actual value: 23.5848
+!!! Test 31 failed: k ≤ 0.001：不低切 -- Expected value: 0, Actual value: 23.605
+!!! Test 32 failed: k 刚过门槛：从地板 10 Hz 起步 -- Expected value  within 0.001 of: 10.0862, Actual value: 23.788
+!!! Test 41 failed: 置信度 0.4：低切 -- Expected value  within 0.0001 of: 12.9357, Actual value: 16.7332
+!!! Test 6 failed: Expected value  within 0.0001 of: 15.4919, Actual value: 24
+!!! Test 10 failed: Expected value  within 0.0001 of: 15.0938, Actual value: 22.7823
+!!! Test 12 failed: Expected value: -30, Actual value: -40
+!!! Test 13 failed: Expected value: -18, Actual value: -28
+!!! Test 29 failed: Expected value: 0, Actual value: -0.2
+!!! Test 1 failed: Expected value: 0, Actual value: -0.2
+### 守卫绊线（-fsyntax-only，三个文件各编一次；期望：报错 = #error 生效，通过 = 不误伤）
+  ✓ 报错 g++      -march=x86-64-v3                                               HalfBandOversampler #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CE
+  ✓ 报错 g++      -march=x86-64-v3                                               Saturator #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CE
+  ✓ 报错 g++      -march=x86-64-v3                                               TruePeak #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CE
+  ✓ 通过 g++      -march=x86-64-v3 -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 HalfBandOversampler 
+  ✓ 通过 g++      -march=x86-64-v3 -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 Saturator 
+  ✓ 通过 g++      -march=x86-64-v3 -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 TruePeak 
+  ✓ 通过 g++                                                                     HalfBandOversampler 
+  ✓ 通过 g++                                                                     Saturator 
+  ✓ 通过 g++                                                                     TruePeak 
+  ✓ 报错 g++      -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 -ffast-math      HalfBandOversampler #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位�
+  ✓ 报错 g++      -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 -ffast-math      Saturator #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位�
+  ✓ 报错 g++      -ffp-contract=off -DCELADON_FP_CONTRACT_OFF=1 -ffast-math      TruePeak #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位�
+  ✓ 通过 clang++  -march=x86-64-v3                                               HalfBandOversampler 
+  ✓ 通过 clang++  -march=x86-64-v3                                               Saturator 
+  ✓ 通过 clang++  -march=x86-64-v3                                               TruePeak 
+  ✓ 报错 clang++  -ffast-math                                                    HalfBandOversampler #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位�
+  ✓ 报错 clang++  -ffast-math                                                    Saturator #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位�
+  ✓ 报错 clang++  -ffast-math                                                    TruePeak #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位�
+fix exit 0

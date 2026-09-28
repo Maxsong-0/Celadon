@@ -1,0 +1,5 @@
+warning: Building targets in manual order is deprecated - check "Parallelize build for command-line builds" in the project editor, or set DISABLE_MANUAL_TARGET_ORDER_BUILD_WARNING in any of the targets in the current build to suppress this warning
+Preview artifact only: install copy step disabled
+Preview artifact only: install copy step disabled
+** BUILD SUCCEEDED **
+Both AU and VST3 passed codesign --verify --deep --strict.

@@ -1,0 +1,44 @@
+render-linux.sh：同步源码到 maxsong@192.168.100.109 …
+render-linux.sh：同步歌曲 /private/tmp/claude-501/-Users-maxsong-All-Project-Celadon/c0303bb6-4133-4884-9848-982118085fe1/scratchpad/diag-songs2 …
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-render-build/Celadon-d4b76f75e866
+ninja: no work to do.
+celadon_render：8 首歌 × 2 组（GLAZE 35 / 70 × 修坯 mono × 风格 auto），宿主块长 512，对齐到 -16.0 LUFS
+输出目录：/home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-20260926-234440-63911
+[1/8] 12223.wav：48000 Hz，立体声，1:04.7
+  原始输入：-8.61 LUFS，真峰值 0.84 dBTP，PLR 9.45 dB，低频相关度 0.999，次声 -32.9 dB
+  [1/2] g35 clay-mono auto：聆听 1.6 s（第一遍末 校准中）→ 成品 1.9 s → -9.11 LUFS，真峰值 -1.35 dBTP，PLR 7.76 dB，低频相关度 0.999，次声 -32.7 dB，对齐 -6.89 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 1.7 s（第一遍末 校准中）→ 成品 2.1 s → -8.86 LUFS，真峰值 -1.35 dBTP，PLR 7.51 dB，低频相关度 0.999，次声 -32.8 dB，对齐 -7.14 dB（只出指标，不写文件）
+[2/8] KINOSEI - DREAMER.wav：44100 Hz，立体声，2:39.4
+  原始输入：-10.48 LUFS，真峰值 0.41 dBTP，PLR 10.89 dB，低频相关度 0.968，次声 -30.0 dB
+  [1/2] g35 clay-mono auto：聆听 3.5 s（第一遍末 已锁定 · 校准有效）→ 成品 4.4 s → -10.77 LUFS，真峰值 -1.35 dBTP，PLR 9.42 dB，低频相关度 0.971，次声 -29.6 dB，对齐 -5.23 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 3.5 s（第一遍末 已锁定 · 校准有效）→ 成品 4.4 s → -10.78 LUFS，真峰值 -1.35 dBTP，PLR 9.43 dB，低频相关度 0.971，次声 -29.6 dB，对齐 -5.22 dB（只出指标，不写文件）
+[3/8] ST.wav：48000 Hz，立体声，0:20.1
+  原始输入：-19.78 LUFS，真峰值 -9.22 dBTP，PLR 10.56 dB，低频相关度 0.743，次声 -51.8 dB
+  [1/2] g35 clay-mono auto：聆听 0.5 s（第一遍末 校准中）→ 成品 0.7 s → -16.39 LUFS，真峰值 -5.83 dBTP，PLR 10.56 dB，低频相关度 0.757，次声 -51.8 dB，对齐 +0.39 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 0.5 s（第一遍末 校准中）→ 成品 0.7 s → -13.05 LUFS，真峰值 -2.55 dBTP，PLR 10.50 dB，低频相关度 0.762，次声 -51.7 dB，对齐 -2.95 dB（只出指标，不写文件）
+[4/8] Sometimes.wav：48000 Hz，立体声，0:20.2
+  原始输入：-20.12 LUFS，真峰值 -8.69 dBTP，PLR 11.43 dB，低频相关度 0.750，次声 -50.7 dB
+  [1/2] g35 clay-mono auto：聆听 0.5 s（第一遍末 校准中）→ 成品 0.7 s → -16.61 LUFS，真峰值 -5.18 dBTP，PLR 11.42 dB，低频相关度 0.761，次声 -50.7 dB，对齐 +0.61 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 0.6 s（第一遍末 校准中）→ 成品 0.7 s → -13.16 LUFS，真峰值 -1.71 dBTP，PLR 11.46 dB，低频相关度 0.765，次声 -50.6 dB，对齐 -2.84 dB（只出指标，不写文件）
+[5/8] Will We Be OKay (Extended Mix).wav：48000 Hz，立体声，4:08.3
+  原始输入：-7.09 LUFS，真峰值 1.42 dBTP，PLR 8.51 dB，低频相关度 0.995，次声 -38.3 dB
+  [1/2] g35 clay-mono auto：聆听 6.0 s（第一遍末 已锁定 · 校准有效）→ 成品 7.4 s → -8.04 LUFS，真峰值 -1.35 dBTP，PLR 6.69 dB，低频相关度 0.995，次声 -36.4 dB，对齐 -7.96 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 6.0 s（第一遍末 已锁定 · 校准有效）→ 成品 7.4 s → -8.09 LUFS，真峰值 -1.35 dBTP，PLR 6.74 dB，低频相关度 0.995，次声 -36.3 dB，对齐 -7.91 dB（只出指标，不写文件）
+[6/8] emmmayiyu.wav：48000 Hz，立体声，2:09.4
+  原始输入：-13.81 LUFS，真峰值 0.00 dBTP，PLR 13.81 dB，低频相关度 0.964，次声 -32.6 dB
+  [1/2] g35 clay-mono auto：聆听 3.5 s（第一遍末 已锁定 · 校准有效）→ 成品 4.4 s → -11.07 LUFS，真峰值 -1.35 dBTP，PLR 9.72 dB，低频相关度 0.994，次声 -32.2 dB，对齐 -4.93 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 3.6 s（第一遍末 校准中）→ 成品 4.5 s → -10.75 LUFS，真峰值 -1.35 dBTP，PLR 9.40 dB，低频相关度 0.999，次声 -32.0 dB，对齐 -5.25 dB（只出指标，不写文件）
+[7/8] sh_t 118bpm.wav：48000 Hz，立体声，0:16.4
+  原始输入：-8.94 LUFS，真峰值 0.03 dBTP，PLR 8.96 dB，低频相关度 0.083，次声 -48.0 dB
+  [1/2] g35 clay-mono auto：聆听 0.5 s（第一遍末 方案过渡）→ 成品 0.5 s → -8.58 LUFS，真峰值 -1.35 dBTP，PLR 7.23 dB，低频相关度 0.265，次声 -47.5 dB，对齐 -7.42 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 0.5 s（第一遍末 方案过渡）→ 成品 0.5 s → -8.13 LUFS，真峰值 -1.35 dBTP，PLR 6.78 dB，低频相关度 0.353，次声 -47.0 dB，对齐 -7.87 dB（只出指标，不写文件）
+[8/8] untitled.wav：48000 Hz，立体声，0:07.8
+  原始输入：-14.58 LUFS，真峰值 -2.53 dBTP，PLR 12.05 dB，低频相关度 0.129，次声 -65.4 dB
+  [1/2] g35 clay-mono auto：聆听 0.2 s（第一遍末 聆听中）→ 成品 0.3 s → -13.68 LUFS，真峰值 -1.46 dBTP，PLR 12.22 dB，低频相关度 0.493，次声 -65.2 dB，对齐 -2.32 dB（只出指标，不写文件）
+  [2/2] g70 clay-mono auto：聆听 0.2 s（第一遍末 聆听中）→ 成品 0.3 s → -12.72 LUFS，真峰值 -1.35 dBTP，PLR 11.37 dB，低频相关度 0.493，次声 -64.7 dB，对齐 -3.28 dB（只出指标，不写文件）
+完成：0 个成品，0 处失败，用时 78.6 s；指标表 /home/maxsong/.cache/celadon-render/Celadon-d4b76f75e866/out-20260926-234440-63911/metrics.md、metrics.csv
+render-linux.sh：拉回结果到 artifacts/render-diag3-2026-09-26 …
+render-linux.sh：完成，结果在 artifacts/render-diag3-2026-09-26（先盲听、再看 metrics.md；盲听做法见 tools/render/README.md）
+EXIT=0

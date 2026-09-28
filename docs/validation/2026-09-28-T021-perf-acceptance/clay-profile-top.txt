@@ -1,0 +1,21 @@
+Sort by top of stack, same collapsed (when >= 5):
+        celadon::TruePeakDetector::processChunk(celadon::TruePeakDetector::ChannelState&, float const*, int)  (in celadon_bench)        3166
+        celadon::ClayModule::PeakGuard::process(float const*, float const*, float*)  (in celadon_bench)        1436
+        celadon::LimiterModule::processLimiterCore(juce::AudioBuffer<float>&, int, int, int)  (in celadon_bench)        1101
+        celadon::LoudnessMeter::process(juce::AudioBuffer<float> const&)  (in celadon_bench)        933
+        celadon::ColorModule::process(juce::AudioBuffer<float>&)  (in celadon_bench)        644
+        celadon::ClayModule::process(juce::AudioBuffer<float>&)  (in celadon_bench)        468
+        mach_absolute_time  (in libsystem_kernel.dylib)        433
+        celadon::glaze::GlazeController::analyzeInput(juce::AudioBuffer<float> const&, celadon::LoudnessMeter const&)  (in celadon_bench)        369
+        _platform_memmove  (in libsystem_platform.dylib)        334
+        celadon::BalanceModule::processChunk(juce::AudioBuffer<float>&, int, int)  (in celadon_bench)        279
+        celadon::HalfBandOversampler::processSamplesUp(juce::dsp::AudioBlock<float const> const&)  (in celadon_bench)        269
+        celadon::LimiterModule::process(juce::AudioBuffer<float>&)  (in celadon_bench)        244
+        celadon::ColorModule::protectHeatResidual(float* const*, int, int, int, float)  (in celadon_bench)        216
+        celadon::ColorModule::runHeatProxy(int, int)  (in celadon_bench)        186
+        celadon::HalfBandOversampler::processSamplesDown(juce::dsp::AudioBlock<float>&)  (in celadon_bench)        172
+        celadon::LinearPhaseLowpass::process(double)  (in celadon_bench)        149
+        ???  (in libvDSP.dylib)  load address 0x198f88000 + 0x48c24  [0x198fd0c24]        148
+        (anonymous namespace)::runModules(juce::String const&, std::vector<(anonymous namespace)::Scenario const*> const&, std::vector<double> const&, std::vector<double> const&, double, double, int)  (in celadon_bench)        129
+        celadon::LimiterModule::processClipStage(juce::AudioBuffer<float>&, int, int, int)  (in celadon_bench)        129
+        celadon::glaze::(anonymous namespace)::conditionsHash(celadon::ChainParams const&, float, bool)  (in celadon_bench)        121
