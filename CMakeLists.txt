@@ -120,7 +120,8 @@ add_executable(celadon_tests
     tests/ClayTests.cpp
     tests/ClayGuardTests.cpp
     tests/ClayGlazeTests.cpp
-    tests/LegacyFixtureTests.cpp)
+    tests/LegacyFixtureTests.cpp
+    tests/AnalyzerTapTests.cpp)
 
 # 只对我们自己的代码开严格警告，JUCE 模块按 JUCE 自己的标准编。
 target_compile_options(celadon_tests PRIVATE -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion)

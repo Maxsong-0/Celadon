@@ -44,8 +44,9 @@
 #include "LimiterModule.h"
 #include "LoudnessMeter.h"
 
-#include <memory>
 #include <array>
+#include <atomic>
+#include <memory>
 
 namespace celadon
 {
@@ -80,7 +81,12 @@ namespace celadon
         // 音频线程每块调一次。编排器按 GLAZE 算出实际参数，再交给各模块——各模块自带的 20 ms 平滑 / 开关交叉淡化照常生效，
         // 拧 GLAZE 不会有拉链噪声或咔哒。hostBypassed = 宿主旁通：强制旁通全部模块（含 Clay；各模块自带延迟补偿与 20 ms
         // 交叉淡化，Clay 旁通时干路同样延迟 D），同时让编排器暂停校准；Listen 只影响测点后的监听增益，校准照常。
-        void setParams (const Params& newParams, bool hostBypassed);
+        //
+        // compareOriginal = 界面的 A / B 对比正在听 B（原声，v0.1.8.0）：输出与宿主旁通完全一样（延迟补偿过的干信号、
+        // 20 ms 交叉淡化、校准暂停、Listen 的测量冻结），区别只在 Listen 打开时的监听增益——宿主旁通不补偿；
+        // 听原声时若原声比处理结果响，就把原声衰减到处理结果的响度（同样只衰减、不抬高），A / B 两边等响。
+        // 处理结果更响时原声原样播放：A 那边已经由 Listen 衰减到原声的响度。默认 false 时与 v0.1.7 逐位相同。
+        void setParams (const Params& newParams, bool hostBypassed, bool compareOriginal = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
         // 返回 true = 输出出现非有限值（内部溢出）：故障切片已清零、整链重启淡入，交给处理器计数。
@@ -114,6 +120,12 @@ namespace celadon
 
         // Balance 各段当前修正量（dB），界面曲线用；无锁。
         void getBalanceBandGainsDb (BalanceModule::BandGains& out) const noexcept;
+
+        // Listen 测到的「处理结果 − 原声」响度差（dB，正 = 处理后更响；±24 封顶），界面的等响按钮与 A / B 状态显示用；
+        // 还没测出第一份估计（prepare 之后要先攒满 1 s 窗口）时 hasListenDifference() 为 false。Listen 关着也照常测（与监听增益同一份估计）；
+        // 宿主旁通、听原声时冻结在最后一份。任何线程可读（两个原子量）。
+        bool hasListenDifference() const noexcept           { return listenDifferenceValid.load (std::memory_order_relaxed); }
+        float getListenDifferenceDb() const noexcept         { return listenDifferenceDb.load (std::memory_order_relaxed); }
 
         // ---- GLAZE（界面线程调用，无锁；存取在消息线程）----
         glaze::Status getGlazeStatus() const noexcept                    { return controller.getStatus(); }
@@ -151,7 +163,9 @@ namespace celadon
         int lastProcessSliceCount = 0;
 
         double listenSampleRate = 0.0;
+        // hostIsBypassed = 此刻走干路（宿主旁通，或 v0.1.8.0 起听原声）：Listen 的测量冻结、不补偿处理结果。
         bool listenRequested = false, hostIsBypassed = false, listenHasEstimate = false;
+        bool listenComparing = false;   // 听原声（A / B 的 B）且宿主没有旁通：Listen 的监听增益改用 listenOriginalDb
         int listenLatency = 0;
         std::int64_t listenInputCursor = 0, listenOutputCursor = 0, listenIgnoreThrough = 0;
         std::array<LoudnessMeter::SubBlock, LoudnessMeter::subBlockRingCapacity> listenInputHistory {};
@@ -162,6 +176,9 @@ namespace celadon
         int listenWindowWrite = 0, listenWindowCount = 0;
         double listenInputEnergy = 0.0, listenOutputEnergy = 0.0;
         float listenEstimateDb = 0.0f;
+        float listenOriginalDb = 0.0f;   // 听原声时给原声的衰减（≤ 0 dB）：原声比处理结果响多少就衰减多少
+        std::atomic<float> listenDifferenceDb { 0.0f };      // 界面读：处理结果 − 原声（dB）
+        std::atomic<bool> listenDifferenceValid { false };
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> listenGain;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CeladonChain)

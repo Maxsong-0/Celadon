@@ -187,10 +187,101 @@ namespace celadon::test
             testListenBlockSizeAndAttenuationOnly();
             testListenSparseTransients();
             testListenSilenceAutomationAndBypass();
+            testCompareOriginal();
             testFrozenGuardDoesNotFragmentDsp();
         }
 
     private:
+        // 界面的 A / B 对比（v0.1.8.0）：听 B（原声）时输出与宿主旁通逐位相同；Listen 测到的「处理结果 − 原声」响度差
+        // 报给界面、听原声时冻结；Listen 打开时两边等响、都只衰减：处理结果更响时原声原样，原声更响时只把原声衰减下来。
+        // 依据：CeladonChain.h 的 setParams / getListenDifferenceDb 说明。
+        void testCompareOriginal()
+        {
+            beginTest ("compare-original plays the delayed dry input, freezes the Listen estimate and matches loudness by attenuation only");
+            constexpr double sampleRate = 48000.0;
+            const auto tone = makeSine (numChannels, sampleRate, 1000.0, 0.05f, 3.0);
+
+            // ① 处理结果更响（Output +6 dB）：差值约 +6 dB；听原声逐位等于延迟后的输入（Listen 开着也不抬高原声）。
+            {
+                auto params = makeNeutralParams();
+                params.color.outputDb = 6.0f;
+                params.limit.listen = true;
+
+                CeladonChain chain;
+                prepareChain (chain, sampleRate, params);
+                expect (! chain.hasListenDifference(), "no difference is reported before the first estimate");
+
+                runChain (chain, tone, maxBlock);
+                expect (chain.hasListenDifference(), "a difference is reported after 3 s of music");
+                const auto processedLouder = chain.getListenDifferenceDb();
+                logMessage ("  processed - original: " + juce::String (processedLouder, 3) + " dB (Output +6 dB)");
+                expect (std::abs (processedLouder - 6.0f) < 0.2f, "difference follows the Output gain: " + juce::String (processedLouder, 3));
+
+                chain.setParams (params, false, true);
+                const auto original = runChain (chain, tone, 333);
+                const auto latency = chain.getLatencySamples();
+                float dryError = 0.0f;
+
+                for (size_t ch = 0; ch < original.size(); ++ch)
+                    for (size_t i = (size_t) (sampleRate / 4); i < original[ch].size(); ++i)
+                        dryError = juce::jmax (dryError, std::abs (original[ch][i] - tone[ch][i - (size_t) latency]));
+
+                expectEquals (dryError, 0.0f, "listening to the original returns the unattenuated delayed input");
+                expectEquals (chain.getListenDifferenceDb(), processedLouder, "the estimate is frozen while the original plays");
+
+                // 回到 A：Listen 照常把处理结果衰减到原声的响度，没有从零重新学（估计留着）。
+                chain.setParams (params, false, false);
+                const auto back = runChain (chain, tone, maxBlock);
+                expect (allFinite (back));
+                expect (std::abs (tailLufs (back, sampleRate) - tailLufs (tone, sampleRate)) < 0.15f, "A is matched again after the comparison");
+            }
+
+            // ② 原声更响（Output −6 dB）：Listen 打开时原声衰减到处理结果的响度；Listen 关着时原声原样（宿主旁通同理不补偿）。
+            {
+                auto params = makeNeutralParams();
+                params.color.outputDb = -6.0f;
+                params.limit.listen = true;
+
+                CeladonChain chain;
+                prepareChain (chain, sampleRate, params);
+                const auto processed = runChain (chain, tone, maxBlock);
+                const auto processedQuieter = chain.getListenDifferenceDb();
+                expect (std::abs (processedQuieter + 6.0f) < 0.2f, "difference is negative when processing is quieter: " + juce::String (processedQuieter, 3));
+
+                chain.setParams (params, false, true);
+                const auto matchedOriginal = runChain (chain, tone, maxBlock);
+                const auto matchError = tailLufs (matchedOriginal, sampleRate) - tailLufs (processed, sampleRate);
+                logMessage ("  matched original vs processed: " + juce::String (matchError, 3) + " LU");
+                expect (std::abs (matchError) < 0.15f, "the louder original is attenuated to the processed loudness");
+
+                params.limit.listen = false;
+                chain.setParams (params, false, true);
+                const auto plainOriginal = runChain (chain, tone, maxBlock);
+                expect (std::abs (tailLufs (plainOriginal, sampleRate) - tailLufs (tone, sampleRate)) < 0.05f, "without Listen the original is not matched");
+
+                params.limit.listen = true;
+                chain.setParams (params, true, true);
+                const auto hostBypassed = runChain (chain, tone, maxBlock);
+                expect (std::abs (tailLufs (hostBypassed, sampleRate) - tailLufs (tone, sampleRate)) < 0.05f, "host bypass is never compensated");
+            }
+
+            // ③ 默认参数（compareOriginal 省略）与显式 false 逐位相同：老调用方不受影响。
+            {
+                auto params = makeNeutralParams();
+                params.limit.gainDb = 6.0f;
+                CeladonChain implicitChain, explicitChain;
+                implicitChain.setParams (params, false);
+                implicitChain.prepare (makeSpec (sampleRate));
+                implicitChain.setParams (params, false);
+                explicitChain.setParams (params, false, false);
+                explicitChain.prepare (makeSpec (sampleRate));
+                explicitChain.setParams (params, false, false);
+                const auto a = runChain (implicitChain, tone, maxBlock);
+                const auto b = runChain (explicitChain, tone, maxBlock);
+                expectEquals (maxAbsDifference (a, b, 0, (int) tone[0].size()), 0.0f);
+            }
+        }
+
         void testFrozenGuardDoesNotFragmentDsp()
         {
             beginTest ("freezing a Guard slot one sample before its boundary cannot fragment large callbacks into single samples");

@@ -82,11 +82,16 @@ namespace celadon
         controller.setHostInfo (info);
     }
 
-    void CeladonChain::setParams (const Params& newParams, bool hostBypassed)
+    void CeladonChain::setParams (const Params& newParams, bool hostBypassed, bool compareOriginal)
     {
         manual = newParams;
+
+        // 听原声（A / B 的 B，v0.1.8.0）与宿主旁通走同一条干路：模块全旁通、编排器暂停校准（出口此刻是原声，校准器量它
+        // 就会把「原声的响度」当成方案的结果）、Listen 的测量冻结。两者只在 Listen 的监听增益上不同（updateListenTarget）。
+        const auto dryPath = hostBypassed || compareOriginal;
+
         // Listen 增益在输出测点之后独立施加，不反馈到方案、校准、保护层或响度估计。
-        effective = controller.beginBlock (newParams, hostBypassed);
+        effective = controller.beginBlock (newParams, dryPath);
 
         // 宿主旁通不另走一条路，而是把每个模块都置为旁通：各模块自带等长延迟的干路与 20 ms 交叉淡化
         // （Balance 零延迟，干路就是输入本身；Clay 的干路是 D 样本纯延迟线、再与湿路一起过峰值守护的 G 样本延迟，共 D + G），
@@ -99,10 +104,10 @@ namespace celadon
         auto colorParams   = effective.color;
         auto limitParams   = effective.limit;
 
-        balanceParams.bypass = balanceParams.bypass || hostBypassed;
-        clayParams.bypass    = clayParams.bypass    || hostBypassed;
-        colorParams.bypass   = colorParams.bypass   || hostBypassed;
-        limitParams.bypass   = limitParams.bypass   || hostBypassed;
+        balanceParams.bypass = balanceParams.bypass || dryPath;
+        clayParams.bypass    = clayParams.bypass    || dryPath;
+        colorParams.bypass   = colorParams.bypass   || dryPath;
+        limitParams.bypass   = limitParams.bypass   || dryPath;
         limitParams.listen = false;   // 独立 Limiter 仍支持旧 Listen；整链使用实测的全链监听补偿。
 
         balance.setParams (balanceParams);
@@ -110,8 +115,9 @@ namespace celadon
         color.setParams (colorParams);
         limiter.setParams (limitParams);
         listenRequested = newParams.limit.listen;
-        const auto bypassChanged = hostIsBypassed != hostBypassed;
-        hostIsBypassed = hostBypassed;
+        const auto bypassChanged = hostIsBypassed != dryPath;
+        hostIsBypassed = dryPath;
+        listenComparing = compareOriginal && ! hostBypassed;
         if (listenSampleRate > 0.0 && (bypassChanged || listenLatency != getLatencySamples()))
             resetListenMeasurement (false);
         updateListenTarget();
@@ -221,14 +227,23 @@ namespace celadon
         if (resetGain)
         {
             listenEstimateDb = 0.0f;
+            listenOriginalDb = 0.0f;
             listenGain.setCurrentAndTargetValue (1.0f);
+            listenDifferenceValid.store (false, std::memory_order_relaxed);
+            listenDifferenceDb.store (0.0f, std::memory_order_relaxed);
         }
     }
 
     void CeladonChain::updateListenTarget()
     {
         // 只衰减：较轻的处理结果不会被抬高，避免监听补偿制造新的峰值超限。
-        const auto db = listenRequested && ! hostIsBypassed ? listenEstimateDb : 0.0f;
+        // 听原声（A / B 的 B）时同一条规矩反过来用：原声比处理结果响才衰减原声；原声更轻时原样播放——A 那边已经由
+        // listenEstimateDb 衰减到原声的响度，两边照样等响。宿主旁通（listenComparing 为 false）仍不补偿。
+        auto db = 0.0f;
+
+        if (listenRequested)
+            db = ! hostIsBypassed ? listenEstimateDb : (listenComparing ? listenOriginalDb : 0.0f);
+
         listenGain.setTargetValue (juce::Decibels::decibelsToGain (db));
     }
 
@@ -321,6 +336,11 @@ namespace celadon
             }
             const auto measuredDb = (float) (10.0 * std::log10 (listenInputEnergy / listenOutputEnergy));
             listenEstimateDb = juce::jlimit (-24.0f, 0.0f, measuredDb);
+            listenOriginalDb = juce::jlimit (-24.0f, 0.0f, -measuredDb);
+
+            // 界面读的是「处理结果 − 原声」：measuredDb 是原声 − 处理结果，取反。只写原子量，不改任何音频路径。
+            listenDifferenceDb.store (juce::jlimit (-24.0f, 24.0f, -measuredDb), std::memory_order_relaxed);
+            listenDifferenceValid.store (true, std::memory_order_relaxed);
             updateListenTarget();
         }
         applyListenGain (io, applied, io.getNumSamples() - applied);

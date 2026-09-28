@@ -217,7 +217,10 @@ CeladonAudioProcessor::CeladonAudioProcessor()
                 continue;
 
             jassert (choice->choices.size() == numClayModes);
-            jassert (clayModeFromRawValue (choice->convertFrom0to1 (choice->getDefaultValue())) == celadon::ClayMode::automatic);
+
+            // getDefaultValue 在 AudioParameterChoice 里是 private 的覆盖（JUCE 9.0.2）：经基类调（虚函数照样走到它）。
+            const auto& asParameter = static_cast<const juce::RangedAudioParameter&> (*choice);
+            jassert (clayModeFromRawValue (choice->convertFrom0to1 (asParameter.getDefaultValue())) == celadon::ClayMode::automatic);
         }
     }
    #endif
@@ -552,6 +555,9 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
         nonFiniteBlocks.fetch_add (1, std::memory_order_relaxed);
     }
 
+    // 频谱仪的 IN：链入口原始信号（NaN 保护之后）。编辑器没开时只读一个原子量就返回。
+    analyzerTap.push (celadon::AnalyzerTap::Stream::input, buffer, buffer.getNumSamples());
+
     // ---- 信号链：IN 表 → Balance（v0.3）→ Clay（v0.1.7.0）→ Color → Limit → OUT 表，由 CeladonChain 按顺序调（GLAZE 编排器在链里）----
     // 宿主时间线先交给链：编排器据此识别跳播 / 循环回绕；离线导出沿用相同的样本时间学习与校准。
     chain.setHostInfo (readHostInfo());
@@ -560,7 +566,9 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
     // Lookahead 交给链的是处理器层稳住后的值（LookaheadHold）：参数在动时保持旧前瞻，停稳 0.3 s 才换。
     auto params = readParams();
     params.limit.lookaheadMs = lookaheadHold.next (params.limit.lookaheadMs, buffer.getNumSamples(), restartForHostReset);
-    chain.setParams (params, hostBypassed);
+
+    // 界面的 A / B 对比听 B（原声）时，链走与宿主旁通同一条干路（v0.1.8.0，见 CeladonChain::setParams）。
+    chain.setParams (params, hostBypassed, compareOriginal.load (std::memory_order_relaxed));
 
     // 本块交给模块的实际参数里受 GLAZE 影响的 7 项给界面（淡弧与小圆点；Limit Gain 含校准偏差与保护偏移）。
     publishEffectiveForUi (params);
@@ -575,6 +583,9 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
     // 输出有 NaN / Inf（内部溢出）时链自己置零、清空整条链并淡入恢复（v0.6 挪进链里），这里只计数。
     if (chain.process (buffer))
         nonFiniteBlocks.fetch_add (1, std::memory_order_relaxed);
+
+    // 频谱仪的 OUT：插件最终输出（听原声时就是原声，Listen 打开时含监听增益）——频谱仪显示的就是此刻听到的。
+    analyzerTap.push (celadon::AnalyzerTap::Stream::output, buffer, buffer.getNumSamples());
 }
 
 celadon::glaze::HostInfo CeladonAudioProcessor::readHostInfo() const noexcept
