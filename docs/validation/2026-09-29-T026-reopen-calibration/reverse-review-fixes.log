@@ -1,0 +1,46 @@
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 5 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+=== FIXED
+  round trip: 60000 positions x 8 trips, old exact hash flipped 54608 times; legacy upgrades checked 15000, real changes checked 60000
+  release 18.458652496 -> 18.458648682 ms, mono 66.527961731 -> 66.527946472 Hz
+==== celadon_tests: 3237 passed, 0 failed ====
+
+real	1m14.644s
+user	1m14.356s
+sys	0m0.157s
+0
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 5 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+=== MUTATED A (no upgrade of the heard copy in prepare)
+!!! Test 42 failed: v0.1.8.0 save: restore then same-spec rebuild: the snapshot's Clay values are still used
+FAILED!!  1 test failed, out of a total of 46
+==== celadon_tests: 2404 passed, 1 failed ====
+0
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 3 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 5 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<celadon::glaze::{anonymous}::CodeRange, 3>::_Type’ {aka ‘const celadon::glaze::{anonymous}::CodeRange [3]’} [-Warray-bounds=]
+/usr/include/c++/15/array:221:24: warning: array subscript 4 is above array bounds of ‘std::__array_traits<int, 3>::_Type’ {aka ‘const int [3]’} [-Warray-bounds=]
+=== MUTATED B (stability timer compares with the tolerance only)
+!!! Test 3 failed: sweep x(1 + 0.0000200) per block: no calibration round starts while the knob keeps moving
+!!! Test 7 failed: sweep x(1 + 0.0000005) per block: no calibration round starts while the knob keeps moving
+FAILED!!  2 tests failed, out of a total of 8
+==== celadon_tests: 2403 passed, 2 failed ====

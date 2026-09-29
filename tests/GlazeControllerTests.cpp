@@ -603,6 +603,7 @@ namespace celadon::test
             juce::NormalisableRange<float> range;
             float& (*field) (ChainParams&);
             ClayMode ClaySettings::* clayMode = nullptr;
+            bool referenceItem = false;   // GLAZE、Ceiling、Lookahead：参考条件自己的项，不在手动参数哈希里
         };
 
         std::vector<ReferenceParameter> referenceParameters()
@@ -610,9 +611,9 @@ namespace celadon::test
             namespace r = param::ranges;
             return {
                 { "limit gain",       r::limitGain(),       [] (ChainParams& p) -> float& { return p.limit.gainDb; } },
-                { "limit ceiling",    r::limitCeiling(),    [] (ChainParams& p) -> float& { return p.limit.ceilingDb; } },
+                { "limit ceiling",    r::limitCeiling(),    [] (ChainParams& p) -> float& { return p.limit.ceilingDb; }, nullptr, true },
                 { "limit release",    r::limitRelease(),    [] (ChainParams& p) -> float& { return p.limit.releaseMs; } },
-                { "limit lookahead",  r::limitLookahead(),  [] (ChainParams& p) -> float& { return p.limit.lookaheadMs; } },
+                { "limit lookahead",  r::limitLookahead(),  [] (ChainParams& p) -> float& { return p.limit.lookaheadMs; }, nullptr, true },
                 { "limit clip",       r::limitClip(),       [] (ChainParams& p) -> float& { return p.limit.clip; } },
                 { "color tone",       r::colorTone(),       [] (ChainParams& p) -> float& { return p.color.toneDb; } },
                 { "color glue",       r::colorGlue(),       [] (ChainParams& p) -> float& { return p.color.glue; } },
@@ -622,7 +623,7 @@ namespace celadon::test
                 { "balance recover",  r::balanceRecover(),  [] (ChainParams& p) -> float& { return p.balance.recover; } },
                 { "balance tame",     r::balanceTame(),     [] (ChainParams& p) -> float& { return p.balance.tame; } },
                 { "balance brighten", r::balanceBrighten(), [] (ChainParams& p) -> float& { return p.balance.brighten; } },
-                { "glaze",            r::glazeAmount(),     [] (ChainParams& p) -> float& { return p.glazePercent; } },
+                { "glaze",            r::glazeAmount(),     [] (ChainParams& p) -> float& { return p.glazePercent; }, nullptr, true },
                 { "clay low cut",     r::clayLowCut(),      [] (ChainParams& p) -> float& { return p.claySettings.lowCutHz; }, &ClaySettings::lowCutMode },
                 { "clay mono",        r::clayMono(),        [] (ChainParams& p) -> float& { return p.claySettings.monoHz; }, &ClaySettings::monoMode },
                 { "clay width",       r::clayWidth(),       [] (ChainParams& p) -> float& { return p.claySettings.widthDb; }, &ClaySettings::widthMode },
@@ -4057,8 +4058,36 @@ namespace celadon::test
                                      + " but the reference still matches");
                     }
 
+                    // 旧存档参考也不能被手动参数的一次真改动「升格」成一致（候选邻域只覆盖往返漂移）。
+                    if (iteration % 8 == 0 && ! parameter.referenceItem)
+                    {
+                        auto legacy = glaze::CalibrationReference {};
+                        legacy.manualParamsHash = saved.manualParamsHash;
+
+                        if (glaze::upgradeLegacyConditions ({ &legacy }, changed, cap) != 0
+                            || legacy.conditionsFormat != glaze::legacyConditionsFormat)
+                        {
+                            ++changesMissed;
+                            noteFailure (firstChange, juce::String (parameter.name) + " moved one display step, yet a legacy reference was upgraded");
+                        }
+                    }
+
                     break;
                 }
+            }
+
+            // 越界的坏值（插件里走不到：参数都钳在范围内）：候选组合超上限，不升格、不在音频线程上长时间枚举。
+            {
+                ChainParams wild;
+                wild.limit.releaseMs = 1.0e7f;
+                wild.claySettings.lowCutMode = wild.claySettings.monoMode = ClayMode::manual;
+                wild.claySettings.lowCutHz = wild.claySettings.monoHz = 1.0e8f;
+
+                auto legacy = referenceFor (wild, 1.0e9f);
+                legacy.conditionsFormat = glaze::legacyConditionsFormat;
+                expectEquals (glaze::upgradeLegacyConditions ({ &legacy }, wild, 1.0e9f), 0,
+                              "out-of-range values exceed the candidate cap: no upgrade (and no long enumeration)");
+                expect (legacy.conditionsFormat == glaze::legacyConditionsFormat, "... the reference stays legacy");
             }
 
             logMessage ("  round trip: " + juce::String (iterations) + " positions x " + juce::String (maxTrips) + " trips, old exact hash flipped "
@@ -4201,6 +4230,7 @@ namespace celadon::test
                 auto drifted = reopen (state, release.reopened, mono.reopened);
                 expect (drifted->status().calibrationValid, label + "the committed calibration applies on the first block after reopening");
                 expect (drifted->probe().executionSnapshotActive, label + "the execution snapshot is kept, not dropped");
+                expect (drifted->probe().clayRestoredFirstBlock, label + "the first block uses the snapshot's Clay values");
                 expectEquals (drifted->probe().executedBiasDb, savedBias, label + "the executed calibration bias is the saved one");
                 expectEquals (drifted->probe().legacyConditionsUpgrades, legacyFormat ? 3 : 0,
                               label + "legacy references upgraded (calibration, execution, held bias)");
@@ -4210,38 +4240,60 @@ namespace celadon::test
                         label + "still locked with the calibration applied two seconds later");
                 expectEquals (drifted->probe().calibrationBegins, 0, label + "no recalibration was started");
 
+                // 刚接到存档就同规格重建（处理器 prepareToPlay：先交参数、后 prepare）：prepare 沿用已听到的执行快照时，拿到的是
+                // 还没刷新的存档副本（旧格式时是旧口径），同样要按漂移后的值对上，Clay 保护状态与首块值不丢。
+                {
+                    auto rebuilt = std::make_unique<Rig> (fastConstants(), material);
+                    rebuilt->params = original.params;
+                    rebuilt->params.limit.releaseMs = release.reopened;
+                    rebuilt->params.claySettings.monoHz = mono.reopened;
+                    rebuilt->chain.restoreGlazeStateXml (&state);
+                    rebuilt->reprepare (defaultRate);
+                    rebuilt->step();
+                    expect (rebuilt->probe().clayRestoredFirstBlock, label + "restore then same-spec rebuild: the snapshot's Clay values are still used");
+                    expect (rebuilt->status().calibrationValid && rebuilt->probe().executionSnapshotActive,
+                            label + "restore then same-spec rebuild: calibration and execution snapshot kept");
+                    expectEquals (rebuilt->probe().executedBiasDb, savedBias, label + "restore then same-spec rebuild: the saved bias");
+                }
+
                 auto moved = reopen (state, release.saved * 1.01f, mono.reopened);
                 expect (! moved->status().calibrationValid, label + "a knob that really moved (release +1 %) does not keep the calibration");
                 expect (! moved->probe().executionSnapshotActive, label + "... nor the execution snapshot");
             }
         }
 
-        // T-026 3. 慢速自动化：对数刻度旋钮每块只挪相对 2e-5（单看一块在容差 1e-4 之内），几块累计就是真改动。「条件连续 1 s 不变
-        //    才开新一轮」必须对着这一段稳定开始时的条件比：扫的过程中不开新一轮；停下来之后照常开。
-        // 依据：决策第 6 节（条件稳定才校准）；BUG-004 修复不改变这条规则（修前精确哈希下逐块比与对起点比等价）。
+        // T-026 3. 慢速自动化：对数刻度旋钮在动，就不算「条件稳定」——稳定计时照修前逐块精确比，不用参考条件的容差。两种速度：
+        //    每块相对 2e-5（单看一块在容差 1e-4 之内）与每块 5e-7（每秒约 4.7e-5，比容差还慢：按容差对起点比会误判成稳定、
+        //    校准轮开了又放弃）。扫的过程中都不开新一轮；停下来之后照常开。
+        // 依据：决策第 6 节（条件稳定才校准）；BUG-004 修复不改变这条规则（评审指出按容差比会放宽约 300 倍）。
         void testSlowLogKnobSweepIsNotStable()
         {
-            beginTest ("a slow log-scale knob sweep (each block inside the tolerance) is not \"stable conditions\"; stopping it is");
+            beginTest ("a slow log-scale knob sweep is not \"stable conditions\", even slower than the tolerance; stopping it is");
 
-            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 27, 0.5f));
-            rig.params.glazePercent = 60.0f;
-            expect (rig.learnAndCalibrate(), "learned and calibrated");
-
-            const auto begins = rig.probe().calibrationBegins;
-            rig.params.limit.releaseMs *= 1.5f;   // 真改动：已提交的校准不再适用
-            rig.step();
-            expect (! rig.status().calibrationValid, "a real release change invalidates the calibration");
-
-            bool startedDuringSweep = false;
-            rig.run (3.0, [&] (int)
+            for (const auto perBlock : { 2.0e-5f, 5.0e-7f })
             {
-                rig.params.limit.releaseMs *= 1.00002f;
-                startedDuringSweep = startedDuringSweep || rig.probe().calibrationBegins != begins;
-            });
-            expect (! startedDuringSweep, "no calibration round starts while the knob keeps moving");
+                const auto label = "sweep x(1 + " + juce::String (perBlock, 7) + ") per block: ";
 
-            const auto startedAfterStop = rig.runUntil (4.0, [&] { return rig.probe().calibrationBegins != begins; });
-            expect (startedAfterStop, "once the knob stops, the conditions are stable and a new round starts");
+                Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 27, 0.5f));
+                rig.params.glazePercent = 60.0f;
+                expect (rig.learnAndCalibrate(), label + "learned and calibrated");
+
+                const auto begins = rig.probe().calibrationBegins;
+                rig.params.limit.releaseMs *= 1.5f;   // 真改动：已提交的校准不再适用
+                rig.step();
+                expect (! rig.status().calibrationValid, label + "a real release change invalidates the calibration");
+
+                bool startedDuringSweep = false;
+                rig.run (6.0, [&] (int)
+                {
+                    rig.params.limit.releaseMs *= 1.0f + perBlock;
+                    startedDuringSweep = startedDuringSweep || rig.probe().calibrationBegins != begins;
+                });
+                expect (! startedDuringSweep, label + "no calibration round starts while the knob keeps moving");
+
+                const auto startedAfterStop = rig.runUntil (4.0, [&] { return rig.probe().calibrationBegins != begins; });
+                expect (startedAfterStop, label + "once the knob stops, the conditions are stable and a new round starts");
+            }
         }
     };
 

@@ -243,7 +243,8 @@ namespace celadon::glaze
     // 旧存档读回来的参考（conditionsFormat = legacyConditionsFormat，只有旧口径哈希）按此刻的手动参数升格：三个对数刻度值
     // 各自前后 16 个 float 内可能取到的量化码逐组代进旧口径哈希，有一组等于参考的 manualParamsHash = 同一条件（只差往返漂移），
     // 把它的手动参数部分换成 setManualConditions 算出的新口径；一组都不等 = 条件真的不同，原样保留（此后照旧只按旧口径哈希比，
-    // 与修前相同）。已是新口径的、空指针跳过。返回升格的份数。纯函数、不分配；只在读取工程后的第一块调一次。
+    // 与修前相同）。已是新口径的、空指针跳过。候选组合超过 1024（越界的坏值；范围内最多 693）就不升格。返回升格的份数。
+    // 纯函数、不分配；音频线程上只在读取工程后的第一块调一次（另在 prepare 沿用已听到的执行快照前对那份副本调）。
     int upgradeLegacyConditions (std::initializer_list<CalibrationReference*> references, const ChainParams& manual,
                                  float feedbackMaxGainDb) noexcept;
 }

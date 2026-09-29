@@ -1,9 +1,4 @@
-[3/4] Linking CXX executable celadon_render
-[4/4] Linking CXX executable celadon_tests
-Celadon/Source/dsp/GlazeCalibrator.cpp:0
-Celadon/Source/dsp/GlazeController.cpp:0
-1
-Random seed: 0x7a46cc3
+Random seed: 0x51c9934
 -----------------------------------------------------------------
 Starting tests in: LimiterModule / true peak <= ceiling + 0.01 dB...
   runs: 540
@@ -344,10 +339,10 @@ Completed tests in ColorModule / setParams / process allocate nothing (skipping,
 -----------------------------------------------------------------
 Starting tests in: ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)...
   Color default: 0.191 % of one core
-  Color GLAZE 100: 0.700 % of one core
+  Color GLAZE 100: 0.694 % of one core
   Color default, skipping off: 0.585 % of one core
-  juce Oversampling 3 stages (reference): 2.854 % of one core
-  ratio to reference: default 0.067, GLAZE 100 0.245, skipping off 0.205
+  juce Oversampling 3 stages (reference): 2.852 % of one core
+  ratio to reference: default 0.067, GLAZE 100 0.243, skipping off 0.205
 Completed tests in ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)
 -----------------------------------------------------------------
 Starting tests in: CeladonChain / latency == balance + clay + color + limit latency, impulse confirms it...
@@ -655,38 +650,38 @@ Completed tests in BalanceCrossPower / G and output unchanged: logged digests; f
 Starting tests in: BalancePerformance / balance / color / chain CPU load on 20 s of noise @48k stereo, block 512...
   timer resolution 1000000 ticks/s; 3 passes x 20 s each after 1 s warm-up; load = process time / audio time
   timer overhead (empty process): best 0.000% (0.0 us / 512-sample block; passes 0.000%, 0.000%, 0.000%)
-  Balance (recover 60, tame 60, mid): best 0.735% (78.4 us / 512-sample block; passes 0.735%, 0.736%, 0.736%)
+  Balance (recover 60, tame 60, mid): best 0.736% (78.6 us / 512-sample block; passes 0.738%, 0.736%, 0.737%)
     spec reference: < 2.000% single core @48k; test limit: < 25.000%
-  Balance bypassed (same settings): best 0.740% (78.9 us / 512-sample block; passes 0.740%, 0.740%, 0.740%)
-  Color (heat 50, glue 50): best 0.908% (96.9 us / 512-sample block; passes 0.910%, 0.908%, 0.908%)
-  CeladonChain (balance 60/60, color heat 50 glue 50, limit gain +9 dB): best 3.053% (325.6 us / 512-sample block; passes 3.252%, 3.141%, 3.053%); latency 1384 samples, limit GR 11.82 dB, glue GR 2.39 dB
+  Balance bypassed (same settings): best 0.741% (79.1 us / 512-sample block; passes 0.741%, 0.741%, 0.747%)
+  Color (heat 50, glue 50): best 0.906% (96.7 us / 512-sample block; passes 0.908%, 0.907%, 0.906%)
+  CeladonChain (balance 60/60, color heat 50 glue 50, limit gain +9 dB): best 3.054% (325.8 us / 512-sample block; passes 3.253%, 3.148%, 3.054%); latency 1384 samples, limit GR 11.82 dB, glue GR 2.39 dB
 Completed tests in BalancePerformance / balance / color / chain CPU load on 20 s of noise @48k stereo, block 512
 -----------------------------------------------------------------
 Starting tests in: BalancePerformance / balance on comb material (20+ bands working): per-block best-of-5, mean and worst block...
   comb material: up to 22 of 27 bands active (recover = tame = 100)
-  Balance comb, recover = tame = 100 @48k block 512: mean 0.995%, worst block 1.050% (112.0 us)
-  Balance comb, recover = tame = 40 (= GLAZE 100 offsets) @48k block 512: mean 1.000%, worst block 1.050% (112.0 us)
-  Balance comb, recover = tame = 100, mono (left channel only): mean 0.517%, worst block 0.544% (58.0 us) | stereo / mono 1.93
+  Balance comb, recover = tame = 100 @48k block 512: mean 0.993%, worst block 1.041% (111.0 us)
+  Balance comb, recover = tame = 40 (= GLAZE 100 offsets) @48k block 512: mean 0.996%, worst block 1.050% (112.0 us)
+  Balance comb, recover = tame = 100, mono (left channel only): mean 0.519%, worst block 0.553% (59.0 us) | stereo / mono 1.91
 Completed tests in BalancePerformance / balance on comb material (20+ bands working): per-block best-of-5, mean and worst block
 -----------------------------------------------------------------
 Starting tests in: BalancePerformance / analysis slicing: worst block at 192 kHz / 32 samples <= 65% of the one-shot analysis...
-  @192000 block 32 recover = tame = 0: one-shot mean 2.730%, worst block 178.800% (298.0 us) | sliced mean 2.722%, worst block 90.000% (150.0 us) | worst-block ratio 0.50
-  @192000 block 32 recover = tame = 40: one-shot mean 3.883%, worst block 181.200% (302.0 us) | sliced mean 3.885%, worst block 91.800% (153.0 us) | worst-block ratio 0.51
-  @192000 block 64 recover = tame = 0: one-shot mean 2.732%, worst block 90.300% (301.0 us) | sliced mean 2.727%, worst block 45.000% (150.0 us) | worst-block ratio 0.50
-  @44100 block 1 recover = tame = 0: one-shot mean 0.577%, worst block 308.700% (70.0 us) | sliced mean 0.573%, worst block 163.170% (37.0 us) | worst-block ratio 0.53
+  @192000 block 32 recover = tame = 0: one-shot mean 2.726%, worst block 178.200% (297.0 us) | sliced mean 2.718%, worst block 90.000% (150.0 us) | worst-block ratio 0.51
+  @192000 block 32 recover = tame = 40: one-shot mean 3.883%, worst block 180.600% (301.0 us) | sliced mean 3.878%, worst block 91.800% (153.0 us) | worst-block ratio 0.51
+  @192000 block 64 recover = tame = 0: one-shot mean 2.727%, worst block 89.400% (298.0 us) | sliced mean 2.725%, worst block 45.000% (150.0 us) | worst-block ratio 0.50
+  @44100 block 1 recover = tame = 0: one-shot mean 0.574%, worst block 308.700% (70.0 us) | sliced mean 0.570%, worst block 163.170% (37.0 us) | worst-block ratio 0.53
 Completed tests in BalancePerformance / analysis slicing: worst block at 192 kHz / 32 samples <= 65% of the one-shot analysis
 -----------------------------------------------------------------
 Starting tests in: BalancePerformance / processor layer (chain + two meters + NaN scans): per-block best-of-5 @48k...
-  processor layer, default @48k block 512: mean 2.382%, worst block 2.438% (260.0 us)
-  processor layer, default @48k block 64: mean 2.562%, worst block 4.950% (66.0 us)
-  processor layer, typical @48k block 512: mean 3.351%, worst block 3.459% (369.0 us)
-  processor layer, typical @48k block 64: mean 3.563%, worst block 6.075% (81.0 us)
+  processor layer, default @48k block 512: mean 2.376%, worst block 2.438% (260.0 us)
+  processor layer, default @48k block 64: mean 2.569%, worst block 4.950% (66.0 us)
+  processor layer, typical @48k block 512: mean 3.350%, worst block 3.459% (369.0 us)
+  processor layer, typical @48k block 64: mean 3.560%, worst block 6.075% (81.0 us)
 Completed tests in BalancePerformance / processor layer (chain + two meters + NaN scans): per-block best-of-5 @48k
 -----------------------------------------------------------------
 Starting tests in: BalancePerformance / engaged chain stays under 10% of one audio thread at 48 and 96 kHz, block 64...
-  engaged chain @48000 block 64: mean 3.651%, worst block 6.375% (85.0 us)
-  engaged chain @96000 block 64: mean 7.056%, worst block 16.050% (107.0 us)
-  engaged chain @192000 block 64: mean 14.457%, worst block 58.500% (195.0 us)
+  engaged chain @48000 block 64: mean 3.636%, worst block 6.075% (81.0 us)
+  engaged chain @96000 block 64: mean 7.041%, worst block 15.900% (106.0 us)
+  engaged chain @192000 block 64: mean 14.456%, worst block 59.400% (198.0 us)
 Completed tests in BalancePerformance / engaged chain stays under 10% of one audio thread at 48 and 96 kHz, block 64
 -----------------------------------------------------------------
 Starting tests in: GlazeChain / GLAZE 0, Listen off: chain == hand-wired modules with the manual params, bit-exact, 90 scenarios...
@@ -880,7 +875,7 @@ Starting tests in: MusicAnalyzer / the audio-thread API does not allocate...
 Completed tests in MusicAnalyzer / the audio-thread API does not allocate
 -----------------------------------------------------------------
 Starting tests in: MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning with the Clay trial; steady state)...
-  analyzer @48k block 512, learning (trial on): mean 24.91 us (0.234 % of one core), worst 26.00 us; not learning: mean 4.92 us, worst 6.00 us
+  analyzer @48k block 512, learning (trial on): mean 24.96 us (0.234 % of one core), worst 27.00 us; not learning: mean 4.93 us, worst 6.00 us
 Completed tests in MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning with the Clay trial; steady state)
 -----------------------------------------------------------------
 Starting tests in: MusicAnalyzerClay / Clay fields: unknown until measured, format version 2; M = 0 leaves the sub share unknown...
@@ -1340,8 +1335,8 @@ Starting tests in: GlazeController / reopen: drifted log-scale knobs keep the ca
   release 18.458652496 -> 18.458648682 ms, mono 66.527961731 -> 66.527946472 Hz
 Completed tests in GlazeController / reopen: drifted log-scale knobs keep the calibration and the execution snapshot, for new and v0.1.8.0 saves (BUG-004)
 -----------------------------------------------------------------
-Starting tests in: GlazeController / a slow log-scale knob sweep (each block inside the tolerance) is not "stable conditions"; stopping it is...
-Completed tests in GlazeController / a slow log-scale knob sweep (each block inside the tolerance) is not "stable conditions"; stopping it is
+Starting tests in: GlazeController / a slow log-scale knob sweep is not "stable conditions", even slower than the tolerance; stopping it is...
+Completed tests in GlazeController / a slow log-scale knob sweep is not "stable conditions", even slower than the tolerance; stopping it is
 -----------------------------------------------------------------
 Starting tests in: GlazeStatusText / the eight spec states show the spec text and colour...
 Completed tests in GlazeStatusText / the eight spec states show the spec text and colour
@@ -1733,8 +1728,8 @@ Completed tests in SpectrumAnalyser / restartOutput drops the previous signal's 
 Starting tests in: SpectrumAnalyser / frequency axis is 20 Hz to 20 kHz, logarithmic...
 Completed tests in SpectrumAnalyser / frequency axis is 20 Hz to 20 kHz, logarithmic
 
-==== celadon_tests: 131193 passed, 0 failed ====
+==== celadon_tests: 131207 passed, 0 failed ====
 
-real	3m44.669s
-user	3m43.959s
-sys	0m0.349s
+real	3m44.891s
+user	3m44.187s
+sys	0m0.332s
