@@ -12,6 +12,12 @@
 #include <cmath>
 #include <type_traits>
 
+// MSVC：VS2022（v143）的 /fp:precise 默认不融合乘加；更早的工具集（v142）配 /arch:AVX2 时 /fp:precise 下仍可能融合，
+// 这里写死关掉（ADR-013：各路径逐位相同的前提）。clang-cl 不认这个 pragma，由 /clang:-ffp-contract=off 与源码守卫管。
+#if defined (_MSC_VER) && ! defined (__clang__)
+ #pragma fp_contract (off)
+#endif
+
 // 两声道打包滤波只在 AArch64 上开（float64x2_t 与 vfmaq_f64 是 A64 才有的）；其他平台（x86、32 位 ARM）
 // 全部走标量路径——同一个 processBiquad，输出与打包路径逐位相同的前提见 processBiquad 的注释。
 #if defined (__ARM_NEON) && defined (__aarch64__)

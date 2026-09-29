@@ -23,7 +23,8 @@
 | `zh-zoom70.png` / `zh-zoom150.png` | 界面大小 70 % / 150 %（含缩放提示） |
 | `zh-reduced.png` | 减少动效（没有粒子与波纹） |
 
-`--only check` 另跑一组交互检查：直接给真实控件发鼠标事件（拖动、⌘ 精调、双击回默认、Alt 单击输入、滚轮、滑条、
+`--only check` 另跑一组交互检查：直接给真实控件发鼠标事件（拖动、⌘ 精调、双击回默认、Alt 单击输入（含中文输入法的全角数字、
+输入框开着时按键抬起不外传——Windows 上松开 Alt 会激活宿主菜单栏）、滚轮、滑条、
 分段选择、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、语言切换），
 逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中的数值气泡）、`check-original.png`、
 `check-audition.png`、`check-advanced.png`、`check-english.png`。
@@ -40,6 +41,8 @@ xvfb-run -a build-ui/celadon_ui_snapshot --out shots --scale 2          # 2 倍�
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --only zh-default,en-help
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --only check       # 交互检查
 ```
+
+Windows 上也能编（CMake + MSVC 或 clang-cl，GUI 目标在 Windows 上不需要额外的依赖包），用法相同。
 
 `EXCLUDE_FROM_ALL`：默认构建（`celadon_tests`）不编它，工具坏了也不挡测试。它会改写用户设置文件里的语言 / 动效 / 默认大小
 （`~/.config/Celadon/Celadon.settings`），跑完会留下最后一种状态的设置。

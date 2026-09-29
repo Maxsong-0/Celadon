@@ -282,6 +282,13 @@ public:
 
     bool isHintActive() const noexcept   { return hintActive; }
 
+    // Windows：Alt 单击打开输入框后松开 Alt，这个 WM_SYSKEYUP 没人要的话 JUCE 会转给宿主窗口，系统随即激活宿主的菜单栏，
+    // 接下来敲的数字进了菜单（juce_Windowing_windows.cpp 的 WM_SYSKEYUP）。输入框开着时把按键抬起吃掉。
+    bool keyStateChanged (bool isKeyDown) override
+    {
+        return ! isKeyDown && valueEntry.isVisible();
+    }
+
     //==============================================================================
     void setLanguage (Language newLanguage)
     {
@@ -460,42 +467,47 @@ private:
     }
 
     // 静态背景：底色、三团柔光、点阵、细颗粒、面板阴影、卡片之间的箭头。按物理像素生成一次，之后每帧只是贴图。
+    // 分三段：Graphics 画底 → BitmapData 加颗粒 → 再开一个 Graphics 画阴影与箭头。同一张图同一时刻只能有一个 Graphics 或
+    // BitmapData（Windows 上默认的图像是 Direct2D 的，两个同时开着时颗粒会被丢掉）。
     void renderStaticLayer (float pixelScale)
     {
         const auto w = juce::jmax (1, juce::roundToInt ((float) baseWidth * pixelScale));
         const auto h = juce::jmax (1, juce::roundToInt ((float) baseHeight * pixelScale));
         staticLayer = juce::Image (juce::Image::RGB, w, h, false);
         staticLayerScale = pixelScale;
+        const auto toLayer = juce::AffineTransform::scale ((float) w / (float) baseWidth, (float) h / (float) baseHeight);
 
-        juce::Graphics g (staticLayer);
-        g.addTransform (juce::AffineTransform::scale ((float) w / (float) baseWidth, (float) h / (float) baseHeight));
-        g.fillAll (palette::background);
-
-        // 旋钮后面的大片白光（半径 470，72 % 处淡完）+ 左右两团很淡的青色。
         {
-            const juce::Point<float> centre (600.0f, 456.0f);
-            juce::ColourGradient white (juce::Colours::white.withAlpha (0.95f), centre, juce::Colours::white.withAlpha (0.0f), centre.translated (470.0f * 0.72f, 0.0f), true);
-            g.setGradientFill (white);
-            g.fillEllipse (juce::Rectangle<float> (940.0f, 940.0f).withCentre (centre));
+            juce::Graphics g (staticLayer);
+            g.addTransform (toLayer);
+            g.fillAll (palette::background);
 
-            for (const auto x : { 216.0f, 984.0f })
+            // 旋钮后面的大片白光（半径 470，72 % 处淡完）+ 左右两团很淡的青色。
             {
-                juce::Graphics::ScopedSaveState saved (g);
-                const juce::Point<float> blob (x, 459.0f);
-                g.addTransform (juce::AffineTransform::scale (1.0f, 197.0f / 408.0f, blob.x, blob.y));
-                juce::ColourGradient cyan (juce::Colour (23, 153, 171).withAlpha (0.09f), blob, juce::Colour (23, 153, 171).withAlpha (0.0f),
-                                           blob.translated (408.0f * 0.7f, 0.0f), true);
-                g.setGradientFill (cyan);
-                g.fillEllipse (juce::Rectangle<float> (816.0f, 816.0f).withCentre (blob));
+                const juce::Point<float> centre (600.0f, 456.0f);
+                juce::ColourGradient white (juce::Colours::white.withAlpha (0.95f), centre, juce::Colours::white.withAlpha (0.0f), centre.translated (470.0f * 0.72f, 0.0f), true);
+                g.setGradientFill (white);
+                g.fillEllipse (juce::Rectangle<float> (940.0f, 940.0f).withCentre (centre));
+
+                for (const auto x : { 216.0f, 984.0f })
+                {
+                    juce::Graphics::ScopedSaveState saved (g);
+                    const juce::Point<float> blob (x, 459.0f);
+                    g.addTransform (juce::AffineTransform::scale (1.0f, 197.0f / 408.0f, blob.x, blob.y));
+                    juce::ColourGradient cyan (juce::Colour (23, 153, 171).withAlpha (0.09f), blob, juce::Colour (23, 153, 171).withAlpha (0.0f),
+                                               blob.translated (408.0f * 0.7f, 0.0f), true);
+                    g.setGradientFill (cyan);
+                    g.fillEllipse (juce::Rectangle<float> (816.0f, 816.0f).withCentre (blob));
+                }
             }
+
+            // 点阵：每 14 px 一个半径 0.8 的小点（#0A4A57 8 %）。
+            g.setColour (palette::c800.withAlpha (0.08f));
+
+            for (float y = 1.0f; y < (float) baseHeight; y += 14.0f)
+                for (float x = 1.0f; x < (float) baseWidth; x += 14.0f)
+                    g.fillEllipse (x - 0.8f, y - 0.8f, 1.6f, 1.6f);
         }
-
-        // 点阵：每 14 px 一个半径 0.8 的小点（#0A4A57 8 %）。
-        g.setColour (palette::c800.withAlpha (0.08f));
-
-        for (float y = 1.0f; y < (float) baseHeight; y += 14.0f)
-            for (float x = 1.0f; x < (float) baseWidth; x += 14.0f)
-                g.fillEllipse (x - 0.8f, y - 0.8f, 1.6f, 1.6f);
 
         // 细颗粒：每个物理像素一点点随机明暗（设计稿 3.5 % 的灰噪声）。
         {
@@ -512,6 +524,9 @@ private:
                     pixel->setARGB (255, adjust (pixel->getRed()), adjust (pixel->getGreen()), adjust (pixel->getBlue()));
                 }
         }
+
+        juce::Graphics g (staticLayer);
+        g.addTransform (toLayer);
 
         // 面板阴影
         drawPanelShadow (g, { 16.0f, 60.0f, 60.0f, 260.0f }, 12.0f);
@@ -599,7 +614,7 @@ CeladonAudioProcessorEditor::CeladonAudioProcessorEditor (CeladonAudioProcessor&
         cornerListener = std::move (listener);
     }
 
-    if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+    if (auto* display = currentDisplay())
         canvas->settingsPanel.setScreenSize (display->logicalBounds.toNearestInt());
 
     settings->addChangeListener (this);
@@ -739,6 +754,12 @@ void CeladonAudioProcessorEditor::showSettings (bool shouldShow)
     }
 
     canvas->settingsPanel.setZoom ((double) getWidth() / (double) baseWidth);
+
+    // 屏幕预览按插件窗口此刻所在的那块屏幕算（多屏、不同缩放比例时主屏幕不一定是它）。
+    if (shouldShow)
+        if (auto* display = currentDisplay())
+            canvas->settingsPanel.setScreenSize (display->logicalBounds.toNearestInt());
+
     canvas->settingsPanel.setVisible (shouldShow);
     canvas->topBar.setSettingsOpen (shouldShow);
     updateDismissLayer();
@@ -813,11 +834,47 @@ double CeladonAudioProcessorEditor::readStoredZoom() const
     return std::isfinite (stored) ? juce::jlimit (minZoom, maxZoom, stored) : 1.0;
 }
 
+const juce::Displays::Display* CeladonAudioProcessorEditor::currentDisplay() const
+{
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+
+    // 已经在屏幕上：就是它所在的那块。还没显示（刚打开）：鼠标所在的那块——用户刚在宿主里点开插件，宿主窗口多半就在那儿。
+    if (isShowing())
+        if (auto* display = displays.getDisplayForRect (getScreenBounds()))
+            return display;
+
+    if (auto* display = displays.getDisplayForPoint (juce::Desktop::getMousePosition().toFloat()))
+        return display;
+
+    return displays.getPrimaryDisplay();
+}
+
+double CeladonAudioProcessorEditor::fitZoomToScreen (double zoom) const
+{
+    // 不超过所在屏幕的可用区域（去掉任务栏 / Dock / 菜单栏；再给宿主的插件窗口标题栏与边框留 40 × 80 px）：Windows 笔记本常见的
+    // 1920 × 1080 @ 150 % 只有 1280 × 720 逻辑像素，100 % 的 1200 × 820 下半截卡片会跑到屏幕外。最小仍是 70 %。
+    if (auto* display = currentDisplay())
+    {
+        const auto area = display->userBounds;
+        const auto fit = juce::jmin (((double) area.getWidth() - 40.0) / (double) baseWidth, ((double) area.getHeight() - 80.0) / (double) baseHeight);
+
+        if (fit > 0.0)
+            return juce::jmin (zoom, juce::jmax (minZoom, fit));
+    }
+
+    return zoom;
+}
+
 void CeladonAudioProcessorEditor::applyStoredZoom()
 {
-    const auto zoom = readStoredZoom();
+    const auto stored = readStoredZoom();
+    const auto zoom = fitZoomToScreen (stored);
     const auto width = juce::roundToInt (baseWidth * zoom);
     const auto height = juce::roundToInt (baseHeight * zoom);
+
+    // 为放进屏幕而缩小的这一次不写回（resized 里跳过 storeZoom）：工程与默认大小仍记着用户选的，换到大屏幕上打开时照旧。
+    // 用户拖角、设置里拖滑杆、宿主改窗口大小照常写回。
+    const juce::ScopedValueSetter<bool> fitting (fittingZoomToScreen, zoom < stored);
 
     if (width != getWidth() || height != getHeight())
         setSize (width, height);
@@ -842,7 +899,9 @@ void CeladonAudioProcessorEditor::resized()
     const auto zoom = (double) getWidth() / (double) baseWidth;
     canvas->settingsPanel.setZoom (zoom);
     canvas->noteZoomChanged (zoom, (resizableCorner != nullptr && resizableCorner->isMouseButtonDown()) || canvas->resizeHud.isVisible());
-    storeZoom (zoom);
+
+    if (! fittingZoomToScreen)
+        storeZoom (zoom);
 }
 
 void CeladonAudioProcessorEditor::paint (juce::Graphics& g)

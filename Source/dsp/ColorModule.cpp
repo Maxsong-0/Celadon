@@ -14,6 +14,12 @@
 #include <cstdint>
 #include <cstring>
 
+// MSVC：VS2022（v143）的 /fp:precise 默认不融合乘加；更早的工具集（v142）配 /arch:AVX2 时 /fp:precise 下仍可能融合，
+// 这里写死关掉（ADR-013：各路径逐位相同的前提）。clang-cl 不认这个 pragma，由 /clang:-ffp-contract=off 与源码守卫管。
+#if defined (_MSC_VER) && ! defined (__clang__)
+ #pragma fp_contract (off)
+#endif
+
 // ARM 上 Tone 搁架与 Glue 侧链高通两声道打包成 float64x2 一起算（v0.5 研究 P3 R4）。其他平台保留标量写法
 // （结果本来就与 v0.4 逐位相同）：标量 processBiquad 里 b0·x + s1 会不会被编译器合并成融合乘加取决于目标与编译选项，
 // 只有在 ARM 上能确定它是融合的（ColorTests「立体声 L = R 与单声道逐位相同」验证），打包写法才能照抄出逐位相同的结果。

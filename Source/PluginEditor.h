@@ -92,6 +92,8 @@ private:
     void restartOutputSpectrum();
     void applyStoredZoom();
     double readStoredZoom() const;
+    double fitZoomToScreen (double zoom) const;
+    const juce::Displays::Display* currentDisplay() const;
     void storeZoom (double zoom);
     void resetMeters();
 
@@ -117,6 +119,7 @@ private:
     double nonFiniteWarningUntilMs = 0.0;
     int lastNonFiniteBlocks = 0;
     bool writingZoom = false;
+    bool fittingZoomToScreen = false;              // applyStoredZoom 为放进屏幕缩小窗口时：resized 不写回
     const juce::Identifier uiZoomId { celadon::uiid::uiZoomProperty };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CeladonAudioProcessorEditor)

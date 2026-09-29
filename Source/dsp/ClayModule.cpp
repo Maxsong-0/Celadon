@@ -13,6 +13,12 @@
 #include <cstring>
 #include <limits>
 
+// MSVC：VS2022（v143）的 /fp:precise 默认不融合乘加；更早的工具集（v142）配 /arch:AVX2 时 /fp:precise 下仍可能融合，
+// 这里写死关掉（ADR-013：各路径逐位相同的前提）。clang-cl 不认这个 pragma，由 /clang:-ffp-contract=off 与源码守卫管。
+#if defined (_MSC_VER) && ! defined (__clang__)
+ #pragma fp_contract (off)
+#endif
+
 // 只用标量写法（不做 AArch64 两声道打包）：测试服务器是 x86_64，打包路径在那里既编不到也测不到；Clay 每立体声样本
 // 只有 5 次双二阶 + 4 级滑动和（切换分频点时：预热的 2(L − 1) 个样本里 12 级、淡化的 20 ms 里 8 级），标量已远在 CPU 预算内
 // （设计规格-Clay-分析决策与验收 第 5 节）。

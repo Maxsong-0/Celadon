@@ -471,30 +471,34 @@ namespace celadon::ui::porcelain
         // ① 高度图：白色圆盘，裂纹处刻成黑色的沟（三级沟宽 2 / 1.5 / 1.05）。
         std::vector<float> height ((size_t) (size * size), 0.0f);
         {
-            juce::Image map (juce::Image::RGB, size, size, true);
-            juce::Graphics g (map);
-            g.addTransform (toImage);
-            g.setColour (juce::Colours::white);
-            g.fillEllipse (-glazeRadius, -glazeRadius, 2.0f * glazeRadius, 2.0f * glazeRadius);
-            g.setColour (juce::Colours::black);
-
-            for (int level = 0; level < 3; ++level)
+            // 只在 CPU 上画、再读回来：用软件图像。Windows 上默认的图像是 Direct2D 的，Graphics 还在画时开 BitmapData
+            // 读到的是空白（JUCE 规定同一张图同一时刻只能有一个 Graphics 或 BitmapData）——浮雕会整个消失。
+            juce::Image map (juce::Image::RGB, size, size, true, juce::SoftwareImageType());
             {
-                juce::Path grooves;
+                juce::Graphics g (map);
+                g.addTransform (toImage);
+                g.setColour (juce::Colours::white);
+                g.fillEllipse (-glazeRadius, -glazeRadius, 2.0f * glazeRadius, 2.0f * glazeRadius);
+                g.setColour (juce::Colours::black);
 
-                for (int i = 0; i < visible; ++i)
+                for (int level = 0; level < 3; ++level)
                 {
-                    if (cracks[(size_t) i].level != level)
-                        continue;
+                    juce::Path grooves;
 
-                    const auto& points = cracks[(size_t) i].points;
-                    grooves.startNewSubPath (points.front());
+                    for (int i = 0; i < visible; ++i)
+                    {
+                        if (cracks[(size_t) i].level != level)
+                            continue;
 
-                    for (size_t k = 1; k < points.size(); ++k)
-                        grooves.lineTo (points[k]);
+                        const auto& points = cracks[(size_t) i].points;
+                        grooves.startNewSubPath (points.front());
+
+                        for (size_t k = 1; k < points.size(); ++k)
+                            grooves.lineTo (points[k]);
+                    }
+
+                    g.strokePath (grooves, juce::PathStrokeType (reliefWidths[level], juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
                 }
-
-                g.strokePath (grooves, juce::PathStrokeType (reliefWidths[level], juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
 
             const juce::Image::BitmapData data (map, juce::Image::BitmapData::readOnly);

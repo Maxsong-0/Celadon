@@ -84,7 +84,8 @@ namespace celadon::ui
                 f.name = findInterfaceTypefaceName();
                 f.styles[(size_t) Weight::light]    = findStyle (f.name, { "Light", "DemiLight", "Regular" });
                 f.styles[(size_t) Weight::regular]  = findStyle (f.name, { "Regular", "Normal", "Book" });
-                f.styles[(size_t) Weight::medium]   = findStyle (f.name, { "Medium", "Semibold", "DemiBold", "Bold" });
+                // 没有 Medium / Semibold 的字体族（Windows 的微软雅黑 UI 只有 Light / Regular / Bold）按常规：500 离 400 近、离 700 远。
+                f.styles[(size_t) Weight::medium]   = findStyle (f.name, { "Medium", "Semibold", "DemiBold" });
                 f.styles[(size_t) Weight::semibold] = findStyle (f.name, { "Semibold", "DemiBold", "Bold", "Medium" });
                 return f;
             }();
@@ -109,11 +110,12 @@ namespace celadon::ui
             return family;
         }
 
-        juce::Font makeFont (const Family& family, float height, Weight weight)
+        juce::Font makeFont (const Family& family, float height, Weight weight, std::vector<juce::String> fallbacks = {})
         {
             // 不能用不带名字的 FontOptions (height)——那是「默认无衬线」占位符，macOS 上落到 Lucida Grande。
-            // FontOptions 默认 fallbackEnabled = true：等宽字体里没有的中文照样回退到系统字体。
-            return juce::Font (juce::FontOptions (family.name, family.styles[(size_t) weight], juce::jmax (1.0f, height)));
+            // FontOptions 默认 fallbackEnabled = true：字体里没有的字先按 fallbacks 找，再回退到系统字体。
+            return juce::Font (juce::FontOptions (family.name, family.styles[(size_t) weight], juce::jmax (1.0f, height))
+                                   .withFallbacks (std::move (fallbacks)));
         }
 
         //==============================================================================
@@ -191,7 +193,15 @@ namespace celadon::ui
 
     juce::Font monoFont (float height, Weight weight)
     {
+       #if JUCE_WINDOWS
+        // Consolas 没有中文：中文先回退到界面字体族（微软雅黑 UI，Consolas 用到的 Regular / Bold 它都有），与界面其余中文同一款字。
+        // 不指定的话 Windows 按系统显示语言选回退字体（日文系统会拿日文字形写中文）。
+        // 只在 Windows 上指定：JUCE 的首选回退只换字体族、不换字重名，macOS 上 Menlo 的「Bold」苹方里没有，会落到苹方的第一种
+        // 字重再加假粗体——那边 CoreText 按字重配的级联回退更好。
+        return makeFont (monoFamily(), height, weight, { interfaceFamily().name });
+       #else
         return makeFont (monoFamily(), height, weight);
+       #endif
     }
 
     juce::Font celadonFont (float height, bool medium)

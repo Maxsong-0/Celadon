@@ -95,7 +95,7 @@
  #define JucePlugin_LV2PluginClass         Plugin
 #endif
 #ifndef  JucePlugin_Vst3Category
- #define JucePlugin_Vst3Category           "Fx"
+ #define JucePlugin_Vst3Category           "Fx|Mastering"
 #endif
 #ifndef  JucePlugin_AUMainType
  #define JucePlugin_AUMainType             'aufx'
@@ -158,7 +158,7 @@
  #define JucePlugin_ARAFactoryID           "com.MaxSong.Celadon.factory"
 #endif
 #ifndef  JucePlugin_ARADocumentArchiveID
- #define JucePlugin_ARADocumentArchiveID   "com.MaxSong.Celadon.aradocumentarchive.0.1.7.1"
+ #define JucePlugin_ARADocumentArchiveID   "com.MaxSong.Celadon.aradocumentarchive.0.1.8.0"
 #endif
 #ifndef  JucePlugin_ARACompatibleArchiveIDs
  #define JucePlugin_ARACompatibleArchiveIDs  ""

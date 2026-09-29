@@ -18,7 +18,13 @@ namespace celadon::ui
     namespace
     {
         constexpr float knobFullDragPixels   = 180.0f;   // 小旋钮：拖满量程要拖的像素（设计稿 knobH (k, 180)）
-        constexpr double wheelProportionStep = 0.03;     // 滚轮：JUCE 的滚轮量（Windows 一格约 0.47）× 这个数 ≈ 每格 1.4 %
+        // 滚轮：JUCE 换算出的滚轮量各平台不同——Windows 一格是 0.5 × 120 / 256 ≈ 0.234（juce_Windowing_windows.cpp），macOS 触控板是
+        // 连续的小量（像素 × 0.5 / 256）。Windows 按「一格 ≈ 1.4 %」定；macOS 沿用在 Mac 上调好的手感。
+       #if JUCE_WINDOWS
+        constexpr double wheelProportionStep = 0.06;
+       #else
+        constexpr double wheelProportionStep = 0.03;
+       #endif
 
         const juce::String& unicodeMinus()
         {
@@ -112,21 +118,14 @@ namespace celadon::ui
 
     std::optional<float> parseParameterValue (const juce::RangedAudioParameter& parameter, const juce::String& text)
     {
-        auto cleaned = text.replace (unicodeMinus(), "-").trim();
+        // 全角数字、中文句号、各种减号、小数逗号 / 千位逗号的规整与解析见 parseTypedNumber；说不清的数返回空：不改参数。
+        const auto parsed = parseTypedNumber (text);
 
-        // 只留数字、正负号与小数点（单位、空格、全角字符都去掉）。
-        cleaned = cleaned.retainCharacters ("0123456789.+-");
-
-        if (! cleaned.containsAnyOf ("0123456789"))
-            return std::nullopt;
-
-        const auto parsed = cleaned.getFloatValue();
-
-        if (! std::isfinite (parsed))
+        if (! parsed.has_value())
             return std::nullopt;
 
         const auto& range = parameter.getNormalisableRange();
-        return range.snapToLegalValue (juce::jlimit (range.start, range.end, parsed));
+        return range.snapToLegalValue (juce::jlimit (range.start, range.end, (float) *parsed));
     }
 
     //==============================================================================

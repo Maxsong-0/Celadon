@@ -366,9 +366,23 @@ namespace
         click (knob, centre, juce::ModifierKeys (juce::ModifierKeys::altModifier));
         auto& entry = static_cast<juce::TextEditor&> (find ("value_entry"));
         check (entry.isVisible() && entry.getText() == "35", "Alt-click opens the value entry with the current value (" + entry.getText() + ")");
+        // Windows：输入框开着时按键抬起（松开 Alt 的 WM_SYSKEYUP）由画布吃掉，不转给宿主去激活菜单栏；按下照常往上传。
+        auto* entryParent = entry.getParentComponent();
+        check (entryParent != nullptr && entryParent->keyStateChanged (false) && ! entryParent->keyStateChanged (true),
+               "key-ups are consumed while the value entry is open");
         entry.setText ("60");
         entry.onReturnKey();
         check (std::abs (value (celadon::param::glazeAmount) - 60.0f) < 0.05f && ! entry.isVisible(), "typed value 60 + Return is applied");
+        check (entryParent != nullptr && ! entryParent->keyStateChanged (false), "key-ups pass through again once the entry is closed");
+
+        // 中文输入法的全角数字与句号（「５５。５」）照样认。
+        click (knob, centre, juce::ModifierKeys (juce::ModifierKeys::altModifier));
+        entry.setText (juce::String (juce::CharPointer_UTF8 ("\xef\xbc\x95\xef\xbc\x95\xe3\x80\x82\xef\xbc\x95")));
+        entry.onReturnKey();
+        check (std::abs (value (celadon::param::glazeAmount) - 55.5f) < 0.05f, "full-width IME digits (55.5) are applied (" + juce::String (value (celadon::param::glazeAmount), 2) + ")");
+        click (knob, centre, juce::ModifierKeys (juce::ModifierKeys::altModifier));
+        entry.setText ("60");
+        entry.onReturnKey();
 
         // ⑤ 滚轮：往上一格变大一点，⌘ 时更少。
         {

@@ -12,6 +12,7 @@
 #include "Localisation.h"
 
 #include <array>
+#include <cmath>
 
 namespace celadon
 {
@@ -27,8 +28,13 @@ namespace celadon
 
     Language defaultLanguageForSystem()
     {
-        // getUserLanguage 形如「zh-Hans」「zh_CN」「en-US」；只看前两个字母。
-        const auto system = juce::SystemStats::getUserLanguage().toLowerCase();
+        // 按系统的界面显示语言（「zh-Hans-CN」「zh-CN」「en-US」，只看前两个字母）。不用 getUserLanguage：Windows 上它是
+        // 「区域格式」的语言——中文界面配英文格式时会误判成英文。显示语言取不到时再看它。
+        auto system = juce::SystemStats::getDisplayLanguage().toLowerCase();
+
+        if (system.isEmpty())
+            system = juce::SystemStats::getUserLanguage().toLowerCase();
+
         return system.startsWith ("zh") ? Language::chinese : Language::english;
     }
 }
@@ -223,6 +229,71 @@ namespace celadon::ui
             text = text.replace ("{" + juce::String (index++) + "}", argument);
 
         return text;
+    }
+
+    juce::String normaliseTypedNumber (const juce::String& text)
+    {
+        juce::String result;
+        result.preallocateBytes (text.getNumBytesAsUTF8());
+
+        for (auto p = text.getCharPointer(); ! p.isEmpty();)
+        {
+            auto c = p.getAndAdvance();
+
+            if (c >= 0xff10 && c <= 0xff19)                                   c = (juce::juce_wchar) ('0' + (c - 0xff10));   // ０ ～ ９
+            else if (c == 0x3002 || c == 0xff0e || c == 0xff61)                c = '.';   // 。 ． ｡
+            else if (c == 0x2212 || c == 0xff0d || c == 0x2013 || c == 0x2014
+                      || c == 0xfe63 || c == 0x2010 || c == 0x2011)           c = '-';   // − － – — ﹣ ‐ ‑
+            else if (c == 0xff0b || c == 0xfe62)                               c = '+';   // ＋ ﹢
+            else if (c == 0xff0c)                                              c = ',';   // ，
+
+            result += juce::String::charToString (c);
+        }
+
+        return result;
+    }
+
+    std::optional<double> parseTypedNumber (const juce::String& text)
+    {
+        const auto cleaned = normaliseTypedNumber (text).retainCharacters ("0123456789.,+-");
+
+        if (! cleaned.containsAnyOf ("0123456789") || cleaned.substring (1).containsAnyOf ("+-"))
+            return std::nullopt;
+
+        const auto sign = cleaned.startsWithChar ('-') || cleaned.startsWithChar ('+') ? cleaned.substring (0, 1) : juce::String();
+        auto number = cleaned.substring (sign.length());
+
+        if (number.containsChar (','))
+        {
+            if (number.containsChar ('.'))
+                return std::nullopt;
+
+            juce::StringArray groups;
+            groups.addTokens (number, ",", {});
+
+            auto thousands = groups[0].length() >= 1 && groups[0].length() <= 3 && ! groups[0].startsWithChar ('0');
+
+            for (int i = 1; i < groups.size(); ++i)
+                thousands = thousands && groups[i].length() == 3;
+
+            if (thousands)
+                number = groups.joinIntoString ({});
+            else if (groups.size() == 2)
+                number = groups[0] + "." + groups[1];
+            else
+                return std::nullopt;
+        }
+        else if (number.indexOfChar ('.') != number.lastIndexOfChar ('.'))
+        {
+            return std::nullopt;
+        }
+
+        const auto value = (sign + number).getDoubleValue();
+
+        if (! std::isfinite (value))
+            return std::nullopt;
+
+        return value;
     }
 
     const TextEntry* textEntries (int& count) noexcept
