@@ -785,8 +785,8 @@ namespace celadon
         // 相同——样本在外层、段在内层，系数广播到两条通道。每一步与 x64 上的 processBiquad 一一对应：y = b0·x + s1
         // （乘、加各自舍入）；s1 = (b1·x − a1·y) + s2；s2 = b2·x − a2·y。打包的 mulpd / addpd / subpd 与标量的
         // mulsd / addsd / subsd 逐通道同一 IEEE 运算、同一 MXCSR（舍入、FTZ / DAZ），通道之间没有交叉运算，所以每个声道的
-        // 输出与状态都与标量路径逐位相同（BalanceTests「stereo with identical channels ... packed vs scalar」与
-        // 「stereo with different channels ... each channel matches its own mono run」）。
+        // 输出与状态都与标量路径逐位相同（BalanceTests「stereo with identical channels is bit-exact with mono」与
+        // 「different channels: packed filter path (NEON / SSE2) is bit-exact with the scalar path」）。
         struct PackedBand
         {
             __m128d b0, b1, b2, a1, a2, s1, s2;

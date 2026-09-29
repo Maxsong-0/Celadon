@@ -4,26 +4,33 @@
 #   ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh
 #
 # 装什么（都装在 maxsong 名下，只有第 1 步要 sudo；不碰 ghrunner 与 runner 服务）：
-#   1. Ubuntu 的 wine64 + msitools（sudo apt）；
+#   1. Ubuntu 的 wine64 + msitools，以及 `ui` 模式要的 xvfb + fonts-noto-cjk（sudo apt）。中文字体不能省：JUCE 的字体回退
+#      给 IDWriteFontFallback::MapCharacters 传 nullptr，Wine 的 DWrite 在「系统里没有任何字体含这个字」时解引用它、界面直接崩；
 #   2. msvc-wine（github.com/mstorsjo/msvc-wine，钉在下面的提交）下载的 Visual Studio 2022 生成工具 → ~/opt/msvc2022：
 #      MSVC v143（x64 目标；x86 目标给 JUCE 的 Win32「VST3 Manifest Helper」）、Windows SDK、MSBuild。
 #      下载即表示接受微软的 Visual Studio / Windows SDK 许可（--accept-license，2026-09-29 Max 同意）；装出来的编译器不可再分发；
 #   3. Wine Mono（MSBuild 是 .NET Framework 程序），版本与 Wine 10 配套；
 #   4. Inno Setup 6.7.3 → Wine 里的 C:\InnoSetup6（安装包用）。它的安装程序要建窗口：先把 Wine 的图形驱动设成 null（不需要显示器）。
+#      这一步会 wineserver -k（结束本用户所有 Wine 进程）：别在有 Windows 构建或测试在跑时装。
 set -euo pipefail
 
 MSVC_WINE_COMMIT=514f8ea
 MSVC_DIR="$HOME/opt/msvc2022"
 CACHE="$HOME/.cache/celadon-win"
 WINE_MONO_VERSION=9.4.0
+WINE_MONO_SHA256=cf6173ae94b79e9de13d9a74cdb2560a886fc3d271f9489acb1cfdbd961cacb2
 INNO_VERSION=6.7.3
 INNO_SHA256=9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
 export WINEDEBUG=-all
+# 不让 Wine 往服务器的 Linux 菜单里加快捷方式（Inno Setup 的安装程序会建一串开始菜单项）。
+export WINEDLLOVERRIDES="winemenubuilder.exe=d"
 mkdir -p "$HOME/src" "$HOME/opt" "$CACHE"
 
-# 1. Wine 与 msitools
-if ! command -v wine64 >/dev/null || ! command -v msiextract >/dev/null; then
-  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wine64 msitools winbind ca-certificates
+# 1. Wine、msitools、Xvfb、中文字体
+if ! command -v wine64 >/dev/null || ! command -v msiextract >/dev/null || ! command -v xvfb-run >/dev/null \
+   || [ -z "$(fc-list :lang=zh family 2>/dev/null)" ]; then
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    wine64 msitools winbind ca-certificates xvfb xauth fonts-noto-cjk
 fi
 wine64 --version
 
@@ -40,6 +47,7 @@ fi
 if [ ! -d "$HOME/.wine/drive_c/windows/mono" ]; then
   curl -fsSL -o "$CACHE/wine-mono-$WINE_MONO_VERSION-x86.msi" \
     "https://dl.winehq.org/wine/wine-mono/$WINE_MONO_VERSION/wine-mono-$WINE_MONO_VERSION-x86.msi"
+  echo "$WINE_MONO_SHA256  $CACHE/wine-mono-$WINE_MONO_VERSION-x86.msi" | sha256sum -c -
   wine64 msiexec /i "$CACHE/wine-mono-$WINE_MONO_VERSION-x86.msi" /qn
 fi
 
@@ -58,4 +66,6 @@ fi
 PATH="$MSVC_DIR/bin/x64:$PATH" cl 2>&1 | head -1
 "$MSVC_DIR/bin/x64/msbuild" -version | tail -1
 ls "$HOME/.wine/drive_c/InnoSetup6/ISCC.exe"
+command -v xvfb-run
+fc-list :lang=zh family | head -1
 echo "Windows 工具链就绪"

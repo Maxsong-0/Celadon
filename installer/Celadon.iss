@@ -69,6 +69,9 @@ Name: "standalone"; Description: "{cm:ComponentStandalone}"; Types: full
 [InstallDelete]
 ; 先整个删掉旧的 Celadon.vst3 再装：旧版本多出来的文件不会留在包里。
 Type: filesandordirs; Name: "{commoncf64}\VST3\Celadon.vst3"; Components: vst3
+; 上次装了独立版、这次没选：Inno 不会自己删取消勾选的组件，旧的 Celadon.exe 与开始菜单快捷方式在这里清掉。
+Type: files; Name: "{app}\Celadon.exe"; Components: not standalone
+Type: files; Name: "{autoprograms}\Celadon.lnk"; Components: not standalone
 
 [Files]
 Source: "{#BuildDir}\VST3\Celadon.vst3\*"; DestDir: "{commoncf64}\VST3\Celadon.vst3"; Components: vst3; Flags: ignoreversion recursesubdirs createallsubdirs

@@ -25,7 +25,7 @@ case "$MODE" in
     [ "$#" -eq 2 ] || { echo "用法：scripts/windows-wine.sh fetch <本机目录>" >&2; exit 2; }
     ;;
   *)
-    sed -n '5,10p' "$0" >&2
+    sed -n '6,11p' "$0" >&2
     exit 2
     ;;
 esac
@@ -127,7 +127,7 @@ run_ui_check() {
   command -v xvfb-run >/dev/null || { echo "服务器上没有 xvfb-run：sudo apt install xvfb" >&2; return 1; }
   mkdir -p "$BUILD/ui-check"
   (
-    export WINEPREFIX="$HOME/.cache/celadon-win/prefix-ui-check" WINEDLLOVERRIDES="mscoree,mshtml="
+    export WINEPREFIX="$HOME/.cache/celadon-win/prefix-ui-check" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
     if [ ! -f "$WINEPREFIX/system.reg" ]; then
       xvfb-run -a wine64 wineboot -i
       /usr/lib/x86_64-linux-gnu/wine/wineserver -w
@@ -182,12 +182,13 @@ build_installer() {
 
 smoke_test_installer() {
   # 在单独的 Wine 前缀里（不碰编译用的 ~/.wine）静默安装 → 文件与构建产物逐字节相同 → 静默卸载 → 两处都删干净。
-  # 前缀留着下次复用；null 图形驱动：安装向导即使静默也要建窗口。mscoree / mshtml 置空：不装 Wine Mono / Gecko。
+  # 前缀留着下次复用；null 图形驱动：安装向导即使静默也要建窗口。mscoree / mshtml 置空：不装 Wine Mono / Gecko；
+  # 禁掉 winemenubuilder：不然装一次就在服务器的 Linux 菜单里留一个 Celadon.desktop。
   local setup="$PWD/$1"
   local prefix="$HOME/.cache/celadon-win/prefix-install-test"
   local out=Celadon/Builds/VisualStudio2022/x64/Release
   (
-    export WINEPREFIX="$prefix" WINEDLLOVERRIDES="mscoree,mshtml="
+    export WINEPREFIX="$prefix" WINEDLLOVERRIDES="mscoree,mshtml=;winemenubuilder.exe=d"
     if [ ! -f "$prefix/system.reg" ]; then
       wine64 wineboot -i
       wine64 reg add 'HKCU\Software\Wine\Drivers' /v Graphics /d null /f
@@ -203,6 +204,16 @@ smoke_test_installer() {
     cmp "$out/VST3/Celadon.vst3/Contents/Resources/moduleinfo.json" "$vst3/Contents/Resources/moduleinfo.json"
     cmp "$out/Standalone Plugin/Celadon.exe" "$app/Celadon.exe"
     echo "安装：VST3 与独立运行版都在，与构建产物逐字节相同"
+
+    # 重装、这次只选 VST3（/TYPE=vst3）：独立版要被清掉，VST3 照旧在。
+    wine64 "$setup" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TYPE=vst3
+    /usr/lib/x86_64-linux-gnu/wine/wineserver -w
+    cmp "$out/VST3/Celadon.vst3/Contents/x86_64-win/Celadon.vst3" "$vst3/Contents/x86_64-win/Celadon.vst3"
+    if [ -e "$app/Celadon.exe" ]; then
+      echo "只装 VST3 重装后，上次的 Celadon.exe 还在" >&2
+      exit 1
+    fi
+    echo "重装（只选 VST3）：独立版已清掉，VST3 仍在"
 
     wine64 "$app/unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
     /usr/lib/x86_64-linux-gnu/wine/wineserver -w

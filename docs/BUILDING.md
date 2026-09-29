@@ -91,18 +91,22 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://github.com/mstorsjo/msvc-wine) 把 Visual Studio 2022 的生成工具
 （MSVC v143、Windows SDK、MSBuild）装进 Wine：cl.exe、link.exe、MSBuild 与 Windows 上是同一套，编的就是 Projucer 生成的 `.sln`。
 
-- 装一次：`ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh`（Wine 与 msitools 要 sudo apt；下载 VS 工具
-  即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
+- 装一次：`ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh`（Wine、msitools、Xvfb、中文字体
+  fonts-noto-cjk 要 sudo apt；下载 VS 工具即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
 - 日常：先在 Mac 上 `Projucer --resave Celadon.jucer`（`Builds/VisualStudio2022` 随源码同步过去），然后
   - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
   - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
-  - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装、逐字节核对、静默卸载；
+  - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装、逐字节核对、只选 VST3 重装
+    （独立版要被清掉）、静默卸载；
+  - `scripts/windows-wine.sh ui`：cl.exe 编界面截图工具，在单独的 Wine 前缀里借 Xvfb 跑交互检查（`--only check`）。服务器上
+    必须有中文字体：JUCE 的字体回退给 `IDWriteFontFallback::MapCharacters` 传 `nullptr`，Wine 的 DWrite 在「没有任何字体含这个字」
+    时解引用它、界面直接崩（Windows 上这样传是正常用法，系统也自带中文字体）；
   - `scripts/windows-wine.sh fetch <本机目录>`：把 `Celadon.vst3`、`Celadon.exe`、安装包取回来。
 - 几个坑（脚本里都处理了）：msvc-wine 的 msbuild 包装只给 VS 18 设了工具集目录，VS2022 要补 `VCToolsInstallDir_170`；
   MSBuild 的多节点（`/m`）在 Wine 里会中途无声退出，用 `/m:1`（cl.exe 的 `/MP` 照样并行）；「VST3 Manifest Helper」是 Win32 工程，
   要装 x86 目标的工具与库；MSBuild 是 .NET 程序，要 Wine Mono；Inno Setup 的安装程序即使静默也要建窗口，Wine 的图形驱动设成 null。
-- Wine 不是 Windows：这里验证的是「编得过、测试在 MSVC + UCRT 下通过、安装包装得上卸得掉」。宿主里加载、界面手感、DPI、
-  字体仍要在 Windows 真机上看一遍。
+- Wine 不是 Windows：这里验证的是「编得过、测试在 MSVC + UCRT 下通过、界面交互在 Wine 的 Direct2D / DirectWrite 下跑得通、
+  安装包装得上卸得掉」。宿主里加载、界面手感、DPI、字体的真实效果仍要在 Windows 真机上看一遍。
 
 ## 跨平台的数值一致性
 
