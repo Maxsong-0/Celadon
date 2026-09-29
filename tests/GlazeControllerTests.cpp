@@ -37,7 +37,9 @@
 #include "../Source/ParameterRanges.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <utility>
@@ -843,6 +845,9 @@ namespace celadon::test
             testReferenceSurvivesParameterRoundTrip();
             testCalibrationSurvivesReopenDrift();
             testSlowLogKnobSweepIsNotStable();
+
+            // ---- T-027（参考条件手动参数部分的缓存）----
+            testManualConditionsCacheIsBitExact();
         }
 
     private:
@@ -4323,6 +4328,199 @@ namespace celadon::test
                 const auto startedAfterStop = rig.runUntil (4.0, [&] { return rig.probe().calibrationBegins != begins; });
                 expect (startedAfterStop, label + "once the knob stops, the conditions are stable and a new round starts");
             }
+        }
+
+        //==============================================================================
+        // T-027 1. 参考条件手动参数部分的缓存：makeReference 按输入（samePlanningManual + 约束反馈上限逐位相同）缓存
+        //    setManualConditions 的结果，命中时拷贝。同一个编排器逐块改一项——参考条件计入的每一项（各挪一个改得动量化码的量）、
+        //    Limit Release 与「手动」Clay 分频点挪 1 ulp、正负零、不计入的 Listen 与「自动」态 Clay 旋钮、Ceiling、v0.1.9.0 高级
+        //    母带控制（去刺耳 / 频谱目标，哈希里的「Mast」段）——每项停两块（第一块重算、第二块命中），再原路一步步改回去
+        //    （A → B → A：缓存不能停在后来的值上）；每块之后核对：探针的 manualParamsHash 与本块发布的执行快照参考（手动参数
+        //    那 6 项）都与不经缓存、按编排器这一块拿到的手动参数与约束反馈上限直接重算（glaze::setManualConditions）的逐位相同。
+        //    约束反馈上限单独变（手动参数一项不动）：同一实例读回只改了上限的存档，缓存必须跟着失效。
+        // 依据：T-027（输出逐位不变）；BUG-004 / ADR-018 的参考条件口径。
+        void testManualConditionsCacheIsBitExact()
+        {
+            beginTest ("the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 271, 0.5f));
+            rig.params.glazePercent = 60.0f;
+            expect (rig.learnAndCalibrate(), "learned and calibrated");
+
+            const auto sameManualConditions = [] (const glaze::CalibrationReference& a, const glaze::CalibrationReference& b)
+            {
+                return a.conditionsFormat == b.conditionsFormat && a.manualParamsHash == b.manualParamsHash
+                    && a.discreteParamsHash == b.discreteParamsHash && sameBits (a.limitReleaseMs, b.limitReleaseMs)
+                    && sameBits (a.clayLowCutHz, b.clayLowCutHz) && sameBits (a.clayMonoHz, b.clayMonoHz);
+            };
+
+            int probeChecks = 0, probeMismatches = 0, publishedChecks = 0, publishedMismatches = 0;
+            juce::String firstMismatch;
+
+            const auto noteMismatch = [&firstMismatch] (const juce::String& what)
+            {
+                if (firstMismatch.isEmpty())
+                    firstMismatch = what;
+            };
+
+            // 走一块，再对照：探针（makeReference 的旧口径哈希）与本块发布的执行快照参考 vs. 不经缓存的重算。
+            const auto stepAndCheck = [&] (const juce::String& label)
+            {
+                rig.step();
+
+                // 编排器这一块拿到的手动参数：链先按 mastering 设置合成 Balance 的高级项（v0.1.9.0）再交给它，合成值原样留在
+                // 实际参数里（Ceiling 也可能按编码余量下调，但它不在这部分参考条件里）。
+                auto seen = rig.params;
+                const auto& effective = rig.chain.getEffectiveParams().balance;
+                seen.balance.harshAmount = effective.harshAmount;
+                seen.balance.transientPreserve = effective.transientPreserve;
+                seen.balance.targetAmount = effective.targetAmount;
+                seen.balance.targetSlopeDbPerOct = effective.targetSlopeDbPerOct;
+                seen.balance.hasTargetReference = effective.hasTargetReference;
+                seen.balance.targetReferenceDb = effective.targetReferenceDb;
+
+                const auto expected = referenceFor (seen, rig.probe().feedbackMaxGainDb);
+
+                ++probeChecks;
+
+                if (rig.probe().manualParamsHash != expected.manualParamsHash)
+                {
+                    ++probeMismatches;
+                    noteMismatch (label + " (probe)");
+                }
+
+                const auto xml = rig.chain.createGlazeStateXml();
+                const auto* executionXml = xml != nullptr ? xml->getChildByName (glaze::executionTag) : nullptr;
+                glaze::ExecutionState execution;
+
+                if (executionXml != nullptr && glaze::fromXml (*executionXml, execution))
+                {
+                    ++publishedChecks;
+
+                    if (! sameManualConditions (execution.reference, expected))
+                    {
+                        ++publishedMismatches;
+                        noteMismatch (label + " (published execution snapshot)");
+                    }
+                }
+            };
+
+            const auto upOneUlp = [] (float x) { return std::nextafter (x, std::numeric_limits<float>::infinity()); };
+
+            using Change = std::pair<const char*, std::function<void (ChainParams&)>>;
+            const std::vector<Change> changes {
+                { "balance recover",           [] (ChainParams& p) { p.balance.recover = 20.0f; } },
+                { "balance tame",              [] (ChainParams& p) { p.balance.tame = 15.0f; } },
+                { "balance brighten",          [] (ChainParams& p) { p.balance.brighten = -10.0f; } },
+                { "balance speed",             [] (ChainParams& p) { p.balance.speed = BalanceModule::Speed::fast; } },
+                { "balance bypass",            [] (ChainParams& p) { p.balance.bypass = true; } },
+                { "color tone",                [] (ChainParams& p) { p.color.toneDb = 1.5f; } },
+                { "color glue",                [] (ChainParams& p) { p.color.glue = 30.0f; } },
+                { "color heat",                [] (ChainParams& p) { p.color.heat = 25.0f; } },
+                { "color mix",                 [] (ChainParams& p) { p.color.mixPercent = 80.0f; } },
+                { "color output",              [] (ChainParams& p) { p.color.outputDb = -1.0f; } },
+                { "color output -0",           [] (ChainParams& p) { p.color.outputDb = -0.0f; } },
+                { "color output +0",           [] (ChainParams& p) { p.color.outputDb = 0.0f; } },
+                { "color bypass",              [] (ChainParams& p) { p.color.bypass = true; } },
+                { "limit gain",                [] (ChainParams& p) { p.limit.gainDb = 2.0f; } },
+                { "limit release",             [] (ChainParams& p) { p.limit.releaseMs = 250.0f; } },
+                { "limit release +1 ulp",      [upOneUlp] (ChainParams& p) { p.limit.releaseMs = upOneUlp (p.limit.releaseMs); } },
+                { "limit auto release off",    [] (ChainParams& p) { p.limit.autoRelease = false; } },
+                { "limit clip",                [] (ChainParams& p) { p.limit.clip = 20.0f; } },
+                { "limit bypass",              [] (ChainParams& p) { p.limit.bypass = true; } },
+                { "limit ceiling (not hashed)", [] (ChainParams& p) { p.limit.ceilingDb = -0.5f; } },
+                { "limit listen (not counted)", [] (ChainParams& p) { p.limit.listen = true; } },
+                { "Clay automatic knobs (not counted)",
+                                               [] (ChainParams& p) { p.claySettings.lowCutHz = 45.0f; p.claySettings.monoHz = 200.0f;
+                                                                     p.claySettings.widthDb = -2.5f; } },
+                { "Clay low cut manual",       [] (ChainParams& p) { p.claySettings.lowCutMode = ClayMode::manual; } },
+                { "Clay low cut value",        [] (ChainParams& p) { p.claySettings.lowCutHz = 30.0f; } },
+                { "Clay low cut +1 ulp",       [upOneUlp] (ChainParams& p) { p.claySettings.lowCutHz = upOneUlp (p.claySettings.lowCutHz); } },
+                { "Clay mono manual",          [] (ChainParams& p) { p.claySettings.monoMode = ClayMode::manual; } },
+                { "Clay mono value",           [] (ChainParams& p) { p.claySettings.monoHz = 150.0f; } },
+                { "Clay mono +1 ulp",          [upOneUlp] (ChainParams& p) { p.claySettings.monoHz = upOneUlp (p.claySettings.monoHz); } },
+                { "Clay width manual",         [] (ChainParams& p) { p.claySettings.widthMode = ClayMode::manual; } },
+                { "Clay width value",          [] (ChainParams& p) { p.claySettings.widthDb = 1.5f; } },
+                { "Clay bypass",               [] (ChainParams& p) { p.claySettings.bypass = true; } },
+                { "Clay low cut off",          [] (ChainParams& p) { p.claySettings.lowCutMode = ClayMode::off; } },
+                { "Clay mono off",             [] (ChainParams& p) { p.claySettings.monoMode = ClayMode::off; } },
+                { "Clay width off",            [] (ChainParams& p) { p.claySettings.widthMode = ClayMode::off; } },
+                { "de-harsh manual",           [] (ChainParams& p) { p.mastering.harshMode = HarshMode::manual; } },
+                { "de-harsh amount",           [] (ChainParams& p) { p.mastering.harshAmount = 40.0f; } },
+                { "transient preserve",        [] (ChainParams& p) { p.mastering.transientPreserve = 70.0f; } },
+                { "de-harsh automatic (x GLAZE)", [] (ChainParams& p) { p.mastering.harshMode = HarshMode::automatic; } },
+                { "GLAZE (scales automatic de-harsh)", [] (ChainParams& p) { p.glazePercent = 55.0f; } },
+                { "target neutral",            [] (ChainParams& p) { p.mastering.targetMode = TargetMode::neutral; } },
+                { "target amount",             [] (ChainParams& p) { p.mastering.targetAmount = 60.0f; } },
+                { "target warm (slope)",       [] (ChainParams& p) { p.mastering.targetMode = TargetMode::warm; } },
+                { "target automatic (style)",  [] (ChainParams& p) { p.mastering.targetMode = TargetMode::automatic; } },
+                { "de-harsh off",              [] (ChainParams& p) { p.mastering.harshMode = HarshMode::off; } } };
+
+            std::vector<ChainParams> history { rig.params };
+            std::vector<std::uint32_t> forwardHashes { rig.probe().manualParamsHash };
+
+            for (const auto& change : changes)
+            {
+                change.second (rig.params);
+                history.push_back (rig.params);
+                stepAndCheck (juce::String (change.first));
+                stepAndCheck (juce::String (change.first) + ", next block");
+                forwardHashes.push_back (rig.probe().manualParamsHash);
+            }
+
+            // 列表末尾的高级母带控制 10 步，每一步都改变了参考条件：这一段确实测到了「Mast」段的缓存失效（不是空跑）。
+            constexpr size_t masteringSteps = 10;
+            auto masteringChangesHash = forwardHashes.size() > masteringSteps;
+
+            for (auto i = forwardHashes.size() - masteringSteps; masteringChangesHash && i < forwardHashes.size(); ++i)
+                masteringChangesHash = forwardHashes[i] != forwardHashes[i - 1];
+
+            expect (masteringChangesHash, "every advanced-mastering step changes the reference hash (the Mast segment is exercised)");
+
+            for (auto i = (int) history.size() - 2; i >= 0; --i)
+            {
+                rig.params = history[(size_t) i];
+                stepAndCheck ("back to step " + juce::String (i));
+                stepAndCheck ("back to step " + juce::String (i) + ", next block");
+            }
+
+            // 约束反馈上限单独变：手动参数不动，读回只改了上限的存档（存档里按 float 位存十六进制）。两个上限的旧口径哈希必须不同，
+            // 否则这一段测不出缓存失效；改回第一个上限，哈希回到第一个。
+            const auto bitsHex = [] (float value)
+            {
+                std::uint32_t bits = 0;
+                std::memcpy (&bits, &value, sizeof (bits));
+                return juce::String::toHexString ((juce::int64) bits).paddedLeft ('0', 8);
+            };
+
+            std::vector<std::uint32_t> capHashes;
+
+            for (const auto cap : { 18.5f, 21.25f, 18.5f })
+            {
+                const auto xml = rig.chain.createGlazeStateXml();
+                auto* controllerNode = xml != nullptr ? xml->getChildByName ("GLAZE_CONTROLLER") : nullptr;
+                expect (controllerNode != nullptr, "the controller state is saved");
+
+                if (controllerNode == nullptr)
+                    return;
+
+                controllerNode->setAttribute ("feedbackMaxGainDb", bitsHex (cap));
+                rig.chain.restoreGlazeStateXml (xml.get());
+                stepAndCheck ("constraint cap " + juce::String (cap));
+                expect (sameBits (rig.probe().feedbackMaxGainDb, cap), "the restored constraint cap " + juce::String (cap) + " is in effect");
+                capHashes.push_back (rig.probe().manualParamsHash);
+                stepAndCheck ("constraint cap " + juce::String (cap) + ", next block");
+            }
+
+            expect (capHashes.size() == 3 && capHashes[0] != capHashes[1] && capHashes[2] == capHashes[0],
+                    "the two constraint caps give different hashes, and going back gives the first one again");
+
+            logMessage ("  " + juce::String (probeChecks) + " blocks checked through the probe, " + juce::String (publishedChecks)
+                        + " through the published execution snapshot");
+
+            expectEquals (probeMismatches, 0, "the probe's hash equals the uncached recomputation. First: " + firstMismatch);
+            expectEquals (publishedMismatches, 0, "the published reference equals the uncached recomputation. First: " + firstMismatch);
+            expect (publishedChecks >= probeChecks / 2, "most blocks published an execution snapshot to compare");
         }
     };
 

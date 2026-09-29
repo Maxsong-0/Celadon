@@ -1,0 +1,38 @@
+compiler: /usr/bin/c++
+c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+flags: -DCELADON_FP_CONTRACT_OFF=1 -DJUCE_GLOBAL_MODULE_SETTINGS_INCLUDED=1 -DJUCE_MODULE_AVAILABLE_juce_audio_basics=1 -DJUCE_MODULE_AVAILABLE_juce_audio_formats=1 -DJUCE_MODULE_AVAILABLE_juce_core=1 -DJUCE_MODULE_AVAILABLE_juce_dsp=1 -DJUCE_STANDALONE_APPLICATION=1 -DJUCE_USE_CURL=0 -DJUCE_WEB_BROWSER=0 -DNDEBUG=1 -isystem /home/maxsong/.cache/celadon-tests/frosty-haslett-5cbf1c-cc3024a39f40/Celadon/../JUCE/modules -O3 -DNDEBUG -std=gnu++17 -ffp-contract=off -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion
+1c145ef401961944f428e6a1d714ca71fa8ed781c6ddf2ea6406087aafae8092  base/GlazeController.cpp
+3cc13e0ee9125f87015b976b59c641fcd2be17466d7bc96cf3102f80aaadef61  /home/maxsong/.cache/celadon-tests/frosty-haslett-5cbf1c-cc3024a39f40/Celadon/Source/dsp/GlazeController.cpp
+== load before: 0.76 0.77 0.61
+round 1 base: steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23284.9 ns/block  13.971 % of real time
+round 1 new : steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23023.9 ns/block  13.814 % of real time
+round 2 base: steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23291.9 ns/block  13.975 % of real time
+round 2 new : steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23161.4 ns/block  13.897 % of real time
+round 3 base: steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23220.2 ns/block  13.932 % of real time
+round 3 new : steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23051.8 ns/block  13.831 % of real time
+round 4 base: steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23224.6 ns/block  13.935 % of real time
+round 4 new : steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23052.1 ns/block  13.831 % of real time
+round 5 base: steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23207.7 ns/block  13.925 % of real time
+round 5 new : steady warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 0  23038.1 ns/block  13.823 % of real time
+round 1 base: reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23432.5 ns/block  14.060 % of real time
+round 1 new : reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23168.0 ns/block  13.901 % of real time
+round 2 base: reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23705.1 ns/block  14.223 % of real time
+round 2 new : reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23170.9 ns/block  13.903 % of real time
+round 3 base: reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23604.8 ns/block  14.163 % of real time
+round 3 new : reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23221.9 ns/block  13.933 % of real time
+round 4 base: reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23489.0 ns/block  14.093 % of real time
+round 4 new : reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23212.6 ns/block  13.928 % of real time
+round 5 base: reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23495.7 ns/block  14.097 % of real time
+round 5 new : reopen warm=90s timed=60s blocks=360000 phase locked->locked calib 1->1 exec 1  23107.7 ns/block  13.865 % of real time
+== callbench
+clay default: recompute 109.4 ns/call, cache hit 6.5 ns/call
+clay default: recompute 109.5 ns/call, cache hit 6.5 ns/call
+clay default: recompute 109.4 ns/call, cache hit 6.5 ns/call
+clay default: recompute 109.5 ns/call, cache hit 6.6 ns/call
+clay default: recompute 109.3 ns/call, cache hit 6.5 ns/call
+clay manual : recompute 165.1 ns/call, cache hit 6.5 ns/call
+clay manual : recompute 165.1 ns/call, cache hit 6.6 ns/call
+clay manual : recompute 164.9 ns/call, cache hit 6.6 ns/call
+clay manual : recompute 165.0 ns/call, cache hit 6.5 ns/call
+clay manual : recompute 165.0 ns/call, cache hit 6.5 ns/call
+== load after: 1.00 0.96 0.78
