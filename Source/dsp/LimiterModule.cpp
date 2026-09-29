@@ -49,6 +49,9 @@ namespace celadon
         constexpr double lowStableSeconds       = 0.12;
         constexpr double lowReleaseMaxMs        = 140.0;
         constexpr int    lowConsistentPeriods   = 3;
+        // 短过载：需求增益回到 0.93（约 −0.6 dB）之前，连续压住的时间短于 70 ms，就视为鼓点而不是持续响度。
+        constexpr float  transientReturnGain    = 0.93f;
+        constexpr double transientMaxSeconds    = 0.070;
 
         // 8× / 64 抽头检测器相对独立 16× / 128 抽头 sinc，在短宽带噪声网格中低估最多 0.3039 dB。
         // 需求增益预留 0.35 dB，避免为此再加一条高开销的过采样链；这是经验重建余量，不是所有波形的数学保证。
@@ -219,6 +222,8 @@ namespace celadon
         detectorPeaks.setSize (numChannels, maxBlockSize);
         requiredGainHold.prepare (maxLookahead + holdSamples);
         attackRamp.prepare (maxLookahead);
+        attackShape.prepare (maxLookahead);
+        transientMaxSamples = juce::jmax (1, juce::roundToInt (sampleRate * transientMaxSeconds));
 
         gainSmoothed.reset (sampleRate, smoothingSeconds);
         ceilingSmoothed.reset (sampleRate, smoothingSeconds);
@@ -316,10 +321,13 @@ namespace celadon
 
         requiredGainHold.setWindow (lookaheadSamples + holdSamples);
         requiredGainHold.clear();
-        attackRamp.setLength (lookaheadSamples);
+        configureAttackShape();
         attackRamp.clear();
+        attackShape.clear();
 
         envelopeManual = envelopeFast = envelopeSlow = slowTarget = lastEnvelope = 1.0;
+        deepReductionSamples = 0;
+        transientReleaseSamples = 0;
         averageReductionDb = 0.0;
         adaptCounter = 0;
         resetLowFrequencyRelease();
@@ -506,7 +514,10 @@ namespace celadon
                     // 干路 × 同样延迟过的 Gain = 当初送进 Clip 级的样本（逐位相同）；减去湿路、除以 Gain 回到推响前的电平。
                     // 旁通时本级没有削掉任何东西、淡入保持段里没有输出：差值跟着交叉淡化与淡入归零。
                     const auto gain = delayedGainScratch[(size_t) i];
-                    const auto removed = gain > minimumDifferenceGain ? (dry * gain - out) / gain : 0.0f;
+                    // Match the separately rounded multiply used before Clip. A fused multiply-subtract
+                    // keeps sub-ULP product bits and would create a residual even when out is identical.
+                    const float gainedDry = dry * gain;
+                    const auto removed = gain > minimumDifferenceGain ? (gainedDry - out) / gain : 0.0f;
                     differenceChannels[ch][startSample + i] = juce::jlimit (-differenceCeiling, differenceCeiling, removed)
                                                               * (1.0f - bypassMix) * fade;
                 }
@@ -834,8 +845,8 @@ namespace celadon
             // 3) 释放包络（向下瞬时、向上指数回升）。
             const auto envelope = nextReleaseEnvelope (held);
 
-            // 4) 攻击整形：长度 = Lookahead 的移动平均，峰值到达那一刻恰好降到位。
-            const auto gain = attackRamp.push (envelope);
+            // 4) 攻击整形：两级滑动平均的总建立时间仍等于 Lookahead，峰值到达那一刻降到位；拐角是三角窗。
+            const auto gain = attackShape.push (attackRamp.push (envelope));
             minGain = juce::jmin (minGain, gain);
 
             // v0.6 统计（只读 gain）：GR 的 dB 域均值靠增益连乘，整块只取一次对数；g = 1 不乘（乘了也不变）。
@@ -964,6 +975,17 @@ namespace celadon
         fastReleaseCoeff = timeConstantCoeff (sampleRate, lowFrequencyReleaseMs);
     }
 
+    void LimiterModule::configureAttackShape() noexcept
+    {
+        // 两级长度相加再减 1 等于 Lookahead：阶跃响应与原来的单级矩形窗在同一拍到达终点。
+        // Lookahead = 1 时两级都是 1，推动一次就是恒等。
+        const auto total = juce::jmax (1, lookaheadSamples);
+        const auto shape = juce::jmax (1, total / 2);
+        const auto ramp = juce::jmax (1, total - shape + 1);
+        attackRamp.setLength (ramp);
+        attackShape.setLength (shape);
+    }
+
     float LimiterModule::nextReleaseEnvelope (float target) noexcept
     {
         if (! activeAutoRelease)
@@ -980,6 +1002,30 @@ namespace celadon
         // 持续响的段落它才会沉下去，并按最近的平均衰减自适应放慢释放，减少泵感。
         slowTarget = settle (target + (slowTarget - target) * slowTargetCoeff, target);
         envelopeSlow = followWithRelease (envelopeSlow, slowTarget, slowReleaseCoeff);
+
+        // 持续过载会把 deepReductionSamples 顶满并取消瞬态松开。短过载一结束，慢包络在半个窗口内不允许低于快包络，
+        // 鼓点后面的声音按快释放回来；慢包络仍留给真正持续的响段。
+        if (target < transientReturnGain)
+        {
+            deepReductionSamples = juce::jmin (deepReductionSamples + 1, transientMaxSamples + 1);
+
+            if (deepReductionSamples >= transientMaxSamples)
+                transientReleaseSamples = 0;
+        }
+        else
+        {
+            if (deepReductionSamples > 0 && deepReductionSamples < transientMaxSamples)
+                transientReleaseSamples = juce::jmax (transientReleaseSamples, transientMaxSamples / 2);
+
+            deepReductionSamples = 0;
+        }
+
+        if (transientReleaseSamples > 0)
+        {
+            --transientReleaseSamples;
+            envelopeSlow = juce::jmax (envelopeSlow, envelopeFast);
+            slowTarget = juce::jmax (slowTarget, (double) envelopeFast);
+        }
 
         lastEnvelope = juce::jmin (envelopeFast, envelopeSlow);
 

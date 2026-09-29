@@ -482,9 +482,55 @@ namespace celadon::test
             testAutomaticTameHarmonicReleaseAndIndependentPeak();
             testAutomaticTameManualAndSupport();
             testAutomaticTameBlockSizesAndAllocations();
+            testUpwardMaskingLiftsBuriedNeighbour();
         }
 
     private:
+        void testUpwardMaskingLiftsBuriedNeighbour()
+        {
+            beginTest ("upward masking lifts a buried higher neighbour only when Recover and Tame are both open");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr double seconds = 8.0;
+            constexpr int maskerBand = 11;     // 508 Hz
+            constexpr int buriedBand = 12;     // 640 Hz
+            const auto length = (int) (seconds * sampleRate);
+            auto input = makePinkNoise (numChannels, length, -28.0f, 4408);
+            const auto masker = makeSine (numChannels, sampleRate, 508.0, juce::Decibels::decibelsToGain (-8.0f), seconds);
+            const auto buried = makeSine (numChannels, sampleRate, 640.0, juce::Decibels::decibelsToGain (-18.0f), seconds);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                for (int i = 0; i < length; ++i)
+                {
+                    input[(size_t) ch][(size_t) i] += masker[(size_t) ch][(size_t) i];
+                    input[(size_t) ch][(size_t) i] += buried[(size_t) ch][(size_t) i];
+                }
+
+            const auto measure = [&] (float recover, float tame)
+            {
+                BalanceModule balance;
+                prepareBalance (balance, sampleRate, makeParams (recover, tame, 0.0f, Speed::mid));
+                std::vector<BandGains> frames;
+                const auto output = runBalance (balance, input, hopAt48k, &frames, (int) (6.5 * sampleRate));
+                expect (allFinite (output));
+                return std::pair<float, float> (meanGainOf (frames, maskerBand), meanGainOf (frames, buriedBand));
+            };
+
+            const auto both = measure (100.0f, 100.0f);
+            const auto tameOnly = measure (0.0f, 100.0f);
+            const auto recoverOnly = measure (100.0f, 0.0f);
+
+            logMessage ("  masker/buried gain, both " + juce::String (both.first, 2) + "/" + juce::String (both.second, 2)
+                        + " dB, tame only " + juce::String (tameOnly.first, 2) + "/" + juce::String (tameOnly.second, 2)
+                        + " dB, recover only " + juce::String (recoverOnly.first, 2) + "/" + juce::String (recoverOnly.second, 2) + " dB");
+
+            expect (both.first < -4.0f, "the louder lower tone is still tamed");
+            expect (both.second > tameOnly.second + 0.8f, "Recover gives the higher neighbour back level that Tame alone removes");
+            expect (both.second > both.first + 0.4f, "after unmasking, the higher neighbour sits above the masker");
+            expect (tameOnly.second <= both.second, "Tame alone does not out-lift the combined path");
+            expect (recoverOnly.first > both.first + 0.3f, "without Tame the masker is not the thing being cut");
+        }
+
         void testAutomaticTameSelectivity()
         {
             beginTest ("automatic Tame reduces sustained peaks but preserves short events in the same and other bands");

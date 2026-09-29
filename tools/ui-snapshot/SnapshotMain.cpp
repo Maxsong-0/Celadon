@@ -20,6 +20,10 @@
 #include "../../Source/PluginProcessor.h"
 #include "../../Source/ui/UiSettings.h"
 
+#if JUCE_MAC
+ #include <CoreFoundation/CoreFoundation.h>
+#endif
+
 #include <cmath>
 #include <iostream>
 
@@ -28,6 +32,15 @@ juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
 namespace
 {
+    void dispatchEvents (int milliseconds)
+    {
+       #if JUCE_MAC
+        CFRunLoopRunInMode (kCFRunLoopDefaultMode, (double) milliseconds / 1000.0, true);
+       #else
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (milliseconds);
+       #endif
+    }
+
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 512;
 
@@ -137,7 +150,7 @@ namespace
                 {
                     sinceFrame = 0;
                     editor->advanceForSnapshot (1600.0 / sampleRate);
-                    juce::MessageManager::getInstance()->runDispatchLoopUntil (1);
+                    dispatchEvents (1);
                 }
             }
         }
@@ -237,8 +250,11 @@ int main (int argc, char* argv[])
         session.play (3.0);
 
         const auto failures = runChecks (session, outDir, scale);
+        session.editor->setReleasePreviewEnabled (true);
         session.editor.reset();
-        return failures == 0 ? 0 : 1;
+        const auto closedSafely = ! session.processor->isReleasePreviewEnabled();
+        std::cout << (closedSafely ? "PASS" : "FAIL") << " editor close clears release preview" << std::endl;
+        return failures == 0 && closedSafely ? 0 : 1;
     }
 
     struct State
@@ -267,6 +283,24 @@ int main (int argc, char* argv[])
         { "en-help",     celadon::Language::english, none, [] (Session& s) { s.editor->showHelp (true); } },
         { "zh-advanced", celadon::Language::chinese, none, [] (Session& s) { s.editor->showAdvanced (true); } },
         { "en-advanced", celadon::Language::english, none, [] (Session& s) { s.editor->showAdvanced (true); } },
+        { "zh-target", celadon::Language::chinese, none, [] (Session& s)
+          {
+              s.editor->showAdvanced (true);
+              if (auto* tabs = dynamic_cast<celadon::ui::Segmented*> (findById (*s.editor, "adv_tabs")))
+                  tabs->setSelected (1, true);
+              s.processor->requestReferenceLearn();
+              s.play (0.1);
+          } },
+        { "en-release", celadon::Language::english, none, [] (Session& s)
+          {
+              s.editor->showAdvanced (true);
+              if (auto* tabs = dynamic_cast<celadon::ui::Segmented*> (findById (*s.editor, "adv_tabs")))
+                  tabs->setSelected (2, true);
+              s.editor->setReleasePreviewEnabled (true);
+              s.play (1.0);
+          } },
+        { "zh-preview", celadon::Language::chinese, none, [] (Session& s)
+          { s.editor->setReleasePreviewEnabled (true); s.play (1.0); } },
         { "zh-glaze90",  celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 90.0f); }, none },
         { "zh-glaze0",   celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 0.0f); }, none },
         { "zh-zoom70",   celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); } },
@@ -484,11 +518,172 @@ namespace
             check (! panel.isVisible(), "the close button hides the Advanced panel");
         }
 
+        // Advanced controls are exercised through the real widgets and Processor.
+        {
+            editor.showAdvanced (true);
+            auto& tabs = find ("adv_tabs");
+            click (tabs, { (float) tabs.getWidth() * 0.5f, 14.0f });
+            click (find ("adv_learn"), { 30.0f, 14.0f });
+            session.play (0.1);
+            check (session.processor->getMasteringStatus().referenceState == celadon::ReferenceState::waitingForSidechain,
+                   "reference learning waits for an actual sidechain");
+            click (find ("adv_cancel"), { 30.0f, 14.0f });
+            session.play (0.1);
+            check (session.processor->getMasteringStatus().referenceState == celadon::ReferenceState::idle,
+                   "reference learning can be cancelled");
+            click (tabs, { (float) tabs.getWidth() * 0.84f, 14.0f });
+            click (find ("adv_preview"), { 30.0f, 14.0f });
+            check (session.processor->isReleasePreviewEnabled(), "release preview widget enables monitoring");
+            editor.setListeningToOriginal (true);
+            check (! session.processor->isReleasePreviewEnabled() && session.processor->isComparingOriginal(),
+                   "original audition disables release preview");
+            editor.setReleasePreviewEnabled (true);
+            check (! session.processor->isComparingOriginal() && session.processor->isReleasePreviewEnabled(),
+                   "release preview restores processed audio");
+            editor.setAuditioningDifference (true);
+            check (! session.processor->isReleasePreviewEnabled() && session.processor->isAuditioningDifference(),
+                   "difference audition disables release preview");
+            editor.setReleasePreviewEnabled (true);
+            check (! session.processor->isAuditioningDifference(), "preview disables difference audition");
+            session.processor->setNonRealtime (true);
+            session.play (0.1);
+            check (! session.processor->isReleasePreviewEnabled(), "offline export disables release preview");
+            session.processor->setNonRealtime (false);
+            editor.setReleasePreviewEnabled (false);
+            editor.showAdvanced (false);
+        }
+
+        // Visible peak readouts retain their reset target after the panel height change.
+        for (const auto* id : { "input_meter", "output_meter" })
+        {
+            auto& meter = static_cast<celadon::ui::LevelMeterPanel&> (find (id));
+            const auto original = meter.onResetClicked;
+            bool clicked = false;
+            meter.onResetClicked = [&] { clicked = true; };
+            click (meter, { 20.0f, (float) meter.getHeight() - 20.0f });
+            meter.onResetClicked = original;
+            check (clicked, juce::String (id) + " visible readout resets peak hold");
+        }
+
+        // Run the no-reduction difference regression through the actual Apple Release library.
+        for (const auto rate : { 44100.0, 48000.0, 96000.0 })
+            for (const auto lookahead : { 1.0f, 2.0f, 10.0f })
+            {
+                celadon::LimiterModule limiter;
+                celadon::LimiterModule::Params params;
+                params.gainDb = 0.0f;
+                params.ceilingDb = -1.0f;
+                params.lookaheadMs = lookahead;
+                params.clip = 0.0f;
+                limiter.setParams (params);
+                limiter.prepare ({ rate, 512, 2 });
+                juce::AudioBuffer<float> input (2, 512), difference (2, 512);
+                float worst = 0.0f;
+                std::uint32_t noise = 42;
+                const auto total = (int) (rate * 0.6);
+                for (int start = 0; start < total; start += 512)
+                {
+                    params.gainDb = start < total / 3 ? 0.0f : start < total * 2 / 3 ? 6.0f : 2.0f;
+                    limiter.setParams (params);
+                    const auto count = juce::jmin (512, total - start);
+                    input.setSize (2, count, false, false, true);
+                    difference.setSize (2, count, false, false, true);
+                    for (int sample = 0; sample < count; ++sample)
+                    {
+                        noise = noise * 1664525u + 1013904223u;
+                        auto value = (float) ((double) (noise >> 8) / 8388608.0 - 1.0) * 0.05f;
+                        for (const auto frequency : { 60.0, 1000.0, 9000.0 })
+                            value += (float) (0.03 * std::sin (juce::MathConstants<double>::twoPi * frequency * (start + sample) / rate));
+                        input.setSample (0, sample, value);
+                        input.setSample (1, sample, -value);
+                    }
+                    limiter.process (input, &difference);
+                    for (int channel = 0; channel < 2; ++channel)
+                        for (int sample = 0; sample < count; ++sample)
+                            worst = juce::jmax (worst, std::abs (difference.getSample (channel, sample)));
+                }
+                check (worst == 0.0f && limiter.getAndResetGainReductionDb() == 0.0f,
+                       "Release difference stays exactly zero at " + juce::String (rate) + " Hz / " + juce::String (lookahead) + " ms");
+            }
+
+        // State migration is exercised on an already-used Processor, as in preset hot-swap.
+        {
+            auto legacy = session.processor->getParameters().copyState();
+            for (int i = legacy.getNumChildren(); --i >= 0;)
+                if (legacy.getChild (i).getProperty ("id").toString().startsWith ("master_"))
+                    legacy.removeChild (i, nullptr);
+            session.setParameter ("master_harsh_mode", 2.0f);
+            session.setParameter ("master_target_mode", 4.0f);
+            session.setParameter ("master_codec_margin_db", 1.0f);
+            session.setParameter ("master_dither", 1.0f);
+            juce::MemoryBlock legacyBytes;
+            juce::AudioProcessor::copyXmlToBinary (*legacy.createXml(), legacyBytes);
+            session.processor->setStateInformation (legacyBytes.getData(), (int) legacyBytes.getSize());
+            check (value ("master_harsh_mode") == 1.0f && value ("master_target_mode") == 0.0f
+                   && value ("master_codec_margin_db") == 0.0f && value ("master_dither") == 0.0f,
+                   "loading an old session neutralises all new processing in a used instance");
+        }
+
+        // The actual host bus layout: main and reference share a buffer but never mix.
+        {
+            CeladonAudioProcessor referenceProcessor, controlProcessor;
+            auto layout = referenceProcessor.getBusesLayout();
+            layout.inputBuses.set (1, juce::AudioChannelSet::stereo());
+            check (referenceProcessor.setBusesLayout (layout), "Processor accepts stereo reference sidechain");
+            for (auto* processor : { &referenceProcessor, &controlProcessor })
+            {
+                auto* amount = processor->getParameters().getParameter (celadon::param::glazeAmount);
+                amount->setValueNotifyingHost (amount->convertTo0to1 (0.0f));
+                processor->setRateAndBufferSizeDetails (sampleRate, blockSize);
+                processor->prepareToPlay (sampleRate, blockSize);
+            }
+            referenceProcessor.requestReferenceLearn();
+            juce::AudioBuffer<float> main (2, blockSize), withSidechain (4, blockSize);
+            juce::MidiBuffer midi;
+            Music mainMusic;
+            juce::AudioBuffer<float> referenceAudio (2, blockSize);
+            bool identical = true;
+            for (int block = 0; block < 1100; ++block)
+            {
+                mainMusic.render (main, blockSize);
+                for (int i = 0; i < blockSize; ++i)
+                {
+                    const auto t = (double) (block * blockSize + i) / sampleRate;
+                    referenceAudio.setSample (0, i, (float) (0.3 * std::sin (juce::MathConstants<double>::twoPi * 3700.0 * t)));
+                    referenceAudio.setSample (1, i, (float) (0.2 * std::cos (juce::MathConstants<double>::twoPi * 620.0 * t)));
+                }
+                if (block == 0)
+                    check (std::memcmp (main.getReadPointer (0), referenceAudio.getReadPointer (0),
+                                       (size_t) blockSize * sizeof (float)) != 0,
+                           "reference routing test uses audio distinct from the main input");
+                for (int channel = 0; channel < 2; ++channel)
+                {
+                    withSidechain.copyFrom (channel, 0, main, channel, 0, blockSize);
+                    withSidechain.copyFrom (channel + 2, 0, referenceAudio, channel, 0, blockSize);
+                }
+                referenceProcessor.processBlock (withSidechain, midi);
+                controlProcessor.processBlock (main, midi);
+                for (int channel = 0; channel < 2; ++channel)
+                    identical = identical && std::memcmp (main.getReadPointer (channel), withSidechain.getReadPointer (channel),
+                                                         (size_t) blockSize * sizeof (float)) == 0;
+            }
+            check (identical, "connected reference audio never leaks into main output at GLAZE 0");
+            const auto learned = referenceProcessor.getMasteringStatus();
+            check (learned.hasReference && learned.referenceState == celadon::ReferenceState::ready,
+                   "Processor learns a real sidechain through the host bus");
+            juce::MemoryBlock saved;
+            referenceProcessor.getStateInformation (saved);
+            controlProcessor.setStateInformation (saved.getData(), (int) saved.getSize());
+            check (controlProcessor.getMasteringStatus().hasReference, "Processor state restores learned reference");
+            controlProcessor.prepareToPlay (sampleRate, blockSize);
+            check (controlProcessor.getMasteringStatus().hasReference, "same-spec reprepare preserves learned reference");
+        }
+
         // ⑪ 语言：点 EN，用户设置变英文，界面在下一次消息循环里跟上。
         {
             auto& language = find ("language");
             click (language, { (float) language.getWidth() - 12.0f, 13.0f });
-            juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+            dispatchEvents (50);
             editor.advanceForSnapshot (0.05);
             juce::SharedResourcePointer<celadon::ui::UiSettings> settings;
             check (settings->getLanguage() == celadon::Language::english, "language selector -> English");

@@ -20,7 +20,7 @@
  #pragma fp_contract (off)
 #endif
 
-// ARM 上 Tone 搁架与 Glue 侧链高通两声道打包成 float64x2 一起算（v0.5 研究 P3 R4）。其他平台保留标量写法
+// ARM 上 Tone 搁架、Glue 侧链高通和分频两声道打包成 float64x2 一起算（v0.5 研究 P3 R4）。其他平台保留标量写法
 // （结果本来就与 v0.4 逐位相同）：标量 processBiquad 里 b0·x + s1 会不会被编译器合并成融合乘加取决于目标与编译选项，
 // 只有在 ARM 上能确定它是融合的（ColorTests「立体声 L = R 与单声道逐位相同」验证），打包写法才能照抄出逐位相同的结果。
 #if ! defined (CELADON_FORCE_SCALAR_SIMD) && defined (__ARM_NEON)
@@ -53,6 +53,15 @@ namespace celadon
         constexpr double glueAverageWindowMs      = 500.0;   // 「最近 500 ms 的平均压缩量」
         constexpr double glueDeepReductionDb      = 6.0;     // 平均压缩量到这么深时释放取上限：2:1 下 6 dB 已是重压（初版，试听后调）
         constexpr int    glueAdaptIntervalSamples = 32;      // 释放时间每 32 样本重算一次（同 Limit 慢段）
+        // 分频差：180 Hz 以下、5 kHz 以上若自己更轻，可以比联动增益最多高 3.2 dB。中频跟联动包络。
+        // 检测器仍先过 100 Hz 高通，次声不单独驱动任何一路。三路差为 0 时音频退回原来的单一增益。
+        constexpr double glueLowSplitHz           = 180.0;
+        constexpr double glueHighSplitHz          = 5000.0;
+        constexpr double glueLowAttackMs          = 36.0;
+        constexpr double glueHighAttackMs         = 8.0;
+        constexpr double glueBandDeltaBlend       = 0.50;
+        constexpr double glueBandDeltaMinDb       = -0.6;
+        constexpr double glueBandDeltaMaxDb       = 3.2;
         constexpr double glueSnapDb               = 1.0e-6;  // 压缩量低于 1e-6 dB（增益差 1.2e-7）直接归零
         constexpr double dbToNaturalLog           = 0.11512925464970229;   // ln(10) / 20：dB → exp 的指数
 
@@ -283,6 +292,23 @@ namespace celadon
         return c;
     }
 
+    ColorModule::BiquadCoefficients ColorModule::designLowpass (double fs, double frequency, double q)
+    {
+        // RBJ 二阶低通，与 designHighpass 互补的系数形式（同一 Q、同一归一）。
+        const auto w0    = juce::MathConstants<double>::twoPi * juce::jmin (frequency, 0.45 * fs) / fs;
+        const auto cosW0 = std::cos (w0);
+        const auto alpha = std::sin (w0) / (2.0 * q);
+        const auto a0    = 1.0 + alpha;
+
+        BiquadCoefficients c;
+        c.b0 = (1.0 - cosW0) * 0.5 / a0;
+        c.b1 = (1.0 - cosW0) / a0;
+        c.b2 = c.b0;
+        c.a1 = -2.0 * cosW0 / a0;
+        c.a2 = (1.0 - alpha) / a0;
+        return c;
+    }
+
     void ColorModule::configureTube (Saturator& saturator, float heat) noexcept
     {
         const auto h = heat / 100.0f;
@@ -358,9 +384,23 @@ namespace celadon
 
         // ---- Glue ----
         sidechainHighpass = designHighpass (sampleRate, glueSidechainHz, butterworthQ);
+        glueLowpass = designLowpass (sampleRate, glueLowSplitHz, butterworthQ);
+        glueHighpass = designHighpass (sampleRate, glueHighSplitHz, butterworthQ);
         sidechainStates.assign ((size_t) numChannels, BiquadState {});
+        bandDetectorLowStates.assign ((size_t) numChannels, BiquadState {});
+        bandDetectorHighStates.assign ((size_t) numChannels, BiquadState {});
+        audioLowStates.assign ((size_t) numChannels, BiquadState {});
+        audioHighStates.assign ((size_t) numChannels, BiquadState {});
         sidechainPeaks.assign ((size_t) maxBlockSize, 0.0);
+        glueHighpassed.assign ((size_t) numChannels * (size_t) maxBlockSize, 0.0);
+        glueLowPeaks.assign ((size_t) maxBlockSize, 0.0);
+        glueMidPeaks.assign ((size_t) maxBlockSize, 0.0);
+        glueHighPeaks.assign ((size_t) maxBlockSize, 0.0);
+        glueAudioLow.assign ((size_t) numChannels * (size_t) maxBlockSize, 0.0);
+        glueAudioHigh.assign ((size_t) numChannels * (size_t) maxBlockSize, 0.0);
         attackCoeff  = timeConstantCoeff (sampleRate, glueAttackMs);
+        lowBandAttackCoeff = timeConstantCoeff (sampleRate, glueLowAttackMs);
+        highBandAttackCoeff = timeConstantCoeff (sampleRate, glueHighAttackMs);
         averageCoeff = timeConstantCoeff (sampleRate / glueAdaptIntervalSamples, glueAverageWindowMs);
 
         // ---- Heat ----
@@ -463,6 +503,11 @@ namespace celadon
         for (auto& s : lowShelfStates)    s = BiquadState {};
         for (auto& s : highShelfStates)   s = BiquadState {};
         for (auto& s : sidechainStates)   s = BiquadState {};
+        for (auto& s : bandDetectorLowStates) s = BiquadState {};
+        for (auto& s : bandDetectorHighStates) s = BiquadState {};
+        for (auto& s : audioLowStates) s = BiquadState {};
+        for (auto& s : audioHighStates) s = BiquadState {};
+        lowReductionDb = midReductionDb = highReductionDb = 0.0;
         for (auto& s : dcBlockerStates)   s = 0.0;
         for (auto& s : heatHighpassStates) s = BiquadState {};
         std::fill (heatGuardLow.begin(), heatGuardLow.end(), 0.0);
@@ -571,8 +616,16 @@ namespace celadon
 
         gainReductionDb    = 0.0;
         averageReductionDb = 0.0;
+        lowReductionDb = midReductionDb = highReductionDb = 0.0;
         adaptCounter       = 0;
         releaseCoeff       = timeConstantCoeff (sampleRate, glueReleaseMinMs);
+
+        // 分频在完全关掉的整段里不推进。这里清掉，避免把关掉前的滤波器记忆套到下一段。
+        // 侧链高通不在此列：它一直在跑，重开时联动检测器里已经是连续历史。
+        for (auto& s : bandDetectorLowStates)  s = BiquadState {};
+        for (auto& s : bandDetectorHighStates) s = BiquadState {};
+        for (auto& s : audioLowStates)         s = BiquadState {};
+        for (auto& s : audioHighStates)        s = BiquadState {};
     }
 
     void ColorModule::updateToneCoefficients (float toneDb)
@@ -864,11 +917,15 @@ namespace celadon
     }
 
     //==============================================================================
-    void ColorModule::computeSidechainPeaks (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept
+    void ColorModule::computeSidechainPeaks (const float* const* channels, int startSample, int numSamples, int numChannelsToUse,
+                                             double* highpassedOrNull) noexcept
     {
         // 侧链：Tone 之后的信号经 100 Hz 高通，每样本左右取绝对值最大（联动，两声道同一增益）。
         // 高通一直在跑（Glue 关着也跑）：Glue 从 0 打开时侧链里已经是连续的历史。
         // 侧链只看 Glue 施加增益之前的输入，所以整块先算完峰值、再逐样本算增益，与逐样本交替算逐位相同。
+        // highpassedOrNull 非空时按 [声道 × maxBlockSize + 样本] 记下高通输出，分频检测器直接用这一份。
+        const auto stride = (size_t) maxBlockSize;
+
        #if CELADON_COLOR_NEON
         if (numChannelsToUse == 2)
         {
@@ -884,11 +941,19 @@ namespace celadon
             for (int i = 0; i < numSamples; ++i)
             {
                 const auto filtered = highpass.process (loadStereo (left[i], right[i]), s1, s2);
+                const auto leftSample  = vgetq_lane_f64 (filtered, 0);
+                const auto rightSample = vgetq_lane_f64 (filtered, 1);
 
                 // 与标量写法同一顺序：peak 从 0 起，先左后右取 jmax（NaN 不会进峰值，同 v0.4）。
-                auto peak = juce::jmax (0.0, std::abs (vgetq_lane_f64 (filtered, 0)));
-                peak = juce::jmax (peak, std::abs (vgetq_lane_f64 (filtered, 1)));
+                auto peak = juce::jmax (0.0, std::abs (leftSample));
+                peak = juce::jmax (peak, std::abs (rightSample));
                 sidechainPeaks[(size_t) i] = peak;
+
+                if (highpassedOrNull != nullptr)
+                {
+                    highpassedOrNull[(size_t) i] = leftSample;
+                    highpassedOrNull[stride + (size_t) i] = rightSample;
+                }
             }
 
             sidechainStates[0] = { vgetq_lane_f64 (s1, 0), vgetq_lane_f64 (s2, 0) };
@@ -906,6 +971,9 @@ namespace celadon
                     const auto filtered = processBiquad ((double) channels[ch][startSample + i],
                                                          sidechainHighpass, sidechainStates[(size_t) ch]);
                     peak = juce::jmax (peak, std::abs (filtered));
+
+                    if (highpassedOrNull != nullptr)
+                        highpassedOrNull[(size_t) ch * stride + (size_t) i] = filtered;
                 }
 
                 sidechainPeaks[(size_t) i] = peak;
@@ -920,17 +988,142 @@ namespace celadon
         }
     }
 
+    void ColorModule::analyseGlueBands (const float* const* channels, int startSample, int numSamples, int numChannelsToUse) noexcept
+    {
+        // 调用前本块的侧链高通已经写进 glueHighpassed。检测器直接用它，不再滤第二遍。
+        // 音频分裂仍吃原始样本。空闲跳过与照常处理只在 Glue 开着时走到这里，两边历史相同。
+        const auto stride = (size_t) maxBlockSize;
+        const auto* highpassed = glueHighpassed.data();
+
+       #if CELADON_COLOR_NEON
+        if (numChannelsToUse == 2)
+        {
+            StereoBiquad lowpass, highpass;
+            lowpass.set  (glueLowpass.b0,  glueLowpass.b1,  glueLowpass.b2,  glueLowpass.a1,  glueLowpass.a2);
+            highpass.set (glueHighpass.b0, glueHighpass.b1, glueHighpass.b2, glueHighpass.a1, glueHighpass.a2);
+
+            auto detLowS1  = packPair (bandDetectorLowStates[0].s1,  bandDetectorLowStates[1].s1);
+            auto detLowS2  = packPair (bandDetectorLowStates[0].s2,  bandDetectorLowStates[1].s2);
+            auto detHighS1 = packPair (bandDetectorHighStates[0].s1, bandDetectorHighStates[1].s1);
+            auto detHighS2 = packPair (bandDetectorHighStates[0].s2, bandDetectorHighStates[1].s2);
+            auto audLowS1  = packPair (audioLowStates[0].s1,  audioLowStates[1].s1);
+            auto audLowS2  = packPair (audioLowStates[0].s2,  audioLowStates[1].s2);
+            auto audHighS1 = packPair (audioHighStates[0].s1, audioHighStates[1].s1);
+            auto audHighS2 = packPair (audioHighStates[0].s2, audioHighStates[1].s2);
+
+            const auto* left  = channels[0] + startSample;
+            const auto* right = channels[1] + startSample;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto hp = packPair (highpassed[(size_t) i], highpassed[stride + (size_t) i]);
+                const auto x  = loadStereo (left[i], right[i]);
+                const auto detectedLow  = lowpass.process (hp, detLowS1, detLowS2);
+                const auto detectedHigh = highpass.process (hp, detHighS1, detHighS2);
+
+                const auto low0  = vgetq_lane_f64 (detectedLow, 0);
+                const auto low1  = vgetq_lane_f64 (detectedLow, 1);
+                const auto high0 = vgetq_lane_f64 (detectedHigh, 0);
+                const auto high1 = vgetq_lane_f64 (detectedHigh, 1);
+                const auto hp0   = vgetq_lane_f64 (hp, 0);
+                const auto hp1   = vgetq_lane_f64 (hp, 1);
+
+                // 与标量循环同一顺序：峰值从 0 起，先左后右。
+                auto lowPeak  = juce::jmax (0.0, std::abs (low0));
+                auto highPeak = juce::jmax (0.0, std::abs (high0));
+                auto midPeak  = juce::jmax (0.0, std::abs (hp0 - low0 - high0));
+                lowPeak  = juce::jmax (lowPeak,  std::abs (low1));
+                highPeak = juce::jmax (highPeak, std::abs (high1));
+                midPeak  = juce::jmax (midPeak,  std::abs (hp1 - low1 - high1));
+                glueLowPeaks[(size_t) i]  = lowPeak;
+                glueMidPeaks[(size_t) i]  = midPeak;
+                glueHighPeaks[(size_t) i] = highPeak;
+
+                const auto audioLow  = lowpass.process (x, audLowS1, audLowS2);
+                const auto audioHigh = highpass.process (x, audHighS1, audHighS2);
+                glueAudioLow[(size_t) i]          = vgetq_lane_f64 (audioLow, 0);
+                glueAudioLow[stride + (size_t) i] = vgetq_lane_f64 (audioLow, 1);
+                glueAudioHigh[(size_t) i]          = vgetq_lane_f64 (audioHigh, 0);
+                glueAudioHigh[stride + (size_t) i] = vgetq_lane_f64 (audioHigh, 1);
+            }
+
+            bandDetectorLowStates[0]  = { vgetq_lane_f64 (detLowS1, 0),  vgetq_lane_f64 (detLowS2, 0) };
+            bandDetectorLowStates[1]  = { vgetq_lane_f64 (detLowS1, 1),  vgetq_lane_f64 (detLowS2, 1) };
+            bandDetectorHighStates[0] = { vgetq_lane_f64 (detHighS1, 0), vgetq_lane_f64 (detHighS2, 0) };
+            bandDetectorHighStates[1] = { vgetq_lane_f64 (detHighS1, 1), vgetq_lane_f64 (detHighS2, 1) };
+            audioLowStates[0]  = { vgetq_lane_f64 (audLowS1, 0),  vgetq_lane_f64 (audLowS2, 0) };
+            audioLowStates[1]  = { vgetq_lane_f64 (audLowS1, 1),  vgetq_lane_f64 (audLowS2, 1) };
+            audioHighStates[0] = { vgetq_lane_f64 (audHighS1, 0), vgetq_lane_f64 (audHighS2, 0) };
+            audioHighStates[1] = { vgetq_lane_f64 (audHighS1, 1), vgetq_lane_f64 (audHighS2, 1) };
+        }
+        else
+       #endif
+        {
+            for (int i = 0; i < numSamples; ++i)
+            {
+                auto lowPeak = 0.0;
+                auto midPeak = 0.0;
+                auto highPeak = 0.0;
+
+                for (int ch = 0; ch < numChannelsToUse; ++ch)
+                {
+                    const auto channel = (size_t) ch;
+                    const auto hp = highpassed[channel * stride + (size_t) i];
+                    const auto x = (double) channels[ch][startSample + i];
+                    const auto detectedLow = processBiquad (hp, glueLowpass, bandDetectorLowStates[channel]);
+                    const auto detectedHigh = processBiquad (hp, glueHighpass, bandDetectorHighStates[channel]);
+                    const auto detectedMid = hp - detectedLow - detectedHigh;
+                    lowPeak = juce::jmax (lowPeak, std::abs (detectedLow));
+                    midPeak = juce::jmax (midPeak, std::abs (detectedMid));
+                    highPeak = juce::jmax (highPeak, std::abs (detectedHigh));
+
+                    glueAudioLow[channel * stride + (size_t) i] = processBiquad (x, glueLowpass, audioLowStates[channel]);
+                    glueAudioHigh[channel * stride + (size_t) i] = processBiquad (x, glueHighpass, audioHighStates[channel]);
+                }
+
+                glueLowPeaks[(size_t) i] = lowPeak;
+                glueMidPeaks[(size_t) i] = midPeak;
+                glueHighPeaks[(size_t) i] = highPeak;
+            }
+        }
+
+        auto snapStates = [] (std::vector<BiquadState>& states, int count)
+        {
+            for (int ch = 0; ch < count; ++ch)
+            {
+                snapToZero (states[(size_t) ch].s1);
+                snapToZero (states[(size_t) ch].s2);
+            }
+        };
+
+        snapStates (bandDetectorLowStates, numChannelsToUse);
+        snapStates (bandDetectorHighStates, numChannelsToUse);
+        snapStates (audioLowStates, numChannelsToUse);
+        snapStates (audioHighStates, numChannelsToUse);
+    }
+
     void ColorModule::processGlue (juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse)
     {
         auto* const* channels = io.getArrayOfWritePointers();
 
-        computeSidechainPeaks (channels, startSample, numSamples, numChannelsToUse);
+        // 完全关掉（开关淡出已走完）且 Glue 值不在平滑。这个判断不看空闲跳过开关：
+        // 跳过与照常处理必须在同一些样本上推进分频，重开后两边才逐位相同。
+        const bool splitIdle = ! glueOnSmoothed.isSmoothing()
+                            && glueOnSmoothed.getTargetValue() <= 0.0f
+                            && ! glueSmoothed.isSmoothing();
 
-        // 完全关掉（开关淡出已走完）且 Glue 值不在平滑：增益恒为精确的 1.0、表不报数；压缩量包络与释放自适应
-        // 只在这时被推进，而从完全关掉重开时 restartGlueFromOff 会把它们整体清零——所以跳过它们与照常推进逐位相同。
-        // 只有侧链高通必须一直跑（上面已跑）：重开时它的状态要是连续的历史。
-        if (idleSkippingEnabled && ! glueOnSmoothed.isSmoothing() && glueOnSmoothed.getTargetValue() <= 0.0f
-             && ! glueSmoothed.isSmoothing())
+        // 侧链高通始终推进。分频只在 Glue 还会作用到输出时跑：关掉后每样本少四次双二阶。
+        if (splitIdle)
+            computeSidechainPeaks (channels, startSample, numSamples, numChannelsToUse, nullptr);
+        else
+        {
+            computeSidechainPeaks (channels, startSample, numSamples, numChannelsToUse, glueHighpassed.data());
+            analyseGlueBands (channels, startSample, numSamples, numChannelsToUse);
+        }
+
+        // 增益恒为精确的 1.0、表不报数；压缩量包络与释放自适应只在这时被推进，
+        // 而从完全关掉重开时 restartGlueFromOff 会把它们整体清零——所以跳过它们与照常推进逐位相同。
+        if (idleSkippingEnabled && splitIdle)
         {
             lastIdleState.glue = true;
             return;
@@ -938,6 +1131,19 @@ namespace celadon
 
         lastIdleState.glue = false;
         double chunkMaxReductionDb = 0.0;
+        const auto stride = (size_t) maxBlockSize;
+
+        // 联动峰值与三路峰值共用这一条静态曲线。Glue = 0 时目标恒为 0。
+        const auto reductionTargetFor = [&] (double peak) noexcept
+        {
+            if (peak <= kneeStartLinear)
+                return 0.0;
+
+            const auto over = 20.0 * std::log10 (juce::jmin (peak, 1.0e30)) - thresholdDb;
+            return (2.0 * over >= glueKneeDb)
+                       ? over * glueSlope
+                       : glueSlope * juce::square (over + glueKneeDb * 0.5) / (2.0 * glueKneeDb);
+        };
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -950,27 +1156,53 @@ namespace celadon
             if (glue != glueForMapping)
                 updateGlueMapping (glue);
 
-            double target = 0.0;
-
-            if (glue > 0.0f && peak > kneeStartLinear)
-            {
-                // 峰值封顶在 1e30：输入是 Inf 时 log10 也是 Inf，包络会算出 Inf − Inf = NaN 并永远卡住。
-                const auto over = 20.0 * std::log10 (juce::jmin (peak, 1.0e30)) - thresholdDb;   // 高于阈值多少 dB（> −W/2）
-
-                // 2:1、6 dB 软拐点：拐点内按二次曲线过渡，拐点外压掉超出部分的 (1 − 1/比率)。
-                target = (2.0 * over >= glueKneeDb)
-                           ? over * glueSlope
-                           : glueSlope * juce::square (over + glueKneeDb * 0.5) / (2.0 * glueKneeDb);
-            }
+            const auto target = glue > 0.0f ? reductionTargetFor (peak) : 0.0;
 
             // 压缩量在 dB 域平滑：攻击 20 ms、释放按最近 500 ms 平均压缩量自适应。
             const auto reductionDb = nextGainReductionDb (target);
 
+            auto advanceBand = [&] (double current, double bandTarget, double bandAttack) noexcept
+            {
+                if (bandTarget > current)
+                    current = bandTarget + (current - bandTarget) * bandAttack;
+                else
+                    current = bandTarget + (current - bandTarget) * releaseCoeff;
+
+                if (current < glueSnapDb)
+                    current = 0.0;
+
+                return current;
+            };
+
+            const auto bandTarget = [&] (double bandPeak) noexcept
+            {
+                return glue > 0.0f ? reductionTargetFor (bandPeak) : 0.0;
+            };
+
+            lowReductionDb = advanceBand (lowReductionDb, bandTarget (glueLowPeaks[(size_t) i]), lowBandAttackCoeff);
+            midReductionDb = advanceBand (midReductionDb, bandTarget (glueMidPeaks[(size_t) i]), attackCoeff);
+            highReductionDb = advanceBand (highReductionDb, bandTarget (glueHighPeaks[(size_t) i]), highBandAttackCoeff);
+
             // 施加：(补偿 − 压缩量) × 开关淡化。关掉（glueOn 落到 0）时 gainDb 是精确的 ±0.0，
             // 不经过 exp，增益是精确的 1.0；打开时 20 ms 内从 1.0 过渡到压缩后的增益。
+            // 分频差只加在联动增益上。差为 0 时仍是原来的单增益乘法，避免分裂残差改掉逐位结果。
             const auto glueOn = (double) glueOnSmoothed.getNextValue();
             const auto gainDb = (makeupDb - reductionDb) * glueOn;
-            const auto gain = gainDb == 0.0 ? 1.0f : (float) std::exp (gainDb * dbToNaturalLog);
+            const auto deltaLow = juce::jlimit (glueBandDeltaMinDb, glueBandDeltaMaxDb,
+                                                (reductionDb - lowReductionDb) * glueBandDeltaBlend) * glueOn;
+            const auto deltaHigh = juce::jlimit (glueBandDeltaMinDb, glueBandDeltaMaxDb,
+                                                 (reductionDb - highReductionDb) * glueBandDeltaBlend) * glueOn;
+            const auto midDb = gainDb + juce::jlimit (glueBandDeltaMinDb, glueBandDeltaMaxDb,
+                                                      (reductionDb - midReductionDb) * glueBandDeltaBlend) * glueOn;
+            const auto useSplit = deltaLow != 0.0 || deltaHigh != 0.0 || midDb != gainDb;
+            const auto gain = gainDb == 0.0 && ! useSplit ? 1.0f : (float) std::exp (gainDb * dbToNaturalLog);
+            // delta 为 0 时指数与联动增益是同一个数，不再各算一遍 exp。
+            const auto lowGain = (! useSplit || deltaLow == 0.0) ? gain
+                                 : (float) std::exp ((gainDb + deltaLow) * dbToNaturalLog);
+            const auto highGain = (! useSplit || deltaHigh == 0.0) ? gain
+                                  : (float) std::exp ((gainDb + deltaHigh) * dbToNaturalLog);
+            const auto midGain = (! useSplit || midDb == gainDb) ? gain
+                                 : (float) std::exp (midDb * dbToNaturalLog);
 
             // 表只报真正作用到输出上的压缩量（开关淡化中按比例）。
             chunkMaxReductionDb = juce::jmax (chunkMaxReductionDb, reductionDb * glueOn);
@@ -979,7 +1211,20 @@ namespace celadon
             stats.glueReductionSumDb += reductionDb * glueOn;
 
             for (int ch = 0; ch < numChannelsToUse; ++ch)
-                channels[ch][startSample + i] *= gain;
+            {
+                auto& sample = channels[ch][startSample + i];
+
+                if (! useSplit)
+                {
+                    sample *= gain;
+                    continue;
+                }
+
+                const auto low = glueAudioLow[(size_t) ch * stride + (size_t) i];
+                const auto high = glueAudioHigh[(size_t) ch * stride + (size_t) i];
+                const auto mid = (double) sample - low - high;
+                sample = (float) ((double) midGain * mid + (double) lowGain * low + (double) highGain * high);
+            }
         }
 
         // 旁通时压缩并没有作用到输出上（输出是干路），表不报数（评审 R1-03）。

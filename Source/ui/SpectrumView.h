@@ -2,7 +2,7 @@
   ==============================================================================
 
     SpectrumView.h
-    上半部分正中的频谱仪面板（V4 设计稿 1032 × 260）与右上角的响度小窗。
+    上半部分正中的频谱仪面板（V4 设计稿 1032 × 238）与右上角的响度小窗。
 
       - 20 Hz ～ 20 kHz 对数横轴，−84 ～ −3 dB 纵轴；OUT 是插件最终输出（听原声时就是原声），填充用单色青的横向渐变、
         62 % 不透明、白色细竖纹、往下渐隐；白线 = 平均；深青细线 = 峰值保持；虚线 = IN（链入口）。三者都可开关；
@@ -72,7 +72,7 @@ namespace celadon::ui
         SpectrumView();
 
         static constexpr int width = 1032;
-        static constexpr int height = 260;
+        static constexpr int height = 238;
         static constexpr float topDb = -3.0f;
         static constexpr float bottomDb = -84.0f;
 

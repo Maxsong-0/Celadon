@@ -202,6 +202,18 @@ namespace celadon::param
 
         layout.add (makeBool (clayBypass, "Clay Bypass", false, kParamVersionClay));
 
+        layout.add (std::make_unique<juce::AudioParameterChoice> (makeId (masterHarshMode, kParamVersionMastering),
+                    "Harshness Mode", juce::StringArray { "Auto", "Off", "Manual" }, 0));
+        layout.add (makeFloat (masterHarshAmount, "Harshness Protection", { 0.0f, 100.0f, 0.1f }, 50.0f, integerAttributes ("%"), kParamVersionMastering));
+        layout.add (makeFloat (masterTransient, "Transient Preserve", { 0.0f, 100.0f, 0.1f }, 50.0f, integerAttributes ("%"), kParamVersionMastering));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (makeId (masterTargetMode, kParamVersionMastering),
+                    "Spectrum Target", juce::StringArray { "Off", "Auto", "Warm", "Neutral", "Bright", "Reference" }, 1));
+        layout.add (makeFloat (masterTargetAmount, "Spectrum Target Amount", { 0.0f, 100.0f, 0.1f }, 35.0f, integerAttributes ("%"), kParamVersionMastering));
+        layout.add (makeFloat (masterCodecMarginDb, "Codec Headroom Reserve", { 0.0f, 1.5f, 0.1f }, 0.0f, decibelAttributes(), kParamVersionMastering));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (makeId (masterDither, kParamVersionMastering),
+                    "Export Dither", juce::StringArray { "Off", "16 bit", "24 bit" }, 0));
+        layout.add (makeFloat (masterPreviewLufs, "Normalisation Preview Target", { -24.0f, -8.0f, 0.1f }, -14.0f,
+                    decibelAttributes().withLabel ("LUFS"), kParamVersionMastering));
         return layout;
     }
 }

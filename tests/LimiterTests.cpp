@@ -185,9 +185,57 @@ namespace celadon::test
             testLowFrequencyReleasePreservesTransientsAndManual();
             testLowFrequencyReleaseRejectsUnstablePeriods();
             testLowFrequencyReleaseBlockResetAndAllocation();
+            testShortOverloadDoesNotHoldTheSlowEnvelope();
         }
 
     private:
+        void testShortOverloadDoesNotHoldTheSlowEnvelope()
+        {
+            beginTest ("a short overload releases with the fast envelope; a sustained overload still holds");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr float quiet = 0.08f;
+            constexpr float hot = 0.95f;
+            const auto params = makeParams (8.0f, -1.0f, 2.0f, true, 0.0f);
+
+            const auto render = [&] (double hotSeconds)
+            {
+                constexpr double lead = 0.35;
+                constexpr double tail = 0.45;
+                const auto total = lead + hotSeconds + tail;
+                auto signal = makeSine (numChannels, sampleRate, 3000.0, quiet, total);
+                const auto hotStart = (int) (lead * sampleRate);
+                const auto hotEnd = hotStart + (int) (hotSeconds * sampleRate);
+
+                for (int i = hotStart; i < hotEnd; ++i)
+                    for (auto& channel : signal)
+                        channel[(size_t) i] = hot * (float) std::sin (juce::MathConstants<double>::twoPi * 3000.0 * i / sampleRate);
+
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, params);
+                const auto output = runLimiter (limiter, signal, 128);
+                const auto latency = limiter.getLatencySamples();
+                const auto measureAt = hotEnd + latency + (int) (0.045 * sampleRate);
+                const auto count = (int) (0.025 * sampleRate);
+                double energy = 0.0;
+
+                for (int i = 0; i < count; ++i)
+                    energy += juce::square ((double) output[0][(size_t) (measureAt + i)]);
+
+                return std::sqrt (energy / count);
+            };
+
+            const auto afterShort = render (0.012);
+            const auto afterLong = render (0.280);
+            logMessage ("  RMS 45 ms after short overload " + juce::String (toDb (afterShort), 2)
+                        + " dB, after sustained overload " + juce::String (toDb (afterLong), 2) + " dB");
+
+            expect (std::isfinite (afterShort) && std::isfinite (afterLong));
+            expect (afterShort > 1.0e-4, "the tail after a short overload must still be present");
+            expect (toDb (afterShort / juce::jmax (1.0e-12, afterLong)) >= 1.2f,
+                    "a sustained overload must keep ducking after the short overload has let go");
+        }
+
         // 试听差值 ①：限幅器什么都没削（输入 + Gain 仍低于内部阈值、Clip 0）时差值逐位为 0——包括 Gain 在 20 ms 平滑里变动：
         // 「加了 Gain 的输入」由干路 × 同样延迟过的逐样本 Gain 重建，与当初送进 Clip 级的样本逐位相同（LimiterModule.h 文件头）。
         void testDifferenceIsZeroWithoutReduction()

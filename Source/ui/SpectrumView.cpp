@@ -714,7 +714,7 @@ namespace celadon::ui
             g.setColour (palette::ink2);
 
             for (const auto& [frequency, label] : { std::pair<float, const char*> { 100.0f, "100Hz" }, { 1000.0f, "1kHz" }, { 10000.0f, "10kHz" } })
-                g.drawText (label, juce::Rectangle<float> (xOf (frequency) + 5.0f, 240.0f, 60.0f, 14.0f), juce::Justification::centredLeft, false);
+                g.drawText (label, juce::Rectangle<float> (xOf (frequency) + 5.0f, (float) height - 20.0f, 60.0f, 14.0f), juce::Justification::centredLeft, false);
 
             const auto dbFont = monoFont (10.0f);
 

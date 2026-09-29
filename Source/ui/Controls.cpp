@@ -347,24 +347,24 @@ namespace celadon::ui
 
     juce::Point<float> ParamKnob::getBubbleAnchor() const
     {
-        return { (float) width * 0.5f, 12.0f };   // 旋钮上沿再往上 4 px
+        return { (float) width * 0.5f, 18.0f };   // 旋钮上沿再往上约 4 px
     }
 
     juce::Rectangle<int> ParamKnob::getTextEntryArea() const
     {
-        return { 6, 64, width - 12, 20 };
+        return { 4, 78, width - 8, 22 };
     }
 
     void ParamKnob::paint (juce::Graphics& g)
     {
         const auto proportion = getProportion();
-        const juce::Point<float> centre ((float) width * 0.5f, 16.0f + 23.0f);
-        constexpr float arcRadius = 18.0f, arcWidth = 3.5f;
+        const juce::Point<float> centre ((float) width * 0.5f, 48.0f);
+        constexpr float arcRadius = 23.0f, arcWidth = 4.0f;
 
-        // 名字（11 px，ink2）
-        g.setFont (uiFont (11.0f));
+        // 更大的名字与旋钮在小比例窗口下仍可辨认。
+        g.setFont (uiFont (12.5f, Weight::medium));
         g.setColour (palette::ink2);
-        g.drawText (name, juce::Rectangle<float> (0.0f, 0.0f, (float) width, 14.0f), juce::Justification::centred, false);
+        g.drawText (name, juce::Rectangle<float> (0.0f, 0.0f, (float) width, 18.0f), juce::Justification::centred, false);
 
         // 轨道
         {
@@ -390,7 +390,7 @@ namespace celadon::ui
             g.strokePath (bridge, juce::PathStrokeType (arcWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
-        drawKnobCap (g, centre, 13.0f);
+        drawKnobCap (g, centre, 17.0f);
 
         if (hasEffective)
         {
@@ -401,25 +401,25 @@ namespace celadon::ui
             g.fillEllipse (juce::Rectangle<float> (5.6f, 5.6f).withCentre (dot));
         }
 
-        // 白色指针：r 5 → r 11
+        // 白色指针：r 6 → r 14
         {
             const auto angle = knob::angleFor (proportion);
             juce::Path pointer;
-            pointer.startNewSubPath (knob::pointAt (centre, 5.0f, angle));
-            pointer.lineTo (knob::pointAt (centre, 11.0f, angle));
+            pointer.startNewSubPath (knob::pointAt (centre, 6.0f, angle));
+            pointer.lineTo (knob::pointAt (centre, 14.0f, angle));
             g.setColour (juce::Colours::white);
             g.strokePath (pointer, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
         // 数值 + 紫色的自动加量（等宽字，居中）
-        const auto valueFont = monoFont (11.5f, Weight::medium);
-        const auto autoFont  = monoFont (10.5f);
+        const auto valueFont = monoFont (13.0f, Weight::medium);
+        const auto autoFont  = monoFont (12.0f);
         const auto valueText = getValueText (false);
         const auto autoText  = hasEffective ? autoAmountText() : juce::String();
         const auto valueWidth = textWidth (valueFont, valueText);
         const auto autoWidth  = autoText.isEmpty() ? 0.0f : textWidth (autoFont, autoText) + 4.0f;
         auto x = ((float) width - valueWidth - autoWidth) * 0.5f;
-        const juce::Rectangle<float> row (0.0f, 64.0f, (float) width, 20.0f);
+        const juce::Rectangle<float> row (0.0f, 78.0f, (float) width, 22.0f);
 
         g.setFont (valueFont);
         g.setColour (palette::ink);
@@ -470,7 +470,7 @@ namespace celadon::ui
     ParamSlider::ParamSlider (juce::RangedAudioParameter& p, InteractionHost& h, bool isBipolar)
         : ParameterControl (p, h), bipolar (isBipolar)
     {
-        setSize (246, 18);
+        setSize (246, 24);
     }
 
     void ParamSlider::setLabel (const juce::String& newName)
@@ -479,6 +479,12 @@ namespace celadon::ui
             return;
 
         name = newName;
+        repaint();
+    }
+
+    void ParamSlider::setValueWidth (int pixels)
+    {
+        valueAreaWidth = juce::jmax (valueWidth, pixels);
         repaint();
     }
 
@@ -500,7 +506,7 @@ namespace celadon::ui
     juce::Rectangle<float> ParamSlider::getTrackArea() const
     {
         const auto left = (float) (nameWidth + gap);
-        const auto right = (float) getWidth() - (float) (valueWidth + gap) - (float) trailingSpace;
+        const auto right = (float) getWidth() - (float) (valueAreaWidth + gap) - (float) trailingSpace;
         return { left, 0.0f, juce::jmax (10.0f, right - left), (float) getHeight() };
     }
 
@@ -519,7 +525,7 @@ namespace celadon::ui
     juce::Rectangle<int> ParamSlider::getTextEntryArea() const
     {
         const auto track = getTrackArea();
-        return { (int) track.getRight() + gap, 0, valueWidth, getHeight() };
+        return { (int) track.getRight() + gap, 0, valueAreaWidth, getHeight() };
     }
 
     void ParamSlider::paint (juce::Graphics& g)
@@ -528,13 +534,13 @@ namespace celadon::ui
         const auto track = getTrackArea();
         const auto alpha = dimmed ? 0.45f : 1.0f;
 
-        // 名字（等宽 10.5 px，ink3）
-        g.setFont (monoFont (10.5f));
+        // 名字与数值分列，轨道垂直居中，24 px 高的整行均可操作。
+        g.setFont (uiFont (12.0f));
         g.setColour (palette::ink3);
         g.drawText (name, juce::Rectangle<float> (0.0f, 0.0f, (float) nameWidth, (float) getHeight()), juce::Justification::centredLeft, true);
 
         // 轨道（4 px）+ 填充（浅青 → 按深度加深）
-        const auto bar = juce::Rectangle<float> (track.getX(), 7.0f, track.getWidth(), 4.0f);
+        const auto bar = juce::Rectangle<float> (track.getX(), track.getCentreY() - 2.0f, track.getWidth(), 4.0f);
         g.setColour (palette::track.withMultipliedAlpha (alpha));
         g.fillRoundedRectangle (bar, 2.0f);
 
@@ -557,17 +563,17 @@ namespace celadon::ui
             g.fillRoundedRectangle (fill, 2.0f);
         }
 
-        // 滑块：12 px 白圆 + 2 px 青色描边
-        const auto thumb = juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ bar.getX() + bar.getWidth() * proportion, bar.getCentreY() });
+        // 滑块：14 px 白圆 + 2 px 青色描边
+        const auto thumb = juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ bar.getX() + bar.getWidth() * proportion, bar.getCentreY() });
         g.setColour (juce::Colours::white.withMultipliedAlpha (alpha));
         g.fillEllipse (thumb);
         g.setColour (cyanAt (0.3f + 0.7f * depth).withMultipliedAlpha (alpha));
         g.drawEllipse (thumb.reduced (1.0f), 2.0f);
 
-        // 数值（等宽 11 px，右对齐）
-        g.setFont (monoFont (11.0f));
+        // 数值（等宽 12 px，右对齐）
+        g.setFont (monoFont (12.0f));
         g.setColour (palette::ink.withMultipliedAlpha (dimmed ? 0.6f : 1.0f));
-        g.drawText (getValueText (true), juce::Rectangle<float> (track.getRight() + (float) gap, 0.0f, (float) valueWidth, (float) getHeight()),
+        g.drawText (getValueText (true), juce::Rectangle<float> (track.getRight() + (float) gap, 0.0f, (float) valueAreaWidth, (float) getHeight()),
                     juce::Justification::centredRight, false);
     }
 
@@ -655,7 +661,7 @@ namespace celadon::ui
     {
         const auto text = adjustable ? getValueText (true) : displayText;
         const auto colour = adjustable ? palette::ink : displayColour;
-        const auto font = monoFont (11.0f);
+        const auto font = monoFont (12.5f, Weight::medium);
 
         g.setFont (font);
         g.setColour (colour);
@@ -972,7 +978,7 @@ namespace celadon::ui
                           }
                       })
     {
-        setSize (22, 22);
+        setSize (28, 28);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         attachment.sendInitialUpdate();
     }
@@ -985,9 +991,9 @@ namespace celadon::ui
         g.setColour (on ? (hover ? palette::c700 : palette::c600) : (hover ? palette::divider : palette::track));
         g.fillEllipse (bounds);
 
-        // 电源符号：开口圆弧 + 竖线（设计稿 M3 2.4 A3.6 3.6 0 1 0 7 2.4 M5 1 v4，10 × 10 视图里 11 px 大）
-        const auto scale = 11.0f / 10.0f;
-        const auto origin = bounds.getCentre() - juce::Point<float> (5.5f, 5.5f);
+        // 电源符号：开口圆弧 + 竖线（设计稿 M3 2.4 A3.6 3.6 0 1 0 7 2.4 M5 1 v4，10 × 10 视图里 14 px 大）
+        const auto scale = 14.0f / 10.0f;
+        const auto origin = bounds.getCentre() - juce::Point<float> (7.0f, 7.0f);
         juce::Path icon;
         icon.addCentredArc (origin.x + 5.0f * scale, origin.y + 5.5f * scale, 3.6f * scale, 3.6f * scale, 0.0f,
                             juce::degreesToRadians (34.0f), juce::degreesToRadians (326.0f), true);
@@ -1006,7 +1012,7 @@ namespace celadon::ui
     //==============================================================================
     HeadphoneButton::HeadphoneButton()
     {
-        setSize (22, 22);
+        setSize (28, 28);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
@@ -1044,9 +1050,9 @@ namespace celadon::ui
             g.drawEllipse (bounds, 1.0f);
         }
 
-        // 耳机（设计稿 10 × 10 视图画成 11 px）：头梁 M1.5 6.5 V5 a3.5 3.5 0 0 1 7 0 V6.5，两只耳罩 2 × 3、圆角 0.8。
-        constexpr float scale = 11.0f / 10.0f;
-        const auto origin = getLocalBounds().toFloat().getCentre() - juce::Point<float> (5.5f, 5.5f);
+        // 耳机（10 × 10 视图画成 14 px）：头梁 M1.5 6.5 V5 a3.5 3.5 0 0 1 7 0 V6.5，两只耳罩 2 × 3、圆角 0.8。
+        constexpr float scale = 14.0f / 10.0f;
+        const auto origin = getLocalBounds().toFloat().getCentre() - juce::Point<float> (7.0f, 7.0f);
         const auto at = [origin] (float x, float y) { return origin + juce::Point<float> (x * scale, y * scale); };
 
         juce::Path band;
@@ -1086,7 +1092,7 @@ namespace celadon::ui
 
     int ChipToggle::getNaturalWidth() const
     {
-        return (int) std::ceil (textWidth (withLetterSpacing (uiFont (10.5f, Weight::semibold), 0.3f), text) + 12.0f);
+        return (int) std::ceil (textWidth (withLetterSpacing (uiFont (11.5f, Weight::semibold), 0.3f), text) + 14.0f);
     }
 
     void ChipToggle::paint (juce::Graphics& g)
@@ -1098,7 +1104,7 @@ namespace celadon::ui
         g.setColour (on ? palette::violetBorder : palette::controlBorder);
         g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
 
-        g.setFont (withLetterSpacing (uiFont (10.5f, Weight::semibold), 0.3f));
+        g.setFont (withLetterSpacing (uiFont (11.5f, Weight::semibold), 0.3f));
         g.setColour (on ? palette::violet : palette::ink3);
         g.drawText (text, getLocalBounds().toFloat(), juce::Justification::centred, false);
     }
@@ -1113,7 +1119,7 @@ namespace celadon::ui
     ReductionRow::ReductionRow (float fullScaleDb)
         : fullScale (juce::jmax (0.1f, fullScaleDb))
     {
-        setSize (246, 18);
+        setSize (246, 24);
         shownText = "0.0 dB";
     }
 
@@ -1149,11 +1155,11 @@ namespace celadon::ui
         const auto left = (float) (ParamSlider::nameWidth + ParamSlider::gap);
         const auto right = (float) getWidth() - (float) (ParamSlider::valueWidth + ParamSlider::gap);
 
-        g.setFont (monoFont (10.5f));
+        g.setFont (uiFont (12.0f));
         g.setColour (palette::ink3);
         g.drawText (name, juce::Rectangle<float> (0.0f, 0.0f, (float) ParamSlider::nameWidth, h), juce::Justification::centredLeft, true);
 
-        const auto bar = juce::Rectangle<float> (left, 7.0f, right - left, 4.0f);
+        const auto bar = juce::Rectangle<float> (left, h * 0.5f - 2.0f, right - left, 4.0f);
         g.setColour (palette::track);
         g.fillRoundedRectangle (bar, 2.0f);
 
@@ -1166,7 +1172,7 @@ namespace celadon::ui
             g.fillRoundedRectangle (fill, 2.0f);
         }
 
-        g.setFont (monoFont (11.0f));
+        g.setFont (monoFont (12.0f));
         g.setColour (shownWarning ? palette::warningText : palette::c800);
         g.drawText (shownText, juce::Rectangle<float> (right + (float) ParamSlider::gap, 0.0f, (float) ParamSlider::valueWidth, h),
                     juce::Justification::centredRight, false);

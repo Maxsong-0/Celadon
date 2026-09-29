@@ -49,6 +49,8 @@
 #include "GlazeController.h"
 #include "LimiterModule.h"
 #include "LoudnessMeter.h"
+#include "ReferenceSpectrum.h"
+#include "ReleaseSafety.h"
 
 #include <array>
 #include <atomic>
@@ -142,6 +144,16 @@ namespace celadon
         std::unique_ptr<juce::XmlElement> createGlazeStateXml() const    { return controller.createStateXml(); }
         void restoreGlazeStateXml (const juce::XmlElement* xml)          { controller.restoreStateXml (xml); }
 
+        void processReference (const juce::AudioBuffer<float>& input, bool connected) noexcept { reference.process (input, connected); }
+        void requestReferenceLearn() noexcept { reference.requestLearn(); }
+        void cancelReferenceLearn() noexcept { reference.cancelLearn(); }
+        void clearReference() noexcept { reference.clear(); }
+        std::unique_ptr<juce::XmlElement> createReferenceStateXml() const { return reference.createStateXml(); }
+        void restoreReferenceStateXml (const juce::XmlElement* xml) { reference.restoreStateXml (xml); }
+        void setReleasePreviewEnabled (bool enabled) noexcept { previewRequested.store (enabled, std::memory_order_relaxed); }
+        bool isReleasePreviewEnabled() const noexcept { return previewRequested.load (std::memory_order_relaxed); }
+        MasteringStatus getMasteringStatus() const noexcept;
+
         // ---- 只给测试用 ----
         glaze::GlazeController& getGlazeController() noexcept              { return controller; }
         const glaze::GlazeController& getGlazeController() const noexcept  { return controller; }
@@ -170,6 +182,13 @@ namespace celadon
 
         LoudnessMeter inputMeter, outputMeter;
         glaze::GlazeController controller;
+        ReferenceSpectrum reference;
+        ReleaseSafety releaseSafety;
+        std::atomic<bool> previewRequested { false };
+        std::atomic<float> publishedPreviewGain { 0.0f }, publishedCodecMargin { 0.0f };
+        std::atomic<int> publishedDither { 0 };
+        bool offline = false, releaseAllowed = true, previewActive = false;
+
 
         Params effective;
         Params manual;

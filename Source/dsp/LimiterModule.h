@@ -24,6 +24,10 @@
     Auto 释放保留快/慢双包络，另在低频持续、连续周期一致时给快释放设置周期下限，减少低音调制高频。
     观察器只在1×控制路运行，不增加音频延迟；孤立衰减鼓击不满足持续门，手动Release不受影响。
 
+    攻击整形仍在原来的前瞻长度内走完，所以峰值那一刻的增益与原来的矩形滑动平均同时到位；
+    矩形平均换成两级串联（三角窗），拐角连续，稳态增益不变。短于约 70 ms 的过载结束后，慢包络跟着快包络松开，
+    不把鼓点后面的声音按住；持续过载仍由慢包络压住泵感。手动 Release 不走这条瞬态分支。
+
     试听差值（v0.1.8.0，界面 LIMIT 卡片的耳机）：process 可顺带写出「本级削掉的部分」——
       差值 = (加了 Gain 的输入 − 本级湿路输出) ÷ Gain，按推响前的电平（Gain、Clip、限幅、硬钳位一起算）。
       「加了 Gain 的输入」由等长干路（旁通用的那条，= 输入延迟整个本级延迟）乘同样延迟过的逐样本 Gain 重建，
@@ -168,6 +172,7 @@ namespace celadon
         void observeLowFrequency (const float* const* channels, int index, int channelsToUse) noexcept;
         void updateLowFrequencyRelease() noexcept;
         void resetLowFrequencyRelease() noexcept;
+        void configureAttackShape() noexcept;
 
         void applyLookaheadChange();
         void resetLimiterState();
@@ -208,6 +213,7 @@ namespace celadon
         juce::AudioBuffer<float> detectorPeaks;       // [声道][maxBlockSize]：本段每个样本的真峰值
         SlidingMinimum requiredGainHold;
         MovingAverage attackRamp;
+        MovingAverage attackShape;   // 第二级滑动平均：与 attackRamp 串联后总建立时间仍等于 Lookahead
         std::vector<DelayLine> coreDelays;
         DelayLine ceilingDelay;
         int lookaheadSamples = 1;
@@ -236,6 +242,9 @@ namespace celadon
         double lowEnergyFast = 0.0, lowEnergySlow = 0.0, fullEnergyFast = 0.0;
         double lowPeriodSamples = 0.0, lowFrequencyReleaseMs = 30.0;
         int lowStableSamples = 0;
+        int deepReductionSamples = 0;
+        int transientReleaseSamples = 0;
+        int transientMaxSamples = 1;
 
         // 旁通
         std::vector<DelayLine> bypassDryDelays;

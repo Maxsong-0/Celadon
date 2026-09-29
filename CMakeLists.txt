@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 
-project(Celadon VERSION 0.1.8.0 LANGUAGES C CXX)
+project(Celadon VERSION 0.1.9.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -98,6 +98,8 @@ endif()
 
 # ---- 被测代码 + 测试 ----
 set(CELADON_DSP_SOURCES
+    Source/dsp/ReferenceSpectrum.cpp
+    Source/dsp/ReleaseSafety.cpp
     Source/dsp/BalanceModule.cpp
     Source/dsp/CeladonChain.cpp
     Source/dsp/ClayGuard.cpp
@@ -117,7 +119,7 @@ set(CELADON_DSP_SOURCES
     Source/dsp/Saturator.cpp
     Source/dsp/TruePeak.cpp)
 
-# 界面里只依赖 juce_core / juce_dsp 的文件：提示文案（测试检查覆盖所有参数）、GLAZE 状态行、界面语言表与频谱仪计算（v0.1.8.0）。
+# 界面里只依赖 juce_core / juce_dsp 的文件：提示文案（测试检查覆盖所有参数）、GLAZE 状态行、界面语言表与频谱仪计算（v0.1.9.0）。
 set(CELADON_HEADLESS_UI_SOURCES
     Source/ui/GlazeStatusText.cpp
     Source/ui/HelpText.cpp
@@ -127,6 +129,7 @@ set(CELADON_HEADLESS_UI_SOURCES
 add_executable(celadon_tests
     ${CELADON_DSP_SOURCES}
     ${CELADON_HEADLESS_UI_SOURCES}
+    tests/AdvancedMasteringTests.cpp
     tests/TestMain.cpp
     tests/LimiterTests.cpp
     tests/DspPartsTests.cpp
@@ -174,7 +177,7 @@ if(MSVC)
     target_link_options(celadon_render PRIVATE /STACK:16777216)
 endif()
 
-# ---- 界面截图工具（v0.1.8.0 界面改版；Linux 与 Windows，EXCLUDE_FROM_ALL）----
+# ---- 界面截图工具（v0.1.8.0 界面改版起；Linux 与 Windows，EXCLUDE_FROM_ALL）----
 # 把整个插件（处理器 + 编辑器）连同 JUCE 的界面模块编进一个命令行程序：喂合成的音乐、跑消息循环、把编辑器按几种状态
 #（中 / 英、A / B、警告、设置面板、不同缩放）离屏渲染成 PNG，用来对照 V4 设计稿。Mac 上照旧用 Xcode 看真插件。
 # Linux 依赖 freetype2 / fontconfig / X11 的开发包（JUCE 界面模块在 Linux 上的要求）；DISPLAY 可以没有（xvfb-run 更稳）。
@@ -267,7 +270,7 @@ if(CELADON_CAN_BUILD_GUI)
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
-namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char* const versionString = \"0.1.8.0\"; const int versionNumber = 0x10800; }
+namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char* const versionString = \"0.1.9.0\"; const int versionNumber = 0x10900; }
 ")
 
     file(GLOB CELADON_UI_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/*.cpp)

@@ -19,7 +19,7 @@ namespace celadon::ui
 {
     namespace
     {
-        constexpr int padX = 14, headerTop = 12, headerHeight = 22;
+        constexpr int padX = 14, headerTop = 10, headerHeight = 32;
         constexpr float bypassedAlpha = 0.35f;
 
         juce::RangedAudioParameter& parameterFor (juce::AudioProcessorValueTreeState& state, const char* id)
@@ -81,10 +81,10 @@ namespace celadon::ui
 
     void ModuleCard::resized()
     {
-        power.setTopLeftPosition (width - padX - 22, headerTop);
+        power.setBounds (width - padX - 28, headerTop, 28, 28);
 
         if (headerAccessory != nullptr)
-            headerAccessory->setBounds (power.getX() - 7 - 22, headerTop, 22, 22);   // 设计稿卡片头 gap 7
+            headerAccessory->setBounds (power.getX() - 8 - 28, headerTop, 28, 28);
 
         layoutContent();
         updateBypassLook();
@@ -103,39 +103,42 @@ namespace celadon::ui
         g.setColour (palette::panelBorder);
         g.drawRoundedRectangle (bounds.reduced (0.5f), 13.5f, 1.0f);
 
-        // 卡片头：序号 · 名字 · 说明 ……（右）备注
-        const juce::Rectangle<float> header ((float) padX, (float) headerTop, (float) (width - 2 * padX), (float) headerHeight);
-        auto x = header.getX();
-
-        const auto numberFont = monoFont (11.0f);
+        // 名称与说明分两行，给 28 px 电源／耳机键留出独立空间，长英文说明不会压到按钮。
+        const auto top = (float) headerTop;
+        const auto numberFont = monoFont (12.0f);
         g.setFont (numberFont);
         g.setColour (palette::c600);
-        g.drawText (number, juce::Rectangle<float> (x, header.getY(), 30.0f, header.getHeight()), juce::Justification::centredLeft, false);
-        x += textWidth (numberFont, number) + 7.0f;
+        g.drawText (number, juce::Rectangle<float> ((float) padX, top, 26.0f, 18.0f),
+                    juce::Justification::centredLeft, false);
 
-        const auto titleFont = withLetterSpacing (uiFont (13.0f, Weight::semibold), 2.0f);
-        g.setFont (titleFont);
+        const auto titleX = (float) padX + textWidth (numberFont, number) + 8.0f;
+        const auto rightEdge = headerRightEdge() - 7.0f;
+        g.setFont (withLetterSpacing (uiFont (13.5f, Weight::semibold), 1.5f));
         g.setColour (palette::ink);
-        g.drawText (title, juce::Rectangle<float> (x, header.getY(), 120.0f, header.getHeight()), juce::Justification::centredLeft, false);
-        x += textWidth (titleFont, title) + 7.0f;
+        g.drawText (title, juce::Rectangle<float> (titleX, top, rightEdge - titleX, 18.0f),
+                    juce::Justification::centredLeft, false);
 
+        const auto note = getNote();
+        const auto noteFont = monoFont (11.0f);
+        const auto noteWidth = note.isEmpty() ? 0.0f : textWidth (noteFont, note) + 10.0f;
+        const auto subtitleY = top + 18.0f;
         g.setFont (uiFont (11.5f));
         g.setColour (palette::ink3);
-        const auto rightEdge = headerRightEdge();
-        g.drawText (getDescription(), juce::Rectangle<float> (x, header.getY(), rightEdge - x - 6.0f, header.getHeight()),
+        g.drawText (getDescription(), juce::Rectangle<float> (titleX, subtitleY,
+                                                            juce::jmax (0.0f, rightEdge - titleX - noteWidth), 14.0f),
                     juce::Justification::centredLeft, true);
 
-        if (const auto note = getNote(); note.isNotEmpty())
+        if (note.isNotEmpty())
         {
-            g.setFont (monoFont (10.5f));
-            g.drawText (note, juce::Rectangle<float> (rightEdge - 90.0f, header.getY(), 83.0f, header.getHeight()),
+            g.setFont (noteFont);
+            g.drawText (note, juce::Rectangle<float> (rightEdge - noteWidth, subtitleY, noteWidth, 14.0f),
                         juce::Justification::centredRight, false);
         }
     }
 
     //==============================================================================
     ClayCard::ClayCard (juce::AudioProcessorValueTreeState& s, InteractionHost& h)
-        : ModuleCard (s, param::clayBypass, h, "01", "CLAY")
+        : ModuleCard (s, param::clayBypass, h, "02", "CLAY")
     {
         const std::array<std::pair<const char*, const char*>, 3> ids { { { param::clayLowCutMode, param::clayLowCutHz },
                                                                          { param::clayMonoMode,   param::clayMonoHz },
@@ -152,6 +155,7 @@ namespace celadon::ui
             row.modes = std::make_unique<Segmented> (Segmented::Look::groove);
             row.modes->setComponentID (row.modeId);
             row.modes->setOptions ({ "", "", "" });
+            row.modes->setFont (uiFont (11.5f, Weight::medium));
             row.modes->setSelectedColours (0, { palette::violetSoft, palette::violet });
             addContent (*row.modes);
             row.modesAttachment = std::make_unique<SegmentedAttachment> (*row.modes, parameterFor (state, row.modeId));
@@ -230,12 +234,12 @@ namespace celadon::ui
 
     juce::Rectangle<float> ClayCard::rowBounds (int index) const
     {
-        return { (float) padX, 42.0f + 34.0f * (float) index, 246.0f, 30.0f };
+        return { (float) padX, 46.0f + 47.0f * (float) index, 246.0f, 42.0f };
     }
 
     juce::Rectangle<float> ClayCard::stripBounds() const
     {
-        return { (float) padX, 144.0f, 246.0f, 20.0f };
+        return { (float) padX, 204.0f, 246.0f, 20.0f };
     }
 
     void ClayCard::layoutContent()
@@ -243,8 +247,8 @@ namespace celadon::ui
         for (size_t i = 0; i < rows.size(); ++i)
         {
             const auto area = rowBounds ((int) i);
-            rows[i].modes->setBounds (juce::Rectangle<int> ((int) area.getRight() - 132, (int) area.getY() + 3, 132, 24));
-            rows[i].value->setBounds (juce::Rectangle<int> ((int) area.getX() + 15, (int) area.getY() + 15, 96, 14));
+            rows[i].modes->setBounds (juce::Rectangle<int> ((int) area.getRight() - 132, (int) area.getY() + 6, 132, 30));
+            rows[i].value->setBounds (juce::Rectangle<int> ((int) area.getX() + 15, (int) area.getY() + 17, 96, 24));
         }
     }
 
@@ -289,9 +293,9 @@ namespace celadon::ui
             g.setColour (ring.withMultipliedAlpha (alpha));
             g.drawEllipse (dot.reduced (0.75f), 1.5f);
 
-            g.setFont (uiFont (11.5f));
+            g.setFont (uiFont (12.5f));
             g.setColour (palette::ink.withMultipliedAlpha (alpha));
-            g.drawText (tr (names[i], language), juce::Rectangle<float> (area.getX() + 15.0f, area.getY() + 1.0f, 96.0f, 14.0f),
+            g.drawText (tr (names[i], language), juce::Rectangle<float> (area.getX() + 15.0f, area.getY(), 96.0f, 17.0f),
                         juce::Justification::centredLeft, false);
         }
 
@@ -346,7 +350,7 @@ namespace celadon::ui
                 g.fillRect (mono - 0.6f, strip.getY() + 1.0f, 1.2f, 18.0f);
 
             // 标签：低切频率、收单频率、右边「立体声」（加宽时接加宽量）。
-            g.setFont (monoFont (10.0f));
+            g.setFont (monoFont (11.0f));
             g.setColour (palette::ink3.withMultipliedAlpha (alpha));
             const auto labelY = strip.getBottom();
 
@@ -394,13 +398,14 @@ namespace celadon::ui
 
     //==============================================================================
     BalanceCard::BalanceCard (juce::AudioProcessorValueTreeState& s, InteractionHost& h)
-        : KnobCard (s, param::balanceBypass, h, "02", "BALANCE")
+        : KnobCard (s, param::balanceBypass, h, "01", "BALANCE")
     {
         addKnob (param::balanceRecover, { false, 0 });
         addKnob (param::balanceTame, { false, 0 });
         addKnob (param::balanceBrighten, { true, 0 });
 
         speed.setOptions ({ "", "", "" });
+        speed.setFont (uiFont (12.0f, Weight::medium));
         speed.setComponentID (param::balanceSpeed);
         addContent (speed);
         speedAttachment = std::make_unique<SegmentedAttachment> (speed, parameterFor (state, param::balanceSpeed));
@@ -458,8 +463,8 @@ namespace celadon::ui
 
     void BalanceCard::layoutContent()
     {
-        layoutKnobs (76);
-        speed.setBounds (padX + ParamSlider::nameWidth + ParamSlider::gap, 168, 246 - ParamSlider::nameWidth - ParamSlider::gap, 22);
+        layoutKnobs (90);
+        speed.setBounds (padX + ParamSlider::nameWidth + ParamSlider::gap, 208, 246 - ParamSlider::nameWidth - ParamSlider::gap, 28);
     }
 
     juce::String BalanceCard::getTooltip()
@@ -469,7 +474,7 @@ namespace celadon::ui
         if (graphBounds().contains (position))
             return help::tooltipFor (uiid::balanceCurve, language);
 
-        if (position.y >= 168.0f && position.x < (float) (padX + ParamSlider::nameWidth))
+        if (position.y >= 208.0f && position.x < (float) (padX + ParamSlider::nameWidth))
             return help::tooltipFor (param::balanceSpeed, language);
 
         return ModuleCard::getTooltip();
@@ -487,24 +492,24 @@ namespace celadon::ui
 
         const float dashes[] = { 2.0f, 2.0f };
         g.setColour (juce::Colour (0xff0d3b45).withAlpha (0.18f * alpha));
-        g.drawDashedLine (juce::Line<float> (graph.getX() + 4.0f, graph.getY() + 15.5f, graph.getRight() - 4.0f, graph.getY() + 15.5f), dashes, 2, 1.0f);
+        g.drawDashedLine (juce::Line<float> (graph.getX() + 4.0f, graph.getCentreY() + 0.5f, graph.getRight() - 4.0f, graph.getCentreY() + 0.5f), dashes, 2, 1.0f);
 
         // 27 段：提起向上、压下向下；越多颜色越深。
         for (size_t i = 0; i < shownGains.size(); ++i)
         {
             const auto gain = shownGains[i];
-            const auto h = juce::jlimit (1.2f, 14.0f, std::abs (gain) * 4.6f);
+            const auto h = juce::jlimit (1.2f, 16.0f, std::abs (gain) * 5.0f);
             const auto x = graph.getX() + 6.0f + (float) i * 8.7f;
-            const auto bar = gain >= 0.0f ? juce::Rectangle<float> (x, graph.getY() + 15.0f - h, 5.0f, h)
-                                          : juce::Rectangle<float> (x, graph.getY() + 16.0f, 5.0f, h);
+            const auto bar = gain >= 0.0f ? juce::Rectangle<float> (x, graph.getCentreY() - h, 5.0f, h)
+                                          : juce::Rectangle<float> (x, graph.getCentreY() + 1.0f, 5.0f, h);
             const auto colour = gain >= 0.0f ? cyanAt (0.3f + std::abs (gain) / 3.0f) : cyanAt (0.72f + std::abs (gain) / 10.0f);
             g.setColour (colour.withMultipliedAlpha (alpha));
             g.fillRoundedRectangle (bar, 1.2f);
         }
 
-        g.setFont (monoFont (10.5f));
+        g.setFont (uiFont (12.0f));
         g.setColour (palette::ink3.withMultipliedAlpha (alpha));
-        g.drawText (tr (Text::speed, language), juce::Rectangle<float> ((float) padX, 168.0f, (float) ParamSlider::nameWidth, 22.0f),
+        g.drawText (tr (Text::speed, language), juce::Rectangle<float> ((float) padX, 208.0f, (float) ParamSlider::nameWidth, 28.0f),
                     juce::Justification::centredLeft, false);
     }
 
@@ -559,10 +564,10 @@ namespace celadon::ui
 
     void ColorCard::layoutContent()
     {
-        layoutKnobs (40);
-        sliders[0]->setBounds (padX, 128, 246, 18);
-        sliders[1]->setBounds (padX, 150, 246, 18);
-        glueReduction.setBounds (padX, 172, 246, 18);
+        layoutKnobs (52);
+        sliders[0]->setBounds (padX, 162, 246, 24);
+        sliders[1]->setBounds (padX, 190, 246, 24);
+        glueReduction.setBounds (padX, 218, 246, 24);
     }
 
     //==============================================================================
@@ -633,16 +638,16 @@ namespace celadon::ui
 
     void LimitCard::layoutContent()
     {
-        layoutKnobs (40);
+        layoutKnobs (52);
 
         const auto chipWidth = autoRelease != nullptr ? autoRelease->getNaturalWidth() : 40;
-        sliders[0]->setBounds (padX, 128, 246, 18);
+        sliders[0]->setBounds (padX, 162, 246, 24);
         sliders[0]->setTrailingSpace (chipWidth + ParamSlider::gap);
 
         if (autoRelease != nullptr)
-            autoRelease->setBounds (padX + 246 - chipWidth, 128, chipWidth, 18);
+            autoRelease->setBounds (padX + 246 - chipWidth, 160, chipWidth, 28);
 
-        sliders[1]->setBounds (padX, 150, 246, 18);
-        limitReduction.setBounds (padX, 172, 246, 18);
+        sliders[1]->setBounds (padX, 190, 246, 24);
+        limitReduction.setBounds (padX, 218, 246, 24);
     }
 }

@@ -2,7 +2,7 @@
   ==============================================================================
 
     LevelMeters.h
-    频谱仪两侧的电平表面板（V4 设计稿 60 × 260）：左边 IN（真峰值），右边 OUT（真峰值）+ GR（限幅衰减，从上往下长）。
+    频谱仪两侧的电平表面板（V4 设计稿 60 × 238）：左边 IN（真峰值），右边 OUT（真峰值）+ GR（限幅衰减，从上往下长）。
 
       - 刻度 −60 ～ 0 dB（线性 dB）；表条下落 20 dB/s，峰值保持线停 1.2 s 后慢慢落；下面的数字是复位以来的最大值（点数字清零）；
       - OUT 超过 Ceiling 时顶上的小灯、保持线与数字变橙色；方案受限（GLAZE 的保护退到底）时 GR 条变橙色；
@@ -63,7 +63,7 @@ namespace celadon::ui
         juce::String getTooltip() override;
 
         static constexpr int width = 60;
-        static constexpr int height = 260;
+        static constexpr int height = 238;
 
     private:
         struct Shown

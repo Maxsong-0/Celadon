@@ -2,9 +2,8 @@
   ==============================================================================
 
     Porcelain.cpp
-    开片网络的生成（与 V4 设计稿的生成器一步一步对应：同一个线性同余种子、同样的随机数消耗顺序）与瓷面的像素渲染
-    （设计稿里的 SVG 滤镜链：luminanceToAlpha → 两档高斯模糊各半 → feDiffuseLighting 正片叠底 0.85 →
-    feSpecularLighting 滤色 → 斑驳噪声正片叠底 0.45，在这里逐像素算）。
+    固定种子的开片网络与温润的青瓷釉面。开片是釉下细线，不参与表面法线；
+    整体柔和渐变、极轻的云状釉色、边缘积釉与宽软反光，维持一整块烧制瓷面的连续质感。
 
   ==============================================================================
 */
@@ -121,9 +120,9 @@ namespace celadon::ui::porcelain
             { 260, 1.15, 0.34, 1.2, 0.06,  3, 3.0 },
         };
 
-        constexpr float crackWidths[]    = { 0.85f, 0.62f, 0.48f };
-        constexpr float crackOpacities[] = { 0.42f, 0.32f, 0.24f };
-        constexpr float reliefWidths[]   = { 2.0f, 1.5f, 1.05f };   // 高度图里的沟宽
+        // 逻辑像素线宽随屏幕像素比一起渲染；细开片只作釉下肌理，不形成亮暗切面。
+        constexpr float crackWidths[]    = { 0.48f, 0.34f, 0.24f };
+        constexpr float crackOpacities[] = { 0.21f, 0.15f, 0.10f };
 
         struct Cell
         {
@@ -343,63 +342,6 @@ namespace celadon::ui::porcelain
             std::array<std::uint8_t, 256> permutation {};
         };
 
-        // 三次盒式模糊近似高斯（σ 以像素计）：对 w × h 的单通道浮点图原地模糊。
-        void boxBlur (std::vector<float>& data, int w, int h, float sigma)
-        {
-            if (sigma < 0.3f || w <= 0 || h <= 0)
-                return;
-
-            // 三个盒子的宽度（Kovesi 的算法）。
-            const auto ideal = std::sqrt (12.0f * sigma * sigma / 3.0f + 1.0f);
-            auto lower = (int) std::floor (ideal);
-
-            if (lower % 2 == 0)
-                --lower;
-
-            const auto upper = lower + 2;
-            const auto m = juce::roundToInt ((12.0f * sigma * sigma - 3.0f * (float) (lower * lower) - 12.0f * (float) lower - 9.0f)
-                                             / (-4.0f * (float) lower - 4.0f));
-
-            std::vector<float> scratch (data.size());
-
-            const auto pass = [&] (std::vector<float>& from, std::vector<float>& to, int radius, bool horizontal)
-            {
-                const auto lines = horizontal ? h : w;
-                const auto length = horizontal ? w : h;
-                const auto stride = horizontal ? 1 : w;
-                const auto scale = 1.0f / (float) (2 * radius + 1);
-
-                for (int line = 0; line < lines; ++line)
-                {
-                    const auto base = horizontal ? line * w : line;
-                    const auto sampleAt = [&] (int i) { return from[(size_t) (base + juce::jlimit (0, length - 1, i) * stride)]; };
-
-                    float sum = 0.0f;
-
-                    for (int i = -radius; i <= radius; ++i)
-                        sum += sampleAt (i);
-
-                    for (int i = 0; i < length; ++i)
-                    {
-                        to[(size_t) (base + i * stride)] = sum * scale;
-                        sum += sampleAt (i + radius + 1) - sampleAt (i - radius);
-                    }
-                }
-            };
-
-            for (int box = 0; box < 3; ++box)
-            {
-                const auto size = box < m ? lower : upper;
-                const auto radius = juce::jmax (0, (size - 1) / 2);
-
-                if (radius == 0)
-                    continue;
-
-                pass (data, scratch, radius, true);
-                pass (scratch, data, radius, false);
-            }
-        }
-
         juce::Colour mixHex (juce::uint32 from, juce::uint32 to, float amount)
         {
             return juce::Colour (from).interpolatedWith (juce::Colour (to), juce::jlimit (0.0f, 1.0f, amount));
@@ -464,95 +406,20 @@ namespace celadon::ui::porcelain
 
         const auto& cracks = crackNetwork();
         const auto visible = juce::jmin ((int) cracks.size(), visibleCrackCount (t));
-
-        // 逻辑坐标（圆心为原点）→ 图的像素坐标。
         const auto toImage = juce::AffineTransform::translation (imageHalf, imageHalf).scaled (pixelsPerUnit);
 
-        // ① 高度图：白色圆盘，裂纹处刻成黑色的沟（三级沟宽 2 / 1.5 / 1.05）。
-        std::vector<float> height ((size_t) (size * size), 0.0f);
-        {
-            // 只在 CPU 上画、再读回来：用软件图像。Windows 上默认的图像是 Direct2D 的，Graphics 还在画时开 BitmapData
-            // 读到的是空白（JUCE 规定同一张图同一时刻只能有一个 Graphics 或 BitmapData）——浮雕会整个消失。
-            juce::Image map (juce::Image::RGB, size, size, true, juce::SoftwareImageType());
-            {
-                juce::Graphics g (map);
-                g.addTransform (toImage);
-                g.setColour (juce::Colours::white);
-                g.fillEllipse (-glazeRadius, -glazeRadius, 2.0f * glazeRadius, 2.0f * glazeRadius);
-                g.setColour (juce::Colours::black);
-
-                for (int level = 0; level < 3; ++level)
-                {
-                    juce::Path grooves;
-
-                    for (int i = 0; i < visible; ++i)
-                    {
-                        if (cracks[(size_t) i].level != level)
-                            continue;
-
-                        const auto& points = cracks[(size_t) i].points;
-                        grooves.startNewSubPath (points.front());
-
-                        for (size_t k = 1; k < points.size(); ++k)
-                            grooves.lineTo (points[k]);
-                    }
-
-                    g.strokePath (grooves, juce::PathStrokeType (reliefWidths[level], juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                }
-            }
-
-            const juce::Image::BitmapData data (map, juce::Image::BitmapData::readOnly);
-
-            for (int y = 0; y < size; ++y)
-                for (int x = 0; x < size; ++x)
-                    height[(size_t) (y * size + x)] = (float) data.getPixelColour (x, y).getRed() / 255.0f;
-        }
-
-        // ② 两档模糊（σ 1.1 与 3.6 个逻辑像素）各取一半：细处保留沟的锐利，粗处给出柔和的鼓起。
-        auto fineBlur = height;
-        boxBlur (fineBlur, size, size, 1.1f * pixelsPerUnit);
-        auto wideBlur = std::move (height);
-        boxBlur (wideBlur, size, size, 3.6f * pixelsPerUnit);
-
-        std::vector<float> surface ((size_t) (size * size));
-
-        for (size_t i = 0; i < surface.size(); ++i)
-            surface[i] = 0.5f * (fineBlur[i] + wideBlur[i]);
-
-        // ③ 逐像素：釉色（径向渐变）× 斑驳 × 漫反射，再滤色叠高光。
-        const auto g0 = toRgb (mixHex (0xfff2f9f9, 0xff5fb0b4, std::pow (t, 0.7f)));
-        const auto g1 = toRgb (mixHex (0xffe1f0f1, 0xff3e9196, std::pow (t, 0.7f)));
-        const auto g2 = toRgb (mixHex (0xffc6e1e3, 0xff1f5f66, std::pow (t, 0.7f)));
-        const auto diffuseLight = toRgb (juce::Colour (0xffe3f4f4));
-        const auto highlightOpacity = 0.6f * (0.7f + 0.3f * t);
-
-        // 光源：方位 225°（左上）、仰角 55°（漫反射）/ 36°（高光）；SVG 的方位按 x 轴顺时针（y 向下）。
-        const auto azimuth = juce::degreesToRadians (225.0f);
-        const auto elevation = juce::degreesToRadians (55.0f), specularElevation = juce::degreesToRadians (36.0f);
-        const float light[3] = { std::cos (azimuth) * std::cos (elevation), std::sin (azimuth) * std::cos (elevation), std::sin (elevation) };
-        float halfway[3] = { std::cos (azimuth) * std::cos (specularElevation), std::sin (azimuth) * std::cos (specularElevation),
-                             std::sin (specularElevation) + 1.0f };
-        {
-            const auto n = std::sqrt (halfway[0] * halfway[0] + halfway[1] * halfway[1] + halfway[2] * halfway[2]);
-
-            for (auto& component : halfway)
-                component /= n;
-        }
-
-        // 法线：SVG 的 Sobel 核 × surfaceScale（2）× ¼（下面的式子里），导数按「每逻辑像素」求（× pixelsPerUnit）：
-        // 浏览器的滤镜按 CSS 像素算（设计稿里的样子），任何缩放、任何屏幕上浮雕都一样深。
-        const auto normalScale = 2.0f * pixelsPerUnit;
-
+        // 从浅灰青向较深的豆青过渡；整面共享明暗，裂纹不再把高光切成晶体状碎块。
+        const auto depth = std::pow (t, 0.75f);
+        const auto g0 = toRgb (mixHex (0xffeff3ed, 0xffbfd4c8, depth));
+        const auto g1 = toRgb (mixHex (0xffdce8e1, 0xff95b5a9, depth));
+        const auto g2 = toRgb (mixHex (0xffbcd1c7, 0xff71978d, depth));
         const GradientNoise mottleNoise (7u), grainNoise (3u);
-
-        // 径向渐变：中心 (0.42, 0.38) × 172 − 86、半径 0.7 × 172（objectBoundingBox）。
-        const juce::Point<float> gradientCentre (-glazeRadius + 0.42f * 2.0f * glazeRadius, -glazeRadius + 0.38f * 2.0f * glazeRadius);
-        const auto gradientRadius = 0.7f * 2.0f * glazeRadius;
+        const juce::Point<float> gradientCentre (-22.0f, -30.0f);
+        constexpr float gradientRadius = glazeRadius * 1.45f;
 
         juce::Image image (juce::Image::ARGB, size, size, true);
         {
             const juce::Image::BitmapData data (image, juce::Image::BitmapData::writeOnly);
-            const auto at = [&] (int x, int y) { return surface[(size_t) (juce::jlimit (0, size - 1, y) * size + juce::jlimit (0, size - 1, x))]; };
 
             for (int y = 0; y < size; ++y)
             {
@@ -561,9 +428,8 @@ namespace celadon::ui::porcelain
                 for (int x = 0; x < size; ++x)
                 {
                     const auto lx = ((float) x + 0.5f) / pixelsPerUnit - imageHalf;
-                    const auto r = std::sqrt (lx * lx + ly * ly);
-                    const auto coverage = juce::jlimit (0.0f, 1.0f, (glazeRadius - r) * pixelsPerUnit + 0.5f);
-
+                    const auto radius = std::sqrt (lx * lx + ly * ly);
+                    const auto coverage = juce::jlimit (0.0f, 1.0f, (glazeRadius - radius) * pixelsPerUnit + 0.5f);
                     auto* pixel = reinterpret_cast<juce::PixelARGB*> (data.getPixelPointer (x, y));
 
                     if (coverage <= 0.0f)
@@ -572,54 +438,18 @@ namespace celadon::ui::porcelain
                         continue;
                     }
 
-                    // 釉色
-                    const auto gt = juce::jlimit (0.0f, 1.0f, juce::Point<float> (lx, ly).getDistanceFrom (gradientCentre) / gradientRadius);
-                    auto colour = gt < 0.65f ? lerp (g0, g1, gt / 0.65f) : lerp (g1, g2, (gt - 0.65f) / 0.35f);
+                    const auto distance = juce::Point<float> (lx, ly).getDistanceFrom (gradientCentre);
+                    const auto gt = juce::jlimit (0.0f, 1.0f, distance / gradientRadius);
+                    auto colour = gt < 0.68f ? lerp (g0, g1, gt / 0.68f) : lerp (g1, g2, (gt - 0.68f) / 0.32f);
 
-                    // 斑驳：大尺度的云状（频率 0.03）+ 细颗粒（频率 0.9），暗青色正片叠底，整体 45 %。
-                    {
-                        // SVG 的 fractalNoise 大多落在 0.5 ± 0.15 附近；这里的梯度噪声幅度约 ±1，按同样的离散程度缩小。
-                        const auto n1 = 0.5f + 0.2f * (0.62f * mottleNoise.at (lx * 0.03f, ly * 0.03f)
-                                                       + 0.26f * mottleNoise.at (lx * 0.06f + 17.0f, ly * 0.06f)
-                                                       + 0.12f * mottleNoise.at (lx * 0.12f, ly * 0.12f + 5.0f));
-                        const auto n2 = 0.5f + 0.12f * grainNoise.at (lx * 0.9f, ly * 0.9f);
-                        const auto a1 = juce::jlimit (0.0f, 1.0f, 1.05f - 1.6f * n1);
-                        const auto a2 = juce::jlimit (0.0f, 1.0f, 0.8f - 1.4f * n2);
-
-                        // 两层叠在一起（上层细颗粒 over 下层云斑），再以 0.45 正片叠底。
-                        const auto alpha = a2 + a1 * (1.0f - a2);
-
-                        if (alpha > 0.0f)
-                        {
-                            const Rgb over { (0.08f * a2 + 0.1f * a1 * (1.0f - a2)) / alpha,
-                                             (0.2f * a2 + 0.25f * a1 * (1.0f - a2)) / alpha,
-                                             (0.2f * a2 + 0.26f * a1 * (1.0f - a2)) / alpha };
-                            const auto k = alpha * 0.3f;
-                            colour = { colour.r * (1.0f - k * (1.0f - over.r)),
-                                       colour.g * (1.0f - k * (1.0f - over.g)),
-                                       colour.b * (1.0f - k * (1.0f - over.b)) };
-                        }
-                    }
-
-                    // 浮雕：Sobel 求梯度 → 法线
-                    const auto nx = -normalScale * 0.25f * ((at (x + 1, y - 1) + 2.0f * at (x + 1, y) + at (x + 1, y + 1))
-                                                          - (at (x - 1, y - 1) + 2.0f * at (x - 1, y) + at (x - 1, y + 1)));
-                    const auto ny = -normalScale * 0.25f * ((at (x - 1, y + 1) + 2.0f * at (x, y + 1) + at (x + 1, y + 1))
-                                                          - (at (x - 1, y - 1) + 2.0f * at (x, y - 1) + at (x + 1, y - 1)));
-                    const auto norm = std::sqrt (nx * nx + ny * ny + 1.0f);
-                    const float normal[3] = { nx / norm, ny / norm, 1.0f / norm };
-
-                    // 漫反射（kd 1.22，浅青白光）正片叠底 0.85
-                    const auto lambert = juce::jmax (0.0f, 1.22f * (normal[0] * light[0] + normal[1] * light[1] + normal[2] * light[2]));
-                    colour = { colour.r * (0.15f + 0.85f * juce::jmin (1.0f, lambert * diffuseLight.r)),
-                               colour.g * (0.15f + 0.85f * juce::jmin (1.0f, lambert * diffuseLight.g)),
-                               colour.b * (0.15f + 0.85f * juce::jmin (1.0f, lambert * diffuseLight.b)) };
-
-                    // 高光（ks 0.9，指数 14）滤色：结果 = 底 + 不透明度 × spec² × (1 − 底)（见文件头）
-                    const auto nDotH = juce::jmax (0.0f, normal[0] * halfway[0] + normal[1] * halfway[1] + normal[2] * halfway[2]);
-                    const auto specular = juce::jmin (1.0f, 0.9f * std::pow (nDotH, 14.0f));
-                    const auto lift = highlightOpacity * specular * specular;
-                    colour = { colour.r + lift * (1.0f - colour.r), colour.g + lift * (1.0f - colour.g), colour.b + lift * (1.0f - colour.b) };
+                    // 很轻的釉色云斑与微粒；亮度起伏仅约 2 %，在小尺寸下仍是一整块温润的瓷。
+                    const auto cloud = 0.72f * mottleNoise.at (lx * 0.026f, ly * 0.026f)
+                                     + 0.28f * mottleNoise.at (lx * 0.058f + 17.0f, ly * 0.058f + 5.0f);
+                    const auto grain = grainNoise.at (lx * 0.82f, ly * 0.82f);
+                    const auto variation = cloud * 0.018f + grain * 0.0025f;
+                    colour = { colour.r + variation * 0.88f,
+                               colour.g + variation,
+                               colour.b + variation * 0.92f };
 
                     const auto alpha = (juce::uint8) juce::roundToInt (coverage * 255.0f);
                     const auto premultiply = [coverage] (float channel)
@@ -632,7 +462,6 @@ namespace celadon::ui::porcelain
             }
         }
 
-        // ④ 矢量部分：深色裂线、边缘暗角、左上柔光、两道细边、旋钮帽。
         {
             juce::Graphics g (image);
             g.addTransform (toImage);
@@ -640,9 +469,11 @@ namespace celadon::ui::porcelain
             {
                 juce::Graphics::ScopedSaveState saved (g);
                 juce::Path clip;
-                clip.addEllipse (-85.5f, -85.5f, 171.0f, 171.0f);
+                clip.addEllipse (-glazeRadius + 0.5f, -glazeRadius + 0.5f,
+                                 2.0f * glazeRadius - 1.0f, 2.0f * glazeRadius - 1.0f);
                 g.reduceClipRegion (clip);
 
+                // 细开片被后续的釉光覆盖，看起来嵌在透明釉层内，而非刻在旋钮表面。
                 for (int i = 0; i < visible; ++i)
                 {
                     const auto& crack = cracks[(size_t) i];
@@ -652,46 +483,67 @@ namespace celadon::ui::porcelain
                     for (size_t k = 1; k < crack.points.size(); ++k)
                         line.lineTo (crack.points[k]);
 
-                    g.setColour (juce::Colour (0xff244f50).withAlpha (crack.opacity));
+                    g.setColour (juce::Colour (0xff4b7166).withAlpha (crack.opacity * (0.8f + 0.2f * t)));
                     g.strokePath (line, juce::PathStrokeType (crack.width, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
                 }
 
-                // 边缘暗角：半径 80 % 以内透明，到边上 #06313A 30 %。
-                juce::ColourGradient rim (juce::Colour (0x0006313a), 0.0f, 0.0f, juce::Colour (0x4d06313a), glazeRadius, 0.0f, true);
-                rim.addColour (0.8, juce::Colour (0x0006313a));
+                // 边缘积釉：外缘略深，过渡足够宽，不产生金属的锐利倒角。
+                juce::ColourGradient rim (juce::Colour (0x003d665e), 0.0f, 0.0f,
+                                         juce::Colour (0x293d665e), glazeRadius, 0.0f, true);
+                rim.addColour (0.72, juce::Colour (0x003d665e));
+                rim.addColour (0.92, juce::Colour (0x103d665e));
                 g.setGradientFill (rim);
                 g.fillEllipse (-glazeRadius, -glazeRadius, 2.0f * glazeRadius, 2.0f * glazeRadius);
 
-                // 左上的柔光：以 (−30, −42) 为心、46 × 26、转 −28° 的椭圆，白 72 % → 0。
+                // 宽软的暖白釉光：一整片反射，不为每块开片生成独立高光。
                 {
                     juce::Graphics::ScopedSaveState glossState (g);
-                    g.addTransform (juce::AffineTransform::scale (1.0f, 26.0f / 46.0f)
-                                        .rotated (juce::degreesToRadians (-28.0f))
-                                        .translated (-30.0f, -42.0f));
-                    juce::ColourGradient gloss (juce::Colours::white.withAlpha (0.72f), 0.0f, 0.0f,
-                                                juce::Colours::white.withAlpha (0.0f), 46.0f, 0.0f, true);
+                    g.addTransform (juce::AffineTransform::scale (1.0f, 29.0f / 59.0f)
+                                        .rotated (juce::degreesToRadians (-24.0f))
+                                        .translated (-26.0f, -43.0f));
+                    const auto pearl = juce::Colour (0xfffffdf5);
+                    juce::ColourGradient gloss (pearl.withAlpha (0.36f), 0.0f, 0.0f,
+                                                pearl.withAlpha (0.0f), 59.0f, 0.0f, true);
+                    gloss.addColour (0.3, pearl.withAlpha (0.28f));
                     g.setGradientFill (gloss);
+                    g.fillEllipse (-59.0f, -59.0f, 118.0f, 118.0f);
+                }
+
+                // 右下方的微弱环境反光使釉面有厚度，暗部仍保留青色。
+                {
+                    juce::Graphics::ScopedSaveState bounceState (g);
+                    g.addTransform (juce::AffineTransform::scale (1.0f, 23.0f / 46.0f)
+                                        .rotated (juce::degreesToRadians (-32.0f))
+                                        .translated (31.0f, 48.0f));
+                    const auto bounceColour = juce::Colour (0xffe1f0e6);
+                    juce::ColourGradient bounce (bounceColour.withAlpha (0.18f), 0.0f, 0.0f,
+                                                 bounceColour.withAlpha (0.0f), 46.0f, 0.0f, true);
+                    g.setGradientFill (bounce);
                     g.fillEllipse (-46.0f, -46.0f, 92.0f, 92.0f);
                 }
             }
 
-            g.setColour (juce::Colours::white.withAlpha (0.6f));
-            g.drawEllipse (-85.5f, -85.5f, 171.0f, 171.0f, 1.0f);
-            g.setColour (juce::Colour (0x2906313a));   // #06313A 16 %
-            g.drawEllipse (-87.5f, -87.5f, 175.0f, 175.0f, 1.0f);
+            // 外缘保留一圈细薄釉光；减淡外围深线，让主体不再像镶在金属圈里的宝石。
+            g.setColour (juce::Colour (0xfffffdf5).withAlpha (0.62f));
+            g.drawEllipse (-85.5f, -85.5f, 171.0f, 171.0f, 0.9f);
+            g.setColour (juce::Colour (0x163d665e));
+            g.drawEllipse (-87.0f, -87.0f, 174.0f, 174.0f, 0.8f);
 
-            // 旋钮帽（半径 36）：下方柔影 + 左上亮的深色径向渐变。
+            // 深青色旋钮帽保留读数与指针的对比度；柔影和细上缘使它像瓷面上的凹入控制区。
             {
-                juce::ColourGradient shadow (juce::Colour (6, 24, 29).withAlpha (0.35f), 0.0f, 2.0f,
+                juce::ColourGradient shadow (juce::Colour (6, 24, 29).withAlpha (0.25f), 0.0f, 2.0f,
                                              juce::Colour (6, 24, 29).withAlpha (0.0f), capRadius + 5.0f, 2.0f, true);
-                shadow.addColour (capRadius / (capRadius + 5.0f), juce::Colour (6, 24, 29).withAlpha (0.3f));
+                shadow.addColour (capRadius / (capRadius + 5.0f), juce::Colour (6, 24, 29).withAlpha (0.2f));
                 g.setGradientFill (shadow);
                 g.fillEllipse (-(capRadius + 5.0f), -(capRadius + 5.0f) + 2.0f, 2.0f * (capRadius + 5.0f), 2.0f * (capRadius + 5.0f));
 
                 const juce::Point<float> focus (-capRadius + 0.4f * 2.0f * capRadius, -capRadius + 0.32f * 2.0f * capRadius);
-                juce::ColourGradient cap (palette::capTop, focus, palette::capBottom, focus.translated (0.8f * 2.0f * capRadius, 0.0f), true);
+                juce::ColourGradient cap (palette::capTop, focus, palette::capBottom,
+                                         focus.translated (0.8f * 2.0f * capRadius, 0.0f), true);
                 g.setGradientFill (cap);
                 g.fillEllipse (-capRadius, -capRadius, 2.0f * capRadius, 2.0f * capRadius);
+                g.setColour (juce::Colour (0xffedf7ef).withAlpha (0.2f));
+                g.drawEllipse (-capRadius, -capRadius, 2.0f * capRadius, 2.0f * capRadius, 0.75f);
             }
         }
 

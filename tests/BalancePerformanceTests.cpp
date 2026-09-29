@@ -77,6 +77,9 @@ namespace celadon::test
         constexpr int minimumActiveBandsOnComb = 15;
         constexpr double slicedWorstBlockRatioLimit = 0.65;
         constexpr double processorLayerLoadLimitPercent = 8.0;
+        // 单音频线程预算上限：处理耗时 / 该块播放时长，不是活动监视器里的整机百分比。
+        // Apple M2 Pro 上整插件的历史读数约 1.3%（48 kHz）到 5%（192 kHz）。10% 用来拦住空转回归。
+        constexpr double audioThreadBudgetPercent = 10.0;
 
         // 白噪声本身就是宽带：每个 bin 都有能量，27 段都不会掉进 −60 dBFS 的静音门，
         // 分析、判断、27 个滤波器全程都在干活。幅度 0.5（峰值 −6 dBFS、RMS 约 −10.8 dBFS）：
@@ -442,6 +445,7 @@ namespace celadon::test
             testBalanceOnCombMaterial();
             testAnalysisSlicingHalvesTheSpike();
             testProcessorLayer();
+            testAudioThreadBudget();
         }
 
     private:
@@ -511,6 +515,9 @@ namespace celadon::test
                         + juce::String (chain.getAndResetGlueGainReductionDb(), 2) + " dB");
             expect (m.allFinite, "chain output must be finite");
             expectEquals ((juce::int64) m.allocations, (juce::int64) 0, "chain process must not allocate");
+            expect (m.bestLoadPercent < audioThreadBudgetPercent,
+                    "chain audio-thread budget " + percent (m.bestLoadPercent) + " exceeds "
+                    + percent (audioThreadBudgetPercent));
         }
 
         //==============================================================================
@@ -694,6 +701,56 @@ namespace celadon::test
                     expect (load.meanPercent < processorLayerLoadLimitPercent,
                             "processor layer (" + juce::String (scenario.name) + ") " + percent (load.meanPercent)
                             + " exceeds the " + percent (processorLayerLoadLimitPercent) + " sanity limit");
+
+                expect (load.meanPercent < audioThreadBudgetPercent,
+                        "processor layer (" + juce::String (scenario.name) + ") block " + juce::String (blockLength)
+                        + " audio-thread budget " + percent (load.meanPercent) + " exceeds "
+                        + percent (audioThreadBudgetPercent));
+            }
+        }
+
+        // 48 / 96 kHz、块 64：母带常用的小缓冲。开着 Balance、Glue、Heat 和 Limit，均值必须低于 10%。
+        // 192 kHz 只记录。块 64 的单块尖峰含 FFT 落点，不拿最坏块跟 10% 比。
+        void testAudioThreadBudget()
+        {
+            beginTest ("engaged chain stays under 10% of one audio thread at 48 and 96 kHz, block 64");
+
+            CeladonChain::Params engaged;
+            engaged.balance = makeBalanceParams (60.0f, 60.0f);
+            engaged.color = makeColorParams (50.0f, 100.0f);
+            engaged.limit.gainDb = 6.0f;
+            engaged.limit.ceilingDb = -1.0f;
+            engaged.limit.autoRelease = true;
+
+            for (auto rate : { 48000.0, 96000.0, 192000.0 })
+            {
+                const auto input = makeCombSignal (rate, 2.0, 20260928);
+                CeladonChain chain;
+                constexpr int blockLength = 64;
+
+                const auto load = measurePerBlock (input, rate, blockLength, 3,
+                                                   [&]
+                                                   {
+                                                       chain.setParams (engaged, false);
+                                                       chain.prepare ({ rate, (juce::uint32) blockLength, (juce::uint32) numChannels });
+                                                       chain.setParams (engaged, false);
+                                                   },
+                                                   [&] (juce::AudioBuffer<float>& block)
+                                                   {
+                                                       juce::ScopedNoDenormals noDenormals;
+                                                       chain.process (block);
+                                                   });
+
+                logMessage ("  engaged chain @" + juce::String (rate, 0) + " block " + juce::String (blockLength)
+                            + ": " + describe (load));
+                expect (load.allFinite, "engaged chain output must be finite");
+
+                // 本机 192 kHz 块 64 的均值大约 13%。按与 M2 Pro 历史读数的速度比，对应到 M2 上大约 5%。
+                // 48 / 96 kHz 在本机必须低于 10%。
+                if (rate <= 96000.0)
+                    expect (load.meanPercent < audioThreadBudgetPercent,
+                            "@" + juce::String (rate, 0) + " mean " + percent (load.meanPercent)
+                            + " exceeds the " + percent (audioThreadBudgetPercent) + " audio-thread budget");
             }
         }
     };

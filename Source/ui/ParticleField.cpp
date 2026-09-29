@@ -31,8 +31,8 @@ namespace celadon::ui
             std::uint32_t state;
         };
 
-        constexpr float centreX = 600.0f, centreY = 456.0f, rimRadius = 108.0f;
-        constexpr int linesPerSide = 22, particlesPerSide = 200, samplesPerLine = 48;
+        constexpr float centreX = 600.0f, centreY = 422.0f, rimRadius = 96.43f;
+        constexpr int linesPerSide = 14, particlesPerSide = 100, samplesPerLine = 48;
         constexpr double ringDuration = 3.9;
         constexpr double ringBegins[] = { 0.0, -1.3, -2.6 };
         constexpr double maxFrameRate = 45.0;
@@ -272,7 +272,7 @@ namespace celadon::ui
             const juce::Point<float> centre (centreX, centreY);
             juce::ColourGradient glow (juce::Colour (0x5733b3c4), centre, juce::Colour (0x0067cad7), centre.translated (200.0f, 0.0f), true);
             glow.addColour (0.55, juce::Colour (0x1f67cad7));
-            glow.multiplyOpacity (0.2f + 0.8f * glaze);
+            glow.multiplyOpacity (0.1f + 0.4f * glaze);
             g.setGradientFill (glow);
             g.fillEllipse (juce::Rectangle<float> (400.0f, 400.0f).withCentre (centre));
         }
@@ -281,7 +281,7 @@ namespace celadon::ui
         if (! lineImage.isValid() || ! juce::approximatelyEqual (lineImageScale, pixelScale))
             renderLines (pixelScale);
 
-        const auto lineOpacity = ((reduceMotion ? 0.04f : 0.08f) + 0.4f * glaze) * brightness;
+        const auto lineOpacity = ((reduceMotion ? 0.04f : 0.06f) + 0.22f * glaze) * brightness;
         g.setOpacity (juce::jlimit (0.0f, 1.0f, lineOpacity));
         g.drawImageTransformed (lineImage, juce::AffineTransform::scale (1.0f / lineImageScale).translated (0.0f, (float) top), false);
 
@@ -290,7 +290,7 @@ namespace celadon::ui
 
         // 波纹：三圈从旋钮边缘（r 106）向外扩到 r 236，前 20 % 淡入、之后淡出。
         {
-            const auto ringOpacity = 0.1f + 0.45f * glaze;
+            const auto ringOpacity = 0.05f + 0.22f * glaze;
 
             for (const auto begin : ringBegins)
             {

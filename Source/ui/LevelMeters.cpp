@@ -18,7 +18,7 @@ namespace celadon::ui
 {
     namespace
     {
-        constexpr float barTop = 34.0f, barHeight = 188.0f, barWidth = 8.0f;
+        constexpr float barTop = 34.0f, barHeight = 166.0f, barWidth = 8.0f;
         constexpr float fallDbPerSecond = 20.0f;
         constexpr double holdSeconds = 1.2;
         constexpr float holdReleasePerSecond = 1.2f;   // 保持线停够之后向表条靠拢的速度（指数，1 / s）
@@ -163,7 +163,7 @@ namespace celadon::ui
 
     void LevelMeterPanel::mouseUp (const juce::MouseEvent& e)
     {
-        if (e.mouseWasClicked() && e.position.y > 222.0f)
+        if (e.mouseWasClicked() && e.position.y >= (float) height - 38.0f)
         {
             resetHolds();
 
@@ -241,7 +241,7 @@ namespace celadon::ui
 
             g.setFont (monoFont (11.0f, Weight::medium));
             g.setColour (palette::ink);
-            g.drawText (shown.peakText, juce::Rectangle<float> (0.0f, 231.0f, bounds.getWidth(), 16.0f), juce::Justification::centred, false);
+            g.drawText (shown.peakText, juce::Rectangle<float> (0.0f, (float) height - 29.0f, bounds.getWidth(), 16.0f), juce::Justification::centred, false);
             return;
         }
 
@@ -290,8 +290,8 @@ namespace celadon::ui
         const auto valueFont = withLetterSpacing (monoFont (10.5f, Weight::medium), -0.3f);
         g.setFont (valueFont);
         g.setColour (shown.over ? palette::warningText : palette::ink);
-        g.drawText (shown.peakText, juce::Rectangle<float> (2.0f, 231.0f, 30.0f, 16.0f), juce::Justification::centred, false);
+        g.drawText (shown.peakText, juce::Rectangle<float> (2.0f, (float) height - 29.0f, 30.0f, 16.0f), juce::Justification::centred, false);
         g.setColour (shown.planLimited ? palette::warningText : palette::c800);
-        g.drawText (shown.grText, juce::Rectangle<float> (31.0f, 231.0f, 24.0f, 16.0f), juce::Justification::centred, false);
+        g.drawText (shown.grText, juce::Rectangle<float> (31.0f, (float) height - 29.0f, 24.0f, 16.0f), juce::Justification::centred, false);
     }
 }
