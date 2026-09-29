@@ -42,7 +42,10 @@ if [ "$MODE" = "fetch" ]; then
     "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/VST3/Celadon.vst3" \
     "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/Standalone\\ Plugin/Celadon.exe" \
     "$DEST/"
-  rsync -a -e "${SSH[*]}" "$HOST:$REMOTE/Celadon/installer/Output/" "$DEST/" 2>/dev/null || true
+  # 只取当前版本（Celadon.jucer 的 version）的安装包：服务器上的输出目录里可能还留着旧版本的。
+  VERSION="$(sed -n 's/^ *version="\([0-9.]*\)".*/\1/p' "$ROOT/Celadon.jucer" | head -1)"
+  rsync -a -e "${SSH[*]}" "$HOST:$REMOTE/Celadon/installer/Output/Celadon-$VERSION-Windows-x64-Setup.exe" "$DEST/" 2>/dev/null \
+    || echo "服务器上没有 Celadon-$VERSION-Windows-x64-Setup.exe：先跑 scripts/windows-wine.sh installer" >&2
   ls -la "$DEST"
   exit 0
 fi

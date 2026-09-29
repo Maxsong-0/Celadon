@@ -34,6 +34,13 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
   （`Celadon.component`、`Celadon.app` 同样）；AU 两个架构都过一遍 `auval -v aufx Cldn Maxs` 与
   `arch -x86_64 auval -v aufx Cldn Maxs`（后者走 Rosetta）。
 
+安装包（给别的 Mac 用）：编好 Release 通用版后跑 `scripts/package-mac.sh`，在 `installer/Output/` 出两个 .pkg——
+`Celadon-<版本>-macOS-AppleSilicon.pkg`（arm64）与 `Celadon-<版本>-macOS-Intel.pkg`（x86_64）。脚本用 `ditto --arch` 从通用二进制
+拆出单架构副本、重新 ad-hoc 签名，每个包三个可选组件：VST3 → `/Library/Audio/Plug-Ins/VST3`、AU → `/Library/Audio/Plug-Ins/Components`、
+独立版 → `/Applications`（系统级，要管理员密码）；组件关掉了「可搬移」，免得安装器把新版装到机器上已有的同 ID 副本那里。
+没有 Apple Developer ID：包不签名、不公证，别人第一次打开会被 Gatekeeper 拦，到「系统设置 → 隐私与安全性」点「仍要打开」。
+本机用 Xcode 装过的（`~/Library/Audio/Plug-Ins/`）不要再装 pkg，否则宿主里会有两份。
+
 测试与性能：
 
 - `scripts/test-local.sh`：本机架构的全套单元测试；`CELADON_TEST_ARCH=x86_64 scripts/test-local.sh` 在 Apple Silicon 上编
