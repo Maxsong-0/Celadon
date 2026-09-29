@@ -405,6 +405,8 @@ namespace celadon
             automaticDeficitSeconds[b] = 0.0;
             automaticPeakSeconds[b] = 0.0;
             automaticOnsetHoldSeconds[b] = 0.0;
+            harshEnvelopeDb[b] = masteringTargetDb[b] = masteringPreviousPower[b] = masteringOnsetHold[b] = 0.0;
+            publishedTargetDb[b].store (0.0f, std::memory_order_relaxed);
             maskingBoostDb[b] = 0.0;
             harmonicProtection[b] = 0.0;
             previousBandPower[b] = 0.0;
@@ -415,6 +417,8 @@ namespace celadon
             publishedGainsDb[b].store (0.0f, std::memory_order_relaxed);
         }
 
+        masteringHasTail = false;
+        publishedHarshDb.store (0.0f, std::memory_order_relaxed);
         numActiveBands = 0;
         commonLevelDb = 0.0;
 
@@ -437,6 +441,16 @@ namespace celadon
         params.brighten = std::isfinite (newParams.brighten) ? juce::jlimit (-100.0f, 100.0f, newParams.brighten) : 0.0f;
         params.speed    = static_cast<Speed> (juce::jlimit (0, numSpeeds - 1, static_cast<int> (newParams.speed)));
         params.bypass   = newParams.bypass;
+        const auto unit = [] (float value) { return std::isfinite (value) ? juce::jlimit (0.0f, 1.0f, value) : 0.0f; };
+        params.harshAmount = unit (newParams.harshAmount);
+        params.transientPreserve = unit (newParams.transientPreserve);
+        params.targetAmount = unit (newParams.targetAmount);
+        params.targetSlopeDbPerOct = std::isfinite (newParams.targetSlopeDbPerOct)
+                                      ? juce::jlimit (-3.0f, 1.0f, newParams.targetSlopeDbPerOct) : 0.0f;
+        params.hasTargetReference = newParams.hasTargetReference;
+        for (size_t b = 0; b < params.targetReferenceDb.size(); ++b)
+            params.targetReferenceDb[b] = std::isfinite (newParams.targetReferenceDb[b])
+                                            ? juce::jlimit (-120.0f, 30.0f, newParams.targetReferenceDb[b]) : -120.0f;
 
         if (sampleRate <= 0.0)
             return;
@@ -1336,7 +1350,7 @@ namespace celadon
         const auto manualRecover = juce::jmax (0.0, recover - automaticRecover);
         PerBand<double> proposed {}, untilted {}, recoverPermit {};
 
-        if (automaticTame > 0.0)
+        if (automaticTame > 0.0 || frameParams.harshAmount > 0.0f)
             updateHarmonicProtection();
         else
             harmonicProtection.fill (0.0);
@@ -1584,10 +1598,86 @@ namespace celadon
             }
         }
 
+        if (frameParams.harshAmount > 0.0f || frameParams.targetAmount > 0.0f || masteringHasTail)
+        {
+            // Optional mastering corrections reuse this filter bank and analysis; no new audio path or latency.
+            // Use the common-rate input tracker: per-band Welch time constants would confuse a level step with spectral tilt.
+            // Centre both shapes on the same audible bands. A reference's recording level cannot become gain.
+            double measuredMean = 0.0, desiredMean = 0.0, weights = 0.0;
+            PerBand<double> desiredShape {};
+            if (frameParams.targetAmount > 0.0f)
+            {
+                for (size_t b = 0; b < (size_t) numBands; ++b)
+                {
+                    desiredShape[b] = frameParams.hasTargetReference ? (double) frameParams.targetReferenceDb[b]
+                                          : (double) frameParams.targetSlopeDbPerOct * ((double) b - 14.0) / 3.0;
+                    const auto usableReference = ! frameParams.hasTargetReference || desiredShape[b] > -65.0;
+                    if (b < 3 || b > 25 || ! bandAlive[b] || ! usableReference) continue;
+                    const auto w = gateWeight[b];
+                    measuredMean += w * (10.0 * std::log10 (juce::jmax (powerFloor, quickPower[b])));
+                    desiredMean += w * desiredShape[b];
+                    weights += w;
+                }
+            }
+            if (weights > 0.0) { measuredMean /= weights; desiredMean /= weights; }
+            double maximumHarsh = 0.0;
+            masteringHasTail = false;
+            const auto harshAttackCoeff = std::exp (-hopSeconds / 0.025);
+            const auto harshReleaseCoeff = std::exp (-hopSeconds / 0.20);
+            const auto targetCoeff = std::exp (-hopSeconds / (frameParams.targetAmount > 0.0f ? 2.0 : 0.15));
+            for (size_t b = 0; b < (size_t) numBands; ++b)
+            {
+                double harsh = 0.0, correction = 0.0;
+                const auto hz = (double) getBandCentreHz ((int) b);
+                if (frameParams.harshAmount > 0.0f && hz >= 1900.0 && hz <= 8200.0 && bandAlive[b])
+                {
+                    const auto rising = bandPower[b] > 1.7 * juce::jmax (powerFloor, masteringPreviousPower[b]);
+                    masteringOnsetHold[b] = rising ? 0.055 : juce::jmax (0.0, masteringOnsetHold[b] - hopSeconds);
+                    // Neighbour support protects isolated tones; broad music with a persistent upper-mid peak is eligible.
+                    const auto left = quickLevelDb[b - 3], right = quickLevelDb[b + 2];
+                    const auto support = juce::jmin (gateWeight[b - 3], gateWeight[b + 2]);
+                    const auto excess = juce::jmax (0.0, fastLevelDb[b] - 0.5 * (left + right) - 1.5);
+                    const auto onsetPermit = masteringOnsetHold[b] > 0.0 ? 1.0 - (double) frameParams.transientPreserve : 1.0;
+                    const auto frequencyWeight = juce::jlimit (0.0, 1.0, juce::jmin ((hz - 1500.0) / 1000.0, (9500.0 - hz) / 1500.0));
+                    harsh = juce::jmin (3.0, excess * 0.65) * frameParams.harshAmount * support * frequencyWeight
+                              * onsetPermit * (1.0 - 0.6 * harmonicProtection[b]);
+                }
+                masteringPreviousPower[b] = bandPower[b];
+                const auto harshCoeff = (harsh > harshEnvelopeDb[b] ? harshAttackCoeff : harshReleaseCoeff);
+                harshEnvelopeDb[b] = harsh + (harshEnvelopeDb[b] - harsh) * harshCoeff;
+                if (frameParams.harshAmount <= 0.0f && harshEnvelopeDb[b] < 1.0e-5) harshEnvelopeDb[b] = 0.0;
+                // Duck the additional reduction immediately at an onset, rather than carrying its release through the attack.
+                const auto appliedHarsh = harshEnvelopeDb[b] * (masteringOnsetHold[b] > 0.0
+                                         ? 1.0 - (double) frameParams.transientPreserve : 1.0);
+                maximumHarsh = juce::jmax (maximumHarsh, appliedHarsh);
+                if (frameParams.targetAmount > 0.0f && weights >= 6.0 && b >= 3 && b <= 25 && bandAlive[b]
+                     && (! frameParams.hasTargetReference || desiredShape[b] > -65.0))
+                {
+                    const auto measured = 10.0 * std::log10 (juce::jmax (powerFloor, quickPower[b])) - measuredMean;
+                    const auto error = desiredShape[b] - desiredMean - measured;
+                    const auto outside = std::copysign (juce::jmax (0.0, std::abs (error) - 1.0), error);
+                    correction = juce::jlimit (-2.5, 2.5, outside * 0.35) * frameParams.targetAmount * gateWeight[b];
+                }
+                masteringTargetDb[b] = correction + (masteringTargetDb[b] - correction) * targetCoeff;
+                if (frameParams.targetAmount <= 0.0f && std::abs (masteringTargetDb[b]) < 1.0e-5) masteringTargetDb[b] = 0.0;
+                masteringHasTail = masteringHasTail || harshEnvelopeDb[b] != 0.0 || masteringTargetDb[b] != 0.0;
+                publishedTargetDb[b].store ((float) masteringTargetDb[b] * frameAppliedAmount, std::memory_order_relaxed);
+                // Skip even the addition at exact zero: old sessions keep their original arithmetic.
+                if (appliedHarsh != 0.0 || masteringTargetDb[b] != 0.0)
+                    proposed[b] = juce::jlimit (-maxTameCorrectionDb, maxCorrectionDb, proposed[b] - appliedHarsh + masteringTargetDb[b]);
+            }
+            publishedHarshDb.store ((float) maximumHarsh * frameAppliedAmount, std::memory_order_relaxed);
+        }
+
         for (size_t b = 0; b < (size_t) numBands; ++b)
             targetGainDb[b] = juce::jlimit (hopStartGainDb[b] - maxStepPerHopDb,
                                             hopStartGainDb[b] + maxStepPerHopDb,
                                             proposed[b]);
+    }
+
+    void BalanceModule::getTargetCorrectionDb (BandGains& out) const noexcept
+    {
+        for (size_t b = 0; b < out.size(); ++b) out[b] = publishedTargetDb[b].load (std::memory_order_relaxed);
     }
 
     void BalanceModule::publishGains() noexcept

@@ -508,7 +508,10 @@ namespace celadon
                     // 干路 × 同样延迟过的 Gain = 当初送进 Clip 级的样本（逐位相同）；减去湿路、除以 Gain 回到推响前的电平。
                     // 旁通时本级没有削掉任何东西、淡入保持段里没有输出：差值跟着交叉淡化与淡入归零。
                     const auto gain = delayedGainScratch[(size_t) i];
-                    const auto removed = gain > minimumDifferenceGain ? (dry * gain - out) / gain : 0.0f;
+                    // Match the separately rounded multiply used before Clip. A fused multiply-subtract
+                    // keeps sub-ULP product bits and would create a residual even when out is identical.
+                    const float gainedDry = dry * gain;
+                    const auto removed = gain > minimumDifferenceGain ? (gainedDry - out) / gain : 0.0f;
                     differenceChannels[ch][startSample + i] = juce::jlimit (-differenceCeiling, differenceCeiling, removed)
                                                               * (1.0f - bypassMix) * fade;
                 }

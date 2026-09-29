@@ -72,6 +72,11 @@ namespace celadon::ui
 
         // ---- 高级面板 ----
         advancedClay, advancedClayNote, comingSoon, subprojectLoudNotHarsh, subprojectTargetSpectrum, subprojectReleaseSafety,
+        advancedSubtitle, harshNote, harshStrength, transientPreserve, harshReduction, harshAutoNote, harshOffNote, harshManualNote,
+        targetNote, targetWarm, targetNeutral, targetBright, targetReference, targetStrength, targetCurveTitle,
+        referenceLearn, referenceCancel, referenceClear, referenceIdle, referenceWaiting, referenceLearning, referenceReady, referenceRouting,
+        codecMargin, codecNote, ditherLabel, ditherNote, previewLevel, previewStart, previewStop, previewNote, previewAttenuation,
+        releasePreview, returnToMaster, advancedFooter, lowBand, midBand, highBand,
 
         // ---- 设置面板 ----
         windowSize, screenSize, tooBig, sizeNote, reduceMotion, reduceMotionNote, language,

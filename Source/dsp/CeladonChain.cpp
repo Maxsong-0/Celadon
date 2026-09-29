@@ -43,6 +43,8 @@ namespace celadon
         inputMeter.prepare (spec);
         outputMeter.prepare (spec);
         controller.prepare (spec);
+        reference.prepare ({ spec.sampleRate, spec.maximumBlockSize, 2 });
+        releaseSafety.prepare (spec.sampleRate);
         listenSampleRate = spec.sampleRate;
         listenGain.reset (listenSampleRate, 0.02);
         resetListenMeasurement (true);
@@ -60,6 +62,8 @@ namespace celadon
         clay.reset();
         color.reset();
         limiter.reset();
+        releaseSafety.reset();
+        publishedPreviewGain.store (0.0f, std::memory_order_relaxed);
         controller.hostReset();
         resetListenMeasurement (false);
         differenceMix.setCurrentAndTargetValue (differenceMix.getTargetValue());
@@ -80,6 +84,8 @@ namespace celadon
         limiter.restartWithFadeIn (balance.getLatencySamples() + clay.getLatencySamples() + color.getLatencySamples());
 
         // 编排器按宿主 reset 清运行状态（分析窗口、校准当前子窗、保护偏移），已提交的画像与方案保留。
+        releaseSafety.reset();
+        publishedPreviewGain.store (0.0f, std::memory_order_relaxed);
         controller.hostReset();
         resetListenMeasurement (false);
 
@@ -89,6 +95,8 @@ namespace celadon
 
     void CeladonChain::setHostInfo (const glaze::HostInfo& info) noexcept
     {
+        offline = info.offline;
+        if (offline) previewRequested.store (false, std::memory_order_relaxed);
         controller.setHostInfo (info);
     }
 
@@ -101,7 +109,55 @@ namespace celadon
         const auto dryPath = hostBypassed || compareOriginal;
 
         // Listen 增益在输出测点之后独立施加，不反馈到方案、校准、保护层或响度估计。
-        effective = controller.beginBlock (newParams, dryPath);
+        auto adjusted = newParams;
+        auto& mastering = adjusted.mastering;
+        const auto unit = [] (float value) { return std::isfinite (value) ? juce::jlimit (0.0f, 1.0f, value * 0.01f) : 0.0f; };
+        const auto glaze = unit (newParams.glazePercent);
+        auto& advanced = adjusted.balance;
+        advanced.harshAmount = mastering.harshMode == HarshMode::off ? 0.0f
+                               : unit (mastering.harshAmount) * (mastering.harshMode == HarshMode::automatic ? glaze : 1.0f);
+        advanced.transientPreserve = unit (mastering.transientPreserve);
+        advanced.targetAmount = mastering.targetMode == TargetMode::off ? 0.0f
+                                : unit (mastering.targetAmount) * (mastering.targetMode == TargetMode::automatic ? glaze : 1.0f);
+        auto mode = mastering.targetMode;
+        if (mode == TargetMode::automatic)
+            mode = newParams.glazeStyle == 1 ? TargetMode::warm : (newParams.glazeStyle == 3 ? TargetMode::bright : TargetMode::neutral);
+        // Per-octave energy: neutral follows a gentle downward tilt, warm/bright bracket it.
+        advanced.targetSlopeDbPerOct = mode == TargetMode::warm ? -1.5f : (mode == TargetMode::bright ? 0.0f : -0.75f);
+        const auto referenceStatus = reference.getSnapshot();
+        advanced.hasTargetReference = mode == TargetMode::reference && referenceStatus.hasReference;
+        advanced.targetReferenceDb = referenceStatus.relativeDb;
+        if (mode == TargetMode::reference && ! referenceStatus.hasReference) advanced.targetAmount = 0.0f;
+        const auto margin = std::isfinite (mastering.codecMarginDb) ? juce::jlimit (0.0f, 1.5f, mastering.codecMarginDb) : 0.0f;
+        if (margin > 0.0f) adjusted.limit.ceilingDb = juce::jlimit (-4.5f, 0.0f, adjusted.limit.ceilingDb - margin);
+        effective = controller.beginBlock (adjusted, dryPath);
+        // Saved GLAZE execution snapshots predate these user-controlled additions.
+        effective.mastering = mastering;
+        effective.balance.harshAmount = advanced.harshAmount;
+        effective.balance.transientPreserve = advanced.transientPreserve;
+        effective.balance.targetAmount = advanced.targetAmount;
+        effective.balance.targetSlopeDbPerOct = advanced.targetSlopeDbPerOct;
+        effective.balance.hasTargetReference = advanced.hasTargetReference;
+        effective.balance.targetReferenceDb = advanced.targetReferenceDb;
+        effective.limit.ceilingDb = adjusted.limit.ceilingDb;
+        releaseAllowed = ! dryPath && ! auditionDifference;
+        if (! releaseAllowed || offline) previewRequested.store (false, std::memory_order_relaxed);
+        const auto nextPreview = releaseAllowed && ! offline && previewRequested.load (std::memory_order_relaxed);
+        // Hand over the CURRENT monitor gain, so independently moving Listen and preview ramps cannot cause a loudness bump.
+        if (nextPreview && ! previewActive)
+        {
+            releaseSafety.setCurrentPreviewGain ((double) listenGain.getCurrentValue());
+            listenGain.setCurrentAndTargetValue (1.0f);
+        }
+        else if (previewActive && ! nextPreview && releaseAllowed && ! offline && newParams.limit.listen)
+            listenGain.setCurrentAndTargetValue ((float) releaseSafety.getCurrentPreviewGain());
+        // Monitoring must be neutral from the first bypass/offline sample (no release tail into exports).
+        if (! releaseAllowed || (previewActive && ! nextPreview)) releaseSafety.reset();
+        previewActive = nextPreview;
+        const auto bits = releaseAllowed ? (mastering.dither == DitherMode::bits16 ? 16 : (mastering.dither == DitherMode::bits24 ? 24 : 0)) : 0;
+        releaseSafety.setParams (previewActive, mastering.previewTargetLufs, bits);
+        publishedCodecMargin.store (dryPath || adjusted.limit.bypass ? 0.0f : margin, std::memory_order_relaxed);
+        publishedDither.store (bits == 16 ? 1 : (bits == 24 ? 2 : 0), std::memory_order_relaxed);
 
         // 宿主旁通不另走一条路，而是把每个模块都置为旁通：各模块自带等长延迟的干路与 20 ms 交叉淡化
         // （Balance 零延迟，干路就是输入本身；Clay 的干路是 D 样本纯延迟线、再与湿路一起过峰值守护的 G 样本延迟，共 D + G），
@@ -124,7 +180,7 @@ namespace celadon
         clay.setParams (clayParams);
         color.setParams (colorParams);
         limiter.setParams (limitParams);
-        listenRequested = newParams.limit.listen;
+        listenRequested = newParams.limit.listen && ! previewActive;
         const auto bypassChanged = hostIsBypassed != dryPath;
         hostIsBypassed = dryPath;
         listenComparing = compareOriginal && ! hostBypassed;
@@ -235,7 +291,27 @@ namespace celadon
         else if (differenceInvolved())
             differenceMix.skip (io.getNumSamples());   // 声道数对不上（不该发生）：不试听，但交叉淡化照样走完，不卡在「在用」
 
+        if (releaseAllowed && ! differenceInvolved() && ! nonFinite)
+            releaseSafety.process (io, outputMeter.getIntegratedLufs());
+        publishedPreviewGain.store (releaseSafety.getPreviewGainDb(), std::memory_order_relaxed);
         return nonFinite;
+    }
+
+    MasteringStatus CeladonChain::getMasteringStatus() const noexcept
+    {
+        MasteringStatus result;
+        const auto ref = reference.getSnapshot();
+        result.referenceState = static_cast<ReferenceState> (ref.state);
+        result.referenceSeconds = ref.seconds;
+        result.hasReference = ref.hasReference;
+        result.sidechainConnected = ref.sidechainConnected;
+        result.previewEnabled = isReleasePreviewEnabled();
+        result.harshReductionDb = balance.getHarshReductionDb();
+        result.previewGainDb = publishedPreviewGain.load (std::memory_order_relaxed);
+        result.codecMarginDb = publishedCodecMargin.load (std::memory_order_relaxed);
+        result.dither = static_cast<DitherMode> (publishedDither.load (std::memory_order_relaxed));
+        balance.getTargetCorrectionDb (result.targetCorrectionDb);
+        return result;
     }
 
     void CeladonChain::applyDifferenceAudition (juce::AudioBuffer<float>& io, bool outputCleared)

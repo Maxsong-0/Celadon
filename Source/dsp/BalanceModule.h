@@ -73,6 +73,10 @@ namespace celadon
             bool  bypass   = false;
             float automaticRecover = 0.0f; // 0 ～ recover：Recover 中由自动编排加入的份额；仅这部分保护滚降/短暂缺口
             float automaticTame = 0.0f;    // 0 ～ tame：Tame 中的自动份额；逐段持续许可/起音保护，新增削减最多 2.5 dB
+            float harshAmount = 0.0f, transientPreserve = 0.5f;
+            float targetAmount = 0.0f, targetSlopeDbPerOct = 0.0f;
+            bool hasTargetReference = false;
+            std::array<float, 27> targetReferenceDb {};
         };
 
         using BandGains = std::array<float, (size_t) numBands>;
@@ -95,6 +99,8 @@ namespace celadon
 
         // 各段当前修正量 G[b]（dB，正 = 提升、负 = 压下）。界面线程调用，无锁（每段一个原子变量，每 hop 更新）。
         void getBandGainsDb (BandGains& out) const noexcept;
+        void getTargetCorrectionDb (BandGains& out) const noexcept;
+        float getHarshReductionDb() const noexcept { return publishedHarshDb.load (std::memory_order_relaxed); }
 
         // 第 band 段的 1/3 倍频程中心频率（40, 50, 63, 80 … 12500, 16000 Hz）。
         static float getBandCentreHz (int band) noexcept;
@@ -261,6 +267,10 @@ namespace celadon
         PerBand<double> automaticDeficitSeconds {}; // 自动 Recover 的连续缺口时长；仅利用现有频谱，每 hop 更新
         PerBand<double> automaticPeakSeconds {};    // 自动 Tame 的连续局部峰时长（起音保护期间不累计）
         PerBand<double> automaticOnsetHoldSeconds {};
+        PerBand<double> harshEnvelopeDb {}, masteringTargetDb {}, masteringPreviousPower {}, masteringOnsetHold {};
+        std::array<std::atomic<float>, 27> publishedTargetDb {};
+        std::atomic<float> publishedHarshDb { 0.0f };
+        bool masteringHasTail = false;
         PerBand<double> maskingBoostDb {};         // 上行掩蔽提升的平滑状态；Recover/Tame 不同时打开时保持 0
         PerBand<double> harmonicProtection {};     // 0 ～ 1，清晰谐波组的平滑保护证据；仅缩小自动 Tame 份额
         PerBand<double> previousBandPower {};       // 起音检测用原始帧，避免慢测量的余尾继续获得自动许可

@@ -1,0 +1,8 @@
+{
+  "recorded_at": "2026-09-28T21:52:16.665373-07:00",
+  "timing_note": "Unpaced throughput benchmark; USER_INTERACTIVE QoS; macOS background apps/services active. No compilation from this task during timing. All 3 passes retained.",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0\nBuildVersion:\t\t26A428",
+  "cpu": "unavailable",
+  "logical_cpu": "unavailable",
+  "power": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=23134307)\t100%; finishing charge; 0:00 remaining present: true"
+}

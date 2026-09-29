@@ -9,6 +9,8 @@
 #include "Popovers.h"
 
 #include "CeladonLookAndFeel.h"
+#include "HelpText.h"
+#include "../ParameterIds.h"
 
 #include <cmath>
 
@@ -412,96 +414,302 @@ namespace celadon::ui
     }
 
     //==============================================================================
-    namespace advanced
+    namespace
     {
-        constexpr float titleTop = 46.0f, clayTitleHeight = 20.0f, noteGap = 4.0f, dividerGap = 14.0f, rowHeight = 32.0f;
-        constexpr float comingSoonAlpha = 0.35f;   // ADR-005：还没做的项目灰显 35 %
-        constexpr Text subprojects[] = { Text::subprojectLoudNotHarsh, Text::subprojectTargetSpectrum, Text::subprojectReleaseSafety };
+        juce::RangedAudioParameter& advancedParameter (juce::AudioProcessorValueTreeState& state, const char* id)
+        {
+            auto* parameter = state.getParameter (id);
+            jassert (parameter != nullptr);
+            return *parameter;
+        }
+
+        float finiteReading (float value) noexcept
+        {
+            return std::isfinite (value) ? value : 0.0f;
+        }
+
+        void drawAdvancedNote (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
+                               juce::Colour colour = palette::ink2, float size = 12.5f)
+        {
+            juce::AttributedString attributed;
+            attributed.setWordWrap (juce::AttributedString::byWord);
+            attributed.setLineSpacing (3.0f);
+            attributed.append (text, uiFont (size), colour);
+            juce::TextLayout layout;
+            layout.createLayout (attributed, area.getWidth());
+            layout.draw (g, area);
+        }
     }
 
-    AdvancedPanel::AdvancedPanel()
+    AdvancedPanel::AdvancedPanel (juce::AudioProcessorValueTreeState& state, InteractionHost& host)
+        : harshAmount (advancedParameter (state, param::masterHarshAmount), host, false),
+          transientPreserve (advancedParameter (state, param::masterTransient), host, false),
+          targetAmount (advancedParameter (state, param::masterTargetAmount), host, false),
+          codecMargin (advancedParameter (state, param::masterCodecMarginDb), host, false),
+          previewLufs (advancedParameter (state, param::masterPreviewLufs), host, false)
     {
-        layoutText();
+        previewLufs.setValueWidth (86);
+        tabs.setComponentID (uiid::masterTabs);
+        harshMode.setComponentID (param::masterHarshMode);
+        harshAmount.setComponentID (param::masterHarshAmount);
+        transientPreserve.setComponentID (param::masterTransient);
+        targetMode.setComponentID (param::masterTargetMode);
+        targetAmount.setComponentID (param::masterTargetAmount);
+        codecMargin.setComponentID (param::masterCodecMarginDb);
+        dither.setComponentID (param::masterDither);
+        previewLufs.setComponentID (param::masterPreviewLufs);
+        targetCurve.setComponentID (uiid::masterCurve);
+        learn.setComponentID (uiid::masterLearn);
+        cancel.setComponentID (uiid::masterCancel);
+        clear.setComponentID (uiid::masterClear);
+        preview.setComponentID (uiid::masterPreview);
+
+        juce::Component* controls[] = { &tabs, &harshMode, &harshAmount, &transientPreserve, &targetMode, &targetAmount,
+                                       &codecMargin, &dither, &previewLufs, &targetCurve, &learn, &cancel, &clear, &preview };
+        for (auto* control : controls)
+            addAndMakeVisible (*control);
+
+        harshMode.setOptions ({ "", "", "" });
+        targetMode.setOptions ({ "", "", "", "", "", "" });
+        dither.setOptions ({ "", "", "" });
+        harshMode.setSelectedColours (0, { palette::violetSoft, palette::violet });
+        targetMode.setSelectedColours (1, { palette::violetSoft, palette::violet });
+        tabs.setFont (uiFont (13.0f, Weight::medium));
+        harshMode.setFont (uiFont (12.5f, Weight::medium));
+        targetMode.setFont (uiFont (12.5f, Weight::medium));
+        dither.setFont (uiFont (12.5f, Weight::medium));
+
+        harshAttachment = std::make_unique<SegmentedAttachment> (harshMode, advancedParameter (state, param::masterHarshMode));
+        targetAttachment = std::make_unique<SegmentedAttachment> (targetMode, advancedParameter (state, param::masterTargetMode));
+        ditherAttachment = std::make_unique<SegmentedAttachment> (dither, advancedParameter (state, param::masterDither));
+        harshAttachment->onChange = [this] (int) { refreshControls(); repaint(); };
+        targetAttachment->onChange = [this] (int) { refreshControls(); repaint(); };
+        tabs.onSelect = [this] (int index) { page = index; refreshControls(); repaint(); };
+        learn.onClick = [this] { if (onLearnReference != nullptr) onLearnReference(); };
+        cancel.onClick = [this] { if (onCancelReference != nullptr) onCancelReference(); };
+        clear.onClick = [this] { if (onClearReference != nullptr) onClearReference(); };
+        preview.onClick = [this] { if (onPreviewChange != nullptr) onPreviewChange (! status.previewEnabled); };
+
+        setLanguage (host.getLanguage());
+        setSize (cardWidth + 2 * shadowMargin, cardHeight + 2 * shadowMargin);
     }
 
     void AdvancedPanel::setLanguage (Language newLanguage)
     {
         language = newLanguage;
-        layoutText();
+        tabs.setOptions ({ tr (Text::subprojectLoudNotHarsh, language), tr (Text::subprojectTargetSpectrum, language),
+                           tr (Text::subprojectReleaseSafety, language) });
+        harshMode.setOptions ({ tr (Text::modeAuto, language), tr (Text::modeOff, language), tr (Text::modeManual, language) });
+        targetMode.setOptions ({ tr (Text::modeOff, language), tr (Text::modeAuto, language), tr (Text::targetWarm, language),
+                                tr (Text::targetNeutral, language), tr (Text::targetBright, language), tr (Text::targetReference, language) });
+        dither.setOptions ({ tr (Text::modeOff, language), "16-bit", "24-bit" });
+        harshAmount.setLabel (tr (Text::harshStrength, language));
+        transientPreserve.setLabel (tr (Text::transientPreserve, language));
+        targetAmount.setLabel (tr (Text::targetStrength, language));
+        codecMargin.setLabel (tr (Text::codecMargin, language));
+        previewLufs.setLabel (tr (Text::previewLevel, language));
+        learn.setText (tr (Text::referenceLearn, language));
+        cancel.setText (tr (Text::referenceCancel, language));
+        clear.setText (tr (Text::referenceClear, language));
+        targetCurve.setLanguage (language);
+
+        juce::Component* controls[] = { &tabs, &harshMode, &harshAmount, &transientPreserve, &targetMode, &targetAmount,
+                                       &codecMargin, &dither, &previewLufs, &targetCurve, &learn, &cancel, &clear, &preview };
+        for (auto* control : controls)
+            if (auto* tooltip = dynamic_cast<juce::SettableTooltipClient*> (control))
+                tooltip->setTooltip (help::tooltipFor (control->getComponentID(), language));
+
+        refreshControls();
         repaint();
     }
 
-    void AdvancedPanel::layoutText()
+    void AdvancedPanel::setStatus (const celadon::MasteringStatus& newStatus)
     {
-        juce::AttributedString text;
-        text.setWordWrap (juce::AttributedString::byWord);
-        text.setLineSpacing (4.0f);
-        text.append (tr (Text::advancedClayNote, language), uiFont (11.5f), palette::ink3);
-        clayNote.createLayout (text, (float) cardWidth - 2.0f * padding);
+        const auto oldReferenceText = referenceStatusText();
+        const bool readingsChanged = juce::String (finiteReading (status.harshReductionDb), 1) != juce::String (finiteReading (newStatus.harshReductionDb), 1)
+                                  || juce::String (finiteReading (status.previewGainDb), 1) != juce::String (finiteReading (newStatus.previewGainDb), 1);
+        const bool controlsChanged = status.hasReference != newStatus.hasReference || status.referenceState != newStatus.referenceState
+                                  || status.previewEnabled != newStatus.previewEnabled || status.sidechainConnected != newStatus.sidechainConnected;
+        status = newStatus;
+        targetCurve.setValues (status.targetCorrectionDb);
+        if (controlsChanged)
+            refreshControls();
+        if (readingsChanged || controlsChanged || oldReferenceText != referenceStatusText())
+            repaint();
+    }
 
-        using namespace advanced;
-        const auto height = titleTop + clayTitleHeight + noteGap + clayNote.getHeight() + dividerGap + 1.0f + dividerGap * 0.5f
-                          + rowHeight * (float) std::size (subprojects) + padding * 0.5f;
-        cardHeight = (int) std::ceil (height);
-        setSize (cardWidth + 2 * shadowMargin, cardHeight + 2 * shadowMargin);
+    void AdvancedPanel::refreshControls()
+    {
+        for (auto* control : std::initializer_list<juce::Component*> { &harshMode, &harshAmount, &transientPreserve })
+            control->setVisible (page == 0);
+        for (auto* control : std::initializer_list<juce::Component*> { &targetMode, &targetAmount, &targetCurve, &learn, &cancel, &clear })
+            control->setVisible (page == 1);
+        for (auto* control : std::initializer_list<juce::Component*> { &codecMargin, &dither, &previewLufs, &preview })
+            control->setVisible (page == 2);
+
+        const auto harshActive = harshMode.getSelected() != (int) celadon::HarshMode::off;
+        harshAmount.setEnabled (harshActive);
+        transientPreserve.setEnabled (harshActive);
+        harshAmount.setAlpha (harshActive ? 1.0f : 0.4f);
+        transientPreserve.setAlpha (harshActive ? 1.0f : 0.4f);
+        const auto targetActive = targetMode.getSelected() != (int) celadon::TargetMode::off;
+        targetAmount.setEnabled (targetActive);
+        targetAmount.setAlpha (targetActive ? 1.0f : 0.4f);
+
+        const auto learning = status.referenceState == celadon::ReferenceState::learning
+                           || status.referenceState == celadon::ReferenceState::waitingForSidechain;
+        learn.setEnabled (! learning);
+        learn.setAlpha (learning ? 0.4f : 1.0f);
+        cancel.setEnabled (learning);
+        cancel.setAlpha (learning ? 1.0f : 0.4f);
+        clear.setEnabled (status.hasReference && ! learning);
+        clear.setAlpha (clear.isEnabled() ? 1.0f : 0.4f);
+        preview.setText (tr (status.previewEnabled ? Text::previewStop : Text::previewStart, language));
+        preview.setLook (status.previewEnabled ? PillButton::Look::normal : PillButton::Look::off);
+    }
+
+    juce::String AdvancedPanel::referenceStatusText() const
+    {
+        if (status.referenceState == celadon::ReferenceState::waitingForSidechain)
+            return tr (Text::referenceWaiting, language);
+        if (status.referenceState == celadon::ReferenceState::learning)
+        {
+            const auto seconds = std::isfinite (status.referenceSeconds) ? juce::jmax (0.0, status.referenceSeconds) : 0.0;
+            return trFormat (Text::referenceLearning, language, { juce::String (seconds, 1) });
+        }
+        return tr (status.hasReference ? Text::referenceReady : Text::referenceIdle, language);
+    }
+
+    void AdvancedPanel::resized()
+    {
+        const auto card = getCardBounds().toNearestInt();
+        const auto x = card.getX() + 22, y = card.getY(), width = card.getWidth() - 44;
+        tabs.setBounds (x, y + 62, width, 34);
+        harshMode.setBounds (x, y + 166, 300, 34);
+        harshAmount.setBounds (x, y + 226, width, 30);
+        transientPreserve.setBounds (x, y + 270, width, 30);
+        targetMode.setBounds (x, y + 130, width, 32);
+        targetAmount.setBounds (x, y + 173, width, 28);
+        targetCurve.setBounds (x, y + 228, width, 72);
+        learn.setBounds (x, y + 368, 168, 30);
+        cancel.setBounds (x + 180, y + 368, 154, 30);
+        clear.setBounds (x + 346, y + 368, 154, 30);
+        codecMargin.setBounds (x, y + 112, width, 30);
+        dither.setBounds (x + 250, y + 199, width - 250, 30);
+        previewLufs.setBounds (x, y + 296, width - 232, 30);
+        preview.setBounds (x + width - 220, y + 295, 220, 32);
     }
 
     void AdvancedPanel::paint (juce::Graphics& g)
     {
-        using namespace advanced;
         PopoverCard::paint (g);
-
         const auto card = getCardBounds();
-        const auto left = card.getX() + padding;
-        const auto innerWidth = card.getWidth() - 2.0f * padding;
-
-        g.setFont (uiFont (13.0f, Weight::semibold));
+        const auto left = card.getX() + 22.0f, top = card.getY(), width = card.getWidth() - 44.0f;
+        const auto area = [=] (float y, float height) { return juce::Rectangle<float> (left, top + y, width, height); };
         g.setColour (palette::ink);
-        g.drawText (tr (Text::advanced, language), juce::Rectangle<float> (left, card.getY() + 12.0f, 200.0f, 24.0f),
-                    juce::Justification::centredLeft, false);
+        g.setFont (uiFont (15.0f, Weight::semibold));
+        g.drawText (tr (Text::advanced, language), area (13.0f, 23.0f), juce::Justification::centredLeft, false);
         paintCloseButton (g);
+        drawAdvancedNote (g, tr (Text::advancedSubtitle, language), area (38.0f, 20.0f), palette::ink3, 11.5f);
 
-        // 修坯：已经做好，在下方 CLAY 卡片上（小青点 = 可用）。
-        auto y = card.getY() + titleTop;
-        g.setColour (palette::c500);
-        g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ left + 3.0f, y + clayTitleHeight * 0.5f }));
-        g.setFont (uiFont (12.5f, Weight::semibold));
-        g.setColour (palette::ink);
-        g.drawText (tr (Text::advancedClay, language), juce::Rectangle<float> (left + 14.0f, y, innerWidth - 14.0f, clayTitleHeight),
-                    juce::Justification::centredLeft, false);
-        y += clayTitleHeight + noteGap;
-        clayNote.draw (g, juce::Rectangle<float> (left, y, innerWidth, clayNote.getHeight()));
-        y += clayNote.getHeight() + dividerGap;
+        if (page == 0)
+        {
+            drawAdvancedNote (g, tr (Text::harshNote, language), area (117.0f, 36.0f), palette::ink, 14.0f);
+            g.setFont (monoFont (12.0f, Weight::medium));
+            g.setColour (palette::c700);
+            g.drawText (trFormat (Text::harshReduction, language, { juce::String (juce::jmax (0.0f, finiteReading (status.harshReductionDb)), 1) }),
+                        area (174.0f, 20.0f).withTrimmedLeft (326.0f), juce::Justification::centredRight, false);
+            const auto note = harshMode.getSelected() == (int) celadon::HarshMode::automatic ? Text::harshAutoNote
+                            : harshMode.getSelected() == (int) celadon::HarshMode::off ? Text::harshOffNote : Text::harshManualNote;
+            g.setColour (palette::spectrumFloor);
+            g.fillRoundedRectangle (area (325.0f, 62.0f), 8.0f);
+            drawAdvancedNote (g, tr (note, language), area (339.0f, 40.0f).reduced (14.0f, 0.0f));
+        }
+        else if (page == 1)
+        {
+            drawAdvancedNote (g, tr (Text::targetNote, language), area (108.0f, 20.0f));
+            g.setFont (uiFont (11.5f, Weight::medium));
+            g.setColour (palette::ink3);
+            g.drawText (tr (Text::targetCurveTitle, language), area (207.0f, 19.0f), juce::Justification::centredLeft, false);
+            g.setColour (palette::c700);
+            g.setFont (uiFont (12.5f, Weight::medium));
+            g.drawText (referenceStatusText(), area (308.0f, 22.0f), juce::Justification::centredLeft, true);
+            drawAdvancedNote (g, tr (Text::referenceRouting, language), area (334.0f, 32.0f), palette::ink3, 11.5f);
+        }
+        else
+        {
+            drawAdvancedNote (g, tr (Text::codecNote, language), area (151.0f, 34.0f), palette::ink3, 12.0f);
+            g.setColour (palette::divider);
+            g.drawHorizontalLine ((int) (top + 190.0f), left, left + width);
+            g.setColour (palette::ink);
+            g.setFont (uiFont (12.5f, Weight::medium));
+            g.drawText (tr (Text::ditherLabel, language), area (202.0f, 23.0f).withWidth (240.0f), juce::Justification::centredLeft, false);
+            drawAdvancedNote (g, tr (Text::ditherNote, language), area (240.0f, 35.0f), palette::ink3, 12.0f);
+            g.setColour (palette::divider);
+            g.drawHorizontalLine ((int) (top + 284.0f), left, left + width);
+            drawAdvancedNote (g, tr (Text::previewNote, language), area (339.0f, 36.0f), palette::ink2, 12.0f);
+            if (status.previewEnabled)
+            {
+                g.setColour (palette::c700);
+                g.setFont (monoFont (11.5f));
+                g.drawText (trFormat (Text::previewAttenuation, language, { juce::String (std::abs (finiteReading (status.previewGainDb)), 1) }),
+                            area (378.0f, 19.0f), juce::Justification::centredLeft, false);
+            }
+        }
 
         g.setColour (palette::panelBorder);
-        g.fillRect (left, y, innerWidth, 1.0f);
-        y += 1.0f + dividerGap * 0.5f;
+        g.drawHorizontalLine ((int) (top + 409.0f), left, left + width);
+        drawAdvancedNote (g, tr (Text::advancedFooter, language), area (417.0f, 16.0f), palette::ink3, 11.0f);
+    }
 
-        // 还在设计中的三项：名字 35 %、右边一枚描边的「即将推出」。
-        const auto badgeText = tr (Text::comingSoon, language);
-        const auto badgeFont = uiFont (11.0f, Weight::medium);
-        const auto badgeWidth = textWidth (badgeFont, badgeText) + 20.0f;
-
-        for (const auto key : subprojects)
+    void AdvancedPanel::TargetCurve::setValues (const std::array<float, 27>& newValues)
+    {
+        bool changed = false;
+        for (size_t i = 0; i < values.size(); ++i)
         {
-            const juce::Rectangle<float> row (left, y, innerWidth, rowHeight);
-            g.setColour (palette::ink4.withAlpha (comingSoonAlpha * 2.0f));
-            g.drawEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ left + 3.0f, row.getCentreY() }), 1.0f);
-            g.setFont (uiFont (12.5f, Weight::medium));
-            g.setColour (palette::ink.withAlpha (comingSoonAlpha));
-            g.drawText (tr (key, language), row.withTrimmedLeft (14.0f).withTrimmedRight (badgeWidth + 8.0f), juce::Justification::centredLeft, true);
-
-            const auto badge = juce::Rectangle<float> (badgeWidth, 20.0f).withCentre ({ row.getRight() - badgeWidth * 0.5f, row.getCentreY() });
-            g.setColour (palette::panel);
-            g.fillRoundedRectangle (badge, 10.0f);
-            g.setColour (palette::relearnBorder);
-            g.drawRoundedRectangle (badge.reduced (0.5f), 9.5f, 1.0f);
-            g.setFont (badgeFont);
-            g.setColour (palette::c700);
-            g.drawText (badgeText, badge, juce::Justification::centred, false);
-
-            y += rowHeight;
+            const auto value = std::round (finiteReading (newValues[i]) * 50.0f) / 50.0f;
+            changed = changed || value != values[i];
+            values[i] = value;
         }
+        if (changed)
+            repaint();
+    }
+
+    void AdvancedPanel::TargetCurve::paint (juce::Graphics& g)
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        g.setColour (palette::spectrumFloor);
+        g.fillRoundedRectangle (bounds, 7.0f);
+        const auto plot = bounds.reduced (32.0f, 10.0f).withTrimmedBottom (8.0f);
+        const auto centre = plot.getCentreY();
+        g.setColour (palette::divider);
+        g.drawHorizontalLine (juce::roundToInt (centre), plot.getX(), plot.getRight());
+        for (int division = 0; division <= 4; ++division)
+        {
+            const auto x = plot.getX() + plot.getWidth() * (float) division / 4.0f;
+            g.setColour (palette::track);
+            g.drawVerticalLine (juce::roundToInt (x), plot.getY(), plot.getBottom());
+        }
+        juce::Path line;
+        for (size_t i = 0; i < values.size(); ++i)
+        {
+            const auto x = plot.getX() + plot.getWidth() * (float) i / (float) (values.size() - 1);
+            const auto y = centre - juce::jlimit (-6.0f, 6.0f, values[i]) * plot.getHeight() / 12.0f;
+            if (i == 0) line.startNewSubPath (x, y);
+            else line.lineTo (x, y);
+        }
+        g.setColour (palette::c600);
+        g.strokePath (line, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setFont (monoFont (9.5f));
+        g.setColour (palette::ink3);
+        g.drawText ("+6", bounds.withWidth (28.0f).withHeight (20.0f), juce::Justification::centredRight, false);
+        g.drawText ("-6", juce::Rectangle<float> (0.0f, (float) getHeight() - 20.0f, 28.0f, 20.0f), juce::Justification::centredRight, false);
+        g.drawText ("dB", juce::Rectangle<float> ((float) getWidth() - 28.0f, 0.0f, 24.0f, 20.0f), juce::Justification::centredRight, false);
+        g.setFont (uiFont (9.5f));
+        const auto labels = juce::Rectangle<float> (plot.getX(), bounds.getBottom() - 14.0f, plot.getWidth(), 12.0f);
+        g.drawText (tr (Text::lowBand, language), labels, juce::Justification::centredLeft, false);
+        g.drawText (tr (Text::midBand, language), labels, juce::Justification::centred, false);
+        g.drawText (tr (Text::highBand, language), labels, juce::Justification::centredRight, false);
     }
 
     void AdvancedPanel::mouseUp (const juce::MouseEvent& e)
