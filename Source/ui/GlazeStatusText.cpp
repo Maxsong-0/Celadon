@@ -41,15 +41,70 @@ namespace celadon::ui::glazestatus
         }
 
         // 已锁定里的风格：选「自动」写「自动→温润」（此刻偏向哪种），选定某种就只写它。
-        juce::String styleText (const View& view)
+        juce::String styleText (const View& view, Language language)
         {
             if (view.chosenStyle != glaze::Style::automatic)
-                return styleName (view.chosenStyle);
+                return styleName (view.chosenStyle, language);
 
             if (view.resolvedStyle == glaze::Style::automatic)   // 编排器还没给出偏向（不该发生）：只写「自动」
-                return styleName (glaze::Style::automatic);
+                return styleName (glaze::Style::automatic, language);
 
-            return styleName (glaze::Style::automatic) + utf8 ("→") + styleName (view.resolvedStyle);
+            return styleName (glaze::Style::automatic, language) + utf8 ("→") + styleName (view.resolvedStyle, language);
+        }
+
+        // 英文版（v0.1.8.0）：与中文逐条对应，段的划分相同（「 · 」连接）。
+        juce::String englishTextFor (const View& view)
+        {
+            const auto dot = utf8 (" \xc2\xb7 ");
+
+            switch (view.kind)
+            {
+                case Kind::unlearned:
+                    return view.glazeActive
+                         ? "Not learned" + dot + "listens on playback (export uses a safe plan)"
+                         : "Not learned" + dot + "listens on playback";
+
+                case Kind::unlearnedExported:
+                    return "Not learned, export used a safe plan";
+
+                case Kind::listening:
+                    return view.requiredSeconds > 0
+                         ? "Listening " + juce::String (view.listenedSeconds) + " / " + juce::String (view.requiredSeconds) + " s"
+                         : "Listening " + juce::String (view.listenedSeconds) + " s";
+
+                case Kind::calibrating:
+                    return "Calibrating";
+
+                case Kind::calibrationPaused:
+                    return view.pausedByTransport ? juce::String ("Calibration paused (stopped)")
+                                                  : juce::String ("Calibration paused (bypassed)");
+
+                case Kind::awaitingCalibration:
+                    return "Locked" + dot + "awaiting calibration (conditions changed)";
+
+                case Kind::locked:
+                {
+                    auto text = "Locked" + dot + (view.olderPlan ? juce::String ("legacy plan") : styleText (view, Language::english));
+
+                    if (view.hasTarget)
+                        text << dot << "Target " << formatTenths (view.targetTenthsLufs) << " LUFS";
+
+                    return text;
+                }
+
+                case Kind::planLimited:
+                    return view.yieldedTenthsDb > 0
+                         ? "Plan limited" + dot + "backed off " + formatTenths (view.yieldedTenthsDb) + " dB"
+                         : juce::String ("Plan limited");
+
+                case Kind::limitedByManual:
+                    return "Limited by manual settings";
+
+                case Kind::profileMismatch:
+                    return "Music differs from what was learned" + dot + "relearn suggested";
+            }
+
+            return {};
         }
     }
 
@@ -217,7 +272,7 @@ namespace celadon::ui::glazestatus
 
             case Kind::locked:
             {
-                auto text = utf8 ("已锁定 · ") + (view.olderPlan ? utf8 ("沿用旧版方案") : styleText (view));
+                auto text = utf8 ("已锁定 · ") + (view.olderPlan ? utf8 ("沿用旧版方案") : styleText (view, Language::chinese));
 
                 if (view.hasTarget)
                     text << utf8 (" · 目标 ") << formatTenths (view.targetTenthsLufs) << " LUFS";
@@ -238,6 +293,37 @@ namespace celadon::ui::glazestatus
         }
 
         return {};
+    }
+
+    juce::String textFor (const View& view, Language language)
+    {
+        return language == Language::english ? englishTextFor (view) : textFor (view);
+    }
+
+    juce::StringArray segmentsFor (const View& view, Language language)
+    {
+        juce::StringArray segments;
+        const auto text = textFor (view, language);
+        const auto separator = utf8 (" \xc2\xb7 ");
+        int start = 0;
+
+        // 按「 · 」拆（StringArray::addTokens 会把多字节分隔符当成字符集合，这里自己找）。
+        for (;;)
+        {
+            const auto at = text.indexOf (start, separator);
+
+            if (at < 0)
+            {
+                segments.add (text.substring (start));
+                break;
+            }
+
+            segments.add (text.substring (start, at));
+            start = at + separator.length();
+        }
+
+        segments.removeEmptyStrings();
+        return segments;
     }
 
     Tone toneFor (Kind kind) noexcept
@@ -266,15 +352,22 @@ namespace celadon::ui::glazestatus
 
     juce::String styleName (glaze::Style style)
     {
+        return styleName (style, Language::chinese);
+    }
+
+    juce::String styleName (glaze::Style style, Language language)
+    {
+        const auto english = language == Language::english;
+
         switch (style)
         {
-            case glaze::Style::automatic: return utf8 ("自动");
-            case glaze::Style::warm:      return utf8 ("温润");
-            case glaze::Style::punchy:    return utf8 ("冲击");
-            case glaze::Style::clean:     return utf8 ("通透");
+            case glaze::Style::automatic: return english ? juce::String ("Auto")   : utf8 ("自动");
+            case glaze::Style::warm:      return english ? juce::String ("Warm")   : utf8 ("温润");
+            case glaze::Style::punchy:    return english ? juce::String ("Punchy") : utf8 ("冲击");
+            case glaze::Style::clean:     return english ? juce::String ("Clean")  : utf8 ("通透");
         }
 
-        return utf8 ("自动");
+        return english ? juce::String ("Auto") : utf8 ("自动");
     }
 
     glaze::Style styleFromParameterValue (float rawValue) noexcept

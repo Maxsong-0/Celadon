@@ -28,6 +28,13 @@
     矩形平均换成两级串联（三角窗），拐角连续，稳态增益不变。短于约 70 ms 的过载结束后，慢包络跟着快包络松开，
     不把鼓点后面的声音按住；持续过载仍由慢包络压住泵感。手动 Release 不走这条瞬态分支。
 
+    试听差值（v0.1.8.0，界面 LIMIT 卡片的耳机）：process 可顺带写出「本级削掉的部分」——
+      差值 = (加了 Gain 的输入 − 本级湿路输出) ÷ Gain，按推响前的电平（Gain、Clip、限幅、硬钳位一起算）。
+      「加了 Gain 的输入」由等长干路（旁通用的那条，= 输入延迟整个本级延迟）乘同样延迟过的逐样本 Gain 重建，
+      与当初送进 Clip 级的样本逐位相同：没有衰减、Clip = 0 时差值恰为 0。纯增益衰减时差值 = 输入 ×（1 − 衰减倍数），
+      不会比输入响；再按此刻的 Ceiling 硬钳位兜底。旁通、淡入保持段里差值跟着交叉淡化 / 淡入归零。
+      只多一条 Gain 延迟线（一直在跑，打开时不必预热）；不传差值缓冲时输出、状态、统计与原来逐位相同。
+
     只依赖 juce_dsp，可在 Linux 上无头编译做自动测试。
 
   ==============================================================================
@@ -82,7 +89,9 @@ namespace celadon
         void setParams (const Params& newParams);
 
         // 原地处理；样本数可以超过 prepare 时的块大小（内部会切块）。
-        void process (juce::AudioBuffer<float>& io);
+        // difference 非空时同时写出试听差值（见文件头）：声道数、样本数都不少于 io 的；本级没处理的声道写 0。
+        // 传不传 difference，io 的输出、内部状态与统计都逐位相同。
+        void process (juce::AudioBuffer<float>& io, juce::AudioBuffer<float>* difference = nullptr);
 
         // 当前设置下的总延迟（样本）。setParams 之后立即反映新的 Lookahead。
         int getLatencySamples() const noexcept;
@@ -147,7 +156,7 @@ namespace celadon
         };
 
         //==============================================================================
-        void processChunk (juce::AudioBuffer<float>& io, int startSample, int numSamples);
+        void processChunk (juce::AudioBuffer<float>& io, int startSample, int numSamples, juce::AudioBuffer<float>* difference);
         void processClipStage (juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse);
         void processLimiterCore (juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse);
 
@@ -240,6 +249,10 @@ namespace celadon
         // 旁通
         std::vector<DelayLine> bypassDryDelays;
         juce::AudioBuffer<float> bypassDryScratch;
+
+        // 试听差值：逐样本的平滑后 Gain 延迟整个本级延迟，与 bypassDryScratch 的干路对齐（见文件头）。
+        DelayLine gainDelay;
+        std::vector<float> delayedGainScratch;   // [maxBlockSize]：本段每个输出样本对应的 Gain
 
         // 20 ms 平滑（设计规格-总体「参数」）
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> gainSmoothed;

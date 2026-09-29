@@ -37,6 +37,7 @@
 #include <juce_core/juce_core.h>
 
 #include "../dsp/GlazeTypes.h"
+#include "Localisation.h"
 
 namespace celadon::ui::glazestatus
 {
@@ -81,13 +82,19 @@ namespace celadon::ui::glazestatus
     // chosenStyle = 参数 glaze_style；listenOn 为调用接口兼容保留，试听补偿不再暂停校准。
     View classify (const glaze::Status& status, float glazePercent, glaze::Style chosenStyle, bool listenOn) noexcept;
 
-    // 文字（数字保留一位小数，负号用 U+2212「−」，与规格的写法一致）。
+    // 文字（数字保留一位小数，负号用 U+2212「−」，与规格的写法一致）。不带语言参数 = 中文（v0.1.8.0 起另有英文）。
+    // 各段之间一律用「 · 」连接：界面顶部的状态胶囊按它拆成几段、分别上色（见 segmentsFor）。
     juce::String textFor (const View& view);
+    juce::String textFor (const View& view, Language language);
+
+    // 状态胶囊的几段（textFor 按「 · 」拆开）：已锁定一类是「阶段 · 风格 · 目标」，其余多为一两段。
+    juce::StringArray segmentsFor (const View& view, Language language);
 
     Tone toneFor (Kind kind) noexcept;
 
-    // 风格的中文名：自动 / 温润 / 冲击 / 通透（与风格胶囊上的字相同）。
+    // 风格名：自动 / 温润 / 冲击 / 通透（与风格胶囊上的字相同）；英文 Auto / Warm / Punchy / Clean。
     juce::String styleName (glaze::Style style);
+    juce::String styleName (glaze::Style style, Language language);
 
     // 参数 glaze_style 的原始值（选项下标的 float）→ 风格：取整方式同 AudioParameterChoice::getIndex，钳到 0 ～ 3，非有限值按「自动」。
     glaze::Style styleFromParameterValue (float rawValue) noexcept;

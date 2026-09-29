@@ -46,6 +46,12 @@ namespace celadon
         listenSampleRate = spec.sampleRate;
         listenGain.reset (listenSampleRate, 0.02);
         resetListenMeasurement (true);
+
+        // 试听差值：差值缓冲按块大小分配（音频线程上不分配，大块时切片）；交叉淡化 20 ms，reset 直接落到此刻的目标。
+        differenceBuffer.setSize ((int) juce::jmax ((juce::uint32) 1, spec.numChannels),
+                                  (int) juce::jmax ((juce::uint32) 1, spec.maximumBlockSize));
+        differenceBuffer.clear();
+        differenceMix.reset (spec.sampleRate, 0.02);
     }
 
     void CeladonChain::reset()
@@ -56,6 +62,7 @@ namespace celadon
         limiter.reset();
         controller.hostReset();
         resetListenMeasurement (false);
+        differenceMix.setCurrentAndTargetValue (differenceMix.getTargetValue());
     }
 
     void CeladonChain::restartWithFadeIn()
@@ -75,6 +82,9 @@ namespace celadon
         // 编排器按宿主 reset 清运行状态（分析窗口、校准当前子窗、保护偏移），已提交的画像与方案保留。
         controller.hostReset();
         resetListenMeasurement (false);
+
+        // 限幅器淡入之前输出与差值都是静音：试听差值的交叉淡化直接落到目标，不必再淡。
+        differenceMix.setCurrentAndTargetValue (differenceMix.getTargetValue());
     }
 
     void CeladonChain::setHostInfo (const glaze::HostInfo& info) noexcept
@@ -82,11 +92,16 @@ namespace celadon
         controller.setHostInfo (info);
     }
 
-    void CeladonChain::setParams (const Params& newParams, bool hostBypassed)
+    void CeladonChain::setParams (const Params& newParams, bool hostBypassed, bool compareOriginal, bool auditionDifference)
     {
         manual = newParams;
+
+        // 听原声（A / B 的 B，v0.1.8.0）与宿主旁通走同一条干路：模块全旁通、编排器暂停校准（出口此刻是原声，校准器量它
+        // 就会把「原声的响度」当成方案的结果）、Listen 的测量冻结。两者只在 Listen 的监听增益上不同（updateListenTarget）。
+        const auto dryPath = hostBypassed || compareOriginal;
+
         // Listen 增益在输出测点之后独立施加，不反馈到方案、校准、保护层或响度估计。
-        effective = controller.beginBlock (newParams, hostBypassed);
+        effective = controller.beginBlock (newParams, dryPath);
 
         // 宿主旁通不另走一条路，而是把每个模块都置为旁通：各模块自带等长延迟的干路与 20 ms 交叉淡化
         // （Balance 零延迟，干路就是输入本身；Clay 的干路是 D 样本纯延迟线、再与湿路一起过峰值守护的 G 样本延迟，共 D + G），
@@ -99,10 +114,10 @@ namespace celadon
         auto colorParams   = effective.color;
         auto limitParams   = effective.limit;
 
-        balanceParams.bypass = balanceParams.bypass || hostBypassed;
-        clayParams.bypass    = clayParams.bypass    || hostBypassed;
-        colorParams.bypass   = colorParams.bypass   || hostBypassed;
-        limitParams.bypass   = limitParams.bypass   || hostBypassed;
+        balanceParams.bypass = balanceParams.bypass || dryPath;
+        clayParams.bypass    = clayParams.bypass    || dryPath;
+        colorParams.bypass   = colorParams.bypass   || dryPath;
+        limitParams.bypass   = limitParams.bypass   || dryPath;
         limitParams.listen = false;   // 独立 Limiter 仍支持旧 Listen；整链使用实测的全链监听补偿。
 
         balance.setParams (balanceParams);
@@ -110,11 +125,15 @@ namespace celadon
         color.setParams (colorParams);
         limiter.setParams (limitParams);
         listenRequested = newParams.limit.listen;
-        const auto bypassChanged = hostIsBypassed != hostBypassed;
-        hostIsBypassed = hostBypassed;
+        const auto bypassChanged = hostIsBypassed != dryPath;
+        hostIsBypassed = dryPath;
+        listenComparing = compareOriginal && ! hostBypassed;
         if (listenSampleRate > 0.0 && (bypassChanged || listenLatency != getLatencySamples()))
             resetListenMeasurement (false);
         updateListenTarget();
+
+        // 试听差值：LIMIT 此刻真的在处理才听得到它削掉的部分（limitParams.bypass 已含听原声与宿主旁通）。
+        differenceMix.setTargetValue (auditionDifference && ! limitParams.bypass ? 1.0f : 0.0f);
     }
 
     bool CeladonChain::process (juce::AudioBuffer<float>& io)
@@ -124,7 +143,10 @@ namespace celadon
         // are visible at the next host parameter update (including restores).
         controller.analyzeSpectrum (balance);
         lastProcessSliceCount = 1;
-        if (! (manual.glazePercent > 0.0f) || io.getNumSamples() <= 0)
+        // 试听差值要把限幅器的差值整段存下来：只在试听期间、宿主块又超过差值缓冲（= prepare 的块大小）时才按它切片。
+        const auto glazeActive = manual.glazePercent > 0.0f;
+        const auto sliceLimit = differenceInvolved() && differenceBuffer.getNumSamples() > 0 ? differenceBuffer.getNumSamples() : io.getNumSamples();
+        if ((! glazeActive && io.getNumSamples() <= sliceLimit) || io.getNumSamples() <= 0)
             return processSlice (io);
         // Never smear a host block's reduction mean/max across multiple Guard
         // slots. Small callbacks contribute their true partial statistics;
@@ -138,8 +160,10 @@ namespace celadon
             // Keep the host-block parameter contract: every slice uses the
             // same executed settings. Only statistics advance here; a newly
             // computed correction becomes audible at the next setParams.
-            const auto length = juce::jmin (io.getNumSamples() - offset,
-                                           juce::jmax (1, controller.getGuardSamplesUntilBoundary()));
+            auto length = io.getNumSamples() - offset;
+            if (glazeActive)
+                length = juce::jmin (length, juce::jmax (1, controller.getGuardSamplesUntilBoundary()));
+            length = juce::jmin (length, juce::jmax (1, sliceLimit));
             juce::AudioBuffer<float> slice (io.getArrayOfWritePointers(), io.getNumChannels(), offset, length);
             nonFinite = processSlice (slice) || nonFinite;
             offset += length;
@@ -163,7 +187,12 @@ namespace celadon
         balance.process (io);
         clay.process (io);
         color.process (io);
-        limiter.process (io);
+
+        // 试听差值（v0.1.8.0）：限幅器顺带写出本级削掉的部分；下面所有测点照常读母带，最后才换到输出上。
+        const auto withDifference = differenceInvolved()
+                                 && io.getNumChannels() <= differenceBuffer.getNumChannels()
+                                 && io.getNumSamples() <= differenceBuffer.getNumSamples();
+        limiter.process (io, withDifference ? &differenceBuffer : nullptr);
 
         // 输出有 NaN / Inf（内部溢出）：置零，清空整条链（NaN 会留在延迟线和滤波器里）并淡入恢复。
         // 两块表不清：它们只吃过有限值，整体响度不该因此丢失。（v0.5 在处理器里做，挪进链里让无头测试也覆盖。）
@@ -200,7 +229,41 @@ namespace celadon
 
         controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true);
         processListen (io);
+
+        if (withDifference)
+            applyDifferenceAudition (io, nonFinite);
+        else if (differenceInvolved())
+            differenceMix.skip (io.getNumSamples());   // 声道数对不上（不该发生）：不试听，但交叉淡化照样走完，不卡在「在用」
+
         return nonFinite;
+    }
+
+    void CeladonChain::applyDifferenceAudition (juce::AudioBuffer<float>& io, bool outputCleared)
+    {
+        // 测点都已读过母带：这里只改送给宿主的监听信号。输出刚因非有限值被清零时，差值同样作废。
+        const auto numSamples = io.getNumSamples();
+        const auto numChannelsToMix = io.getNumChannels();
+
+        if (outputCleared)
+            differenceBuffer.clear (0, numSamples);
+
+        auto* const* out = io.getArrayOfWritePointers();
+        const auto* const* removed = differenceBuffer.getArrayOfReadPointers();
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto mix = differenceMix.getNextValue();
+
+            if (mix <= 0.0f)
+                continue;
+
+            for (int ch = 0; ch < numChannelsToMix; ++ch)
+                out[ch][i] = mix >= 1.0f ? removed[ch][i] : out[ch][i] + (removed[ch][i] - out[ch][i]) * mix;
+        }
+
+        // 兜底：差值里若有非有限值（上游溢出、母带却恰好被钳住），这一段静音，不把 NaN 送给宿主。
+        if (containsNonFinite (io))
+            io.clear();
     }
 
     void CeladonChain::resetListenMeasurement (bool resetGain)
@@ -221,14 +284,23 @@ namespace celadon
         if (resetGain)
         {
             listenEstimateDb = 0.0f;
+            listenOriginalDb = 0.0f;
             listenGain.setCurrentAndTargetValue (1.0f);
+            listenDifferenceValid.store (false, std::memory_order_relaxed);
+            listenDifferenceDb.store (0.0f, std::memory_order_relaxed);
         }
     }
 
     void CeladonChain::updateListenTarget()
     {
         // 只衰减：较轻的处理结果不会被抬高，避免监听补偿制造新的峰值超限。
-        const auto db = listenRequested && ! hostIsBypassed ? listenEstimateDb : 0.0f;
+        // 听原声（A / B 的 B）时同一条规矩反过来用：原声比处理结果响才衰减原声；原声更轻时原样播放——A 那边已经由
+        // listenEstimateDb 衰减到原声的响度，两边照样等响。宿主旁通（listenComparing 为 false）仍不补偿。
+        auto db = 0.0f;
+
+        if (listenRequested)
+            db = ! hostIsBypassed ? listenEstimateDb : (listenComparing ? listenOriginalDb : 0.0f);
+
         listenGain.setTargetValue (juce::Decibels::decibelsToGain (db));
     }
 
@@ -321,6 +393,11 @@ namespace celadon
             }
             const auto measuredDb = (float) (10.0 * std::log10 (listenInputEnergy / listenOutputEnergy));
             listenEstimateDb = juce::jlimit (-24.0f, 0.0f, measuredDb);
+            listenOriginalDb = juce::jlimit (-24.0f, 0.0f, -measuredDb);
+
+            // 界面读的是「处理结果 − 原声」：measuredDb 是原声 − 处理结果，取反。只写原子量，不改任何音频路径。
+            listenDifferenceDb.store (juce::jlimit (-24.0f, 24.0f, -measuredDb), std::memory_order_relaxed);
+            listenDifferenceValid.store (true, std::memory_order_relaxed);
             updateListenTarget();
         }
         applyListenGain (io, applied, io.getNumSamples() - applied);

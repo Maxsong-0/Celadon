@@ -52,6 +52,9 @@ namespace celadon
         // 只作用在限幅需求：用户 Ceiling、Clip 阈值、输出硬钳位都不变，低于内部阈值的信号也不加固定衰减。
         constexpr float detectorSafetyGain = 0.9605058184f;   // 10^(−0.35 / 20)，音频线程只做一次乘法
 
+        // 试听差值除以 Gain 之前的下限：Gain 参数最低 0 dB，这里只防 −100 dB 以下被换算成 0 时除零。
+        constexpr float minimumDifferenceGain = 1.0e-6f;
+
         // v0.6 每块统计。GR 均值的每样本下限 120 dB（增益 1e-6），与表的 −120 dB 下限一致；
         // 连乘的积小于 1e-200 就把 2 的幂次移出（此后再乘一个 ≥ 1e-6 的增益也到不了 double 的下溢区）。
         constexpr float  statsMinGain           = 1.0e-6f;
@@ -203,6 +206,8 @@ namespace celadon
         for (auto& d : coreDelays)        d.prepare (maxCoreDelay);
         for (auto& d : bypassDryDelays)   d.prepare (clipLatency + maxCoreDelay);
         ceilingDelay.prepare (maxCoreDelay);
+        gainDelay.prepare (clipLatency + maxCoreDelay);
+        delayedGainScratch.assign ((size_t) maxBlockSize, 1.0f);
 
         clipDryScratch.setSize (numChannels, maxBlockSize);
         bypassDryScratch.setSize (numChannels, maxBlockSize);
@@ -255,6 +260,7 @@ namespace celadon
         const auto ceiling = juce::Decibels::decibelsToGain (params.ceilingDb);
 
         gainSmoothed.setCurrentAndTargetValue (gain);
+        gainDelay.fill (gain);   // 「延迟后的 Gain」立即等于当前值（resetLimiterState 填的是平滑器落位之前的旧值）
         ceilingSmoothed.setCurrentAndTargetValue (ceiling);
         clipThresholdSmoothed.setCurrentAndTargetValue (
             juce::Decibels::decibelsToGain (juce::jmap (params.clip, 0.0f, 100.0f, clipOffThresholdDb, params.ceilingDb)));
@@ -304,6 +310,8 @@ namespace celadon
         for (auto& d : bypassDryDelays)  { d.setDelay (clipLatency + coreDelay); d.clear(); }
         ceilingDelay.setDelay (coreDelay);
         ceilingDelay.clear();
+        gainDelay.setDelay (clipLatency + coreDelay);   // 与旁通干路同长：试听差值按它还原「加了 Gain 的输入」
+        gainDelay.fill (gainSmoothed.getCurrentValue());
 
         requiredGainHold.setWindow (lookaheadSamples + holdSamples);
         requiredGainHold.clear();
@@ -386,9 +394,20 @@ namespace celadon
     }
 
     //==============================================================================
-    void LimiterModule::process (juce::AudioBuffer<float>& io)
+    void LimiterModule::process (juce::AudioBuffer<float>& io, juce::AudioBuffer<float>* difference)
     {
         stats = {};
+
+        if (difference != nullptr)
+        {
+            jassert (difference->getNumChannels() >= io.getNumChannels() && difference->getNumSamples() >= io.getNumSamples());
+
+            // 本级不处理的声道（没 prepare 时是全部）原样通过：没有削掉任何东西，差值为 0。
+            const auto processedChannels = sampleRate > 0.0 ? juce::jmin (numChannels, io.getNumChannels()) : 0;
+
+            for (int ch = processedChannels; ch < io.getNumChannels(); ++ch)
+                difference->clear (ch, 0, io.getNumSamples());
+        }
 
         if (sampleRate <= 0.0 || io.getNumSamples() == 0)
         {
@@ -408,7 +427,7 @@ namespace celadon
         }
 
         for (int start = 0; start < io.getNumSamples(); start += maxBlockSize)
-            processChunk (io, start, juce::jmin (maxBlockSize, io.getNumSamples() - start));
+            processChunk (io, start, juce::jmin (maxBlockSize, io.getNumSamples() - start), difference);
 
         finishBlockStats (io.getNumSamples());
     }
@@ -426,7 +445,7 @@ namespace celadon
         blockStats.clipDepthMaxDb     = stats.clipPeakRatio > 1.0f ? (float) (20.0 * std::log10 ((double) stats.clipPeakRatio)) : 0.0f;
     }
 
-    void LimiterModule::processChunk (juce::AudioBuffer<float>& io, int startSample, int numSamples)
+    void LimiterModule::processChunk (juce::AudioBuffer<float>& io, int startSample, int numSamples, juce::AudioBuffer<float>* difference)
     {
         const auto numChannelsToUse = juce::jmin (numChannels, io.getNumChannels());
         auto* const* channels = io.getArrayOfWritePointers();
@@ -442,10 +461,11 @@ namespace celadon
                 dry[i] = delay.pushPop (in[i]);
         }
 
-        // 2. Gain（两个声道用同一个平滑后的增益）。
+        // 2. Gain（两个声道用同一个平滑后的增益）。每个样本的 Gain 同时送进与干路等长的延迟线（试听差值用，只读不改音频）。
         for (int i = 0; i < numSamples; ++i)
         {
             const auto gain = gainSmoothed.getNextValue();
+            delayedGainScratch[(size_t) i] = gainDelay.pushPop (gain);
 
             for (int ch = 0; ch < numChannelsToUse; ++ch)
                 channels[ch][startSample + i] *= gain;
@@ -457,7 +477,10 @@ namespace celadon
         // 4. 前瞻限幅 + 硬钳位。
         processLimiterCore (io, startSample, numSamples, numChannelsToUse);
 
-        // 5. Listen、Lookahead 变动后的淡入、旁通交叉淡化。
+        // 5. Listen、Lookahead 变动后的淡入、旁通交叉淡化；要试听差值时同一个循环里顺带写出差值（不改输出）。
+        auto* const* differenceChannels = difference != nullptr ? difference->getArrayOfWritePointers() : nullptr;
+        const auto differenceCeiling = ceilingSmoothed.getCurrentValue();
+
         for (int i = 0; i < numSamples; ++i)
         {
             const auto listenGain = listenGainSmoothed.getNextValue();
@@ -479,6 +502,17 @@ namespace celadon
             {
                 auto& out = channels[ch][startSample + i];
                 const auto dry = bypassDryScratch.getReadPointer (ch)[i];
+
+                if (differenceChannels != nullptr)
+                {
+                    // 干路 × 同样延迟过的 Gain = 当初送进 Clip 级的样本（逐位相同）；减去湿路、除以 Gain 回到推响前的电平。
+                    // 旁通时本级没有削掉任何东西、淡入保持段里没有输出：差值跟着交叉淡化与淡入归零。
+                    const auto gain = delayedGainScratch[(size_t) i];
+                    const auto removed = gain > minimumDifferenceGain ? (dry * gain - out) / gain : 0.0f;
+                    differenceChannels[ch][startSample + i] = juce::jlimit (-differenceCeiling, differenceCeiling, removed)
+                                                              * (1.0f - bypassMix) * fade;
+                }
+
                 const auto processed = out * listenGain;
 
                 float mixed;

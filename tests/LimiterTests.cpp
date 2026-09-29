@@ -4,6 +4,7 @@
     LimiterTests.cpp
     设计规格-Limit「验收 · 自动测试」四条 + 分块无关性 + Lookahead 变动；
     v0.5：Clip 级空闲跳过与「永不跳过」的参照逐位相同。
+    v0.1.8.0：试听差值（process 的 difference 输出）——不改输出、没衰减时恰为 0、与输出拼回加了 Gain 的输入、旁通与淡入时归零、分块无关。
 
   ==============================================================================
 */
@@ -85,6 +86,65 @@ namespace celadon::test
             return 2.0 * std::sqrt (real * real + imaginary * imaginary) / count;
         }
 
+        // runLimiter 的试听差值版本：同一趟处理同时取回输出与差值。
+        struct OutputAndDifference
+        {
+            Signal output, difference;
+        };
+
+        OutputAndDifference runLimiterWithDifference (LimiterModule& limiter, const Signal& input, int blockSize)
+        {
+            const auto numSamples = (int) input.front().size();
+            OutputAndDifference result { input, input };
+
+            juce::AudioBuffer<float> block (numChannels, blockSize), difference (numChannels, blockSize);
+
+            for (int start = 0; start < numSamples; start += blockSize)
+            {
+                const auto length = juce::jmin (blockSize, numSamples - start);
+                block.setSize (numChannels, length, false, false, true);
+                difference.setSize (numChannels, length, false, false, true);
+                difference.clear();
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+
+                limiter.process (block, &difference);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + length, result.output[(size_t) ch].begin() + start);
+                    std::copy (difference.getReadPointer (ch), difference.getReadPointer (ch) + length,
+                               result.difference[(size_t) ch].begin() + start);
+                }
+            }
+
+            return result;
+        }
+
+        // 响的音乐样材料：低频 + 中频 + 噪声，峰值约 0 dBFS（+9 dB 推进去会被结实地限幅）。
+        Signal makeListenLikeMaterial (double sampleRate)
+        {
+            auto input = makeNoise (numChannels, (int) (0.8 * sampleRate), 0.25f, 29);
+            for (const auto& component : { std::pair<double, float> { 55.0, 0.45f }, { 880.0, 0.25f } })
+            {
+                const auto tone = makeSine (numChannels, sampleRate, component.first, component.second, 0.8);
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (size_t i = 0; i < input[(size_t) ch].size(); ++i)
+                        input[(size_t) ch][i] += tone[(size_t) ch][i];
+            }
+            return input;
+        }
+
+        float peakOf (const Signal& signal)
+        {
+            float peak = 0.0f;
+            for (const auto& channel : signal)
+                for (auto sample : channel)
+                    peak = juce::jmax (peak, std::abs (sample));
+            return peak;
+        }
+
         double lastSecondRms (const Signal& signal, double sampleRate)
         {
             const auto count = (int) sampleRate;
@@ -117,6 +177,10 @@ namespace celadon::test
             testGainIsSmoothed();
             testClipIdleSkipIsBitExact();
             testClipIdleSkipWithFewerChannelsIsSafe();
+            testDifferenceIsZeroWithoutReduction();
+            testDifferenceLeavesOutputUntouched();
+            testDifferenceReconstructsGainedInput();
+            testDifferenceFollowsBypassAndFadeIn();
             testLowFrequencyReleaseReducesIntermodulation();
             testLowFrequencyReleasePreservesTransientsAndManual();
             testLowFrequencyReleaseRejectsUnstablePeriods();
@@ -170,6 +234,215 @@ namespace celadon::test
             expect (afterShort > 1.0e-4, "the tail after a short overload must still be present");
             expect (toDb (afterShort / juce::jmax (1.0e-12, afterLong)) >= 1.2f,
                     "a sustained overload must keep ducking after the short overload has let go");
+        }
+
+        // 试听差值 ①：限幅器什么都没削（输入 + Gain 仍低于内部阈值、Clip 0）时差值逐位为 0——包括 Gain 在 20 ms 平滑里变动：
+        // 「加了 Gain 的输入」由干路 × 同样延迟过的逐样本 Gain 重建，与当初送进 Clip 级的样本逐位相同（LimiterModule.h 文件头）。
+        void testDifferenceIsZeroWithoutReduction()
+        {
+            beginTest ("difference is exactly zero when nothing is limited, even while Gain is ramping");
+
+            for (auto sampleRate : { 44100.0, 48000.0, 96000.0 })
+             for (auto lookaheadMs : { 1.0f, 2.0f, 10.0f })
+            {
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, makeParams (0.0f, -1.0f, lookaheadMs, true, 0.0f));
+
+                // 真峰值约 −14 dBTP：+6 dB 之后仍低于 −1.35 dBTP 的内部阈值。
+                auto input = makeNoise (numChannels, (int) (0.6 * sampleRate), 0.05f, 42);
+                for (auto frequency : { 60.0, 1000.0, 9000.0 })
+                {
+                    const auto tone = makeSine (numChannels, sampleRate, frequency, 0.03f, 0.6);
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        for (size_t i = 0; i < input[(size_t) ch].size(); ++i)
+                            input[(size_t) ch][i] += tone[(size_t) ch][i];
+                }
+
+                expect (truePeakOf (input) * juce::Decibels::decibelsToGain (6.0f) < juce::Decibels::decibelsToGain (-1.35f),
+                        "test signal + 6 dB must stay below the guarded threshold");
+
+                // 前 0.2 s Gain 0 dB，之后 +6 dB（20 ms 平滑正好落在中间），再回 +2 dB。
+                const auto third = (int) input.front().size() / 3;
+                juce::AudioBuffer<float> block (numChannels, maxBlock), removed (numChannels, maxBlock);
+                float worst = 0.0f;
+
+                for (int start = 0; start < (int) input.front().size(); start += maxBlock)
+                {
+                    if (start >= third)
+                        limiter.setParams (makeParams (start >= 2 * third ? 2.0f : 6.0f, -1.0f, lookaheadMs, true, 0.0f));
+
+                    const auto length = juce::jmin (maxBlock, (int) input.front().size() - start);
+                    block.setSize (numChannels, length, false, false, true);
+                    removed.setSize (numChannels, length, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+
+                    limiter.process (block, &removed);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        for (int i = 0; i < length; ++i)
+                            worst = juce::jmax (worst, std::abs (removed.getSample (ch, i)));
+                }
+
+                expectEquals (worst, 0.0f, "difference must be exactly zero @" + juce::String (sampleRate) + " la=" + juce::String (lookaheadMs));
+                expectEquals (limiter.getAndResetGainReductionDb(), 0.0f, "the fixture must not trigger any reduction");
+            }
+        }
+
+        // 试听差值 ②：传不传差值缓冲，输出、GR 表与每块统计都逐位相同（重限幅 + Clip，含一次 Lookahead 变动与中途重启）。
+        void testDifferenceLeavesOutputUntouched()
+        {
+            beginTest ("passing a difference buffer never changes output, meter or block stats");
+
+            constexpr double sampleRate = 48000.0;
+            const auto input = makeNoise (numChannels, 48000, 1.0f, 17);
+
+            for (auto clip : { 0.0f, 40.0f })
+            {
+                auto params = makeParams (12.0f, -1.0f, 3.0f, true, clip);
+                LimiterModule plain, auditioned;
+                prepareLimiter (plain, sampleRate, params);
+                prepareLimiter (auditioned, sampleRate, params);
+
+                juce::AudioBuffer<float> a (numChannels, maxBlock), b (numChannels, maxBlock), removed (numChannels, maxBlock);
+                bool sameOutput = true, sameStats = true, sameMeter = true;
+
+                for (int start = 0, index = 0; start < (int) input.front().size(); start += 300, ++index)
+                {
+                    if (index == 40)
+                    {
+                        params.lookaheadMs = 6.0f;
+                        plain.setParams (params);
+                        auditioned.setParams (params);
+                    }
+
+                    if (index == 90)
+                    {
+                        plain.restartWithFadeIn (100);
+                        auditioned.restartWithFadeIn (100);
+                    }
+
+                    const auto length = juce::jmin (300, (int) input.front().size() - start);
+                    for (auto* buffer : { &a, &b, &removed })
+                        buffer->setSize (numChannels, length, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                    {
+                        a.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+                        b.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+                    }
+
+                    plain.process (a);
+                    auditioned.process (b, &removed);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        sameOutput = sameOutput && std::memcmp (a.getReadPointer (ch), b.getReadPointer (ch), sizeof (float) * (size_t) length) == 0;
+
+                    const auto& sa = plain.getBlockStats();
+                    const auto& sb = auditioned.getBlockStats();
+                    sameStats = sameStats && sa.grMeanDb == sb.grMeanDb && sa.grMaxDb == sb.grMaxDb
+                                          && sa.clipActiveFraction == sb.clipActiveFraction && sa.clipDepthMaxDb == sb.clipDepthMaxDb;
+                    sameMeter = sameMeter && plain.getAndResetGainReductionDb() == auditioned.getAndResetGainReductionDb();
+                }
+
+                expect (sameOutput, "output must be bit-identical, clip " + juce::String (clip));
+                expect (sameStats, "block stats must be identical, clip " + juce::String (clip));
+                expect (sameMeter, "GR meter must be identical, clip " + juce::String (clip));
+            }
+        }
+
+        // 试听差值 ③：Gain 稳定、Clip 0 时「输出 + Gain × 差值」= 加了 Gain 的延迟输入（浮点舍入内）；
+        // 纯增益衰减的差值 = 输入 ×（1 − 衰减），逐样本不超过输入、也不超过 Ceiling；Clip 开着时照样有限、不超过 Ceiling；分块无关。
+        void testDifferenceReconstructsGainedInput()
+        {
+            beginTest ("output + gain * difference == gained delayed input; difference never louder than input or ceiling");
+
+            constexpr double sampleRate = 48000.0;
+            const auto gainDb = 9.0f;
+            const auto gain = juce::Decibels::decibelsToGain (gainDb);
+            const auto ceiling = juce::Decibels::decibelsToGain (-1.0f);
+
+            auto input = makeListenLikeMaterial (sampleRate);
+            const auto length = (int) input.front().size();
+
+            {
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, makeParams (gainDb, -1.0f, 2.0f, true, 0.0f));
+                const auto latency = limiter.getLatencySamples();
+                const auto result = runLimiterWithDifference (limiter, input, maxBlock);
+
+                float reconstruction = 0.0f, louderThanInput = 0.0f;
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = latency; i < length; ++i)
+                    {
+                        const auto x = input[(size_t) ch][(size_t) (i - latency)];
+                        const auto y = result.output[(size_t) ch][(size_t) i];
+                        const auto d = result.difference[(size_t) ch][(size_t) i];
+                        reconstruction = juce::jmax (reconstruction, std::abs (y + gain * d - gain * x));
+                        louderThanInput = juce::jmax (louderThanInput, std::abs (d) - std::abs (x));
+                    }
+
+                logMessage ("  reconstruction error " + juce::String (toDb (reconstruction), 1) + " dBFS, difference peak "
+                            + juce::String (toDb (peakOf (result.difference)), 1) + " dBFS");
+                expect (reconstruction < 2.0e-6f, "output + gain * difference must rebuild the gained input: " + juce::String (reconstruction));
+                expect (louderThanInput <= 1.0e-6f, "pure gain reduction never makes the difference louder than the input");
+                expect (peakOf (result.difference) > 0.05f, "the fixture must actually be limited");
+                expect (peakOf (result.difference) <= ceiling, "difference must stay within the ceiling");
+            }
+
+            Signal reference;
+            for (auto blockSize : { 512, 1, 17, 256, 2048 })
+            {
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, makeParams (gainDb, -1.0f, 2.0f, true, 60.0f));
+                const auto result = runLimiterWithDifference (limiter, input, blockSize);
+                expect (allFinite (result.difference), "difference must stay finite with Clip");
+                expect (peakOf (result.difference) <= ceiling, "difference with Clip must stay within the ceiling");
+
+                if (reference.empty())
+                    reference = result.difference;
+                else
+                    expectEquals (maxAbsDifference (reference, result.difference, 0, length), 0.0f, "block size " + juce::String (blockSize));
+            }
+        }
+
+        // 试听差值 ④：旁通（从头就旁通）时差值逐位为 0；重启淡入的静音段里差值也是 0，之后跟着淡入回来。
+        void testDifferenceFollowsBypassAndFadeIn()
+        {
+            beginTest ("difference is silent while bypassed and during the fade-in hold");
+
+            constexpr double sampleRate = 48000.0;
+            const auto input = makeNoise (numChannels, 24000, 1.0f, 23);
+
+            {
+                auto params = makeParams (12.0f, -1.0f, 2.0f, true, 50.0f);
+                params.bypass = true;
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, params);
+                const auto result = runLimiterWithDifference (limiter, input, maxBlock);
+                expectEquals (peakOf (result.difference), 0.0f, "a bypassed limiter removes nothing");
+            }
+
+            {
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, makeParams (12.0f, -1.0f, 2.0f, true, 0.0f));
+                runLimiterWithDifference (limiter, input, maxBlock);
+
+                constexpr int extraHold = 150;
+                limiter.restartWithFadeIn (extraHold);
+                const auto hold = limiter.getLatencySamples() + extraHold;
+                const auto result = runLimiterWithDifference (limiter, input, maxBlock);
+
+                float duringHold = 0.0f;
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < hold; ++i)
+                        duringHold = juce::jmax (duringHold, std::abs (result.difference[(size_t) ch][(size_t) i]));
+
+                expectEquals (duringHold, 0.0f, "difference must be silent while the output is held");
+                expect (peakOf (result.difference) > 0.05f, "difference comes back after the fade-in");
+                expect (allFinite (result.difference));
+            }
         }
 
         void testLowFrequencyReleaseReducesIntermodulation()

@@ -55,7 +55,7 @@ namespace celadon::param
     inline constexpr const char* glazeAmount = "glaze_amount";
     inline constexpr const char* glazeStyle  = "glaze_style";   // v0.6：四选一 自动 / 温润 / 冲击 / 通透（下标 = glaze::Style）
 
-    // ---- Clay 修坯（v0.1.7.0，设计规格-Clay 第 6 节；都在「高级」抽屉里）----
+    // ---- Clay 修坯（v0.1.7.0，设计规格-Clay 第 6 节；v0.1.7 在「高级」抽屉里，v0.1.8.0 起在 CLAY 卡片上）----
     // *_mode 三选一：自动 / 关 / 手动（下标 = celadon::ClayMode）。默认自动。
     inline constexpr const char* clayLowCutMode = "clay_lowcut_mode";
     inline constexpr const char* clayLowCutHz   = "clay_lowcut_hz";    // 10 ～ 60 Hz，对数刻度，默认 25
@@ -89,15 +89,21 @@ namespace celadon::uiid
     inline constexpr const char* balanceCurve = "ui_balance_curve";   // Balance 面板的 27 段修正曲线
     inline constexpr const char* glazeRelearn = "ui_glaze_relearn";   // v0.6：「重新聆听」按钮（界面动作，不是参数）
     inline constexpr const char* glazeStatus  = "ui_glaze_status";    // v0.6：GLAZE 大旋钮下方的状态行
-    inline constexpr const char* clayIndicator = "ui_clay_indicator"; // v0.1.7.0：BALANCE→COLOR 箭头上的 3 灯修坯指示（悬停第 2 行是实时值）
-    inline constexpr const char* advanced      = "ui_advanced";       // v0.1.7.0：顶栏「高级」胶囊（开合抽屉，不是参数）
+    inline constexpr const char* clayIndicator = "ui_clay_indicator"; // v0.1.7.0：修坯三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯；悬停第 2 行是实时值）
+    // 顶栏「高级」（v0.1.7.0 起；不是参数）：v0.1.7.0 开合抽屉，v0.1.8.0 起打开「高级」面板——修坯的三态与手动值已在 CLAY 卡片上，
+    // 面板写明这一点，并列出还在设计中的三个子项目（推响不刺 / 目标频谱 / 发行安全，ADR-005 只写「即将推出」）。
+    inline constexpr const char* advanced      = "ui_advanced";
+    inline constexpr const char* limitAudition = "ui_limit_audition"; // v0.1.8.0：LIMIT 卡片的耳机「试听差值」（界面状态，不是参数）
 
     // 界面缩放比例存在 APVTS 状态树的这个属性里（不是参数，不进自动化；随工程保存）。
+    // uiScale 是 v0.1.7 及以前 900 × 560 画布的比例（不再读，留着只为说明旧工程里的这个属性）；
+    // v0.1.8.0 起用 uiZoom：1200 × 820 画布的比例（0.7 ～ 2.0）。旧工程没有 uiZoom，按用户设置里的默认大小打开。
     inline constexpr const char* uiScaleProperty = "uiScale";
+    inline constexpr const char* uiZoomProperty  = "uiZoom";
 
     inline constexpr const char* allUiIds[] =
     {
         meterIn, meterOut, meterGr, integrated, shortTerm, resetMeters, glueGr, balanceCurve, glazeRelearn, glazeStatus,
-        clayIndicator, advanced
+        clayIndicator, advanced, limitAudition
     };
 }
