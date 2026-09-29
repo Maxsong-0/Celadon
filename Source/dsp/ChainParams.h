@@ -20,6 +20,7 @@
 #include "ClayModule.h"
 #include "ColorModule.h"
 #include "LimiterModule.h"
+#include "MasteringFeatures.h"
 
 namespace celadon
 {
@@ -46,6 +47,7 @@ namespace celadon
         float glazePercent = 0.0f;   // GLAZE 0 ～ 100 %（v0.6 起由 GlazeController 按音乐状态解释，ADR-008；v0.4 的 GlazeMacro 偏移表已退役）
         int glazeStyle = 0;          // glaze::Style 的下标 0 ～ 3（自动 / 温润 / 冲击 / 通透；参数 glaze_style）
 
+        MasteringSettings mastering;
         ClaySettings claySettings;   // v0.1.7.0：用户三态设置
         ClayModule::Params clay;     // v0.1.7.0：交给 ClayModule 的实际参数（见文件头说明）
     };

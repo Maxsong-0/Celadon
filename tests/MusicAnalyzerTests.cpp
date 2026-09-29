@@ -2317,7 +2317,8 @@ namespace celadon::test
             applyHighpass24 (broadband, sampleRate, 100.0);
 
             // 分析区间（250 ms 预热之后）上的均方。
-            auto analysedMeanSquare = [analysedFrom] (const Signal& material)
+            // 不捕获：analysedFrom 是常量表达式初始化的 const，读它不算 odr-use（显式捕获 clang 报多余；MSVC 靠 /Zc:lambda）。
+            auto analysedMeanSquare = [] (const Signal& material)
             {
                 double sumOfSquares = 0.0;
 

@@ -49,6 +49,7 @@ CeladonAudioProcessor::CeladonAudioProcessor()
                      #if ! JucePlugin_IsMidiEffect
                       #if ! JucePlugin_IsSynth
                        .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                       .withInput  ("Reference", juce::AudioChannelSet::stereo(), false)
                       #endif
                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                      #endif
@@ -96,6 +97,15 @@ CeladonAudioProcessor::CeladonAudioProcessor()
     clayParams.widthMode    = parameters.getRawParameterValue (clayWidthMode);
     clayParams.widthDb      = parameters.getRawParameterValue (clayWidthDb);
     clayParams.bypass       = parameters.getRawParameterValue (clayBypass);
+
+    masteringParams.harshMode = parameters.getRawParameterValue (masterHarshMode);
+    masteringParams.harshAmount = parameters.getRawParameterValue (masterHarshAmount);
+    masteringParams.transient = parameters.getRawParameterValue (masterTransient);
+    masteringParams.targetMode = parameters.getRawParameterValue (masterTargetMode);
+    masteringParams.targetAmount = parameters.getRawParameterValue (masterTargetAmount);
+    masteringParams.codecMarginDb = parameters.getRawParameterValue (masterCodecMarginDb);
+    masteringParams.dither = parameters.getRawParameterValue (masterDither);
+    masteringParams.previewLufs = parameters.getRawParameterValue (masterPreviewLufs);
 
     // 任何一个 ID 拼错都会拿到空指针——开发时立刻在这里断住，而不是等到音频线程崩溃。
     jassert (limitParams.gain != nullptr && limitParams.ceiling != nullptr && limitParams.release != nullptr
@@ -217,7 +227,10 @@ CeladonAudioProcessor::CeladonAudioProcessor()
                 continue;
 
             jassert (choice->choices.size() == numClayModes);
-            jassert (clayModeFromRawValue (choice->convertFrom0to1 (choice->getDefaultValue())) == celadon::ClayMode::automatic);
+
+            // getDefaultValue 在 AudioParameterChoice 里是 private 的覆盖（JUCE 9.0.2）：经基类调（虚函数照样走到它）。
+            const auto& asParameter = static_cast<const juce::RangedAudioParameter&> (*choice);
+            jassert (clayModeFromRawValue (choice->convertFrom0to1 (asParameter.getDefaultValue())) == celadon::ClayMode::automatic);
         }
     }
    #endif
@@ -359,6 +372,15 @@ celadon::CeladonChain::Params CeladonAudioProcessor::readParams() const noexcept
     // GLAZE 风格（v0.6，ADR-008）：四选一，原始值是选项下标的 float，取整方式同 Balance Speed，钳到 0..3（= glaze::Style）。
     p.glazeStyle = juce::jlimit (0, 3, juce::roundToInt (glazeStyle->load()));
 
+    const auto choice = [] (float value, int maximum) noexcept { return std::isfinite (value) ? juce::jlimit (0, maximum, juce::roundToInt (value)) : 0; };
+    p.mastering.harshMode = static_cast<celadon::HarshMode> (choice (masteringParams.harshMode->load(), 2));
+    p.mastering.harshAmount = masteringParams.harshAmount->load();
+    p.mastering.transientPreserve = masteringParams.transient->load();
+    p.mastering.targetMode = static_cast<celadon::TargetMode> (choice (masteringParams.targetMode->load(), 5));
+    p.mastering.targetAmount = masteringParams.targetAmount->load();
+    p.mastering.codecMarginDb = masteringParams.codecMarginDb->load();
+    p.mastering.dither = static_cast<celadon::DitherMode> (choice (masteringParams.dither->load(), 2));
+    p.mastering.previewTargetLufs = masteringParams.previewLufs->load();
     return p;
 }
 
@@ -503,6 +525,12 @@ bool CeladonAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
         return false;
    #endif
 
+    if (layouts.inputBuses.size() > 1)
+    {
+        const auto sidechain = layouts.inputBuses[1];
+        if (! sidechain.isDisabled() && sidechain != juce::AudioChannelSet::mono()
+                                    && sidechain != juce::AudioChannelSet::stereo()) return false;
+    }
     return true;
   #endif
 }
@@ -511,21 +539,39 @@ bool CeladonAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
 void CeladonAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused (midiMessages);
-    processChain (buffer, false);
+    processBuses (buffer, false);
 }
 
 void CeladonAudioProcessor::processBlockBypassed (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ignoreUnused (midiMessages);
-    processChain (buffer, true);
+    processBuses (buffer, true);
+}
+
+void CeladonAudioProcessor::processBuses (juce::AudioBuffer<float>& buffer, bool hostBypassed)
+{
+    juce::ScopedNoDenormals noDenormals;
+    // Read the actual optional input bus before touching the main output. Never learn the processed master.
+    if (getBusCount (true) > 1 && getBus (true, 1)->isEnabled())
+    {
+        auto sidechain = getBusBuffer (buffer, true, 1);
+        chain.processReference (sidechain, true);
+    }
+    else
+    {
+        juce::AudioBuffer<float> disconnected (buffer.getArrayOfWritePointers(), 0, buffer.getNumSamples());
+        chain.processReference (disconnected, false);
+    }
+    auto main = getBusBuffer (buffer, false, 0);
+    processChain (main, hostBypassed);
 }
 
 void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const auto totalNumInputChannels  = getTotalNumInputChannels();
-    const auto totalNumOutputChannels = getTotalNumOutputChannels();
+    const auto totalNumInputChannels  = getMainBusNumInputChannels();
+    const auto totalNumOutputChannels = getMainBusNumOutputChannels();
 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
@@ -552,6 +598,9 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
         nonFiniteBlocks.fetch_add (1, std::memory_order_relaxed);
     }
 
+    // 频谱仪的 IN：链入口原始信号（NaN 保护之后）。编辑器没开时只读一个原子量就返回。
+    analyzerTap.push (celadon::AnalyzerTap::Stream::input, buffer, buffer.getNumSamples());
+
     // ---- 信号链：IN 表 → Balance（v0.3）→ Clay（v0.1.7.0）→ Color → Limit → OUT 表，由 CeladonChain 按顺序调（GLAZE 编排器在链里）----
     // 宿主时间线先交给链：编排器据此识别跳播 / 循环回绕；离线导出沿用相同的样本时间学习与校准。
     chain.setHostInfo (readHostInfo());
@@ -560,7 +609,10 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
     // Lookahead 交给链的是处理器层稳住后的值（LookaheadHold）：参数在动时保持旧前瞻，停稳 0.3 s 才换。
     auto params = readParams();
     params.limit.lookaheadMs = lookaheadHold.next (params.limit.lookaheadMs, buffer.getNumSamples(), restartForHostReset);
-    chain.setParams (params, hostBypassed);
+
+    // 界面的 A / B 对比听 B（原声）时，链走与宿主旁通同一条干路；试听差值时只换送出去的信号（v0.1.8.0，见 CeladonChain::setParams）。
+    chain.setParams (params, hostBypassed, compareOriginal.load (std::memory_order_relaxed),
+                     auditionDifference.load (std::memory_order_relaxed));
 
     // 本块交给模块的实际参数里受 GLAZE 影响的 7 项给界面（淡弧与小圆点；Limit Gain 含校准偏差与保护偏移）。
     publishEffectiveForUi (params);
@@ -575,6 +627,9 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
     // 输出有 NaN / Inf（内部溢出）时链自己置零、清空整条链并淡入恢复（v0.6 挪进链里），这里只计数。
     if (chain.process (buffer))
         nonFiniteBlocks.fetch_add (1, std::memory_order_relaxed);
+
+    // 频谱仪的 OUT：插件最终输出（听原声时就是原声，Listen 打开时含监听增益，试听差值时是差值）——频谱仪显示的就是此刻听到的。
+    analyzerTap.push (celadon::AnalyzerTap::Stream::output, buffer, buffer.getNumSamples());
 }
 
 celadon::glaze::HostInfo CeladonAudioProcessor::readHostInfo() const noexcept
@@ -582,12 +637,13 @@ celadon::glaze::HostInfo CeladonAudioProcessor::readHostInfo() const noexcept
     celadon::glaze::HostInfo info;
     info.offline = isNonRealtime();
 
-    auto* playHead = getPlayHead();
+    // 不叫 playHead：AudioProcessor 有同名成员，MSVC /W4 报 C4458（局部变量遮住成员）。
+    auto* hostPlayHead = getPlayHead();
 
-    if (playHead == nullptr)
+    if (hostPlayHead == nullptr)
         return info;
 
-    const auto position = playHead->getPosition();
+    const auto position = hostPlayHead->getPosition();
 
     if (! position.hasValue())
         return info;
@@ -717,6 +773,9 @@ void CeladonAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         if (auto glaze = chain.createGlazeStateXml())
             xml->addChildElement (glaze.release());
 
+        if (auto reference = chain.createReferenceStateXml())
+            xml->addChildElement (reference.release());
+
         copyXmlToBinary (*xml, destData);
     }
 }
@@ -745,11 +804,19 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
                     delete node;
             }
 
+            std::unique_ptr<juce::XmlElement> reference;
+            while (auto* node = xml->getChildByName ("REFERENCE_SPECTRUM"))
+            {
+                xml->removeChildElement (node, false);
+                if (reference == nullptr) reference.reset (node); else delete node;
+            }
+            chain.setReleasePreviewEnabled (false);
             auto newState = juce::ValueTree::fromXml (*xml);
             addMissingParameterNodes (newState);
             parameters.replaceState (newState);
 
             chain.restoreGlazeStateXml (glaze.get());
+            chain.restoreReferenceStateXml (reference.get());
         }
     }
 }
@@ -781,6 +848,12 @@ void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState)
             {
                 juce::ValueTree node (parameterNodeType, { { parameterIdProperty, withId->paramID } });
                 if (withId->paramID == celadon::param::glazeAmount)
+                    node.setProperty ("value", 0.0f, nullptr);
+                if (withId->paramID == celadon::param::masterHarshMode)
+                    node.setProperty ("value", 1.0f, nullptr); // OFF: old sessions must not acquire automatic protection.
+                if (withId->paramID == celadon::param::masterTargetMode
+                    || withId->paramID == celadon::param::masterCodecMarginDb
+                    || withId->paramID == celadon::param::masterDither)
                     node.setProperty ("value", 0.0f, nullptr);
                 newState.appendChild (node, nullptr);
             }

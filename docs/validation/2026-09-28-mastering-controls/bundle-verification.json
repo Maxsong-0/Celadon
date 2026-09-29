@@ -1,0 +1,23 @@
+{
+  "Celadon.app": {
+    "version": "0.1.9.0",
+    "build": "0.1.9.0",
+    "arch": "arm64",
+    "signature_verified": true,
+    "executable_sha256": "34544ba296ba8dc9700132db19898daa8826ec0fb9f2ffcc2670884ef44517a2"
+  },
+  "Celadon.component": {
+    "version": "0.1.9.0",
+    "build": "0.1.9.0",
+    "arch": "arm64",
+    "signature_verified": true,
+    "executable_sha256": "c8c434b2e3b03dc686539b024b0243f7ab062bc72b073f347a4bb239a5241aea"
+  },
+  "Celadon.vst3": {
+    "version": "0.1.9.0",
+    "build": "0.1.9.0",
+    "arch": "arm64",
+    "signature_verified": true,
+    "executable_sha256": "8a7c825e790e20838909099b5b7be08af5f1b9859ee66e0e52294d72d7b0d0b6"
+  }
+}

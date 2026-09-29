@@ -17,9 +17,16 @@
 
 #include "TestHelpers.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <new>
+
+#if defined (_WIN32)
+ #include <malloc.h>   // _aligned_malloc / _aligned_free：Windows 没有 posix_memalign，对齐分配要配对释放
+// 控制台按 UTF-8 输出（中文日志）；只声明这一个函数，不把 windows.h 带进来。
+extern "C" __declspec (dllimport) int __stdcall SetConsoleOutputCP (unsigned int codePage);
+#endif
 
 namespace
 {
@@ -44,10 +51,27 @@ namespace
         const auto align = std::max (static_cast<std::size_t> (alignment), sizeof (void*));
         void* memory = nullptr;
 
+       #if defined (_WIN32)
+        memory = _aligned_malloc (size == 0 ? 1 : size, align);
+
+        if (memory != nullptr)
+            return memory;
+       #else
         if (posix_memalign (&memory, align, size == 0 ? 1 : size) == 0)
             return memory;
+       #endif
 
         throw std::bad_alloc();
+    }
+
+    // 对齐版 new 分出来的内存：POSIX 用 free，Windows 必须用 _aligned_free。
+    void freeAligned (void* memory) noexcept
+    {
+       #if defined (_WIN32)
+        _aligned_free (memory);
+       #else
+        std::free (memory);
+       #endif
     }
 }
 
@@ -66,10 +90,10 @@ void operator delete (void* memory) noexcept                                    
 void operator delete[] (void* memory) noexcept                                      { std::free (memory); }
 void operator delete (void* memory, std::size_t) noexcept                           { std::free (memory); }
 void operator delete[] (void* memory, std::size_t) noexcept                         { std::free (memory); }
-void operator delete (void* memory, std::align_val_t) noexcept                      { std::free (memory); }
-void operator delete[] (void* memory, std::align_val_t) noexcept                    { std::free (memory); }
-void operator delete (void* memory, std::size_t, std::align_val_t) noexcept         { std::free (memory); }
-void operator delete[] (void* memory, std::size_t, std::align_val_t) noexcept       { std::free (memory); }
+void operator delete (void* memory, std::align_val_t) noexcept                      { freeAligned (memory); }
+void operator delete[] (void* memory, std::align_val_t) noexcept                    { freeAligned (memory); }
+void operator delete (void* memory, std::size_t, std::align_val_t) noexcept         { freeAligned (memory); }
+void operator delete[] (void* memory, std::size_t, std::align_val_t) noexcept       { freeAligned (memory); }
 
 namespace
 {
@@ -88,6 +112,10 @@ namespace
 // 多条线并行开发时各自只跑自己的类，全套由主进程集成时跑（v0.6 起）。名字一个都对不上时报错退出，不当作通过。
 int main (int argc, char* argv[])
 {
+   #if defined (_WIN32)
+    SetConsoleOutputCP (65001);   // CP_UTF8
+   #endif
+
     ConsoleRunner runner;
     runner.setAssertOnFailure (false);
 

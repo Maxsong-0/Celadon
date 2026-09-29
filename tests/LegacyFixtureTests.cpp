@@ -89,6 +89,8 @@ namespace celadon::test
 
         void runTest() override
         {
+            // expect() 之前必须先有 beginTest()：这个类排第一个跑（--only LegacyFixture）时，JUCE 的结果表还是空的。
+            beginTest ("the v0.1.6.2 fixture XML parses");
             const auto xml = juce::parseXML (juce::String::fromUTF8 (fixtureXml));
             expect (xml != nullptr, "fixture XML parses");
 

@@ -26,6 +26,8 @@ namespace celadon::param
     inline constexpr int kParamVersionGlazeStyle = 6;
     inline constexpr int kParamVersionClay       = 7;   // v0.1.7.0 修坯 Clay（已发布最大值 6 + 1）
 
+    inline constexpr int kParamVersionMastering = 8;
+
     // ---- Limit（v0.1）----
     inline constexpr const char* limitGain        = "limit_gain";
     inline constexpr const char* limitCeiling     = "limit_ceiling";
@@ -55,7 +57,7 @@ namespace celadon::param
     inline constexpr const char* glazeAmount = "glaze_amount";
     inline constexpr const char* glazeStyle  = "glaze_style";   // v0.6：四选一 自动 / 温润 / 冲击 / 通透（下标 = glaze::Style）
 
-    // ---- Clay 修坯（v0.1.7.0，设计规格-Clay 第 6 节；都在「高级」抽屉里）----
+    // ---- Clay 修坯（v0.1.7.0，设计规格-Clay 第 6 节；v0.1.7 在「高级」抽屉里，v0.1.8.0 起在 CLAY 卡片上）----
     // *_mode 三选一：自动 / 关 / 手动（下标 = celadon::ClayMode）。默认自动。
     inline constexpr const char* clayLowCutMode = "clay_lowcut_mode";
     inline constexpr const char* clayLowCutHz   = "clay_lowcut_hz";    // 10 ～ 60 Hz，对数刻度，默认 25
@@ -65,6 +67,15 @@ namespace celadon::param
     inline constexpr const char* clayWidthDb    = "clay_width_db";     // −3 ～ +3 dB，默认 0
     inline constexpr const char* clayBypass     = "clay_bypass";
 
+    inline constexpr const char* masterHarshMode = "master_harsh_mode";
+    inline constexpr const char* masterHarshAmount = "master_harsh_amount";
+    inline constexpr const char* masterTransient = "master_transient";
+    inline constexpr const char* masterTargetMode = "master_target_mode";
+    inline constexpr const char* masterTargetAmount = "master_target_amount";
+    inline constexpr const char* masterCodecMarginDb = "master_codec_margin_db";
+    inline constexpr const char* masterDither = "master_dither";
+    inline constexpr const char* masterPreviewLufs = "master_preview_lufs";
+
     // 已发布的全部参数（测试与 Debug 版构造检查据此确认每个参数都有提示文案）。加参数时同步加在这里。
     inline constexpr const char* allParameterIds[] =
     {
@@ -72,7 +83,8 @@ namespace celadon::param
         colorTone, colorGlue, colorHeat, colorMix, colorOutput, colorBypass,
         balanceRecover, balanceTame, balanceBrighten, balanceSpeed, balanceBypass,
         glazeAmount, glazeStyle,
-        clayLowCutMode, clayLowCutHz, clayMonoMode, clayMonoHz, clayWidthMode, clayWidthDb, clayBypass
+        clayLowCutMode, clayLowCutHz, clayMonoMode, clayMonoHz, clayWidthMode, clayWidthDb, clayBypass,
+        masterHarshMode, masterHarshAmount, masterTransient, masterTargetMode, masterTargetAmount, masterCodecMarginDb, masterDither, masterPreviewLufs
     };
 }
 
@@ -89,15 +101,29 @@ namespace celadon::uiid
     inline constexpr const char* balanceCurve = "ui_balance_curve";   // Balance 面板的 27 段修正曲线
     inline constexpr const char* glazeRelearn = "ui_glaze_relearn";   // v0.6：「重新聆听」按钮（界面动作，不是参数）
     inline constexpr const char* glazeStatus  = "ui_glaze_status";    // v0.6：GLAZE 大旋钮下方的状态行
-    inline constexpr const char* clayIndicator = "ui_clay_indicator"; // v0.1.7.0：BALANCE→COLOR 箭头上的 3 灯修坯指示（悬停第 2 行是实时值）
-    inline constexpr const char* advanced      = "ui_advanced";       // v0.1.7.0：顶栏「高级」胶囊（开合抽屉，不是参数）
+    inline constexpr const char* clayIndicator = "ui_clay_indicator"; // v0.1.7.0：修坯三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯；悬停第 2 行是实时值）
+    // 顶栏「高级」（v0.1.7.0 起；不是参数）：v0.1.7.0 开合抽屉，v0.1.8.0 起打开「高级」面板——修坯的三态与手动值已在 CLAY 卡片上，
+    // 面板写明这一点，并列出还在设计中的三个子项目（推响不刺 / 目标频谱 / 发行安全，ADR-005 只写「即将推出」）。
+    inline constexpr const char* advanced      = "ui_advanced";
+    inline constexpr const char* limitAudition = "ui_limit_audition"; // v0.1.8.0：LIMIT 卡片的耳机「试听差值」（界面状态，不是参数）
+
+    inline constexpr const char* masterTabs = "adv_tabs";
+    inline constexpr const char* masterPreview = "adv_preview";
+    inline constexpr const char* masterLearn = "adv_learn";
+    inline constexpr const char* masterCancel = "adv_cancel";
+    inline constexpr const char* masterClear = "adv_clear";
+    inline constexpr const char* masterCurve = "adv_curve";
 
     // 界面缩放比例存在 APVTS 状态树的这个属性里（不是参数，不进自动化；随工程保存）。
+    // uiScale 是 v0.1.7 及以前 900 × 560 画布的比例（不再读，留着只为说明旧工程里的这个属性）；
+    // v0.1.8.0 起用 uiZoom：1200 × 820 画布的比例（0.7 ～ 2.0）。旧工程没有 uiZoom，按用户设置里的默认大小打开。
     inline constexpr const char* uiScaleProperty = "uiScale";
+    inline constexpr const char* uiZoomProperty  = "uiZoom";
 
     inline constexpr const char* allUiIds[] =
     {
         meterIn, meterOut, meterGr, integrated, shortTerm, resetMeters, glueGr, balanceCurve, glazeRelearn, glazeStatus,
-        clayIndicator, advanced
+        clayIndicator, advanced, limitAudition,
+        masterTabs, masterPreview, masterLearn, masterCancel, masterClear, masterCurve
     };
 }

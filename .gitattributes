@@ -1,0 +1,5 @@
+# 脚本一律 LF：Git for Windows 默认 core.autocrlf=true，不写这条的话检出成 CRLF，bash 读到「bash\r」「pipefail\r」直接退出。
+*.sh text eol=lf
+
+# Projucer 生成的文件本来就是 CRLF：原样存、原样检出，不做换行转换（在哪个系统上重新生成都逐字节不变）。
+JuceLibraryCode/** -text

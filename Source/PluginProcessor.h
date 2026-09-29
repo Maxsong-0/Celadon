@@ -29,6 +29,7 @@
 
 #include <optional>
 
+#include "AnalyzerTap.h"
 #include "Parameters.h"
 #include "dsp/CeladonChain.h"
 
@@ -111,6 +112,51 @@ public:
     void requestGlazeRelearn() noexcept                            { chain.requestGlazeRelearn(); }
     celadon::ChainParams getGlazeEffectiveParamsForUi() const noexcept;
 
+    // ---- v0.1.8.0 界面改版：A / B 对比、等响读数、频谱仪（都在消息线程调、无锁）----
+    // A / B 对比：true = 正在听 B（原声）。链按宿主旁通同一条干路出声（延迟补偿、20 ms 交叉淡化、校准暂停），
+    // Listen 打开时两边等响（见 CeladonChain::setParams）。只是界面状态，不是参数：不进自动化、不随工程保存；
+    // 编辑器关闭时切回 A，免得窗口关了还在听原声。
+    void setCompareOriginal (bool shouldListenToOriginal) noexcept
+    {
+        if (shouldListenToOriginal) chain.setReleasePreviewEnabled (false);
+        compareOriginal.store (shouldListenToOriginal, std::memory_order_relaxed);
+    }
+    bool isComparingOriginal() const noexcept                      { return compareOriginal.load (std::memory_order_relaxed); }
+
+    // 试听差值（LIMIT 卡片的耳机）：true = 送出去的是限幅器削掉的部分（按推响前的电平），表、响度、GLAZE 照常按母带算；
+    // 听原声、宿主旁通或 LIMIT 旁通时不生效（见 CeladonChain::setParams）。与 A / B 一样只是界面状态、不存，编辑器关闭时关掉。
+    void setAuditionDifference (bool shouldAudition) noexcept
+    {
+        if (shouldAudition) chain.setReleasePreviewEnabled (false);
+        auditionDifference.store (shouldAudition, std::memory_order_relaxed);
+    }
+    bool isAuditioningDifference() const noexcept                  { return auditionDifference.load (std::memory_order_relaxed); }
+
+    void setReleasePreviewEnabled (bool enabled) noexcept
+    {
+        if (enabled)
+        {
+            compareOriginal.store (false, std::memory_order_relaxed);
+            auditionDifference.store (false, std::memory_order_relaxed);
+        }
+        chain.setReleasePreviewEnabled (enabled);
+    }
+    bool isReleasePreviewEnabled() const noexcept { return chain.isReleasePreviewEnabled(); }
+    void requestReferenceLearn() noexcept { chain.requestReferenceLearn(); }
+    void cancelReferenceLearn() noexcept { chain.cancelReferenceLearn(); }
+    void clearReference() noexcept { chain.clearReference(); }
+    celadon::MasteringStatus getMasteringStatus() const noexcept { return chain.getMasteringStatus(); }
+
+    // Listen 测到的「处理结果 − 原声」响度差（dB），见 CeladonChain::getListenDifferenceDb。
+    bool hasListenDifference() const noexcept                      { return chain.hasListenDifference(); }
+    float getListenDifferenceDb() const noexcept                   { return chain.getListenDifferenceDb(); }
+
+    // 频谱仪的取样口：IN = 链入口（NaN 保护之后），OUT = 插件最终输出（含 Listen 的监听增益、A / B 的原声、试听差值）。
+    celadon::AnalyzerTap& getAnalyzerTap() noexcept                { return analyzerTap; }
+
+    // 当前采样率（频谱仪换算频率用）；还没 prepare 时返回 0。
+    double getSampleRateForUi() const noexcept                     { return currentSampleRate.load (std::memory_order_relaxed); }
+
     // Lookahead 参数停稳多久才真正换前瞻（v0.5 R9b）。拖旋钮时相邻两档之间通常只隔几十毫秒，
     // 0.3 s 足以把一次拖动认成「一次改动」，松手后又不至于让人觉得延迟显示迟迟不跟。
     static constexpr double lookaheadSettleSeconds = 0.3;
@@ -130,6 +176,7 @@ private:
     // 读入的状态树里缺哪个参数（旧版本存的状态），就补一个只带 id 的节点，让它回到默认值。
     void addMissingParameterNodes (juce::ValueTree& newState) const;
     void processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed);
+    void processBuses (juce::AudioBuffer<float>& buffer, bool hostBypassed);
 
     // 宿主时间线：播放位置、是否在播、循环（PPQ 按当前速度折成样本）、离线渲染。拿不到的项 has* = false。音频线程调。
     celadon::glaze::HostInfo readHostInfo() const noexcept;
@@ -227,6 +274,18 @@ private:
         std::atomic<float>* bypass = nullptr;
     };
 
+    struct MasteringParameterPointers
+    {
+        std::atomic<float>* harshMode = nullptr;
+        std::atomic<float>* harshAmount = nullptr;
+        std::atomic<float>* transient = nullptr;
+        std::atomic<float>* targetMode = nullptr;
+        std::atomic<float>* targetAmount = nullptr;
+        std::atomic<float>* codecMarginDb = nullptr;
+        std::atomic<float>* dither = nullptr;
+        std::atomic<float>* previewLufs = nullptr;
+    } masteringParams;
+
     LimitParameterPointers limitParams;
     ColorParameterPointers colorParams;
     BalanceParameterPointers balanceParams;
@@ -256,7 +315,11 @@ private:
     std::atomic<int> pendingLatency { 0 };        // 音频线程写（= 链此刻的延迟），消息线程读后上报；尾巴长度也用它
     std::atomic<double> currentSampleRate { 0.0 }; // prepareToPlay 写，界面线程读（把延迟换算成毫秒）；0 = 还没 prepare
     std::atomic<bool> hostResetPending { false };
+    std::atomic<bool> compareOriginal { false };  // 界面写（A / B 对比听 B），音频线程每块读
+    std::atomic<bool> auditionDifference { false }; // 界面写（LIMIT 试听差值），音频线程每块读
     bool lastBlockHostBypassed = false;           // 只在音频线程读写
+
+    celadon::AnalyzerTap analyzerTap;             // 频谱仪取样口：音频线程推、界面线程取
 
     // 宿主旁通切换后这么多个块内收到的 Reset 视为「切换附带的 Reset」而忽略（见 processChain）。只在音频线程读写。
     static constexpr int hostBypassResetGraceBlocks = 2;

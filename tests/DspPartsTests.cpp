@@ -193,7 +193,10 @@ namespace celadon::test
                         expectEquals (y, x);
 
                     expect (std::abs (y) <= 0.5f);
-                    expect (y >= previous);
+                    // 单调：饱和区里相邻两点的真值差不到 1 ulp，平台的 tanhf 只保证「忠实舍入」（glibc 恰好单调，
+                    // MSVC UCRT / Apple libm 可能退 1 ulp），所以允许 1 ulp 的回落。
+                    expect (y >= previous || previous - y <= std::numeric_limits<float>::epsilon() * std::abs (previous),
+                            "SoftClip must be monotonic (1 ulp tolerance) at x = " + juce::String (x, 3));
                     previous = y;
                 }
             }
@@ -505,12 +508,17 @@ namespace celadon::test
 
             logMessage ("  " + kernel + " processBlock: " + juce::String (bestNs, 2) + " ns per sample per channel (best of 15)");
 
+           #if JUCE_DEBUG
+            // 调试构建（Visual Studio 的 Debug、CMake Debug）不优化：绝对时间没有意义（与 ColorTests 的性能检查一样）。
+            logMessage ("  (debug build: performance limits not asserted)");
+           #else
             if (kernel == "NEON")
                 expect (bestNs <= 30.0, "NEON block detector too slow: " + juce::String (bestNs, 2) + " ns");
             else if (kernel == "SSE2")
                 expect (bestNs <= 80.0, "SSE2 block detector too slow: " + juce::String (bestNs, 2) + " ns");
             else
                 logMessage ("  no SIMD kernel on this platform: guard is informational only");
+           #endif
         }
     };
 

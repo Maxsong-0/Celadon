@@ -73,6 +73,10 @@ namespace celadon
             bool  bypass   = false;
             float automaticRecover = 0.0f; // 0 ～ recover：Recover 中由自动编排加入的份额；仅这部分保护滚降/短暂缺口
             float automaticTame = 0.0f;    // 0 ～ tame：Tame 中的自动份额；逐段持续许可/起音保护，新增削减最多 2.5 dB
+            float harshAmount = 0.0f, transientPreserve = 0.5f;
+            float targetAmount = 0.0f, targetSlopeDbPerOct = 0.0f;
+            bool hasTargetReference = false;
+            std::array<float, 27> targetReferenceDb {};
         };
 
         using BandGains = std::array<float, (size_t) numBands>;
@@ -95,6 +99,8 @@ namespace celadon
 
         // 各段当前修正量 G[b]（dB，正 = 提升、负 = 压下）。界面线程调用，无锁（每段一个原子变量，每 hop 更新）。
         void getBandGainsDb (BandGains& out) const noexcept;
+        void getTargetCorrectionDb (BandGains& out) const noexcept;
+        float getHarshReductionDb() const noexcept { return publishedHarshDb.load (std::memory_order_relaxed); }
 
         // 第 band 段的 1/3 倍频程中心频率（40, 50, 63, 80 … 12500, 16000 Hz）。
         static float getBandCentreHz (int band) noexcept;
@@ -144,6 +150,10 @@ namespace celadon
         // 在 prepare 之后、处理之前调。
         void setAnalysisSlicingForTesting (bool shouldSlice) noexcept   { sliceAnalysis = shouldSlice; }
 
+        // 只给测试用：false = 两个声道也各自走标量滤波（不打包）。默认 true：有 NEON / SSE2 的平台两声道一组打包，
+        // 输出与状态与标量逐位相同（BalanceTests 在左右不同的立体声上对照）。随时可调。
+        void setPackedFilteringForTesting (bool shouldPack) noexcept    { packedFiltering = shouldPack; }
+
     private:
         //==============================================================================
         // 转置直接 II 型双二阶（double 精度）：系数按 a0 归一，状态每段每声道一份。
@@ -172,7 +182,7 @@ namespace celadon
         void processChunk (juce::AudioBuffer<float>& io, int startSample, int numSamples);
         void processSegment (juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse) noexcept;
         void filterChannelScalar (float* samples, int numSamples, int channel, const int* bands, int numActive) noexcept;
-        void filterChannelPairPacked (float* first, float* second, int numSamples, int channel, const int* bands, int numActive) noexcept;   // 只在 AArch64 上定义与调用
+        void filterChannelPairPacked (float* first, float* second, int numSamples, int channel, const int* bands, int numActive) noexcept;   // 只在 AArch64（NEON）与 x64（SSE2）上定义与调用
         void pushIntoAnalysisRing (const juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse);
 
         // 每 hop 的分析分三片，落在 hop 后第 0 / 32 / 64 个样本上（见 BalanceModule.cpp「分析拆片」）：
@@ -222,6 +232,7 @@ namespace celadon
 
         // ---- 分析拆片：本帧的快照与进度 ----
         bool sliceAnalysis = true;              // false：全部片在 hop 边界上一口气做完（只给测试用）
+        bool packedFiltering = true;            // false：两声道也走标量滤波（只给测试用）
         int nextAnalysisSlice = -1;             // 下一片的编号（1 或 2）；-1 = 没有做到一半的帧
         int samplesUntilNextSlice = 0;          // 到下一片还有几个样本
         int analysisSliceSpacing = 0;           // 本帧相邻两片的间隔（样本）：拆片时 32，关掉时 0
@@ -261,6 +272,10 @@ namespace celadon
         PerBand<double> automaticDeficitSeconds {}; // 自动 Recover 的连续缺口时长；仅利用现有频谱，每 hop 更新
         PerBand<double> automaticPeakSeconds {};    // 自动 Tame 的连续局部峰时长（起音保护期间不累计）
         PerBand<double> automaticOnsetHoldSeconds {};
+        PerBand<double> harshEnvelopeDb {}, masteringTargetDb {}, masteringPreviousPower {}, masteringOnsetHold {};
+        std::array<std::atomic<float>, 27> publishedTargetDb {};
+        std::atomic<float> publishedHarshDb { 0.0f };
+        bool masteringHasTail = false;
         PerBand<double> maskingBoostDb {};         // 上行掩蔽提升的平滑状态；Recover/Tame 不同时打开时保持 0
         PerBand<double> harmonicProtection {};     // 0 ～ 1，清晰谐波组的平滑保护证据；仅缩小自动 Tame 份额
         PerBand<double> previousBandPower {};       // 起音检测用原始帧，避免慢测量的余尾继续获得自动许可

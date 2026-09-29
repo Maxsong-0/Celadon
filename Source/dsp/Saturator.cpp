@@ -8,6 +8,12 @@
 
 #include "Saturator.h"
 
+// MSVC：VS2022（v143）的 /fp:precise 默认不融合乘加；更早的工具集（v142）配 /arch:AVX2 时 /fp:precise 下仍可能融合，
+// 这里写死关掉（ADR-013：各路径逐位相同的前提）。clang-cl 不认这个 pragma，由 /clang:-ffp-contract=off 与源码守卫管。
+#if defined (_MSC_VER) && ! defined (__clang__)
+ #pragma fp_contract (off)
+#endif
+
 // SIMD 路径：ARM 用 NEON；x86 / x64 用 SSE2；其他平台用标量回退。三条路径是同一串 IEEE 单精度运算
 // （先乘后加、各自舍入，不用融合乘加），结果逐位相同——前提是编译器也不替我们合并（见下面的守卫）。
 // CELADON_FORCE_SCALAR_SIMD 只给验证用。
@@ -25,7 +31,11 @@
 #if defined (__GNUC__) && ! defined (__clang__) && defined (__FP_FAST_FMAF) && ! defined (CELADON_FP_CONTRACT_OFF)
  #error "GCC 在有 FMA 的目标上默认融合乘加：加 -ffp-contract=off 并定义 CELADON_FP_CONTRACT_OFF=1（ADR-013）"
 #endif
-#if defined (__FAST_MATH__) || defined (_M_FP_FAST) || defined (_M_FP_CONTRACT)
+// clang-cl（Visual Studio 的「LLVM (clang-cl)」工具集）沿用 clang 默认的 -ffp-contract=on，并因此预定义 _M_FP_CONTRACT：
+// 要加 /clang:-ffp-contract=off（CMakeLists.txt 已做）。MSVC 自己的 cl.exe 默认 /fp:precise，不合并、不定义它。
+#if defined (_MSC_VER) && defined (__clang__) && defined (_M_FP_CONTRACT)
+ #error "clang-cl 默认合并乘加：加 /clang:-ffp-contract=off（ADR-013）"
+#elif defined (__FAST_MATH__) || defined (_M_FP_FAST) || defined (_M_FP_CONTRACT)
  #error "不许用 -ffast-math、/fp:fast、/fp:contract：会融合乘加，破坏逐位契约（ADR-013）"
 #endif
 
