@@ -47,3 +47,11 @@
 5. `ParameterRanges.h` 头注释「一趟往返」→ 改成两趟并写明路径。
 
 另加：用例 1 检查旧存档参考不会被手动参数的一次真改动「升格」成一致。
+
+## 6. 合并 main（b951d20，含 T-025 与 v0.1.9.0）之后
+
+- 唯一冲突在 `GlazeController.cpp`：v0.1.9.0 在旧 `conditionsHash` 末尾加的高级母带段搬进 `emitConditions` 末尾、全走 `sink.word`（这些值存读逐位不变，不走容差）；
+  `WordRecorder` 容量 32 → 64。测试里照抄的修前哈希补上这一段，往返随机测试也随机开启这几项。
+- 107（GCC 15）：`suite-merged-main-linux.log`，**132969 过 / 0 败**，0 警告（含 `celadon_render`）。
+- 109（真 MSVC VS2022 v143 + Wine，`scripts/windows-wine.sh test`）：`suite-merged-main-msvc-wine.log`，**132969 过 / 0 败**，0 条 MSVC 警告。
+  UCRT 的 powf / logf 与 glibc 不同（往返测试里旧口径哈希翻转 55443 次，glibc 55394 次），参考条件照样全部一致。
