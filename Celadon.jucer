@@ -20,6 +20,8 @@
             file="Source/Parameters.h"/>
       <FILE id="v8iXGh" name="ParameterIds.h" compile="0" resource="0"
             file="Source/ParameterIds.h"/>
+      <FILE id="Pr4nGz" name="ParameterRanges.h" compile="0" resource="0"
+            file="Source/ParameterRanges.h"/>
       <FILE id="jw4Ky9" name="AnalyzerTap.h" compile="0" resource="0"
             file="Source/AnalyzerTap.h"/>
       <GROUP id="{1D8BEABE-7186-812B-FA28-E7FEEDE815CD}" name="dsp">

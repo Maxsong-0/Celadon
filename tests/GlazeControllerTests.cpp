@@ -17,6 +17,9 @@
     Clay 用例用合成素材（makeClayMaterial：低频正弦 + 白噪声，可选低频反相 / 高频左右不相关）与「按规格最需要处理」的
     格式 2 画像（withClayNeeds），数值依据写在各自注释里。依据：设计规格-Clay（下称「Clay」）、设计规格-Clay-分析决策与验收
     （「Clay 子文档」）、ADR-009。
+    T-026（BUG-004，ADR-018）：重开工程时宿主对参数做归一化往返，对数刻度的三个旋钮（Limit Release、Clay 低切 / 收单分频点）
+    会漂几个 ulp。用真参数范围（ParameterRanges.h）按 JUCE RangedAudioParameter 的换算做往返，参考条件必须仍然一致（任一旋钮挪
+    一个显示步进必须不一致）；Rig 存档后按漂移后的值重开（新格式、改造成旧格式两种），校准与执行快照必须照样适用。
     T-012 阶段 4（ADR-012 / 设计规格-Clay-根治修订）：withClayNeeds 按新决策公式给数并补「先试后用」的代价（代价无效的画像三项都
     中性）；追加 Clay 9（代价 mask 经编排器到状态快照：只报自动态、GLAZE > 0、过渡中取目标方案的）与 Clay 10（审核 V2-03：恢复后
     第一块只在方案源支持自动 Clay 时才用快照值）。
@@ -28,8 +31,10 @@
 
 #include "../Source/dsp/CeladonChain.h"
 #include "../Source/dsp/ClayGuard.h"
+#include "../Source/dsp/GlazeCalibrator.h"
 #include "../Source/dsp/GlazePlanner.h"
 #include "../Source/dsp/GlazeProfile.h"
+#include "../Source/ParameterRanges.h"
 
 #include <algorithm>
 #include <cstring>
@@ -569,6 +574,203 @@ namespace celadon::test
         }
     }
 
+    //==============================================================================
+    // ---- T-026（BUG-004，ADR-018）用的工具 ----
+    namespace
+    {
+        // JUCE 9.0.2 RangedAudioParameter 的换算（juce_RangedAudioParameter.cpp）：值 → 吸附 → 0 ～ 1；0 ～ 1 → 值 → 吸附。
+        // 宿主存 / 读工程时 APVTS 走的就是它：读工程 setDenormalisedValue → convertTo0to1 → setValue（convertFrom0to1），
+        // 处理器读到的 getRawParameterValue 又是 convertFrom0to1 (getValue())——一次保存再重开，处理器看到的值走了两趟往返。
+        float toNormalised (const juce::NormalisableRange<float>& range, float value)
+        {
+            return range.convertTo0to1 (range.snapToLegalValue (value));
+        }
+
+        float fromNormalised (const juce::NormalisableRange<float>& range, float normalised)
+        {
+            return range.snapToLegalValue (range.convertFrom0to1 (juce::jlimit (0.0f, 1.0f, normalised)));
+        }
+
+        float roundTrip (const juce::NormalisableRange<float>& range, float value)
+        {
+            return fromNormalised (range, toNormalised (range, value));
+        }
+
+        // 校准参考条件用到的每个浮点手动参数：真范围与它在 ChainParams 里的位置；clayMode 非空 = Clay 项（只在「手动」且 Clay 非默认时计入）。
+        struct ReferenceParameter
+        {
+            const char* name;
+            juce::NormalisableRange<float> range;
+            float& (*field) (ChainParams&);
+            ClayMode ClaySettings::* clayMode = nullptr;
+        };
+
+        std::vector<ReferenceParameter> referenceParameters()
+        {
+            namespace r = param::ranges;
+            return {
+                { "limit gain",       r::limitGain(),       [] (ChainParams& p) -> float& { return p.limit.gainDb; } },
+                { "limit ceiling",    r::limitCeiling(),    [] (ChainParams& p) -> float& { return p.limit.ceilingDb; } },
+                { "limit release",    r::limitRelease(),    [] (ChainParams& p) -> float& { return p.limit.releaseMs; } },
+                { "limit lookahead",  r::limitLookahead(),  [] (ChainParams& p) -> float& { return p.limit.lookaheadMs; } },
+                { "limit clip",       r::limitClip(),       [] (ChainParams& p) -> float& { return p.limit.clip; } },
+                { "color tone",       r::colorTone(),       [] (ChainParams& p) -> float& { return p.color.toneDb; } },
+                { "color glue",       r::colorGlue(),       [] (ChainParams& p) -> float& { return p.color.glue; } },
+                { "color heat",       r::colorHeat(),       [] (ChainParams& p) -> float& { return p.color.heat; } },
+                { "color mix",        r::colorMix(),        [] (ChainParams& p) -> float& { return p.color.mixPercent; } },
+                { "color output",     r::colorOutput(),     [] (ChainParams& p) -> float& { return p.color.outputDb; } },
+                { "balance recover",  r::balanceRecover(),  [] (ChainParams& p) -> float& { return p.balance.recover; } },
+                { "balance tame",     r::balanceTame(),     [] (ChainParams& p) -> float& { return p.balance.tame; } },
+                { "balance brighten", r::balanceBrighten(), [] (ChainParams& p) -> float& { return p.balance.brighten; } },
+                { "glaze",            r::glazeAmount(),     [] (ChainParams& p) -> float& { return p.glazePercent; } },
+                { "clay low cut",     r::clayLowCut(),      [] (ChainParams& p) -> float& { return p.claySettings.lowCutHz; }, &ClaySettings::lowCutMode },
+                { "clay mono",        r::clayMono(),        [] (ChainParams& p) -> float& { return p.claySettings.monoHz; }, &ClaySettings::monoMode },
+                { "clay width",       r::clayWidth(),       [] (ChainParams& p) -> float& { return p.claySettings.widthDb; }, &ClaySettings::widthMode },
+            };
+        }
+
+        // v0.1.8.0（修 BUG-004 之前）编排器的 conditionsHash 原样照抄（含 Clay 三态那一段）：新口径的参考里仍存这个旧口径哈希，
+        // 它必须与旧版本逐位相同——旧存档里的参考、旧版本读新存档，比的都是它。
+        std::uint32_t v0180ManualParamsHash (const ChainParams& m, float feedbackMaxGainDb) noexcept
+        {
+            struct Fnv1a
+            {
+                std::uint32_t h = 2166136261u;
+
+                void add (std::uint64_t v) noexcept
+                {
+                    for (int i = 0; i < 8; ++i)
+                    {
+                        h ^= (std::uint32_t) ((v >> (8 * i)) & 0xffu);
+                        h *= 16777619u;
+                    }
+                }
+
+                void addQuantized (float x, double scale) noexcept
+                {
+                    if (! std::isfinite (x))
+                    {
+                        add (0x7ff8dead7ff8deadULL);
+                        return;
+                    }
+
+                    add ((std::uint64_t) std::llround (juce::jlimit (-1.0e12, 1.0e12, (double) x * scale)));
+                }
+
+                void addFlag (bool b) noexcept   { add (b ? 1u : 0u); }
+            };
+
+            const auto addClayItem = [] (Fnv1a& h, ClayMode mode, float manualValue, double scale) noexcept
+            {
+                h.add ((std::uint64_t) (int) mode);
+
+                if (mode == ClayMode::manual)
+                    h.addQuantized (manualValue, scale);
+            };
+
+            constexpr double q = 1.0e4;
+            Fnv1a h;
+            h.addQuantized (m.balance.recover, q);
+            h.addQuantized (m.balance.tame, q);
+            h.addQuantized (m.balance.brighten, q);
+            h.add ((std::uint64_t) (int) m.balance.speed);
+            h.addFlag (m.balance.bypass);
+            h.addQuantized (m.color.toneDb, q);
+            h.addQuantized (m.color.glue, q);
+            h.addQuantized (m.color.heat, q);
+            h.addQuantized (m.color.mixPercent, q);
+            h.addQuantized (m.color.outputDb, q);
+            h.addFlag (m.color.bypass);
+            h.addQuantized (m.limit.gainDb, q);
+            h.addQuantized (m.limit.releaseMs, q);
+            h.addFlag (m.limit.autoRelease);
+            h.addQuantized (m.limit.clip, q);
+            h.addFlag (m.limit.bypass);
+            h.addQuantized (feedbackMaxGainDb, 1.0e3);
+
+            const auto& clay = m.claySettings;
+            const auto clayDefault = clay.lowCutMode == ClayMode::automatic && clay.monoMode == ClayMode::automatic
+                                  && clay.widthMode == ClayMode::automatic && ! clay.bypass;
+
+            if (! clayDefault)
+            {
+                h.add (0x436c6179ULL);
+                addClayItem (h, clay.lowCutMode, clay.lowCutHz, q);
+                addClayItem (h, clay.monoMode, clay.monoHz, q);
+                addClayItem (h, clay.widthMode, clay.widthDb, q);
+                h.addFlag (clay.bypass);
+            }
+
+            return h.h;
+        }
+
+        // 编排器的 makeReference 同一口径（手动参数部分由 setManualConditions 填；GLAZE、Ceiling、Lookahead 是参考条件自己的项）。
+        glaze::CalibrationReference referenceFor (const ChainParams& p, float feedbackMaxGainDb)
+        {
+            glaze::CalibrationReference r;
+            r.profileId = 0x2601u;
+            r.style = glaze::Style::warm;
+            r.glazePercent = p.glazePercent;
+            r.ceilingDb = p.limit.ceilingDb;
+            r.lookaheadMs = p.limit.lookaheadMs;
+            r.sampleRate = defaultRate;
+            glaze::setManualConditions (r, p, feedbackMaxGainDb);
+            return r;
+        }
+
+        // 这个参数此刻计不计入参考条件（Clay 项只在该项「手动」且 Clay 非默认设置时计入；其余一直计入）。
+        bool counted (const ReferenceParameter& parameter, const ChainParams& p)
+        {
+            if (parameter.clayMode == nullptr)
+                return true;
+
+            const auto& clay = p.claySettings;
+            const auto clayDefault = clay.lowCutMode == ClayMode::automatic && clay.monoMode == ClayMode::automatic
+                                  && clay.widthMode == ClayMode::automatic && ! clay.bypass;
+            return ! clayDefault && clay.*(parameter.clayMode) == ClayMode::manual;
+        }
+
+        // 挪一个显示步进（往区间里面挪）：线性项一个吸附步进；对数刻度项显示整数 ms / Hz，挪 1。
+        float oneDisplayStep (const ReferenceParameter& parameter, float value)
+        {
+            const auto step = parameter.range.interval > 0.0f ? parameter.range.interval : 1.0f;
+            const auto up = value + step;
+            return up <= parameter.range.end ? up : value - step;
+        }
+
+        // 往返两趟（一次保存再重开）后旧口径量化码会翻转的一个旋钮位置：从真范围里按归一化位置从小到大找第一个。
+        struct DriftingValue
+        {
+            bool found = false;
+            float saved = 0.0f, reopened = 0.0f;
+        };
+
+        DriftingValue findDriftingValue (const juce::NormalisableRange<float>& range)
+        {
+            for (int i = 1; i < 100000; ++i)
+            {
+                const auto saved = fromNormalised (range, (float) i / 100000.0f);
+                const auto reopened = roundTrip (range, roundTrip (range, saved));
+
+                if (std::llround ((double) saved * 1.0e4) != std::llround ((double) reopened * 1.0e4))
+                    return { true, saved, reopened };
+            }
+
+            return {};
+        }
+
+        // 把新版本写出的存档改成 v0.1.8.0 的样子：CALIBRATION 与执行快照的 REFERENCE 去掉新口径的属性（旧版本只存旧口径哈希）。
+        void stripContinuousConditions (juce::XmlElement& element)
+        {
+            if (element.hasTagName ("CALIBRATION") || element.hasTagName ("REFERENCE"))
+                for (auto* name : { "conditionsFormat", "discreteParamsHash", "limitReleaseMs", "clayLowCutHz", "clayMonoHz" })
+                    element.removeAttribute (name);
+
+            for (auto* child : element.getChildIterator())
+                stripContinuousConditions (*child);
+        }
+    }
+
     class GlazeControllerTests  : public juce::UnitTest
     {
     public:
@@ -619,6 +821,11 @@ namespace celadon::test
             // ---- T-012 阶段 4（ADR-012 修坯根治；审核 V2-03）----
             testClayCostMaskReachesStatus();
             testClayRestoreNeedsSupport();
+
+            // ---- T-026（BUG-004，ADR-018）----
+            testReferenceSurvivesParameterRoundTrip();
+            testCalibrationSurvivesReopenDrift();
+            testSlowLogKnobSweepIsNotStable();
         }
 
     private:
@@ -3734,6 +3941,307 @@ namespace celadon::test
             bool neutral = true;
             rig.run (1.0, [&] (int) { neutral = neutral && isNeutralClay (rig.chain.getEffectiveParams().clay) && ! rig.probe().clayRestoredFirstBlock; });
             expect (neutral, "... and stays neutral (the stale snapshot value never reappears)");
+        }
+
+        //==============================================================================
+        // T-026 1. 真参数范围上的往返（BUG-004）：随机归一化位置（Clay 三态、各开关也随机）→ 按 JUCE RangedAudioParameter 的换算
+        //    往返 1 ～ 8 趟（一次保存重开 = 两趟），参考条件必须一直一致；旧口径哈希在其中一部分位置上确实会翻转（修前丢校准的就是它们）。
+        //    旧口径的参考（旧存档读回）按一次重开后的值升格，必须升上去、升完一致。任一计入的旋钮挪一个显示步进，必须不一致。
+        //    参考里存的旧口径哈希必须与 v0.1.8.0 的实现（照抄）逐位相同（含 Clay 三态随机的各种设置）。
+        // 依据：BUG-004；ParameterRanges.h（往返漂移实测）；决策第 6 节「参考条件任一改变即失效」。
+        void testReferenceSurvivesParameterRoundTrip()
+        {
+            beginTest ("reference conditions survive the host's normalised round trip through the real parameter ranges; a real change never does");
+
+            const auto parameters = referenceParameters();
+            juce::Random random (0x26b04);
+            constexpr int iterations = 60000;
+            constexpr int maxTrips = 8;
+
+            int roundTripMismatches = 0, legacyFlips = 0, upgradeChecks = 0, upgradeFailures = 0, changeChecks = 0, changesMissed = 0;
+            int oldHashDifferences = 0;
+            juce::String firstOldHash, firstRoundTrip, firstUpgrade, firstChange;   // 每类第一例
+
+            const auto noteFailure = [] (juce::String& first, const juce::String& what)
+            {
+                if (first.isEmpty())
+                    first = what;
+            };
+
+            for (int iteration = 0; iteration < iterations; ++iteration)
+            {
+                ChainParams p;
+
+                for (const auto& parameter : parameters)
+                    parameter.field (p) = fromNormalised (parameter.range, random.nextFloat());
+
+                p.balance.speed = (BalanceModule::Speed) random.nextInt (3);
+                p.balance.bypass = random.nextInt (8) == 0;
+                p.color.bypass = random.nextInt (8) == 0;
+                p.limit.autoRelease = random.nextBool();
+                p.limit.bypass = random.nextInt (8) == 0;
+                p.claySettings.lowCutMode = (ClayMode) random.nextInt (3);
+                p.claySettings.monoMode = (ClayMode) random.nextInt (3);
+                p.claySettings.widthMode = (ClayMode) random.nextInt (3);
+                p.claySettings.bypass = random.nextInt (8) == 0;
+
+                // 约束反馈上限不是参数（随存档逐位保存）：不限，或某个随机的有限值。
+                const auto cap = random.nextBool() ? 1.0e9f : random.nextFloat() * 12.0f;
+                const auto saved = referenceFor (p, cap);
+
+                if (saved.manualParamsHash != v0180ManualParamsHash (p, cap))
+                {
+                    ++oldHashDifferences;
+                    noteFailure (firstOldHash, "the old-format hash differs from v0.1.8.0 at iteration " + juce::String (iteration));
+                }
+
+                auto reopened = p;
+
+                for (int trip = 1; trip <= maxTrips; ++trip)
+                {
+                    for (const auto& parameter : parameters)
+                        parameter.field (reopened) = roundTrip (parameter.range, parameter.field (reopened));
+
+                    const auto now = referenceFor (reopened, cap);
+
+                    if (! glaze::GlazeCalibrator::referenceMatches (saved, now) || ! glaze::GlazeCalibrator::referenceMatches (now, saved))
+                    {
+                        ++roundTripMismatches;
+                        noteFailure (firstRoundTrip, "round trip " + juce::String (trip) + ": release " + juce::String (p.limit.releaseMs, 9)
+                                     + " -> " + juce::String (reopened.limit.releaseMs, 9));
+                    }
+
+                    if (now.manualParamsHash != saved.manualParamsHash)
+                        ++legacyFlips;
+
+                    // 旧存档：只有旧口径哈希。一次保存重开（两趟）之后的值必须能把它升上去。
+                    if (trip <= 2 && iteration % 8 == 0)
+                    {
+                        auto legacy = glaze::CalibrationReference {};
+                        legacy.profileId = saved.profileId;
+                        legacy.style = saved.style;
+                        legacy.glazePercent = saved.glazePercent;
+                        legacy.manualParamsHash = saved.manualParamsHash;
+                        legacy.ceilingDb = saved.ceilingDb;
+                        legacy.lookaheadMs = saved.lookaheadMs;
+                        legacy.sampleRate = saved.sampleRate;
+
+                        ++upgradeChecks;
+
+                        if (glaze::upgradeLegacyConditions ({ &legacy }, reopened, cap) != 1
+                            || legacy.conditionsFormat != glaze::continuousConditionsFormat
+                            || ! glaze::GlazeCalibrator::referenceMatches (legacy, now))
+                        {
+                            ++upgradeFailures;
+                            noteFailure (firstUpgrade, "legacy upgrade after " + juce::String (trip) + " trips failed");
+                        }
+                    }
+                }
+
+                // 真实改动：随机挑一个此刻计入的旋钮挪一个显示步进。
+                for (int attempt = 0; attempt < 8; ++attempt)
+                {
+                    const auto& parameter = parameters[(size_t) random.nextInt ((int) parameters.size())];
+
+                    if (! counted (parameter, p))
+                        continue;
+
+                    auto changed = p;
+                    parameter.field (changed) = oneDisplayStep (parameter, parameter.field (p));
+                    ++changeChecks;
+
+                    if (glaze::GlazeCalibrator::referenceMatches (saved, referenceFor (changed, cap)))
+                    {
+                        ++changesMissed;
+                        noteFailure (firstChange, juce::String (parameter.name) + " moved one display step from " + juce::String (parameter.field (p), 9)
+                                     + " but the reference still matches");
+                    }
+
+                    break;
+                }
+            }
+
+            logMessage ("  round trip: " + juce::String (iterations) + " positions x " + juce::String (maxTrips) + " trips, old exact hash flipped "
+                        + juce::String (legacyFlips) + " times; legacy upgrades checked " + juce::String (upgradeChecks)
+                        + ", real changes checked " + juce::String (changeChecks));
+
+            expectEquals (oldHashDifferences, 0, "manualParamsHash is still v0.1.8.0's hash, bit for bit. First: " + firstOldHash);
+            expectEquals (roundTripMismatches, 0, "the round trip never invalidates the reference. First: " + firstRoundTrip);
+            expect (legacyFlips > 0, "the old exact hash does flip on some of these positions (the scenario of BUG-004 is exercised)");
+            expectEquals (upgradeFailures, 0, "a legacy reference upgrades after one save and reopen. First: " + firstUpgrade);
+            expect (upgradeChecks > 0 && changeChecks > iterations / 2, "enough checks ran");
+            expectEquals (changesMissed, 0, "one display step on any counted knob is a real change. First: " + firstChange);
+        }
+
+        // T-026 2. 保存重开的整条路径（BUG-004 的原始现象）：Limit Release 与「手动」收单分频点取「一次保存重开后旧口径会翻转」的位置，
+        //    校准锁定后存档；新实例按往返两趟后的值读回，第一块起已提交的校准就适用、执行快照照样沿用、执行的偏差与存档一致。
+        //    存档改造成 v0.1.8.0 的样子（去掉新口径属性）同样如此——旧口径参考读回后按邻域升格。旋钮真的挪了（+1 %）则两种格式都不适用。
+        // 依据：BUG-004；时间线第 6 节「重开工程：不重学，从同一起点重渲染」。
+        void testCalibrationSurvivesReopenDrift()
+        {
+            beginTest ("reopen: drifted log-scale knobs keep the calibration and the execution snapshot, for new and v0.1.8.0 saves (BUG-004)");
+
+            const auto release = findDriftingValue (param::ranges::limitRelease());
+            const auto mono = findDriftingValue (param::ranges::clayMono());
+            expect (release.found && mono.found, "found knob positions whose old exact hash flips after one save and reopen");
+
+            if (! release.found || ! mono.found)
+                return;
+
+            logMessage ("  release " + juce::String (release.saved, 9) + " -> " + juce::String (release.reopened, 9)
+                        + " ms, mono " + juce::String (mono.saved, 9) + " -> " + juce::String (mono.reopened, 9) + " Hz");
+
+            const auto material = makeMusic (defaultRate, 8.0, 26, 0.5f);
+
+            Rig original (fastConstants(), material);
+            original.params.glazePercent = 60.0f;
+            original.params.limit.releaseMs = release.saved;
+            original.params.claySettings.monoMode = ClayMode::manual;
+            original.params.claySettings.monoHz = mono.saved;
+            expect (original.learnAndCalibrate(), "original learns and calibrates with the drifting knob positions");
+
+            const auto xml = original.chain.createGlazeStateXml();
+            expect (xml != nullptr, "saved");
+
+            if (xml == nullptr)
+                return;
+
+            const auto savedBias = original.probe().executedBiasDb;
+            const auto savedCalibration = original.committed().calibration;
+            expect (savedCalibration.valid && savedCalibration.reference.conditionsFormat == glaze::continuousConditionsFormat,
+                    "the committed calibration is stored in the new format");
+
+            juce::XmlElement legacyXml (*xml);
+            stripContinuousConditions (legacyXml);
+
+            // 存档格式：新口径的参考（CALIBRATION、执行快照的 REFERENCE）写口径号 2 与四项，读回逐位相同；四项缺一、口径号不认识 →
+            // 整份拒收；旧格式读成旧口径，再写出来与读进去逐字相同（不凭空补新属性）。
+            {
+                const auto sameConditions = [] (const glaze::CalibrationReference& a, const glaze::CalibrationReference& b)
+                {
+                    return a.conditionsFormat == b.conditionsFormat && a.manualParamsHash == b.manualParamsHash
+                        && a.discreteParamsHash == b.discreteParamsHash && sameBits (a.limitReleaseMs, b.limitReleaseMs)
+                        && sameBits (a.clayLowCutHz, b.clayLowCutHz) && sameBits (a.clayMonoHz, b.clayMonoHz);
+                };
+                const juce::StringArray newAttributes { "discreteParamsHash", "limitReleaseMs", "clayLowCutHz", "clayMonoHz" };
+
+                auto* executionXml = xml->getChildByName (glaze::executionTag);
+                expect (executionXml != nullptr && executionXml->getChildByName ("REFERENCE") != nullptr, "the execution snapshot is saved");
+
+                if (executionXml == nullptr || executionXml->getChildByName ("REFERENCE") == nullptr)
+                    return;
+
+                for (const auto* element : { xml->getChildByName ("CALIBRATION"), executionXml->getChildByName ("REFERENCE") })
+                {
+                    auto complete = element != nullptr && element->getIntAttribute ("conditionsFormat") == 2;
+
+                    for (const auto& attribute : newAttributes)
+                        complete = complete && element->hasAttribute (attribute);
+
+                    expect (complete, "the new-format reference writes conditionsFormat 2 and its four values");
+                }
+
+                glaze::CommittedState parsed;
+                expect (glaze::fromXml (*xml, parsed) && sameConditions (parsed.calibration.reference, savedCalibration.reference),
+                        "the committed calibration's reference round-trips bit for bit");
+
+                glaze::ExecutionState execution;
+                expect (glaze::fromXml (*executionXml, execution) && execution.reference.conditionsFormat == glaze::continuousConditionsFormat
+                        && sameBits (execution.reference.limitReleaseMs, release.saved) && sameBits (execution.reference.clayMonoHz, mono.saved)
+                        && execution.reference.clayLowCutHz == 0.0f,
+                        "the execution snapshot's reference carries the knob values (low cut is automatic, so 0)");
+
+                for (const auto& attribute : newAttributes)
+                {
+                    juce::XmlElement brokenState (*xml);
+                    brokenState.getChildByName ("CALIBRATION")->removeAttribute (attribute);
+                    glaze::CommittedState ignoredState;
+                    expect (! glaze::fromXml (brokenState, ignoredState), "calibration without " + attribute + " is rejected");
+
+                    juce::XmlElement brokenExecution (*executionXml);
+                    brokenExecution.getChildByName ("REFERENCE")->removeAttribute (attribute);
+                    glaze::ExecutionState ignoredExecution;
+                    expect (! glaze::fromXml (brokenExecution, ignoredExecution), "execution reference without " + attribute + " is rejected");
+                }
+
+                for (const auto* format : { "3", "0", "x" })
+                {
+                    juce::XmlElement unknown (*xml);
+                    unknown.getChildByName ("CALIBRATION")->setAttribute ("conditionsFormat", format);
+                    glaze::CommittedState ignoredState;
+                    expect (! glaze::fromXml (unknown, ignoredState), "conditionsFormat " + juce::String (format) + " is rejected");
+                }
+
+                glaze::CommittedState legacyParsed;
+                expect (glaze::fromXml (legacyXml, legacyParsed)
+                        && legacyParsed.calibration.reference.conditionsFormat == glaze::legacyConditionsFormat
+                        && legacyParsed.calibration.reference.manualParamsHash == savedCalibration.reference.manualParamsHash,
+                        "a v0.1.8.0 save reads as a legacy reference with the old hash");
+                const auto rewritten = glaze::toXml (legacyParsed);
+                expect (rewritten->getChildByName ("CALIBRATION")->isEquivalentTo (legacyXml.getChildByName ("CALIBRATION"), false),
+                        "a legacy reference is written back word for word (no new attributes appear)");
+            }
+
+            auto reopen = [&] (const juce::XmlElement& state, float releaseMs, float monoHz)
+            {
+                auto rig = std::make_unique<Rig> (fastConstants(), material);
+                rig->params = original.params;
+                rig->params.limit.releaseMs = releaseMs;
+                rig->params.claySettings.monoHz = monoHz;
+                rig->chain.restoreGlazeStateXml (&state);
+                rig->step();
+                return rig;
+            };
+
+            for (const auto legacyFormat : { false, true })
+            {
+                const auto& state = legacyFormat ? legacyXml : *xml;
+                const juce::String label = legacyFormat ? "v0.1.8.0 save: " : "new save: ";
+
+                auto drifted = reopen (state, release.reopened, mono.reopened);
+                expect (drifted->status().calibrationValid, label + "the committed calibration applies on the first block after reopening");
+                expect (drifted->probe().executionSnapshotActive, label + "the execution snapshot is kept, not dropped");
+                expectEquals (drifted->probe().executedBiasDb, savedBias, label + "the executed calibration bias is the saved one");
+                expectEquals (drifted->probe().legacyConditionsUpgrades, legacyFormat ? 3 : 0,
+                              label + "legacy references upgraded (calibration, execution, held bias)");
+
+                drifted->run (2.0);
+                expect (drifted->status().calibrationValid && drifted->phase() == Phase::locked,
+                        label + "still locked with the calibration applied two seconds later");
+                expectEquals (drifted->probe().calibrationBegins, 0, label + "no recalibration was started");
+
+                auto moved = reopen (state, release.saved * 1.01f, mono.reopened);
+                expect (! moved->status().calibrationValid, label + "a knob that really moved (release +1 %) does not keep the calibration");
+                expect (! moved->probe().executionSnapshotActive, label + "... nor the execution snapshot");
+            }
+        }
+
+        // T-026 3. 慢速自动化：对数刻度旋钮每块只挪相对 2e-5（单看一块在容差 1e-4 之内），几块累计就是真改动。「条件连续 1 s 不变
+        //    才开新一轮」必须对着这一段稳定开始时的条件比：扫的过程中不开新一轮；停下来之后照常开。
+        // 依据：决策第 6 节（条件稳定才校准）；BUG-004 修复不改变这条规则（修前精确哈希下逐块比与对起点比等价）。
+        void testSlowLogKnobSweepIsNotStable()
+        {
+            beginTest ("a slow log-scale knob sweep (each block inside the tolerance) is not \"stable conditions\"; stopping it is");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 27, 0.5f));
+            rig.params.glazePercent = 60.0f;
+            expect (rig.learnAndCalibrate(), "learned and calibrated");
+
+            const auto begins = rig.probe().calibrationBegins;
+            rig.params.limit.releaseMs *= 1.5f;   // 真改动：已提交的校准不再适用
+            rig.step();
+            expect (! rig.status().calibrationValid, "a real release change invalidates the calibration");
+
+            bool startedDuringSweep = false;
+            rig.run (3.0, [&] (int)
+            {
+                rig.params.limit.releaseMs *= 1.00002f;
+                startedDuringSweep = startedDuringSweep || rig.probe().calibrationBegins != begins;
+            });
+            expect (! startedDuringSweep, "no calibration round starts while the knob keeps moving");
+
+            const auto startedAfterStop = rig.runUntil (4.0, [&] { return rig.probe().calibrationBegins != begins; });
+            expect (startedAfterStop, "once the knob stops, the conditions are stable and a new round starts");
         }
     };
 

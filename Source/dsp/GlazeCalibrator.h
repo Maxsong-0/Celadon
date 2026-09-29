@@ -73,6 +73,7 @@ namespace celadon::glaze
         const Calibration& getResult() const noexcept;
 
         // 参考条件是否与给定条件一致（不一致即失效）。浮点项容许 1e-4（GLAZE %、dB、ms）的表示误差，采样率相对 1e-9。
+        // 手动参数：两份都是新口径时比离散哈希，三个对数刻度值按相对 1e-4 比；有一份是旧存档的口径就比旧口径哈希（BUG-004）。
         static bool referenceMatches (const CalibrationReference& a, const CalibrationReference& b) noexcept;
 
         // ---- v0.6 A3 追加 ----

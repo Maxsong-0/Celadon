@@ -51,6 +51,13 @@
       - 恢复后第一块只在方案源支持自动 Clay 时才用快照值（审核 V2-03）：不支持（画像格式 1、旧算法方案，例如手工改出的存档）
         就走中性分支、作废快照值，与旧工程「Clay 逐位直通」同一口径。
 
+    BUG-004 重开工程后校准丢失（T-026，ADR-018）：
+      - 校准参考条件的手动参数分两份：离散哈希（线性旋钮吸附在步进上，重开的归一化往返后逐位不变）+ 三个对数刻度值
+        （Limit Release、Clay 低切 / 收单分频点：不吸附，往返后漂几个 ulp），后者按相对 1e-4 比。旧口径哈希（manualParamsHash，
+        含三项、逐位同 v0.1.8.0）照算照存：旧版本读新存档、新版本与旧存档比较都靠它。
+      - 旧存档的参考（只有旧口径哈希）在读取后第一块按此刻的手动值升格：三项各自 ±16 ulp 内的候选码代进旧口径哈希，
+        对得上就换成新口径（upgradeLegacyConditions）。对不上的照旧只按旧口径哈希比，与修前相同。
+
   ==============================================================================
 */
 
@@ -191,9 +198,15 @@ namespace celadon::glaze
                 && a.limit.bypass == b.limit.bypass;
         }
 
-        // 校准参考条件里「影响声音的手动参数」的哈希：各项量化到 1e-4（旋钮归一化来回一趟的舍入不算改动）后 FNV-1a。
-        // 另把约束反馈上限与「照用旧算法方案」并进来——它们改变方案、却不在参考条件的其他项里（「不同方案的数据绝不混用」）。
+        // 校准参考条件里「影响声音的手动参数」的哈希：各项量化到 1e-4 后 FNV-1a。
+        // 另把约束反馈上限并进来——它改变方案、却不在参考条件的其他项里（「不同方案的数据绝不混用」）。
         // Listen 不算：它在所有测点之后施加监听增益，不改变方案或校准。Ceiling / Lookahead 是参考条件自己的项。
+        //
+        // 两种口径同一趟算（BUG-004，ADR-018）。取整不是容差：值落在取整边界附近时差 1 ulp 就换一个整数。线性旋钮都吸附在步进上，
+        // 重开工程的归一化往返后逐位不变，取整稳定；三个对数刻度值（Limit Release、Clay 低切 / 收单分频点）不吸附，往返后漂几个
+        // ulp（ParameterRanges.h），取整会翻转——修前约 0.7 %（Release）、3 %（收单）的旋钮位置重开后校准就不适用了。
+        //   - 旧口径（manualParamsHash）：含这三项，逐位同 v0.1.8.0。旧存档里只有它，旧版本读新存档也只看它。
+        //   - 离散哈希（discreteParamsHash）：去掉这三项；三项的值另存进参考条件，按相对容差比（GlazeCalibrator::referenceMatches）。
         struct Fnv1a
         {
             std::uint32_t h = 2166136261u;
@@ -206,73 +219,127 @@ namespace celadon::glaze
                     h *= 16777619u;
                 }
             }
-
-            void addQuantized (float x, double scale) noexcept
-            {
-                if (! isFinite (x))
-                {
-                    add (0x7ff8dead7ff8deadULL);   // 非有限值：固定记号（NaN 与 NaN 视为同一条件）
-                    return;
-                }
-
-                add ((std::uint64_t) std::llround (juce::jlimit (-1.0e12, 1.0e12, (double) x * scale)));
-            }
-
-            void addFlag (bool b) noexcept   { add (b ? 1u : 0u); }
         };
 
-        // Clay 一项的哈希内容：它的态；「手动」态再加旋钮值（量化同其他手动参数）。「自动 / 关」态下旋钮不生效，不计入。
-        void addClayItem (Fnv1a& h, ClayMode mode, float manualValue, double scale) noexcept
-        {
-            h.add ((std::uint64_t) (int) mode);
+        constexpr double manualQuantum = 1.0e4;     // 手动参数量化到 1e-4
+        constexpr double feedbackQuantum = 1.0e3;   // 约束反馈上限量化到 1e-3 dB
+        constexpr std::uint64_t nonFiniteCode = 0x7ff8dead7ff8deadULL;   // 非有限值：固定记号（NaN 与 NaN 视为同一条件）
 
-            if (mode == ClayMode::manual)
-                h.addQuantized (manualValue, scale);
+        // 旧存档升格时，此刻的对数刻度值前后各看多少个 float（upgradeLegacyConditions）：一次重开（APVTS 两趟往返）实测最多漂
+        // 12 ulp（Release；低切 4、收单 6，GCC / glibc 穷举，2026-09-29）。
+        constexpr int legacyDriftUlps = 16;
+
+        // 一项的量化码（钳在 ±1e12 再取整；超出的值本身就是坏数据）。
+        std::int64_t roundedCode (float x, double scale) noexcept
+        {
+            return std::llround (juce::jlimit (-1.0e12, 1.0e12, (double) x * scale));
         }
 
-        std::uint32_t conditionsHash (const ChainParams& m, float feedbackMaxGainDb, bool savedPlanMode) noexcept
+        std::uint64_t quantizedCode (float x, double scale) noexcept
         {
-            constexpr double q = 1.0e4;
-            Fnv1a h;
-            h.addQuantized (m.balance.recover, q);
-            h.addQuantized (m.balance.tame, q);
-            h.addQuantized (m.balance.brighten, q);
-            h.add ((std::uint64_t) (int) m.balance.speed);
-            h.addFlag (m.balance.bypass);
-            h.addQuantized (m.color.toneDb, q);
-            h.addQuantized (m.color.glue, q);
-            h.addQuantized (m.color.heat, q);
-            h.addQuantized (m.color.mixPercent, q);
-            h.addQuantized (m.color.outputDb, q);
-            h.addFlag (m.color.bypass);
-            h.addQuantized (m.limit.gainDb, q);
-            h.addQuantized (m.limit.releaseMs, q);
-            h.addFlag (m.limit.autoRelease);
-            h.addQuantized (m.limit.clip, q);
-            h.addFlag (m.limit.bypass);
-            h.addQuantized (feedbackMaxGainDb, 1.0e3);
+            return isFinite (x) ? (std::uint64_t) roundedCode (x, scale) : nonFiniteCode;
+        }
+
+        // 旧口径里三个对数刻度值的量化码：平常就是它们自己的码；旧存档升格时代入邻域里的候选。
+        struct ContinuousCodes
+        {
+            std::uint64_t releaseMs = 0, lowCutHz = 0, monoHz = 0;
+        };
+
+        struct ConditionsHashes
+        {
+            std::uint32_t legacy = 0, discrete = 0;
+        };
+
+        // v0.1.7.0 修坯 Clay 的三态设置（设计规格-Clay 第 6 节「计入 manualParamsHash」）：只并影响声音的部分——三项各自的态、
+        // 「手动」项的旋钮值、Bypass。三项都「自动」且没旁通（默认，也是旧工程读入后新参数回到的状态）时一个字节都不加：
+        // 哈希与 v0.1.6.2 逐位相同，旧工程存档里的校准重开后照样适用（否则偏差撤回、声音就变了）。其余任何设置都先加一个
+        // 记号字再逐项加，与默认状态、与彼此都不相同；改回默认就回到原来的哈希，已提交的校准重新适用（不必重校）。
+        bool clayDefaultSettings (const ClaySettings& clay) noexcept
+        {
+            return clay.lowCutMode == ClayMode::automatic && clay.monoMode == ClayMode::automatic
+                && clay.widthMode == ClayMode::automatic && ! clay.bypass;
+        }
+
+        // Clay 一项的旋钮值计不计入：Clay 非默认设置且该项「手动」。「自动 / 关」态下旋钮不生效，不计入。
+        bool clayValueCounted (const ClaySettings& clay, ClayMode mode) noexcept
+        {
+            return ! clayDefaultSettings (clay) && mode == ClayMode::manual;
+        }
+
+        ConditionsHashes conditionsHashes (const ChainParams& m, float feedbackMaxGainDb, const ContinuousCodes& codes) noexcept
+        {
+            Fnv1a legacy, discrete;
+            const auto both = [&legacy, &discrete] (std::uint64_t word) noexcept { legacy.add (word); discrete.add (word); };
+            const auto quantized = [&both] (float x) noexcept { both (quantizedCode (x, manualQuantum)); };
+            const auto flag = [&both] (bool b) noexcept { both (b ? 1u : 0u); };
+
+            quantized (m.balance.recover);
+            quantized (m.balance.tame);
+            quantized (m.balance.brighten);
+            both ((std::uint64_t) (int) m.balance.speed);
+            flag (m.balance.bypass);
+            quantized (m.color.toneDb);
+            quantized (m.color.glue);
+            quantized (m.color.heat);
+            quantized (m.color.mixPercent);
+            quantized (m.color.outputDb);
+            flag (m.color.bypass);
+            quantized (m.limit.gainDb);
+            legacy.add (codes.releaseMs);   // 对数刻度：只进旧口径
+            flag (m.limit.autoRelease);
+            quantized (m.limit.clip);
+            flag (m.limit.bypass);
+            both (quantizedCode (feedbackMaxGainDb, feedbackQuantum));
             // 不并「照用旧算法方案」：那份方案就是保存时的方案，存档里的校准正是在它之下量的（重开时仍适用）；
             // 从旧方案换到新算法只会发生在拧 GLAZE、换风格、约束反馈、提交新画像时，这些本身就在参考条件里。
-            juce::ignoreUnused (savedPlanMode);
 
-            // v0.1.7.0 修坯 Clay 的三态设置（设计规格-Clay 第 6 节「计入 manualParamsHash」）：只并影响声音的部分——三项各自的态、
-            // 「手动」项的旋钮值、Bypass。三项都「自动」且没旁通（默认，也是旧工程读入后新参数回到的状态）时一个字节都不加：
-            // 哈希与 v0.1.6.2 逐位相同，旧工程存档里的校准重开后照样适用（否则偏差撤回、声音就变了）。其余任何设置都先加一个
-            // 记号字再逐项加，与默认状态、与彼此都不相同；改回默认就回到原来的哈希，已提交的校准重新适用（不必重校）。
             const auto& clay = m.claySettings;
-            const auto clayDefault = clay.lowCutMode == ClayMode::automatic && clay.monoMode == ClayMode::automatic
-                                  && clay.widthMode == ClayMode::automatic && ! clay.bypass;
 
-            if (! clayDefault)
+            if (! clayDefaultSettings (clay))
             {
-                h.add (0x436c6179ULL);   // 「Clay」四个字母：与前面各项的编码分开
-                addClayItem (h, clay.lowCutMode, clay.lowCutHz, q);
-                addClayItem (h, clay.monoMode, clay.monoHz, q);
-                addClayItem (h, clay.widthMode, clay.widthDb, q);
-                h.addFlag (clay.bypass);
+                both (0x436c6179ULL);   // 「Clay」四个字母：与前面各项的编码分开
+
+                // 每项：它的态；「手动」态再加旋钮值。低切 / 收单分频点是对数刻度，只进旧口径；加宽是线性（0.01 dB 步进），两份都进。
+                both ((std::uint64_t) (int) clay.lowCutMode);
+                if (clay.lowCutMode == ClayMode::manual)
+                    legacy.add (codes.lowCutHz);
+
+                both ((std::uint64_t) (int) clay.monoMode);
+                if (clay.monoMode == ClayMode::manual)
+                    legacy.add (codes.monoHz);
+
+                both ((std::uint64_t) (int) clay.widthMode);
+                if (clay.widthMode == ClayMode::manual)
+                    quantized (clay.widthDb);
+
+                flag (clay.bypass);
             }
 
-            return h.h;
+            return { legacy.h, discrete.h };
+        }
+
+        // 旧存档升格时一项的候选量化码：此刻的值前后各 legacyDriftUlps 个 float 内，旧口径可能取到的整数（取整单调，端点定区间）。
+        // 非有限值只有那个固定记号；不计入旧口径的项给一个占位码（循环走一次，值不进哈希）。
+        struct CodeRange
+        {
+            std::int64_t first = 0, last = 0;
+        };
+
+        CodeRange candidateCodes (float x) noexcept
+        {
+            if (! isFinite (x))
+                return { (std::int64_t) nonFiniteCode, (std::int64_t) nonFiniteCode };
+
+            auto low = x, high = x;
+
+            for (int i = 0; i < legacyDriftUlps; ++i)
+            {
+                low = std::nextafter (low, -std::numeric_limits<float>::infinity());
+                high = std::nextafter (high, std::numeric_limits<float>::infinity());
+            }
+
+            return { roundedCode (low, manualQuantum), roundedCode (high, manualQuantum) };
         }
 
         // ClayPlan::costLimitedMask 的三个有效位（GlazeTypes.h clayCostLimited*）。
@@ -640,7 +707,7 @@ namespace celadon::glaze
         // ---- 校准 ----
         bool roundActive = false;
         CalibrationReference roundReference, currentReference, lastAttemptReference;
-        CalibrationReference previousUserConditions;   // 用户能动的条件（不含画像号与约束反馈）：稳定计时只看它
+        CalibrationReference previousUserConditions;   // 用户能动的条件（不含画像号与约束反馈）：稳定计时只看它；存的是这一段稳定开始时的条件
 
         // 参考条件的输入与上一块逐位相同时不重算哈希（稳态下每块省掉约 20 次取整与哈希）。
         ChainParams referenceManual;
@@ -1279,7 +1346,7 @@ namespace celadon::glaze
             r.profileId = committed.hasProfile ? committed.profileId : 0u;
             r.style = currentStyle;
             r.glazePercent = m.glazePercent;
-            r.manualParamsHash = conditionsHash (m, feedbackMaxGainDb, savedPlanMode);
+            setManualConditions (r, m, feedbackMaxGainDb);
             r.ceilingDb = m.limit.ceilingDb;
             r.lookaheadMs = m.limit.lookaheadMs;
             r.sampleRate = sampleRate;
@@ -1493,7 +1560,7 @@ namespace celadon::glaze
             // 目标域。所以新上限只含方案净提升与实际退让：新上限 = 方案净提升 + 此刻实际执行的保护退让 − step，退让随方案过渡淡出。
             // 含了偏差就会把目标抬高 |偏差|——偏差为正时「降上限」反而把实际净增益抬高，保护层停在回差区永远收不住（T-012 阶段 2：
             // Clay 介入的热素材上校准偏差 +1.54 dB，上限降不下去，保护层停在 −0.89 dB；偏差为负时则多降）。
-            // 反馈改了参考条件（feedbackMaxGainDb 在 conditionsHash 里）之后校准怎么办，按反馈的性质分（BUG-003，见 lowerGainCap）：
+            // 反馈改了参考条件（feedbackMaxGainDb 在参考条件的哈希里，conditionsHashes）之后校准怎么办，按反馈的性质分（BUG-003，见 lowerGainCap）：
             //   - step > 0（方案受限、上游超限）：工作点真的降了，已提交的校准不适用、偏差按 1 dB/s 归零，过渡结束后重测（审核 V2-02）；
             //   - step = 0（校准结束为预算受限、锁定后保护层卡住）：只是把保护层已执行的退让并进方案，净增益连续、工作点不变，
             //     已提交的校准改绑到新的参考条件、继续适用，不再重测。
@@ -2091,6 +2158,15 @@ namespace celadon::glaze
             paused = hostBypassed;
             active = manual.glazePercent > 0.0f;   // 「> 0」：NaN 与负数都当作 0
 
+            // 读取工程后的第一块：读回来的旧存档参考（只有旧口径哈希）按此刻的手动参数升格（BUG-004）——对数刻度值往返后漂了
+            // 几个 ulp，旧口径哈希可能已经翻转；邻域里有一组码对得上就是同一条件。要在下面第一次比较之前做；没生效的参考不管。
+            if (restored)
+                probe.legacyConditionsUpgrades += upgradeLegacyConditions (
+                    { committed.calibration.valid ? &committed.calibration.reference : nullptr,
+                      executionHeld ? &execution.reference : nullptr,
+                      heldBiasKnown ? &heldBiasReference : nullptr },
+                    manual, feedbackMaxGainDb);
+
             // 换风格：方案源换成新风格（约束反馈上限回到不限），3 s 过渡；GLAZE ≤ 0 时直接到位。
             // 第一块与刚读取工程的这一块：方案源按此刻的风格直接落到位（读取后立即生效，不做过渡）。
             const auto style = styleFromIndex (manual.glazeStyle);
@@ -2188,12 +2264,15 @@ namespace celadon::glaze
 
                     auto user = currentReference;
                     user.profileId = 0;
-                    user.manualParamsHash = conditionsHash (manual, unlimitedGainDb, false);
+                    setManualConditions (user, manual, unlimitedGainDb);
 
+                    // 稳定计时对着「这一段稳定开始时」的条件比，不对着上一块：对数刻度值按容差比（BUG-004），逐块比的话，每块只挪
+                    // 一点的慢速自动化块块都在容差里，会一直算「稳定」；对着起点比，累计超出容差就重新计时（与修前精确哈希效果相同）。
                     if (! referenceKnown || ! GlazeCalibrator::referenceMatches (user, previousUserConditions))
+                    {
                         referenceStableSamples = 0;
-
-                    previousUserConditions = user;
+                        previousUserConditions = user;
+                    }
                     referenceKnown = true;
                     referenceManual = manual;
                     referenceProfileId = profileId;
@@ -2998,5 +3077,80 @@ namespace celadon::glaze
         // 就解释哪份方案的取舍（例如从「低切照做」过渡到「低切否决」时，低切正在收，第 3 行立刻写「已自动减量 / 跳过」）。
         r.costLimitedMask = to.costLimitedMask;
         return r;
+    }
+
+    //==============================================================================
+    // 校准参考条件的手动参数部分（BUG-004，ADR-018；口径见文件前面 conditionsHashes 的注释）。
+    void setManualConditions (CalibrationReference& reference, const ChainParams& manual, float feedbackMaxGainDb) noexcept
+    {
+        const auto& clay = manual.claySettings;
+        const ContinuousCodes codes { quantizedCode (manual.limit.releaseMs, manualQuantum),
+                                      quantizedCode (clay.lowCutHz, manualQuantum),
+                                      quantizedCode (clay.monoHz, manualQuantum) };
+        const auto hashes = conditionsHashes (manual, feedbackMaxGainDb, codes);
+
+        reference.conditionsFormat = continuousConditionsFormat;
+        reference.manualParamsHash = hashes.legacy;
+        reference.discreteParamsHash = hashes.discrete;
+        reference.limitReleaseMs = manual.limit.releaseMs;
+        reference.clayLowCutHz = clayValueCounted (clay, clay.lowCutMode) ? clay.lowCutHz : 0.0f;
+        reference.clayMonoHz = clayValueCounted (clay, clay.monoMode) ? clay.monoHz : 0.0f;
+    }
+
+    int upgradeLegacyConditions (std::initializer_list<CalibrationReference*> references, const ChainParams& manual,
+                                 float feedbackMaxGainDb) noexcept
+    {
+        const auto pending = [&references]
+        {
+            for (auto* r : references)
+                if (r != nullptr && r->conditionsFormat != continuousConditionsFormat)
+                    return true;
+
+            return false;
+        };
+
+        if (! pending())
+            return 0;
+
+        CalibrationReference current;
+        setManualConditions (current, manual, feedbackMaxGainDb);
+
+        // 三项各自的候选区间（不计入旧口径的 Clay 项只走一次占位码）。最坏（Release 在 1000 ms 附近、低切与收单都「手动」）
+        // 约 21 × 3 × 11 组，每组一次哈希；常见（Clay 默认）约 20 组。只在读取工程后的第一块算一次。
+        const auto& clay = manual.claySettings;
+        const auto release = candidateCodes (manual.limit.releaseMs);
+        const auto lowCut = clayValueCounted (clay, clay.lowCutMode) ? candidateCodes (clay.lowCutHz) : CodeRange {};
+        const auto mono = clayValueCounted (clay, clay.monoMode) ? candidateCodes (clay.monoHz) : CodeRange {};
+
+        int upgraded = 0;
+
+        for (auto r = release.first; r <= release.last; ++r)
+            for (auto l = lowCut.first; l <= lowCut.last; ++l)
+                for (auto m = mono.first; m <= mono.last; ++m)
+                {
+                    const ContinuousCodes codes { (std::uint64_t) r, (std::uint64_t) l, (std::uint64_t) m };
+                    const auto legacy = conditionsHashes (manual, feedbackMaxGainDb, codes).legacy;
+
+                    for (auto* reference : references)
+                    {
+                        if (reference == nullptr || reference->conditionsFormat == continuousConditionsFormat
+                            || reference->manualParamsHash != legacy)
+                            continue;
+
+                        // 同一条件（只差往返漂移）：手动参数部分换成此刻的新口径，其余项（画像号、风格、GLAZE、Ceiling……）原样。
+                        reference->conditionsFormat = current.conditionsFormat;
+                        reference->manualParamsHash = current.manualParamsHash;
+                        reference->discreteParamsHash = current.discreteParamsHash;
+                        reference->limitReleaseMs = current.limitReleaseMs;
+                        reference->clayLowCutHz = current.clayLowCutHz;
+                        reference->clayMonoHz = current.clayMonoHz;
+                        ++upgraded;
+                    }
+
+                    if (! pending())
+                        return upgraded;
+                }
+
+        return upgraded;
     }
 }
