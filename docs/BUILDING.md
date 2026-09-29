@@ -27,8 +27,9 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
 - 不要加 `ARCHS=arm64` / `ONLY_ACTIVE_ARCH=YES`；用 scheme 编时不写 `-destination`，xcodebuild 会选「My Mac (arm64)」，
   同样只出 arm64（`docs/validation/` 里记录的发布构建都是这样编的，只有 arm64，Intel Mac 与 Rosetta 下的宿主都加载不了）。
 - Xcode 界面里编：运行目标选「Any Mac (Apple Silicon, Intel)」。
-- Release 会顺手把 VST3 / AU 拷进 `~/Library/Audio/Plug-Ins/`（Projucer 的 plugin copy step），产物本身在
-  `Builds/MacOSX/build/Release/`。
+- Release 会顺手把 VST3 / AU 拷进 `~/Library/Audio/Plug-Ins/`（Projucer 的 plugin copy step，脚本阶段里写的是
+  `${HOME}/Library/Audio/Plug-Ins/…`），产物本身在 `Builds/MacOSX/build/Release/`。只想验证、不想覆盖系统里已装的插件时，
+  命令行再加一个构建设置 `HOME=<临时目录>`：只改脚本阶段看到的 HOME，拷贝落进临时目录，Xcode 其他行为不变。
 - 检查：`lipo -archs Builds/MacOSX/build/Release/Celadon.vst3/Contents/MacOS/Celadon` 应打印 `x86_64 arm64`
   （`Celadon.component`、`Celadon.app` 同样）；AU 两个架构都过一遍 `auval -v aufx Cldn Maxs` 与
   `arch -x86_64 auval -v aufx Cldn Maxs`（后者走 Rosetta）。
@@ -39,8 +40,9 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
   x86_64 版、经 Rosetta 跑全套（Intel 那一半走 SSE2 路径、x86_64 的 vDSP 与 libm，发布前要跑一遍）。
 - `scripts/check-syntax.sh` 在 Mac 上每个文件按 arm64 与 x86_64 各查一遍。
 - `CELADON_PERF_ARCH=x86_64 scripts/perf-local.sh`：经 Rosetta 粗看 x86_64 版的开销，**不能**当 Intel 真机的验收读数。
-  x86_64 没有 NEON 那几条快路径，同一段处理大约是 arm64 的 2.3 ～ 3 倍 CPU；192 kHz、32 ～ 64 样本缓冲在老的 Intel 笔记本上
-  有爆音风险——对外承诺之前先在 Intel 真机上跑一遍性能网格。
+  v0.1.8.0 时 x86_64 缺 Balance / Color 的两声道打包快路径，同一段处理大约是 arm64 的 2.3 ～ 3 倍 CPU；v0.1.9.0（T-025）起
+  所有 NEON 快路径都有了 SSE2 版（Balance、Color 的双二阶两声道打包成 `__m128d`，与 x64 标量逐位相同），这个倍数要重新量。
+  192 kHz、32 ～ 64 样本缓冲在老的 Intel 笔记本上仍有爆音风险——对外承诺之前先在 Intel 真机上跑一遍性能网格。
 - 不要提高 x86_64 的指令集基线（`-mavx`、`-mavx2`、`-mfma`、x86_64h）：macOS 12 ～ 14 的 Rosetta 没有 AVX，Rosetta 里跑的宿主
   会直接崩（SIGILL）；FMA 还会破坏逐位契约（ADR-013）。
 
@@ -56,7 +58,7 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 - 产物：`Builds\VisualStudio2022\x64\Release\VST3\Celadon.vst3\`（整个文件夹就是插件）与
   `Builds\VisualStudio2022\x64\Release\Standalone Plugin\Celadon.exe`。
 - 安装：把 `Celadon.vst3` 文件夹拷进 `C:\Program Files\Common Files\VST3\`（要管理员权限，所以工程里关掉了 Projucer 的
-  plugin copy step），或者用下面的安装包。
+  plugin copy step），或者用安装包（见下面「安装包」）。
 
 工程里已经设好、不要改的几项：
 
@@ -64,14 +66,48 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 - 静态运行库（`/MT`）：用户机器上不需要另装 VC++ 运行库。
 - `/fp:precise`：不许 `/fp:fast`（逐位契约的守卫会 `#error`，ADR-013）。VS2022 的 v143 在 `/fp:precise` 下不合并乘加；
   更早的工具集配 `/arch:AVX2` 可能合并，所以几个 DSP 文件里还写死了 `#pragma fp_contract (off)`。
+- `/Zc:lambda`：C++17 下 MSVC 默认用旧的 lambda 处理器，lambda 不捕获就读外层的局部 `constexpr` 会报 C3493
+  （标准允许，GCC / clang 照编；C++20 起 MSVC 默认就是新处理器）。根 CMake 对 cl.exe 同样加了。
 - 工具集要换成 ClangCL 的话，同时加 `/clang:-ffp-contract=off`：clang-cl 默认合并乘加，守卫会报错。
 
 测试：`scripts\test-windows.ps1`（CMake 的 Visual Studio 2022 生成器，编 `celadon_tests` 并运行；`-Only 类名,类名`、
 `-Config Debug`）。根目录的 CMake 也认 clang-cl（自动加 `/clang:-ffp-contract=off`）。
 
+### 安装包（Inno Setup）
+
+`installer/Celadon.iss`：VST3 装进 `C:\Program Files\Common Files\VST3\Celadon.vst3`（固定），独立运行版（可选，默认装）进
+`C:\Program Files\Celadon\`，开始菜单一个快捷方式；「设置 → 应用」里能卸载；向导按 Windows 界面语言出中文或英文
+（简体中文文件见 `installer/Languages/README.md`）。在 Windows 上先编出 Release x64，再：
+
+```bat
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.9.0 installer\Celadon.iss
+```
+
+产物 `installer\Output\Celadon-<版本>-Windows-x64-Setup.exe`（不进版本库）。没有代码签名，第一次运行时 SmartScreen 会提示
+「未知发布者」：点「更多信息 → 仍要运行」。
+
+### 没有 Windows 机器：在 Linux 服务器上用真 MSVC 编（msvc-wine）
+
+Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://github.com/mstorsjo/msvc-wine) 把 Visual Studio 2022 的生成工具
+（MSVC v143、Windows SDK、MSBuild）装进 Wine：cl.exe、link.exe、MSBuild 与 Windows 上是同一套，编的就是 Projucer 生成的 `.sln`。
+
+- 装一次：`ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh`（Wine 与 msitools 要 sudo apt；下载 VS 工具
+  即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
+- 日常：先在 Mac 上 `Projucer --resave Celadon.jucer`（`Builds/VisualStudio2022` 随源码同步过去），然后
+  - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
+  - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
+  - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装、逐字节核对、静默卸载；
+  - `scripts/windows-wine.sh fetch <本机目录>`：把 `Celadon.vst3`、`Celadon.exe`、安装包取回来。
+- 几个坑（脚本里都处理了）：msvc-wine 的 msbuild 包装只给 VS 18 设了工具集目录，VS2022 要补 `VCToolsInstallDir_170`；
+  MSBuild 的多节点（`/m`）在 Wine 里会中途无声退出，用 `/m:1`（cl.exe 的 `/MP` 照样并行）；「VST3 Manifest Helper」是 Win32 工程，
+  要装 x86 目标的工具与库；MSBuild 是 .NET 程序，要 Wine Mono；Inno Setup 的安装程序即使静默也要建窗口，Wine 的图形驱动设成 null。
+- Wine 不是 Windows：这里验证的是「编得过、测试在 MSVC + UCRT 下通过、安装包装得上卸得掉」。宿主里加载、界面手感、DPI、
+  字体仍要在 Windows 真机上看一遍。
+
 ## 跨平台的数值一致性
 
-同一台机器上的同一种构建里，所有逐位契约都成立（SIMD 与标量、任意块长、空闲跳过、预热……）。跨平台的成品在最后几位上
+同一台机器上的同一种构建里，所有逐位契约都成立（SIMD 与标量、任意块长、空闲跳过、预热……；Balance / Color 的两声道打包与
+逐声道标量由 `setPackedFilteringForTesting` / `setPackedStereoForTesting` 在左右不同的立体声上对照）。跨平台的成品在最后几位上
 本来就不同：arm64 的 TruePeak / Balance 用融合乘加、x86 是分开的乘和加；Mac 的 FFT 是 vDSP、Windows / Linux 是 JUCE 自带的；
 Windows 的 UCRT 还按 CPU 是否支持 FMA3 换超越函数的实现。所以 `tools/render` 的 `audio_hash` 只在同一台机器的同一种构建
 之间可比，跨平台对照用 `gate_check.py` 的 dB / LU 门槛（见 `tools/render/README.md`）。

@@ -96,8 +96,14 @@ namespace celadon::ui
             { Text::cornerUnlearned,    "播放后自动开始聆听",       "Starts listening on playback" },
             { Text::cornerListening,    "正在聆听 {0} / {1} 秒",    "Listening {0} / {1} s" },
             { Text::cornerListened,     "已聆听 {0} 秒",            "Listened {0} s" },
-            { Text::hintDrag,           "拖动调节 · \xe2\x8c\x98/Ctrl 精调", "Drag \xc2\xb7 \xe2\x8c\x98/Ctrl for fine" },
+            // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
+           #if JUCE_MAC
+            { Text::hintDrag,           "拖动调节 · \xe2\x8c\x98 精调",  "Drag \xc2\xb7 \xe2\x8c\x98 for fine" },
+            { Text::hintClick,          "双击复位 · Option 点击输入", "Double-click reset \xc2\xb7 Option-click to type" },
+           #else
+            { Text::hintDrag,           "拖动调节 · Ctrl 精调",     "Drag \xc2\xb7 Ctrl for fine" },
             { Text::hintClick,          "双击复位 · Alt 点击输入",  "Double-click reset \xc2\xb7 Alt-click to type" },
+           #endif
             { Text::fine,               "精调",                     "Fine" },
             { Text::legendManual,       "手动设置",                 "Manual" },
             { Text::legendAuto,         "GLAZE 自动调整",           "GLAZE auto" },
@@ -210,11 +216,21 @@ namespace celadon::ui
             { Text::helpTitle,          "操作提示",                 "Quick tips" },
             { Text::helpDrag,           "上下拖动旋钮、左右拖动滑条调节数值",
                                         "Drag knobs up and down, sliders left and right" },
-            { Text::helpFine,           "按住 \xe2\x8c\x98 / Ctrl 拖动或滚动：精调（慢 8 倍）",
-                                        "Hold \xe2\x8c\x98 / Ctrl while dragging or scrolling for fine steps (8\xc3\x97 slower)" },
+           #if JUCE_MAC
+            { Text::helpFine,           "按住 \xe2\x8c\x98 拖动或滚动：精调（慢 8 倍）",
+                                        "Hold \xe2\x8c\x98 while dragging or scrolling for fine steps (8\xc3\x97 slower)" },
+           #else
+            { Text::helpFine,           "按住 Ctrl 拖动或滚动：精调（慢 8 倍）",
+                                        "Hold Ctrl while dragging or scrolling for fine steps (8\xc3\x97 slower)" },
+           #endif
             { Text::helpReset,          "双击：回到默认值",         "Double-click: back to the default" },
-            { Text::helpType,           "按住 Alt / Option 单击：直接输入数值，回车确认、Esc 取消",
-                                        "Alt / Option-click: type a value, Return to confirm, Esc to cancel" },
+           #if JUCE_MAC
+            { Text::helpType,           "按住 Option 单击：直接输入数值，回车确认、Esc 取消",
+                                        "Option-click: type a value, Return to confirm, Esc to cancel" },
+           #else
+            { Text::helpType,           "按住 Alt 单击：直接输入数值，回车确认、Esc 取消",
+                                        "Alt-click: type a value, Enter to confirm, Esc to cancel" },
+           #endif
             { Text::helpWheel,          "滚轮：微调",               "Mouse wheel: small steps" },
             { Text::helpColours,        "青色 = 你的设置；紫色 = GLAZE 此刻的自动加量；橙色 = 需要注意",
                                         "Cyan = your setting; violet = GLAZE's current automatic amount; orange = needs attention" },

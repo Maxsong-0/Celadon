@@ -591,11 +591,11 @@ namespace
                     for (int sample = 0; sample < count; ++sample)
                     {
                         noise = noise * 1664525u + 1013904223u;
-                        auto value = (float) ((double) (noise >> 8) / 8388608.0 - 1.0) * 0.05f;
+                        auto level = (float) ((double) (noise >> 8) / 8388608.0 - 1.0) * 0.05f;
                         for (const auto frequency : { 60.0, 1000.0, 9000.0 })
-                            value += (float) (0.03 * std::sin (juce::MathConstants<double>::twoPi * frequency * (start + sample) / rate));
-                        input.setSample (0, sample, value);
-                        input.setSample (1, sample, -value);
+                            level += (float) (0.03 * std::sin (juce::MathConstants<double>::twoPi * frequency * (start + sample) / rate));
+                        input.setSample (0, sample, level);
+                        input.setSample (1, sample, -level);
                     }
                     limiter.process (input, &difference);
                     for (int channel = 0; channel < 2; ++channel)

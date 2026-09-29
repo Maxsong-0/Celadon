@@ -29,12 +29,16 @@ endif()
 #   /bigobj JUCE 模块的合并编译单元与几个大测试文件的节数超过默认上限。
 #   浮点保持默认的 /fp:precise：不合并乘加（ADR-013）；/fp:fast、/fp:contract 由 Saturator / TruePeak 等源码里的 #error 拦住。
 #   clang-cl 沿用 clang 默认的 -ffp-contract=on（并预定义 _M_FP_CONTRACT，源码守卫会报错）：与 GCC 一样关掉。
+#   /Zc:lambda（只给 cl.exe 的 C++）：C++17 下 MSVC 默认用旧的 lambda 处理器，lambda 不捕获就读外层的局部 constexpr
+#           会报 C3493（标准允许，GCC / clang 照编）；打开合标准的处理器（C++20 起默认开）。与 Celadon.jucer 的 VS2022 导出一致。
 if(MSVC)
     add_compile_options(/utf-8 /bigobj)
 
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         add_compile_options(/clang:-ffp-contract=off)
         add_compile_definitions(CELADON_FP_CONTRACT_OFF=1)
+    else()
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/Zc:lambda>)
     endif()
 endif()
 

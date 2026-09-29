@@ -20,12 +20,20 @@
  #pragma fp_contract (off)
 #endif
 
-// ARM 上 Tone 搁架、Glue 侧链高通和分频两声道打包成 float64x2 一起算（v0.5 研究 P3 R4）。其他平台保留标量写法
-// （结果本来就与 v0.4 逐位相同）：标量 processBiquad 里 b0·x + s1 会不会被编译器合并成融合乘加取决于目标与编译选项，
-// 只有在 ARM 上能确定它是融合的（ColorTests「立体声 L = R 与单声道逐位相同」验证），打包写法才能照抄出逐位相同的结果。
+// ARM 上 Tone 搁架、Glue 侧链高通和分频两声道打包成 float64x2 一起算（v0.5 研究 P3 R4）；x64（Intel Mac、Windows）上
+// 同样的打包用 SSE2 的 __m128d。标量 processBiquad 里 b0·x + s1 会不会被编译器合并成融合乘加取决于目标与编译选项：
+// ARM 上确定是融合的（打包写 vfmaq），x64 上确定不融合（ADR-013；打包写先乘后加；目标带 FMA 又没关合并时不开打包），
+// 两边都照抄出逐位相同的结果（ColorTests「立体声 L = R 与单声道逐位相同」「左右不同时打包与标量逐位相同」验证）。
+// 其他平台保留标量写法（结果本来就与 v0.4 逐位相同）。CELADON_FORCE_SCALAR_SIMD 只给验证用。
 #if ! defined (CELADON_FORCE_SCALAR_SIMD) && defined (__ARM_NEON)
  #define CELADON_COLOR_NEON 1
+ #define CELADON_COLOR_PACKED 1
  #include <arm_neon.h>
+#elif ! defined (CELADON_FORCE_SCALAR_SIMD) && (defined (__x86_64__) || defined (_M_X64)) && ! defined (_M_ARM64EC) \
+       && ! (defined (__FMA__) && ! defined (CELADON_FP_CONTRACT_OFF))
+ #define CELADON_COLOR_SSE2 1
+ #define CELADON_COLOR_PACKED 1
+ #include <emmintrin.h>
 #endif
 
 namespace celadon
@@ -135,52 +143,96 @@ namespace celadon
         }
 
        #if CELADON_COLOR_NEON
-        // 两声道共用一组双二阶系数、状态打包成 float64x2。每一步与标量 ColorModule::processBiquad 在 ARM 上的
-        // 编译结果相同：y = b0·x + s1 是一条融合乘加（编译器默认在同一表达式内合并），其余乘积各自舍入后再加减。
-        struct StereoBiquad
-        {
-            float64x2_t b0, b1, b2, a1, a2;
+        // 两声道共用一组双二阶系数、状态打包成 float64x2（低位 = 左、高位 = 右）。每一步与标量 ColorModule::processBiquad
+        // 在 ARM 上的编译结果相同：y = b0·x + s1 是一条融合乘加（编译器默认在同一表达式内合并），其余乘积各自舍入后再加减。
+        using PackedPair = float64x2_t;
 
-            void set (double cb0, double cb1, double cb2, double ca1, double ca2) noexcept
-            {
-                b0 = vdupq_n_f64 (cb0);
-                b1 = vdupq_n_f64 (cb1);
-                b2 = vdupq_n_f64 (cb2);
-                a1 = vdupq_n_f64 (ca1);
-                a2 = vdupq_n_f64 (ca2);
-            }
+        inline PackedPair broadcast (double value) noexcept                         { return vdupq_n_f64 (value); }
+        inline PackedPair productPlus (PackedPair a, PackedPair x, PackedPair s) noexcept { return vfmaq_f64 (s, a, x); }
+        inline PackedPair multiply (PackedPair a, PackedPair b) noexcept             { return vmulq_f64 (a, b); }
+        inline PackedPair add (PackedPair a, PackedPair b) noexcept                  { return vaddq_f64 (a, b); }
+        inline PackedPair subtract (PackedPair a, PackedPair b) noexcept             { return vsubq_f64 (a, b); }
+        inline double lane0 (PackedPair v) noexcept                                 { return vgetq_lane_f64 (v, 0); }
+        inline double lane1 (PackedPair v) noexcept                                 { return vgetq_lane_f64 (v, 1); }
 
-            float64x2_t process (float64x2_t x, float64x2_t& s1, float64x2_t& s2) const noexcept
-            {
-                const auto y   = vfmaq_f64 (s1, b0, x);
-                const auto bx1 = vmulq_f64 (b1, x);
-                const auto ay1 = vmulq_f64 (a1, y);
-                s1 = vaddq_f64 (vsubq_f64 (bx1, ay1), s2);
-
-                const auto bx2 = vmulq_f64 (b2, x);
-                const auto ay2 = vmulq_f64 (a2, y);
-                s2 = vsubq_f64 (bx2, ay2);
-                return y;
-            }
-        };
-
-        inline float64x2_t packPair (double left, double right) noexcept
+        inline PackedPair packPair (double left, double right) noexcept
         {
             return vsetq_lane_f64 (right, vdupq_n_f64 (left), 1);
         }
 
         // 两个 float 样本 → double（精确）；double → float 与标量的 (float) 同为就近舍入。
-        inline float64x2_t loadStereo (float left, float right) noexcept
+        inline PackedPair loadStereo (float left, float right) noexcept
         {
             return vcvt_f64_f32 (vset_lane_f32 (right, vdup_n_f32 (left), 1));
         }
 
-        inline void storeStereo (float64x2_t y, float& left, float& right) noexcept
+        inline void storeStereo (PackedPair y, float& left, float& right) noexcept
         {
             const auto narrowed = vcvt_f32_f64 (y);
             left  = vget_lane_f32 (narrowed, 0);
             right = vget_lane_f32 (narrowed, 1);
         }
+       #elif CELADON_COLOR_SSE2
+        // x64 版：SSE2 的 __m128d（低位 = 左、高位 = 右）。标量 processBiquad 在 x64 上是 mulsd / addsd / subsd、各自舍入
+        // （ADR-013 不许合并），打包的 mulpd / addpd / subpd 逐通道同一 IEEE 运算、同一 MXCSR（舍入、FTZ / DAZ）。
+        using PackedPair = __m128d;
+
+        inline PackedPair broadcast (double value) noexcept                         { return _mm_set1_pd (value); }
+        inline PackedPair productPlus (PackedPair a, PackedPair x, PackedPair s) noexcept { return _mm_add_pd (_mm_mul_pd (a, x), s); }
+        inline PackedPair multiply (PackedPair a, PackedPair b) noexcept             { return _mm_mul_pd (a, b); }
+        inline PackedPair add (PackedPair a, PackedPair b) noexcept                  { return _mm_add_pd (a, b); }
+        inline PackedPair subtract (PackedPair a, PackedPair b) noexcept             { return _mm_sub_pd (a, b); }
+        inline double lane0 (PackedPair v) noexcept                                 { return _mm_cvtsd_f64 (v); }
+        inline double lane1 (PackedPair v) noexcept                                 { return _mm_cvtsd_f64 (_mm_unpackhi_pd (v, v)); }
+
+        inline PackedPair packPair (double left, double right) noexcept
+        {
+            return _mm_setr_pd (left, right);
+        }
+
+        // 两个 float 样本 → double（cvtps2pd，精确）；double → float（cvtpd2ps）按 MXCSR 就近舍入，与标量的 (float) 相同。
+        inline PackedPair loadStereo (float left, float right) noexcept
+        {
+            return _mm_cvtps_pd (_mm_setr_ps (left, right, 0.0f, 0.0f));
+        }
+
+        inline void storeStereo (PackedPair y, float& left, float& right) noexcept
+        {
+            const auto narrowed = _mm_cvtpd_ps (y);
+            left  = _mm_cvtss_f32 (narrowed);
+            right = _mm_cvtss_f32 (_mm_shuffle_ps (narrowed, narrowed, _MM_SHUFFLE (1, 1, 1, 1)));
+        }
+       #endif
+
+       #if CELADON_COLOR_PACKED
+        // 与标量 processBiquad 一一对应：y = b0·x + s1（productPlus，各平台与标量同样融合或不融合）；s1 = (b1·x − a1·y) + s2；
+        // s2 = b2·x − a2·y。两条通道之间没有任何交叉运算。
+        struct StereoBiquad
+        {
+            PackedPair b0, b1, b2, a1, a2;
+
+            void set (double cb0, double cb1, double cb2, double ca1, double ca2) noexcept
+            {
+                b0 = broadcast (cb0);
+                b1 = broadcast (cb1);
+                b2 = broadcast (cb2);
+                a1 = broadcast (ca1);
+                a2 = broadcast (ca2);
+            }
+
+            PackedPair process (PackedPair x, PackedPair& s1, PackedPair& s2) const noexcept
+            {
+                const auto y   = productPlus (b0, x, s1);
+                const auto bx1 = multiply (b1, x);
+                const auto ay1 = multiply (a1, y);
+                s1 = add (subtract (bx1, ay1), s2);
+
+                const auto bx2 = multiply (b2, x);
+                const auto ay2 = multiply (a2, y);
+                s2 = subtract (bx2, ay2);
+                return y;
+            }
+        };
        #endif
     }
 
@@ -841,8 +893,12 @@ namespace celadon
 
         lastIdleState.tone = false;
 
-       #if CELADON_COLOR_NEON
-        if (numChannelsToUse == 2)
+       #if ! CELADON_COLOR_PACKED
+        juce::ignoreUnused (packedStereo);
+       #endif
+
+       #if CELADON_COLOR_PACKED
+        if (numChannelsToUse == 2 && packedStereo)
         {
             // 两声道打包：每个样本的运算与下面的标量写法逐位相同（见 StereoBiquad）。
             StereoBiquad low, high;
@@ -876,10 +932,10 @@ namespace celadon
                 storeStereo (y, left[i], right[i]);
             }
 
-            lowShelfStates[0]  = { vgetq_lane_f64 (lowS1, 0),  vgetq_lane_f64 (lowS2, 0) };
-            lowShelfStates[1]  = { vgetq_lane_f64 (lowS1, 1),  vgetq_lane_f64 (lowS2, 1) };
-            highShelfStates[0] = { vgetq_lane_f64 (highS1, 0), vgetq_lane_f64 (highS2, 0) };
-            highShelfStates[1] = { vgetq_lane_f64 (highS1, 1), vgetq_lane_f64 (highS2, 1) };
+            lowShelfStates[0]  = { lane0 (lowS1),  lane0 (lowS2) };
+            lowShelfStates[1]  = { lane1 (lowS1),  lane1 (lowS2) };
+            highShelfStates[0] = { lane0 (highS1), lane0 (highS2) };
+            highShelfStates[1] = { lane1 (highS1), lane1 (highS2) };
         }
         else
        #endif
@@ -926,8 +982,8 @@ namespace celadon
         // highpassedOrNull 非空时按 [声道 × maxBlockSize + 样本] 记下高通输出，分频检测器直接用这一份。
         const auto stride = (size_t) maxBlockSize;
 
-       #if CELADON_COLOR_NEON
-        if (numChannelsToUse == 2)
+       #if CELADON_COLOR_PACKED
+        if (numChannelsToUse == 2 && packedStereo)
         {
             StereoBiquad highpass;
             highpass.set (sidechainHighpass.b0, sidechainHighpass.b1, sidechainHighpass.b2, sidechainHighpass.a1, sidechainHighpass.a2);
@@ -941,8 +997,8 @@ namespace celadon
             for (int i = 0; i < numSamples; ++i)
             {
                 const auto filtered = highpass.process (loadStereo (left[i], right[i]), s1, s2);
-                const auto leftSample  = vgetq_lane_f64 (filtered, 0);
-                const auto rightSample = vgetq_lane_f64 (filtered, 1);
+                const auto leftSample  = lane0 (filtered);
+                const auto rightSample = lane1 (filtered);
 
                 // 与标量写法同一顺序：peak 从 0 起，先左后右取 jmax（NaN 不会进峰值，同 v0.4）。
                 auto peak = juce::jmax (0.0, std::abs (leftSample));
@@ -956,8 +1012,8 @@ namespace celadon
                 }
             }
 
-            sidechainStates[0] = { vgetq_lane_f64 (s1, 0), vgetq_lane_f64 (s2, 0) };
-            sidechainStates[1] = { vgetq_lane_f64 (s1, 1), vgetq_lane_f64 (s2, 1) };
+            sidechainStates[0] = { lane0 (s1), lane0 (s2) };
+            sidechainStates[1] = { lane1 (s1), lane1 (s2) };
         }
         else
        #endif
@@ -995,8 +1051,8 @@ namespace celadon
         const auto stride = (size_t) maxBlockSize;
         const auto* highpassed = glueHighpassed.data();
 
-       #if CELADON_COLOR_NEON
-        if (numChannelsToUse == 2)
+       #if CELADON_COLOR_PACKED
+        if (numChannelsToUse == 2 && packedStereo)
         {
             StereoBiquad lowpass, highpass;
             lowpass.set  (glueLowpass.b0,  glueLowpass.b1,  glueLowpass.b2,  glueLowpass.a1,  glueLowpass.a2);
@@ -1021,12 +1077,12 @@ namespace celadon
                 const auto detectedLow  = lowpass.process (hp, detLowS1, detLowS2);
                 const auto detectedHigh = highpass.process (hp, detHighS1, detHighS2);
 
-                const auto low0  = vgetq_lane_f64 (detectedLow, 0);
-                const auto low1  = vgetq_lane_f64 (detectedLow, 1);
-                const auto high0 = vgetq_lane_f64 (detectedHigh, 0);
-                const auto high1 = vgetq_lane_f64 (detectedHigh, 1);
-                const auto hp0   = vgetq_lane_f64 (hp, 0);
-                const auto hp1   = vgetq_lane_f64 (hp, 1);
+                const auto low0  = lane0 (detectedLow);
+                const auto low1  = lane1 (detectedLow);
+                const auto high0 = lane0 (detectedHigh);
+                const auto high1 = lane1 (detectedHigh);
+                const auto hp0   = lane0 (hp);
+                const auto hp1   = lane1 (hp);
 
                 // 与标量循环同一顺序：峰值从 0 起，先左后右。
                 auto lowPeak  = juce::jmax (0.0, std::abs (low0));
@@ -1041,20 +1097,20 @@ namespace celadon
 
                 const auto audioLow  = lowpass.process (x, audLowS1, audLowS2);
                 const auto audioHigh = highpass.process (x, audHighS1, audHighS2);
-                glueAudioLow[(size_t) i]          = vgetq_lane_f64 (audioLow, 0);
-                glueAudioLow[stride + (size_t) i] = vgetq_lane_f64 (audioLow, 1);
-                glueAudioHigh[(size_t) i]          = vgetq_lane_f64 (audioHigh, 0);
-                glueAudioHigh[stride + (size_t) i] = vgetq_lane_f64 (audioHigh, 1);
+                glueAudioLow[(size_t) i]          = lane0 (audioLow);
+                glueAudioLow[stride + (size_t) i] = lane1 (audioLow);
+                glueAudioHigh[(size_t) i]          = lane0 (audioHigh);
+                glueAudioHigh[stride + (size_t) i] = lane1 (audioHigh);
             }
 
-            bandDetectorLowStates[0]  = { vgetq_lane_f64 (detLowS1, 0),  vgetq_lane_f64 (detLowS2, 0) };
-            bandDetectorLowStates[1]  = { vgetq_lane_f64 (detLowS1, 1),  vgetq_lane_f64 (detLowS2, 1) };
-            bandDetectorHighStates[0] = { vgetq_lane_f64 (detHighS1, 0), vgetq_lane_f64 (detHighS2, 0) };
-            bandDetectorHighStates[1] = { vgetq_lane_f64 (detHighS1, 1), vgetq_lane_f64 (detHighS2, 1) };
-            audioLowStates[0]  = { vgetq_lane_f64 (audLowS1, 0),  vgetq_lane_f64 (audLowS2, 0) };
-            audioLowStates[1]  = { vgetq_lane_f64 (audLowS1, 1),  vgetq_lane_f64 (audLowS2, 1) };
-            audioHighStates[0] = { vgetq_lane_f64 (audHighS1, 0), vgetq_lane_f64 (audHighS2, 0) };
-            audioHighStates[1] = { vgetq_lane_f64 (audHighS1, 1), vgetq_lane_f64 (audHighS2, 1) };
+            bandDetectorLowStates[0]  = { lane0 (detLowS1),  lane0 (detLowS2) };
+            bandDetectorLowStates[1]  = { lane1 (detLowS1),  lane1 (detLowS2) };
+            bandDetectorHighStates[0] = { lane0 (detHighS1), lane0 (detHighS2) };
+            bandDetectorHighStates[1] = { lane1 (detHighS1), lane1 (detHighS2) };
+            audioLowStates[0]  = { lane0 (audLowS1),  lane0 (audLowS2) };
+            audioLowStates[1]  = { lane1 (audLowS1),  lane1 (audLowS2) };
+            audioHighStates[0] = { lane0 (audHighS1), lane0 (audHighS2) };
+            audioHighStates[1] = { lane1 (audHighS1), lane1 (audHighS2) };
         }
         else
        #endif

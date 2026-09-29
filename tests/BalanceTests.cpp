@@ -469,6 +469,7 @@ namespace celadon::test
             testLevelStepsDoNotPumpAllBands();
             testLoudInputStaysFiniteAndCapped();
             testStereoMatchesMono();
+            testPackedMatchesScalarWithDifferentChannels();
             testSlicedAnalysisMatchesUnsliced();
             testBlockSizeIndependenceAtHighRate();
             testReturnToZeroStopsAllBands();
@@ -1508,6 +1509,49 @@ namespace celadon::test
 
                 for (size_t k = 0; k < monoRun.gains.size(); ++k)
                     gainMismatches += sameGains (monoRun.gains[k], stereoRun.gains[k]) ? 0 : 1;
+
+                expectEquals (gainMismatches, 0, "published band gains " + tag);
+            }
+        }
+
+        // 左右不同的输入（每个声道各自的粉红噪声 + 同一组正弦）：打包滤波（AArch64 的 NEON、x64 的 SSE2）与
+        // setPackedFilteringForTesting (false) 的逐声道标量滤波比，每个声道每个样本、每块读到的 27 段 G 都逐位相同。
+        // 上一个测试两声道相同，查不出两条通道的状态读错、写反这类错误；这里左右不同、跨上百块，每块都要把状态拆开读回、
+        // 配对写出，错一处就不相同。3 声道时前两个声道打包、第 3 个走标量，一起对照。48k / 192k，块 17 / 512。
+        void testPackedMatchesScalarWithDifferentChannels()
+        {
+            beginTest ("different channels: packed filter path (NEON / SSE2) is bit-exact with the scalar path, 2 and 3 channels");
+
+            const auto params = makeParams (100.0f, 100.0f, 30.0f, Speed::fast);
+
+            for (auto channelCount : { 2, 3 })
+             for (auto sampleRate : { 48000.0, 192000.0 })
+              for (auto blockSize : { 17, 512 })
+            {
+                const auto input = makeCombSignal (channelCount, sampleRate, 2.0, 37);
+
+                BalanceModule packed, scalar;
+
+                for (auto* module : { &packed, &scalar })
+                {
+                    module->setParams (params);
+                    module->prepare ({ sampleRate, (juce::uint32) maxBlock, (juce::uint32) channelCount });
+                }
+
+                scalar.setPackedFilteringForTesting (false);
+
+                const auto packedRun = runBlocks (packed, input, blockSize, [&] (int) { return params; });
+                const auto scalarRun = runBlocks (scalar, input, blockSize, [&] (int) { return params; });
+
+                const auto tag = juce::String (channelCount) + " ch @" + juce::String (sampleRate) + " block " + juce::String (blockSize);
+                expect (countDifferentSamples (input, input, 0) > (int) input[0].size() / 2, "channels must differ " + tag);
+                expect (maxDiffFrom (input, packedRun.output, 0) > 1.0e-3f, "processing must change the signal " + tag);
+                expectEquals (countDifferentSamples (scalarRun.output, packedRun.output), 0, "packed vs scalar output " + tag);
+
+                int gainMismatches = 0;
+
+                for (size_t k = 0; k < scalarRun.gains.size(); ++k)
+                    gainMismatches += sameGains (scalarRun.gains[k], packedRun.gains[k]) ? 0 : 1;
 
                 expectEquals (gainMismatches, 0, "published band gains " + tag);
             }

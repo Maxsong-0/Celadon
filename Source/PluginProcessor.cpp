@@ -637,12 +637,13 @@ celadon::glaze::HostInfo CeladonAudioProcessor::readHostInfo() const noexcept
     celadon::glaze::HostInfo info;
     info.offline = isNonRealtime();
 
-    auto* playHead = getPlayHead();
+    // 不叫 playHead：AudioProcessor 有同名成员，MSVC /W4 报 C4458（局部变量遮住成员）。
+    auto* hostPlayHead = getPlayHead();
 
-    if (playHead == nullptr)
+    if (hostPlayHead == nullptr)
         return info;
 
-    const auto position = playHead->getPosition();
+    const auto position = hostPlayHead->getPosition();
 
     if (! position.hasValue())
         return info;

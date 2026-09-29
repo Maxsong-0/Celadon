@@ -72,6 +72,27 @@ namespace celadon::test
                 }
             }
 
+            beginTest ("key hints name this platform's keys (Mac: Command / Option; Windows and Linux: Ctrl / Alt)");
+            {
+                // 精调看 isCommandDown()（Mac 的 ⌘、别处的 Ctrl），输入看 Alt（Mac 键盘上印 Option）：提示只写本平台的键。
+                const juce::String command = juce::String::charToString ((juce::juce_wchar) 0x2318);
+
+                for (const auto language : { Language::chinese, Language::english })
+                {
+                    const auto fine = ui::tr (Text::hintDrag, language) + " " + ui::tr (Text::helpFine, language);
+                    const auto type = ui::tr (Text::hintClick, language) + " " + ui::tr (Text::helpType, language);
+                    const auto label = juce::String (language == Language::english ? "en" : "zh") + ": " + fine + " | " + type;
+
+                   #if JUCE_MAC
+                    expect (fine.contains (command) && ! fine.contains ("Ctrl"), label);
+                    expect (type.contains ("Option") && ! type.contains ("Alt"), label);
+                   #else
+                    expect (fine.contains ("Ctrl") && ! fine.contains (command), label);
+                    expect (type.contains ("Alt") && ! type.contains ("Option"), label);
+                   #endif
+                }
+            }
+
             beginTest ("placeholders are replaced in order");
             {
                 expectEquals (ui::trFormat (Text::screenSize, Language::english, { "2560", "1440" }),

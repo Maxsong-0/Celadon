@@ -111,6 +111,10 @@ namespace celadon
         void setHeatHighFrequencyProtectionEnabled (bool enabled) noexcept { heatGuardEnabled = enabled; }
         float getHeatHighFrequencyGainForTesting() const noexcept { return (float) heatGuardGain; }
 
+        // 测试用。默认开着：有 NEON / SSE2 的平台上立体声的 Tone、侧链高通、Glue 分频两声道打包算；关掉 = 逐声道走标量。
+        // 两种做法逐位相同（ColorTests 在左右不同的立体声上对照）。随时可调。
+        void setPackedStereoForTesting (bool shouldPack) noexcept { packedStereo = shouldPack; }
+
         // 最近处理的一段里哪些级走了空闲跳过（测试用：确认跳过路径真的走到了；与 process 同一线程调用）。
         struct IdleState
         {
@@ -282,6 +286,7 @@ namespace celadon
 
         bool idleSkippingEnabled = true;
         bool heatDcProxyEnabled = true;
+        bool packedStereo = true;           // false：立体声也逐声道走标量双二阶（只给测试用）
         IdleState lastIdleState;
 
         std::atomic<float> maxGainReductionDb { 0.0f };

@@ -150,6 +150,10 @@ namespace celadon
         // 在 prepare 之后、处理之前调。
         void setAnalysisSlicingForTesting (bool shouldSlice) noexcept   { sliceAnalysis = shouldSlice; }
 
+        // 只给测试用：false = 两个声道也各自走标量滤波（不打包）。默认 true：有 NEON / SSE2 的平台两声道一组打包，
+        // 输出与状态与标量逐位相同（BalanceTests 在左右不同的立体声上对照）。随时可调。
+        void setPackedFilteringForTesting (bool shouldPack) noexcept    { packedFiltering = shouldPack; }
+
     private:
         //==============================================================================
         // 转置直接 II 型双二阶（double 精度）：系数按 a0 归一，状态每段每声道一份。
@@ -178,7 +182,7 @@ namespace celadon
         void processChunk (juce::AudioBuffer<float>& io, int startSample, int numSamples);
         void processSegment (juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse) noexcept;
         void filterChannelScalar (float* samples, int numSamples, int channel, const int* bands, int numActive) noexcept;
-        void filterChannelPairPacked (float* first, float* second, int numSamples, int channel, const int* bands, int numActive) noexcept;   // 只在 AArch64 上定义与调用
+        void filterChannelPairPacked (float* first, float* second, int numSamples, int channel, const int* bands, int numActive) noexcept;   // 只在 AArch64（NEON）与 x64（SSE2）上定义与调用
         void pushIntoAnalysisRing (const juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse);
 
         // 每 hop 的分析分三片，落在 hop 后第 0 / 32 / 64 个样本上（见 BalanceModule.cpp「分析拆片」）：
@@ -228,6 +232,7 @@ namespace celadon
 
         // ---- 分析拆片：本帧的快照与进度 ----
         bool sliceAnalysis = true;              // false：全部片在 hop 边界上一口气做完（只给测试用）
+        bool packedFiltering = true;            // false：两声道也走标量滤波（只给测试用）
         int nextAnalysisSlice = -1;             // 下一片的编号（1 或 2）；-1 = 没有做到一半的帧
         int samplesUntilNextSlice = 0;          // 到下一片还有几个样本
         int analysisSliceSpacing = 0;           // 本帧相邻两片的间隔（样本）：拆片时 32，关掉时 0

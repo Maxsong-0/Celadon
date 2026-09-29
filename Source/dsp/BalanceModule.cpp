@@ -18,13 +18,22 @@
  #pragma fp_contract (off)
 #endif
 
-// 两声道打包滤波只在 AArch64 上开（float64x2_t 与 vfmaq_f64 是 A64 才有的）；其他平台（x86、32 位 ARM）
-// 全部走标量路径——同一个 processBiquad，输出与打包路径逐位相同的前提见 processBiquad 的注释。
-#if defined (__ARM_NEON) && defined (__aarch64__)
+// 两声道打包滤波：AArch64 用 float64x2_t（vfmaq_f64 与标量的 std::fma 是同一个融合乘加）；x64（Intel Mac、Windows）
+// 用 SSE2 的 __m128d（乘、加各自舍入，与 x64 上不合并的标量写法相同——ADR-013 保证 x86 上不合并乘加；目标带 FMA
+// 又没关合并时不开，免得标量被合并而打包没有）。其他平台（32 位 x86 可能用 x87、32 位 ARM）全部走标量路径。
+// 输出与打包路径逐位相同的前提见 processBiquad 的注释。CELADON_FORCE_SCALAR_SIMD 只给验证用。
+#if ! defined (CELADON_FORCE_SCALAR_SIMD) && defined (__ARM_NEON) && defined (__aarch64__)
  #include <arm_neon.h>
  #define CELADON_BALANCE_PACKED_NEON 1
+ #define CELADON_BALANCE_PACKED_SSE2 0
+#elif ! defined (CELADON_FORCE_SCALAR_SIMD) && (defined (__x86_64__) || defined (_M_X64)) && ! defined (_M_ARM64EC) \
+       && ! (defined (__FMA__) && ! defined (CELADON_FP_CONTRACT_OFF))
+ #include <emmintrin.h>
+ #define CELADON_BALANCE_PACKED_NEON 0
+ #define CELADON_BALANCE_PACKED_SSE2 1
 #else
  #define CELADON_BALANCE_PACKED_NEON 0
+ #define CELADON_BALANCE_PACKED_SSE2 0
 #endif
 
 namespace celadon
@@ -206,8 +215,8 @@ namespace celadon
         // y = b0·x + s1 是整个双二阶里唯一一处乘加融合：编译器默认 -ffp-contract=on，v0.4 这一行在 AArch64 上
         // -O0 ～ -O3 编出来都是一条 fmadd（2026-09-25 反汇编核对），其余各步都是具名中间量、各自舍入。AArch64 上这里
         // 写成显式 std::fma——还是那一条 fmadd，结果与 v0.4 逐位相同，而且不再依赖编译选项；打包路径的
-        // vfmaq_f64 是同一个融合乘加，所以两声道打包与标量逐位相同。其他平台保持原写法：单声道与多声道都调这一个函数，
-        // 编译器按同一规则处理，标量路径永远与自己一致。
+        // vfmaq_f64 是同一个融合乘加，所以两声道打包与标量逐位相同。其他平台保持原写法：x64 上这一行不合并（ADR-013），
+        // SSE2 打包路径照样先乘后加、各自舍入，两者逐位相同；再其他平台单声道与多声道都调这一个函数，永远与自己一致。
        #if CELADON_BALANCE_PACKED_NEON
         const auto y = std::fma (c.b0, x, s.s1);
        #else
@@ -655,11 +664,13 @@ namespace celadon
         auto* const* channels = io.getArrayOfWritePointers();
         int ch = 0;
 
-       #if CELADON_BALANCE_PACKED_NEON
+       #if CELADON_BALANCE_PACKED_NEON || CELADON_BALANCE_PACKED_SSE2
         // 两个声道一组打包（立体声就是一组）；落单的声道（单声道）走标量。
-        for (; ch + 1 < numChannelsToUse; ch += 2)
+        for (; packedFiltering && ch + 1 < numChannelsToUse; ch += 2)
             filterChannelPairPacked (channels[ch] + startSample, channels[ch + 1] + startSample, numSamples, ch,
                                      activeBands.data(), numActiveBands);
+       #else
+        juce::ignoreUnused (packedFiltering);
        #endif
 
         for (; ch < numChannelsToUse; ++ch)
@@ -764,6 +775,77 @@ namespace celadon
             const auto b = (size_t) bands[j];
             const float64x2x2_t states { { packed[j].s1, packed[j].s2 } };
             vst2q_f64 (&filterStates[b * (size_t) numChannels + (size_t) channel].s1, states);
+        }
+    }
+   #elif CELADON_BALANCE_PACKED_SSE2
+    void BalanceModule::filterChannelPairPacked (float* first, float* second, int numSamples, int channel,
+                                                 const int* bands, int numActive) noexcept
+    {
+        // x64 版（Intel Mac、Windows）：两个声道打包成 SSE2 的 __m128d（低位 = first，高位 = second），结构与 AArch64 版
+        // 相同——样本在外层、段在内层，系数广播到两条通道。每一步与 x64 上的 processBiquad 一一对应：y = b0·x + s1
+        // （乘、加各自舍入）；s1 = (b1·x − a1·y) + s2；s2 = b2·x − a2·y。打包的 mulpd / addpd / subpd 与标量的
+        // mulsd / addsd / subsd 逐通道同一 IEEE 运算、同一 MXCSR（舍入、FTZ / DAZ），通道之间没有交叉运算，所以每个声道的
+        // 输出与状态都与标量路径逐位相同（BalanceTests「stereo with identical channels ... packed vs scalar」与
+        // 「stereo with different channels ... each channel matches its own mono run」）。
+        struct PackedBand
+        {
+            __m128d b0, b1, b2, a1, a2, s1, s2;
+        };
+
+        PackedBand packed[(size_t) numBands];
+
+        for (int j = 0; j < numActive; ++j)
+        {
+            const auto b = (size_t) bands[j];
+            const auto& c = coefficients[b];
+            auto& p = packed[j];
+
+            p.b0 = _mm_set1_pd (c.b0);
+            p.b1 = _mm_set1_pd (c.b1);
+            p.b2 = _mm_set1_pd (c.b2);
+            p.a1 = _mm_set1_pd (c.a1);
+            p.a2 = _mm_set1_pd (c.a2);
+
+            // 同一段相邻两个声道的状态在内存里是 {s1, s2}{s1, s2}：各读 16 字节，按低 / 高位重新配成 {s1, s1} 与 {s2, s2}。
+            const auto* states = &filterStates[b * (size_t) numChannels + (size_t) channel];
+            const auto firstState  = _mm_loadu_pd (&states[0].s1);
+            const auto secondState = _mm_loadu_pd (&states[1].s1);
+            p.s1 = _mm_unpacklo_pd (firstState, secondState);
+            p.s2 = _mm_unpackhi_pd (firstState, secondState);
+        }
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // float → double 是精确的（cvtps2pd 与标量的 cvtss2sd 相同）。
+            auto x = _mm_cvtps_pd (_mm_setr_ps (first[i], second[i], 0.0f, 0.0f));
+
+            for (int j = 0; j < numActive; ++j)
+            {
+                auto& p = packed[j];
+
+                const auto y   = _mm_add_pd (_mm_mul_pd (p.b0, x), p.s1);
+                const auto bx1 = _mm_mul_pd (p.b1, x);
+                const auto ay1 = _mm_mul_pd (p.a1, y);
+                p.s1 = _mm_add_pd (_mm_sub_pd (bx1, ay1), p.s2);
+
+                const auto bx2 = _mm_mul_pd (p.b2, x);
+                const auto ay2 = _mm_mul_pd (p.a2, y);
+                p.s2 = _mm_sub_pd (bx2, ay2);
+
+                x = y;
+            }
+
+            // double → float 按 MXCSR 的舍入模式（就近取偶），cvtpd2ps 与标量 (float) x 的 cvtsd2ss 相同。
+            const auto output = _mm_cvtpd_ps (x);
+            first[i]  = _mm_cvtss_f32 (output);
+            second[i] = _mm_cvtss_f32 (_mm_shuffle_ps (output, output, _MM_SHUFFLE (1, 1, 1, 1)));
+        }
+
+        for (int j = 0; j < numActive; ++j)
+        {
+            auto* states = &filterStates[(size_t) bands[j] * (size_t) numChannels + (size_t) channel];
+            _mm_storeu_pd (&states[0].s1, _mm_unpacklo_pd (packed[j].s1, packed[j].s2));
+            _mm_storeu_pd (&states[1].s1, _mm_unpackhi_pd (packed[j].s1, packed[j].s2));
         }
     }
    #endif
