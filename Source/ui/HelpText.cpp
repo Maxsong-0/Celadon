@@ -23,7 +23,8 @@ namespace celadon::help
     {
         // 文案表：id 用 ParameterIds.h 里的常量，避免手写字符串与参数表脱节。
         // 顺序照规格四张表：LIMIT → COLOR → BALANCE（v0.2 灰显占位）→ 总览区；v0.1.7.0 起末尾追加修坯（7 个参数与三灯指示，
-        // 设计规格-Clay 第 5、6 节；v0.1.8.0 起都在 CLAY 卡片上，顶栏「高级」胶囊随抽屉一起去掉）。
+        // 设计规格-Clay 第 5、6 节；v0.1.8.0 起都在 CLAY 卡片上，顶栏「高级」改为打开「高级」面板）。
+        // v0.1.8.0 另加 LIMIT 卡片的耳机「试听差值」与顶栏「高级」两个界面元素。
         // IN 表与 OUT 表共用规格里「IN / OUT 表」同一行文字。每条的后三行是英文（v0.1.8.0）。
         constexpr Entry table[] =
         {
@@ -91,6 +92,14 @@ namespace celadon::help
               "Bypass · Limit",
               "Turns off only the limiter; latency stays the same and switching is click-free.",
               "Use it to compare before and after limiting." },
+
+            { uiid::limitAudition,
+              "试听差值 · 只听限幅削掉的部分",
+              "送出去的信号换成 LIMIT 削掉的那部分（增益、削波、限幅一起算，按推响前的电平，不会比原声响）；表、响度与 GLAZE 照常按母带算。",
+              "用来听有没有削到不该削的（鼓点变扁、低音发闷）；听原声、旁通 LIMIT 或关掉窗口时自动退出。",
+              "Listen to difference · hear only what the limiter removes",
+              "Replaces the output with what LIMIT takes away (gain, clip and limiting together, at the level before the gain push, never louder than the original); meters, loudness and GLAZE keep measuring the master.",
+              "Use it to hear whether anything important is being shaved off (flattened drums, dull bass); it turns off when you switch to the original, bypass LIMIT or close the window." },
 
             // ---- COLOR ----
             { param::colorTone,
@@ -222,6 +231,14 @@ namespace celadon::help
               "GLAZE status",
               "Shows listening, calibration, target loudness and limits; the spectrum keeps following, and the automatic colouring settles slowly with the density and brightness of each section.",
               "“Limited” means the dynamics are being protected; lower GLAZE to keep more movement. Relearn after switching songs to update the plan." },
+
+            { uiid::advanced,
+              "高级 · 子项目",
+              "修坯的低切、收单、加宽已在下方 CLAY 卡片上；推响不刺、目标频谱、发行安全三个子项目即将推出。",
+              "修坯默认全自动就好；自动判断不合适时（例如不想要自动加宽），在 CLAY 卡片上把那一项关掉或改手动。",
+              "Advanced · modules",
+              "CLAY's low cut, mono and width are on the CLAY card below; three more modules are coming soon: “Loud, not harsh”, “Target spectrum” and “Release safety”.",
+              "CLAY is best left on Auto; if an automatic choice does not suit the song (for example unwanted widening), turn that stage off or set it to Manual on the CLAY card." },
 
             { uiid::meterIn,
               "输入 / 输出真峰值",

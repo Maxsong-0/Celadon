@@ -66,9 +66,12 @@ public:
     static constexpr int baseHeight = 820;
 
     // ---- 界面动作（按钮会调它们；截图工具也直接调）----
+    // A / B 的 B（听原声）与 LIMIT 的试听差值互斥：打开一个就关掉另一个；LIMIT 旁通时不能试听差值。
     void setListeningToOriginal (bool listenToOriginal);
+    void setAuditioningDifference (bool shouldAudition);
     void showSettings (bool shouldShow);
     void showHelp (bool shouldShow);
+    void showAdvanced (bool shouldShow);
     void setZoom (double zoom);
 
     // 截图工具用：立刻刷新一帧读数，并把粒子动画往前推 seconds 秒（离屏时没有垂直同步）。
@@ -85,6 +88,8 @@ private:
 
     void applyLanguage();
     void applyReduceMotion();
+    void updateDismissLayer();
+    void restartOutputSpectrum();
     void applyStoredZoom();
     double readStoredZoom() const;
     void storeZoom (double zoom);

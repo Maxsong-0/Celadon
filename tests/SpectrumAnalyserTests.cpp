@@ -3,7 +3,8 @@
 
     SpectrumAnalyserTests.cpp
     频谱仪计算（Source/ui/SpectrumAnalyser，v0.1.8.0）的自动测试：正弦读数的频率与幅度（0 dBFS 正弦读 0 dB）、
-    远处的泄漏足够低、RMS 读数、没有新样本时曲线落下、高采样率换更长的 FFT 仍读准。
+    远处的泄漏足够低、RMS 读数、没有新样本时曲线落下、高采样率换更长的 FFT 仍读准；
+    OUT 换来源（restartOutput）之后峰值线与平均线不带着前一种信号，攒满一个窗口后从新信号起步、IN 不受影响。
 
   ==============================================================================
 */
@@ -70,6 +71,55 @@ namespace celadon::test
 
                 expect (analyser.displayDbAt (Stream::output, 1000.0f) < atTone - 5.0f, "the display falls without new samples");
                 expectEquals (analyser.getRecentRmsDb (Stream::output), SpectrumAnalyser::floorDb);
+            }
+
+            beginTest ("restartOutput drops the previous signal's peak and average lines and leaves IN alone");
+            {
+                SpectrumAnalyser analyser;
+                analyser.setSampleRate (48000.0);
+                std::vector<float> block (1600);
+                double phase = 0.0;
+                const auto increment = juce::MathConstants<double>::twoPi * 1000.0 / 48000.0;
+
+                const auto feed = [&] (float amplitude, int frames)
+                {
+                    for (int frame = 0; frame < frames; ++frame)
+                    {
+                        for (auto& sample : block)
+                        {
+                            sample = (float) (amplitude * std::sin (phase));
+                            phase += increment;
+                        }
+
+                        analyser.push (Stream::input, block.data(), (int) block.size());
+                        analyser.push (Stream::output, block.data(), (int) block.size());
+                        analyser.update();
+                    }
+                };
+
+                const auto index = (int) std::round (SpectrumAnalyser::positionOf (1000.0f) * (float) (SpectrumAnalyser::numPoints - 1));
+                feed (0.5f, 40);   // −6 dBFS
+                const auto loudPeak = analyser.getPeakDb()[(size_t) index];
+                const auto inputBefore = analyser.displayDbAt (Stream::input, 1000.0f);
+
+                analyser.restartOutput();
+                expect (analyser.isRestartingOutput());
+                expectEquals (analyser.getPeakDb()[(size_t) index], SpectrumAnalyser::floorDb, "peak line cleared");
+                expectEquals (analyser.displayDbAt (Stream::output, 1000.0f), SpectrumAnalyser::floorDb, "OUT display cleared");
+                expect (std::abs (analyser.displayDbAt (Stream::input, 1000.0f) - inputBefore) < 1.0e-6f, "IN untouched");
+
+                // 新信号轻 40 dB：攒满一个 8192 点窗口之前两条线留在底线；之后从新信号的读数起步。
+                feed (0.005f, 3);
+                expect (analyser.isRestartingOutput(), "still collecting the first full window");
+                expectEquals (analyser.getPeakDb()[(size_t) index], SpectrumAnalyser::floorDb);
+
+                feed (0.005f, 10);
+                expect (! analyser.isRestartingOutput(), "restart completes once the window is full");
+                const auto quietPeak = analyser.getPeakDb()[(size_t) index];
+                logMessage ("  1 kHz peak line: " + juce::String (loudPeak, 1) + " dB before, " + juce::String (quietPeak, 1) + " dB after the restart");
+                expect (quietPeak < loudPeak - 30.0f, "the peak line no longer holds the previous signal");
+                expect (std::abs (quietPeak + 46.0f) < 3.0f, "the peak line starts from the new signal: " + juce::String (quietPeak, 1));
+                expect (analyser.getAverageDb()[(size_t) index] < loudPeak - 30.0f, "the average line starts from the new signal");
             }
 
             beginTest ("frequency axis is 20 Hz to 20 kHz, logarithmic");

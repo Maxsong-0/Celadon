@@ -567,8 +567,9 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
     auto params = readParams();
     params.limit.lookaheadMs = lookaheadHold.next (params.limit.lookaheadMs, buffer.getNumSamples(), restartForHostReset);
 
-    // 界面的 A / B 对比听 B（原声）时，链走与宿主旁通同一条干路（v0.1.8.0，见 CeladonChain::setParams）。
-    chain.setParams (params, hostBypassed, compareOriginal.load (std::memory_order_relaxed));
+    // 界面的 A / B 对比听 B（原声）时，链走与宿主旁通同一条干路；试听差值时只换送出去的信号（v0.1.8.0，见 CeladonChain::setParams）。
+    chain.setParams (params, hostBypassed, compareOriginal.load (std::memory_order_relaxed),
+                     auditionDifference.load (std::memory_order_relaxed));
 
     // 本块交给模块的实际参数里受 GLAZE 影响的 7 项给界面（淡弧与小圆点；Limit Gain 含校准偏差与保护偏移）。
     publishEffectiveForUi (params);
@@ -584,7 +585,7 @@ void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool
     if (chain.process (buffer))
         nonFiniteBlocks.fetch_add (1, std::memory_order_relaxed);
 
-    // 频谱仪的 OUT：插件最终输出（听原声时就是原声，Listen 打开时含监听增益）——频谱仪显示的就是此刻听到的。
+    // 频谱仪的 OUT：插件最终输出（听原声时就是原声，Listen 打开时含监听增益，试听差值时是差值）——频谱仪显示的就是此刻听到的。
     analyzerTap.push (celadon::AnalyzerTap::Stream::output, buffer, buffer.getNumSamples());
 }
 

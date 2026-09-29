@@ -2,7 +2,8 @@
   ==============================================================================
 
     Popovers.h
-    浮在画布上的几样东西：设置面板（界面大小、减少动效）、帮助面板（操作提示）、拖动时的数值气泡、缩放窗口时的大小提示。
+    浮在画布上的几样东西：设置面板（界面大小、减少动效）、帮助面板（操作提示）、「高级」面板（子项目）、拖动时的数值气泡、
+    缩放窗口时的大小提示。
 
     设置面板（V4 设计稿）：界面大小 70 % ～ 200 %（五个常用档位 + 滑条 + 按屏幕比例画的预览，超出屏幕时提醒），
     也可以拖窗口右下角自由缩放（宽高比不变）；「减少动效」关掉粒子、波纹与裂纹淡入。两项都记在用户设置里。
@@ -101,6 +102,33 @@ namespace celadon::ui
         int cardHeight = 300;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HelpPanel)
+    };
+
+    //==============================================================================
+    // 「高级」面板（顶栏最右的「高级」打开）：母带四个子项目里只有修坯做好了——它的三态与手动值在下方 CLAY 卡片上，这里写明；
+    // 推响不刺 / 目标频谱 / 发行安全还在设计中，按 ADR-005 只写名字与「即将推出」、名字灰显 35 %，不先承诺功能
+    //（与 v0.1.7 抽屉的后三列同一个规矩）。
+    class AdvancedPanel  : public PopoverCard
+    {
+    public:
+        AdvancedPanel();
+
+        static constexpr int cardWidth = 324;
+
+        void setLanguage (Language newLanguage);
+        int getCardHeight() const noexcept   { return cardHeight; }
+
+        void paint (juce::Graphics&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+
+    private:
+        void layoutText();
+
+        Language language = Language::chinese;
+        juce::TextLayout clayNote;
+        int cardHeight = 240;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AdvancedPanel)
     };
 
     //==============================================================================

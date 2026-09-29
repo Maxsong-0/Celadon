@@ -370,7 +370,8 @@ namespace celadon::ui
         text.setLineSpacing (5.0f);
 
         const auto bullet = juce::String::fromUTF8 ("•  ");
-        const Text lines[] = { Text::helpDrag, Text::helpFine, Text::helpReset, Text::helpType, Text::helpWheel, Text::helpColours, Text::helpAb };
+        const Text lines[] = { Text::helpDrag, Text::helpFine, Text::helpReset, Text::helpType, Text::helpWheel, Text::helpColours, Text::helpAb,
+                               Text::helpAudition };
 
         for (size_t i = 0; i < std::size (lines); ++i)
         {
@@ -405,6 +406,105 @@ namespace celadon::ui
     }
 
     void HelpPanel::mouseUp (const juce::MouseEvent& e)
+    {
+        if (isOnCloseButton (e.position) && onClose != nullptr)
+            onClose();
+    }
+
+    //==============================================================================
+    namespace advanced
+    {
+        constexpr float titleTop = 46.0f, clayTitleHeight = 20.0f, noteGap = 4.0f, dividerGap = 14.0f, rowHeight = 32.0f;
+        constexpr float comingSoonAlpha = 0.35f;   // ADR-005：还没做的项目灰显 35 %
+        constexpr Text subprojects[] = { Text::subprojectLoudNotHarsh, Text::subprojectTargetSpectrum, Text::subprojectReleaseSafety };
+    }
+
+    AdvancedPanel::AdvancedPanel()
+    {
+        layoutText();
+    }
+
+    void AdvancedPanel::setLanguage (Language newLanguage)
+    {
+        language = newLanguage;
+        layoutText();
+        repaint();
+    }
+
+    void AdvancedPanel::layoutText()
+    {
+        juce::AttributedString text;
+        text.setWordWrap (juce::AttributedString::byWord);
+        text.setLineSpacing (4.0f);
+        text.append (tr (Text::advancedClayNote, language), uiFont (11.5f), palette::ink3);
+        clayNote.createLayout (text, (float) cardWidth - 2.0f * padding);
+
+        using namespace advanced;
+        const auto height = titleTop + clayTitleHeight + noteGap + clayNote.getHeight() + dividerGap + 1.0f + dividerGap * 0.5f
+                          + rowHeight * (float) std::size (subprojects) + padding * 0.5f;
+        cardHeight = (int) std::ceil (height);
+        setSize (cardWidth + 2 * shadowMargin, cardHeight + 2 * shadowMargin);
+    }
+
+    void AdvancedPanel::paint (juce::Graphics& g)
+    {
+        using namespace advanced;
+        PopoverCard::paint (g);
+
+        const auto card = getCardBounds();
+        const auto left = card.getX() + padding;
+        const auto innerWidth = card.getWidth() - 2.0f * padding;
+
+        g.setFont (uiFont (13.0f, Weight::semibold));
+        g.setColour (palette::ink);
+        g.drawText (tr (Text::advanced, language), juce::Rectangle<float> (left, card.getY() + 12.0f, 200.0f, 24.0f),
+                    juce::Justification::centredLeft, false);
+        paintCloseButton (g);
+
+        // 修坯：已经做好，在下方 CLAY 卡片上（小青点 = 可用）。
+        auto y = card.getY() + titleTop;
+        g.setColour (palette::c500);
+        g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ left + 3.0f, y + clayTitleHeight * 0.5f }));
+        g.setFont (uiFont (12.5f, Weight::semibold));
+        g.setColour (palette::ink);
+        g.drawText (tr (Text::advancedClay, language), juce::Rectangle<float> (left + 14.0f, y, innerWidth - 14.0f, clayTitleHeight),
+                    juce::Justification::centredLeft, false);
+        y += clayTitleHeight + noteGap;
+        clayNote.draw (g, juce::Rectangle<float> (left, y, innerWidth, clayNote.getHeight()));
+        y += clayNote.getHeight() + dividerGap;
+
+        g.setColour (palette::panelBorder);
+        g.fillRect (left, y, innerWidth, 1.0f);
+        y += 1.0f + dividerGap * 0.5f;
+
+        // 还在设计中的三项：名字 35 %、右边一枚描边的「即将推出」。
+        const auto badgeText = tr (Text::comingSoon, language);
+        const auto badgeFont = uiFont (11.0f, Weight::medium);
+        const auto badgeWidth = textWidth (badgeFont, badgeText) + 20.0f;
+
+        for (const auto key : subprojects)
+        {
+            const juce::Rectangle<float> row (left, y, innerWidth, rowHeight);
+            g.setColour (palette::ink4.withAlpha (comingSoonAlpha * 2.0f));
+            g.drawEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ left + 3.0f, row.getCentreY() }), 1.0f);
+            g.setFont (uiFont (12.5f, Weight::medium));
+            g.setColour (palette::ink.withAlpha (comingSoonAlpha));
+            g.drawText (tr (key, language), row.withTrimmedLeft (14.0f).withTrimmedRight (badgeWidth + 8.0f), juce::Justification::centredLeft, true);
+
+            const auto badge = juce::Rectangle<float> (badgeWidth, 20.0f).withCentre ({ row.getRight() - badgeWidth * 0.5f, row.getCentreY() });
+            g.setColour (palette::panel);
+            g.fillRoundedRectangle (badge, 10.0f);
+            g.setColour (palette::relearnBorder);
+            g.drawRoundedRectangle (badge.reduced (0.5f), 9.5f, 1.0f);
+            g.setFont (badgeFont);
+            g.setColour (palette::c700);
+            g.drawText (badgeText, badge, juce::Justification::centred, false);
+
+            y += rowHeight;
+        }
+    }
+
+    void AdvancedPanel::mouseUp (const juce::MouseEvent& e)
     {
         if (isOnCloseButton (e.position) && onClose != nullptr)
             onClose();

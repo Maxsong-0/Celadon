@@ -1005,6 +1005,67 @@ namespace celadon::ui
     }
 
     //==============================================================================
+    HeadphoneButton::HeadphoneButton()
+    {
+        setSize (22, 22);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void HeadphoneButton::setOn (bool shouldBeOn)
+    {
+        if (on == shouldBeOn)
+            return;
+
+        on = shouldBeOn;
+        repaint();
+    }
+
+    void HeadphoneButton::enablementChanged()
+    {
+        setAlpha (isEnabled() ? 1.0f : 0.35f);
+        setMouseCursor (isEnabled() ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+        repaint();
+    }
+
+    void HeadphoneButton::paint (juce::Graphics& g)
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        const auto hover = isHovering() && isEnabled();
+
+        if (on)
+        {
+            g.setColour (hover ? palette::c900 : palette::ink);
+            g.fillEllipse (bounds);
+        }
+        else
+        {
+            g.setColour (hover ? palette::groove : palette::panel);
+            g.fillEllipse (bounds);
+            g.setColour (palette::controlBorder);
+            g.drawEllipse (bounds, 1.0f);
+        }
+
+        // 耳机（设计稿 10 × 10 视图画成 11 px）：头梁 M1.5 6.5 V5 a3.5 3.5 0 0 1 7 0 V6.5，两只耳罩 2 × 3、圆角 0.8。
+        constexpr float scale = 11.0f / 10.0f;
+        const auto origin = getLocalBounds().toFloat().getCentre() - juce::Point<float> (5.5f, 5.5f);
+        const auto at = [origin] (float x, float y) { return origin + juce::Point<float> (x * scale, y * scale); };
+
+        juce::Path band;
+        band.startNewSubPath (at (1.5f, 6.5f));
+        band.lineTo (at (1.5f, 5.0f));
+        band.addCentredArc (at (5.0f, 5.0f).x, at (5.0f, 5.0f).y, 3.5f * scale, 3.5f * scale, 0.0f,
+                            -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, false);
+        band.lineTo (at (8.5f, 6.5f));
+
+        const auto foreground = on ? juce::Colours::white : palette::ink2;
+        g.setColour (foreground);
+        g.strokePath (band, juce::PathStrokeType (1.1f * scale, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        for (const auto x : { 1.0f, 7.0f })
+            g.fillRoundedRectangle (juce::Rectangle<float> (at (x, 5.6f), at (x + 2.0f, 8.6f)), 0.8f * scale);
+    }
+
+    //==============================================================================
     ChipToggle::ChipToggle (juce::RangedAudioParameter& parameter)
         : attachment (parameter, [this] (float value)
                       {

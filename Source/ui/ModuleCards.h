@@ -11,7 +11,7 @@
         下面一条 10 Hz ～ 1 kHz 的小图：低切以下斜线、收单的单声道区、其上的立体声区。
       - BALANCE：27 段修正量的小柱图 + 回补 / 抑制 / 提亮 + 速度；
       - COLOR：音调 / 粘合 / 热度 + 干湿、输出、粘合衰减；
-      - LIMIT：增益 / 上限 / 削波 + 释放（带 AUTO）、预读、限幅衰减（方案受限时橙色）。
+      - LIMIT：增益 / 上限 / 削波 + 释放（带 AUTO）、预读、限幅衰减（方案受限时橙色）；卡片头电源键左边是耳机「试听差值」。
 
   ==============================================================================
 */
@@ -57,14 +57,20 @@ namespace celadon::ui
         void addContent (juce::Component& component);
         void updateBypassLook();
 
+        // 卡片头电源键左边的一个 22 × 22 小键（LIMIT 的耳机）：说明文字与备注让出它的位置。
+        void setHeaderAccessory (juce::Component& accessory);
+
         juce::AudioProcessorValueTreeState& state;
         InteractionHost& host;
         Language language = Language::chinese;
         PowerButton power;
 
     private:
+        float headerRightEdge() const;
+
         juce::String number, title;
         juce::Array<juce::Component*> content;
+        juce::Component* headerAccessory = nullptr;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ModuleCard)
     };
@@ -186,12 +192,18 @@ namespace celadon::ui
         void setEffective (const ChainParams& effective, bool glazeActive) override;
         void setLimitReduction (float db, bool planLimited);
 
+        // 试听差值（界面状态，编辑器管）：耳机亮不亮；点耳机时调 onAuditionClicked。LIMIT 旁通时耳机禁用。
+        void setAuditioning (bool auditioning)   { audition.setOn (auditioning); }
+        bool isAuditioning() const noexcept      { return audition.isOn(); }
+        std::function<void()> onAuditionClicked;
+
     protected:
         juce::String getDescription() const override;
         juce::String getHeaderTooltip() const override;
         void layoutContent() override;
 
     private:
+        HeadphoneButton audition;
         std::unique_ptr<ChipToggle> autoRelease;
         ReductionRow limitReduction { 12.0f };
 

@@ -168,7 +168,7 @@ public:
         // ---- 浮在最上面的 ----
         addChildComponent (dismissLayer);
         dismissLayer.setBounds (getLocalBounds().withSize (baseWidth, baseHeight));
-        dismissLayer.onDismiss = [this] { editor.showSettings (false); editor.showHelp (false); };
+        dismissLayer.onDismiss = [this] { editor.showSettings (false); editor.showHelp (false); editor.showAdvanced (false); };
 
         addChildComponent (settingsPanel);
         settingsPanel.setTopLeftPosition (856 - PopoverCard::shadowMargin, 58 - PopoverCard::shadowMargin);
@@ -176,6 +176,9 @@ public:
 
         addChildComponent (helpPanel);
         helpPanel.onClose = [this] { editor.showHelp (false); };
+
+        addChildComponent (advancedPanel);
+        advancedPanel.onClose = [this] { editor.showAdvanced (false); };
 
         addChildComponent (bubble);
 
@@ -204,6 +207,8 @@ public:
         valueEntry.setComponentID ("value_entry");
         bubble.setComponentID ("value_bubble");
         topBar.getLanguageSelector().setComponentID ("language");
+        topBar.getAdvancedButton().setComponentID (uiid::advanced);
+        advancedPanel.setComponentID ("advanced_panel");
 
         startTimerHz (10);
     }
@@ -303,6 +308,8 @@ public:
         settingsPanel.setLanguage (language);
         helpPanel.setLanguage (language);
         helpPanel.setTopLeftPosition (1180 - HelpPanel::cardWidth - PopoverCard::shadowMargin, 58 - PopoverCard::shadowMargin);
+        advancedPanel.setLanguage (language);
+        advancedPanel.setTopLeftPosition (1180 - AdvancedPanel::cardWidth - PopoverCard::shadowMargin, 58 - PopoverCard::shadowMargin);
         layoutBottomRow();
         repaint();
     }
@@ -417,6 +424,7 @@ public:
     DismissLayer dismissLayer;
     SettingsPanel settingsPanel;
     HelpPanel helpPanel;
+    AdvancedPanel advancedPanel;
     ValueBubble bubble;
     juce::TextEditor valueEntry;
     ResizeHud resizeHud;
@@ -558,6 +566,8 @@ CeladonAudioProcessorEditor::CeladonAudioProcessorEditor (CeladonAudioProcessor&
     canvas->topBar.onLanguageChange = [this] (celadon::Language language) { settings->setLanguage (language); };
     canvas->topBar.onSettings = [this] { showSettings (! canvas->settingsPanel.isVisible()); };
     canvas->topBar.onHelp = [this] { showHelp (! canvas->helpPanel.isVisible()); };
+    canvas->topBar.onAdvanced = [this] { showAdvanced (! canvas->advancedPanel.isVisible()); };
+    canvas->limitCard.onAuditionClicked = [this] { setAuditioningDifference (! processor.isAuditioningDifference()); };
     canvas->relearnButton.onClick = [this] { if (glazeRelearnAction != nullptr) glazeRelearnAction(); };
     canvas->abSelector.onSelect = [this] (int index) { setListeningToOriginal (index == 1); };
     canvas->spectrum.getLoudnessHud().onReset = [this] { resetMeters(); };
@@ -606,6 +616,7 @@ CeladonAudioProcessorEditor::CeladonAudioProcessorEditor (CeladonAudioProcessor&
     applyLanguage();
     applyReduceMotion();
     setListeningToOriginal (processor.isComparingOriginal());
+    setAuditioningDifference (processor.isAuditioningDifference());
     applyStoredZoom();
 
     lastTimerMs = juce::Time::getMillisecondCounterHiRes();
@@ -618,8 +629,9 @@ CeladonAudioProcessorEditor::~CeladonAudioProcessorEditor()
     stopTimer();
     cancelPendingUpdate();
 
-    // 窗口关了就回到 A（处理后）：不能让「听原声」在看不见的时候一直开着。
+    // 窗口关了就回到 A（处理后）、关掉试听差值：不能让听不到母带的状态在看不见的时候一直开着。
     processor.setCompareOriginal (false);
+    processor.setAuditionDifference (false);
     processor.getAnalyzerTap().setActive (false);
 
     if (resizableCorner != nullptr && cornerListener != nullptr)
@@ -675,21 +687,61 @@ void CeladonAudioProcessorEditor::changeListenerCallback (juce::ChangeBroadcaste
 
 void CeladonAudioProcessorEditor::setListeningToOriginal (bool listenToOriginal)
 {
+    if (listenToOriginal)
+        setAuditioningDifference (false);
+
+    const auto changed = processor.isComparingOriginal() != listenToOriginal;
     processor.setCompareOriginal (listenToOriginal);
     canvas->abSelector.setSelected (listenToOriginal ? 1 : 0);
     canvas->glazeKnob.setComparing (listenToOriginal);
     canvas->particles.setComparing (listenToOriginal);
+
+    if (changed)
+        restartOutputSpectrum();
+}
+
+void CeladonAudioProcessorEditor::setAuditioningDifference (bool shouldAudition)
+{
+    // LIMIT 旁通时没有东西可听（链也不会生效）：不打开。打开时先回到 A——差值是处理后那一路削掉的部分。
+    const auto audition = shouldAudition && rawValue (processor.getParameters(), param::limitBypass) < 0.5f;
+
+    if (audition && processor.isComparingOriginal())
+        setListeningToOriginal (false);
+
+    const auto changed = processor.isAuditioningDifference() != audition;
+    processor.setAuditionDifference (audition);
+    canvas->limitCard.setAuditioning (audition);
+
+    if (changed)
+        restartOutputSpectrum();
+}
+
+void CeladonAudioProcessorEditor::restartOutputSpectrum()
+{
+    // 送出去的信号换了来源（A / B、试听差值）：频谱仪 OUT 扔掉积压的旧样本、曲线重来，峰值线不带着前一种信号（SpectrumAnalyser::restartOutput）。
+    processor.getAnalyzerTap().discard (celadon::AnalyzerTap::Stream::output);
+    analyser.restartOutput();
+}
+
+void CeladonAudioProcessorEditor::updateDismissLayer()
+{
+    // 三个浮层同一时刻最多开一个；开着时铺一层透明的「点别处关闭」。
+    const auto anyOpen = canvas->settingsPanel.isVisible() || canvas->helpPanel.isVisible() || canvas->advancedPanel.isVisible();
+    canvas->dismissLayer.setVisible (anyOpen);
 }
 
 void CeladonAudioProcessorEditor::showSettings (bool shouldShow)
 {
     if (shouldShow)
+    {
         showHelp (false);
+        showAdvanced (false);
+    }
 
     canvas->settingsPanel.setZoom ((double) getWidth() / (double) baseWidth);
     canvas->settingsPanel.setVisible (shouldShow);
     canvas->topBar.setSettingsOpen (shouldShow);
-    canvas->dismissLayer.setVisible (shouldShow || canvas->helpPanel.isVisible());
+    updateDismissLayer();
 
     if (shouldShow)
     {
@@ -701,16 +753,38 @@ void CeladonAudioProcessorEditor::showSettings (bool shouldShow)
 void CeladonAudioProcessorEditor::showHelp (bool shouldShow)
 {
     if (shouldShow)
+    {
         showSettings (false);
+        showAdvanced (false);
+    }
 
     canvas->helpPanel.setVisible (shouldShow);
     canvas->topBar.setHelpOpen (shouldShow);
-    canvas->dismissLayer.setVisible (shouldShow || canvas->settingsPanel.isVisible());
+    updateDismissLayer();
 
     if (shouldShow)
     {
         canvas->dismissLayer.toFront (false);
         canvas->helpPanel.toFront (false);
+    }
+}
+
+void CeladonAudioProcessorEditor::showAdvanced (bool shouldShow)
+{
+    if (shouldShow)
+    {
+        showSettings (false);
+        showHelp (false);
+    }
+
+    canvas->advancedPanel.setVisible (shouldShow);
+    canvas->topBar.setAdvancedOpen (shouldShow);
+    updateDismissLayer();
+
+    if (shouldShow)
+    {
+        canvas->dismissLayer.toFront (false);
+        canvas->advancedPanel.toFront (false);
     }
 }
 
@@ -825,6 +899,16 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto ceiling = rawValue (state, param::limitCeiling);
     const auto comparing = processor.isComparingOriginal();
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
+
+    // 试听差值：LIMIT 被旁通（界面、宿主自动化都算）就退出；耳机跟着处理器的状态。
+    if (processor.isAuditioningDifference() && rawValue (state, param::limitBypass) >= 0.5f)
+        setAuditioningDifference (false);
+
+    const auto auditioning = processor.isAuditioningDifference();
+
+    if (c.limitCard.isAuditioning() != auditioning)
+        c.limitCard.setAuditioning (auditioning);
+
     const auto view = glazestatus::classify (status, glazePercent, style, listenOn);
     const auto planLimited = view.kind == glazestatus::Kind::planLimited;
 
@@ -957,7 +1041,7 @@ void CeladonAudioProcessorEditor::timerCallback()
         c.matchButton.setLook (c.matchOn ? PillButton::Look::normal : PillButton::Look::off);
         c.layoutBottomRow();
 
-        // ---- 顶部状态胶囊：需要注意 > 听原声 > GLAZE 状态 ----
+        // ---- 顶部状态胶囊：需要注意 > 听原声 / 试听差值 > GLAZE 状态 ----
         StatusPill::Content pill;
         const auto blocked = processor.getNonFiniteBlockCount();
 
@@ -1001,6 +1085,16 @@ void CeladonAudioProcessorEditor::timerCallback()
             else
                 pill.segments.add (trFormat (Text::notMatched, language, { juce::String (std::abs (difference), 1) }));
 
+            pill.accentSegment = 1;
+            pill.accentColour = palette::ink;
+            pill.dotColour = palette::ink;
+        }
+        else if (auditioning)
+        {
+            // 与 B 同一种深色：此刻送出去的不是母带。表与响度仍是母带的（见 CeladonChain::setParams）。
+            pill.segments.add ("LIMIT");
+            pill.segments.add (tr (Text::auditioningDifference, language));
+            pill.segments.add (tr (Text::auditionDifferenceNote, language));
             pill.accentSegment = 1;
             pill.accentColour = palette::ink;
             pill.dotColour = palette::ink;

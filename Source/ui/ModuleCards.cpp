@@ -54,6 +54,17 @@ namespace celadon::ui
         addAndMakeVisible (component);
     }
 
+    void ModuleCard::setHeaderAccessory (juce::Component& accessory)
+    {
+        headerAccessory = &accessory;
+        addAndMakeVisible (accessory);
+    }
+
+    float ModuleCard::headerRightEdge() const
+    {
+        return (float) (headerAccessory != nullptr ? headerAccessory->getX() : power.getX());
+    }
+
     void ModuleCard::updateBypassLook()
     {
         const auto alpha = power.isModuleOn() ? 1.0f : bypassedAlpha;
@@ -71,6 +82,10 @@ namespace celadon::ui
     void ModuleCard::resized()
     {
         power.setTopLeftPosition (width - padX - 22, headerTop);
+
+        if (headerAccessory != nullptr)
+            headerAccessory->setBounds (power.getX() - 7 - 22, headerTop, 22, 22);   // 设计稿卡片头 gap 7
+
         layoutContent();
         updateBypassLook();
     }
@@ -106,13 +121,14 @@ namespace celadon::ui
 
         g.setFont (uiFont (11.5f));
         g.setColour (palette::ink3);
-        g.drawText (getDescription(), juce::Rectangle<float> (x, header.getY(), (float) power.getX() - x - 6.0f, header.getHeight()),
+        const auto rightEdge = headerRightEdge();
+        g.drawText (getDescription(), juce::Rectangle<float> (x, header.getY(), rightEdge - x - 6.0f, header.getHeight()),
                     juce::Justification::centredLeft, true);
 
         if (const auto note = getNote(); note.isNotEmpty())
         {
             g.setFont (monoFont (10.5f));
-            g.drawText (note, juce::Rectangle<float> ((float) power.getX() - 90.0f, header.getY(), 83.0f, header.getHeight()),
+            g.drawText (note, juce::Rectangle<float> (rightEdge - 90.0f, header.getY(), 83.0f, header.getHeight()),
                         juce::Justification::centredRight, false);
         }
     }
@@ -565,6 +581,13 @@ namespace celadon::ui
         autoRelease->onChange = [this] { sliders[0]->setDimmed (autoRelease->isOn()); };
         sliders[0]->setDimmed (autoRelease->isOn());
         addContent (*autoRelease);
+
+        // 试听差值：LIMIT 旁通时没有东西可听（链也不生效，见 CeladonChain::setParams），耳机禁用。
+        audition.setComponentID (uiid::limitAudition);
+        audition.onClick = [this] { if (onAuditionClicked != nullptr) onAuditionClicked(); };
+        audition.setEnabled (power.isModuleOn());
+        setHeaderAccessory (audition);
+        power.onChange = [this] { updateBypassLook(); audition.setEnabled (power.isModuleOn()); repaint(); };
     }
 
     juce::String LimitCard::getDescription() const   { return tr (Text::describeLimit, language); }
@@ -590,6 +613,7 @@ namespace celadon::ui
         sliders[1]->setTooltip (help::tooltipFor (param::limitLookahead, language));
         autoRelease->setText (tr (Text::autoChip, language));
         autoRelease->setTooltip (help::tooltipFor (param::limitReleaseAuto, language));
+        audition.setTooltip (help::tooltipFor (uiid::limitAudition, language));
         limitReduction.setLabel (tr (Text::limitReduction, language));
         limitReduction.setTooltip (help::tooltipFor (uiid::meterGr, language));
         layoutContent();

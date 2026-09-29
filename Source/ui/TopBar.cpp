@@ -25,6 +25,11 @@ namespace celadon::ui
         }
 
         juce::Font pillFont (bool medium)   { return uiFont (12.0f, medium ? Weight::medium : Weight::regular); }
+        juce::Font brandFont()              { return withLetterSpacing (uiFont (14.0f, Weight::semibold), 3.0f); }
+        juce::Font subtitleFont()           { return withLetterSpacing (uiFont (11.0f), 1.0f); }
+        juce::Font advancedFont()           { return uiFont (12.0f); }
+
+        constexpr float pillInset = 14.0f;   // 胶囊放不下全部内容时两端留的边
 
         void drawWarningIcon (juce::Graphics& g, juce::Rectangle<float> area)
         {
@@ -126,7 +131,9 @@ namespace celadon::ui
         for (int i = 0; i < content.segments.size(); ++i)
             contentWidth += textWidth (pillFont (content.warning || i == content.accentSegment), content.segments[i]) + (i > 0 ? sepWidth : 0.0f);
 
-        auto x = bounds.getCentreX() - contentWidth * 0.5f;
+        // 放不下（顶栏两边的东西把胶囊限窄了）时从左边开始排，最后一段在右端加省略号。
+        const auto right = bounds.getRight() - pillInset;
+        auto x = contentWidth <= bounds.getWidth() - 2.0f * pillInset ? bounds.getCentreX() - contentWidth * 0.5f : bounds.getX() + pillInset;
         const auto centreY = bounds.getCentreY();
 
         if (content.warning)
@@ -145,7 +152,7 @@ namespace celadon::ui
             x += 7.0f + 7.0f;
         }
 
-        for (int i = 0; i < content.segments.size(); ++i)
+        for (int i = 0; i < content.segments.size() && x < right - 8.0f; ++i)
         {
             if (i > 0)
             {
@@ -160,7 +167,8 @@ namespace celadon::ui
             const auto w = textWidth (font, content.segments[i]);
             g.setFont (font);
             g.setColour (content.warning ? palette::warningText : (accent ? content.accentColour : palette::ink));
-            g.drawText (content.segments[i], juce::Rectangle<float> (x, 0.0f, w + 2.0f, bounds.getHeight() + 1.0f), juce::Justification::centredLeft, false);
+            g.drawText (content.segments[i], juce::Rectangle<float> (x, 0.0f, juce::jmin (w + 2.0f, right - x), bounds.getHeight() + 1.0f),
+                        juce::Justification::centredLeft, true);
             x += w;
         }
     }
@@ -202,6 +210,53 @@ namespace celadon::ui
     }
 
     //==============================================================================
+    AdvancedButton::AdvancedButton()
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void AdvancedButton::setText (const juce::String& newText)
+    {
+        if (text == newText)
+            return;
+
+        text = newText;
+        repaint();
+    }
+
+    int AdvancedButton::getNaturalWidth() const
+    {
+        // 设计稿：左右各 12 px 内边距，12 px 图标，间隔 6。
+        return (int) std::ceil (12.0f + 12.0f + 6.0f + textWidth (advancedFont(), text) + 12.0f);
+    }
+
+    void AdvancedButton::paint (juce::Graphics& g)
+    {
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (active ? palette::c100 : (isHovering() ? palette::groove : palette::panel));
+        g.fillRoundedRectangle (bounds, 8.0f);
+        g.setColour (active ? palette::relearnBorder : palette::controlBorder);
+        g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
+
+        // 滑杆图标（设计稿 12 × 12）：两道横线，各带一个小圆钮。
+        const auto icon = juce::Rectangle<float> (12.0f, 12.0f).withPosition (12.0f, bounds.getCentreY() - 6.0f);
+        juce::Path lines;
+        lines.startNewSubPath (icon.getX() + 1.0f, icon.getY() + 3.0f);  lines.lineTo (icon.getX() + 6.6f, icon.getY() + 3.0f);
+        lines.startNewSubPath (icon.getX() + 9.4f, icon.getY() + 3.0f);  lines.lineTo (icon.getX() + 11.0f, icon.getY() + 3.0f);
+        lines.startNewSubPath (icon.getX() + 1.0f, icon.getY() + 9.0f);  lines.lineTo (icon.getX() + 2.6f, icon.getY() + 9.0f);
+        lines.startNewSubPath (icon.getX() + 5.4f, icon.getY() + 9.0f);  lines.lineTo (icon.getX() + 11.0f, icon.getY() + 9.0f);
+        g.setColour (palette::ink2);
+        g.strokePath (lines, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.drawEllipse (juce::Rectangle<float> (2.8f, 2.8f).withCentre ({ icon.getX() + 8.0f, icon.getY() + 3.0f }), 1.2f);
+        g.drawEllipse (juce::Rectangle<float> (2.8f, 2.8f).withCentre ({ icon.getX() + 4.0f, icon.getY() + 9.0f }), 1.2f);
+
+        g.setFont (advancedFont());
+        g.setColour (palette::ink);
+        g.drawText (text, juce::Rectangle<float> (icon.getRight() + 6.0f, 0.0f, textWidth (advancedFont(), text) + 2.0f, (float) getHeight()),
+                    juce::Justification::centredLeft, false);
+    }
+
+    //==============================================================================
     TopBar::TopBar()
     {
         addAndMakeVisible (pill);
@@ -218,8 +273,10 @@ namespace celadon::ui
 
         settingsButton.onClick = [this] { if (onSettings != nullptr) onSettings(); };
         helpButton.onClick = [this] { if (onHelp != nullptr) onHelp(); };
+        advancedButton.onClick = [this] { if (onAdvanced != nullptr) onAdvanced(); };
         addAndMakeVisible (settingsButton);
         addAndMakeVisible (helpButton);
+        addAndMakeVisible (advancedButton);
     }
 
     void TopBar::setLanguage (Language newLanguage)
@@ -228,7 +285,10 @@ namespace celadon::ui
         languageSelector.setSelected (language == Language::english ? 1 : 0);
         settingsButton.setTooltip (tr (Text::settings, language));
         helpButton.setTooltip (tr (Text::help, language));
+        advancedButton.setText (tr (Text::advanced, language));
+        advancedButton.setTooltip (help::tooltipFor (uiid::advanced, language));
         pill.setTooltip (help::tooltipFor (uiid::glazeStatus, language));
+        resized();   // 「高级」与副标题的宽度随语言变
         repaint();
     }
 
@@ -240,27 +300,45 @@ namespace celadon::ui
             return;
 
         latencyText = text;
+        layoutPill();   // 读数变长时胶囊可用的宽度跟着变
         repaint();
     }
 
     void TopBar::setStatus (const StatusPill::Content& content)
     {
         pill.setContent (content);
-        const auto w = pill.getPreferredWidth();
+        layoutPill();
+    }
 
-        if (w != pill.getWidth())
+    float TopBar::brandRight() const
+    {
+        return 46.0f + textWidth (brandFont(), "CELADON") + 10.0f + textWidth (subtitleFont(), tr (Text::brandSubtitle, language));
+    }
+
+    float TopBar::latencyLeft() const
+    {
+        return (float) languageSelector.getX() - 10.0f - textWidth (monoFont (11.0f), latencyText);
+    }
+
+    void TopBar::layoutPill()
+    {
+        // 居中在 x = 600，两边各离品牌与延迟读数至少 16 px（按较窄的一侧对称收窄）。
+        const auto room = 2.0f * juce::jmin (600.0f - (brandRight() + 16.0f), (latencyLeft() - 16.0f) - 600.0f);
+        const auto w = juce::jmin (pill.getPreferredWidth(), juce::jmax (200, (int) std::floor (room)));
+
+        if (w != pill.getWidth() || pill.getX() != 600 - w / 2)
             pill.setBounds (600 - w / 2, 12, w, 28);
     }
 
     void TopBar::resized()
     {
-        const auto w = pill.getPreferredWidth();
-        pill.setBounds (600 - w / 2, 12, w, 28);
-
-        helpButton.setBounds (1180 - 28, 12, 28, 28);
+        const auto advancedWidth = advancedButton.getNaturalWidth();
+        advancedButton.setBounds (1180 - advancedWidth, 12, advancedWidth, 28);
+        helpButton.setBounds (advancedButton.getX() - 10 - 28, 12, 28, 28);
         settingsButton.setBounds (helpButton.getX() - 10 - 28, 12, 28, 28);
         const auto languageWidth = languageSelector.getNaturalWidth();
         languageSelector.setBounds (settingsButton.getX() - 10 - languageWidth, 13, languageWidth, 26);
+        layoutPill();
     }
 
     void TopBar::paint (juce::Graphics& g)
@@ -272,13 +350,13 @@ namespace celadon::ui
         g.setColour (palette::c500);
         g.drawEllipse (juce::Rectangle<float> (13.5f, 13.5f).withCentre (ring), 2.5f);
 
-        const auto brand = withLetterSpacing (uiFont (14.0f, Weight::semibold), 3.0f);
+        const auto brand = brandFont();
         g.setFont (brand);
         g.setColour (palette::ink);
         g.drawText ("CELADON", juce::Rectangle<float> (46.0f, 0.0f, 140.0f, 52.0f), juce::Justification::centredLeft, false);
 
         const auto subtitleX = 46.0f + textWidth (brand, "CELADON") + 10.0f;
-        g.setFont (withLetterSpacing (uiFont (11.0f), 1.0f));
+        g.setFont (subtitleFont());
         g.setColour (palette::ink3);
         g.drawText (tr (Text::brandSubtitle, language), juce::Rectangle<float> (subtitleX, 0.0f, 160.0f, 52.0f), juce::Justification::centredLeft, false);
 

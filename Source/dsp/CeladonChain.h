@@ -29,6 +29,12 @@
     GLAZE 0 且抽屉默认（三态都「自动」）时 Clay 三项实际值都是 0、模块是逐位的 D + G 样本纯延迟：整链输出 = 加 Clay 之前的链在
     Clay 的位置插一段 D + G 样本纯延迟（Color / Limit 也是纯延迟时就是旧输出平移 D + G 个样本，DAW 延迟补偿后对齐不变）。
 
+    v0.1.8.0 试听差值（界面 LIMIT 卡片的耳机）：限幅器顺带写出「本级削掉的部分」（按推响前的电平，见 LimiterModule.h 文件头），
+    链在所有测点（OUT 表、编排器 endBlock、Listen 的测量）之后才把送出去的信号换成它，20 ms 交叉淡化——表、响度、GLAZE 的学习
+    与校准、等响的估计都照常按母带算，只有送给宿主的监听信号换了。差值不乘 Listen 的监听增益（它本来就在推响前的电平）。
+    听原声、宿主旁通、LIMIT 旁通时不试听（淡回正常输出）。差值要整段存下来：宿主块超过 prepare 的块大小时（少见），只在试听期间
+    按差值缓冲的长度切片。不试听时（默认）与原来逐位相同。
+
   ==============================================================================
 */
 
@@ -86,7 +92,10 @@ namespace celadon
         // 20 ms 交叉淡化、校准暂停、Listen 的测量冻结），区别只在 Listen 打开时的监听增益——宿主旁通不补偿；
         // 听原声时若原声比处理结果响，就把原声衰减到处理结果的响度（同样只衰减、不抬高），A / B 两边等响。
         // 处理结果更响时原声原样播放：A 那边已经由 Listen 衰减到原声的响度。默认 false 时与 v0.1.7 逐位相同。
-        void setParams (const Params& newParams, bool hostBypassed, bool compareOriginal = false);
+        //
+        // auditionDifference = 界面 LIMIT 卡片的「试听差值」（v0.1.8.0，见文件头）：送出去的信号换成限幅器削掉的部分，
+        // 测点与处理都不变；听原声、宿主旁通或 LIMIT 旁通时不生效。默认 false 时逐位不变。
+        void setParams (const Params& newParams, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
         // 返回 true = 输出出现非有限值（内部溢出）：故障切片已清零、整链重启淡入，交给处理器计数。
@@ -149,6 +158,10 @@ namespace celadon
         void applyListenGain (juce::AudioBuffer<float>& io, int start, int length);
         void updateListenTarget();
 
+        // 试听差值：淡入中、试听中、淡出中都算「在用」——这时限幅器要写差值、宿主大块要切片。
+        bool differenceInvolved() const noexcept   { return differenceMix.isSmoothing() || differenceMix.getCurrentValue() > 0.0f; }
+        void applyDifferenceAudition (juce::AudioBuffer<float>& io, bool outputCleared);
+
         // 按信号顺序声明（v0.1.7.0 起 Balance → Clay → Color → Limit）。
         BalanceModule balance;
         ClayModule clay;
@@ -180,6 +193,10 @@ namespace celadon
         std::atomic<float> listenDifferenceDb { 0.0f };      // 界面读：处理结果 − 原声（dB）
         std::atomic<bool> listenDifferenceValid { false };
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> listenGain;
+
+        // 试听差值（v0.1.8.0）：限幅器写出的差值（prepare 时按块大小分配）与 0 → 1 的 20 ms 交叉淡化。
+        juce::AudioBuffer<float> differenceBuffer;
+        juce::SmoothedValue<float> differenceMix;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CeladonChain)
     };

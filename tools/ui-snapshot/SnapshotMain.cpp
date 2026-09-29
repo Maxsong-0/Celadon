@@ -6,8 +6,9 @@
     再把编辑器按几种状态离屏渲染成 PNG，对照 V4 设计稿检查布局、配色、中英文与缩放（见 README.md）。
 
     用法：celadon_ui_snapshot --out <目录> [--scale 2] [--only 名字,名字]
-      每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-truepeak（限幅旁通 → 真峰值超限）、
-      zh-settings、en-help、zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
+      每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
+      zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
+      zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
 
   ==============================================================================
 */
@@ -257,10 +258,15 @@ int main (int argc, char* argv[])
         { "zh-original", celadon::Language::chinese,
           [] (Session& s) { s.setParameter (celadon::param::limitListen, 1.0f); },
           [] (Session& s) { s.editor->setListeningToOriginal (true); s.play (1.5); } },
+        { "zh-audition", celadon::Language::chinese,
+          [] (Session& s) { s.setParameter (celadon::param::limitGain, 8.0f); },   // 推 +8 dB：限幅器结实地在压，差值听得见也看得见
+          [] (Session& s) { s.editor->setAuditioningDifference (true); s.play (1.5); } },
         { "zh-truepeak", celadon::Language::chinese,
           [] (Session& s) { s.setParameter (celadon::param::limitBypass, 1.0f); s.setParameter (celadon::param::colorOutput, 6.0f); }, none },
         { "zh-settings", celadon::Language::chinese, none, [] (Session& s) { s.editor->showSettings (true); } },
         { "en-help",     celadon::Language::english, none, [] (Session& s) { s.editor->showHelp (true); } },
+        { "zh-advanced", celadon::Language::chinese, none, [] (Session& s) { s.editor->showAdvanced (true); } },
+        { "en-advanced", celadon::Language::english, none, [] (Session& s) { s.editor->showAdvanced (true); } },
         { "zh-glaze90",  celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 90.0f); }, none },
         { "zh-glaze0",   celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 0.0f); }, none },
         { "zh-zoom70",   celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); } },
@@ -422,7 +428,49 @@ namespace
             check (! session.processor->isComparingOriginal(), "A / B -> back to A");
         }
 
-        // ⑨ 语言：点 EN，用户设置变英文，界面在下一次消息循环里跟上。
+        // ⑨ 试听差值：点 LIMIT 的耳机 → 处理器在试听；点 A / B 的 B → 自动退出；在 B 时点耳机 → 回到 A 并试听；
+        //    旁通 LIMIT → 退出、耳机禁用；LIMIT 开回来耳机可用。
+        {
+            auto& headphones = find (celadon::uiid::limitAudition);
+            click (headphones, { 11.0f, 11.0f });
+            check (session.processor->isAuditioningDifference(), "LIMIT headphones -> listening to the difference");
+            session.play (1.0);
+            save (editor, scale, outDir.getChildFile ("check-audition.png"));
+
+            auto& ab = find ("ab");
+            click (ab, { (float) ab.getWidth() - 20.0f, 14.0f });
+            check (session.processor->isComparingOriginal() && ! session.processor->isAuditioningDifference(),
+                   "B turns the difference audition off");
+
+            click (headphones, { 11.0f, 11.0f });
+            check (session.processor->isAuditioningDifference() && ! session.processor->isComparingOriginal(),
+                   "headphones while in B -> back to A and auditioning");
+
+            auto& limitPower = find (celadon::param::limitBypass);
+            click (limitPower, { 11.0f, 11.0f });
+            editor.advanceForSnapshot (0.05);
+            check (value (celadon::param::limitBypass) > 0.5f && ! session.processor->isAuditioningDifference() && ! headphones.isEnabled(),
+                   "bypassing LIMIT ends the audition and disables the headphones");
+            click (headphones, { 11.0f, 11.0f });
+            check (! session.processor->isAuditioningDifference(), "disabled headphones cannot start an audition");
+            click (limitPower, { 11.0f, 11.0f });
+            check (headphones.isEnabled() && value (celadon::param::limitBypass) < 0.5f, "headphones are enabled again with LIMIT on");
+        }
+
+        // ⑩ 高级：点顶栏「高级」打开面板，点 ✕ 关上。
+        {
+            auto& advancedButton = find (celadon::uiid::advanced);
+            auto& panel = find ("advanced_panel");
+            click (advancedButton, { 20.0f, 14.0f });
+            check (panel.isVisible(), "Advanced opens its panel");
+            save (editor, scale, outDir.getChildFile ("check-advanced.png"));
+
+            const auto margin = (float) celadon::ui::PopoverCard::shadowMargin;
+            click (panel, { (float) panel.getWidth() - margin - 16.0f - 12.0f, margin + 24.0f });
+            check (! panel.isVisible(), "the close button hides the Advanced panel");
+        }
+
+        // ⑪ 语言：点 EN，用户设置变英文，界面在下一次消息循环里跟上。
         {
             auto& language = find ("language");
             click (language, { (float) language.getWidth() - 12.0f, 13.0f });

@@ -2,7 +2,7 @@
   ==============================================================================
 
     Controls.h
-    v0.1.8.0 界面改版的通用控件：旋钮、行滑条、可拖数值、分段选择、电源键（旁通）、小胶囊开关、只读的衰减条。
+    v0.1.8.0 界面改版的通用控件：旋钮、行滑条、可拖数值、分段选择、电源键（旁通）、耳机键（试听差值）、小胶囊开关、只读的衰减条。
 
     统一手感（V4 设计稿第 7 条）：
       - 拖动调节（旋钮上下拖、滑条左右拖；旋钮左右拖也算）；按住 ⌘ / Ctrl 慢 8 倍精调；
@@ -441,5 +441,25 @@ namespace celadon::ui
 
     private:
         bool hovering = false, pressed = false;
+    };
+
+    //==============================================================================
+    // 卡片头的耳机键（LIMIT 的「试听差值」，22 × 22，挨在电源键左边）：关 = 白底灰图标（设计稿），开 = 深色底白图标——
+    // 与 A / B 选中 B 同一种颜色：「此刻听到的不是母带」。不连参数（试听差值只是界面状态）；禁用时（模块旁通）35 % 淡、不接点击。
+    class HeadphoneButton  : public ClickableComponent
+    {
+    public:
+        HeadphoneButton();
+
+        void setOn (bool shouldBeOn);
+        bool isOn() const noexcept   { return on; }
+
+        void paint (juce::Graphics&) override;
+        void enablementChanged() override;
+
+    private:
+        bool on = false;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HeadphoneButton)
     };
 }

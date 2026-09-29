@@ -114,6 +114,24 @@ namespace celadon::ui
         averageSmoothed.assign ((size_t) numPoints, floorDb);
         peak.assign ((size_t) numPoints, floorDb);
         peakHoldFrames.assign ((size_t) numPoints, 0);
+        outputSamplesSinceRestart = -1;
+    }
+
+    void SpectrumAnalyser::restartOutput()
+    {
+        auto& channel = channels[(size_t) Stream::output];
+        std::fill (channel.history.begin(), channel.history.end(), 0.0f);
+        channel.writeIndex = 0;
+        channel.newSamples = 0;
+        channel.newEnergy = 0.0;
+        std::fill (channel.display.begin(), channel.display.end(), floorDb);
+        channel.recentRmsDb = floorDb;
+
+        std::fill (average.begin(), average.end(), floorDb);
+        std::fill (averageSmoothed.begin(), averageSmoothed.end(), floorDb);
+        std::fill (peak.begin(), peak.end(), floorDb);
+        std::fill (peakHoldFrames.begin(), peakHoldFrames.end(), 0);
+        outputSamplesSinceRestart = 0;
     }
 
     void SpectrumAnalyser::push (Stream stream, const float* samples, int numSamples)
@@ -122,6 +140,9 @@ namespace celadon::ui
 
         if (samples == nullptr || numSamples <= 0 || channel.history.empty())
             return;
+
+        if (stream == Stream::output && outputSamplesSinceRestart >= 0)
+            outputSamplesSinceRestart = juce::jmin (fftSize, outputSamplesSinceRestart + numSamples);
 
         const auto size = (int) channel.history.size();
 
@@ -218,6 +239,21 @@ namespace celadon::ui
 
         // 平均线与峰值线只跟 OUT。
         const auto& output = channels[(size_t) Stream::output].display;
+
+        // restartOutput 之后：FFT 窗口里还有清零的部分时两条线不画（留在底线）；攒满之后从此刻的显示曲线起步。
+        if (outputSamplesSinceRestart >= 0)
+        {
+            if (outputSamplesSinceRestart < fftSize)
+                return;
+
+            average = output;
+            peak = output;
+            std::fill (peakHoldFrames.begin(), peakHoldFrames.end(), peakHoldLength);
+            outputSamplesSinceRestart = -1;
+            smooth (average, scratch, averageSmoothRadius);
+            smooth (scratch, averageSmoothed, averageSmoothRadius);
+            return;
+        }
 
         for (int i = 0; i < numPoints; ++i)
         {

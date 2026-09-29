@@ -2,13 +2,14 @@
   ==============================================================================
 
     TopBar.h
-    顶栏（V4 设计稿 1200 × 52）：左边品牌，正中的状态胶囊，右边延迟 · 中 / EN · 设置 · 帮助。
+    顶栏（V4 设计稿 1200 × 52）：左边品牌，正中的状态胶囊，右边延迟 · 中 / EN · 设置 · 帮助 · 高级。
 
-    状态胶囊只写此刻最要紧的一件事（优先级：需要注意 > 正在听原声 > GLAZE 状态）：
+    状态胶囊只写此刻最要紧的一件事（优先级：需要注意 > 正在听原声 / 试听差值 > GLAZE 状态）：
       - 需要注意（橙色，带三角）：方案受限 / 受手动设置限制 / 与聆听时的音乐差很多 / 真峰值超过上限 / 屏蔽了异常音频块 /
         Debug 构建；
-      - 听原声（B）：「B · 正在听原声 · 已等响 4.8 dB」；
+      - 听原声（B）：「B · 正在听原声 · 已等响 4.8 dB」；试听差值：「LIMIT · 正在试听差值 · 只听被削掉的部分」；
       - 其余：GLAZE 状态行（「● 已锁定 · 自动→温润 · 目标 −9.6 LUFS」），第二段风格在选「自动」时是紫色。
+    胶囊按内容定宽、居中在 x = 600，但不压到左边的品牌与右边的延迟读数；实在放不下时最后一段加省略号。
 
   ==============================================================================
 */
@@ -76,6 +77,23 @@ namespace celadon::ui
         bool active = false;
     };
 
+    // 顶栏最右的「高级」（设计稿：滑杆图标 + 文字的描边按钮）；面板打开时换浅青底。
+    class AdvancedButton  : public ClickableComponent
+    {
+    public:
+        AdvancedButton();
+
+        void setText (const juce::String& newText);
+        void setActive (bool shouldBeActive)   { active = shouldBeActive; repaint(); }
+        int getNaturalWidth() const;
+
+        void paint (juce::Graphics&) override;
+
+    private:
+        juce::String text;
+        bool active = false;
+    };
+
     class TopBar  : public juce::Component
     {
     public:
@@ -89,22 +107,29 @@ namespace celadon::ui
         void setReduceMotion (bool shouldReduceMotion)     { pill.setReduceMotion (shouldReduceMotion); }
         void setSettingsOpen (bool open)                    { settingsButton.setActive (open); }
         void setHelpOpen (bool open)                        { helpButton.setActive (open); }
+        void setAdvancedOpen (bool open)                    { advancedButton.setActive (open); }
 
         std::function<void (Language)> onLanguageChange;
-        std::function<void()> onSettings, onHelp;
+        std::function<void()> onSettings, onHelp, onAdvanced;
 
         Segmented& getLanguageSelector() noexcept           { return languageSelector; }
         StatusPill& getStatusPill() noexcept                { return pill; }
+        AdvancedButton& getAdvancedButton() noexcept        { return advancedButton; }
 
         void paint (juce::Graphics&) override;
         void resized() override;
 
     private:
+        void layoutPill();
+        float brandRight() const;
+        float latencyLeft() const;
+
         Language language = Language::chinese;
         juce::String latencyText;
         StatusPill pill;
         Segmented languageSelector { Segmented::Look::language };
         IconButton settingsButton { IconButton::Icon::settings }, helpButton { IconButton::Icon::help };
+        AdvancedButton advancedButton;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TopBar)
     };

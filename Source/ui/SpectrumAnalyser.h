@@ -64,6 +64,12 @@ namespace celadon::ui
         // 整体清零（编辑器刚打开、采样率变了）。
         void reset();
 
+        // OUT 换了来源（A / B 切换、试听差值开关）：OUT 的历史、显示、平均线与峰值线清掉重来——前一种信号的峰值不再保持 1.5 s、
+        // 平均线不再慢慢退，曲线只描述此刻听到的。平均线与峰值线等 OUT 攒满一整个 FFT 窗口的新样本后，从那一刻的显示曲线起步。
+        // IN 不动。
+        void restartOutput();
+        bool isRestartingOutput() const noexcept                { return outputSamplesSinceRestart >= 0; }
+
     private:
         struct Channel
         {
@@ -87,6 +93,7 @@ namespace celadon::ui
         std::array<Channel, 2> channels;
         std::vector<float> average, averageSmoothed, peak, scratch;
         std::vector<int> peakHoldFrames;
+        int outputSamplesSinceRestart = -1;   // ≥ 0：restartOutput 之后 OUT 已到的新样本数（攒满 FFT 长度才恢复平均线与峰值线）
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumAnalyser)
     };

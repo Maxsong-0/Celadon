@@ -3,6 +3,7 @@
 
     ChainTests.cpp
     CeladonChain（Balance → Color → Limit）的自动测试：延迟相加与脉冲实测、全中性 null、宿主旁通逐位、
+    A / B 听原声与试听差值（v0.1.8.0）、
     restartWithFadeIn 的静音 / 淡入 / 回到逐位、整条链的真峰值仍不超 Ceiling、表的转发、
     音频路径（setParams / process / restartWithFadeIn / 表读取）不经 operator new 分配。
 
@@ -188,6 +189,8 @@ namespace celadon::test
             testListenSparseTransients();
             testListenSilenceAutomationAndBypass();
             testCompareOriginal();
+            testAuditionDifference();
+            testAuditionDifferenceIsSuppressedAndReversible();
             testFrozenGuardDoesNotFragmentDsp();
         }
 
@@ -280,6 +283,185 @@ namespace celadon::test
                 const auto b = runChain (explicitChain, tone, maxBlock);
                 expectEquals (maxAbsDifference (a, b, 0, (int) tone[0].size()), 0.0f);
             }
+        }
+
+        // 试听差值（v0.1.8.0）：送出去的是限幅器削掉的部分，所有测点照常按母带算。中性链（Balance / Clay / Color 都是纯延迟或直通）
+        // 上「正常输出 + Gain × 试听输出」= 加了 Gain 的延迟输入；两条链的 OUT 表、整体响度、真峰值与 Listen 的估计逐位相同；
+        // 宿主块超过 prepare 的块大小时（链按差值缓冲切片）与按 prepare 块大小送的结果逐位相同。依据：CeladonChain.h 的 setParams 说明。
+        void testAuditionDifference()
+        {
+            beginTest ("difference audition swaps only the monitored signal: meters, loudness and Listen see the master");
+            constexpr double sampleRate = 48000.0;
+            const auto gainDb = 9.0f;
+            const auto gain = juce::Decibels::decibelsToGain (gainDb);
+
+            auto input = makeListenMaterial (sampleRate, 3.0);
+            scale (input, 2.5f);   // 峰值约 0 dBFS：+9 dB 推进去结实地限幅
+
+            // Listen 关着：正常链的输出就是限幅器的输出（下面拼回输入时不必扣监听增益）；估计照常在算。
+            auto params = makeNeutralParams();
+            params.limit.gainDb = gainDb;
+
+            CeladonChain normal, audition;
+            prepareChain (normal, sampleRate, params);
+            audition.setParams (params, false, false, true);
+            audition.prepare (makeSpec (sampleRate));
+            audition.setParams (params, false, false, true);
+
+            const auto master = runChain (normal, input, maxBlock);
+            const auto removed = runChain (audition, input, maxBlock);
+            const auto latency = normal.getLatencySamples();
+            const auto length = (int) input.front().size();
+
+            float reconstruction = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                for (int i = latency + (int) (sampleRate / 4); i < length; ++i)
+                    reconstruction = juce::jmax (reconstruction, std::abs (master[(size_t) ch][(size_t) i] + gain * removed[(size_t) ch][(size_t) i]
+                                                                           - gain * input[(size_t) ch][(size_t) (i - latency)]));
+
+            logMessage ("  reconstruction error " + juce::String (toDb (reconstruction), 1) + " dBFS; original "
+                        + juce::String (tailLufs (input, sampleRate), 2) + " LUFS, master " + juce::String (tailLufs (master, sampleRate), 2)
+                        + " LUFS, difference " + juce::String (tailLufs (removed, sampleRate), 2) + " LUFS");
+            expect (reconstruction < 1.0e-5f, "master + gain * difference must rebuild the gained input: " + juce::String (reconstruction));
+            // 差值按推响前的电平：纯增益衰减时 = 输入 ×（1 − 衰减），比原声轻（这里 +9 dB 推进去、约 9.6 dB 衰减，已是极端设置）。
+            expect (tailLufs (removed, sampleRate) < tailLufs (input, sampleRate) - 1.0f, "the difference is quieter than the original");
+            expect (tailLufs (removed, sampleRate) > -40.0f, "the fixture must actually be limited");
+
+            expectEquals (audition.getOutputIntegratedLufs(), normal.getOutputIntegratedLufs(), "integrated loudness is measured on the master");
+            expectEquals (audition.getOutputShortTermLufs(), normal.getOutputShortTermLufs(), "short-term loudness is measured on the master");
+            expectEquals (audition.getAndResetOutputTruePeakDb(), normal.getAndResetOutputTruePeakDb(), "OUT true peak is measured on the master");
+            expectEquals (audition.getAndResetLimitGainReductionDb(), normal.getAndResetLimitGainReductionDb(), "GR meter is unchanged");
+            expect (audition.hasListenDifference() && normal.hasListenDifference());
+            expectEquals (audition.getListenDifferenceDb(), normal.getListenDifferenceDb(), "the Listen estimate keeps using the master");
+
+            // 默认参数（auditionDifference 省略）与显式 false 逐位相同。
+            {
+                CeladonChain implicitChain, explicitChain;
+                prepareChain (implicitChain, sampleRate, params);
+                explicitChain.setParams (params, false, false, false);
+                explicitChain.prepare (makeSpec (sampleRate));
+                explicitChain.setParams (params, false, false, false);
+                const auto a = runChain (implicitChain, input, maxBlock);
+                const auto b = runChain (explicitChain, input, maxBlock);
+                expectEquals (maxAbsDifference (a, b, 0, length), 0.0f, "omitted flag == explicit false");
+                expectEquals (maxAbsDifference (a, master, 0, length), 0.0f, "no audition == the plain chain");
+            }
+
+            // 宿主块比 prepare 的块大小大（2048 > 512）：试听期间链按差值缓冲切片，结果与 512 的块逐位相同（GLAZE 0 时各模块分块无关）。
+            {
+                CeladonChain large;
+                large.setParams (params, false, false, true);
+                large.prepare (makeSpec (sampleRate));
+                large.setParams (params, false, false, true);
+                const auto sliced = runChain (large, input, 4 * maxBlock);
+                expectEquals (maxAbsDifference (sliced, removed, 0, length), 0.0f, "oversized host blocks give the same difference");
+
+                juce::AudioBuffer<float> big (numChannels, 4 * maxBlock);
+                big.clear();
+                large.process (big);
+                expectEquals (large.getLastProcessSliceCountForTesting(), 4, "a 2048-sample block is sliced into four while auditioning");
+            }
+
+            // Listen 打开时差值也不乘监听增益（它本来就在推响前的电平）：试听输出与 Listen 关着时逐位相同。
+            {
+                auto listening = params;
+                listening.limit.listen = true;
+                CeladonChain chain;
+                chain.setParams (listening, false, false, true);
+                chain.prepare (makeSpec (sampleRate));
+                chain.setParams (listening, false, false, true);
+                const auto withListen = runChain (chain, input, maxBlock);
+                expectEquals (maxAbsDifference (withListen, removed, 0, length), 0.0f, "the difference ignores the Listen gain");
+            }
+        }
+
+        // 试听差值（续）：听原声、宿主旁通、LIMIT 旁通时不生效（20 ms 淡回，之后与不试听的链逐位相同）；
+        // 中途打开再关掉，关掉 20 ms 之后输出又与从没试听过的链逐位相同（母带一直照常在算）；全程有限。
+        void testAuditionDifferenceIsSuppressedAndReversible()
+        {
+            beginTest ("difference audition is suppressed by A / B, host bypass and LIMIT bypass, and fully reversible");
+            constexpr double sampleRate = 48000.0;
+            auto input = makeListenMaterial (sampleRate, 2.0);
+            scale (input, 2.5f);
+            const auto length = (int) input.front().size();
+            const auto settle = (int) (0.05 * sampleRate);   // 20 ms 交叉淡化 + 余量
+
+            auto params = makeNeutralParams();
+            params.limit.gainDb = 9.0f;
+
+            struct Case { const char* name; bool hostBypassed, compareOriginal, limitBypass; };
+            for (const auto& c : { Case { "A / B original", false, true, false },
+                                   Case { "host bypass", true, false, false },
+                                   Case { "LIMIT bypass", false, false, true } })
+            {
+                auto caseParams = params;
+                caseParams.limit.bypass = c.limitBypass;
+
+                CeladonChain reference, audition;
+                prepareChain (reference, sampleRate, params);
+                prepareChain (audition, sampleRate, params);
+                reference.setParams (params, false);
+                audition.setParams (params, false, false, true);
+                runChain (reference, input, maxBlock);
+                runChain (audition, input, maxBlock);
+
+                reference.setParams (caseParams, c.hostBypassed, c.compareOriginal);
+                audition.setParams (caseParams, c.hostBypassed, c.compareOriginal, true);
+                const auto a = runChain (reference, input, maxBlock);
+                const auto b = runChain (audition, input, maxBlock);
+
+                float afterFade = 0.0f;
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = settle; i < length; ++i)
+                        afterFade = juce::jmax (afterFade, std::abs (a[(size_t) ch][(size_t) i] - b[(size_t) ch][(size_t) i]));
+
+                expectEquals (afterFade, 0.0f, juce::String ("audition must not apply during ") + c.name);
+                expect (allFinite (b));
+            }
+
+            // 中途打开 0.5 s 再关掉：关掉之后（淡出走完）与从没试听的链逐位相同；试听期间确实换了输出。
+            CeladonChain reference, audition;
+            prepareChain (reference, sampleRate, params);
+            prepareChain (audition, sampleRate, params);
+
+            juce::AudioBuffer<float> a (numChannels, maxBlock), b (numChannels, maxBlock);
+            const auto onAt = (int) (0.5 * sampleRate), offAt = (int) (1.0 * sampleRate);
+            float duringAudition = 0.0f, afterAudition = 0.0f;
+            bool finite = true;
+
+            for (int start = 0; start < length; start += maxBlock)
+            {
+                const auto blockLength = juce::jmin (maxBlock, length - start);
+                a.setSize (numChannels, blockLength, false, false, true);
+                b.setSize (numChannels, blockLength, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    a.copyFrom (ch, 0, input[(size_t) ch].data() + start, blockLength);
+                    b.copyFrom (ch, 0, input[(size_t) ch].data() + start, blockLength);
+                }
+
+                reference.setParams (params, false);
+                audition.setParams (params, false, false, start >= onAt && start < offAt);
+                reference.process (a);
+                audition.process (b);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < blockLength; ++i)
+                    {
+                        const auto delta = std::abs (a.getSample (ch, i) - b.getSample (ch, i));
+                        finite = finite && std::isfinite (b.getSample (ch, i));
+
+                        if (start + i >= onAt + settle && start + i < offAt)
+                            duringAudition = juce::jmax (duringAudition, delta);
+                        else if (start + i >= offAt + settle)
+                            afterAudition = juce::jmax (afterAudition, delta);
+                    }
+            }
+
+            expect (finite);
+            expect (duringAudition > 0.05f, "the monitored signal changes while auditioning");
+            expectEquals (afterAudition, 0.0f, "after the audition the output is bit-identical to a chain that never auditioned");
         }
 
         void testFrozenGuardDoesNotFragmentDsp()
@@ -804,6 +986,7 @@ namespace celadon::test
                 params.glazePercent      = (b / 55) % 2 == 0 ? 0.0f : 100.0f * wave;     // GLAZE 过 0（v0.4）
 
                 const bool hostBypassed = (b / 90) % 2 == 1;
+                const bool audition = (b / 45) % 3 == 1;   // v0.1.8.0 试听差值：开 / 关的交叉淡化也在计数区里
                 const auto length = blockSizes[(size_t) b % std::size (blockSizes)];
 
                 block.setSize (numChannels, length, false, false, true);
@@ -819,7 +1002,7 @@ namespace celadon::test
                 if (b % 100 == 99)
                     chain.restartWithFadeIn();
 
-                chain.setParams (params, hostBypassed);
+                chain.setParams (params, hostBypassed, false, audition);
                 chain.process (block);
                 juce::ignoreUnused (chain.getLatencySamples(),
                                     chain.getAndResetLimitGainReductionDb(),
@@ -1824,6 +2007,7 @@ namespace celadon::test
                 params.glazePercent = (b / 55) % 2 == 0 ? 0.0f : 100.0f * wave;
 
                 const bool hostBypassed = (b / 90) % 2 == 1;
+                const bool audition = (b / 45) % 3 == 1;   // 试听差值：含 2048 > prepare 块大小时的切片路径
                 const auto length = blockSizes[(size_t) b % std::size (blockSizes)];
 
                 if (readPosition + length > inputLength)
@@ -1842,7 +2026,7 @@ namespace celadon::test
                 if (b % 100 == 99)
                     chain.restartWithFadeIn();
 
-                chain.setParams (params, hostBypassed);
+                chain.setParams (params, hostBypassed, false, audition);
                 chain.process (block);
                 juce::ignoreUnused (chain.getLatencySamples());
 

@@ -119,11 +119,16 @@ public:
     void setCompareOriginal (bool shouldListenToOriginal) noexcept { compareOriginal.store (shouldListenToOriginal, std::memory_order_relaxed); }
     bool isComparingOriginal() const noexcept                      { return compareOriginal.load (std::memory_order_relaxed); }
 
+    // 试听差值（LIMIT 卡片的耳机）：true = 送出去的是限幅器削掉的部分（按推响前的电平），表、响度、GLAZE 照常按母带算；
+    // 听原声、宿主旁通或 LIMIT 旁通时不生效（见 CeladonChain::setParams）。与 A / B 一样只是界面状态、不存，编辑器关闭时关掉。
+    void setAuditionDifference (bool shouldAudition) noexcept      { auditionDifference.store (shouldAudition, std::memory_order_relaxed); }
+    bool isAuditioningDifference() const noexcept                  { return auditionDifference.load (std::memory_order_relaxed); }
+
     // Listen 测到的「处理结果 − 原声」响度差（dB），见 CeladonChain::getListenDifferenceDb。
     bool hasListenDifference() const noexcept                      { return chain.hasListenDifference(); }
     float getListenDifferenceDb() const noexcept                   { return chain.getListenDifferenceDb(); }
 
-    // 频谱仪的取样口：IN = 链入口（NaN 保护之后），OUT = 插件最终输出（含 Listen 的监听增益、A / B 的原声）。
+    // 频谱仪的取样口：IN = 链入口（NaN 保护之后），OUT = 插件最终输出（含 Listen 的监听增益、A / B 的原声、试听差值）。
     celadon::AnalyzerTap& getAnalyzerTap() noexcept                { return analyzerTap; }
 
     // 当前采样率（频谱仪换算频率用）；还没 prepare 时返回 0。
@@ -275,6 +280,7 @@ private:
     std::atomic<double> currentSampleRate { 0.0 }; // prepareToPlay 写，界面线程读（把延迟换算成毫秒）；0 = 还没 prepare
     std::atomic<bool> hostResetPending { false };
     std::atomic<bool> compareOriginal { false };  // 界面写（A / B 对比听 B），音频线程每块读
+    std::atomic<bool> auditionDifference { false }; // 界面写（LIMIT 试听差值），音频线程每块读
     bool lastBlockHostBypassed = false;           // 只在音频线程读写
 
     celadon::AnalyzerTap analyzerTap;             // 频谱仪取样口：音频线程推、界面线程取

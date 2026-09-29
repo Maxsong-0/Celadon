@@ -45,7 +45,7 @@ namespace celadon::ui
     enum class Text : int
     {
         // ---- 顶栏 ----
-        brandSubtitle, latency, settings, help, close, version,
+        brandSubtitle, latency, settings, help, close, version, advanced,
 
         // ---- 电平表 ----
         meterIn, meterOut, meterGr,
@@ -68,13 +68,16 @@ namespace celadon::ui
         clayLowCut, clayMono, clayWidth, modeAuto, modeOff, modeManual, stripStereo, clayNotActive, clayBypassed,
         recover, tame, brighten, speed, speedSlow, speedMid, speedFast, bands27,
         tone, glue, heat, mix, output, glueReduction,
-        gain, ceiling, clip, release, lookahead, limitReduction, autoChip,
+        gain, ceiling, clip, release, lookahead, limitReduction, autoChip, auditioningDifference, auditionDifferenceNote,
+
+        // ---- 高级面板 ----
+        advancedClay, advancedClayNote, comingSoon, subprojectLoudNotHarsh, subprojectTargetSpectrum, subprojectReleaseSafety,
 
         // ---- 设置面板 ----
         windowSize, screenSize, tooBig, sizeNote, reduceMotion, reduceMotionNote, language,
 
         // ---- 帮助面板 ----
-        helpTitle, helpDrag, helpFine, helpReset, helpType, helpWheel, helpColours, helpAb,
+        helpTitle, helpDrag, helpFine, helpReset, helpType, helpWheel, helpColours, helpAb, helpAudition,
 
         // ---- 警告 ----
         warnTruePeak, warnNonFinite, debugBuild,

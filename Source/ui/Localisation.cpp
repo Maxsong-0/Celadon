@@ -47,6 +47,7 @@ namespace celadon::ui
             { Text::help,               "帮助",                     "Help" },
             { Text::close,              "关闭",                     "Close" },
             { Text::version,            "版本",                     "Version" },
+            { Text::advanced,           "高级",                     "Advanced" },
 
             // ---- 电平表 ----
             { Text::meterIn,            "输入",                     "IN" },
@@ -139,6 +140,17 @@ namespace celadon::ui
             { Text::lookahead,          "预读",                     "LOOKAHEAD" },
             { Text::limitReduction,     "限幅衰减",                 "LIMIT GR" },
             { Text::autoChip,           "自动",                     "AUTO" },
+            { Text::auditioningDifference,  "正在试听差值",         "Listening to difference" },
+            { Text::auditionDifferenceNote, "只听被削掉的部分",     "only what is removed" },
+
+            // ---- 高级面板 ----
+            { Text::advancedClay,       "修坯 CLAY",                "CLAY" },
+            { Text::advancedClayNote,   "低切、收单、加宽各自可选「自动 / 关 / 手动」，\n三态与手动值都在下方 CLAY 卡片上。",
+                                        "Auto / Off / Manual and the manual values for low cut, mono and width are on the CLAY card below." },
+            { Text::comingSoon,         "即将推出",                 "Coming soon" },
+            { Text::subprojectLoudNotHarsh,   "推响不刺",           "Loud, not harsh" },
+            { Text::subprojectTargetSpectrum, "目标频谱",           "Target spectrum" },
+            { Text::subprojectReleaseSafety,  "发行安全",           "Release safety" },
 
             // ---- 设置面板 ----
             { Text::windowSize,         "界面大小",                 "Window size" },
@@ -164,6 +176,8 @@ namespace celadon::ui
                                         "Cyan = your setting; violet = GLAZE's current automatic amount; orange = needs attention" },
             { Text::helpAb,             "A / B：在处理后与原声之间切换；打开「等响」后两边按实测响度对齐，只衰减、不抬高",
                                         "A / B switches between processed and original; with Match on both play at the measured loudness, attenuation only" },
+            { Text::helpAudition,       "LIMIT 卡片的耳机：试听差值，只听限幅削掉的部分；再点一次回到正常输出",
+                                        "Headphones on the LIMIT card: listen to the difference, only what the limiter removes; click again to go back" },
 
             // ---- 警告 ----
             { Text::warnTruePeak,       "真峰值 {0} dBTP · 超出上限 {1}", "True peak {0} dBTP \xc2\xb7 above ceiling {1}" },
