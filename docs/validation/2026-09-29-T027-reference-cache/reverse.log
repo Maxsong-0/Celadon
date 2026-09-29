@@ -1,0 +1,37 @@
+==== R1: key without the constraint cap
+1482:            if (! manualConditionsKnown || ! samePlanningManual (m, manualConditionsInput)
+1483-                )
+Starting tests in: GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)...
+!!! Test 9 failed: the two constraint caps give different hashes, and going back gives the first one again
+  182 blocks checked through the probe, 182 through the published execution snapshot
+!!! Test 10 failed: the probe's hash equals the uncached recomputation. First: constraint cap 18.5 (probe) -- Expected value: 0, Actual value: 6
+!!! Test 11 failed: the published reference equals the uncached recomputation. First: constraint cap 18.5 (probe) -- Expected value: 0, Actual value: 6
+FAILED!!  3 tests failed, out of a total of 12
+==== celadon_tests: 2414 passed, 3 failed ====
+==== R2: key compares only the Clay settings
+1482:            if (! manualConditionsKnown || ! sameClaySettings (m.claySettings, manualConditionsInput.claySettings)
+1483-                || ! sameBits (feedbackMaxGainDb, manualConditionsFeedback))
+!!! Test 2 failed: sweep x(1 + 0.0000200) per block: a real release change invalidates the calibration
+!!! Test 4 failed: sweep x(1 + 0.0000200) per block: once the knob stops, the conditions are stable and a new round starts
+!!! Test 6 failed: sweep x(1 + 0.0000005) per block: a real release change invalidates the calibration
+!!! Test 8 failed: sweep x(1 + 0.0000005) per block: once the knob stops, the conditions are stable and a new round starts
+FAILED!!  4 tests failed, out of a total of 8
+Starting tests in: GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)...
+!!! Test 2 failed: every advanced-mastering step changes the reference hash (the Mast segment is exercised)
+  182 blocks checked through the probe, 182 through the published execution snapshot
+!!! Test 10 failed: the probe's hash equals the uncached recomputation. First: balance recover (probe) -- Expected value: 0, Actual value: 118
+!!! Test 11 failed: the published reference equals the uncached recomputation. First: balance recover (probe) -- Expected value: 0, Actual value: 118
+FAILED!!  3 tests failed, out of a total of 12
+==== celadon_tests: 2410 passed, 7 failed ====
+==== R3: key ignores the v0.1.9.0 advanced-mastering fields (the Mast segment)
+1482:            if (! manualConditionsKnown || ! samePlanningManual ([&] { auto x = m; auto& b = x.balance; const auto& c = manualConditionsInput.balance; b.harshAmount = c.harshAmount; b.transientPreserve = c.transientPreserve; b.targetAmount = c.targetAmount; b.targetSlopeDbPerOct = c.targetSlopeDbPerOct; b.hasTargetReference = c.hasTargetReference; b.targetReferenceDb = c.targetReferenceDb; return x; }(), manualConditionsInput)
+1483-                || ! sameBits (feedbackMaxGainDb, manualConditionsFeedback))
+Starting tests in: GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)...
+!!! Test 2 failed: every advanced-mastering step changes the reference hash (the Mast segment is exercised)
+  182 blocks checked through the probe, 182 through the published execution snapshot
+!!! Test 10 failed: the probe's hash equals the uncached recomputation. First: de-harsh manual (probe) -- Expected value: 0, Actual value: 38
+!!! Test 11 failed: the published reference equals the uncached recomputation. First: de-harsh manual (probe) -- Expected value: 0, Actual value: 38
+FAILED!!  3 tests failed, out of a total of 12
+==== celadon_tests: 2414 passed, 3 failed ====
+==== restored and rebuilt
+0bcd0be04ae711a79f44aee7e5ae0a76f64411c943129bc7b4c181362770aa18  Celadon/Source/dsp/GlazeController.cpp

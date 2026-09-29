@@ -197,6 +197,8 @@ namespace celadon::glaze
             return true;
         }
 
+        // 它也是 makeReference 手动参数缓存的键（T-027）：必须覆盖 setManualConditions / emitConditions 读的每一项
+        // （含 v0.1.9.0 的「Mast」段，由上面的 sameAdvancedBalance 比）。
         bool samePlanningManual (const ChainParams& a, const ChainParams& b) noexcept
         {
             return sameAdvancedBalance (a.balance, b.balance) && sameClaySettings (a.claySettings, b.claySettings)
@@ -839,6 +841,19 @@ namespace celadon::glaze
         double referenceRate = 0.0;
         bool haveLastAttempt = false, referenceKnown = false;
         std::int64_t referenceStableSamples = 0, roundMismatchSamples = 0;
+
+        // 参考条件的手动参数部分（setManualConditions：两份哈希与三个对数刻度值）按上一次的输入缓存（T-027）。makeReference 每块
+        // 被调 2 ～ 3 次（beginBlock 比执行快照、captureExecution、publishState），手动参数不变时结果逐位相同，不必每次重算两份哈希
+        // （约 110 ～ 170 ns / 次）。键 = samePlanningManual（setManualConditions 读的每一项它都比到：浮点按位，「Mast」段的参考频谱
+        // 按值——只有 ±0 按值相等而位不同，两者量化码相同；是超集）+ 约束反馈上限逐位相同：命中时拷贝的与重算的逐位相同。
+        // 改 setManualConditions / emitConditions 读哪些项时，samePlanningManual 必须仍覆盖它们。
+        // makeReference 是 const，缓存因此 mutable；与 manual 一样只由音频线程读写（prepare 与测试探针调 makeReference 时音频线程
+        // 不在跑），固定大小拷贝，不分配。
+        mutable CalibrationReference manualConditions;   // 只有手动参数那几项有值，其余是默认值
+        mutable ChainParams manualConditionsInput;
+        mutable float manualConditionsFeedback = 0.0f;
+        mutable bool manualConditionsKnown = false;
+
         float appliedBiasDb = 0.0f;
         bool snapBias = true;
         // 短期明暗只叠在固定画像的 Tone 上，不改变风格、响度目标或保存的计划。
@@ -1461,13 +1476,29 @@ namespace celadon::glaze
         //==============================================================================
         // ---- 校准 ----
 
+        // 手动参数部分（setManualConditions）按输入缓存，见成员 manualConditions 的说明。
+        const CalibrationReference& manualConditionsFor (const ChainParams& m) const noexcept
+        {
+            if (! manualConditionsKnown || ! samePlanningManual (m, manualConditionsInput)
+                || ! sameBits (feedbackMaxGainDb, manualConditionsFeedback))
+            {
+                manualConditions = CalibrationReference {};
+                setManualConditions (manualConditions, m, feedbackMaxGainDb);
+                manualConditionsInput = m;
+                manualConditionsFeedback = feedbackMaxGainDb;
+                manualConditionsKnown = true;
+            }
+
+            return manualConditions;
+        }
+
         CalibrationReference makeReference (const ChainParams& m) const noexcept
         {
-            CalibrationReference r;
+            // 从手动参数部分起步，其余各项下面逐一覆盖（参考条件的每一项都在这里填到）。
+            auto r = manualConditionsFor (m);
             r.profileId = committed.hasProfile ? committed.profileId : 0u;
             r.style = currentStyle;
             r.glazePercent = m.glazePercent;
-            setManualConditions (r, m, feedbackMaxGainDb);
             r.ceilingDb = m.limit.ceilingDb;
             r.lookaheadMs = m.limit.lookaheadMs;
             r.sampleRate = sampleRate;

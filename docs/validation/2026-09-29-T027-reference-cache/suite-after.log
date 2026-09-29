@@ -1,0 +1,1895 @@
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/maxsong/.cache/celadon-build/frosty-haslett-5cbf1c-cc3024a39f40
+[1/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/LinearPhaseLowpass.cpp.o
+[2/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ClayGuard.cpp.o
+[3/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/CeladonChain.cpp.o
+[4/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ReleaseSafety.cpp.o
+[5/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeProfile.cpp.o
+[6/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ClayModule.cpp.o
+[7/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ReferenceSpectrum.cpp.o
+[8/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazePlanner.cpp.o
+[9/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/ColorModule.cpp.o
+[10/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/Saturator.cpp.o
+[11/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/LimiterModule.cpp.o
+[12/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/HalfBandOversampler.cpp.o
+[13/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/ui/GlazeStatusText.cpp.o
+[14/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/ui/Localisation.cpp.o
+[15/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/BalanceModule.cpp.o
+[16/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/MusicAnalyzer.cpp.o
+[17/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/ui/HelpText.cpp.o
+[18/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/TruePeak.cpp.o
+[19/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/TestMain.cpp.o
+[20/40] Building CXX object CMakeFiles/celadon_tests.dir/Source/dsp/GlazeController.cpp.o
+[21/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/HelpTextTests.cpp.o
+[22/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/DspPartsTests.cpp.o
+[23/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeBehaviourReport.cpp.o
+[24/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeStatusTextTests.cpp.o
+[25/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/AdvancedMasteringTests.cpp.o
+[26/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeCalibrationTests.cpp.o
+[27/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayGuardTests.cpp.o
+[28/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalancePerformanceTests.cpp.o
+[29/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/LegacyFixtureTests.cpp.o
+[30/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeTests.cpp.o
+[31/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/LocalisationTests.cpp.o
+[32/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/BalanceTests.cpp.o
+[33/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/ChainTests.cpp.o
+[34/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/ColorTests.cpp.o
+[35/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/MusicAnalyzerTests.cpp.o
+[36/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazePlannerTests.cpp.o
+[37/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayTests.cpp.o
+[38/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/ClayGlazeTests.cpp.o
+[39/40] Building CXX object CMakeFiles/celadon_tests.dir/tests/GlazeControllerTests.cpp.o
+[40/40] Linking CXX executable celadon_tests
+Random seed: 0x4ac2a2b
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / preview applies a real -6 dB gain after 50 ms, equally to both channels...
+Completed tests in AdvancedMastering / preview applies a real -6 dB gain after 50 ms, equally to both channels
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / quiet or unknown loudness never boosts; silence stays silent...
+Completed tests in AdvancedMastering / quiet or unknown loudness never boosts; silence stays silent
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / invalid metering recovers unity and disabled preview becomes bit-identical...
+Completed tests in AdvancedMastering / invalid metering recovers unity and disabled preview becomes bit-identical
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / TPDF 16 bit: PCM grid, unbiased noise, independent channels...
+Completed tests in AdvancedMastering / TPDF 16 bit: PCM grid, unbiased noise, independent channels
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / TPDF 16 bit: reset reproducibility and block-size invariance...
+Completed tests in AdvancedMastering / TPDF 16 bit: reset reproducibility and block-size invariance
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / TPDF preserves sub-LSB mean and saturates malformed/full-scale inputs at 16...
+Completed tests in AdvancedMastering / TPDF preserves sub-LSB mean and saturates malformed/full-scale inputs at 16
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / TPDF 24 bit: PCM grid, unbiased noise, independent channels...
+Completed tests in AdvancedMastering / TPDF 24 bit: PCM grid, unbiased noise, independent channels
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / TPDF 24 bit: reset reproducibility and block-size invariance...
+Completed tests in AdvancedMastering / TPDF 24 bit: reset reproducibility and block-size invariance
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / TPDF preserves sub-LSB mean and saturates malformed/full-scale inputs at 24...
+Completed tests in AdvancedMastering / TPDF preserves sub-LSB mean and saturates malformed/full-scale inputs at 24
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / reference requires ten actual seconds of sidechain; anti-phase stereo does not cancel...
+Completed tests in AdvancedMastering / reference requires ten actual seconds of sidechain; anti-phase stereo does not cancel
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / incremental FFT preserves identical spectra at 1, 31 and 4093 sample callbacks...
+Completed tests in AdvancedMastering / incremental FFT preserves identical spectra at 1, 31 and 4093 sample callbacks
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / cancel or clear a terminal FFT cannot resurrect its pending reference...
+Completed tests in AdvancedMastering / cancel or clear a terminal FFT cannot resurrect its pending reference
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / reference spectrum is invariant to channel polarity, gain and host block size...
+Completed tests in AdvancedMastering / reference spectrum is invariant to channel polarity, gain and host block size
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / silence and disconnected sidechain cannot complete or advance reference learning...
+Completed tests in AdvancedMastering / silence and disconnected sidechain cannot complete or advance reference learning
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / small terminal frames survive disconnected drain and a preceding invalid frame at 32 kHz...
+Completed tests in AdvancedMastering / small terminal frames survive disconnected drain and a preceding invalid frame at 32 kHz
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / an invalid terminal prefix preserves already-captured valid suffix samples...
+Completed tests in AdvancedMastering / an invalid terminal prefix preserves already-captured valid suffix samples
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / incremental reference shape and completion are block-size independent at 96 and 192 kHz...
+Completed tests in AdvancedMastering / incremental reference shape and completion are block-size independent at 96 and 192 kHz
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / a pending Learn survives repeated prepare before the first audio block...
+Completed tests in AdvancedMastering / a pending Learn survives repeated prepare before the first audio block
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / XML save/restore publishes immediately and reprepare preserves the committed curve...
+Completed tests in AdvancedMastering / XML save/restore publishes immediately and reprepare preserves the committed curve
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / cancel preserves the previous reference; clear is not swallowed by later UI commands...
+Completed tests in AdvancedMastering / cancel preserves the previous reference; clear is not swallowed by later UI commands
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / reprepare discards uncommitted progress without inventing a reference...
+Completed tests in AdvancedMastering / reprepare discards uncommitted progress without inventing a reference
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / invalid/missing XML cannot inject or resurrect a reference curve...
+Completed tests in AdvancedMastering / invalid/missing XML cannot inject or resurrect a reference curve
+-----------------------------------------------------------------
+Starting tests in: AdvancedMastering / reference FFT, learning completion, commands and release processing make zero operator-new calls...
+Completed tests in AdvancedMastering / reference FFT, learning completion, commands and release processing make zero operator-new calls
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / GLAZE zero with new automatic defaults is bit-identical to the established manual chain...
+Completed tests in AdvancedMasteringChain / GLAZE zero with new automatic defaults is bit-identical to the established manual chain
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / additional protection reduces a persistent 3.15 kHz peak in actual output...
+Completed tests in AdvancedMasteringChain / additional protection reduces a persistent 3.15 kHz peak in actual output
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / transient-preserve changes burst attack samples while retaining steady protection...
+Completed tests in AdvancedMasteringChain / transient-preserve changes burst attack samples while retaining steady protection
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / warm and bright targets move the output spectrum in opposite directions...
+Completed tests in AdvancedMasteringChain / warm and bright targets move the output spectrum in opposite directions
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / target shape ignores a common +6 dB input level step...
+Completed tests in AdvancedMasteringChain / target shape ignores a common +6 dB input level step
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / codec reserve actually lowers delivered peak level without adding latency...
+Completed tests in AdvancedMasteringChain / codec reserve actually lowers delivered peak level without adding latency
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / host bypass, original and difference audition never receive dither...
+Completed tests in AdvancedMasteringChain / host bypass, original and difference audition never receive dither
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / offline transition removes preview from its first sample and preserves the master meter...
+Completed tests in AdvancedMasteringChain / offline transition removes preview from its first sample and preserves the master meter
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / Listen to preview hands over one gain without a loudness overshoot...
+Completed tests in AdvancedMasteringChain / Listen to preview hands over one gain without a loudness overshoot
+-----------------------------------------------------------------
+Starting tests in: AdvancedMasteringChain / active advanced chain processing and state reads allocate no memory...
+Completed tests in AdvancedMasteringChain / active advanced chain processing and state reads allocate no memory
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / true peak <= ceiling + 0.01 dB...
+  runs: 540
+  worst overshoot (own meter):       -0.3500 dB  [fs/4 sine at 45 deg @44100 la=1 auto=1 clip=50 gain=24]
+  16x reference (for information only, not a pass criterion):
+    worst -0.3310 dB  [100 Hz square @48000 la=2 auto=1 clip=0 gain=24]
+    cases > +0.1 dB: 0 / 60,  > +0.3 dB: 0 / 60
+Completed tests in LimiterModule / true peak <= ceiling + 0.01 dB
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / independent 16x reconstruction <= ceiling + 0.01 dB across rates, gain and clip...
+  independent reference: 48 cases; worst -0.0461 dB above ceiling [deterministic noise @44100 gain=18 clip=50]
+Completed tests in LimiterModule / independent 16x reconstruction <= ceiling + 0.01 dB across rates, gain and clip
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / null when gain = 0, clip = 0, input below the guarded threshold...
+Completed tests in LimiterModule / null when gain = 0, clip = 0, input below the guarded threshold
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / bypass is bit-exact delayed input...
+Completed tests in LimiterModule / bypass is bit-exact delayed input
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / impulse latency == reported latency...
+Completed tests in LimiterModule / impulse latency == reported latency
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / no NaN / Inf for extreme input...
+Completed tests in LimiterModule / no NaN / Inf for extreme input
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / output independent of block size...
+Completed tests in LimiterModule / output independent of block size
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / lookahead change updates latency and stays safe...
+Completed tests in LimiterModule / lookahead change updates latency and stays safe
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / gain reduction meter reports limiting...
+Completed tests in LimiterModule / gain reduction meter reports limiting
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / gain returns exactly to 1.0 after limiting...
+Completed tests in LimiterModule / gain returns exactly to 1.0 after limiting
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / restartWithFadeIn: silence, then fade, then bit-exact again...
+Completed tests in LimiterModule / restartWithFadeIn: silence, then fade, then bit-exact again
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / gain changes are smoothed over 20 ms: monotonic ramp, then exactly steady...
+  largest per-sample gain step 0.0458
+  ramp reached +24 dB after 24.52 ms (latency 218 samples)
+Completed tests in LimiterModule / gain changes are smoothed over 20 ms: monotonic ramp, then exactly steady
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / clip idle skip is bit-exact with the never-skipping reference...
+  @44100 maxBlock 64: skipped 61.8% of samples
+  @44100 maxBlock 512: skipped 59.7% of samples
+  @48000 maxBlock 64: skipped 64.9% of samples
+  @48000 maxBlock 512: skipped 55.4% of samples
+  @96000 maxBlock 64: skipped 72.6% of samples
+  @96000 maxBlock 512: skipped 73.0% of samples
+  @192000 maxBlock 64: skipped 79.3% of samples
+  @192000 maxBlock 512: skipped 81.0% of samples
+Completed tests in LimiterModule / clip idle skip is bit-exact with the never-skipping reference
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / clip idle skip stays safe when a block has fewer channels than prepared...
+Completed tests in LimiterModule / clip idle skip stays safe when a block has fewer channels than prepared
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / difference is exactly zero when nothing is limited, even while Gain is ramping...
+Completed tests in LimiterModule / difference is exactly zero when nothing is limited, even while Gain is ramping
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / passing a difference buffer never changes output, meter or block stats...
+Completed tests in LimiterModule / passing a difference buffer never changes output, meter or block stats
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / output + gain * difference == gained delayed input; difference never louder than input or ceiling...
+  reconstruction error -132.5 dBFS, difference peak -3.4 dBFS
+Completed tests in LimiterModule / output + gain * difference == gained delayed input; difference never louder than input or ceiling
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / difference is silent while bypassed and during the fade-in hold...
+Completed tests in LimiterModule / difference is silent while bypassed and during the fade-in hold
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / LF-aware Auto release reduces bass/treble IMD against the original double envelope at identical settings...
+  40 Hz IMD 2.3756% -> 0.8270%, improvement 9.166 dB, RMS change -0.056 dB, fast release 100.00 ms
+  40 Hz TP legacy/current: cropped -1.3500/-1.3500, unpadded interior -1.3500/-1.3500, complete flushed output -1.3500/-1.3500 dBTP
+  55 Hz IMD 1.0295% -> 0.4635%, improvement 6.932 dB, RMS change -0.018 dB, fast release 72.72 ms
+  55 Hz TP legacy/current: cropped -0.8918/-0.8918, unpadded interior -1.3500/-1.3500, complete flushed output -1.3500/-1.3500 dBTP
+  80 Hz IMD 0.2312% -> 0.1457%, improvement 4.009 dB, RMS change -0.002 dB, fast release 50.00 ms
+  80 Hz TP legacy/current: cropped -1.3500/-1.3500, unpadded interior -1.3500/-1.3500, complete flushed output -1.3500/-1.3500 dBTP
+Completed tests in LimiterModule / LF-aware Auto release reduces bass/treble IMD against the original double envelope at identical settings
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / isolated decaying kicks, treble-only material and manual Release retain their original response...
+Completed tests in LimiterModule / isolated decaying kicks, treble-only material and manual Release retain their original response
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / steady low-frequency noise and rapid continuous pitch changes cannot masquerade as stable bass periods...
+  stationary LF noise: maximum fast release 30.0000 ms, output difference 0.00000000
+  40-110 Hz rapid sweep: maximum fast release 30.0000 ms, output difference 0.00000000
+Completed tests in LimiterModule / steady low-frequency noise and rapid continuous pitch changes cannot masquerade as stable bass periods
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / LF-aware release stays bit-exact across block sizes, resets cleanly and allocates nothing while active...
+Completed tests in LimiterModule / LF-aware release stays bit-exact across block sizes, resets cleanly and allocates nothing while active
+-----------------------------------------------------------------
+Starting tests in: LimiterModule / a short overload releases with the fast envelope; a sustained overload still holds...
+  RMS 45 ms after short overload -18.30 dB, after sustained overload -24.90 dB
+Completed tests in LimiterModule / a short overload releases with the fast envelope; a sustained overload still holds
+-----------------------------------------------------------------
+Starting tests in: Saturator / SoftClip: linear below knee, never above threshold, monotonic...
+Completed tests in Saturator / SoftClip: linear below knee, never above threshold, monotonic
+-----------------------------------------------------------------
+Starting tests in: Saturator / Tube: y(0) = 0 and unit slope at origin...
+Completed tests in Saturator / Tube: y(0) = 0 and unit slope at origin
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)...
+Completed tests in TruePeakDetector / phase 0 reproduces the sample exactly (latency = tapsPerPhase / 2)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / never below the sample peak...
+Completed tests in TruePeakDetector / never below the sample peak
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)...
+Completed tests in TruePeakDetector / fs/4 sine at 45 deg reads +3 dB over its sample peak (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / DC reads its own level (steady state)...
+Completed tests in TruePeakDetector / DC reads its own level (steady state)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)...
+  step overshoot: +1.133 dB
+Completed tests in TruePeakDetector / a step really overshoots (known band-limited behaviour, logged)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax are bit-exact with processSample (SSE2 kernel)...
+Completed tests in TruePeakDetector / processBlock / processBlockMax are bit-exact with processSample (SSE2 kernel)
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processSample / processBlock / processBlockMax / in-place calls can be mixed on one detector...
+Completed tests in TruePeakDetector / processSample / processBlock / processBlockMax / in-place calls can be mixed on one detector
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call...
+Completed tests in TruePeakDetector / a partial last group is padded with zeros, never with samples left over from an earlier call
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / processBlock / processBlockMax do not allocate...
+Completed tests in TruePeakDetector / processBlock / processBlockMax do not allocate
+-----------------------------------------------------------------
+Starting tests in: TruePeakDetector / performance guard: SSE2 block detector per sample per channel...
+  SSE2 processBlock: 29.16 ns per sample per channel (best of 15)
+Completed tests in TruePeakDetector / performance guard: SSE2 block detector per sample per channel
+-----------------------------------------------------------------
+Starting tests in: LoudnessMeter / stereo 1 kHz sine at -20 dBFS reads -20 LUFS...
+Completed tests in LoudnessMeter / stereo 1 kHz sine at -20 dBFS reads -20 LUFS
+-----------------------------------------------------------------
+Starting tests in: LoudnessMeter / relative gate excludes quiet passages...
+Completed tests in LoudnessMeter / relative gate excludes quiet passages
+-----------------------------------------------------------------
+Starting tests in: LoudnessMeter / mono reads like identical stereo...
+Completed tests in LoudnessMeter / mono reads like identical stereo
+-----------------------------------------------------------------
+Starting tests in: LoudnessMeter / absolute gate: silence has no reading; reset clears...
+Completed tests in LoudnessMeter / absolute gate: silence has no reading; reset clears
+-----------------------------------------------------------------
+Starting tests in: LoudnessMeter / true-peak-only mode: identical true peak, no loudness readings...
+Completed tests in LoudnessMeter / true-peak-only mode: identical true peak, no loudness readings
+-----------------------------------------------------------------
+Starting tests in: LoudnessMeter / switching loudness off shows no reading at once; switching on measures from scratch...
+Completed tests in LoudnessMeter / switching loudness off shows no reading at once; switching on measures from scratch
+-----------------------------------------------------------------
+Starting tests in: LoudnessMeter / true peak reading is bit-exact for host blocks larger than prepared, mono and stereo...
+Completed tests in LoudnessMeter / true peak reading is bit-exact for host blocks larger than prepared, mono and stereo
+-----------------------------------------------------------------
+Starting tests in: ColorModule / null when tone = glue = heat = 0, mix 100, output 0 (loud input)...
+  @44100: latency 64, residual -200.0 dBFS
+  @48000: latency 64, residual -200.0 dBFS
+  @96000: latency 64, residual -200.0 dBFS
+Completed tests in ColorModule / null when tone = glue = heat = 0, mix 100, output 0 (loud input)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / no aliasing below 10 kHz at heat = 100 (10 kHz sine, -6 dBFS)...
+  fundamental bin 3413, worst in-band component -97.4 dB re fundamental at 9972.66 Hz
+Completed tests in ColorModule / no aliasing below 10 kHz at heat = 100 (10 kHz sine, -6 dBFS)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat loudness compensation keeps -18 dBFS sine within +/-1 dB...
+  heat 10: -0.00 dB re heat 0
+  heat 20: -0.00 dB re heat 0
+  heat 30: -0.00 dB re heat 0
+  heat 40: -0.01 dB re heat 0
+  heat 50: -0.01 dB re heat 0
+  heat 60: -0.01 dB re heat 0
+  heat 70: -0.02 dB re heat 0
+  heat 80: -0.02 dB re heat 0
+  heat 90: -0.03 dB re heat 0
+  heat 100: -0.03 dB re heat 0
+Completed tests in ColorModule / heat loudness compensation keeps -18 dBFS sine within +/-1 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat stays below 4% distortion and 1.25 dB level loss on near-full-scale input...
+  input -18.0 dBFS, heat 10: 0.004% distortion, -0.001 dB RMS change
+  input -18.0 dBFS, heat 30: 0.018% distortion, -0.004 dB RMS change
+  input -18.0 dBFS, heat 100: 0.179% distortion, -0.033 dB RMS change
+  input -6.0 dBFS, heat 10: 0.055% distortion, -0.015 dB RMS change
+  input -6.0 dBFS, heat 30: 0.222% distortion, -0.060 dB RMS change
+  input -6.0 dBFS, heat 100: 1.481% distortion, -0.413 dB RMS change
+  input -0.5 dBFS, heat 10: 0.144% distortion, -0.042 dB RMS change
+  input -0.5 dBFS, heat 30: 0.530% distortion, -0.163 dB RMS change
+  input -0.5 dBFS, heat 100: 2.689% distortion, -0.940 dB RMS change
+Completed tests in ColorModule / heat stays below 4% distortion and 1.25 dB level loss on near-full-scale input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / parallel heat bounds bass/treble intermodulation with tone +/-3 dB...
+  tone -3, heat 30: 0.102% IMD, 0.002 dB RMS change
+  tone -3, heat 100: 0.806% IMD, 0.018 dB RMS change
+  tone 3, heat 30: 0.032% IMD, 0.001 dB RMS change
+  tone 3, heat 100: 0.290% IMD, 0.006 dB RMS change
+Completed tests in ColorModule / parallel heat bounds bass/treble intermodulation with tone +/-3 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / full heat sweep and reset remain continuous with hot input and tone boost...
+Completed tests in ColorModule / full heat sweep and reset remain continuous with hot input and tone boost
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bass-safe Heat lowers 60 Hz / 6 kHz intermodulation at matched upper harmonics...
+  legacy Heat 60 vs new 59.912: harmonic match -0.011 dB, IMD 3.5425% -> 0.1778% (25.99 dB improvement)
+Completed tests in ColorModule / bass-safe Heat lowers 60 Hz / 6 kHz intermodulation at matched upper harmonics
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat preserves 40 / 60 / 100 Hz fundamentals on quiet and hot bass...
+Completed tests in ColorModule / Heat preserves 40 / 60 / 100 Hz fundamentals on quiet and hot bass
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat preserves pure Side, channel exchange symmetry and the Mid / Side energy ratio...
+  Heat 30, Mid 60 Hz: S/M change -0.010 dB
+  Heat 30, Mid 1200 Hz: S/M change 0.084 dB
+  Heat 100, Mid 60 Hz: S/M change -0.059 dB
+  Heat 100, Mid 1200 Hz: S/M change 0.553 dB
+Completed tests in ColorModule / Heat preserves pure Side, channel exchange symmetry and the Mid / Side energy ratio
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat high-frequency budget reduces generated upper harmonics while preserving the dry mix...
+  Heat upper harmonic improvement=4.712 dB, RMS delta=0.340 dB @44100
+  Heat upper harmonic improvement=4.954 dB, RMS delta=0.354 dB @48000
+  Heat upper harmonic improvement=6.410 dB, RMS delta=0.436 dB @96000
+Completed tests in ColorModule / Heat high-frequency budget reduces generated upper harmonics while preserving the dry mix
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output...
+  gain reduction 8.54 dB
+Completed tests in ColorModule / glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue compresses a loud mid tone more than a quieter low tone...
+  low 0.66 dB, mid -2.92 dB
+Completed tests in ColorModule / glue compresses a loud mid tone more than a quieter low tone
+-----------------------------------------------------------------
+Starting tests in: ColorModule / impulse latency == reported latency (heat 0 and heat 50)...
+Completed tests in ColorModule / impulse latency == reported latency (heat 0 and heat 50)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bypass is bit-exact delayed input...
+Completed tests in ColorModule / bypass is bit-exact delayed input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / mix = 0 is bit-exact delayed input...
+Completed tests in ColorModule / mix = 0 is bit-exact delayed input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue = 0 reports zero gain reduction on loud input...
+Completed tests in ColorModule / glue = 0 reports zero gain reduction on loud input
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output independent of block size...
+Completed tests in ColorModule / output independent of block size
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output trim applies the requested gain...
+Completed tests in ColorModule / output trim applies the requested gain
+-----------------------------------------------------------------
+Starting tests in: ColorModule / tone tilts: +tone brightens 20 kHz and dims 24 Hz, -tone the opposite...
+  tone 3 @24 Hz: -2.99 dB
+  tone 3 @20000 Hz: 3.00 dB
+  tone -3 @24 Hz: 2.99 dB
+  tone -3 @20000 Hz: -3.00 dB
+Completed tests in ColorModule / tone tilts: +tone brightens 20 kHz and dims 24 Hz, -tone the opposite
+-----------------------------------------------------------------
+Starting tests in: ColorModule / latency is 64 samples at 44.1k / 48k / 96k / 192k...
+Completed tests in ColorModule / latency is 64 samples at 44.1k / 48k / 96k / 192k
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue 100 -> 0: no level dip, bit-exact again shortly after...
+  before -11.96 dB, after -9.01 dB, deepest dip 0.00 dB
+Completed tests in ColorModule / glue 100 -> 0: no level dip, bit-exact again shortly after
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat on / off crossfade has no jump, bit-exact after off...
+  steady step 0.01447, on 0.01446, off 0.01447
+Completed tests in ColorModule / heat on / off crossfade has no jump, bit-exact after off
+-----------------------------------------------------------------
+Starting tests in: ColorModule / bypass switched on mid-stream is bit-exact after the crossfade...
+Completed tests in ColorModule / bypass switched on mid-stream is bit-exact after the crossfade
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue GR is not reported while bypassed...
+Completed tests in ColorModule / glue GR is not reported while bypassed
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat stays gradual from 0.1 through 100 on a -0.5 dBFS sine...
+  heat 0.1: level change -0.0004 dB
+  heat 1.0: level change -0.0037 dB
+  heat 5.0: level change -0.0198 dB
+  heat 10.0: level change -0.0425 dB
+  heat 30.0: level change -0.1629 dB
+  heat 50.0: level change -0.3301 dB
+  heat 75.0: level change -0.6021 dB
+  heat 100.0: level change -0.9402 dB
+Completed tests in ColorModule / heat stays gradual from 0.1 through 100 on a -0.5 dBFS sine
+-----------------------------------------------------------------
+Starting tests in: ColorModule / glue re-enabled after being fully off starts fresh: no dip below steady - 0.2 dB...
+  steady (glue 1) -8.950 dB; lowest 10 ms window after re-enable -8.999 dB
+Completed tests in ColorModule / glue re-enabled after being fully off starts fresh: no dip below steady - 0.2 dB
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler matches juce::dsp::Oversampling (< -120 dBFS) with the same integer latency...
+  3 stages, plain: up -200.0 dBFS, down -200.0 dBFS
+  3 stages, tube between: up -200.0 dBFS, down -200.0 dBFS
+  2 stages, plain: up -200.0 dBFS, down -200.0 dBFS
+  2 stages, tube between: up -200.0 dBFS, down -200.0 dBFS
+Completed tests in ColorModule / HalfBandOversampler matches juce::dsp::Oversampling (< -120 dBFS) with the same integer latency
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler output is bit-identical for any block size...
+Completed tests in ColorModule / HalfBandOversampler output is bit-identical for any block size
+-----------------------------------------------------------------
+Starting tests in: ColorModule / HalfBandOversampler: re-running the last getMemoryInSamples() inputs restores its state bit-exactly...
+  3 stages: memory 133 samples
+  2 stages: memory 124 samples
+Completed tests in ColorModule / HalfBandOversampler: re-running the last getMemoryInSamples() inputs restores its state bit-exactly
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Saturator::processSample is bit-identical to v0.4 (soft clip and tube)...
+Completed tests in ColorModule / Saturator::processSample is bit-identical to v0.4 (soft clip and tube)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / fast tanh is accurate, odd, bounded and NaN / Inf safe; tube block matches processSample within -120 dBFS...
+  fastTanh max |error| 0.0000003247 at x = -5.9465, largest drop between grid points 0.0000004172
+  tube block vs processSample, heat 0: -135.0 dBFS
+  tube block vs processSample, heat 5: -135.0 dBFS
+  tube block vs processSample, heat 30: -141.0 dBFS
+  tube block vs processSample, heat 60: -144.5 dBFS
+  tube block vs processSample, heat 100: -148.6 dBFS
+Completed tests in ColorModule / fast tanh is accurate, odd, bounded and NaN / Inf safe; tube block matches processSample within -120 dBFS
+-----------------------------------------------------------------
+Starting tests in: ColorModule / idle skipping is bit-identical to full processing (9 scenarios x 3 rates x 3 block sizes)...
+Completed tests in ColorModule / idle skipping is bit-identical to full processing (9 scenarios x 3 rates x 3 block sizes)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / Heat 0 / 60 with 333-sample blocks preserves the partial fade and delayed tail before idle skipping...
+Completed tests in ColorModule / Heat 0 / 60 with 333-sample blocks preserves the partial fade and delayed tail before idle skipping
+-----------------------------------------------------------------
+Starting tests in: ColorModule / output independent of block size under automation (changes on 512-sample boundaries)...
+Completed tests in ColorModule / output independent of block size under automation (changes on 512-sample boundaries)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / idle skipping stays bit-identical with -0, denormal, NaN and Inf input samples...
+Completed tests in ColorModule / idle skipping stays bit-identical with -0, denormal, NaN and Inf input samples
+-----------------------------------------------------------------
+Starting tests in: ColorModule / heat re-enabled after a long idle stretch is continuous and stays close to the v0.4 dc-blocker definition...
+  vs v0.4 dc-blocker definition, music-like @48000: -150.5 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @44100: -127.6 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @48000: -121.6 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @96000: -119.9 dBFS
+  vs v0.4 dc-blocker definition, white noise 0.99 @192000: -135.0 dBFS
+Completed tests in ColorModule / heat re-enabled after a long idle stretch is continuous and stays close to the v0.4 dc-blocker definition
+-----------------------------------------------------------------
+Starting tests in: ColorModule / stereo with L = R is bit-identical to mono (packed stereo biquads == scalar biquads)...
+Completed tests in ColorModule / stereo with L = R is bit-identical to mono (packed stereo biquads == scalar biquads)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / stereo with L != R: packed stereo biquads (NEON / SSE2) are bit-identical to per-channel scalar biquads...
+Completed tests in ColorModule / stereo with L != R: packed stereo biquads (NEON / SSE2) are bit-identical to per-channel scalar biquads
+-----------------------------------------------------------------
+Starting tests in: ColorModule / setParams / process allocate nothing (skipping, priming, glue restart, test switches)...
+Completed tests in ColorModule / setParams / process allocate nothing (skipping, priming, glue restart, test switches)
+-----------------------------------------------------------------
+Starting tests in: ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)...
+  Color default: 0.177 % of one core
+  Color GLAZE 100: 0.642 % of one core
+  Color default, skipping off: 0.557 % of one core
+  juce Oversampling 3 stages (reference): 2.823 % of one core
+  ratio to reference: default 0.063, GLAZE 100 0.227, skipping off 0.197
+Completed tests in ColorModule / performance: Color at 48 kHz / 512 stays a fraction of the v0.4 cost (idle skipping + SIMD half-band)
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / latency == balance + clay + color + limit latency, impulse confirms it...
+Completed tests in CeladonChain / latency == balance + clay + color + limit latency, impulse confirms it
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / null when everything is neutral and input is below ceiling...
+Completed tests in CeladonChain / null when everything is neutral and input is below ceiling
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / host bypass is bit-exact delayed input with every module maxed out...
+Completed tests in CeladonChain / host bypass is bit-exact delayed input with every module maxed out
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / restartWithFadeIn: silence for the whole latency, then fade, then bit-exact again...
+  fade step 0.02879 vs steady 0.02879
+Completed tests in CeladonChain / restartWithFadeIn: silence for the whole latency, then fade, then bit-exact again
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / true peak <= ceiling + 0.01 dB with color engaged before the limiter...
+  worst overshoot: -0.3500 dB  [100 Hz square clip=50 balance=0]
+  GR through chain: limit 16.31 dB, glue 5.37 dB
+Completed tests in CeladonChain / true peak <= ceiling + 0.01 dB with color engaged before the limiter
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / setParams / process / restartWithFadeIn / meter reads never allocate...
+Completed tests in CeladonChain / setParams / process / restartWithFadeIn / meter reads never allocate
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / reset after running == fresh prepare, bit-exact (same-spec prepareToPlay only resets)...
+Completed tests in CeladonChain / reset after running == fresh prepare, bit-exact (same-spec prepareToPlay only resets)
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / Listen measures whole-chain gain, Color and limiting; OUT stays before monitoring gain...
+  measured Listen error 0.000 LU mode=0 @44100
+  measured Listen error 0.000 LU mode=1 @44100
+  measured Listen error 0.001 LU mode=2 @44100
+  measured Listen error 0.000 LU mode=0 @48000
+  measured Listen error 0.000 LU mode=1 @48000
+  measured Listen error 0.001 LU mode=2 @48000
+Completed tests in CeladonChain / Listen measures whole-chain gain, Color and limiting; OUT stays before monitoring gain
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / Listen is independent of host block partition and never boosts a quieter master...
+Completed tests in CeladonChain / Listen is independent of host block partition and never boosts a quieter master
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / neutral Listen must not attenuate isolated impulses that cross a 100 ms window boundary...
+Completed tests in CeladonChain / neutral Listen must not attenuate isolated impulses that cross a 100 ms window boundary
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / Listen freezes in silence, follows edits, ramps toggles, and recovers from bypass/reset/latency changes...
+  Listen after 6 dB output edit, final 1 s of 3 s: -0.0202 LU
+Completed tests in CeladonChain / Listen freezes in silence, follows edits, ramps toggles, and recovers from bypass/reset/latency changes
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / compare-original plays the delayed dry input, freezes the Listen estimate and matches loudness by attenuation only...
+  processed - original: 6.000 dB (Output +6 dB)
+  matched original vs processed: 0.000 LU
+Completed tests in CeladonChain / compare-original plays the delayed dry input, freezes the Listen estimate and matches loudness by attenuation only
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / difference audition swaps only the monitored signal: meters, loudness and Listen see the master...
+  reconstruction error -132.5 dBFS; original -4.64 LUFS, master -5.33 LUFS, difference -8.09 LUFS
+Completed tests in CeladonChain / difference audition swaps only the monitored signal: meters, loudness and Listen see the master
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / difference audition is suppressed by A / B, host bypass and LIMIT bypass, and fully reversible...
+Completed tests in CeladonChain / difference audition is suppressed by A / B, host bypass and LIMIT bypass, and fully reversible
+-----------------------------------------------------------------
+Starting tests in: CeladonChain / freezing a Guard slot one sample before its boundary cannot fragment large callbacks into single samples...
+Completed tests in CeladonChain / freezing a Guard slot one sample before its boundary cannot fragment large callbacks into single samples
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / GLAZE 0: drawer defaults / all Off / Clay Bypass are bit-exact with the pre-Clay chain plus a D-sample delay in Clay's slot...
+Completed tests in CeladonChainClay / GLAZE 0: drawer defaults / all Off / Clay Bypass are bit-exact with the pre-Clay chain plus a D-sample delay in Clay's slot
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / signal order is Balance -> Clay -> Color -> Limit (bit-exact with that order, distinguishable from every other)...
+  Clay -> Balance -> Color -> Limit vs designed order: max diff -25.3 dBFS
+  Balance -> Color -> Clay -> Limit vs designed order: max diff -39.1 dBFS
+  Balance -> Color -> Limit -> Clay vs designed order: max diff -13.2 dBFS
+Completed tests in CeladonChainClay / signal order is Balance -> Clay -> Color -> Limit (bit-exact with that order, distinguishable from every other)
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / GLAZE 0: a Manual low cut is applied; Auto and Off leave the sub band untouched...
+  low cut Manual (knob 60 Hz): 20 Hz -38.17 dB, 1 kHz -0.0000 dB
+  low cut Auto (knob 60 Hz): 20 Hz 0.00 dB, 1 kHz -0.0000 dB
+  low cut Off (knob 60 Hz): 20 Hz 0.00 dB, 1 kHz -0.0000 dB
+Completed tests in CeladonChainClay / GLAZE 0: a Manual low cut is applied; Auto and Off leave the sub band untouched
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / host bypass forces Clay into bypass: bit-exact delayed input with Clay fully engaged...
+Completed tests in CeladonChainClay / host bypass forces Clay into bypass: bit-exact delayed input with Clay fully engaged
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / chain latency = 282 + Clay = 1384 samples @48 kHz / 378 + Clay = 2584 @96 kHz with Lookahead 2 ms, default or fully Manual...
+Completed tests in CeladonChainClay / chain latency = 282 + Clay = 1384 samples @48 kHz / 378 + Clay = 2584 @96 kHz with Lookahead 2 ms, default or fully Manual
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / restartWithFadeIn and reset clear Clay's state (bit-exact with a freshly prepared chain)...
+  Clay state left by the warm-up, D + 10 ms after a missed reset: -19.2 dBFS
+Completed tests in CeladonChainClay / restartWithFadeIn and reset clear Clay's state (bit-exact with a freshly prepared chain)
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / GLAZE > 0: the Guard-slot sliced path runs Clay too (a Manual low cut applies while GLAZE is active)...
+  20 Hz / 1 kHz at GLAZE 35 (low cut Off): 0.00 dB, slices per block up to 6
+  20 Hz / 1 kHz at GLAZE 35 (low cut Manual 60 Hz): -38.17 dB, slices per block up to 6
+Completed tests in CeladonChainClay / GLAZE > 0: the Guard-slot sliced path runs Clay too (a Manual low cut applies while GLAZE is active)
+-----------------------------------------------------------------
+Starting tests in: CeladonChainClay / setParams / process / restartWithFadeIn never allocate while every Clay setting moves...
+Completed tests in CeladonChainClay / setParams / process / restartWithFadeIn never allocate while every Clay setting moves
+-----------------------------------------------------------------
+Starting tests in: HelpText / every parameter and UI element has a three-line entry...
+Completed tests in HelpText / every parameter and UI element has a three-line entry
+-----------------------------------------------------------------
+Starting tests in: HelpText / entry ids are unique...
+Completed tests in HelpText / entry ids are unique
+-----------------------------------------------------------------
+Starting tests in: HelpText / entry count equals the two id lists combined (no stray entries)...
+Completed tests in HelpText / entry count equals the two id lists combined (no stray entries)
+-----------------------------------------------------------------
+Starting tests in: HelpText / unknown id finds nothing and yields an empty tooltip...
+Completed tests in HelpText / unknown id finds nothing and yields an empty tooltip
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay entries name their control...
+Completed tests in HelpTextClay / Clay entries name their control
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay live line reproduces the spec example word for word...
+Completed tests in HelpTextClay / Clay live line reproduces the spec example word for word
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay live line: stages at zero, narrowing, both guards, bypass...
+Completed tests in HelpTextClay / Clay live line: stages at zero, narrowing, both guards, bypass
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay lamps follow actual values and guard flags...
+Completed tests in HelpTextClay / Clay lamps follow actual values and guard flags
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay guards only count for stages in automatic mode...
+Completed tests in HelpTextClay / Clay guards only count for stages in automatic mode
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay display precision: non-zero never shows as zero, jitter below precision is ignored...
+Completed tests in HelpTextClay / Clay display precision: non-zero never shows as zero, jitter below precision is ignored
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay non-finite actual values count as off...
+Completed tests in HelpTextClay / Clay non-finite actual values count as off
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay tooltip: three lines, table title and advice, relearn hint on old projects...
+Completed tests in HelpTextClay / Clay tooltip: three lines, table title and advice, relearn hint on old projects
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay tooltip line 3 (ADR-012): tried-and-limited items explain themselves, skipped vs reduced, several joined...
+Completed tests in HelpTextClay / Clay tooltip line 3 (ADR-012): tried-and-limited items explain themselves, skipped vs reduced, several joined
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while that item's guard acts, cleared by bypass...
+Completed tests in HelpTextClay / Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while that item's guard acts, cleared by bypass
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / 27 band centres run 40 Hz .. 16 kHz in 1/3-octave steps...
+Completed tests in BalanceModule / 27 band centres run 40 Hz .. 16 kHz in 1/3-octave steps
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / bit-exact when recover = tame = brighten = 0 (all speeds, four sample rates)...
+Completed tests in BalanceModule / bit-exact when recover = tame = brighten = 0 (all speeds, four sample rates)
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / pink noise with recover = tame = 100 converges to |G| < 0.5 dB...
+  worst |G| in the last 2 s: 0.000 dB at 40 Hz
+Completed tests in BalanceModule / pink noise with recover = tame = 100 converges to |G| < 0.5 dB
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / log sweep 30 Hz .. 16 kHz: gain direction reverses < 3 times per second in every band...
+  worst band: 125 Hz, 1.95 reversals / s (step >= 0.05 dB); worst at step >= 0.01 dB: 2.60 / s; deepest cut -8.00 dB
+Completed tests in BalanceModule / log sweep 30 Hz .. 16 kHz: gain direction reverses < 3 times per second in every band
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / 1 kHz tone over pink noise: band 14 <= -3 dB, neighbours within 1 dB (tame = 100, recover = 0)...
+  1 kHz band G (least negative over last 1 s): -8.00 dB; neighbours |G| max 0.00 / 0.00 dB
+Completed tests in BalanceModule / 1 kHz tone over pink noise: band 14 <= -3 dB, neighbours within 1 dB (tame = 100, recover = 0)
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / Tame middle and full settings remove a narrow resonance beyond the old 3 / 6 dB limits...
+  Tame 25: actual 1 kHz attenuation -2.00 dB
+  Tame 50: actual 1 kHz attenuation -4.00 dB
+  Tame 100: actual 1 kHz attenuation -8.00 dB
+Completed tests in BalanceModule / Tame middle and full settings remove a narrow resonance beyond the old 3 / 6 dB limits
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / latency is zero: reported and measured with an impulse...
+Completed tests in BalanceModule / latency is zero: reported and measured with an impulse
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / bypass is bit-exact input...
+Completed tests in BalanceModule / bypass is bit-exact input
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / bypass switched on mid-stream is bit-exact after 25 ms...
+  max change before the switch: -13.4 dBFS
+Completed tests in BalanceModule / bypass switched on mid-stream is bit-exact after 25 ms
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / output independent of block size...
+Completed tests in BalanceModule / output independent of block size
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / silence gate: digital silence and -96 dBFS noise leave every G at 0...
+Completed tests in BalanceModule / silence gate: digital silence and -96 dBFS noise leave every G at 0
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / Brighten independently tilts real audio monotonically with Recover and Tame both off...
+  brighten -100: 16 kHz -3.61 dB (expect -3.61), 1 kHz 0.00 dB, 40 Hz 4.21 dB (expect 4.21)
+  actual audio: 100 Hz 4.35 dB, 10 kHz -3.09 dB, difference -7.44 dB
+  brighten -30: 16 kHz -1.08 dB (expect -1.08), 1 kHz 0.00 dB, 40 Hz 1.26 dB (expect 1.26)
+  actual audio: 100 Hz 1.29 dB, 10 kHz -0.93 dB, difference -2.23 dB
+  brighten 0: 16 kHz 0.00 dB (expect 0.00), 1 kHz 0.00 dB, 40 Hz 0.00 dB (expect -0.00)
+  actual audio: 100 Hz 0.00 dB, 10 kHz 0.00 dB, difference 0.00 dB
+  brighten 30: 16 kHz 1.08 dB (expect 1.08), 1 kHz 0.00 dB, 40 Hz -1.26 dB (expect -1.26)
+  actual audio: 100 Hz -1.28 dB, 10 kHz 0.94 dB, difference 2.22 dB
+  brighten 100: 16 kHz 3.61 dB (expect 3.61), 1 kHz 0.00 dB, 40 Hz -4.21 dB (expect -4.21)
+  actual audio: 100 Hz -4.25 dB, 10 kHz 3.17 dB, difference 7.42 dB
+Completed tests in BalanceModule / Brighten independently tilts real audio monotonically with Recover and Tame both off
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / level steps (+-6 / +-10 dB) do not pump every band (recover = tame = 100)...
+  slow step 6 dB: worst |G| 0.37 dB, |G| > 1 dB for 0.000 s
+  slow step -6 dB: worst |G| 0.11 dB, |G| > 1 dB for 0.000 s
+  slow step 10 dB: worst |G| 0.45 dB, |G| > 1 dB for 0.000 s
+  slow step -10 dB: worst |G| 0.43 dB, |G| > 1 dB for 0.000 s
+  mid step 6 dB: worst |G| 0.65 dB, |G| > 1 dB for 0.000 s
+  mid step -6 dB: worst |G| 0.75 dB, |G| > 1 dB for 0.000 s
+  mid step 10 dB: worst |G| 1.30 dB, |G| > 1 dB for 0.075 s
+  mid step -10 dB: worst |G| 1.26 dB, |G| > 1 dB for 0.085 s
+  fast step 6 dB: worst |G| 1.76 dB, |G| > 1 dB for 0.075 s
+  fast step -6 dB: worst |G| 1.75 dB, |G| > 1 dB for 0.075 s
+Completed tests in BalanceModule / level steps (+-6 / +-10 dB) do not pump every band (recover = tame = 100)
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / 0 dBFS white noise at speed fast: finite output, combined gains stay within -8 .. +6 dB...
+  worst |G| 4.34 dB
+Completed tests in BalanceModule / 0 dBFS white noise at speed fast: finite output, combined gains stay within -8 .. +6 dB
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / stereo with identical channels is bit-exact with mono (packed vs scalar filter path)...
+Completed tests in BalanceModule / stereo with identical channels is bit-exact with mono (packed vs scalar filter path)
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / different channels: packed filter path (NEON / SSE2) is bit-exact with the scalar path, 2 and 3 channels...
+Completed tests in BalanceModule / different channels: packed filter path (NEON / SSE2) is bit-exact with the scalar path, 2 and 3 channels
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / analysis sliced over three points in each hop is bit-exact with the one-shot analysis...
+Completed tests in BalanceModule / analysis sliced over three points in each hop is bit-exact with the one-shot analysis
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / output independent of block size at 192 kHz, including tiny blocks...
+Completed tests in BalanceModule / output independent of block size at 192 kHz, including tiny blocks
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / after recover / tame return to 0 every band stops and the output is bit-exact input again...
+  @48000 recover / tame 100: up to 16 bands active while on; all stopped 0.58 s after returning to 0
+  @48000 recover / tame 40: up to 16 bands active while on; all stopped 0.54 s after returning to 0
+  @192000 recover / tame 100: up to 15 bands active while on; all stopped 0.47 s after returning to 0
+  @192000 recover / tame 40: up to 15 bands active while on; all stopped 0.62 s after returning to 0
+Completed tests in BalanceModule / after recover / tame return to 0 every band stops and the output is bit-exact input again
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Recover repairs an interior notch without filling natural roll-off or edge bands...
+Completed tests in BalanceModule / automatic Recover repairs an interior notch without filling natural roll-off or edge bands
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Recover protection preserves the manual share and its Brighten response...
+Completed tests in BalanceModule / automatic Recover protection preserves the manual share and its Brighten response
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Recover is finite, bounded by total Recover and allocation-free...
+Completed tests in BalanceModule / automatic Recover is finite, bounded by total Recover and allocation-free
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Recover restrictions never suppress the independent manual Brighten control...
+Completed tests in BalanceModule / automatic Recover restrictions never suppress the independent manual Brighten control
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Tame reduces sustained peaks but preserves short events in the same and other bands...
+  sustained 1 kHz -2.503 dB, concurrent 4 kHz onset -0.009 dB
+Completed tests in BalanceModule / automatic Tame reduces sustained peaks but preserves short events in the same and other bands
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Tame protects coherent harmonics, not equally strong detuned peaks, and retains manual depth...
+  harmonic fundamental -0.643 dB, detuned fundamental -2.575 dB @48000 Hz, f0=500
+  harmonic fundamental -0.643 dB, detuned fundamental -2.572 dB @44100 Hz, f0=997
+  harmonic fundamental -0.642 dB, detuned fundamental -2.569 dB @96000 Hz, f0=503
+Completed tests in BalanceModule / automatic Tame protects coherent harmonics, not equally strong detuned peaks, and retains manual depth
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / harmonic protection requires a complete group in one channel, not unrelated lines panned apart...
+  one-channel harmonic fundamental -0.644 dB, cross-channel unrelated fundamental -2.575 dB
+Completed tests in BalanceModule / harmonic protection requires a complete group in one channel, not unrelated lines panned apart
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / harmonic protection remains local and releases when supporting overtones stop...
+  supported fundamental -0.647 dB, after support ends -2.504 dB, unrelated peak -2.506 dB
+Completed tests in BalanceModule / harmonic protection remains local and releases when supporting overtones stop
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Tame preserves the manual share and rejects isolated tones and unsupported edge bands...
+Completed tests in BalanceModule / automatic Tame preserves the manual share and rejects isolated tones and unsupported edge bands
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / automatic Tame is bounded, block-size independent and allocation-free...
+Completed tests in BalanceModule / automatic Tame is bounded, block-size independent and allocation-free
+-----------------------------------------------------------------
+Starting tests in: BalanceModule / upward masking lifts a buried higher neighbour only when Recover and Tame are both open...
+  masker/buried gain, both -7.55/-6.68 dB, tame only -8.00/-8.00 dB, recover only 0.00/0.00 dB
+Completed tests in BalanceModule / upward masking lifts a buried higher neighbour only when Recover and Tame are both open
+-----------------------------------------------------------------
+Starting tests in: BalanceCrossPower / mid-only input: bandCross = bandPower, side-only: bandCross = -bandPower; P_M / P_S equal a mono analysis...
+  @44100: worst relative error, mid only 0.000e+00, side only 0.000e+00
+  @48000: worst relative error, mid only 0.000e+00, side only 0.000e+00
+  @96000: worst relative error, mid only 0.000e+00, side only 0.000e+00
+  @192000: worst relative error, mid only 0.000e+00, side only 0.000e+00
+Completed tests in BalanceCrossPower / mid-only input: bandCross = bandPower, side-only: bandCross = -bandPower; P_M / P_S equal a mono analysis
+-----------------------------------------------------------------
+Starting tests in: BalanceCrossPower / P_M = (P + X) / 2 and P_S = (P - X) / 2 reproduce the band powers of M and S in every frame...
+  @44100: worst reconstruction error 2.417e-07 of P, side share 0.221 (expected about 0.2)
+  @48000: worst reconstruction error 2.702e-07 of P, side share 0.216 (expected about 0.2)
+  @96000: worst reconstruction error 2.205e-07 of P, side share 0.210 (expected about 0.2)
+  @192000: worst reconstruction error 2.670e-07 of P, side share 0.198 (expected about 0.2)
+Completed tests in BalanceCrossPower / P_M = (P + X) / 2 and P_S = (P - X) / 2 reproduce the band powers of M and S in every frame
+-----------------------------------------------------------------
+Starting tests in: BalanceCrossPower / uncorrelated noise reads rho near 0 within a statistical bound; a known mix reads cos(phi)...
+  independent, all bands: rho = 0.00021 (expected 0.00 +- 0.01)
+  independent, 40-125 Hz: rho = 0.01150 (expected 0.00 +- 0.10)
+  independent, 2-16 kHz: rho = -0.00056 (expected 0.00 +- 0.01)
+  cos 60 deg mix, all bands: rho = 0.50011 (expected 0.50 +- 0.01)
+  cos 60 deg mix, 40-125 Hz: rho = 0.50414 (expected 0.50 +- 0.10)
+  cos 60 deg mix, 2-16 kHz: rho = 0.49948 (expected 0.50 +- 0.01)
+  cos 120 deg mix, all bands: rho = -0.49984 (expected -0.50 +- 0.01)
+  cos 120 deg mix, 40-125 Hz: rho = -0.48913 (expected -0.50 +- 0.10)
+  cos 120 deg mix, 2-16 kHz: rho = -0.50021 (expected -0.50 +- 0.01)
+Completed tests in BalanceCrossPower / uncorrelated noise reads rho near 0 within a statistical bound; a known mix reads cos(phi)
+-----------------------------------------------------------------
+Starting tests in: BalanceCrossPower / mono analysis publishes bandCross == bandPower bit-exactly; stale or extra channels are handled safely...
+Completed tests in BalanceCrossPower / mono analysis publishes bandCross == bandPower bit-exactly; stale or extra channels are handled safely
+-----------------------------------------------------------------
+Starting tests in: BalanceCrossPower / bandCross: sliced = one-shot bit-exactly, independent of settings and block sizes, published while bypassed, no allocation...
+  @44100: rho 1 kHz band 0.765, 4 kHz band -0.012
+  @48000: rho 1 kHz band 0.782, 4 kHz band -0.002
+  @96000: rho 1 kHz band 0.755, 4 kHz band 0.008
+  @192000: rho 1 kHz band 0.771, 4 kHz band 0.050
+Completed tests in BalanceCrossPower / bandCross: sliced = one-shot bit-exactly, independent of settings and block sizes, published while bypassed, no allocation
+-----------------------------------------------------------------
+Starting tests in: BalanceCrossPower / G and output unchanged: logged digests; flipping R reverses bandCross but leaves G bit-exact...
+  digest @44100 Hz: output 0x190a1fa966e72f14, G 0xba2bb069d22d087a, frames 0x45d12dda70ff6864 (216 G readings, 212 frames)
+  digest @48000 Hz: output 0xc87627af5830ecef, G 0x71b19b314bda7ed8, frames 0xdbdfcd8964e75864 (235 G readings, 231 frames)
+  digest @96000 Hz: output 0x61bf8f290a34c3e1, G 0x60f8f86b61efb1a3, frames 0xb0dbe04d986364ab (469 G readings, 231 frames)
+  digest @192000 Hz: output 0x247d7b8435955cee, G 0xfd0d1975aff066b1, frames 0xfce40f86b289e845 (938 G readings, 231 frames)
+Completed tests in BalanceCrossPower / G and output unchanged: logged digests; flipping R reverses bandCross but leaves G bit-exact
+-----------------------------------------------------------------
+Starting tests in: BalancePerformance / balance / color / chain CPU load on 20 s of noise @48k stereo, block 512...
+  timer resolution 1000000 ticks/s; 3 passes x 20 s each after 1 s warm-up; load = process time / audio time
+  timer overhead (empty process): best 0.000% (0.0 us / 512-sample block; passes 0.000%, 0.000%, 0.000%)
+  Balance (recover 60, tame 60, mid): best 0.704% (75.1 us / 512-sample block; passes 0.708%, 0.707%, 0.704%)
+    spec reference: < 2.000% single core @48k; test limit: < 25.000%
+  Balance bypassed (same settings): best 0.708% (75.6 us / 512-sample block; passes 0.708%, 0.710%, 0.708%)
+  Color (heat 50, glue 50): best 0.875% (93.3 us / 512-sample block; passes 0.875%, 0.876%, 0.875%)
+  CeladonChain (balance 60/60, color heat 50 glue 50, limit gain +9 dB): best 2.992% (319.1 us / 512-sample block; passes 3.194%, 3.084%, 2.992%); latency 1384 samples, limit GR 11.82 dB, glue GR 2.39 dB
+Completed tests in BalancePerformance / balance / color / chain CPU load on 20 s of noise @48k stereo, block 512
+-----------------------------------------------------------------
+Starting tests in: BalancePerformance / balance on comb material (20+ bands working): per-block best-of-5, mean and worst block...
+  comb material: up to 22 of 27 bands active (recover = tame = 100)
+  Balance comb, recover = tame = 100 @48k block 512: mean 0.831%, worst block 0.891% (95.0 us)
+  Balance comb, recover = tame = 40 (= GLAZE 100 offsets) @48k block 512: mean 0.832%, worst block 0.863% (92.0 us)
+  Balance comb, recover = tame = 100, mono (left channel only): mean 0.520%, worst block 0.553% (59.0 us) | stereo / mono 1.60
+Completed tests in BalancePerformance / balance on comb material (20+ bands working): per-block best-of-5, mean and worst block
+-----------------------------------------------------------------
+Starting tests in: BalancePerformance / analysis slicing: worst block at 192 kHz / 32 samples <= 65% of the one-shot analysis...
+  @192000 block 32 recover = tame = 0: one-shot mean 2.737%, worst block 181.800% (303.0 us) | sliced mean 2.726%, worst block 90.600% (151.0 us) | worst-block ratio 0.50
+  @192000 block 32 recover = tame = 40: one-shot mean 3.283%, worst block 183.000% (305.0 us) | sliced mean 3.284%, worst block 91.800% (153.0 us) | worst-block ratio 0.50
+  @192000 block 64 recover = tame = 0: one-shot mean 2.732%, worst block 89.400% (298.0 us) | sliced mean 2.732%, worst block 45.000% (150.0 us) | worst-block ratio 0.50
+  @44100 block 1 recover = tame = 0: one-shot mean 0.575%, worst block 308.700% (70.0 us) | sliced mean 0.571%, worst block 163.170% (37.0 us) | worst-block ratio 0.53
+Completed tests in BalancePerformance / analysis slicing: worst block at 192 kHz / 32 samples <= 65% of the one-shot analysis
+-----------------------------------------------------------------
+Starting tests in: BalancePerformance / processor layer (chain + two meters + NaN scans): per-block best-of-5 @48k...
+  processor layer, default @48k block 512: mean 2.370%, worst block 2.428% (259.0 us)
+  processor layer, default @48k block 64: mean 2.558%, worst block 4.950% (66.0 us)
+  processor layer, typical @48k block 512: mean 3.140%, worst block 3.234% (345.0 us)
+  processor layer, typical @48k block 64: mean 3.347%, worst block 6.075% (81.0 us)
+Completed tests in BalancePerformance / processor layer (chain + two meters + NaN scans): per-block best-of-5 @48k
+-----------------------------------------------------------------
+Starting tests in: BalancePerformance / engaged chain stays under 10% of one audio thread at 48 and 96 kHz, block 64...
+  engaged chain @48000 block 64: mean 3.437%, worst block 6.000% (80.0 us)
+  engaged chain @96000 block 64: mean 6.608%, worst block 15.750% (105.0 us)
+  engaged chain @192000 block 64: mean 13.676%, worst block 57.000% (190.0 us)
+Completed tests in BalancePerformance / engaged chain stays under 10% of one audio thread at 48 and 96 kHz, block 64
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / GLAZE 0, Listen off: chain == hand-wired modules with the manual params, bit-exact, 90 scenarios...
+  90 scenarios, 0 with any difference
+Completed tests in GlazeChain / GLAZE 0, Listen off: chain == hand-wired modules with the manual params, bit-exact, 90 scenarios
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / GLAZE > 0 acts only through the params handed to the modules (reference fed the same params is bit-exact)...
+   @48000 ch2 lifecycle covered: commits 1, calibration rounds 2, feedback steps 1, deepest executed protection -3.00 dB; largest change vs input 1.687
+   @44100 ch1 lifecycle covered: commits 1, calibration rounds 1, feedback steps 1, deepest executed protection -2.90 dB; largest change vs input 1.641
+Completed tests in GlazeChain / GLAZE > 0 acts only through the params handed to the modules (reference fed the same params is bit-exact)
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / Listen toggles change monitoring only: GLAZE params, pre-Listen meters and calibration stay identical...
+Completed tests in GlazeChain / Listen toggles change monitoring only: GLAZE params, pre-Listen meters and calibration stay identical
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / latency is the same at GLAZE 0 and 100 and while turning it...
+Completed tests in GlazeChain / latency is the same at GLAZE 0 and 100 and while turning it
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / GLAZE sweep leaves no block-rate sidebands (<= -95 dBFS), and the metric catches an unsmoothed control...
+  block-rate sidebands: real GLAZE sweep -114.9 dBFS; unsmoothed control -76.2 dBFS; threshold -95.0 dBFS
+Completed tests in GlazeChain / GLAZE sweep leaves no block-rate sidebands (<= -95 dBFS), and the metric catches an unsmoothed control
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / sweeping GLAZE 0 -> 100 -> 0 over 4 s on a learned profile: finite, no clicks (per-block bound, negative control)...
+  music-like: worst sweep / stationary first-difference ratio 1.022, lowest local threshold 0.0219
+  steady tones: worst sweep / stationary first-difference ratio 1.004, lowest local threshold 0.0376
+Completed tests in GlazeChain / sweeping GLAZE 0 -> 100 -> 0 over 4 s on a learned profile: finite, no clicks (per-block bound, negative control)
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / true peak <= ceiling + 0.01 dB through the whole GLAZE lifecycle at GLAZE 100, user gain +6...
+  1 kHz sine 0 dBFS: overshoot own meter -0.3500 dB, 16x reference -0.3492 dB; commits 1, calibration rounds 0, feedback steps 0
+  music-like: overshoot own meter -0.3500 dB, 16x reference -0.2005 dB; commits 1, calibration rounds 2, feedback steps 1
+Completed tests in GlazeChain / true peak <= ceiling + 0.01 dB through the whole GLAZE lifecycle at GLAZE 100, user gain +6
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / after learning, integrated loudness rises with GLAZE (0 / 25 / 50 / 75 / 100), and never dips at small values...
+  learned: I -24.06 LUFS (confidence 1.00), true peak -9.41 dBTP
+  GLAZE 0 -> -23.97 LUFS; 0.1 -> -23.969; 1.0 -> -23.859; 5.0 -> -23.359; 25 -> -20.86 (+3.11); 50 -> -17.74 (+3.12); 75 -> -14.70 (+3.03); 100 -> -11.56 (+3.14);
+Completed tests in GlazeChain / after learning, integrated loudness rises with GLAZE (0 / 25 / 50 / 75 / 100), and never dips at small values
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / styles lean on the modules the spec names (warm: Glue / Heat, punchy: Clip, clean: least Heat)...
+  style 0: glue 100.0 heat 56.1 clip 72.3 gain 8.66 dB tone -0.05 | measured glue GR 0.17 dB, limit GR 0.44 dB
+  style 1: glue 100.0 heat 70.0 clip 72.0 gain 8.13 dB tone -0.30 | measured glue GR 0.17 dB, limit GR 0.39 dB
+  style 2: glue 100.0 heat 50.0 clip 77.7 gain 8.79 dB tone 0.00 | measured glue GR 0.16 dB, limit GR 0.41 dB
+  style 3: glue 100.0 heat 20.0 clip 61.0 gain 9.23 dB tone 0.00 | measured glue GR 0.16 dB, limit GR 0.56 dB
+Completed tests in GlazeChain / styles lean on the modules the spec names (warm: Glue / Heat, punchy: Clip, clean: least Heat)
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / fresh insert: only GLAZE 50 activates loudness, spectral processing and colour automatically...
+  fresh GLAZE 50 loudness increase: 5.91 LU
+Completed tests in GlazeChain / fresh insert: only GLAZE 50 activates loudness, spectral processing and colour automatically
+-----------------------------------------------------------------
+Starting tests in: GlazeChain / a learned profile with no spectral evidence still tames a new resonance, without relearning or allocation...
+Completed tests in GlazeChain / a learned profile with no spectral evidence still tames a new resonance, without relearning or allocation
+-----------------------------------------------------------------
+Starting tests in: GlazeBehaviourReport / per style on music-like / pink noise / sine mix / hot music: loudness, target, true peak, PLR, GR (record only)...
+  素材：类音乐（底鼓 + 军鼓 + 贝斯 + 三和弦，归一到 −18 LUFS）
+    输入（前 10 s）：整体 -18.0 LUFS，真峰值 -4.98 dBTP，PLR 13.0 dB
+    画像：I -18.04（置信 1.00）LRA 0.5 PLR 13.1 斜率 -2.96 dB/oct 起音 0.95 次/s；自动权重 温润 0.48 冲击 0.14 通透 0.38
+    风格  GLAZE %  输出 LUFS  目标 LUFS  前馈误差 LU  较输入 LU  真峰值 dBTP  PLR dB  Limit GR 最大 / 平均  Glue GR 最大  Recover/Tame  Tone dB  Glue/Heat  Gain dB  Clip  受约束
+    -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+       —        0      -18.0          —            —        0.0        -4.98    13.0           0.00 / 0.00          0.00       0.0/0.0     0.00    0.0/0.0     0.00   0.0      否
+    自动       50      -14.2      -14.0        -0.20       +3.8        -1.35    12.8           0.47 / 0.01          0.02      4.0/12.0     0.00  39.2/24.1    +1.72  58.5      是
+    自动      100      -10.0       -9.9        -0.09       +8.0        -1.35     8.6           4.20 / 0.48          1.45      8.0/24.0     0.00  78.4/48.3    +4.83  66.8      是
+    温润       50      -14.4      -14.2        -0.16       +3.6        -1.35    13.0           0.22 / 0.00          0.03      4.0/12.0    -0.05  39.9/35.0    +1.41  65.0      是
+    温润      100      -10.5      -10.4        -0.08       +7.5        -1.35     9.2           3.55 / 0.35          1.60      8.0/24.0    -0.10  79.8/70.0    +4.08  71.5      是
+    冲击       50      -14.1      -13.9        -0.21       +3.9        -1.35    12.8           0.51 / 0.01          0.02      4.0/12.0    +0.03  37.1/25.0    +1.90  77.6      是
+    冲击      100      -10.1       -9.8        -0.31       +7.9        -1.35     8.8           3.09 / 0.40          1.13      8.0/24.0    +0.05  74.2/50.0    +4.72  77.6      是
+    通透       50      -14.2      -14.0        -0.21       +3.8        -1.35    12.9           0.41 / 0.01          0.02      4.0/12.0    +0.03  38.0/10.0    +1.74   0.0      否
+    通透      100      -10.1      -10.0        -0.08       +7.9        -1.35     8.7           5.06 / 0.48          1.25      8.0/24.0    +0.05  76.0/20.0    +4.80   0.0      否
+  素材：粉噪（−18 dBFS RMS，两声道不相关）
+    输入（前 10 s）：整体 -15.3 LUFS，真峰值 -4.78 dBTP，PLR 10.6 dB
+    画像：I -15.34（置信 1.00）LRA 0.0 PLR 10.6 斜率 -0.02 dB/oct 起音 0.00 次/s；自动权重 温润 0.00 冲击 0.00 通透 1.00
+    风格  GLAZE %  输出 LUFS  目标 LUFS  前馈误差 LU  较输入 LU  真峰值 dBTP  PLR dB  Limit GR 最大 / 平均  Glue GR 最大  Recover/Tame  Tone dB  Glue/Heat  Gain dB  Clip  受约束
+    -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+       —        0      -15.3          —            —        0.0        -4.78    10.6           0.00 / 0.00          0.00       0.0/0.0     0.00    0.0/0.0     0.00   0.0      否
+    自动       50      -12.8      -12.7        -0.12       +2.5        -3.62     9.2           0.00 / 0.00          0.00      4.0/12.0    -0.38  31.7/10.0    +0.77   0.0      否
+    自动      100      -10.1      -10.0        -0.14       +5.2        -1.35     8.8           0.60 / 0.01          0.43      8.0/24.0    -0.75  63.4/20.0    +1.90   0.0      否
+    温润       50      -12.1      -11.9        -0.15       +3.3        -3.05     9.0           0.00 / 0.00          0.00      4.0/12.0    -0.38  36.5/35.0    +1.23  74.8      否
+    温润      100       -8.5       -8.5        -0.04       +6.8        -1.35     7.2           2.24 / 0.42          1.17      8.0/24.0    -0.75  73.1/70.0    +3.90  76.2      否
+    冲击       50      -12.3      -12.2        -0.15       +3.0        -3.23     9.1           0.00 / 0.00          0.00      4.0/12.0    -0.38  31.9/25.0    +1.26  87.3      否
+    冲击      100       -9.1       -9.0        -0.12       +6.2        -1.35     7.8           1.18 / 0.08          0.46      8.0/24.0    -0.75  63.8/50.0    +3.01  87.3      否
+    通透       50      -12.8      -12.7        -0.12       +2.5        -3.62     9.2           0.00 / 0.00          0.00      4.0/12.0    -0.38  31.7/10.0    +0.77   0.0      否
+    通透      100      -10.1      -10.0        -0.14       +5.2        -1.35     8.8           0.60 / 0.01          0.43      8.0/24.0    -0.75  63.4/20.0    +1.90   0.0      否
+  素材：正弦混合（100 Hz + 1 kHz + 5 kHz，各 −18 dBFS）
+    输入（前 10 s）：整体 -12.2 LUFS，真峰值 -8.49 dBTP，PLR 3.7 dB
+    画像：I -12.19（置信 1.00）LRA 0.0 PLR 3.7 斜率 4.22 dB/oct 起音 0.00 次/s；自动权重 温润 0.00 冲击 0.00 通透 1.00
+    风格  GLAZE %  输出 LUFS  目标 LUFS  前馈误差 LU  较输入 LU  真峰值 dBTP  PLR dB  Limit GR 最大 / 平均  Glue GR 最大  Recover/Tame  Tone dB  Glue/Heat  Gain dB  Clip  受约束
+    -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+       —        0      -12.2          —            —        0.0        -8.49     3.7           0.00 / 0.00          0.00       0.0/0.0     0.00    0.0/0.0     0.00   0.0      否
+    自动       50      -10.7      -10.7        +0.01       +1.5        -6.93     3.8           0.00 / 0.00          0.00      4.0/12.0    -0.38    0.0/6.0    +1.50   0.0      否
+    自动      100       -9.2       -9.2        +0.02       +3.0        -5.37     3.8           0.00 / 0.00          0.00      8.0/24.0    -0.75   0.0/12.0    +3.00   0.0      否
+    温润       50      -10.3      -10.3        +0.01       +1.9        -6.58     3.8           0.00 / 0.00          0.00      4.7/12.0    -0.38    0.0/6.0    +1.85   0.0      否
+    温润      100       -8.5       -8.5        +0.02       +3.7        -4.67     3.8           0.00 / 0.00          0.00      9.4/24.0    -0.75   0.0/12.0    +3.69   0.0      否
+    冲击       50      -10.6      -10.6        +0.01       +1.6        -6.83     3.8           0.00 / 0.00          0.00      4.0/12.0    -0.38    0.0/6.0    +1.60   0.0      否
+    冲击      100       -9.0       -9.0        +0.02       +3.2        -5.17     3.8           0.00 / 0.00          0.00      8.0/24.0    -0.75   0.0/12.0    +3.19   0.0      否
+    通透       50      -10.7      -10.7        +0.01       +1.5        -6.93     3.8           0.00 / 0.00          0.00      4.0/12.0    -0.38    0.0/6.0    +1.50   0.0      否
+    通透      100       -9.2       -9.2        +0.02       +3.0        -5.37     3.8           0.00 / 0.00          0.00      8.0/24.0    -0.75   0.0/12.0    +3.00   0.0      否
+  素材：类音乐推热（真峰值 −0.3 dBTP）
+    输入（前 10 s）：整体 -13.3 LUFS，真峰值 -0.30 dBTP，PLR 13.0 dB
+    画像：I -13.36（置信 1.00）LRA 0.6 PLR 13.1 斜率 -2.96 dB/oct 起音 0.95 次/s；自动权重 温润 0.48 冲击 0.14 通透 0.38
+    风格  GLAZE %  输出 LUFS  目标 LUFS  前馈误差 LU  较输入 LU  真峰值 dBTP  PLR dB  Limit GR 最大 / 平均  Glue GR 最大  Recover/Tame  Tone dB  Glue/Heat  Gain dB  Clip  受约束
+    -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+       —        0      -13.4          —            —       -0.1        -1.35    12.1           1.05 / 0.03          0.00       0.0/0.0     0.00    0.0/0.0     0.00   0.0      否
+    自动       50      -11.8      -11.6        -0.17       +1.5        -1.35    10.5           2.94 / 0.12          0.12      4.0/12.0     0.00  28.9/24.1    +0.26  67.0      是
+    自动      100      -10.0       -9.9        -0.11       +3.3        -1.35     8.7           4.17 / 0.47          1.35      8.0/24.0     0.00  57.7/48.3    +1.29  67.0      是
+    温润       50      -12.1      -11.9        -0.15       +1.3        -1.35    10.7           2.59 / 0.09          0.06      4.0/12.0    -0.05  24.4/35.0    +0.19  72.0      是
+    温润      100      -10.7      -10.4        -0.23       +2.7        -1.35     9.3           3.49 / 0.32          0.81      8.0/24.0    -0.10  48.9/70.0    +0.68  72.0      是
+    冲击       50      -11.8      -11.6        -0.19       +1.5        -1.35    10.4           2.51 / 0.11          0.09      4.0/12.0    +0.03  27.3/25.0    +0.37  77.7      是
+    冲击      100      -10.1       -9.8        -0.31       +3.2        -1.35     8.8           3.08 / 0.39          1.13      8.0/24.0    +0.05  54.7/50.0    +1.19  77.7      是
+    通透       50      -11.9      -11.7        -0.17       +1.5        -1.35    10.5           2.96 / 0.11          0.10      4.0/12.0    +0.03  28.0/10.0    +0.25   0.0      否
+    通透      100      -10.1      -10.0        -0.09       +3.2        -1.35     8.8           5.03 / 0.47          1.21      8.0/24.0    +0.05  56.0/20.0    +1.26   0.0      否
+Completed tests in GlazeBehaviourReport / per style on music-like / pink noise / sine mix / hot music: loudness, target, true peak, PLR, GR (record only)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / sub-blocks: 100 ms K-weighted mean squares with sample timestamps; S and true peak agree with the meter...
+Completed tests in MusicAnalyzer / sub-blocks: 100 ms K-weighted mean squares with sample timestamps; S and true peak agree with the meter
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / sub-block ring: overflow reports a negative count; requestReset keeps the sequence; loudness off produces none...
+Completed tests in MusicAnalyzer / sub-block ring: overflow reports a negative count; requestReset keeps the sequence; loudness off produces none
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / frame snapshots: timestamps, both units, identical with and without slicing, bypass and settings...
+Completed tests in MusicAnalyzer / frame snapshots: timestamps, both units, identical with and without slicing, bypass and settings
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / M / S / I of a stereo 1 kHz sine match the BS.1770-4 formula...
+Completed tests in MusicAnalyzer / M / S / I of a stereo 1 kHz sine match the BS.1770-4 formula
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / integrated loudness applies the absolute and relative gates (EBU R128 / Tech 3341)...
+Completed tests in MusicAnalyzer / integrated loudness applies the absolute and relative gates (EBU R128 / Tech 3341)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / loudness range follows EBU Tech 3342 (P95 - P10 of gated short-term values)...
+Completed tests in MusicAnalyzer / loudness range follows EBU Tech 3342 (P95 - P10 of gated short-term values)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / PLR and PSR come from the same true-peak detector as the meter...
+Completed tests in MusicAnalyzer / PLR and PSR come from the same true-peak detector as the meter
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / spectrum: pink noise has no evidence, a flat slope and 5/27 shares; white noise tilts +3 dB/oct...
+  pink @48000: worst tame 0.0000 dB, worst recover 0.0000 dB, slope -0.020 dB/oct, low 0.191, high 0.183
+  pink @96000: worst tame 0.0000 dB, worst recover 0.0000 dB, slope -0.016 dB/oct, low 0.189, high 0.183
+Completed tests in MusicAnalyzer / spectrum: pink noise has no evidence, a flat slope and 5/27 shares; white noise tilts +3 dB/oct
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / spectrum: a notch yields Recover evidence in its band only, a peak Tame evidence in its band only...
+  band 13 notch: evidence 4.85 dB
+  band 14 peak: evidence 5.61 dB
+  band 8 notch: evidence 4.06 dB
+  band 20 peak: evidence 5.70 dB
+Completed tests in MusicAnalyzer / spectrum: a notch yields Recover evidence in its band only, a peak Tame evidence in its band only
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile...
+Completed tests in MusicAnalyzer / live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / live broad-band slope follows stopped learning, and rejects narrow tones and silence...
+Completed tests in MusicAnalyzer / live broad-band slope follows stopped learning, and rejects narrow tones and silence
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / Recover stays conservative: roll-offs, edge bands and intermittent gaps are not filled...
+Completed tests in MusicAnalyzer / Recover stays conservative: roll-offs, edge bands and intermittent gaps are not filled
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / channels combine by power: R = -L equals R = L (bit-exact), mono equals identical stereo...
+Completed tests in MusicAnalyzer / channels combine by power: R = -L equals R = L (bit-exact), mono equals identical stereo
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: click trains are counted exactly (2, 4, 8 and 16 per second)...
+Completed tests in MusicAnalyzer / onsets: click trains are counted exactly (2, 4, 8 and 16 per second)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: sustained low sines and sustained bass (beating, tremolo) never trigger...
+Completed tests in MusicAnalyzer / onsets: sustained low sines and sustained bass (beating, tremolo) never trigger
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / onsets: a dense drum pattern gives a plausible density, corroborated by the high-band flux...
+  drums: density 1.975 /s, strength 9.38 dB, flux onsets 6.77 /s, agreement 1.00, low-band range 24.0 dB
+Completed tests in MusicAnalyzer / onsets: a dense drum pattern gives a plausible density, corroborated by the high-band flux
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / effective time counts only new, audible samples (silence and passages 20 LU below I do not count)...
+Completed tests in MusicAnalyzer / effective time counts only new, audible samples (silence and passages 20 LU below I do not count)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / learning interval: data before startLearning is excluded, stopLearning freezes the profile...
+Completed tests in MusicAnalyzer / learning interval: data before startLearning is excluded, stopLearning freezes the profile
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / unknown is not zero: invalid until measured; LRA confidence stays below 1 for the first 60 s...
+Completed tests in MusicAnalyzer / unknown is not zero: invalid until measured; LRA confidence stays below 1 for the first 60 s
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / discontinuities: windows refill (M 0.4 s, S 3 s), accumulations are kept, splices are not onsets...
+Completed tests in MusicAnalyzer / discontinuities: windows refill (M 0.4 s, S 3 s), accumulations are kept, splices are not onsets
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / host resets and module-only resets: learning continues on the new time axis...
+Completed tests in MusicAnalyzer / host resets and module-only resets: learning continues on the new time axis
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / one spectral delivery per host block is independent of input statistics slices; resets and missing Balance remain detectable...
+Completed tests in MusicAnalyzer / one spectral delivery per host block is independent of input statistics slices; resets and missing Balance remain detectable
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / representativeness: repeated loops add nothing; without a host position it is capped at 0.75...
+  4 s loop x 5: representativeness 0.267, effective 19.60 s
+Completed tests in MusicAnalyzer / representativeness: repeated loops add nothing; without a host position it is capped at 0.75
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / the profile is bit-identical for any host block size (1 ... 4096, random)...
+Completed tests in MusicAnalyzer / the profile is bit-identical for any host block size (1 ... 4096, random)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / the audio-thread API does not allocate...
+Completed tests in MusicAnalyzer / the audio-thread API does not allocate
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning with the Clay trial; steady state)...
+  analyzer @48k block 512, learning (trial on): mean 25.45 us (0.239 % of one core), worst 27.00 us; not learning: mean 4.92 us, worst 6.00 us
+Completed tests in MusicAnalyzer / performance guard: analyzer per 512-sample block at 48 kHz (learning with the Clay trial; steady state)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay fields: unknown until measured, format version 2; M = 0 leaves the sub share unknown...
+Completed tests in MusicAnalyzerClay / Clay fields: unknown until measured, format version 2; M = 0 leaves the sub share unknown
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay stereo: identical channels and true mono give rho = 1 and S/M <= -100 dB (profile and live view)...
+Completed tests in MusicAnalyzerClay / Clay stereo: identical channels and true mono give rho = 1 and S/M <= -100 dB (profile and live view)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay stereo: anti-phase lows read rho = -1 while in-phase highs read +1; anti-phase subs are no sub share...
+  anti-phase lows / in-phase highs: low rho -1.000000, S/M 90.8 dB; high rho 1.000000, S/M -97.9 dB; sub share -150.0 dB
+Completed tests in MusicAnalyzerClay / Clay stereo: anti-phase lows read rho = -1 while in-phase highs read +1; anti-phase subs are no sub share
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay stereo: two independent noises read rho ~ 0 and S/M ~ 0 dB; the confidence reaches 1...
+  independent noises: low rho 0.0054 (S/M -0.05 dB), high rho 0.00332 (S/M -0.029 dB), worst band |rho| 0.028; live low rho 0.097 (fast 0.127), live high S/M -0.070 dB
+Completed tests in MusicAnalyzerClay / Clay stereo: two independent noises read rho ~ 0 and S/M ~ 0 dB; the confidence reaches 1
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay sub share: true infrasound (8th-order 16 Hz) - a 10 Hz sine reads its analytic share, a 45 Hz kick reads almost none...
+  10 Hz sine at amplitude 0.0500: sub share -17.094 dB, analytic -17.094 dB, effective 19.750 s
+  10 Hz sine at amplitude 0.0158: sub share -27.017 dB, analytic -27.017 dB, effective 19.750 s
+  45 Hz kick: sub share -58.38 dB, line-spectrum value -58.42 dB (the former 4th-order 30 Hz lowpass would read -14.50 dB)
+Completed tests in MusicAnalyzerClay / Clay sub share: true infrasound (8th-order 16 Hz) - a 10 Hz sine reads its analytic share, a 45 Hz kick reads almost none
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay fields cover the learning interval only and freeze at stopLearning; the live view keeps following...
+  learned after an anti-phase lead-in: low rho 1.00000, sub share -43.9 dB
+Completed tests in MusicAnalyzerClay / Clay fields cover the learning interval only and freeze at stopLearning; the live view keeps following
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay live view: 300 ms slow path and 120 ms fast path, gated bands do not count, silence invalidates both and keeps the smoothing...
+  live view: high P_M decay per block 0.965069 (r = 0.965069, worst error 0.00000008), time constant 0.30000 s; low rho first negative at block 21 (slow), 10 (fast)
+Completed tests in MusicAnalyzerClay / Clay live view: 300 ms slow path and 120 ms fast path, gated bands do not count, silence invalidates both and keeps the smoothing
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay fields (including the trial peak costs) and the live stereo view are bit-identical for any host block size...
+  mixed material: sub share -7.12 dB, low rho 0.726, high rho 0.615; peak costs low-cut -0.983 dB, mono 60 / 160 Hz -0.173 / -0.358 dB, width 0.077 dB over 11.60 s of blocks
+Completed tests in MusicAnalyzerClay / Clay fields (including the trial peak costs) and the live stereo view are bit-identical for any host block size
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay analysis paths do not allocate on the audio thread...
+Completed tests in MusicAnalyzerClay / Clay analysis paths do not allocate on the audio thread
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay trial: peak costs of the candidate processings (hard-clipped kick, pure mono, broadband stereo)...
+  hard-clipped kick: low-cut cost 5.592 dB (unclipped -0.167 dB), mono costs 0.000000 / 0.000000 / 0.000000 / 0.000000 dB, width cost 0.000000 dB, base P99 -6.021 dBFS
+  independent pink noise: width cost 0.2785 dB, mono costs -0.8111 / -0.9411 / -1.0309 / -1.1038 dB, low-cut cost -0.9613 dB, over 11.60 s, confidence 0.750
+Completed tests in MusicAnalyzerClay / Clay trial: peak costs of the candidate processings (hard-clipped kick, pure mono, broadband stereo)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay trial: the delayed mono candidates are measured on the same block grid (delay-compensated)...
+  pulse pairs across block edges: base P99 -1.48860 dBFS (expected -1.48860) over 11.60 s; mono costs 0.0000000 / 0.0000000 dB
+Completed tests in MusicAnalyzerClay / Clay trial: the delayed mono candidates are measured on the same block grid (delay-compensated)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay trial: the candidates run only inside the learning interval...
+  learning interval: low-cut cost -0.9613 dB (learned only), -0.9613 dB (after a clipped-kick lead-in)
+Completed tests in MusicAnalyzerClay / Clay trial: the candidates run only inside the learning interval
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerClay / Clay trial paths do not allocate on the audio thread...
+Completed tests in MusicAnalyzerClay / Clay trial paths do not allocate on the audio thread
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / GLAZE zero or NaN leaves every parameter untouched...
+Completed tests in GlazePlanner / GLAZE zero or NaN leaves every parameter untouched
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Processing magnitudes and effective gain never decrease as GLAZE rises...
+Completed tests in GlazePlanner / Processing magnitudes and effective gain never decrease as GLAZE rises
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Actual parameters stay inside their ranges...
+Completed tests in GlazePlanner / Actual parameters stay inside their ranges
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Auto increments respect each module budget...
+Completed tests in GlazePlanner / Auto increments respect each module budget
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Already loud material retains a bounded monotone drive request...
+Completed tests in GlazePlanner / Already loud material retains a bounded monotone drive request
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Gentle color is modeled even when there is no peak-reduction request...
+Completed tests in GlazePlanner / Gentle color is modeled even when there is no peak-reduction request
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / parallel Heat with no crest capacity does not block downstream loudness headroom...
+Completed tests in GlazePlanner / parallel Heat with no crest capacity does not block downstream loudness headroom
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / automatic Tone follows both spectral directions, with a dead zone and conservative signed caps...
+Completed tests in GlazePlanner / automatic Tone follows both spectral directions, with a dead zone and conservative signed caps
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Excess beyond the module limits lowers the target instead of squashing...
+Completed tests in GlazePlanner / Excess beyond the module limits lowers the target instead of squashing
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Constraint feedback caps the net gain...
+Completed tests in GlazePlanner / Constraint feedback caps the net gain
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Styles lean on the modules the spec names...
+  限幅峰值 GR 温润 / 冲击 / 通透：3.98 / 3.43 / 5.01 dB；削波深度 0.59 / 1.78 / 0.14 dB
+Completed tests in GlazePlanner / Styles lean on the modules the spec names
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Intermittent heavy lows ease the automatic Glue, sustained bass does not...
+Completed tests in GlazePlanner / Intermittent heavy lows ease the automatic Glue, sustained bass does not
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Low confidence tightens gain and processing...
+Completed tests in GlazePlanner / Low confidence tightens gain and processing
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / A less confident profile never plans more than the same profile fully trusted...
+  1200 comparisons, 0 where the unsure plan did more (worst net gain +0.00 dB)
+Completed tests in GlazePlanner / A less confident profile never plans more than the same profile fully trusted
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Turning a manual Heat or Glue knob never makes the planned loudness jump...
+  largest net-gain step per knob unit: 0.064 dB (-14.0 LUFS, style 1, Glue 100); swept module's auto increment drops at most 1.000, rises at most 0.000 per unit; manual + auto Heat over the drive cap by at most 0.000
+Completed tests in GlazePlanner / Turning a manual Heat or Glue knob never makes the planned loudness jump
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / On hot material Clip ramps in from GLAZE 0 instead of jumping...
+  largest Clip step per 0.1 % of GLAZE on hot material: 1.28
+Completed tests in GlazePlanner / On hot material Clip ramps in from GLAZE 0 instead of jumping
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Manual settings beyond a limit withdraw the auto part...
+Completed tests in GlazePlanner / Manual settings beyond a limit withdraw the auto part
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Same inputs give bit-identical plans...
+Completed tests in GlazePlanner / Same inputs give bit-identical plans
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Automatic weights sum to one and lean clean when unsure...
+Completed tests in GlazePlanner / Automatic weights sum to one and lean clean when unsure
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Blended constants interpolate between the styles...
+Completed tests in GlazePlanner / Blended constants interpolate between the styles
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Plans stay within the style limits on the real modules...
+  -20 LUFS 风格 1 GLAZE 50：目标净增益 4.72 dB，实测 4.74；Glue 均 / p95 0.00 / 0.01；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 0.00 / 0.00 / 0.00
+  -20 LUFS 风格 1 GLAZE 100：目标净增益 9.43 dB，实测 9.65；Glue 均 / p95 0.85 / 1.75；Clip 深度 0.59、活动 0.0002；Limit 峰值 / p95 / 均 3.98 / 2.10 / 0.40
+  -20 LUFS 风格 2 GLAZE 50：目标净增益 5.03 dB，实测 4.99；Glue 均 / p95 0.00 / 0.01；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 0.00 / 0.00 / 0.00
+  -20 LUFS 风格 2 GLAZE 100：目标净增益 10.06 dB，实测 9.87；Glue 均 / p95 0.40 / 1.06；Clip 深度 1.79、活动 0.0009；Limit 峰值 / p95 / 均 3.44 / 1.99 / 0.40
+  -20 LUFS 风格 3 GLAZE 50：目标净增益 5.00 dB，实测 4.96；Glue 均 / p95 0.00 / 0.01；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 0.00 / 0.00 / 0.00
+  -20 LUFS 风格 3 GLAZE 100：目标净增益 10.00 dB，实测 10.05；Glue 均 / p95 0.53 / 1.26；Clip 深度 0.14、活动 0.0000；Limit 峰值 / p95 / 均 5.02 / 2.69 / 0.54
+  -14 LUFS 风格 1 GLAZE 50：目标净增益 1.72 dB，实测 1.60；Glue 均 / p95 0.01 / 0.04；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 2.39 / 0.69 / 0.11
+  -14 LUFS 风格 1 GLAZE 100：目标净增益 3.43 dB，实测 3.32；Glue 均 / p95 0.27 / 0.82；Clip 深度 0.36、活动 0.0001；Limit 峰值 / p95 / 均 3.68 / 1.85 / 0.35
+  -14 LUFS 风格 2 GLAZE 50：目标净增益 2.03 dB，实测 1.84；Glue 均 / p95 0.01 / 0.06；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 2.38 / 0.78 / 0.13
+  -14 LUFS 风格 2 GLAZE 100：目标净增益 4.06 dB，实测 3.87；Glue 均 / p95 0.40 / 1.07；Clip 深度 1.75、活动 0.0010；Limit 峰值 / p95 / 均 3.43 / 2.00 / 0.40
+  -14 LUFS 风格 3 GLAZE 50：目标净增益 2.00 dB，实测 1.81；Glue 均 / p95 0.01 / 0.07；Clip 深度 0.00、活动 0.0000；Limit 峰值 / p95 / 均 2.75 / 0.81 / 0.14
+  -14 LUFS 风格 3 GLAZE 100：目标净增益 4.00 dB，实测 4.06；Glue 均 / p95 0.53 / 1.26；Clip 深度 0.13、活动 0.0000；Limit 峰值 / p95 / 均 5.01 / 2.69 / 0.54
+Completed tests in GlazePlanner / Plans stay within the style limits on the real modules
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Planner mappings match the real modules...
+Completed tests in GlazePlanner / Planner mappings match the real modules
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Profile id follows the quantized content...
+Completed tests in GlazePlanner / Profile id follows the quantized content
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Profile and committed state survive a save and load bit-exactly...
+Completed tests in GlazePlanner / Profile and committed state survive a save and load bit-exactly
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Broken or newer saved data is rejected without touching the output...
+Completed tests in GlazePlanner / Broken or newer saved data is rejected without touching the output
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Calibration constants round-trip and reject unknown versions...
+Completed tests in GlazePlanner / Calibration constants round-trip and reject unknown versions
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Odd calibration snapshots still give finite plans...
+Completed tests in GlazePlanner / Odd calibration snapshots still give finite plans
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / makePlan and the helpers do not allocate...
+Completed tests in GlazePlanner / makePlan and the helpers do not allocate
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay auto values follow the spec formulas...
+Completed tests in GlazePlanner / Clay auto values follow the spec formulas
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay try-before-use: the peak cost scales or vetoes each item and marks costLimitedMask...
+Completed tests in GlazePlanner / Clay try-before-use: the peak cost scales or vetoes each item and marks costLimitedMask
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / ADR-015: the automatic plan never monos the bass (any correlation, crossover statistics or mono cost)...
+Completed tests in GlazePlanner / ADR-015: the automatic plan never monos the bass (any correlation, crossover statistics or mono cost)
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay stays neutral at GLAZE 0, without a profile, and for missing or untrusted features...
+Completed tests in GlazePlanner / Clay stays neutral at GLAZE 0, without a profile, and for missing or untrusted features
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay values never decrease as GLAZE rises and stay inside their caps...
+  24120 GLAZE steps, 13591 with Clay active
+Completed tests in GlazePlanner / Clay values never decrease as GLAZE rises and stay inside their caps
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Automatic widening respects the predicted correlation floor...
+Completed tests in GlazePlanner / Automatic widening respects the predicted correlation floor
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay targets follow the style weights...
+Completed tests in GlazePlanner / Clay targets follow the style weights
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay ignores manual settings and loudness feedback, and never changes the level plan...
+Completed tests in GlazePlanner / Clay ignores manual settings and loudness feedback, and never changes the level plan
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / A less confident profile never cleans or widens more than the same profile fully trusted...
+  800 comparisons, 601 where the unsure plan cleaned or widened less
+Completed tests in GlazePlanner / A less confident profile never cleans or widens more than the same profile fully trusted
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay constants: factory values, lossless snapshots, legacy snapshots read as neutral...
+Completed tests in GlazePlanner / Clay constants: factory values, lossless snapshots, legacy snapshots read as neutral
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Peak costs and costLimitedMask are saved, hashed and read back exactly...
+Completed tests in GlazePlanner / Peak costs and costLimitedMask are saved, hashed and read back exactly
+-----------------------------------------------------------------
+Starting tests in: GlazePlanner / Clay planning is bit-exact and allocation-free...
+Completed tests in GlazePlanner / Clay planning is bit-exact and allocation-free
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / limit stats: sine over the ceiling reads the expected GR, max equals the meter...
+  expected GR 1.3500 dB; worst |mean - expected| 0.00000, worst |max - expected| 0.00000
+Completed tests in GlazeCalibration / limit stats: sine over the ceiling reads the expected GR, max equals the meter
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / limit stats: zero when not limiting, clip stats zero when the clip stage is idle, bypass still reports...
+Completed tests in GlazeCalibration / limit stats: zero when not limiting, clip stats zero when the clip stage is idle, bypass still reports
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / limit stats: clip activity and depth match the sine geometry...
+  expected fraction 0.2997, depth 1.0000 dB; worst errors 0.00503 / 0.00000 dB
+Completed tests in GlazeCalibration / limit stats: clip activity and depth match the sine geometry
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / block stats cover the whole process call when it is split into chunks...
+Completed tests in GlazeCalibration / block stats cover the whole process call when it is split into chunks
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / color stats: glue GR on a steady square wave matches the static curve, max equals the meter...
+  expected glue GR 5.979 dB; worst |mean - expected| 0.0987, worst |max - expected| 0.0987
+Completed tests in GlazeCalibration / color stats: glue GR on a steady square wave matches the static curve, max equals the meter
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / color stats: heat drive is the effective (wet-faded) heat...
+Completed tests in GlazeCalibration / color stats: heat drive is the effective (wet-faded) heat
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / modules with block stats do not allocate on the audio path...
+Completed tests in GlazeCalibration / modules with block stats do not allocate on the audio path
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: retreats at 1 dB/s once a constraint has been exceeded for 1 s, caps at -3 dB and flags plan limited...
+Completed tests in GlazeCalibration / guard: retreats at 1 dB/s once a constraint has been exceeded for 1 s, caps at -3 dB and flags plan limited
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: protection trajectory is identical for any block size (sample-time based), silence never changes it...
+Completed tests in GlazeCalibration / guard: protection trajectory is identical for any block size (sample-time based), silence never changes it
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / actual limiter transient statistics retain identical Guard slots across host callback sizes...
+  real transient Guard trace block=333, max error=0.00000000
+  real transient Guard trace block=512, max error=0.00000000
+  real transient Guard trace block=2048, max error=0.00000000
+Completed tests in GlazeCalibration / actual limiter transient statistics retain identical Guard slots across host callback sizes
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: retreat stops once the constraint is satisfied (small overshoot), then holds...
+  settled at -2.260 dB (needed -2.0 dB)
+Completed tests in GlazeCalibration / guard: retreat stops once the constraint is satisfied (small overshoot), then holds
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: recovers at 0.3 dB/s after 5 s of safe music, silence does not count, never above 0...
+Completed tests in GlazeCalibration / guard: recovers at 0.3 dB/s after 5 s of safe music, silence does not count, never above 0
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: recovery stops inside the hysteresis band below the limit...
+  recovery stopped at -0.698 dB (hysteresis line at -0.7 dB)
+Completed tests in GlazeCalibration / guard: recovery stops inside the hysteresis band below the limit
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: plan-limited flag latches at the floor and clears once recovery starts...
+Completed tests in GlazeCalibration / guard: plan-limited flag latches at the floor and clears once recovery starts
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: isolated peaks do not trigger a retreat, dense ones do...
+Completed tests in GlazeCalibration / guard: isolated peaks do not trigger a retreat, dense ones do
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: glue p95, clip activity and clip depth constraints...
+Completed tests in GlazeCalibration / guard: glue p95, clip activity and clip depth constraints
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard: inactive before limits are set or when no cap is configured; bad stats never produce NaN...
+Completed tests in GlazeCalibration / guard: inactive before limits are set or when no cap is configured; bad stats never produce NaN
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / guard does not allocate...
+Completed tests in GlazeCalibration / guard does not allocate
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: converges to a known chain deviation in two rounds, independent of block size and latency...
+  +1.3 dB deviation: bias 1.30000 dB, finished at 27.20 s, rounds 2
+Completed tests in GlazeCalibration / calibrator: converges to a known chain deviation in two rounds, independent of block size and latency
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: a deviation inside the tolerance is verified in one round...
+Completed tests in GlazeCalibration / calibrator: a deviation inside the tolerance is verified in one round
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: a remaining deviation after round two ends as a conservative partial result...
+Completed tests in GlazeCalibration / calibrator: a remaining deviation after round two ends as a conservative partial result
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: an interruption drops only the current sub-window...
+Completed tests in GlazeCalibration / calibrator: an interruption drops only the current sub-window
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: anti-windup is directional at the correction limits...
+Completed tests in GlazeCalibration / calibrator: anti-windup is directional at the correction limits
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: feedback uses the executed bias, a saturated actuator is not wound up...
+Completed tests in GlazeCalibration / calibrator: feedback uses the executed bias, a saturated actuator is not wound up
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: a persistently engaged guard ends the calibration as budget-limited...
+Completed tests in GlazeCalibration / calibrator: a persistently engaged guard ends the calibration as budget-limited
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: silence and a brief guard episode only pause the collection...
+Completed tests in GlazeCalibration / calibrator: silence and a brief guard episode only pause the collection
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: sub-windows disagreeing in direction end as partial...
+  alternating +/-1.2 dB: bias -0.164 dB, rounds 2, last e 0.000
+Completed tests in GlazeCalibration / calibrator: sub-windows disagreeing in direction end as partial
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: reference conditions are compared item by item...
+Completed tests in GlazeCalibration / calibrator: reference conditions are compared item by item
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: log-scale values compare within a relative 1e-4, the old exact hash only against legacy references...
+Completed tests in GlazeCalibration / calibrator: log-scale values compare within a relative 1e-4, the old exact hash only against legacy references
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator: bad inputs never produce NaN, non-finite targets end immediately as invalid...
+Completed tests in GlazeCalibration / calibrator: bad inputs never produce NaN, non-finite targets end immediately as invalid
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator does not allocate...
+Completed tests in GlazeCalibration / calibrator does not allocate
+-----------------------------------------------------------------
+Starting tests in: GlazeCalibration / calibrator and guard wired together: no tug of war, calibration ends budget-limited, guard recovers...
+  finished at 26.71 s, lowest guard -1.250 dB, guard now 0.000 dB
+Completed tests in GlazeCalibration / calibrator and guard wired together: no tug of war, calibration ends budget-limited, guard recovers
+-----------------------------------------------------------------
+Starting tests in: GlazeController / phases: unlearned until playback, listening, plan transition, calibrating, locked; ready flags follow...
+  phase sequence: unlearned listening planTransition calibrating locked | probe: learning starts 1, commits 1, calibration rounds begun 1
+Completed tests in GlazeController / phases: unlearned until playback, listening, plan transition, calibrating, locked; ready flags follow
+-----------------------------------------------------------------
+Starting tests in: GlazeController / GLAZE 0 learns but never calibrates or touches the manual values; turning it up calibrates; back to 0 is bit-exact...
+Completed tests in GlazeController / GLAZE 0 learns but never calibrates or touches the manual values; turning it up calibrates; back to 0 is bit-exact
+-----------------------------------------------------------------
+Starting tests in: GlazeController / first listen: the button restarts the round from zero, visible in the status before the next block...
+Completed tests in GlazeController / first listen: the button restarts the round from zero, visible in the status before the next block
+-----------------------------------------------------------------
+Starting tests in: GlazeController / relearn builds a candidate while the committed version plays on; cancel, mid-listen save, swap with a transition...
+  relearn swap: worst per-block step 0.0006 dB (Limit Gain; Glue / 10)
+Completed tests in GlazeController / relearn builds a candidate while the committed version plays on; cancel, mid-listen save, swap with a transition
+-----------------------------------------------------------------
+Starting tests in: GlazeController / transport jump, loop wrap and host reset each clear their own runtime state...
+Completed tests in GlazeController / transport jump, loop wrap and host reset each clear their own runtime state
+-----------------------------------------------------------------
+Starting tests in: GlazeController / internal input slices retain host-position coverage, looping and missing-position semantics...
+Completed tests in GlazeController / internal input slices retain host-position coverage, looping and missing-position semantics
+-----------------------------------------------------------------
+Starting tests in: GlazeController / realtime and offline use the same learning, calibration and loud-section safety state machine...
+Completed tests in GlazeController / realtime and offline use the same learning, calibration and loud-section safety state machine
+-----------------------------------------------------------------
+Starting tests in: GlazeController / execution snapshot preserves unfinished learning, applied calibration and deterministic replay...
+Completed tests in GlazeController / execution snapshot preserves unfinished learning, applied calibration and deterministic replay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a completed calibration cannot replace the saved executed bias before its slew has finished...
+Completed tests in GlazeController / a completed calibration cannot replace the saved executed bias before its slew has finished
+-----------------------------------------------------------------
+Starting tests in: GlazeController / malformed execution increments cannot override manual controls...
+Completed tests in GlazeController / malformed execution increments cannot override manual controls
+-----------------------------------------------------------------
+Starting tests in: GlazeController / save / restore: takes effect at once, re-renders bit-exactly from the same start; empty or broken data = unlearned...
+  reset/restore trajectory: first parameter block=-1, first audio block=-1
+Completed tests in GlazeController / save / restore: takes effect at once, re-renders bit-exactly from the same start; empty or broken data = unlearned
+-----------------------------------------------------------------
+Starting tests in: GlazeController / sample-rate change keeps profile and style weights, marks calibration pending, recalibrates when stable...
+Completed tests in GlazeController / sample-rate change keeps profile and style weights, marks calibration pending, recalibrates when stable
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a block-size-only rebuild retains actual Guard retreat, not the unprotected plan...
+Completed tests in GlazeController / a block-size-only rebuild retains actual Guard retreat, not the unprotected plan
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a block-size-only rebuild resumes a completed correction from the last heard bias, then finishes its slew...
+Completed tests in GlazeController / a block-size-only rebuild resumes a completed correction from the last heard bias, then finishes its slew
+-----------------------------------------------------------------
+Starting tests in: GlazeController / GLAZE automation: no relearn, no transition, no new calibration; increments follow the deterministic mapping...
+  automated 282 blocks; applied bias now 0.000 dB
+Completed tests in GlazeController / GLAZE automation: no relearn, no transition, no new calibration; increments follow the deterministic mapping
+-----------------------------------------------------------------
+Starting tests in: GlazeController / switching style is one plan transition, then calibration for the new conditions...
+Completed tests in GlazeController / switching style is one plan transition, then calibration for the new conditions
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a plan saved by an older algorithm keeps its saved increments until GLAZE is turned...
+Completed tests in GlazeController / a plan saved by an older algorithm keeps its saved increments until GLAZE is turned
+-----------------------------------------------------------------
+Starting tests in: GlazeController / an algorithm-6 (v0.1.6.2) project is adopted as current: no saved-plan mode, Clay neutral...
+Completed tests in GlazeController / an algorithm-6 (v0.1.6.2) project is adopted as current: no saved-plan mode, Clay neutral
+-----------------------------------------------------------------
+Starting tests in: GlazeController / old Heat model snapshots are replanned with current compensation, preserving the profile and manual controls...
+Completed tests in GlazeController / old Heat model snapshots are replanned with current compensation, preserving the profile and manual controls
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority...
+Completed tests in GlazeController / locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone...
+Completed tests in GlazeController / locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone
+-----------------------------------------------------------------
+Starting tests in: GlazeController / dense bright sections gently reduce only planned automatic Heat/Glue and sparse sections recover...
+Completed tests in GlazeController / dense bright sections gently reduce only planned automatic Heat/Glue and sparse sections recover
+-----------------------------------------------------------------
+Starting tests in: GlazeController / live coloration survives save/reset and old missing execution fields default to neutral...
+Completed tests in GlazeController / live coloration survives save/reset and old missing execution fields default to neutral
+-----------------------------------------------------------------
+Starting tests in: GlazeController / dynamic color remains compatible with calibration and unfinished execution replay...
+  adaptive/fixed color net gain: dense 2.6835/2.9995 dB, recovered sparse 3.5936/3.4225 dB; target 3.0000 dB; applied bias -1.1661/-1.3371 dB
+Completed tests in GlazeController / dynamic color remains compatible with calibration and unfinished execution replay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection...
+Completed tests in GlazeController / Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection
+-----------------------------------------------------------------
+Starting tests in: GlazeController / constraint feedback lowers the plan step by step, converges and does not oscillate...
+  feedback steps 2 (budget 0, guard limited 0, upstream 0, stuck guard 0); max gain now 1.57 dB; last change at 3.1 s; guard 0.00 dB; tail direction changes 0; output true peak -1.350 dBTP
+Completed tests in GlazeController / constraint feedback lowers the plan step by step, converges and does not oscillate
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked with an applicable calibration: a guard stuck on a partial retreat is absorbed into the plan...
+  source x2.0: feedback steps 0 (stuck 0, budget 0, guard limited 0, upstream 0); lowest guard 0.00 dB; now guard 0.00 / executed 0.00 dB; output true peak -3.368 dBTP
+  source x5.0: feedback steps 1 (stuck 1, budget 0, guard limited 0, upstream 0); lowest guard -1.03 dB; now guard 0.00 / executed 0.00 dB; output true peak -1.350 dBTP
+Completed tests in GlazeController / locked with an applicable calibration: a guard stuck on a partial retreat is absorbed into the plan
+-----------------------------------------------------------------
+Starting tests in: GlazeController / absorbing feedback (budget limited / stuck guard) keeps the calibration and does not restart it (BUG-003)...
+  budget limited during a round: absorbing feedback 1 (budget 1, stuck 0), lowering 0, rounds 1, restarts after absorbing 0, calibrating after absorbing 0.00 s; ends locked / valid
+  stuck guard while locked: absorbing feedback 1 (budget 0, stuck 1), lowering 0, rounds 1, restarts after absorbing 0, calibrating after absorbing 0.00 s; ends locked / valid
+Completed tests in GlazeController / absorbing feedback (budget limited / stuck guard) keeps the calibration and does not restart it (BUG-003)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a profile learned on a quiet intro is capped by the loud section at once, with a relearn hint...
+  learned I -45.0 LUFS; mismatch steps 3 (first at +1.59 s into the loud part); feedback cap 2.13 dB; limiter GR peak after 5 s 2.57 dB; status mismatch 1
+Completed tests in GlazeController / a profile learned on a quiet intro is capped by the loud section at once, with a relearn hint
+-----------------------------------------------------------------
+Starting tests in: GlazeController / pattern loops without loop info, a jittery playhead and stale positions still learn, calibrate and lock...
+  pattern loop 4 s: locked 1, jumps 11, commits 1, calibration rounds 1
+  jitter +-64 samples: locked 1, jumps 0, commits 1, calibration rounds 1
+  stale position every 4th block: locked 1, jumps 0, commits 1, calibration rounds 1
+Completed tests in GlazeController / pattern loops without loop info, a jittery playhead and stale positions still learn, calibrate and lock
+-----------------------------------------------------------------
+Starting tests in: GlazeController / manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic...
+  deepest executed protection offset -1.21 dB with manual gain 3 dB
+Completed tests in GlazeController / manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic
+-----------------------------------------------------------------
+Starting tests in: GlazeController / non-finite output: cleared, restarted, reported; the IN meter measures loudness...
+  non-finite reached the output after 2 more block(s) (latency 1384 samples)
+Completed tests in GlazeController / non-finite output: cleared, restarted, reported; the IN meter measures loudness
+-----------------------------------------------------------------
+Starting tests in: GlazeController / setHostInfo / setParams / process / getStatus never allocate through every GLAZE path...
+  paths exercised: learning starts 2, commits 2, plan transitions 8, calibration rounds 11, feedback steps 5, resets 1, jumps 1, wraps 1
+Completed tests in GlazeController / setHostInfo / setParams / process / getStatus never allocate through every GLAZE path
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Clay three states: automatic is neutral at GLAZE 0, manual applies at GLAZE 0, off is always neutral...
+Completed tests in GlazeController / Clay three states: automatic is neutral at GLAZE 0, manual applies at GLAZE 0, off is always neutral
+-----------------------------------------------------------------
+Starting tests in: GlazeController / profile format 2 carries the Clay features; format 1 keeps its v0.1.6.2 id and reads them as unknown...
+Completed tests in GlazeController / profile format 2 carries the Clay features; format 1 keeps its v0.1.6.2 id and reads them as unknown
+-----------------------------------------------------------------
+Starting tests in: GlazeController / old format-1 profiles keep automatic Clay neutral (no guard either) and ask for a relearn...
+Completed tests in GlazeController / old format-1 profiles keep automatic Clay neutral (no guard either) and ask for a relearn
+-----------------------------------------------------------------
+Starting tests in: GlazeController / plan transitions blend Clay with the increments' progress: log-domain frequencies, an off end joins at the floor...
+Completed tests in GlazeController / plan transitions blend Clay with the increments' progress: log-domain frequencies, an off end joins at the floor
+-----------------------------------------------------------------
+Starting tests in: GlazeController / the Clay guard acts through the controller: anti-phase bass lights the warning (mono untouched), wide highs cap automatic widening...
+Completed tests in GlazeController / the Clay guard acts through the controller: anti-phase bass lights the warning (mono untouched), wide highs cap automatic widening
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Clay pressure feedback (ADR-014): a guard that keeps pulling the low cut back steps the automatic Clay scale down, and it is saved...
+  pressure steps 2, scale 0.25, planned low cut 11.8921 Hz (was 20)
+Completed tests in GlazeController / Clay pressure feedback (ADR-014): a guard that keeps pulling the low cut back steps the automatic Clay scale down, and it is saved
+-----------------------------------------------------------------
+Starting tests in: GlazeController / execution snapshot keeps the executed Clay values and guard state; the first restored block uses them...
+Completed tests in GlazeController / execution snapshot keeps the executed Clay values and guard state; the first restored block uses them
+-----------------------------------------------------------------
+Starting tests in: GlazeController / malformed Clay values in an execution snapshot are rejected...
+Completed tests in GlazeController / malformed Clay values in an execution snapshot are rejected
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Clay settings join the calibration reference; the default settings keep the v0.1.6.2 hash...
+Completed tests in GlazeController / Clay settings join the calibration reference; the default settings keep the v0.1.6.2 hash
+-----------------------------------------------------------------
+Starting tests in: GlazeController / every Clay path through the controller is allocation-free on the audio thread...
+Completed tests in GlazeController / every Clay path through the controller is allocation-free on the audio thread
+-----------------------------------------------------------------
+Starting tests in: GlazeController / the try-before-use cost mask reaches the status: automatic items only, GLAZE > 0 only, the target plan's mask in transitions...
+Completed tests in GlazeController / the try-before-use cost mask reaches the status: automatic items only, GLAZE > 0 only, the target plan's mask in transitions
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a restored first block uses the snapshot's Clay values only when the plan source supports automatic Clay...
+Completed tests in GlazeController / a restored first block uses the snapshot's Clay values only when the plan source supports automatic Clay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / reference conditions survive the host's normalised round trip through the real parameter ranges; a real change never does...
+  round trip: 60000 positions x 8 trips, old exact hash flipped 55394 times; legacy upgrades checked 15000, real changes checked 60000
+Completed tests in GlazeController / reference conditions survive the host's normalised round trip through the real parameter ranges; a real change never does
+-----------------------------------------------------------------
+Starting tests in: GlazeController / reopen: drifted log-scale knobs keep the calibration and the execution snapshot, for new and v0.1.8.0 saves (BUG-004)...
+  release 18.458652496 -> 18.458648682 ms, mono 66.527961731 -> 66.527946472 Hz
+Completed tests in GlazeController / reopen: drifted log-scale knobs keep the calibration and the execution snapshot, for new and v0.1.8.0 saves (BUG-004)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a slow log-scale knob sweep is not "stable conditions", even slower than the tolerance; stopping it is...
+Completed tests in GlazeController / a slow log-scale knob sweep is not "stable conditions", even slower than the tolerance; stopping it is
+-----------------------------------------------------------------
+Starting tests in: GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)...
+  182 blocks checked through the probe, 182 through the published execution snapshot
+Completed tests in GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / the eight spec states show the spec text and colour...
+Completed tests in GlazeStatusText / the eight spec states show the spec text and colour
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / priority: manual limit, plan limit, listening, unlearned, pause, calibrating, awaiting, locked...
+Completed tests in GlazeStatusText / priority: manual limit, plan limit, listening, unlearned, pause, calibrating, awaiting, locked
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / a stopped host shows the calibration as paused, not as calibrating forever...
+Completed tests in GlazeStatusText / a stopped host shows the calibration as paused, not as calibrating forever
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / GLAZE 0 shows only the learning state...
+Completed tests in GlazeStatusText / GLAZE 0 shows only the learning state
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / calibration pause shows only while calibration would run, with the right reason...
+Completed tests in GlazeStatusText / calibration pause shows only while calibration would run, with the right reason
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / listening seconds: floor, capped at the requirement, robust to bad values...
+Completed tests in GlazeStatusText / listening seconds: floor, capped at the requirement, robust to bad values
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / numbers: U+2212 minus, one decimal, unknown target omitted...
+Completed tests in GlazeStatusText / numbers: U+2212 minus, one decimal, unknown target omitted
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / style text: automatic shows its lean, a chosen style shows only itself...
+Completed tests in GlazeStatusText / style text: automatic shows its lean, a chosen style shows only itself
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / a plan kept from an older algorithm is noted on the locked line...
+Completed tests in GlazeStatusText / a plan kept from an older algorithm is noted on the locked line
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / views compare equal when the shown line cannot differ...
+Completed tests in GlazeStatusText / views compare equal when the shown line cannot differ
+-----------------------------------------------------------------
+Starting tests in: GlazeStatusText / every combination yields a non-empty line...
+Completed tests in GlazeStatusText / every combination yields a non-empty line
+-----------------------------------------------------------------
+Starting tests in: ClayModule / fixed latency 2 (L_max - 1) + peak-guard lookahead: 1013 / 1102 / 2206 / 4414 samples whatever the parameters, confirmed with impulses...
+Completed tests in ClayModule / fixed latency 2 (L_max - 1) + peak-guard lookahead: 1013 / 1102 / 2206 / 4414 samples whatever the parameters, confirmed with impulses
+-----------------------------------------------------------------
+Starting tests in: ClayModule / stages at zero: the output is the input delayed by D, bit for bit, for every block size (+-0 and extreme values too)...
+Completed tests in ClayModule / stages at zero: the output is the input delayed by D, bit for bit, for every block size (+-0 and extreme values too)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / after all stages return to zero the output is the bit-exact delayed input again...
+Completed tests in ClayModule / after all stages return to zero the output is the bit-exact delayed input again
+-----------------------------------------------------------------
+Starting tests in: ClayModule / low cut: -3 dB point within 1 % of the set frequency; 25 Hz leaves 50 Hz and above within 0.1 dB...
+  low cut 10 Hz @ 44100: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 44100: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 44100: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 10 Hz @ 48000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 48000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 48000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 10 Hz @ 96000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 96000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 96000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 10 Hz @ 192000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 25 Hz @ 192000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+  low cut 60 Hz @ 192000: -3.188 dB at 0.99 fc, -2.841 dB at 1.01 fc
+Completed tests in ClayModule / low cut: -3 dB point within 1 % of the set frequency; 25 Hz leaves 50 Hz and above within 0.1 dB
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono: a = 1 at 120 Hz removes >= 12 dB of 50 Hz side, matching |1 - a H0| of the linear-phase complement; mid untouched...
+  a = 1, 120 Hz: 50 Hz side -23.893 dB (analytic -23.893 dB) @ 48000
+  a = 0.5, 120 Hz: 240 Hz side -0.876 dB (analytic -0.876 dB) @ 48000
+  a = 1, 120 Hz: 50 Hz side -23.892 dB (analytic -23.892 dB) @ 192000
+  a = 0.5, 120 Hz: 240 Hz side -0.876 dB (analytic -0.876 dB) @ 192000
+Completed tests in ClayModule / mono: a = 1 at 120 Hz removes >= 12 dB of 50 Hz side, matching |1 - a H0| of the linear-phase complement; mid untouched
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono a = 1: the pure-side impulse response is symmetric about D (<= 1e-9), linear phase...
+  40 Hz @ 44100: asymmetry 0.000, centre 0.015586
+  80 Hz @ 44100: asymmetry 0.000, centre 0.015546
+  120 Hz @ 44100: asymmetry 0.000, centre 0.015507
+  300 Hz @ 44100: asymmetry 0.000, centre 0.015327
+  40 Hz @ 48000: asymmetry 0.000, centre 0.015589
+  80 Hz @ 48000: asymmetry 0.000, centre 0.015553
+  120 Hz @ 48000: asymmetry 0.000, centre 0.015516
+  300 Hz @ 48000: asymmetry 0.000, centre 0.015351
+  40 Hz @ 96000: asymmetry 0.000, centre 0.015607
+  80 Hz @ 96000: asymmetry 0.000, centre 0.015589
+  120 Hz @ 96000: asymmetry 0.000, centre 0.015571
+  300 Hz @ 96000: asymmetry 0.000, centre 0.015490
+  40 Hz @ 192000: asymmetry 0.000, centre 0.015616
+  80 Hz @ 192000: asymmetry 0.000, centre 0.015607
+  120 Hz @ 192000: asymmetry 0.000, centre 0.015598
+  300 Hz @ 192000: asymmetry 0.000, centre 0.015557
+Completed tests in ClayModule / mono a = 1: the pure-side impulse response is symmetric about D (<= 1e-9), linear phase
+-----------------------------------------------------------------
+Starting tests in: ClayModule / crossover change: a 20 ms crossfade between the old and new low-pass, then the same as a module set there from the start...
+  150 -> 60 Hz @ 48000: after the switch, max difference to the new setting 0.000000000000
+  300 -> 40 Hz @ 44100: after the switch, max difference to the new setting 0.000000000000
+  80 -> 160 Hz @ 192000: after the switch, max difference to the new setting 0.000000000000
+Completed tests in ClayModule / crossover change: a 20 ms crossfade between the old and new low-pass, then the same as a module set there from the start
+-----------------------------------------------------------------
+Starting tests in: ClayModule / dragging the crossover (a new value every 64 samples, a = 1) is click-free and settles on the final low-pass...
+  crossover drag: worst 5 ms high-band rise 0.000 dB
+Completed tests in ClayModule / dragging the crossover (a new value every 64 samples, a = 1) is click-free and settles on the final low-pass
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono 0 -> 1: pure delay before, 20 ms linear crossfade, then bit-identical to an always-on module (the low-pass kept running)...
+Completed tests in ClayModule / mono 0 -> 1: pure delay before, 20 ms linear crossfade, then bit-identical to an always-on module (the low-pass kept running)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / pure mid input produces no side (<= -120 dBFS) with every stage active and sweeping...
+  worst side from a pure mid input: -200.0 dBFS
+Completed tests in ClayModule / pure mid input produces no side (<= -120 dBFS) with every stage active and sweeping
+-----------------------------------------------------------------
+Starting tests in: ClayModule / swapping left and right swaps the output exactly...
+Completed tests in ClayModule / swapping left and right swaps the output exactly
+-----------------------------------------------------------------
+Starting tests in: ClayModule / mono input: only the low cut is applied, then the fixed delay...
+Completed tests in ClayModule / mono input: only the low cut is applied, then the fixed delay
+-----------------------------------------------------------------
+Starting tests in: ClayModule / width shelf: 16 kHz side gain = widthDb and 2 kHz = widthDb / 2 (+-0.1 dB); mid and low side untouched...
+Completed tests in ClayModule / width shelf: 16 kHz side gain = widthDb and 2 kHz = widthDb / 2 (+-0.1 dB); mid and low side untouched
+-----------------------------------------------------------------
+Starting tests in: ClayModule / output is identical for block sizes 1 / 17 / 333 / 2048 / 4096 (static and with sweeps at the same sample positions)...
+Completed tests in ClayModule / output is identical for block sizes 1 / 17 / 333 / 2048 / 4096 (static and with sweeps at the same sample positions)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / parameter sweeps (min <-> max within 20 ms) raise no 5 ms high-band energy by more than 1 dB...
+  low cut off -> 60 Hz: worst 5 ms high-band rise 0.001 dB
+  low cut 60 Hz -> off: worst 5 ms high-band rise 0.000 dB
+  low cut 10 -> 60 Hz: worst 5 ms high-band rise 0.001 dB
+  low cut 60 -> 10 Hz: worst 5 ms high-band rise 0.001 dB
+  crossover 40 -> 300 Hz (a = 1): worst 5 ms high-band rise 0.000 dB
+  crossover 300 -> 40 Hz (a = 1): worst 5 ms high-band rise 0.000 dB
+  mono amount 0 -> 1 (300 Hz): worst 5 ms high-band rise 0.000 dB
+  mono amount 1 -> 0 (300 Hz): worst 5 ms high-band rise 0.000 dB
+  width -3 -> +3 dB: worst 5 ms high-band rise 0.054 dB
+  width +3 -> -3 dB: worst 5 ms high-band rise 0.000 dB
+  positive control, 0.5 single-sample click: 2.71 dB
+Completed tests in ClayModule / parameter sweeps (min <-> max within 20 ms) raise no 5 ms high-band energy by more than 1 dB
+-----------------------------------------------------------------
+Starting tests in: ClayModule / bypass: bit-exact delayed dry when engaged, 20 ms linear crossfade, seamless return thanks to shadow running...
+Completed tests in ClayModule / bypass: bit-exact delayed dry when engaged, 20 ms linear crossfade, seamless return thanks to shadow running
+-----------------------------------------------------------------
+Starting tests in: ClayModule / low cut off / on: 20 ms output crossfade D samples later, bit-exact delayed dry while off, no restart transient when back on...
+Completed tests in ClayModule / low cut off / on: 20 ms output crossfade D samples later, bit-exact delayed dry while off, no restart transient when back on
+-----------------------------------------------------------------
+Starting tests in: ClayModule / reset clears every filter, low-pass and delay line and lands the smoothers on their targets...
+Completed tests in ClayModule / reset clears every filter, low-pass and delay line and lands the smoothers on their targets
+-----------------------------------------------------------------
+Starting tests in: ClayModule / setParams / process / reset never allocate (stereo and mono, blocks up to 4096, crossover switches)...
+Completed tests in ClayModule / setParams / process / reset never allocate (stereo and mono, blocks up to 4096, crossover switches)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / a NaN in the input is delayed untouched while idle and never latches the shadow filters or the low-pass...
+Completed tests in ClayModule / a NaN in the input is delayed untouched while idle and never latches the shadow filters or the low-pass
+-----------------------------------------------------------------
+Starting tests in: ClayModule / peak guard (ADR-014): every output sample stays within max(local dry peak, -6 dB of the peak envelope, -40 dBFS)...
+  stereo: worst |out| / bound 1.0000000; without the guard 1.22 dB over; guarded samples 8165, min g 0.0000
+  mono: worst |out| / bound 1.0000000; without the guard 2.06 dB over; guarded samples 17278, min g 0.0000
+Completed tests in ClayModule / peak guard (ADR-014): every output sample stays within max(local dry peak, -6 dB of the peak envelope, -40 dBFS)
+-----------------------------------------------------------------
+Starting tests in: ClayModule / peak guard (ADR-014): steady low tones through the low cut / mono are left alone; a real peak raise is not...
+Completed tests in ClayModule / peak guard (ADR-014): steady low tones through the low cut / mono are left alone; a real peak raise is not
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / lengths and delays follow L = max(2, round(0.24 fs / fc)) and 2 (L - 1)...
+Completed tests in LinearPhaseLowpass / lengths and delays follow L = max(2, round(0.24 fs / fc)) and 2 (L - 1)
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / impulse response: the exact 4-box B-spline, symmetric about 2 (L - 1), DC gain 1...
+Completed tests in LinearPhaseLowpass / impulse response: the exact 4-box B-spline, symmetric about 2 (L - 1), DC gain 1
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / complementary high-pass at fc/2, fc, 2fc, 4fc: -20.8 / -9.9 / -1.9 / 0 dB (+-0.3), any sample rate...
+  complement 40 Hz @ 44100 (L 265): -20.81 -9.86 -1.84 -0.00 dB
+  complement 80 Hz @ 44100 (L 132): -20.88 -9.92 -1.87 -0.00 dB
+  complement 120 Hz @ 44100 (L 88): -20.88 -9.92 -1.87 -0.00 dB
+  complement 160 Hz @ 44100 (L 66): -20.88 -9.92 -1.87 -0.00 dB
+  complement 300 Hz @ 44100 (L 35): -20.98 -10.00 -1.91 -0.00 dB
+  complement 40 Hz @ 48000 (L 288): -20.84 -9.88 -1.85 -0.00 dB
+  complement 80 Hz @ 48000 (L 144): -20.84 -9.88 -1.85 -0.00 dB
+  complement 120 Hz @ 48000 (L 96): -20.84 -9.88 -1.85 -0.00 dB
+  complement 160 Hz @ 48000 (L 72): -20.84 -9.88 -1.85 -0.00 dB
+  complement 300 Hz @ 48000 (L 38): -21.02 -10.04 -1.93 -0.00 dB
+  complement 40 Hz @ 96000 (L 576): -20.84 -9.88 -1.85 -0.00 dB
+  complement 80 Hz @ 96000 (L 288): -20.84 -9.88 -1.85 -0.00 dB
+  complement 120 Hz @ 96000 (L 192): -20.84 -9.88 -1.85 -0.00 dB
+  complement 160 Hz @ 96000 (L 144): -20.84 -9.88 -1.85 -0.00 dB
+  complement 300 Hz @ 96000 (L 77): -20.80 -9.85 -1.83 -0.00 dB
+  complement 40 Hz @ 192000 (L 1152): -20.84 -9.88 -1.85 -0.00 dB
+  complement 80 Hz @ 192000 (L 576): -20.84 -9.88 -1.85 -0.00 dB
+  complement 120 Hz @ 192000 (L 384): -20.84 -9.88 -1.85 -0.00 dB
+  complement 160 Hz @ 192000 (L 288): -20.84 -9.88 -1.85 -0.00 dB
+  complement 300 Hz @ 192000 (L 154): -20.79 -9.85 -1.83 -0.00 dB
+Completed tests in LinearPhaseLowpass / complementary high-pass at fc/2, fc, 2fc, 4fc: -20.8 / -9.9 / -1.9 / 0 dB (+-0.3), any sample rate
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / running sums match direct convolution before and after the resync grid points (<= 1e-12)...
+  L = 288: worst error vs direct convolution 0.000, vs the L + 1 kernel 0.002407
+  L = 1152: worst error vs direct convolution 0.000, vs the L + 1 kernel 0.000588
+  L = 35: worst error vs direct convolution 0.000, vs the L + 1 kernel 0.015871
+Completed tests in LinearPhaseLowpass / running sums match direct convolution before and after the resync grid points (<= 1e-12)
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / after the input goes silent, the resync grid brings the state back to exactly zero...
+  L = 288: 190992 non-zero residue samples before 327680, 0 after
+  L = 38: 191992 non-zero residue samples before 327680, 0 after
+Completed tests in LinearPhaseLowpass / after the input goes silent, the resync grid brings the state back to exactly zero
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / reset + the last 4 (L - 1) inputs reproduce a running low-pass of the same length (<= 1e-12)...
+  L = 96: rebuilt vs running 0.000, one sample short 0.000 (last tap 0.000)
+  L = 288: rebuilt vs running 0.000, one sample short 0.000 (last tap 0.000)
+  L = 38: rebuilt vs running 0.000, one sample short 0.000 (last tap 0.000)
+Completed tests in LinearPhaseLowpass / reset + the last 4 (L - 1) inputs reproduce a running low-pass of the same length (<= 1e-12)
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / reset clamps the length; NaN / Inf / huge inputs are sanitised and never latch...
+Completed tests in LinearPhaseLowpass / reset clamps the length; NaN / Inf / huge inputs are sanitised and never latch
+-----------------------------------------------------------------
+Starting tests in: LinearPhaseLowpass / reset / process never allocate...
+Completed tests in LinearPhaseLowpass / reset / process never allocate
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase warning: inverted bass must persist 0.15 s, then reaches 1 within 100 ms, holds 2 s, fades over 2 s; mono never changes...
+Completed tests in ClayGuard / phase warning: inverted bass must persist 0.15 s, then reaches 1 within 100 ms, holds 2 s, fades over 2 s; mono never changes
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase trigger: slow < -0.2, or slow < 0.3 with fast < -0.2; a negative fast path above the gate never triggers...
+Completed tests in ClayGuard / phase trigger: slow < -0.2, or slow < 0.3 with fast < -0.2; a negative fast path above the gate never triggers
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase qualification: 0.15 s continuous, broken by a clear block, kept through freezes, restarted by setState / reset / inactive...
+Completed tests in ClayGuard / phase qualification: 0.15 s continuous, broken by a clear block, kept through freezes, restarted by setState / reset / inactive
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase warning: re-triggering also needs 0.15 s; it re-arms the full hold and resumes the attack from the current level...
+Completed tests in ClayGuard / phase warning: re-triggering also needs 0.15 s; it re-arms the full hold and resumes the attack from the current level
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase warning with the automatic plan (no mono): the lamp lights, the output stays the plan bit for bit...
+Completed tests in ClayGuard / phase warning with the automatic plan (no mono): the lamp lights, the output stays the plan bit for bit
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / width guard: retracts widening to the allowed amount within 200 ms, never below 0, releases over 2 s...
+Completed tests in ClayGuard / width guard: retracts widening to the allowed amount within 200 ms, never below 0, releases over 2 s
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / width guard never narrows: zero or negative planned width passes through; P_M = 0 allows 0...
+Completed tests in ClayGuard / width guard never narrows: zero or negative planned width passes through; P_M = 0 allows 0
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / freeze: seconds <= 0 / non-finite freezes everything; an invalid view half freezes only that half...
+Completed tests in ClayGuard / freeze: seconds <= 0 / non-finite freezes everything; an invalid view half freezes only that half
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / inactive (GLAZE <= 0) resets the state to neutral and returns the plan untouched; reset() does the same...
+Completed tests in ClayGuard / inactive (GLAZE <= 0) resets the state to neutral and returns the plan untouched; reset() does the same
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / random scan: mono passes through (ADR-015), only lowers widthDb, passes lowCutHz / monoHz, state stays legal...
+  phase warning in 10955 blocks, lowered width in 6940
+Completed tests in ClayGuard / random scan: mono passes through (ADR-015), only lowers widthDb, passes lowCutHz / monoHz, state stays legal
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / trajectory is block-size independent within float rounding (17 .. 8192-sample and random blocks)...
+  grid, block 17: max |d floor| 0.00002185, |d hold| 0.00002213 s, |d mono| 0.00000000, |d width| 0.00005507 dB
+  grid, block 333: max |d floor| 0.00000024, |d hold| 0.00000000 s, |d mono| 0.00000000, |d width| 0.00000095 dB
+  grid, random 1..4096: max |d floor| 0.00000031, |d hold| 0.00000036 s, |d mono| 0.00000000, |d width| 0.00000012 dB
+  segment ends, block 2048: max |d floor| 0.00000158, |d hold| 0.00000167 s, |d mono| 0.00000000, |d width| 0.00000072 dB
+  segment ends, block 8192: max |d floor| 0.00000158, |d hold| 0.00000167 s, |d mono| 0.00000000, |d width| 0.00000054 dB
+  segment ends, random 1..8192 seed 0: max |d floor| 0.00000158, |d hold| 0.00000158 s, |d mono| 0.00000000, |d width| 0.00000054 dB
+  segment ends, random 1..8192 seed 1: max |d floor| 0.00000148, |d hold| 0.00000158 s, |d mono| 0.00000000, |d width| 0.00000060 dB
+  segment ends, random 1..8192 seed 2: max |d floor| 0.00000158, |d hold| 0.00000125 s, |d mono| 0.00000000, |d width| 0.00000054 dB
+Completed tests in ClayGuard / trajectory is block-size independent within float rounding (17 .. 8192-sample and random blocks)
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / setState clamps to the legal range, drops contradictory flags, restores legal values exactly and resumes bit-exactly...
+Completed tests in ClayGuard / setState clamps to the legal range, drops contradictory flags, restores legal values exactly and resumes bit-exactly
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / custom constants: threshold, fast gate, minimum duration, attack / hold / release and the correlation floor all take effect...
+Completed tests in ClayGuard / custom constants: threshold, fast gate, minimum duration, attack / hold / release and the correlation floor all take effect
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / legacy (all-zero) and non-finite constants: instant response, identical trajectories, always finite...
+Completed tests in ClayGuard / legacy (all-zero) and non-finite constants: instant response, identical trajectories, always finite
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / a default-constructed guard uses the factory constants, which are the spec's numbers...
+Completed tests in ClayGuard / a default-constructed guard uses the factory constants, which are the spec's numbers
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / Clay pressure monitor (ADR-014): smoothed peak excess above 0.2 dB for 1 s steps the scale down, with a 4 s cooldown...
+  first step after 3.190 s (analytic 3.197 s)
+Completed tests in ClayGuard / Clay pressure monitor (ADR-014): smoothed peak excess above 0.2 dB for 1 s steps the scale down, with a 4 s cooldown
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / scaleClayPlan (ADR-014): scales mono / width linearly and the low cut in the k domain, marking the cost bits...
+Completed tests in ClayGuard / scaleClayPlan (ADR-014): scales mono / width linearly and the low cut in the k domain, marking the cost bits
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / resolveClayParams: 27 tri-state combinations x GLAZE 0 / 50 x bypass; manual works at GLAZE 0, off is always neutral...
+Completed tests in ClayGuard / resolveClayParams: 27 tri-state combinations x GLAZE 0 / 50 x bypass; manual works at GLAZE 0, off is always neutral
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / resolveClayParams clamps to ClayModule ranges, keeps low cut 0 = off, maps non-finite to neutral and is pure...
+Completed tests in ClayGuard / resolveClayParams clamps to ClayModule ranges, keeps low cut 0 = off, maps non-finite to neutral and is pure
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / the guard only changes automatic items: manual and off modes ignore an engaged guard...
+Completed tests in ClayGuard / the guard only changes automatic items: manual and off modes ignore an engaged guard
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / construction, update, setConstants, setState, reset and resolveClayParams do not allocate...
+Completed tests in ClayGuard / construction, update, setConstants, setState, reset and resolveClayParams do not allocate
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / GLAZE 0: default drawer, all Off and Clay Bypass render bit-identically = the pre-Clay chain with a D-sample delay in Clay's slot...
+  Clay delay D = 1102 samples; chain latency 1384 = pre-Clay 282 + D
+  positive control (manual 30 Hz low cut at GLAZE 0): max sample difference 1.09578
+  default drawer at GLAZE 0: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase guard 0, width guard 0, needs relearn 0
+Completed tests in ClayGlaze / GLAZE 0: default drawer, all Off and Clay Bypass render bit-identically = the pre-Clay chain with a D-sample delay in Clay's slot
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / GLAZE 60 on stereo music with ~10 Hz infrasound, wide bass and narrow highs: low cut and width engaged, no automatic mono; all Off stays at zero...
+  profile: subShareDb -2.43 (valid 1, c 0.80), lowSideToMidDb -5.73 (valid 1, c 0.80), lowCorrelation 0.58 (valid 1, c 0.80), highSideToMidDb -24.99 (valid 1, c 0.80), highCorrelation 0.99 (valid 1, c 0.80), format 2
+  costs: lowCut -2.08 (valid 1, c 0.80), mono -0.52 (valid 1, c 0.80) @ 60 Hz, mono -0.63 (valid 1, c 0.80) @ 80 Hz, mono -0.63 (valid 1, c 0.80) @ 120 Hz, mono -0.64 (valid 1, c 0.80) @ 160 Hz, width 0.01 (valid 1, c 0.80)
+  automatic: low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.454 dB, phase guard 0, width guard 0, needs relearn 0 | handed to ClayModule: low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.454 dB
+  all Off: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase guard 0, width guard 0, needs relearn 0
+  40-125 Hz correlation: input 0.568, all Off 0.585, automatic 0.581
+  OUT true peak over the whole run: automatic -1.350 dBTP, all Off -1.350 dBTP (ceiling -1.0)
+Completed tests in ClayGlaze / GLAZE 60 on stereo music with ~10 Hz infrasound, wide bass and narrow highs: low cut and width engaged, no automatic mono; all Off stays at zero
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / v0.1.6.2 project (algorithm 6, profile format 1, no Clay fields): neutral Clay, relearn hint, calibration kept, equal to all Off...
+  donor (format-2 profile): low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.454 dB, phase guard 0, width guard 0, needs relearn 0
+  legacy restore, default drawer: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase guard 0, width guard 0, needs relearn 1 | low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB
+  after relearning: low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.530 dB, phase guard 0, width guard 0, needs relearn 0, profile format 2
+  old state, default drawer vs all Off: identical 1; manual 30 Hz control differs by 0.98249
+Completed tests in ClayGlaze / v0.1.6.2 project (algorithm 6, profile format 1, no Clay fields): neutral Clay, relearn hint, calibration kept, equal to all Off
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / anti-phase bass after learning: the warning lights within qualification + analysis lag, holds 2 s, fades over 2 s; mono never changes...
+  normal 40-125 Hz power 0.004167, anti-phase amplitude 0.4565 (power x25)
+  before the section: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase guard 0, width guard 0, needs relearn 0
+  warning lit after 213.3 ms (bound 290.7 ms), full level after 309.3 ms (bound 390.7 ms); off again at 6.78 s after the section start (section 2 s, bound 9.0 s); largest release step 0.00533 per block (bound 0.00543)
+  mono Off at the end: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB
+  all manual at the end: low cut 30.00 Hz, mono 1.000 below 150.0 Hz, width -1.500 dB
+Completed tests in ClayGlaze / anti-phase bass after learning: the warning lights within qualification + analysis lag, holds 2 s, fades over 2 s; mono never changes
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / manual 30 Hz low cut at GLAZE 0: exactly 30 Hz, the 15 Hz content drops ~24 dB, content above 200 Hz untouched...
+  below 20 Hz: manual cut vs default -22.54 dB (analytic 15 Hz: -24.1 dB); default vs input 0.000 dB; above 200 Hz: -0.0053 dB
+Completed tests in ClayGlaze / manual 30 Hz low cut at GLAZE 0: exactly 30 Hz, the 15 Hz content drops ~24 dB, content above 200 Hz untouched
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / Clay engaged: 64 / 1024 sample blocks x realtime / offline, 60 s each: identical per block size, 3 s windows within 0.02 LU...
+  60 s 64-vs-1024: max 3 s window delta 0.00005 LU, integrated delta 0.00002 LU (-16.60 LUFS); last Clay 64: low cut 16.78 Hz, mono 1.000 below 120.0 Hz, width 0.454 dB / 1024: low cut 16.78 Hz, mono 1.000 below 120.0 Hz, width 0.454 dB
+Completed tests in ClayGlaze / Clay engaged: 64 / 1024 sample blocks x realtime / offline, 60 s each: identical per block size, 3 s windows within 0.02 LU
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / execution snapshot during an active phase warning: first restored block hands ClayModule the same values; replay identical and the warning still fades...
+  saved while warning: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB at 0.416 s into the section
+  first restored block: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB
+  after the replay: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase guard 0, width guard 0, needs relearn 0 (plan value before the section 0.0000)
+Completed tests in ClayGlaze / execution snapshot during an active phase warning: first restored block hands ClayModule the same values; replay identical and the warning still fades
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / setHostInfo / setParams / process / getGlazeStatus never allocate while Clay works: modes, sweeps, bypass, protection, reset, restore...
+  paths: automatic Clay engaged 1894 blocks, manual 5442, off 5379, bypass 3889, phase protection 837
+Completed tests in ClayGlaze / setHostInfo / setParams / process / getGlazeStatus never allocate while Clay works: modes, sweeps, bypass, protection, reset, restore
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / clipped kick material: the tried low cut is vetoed by its peak cost; the chain's limiter GR stays within 0.3 dB of Clay off...
+  profile: subShareDb -24.73 (valid 1, c 0.80); costs: lowCut 4.67 (valid 1, c 0.80), mono -0.06 (valid 1, c 0.80) @ 60 Hz, mono -0.08 (valid 1, c 0.80) @ 80 Hz, mono -0.14 (valid 1, c 0.80) @ 120 Hz, mono -0.16 (valid 1, c 0.80) @ 160 Hz, width 0.00 (valid 1, c 0.80)
+  automatic: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.750 dB, phase guard 0, width guard 0, needs relearn 0, cost mask 1
+  limiter GR max over 6 s: automatic 2.044 dB, all Off 2.044 dB (input peak - ceiling: 1.434 / 1.434 dB)
+  GLAZE 0 / Limit Gain +2 dB: GR max off 3.416 dB, manual 20 Hz low cut 3.421 dB; peak guard engaged on 230242 samples, min g 0.000
+Completed tests in ClayGlaze / clipped kick material: the tried low cut is vetoed by its peak cost; the chain's limiter GR stays within 0.3 dB of Clay off
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase guard never triggers in 30 s...
+  [tonal bass + independent low noise, long-term rho 0.8] phase-guard events 0, lamp blocks 0, largest floor 0.000, long-term 40-125 Hz rho 0.819
+  [mono kick (120 BPM, -12 dBFS) + independent wide pad 60-150 Hz (-20 dBFS)] phase-guard events 0, lamp blocks 0, largest floor 0.000, long-term 40-125 Hz rho 0.889
+  [positive control: anti-phase bass] phase-guard events 1, lamp blocks 421, largest floor 1.000, long-term 40-125 Hz rho -1.000
+Completed tests in ClayGlaze / wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase guard never triggers in 30 s
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / whole low band inverted (equal power): the warning reaches full level within qualification + attack + analysis and smoothing lag...
+  whole low band inverted at a beat: warning at full level after 329.3 ms (bound 531.7 ms; spec 4(c) says 250 ms from the audio, which the 0.15 s + 0.1 s of 3.4 already use up from the moment the condition holds)
+Completed tests in ClayGlaze / whole low band inverted (equal power): the warning reaches full level within qualification + attack + analysis and smoothing lag
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / ~10 Hz infrasound under music: the tried low cut is cheap (cost <= 0), engaged, and does not raise the limiter's input peaks...
+  profile: subShareDb -1.88 (valid 1, c 0.80); costs: lowCut -0.96 (valid 1, c 0.80), mono -0.01 (valid 1, c 0.80) @ 60 Hz, mono -0.02 (valid 1, c 0.80) @ 80 Hz, mono -0.01 (valid 1, c 0.80) @ 120 Hz, mono 0.03 (valid 1, c 0.80) @ 160 Hz, width 0.15 (valid 1, c 0.80)
+  automatic: low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase guard 0, width guard 0, needs relearn 0, cost mask 0
+  over 6 s: limiter input peak - ceiling -inf dB with Clay, -0.126 dB all Off; raw GR max 0.000 / 1.085 dB
+Completed tests in ClayGlaze / ~10 Hz infrasound under music: the tried low cut is cheap (cost <= 0), engaged, and does not raise the limiter's input peaks
+-----------------------------------------------------------------
+Starting tests in: LegacyFixture / the v0.1.6.2 fixture XML parses...
+Completed tests in LegacyFixture / the v0.1.6.2 fixture XML parses
+-----------------------------------------------------------------
+Starting tests in: LegacyFixture / the v0.1.6.2 fixture reads back with the same profile id (format 1 hash unchanged)...
+Completed tests in LegacyFixture / the v0.1.6.2 fixture reads back with the same profile id (format 1 hash unchanged)
+-----------------------------------------------------------------
+Starting tests in: LegacyFixture / opening the v0.1.6.2 project: the 7 effective params are bit-exact for the first 20 blocks, Clay neutral...
+Completed tests in LegacyFixture / opening the v0.1.6.2 project: the 7 effective params are bit-exact for the first 20 blocks, Clay neutral
+-----------------------------------------------------------------
+Starting tests in: AnalyzerTap / inactive tap ignores pushes...
+Completed tests in AnalyzerTap / inactive tap ignores pushes
+-----------------------------------------------------------------
+Starting tests in: AnalyzerTap / stereo is summed to mono, mono passes through, streams stay separate...
+Completed tests in AnalyzerTap / stereo is summed to mono, mono passes through, streams stay separate
+-----------------------------------------------------------------
+Starting tests in: AnalyzerTap / samples come out in order across the ring boundary, in partial pulls...
+Completed tests in AnalyzerTap / samples come out in order across the ring boundary, in partial pulls
+-----------------------------------------------------------------
+Starting tests in: AnalyzerTap / a full FIFO drops new samples instead of blocking; discard empties it...
+Completed tests in AnalyzerTap / a full FIFO drops new samples instead of blocking; discard empties it
+-----------------------------------------------------------------
+Starting tests in: Localisation / every text key has one row in enum order, both languages present...
+Completed tests in Localisation / every text key has one row in enum order, both languages present
+-----------------------------------------------------------------
+Starting tests in: Localisation / key hints name this platform's keys (Mac: Command / Option; Windows and Linux: Ctrl / Alt)...
+Completed tests in Localisation / key hints name this platform's keys (Mac: Command / Option; Windows and Linux: Ctrl / Alt)
+-----------------------------------------------------------------
+Starting tests in: Localisation / placeholders are replaced in order...
+Completed tests in Localisation / placeholders are replaced in order
+-----------------------------------------------------------------
+Starting tests in: Localisation / language codes round-trip; unknown codes fall back to Chinese...
+Completed tests in Localisation / language codes round-trip; unknown codes fall back to Chinese
+-----------------------------------------------------------------
+Starting tests in: Localisation / typed numbers from Chinese IMEs are normalised to ASCII (full-width digits and commas, ideographic full stop, minus signs)...
+Completed tests in Localisation / typed numbers from Chinese IMEs are normalised to ASCII (full-width digits and commas, ideographic full stop, minus signs)
+-----------------------------------------------------------------
+Starting tests in: Localisation / typed values: IME text, decimal commas, thousands commas and ambiguous input...
+Completed tests in Localisation / typed values: IME text, decimal commas, thousands commas and ambiguous input
+-----------------------------------------------------------------
+Starting tests in: Localisation / every GLAZE status has an English text; segments rebuild the text...
+Completed tests in Localisation / every GLAZE status has an English text; segments rebuild the text
+-----------------------------------------------------------------
+Starting tests in: SpectrumAnalyser / a -6 dBFS 1 kHz sine reads -6 dB at 1 kHz @48000...
+  1 kHz reads -6.65 dB, 100 Hz -120.0 dB, 10 kHz -120.0 dB
+Completed tests in SpectrumAnalyser / a -6 dBFS 1 kHz sine reads -6 dB at 1 kHz @48000
+-----------------------------------------------------------------
+Starting tests in: SpectrumAnalyser / a -6 dBFS 1 kHz sine reads -6 dB at 1 kHz @96000...
+  1 kHz reads -6.65 dB, 100 Hz -120.0 dB, 10 kHz -120.0 dB
+Completed tests in SpectrumAnalyser / a -6 dBFS 1 kHz sine reads -6 dB at 1 kHz @96000
+-----------------------------------------------------------------
+Starting tests in: SpectrumAnalyser / restartOutput drops the previous signal's peak and average lines and leaves IN alone...
+  1 kHz peak line: -6.6 dB before, -46.6 dB after the restart
+Completed tests in SpectrumAnalyser / restartOutput drops the previous signal's peak and average lines and leaves IN alone
+-----------------------------------------------------------------
+Starting tests in: SpectrumAnalyser / frequency axis is 20 Hz to 20 kHz, logarithmic...
+Completed tests in SpectrumAnalyser / frequency axis is 20 Hz to 20 kHz, logarithmic
+
+==== celadon_tests: 132981 passed, 0 failed ====

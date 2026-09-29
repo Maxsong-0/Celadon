@@ -1,0 +1,24 @@
+==== R1: key without the constraint cap
+1359:            if (! manualConditionsKnown || ! samePlanningManual (m, manualConditionsInput)
+1360-                )
+Starting tests in: GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)...
+!!! Test 8 failed: the two constraint caps give different hashes, and going back gives the first one again
+  142 blocks checked through the probe, 142 through the published execution snapshot
+!!! Test 9 failed: the probe's hash equals the uncached recomputation. First: constraint cap 18.5 (probe) -- Expected value: 0, Actual value: 6
+!!! Test 10 failed: the published reference equals the uncached recomputation. First: constraint cap 18.5 (probe) -- Expected value: 0, Actual value: 6
+FAILED!!  3 tests failed, out of a total of 11
+==== celadon_tests: 2399 passed, 3 failed ====
+==== R2: key compares only the Clay settings
+1359:            if (! manualConditionsKnown || ! sameClaySettings (m.claySettings, manualConditionsInput.claySettings)
+1360-                || ! sameBits (feedbackMaxGainDb, manualConditionsFeedback))
+!!! Test 2 failed: a real release change invalidates the calibration
+!!! Test 4 failed: once the knob stops, the conditions are stable and a new round starts
+FAILED!!  2 tests failed, out of a total of 4
+Starting tests in: GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)...
+  142 blocks checked through the probe, 142 through the published execution snapshot
+!!! Test 9 failed: the probe's hash equals the uncached recomputation. First: balance recover (probe) -- Expected value: 0, Actual value: 80
+!!! Test 10 failed: the published reference equals the uncached recomputation. First: balance recover (probe) -- Expected value: 0, Actual value: 80
+FAILED!!  2 tests failed, out of a total of 11
+==== celadon_tests: 2398 passed, 4 failed ====
+==== restored and rebuilt
+3b94e6d567b9b64a9c25ac15a0d9cc044b4a47c6dab9b77afec6bfdb1c95374a  Celadon/Source/dsp/GlazeController.cpp
