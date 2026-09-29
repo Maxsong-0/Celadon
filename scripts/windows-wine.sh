@@ -6,6 +6,7 @@
 # 用法：scripts/windows-wine.sh plugin               # msbuild 编 Projucer 生成的 Celadon.sln（Release x64）：VST3 + Standalone
 #       scripts/windows-wine.sh test [--only 类名]   # CMake + Ninja + cl.exe 编 celadon_tests，在 Wine 里跑（参数原样传给测试程序）
 #       scripts/windows-wine.sh installer            # plugin + Inno Setup 安装包（installer/Celadon.iss）
+#       scripts/windows-wine.sh ui                   # cl.exe 编界面截图工具，在 Wine + Xvfb 里跑交互检查（tools/ui-snapshot --only check）
 #       scripts/windows-wine.sh fetch <本机目录>      # 把服务器上的 Celadon.vst3、Celadon.exe、安装包取回本机
 #       scripts/windows-wine.sh all                  # test + installer
 # 前置：① 改过 Celadon.jucer 就先在本机用 Projucer 9.0.2 重新生成（Projucer --resave Celadon.jucer）：Builds/VisualStudio2022
@@ -19,12 +20,12 @@ SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15)
 
 MODE="${1:-}"
 case "$MODE" in
-  plugin|test|installer|all) shift ;;
+  plugin|test|installer|all|ui) shift ;;
   fetch)
     [ "$#" -eq 2 ] || { echo "用法：scripts/windows-wine.sh fetch <本机目录>" >&2; exit 2; }
     ;;
   *)
-    sed -n '5,9p' "$0" >&2
+    sed -n '5,10p' "$0" >&2
     exit 2
     ;;
 esac
@@ -46,7 +47,7 @@ if [ "$MODE" = "fetch" ]; then
   exit 0
 fi
 
-if [ "$MODE" != "test" ]; then
+if [ "$MODE" != "test" ] && [ "$MODE" != "ui" ]; then
   VCXPROJ="$ROOT/Builds/VisualStudio2022/Celadon_SharedCode.vcxproj"
   if [ ! -f "$VCXPROJ" ]; then
     echo "没有 Builds/VisualStudio2022：先用 Projucer 9.0.2 重新生成（Projucer --resave Celadon.jucer）" >&2
@@ -103,15 +104,37 @@ flock 9
 export PATH="$MSVC/bin/x64:$PATH"
 export WINEDEBUG=-all
 
-run_tests() {
+configure_cmake() {
   # 静态运行库（/MT，与插件相同）：测试程序在 Wine 里不依赖 VC++ 运行库 DLL。
   if [ ! -f "$BUILD/build.ninja" ]; then
     CC=cl CXX=cl nice -n 10 cmake -S Celadon -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Windows \
       -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
   fi
+}
+
+run_tests() {
+  configure_cmake
   nice -n 10 cmake --build "$BUILD" --target celadon_tests
   # shellcheck disable=SC2086
   nice -n 10 wine64 "$BUILD/celadon_tests.exe" $CELADON_ARGS
+}
+
+run_ui_check() {
+  # 界面要真的建窗口、画出来：单独的 Wine 前缀（默认 X11 驱动，不用编译前缀里给 Inno 安装程序设的 null 驱动），借 Xvfb 当显示器。
+  # 截图工具会改写前缀里 %APPDATA%\Celadon 的界面设置，与编译前缀隔开。存下的检查截图在构建目录的 ui-check/ 里。
+  configure_cmake
+  nice -n 10 cmake --build "$BUILD" --target celadon_ui_snapshot
+  command -v xvfb-run >/dev/null || { echo "服务器上没有 xvfb-run：sudo apt install xvfb" >&2; return 1; }
+  mkdir -p "$BUILD/ui-check"
+  (
+    export WINEPREFIX="$HOME/.cache/celadon-win/prefix-ui-check" WINEDLLOVERRIDES="mscoree,mshtml="
+    if [ ! -f "$WINEPREFIX/system.reg" ]; then
+      xvfb-run -a wine64 wineboot -i
+      /usr/lib/x86_64-linux-gnu/wine/wineserver -w
+    fi
+    cd "$BUILD/ui-check"
+    nice -n 10 xvfb-run -a -s "-screen 0 1920x1080x24" wine64 "$BUILD/celadon_ui_snapshot.exe" --out . --only check
+  )
 }
 
 build_plugin() {
@@ -196,6 +219,7 @@ case "$CELADON_MODE" in
   plugin)    build_plugin ;;
   installer) build_plugin && build_installer ;;
   all)       run_tests && build_plugin && build_installer ;;
+  ui)        run_ui_check ;;
 esac
 REMOTE_SCRIPT
 status=$?

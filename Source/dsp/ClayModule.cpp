@@ -1005,9 +1005,9 @@ namespace celadon
         pressureBlocks = 0;
     }
 
-    void ClayModule::PeakGuard::process (const float* const* dry, float* const* io, int numChannels, int numSamples) noexcept
+    void ClayModule::PeakGuard::process (const float* const* dry, float* const* io, int callerChannels, int numSamples) noexcept
     {
-        if (juce::jmin (numChannels, channels) >= 2)
+        if (juce::jmin (callerChannels, channels) >= 2)
             processBlock<2> (dry, io, numSamples);
         else
             processBlock<1> (dry, io, numSamples);
