@@ -516,12 +516,33 @@ namespace celadon::glaze
         // 浮点项只容许表示误差（旋钮归一化来回一趟的舍入），任何真实改动都会超过它；NaN 与任何值都不一致。
         auto close = [] (float x, float y) { return std::abs (x - y) <= 1.0e-4f; };
 
+        // 对数刻度的三项（BUG-004，ADR-018）按相对差比：它们不吸附，重开工程的归一化往返会漂几个 ulp，反复存读最多约 1.2e-5
+        //（ParameterRanges.h）；显示精度是整数 ms / Hz，最小一格也有 1e-3。1e-4 离两边都有约 8 倍余量。相对差 = 归一化位置的差
+        //（对数刻度上处处等宽）。非有限值沿用旧口径哈希的记号：两边都非有限才算一致（NaN、±Inf 在哈希里是同一个记号）。
+        auto closeRelative = [] (float x, float y)
+        {
+            if (! std::isfinite (x) || ! std::isfinite (y))
+                return ! std::isfinite (x) && ! std::isfinite (y);
+
+            return std::abs (x - y) <= 1.0e-4f * juce::jmax (std::abs (x), std::abs (y));
+        };
+
+        // 手动参数：两份都是新口径 → 离散哈希 + 三项容差；有一份是旧存档（读回后没能升格，见 upgradeLegacyConditions）→ 只能
+        // 按旧口径哈希比（与修前相同）。新口径的参考同样带着旧口径哈希，所以混比也有意义。
+        const auto continuous = a.conditionsFormat == continuousConditionsFormat && b.conditionsFormat == continuousConditionsFormat;
+        const auto manualMatches = continuous
+            ? a.discreteParamsHash == b.discreteParamsHash
+                  && closeRelative (a.limitReleaseMs, b.limitReleaseMs)
+                  && closeRelative (a.clayLowCutHz, b.clayLowCutHz)
+                  && closeRelative (a.clayMonoHz, b.clayMonoHz)
+            : a.manualParamsHash == b.manualParamsHash;
+
         const auto rateTolerance = 1.0e-9 * juce::jmax (std::abs (a.sampleRate), std::abs (b.sampleRate));
 
         return a.profileId == b.profileId
             && a.style == b.style
             && close (a.glazePercent, b.glazePercent)
-            && a.manualParamsHash == b.manualParamsHash
+            && manualMatches
             && close (a.ceilingDb, b.ceilingDb)
             && close (a.lookaheadMs, b.lookaheadMs)
             && std::abs (a.sampleRate - b.sampleRate) <= rateTolerance;

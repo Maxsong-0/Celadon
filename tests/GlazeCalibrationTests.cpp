@@ -366,6 +366,7 @@ namespace celadon::test
             testCalibratorSilenceAndGuardPauses();
             testCalibratorOppositeSubWindows();
             testCalibratorReferenceMatching();
+            testCalibratorReferenceMatchingContinuousConditions();
             testCalibratorBadInputs();
             testCalibratorDoesNotAllocate();
             testCalibratorAndGuardDoNotFight();
@@ -1665,6 +1666,72 @@ namespace celadon::test
                 expect (! GlazeCalibrator::referenceMatches (base, other), change.first);
                 expect (! GlazeCalibrator::referenceMatches (other, base), change.first);
             }
+        }
+
+        // 27b（T-026，BUG-004）. 新口径的参考条件：两份都是新口径 → 离散哈希 + 三个对数刻度值按相对 1e-4 比，旧口径哈希不看
+        //     （往返漂移让它翻转也仍一致）；有一份是旧口径（旧存档读回、没能升格）→ 只比旧口径哈希。非有限值：两边都非有限才一致。
+        // 依据：BUG-004、ADR-018；ParameterRanges.h（往返漂移最多约 1.2e-5，显示精度最小一格 1e-3）。
+        void testCalibratorReferenceMatchingContinuousConditions()
+        {
+            beginTest ("calibrator: log-scale values compare within a relative 1e-4, the old exact hash only against legacy references");
+
+            glaze::CalibrationReference base;
+            base.profileId = 42;
+            base.style = glaze::Style::warm;
+            base.glazePercent = 60.0f;
+            base.ceilingDb = -1.0f;
+            base.lookaheadMs = 2.0f;
+            base.sampleRate = 48000.0;
+            base.conditionsFormat = glaze::continuousConditionsFormat;
+            base.manualParamsHash = 0xabcdu;
+            base.discreteParamsHash = 0x1234u;
+            base.limitReleaseMs = 300.0f;
+            base.clayLowCutHz = 0.0f;
+            base.clayMonoHz = 120.0f;
+
+            expect (GlazeCalibrator::referenceMatches (base, base));
+
+            auto drifted = base;
+            drifted.manualParamsHash = 0xabceu;                   // 旧口径哈希翻了（BUG-004 的现象）
+            drifted.limitReleaseMs = 300.0f * (1.0f + 5.0e-5f);   // 远大于往返漂移，仍在 1e-4 之内
+            drifted.clayMonoHz = std::nextafter (120.0f, 200.0f);
+            expect (GlazeCalibrator::referenceMatches (base, drifted) && GlazeCalibrator::referenceMatches (drifted, base),
+                    "drift within a relative 1e-4 and a flipped old hash are not a change");
+
+            const auto nan = std::numeric_limits<float>::quiet_NaN();
+            std::vector<std::pair<const char*, std::function<void (glaze::CalibrationReference&)>>> changes {
+                { "discrete",            [] (glaze::CalibrationReference& r) { r.discreteParamsHash += 1; } },
+                { "release +2e-4",       [] (glaze::CalibrationReference& r) { r.limitReleaseMs *= 1.0f + 2.0e-4f; } },
+                { "release one display step", [] (glaze::CalibrationReference& r) { r.limitReleaseMs += 1.0f; } },
+                { "low cut counted",     [] (glaze::CalibrationReference& r) { r.clayLowCutHz = 25.0f; } },
+                { "mono -2e-4",          [] (glaze::CalibrationReference& r) { r.clayMonoHz *= 1.0f - 2.0e-4f; } },
+                { "release NaN",         [nan] (glaze::CalibrationReference& r) { r.limitReleaseMs = nan; } },
+                { "legacy, other hash",  [] (glaze::CalibrationReference& r) { r.conditionsFormat = glaze::legacyConditionsFormat;
+                                                                               r.manualParamsHash += 1; } },
+            };
+
+            for (const auto& change : changes)
+            {
+                auto other = base;
+                change.second (other);
+                expect (! GlazeCalibrator::referenceMatches (base, other), change.first);
+                expect (! GlazeCalibrator::referenceMatches (other, base), change.first);
+            }
+
+            // 有一份是旧口径：只比旧口径哈希（新口径的项不看）。
+            auto legacy = base;
+            legacy.conditionsFormat = glaze::legacyConditionsFormat;
+            legacy.discreteParamsHash = 0;
+            legacy.limitReleaseMs = legacy.clayMonoHz = 0.0f;
+            expect (GlazeCalibrator::referenceMatches (base, legacy) && GlazeCalibrator::referenceMatches (legacy, base),
+                    "legacy against new: the same old hash matches");
+            expect (! GlazeCalibrator::referenceMatches (drifted, legacy), "legacy against new: a flipped old hash does not");
+
+            // 非有限值：两边都非有限才一致（沿用旧口径哈希里 NaN / ±Inf 同一记号的口径）。
+            auto nanA = base, nanB = base;
+            nanA.limitReleaseMs = nan;
+            nanB.limitReleaseMs = std::numeric_limits<float>::infinity();
+            expect (GlazeCalibrator::referenceMatches (nanA, nanB), "non-finite on both sides: the same condition");
         }
 
         // 28. 坏输入：目标不是有限值 → 立即结束、无效、偏差 0；出口子块出现 NaN（当作中断）→ 结果仍有限且有效；

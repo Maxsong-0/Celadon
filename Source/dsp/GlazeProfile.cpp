@@ -29,6 +29,9 @@
         格式 1 读入后同样清成「不知道」。computeProfileId 把它们接在格式 2 字段的最后（格式 1 的画像号仍与 v0.1.6.2 逐位相同）。
       - PLAN 多存 clayCostLimitedMask、EXECUTION 多存 liveClayCostLimitedMask（ClayPlan::costLimitedMask，十进制）：缺属性 = 0；
         属性在但不是 0 ～ 255 的整数照样拒收；执行快照另核对只含已定义的三位。
+    BUG-004（T-026，ADR-018）：CALIBRATION 与执行快照的 REFERENCE 按新口径另存 conditionsFormat="2"、discreteParamsHash 与
+      三个对数刻度值（limitReleaseMs、clayLowCutHz、clayMonoHz）；口径号为 2 时四项缺一即拒收，口径号不是 1 / 2 拒收。
+      旧口径的参考（旧存档读回、还没升格）一个新属性也不写，存出来与修前逐字相同；manualParamsHash 两种口径都写（旧口径哈希）。
 
   ==============================================================================
 */
@@ -167,6 +170,22 @@ namespace celadon::glaze
             v.field ("constantsVersion", plan.constantsVersion);
         }
 
+        // 校准参考条件的口径号（BUG-004，ADR-018）。旧口径（1）不写这个属性：旧存档读回来再存出去逐字不变，旧版本读到的也是
+        // 它认识的全部属性。读：缺属性 = 旧口径（v0.1.8.0 及以前的存档）；在但不是 1 / 2 → 整份拒收。
+        void visitConditionsFormat (xmlio::Writer& w, const std::uint8_t& format)
+        {
+            if (format != legacyConditionsFormat)
+                w.field ("conditionsFormat", format);
+        }
+
+        void visitConditionsFormat (xmlio::Reader& r, std::uint8_t& format)
+        {
+            r.optionalField ("conditionsFormat", format, legacyConditionsFormat);
+
+            if (format != legacyConditionsFormat && format != continuousConditionsFormat)
+                r.ok = false;
+        }
+
         template <typename Visitor, typename CalibrationT>
         void visitCalibration (Visitor& v, CalibrationT& c)
         {
@@ -182,6 +201,17 @@ namespace celadon::glaze
             v.field ("ceilingDb", c.reference.ceilingDb);
             v.field ("lookaheadMs", c.reference.lookaheadMs);
             v.field ("sampleRate", c.reference.sampleRate);
+
+            // BUG-004（ADR-018）：新口径的参考另存口径号与离散哈希、三个对数刻度值；四项同样严格（口径号为 2 时缺一个就整份拒收）。
+            visitConditionsFormat (v, c.reference.conditionsFormat);
+
+            if (c.reference.conditionsFormat == continuousConditionsFormat)
+            {
+                v.field ("discreteParamsHash", c.reference.discreteParamsHash);
+                v.field ("limitReleaseMs", c.reference.limitReleaseMs);
+                v.field ("clayLowCutHz", c.reference.clayLowCutHz);
+                v.field ("clayMonoHz", c.reference.clayMonoHz);
+            }
         }
 
         // 读一个整数属性：必须存在、是十进制整数、在 [minimum, maximum] 内。
@@ -531,6 +561,7 @@ namespace celadon::glaze
                                  inc.balanceRecover, inc.balanceTame, inc.colorToneDb, inc.colorGlue, inc.colorHeat,
                                  inc.limitGainDb, inc.limitClip, parsed.reference.glazePercent,
                                  parsed.reference.ceilingDb, parsed.reference.lookaheadMs,
+                                 parsed.reference.limitReleaseMs, parsed.reference.clayLowCutHz, parsed.reference.clayMonoHz,
                                  parsed.plan.requestedTargetLufs, parsed.plan.effectiveTargetLufs,
                                  parsed.plan.requestedGainDb, parsed.plan.effectiveGainDb, parsed.plan.estimatedExcessDb,
                                  weights.warm, weights.punchy, weights.clean,

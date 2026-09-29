@@ -48,6 +48,8 @@
     每次 1 s 过渡（「随学习逐步放开、秒级平滑」）。GLAZE ≤ 0 时一切过渡直接落到终点、校准偏差与保护偏移归零。
 
     校准：参考条件 = 画像号、风格、GLAZE、影响声音的手动参数与约束反馈上限（哈希）、Ceiling、Lookahead、采样率。
+    三个对数刻度的手动值（Limit Release、Clay 低切 / 收单分频点）不进精确哈希、另存值按相对容差比：它们不吸附，重开工程的
+    归一化往返会漂几个 ulp（BUG-004，ADR-018；setManualConditions）。
     已提交的校准只在条件与参考一致时施加（「适用」）；不适用就只用前馈（偏差按 1 dB/s 回到 0），条件连续 1 s 不变且没有
     过渡、不在 Listen / 旁通 / 离线时才开新一轮。轮中条件变了：本块起当前子窗作废、偏差保持；变回来就接着采（已完成的
     子窗保留），3 s 没变回来就放弃本轮、以新条件为底重来。
@@ -73,6 +75,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include <initializer_list>
 #include <memory>
 
 namespace celadon::glaze
@@ -187,7 +190,8 @@ namespace celadon::glaze
             float clayGuardSeconds = 0.0f;   // 上一块交给 ClayGuard 推进的有效音频秒数（静音 / 宿主旁通 / 停播块 = 0）
             bool clayAutomaticSupported = false; // 上一块的方案源支持自动 Clay（画像格式 ≥ 2、当前算法方案）
             bool clayRestoredFirstBlock = false; // 上一块直接用了执行快照里的 Clay 值（保存重开 / 宿主 reset 后第一块）
-            std::uint32_t manualParamsHash = 0;  // 按上一块手动参数算的校准参考条件哈希（含 Clay 三态设置）
+            std::uint32_t manualParamsHash = 0;  // 按上一块手动参数算的校准参考条件哈希（含 Clay 三态设置；旧口径，见 setManualConditions）
+            int legacyConditionsUpgrades = 0;    // 读取工程后旧存档参考升成新口径的份数（BUG-004，upgradeLegacyConditions）
             Feature liveLowCorrelation;          // 分析器实时视图的低频相关度慢路 / 快路（上一块交给 ClayGuard 的那一份；诊断追踪用）
             Feature liveLowCorrelationFast;
             float clayPressureScale = 1.0f;      // 修坯压力反馈给自动 Clay 的缩放（ADR-014；随工程保存）
@@ -229,4 +233,18 @@ namespace celadon::glaze
     //   - 对数混合的结果钳在两端之间（舍入不越过端点：端点在合法范围内，结果也就在）；
     //   - costLimitedMask（ADR-012，只给界面解释）过渡中（0 < t < 1）取目标方案 to 的；两端照上面的规则逐位原样（含各自的 mask）。
     ClayPlan blendClayPlans (const ClayPlan& from, const ClayPlan& to, float t, float lowCutFloorHz) noexcept;
+
+    // BUG-004（ADR-018）：校准参考条件里手动参数这一部分。纯函数、不分配（编排器每次算参考条件都用；公开给测试核对口径）。
+    // 填 reference 的 conditionsFormat（新口径）、manualParamsHash（旧口径哈希，逐位同 v0.1.8.0）、discreteParamsHash 与
+    // 三个对数刻度值（limitReleaseMs；clayLowCutHz / clayMonoHz 只在 Clay 非默认设置且该项「手动」时取旋钮值，否则 0），
+    // 其余项不动。feedbackMaxGainDb = 约束反馈上限（它也在哈希里）。
+    void setManualConditions (CalibrationReference& reference, const ChainParams& manual, float feedbackMaxGainDb) noexcept;
+
+    // 旧存档读回来的参考（conditionsFormat = legacyConditionsFormat，只有旧口径哈希）按此刻的手动参数升格：三个对数刻度值
+    // 各自前后 16 个 float 内可能取到的量化码逐组代进旧口径哈希，有一组等于参考的 manualParamsHash = 同一条件（只差往返漂移），
+    // 把它的手动参数部分换成 setManualConditions 算出的新口径；一组都不等 = 条件真的不同，原样保留（此后照旧只按旧口径哈希比，
+    // 与修前相同）。已是新口径的、空指针跳过。候选组合超过 1024（越界的坏值；范围内最多 693）就不升格。返回升格的份数。
+    // 纯函数、不分配；音频线程上只在读取工程后的第一块调一次（另在 prepare 沿用已听到的执行快照前对那份副本调）。
+    int upgradeLegacyConditions (std::initializer_list<CalibrationReference*> references, const ChainParams& manual,
+                                 float feedbackMaxGainDb) noexcept;
 }

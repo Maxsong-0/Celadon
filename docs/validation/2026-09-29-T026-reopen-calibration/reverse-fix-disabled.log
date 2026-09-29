@@ -1,0 +1,35 @@
+=== FIXED
+  round trip: 60000 positions x 8 trips, old exact hash flipped 54608 times; legacy upgrades checked 15000, real changes checked 60000
+==== celadon_tests: 3083 passed, 0 failed ====
+Celadon/Source/dsp/GlazeCalibrator.cpp:532:        const auto continuous = false;
+Celadon/Source/dsp/GlazeController.cpp:3109:        if (true || ! pending())
+=== MUTATED (fix disabled: compare the old exact hash, no legacy upgrade)
+!!! Test 2 failed: drift within a relative 1e-4 and a flipped old hash are not a change
+!!! Test 3 failed: discrete
+!!! Test 4 failed: discrete
+!!! Test 5 failed: release +2e-4
+!!! Test 6 failed: release +2e-4
+!!! Test 7 failed: release one display step
+!!! Test 8 failed: release one display step
+!!! Test 9 failed: low cut counted
+!!! Test 10 failed: low cut counted
+!!! Test 11 failed: mono -2e-4
+!!! Test 12 failed: mono -2e-4
+!!! Test 13 failed: release NaN
+!!! Test 14 failed: release NaN
+FAILED!!  13 tests failed, out of a total of 19
+  round trip: 60000 positions x 8 trips, old exact hash flipped 54608 times; legacy upgrades checked 15000, real changes checked 60000
+!!! Test 2 failed: the round trip never invalidates the reference. First: legacy upgrade after 1 trips failed -- Expected value: 0, Actual value: 54608
+!!! Test 4 failed: a legacy reference upgrades after one save and reopen. First: legacy upgrade after 1 trips failed -- Expected value: 0, Actual value: 15000
+FAILED!!  2 tests failed, out of a total of 6
+!!! Test 23 failed: new save: the committed calibration applies on the first block after reopening
+!!! Test 24 failed: new save: the execution snapshot is kept, not dropped
+!!! Test 27 failed: new save: still locked with the calibration applied two seconds later
+!!! Test 28 failed: new save: no recalibration was started -- Expected value: 0, Actual value: 1
+!!! Test 31 failed: v0.1.8.0 save: the committed calibration applies on the first block after reopening
+!!! Test 32 failed: v0.1.8.0 save: the execution snapshot is kept, not dropped
+!!! Test 34 failed: v0.1.8.0 save: legacy references upgraded (calibration, execution, held bias) -- Expected value: 3, Actual value: 0
+!!! Test 35 failed: v0.1.8.0 save: still locked with the calibration applied two seconds later
+!!! Test 36 failed: v0.1.8.0 save: no recalibration was started -- Expected value: 0, Actual value: 1
+FAILED!!  9 tests failed, out of a total of 38
+==== celadon_tests: 3059 passed, 24 failed ====

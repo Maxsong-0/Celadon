@@ -180,16 +180,30 @@ namespace celadon::glaze
         bool musicActive = false;         // 本块输入在有效信号门限之上（给「有效音乐」统计用）
     };
 
-    // 校准的参考条件：任一改变即失效（设计规格-GLAZE-决策与校准 第 6 节）。
+    // 校准参考条件里手动参数的口径（BUG-004，ADR-018）。
+    inline constexpr std::uint8_t legacyConditionsFormat = 1;       // 只有 manualParamsHash：v0.1.8.0 及以前的存档
+    inline constexpr std::uint8_t continuousConditionsFormat = 2;   // 另有离散哈希与三个对数刻度值，比较按新口径
+
+    // 校准的参考条件：任一改变即失效（设计规格-GLAZE-决策与校准 第 6 节）。比较见 GlazeCalibrator::referenceMatches，
+    // 手动参数这一部分由 setManualConditions（GlazeController.h）填。
     struct CalibrationReference
     {
         std::uint32_t profileId = 0;
         Style style = Style::automatic;
         float glazePercent = 0.0f;
-        std::uint32_t manualParamsHash = 0;   // 影响声音的手动参数（量化后）的哈希
+        // 影响声音的手动参数（量化到 1e-4 后）与约束反馈上限的哈希，旧口径：含下面三个对数刻度值，逐位同 v0.1.8.0。
+        // 新口径的两份参考比较时不看它（对数刻度值往返后漂几个 ulp，取整会在边界翻转）；有一份是旧存档时只能比它。
+        std::uint32_t manualParamsHash = 0;
         float ceilingDb = -1.0f;
         float lookaheadMs = 2.0f;
         double sampleRate = 0.0;
+
+        // ---- 新口径（conditionsFormat = continuousConditionsFormat）才有的项 ----
+        std::uint8_t conditionsFormat = legacyConditionsFormat;
+        std::uint32_t discreteParamsHash = 0; // 同 manualParamsHash，但不含下面三个对数刻度值
+        float limitReleaseMs = 0.0f;          // 三个对数刻度值（ParameterRanges.h）：按相对容差比
+        float clayLowCutHz = 0.0f;            // Clay 两项只在旧口径也计入时有值（Clay 非默认设置、该项「手动」），否则 0
+        float clayMonoHz = 0.0f;
     };
 
     struct Calibration

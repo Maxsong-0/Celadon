@@ -1,0 +1,12 @@
+=== FIXED
+  round trip: 60000 positions x 8 trips, old exact hash flipped 54608 times; legacy upgrades checked 15000, real changes checked 60000
+==== celadon_tests: 3223 passed, 0 failed ====
+2271-                    if (! referenceKnown || ! GlazeCalibrator::referenceMatches (user, previousUserConditions))
+2272-                    referenceStableSamples = 0;
+2273:                        previousUserConditions = user;
+2274-                    referenceKnown = true;
+2275-                    referenceManual = manual;
+=== MUTATED (rolling stability compare)
+!!! Test 3 failed: no calibration round starts while the knob keeps moving
+FAILED!!  1 test failed, out of a total of 4
+==== celadon_tests: 2390 passed, 1 failed ====

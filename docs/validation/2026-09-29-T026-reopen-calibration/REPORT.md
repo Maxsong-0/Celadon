@@ -1,0 +1,57 @@
+# T-026 · BUG-004 重开工程后 GLAZE 校准丢失 —— 验证记录（2026-09-29）
+
+档案：vault `项目/Celadon/06-BUG/BUG-004-对数刻度参数往返漂移导致重开后校准丢失.md`、`03-记忆/ADR-018-对数刻度参数按容差比不进精确哈希.md`、日志 `02-日志/2026-09-29.md`。
+所有编译与测试都在 107（GCC 15，Release）上跑，本机 Mac 没编译、没跑测试。
+
+## 1. 往返漂移实测（决定容差与邻域）
+
+`rt_drift.cpp`：照抄 `ParameterRanges.h` 的 `logRange` 与 JUCE `NormalisableRange` 的钳位，对区间内每个 float 做 to → from 往返 k 次，
+记最大漂移。109，`g++ -O2 -ffp-contract=off`。把 `k <= 8` 改成 200 即第二组数据。
+
+| 参数 | 两趟（一次保存重开）最大漂移 | 反复往返的最大漂移（到不动点） |
+|---|---|---|
+| Limit Release 10～1000 ms | 12 ulp | 17 ulp（相对 1.14e-6） |
+| Clay 低切 10～60 Hz | 4 ulp | 9 ulp（相对 8.0e-7） |
+| Clay 收单 40～300 Hz | 6 ulp | 124 ulp（相对 1.18e-5，约 100 趟后不再动） |
+
+→ 新口径容差取相对 1e-4；旧存档升格邻域取 ±16 ulp。
+
+## 2. 全套
+
+- 改前（`be87262`）：`suite-baseline-be87262.log`，**131126 过 / 0 败**，0 警告。
+- 改后（含评审修改）：`suite-after.log`，**131207 过 / 0 败**，0 警告（同时编 `celadon_render`，0 警告）。所测源码散列见 `source-sha256.txt`（与工作树 104 个文件逐个一致）。
+- 评审前的第一版（提交 `6cdfd51`）：131193 过 / 0 败，0 警告。
+
+## 3. 反向验证
+
+- `reverse-fix-disabled.log`：服务器副本里把 `referenceMatches` 改成只比旧口径哈希、`upgradeLegacyConditions` 直接返回 0（= 修前的比较）→
+  GlazeCalibration 27b 失败 13 项、T-026 用例 1 失败 2 项（往返 54608 次不一致、升格 15000 次失败）、用例 2 失败 9 项（重开后校准不适用、执行快照被丢、开了新一轮校准）。
+- `reverse-rolling-stability.log`：第一版的锚点方案下，把稳定计时改回逐块按容差比 → T-026 用例 3 失败（评审后稳定计时改成逐块精确比，见第 5 节）。
+- `reverse-review-fixes.log`（评审修改后）：去掉 `prepare()` 里对沿用副本的升格 → 用例 2「读档后立即同规格重建」旧格式那条失败；稳定计时只按容差比（去掉旧口径哈希那一行）→ 用例 3 两种扫描速度都失败。
+
+## 4. 其他检查
+
+- `Parameters.cpp`（不在测试目标里）与改过的 DSP 文件、`PluginProcessor.cpp`：107 上 GCC 与 clang 21 `-fsyntax-only`，插件宏与警告选项同 `scripts/check-syntax.sh`，另加 `-Wshorten-64-to-32`：0 错 0 警告。
+- 开销（`hashbench.cpp`，107，clang -O3）：旧 conditionsHash 约 104 ns / 次，新（两份哈希同一趟）约 120 ns / 次；参考条件每块算 2～3 次 → 192k / 32 约 +0.03 个百分点。
+- 最坏升格耗时（`upgradebench.cpp`，107，链接测试构建的目标文件，GCC -O2）：Release 990 ms、低切 58 Hz 与收单 290 Hz 都「手动」、旧参考对不上任何候选（不早退）：
+  平均 11.5 µs、最大约 28 µs（含抖动）。评审复刻的未缓存版本约 130～142 µs。
+
+## 5. 独立评审（2 个 Opus 5.5 · max，2026-09-29）与处理
+
+没有高 / 中严重度问题；5 条低严重度全部修了：
+
+1. `prepare()` 同规格重建沿用 `published.execution` 时，那份副本可能还是读进来的旧口径 → 比较前同样升格；新增用例（读档后立即同规格重建，新 / 旧格式）。
+2. 升格候选对越界输入没有上限 → 候选组合 > 1024 就不升格（范围内最多 693）；新增用例（1e7 ms / 1e8 Hz）。
+3. 稳定计时按容差对起点比，比 1e-4/s 还慢的扫描会被当成稳定 → 恢复修前的逐块精确比较（多比一次旧口径哈希），与修前等价；用例 3 加每块 5e-7 的慢速扫描。
+4. 最坏升格约 130 µs 压在读档那一块 → 手动参数输入串抽成 `emitConditions`，哈希与升格共用；升格按 FNV 前缀逐层代入候选码（见第 4 节耗时）。
+5. `ParameterRanges.h` 头注释「一趟往返」→ 改成两趟并写明路径。
+
+另加：用例 1 检查旧存档参考不会被手动参数的一次真改动「升格」成一致。
+
+## 6. 合并 main（b951d20，含 T-025 与 v0.1.9.0）之后
+
+- 唯一冲突在 `GlazeController.cpp`：v0.1.9.0 在旧 `conditionsHash` 末尾加的高级母带段搬进 `emitConditions` 末尾、全走 `sink.word`（这些值存读逐位不变，不走容差）；
+  `WordRecorder` 容量 32 → 64。测试里照抄的修前哈希补上这一段，往返随机测试也随机开启这几项。
+- 107（GCC 15）：`suite-merged-main-linux.log`，**132969 过 / 0 败**，0 警告（含 `celadon_render`）。
+- 109（真 MSVC VS2022 v143 + Wine，`scripts/windows-wine.sh test`）：`suite-merged-main-msvc-wine.log`，**132969 过 / 0 败**，0 条 MSVC 警告。
+  UCRT 的 powf / logf 与 glibc 不同（往返测试里旧口径哈希翻转 55443 次，glibc 55394 次），参考条件照样全部一致。
