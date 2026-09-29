@@ -36,9 +36,10 @@ REMOTE=".cache/celadon-win/$(basename "$ROOT")-$KEY"
 if [ "$MODE" = "fetch" ]; then
   DEST="$2"
   mkdir -p "$DEST"
+  # 远端路径经远端 shell 再拆一次词：「Standalone Plugin」的空格要转义（macOS 的 openrsync 没有 --protect-args）。
   rsync -a -e "${SSH[*]}" \
     "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/VST3/Celadon.vst3" \
-    "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/Standalone Plugin/Celadon.exe" \
+    "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/Standalone\\ Plugin/Celadon.exe" \
     "$DEST/"
   rsync -a -e "${SSH[*]}" "$HOST:$REMOTE/Celadon/installer/Output/" "$DEST/" 2>/dev/null || true
   ls -la "$DEST"
