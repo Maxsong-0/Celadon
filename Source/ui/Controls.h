@@ -154,7 +154,7 @@ namespace celadon::ui
     };
 
     //==============================================================================
-    // 模块卡片里的小旋钮（72 × 84）：名字（上）+ 46 px 旋钮 + 数值（下，GLAZE 的自动加量紫色接在后面）。
+    // 模块卡片里的小旋钮（72 × 100）：名字（上）+ 54 px 旋钮 + 数值（下，GLAZE 的自动加量紫色接在后面）。
     class ParamKnob  : public ParameterControl
     {
     public:
@@ -177,7 +177,7 @@ namespace celadon::ui
         void mouseUp (const juce::MouseEvent&) override;
 
         static constexpr int width = 72;
-        static constexpr int height = 84;
+        static constexpr int height = 100;
 
     protected:
         juce::Point<float> getBubbleAnchor() const override;
@@ -197,7 +197,7 @@ namespace celadon::ui
     };
 
     //==============================================================================
-    // 卡片下半部分的行滑条（246 × 18）：名字 70 px + 轨道 + 数值 52 px（+ 可选的小胶囊，如释放的 AUTO）。
+    // 卡片下半部分的行滑条（246 × 24）：名字 70 px + 轨道 + 数值 60 px（+ 可选的小胶囊，如释放的 AUTO）。
     class ParamSlider  : public ParameterControl
     {
     public:
@@ -207,6 +207,7 @@ namespace celadon::ui
 
         // 右边留给小胶囊的宽度（0 = 没有）；胶囊本身是另一个组件，由卡片摆放。
         void setTrailingSpace (int pixels);
+        void setValueWidth (int pixels);
 
         // 变暗（例如 AUTO 释放打开时，手动的 Release 不起作用）：照样能拖。
         void setDimmed (bool shouldBeDimmed);
@@ -217,7 +218,7 @@ namespace celadon::ui
         void mouseUp (const juce::MouseEvent&) override;
 
         static constexpr int nameWidth = 70;
-        static constexpr int valueWidth = 52;
+        static constexpr int valueWidth = 60;
         static constexpr int gap = 8;
 
     protected:
@@ -231,6 +232,7 @@ namespace celadon::ui
         bool bipolar = false;
         bool dimmed = false;
         int trailingSpace = 0;
+        int valueAreaWidth = valueWidth;
         juce::String name;
         float lastDragX = 0.0f;
         bool fineDrag = false;

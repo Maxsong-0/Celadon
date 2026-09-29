@@ -14,6 +14,7 @@
 #include "../Source/ui/GlazeStatusText.h"
 #include "../Source/ui/Localisation.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace celadon::test
@@ -71,6 +72,27 @@ namespace celadon::test
                 }
             }
 
+            beginTest ("key hints name this platform's keys (Mac: Command / Option; Windows and Linux: Ctrl / Alt)");
+            {
+                // 精调看 isCommandDown()（Mac 的 ⌘、别处的 Ctrl），输入看 Alt（Mac 键盘上印 Option）：提示只写本平台的键。
+                const juce::String command = juce::String::charToString ((juce::juce_wchar) 0x2318);
+
+                for (const auto language : { Language::chinese, Language::english })
+                {
+                    const auto fine = ui::tr (Text::hintDrag, language) + " " + ui::tr (Text::helpFine, language);
+                    const auto type = ui::tr (Text::hintClick, language) + " " + ui::tr (Text::helpType, language);
+                    const auto label = juce::String (language == Language::english ? "en" : "zh") + ": " + fine + " | " + type;
+
+                   #if JUCE_MAC
+                    expect (fine.contains (command) && ! fine.contains ("Ctrl"), label);
+                    expect (type.contains ("Option") && ! type.contains ("Alt"), label);
+                   #else
+                    expect (fine.contains ("Ctrl") && ! fine.contains (command), label);
+                    expect (type.contains ("Alt") && ! type.contains ("Option"), label);
+                   #endif
+                }
+            }
+
             beginTest ("placeholders are replaced in order");
             {
                 expectEquals (ui::trFormat (Text::screenSize, Language::english, { "2560", "1440" }),
@@ -87,6 +109,68 @@ namespace celadon::test
                 expect (languageFromCode ("EN") == Language::english);
                 expect (languageFromCode ("fr") == Language::chinese);
                 expect (languageFromCode ("") == Language::chinese);
+            }
+
+            beginTest ("typed numbers from Chinese IMEs are normalised to ASCII (full-width digits and commas, ideographic full stop, minus signs)");
+            {
+                using ui::normaliseTypedNumber;
+                expectEquals (normaliseTypedNumber (utf8 ("3\xe3\x80\x82" "5")), juce::String ("3.5"));                       // 3。5
+                expectEquals (normaliseTypedNumber (utf8 ("\xef\xbc\x91\xef\xbc\x92\xef\xbc\x8e\xef\xbc\x95")),         // １２．５
+                              juce::String ("12.5"));
+                expectEquals (normaliseTypedNumber (utf8 ("\xef\xbc\x8d" "3")), juce::String ("-3"));                          // －3
+                expectEquals (normaliseTypedNumber (utf8 ("\xe2\x88\x92" "1.0 dB")), juce::String ("-1.0 dB"));               // −1.0 dB
+                expectEquals (normaliseTypedNumber (utf8 ("\xef\xbc\x8b" "6")), juce::String ("+6"));                          // ＋6
+                expectEquals (normaliseTypedNumber (utf8 ("1\xef\xbc\x8c" "000")), juce::String ("1,000"));                    // 1，000
+                expectEquals (normaliseTypedNumber ("25 Hz"), juce::String ("25 Hz"), "ASCII passes through unchanged");
+            }
+
+            beginTest ("typed values: IME text, decimal commas, thousands commas and ambiguous input");
+            {
+                using ui::parseTypedNumber;
+
+                const auto expectValue = [this] (const juce::String& text, double expected)
+                {
+                    const auto parsed = parseTypedNumber (text);
+                    expect (parsed.has_value() && std::abs (*parsed - expected) < 1.0e-9,
+                            "\"" + text + "\" -> " + (parsed.has_value() ? juce::String (*parsed) : juce::String ("nothing")) + ", expected " + juce::String (expected));
+                };
+                const auto expectNothing = [this] (const juce::String& text)
+                {
+                    const auto parsed = parseTypedNumber (text);
+                    expect (! parsed.has_value(), "\"" + text + "\" should be rejected, got " + (parsed.has_value() ? juce::String (*parsed) : juce::String()));
+                };
+
+                expectValue ("60", 60.0);
+                expectValue ("+6", 6.0);
+                expectValue (".5", 0.5);
+                expectValue ("-1.0 dB", -1.0);
+                expectValue ("50%", 50.0);
+                expectValue (utf8 ("3\xe3\x80\x82" "5"), 3.5);                                         // 3。5
+                expectValue (utf8 ("\xef\xbc\x91\xef\xbc\x92\xef\xbc\x8e\xef\xbc\x95 dB"), 12.5);         // １２．５ dB
+                expectValue (utf8 ("\xe2\x88\x92" "0.3 dB"), -0.3);                                     // −0.3 dB
+
+                // 小数逗号（德、法、俄……）
+                expectValue ("1,5", 1.5);
+                expectValue ("-0,3", -0.3);
+                expectValue ("0,125", 0.125);
+                expectValue ("2,25 ms", 2.25);
+                expectValue (utf8 ("\xe2\x88\x92" "1,5 dB"), -1.5);                                     // −1,5 dB
+
+                // 千位逗号（英文）
+                expectValue ("1,000 ms", 1000.0);
+                expectValue (utf8 ("1\xef\xbc\x8c" "000"), 1000.0);                                     // 1，000
+                expectValue ("12,345,678", 12345678.0);
+
+                // 说不清的：不改参数
+                expectNothing ("");
+                expectNothing ("dB");
+                expectNothing ("-");
+                expectNothing ("3.5.1");
+                expectNothing ("1.000,5");
+                expectNothing ("1,000.5");
+                expectNothing ("1,5,0");
+                expectNothing ("3-5");
+                expectNothing ("5-");
             }
 
             beginTest ("every GLAZE status has an English text; segments rebuild the text");

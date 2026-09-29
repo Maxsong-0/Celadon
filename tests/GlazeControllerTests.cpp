@@ -630,9 +630,9 @@ namespace celadon::test
             };
         }
 
-        // v0.1.8.0（修 BUG-004 之前）编排器的 conditionsHash 原样照抄（含 Clay 三态那一段）：新口径的参考里仍存这个旧口径哈希，
-        // 它必须与旧版本逐位相同——旧存档里的参考、旧版本读新存档，比的都是它。
-        std::uint32_t v0180ManualParamsHash (const ChainParams& m, float feedbackMaxGainDb) noexcept
+        // 修 BUG-004 之前编排器的 conditionsHash 原样照抄（v0.1.8.0 的 Clay 三态段 + v0.1.9.0 的高级母带段；main b951d20）：
+        // 新口径的参考里仍存这个旧口径哈希，它必须与旧版本逐位相同——旧存档里的参考、旧版本读新存档，比的都是它。
+        std::uint32_t preFixManualParamsHash (const ChainParams& m, float feedbackMaxGainDb) noexcept
         {
             struct Fnv1a
             {
@@ -700,6 +700,22 @@ namespace celadon::test
                 addClayItem (h, clay.monoMode, clay.monoHz, q);
                 addClayItem (h, clay.widthMode, clay.widthDb, q);
                 h.addFlag (clay.bypass);
+            }
+
+            const auto& advanced = m.balance;
+            if (advanced.harshAmount > 0.0f || advanced.targetAmount > 0.0f)
+            {
+                h.add (0x4d617374ULL);
+                h.addQuantized (advanced.harshAmount, q);
+                if (advanced.harshAmount > 0.0f) h.addQuantized (advanced.transientPreserve, q);
+                h.addQuantized (advanced.targetAmount, q);
+                if (advanced.targetAmount > 0.0f)
+                {
+                    h.addFlag (advanced.hasTargetReference);
+                    if (advanced.hasTargetReference)
+                        for (const auto value : advanced.targetReferenceDb) h.addQuantized (value, q);
+                    else h.addQuantized (advanced.targetSlopeDbPerOct, q);
+                }
             }
 
             return h.h;
@@ -3948,7 +3964,7 @@ namespace celadon::test
         // T-026 1. 真参数范围上的往返（BUG-004）：随机归一化位置（Clay 三态、各开关也随机）→ 按 JUCE RangedAudioParameter 的换算
         //    往返 1 ～ 8 趟（一次保存重开 = 两趟），参考条件必须一直一致；旧口径哈希在其中一部分位置上确实会翻转（修前丢校准的就是它们）。
         //    旧口径的参考（旧存档读回）按一次重开后的值升格，必须升上去、升完一致。任一计入的旋钮挪一个显示步进，必须不一致。
-        //    参考里存的旧口径哈希必须与 v0.1.8.0 的实现（照抄）逐位相同（含 Clay 三态随机的各种设置）。
+        //    参考里存的旧口径哈希必须与修前的实现（照抄）逐位相同（含 Clay 三态、高级母带各项随机的各种设置）。
         // 依据：BUG-004；ParameterRanges.h（往返漂移实测）；决策第 6 节「参考条件任一改变即失效」。
         void testReferenceSurvivesParameterRoundTrip()
         {
@@ -3986,14 +4002,27 @@ namespace celadon::test
                 p.claySettings.widthMode = (ClayMode) random.nextInt (3);
                 p.claySettings.bypass = random.nextInt (8) == 0;
 
+                // v0.1.9.0 高级母带（链按参数与 GLAZE 算好的实际值交给编排器；不是往返的对象，重开前后不变）：一半的位置开着。
+                if (random.nextBool())
+                {
+                    p.balance.harshAmount = random.nextBool() ? 0.0f : random.nextFloat();
+                    p.balance.transientPreserve = random.nextFloat();
+                    p.balance.targetAmount = random.nextBool() ? 0.0f : random.nextFloat();
+                    p.balance.hasTargetReference = random.nextBool();
+                    p.balance.targetSlopeDbPerOct = random.nextBool() ? -0.75f : -1.5f;
+
+                    for (auto& value : p.balance.targetReferenceDb)
+                        value = -60.0f * random.nextFloat();
+                }
+
                 // 约束反馈上限不是参数（随存档逐位保存）：不限，或某个随机的有限值。
                 const auto cap = random.nextBool() ? 1.0e9f : random.nextFloat() * 12.0f;
                 const auto saved = referenceFor (p, cap);
 
-                if (saved.manualParamsHash != v0180ManualParamsHash (p, cap))
+                if (saved.manualParamsHash != preFixManualParamsHash (p, cap))
                 {
                     ++oldHashDifferences;
-                    noteFailure (firstOldHash, "the old-format hash differs from v0.1.8.0 at iteration " + juce::String (iteration));
+                    noteFailure (firstOldHash, "the old-format hash differs from the pre-fix implementation at iteration " + juce::String (iteration));
                 }
 
                 auto reopened = p;
@@ -4094,7 +4123,7 @@ namespace celadon::test
                         + juce::String (legacyFlips) + " times; legacy upgrades checked " + juce::String (upgradeChecks)
                         + ", real changes checked " + juce::String (changeChecks));
 
-            expectEquals (oldHashDifferences, 0, "manualParamsHash is still v0.1.8.0's hash, bit for bit. First: " + firstOldHash);
+            expectEquals (oldHashDifferences, 0, "manualParamsHash is still the pre-fix hash (v0.1.8.0 / v0.1.9.0), bit for bit. First: " + firstOldHash);
             expectEquals (roundTripMismatches, 0, "the round trip never invalidates the reference. First: " + firstRoundTrip);
             expect (legacyFlips > 0, "the old exact hash does flip on some of these positions (the scenario of BUG-004 is exercised)");
             expectEquals (upgradeFailures, 0, "a legacy reference upgrades after one save and reopen. First: " + firstUpgrade);

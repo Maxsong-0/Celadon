@@ -18,6 +18,7 @@
 #include <juce_core/juce_core.h>
 
 #include <initializer_list>
+#include <optional>
 
 namespace celadon
 {
@@ -72,6 +73,11 @@ namespace celadon::ui
 
         // ---- 高级面板 ----
         advancedClay, advancedClayNote, comingSoon, subprojectLoudNotHarsh, subprojectTargetSpectrum, subprojectReleaseSafety,
+        advancedSubtitle, harshNote, harshStrength, transientPreserve, harshReduction, harshAutoNote, harshOffNote, harshManualNote,
+        targetNote, targetWarm, targetNeutral, targetBright, targetReference, targetStrength, targetCurveTitle,
+        referenceLearn, referenceCancel, referenceClear, referenceIdle, referenceWaiting, referenceLearning, referenceReady, referenceRouting,
+        codecMargin, codecNote, ditherLabel, ditherNote, previewLevel, previewStart, previewStop, previewNote, previewAttenuation,
+        releasePreview, returnToMaster, advancedFooter, lowBand, midBand, highBand,
 
         // ---- 设置面板 ----
         windowSize, screenSize, tooBig, sizeNote, reduceMotion, reduceMotionNote, language,
@@ -90,6 +96,18 @@ namespace celadon::ui
 
     // 带占位符的文字：把 {0}、{1}……依次换成 arguments。
     juce::String trFormat (Text key, Language language, std::initializer_list<juce::String> arguments);
+
+    // 直接输入数值（Alt 单击）时用户敲的文字规整成半角：中文输入法在中文标点 / 全角模式下「.」出「。」「．」、数字出「１２」、
+    // 负号出「－」、逗号出「，」，不换回来的话「3。5」会被当成「35」（Gain 直接顶到上限）。全角数字、全角 / 中文句号、全角逗号、
+    // 各种减号与全角加号换成 ASCII，其余原样（单位、空格由解析时再去掉）。Windows 与 macOS 的中文输入法都会这样，界面与测试共用。
+    juce::String normaliseTypedNumber (const juce::String& text);
+
+    // 直接输入的数值：先 normaliseTypedNumber，再只看数字、正负号、小数点与逗号（单位、空格都不管）。
+    //   - 没有数字、正负号不在最前、两个小数点：说不清是什么数，返回空（不改参数）；
+    //   - 逗号：德、法、俄等地区拿它当小数点（「1,5」= 1.5、「-0,3」= −0.3），英文里是千位分隔（「1,000」= 1000，Release 能到
+    //     1000 ms）。第一段是不以 0 开头的一到三位数、每个逗号后面正好三位数字时当千位分隔；否则只有一个逗号时当小数点；
+    //     其余（包括逗号与小数点混用的「1.000,5」「1,000.5」）返回空。
+    std::optional<double> parseTypedNumber (const juce::String& text);
 
     // 只给测试：表里每一行的两种语言原文（UTF-8 字节）。
     struct TextEntry

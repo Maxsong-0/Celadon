@@ -16,6 +16,8 @@
 #include <JuceHeader.h>
 
 #include "Controls.h"
+#include "MiddleLayer.h"
+#include "../dsp/MasteringFeatures.h"
 
 namespace celadon::ui
 {
@@ -105,28 +107,52 @@ namespace celadon::ui
     };
 
     //==============================================================================
-    // 「高级」面板（顶栏最右的「高级」打开）：母带四个子项目里只有修坯做好了——它的三态与手动值在下方 CLAY 卡片上，这里写明；
-    // 推响不刺 / 目标频谱 / 发行安全还在设计中，按 ADR-005 只写名字与「即将推出」、名字灰显 35 %，不先承诺功能
-    //（与 v0.1.7 抽屉的后三列同一个规矩）。
+    // 高级设置逐页展开；参数使用同一 APVTS，学习与预听由编辑器转交处理器。
     class AdvancedPanel  : public PopoverCard
     {
     public:
-        AdvancedPanel();
+        AdvancedPanel (juce::AudioProcessorValueTreeState&, InteractionHost&);
 
-        static constexpr int cardWidth = 324;
+        static constexpr int cardWidth = 680;
 
         void setLanguage (Language newLanguage);
+        void setStatus (const celadon::MasteringStatus& newStatus);
         int getCardHeight() const noexcept   { return cardHeight; }
 
+        std::function<void()> onLearnReference, onCancelReference, onClearReference;
+        std::function<void (bool)> onPreviewChange;
+
         void paint (juce::Graphics&) override;
+        void resized() override;
         void mouseUp (const juce::MouseEvent&) override;
 
     private:
-        void layoutText();
+        class TargetCurve : public juce::Component, public juce::SettableTooltipClient
+        {
+        public:
+            void setValues (const std::array<float, 27>& newValues);
+            void setLanguage (Language newLanguage) { language = newLanguage; repaint(); }
+            void paint (juce::Graphics&) override;
+
+        private:
+            std::array<float, 27> values {};
+            Language language = Language::chinese;
+        };
+
+        void refreshControls();
+        juce::String referenceStatusText() const;
 
         Language language = Language::chinese;
-        juce::TextLayout clayNote;
-        int cardHeight = 240;
+        celadon::MasteringStatus status;
+        static constexpr int cardHeight = 440;
+        int page = 0;
+        Segmented tabs { Segmented::Look::groove };
+        Segmented harshMode { Segmented::Look::bordered }, targetMode { Segmented::Look::bordered }, dither { Segmented::Look::groove };
+        ParamSlider harshAmount, transientPreserve, targetAmount, codecMargin, previewLufs;
+        TargetCurve targetCurve;
+        PillButton learn { PillButton::Icon::relearn }, cancel { PillButton::Icon::relearn }, clear { PillButton::Icon::relearn };
+        PillButton preview { PillButton::Icon::match };
+        std::unique_ptr<SegmentedAttachment> harshAttachment, targetAttachment, ditherAttachment;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AdvancedPanel)
     };

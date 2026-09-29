@@ -26,6 +26,8 @@ namespace celadon::param
     inline constexpr int kParamVersionGlazeStyle = 6;
     inline constexpr int kParamVersionClay       = 7;   // v0.1.7.0 修坯 Clay（已发布最大值 6 + 1）
 
+    inline constexpr int kParamVersionMastering = 8;
+
     // ---- Limit（v0.1）----
     inline constexpr const char* limitGain        = "limit_gain";
     inline constexpr const char* limitCeiling     = "limit_ceiling";
@@ -65,6 +67,15 @@ namespace celadon::param
     inline constexpr const char* clayWidthDb    = "clay_width_db";     // −3 ～ +3 dB，默认 0
     inline constexpr const char* clayBypass     = "clay_bypass";
 
+    inline constexpr const char* masterHarshMode = "master_harsh_mode";
+    inline constexpr const char* masterHarshAmount = "master_harsh_amount";
+    inline constexpr const char* masterTransient = "master_transient";
+    inline constexpr const char* masterTargetMode = "master_target_mode";
+    inline constexpr const char* masterTargetAmount = "master_target_amount";
+    inline constexpr const char* masterCodecMarginDb = "master_codec_margin_db";
+    inline constexpr const char* masterDither = "master_dither";
+    inline constexpr const char* masterPreviewLufs = "master_preview_lufs";
+
     // 已发布的全部参数（测试与 Debug 版构造检查据此确认每个参数都有提示文案）。加参数时同步加在这里。
     inline constexpr const char* allParameterIds[] =
     {
@@ -72,7 +83,8 @@ namespace celadon::param
         colorTone, colorGlue, colorHeat, colorMix, colorOutput, colorBypass,
         balanceRecover, balanceTame, balanceBrighten, balanceSpeed, balanceBypass,
         glazeAmount, glazeStyle,
-        clayLowCutMode, clayLowCutHz, clayMonoMode, clayMonoHz, clayWidthMode, clayWidthDb, clayBypass
+        clayLowCutMode, clayLowCutHz, clayMonoMode, clayMonoHz, clayWidthMode, clayWidthDb, clayBypass,
+        masterHarshMode, masterHarshAmount, masterTransient, masterTargetMode, masterTargetAmount, masterCodecMarginDb, masterDither, masterPreviewLufs
     };
 }
 
@@ -95,6 +107,13 @@ namespace celadon::uiid
     inline constexpr const char* advanced      = "ui_advanced";
     inline constexpr const char* limitAudition = "ui_limit_audition"; // v0.1.8.0：LIMIT 卡片的耳机「试听差值」（界面状态，不是参数）
 
+    inline constexpr const char* masterTabs = "adv_tabs";
+    inline constexpr const char* masterPreview = "adv_preview";
+    inline constexpr const char* masterLearn = "adv_learn";
+    inline constexpr const char* masterCancel = "adv_cancel";
+    inline constexpr const char* masterClear = "adv_clear";
+    inline constexpr const char* masterCurve = "adv_curve";
+
     // 界面缩放比例存在 APVTS 状态树的这个属性里（不是参数，不进自动化；随工程保存）。
     // uiScale 是 v0.1.7 及以前 900 × 560 画布的比例（不再读，留着只为说明旧工程里的这个属性）；
     // v0.1.8.0 起用 uiZoom：1200 × 820 画布的比例（0.7 ～ 2.0）。旧工程没有 uiZoom，按用户设置里的默认大小打开。
@@ -104,6 +123,7 @@ namespace celadon::uiid
     inline constexpr const char* allUiIds[] =
     {
         meterIn, meterOut, meterGr, integrated, shortTerm, resetMeters, glueGr, balanceCurve, glazeRelearn, glazeStatus,
-        clayIndicator, advanced, limitAudition
+        clayIndicator, advanced, limitAudition,
+        masterTabs, masterPreview, masterLearn, masterCancel, masterClear, masterCurve
     };
 }

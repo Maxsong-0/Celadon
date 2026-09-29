@@ -4,8 +4,8 @@
     ParticleField.h
     中层（频谱仪与模块卡片之间、主旋钮两侧）的粒子流（V4 设计稿）：
 
-      - 左边 22 条流线从画面边缘汇向旋钮左侧的边缘，右边 22 条从旋钮右侧流向画面边缘——声音从左边流进 GLAZE、从右边流出；
-      - 每边最多 200 个粒子沿流线移动（约 15 % 是模糊的大颗粒），数量 = 200 × GLAZE^0.8：GLAZE 越大越密；
+      - 左边 14 条流线从画面边缘汇向旋钮左侧的边缘，右边 14 条从旋钮右侧流向画面边缘——声音从左边流进 GLAZE、从右边流出；
+      - 每边最多 100 个粒子沿流线移动（约 15 % 是模糊的大颗粒），数量 = 100 × GLAZE^0.8：GLAZE 越大越密；
       - 速度与亮度跟着输出电平（最近一帧的 RMS）走，停止播放时平滑减速到停；听原声（B）时变慢、变暗；
       - 旋钮外一圈圈扩散的波纹与柔光，强度也跟 GLAZE；
       - 「减少动效」：粒子与波纹都关掉，只留静止的流线与柔光。
@@ -31,9 +31,9 @@ namespace celadon::ui
         ParticleField();
         ~ParticleField() override;
 
-        // 画布上的位置：这一条带（主旋钮所在的中层）。粒子的坐标按 1200 × 820 画布算。
-        static constexpr int top = 322;
-        static constexpr int bandHeight = 284;
+        // 画布上的位置：这一条带（主旋钮所在的中层）。粒子的坐标按 1100 × 820 画布算。
+        static constexpr int top = 300;
+        static constexpr int bandHeight = 260;
 
         void setGlaze (float proportion);
         void setAudio (float rmsDb, bool playing);
@@ -74,7 +74,7 @@ namespace celadon::ui
         std::array<std::vector<Particle>, 2> particles;
         juce::Path leftCurves, rightCurves;
 
-        juce::Image lineImage;                          // 44 条流线的缓存（按物理像素）
+        juce::Image lineImage;                          // 28 条流线的缓存（按物理像素）
         float lineImageScale = 0.0f;
 
         float glaze = 0.35f;

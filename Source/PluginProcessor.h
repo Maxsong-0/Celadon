@@ -116,13 +116,36 @@ public:
     // A / B 对比：true = 正在听 B（原声）。链按宿主旁通同一条干路出声（延迟补偿、20 ms 交叉淡化、校准暂停），
     // Listen 打开时两边等响（见 CeladonChain::setParams）。只是界面状态，不是参数：不进自动化、不随工程保存；
     // 编辑器关闭时切回 A，免得窗口关了还在听原声。
-    void setCompareOriginal (bool shouldListenToOriginal) noexcept { compareOriginal.store (shouldListenToOriginal, std::memory_order_relaxed); }
+    void setCompareOriginal (bool shouldListenToOriginal) noexcept
+    {
+        if (shouldListenToOriginal) chain.setReleasePreviewEnabled (false);
+        compareOriginal.store (shouldListenToOriginal, std::memory_order_relaxed);
+    }
     bool isComparingOriginal() const noexcept                      { return compareOriginal.load (std::memory_order_relaxed); }
 
     // 试听差值（LIMIT 卡片的耳机）：true = 送出去的是限幅器削掉的部分（按推响前的电平），表、响度、GLAZE 照常按母带算；
     // 听原声、宿主旁通或 LIMIT 旁通时不生效（见 CeladonChain::setParams）。与 A / B 一样只是界面状态、不存，编辑器关闭时关掉。
-    void setAuditionDifference (bool shouldAudition) noexcept      { auditionDifference.store (shouldAudition, std::memory_order_relaxed); }
+    void setAuditionDifference (bool shouldAudition) noexcept
+    {
+        if (shouldAudition) chain.setReleasePreviewEnabled (false);
+        auditionDifference.store (shouldAudition, std::memory_order_relaxed);
+    }
     bool isAuditioningDifference() const noexcept                  { return auditionDifference.load (std::memory_order_relaxed); }
+
+    void setReleasePreviewEnabled (bool enabled) noexcept
+    {
+        if (enabled)
+        {
+            compareOriginal.store (false, std::memory_order_relaxed);
+            auditionDifference.store (false, std::memory_order_relaxed);
+        }
+        chain.setReleasePreviewEnabled (enabled);
+    }
+    bool isReleasePreviewEnabled() const noexcept { return chain.isReleasePreviewEnabled(); }
+    void requestReferenceLearn() noexcept { chain.requestReferenceLearn(); }
+    void cancelReferenceLearn() noexcept { chain.cancelReferenceLearn(); }
+    void clearReference() noexcept { chain.clearReference(); }
+    celadon::MasteringStatus getMasteringStatus() const noexcept { return chain.getMasteringStatus(); }
 
     // Listen 测到的「处理结果 − 原声」响度差（dB），见 CeladonChain::getListenDifferenceDb。
     bool hasListenDifference() const noexcept                      { return chain.hasListenDifference(); }
@@ -153,6 +176,7 @@ private:
     // 读入的状态树里缺哪个参数（旧版本存的状态），就补一个只带 id 的节点，让它回到默认值。
     void addMissingParameterNodes (juce::ValueTree& newState) const;
     void processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed);
+    void processBuses (juce::AudioBuffer<float>& buffer, bool hostBypassed);
 
     // 宿主时间线：播放位置、是否在播、循环（PPQ 按当前速度折成样本）、离线渲染。拿不到的项 has* = false。音频线程调。
     celadon::glaze::HostInfo readHostInfo() const noexcept;
@@ -249,6 +273,18 @@ private:
         std::atomic<float>* widthDb = nullptr;
         std::atomic<float>* bypass = nullptr;
     };
+
+    struct MasteringParameterPointers
+    {
+        std::atomic<float>* harshMode = nullptr;
+        std::atomic<float>* harshAmount = nullptr;
+        std::atomic<float>* transient = nullptr;
+        std::atomic<float>* targetMode = nullptr;
+        std::atomic<float>* targetAmount = nullptr;
+        std::atomic<float>* codecMarginDb = nullptr;
+        std::atomic<float>* dither = nullptr;
+        std::atomic<float>* previewLufs = nullptr;
+    } masteringParams;
 
     LimitParameterPointers limitParams;
     ColorParameterPointers colorParams;

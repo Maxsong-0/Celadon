@@ -2,8 +2,8 @@
   ==============================================================================
 
     ModuleCards.h
-    下半部分的四张模块卡片（V4 设计稿 274 × 202），按信号处理顺序从左到右：
-    01 CLAY 声像 → 02 BALANCE 动态均衡 → 03 COLOR 音色 → 04 LIMIT 限幅。
+    下半部分的四张模块卡片（274 × 248），按信号处理顺序从左到右：
+    01 BALANCE 动态均衡 → 02 CLAY 声像 → 03 COLOR 音色 → 04 LIMIT 限幅。
 
       - 卡片头：序号、名字、一句话说明、（右边）备注与电源键（旁通；旁通时卡片内容变淡）；
       - 旋钮与滑条的手感见 Controls.h；紫色 = GLAZE 此刻的自动加量（弧 + 小圆点 + 数值后的「+13」）；
@@ -38,7 +38,7 @@ namespace celadon::ui
                     juce::String number, juce::String title);
 
         static constexpr int width = 274;
-        static constexpr int height = 202;
+        static constexpr int height = 248;
 
         virtual void setLanguage (Language newLanguage);
 
@@ -57,7 +57,7 @@ namespace celadon::ui
         void addContent (juce::Component& component);
         void updateBypassLook();
 
-        // 卡片头电源键左边的一个 22 × 22 小键（LIMIT 的耳机）：说明文字与备注让出它的位置。
+        // 卡片头电源键左边的一个 28 × 28 小键（LIMIT 的耳机）：说明文字与备注让出它的位置。
         void setHeaderAccessory (juce::Component& accessory);
 
         juce::AudioProcessorValueTreeState& state;
@@ -154,7 +154,7 @@ namespace celadon::ui
         void layoutContent() override;
 
     private:
-        juce::Rectangle<float> graphBounds() const   { return { 14.0f, 40.0f, 246.0f, 30.0f }; }
+        juce::Rectangle<float> graphBounds() const   { return { 14.0f, 44.0f, 246.0f, 36.0f }; }
 
         BalanceModule::BandGains shownGains {};
         Segmented speed { Segmented::Look::groove };

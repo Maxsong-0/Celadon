@@ -464,6 +464,7 @@ namespace celadon::test
             testIdleSkippingWithSpecialValues();
             testHeatReenableAfterLongIdle();
             testStereoMatchesMono();
+            testPackedStereoMatchesScalar();
             testNoAllocationsOnAudioPath();
             testPerformanceRegression();
         }
@@ -2216,6 +2217,43 @@ namespace celadon::test
                 const auto label = "block " + juce::String (blockSize);
                 expectEquals ((int) countBitDifferences (Signal { stereoOut[0] }, monoOut), 0, "left vs mono, " + label);
                 expectEquals ((int) countBitDifferences (Signal { stereoOut[1] }, monoOut), 0, "right vs mono, " + label);
+            }
+        }
+
+        // 左右不同的立体声（makeMusicLike 两个声道各自的噪声与声像）：打包的 Tone 搁架、侧链高通、Glue 分频（AArch64 的
+        // NEON、x64 的 SSE2）与 setPackedStereoForTesting (false) 的逐声道标量双二阶比，输出每个样本逐位相同。
+        // 上一个测试 L = R，查不出两条通道读错、写反这类错误；这里左右不同，参数表同上（Tone、Glue、Heat 都走一遍）。
+        void testPackedStereoMatchesScalar()
+        {
+            beginTest ("stereo with L != R: packed stereo biquads (NEON / SSE2) are bit-identical to per-channel scalar biquads");
+
+            constexpr double sampleRate = 48000.0;
+            const auto input = makeMusicLike (sampleRate, 2.0);
+
+            const Schedule everything = [] (double t)
+            {
+                if (t < 0.4) return glaze100Params();
+                if (t < 0.8) return makeParams (2.0f, 70.0f, 0.0f, 80.0f, 2.0f);
+                if (t < 1.2) return neutralParams();
+                if (t < 1.6) return makeParams (-2.0f, 0.0f, 60.0f, 100.0f, -1.0f);
+                return makeParams (3.0f, 100.0f, 100.0f, 50.0f, 0.0f);
+            };
+
+            expect (countBitDifferences (Signal { input[0] }, Signal { input[1] }) > (long) input[0].size() / 2, "channels must differ");
+
+            for (auto blockSize : { 512, 17 })
+            {
+                ColorModule packed, scalar;
+                prepareColor (packed, sampleRate, everything (0.0));
+                prepareColor (scalar, sampleRate, everything (0.0));
+                scalar.setPackedStereoForTesting (false);
+
+                const auto packedOut = runColorScheduled (packed, input, sampleRate, blockSize, everything);
+                const auto scalarOut = runColorScheduled (scalar, input, sampleRate, blockSize, everything);
+
+                const auto label = "block " + juce::String (blockSize);
+                expect (countBitDifferences (packedOut, input) > 0, "processing must change the signal, " + label);
+                expectEquals ((int) countBitDifferences (packedOut, scalarOut), 0, "packed vs scalar, " + label);
             }
         }
 

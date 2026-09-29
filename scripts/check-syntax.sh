@@ -5,6 +5,7 @@
 # 用法：scripts/check-syntax.sh                      # 查 Source/ 下全部 .cpp
 #       scripts/check-syntax.sh Source/ui/Knob.cpp     # 只查指定文件（可多个）
 # 通过标准：每个文件 exit=0，且没有 Source/ 下文件的 warning / error。
+# macOS 上每个文件查两遍（-arch arm64、-arch x86_64）：Intel Mac 那一半走 SSE2 分支，也要用 Apple 的工具链查到。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 KEY="$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-12)"
@@ -43,24 +44,33 @@ else
   FILES=("$@")
 fi
 
+# 其他系统（Linux 上的 clang）不认 -arch：只按本机架构查一遍。
+ARCHS=("")
+if [ "$(uname -s)" = "Darwin" ]; then
+  ARCHS=(arm64 x86_64)
+fi
+
 status=0
 for f in "${FILES[@]}"; do
-  code=0
-  out="$(nice -n 10 clang++ -std=c++17 -fsyntax-only "${DEFS[@]}" \
-          -include JuceLibraryCode/JucePluginDefines.h -I JuceLibraryCode -isystem ../JUCE/modules \
-          -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -Woverloaded-virtual "$f" 2>&1)" || code=$?
-  own="$(printf '%s\n' "$out" | grep -E "(error|warning)" | grep -v "JUCE/modules" || true)"
-  if [ "$code" -ne 0 ]; then
-    # clang 非零退出一律算失败，哪怕错误行都在 JUCE 里（多半是我们的用法触发了 JUCE 头文件里的错误）。
-    echo "FAIL $f (clang exit $code)"
-    printf '%s\n' "$out" | grep -E "(error|warning)" | head -40
-    status=1
-  elif [ -n "$own" ]; then
-    echo "== $f"
-    printf '%s\n' "$own" | head -40
-    status=1
-  else
-    echo "OK $f"
-  fi
+  for arch in "${ARCHS[@]}"; do
+    label="$f${arch:+ [$arch]}"
+    code=0
+    out="$(nice -n 10 clang++ ${arch:+-arch "$arch"} -std=c++17 -fsyntax-only "${DEFS[@]}" \
+            -include JuceLibraryCode/JucePluginDefines.h -I JuceLibraryCode -isystem ../JUCE/modules \
+            -Wall -Wextra -Wshadow -Wconversion -Wno-sign-conversion -Woverloaded-virtual "$f" 2>&1)" || code=$?
+    own="$(printf '%s\n' "$out" | grep -E "(error|warning)" | grep -v "JUCE/modules" || true)"
+    if [ "$code" -ne 0 ]; then
+      # clang 非零退出一律算失败，哪怕错误行都在 JUCE 里（多半是我们的用法触发了 JUCE 头文件里的错误）。
+      echo "FAIL $label (clang exit $code)"
+      printf '%s\n' "$out" | grep -E "(error|warning)" | head -40
+      status=1
+    elif [ -n "$own" ]; then
+      echo "== $label"
+      printf '%s\n' "$own" | head -40
+      status=1
+    else
+      echo "OK $label"
+    fi
+  done
 done
 exit "$status"

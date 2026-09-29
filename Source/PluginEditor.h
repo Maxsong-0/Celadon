@@ -6,7 +6,7 @@
 
       上层：左 IN 表 · 正中频谱仪（带响度小窗）· 右 OUT / GR 表；
       中层：GLAZE 主旋钮在正中，两侧粒子流；下面一排 风格 · 重新聆听 | A / B · 等响；
-      下层：按处理顺序的四张卡片 CLAY → BALANCE → COLOR → LIMIT。
+      下层：按处理顺序的四张卡片 BALANCE → CLAY → COLOR → LIMIT。
 
     画布（Canvas）是一个固定 1200 × 820 的子组件，编辑器按窗口大小给它一个缩放变换——所有文字与矢量在任何比例下都清晰，
     位图（背景、瓷面、流线）按当次绘制的物理像素比生成。窗口大小随工程存一份（uiZoom），另记为新窗口的默认大小（UiSettings）。
@@ -69,6 +69,7 @@ public:
     // A / B 的 B（听原声）与 LIMIT 的试听差值互斥：打开一个就关掉另一个；LIMIT 旁通时不能试听差值。
     void setListeningToOriginal (bool listenToOriginal);
     void setAuditioningDifference (bool shouldAudition);
+    void setReleasePreviewEnabled (bool enabled);
     void showSettings (bool shouldShow);
     void showHelp (bool shouldShow);
     void showAdvanced (bool shouldShow);
@@ -92,6 +93,8 @@ private:
     void restartOutputSpectrum();
     void applyStoredZoom();
     double readStoredZoom() const;
+    double fitZoomToScreen (double zoom) const;
+    const juce::Displays::Display* currentDisplay() const;
     void storeZoom (double zoom);
     void resetMeters();
 
@@ -117,6 +120,7 @@ private:
     double nonFiniteWarningUntilMs = 0.0;
     int lastNonFiniteBlocks = 0;
     bool writingZoom = false;
+    bool fittingZoomToScreen = false;              // applyStoredZoom 为放进屏幕缩小窗口时：resized 不写回
     const juce::Identifier uiZoomId { celadon::uiid::uiZoomProperty };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CeladonAudioProcessorEditor)

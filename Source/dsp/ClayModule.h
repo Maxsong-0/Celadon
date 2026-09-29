@@ -227,9 +227,9 @@ namespace celadon
             void reset() noexcept;
 
             // 送进一段样本（核心输出时刻，段长 ≤ 64）：dry[c] = 干路（输入延迟 D），io[c] 进 = ①～③ 与旁通淡化之后、
-            // 出 = 各自 G 个样本之前那个样本的守护后输出。numChannels = 调用方的声道数（1 或 2），不超过 prepare 的声道数时
-            // 按它处理（立体声模块偶尔收到单声道缓冲也不越界）。
-            void process (const float* const* dry, float* const* io, int numChannels, int numSamples) noexcept;
+            // 出 = 各自 G 个样本之前那个样本的守护后输出。callerChannels = 调用方的声道数（1 或 2），不超过 prepare 的声道数时
+            // 按它处理（立体声模块偶尔收到单声道缓冲也不越界）。不叫 numChannels：外层 ClayModule 有同名成员（clang -Wshadow）。
+            void process (const float* const* dry, float* const* io, int callerChannels, int numSamples) noexcept;
 
             // 前瞻环（最近 G + 1 个样本）里还有「处理后 ≠ 干路」（逐位）的样本：它们还要再输出出去（isPassThrough 用）。
             bool hasProcessedInRing() const noexcept   { return lastProcessed >= sampleCount - ringLength; }

@@ -1388,7 +1388,7 @@ namespace celadon::glaze
         //   - LRA 测到了就照用（它只会压低目标，本来就是保守的一侧），没测到按参考值（不修正）。
         ctx.inputLufs = clampTo (measuredInputLufs + (1.0f - loudnessTrust) * nonNegative (defaultInputLufs - measuredInputLufs), -70.0f, 0.0f);
         ctx.truePeakDb = clampTo (valueOr (profile, &MusicProfile::truePeakDbtp, ctx.inputLufs + nonNegative (c.unlearnedPlrDb)), -70.0f, 12.0f);
-        ctx.ceilingDb = isFinite (manual.limit.ceilingDb) ? clampTo (manual.limit.ceilingDb, -3.0f, 0.0f)
+        ctx.ceilingDb = isFinite (manual.limit.ceilingDb) ? clampTo (manual.limit.ceilingDb, -4.5f, 0.0f)
                                                           : clampTo (c.ceilingForEstimateDb, -3.0f, 0.0f);
         ctx.detectorDb = ctx.inputLufs + c.glueDetectorOffsetDb;
         ctx.mix = isFinite (manual.color.mixPercent) ? clamp01 (manual.color.mixPercent * 0.01f) : 1.0f;

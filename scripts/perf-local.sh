@@ -8,6 +8,8 @@
 #            （模式 场景 采样率列表 块长列表 空跑秒 每遍秒 遍数；模式另有 modules / parts / gui / ecore）
 # 读数口径：单个性能核、单线程、先空跑再测、多遍取最短；输出前后各打印一次供电状态——
 #           电池 + 低电量模式下同一程序约慢 1.45 倍，验收门槛按接电源定。
+# 架构：默认本机硬件（Apple Silicon → arm64，Intel Mac → x86_64）。CELADON_PERF_ARCH=x86_64 在 Apple Silicon 上编 x86_64 版、
+#       经 Rosetta 跑——只能粗看 Intel 那一半的开销，不能当 Intel 真机的验收读数；ecore 模式在 Intel 上没有意义（没有能效核）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 KEY="$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-12)"
@@ -20,7 +22,8 @@ FLAVOUR="${1:-XcodeRelease}"
 if [ "$#" -eq 0 ]; then
   set -- grid all 44100,48000,96000,192000 32,64,512 2 4 3
 fi
-BUILD="${CELADON_PERF_BUILD_DIR:-$TMP_ROOT/celadon-perf-$FLAVOUR-$KEY}"
+ARCH="${CELADON_PERF_ARCH:-}"
+BUILD="${CELADON_PERF_BUILD_DIR:-$TMP_ROOT/celadon-perf-$FLAVOUR${ARCH:+-$ARCH}-$KEY}"
 
 LOCK="$TMP_ROOT/celadon-test-$KEY.lock"
 until mkdir "$LOCK" 2>/dev/null; do
@@ -39,10 +42,10 @@ while pgrep -x xcodebuild >/dev/null || pgrep -x cargo >/dev/null || pgrep -x ni
 done
 
 if [ ! -f "$BUILD/build.ninja" ]; then
-  nice -n 10 cmake -S "$ROOT/tools/perf" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=None -DFLAVOUR="$FLAVOUR"
+  nice -n 10 cmake -S "$ROOT/tools/perf" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=None -DFLAVOUR="$FLAVOUR" -DCELADON_PERF_ARCH="$ARCH"
 fi
 nice -n 10 cmake --build "$BUILD" --target celadon_bench -j 4
 
 "$ROOT/tools/perf/power.sh"
-"$BUILD/celadon_bench" "$@"
+${ARCH:+arch -$ARCH} "$BUILD/celadon_bench" "$@"
 "$ROOT/tools/perf/power.sh"

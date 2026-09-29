@@ -185,9 +185,21 @@ namespace celadon::glaze
         // 决策器会读到的手动值是否逐位相同（glazePercent / glazeStyle 另算）。浮点按位比，布尔与枚举按值比。
         // v0.1.7.0 起并入 Clay 的三态设置：决策器算 Plan::clay 本身不看它（自动值只随画像、风格、GLAZE、标定快照定），但校准参考
         // 条件看（manualParamsHash），beginBlock 靠这里判断「参考条件的输入变了没有」；三态一变多算一次方案无害（同输入同输出）。
+        bool sameAdvancedBalance (const BalanceModule::Params& a, const BalanceModule::Params& b) noexcept
+        {
+            if (! sameBits (a.harshAmount, b.harshAmount) || ! sameBits (a.targetAmount, b.targetAmount)) return false;
+            if (a.harshAmount > 0.0f && ! sameBits (a.transientPreserve, b.transientPreserve)) return false;
+            if (a.targetAmount > 0.0f)
+            {
+                if (a.hasTargetReference != b.hasTargetReference || ! sameBits (a.targetSlopeDbPerOct, b.targetSlopeDbPerOct)) return false;
+                if (a.hasTargetReference && a.targetReferenceDb != b.targetReferenceDb) return false;
+            }
+            return true;
+        }
+
         bool samePlanningManual (const ChainParams& a, const ChainParams& b) noexcept
         {
-            return sameClaySettings (a.claySettings, b.claySettings)
+            return sameAdvancedBalance (a.balance, b.balance) && sameClaySettings (a.claySettings, b.claySettings)
                 && sameBits (a.balance.recover, b.balance.recover) && sameBits (a.balance.tame, b.balance.tame)
                 && sameBits (a.balance.brighten, b.balance.brighten) && a.balance.speed == b.balance.speed
                 && a.balance.bypass == b.balance.bypass
@@ -309,6 +321,31 @@ namespace celadon::glaze
 
                 flag (clay.bypass);
             }
+
+            // v0.1.9.0 高级母带控制（去刺耳 / 频谱目标，Codex a2927c8）：只在开着时加（默认关，哈希与 v0.1.8.0 相同）。这些值存读工程
+            // 逐位不变（0.1 步进的线性参数乘 GLAZE、常数斜率、参考频谱按可往返的十进制存），两份哈希都进，不走容差。
+            const auto& advanced = m.balance;
+
+            if (advanced.harshAmount > 0.0f || advanced.targetAmount > 0.0f)
+            {
+                sink.word (0x4d617374ULL);   // 「Mast」四个字母
+                quantized (advanced.harshAmount);
+                if (advanced.harshAmount > 0.0f)
+                    quantized (advanced.transientPreserve);
+
+                quantized (advanced.targetAmount);
+
+                if (advanced.targetAmount > 0.0f)
+                {
+                    flag (advanced.hasTargetReference);
+
+                    if (advanced.hasTargetReference)
+                        for (const auto value : advanced.targetReferenceDb)
+                            quantized (value);
+                    else
+                        quantized (advanced.targetSlopeDbPerOct);
+                }
+            }
         }
 
         // 两份哈希：对数刻度值只进旧口径。
@@ -320,10 +357,11 @@ namespace celadon::glaze
             void continuous (float value) noexcept        { legacy.add (quantizedCode (value, manualQuantum)); }
         };
 
-        // 旧口径的输入串：最多 26 个字（Clay 段全开时），三个槽各占一格（位置记在 slotAt，值记在 slotValue）。
+        // 旧口径的输入串：最多 57 个字（Clay 段全开 25 个，再加高级母带段 32 个：参考频谱 27 格），三个槽各占一格（位置记在 slotAt，
+        // 值记在 slotValue）。
         struct WordRecorder
         {
-            static constexpr int maxWords = 32;
+            static constexpr int maxWords = 64;
             static constexpr int maxSlots = 3;
 
             std::array<std::uint64_t, maxWords> words {};

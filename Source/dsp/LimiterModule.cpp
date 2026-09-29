@@ -13,6 +13,12 @@
 #include <cmath>
 #include <cstdint>
 
+// MSVC：VS2022（v143）的 /fp:precise 默认不融合乘加；更早的工具集（v142）配 /arch:AVX2 时 /fp:precise 下仍可能融合，
+// 这里写死关掉（ADR-013：各路径逐位相同的前提）。clang-cl 不认这个 pragma，由 /clang:-ffp-contract=off 与源码守卫管。
+#if defined (_MSC_VER) && ! defined (__clang__)
+ #pragma fp_contract (off)
+#endif
+
 // v0.6 每块统计里 Clip 削波活动的只读扫描（4× 域，每块数千个样本）按 4 路并行做；非 ARM / x86 平台走标量回退。
 // 三条路径是同一组比较与取大，结果逐位相同（计数是整数；取大忽略 NaN）。CELADON_FORCE_SCALAR_SIMD 只给验证用。
 #if ! defined (CELADON_FORCE_SCALAR_SIMD) && defined (__ARM_NEON) && defined (__aarch64__)
@@ -508,7 +514,10 @@ namespace celadon
                     // 干路 × 同样延迟过的 Gain = 当初送进 Clip 级的样本（逐位相同）；减去湿路、除以 Gain 回到推响前的电平。
                     // 旁通时本级没有削掉任何东西、淡入保持段里没有输出：差值跟着交叉淡化与淡入归零。
                     const auto gain = delayedGainScratch[(size_t) i];
-                    const auto removed = gain > minimumDifferenceGain ? (dry * gain - out) / gain : 0.0f;
+                    // Match the separately rounded multiply used before Clip. A fused multiply-subtract
+                    // keeps sub-ULP product bits and would create a residual even when out is identical.
+                    const float gainedDry = dry * gain;
+                    const auto removed = gain > minimumDifferenceGain ? (gainedDry - out) / gain : 0.0f;
                     differenceChannels[ch][startSample + i] = juce::jlimit (-differenceCeiling, differenceCeiling, removed)
                                                               * (1.0f - bypassMix) * fade;
                 }

@@ -10,6 +10,12 @@
 
 #include <cmath>
 
+// MSVC：VS2022（v143）的 /fp:precise 默认不融合乘加；更早的工具集（v142）配 /arch:AVX2 时 /fp:precise 下仍可能融合，
+// 这里写死关掉（ADR-013：各路径逐位相同的前提）。clang-cl 不认这个 pragma，由 /clang:-ffp-contract=off 与源码守卫管。
+#if defined (_MSC_VER) && ! defined (__clang__)
+ #pragma fp_contract (off)
+#endif
+
 namespace celadon
 {
     namespace

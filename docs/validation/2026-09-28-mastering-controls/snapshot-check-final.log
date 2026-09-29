@@ -1,0 +1,56 @@
+PASS drag GLAZE +50 px -> 65 % (65.00)
+PASS value bubble visible while dragging
+PASS corner note shows the interaction hint while dragging
+PASS value bubble hidden after release
+PASS fine drag +50 px -> 67.5 % (67.50)
+PASS double-click -> default 35 %
+PASS Alt-click opens the value entry with the current value (35)
+PASS typed value 60 + Return is applied
+PASS wheel steps (coarse 1.40, fine 0.20)
+PASS slider click at the middle -> Mix 50 % (50.0)
+PASS style segment 3 -> Punchy
+PASS Clay low cut -> Manual
+PASS manual low cut value drags (25.0 -> 35.8 Hz)
+PASS COLOR power button bypasses
+PASS AUTO chip turns auto release off
+PASS Match turns loudness-matched listening on
+PASS A / B -> B listens to the original
+PASS A / B -> back to A
+PASS LIMIT headphones -> listening to the difference
+PASS B turns the difference audition off
+PASS headphones while in B -> back to A and auditioning
+PASS bypassing LIMIT ends the audition and disables the headphones
+PASS disabled headphones cannot start an audition
+PASS headphones are enabled again with LIMIT on
+PASS Advanced opens its panel
+PASS the close button hides the Advanced panel
+PASS reference learning waits for an actual sidechain
+PASS reference learning can be cancelled
+PASS release preview widget enables monitoring
+PASS original audition disables release preview
+PASS release preview restores processed audio
+PASS difference audition disables release preview
+PASS preview disables difference audition
+PASS offline export disables release preview
+PASS input_meter visible readout resets peak hold
+PASS output_meter visible readout resets peak hold
+PASS Release difference stays exactly zero at 44100 Hz / 1 ms
+PASS Release difference stays exactly zero at 44100 Hz / 2 ms
+PASS Release difference stays exactly zero at 44100 Hz / 10 ms
+PASS Release difference stays exactly zero at 48000 Hz / 1 ms
+PASS Release difference stays exactly zero at 48000 Hz / 2 ms
+PASS Release difference stays exactly zero at 48000 Hz / 10 ms
+PASS Release difference stays exactly zero at 96000 Hz / 1 ms
+PASS Release difference stays exactly zero at 96000 Hz / 2 ms
+PASS Release difference stays exactly zero at 96000 Hz / 10 ms
+PASS loading an old session neutralises all new processing in a used instance
+PASS Processor accepts stereo reference sidechain
+PASS reference routing test uses audio distinct from the main input
+PASS connected reference audio never leaks into main output at GLAZE 0
+PASS Processor learns a real sidechain through the host bus
+PASS Processor state restores learned reference
+PASS same-spec reprepare preserves learned reference
+PASS language selector -> English
+PASS corner note follows the language (Drives 7 parameters)
+all interaction checks passed
+PASS editor close clears release preview
