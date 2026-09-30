@@ -807,6 +807,16 @@ namespace
     {
         int worst = 0;
         long long pixels = 0, offBy1 = 0, offBy2 = 0, offByMore = 0;
+        juce::Point<int> worstAt { -1, -1 };             // 第一个差到 worst 的像素与两边的值（预乘 ARGB）
+        juce::uint32 worstA = 0, worstB = 0;
+
+        juce::String describeWorst() const
+        {
+            return worstAt.x < 0 ? juce::String ("-")
+                                 : "(" + juce::String (worstAt.x) + ", " + juce::String (worstAt.y) + ") #"
+                                       + juce::String::toHexString ((juce::int64) worstA).paddedLeft ('0', 8) + " vs #"
+                                       + juce::String::toHexString ((juce::int64) worstB).paddedLeft ('0', 8);
+        }
     };
 
     // 两张同尺寸 ARGB 图逐像素、逐通道（预乘值）比。尺寸不同按 255 记。
@@ -830,7 +840,15 @@ namespace
                 const auto d = juce::jmax (std::abs ((int) p.getAlpha() - (int) q.getAlpha()), std::abs ((int) p.getRed() - (int) q.getRed()),
                                            std::abs ((int) p.getGreen() - (int) q.getGreen()), std::abs ((int) p.getBlue() - (int) q.getBlue()));
                 ++diff.pixels;
-                diff.worst = juce::jmax (diff.worst, d);
+
+                if (d > diff.worst)
+                {
+                    diff.worst = d;
+                    diff.worstAt = { x, y };
+                    diff.worstA = p.getNativeARGB();
+                    diff.worstB = q.getNativeARGB();
+                }
+
                 diff.offBy1 += d == 1 ? 1 : 0;
                 diff.offBy2 += d == 2 ? 1 : 0;
                 diff.offByMore += d > 2 ? 1 : 0;
@@ -880,7 +898,8 @@ namespace
                         const auto diff = compareImages (porcelain::renderGlaze (t, pixelScale, desaturated), renderer.render (t, pixelScale, desaturated));
 
                         if (diff.worst > total.worst)
-                            worstCase = "scale " + juce::String (pixelScale) + " t " + juce::String (t) + (desaturated ? " desaturated" : "");
+                            worstCase = "scale " + juce::String (pixelScale) + " t " + juce::String (t) + (desaturated ? " desaturated" : "")
+                                          + " px " + diff.describeWorst() + " reference vs layered";
 
                         total.worst = juce::jmax (total.worst, diff.worst);
                         total.pixels += diff.pixels;
@@ -991,7 +1010,8 @@ namespace
 
                 for (int k = 0; k < 900; ++k)
                 {
-                    const auto t = (double) k * period + (random.nextDouble() * 2.0 - 1.0) * c.jitterMs * 1.0e-3;
+                    // 时间戳从 1 s 起：真实的 VBlank 时间戳恒为正（开机以来的秒数），第 0 帧带抖动也不能变成负数去撞「< 0 = 还没有」。
+                    const auto t = 1.0 + (double) k * period + (random.nextDouble() * 2.0 - 1.0) * c.jitterMs * 1.0e-3;
                     const auto dt = lastVBlank < 0.0 ? 0.0 : t - lastVBlank;
                     lastVBlank = t;
 

@@ -130,7 +130,14 @@ namespace celadon::ui
     {
         // 像素 (0, 0) 落在 area 左上角 × scale 向下取整的整数设备偏移上：内容照本地坐标画，贴回去时不再有额外的吸附。
         const auto pixels = (area * scale).getSmallestIntegerContainer();
-        image = juce::Image (juce::Image::ARGB, juce::jmax (1, pixels.getWidth()), juce::jmax (1, pixels.getHeight()), true);
+        const auto w = juce::jmax (1, pixels.getWidth()), h = juce::jmax (1, pixels.getHeight());
+
+        // 尺寸没变（拖 GLAZE 时整颗主旋钮每次重新合成）就清空同一张重画，不每次重新分配（Windows 上是一张显卡位图）。
+        if (image.isValid() && image.getWidth() == w && image.getHeight() == h)
+            image.clear (image.getBounds());
+        else
+            image = juce::Image (juce::Image::ARGB, w, h, true);
+
         pixelScale = scale;
         deviceOrigin = pixels.getPosition();
 
