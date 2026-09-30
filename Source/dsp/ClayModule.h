@@ -165,6 +165,8 @@ namespace celadon
         //    与「LP 之后再延迟」数学上相同，但不需要按 L 变长的第二条延迟线，两套低通切换时也各自对齐。
         //  - ①② 的输出逐位取纯延迟的条件（逐样本）：延迟后的这个样本没经过低切（标记为 0）、a 此刻为 0；完全旁通时同样取纯延迟线。
         //    高架此刻逐位直通且无余振时 δ 精确为 0（显式取 0，不算 S'' − S'：±Inf 样本会得 NaN）——三者都满足才是整个模块的逐位纯延迟。
+        //    段首高架就已逐位直通且无余振（widthIdle）时整段都是这样（直通时不跑高架，状态保持 0）：这种段走 processStereo<false>，
+        //    整段不碰③，④ 也收到「δ 全为 0」——中性、只开①② 时逐样本做的事与 T-032 之前相同（性能对照见 T-032 实现报告）。
         //  - 系数在从 reset 起每 64 样本一格的固定网格上重算；低通切换也只在网格点开始 / 收尾；平滑 / 淡化都按「目标改变以来的
         //    样本数」直接算值——输出与块长无关（参数在同一样本位置改变时，任何块长逐位相同；前提：编译器不合并乘加，ADR-013）。
 
@@ -231,7 +233,12 @@ namespace celadon
         void advanceRamps (int numSamples) noexcept;
         void clearDelayLines() noexcept;
         bool stagesIdle (int channelsToUse) const noexcept;   // 三级此刻都不作用、延迟线里也没有低切过的样本，且整段保持
-        void processStereo (float* left, float* right, int numSamples) noexcept;   // 原地；numSamples ≤ coefficientUpdateInterval
+        bool widthIdle() const noexcept;                      // ③ 此刻逐位直通且无余振：本段每个样本的 δ 都精确为 0（见 process）
+
+        // 原地；numSamples ≤ coefficientUpdateInterval。widthActive = false 只用于 widthIdle() 的段：整段不碰③（不跑高架、不算 δ），
+        // 逐样本做的事与 T-032 之前相同；true 逐样本判断高架是否直通并算 δ。两份对 widthIdle() 的段输出逐位相同（δ 全为 0）。
+        template <bool widthActive>
+        void processStereo (float* left, float* right, int numSamples) noexcept;
         void processMono (float* samples, int numSamples) noexcept;                // 原地；同上
 
         //==============================================================================

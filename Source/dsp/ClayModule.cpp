@@ -524,9 +524,15 @@ namespace celadon
         if (monoAmountRamp.isRamping() || monoAmountRamp.to != 0.0)
             return false;
 
-        // ③ 增益静止在 0、当前系数已是逐位直通、余振已归零：此后高架对任何样本都直接取 S'（见 processStereo）。
-        return ! widthRamp.isRamping() && widthRamp.to == 0.0 && widthDbForCoefficients == 0.0
-                 && shelfState.s1 == 0.0 && shelfState.s2 == 0.0;
+        // ③ 增益静止在 0、当前系数已是逐位直通、余振已归零：此后高架对任何样本都直接取 S'、δ 恒为 0（见 processStereo）。
+        return ! widthRamp.isRamping() && widthRamp.to == 0.0 && widthIdle();
+    }
+
+    bool ClayModule::widthIdle() const noexcept
+    {
+        // ③ 的高架此刻逐位直通（增益精确为 0 的系数）且无余振（状态为 0）：processStereo 对这样的样本不跑高架、δ 取 0，状态也就一直
+        // 是 0——段首成立则整段成立。
+        return widthDbForCoefficients == 0.0 && shelfState.s1 == 0.0 && shelfState.s2 == 0.0;
     }
 
     bool ClayModule::isPassThrough() const noexcept
@@ -564,10 +570,20 @@ namespace celadon
 
             const auto length = juce::jmin (numSamples - offset, samplesUntilCoefficientUpdate);
 
+            // 立体声按段选两份之一（T-032）：段首③ 已逐位直通且无余振（widthIdle）→ 本段每个样本的 δ 都精确为 0（直通时不跑高架，
+            // 状态保持 0；系数只在网格点换，段不跨网格点），走整段不碰③ 的那份；否则逐样本判断。两份对 widthIdle 的段输出逐位相同，
+            // 选哪份只影响快慢——输出与块长无关的性质不受切段方式影响。
             if (channelsToUse >= 2)
-                processStereo (io.getWritePointer (0, offset), io.getWritePointer (1, offset), length);
+            {
+                if (widthIdle())
+                    processStereo<false> (io.getWritePointer (0, offset), io.getWritePointer (1, offset), length);
+                else
+                    processStereo<true> (io.getWritePointer (0, offset), io.getWritePointer (1, offset), length);
+            }
             else
+            {
                 processMono (io.getWritePointer (0, offset), length);
+            }
 
             advanceRamps (length);
             samplesUntilCoefficientUpdate -= length;
@@ -575,20 +591,22 @@ namespace celadon
         }
     }
 
+    template <bool widthActive>
     void ClayModule::processStereo (float* left, float* right, int numSamples) noexcept
     {
         // 系数、状态与各环的位置拷成局部量（循环里留在寄存器，同 BalanceModule::filterChannelScalar），段尾写回。
         // 原地处理：每个样本先读输入、再写输出，同一位置不会读到本段已写过的值。
+        // widthActive = false（widthIdle 的段，见 process）：③ 整段不碰，凡「if constexpr (widthActive)」的都不编进这一份。
         const auto cutFirst  = cutCoefficients[0];
         const auto cutSecond = cutCoefficients[1];
-        const auto sideShelf = shelfCoefficients;
-        const auto shelfIsIdentity = widthDbForCoefficients == 0.0;
+        [[maybe_unused]] const auto sideShelf = shelfCoefficients;
+        [[maybe_unused]] const auto shelfIsIdentity = widthDbForCoefficients == 0.0;
 
         auto leftFirst   = cutStates[0][0];
         auto leftSecond  = cutStates[0][1];
         auto rightFirst  = cutStates[1][0];
         auto rightSecond = cutStates[1][1];
-        auto sideShelfState = shelfState;
+        [[maybe_unused]] auto sideShelfState = shelfState;
 
         // 延迟线（容量正好 D）：同一个位置先读出 D 个样本之前写的，再写本样本。
         const auto delayLength = coreDelay;
@@ -620,8 +638,9 @@ namespace celadon
 
         // ④ 要的干路（输入延迟 D，float 原样）与 ③ 的增量 ±δ（T-032：不进守护、守护后加回）按段暂存；段长 ≤ 64（process 按系数网格切段）。
         jassert (numSamples <= coefficientUpdateInterval);
-        std::array<float, coefficientUpdateInterval> dryLefts {}, dryRights {}, deltaLefts {}, deltaRights {};
-        auto anyIncrement = false;   // 本段有没有 δ ≠ 0 的样本（NaN 也算）：全为 0 时交给 ④ 的是 nullptr，守护可以整段不碰 δ
+        std::array<float, coefficientUpdateInterval> dryLefts {}, dryRights {};
+        [[maybe_unused]] std::array<float, coefficientUpdateInterval> deltaLefts {}, deltaRights {};
+        [[maybe_unused]] auto anyIncrement = false;   // 本段有没有 δ ≠ 0 的样本（NaN 也算）：全为 0 时交给 ④ 的是 nullptr，守护可以整段不碰 δ
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -707,27 +726,35 @@ namespace celadon
             else if (amount > 0.0)
                 monoSide = delayedSide - amount * lowSide;
 
-            // ③ 加宽：S' 过 2 kHz 高架。高架此刻逐位直通（增益 0 的系数、状态为 0）时直接取 S'：对有限样本与跑一遍
-            //    滤波器数值相同（y = 1·S' + 0，状态保持 0；至多 −0 变 +0 的区别），而输入里的 ±Inf 也不会把它的状态弄成 NaN
-            //    ——「三级都不作用」因此不会被一个坏样本打断到下一个网格点。
-            const auto shelfWasIdle = shelfIsIdentity && sideShelfState.s1 == 0.0 && sideShelfState.s2 == 0.0;
-            const auto wideSide = shelfWasIdle ? monoSide : processBiquad (monoSide, sideShelf, sideShelfState);
-
-            // ③ 只以增量 δ = S'' − S' 的形式出现（T-032 / ADR-014 修订：守护只管①②，δ 绕过守护、由 ④ 在守护后的输出上加回；
-            //    L 加 δ、R 减 δ，见文件头④）。高架直通时显式取 0——不能算 wideSide − monoSide：S' 为 ±Inf 时 Inf − Inf = NaN，会把
-            //    本该逐位纯延迟的样本弄成 NaN。δ 随旁通淡化一起淡出：乘 (1 − bypass)，完全旁通为 0，bypass = 0 时不乘（原样）。
             const auto bypass = bypassRamp.valueAt (i);
-            auto sideDelta = shelfWasIdle ? 0.0 : wideSide - monoSide;
 
-            if (bypass >= 1.0)
-                sideDelta = 0.0;
-            else if (bypass > 0.0)
-                sideDelta *= 1.0 - bypass;
+            if constexpr (widthActive)
+            {
+                // ③ 加宽：S' 过 2 kHz 高架（与旁通无关地一直跑：影子运行）。高架此刻逐位直通（增益 0 的系数、状态为 0）时不跑它：
+                //    对有限样本与跑一遍滤波器数值相同（y = 1·S' + 0，状态保持 0），而输入里的 ±Inf 也不会把它的状态弄成 NaN——
+                //    「三级都不作用」因此不会被一个坏样本打断到下一个网格点。
+                //    ③ 只以增量 δ = S'' − S' 的形式出现（T-032 / ADR-014 修订：守护只管①②，δ 绕过守护、由 ④ 在守护后的输出上加回；
+                //    L 加 δ、R 减 δ，见文件头④）。高架直通时显式取 0——不能算 S'' − S'：S' 为 ±Inf 时 Inf − Inf = NaN，会把本该
+                //    逐位纯延迟的样本弄成 NaN。δ 随旁通淡化一起淡出：乘 (1 − bypass)，完全旁通为 0，bypass = 0 时不乘（原样）。
+                const auto shelfWasIdle = shelfIsIdentity && sideShelfState.s1 == 0.0 && sideShelfState.s2 == 0.0;
+                auto sideDelta = 0.0;
 
-            const auto delta = static_cast<float> (sideDelta);
-            deltaLefts[static_cast<std::size_t> (i)]  = delta;
-            deltaRights[static_cast<std::size_t> (i)] = -delta;
-            anyIncrement = anyIncrement || delta != 0.0f;
+                if (! shelfWasIdle)
+                {
+                    const auto wideSide = processBiquad (monoSide, sideShelf, sideShelfState);
+                    sideDelta = wideSide - monoSide;
+                }
+
+                if (bypass >= 1.0)
+                    sideDelta = 0.0;
+                else if (bypass > 0.0)
+                    sideDelta *= 1.0 - bypass;
+
+                const auto delta = static_cast<float> (sideDelta);
+                deltaLefts[static_cast<std::size_t> (i)]  = delta;
+                deltaRights[static_cast<std::size_t> (i)] = -delta;
+                anyIncrement = anyIncrement || delta != 0.0f;
+            }
 
             // 完全旁通，或延迟后的这个样本①②都不作用（没经过低切、a = 0）：①② 的输出逐位取纯延迟线。后者不能交给 M/S 解码——
             // (L + R)/2 + (L − R)/2 在 double 里不保证逐位还原 L；而且处理后 = 干路时任何旁通混合比例的结果都是干路。
@@ -758,18 +785,29 @@ namespace celadon
         cutStates[0][1] = leftSecond;
         cutStates[1][0] = rightFirst;
         cutStates[1][1] = rightSecond;
-        shelfState = sideShelfState;
+
+        if constexpr (widthActive)
+            shelfState = sideShelfState;
 
         delayPosition     = position;
         cutSamplesInDelay = flaggedInDelay;
         sideWritePosition = writePosition;
         lowpassBacklog    = backlog;
 
-        // ④ 峰值守护：本段每个样本的 (干路, ①② 输出, ③ 的增量 ±δ) 送进前瞻环，写回 G 个样本之前那个样本的守护后输出 ± 它的 δ。
+        // ④ 峰值守护：本段每个样本的 (干路, ①② 输出, ③ 的增量 ±δ) 送进前瞻环，写回 G 个样本之前那个样本的守护后输出 ± 它的 δ
+        //    （本段 δ 全为 0 时交 nullptr：widthIdle 的段恒如此）。
         const float* const dryChannels[] { dryLefts.data(), dryRights.data() };
-        const float* const deltaChannels[] { deltaLefts.data(), deltaRights.data() };
         float* const wetChannels[] { left, right };
-        peakGuard.process (dryChannels, wetChannels, anyIncrement ? deltaChannels : nullptr, 2, numSamples);
+
+        if constexpr (widthActive)
+        {
+            const float* const deltaChannels[] { deltaLefts.data(), deltaRights.data() };
+            peakGuard.process (dryChannels, wetChannels, anyIncrement ? deltaChannels : nullptr, 2, numSamples);
+        }
+        else
+        {
+            peakGuard.process (dryChannels, wetChannels, nullptr, 2, numSamples);
+        }
     }
 
     void ClayModule::processMono (float* samples, int numSamples) noexcept
