@@ -73,12 +73,17 @@ namespace celadon
             return x == y;
         }
 
-        // ④ 之后加回 ③ 的增量（T-032）：δ 为 0（含 −0）时原样给守护后的样本——(−0) + (+0) = +0，无条件相加会打破 ±0 的逐位契约
-        //（ClayTests 的特殊值素材含交替的 ±0）。两个 float 在 double 里相加再落回 float：与 g < 1 那一支「double 里算完只舍入一次」同一口径。
-        float withIncrement (float guarded, float delta) noexcept
+        // ④ 在 g 精确为 1 的输出上加回 ③ 的增量（T-032）：δ 为 0（含 −0）时原样给守护后的样本（float 直接拷贝，连 NaN 的载荷都
+        // 不碰）——(−0) + (+0) = +0，无条件相加会打破 ±0 的逐位契约（ClayTests 的特殊值素材含交替的 ±0）。δ ≠ 0 时两个 float 在
+        // double 里相加、只舍入一次落回 float（g < 1 那一支同样在 double 里加上 δ 再舍入一次，见 PeakGuard::processBlock 第 6 步）。
+        float plusIncrement (float guarded, float delta) noexcept
         {
             return delta != 0.0f ? static_cast<float> (static_cast<double> (guarded) + static_cast<double> (delta)) : guarded;
         }
+
+        // 某段送来的 δ 全为 0（nullptr）而守护仍走带 δ 的那条路时（环里还有 δ ≠ 0 的样本没输出完），本段各样本的 δ 从这里读 0。
+        constexpr std::array<float, coefficientUpdateInterval> noIncrement {};
+        const float* const noIncrements[] { noIncrement.data(), noIncrement.data() };
     }
 
     // 手动收单的下限就是低通最长的那一档：它决定两套低通的分配长度与模块的固定延迟 D（设计规格-Clay-根治修订 第 2 节）。
@@ -616,6 +621,7 @@ namespace celadon
         // ④ 要的干路（输入延迟 D，float 原样）与 ③ 的增量 ±δ（T-032：不进守护、守护后加回）按段暂存；段长 ≤ 64（process 按系数网格切段）。
         jassert (numSamples <= coefficientUpdateInterval);
         std::array<float, coefficientUpdateInterval> dryLefts {}, dryRights {}, deltaLefts {}, deltaRights {};
+        auto anyIncrement = false;   // 本段有没有 δ ≠ 0 的样本（NaN 也算）：全为 0 时交给 ④ 的是 nullptr，守护可以整段不碰 δ
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -721,6 +727,7 @@ namespace celadon
             const auto delta = static_cast<float> (sideDelta);
             deltaLefts[static_cast<std::size_t> (i)]  = delta;
             deltaRights[static_cast<std::size_t> (i)] = -delta;
+            anyIncrement = anyIncrement || delta != 0.0f;
 
             // 完全旁通，或延迟后的这个样本①②都不作用（没经过低切、a = 0）：①② 的输出逐位取纯延迟线。后者不能交给 M/S 解码——
             // (L + R)/2 + (L − R)/2 在 double 里不保证逐位还原 L；而且处理后 = 干路时任何旁通混合比例的结果都是干路。
@@ -758,10 +765,11 @@ namespace celadon
         sideWritePosition = writePosition;
         lowpassBacklog    = backlog;
 
-        // ④ 峰值守护：本段每个样本的 (干路, ①～③ 输出) 送进前瞻环，写回 G 个样本之前那个样本的守护后输出。
+        // ④ 峰值守护：本段每个样本的 (干路, ①② 输出, ③ 的增量 ±δ) 送进前瞻环，写回 G 个样本之前那个样本的守护后输出 ± 它的 δ。
         const float* const dryChannels[] { dryLefts.data(), dryRights.data() };
+        const float* const deltaChannels[] { deltaLefts.data(), deltaRights.data() };
         float* const wetChannels[] { left, right };
-        peakGuard.process (dryChannels, wetChannels, 2, numSamples);
+        peakGuard.process (dryChannels, wetChannels, anyIncrement ? deltaChannels : nullptr, 2, numSamples);
     }
 
     void ClayModule::processMono (float* samples, int numSamples) noexcept
@@ -836,10 +844,10 @@ namespace celadon
         if (lowpassWarming)
             lowpassBacklog = juce::jmax (0, lowpassBacklog - lowpassCatchUpRate * numSamples);
 
-        // ④ 单声道守护（同立体声，一个声道）。
+        // ④ 单声道守护（同立体声，一个声道；没有 ③，增量恒 0 → nullptr）。
         const float* const dryChannels[] { drySamples.data() };
         float* const wetChannels[] { samples };
-        peakGuard.process (dryChannels, wetChannels, 1, numSamples);
+        peakGuard.process (dryChannels, wetChannels, nullptr, 1, numSamples);
     }
 
 
@@ -849,11 +857,12 @@ namespace celadon
     // 时序（m = 刚送进来的样本号，都从 reset 起算）：
     //   E(k) 要干路 [k − W, k + W]：k = m − W 时刚好知道；P(k)、B(k)、g_req(k) 随之可算。
     //   h(j) = min g_req[j, j + A]：j = k − A = m − G 时刚好知道；r(j) = min(h(j), r(j − 1) + 释放步长)；
-    //   g(j) = r[j − A, j] 的平均。输出样本 j 的 x + g·(y − x)。所以输出比输入晚 G = W + A。
+    //   g(j) = r[j − A, j] 的平均。输出样本 j 的 x + g·(y − x) + δ（T-032：δ = ③ 的增量，随样本存进前瞻环、原样加回，不参与 E、B、
+    //   g_req、代价格；δ 为 0 时不做那次加法）。所以输出比输入晚 G = W + A。
     // 保证：r ≤ h（释放只让它更小），而 i ∈ [j − A, j] 时 h(i) 的窗 [i, i + A] 含 j → h(i) ≤ g_req(j)；平均之后 g(j) ≤ g_req(j)，
     //   |x + g·(y − x)| ≤ B(j)（{g : |x + g(y − x)| ≤ B} 是含 0 的区间，g_req 是它的右端）。
     // 逐样本、只依赖从 reset 起的样本号：输出与块长无关。滑动平均的和逐样本加减、按从 reset 起每 65536 样本的固定网格从环里
-    //   精确重算；窗里全是 1 时直接给 1（g 精确为 1 → 输出逐位 = y）。
+    //   精确重算；窗里全是 1 时直接给 1（g 精确为 1 → 输出逐位 = y；δ ≠ 0 时再加 δ）。
     //
     // 实现（T-024 起；输出、统计、代价格与之前逐样本的实现逐位相同，tools 见 docs/validation/2026-09-28-T024-clay-guard-perf/）：
     //  - 按段处理，状态在段内放局部变量。
@@ -863,7 +872,7 @@ namespace celadon
     //  - 快路：g 路径静止在全 1 = releaseBelowOne == 0 且 released == 1（r 的窗全是 1、releaseSum 已精确给成 A + 1；
     //    released == 1 说明上一个 h == 1）。这时来一个 g_req == 1 的样本，全速跑的 4 ～ 6 步都原地不动：h = min(…, 1) 仍是 1
     //    （窗里其余的 g_req 都是 1：上一个 h == 1 时它们就在窗里，之后进来的也都是 1）、r = min(1, 1 + 步长) = 1、环里 1 换 1、
-    //    计数不变、g 精确为 1、输出 = y、统计不记——只有释放环的写位置前进一格。所以这样的样本只推进写位置、直接取 y。
+    //    计数不变、g 精确为 1、输出 = y、统计不记——只有释放环的写位置前进一格。所以这样的样本只推进写位置、直接取 y（± 它的 δ）。
     //    E、P、界 B、g_req 的环与代价格照常逐样本维护（出快路时必须是一直全速跑到这里的值）。「越界」= 某声道 |y| > B：
     //    原判据「x、y 有限且 |y| > B」的必要条件，没越界时 g_req 恰为 1、代价格也不变；越界就走全速那一支，由它按原判据细判。
     //    修坯中性时恒走快路；工作时只要守护没在动作也走。快路与全速逐位相同，不是近似：进出都不需要重建任何状态。
@@ -1009,6 +1018,9 @@ namespace celadon
 
         writeIndex = 0;
         lastProcessed = std::numeric_limits<std::int64_t>::min();
+        lastIncrement = std::numeric_limits<std::int64_t>::min();
+        incrementsFrom = 0;
+        incrementsWritten = false;
         prefixMax = 0.0;
         peakSegments.clear();
         prefixMin = 1.0;
@@ -1027,16 +1039,43 @@ namespace celadon
         pressureBlocks = 0;
     }
 
-    void ClayModule::PeakGuard::process (const float* const* dry, float* const* io, int callerChannels, int numSamples) noexcept
+    void ClayModule::PeakGuard::process (const float* const* dry, float* const* io, const float* const* delta, int callerChannels,
+                                         int numSamples) noexcept
     {
-        if (juce::jmin (callerChannels, channels) >= 2)
-            processBlock<2> (dry, io, numSamples);
+        // δ 的两条路（T-032）。本段送来的 δ 全为 0（nullptr）、且本段要输出的样本（m − G，m 从 sampleCount 起）都晚于最近一个
+        // δ ≠ 0 的样本 → 不带 δ 的那条：环里的 δ 一个也用不到，代码与 T-032 之前逐字相同（中性、只开①② 时不为 δ 多花一点）。
+        // 否则带 δ：存 δ、输出时加回。从不带 δ 的那条转过来时记下起点 incrementsFrom——更早的格没写 δ，但那些样本的 δ 本来就都是 0
+        // （不带 δ 的那条只收 δ 全为 0 的段），输出时按 0 算。两条路的输出因此逐位相同，选路只影响快慢；选路只看样本号与 δ，
+        // 与块长无关。
+        const auto withIncrement = delta != nullptr || lastIncrement >= sampleCount - lookahead;
+
+        if (withIncrement && ! incrementsWritten)
+            incrementsFrom = sampleCount;
+
+        incrementsWritten = withIncrement;
+        const auto stereo = juce::jmin (callerChannels, channels) >= 2;
+
+        if (withIncrement)
+        {
+            const auto* const* increments = delta != nullptr ? delta : noIncrements;
+
+            if (stereo)
+                processBlock<2, true> (dry, io, increments, numSamples);
+            else
+                processBlock<1, true> (dry, io, increments, numSamples);
+        }
         else
-            processBlock<1> (dry, io, numSamples);
+        {
+            if (stereo)
+                processBlock<2, false> (dry, io, nullptr, numSamples);
+            else
+                processBlock<1, false> (dry, io, nullptr, numSamples);
+        }
     }
 
-    template <int numChannels>
-    void ClayModule::PeakGuard::processBlock (const float* const* dry, float* const* io, int numSamples) noexcept
+    template <int numChannels, bool withIncrement>
+    void ClayModule::PeakGuard::processBlock (const float* const* dry, float* const* io, [[maybe_unused]] const float* const* delta,
+                                              int numSamples) noexcept
     {
         // 状态拷成局部量（段内留在寄存器；各环与队列的内容照常在内存里），段尾写回。逐样本的浮点算术与 T-024 之前逐样本的
         // process 相同、顺序相同（表达式原样保留，乘加融合与否的判断也一样）；换了写法的只有整数下标、两个滑动窗与快路（见上）。
@@ -1063,6 +1102,9 @@ namespace celadon
         auto write = writeIndex;
         auto m = sampleCount;
         auto last = lastProcessed;
+        auto lastWithIncrement = lastIncrement;
+        const auto incrementsStart = incrementsFrom;
+        const auto g = static_cast<std::int64_t> (lookahead);
         auto peakPrefix = prefixMax;
         auto peakQueue = QueueView { peakSegments.entries.data(), peakSegments.mask, peakSegments.head, peakSegments.count };
         auto lowPrefix = prefixMin;
@@ -1082,10 +1124,12 @@ namespace celadon
 
         for (int i = 0; i < numSamples; ++i, ++m)
         {
-            // 1. 写环（覆盖的是 m − G − 1，上一个样本已经输出过它）；记「处理后 ≠ 干路」（逐位）的最近样本号；
-            //    局部峰值要的干路量级（非有限的干路不参与，链的 NaN 保护会整体 reset；E 只要有限的量级）。
+            // 1. 写环（覆盖的是 m − G − 1，上一个样本已经输出过它）；记「处理后 ≠ 干路」（逐位）的最近样本号，带 δ 的那条路再存 δ、
+            //    记 δ ≠ 0 的最近样本号（这两种样本输出出去都不是干路本身，isPassThrough 要等它们走出前瞻环）；
+            //    局部峰值要的干路量级（非有限的干路不参与，链的 NaN 保护会整体 reset；E 只要有限的量级）。δ 不参与 E、B、g_req。
             auto& newest = frames[write];
             auto processed = false;
+            [[maybe_unused]] auto incremented = false;
             auto magnitude = 0.0;
 
             for (int c = 0; c < numChannels; ++c)
@@ -1096,6 +1140,13 @@ namespace celadon
                 newest.wet[static_cast<std::size_t> (c)] = y;
                 processed = processed || ! sameBits (x, y);
 
+                if constexpr (withIncrement)
+                {
+                    const auto increment = delta[c][i];
+                    newest.delta[static_cast<std::size_t> (c)] = increment;
+                    incremented = incremented || increment != 0.0f;
+                }
+
                 const auto value = static_cast<double> (x);
 
                 if (std::isfinite (value))
@@ -1104,6 +1155,12 @@ namespace celadon
 
             if (processed)
                 last = m;
+
+            if constexpr (withIncrement)
+            {
+                if (incremented)
+                    lastWithIncrement = m;
+            }
 
             // 段界：上一段 [m − S, m − 1] 刚完整——两个环里就地算「到段尾的最值」，整段的最值（= 段首那一格）进各自的队列。
             // g_req 那一段全是 1 时（段最小 = 当前段前缀最小 = 1）后缀最小本来就全是 1，不用算。
@@ -1188,16 +1245,24 @@ namespace celadon
                 costPosition = 0;
             }
 
-            // 输出样本 j = m − G：环里最老的一格（下一个样本会覆盖它）。
+            // 输出样本 j = m − G：环里最老的一格（下一个样本会覆盖它）。带 δ 的那条路里，j 早于这一轮的起点时格上的 δ 没写过——
+            // 那些样本的 δ 都是 0（见 process），按 0 算。
             const auto& atJ = frames[write + 1 == length ? 0 : write + 1];
+            [[maybe_unused]] const auto incrementAtJ = withIncrement && m - g >= incrementsStart;
 
             if (idle && ! exceeds)
             {
-                // 快路（见本节开头）：g 精确为 1，输出逐位 = y；g 路径只有释放环的写位置前进。
+                // 快路（见本节开头）：g 精确为 1，输出逐位 = y（± 它的 δ）；g 路径只有释放环的写位置前进。
                 releaseAt = releaseAt + 1 == releaseCount ? 0 : releaseAt + 1;
 
                 for (int c = 0; c < numChannels; ++c)
-                    io[c][i] = atJ.wet[static_cast<std::size_t> (c)];
+                {
+                    if constexpr (withIncrement)
+                        io[c][i] = incrementAtJ ? plusIncrement (atJ.wet[static_cast<std::size_t> (c)], atJ.delta[static_cast<std::size_t> (c)])
+                                                : atJ.wet[static_cast<std::size_t> (c)];
+                    else
+                        io[c][i] = atJ.wet[static_cast<std::size_t> (c)];
+                }
             }
             else
             {
@@ -1243,19 +1308,39 @@ namespace celadon
                 const auto gain = belowOne == 0 ? 1.0 : juce::jlimit (0.0, 1.0, releaseTotal / releaseCountValue);
 
                 // 6. 输出样本 j：g 精确为 1 → 逐位 = y；否则 x + g·(y − x) 写成 y + (1 − g)·(x − y)（y 与 x 逐位相同时仍逐位 = y）。
+                //    带 δ 的那条路再加回 ③ 的增量 δ（T-032）：δ 为 0（含 −0）时不做那次加法，输出与不带 δ 的那条逐位相同；g < 1 时 δ 在
+                //    double 里加上、与守护后的值一起只舍入一次（混合那一行的表达式原样保留，乘加融合与否的判断也不变）。
                 for (int c = 0; c < numChannels; ++c)
                 {
                     const auto y = atJ.wet[static_cast<std::size_t> (c)];
 
-                    if (gain >= 1.0)
+                    if constexpr (withIncrement)
                     {
-                        io[c][i] = y;
-                        continue;
-                    }
+                        const auto increment = incrementAtJ ? atJ.delta[static_cast<std::size_t> (c)] : 0.0f;
 
-                    const auto yd = static_cast<double> (y);
-                    const auto xd = static_cast<double> (atJ.dry[static_cast<std::size_t> (c)]);
-                    io[c][i] = static_cast<float> (yd + (xd - yd) * (1.0 - gain));
+                        if (gain >= 1.0)
+                        {
+                            io[c][i] = plusIncrement (y, increment);
+                            continue;
+                        }
+
+                        const auto yd = static_cast<double> (y);
+                        const auto xd = static_cast<double> (atJ.dry[static_cast<std::size_t> (c)]);
+                        const auto guarded = yd + (xd - yd) * (1.0 - gain);
+                        io[c][i] = static_cast<float> (increment != 0.0f ? guarded + static_cast<double> (increment) : guarded);
+                    }
+                    else
+                    {
+                        if (gain >= 1.0)
+                        {
+                            io[c][i] = y;
+                            continue;
+                        }
+
+                        const auto yd = static_cast<double> (y);
+                        const auto xd = static_cast<double> (atJ.dry[static_cast<std::size_t> (c)]);
+                        io[c][i] = static_cast<float> (yd + (xd - yd) * (1.0 - gain));
+                    }
                 }
 
                 if (gain < 1.0)
@@ -1273,6 +1358,7 @@ namespace celadon
         writeIndex = write;
         sampleCount = m;
         lastProcessed = last;
+        lastIncrement = lastWithIncrement;
         prefixMax = peakPrefix;
         peakSegments.head = peakQueue.head;
         peakSegments.count = peakQueue.count;

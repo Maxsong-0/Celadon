@@ -23,7 +23,8 @@
       链把它算进总延迟。
     - ④ 峰值守护（ADR-014）。为什么：①～③ 都会改变波形（低切的相位旋转、收单去掉侧声道低音、加宽抬高侧声道），在已经很密 /
       限过幅的歌上会让局部峰值变高，末级限幅器就多压、响度反而下降（真歌门槛：低切 10.8 Hz 让 GR 最大 +0.94 dB，收单 +1.06 dB）。
-      「先试后用」只在聆听的前 15 ～ 30 s 里试，前奏安静、副歌才密的歌试不出来。守护在每个样本上直接保证修坯不抬高要紧的峰值：
+      「先试后用」只在聆听的前 15 ～ 30 s 里试，前奏安静、副歌才密的歌试不出来。守护在每个样本上直接保证低切 / 收单不抬高要紧的
+      峰值（T-032 起③ 加宽不进守护，理由见下）：
         E = 干路两声道 |x| 在 ±W（8 ms）内的最大值（局部峰值；W 盖住低切在 30 Hz 以上造成的峰值前移）；
         P = E 的峰值包络（瞬时上、1 s 时间常数指数下）；τ = −6 dB：比最近的峰值低 6 dB 以上的样本碰不到末级限幅
             （GLAZE 的限幅 GR 最大在 5 dB 以内），随便处理；
@@ -38,8 +39,10 @@
       T-032 修订（2026-09-29，研究 R4-01 / 核验 V4，待 Max 复核）：为什么③ 不进守护——界 B 在干路自己就是 ±W 窗最大值的那些样本上
       没有余量（B = E = |x|）；凡「在峰值处同向增加」的处理在那里 g_req 恰为 0（与增加多少无关），再经 100 ms 线性释放追不上密信号里
       每约 16 ms 一个的局部峰值，g 从不回到 1。加宽让 L = M + γS 在 S 与 M 同号处变大，而 |L| 成为局部最大时两者几乎总同号，于是
-      加宽在正常电平（> −40 dBFS）下被回收约 95 %（宽粉噪 −12 dBFS 手动 +3 dB 实测只剩 +0.25 ～ +0.36 dB，纯侧声道内容 0.00 dB），
-      界面却照样显示在做，压力格（只量 max|y|/B）也看不见它。低切 / 收单是去能量，越界只来自相位错开，回收小得多，守护对它们合理。
+      加宽在正常电平（> −40 dBFS）下被回收 85 ～ 95 %（宽粉噪峰值 −12 dBFS 手动 +3 dB，标称 +2.97 dB，实测只剩 +0.25 ～ +0.36 dB；
+      纯侧声道内容 0.00 dB），界面却照样显示在做，压力格（只量 max|y|/B）也看不见它。低切是去能量，越界只来自相位错开，回收小得多
+      （25 Hz 对 15 Hz 次声：标称 −17.8、实际 −16.6 dB），守护对它合理。收单在局部峰值样本上同样零余量、效果大半被回收（M / S 独立
+      粉噪 S/M −10 dB：标称 −22.6、实际 −5.8 dB），T-032 不改它，要不要也拆出守护待 Max 定（ClayTests 的夹具钉住了现值）。
       所以守护只管①②：③ 的增量 δ = S'' − S'（解码后 L 加 δ、R 减 δ）不进守护、在守护输出上原样加回，界改为 |out ∓ δ| ≤ B；
       ③ 的峰值风险由「先试后用」的代价 widthPeakCostDb、宽度保护的相关度上限与自动最多 +1.5 dB 控制（根治修订 §1 的原意：
       「加宽……影响小，交给先试后用」）。widthDb = 0（高架逐位直通且无余振）时 δ 精确为 0，模块输出与修订前逐位相同；①② 都不作用时
@@ -133,8 +136,9 @@ namespace celadon
 
         PeakGuardStats getAndResetPeakGuardStats() noexcept;
 
-        // 上一次 process() 里走完的「代价格」（从 reset 起每 10 ms 一格的固定网格）：每格 = 修坯若不经守护、会让相关峰值超出界 B
-        // 多少 dB（max |y| / B 折成 dB，≤ 0 记 0）——与「先试后用」的代价同一单位（ADR-014 压力反馈的输入：链每个切片交给编排器）。
+        // 上一次 process() 里走完的「代价格」（从 reset 起每 10 ms 一格的固定网格）：每格 = 低切 / 收单（①②）若不经守护、会让相关峰值
+        // 超出界 B 多少 dB（max |y| / B 折成 dB，≤ 0 记 0；y = ①② 的输出——T-032 起③ 加宽不进守护，也不计在这里）——与「先试后用」的
+        // 代价同一单位（ADR-014 压力反馈的输入：链每个切片交给编排器）。
         struct PressureReport
         {
             float meanDb = 0.0f;      // 这些格的平均
@@ -145,7 +149,7 @@ namespace celadon
 
         // 只给测试 / 诊断：此刻起（参数不再变的话）输出是否 = 输入逐位延迟 D + G。即：未在旁通淡化中，并且要么完全旁通，
         // 要么三项实际值为 0、平滑与淡化都已静止、延迟线里也已没有低切作用过的样本（单声道模块只看 ①）；
-        // 另外峰值守护的前瞻环里也已没有「处理后 ≠ 干路」的样本。
+        // 另外峰值守护的前瞻环里也已没有「①② 处理后 ≠ 干路」（逐位）或③ 的增量 δ ≠ 0 的样本。
         bool isPassThrough() const noexcept;
 
     private:
@@ -240,18 +244,21 @@ namespace celadon
             void reset() noexcept;
 
             // 送进一段样本（核心输出时刻，段长 ≤ 64）：dry[c] = 干路（输入延迟 D），io[c] 进 = ①② 与旁通淡化之后、
-            // 出 = 各自 G 个样本之前那个样本的守护后输出 + 那个样本的 delta[c]（③ 的增量，T-032 起不进守护、在这里加回；
-            // 单声道恒 0；为 0 时不做加法，保住 ±0 的逐位）。callerChannels = 调用方的声道数（1 或 2），不超过 prepare 的声道数时
-            // 按它处理（立体声模块偶尔收到单声道缓冲也不越界）。不叫 numChannels：外层 ClayModule 有同名成员（clang -Wshadow）。
+            // 出 = 各自 G 个样本之前那个样本的守护后输出 + 那个样本的 δ（③ 的增量，T-032 起不进守护、在这里加回；为 0 时不做加法，
+            // 保住 ±0 的逐位）。delta[c] = 本段各样本的 δ；nullptr = 本段全为 0（单声道恒为 nullptr）。callerChannels = 调用方的
+            // 声道数（1 或 2），不超过 prepare 的声道数时按它处理（立体声模块偶尔收到单声道缓冲也不越界）。不叫 numChannels：外层
+            // ClayModule 有同名成员（clang -Wshadow）。
             void process (const float* const* dry, float* const* io, const float* const* delta, int callerChannels, int numSamples) noexcept;
 
             // 前瞻环（最近 G + 1 个样本）里还有「处理后 ≠ 干路」（逐位）或 δ ≠ 0 的样本：它们还要再输出出去（isPassThrough 用）。
-            bool hasProcessedInRing() const noexcept   { return lastProcessed >= sampleCount - ringLength; }
+            bool hasProcessedInRing() const noexcept   { return juce::jmax (lastProcessed, lastIncrement) >= sampleCount - ringLength; }
 
             static int windowFor (double fs) noexcept;     // W
             static int attackFor (double fs) noexcept;     // A
 
-            template <int numChannels>
+            // withIncrement = false：本段送来的 δ 全为 0、且本段要输出的样本都晚于最近一个 δ ≠ 0 的样本——整段不碰 δ（与 T-032 之前的
+            // 实现逐字相同：中性、只开①② 时不为 δ 多花一点）；true：存 δ、输出时加回。两条路对同一段输入的输出逐位相同（见 process）。
+            template <int numChannels, bool withIncrement>
             void processBlock (const float* const* dry, float* const* io, const float* const* delta, int numSamples) noexcept;
 
             int channels = 2;
@@ -262,7 +269,8 @@ namespace celadon
             double releaseStep = 1.0;          // g 的线性释放：每样本最多回升这么多
 
             // 前瞻环（长 G + 1：最新样本 m 到输出样本 m − G）：一格放同一样本两声道的干路、①② 处理后与 ③ 的增量 δ，读写都只碰一处。
-            // δ 存 float（一格 24 字节，T-024 的缓存足迹不翻倍；δ 是小增量，float 量化远在可闻之外，且 δ ≠ 0 时输出本来就没有逐位契约）。
+            // δ 存 float（一格 24 字节，T-024 的缓存足迹不翻倍；δ 是小增量，float 量化远在可闻之外，且 δ ≠ 0 时输出本来就没有逐位契约）；
+            // δ 只在带 δ 的那条路里写（不带 δ 的那条路里格上的 δ 是旧值，读的时候按 incrementsFrom 当 0）。
             struct Frame
             {
                 std::array<float, 2> dry {}, wet {}, delta {};
@@ -272,6 +280,9 @@ namespace celadon
             int ringLength = 1;
             int writeIndex = 0;
             std::int64_t lastProcessed = std::numeric_limits<std::int64_t>::min();   // 最近一个「处理后 ≠ 干路」（逐位）的样本号；prepare / reset 后在环之前
+            std::int64_t lastIncrement = std::numeric_limits<std::int64_t>::min();   // 最近一个 δ ≠ 0 的样本号（T-032）；同上
+            std::int64_t incrementsFrom = 0;   // 带 δ 的那条路这一轮连续跑的起点：从这个样本号起环里的格都存了 δ，更早的样本 δ 都是 0
+            bool incrementsWritten = false;    // 上一段走的是带 δ 的那条路
 
             // 单调队列（固定容量的环，容量取 2 的幂、下标按位与回绕）：两个分段滑动窗（见下）里完整段的最值，每段进一次。
             // 处理一段时队首位置与个数放在局部的 View 里（留在寄存器），段尾写回。

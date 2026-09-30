@@ -1494,10 +1494,12 @@ namespace celadon::test
             expect (std::abs (rhoAuto - rhoOff) < 0.02, "ADR-015: the automatic Clay leaves the low-band stereo as it is: "
                                                         + juce::String (rhoAuto, 3) + " vs " + juce::String (rhoOff, 3));
 
-            // T-032（R4-01，2026-09-29）：自动加宽确实到了输出上。守护修订前③ 的增量在正常电平下被守护回收约 95 %（Status 显示加宽
-            // +1.5 dB、输出的高频侧声道只多约 0.2 dB）；修订后守护只管①②，③ 的增量原样叠在守护输出上。量 4 kHz 以上的 S/M（dB）：
-            // Balance 的 EQ 与 Glue / 限幅器的联动增益对 S 与 M 一视同仁、S/M 不受它们影响，Heat 的非线性很轻；高架 16 kHz = widthDb、
-            // 2 kHz = widthDb / 2，4 kHz 以上的踩镲噪声接近平台——自动链比全关高 ≥ 0.6 × 交给模块的 widthDb。
+            // T-032（R4-01，2026-09-29）：自动加宽确实到了整链输出上（端到端的通路检查）。量 4 kHz 以上的 S/M（dB）：Balance 的 EQ 与
+            // Glue / 限幅器的联动增益对 S 与 M 一视同仁、S/M 不受它们影响，Heat 的非线性很轻；高架 16 kHz = widthDb、2 kHz = widthDb / 2，
+            // 4 kHz 以上的踩镲噪声接近平台——自动链比全关高 ≥ 0.6 × 交给模块的 widthDb。
+            // 注意它不是 R4-01 的阳性对照：这份素材的高频很窄（S/M 约 −25 dB），加宽几乎不改变 L / R 的峰值，守护回收加宽的旧版本在这里
+            // 也只少一点（e6b445b 在 107 实测 +0.435 dB / widthDb 0.454 dB，同样过这条）。那条缺陷的阳性对照在 ClayTests 的
+            // testWidthIsNotRecoveredByPeakGuard（宽素材：旧版本 +3 dB 只剩 +0.316 dB）。
             {
                 const auto component = [] (const Signal& signal, double sign)
                 {
