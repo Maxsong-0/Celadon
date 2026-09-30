@@ -36,9 +36,6 @@
 
 namespace celadon
 {
-    // MSVC /W4 的 C4324「结构因对齐说明符而补齐」：tapsBroadcast 的 alignas (16) 让类尾部补到 16 字节的倍数，是有意的（SSE2 核对齐加载）。
-    JUCE_BEGIN_IGNORE_WARNINGS_MSVC (4324)
-
     class TruePeakDetector
     {
     public:
@@ -87,12 +84,11 @@ namespace celadon
         // NEON 核用它：vfmaq_laneq 按通道取系数，正是为这种紧凑布局设计的。
         std::array<float, (size_t) (tapsPerPhase * 8)> tapsByTap {};
 
-        // 同一批系数再按「抽头 → 相位 → 4 个相同的通道」预先广播给 SSE2 核（T-032，2026-09-29）：
-        // tapsBroadcast[28k + 4(p − 1) + lane] = reversedPhases[p][k]，每个抽头 7 相 × 4 通道 = 28 个 float，全表 7 KB。
-        // 核里每个抽头 7 次对齐加载直接拿到「4 个相同的系数」，省掉原来的 2 次加载 + 7 次 shufps；乘、加的操作数与顺序不变，
-        // 所以与参照实现、与旧核都逐位相同（107 实测 29 → 18 ns / 样本 / 声道）。alignas (16) 让核能用对齐加载。
-        // 两张表都在构造时填好、不按平台裁掉：头文件不分平台，多一张表只占几 KB，构造不在音频线程。
-        alignas (16) std::array<float, (size_t) (tapsPerPhase * 4 * (oversamplingFactor - 1))> tapsBroadcast {};
+        // SSE2 核的系数（T-032，2026-09-29）：指向全部检测器共用的预广播表（TruePeak.cpp 的 SharedCoefficients），
+        // 每个抽头按第 1 … 7 相各 4 个相同的 float：tapsBroadcast[28k + 4(p − 1) + lane] = reversedPhases[p][k]，全表 7 KB。
+        // 表在静态存储里按 16 字节对齐、构造后只读，检测器自己不带对齐要求——对齐的数组成员会把 16 字节对齐一路传给
+        // LimiterModule、LoudnessMeter、CeladonChain 与处理器，MSVC /W4 下这些类会逐个报 C4324。拷贝检测器只拷指针，照样有效。
+        const float* tapsBroadcast = nullptr;
 
         std::vector<ChannelState> channels;
 
@@ -100,6 +96,4 @@ namespace celadon
         std::array<float, (size_t) (historyLength + chunkLength + groupSize)> line {};
         std::array<float, (size_t) (chunkLength + groupSize)> peakScratch {};
     };
-
-    JUCE_END_IGNORE_WARNINGS_MSVC
 }

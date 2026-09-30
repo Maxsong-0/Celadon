@@ -8,8 +8,9 @@
         所以舍入与逐样本的参照实现完全一样，结果逐位相同，也与样本落在哪一段、哪一组无关（分块无关）。
       - 「时间在向量的通道里」：通道 i 是第 i 个输出，每个抽头只做 3 次窗口加载、2 次系数加载、21 次乘加，
         没有水平求和；21 个独立累加器足够把乘加流水线喂满。
-      - SSE2 核（x86-64 只有 16 个 XMM 寄存器）一次 4 个输出 × 7 相；系数用预广播表 tapsBroadcast（T-032）：每个抽头 7 次
-        对齐加载直接拿到 4 个相同的系数，不再每抽头 2 次加载 + 7 次 shufps，乘加的操作数与顺序不变（107 实测 29 → 18 ns）。
+      - SSE2 核（x86-64 只有 16 个 XMM 寄存器）一次 4 个输出 × 7 相；系数读全部检测器共用的预广播表（T-032，下面的
+        SharedCoefficients）：每个抽头 7 次对齐加载直接拿到 4 个相同的系数，不再每抽头 2 次加载 + 7 次 shufps，
+        乘加的操作数与顺序不变，所以仍与参照实现逐位相同（107 实测 29.2 → 19.0 ns / 样本 / 声道，2026-09-30）。
       - 逐项乘加的舍入方式按平台固定（下面的 multiplyAdd），参照实现与向量核用同一种：
           ARM64（NEON）：融合乘加（一次舍入）= 旧代码在 Xcode Release（-O3 + LTO）与 Debug 下编出的 fmadd 串行链，
                          所以装进 DAW 的版本读数与 v0.4 逐位相同；
@@ -109,6 +110,82 @@ namespace celadon
 
         // Kaiser β：约 −90 dB 旁瓣。
         constexpr double kaiserBeta = 9.0;
+
+        // 全部检测器共用的一份系数（T-032，2026-09-29）。设计原来在构造函数里、每个检测器各算一遍；公式与运算顺序原样搬到这里
+        // 只算一次，数值逐位不变。检测器构造时把 reversedPhases 逐位拷进实例（参照实现与 NEON 核照旧读实例里的），
+        // SSE2 核直接读这里的预广播表——「参照实现与向量核用同一批 float」由此靠构造保证。
+        // 预广播表放在静态存储而不是检测器成员：alignas (16) 的成员会让检测器以及包含它的类都带上 16 字节对齐要求，
+        // MSVC /W4 下逐个报 C4324「因对齐说明符而补齐」。共用一份也让限幅器与两块表的检测器在音频线程上只占一份缓存。
+        struct SharedCoefficients
+        {
+            PhaseTable reversedPhases {};
+
+            // SSE2 核的预广播表：broadcast[28k + 4(p − 1) + lane] = reversedPhases[p][k]（p = 1 … 7，lane = 0 … 3），
+            // 每个抽头 7 相 × 4 个相同的 float，全表 7 KB。对齐让 SSE2 的乘法能直接吃内存操作数（不对齐的加载要单独一条指令）。
+            // 各平台都填（只在构造第一个检测器时算一次）；NEON 与纯标量路径不读它。
+            alignas (16) std::array<float, (size_t) (numTaps * broadcastStride)> broadcast {};
+
+            SharedCoefficients()
+            {
+                constexpr int numTapsTotal = numPhases * numTaps;   // 512 个抽头（8× 采样率下）
+                constexpr int centre       = numTapsTotal / 2;      // 256，对应原采样率下 latencySamples = 32
+
+                std::array<double, (size_t) numTapsTotal> h {};
+
+                for (int k = 0; k < numTapsTotal; ++k)
+                {
+                    const auto offset = k - centre;
+
+                    // sinc((k − centre) / 8)：截止在原采样率的奈奎斯特频率。
+                    // 偏移是 8 的整数倍时精确给 1 或 0，保证第 0 相就是原样本本身。
+                    double sinc = 0.0;
+
+                    if (offset % numPhases == 0)
+                        sinc = (offset == 0 ? 1.0 : 0.0);
+                    else
+                    {
+                        const auto x = juce::MathConstants<double>::pi * (double) offset / (double) numPhases;
+                        sinc = std::sin (x) / x;
+                    }
+
+                    // Kaiser 窗以 centre 为中心、半宽 centre（k = numTapsTotal 那一点落在 sinc 零点上，省掉不影响对称）。
+                    const auto ratio = (double) offset / (double) centre;
+                    const auto window = besselI0 (kaiserBeta * std::sqrt (juce::jmax (0.0, 1.0 - ratio * ratio)))
+                                      / besselI0 (kaiserBeta);
+
+                    h[(size_t) k] = sinc * window;
+                }
+
+                for (int phase = 0; phase < numPhases; ++phase)
+                {
+                    // 每一相单独归一到直流增益 1：直流信号插出来的点不会偏高或偏低。
+                    double sum = 0.0;
+
+                    for (int j = 0; j < numTaps; ++j)
+                        sum += h[(size_t) (numPhases * j + phase)];
+
+                    for (int k = 0; k < numTaps; ++k)
+                    {
+                        const auto j = numTaps - 1 - k;
+                        reversedPhases[(size_t) phase][(size_t) k] = (float) (h[(size_t) (numPhases * j + phase)] / sum);
+                    }
+                }
+
+                // 同一批 float 系数，每个抽头按第 1 … 7 相各复制成 4 个相同的通道（数值逐位不变，只是换了存放）。
+                for (int k = 0; k < numTaps; ++k)
+                    for (int phase = 1; phase < numPhases; ++phase)
+                        for (int lane = 0; lane < 4; ++lane)
+                            broadcast[(size_t) (broadcastStride * k + 4 * (phase - 1) + lane)] = reversedPhases[(size_t) phase][(size_t) k];
+            }
+        };
+
+        // 第一次构造检测器时算好（函数内静态量的初始化是线程安全的，C++11 起），之后只读。检测器都在音频线程之外构造
+        //（链与表的成员随处理器构造；测试与离线工具的局部量），音频线程只经实例里的指针读表，碰不到这里的初始化。
+        const SharedCoefficients& sharedCoefficients()
+        {
+            static const SharedCoefficients coefficients;
+            return coefficients;
+        }
 
         // 逐项乘加：sum + tap · x。舍入方式按平台固定，见文件头。
         inline float multiplyAdd (float sum, float tap, float x) noexcept
@@ -228,10 +305,10 @@ namespace celadon
         }
 
         // x86-64 只有 16 个 XMM 寄存器：一次 4 个输出 × 7 相 = 7 个累加器；一组 12 个输出分三次算。
-        // 系数来自预广播表 tapsBroadcast（T-032，2026-09-29）：每个抽头 7 次对齐加载，每次直接是「4 个相同的系数」，
+        // 系数来自共用的预广播表（SharedCoefficients，T-032，2026-09-29）：每个抽头 7 次对齐加载，每次直接是「4 个相同的系数」，
         // 省掉原来每抽头 2 次加载 + 7 次 shufps（旧核每抽头 24 条指令里 9 条在搬系数）。乘法的两个操作数（x 与同一个系数）、
-        // 加进哪个累加器、按 k 的顺序都与原来完全一样，所以与参照实现、与旧核都逐位相同：107 实测 29.09 → 18 ns / 样本 / 声道，
-        // DspPartsTests 的 4 种 MXCSR × 9 种信号 × 7 种分块矩阵 0 失配。tapsByTap 这条路径不用（NEON 用）。
+        // 加进哪个累加器、按 k 的顺序都与原来完全一样，所以与参照实现、与旧核都逐位相同（DspPartsTests 的 4 种 MXCSR × 信号 × 分块
+        // 矩阵逐位对照）。tapsByTap 这条路径不用（NEON 用）。
         void computePeakGroups (const float* line, const float*, const float* tapsBroadcast, const PhaseTable&, float* peaks, int numGroups) noexcept
         {
            #if defined (__clang__)
@@ -283,52 +360,14 @@ namespace celadon
     //==============================================================================
     TruePeakDetector::TruePeakDetector()
     {
-        constexpr int numTapsTotal = oversamplingFactor * tapsPerPhase;   // 512 个抽头（8× 采样率下）
-        constexpr int centre       = numTapsTotal / 2;                    // 256，对应原采样率下 latencySamples = 32
-
         static_assert (groupSize == 12, "向量核按 12 个输出一组写死");
         static_assert (chunkLength % groupSize == 0, "每段必须是整组");
 
-        std::array<double, (size_t) numTapsTotal> h {};
-
-        for (int k = 0; k < numTapsTotal; ++k)
-        {
-            const auto offset = k - centre;
-
-            // sinc((k − centre) / 8)：截止在原采样率的奈奎斯特频率。
-            // 偏移是 8 的整数倍时精确给 1 或 0，保证第 0 相就是原样本本身。
-            double sinc = 0.0;
-
-            if (offset % oversamplingFactor == 0)
-                sinc = (offset == 0 ? 1.0 : 0.0);
-            else
-            {
-                const auto x = juce::MathConstants<double>::pi * (double) offset / (double) oversamplingFactor;
-                sinc = std::sin (x) / x;
-            }
-
-            // Kaiser 窗以 centre 为中心、半宽 centre（k = numTapsTotal 那一点落在 sinc 零点上，省掉不影响对称）。
-            const auto ratio = (double) offset / (double) centre;
-            const auto window = besselI0 (kaiserBeta * std::sqrt (juce::jmax (0.0, 1.0 - ratio * ratio)))
-                              / besselI0 (kaiserBeta);
-
-            h[(size_t) k] = sinc * window;
-        }
-
-        for (int phase = 0; phase < oversamplingFactor; ++phase)
-        {
-            // 每一相单独归一到直流增益 1：直流信号插出来的点不会偏高或偏低。
-            double sum = 0.0;
-
-            for (int j = 0; j < tapsPerPhase; ++j)
-                sum += h[(size_t) (oversamplingFactor * j + phase)];
-
-            for (int k = 0; k < tapsPerPhase; ++k)
-            {
-                const auto j = tapsPerPhase - 1 - k;
-                reversedPhases[(size_t) phase][(size_t) k] = (float) (h[(size_t) (oversamplingFactor * j + phase)] / sum);
-            }
-        }
+        // 系数设计只在 SharedCoefficients 里算一次（T-032）：逐位拷进实例，SSE2 核直接读共用的预广播表。
+        const auto& shared = sharedCoefficients();
+        reversedPhases = shared.reversedPhases;
+        tapsBroadcast = shared.broadcast.data();
+        jassert ((reinterpret_cast<std::uintptr_t> (tapsBroadcast) & 15u) == 0);   // alignas (16)：SSE2 核用对齐加载
 
         // 同一批 float 系数按抽头重排给向量核（数值逐位不变，只是换了存放顺序）。
         for (int k = 0; k < tapsPerPhase; ++k)
@@ -338,16 +377,6 @@ namespace celadon
 
             tapsByTap[(size_t) (tapStride * k + tapStride - 1)] = 0.0f;
         }
-
-        // 预广播表（SSE2 核，T-032）：同一批 float 系数，每个抽头按第 1 … 7 相各复制成 4 个相同的通道（数值逐位不变，只是换了存放）。
-        static_assert (std::tuple_size<decltype (tapsBroadcast)>::value == (size_t) (tapsPerPhase * broadcastStride),
-                       "tapsBroadcast 的大小必须是 抽头数 × 28");
-        jassert ((reinterpret_cast<std::uintptr_t> (tapsBroadcast.data()) & 15u) == 0);   // alignas (16)：核用对齐加载
-
-        for (int k = 0; k < tapsPerPhase; ++k)
-            for (int phase = 1; phase < oversamplingFactor; ++phase)
-                for (int lane = 0; lane < 4; ++lane)
-                    tapsBroadcast[(size_t) (broadcastStride * k + 4 * (phase - 1) + lane)] = reversedPhases[(size_t) phase][(size_t) k];
     }
 
     const char* TruePeakDetector::getBlockKernelName() noexcept
@@ -401,7 +430,7 @@ namespace celadon
         const auto numGroups = (numSamples + groupSize - 1) / groupSize;
         std::fill (data + historyLength + numSamples, data + historyLength + numGroups * groupSize, 0.0f);
 
-        computePeakGroups (data, tapsByTap.data(), tapsBroadcast.data(), reversedPhases, peakScratch.data(), numGroups);
+        computePeakGroups (data, tapsByTap.data(), tapsBroadcast, reversedPhases, peakScratch.data(), numGroups);
 
         // 历史推进 numSamples 个样本，与逐个 processSample 写入的结果完全相同（环形缓冲只留得下最后 64 个写入）。
         for (int i = juce::jmax (0, numSamples - tapsPerPhase); i < numSamples; ++i)

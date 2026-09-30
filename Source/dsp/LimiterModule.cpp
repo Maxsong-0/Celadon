@@ -92,9 +92,10 @@ namespace celadon
             return settle (target + (current - target) * coeff, target);
         }
 
-        // 外部参数的守卫（T-032 R8-02）：APVTS 与链只钳有限值，"nan" 会从工程文件原样读回。NaN 一旦进来：
+        // 外部参数的守卫（T-032 R8-02，2026-09-29）：APVTS 与链只钳有限值，"nan" 会从工程文件原样读回。NaN 一旦进来：
         // 释放时间 → 系数 NaN → 包络永远 NaN → MovingAverage::push 里 jmin (1.0, NaN) 返回 1.0 → 限幅器静默失效、只剩硬钳位在削；
-        // Gain / Ceiling → decibelsToGain 返回 0 → 永久静音；前瞻 → roundToInt (NaN) 未定义。
+        // Gain / Ceiling → decibelsToGain 返回 0 → 永久静音；前瞻 → lookaheadSamplesFor 里 jlimit 放过 NaN、roundToInt (NaN)
+        // 的结果没有意义（x86 上得 0，前瞻被悄悄当成 1 个样本）。
         // 非有限值回默认，有限值钳进范围；对有限且在范围内的值是恒等（同一位模式），现有输出与 GLAZE 校准哈希都不变。
         float finiteInRange (float value, float low, float high, float fallback) noexcept
         {
@@ -130,8 +131,11 @@ namespace celadon
 
     void LimiterModule::SlidingMinimum::setWindow (int newWindow) noexcept
     {
+        // 块算法的状态（块内位置、上一块的后缀最小值）只对原来的窗长有意义，所以改窗同时清空：0 ≤ position < window ≤ 容量
+        // 恒成立，push 永远不越界（旧的单调队列按样本序号淘汰，改窗不清也不越界；这里不清就可能越界，不能交给调用方记着）。
         jassert (newWindow >= 1 && newWindow <= (int) block.size());
-        window = newWindow;
+        window = juce::jlimit (1, juce::jmax (1, (int) block.size()), newWindow);
+        clear();
     }
 
     void LimiterModule::SlidingMinimum::clear() noexcept
@@ -351,8 +355,7 @@ namespace celadon
         gainDelay.setDelay (clipLatency + coreDelay);   // 与旁通干路同长：试听差值按它还原「加了 Gain 的输入」
         gainDelay.fill (gainSmoothed.getCurrentValue());
 
-        requiredGainHold.setWindow (lookaheadSamples + holdSamples);
-        requiredGainHold.clear();
+        requiredGainHold.setWindow (lookaheadSamples + holdSamples);   // 改窗同时清空
         configureAttackShape();
         attackRamp.clear();
         attackShape.clear();
@@ -404,6 +407,18 @@ namespace celadon
     int LimiterModule::getLatencySamples() const noexcept
     {
         return clipLatency + coreDelaySamples();
+    }
+
+    std::vector<float> LimiterModule::getPendingHardClipCeilingsForTesting() const
+    {
+        // 在副本上推：DelayLine 可拷贝，推 getDelay() 次正好把现存内容按输出顺序全部取出，本对象的状态不动。
+        auto copy = ceilingDelay;
+        std::vector<float> pending ((size_t) juce::jmax (0, copy.getDelay()));
+
+        for (auto& value : pending)
+            value = copy.pushPop (0.0f);
+
+        return pending;
     }
 
     float LimiterModule::getAndResetGainReductionDb() noexcept
