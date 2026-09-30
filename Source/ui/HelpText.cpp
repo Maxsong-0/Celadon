@@ -460,10 +460,10 @@ namespace celadon::help
             // 是静态说明（无实时数据时的底稿）；第 3 行照常显示，所以灯色的含义写在第 3 行。
             { uiid::clayIndicator,
               "修坯 · 立体声像与超低频清理",
-              "三盏灯自上而下：低切（清超低频）、收单（低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，由先试后用把关。",
+              "三盏灯自上而下：低切（清超低频）、收单（低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",
               "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查），加宽灯琥珀 = 宽度保护介入。想手动覆盖，把该行切到「手动」。",
               "Clay · stereo image and sub-bass cleanup",
-              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not guarded, the trial keeps it in check.",
+              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not guarded, and automatic width is kept in check by the trial.",
               "Lit = processing (violet = auto, cyan = manual); amber mono = out-of-phase lows warning (check the mix), amber width = width guard engaged. To override, switch a row to Manual." },
         };
 

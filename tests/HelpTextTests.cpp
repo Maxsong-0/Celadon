@@ -529,7 +529,8 @@ namespace celadon::test
 
             // 依据：ADR-014 T-032 修订（2026-09-29，研究 R4-01 / 核验 V4）——峰值守护只管低切与收单，加宽的增量不经守护（ClayModule.h
             // 文件头④）。三处文案不能再说「任何状态下峰值处都会自动让一点」「修坯从不让峰值变高」（旧文案：加宽在正常电平下其实被
-            // 守护回收约 95 %、界面却说只让一点）；中英文都要讲到「加宽不经守护」「低切 / 收单在会抬峰值的瞬间让开」。
+            // 守护回收约 95 %、界面却说只让一点）；中英文都要讲到「加宽不经守护」「低切 / 收单在会抬峰值的瞬间让开」。指示灯管自动与手动
+            // 两种状态，「由先试后用把关」只对自动加宽成立（手动加宽只有末级限幅器兜），所以要写明是「自动加宽」。
             // 阳性对照：同一组断言对改前的 HelpText.cpp（e6b445b）全部不过（T-032 报告记录）。
             beginTest ("Clay texts (T-032): the peak guard covers low cut and mono only; width is not guarded");
             {
@@ -554,6 +555,9 @@ namespace celadon::test
                               && juce::String (indicator->effectEn).contains ("width is not guarded")
                               && ! juce::String (indicator->effectEn).contains ("Clay never makes peaks higher"),
                             "indicator (English): same scope");
+                    expect (utf8Contains (utf8 (indicator->effect), "自动加宽由先试后用把关")
+                              && juce::String (indicator->effectEn).contains ("automatic width is kept in check by the trial"),
+                            "indicator: only the automatic width goes through the trial (a manual width is what you set)");
 
                     expect (utf8Contains (utf8 (lowCut->advice), "峰值守护会把低切让回去") && ! utf8Contains (utf8 (lowCut->advice), "让一点"),
                             "low cut advice: the guard yields the low cut at peaks it would raise");
