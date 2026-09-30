@@ -16,7 +16,7 @@ REMOTE=".cache/celadon-site/$(basename "$(dirname "$SITE")")-$KEY"
 MODE="${1:-build}"
 
 if [ "$MODE" = "stop" ]; then
-  "${SSH[@]}" "$HOST" "pkill -f '[p]ython3 scripts/serve.py $PORT' || true; echo stopped"
+  "${SSH[@]}" "$HOST" "pkill -f '[s]tatic-server.py --root dist --bind 0.0.0.0 --port $PORT' || true; echo stopped"
   exit 0
 fi
 
@@ -56,7 +56,7 @@ rsync -lpD -e "${SSH[*]}" "$HOST:$REMOTE/pnpm-lock.yaml" "$SITE/pnpm-lock.yaml"
 echo "dist/ 与 pnpm-lock.yaml 已拉回 $SITE"
 
 if [ "$MODE" = "serve" ]; then
-  # SPA：深链接要回落到 index.html，用 scripts/serve.py（随站点一起同步过去）。
+  # SPA：深链接要回落到 index.html，用 deploy/static-server.py（随站点一起同步过去，--no-cache）。
   # 端口已在监听就复用（dist/ 原地更新，旧进程直接服务新文件），不 kill；要停用 stop。
-  "${SSH[@]}" "$HOST" "cd '$REMOTE' && if ss -ltn 'sport = :$PORT' | grep -q LISTEN; then echo 'serve already listening'; else (setsid nohup python3 scripts/serve.py $PORT dist > serve.log 2>&1 < /dev/null &); sleep 0.8; fi; ss -ltn 'sport = :$PORT' | grep -q LISTEN && echo \"serving http://\$(hostname -I | awk '{print \$1}'):$PORT\" || (echo 'serve failed'; cat serve.log; exit 1)"
+  "${SSH[@]}" "$HOST" "cd '$REMOTE' && if ss -ltn 'sport = :$PORT' | grep -q LISTEN; then echo 'serve already listening'; else (setsid nohup python3 deploy/static-server.py --root dist --bind 0.0.0.0 --port $PORT --no-cache > serve.log 2>&1 < /dev/null &); sleep 0.8; fi; ss -ltn 'sport = :$PORT' | grep -q LISTEN && echo \"serving http://\$(hostname -I | awk '{print \$1}'):$PORT\" || (echo 'serve failed'; cat serve.log; exit 1)"
 fi
