@@ -27,8 +27,9 @@
          手动本身已超 → 撤回该模块的自动增量、标 limitedByManual；叠加后超 → 在固定网格上二分出最大可行强度 s_c，
          与 GLAZE 无关，最终强度 = min(s, s_c)，所以随 GLAZE 严格单调；约束反馈 maxGainDb 同样折成强度上限；
          手动已让限幅器超约束 / Limit 旁通 / maxGainDb 低于手动链净增益 → 电平类自动全部撤回，另标 automaticLevelWithdrawn
-         （T-032 R6-02：limitedByManual 是界面提示，Heat / Glue / Clip 单独被撤回时其余自动增量照常展开；编排器的画像失配
-         只看 automaticLevelWithdrawn，保护层、校准与约束反馈暂仍看 limitedByManual，见 GlazeTypes.h Plan 的说明）；
+         （T-032 R6-02：limitedByManual 是界面提示，Heat / Glue / Clip 单独被撤回时其余自动增量照常展开；编排器的画像失配、
+         保护层、校准与约束反馈只看 automaticLevelWithdrawn）；手动单独已超预算、自动部分不再为它负责的项另记 manualBudgetMask
+         （A11，manualBudgetMaskFor：编排器的保护层与上游监视不核对它们，只核对自动部分；手动中性时为 0）；
       7. 目标：requestedGain = 手动链的预计净增益 + GLAZE × G_full（风格与 GLAZE 想要的）；
                effectiveGain = 手动链的预计净增益 + s × G_full′（校准器用它作目标净提升，含手动部分，所以不会去抵消手动）。
       8. 修坯 Clay（v0.1.7.0，算法 7；设计规格-Clay-分析决策与验收第 2 节，ADR-012 / 设计规格-Clay-根治修订 3.3 修订）：与 1 ～ 7
@@ -1416,47 +1417,39 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    // 按画像此刻的置信度生成方案（makePlan 再用「置信度拉满」的同一份方案给它封顶）。
-    static Plan makePlanAtConfidence (const PlanInputs& inputs) noexcept
+    // 方案的风格权重：离散风格独热；「自动」用锁定的权重，没锁时按画像判断（置信不足偏向通透）。
+    static StyleWeights planWeights (const PlanInputs& inputs, const Constants& c) noexcept
     {
-        const auto& c = inputs.constants != nullptr ? *inputs.constants : factoryConstants();
-        const auto* profile = inputs.profile;
-        const auto& manual = inputs.manual;
-
-        // ---- 风格 ----
         StyleWeights automaticWeights { 0.0f, 0.0f, 1.0f };
 
         if (inputs.lockedWeights != nullptr)
             automaticWeights = *inputs.lockedWeights;
-        else if (profile != nullptr)
-            automaticWeights = resolveAutomaticWeights (*profile, c);
+        else if (inputs.profile != nullptr)
+            automaticWeights = resolveAutomaticWeights (*inputs.profile, c);
 
         const auto styleIndex = (int) inputs.style;
         const auto style = styleIndex >= (int) Style::automatic && styleIndex <= (int) Style::clean ? inputs.style : Style::automatic;
+        return weightsFor (style, automaticWeights);
+    }
 
-        Plan plan;
-        plan.weights = weightsFor (style, automaticWeights);
-        plan.algorithmVersion = currentAlgorithmVersion;
-        plan.constantsVersion = c.version;
-
-        // 显示用的输入响度：画像测到了就用测到的（不管置信度），否则保守默认值。
+    // 决策用的环境：混合后的风格常数、按置信度收拢过的特征、用户的非 GLAZE 设置。makePlanAtConfidence 与 estimateManualChainUsage
+    // 共用这一份构造（T-032 A11），两处的手动链估计逐位相同；ctx.manualGainDb 由调用方按手动值另填。
+    static Context planningContext (const PlanInputs& inputs, const Constants& c, const StyleWeights& weights) noexcept
+    {
+        const auto* profile = inputs.profile;
+        const auto& manual = inputs.manual;
         const auto defaultInputLufs = isFinite (c.unlearnedInputLufs) ? c.unlearnedInputLufs : factoryConstants().unlearnedInputLufs;
         const auto measuredInputLufs = valueOr (profile, &MusicProfile::integratedLufs, defaultInputLufs);
-
-        // GLAZE ≤ 0 或 NaN 按 0（「> 0」的写法把 NaN 一并挡掉）：不生成任何增量，目标 = 手动链本身的结果。
-        const auto glaze = inputs.glazePercent > 0.0f ? juce::jmin (inputs.glazePercent, 100.0f) * 0.01f : 0.0f;
 
         // ---- 环境：特征按置信度向保守默认值收拢 ----
         Context ctx;
         ctx.c = &c;
-        ctx.sc = blendConstants (c, plan.weights);
+        ctx.sc = blendConstants (c, weights);
         ctx.glue.slope = c.glueRatio > 1.0f ? 1.0f - 1.0f / c.glueRatio : 0.0f;
         ctx.glue.kneeWidth = nonNegative (c.glueKneeDb);
 
         const auto full = c.fullConfidence > 0.0f ? c.fullConfidence : 1.0f;
         const auto loudnessTrust = trustOf (profile, &MusicProfile::integratedLufs, full);
-        const auto lraTrust = trustOf (profile, &MusicProfile::loudnessRangeLu, full);
-        const auto slopeTrust = trustOf (profile, &MusicProfile::spectralSlopeDbPerOct, full);
 
         // 置信不足时向保守默认值收拢（分析器第 6 节），只动输入响度一项、且只往「更响」一侧收：请求增益只会变小，
         // 超限估计 E = TP + G − Ceiling 与受约束的增益 min(G, 容量 + Ceiling − TP) 也就只会变小——置信度低的方案，
@@ -1486,6 +1479,75 @@ namespace celadon::glaze
             ctx.glueLowRiskScale = 1.0f - clamp01 (c.glueLowRiskMaxCut) * lowRisk;
         }
 
+        return ctx;
+    }
+
+    // 手动值里会动电平的 4 个参数（钳到参数范围；非有限按 0）：「只有手动值」的链就按它估。
+    static Settings manualSettingsOf (const ChainParams& manual) noexcept
+    {
+        return { isFinite (manual.color.glue) ? clampTo (manual.color.glue, 0.0f, 100.0f) : 0.0f,
+                 isFinite (manual.color.heat) ? clampTo (manual.color.heat, 0.0f, 100.0f) : 0.0f,
+                 isFinite (manual.limit.gainDb) ? clampTo (manual.limit.gainDb, 0.0f, 24.0f) : 0.0f,
+                 isFinite (manual.limit.clip) ? clampTo (manual.limit.clip, 0.0f, 100.0f) : 0.0f };
+    }
+
+    // 手动单独已超预算的项（Plan::manualBudgetMask 的位，GlazeTypes.h；T-032 R6-02 收尾，A11）。manualChain = 同一环境下只有手动值
+    // 的链；withdrawn = 决策器对手动链的约束核对（makePlanAtConfidence 的 check：Clip 这一项与 heatBudget 无关）。
+    //   - Heat：手动 Heat > 风格的驱动上限（旋钮单位；上游监视按同一上限换算成驱动量）。这时 heatCap(sc, row) ≤ 驱动上限 < 手动值，
+    //     自动 Heat 的余量为 0（被撤回同样是 0）。不看 heatBudget：自动没在用 Heat 时 check 不撤回、也不标受手动限制，但 Heat 驱动
+    //     照样全是手动的，上游监视照样会把它当成超限（例如 Color Mix 0 时手动 Heat 50：修前每「过渡 + 3 s」白降 1 dB）；
+    //   - Glue：手动链单独的 Glue 均值 / p95 GR 有一项超过风格上限（不加容差：到了上限 glueCap 同一模型给的余量就是 0，不论撤不撤回，
+    //     自动 Glue 都是 0）；
+    //   - Clip：决策器撤回了自动 Clip（withdrawn.clip，带容差）——只有这时它才不按 Clip 预算核对这份方案（feasible 跳过已撤回的模块，
+    //     自动 Gain 只受限幅器约束），保护层与它一致；没撤回时方案按 Clip 预算核对过，保护层照样按风格上限核对。
+    //   三项都与 GLAZE、约束反馈上限无关；手动中性（Glue / Heat / Clip 为 0）时恒为 0。
+    static std::uint8_t manualBudgetMaskFor (const Context& ctx, const Settings& manual, const ChainEstimate& manualChain,
+                                             const Violations& withdrawn) noexcept
+    {
+        const auto& sc = ctx.sc;
+        auto mask = std::uint8_t { 0 };
+
+        if (enforced (sc.heatDriveCap) && manual.heat > sc.heatDriveCap)
+            mask = static_cast<std::uint8_t> (mask | manualBudgetHeat);
+
+        if ((enforced (sc.glueGrMeanCapDb) && manualChain.color.glueGrMeanDb > sc.glueGrMeanCapDb)
+            || (enforced (sc.glueGrP95CapDb) && manualChain.color.glueGrP95Db > sc.glueGrP95CapDb))
+            mask = static_cast<std::uint8_t> (mask | manualBudgetGlue);
+
+        if (withdrawn.clip)
+            mask = static_cast<std::uint8_t> (mask | manualBudgetClip);
+
+        return mask;
+    }
+
+    //==============================================================================
+    // 按画像此刻的置信度生成方案（makePlan 再用「置信度拉满」的同一份方案给它封顶）。
+    static Plan makePlanAtConfidence (const PlanInputs& inputs) noexcept
+    {
+        const auto& c = inputs.constants != nullptr ? *inputs.constants : factoryConstants();
+        const auto* profile = inputs.profile;
+        const auto& manual = inputs.manual;
+
+        // ---- 风格 ----
+        Plan plan;
+        plan.weights = planWeights (inputs, c);
+        plan.algorithmVersion = currentAlgorithmVersion;
+        plan.constantsVersion = c.version;
+
+        // 显示用的输入响度：画像测到了就用测到的（不管置信度），否则保守默认值。
+        const auto defaultInputLufs = isFinite (c.unlearnedInputLufs) ? c.unlearnedInputLufs : factoryConstants().unlearnedInputLufs;
+        const auto measuredInputLufs = valueOr (profile, &MusicProfile::integratedLufs, defaultInputLufs);
+
+        // GLAZE ≤ 0 或 NaN 按 0（「> 0」的写法把 NaN 一并挡掉）：不生成任何增量，目标 = 手动链本身的结果。
+        const auto glaze = inputs.glazePercent > 0.0f ? juce::jmin (inputs.glazePercent, 100.0f) * 0.01f : 0.0f;
+
+        // ---- 环境：特征按置信度向保守默认值收拢（planningContext）----
+        auto ctx = planningContext (inputs, c, plan.weights);
+
+        const auto full = c.fullConfidence > 0.0f ? c.fullConfidence : 1.0f;
+        const auto lraTrust = trustOf (profile, &MusicProfile::loudnessRangeLu, full);
+        const auto slopeTrust = trustOf (profile, &MusicProfile::spectralSlopeDbPerOct, full);
+
         const auto kappa = confidenceScale (profile, c);
 
         // ---- 目标 ----
@@ -1496,10 +1558,7 @@ namespace celadon::glaze
         const auto requestFull = juce::jmax (driveFloor, nonNegative (preferred - ctx.inputLufs));
 
         // ---- 手动值：只有它时的链（手动链的预计净增益、手动本身是否已超约束）----
-        const Settings manualSettings { isFinite (manual.color.glue) ? clampTo (manual.color.glue, 0.0f, 100.0f) : 0.0f,
-                                        isFinite (manual.color.heat) ? clampTo (manual.color.heat, 0.0f, 100.0f) : 0.0f,
-                                        isFinite (manual.limit.gainDb) ? clampTo (manual.limit.gainDb, 0.0f, 24.0f) : 0.0f,
-                                        isFinite (manual.limit.clip) ? clampTo (manual.limit.clip, 0.0f, 100.0f) : 0.0f };
+        const auto manualSettings = manualSettingsOf (manual);
         const auto manualChain = estimateChain (ctx, manualSettings);
         const auto manualNetDb = manualChain.netDb;
         ctx.manualGainDb = manualSettings.gainDb;   // 满强度方案的自动 Limit Gain 量程 = 24 − 它（completeFullPlan，算法 8）
@@ -1524,6 +1583,9 @@ namespace celadon::glaze
         Schedule schedule;
         auto& withdrawn = schedule.withdrawn;
         withdrawn = check (ctx, manualChain, fullPlan.neutral, fullPlan.heat > 0.0f);
+
+        // 手动单独已超预算、自动部分不再为它负责的项（T-032 R6-02 收尾，A11）：编排器的保护层与上游监视不核对它们，只核对自动部分。
+        plan.manualBudgetMask = manualBudgetMaskFor (ctx, manualSettings, manualChain, withdrawn);
 
         // 逐模块钳住（Heat、Glue 的上限只收它们自己的自动增量，不拖共用强度，见 feasible()）：手动 + 自动 ≤ 有效上限。
         // 手动越接近上限，余量连续地降到 0；手动单独超上限时上面已撤回该模块——两条路在上限处接上，没有台阶。
@@ -1727,6 +1789,12 @@ namespace celadon::glaze
         plan.limitedByManual = plan.limitedByManual || bound.limitedByManual;
         plan.automaticLevelWithdrawn = plan.automaticLevelWithdrawn || bound.automaticLevelWithdrawn;   // T-032 R6-02：同样取或（保守）
 
+        // 手动已超预算的项（T-032 A11，GlazeTypes.h manualBudget*）按各位的含义合并：Heat / Glue 说的是「自动增量因手动为 0」，取小之后
+        // 那一项仍是 0（任一份为 0 即为 0）——取或；Clip 说的是「这份方案没按 Clip 预算核对」，取小之后的方案逐项不大于两份里按 Clip 核对
+        // 过的那一份，保护层照样按 Clip 预算核对才稳妥——只在两份都放开时放开，取与（保守）。
+        plan.manualBudgetMask = static_cast<std::uint8_t> (((plan.manualBudgetMask | bound.manualBudgetMask) & (manualBudgetHeat | manualBudgetGlue))
+                                                         | (plan.manualBudgetMask & bound.manualBudgetMask & manualBudgetClip));
+
         // 修坯 Clay：三项幅度逐项取小（低切 0 = 关，本来就是最小值；三项都随 GLAZE 单调、都不超上限，取小后照样成立）。
         // 分频点只由画像的逐段统计与常数决定，两份方案相同，保留 plan 自己的；取小后收单为 0 时回到中性默认值（与 planClay 一致）。
         auto& clay = plan.clay;
@@ -1808,6 +1876,31 @@ namespace celadon::glaze
         }
 
         return plan;
+    }
+
+    //==============================================================================
+    ManualChainUsage estimateManualChainUsage (const PlanInputs& inputs) noexcept
+    {
+        // 与 makePlanAtConfidence 同一份环境（风格权重、按置信度收拢的特征、手动的非电平设置）与同一前向模型；GLAZE、maxGainDb 不参与。
+        const auto& c = inputs.constants != nullptr ? *inputs.constants : factoryConstants();
+        auto ctx = planningContext (inputs, c, planWeights (inputs, c));
+        const auto manual = manualSettingsOf (inputs.manual);
+        ctx.manualGainDb = manual.gainDb;
+
+        const auto manualChain = estimateChain (ctx, manual);
+        const auto neutral = estimateChain (ctx, Settings {});   // = makeFullPlan 的 full.neutral（约束核对的基线）
+
+        ManualChainUsage usage;
+        usage.heatAmount = manual.heat;
+        usage.glueGrMeanDb = manualChain.color.glueGrMeanDb;
+        usage.glueGrP95Db = manualChain.color.glueGrP95Db;
+        usage.clipDepthDb = manualChain.clipDepthDb;
+        usage.clipActivity = manualChain.clipActivity;
+        usage.limitGrPeakDb = manualChain.limitGrPeakDb;
+        usage.limitGrMeanDb = manualChain.limitGrMeanDb;
+        usage.limitGrP95Db = manualChain.limitGrP95Db;
+        usage.overBudgetMask = manualBudgetMaskFor (ctx, manual, manualChain, check (ctx, manualChain, neutral, false));
+        return usage;
     }
 
     ChainParams applyIncrements (const ChainParams& manual, const AutoIncrements& inc) noexcept

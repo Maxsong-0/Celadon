@@ -34,6 +34,8 @@
       旧口径的参考（旧存档读回、还没升格）一个新属性也不写，存出来与修前逐字相同；manualParamsHash 两种口径都写（旧口径哈希）。
     T-032 R6-02（2026-09-29）：PLAN 多存 automaticLevelWithdrawn（电平类自动全部撤回；编排器的画像失配看它，见 GlazeTypes.h）。
       缺属性 = 取同一节点里的 limitedByManual（旧语义，保守）；在但不是 0 / 1 拒收。执行快照的 PLAN 同一字段表。
+    T-032 R6-02 收尾（A11）：PLAN 多存 manualBudgetMask（手动单独已超预算的项，保护层与上游监视不核对它们，见 GlazeTypes.h）。
+      缺属性 = 受手动设置限制的方案三位全置、否则 0；在但不是 0 ～ 255 的整数、或含未定义的位，整份拒收（已提交版本与执行快照都核）。
 
   ==============================================================================
 */
@@ -173,6 +175,11 @@ namespace celadon::glaze
             // 模式，用的就是读回的方案；缺省 false 会让它们对一份「自动全撤」的旧方案照常开工）；兼容算法的存档下一块就重算，缺省值
             // 无影响。属性在但不是 0 / 1 照样拒收。
             v.optionalField ("automaticLevelWithdrawn", plan.automaticLevelWithdrawn, plan.limitedByManual);
+            // T-032 R6-02 收尾（A11）：手动单独已超预算的项（GlazeTypes.h manualBudget*，十进制位掩码）。A11 之前的存档没有这个属性：
+            // 受手动设置限制的方案分不出是哪一项超了，三项全按「手动已超」读（保护层与上游监视不把可能是手动造成的超出当成自动的，
+            // 只核对限幅器；电平类自动全部撤回的旧方案本来就整体停着），不受限的读 0（与修前逐位同）。属性在但不是 0 ～ 255 的整数照样
+            // 拒收；只许三个已定义的位（fromXml 另核）。
+            v.optionalField ("manualBudgetMask", plan.manualBudgetMask, plan.limitedByManual ? manualBudgetAll : std::uint8_t { 0 });
             v.field ("algorithmVersion", plan.algorithmVersion);
             v.field ("constantsVersion", plan.constantsVersion);
         }
@@ -462,7 +469,7 @@ namespace celadon::glaze
         xmlio::Reader calibrationReader (*calibration);
         visitCalibration (calibrationReader, parsed.calibration);
 
-        if (! planReader.ok || ! calibrationReader.ok)
+        if (! planReader.ok || ! calibrationReader.ok || (parsed.plan.manualBudgetMask & ~manualBudgetAll) != 0)
             return false;
 
         out = parsed;
@@ -590,7 +597,7 @@ namespace celadon::glaze
                 && c.widthDb >= ClayModule::minWidthDb && c.widthDb <= ClayModule::maxWidthDb
                 && (c.costLimitedMask & ~definedCostBits) == 0;
         };
-        if (! validClay (planClay) || ! validClay (heardClay)
+        if (! validClay (planClay) || ! validClay (heardClay) || (parsed.plan.manualBudgetMask & ~manualBudgetAll) != 0
             || guardState.phaseFloor < 0.0f || guardState.phaseFloor > 1.0f
             || guardState.phaseHoldSeconds < 0.0f || guardState.widthCapDb < 0.0f)
             return false;
