@@ -64,10 +64,16 @@ namespace celadon
         constexpr double glueDeepReductionDb      = 6.0;     // 平均压缩量到这么深时释放取上限：2:1 下 6 dB 已是重压（初版，试听后调）
         constexpr int    glueAdaptIntervalSamples = 32;      // 释放时间每 32 样本重算一次（同 Limit 慢段）
         // 分频差：180 Hz 以下、5 kHz 以上若自己更轻，可以比联动增益最多高 3.2 dB。中频直接用联动增益、没有自己的检测器
-        // （2026-09-29 T-032 R3-01：原「侧链 − 低 − 高」不是互补分频——二阶 Butterworth 在交叉点相移 −90°，读数在
-        // 229 Hz / 3969 Hz 附近比整段高 2.1 dB，一条带比整段还响在物理上不可能，却让中频比联动多压约 1 dB、且表不显示）。
+        // （2026-09-29 T-032 R3-01：原中频检测器「侧链 − 低 − 高」不是互补分频——二阶 Butterworth 在交叉点相移 −90°，
+        // 这条「带」在 229 Hz / 3969 Hz 附近比整段读数高 2.1 dB（一条带比整段还响，物理上不可能），纯中频音的中频包络
+        // 因此比联动深约 1 dB（Δ 约 −0.5 dB，Glue 40 时钉在 −0.6 钳位），再叠上下面说的分裂相位凹陷，GR 表却只报联动）。
         // 检测器仍先过 100 Hz 高通，次声不单独驱动任何一路。低 / 高两路差都为 0 时音频退回原来的单一增益。
-        // 低 / 高两路的检测器是 Butterworth（|H| ≤ 1），稳态读数不会比整段深，所以 glueBandDeltaMinDb 只在瞬态振铃时触发。
+        // 低 / 高两路检测器是二阶 Butterworth（|H| ≤ 1）：稳态正弦的读数不会比整段高，Δ 只因攻击时间不同（低 36 ms、
+        // 高 8 ms 对联动 20 ms）略有出入。本路比联动更深（Δ < 0，下限 glueBandDeltaMinDb）要本路峰值高过整段：瞬态、振铃、
+        // 陡边沿波形经 5 kHz 高通（numpy 移植实测稳态 1 kHz 锯齿 +0.75 dB、方波 +0.21 dB）——不再有「稳态纯音也高 2.1 dB」
+        // 那种系统性伪像。
+        // 剩下的已知偏差：低 / 高抬升经二阶分裂在 300 Hz / 3 kHz 附近与主信号部分反相（Re{LP} 在 fc 以上 < 0），Δ ≠ 0 时施加增益
+        // 随频率偏离联动曲线（−6 dBFS 纯音、Glue 100 最坏约 −0.65 dB）；消除要改分裂结构（LR4 + 全通或一阶互补），待试听定。
         constexpr double glueLowSplitHz           = 180.0;
         constexpr double glueHighSplitHz          = 5000.0;
         constexpr double glueLowAttackMs          = 36.0;
@@ -384,7 +390,8 @@ namespace celadon
         // 对每个整数 Heat 值，用 −18 dBFS 正弦算 RMS(输入) / RMS(Tube 输出)。现在这个轻微系数只乘残差，
         // 保持高频染色强度接近原并联映射，不补偿或抬高原声。正弦在一个周期内均匀采样，
         // 与采样率无关；用交流有效值（去掉均值）——不对称带来的直流会被 5 Hz 高通滤掉，不该算进响度。
-        // 标定走与音频路径同一个整段 Tube（processTubeBlock）：补偿系数对应的正是实际在用的曲线。
+        // 标定走与音频路径同一个整段 Tube（processTubeBlock；音频路径的 processTubeResidualBlock 里 Tube (x) 是同一串运算、
+        // 逐位相同，只是再减去原样本）：补偿系数对应的正是实际在用的曲线。
         // 表只取决于常数，进程内第一次 prepare 时标定一次（C++ 保证函数内静态变量线程安全地只初始化一次），
         // 之后的 prepare 直接取用（v0.5 研究 P5 R8：原先每次 prepare 都重标定，占 Color prepare 的大半）。
         static const auto table = []
@@ -1189,7 +1196,7 @@ namespace celadon
         double chunkMaxReductionDb = 0.0;
         const auto stride = (size_t) maxBlockSize;
 
-        // 联动峰值与三路峰值共用这一条静态曲线。Glue = 0 时目标恒为 0。
+        // 联动峰值与低 / 高两路峰值共用这一条静态曲线（中频没有自己的检测器，T-032 R3-01）。Glue = 0 时目标恒为 0。
         const auto reductionTargetFor = [&] (double peak) noexcept
         {
             if (peak <= kneeStartLinear)

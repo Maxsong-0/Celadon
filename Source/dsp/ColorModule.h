@@ -27,12 +27,13 @@
 
     沿用 v0.5 性能优化（研究 P3 R1 ～ R4），已适配当前残差拓扑：
       - Heat 的 8× 过采样换成块式 SIMD 半带 FIR（HalfBandOversampler：同系数、同线性相位、同延迟 64）；
-      - Tube 在驱动量不变的一段上整段调用 Saturator::processTubeBlock（4 路并行有理式 tanh）；
+      - Tube 在驱动量不变的一段上整段调用 Saturator 的 4 路整段 Tube（有理式 tanh）；残差 Tube(x) − x 就在这 4 路里
+        直接减原样本（Saturator::processTubeResidualBlock，不再先拷贝一份，T-032 R3-04）；
       - 空闲整段跳过：Tone 归零且状态落到 0、Glue 完全关掉、Mix / Output / Bypass 都静止、Heat 湿路静止在 0
         持续 ≥ 256 样本时，各自整段跳过，都与不跳过逐位相同（含 ±0 与 NaN / Inf 输入；Heat 重开时用最近 256 个
         高通后的 M/S 输入预热过采样器）；150 Hz 高通一直运行，空闲时 5 Hz 直流阻断吃已有 2× 链的近似残差；
-      - 三条 64 样本延迟按块拷贝；ARM / x64 上 Tone 搁架、Glue 侧链高通、分频与 Heat 的 M/S 150 Hz 高通两声道打包
-        （与标量写法逐位相同）；Heat 残差在 4 路整形里直接减原样本（Saturator::processTubeResidualBlock，T-032 R3-04）；
+      - 三条 64 样本延迟按块拷贝；ARM / x64 上 Tone 搁架、Glue 侧链高通、分频与 Heat 的 M/S 150 Hz 高通（T-032 R3-04）
+        两声道打包（与标量写法逐位相同）；
       - Glue 完全关掉时不做低/高分频，避免每样本空转四次双二阶；侧链高通仍一直跑，重开联动压缩才有连续历史；
       - Heat 残差 makeup 表与采样率无关，进程内只标定一次。
 

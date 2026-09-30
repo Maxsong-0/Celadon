@@ -106,7 +106,7 @@ namespace celadon
         float tanhOfAsymmetry = 0.0f;
         float inverseSlopeAtZero = 1.0f;
 
-        // processTubeBlock 用：与块里同一个 fastTanh 算出的 tanh(b) 与 1 / 原点斜率——这样 x = 0 时
+        // processTubeBlock / processTubeResidualBlock 用：与块里同一个 fastTanh 算出的 tanh(b) 与 1 / 原点斜率——这样 x = 0 时
         // 两项 fastTanh (b) 逐位相同、相减精确为 0。
         float fastTanhOfAsymmetry = 0.0f;
         float fastInverseSlopeAtZero = 1.0f;

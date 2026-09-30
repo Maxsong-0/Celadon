@@ -2254,8 +2254,9 @@ namespace celadon::test
             }
         }
 
-        // 左右不同的立体声（makeMusicLike 两个声道各自的噪声与声像）：打包的 Tone 搁架、侧链高通、Glue 分频（AArch64 的
-        // NEON、x64 的 SSE2）与 setPackedStereoForTesting (false) 的逐声道标量双二阶比，输出每个样本逐位相同。
+        // 左右不同的立体声（makeMusicLike 两个声道各自的噪声与声像）：打包的 Tone 搁架、侧链高通、Glue 分频、Heat 的 M/S 150 Hz
+        // 高通（T-032 R3-04 起；AArch64 的 NEON、x64 的 SSE2）与 setPackedStereoForTesting (false) 的逐声道标量双二阶比，
+        // 输出每个样本逐位相同。
         // 上一个测试 L = R，查不出两条通道读错、写反这类错误；这里左右不同，参数表同上（Tone、Glue、Heat 都走一遍）。
         void testPackedStereoMatchesScalar()
         {
@@ -2482,14 +2483,16 @@ namespace celadon::test
         }
 
         // R3-01：Glue 实际施加的增益必须跟着联动静态曲线走。分频施压（2026-09-28）只允许低 / 高两路在自己更轻时少挨压；
-        // 对纯音，中频（180 Hz ～ 5 kHz）本该拿到「补偿 − 联动压缩量」这一个增益。修前 mid 检测器 = 侧链 − 低 − 高 不是互补分频
-        // （二阶 Butterworth 在交叉点相移 −90°），读数在 229 Hz / 3969 Hz 附近比整段高 2.1 dB，中频包络比联动深约 1 dB、
-        // 再被 −0.6 dB 钳位；加上低 / 高带 +3.2 dB 的抬升经二阶分裂在 300 Hz / 3 kHz 附近反相叠加（−0.77 dB 凹陷），
-        // −6 dBFS 纯音在 Glue 100 下比联动多压到 1.13 dB、Glue 40（GLAZE 100 对应值）下多压 0.64 dB——而联动 GR 才 1.3 dB，
-        // 表也不显示。修后中频直接用联动增益，剩下的偏差只来自分裂的相位凹陷：Glue 100 最坏 −0.65 dB（2.5 kHz）、Glue 40 ≤ 0.14 dB。
-        // 量法：48 kHz、−6 dBFS 正弦 2 s，取最后 46 块 × 512（约 0.49 s）：输出 / 输入基波幅度（相干投影，不受 64 样本延迟影响）
-        // 与「补偿 − 同一段按块长加权的平均压缩量 getBlockStats().glueGrMeanDb」之差。不用 getAndResetGainReductionDb：
-        // 它是窗口内最大值，正弦包络的纹波会把偏差读大（核验 V3-01）。
+        // 对纯音，中频（180 Hz ～ 5 kHz）本该拿到「补偿 − 联动压缩量」这一个增益。修前中频检测器 = 侧链 − 低 − 高，不是互补分频
+        // （二阶 Butterworth 在交叉点相移 −90°），读数在 229 Hz / 3969 Hz 附近比整段高 2.1 dB，中频包络比联动深约 1 dB
+        // （Δ 约 −0.5 dB，Glue 40 时钉在 −0.6 钳位）；再加上低 / 高带 +3.2 dB 的抬升经二阶分裂在 300 Hz / 3 kHz 附近反相叠加
+        // （−0.77 dB 凹陷），−6 dBFS 纯音在 Glue 100 下比联动多压约 1.1 dB、Glue 40（GLAZE 100 对应值）下多压约 0.6 dB——
+        // 而 Glue 40 时联动 GR 才 1.3 dB，表也不显示。修后中频直接用联动增益，剩下的偏差：中频主要是分裂的相位凹陷
+        // （Glue 100 最坏约 −0.65 dB @ 2.5 kHz、Glue 40 约 −0.15 dB）；60 ～ 150 Hz 的 +0.1 dB 左右是低频路攻击 36 ms 比联动 20 ms
+        // 慢、包络略轻，属设计内的「低频少挨压」。门槛 Glue 100 0.75 dB（任务书 / 核验）、Glue 40 0.3 dB，修前两档都必败。
+        // 量法：48 kHz、−6 dBFS 正弦 2 s，取第 141 ～ 186 块 × 512（约 1.50 ～ 1.99 s）：输出 / 输入基波幅度（相干投影，
+        // 不受 64 样本延迟影响）与「补偿 − 同一段按块长加权的平均压缩量 getBlockStats().glueGrMeanDb」之差。
+        // 不用 getAndResetGainReductionDb：它是窗口内最大值，正弦包络的纹波会把偏差读大（核验 V3-01）。
         void testGlueAppliedGainTracksLinkedCurve()
         {
             beginTest ("glue applied gain tracks the linked static curve (mid band has no detector of its own)");
