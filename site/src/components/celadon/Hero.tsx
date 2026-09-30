@@ -1,20 +1,19 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import SplitText from '@/components/react-bits/SplitText';
 import Magnet from '@/components/react-bits/Magnet';
 import GlazeKnob from './GlazeKnob';
 import ParticleField from './ParticleField';
-import { Eyebrow } from './Eyebrow';
+import { ArrowUpRight, LinkArrow } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { prefersReducedMotion } from '@/lib/utils';
 import { PLUGIN_VERSION } from '@/lib/site';
 
 const Topography = lazy(() => import('@/components/react-bits/Topography'));
 
-/** 首屏：釉面等高线（WebGL）+ 逐字浮现的标题 + 会呼吸的青瓷旋钮。 */
+/** 首屏：一件器物（青瓷旋钮）+ 一句话。等高线只在旋钮一侧、压得很淡。 */
 export default function Hero() {
   const root = useRef<HTMLElement>(null);
-  const [value, setValue] = useState(35);
   const [webgl, setWebgl] = useState(false);
 
   useEffect(() => {
@@ -29,128 +28,142 @@ export default function Hero() {
 
   useGSAP(
     () => {
-      if (!root.current) return;
+      if (!root.current || prefersReducedMotion()) return;
       const q = gsap.utils.selector(root);
-      gsap.from(q('[data-rise]'), { y: 28, opacity: 0, filter: 'blur(6px)', duration: 1.1, stagger: 0.12, delay: 0.35, ease: 'power3.out' });
-      gsap.from(q('[data-knob]'), { scale: 0.92, opacity: 0, duration: 1.4, delay: 0.2, ease: 'power3.out' });
-      if (!prefersReducedMotion()) {
-        // 旋钮慢慢呼吸：30 ～ 46，像正在聆听一首歌
-        const obj = { v: 35 };
-        gsap.to(obj, {
-          v: 46,
-          duration: 7,
-          ease: 'sine.inOut',
-          yoyo: true,
-          repeat: -1,
-          onUpdate: () => setValue(obj.v)
-        });
-      }
+      gsap.from(q('[data-rise]'), { y: 24, autoAlpha: 0, duration: 1.1, stagger: 0.1, delay: 0.35, ease: 'power3.out' });
+      gsap.from(q('[data-knob]'), { y: 16, scale: 0.96, autoAlpha: 0, duration: 1.4, delay: 0.15, ease: 'power3.out' });
     },
     { scope: root }
   );
 
   return (
     <section ref={root} className="relative min-h-[100dvh] overflow-hidden pt-28 sm:pt-32">
-      {/* 釉面等高线 */}
-      <div className="absolute inset-0 -z-10 mask-fade-b" aria-hidden="true">
+      {/* 釉面等高线：只在旋钮那一侧，径向淡出 */}
+      <div
+        className="absolute inset-0 -z-10 [mask-image:radial-gradient(52%_60%_at_74%_46%,black,transparent_78%)]"
+        aria-hidden="true"
+      >
         {webgl ? (
           <Suspense fallback={null}>
-            <div className="absolute inset-0 opacity-70 mix-blend-multiply">
+            <div className="absolute inset-0 opacity-45 mix-blend-multiply">
               <Topography
-                lowColor="#D5F1F5"
-                midColor="#67CAD7"
-                highColor="#1799AB"
-                bands={2.4}
-                thickness={0.011}
-                glow={0.25}
-                speed={0.22}
-                morphAmount={2.4}
-                morphSpeed={0.035}
-                contrast={2.2}
+                lowColor="#E6EEE9"
+                midColor="#A9C3B7"
+                highColor="#5C8579"
+                bands={2.2}
+                thickness={0.009}
+                glow={0.18}
+                speed={0.18}
+                morphAmount={2.2}
+                morphSpeed={0.03}
+                contrast={2}
                 grain={false}
-                mouseRadius={0.28}
-                mouseStrength={0.35}
-                opacity={0.85}
+                mouseRadius={0.26}
+                mouseStrength={0.3}
+                opacity={0.8}
               />
             </div>
           </Suspense>
         ) : (
-          <div className="absolute inset-0 bg-[radial-gradient(60%_50%_at_70%_30%,rgba(163,224,232,0.45),transparent_70%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(50%_50%_at_74%_46%,rgba(169,195,183,0.35),transparent_70%)]" />
         )}
-        <div className="absolute inset-0 bg-[radial-gradient(70%_60%_at_30%_20%,rgba(243,241,234,0.9),transparent_65%)]" />
       </div>
 
-      <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-12 px-5 sm:px-8 lg:grid-cols-12 lg:gap-6 pb-20">
+      <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-10 px-5 sm:px-8 lg:grid-cols-12 lg:gap-6 pb-24">
         <div className="lg:col-span-7 relative z-10">
-          <div data-rise>
-            <Eyebrow>Celadon · 青瓷 · 智能母带 · {PLUGIN_VERSION}</Eyebrow>
-          </div>
-          <h1 className="mt-8 font-serif text-[clamp(2.6rem,7vw,6.2rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-ink">
+          <p data-rise className="flex items-center gap-4 text-[13px] tracking-[0.2em] text-ink-3">
+            <span>青瓷 · 智能母带</span>
+            <span className="h-px w-10 bg-ink/20" aria-hidden="true" />
+            <span className="font-mono text-[12px] tracking-[0.08em] text-ink-4">v{PLUGIN_VERSION}</span>
+          </p>
+          <h1 className="mt-8 font-serif text-[clamp(2.8rem,7.4vw,6.6rem)] font-semibold leading-[1.04] tracking-[-0.02em] text-ink">
             <SplitText text="一挂总轨，" tag="span" className="block" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
             <SplitText text="就好听。" tag="span" className="block glaze-text" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
           </h1>
-          <p data-rise className="display mt-5 text-[clamp(1.1rem,2vw,1.6rem)] italic text-ink-3" style={{ fontVariationSettings: '"opsz" 96, "SOFT" 60, "WONK" 1' }}>
+          <p data-rise className="display mt-6 text-[clamp(1.1rem,2vw,1.55rem)] italic text-ink-3" style={{ fontVariationSettings: '"opsz" 96, "SOFT" 60, "WONK" 1' }}>
             Mastering, glazed — four steps, one knob.
           </p>
-          <p data-rise className="mt-8 max-w-xl text-[17px] leading-[1.85] text-ink-2">
-            <b className="font-medium text-ink">BALANCE</b> 找回被遮住的频段，<b className="font-medium text-ink">CLAY</b> 把坯体修干净，<b className="font-medium text-ink">COLOR</b> 添一层温度，<b className="font-medium text-ink">LIMIT</b> 推响不破。
-            <br className="hidden sm:block" />
-            <b className="font-medium text-ink">GLAZE</b> 先听这首歌十几秒，再决定往它的理想母带推多远。
+          <p data-rise className="mt-8 measure text-[17px] leading-[1.85] text-ink-2">
+            平衡、修坯、染色、限幅，四道工序按固定顺序走完。<b className="font-medium text-ink">GLAZE</b> 先听这首歌十几秒，再决定往它的理想母带推多远——你设的每个旋钮都是底，它只往上加。
           </p>
-          <div data-rise className="mt-10 flex flex-wrap items-center gap-3">
+          <div data-rise className="mt-11 flex flex-wrap items-center gap-x-8 gap-y-5">
             <Magnet padding={40} magnetStrength={14}>
-              <Link to="/docs" className="group btn-island-primary no-underline">
-                阅读使用说明
+              <Link to="/download" className="group btn-island-primary no-underline">
+                下载 {PLUGIN_VERSION}
                 <span className="btn-island-icon bg-white/15">
-                  <Arrow />
+                  <ArrowUpRight />
                 </span>
               </Link>
             </Magnet>
-            <Magnet padding={40} magnetStrength={14}>
-              <Link to="/algorithms" className="group btn-island-ghost no-underline">
-                看公开算法
-                <span className="btn-island-icon bg-ink/6">
-                  <Arrow />
-                </span>
-              </Link>
-            </Magnet>
+            <LinkArrow to="/#listen">先听一听</LinkArrow>
           </div>
-          <dl data-rise className="mt-14 grid max-w-xl grid-cols-3 gap-6 text-[13px] text-ink-3">
-            <div>
-              <dt className="uppercase tracking-[0.18em] text-[10px] text-ink-4">格式</dt>
-              <dd className="mt-1 text-ink-2">VST3 · AU · 独立运行</dd>
-            </div>
-            <div>
-              <dt className="uppercase tracking-[0.18em] text-[10px] text-ink-4">平台</dt>
-              <dd className="mt-1 text-ink-2">macOS 12+ · Windows 10 / 11</dd>
-            </div>
-            <div>
-              <dt className="uppercase tracking-[0.18em] text-[10px] text-ink-4">真峰值</dt>
-              <dd className="mt-1 text-ink-2">8× 检测 · 1× 施加</dd>
-            </div>
+          <dl data-rise className="mt-16 flex flex-wrap gap-x-8 gap-y-3 text-[13px] text-ink-3">
+            {[
+              ['格式', 'VST3 · AU · 独立运行'],
+              ['系统', 'macOS 12+ · Windows 10 / 11'],
+              ['延迟', '28.8 ms（48 kHz）']
+            ].map(([k, v]) => (
+              <div key={k} className="flex items-baseline gap-3 border-l border-ink/15 pl-4 first:border-0 first:pl-0">
+                <dt className="text-[11px] tracking-[0.2em] text-ink-4">{k}</dt>
+                <dd className="text-ink-2">{v}</dd>
+              </div>
+            ))}
           </dl>
         </div>
 
         <div className="lg:col-span-5 relative z-10 flex justify-center">
           <div data-knob className="relative w-full max-w-[520px] aspect-[1/1.1]">
-            <ParticleField value={value} className="absolute inset-0 h-full w-full" />
-            <GlazeKnob value={value} onChange={setValue} autoIncrement={value * 0.22} size={520} className="relative h-full w-full" />
+            <BreathingKnob />
           </div>
         </div>
       </div>
 
-      <div data-rise className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-ink-4">
-        <span>向下滚动 · 四道工序</span>
-        <span className="block h-8 w-px bg-linear-to-b from-ink/40 to-transparent" />
+      <div data-rise className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[11px] tracking-[0.3em] text-ink-4" aria-hidden="true">
+        <span>向下 · 四道工序</span>
+        <span className="block h-8 w-px bg-linear-to-b from-ink/35 to-transparent" />
       </div>
     </section>
   );
 }
 
-function Arrow() {
+/**
+ * 首屏旋钮：慢慢「呼吸」（35 ～ 46，像正在听一首歌），用户一碰就停下交给手。
+ * 数值只在这个小组件里变，且按 0.25 量化再进状态——每秒十来次小更新，首屏其余部分不跟着重渲染。
+ */
+function BreathingKnob() {
+  const [value, setValue] = useState(35);
+  const tween = useRef<gsap.core.Tween | null>(null);
+
+  useGSAP(() => {
+    if (prefersReducedMotion()) return;
+    const obj = { v: 35 };
+    let last = 35;
+    tween.current = gsap.to(obj, {
+      v: 46,
+      duration: 7,
+      ease: 'sine.inOut',
+      yoyo: true,
+      repeat: -1,
+      onUpdate: () => {
+        const q = Math.round(obj.v * 4) / 4;
+        if (q !== last) {
+          last = q;
+          setValue(q);
+        }
+      }
+    });
+  });
+
+  const onChange = useCallback((v: number) => {
+    tween.current?.kill();
+    tween.current = null;
+    setValue(v);
+  }, []);
+
   return (
-    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 12 12 4M6 4h6v6" />
-    </svg>
+    <>
+      <ParticleField value={value} className="absolute inset-0 h-full w-full" />
+      <GlazeKnob value={value} onChange={onChange} autoIncrement={value * 0.22} size={520} className="relative h-full w-full" />
+    </>
   );
 }

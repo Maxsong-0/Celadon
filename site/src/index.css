@@ -102,12 +102,18 @@
 }
 
 @layer components {
-  /* 节：上下内距统一走 --section-y；最后一节底部多 2rem 做光学补偿。 */
+  /* 节：只给上内距 --section-y，相邻两节之间正好一份（上下都给会叠成两份）。
+     每页最后一节补底部内距；.section-last 再多 2rem 做光学补偿。 */
   .section {
-    padding-block: var(--section-y);
+    padding-top: var(--section-y);
   }
-  .section-last {
-    padding-block: var(--section-y) calc(var(--section-y) + 2rem);
+  main > .section:last-child {
+    padding-bottom: var(--section-y);
+  }
+  .section-last,
+  main > .section-last:last-child {
+    padding-top: var(--section-y);
+    padding-bottom: calc(var(--section-y) + 2rem);
   }
   .measure {
     max-width: var(--measure);

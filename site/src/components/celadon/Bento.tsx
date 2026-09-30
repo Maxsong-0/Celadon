@@ -1,176 +1,166 @@
 import { useRef, type ReactNode } from 'react';
-import SpotlightCard from '@/components/react-bits/SpotlightCard';
-import { Em, SectionHead } from './Eyebrow';
-import { gsap, useGSAP } from '@/lib/gsap';
-import { cn } from '@/lib/utils';
+import { Em, LinkArrow, SectionHead } from './Eyebrow';
+import { useReveal } from '@/lib/reveal';
 
-interface Cell {
+interface Row {
   title: string;
   en: string;
   body: string;
-  span: string;
   art: ReactNode;
 }
 
-const cells: Cell[] = [
+// 左栏：三种「听清楚差别」的手段，细线分行的纯排版（设计规格-官网 第 4 节「伍 · 判断」）。
+const rows: Row[] = [
   {
     title: '等响 A / B',
-    en: 'LOUDNESS-MATCHED A/B',
-    body: '测整条链的实测响度差，把较响的一边衰减到另一边；只衰减、不放大，表仍显示衰减前的母带。判断「变好了还是只是变响了」。',
-    span: 'md:col-span-7 md:row-span-2',
+    en: 'Loudness-matched A / B',
+    body: '测整条链的实测响度差，把较响的一边衰减到另一边；只衰减、不放大，表仍显示衰减前的母带。判断「变好了」还是「只是变响了」。',
     art: <ArtAB />
   },
   {
     title: '试听差值',
-    en: 'LISTEN TO DIFFERENCE',
+    en: 'Listen to the difference',
     body: 'LIMIT 卡片上的耳机：只听被削掉的那部分。鼓点有没有变扁、低音有没有发闷，一听就知道。',
-    span: 'md:col-span-5',
     art: <ArtDiff />
   },
   {
     title: '参考学习',
-    en: 'REFERENCE FROM SIDECHAIN',
-    body: '参考曲接进 DAW 的外部侧链，累计 10 秒有效声音，得到 27 段相对频谱目标；参考曲不进主输出。',
-    span: 'md:col-span-5',
+    en: 'Reference from sidechain',
+    body: '把参考曲接进宿主的外部侧链，累计 10 秒有效声音，得到 27 段相对频谱目标；参考曲不进主输出。',
     art: <ArtRef />
-  },
-  {
-    title: '逐位契约',
-    en: 'BIT-EXACT CONTRACT',
-    body: 'GLAZE 为 0、模块归零或旁通，输出与输入零差；任意块长、SIMD 与标量、空闲跳过与一直在跑——逐位相同。编译器不许融合乘加。',
-    span: 'md:col-span-4',
-    art: <ArtBits />
-  },
-  {
-    title: '发行安全',
-    en: 'RELEASE SAFETY',
-    body: '归一化预听（−24 ～ −8 LUFS，只衰减）、编码余量（再降 0 ～ 1.5 dB 上限）、TPDF 抖动（16 / 24 位）。导出前该关的，界面一直提醒。',
-    span: 'md:col-span-4',
-    art: <ArtRelease />
-  },
-  {
-    title: '双语 · 双平台',
-    en: 'ZH / EN · MAC & WINDOWS',
-    body: '中英文一键切换，设置跟人走。macOS 12+ 按芯片选包（Apple Silicon / Intel），Windows 10 / 11 x64 装包即用。',
-    span: 'md:col-span-4',
-    art: <ArtPlatform />
   }
 ];
 
+/** 伍 · 判断：左三行手段，右两块承诺。 */
 export default function Bento() {
   const root = useRef<HTMLElement>(null);
-  useGSAP(
-    () => {
-      if (!root.current) return;
-      const q = gsap.utils.selector(root);
-      gsap.from(q('[data-cell]'), {
-        y: 60,
-        opacity: 0,
-        filter: 'blur(8px)',
-        duration: 1.1,
-        stagger: 0.09,
-        ease: 'power3.out',
-        scrollTrigger: { trigger: root.current, start: 'top 72%', once: true }
-      });
-    },
-    { scope: root }
-  );
+  useReveal(root);
 
   return (
-    <section ref={root} className="relative py-28 sm:py-36">
+    <section ref={root} className="section relative">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
-        <SectionHead chapter={{ n: '伍', label: '判断', en: 'Judgement' }} title={<>让你能判断，<Em>而不是只能相信</Em>。</>} lead="母带最难的不是处理，是判断。Celadon 把「听清楚差别」当成功能做：等响、差值、参考，以及一条写进测试里的逐位承诺。" />
-        <div className="mt-16 grid gap-4 md:grid-cols-12 md:auto-rows-[minmax(190px,auto)]">
-          {cells.map(c => (
-            <div key={c.title} data-cell className={cn('bezel', c.span)}>
-              <SpotlightCard className="bezel-core h-full flex flex-col">
-                <div className="flex items-start justify-between gap-6">
-                  <div>
-                    <div className="text-[10px] uppercase tracking-[0.22em] text-ink-4">{c.en}</div>
-                    <h3 className="mt-2 font-serif text-2xl font-semibold text-ink">{c.title}</h3>
+        <SectionHead
+          chapter={{ n: '伍', label: '判断', en: 'Judgement' }}
+          title={
+            <>
+              让你能判断，<Em>而不是只能相信</Em>。
+            </>
+          }
+          lead="母带最难的不是处理，是判断。Celadon 把「听清楚差别」当成功能来做：等响、差值、参考，外加一条写进测试里的逐位承诺。"
+        />
+
+        <div className="mt-16 grid gap-12 lg:grid-cols-12 lg:gap-10">
+          <ul className="rule-list lg:col-span-7">
+            {rows.map((r, i) => (
+              <li key={r.title} data-reveal className="grid gap-6 py-8 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
+                <div>
+                  <div className="flex items-baseline gap-3">
+                    <span className="font-mono text-[12px] text-c600">0{i + 1}</span>
+                    <h3 className="font-serif text-[24px] font-semibold text-ink">{r.title}</h3>
+                    <span className="display text-[13px] italic text-ink-4 hidden sm:inline">{r.en}</span>
                   </div>
+                  <p className="mt-3 measure text-[15px] leading-[1.85] text-ink-2">{r.body}</p>
                 </div>
-                <p className="mt-4 text-[14.5px] leading-[1.8] text-ink-2 max-w-md">{c.body}</p>
-                <div className="mt-auto pt-6">{c.art}</div>
-              </SpotlightCard>
+                <div className="text-ink-3">{r.art}</div>
+              </li>
+            ))}
+            <li data-reveal className="py-6">
+              <LinkArrow to="/docs/listening">监听方式的完整说明</LinkArrow>
+            </li>
+          </ul>
+
+          <div className="lg:col-span-5 grid content-start gap-5">
+            <div data-reveal className="biscuit p-7 sm:p-8">
+              <div className="display text-[13px] italic text-ink-4">Bit-exact contract</div>
+              <h3 className="mt-1 font-serif text-[24px] font-semibold text-ink">逐位契约</h3>
+              <p className="mt-3 text-[15px] leading-[1.85] text-ink-2">GLAZE 为 0、模块归零或旁通时，输出与输入零差；任意块长、SIMD 与标量、空闲跳过与一直在跑——逐位相同。</p>
+              <ArtBits />
             </div>
-          ))}
+            <div data-reveal className="biscuit p-7 sm:p-8">
+              <div className="display text-[13px] italic text-ink-4">Release safety</div>
+              <h3 className="mt-1 font-serif text-[24px] font-semibold text-ink">发行安全</h3>
+              <p className="mt-3 text-[15px] leading-[1.85] text-ink-2">归一化预听（只衰减）、编码余量、TPDF 抖动。导出前该关的，界面一直提醒。</p>
+              <ArtRelease />
+            </div>
+          </div>
         </div>
       </div>
     </section>
   );
 }
 
+/* ---------------- 行内小图：只用细线与单色，数据色（紫 / 橙）只表达它们的本义 ---------------- */
+
 function ArtAB() {
   return (
-    <svg viewBox="0 0 520 120" className="w-full h-auto" aria-hidden="true">
-      <rect x="0" y="0" width="520" height="120" rx="14" fill="#F3F1EA" />
-      {Array.from({ length: 44 }).map((_, i) => {
-        const h = 18 + 40 * Math.abs(Math.sin(i * 0.7)) + (i % 5 === 0 ? 30 : 0);
-        return <rect key={i} x={20 + i * 11} y={60 - h / 2} width="6" height={h} rx="3" fill={i < 22 ? '#A3E0E8' : '#1799AB'} />;
+    <svg viewBox="0 0 200 72" className="w-full h-auto" aria-hidden="true">
+      {Array.from({ length: 24 }, (_, i) => {
+        const h = 10 + 26 * Math.abs(Math.sin(i * 0.7)) + (i % 5 === 0 ? 12 : 0);
+        const after = i >= 12;
+        // 右半 = 处理后，已衰减到与左半同响：峰被收住，但整体不比左边高
+        const hh = after ? Math.min(h * 1.08, 40) : h;
+        return <rect key={i} x={4 + i * 8.2} y={32 - hh / 2} width="3.6" height={hh} rx="1.8" fill={after ? '#127F90' : '#A9C3B7'} />;
       })}
-      <line x1="260" y1="12" x2="260" y2="108" stroke="#0A4A57" strokeDasharray="3 4" />
-      <text x="24" y="108" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#637780' }}>B · 原声</text>
-      <text x="496" y="108" textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>A · 处理后 · 已等响 4.8 dB</text>
+      <line x1="100" y1="2" x2="100" y2="62" stroke="#0D1B21" strokeOpacity="0.35" strokeDasharray="2 3" />
+      <text x="4" y="70" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#8A9CA3' }}>B 原声</text>
+      <text x="196" y="70" textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#0E6473' }}>A 等响后 −4.8 dB</text>
     </svg>
   );
 }
 function ArtDiff() {
   return (
-    <svg viewBox="0 0 320 70" className="w-full h-auto" aria-hidden="true">
-      <rect width="320" height="70" rx="12" fill="#F3F1EA" />
-      <line x1="16" y1="35" x2="304" y2="35" stroke="#DCE6E9" />
-      {Array.from({ length: 40 }).map((_, i) => {
-        const h = Math.max(0, 26 * Math.abs(Math.sin(i * 0.9)) - 14) * 2;
-        return <rect key={i} x={16 + i * 7.2} y={35 - h / 2} width="3.5" height={Math.max(1, h)} rx="1.5" fill="#E8590C" opacity="0.8" />;
+    <svg viewBox="0 0 200 72" className="w-full h-auto" aria-hidden="true">
+      <line x1="4" y1="32" x2="196" y2="32" stroke="#DCE6E9" />
+      {Array.from({ length: 27 }, (_, i) => {
+        const h = Math.max(0, 22 * Math.abs(Math.sin(i * 0.9)) - 12) * 2;
+        return <rect key={i} x={4 + i * 7.2} y={32 - Math.max(1, h) / 2} width="2.6" height={Math.max(1, h)} rx="1.3" fill="#E8590C" opacity="0.8" />;
       })}
-      <text x="16" y="62" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#C2410C' }}>只听被削掉的部分 · 不会比原声响</text>
+      <text x="4" y="70" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#C2410C' }}>只听被削掉的部分</text>
     </svg>
   );
 }
 function ArtRef() {
+  const pts = Array.from({ length: 27 }, (_, i) => [6 + i * 7.1, 34 - 16 * Math.sin((i / 26) * Math.PI)] as const);
   return (
-    <svg viewBox="0 0 320 70" className="w-full h-auto" aria-hidden="true">
-      <rect width="320" height="70" rx="12" fill="#F3F1EA" />
-      {Array.from({ length: 27 }).map((_, i) => {
-        const y = 40 - 18 * Math.sin((i / 26) * Math.PI) + (i % 4) * 2;
-        return <circle key={i} cx={20 + i * 10.6} cy={y} r="2.2" fill="#6A4DFF" />;
-      })}
-      <path d={Array.from({ length: 27 }).map((_, i) => `${i ? 'L' : 'M'}${20 + i * 10.6} ${40 - 18 * Math.sin((i / 26) * Math.PI)}`).join(' ')} fill="none" stroke="#1799AB" strokeWidth="1.2" />
-      <text x="16" y="62" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#637780' }}>侧链 · 已收集 10 / 10 s · 参考就绪</text>
+    <svg viewBox="0 0 200 72" className="w-full h-auto" aria-hidden="true">
+      <path d={pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ')} fill="none" stroke="#127F90" strokeWidth="1.2" />
+      {pts.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y + ((i % 4) - 1.5) * 1.6} r="1.7" fill="#0D1B21" opacity="0.45" />
+      ))}
+      <text x="4" y="70" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#8A9CA3' }}>侧链 10 / 10 s · 参考就绪</text>
     </svg>
   );
 }
 function ArtBits() {
   return (
-    <div className="font-mono text-[11px] leading-relaxed text-ink-3">
-      <div className="flex justify-between"><span>GLAZE 0 vs 参照链</span><span className="text-c700">Δ = 0 bit</span></div>
-      <div className="flex justify-between"><span>SIMD vs 标量</span><span className="text-c700">Δ = 0 bit</span></div>
-      <div className="flex justify-between"><span>块长 17 vs 2048</span><span className="text-c700">Δ = 0 bit</span></div>
-      <div className="flex justify-between"><span>-ffp-contract</span><span className="text-c700">off · 守卫 #error</span></div>
-    </div>
+    <dl className="mt-6 space-y-1.5 border-t border-line pt-5 font-mono text-[12px] text-ink-3">
+      {[
+        ['GLAZE 0 vs 参照链', 'Δ = 0 bit'],
+        ['SIMD vs 标量', 'Δ = 0 bit'],
+        ['块长 17 vs 2048', 'Δ = 0 bit']
+      ].map(([k, v]) => (
+        <div key={k} className="flex justify-between gap-4">
+          <dt>{k}</dt>
+          <dd className="text-c700">{v}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 function ArtRelease() {
   return (
-    <div className="grid grid-cols-3 gap-2 text-center">
-      {[['−14', 'LUFS 预听'], ['−1.0', 'dBTP 余量'], ['24', 'bit TPDF']].map(([v, l]) => (
-        <div key={l} className="rounded-xl bg-paper px-2 py-3">
-          <div className="display text-xl text-ink tabular-nums">{v}</div>
-          <div className="mt-1 text-[10px] text-ink-4">{l}</div>
+    <dl className="mt-6 grid grid-cols-3 border-t border-line pt-5">
+      {[
+        ['−14', 'LUFS 预听'],
+        ['1.5', 'dB 编码余量上限'],
+        ['24', 'bit TPDF']
+      ].map(([v, l]) => (
+        // dt 在前（合法的 dl 结构），视觉上数字在上
+        <div key={l} className="flex flex-col-reverse">
+          <dt className="mt-2 text-[11px] leading-snug text-ink-4">{l}</dt>
+          <dd className="display text-[26px] leading-none text-ink tabular-nums">{v}</dd>
         </div>
       ))}
-    </div>
-  );
-}
-function ArtPlatform() {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {['VST3', 'AU', 'Standalone', 'arm64', 'x86_64', 'Win x64', '中 / EN'].map(t => (
-        <span key={t} className="rounded-full bg-paper px-3 py-1 text-[11px] font-medium text-ink-2 ring-1 ring-ink/8">
-          {t}
-        </span>
-      ))}
-    </div>
+    </dl>
   );
 }

@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Em, SectionHead } from './Eyebrow';
-import { gsap, useGSAP } from '@/lib/gsap';
+import { ArrowUpRight, Em, LinkArrow, SectionHead } from './Eyebrow';
+import { useReveal } from '@/lib/reveal';
 
 const items = [
   {
@@ -13,10 +13,10 @@ const items = [
       <svg viewBox="0 0 280 120" className="w-full" aria-hidden="true">
         {[0, 1, 2, 3, 4, 5, 6].map(i => {
           const h = [40, 78, 52, 30, 44, 36, 28][i];
-          return <rect key={i} x={20 + i * 36} y={100 - h} width="22" height={h} rx="3" fill={i === 1 ? '#0A4A57' : i === 2 || i === 3 ? '#6A4DFF' : '#A3E0E8'} opacity={i === 1 ? 0.9 : 0.85} />;
+          return <rect key={i} x={20 + i * 36} y={100 - h} width="22" height={h} rx="3" fill={i === 1 ? '#0A4A57' : i === 2 || i === 3 ? '#1799AB' : '#A9C3B7'} opacity={i === 1 ? 0.9 : 0.85} />;
         })}
-        <path d="M67 30 C 90 8, 120 12, 128 44" fill="none" stroke="#6A4DFF" strokeWidth="1.4" strokeDasharray="3 3" markerEnd="url(#arrow)" />
-        <path d="M67 30 C 100 -6, 160 0, 164 66" fill="none" stroke="#6A4DFF" strokeWidth="1.2" strokeDasharray="3 3" />
+        <path d="M67 30 C 90 8, 120 12, 128 44" fill="none" stroke="#127F90" strokeWidth="1.3" strokeDasharray="3 3" />
+        <path d="M67 30 C 100 -6, 160 0, 164 66" fill="none" stroke="#127F90" strokeWidth="1.1" strokeDasharray="3 3" opacity="0.6" />
         <text x="20" y="116" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#637780' }}>Tame 压下的份额 → 上方邻段</text>
       </svg>
     )
@@ -55,46 +55,40 @@ const items = [
 
 export default function AlgoTeaser() {
   const root = useRef<HTMLElement>(null);
-  useGSAP(
-    () => {
-      if (!root.current) return;
-      const q = gsap.utils.selector(root);
-      gsap.from(q('[data-card]'), {
-        y: 50,
-        opacity: 0,
-        rotate: (i: number) => (i - 1) * 1.2,
-        duration: 1,
-        stagger: 0.12,
-        ease: 'power3.out',
-        scrollTrigger: { trigger: root.current, start: 'top 70%', once: true }
-      });
-    },
-    { scope: root }
-  );
+  useReveal(root);
+
   return (
-    <section ref={root} className="relative py-28 sm:py-36 bg-paper-2/60">
+    <section ref={root} className="section relative">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-          <SectionHead chapter={{ n: '陆', label: '公开算法', en: 'Open algorithms' }} title={<>算法写在纸上，<Em>式子和常数都给你</Em>。</>} lead="每道工序的结构、式子与常数都摊开写：哪些做了、哪些刻意没做、为什么，都有验证记录可查。" />
-          <Link to="/algorithms" className="group btn-island-ghost no-underline self-start lg:self-auto">
+          <SectionHead
+            chapter={{ n: '陆', label: '公开算法', en: 'Open algorithms' }}
+            title={
+              <>
+                算法写在纸上，<Em>式子和常数都给你</Em>。
+              </>
+            }
+            lead="每道工序的结构、式子与常数都摊开写：哪些做了、哪些刻意没做、为什么，都有验证记录可查。"
+          />
+          <LinkArrow to="/algorithms" className="lg:mb-2 shrink-0">
             全部算法页
-            <span className="btn-island-icon bg-ink/6">
-              <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12 12 4M6 4h6v6" /></svg>
-            </span>
-          </Link>
+          </LinkArrow>
         </div>
-        <div className="mt-16 grid gap-5 md:grid-cols-3">
+        <ul className="rule-list mt-16">
           {items.map(it => (
-            <Link key={it.to} to={it.to} data-card className="bezel group no-underline">
-              <div className="bezel-core h-full p-7 flex flex-col transition-transform duration-700 ease-glaze group-hover:-translate-y-1">
-                <div className="text-[10px] uppercase tracking-[0.22em] text-c600">{it.tag}</div>
-                <h3 className="mt-2 font-serif text-[22px] font-semibold text-ink leading-snug">{it.title}</h3>
-                <p className="mt-4 text-[14px] leading-[1.8] text-ink-2">{it.body}</p>
-                <div className="mt-auto pt-6">{it.art}</div>
-              </div>
-            </Link>
+            <li key={it.to} data-reveal>
+              <Link to={it.to} className="group grid gap-6 py-10 no-underline md:grid-cols-[140px_minmax(0,1fr)_260px_24px] md:items-center md:gap-10">
+                <div className="font-mono text-[12px] tracking-[0.18em] text-c600">{it.tag}</div>
+                <div>
+                  <h3 className="font-serif text-[26px] font-semibold leading-snug text-ink transition-colors duration-300 group-hover:text-c700">{it.title}</h3>
+                  <p className="mt-3 measure text-[15px] leading-[1.85] text-ink-2">{it.body}</p>
+                </div>
+                <div className="max-w-[320px]">{it.art}</div>
+                <ArrowUpRight className="hidden md:block size-5 text-ink-4 transition-transform duration-500 ease-glaze group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-c700" />
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
     </section>
   );
