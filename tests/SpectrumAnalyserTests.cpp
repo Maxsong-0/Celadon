@@ -14,6 +14,8 @@
 #include "../Source/ui/SpectrumAnalyser.h"
 
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace celadon::test
@@ -23,10 +25,88 @@ namespace celadon::test
     public:
         SpectrumAnalyserTests() : juce::UnitTest ("SpectrumAnalyser", "Celadon") {}
 
+        // 四条曲线（OUT / IN 显示、平均、峰值）480 点的逐位摘要（FNV-1a，64 位，按 float 的位模式算）。
+        // T-032（R7-05 / R9-10）把每点的 bin 区间与插值系数搬到 setSampleRate 预算，显示必须逐位不变：
+        // 摘要打进日志，改前改后在同一台机器、同一编译器下对照（FFT 引擎不同的平台之间摘要本来就不同）。
+        static juce::String curveDigest (const ui::SpectrumAnalyser& analyser)
+        {
+            std::uint64_t hash = 1469598103934665603ull;
+
+            const auto mix = [&hash] (const std::vector<float>& values)
+            {
+                for (const auto value : values)
+                {
+                    std::uint32_t bits = 0;
+                    std::memcpy (&bits, &value, sizeof (bits));
+
+                    for (int shift = 0; shift < 32; shift += 8)
+                    {
+                        hash ^= (bits >> shift) & 0xffu;
+                        hash *= 1099511628211ull;
+                    }
+                }
+            };
+
+            using Stream = ui::SpectrumAnalyser::Stream;
+            mix (analyser.getDisplayDb (Stream::output));
+            mix (analyser.getDisplayDb (Stream::input));
+            mix (analyser.getAverageDb());
+            mix (analyser.getPeakDb());
+            return juce::String::toHexString ((juce::int64) hash);
+        }
+
+        // 确定性的宽带测试信号（三个正弦 + 固定种子的白噪）按 1600 个样本一帧喂进去，让 480 个点都离开底线。
+        static void feedBroadband (ui::SpectrumAnalyser& analyser, double sampleRate, int frames, bool alsoInput)
+        {
+            using Stream = ui::SpectrumAnalyser::Stream;
+            std::vector<float> block (1600);
+            juce::Random random (20260929);
+            double phaseA = 0.0, phaseB = 0.0, phaseC = 0.0;
+            const auto stepA = juce::MathConstants<double>::twoPi * 1000.0 / sampleRate;
+            const auto stepB = juce::MathConstants<double>::twoPi * 97.0 / sampleRate;
+            const auto stepC = juce::MathConstants<double>::twoPi * 6100.0 / sampleRate;
+
+            for (int frame = 0; frame < frames; ++frame)
+            {
+                for (auto& sample : block)
+                {
+                    sample = (float) (0.3 * std::sin (phaseA) + 0.2 * std::sin (phaseB) + 0.1 * std::sin (phaseC))
+                             + 0.02f * (random.nextFloat() * 2.0f - 1.0f);
+                    phaseA += stepA;
+                    phaseB += stepB;
+                    phaseC += stepC;
+                }
+
+                analyser.push (Stream::output, block.data(), (int) block.size());
+
+                if (alsoInput)
+                    analyser.push (Stream::input, block.data(), (int) block.size());
+
+                analyser.update();
+            }
+        }
+
         void runTest() override
         {
             using ui::SpectrumAnalyser;
             using Stream = SpectrumAnalyser::Stream;
+
+            for (const auto sampleRate : { 48000.0, 96000.0, 192000.0 })
+            {
+                beginTest ("curve digest @" + juce::String (sampleRate, 0) + " (bit-exact record, see the log)");
+
+                SpectrumAnalyser analyser;
+                analyser.setSampleRate (sampleRate);
+                feedBroadband (analyser, sampleRate, 40, true);
+
+                for (int frame = 0; frame < 5; ++frame)
+                    analyser.update();
+
+                logMessage ("  digest " + curveDigest (analyser) + ", 1 kHz " + juce::String (analyser.displayDbAt (Stream::output, 1000.0f), 4)
+                            + " dB, 97 Hz " + juce::String (analyser.displayDbAt (Stream::output, 97.0f), 4) + " dB");
+                expect (analyser.displayDbAt (Stream::output, 1000.0f) > -40.0f, "the broadband signal is visible");
+                expect (analyser.displayDbAt (Stream::input, 1000.0f) > -40.0f, "on both streams");
+            }
 
             for (const auto sampleRate : { 48000.0, 96000.0 })
             {
