@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type Keyboard
 import { Em, LinkArrow, SectionHead } from './Eyebrow';
 import { useReveal } from '@/lib/reveal';
 import { cn } from '@/lib/utils';
-import { MATCH_LUFS, tracks, type ListenTrack, type ListenVersion } from '@/content/listen';
+import { tracks, type ListenTrack, type ListenVersion } from '@/content/listen';
 
 type Which = 'original' | 'celadon';
 const BASE = import.meta.env.BASE_URL;
@@ -23,14 +23,15 @@ export default function Listen() {
               同一首歌，<Em>等响</Em>对比。
             </>
           }
-          lead={`原声与 Celadon 两版逐样本对齐，默认都对齐到 ${MATCH_LUFS} LUFS 播放：只比声音，不比音量。切换时位置不变；关掉「等响」听真实的响度差。建议戴耳机。`}
+          lead="原声与 Celadon 两版逐样本对齐，默认对齐到同一响度播放：只比声音，不比音量。切换时位置不变；关掉「等响」听真实的响度差。建议戴耳机。"
         />
         <div data-reveal className="mt-16">
           <Player />
         </div>
-        <p data-reveal className="mt-6 text-[13px] text-ink-4">
-          曲目均为 Max 的原创作品，仅供试听。页面里是 AAC 压缩后的片段；插件本身的处理不经过任何压缩。
-        </p>
+        <div data-reveal className="mt-6 flex flex-wrap items-baseline justify-between gap-4">
+          <p className="text-[13px] text-ink-4">曲目均为 Max 的原创作品，仅供试听。页面里是 AAC 压缩后的片段；插件本身的处理不经过任何压缩。</p>
+          <LinkArrow to="/docs/listening">插件里怎么做等响 A / B</LinkArrow>
+        </div>
       </div>
     </section>
   );
@@ -313,12 +314,9 @@ function Player() {
         </div>
 
         <p className="mt-5 text-[12.5px] text-ink-4">
-          {track.settings} · 片段 {fmt(track.from)} 起 {Math.round(track.seconds)} 秒 · 焦点在播放器里时按 <kbd className="font-mono">B</kbd> 切换、空格播放 / 暂停
+          {track.settings} · 片段 {fmt(track.from)} 起 {Math.round(track.seconds)} 秒 · 等响电平 {track.matchLufs} LUFS · 焦点在播放器里时按 <kbd className="font-mono">B</kbd> 切换、空格播放 / 暂停
         </p>
         {error ? <p className="mt-3 text-[13px] text-warn">{error}</p> : null}
-      </div>
-      <div className="px-6 pb-2 pt-4 sm:px-8">
-        <LinkArrow to="/docs/listening">插件里怎么做等响 A / B</LinkArrow>
       </div>
     </div>
   );

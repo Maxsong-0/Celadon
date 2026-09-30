@@ -1,7 +1,8 @@
-// 首页「肆 · 试听」的曲目清单。音频与波形在 public/audio/<id>/ 下，由主进程用 celadon_render 在 107 上渲染：
-//   original.m4a = 原曲同一段（只乘增益对齐到 matchLufs）；celadon.m4a = 过整条链（GLAZE / 风格见 settings）后同样对齐；
-//   两段逐样本对齐、等长，切换时位置不变。peaks = 两版各 400 点的峰值包络（0 ～ 1）。
+// 首页「肆 · 试听」的曲目清单：listen.json 由 site/scripts/make-listen.sh 生成（不要手改），音频在 public/audio/<id>/。
+//   original.m4a = 原曲同一段（只乘增益对齐到 matchLufs）；celadon.m4a = 过整条链（设置见 settings）后同样对齐；
+//   两段逐样本对齐、等长，切换时位置不变。peaks = 两版各 400 点的峰值包络（0 ～ 1，对齐后）。
 // 曲目必须是 Max 自己有版权的作品（T-033，2026-09-30 定）。清单为空时整节不显示。
+import data from './listen.json';
 
 export interface ListenVersion {
   /** 相对 public/ 的路径 */
@@ -21,11 +22,10 @@ export interface ListenTrack {
   from: number;
   seconds: number;
   settings: string;
+  /** 两版在网页里对齐到的播放响度：-14 LUFS，峰值高的曲目为保证真峰值 ≤ -1 dBTP 会更低一点 */
+  matchLufs: number;
   original: ListenVersion;
   celadon: ListenVersion;
 }
 
-/** 两版在网页里都对齐到这个响度播放（等响开时）。 */
-export const MATCH_LUFS = -14;
-
-export const tracks: ListenTrack[] = [];
+export const tracks: ListenTrack[] = data as ListenTrack[];
