@@ -41,13 +41,14 @@ namespace celadon
     namespace
     {
         constexpr double smoothingSeconds          = 0.02;    // 旁通交叉淡化 20 ms（设计规格-总体「参数」）
-        constexpr int    coefficientUpdateInterval = 64;      // 增益每 64 样本重算一次系数（设计规格-Balance「执行」）
 
         // 分析窗随采样率（计划「细节」表）：48 kHz 以下 2048 点，采样率每翻一倍点数翻一倍，窗长约 43 ms 不变；
-        // hop = 点数 / 4（≈ 10.7 ms）。点数与 hop 都是 64 的倍数，hop 边界必然落在系数重算的网格上。
+        // hop = 点数 / 4（≈ 10.7 ms）。系数重算间隔 = 1/8 hop：48 k 以下 64 样本，随 hop 一起翻倍（T-032 R2-07；原来固定 64 样本，
+        // 192 k 下每秒 81 k 次滤波器设计、增益台阶粒度 0.33 ms 而无可闻收益）。hop 是间隔的整数倍，hop 边界必然落在重算网格上。
         constexpr int    baseFftOrder   = 11;      // 2048 点
         constexpr double baseSampleRate = 48000.0;
         constexpr int    hopDivisor     = 4;
+        constexpr int    baseCoefficientUpdateInterval = 64;   // 48 k 下的重算间隔（设计规格-Balance「执行」：每 1/8 hop）
 
         // 27 个 1/3 倍频程段：第 14 段正好 1 kHz，精确中心 1000 × 2^((b − 14) / 3)、段边界 = 中心 × 2^(±1/6)
         // （相邻段边界严丝合缝，不漏 bin 也不重复）。显示给界面的是 IEC 61260 的标称值（40, 50, 63 …），
@@ -109,7 +110,9 @@ namespace celadon
 
         // 上行掩蔽转移（Recover 与 Tame 同时 > 0 才启用）。斜率按 1/3 倍频程：低频掩蔽更高的邻段，
         // 反向不在这里补。间隙大于 16 dB 的当作泄漏或滚降，不抬。端点与 6.3 kHz 以上不接收新的提升。
-        constexpr int    maskingMaxDistance    = 4;
+        // 接收段最多往上 3 段：被埋深度 = 间隙 − 2 − 4·距离 ≥ 0.7 要求间隙 ≥ 6.7 / 10.7 / 14.7 dB（距离 1 / 2 / 3），距离 4 要
+        // ≥ 18.7 dB、超过 16 dB 的上限，永远触发不了——原来写 4 只是每 hop 白跑一轮（T-032 R2-05；改 3 逐位不变）。
+        constexpr int    maskingMaxDistance    = 3;
         constexpr int    maskingLowBand        = 2;
         constexpr int    maskingHighBand       = 22;
         constexpr double maskingFloorOffsetDb  = 2.0;
@@ -147,6 +150,20 @@ namespace celadon
         constexpr double harmonicProtectionAmount = 0.75;
         constexpr double harmonicProtectionAttackSeconds = 0.06;
         constexpr double harmonicProtectionReleaseSeconds = 0.30;
+
+        // 推响不刺与目标频谱（设计规格-高级母带控制第 4、5 节；常数原来散写在 updateCorrectionTargets 里，T-032 收拢到这里）。
+        // 推响不刺只看中心 2 ～ 8 kHz 的 7 段（窗口 1.9 ～ 8.2 kHz）；相邻原始帧升 1.7 倍（约 +2.3 dB）算起音，开 55 ms 保持窗口；
+        // 包络攻击 25 ms / 释放 200 ms。起音一来已施加的削减立刻乘 1 − p；保持结束后乘数以 20 ms 一阶爬回 1（T-032 R2-08：原来
+        // 一 hop 内硬跳回，h = 1、p = 0.5、包络 3 dB 时是 ±1.5 dB 的台阶）。目标频谱一阶 2 s 跟随、t 回 0 后 0.15 s 归零。
+        constexpr double harshWindowLowHz         = 1900.0;
+        constexpr double harshWindowHighHz        = 8200.0;
+        constexpr double harshOnsetPowerRatio     = 1.7;
+        constexpr double harshOnsetHoldSeconds    = 0.055;
+        constexpr double harshAttackSeconds       = 0.025;
+        constexpr double harshReleaseSeconds      = 0.20;
+        constexpr double harshDuckReleaseSeconds  = 0.02;
+        constexpr double targetSettleSeconds      = 2.0;
+        constexpr double targetReleaseSeconds     = 0.15;
 
         constexpr int    referenceLockHops  = 8;         // 段复活后参考锁在偏差 0 的 hop 数（≈ 85 ms：一整窗 + Mid 攻击时间）
 
@@ -266,6 +283,7 @@ namespace celadon
         hopSize    = fftSize / hopDivisor;
         hopSeconds = (double) hopSize / sampleRate;
         fft        = std::make_unique<juce::dsp::FFT> (order);
+        coefficientUpdateSamples = baseCoefficientUpdateInterval << (order - baseFftOrder);   // = hopSize / 8
 
         // ---- Hann 窗与功率谱归一 ----
         // 单个 bin 的 |X|² 乘 2 / (N · Σw²) 就是「该 bin 一格频率（fs / N）内的均方功率」：白噪 σ² 时
@@ -342,6 +360,12 @@ namespace celadon
             alpha[b] = std::sin (w0) / (2.0 * filterQ);
         }
 
+        // ---- 功率谱只累加到最后一段的末 bin + 3 ----
+        // 段只覆盖到约 17.96 kHz、bin 都是 23.4 Hz 宽（各采样率都约 773 个 bin），谐波保护最多读到峰 bin + 3；再往上的 bin 没人读，
+        // reset 清零后永远是 0。原来清零与累加都跑满 fftSize / 2 + 1：48 k 多做 25 %、192 k 多做 81 %（T-032 R2-06，逐位不变）。
+        analysedBinCount = juce::jmin (fftSize / 2 + 1,
+                                       bandFirstBin[(size_t) numBands - 1] + bandNumBins[(size_t) numBands - 1] + 3);
+
         // ---- 跟踪时间常数（按 hop 一次）----
         for (int speed = 0; speed < numSpeeds; ++speed)
         {
@@ -352,6 +376,26 @@ namespace celadon
         }
 
         quickCoeff = timeConstantCoeff (hopSeconds, commonLevelSeconds);
+
+        // 掩蔽转移、推响不刺、目标频谱的一阶系数与 A 计权权重也在这里算一次：原来每 hop 现算 exp / pow / sqrt / log10
+        // （T-032 R2-06；同一表达式、同一输入、同一 libm，逐位相同）。
+        maskingBoostCoeff     = timeConstantCoeff (hopSeconds, maskingBoostSeconds);
+        harshAttackCoeff      = timeConstantCoeff (hopSeconds, harshAttackSeconds);
+        harshReleaseCoeff     = timeConstantCoeff (hopSeconds, harshReleaseSeconds);
+        harshDuckReleaseCoeff = timeConstantCoeff (hopSeconds, harshDuckReleaseSeconds);
+        targetSettleCoeff     = timeConstantCoeff (hopSeconds, targetSettleSeconds);
+        targetReleaseCoeff    = timeConstantCoeff (hopSeconds, targetReleaseSeconds);
+
+        for (int band = 0; band < numBands; ++band)
+        {
+            maskingWeight[(size_t) band] = maskingLoudnessWeight (band);
+
+            // 推响不刺的频率权重（规格第 4 节：2 kHz 0.5、2.5 ～ 8 kHz 1），按标称中心频率算，与原来每 hop 现算的表达式相同；
+            // 窗口外为 0，同时当作「这段不参与」的标记（窗口内的段权重都 ≥ 0.5）。
+            const auto hz = (double) getBandCentreHz (band);
+            harshBandWeight[(size_t) band] = hz >= harshWindowLowHz && hz <= harshWindowHighHz
+                ? juce::jlimit (0.0, 1.0, juce::jmin ((hz - 1500.0) / 1000.0, (9500.0 - hz) / 1500.0)) : 0.0;
+        }
 
         // 状态按「段 × 声道」排：同一段相邻两个声道的 {s1, s2} 挨在一起，打包路径一条 vld2q_f64 读出两个声道。
         static_assert (std::is_standard_layout<BiquadState>::value && sizeof (BiquadState) == 2 * sizeof (double),
@@ -420,7 +464,8 @@ namespace celadon
             automaticDeficitSeconds[b] = 0.0;
             automaticPeakSeconds[b] = 0.0;
             automaticOnsetHoldSeconds[b] = 0.0;
-            harshEnvelopeDb[b] = masteringTargetDb[b] = masteringPreviousPower[b] = masteringOnsetHold[b] = 0.0;
+            harshEnvelopeDb[b] = masteringTargetDb[b] = masteringOnsetHold[b] = 0.0;
+            harshDuck[b] = 1.0;
             publishedTargetDb[b].store (0.0f, std::memory_order_relaxed);
             maskingBoostDb[b] = 0.0;
             harmonicProtection[b] = 0.0;
@@ -571,10 +616,10 @@ namespace celadon
         for (int ch = 0; ch < numChannelsToUse; ++ch)
             dryScratch.copyFrom (ch, 0, io, ch, startSample, numSamples);
 
-        // 2. 按「到下一次系数重算 / 下一次 hop 分析 / 下一片分析」切成最长 64 样本的小段：分析、各分析片与重算都落在
-        //    从 reset 起算的固定绝对位置上，输出与块大小无关。同一个样本上的先后：hop 分析片 0 → 到点的后续分析片 →
-        //    系数重算。hop 边界上那次重算的插值比例是 0，只用到片 0 提交的插值起点；新目标由最后一片在 hop 后第 64 个
-        //    样本算好，紧接着那一次重算第一次用到它——所以把分析摊开做，G 与输出都与一口气做完逐位相同。
+        // 2. 按「到下一次系数重算 / 下一次 hop 分析 / 下一片分析」切成最长一个重算间隔（1/8 hop，48 k 下 64 样本）的小段：分析、
+        //    各分析片与重算都落在从 reset 起算的固定绝对位置上，输出与块大小无关。同一个样本上的先后：hop 分析片 0 → 到点的后续
+        //    分析片 → 系数重算。hop 边界上那次重算的插值比例是 0，只用到片 0 提交的插值起点；新目标由最后一片在 hop 后第一个
+        //    重算间隔处算好，紧接着那一次重算第一次用到它——所以把分析摊开做，G 与输出都与一口气做完逐位相同。
         int offset = 0;
 
         while (offset < numSamples)
@@ -592,7 +637,7 @@ namespace celadon
             if (samplesUntilCoefficientUpdate == 0)
             {
                 updateCoefficients();
-                samplesUntilCoefficientUpdate = coefficientUpdateInterval;
+                samplesUntilCoefficientUpdate = coefficientUpdateSamples;
             }
 
             auto length = juce::jmin (numSamples - offset, samplesUntilAnalysis, samplesUntilCoefficientUpdate);
@@ -871,7 +916,7 @@ namespace celadon
 
     void BalanceModule::updateCoefficients()
     {
-        // 增益（dB）在两次 hop 之间按样本线性插值，每 64 样本取一次插值结果重算系数（设计规格-Balance「执行」）。
+        // 增益（dB）在两次 hop 之间按样本线性插值，每 1/8 hop（48 k 下 64 样本）取一次插值结果重算系数（设计规格-Balance「执行」）。
         // 分析前 samplesSinceHop 可能超过一个 hop，但那时起点与目标都还是 0，插出来仍是精确的 0。
         const auto fraction = (double) samplesSinceHop / (double) hopSize;
         numActiveBands = 0;
@@ -908,14 +953,14 @@ namespace celadon
 
     //==============================================================================
     // 分析拆片（2026-09-25 研究 P4 R5）：v0.4 在 hop 边界那一个样本上一口气做完两声道加窗、两次 FFT、27 段求和与
-    // 跟踪判断，192 kHz（8192 点）时约 50 µs 全落在同一块里——小块下是插件最坏块的主因。新目标最早在 hop 后第
-    // 64 个样本那次系数重算才用到，所以分析拆成三片，落在 hop 后第 0 / 32 / 64 个样本上，最后一片紧挨着第 64 个
-    // 样本那次重算之前做完：
+    // 跟踪判断，192 kHz（8192 点）时约 50 µs 全落在同一块里——小块下是插件最坏块的主因。新目标最早在 hop 后第一个
+    // 重算间隔（1/8 hop：48 k 下 64 样本，192 k 下 256 样本，T-032 R2-07 起随 hop 缩放）那次系数重算才用到，所以分析拆成
+    // 三片，落在 hop 后第 0 / 半个 / 一个重算间隔处（48 k 下第 0 / 32 / 64 个样本），最后一片紧挨着那次重算之前做完：
     //   片 0（hop 边界上）：提交插值起点（边界上那次重算的插值比例是 0，只用到它）；快照本帧用到的参数、声道数、
     //       旁通比例（后面几片只用快照：中途宿主改参数、切旁通都不影响本帧）；趁环形缓冲还没被新样本覆盖，把各声道
     //       加窗后的整帧拷出来；前一半声道（立体声 = 左声道）做 FFT。
-    //   片 1（+32）：前一半声道的功率谱累加。
-    //   片 2（+64）：后一半声道（立体声 = 右声道）的 FFT 与功率谱累加、27 段求和、跟踪、判断、发布。
+    //   片 1（+半个间隔）：前一半声道的功率谱累加。
+    //   片 2（+一个间隔）：后一半声道（立体声 = 右声道）的 FFT 与功率谱累加、27 段求和、跟踪、判断、发布。
     //       v0.1.7.0 起 27 段求和之后多一步左右交叉功率（measureBandCross：要两个声道都变换完，只能在这一片），
     //       只写 bandCross、只进快照；约 800 次复数乘加（段只覆盖约 35 Hz ～ 18 kHz，各采样率都一样），估计约 1 µs——
     //       192 kHz（最坏块的来源）下比片 2 那次约 22 µs 的 FFT 小一个数量级以上，不改变三片的负担分布。
@@ -947,13 +992,14 @@ namespace celadon
                 buffer[n] = ring[i] * window[(size_t) n];
         }
 
-        std::fill (powerSpectrum.begin(), powerSpectrum.end(), 0.0);
+        // 只清到 analysedBinCount：更高的 bin 从 reset 起恒为 0、无人读（T-032 R2-06）。
+        std::fill (powerSpectrum.begin(), powerSpectrum.begin() + analysedBinCount, 0.0);
 
         for (int ch = 0; ch < firstChannelGroupSize(); ++ch)
             transformFrame (ch);
 
         nextAnalysisSlice     = 1;
-        analysisSliceSpacing  = sliceAnalysis ? coefficientUpdateInterval / 2 : 0;
+        analysisSliceSpacing  = sliceAnalysis ? coefficientUpdateSamples / 2 : 0;
         samplesUntilNextSlice = analysisSliceSpacing;
     }
 
@@ -1015,10 +1061,10 @@ namespace celadon
 
     void BalanceModule::accumulatePower (int channel) noexcept
     {
-        const auto half = fftSize / 2;
+        // 只累加段覆盖到的 bin（analysedBinCount，见 prepare）：同样的表达式、同样的顺序，读到的每个 bin 逐位相同（T-032 R2-06）。
         const auto* buffer = frameBuffer (channel);
 
-        for (int k = 0; k <= half; ++k)
+        for (int k = 0; k < analysedBinCount; ++k)
         {
             const auto re = (double) buffer[2 * k];
             const auto im = (double) buffer[2 * k + 1];
@@ -1230,6 +1276,10 @@ namespace celadon
         //    整体抬 10 dB 时 C 立刻跟上，但 40 Hz 段的测量要 1.4 s 才爬到位（自由度所限），16 kHz 段十几毫秒
         //    就到 —— 参考若不同步滞后，低段会先被 Recover 提 2.5 dB、高段先被 Tame 压 3 dB 再花一秒回来（实测）。
         //    稳态下 R = S + C，与不加这一步完全相同。
+        //
+        //    C 的功率在循环外算一次（第 6 步重定中心在这个循环之后，循环内 C 不变）：原来 27 段各算一次同样的 pow（T-032 R2-06）。
+        const auto commonPower = std::pow (10.0, commonLevelDb * 0.1);
+
         for (size_t b = 0; b < (size_t) numBands; ++b)
         {
             if (! bandAlive[b] || hopsSinceRevival[b] < referenceLockHops)
@@ -1237,7 +1287,7 @@ namespace celadon
                 referenceShapeDb[b]  = fastLevelDb[b] - commonLevelDb;
                 referencePower[b]    = averagedPower[b];
                 referenceDb[b]       = fastLevelDb[b];
-                laggedCommonPower[b] = std::pow (10.0, commonLevelDb * 0.1);
+                laggedCommonPower[b] = commonPower;
                 laggedCommonDb[b]    = commonLevelDb;
             }
             else
@@ -1247,7 +1297,6 @@ namespace celadon
                 const auto measured    = (double) hopsAlive[b];
                 const auto powerRetain = juce::jmin (preCoeff[b], (measured - 1.0) / measured);
 
-                const auto commonPower = std::pow (10.0, commonLevelDb * 0.1);
                 laggedCommonPower[b] = commonPower + (laggedCommonPower[b] - commonPower) * powerRetain;
 
                 const auto commonSeen = 10.0 * std::log10 (juce::jmax (powerFloor, laggedCommonPower[b]));
@@ -1485,6 +1534,23 @@ namespace celadon
                 automaticPeakSeconds[b] = 0.0;
                 automaticOnsetHoldSeconds[b] = 0.0;
             }
+
+            // 推响不刺的起音检测：与自动 Tame 共用同一份「上一帧原始段功率」previousBandPower（每 hop 都更新），不再另存一份只在
+            // 母带块运行时才更新的副本——原来刺耳从关到开的第一 hop 拿陈旧值（新实例是 reset 时的 0）比较，白触发一次 55 ms 起音
+            // 保持、头几 hop 只按 1 − p 起步（T-032 R2-01）。判定条件与原来相同：h > 0、本段在 2 ～ 8 kHz 窗口内且在门上。
+            // h = 0 起的实例保持计时恒为 0，这里既不读也不写它：逐位不变。
+            if (frameParams.harshAmount > 0.0f && harshBandWeight[b] > 0.0 && bandAlive[b])
+            {
+                const auto rising = bandPower[b] > harshOnsetPowerRatio * juce::jmax (powerFloor, previousBandPower[b]);
+                masteringOnsetHold[b] = rising ? harshOnsetHoldSeconds : juce::jmax (0.0, masteringOnsetHold[b] - hopSeconds);
+            }
+            else if (masteringOnsetHold[b] > 0.0)
+            {
+                // h 关掉（含余尾期）或本段落到门下：保持计时照常走完、不再冻结。原来冻结在「起音中」，剩下的时长留到下次 h 打开，
+                // 头几 hop 平白按起音处理（与上面的陈旧 previousPower 同一类问题）。
+                masteringOnsetHold[b] = juce::jmax (0.0, masteringOnsetHold[b] - hopSeconds);
+            }
+
             previousBandPower[b] = bandPower[b];
 
             if (automaticRecover > 0.0 && bandAlive[b] && b > 0 && b + 1 < (size_t) numBands)
@@ -1624,13 +1690,12 @@ namespace celadon
                 }
             }
 
-            const auto boostCoeff = maskingBoostSeconds <= 0.0 ? 0.0 : std::exp (-hopSeconds / maskingBoostSeconds);
             double totalBoost = 0.0;
 
             for (size_t index = 0; index < (size_t) numBands; ++index)
             {
-                // 原始提升一帧一帧地闪时，先沿 hop 平滑再拿去改目标，避免扫频在邻段上来回抖。
-                maskingBoostDb[index] = boost[index] + (maskingBoostDb[index] - boost[index]) * boostCoeff;
+                // 原始提升一帧一帧地闪时，先沿 hop 平滑再拿去改目标，避免扫频在邻段上来回抖（系数 prepare 时算好，T-032 R2-06）。
+                maskingBoostDb[index] = boost[index] + (maskingBoostDb[index] - boost[index]) * maskingBoostCoeff;
 
                 if (maskingBoostDb[index] < 1.0e-4)
                     maskingBoostDb[index] = 0.0;
@@ -1653,7 +1718,7 @@ namespace celadon
                     if (gateWeight[index] < 0.5 || (boost[index] <= 0.0 && untilted[index] > -0.2))
                         continue;
 
-                    const auto weight = maskingLoudnessWeight (band) * gateWeight[index];
+                    const auto weight = maskingWeight[index] * gateWeight[index];
                     weightSum += weight;
                     gainSum += weight * (untilted[index] + boost[index]);
                 }
@@ -1688,9 +1753,11 @@ namespace celadon
 
         if (frameParams.harshAmount > 0.0f || frameParams.targetAmount > 0.0f || masteringHasTail)
         {
-            // Optional mastering corrections reuse this filter bank and analysis; no new audio path or latency.
-            // Use the common-rate input tracker: per-band Welch time constants would confuse a level step with spectral tilt.
-            // Centre both shapes on the same audible bands. A reference's recording level cannot become gain.
+            // 可选的母带修正（推响不刺、目标频谱，设计规格-高级母带控制第 4、5 节）复用这组滤波器与分析，不加音频路径或延迟。
+            // 测量一律用所有段同速的 60 ms 快电平（updateTrackers 第 2 步的 quickPower / quickLevelDb）：逐段 Welch 时间常数会把
+            // 电平阶跃当成频谱倾斜。刺耳判据原来本段用 Lfast（Welch + 攻击 80 / 释放 400 ms）、邻段用快电平，宽带电平一降本段还挂在
+            // 释放曲线上、超出量凭空出现——每个 decay / 鼓点间隙都把 2 ～ 8 kHz 压暗 1 ～ 3 dB（h = 1）；三者同一动态后共同变化
+            // 相消，真持续局部峰的稳态不变（T-032 R2-01）。两种形状都以同一批活段定中心：参考的录音电平不能变成增益。
             double measuredMean = 0.0, desiredMean = 0.0, weights = 0.0;
             PerBand<double> desiredShape {};
             if (frameParams.targetAmount > 0.0f)
@@ -1702,7 +1769,9 @@ namespace celadon
                     const auto usableReference = ! frameParams.hasTargetReference || desiredShape[b] > -65.0;
                     if (b < 3 || b > 25 || ! bandAlive[b] || ! usableReference) continue;
                     const auto w = gateWeight[b];
-                    measuredMean += w * (10.0 * std::log10 (juce::jmax (powerFloor, quickPower[b])));
+                    // 直接读 quickLevelDb（与 updateTrackers 第 2 步同一表达式、之后没人写 quickPower；原来这里再算一遍 10·log10，
+                    // T-032 R2-06）。「均值 += w · 电平」合并乘加与否两式一样（乘积的两个因子逐位相同），各平台逐位不变。
+                    measuredMean += w * quickLevelDb[b];
                     desiredMean += w * desiredShape[b];
                     weights += w;
                 }
@@ -1710,37 +1779,45 @@ namespace celadon
             if (weights > 0.0) { measuredMean /= weights; desiredMean /= weights; }
             double maximumHarsh = 0.0;
             masteringHasTail = false;
-            const auto harshAttackCoeff = std::exp (-hopSeconds / 0.025);
-            const auto harshReleaseCoeff = std::exp (-hopSeconds / 0.20);
-            const auto targetCoeff = std::exp (-hopSeconds / (frameParams.targetAmount > 0.0f ? 2.0 : 0.15));
+            const auto targetCoeff = frameParams.targetAmount > 0.0f ? targetSettleCoeff : targetReleaseCoeff;
             for (size_t b = 0; b < (size_t) numBands; ++b)
             {
                 double harsh = 0.0, correction = 0.0;
-                const auto hz = (double) getBandCentreHz ((int) b);
-                if (frameParams.harshAmount > 0.0f && hz >= 1900.0 && hz <= 8200.0 && bandAlive[b])
+                if (frameParams.harshAmount > 0.0f && harshBandWeight[b] > 0.0 && bandAlive[b])
                 {
-                    const auto rising = bandPower[b] > 1.7 * juce::jmax (powerFloor, masteringPreviousPower[b]);
-                    masteringOnsetHold[b] = rising ? 0.055 : juce::jmax (0.0, masteringOnsetHold[b] - hopSeconds);
-                    // Neighbour support protects isolated tones; broad music with a persistent upper-mid peak is eligible.
+                    // 邻段支撑保护孤立纯音；有持续中高频峰的宽带音乐才符合条件。起音保持计时 masteringOnsetHold 已在上面的段循环里
+                    // 随 previousBandPower 每 hop 更新。
                     const auto left = quickLevelDb[b - 3], right = quickLevelDb[b + 2];
                     const auto support = juce::jmin (gateWeight[b - 3], gateWeight[b + 2]);
-                    const auto excess = juce::jmax (0.0, fastLevelDb[b] - 0.5 * (left + right) - 1.5);
+                    const auto excess = juce::jmax (0.0, quickLevelDb[b] - 0.5 * (left + right) - 1.5);
                     const auto onsetPermit = masteringOnsetHold[b] > 0.0 ? 1.0 - (double) frameParams.transientPreserve : 1.0;
-                    const auto frequencyWeight = juce::jlimit (0.0, 1.0, juce::jmin ((hz - 1500.0) / 1000.0, (9500.0 - hz) / 1500.0));
-                    harsh = juce::jmin (3.0, excess * 0.65) * frameParams.harshAmount * support * frequencyWeight
+                    harsh = juce::jmin (3.0, excess * 0.65) * frameParams.harshAmount * support * harshBandWeight[b]
                               * onsetPermit * (1.0 - 0.6 * harmonicProtection[b]);
                 }
-                masteringPreviousPower[b] = bandPower[b];
                 const auto harshCoeff = (harsh > harshEnvelopeDb[b] ? harshAttackCoeff : harshReleaseCoeff);
                 harshEnvelopeDb[b] = harsh + (harshEnvelopeDb[b] - harsh) * harshCoeff;
                 if (frameParams.harshAmount <= 0.0f && harshEnvelopeDb[b] < 1.0e-5) harshEnvelopeDb[b] = 0.0;
-                // Duck the additional reduction immediately at an onset, rather than carrying its release through the attack.
-                const auto appliedHarsh = harshEnvelopeDb[b] * (masteringOnsetHold[b] > 0.0
-                                         ? 1.0 - (double) frameParams.transientPreserve : 1.0);
+                // 起音一来，已在施加的削减立刻乘 1 − p（不把释放拖进起音）；保持窗口结束后乘数以 20 ms 一阶爬回 1，不再一 hop 内硬跳回
+                // （T-032 R2-08：原来 h = 1、p = 0.5、包络 3 dB 时每次保持结束都是约 +1.3 ～ 1.5 dB 的台阶，持续刺耳 + 密集鼓点上成
+                // 5 ～ 10 Hz 的颤音式调制；现在保持结束后第一 hop 最多约 +0.7 dB）。乘数只在起音保持期间才离开 1，爬回到差 1e-6 内就
+                // 归 1：乘数为 1 时与原运算逐位相同。
+                const auto duckTarget = masteringOnsetHold[b] > 0.0 ? 1.0 - (double) frameParams.transientPreserve : 1.0;
+                if (duckTarget < harshDuck[b])
+                    harshDuck[b] = duckTarget;
+                else if (harshDuck[b] != duckTarget)
+                {
+                    harshDuck[b] = duckTarget + (harshDuck[b] - duckTarget) * harshDuckReleaseCoeff;
+                    if (harshDuck[b] > duckTarget - 1.0e-6) harshDuck[b] = duckTarget;
+                }
+                const auto appliedHarsh = harshEnvelopeDb[b] * harshDuck[b];
                 maximumHarsh = juce::jmax (maximumHarsh, appliedHarsh);
                 if (frameParams.targetAmount > 0.0f && weights >= 6.0 && b >= 3 && b <= 25 && bandAlive[b]
                      && (! frameParams.hasTargetReference || desiredShape[b] > -65.0))
                 {
+                    // 这一处保留原式、不改读 quickLevelDb：「10·log10 (…) − 均值」在 clang 默认 -ffp-contract=on 下（Xcode 的 Apple
+                    // Silicon 正式构建）会把乘 10 与相减合并成一次乘加、只舍入一次；换成已舍入的 quickLevelDb 再相减会差最后一位，目标
+                    // 频谱 t > 0 时不再与改前逐位相同（ADR-013；T-032 核验说「对函数调用不合并」——合并的是乘 10 与相减，不是 log10）。
+                    // 只在 t > 0 时每 hop 最多 23 次 log10。
                     const auto measured = 10.0 * std::log10 (juce::jmax (powerFloor, quickPower[b])) - measuredMean;
                     const auto error = desiredShape[b] - desiredMean - measured;
                     const auto outside = std::copysign (juce::jmax (0.0, std::abs (error) - 1.0), error);
@@ -1748,9 +1825,11 @@ namespace celadon
                 }
                 masteringTargetDb[b] = correction + (masteringTargetDb[b] - correction) * targetCoeff;
                 if (frameParams.targetAmount <= 0.0f && std::abs (masteringTargetDb[b]) < 1.0e-5) masteringTargetDb[b] = 0.0;
-                masteringHasTail = masteringHasTail || harshEnvelopeDb[b] != 0.0 || masteringTargetDb[b] != 0.0;
+                // 余尾也要等起音闪避乘数回到 1（T-032 R2-08）：h 回 0 时若正在起音保持里，乘数走完 20 ms 的爬升再停块，不停在 1 以下、
+                // 留给下次 h 打开的头几 hop。h = 0 起的实例乘数恒为 1，不影响。
+                masteringHasTail = masteringHasTail || harshEnvelopeDb[b] != 0.0 || masteringTargetDb[b] != 0.0 || harshDuck[b] != 1.0;
                 publishedTargetDb[b].store ((float) masteringTargetDb[b] * frameAppliedAmount, std::memory_order_relaxed);
-                // Skip even the addition at exact zero: old sessions keep their original arithmetic.
+                // 精确为 0 时连加法都跳过：旧工程保持原来的运算。
                 if (appliedHarsh != 0.0 || masteringTargetDb[b] != 0.0)
                     proposed[b] = juce::jlimit (-maxTameCorrectionDb, maxCorrectionDb, proposed[b] - appliedHarsh + masteringTargetDb[b]);
             }
