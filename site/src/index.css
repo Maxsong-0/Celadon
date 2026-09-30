@@ -1,0 +1,183 @@
+@import "tailwindcss";
+/* 字体在 main.tsx 里用 JS 引入（fontsource 自托管，按 unicode-range 分包） */
+
+/*
+  Celadon 站点设计令牌。
+  调色沿用插件 Source/ui/CeladonLookAndFeel.h：单色青 c100 ～ c900、紫 = GLAZE 自动、橙 = 需要注意。
+  纸底比插件的 #EDF2F4 更暖一点（宣纸），青釉在它上面才显得是「釉」而不是「界面」。
+*/
+@theme {
+  --font-display: "Fraunces Variable", "Noto Serif SC Variable", "Songti SC", "STSong", serif;
+  --font-serif: "Noto Serif SC Variable", "Songti SC", "STSong", "Fraunces Variable", serif;
+  --font-sans: "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", Menlo, Consolas, monospace;
+
+  --color-paper: #f3f1ea;
+  --color-paper-2: #ebeeec;
+  --color-paper-3: #e2e8e8;
+  --color-panel: #fbfaf7;
+  --color-line: #d9e2e4;
+  --color-line-2: #c7d3d6;
+
+  --color-ink: #0d1b21;
+  --color-ink-2: #4b5e66;
+  --color-ink-3: #637780;
+  --color-ink-4: #8a9ca3;
+
+  --color-c100: #d5f1f5;
+  --color-c200: #a3e0e8;
+  --color-c300: #67cad7;
+  --color-c400: #33b3c4;
+  --color-c500: #1799ab;
+  --color-c600: #127f90;
+  --color-c700: #0e6473;
+  --color-c800: #0a4a57;
+  --color-c900: #06313a;
+
+  --color-violet: #6a4dff;
+  --color-violet-soft: #eeeaff;
+  --color-warn: #e8590c;
+  --color-warn-soft: #fff4ec;
+  --color-seal: #b8412e;
+
+  --ease-glaze: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-kiln: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --shadow-glaze: 0 30px 80px -30px rgb(13 40 48 / 0.28), 0 8px 24px -12px rgb(13 40 48 / 0.12);
+  --shadow-soft: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 12px 40px -20px rgb(13 40 48 / 0.18);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    font-feature-settings: "palt" 1, "kern" 1;
+    overflow-x: clip;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-c200) 70%, white);
+    color: var(--color-ink);
+  }
+  h1, h2, h3, h4 {
+    @apply font-serif;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  a {
+    @apply underline-offset-4;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-c500);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+}
+
+@layer components {
+  /* 「双边框」容器：外壳（纸托）+ 内芯（瓷面），像一块釉面搁在托盘里 */
+  .bezel {
+    @apply rounded-[2rem] p-1.5 bg-ink/4 ring-1 ring-ink/6;
+  }
+  .bezel-core {
+    @apply rounded-[calc(2rem-0.375rem)] bg-panel ring-1 ring-white/70;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-[10px] font-medium uppercase tracking-[0.22em] text-ink-3 ring-1 ring-ink/10 bg-white/50;
+  }
+  .eyebrow-dot {
+    @apply inline-block size-1.5 rounded-full bg-c500;
+  }
+
+  .display {
+    @apply font-display font-medium tracking-[-0.02em];
+    font-variation-settings: "opsz" 144, "SOFT" 30, "WONK" 1;
+  }
+
+  /* 青釉渐变文字 */
+  .glaze-text {
+    background: linear-gradient(135deg, var(--color-c800) 0%, var(--color-c500) 45%, var(--color-c300) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* 竖排中文 */
+  .vertical {
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+    letter-spacing: 0.35em;
+  }
+
+  /* 岛式按钮：圆角胶囊 + 尾随图标自己带一个小圆 */
+  .btn-island {
+    @apply inline-flex items-center gap-3 rounded-full pl-6 pr-2 py-2 text-sm font-medium transition-transform duration-500 ease-glaze active:scale-[0.98];
+  }
+  .btn-island-primary {
+    @apply inline-flex items-center gap-3 rounded-full pl-6 pr-2 py-2 text-sm font-medium transition-transform duration-500 ease-glaze active:scale-[0.98] bg-ink text-paper;
+  }
+  .btn-island-ghost {
+    @apply inline-flex items-center gap-3 rounded-full pl-6 pr-2 py-2 text-sm font-medium transition-transform duration-500 ease-glaze active:scale-[0.98] bg-white/60 text-ink ring-1 ring-ink/10 backdrop-blur-sm;
+  }
+  .btn-island-icon {
+    @apply grid size-8 place-items-center rounded-full transition-transform duration-500 ease-glaze group-hover:translate-x-0.5 group-hover:-translate-y-px group-hover:scale-105;
+  }
+
+  .hairline {
+    @apply h-px w-full bg-linear-to-r from-transparent via-ink/15 to-transparent;
+  }
+
+  /* 说明页正文排版（不用 typography 插件，自己写一套青瓷味的） */
+  .prose-celadon {
+    @apply text-[15.5px] leading-[1.85] text-ink-2;
+  }
+  .prose-celadon > * + * { margin-top: 1.1em; }
+  .prose-celadon h1 { @apply text-ink text-4xl font-semibold leading-tight tracking-tight mt-0; }
+  .prose-celadon h2 { @apply text-ink text-2xl font-semibold leading-snug mt-14 pt-6 border-t border-line; }
+  .prose-celadon h3 { @apply text-ink text-lg font-semibold mt-10; }
+  .prose-celadon h4 { @apply text-ink text-base font-semibold mt-6; }
+  .prose-celadon a { @apply text-c700 underline decoration-c300 decoration-1 hover:decoration-c600; }
+  .prose-celadon strong { @apply text-ink font-semibold; }
+  .prose-celadon em { @apply not-italic text-ink; font-variation-settings: "wght" 560; }
+  .prose-celadon code { @apply font-mono text-[0.88em] text-c800 bg-c100/60 rounded px-1.5 py-0.5; }
+  .prose-celadon pre { @apply font-mono text-[13px] leading-relaxed text-ink bg-panel ring-1 ring-line rounded-2xl p-5 overflow-x-auto; }
+  .prose-celadon pre code { @apply bg-transparent p-0 text-ink; }
+  .prose-celadon ul { @apply list-none pl-0; }
+  .prose-celadon ul > li { @apply relative pl-6; }
+  .prose-celadon ul > li::before { content: ""; @apply absolute left-1 top-[0.78em] size-1.5 rounded-full bg-c400; }
+  .prose-celadon ol { @apply list-none pl-0; counter-reset: item; }
+  .prose-celadon ol > li { @apply relative pl-9; counter-increment: item; }
+  .prose-celadon ol > li::before { content: counter(item, decimal-leading-zero); @apply absolute left-0 top-[0.2em] font-mono text-[12px] text-c600 tracking-wider; }
+  .prose-celadon li + li { margin-top: 0.45em; }
+  .prose-celadon blockquote { @apply border-l-2 border-c300 pl-5 text-ink-3 italic; }
+  .prose-celadon hr { @apply border-0 h-px bg-line my-10; }
+  .prose-celadon table { @apply w-full text-[14px] leading-relaxed border-collapse; display: block; overflow-x: auto; }
+  .prose-celadon thead th { @apply text-left font-medium text-ink-3 text-[12px] uppercase tracking-wider pb-3 border-b border-line-2 align-bottom; }
+  .prose-celadon tbody td { @apply py-3 pr-5 border-b border-line align-top text-ink-2; }
+  .prose-celadon tbody td:first-child { @apply text-ink font-medium whitespace-nowrap; }
+  .prose-celadon img, .prose-celadon svg.figure { @apply my-8 w-full; }
+  .prose-celadon .note { @apply rounded-2xl bg-c100/50 ring-1 ring-c200 px-5 py-4 text-ink-2; }
+  .prose-celadon .warn { @apply rounded-2xl bg-warn-soft ring-1 ring-warn/25 px-5 py-4 text-ink-2; }
+}
+
+@layer utilities {
+  .mask-fade-x {
+    mask-image: linear-gradient(90deg, transparent, black 12%, black 88%, transparent);
+  }
+  .mask-fade-b {
+    mask-image: linear-gradient(180deg, black 60%, transparent);
+  }
+  .noise-fixed {
+    position: fixed; inset: 0; pointer-events: none; z-index: 60; mix-blend-mode: multiply; opacity: 0.55;
+  }
+}
