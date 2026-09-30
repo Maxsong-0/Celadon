@@ -72,6 +72,13 @@ namespace celadon
             std::memcpy (&y, &b, sizeof (y));
             return x == y;
         }
+
+        // ④ 之后加回 ③ 的增量（T-032）：δ 为 0（含 −0）时原样给守护后的样本——(−0) + (+0) = +0，无条件相加会打破 ±0 的逐位契约
+        //（ClayTests 的特殊值素材含交替的 ±0）。两个 float 在 double 里相加再落回 float：与 g < 1 那一支「double 里算完只舍入一次」同一口径。
+        float withIncrement (float guarded, float delta) noexcept
+        {
+            return delta != 0.0f ? static_cast<float> (static_cast<double> (guarded) + static_cast<double> (delta)) : guarded;
+        }
     }
 
     // 手动收单的下限就是低通最长的那一档：它决定两套低通的分配长度与模块的固定延迟 D（设计规格-Clay-根治修订 第 2 节）。
@@ -606,9 +613,9 @@ namespace celadon
             return history[index < 0 ? index + historyLength : index];
         };
 
-        // ④ 要的干路（输入延迟 D，float 原样）按段暂存；段长 ≤ 64（process 按系数网格切段）。
+        // ④ 要的干路（输入延迟 D，float 原样）与 ③ 的增量 ±δ（T-032：不进守护、守护后加回）按段暂存；段长 ≤ 64（process 按系数网格切段）。
         jassert (numSamples <= coefficientUpdateInterval);
-        std::array<float, coefficientUpdateInterval> dryLefts {}, dryRights {};
+        std::array<float, coefficientUpdateInterval> dryLefts {}, dryRights {}, deltaLefts {}, deltaRights {};
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -700,20 +707,35 @@ namespace celadon
             const auto shelfWasIdle = shelfIsIdentity && sideShelfState.s1 == 0.0 && sideShelfState.s2 == 0.0;
             const auto wideSide = shelfWasIdle ? monoSide : processBiquad (monoSide, sideShelf, sideShelfState);
 
+            // ③ 只以增量 δ = S'' − S' 的形式出现（T-032 / ADR-014 修订：守护只管①②，δ 绕过守护、由 ④ 在守护后的输出上加回；
+            //    L 加 δ、R 减 δ，见文件头④）。高架直通时显式取 0——不能算 wideSide − monoSide：S' 为 ±Inf 时 Inf − Inf = NaN，会把
+            //    本该逐位纯延迟的样本弄成 NaN。δ 随旁通淡化一起淡出：乘 (1 − bypass)，完全旁通为 0，bypass = 0 时不乘（原样）。
             const auto bypass = bypassRamp.valueAt (i);
+            auto sideDelta = shelfWasIdle ? 0.0 : wideSide - monoSide;
 
-            // 完全旁通，或延迟后的这个样本三级都不作用（没经过低切、a = 0、高架直通且无余振）：逐位取纯延迟线。后者不能交给
-            // M/S 解码——(L + R)/2 + (L − R)/2 在 double 里不保证逐位还原 L；而且处理后 = 干路时任何旁通混合比例的结果都是干路。
-            if (bypass >= 1.0 || (! delayedWasCut && amount <= 0.0 && shelfWasIdle))
+            if (bypass >= 1.0)
+                sideDelta = 0.0;
+            else if (bypass > 0.0)
+                sideDelta *= 1.0 - bypass;
+
+            const auto delta = static_cast<float> (sideDelta);
+            deltaLefts[static_cast<std::size_t> (i)]  = delta;
+            deltaRights[static_cast<std::size_t> (i)] = -delta;
+
+            // 完全旁通，或延迟后的这个样本①②都不作用（没经过低切、a = 0）：①② 的输出逐位取纯延迟线。后者不能交给 M/S 解码——
+            // (L + R)/2 + (L − R)/2 在 double 里不保证逐位还原 L；而且处理后 = 干路时任何旁通混合比例的结果都是干路。
+            // ③ 是否在作用与此无关：①② 闲着时守护看到的 y 与干路逐位相同、不动作，输出 = 干路 ± δ（加宽不进守护）；
+            // 要是把 M/S 往返的舍入送进守护，局部峰值样本上一个 ulp 的越界就会让 g_req 变 0。
+            if (bypass >= 1.0 || (! delayedWasCut && amount <= 0.0))
             {
                 left[i]  = delayedLeft;
                 right[i] = delayedRight;
                 continue;
             }
 
-            // M/S 解码：L' = M_d + S''，R' = M_d − S''；旁通淡化中与同样延迟 D 的干路线性交叉淡化（延迟补偿，对齐）。
-            auto wetLeft  = delayedMid + wideSide;
-            auto wetRight = delayedMid - wideSide;
+            // M/S 解码：L' = M_d + S'，R' = M_d − S'；旁通淡化中与同样延迟 D 的干路线性交叉淡化（延迟补偿，对齐）。
+            auto wetLeft  = delayedMid + monoSide;
+            auto wetRight = delayedMid - monoSide;
 
             if (bypass > 0.0)
             {

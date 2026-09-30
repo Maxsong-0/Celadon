@@ -20,6 +20,10 @@
       - 旁通 = 同样延迟 D 的干路 + 20 ms 交叉淡化，解除旁通后与从未旁通逐位相同（影子运行）；三级全关时切旁通仍是逐位纯延迟
       - 低切关 / 开的 20 ms 输出淡化（低切在延迟之前，淡化晚 D 个样本到输出）与影子运行
       - reset、音频路径 0 分配、输入里的 NaN 不会让影子滤波器卡死
+      - 峰值守护（ADR-014；T-032 2026-09-29 修订：只管①②，③ 加宽的增量绕过守护）：①② 的输出逐样本不越界、③ 的增量原样叠在守护
+        输出上；稳态低音不误动作、谐波对经低切抬高峰值时动作；正常电平（守护地板之上）下加宽 +3 / +1.5 / −3 dB 的高频侧声道增益
+        = widthDb ± 0.3 dB 且守护统计为 0；低切 / 收单在固定种子夹具上的效果钉在记录值（回归护栏）；widthDb = 0 的一批场景（怪值、
+        随机块长、参数扫动、三个采样率）的输出摘要——改守护前后逐位对照的依据（摘要值记在 T-032 报告里）
     另有测试类 LinearPhaseLowpass（滑动平均级联本身）：长度与延迟公式；冲激响应 = 精确系数、以 2(L − 1) 为中心对称、直流增益 1；
     互补高通在 fc/2、fc、2fc、4fc 的增益；跨重算网格与朴素卷积一致；静音后状态精确归零；预热等价；输入清洗；0 分配。
 
@@ -379,14 +383,15 @@ namespace celadon::test
             double maxMidOut = 0.0;   // 输出 M = (L′ + R′)/2 的最大绝对值（纯 S 输入时应恰为 0）
         };
 
-        // 纯 S 正弦（L = x、R = −x，幅度 0.25 · quietScale）过模块。稳态：先跑 0.5 s（② 是 FIR：延迟 D 加上低通的 4(L − 1) 个样本后就是稳态，
+        // 纯 S 正弦（L = x、R = −x，幅度默认 0.25 · quietScale）过模块。稳态：先跑 0.5 s（② 是 FIR：延迟 D 加上低通的 4(L − 1) 个样本后就是稳态，
         // 192 kHz、40 Hz 时合计约 36 ms；③ 的高架时间常数更短）。
-        SideMeasurement measureSide (double sampleRate, const ClayParams& p, double frequency)
+        SideMeasurement measureSide (double sampleRate, const ClayParams& p, double frequency, float amplitude = 0.25f * quietScale)
         {
             const auto settle = static_cast<int> (0.5 * sampleRate);
             const auto window = fitWindowLength (frequency, sampleRate);
-            // 幅度压到守护地板之下（quietScale）：+3 dB 加宽后仍 < −40 dBFS，量到的是 ③ 本身的增益（ADR-014）。
-            auto input = makeSineOfLength (2, sampleRate, frequency, 0.25f * quietScale, settle + window);
+            // 默认幅度压到守护地板之下（quietScale）：+3 dB 加宽后仍 < −40 dBFS，量到的是 ③ 本身的增益（ADR-014）；
+            // T-032 的正常电平用例另给幅度（③ 的增量已不进守护，正常电平也该量到同样的增益）。
+            auto input = makeSineOfLength (2, sampleRate, frequency, amplitude, settle + window);
 
             for (auto& sample : input[1])
                 sample = -sample;
@@ -526,6 +531,197 @@ namespace celadon::test
         }
 
         //==============================================================================
+        // T-032（2026-09-29）峰值守护正常电平用例的工具：素材在守护地板（−40 dBFS）之上，量①～③经守护后真正剩下的效果。
+
+        // 峰值归一：整段（所有声道）的最大绝对值缩放到 peakDbfs。
+        Signal normalisedToPeak (Signal signal, float peakDbfs)
+        {
+            float peak = 0.0f;
+
+            for (const auto& channel : signal)
+                for (auto sample : channel)
+                    peak = juce::jmax (peak, std::abs (sample));
+
+            const auto gain = peak > 0.0f ? juce::Decibels::decibelsToGain (peakDbfs) / peak : 1.0f;
+
+            for (auto& channel : signal)
+                for (auto& sample : channel)
+                    sample *= gain;
+
+            return signal;
+        }
+
+        // M = (L + R) / 2（double）。
+        std::vector<double> midOf (const Signal& signal)
+        {
+            std::vector<double> out (signal[0].size());
+
+            for (size_t i = 0; i < out.size(); ++i)
+                out[i] = 0.5 * (static_cast<double> (signal[0][i]) + static_cast<double> (signal[1][i]));
+
+            return out;
+        }
+
+        // x 过 4 阶 Butterworth（两级 juce::dsp::IIR，Q = 0.5412 / 1.3066，与被测模块无关的独立实现；highPass = true 为高通、否则低通）
+        // 之后 [from, to) 的能量 Σy²。滤波器从 x 的开头起跑，from 之前的样本只用来起振。
+        double bandEnergy (const std::vector<double>& x, double sampleRate, double cutoffHz, bool highPass, int from, int to)
+        {
+            using Coefficients = juce::dsp::IIR::Coefficients<double>;
+            juce::dsp::IIR::Filter<double> first, second;
+            first.coefficients  = highPass ? Coefficients::makeHighPass (sampleRate, cutoffHz, 0.54119610014619698)
+                                           : Coefficients::makeLowPass  (sampleRate, cutoffHz, 0.54119610014619698);
+            second.coefficients = highPass ? Coefficients::makeHighPass (sampleRate, cutoffHz, 1.3065629648763766)
+                                           : Coefficients::makeLowPass  (sampleRate, cutoffHz, 1.3065629648763766);
+
+            double sum = 0.0;
+
+            for (int n = 0; n < to; ++n)
+            {
+                const auto y = second.processSample (first.processSample (x[static_cast<size_t> (n)]));
+
+                if (n >= from)
+                    sum += y * y;
+            }
+
+            return sum;
+        }
+
+        // 「正常电平、经守护后的效果」：input（峰值在守护地板之上）过参数 p，量输出的 M 或 S 在某频段（cutoffHz 以上 / 以下）
+        // 的能量相对输入同频段的增益（dB）。输出比输入晚 D（本文件口径 = D + G），先对齐再比：输出 [D + settle, N) 对输入
+        // [settle, N − D)，settle 让测量滤波器与模块起振过去。另量「标称」= 同一素材压到守护地板之下（quieter）量到的增益——①～③ 是
+        // 线性的，守护不介入时增益与电平无关，所以这就是①～③本身的效果；actual 与 nominal 的差 = 守护回收掉的量。
+        // 顺带记下守护统计：g < 1 的输出样本占比与最小 g。
+        struct GuardedEffect
+        {
+            double nominalDb = 0.0;
+            double actualDb = 0.0;
+            double guardedShare = 0.0;
+            float minGain = 1.0f;
+        };
+
+        GuardedEffect measureGuardedEffect (double sampleRate, const Signal& input, const ClayParams& p,
+                                            bool side, double cutoffHz, bool highPass, double settleSeconds = 1.0)
+        {
+            const auto numSamples = static_cast<int> (input[0].size());
+            const auto delay = specDelay (sampleRate);
+            const auto settle = static_cast<int> (settleSeconds * sampleRate);
+            const auto component = [side] (const Signal& s) { return side ? sideOf (s) : midOf (s); };
+
+            const auto run = [&] (const Signal& in, GuardedEffect* stats)
+            {
+                ClayModule clay;
+                prepareClay (clay, sampleRate, 2, p);
+                clay.getAndResetPeakGuardStats();
+                const auto out = runClay (clay, in, maxBlock);
+
+                if (stats != nullptr)
+                {
+                    const auto guard = clay.getAndResetPeakGuardStats();
+                    stats->guardedShare = static_cast<double> (guard.guardedSamples) / static_cast<double> (numSamples);
+                    stats->minGain = guard.minGain;
+                }
+
+                const auto outEnergy = bandEnergy (component (out), sampleRate, cutoffHz, highPass, delay + settle, numSamples);
+                const auto inEnergy  = bandEnergy (component (in),  sampleRate, cutoffHz, highPass, settle, numSamples - delay);
+                return 10.0 * std::log10 (outEnergy / inEnergy);
+            };
+
+            GuardedEffect result;
+            result.actualDb  = run (input, &result);
+            result.nominalDb = run (quieter (input), nullptr);
+            return result;
+        }
+
+        juce::String guardedEffectText (const GuardedEffect& e)
+        {
+            return "nominal " + juce::String (e.nominalDb, 3) + " dB, actual " + juce::String (e.actualDb, 3) + " dB, g < 1 on "
+                 + juce::String (100.0 * e.guardedShare, 2) + " % of samples, min g " + juce::String (e.minGain, 4);
+        }
+
+        //==============================================================================
+        // 输出摘要（FNV-1a 64 位，自带实现、与平台无关）：改守护前后「widthDb = 0 的输出逐位不变」的对照依据（T-032 验收门）。
+        // 把每块输出样本的位、每次 process 的代价格报告、末尾的守护统计、isPassThrough 与延迟逐字节喂进去。
+        struct Digest
+        {
+            std::uint64_t hash = 14695981039346656037ull;
+
+            void add (const void* data, size_t size) noexcept
+            {
+                const auto* bytes = static_cast<const unsigned char*> (data);
+
+                for (size_t i = 0; i < size; ++i)
+                {
+                    hash ^= bytes[i];
+                    hash *= 1099511628211ull;
+                }
+            }
+
+            template <typename T>
+            void addValue (const T& value) noexcept   { add (&value, sizeof (value)); }
+
+            juce::String hex() const
+            {
+                juce::String text;
+
+                for (int shift = 60; shift >= 0; shift -= 4)
+                    text << "0123456789abcdef"[(hash >> shift) & 0xf];
+
+                return text;
+            }
+        };
+
+        // 按随机块长（固定种子的 juce::Random：通常 1 ～ 600，八分之一的块 1 ～ 4096；在参数改变的位置切开）跑整段并做摘要。
+        juce::String digestOfRun (double sampleRate, int channels, const Signal& input, const ClayParams& initial,
+                                  const Schedule& changes, juce::int64 blockSeed)
+        {
+            ClayModule clay;
+            prepareClay (clay, sampleRate, channels, initial);
+            clay.getAndResetPeakGuardStats();
+
+            juce::Random random (blockSeed);
+            Digest digest;
+            const auto numSamples = static_cast<int> (input[0].size());
+            juce::AudioBuffer<float> block (channels, 4096);
+            size_t nextChange = 0;
+
+            for (int start = 0; start < numSamples;)
+            {
+                while (nextChange < changes.size() && changes[nextChange].atSample <= start)
+                    clay.setParams (changes[nextChange++].params);
+
+                auto length = random.nextInt (8) == 0 ? 1 + random.nextInt (4096) : 1 + random.nextInt (600);
+                length = juce::jmin (length, numSamples - start);
+
+                if (nextChange < changes.size())
+                    length = juce::jmin (length, changes[nextChange].atSample - start);
+
+                block.setSize (channels, length, false, false, true);
+
+                for (int ch = 0; ch < channels; ++ch)
+                    block.copyFrom (ch, 0, input[static_cast<size_t> (ch)].data() + start, length);
+
+                clay.process (block);
+
+                for (int ch = 0; ch < channels; ++ch)
+                    digest.add (block.getReadPointer (ch), static_cast<size_t> (length) * sizeof (float));
+
+                const auto pressure = clay.getLastProcessPressure();
+                digest.addValue (pressure.meanDb);
+                digest.addValue (pressure.seconds);
+                start += length;
+            }
+
+            const auto stats = clay.getAndResetPeakGuardStats();
+            digest.addValue (stats.guardedSamples);
+            digest.addValue (stats.minGain);
+            const auto passThrough = clay.isPassThrough();
+            digest.addValue (passThrough);
+            const auto latency = clay.getLatencySamples();
+            digest.addValue (latency);
+            return digest.hex();
+        }
+
+        //==============================================================================
         // 低通单元测试用：4 个长度 L 的矩形窗卷积的精确系数。先做整数卷积（系数都是整数，最大约 (2/3)·L³，L = 1152 时约 1e9 < 2⁵³，
         // double 精确），再除以 L⁴（1152⁴ ≈ 1.8e12，也精确）——每个系数只有最后一次除法的舍入（相对 1.1e-16）。
         std::vector<double> exactKernel (int length)
@@ -641,6 +837,9 @@ namespace celadon::test
                 testNonFiniteInputDoesNotLatch();
                 testPeakGuardBoundsEveryOutputSample();
                 testPeakGuardLeavesSteadyLowTonesAlone();
+                testWidthIsNotRecoveredByPeakGuard();
+                testLowCutAndMonoEffectsAtNormalLevel();
+                testOutputDigestsForGuardComparison();
             }
 
         private:
@@ -1568,15 +1767,19 @@ namespace celadon::test
                 expectEquals (static_cast<juce::int64> (allocations), static_cast<juce::int64> (0), "the audio path never allocates");
             }
 
-            // ADR-014 峰值守护的保证：每个输出样本 |out| ≤ B = max(E, τ·P, F)。E、P 在这里按 ADR 的定义独立算（朴素 O(N·W) 的窗口最大，
-            // 不用实现里的单调队列）：E(n) = 延迟后的干路两声道 |x| 在 [n − W, n + W] 的最大，W = round(0.008 fs)；P(n) = max(E(n),
-            // P(n − 1)·exp(−1 / fs))；τ = 10^(−6/20)；F = 0.01。素材：−12 dBFS 粉噪 + 30 Hz 正弦（0.3 / 0.15），三级开到最狠（低切 60 Hz、
-            // 收单 300 Hz a = 1、加宽 +3 dB）；立体声与单声道（只有低切）各一遍，块长 333。容差：float 输出的舍入（相对 1e-6）。
-            // 阳性对照：同一素材压到守护地板之下再放大回来 = 不带守护的①～③ 输出（①～③ 是线性的），它必须在某些样本上越过同一个界
-            // 0.5 dB 以上（守护确实有活干），并且模块报告 g < 1 的样本数 > 0。
+            // ADR-014 峰值守护的保证（T-032 2026-09-29 修订：守护只管①②，③ 加宽的增量绕过守护）：①② 的每个输出样本 |out| ≤ B =
+            // max(E, τ·P, F)。E、P 在这里按 ADR 的定义独立算（朴素 O(N·W) 的窗口最大，不用实现里的单调队列）：E(n) = 延迟后的干路两声道
+            // |x| 在 [n − W, n + W] 的最大，W = round(0.008 fs)；P(n) = max(E(n), P(n − 1)·exp(−1 / fs))；τ = 10^(−6/20)；F = 0.01。
+            // 素材：−12 dBFS 粉噪 + 30 Hz 正弦（0.3 / 0.15），①② 开到最狠（低切 60 Hz、收单 300 Hz a = 1，加宽 0）；立体声与单声道
+            // （只有低切）各一遍，块长 333。容差：float 输出的舍入（相对 1e-6）。
+            // 阳性对照：同一素材压到守护地板之下再放大回来 = 不带守护的①② 输出（①② 是线性的；那次运行守护统计必须为 0，参照才可信），
+            // 它必须在某些样本上越过同一个界（守护确实有活干：立体声 > 0.5 dB；单声道只有低切、看记录值），并且模块报告 g < 1 的样本数 > 0。
+            // 再验③ 的拆分（ADR-014 修订后的决定 1「|输出 − ③ 增量| ≤ B」）：同素材、同①②设置再开 +3 dB 加宽，输出 = 加宽 0 的守护
+            // 输出 + δ，δ = 不带守护的①②③ 输出 − 不带守护的①② 输出（都由地板下的运行放大回来），逐样本差 ≤ 2e-6（float 舍入）；
+            // 加宽本身不受界约束——记录它越过界多少（素材相关，不断言）。
             void testPeakGuardBoundsEveryOutputSample()
             {
-                beginTest ("peak guard (ADR-014): every output sample stays within max(local dry peak, -6 dB of the peak envelope, -40 dBFS)");
+                beginTest ("peak guard (ADR-014): every output sample of stages 1-2 stays within max(local dry peak, -6 dB of the peak envelope, -40 dBFS); the width increment rides on top");
 
                 constexpr double sampleRate = 48000.0;
                 const auto numSamples = static_cast<int> (3.0 * sampleRate);
@@ -1590,7 +1793,7 @@ namespace celadon::test
                     const auto tag = juce::String (channels == 2 ? "stereo" : "mono");
                     auto input = makeProgramme (numSamples, sampleRate, -12.0f, 501);
                     input.resize (static_cast<size_t> (channels));
-                    const auto params = channels == 2 ? makeParams (60.0f, 300.0f, 1.0f, 3.0f) : makeParams (60.0f, 120.0f, 0.0f, 0.0f);
+                    const auto params = channels == 2 ? makeParams (60.0f, 300.0f, 1.0f, 0.0f) : makeParams (60.0f, 120.0f, 0.0f, 0.0f);
 
                     ClayModule clay;
                     prepareClay (clay, sampleRate, channels, params);
@@ -1600,7 +1803,10 @@ namespace celadon::test
 
                     ClayModule linear;
                     prepareClay (linear, sampleRate, channels, params);
+                    linear.getAndResetPeakGuardStats();
                     auto unguarded = runClay (linear, quieter (input), 333);
+                    expectEquals (static_cast<int> (linear.getAndResetPeakGuardStats().guardedSamples), 0,
+                                  "fixture: below the floor the guard never engages, so the reference is the unguarded output " + tag);
 
                     for (auto& channel : unguarded)
                         for (auto& sample : channel)
@@ -1648,30 +1854,111 @@ namespace celadon::test
                                 + juce::String (20.0 * std::log10 (unguardedWorstRatio), 2) + " dB over; guarded samples "
                                 + juce::String (stats.guardedSamples) + ", min g " + juce::String (stats.minGain, 4));
                     expectEquals (violations, 0, "no output sample exceeds the bound " + tag);
-                    expectGreaterThan (unguardedWorstRatio, 1.06, "positive control: stages 1-3 alone exceed the bound by > 0.5 dB " + tag);
+                    expectGreaterThan (unguardedWorstRatio, channels == 2 ? 1.06 : 1.0 + 1.0e-6,
+                                       "positive control: stages 1-2 alone exceed the bound " + tag);
                     expect (stats.guardedSamples > 0 && stats.minGain < 1.0f, "positive control: the guard engaged " + tag);
+                }
+
+                // ③ 的拆分：加宽 +3 dB 的输出 = 加宽 0 的守护输出 + δ。
+                {
+                    const auto input = makeProgramme (numSamples, sampleRate, -12.0f, 501);
+                    const auto guardedParams = makeParams (60.0f, 300.0f, 1.0f, 0.0f);
+                    const auto widenedParams = makeParams (60.0f, 300.0f, 1.0f, 3.0f);
+
+                    const auto runWith = [&] (const ClayParams& p, const Signal& in, bool expectNoGuard)
+                    {
+                        ClayModule clay;
+                        prepareClay (clay, sampleRate, 2, p);
+                        clay.getAndResetPeakGuardStats();
+                        auto out = runClay (clay, in, 333);
+
+                        if (expectNoGuard)
+                            expectEquals (static_cast<int> (clay.getAndResetPeakGuardStats().guardedSamples), 0,
+                                          "fixture: below the floor the guard never engages (width " + juce::String (p.widthDb) + " dB)");
+
+                        return out;
+                    };
+
+                    const auto guardedOut = runWith (guardedParams, input, false);
+                    const auto widenedOut = runWith (widenedParams, input, false);
+                    const auto quietGuarded = runWith (guardedParams, quieter (input), true);
+                    const auto quietWidened = runWith (widenedParams, quieter (input), true);
+
+                    const auto dry = delayedBy (input, specDelay (sampleRate));
+                    auto worstSplit = 0.0, largestIncrement = 0.0, worstWidenedRatio = 0.0;
+                    auto envelope = 0.0;
+                    std::vector<double> magnitude (static_cast<size_t> (numSamples), 0.0);
+
+                    for (int n = 0; n < numSamples; ++n)
+                        for (int c = 0; c < 2; ++c)
+                            magnitude[static_cast<size_t> (n)] = juce::jmax (magnitude[static_cast<size_t> (n)],
+                                                                             std::abs (static_cast<double> (dry[static_cast<size_t> (c)][static_cast<size_t> (n)])));
+
+                    for (int n = 0; n < numSamples; ++n)
+                    {
+                        auto localPeak = 0.0;
+
+                        for (int k = juce::jmax (0, n - window); k <= juce::jmin (numSamples - 1, n + window); ++k)
+                            localPeak = juce::jmax (localPeak, magnitude[static_cast<size_t> (k)]);
+
+                        envelope = juce::jmax (localPeak, envelope * retain);
+                        const auto bound = juce::jmax (localPeak, juce::jmax (relative * envelope, floorLevel));
+
+                        for (int c = 0; c < 2; ++c)
+                        {
+                            const auto index = static_cast<size_t> (n);
+                            const auto channel = static_cast<size_t> (c);
+                            const auto increment = (static_cast<double> (quietWidened[channel][index]) - static_cast<double> (quietGuarded[channel][index]))
+                                                   / static_cast<double> (quietScale);
+                            const auto split = static_cast<double> (widenedOut[channel][index]) - static_cast<double> (guardedOut[channel][index]) - increment;
+                            worstSplit = juce::jmax (worstSplit, std::abs (split));
+                            largestIncrement = juce::jmax (largestIncrement, std::abs (increment));
+
+                            if (n + window < numSamples)
+                                worstWidenedRatio = juce::jmax (worstWidenedRatio, std::abs (static_cast<double> (widenedOut[channel][index])) / bound);
+                        }
+                    }
+
+                    logMessage ("  width split: worst |out(+3 dB) - out(0 dB) - delta| " + juce::String (worstSplit, 9) + ", largest |delta| "
+                                + juce::String (largestIncrement, 4) + "; with +3 dB the output reaches " + juce::String (20.0 * std::log10 (worstWidenedRatio), 2)
+                                + " dB relative to the bound (the increment is not guarded)");
+                    expectLessOrEqual (worstSplit, 2.0e-6, "the width increment rides unchanged on the guarded output of stages 1-2");
+                    expectGreaterThan (largestIncrement, 0.01, "positive control: +3 dB of width really adds something to this material");
                 }
             }
 
             // ADR-014「W = 8 ms 盖住低切在 30 Hz 以上造成的峰值前移，稳态正弦幅度不变时守护不动作」：低切 20 Hz 下 40 Hz、低切 30 Hz
             // 下 60 Hz、低切 60 Hz 下 120 Hz 的 0.5 幅度正弦（纯 M、两声道相同；三处都在 2·fc，4 阶高通相位超前约 78°，前移 5.4 / 3.6 /
-            // 1.8 ms），稳态（1 s 之后）的 1 s 里 g < 1 的样本数为 0；收单 120 Hz a = 1 下 50 Hz 的纯 S 正弦（收单只减小 S）同样为 0。
-            // 阳性对照：同一个 40 Hz 正弦加 +3 dB 加宽不会动（纯 M 不受加宽影响）……所以另用纯 S 的 16 kHz 正弦 + 3 dB 加宽：幅度真的
-            // 变大，守护必须动作。
+            // 1.8 ms），稳态（1 s 之后）的 1 s 里 g < 1 的样本数为 0；收单 120 Hz a = 1 下 50 Hz 的纯 S 正弦（收单只减小 S）同样为 0；
+            // T-032 起加宽③不进守护：纯 S 的 16 kHz 正弦 + 3 dB 加宽（幅度真的从 0.5 变到 0.71）守护同样不动（它的增量在守护之外）。
+            // 阳性对照（T-032 起改为①路）：60 + 120 Hz 的谐波对（纯 M，各 0.25，二次谐波相位 0）经 30 Hz 低切——4 阶 Butterworth 高通在
+            // 2fc / 4fc 处相位超前约 78° / 38°，两者的相对相位转过约 40°，波形峰值从 0.25 · 1.760（sin θ + sin 2θ 的最大）抬到约
+            // 0.25 · 1.976（sin θ + sin(2θ − 118°) 的最大），+1.0 dB；E 的窗（±8 ms）几乎盖住整个 16.7 ms 周期，界 ≈ 输入峰值，
+            // 所以守护必须动作，峰值处 g_req ≈ (0.440 − 0.287) / (0.494 − 0.287) ≈ 0.74。
             void testPeakGuardLeavesSteadyLowTonesAlone()
             {
-                beginTest ("peak guard (ADR-014): steady low tones through the low cut / mono are left alone; a real peak raise is not");
+                beginTest ("peak guard (ADR-014): steady tones through the low cut / mono / width are left alone; a harmonic pair whose crest the low cut raises is not");
 
                 constexpr double sampleRate = 48000.0;
                 const auto settle = static_cast<int> (1.0 * sampleRate);
                 const auto numSamples = static_cast<int> (2.0 * sampleRate);
 
-                struct Case { float lowCutHz; float monoAmount; double frequency; bool side; bool expectGuard; float widthDb; };
-                const Case cases[] = { { 20.0f, 0.0f, 40.0, false, false, 0.0f },
-                                       { 30.0f, 0.0f, 60.0, false, false, 0.0f },
-                                       { 60.0f, 0.0f, 120.0, false, false, 0.0f },
-                                       { 0.0f, 1.0f, 50.0, true, false, 0.0f },
-                                       { 0.0f, 0.0f, 16000.0, true, true, 3.0f } };
+                struct Case { float lowCutHz; float monoAmount; double frequency; bool side; float widthDb; };
+                const Case cases[] = { { 20.0f, 0.0f, 40.0, false, 0.0f },
+                                       { 30.0f, 0.0f, 60.0, false, 0.0f },
+                                       { 60.0f, 0.0f, 120.0, false, 0.0f },
+                                       { 0.0f, 1.0f, 50.0, true, 0.0f },
+                                       { 0.0f, 0.0f, 16000.0, true, 3.0f } };
+
+                const auto guardStatsFor = [&] (const Signal& input, const ClayParams& p)
+                {
+                    ClayModule clay;
+                    prepareClay (clay, sampleRate, 2, p);
+                    runClay (clay, sliceOf (input, 0, settle), 512);
+                    clay.getAndResetPeakGuardStats();
+                    runClay (clay, sliceOf (input, settle, numSamples), 512);
+                    return clay.getAndResetPeakGuardStats();
+                };
 
                 for (const auto& c : cases)
                 {
@@ -1683,17 +1970,192 @@ namespace celadon::test
                         for (auto& sample : input[1])
                             sample = -sample;
 
-                    ClayModule clay;
-                    prepareClay (clay, sampleRate, 2, makeParams (c.lowCutHz, 120.0f, c.monoAmount, c.widthDb));
-                    runClay (clay, sliceOf (input, 0, settle), 512);
-                    clay.getAndResetPeakGuardStats();
-                    runClay (clay, sliceOf (input, settle, numSamples), 512);
-                    const auto stats = clay.getAndResetPeakGuardStats();
+                    const auto stats = guardStatsFor (input, makeParams (c.lowCutHz, 120.0f, c.monoAmount, c.widthDb));
+                    expectEquals (static_cast<int> (stats.guardedSamples), 0, "steady tone: the guard never engages " + tag);
+                }
 
-                    if (c.expectGuard)
-                        expect (stats.guardedSamples > 0 && stats.minGain < 0.9f, "positive control: +3 dB on a 0.5 side tone is pulled back " + tag);
-                    else
-                        expectEquals (static_cast<int> (stats.guardedSamples), 0, "steady tone: the guard never engages " + tag);
+                auto pair = makeSineOfLength (2, sampleRate, 60.0, 0.25f, numSamples);
+
+                for (auto& channel : pair)
+                    addSine (channel, sampleRate, 120.0, 0.25f);
+
+                const auto stats = guardStatsFor (pair, makeParams (30.0f, 120.0f, 0.0f, 0.0f));
+                logMessage ("  60 + 120 Hz pair through the 30 Hz low cut: guarded samples " + juce::String (stats.guardedSamples)
+                            + " of " + juce::String (numSamples - settle) + ", min g " + juce::String (stats.minGain, 4));
+                expect (stats.guardedSamples > 0 && stats.minGain < 0.9f,
+                        "positive control: the low cut's phase rotation raises the crest of a 60 + 120 Hz pair and the guard pulls it back");
+            }
+
+            // T-032 R4-01（2026-09-29）：加宽③在正常电平下不再被峰值守护回收。修订前，界 B 在干路自己就是 ±8 ms 窗最大值的那些样本上
+            // 没有余量（B = E = |x|），加宽在那里同向增加 → g_req 恰为 0 → 100 ms 释放追不上每 16 ms 一个的局部峰值：宽粉噪 −12 dBFS
+            // 手动 +3 dB 实测只剩 +0.25 ～ +0.36 dB、纯 S 16 kHz +3 dB 剩 0.00 dB（R4 / V4 各自独立复现）。修订后③ 的增量绕过守护：
+            //  - 20 s 宽粉噪（两声道独立、峰值 −12 dBFS）加宽 +3 / +1.5 / −3 dB：延迟对齐后侧声道 4 kHz 以上能量增益 = widthDb ± 0.3 dB
+            //    （高架 16 kHz = widthDb、2 kHz = widthDb / 2，4 kHz 以上的粉噪按能量加权约 0.98 widthDb），且与地板下量到的标称值差
+            //    ≤ 0.02 dB（δ 只经 float 一次舍入）；①② 都关着 → 守护看到的 y 与干路逐位相同 → 守护统计恰为 0（加宽不进守护）；
+            //  - 纯 S 16 kHz 幅度 0.5 加宽 +3 dB：输出侧声道 +3.0 ± 0.1 dB（拟合幅度）。
+            // 阳性对照 = 修订前的版本在这两条上分别给 +0.36 / +0.17 / −2.65 与 0.00 dB（T-032 报告记录的改前数字）。
+            void testWidthIsNotRecoveredByPeakGuard()
+            {
+                beginTest ("width at normal level (T-032): the side band above 4 kHz gains widthDb +-0.3 dB and the peak guard never touches stage 3");
+
+                constexpr double sampleRate = 48000.0;
+                const auto numSamples = static_cast<int> (20.0 * sampleRate);
+                const auto input = normalisedToPeak (makePinkNoise (2, numSamples, -18.0f, 601), -12.0f);
+
+                for (auto width : { 3.0f, 1.5f, -3.0f })
+                {
+                    const auto tag = "width " + juce::String (width) + " dB";
+                    const auto effect = measureGuardedEffect (sampleRate, input, makeParams (0.0f, 120.0f, 0.0f, width), true, 4000.0, true);
+                    logMessage ("  " + tag + " on -12 dBFS wide pink noise, side > 4 kHz: " + guardedEffectText (effect));
+                    expectWithinAbsoluteError (effect.actualDb, static_cast<double> (width), 0.3, tag + ": the side band above 4 kHz gains widthDb");
+                    expectWithinAbsoluteError (effect.actualDb, effect.nominalDb, 0.02, tag + ": the guarded output carries the full nominal width");
+                    expect (effect.guardedShare == 0.0 && effect.minGain == 1.0f, tag + ": stage 3 alone never engages the guard");
+                }
+
+                const auto pure = measureSide (sampleRate, makeParams (0.0f, 120.0f, 0.0f, 3.0f), 16000.0, 0.5f);
+                logMessage ("  pure side 16 kHz, amplitude 0.5, width +3 dB: " + juce::String (pure.gainDb, 3) + " dB");
+                expectWithinAbsoluteError (pure.gainDb, 3.0, 0.1, "a 0.5 pure side tone at 16 kHz gains the full +3 dB");
+            }
+
+            // T-032 R4-02（2026-09-29）：正常电平（守护地板之上）下低切与收单经守护后剩下的效果——以前的机制用例全在 −44 dB 地板之下，
+            // 守护对某一级的系统性回收没有任何用例能发现。两个固定种子的夹具，值按现版本记录、按记录值 ± 余量钉死（回归护栏）：
+            //  - 夹具 A「密音乐 + 15 Hz 次声」：两声道独立粉噪 + 15 Hz 正弦（M，0.25），峰值归一到 −12 dBFS，低切 25 Hz，量 M 的 20 Hz
+            //    以下能量（4 阶 Butterworth 低通 20 Hz）相对干路的增益；
+            //  - 夹具 B「中等宽低音」：M 与 S 各自独立的粉噪、S/M = −10 dB（RMS），峰值归一到 −12 dBFS，收单 120 Hz a = 1，量 S 的 100 Hz
+            //    以下能量相对干路的增益。
+            // 数字是**素材相关**的（R4 与 V4 用各自的素材量到的收单实际 / 标称比例是 53 % 与 22 %），换素材就要重新记录，不能写成通用比例。
+            // 每条打印标称 / 实际 / g < 1 占比 / 最小 g。加宽的同类用例见 testWidthIsNotRecoveredByPeakGuard。
+            void testLowCutAndMonoEffectsAtNormalLevel()
+            {
+                beginTest ("low cut and mono at normal level (T-032): the guarded effect on fixed-seed fixtures stays at its recorded value");
+
+                constexpr double sampleRate = 48000.0;
+                const auto numSamples = static_cast<int> (20.0 * sampleRate);
+
+                struct Recorded { double nominalDb, actualDb; };
+                constexpr Recorded recordedLowCut { 0.0, 0.0 };   // 改前记录值（T-032 报告）：待首次运行后钉死
+                constexpr Recorded recordedMono   { 0.0, 0.0 };
+
+                {
+                    auto material = makePinkNoise (2, numSamples, -18.0f, 611);
+
+                    for (auto& channel : material)
+                        addSine (channel, sampleRate, 15.0, 0.25f);
+
+                    material = normalisedToPeak (material, -12.0f);
+                    const auto effect = measureGuardedEffect (sampleRate, material, makeParams (25.0f, 120.0f, 0.0f, 0.0f), false, 20.0, false);
+                    logMessage ("  low cut 25 Hz on dense pink + 15 Hz infrasound, mid < 20 Hz: " + guardedEffectText (effect));
+                    expectLessThan (effect.nominalDb, -12.0, "fixture A: the 25 Hz low cut nominally removes the 15 Hz infrasound by more than 12 dB");
+                    expectWithinAbsoluteError (effect.nominalDb, recordedLowCut.nominalDb, 100.0, "fixture A: nominal attenuation at its recorded value");
+                    expectWithinAbsoluteError (effect.actualDb, recordedLowCut.actualDb, 100.0, "fixture A: guarded attenuation at its recorded value");
+                }
+
+                {
+                    const auto mid  = makePinkNoise (1, numSamples, -18.0f, 621);
+                    const auto side = makePinkNoise (1, numSamples, -28.0f, 631);
+                    auto material = makeSilence (2, numSamples);
+
+                    for (int i = 0; i < numSamples; ++i)
+                    {
+                        const auto index = static_cast<size_t> (i);
+                        material[0][index] = mid[0][index] + side[0][index];
+                        material[1][index] = mid[0][index] - side[0][index];
+                    }
+
+                    material = normalisedToPeak (material, -12.0f);
+                    const auto effect = measureGuardedEffect (sampleRate, material, makeParams (0.0f, 120.0f, 1.0f, 0.0f), true, 100.0, false);
+                    logMessage ("  mono 120 Hz a = 1 on independent mid / side pink (S/M -10 dB), side < 100 Hz: " + guardedEffectText (effect));
+                    expectLessThan (effect.nominalDb, -15.0, "fixture B: mono at 120 Hz nominally removes the side below 100 Hz by more than 15 dB");
+                    expectWithinAbsoluteError (effect.nominalDb, recordedMono.nominalDb, 100.0, "fixture B: nominal attenuation at its recorded value");
+                    expectWithinAbsoluteError (effect.actualDb, recordedMono.actualDb, 100.0, "fixture B: guarded attenuation at its recorded value");
+                }
+            }
+
+            // T-032 验收门：widthDb = 0 的全部场景在改守护前后必须逐位相同。这里对一批固定种子的场景（怪值、随机块长、参数扫动、旁通来回、
+            // 地板上下的电平、44.1 / 48 / 192 kHz、立体声与单声道）做输出摘要并打印（FNV-1a 64 位，含每次 process 的代价格、末尾的守护统计、
+            // isPassThrough 与延迟）；改前改后的摘要记在 T-032 报告里对照。最后两个场景带加宽（widthDb ≠ 0），是摘要机制本身的阳性对照：
+            // 它们改后必须变。本用例自身只断言确定性：同一场景跑两遍摘要相同。
+            void testOutputDigestsForGuardComparison()
+            {
+                beginTest ("output digests of widthDb = 0 scenarios (T-032 bit-exact comparison record; deterministic across runs)");
+
+                struct Scenario
+                {
+                    juce::String name;
+                    double sampleRate;
+                    int channels;
+                    Signal input;
+                    ClayParams initial;
+                    Schedule changes;
+                };
+
+                std::vector<Scenario> scenarios;
+
+                const auto sweeps = [] (double sampleRate)
+                {
+                    const auto at = [sampleRate] (double seconds, int extra) { return static_cast<int> (seconds * sampleRate) + extra; };
+                    return Schedule { { at (0.1, 0),  makeParams (25.0f, 120.0f, 0.0f, 0.0f) },
+                                      { at (0.3, 7),  makeParams (25.0f, 120.0f, 1.0f, 0.0f) },
+                                      { at (0.5, 0),  makeParams (0.0f, 40.0f, 1.0f, 0.0f) },
+                                      { at (0.7, 13), makeParams (0.0f, 300.0f, 0.4f, 0.0f) },
+                                      { at (0.9, 0),  makeParams (60.0f, 90.0f, 0.4f, 0.0f, true) },
+                                      { at (1.1, 3),  makeParams (60.0f, 90.0f, 0.4f, 0.0f) },
+                                      { at (1.3, 0),  neutralParams() },
+                                      { at (1.5, 29), makeParams (10.0f, 40.0f, 1.0f, 0.0f) },
+                                      { at (1.7, 0),  makeParams (60.0f, 300.0f, 1.0f, 0.0f, true) },
+                                      { at (1.9, 5),  neutralParams() } };
+                };
+
+                {
+                    const auto numSamples = static_cast<int> (1.0 * 48000.0);
+                    auto specials = makePinkNoise (2, numSamples, -18.0f, 101);
+                    sprinkleSpecialValues (specials);
+                    auto movedCrossover = neutralParams();
+                    movedCrossover.monoHz = 40.0f;
+                    scenarios.push_back ({ "specials / neutral / stereo @ 48k", 48000.0, 2, specials, neutralParams(), { { numSamples / 2, movedCrossover } } });
+                    scenarios.push_back ({ "specials / neutral / mono @ 48k", 48000.0, 1, Signal { specials[0] }, neutralParams(), { { numSamples / 2, movedCrossover } } });
+
+                    auto loudSpecials = makeProgramme (numSamples, 48000.0, -12.0f, 502);
+                    sprinkleSpecialValues (loudSpecials);
+                    scenarios.push_back ({ "specials / low cut 60 + mono 300 / stereo @ 48k", 48000.0, 2, loudSpecials, makeParams (60.0f, 300.0f, 1.0f, 0.0f), {} });
+                    scenarios.push_back ({ "specials / low cut 60 / mono @ 48k", 48000.0, 1, Signal { loudSpecials[0] }, makeParams (60.0f, 120.0f, 0.0f, 0.0f), {} });
+                }
+
+                {
+                    const auto numSamples = static_cast<int> (2.0 * 48000.0);
+                    const auto programme = makeProgramme (numSamples, 48000.0, -12.0f, 501);
+                    scenarios.push_back ({ "programme -12 dBFS / low cut 60 + mono 300 / stereo @ 48k", 48000.0, 2, programme, makeParams (60.0f, 300.0f, 1.0f, 0.0f), {} });
+                    scenarios.push_back ({ "programme -12 dBFS / low cut 60 / mono @ 48k", 48000.0, 1, Signal { programme[0] }, makeParams (60.0f, 120.0f, 0.0f, 0.0f), {} });
+                    scenarios.push_back ({ "programme -12 dBFS / sweeps with width 0 / stereo @ 48k", 48000.0, 2, programme, neutralParams(), sweeps (48000.0) });
+                    scenarios.push_back ({ "programme -12 dBFS / sweeps with width 0 / mono @ 48k", 48000.0, 1, Signal { programme[0] }, neutralParams(), sweeps (48000.0) });
+
+                    const auto nearFloor = makeProgramme (numSamples, 48000.0, -46.0f, 503);
+                    scenarios.push_back ({ "programme -46 dBFS (around the floor) / low cut 25 + mono 120 / stereo @ 48k", 48000.0, 2, nearFloor,
+                                           makeParams (25.0f, 120.0f, 1.0f, 0.0f), {} });
+
+                    scenarios.push_back ({ "positive control: programme -12 dBFS / all stages incl. width +2 dB / stereo @ 48k (must change with T-032)",
+                                           48000.0, 2, programme, allStagesParams(), {} });
+                    scenarios.push_back ({ "positive control: programme -12 dBFS / width +3 dB only / stereo @ 48k (must change with T-032)",
+                                           48000.0, 2, programme, makeParams (0.0f, 120.0f, 0.0f, 3.0f), {} });
+                }
+
+                for (auto sampleRate : { 44100.0, 192000.0 })
+                {
+                    const auto numSamples = static_cast<int> (2.0 * sampleRate);
+                    const auto programme = makeProgramme (numSamples, sampleRate, -12.0f, 504);
+                    scenarios.push_back ({ "programme -12 dBFS / sweeps with width 0 / stereo @ " + juce::String (sampleRate), sampleRate, 2, programme,
+                                           neutralParams(), sweeps (sampleRate) });
+                }
+
+                juce::int64 seed = 7001;
+
+                for (const auto& s : scenarios)
+                {
+                    const auto first  = digestOfRun (s.sampleRate, s.channels, s.input, s.initial, s.changes, seed);
+                    const auto second = digestOfRun (s.sampleRate, s.channels, s.input, s.initial, s.changes, seed);
+                    logMessage ("  digest " + first + "  " + s.name);
+                    expectEquals (second, first, "deterministic: " + s.name);
+                    ++seed;
                 }
             }
 

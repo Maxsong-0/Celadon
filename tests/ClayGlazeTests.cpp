@@ -1494,6 +1494,36 @@ namespace celadon::test
             expect (std::abs (rhoAuto - rhoOff) < 0.02, "ADR-015: the automatic Clay leaves the low-band stereo as it is: "
                                                         + juce::String (rhoAuto, 3) + " vs " + juce::String (rhoOff, 3));
 
+            // T-032（R4-01，2026-09-29）：自动加宽确实到了输出上。守护修订前③ 的增量在正常电平下被守护回收约 95 %（Status 显示加宽
+            // +1.5 dB、输出的高频侧声道只多约 0.2 dB）；修订后守护只管①②，③ 的增量原样叠在守护输出上。量 4 kHz 以上的 S/M（dB）：
+            // Balance 的 EQ 与 Glue / 限幅器的联动增益对 S 与 M 一视同仁、S/M 不受它们影响，Heat 的非线性很轻；高架 16 kHz = widthDb、
+            // 2 kHz = widthDb / 2，4 kHz 以上的踩镲噪声接近平台——自动链比全关高 ≥ 0.6 × 交给模块的 widthDb。
+            {
+                const auto component = [] (const Signal& signal, double sign)
+                {
+                    Signal out = makeSilence (1, static_cast<int> (signal[0].size()));
+
+                    for (size_t i = 0; i < signal[0].size(); ++i)
+                        out[0][i] = static_cast<float> (0.5 * (static_cast<double> (signal[0][i]) + sign * static_cast<double> (signal[1][i])));
+
+                    return out;
+                };
+
+                const auto highSideToMidDb = [&] (const Signal& signal)
+                {
+                    return powerRatioDb (bandPower (component (signal, -1.0), 4000.0, 0.0, skip), bandPower (component (signal, 1.0), 4000.0, 0.0, skip));
+                };
+
+                const auto highAuto = highSideToMidDb (outAuto);
+                const auto highOff = highSideToMidDb (outOff);
+                const auto widthHanded = static_cast<double> (executed.widthDb);
+                logMessage ("  side / mid above 4 kHz: all Off " + juce::String (highOff, 3) + " dB, automatic " + juce::String (highAuto, 3)
+                            + " dB (+" + juce::String (highAuto - highOff, 3) + " dB for a width of " + juce::String (widthHanded, 3) + " dB)");
+                expect (highAuto - highOff >= 0.6 * widthHanded,
+                        "T-032: the automatic width really reaches the output (side / mid above 4 kHz up by at least 0.6 x widthDb): +"
+                            + juce::String (highAuto - highOff, 3) + " dB for " + juce::String (widthHanded, 3) + " dB");
+            }
+
             const auto peakAuto = automatic.chain.getAndResetOutputTruePeakDb();
             const auto peakOff = allOffRig.chain.getAndResetOutputTruePeakDb();
             logMessage ("  OUT true peak over the whole run: automatic " + juce::String (peakAuto, 3) + " dBTP, all Off "
