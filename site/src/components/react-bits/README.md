@@ -5,9 +5,8 @@
 
 | 文件 | 用在哪 | Celadon 改动 |
 |---|---|---|
-| `SplitText.tsx` | 首屏标题逐字浮现（GSAP SplitText + ScrollTrigger） | 从 `@/lib/gsap` 取已注册的 gsap，不再自己 registerPlugin |
+| `SplitText.tsx` | 首屏标题逐字浮现（GSAP SplitText + ScrollTrigger） | 从 `@/lib/gsap` 取已注册的 gsap；加 `force3D` 属性（渐变字要关 3D 合成层）；动画结束清 transform；只等本段文字的字体子集而不是整页 fonts.ready |
 | `CountUp.tsx` | 数字段（motion 弹簧计数） | 无 |
-| `AnimatedContent.tsx` | 进入视口时的整块浮起 | 从 `@/lib/gsap` 取 gsap |
 | `Magnet.tsx` | 按钮磁吸 | 无 |
 | `ClickSpark.tsx` | 点击迸溅（釉色火花） | 画布固定在视口、监听 window 点击（原版按父元素大小，包住整页会太大） |
 | `SpotlightCard.tsx` | 卡片跟随光斑 | 默认类改为青瓷浅色 |

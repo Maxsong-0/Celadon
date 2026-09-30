@@ -1,13 +1,15 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import Hero from '@/components/celadon/Hero';
-import Marquee from '@/components/celadon/Marquee';
 import ProcessSection from '@/components/celadon/ProcessSection';
 import GlazeSection from '@/components/celadon/GlazeSection';
 import Bento from '@/components/celadon/Bento';
 import AlgoTeaser from '@/components/celadon/AlgoTeaser';
-import Stats from '@/components/celadon/Stats';
 import Platforms from '@/components/celadon/Platforms';
+
+// 这两段用 motion（React Bits 的 ScrollVelocity / CountUp），都在首屏之下：懒加载，别挡首屏。
+const Marquee = lazy(() => import('@/components/celadon/Marquee'));
+const Stats = lazy(() => import('@/components/celadon/Stats'));
 import { ScrollTrigger } from '@/lib/gsap';
 
 export default function Home() {
@@ -32,12 +34,16 @@ export default function Home() {
   return (
     <main>
       <Hero />
-      <Marquee />
+      <Suspense fallback={<div className="h-[220px] sm:h-[260px]" aria-hidden="true" />}>
+        <Marquee />
+      </Suspense>
       <ProcessSection />
       <GlazeSection />
       <Bento />
       <AlgoTeaser />
-      <Stats />
+      <Suspense fallback={<div className="h-[420px]" aria-hidden="true" />}>
+        <Stats />
+      </Suspense>
       <Platforms />
     </main>
   );

@@ -98,14 +98,14 @@ export default function ProcessSection() {
   return (
     <section id="process" ref={root} className="relative">
       <div ref={pin} className="min-h-[100dvh] flex items-center">
-        <div className="mx-auto w-full max-w-[1280px] px-5 sm:px-8 py-16 grid gap-10 lg:grid-cols-12 lg:gap-8 items-center">
-          <div className="lg:col-span-5 relative min-h-[380px]">
+        <div className="mx-auto w-full max-w-[1280px] px-5 sm:px-8 py-24 md:py-16 grid gap-6 md:gap-10 lg:grid-cols-12 lg:gap-8 items-center">
+          <div className="lg:col-span-5 relative min-h-[240px] md:min-h-[380px]">
             <Eyebrow>四道工序 · 顺序固定，不可换</Eyebrow>
             <div className="relative mt-8">
               {stages.map((s, i) => (
                 <div key={s.key} data-stage={i} className={i === 0 ? 'relative' : 'absolute inset-0'}>
                   <div className="flex items-baseline gap-4">
-                    <span className="display text-[64px] leading-none text-c300/80 tabular-nums">{s.index}</span>
+                    <span className="display text-[48px] md:text-[64px] leading-none text-c300/80 tabular-nums">{s.index}</span>
                     <span className="display text-[26px] text-ink-3 tracking-[0.12em]">{s.en}</span>
                   </div>
                   <h3 className="mt-4 font-serif text-[clamp(2rem,3.6vw,3rem)] font-semibold leading-tight text-ink">
@@ -113,8 +113,8 @@ export default function ProcessSection() {
                     <span className="text-ink-4 font-normal"> · </span>
                     <span className="glaze-text">{s.verb}</span>
                   </h3>
-                  <p className="mt-5 max-w-md text-[16px] leading-[1.85] text-ink-2">{s.lead}</p>
-                  <ul className="mt-6 space-y-2.5">
+                  <p className="mt-4 md:mt-5 max-w-md text-[15px] md:text-[16px] leading-[1.8] md:leading-[1.85] text-ink-2">{s.lead}</p>
+                  <ul className="mt-6 space-y-2.5 hidden md:block">
                     {s.facts.map(f => (
                       <li key={f} className="flex items-start gap-3 text-[14px] text-ink-3">
                         <span className="mt-[9px] size-1.5 shrink-0 rounded-full bg-c500" />
@@ -125,7 +125,7 @@ export default function ProcessSection() {
                 </div>
               ))}
             </div>
-            <div className="mt-10 flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-ink-4">
+            <div className="mt-10 hidden md:flex items-center gap-2 text-[11px] uppercase tracking-[0.22em] text-ink-4">
               {stages.map(s => (
                 <span key={s.key} className="flex items-center gap-2">
                   {s.en}
@@ -137,11 +137,11 @@ export default function ProcessSection() {
 
           <div className="lg:col-span-7">
             <div className="bezel">
-              <div className="bezel-core relative aspect-[16/11] overflow-hidden">
+              <div className="bezel-core relative aspect-[4/3] md:aspect-[16/11] overflow-hidden">
                 <StageVisuals />
               </div>
             </div>
-            <p className="mt-4 text-center text-[12px] text-ink-4">示意图：左半为处理前，右半为处理后；滚动推进工序。</p>
+            <p className="mt-3 md:mt-4 text-center text-[12px] text-ink-4">示意图：处理前 → 处理后；滚动推进工序。</p>
           </div>
         </div>
       </div>

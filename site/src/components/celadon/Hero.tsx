@@ -85,8 +85,8 @@ export default function Hero() {
             <Eyebrow>Celadon · 青瓷 · 智能母带 · 0.1.9.0</Eyebrow>
           </div>
           <h1 className="mt-8 font-serif text-[clamp(2.6rem,7vw,6.2rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-ink">
-            <SplitText text="一挂总轨，" tag="span" className="block" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46, rotateX: -40 }} to={{ opacity: 1, y: 0, rotateX: 0 }} threshold={0} rootMargin="0px" textAlign="left" />
-            <SplitText text="就好听。" tag="span" className="block glaze-text" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46, rotateX: -40 }} to={{ opacity: 1, y: 0, rotateX: 0 }} threshold={0} rootMargin="0px" textAlign="left" />
+            <SplitText text="一挂总轨，" tag="span" className="block" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
+            <SplitText text="就好听。" tag="span" className="block glaze-text" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
           </h1>
           <p data-rise className="display mt-5 text-[clamp(1.1rem,2vw,1.6rem)] italic text-ink-3" style={{ fontVariationSettings: '"opsz" 96, "SOFT" 60, "WONK" 1' }}>
             Mastering, glazed — four steps, one knob.

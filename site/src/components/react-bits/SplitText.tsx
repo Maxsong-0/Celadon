@@ -23,6 +23,8 @@ export interface SplitTextProps {
   tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'p' | 'span';
   textAlign?: React.CSSProperties['textAlign'];
   onLetterAnimationComplete?: () => void;
+  /** Celadon 改动：false = 不给每个字开 3D 合成层（父元素用 background-clip: text 渐变字时，Chrome 会把渐变画错） */
+  force3D?: boolean;
 }
 
 const SplitText: React.FC<SplitTextProps> = ({
@@ -38,7 +40,8 @@ const SplitText: React.FC<SplitTextProps> = ({
   rootMargin = '-100px',
   tag = 'p',
   textAlign = 'center',
-  onLetterAnimationComplete
+  onLetterAnimationComplete,
+  force3D = true
 }) => {
   const ref = useRef<HTMLParagraphElement>(null);
   const animationCompletedRef = useRef(false);
@@ -50,15 +53,27 @@ const SplitText: React.FC<SplitTextProps> = ({
     onCompleteRef.current = onLetterAnimationComplete;
   }, [onLetterAnimationComplete]);
 
+  // Celadon 改动：只等这段文字用到的字体子集，不等整页 document.fonts.ready
+  // （思源宋体按 unicode-range 拆成上百个子集，整页等齐要好几秒，标题会一直藏着）。最多等 0.6 s。
   useEffect(() => {
-    if (document.fonts.status === 'loaded') {
-      setFontsLoaded(true);
-    } else {
-      document.fonts.ready.then(() => {
+    const el = ref.current;
+    if (!el) return;
+    let done = false;
+    const finish = () => {
+      if (!done) {
+        done = true;
         setFontsLoaded(true);
-      });
+      }
+    };
+    const timer = window.setTimeout(finish, 600);
+    try {
+      const cs = window.getComputedStyle(el);
+      document.fonts.load(`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, text).then(finish, finish);
+    } catch {
+      finish();
     }
-  }, []);
+    return () => window.clearTimeout(timer);
+  }, [text]);
 
   useGSAP(
     () => {
@@ -125,9 +140,11 @@ const SplitText: React.FC<SplitTextProps> = ({
               onComplete: () => {
                 animationCompletedRef.current = true;
                 onCompleteRef.current?.();
+                // Celadon 改动：动画结束后清掉 transform / will-change，让渐变字与文字选择恢复正常。
+                gsap.set(targets, { clearProps: 'transform,willChange' });
               },
-              willChange: 'transform, opacity',
-              force3D: true
+              willChange: force3D ? 'transform, opacity' : 'opacity',
+              force3D
             }
           );
         }
@@ -156,7 +173,8 @@ const SplitText: React.FC<SplitTextProps> = ({
         JSON.stringify(to),
         threshold,
         rootMargin,
-        fontsLoaded
+        fontsLoaded,
+        force3D
       ],
       scope: ref
     }
@@ -166,7 +184,7 @@ const SplitText: React.FC<SplitTextProps> = ({
     const style: React.CSSProperties = {
       textAlign,
       wordWrap: 'break-word',
-      willChange: 'transform, opacity'
+      willChange: force3D ? 'transform, opacity' : undefined
     };
     const classes = `split-parent overflow-hidden inline-block whitespace-normal ${className}`;
     const Tag = tag || 'p';

@@ -9,6 +9,8 @@ ROOT = os.path.abspath(sys.argv[2])
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'  # keep-alive：几十个字体子集别一个个新建连接
+
     def __init__(self, *a, **k):
         super().__init__(*a, directory=ROOT, **k)
 
