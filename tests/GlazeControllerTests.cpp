@@ -849,13 +849,14 @@ namespace celadon::test
             // ---- T-027（参考条件手动参数部分的缓存）----
             testManualConditionsCacheIsBitExact();
 
-            // ---- T-032（2026-09-29 深度研究 R5-01 / 02 / 03 / 04 / 08、R6-04；实施 A6）----
+            // ---- T-032（2026-09-29 深度研究 R5-01 / 02 / 03 / 04 / 06 / 08、R6-04、核验 M1 / M2；实施 A6）----
             testAbandonedRoundIsNotAFailedAttempt();
             testGuardLimitsFollowEveryPlanChange();
-            testSilenceDoesNotMakeTheGuardStuck();
+            testFrozenGuardTimeIsNotHostTime();
             testReleasingAFrozenExecutionCarriesTheAbsorbedRetreat();
             testRestoreAndCommitInitialiseRuntimeAlike();
             testLiveTameNeedsAProfileAndScalesWithConfidence();
+            testT032ControllerDigests();
         }
 
     private:
@@ -2375,6 +2376,9 @@ namespace celadon::test
                     allocations += allocationCountOnThisThread() - allocationStart;
                     highest = juce::jmax (highest, rig.chain.getEffectiveParams().balance.tame);
                 }
+                logMessage (juce::String (offline ? "  offline" : "  realtime") + ": baseline Tame " + juce::String (baseline, 3) + ", highest "
+                            + juce::String (highest, 3) + " (margin over +2.0: " + juce::String (highest - baseline - 2.0f, 3) + "), profile kappa "
+                            + juce::String (glaze::confidenceScale (&state.profile, state.constants), 3));
                 expect (highest > baseline + 2.0f, "current resonance gains authority despite no stored evidence");
                 expect (highest <= 0.5f * state.constants.clean.tameCap + 1.0e-4f, "current style and macro still cap live authority");
                 expectEquals (rig.chain.getEffectiveParams().balance.automaticTame,
@@ -4532,37 +4536,67 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // ---- T-032（2026-09-29 深度研究 R5 / R6-04，实施 A6；报告 docs/validation/2026-09-29-T032-deep-research/IMPL-A6-glaze-controller.md）----
+        // ---- T-032（2026-09-29 深度研究 R5-01 / 02 / 03 / 04 / 06 / 08、R6-04、核验 M1 / M2；实施 A6；
+        //      报告 docs/validation/2026-09-29-T032-deep-research/IMPL-A6-glaze-controller.md）----
 
-        // T-032 R5-01：放弃的校准轮不算「试过失败」。校准中把 GLAZE 拧到 0 或切 Color Bypass 做 A/B ≥ 3 s 再改回、或换风格跑满过渡再
-        // 切回：条件回到原样后必须再开一轮并锁定为有效。修前 beginRound 一开轮就记「上次尝试」，放弃 / 换方案丢轮都不清，条件逐位
-        // 相同 → 开轮门第 512 位永远为真，状态行写「稳定后自动校准」却永远不校准（三例修前都停在 gate mask & 512）。
+        // 两份风格常数逐字段逐位相同（保护层与上游监视拿到的是整份混合后的常数）。
+        static bool sameStyleConstants (const glaze::StyleConstants& a, const glaze::StyleConstants& b) noexcept
+        {
+            return sameBits (a.preferredLufs, b.preferredLufs) && sameBits (a.heatDriveCap, b.heatDriveCap)
+                && sameBits (a.glueGrMeanCapDb, b.glueGrMeanCapDb) && sameBits (a.glueGrP95CapDb, b.glueGrP95CapDb)
+                && sameBits (a.clipDepthCapDb, b.clipDepthCapDb) && sameBits (a.clipActivityCap, b.clipActivityCap)
+                && sameBits (a.limitGrMeanCapDb, b.limitGrMeanCapDb) && sameBits (a.limitGrP95CapDb, b.limitGrP95CapDb)
+                && sameBits (a.limitGrPeakCapDb, b.limitGrPeakCapDb) && sameBits (a.recoverCap, b.recoverCap)
+                && sameBits (a.tameCap, b.tameCap) && sameBits (a.toneMaxDb, b.toneMaxDb)
+                && sameBits (a.shareHeat, b.shareHeat) && sameBits (a.shareGlue, b.shareGlue)
+                && sameBits (a.shareClip, b.shareClip) && sameBits (a.shareLimit, b.shareLimit)
+                && sameBits (a.heatPeakReductionCapDb, b.heatPeakReductionCapDb)
+                && sameBits (a.toneReferenceSlopeDbPerOct, b.toneReferenceSlopeDbPerOct)
+                && sameBits (a.clayLowCutTargetHz, b.clayLowCutTargetHz) && sameBits (a.clayWidthStyleFactor, b.clayWidthStyleFactor);
+        }
+
+        // T-032 R5-01（含核验 M1）：放弃的校准轮、换方案丢掉的轮都不算「对同一条件试过（结束为无效）」。校准中把 GLAZE 拧到 0、
+        // 或切 Limit Bypass 做 A/B ≥ 3 s（本轮被放弃，期间开不了新一轮），或换风格跑满过渡再切回：条件回到原样后必须再开一轮并锁定为
+        // 有效。修前 beginRound 一开轮就记「上次尝试」，放弃 / 换方案丢轮都不清，条件逐位相同 → 开轮门第 512 位永远为真，状态行写
+        // 「稳定后自动校准」却永远不校准（这三例修前都停在 gate mask & 512）。
+        // 对照：Color Bypass 往返 4 s——它在参考条件里但不挡开轮：第 3 s 放弃的那一块旁通条件已稳定 3 s，当即按旁通条件开了新一轮，
+        // 修前也因此覆盖了「上次尝试」，切回后照常再校准。研究以为它也会卡住，核过不会；留作对照（修前修后都应恢复）。
         // 依据：决策第 6 节「任一改变即失效，退回纯前馈，条件稳定后再校准」；GlazeController.h 校准段。
         void testAbandonedRoundIsNotAFailedAttempt()
         {
-            beginTest ("an abandoned or dropped calibration round is not a failed attempt: GLAZE 0, bypass and style round trips calibrate again");
+            beginTest ("an abandoned or dropped calibration round is not a failed attempt: GLAZE 0, Limit bypass and style round trips calibrate again");
 
-            enum class Detour { glazeZero, colorBypass, style };
-            const char* names[] = { "GLAZE 0 for 4 s", "Color bypass for 4 s", "style warm and back" };
+            enum class Detour { glazeZero, limitBypass, style, colorBypass };
+            struct Case { Detour detour; const char* name; bool blocksNewRounds; };
 
-            for (const auto detour : { Detour::glazeZero, Detour::colorBypass, Detour::style })
+            for (const auto& c : { Case { Detour::glazeZero,   "GLAZE 0 for 4 s",                true },
+                                   Case { Detour::limitBypass, "Limit bypass for 4 s",           true },
+                                   Case { Detour::style,       "style warm and back",            true },
+                                   Case { Detour::colorBypass, "Color bypass for 4 s (control)", false } })
             {
-                const auto name = juce::String (names[(int) detour]);
+                const auto tag = juce::String (c.name);
                 Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 301, 0.4f), defaultParams (60.0f, 0));
-                expect (rig.runUntil (40.0, [&] { return rig.phase() == Phase::calibrating; }), name + ": a calibration round began");
+                expect (rig.runUntil (40.0, [&] { return rig.phase() == Phase::calibrating; }), tag + ": a calibration round began");
                 const auto begins = rig.probe().calibrationBegins;
-                expectEquals (begins, 1, name + ": exactly one round so far");
+                expectEquals (begins, 1, tag + ": exactly one round so far");
+                expect (! rig.committed().calibration.valid, tag + ": nothing is calibrated yet");
 
-                switch (detour)
+                switch (c.detour)
                 {
                     case Detour::glazeZero:
                         rig.params.glazePercent = 0.0f;
-                        rig.run (4.0);   // > calibrationAbandonSeconds（3 s）：本轮被放弃
+                        rig.run (4.0);   // > calibrationAbandonSeconds（3 s）：本轮被放弃；GLAZE 0 开不了新一轮
                         rig.params.glazePercent = 60.0f;
                         break;
 
+                    case Detour::limitBypass:
+                        rig.params.limit.bypass = true;   // 在参考条件的哈希里；Limit 旁通 = 电平类自动全部撤回，也开不了新一轮
+                        rig.run (4.0);
+                        rig.params.limit.bypass = false;
+                        break;
+
                     case Detour::colorBypass:
-                        rig.params.color.bypass = true;   // Bypass 在参考条件的哈希里
+                        rig.params.color.bypass = true;   // 在哈希里，但不挡开轮
                         rig.run (4.0);
                         rig.params.color.bypass = false;
                         break;
@@ -4571,241 +4605,359 @@ namespace celadon::test
                     default:
                         rig.params.glazeStyle = 1;   // 温润：换方案丢掉本轮；跑满过渡（0.5 s）就切回——新风格下还没稳定满 1 s，不会开轮
                         rig.step();
-                        expect (rig.runUntil (0.6, [&] { return ! rig.probe().transitionActive; }), name + ": the style transition finished");
+                        expect (rig.runUntil (0.6, [&] { return ! rig.probe().transitionActive; }), tag + ": the style transition finished");
                         rig.params.glazeStyle = 0;
                         break;
                 }
 
-                expect (! rig.probe().roundActive, name + ": the round was abandoned / dropped");
-                expectEquals (rig.probe().calibrationBegins, begins, name + ": no round began during the detour");
+                const auto duringDetour = rig.probe().calibrationBegins - begins;
+
+                if (c.blocksNewRounds)
+                {
+                    expect (! rig.probe().roundActive, tag + ": the round was abandoned / dropped");
+                    expectEquals (duringDetour, 0, tag + ": no round could begin during the detour");
+                }
+                else
+                {
+                    expectEquals (duringDetour, 1, tag + ": a round began under the stable bypass when the first one was abandoned");
+                }
 
                 const auto recalibrated = rig.learnAndCalibrate (30.0);
                 const auto probe = rig.probe();
-                logMessage ("  " + name + ": begins " + juce::String (probe.calibrationBegins) + ", finishes " + juce::String (probe.calibrationFinishes)
-                            + ", gate mask now " + juce::String (probe.calibrationGateMask) + ", ends " + phaseName (rig.phase())
+                logMessage ("  " + tag + ": begins " + juce::String (probe.calibrationBegins) + " (" + juce::String (duringDetour)
+                            + " during the detour), finishes " + juce::String (probe.calibrationFinishes) + ", gate mask now "
+                            + juce::String (probe.calibrationGateMask) + ", ends " + phaseName (rig.phase())
                             + (rig.status().calibrationValid ? " / valid" : " / not valid"));
-                expect (recalibrated, name + ": back at the original conditions a new round runs and locks with a valid calibration");
-                expectEquals (probe.calibrationBegins, begins + 1, name + ": exactly one more round");
-                expectEquals (probe.calibrationGateMask & 512, 0, name + ": 'tried these conditions' never blocks a round that was merely abandoned");
+                expect (recalibrated, tag + ": back at the original conditions a round runs and locks with a valid calibration");
+                expectEquals (probe.calibrationBegins, begins + duringDetour + 1, tag + ": exactly one more round, on the original conditions");
+                expectEquals (probe.calibrationGateMask & 512, 0, tag + ": 'tried these conditions' does not block a round that was merely abandoned");
             }
         }
 
-        // T-032 R5-02：保护层（与上游监视）生效的约束上限逐块跟着目标方案走：提交后、每次换风格后都等于
-        // blendConstants(已提交常数, 目标方案的权重)，权重 = weightsFor(风格, 锁定权重)。修前按「方案槽自己的重算计数」去重，两槽
-        // 计数每隔一次方案切换撞一次，提交 / 换风格后有一半几率沿用上一份方案的上限（温润峰值 GR 上限 4.0 dB vs 通透 6.0），直到
-        // 用户碰任一进方案的旋钮。六次换风格里修前必有一半不等。
+        // T-032 R5-02：保护层（与上游监视）生效的约束上限逐次跟上目标方案：提交后、每次换风格后、重新聆听提交后都等于
+        // blendConstants(已提交常数, 目标方案的权重)。修前按「方案槽自己的重算计数」去重，两槽计数每隔一次方案切换撞一次，换风格 / 提交后
+        // 有一半几率沿用上一份方案的上限（温润限幅峰值 GR 上限 4.0 dB 对通透 6.0），直到用户碰任一进方案的旋钮。
         // 依据：决策第 4 节「各模块用各自的量约束」、第 7 节（保护层按本方案的上限判定）。
         void testGuardLimitsFollowEveryPlanChange()
         {
-            beginTest ("guard and upstream-monitor limits follow the plan on commit and on every style change (the evaluation counter is global)");
+            beginTest ("guard and upstream-monitor limits follow the target plan on commit, on every style change and on a relearn (global evaluation counter)");
 
             Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 302, 0.4f), defaultParams (70.0f, 0));
             expect (rig.learnAndCalibrate(), "learned and calibrated (automatic style)");
 
-            const auto sameCaps = [] (const glaze::StyleConstants& a, const glaze::StyleConstants& b)
-            {
-                return sameBits (a.glueGrMeanCapDb, b.glueGrMeanCapDb) && sameBits (a.glueGrP95CapDb, b.glueGrP95CapDb)
-                    && sameBits (a.clipDepthCapDb, b.clipDepthCapDb) && sameBits (a.clipActivityCap, b.clipActivityCap)
-                    && sameBits (a.limitGrMeanCapDb, b.limitGrMeanCapDb) && sameBits (a.limitGrP95CapDb, b.limitGrP95CapDb)
-                    && sameBits (a.limitGrPeakCapDb, b.limitGrPeakCapDb) && sameBits (a.heatDriveCap, b.heatDriveCap)
-                    && sameBits (a.tameCap, b.tameCap) && sameBits (a.toneMaxDb, b.toneMaxDb);
-            };
+            int stale = 0, checks = 0;
 
-            const auto sameWeights = [] (const glaze::StyleWeights& a, const glaze::StyleWeights& b)
+            const auto check = [&] (const juce::String& label)
             {
-                return sameBits (a.warm, b.warm) && sameBits (a.punchy, b.punchy) && sameBits (a.clean, b.clean);
-            };
-
-            const auto describeCaps = [] (const glaze::StyleConstants& c)
-            {
-                return "limit mean/p95/peak " + juce::String (c.limitGrMeanCapDb, 2) + "/" + juce::String (c.limitGrP95CapDb, 2) + "/"
-                     + juce::String (c.limitGrPeakCapDb, 2) + " dB, glue mean/p95 " + juce::String (c.glueGrMeanCapDb, 2) + "/"
-                     + juce::String (c.glueGrP95CapDb, 2) + " dB, heat " + juce::String (c.heatDriveCap, 1);
-            };
-
-            int stale = 0;
-
-            const auto checkStyle = [&] (int styleIndex, const juce::String& label)
-            {
-                const auto committed = rig.committed();
                 const auto probe = rig.probe();
-                const auto weights = glaze::weightsFor (static_cast<glaze::Style> (styleIndex), committed.lockedWeights);
-                const auto expected = glaze::blendConstants (committed.constants, weights);
-                expect (sameWeights (probe.targetPlan.weights, weights), label + ": the target plan carries the style's weights");
-                expect (probe.guardLimitsSet, label + ": the guard has limits");
-                const auto ok = sameCaps (probe.guardLimits, expected);
+                const auto expected = glaze::blendConstants (rig.committed().constants, probe.targetPlan.weights);
+                const auto ok = probe.guardLimitsSet && sameStyleConstants (probe.guardLimits, expected);
                 stale += ok ? 0 : 1;
-                expect (ok, label + ": guard limits == blendConstants(committed constants, weights of the style); guard "
-                            + describeCaps (probe.guardLimits) + "; expected " + describeCaps (expected));
+                ++checks;
+                expect (ok, label + ": guard limits == blendConstants(committed constants, target plan weights); guard limit GR peak / mean "
+                            + juce::String (probe.guardLimits.limitGrPeakCapDb, 2) + " / " + juce::String (probe.guardLimits.limitGrMeanCapDb, 2)
+                            + " dB, expected " + juce::String (expected.limitGrPeakCapDb, 2) + " / " + juce::String (expected.limitGrMeanCapDb, 2) + " dB");
+                return expected;
             };
 
-            checkStyle (0, "after commit (automatic)");
+            // 换方案源后跑满过渡，再多一块（保护层在 endBlock 里按目标方案设上限）。
+            const auto settle = [&] (const juce::String& label)
+            {
+                rig.step();
+                expect (rig.runUntil (1.0, [&] { return ! rig.probe().transitionActive; }), label + ": the plan transition finished");
+                rig.step();
+            };
 
-            for (const auto styleIndex : { 1, 3, 2, 1, 0, 3 })
+            check ("after the commit (automatic)");
+            glaze::StyleConstants warmCaps, cleanCaps;
+
+            for (const auto styleIndex : { 1, 3, 2, 1, 0, 3, 2, 0 })
             {
                 rig.params.glazeStyle = styleIndex;
-                rig.step();
-                expect (rig.runUntil (0.6, [&] { return ! rig.probe().transitionActive; }), "style " + juce::String (styleIndex) + ": transition finished");
-                rig.step();
-                checkStyle (styleIndex, "style " + juce::String (styleIndex));
+                const auto label = "style " + juce::String (styleIndex);
+                settle (label);
+                const auto caps = check (label);
+
+                if (styleIndex == 1) warmCaps = caps;
+                if (styleIndex == 3) cleanCaps = caps;
             }
 
-            logMessage ("  stale guard limits after 1 commit + 6 style changes: " + juce::String (stale));
+            // 各风格的上限确实不同（否则上面的核对没有区分度）：温润与通透的限幅峰值 GR 上限不同。
+            expect (! sameBits (warmCaps.limitGrPeakCapDb, cleanCaps.limitGrPeakCapDb), "warm and clean limits differ");
+
+            // 重新聆听提交（自动风格：锁定的权重跟着新画像换）：保护层跟上新方案。
+            const auto commits = rig.probe().commits;
+            rig.chain.requestGlazeRelearn();
+            expect (rig.runUntil (20.0, [&] { return rig.probe().commits > commits; }), "the relearn committed a new profile");
+            settle ("after the relearn commit");
+            check ("after the relearn commit");
+
+            logMessage ("  stale guard limit sets: " + juce::String (stale) + " of " + juce::String (checks) + " checks");
             expectEquals (stale, 0, "never a stale limit set");
         }
 
-        // T-032 R5-03 / 核验 M2：「保护层卡住」与约束反馈的观察期都按保护层自己的时间轴（有效音乐）计，不按宿主样本时间。
-        // ×5 热素材让保护层退让后送 8 s 静音：静音里 guardSteadySamples 与 samplesSinceFeedback 都不推进、不吸收、不反馈（修前
-        // 6 s 静音就判「卡住」，把一次临时退让永久并进方案上限、随工程保存）；音乐回来后照样按音乐时间判定并吸收。
-        // 依据：决策第 7 节「静音、停播不计入恢复时间」；实现修订第 3 节「卡住 = 超过它自己的恢复等待 + 1 s」「两次之间至少隔过渡 + 3 s」。
-        void testSilenceDoesNotMakeTheGuardStuck()
+        // T-032 R5-03 与核验 M2：「保护层卡住」与约束反馈的观察期都按保护层自己的时间轴（有效音乐、不旁通）计，不按宿主样本时间。
+        // ×5 热素材让保护层退让后冻结 8 s（静音 / 宿主旁通 / Color 旁通）：「没变」的计数不走、不吸收、不反馈；冻结结束的头 0.5 s 也不吸收
+        //（Color 旁通时校准不适用、吸收不了，修前计数却照走，切回那一块就把退让吸收进方案）。音乐回来后照样按音乐时间判定、吸收。
+        // 修前：静音 / 宿主旁通 6 s 就判「卡住」，把一次临时退让永久并进方案上限（只降不升、随工程保存）。
+        // M2：吸收之后再静音 8 s，观察期（过渡 + 3 s）不走——修前按宿主时间走完，之后按过渡期装进窗里的旧数据判定。
+        // 依据：决策第 7 节「静音、停播不计入恢复时间」；实现修订第 3 节（卡住 = 超过它自己的恢复等待 + 1 s；两次反馈之间至少隔过渡 + 3 s 观察）。
+        void testFrozenGuardTimeIsNotHostTime()
         {
-            beginTest ("silence neither makes a retreated guard 'stuck' nor runs the feedback observation period (guard time, not host time)");
+            beginTest ("silence, host bypass and Color bypass neither make a retreated guard 'stuck' nor run the feedback observation (guard time, not host time)");
 
             auto constants = fastConstants();
             constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同 12b：要测的是保护层路径
-            Rig rig (constants, makeMusic (defaultRate, 8.0, 24, 0.2f), defaultParams (100.0f, 2));
-            expect (rig.learnAndCalibrate(), "locks with a valid calibration on the quiet material");
-
-            rig.sourceGain = 5.0f;   // ≈ +14 dB：限幅量超出冲击的上限，保护层退让
-            expect (rig.runUntil (10.0, [&] { return rig.probe().guardDb < -0.3f; }), "the guard retreated on the hot material");
-            const auto before = rig.probe();
-            expectEquals (before.feedbackSteps, 0, "no feedback yet when the silence starts");
-
-            rig.sourceGain = 0.0f;   // 静音：分析器的有效音乐门关上，保护层冻结
-            rig.run (8.0);
-            const auto silent = rig.probe();
+            const auto music = makeMusic (defaultRate, 8.0, 24, 0.2f);
             const auto second = (std::int64_t) defaultRate;
-            logMessage ("  guard " + juce::String (before.guardDb, 3) + " dB when the silence began; after 8 s of silence: steady "
-                        + juce::String ((double) silent.guardSteadySamples / defaultRate, 2) + " s (stuck threshold "
-                        + juce::String ((double) silent.guardStuckSamples / defaultRate, 2) + " s), guard " + juce::String (silent.guardDb, 3)
-                        + " dB, feedback steps " + juce::String (silent.feedbackSteps) + ", cap " + juce::String (silent.feedbackMaxGainDb, 2) + " dB");
-            expect (silent.guardSteadySamples < silent.guardStuckSamples, "8 s of silence do not reach the 6 s 'stuck' threshold");
-            expect (silent.guardSteadySamples <= before.guardSteadySamples + second,
-                    "the steady counter froze within a second of the silence (the analyser's music gate closing)");
-            expect (silent.samplesSinceFeedback <= before.samplesSinceFeedback + second, "the feedback observation period does not advance in silence");
-            expectEquals (silent.feedbackFromStuckGuard, before.feedbackFromStuckGuard, "the retreat was not absorbed during the silence");
-            expectEquals (silent.feedbackSteps, before.feedbackSteps, "no constraint feedback of any kind during the silence");
-            expect (sameBits (silent.feedbackMaxGainDb, before.feedbackMaxGainDb), "the gain cap is untouched by the silence");
-            expect (silent.guardDb < -0.3f, "the frozen guard keeps its retreat through the silence");
 
-            rig.sourceGain = 5.0f;   // 音乐回来：按音乐时间判定，卡住的退让照样被吸收
-            const auto absorbed = rig.runUntil (40.0, [&] { return rig.probe().feedbackFromStuckGuard > silent.feedbackFromStuckGuard; });
-            const auto after = rig.probe();
-            logMessage ("  after the music returned: stuck absorptions " + juce::String (after.feedbackFromStuckGuard) + ", feedback steps "
-                        + juce::String (after.feedbackSteps) + ", cap " + juce::String (after.feedbackMaxGainDb, 2) + " dB");
-            expect (absorbed, "once the music is back the stuck retreat is absorbed on guard time");
-            expect (rig.phase() == Phase::locked && rig.status().calibrationValid, "ends locked with a valid calibration");
+            enum class Freeze { silence, hostBypass, colorBypass };
+
+            for (const auto freeze : { Freeze::silence, Freeze::hostBypass, Freeze::colorBypass })
+            {
+                const auto tag = juce::String (freeze == Freeze::silence ? "silence" : (freeze == Freeze::hostBypass ? "host bypass" : "Color bypass"));
+
+                const auto setFrozen = [freeze] (Rig& r, bool on)
+                {
+                    if (freeze == Freeze::silence)
+                        r.sourceGain = on ? 0.0f : 5.0f;
+                    else if (freeze == Freeze::hostBypass)
+                        r.hostBypassed = on;
+                    else
+                        r.params.color.bypass = on;
+                };
+
+                Rig rig (constants, music, defaultParams (100.0f, 2));
+                expect (rig.learnAndCalibrate(), tag + ": locks with a valid calibration on the quiet material");
+
+                rig.sourceGain = 5.0f;   // ≈ +14 dB：限幅量超出冲击的上限，保护层退让
+                expect (rig.runUntil (10.0, [&] { return rig.probe().guardDb < -0.3f; }), tag + ": the guard retreated on the hot material");
+                const auto before = rig.probe();
+                expectEquals (before.feedbackSteps, 0, tag + ": no feedback yet when the freeze starts");
+
+                setFrozen (rig, true);
+                rig.run (8.0);   // 比「卡住」门槛（恢复等待 5 s + 1 s）长
+                const auto frozen = rig.probe();
+                logMessage ("  " + tag + ": guard " + juce::String (before.guardDb, 3) + " dB when frozen; after 8 s frozen: steady "
+                            + juce::String ((double) frozen.guardSteadySamples / defaultRate, 2) + " s (stuck threshold "
+                            + juce::String ((double) frozen.guardStuckSamples / defaultRate, 2) + " s), guard " + juce::String (frozen.guardDb, 3)
+                            + " dB, feedback steps " + juce::String (frozen.feedbackSteps) + ", cap " + juce::String (frozen.feedbackMaxGainDb, 2) + " dB");
+                expect (frozen.guardSteadySamples < frozen.guardStuckSamples, tag + ": 8 s frozen do not reach the 6 s 'stuck' threshold");
+                expect (frozen.guardSteadySamples <= before.guardSteadySamples + second,
+                        tag + ": the steady counter froze (within a second: the analyser's music gate closing)");
+                expectEquals (frozen.feedbackSteps, 0, tag + ": no constraint feedback of any kind while frozen");
+                expect (sameBits (frozen.feedbackMaxGainDb, before.feedbackMaxGainDb), tag + ": the gain cap is untouched while frozen");
+                expect (frozen.guardDb < -0.3f, tag + ": the frozen guard keeps its retreat");
+
+                setFrozen (rig, false);
+                rig.run (0.5);
+                expectEquals (rig.probe().feedbackSteps, 0, tag + ": nothing is absorbed right after the freeze ends");
+
+                // 按音乐时间照常判定：卡住的退让照样被吸收（规格「不无限等待」）。
+                const auto absorbed = rig.runUntil (40.0, [&] { return rig.probe().feedbackFromStuckGuard > 0; });
+                logMessage ("  " + tag + ": after the freeze: stuck absorptions " + juce::String (rig.probe().feedbackFromStuckGuard)
+                            + ", feedback steps " + juce::String (rig.probe().feedbackSteps) + ", cap " + juce::String (rig.probe().feedbackMaxGainDb, 2) + " dB");
+                expect (absorbed, tag + ": once the music runs again the stuck retreat is absorbed on guard time");
+                rig.run (1.0);   // 吸收型反馈的方案过渡（0.5 s）走完，阶段回到锁定
+
+                if (freeze == Freeze::silence)
+                {
+                    // 核验 M2：反馈之后的「过渡 + 3 s 观察」只在有效音乐里走（上游监视窗也只在这时加时隙）。
+                    const auto observed = rig.probe();
+                    rig.sourceGain = 0.0f;
+                    rig.run (8.0);
+                    const auto quiet = rig.probe();
+                    logMessage ("  M2: observation " + juce::String ((double) observed.samplesSinceFeedback / defaultRate, 2) + " s before the silence, "
+                                + juce::String ((double) quiet.samplesSinceFeedback / defaultRate, 2) + " s after 8 s of silence");
+                    expect (quiet.samplesSinceFeedback <= observed.samplesSinceFeedback + second, "M2: the observation period does not advance in silence");
+                    expectEquals (quiet.feedbackSteps, observed.feedbackSteps, "M2: no feedback while silent");
+                    rig.sourceGain = 5.0f;
+                    rig.run (1.0);
+                    expect (rig.probe().samplesSinceFeedback > quiet.samplesSinceFeedback, "M2: the observation period advances again with the music");
+                }
+
+                expect (rig.phase() == Phase::locked && rig.status().calibrationValid, tag + ": ends locked with a valid calibration");
+            }
         }
 
-        // T-032 R5-04：解除执行快照的冻结（重开 / reset 后第一次拧 GLAZE 或换风格）时，快照里并进去的保护退让不再一步丢掉，而是由
-        // carry 接着施加、按方案过渡同长淡出：净增益连续，GLAZE 旋钮仍即时（方案本身不做过渡）。修前净增益一块内阶跃 |absorbed|
-        //（最多 3 dB），换风格时过渡起点同样阶跃。
-        // 依据：时间线第 4 节「拧 GLAZE 不重做方案过渡」、第 6 节；决策第 7 节（退让随过渡淡出，实现修订第 3 节「净增益连续」）。
+        // T-032 R5-04：解除执行快照的冻结（保存重开 / 宿主 reset 沿用执行量之后，第一次拧 GLAZE 或换风格）时，快照里并进冻结方案的保护
+        // 退让不再一步丢掉，而是由 carry 接着施加、按方案过渡同长淡出：净增益连续，GLAZE 旋钮仍即时（方案本身不做过渡）。修前净增益
+        // 一块内阶跃 |absorbed|（最多 3 dB），换风格时过渡起点同样阶跃。另：carry 淡完之前不开新的校准轮（过渡放长到 3 s 时，解除
+        // 冻结 1 s 后用户条件已稳定、校准不适用——没有这一条就在淡出中途开轮采集）。
+        // 依据：时间线第 4 节「拧 GLAZE 不重做方案过渡」、第 6 节（reset 与保存重开同一套执行快照）；决策第 6 节「保护层改了实际增益时
+        // 子窗作废」；实现修订第 3 节（吸收退让时原退让随过渡淡出，净增益连续）。
         void testReleasingAFrozenExecutionCarriesTheAbsorbedRetreat()
         {
-            beginTest ("releasing a frozen execution snapshot carries its absorbed guard retreat out over a transition instead of stepping");
+            beginTest ("releasing a frozen execution (reopen / host reset, then GLAZE or style) carries its absorbed guard retreat out over a transition");
 
             auto constants = fastConstants();
-            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;
+            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 要测的是保护层路径，不让画像失配先动手
             const auto music = makeMusic (defaultRate, 8.0, 24, 0.2f);
             const auto params = defaultParams (100.0f, 2);
-
-            Rig donor (constants, music, params);
-            expect (donor.learnAndCalibrate(), "the donor locks with a valid calibration on the quiet material");
-            donor.sourceGain = 5.0f;
-            expect (donor.runUntil (10.0, [&] { return donor.probe().executedGuardDb < -0.5f && donor.probe().feedbackSteps == 0; }),
-                    "the donor's guard retreated by more than 0.5 dB before any feedback");
-            const auto heardGain = donor.chain.getEffectiveParams().limit.gainDb;
-            const auto xml = donor.chain.createGlazeStateXml();
-
-            glaze::ExecutionState saved;
-            const auto* executionXml = xml->getChildByName (glaze::executionTag);
-            expect (executionXml != nullptr && glaze::fromXml (*executionXml, saved) && saved.valid, "the snapshot carries an execution");
-            expect (saved.protectionDb < -0.5f, "the saved execution carries the retreat: " + juce::String (saved.protectionDb, 4) + " dB");
-            const auto absorbed = juce::jmax (-saved.plan.increments.limitGainDb, saved.protectionDb);   // adoptExecution 并进方案的量
-
             const auto blockSeconds = (double) blockSize / defaultRate;
-            const auto carryStep = (float) (std::abs (absorbed) * blockSeconds / constants.planTransitionSeconds);   // carry 每块淡出的量
-            const auto slewStep = (float) blockSeconds;   // 校准偏差 1 dB/s、保护层退让 1 dB/s：各自每块最多的变化
+            const auto slewStep = (float) blockSeconds;   // 校准偏差、保护层退让都是 1 dB/s：各自每块最多的变化
 
-            struct Release { const char* name; int styleAfter; std::function<void (ChainParams&)> change; };
-            const std::vector<Release> releases {
-                { "GLAZE 100 -> 99",       2, [] (ChainParams& p) { p.glazePercent = 99.0f; } },
-                { "style punchy -> warm",  1, [] (ChainParams& p) { p.glazeStyle = 1; } } };
-
-            for (const auto& release : releases)
+            // 供体：锁定后推热，保护层退让超过 0.5 dB（还没有任何约束反馈）。
+            const auto retreat = [&] (Rig& donor, const juce::String& tag)
             {
-                const auto name = juce::String (release.name);
-                Rig restored (constants, music, params);   // 安静素材（×1）：保护层自己不必再动，只看 carry
-                restored.chain.restoreGlazeStateXml (xml.get());
-                restored.step();
-                expect (restored.probe().executionSnapshotActive, name + ": the execution is held after the reopen");
-                expectWithinAbsoluteError (restored.probe().absorbedGuardDb, absorbed, 1.0e-6f, name + ": the absorbed retreat is remembered");
-                expectWithinAbsoluteError (restored.chain.getEffectiveParams().limit.gainDb, heardGain, 1.0e-5f, name + ": the first block keeps the heard Gain");
-                expectEquals (restored.probe().executedGuardDb, 0.0f, name + ": the retreat sits inside the frozen plan, not in the guard");
+                expect (donor.learnAndCalibrate(), tag + ": the donor locks with a valid calibration on the quiet material");
+                donor.sourceGain = 5.0f;
+                expect (donor.runUntil (10.0, [&] { return donor.probe().executedGuardDb < -0.5f && donor.probe().feedbackSteps == 0; }),
+                        tag + ": the donor's guard retreated by more than 0.5 dB before any feedback");
+            };
 
-                restored.run (2.0);
-                expect (restored.probe().executionSnapshotActive, name + ": still held after 2 s of unchanged conditions");
-                const auto committed = restored.committed();
-                const auto cap = restored.probe().feedbackMaxGainDb;
-                const auto fromPlan = planFor (committed, glaze::Style::punchy, 100.0f, restored.params, cap);   // 解除冻结后按已提交画像重算的方案
-                const auto toPlan = planFor (committed, static_cast<glaze::Style> (release.styleAfter), 100.0f, restored.params, cap);
-                const auto transitionStep = (float) (std::abs (toPlan.increments.limitGainDb - fromPlan.increments.limitGainDb)
-                                                     * blockSeconds / constants.planTransitionSeconds);   // 换风格：增量每块最多混合多少
-                const auto gainBefore = restored.chain.getEffectiveParams().limit.gainDb;
+            // 存档里的执行快照并进冻结方案的退让（adoptExecution：max(−自动 Limit Gain, 保护退让)）。
+            const auto absorbedIn = [&] (const juce::XmlElement& xml, const juce::String& tag)
+            {
+                glaze::ExecutionState saved;
+                const auto* executionXml = xml.getChildByName (glaze::executionTag);
+                const auto ok = executionXml != nullptr && glaze::fromXml (*executionXml, saved) && saved.valid;
+                expect (ok, tag + ": the snapshot carries an execution");
+                expect (ok && saved.protectionDb < -0.5f, tag + ": the saved execution carries the retreat: " + juce::String (saved.protectionDb, 4) + " dB");
+                return ok ? juce::jmax (-saved.plan.increments.limitGainDb, saved.protectionDb) : 0.0f;
+            };
 
-                release.change (restored.params);
-                restored.step();
-                const auto first = restored.probe();
-                const auto gainFirst = restored.chain.getEffectiveParams().limit.gainDb;
+            // 已沿用 2 s 的链（安静素材 ×1：保护层自己不必再动，只看 carry）改条件解除冻结，逐块核对净增益。
+            const auto checkRelease = [&] (Rig& rig, float absorbed, const juce::String& tag, float glazeAfter, int styleAfter)
+            {
+                expect (rig.probe().executionSnapshotActive, tag + ": the execution is held");
+                expectWithinAbsoluteError (rig.probe().absorbedGuardDb, absorbed, 1.0e-6f, tag + ": the absorbed retreat is remembered");
+                expectEquals (rig.probe().executedGuardDb, 0.0f, tag + ": while held the retreat sits inside the frozen plan, not in the guard");
+
+                const auto committed = rig.committed();
+                const auto cap = rig.probe().feedbackMaxGainDb;
+                const auto styleBefore = rig.params.glazeStyle;
+                const auto fromPlan = planFor (committed, static_cast<glaze::Style> (styleBefore), rig.params.glazePercent, rig.params, cap);
+                auto changed = rig.params;
+                changed.glazePercent = glazeAfter;
+                changed.glazeStyle = styleAfter;
+                const auto toPlan = planFor (committed, static_cast<glaze::Style> (styleAfter), glazeAfter, changed, cap);
+                const auto transitionSeconds = constants.planTransitionSeconds;
+                const auto carryStep = (float) (std::abs (absorbed) * blockSeconds / transitionSeconds);   // carry 每块淡出的量
+                const auto transitionStep = styleAfter == styleBefore ? 0.0f   // 换风格：增量每块最多混合多少
+                    : (float) (std::abs (toPlan.increments.limitGainDb - fromPlan.increments.limitGainDb) * blockSeconds / transitionSeconds);
+                const auto gainBefore = rig.chain.getEffectiveParams().limit.gainDb;
+
+                rig.params = changed;
+                rig.step();
+                const auto first = rig.probe();
+                const auto gainFirst = rig.chain.getEffectiveParams().limit.gainDb;
                 const auto mappingDelta = std::abs (first.increments.limitGainDb - fromPlan.increments.limitGainDb);   // GLAZE 映射本身的变化
-                logMessage ("  " + name + ": absorbed " + juce::String (absorbed, 4) + " dB; first released block: gain step "
+                logMessage ("  " + tag + ": absorbed " + juce::String (absorbed, 4) + " dB; first released block: gain step "
                             + juce::String (gainFirst - gainBefore, 5) + " dB (mapping " + juce::String (mappingDelta, 5)
                             + "), executed guard " + juce::String (first.executedGuardDb, 4) + " dB");
-                expect (! first.executionSnapshotActive, name + ": the changed conditions release the snapshot");
-                expectWithinAbsoluteError (first.executedGuardDb, absorbed, 1.0e-4f, name + ": the first released block still executes the whole absorbed retreat");
+                expect (! first.executionSnapshotActive, tag + ": the changed conditions release the snapshot");
+                expectWithinAbsoluteError (first.executedGuardDb, absorbed, 1.0e-4f, tag + ": the first released block still executes the whole absorbed retreat");
                 expect (std::abs (gainFirst - gainBefore) <= mappingDelta + slewStep + 1.0e-4f,
-                        name + ": no step beyond the GLAZE mapping and the 1 dB/s bias slew; step " + juce::String (gainFirst - gainBefore, 5));
+                        tag + ": no step beyond the GLAZE mapping and the bias slew; step " + juce::String (gainFirst - gainBefore, 5));
 
                 auto previous = gainFirst;
                 auto largestStep = 0.0f;
-                restored.run (constants.planTransitionSeconds + 0.1, [&] (int)
+                rig.run (transitionSeconds + 0.1, [&] (int)
                 {
-                    const auto gain = restored.chain.getEffectiveParams().limit.gainDb;
+                    const auto gain = rig.chain.getEffectiveParams().limit.gainDb;
                     largestStep = juce::jmax (largestStep, std::abs (gain - previous));
                     previous = gain;
                 });
-                const auto after = restored.probe();
-                logMessage ("  " + name + ": largest block step while the carry fades " + juce::String (largestStep, 5) + " dB (bound "
-                            + juce::String (carryStep + 2.0f * slewStep + transitionStep, 5) + "); carry now " + juce::String (after.guardCarryDb, 5)
+                const auto after = rig.probe();
+                const auto bound = carryStep + 2.0f * slewStep + transitionStep;
+                logMessage ("  " + tag + ": largest block step while the carry fades " + juce::String (largestStep, 5) + " dB (bound "
+                            + juce::String (bound, 5) + "); carry now " + juce::String (after.guardCarryDb, 5)
                             + " dB, executed guard " + juce::String (after.executedGuardDb, 4) + " dB, gain " + juce::String (previous, 3) + " dB");
-                expect (largestStep <= carryStep + 2.0f * slewStep + transitionStep + 1.0e-4f,
-                        name + ": the retreat fades at most at |absorbed| / transition (plus the slews); largest step " + juce::String (largestStep, 5));
-                expectEquals (after.guardCarryDb, 0.0f, name + ": the carry has faded out completely after one transition length");
-                expect (after.executedGuardDb > -0.05f, name + ": on the quiet material nothing is left retreating once the carry is gone");
+                expect (largestStep <= bound + 1.0e-4f, tag + ": the retreat fades at most at |absorbed| / transition (plus the slews); largest step "
+                                                         + juce::String (largestStep, 5));
+                expectEquals (after.guardCarryDb, 0.0f, tag + ": the carry has faded out completely after one transition length");
+                expect (after.executedGuardDb > -0.05f, tag + ": on the quiet material nothing is left retreating once the carry is gone");
+            };
+
+            // (1)(2) 保存重开：存档 → 新链读回，沿用 2 s → 拧 GLAZE / 换风格。
+            Rig donor (constants, music, params);
+            retreat (donor, "reopen");
+            const auto heardGain = donor.chain.getEffectiveParams().limit.gainDb;
+            const auto xml = donor.chain.createGlazeStateXml();
+            const auto absorbed = absorbedIn (*xml, "reopen");
+
+            struct Release { const char* name; float glazeAfter; int styleAfter; };
+
+            for (const auto& release : { Release { "reopen, GLAZE 100 -> 99", 99.0f, 2 }, Release { "reopen, style punchy -> warm", 100.0f, 1 } })
+            {
+                const auto tag = juce::String (release.name);
+                Rig restored (constants, music, params);
+                restored.chain.restoreGlazeStateXml (xml.get());
+                restored.step();
+                expectWithinAbsoluteError (restored.chain.getEffectiveParams().limit.gainDb, heardGain, 1.0e-5f, tag + ": the first block keeps the heard Gain");
+                restored.run (2.0);
+                checkRelease (restored, absorbed, tag, release.glazeAfter, release.styleAfter);
+            }
+
+            // (3) 宿主 reset 沿用执行量：同一条链推热退让后换回安静素材、reset（与保存重开同一个执行快照入口），沿用 2 s → 拧 GLAZE。
+            {
+                Rig reset (constants, music, params);
+                retreat (reset, "host reset");
+                const auto snapshot = reset.chain.createGlazeStateXml();   // 与 reset 沿用的执行量同一份（上一块的执行快照）
+                const auto resetAbsorbed = absorbedIn (*snapshot, "host reset");
+                reset.sourceGain = 1.0f;
+                reset.chain.reset();
+                reset.step();
+                reset.run (2.0);
+                checkRelease (reset, resetAbsorbed, "host reset, GLAZE 100 -> 99", 99.0f, 2);
+            }
+
+            // (4) carry 淡完之前不开校准轮：过渡放长到 3 s（carry 同长）。读回后 0.5 s（稳定不足 1 s，沿用期间还没开轮）解除冻结；
+            //     1.5 s 后用户条件已稳定、校准不适用，只剩 carry 挡着（门掩码 32）；carry 淡完才开轮。
+            {
+                auto slowFade = constants;
+                slowFade.planTransitionSeconds = 3.0;
+                Rig gated (slowFade, music, params);
+                gated.chain.restoreGlazeStateXml (xml.get());
+                gated.step();
+                gated.run (0.5);
+                expect (gated.probe().executionSnapshotActive && ! gated.probe().roundActive, "fade gate: held, no round yet");
+                const auto begins = gated.probe().calibrationBegins;
+
+                gated.params.glazePercent = 99.0f;
+                gated.step();
+                expect (gated.probe().guardCarryDb < -0.5f, "fade gate: the release starts a carry of " + juce::String (gated.probe().guardCarryDb, 4) + " dB");
+                gated.run (1.5);
+                const auto waiting = gated.probe();
+                logMessage ("  fade gate: 1.5 s after the release carry " + juce::String (waiting.guardCarryDb, 4) + " dB, gate mask "
+                            + juce::String (waiting.calibrationGateMask) + ", rounds begun " + juce::String (waiting.calibrationBegins - begins));
+                expect (waiting.guardCarryDb < 0.0f, "fade gate: the carry is still fading");
+                expectEquals (waiting.calibrationBegins, begins, "fade gate: no round while the carry fades");
+                expectEquals (waiting.calibrationGateMask & (32 | 128 | 256), 32, "fade gate: only the carry holds the round back (stable, not applicable)");
+
+                auto carryAtBegin = 1.0f;
+                const auto began = gated.runUntil (8.0, [&]
+                {
+                    const auto p = gated.probe();
+                    carryAtBegin = p.guardCarryDb;
+                    return p.calibrationBegins > begins;
+                });
+                expect (began, "fade gate: a round opens once the carry has faded");
+                expectEquals (carryAtBegin, 0.0f, "fade gate: the round opens with no carry left");
             }
         }
 
         // T-032 R5-08：读档与提交两条路径的运行态初始化对称。
         //   (a) 播放中读档：读档前累计的画像失配能量属于旧画像，读回响度低很多的画像后第一块不能拿它去比（修前立刻降上限），
-        //       重新累计满 1 s 之后照常触发；
+        //       重新累计满持续时长之后照常触发；「建议重新聆听」的提示说的也是旧画像，再读回别的画像时一并清掉（修前一直挂着）；
         //   (b) 旧快照的保护层时长不同（守护窗 6 s、恢复等待 10 s）读回后按它折算，重新聆听提交新画像后回到本版本常数
         //      （3 s → 30 格；5 + 1 = 6 s）；修前停在旧快照的 60 格 / 11 s。
         // 依据：时间线第 6 节「运行时状态按统一规则初始化」；实现修订第 3 节（卡住门槛、上游监视窗都按标定快照的时长）。
         void testRestoreAndCommitInitialiseRuntimeAlike()
         {
-            beginTest ("restore clears the profile-mismatch accumulation; commit re-derives the guard / monitor timing from the new snapshot");
+            beginTest ("restore clears the profile-mismatch accumulation and hint; commit re-derives the guard / monitor timing from the new snapshot");
 
             const auto music = makeMusic (defaultRate, 8.0, 303, 0.5f);
 
-            // (a) 门槛 12 / 回差 6 LU：低 9 LU 的画像一直在累计、永不触发；低 15 LU 的画像一满持续时长就触发。
+            // (a) 门槛 12 / 回差 6 LU：低 10 LU 的画像一直在累计、永不触发；低 15 LU 的画像一满持续时长就触发。
             auto constants = fastConstants();
             constants.mismatchThresholdLu = 12.0f;
             constants.mismatchReleaseLu = 6.0f;
             Rig rig (constants, music, defaultParams (50.0f, 0));
             expect (rig.learnAndCalibrate(), "learned (a)");
             const auto learned = rig.committed();
+            const auto sustain = (std::int64_t) std::llround (constants.mismatchSustainSeconds * defaultRate);
 
             const auto quieterProfile = [&] (float byLu)
             {
@@ -4817,20 +4969,30 @@ namespace celadon::test
                 return glaze::toXml (state);
             };
 
-            rig.chain.restoreGlazeStateXml (quieterProfile (9.0f).get());
+            rig.chain.restoreGlazeStateXml (quieterProfile (10.0f).get());
             rig.run (3.0);
-            expectEquals (rig.probe().mismatchSteps, 0, "9 LU below the music (under the 12 LU threshold): accumulates without triggering");
-            expect (rig.committed().profile.integratedLufs.value < learned.profile.integratedLufs.value - 8.5f, "the quieter profile is in effect");
+            const auto accumulating = rig.probe();
+            logMessage ("  10 LU below: accumulated " + juce::String ((double) accumulating.mismatchSamples / defaultRate, 2) + " s, steps "
+                        + juce::String (accumulating.mismatchSteps));
+            expectEquals (accumulating.mismatchSteps, 0, "10 LU below the music (under the 12 LU threshold): accumulates without triggering");
+            expect (accumulating.mismatchSamples >= sustain, "the accumulation already exceeds the sustain time when the next profile is read");
+            expect (rig.committed().profile.integratedLufs.value < learned.profile.integratedLufs.value - 9.5f, "the quieter profile is in effect");
 
             rig.chain.restoreGlazeStateXml (quieterProfile (15.0f).get());
             rig.step();
             expectEquals (rig.probe().mismatchSteps, 0, "the block that adopts a profile restored mid-play does not reuse the old accumulation");
+            expect (rig.probe().mismatchSamples <= (std::int64_t) blockSize, "the accumulation restarted with the restore");
             int blocks = 0;
             const auto recognised = rig.runUntil (3.0, [&] { ++blocks; return rig.probe().mismatchSteps > 0; });
-            logMessage ("  15 LU mismatch recognised " + juce::String ((double) (blocks + 1) * blockSize / defaultRate, 2) + " s after the reopen");
+            const auto recognisedAfter = (double) (blocks + 1) * blockSize / defaultRate;
+            logMessage ("  15 LU mismatch recognised " + juce::String (recognisedAfter, 2) + " s after the restore");
             expect (recognised, "after the sustain time the 15 LU mismatch is recognised as usual");
-            expect ((double) (blocks + 1) * blockSize / defaultRate >= constants.mismatchSustainSeconds - 0.05,
-                    "not before the sustain time has been accumulated again");
+            expect (recognisedAfter >= constants.mismatchSustainSeconds - 0.05, "not before the sustain time has been accumulated again");
+            expect (rig.status().profileMismatch, "the relearn hint is shown for the mismatched profile");
+
+            rig.chain.restoreGlazeStateXml (glaze::toXml (learned).get());
+            rig.step();
+            expect (! rig.status().profileMismatch, "restoring another profile clears the hint that belonged to the previous one");
 
             // (b)
             Rig old (fastConstants(), music, defaultParams (50.0f, 0));
@@ -4847,12 +5009,13 @@ namespace celadon::test
             const auto commits = old.probe().commits;
             expect (old.runUntil (20.0, [&] { return old.probe().commits > commits; }), "the relearn commits a new profile with this version's snapshot");
             expectEquals (old.probe().monitorWindowSlots, 30, "after the commit the monitor window is back to this version's 3 s (30 slots)");
+            expectEquals (old.probe().monitorTriggerSlots, 10, "and its trigger time to 1 s (10 slots)");
             expectEquals ((juce::int64) old.probe().guardStuckSamples, (juce::int64) (6.0 * defaultRate), "after the commit the stuck threshold is back to 5 + 1 s");
         }
 
         // T-032 R6-04：实时 Tame 许可 = 上限 × GLAZE × κ × 证据，且只在已提交画像之后放开（与方案侧 GLAZE × κ、updateLiveTone 同口径；
         // 规格 7.2「学习结束后」）。修前不乘 κ、未学习 / 首次聆听中也按满置信度放许可：未学习 GLAZE 100 方案的 Tame 增量约 8，实时路径
-        // 却可给到通透的上限 45。
+        // 却可给到通透的上限 45。κ = 1 时与修前逐位相同（见 testT032ControllerDigests 的对照摘要）。
         void testLiveTameNeedsAProfileAndScalesWithConfidence()
         {
             beginTest ("live Tame authority needs a committed profile and scales with the profile's confidence (kappa)");
@@ -4924,6 +5087,205 @@ namespace celadon::test
             expectWithinAbsoluteError (kappas[1], 1.0f, 1.0e-6f, "the fully confident profile has kappa 1");
             expect (kappas[0] > 0.6f && kappas[0] < 0.7f, "the less confident profile has kappa about 0.675: " + juce::String (kappas[0], 4));
             expect (highest[1] > highest[0] + 1.0f, "kappa 1 reaches visibly more live Tame than kappa 0.675 on the same evidence");
+        }
+
+        // T-032 R5-06 与逐位契约的对照摘要。几段场景覆盖「同一次调用里同输入的纯函数只算一次」的每条路径——Tame 与 Tone 的混合上限
+        // 和 κ（computeEffective）、偏差目标的修正范围与「校准适用」（biasTarget / finishRound）、音色与密度跟随共用的斜率回归
+        //（updateLiveTone / updateLiveColor）——另加 GLAZE 0。逐块把交给模块的实际参数、执行的校准偏差 / 保护偏移、实时 Heat / Glue
+        // 回收量与输出样本按位并进 64 位 FNV-1a，打进日志。同一份用例分别在「去重前 / 去重后」「修前 / 修后」的构建里跑，对照日志里的
+        // 摘要（IMPL-A6 报告）：去重前后每段都必须相同；修前修后 GLAZE 0 与 κ = 1 两段必须相同（κ < 1 的段因 R6-04 本来就变）。
+        // 用例自己断言：每条路径确实走到、同一场景跑两遍摘要相同、GLAZE 0 每块实际参数逐位等于手动值。
+        void testT032ControllerDigests()
+        {
+            beginTest ("T-032 digests: live Tame / Tone / Color, calibration bias and GLAZE 0 hashed block by block (bit-exact comparison across builds)");
+
+            struct Digest
+            {
+                std::uint64_t h = 0xcbf29ce484222325ULL;
+
+                void word (std::uint32_t w) noexcept
+                {
+                    for (int i = 0; i < 4; ++i)
+                    {
+                        h ^= (std::uint64_t) ((w >> (8 * i)) & 0xffu);
+                        h *= 0x100000001b3ULL;
+                    }
+                }
+
+                void add (float v) noexcept
+                {
+                    std::uint32_t w = 0;
+                    std::memcpy (&w, &v, sizeof (w));
+                    word (w);
+                }
+
+                juce::String hex() const   { return "0x" + juce::String::toHexString ((juce::int64) h).paddedLeft ('0', 16); }
+            };
+
+            const auto digestBlock = [] (Digest& d, const Rig& r)
+            {
+                const auto& e = r.chain.getEffectiveParams();
+                for (const auto v : { e.balance.recover, e.balance.tame, e.balance.automaticRecover, e.balance.automaticTame,
+                                      e.color.toneDb, e.color.glue, e.color.heat, e.limit.gainDb, e.limit.clip })
+                    d.add (v);
+
+                const auto p = r.probe();
+                for (const auto v : { p.appliedBiasDb, p.executedBiasDb, p.executedGuardDb, p.liveHeatReduction, p.liveGlueReduction })
+                    d.add (v);
+
+                for (int ch = 0; ch < r.buffer.getNumChannels(); ++ch)
+                    for (int i = 0; i < r.buffer.getNumSamples(); ++i)
+                        d.add (r.buffer.getSample (ch, i));
+            };
+
+            auto constants = fastConstants();
+            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 换段不触发画像失配（这里只比逐位）
+
+            // 素材：亮噪声（学它）、同功率的暗版本（音色跟随）、亮噪声 + 2 kHz 共振（实时 Tame 证据）。
+            const auto bright = makeNoise (numChannels, (int) (8.0 * defaultRate), 0.08f, 147);
+            auto dark = bright;
+            {
+                const auto retain = std::exp (-juce::MathConstants<double>::twoPi * 250.0 / defaultRate);
+                double sourcePower = 0.0, darkPower = 0.0;
+                for (size_t ch = 0; ch < dark.size(); ++ch)
+                {
+                    double z = 0.0;
+                    for (size_t i = 0; i < dark[ch].size(); ++i)
+                    {
+                        z = bright[ch][i] + (z - bright[ch][i]) * retain;
+                        dark[ch][i] = (float) z;
+                        sourcePower += (double) bright[ch][i] * bright[ch][i];
+                        darkPower += z * z;
+                    }
+                }
+                scale (dark, (float) std::sqrt (sourcePower / darkPower));
+            }
+            auto peaked = bright;
+            {
+                const auto tone = makeSine (numChannels, defaultRate, 2000.0, 0.16f, 8.0);
+                for (size_t ch = 0; ch < peaked.size(); ++ch)
+                    for (size_t i = 0; i < peaked[ch].size(); ++i)
+                        peaked[ch][i] += tone[ch][i];
+            }
+
+            Rig learner (fastConstants(), bright);
+            learner.run (4.0);
+            auto base = learner.committed();
+            expect (base.hasProfile, "learned the bright noise");
+            base.profile.spectralSlopeDbPerOct.confidence = 1.0f;
+            base.profile.bandConfidence.fill (1.0f);
+            base.profile.integratedLufs.confidence = base.profile.truePeakDbtp.confidence = 1.0f;
+            base.profile.tameEvidenceDb.fill (0.0f);
+            base.plan = glaze::Plan {};
+            base.calibration = glaze::Calibration {};
+
+            // 锁定的画像读回后换段播放：音色跟随（暗段）、实时 Tame（共振段）、校准（手动 Tone +2 dB 让前馈估不准，偏差非 0）。
+            struct Seen { bool tone = false, tame = false, bias = false; };
+
+            const auto runLocked = [&] (float representativeness, Seen& seen)
+            {
+                auto state = base;
+                state.profile.representativeness = representativeness;
+                state.profileId = glaze::computeProfileId (state.profile);
+                auto params = defaultParams (50.0f, 3);
+                params.color.toneDb = 2.0f;
+                Rig rig (constants, bright, params);
+                rig.chain.restoreGlazeStateXml (glaze::toXml (state).get());
+                Digest d;
+
+                struct Segment { const Signal* source; double seconds; };
+                const Segment segments[] = { { &bright, 3.0 }, { &dark, 6.0 }, { &peaked, 3.0 }, { &bright, 3.0 } };
+
+                for (const auto& segment : segments)
+                {
+                    rig.source = *segment.source;
+                    rig.sourceIndex = 0;
+                    rig.run (segment.seconds, [&] (int)
+                    {
+                        digestBlock (d, rig);
+                        const auto& e = rig.chain.getEffectiveParams();
+                        const auto p = rig.probe();
+                        const auto plannedTone = juce::jlimit (-3.0f, 3.0f, rig.params.color.toneDb + p.increments.colorToneDb);
+                        seen.tone = seen.tone || std::abs (e.color.toneDb - plannedTone) > 0.005f;
+                        seen.tame = seen.tame || e.balance.automaticTame > p.increments.balanceTame + 0.5f;
+                        seen.bias = seen.bias || std::abs (p.executedBiasDb) > 1.0e-3f;
+                    });
+                }
+
+                logMessage ("  locked, representativeness " + juce::String (representativeness, 2) + " (kappa "
+                            + juce::String (glaze::confidenceScale (&state.profile, state.constants), 3) + "): calibration finishes "
+                            + juce::String (rig.probe().calibrationFinishes) + ", executed bias now " + juce::String (rig.probe().executedBiasDb, 4) + " dB");
+                return d;
+            };
+
+            Seen full, fullAgain, partial;
+            const auto kappaOne = runLocked (1.0f, full);
+            const auto kappaOneAgain = runLocked (1.0f, fullAgain);
+            const auto kappaPartial = runLocked (0.4f, partial);
+            expect (full.tone && full.tame && full.bias, juce::String ("kappa 1 exercises live Tone / live Tame / bias: ")
+                    + (full.tone ? "tone " : "") + (full.tame ? "tame " : "") + (full.bias ? "bias" : ""));
+            expect (partial.tone && partial.tame, "kappa 0.675 exercises live Tone / live Tame");
+            expectEquals (kappaOneAgain.hex(), kappaOne.hex(), "the same scenario hashes identically twice");
+
+            // 密度跟随：稀疏素材上学，GLAZE 60 温润换成密集白噪声（与 testLiveColorAfterProfileLocks 同一对素材）。
+            Digest colorDigest;
+            auto colorSeen = false;
+            {
+                auto colorConstants = constants;
+                colorConstants.minListenSeconds = 10.0;
+                colorConstants.maxListenSeconds = 12.0;
+                const auto dense = makeNoise (numChannels, (int) (8.0 * defaultRate), 0.075f, 627);
+                auto sparse = dense;
+                const auto retain = std::exp (-juce::MathConstants<double>::twoPi * 800.0 / defaultRate);
+                float peak = 0.0f;
+                for (auto& channel : sparse)
+                {
+                    double z = 0.0;
+                    for (size_t i = 0; i < channel.size(); ++i)
+                    {
+                        z = channel[i] + (z - channel[i]) * retain;
+                        const auto beatPosition = std::fmod ((double) i / defaultRate, 0.5);
+                        channel[i] = (float) (z * (0.15 + 0.85 * std::exp (-beatPosition / 0.07)));
+                        peak = juce::jmax (peak, std::abs (channel[i]));
+                    }
+                }
+                scale (sparse, 0.3f / peak);
+
+                auto params = defaultParams (0.0f, 1);
+                params.color.heat = 4.0f;
+                params.color.glue = 5.0f;
+                Rig rig (colorConstants, sparse, params);
+                rig.run (14.0);
+                expect (rig.committed().hasProfile, "learned the sparse material");
+                rig.params.glazePercent = 60.0f;
+                rig.source = dense;
+                rig.sourceIndex = 0;
+                rig.run (10.0, [&] (int)
+                {
+                    digestBlock (colorDigest, rig);
+                    colorSeen = colorSeen || rig.probe().liveHeatReduction > 0.0f || rig.probe().liveGlueReduction > 0.0f;
+                });
+            }
+            expect (colorSeen, "the dense section exercises the live Heat / Glue reduction (shared slope regression)");
+
+            // GLAZE 0：边学边播，每块实际参数逐位等于手动值（ADR-006 / 时间线：GLAZE 0 = v0.5 手动处理），输出进摘要。
+            Digest zeroDigest;
+            auto zeroExact = true;
+            {
+                Rig rig (constants, makeMusic (defaultRate, 8.0, 401, 0.3f), defaultParams (0.0f, 0));
+                rig.run (8.0, [&] (int)
+                {
+                    digestBlock (zeroDigest, rig);
+                    zeroExact = zeroExact && sameParams (rig.chain.getEffectiveParams(), rig.params);
+                });
+                expect (rig.committed().hasProfile, "GLAZE 0 still learns");
+            }
+            expect (zeroExact, "GLAZE 0: every block's actual parameters equal the manual ones bit for bit");
+
+            logMessage ("  T-032 digest kappa-1 locked:     " + kappaOne.hex());
+            logMessage ("  T-032 digest kappa-0.675 locked: " + kappaPartial.hex());
+            logMessage ("  T-032 digest live Color:         " + colorDigest.hex());
+            logMessage ("  T-032 digest GLAZE 0:            " + zeroDigest.hex());
         }
     };
 

@@ -13,8 +13,9 @@
         饱和，指数平滑会差一个尾巴）。hostReset / 读取工程 / 采样率重建时直接落到目标（规格「平滑器到目标」）。
       - 方案重算最短间隔 5 ms：GLAZE / 手动值连续自动化时，192 kHz 块 32 也不会每块都调决策器（约 1 µs），「每 hop 的决策计算
         摊到固定位置，不产生新尖峰」；新方案源（过渡、提交、读取）第一次用到时立即算，不受这个间隔限制。48 k 块 ≥ 240 时就是每块。
-      - 约束反馈：每次下调 1 dB，两次之间至少隔「一个方案过渡 + 3 s 观察」（PHASE2-NOTES 设计决定 1）；上游约束（Glue 均值 /
-        p95、Heat 驱动）按 100 ms 音乐时隙、保护层同样的窗口口径（3 s 窗、累计超出 ≥ 1 s）判定，容差 Glue 0.1 dB、Heat 0.5；
+      - 约束反馈：每次下调 1 dB，两次之间至少隔「一个方案过渡 + 3 s 观察」（PHASE2-NOTES 设计决定 1；按保护层的时间轴即有效音乐
+        计，T-032 核验 M2）；上游约束（Glue 均值 / p95、Heat 驱动）按 100 ms 音乐时隙、保护层同样的窗口口径（3 s 窗、累计超出
+        ≥ 1 s）判定，容差 Glue 0.1 dB、Heat 0.5；
         p95 近似为「超过 p95 上限的时隙 > 5 %」（与保护层同一近似）。保护层的「方案受限」按进入的那一刻（边沿）计一次，
         它在下限停留期间不重复触发（它要等恢复才清除，否则同一次超限会连降好几档）。
       - 已提交版本与执行快照每块尝试发布：固定大小拷贝，音频线程只 try-lock，拿不到下块再发，不分配或等待。
@@ -59,6 +60,18 @@
         对得上就换成新口径（upgradeLegacyConditions）。对不上的照旧只按旧口径哈希比，与修前相同。prepare 沿用已听到的执行快照
         之前，对那份副本同样升格（它可能还是读进来的旧口径）。
       - 稳定计时（条件连续 1 s 不变才开新一轮）照旧逐块精确比（多比一次旧口径哈希），容差只用于「校准适不适用」。
+
+    T-032（2026-09-29 深度研究，实施 A6；docs/validation/2026-09-29-T032-deep-research/IMPL-A6-glaze-controller.md）：
+      - 「刚对同一条件试过」只记结束为无效的那一轮（finishRound）；放弃的轮、换方案丢掉的轮不算，条件变回原样照样再开（R5-01）。
+      - 方案槽的重算序号取全局单调计数：保护层与上游监视的上限逐次跟上每一份新方案（R5-02；修前两槽各自计数、隔次撞号）。
+      - 「g_保护 多久没变过」与约束反馈的观察期只在保护层的时间轴（有效音乐、不旁通）上走：静音 / 停播 / 旁通不把临时退让
+        判成「卡住」、不让观察期空转（R5-03、核验 M2）。
+      - 解除执行快照的冻结时，快照里并进去的保护退让交给 carry、按方案过渡同长淡出（R5-04，与约束反馈吸收同一套）；carry 淡完
+        之前不开新的校准轮。
+      - 读档清画像失配的累计与提示、冷却视为已过；提交新画像时按新标定快照重折算「卡住」门槛与上游监视窗（R5-08）。
+      - 实时 Tame 许可 = 上限 × GLAZE × κ × 证据，只在已提交画像之后放开（R6-04；κ = 1 时逐位同修前）。
+      - 同一次调用里同输入的纯函数只算一次（R5-06：Tame / Tone 的混合上限与 κ、偏差目标的修正范围与「校准适用」、音色 /
+        密度跟随的斜率回归），逐位不变；不做跨块缓存。
 
   ==============================================================================
 */
@@ -902,7 +915,7 @@ namespace celadon::glaze
         double mismatchEnergy = 0.0;                      // 这段时间 M 的能量和（按样本加权），求这一段的平均响度
         float mismatchPeakDb = -100.0f;                   // 这段时间入口真峰值的最大值
         std::int64_t samplesSinceMismatch = std::numeric_limits<std::int64_t>::max() / 4;
-        bool profileMismatch = false;                     // 状态行提示；提交新画像时清
+        bool profileMismatch = false;                     // 状态行提示；提交新画像、读取工程时清
 
         // ---- 修坯 Clay（v0.1.7.0；口径见文件开头）----
         ClayGuard clayGuard;
@@ -1639,28 +1652,29 @@ namespace celadon::glaze
             // 保护层：在参考状态（g_保护 = 0）才开；它若停在某个退让值上一直不动（超过它自己「安全多久才恢复」的等待 + 1 s，
             // 说明卡在回差区、不会自己回来），也开——这一轮会因保护层持续介入结束为「预算受限」，约束反馈把这点退让吸收进方案
             // （规格「不无限等待」）。正在退让或恢复时不开：量了也不能用，还会白白耗掉这一轮的保护预算。
-            const auto guardSettled = ! guard.isEngaged() || guardSteadySamples >= guardStuckSamples;
+            // 编排器接着施加的退让（guardCarryDb：约束反馈吸收、解除执行快照冻结时随过渡长度淡出的那一份）同样在改实际增益，
+            // 淡完之前也不开（T-032 R5-04：解除冻结的淡出不伴随方案过渡，没有这一条，条件稳定 1 s 后开的轮可能在淡出中途采集；
+            // 约束反馈的 carry 与方案过渡同长、比过渡早一块结束，过渡本来就挡着，这一条对它不起作用）。
+            const auto guardSettled = (! guard.isEngaged() || guardSteadySamples >= guardStuckSamples) && guardCarryLength <= 0;
 
+            // 诊断（TestProbe::calibrationGateMask，位的含义见那里；与下面开新一轮的条件逐项对应）
             if (roundActive)
             {
                 probe.calibrationGateMask = 0;
-                return;
+            }
+            else
+            {
+                probe.calibrationInterruptMask = 0;
+                probe.calibrationGateMask = (! committed.hasProfile ? 1 : 0) | (! active ? 2 : 0) | (paused ? 4 : 0) | (transitionActive ? 8 : 0)
+                                          | (toSlot().plan.limitedByManual ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
+                                          | (calibrationApplicable() ? 128 : 0) | (referenceStableSamples < stableSamples ? 256 : 0)
+                                          | (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference) ? 512 : 0);
             }
 
-            // 诊断掩码（TestProbe::calibrationGateMask，位的含义见那里）与开新一轮的条件逐项对应；两处都用到的两项比较
-            //（校准适用、刚对同一条件试过）同输入只算一次（R5-06）。
-            const auto applicable = calibrationApplicable();
-            const auto triedTheseConditions = haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference);
-
-            probe.calibrationInterruptMask = 0;
-            probe.calibrationGateMask = (! committed.hasProfile ? 1 : 0) | (! active ? 2 : 0) | (paused ? 4 : 0) | (transitionActive ? 8 : 0)
-                                      | (toSlot().plan.limitedByManual ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
-                                      | (applicable ? 128 : 0) | (referenceStableSamples < stableSamples ? 256 : 0)
-                                      | (triedTheseConditions ? 512 : 0);
-
-            if (committed.hasProfile && active && ! paused && ! transitionActive
-                && ! toSlot().plan.limitedByManual && guardSettled && referenceKnown && ! applicable
-                && referenceStableSamples >= stableSamples && ! triedTheseConditions)
+            if (! roundActive && committed.hasProfile && active && ! paused && ! transitionActive
+                && ! toSlot().plan.limitedByManual && guardSettled && referenceKnown && ! calibrationApplicable()
+                && referenceStableSamples >= stableSamples
+                && ! (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference)))
             {
                 beginRound();
             }
@@ -2656,6 +2670,10 @@ namespace celadon::glaze
             spectrumTakenAtBlockStart = false;
             const auto& view = analyzer.getShortTermView();
 
+            // 保护层的时间轴（T-032 R5-03 / 核验 M2）：有效音乐、不在宿主旁通、Color / Limit 没旁通（旁通期间输出是干路，统计不代表
+            // 听到的）。保护层本身、上游监视、「g_保护 多久没变过」与约束反馈的观察期都按它走；静音 / 停播 / 旁通冻结的块一律不计。
+            const auto guardMusicActive = view.musicActive && ! paused && ! manual.color.bypass && ! manual.limit.bypass;
+
             // Clay 保护的时间轴（下一块 beginBlock 一次交给 ClayGuard）：只推进有效音乐——静音（分析器门下）、宿主旁通、停播都
             // 冻结，保持期也不走；按切片累计，与宿主块怎么切无关。
             if (view.musicActive && ! paused && hostPlaying())
@@ -2693,9 +2711,6 @@ namespace celadon::glaze
             // ---- 保护层（GLAZE > 0 才工作；宿主旁通、Color / Limit 旁通期间冻结：输出是干路，统计不代表听到的）----
             // 受手动设置限制时也清零、不工作：自动增量已撤回，没有自动加上去的增益可收回（设计决定 4），它若照常累计退让，
             // 等手动设置改回来那一刻会突然施加一大步。
-            // 保护层与约束反馈共用的时间轴：有效音乐、不在宿主旁通、Color / Limit 没旁通（旁通期间输出是干路，统计不代表听到的）。
-            const auto guardMusicActive = view.musicActive && ! paused && ! manual.color.bypass && ! manual.limit.bypass;
-
             if (active && ! toSlot().plan.limitedByManual)
             {
                 updateGuardLimits();
@@ -2909,10 +2924,13 @@ namespace celadon::glaze
             updateTiming();
             monitor.configure (sampleRate, activeConstants());
 
-            // 画像失配的累计属于读档前那份画像下的音乐，不能拿来与读回的新画像比（T-032 R5-08：修前播放中读档可能在第一块就
-            // 跳过「持续满 1 s」的要求给新方案降上限）；与 onHostReset / onTransportJump / prepare 同一口径清掉，冷却视为已过。
+            // 画像失配的运行态属于读档前那份画像（T-032 R5-08，与 commitCandidate 换画像时同一口径）：累计的音乐不能拿来与读回的新
+            // 画像比（修前播放中读档可能在第一块就跳过「持续满 1 s」的要求给新方案降上限），冷却视为已过；「建议重新聆听」的提示
+            // 说的也是旧画像，一并清掉（修前播放中换读另一份工程 / 预设，旧提示一直挂着，直到下一次提交）。失配给的上限随工程保存、
+            // 已随 feedbackMaxGainDb 读回，不受影响。
             clearMismatch();
             samplesSinceMismatch = mismatchCooldownSamples;
+            profileMismatch = false;
             return true;
         }
 
@@ -3327,6 +3345,7 @@ namespace celadon::glaze
         p.monitorTriggerSlots = s.monitor.getTriggerSlots();
         p.absorbedGuardDb = s.absorbedGuardDb;
         p.guardCarryDb = s.guardCarryDb();
+        p.mismatchSamples = s.mismatchSamples;
         return p;
     }
 
