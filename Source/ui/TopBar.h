@@ -59,6 +59,9 @@ namespace celadon::ui
         // 呼吸时每帧重画的那一小块（圆点与光晕，本地坐标）。
         juce::Rectangle<int> getPulseArea() const noexcept      { return pulseArea; }
 
+        // paint 里真正排版、画出的文字段数累计（截图工具的检查读它：只重画圆点那一帧应当一段都不画）。
+        int getTextDraws() const noexcept                       { return textDraws; }
+
         void paint (juce::Graphics&) override;
         void resized() override;
 
@@ -86,6 +89,7 @@ namespace celadon::ui
         std::vector<TextItem> items;
         float markerX = 0.0f;                // 三角图标左边 / 圆点左边
         juce::Rectangle<int> pulseArea;
+        int textDraws = 0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StatusPill)
     };
@@ -146,6 +150,9 @@ namespace celadon::ui
         AdvancedButton& getAdvancedButton() noexcept        { return advancedButton; }
         const juce::String& getLatencyText() const noexcept { return latencyText; }
 
+        // paint 里真正排版、画出的文字（品牌、副标题、延迟）累计次数（截图工具的检查读它）。
+        int getTextDraws() const noexcept                   { return textDraws; }
+
         void paint (juce::Graphics&) override;
         void resized() override;
 
@@ -159,6 +166,7 @@ namespace celadon::ui
         double latencyMs = std::numeric_limits<double>::quiet_NaN();   // 还没收到过
         juce::String latencyText, subtitleText;
         float brandWidth = 0.0f, subtitleWidth = 0.0f, latencyWidth = 0.0f;
+        int textDraws = 0;
         StatusPill pill;
         Segmented languageSelector { Segmented::Look::language };
         IconButton settingsButton { IconButton::Icon::settings }, helpButton { IconButton::Icon::help };

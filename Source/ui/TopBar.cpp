@@ -45,10 +45,12 @@ namespace celadon::ui
             g.fillEllipse (juce::Rectangle<float> (1.6f, 1.6f).withCentre ({ area.getCentreX(), area.getY() + 9.1f }));
         }
 
-        // 只在 area 与这次的脏区相交时才排版、画字（JUCE 只在光栅层裁剪，paint 里的整形照做）。
+        // 只在 area 与这次的脏区相交时才排版、画字（JUCE 只在光栅层裁剪，paint 里的整形照做）。area 左右各放宽 2 px：
+        // 字形的墨迹可能越出排版框一点（负的左侧边距、字距），放宽后跳过的文字画了也全落在裁剪区外，结果逐位相同。
+        // 胶囊呼吸时的脏区（圆点 + 光晕 + 1 px）右缘到第一段文字左缘至少还有 2 px，放宽后仍不相交。
         bool needsDrawing (juce::Graphics& g, juce::Rectangle<float> area)
         {
-            return g.clipRegionIntersects (area.getSmallestIntegerContainer());
+            return g.clipRegionIntersects (area.expanded (2.0f, 0.0f).getSmallestIntegerContainer());
         }
     }
 
@@ -207,6 +209,7 @@ namespace celadon::ui
             if (! needsDrawing (g, item.area))
                 continue;
 
+            ++textDraws;
             g.setFont (item.font);
             g.setColour (item.colour);
             g.drawText (item.text, item.area, juce::Justification::centredLeft, item.ellipsis);
@@ -419,6 +422,7 @@ namespace celadon::ui
 
         if (needsDrawing (g, brandArea))
         {
+            ++textDraws;
             g.setFont (brandFont());
             g.setColour (palette::ink);
             g.drawText ("CELADON", brandArea, juce::Justification::centredLeft, false);
@@ -428,6 +432,7 @@ namespace celadon::ui
 
         if (needsDrawing (g, subtitleArea))
         {
+            ++textDraws;
             g.setFont (subtitleFont());
             g.setColour (palette::ink3);
             g.drawText (subtitleText, subtitleArea, juce::Justification::centredLeft, false);
@@ -438,6 +443,7 @@ namespace celadon::ui
 
         if (needsDrawing (g, latencyArea))
         {
+            ++textDraws;
             g.setFont (monoFont (11.0f));
             g.setColour (palette::ink3);
             g.drawText (latencyText, latencyArea, juce::Justification::centredRight, false);

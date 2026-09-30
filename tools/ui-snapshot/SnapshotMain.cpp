@@ -10,8 +10,10 @@
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
-      命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态）；--only bench 跑绘制性能基准（T-032：每帧 paint 毫秒、
-      各部件累计时长与缓存读写、瓷面参照与分层的生成耗时、静态背景耗时；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测）。
+      命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊呼吸帧不排版文字）；--only bench 跑绘制性能基准（T-032：每帧 paint 毫秒、
+      各部件累计时长与缓存读写、瓷面参照与分层的生成耗时、静态背景耗时；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测）；
+      --only digest 打印逐位摘要（瓷面参照实现 renderGlaze 的 200 种组合、静态背景的 4 种像素比）：改动前后各跑一次逐行比，
+      应当逐位不变的项一字不差。
 
   ==============================================================================
 */
@@ -291,6 +293,7 @@ namespace
     int runChecks (Session& session, const juce::File& outDir, float scale);
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
+    void runDigest();
 
     bool save (juce::Component& component, float scale, const juce::File& file)
     {
@@ -334,6 +337,15 @@ int main (int argc, char* argv[])
         settings->setReduceMotion (false);
         settings->setDefaultZoom (1.0);
         runBench (benchFrames);
+        return 0;
+    }
+
+    if (only.contains ("digest"))
+    {
+        settings->setLanguage (celadon::Language::chinese);
+        settings->setReduceMotion (false);
+        settings->setDefaultZoom (1.0);
+        runDigest();
         return 0;
     }
 
@@ -1094,12 +1106,28 @@ namespace
             editor.advanceForSnapshot (0.05);
         }
 
-        // ⑲ R9-13：状态胶囊呼吸时只重画圆点那一小块（圆点 7 px + 3 px 光晕 + 1 px 抗锯齿）。
+        // ⑲ R9-13：状态胶囊呼吸时只重画圆点那一小块（圆点 7 px + 3 px 光晕 + 1 px 抗锯齿），这一帧胶囊与顶栏一段文字都不排版；
+        //     整个胶囊重画时每段文字照画（跳过只按脏区判断，不会漏画）。
         {
             auto* pill = findFirst<StatusPill> (editor);
+            auto* topBar = findFirst<TopBar> (editor);
             const auto area = pill != nullptr ? pill->getPulseArea() : juce::Rectangle<int>();
-            check (pill != nullptr && ! area.isEmpty() && area.getWidth() <= 16 && area.getHeight() <= 16 && pill->getLocalBounds().contains (area),
+            check (pill != nullptr && topBar != nullptr && ! area.isEmpty() && area.getWidth() <= 16 && area.getHeight() <= 16
+                       && pill->getLocalBounds().contains (area),
                    "T-032 status pill pulses by repainting only its dot (" + area.toString() + " of " + (pill != nullptr ? pill->getLocalBounds().toString() : juce::String ("-")) + ")");
+
+            if (pill != nullptr && topBar != nullptr)
+            {
+                const auto pillBefore = pill->getTextDraws(), barBefore = topBar->getTextDraws();
+                paintFrame (editor, target, 1.0f, editor.getLocalArea (pill, area));
+                const auto pillPulse = pill->getTextDraws() - pillBefore, barPulse = topBar->getTextDraws() - barBefore;
+                paintFrame (editor, target, 1.0f, editor.getLocalArea (pill, pill->getLocalBounds()));
+                const auto pillWhole = pill->getTextDraws() - pillBefore - pillPulse;
+
+                check (pillPulse == 0 && barPulse == 0 && pillWhole > 0,
+                       "T-032 a pulse frame lays out no text (pill " + juce::String (pillPulse) + ", top bar " + juce::String (barPulse)
+                           + "); a whole-pill repaint draws " + juce::String (pillWhole) + " text item(s)");
+            }
         }
 
         return 0;
@@ -1346,5 +1374,83 @@ namespace
         session->editor.reset();
         session->processor->releaseResources();
         std::cout << "==== bench done" << std::endl;
+    }
+
+    //==============================================================================
+    // 逐位摘要（--only digest，T-032）：改动前后各跑一次、逐行比。FNV-1a 64 位喂的是图的原始字节（预乘 ARGB / RGB，
+    // 不经 PNG 的反预乘），只用来判「两次是否逐位相同」。
+    juce::uint64 pixelDigest (const juce::Image& image)
+    {
+        juce::uint64 hash = 14695981039346656037ull;
+        const juce::Image::BitmapData data (image, juce::Image::BitmapData::readOnly);
+
+        for (int y = 0; y < data.height; ++y)
+            for (int x = 0; x < data.width; ++x)
+            {
+                const auto* pixel = data.getPixelPointer (x, y);
+
+                for (int k = 0; k < data.pixelStride; ++k)
+                    hash = (hash ^ (juce::uint64) pixel[k]) * 1099511628211ull;
+            }
+
+        return hash;
+    }
+
+    juce::String hex (juce::uint64 value)
+    {
+        return juce::String::toHexString ((juce::int64) value).paddedLeft ('0', 16);
+    }
+
+    void runDigest()
+    {
+        // ---- 瓷面参照实现（renderGlaze）：各缩放下主旋钮的像素比（含 200 / 224 的换算）× GLAZE × 去色 ----
+        juce::uint64 combined = 14695981039346656037ull;
+
+        for (const auto pixelScale : { 0.625f, 0.892857f, 1.0f, 1.339286f, 1.5f, 1.785714f, 2.0f, 2.5f, 3.571429f, 4.0f })
+            for (const auto t : { 0.0f, 0.03f, 0.2f, 0.35f, 0.45f, 0.5f, 0.65f, 0.8f, 0.9f, 1.0f })
+                for (const auto desaturated : { false, true })
+                {
+                    const auto image = celadon::ui::porcelain::renderGlaze (t, pixelScale, desaturated);
+                    const auto digest = pixelDigest (image);
+                    combined = (combined ^ digest) * 1099511628211ull;
+                    std::cout << "digest porcelain scale=" << juce::String (pixelScale, 6) << " t=" << juce::String (t, 2)
+                              << " desaturated=" << (desaturated ? 1 : 0) << " " << image.getWidth() << "x" << image.getHeight()
+                              << " " << hex (digest) << std::endl;
+                }
+
+        std::cout << "digest porcelain all " << hex (combined) << std::endl;
+
+        // ---- 静态背景：子组件全部藏起来，整张编辑器只剩画布贴的静态背景（与一条分隔线）----
+        auto session = makeSession (45.0f);
+        auto& editor = *session->editor;
+
+        const auto hideChildren = [&editor]
+        {
+            for (auto* child : editor.getChildren())
+            {
+                if (child->getNumChildComponents() == 0)
+                    child->setVisible (false);
+
+                for (auto* grandChild : child->getChildren())
+                    grandChild->setVisible (false);
+            }
+        };
+
+        for (const auto scale : { 1.0f, 2.0f, 0.7f, 1.5f })
+        {
+            juce::Image target (juce::Image::RGB, juce::roundToInt ((float) editor.getWidth() * scale),
+                                juce::roundToInt ((float) editor.getHeight() * scale), false);
+            hideChildren();
+            paintFrame (editor, target, scale, std::nullopt);   // 这一像素比的静态背景：第一次同步生成，之后缩放停稳 150 ms 再生成
+            dispatchEvents (400);
+            hideChildren();
+            paintFrame (editor, target, scale, std::nullopt);
+            std::cout << "digest static scale=" << juce::String (scale, 2) << " " << target.getWidth() << "x" << target.getHeight()
+                      << " " << hex (pixelDigest (target)) << std::endl;
+        }
+
+        session->editor.reset();
+        session->processor->releaseResources();
+        std::cout << "==== digest done" << std::endl;
     }
 }

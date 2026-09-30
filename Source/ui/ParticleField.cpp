@@ -37,10 +37,6 @@ namespace celadon::ui
         constexpr double ringDuration = 3.9;
         constexpr double ringBegins[] = { 0.0, -1.3, -2.6 };
 
-        // 流线与柔光缓存图的最高像素比：200 % × Retina = 4。更高时（Windows 高 DPI × 200 %）图按 4 倍生成、变换贴图，
-        // 不为少见的配置把两张图撑到几十 MB。
-        constexpr float maxCacheScale = 4.0f;
-
         // 两边各自的缓动（SMIL calcMode="spline" 的 keySplines）：左边进来时先慢后快（被吸进去），右边出去时先快后慢。
         constexpr float easeLeft[]  = { 0.45f, 0.0f, 0.85f, 0.7f };
         constexpr float easeRight[] = { 0.15f, 0.3f, 0.55f, 1.0f };
@@ -304,7 +300,9 @@ namespace celadon::ui
     void ParticleField::paint (juce::Graphics& g)
     {
         // 柔光与流线是按此刻物理像素比生成的缓存图，每帧只按各自的不透明度整数对齐贴一次（R9-05 / M-3）。
-        const auto pixelScale = juce::jmin (maxCacheScale, physicalPixelScale (g));
+        // 不给像素比封顶（原来流线封顶 2.5）：封了顶，更高的像素比就只能按比例变换贴图、每帧逐像素重采样整张图——
+        // 恰好是最贵的配置最慢。两张图都只覆盖各自的范围（流线约 1165 × 215、柔光 400 × 260 逻辑像素），4 倍时合计约 23 MB，远小于同像素比的静态背景。
+        const auto pixelScale = physicalPixelScale (g);
 
         if (! glowImage.isValidFor (pixelScale))
             renderGlow (pixelScale);
