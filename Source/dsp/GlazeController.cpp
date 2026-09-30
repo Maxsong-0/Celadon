@@ -1900,7 +1900,7 @@ namespace celadon::glaze
             const auto& profileLoudness = source.profile.integratedLufs;
 
             if (! active || savedPlanMode || ! source.hasProfile || ! profileLoudness.valid || ! isFinite (profileLoudness.value)
-                || toSlot().plan.limitedByManual)
+                || toSlot().plan.automaticLevelWithdrawn)   // T-032 R6-02：只在电平类自动全部撤回时不判（手动单独超某模块预算时自动 Gain 仍在推响）
             {
                 clearMismatch();
                 return;
@@ -2289,7 +2289,9 @@ namespace celadon::glaze
             executedBiasDb = 0.0f;
             executedGuardDb = 0.0f;
 
-            // 受手动设置限制：自动增量本来就撤回了，校准偏差与保护偏移也不施加（手动造成的超限只提示，不偷偷改）。
+            // 受手动设置限制：校准偏差与保护偏移不施加（手动造成的超限只提示，不偷偷改）。电平类自动全部撤回（Plan::automaticLevelWithdrawn）
+            // 时是没有自动加上去的增益；只是 Heat / Glue / Clip 某一项手动单独超预算时自动 Gain 仍在推响，但保护层按总量核对、分不出
+            // 手动造成的超出，施加会把它当自动的超限收掉（T-032 R6-02，GlazeTypes.h Plan 的说明）。
             if (toSlot().plan.limitedByManual)
                 return;
 
@@ -2709,8 +2711,9 @@ namespace celadon::glaze
             }
 
             // ---- 保护层（GLAZE > 0 才工作；宿主旁通、Color / Limit 旁通期间冻结：输出是干路，统计不代表听到的）----
-            // 受手动设置限制时也清零、不工作：自动增量已撤回，没有自动加上去的增益可收回（设计决定 4），它若照常累计退让，
-            // 等手动设置改回来那一刻会突然施加一大步。
+            // 受手动设置限制时也清零、不工作（它若照常累计退让，等手动设置改回来那一刻会突然施加一大步）。电平类自动全部撤回时没有自动
+            // 加上去的增益可收回（设计决定 4）；只是某一项手动单独超预算时，保护层与上游监视按「手动 + 自动」的总量与风格上限核对，
+            // 会把手动造成的超出当成自动的超限——白白退让自动 Gain、约束反馈每约 3.5 s 降 1 dB 把自动增益磨光（T-032 R6-02，107 实测）。
             if (active && ! toSlot().plan.limitedByManual)
             {
                 updateGuardLimits();

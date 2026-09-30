@@ -74,6 +74,13 @@ namespace celadon::glaze
         // 低切目标 ≤ Constants::clayLowCutFloorHz → 该风格不低切；加宽系数按 0 ～ 1 使用（GlazePlanner.cpp planClay）。
         float clayLowCutTargetHz = 0.0f;
         float clayWidthStyleFactor = 0.0f;
+        // ---- 算法 8（T-032 R6-01，2026-09-29）：一旋钮自动 Heat 的底量（满强度请求，照常按 GLAZE / 置信度缩放、再与 Heat 有效上限取小），
+        // v7 及以前是 Constants 里的一个全局值（v0.1.6.2 起 12）。挪成风格常数是为了让「风格间的 Heat 差异」变成 Max 试听时可标定的
+        // 常数（原来的差异靠 HeatRow::inverse 把 Heat 顶到 heatDriveCap 的缺陷成立）；出厂三种风格先都填 12，差异待 Max 标定
+        //（GlazeConstants.cpp）。默认值是中性占位 0（不加底量）。存档：写 warm_ / punchy_ / clean_automaticHeatFloor 三个字段，另把
+        // 三者中最小的写成旧的全局 automaticHeatFloor（旧版本插件读新存档只认它，取最小偏保守）；读旧快照（没有风格字段）时三种风格
+        // 都取全局值，blendConstants 对三者逐位相同的底量直接取原值（不经加权求和）——旧工程混合权重下也逐位不变。
+        float automaticHeatFloor = 0.0f;
     };
 
     struct Constants
@@ -215,10 +222,18 @@ namespace celadon::glaze
 
         // 一旋钮自动母带：即使学习段已够响或没有谱偏离，仍保留少量推响、实时频谱处理权限和染色。
         // 这些都是满强度的请求，随后照常按 GLAZE / 置信度缩放并受模块预算限制；缺字段的旧快照按 0 读取。
+        // 自动 Heat 的底量从算法 8 起是风格常数（StyleConstants::automaticHeatFloor，出厂 12 / 12 / 12）。
         float minimumFullDriveDb = 3.0f;
         float automaticRecoverFloor = 8.0f;
         float automaticTameFloor = 24.0f;
-        float automaticHeatFloor = 12.0f;
+
+        // ---- 算法 8（T-032 R6-01）：自动 Heat 承担削峰的门槛（dB）【设计】----
+        // makeFullPlan 只让 Heat 承担它在入口真峰值处、有效上限以内真能削掉的峰均比（HeatRow 的 crest 列，与 capacityAt 同一口径）；
+        // 能削的量不到本项就不为削峰开 Heat，只留风格底量。残差 Heat（算法 6 起的换算表）几乎不削峰（出厂表 crest 列 ≤ 0.00023 dB），
+        // 原来 HeatRow::inverse「达不到就给表的最大 Heat」让自动 Heat 与音乐无关地顶到 heatDriveCap（70 / 50 / 20，在 E = 0 处跳 58 个单位）。
+        // 门槛不能靠「缺省 0 = 旧行为」兼容：阈值 0 时 −18 dBTP 一行会从 0.00008 dB 的 crest 反查出 Heat 70——新规则只由快照的
+        // algorithmVersion ≥ 8 开关，本项写进 v8 出厂值并可缺省序列化（旧快照读成 0，但它们永远不进新分支）。≤ 0 或非有限按「削不了」。
+        float heatUsefulCrestDb = 0.1f;
 
         // v6：只收回已规划的自动染色，既不增加额外染色也不碰手动部分。
         float liveHeatMaxReduction = 0.5f;
@@ -339,6 +354,9 @@ namespace celadon::glaze
             // （别的整数类型会落到 int / float 重载上）。
             void field (const char* name, const std::uint8_t& value);
             void optionalField (const char* name, const std::uint8_t& value, std::uint8_t legacyDefault);
+            // T-032 R6-02 追加：布尔字段（Plan::automaticLevelWithdrawn）同样可以「旧存档缺属性按默认值读」；默认值可以是另一个
+            // 已读到的字段（visitPlan 里传 plan.limitedByManual），写的一方忽略它。字段类型必须正好是 bool。
+            void optionalField (const char* name, const bool& value, bool legacyDefault);
 
             template <size_t N>
             void field (const char* name, const std::array<float, N>& values)
@@ -367,6 +385,7 @@ namespace celadon::glaze
             // ADR-012 追加（同 Writer）：十进制整数且在 0 ～ 255 内，否则失败。
             void field (const char* name, std::uint8_t& value);
             void optionalField (const char* name, std::uint8_t& value, std::uint8_t legacyDefault);
+            void optionalField (const char* name, bool& value, bool legacyDefault);   // T-032 追加（同 Writer）：存在但不是 0 / 1 仍拒收
 
             template <size_t N>
             void field (const char* name, std::array<float, N>& values)

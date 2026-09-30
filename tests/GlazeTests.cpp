@@ -12,7 +12,10 @@
       4. 拧 GLAZE 无咔哒：块率边带 ≤ −95 dBFS（v0.4 评审定的口径）+ 逐块一阶差分包络，负对照证明指标抓得到；
       5. 整条生命周期（聆听、过渡、校准、保护层、约束反馈）里输出真峰值 ≤ Ceiling + 0.01 dB；
       6. 学习后响度随 GLAZE 单调上升；
-      7. 四种风格的方向（温润 Glue / Heat 最多、冲击 Clip 最多、通透 Heat 最少、自动权重和为 1）。
+      7. 四种风格的方向（温润 Glue 最多、冲击 Clip 最多、Heat 上限温润 > 冲击 > 通透、自动 Heat 只给风格底量 × 强度、自动权重和为 1；
+         T-032 R6-01 起「温润 Heat 最多、通透最少」不再靠自动 Heat 顶到上限成立）；
+      8. T-032 R6-02：手动单独超某个模块的预算（受手动设置限制）时自动 Gain 照常推响、画像失配照常判定、约束反馈与保护层不把手动
+         造成的超出当成自动的超限；电平类自动全部撤回（手动 Gain 已超限幅预算）时偏差、保护、校准、画像失配都不动作。
 
     GLAZE 0 的逐位对照为什么用参照链而不是把 v0.5 的输出摘要写成常数：摘要是 Mac（ARM、NEON 路径）上算的，Linux 服务器（x86、
     SSE2 / 标量路径）上同一份代码的浮点结果本来就可能不同，常数会让 CI 误报；参照链在每个平台上都验证「GLAZE 0 = 只有三个模块、
@@ -419,6 +422,73 @@ namespace celadon::test
             Params params;
             glaze::HostInfo host;
         };
+
+        // 实时链（T-032 R6-02 用）：聆听、方案过渡、校准、保护层、约束反馈、画像失配都照常跑，时长常数缩短（与 GlazeControllerTests
+        // 的 fastConstants 同一组：聆听 2 ～ 3 s、过渡 0.5 s、校准稳定 0.5 s + 窗 2 s；其余出厂值，含画像失配与保护层）。
+        // 素材循环播放、带播放位置；sourceGain 调整体电平（画像失配用）。
+        struct LiveRig
+        {
+            LiveRig (Signal material, const Params& initial, double rate = 48000.0)
+                : params (initial), source (std::move (material)), sampleRate (rate)
+            {
+                auto c = glaze::factoryConstants();
+                c.minListenSeconds = 2.0;
+                c.maxListenSeconds = 3.0;
+                c.planTransitionSeconds = 0.5;
+                c.calibrationSettleSeconds = 0.5;
+                c.calibrationWindowSeconds = 2.0;
+                chain.getGlazeController().setConstantsForTesting (c);
+
+                host.hasPlayState = host.isPlaying = host.hasPosition = true;
+                buffer.setSize ((int) source.size(), maxBlock);
+                chain.setParams (params, false);
+                chain.prepare (makeSpec (sampleRate, (int) source.size()));
+            }
+
+            void step()
+            {
+                const auto numChannels = (int) source.size();
+                const auto length = source.front().size();
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < maxBlock; ++i)
+                        buffer.setSample (ch, i, sourceGain * source[(size_t) ch][(sourceIndex + (size_t) i) % length]);
+
+                sourceIndex = (sourceIndex + (size_t) maxBlock) % length;
+                host.positionSamples = position;
+                chain.setHostInfo (host);
+                chain.setParams (params, false);
+                chain.process (buffer);
+                position += maxBlock;
+            }
+
+            template <typename PerBlock>
+            void run (double seconds, PerBlock&& perBlock)
+            {
+                const auto blocks = juce::jmax (1, (int) std::ceil (seconds * sampleRate / maxBlock));
+
+                for (int b = 0; b < blocks; ++b)
+                {
+                    step();
+                    perBlock();
+                }
+            }
+
+            void run (double seconds)   { run (seconds, [] {}); }
+
+            glaze::GlazeController::TestProbe probe() const   { return chain.getGlazeController().getProbeForTesting(); }
+            glaze::Status status() const                      { return chain.getGlazeStatus(); }
+
+            CeladonChain chain;
+            Params params;
+            Signal source;
+            double sampleRate;
+            glaze::HostInfo host;
+            float sourceGain = 1.0f;
+            size_t sourceIndex = 0;
+            std::int64_t position = 0;
+            juce::AudioBuffer<float> buffer;
+        };
     }
 
     class GlazeChainTests  : public juce::UnitTest
@@ -439,6 +509,11 @@ namespace celadon::test
             testStylesLeanOnTheirModules();
             testOneKnobFromFreshInsert();
             testNewSpectralProblemAfterLearning();
+
+            // T-032 R6-02：手动单独超某个模块的预算 vs 电平类自动全部撤回
+            testManualHeatOverBudget();
+            testManualGlueOverBudget();
+            testAutomaticLevelWithdrawn();
         }
 
     private:
@@ -1243,12 +1318,14 @@ namespace celadon::test
                     "live EQ response does not require changing the song profile");
         }
 
-        // 8. 四种风格的方向（同一份画像、GLAZE 100、离线纯前馈）：温润的 Glue 与 Heat 增量最大、冲击的 Clip 增量最大、通透的 Heat 最少；
-        //    「自动」的锁定权重和为 1。实际模块用量（Glue / Limit GR 每块最大值的均值）只记录。
-        // 依据：决策第 1 节风格表（温润 Heat、Glue 为主；冲击 Clip 为主；通透 Limit 为主、Heat 极少）。
+        // 8. 四种风格的方向（同一份画像、GLAZE 100、离线纯前馈）：温润的 Glue 增量最大、冲击的 Clip 增量最大；Heat 的风格取向由
+        //    驱动上限体现（温润 > 冲击 > 通透），自动 Heat 只给各风格的底量 × 强度（T-032 R6-01，算法 8：出厂残差 Heat 表几乎不削峰，
+        //    原来「温润 Heat 最多、通透最少」靠自动 Heat 顶到 heatDriveCap 70 / 50 / 20 的缺陷成立；出厂底量三种风格都 12，风格间的
+        //    Heat 差异待 Max 试听标定为风格常数）；「自动」的锁定权重和为 1。实际模块用量（Glue / Limit GR 每块最大值的均值）只记录。
+        // 依据：决策第 1 节风格表（温润 Heat、Glue 为主；冲击 Clip 为主；通透 Limit 为主、Heat 极少）；设计规格-GLAZE 7.1「自动 Heat 12（底量）」。
         void testStylesLeanOnTheirModules()
         {
-            beginTest ("styles lean on the modules the spec names (warm: Glue / Heat, punchy: Clip, clean: least Heat)");
+            beginTest ("styles lean on the modules the spec names (warm: Glue, punchy: Clip; Heat stays at each style's floor, caps warm > punchy > clean)");
 
             constexpr double sampleRate = 48000.0;
             constexpr int numChannels = 2;
@@ -1298,10 +1375,148 @@ namespace celadon::test
             const auto& punchy = results[2].inc;
             const auto& clean = results[3].inc;
 
+            const auto& fc = glaze::factoryConstants();
             expect (warm.colorGlue >= punchy.colorGlue && warm.colorGlue >= clean.colorGlue, "warm uses the most Glue");
-            expect (warm.colorHeat >= punchy.colorHeat && warm.colorHeat >= clean.colorHeat, "warm uses the most Heat");
             expect (punchy.limitClip >= warm.limitClip && punchy.limitClip >= clean.limitClip, "punchy uses the most Clip");
-            expect (clean.colorHeat <= warm.colorHeat && clean.colorHeat <= punchy.colorHeat, "clean uses the least Heat");
+            expect (fc.warm.heatDriveCap > fc.punchy.heatDriveCap && fc.punchy.heatDriveCap > fc.clean.heatDriveCap,
+                    "Heat caps: warm > punchy > clean");
+            expect (warm.colorHeat > 0.0f && warm.colorHeat <= fc.warm.automaticHeatFloor + 1.0e-3f
+                        && punchy.colorHeat > 0.0f && punchy.colorHeat <= fc.punchy.automaticHeatFloor + 1.0e-3f
+                        && clean.colorHeat > 0.0f && clean.colorHeat <= fc.clean.automaticHeatFloor + 1.0e-3f,
+                    "automatic Heat is each style's floor x strength, not its drive cap (the residual Heat table barely shaves peaks)");
+        }
+
+        //==============================================================================
+        // 9. T-032 R6-02：手动单独超出某个模块的预算（limitedByManual：界面提示；该模块的自动增量撤回，自动 Gain 与其余模块照常展开）
+        //    与「电平类自动全部撤回」（Plan::automaticLevelWithdrawn：手动已让限幅器超约束 / Limit 旁通 / 约束反馈上限低于手动链净增益）
+        //    分开：画像失配只在后者时不判。保护层、校准与约束反馈按「手动 + 自动」的总量与风格上限核对（GlazeGuard、上游监视），分不出
+        //    哪一份是手动造成的——手动 Heat / Glue / Clip 单独超预算时若照常开工，会把手动造成的超出当成自动的超限：保护层白白退让自动
+        //    Gain（Glue 在 Limit Gain 上游，退了也收不回），约束反馈每约 3.5 s 降 1 dB 净增益上限，直到自动增益磨光（上限只降不升、随工程
+        //    保存）。所以这三层仍按 limitedByManual 关着，等保护层与上游监视改成只核对自动部分（跨文件，见 IMPL-A7 报告）。
+        //    a. 通透、GLAZE 100、手动 Heat 25（通透 Heat 上限 20）：界面提示受手动限制；自动 Limit Gain 照常推响；30 s 里上游监视不触发、
+        //       上限不降、自动 Gain 不被磨掉；画像失配照常判定（修前被 limitedByManual 一并关掉）；手动 Heat 拧回上限以内的头 0.9 s
+        //       不因旧的监视窗误触发约束反馈。
+        // 依据：决策与校准第 8 节「手动部分本身已超约束时，自动先撤回自己的增量…不偷偷反向改旋钮」「绝不自动抵消你的修改」、
+        //    第 7 节保护层、第 4 节约束反馈；实现修订第 5 节 F-01（画像失配）、F-02（Heat / Glue 逐模块钳住）。
+        void testManualHeatOverBudget()
+        {
+            beginTest ("manual Heat over the style's budget: automatic level keeps pushing, mismatch still judged, no feedback drain (T-032 R6-02)");
+
+            constexpr double sr = 48000.0;
+            Params p;
+            p.limit.ceilingDb = -1.0f;
+            p.glazePercent = 100.0f;
+            p.glazeStyle = 3;         // 通透：Heat 驱动上限 20
+            p.color.heat = 25.0f;
+            LiveRig rig (makeMusicLikeSignal (2, sr, 8.0, 3201, 0.25f), p, sr);
+            rig.run (6.0);            // 聆听 2 ～ 3 s → 提交 → 过渡 0.5 s
+
+            const auto learned = rig.status();
+            expect (learned.profileReady, "the profile is committed");
+            expect (learned.limitedByManual, "status: limited by the manual Heat (UI hint)");
+            const auto capAfterLearning = rig.probe().feedbackMaxGainDb;
+            const auto gainAfterLearning = rig.chain.getEffectiveParams().limit.gainDb;
+            expect (gainAfterLearning > 1.0f, "the automatic Limit Gain still pushes: " + juce::String (gainAfterLearning, 2) + " dB");
+
+            float lowestGain = gainAfterLearning, deepestGuard = 0.0f;
+            rig.run (30.0, [&]
+            {
+                lowestGain = juce::jmin (lowestGain, rig.chain.getEffectiveParams().limit.gainDb);
+                deepestGuard = juce::jmin (deepestGuard, rig.probe().executedGuardDb);
+            });
+
+            const auto held = rig.probe();
+            logMessage ("  manual Heat 25 (clean cap 20), 30 s: Limit Gain " + juce::String (gainAfterLearning, 2) + " -> lowest "
+                        + juce::String (lowestGain, 2) + " dB, cap " + juce::String (capAfterLearning, 2) + " -> " + juce::String (held.feedbackMaxGainDb, 2)
+                        + ", feedback upstream / guard-limit / stuck " + juce::String (held.feedbackFromUpstream) + " / "
+                        + juce::String (held.feedbackFromGuardLimit) + " / " + juce::String (held.feedbackFromStuckGuard)
+                        + ", deepest executed guard " + juce::String (deepestGuard, 2) + " dB, calibration rounds " + juce::String (held.calibrationBegins));
+            expectEquals (held.feedbackFromUpstream, 0, "the manual Heat excess is not an automatic upstream overshoot");
+            expect (held.feedbackMaxGainDb == capAfterLearning, "the net gain cap is not lowered by the manual Heat");
+            expect (lowestGain > gainAfterLearning - 0.5f, "the automatic Limit Gain is not drained");
+
+            // 画像失配：整体响 12 dB（比画像的 I 高出 10 LU 以上、持续 1 s）→ 按「这一段当画像」重算的净增益作上限。
+            const auto mismatchBefore = rig.probe().mismatchSteps;
+            rig.sourceGain = 4.0f;
+            rig.run (3.0);
+            const auto mismatchAfter = rig.probe().mismatchSteps;
+            logMessage ("  +12 dB section with manual Heat 25: mismatch steps " + juce::String (mismatchBefore) + " -> " + juce::String (mismatchAfter));
+            expect (mismatchAfter > mismatchBefore, "profile mismatch is still judged while only the manual Heat is over budget");
+
+            // 手动 Heat 拧回上限以内：头 0.9 s（上游监视要满 1 s 的新超出才触发）约束反馈不许因旧窗口里手动造成的 Heat 超出而动作。
+            rig.sourceGain = 1.0f;
+            rig.run (5.0);            // 过完画像失配的过渡与约束反馈的冷却（过渡 0.5 s + 观察 3 s）
+            const auto upstreamBeforeExit = rig.probe().feedbackFromUpstream;
+            const auto capBeforeExit = rig.probe().feedbackMaxGainDb;
+            rig.params.color.heat = 15.0f;
+            rig.run (0.9);
+            expect (! rig.status().limitedByManual, "manual Heat 15 is within the clean budget");
+            expectEquals (rig.probe().feedbackFromUpstream, upstreamBeforeExit, "no feedback from a stale window of manual Heat excess");
+            expect (rig.probe().feedbackMaxGainDb == capBeforeExit, "the cap does not step when the manual Heat comes back within budget");
+        }
+
+        //    b. 通透、GLAZE 100、手动 Glue 100（超 Glue GR 上限）：保护层不为手动造成的 Glue 超出退让自动 Gain，上限不降，自动 Gain 照常。
+        void testManualGlueOverBudget()
+        {
+            beginTest ("manual Glue over the Glue budget: no protection offset or cap step for a manual excess (T-032 R6-02)");
+
+            constexpr double sr = 48000.0;
+            Params p;
+            p.limit.ceilingDb = -1.0f;
+            p.glazePercent = 100.0f;
+            p.glazeStyle = 3;
+            p.color.glue = 100.0f;
+            LiveRig rig (makeMusicLikeSignal (2, sr, 8.0, 3202, 0.9f), p, sr);
+            rig.run (6.0);
+
+            expect (rig.status().profileReady && rig.status().limitedByManual, "status: limited by the manual Glue (UI hint)");
+            const auto cap = rig.probe().feedbackMaxGainDb;
+            const auto gainAfterLearning = rig.chain.getEffectiveParams().limit.gainDb;
+            expect (gainAfterLearning > 0.1f, "the automatic Limit Gain still pushes: " + juce::String (gainAfterLearning, 2) + " dB");
+
+            float deepestGuard = 0.0f, lowestGain = gainAfterLearning;
+            rig.run (20.0, [&]
+            {
+                deepestGuard = juce::jmin (deepestGuard, rig.probe().executedGuardDb);
+                lowestGain = juce::jmin (lowestGain, rig.chain.getEffectiveParams().limit.gainDb);
+            });
+
+            const auto probe = rig.probe();
+            logMessage ("  manual Glue 100 (clean), 20 s: deepest executed guard " + juce::String (deepestGuard, 2) + " dB, cap "
+                        + juce::String (cap, 2) + " -> " + juce::String (probe.feedbackMaxGainDb, 2) + ", Limit Gain "
+                        + juce::String (gainAfterLearning, 2) + " -> lowest " + juce::String (lowestGain, 2) + " dB, feedback upstream / guard-limit "
+                        + juce::String (probe.feedbackFromUpstream) + " / " + juce::String (probe.feedbackFromGuardLimit));
+            expectEquals (deepestGuard, 0.0f, "the guard does not retreat the automatic gain for a manual Glue excess");
+            expect (probe.feedbackMaxGainDb == cap, "the net gain cap is not lowered by the manual Glue");
+            expect (lowestGain > gainAfterLearning - 0.05f, "the automatic Limit Gain is not drained");
+        }
+
+        //    c. 手动 Gain 20（手动已让限幅器远超约束 → 电平类自动全部撤回）：不施加校准偏差与保护偏移、不开校准轮，画像失配也不判
+        //       （没有自动加上去的增益可压），实际 Limit Gain 就是手动值。
+        void testAutomaticLevelWithdrawn()
+        {
+            beginTest ("manual Gain already over the limiter budget: all automatic level withdrawn, no bias, protection, calibration or mismatch");
+
+            constexpr double sr = 48000.0;
+            Params p;
+            p.limit.ceilingDb = -1.0f;
+            p.glazePercent = 100.0f;
+            p.limit.gainDb = 20.0f;
+            LiveRig rig (makeMusicLikeSignal (2, sr, 8.0, 3203, 0.9f), p, sr);
+            rig.run (6.0);
+            expect (rig.status().profileReady && rig.status().limitedByManual);
+
+            rig.sourceGain = 4.0f;    // 响 12 dB 的一段：自动全撤时画像失配不判
+            rig.run (3.0);
+            rig.sourceGain = 1.0f;
+            rig.run (3.0);
+
+            const auto probe = rig.probe();
+            expectEquals (probe.executedBiasDb, 0.0f, "no calibration offset");
+            expectEquals (probe.executedGuardDb, 0.0f, "no protection offset");
+            expectEquals (probe.calibrationBegins, 0, "nothing automatic to calibrate");
+            expectEquals (probe.mismatchSteps, 0, "no automatic gain to cap: mismatch is not judged");
+            expectEquals (rig.chain.getEffectiveParams().limit.gainDb, 20.0f, "Limit Gain is exactly the manual value");
         }
     };
 

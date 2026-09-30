@@ -14,7 +14,13 @@
       - 输入已不低于风格偏好 → 仍可请求少量推进（出厂满刻度 3 dB），有效提升服从峰值与动态约束；
       - 轻量频谱修正与染色保持可用，具体动作受当前频谱、置信度、风格上限和动态预算约束；
       - 画像无效 / 置信度低 → 按置信度收紧正向增益与处理量；
-      - 手动设置已超约束 → 撤回自动增量并标 limitedByManual，不反向改手动值。
+      - 手动设置已超约束 → 撤回**该模块**的自动增量并标 limitedByManual（界面提示），不反向改手动值；其中手动已让限幅器超约束、
+        Limit 旁通、约束反馈上限低于手动链净增益这三种「电平类自动全部撤回」另标 automaticLevelWithdrawn（T-032 R6-02）：手动
+        Heat / Glue / Clip 单独超预算时自动 Gain 照常推响，编排器的画像失配照常判定（看 automaticLevelWithdrawn）；保护层、校准与
+        约束反馈仍看 limitedByManual，原因见 GlazeTypes.h Plan::automaticLevelWithdrawn；
+      - 算法 8 起（T-032，按快照的 algorithmVersion 分流，旧快照逐位不变）：自动 Heat 只承担换算表里该电平真能削掉的峰均比份额、
+        削不到 Constants::heatUsefulCrestDb 就只留风格底量 StyleConstants::automaticHeatFloor × 强度（出厂残差 Heat 表下恒为底量，
+        与音乐无关的「顶到风格上限」不再出现）；满强度增益不超过 Limit Gain 量程（24 − 手动 Gain）能交付的净增益，超出即受约束。
 
     方案字段的口径（v0.6 A2 定，编排器 / 校准器 / 界面按此使用）：
       - requestedGainDb / effectiveGainDb 是整条链的预计净增益（输出响度 − 输入响度），含手动设置本身的贡献：
@@ -23,7 +29,7 @@
         校准器用 effectiveGainDb 作「目标净提升」：手动改了，目标跟着手动走，校准不会去抵消手动修改（规格第 8 节）。
         GLAZE ≤ 0 时没有方案（增量全 0、也不校准），两者都等于手动链的预计净增益：GLAZE 从 0 拧起来时净增益连续、单调。
       - requested / effectiveTargetLufs = 画像测到的输入响度（没测到用保守默认值）+ 对应的净增益；界面「目标」写 effective。
-      - maxGainDb 与 effectiveGainDb 同一口径（整链净增益上限）。低于手动链净增益 → 自动全部撤回、limitedByManual。
+      - maxGainDb 与 effectiveGainDb 同一口径（整链净增益上限）。低于手动链净增益 → 自动全部撤回、limitedByManual 与 automaticLevelWithdrawn。
       - limitedByConstraints：满强度请求因模块约束降低过、或约束反馈 / 叠加手动后的核对压低了强度（置信度收紧不算）。
       - limitGainDb 不含校准偏差与保护偏移（二者由编排器另加）；各增量叠加手动值后仍在参数范围内（applyIncrements 钳位）。
 
