@@ -27,8 +27,8 @@
          手动本身已超 → 撤回该模块的自动增量、标 limitedByManual；叠加后超 → 在固定网格上二分出最大可行强度 s_c，
          与 GLAZE 无关，最终强度 = min(s, s_c)，所以随 GLAZE 严格单调；约束反馈 maxGainDb 同样折成强度上限；
          手动已让限幅器超约束 / Limit 旁通 / maxGainDb 低于手动链净增益 → 电平类自动全部撤回，另标 automaticLevelWithdrawn
-         （T-032 R6-02：编排器的校准、保护层、约束反馈与画像失配只看它；limitedByManual 是界面提示，Heat / Glue / Clip 单独
-         被撤回时其余自动增量照常展开，安全层不能因此停摆）；
+         （T-032 R6-02：limitedByManual 是界面提示，Heat / Glue / Clip 单独被撤回时其余自动增量照常展开；编排器的画像失配
+         只看 automaticLevelWithdrawn，保护层、校准与约束反馈暂仍看 limitedByManual，见 GlazeTypes.h Plan 的说明）；
       7. 目标：requestedGain = 手动链的预计净增益 + GLAZE × G_full（风格与 GLAZE 想要的）；
                effectiveGain = 手动链的预计净增益 + s × G_full′（校准器用它作目标净提升，含手动部分，所以不会去抵消手动）。
       8. 修坯 Clay（v0.1.7.0，算法 7；设计规格-Clay-分析决策与验收第 2 节，ADR-012 / 设计规格-Clay-根治修订 3.3 修订）：与 1 ～ 7
@@ -632,7 +632,8 @@ namespace celadon::glaze
             float clipThresholdDb = 0.0f;   // clip 对应的削波阈值（Ceiling + 限幅器那一份）
             float clipRamp = 1.0f;          // Clip 参数在强度 [0, clipRamp] 内线性爬到 clip（手动把峰值推高时由 makePlan 缩短）
             std::array<float, (size_t) gainKnots> limitGainDb {};   // 各折点的 Limit Gain 增量（单调不减）
-            bool constrained = false;
+            bool constrained = false;       // 满强度请求因模块容量或 Limit Gain 量程（rangeLimited）降低过
+            bool rangeLimited = false;      // 算法 8（T-032 R6-06）：最后一次 completeFullPlan 的请求放不进 Limit Gain 量程，G_full′ 已回算
             ChainEstimate neutral;          // 手动中性时的链（约束核对的基线）
         };
 
@@ -768,13 +769,19 @@ namespace celadon::glaze
             return clampTo ((kneeStart - startPeakDb) / (endPeakDb - startPeakDb), juce::jmax (firstStep, minimumRamp), 1.0f);
         }
 
-        // 按给定的 Glue / Heat 求满强度的 Gain、Clip 分工与各折点。返回 false = 某个强度下要的 Gain 为负（Color 自己已经比目标响）。
+        // 按给定的 Glue / Heat 求满强度的 Gain、Clip 分工与各折点。gainDb = 容量约束后的 G_full′（makeFullPlan 第 2 步），每次调用都从它
+        // 起算（同一次尝试里可能先带底量、再撤回底量调两次：后一次不能沿用前一次回算过的值）。返回 false = 某个强度下要的 Gain 为负
+        // （Color 自己已经比目标响）。
         // 算法 8 起（T-032 R6-06）自动 Limit Gain 的量程是 24 − 手动 Gain（combine / applyIncrements 都把手动 + 自动钳到 24）：
-        // 请求的 Gain 放不进量程时，G_full′（full.gainDb）回算成量程顶值下前向模型真能交付的净增益、标受约束——目标显示与校准目标
-        // 不再宣称交付不了的净提升（原来 I −40 LUFS 请求 30 dB 时宣称 30、Gain 实际钳 24，校准目标永远追不上、每首都「部分校准」）。
-        // 算法 ≤ 7 的快照照旧：只钳折点顶值到 24、full.gainDb 不动（旧工程逐位不变）。
-        bool completeFullPlan (const Context& ctx, FullPlan& full, float limiterFraction) noexcept
+        // 请求的 Gain 放不进量程时，G_full′（full.gainDb）回算成量程顶值下前向模型真能交付的净增益、置 rangeLimited（makeFullPlan 并进
+        // constrained）——目标显示与校准目标不再宣称交付不了的净提升（原来照写请求：I −46 LUFS 请求 36 dB 时宣称 36，Gain 钳在 24、连 Glue
+        // 补偿只交付得了约 30，校准目标永远追不上、每首都「部分校准」；手动 Gain + 自动请求超过 24 dB 时同样虚报）。算法 ≤ 7 的快照照旧：
+        // 只钳折点顶值到 24、G_full′ 不动（逐位不变）。
+        bool completeFullPlan (const Context& ctx, FullPlan& full, float gainDb, float limiterFraction) noexcept
         {
+            full.gainDb = gainDb;
+            full.rangeLimited = false;
+
             const auto color = estimateColor (ctx, full.glue, full.heat);
             const auto target = full.neutral.netDb + full.gainDb;
             const auto rangeAware = ctx.c->algorithmVersion >= heatAndGainRangeAlgorithmVersion;
@@ -818,16 +825,16 @@ namespace celadon::glaze
                 full.clipRamp = clipRampFor (ctx, threshold, startPeak, endPeak, minimumRamp);
             }
 
-            // 请求放不进量程（算法 8）：G_full′ = 量程顶值下的净增益（同一前向模型，含 Color 的贡献与限幅损失）− 中性链；只降不升，
-            // 标受约束。折点与目标随之按交付得了的量算。
+            // 请求放不进量程（算法 8）：G_full′ = 量程顶值下的净增益（同一前向模型，含 Color 的贡献、Clip 与限幅损失）− 中性链；只降不升，
+            // 标受约束。折点与目标随之按交付得了的量算（顶折点就是量程顶值，s = 1 时净增益 = 中性链 + G_full′，与校准目标同一口径）。
+            // 判定「放不进」与不钳量程时逐位相同：上面的定点序列在越过 capGain 之前与原来一样，越过之后只会更大（损失随超出量单调）。
             if (rangeAware && gain > capGain)
             {
+                full.rangeLimited = true;
                 const auto deliverable = estimateLimit (ctx, color, capGain, full.clip, false).netDb - full.neutral.netDb;
 
                 if (isFinite (deliverable) && deliverable < full.gainDb)
                     full.gainDb = deliverable;
-
-                full.constrained = true;
             }
 
             // 折点：各强度下让净增益 = 中性链 + s × G_full′ 所需的 Gain（Glue / Heat / Clip 也按该强度），再取累计最大保证单调。
@@ -947,7 +954,6 @@ namespace celadon::glaze
             //         还会让置信度低的方案反而用上 Glue（v0.6 验收 F-05）。----
             for (int attempt = 0; attempt < 2; ++attempt)
             {
-                full.gainDb = gain;   // completeFullPlan（算法 8）可能把它回算成量程内能交付的量：每次尝试都从受约束的 G_full′ 起
                 full.glue = attempt == 0 ? juce::jmin (glueForExcess (ctx, glueShare, excess), glueForMakeup (ctx, gain)) : 0.0f;
                 full.heat = 0.0f;
 
@@ -987,15 +993,17 @@ namespace celadon::glaze
 
                 if (full.heat > peakHeat)
                 {
-                    if (completeFullPlan (ctx, full, limiterFraction))
+                    if (completeFullPlan (ctx, full, gain, limiterFraction))
                         break;
                     full.heat = peakHeat;
                 }
 
-                if (completeFullPlan (ctx, full, limiterFraction) || ! (full.glue > 0.0f))
+                if (completeFullPlan (ctx, full, gain, limiterFraction) || ! (full.glue > 0.0f))
                     break;
             }
 
+            // 量程回算（算法 8）只看最后采用的那一次 completeFullPlan：被撤回的尝试里置过的不留下（算法 ≤ 7 恒为 false，逐位不变）。
+            full.constrained = full.constrained || full.rangeLimited;
             return full;
         }
 
@@ -1552,8 +1560,8 @@ namespace celadon::glaze
         bool constrained = fullPlan.constrained;
         bool limitedByManual = withdrawn.any() || ctx.limitBypassed;
         // 电平类自动全部撤回（T-032 R6-02）：只有下面三种情况——手动已让限幅器超约束、Limit 旁通、约束反馈上限低于手动链净增益——
-        // 才没有自动加上去的增益可收回、可校准。手动 Heat / Glue / Clip 单独超预算时只撤回那一个模块（v0.6 F-02 逐模块钳住），
-        // 自动 Gain / 其余模块照常展开，保护层、校准、约束反馈与画像失配必须照常工作：编排器看这个标志，不看 limitedByManual（界面提示）。
+        // 才没有自动加上去的增益。手动 Heat / Glue / Clip 单独超预算时只撤回那一个模块（v0.6 F-02 逐模块钳住），自动 Gain / 其余模块
+        // 照常展开。limitedByManual 是界面提示（任一模块）；编排器怎样用这两个标志见 GlazeTypes.h Plan::automaticLevelWithdrawn。
         bool automaticLevelWithdrawn = withdrawn.limit || ctx.limitBypassed;
 
         if (withdrawn.limit || ctx.limitBypassed)

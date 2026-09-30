@@ -167,9 +167,12 @@ namespace celadon::glaze
         StyleWeights weights;
         bool limitedByConstraints = false;  // 目标因约束被降低过
         bool limitedByManual = false;       // 手动设置已超约束，该模块的自动增量已撤回（任一模块；界面「受手动设置限制」看它）
-        // T-032 R6-02：电平类自动**全部**撤回——手动已让限幅器超约束、Limit 旁通、或约束反馈上限低于手动链净增益。只有这时
-        // 才没有自动加上去的增益可收回、可校准；手动 Heat / Glue / Clip 单独超预算时其余自动增量照常展开（v0.6 F-02 逐模块钳住），
-        // 编排器的校准、保护层、约束反馈与画像失配只看本标志，不看 limitedByManual。存档缺本属性（v0.1.8.5 及以前）按 limitedByManual 读。
+        // T-032 R6-02：电平类自动**全部**撤回——手动已让限幅器超约束、Limit 旁通、或约束反馈上限低于手动链净增益（都属 limitedByManual）。
+        // 只有这时才没有自动加上去的增益；手动 Heat / Glue / Clip 单独超预算时只撤回那一项，自动 Gain 与其余模块照常展开（v0.6 F-02 逐模块
+        // 钳住）。编排器的画像失配看本标志（响段照样要压）。保护层、校准偏差与校准轮、约束反馈仍看 limitedByManual：GlazeGuard 与上游监视
+        // 按「手动 + 自动」的总量与风格上限核对，分不出哪一份是手动造成的，照常开工会把手动的超出当成自动的超限（107 实测：通透手动
+        // Heat 25 / 手动 Glue 100 时约束反馈把净增益上限一路降到手动链、自动增益磨光）；它们改成只核对自动部分之后，这几道门再改看本标志。
+        // 存档缺本属性（v0.1.8.5 及以前）按 limitedByManual 读（旧语义 = 保守）。
         bool automaticLevelWithdrawn = false;
         int algorithmVersion = currentAlgorithmVersion;
         int constantsVersion = 1;

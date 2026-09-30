@@ -14,9 +14,10 @@
       - 输入已不低于风格偏好 → 仍可请求少量推进（出厂满刻度 3 dB），有效提升服从峰值与动态约束；
       - 轻量频谱修正与染色保持可用，具体动作受当前频谱、置信度、风格上限和动态预算约束；
       - 画像无效 / 置信度低 → 按置信度收紧正向增益与处理量；
-      - 手动设置已超约束 → 撤回**该模块**的自动增量并标 limitedByManual，不反向改手动值；只有手动已让限幅器超约束、Limit 旁通、
-        约束反馈上限低于手动链净增益这三种「电平类自动全部撤回」的情况另标 automaticLevelWithdrawn——编排器的校准、保护层、
-        约束反馈与画像失配只看它（T-032 R6-02：手动 Heat / Glue / Clip 单独超预算时自动 Gain 照常推响，安全层不能停摆）；
+      - 手动设置已超约束 → 撤回**该模块**的自动增量并标 limitedByManual（界面提示），不反向改手动值；其中手动已让限幅器超约束、
+        Limit 旁通、约束反馈上限低于手动链净增益这三种「电平类自动全部撤回」另标 automaticLevelWithdrawn（T-032 R6-02）：手动
+        Heat / Glue / Clip 单独超预算时自动 Gain 照常推响，编排器的画像失配照常判定（看 automaticLevelWithdrawn）；保护层、校准与
+        约束反馈仍看 limitedByManual，原因见 GlazeTypes.h Plan::automaticLevelWithdrawn；
       - 算法 8 起（T-032，按快照的 algorithmVersion 分流，旧快照逐位不变）：自动 Heat 只承担换算表里该电平真能削掉的峰均比份额、
         削不到 Constants::heatUsefulCrestDb 就只留风格底量 StyleConstants::automaticHeatFloor × 强度（出厂残差 Heat 表下恒为底量，
         与音乐无关的「顶到风格上限」不再出现）；满强度增益不超过 Limit Gain 量程（24 − 手动 Gain）能交付的净增益，超出即受约束。
