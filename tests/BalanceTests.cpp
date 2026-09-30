@@ -351,14 +351,20 @@ namespace celadon::test
             return fftSizeFor (sampleRate) / 32;   // hop / 8
         }
 
-        bool isInsidePublishWindow (int samplesProcessed, double sampleRate)
+        // 读数时刻（已处理的样本数）在所属 hop 里的相位 0 ～ hop − 1；第一次分析（第「点数」个样本）之前与正好在它上面时返回 −1。
+        int phaseAfterHop (int samplesProcessed, double sampleRate)
         {
             const auto fftSize = fftSizeFor (sampleRate);
 
             if (samplesProcessed <= fftSize)
-                return false;
+                return -1;
 
-            const auto phase = (samplesProcessed - fftSize) % (fftSize / 4);
+            return (samplesProcessed - fftSize) % (fftSize / 4);
+        }
+
+        bool isInsidePublishWindow (int samplesProcessed, double sampleRate)
+        {
+            const auto phase = phaseAfterHop (samplesProcessed, sampleRate);
             return phase >= 1 && phase <= publishDelayFor (sampleRate);
         }
 
@@ -1570,8 +1576,10 @@ namespace celadon::test
         // 切一次旁通——参数在分析片之间变了，拆片版也必须只用 hop 边界上的快照。四个采样率 × 块长 1（只 48k）/ 7 / 32 / 33 / 64 /
         // 100 / 512 / 2048（超过 prepare 的 512，内部切块）。
         // 依据：新目标最早在 hop 后第一个重算间隔那次系数重算才用到；hop 边界上那次重算的插值比例是 0，只用到片 0 提交的起点。
-        // 阳性对照（T-032 R2-07 起，重算间隔随采样率翻倍）：每个采样率下落在发布窗内的读数里必须有拆片版读到上一帧的——
-        // 否则「跳过窗内读数」只是白跳，测不出发布真的晚了 1/8 hop（窗口写小了会在窗外红、写大了靠这条红）。
+        // 阳性对照（T-032 R2-07 起重算间隔随采样率翻倍，发布窗 = hop 后 1 ～ 1/8 hop 个样本）：每个采样率下，拆片版读到上一帧的
+        // 读数必须存在，而且其中最晚的一个正好落在窗的最后一个样本（相位 = 1/8 hop）上。窗外的读数（含相位 1/8 hop + 1）已逐位
+        // 比过、必须相同，两条合起来把发布时刻钉死在 hop 后第 1/8 hop 个样本：窗口写小了在窗外红，模块实际晚得比 1/8 hop 少
+        // （例如拆片间隔没跟着采样率缩放、仍是 64 样本）在这里红。块长 32 / 64 在每个采样率下每个 hop 都有一次读数正落在该相位上。
         void testSlicedAnalysisMatchesUnsliced()
         {
             beginTest ("analysis sliced over three points in each hop is bit-exact with the one-shot analysis");
@@ -1591,7 +1599,8 @@ namespace celadon::test
             for (auto sampleRate : { 44100.0, 48000.0, 96000.0, 192000.0 })
             {
                 const auto input = makeCombSignal (numChannels, sampleRate, sampleRate > 100000.0 ? 1.5 : 2.5, 31);
-                int delayedReadings = 0;   // 落在发布窗内且拆片版读到上一帧的读数（阳性对照，见上）
+                int delayedReadings = 0;      // 落在发布窗内且拆片版读到上一帧的读数（阳性对照，见上）
+                int latestDelayedPhase = -1;  // 这些读数里最晚的 hop 内相位
 
                 for (auto blockSize : { 1, 7, 32, 33, 64, 100, 512, 2048 })
                 {
@@ -1620,7 +1629,12 @@ namespace celadon::test
                     {
                         if (isInsidePublishWindow (a.readPositions[k], sampleRate))
                         {
-                            delayedReadings += sameGains (a.gains[k], b.gains[k]) ? 0 : 1;
+                            if (! sameGains (a.gains[k], b.gains[k]))
+                            {
+                                ++delayedReadings;
+                                latestDelayedPhase = juce::jmax (latestDelayedPhase, phaseAfterHop (a.readPositions[k], sampleRate));
+                            }
+
                             continue;
                         }
 
@@ -1634,6 +1648,8 @@ namespace celadon::test
 
                 expect (delayedReadings > 0, "positive control: readings inside the " + juce::String (publishDelayFor (sampleRate))
                                                  + "-sample publish window really see the previous frame @" + juce::String (sampleRate));
+                expectEquals (latestDelayedPhase, publishDelayFor (sampleRate),
+                              "positive control: the sliced analysis publishes exactly hop / 8 samples after the hop @" + juce::String (sampleRate));
             }
         }
 

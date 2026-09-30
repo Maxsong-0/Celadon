@@ -1536,8 +1536,9 @@ namespace celadon
             }
 
             // 推响不刺的起音检测：与自动 Tame 共用同一份「上一帧原始段功率」previousBandPower（每 hop 都更新），不再另存一份只在
-            // 刺耳块启用时才更新的副本——原来刺耳从关到开的第一 hop 拿陈旧值比较、可能白触发一次 55 ms 起音保持（T-032 R2-01）。
-            // 只在 h > 0、本段在 2 ～ 8 kHz 窗口内且门上时更新保持计时（判定条件与原来相同）；h = 0 时既不读也不写：逐位不变。
+            // 母带块运行时才更新的副本——原来刺耳从关到开的第一 hop 拿陈旧值（新实例是 reset 时的 0）比较，白触发一次 55 ms 起音
+            // 保持、头几 hop 只按 1 − p 起步（T-032 R2-01）。判定条件与原来相同：h > 0、本段在 2 ～ 8 kHz 窗口内且在门上。
+            // h = 0 起的实例保持计时恒为 0，这里既不读也不写它：逐位不变。
             if (frameParams.harshAmount > 0.0f && harshBandWeight[b] > 0.0 && bandAlive[b])
             {
                 const auto rising = bandPower[b] > harshOnsetPowerRatio * juce::jmax (powerFloor, previousBandPower[b]);
@@ -1545,7 +1546,8 @@ namespace celadon
             }
             else if (masteringOnsetHold[b] > 0.0)
             {
-                // h 刚关掉（余尾期）或本段落到门下：保持窗口照常走完，不冻结在「起音中」（原来冻结，余尾会一直乘 1 − p）。
+                // h 关掉（含余尾期）或本段落到门下：保持计时照常走完、不再冻结。原来冻结在「起音中」，剩下的时长留到下次 h 打开，
+                // 头几 hop 平白按起音处理（与上面的陈旧 previousPower 同一类问题）。
                 masteringOnsetHold[b] = juce::jmax (0.0, masteringOnsetHold[b] - hopSeconds);
             }
 
@@ -1752,11 +1754,10 @@ namespace celadon
         if (frameParams.harshAmount > 0.0f || frameParams.targetAmount > 0.0f || masteringHasTail)
         {
             // 可选的母带修正（推响不刺、目标频谱，设计规格-高级母带控制第 4、5 节）复用这组滤波器与分析，不加音频路径或延迟。
-            // 测量一律用所有段同速的 60 ms 快电平 quickLevelDb（updateTrackers 第 2 步已算好；原来这里再算一遍同样的 10·log10，
-            // T-032 R2-06）：逐段 Welch 时间常数会把电平阶跃当成频谱倾斜。刺耳判据原来本段用 Lfast（Welch + 攻击 80 / 释放 400 ms）、
-            // 邻段用快电平，宽带电平一降本段还挂在释放曲线上、超出量凭空出现——每个 decay / 鼓点间隙都把 2 ～ 8 kHz 压暗 1 ～ 3 dB
-            // （h = 1）；三者同一动态后共同变化相消，真持续局部峰的稳态不变（T-032 R2-01）。两种形状都以同一批活段定中心：参考的
-            // 录音电平不能变成增益。
+            // 测量一律用所有段同速的 60 ms 快电平（updateTrackers 第 2 步的 quickPower / quickLevelDb）：逐段 Welch 时间常数会把
+            // 电平阶跃当成频谱倾斜。刺耳判据原来本段用 Lfast（Welch + 攻击 80 / 释放 400 ms）、邻段用快电平，宽带电平一降本段还挂在
+            // 释放曲线上、超出量凭空出现——每个 decay / 鼓点间隙都把 2 ～ 8 kHz 压暗 1 ～ 3 dB（h = 1）；三者同一动态后共同变化
+            // 相消，真持续局部峰的稳态不变（T-032 R2-01）。两种形状都以同一批活段定中心：参考的录音电平不能变成增益。
             double measuredMean = 0.0, desiredMean = 0.0, weights = 0.0;
             PerBand<double> desiredShape {};
             if (frameParams.targetAmount > 0.0f)
@@ -1768,6 +1769,8 @@ namespace celadon
                     const auto usableReference = ! frameParams.hasTargetReference || desiredShape[b] > -65.0;
                     if (b < 3 || b > 25 || ! bandAlive[b] || ! usableReference) continue;
                     const auto w = gateWeight[b];
+                    // 直接读 quickLevelDb（与 updateTrackers 第 2 步同一表达式、之后没人写 quickPower；原来这里再算一遍 10·log10，
+                    // T-032 R2-06）。「均值 += w · 电平」合并乘加与否两式一样（乘积的两个因子逐位相同），各平台逐位不变。
                     measuredMean += w * quickLevelDb[b];
                     desiredMean += w * desiredShape[b];
                     weights += w;
@@ -1795,8 +1798,9 @@ namespace celadon
                 harshEnvelopeDb[b] = harsh + (harshEnvelopeDb[b] - harsh) * harshCoeff;
                 if (frameParams.harshAmount <= 0.0f && harshEnvelopeDb[b] < 1.0e-5) harshEnvelopeDb[b] = 0.0;
                 // 起音一来，已在施加的削减立刻乘 1 − p（不把释放拖进起音）；保持窗口结束后乘数以 20 ms 一阶爬回 1，不再一 hop 内硬跳回
-                // （T-032 R2-08：原来 h = 1、p = 0.5、包络 3 dB 时每次保持结束都是 +1.5 dB 的台阶，持续刺耳 + 密集鼓点上成 5 ～ 10 Hz
-                // 的颤音式调制）。乘数只在起音保持期间才离开 1，爬回到差 1e-6 内就归 1：从没起音过的 hop 与原运算逐位相同。
+                // （T-032 R2-08：原来 h = 1、p = 0.5、包络 3 dB 时每次保持结束都是约 +1.3 ～ 1.5 dB 的台阶，持续刺耳 + 密集鼓点上成
+                // 5 ～ 10 Hz 的颤音式调制；现在保持结束后第一 hop 最多约 +0.7 dB）。乘数只在起音保持期间才离开 1，爬回到差 1e-6 内就
+                // 归 1：乘数为 1 时与原运算逐位相同。
                 const auto duckTarget = masteringOnsetHold[b] > 0.0 ? 1.0 - (double) frameParams.transientPreserve : 1.0;
                 if (duckTarget < harshDuck[b])
                     harshDuck[b] = duckTarget;
@@ -1810,14 +1814,20 @@ namespace celadon
                 if (frameParams.targetAmount > 0.0f && weights >= 6.0 && b >= 3 && b <= 25 && bandAlive[b]
                      && (! frameParams.hasTargetReference || desiredShape[b] > -65.0))
                 {
-                    const auto measured = quickLevelDb[b] - measuredMean;
+                    // 这一处保留原式、不改读 quickLevelDb：「10·log10 (…) − 均值」在 clang 默认 -ffp-contract=on 下（Xcode 的 Apple
+                    // Silicon 正式构建）会把乘 10 与相减合并成一次乘加、只舍入一次；换成已舍入的 quickLevelDb 再相减会差最后一位，目标
+                    // 频谱 t > 0 时不再与改前逐位相同（ADR-013；T-032 核验说「对函数调用不合并」——合并的是乘 10 与相减，不是 log10）。
+                    // 只在 t > 0 时每 hop 最多 23 次 log10。
+                    const auto measured = 10.0 * std::log10 (juce::jmax (powerFloor, quickPower[b])) - measuredMean;
                     const auto error = desiredShape[b] - desiredMean - measured;
                     const auto outside = std::copysign (juce::jmax (0.0, std::abs (error) - 1.0), error);
                     correction = juce::jlimit (-2.5, 2.5, outside * 0.35) * frameParams.targetAmount * gateWeight[b];
                 }
                 masteringTargetDb[b] = correction + (masteringTargetDb[b] - correction) * targetCoeff;
                 if (frameParams.targetAmount <= 0.0f && std::abs (masteringTargetDb[b]) < 1.0e-5) masteringTargetDb[b] = 0.0;
-                masteringHasTail = masteringHasTail || harshEnvelopeDb[b] != 0.0 || masteringTargetDb[b] != 0.0;
+                // 余尾也要等起音闪避乘数回到 1（T-032 R2-08）：h 回 0 时若正在起音保持里，乘数走完 20 ms 的爬升再停块，不停在 1 以下、
+                // 留给下次 h 打开的头几 hop。h = 0 起的实例乘数恒为 1，不影响。
+                masteringHasTail = masteringHasTail || harshEnvelopeDb[b] != 0.0 || masteringTargetDb[b] != 0.0 || harshDuck[b] != 1.0;
                 publishedTargetDb[b].store ((float) masteringTargetDb[b] * frameAppliedAmount, std::memory_order_relaxed);
                 // 精确为 0 时连加法都跳过：旧工程保持原来的运算。
                 if (appliedHarsh != 0.0 || masteringTargetDb[b] != 0.0)

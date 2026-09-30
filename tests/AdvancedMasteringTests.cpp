@@ -694,13 +694,17 @@ namespace celadon::test
 
         // 按 512 一块送进 Balance，每块处理完读一次刺耳读数与 27 段 G。48 kHz 下块 = hop = 512：每块正好一笔（拆片时最后一片在
         // hop 后第 1/8 hop 处发布，落在同一块内），读数序列就是每 hop 的序列；其他采样率只作摘要用。
-        HarshRun renderHarshPerBlock (BalanceModule& module, Signal audio)
+        // beforeBlock (块序号) 在每块处理之前调（换参数用）；块边界与 hop 边界重合，所以第 k 块起设的参数正好从第 k 块的 hop 起生效。
+        template <typename BeforeBlock>
+        HarshRun renderHarshPerBlockWith (BalanceModule& module, Signal audio, BeforeBlock&& beforeBlock)
         {
             constexpr int blockSize = 512;
             HarshRun run;
+            int blockIndex = 0;
 
-            for (int offset = 0; offset < (int) audio[0].size(); offset += blockSize)
+            for (int offset = 0; offset < (int) audio[0].size(); offset += blockSize, ++blockIndex)
             {
+                beforeBlock (blockIndex);
                 float* ptrs[] { audio[0].data() + offset, audio[1].data() + offset };
                 juce::AudioBuffer<float> block (ptrs, 2, std::min (blockSize, (int) audio[0].size() - offset));
                 module.process (block);
@@ -712,6 +716,11 @@ namespace celadon::test
 
             run.output = std::move (audio);
             return run;
+        }
+
+        HarshRun renderHarshPerBlock (BalanceModule& module, Signal audio)
+        {
+            return renderHarshPerBlockWith (module, std::move (audio), [] (int) {});
         }
 
         // FNV-1a 64 位摘要（同 BalanceTests.cpp「logged digests」）：只用来比同一台机器、同一套编译选项下改前 / 改后的两次构建。
@@ -769,6 +778,7 @@ namespace celadon::test
             testHarshIgnoresDrumPulses();         // T-032 R2-01
             testHarshCymbalBurstObservation();    // T-032 核验漏项（只记录）
             testHarshOnsetRecoveryIsSmoothed();   // T-032 R2-08
+            testHarshSwitchOnHasNoStaleOnset();   // T-032 R2-01 / R2-08（陈旧的起音状态）
             testTargets();
             testDigests();                        // T-032 逐位证据（只记录）
             testReleaseRouting();
@@ -776,11 +786,11 @@ namespace celadon::test
         }
     private:
         //==============================================================================
-        // T-032 R2-01：宽带电平一降不许被当成「刺耳」。粉噪 −20 dBFS（本身平滑：2 ～ 8 kHz 各段与两邻段均值的差约 −0.5 dB，
-        // 远在 1.5 dB 死区内），6 s 处整体 −10 dB；harshAmount = 1、起音保留默认 0.5。改前本段用 Welch + 攻击 80 / 释放 400 ms
-        // 的 Lfast、邻段用 60 ms 快电平：电平一降本段挂在释放曲线上、超出量凭空出现，R2 / V2 复算峰值 2.99 dB（> 1 dB 持续 0.70 s）；
-        // 改后三者同一 60 ms 动态，共同变化相消。断言阶跃后 2 s 内 getHarshReductionDb() 峰值 < 0.3 dB（粉噪 60 ms 估计的统计抖动
-        // 偶尔越过 1.5 dB 死区，留 0.3 dB），阶跃前 2 s 同样 < 0.3 dB（对照：稳态本来就不该有）。
+        // T-032 R2-01：宽带电平一降不许被当成「刺耳」。粉噪 −20 dBFS（本身平滑：每个 1/3 倍频程功率相同，2 ～ 8 kHz 各段与两邻段
+        // 均值之差的期望约 0 dB，在 1.5 dB 死区之内），6 s 处整体 −10 dB；harshAmount = 1、起音保留默认 0.5。改前本段用 Welch
+        // + 攻击 80 / 释放 400 ms 的 Lfast、邻段用 60 ms 快电平：电平一降本段挂在释放曲线上、超出量凭空出现，R2 / V2 复算峰值 2.99 dB
+        // （> 1 dB 持续 0.70 s）；改后三者同一 60 ms 动态，共同变化相消。断言阶跃后 2 s 内 getHarshReductionDb() 峰值 < 0.3 dB
+        // （粉噪 60 ms 估计的统计抖动偶尔越过 1.5 dB 死区，留 0.3 dB），阶跃前 2 s 同样 < 0.3 dB（对照：稳态本来就不该有）。
         void testHarshIgnoresLevelStep()
         {
             beginTest ("harshness ignores a broadband -10 dB level step (own band and neighbours share the 60 ms tracker)");
@@ -937,12 +947,16 @@ namespace celadon::test
                         + juce::String (readingAt (0.150), 2) + " dB; peak in the 150 ms after the burst " + juce::String (peakInTail, 2) + " dB");
         }
 
-        // T-032 R2-08：起音保留的恢复侧不再硬切。素材同「persistent 3.15 kHz peak」（刺耳包络封顶 3 dB）+ 从 3 s 起每 0.5 s 一次
-        // 62.5 ms 的 ×3 宽带突发（起音判据 P > 1.7·P_prev 触发 55 ms 保持）；harshAmount = 1、起音保留默认 0.5。保持窗口里已施加
-        // 的削减仍立刻乘 1 − p（起音侧不变），窗口结束后乘数以 20 ms 一阶爬回 1：改前一 hop 内从 (1 − p)·包络跳回包络（本素材约
-        // +1.4 dB，R2 计最大 1.5 dB），改后第一 hop 最多 1.5 × (1 − e^(−10.67 / 20)) ≈ 0.62 dB 再加包络攻击的零头（≈ 0.64 dB）。
-        // 断言 2 s 起相邻 hop 读数的正向台阶 ≤ 0.75 dB（改前 ≈ 1.4 dB，稳拦得住）；对照：突发期间读数确实压到稳态的 0.7 倍以下
-        // （起音侧仍立刻闪避）、稳态读数 ≥ 2.5 dB（包络确实在封顶附近，台阶不是因为没东西可跳）。
+        // T-032 R2-08：起音保留的恢复侧不再硬切。素材同「persistent 3.15 kHz peak」（刺耳包络封顶 E = 3 dB）+ 从 3 s 起每 0.5 s 一次
+        // 62.5 ms 的 ×3 宽带突发（起音判据 P > 1.7·P_prev 触发 55 ms 保持）；harshAmount = 1、起音保留默认 p = 0.5。保持窗口里已施加
+        // 的削减仍立刻乘 1 − p（起音侧不变），窗口结束后乘数以 20 ms 一阶爬回 1。
+        // 门槛的来历（每 hop 10.67 ms，c = e^(−10.67/20) = 0.587，攻击 a = e^(−10.67/25) = 0.653）：保持期间包络的目标也只有 (1 − p)·E，
+        // 按 200 ms 释放往下走，保持结束时包络 e0 在 0.5E ～ 0.86E 之间（保持 6 hop 为 0.86E，越长越低）。结束后第一 hop 读数的升幅 =
+        // e1·(1 − p·c) − e0·(1 − p)，e1 = E − (E − e0)·a：e0 = 0.86E 时 0.64 dB，e0 → 0.5E 时趋近上界 0.68 dB；改前乘数硬跳回 1，
+        // 升幅 = e1 − e0·(1 − p)，同样范围内为 1.44 ～ 1.27 dB（R2 计最大 1.5 dB）。任务书写的「≤ 0.6 dB」在 10 ～ 20 ms 平滑下做
+        // 不到——单是乘数这一项就有 p·E·(1 − c) = 0.62 dB——所以断言 2 s 起相邻 hop 读数的正向台阶 ≤ 0.75 dB（上界 0.68 加余量，
+        // 仍远低于改前的 1.27）。对照：突发期间读数确实压到稳态的 0.7 倍以下（起音侧仍立刻闪避）、稳态读数 ≥ 2.5 dB（包络确实在
+        // 封顶附近，台阶不是因为没东西可跳）。
         void testHarshOnsetRecoveryIsSmoothed()
         {
             beginTest ("transient-preserve: the reduction returns after an onset hold without a hard step (<= 0.75 dB per hop)");
@@ -981,11 +995,61 @@ namespace celadon::test
             expect (largestRise <= 0.75f, "the reduction must climb back smoothly after an onset hold: " + juce::String (largestRise, 3));
         }
 
+        // T-032 R2-01（顺带修的陈旧状态）与 R2-08：刺耳从关到开的第一 hop 就按全力起步，不被陈旧状态当成起音。素材同
+        // 「persistent 3.15 kHz peak」（正弦比所在段的噪声高约 20 dB，段功率很稳，自己不会触发起音），起音保留默认 0.5，块 512 = hop：
+        //   1. 前 281 块（约 3 s）h = 0，之后 h = 1。原来起音比较用的「上一帧功率」只在母带块运行时才更新，新实例里还是 reset 时的 0，
+        //      打开那一 hop「本帧 > 1.7 × 上一帧」必然成立，白开一次 55 ms 起音保持：目标与已施加的削减都只剩一半，第一 hop 读数约
+        //      3 × (1 − e^(−10.67/25)) × 0.5 × 0.5 ≈ 0.26 dB。修后与自动 Tame 共用每 hop 更新的上一帧功率，第一 hop ≈ 1.04 dB。
+        //   2. 第 468 块起一次 ×3、3000 样本的宽带突发（真起音，第 470 块那一 hop 帧功率约升 3.8 倍），第 472 块把 h 关掉（此时起音
+        //      保持还在走）；余尾约 2.5 s 归零、母带块停下，第 750 块（8.0 s）再打开。原来 h = 0 时保持计时冻结，再打开的头几 hop
+        //      仍按起音处理（同样约 0.26 dB）；修后计时照常走完、闪避乘数也回到 1 才停块，再打开的第一 hop 与情形 1 一样约 1.04 dB。
+        // 断言两次打开的第一 hop 读数都 > 0.7 dB。阳性对照：从没打开时读数精确为 0；突发真的开了起音保持（关掉之前两 hop 的读数
+        // 压到稳态的 0.7 倍以下）；再打开之前余尾确实已归零、母带块已停（读数精确为 0）。
+        void testHarshSwitchOnHasNoStaleOnset()
+        {
+            beginTest ("harshness switched on, or back on after its tail, starts at full strength (no stale onset hold)");
+            constexpr int blockSize = 512, switchOnBlock = 281, burstBlock = 468, switchOffBlock = 472, switchBackBlock = 750;
+            auto signal = makeNoise (2, 9 * 48000, 0.07f, 937);
+            for (size_t i = 0; i < signal[0].size(); ++i)
+                for (auto& ch : signal)
+                    ch[i] += (float) (0.12 * std::sin (juce::MathConstants<double>::twoPi * 3150.0 * (double) i / masteringTestRate));
+            for (int i = burstBlock * blockSize; i < burstBlock * blockSize + 3000; ++i)
+                for (auto& ch : signal) ch[(size_t) i] *= 3.0f;
+
+            BalanceModule::Params off, on;
+            on.harshAmount = 1.0f;
+            BalanceModule module;
+            module.setParams (off);
+            module.prepare ({ masteringTestRate, (juce::uint32) blockSize, 2 });
+            const auto run = renderHarshPerBlockWith (module, signal, [&] (int blockIndex)
+            {
+                const auto enabled = (blockIndex >= switchOnBlock && blockIndex < switchOffBlock) || blockIndex >= switchBackBlock;
+                module.setParams (enabled ? on : off);
+            });
+
+            float steady = 0.0f;
+            for (int k = burstBlock - 12; k < burstBlock; ++k)
+                steady = std::max (steady, run.harshDb[(size_t) k]);
+            const auto ducked = std::min (run.harshDb[(size_t) switchOffBlock - 2], run.harshDb[(size_t) switchOffBlock - 1]);
+            const auto firstOn = run.harshDb[(size_t) switchOnBlock];
+            const auto firstBack = run.harshDb[(size_t) switchBackBlock];
+            logMessage ("  first hop after switching on " + juce::String (firstOn, 3) + " dB, after switching back on "
+                        + juce::String (firstBack, 3) + " dB (about 0.26 dB before the fix); steady " + juce::String (steady, 3)
+                        + " dB, onset duck before switching off " + juce::String (ducked, 3) + " dB");
+            expect (allFinite (run.output));
+            expectEquals (run.harshDb[(size_t) switchOnBlock - 1], 0.0f, "positive control: nothing is published before the first switch-on");
+            expect (ducked <= 0.7f * steady, "positive control: the burst opened an onset hold before harshness was switched off: "
+                                                 + juce::String (ducked, 3) + " of " + juce::String (steady, 3));
+            expectEquals (run.harshDb[(size_t) switchBackBlock - 1], 0.0f, "positive control: the tail has ended before harshness returns");
+            expect (firstOn > 0.7f, "first hop after switching on must not be treated as an onset: " + juce::String (firstOn, 3));
+            expect (firstBack > 0.7f, "first hop after switching back on must not inherit a frozen onset hold: " + juce::String (firstBack, 3));
+        }
+
         // T-032 逐位证据：固定素材、固定参数下输出、每块 G 与每块刺耳读数的 FNV-1a 摘要写进日志（grep「T032 digest」），改前 / 改后在
         // 同一台机器、同一套编译选项下人工比对（同 BalanceTests「logged digests」的做法）。三组：
-        //   target：目标频谱 t = 1（温暖）、刺耳 0——走目标块的测量（R2-06 把 10·log10 (quickPower) 换成已算好的 quickLevelDb、
-        //           目标时间常数预算），改后四个采样率都应逐位相同；R2-07 只改 ≥ 88.2 kHz 的系数重算间隔，96 / 192 kHz 的摘要随之改变，
-        //           44.1 / 48 kHz 不变；
+        //   target：目标频谱 t = 1（温暖）、刺耳 0——走目标块的测量（R2-06：均值改读已算好的 quickLevelDb、逐段 measured 保留原式、
+        //           目标时间常数预算），这几处本身各采样率逐位不变；R2-07 只改 ≥ 88.2 kHz 的系数重算间隔，所以改后 44.1 / 48 kHz 的
+        //           摘要与改前相同，96 / 192 kHz 随之改变（把 R2-07 单独退回的中间构建四个采样率都与改前相同，见 IMPL-A1 报告）；
         //   harsh：刺耳 h = 1、p = 0.5——R2-01 / R2-08 有意改变，摘要只作记录；
         //   both：两者同开。
         void testDigests()
