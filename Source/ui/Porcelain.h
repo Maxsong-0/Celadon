@@ -11,6 +11,12 @@
 
     只在 GLAZE、原声比较或像素比改变时重新渲染，按物理像素生成并缓存，平时每帧只贴图。
 
+    分层渲染（T-032 R9-02，GlazeRenderer）：逐像素的底层对 depth = GLAZE^0.75 是线性的（三档釉色各是两端按 depth 混合，
+    云斑、微粒、覆盖率与 GLAZE 无关），于是按像素比缓存 depth 0 与 1 两张基底图，每次只按 depth 混合；裂纹的描边轮廓
+    缓存成 Path、每次 fillPath；与 GLAZE 无关的积釉、釉光、反光、两圈外环、帽子缓存成一张覆盖层。叠放顺序与原算法
+    （renderGlaze，保留作逐像素参照）相同：底层 → 裂纹 → 覆盖层 → 去色。与参照的差别只来自两次 8 位量化（基底图端点、
+    釉色插值）与覆盖层先合成再叠加的取整，≤ 2 LSB（截图工具 --only check 逐像素核对）。
+
   ==============================================================================
 */
 
@@ -41,9 +47,33 @@ namespace celadon::ui::porcelain
     // GLAZE 比例（0 ～ 1）下显示前几条裂纹。
     int visibleCrackCount (float glazeProportion) noexcept;
 
-    // 渲染瓷面：返回 ARGB 图，覆盖逻辑区域 [−imageHalf, imageHalf]²，每逻辑像素 pixelScale 个像素。
+    // 渲染瓷面（参照实现：逐像素全量算）：返回 ARGB 图，覆盖逻辑区域 [−imageHalf, imageHalf]²，
+    // 每逻辑像素约 pixelScale 个像素（边长 round (2 × imageHalf × pixelScale)）。
     // desaturated = 听原声（A / B 的 B）时的去色版本（饱和度 30 %）。
+    // 界面用下面的 GlazeRenderer；这个函数是它逐像素对照的基准（截图工具的检查与基准）。
     juce::Image renderGlaze (float glazeProportion, float pixelScale, bool desaturated);
+
+    // 分层渲染（见文件头）：结果与 renderGlaze 同尺寸、同叠放顺序，差 ≤ 2 LSB。各层按图的边长缓存，
+    // 边长变了（像素比变了）才重建；只在消息线程用（与 GlazeKnob 同一线程）。
+    class GlazeRenderer
+    {
+    public:
+        juce::Image render (float glazeProportion, float pixelScale, bool desaturated);
+
+        // 各层重建的次数（截图工具读它：像素比不变时应当一直不变）。
+        int getLayerBuilds() const noexcept   { return layerBuilds; }
+
+    private:
+        void buildLayers (int size);
+        void buildCrackOutlines (float accuracy);
+
+        int layerSize = 0;
+        juce::Image base0, base1;                   // depth 0 / 1 的底层（预乘 ARGB，内存图：只按像素读）
+        juce::Image overlay;                        // 积釉、釉光、反光、外环、帽子（与 GLAZE 无关）
+        std::vector<juce::Path> crackOutlines;      // 每条裂纹的描边轮廓（与参照 strokePath 同一精度）
+        float crackOutlineAccuracy = 0.0f;
+        int layerBuilds = 0;
+    };
 
     // 把一张图去色到 saturation（1 = 原样，0 = 灰）：CSS saturate() 同一组系数。
     void desaturate (juce::Image& image, float saturation);

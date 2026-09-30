@@ -9,7 +9,6 @@
 #include "GlazeKnob.h"
 
 #include "CeladonLookAndFeel.h"
-#include "Porcelain.h"
 
 #include <cmath>
 
@@ -82,6 +81,14 @@ namespace celadon::ui
         return { 80, 97, 64, 30 };
     }
 
+    GlazeKnob::PaintStats GlazeKnob::getPaintStats() const noexcept
+    {
+        auto result = stats;
+        result.porcelainLayerBuilds = renderer.getLayerBuilds();
+        result.lastPorcelainMs = lastRenderCostMs;
+        return result;
+    }
+
     //==============================================================================
     bool GlazeKnob::needsRender() const noexcept
     {
@@ -104,7 +111,8 @@ namespace celadon::ui
         next.pixelScale  = wantedPixelScale > 0.0f ? wantedPixelScale : 1.0f;
         next.desaturated = comparing;
         next.cracks      = porcelain::visibleCrackCount (next.proportion);
-        next.image       = porcelain::renderGlaze (next.proportion, next.pixelScale, next.desaturated);
+        next.image       = renderer.render (next.proportion, next.pixelScale, next.desaturated);
+        next.serial      = ++renderSerial;
 
         const auto finished = nowMs();
 
@@ -123,6 +131,7 @@ namespace celadon::ui
         current = std::move (next);
         lastRenderMs = finished;
         lastRenderCostMs = finished - started;
+        ++stats.porcelainRenders;
         repaint();
     }
 
@@ -156,23 +165,53 @@ namespace celadon::ui
     }
 
     //==============================================================================
-    void GlazeKnob::drawGlaze (juce::Graphics& g, const Rendered& rendered, float opacity) const
+    bool GlazeKnob::FaceKey::operator== (const FaceKey& other) const noexcept
+    {
+        return juce::exactlyEqual (value, other.value) && comparing == other.comparing && currentSerial == other.currentSerial
+            && previousSerial == other.previousSerial && juce::exactlyEqual (fade, other.fade);
+    }
+
+    GlazeKnob::FaceKey GlazeKnob::currentFaceKey() const noexcept
+    {
+        FaceKey key;
+        key.value = getValue();
+        key.comparing = comparing;
+        key.currentSerial = current.image.isValid() ? current.serial : 0;
+        key.previousSerial = isCrossfading() ? previous.serial : 0;
+        key.fade = isCrossfading() ? fade : 1.0f;
+        return key;
+    }
+
+    void GlazeKnob::drawGlaze (juce::Graphics& g, const Rendered& rendered, float opacity, float pixelScale) const
     {
         if (! rendered.image.isValid() || opacity <= 0.0f)
             return;
 
-        // 图覆盖逻辑区域 [−90, 90]²（圆心为原点），每逻辑像素 pixelScale 个像素：缩回逻辑尺寸、移到旋钮中心。
-        const auto pixelsPerUnit = (float) rendered.image.getWidth() / (2.0f * porcelain::imageHalf);
+        const auto imageSize = (float) rendered.image.getWidth();
+
+        // 瓷面图按 rendered.pixelScale 生成（边长 round (180 × 像素比)），圆心对准旋钮中心。像素比与此刻一致：整数设备像素
+        // 对齐贴（R9-07：最近邻、整块拷贝，圆心误差 ≤ 0.5 px）；不一致（缩放窗口后、新瓷面按新像素比生成前的约 150 ms）：
+        // 按比例变换贴图，图覆盖逻辑区域 [22, 202]²。
+        if (std::abs (rendered.pixelScale - pixelScale) <= 1.0e-4f * pixelScale)
+        {
+            const auto origin = juce::roundToInt (centreXY * pixelScale - imageSize * 0.5f);
+            drawCachedImage (g, rendered.image, pixelScale, { origin, origin }, opacity);
+            return;
+        }
+
+        const auto pixelsPerUnit = imageSize / (2.0f * porcelain::imageHalf);
         const auto transform = juce::AffineTransform::scale (1.0f / pixelsPerUnit)
                                    .translated (centreXY - porcelain::imageHalf, centreXY - porcelain::imageHalf);
 
+        juce::Graphics::ScopedSaveState saved (g);
         g.setOpacity (opacity);
         g.drawImageTransformed (rendered.image, transform, false);
     }
 
     void GlazeKnob::paint (juce::Graphics& g)
     {
-        const auto pixelScale = juce::jmax (0.5f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        const auto contextScale = physicalPixelScale (g);
+        const auto pixelScale = juce::jmax (0.5f, contextScale);   // 瓷面最低按 0.5 倍生成
 
         if (! juce::approximatelyEqual (pixelScale, wantedPixelScale))
         {
@@ -187,12 +226,29 @@ namespace celadon::ui
         if (! current.image.isValid())
             render (false);
 
+        ++stats.paints;
+
+        // 整颗旋钮的缓存图：键没变就直接贴（GLAZE 不动时的每一次 paint），变了按此刻的像素比重新合成一次。
+        const auto key = currentFaceKey();
+
+        if (! face.isValidFor (contextScale) || ! (key == faceKey))
+        {
+            face.render ({ 0.0f, 0.0f, (float) size, (float) size }, contextScale,
+                         [this, contextScale] (juce::Graphics& fg) { paintFace (fg, contextScale); });
+            faceKey = key;
+            ++stats.faceRenders;
+        }
+
+        // 听原声：合成好的整颗旋钮按 55 % 贴，等价于原来把各元素画进 55 % 的透明图层（被瓷面盖住的影子、被把手盖住的轨道
+        // 都不会透出来），但不再每次 paint 都开一层。
+        face.draw (g, comparing ? comparingOpacity : 1.0f);
+    }
+
+    void GlazeKnob::paintFace (juce::Graphics& g, float pixelScale) const
+    {
         const auto proportion = getProportion();
         const juce::Point<float> centre (centreXY, centreXY);
         const auto angle = knob::angleFor (proportion);
-
-        if (comparing)
-            g.beginTransparencyLayer (comparingOpacity);
 
         // 影子：旋钮下方压扁的柔和椭圆（设计稿 cy 100、rx 84、ry 13、模糊 6、#0A3038 20 %）。
         {
@@ -217,17 +273,15 @@ namespace celadon::ui
         }
 
         // 瓷面（交叉淡化中两张叠画）。
-        if (fade < 1.0f && previous.image.isValid())
+        if (isCrossfading())
         {
-            drawGlaze (g, previous, 1.0f);
-            drawGlaze (g, current, fade);
+            drawGlaze (g, previous, 1.0f, pixelScale);
+            drawGlaze (g, current, fade, pixelScale);
         }
         else
         {
-            drawGlaze (g, current, 1.0f);
+            drawGlaze (g, current, 1.0f, pixelScale);
         }
-
-        g.setOpacity (1.0f);
 
         // 帽子边上的白色短指针（r 27 → 33：贴着帽子边，不压中间的数字）。
         {
@@ -271,9 +325,6 @@ namespace celadon::ui
             g.setFont (percentFont);
             g.drawSingleLineText ("%", juce::roundToInt (x + numberWidth + 1.0f), juce::roundToInt (baseline));
         }
-
-        if (comparing)
-            g.endTransparencyLayer();
     }
 
     //==============================================================================

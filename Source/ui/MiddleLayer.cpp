@@ -120,13 +120,14 @@ namespace celadon::ui
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
-    void PillButton::setText (const juce::String& newText)
+    bool PillButton::setText (const juce::String& newText)
     {
         if (text == newText)
-            return;
+            return false;
 
         text = newText;
         repaint();
+        return true;
     }
 
     void PillButton::setLook (Look newLook)
@@ -138,13 +139,14 @@ namespace celadon::ui
         repaint();
     }
 
-    void PillButton::setDot (bool shouldShowDot)
+    bool PillButton::setDot (bool shouldShowDot)
     {
         if (dot == shouldShowDot)
-            return;
+            return false;
 
         dot = shouldShowDot;
         repaint();
+        return true;
     }
 
     int PillButton::getNaturalWidth() const

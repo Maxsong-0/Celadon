@@ -78,6 +78,9 @@ public:
     // 截图工具用：立刻刷新一帧读数，并把粒子动画往前推 seconds 秒（离屏时没有垂直同步）。
     void advanceForSnapshot (double seconds);
 
+    // 截图工具的基准用：上一次生成静态背景花的毫秒数（打开编辑器、缩放停下时在消息线程同步生成）。
+    double getStaticLayerRenderMs() const noexcept;
+
 private:
     class Canvas;
 
@@ -119,6 +122,13 @@ private:
     double lastOverMs = -1.0e9;                    // 最近一次 OUT 真峰值超过 Ceiling 的时刻
     double nonFiniteWarningUntilMs = 0.0;
     int lastNonFiniteBlocks = 0;
+
+    // 状态胶囊里 GLAZE 状态行的几段：View 已量化到显示精度，View 与语言都没变就沿用上次拼好的（T-032 R9-12）。
+    celadon::ui::glazestatus::View glazeSegmentsView;
+    celadon::Language glazeSegmentsLanguage = celadon::Language::chinese;
+    juce::StringArray glazeSegments;
+    bool glazeSegmentsValid = false;
+
     bool writingZoom = false;
     bool fittingZoomToScreen = false;              // applyStoredZoom 为放进屏幕缩小窗口时：resized 不写回
     const juce::Identifier uiZoomId { celadon::uiid::uiZoomProperty };
