@@ -929,10 +929,9 @@ namespace celadon::test
             }
         }
 
-        // 验收 4：Glue = 100、−6 dBFS 1 kHz 正弦 → getAndResetGainReductionDb 在 3 ～ 10 dB 之间，输出无 NaN / Inf。
-        // 区间按 2026-09-24 夜间修订：阈值 −24 dBFS、2:1、峰值检测时静态曲线的理论值就是 (−6 − (−24)) × (1 − 1/2) = 9 dB，
-        // 初版写的 3 ～ 8 dB 把理论值本身排除在外（设计规格-Color「修订」）。实测约 8.5 dB（dB 域平滑让读数略低于静态值）。
-        // 依据：规格「验收 4」原文。Glue 100 → 阈值 −24 dBFS，比率 2:1；读数是自上次读取以来的最大值，读完清零。
+        // 分频施压（设计规格-Color 2026-09-28 修订）：Glue 100、90 Hz −16 dBFS + 2.5 kHz −8 dBFS 双音，响的中频照常被压，
+        // 更轻的低音少挨压。实测（107，x86_64）：2026-09-28 原实现 low +0.66 / mid −2.92 dB；2026-09-29 T-032 R3-01 中频改用
+        // 联动增益后 +0.68 / −2.59 dB——低音保护不变，中频少挨了原中频检测器伪像多压的约 0.33 dB。只断言方向与量级。
         void testMultibandGlueLetsLowSitAboveMid()
         {
             beginTest ("glue compresses a loud mid tone more than a quieter low tone");
@@ -968,6 +967,11 @@ namespace celadon::test
             expect (lowChange > midChange + 1.0f, "the low tone must be compressed less than the mid tone");
         }
 
+        // 验收 4：Glue = 100、−6 dBFS 1 kHz 正弦 → getAndResetGainReductionDb 在 3 ～ 10 dB 之间，输出无 NaN / Inf。
+        // 区间按 2026-09-24 夜间修订：阈值 −24 dBFS、2:1、峰值检测时静态曲线的理论值就是 (−6 − (−24)) × (1 − 1/2) = 9 dB，
+        // 初版写的 3 ～ 8 dB 把理论值本身排除在外（设计规格-Color「修订」）。实测约 8.5 dB（dB 域平滑让读数略低于静态值）。
+        // 依据：规格「验收 4」原文。Glue 100 → 阈值 −24 dBFS，比率 2:1；读数是自上次读取以来的最大值，读完清零。
+        // （这段注释原先挂在上面的双音用例头上——2026-09-28 插入双音用例时错位，T-032 归位。）
         void testGlueGainReduction()
         {
             beginTest ("glue = 100 on -6 dBFS sine: 3..10 dB gain reduction, finite output");
