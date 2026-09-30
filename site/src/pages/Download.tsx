@@ -256,7 +256,7 @@ function Steps({ title, steps }: { title: string; steps: ReactNode[] }) {
       <ol className="rule-list mt-6">
         {steps.map((step, i) => (
           <li key={i} className="grid grid-cols-[2.5rem_1fr] items-baseline gap-3 py-5">
-            <span className="font-mono text-[12px] tracking-wider text-c600" aria-hidden="true">
+            <span className="font-mono text-[12px] tracking-wider text-c700" aria-hidden="true">
               {String(i + 1).padStart(2, '0')}
             </span>
             <p className="text-[15.5px] leading-[1.8] text-ink-2">{step}</p>

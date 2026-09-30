@@ -143,7 +143,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
         <article className="min-w-0 lg:max-w-[44rem]">
           {!page ? (
             <header>
-              <p className="text-[12px] tracking-[0.2em] text-c600">{label}</p>
+              <p className="text-[12px] tracking-[0.2em] text-c700">{label}</p>
               <h1 className="mt-4 font-serif text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.12] tracking-tight text-ink">没有这一页</h1>
               <p className="mt-5 text-[17px] leading-[1.75] text-ink-2">
                 地址可能改过了。回到<Link to={base} className="mx-1 text-c700 underline decoration-c300 underline-offset-4">{label}</Link>首页，或按 ⌘K / Ctrl K 搜一下。
@@ -152,7 +152,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
           ) : (
             <>
               <header className="mb-12">
-                <p className="text-[12px] tracking-[0.2em] text-c600">
+                <p className="text-[12px] tracking-[0.2em] text-c700">
                   {label}
                   {group ? <span className="text-ink-4"> · {group}</span> : null}
                 </p>

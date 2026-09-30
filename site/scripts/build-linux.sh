@@ -35,7 +35,8 @@ set +e
 cd "$HOME/$CELADON_REMOTE"
 export CI=1
 if [ -f pnpm-lock.yaml ]; then
-  pnpm install --frozen-lockfile --prefer-offline 2>&1 | tail -n 5 || pnpm install --prefer-offline 2>&1 | tail -n 5
+  # 锁文件与 package.json 对不上时才退回重解析；CI=1 下 pnpm 默认冻结锁文件，回退那句必须显式 --no-frozen-lockfile
+  pnpm install --frozen-lockfile --prefer-offline 2>&1 | tail -n 5 || pnpm install --no-frozen-lockfile --prefer-offline 2>&1 | tail -n 5
 else
   pnpm install --prefer-offline 2>&1 | tail -n 5
 fi

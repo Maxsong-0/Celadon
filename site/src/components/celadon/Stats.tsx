@@ -111,7 +111,7 @@ export default function Stats() {
           <Chapter n="柒" label="数字" en="In numbers" />
         </div>
         <p data-reveal className="mt-8 measure text-[15px] leading-[1.85] text-ink-2">
-          全部来自验证记录。百分比 = 单个音频线程「处理耗时 / 这一块音频的播放时长」，不是整机 CPU；测试数是 main 当前提交的全套结果。
+          全部来自验证记录。百分比 = 单个音频线程「处理耗时 / 这一块音频的播放时长」，不是整机 CPU；测试数是 0.1.8.5 发布前在 Linux 与 Windows 上的全套结果。
         </p>
         <ul ref={list} role="list" className="mt-16 grid grid-cols-2 border-y border-line md:grid-cols-3 lg:grid-cols-6">
           {stats.map((s, i) => (

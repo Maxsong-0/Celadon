@@ -21,8 +21,8 @@
 
   --color-ink: #0d1b21;
   --color-ink-2: #4b5e66;
-  --color-ink-3: #637780;
-  --color-ink-4: #8a9ca3;
+  --color-ink-3: #586c74; /* 纸色上 4.87:1（WCAG AA），原 #637780 只有 4.15 */
+  --color-ink-4: #6e8189; /* 纸色上 3.60:1，原 #8a9ca3 只有 2.52；只用于标签与注释 */
 
   --color-c100: #d5f1f5;
   --color-c200: #a3e0e8;
@@ -90,6 +90,17 @@
   }
   a {
     @apply underline-offset-4;
+  }
+  /* 等宽字关掉编程连字：JetBrains Mono 会把 -< >- -> 这类组合画成箭头（文件名 Celadon-<版本>-… 就被画歪了）。
+     SVG 示意图里的等宽字用行内 fontFamily，所以 svg text 一并关掉（对黑体无影响）。 */
+  code,
+  kbd,
+  pre,
+  samp,
+  .font-mono,
+  svg text {
+    font-variant-ligatures: none;
+    font-feature-settings: "calt" 0, "liga" 0;
   }
   :focus-visible {
     outline: 2px solid var(--color-c500);
@@ -224,7 +235,7 @@
   .prose-celadon ul > li::before { content: ""; @apply absolute left-1 top-[0.78em] size-1.5 rounded-full bg-c400; }
   .prose-celadon ol { @apply list-none pl-0; counter-reset: item; }
   .prose-celadon ol > li { @apply relative pl-9; counter-increment: item; }
-  .prose-celadon ol > li::before { content: counter(item, decimal-leading-zero); @apply absolute left-0 top-[0.2em] font-mono text-[12px] text-c600 tracking-wider; }
+  .prose-celadon ol > li::before { content: counter(item, decimal-leading-zero); @apply absolute left-0 top-[0.2em] font-mono text-[12px] text-c700 tracking-wider; }
   .prose-celadon li + li { margin-top: 0.45em; }
   .prose-celadon blockquote { @apply border-l-2 border-c300 pl-5 text-ink-3 italic; }
   .prose-celadon hr { @apply border-0 h-px bg-line my-10; }

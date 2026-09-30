@@ -55,7 +55,7 @@ export default function Bento() {
               <li key={r.title} data-reveal className="grid gap-6 py-8 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
                 <div>
                   <div className="flex items-baseline gap-3">
-                    <span className="font-mono text-[12px] text-c600">0{i + 1}</span>
+                    <span className="font-mono text-[12px] text-c700">0{i + 1}</span>
                     <h3 className="font-serif text-[24px] font-semibold text-ink">{r.title}</h3>
                     <span className="display text-[13px] italic text-ink-4 hidden sm:inline">{r.en}</span>
                   </div>
@@ -102,7 +102,7 @@ function ArtAB() {
         return <rect key={i} x={4 + i * 8.2} y={32 - hh / 2} width="3.6" height={hh} rx="1.8" fill={after ? '#127F90' : '#A9C3B7'} />;
       })}
       <line x1="100" y1="2" x2="100" y2="62" stroke="#0D1B21" strokeOpacity="0.35" strokeDasharray="2 3" />
-      <text x="4" y="70" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#8A9CA3' }}>B 原声</text>
+      <text x="4" y="70" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#6E8189' }}>B 原声</text>
       <text x="196" y="70" textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#0E6473' }}>A 等响后 −4.8 dB</text>
     </svg>
   );
@@ -127,7 +127,7 @@ function ArtRef() {
       {pts.map(([x, y], i) => (
         <circle key={i} cx={x} cy={y + ((i % 4) - 1.5) * 1.6} r="1.7" fill="#0D1B21" opacity="0.45" />
       ))}
-      <text x="4" y="70" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#8A9CA3' }}>侧链 10 / 10 s · 参考就绪</text>
+      <text x="4" y="70" style={{ fontFamily: 'var(--font-mono)', fontSize: 8.5, fill: '#6E8189' }}>侧链 10 / 10 s · 参考就绪</text>
     </svg>
   );
 }

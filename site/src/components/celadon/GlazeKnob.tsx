@@ -252,11 +252,11 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
       {/* 读数 */}
       <text x={CX} y={CY + R_DISC + 60} textAnchor="middle" className="font-display" style={{ fontSize: 44, fontWeight: 500, fill: '#0D1B21', letterSpacing: '-0.02em', fontVariationSettings: '"opsz" 144, "SOFT" 30' }}>
         {Math.round(value)}
-        <tspan style={{ fontSize: 20, fill: '#637780' }} dx="4">
+        <tspan style={{ fontSize: 20, fill: '#586C74' }} dx="4">
           %
         </tspan>
       </text>
-      <text x={CX} y={CY + R_DISC + 84} textAnchor="middle" style={{ fontSize: 11, letterSpacing: '0.28em', fill: '#8A9CA3', fontFamily: 'var(--font-sans)' }}>
+      <text x={CX} y={CY + R_DISC + 84} textAnchor="middle" style={{ fontSize: 11, letterSpacing: '0.28em', fill: '#6E8189', fontFamily: 'var(--font-sans)' }}>
         {label}
       </text>
     </svg>

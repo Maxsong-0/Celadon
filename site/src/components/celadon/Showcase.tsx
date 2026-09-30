@@ -104,7 +104,7 @@ export default function Showcase() {
           {spots.map((s, i) => (
             <li key={s.title} data-reveal className="border-t border-line pt-5">
               <div className="flex items-baseline gap-3">
-                <span className="font-mono text-[12px] text-c600">{String(i + 1).padStart(2, '0')}</span>
+                <span className="font-mono text-[12px] text-c700">{String(i + 1).padStart(2, '0')}</span>
                 <h3 className="font-serif text-[18px] font-semibold text-ink">{s.title}</h3>
               </div>
               <p className="mt-2 text-[14px] leading-[1.8] text-ink-3">{s.body}</p>

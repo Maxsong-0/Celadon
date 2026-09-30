@@ -9,8 +9,8 @@ import { useId, type JSX, type ReactNode } from 'react';
 
 const INK = '#0D1B21';
 const INK2 = '#4B5E66';
-const INK3 = '#637780';
-const INK4 = '#8A9CA3';
+const INK3 = '#586C74';
+const INK4 = '#6E8189';
 const LINE = '#DCE6E9';
 const PANEL = '#FBFAF7';
 const C100 = '#D5F1F5';

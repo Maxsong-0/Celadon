@@ -7,9 +7,7 @@
 |---|---|---|
 | `SplitText.tsx` | 首屏标题逐字浮现（GSAP SplitText + ScrollTrigger） | 从 `@/lib/gsap` 取已注册的 gsap；加 `force3D` 属性（渐变字要关 3D 合成层）；动画结束清 transform；只等本段文字的字体子集而不是整页 fonts.ready |
 | `Magnet.tsx` | 按钮磁吸 | 无 |
-| `SpotlightCard.tsx` | 卡片跟随光斑 | 默认类改为青瓷浅色 |
 | `Topography.tsx` | 首屏釉面等高线（OGL WebGL） | 无 |
-| `GlareHover.tsx` | 平台卡片的釉光扫过 | 无 |
 
 没有 Pro 许可（环境里没有 `REACTBITS_LICENSE_KEY`），不用 Pro 的 blocks。
 
