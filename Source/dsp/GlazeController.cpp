@@ -1591,9 +1591,9 @@ namespace celadon::glaze
 
             // 「刚对同一条件试过、不反复重开」只记真正结束为无效的一轮（begin() 目标非有限时立即结束为无效：finish() 的其余
             // 路径都 valid = true），否则没有这道门每块都会重开。放弃的轮（updateCalibration：条件变了 3 s 没变回来）与换方案
-            // 丢掉的轮（requestPlanTransition）不经这里、不算「试过」——条件变回原样（校准中把 GLAZE 拧到 0 或切 Bypass 做
-            // A/B ≥ 3 s 再拧回、换风格再切回）照样能再开（T-032 R5-01：修前 beginRound 一开轮就记，放弃后参考逐位相同、
-            // 状态行写「稳定后自动校准」却永远不校准）。
+            // 丢掉的轮（requestPlanTransition）不经这里、不算「试过」——条件变回原样（校准中把 GLAZE 拧到 0 或切 Limit Bypass
+            // 做 A/B ≥ 3 s 再拧回、换风格再切回）照样能再开（T-032 R5-01 / 核验 M1：修前 beginRound 一开轮就记，放弃后参考逐位
+            // 相同、状态行写「稳定后自动校准」却永远不校准）。
             if (! committed.calibration.valid)
             {
                 lastAttemptReference = roundReference;
