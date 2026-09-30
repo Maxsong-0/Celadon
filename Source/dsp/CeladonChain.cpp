@@ -151,6 +151,12 @@ namespace celadon
         advanced.hasTargetReference = mode == TargetMode::reference && referenceStatus.hasReference;
         advanced.targetReferenceDb = referenceStatus.relativeDb;
         if (mode == TargetMode::reference && ! referenceStatus.hasReference) advanced.targetAmount = 0.0f;
+        // Ceiling 在链里先扣编码余量、再交给编排器与限幅器（下两行）：非有限值要在扣之前换成默认值（T-032 R8-02，与 GLAZE / 高级母带
+        // 同一口径），否则限幅器自己的守卫只能把「扣过余量的 NaN」换成不含余量的默认值，与「该字段取默认值」的链差一个余量；
+        // getEffectiveParams() 回写的 Ceiling 也因此总是有限。有限值原样通过，逐位不变。
+        if (! std::isfinite (adjusted.limit.ceilingDb))
+            adjusted.limit.ceilingDb = LimiterModule::Params {}.ceilingDb;
+
         const auto margin = std::isfinite (mastering.codecMarginDb) ? juce::jlimit (0.0f, 1.5f, mastering.codecMarginDb) : 0.0f;
         if (margin > 0.0f) adjusted.limit.ceilingDb = juce::jlimit (-4.5f, 0.0f, adjusted.limit.ceilingDb - margin);
         effective = controller.beginBlock (adjusted, dryPath);

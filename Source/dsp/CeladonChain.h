@@ -42,8 +42,10 @@
         等 Max 确认口径（pauseIntegrationOnHostBypass，现为 false：宿主旁通时照旧积分）。
       - reset() / restartWithFadeIn() 只把抖动随机序列回到固定种子，预听增益保留（核验漏项：改前同规格 prepareToPlay 后监听先回 0 dB）。
       - getEffectiveParams().mastering 回写交给模块的实际值（R10-01）：原样再喂给链（GLAZE 0）逐位复现推响不刺 / 目标频谱的强度与 Ceiling。
+      - 非有限的参数（R8-02）：链自己要拿来算的字段——GLAZE、高级母带的百分比与预听目标、Limit Ceiling（先扣编码余量）——按该字段的
+        默认值算；其余字段原样交给模块，由各模块自己的守卫管（Color / Limit 在 T-032 A2 / A3 线）。处理器 readParams 另有一道。
       - 链照旧不管输入（非有限输入的守卫在处理器，GlazeTests 的 v0.5 参照链对照固化了这一点）；两块表对非有限值自愈（R10-08，
-        LoudnessMeter.h），一个 NaN 不再让 IN 表的整体响度、GLAZE 分析与 Listen 永久停摆。
+        LoudnessMeter.h），一个 NaN 不再让 IN 表的短期响度从此无读数、整体响度冻结、GLAZE 分析与 Listen 停摆。
       预听从未打开、从未走干路时，输出、表与实际参数（除 mastering 回写那几项）与改动前逐位相同。
 
   ==============================================================================

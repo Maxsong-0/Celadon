@@ -296,8 +296,9 @@ namespace celadon
     void LoudnessMeter::finishSubBlock() noexcept
     {
         // 自愈（T-032 R10-08）：这 100 ms 里进了 NaN / Inf——K 加权状态已经坏了（转置 II 型状态与 NaN 相乘还是 NaN），清掉坏的声道，
-        // 这个子块整个丢掉：短期窗口与直方图永不吃非有限值（顺带消掉 floor(NaN) 转 int 的未定义行为），下一个子块起读数照常
-        //（改前一个 NaN 就让整体响度永远是 NaN）。门块要 4 个时间上连续的子块，丢掉的这个把连续性断开。
+        // 这个子块整个丢掉：短期窗口与直方图永不吃非有限值，下一个子块起读数照常。改前一个 NaN 就让短期响度从此一直是「无读数」
+        //（energyToLufs 把 NaN 能量当 noReading）、整体响度冻结在出事前的值（NaN 门块被绝对门挡掉）；+Inf 能量的门块则让下面
+        // floor 转 int 成了未定义行为。门块要 4 个时间上连续的子块，丢掉的这个把连续性断开。
         if (! std::isfinite (subBlockEnergy))
         {
             healFilterStates();
@@ -352,7 +353,7 @@ namespace celadon
         if (blockLufs < histogramMinLufs)
             return;   // 绝对门：−70 LUFS 以下不计入
 
-        // blockLufs 一定有限且 ≥ −70（能量有限、绝对门已挡掉更小的），floor 转 int 不再有 NaN 的未定义行为。
+        // blockLufs 一定有限且 ≥ −70（能量有限、绝对门已挡掉更小的），floor 转 int 不再有 ±Inf / NaN 的未定义行为。
         const auto bin = juce::jlimit (0, histogramBins - 1,
                                        (int) std::floor ((blockLufs - histogramMinLufs) * (float) histogramBinsPerLu));
         histogramEnergy[(size_t) bin] += meanSquare;

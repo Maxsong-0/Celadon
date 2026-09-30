@@ -2055,7 +2055,8 @@ namespace celadon::test
 // T-032（2026-09-29，A4-chain）：监听、表与实际参数的修复用例（研究 / 核验：docs/validation/2026-09-29-T032-deep-research，
 // 任务书 BRIEF-A4-chain.md）。两个测试类追加在文件末尾，上面的用例一行不动：
 //   CeladonChainMonitoring —— 只用 e6b445b（0.1.8.5）就有的公开接口：同一段用例原样放回改动前的源码也能编，107 上对照跑过，
-//     改前应当逐条失败（证明用例抓得住缺陷），改后全部通过（结果见 IMPL-A4-chain.md）；
+//     改前 14 条断言失败（证明用例抓得住缺陷；「Listen 开时退出预听」与「reset 仍把抖动序列回到种子」是对照 / 回归项，改前改后
+//     都过），改后全部通过（2026-09-30 在 107 上对照，数字见 IMPL-A4-chain.md）；
 //   CeladonChainGuards —— 用到本次新增的接口（LoudnessMeter::setIntegrationPaused、ReleaseSafety 的保持、ParameterDefaults.h）
 //     与非有限参数的链级用例（R8-02），放在文件最末（下面有分隔标记）。
 namespace celadon::test
@@ -2188,9 +2189,10 @@ namespace celadon::test
 
     private:
         // R8-01 / R10-03：退出归一化预听时监听增益不能单样本阶跃。受测链预听开着稳定 3 s，参照链从没开过预听；两条链在同一块做同样的
-        // 切换（关预听 / 听原声 / 宿主旁通 / 试听差值），逐样本比「受测 / 参照」的增益：阶跃在一个样本里变 0.6 以上（改前 107 实测
-        // 0.499 的增益比跳变），斜坡每样本 < 0.01（沿用「Listen switch must ramp」的判据）。Listen 关、链照常出母带时是发行端自己的
-        // 50 ms 斜坡（每样本的变化不超过 50 ms 线性斜坡的理论步长）；其余情形交给 Listen 的 20 ms 平滑器。斜坡走完两条链监听同一个增益。
+        // 切换（关预听 / 听原声 / 宿主旁通 / 试听差值），逐样本比「受测 / 参照」的增益：阶跃在一个样本里变很多（改前 107 实测这组参数
+        // ——稳态预听 −10.32 dB——下 0.695；研究在 −6 dB 下测到 0.499），斜坡每样本 < 0.01（沿用「Listen switch must ramp」的判据）。
+        // Listen 关、链照常出母带时是发行端自己的 50 ms 斜坡（每样本的变化不超过 50 ms 线性斜坡的理论步长）；其余情形交给 Listen 的
+        // 20 ms 平滑器。斜坡走完两条链监听同一个增益。
         // 宿主旁通：预听增益读数从第一个旁通块起是 0 dB（R10-03 核验保留的原意）。Listen 开的一行改前就交接给 Listen（对照）。
         void testPreviewExitNeverSteps()
         {
@@ -2335,8 +2337,9 @@ namespace celadon::test
                     "the OUT meter's sample clock keeps running through the original");
         }
 
-        // R8-04：预听中点表 Reset，整体读数要 400 ms 才回来——这段时间预听保持上一次的衰减，不回 0 dB 再落回（改前 107 实测 0.4 s 的
-        // +6 dB）：Reset 后 2 s 内预听增益最高不超过稳态 + 0.5 dB。从未有过读数时照旧是 0 dB（头 300 ms）。
+        // R8-04：预听中点表 Reset，整体读数要 400 ms 才回来——这段时间预听保持上一次的衰减，不回 0 dB 再落回（改前 107 实测这组参数下
+        // Reset 后预听增益回到 0.000 dB，稳态 −10.32 dB；研究在 −6 dB 下测到 0.4 s 的 +6 dB）：Reset 后 2 s 内预听增益最高不超过
+        // 稳态 + 0.5 dB。从未有过读数时照旧是 0 dB（头 300 ms）。
         void testMeterResetKeepsPreview()
         {
             beginTest ("a meter Reset during the preview keeps the attenuation instead of jumping back to 0 dB for 0.4 s");
@@ -2377,7 +2380,7 @@ namespace celadon::test
         }
 
         // 核验漏项：同规格 prepareToPlay（setParams + reset）与播放中途的 restartWithFadeIn 都不把预听增益归一（改前先回 0 dB 再 50 ms
-        // 滑回，音频从链延迟后出来时还剩约 2.5 dB 过响）。两块表不清、整体读数还在，衰减接着生效。
+        // 线性滑回：107 实测这组参数下之后 0.5 s 的预听增益读数最高 −0.33 dB，稳态 −10.32 dB）。两块表不清、整体读数还在，衰减接着生效。
         void testResetKeepsPreviewGain()
         {
             for (int variant = 0; variant < 2; ++variant)
@@ -2450,9 +2453,10 @@ namespace celadon::test
 
         // R10-08：链自己不管输入（守卫在处理器），但一个 NaN 进了表不能永久污染它。
         //   - 单独一块 LoudnessMeter：稳定音 2 s → 含 NaN 的一块 → 稳定音 3 s：短期与整体读数恢复成有限值、与出事前相差很小
-        //     （改前整体读数永远是 NaN）；
+        //     （改前 107 实测：整体读数冻结在出事前的值，短期读数从此一直是 −100「无读数」）；
         //   - 整条链（GLAZE 35，聆听中）：中途一块含 NaN——它过完链延迟到达输出的那一块被清零、整链重启淡入（链的输出守卫，改动前就有），
-        //     输出全部有限；之后 1 s 内 IN 表读数恢复，GLAZE 聆听继续推进（改前 IN 表每个子块都是 NaN，分析器全部跳过，聆听停住）。
+        //     输出全部有限；之后 1 s 内 IN 表读数恢复，GLAZE 聆听继续推进（改前 IN 表每个子块都是 NaN，分析器全部跳过：107 实测短期
+        //     读数一直 −100、聆听时长停在 2.90 s 不再增加）。
         void testNonFiniteReachingMeters()
         {
             beginTest ("a NaN reaching a LoudnessMeter no longer poisons it: short-term and integrated recover");
@@ -2903,8 +2907,9 @@ namespace celadon::test
         // R8-02 链级：ChainParams 的每个浮点字段分别喂 NaN / +Inf / −Inf（其余参数把整条链推满：Limit Gain +24 dB、Glue / Heat / Clip、
         // 手动推响不刺 / 暖色目标 / 编码余量、修坯三项手动、预听开着）——输出全部有限、不静音、真峰值 ≤ 实际 Ceiling + 0.01 dB，并与该字段
         // 取「回退值」的链逐位相同。回退值 = 该字段的默认值（ChainParams / 各模块 Params / MasteringSettings 的默认）；例外是修坯的三个手动值：
-        // ClayModule 按文档回退中性（低切关 = 0、加宽 0、收单分频点沿用模块初值 80 Hz）。GLAZE、高级母带、Balance、修坯的字段现在就判定。
-        // Color / Limit 的字段要等 A2 / A3 的模块守卫合进来（colorLimitGuardsMerged）才跑——之前连跑都不能跑：2026-09-30 在 107 上
+        // ClayModule 按文档回退中性（低切关 = 0、加宽 0、收单分频点沿用模块初值 80 Hz）。GLAZE、高级母带、Balance、修坯的字段与
+        // Limit Ceiling（链先扣编码余量，守卫在链里：这里编码余量 0.3 dB，改前 NaN Ceiling 扣完还是 NaN）现在就判定。
+        // 其余 Color / Limit 字段要等 A2 / A3 的模块守卫合进来（colorLimitGuardsMerged）才跑——之前连跑都不能跑：2026-09-30 在 107 上
         // color.heat = NaN 让测试进程段错误（ColorModule::heatCompensationFor 里 jlimit 放过 NaN，(int) NaN 越界查表）。
         void testNonFiniteParams()
         {
@@ -2942,7 +2947,7 @@ namespace celadon::test
                 { "color.mixPercent",           [] (CeladonChain::Params& p) -> float& { return p.color.mixPercent; },           defaults.color.mixPercent, colorOwner },
                 { "color.outputDb",             [] (CeladonChain::Params& p) -> float& { return p.color.outputDb; },             defaults.color.outputDb, colorOwner },
                 { "limit.gainDb",               [] (CeladonChain::Params& p) -> float& { return p.limit.gainDb; },               defaults.limit.gainDb, limitOwner },
-                { "limit.ceilingDb",            [] (CeladonChain::Params& p) -> float& { return p.limit.ceilingDb; },            defaults.limit.ceilingDb, limitOwner },
+                { "limit.ceilingDb",            [] (CeladonChain::Params& p) -> float& { return p.limit.ceilingDb; },            defaults.limit.ceilingDb, nullptr },
                 { "limit.releaseMs",            [] (CeladonChain::Params& p) -> float& { return p.limit.releaseMs; },            defaults.limit.releaseMs, limitOwner },
                 { "limit.lookaheadMs",          [] (CeladonChain::Params& p) -> float& { return p.limit.lookaheadMs; },          defaults.limit.lookaheadMs, limitOwner },
                 { "limit.clip",                 [] (CeladonChain::Params& p) -> float& { return p.limit.clip; },                 defaults.limit.clip, limitOwner },
@@ -3024,7 +3029,7 @@ namespace celadon::test
             }
 
             logMessage ("  " + juce::String (judged) + " field / value pairs judged; " + juce::String (pendingSkipped)
-                        + " Color / Limit fields skipped until their module guards are merged");
+                        + " Color / Limit fields skipped until their module guards are merged (A2 / A3)");
             expect (judged == 3 * (int) (std::size (fields) - (size_t) pendingSkipped), "every non-pending field was judged with all three values");
         }
     };
