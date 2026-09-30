@@ -16,6 +16,12 @@
       - 立体声（L = R）与单声道逐位相同（ARM 上两声道打包的双二阶与标量写法一致）；
       - 音频路径零分配；性能回归（48 kHz / 512 下相对 v0.4 的量级）。
 
+    T-032（2026-09-29，深度研究 R3 / R8 的 Color 部分）追加的用例在文件末尾（「T-032」分隔线之后）：
+      - 输出指纹（FNV-1a）：逐位不变的改动改前改后对照日志；
+      - Glue 实际施加的增益跟联动静态曲线（R3-01：中频不再有自己的检测器）；
+      - Saturator::processTubeResidualBlock 与「整形后再减原样本」逐位相同（R3-04）；
+      - setParams 对 NaN / ±Inf 的守卫（R8-02）：非有限值回默认、有限值仍钳制，与取默认值的模块逐位相同。
+
   ==============================================================================
 */
 
@@ -325,6 +331,28 @@ namespace celadon::test
             return count;
         }
 
+        // 整段输出的 64 位 FNV-1a 指纹（按声道顺序、按每个 float 的位模式）：指纹相同即整段逐位相同。
+        // 给「逐位不变」的改动做改前改后的对照（日志里打印，见 testOutputFingerprint）。
+        std::uint64_t fingerprintOf (const Signal& signal)
+        {
+            std::uint64_t hash = 14695981039346656037ull;
+
+            for (const auto& channel : signal)
+                for (auto sample : channel)
+                {
+                    std::uint32_t bits;
+                    std::memcpy (&bits, &sample, sizeof (bits));
+
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        hash ^= (bits >> (8 * k)) & 0xffu;
+                        hash *= 1099511628211ull;
+                    }
+                }
+
+            return hash;
+        }
+
         // 「像音乐」的立体声测试信号（固定种子）：粉红噪声 + 55 Hz 底鼓 + 军鼓噪声 + 踩镲 + 三个和弦音，峰值钳在 ±0.99。
         // 与 v0.5 研究 P3 / 实现 I2 的等价实验用同一个配方：宽带、有瞬态、有低频，Glue 会压、Heat 会饱和。
         Signal makeMusicLike (double sampleRate, double seconds, int seed = 20260925)
@@ -467,6 +495,12 @@ namespace celadon::test
             testPackedStereoMatchesScalar();
             testNoAllocationsOnAudioPath();
             testPerformanceRegression();
+
+            // T-032（2026-09-29）
+            testOutputFingerprint();
+            testGlueAppliedGainTracksLinkedCurve();
+            testTubeResidualBlockMatchesTubeMinusInput();
+            testNonFiniteParamsFallBackToDefaults();
         }
 
     private:
@@ -2406,6 +2440,308 @@ namespace celadon::test
             expect (defaultRatio < 0.25, "Color default / reference " + juce::String (defaultRatio, 3) + " (limit 0.25)");
             expect (glazeRatio < 0.6, "Color GLAZE 100 / reference " + juce::String (glazeRatio, 3) + " (limit 0.6)");
            #endif
+        }
+
+        //==============================================================================
+        // T-032（2026-09-29，深度研究 R3 / R8 的 Color 部分）追加的用例
+
+        // 输出指纹：固定素材 / 参数剧本下整段输出位模式的 FNV-1a 64 位散列，打进日志，并断言两个新实例得到同一指纹（确定性）。
+        // 用途：做「逐位不变」的改动（如 R3-04 打包 M/S 高通、残差直接相减）时对照改前改后的日志——指纹相同即整段逐位相同；
+        // 有意改输出的改动（如 R3-01）只该动 Glue 开着的场景。场景 1 ～ 3 Glue 关（Tone / Heat / Mix / Output 与 Heat 开关在动，
+        // 走到预热与近似链），场景 4 ～ 5 Glue 开。块长 333，让尾巴也走到。
+        void testOutputFingerprint()
+        {
+            beginTest ("output fingerprint (FNV-1a of the output bits, logged; identical across two fresh instances)");
+
+            constexpr double sampleRate = 48000.0;
+
+            struct Scenario { const char* name; Schedule paramsAt; double seconds; };
+            const Scenario scenarios[] = {
+                { "heat 100 / tone +2 / glue off",             [] (double) { return makeParams (2.0f, 0.0f, 100.0f, 100.0f, 0.0f); }, 1.0 },
+                { "heat 60 / tone -1.5 / mix 70 / out +3 / glue off", [] (double) { return makeParams (-1.5f, 0.0f, 60.0f, 70.0f, 3.0f); }, 1.0 },
+                { "heat 0/60 every 0.4 s / glue off",         [] (double t) { return makeParams (0.0f, 0.0f, ((int) (t / 0.4)) % 2 == 1 ? 60.0f : 0.0f, 100.0f, 0.0f); }, 1.6 },
+                { "glaze 100 (tone 0.75 / glue 40 / heat 30)", [] (double) { return glaze100Params(); }, 1.0 },
+                { "glue 100 / heat 0",                         [] (double) { return makeParams (0.0f, 100.0f, 0.0f, 100.0f, 0.0f); }, 1.0 },
+            };
+
+            for (const auto& scenario : scenarios)
+            {
+                const auto input = makeMusicLike (sampleRate, scenario.seconds, 20260929);
+                std::uint64_t hashes[2] = {};
+
+                for (auto& hash : hashes)
+                {
+                    ColorModule color;
+                    prepareColor (color, sampleRate, scenario.paramsAt (0.0));
+                    hash = fingerprintOf (runColorScheduled (color, input, sampleRate, 333, scenario.paramsAt));
+                }
+
+                logMessage ("  " + juce::String (scenario.name) + ": " + juce::String::toHexString ((juce::int64) hashes[0]));
+                expect (hashes[0] == hashes[1], juce::String (scenario.name) + ": two fresh instances must produce the same output");
+            }
+        }
+
+        // R3-01：Glue 实际施加的增益必须跟着联动静态曲线走。分频施压（2026-09-28）只允许低 / 高两路在自己更轻时少挨压；
+        // 对纯音，中频（180 Hz ～ 5 kHz）本该拿到「补偿 − 联动压缩量」这一个增益。修前 mid 检测器 = 侧链 − 低 − 高 不是互补分频
+        // （二阶 Butterworth 在交叉点相移 −90°），读数在 229 Hz / 3969 Hz 附近比整段高 2.1 dB，中频包络比联动深约 1 dB、
+        // 再被 −0.6 dB 钳位；加上低 / 高带 +3.2 dB 的抬升经二阶分裂在 300 Hz / 3 kHz 附近反相叠加（−0.77 dB 凹陷），
+        // −6 dBFS 纯音在 Glue 100 下比联动多压到 1.13 dB、Glue 40（GLAZE 100 对应值）下多压 0.64 dB——而联动 GR 才 1.3 dB，
+        // 表也不显示。修后中频直接用联动增益，剩下的偏差只来自分裂的相位凹陷：Glue 100 最坏 −0.65 dB（2.5 kHz）、Glue 40 ≤ 0.14 dB。
+        // 量法：48 kHz、−6 dBFS 正弦 2 s，取最后 46 块 × 512（约 0.49 s）：输出 / 输入基波幅度（相干投影，不受 64 样本延迟影响）
+        // 与「补偿 − 同一段按块长加权的平均压缩量 getBlockStats().glueGrMeanDb」之差。不用 getAndResetGainReductionDb：
+        // 它是窗口内最大值，正弦包络的纹波会把偏差读大（核验 V3-01）。
+        void testGlueAppliedGainTracksLinkedCurve()
+        {
+            beginTest ("glue applied gain tracks the linked static curve (mid band has no detector of its own)");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr double seconds = 2.0;
+            constexpr int measureFirstBlock = 141;   // 141 × 512 = 72192 ≈ 1.504 s：释放自适应（500 ms 平均）早已稳定
+            constexpr int measureBlocks = 46;        // 46 × 512 = 23552 ≈ 0.49 s
+            constexpr int measureStart = measureFirstBlock * maxBlock;
+            constexpr int measureLength = measureBlocks * maxBlock;
+            const auto amplitude = juce::Decibels::decibelsToGain (-6.0f);
+
+            struct Setting { float glue; double limitDb; };
+
+            for (const auto setting : { Setting { 100.0f, 0.75 }, Setting { 40.0f, 0.30 } })
+            {
+                // 自动补偿 = (0 − 阈值) × (1 − 1/2) × 0.5，阈值 = −24 × Glue / 100（规格「各级定义」）。
+                const auto makeupDb = 24.0 * (double) setting.glue / 100.0 * 0.5 * 0.5;
+                double worstDeviation = 0.0, worstFrequency = 0.0;
+
+                for (auto frequency : { 60.0, 90.0, 150.0, 229.0, 300.0, 500.0, 1000.0, 2500.0, 3969.0, 7000.0, 10000.0 })
+                {
+                    const auto input = makeSine (numChannels, sampleRate, frequency, amplitude, seconds);
+                    const auto numSamples = (int) input.front().size();
+                    auto output = input;
+
+                    ColorModule color;
+                    prepareColor (color, sampleRate, makeParams (0.0f, setting.glue, 0.0f, 100.0f, 0.0f));
+
+                    juce::AudioBuffer<float> block (numChannels, maxBlock);
+                    double reductionSum = 0.0;
+                    int reductionSamples = 0;
+
+                    for (int start = 0, index = 0; start < numSamples; start += maxBlock, ++index)
+                    {
+                        const auto length = juce::jmin (maxBlock, numSamples - start);
+                        block.setSize (numChannels, length, false, false, true);
+
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+
+                        color.process (block);
+
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + length, output[(size_t) ch].begin() + start);
+
+                        if (index >= measureFirstBlock && index < measureFirstBlock + measureBlocks)
+                        {
+                            reductionSum += (double) color.getBlockStats().glueGrMeanDb * length;
+                            reductionSamples += length;
+                        }
+                    }
+
+                    const auto meanReductionDb = reductionSum / juce::jmax (1, reductionSamples);
+                    const auto expectedGainDb = makeupDb - meanReductionDb;
+                    const auto inputAmplitude = toneAmplitude (input[0], measureStart, measureLength, sampleRate, frequency);
+                    const auto outputAmplitude = toneAmplitude (output[0], measureStart, measureLength, sampleRate, frequency);
+                    const auto appliedGainDb = (double) toDb (outputAmplitude / inputAmplitude);
+                    const auto deviation = appliedGainDb - expectedGainDb;
+                    const auto label = "glue " + juce::String (setting.glue, 0) + " @" + juce::String (frequency, 0) + " Hz";
+
+                    logMessage ("  " + label + ": linked GR " + juce::String (meanReductionDb, 3) + " dB, expected "
+                                + juce::String (expectedGainDb, 3) + " dB, applied " + juce::String (appliedGainDb, 3)
+                                + " dB, deviation " + juce::String (deviation, 3) + " dB");
+                    expect (allFinite (output), label);
+
+                    // 侧链先过 100 Hz 高通：Glue 40（阈值 −9.6 dBFS、拐点起点 −12.6 dBFS）下 60 / 90 Hz 的 −6 dBFS 纯音被挡在拐点之下，
+                    // 联动本来就不压（0 / 0.12 dB）；那两点只核对「不压时增益 = 补偿」，其余频率联动必须在工作。
+                    if (frequency >= 150.0)
+                        expect (meanReductionDb > 0.5, label + ": the linked compressor must be working");
+
+                    expect (std::abs (deviation) < setting.limitDb, label + ": applied gain deviates from the linked curve by "
+                                                                      + juce::String (deviation, 3) + " dB (limit " + juce::String (setting.limitDb, 2) + ")");
+
+                    if (std::abs (deviation) > std::abs (worstDeviation))
+                    {
+                        worstDeviation = deviation;
+                        worstFrequency = frequency;
+                    }
+                }
+
+                logMessage ("  glue " + juce::String (setting.glue, 0) + ": worst deviation " + juce::String (worstDeviation, 3)
+                            + " dB @" + juce::String (worstFrequency, 0) + " Hz");
+            }
+        }
+
+        // R3-04：Saturator::processTubeResidualBlock (x) 与「processTubeBlock (x) 再逐样本减 x」逐位相同——4 路里 tanh4 的结果
+        // 先舍入成 float，再减同一个原样本，是同一个 IEEE 单精度减法、同一对操作数，只是省掉一次拷贝与第二遍循环
+        // （ColorModule::processResidualBlock 改前就是「拷贝 → processTubeBlock → 逐样本相减」）。输入含 ±0、非规格化、±1e30、
+        // ±Inf、NaN（saturatorTestInputs）与随机块；整段与按 1 / 2 / 3 / 5 / 7 / 13 切段；驱动量取现行映射 Heat 0 / 5 / 30 / 60 / 100
+        // 的 Mid（1 + h、0.04h）与 Side（1 + 0.5h、奇对称），外加旧版重驱动（6.4 / 0.09）。
+        void testTubeResidualBlockMatchesTubeMinusInput()
+        {
+            beginTest ("Saturator::processTubeResidualBlock is bit-identical to processTubeBlock minus the input");
+
+            const auto special = saturatorTestInputs();
+            const auto random = []
+            {
+                std::vector<float> values (4096);
+                juce::Random rng (2026);
+                for (auto& v : values)
+                    v = (rng.nextFloat() * 2.0f - 1.0f) * 1.5f;
+                return values;
+            }();
+
+            struct Drive { float drive, asymmetry; };
+            std::vector<Drive> drives;
+
+            for (auto heat : { 0.0f, 5.0f, 30.0f, 60.0f, 100.0f })
+            {
+                const auto h = heat / 100.0f;
+                drives.push_back ({ 1.0f + h, 0.04f * h });      // Mid
+                drives.push_back ({ 1.0f + 0.5f * h, 0.0f });    // Side
+            }
+
+            drives.push_back ({ 6.4f, 0.09f });
+
+            for (const auto& d : drives)
+            {
+                Saturator tube;
+                tube.setCurve (Saturator::Curve::Tube);
+                tube.setDriveAndAsymmetry (d.drive, d.asymmetry);
+                const auto label = "drive " + juce::String (d.drive, 3) + ", asymmetry " + juce::String (d.asymmetry, 4);
+
+                for (const auto* source : { &special, &random })
+                {
+                    // 参照：整形后再逐样本减原样本。
+                    auto reference = *source;
+                    tube.processTubeBlock (reference.data(), (int) reference.size());
+                    for (size_t i = 0; i < reference.size(); ++i)
+                        reference[i] -= (*source)[i];
+
+                    auto whole = *source;
+                    tube.processTubeResidualBlock (whole.data(), (int) whole.size());
+                    expect (std::memcmp (whole.data(), reference.data(), sizeof (float) * whole.size()) == 0,
+                            label + ": residual block must equal tube minus input bit for bit (whole block)");
+
+                    auto pieces = *source;
+                    const int lengths[] = { 1, 2, 3, 5, 7, 13 };
+                    int position = 0, which = 0;
+
+                    while (position < (int) pieces.size())
+                    {
+                        const auto length = juce::jmin (lengths[which++ % 6], (int) pieces.size() - position);
+                        tube.processTubeResidualBlock (pieces.data() + position, length);
+                        position += length;
+                    }
+
+                    expect (std::memcmp (pieces.data(), reference.data(), sizeof (float) * pieces.size()) == 0,
+                            label + ": residual block must not depend on where a sample sits in the block");
+                }
+            }
+        }
+
+        // R8-02：setParams 对非有限值（NaN / ±Inf）的守卫。juce::jlimit 对 NaN 两个比较都为假、原样返回：修前 Tone = NaN 让搁架
+        // 系数与输出变 NaN（链逐块清零重启），Output = NaN 让 decibelsToGain 返回 0 而永久静音，Heat = NaN 的补偿表索引越界读；
+        // APVTS 各层（"nan" 文本、NormalisableRange、setDenormalisedValue）都不拦，损坏 / 手改的工程文件会把它原样送到模块。
+        // 守卫：每个 float 字段 非有限 → Params{} 的默认值，有限值仍按范围钳制（范围内恒等，逐位不变）。
+        // 用例：① 每个字段分别喂 NaN / +Inf / −Inf——prepare 前设、播放中途切换两种——输出有限、非静音，并与「该字段取默认值」
+        // 的模块逐位相同；② 越界的有限值（Glue 150、Tone −10 …）仍与钳到边界的模块逐位相同（钳制路径没被改掉）。
+        void testNonFiniteParamsFallBackToDefaults()
+        {
+            beginTest ("non-finite parameters fall back to defaults and finite ones still clamp (bit-exact vs the sanitised module)");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr int blockSize = 64;
+            const auto input = makeMusicLike (sampleRate, 0.6, 4711);
+            const auto numSamples = (int) input.front().size();
+            const auto switchAt = numSamples / 2;
+            const auto base = makeParams (1.5f, 60.0f, 40.0f, 80.0f, 2.0f);   // 每个字段都不在默认值上，回默认后差别可见
+
+            using Field = float ColorModule::Params::*;
+            struct FieldCase { const char* name; Field field; };
+            const FieldCase fields[] = { { "toneDb", &ColorModule::Params::toneDb }, { "glue", &ColorModule::Params::glue },
+                                         { "heat", &ColorModule::Params::heat }, { "mixPercent", &ColorModule::Params::mixPercent },
+                                         { "outputDb", &ColorModule::Params::outputDb } };
+            struct ValueCase { const char* name; float value; };
+            const ValueCase values[] = { { "NaN", std::numeric_limits<float>::quiet_NaN() },
+                                         { "+Inf", std::numeric_limits<float>::infinity() },
+                                         { "-Inf", -std::numeric_limits<float>::infinity() } };
+
+            // 同一模块：前半段按 before，中途 setParams (after)（同 runWithSwitch，块长 64）。
+            auto runSwitched = [&] (const ColorModule::Params& before, const ColorModule::Params& after)
+            {
+                ColorModule color;
+                prepareColor (color, sampleRate, before);
+
+                Signal first, second;
+                for (const auto& channel : input)
+                {
+                    first.emplace_back (channel.begin(), channel.begin() + switchAt);
+                    second.emplace_back (channel.begin() + switchAt, channel.end());
+                }
+
+                auto output = runColor (color, first, blockSize);
+                color.setParams (after);
+                const auto tail = runColor (color, second, blockSize);
+
+                for (size_t ch = 0; ch < output.size(); ++ch)
+                    output[ch].insert (output[ch].end(), tail[ch].begin(), tail[ch].end());
+
+                return output;
+            };
+
+            for (const auto& f : fields)
+            {
+                auto sanitised = base;
+                sanitised.*(f.field) = ColorModule::Params {}.*(f.field);
+
+                ColorModule expectedModule;
+                prepareColor (expectedModule, sampleRate, sanitised);
+                const auto expectedFromStart = runColor (expectedModule, input, blockSize);
+                const auto expectedSwitched = runSwitched (base, sanitised);
+                expect (allFinite (expectedFromStart) && allFinite (expectedSwitched), juce::String (f.name) + ": reference must be finite");
+
+                for (const auto& v : values)
+                {
+                    auto broken = base;
+                    broken.*(f.field) = v.value;
+                    const auto label = juce::String (f.name) + " = " + v.name;
+
+                    ColorModule color;
+                    prepareColor (color, sampleRate, broken);
+                    const auto fromStart = runColor (color, input, blockSize);
+                    expect (allFinite (fromStart), label + ": output must stay finite");
+                    expect (rmsOf (fromStart, 0, numSamples) > 0.01, label + ": output must not be silent");
+                    expectEquals ((int) countBitDifferences (fromStart, expectedFromStart), 0,
+                                  label + " from the start: must equal the module with that field at its default");
+
+                    const auto switched = runSwitched (base, broken);
+                    expect (allFinite (switched), label + " mid-stream: output must stay finite");
+                    expectEquals ((int) countBitDifferences (switched, expectedSwitched), 0,
+                                  label + " mid-stream: must equal switching to the default value");
+                }
+            }
+
+            struct ClampCase { const char* name; ColorModule::Params outOfRange, clamped; };
+            const ClampCase clamps[] = {
+                { "above range", makeParams (10.0f, 150.0f, 250.0f, 130.0f, 9.0f), makeParams (3.0f, 100.0f, 100.0f, 100.0f, 6.0f) },
+                { "below range", makeParams (-10.0f, -20.0f, -5.0f, -1.0f, -9.0f), makeParams (-3.0f, 0.0f, 0.0f, 0.0f, -6.0f) },
+            };
+
+            for (const auto& c : clamps)
+            {
+                ColorModule a, b;
+                prepareColor (a, sampleRate, c.outOfRange);
+                prepareColor (b, sampleRate, c.clamped);
+                expectEquals ((int) countBitDifferences (runColor (a, input, blockSize), runColor (b, input, blockSize)), 0,
+                              juce::String (c.name) + ": out-of-range finite values must still clamp to the boundary");
+                expectEquals ((int) countBitDifferences (runSwitched (base, c.outOfRange), runSwitched (base, c.clamped)), 0,
+                              juce::String (c.name) + " mid-stream: out-of-range finite values must still clamp to the boundary");
+            }
         }
     };
 

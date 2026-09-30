@@ -267,6 +267,21 @@ namespace celadon
         });
     }
 
+    void Saturator::processTubeResidualBlock (float* data, int numSamples) const noexcept
+    {
+        const auto d        = vSplat (drive);
+        const auto b        = vSplat (asymmetry);
+        const auto offset   = vSplat (fastTanhOfAsymmetry);
+        const auto inverse  = vSplat (fastInverseSlopeAtZero);
+
+        applyInFours (data, numSamples, [&] (Vec x) noexcept
+        {
+            // 与 processTubeBlock 同一串运算得到 Tube (x)（已是舍入后的 float 向量），再减原样本 x：
+            // 先乘后减、各自舍入（ADR-013），与标量 data[i] -= 原样本 同一运算、同一操作数。
+            return vSub (vMul (vSub (tanh4 (vAdd (vMul (d, x), b)), offset), inverse), x);
+        });
+    }
+
     void Saturator::fastTanhBlock (float* data, int numSamples) noexcept
     {
         applyInFours (data, numSamples, [] (Vec x) noexcept { return tanh4 (x); });
