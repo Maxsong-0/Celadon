@@ -623,6 +623,138 @@ namespace celadon::test
             }
             return audio;
         }
+
+        //==============================================================================
+        // T-032（2026-09-29，R2-01 / R2-08 验收与逐位证据）用到的工具。
+        // 粉噪：Paul Kellet 7 极点近似，与 BalanceTests.cpp 同一组系数——那边在另一个编译单元的匿名命名空间里，这里只能再写一份。
+        Signal masteringPinkNoise (int channels, int numSamples, float rmsDbfs, juce::int64 seed)
+        {
+            constexpr int warmUp = 8192;
+            auto signal = makeSilence (channels, numSamples);
+            const auto targetRms = (double) juce::Decibels::decibelsToGain (rmsDbfs);
+
+            for (int ch = 0; ch < channels; ++ch)
+            {
+                juce::Random random (seed + (juce::int64) ch * 7919);
+                double b0 = 0.0, b1 = 0.0, b2 = 0.0, b3 = 0.0, b4 = 0.0, b5 = 0.0, b6 = 0.0;
+                auto& channel = signal[(size_t) ch];
+                double sumOfSquares = 0.0;
+
+                for (int i = -warmUp; i < numSamples; ++i)
+                {
+                    const auto white = (double) random.nextFloat() * 2.0 - 1.0;
+                    b0 = 0.99886 * b0 + white * 0.0555179;
+                    b1 = 0.99332 * b1 + white * 0.0750759;
+                    b2 = 0.96900 * b2 + white * 0.1538520;
+                    b3 = 0.86650 * b3 + white * 0.3104856;
+                    b4 = 0.55000 * b4 + white * 0.5329522;
+                    b5 = -0.7616 * b5 - white * 0.0168980;
+                    const auto pink = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+                    b6 = white * 0.115926;
+
+                    if (i >= 0)
+                    {
+                        channel[(size_t) i] = (float) pink;
+                        sumOfSquares += pink * pink;
+                    }
+                }
+
+                const auto gain = (float) (targetRms / std::sqrt (sumOfSquares / (double) numSamples));
+
+                for (auto& sample : channel)
+                    sample *= gain;
+            }
+
+            return signal;
+        }
+
+        // [start, end) 内乘 gain，两端 rampSamples 线性斜坡：电平阶跃 / 鼓点用，斜坡只为不让硬切的宽带咔哒混进来。
+        void applyGainSegment (Signal& signal, int start, int end, float gain, int rampSamples)
+        {
+            start = std::max (0, start);
+            end = std::min ((int) signal[0].size(), end);
+
+            for (int i = start; i < end; ++i)
+            {
+                const auto in = (float) (i - start + 1) / (float) rampSamples;
+                const auto out = (float) (end - i) / (float) rampSamples;
+                const auto g = 1.0f + (gain - 1.0f) * std::min (1.0f, std::min (in, out));
+
+                for (auto& channel : signal)
+                    channel[(size_t) i] *= g;
+            }
+        }
+
+        struct HarshRun
+        {
+            Signal output;
+            std::vector<float> harshDb;                     // 每块读一次 getHarshReductionDb()
+            std::vector<BalanceModule::BandGains> gains;    // 同时读的 27 段 G
+        };
+
+        // 按 512 一块送进 Balance，每块处理完读一次刺耳读数与 27 段 G。48 kHz 下块 = hop = 512：每块正好一笔（拆片时最后一片在
+        // hop 后第 1/8 hop 处发布，落在同一块内），读数序列就是每 hop 的序列；其他采样率只作摘要用。
+        HarshRun renderHarshPerBlock (BalanceModule& module, Signal audio)
+        {
+            constexpr int blockSize = 512;
+            HarshRun run;
+
+            for (int offset = 0; offset < (int) audio[0].size(); offset += blockSize)
+            {
+                float* ptrs[] { audio[0].data() + offset, audio[1].data() + offset };
+                juce::AudioBuffer<float> block (ptrs, 2, std::min (blockSize, (int) audio[0].size() - offset));
+                module.process (block);
+                run.harshDb.push_back (module.getHarshReductionDb());
+                BalanceModule::BandGains gains {};
+                module.getBandGainsDb (gains);
+                run.gains.push_back (gains);
+            }
+
+            run.output = std::move (audio);
+            return run;
+        }
+
+        // FNV-1a 64 位摘要（同 BalanceTests.cpp「logged digests」）：只用来比同一台机器、同一套编译选项下改前 / 改后的两次构建。
+        juce::uint64 fnv1a (const void* data, size_t size, juce::uint64 value)
+        {
+            const auto* bytes = static_cast<const unsigned char*> (data);
+
+            for (size_t i = 0; i < size; ++i)
+            {
+                value ^= (juce::uint64) bytes[i];
+                value *= 1099511628211ull;
+            }
+
+            return value;
+        }
+
+        constexpr juce::uint64 fnv1aBasis = 14695981039346656037ull;
+
+        juce::uint64 digestOf (const Signal& signal)
+        {
+            auto value = fnv1aBasis;
+            for (const auto& channel : signal)
+                value = fnv1a (channel.data(), channel.size() * sizeof (float), value);
+            return value;
+        }
+
+        juce::uint64 digestOf (const std::vector<BalanceModule::BandGains>& gains)
+        {
+            auto value = fnv1aBasis;
+            for (const auto& g : gains)
+                value = fnv1a (g.data(), sizeof (g), value);
+            return value;
+        }
+
+        juce::uint64 digestOf (const std::vector<float>& values)
+        {
+            return fnv1a (values.data(), values.size() * sizeof (float), fnv1aBasis);
+        }
+
+        juce::String hex (juce::uint64 value)
+        {
+            return "0x" + juce::String::toHexString ((juce::int64) value);
+        }
     }
 
     class AdvancedMasteringChainTests : public juce::UnitTest
@@ -633,11 +765,258 @@ namespace celadon::test
         {
             testNeutral();
             testHarshness();
+            testHarshIgnoresLevelStep();          // T-032 R2-01
+            testHarshIgnoresDrumPulses();         // T-032 R2-01
+            testHarshCymbalBurstObservation();    // T-032 核验漏项（只记录）
+            testHarshOnsetRecoveryIsSmoothed();   // T-032 R2-08
             testTargets();
+            testDigests();                        // T-032 逐位证据（只记录）
             testReleaseRouting();
             testMonitoringHandover();
         }
     private:
+        //==============================================================================
+        // T-032 R2-01：宽带电平一降不许被当成「刺耳」。粉噪 −20 dBFS（本身平滑：2 ～ 8 kHz 各段与两邻段均值的差约 −0.5 dB，
+        // 远在 1.5 dB 死区内），6 s 处整体 −10 dB；harshAmount = 1、起音保留默认 0.5。改前本段用 Welch + 攻击 80 / 释放 400 ms
+        // 的 Lfast、邻段用 60 ms 快电平：电平一降本段挂在释放曲线上、超出量凭空出现，R2 / V2 复算峰值 2.99 dB（> 1 dB 持续 0.70 s）；
+        // 改后三者同一 60 ms 动态，共同变化相消。断言阶跃后 2 s 内 getHarshReductionDb() 峰值 < 0.3 dB（粉噪 60 ms 估计的统计抖动
+        // 偶尔越过 1.5 dB 死区，留 0.3 dB），阶跃前 2 s 同样 < 0.3 dB（对照：稳态本来就不该有）。
+        void testHarshIgnoresLevelStep()
+        {
+            beginTest ("harshness ignores a broadband -10 dB level step (own band and neighbours share the 60 ms tracker)");
+            constexpr double seconds = 10.0, stepAt = 6.0;
+            auto signal = masteringPinkNoise (2, (int) (seconds * masteringTestRate), -20.0f, 20260929);
+            applyGainSegment (signal, (int) (stepAt * masteringTestRate), (int) signal[0].size(),
+                              juce::Decibels::decibelsToGain (-10.0f), 48);
+            BalanceModule module;
+            BalanceModule::Params params;
+            params.harshAmount = 1.0f;
+            module.setParams (params);
+            module.prepare ({ masteringTestRate, 512, 2 });
+            const auto run = renderHarshPerBlock (module, signal);
+            float beforePeak = 0.0f, afterPeak = 0.0f;
+            double overOneDbSeconds = 0.0;
+            for (size_t k = 0; k < run.harshDb.size(); ++k)
+            {
+                const auto t = (double) (k + 1) * 512.0 / masteringTestRate;
+                if (t >= stepAt - 2.0 && t < stepAt) beforePeak = std::max (beforePeak, run.harshDb[k]);
+                if (t >= stepAt && t < stepAt + 2.0)
+                {
+                    afterPeak = std::max (afterPeak, run.harshDb[k]);
+                    if (run.harshDb[k] > 1.0f) overOneDbSeconds += 512.0 / masteringTestRate;
+                }
+            }
+            logMessage ("  harsh reduction peak: 2 s before the -10 dB step " + juce::String (beforePeak, 3)
+                        + " dB, 2 s after " + juce::String (afterPeak, 3) + " dB (> 1 dB for "
+                        + juce::String (overOneDbSeconds, 3) + " s; R2 measured 2.99 dB / 0.70 s before the fix)");
+            expect (allFinite (run.output));
+            expect (beforePeak < 0.3f, "steady pink noise is not harsh: " + juce::String (beforePeak, 3));
+            expect (afterPeak < 0.3f, "a broadband level drop must not read as harshness: " + juce::String (afterPeak, 3));
+        }
+
+        // T-032 R2-01：鼓点式脉冲——250 ms 周期、前 50 ms −12 dBFS、其余 −30 dBFS 的粉噪（全段同步变化，1 ms 斜坡），8 s。改前每个
+        // 间隙都把 2 ～ 8 kHz 压暗（R2 复算：h = 1 时均值 1.84 dB、100 % 时间 > 1 dB）。断言 3 s 起 2 ～ 8 kHz 各段 G 的均值 > −0.3 dB、
+        // 刺耳读数均值 < 0.3 dB。对照：素材真的在跳（击打段与间隙的 RMS 相差 18 dB ± 1）。
+        void testHarshIgnoresDrumPulses()
+        {
+            beginTest ("harshness ignores drum-like broadband pulses (50 ms at -12 dBFS every 250 ms over -30 dBFS)");
+            constexpr double seconds = 8.0;
+            constexpr int period = 12000, hitLength = 2400;
+            auto signal = masteringPinkNoise (2, (int) (seconds * masteringTestRate), -30.0f, 20260930);
+            for (int start = 0; start < (int) signal[0].size(); start += period)
+                applyGainSegment (signal, start, start + hitLength, juce::Decibels::decibelsToGain (18.0f), 48);
+
+            double hitPower = 0.0, gapPower = 0.0;
+            int hitCount = 0, gapCount = 0;
+            for (int i = (int) (3.0 * masteringTestRate); i < (int) signal[0].size(); ++i)
+            {
+                const auto inHit = (i % period) >= 200 && (i % period) < hitLength - 200;
+                const auto inGap = (i % period) >= hitLength + 200 && (i % period) < period - 200;
+                const auto p = (double) signal[0][(size_t) i] * signal[0][(size_t) i];
+                if (inHit) { hitPower += p; ++hitCount; }
+                if (inGap) { gapPower += p; ++gapCount; }
+            }
+            const auto contrastDb = 10.0 * std::log10 ((hitPower / hitCount) / (gapPower / gapCount));
+            expect (std::abs (contrastDb - 18.0) < 1.0, "positive control: the pulses really are 18 dB above the gaps: " + juce::String (contrastDb, 2));
+
+            BalanceModule module;
+            BalanceModule::Params params;
+            params.harshAmount = 1.0f;
+            module.setParams (params);
+            module.prepare ({ masteringTestRate, 512, 2 });
+            const auto run = renderHarshPerBlock (module, signal);
+            const auto firstHop = (size_t) (3.0 * masteringTestRate / 512.0);
+            double harshSum = 0.0;
+            float harshPeak = 0.0f;
+            std::array<double, 27> gainSum {};
+            int hops = 0;
+            for (size_t k = firstHop; k < run.harshDb.size(); ++k)
+            {
+                harshSum += run.harshDb[k];
+                harshPeak = std::max (harshPeak, run.harshDb[k]);
+                for (size_t b = 0; b < 27; ++b) gainSum[b] += run.gains[k][b];
+                ++hops;
+            }
+            float lowestMeanGain = 0.0f;
+            for (int b = 0; b < 27; ++b)
+            {
+                const auto hz = BalanceModule::getBandCentreHz (b);
+                if (hz >= 1900.0f && hz <= 8200.0f)
+                    lowestMeanGain = std::min (lowestMeanGain, (float) (gainSum[(size_t) b] / hops));
+            }
+            logMessage ("  drum pulses from 3 s: harsh reduction mean " + juce::String (harshSum / hops, 3) + " dB, peak "
+                        + juce::String (harshPeak, 3) + " dB; lowest 2-8 kHz band G mean " + juce::String (lowestMeanGain, 3)
+                        + " dB (R2 measured mean 1.84 dB before the fix)");
+            expect (allFinite (run.output));
+            expect (harshSum / hops < 0.3, "drum gaps must not be read as harshness: mean " + juce::String (harshSum / hops, 3));
+            expect (lowestMeanGain > -0.3f, "2-8 kHz bands are not darkened by the pulses: " + juce::String (lowestMeanGain, 3));
+        }
+
+        // T-032 核验漏项（V2 第 3 节第 4 条）：镲片式 150 ms 亮瞬态。粉噪 −20 dBFS 底 + 从 2 s 起每 0.5 s 一次 150 ms 的 3.5 ～ 9 kHz
+        // 带限白噪突发（约 −14 dBFS，把 4 ～ 8 kHz 各段抬约 14 dB；2 ms 斜坡）。R2-01 修后判据用 60 ms 快电平，对 60 ～ 200 ms 的亮
+        // 瞬态比原来（Welch + 80 ms 攻击）反应快；55 ms 起音保持只盖前 55 ms、p = 0.5 只放一半。这里只把一次突发的逐 hop 读数与
+        // 尾巴记进日志，不设门槛——要不要像自动 Tame 那样加持续时间门槛是另一个设计决定（待 Max）。
+        void testHarshCymbalBurstObservation()
+        {
+            beginTest ("cymbal-like 150 ms bright bursts: log the per-hop harsh reduction and its tail (observation only)");
+            constexpr double seconds = 8.0, firstBurst = 2.0, burstPeriod = 0.5, burstLength = 0.15;
+            const auto length = (int) (seconds * masteringTestRate);
+            auto signal = masteringPinkNoise (2, length, -20.0f, 20260931);
+            auto bright = makeNoise (2, length, 1.0f, 20260932);
+            for (auto& channel : bright)
+            {
+                juce::dsp::IIR::Filter<float> highA, highB, low;
+                highA.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (masteringTestRate, 3500.0f);
+                highB.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass (masteringTestRate, 3500.0f);
+                low.coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass (masteringTestRate, 9000.0f);
+                for (auto& sample : channel)
+                    sample = low.processSample (highB.processSample (highA.processSample (sample)));
+            }
+            double brightPower = 0.0;
+            for (auto sample : bright[0]) brightPower += (double) sample * sample;
+            const auto brightGain = (float) (juce::Decibels::decibelsToGain (-14.0) / std::sqrt (brightPower / length));
+            const auto ramp = (int) (0.002 * masteringTestRate);
+            for (double start = firstBurst; start + burstLength < seconds - 0.5; start += burstPeriod)
+            {
+                const auto first = (int) (start * masteringTestRate), last = first + (int) (burstLength * masteringTestRate);
+                for (int i = first; i < last; ++i)
+                {
+                    const auto envelope = std::min (1.0f, std::min ((float) (i - first + 1) / ramp, (float) (last - i) / ramp));
+                    for (size_t ch = 0; ch < 2; ++ch)
+                        signal[ch][(size_t) i] += bright[ch][(size_t) i] * brightGain * envelope;
+                }
+            }
+
+            BalanceModule module;
+            BalanceModule::Params params;
+            params.harshAmount = 1.0f;
+            module.setParams (params);
+            module.prepare ({ masteringTestRate, 512, 2 });
+            const auto run = renderHarshPerBlock (module, signal);
+            expect (allFinite (run.output));
+
+            // 取 4.0 s 的那一次突发：从突发起点前一 hop 到起点后 300 ms，逐 hop 列出；再给峰值、55 / 110 / 150 ms 处与尾巴。
+            const auto hopSeconds = 512.0 / masteringTestRate;
+            const auto burstHop = (size_t) std::lround (4.0 / hopSeconds);
+            juce::String trace;
+            float peakInBurst = 0.0f, peakInTail = 0.0f;
+            const auto readingAt = [&] (double offsetSeconds)
+            {
+                return run.harshDb[std::min (run.harshDb.size() - 1, burstHop + (size_t) std::lround (offsetSeconds / hopSeconds))];
+            };
+            for (size_t k = burstHop - 1; k <= burstHop + 28 && k < run.harshDb.size(); ++k)
+            {
+                trace += (k == burstHop - 1 ? "" : " ") + juce::String (run.harshDb[k], 2);
+                const auto offset = ((double) k - (double) burstHop) * hopSeconds;
+                if (offset >= 0.0 && offset < burstLength) peakInBurst = std::max (peakInBurst, run.harshDb[k]);
+                if (offset >= burstLength && offset < burstLength + 0.15) peakInTail = std::max (peakInTail, run.harshDb[k]);
+            }
+            logMessage ("  cymbal burst at 4.0 s, per-hop harsh reduction (dB) from one hop before: " + trace);
+            logMessage ("  peak during the 150 ms burst " + juce::String (peakInBurst, 2) + " dB; at +55 ms "
+                        + juce::String (readingAt (0.055), 2) + ", +110 ms " + juce::String (readingAt (0.110), 2) + ", +150 ms "
+                        + juce::String (readingAt (0.150), 2) + " dB; peak in the 150 ms after the burst " + juce::String (peakInTail, 2) + " dB");
+        }
+
+        // T-032 R2-08：起音保留的恢复侧不再硬切。素材同「persistent 3.15 kHz peak」（刺耳包络封顶 3 dB）+ 从 3 s 起每 0.5 s 一次
+        // 62.5 ms 的 ×3 宽带突发（起音判据 P > 1.7·P_prev 触发 55 ms 保持）；harshAmount = 1、起音保留默认 0.5。保持窗口里已施加
+        // 的削减仍立刻乘 1 − p（起音侧不变），窗口结束后乘数以 20 ms 一阶爬回 1：改前一 hop 内从 (1 − p)·包络跳回包络（本素材约
+        // +1.4 dB，R2 计最大 1.5 dB），改后第一 hop 最多 1.5 × (1 − e^(−10.67 / 20)) ≈ 0.62 dB 再加包络攻击的零头（≈ 0.64 dB）。
+        // 断言 2 s 起相邻 hop 读数的正向台阶 ≤ 0.75 dB（改前 ≈ 1.4 dB，稳拦得住）；对照：突发期间读数确实压到稳态的 0.7 倍以下
+        // （起音侧仍立刻闪避）、稳态读数 ≥ 2.5 dB（包络确实在封顶附近，台阶不是因为没东西可跳）。
+        void testHarshOnsetRecoveryIsSmoothed()
+        {
+            beginTest ("transient-preserve: the reduction returns after an onset hold without a hard step (<= 0.75 dB per hop)");
+            auto signal = makeNoise (2, 8 * 48000, 0.07f, 937);
+            for (size_t i = 0; i < signal[0].size(); ++i)
+                for (auto& ch : signal)
+                    ch[i] += (float) (0.12 * std::sin (juce::MathConstants<double>::twoPi * 3150.0 * (double) i / masteringTestRate));
+            for (int burst = 0; burst < 10; ++burst)
+            {
+                const auto start = 3 * 48000 + burst * 24000;
+                for (int i = start; i < start + 3000; ++i)
+                    for (auto& ch : signal) ch[(size_t) i] *= 3.0f;
+            }
+            BalanceModule module;
+            BalanceModule::Params params;
+            params.harshAmount = 1.0f;
+            module.setParams (params);
+            module.prepare ({ masteringTestRate, 512, 2 });
+            const auto run = renderHarshPerBlock (module, signal);
+            const auto hopOf = [] (double s) { return (size_t) (s * masteringTestRate / 512.0); };
+            float steady = 0.0f, dip = 1000.0f, largestRise = 0.0f;
+            size_t riseAt = 0;
+            for (size_t k = hopOf (2.0); k < run.harshDb.size(); ++k)
+            {
+                if (k < hopOf (3.0)) steady = std::max (steady, run.harshDb[k]);
+                else dip = std::min (dip, run.harshDb[k]);
+                const auto rise = run.harshDb[k] - run.harshDb[k - 1];
+                if (rise > largestRise) { largestRise = rise; riseAt = k; }
+            }
+            logMessage ("  steady reduction " + juce::String (steady, 3) + " dB, deepest duck during bursts " + juce::String (dip, 3)
+                        + " dB, largest per-hop rise " + juce::String (largestRise, 3) + " dB at " + juce::String ((double) riseAt * 512.0 / masteringTestRate, 3)
+                        + " s (hard release before the fix: about 1.4 dB)");
+            expect (allFinite (run.output));
+            expect (steady >= 2.5f, "positive control: the persistent peak keeps the envelope near its 3 dB cap: " + juce::String (steady, 3));
+            expect (dip <= 0.7f * steady, "positive control: onsets still duck the applied reduction immediately: " + juce::String (dip, 3));
+            expect (largestRise <= 0.75f, "the reduction must climb back smoothly after an onset hold: " + juce::String (largestRise, 3));
+        }
+
+        // T-032 逐位证据：固定素材、固定参数下输出、每块 G 与每块刺耳读数的 FNV-1a 摘要写进日志（grep「T032 digest」），改前 / 改后在
+        // 同一台机器、同一套编译选项下人工比对（同 BalanceTests「logged digests」的做法）。三组：
+        //   target：目标频谱 t = 1（温暖）、刺耳 0——走目标块的测量（R2-06 把 10·log10 (quickPower) 换成已算好的 quickLevelDb、
+        //           目标时间常数预算），改后四个采样率都应逐位相同；R2-07 只改 ≥ 88.2 kHz 的系数重算间隔，96 / 192 kHz 的摘要随之改变，
+        //           44.1 / 48 kHz 不变；
+        //   harsh：刺耳 h = 1、p = 0.5——R2-01 / R2-08 有意改变，摘要只作记录；
+        //   both：两者同开。
+        void testDigests()
+        {
+            beginTest ("T-032 digests: output, per-block G and harsh readings for target-only, harsh-only and both (compare by hand)");
+            struct Case { const char* name; float harsh; float target; };
+            const Case cases[] = { { "target", 0.0f, 1.0f }, { "harsh", 1.0f, 0.0f }, { "both", 1.0f, 1.0f } };
+            for (auto rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+            {
+                auto signal = masteringPinkNoise (2, (int) (3.0 * rate), -20.0f, 20260933);
+                for (size_t i = 0; i < signal[0].size(); ++i)
+                    for (auto& ch : signal)
+                        ch[i] += (float) (0.05 * std::sin (juce::MathConstants<double>::twoPi * 3150.0 * (double) i / rate));
+                for (const auto& c : cases)
+                {
+                    BalanceModule module;
+                    BalanceModule::Params p;
+                    p.harshAmount = c.harsh;
+                    p.targetAmount = c.target;
+                    p.targetSlopeDbPerOct = -1.5f;
+                    module.setParams (p);
+                    module.prepare ({ rate, 512, 2 });
+                    const auto run = renderHarshPerBlock (module, signal);
+                    logMessage ("  T032 digest " + juce::String (c.name) + " @" + juce::String (rate, 0) + " Hz: output " + hex (digestOf (run.output))
+                                + ", G " + hex (digestOf (run.gains)) + ", harsh " + hex (digestOf (run.harshDb))
+                                + " (" + juce::String ((int) run.gains.size()) + " readings)");
+                    expect (allFinite (run.output), juce::String (c.name) + " @" + juce::String (rate, 0));
+                }
+            }
+        }
+
         void testNeutral()
         {
             beginTest ("GLAZE zero with new automatic defaults is bit-identical to the established manual chain");

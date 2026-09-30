@@ -21,7 +21,7 @@
       → 每段合计限制 −8 ～ +6 dB、−60 dBFS 静音门、每 hop 最多变 1 dB
       → 修正量 G[b]（dB）。
     执行：27 个 RBJ 峰值滤波器（Q ≈ 4.318，double 精度），两声道同一组增益；增益在两次 hop 之间按样本线性插值，
-    每 64 样本重算一次系数。零延迟；Recover = Tame = Brighten = 0 时 G 恒为 0 → 逐位直通。
+    每 1/8 hop（48 k 下 64 样本）重算一次系数。零延迟；Recover = Tame = Brighten = 0 时 G 恒为 0 → 逐位直通。
     只依赖 juce_dsp，可无头编译做自动测试。
 
     v0.5 性能优化（2026-09-25，研究 P4 R3 / R4 / R5），输出与 v0.4 的关系见各条：
@@ -29,8 +29,9 @@
         其他平台与单声道走标量（同一个 processBiquad）。
       - 增益精确为 0 的段，状态低于 1e-10 就归零（修 v0.4「Recover / Tame 拧回 0 后几段一直停不下、不再逐位直通」）。
         这一条与 v0.4 不逐位相同：只在归零那一刻差 ≤ 1e-10 的状态，输出差在 1 个 float LSB 以内。
-      - 每 hop 的分析拆成三片、摊到 hop 后第 0 / 32 / 64 个样本上做（新目标最早在第 64 个样本那次系数重算才用到），
-        削掉小块时的最坏块尖峰；G 与输出逐位不变，界面读到的 G 晚 64 个样本发布。
+      - 每 hop 的分析拆成三片、摊到 hop 后第 0 / 半个 / 一个重算间隔处做（48 k 下第 0 / 32 / 64 个样本；新目标最早在
+        hop 后第一个重算间隔那次系数重算才用到），削掉小块时的最坏块尖峰；G 与输出逐位不变，界面读到的 G 晚一个重算间隔
+        （1/8 hop）发布。
 
     v0.6（GLAZE，设计规格-GLAZE-分析器第 4 节）：每帧原始段功率快照放进固定容量的环形缓冲（readFramesSince），给分析器读
     频谱证据。只读 measureBandPowers 的结果、只多存一份，G 与输出逐位不变（改动前后摘要对照见 v0.6 A1 报告）。
@@ -41,6 +42,16 @@
     G 与输出逐位不变；不新增 FFT，每 hop 约 800 次复数乘加（27 段只覆盖约 35 Hz ～ 18 kHz，与采样率无关）。
     精确运算下 |X| ≤ bandPower（柯西-施瓦茨），发布前钳进 [−bandPower, bandPower]，只去掉舍入越界：读者由快照算出的
     P_M = (bandPower + X) / 2、P_S = (bandPower − X) / 2 永不为负，ρ = X / bandPower 永在 [−1, 1]。
+
+    T-032（2026-09-29，深度研究 R2 / 核验 V2，档案 设计规格-Balance / 设计规格-高级母带控制「2026-09-29 修订（T-032）」）：
+      - R2-01 推响不刺的超出量：本段也用 60 ms 快电平（原来本段 Lfast、邻段快电平，宽带电平一降就误判「刺耳」）；起音检测与自动
+        Tame 共用每 hop 更新的 previousBandPower。只在 h > 0 时改变输出；h = 0 / 旧工程 / GLAZE 0 逐位不变。
+      - R2-08 起音保留：起音侧仍立刻乘 1 − p，保持结束后乘数以 20 ms 一阶爬回 1（原来一 hop 内硬跳回）。h = 0 逐位不变。
+      - R2-05 上行掩蔽接收范围 1 ～ 3 段（距离 4 算术上永远触发不了）；R2-06 每 hop 的重复超越函数改为 prepare 时算一次、功率谱只
+        累加到段覆盖的 bin；两者逐位不变（改前 / 改后摘要对照见 docs/validation/2026-09-29-T032-deep-research/IMPL-A1-balance.md）。
+      - R2-07 系数重算间隔改为 1/8 hop（48 k 下仍是 64 样本，采样率每翻一倍随 hop 翻一倍），分析拆片的三片落在 hop 后第 0 / 1/16 /
+        1/8 hop 处：44.1 / 48 k 逐位不变，≥ 88.2 k 增益台阶的时间粒度回到与 48 k 相同的 1.33 ms（原来按样本数固定，192 k 下每秒
+        81 k 次 designPeak）。
 
   ==============================================================================
 */
@@ -110,8 +121,8 @@ namespace celadon
         // endSample = 本帧最后一个样本的时间戳（自上次 reset 以来处理过的样本数，与两块表同一时间轴）：本帧的分析窗是
         // [endSample − getAnalysisWindowSamples(), endSample)。
         // 旁通时分析照跑，快照照常发布（GLAZE 依赖这一点）。
-        // 发布时刻：本帧分析的最后一片（拆片时在 hop 后第 64 个样本，关掉拆片时在 hop 边界上）；两种做法发布的内容逐位相同，
-        // 只是拆片时晚 64 个样本才读得到。
+        // 发布时刻：本帧分析的最后一片（拆片时在 hop 后第 1/8 hop 处——48 k 下第 64 个样本、192 k 下第 256 个，关掉拆片时在
+        // hop 边界上）；两种做法发布的内容逐位相同，只是拆片时晚 1/8 hop 才读得到。
         struct FrameSnapshot
         {
             std::array<float, (size_t) numBands> bandPowerDb {};
@@ -145,8 +156,8 @@ namespace celadon
         int getActiveFilterCount() const noexcept;
 
         // 只给测试用：false = 每 hop 的分析全部在 hop 边界那一个样本上做完（v0.4 的做法）；true（默认）= 拆成三片
-        // 摊到 hop 后第 0 / 32 / 64 个样本上。两种做法的 G 与输出逐位相同（BalanceTests 对照），拆片只为削掉最坏块尖峰；
-        // 只是界面读到的 G 晚 64 个样本发布（最后一片在第 64 个样本）。
+        // 摊到 hop 后第 0 / 半个 / 一个重算间隔处（48 k 下第 0 / 32 / 64 个样本）。两种做法的 G 与输出逐位相同（BalanceTests
+        // 对照），拆片只为削掉最坏块尖峰；只是界面读到的 G 晚 1/8 hop 发布（最后一片在那里）。
         // 在 prepare 之后、处理之前调。
         void setAnalysisSlicingForTesting (bool shouldSlice) noexcept   { sliceAnalysis = shouldSlice; }
 
@@ -185,7 +196,7 @@ namespace celadon
         void filterChannelPairPacked (float* first, float* second, int numSamples, int channel, const int* bands, int numActive) noexcept;   // 只在 AArch64（NEON）与 x64（SSE2）上定义与调用
         void pushIntoAnalysisRing (const juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse);
 
-        // 每 hop 的分析分三片，落在 hop 后第 0 / 32 / 64 个样本上（见 BalanceModule.cpp「分析拆片」）：
+        // 每 hop 的分析分三片，落在 hop 后第 0 / 半个 / 一个重算间隔处（48 k 下第 0 / 32 / 64 个样本；见 BalanceModule.cpp「分析拆片」）：
         //   片 0：提交插值起点、快照参数、各声道加窗拷出、前一半声道的 FFT；
         //   片 1：前一半声道的功率谱累加；
         //   片 2：后一半声道的 FFT 与功率谱累加、27 段求和（v0.1.7.0 起连同左右交叉功率）、跟踪、判断、发布。
@@ -227,6 +238,7 @@ namespace celadon
         std::vector<float> frameBuffers;        // numChannels × 2 × fftSize：各声道加窗后的帧，performRealOnlyForwardTransform 原地用
         std::vector<double> powerSpectrum;      // fftSize / 2 + 1，各声道功率谱之和（求段能量时再按声道数取平均）
         int samplesUntilAnalysis = 0;           // 到下一次 hop 分析还有几个样本（跨块延续，与块大小无关）
+        int coefficientUpdateSamples = 0;       // 系数重算间隔 = hop / 8（48 k 下 64 样本，随采样率翻倍；T-032 R2-07），prepare 时定
         int samplesUntilCoefficientUpdate = 0;  // 到下一次系数重算还有几个样本
         int samplesSinceHop = 0;                // 本 hop 内已过的样本数，增益线性插值用
 
@@ -235,7 +247,7 @@ namespace celadon
         bool packedFiltering = true;            // false：两声道也走标量滤波（只给测试用）
         int nextAnalysisSlice = -1;             // 下一片的编号（1 或 2）；-1 = 没有做到一半的帧
         int samplesUntilNextSlice = 0;          // 到下一片还有几个样本
-        int analysisSliceSpacing = 0;           // 本帧相邻两片的间隔（样本）：拆片时 32，关掉时 0
+        int analysisSliceSpacing = 0;           // 本帧相邻两片的间隔（样本）：拆片时半个重算间隔（48 k 下 32），关掉时 0
         int frameChannels = 0;                  // 本帧分析的声道数（片 0 时的 analysedChannels）
         Params frameParams;                     // 片 0 时的参数：后面几片的跟踪 / 判断都用它，与一口气做完时逐位相同
         float frameAppliedAmount = 1.0f;        // 片 0 时「修正真正作用到输出上」的比例（1 − 旁通混合），发布给界面用
@@ -272,13 +284,16 @@ namespace celadon
         PerBand<double> automaticDeficitSeconds {}; // 自动 Recover 的连续缺口时长；仅利用现有频谱，每 hop 更新
         PerBand<double> automaticPeakSeconds {};    // 自动 Tame 的连续局部峰时长（起音保护期间不累计）
         PerBand<double> automaticOnsetHoldSeconds {};
-        PerBand<double> harshEnvelopeDb {}, masteringTargetDb {}, masteringPreviousPower {}, masteringOnsetHold {};
+        PerBand<double> harshEnvelopeDb {}, masteringTargetDb {}, masteringOnsetHold {};
+        PerBand<double> harshDuck {};              // 起音闪避乘数的状态（1 = 不闪避）：起音一来立刻降到 1 − p，保持结束后一阶爬回 1（T-032 R2-08）
+        PerBand<double> harshBandWeight {};        // 推响不刺的频率权重（2 kHz 0.5、2.5 ～ 8 kHz 1），窗口外为 0 = 不参与；prepare 时算好
         std::array<std::atomic<float>, 27> publishedTargetDb {};
         std::atomic<float> publishedHarshDb { 0.0f };
         bool masteringHasTail = false;
         PerBand<double> maskingBoostDb {};         // 上行掩蔽提升的平滑状态；Recover/Tame 不同时打开时保持 0
+        PerBand<double> maskingWeight {};          // 掩蔽转移等响锚定用的 A 计权功率权重，prepare 时算好（T-032 R2-06）
         PerBand<double> harmonicProtection {};     // 0 ～ 1，清晰谐波组的平滑保护证据；仅缩小自动 Tame 份额
-        PerBand<double> previousBandPower {};       // 起音检测用原始帧，避免慢测量的余尾继续获得自动许可
+        PerBand<double> previousBandPower {};       // 上一帧原始段功率：自动 Tame 与推响不刺的起音检测共用，每 hop 更新（避免慢测量的余尾继续获得自动许可）
         PerBand<double> hopStartGainDb {};      // 本 hop 开始时的 G[b]，插值起点
         double commonLevelDb = 0.0;             // 全段共同的电平 C：各段 (quickLevel − S) 的稳健位置估计，每 hop 直接重估
         double quickCoeff = 0.0;                // quickPower 的 hop 一阶系数
@@ -296,6 +311,15 @@ namespace celadon
 
         // ---- 时间常数（hop 一阶系数，按 Speed）----
         std::array<double, (size_t) numSpeeds> attackCoeff {}, releaseCoeff {}, referenceCoeff {};
+
+        // ---- 掩蔽转移 / 推响不刺 / 目标频谱的 hop 一阶系数（prepare 时算一次，T-032 R2-06；原来每 hop 现算 exp）----
+        double maskingBoostCoeff = 0.0;         // 上行掩蔽提升的平滑（0.18 s）
+        double harshAttackCoeff = 0.0;          // 刺耳包络攻击 25 ms
+        double harshReleaseCoeff = 0.0;         // 刺耳包络释放 200 ms
+        double harshDuckReleaseCoeff = 0.0;     // 起音闪避乘数爬回 1 的 20 ms（T-032 R2-08）
+        double targetSettleCoeff = 0.0;         // 目标频谱修正的 2 s 跟随
+        double targetReleaseCoeff = 0.0;        // 目标强度回 0 后修正 0.15 s 归零
+        int analysedBinCount = 0;               // 功率谱清零与累加的上限 = 最后一段末 bin + 3（更高的 bin 无人读，T-032 R2-06）
 
         // ---- 旁通：零延迟，与处理后信号 20 ms 交叉淡化 ----
         juce::SmoothedValue<float> bypassMixSmoothed;

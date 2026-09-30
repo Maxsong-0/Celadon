@@ -607,6 +607,7 @@ namespace celadon::test
         // v0.5（研究 P4 R5）：192k 块 32（8192 点 FFT、hop 2048 样本）下，每 hop 一次的分析是 Balance 最坏块的来源。
         // 拆成三片后最坏块应不超过一口气做完（测试开关）的 65%——两次 FFT 分到两块里，实测约 49%。同一次运行里对比两种
         // 做法，与机器快慢、供电状态无关。Recover = Tame = 0（默认参数：只剩分析）与 40 各量一次；另记 44.1k 块 1。
+        // T-032 R2-07 起三片落在 hop 后第 0 / 128 / 256 个样本（192k；间隔随 hop 缩放），块 32 下仍各落一块，比值口径不变。
         void testAnalysisSlicingHalvesTheSpike()
         {
             beginTest ("analysis slicing: worst block at 192 kHz / 32 samples <= 65% of the one-shot analysis");
