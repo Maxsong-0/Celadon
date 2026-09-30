@@ -1,6 +1,6 @@
 import { useRef, type ReactNode } from 'react';
 import SpotlightCard from '@/components/react-bits/SpotlightCard';
-import { SectionHead } from './Eyebrow';
+import { Em, SectionHead } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { cn } from '@/lib/utils';
 
@@ -79,7 +79,7 @@ export default function Bento() {
   return (
     <section ref={root} className="relative py-28 sm:py-36">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
-        <SectionHead eyebrow="监听与承诺" title={<>让你能判断，<span className="glaze-text">而不是只能相信</span>。</>} lead="母带最难的不是处理，是判断。Celadon 把「听清楚差别」当成功能做：等响、差值、参考，以及一条写进测试里的逐位承诺。" />
+        <SectionHead chapter={{ n: '伍', label: '判断', en: 'Judgement' }} title={<>让你能判断，<Em>而不是只能相信</Em>。</>} lead="母带最难的不是处理，是判断。Celadon 把「听清楚差别」当成功能做：等响、差值、参考，以及一条写进测试里的逐位承诺。" />
         <div className="mt-16 grid gap-4 md:grid-cols-12 md:auto-rows-[minmax(190px,auto)]">
           {cells.map(c => (
             <div key={c.title} data-cell className={cn('bezel', c.span)}>

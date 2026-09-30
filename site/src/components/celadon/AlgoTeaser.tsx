@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { SectionHead } from './Eyebrow';
+import { Em, SectionHead } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
 
 const items = [
@@ -75,7 +75,7 @@ export default function AlgoTeaser() {
     <section ref={root} className="relative py-28 sm:py-36 bg-paper-2/60">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-          <SectionHead eyebrow="公开算法 · 不是黑盒" title={<>算法写在纸上，<span className="glaze-text">式子和常数都给你</span>。</>} lead="每道工序的结构、式子与常数都摊开写：哪些做了、哪些刻意没做、为什么，都有验证记录可查。" />
+          <SectionHead chapter={{ n: '陆', label: '公开算法', en: 'Open algorithms' }} title={<>算法写在纸上，<Em>式子和常数都给你</Em>。</>} lead="每道工序的结构、式子与常数都摊开写：哪些做了、哪些刻意没做、为什么，都有验证记录可查。" />
           <Link to="/algorithms" className="group btn-island-ghost no-underline self-start lg:self-auto">
             全部算法页
             <span className="btn-island-icon bg-ink/6">

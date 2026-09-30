@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import GlazeKnob from './GlazeKnob';
 import ParticleField from './ParticleField';
-import { SectionHead } from './Eyebrow';
+import { Em, SectionHead } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { clamp, cn, prefersReducedMotion } from '@/lib/utils';
 
@@ -89,12 +89,12 @@ export default function GlazeSection() {
     <section id="glaze" ref={root} className="relative py-28 sm:py-36">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
         <SectionHead
-          eyebrow="GLAZE · 施釉 · 一个旋钮"
+          chapter={{ n: '贰', label: '施釉', en: 'One knob' }}
           title={
             <>
               先听这首歌，
               <br className="hidden sm:block" />
-              再决定<span className="glaze-text">推多远</span>。
+              再决定<Em>推多远</Em>。
             </>
           }
           lead="GLAZE 不是把所有旋钮同时调大。播放后它先听 15 ～ 30 秒，量这首歌的响度、动态、频谱与起音，得出画像与方案；旋钮只决定朝「这首歌的理想母带」推多远。0 = 完全不动，你的手动设置永远是底。"

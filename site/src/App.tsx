@@ -2,12 +2,11 @@ import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Nav from '@/components/celadon/Nav';
 import Footer from '@/components/celadon/Footer';
-import Noise from '@/components/react-bits/Noise';
-import ClickSpark from '@/components/react-bits/ClickSpark';
 import Home from '@/pages/Home';
-import { prefersReducedMotion } from '@/lib/utils';
 
 const DocsLayout = lazy(() => import('@/pages/DocsLayout'));
+const Download = lazy(() => import('@/pages/Download'));
+const Changelog = lazy(() => import('@/pages/Changelog'));
 
 function ScrollToTop() {
   const { pathname, hash } = useLocation();
@@ -17,10 +16,10 @@ function ScrollToTop() {
   return null;
 }
 
+// 纸纹在 index.css 的 body::before（静态）；不再有全站点击火花与每帧重绘的噪点（设计规格-官网 第 1 节第 6 条）。
 export default function App() {
-  const reduced = prefersReducedMotion();
   return (
-    <ClickSpark sparkColor="#1799AB" sparkSize={9} sparkRadius={18} sparkCount={8} duration={420}>
+    <>
       <ScrollToTop />
       <Nav />
       <Routes>
@@ -42,15 +41,26 @@ export default function App() {
             </Suspense>
           }
         />
+        <Route
+          path="/download"
+          element={
+            <Suspense fallback={<PageFallback />}>
+              <Download />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/changelog"
+          element={
+            <Suspense fallback={<PageFallback />}>
+              <Changelog />
+            </Suspense>
+          }
+        />
         <Route path="*" element={<NotFound />} />
       </Routes>
       <Footer />
-      {reduced ? null : (
-        <div className="noise-fixed" aria-hidden="true">
-          <Noise patternRefreshInterval={4} patternAlpha={10} />
-        </div>
-      )}
-    </ClickSpark>
+    </>
   );
 }
 
@@ -71,7 +81,9 @@ function NotFound() {
       <div>
         <div className="display text-[96px] leading-none text-c300">404</div>
         <p className="mt-4 font-serif text-2xl text-ink">这一页没烧出来。</p>
-        <p className="mt-2 text-ink-3 text-sm">回到<a href="/" className="text-c700 underline decoration-c300 ml-1">首页</a>，或看看<a href="/docs" className="text-c700 underline decoration-c300 ml-1">使用说明</a>。</p>
+        <p className="mt-2 text-ink-3 text-sm">
+          回到<a href="/" className="text-c700 underline decoration-c300 ml-1">首页</a>，或看看<a href="/docs" className="text-c700 underline decoration-c300 ml-1">使用说明</a>。
+        </p>
       </div>
     </main>
   );

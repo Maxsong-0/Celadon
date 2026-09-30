@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import GlareHover from '@/components/react-bits/GlareHover';
-import { SectionHead } from './Eyebrow';
+import { Em, SectionHead } from './Eyebrow';
 import Seal from './Seal';
 
 const platforms = [
@@ -24,7 +24,7 @@ export default function Platforms() {
   return (
     <section id="get" className="relative py-28 sm:py-36">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
-        <SectionHead align="center" eyebrow="获取 · 私人分发" title={<>自用之作，<span className="glaze-text">与朋友分享</span>。</>} lead="Celadon 不商用、不售卖。Max 和朋友在用；想试听，直接找 Max 拿对应平台的包，装好后在宿主里重新扫描插件。" />
+        <SectionHead align="center" chapter={{ n: '捌', label: '获取', en: 'Get Celadon' }} title={<>自用之作，<Em>与朋友分享</Em>。</>} lead="Celadon 不商用、不售卖。Max 和朋友在用；想试听，直接找 Max 拿对应平台的包，装好后在宿主里重新扫描插件。" />
         <div className="mt-16 grid gap-6 md:grid-cols-2">
           {platforms.map(p => (
             <GlareHover key={p.name} width="100%" height="auto" background="transparent" borderRadius="2rem" borderColor="transparent" glareColor="#67CAD7" glareOpacity={0.22} glareAngle={-35} glareSize={220} transitionDuration={900} className="bezel">

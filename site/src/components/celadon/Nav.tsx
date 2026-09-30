@@ -6,9 +6,9 @@ import Mark from './Mark';
 
 const items = [
   { label: '工艺', to: '/#process' },
+  { label: '试听', to: '/#listen' },
   { label: '算法', to: '/algorithms' },
-  { label: '说明', to: '/docs' },
-  { label: '获取', to: '/#get' }
+  { label: '说明', to: '/docs' }
 ];
 
 /** 浮在页面顶部的「岛」式导航：玻璃胶囊，滚动后缩紧；手机端汉堡变叉、整屏展开、链接逐条浮起。 */
@@ -84,10 +84,10 @@ export default function Nav() {
             ))}
           </ul>
           <Link
-            to="/docs"
+            to="/download"
             className="hidden md:inline-flex items-center gap-2 rounded-full bg-c700 pl-3.5 pr-1.5 py-1 text-[13px] text-paper no-underline transition-transform duration-500 ease-glaze hover:bg-c800 active:scale-[0.98]"
           >
-            开始使用
+            下载
             <span className="grid size-6 place-items-center rounded-full bg-white/15">
               <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 12 12 4M6 4h6v6" />
@@ -111,7 +111,7 @@ export default function Nav() {
         <div className="flex h-full flex-col justify-center px-8">
           <p className="eyebrow mb-8 w-max"><span className="eyebrow-dot" />Celadon · 青瓷</p>
           <ul className="space-y-2">
-            {[...items, { label: '开始使用', to: '/docs' }].map(it => (
+            {[...items, { label: '下载', to: '/download' }].map(it => (
               <li key={it.label} data-link>
                 <Link to={it.to} className="block font-serif text-4xl font-medium text-ink no-underline py-2" onClick={() => setOpen(false)}>
                   {it.label}

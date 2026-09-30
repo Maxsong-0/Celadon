@@ -47,6 +47,12 @@
   --shadow-soft: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 12px 40px -20px rgb(13 40 48 / 0.18);
 }
 
+/* 版式节奏（设计规格-官网 第 2 节）：节与节之间只用 .section，节内距离按这两个量走。 */
+:root {
+  --section-y: clamp(6rem, 11vw, 10rem);
+  --measure: 34em;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -57,6 +63,17 @@
     @apply bg-paper text-ink font-sans antialiased;
     font-feature-settings: "palt" 1, "kern" 1;
     overflow-x: clip;
+  }
+  /* 纸纹：固定层上的一张静态噪点（feTurbulence），不用 canvas、不每帧重绘。 */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .05 0 0 0 0 .11 0 0 0 0 .13 0 0 0 1.2 -.25'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.06;
+    mix-blend-mode: multiply;
   }
   ::selection {
     background: color-mix(in oklab, var(--color-c200) 70%, white);
@@ -85,13 +102,55 @@
 }
 
 @layer components {
-  /* 「双边框」容器：外壳（纸托）+ 内芯（瓷面），像一块釉面搁在托盘里 */
+  /* 节：上下内距统一走 --section-y；最后一节底部多 2rem 做光学补偿。 */
+  .section {
+    padding-block: var(--section-y);
+  }
+  .section-last {
+    padding-block: var(--section-y) calc(var(--section-y) + 2rem);
+  }
+  .measure {
+    max-width: var(--measure);
+  }
+
+  /* 三级容器（设计规格-官网 第 1、3 节）。
+     一级 · 瓷板 .slab：外壳（纸托）+ 内芯（瓷面），只给「主角器物」，同一行最多一块。 */
+  .slab,
   .bezel {
     @apply rounded-[2rem] p-1.5 bg-ink/4 ring-1 ring-ink/6;
   }
+  .slab-core,
   .bezel-core {
     @apply rounded-[calc(2rem-0.375rem)] bg-panel ring-1 ring-white/70;
     box-shadow: var(--shadow-soft);
+  }
+  /* 二级 · 素坯：无投影的浅面，给次要内容。 */
+  .biscuit {
+    @apply rounded-[1.25rem] bg-panel/70 ring-1 ring-ink/6;
+  }
+  /* 三级 · 细线列表：纯排版，行与行之间一根细线。 */
+  .rule-list > * {
+    @apply border-t border-line;
+  }
+  .rule-list > *:last-child {
+    @apply border-b;
+  }
+
+  /* 次要动作：文字链接 + 斜箭头，悬停时箭头斜移 */
+  .link-arrow {
+    @apply inline-flex items-center gap-1.5 text-[15px] font-medium text-ink no-underline decoration-c300 decoration-1 underline-offset-[6px] transition-colors duration-300 ease-glaze hover:text-c700;
+  }
+  .link-arrow > span:first-child {
+    @apply underline decoration-c300 decoration-1 underline-offset-[6px] transition-[text-decoration-color] duration-300;
+  }
+  .link-arrow:hover > span:first-child {
+    @apply decoration-c600;
+  }
+  .link-arrow > svg {
+    @apply size-3.5 transition-transform duration-500 ease-glaze;
+  }
+  .link-arrow:hover > svg {
+    transform: translate(2px, -2px);
   }
 
   .eyebrow {
@@ -178,8 +237,5 @@
   }
   .mask-fade-b {
     mask-image: linear-gradient(180deg, black 60%, transparent);
-  }
-  .noise-fixed {
-    position: fixed; inset: 0; pointer-events: none; z-index: 60; mix-blend-mode: multiply; opacity: 0.55;
   }
 }
