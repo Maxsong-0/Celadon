@@ -22,7 +22,7 @@
       - reset、音频路径 0 分配、输入里的 NaN 不会让影子滤波器卡死
       - 峰值守护（ADR-014；T-032 2026-09-29 修订：只管①②，③ 加宽的增量绕过守护）：①② 的输出逐样本不越界（立体声两组、单声道一组，
         各带「不带守护会越界」的阳性对照）、③ 的增量原样叠在守护输出上（加宽与否守护统计、代价格逐位相同；只开加宽拧回 0 时
-        isPassThrough 等 δ 的尾巴走出前瞻环才报真）；稳态低音与纯 S 高频加宽不误动作、谐波对经低切抬高峰值时动作；正常电平（守护
+        isPassThrough 等 δ 的尾巴走出前瞻环才报真；δ 恰为 0 的样本不做加法，−0 仍是 −0）；稳态低音与纯 S 高频加宽不误动作、谐波对经低切抬高峰值时动作；正常电平（守护
         地板之上）下加宽 +3 / +1.5 / −3 dB 的高频侧声道增益 = widthDb ± 0.3 dB 且守护统计为 0；低切 / 收单在固定种子夹具上的效果钉在
         记录值（回归护栏）；widthDb = 0 的一批场景（怪值、随机块长、参数扫动、四个采样率）的输出摘要——改守护前后逐位对照的依据
         （摘要值记在 T-032 报告里）
@@ -838,6 +838,7 @@ namespace celadon::test
                 testPassThroughWhenStagesAreZero();
                 testReturnToZeroRestoresPassThrough();
                 testPassThroughWaitsForTheWidthTail();
+                testWidthTailKeepsSignedZeros();
                 testLowCutCornerFrequency();
                 testMonoCollapsesLowSide();
                 testMonoImpulseResponseIsLinearPhase();
@@ -1101,6 +1102,88 @@ namespace celadon::test
                     expect (passAt >= 0 && passAt - offAt <= static_cast<int> (0.1 * sampleRate), tag + ": a pure delay again within 100 ms");
                     expectEquals (countDifferentBits (expected, output, juce::jmax (0, passAt)), 0,
                                   tag + ": from the moment isPassThrough() is true the output is the bit-exact delayed input");
+                }
+            }
+
+            // T-032（核验 V4 的第一处细节）：③ 的增量 δ 为 0（含 −0）时守护不做那次加法——(−0) + (+0) = +0，无条件相加会打破 ±0 的逐位。
+            // 真实路径上它在加宽开着、δ 恰为 0 的样本上起作用：高架余振衰减到网格点被归零（两个状态分量分别归零，中间也会出现单个 δ = 0
+            // 的样本）之后，守护还在带 δ 的那条路上把前瞻环里剩下的样本输出完。素材 A：两声道独立的宽粉噪 0.25 s（③ 有侧声道可加宽），
+            // 之后是交替的 ±0（左 −0 / +0、右 +0 / −0：每个样本总有一个声道是 −0）；素材 B：同一段粉噪，之后全是 +0。加宽 +3 dB、①② 关
+            // （守护看到的 y 与干路逐位相同，从不动作）。两份素材的 S 只差零的符号，高架的余振（非零的 δ）逐位相同；所以 ±0 段里逐样本：
+            //  - B 的输出不是 +0（δ ≠ 0：输出 = δ）→ A 的输出必须与 B 逐位相同；
+            //  - B 的输出是 +0（δ = 0）→ A 的输出必须逐位 = 延迟 D + G 的 A（−0 也是 −0）。
+            // 无条件相加时，守护带 δ 那条路上 δ = 0 的样本里 −0 会变成 +0（T-032 报告的变异实验）。三种块长各跑一遍：守护按段选路，带 δ
+            // 的那条路最后一段在哪里结束随切段而变（块长 1 时它恰好停在最后一个 δ ≠ 0 的样本上，所以不用块长 1）。
+            // 阳性对照：粉噪段确实被加宽改变；±0 段开头确实有高架的余振（B 的输出非零），并在 50 ms 内精确归零（之后 A 逐位 = 延迟的输入）。
+            void testWidthTailKeepsSignedZeros()
+            {
+                beginTest ("width tail over +-0 (T-032): a width increment of exactly 0 adds nothing, so -0 stays -0 while the guard still carries the tail");
+
+                for (auto sampleRate : { 48000.0, 192000.0 })
+                {
+                    const auto numSamples = static_cast<int> (0.5 * sampleRate);
+                    const auto burst = static_cast<int> (0.25 * sampleRate);
+                    auto signedZeros = makePinkNoise (2, numSamples, -18.0f, 41);
+                    auto plusZeros = signedZeros;
+
+                    for (int i = burst; i < numSamples; ++i)
+                    {
+                        const auto index = static_cast<size_t> (i);
+                        signedZeros[0][index] = i % 2 == 0 ? -0.0f : 0.0f;
+                        signedZeros[1][index] = i % 2 == 0 ? 0.0f : -0.0f;
+                        plusZeros[0][index] = 0.0f;
+                        plusZeros[1][index] = 0.0f;
+                    }
+
+                    const auto expected = delayedBy (signedZeros, specDelay (sampleRate));
+                    const auto zerosFrom = burst + specDelay (sampleRate);   // 输出里 ±0 段从这里开始
+
+                    for (auto blockSize : { 17, 333, 4096 })
+                    {
+                        const auto tag = "@ " + juce::String (sampleRate) + ", block " + juce::String (blockSize);
+                        const auto run = [&] (const Signal& input, ClayModule::PeakGuardStats& stats)
+                        {
+                            ClayModule clay;
+                            prepareClay (clay, sampleRate, 2, makeParams (0.0f, 120.0f, 0.0f, 3.0f));
+                            clay.getAndResetPeakGuardStats();
+                            const auto out = runClay (clay, input, blockSize);
+                            stats = clay.getAndResetPeakGuardStats();
+                            return out;
+                        };
+
+                        ClayModule::PeakGuardStats statsA, statsB;
+                        const auto outA = run (signedZeros, statsA);
+                        const auto outB = run (plusZeros, statsB);
+
+                        auto violations = 0, zeroIncrementSamples = 0, lastTail = -1;
+                        const auto plusZero = 0.0f;
+
+                        for (int i = zerosFrom; i < numSamples; ++i)
+                        {
+                            for (size_t ch = 0; ch < 2; ++ch)
+                            {
+                                const auto index = static_cast<size_t> (i);
+                                const auto noIncrement = std::memcmp (&outB[ch][index], &plusZero, sizeof (float)) == 0;
+                                const auto& want = noIncrement ? expected[ch][index] : outB[ch][index];
+
+                                if (noIncrement)
+                                    ++zeroIncrementSamples;
+                                else
+                                    lastTail = i;
+
+                                violations += std::memcmp (&outA[ch][index], &want, sizeof (float)) != 0 ? 1 : 0;
+                            }
+                        }
+
+                        logMessage ("  " + tag + ": +-0 section from output sample " + juce::String (zerosFrom) + ", last width increment at "
+                                    + juce::String (lastTail) + ", " + juce::String (zeroIncrementSamples) + " channel samples with an increment of exactly 0");
+                        expect (countDifferentBits (expected, outA, 0, zerosFrom) > zerosFrom / 2, tag + ": positive control: +3 dB of width changes the noise");
+                        expect (lastTail > zerosFrom, tag + ": positive control: the width tail reaches the +-0 section");
+                        expect (lastTail - zerosFrom <= static_cast<int> (0.05 * sampleRate), tag + ": the tail is exactly 0 within 50 ms");
+                        expectEquals (violations, 0, tag + ": where the increment is exactly 0 the output is the bit-exact delayed input (-0 included), "
+                                                           "elsewhere it is the same tail as with +0");
+                        expect (statsA.guardedSamples == 0 && statsB.guardedSamples == 0, tag + ": stage 3 alone never engages the guard");
+                    }
                 }
             }
 
