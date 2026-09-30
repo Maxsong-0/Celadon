@@ -279,6 +279,7 @@ namespace celadon::test
             }
 
             testBlockMatchesSampleBitExactly();
+            testOutputDigests();
             testInterleavedCallsBitExact();
             testPartialGroupPaddingIsZeroed();
             testBlockCallsDoNotAllocate();
@@ -344,6 +345,65 @@ namespace celadon::test
                         expectEquals (maxMismatches, 0, "processBlockMax differs from the jmax fold: " + caseName);
                     }
                 }
+            }
+        }
+
+        // 输出摘要（T-032，2026-09-29）：各对照素材的逐样本参照输出按位做 FNV-1a 64 位摘要，每种冲零模式一个，打进日志。
+        // 上面的矩阵只证明「块路径 = 参照」；换系数的存放方式（T-032 把系数设计搬进共用表、SSE2 核改读预广播表）时，
+        // 参照与块路径一起变也照样相等——所以改动前后各跑一次、对照这里的摘要，证明参照输出本身逐位没变
+        //（同一平台、同一编译选项下才可比，NEON 与 SSE2 本来就不同）。块路径（512 一块）的摘要必须与参照相同。
+        void testOutputDigests()
+        {
+            beginTest ("reference and block detector output digests (logged for before / after comparison)");
+
+            const auto signals = makeDetectorTestSignals();
+
+            const auto digestOf = [] (const std::vector<Signal>& outputs)
+            {
+                juce::uint64 hash = 14695981039346656037ull;   // FNV-1a 64 位初值
+
+                for (const auto& signal : outputs)
+                    for (const auto& channel : signal)
+                        for (auto sample : channel)
+                        {
+                            juce::uint32 bits = 0;
+                            std::memcpy (&bits, &sample, sizeof (bits));
+
+                            for (int shift = 0; shift < 32; shift += 8)
+                            {
+                                hash ^= (juce::uint64) ((bits >> shift) & 0xffu);
+                                hash *= 1099511628211ull;             // FNV 64 位素数
+                            }
+                        }
+
+                return hash;
+            };
+
+            for (const auto& mode : denormalModes)
+            {
+                const ScopedDenormalMode scopedMode (mode);
+                std::vector<Signal> reference, block;
+
+                for (const auto& named : signals)
+                {
+                    reference.push_back (referencePeaksOf (named.signal));
+
+                    TruePeakDetector detector;
+                    detector.prepare ((int) named.signal.size());
+                    auto peaks = named.signal;
+
+                    for (size_t ch = 0; ch < named.signal.size(); ++ch)
+                        for (int start = 0; start < (int) named.signal[ch].size(); start += 512)
+                            detector.processBlock ((int) ch, named.signal[ch].data() + start, peaks[ch].data() + start,
+                                                   juce::jmin (512, (int) named.signal[ch].size() - start));
+
+                    block.push_back (std::move (peaks));
+                }
+
+                const auto referenceDigest = digestOf (reference);
+                logMessage ("  " + juce::String (mode.name) + ": reference output digest "
+                            + juce::String::toHexString ((juce::int64) referenceDigest).paddedLeft ('0', 16));
+                expect (digestOf (block) == referenceDigest, juce::String ("block output digest differs from the reference: ") + mode.name);
             }
         }
 
@@ -480,7 +540,8 @@ namespace celadon::test
 
         // 性能护栏：防止以后退化回逐样本串行乘加（v0.4 约 190 ～ 260 ns，v0.5 NEON 约 9 ～ 13 ns）。
         // 立体声、块 512、15 遍取最短（别的进程抢 CPU 只会让某一遍变慢）；门槛留 2 倍以上余量，防误报。
-        // SSE2 没有融合乘加、乘和加各占一个发射口，同样的逐位写法约慢 3 倍，门槛单独放宽；纯标量平台只记录。
+        // SSE2 没有融合乘加、乘和加各占一个发射口，同样的逐位写法本来约慢 3 倍（107 实测 29.2 ns）；T-032 换成共用的预广播系数表后
+        // 107 实测 19.0 ns（2026-09-30 同机对照 29.23 → 18.97），门槛从 80 收到 50 ns（约 2.6 倍余量）；纯标量平台只记录。
         void testPerformanceGuard()
         {
             const juce::String kernel (TruePeakDetector::getBlockKernelName());
@@ -515,7 +576,7 @@ namespace celadon::test
             if (kernel == "NEON")
                 expect (bestNs <= 30.0, "NEON block detector too slow: " + juce::String (bestNs, 2) + " ns");
             else if (kernel == "SSE2")
-                expect (bestNs <= 80.0, "SSE2 block detector too slow: " + juce::String (bestNs, 2) + " ns");
+                expect (bestNs <= 50.0, "SSE2 block detector too slow: " + juce::String (bestNs, 2) + " ns");
             else
                 logMessage ("  no SIMD kernel on this platform: guard is informational only");
            #endif

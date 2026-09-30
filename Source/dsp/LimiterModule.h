@@ -58,13 +58,15 @@ namespace celadon
     class LimiterModule
     {
     public:
+        // setParams 不信任外部值（T-032 R8-02，2026-09-29）：APVTS 与链只钳有限值，工程文件里的 "nan" 会原样读回——
+        // 非有限（NaN / ±Inf）的字段回下面的默认值，有限值钳进注释里的范围（范围内的值原样保留、逐位不变）。
         struct Params
         {
             float gainDb      = 0.0f;     // 0 ～ +24
-            float ceilingDb   = -1.0f;    // −3 ～ 0 dBTP
+            float ceilingDb   = -1.0f;    // 参数 −3 ～ 0 dBTP；链扣掉编码余量（≤ 1.5 dB）后最低交 −4.5，模块按 −4.5 ～ 0 钳
             float releaseMs   = 100.0f;   // 10 ～ 1000，Auto 开时无效
             bool  autoRelease = true;
-            float lookaheadMs = 2.0f;     // 1 ～ 10，决定延迟
+            float lookaheadMs = 2.0f;     // 1 ～ 10，决定延迟（这里只拦非有限值；范围与取整由 lookaheadSamplesFor 负责）
             float clip        = 0.0f;     // 0 ～ 100
             bool  listen      = false;
             bool  bypass      = false;
@@ -86,6 +88,7 @@ namespace celadon
         void restartWithFadeIn (int extraHoldSamples = 0);
 
         // 音频线程每块调一次。Lookahead 变了会在下一次 process() 开头重置限幅器状态。
+        // 非有限的字段回默认值、越界的有限值钳进范围（见 Params）；无分配、无锁。
         void setParams (const Params& newParams);
 
         // 原地处理；样本数可以超过 prepare 时的块大小（内部会切块）。
@@ -126,22 +129,38 @@ namespace celadon
         void setLowFrequencyReleaseEnabledForTesting (bool enabled) noexcept { lowFrequencyReleaseEnabled = enabled; }
         float getAutoFastReleaseMsForTesting() const noexcept { return (float) lowFrequencyReleaseMs; }
 
-    private:
+        // 只给测试用（T-032 R1-03）：输出硬钳位用的 Ceiling 延迟线接下来依次交出的值（共 coreDelay 个，最早的在前）。
+        // 在副本上推，不改本对象；会分配，不在音频线程调。重置（prepare / reset / restartWithFadeIn / 换前瞻）之后
+        // 这些值应是重置那一刻的 Ceiling，而不是 0——重置同时清空了音频延迟线，这一点从输出上看不出来，只能这样查。
+        std::vector<float> getPendingHardClipCeilingsForTesting() const;
+
         //==============================================================================
-        // 滑动最小值（单调队列，每样本均摊 O(1)）：返回最近 window 个输入里的最小值。
+        // 滑动最小值：返回最近 window 个输入里的最小值。van Herk / Gil-Werman 块算法（T-032 R1-02，2026-09-29）：
+        // 输入按 window 长的块存；prefix = 当前块到本样本为止的前缀最小值，suffix[j] = 上一块从 j 到块尾的后缀最小值
+        //（块满时一次算完 window 次取小，均摊每样本 1 次）；窗口 = 当前块的前缀 ∪ 上一块的后缀，所以每样本恒定 2 次取小、
+        // 无整数取模、无数据相关的循环、与窗长无关。旧实现是单调队列（每样本 2 ～ 3 次取模 + 两个数据相关的 while），
+        // 核验在 107 测得 W = 159 时 9.4 ～ 13.7 ns / 样本、本算法约 2.8 ns（控制路每样本一次，48 kHz 下约省 0.03 % 个核）。
+        // 初始 / clear() 后 suffix 全是 +∞ 哨兵：窗口里还没被填满的部分不参与，与旧实现「只看已推入的样本」严格一致，不依赖输入 ≤ 1。
+        // 取小是选择运算、不做算术，相等时取哪个都是同一位模式（输入是需求增益：≥ +0，不会有 −0，由比较产生、不会是 NaN）。
+        // 唯一的差别在冲零模式：DAZ 开着时 minss 把非规格化的操作数当 0 返回，旧实现返回原来的位；但下游第一步就把它转成 double
+        //（cvtss2sd 同样受 DAZ 管）或拿它比较，两边得到的都是 0，输出不变。需求增益要非规格化，峰值得超过约 1e38，实际不会出现。
+        // LimiterTests 保留旧实现作参照，在随机窗长上与它、与暴力 std::min_element 逐样本对照。
+        // 放在 public 只为单元测试能直接拿它对照；插件代码只经 LimiterModule 用它。
         struct SlidingMinimum
         {
-            void prepare (int maxWindow);
-            void setWindow (int newWindow) noexcept   { window = newWindow; }
+            void prepare (int maxWindow);                  // 分配（不在音频线程调用）
+            void setWindow (int newWindow) noexcept;       // 1 ≤ newWindow ≤ prepare 时的 maxWindow（越界钳进来）；改窗同时清空
             void clear() noexcept;
             float push (float value) noexcept;
 
-            std::vector<float> values;
-            std::vector<int64_t> indices;
-            int head = 0, count = 0, window = 1;
-            int64_t sampleIndex = 0;
+            std::vector<float> block;    // 当前块的输入（长 maxWindow，只用前 window 个）
+            std::vector<float> suffix;   // 上一块的后缀最小值（长 maxWindow + 1），suffix[window] 是 +∞ 哨兵
+            int window = 1, position = 0;
+            float prefix = 0.0f;
         };
 
+    private:
+        //==============================================================================
         // 长度 length 的移动平均：把阶梯状的增益需求变成一条无棱角的线性斜坡（攻击整形）。
         struct MovingAverage
         {

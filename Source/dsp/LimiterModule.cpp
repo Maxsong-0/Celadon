@@ -10,8 +10,10 @@
 
 #include "AtomicHelpers.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 // MSVC：VS2022（v143）的 /fp:precise 默认不融合乘加；更早的工具集（v142）配 /arch:AVX2 时 /fp:precise 下仍可能融合，
 // 这里写死关掉（ADR-013：各路径逐位相同的前提）。clang-cl 不认这个 pragma，由 /clang:-ffp-contract=off 与源码守卫管。
@@ -89,52 +91,82 @@ namespace celadon
 
             return settle (target + (current - target) * coeff, target);
         }
+
+        // 外部参数的守卫（T-032 R8-02，2026-09-29）：APVTS 与链只钳有限值，"nan" 会从工程文件原样读回。NaN 一旦进来：
+        // 释放时间 → 系数 NaN → 包络永远 NaN → MovingAverage::push 里 jmin (1.0, NaN) 返回 1.0 → 限幅器静默失效、只剩硬钳位在削；
+        // Gain / Ceiling → decibelsToGain 返回 0 → 永久静音；前瞻 → lookaheadSamplesFor 里 jlimit 放过 NaN、roundToInt (NaN)
+        // 的结果没有意义（x86 上得 0，前瞻被悄悄当成 1 个样本）。
+        // 非有限值回默认，有限值钳进范围；对有限且在范围内的值是恒等（同一位模式），现有输出与 GLAZE 校准哈希都不变。
+        float finiteInRange (float value, float low, float high, float fallback) noexcept
+        {
+            return std::isfinite (value) ? juce::jlimit (low, high, value) : fallback;
+        }
+
+        LimiterModule::Params sanitised (const LimiterModule::Params& raw) noexcept
+        {
+            const LimiterModule::Params defaults;
+            auto p = raw;
+
+            p.gainDb    = finiteInRange (raw.gainDb,    0.0f,  24.0f,   defaults.gainDb);
+            // Ceiling 参数本身是 −3 ～ 0，但链扣掉编码余量（最多 1.5 dB）后会交 −4.5：下限必须是 −4.5，钳到 −3 会让编码余量失效。
+            p.ceilingDb = finiteInRange (raw.ceilingDb, -4.5f, 0.0f,    defaults.ceilingDb);
+            p.releaseMs = finiteInRange (raw.releaseMs, 10.0f, 1000.0f, defaults.releaseMs);
+            p.clip      = finiteInRange (raw.clip,      0.0f,  100.0f,  defaults.clip);
+            // 前瞻只拦非有限值：范围钳制与取整由 lookaheadSamplesFor 负责，这里不再钳，免得两处各取一次整。
+            p.lookaheadMs = std::isfinite (raw.lookaheadMs) ? raw.lookaheadMs : defaults.lookaheadMs;
+
+            return p;
+        }
     }
 
     //==============================================================================
     void LimiterModule::SlidingMinimum::prepare (int maxWindow)
     {
-        values.assign ((size_t) (maxWindow + 1), 1.0f);
-        indices.assign ((size_t) (maxWindow + 1), 0);
+        const auto capacity = juce::jmax (1, maxWindow);
+        block.assign ((size_t) capacity, 0.0f);
+        suffix.assign ((size_t) (capacity + 1), std::numeric_limits<float>::infinity());
+        window = juce::jlimit (1, capacity, window);
+        clear();
+    }
+
+    void LimiterModule::SlidingMinimum::setWindow (int newWindow) noexcept
+    {
+        // 块算法的状态（块内位置、上一块的后缀最小值）只对原来的窗长有意义，所以改窗同时清空：0 ≤ position < window ≤ 容量
+        // 恒成立，push 永远不越界（旧的单调队列按样本序号淘汰，改窗不清也不越界；这里不清就可能越界，不能交给调用方记着）。
+        jassert (newWindow >= 1 && newWindow <= (int) block.size());
+        window = juce::jlimit (1, juce::jmax (1, (int) block.size()), newWindow);
         clear();
     }
 
     void LimiterModule::SlidingMinimum::clear() noexcept
     {
-        head = 0;
-        count = 0;
-        sampleIndex = 0;
+        // 上一块「全是 +∞」= 窗口里还没被填满的部分不参与：与旧的单调队列（只看已推入的样本）严格一致。
+        std::fill (suffix.begin(), suffix.end(), std::numeric_limits<float>::infinity());
+        position = 0;
+        prefix = 0.0f;
     }
 
     float LimiterModule::SlidingMinimum::push (float value) noexcept
     {
-        const auto capacity = (int) values.size();
+        // 窗口 = 当前块 [0, position] 的前缀最小值 ∪ 上一块 [position + 1, window) 的后缀最小值，恰好 window 个样本。
+        block[(size_t) position] = value;
+        prefix = position > 0 ? std::min (prefix, value) : value;
 
-        // 队尾比新值大（或相等）的元素以后永远不可能成为最小值，丢掉。
-        while (count > 0)
+        const auto result = std::min (prefix, suffix[(size_t) (position + 1)]);
+
+        if (++position == window)
         {
-            const auto back = (head + count - 1) % capacity;
+            // 块满：从块尾往前算这一块的后缀最小值，给下一块用（每 window 个样本一次、共 window 次取小，均摊每样本 1 次；
+            // window ≤ 543，一次不到 1 μs）。suffix[window] 是 +∞ 哨兵：下一块的最后一个样本只看它自己那一块。
+            suffix[(size_t) window] = std::numeric_limits<float>::infinity();
 
-            if (values[(size_t) back] < value)
-                break;
+            for (int i = window - 1; i >= 0; --i)
+                suffix[(size_t) i] = std::min (suffix[(size_t) (i + 1)], block[(size_t) i]);
 
-            --count;
+            position = 0;
         }
 
-        const auto slot = (head + count) % capacity;
-        values[(size_t) slot] = value;
-        indices[(size_t) slot] = sampleIndex;
-        ++count;
-
-        // 队头已经滑出窗口的丢掉。
-        while (indices[(size_t) head] <= sampleIndex - window)
-        {
-            head = (head + 1) % capacity;
-            --count;
-        }
-
-        ++sampleIndex;
-        return values[(size_t) head];
+        return result;
     }
 
     //==============================================================================
@@ -268,6 +300,7 @@ namespace celadon
         gainSmoothed.setCurrentAndTargetValue (gain);
         gainDelay.fill (gain);   // 「延迟后的 Gain」立即等于当前值（resetLimiterState 填的是平滑器落位之前的旧值）
         ceilingSmoothed.setCurrentAndTargetValue (ceiling);
+        ceilingDelay.fill (ceiling);   // 同 gainDelay：resetLimiterState 填的是平滑器落位之前的旧值（T-032 R1-03）
         clipThresholdSmoothed.setCurrentAndTargetValue (
             juce::Decibels::decibelsToGain (juce::jmap (params.clip, 0.0f, 100.0f, clipOffThresholdDb, params.ceilingDb)));
         listenGainSmoothed.setCurrentAndTargetValue (params.listen ? 1.0f / gain : 1.0f);
@@ -314,13 +347,15 @@ namespace celadon
 
         for (auto& d : coreDelays)       { d.setDelay (coreDelay); d.clear(); }
         for (auto& d : bypassDryDelays)  { d.setDelay (clipLatency + coreDelay); d.clear(); }
+        // 硬钳位用的 Ceiling 延迟线填成当前 Ceiling 而不是 0（T-032 R1-03；与下面的 gainDelay 同构，reset() 里平滑器落位后再填一次）：
+        // 清零会让重置后前 coreDelay 个样本钳到 ±0。今天同一处也清空了 coreDelays——那段 delayed 是 0，0 × g 钳到 ±0 与 ±c 都是 +0，
+        // 输出逐位不变——但以后若「换前瞻不清音频延迟线」或改重置顺序，清零就会静默丢掉 coreDelay 个样本。
         ceilingDelay.setDelay (coreDelay);
-        ceilingDelay.clear();
+        ceilingDelay.fill (ceilingSmoothed.getCurrentValue());
         gainDelay.setDelay (clipLatency + coreDelay);   // 与旁通干路同长：试听差值按它还原「加了 Gain 的输入」
         gainDelay.fill (gainSmoothed.getCurrentValue());
 
-        requiredGainHold.setWindow (lookaheadSamples + holdSamples);
-        requiredGainHold.clear();
+        requiredGainHold.setWindow (lookaheadSamples + holdSamples);   // 改窗同时清空
         configureAttackShape();
         attackRamp.clear();
         attackShape.clear();
@@ -337,7 +372,7 @@ namespace celadon
     //==============================================================================
     void LimiterModule::setParams (const Params& newParams)
     {
-        params = newParams;
+        params = sanitised (newParams);   // 非有限回默认、越界钳范围（T-032 R8-02）；范围内的值逐位不变
 
         if (sampleRate <= 0.0)
             return;
@@ -372,6 +407,18 @@ namespace celadon
     int LimiterModule::getLatencySamples() const noexcept
     {
         return clipLatency + coreDelaySamples();
+    }
+
+    std::vector<float> LimiterModule::getPendingHardClipCeilingsForTesting() const
+    {
+        // 在副本上推：DelayLine 可拷贝，推 getDelay() 次正好把现存内容按输出顺序全部取出，本对象的状态不动。
+        auto copy = ceilingDelay;
+        std::vector<float> pending ((size_t) juce::jmax (0, copy.getDelay()));
+
+        for (auto& value : pending)
+            value = copy.pushPop (0.0f);
+
+        return pending;
     }
 
     float LimiterModule::getAndResetGainReductionDb() noexcept
