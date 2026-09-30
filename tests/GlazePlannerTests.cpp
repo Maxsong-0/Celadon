@@ -77,7 +77,7 @@ namespace celadon::test
                 && sameBits (a.weights.warm, b.weights.warm) && sameBits (a.weights.punchy, b.weights.punchy)
                 && sameBits (a.weights.clean, b.weights.clean)
                 && a.limitedByConstraints == b.limitedByConstraints && a.limitedByManual == b.limitedByManual
-                && a.automaticLevelWithdrawn == b.automaticLevelWithdrawn
+                && a.automaticLevelWithdrawn == b.automaticLevelWithdrawn && a.manualBudgetMask == b.manualBudgetMask
                 && a.algorithmVersion == b.algorithmVersion && a.constantsVersion == b.constantsVersion;
         }
 
@@ -424,6 +424,7 @@ namespace celadon::test
             testManualSweepIsContinuous();
             testClipRampsFromGlazeZero();
             testManualLimits();
+            testManualBudgetMask();                   // T-032 R6-02 收尾（A11）
             testDeterminism();
             testAutomaticWeights();
             testBlendConstants();
@@ -1598,6 +1599,261 @@ namespace celadon::test
         }
 
         //==============================================================================
+        // T-032 R6-02 收尾（A11）：手动链单独的用量（estimateManualChainUsage）与「手动单独已超预算、自动部分不再为它负责」的项
+        // （Plan::manualBudgetMask）。编排器的保护层与上游监视把这些项置为不设约束，其余照风格上限——所以两条最要紧：手动没超预算
+        // 时掩码必为 0（上限逐位同修前），置了位的项自动增量必为 0（Heat / Glue）或方案确实没按它的预算核对（Clip：自动 Clip 撤回）。
+        void testManualBudgetMask()
+        {
+            beginTest ("manual-only usage and the budget items the automatic part no longer answers for (T-032 R6-02 closing)");
+
+            // 依据：任务书 BRIEF-A11 第 1 条「每项约束的有效上限 = max(风格上限, 手动单独用量)，手动没超预算时逐位等于风格上限」；
+            //       GlazeTypes.h manualBudget* 的判定；决策与校准第 8 节「手动部分本身已超约束时，自动先撤回自己的增量」。
+            const auto& fc = factoryConstants();
+            const auto usageFor = [] (const MusicProfile* profile, Style style, const ChainParams& manual, const StyleWeights* locked = nullptr)
+            {
+                PlanInputs in;
+                in.profile = profile;
+                in.style = style;
+                in.glazePercent = 100.0f;
+                in.manual = manual;
+                in.lockedWeights = locked;
+                return estimateManualChainUsage (in);
+            };
+
+            // 1. 手动中性：用量（Glue / Heat / Clip）与掩码都是 0；各风格、GLAZE 0 ～ 100 的方案掩码都是 0。
+            {
+                const auto profile = makeProfile (-14.0f, -3.0f);
+                bool allZero = true;
+
+                for (auto style : { Style::automatic, Style::warm, Style::punchy, Style::clean })
+                {
+                    const auto u = usageFor (&profile, style, defaultManual());
+                    allZero = allZero && u.overBudgetMask == 0 && u.heatAmount == 0.0f && u.glueGrMeanDb == 0.0f && u.glueGrP95Db == 0.0f
+                                      && u.clipDepthDb == 0.0f && u.clipActivity == 0.0f;
+
+                    for (auto glaze : { 0.0f, 0.1f, 35.0f, 100.0f })
+                        allZero = allZero && planFor (&profile, style, glaze).manualBudgetMask == 0 && planFor (nullptr, style, glaze).manualBudgetMask == 0;
+                }
+
+                expect (allZero, utf8 ("手动中性：手动链单独的 Glue / Heat / Clip 用量与掩码都是 0"));
+            }
+
+            // 2. 性质扫描（随机画像 / 手动值 / 风格 / 约束反馈，GLAZE 35 与 100）：
+            //    a. 手动链单独的用量都不超风格上限（按方案权重混合；Clip 按决策器的容差）⟺ 掩码为 0——掩码为 0 时编排器交给保护层的上限
+            //       逐位是混合常数，与修前相同；
+            //    b. 各位的判定：Heat ⟺ 手动 Heat > 驱动上限；Glue ⟺ 手动单独的 Glue 均值或 p95 GR > 上限（不加容差；决策器按同一模型的
+            //       glueCap 判，上限两侧 10⁻³ dB 以内的浮点边界不比）；Clip ⟺ 手动单独的削波深度 > 上限 + 0.05 dB 或活动 > 上限 × 1.02
+            //       （决策器撤回自动 Clip 的同一判定）；
+            //    c. 方案的位：Heat / Glue 置位时该项自动增量为 0；Clip 置位时自动 Clip 为 0；
+            //    d. 置信度封顶按位合并：方案的 Heat / Glue 位包含手动链单独的（取或），Clip 位包含于它（取与）；GLAZE 0 的方案为 0。
+            {
+                juce::Random random (0xa11b0d9e);
+                int scenarios = 0, withBits = 0, mismatches = 0, zeroMaskOverCap = 0, badIncrements = 0, badMerge = 0;
+                int heatBits = 0, glueBits = 0, clipBits = 0;
+
+                for (int i = 0; i < 600; ++i)
+                {
+                    auto s = randomScenario (random);
+
+                    if (random.nextBool())   // 多给一些手动超预算的组合
+                    {
+                        s.manual.color.heat = random.nextFloat() * 100.0f;
+                        s.manual.color.glue = random.nextFloat() * 100.0f;
+                        s.manual.limit.clip = random.nextFloat() < 0.5f ? random.nextFloat() * 100.0f : 0.0f;
+                        s.manual.limit.gainDb = random.nextFloat() * 12.0f;
+                    }
+
+                    const auto* profile = s.hasProfile ? &s.profile : nullptr;
+                    const auto u = usageFor (profile, s.style, s.manual);
+
+                    for (auto glaze : { 35.0f, 100.0f })
+                    {
+                        const auto plan = planFor (s, glaze);
+                        const auto caps = blendConstants (fc, plan.weights);
+                        const auto heat = juce::jlimit (0.0f, 100.0f, std::isfinite (s.manual.color.heat) ? s.manual.color.heat : 0.0f);
+                        const auto heatOver = heat > caps.heatDriveCap;
+                        const auto glueOverBy = juce::jmax (u.glueGrMeanDb - caps.glueGrMeanCapDb, u.glueGrP95Db - caps.glueGrP95CapDb);
+                        const auto glueOver = glueOverBy > 0.0f;
+                        const auto glueEdge = std::abs (glueOverBy) < 1.0e-3f;
+                        const auto clipOver = u.clipDepthDb > caps.clipDepthCapDb + 0.05f || u.clipActivity > caps.clipActivityCap * 1.02f;
+                        const auto expected = (heatOver ? manualBudgetHeat : 0) | (glueOver ? manualBudgetGlue : 0) | (clipOver ? manualBudgetClip : 0);
+                        const auto compared = glueEdge ? (int) (manualBudgetHeat | manualBudgetClip) : (int) manualBudgetAll;
+
+                        ++scenarios;
+                        withBits += u.overBudgetMask != 0 ? 1 : 0;
+                        heatBits += (u.overBudgetMask & manualBudgetHeat) != 0 ? 1 : 0;
+                        glueBits += (u.overBudgetMask & manualBudgetGlue) != 0 ? 1 : 0;
+                        clipBits += (u.overBudgetMask & manualBudgetClip) != 0 ? 1 : 0;
+                        mismatches += (u.overBudgetMask & compared) != (expected & compared) ? 1 : 0;
+
+                        // 置信度封顶的方案与本方案同一套权重时（离散风格、或没有画像）：封顶方案的输入响度收拢得少、Glue GR 不会更多，Clip 取与，
+                        // 所以本方案手动单独的用量都不超上限 ⟹ 方案掩码为 0。「自动」且权重没锁（首次聆听）时第二份封顶方案另按满置信度的权重判断，
+                        // 上限不同，只核对本方案这一份。
+                        const auto withinCaps = ! heatOver && glueOverBy <= -1.0e-3f
+                                              && u.clipDepthDb <= caps.clipDepthCapDb && u.clipActivity <= caps.clipActivityCap;
+                        const auto sameWeights = s.style != Style::automatic || ! s.hasProfile;
+                        zeroMaskOverCap += withinCaps && (u.overBudgetMask != 0 || (sameWeights && plan.manualBudgetMask != 0)) ? 1 : 0;
+
+                        badIncrements += ((plan.manualBudgetMask & manualBudgetHeat) != 0 && plan.increments.colorHeat != 0.0f)
+                                      || ((plan.manualBudgetMask & manualBudgetGlue) != 0 && plan.increments.colorGlue != 0.0f)
+                                      || ((plan.manualBudgetMask & manualBudgetClip) != 0 && plan.increments.limitClip != 0.0f) ? 1 : 0;
+
+                        const auto own = u.overBudgetMask;
+                        const auto both = (int) (manualBudgetHeat | manualBudgetGlue);
+                        badMerge += (plan.manualBudgetMask & own & both) != (own & both)
+                                 || (plan.manualBudgetMask & manualBudgetClip & ~own) != 0 ? 1 : 0;
+                    }
+
+                    badMerge += planFor (s, 0.0f).manualBudgetMask != 0 ? 1 : 0;
+                }
+
+                logMessage ("  manual budget scan: " + juce::String (scenarios) + " plans, " + juce::String (withBits) + " with bits (heat / glue / clip "
+                            + juce::String (heatBits) + " / " + juce::String (glueBits) + " / " + juce::String (clipBits) + ")");
+                expect (heatBits > 20 && glueBits > 20 && clipBits > 5, utf8 ("扫描覆盖了三种位（前提）"));
+                expectEquals (mismatches, 0, utf8 ("各位按手动链单独的用量与风格上限判定"));
+                expectEquals (zeroMaskOverCap, 0, utf8 ("手动单独的用量都不超风格上限时掩码为 0"));
+                expectEquals (badIncrements, 0, utf8 ("置位的项：自动增量为 0"));
+                expectEquals (badMerge, 0, utf8 ("封顶合并：Heat / Glue 取或、Clip 取与；GLAZE 0 为 0"));
+            }
+
+            // 3. Heat：四种风格下手动 Heat 0 ～ 100 每 0.25 扫描，位恰在「超过风格驱动上限」时置（置信度满、权重锁定：方案的位 = 手动链单独的位），
+            //    置位后自动 Heat 为 0，自动 Gain 照常。
+            {
+                const auto profile = makeProfile (-20.0f, -8.0f);
+                int wrong = 0, gainGone = 0;
+
+                for (auto style : { Style::warm, Style::punchy, Style::clean })
+                {
+                    const auto cap = blendConstants (fc, weightsFor (style, {})).heatDriveCap;
+
+                    for (float heat = 0.0f; heat <= 100.0f; heat += 0.25f)
+                    {
+                        auto manual = defaultManual();
+                        manual.color.heat = heat;
+                        const auto plan = planFor (&profile, style, 100.0f, manual);
+                        const auto set = (plan.manualBudgetMask & manualBudgetHeat) != 0;
+                        wrong += set != (heat > cap) || set != ((usageFor (&profile, style, manual).overBudgetMask & manualBudgetHeat) != 0)
+                                 || (set && plan.increments.colorHeat != 0.0f) ? 1 : 0;
+                        gainGone += set && ! plan.automaticLevelWithdrawn && ! (plan.increments.limitGainDb > 0.0f) ? 1 : 0;
+                    }
+                }
+
+                expectEquals (wrong, 0, utf8 ("Heat 位恰在手动 Heat 超过风格驱动上限时置，置位后自动 Heat 为 0"));
+                expectEquals (gainGone, 0, utf8 ("只有手动 Heat 超预算时自动 Gain 照常推响"));
+            }
+
+            // 4. Glue：通透、响素材上把手动 Glue 从 0 往上扫，位从「手动单独 GR 刚超上限」那一格起置、之后一直置；上限附近「超了但没超过
+            //    决策器撤回的容差」那一段（不标受手动限制）同样置位——那里自动 Glue 的余量已是 0，Glue GR 全是手动的。
+            {
+                const auto profile = makeProfile (-12.0f, -2.0f);
+                const StyleWeights clean { 0.0f, 0.0f, 1.0f };
+                const auto caps = blendConstants (fc, clean);
+                int nonMonotone = 0, wrongIncrement = 0, slivers = 0, wrongBit = 0, firstSet = -1;
+                bool previous = false;
+
+                for (int step = 0; step <= 4000; ++step)
+                {
+                    auto manual = defaultManual();
+                    manual.color.glue = (float) step * 0.025f;
+                    const auto plan = planFor (&profile, Style::clean, 100.0f, manual);
+                    const auto u = usageFor (&profile, Style::clean, manual);
+                    const auto set = (plan.manualBudgetMask & manualBudgetGlue) != 0;
+
+                    nonMonotone += previous && ! set ? 1 : 0;
+                    wrongIncrement += set && plan.increments.colorGlue != 0.0f ? 1 : 0;
+
+                    if (set && firstSet < 0)
+                        firstSet = step;
+
+                    const auto overBy = juce::jmax (u.glueGrMeanDb - caps.glueGrMeanCapDb, u.glueGrP95Db - caps.glueGrP95CapDb);
+                    slivers += set && overBy > 0.0f && overBy <= 0.05f && ! plan.limitedByManual ? 1 : 0;
+                    wrongBit += std::abs (overBy) >= 1.0e-3f && set != (overBy > 0.0f) ? 1 : 0;
+                    previous = set;
+                }
+
+                logMessage ("  Glue bit from manual Glue " + juce::String ((float) firstSet * 0.025f, 3) + ", " + juce::String (slivers)
+                            + " steps over the cap within the withdrawal tolerance");
+                expect (firstSet > 0, utf8 ("响素材上手动 Glue 够大时置 Glue 位（前提）"));
+                expectEquals (wrongBit, 0, utf8 ("Glue 位 ⟺ 手动单独的 GR 超上限（边界 10⁻³ dB 以内不比）"));
+                expectEquals (nonMonotone, 0, utf8 ("Glue 位随手动 Glue 单调"));
+                expectEquals (wrongIncrement, 0, utf8 ("置位后自动 Glue 为 0"));
+                expect (slivers > 0, utf8 ("超上限但在撤回容差以内（不标受手动限制）也置位：自动 Glue 余量已是 0"));
+            }
+
+            // 5. Clip：手动 Clip 100（阈值 = Ceiling）+ 手动 Gain 5 dB 把 TP −3 的素材压进削波器：深度超出通透的 Clip 预算、决策器撤回自动 Clip，
+            //    限幅器没超（软削波已把峰值收住）——Clip 位置、电平类自动没有全部撤回、自动 Gain 照常推。手动 Clip 20 没超：不置位。
+            {
+                const auto profile = makeProfile (-14.0f, -3.0f);
+                auto heavy = defaultManual();
+                heavy.limit.clip = 100.0f;
+                heavy.limit.gainDb = 5.0f;
+                const auto plan = planFor (&profile, Style::clean, 100.0f, heavy);
+                const auto u = usageFor (&profile, Style::clean, heavy);
+                logMessage ("  manual Clip 100 + Gain 5: clip depth " + juce::String (u.clipDepthDb, 2) + " dB, limiter peak GR "
+                            + juce::String (u.limitGrPeakDb, 2) + " dB, automatic Limit Gain " + juce::String (plan.increments.limitGainDb, 2) + " dB");
+                expect ((plan.manualBudgetMask & manualBudgetClip) != 0 && plan.limitedByManual && ! plan.automaticLevelWithdrawn,
+                        utf8 ("手动 Clip 单独超预算：Clip 位、受手动限制，电平类自动没有全部撤回"));
+                expectEquals (plan.increments.limitClip, 0.0f, utf8 ("自动 Clip 撤回"));
+                expect (plan.increments.limitGainDb > 0.0f, utf8 ("自动 Gain 照常推（决策器此时只按限幅器核对）"));
+
+                auto light = defaultManual();
+                light.limit.clip = 20.0f;
+                expectEquals ((int) planFor (&profile, Style::clean, 100.0f, light).manualBudgetMask, 0, utf8 ("手动 Clip 没超预算：不置位"));
+            }
+
+            // 6. 置信度封顶的合并方向（limitPlanTo）。置信度低时决策用的输入响度往「更响」一侧收，Glue 侧链检测电平高、GR 多：
+            //    a. 手动 Glue 让低置信的手动链超 Glue 上限、置信拉满的没超 → 方案仍置 Glue 位（取或：自动 Glue 取小后仍为 0）；
+            //    b. 同一收拢让 Glue 压低峰值、削波更浅：手动 Glue + Clip + Gain 让置信拉满的手动链超 Clip 预算、低置信的没超 → 方案不置
+            //       Clip 位（取与：低置信方案按 Clip 预算核对过，取小之后照样受它约束，保护层继续核对 Clip）。
+            {
+                const StyleWeights clean { 0.0f, 0.0f, 1.0f };
+                const auto unsure = makeProfile (-24.0f, -12.0f, 5.0f, 0.5f);
+                const auto sure = makeProfile (-24.0f, -12.0f, 5.0f, 1.0f);
+
+                bool glueCase = false, clipCase = false, glueMerged = true, clipMerged = true;
+
+                for (int step = 0; step <= 1000 && ! glueCase; ++step)
+                {
+                    auto manual = defaultManual();
+                    manual.color.glue = (float) step * 0.1f;
+                    const auto own = usageFor (&unsure, Style::clean, manual, &clean).overBudgetMask;
+                    const auto bound = usageFor (&sure, Style::clean, manual, &clean).overBudgetMask;
+
+                    if ((own & manualBudgetGlue) != 0 && (bound & manualBudgetGlue) == 0)
+                    {
+                        glueCase = true;
+                        glueMerged = (planFor (&unsure, Style::clean, 100.0f, manual, 1.0e9f, &clean).manualBudgetMask & manualBudgetGlue) != 0;
+                    }
+                }
+
+                for (float glue : { 40.0f, 60.0f, 80.0f, 100.0f })
+                {
+                    for (int step = 0; step <= 480 && ! clipCase; ++step)
+                    {
+                        auto manual = defaultManual();
+                        manual.color.glue = glue;
+                        manual.limit.clip = 100.0f;
+                        manual.limit.gainDb = (float) step * 0.05f;
+                        const auto own = usageFor (&unsure, Style::clean, manual, &clean);
+                        const auto bound = usageFor (&sure, Style::clean, manual, &clean);
+
+                        if ((own.overBudgetMask & manualBudgetClip) == 0 && (bound.overBudgetMask & manualBudgetClip) != 0)
+                        {
+                            clipCase = true;
+                            clipMerged = (planFor (&unsure, Style::clean, 100.0f, manual, 1.0e9f, &clean).manualBudgetMask & manualBudgetClip) == 0;
+                            logMessage ("  merge case: manual Glue " + juce::String (glue, 0) + " + Clip 100 + Gain " + juce::String (manual.limit.gainDb, 2)
+                                        + " dB: clip depth unsure " + juce::String (own.clipDepthDb, 3) + " / sure " + juce::String (bound.clipDepthDb, 3) + " dB");
+                        }
+                    }
+                }
+
+                expect (glueCase && clipCase, utf8 ("找到了两种合并方向的构造（前提）"));
+                expect (glueMerged, utf8 ("Glue 位取或：低置信的手动链超了，方案就置位"));
+                expect (clipMerged, utf8 ("Clip 位取与：置信拉满的封顶方案超了、低置信的没超，方案不放开 Clip"));
+            }
+        }
+
+        //==============================================================================
         void testDeterminism()
         {
             beginTest ("Same inputs give bit-identical plans");
@@ -2116,6 +2372,68 @@ namespace celadon::test
                 ExecutionState legacyBack;
                 expect (fromXml (*legacyExecution, legacyBack) && legacyBack.plan.automaticLevelWithdrawn,
                         utf8 ("执行快照缺属性：取 limitedByManual（保守）"));
+            }
+
+            // T-032 R6-02 收尾（A11）：PLAN 的 manualBudgetMask（十进制位掩码）。属性在：按属性读、往返逐位；缺属性（A11 之前的存档）：
+            // 受手动设置限制的方案三位全置（分不出是哪一项超了，不把可能是手动造成的超出当成自动的），否则 0；不是 0 ～ 255 的整数、
+            // 或含未定义的位：整份拒收（已提交版本与执行快照都核）。
+            {
+                for (auto mask : { 0, 1, 2, 4, 5, 7 })
+                {
+                    auto masked = state;
+                    masked.plan.manualBudgetMask = (std::uint8_t) mask;
+                    CommittedState back;
+                    expect (fromXml (*toXml (masked), back) && back.plan.manualBudgetMask == mask && bitwiseEqual (back, masked),
+                            utf8 ("manualBudgetMask 往返逐位：") + juce::String (mask));
+                }
+
+                for (auto limited : { false, true })
+                {
+                    auto legacyPlan = std::make_unique<juce::XmlElement> (*stateXml);
+                    auto* planNode = legacyPlan->getChildByName ("PLAN");
+                    planNode->setAttribute ("limitedByManual", limited ? "1" : "0");
+                    planNode->setAttribute ("manualBudgetMask", 2);
+                    CommittedState explicitState;
+                    expect (fromXml (*legacyPlan, explicitState) && explicitState.plan.manualBudgetMask == 2, utf8 ("属性在时按属性读"));
+                    planNode->removeAttribute ("manualBudgetMask");
+                    CommittedState legacyState;
+                    expect (fromXml (*legacyPlan, legacyState), utf8 ("旧存档缺 manualBudgetMask 不应拒收"));
+                    expectEquals ((int) legacyState.plan.manualBudgetMask, limited ? (int) manualBudgetAll : 0,
+                                  utf8 ("缺属性：受手动限制的方案三位全置，否则 0"));
+                }
+
+                for (const auto* bad : { "8", "15", "256", "-1", "x", "2.5" })
+                    expectRejected<CommittedState> (*stateXml, [bad] (juce::XmlElement& x) { x.getChildByName ("PLAN")->setAttribute ("manualBudgetMask", bad); },
+                                                    stateSentinel, utf8 ("manualBudgetMask 非法：") + bad);
+
+                ExecutionState execution;
+                execution.valid = true;
+                execution.hasProfile = true;
+                execution.profile = sentinel;
+                execution.constants = factoryConstants();
+                execution.plan = state.plan;
+                execution.plan.limitedByManual = true;
+                execution.plan.manualBudgetMask = manualBudgetGlue;
+                execution.reference.glazePercent = 50.0f;
+                execution.reference.sampleRate = 48000.0;
+                const auto executionXml = toXml (execution);
+
+                ExecutionState back;
+                expect (fromXml (*executionXml, back) && back.plan.manualBudgetMask == manualBudgetGlue, utf8 ("执行快照：属性在时按属性读"));
+
+                auto legacyExecution = std::make_unique<juce::XmlElement> (*executionXml);
+                legacyExecution->getChildByName ("PLAN")->removeAttribute ("manualBudgetMask");
+                ExecutionState legacyBack;
+                expect (fromXml (*legacyExecution, legacyBack) && legacyBack.plan.manualBudgetMask == manualBudgetAll,
+                        utf8 ("执行快照缺属性：受手动限制 → 三位全置"));
+
+                for (const auto* bad : { "8", "256" })
+                {
+                    auto broken = std::make_unique<juce::XmlElement> (*executionXml);
+                    broken->getChildByName ("PLAN")->setAttribute ("manualBudgetMask", bad);
+                    ExecutionState rejected;
+                    expect (! fromXml (*broken, rejected), utf8 ("执行快照 manualBudgetMask 非法应拒收：") + bad);
+                }
             }
         }
 

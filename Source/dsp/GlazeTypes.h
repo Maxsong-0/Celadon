@@ -156,8 +156,9 @@ namespace celadon::glaze
 
     // T-032 R6-02 收尾（A11）：Plan::manualBudgetMask 的位——手动单独已超出这一项的风格预算，自动部分不再为它负责：
     //   - Heat：手动 Heat 超过风格的 Heat 驱动上限。自动 Heat 增量此时恒为 0，Heat 驱动全是手动的（上游监视不核对它）；
-    //   - Glue：手动链单独的 Glue 均值或 p95 GR（决策器前向模型）超过风格上限。自动 Glue 增量此时恒为 0（撤回或余量为 0），Glue GR
-    //     全是手动的——保护层退让 Limit Gain、约束反馈降方案都减不了它（保护层与上游监视都不核对 Glue 两项）；
+    //   - Glue：手动 Glue 超过这份素材上两个 GR 上限都不超的最大 Glue（决策器前向模型的 glueCap；即手动链单独的 Glue 均值或 p95 GR 超过
+    //     风格上限）。自动 Glue 增量此时恰为 0（撤回、或余量 max(0, glueCap − 手动) = 0），Glue GR 全是手动的——保护层退让 Limit Gain、
+    //     约束反馈降方案都减不了它（保护层与上游监视都不核对 Glue 两项）；
     //   - Clip：手动 Clip 单独超预算、决策器已撤回自动 Clip 且不再按 Clip 预算核对这份方案（GlazePlanner.cpp feasible：自动 Gain 只受
     //     限幅器约束）。保护层与决策器一致，不核对 Clip 深度 / 活动两项；限幅器三项照常核对。
     //   位的判定与手动链单独的用量见 GlazePlanner.h estimateManualChainUsage；编排器怎样用见 GlazeController.cpp updateGuardLimits。

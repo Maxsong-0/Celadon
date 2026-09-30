@@ -1491,18 +1491,18 @@ namespace celadon::glaze
                  isFinite (manual.limit.clip) ? clampTo (manual.limit.clip, 0.0f, 100.0f) : 0.0f };
     }
 
-    // 手动单独已超预算的项（Plan::manualBudgetMask 的位，GlazeTypes.h；T-032 R6-02 收尾，A11）。manualChain = 同一环境下只有手动值
-    // 的链；withdrawn = 决策器对手动链的约束核对（makePlanAtConfidence 的 check：Clip 这一项与 heatBudget 无关）。
+    // 手动单独已超预算的项（Plan::manualBudgetMask 的位，GlazeTypes.h；T-032 R6-02 收尾，A11）。manual = 手动值里动电平的 4 个参数；
+    // withdrawn = 决策器对「只有手动值的链」的约束核对（makePlanAtConfidence 的 check：Clip 这一项与 heatBudget 无关）。
     //   - Heat：手动 Heat > 风格的驱动上限（旋钮单位；上游监视按同一上限换算成驱动量）。这时 heatCap(sc, row) ≤ 驱动上限 < 手动值，
     //     自动 Heat 的余量为 0（被撤回同样是 0）。不看 heatBudget：自动没在用 Heat 时 check 不撤回、也不标受手动限制，但 Heat 驱动
     //     照样全是手动的，上游监视照样会把它当成超限（例如 Color Mix 0 时手动 Heat 50：修前每「过渡 + 3 s」白降 1 dB）；
-    //   - Glue：手动链单独的 Glue 均值 / p95 GR 有一项超过风格上限（不加容差：到了上限 glueCap 同一模型给的余量就是 0，不论撤不撤回，
-    //     自动 Glue 都是 0）；
+    //   - Glue：手动 Glue 超过 glueCap（这份素材上两个 GR 上限都不超的最大 Glue）——即手动链单独的 Glue 均值 / p95 GR 有一项超过风格上限
+    //     （不加容差）。判定直接用算自动余量的同一个 glueCap：余量 = max(0, glueCap − 手动) 恰为 0，撤回的更是 0，所以置了位自动 Glue 就
+    //     恰为 0，不改方案的任何输出。与「手动单独 GR > 上限」只在上限边界的浮点舍入（10⁻⁶ dB 量级）上可能差一格；
     //   - Clip：决策器撤回了自动 Clip（withdrawn.clip，带容差）——只有这时它才不按 Clip 预算核对这份方案（feasible 跳过已撤回的模块，
     //     自动 Gain 只受限幅器约束），保护层与它一致；没撤回时方案按 Clip 预算核对过，保护层照样按风格上限核对。
     //   三项都与 GLAZE、约束反馈上限无关；手动中性（Glue / Heat / Clip 为 0）时恒为 0。
-    static std::uint8_t manualBudgetMaskFor (const Context& ctx, const Settings& manual, const ChainEstimate& manualChain,
-                                             const Violations& withdrawn) noexcept
+    static std::uint8_t manualBudgetMaskFor (const Context& ctx, const Settings& manual, const Violations& withdrawn) noexcept
     {
         const auto& sc = ctx.sc;
         auto mask = std::uint8_t { 0 };
@@ -1510,8 +1510,7 @@ namespace celadon::glaze
         if (enforced (sc.heatDriveCap) && manual.heat > sc.heatDriveCap)
             mask = static_cast<std::uint8_t> (mask | manualBudgetHeat);
 
-        if ((enforced (sc.glueGrMeanCapDb) && manualChain.color.glueGrMeanDb > sc.glueGrMeanCapDb)
-            || (enforced (sc.glueGrP95CapDb) && manualChain.color.glueGrP95Db > sc.glueGrP95CapDb))
+        if (manual.glue > glueCap (ctx))
             mask = static_cast<std::uint8_t> (mask | manualBudgetGlue);
 
         if (withdrawn.clip)
@@ -1585,7 +1584,7 @@ namespace celadon::glaze
         withdrawn = check (ctx, manualChain, fullPlan.neutral, fullPlan.heat > 0.0f);
 
         // 手动单独已超预算、自动部分不再为它负责的项（T-032 R6-02 收尾，A11）：编排器的保护层与上游监视不核对它们，只核对自动部分。
-        plan.manualBudgetMask = manualBudgetMaskFor (ctx, manualSettings, manualChain, withdrawn);
+        plan.manualBudgetMask = manualBudgetMaskFor (ctx, manualSettings, withdrawn);
 
         // 逐模块钳住（Heat、Glue 的上限只收它们自己的自动增量，不拖共用强度，见 feasible()）：手动 + 自动 ≤ 有效上限。
         // 手动越接近上限，余量连续地降到 0；手动单独超上限时上面已撤回该模块——两条路在上限处接上，没有台阶。
@@ -1899,7 +1898,7 @@ namespace celadon::glaze
         usage.limitGrPeakDb = manualChain.limitGrPeakDb;
         usage.limitGrMeanDb = manualChain.limitGrMeanDb;
         usage.limitGrP95Db = manualChain.limitGrP95Db;
-        usage.overBudgetMask = manualBudgetMaskFor (ctx, manual, manualChain, check (ctx, manualChain, neutral, false));
+        usage.overBudgetMask = manualBudgetMaskFor (ctx, manual, check (ctx, manualChain, neutral, false));
         return usage;
     }
 
