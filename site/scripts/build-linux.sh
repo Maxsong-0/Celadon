@@ -14,6 +14,9 @@ SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15)
 KEY="$(printf '%s' "$SITE" | shasum -a 256 | cut -c1-12)"
 REMOTE=".cache/celadon-site/$(basename "$(dirname "$SITE")")-$KEY"
 MODE="${1:-build}"
+# 插件版本号从仓库根的 Celadon.jucer 读（只读文本，不编译），经环境变量带到服务器上的 vite 构建。
+VERSION="$(sed -n 's/^ *version="\([0-9.]*\)".*/\1/p' "$SITE/../Celadon.jucer" | head -1)"
+[ -n "$VERSION" ] || { echo "Celadon.jucer 里读不到 version" >&2; exit 1; }
 
 if [ "$MODE" = "stop" ]; then
   "${SSH[@]}" "$HOST" "pkill -f '[s]tatic-server.py --root dist --bind 0.0.0.0 --port $PORT' || true; echo stopped"
@@ -28,7 +31,7 @@ rsync -rlpD --checksum --delete --delete-excluded \
   -e "${SSH[*]}" "$SITE"/ "$HOST:$REMOTE/"
 
 set +e
-"${SSH[@]}" "$HOST" "CELADON_REMOTE=$(printf '%q' "$REMOTE") bash -euo pipefail -s" <<'REMOTE_SCRIPT'
+"${SSH[@]}" "$HOST" "CELADON_REMOTE=$(printf '%q' "$REMOTE") CELADON_VERSION=$(printf '%q' "$VERSION") bash -euo pipefail -s" <<'REMOTE_SCRIPT'
 cd "$HOME/$CELADON_REMOTE"
 export CI=1
 if [ -f pnpm-lock.yaml ]; then
@@ -38,7 +41,7 @@ else
 fi
 echo "--- typecheck ---"
 pnpm exec tsc --noEmit
-echo "--- build ---"
+echo "--- build（插件版本 $CELADON_VERSION）---"
 pnpm exec vite build 2>&1 | tail -n 40
 echo "--- dist ---"
 du -sh dist; find dist -type f | wc -l

@@ -7,6 +7,7 @@ import ParticleField from './ParticleField';
 import { Eyebrow } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { prefersReducedMotion } from '@/lib/utils';
+import { PLUGIN_VERSION } from '@/lib/site';
 
 const Topography = lazy(() => import('@/components/react-bits/Topography'));
 
@@ -82,7 +83,7 @@ export default function Hero() {
       <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-12 px-5 sm:px-8 lg:grid-cols-12 lg:gap-6 pb-20">
         <div className="lg:col-span-7 relative z-10">
           <div data-rise>
-            <Eyebrow>Celadon · 青瓷 · 智能母带 · 0.1.9.0</Eyebrow>
+            <Eyebrow>Celadon · 青瓷 · 智能母带 · {PLUGIN_VERSION}</Eyebrow>
           </div>
           <h1 className="mt-8 font-serif text-[clamp(2.6rem,7vw,6.2rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-ink">
             <SplitText text="一挂总轨，" tag="span" className="block" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
@@ -121,7 +122,7 @@ export default function Hero() {
             </div>
             <div>
               <dt className="uppercase tracking-[0.18em] text-[10px] text-ink-4">平台</dt>
-              <dd className="mt-1 text-ink-2">macOS 12+ 通用 · Windows x64</dd>
+              <dd className="mt-1 text-ink-2">macOS 12+ · Windows 10 / 11</dd>
             </div>
             <div>
               <dt className="uppercase tracking-[0.18em] text-[10px] text-ink-4">真峰值</dt>

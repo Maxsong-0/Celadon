@@ -16,7 +16,7 @@ export const docsNav: NavGroup[] = [
     group: '开始',
     pages: [
       { slug: '', title: '快速上手', summary: '插到总轨、播放、拧 GLAZE——三步。', file: 'quickstart' },
-      { slug: 'install', title: '安装与兼容', summary: 'macOS 通用二进制、Windows x64、宿主、延迟。', file: 'install' },
+      { slug: 'install', title: '安装与兼容', summary: 'macOS（Apple Silicon / Intel）、Windows x64、宿主、延迟。', file: 'install' },
       { slug: 'interface', title: '界面总览', summary: '顶栏、表、频谱仪、GLAZE、四张卡片各是什么。', file: 'interface' }
     ]
   },
@@ -46,8 +46,7 @@ export const algoNav: NavGroup[] = [
   {
     group: '总览',
     pages: [
-      { slug: '', title: '信号链与设计原则', summary: '固定顺序、延迟补偿旁通、零差、逐位契约、真峰值口径。', file: 'overview' },
-      { slug: 'references', title: '参考与边界', summary: '三款参考插件的公开能力，与刻意没做的。', file: 'references' }
+      { slug: '', title: '信号链与设计原则', summary: '固定顺序、延迟补偿旁通、零差、逐位契约、真峰值口径。', file: 'overview' }
     ]
   },
   {

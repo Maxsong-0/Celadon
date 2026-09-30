@@ -7,9 +7,9 @@ const platforms = [
   {
     name: 'macOS',
     req: 'macOS 12 Monterey 及以上',
-    arch: 'arm64 + x86_64 通用二进制',
+    arch: 'Apple Silicon（arm64）/ Intel（x86_64）各一个安装包',
     formats: ['AU', 'VST3', 'Standalone'],
-    note: 'Apple Silicon 与 Intel 同一个包；auval 两架构都过。'
+    note: '按芯片选包，两种芯片的 AU 都过 auval。安装包没有公证：第一次打开到「隐私与安全性」点「仍要打开」。'
   },
   {
     name: 'Windows',
@@ -29,12 +29,12 @@ export default function Platforms() {
           {platforms.map(p => (
             <GlareHover key={p.name} width="100%" height="auto" background="transparent" borderRadius="2rem" borderColor="transparent" glareColor="#67CAD7" glareOpacity={0.22} glareAngle={-35} glareSize={220} transitionDuration={900} className="bezel">
               <div className="bezel-core w-full p-8 sm:p-10">
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="display text-4xl text-ink">{p.name}</div>
                     <div className="mt-2 text-[14px] text-ink-3">{p.req}</div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2 sm:justify-end">
                     {p.formats.map(f => (
                       <span key={f} className="rounded-full bg-c100/70 px-3 py-1 text-[11px] font-medium text-c800 ring-1 ring-c200">{f}</span>
                     ))}

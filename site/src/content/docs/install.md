@@ -3,17 +3,19 @@ Celadon 是自用插件，私人分发、不商用。拿到对应平台的包后
 ## macOS
 
 - 系统：macOS 12 Monterey 及以上。
-- 架构：一个包同时跑在 Apple Silicon 与 Intel（通用二进制 arm64 + x86_64）。`lipo -archs` 会打出 `x86_64 arm64`。
-- 格式与位置：
+- 按芯片选安装包：左上角苹果菜单 → 关于本机，「芯片」写 Apple M… 选 `Celadon-<版本>-macOS-AppleSilicon.pkg`；写「处理器 Intel」选 `Celadon-<版本>-macOS-Intel.pkg`。
+- 双击 .pkg 安装，「自定」里可以只勾需要的格式：
 
-| 格式 | 放到 |
+| 格式 | 装到 |
 |---|---|
-| AU `Celadon.component` | `~/Library/Audio/Plug-Ins/Components/` |
-| VST3 `Celadon.vst3` | `~/Library/Audio/Plug-Ins/VST3/` |
-| 独立运行 `Celadon.app` | 任意位置（用于不开宿主时试界面） |
+| AU `Celadon.component` | `/Library/Audio/Plug-Ins/Components/` |
+| VST3 `Celadon.vst3` | `/Library/Audio/Plug-Ins/VST3/` |
+| 独立运行 `Celadon.app` | `/Applications/`（不开宿主时试界面用） |
 
-- AU 身份：`aufx Cldn Maxs`（Max Song: Celadon）。两个架构都过 `auval`；Rosetta 下的宿主同样能加载。
-- 第一次加载若被系统拦，去「系统设置 → 隐私与安全性」允许即可（包没有公证）。
+- AU 身份：`aufx Cldn Maxs`（Max Song: Celadon）。两种芯片的 AU 都过 `auval`。
+- 在 Apple Silicon 上用 Rosetta 打开的宿主是 x86_64 进程，只能加载 Intel 包里的插件；这种情况装 Intel 包（系统会提示装 Rosetta）。
+- 第一次打开 .pkg 若提示「来自身份不明的开发者」（没有 Apple 开发者签名）：去「系统设置 → 隐私与安全性」，找到 Celadon 那一条点「仍要打开」。
+- 自己从 Xcode 编过、装在个人目录 `~/Library/Audio/Plug-Ins/` 的，不要再装安装包，否则宿主里会出现两份。
 
 ## Windows
 
@@ -46,7 +48,7 @@ Celadon 是自用插件，私人分发、不商用。拿到对应平台的包后
 
 ## 旧工程
 
-- 0.1.9.0 新增的推响不刺、目标频谱、编码余量、抖动，读入旧工程时一律关，声音与从前一样；新实例才默认「自动」。
+- 0.1.8.5 新增的推响不刺、目标频谱、编码余量、抖动，读入旧工程时一律关，声音与从前一样；新实例才默认「自动」。
 - 旧工程存档里没有 GLAZE 时恢复为 0（严格手动）；显式保存的 0 保持 0。
 - 窗口比例：v0.1.7 及以前的 `uiScale` 不再读，旧工程按「设置」里的默认大小打开。
 

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Nav from '@/components/celadon/Nav';
 import Footer from '@/components/celadon/Footer';
 import Noise from '@/components/react-bits/Noise';
@@ -33,6 +33,7 @@ export default function App() {
             </Suspense>
           }
         />
+        <Route path="/algorithms/references" element={<Navigate to="/algorithms" replace />} />
         <Route
           path="/algorithms/*"
           element={

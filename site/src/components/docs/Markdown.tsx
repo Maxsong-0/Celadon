@@ -1,5 +1,5 @@
 import { type ReactNode, isValidElement, Children } from 'react';
-import ReactMarkdown, { type Components } from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { figures } from './Figures';
@@ -85,10 +85,16 @@ const components: Components = {
   }
 };
 
+// react-markdown 默认只放行 http / https / mailto 等协议，会把 `figure:key` 清成空串（示意图全变坏图）。
+// 只额外放行站内示意图的 figure: 前缀，其余照默认规则过滤。
+function urlTransform(url: string) {
+  return /^figure:[a-z0-9-]+$/.test(url) ? url : defaultUrlTransform(url);
+}
+
 export default function Markdown({ source }: { source: string }) {
   return (
     <div className="prose-celadon">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={urlTransform}>
         {source}
       </ReactMarkdown>
     </div>

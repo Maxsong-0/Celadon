@@ -49,9 +49,9 @@ const cells: Cell[] = [
     art: <ArtRelease />
   },
   {
-    title: '双语 · 通用二进制',
-    en: 'ZH / EN · UNIVERSAL',
-    body: '中英文一键切换，设置跟人走。macOS 12+ arm64 + x86_64 一个包，Windows 10 / 11 x64 装包即用。',
+    title: '双语 · 双平台',
+    en: 'ZH / EN · MAC & WINDOWS',
+    body: '中英文一键切换，设置跟人走。macOS 12+ 按芯片选包（Apple Silicon / Intel），Windows 10 / 11 x64 装包即用。',
     span: 'md:col-span-4',
     art: <ArtPlatform />
   }

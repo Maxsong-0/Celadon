@@ -119,7 +119,7 @@ export default function Nav() {
               </li>
             ))}
           </ul>
-          <p data-link className="mt-12 text-sm text-ink-3">VST3 · AU · macOS 12+ 通用二进制 · Windows 10 / 11 x64</p>
+          <p data-link className="mt-12 text-sm text-ink-3">VST3 · AU · macOS 12+（Apple Silicon / Intel）· Windows 10 / 11 x64</p>
         </div>
       </div>
     </>

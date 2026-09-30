@@ -167,7 +167,7 @@ export default function GlazeSection() {
                     {targetLufs.toFixed(1)}
                     <span className="text-[16px] text-ink-3 ml-1">LUFS</span>
                   </div>
-                  <p className="mt-3 text-[13px] leading-relaxed text-ink-3">requestedTarget 由风格与 GLAZE 决定；effectiveTarget 再经各模块约束。达到动态保护上限后不再加压，状态显示「受限」。</p>
+                  <p className="mt-3 text-[13px] leading-relaxed text-ink-3">目标由风格与 GLAZE 共同决定，再经各模块的上限收窄；到了动态保护的边界就不再加压，状态显示「受限」。</p>
                 </div>
               </div>
               <div data-reveal className="bezel">

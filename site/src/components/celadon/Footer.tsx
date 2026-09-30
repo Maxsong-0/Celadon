@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import Mark from './Mark';
 import Seal from './Seal';
+import { PLUGIN_VERSION } from '@/lib/site';
 
 export default function Footer() {
   return (
@@ -13,7 +14,7 @@ export default function Footer() {
               <Mark className="size-9" />
               <div>
                 <div className="font-display text-xl tracking-tight text-ink">Celadon</div>
-                <div className="text-[12px] tracking-[0.2em] text-ink-3">MASTERING · 0.1.9.0</div>
+                <div className="text-[12px] tracking-[0.2em] text-ink-3">MASTERING · {PLUGIN_VERSION}</div>
               </div>
             </div>
             <p className="mt-6 max-w-sm text-sm leading-relaxed text-ink-3">
@@ -46,7 +47,7 @@ export default function Footer() {
           <div className="text-[12px] uppercase tracking-[0.22em] text-ink-4 mb-4">格式与平台</div>
           <ul className="space-y-1.5">
             <li>VST3 · AU · Standalone</li>
-            <li>macOS 12+，arm64 + x86_64 通用二进制</li>
+            <li>macOS 12+，Apple Silicon 与 Intel 各一个安装包</li>
             <li>Windows 10 / 11，x64（VST3 · Standalone）</li>
             <li>FL Studio 2026 · Ableton Live 12 实测</li>
           </ul>

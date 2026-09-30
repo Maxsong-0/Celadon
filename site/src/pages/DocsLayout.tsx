@@ -94,7 +94,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
             <div className="hidden lg:block mt-10 text-[12px] leading-relaxed text-ink-4">
               {kind === 'docs' ? (
                 <>
-                  文案与插件里的悬停提示同源（`Source/ui/HelpText.cpp`）。想看算法：<Link to="/algorithms" className="text-c700 underline decoration-c300">公开算法</Link>。
+                  说明文字与插件里的悬停提示一致。想看算法：<Link to="/algorithms" className="text-c700 underline decoration-c300">公开算法</Link>。
                 </>
               ) : (
                 <>
