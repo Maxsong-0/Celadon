@@ -160,3 +160,256 @@ namespace celadon::test
 
     static LegacyFixtureTests legacyFixtureTests;
 }
+
+//==============================================================================
+// T-032（2026-09-29，A4-chain）：整链逐位摘要——链路 / 表 / 发行安全改动的回归护栏。
+// 五个固定场景各跑一段 makeFixtureLoop 的素材，把输出样本与每块的读数（表、GR、预听增益、实际参数）按 IEEE 位喂进 FNV-1a，
+// 得到两个 64 位摘要。本段只用 e6b445b（0.1.8.5）已有的公开接口，所以同一份测试能在改动前的源码上编出「改前摘要」：
+// T-032 A4 在 107（Ubuntu，GCC 15.2，x86-64 SSE2 基线，-ffp-contract=off）上先跑基线得到下面的常数，再跑改后源码——两者相同
+// 即「预听从未打开 / 稳态预听 / 干路 / 重置」这些路径逐位不变（docs/validation/2026-09-29-T032-deep-research/IMPL-A4-chain.md 有对照）。
+// 摘要只在参考构建上断言（Linux + GCC + x86-64 + CELADON_FP_CONTRACT_OFF，ADR-013 的测试机口径）：成品取决于 libm 与架构
+//（tools/render/README.md「audio_hash 只在同一台机器上的同一种构建之间可比」），Mac / Windows / clang 构建只打印，不判定。
+// 工具链升级（GCC / glibc 换代）让摘要变了、而全套逐位用例仍绿时，先在报告里核对再更新常数。
+#include <cstddef>
+#include <cstdio>
+#include <string>
+
+namespace celadon::test
+{
+    namespace
+    {
+        struct Fnv1a64
+        {
+            std::uint64_t h = 14695981039346656037ull;
+
+            void addBytes (const void* data, std::size_t size) noexcept
+            {
+                const auto* bytes = static_cast<const unsigned char*> (data);
+
+                for (std::size_t i = 0; i < size; ++i)
+                {
+                    h ^= bytes[i];
+                    h *= 1099511628211ull;
+                }
+            }
+
+            template <typename T>
+            void add (const T& value) noexcept   { addBytes (&value, sizeof (value)); }
+        };
+
+        juce::String hex64 (std::uint64_t v)
+        {
+            char text[32] = {};
+            std::snprintf (text, sizeof (text), "%016llx", static_cast<unsigned long long> (v));
+            return juce::String (text);
+        }
+
+        // 一块的监听开关（每块先 setParams 再 process，与处理器一致）。
+        struct MonitorState { bool hostBypassed = false, compareOriginal = false, auditionDifference = false; };
+
+        struct DigestResult { std::uint64_t audio = 0, readings = 0; bool finite = true; int blocks = 0; };
+
+        // 跑一个场景：素材循环 8 s 的固定夹具；schedule 按块起点（秒）给监听开关；hook 在块前做一次性动作（重启 / 重置 / 清表）。
+        template <typename Schedule, typename Hook>
+        DigestResult runDigest (CeladonChain& chain, const CeladonChain::Params& params, double seconds,
+                                Schedule schedule, Hook hook)
+        {
+            const double fs = 48000.0;
+            const int blockSize = 512;
+            const auto loop = makeFixtureLoop (fs, 8.0);
+            const auto total = (int) std::lround (fs * seconds);
+
+            glaze::HostInfo host;
+            host.hasPlayState = host.isPlaying = host.hasPosition = true;
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            Fnv1a64 audio, readings;
+            DigestResult result;
+
+            for (int position = 0; position < total; position += blockSize)
+            {
+                const auto length = juce::jmin (blockSize, total - position);
+                buffer.setSize (2, length, false, false, true);
+
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < length; ++i)
+                        buffer.setSample (ch, i, loop.getSample (ch, (int) (((std::int64_t) position + i) % loop.getNumSamples())));
+
+                const auto t = (double) position / fs;
+                hook (chain, t);
+                const auto monitor = schedule (t);
+                host.positionSamples = position;
+                chain.setHostInfo (host);
+                chain.setParams (params, monitor.hostBypassed, monitor.compareOriginal, monitor.auditionDifference);
+                chain.process (buffer);
+                ++result.blocks;
+
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    audio.addBytes (buffer.getReadPointer (ch), (std::size_t) length * sizeof (float));
+
+                    for (int i = 0; i < length; ++i)
+                        result.finite = result.finite && std::isfinite (buffer.getSample (ch, i));
+                }
+
+                const auto& e = chain.getEffectiveParams();
+                const auto status = chain.getMasteringStatus();
+                readings.add (chain.getOutputIntegratedLufs());
+                readings.add (chain.getOutputShortTermLufs());
+                readings.add (chain.getAndResetOutputTruePeakDb());
+                readings.add (chain.getAndResetInputTruePeakDb());
+                readings.add (chain.getAndResetLimitGainReductionDb());
+                readings.add (chain.getAndResetGlueGainReductionDb());
+                readings.add (status.previewGainDb);
+                readings.add (status.harshReductionDb);
+                readings.add (status.codecMarginDb);
+                readings.add (chain.hasListenDifference() ? chain.getListenDifferenceDb() : -1000.0f);
+                readings.add (e.limit.gainDb);        readings.add (e.limit.clip);          readings.add (e.limit.ceilingDb);
+                readings.add (e.balance.recover);     readings.add (e.balance.tame);        readings.add (e.color.toneDb);
+                readings.add (e.color.glue);          readings.add (e.color.heat);
+                readings.add (e.balance.harshAmount); readings.add (e.balance.targetAmount); readings.add (e.balance.targetSlopeDbPerOct);
+                readings.add (e.clay.lowCutHz);       readings.add (e.clay.monoAmount);     readings.add (e.clay.widthDb);
+                readings.add (chain.getLatencySamples());
+            }
+
+            result.audio = audio.h;
+            result.readings = readings.h;
+            return result;
+        }
+
+        MonitorState noMonitor (double) { return {}; }
+        void noHook (CeladonChain&, double) {}
+
+        // 参考构建（107）上的改前摘要：{ 场景名, 输出摘要, 读数摘要 }。0 = 还没测。
+        struct ExpectedDigest { const char* name; std::uint64_t audio; std::uint64_t readings; };
+
+        constexpr ExpectedDigest expectedDigests[] =
+        {
+            { "manual-busy",         0x0000000000000000ull, 0x0000000000000000ull },
+            { "glaze-auto-defaults", 0x0000000000000000ull, 0x0000000000000000ull },
+            { "preview-steady",      0x0000000000000000ull, 0x0000000000000000ull },
+            { "monitor-toggles",     0x0000000000000000ull, 0x0000000000000000ull },
+            { "reset-paths",         0x0000000000000000ull, 0x0000000000000000ull },
+        };
+
+       #if defined (__linux__) && defined (__GNUC__) && ! defined (__clang__) && defined (__x86_64__) && defined (CELADON_FP_CONTRACT_OFF)
+        constexpr bool digestsAreAsserted = true;
+       #else
+        constexpr bool digestsAreAsserted = false;
+       #endif
+    }
+
+    class ChainDigestTests : public juce::UnitTest
+    {
+    public:
+        ChainDigestTests() : juce::UnitTest ("ChainDigest", "Celadon") {}
+
+        void runTest() override
+        {
+            beginTest ("whole-chain bit digests on the reference build (audio + per-block readings)");
+            logMessage (juce::String ("  digests are ") + (digestsAreAsserted ? "asserted (reference build)" : "logged only (not the reference build)"));
+
+            for (const auto& expected : expectedDigests)
+            {
+                const auto result = runScenario (expected.name);
+                logMessage ("  " + juce::String (expected.name) + ": audio " + hex64 (result.audio) + " readings " + hex64 (result.readings)
+                            + " (" + juce::String (result.blocks) + " blocks)");
+                expect (result.finite, juce::String (expected.name) + ": output must be finite");
+
+                if (digestsAreAsserted && expected.audio != 0)
+                {
+                    expect (result.audio == expected.audio, juce::String (expected.name) + ": audio digest changed (expected "
+                                                             + hex64 (expected.audio) + ", got " + hex64 (result.audio) + ")");
+                    expect (result.readings == expected.readings, juce::String (expected.name) + ": readings digest changed (expected "
+                                                                   + hex64 (expected.readings) + ", got " + hex64 (result.readings) + ")");
+                }
+            }
+        }
+
+    private:
+        static void prepare (CeladonChain& chain, const CeladonChain::Params& p)
+        {
+            chain.setParams (p, false);
+            chain.prepare ({ 48000.0, 512, 2 });
+            chain.setParams (p, false);
+        }
+
+        DigestResult runScenario (const juce::String& name)
+        {
+            CeladonChain chain;
+            CeladonChain::Params p;
+
+            if (name == "manual-busy")
+            {
+                // GLAZE 0，四个模块都在做事，Listen 开、手动的推响不刺 / 目标频谱、编码余量、16 bit 抖动：正常路径全走一遍。
+                p.balance.recover = 60.0f;  p.balance.tame = 60.0f;  p.balance.brighten = 20.0f;
+                p.balance.speed = BalanceModule::Speed::fast;
+                p.claySettings.lowCutMode = p.claySettings.monoMode = p.claySettings.widthMode = ClayMode::manual;
+                p.claySettings.lowCutHz = 30.0f;  p.claySettings.monoHz = 150.0f;  p.claySettings.widthDb = 2.0f;
+                p.color.toneDb = 1.5f;  p.color.glue = 40.0f;  p.color.heat = 40.0f;  p.color.mixPercent = 80.0f;  p.color.outputDb = 1.0f;
+                p.limit.gainDb = 9.0f;  p.limit.ceilingDb = -1.5f;  p.limit.clip = 30.0f;  p.limit.lookaheadMs = 3.0f;  p.limit.listen = true;
+                p.mastering.harshMode = HarshMode::manual;  p.mastering.harshAmount = 60.0f;  p.mastering.transientPreserve = 40.0f;
+                p.mastering.targetMode = TargetMode::warm;  p.mastering.targetAmount = 50.0f;
+                p.mastering.codecMarginDb = 0.5f;  p.mastering.dither = DitherMode::bits16;
+                prepare (chain, p);
+                return runDigest (chain, p, 4.0, noMonitor, noHook);
+            }
+
+            if (name == "glaze-auto-defaults")
+            {
+                // 新实例默认：GLAZE 35、推响不刺自动 50、目标自动 35（聆听 → 方案过渡都在 10 s 里走）。
+                p.glazePercent = 35.0f;
+                p.mastering.harshMode = HarshMode::automatic;   p.mastering.harshAmount = 50.0f;  p.mastering.transientPreserve = 50.0f;
+                p.mastering.targetMode = TargetMode::automatic; p.mastering.targetAmount = 35.0f;
+                prepare (chain, p);
+                return runDigest (chain, p, 10.0, noMonitor, noHook);
+            }
+
+            if (name == "preview-steady")
+            {
+                // 稳态归一化预听（从第一块起就开着，目标 −20 LUFS、母带 +6 dB）：进入交接与稳态衰减。
+                p.color.outputDb = 6.0f;
+                p.mastering.previewTargetLufs = -20.0f;
+                prepare (chain, p);
+                chain.setReleasePreviewEnabled (true);
+                return runDigest (chain, p, 4.0, noMonitor, noHook);
+            }
+
+            if (name == "monitor-toggles")
+            {
+                // 没开过预听：宿主旁通 / 听原声 / 试听差值来回切，Listen 开、24 bit 抖动（干路与差值上不该加抖动）。
+                p.limit.gainDb = 6.0f;  p.limit.listen = true;
+                p.mastering.dither = DitherMode::bits24;
+                prepare (chain, p);
+                return runDigest (chain, p, 4.0, [] (double t)
+                {
+                    MonitorState m;
+                    m.hostBypassed = t >= 1.0 && t < 1.5;
+                    m.compareOriginal = t >= 2.0 && t < 2.5;
+                    m.auditionDifference = t >= 3.0 && t < 3.5;
+                    return m;
+                }, noHook);
+            }
+
+            if (name == "reset-paths")
+            {
+                // 播放中途 restartWithFadeIn（2 s）、setParams + reset（3 s，同规格 prepareToPlay 的路径）、界面 Reset 清表（3.5 s）。
+                p.glazePercent = 20.0f;
+                p.limit.gainDb = 4.0f;
+                p.mastering.dither = DitherMode::bits24;
+                prepare (chain, p);
+                const auto oneBlock = 512.0 / 48000.0;
+                return runDigest (chain, p, 4.5, noMonitor, [p, oneBlock] (CeladonChain& c, double t)
+                {
+                    if (t >= 2.0 && t < 2.0 + oneBlock) c.restartWithFadeIn();
+                    if (t >= 3.0 && t < 3.0 + oneBlock) { c.setParams (p, false); c.reset(); }
+                    if (t >= 3.5 && t < 3.5 + oneBlock) c.requestMeterReset();
+                });
+            }
+
+            jassertfalse;
+            return {};
+        }
+    };
+
+    static ChainDigestTests chainDigestTests;
+}

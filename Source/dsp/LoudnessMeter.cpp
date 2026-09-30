@@ -73,9 +73,7 @@ namespace celadon
 
     void LoudnessMeter::reset()
     {
-        for (auto& state : channelStates)
-            state = ChannelState {};
-
+        clearFilterStates();
         truePeak.reset();
         loudnessActive = loudnessEnabled.load();
         clearMeasurement();
@@ -86,6 +84,12 @@ namespace celadon
         processedSamples = 0;
         restartSubBlockGrid();
         lastBlockPeak = 0.0f;
+    }
+
+    void LoudnessMeter::clearFilterStates() noexcept
+    {
+        for (auto& state : channelStates)
+            state = ChannelState {};
     }
 
     void LoudnessMeter::restartSubBlockGrid() noexcept
@@ -104,6 +108,10 @@ namespace celadon
         recentCount = 0;
         histogramEnergy.fill (0.0);
         histogramCount.fill (0);
+        histogramTopBin = -1;
+
+        // 暂停中的清表：恢复后照样要攒够 4 个新子块（recentCount 从 0 起已经保证）；没暂停时保持「早已攒够」。
+        subBlocksSinceResume = integrationPaused ? 0 : gatingSubBlocks;
 
         shortTermLufs.store (noReading);
         integratedLufs.store (noReading);
@@ -162,6 +170,11 @@ namespace celadon
 
     void LoudnessMeter::publishSubBlock() noexcept
     {
+        // 自愈（T-032 R10-08）：子块能量非有限 = K 加权状态里进了 NaN / Inf，不清掉就会永远留在里面、之后每个子块都坏。
+        // 这个子块按既有约定照样发布（读者——分析器、Listen、校准器、渲染工具——本来就跳过非有限的 meanSquare），下一个子块起干净。
+        if (! std::isfinite (ringEnergy))
+            clearFilterStates();
+
         auto& slot = subBlockRing[(size_t) (subBlocksWritten % subBlockRingCapacity)];
         slot.meanSquare     = ringEnergy / (double) subBlockLength;
         slot.truePeakLinear = ringPeak;
@@ -184,10 +197,7 @@ namespace celadon
         if (shouldMeasureLoudness != loudnessActive)
         {
             loudnessActive = shouldMeasureLoudness;
-
-            for (auto& state : channelStates)
-                state = ChannelState {};
-
+            clearFilterStates();
             clearMeasurement();
             restartSubBlockGrid();
         }
@@ -270,6 +280,16 @@ namespace celadon
 
     void LoudnessMeter::finishSubBlock() noexcept
     {
+        // 自愈（T-032 R10-08）：这 100 ms 里进了 NaN / Inf——K 加权状态已经坏了（转置 II 型状态与 NaN 相乘还是 NaN），清掉它，
+        // 这个子块整个丢掉：短期窗口与直方图永不吃非有限值，下一个子块起读数照常（改前一个 NaN 就让整体响度永远无读数）。
+        if (! std::isfinite (subBlockEnergy))
+        {
+            clearFilterStates();
+            subBlockEnergy = 0.0;
+            samplesInSubBlock = 0;
+            return;
+        }
+
         recentSubBlocks[(size_t) recentWriteIndex] = subBlockEnergy;
         recentWriteIndex = (recentWriteIndex + 1) % shortTermSubBlocks;
         recentCount = juce::jmin (recentCount + 1, shortTermSubBlocks);
@@ -284,8 +304,19 @@ namespace celadon
 
         shortTermLufs.store (energyToLufs (shortTermEnergy / (double) (recentCount * subBlockLength)));
 
+        // 整体响度的积分暂停中（T-032 R8-03：链走干路时 OUT 表只积分母带）：门块不进直方图、整体读数不动；
+        // 恢复后的前几个门块会含暂停期间的子块，所以计数清零、攒够 4 个新子块才再成门块。
+        if (integrationPaused)
+        {
+            subBlocksSinceResume = 0;
+            return;
+        }
+
+        if (subBlocksSinceResume < gatingSubBlocks)
+            ++subBlocksSinceResume;
+
         // 每 100 ms 形成一个 400 ms 门块（75% 重叠），记进直方图。
-        if (recentCount < gatingSubBlocks)
+        if (recentCount < gatingSubBlocks || subBlocksSinceResume < gatingSubBlocks)
             return;
 
         double gatingEnergy = 0.0;
@@ -301,21 +332,27 @@ namespace celadon
         if (blockLufs < histogramMinLufs)
             return;   // 绝对门：−70 LUFS 以下不计入
 
+        // blockLufs 一定有限且 ≥ −70（能量有限、绝对门已挡掉更小的），floor 转 int 不再有 NaN 的未定义行为。
         const auto bin = juce::jlimit (0, histogramBins - 1,
                                        (int) std::floor ((blockLufs - histogramMinLufs) * (float) histogramBinsPerLu));
         histogramEnergy[(size_t) bin] += meanSquare;
         ++histogramCount[(size_t) bin];
+        histogramTopBin = juce::jmax (histogramTopBin, bin);
 
         updateIntegrated();
     }
 
     void LoudnessMeter::updateIntegrated() noexcept
     {
+        // 两遍扫描都只扫到有数的最高一格（T-032 R7-04）：更高的格子能量是 0.0、计数是 0，x + 0.0 == x（能量非负，没有 −0），
+        // 所以求和顺序、每一步的舍入都与扫满 800 格逐位相同；直方图为空时 topBin = −1，两个循环一次都不进。
+        const auto topBin = histogramTopBin;
+
         // 第一步：绝对门以上所有门块的平均 → 相对门 = 平均响度 − 10 LU。
         double energy = 0.0;
         juce::uint64 count = 0;
 
-        for (int bin = 0; bin < histogramBins; ++bin)
+        for (int bin = 0; bin <= topBin; ++bin)
         {
             energy += histogramEnergy[(size_t) bin];
             count += histogramCount[(size_t) bin];
@@ -330,18 +367,27 @@ namespace celadon
         const auto relativeGate = energyToLufs (energy / (double) count) - 10.0f;
 
         // 第二步：只取相对门以上的门块再平均（按 0.1 LU 直方图格中心判断，误差 < 0.05 LU）。
+        // 格中心随格号单调不减（(float) bin + 0.5f 精确，除以 10 与加常数都保序），「≥ 相对门」的格子是一段连续的上区间：
+        // 先按算式估个起点，再用与原判断同一个表达式向两边校正到区间的真正下界——纳入的格子与扫满 800 格时一模一样。
+        const auto binCentreOf = [] (int bin) noexcept
+        {
+            return histogramMinLufs + ((float) bin + 0.5f) / (float) histogramBinsPerLu;
+        };
+
+        auto firstBin = juce::jlimit (0, histogramBins,
+                                      (int) std::floor ((relativeGate - histogramMinLufs) * (float) histogramBinsPerLu - 0.5f) - 1);
+        while (firstBin > 0 && binCentreOf (firstBin - 1) >= relativeGate)
+            --firstBin;
+        while (firstBin < histogramBins && binCentreOf (firstBin) < relativeGate)
+            ++firstBin;
+
         double gatedEnergy = 0.0;
         juce::uint64 gatedCount = 0;
 
-        for (int bin = 0; bin < histogramBins; ++bin)
+        for (int bin = firstBin; bin <= topBin; ++bin)
         {
-            const auto binCentre = histogramMinLufs + ((float) bin + 0.5f) / (float) histogramBinsPerLu;
-
-            if (binCentre >= relativeGate)
-            {
-                gatedEnergy += histogramEnergy[(size_t) bin];
-                gatedCount += histogramCount[(size_t) bin];
-            }
+            gatedEnergy += histogramEnergy[(size_t) bin];
+            gatedCount += histogramCount[(size_t) bin];
         }
 
         integratedLufs.store (gatedCount > 0 ? energyToLufs (gatedEnergy / (double) gatedCount) : noReading);

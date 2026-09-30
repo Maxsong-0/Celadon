@@ -25,6 +25,13 @@ namespace celadon
     {
         previewGain.setCurrentAndTargetValue (1.0);
         previewGainDb = 0.0f;
+        lastValidTargetGain = 1.0;
+        hasValidTarget = false;
+        resetDitherSequence();
+    }
+
+    void ReleaseSafety::resetDitherSequence() noexcept
+    {
         randomStates = initialRandomStates;
     }
 
@@ -33,6 +40,13 @@ namespace celadon
         previewEnabled = enabled && std::isfinite (target);
         targetLufs = std::isfinite (target) ? target : -14.0f;
         ditherBits = bits == 16 || bits == 24 ? bits : 0;
+
+        // 关掉预听就忘掉上一次的读数：下次打开时从「从未有读数 → 1」重新判断，不沿用上一段预听的衰减。
+        if (! previewEnabled)
+        {
+            hasValidTarget = false;
+            lastValidTargetGain = 1.0;
+        }
     }
 
     void ReleaseSafety::setCurrentPreviewGain (double gain) noexcept
@@ -59,12 +73,22 @@ namespace celadon
             return;
 
         double targetGain = 1.0;
-        if (previewEnabled && std::isfinite (integratedLufs) && integratedLufs > -90.0f)
+        if (previewEnabled)
         {
-            // 用 double 相减，极端但有限的输入也不会溢出。禁止正增益；下限只防坏读数。
-            const auto attenuationDb = juce::jlimit (-144.0, 0.0,
-                static_cast<double> (targetLufs) - static_cast<double> (integratedLufs));
-            targetGain = std::pow (10.0, attenuationDb / 20.0);
+            if (std::isfinite (integratedLufs) && integratedLufs > -90.0f)
+            {
+                // 用 double 相减，极端但有限的输入也不会溢出。禁止正增益；下限只防坏读数。
+                const auto attenuationDb = juce::jlimit (-144.0, 0.0,
+                    static_cast<double> (targetLufs) - static_cast<double> (integratedLufs));
+                targetGain = std::pow (10.0, attenuationDb / 20.0);
+                lastValidTargetGain = targetGain;
+                hasValidTarget = true;
+            }
+            else if (hasValidTarget)
+            {
+                // 读数暂时未知（界面 Reset 清表后的前 400 ms、坏读数）：保持上一次的目标，不回 1 再落回来（T-032 R8-04）。
+                targetGain = lastValidTargetGain;
+            }
         }
         previewGain.setTargetValue (targetGain);
         // JUCE 会忽略极近的目标值；归一时仍明确落到 1，保证最终逐位旁通。
