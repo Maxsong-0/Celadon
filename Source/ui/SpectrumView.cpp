@@ -571,10 +571,16 @@ namespace celadon::ui
         if (juce::approximatelyEqual (lowCutHz, clayLowCutHz) && juce::approximatelyEqual (monoHz, clayMonoHz) && active == clayActive)
             return;
 
+        // 低切以下的斜线画在底层缓存里：只有斜线变了（出现 / 消失，或低切频率变了）才重生成；只改收单频率不动底层。
+        const auto hatchBefore = clayActive && clayLowCutHz > 0.0f;
+        const auto hatchAfter = active && lowCutHz > 0.0f;
+
+        if (hatchBefore != hatchAfter || (hatchAfter && ! juce::approximatelyEqual (lowCutHz, clayLowCutHz)))
+            invalidate (Layer::back);
+
         clayLowCutHz = lowCutHz;
         clayMonoHz = monoHz;
         clayActive = active;
-        invalidate (Layer::back);   // 低切以下的斜线画在底层缓存里
         updateMarkerLabels();
         repaint();
     }
@@ -674,7 +680,9 @@ namespace celadon::ui
         switch (which)
         {
             case Layer::back:
-                return getLocalBounds();
+                // 四周多留 1 个逻辑像素：组件原点落在小数设备像素上时（界面缩放 70 % 等），整张图吸附到最近的整数像素，
+                // 面板边缘那一列 / 一行只被部分覆盖的像素仍在图里，不会露出底下的背景。原点在整数像素上时多出的一圈在面板裁剪之外。
+                return getLocalBounds().expanded (1);
 
             case Layer::frequencyText:
             {
