@@ -23,13 +23,21 @@ namespace celadon::glaze
 {
     // 方案默认值和出厂常数共用版本，GLAZE 0 学完后保存的空方案也必须属于当前算法。
     // 7 = v0.1.7.0 修坯 Clay（设计规格-Clay、ADR-009）：画像加立体声 / 超低频特征，方案加 Clay 四项。
-    inline constexpr int currentAlgorithmVersion = 7;
+    // 8 = T-032（2026-09-29，设计规格-GLAZE 7.4「版本」段）：R6-01 自动 Heat 只承担换算表里该电平真能削掉的峰均比份额、削不到
+    //     Constants::heatUsefulCrestDb 就只留风格底量 StyleConstants::automaticHeatFloor × 强度（原来 HeatRow::inverse「达不到就给最大」
+    //     让残差 Heat 表下的自动 Heat 与音乐无关地顶到 70 / 50 / 20）；R6-06 满强度增益按 Limit Gain 量程（24 − 手动 Gain）回算。
+    //     两条新规则都按**快照**的 Constants::algorithmVersion ≥ 8 分流（GlazePlanner.cpp makeFullPlan / completeFullPlan，与 ≥ 3 那一处
+    //     同一写法）：算法 6 / 7 的存档重开时 committed.constants 就是存档里的快照，方案走旧分支、增量逐位同存档。
+    inline constexpr int currentAlgorithmVersion = 8;
 
     // 与本版本「行为相同」的最早算法版本。7 只在 6 上加了 Clay，而 6 保存的画像（格式 1）没有 Clay 所需特征 → Clay 中性，
     // 其余自动增量的算法没变；所以算法 6 保存的方案与执行快照照常采用、不进「照用旧增量」模式，v0.1.6.2 工程打开后
     // **在约束反馈第一次触发之前**交给模块的参数逐位不变（tests/LegacyFixtureTests 用 v0.1.6.2 真实写出的存档核对）；触发之后按修复后的
     // 上限公式（applyFeedback 不再把校准偏差算两次）与旧版有意不同（审核 V2-01）。输出因 Clay 线性相位收单整体晚 D 个样本（ADR-012）
-    // （T-012 阶段 2 主进程裁决，A6 报告「请主进程裁决」一条）。以后升算法版本时，若改了既有增量的行为，把本常数跟着升。
+    // （T-012 阶段 2 主进程裁决，A6 报告「请主进程裁决」一条）。
+    // 8 改了既有增量的行为（自动 Heat、满强度增益），但按快照的 algorithmVersion 分流：旧存档重开时用存档里的快照重算，走旧分支、
+    // 结果逐位同存档，所以「行为相同」仍成立，本常数保持 6（T-032 核验 V6 第 1 节第 2 点：升版不丢校准 / 执行快照——calibrationApplicable
+    // 只比参考条件、executionHeld 只在参考条件变时释放）。以后升算法版本时，若改了既有增量的行为**且不能按快照版本分流**，才把本常数跟着升。
     inline constexpr int oldestCompatibleAlgorithmVersion = 6;
 
     constexpr bool isCompatibleAlgorithm (int version) noexcept
@@ -158,7 +166,11 @@ namespace celadon::glaze
         ClayPlan clay;                      // v0.1.7.0（算法 7）：Clay「自动」态的值；旧算法方案读入时为中性值
         StyleWeights weights;
         bool limitedByConstraints = false;  // 目标因约束被降低过
-        bool limitedByManual = false;       // 手动设置已超约束，自动增量已撤回
+        bool limitedByManual = false;       // 手动设置已超约束，该模块的自动增量已撤回（任一模块；界面「受手动设置限制」看它）
+        // T-032 R6-02：电平类自动**全部**撤回——手动已让限幅器超约束、Limit 旁通、或约束反馈上限低于手动链净增益。只有这时
+        // 才没有自动加上去的增益可收回、可校准；手动 Heat / Glue / Clip 单独超预算时其余自动增量照常展开（v0.6 F-02 逐模块钳住），
+        // 编排器的校准、保护层、约束反馈与画像失配只看本标志，不看 limitedByManual。存档缺本属性（v0.1.8.5 及以前）按 limitedByManual 读。
+        bool automaticLevelWithdrawn = false;
         int algorithmVersion = currentAlgorithmVersion;
         int constantsVersion = 1;
     };

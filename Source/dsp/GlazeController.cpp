@@ -1581,11 +1581,12 @@ namespace celadon::glaze
                 }
                 else
                 {
-                    // 诊断（TestProbe::calibrationInterruptMask，位的含义见那里）
+                    // 诊断（TestProbe::calibrationInterruptMask，位的含义见那里；16 = 电平类自动全部撤回，T-032 R6-02 起不再是
+                    // 「受手动设置限制」——手动 Heat / Glue / Clip 单独超预算时自动 Gain 照常推响，校准照常）
                     probe.calibrationInterruptMask = (paused ? 1 : 0) | (! active ? 2 : 0) | (transitionActive ? 4 : 0) | (! matches ? 8 : 0)
-                                                   | (toSlot().plan.limitedByManual ? 16 : 0) | (guard.isEngaged() ? 32 : 0);
+                                                   | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (guard.isEngaged() ? 32 : 0);
 
-                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.limitedByManual)
+                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.automaticLevelWithdrawn)
                         calibrator.invalidateCurrentWindow();
 
                     calibrator.process (inputBlocks.data(), numInput, outputBlocks.data(), numOutput,
@@ -1596,7 +1597,8 @@ namespace celadon::glaze
                 }
             }
 
-            // 开新一轮：已学过、GLAZE > 0、不在宿主旁通、没有方案过渡、不受手动限制、已提交的校准对此刻不适用、
+            // 开新一轮：已学过、GLAZE > 0、不在宿主旁通、没有方案过渡、电平类自动没有全部撤回（Plan::automaticLevelWithdrawn，
+            // T-032 R6-02：手动 Heat / Glue / Clip 单独超预算只是界面提示，自动 Gain 仍在推响，照常校准）、已提交的校准对此刻不适用、
             // 条件连续 1 s 没变，且不是刚刚对同一条件试过（试过而失败的不反复重试，等条件变了再说）。
             // 保护层：在参考状态（g_保护 = 0）才开；它若停在某个退让值上一直不动（超过它自己「安全多久才恢复」的等待 + 1 s，
             // 说明卡在回差区、不会自己回来），也开——这一轮会因保护层持续介入结束为「预算受限」，约束反馈把这点退让吸收进方案
@@ -1612,13 +1614,13 @@ namespace celadon::glaze
             {
                 probe.calibrationInterruptMask = 0;
                 probe.calibrationGateMask = (! committed.hasProfile ? 1 : 0) | (! active ? 2 : 0) | (paused ? 4 : 0) | (transitionActive ? 8 : 0)
-                                          | (toSlot().plan.limitedByManual ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
+                                          | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
                                           | (calibrationApplicable() ? 128 : 0) | (referenceStableSamples < stableSamples ? 256 : 0)
                                           | (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference) ? 512 : 0);
             }
 
             if (! roundActive && committed.hasProfile && active && ! paused && ! transitionActive
-                && ! toSlot().plan.limitedByManual && guardSettled && referenceKnown && ! calibrationApplicable()
+                && ! toSlot().plan.automaticLevelWithdrawn && guardSettled && referenceKnown && ! calibrationApplicable()
                 && referenceStableSamples >= stableSamples
                 && ! (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference)))
             {
@@ -1627,10 +1629,10 @@ namespace celadon::glaze
         }
 
         // 此刻应施加的校准偏差：轮中 = 校准器的建议（条件暂时不一致或暂停时保持不动：已完成的子窗是在这个偏差下测的）；
-        // 已提交的校准适用 = 它的偏差（钳到此刻的修正范围）；否则 0（纯前馈）。GLAZE ≤ 0、受手动限制、没学过：0。
+        // 已提交的校准适用 = 它的偏差（钳到此刻的修正范围）；否则 0（纯前馈）。GLAZE ≤ 0、电平类自动全部撤回、没学过：0。
         float biasTarget() const noexcept
         {
-            if (! active || ! committed.hasProfile || toSlot().plan.limitedByManual)
+            if (! active || ! committed.hasProfile || toSlot().plan.automaticLevelWithdrawn)
                 return 0.0f;
 
             auto target = 0.0f;
@@ -1842,7 +1844,7 @@ namespace celadon::glaze
             const auto& profileLoudness = source.profile.integratedLufs;
 
             if (! active || savedPlanMode || ! source.hasProfile || ! profileLoudness.valid || ! isFinite (profileLoudness.value)
-                || toSlot().plan.limitedByManual)
+                || toSlot().plan.automaticLevelWithdrawn)   // T-032 R6-02：只在电平类自动全部撤回时不判（没有自动增益可压）
             {
                 clearMismatch();
                 return;
@@ -1919,7 +1921,7 @@ namespace celadon::glaze
 
             guardWasPlanLimited = planLimited;
 
-            if (! active || ! toSlot().source.hasProfile || transitionActive || toSlot().plan.limitedByManual
+            if (! active || ! toSlot().source.hasProfile || transitionActive || toSlot().plan.automaticLevelWithdrawn   // T-032 R6-02
                 || samplesSinceFeedback < feedbackCooldownSamples)
                 return;
 
@@ -2156,8 +2158,10 @@ namespace celadon::glaze
             executedBiasDb = 0.0f;
             executedGuardDb = 0.0f;
 
-            // 受手动设置限制：自动增量本来就撤回了，校准偏差与保护偏移也不施加（手动造成的超限只提示，不偷偷改）。
-            if (toSlot().plan.limitedByManual)
+            // 电平类自动全部撤回（手动已让限幅器超约束 / Limit 旁通 / 约束反馈上限低于手动链净增益）：没有自动加上去的增益，
+            // 校准偏差与保护偏移也不施加（手动造成的超限只提示，不偷偷改）。T-032 R6-02：只看 Plan::automaticLevelWithdrawn——
+            // 手动 Heat / Glue / Clip 单独超染色预算时 limitedByManual 为真但自动 Limit Gain 仍在推响，偏差与保护照常施加。
+            if (toSlot().plan.automaticLevelWithdrawn)
                 return;
 
             const auto manualGain = manual.limit.gainDb;
@@ -2571,9 +2575,10 @@ namespace celadon::glaze
             }
 
             // ---- 保护层（GLAZE > 0 才工作；宿主旁通、Color / Limit 旁通期间冻结：输出是干路，统计不代表听到的）----
-            // 受手动设置限制时也清零、不工作：自动增量已撤回，没有自动加上去的增益可收回（设计决定 4），它若照常累计退让，
-            // 等手动设置改回来那一刻会突然施加一大步。
-            if (active && ! toSlot().plan.limitedByManual)
+            // 电平类自动全部撤回时也清零、不工作：没有自动加上去的增益可收回（设计决定 4），它若照常累计退让，
+            // 等手动设置改回来那一刻会突然施加一大步。T-032 R6-02：看 Plan::automaticLevelWithdrawn 而不是 limitedByManual——
+            // 手动 Heat / Glue / Clip 单独超预算时自动 Limit Gain 仍在推响，保护层必须照常退让（决策与校准 §7）。
+            if (active && ! toSlot().plan.automaticLevelWithdrawn)
             {
                 updateGuardLimits();
 

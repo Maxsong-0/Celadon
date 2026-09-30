@@ -77,6 +77,7 @@ namespace celadon::test
                 && sameBits (a.weights.warm, b.weights.warm) && sameBits (a.weights.punchy, b.weights.punchy)
                 && sameBits (a.weights.clean, b.weights.clean)
                 && a.limitedByConstraints == b.limitedByConstraints && a.limitedByManual == b.limitedByManual
+                && a.automaticLevelWithdrawn == b.automaticLevelWithdrawn
                 && a.algorithmVersion == b.algorithmVersion && a.constantsVersion == b.constantsVersion;
         }
 
@@ -415,6 +416,8 @@ namespace celadon::test
             testExcessLowersTarget();
             testMaxGainFeedback();
             testStyleDirections();
+            testHeatOnlyClaimsRealCrestReduction();   // T-032 R6-01
+            testGainRangeBoundsEffectiveGain();       // T-032 R6-06
             testGlueLowFrequencyRisk();
             testLowConfidenceTightens();
             testConfidenceNeverMoreAggressive();
@@ -754,7 +757,7 @@ namespace celadon::test
             const auto plan = planFor (&profile, Style::clean, 100.0f);
             expectEquals (plan.estimatedExcessDb, 0.0f);
             expect (plan.increments.colorHeat > 0.0f);
-            expect (plan.increments.colorHeat <= factoryConstants().automaticHeatFloor);
+            expect (plan.increments.colorHeat <= factoryConstants().clean.automaticHeatFloor);   // T-032：底量是风格常数
             expectWithinAbsoluteError (plan.effectiveGainDb, 8.0f, 1.0e-3f, "color compensation preserves the planned net gain");
 
             auto manual = defaultManual();
@@ -881,8 +884,15 @@ namespace celadon::test
             const auto punchy = planFor (&profile, Style::punchy, 100.0f);
             const auto clean = planFor (&profile, Style::clean, 100.0f);
 
-            expect (warm.increments.colorHeat > punchy.increments.colorHeat && punchy.increments.colorHeat > clean.increments.colorHeat,
-                    utf8 ("Heat：温润 > 冲击 > 通透"));
+            // T-032 R6-01：出厂残差 Heat 表几乎不削峰，自动 Heat 恒为风格底量 × 强度（出厂三种风格都 12，风格差异待 Max 标定），
+            // 原来的「温润 > 冲击 > 通透」只靠 HeatRow::inverse 把 Heat 顶到 heatDriveCap 的缺陷成立。风格间的 Heat 取向由驱动上限体现。
+            const auto& fc = factoryConstants();
+            expect (fc.warm.heatDriveCap > fc.punchy.heatDriveCap && fc.punchy.heatDriveCap > fc.clean.heatDriveCap,
+                    utf8 ("Heat 驱动上限：温润 > 冲击 > 通透"));
+            expect (warm.increments.colorHeat > 0.0f && warm.increments.colorHeat <= fc.warm.automaticHeatFloor + 1.0e-3f
+                        && punchy.increments.colorHeat > 0.0f && punchy.increments.colorHeat <= fc.punchy.automaticHeatFloor + 1.0e-3f
+                        && clean.increments.colorHeat > 0.0f && clean.increments.colorHeat <= fc.clean.automaticHeatFloor + 1.0e-3f,
+                    utf8 ("Heat：三种风格都只给自己的底量（出厂表削不了峰）"));
             expect (warm.increments.colorGlue > clean.increments.colorGlue && warm.increments.colorGlue > punchy.increments.colorGlue,
                     utf8 ("Glue：温润最多"));
             expect (punchy.increments.limitClip > warm.increments.limitClip && punchy.increments.limitClip > clean.increments.limitClip,
@@ -913,7 +923,10 @@ namespace celadon::test
             expect (samePlan (planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &allClean), clean));
 
             const auto mixed = planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &half);
-            expect (mixed.increments.colorHeat < warm.increments.colorHeat && mixed.increments.colorHeat > clean.increments.colorHeat);
+            // T-032：底量三种风格相同时混合方案的 Heat 也是底量（blendConstants 对逐位相同的底量直接取原值）；上限按权重混合。
+            expect (mixed.increments.colorHeat <= juce::jmax (warm.increments.colorHeat, clean.increments.colorHeat) + 1.0e-6f
+                        && mixed.increments.colorHeat >= juce::jmin (warm.increments.colorHeat, clean.increments.colorHeat) - 1.0e-6f);
+            expectWithinAbsoluteError (blendConstants (fc, half).heatDriveCap, 0.5f * (fc.warm.heatDriveCap + fc.clean.heatDriveCap), 1.0e-4f);
             expectWithinAbsoluteError (mixed.weights.warm, 0.5f, 1.0e-6f);
             expect (mixed.requestedGainDb < warm.requestedGainDb && mixed.requestedGainDb > clean.requestedGainDb,
                     utf8 ("混合风格的偏好响度应在两种风格之间"));
@@ -1211,6 +1224,8 @@ namespace celadon::test
             expectEquals (heatPlan.increments.colorHeat, 0.0f);
             expectEquals (applyIncrements (heavyHeat, heatPlan.increments).color.heat, heavyHeat.color.heat, utf8 ("不应反向改手动 Heat"));
             expect (heatPlan.increments.limitGainDb > 0.0f, utf8 ("其它模块照常工作"));
+            // T-032 R6-02：只撤回 Heat 的自动增量、自动 Gain 仍在推响 → 电平类自动没有全部撤回，编排器的保护层 / 校准照常。
+            expect (! heatPlan.automaticLevelWithdrawn, utf8 ("手动 Heat 超染色预算不算电平类自动全部撤回"));
 
             // 手动 Gain 12 dB 推一个热混音：限幅器只靠手动就超上限 → 所有动电平的自动增量撤回，手动 Gain 不减。
             const auto hot = makeProfile (-12.0f, -2.0f);
@@ -1218,6 +1233,7 @@ namespace celadon::test
             heavyGain.limit.gainDb = 12.0f;
             const auto gainPlan = planFor (&hot, Style::punchy, 100.0f, heavyGain);
             expect (gainPlan.limitedByManual);
+            expect (gainPlan.automaticLevelWithdrawn, utf8 ("手动已让限幅器超约束：电平类自动全部撤回"));
             expectEquals (gainPlan.increments.limitGainDb, 0.0f);
             expectEquals (gainPlan.increments.colorHeat, 0.0f);
             expectEquals (gainPlan.increments.colorGlue, 0.0f);
@@ -1231,13 +1247,26 @@ namespace celadon::test
             const auto gluePlan = planFor (&loud, Style::warm, 100.0f, heavyGlue);
             expect (gluePlan.limitedByManual);
             expectEquals (gluePlan.increments.colorGlue, 0.0f);
+            expect (! gluePlan.automaticLevelWithdrawn, utf8 ("手动 Glue 超预算同样不算电平类自动全部撤回"));
 
             // Limit 旁通：自动推不了响度（没有限幅器兜底），标受手动限制。
             auto bypassed = defaultManual();
             bypassed.limit.bypass = true;
             const auto bypassPlan = planFor (&profile, Style::clean, 100.0f, bypassed);
             expect (bypassPlan.limitedByManual);
+            expect (bypassPlan.automaticLevelWithdrawn, utf8 ("Limit 旁通：电平类自动全部撤回"));
             expectEquals (bypassPlan.increments.limitGainDb, 0.0f);
+
+            // 约束反馈上限低于手动链净增益：自动全部撤回，两个标志都置（GlazePlanner.h「maxGainDb 低于手动链净增益」）。
+            auto someGain = defaultManual();
+            someGain.limit.gainDb = 6.0f;
+            const auto manualNet = planFor (&profile, Style::clean, 0.0f, someGain).effectiveGainDb;   // GLAZE 0 = 手动链的预计净增益
+            const auto cappedPlan = planFor (&profile, Style::clean, 100.0f, someGain, manualNet - 1.0f);
+            expect (cappedPlan.limitedByManual && cappedPlan.automaticLevelWithdrawn && cappedPlan.limitedByConstraints);
+            expect (allIncrementsZero (cappedPlan.increments) || (cappedPlan.increments.limitGainDb == 0.0f && cappedPlan.increments.colorGlue == 0.0f
+                                                                  && cappedPlan.increments.colorHeat == 0.0f && cappedPlan.increments.limitClip == 0.0f),
+                    utf8 ("动电平的自动增量全为 0"));
+            expect (! planFor (&profile, Style::clean, 100.0f, someGain).automaticLevelWithdrawn, utf8 ("不设上限时不撤回"));
 
             // 输入本身已超 Ceiling（手动全默认）：不是手动的问题，方案照常按风格分摊峰值，也不标受手动限制。
             const auto clipped = makeProfile (-10.0f, 3.0f);
@@ -1730,6 +1759,26 @@ namespace celadon::test
             CommittedState newer;
             expect (fromXml (*newerAlgorithm, newer), utf8 ("方案算法版本不同不应拒收"));
             expectEquals (newer.plan.algorithmVersion, currentAlgorithmVersion + 5);
+
+            // T-032 R6-02：PLAN 的 automaticLevelWithdrawn 可缺省——v0.1.8.5 及以前的存档没有它，缺省取同一方案的 limitedByManual
+            //（旧语义 = 保守）；属性在但不是 0 / 1 照样拒收。
+            expectRejected<CommittedState> (*stateXml, [] (juce::XmlElement& x) { x.getChildByName ("PLAN")->setAttribute ("automaticLevelWithdrawn", "2"); },
+                                            stateSentinel, utf8 ("automaticLevelWithdrawn 不是 0 / 1"));
+
+            for (auto limited : { false, true })
+            {
+                auto legacyPlan = std::make_unique<juce::XmlElement> (*stateXml);
+                auto* planNode = legacyPlan->getChildByName ("PLAN");
+                planNode->setAttribute ("limitedByManual", limited ? "1" : "0");
+                planNode->setAttribute ("automaticLevelWithdrawn", "0");   // 先证明属性在时按属性读……
+                CommittedState explicitState;
+                expect (fromXml (*legacyPlan, explicitState) && explicitState.plan.limitedByManual == limited && ! explicitState.plan.automaticLevelWithdrawn);
+                planNode->removeAttribute ("automaticLevelWithdrawn");     // ……缺属性才取 limitedByManual
+                CommittedState legacyState;
+                expect (fromXml (*legacyPlan, legacyState), utf8 ("旧存档缺 automaticLevelWithdrawn 不应拒收"));
+                expect (legacyState.plan.limitedByManual == limited && legacyState.plan.automaticLevelWithdrawn == limited,
+                        utf8 ("缺属性时 automaticLevelWithdrawn 取 limitedByManual"));
+            }
         }
 
         //==============================================================================
@@ -1780,19 +1829,69 @@ namespace celadon::test
             expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setTagName ("GLAZE_OTHER"); }, sentinel, utf8 ("节点名不对"));
             expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("automaticHeatFloor", "oops"); }, sentinel,
                                        "a present but malformed optional field is not a legacy snapshot");
+            expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("warm_automaticHeatFloor", "oops"); }, sentinel,
+                                       "a present but malformed per-style heat floor is rejected");
+            expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("heatUsefulCrestDb", "oops"); }, sentinel,
+                                       "a present but malformed heatUsefulCrestDb is rejected");
+
+            // T-032 R6-01：出厂 v8 快照写三个风格底量，旧的全局 automaticHeatFloor 照写（= 三者中最小的，旧版本插件只认它）。
+            expect (factory.version >= 8 && currentAlgorithmVersion >= 8, utf8 ("T-032：标定 / 算法版本升到 8"));
+            expectEquals (factory.heatUsefulCrestDb, 0.1f);
+            expect (good->hasAttribute ("warm_automaticHeatFloor") && good->hasAttribute ("punchy_automaticHeatFloor")
+                        && good->hasAttribute ("clean_automaticHeatFloor") && good->hasAttribute ("automaticHeatFloor") && good->hasAttribute ("heatUsefulCrestDb"));
+            expect (good->getStringAttribute ("automaticHeatFloor") == good->getStringAttribute ("clean_automaticHeatFloor"),
+                    utf8 ("出厂三种底量相同：全局字段就是它"));
+
+            // v7 及以前的快照只有全局 automaticHeatFloor（例如 9）：三种风格都按它读，混合权重下逐位等于原值。
+            {
+                auto v7 = toXml (factory);
+                v7->setAttribute ("version", 7);
+                v7->setAttribute ("algorithmVersion", 7);
+                for (const auto* field : { "warm_automaticHeatFloor", "punchy_automaticHeatFloor", "clean_automaticHeatFloor", "heatUsefulCrestDb" })
+                    v7->removeAttribute (field);
+                const float nine = 9.0f;
+                std::uint32_t nineBits = 0;
+                std::memcpy (&nineBits, &nine, sizeof (nineBits));
+                v7->setAttribute ("automaticHeatFloor", juce::String::toHexString ((int) nineBits).paddedLeft ('0', 8));
+                Constants fromV7 = factory;
+                expect (fromXml (*v7, fromV7), utf8 ("v7 快照应读得回"));
+                expect (sameBits (fromV7.warm.automaticHeatFloor, 9.0f) && sameBits (fromV7.punchy.automaticHeatFloor, 9.0f)
+                            && sameBits (fromV7.clean.automaticHeatFloor, 9.0f), utf8 ("三种风格都取旧的全局底量"));
+                expectEquals (fromV7.heatUsefulCrestDb, 0.0f, utf8 ("旧快照缺 heatUsefulCrestDb 按 0 读（算法 7 不进新分支，缺省不是兼容手段）"));
+                expect (sameBits (blendConstants (fromV7, { 0.12f, 0.88f, 0.0f }).automaticHeatFloor, 9.0f)
+                            && sameBits (blendConstants (fromV7, { 0.3f, 0.3f, 0.4f }).automaticHeatFloor, 9.0f),
+                        utf8 ("三者逐位相同时混合直接取原值，不经加权求和"));
+                Constants v7RoundTrip;
+                expect (fromXml (*toXml (fromV7), v7RoundTrip) && bitwiseEqual (v7RoundTrip, fromV7), utf8 ("v7 读回再存往返逐位相同"));
+
+                auto tuned = factory;   // Max 标定后三者不同：按权重线性混合，全局字段取最小
+                tuned.warm.automaticHeatFloor = 12.0f;
+                tuned.punchy.automaticHeatFloor = 8.0f;
+                tuned.clean.automaticHeatFloor = 4.0f;
+                expectWithinAbsoluteError (blendConstants (tuned, { 0.5f, 0.0f, 0.5f }).automaticHeatFloor, 8.0f, 1.0e-5f);
+                const auto tunedXml = toXml (tuned);
+                expect (tunedXml->getStringAttribute ("automaticHeatFloor") == tunedXml->getStringAttribute ("clean_automaticHeatFloor"),
+                        utf8 ("全局字段 = 三者中最小的（旧版本读到偏保守的那份）"));
+                Constants tunedBack;
+                expect (fromXml (*tunedXml, tunedBack) && bitwiseEqual (tunedBack, tuned));
+            }
 
             // 旧版没有这些字段：从任意调用方初值读回都必须关掉新底量，不能继承当前出厂值。
             auto legacyXml = toXml (factory);
             legacyXml->setAttribute ("algorithmVersion", 1);
             legacyXml->setAttribute ("version", 1);
-            for (const auto* field : { "minimumFullDriveDb", "automaticRecoverFloor", "automaticTameFloor", "automaticHeatFloor" })
+            for (const auto* field : { "minimumFullDriveDb", "automaticRecoverFloor", "automaticTameFloor", "automaticHeatFloor",
+                                       "warm_automaticHeatFloor", "punchy_automaticHeatFloor", "clean_automaticHeatFloor", "heatUsefulCrestDb" })
                 legacyXml->removeAttribute (field);
             auto legacy = factory;
             expect (fromXml (*legacyXml, legacy));
             expectEquals (legacy.minimumFullDriveDb, 0.0f);
             expectEquals (legacy.automaticRecoverFloor, 0.0f);
             expectEquals (legacy.automaticTameFloor, 0.0f);
-            expectEquals (legacy.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.warm.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.punchy.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.clean.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.heatUsefulCrestDb, 0.0f);
             expectEquals (legacy.algorithmVersion, 1);
             expect (legacy.algorithmVersion != currentAlgorithmVersion, "the controller can recognise an old saved plan");
             Constants legacyRoundTrip;

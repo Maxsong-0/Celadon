@@ -18,6 +18,9 @@
       - ADR-012（设计规格-Clay-根治修订第 3 节，v0.1.7.0 发布前追加，格式号不变）：画像格式 2 多存三类峰值代价
         （lowCutPeakCostDb、monoPeakCostDb[4]、widthPeakCostDb），与格式 2 其他字段同样严格、同样接在画像号哈希的最后；
         方案与执行快照的 ClayPlan 多存 costLimitedMask（缺属性 = 0）。
+      - T-032 R6-02（2026-09-29，格式号不变）：方案多存 automaticLevelWithdrawn（缺属性 = 该方案的 limitedByManual，旧语义保守）；
+        标定快照多存三个风格字段 warm_ / punchy_ / clean_automaticHeatFloor 与 heatUsefulCrestDb（GlazeConstants.cpp visitHeatFloor：
+        旧的全局 automaticHeatFloor 照写、照读作三者的缺省）。
 
   ==============================================================================
 */

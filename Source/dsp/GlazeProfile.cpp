@@ -32,6 +32,8 @@
     BUG-004（T-026，ADR-018）：CALIBRATION 与执行快照的 REFERENCE 按新口径另存 conditionsFormat="2"、discreteParamsHash 与
       三个对数刻度值（limitReleaseMs、clayLowCutHz、clayMonoHz）；口径号为 2 时四项缺一即拒收，口径号不是 1 / 2 拒收。
       旧口径的参考（旧存档读回、还没升格）一个新属性也不写，存出来与修前逐字相同；manualParamsHash 两种口径都写（旧口径哈希）。
+    T-032 R6-02（2026-09-29）：PLAN 多存 automaticLevelWithdrawn（电平类自动全部撤回；编排器的安全层看它）。缺属性 = 取同一节点里的
+      limitedByManual（旧语义，保守）；在但不是 0 / 1 拒收。执行快照的 PLAN 同一字段表。
 
   ==============================================================================
 */
@@ -166,6 +168,10 @@ namespace celadon::glaze
 
             v.field ("limitedByConstraints", plan.limitedByConstraints);
             v.field ("limitedByManual", plan.limitedByManual);
+            // T-032 R6-02：电平类自动全部撤回。v0.1.8.5 及以前的存档没有这个属性：缺省取刚读到的 limitedByManual（旧语义 = 保守）——
+            // 算法 < 6 的存档进「照用保存的方案」模式，缺省 false 会让保护层 / 校准对一份「自动全撤」的旧方案照常开工；兼容算法的
+            // 存档下一块就重算，缺省值无影响。属性在但不是 0 / 1 照样拒收。
+            v.optionalField ("automaticLevelWithdrawn", plan.automaticLevelWithdrawn, plan.limitedByManual);
             v.field ("algorithmVersion", plan.algorithmVersion);
             v.field ("constantsVersion", plan.constantsVersion);
         }

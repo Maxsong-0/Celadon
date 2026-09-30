@@ -16,6 +16,9 @@
            任一模块按自己的量（Heat 驱动与削峰量、Clip 深度与活动、Limit 峰值 / p95 / 平均 GR）放不下它那一份
            → 降低 G 重新求（不把负担甩给别的模块），得到受约束的 G_full′；
            换算成参数：Glue 阈值按侧链检测电平定、Heat 查换算表、Clip 阈值 = Ceiling + 限幅器那一份；
+           Heat（算法 8 起，T-032 R6-01）只承担换算表里该电平、上限以内真能削掉的峰均比，削不到 heatUsefulCrestDb 就只留风格底量
+           automaticHeatFloor（残差 Heat 表几乎不削峰：不能再用「达不到就给最大」把 Heat 顶到风格上限）；
+           自动 Limit Gain 的量程是 24 − 手动 Gain（算法 8 起，T-032 R6-06）：请求放不进量程 → G_full′ 回算成量程顶值能交付的净增益、标受约束；
            Glue 的补偿本身就比 G_full′ 还多（偏响的素材）→ 不用自动 Glue（否则低强度时 Gain 得为负）；
       5. 按强度 s = GLAZE × κ 展开：Glue / Heat / Tone / Recover / Tame 的增量 = 满强度值 × s；
          Limit Gain 走 5 个折点的单调折线（各折点按前向模型求「净增益 = 中性链 + s × G_full′」所需的 Gain），
@@ -23,6 +26,9 @@
       6. 叠加手动值后逐模块核对约束（前向链模型；输入本身已超的量不算手动的，也不因此停摆）：
          手动本身已超 → 撤回该模块的自动增量、标 limitedByManual；叠加后超 → 在固定网格上二分出最大可行强度 s_c，
          与 GLAZE 无关，最终强度 = min(s, s_c)，所以随 GLAZE 严格单调；约束反馈 maxGainDb 同样折成强度上限；
+         手动已让限幅器超约束 / Limit 旁通 / maxGainDb 低于手动链净增益 → 电平类自动全部撤回，另标 automaticLevelWithdrawn
+         （T-032 R6-02：编排器的校准、保护层、约束反馈与画像失配只看它；limitedByManual 是界面提示，Heat / Glue / Clip 单独
+         被撤回时其余自动增量照常展开，安全层不能因此停摆）；
       7. 目标：requestedGain = 手动链的预计净增益 + GLAZE × G_full（风格与 GLAZE 想要的）；
                effectiveGain = 手动链的预计净增益 + s × G_full′（校准器用它作目标净提升，含手动部分，所以不会去抵消手动）。
       8. 修坯 Clay（v0.1.7.0，算法 7；设计规格-Clay-分析决策与验收第 2 节，ADR-012 / 设计规格-Clay-根治修订 3.3 修订）：与 1 ～ 7
@@ -41,6 +47,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 
 namespace celadon::glaze
@@ -62,8 +69,24 @@ namespace celadon::glaze
         constexpr int lossIterations = 3;
         constexpr int knotIterations = 2;   // 折点只定中段的形状（之后还要取单调包络、夹在 0 与满强度值之间），2 次足够
 
+        // T-032（2026-09-29）的两条规则从算法 8 起（GlazeTypes.h currentAlgorithmVersion 的说明）：R6-01 自动 Heat 只承担真能削掉的量、
+        // R6-06 满强度增益按 Limit Gain 量程回算。看的是**快照**的 algorithmVersion（与下面 capacityAt 的 ≥ 3 同一写法）：算法 6 / 7
+        // 的存档重开时用存档里的快照重算，走旧分支，增量逐位同存档。
+        constexpr int heatAndGainRangeAlgorithmVersion = 8;
+
+        // Limit Gain 参数的上限（ParameterRanges / applyIncrements 的钳位）：手动 + 自动之和不会超过它。
+        constexpr float limitGainRangeDb = 24.0f;
+
         //==============================================================================
         bool isFinite (float x) noexcept              { return std::isfinite (x); }
+
+        bool sameBits (float a, float b) noexcept
+        {
+            std::uint32_t x, y;
+            std::memcpy (&x, &a, sizeof (x));
+            std::memcpy (&y, &b, sizeof (y));
+            return x == y;
+        }
         float clamp01 (float x) noexcept              { return x > 0.0f ? (x < 1.0f ? x : 1.0f) : 0.0f; }   // NaN → 0
         float nonNegative (float x) noexcept          { return x > 0.0f ? x : 0.0f; }                       // NaN → 0
         float clampTo (float x, float lo, float hi) noexcept { return x < lo ? lo : (x > hi ? hi : x); }
@@ -350,6 +373,7 @@ namespace celadon::glaze
 
             float clipKneeGapDb = 3.1f;    // SoftClip 线性段到阈值的距离（dB）
             float glueLowRiskScale = 1.0f; // 自动 Glue 份额的低频风险折扣（1 = 不折，见 makePlan「Glue 的低频风险」）
+            float manualGainDb = 0.0f;     // 手动 Limit Gain（已钳到参数范围）：自动 Limit Gain 的量程是 24 − 它（T-032 R6-06）
         };
 
         // 一组「会影响电平的 4 个参数」的取值（实际值：手动 + 自动，或只有其中一方）。Tone / Recover / Tame 按不改变整体电平计。
@@ -745,18 +769,26 @@ namespace celadon::glaze
         }
 
         // 按给定的 Glue / Heat 求满强度的 Gain、Clip 分工与各折点。返回 false = 某个强度下要的 Gain 为负（Color 自己已经比目标响）。
+        // 算法 8 起（T-032 R6-06）自动 Limit Gain 的量程是 24 − 手动 Gain（combine / applyIncrements 都把手动 + 自动钳到 24）：
+        // 请求的 Gain 放不进量程时，G_full′（full.gainDb）回算成量程顶值下前向模型真能交付的净增益、标受约束——目标显示与校准目标
+        // 不再宣称交付不了的净提升（原来 I −40 LUFS 请求 30 dB 时宣称 30、Gain 实际钳 24，校准目标永远追不上、每首都「部分校准」）。
+        // 算法 ≤ 7 的快照照旧：只钳折点顶值到 24、full.gainDb 不动（旧工程逐位不变）。
         bool completeFullPlan (const Context& ctx, FullPlan& full, float limiterFraction) noexcept
         {
             const auto color = estimateColor (ctx, full.glue, full.heat);
             const auto target = full.neutral.netDb + full.gainDb;
+            const auto rangeAware = ctx.c->algorithmVersion >= heatAndGainRangeAlgorithmVersion;
+            const auto capGain = rangeAware ? nonNegative (limitGainRangeDb - ctx.manualGainDb) : limitGainRangeDb;
 
-            // Clip / 限幅器分工与 Gain 一起定点迭代：限幅器拿 λ 份，其余交给 Clip（太浅就不开）。
+            // Clip / 限幅器分工与 Gain 一起定点迭代：限幅器拿 λ 份，其余交给 Clip（太浅就不开）。量程内时 appliedGain 逐位等于
+            // 原来的 nonNegative (gain)；超出量程时按量程顶值算超出量（Clip 阈值、折点与真能交付的 Gain 同一口径）。
             auto gain = target - color.loudnessDb;
             auto limiterGr = 0.0f, clipDepth = 0.0f;
 
             for (int i = 0; i < lossIterations; ++i)
             {
-                const auto remaining = nonNegative (ctx.truePeakDb + color.peakDb + nonNegative (gain) - ctx.ceilingDb);
+                const auto appliedGain = rangeAware ? juce::jmin (nonNegative (gain), capGain) : nonNegative (gain);
+                const auto remaining = nonNegative (ctx.truePeakDb + color.peakDb + appliedGain - ctx.ceilingDb);
                 limiterGr = juce::jmin (limiterFraction * remaining, remaining);
                 clipDepth = remaining - limiterGr;
 
@@ -769,7 +801,7 @@ namespace celadon::glaze
                 gain = target - color.loudnessDb + limitLossDb (ctx, remaining, remaining > 0.0f ? limiterGr / remaining : 1.0f);
             }
 
-            const auto fullGain = juce::jmin (gain, 24.0f);
+            const auto fullGain = juce::jmin (gain, capGain);
             full.clip = 0.0f;
             full.clipRamp = 1.0f;
 
@@ -784,6 +816,18 @@ namespace celadon::glaze
                 full.clip = clipForThreshold (ctx, threshold);
                 full.clipThresholdDb = threshold;
                 full.clipRamp = clipRampFor (ctx, threshold, startPeak, endPeak, minimumRamp);
+            }
+
+            // 请求放不进量程（算法 8）：G_full′ = 量程顶值下的净增益（同一前向模型，含 Color 的贡献与限幅损失）− 中性链；只降不升，
+            // 标受约束。折点与目标随之按交付得了的量算。
+            if (rangeAware && gain > capGain)
+            {
+                const auto deliverable = estimateLimit (ctx, color, capGain, full.clip, false).netDb - full.neutral.netDb;
+
+                if (isFinite (deliverable) && deliverable < full.gainDb)
+                    full.gainDb = deliverable;
+
+                full.constrained = true;
             }
 
             // 折点：各强度下让净增益 = 中性链 + s × G_full′ 所需的 Gain（Glue / Heat / Clip 也按该强度），再取累计最大保证单调。
@@ -903,22 +947,42 @@ namespace celadon::glaze
             //         还会让置信度低的方案反而用上 Glue（v0.6 验收 F-05）。----
             for (int attempt = 0; attempt < 2; ++attempt)
             {
+                full.gainDb = gain;   // completeFullPlan（算法 8）可能把它回算成量程内能交付的量：每次尝试都从受约束的 G_full′ 起
                 full.glue = attempt == 0 ? juce::jmin (glueForExcess (ctx, glueShare, excess), glueForMakeup (ctx, gain)) : 0.0f;
                 full.heat = 0.0f;
 
                 if (shareHeat > 0.0f && excess > 0.0f)
                 {
                     const HeatRow row (*ctx.c, ctx.truePeakDb + gluePeakDb (ctx, full.glue));
-                    full.heat = juce::jmin (row.inverse (row.crest, shareHeat * excess), heatCap (sc, row));
+                    const auto cap = heatCap (sc, row);
+
+                    if (ctx.c->algorithmVersion >= heatAndGainRangeAlgorithmVersion)
+                    {
+                        // 算法 8（T-032 R6-01）：Heat 只承担它在这个入口电平、上限以内真能削掉的峰均比（row.at (crest, cap)，与 capacityAt
+                        // 同一口径）。inverse 的「达不到就给表的最大 Heat」是旧削峰型 Heat 的兜底；算法 6 起的残差 Heat 表几乎不削峰
+                        // （出厂表 crest 列 ≤ 0.00023 dB），那个兜底会让自动 Heat 与音乐无关地顶到 heatDriveCap（70 / 50 / 20）、在 E = 0
+                        // 处跳 58 个单位，底量、shareHeat、heatPeakReductionCapDb 全部失效。能削的量不到 heatUsefulCrestDb（出厂 0.1 dB；
+                        // ≤ 0 或非有限按「削不了」）→ 不为削峰开 Heat，交给下面的风格底量。
+                        const auto achievable = row.at (row.crest, cap);
+                        const auto useful = ctx.c->heatUsefulCrestDb;
+
+                        if (useful > 0.0f && isFinite (useful) && achievable >= useful)
+                            full.heat = juce::jmin (row.inverse (row.crest, juce::jmin (shareHeat * excess, achievable)), cap);
+                    }
+                    else
+                    {
+                        full.heat = juce::jmin (row.inverse (row.crest, shareHeat * excess), cap);   // 算法 ≤ 7 的快照：原样（旧工程逐位不变）
+                    }
                 }
 
-                // 染色不只承担削峰：有余量时保留轻微 Heat。先进入同一前向模型再求 Gain，不能在方案后面补加。
+                // 染色不只承担削峰：有余量时保留轻微 Heat（底量：算法 8 起是风格常数，按方案权重混合；旧快照三种风格都是原来的全局值）。
+                // 先进入同一前向模型再求 Gain，不能在方案后面补加。
                 // 若补偿会要求负 Gain，撤回底量，保留原有削峰分工（尤其是旧快照或已被保护层收紧到 0 的方案）。
                 const auto peakHeat = full.heat;
-                if (! ctx.colorBypassed && ctx.mix > 0.0f && isFinite (ctx.c->automaticHeatFloor))
+                if (! ctx.colorBypassed && ctx.mix > 0.0f && isFinite (sc.automaticHeatFloor))
                 {
                     const HeatRow row (*ctx.c, ctx.truePeakDb + gluePeakDb (ctx, full.glue));
-                    full.heat = juce::jmax (peakHeat, juce::jmin (nonNegative (ctx.c->automaticHeatFloor), heatCap (sc, row)));
+                    full.heat = juce::jmax (peakHeat, juce::jmin (nonNegative (sc.automaticHeatFloor), heatCap (sc, row)));
                 }
 
                 if (full.heat > peakHeat)
@@ -1320,6 +1384,12 @@ namespace celadon::glaze
         // v0.1.7.0 修坯 Clay：f_t = Σ w·低切目标、s_w = Σ w·加宽系数（设计规格-Clay-分析决策与验收第 2 节①③）。
         s.clayLowCutTargetHz = blend (a.clayLowCutTargetHz, b.clayLowCutTargetHz, d.clayLowCutTargetHz);
         s.clayWidthStyleFactor = blend (a.clayWidthStyleFactor, b.clayWidthStyleFactor, d.clayWidthStyleFactor);
+        // 算法 8（T-032 R6-01）：自动 Heat 底量。三种风格逐位相同时直接取那一份、不经加权求和：v7 及以前的快照只有一个全局底量，
+        // 读回时三种风格都是它，混合权重下也必须逐位等于原值（Σ w × 12 在 float 里不一定正好是 12；旧工程逐位不变）；出厂 12 / 12 / 12
+        // 同理。三者不同（Max 标定后）才按权重线性混合。
+        s.automaticHeatFloor = sameBits (a.automaticHeatFloor, b.automaticHeatFloor) && sameBits (a.automaticHeatFloor, d.automaticHeatFloor)
+                                   ? a.automaticHeatFloor
+                                   : blend (a.automaticHeatFloor, b.automaticHeatFloor, d.automaticHeatFloor);
         return s;
     }
 
@@ -1424,6 +1494,7 @@ namespace celadon::glaze
                                         isFinite (manual.limit.clip) ? clampTo (manual.limit.clip, 0.0f, 100.0f) : 0.0f };
         const auto manualChain = estimateChain (ctx, manualSettings);
         const auto manualNetDb = manualChain.netDb;
+        ctx.manualGainDb = manualSettings.gainDb;   // 满强度方案的自动 Limit Gain 量程 = 24 − 它（completeFullPlan，算法 8）
 
         // GLAZE 0：没有方案。净增益与目标就是手动链本身（手动中性、输入不超 Ceiling 时 = 0 与输入响度），
         // 这样 GLAZE 从 0 拧起来时净增益从手动链的值连续地往上走（随 GLAZE 单调）。Clay 保持 ClayPlan{}（全中性）。
@@ -1480,6 +1551,10 @@ namespace celadon::glaze
         auto strength = glaze * kappa;
         bool constrained = fullPlan.constrained;
         bool limitedByManual = withdrawn.any() || ctx.limitBypassed;
+        // 电平类自动全部撤回（T-032 R6-02）：只有下面三种情况——手动已让限幅器超约束、Limit 旁通、约束反馈上限低于手动链净增益——
+        // 才没有自动加上去的增益可收回、可校准。手动 Heat / Glue / Clip 单独超预算时只撤回那一个模块（v0.6 F-02 逐模块钳住），
+        // 自动 Gain / 其余模块照常展开，保护层、校准、约束反馈与画像失配必须照常工作：编排器看这个标志，不看 limitedByManual（界面提示）。
+        bool automaticLevelWithdrawn = withdrawn.limit || ctx.limitBypassed;
 
         if (withdrawn.limit || ctx.limitBypassed)
         {
@@ -1500,6 +1575,7 @@ namespace celadon::glaze
                 strength = 0.0f;           // 只剩手动部分就已超过允许的净提升：自动全部撤回
                 constrained = true;
                 limitedByManual = true;
+                automaticLevelWithdrawn = true;
             }
             else if (fullPlan.gainDb > 0.0f && maxGain < manualNetDb + strength * fullPlan.gainDb)
             {
@@ -1574,6 +1650,7 @@ namespace celadon::glaze
         plan.estimatedExcessDb = nonNegative (ctx.truePeakDb + manualNetDb + glaze * fullPlan.requestedGainDb - ctx.ceilingDb);
         plan.limitedByConstraints = constrained;
         plan.limitedByManual = limitedByManual;
+        plan.automaticLevelWithdrawn = automaticLevelWithdrawn;
 
         // 标定快照是随工程读回来的数据（读取只查格式、不查取值）：坏快照里的 NaN / Inf 不许流进模块参数与校准目标。
         // 正常快照下这里什么都不改；出了非有限值就按「这一项不动」处理（增量 0、净增益退回手动链）。
@@ -1640,6 +1717,7 @@ namespace celadon::glaze
         plan.estimatedExcessDb = juce::jmin (plan.estimatedExcessDb, bound.estimatedExcessDb);
         plan.limitedByConstraints = plan.limitedByConstraints || bound.limitedByConstraints;
         plan.limitedByManual = plan.limitedByManual || bound.limitedByManual;
+        plan.automaticLevelWithdrawn = plan.automaticLevelWithdrawn || bound.automaticLevelWithdrawn;   // T-032 R6-02：同样取或（保守）
 
         // 修坯 Clay：三项幅度逐项取小（低切 0 = 关，本来就是最小值；三项都随 GLAZE 单调、都不超上限，取小后照样成立）。
         // 分频点只由画像的逐段统计与常数决定，两份方案相同，保留 plan 自己的；取小后收单为 0 时回到中性默认值（与 planClay 一致）。
