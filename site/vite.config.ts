@@ -29,16 +29,22 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        // 把大依赖拆开：GSAP、WebGL（ogl）、motion、Markdown 各自一包，首屏只拉用到的（Vite 8 / rolldown 要函数形式）。
-        manualChunks(id: string) {
-          if (!id.includes('node_modules')) return undefined;
-          if (/node_modules\/(gsap|@gsap)\//.test(id)) return 'gsap';
-          if (/node_modules\/ogl\//.test(id)) return 'ogl';
-          if (/node_modules\/(motion|motion-dom|motion-utils|framer-motion)\//.test(id)) return 'motion';
-          if (/node_modules\/(react-markdown|remark-|mdast-|micromark|unified|unist-|hast-|vfile|property-information|comma-separated-tokens|space-separated-tokens|devlop|estree-|html-url-attributes|bail|trough|is-plain-obj|decode-named-character-reference|character-entities|ccount|markdown-table|longest-streak|zwitch|trim-lines|escape-string-regexp|style-to-js|style-to-object|inline-style-parser)/.test(id)) return 'markdown';
-          return undefined;
+        // 把大依赖拆开，首屏只拉用到的（Rolldown 的 codeSplitting；manualChunks 在 Vite 8 已弃用）。
+        // 每组默认连同依赖一起收进本包，所以 React 必须单独成组、优先级最高：否则 react 会被 @gsap/react 带进 gsap 包，
+        // react/jsx-runtime 会被 react-markdown 带进 markdown 包——入口一用 JSX 就得先下整个 Markdown 解析器（改前首页因此多拉 46 KB gzip）。
+        codeSplitting: {
+          groups: [
+            // 框架：几乎不变，单独一包缓存最久。
+            { name: 'react', test: /node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom)[\\/]/, priority: 30 },
+            // 动画引擎（全站唯一）：GSAP 核心、ScrollTrigger、SplitText、useGSAP。
+            { name: 'gsap', test: /node_modules[\\/](gsap|@gsap[\\/]react)[\\/]/, priority: 20 },
+            // WebGL：只有首屏等高线（懒加载）用。
+            { name: 'ogl', test: /node_modules[\\/]ogl[\\/]/, priority: 20 },
+            // Markdown：unified 一族随这两个入口的依赖一并收进来，只有说明页与算法页用。
+            { name: 'markdown', test: /node_modules[\\/](react-markdown|remark-gfm)[\\/]/, priority: 10 }
+          ]
         }
       }
     }

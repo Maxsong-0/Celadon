@@ -6,13 +6,20 @@
 | 文件 | 用在哪 | Celadon 改动 |
 |---|---|---|
 | `SplitText.tsx` | 首屏标题逐字浮现（GSAP SplitText + ScrollTrigger） | 从 `@/lib/gsap` 取已注册的 gsap；加 `force3D` 属性（渐变字要关 3D 合成层）；动画结束清 transform；只等本段文字的字体子集而不是整页 fonts.ready |
-| `CountUp.tsx` | 数字段（motion 弹簧计数） | 无 |
 | `Magnet.tsx` | 按钮磁吸 | 无 |
-| `ClickSpark.tsx` | 点击迸溅（釉色火花） | 画布固定在视口、监听 window 点击（原版按父元素大小，包住整页会太大） |
 | `SpotlightCard.tsx` | 卡片跟随光斑 | 默认类改为青瓷浅色 |
-| `Noise.tsx` | 全站宣纸颗粒（fixed 叠加层） | 无 |
 | `Topography.tsx` | 首屏釉面等高线（OGL WebGL） | 无 |
 | `GlareHover.tsx` | 平台卡片的釉光扫过 | 无 |
-| `ScrollVelocity.tsx` | 模块名跑马灯（随滚动速度加速） | 去掉写死的字号字重，排版交给 className |
 
 没有 Pro 许可（环境里没有 `REACTBITS_LICENSE_KEY`），不用 Pro 的 blocks。
+
+## 已删除（2026-09-30，T-033）
+
+全站动画只用 GSAP 一套引擎（设计规格-官网 第 1 节第 6 条），下面四个不再用，已从仓库删掉，站点也不再依赖 `motion`（framer-motion）：
+
+| 文件 | 原来用在哪 | 现在 |
+|---|---|---|
+| `ScrollVelocity.tsx` | 模块名跑马灯（motion） | 站内自写的 GSAP 实现：`components/celadon/Marquee.tsx`，不含 React Bits 代码 |
+| `CountUp.tsx` | 数字段的计数（motion 弹簧） | 站内自写的 GSAP 实现：`components/celadon/Stats.tsx`，不含 React Bits 代码 |
+| `ClickSpark.tsx` | 全站点击迸溅 | 不做（规范：不做点击火花） |
+| `Noise.tsx` | 全站宣纸颗粒（每帧重绘的 canvas） | 改为 `index.css` 里 `body::before` 的静态 SVG 噪点 |
