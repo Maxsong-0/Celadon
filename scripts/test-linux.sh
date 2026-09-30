@@ -6,6 +6,10 @@
 #       scripts/test-linux.sh bash -c 'cmake --build "$BUILD" --target celadon_tests && "$BUILD/celadon_tests"'
 #       （带参数时命令在远端同步目录里执行，Celadon/ 与 JUCE/ 同级；构建目录在环境变量 $BUILD 里，要用单引号让远端展开）
 # 环境：CELADON_TEST_HOST 覆盖目标主机（默认 maxsong@192.168.100.107，需在家里网络或 VPN 下）。
+#       CELADON_CXX_FLAGS 追加给 cmake 的 CMAKE_CXX_FLAGS（T-032 R10-05；ADR-013 后果第 3 条：改了 HalfBand / Saturator / TruePeak /
+#       Balance / Color / Clay / LinearPhaseLowpass / Limiter 或任何编译选项，必须再跑一次 CELADON_CXX_FLAGS=-march=x86-64-v3 的全套，
+#       让 GCC 的 -ffp-contract=off 与三个文件的编译期守卫在有 FMA 的目标上真被考验）。带标志时远端构建目录名带标志的散列，
+#       绝不与不带标志的基线构建目录混用；自定义命令里可读环境变量 $CELADON_CXX_FLAGS 自己传给 cmake。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 JUCE_DIR="$(cd "$ROOT/../JUCE" && pwd -P)"
@@ -33,9 +37,15 @@ done
 echo $$ > "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
+CXX_FLAGS="${CELADON_CXX_FLAGS:-}"
+BUILD_SUFFIX=""
+if [ -n "$CXX_FLAGS" ]; then
+  BUILD_SUFFIX="-flags-$(printf '%s' "$CXX_FLAGS" | shasum -a 256 | cut -c1-8)"
+fi
+
 if [ "$#" -eq 0 ]; then
   RUN='
-    cmake -S Celadon -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release
+    cmake -S Celadon -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="$CELADON_CXX_FLAGS"
     cmake --build "$BUILD" --target celadon_tests
     "$BUILD/celadon_tests"
   '
@@ -62,11 +72,12 @@ rsync -a --delete --delete-excluded \
 # 不能用 exec：exec 之后 EXIT trap 不会执行，本机锁就释放不了。
 set +e
 "${SSH[@]}" "$HOST" \
-  "CELADON_REMOTE=$(printf '%q' "$REMOTE") CELADON_RUN=$(printf '%q' "$RUN") bash -euo pipefail -s" <<'REMOTE_SCRIPT'
+  "CELADON_REMOTE=$(printf '%q' "$REMOTE") CELADON_RUN=$(printf '%q' "$RUN") CELADON_CXX_FLAGS=$(printf '%q' "$CXX_FLAGS") CELADON_BUILD_SUFFIX=$(printf '%q' "$BUILD_SUFFIX") bash -euo pipefail -s" <<'REMOTE_SCRIPT'
 cd "$HOME/$CELADON_REMOTE"
-export BUILD="$HOME/.cache/celadon-build/$(basename "$CELADON_REMOTE")"
+export CELADON_CXX_FLAGS
+export BUILD="$HOME/.cache/celadon-build/$(basename "$CELADON_REMOTE")$CELADON_BUILD_SUFFIX"
 mkdir -p "$BUILD" "$HOME/.cache/celadon-locks"
-exec 9>"$HOME/.cache/celadon-locks/$(basename "$CELADON_REMOTE").lock"
+exec 9>"$HOME/.cache/celadon-locks/$(basename "$CELADON_REMOTE")$CELADON_BUILD_SUFFIX.lock"
 flock 9
 nice -n 10 bash -euo pipefail -c "$CELADON_RUN"
 REMOTE_SCRIPT

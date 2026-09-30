@@ -6,7 +6,7 @@
 # juceaide 依赖 juce_graphics → 服务器得装 fontconfig / freetype 等图形开发包。
 # 测试只需要 4 个非界面模块，直接把模块的编译单元编成静态库，服务器零额外依赖。
 #
-# Source/dsp/ 的源文件列表必须与 Celadon.jucer 的 dsp 组保持一致；加文件时两边一起改。
+# Source/dsp/ 的源文件列表必须与 Celadon.jucer 的 dsp 组保持一致；加文件时两边一起改——配置期会自动核对（见下「与 Celadon.jucer 的源文件清单自动核对」，T-032）。
 
 cmake_minimum_required(VERSION 3.22)
 
@@ -129,6 +129,40 @@ set(CELADON_HEADLESS_UI_SOURCES
     Source/ui/HelpText.cpp
     Source/ui/Localisation.cpp
     Source/ui/SpectrumAnalyser.cpp)
+
+# ---- 与 Celadon.jucer 的源文件清单自动核对（T-032 R10-04）----
+# 文件头承诺「Source/dsp/ 的源文件列表必须与 Celadon.jucer 的 dsp 组保持一致」此前全靠人：漏在 .jucer 的 .cpp 会让 Mac 插件链接失败或
+# 旧实现留在插件里；漏在这里的文件测试跑不到。现在配置期读 .jucer，dsp 组的 .cpp 必须与 CELADON_DSP_SOURCES 完全相同，
+# 无头界面文件必须是 .jucer ui 组的子集；不一致直接 FATAL_ERROR。.jucer 里 file="…" 与 compile="1" 可能不在同一行，按 file="…cpp" 匹配即可（.cpp 一律 compile=1）。
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/Celadon.jucer" CELADON_JUCER_TEXT)
+
+function(celadon_jucer_sources out_var subdir)
+    string(REGEX MATCHALL "file=\"Source/${subdir}/[^\"]+\.cpp\"" matches "${CELADON_JUCER_TEXT}")
+    set(files "")
+    foreach(m IN LISTS matches)
+        string(REGEX REPLACE "^file=\"(.*)\"$" "\\1" f "${m}")
+        list(APPEND files "${f}")
+    endforeach()
+    list(SORT files)
+    list(REMOVE_DUPLICATES files)
+    set(${out_var} "${files}" PARENT_SCOPE)
+endfunction()
+
+celadon_jucer_sources(CELADON_JUCER_DSP_SOURCES dsp)
+celadon_jucer_sources(CELADON_JUCER_UI_SOURCES ui)
+
+set(CELADON_DSP_SOURCES_SORTED ${CELADON_DSP_SOURCES})
+list(SORT CELADON_DSP_SOURCES_SORTED)
+if(NOT "${CELADON_JUCER_DSP_SOURCES}" STREQUAL "${CELADON_DSP_SOURCES_SORTED}")
+    message(FATAL_ERROR "CMakeLists.txt 的 CELADON_DSP_SOURCES 与 Celadon.jucer 的 dsp 组不一致（两边一起改）。\n"
+                        "  .jucer：${CELADON_JUCER_DSP_SOURCES}\n  CMake ：${CELADON_DSP_SOURCES_SORTED}")
+endif()
+
+foreach(f IN LISTS CELADON_HEADLESS_UI_SOURCES)
+    if(NOT "${f}" IN_LIST CELADON_JUCER_UI_SOURCES)
+        message(FATAL_ERROR "CMakeLists.txt 的无头界面文件 ${f} 不在 Celadon.jucer 的 ui 组里（两边一起改）。")
+    endif()
+endforeach()
 
 add_executable(celadon_tests
     ${CELADON_DSP_SOURCES}
