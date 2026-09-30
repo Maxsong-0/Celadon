@@ -75,7 +75,13 @@ namespace celadon
         double targetGain = 1.0;
         if (previewEnabled)
         {
-            if (std::isfinite (integratedLufs) && integratedLufs > -90.0f)
+            if (! std::isfinite (integratedLufs))
+            {
+                // 坏读数（非有限）：回到 1，并忘掉上一次的有效读数——之后再来「暂时没有读数」也不会跳回旧的衰减。
+                lastValidTargetGain = 1.0;
+                hasValidTarget = false;
+            }
+            else if (integratedLufs > -90.0f)
             {
                 // 用 double 相减，极端但有限的输入也不会溢出。禁止正增益；下限只防坏读数。
                 const auto attenuationDb = juce::jlimit (-144.0, 0.0,
@@ -86,7 +92,8 @@ namespace celadon
             }
             else if (hasValidTarget)
             {
-                // 读数暂时未知（界面 Reset 清表后的前 400 ms、坏读数）：保持上一次的目标，不回 1 再落回来（T-032 R8-04）。
+                // 暂时没有读数（≤ −90 LUFS：界面 Reset 清表后的前 400 ms）而此前有过有效读数：保持上一次的目标，
+                // 不先回 1 再落回来（T-032 R8-04：改前监听 +N dB 爆响约 0.4 s）。预听只衰减、永不放大，保持不比回 1 危险。
                 targetGain = lastValidTargetGain;
             }
         }

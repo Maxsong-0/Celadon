@@ -8,12 +8,13 @@
 //                 （场景 auto50xover 只在这个模式里有：GLAZE 50 + 每 50 ms 强制切一次收单分频点，量切换预热的最坏块）
 //   celadon_bench gui
 //   celadon_bench rendercheck  （真实处理器实时/离线及执行快照恢复验收）
-//   celadon_bench statecheck   （真实处理器默认启动、旧工程缺参、显式零值与状态往返验收）
+//   celadon_bench statecheck   （真实处理器默认启动、旧工程缺参、显式零值、状态往返与存档格式号验收）
 //   celadon_bench ecore   <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>   （后台 QoS：只在能效核上跑）
 //   srs / bss 用逗号分隔，例如 44100,48000,96000,192000  32,64,128,256,512,1024
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "ParameterDefaults.h"
 #include "dsp/BalanceModule.h"
 #include "dsp/ClayModule.h"
 #include "dsp/ColorModule.h"
@@ -273,7 +274,9 @@ namespace
 
     celadon::CeladonChain::Params chainParamsFor (const Scenario& sc)
     {
-        celadon::CeladonChain::Params p;
+        // 起点 = 新实例默认（Source/ParameterDefaults.h，插件参数表同一处真源；T-032 R10-01）：modules 模式量的链与整插件模式同一场景
+        // 是同一条（GLAZE 35、高级母带两项「自动」……），不再是结构体默认（GLAZE 0、高级母带关）。场景里写的参数照旧覆盖。
+        auto p = celadon::param::defaults::factoryChainParams();
         for (auto& [id, value] : sc.values)
         {
             const juce::String s (id);
@@ -1153,6 +1156,37 @@ namespace
         check (std::abs (value (*legacyFresh, "glaze_amount") - 68.0f) < 0.01f
                && std::abs (value (*legacyFresh, "color_heat") - 42.0f) < 0.01f,
                "explicit current parameters survive save and reopen");
+
+        // 存档格式号（T-032 R10-02）：存出的 XML 根元素带 celadonStateFormat = 1 与写它的版本；把这两个属性摘掉（= 0.1.8.5 的存档，
+        // 其余逐字相同）读进新实例，每个参数都与读带属性的原档逐项相同——格式号只是锚点，format 0 的回退规则不变。
+        if (const auto saved = juce::AudioProcessor::getXmlFromBinary (currentState.getData(), (int) currentState.getSize()))
+        {
+            check (saved->getIntAttribute ("celadonStateFormat", 0) == 1
+                   && saved->getStringAttribute ("celadonVersion") == JucePlugin_VersionString,
+                   "saved state carries celadonStateFormat 1 and the plugin version");
+
+            juce::XmlElement withoutFormat (*saved);
+            withoutFormat.removeAttribute ("celadonStateFormat");
+            withoutFormat.removeAttribute ("celadonVersion");
+            juce::MemoryBlock formatZeroState;
+            juce::AudioProcessor::copyXmlToBinary (withoutFormat, formatZeroState);
+
+            auto readWith = std::make_unique<CeladonAudioProcessor>();
+            auto readWithout = std::make_unique<CeladonAudioProcessor>();
+            readWith->setStateInformation (currentState.getData(), (int) currentState.getSize());
+            readWithout->setStateInformation (formatZeroState.getData(), (int) formatZeroState.getSize());
+
+            bool sameParameters = true;
+            for (const auto* id : celadon::param::allParameterIds)
+                sameParameters = sameParameters && value (*readWith, id) == value (*readWithout, id);
+
+            check (sameParameters, "a state without the format attributes (0.1.8.5) reads back exactly like the same state with them");
+        }
+        else
+        {
+            check (false, "saved state parses back as XML");
+        }
+
         fresh->releaseResources();
         return failures == 0 ? 0 : 1;
     }

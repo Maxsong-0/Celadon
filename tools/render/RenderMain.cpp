@@ -7,7 +7,9 @@
     合成信号证明不了「好听」。本工具把一个文件夹里的真歌按设置网格（GLAZE × 修坯 自动 / 全关 × 风格）过整条链离线渲染，
     全部按同一整体响度只乘增益对齐后写成 32-bit float wav 供盲听，另出指标表 metrics.md / metrics.csv。
     只链接 Source/dsp + juce_audio_formats（CMake 目标 celadon_render，EXCLUDE_FROM_ALL）：不依赖任何界面模块与
-    juce_audio_processors，也就不经过 APVTS——各参数的出厂默认值在 makeFactoryParams 里照 Parameters.cpp 手写一份。
+    juce_audio_processors，也就不经过 APVTS——各参数的出厂默认值取 Source/ParameterDefaults.h（插件参数表读的同一处真源，
+    T-032 R10-01；此前在这里照 Parameters.cpp 手写一份，0.1.9.0 加的高级母带 8 项没跟上）。
+    整个进程在 FTZ / DAZ 下跑（main 开头一次，T-032 R10-06）：与插件的音频线程同一数值环境（PluginProcessor::processBuses）。
     在测试服务器上编译运行（scripts/render-linux.sh；ADR-002 修订 4，服务器故障时以 Max 当场指令为准）。用法与输出说明见同目录 README.md。
 
     用法：celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--clay auto,off]
@@ -53,6 +55,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_dsp/juce_dsp.h>
 
+#include "../../Source/ParameterDefaults.h"
 #include "../../Source/dsp/CeladonChain.h"
 #include "../../Source/dsp/ChainParams.h"
 #include "../../Source/dsp/GlazeTypes.h"
@@ -975,51 +978,26 @@ namespace
 
     celadon::ChainParams makeFactoryParams()
     {
-        // 各参数的出厂默认值：照 Source/Parameters.cpp 的 createParameterLayout() 手写一份（本工具不链接 juce_audio_processors，
-        // 没法建 APVTS 直接读参数表）。ChainParams 各结构的默认初始化值与此相同，这里仍逐项写明——参数表改了默认值，这里同步改。
-        celadon::ChainParams p;
+        // 各参数的新实例默认值：Source/ParameterDefaults.h 的 factoryChainParams()——插件参数表（Parameters.cpp）读的同一处真源，
+        // 处理器 Debug 版构造时逐项核对两边一致（T-032 R10-01）。含 0.1.9.0 高级母带的新实例默认：推响不刺「自动」50 %、
+        // 瞬态保留 50 %、目标频谱「自动」35 %（链里按 GLAZE 联动：GLAZE 0 时两项实际强度为 0），GLAZE 35、风格自动。
+        // claySettings 是三态设置；p.clay（交给 ClayModule 的实际值）作为输入时编排器忽略（ChainParams.h 文件头），保持结构默认值。
+        return celadon::param::defaults::factoryChainParams();
+    }
 
-        // ---- Balance（Parameters.cpp「Balance」段；v0.3）----
-        p.balance.recover  = 0.0f;                                  // balance_recover  默认 0
-        p.balance.tame     = 0.0f;                                  // balance_tame     默认 0
-        p.balance.brighten = 0.0f;                                  // balance_brighten 默认 0
-        p.balance.speed    = celadon::BalanceModule::Speed::mid;    // balance_speed    默认下标 1（Mid）
-        p.balance.bypass   = false;                                 // balance_bypass   默认关
-        // automaticRecover / automaticTame 不是参数（编排器填），与 PluginProcessor::readParams 一样保持结构默认值。
-
-        // ---- Color（v0.2）----
-        p.color.toneDb     = 0.0f;                                  // color_tone   默认 0 dB
-        p.color.glue       = 0.0f;                                  // color_glue   默认 0
-        p.color.heat       = 0.0f;                                  // color_heat   默认 0
-        p.color.mixPercent = 100.0f;                                // color_mix    默认 100 %
-        p.color.outputDb   = 0.0f;                                  // color_output 默认 0 dB
-        p.color.bypass     = false;                                 // color_bypass 默认关
-
-        // ---- Limit（v0.1）----
-        p.limit.gainDb      = 0.0f;                                 // limit_gain         默认 0 dB
-        p.limit.ceilingDb   = -1.0f;                                // limit_ceiling      默认 −1.0 dBTP
-        p.limit.releaseMs   = 100.0f;                               // limit_release      默认 100 ms（Auto 开着时不起作用）
-        p.limit.autoRelease = true;                                 // limit_release_auto 默认开
-        p.limit.lookaheadMs = 2.0f;                                 // limit_lookahead    默认 2 ms（决定链延迟）
-        p.limit.clip        = 0.0f;                                 // limit_clip         默认 0
-        p.limit.listen      = false;                                // limit_listen       默认关（开着链末端会按实测响度衰减监听）
-        p.limit.bypass      = false;                                // limit_bypass       默认关
-
-        // ---- GLAZE（v0.4 / v0.6；网格逐组覆盖这两项）----
-        p.glazePercent = 35.0f;                                     // glaze_amount 新实例默认 35 %
-        p.glazeStyle   = static_cast<int> (celadon::glaze::Style::automatic);   // glaze_style 默认 Auto
-
-        // ---- Clay 修坯（v0.1.7.0；设计规格-Clay 第 6 节参数表，Parameters.cpp 按同一张表加参数）----
-        p.claySettings.lowCutMode = celadon::ClayMode::automatic;  // clay_lowcut_mode 默认 自动
-        p.claySettings.monoMode   = celadon::ClayMode::automatic;  // clay_mono_mode   默认 自动
-        p.claySettings.widthMode  = celadon::ClayMode::automatic;  // clay_width_mode  默认 自动
-        p.claySettings.lowCutHz   = 25.0f;                         // clay_lowcut_hz   默认 25 Hz
-        p.claySettings.monoHz     = 120.0f;                        // clay_mono_hz     默认 120 Hz
-        p.claySettings.widthDb    = 0.0f;                          // clay_width_db    默认 0 dB
-        p.claySettings.bypass     = false;                         // clay_bypass      默认关
-        // p.clay（交给 ClayModule 的实际值）作为输入时编排器忽略（ChainParams.h 文件头），保持结构默认值。
-
-        return p;
+    // 高级母带设置的一行说明（metrics.md 头部；T-032 R10-01：成品是哪条链，得在表里看得到）。
+    std::string masteringText (const celadon::MasteringSettings& m)
+    {
+        const auto harsh = m.harshMode == celadon::HarshMode::off ? std::string ("关")
+                         : (m.harshMode == celadon::HarshMode::automatic ? "自动 " : "手动 ") + fixed (m.harshAmount, 0) + " %";
+        static constexpr std::array<const char*, 6> targetNames { { "关", "自动", "温润", "中性", "明亮", "参考" } };
+        const auto targetIndex = static_cast<int> (m.targetMode);
+        const auto target = targetIndex >= 0 && targetIndex < static_cast<int> (targetNames.size())
+                              ? std::string (targetNames[static_cast<std::size_t> (targetIndex)]) : std::string ("?");
+        const auto dither = m.dither == celadon::DitherMode::bits16 ? "16 bit" : (m.dither == celadon::DitherMode::bits24 ? "24 bit" : "关");
+        return "推响不刺 " + harsh + "、瞬态保留 " + fixed (m.transientPreserve, 0) + " %、目标频谱 " + target
+             + (m.targetMode == celadon::TargetMode::off ? std::string() : " " + fixed (m.targetAmount, 0) + " %")
+             + "、编码余量 " + fixed (m.codecMarginDb, 1) + " dB、导出抖动 " + dither;
     }
 
     celadon::ChainParams makeComboParams (const Combo& combo)
@@ -1379,6 +1357,13 @@ namespace
     }
 
 
+    // 一块自动链的高级母带实际值能不能在重放链上原样复现（T-032 R10-01）：推响不刺 / 目标频谱的强度经 getEffectiveParams() 的
+    // harshResolved / targetResolved 无损回喂；只有「参考」目标形状（参考曲线学好了才会出现）重放链复现不了——它没有侧链参考。
+    bool masteringReplayable (const celadon::MasteringSettings& mastering) noexcept
+    {
+        return mastering.targetMode != celadon::TargetMode::reference;
+    }
+
     // 一块自动链的实际修坯值能不能用「手动」态原样表达（ClayGuard.cpp resolveClayParams 的手动分支 + 钳制）。
     bool clayExpressibleAsManual (const celadon::ClayModule::Params& clay) noexcept
     {
@@ -1391,6 +1376,8 @@ namespace
 
     celadon::ChainParams replayParams (const celadon::ChainParams& effective, ReplayClay mode) noexcept
     {
+        // effective.mastering 是交给模块的实际值（T-032 R10-01）：强度写在 harshResolved / targetResolved、编码余量已扣进 Ceiling，
+        // 原样照搬就逐位复现推响不刺 / 目标频谱（改前回写的是原始设置，GLAZE 0 的重放链把两项「自动」算成 0）。
         auto p = effective;
         p.glazePercent = 0.0f;         // 编排器不决策：实际参数 = 这份参数（逐位）
         p.limit.listen = false;
@@ -1756,8 +1743,10 @@ namespace
             + " LUFS；32-bit float，允许超过 0 dBFS，不再限幅\n";
         md += "- 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）"
               "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.3 s 余振，成品与原曲逐样本对齐\n";
-        md += "- 其余参数全是出厂默认（Ceiling -1.0 dBTP、Lookahead 2 ms、Limit Gain 0 等，见 tools/render/RenderMain.cpp "
-              "的 makeFactoryParams）\n\n";
+        md += "- 其余参数全是新实例默认（Ceiling -1.0 dBTP、Lookahead 2 ms、Limit Gain 0 等，见 Source/ParameterDefaults.h，"
+              "插件参数表同一处真源）\n";
+        md += "- 高级母带（新实例默认）：" + masteringText (makeFactoryParams().mastering)
+            + "；两项「自动」的实际强度随 GLAZE 联动，GLAZE 0 时为 0\n\n";
         md += "先盲听、再看这张表（盲听做法见 tools/render/README.md）。\n\n";
 
         for (std::size_t i = 0; i < reports.size(); ++i)
@@ -1911,10 +1900,12 @@ namespace
                           int autoLatency, int& failures, int& written)
     {
         const auto notePrefix = comboLabel (automatic.combo, " ") + "：";
-        const auto expressible = std::all_of (effectiveLog.begin(), effectiveLog.end(),
-                                              [] (const celadon::ChainParams& p) { return clayExpressibleAsManual (p.clay); });
+        const auto clayExpressible = std::all_of (effectiveLog.begin(), effectiveLog.end(),
+                                                  [] (const celadon::ChainParams& p) { return clayExpressibleAsManual (p.clay); });
+        const auto masteringExpressible = std::all_of (effectiveLog.begin(), effectiveLog.end(),
+                                                       [] (const celadon::ChainParams& p) { return masteringReplayable (p.mastering); });
 
-        if (expressible)
+        if (clayExpressible && masteringExpressible)
         {
             RenderResult copy;
             replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::copy, copy);
@@ -1934,7 +1925,9 @@ namespace
         else
         {
             automatic.replayCheck = "n/a";
-            report.notes.push_back (notePrefix + "同决策重放的阳性对照不适用：自动收单比例在 0、1 之间，「手动」态表达不了（手动收单固定是 1）");
+            report.notes.push_back (notePrefix + "同决策重放的阳性对照不适用："
+                                    + std::string (! clayExpressible ? "自动收单比例在 0、1 之间，「手动」态表达不了（手动收单固定是 1）"
+                                                                     : "目标频谱用了「参考」形状，重放链没有侧链参考"));
         }
 
         Row row;
@@ -2327,11 +2320,16 @@ namespace
             const auto autoHash = hashAudio (finished);
 
             const auto expressible = std::all_of (effectiveLog.begin(), effectiveLog.end(),
-                                                  [] (const celadon::ChainParams& p) { return clayExpressibleAsManual (p.clay); });
+                                                  [] (const celadon::ChainParams& p)
+                                                  { return clayExpressibleAsManual (p.clay) && masteringReplayable (p.mastering); });
             const auto lowCutBlocks = std::count_if (effectiveLog.begin(), effectiveLog.end(),
                                                      [] (const celadon::ChainParams& p) { return p.clay.lowCutHz > 0.0f; });
             const auto automatedBlocks = std::count_if (effectiveLog.begin(), effectiveLog.end(),
                                                         [&params] (const celadon::ChainParams& p) { return p.limit.gainDb != params.limit.gainDb; });
+            // 高级母带（新实例默认：推响不刺「自动」50、目标频谱「自动」35，T-032 R10-01）在 GLAZE 35 下真的交给了模块非零强度的块。
+            const auto masteringBlocks = std::count_if (effectiveLog.begin(), effectiveLog.end(),
+                                                        [] (const celadon::ChainParams& p)
+                                                        { return p.balance.harshAmount > 0.0f && p.balance.targetAmount > 0.0f; });
 
             RenderResult copy;
             replayPass (signal, selfTestRate, 512, effectiveLog, ReplayClay::copy, copy);
@@ -2345,7 +2343,26 @@ namespace
                                      : (identical ? "修坯手动照填重放与自动链成品逐位相同"
                                                   : "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −180 dBFS）"))
                             + "（" + std::to_string (effectiveLog.size()) + " 块；Limit Gain 被 GLAZE 改过的块 "
-                            + std::to_string (automatedBlocks) + "，自动低切开着的块 " + std::to_string (lowCutBlocks) + "）");
+                            + std::to_string (automatedBlocks) + "，自动低切开着的块 " + std::to_string (lowCutBlocks)
+                            + "，推响不刺与目标频谱都在起作用的块 " + std::to_string (masteringBlocks) + "）");
+
+            // 阳性对照（T-032 R10-01）：出厂默认的高级母带两项「自动」真的在这条链里起作用——上面的「复现」覆盖了它们。
+            test.check (masteringBlocks > 0, "重放对照覆盖高级母带",
+                        std::to_string (masteringBlocks) + " 块推响不刺与目标频谱强度都 > 0（出厂默认 GLAZE 35 × 两项自动）");
+
+            // 对照有牙：把每块的 mastering 换回原始设置（T-032 之前 getEffectiveParams() 回写的就是它）再重放——GLAZE 0 的重放链把
+            // 两项「自动」算成 0，成品必须与自动链明显不同（最大样本差 > 1e-6）。证明上面的「复现」靠的是实际值回喂，而不是两项没起作用。
+            auto rawLog = effectiveLog;
+
+            for (auto& p : rawLog)
+                p.mastering = params.mastering;
+
+            RenderResult raw;
+            replayPass (signal, selfTestRate, 512, rawLog, ReplayClay::copy, raw);
+            const juce::AudioBuffer<float> rawFinished (raw.io.getArrayOfWritePointers(), 2, raw.latencySamples, raw.outputLength);
+            const auto rawDifference = raw.latencySamples == render.latencySamples ? maxAbsDifference (rawFinished, finished) : 1.0;
+            test.check (expressible && rawDifference > 1.0e-6, "重放对照抓得住未解析的高级母带",
+                        "回喂原始设置时最大样本差 " + fixed (toDbfs (rawDifference), 1) + " dBFS（期望 > −120 dBFS）");
 
             RenderResult off;
             replayPass (signal, selfTestRate, 512, effectiveLog, ReplayClay::off, off);
@@ -2366,6 +2383,11 @@ namespace
 
 int main (int argc, char* argv[])
 {
+    // FTZ / DAZ（T-032 R10-06）：插件的音频线程在 ScopedNoDenormals 下跑整条链（PluginProcessor::processBuses），这里对整个进程
+    // 设一次——聆听、成品、重放三遍，自检，以及用插件自己的表做的测量都在同一数值环境里（单线程，一次就够）。只影响 < 1.2e-38
+    //（约 −758 dBFS）的非规格化数：成品只在歌尾那个量级可能与改动前不同，指标不变。
+    juce::ScopedNoDenormals noDenormals;
+
     Options options;
     std::string error;
 
@@ -2446,7 +2468,12 @@ int main (int argc, char* argv[])
                       << formatDuration (report.durationSeconds) << "\n";
 
             if (song.nonFiniteSamples > 0)
+            {
+                // T-032 R10-08：链自己不设输入守卫（插件在处理器层整块清零），读文件时已逐样本清成 0；这里在 stderr 报一次。
                 report.notes.push_back ("输入里有 " + std::to_string (song.nonFiniteSamples) + " 个 NaN / Inf 样本，已按 0 处理");
+                std::cerr << "  注意：输入里有 " << song.nonFiniteSamples << " 个 NaN / Inf 样本，已按 0 处理（插件在处理器层把含非有限值的"
+                             "整块清零，这里逐样本清）\n";
+            }
 
             processSong (options, combos, song, report, failures, written);
             checkGlazeZeroPairs (report);

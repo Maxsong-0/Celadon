@@ -35,6 +35,17 @@
     听原声、宿主旁通、LIMIT 旁通时不试听（淡回正常输出）。差值要整段存下来：宿主块超过 prepare 的块大小时（少见），只在试听期间
     按差值缓冲的长度切片。不试听时（默认）与原来逐位相同。
 
+    T-032（2026-09-29，A4；研究 / 核验见 docs/validation/2026-09-29-T032-deep-research）：
+      - 退出归一化预听不再让监听增益单样本阶跃（R8-01 / R10-03）：在线、链照常出母带、Listen 关时由发行端自己 50 ms 斜坡回 0 dB；
+        宿主旁通 / 听原声 / 试听差值 / Listen 开时先把此刻的衰减交给 Listen 的 20 ms 平滑器再归一；离线仍立即归一。
+      - 听原声期间 OUT 表的整体响度暂停积分，只积分母带（R8-03）；短期响度、真峰值、子块环照常。宿主旁通接在同一个开关上，
+        等 Max 确认口径（pauseIntegrationOnHostBypass，现为 false：宿主旁通时照旧积分）。
+      - reset() / restartWithFadeIn() 只把抖动随机序列回到固定种子，预听增益保留（核验漏项：改前同规格 prepareToPlay 后监听先回 0 dB）。
+      - getEffectiveParams().mastering 回写交给模块的实际值（R10-01）：原样再喂给链（GLAZE 0）逐位复现推响不刺 / 目标频谱的强度与 Ceiling。
+      - 链照旧不管输入（非有限输入的守卫在处理器，GlazeTests 的 v0.5 参照链对照固化了这一点）；两块表对非有限值自愈（R10-08，
+        LoudnessMeter.h），一个 NaN 不再让 IN 表的整体响度、GLAZE 分析与 Listen 永久停摆。
+      预听从未打开、从未走干路时，输出、表与实际参数（除 mastering 回写那几项）与改动前逐位相同。
+
   ==============================================================================
 */
 
@@ -66,6 +77,11 @@ namespace celadon
         // v0.1.7.0：claySettings 是「高级」抽屉里的三态设置与手动值；传进来的 clay（实际参数）不读——由编排器按三态合成。
         using Params = ChainParams;
 
+        // 宿主旁通时 OUT 表的整体响度是否也暂停积分（T-032 R8-03 的另一半）。听原声时一定暂停（规格已定）；宿主旁通「建议冻结」，
+        // 待 Max 确认——确认后改成 true，并把 GlazeTests::testGlazeZeroEqualsReferenceChain 的参照 OUT 表在宿主旁通的块同样
+        // setIntegrationPaused (true)（它逐位对照「链的 OUT 表 == 一块普通的表」，宿主旁通期间两边的口径要一起改）。
+        static constexpr bool pauseIntegrationOnHostBypass = false;
+
         // 滤波器余振（秒）：插件报给宿主的尾巴 = 链延迟 + 本项；离线渲染工具冲尾巴也用它（审核 V3-02：两处曾各写一份、不一致）。
         // 0.35 s 的推导：Clay 10 Hz 4 阶低切衰 60 dB 约 0.29 s，留余量（A7，v0.1.7.0）。
         static constexpr double filterRingOutSeconds = 0.35;
@@ -76,10 +92,10 @@ namespace celadon
         void prepare (const juce::dsp::ProcessSpec& spec);
 
         // 清空全部状态，立即出声（同规格 prepareToPlay 时用）。两块表不清（宿主重启不该把整体响度清掉，与 v0.5 相同）；
-        // 编排器按「宿主 reset」清运行状态、保留已提交版本。
+        // 编排器按「宿主 reset」清运行状态、保留已提交版本。发行端只把抖动随机序列回到固定种子，归一化预听的增益保留（T-032）。
         void reset();
 
-        // 播放中途的重置（宿主 Reset、NaN 恢复）：清空全部模块，先静音「整条链的延迟」再 10 ms 淡入；编排器同上。
+        // 播放中途的重置（宿主 Reset、NaN 恢复）：清空全部模块，先静音「整条链的延迟」再 10 ms 淡入；编排器、发行端同上。
         void restartWithFadeIn();
 
         // 宿主时间线（播放位置、是否在播、循环、离线渲染）。每块在 setParams 之前调（处理器从 AudioPlayHead 读）；
@@ -97,7 +113,7 @@ namespace celadon
         //
         // auditionDifference = 界面 LIMIT 卡片的「试听差值」（v0.1.8.0，见文件头）：送出去的信号换成限幅器削掉的部分，
         // 测点与处理都不变；听原声、宿主旁通或 LIMIT 旁通时不生效。默认 false 时逐位不变。
-        void setParams (const Params& newParams, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
+        void setParams (const Params& requested, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
         // 返回 true = 输出出现非有限值（内部溢出）：故障切片已清零、整链重启淡入，交给处理器计数。
@@ -107,7 +123,9 @@ namespace celadon
         int getLatencySamples() const noexcept;
 
         // 上一次 setParams 交给四个模块的实际参数（宿主旁通强制之前；音频线程读——处理器每块把其中 7 项写进原子量给界面；
-        // Clay 的实际值界面走 getGlazeStatus() 的 clay* 字段，不走这里）。
+        // Clay 的实际值界面走 getGlazeStatus() 的 clay* 字段，不走这里）。mastering 也是实际值（T-032 R10-01）：推响不刺 / 目标频谱的
+        // 强度写在 harshResolved / targetResolved（模式改成手动 / 解析出的显式形状），codecMarginDb 为 0（余量已扣进 limit.ceilingDb）——
+        // 整份原样当 GLAZE 0 的输入喂回链，交给模块的参数逐位相同（离线工具的同决策重放，ADR-016）。
         const Params& getEffectiveParams() const noexcept   { return effective; }
 
         // ---- 表（界面线程调用，无锁）----
@@ -118,7 +136,8 @@ namespace celadon
         float getAndResetInputTruePeakDb() noexcept          { return inputMeter.getAndResetTruePeakDb(); }
         float getAndResetOutputTruePeakDb() noexcept         { return outputMeter.getAndResetTruePeakDb(); }
 
-        // OUT 的短期 / 整体响度（界面右侧读数）：Listen 监听补偿之前的母带输出。
+        // OUT 的短期 / 整体响度（界面右侧读数）：Listen 监听补偿之前的母带输出。听原声期间整体响度暂停积分、停在母带的值
+        //（T-032 R8-03；宿主旁通见 pauseIntegrationOnHostBypass），短期响度照常显示此刻出口的信号。
         float getOutputShortTermLufs() const noexcept        { return outputMeter.getShortTermLufs(); }
         float getOutputIntegratedLufs() const noexcept       { return outputMeter.getIntegratedLufs(); }
 

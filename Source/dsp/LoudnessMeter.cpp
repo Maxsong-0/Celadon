@@ -92,6 +92,15 @@ namespace celadon
             state = ChannelState {};
     }
 
+    void LoudnessMeter::healFilterStates() noexcept
+    {
+        // 只清状态已经坏了的声道：另一个声道的滤波器照常连续（两套子块网格先后发现同一个 NaN 时，后一次不会把已经恢复的状态再清一遍）。
+        for (auto& state : channelStates)
+            if (! (std::isfinite (state.shelfS1) && std::isfinite (state.shelfS2)
+                   && std::isfinite (state.highpassS1) && std::isfinite (state.highpassS2)))
+                state = ChannelState {};
+    }
+
     void LoudnessMeter::restartSubBlockGrid() noexcept
     {
         ringSamplesInSubBlock = 0;
@@ -110,8 +119,10 @@ namespace celadon
         histogramCount.fill (0);
         histogramTopBin = -1;
 
-        // 暂停中的清表：恢复后照样要攒够 4 个新子块（recentCount 从 0 起已经保证）；没暂停时保持「早已攒够」。
-        subBlocksSinceResume = integrationPaused ? 0 : gatingSubBlocks;
+        // 读数网格从这里重新起：正在累计的子块作废（samplesInSubBlock = 0），它没被暂停碰过；暂停中清表时 process 会在处理样本之前
+        // 重新标上。门块本来就要 recentCount 攒够 4 个新子块，连续计数回到「早已攒够」即可。
+        pauseTouchedSubBlock = false;
+        cleanSubBlocksInRow = gatingSubBlocks;
 
         shortTermLufs.store (noReading);
         integratedLufs.store (noReading);
@@ -173,7 +184,7 @@ namespace celadon
         // 自愈（T-032 R10-08）：子块能量非有限 = K 加权状态里进了 NaN / Inf，不清掉就会永远留在里面、之后每个子块都坏。
         // 这个子块按既有约定照样发布（读者——分析器、Listen、校准器、渲染工具——本来就跳过非有限的 meanSquare），下一个子块起干净。
         if (! std::isfinite (ringEnergy))
-            clearFilterStates();
+            healFilterStates();
 
         auto& slot = subBlockRing[(size_t) (subBlocksWritten % subBlockRingCapacity)];
         slot.meanSquare     = ringEnergy / (double) subBlockLength;
@@ -216,6 +227,10 @@ namespace celadon
 
         if (loudnessActive)
         {
+            // 这一块整个在暂停中（链按块调 setIntegrationPaused）：正在累计的读数子块从现在起含暂停中的样本（R8-03）。
+            if (integrationPaused)
+                pauseTouchedSubBlock = true;
+
             // 按子块边界切段：每段先算 K 加权响度（逐样本，运算与整块一次算完相同），再把这段交给真峰值检测器取段最大，
             // 段最大同时折进子块峰值与整块峰值。表的读数（短期、整体、真峰值）与不切段逐位相同。
             for (int done = 0; done < numSamples;)
@@ -280,13 +295,16 @@ namespace celadon
 
     void LoudnessMeter::finishSubBlock() noexcept
     {
-        // 自愈（T-032 R10-08）：这 100 ms 里进了 NaN / Inf——K 加权状态已经坏了（转置 II 型状态与 NaN 相乘还是 NaN），清掉它，
-        // 这个子块整个丢掉：短期窗口与直方图永不吃非有限值，下一个子块起读数照常（改前一个 NaN 就让整体响度永远无读数）。
+        // 自愈（T-032 R10-08）：这 100 ms 里进了 NaN / Inf——K 加权状态已经坏了（转置 II 型状态与 NaN 相乘还是 NaN），清掉坏的声道，
+        // 这个子块整个丢掉：短期窗口与直方图永不吃非有限值（顺带消掉 floor(NaN) 转 int 的未定义行为），下一个子块起读数照常
+        //（改前一个 NaN 就让整体响度永远是 NaN）。门块要 4 个时间上连续的子块，丢掉的这个把连续性断开。
         if (! std::isfinite (subBlockEnergy))
         {
-            clearFilterStates();
+            healFilterStates();
             subBlockEnergy = 0.0;
             samplesInSubBlock = 0;
+            cleanSubBlocksInRow = 0;
+            pauseTouchedSubBlock = integrationPaused;
             return;
         }
 
@@ -297,26 +315,28 @@ namespace celadon
         subBlockEnergy = 0.0;
         samplesInSubBlock = 0;
 
-        // 短期：最近 3 s（没满 3 s 时用已有的部分，刚播放就有读数）。
+        // 短期：最近 3 s（没满 3 s 时用已有的部分，刚播放就有读数）。暂停中照常——显示此刻听到的信号。
         double shortTermEnergy = 0.0;
         for (int i = 0; i < recentCount; ++i)
             shortTermEnergy += recentSubBlocks[(size_t) i];
 
         shortTermLufs.store (energyToLufs (shortTermEnergy / (double) (recentCount * subBlockLength)));
 
-        // 整体响度的积分暂停中（T-032 R8-03：链走干路时 OUT 表只积分母带）：门块不进直方图、整体读数不动；
-        // 恢复后的前几个门块会含暂停期间的子块，所以计数清零、攒够 4 个新子块才再成门块。
-        if (integrationPaused)
+        // 整体响度的积分暂停（T-032 R8-03：链走干路时 OUT 表只积分母带）：这个子块有样本是在暂停中处理的，就不让它进任何门块，
+        // 连续计数清零——恢复后要 4 个完全在暂停之外的子块才再成门块。下一个子块从此刻起，还在暂停就同样算被碰过。
+        const auto touchedByPause = pauseTouchedSubBlock || integrationPaused;
+        pauseTouchedSubBlock = integrationPaused;
+
+        if (touchedByPause)
         {
-            subBlocksSinceResume = 0;
+            cleanSubBlocksInRow = 0;
             return;
         }
 
-        if (subBlocksSinceResume < gatingSubBlocks)
-            ++subBlocksSinceResume;
+        cleanSubBlocksInRow = juce::jmin (cleanSubBlocksInRow + 1, gatingSubBlocks);
 
-        // 每 100 ms 形成一个 400 ms 门块（75% 重叠），记进直方图。
-        if (recentCount < gatingSubBlocks || subBlocksSinceResume < gatingSubBlocks)
+        // 每 100 ms 形成一个 400 ms 门块（75% 重叠），记进直方图。从未暂停、输入有限时 cleanSubBlocksInRow 恒为 4，与改动前同一判断。
+        if (recentCount < gatingSubBlocks || cleanSubBlocksInRow < gatingSubBlocks)
             return;
 
         double gatingEnergy = 0.0;

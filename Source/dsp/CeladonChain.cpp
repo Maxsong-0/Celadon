@@ -62,8 +62,11 @@ namespace celadon
         clay.reset();
         color.reset();
         limiter.reset();
-        releaseSafety.reset();
-        publishedPreviewGain.store (0.0f, std::memory_order_relaxed);
+
+        // 发行端只把抖动随机序列回到固定种子（导出可复现）；预听增益、记住的读数与 previewActive 都保留（T-032 核验漏项）——
+        // 两块表不清、整体读数还在，预听衰减接着生效。改前这里整个 reset：同规格 prepareToPlay 之后监听先回到 0 dB、再 50 ms 滑回。
+        releaseSafety.resetDitherSequence();
+        publishedPreviewGain.store (releaseSafety.getPreviewGainDb(), std::memory_order_relaxed);
         controller.hostReset();
         resetListenMeasurement (false);
         differenceMix.setCurrentAndTargetValue (differenceMix.getTargetValue());
@@ -83,9 +86,11 @@ namespace celadon
         color.reset();
         limiter.restartWithFadeIn (balance.getLatencySamples() + clay.getLatencySamples() + color.getLatencySamples());
 
+        // 发行端同 reset()：只把抖动随机序列回到固定种子，预听增益保留——淡入之后接着按原来的衰减监听，不先爆响再滑回。
+        releaseSafety.resetDitherSequence();
+        publishedPreviewGain.store (releaseSafety.getPreviewGainDb(), std::memory_order_relaxed);
+
         // 编排器按宿主 reset 清运行状态（分析窗口、校准当前子窗、保护偏移），已提交的画像与方案保留。
-        releaseSafety.reset();
-        publishedPreviewGain.store (0.0f, std::memory_order_relaxed);
         controller.hostReset();
         resetListenMeasurement (false);
 
@@ -100,8 +105,15 @@ namespace celadon
         controller.setHostInfo (info);
     }
 
-    void CeladonChain::setParams (const Params& newParams, bool hostBypassed, bool compareOriginal, bool auditionDifference)
+    void CeladonChain::setParams (const Params& requested, bool hostBypassed, bool compareOriginal, bool auditionDifference)
     {
+        // GLAZE 的非有限值按 0（ChainParams 的默认 = 严格手动；T-032 R8-02）：编排器与切片只把「> 0」当作打开，+Inf 会被当成 100 %。
+        // 有限值原样通过（整份拷贝，逐位不变）；处理器的 readParams 早已把非有限值换成默认值，这里管的是无头调用。
+        auto newParams = requested;
+
+        if (! std::isfinite (newParams.glazePercent))
+            newParams.glazePercent = 0.0f;
+
         manual = newParams;
 
         // 听原声（A / B 的 B，v0.1.8.0）与宿主旁通走同一条干路：模块全旁通、编排器暂停校准（出口此刻是原声，校准器量它
@@ -112,13 +124,24 @@ namespace celadon
         auto adjusted = newParams;
         auto& mastering = adjusted.mastering;
         const auto unit = [] (float value) { return std::isfinite (value) ? juce::jlimit (0.0f, 1.0f, value * 0.01f) : 0.0f; };
+        // 已解析的强度（0 ～ 1）：回喂链的实际参数带着它（MasteringFeatures.h，T-032 R10-01），模式不是「关」时直接用、不再经乘法；
+        // 插件从不设（−1 = 未设），走原来的算式——两个三元式的未设分支与改动前是同一个表达式，逐位不变。非有限按未设。
+        const auto isResolved = [] (float value) { return std::isfinite (value) && value >= 0.0f; };
+        // 非有限的百分比与预听目标按结构默认值算（T-032 R8-02：与处理器 readParams、各模块守卫同一口径——非有限 = 该字段的默认值）；
+        // 有限值原样交给 unit，与改动前同一个表达式。GLAZE 的非有限值由 unit 按 0 算（ChainParams 的默认就是 0）。
+        constexpr MasteringSettings neutralMastering {};
+        const auto finiteOr = [] (float value, float fallback) { return std::isfinite (value) ? value : fallback; };
         const auto glaze = unit (newParams.glazePercent);
         auto& advanced = adjusted.balance;
         advanced.harshAmount = mastering.harshMode == HarshMode::off ? 0.0f
-                               : unit (mastering.harshAmount) * (mastering.harshMode == HarshMode::automatic ? glaze : 1.0f);
-        advanced.transientPreserve = unit (mastering.transientPreserve);
+                               : isResolved (mastering.harshResolved) ? juce::jmin (1.0f, mastering.harshResolved)
+                               : unit (finiteOr (mastering.harshAmount, neutralMastering.harshAmount))
+                                   * (mastering.harshMode == HarshMode::automatic ? glaze : 1.0f);
+        advanced.transientPreserve = unit (finiteOr (mastering.transientPreserve, neutralMastering.transientPreserve));
         advanced.targetAmount = mastering.targetMode == TargetMode::off ? 0.0f
-                                : unit (mastering.targetAmount) * (mastering.targetMode == TargetMode::automatic ? glaze : 1.0f);
+                                : isResolved (mastering.targetResolved) ? juce::jmin (1.0f, mastering.targetResolved)
+                                : unit (finiteOr (mastering.targetAmount, neutralMastering.targetAmount))
+                                    * (mastering.targetMode == TargetMode::automatic ? glaze : 1.0f);
         auto mode = mastering.targetMode;
         if (mode == TargetMode::automatic)
             mode = newParams.glazeStyle == 1 ? TargetMode::warm : (newParams.glazeStyle == 3 ? TargetMode::bright : TargetMode::neutral);
@@ -132,7 +155,15 @@ namespace celadon
         if (margin > 0.0f) adjusted.limit.ceilingDb = juce::jlimit (-4.5f, 0.0f, adjusted.limit.ceilingDb - margin);
         effective = controller.beginBlock (adjusted, dryPath);
         // Saved GLAZE execution snapshots predate these user-controlled additions.
+        // 回写的是交给模块的实际值（CeladonChain.h getEffectiveParams；T-032 R10-01）：h、t 写成算好的那个 float，推响不刺的模式改手动
+        //（关仍是关）、目标频谱的模式改成解析出的显式形状（「参考」还没学好 → 关，强度本来就是 0），编码余量置 0（已扣进 ceilingDb）。
+        // 把 effective 原样再喂给链（GLAZE 0）时逐位得到同样的 h、t、Ceiling。
         effective.mastering = mastering;
+        effective.mastering.harshMode = mastering.harshMode == HarshMode::off ? HarshMode::off : HarshMode::manual;
+        effective.mastering.harshResolved = advanced.harshAmount;
+        effective.mastering.targetMode = mode == TargetMode::reference && ! referenceStatus.hasReference ? TargetMode::off : mode;
+        effective.mastering.targetResolved = advanced.targetAmount;
+        effective.mastering.codecMarginDb = 0.0f;
         effective.balance.harshAmount = advanced.harshAmount;
         effective.balance.transientPreserve = advanced.transientPreserve;
         effective.balance.targetAmount = advanced.targetAmount;
@@ -143,19 +174,39 @@ namespace celadon
         releaseAllowed = ! dryPath && ! auditionDifference;
         if (! releaseAllowed || offline) previewRequested.store (false, std::memory_order_relaxed);
         const auto nextPreview = releaseAllowed && ! offline && previewRequested.load (std::memory_order_relaxed);
-        // Hand over the CURRENT monitor gain, so independently moving Listen and preview ramps cannot cause a loudness bump.
+        const auto leaving = previewActive && ! nextPreview;
+        const auto previewGainNow = releaseSafety.getCurrentPreviewGain();
+        const auto previewGainPending = previewGainNow != 1.0;   // 预听增益还没回到 1（刚退出，或退出斜坡还在走）
+
         if (nextPreview && ! previewActive)
         {
-            releaseSafety.setCurrentPreviewGain ((double) listenGain.getCurrentValue());
+            // 进入预听：把此刻送出去的整个监听增益（Listen × 可能还没走完的预听退出斜坡）交给预听，Listen 归一——
+            // 两条各自在动的斜坡不叠加。预听增益已经是 1 时（通常情况）与改动前逐位相同。
+            releaseSafety.setCurrentPreviewGain ((double) listenGain.getCurrentValue() * previewGainNow);
             listenGain.setCurrentAndTargetValue (1.0f);
         }
-        else if (previewActive && ! nextPreview && releaseAllowed && ! offline && newParams.limit.listen)
-            listenGain.setCurrentAndTargetValue ((float) releaseSafety.getCurrentPreviewGain());
-        // Monitoring must be neutral from the first bypass/offline sample (no release tail into exports).
-        if (! releaseAllowed || (previewActive && ! nextPreview)) releaseSafety.reset();
+        else if (! nextPreview)
+        {
+            // 预听此刻关着（这一块刚退出，或早已退出；T-032 R8-01 / R10-03）：
+            //   - 在线、链照常出母带（releaseAllowed）、Listen 关：ReleaseSafety 自己按 50 ms 斜坡回 1，走完精确落 1、转回逐位旁通；
+            //   - 离线：立即归一，导出从第一个样本起就不带预听，也不带斜坡尾巴；
+            //   - 其余在线情形（宿主旁通 / 听原声 / 试听差值时 releaseSafety.process 不再被调，它的斜坡走不动；Listen 开时 Listen 要接手
+            //     监听增益）：先把此刻的衰减交给 Listen 的平滑器，再归一，随后 updateListenTarget 在 20 ms 内平滑到 Listen 的目标
+            //     （Listen 关或干路 = 1），applyListenGain 在所有路径上都执行，斜坡落得了地。乘法平滑器的起点不能是 0，下限 1e-6。
+            // 宿主旁通 / 听原声 / 试听差值期间每块都归一（与改动前相同：抖动随机序列也每块回到固定种子）。
+            const auto rampsItself = releaseAllowed && ! offline && ! newParams.limit.listen;
+
+            if (! releaseAllowed || ((leaving || previewGainPending) && ! rampsItself))
+            {
+                if (! offline && (leaving || previewGainPending))
+                    listenGain.setCurrentAndTargetValue (juce::jmax (1.0e-6f, (float) ((double) listenGain.getCurrentValue() * previewGainNow)));
+
+                releaseSafety.reset();
+            }
+        }
         previewActive = nextPreview;
         const auto bits = releaseAllowed ? (mastering.dither == DitherMode::bits16 ? 16 : (mastering.dither == DitherMode::bits24 ? 24 : 0)) : 0;
-        releaseSafety.setParams (previewActive, mastering.previewTargetLufs, bits);
+        releaseSafety.setParams (previewActive, finiteOr (mastering.previewTargetLufs, neutralMastering.previewTargetLufs), bits);
         publishedCodecMargin.store (dryPath || adjusted.limit.bypass ? 0.0f : margin, std::memory_order_relaxed);
         publishedDither.store (bits == 16 ? 1 : (bits == 24 ? 2 : 0), std::memory_order_relaxed);
 
@@ -183,6 +234,11 @@ namespace celadon
         listenRequested = newParams.limit.listen && ! previewActive;
         const auto bypassChanged = hostIsBypassed != dryPath;
         hostIsBypassed = dryPath;
+
+        // 听原声期间 OUT 表的整体响度暂停积分（T-032 R8-03；设计规格-总体 2026-09-28 修订「三种临时监听……表与 GLAZE 照常按母带算」）：
+        // 出口此刻是原声，积进去就会把原声混进母带的整体读数，预听归一化也跟着偏。短期响度、真峰值、子块环照常（校准与 Listen 的配对不经直方图）。
+        // 宿主旁通接在同一个开关上，但要等 Max 确认口径（pauseIntegrationOnHostBypass，见 CeladonChain.h）：现在宿主旁通时照旧积分。
+        outputMeter.setIntegrationPaused (compareOriginal || (hostBypassed && pauseIntegrationOnHostBypass));
         listenComparing = compareOriginal && ! hostBypassed;
         if (listenSampleRate > 0.0 && (bypassChanged || listenLatency != getLatencySamples()))
             resetListenMeasurement (false);
