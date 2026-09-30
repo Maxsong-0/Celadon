@@ -1,0 +1,15 @@
+# 用户态 systemd 单元：~/.config/systemd/user/celadon-site.service
+# 站点静态服务（Python 标准库），只绑 127.0.0.1:8090，由 cloudflared 隧道对外。
+[Unit]
+Description=Celadon 站点静态服务（127.0.0.1:8090 ← ~/celadon-site/dist）
+StartLimitIntervalSec=0
+StartLimitBurst=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/celadon-site/deploy/static-server.py --root %h/celadon-site/dist --bind 127.0.0.1 --port 8090
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target
