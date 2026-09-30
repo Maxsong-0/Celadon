@@ -8,6 +8,8 @@
         所以舍入与逐样本的参照实现完全一样，结果逐位相同，也与样本落在哪一段、哪一组无关（分块无关）。
       - 「时间在向量的通道里」：通道 i 是第 i 个输出，每个抽头只做 3 次窗口加载、2 次系数加载、21 次乘加，
         没有水平求和；21 个独立累加器足够把乘加流水线喂满。
+      - SSE2 核（x86-64 只有 16 个 XMM 寄存器）一次 4 个输出 × 7 相；系数用预广播表 tapsBroadcast（T-032）：每个抽头 7 次
+        对齐加载直接拿到 4 个相同的系数，不再每抽头 2 次加载 + 7 次 shufps，乘加的操作数与顺序不变（107 实测 29 → 18 ns）。
       - 逐项乘加的舍入方式按平台固定（下面的 multiplyAdd），参照实现与向量核用同一种：
           ARM64（NEON）：融合乘加（一次舍入）= 旧代码在 Xcode Release（-O3 + LTO）与 Debug 下编出的 fmadd 串行链，
                          所以装进 DAW 的版本读数与 v0.4 逐位相同；
@@ -26,6 +28,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #if (defined (__ARM_NEON) || defined (__ARM_NEON__)) && (defined (__aarch64__) || defined (__arm64__))
  #define CELADON_TRUE_PEAK_NEON 1
@@ -82,6 +85,7 @@ namespace celadon
         constexpr int numTaps       = TruePeakDetector::tapsPerPhase;
         constexpr int numPhases     = TruePeakDetector::oversamplingFactor;
         constexpr int tapStride     = 8;                                               // tapsByTap 里每个抽头占 8 格（7 相 + 1 格补 0）
+        constexpr int broadcastStride = 4 * (numPhases - 1);                           // tapsBroadcast 里每个抽头占 28 格（7 相 × 4 个相同的 float）
         constexpr int phaseZeroTap  = numTaps - 1 - TruePeakDetector::latencySamples;  // 第 0 相 = 窗口里这个位置的原样本
 
         // 第一类零阶修正贝塞尔函数 I0（Kaiser 窗要用），级数展开到收敛。
@@ -167,7 +171,7 @@ namespace celadon
             return vbslq_f32 (vcltq_f32 (peak, candidate), candidate, peak);
         }
 
-        void computePeakGroups (const float* line, const float* tapsByTap, const PhaseTable&, float* peaks, int numGroups) noexcept
+        void computePeakGroups (const float* line, const float* tapsByTap, const float*, const PhaseTable&, float* peaks, int numGroups) noexcept
         {
             for (int group = 0; group < numGroups; ++group)
             {
@@ -223,14 +227,12 @@ namespace celadon
             return _mm_max_ps (candidate, peak);
         }
 
-        template <int lane>
-        inline __m128 broadcast (__m128 v) noexcept
-        {
-            return _mm_shuffle_ps (v, v, _MM_SHUFFLE (lane, lane, lane, lane));
-        }
-
         // x86-64 只有 16 个 XMM 寄存器：一次 4 个输出 × 7 相 = 7 个累加器；一组 12 个输出分三次算。
-        void computePeakGroups (const float* line, const float* tapsByTap, const PhaseTable&, float* peaks, int numGroups) noexcept
+        // 系数来自预广播表 tapsBroadcast（T-032，2026-09-29）：每个抽头 7 次对齐加载，每次直接是「4 个相同的系数」，
+        // 省掉原来每抽头 2 次加载 + 7 次 shufps（旧核每抽头 24 条指令里 9 条在搬系数）。乘法的两个操作数（x 与同一个系数）、
+        // 加进哪个累加器、按 k 的顺序都与原来完全一样，所以与参照实现、与旧核都逐位相同：107 实测 29.09 → 18 ns / 样本 / 声道，
+        // DspPartsTests 的 4 种 MXCSR × 9 种信号 × 7 种分块矩阵 0 失配。tapsByTap 这条路径不用（NEON 用）。
+        void computePeakGroups (const float* line, const float*, const float* tapsBroadcast, const PhaseTable&, float* peaks, int numGroups) noexcept
         {
            #if defined (__clang__)
             #pragma clang fp contract (off)
@@ -240,21 +242,20 @@ namespace celadon
             for (int quad = 0; quad < numGroups * 3; ++quad)
             {
                 const float* window = line + quad * 4;
+                const float* taps = tapsBroadcast;
                 auto a1 = _mm_setzero_ps(), a2 = a1, a3 = a1, a4 = a1, a5 = a1, a6 = a1, a7 = a1;
 
-                for (int k = 0; k < numTaps; ++k)
+                for (int k = 0; k < numTaps; ++k, taps += broadcastStride)
                 {
-                    const auto x  = _mm_loadu_ps (window + k);
-                    const auto t0 = _mm_loadu_ps (tapsByTap + tapStride * k);
-                    const auto t1 = _mm_loadu_ps (tapsByTap + tapStride * k + 4);
+                    const auto x = _mm_loadu_ps (window + k);
 
-                    a1 = _mm_add_ps (a1, _mm_mul_ps (x, broadcast<0> (t0)));
-                    a2 = _mm_add_ps (a2, _mm_mul_ps (x, broadcast<1> (t0)));
-                    a3 = _mm_add_ps (a3, _mm_mul_ps (x, broadcast<2> (t0)));
-                    a4 = _mm_add_ps (a4, _mm_mul_ps (x, broadcast<3> (t0)));
-                    a5 = _mm_add_ps (a5, _mm_mul_ps (x, broadcast<0> (t1)));
-                    a6 = _mm_add_ps (a6, _mm_mul_ps (x, broadcast<1> (t1)));
-                    a7 = _mm_add_ps (a7, _mm_mul_ps (x, broadcast<2> (t1)));
+                    a1 = _mm_add_ps (a1, _mm_mul_ps (x, _mm_load_ps (taps)));        // 第 1 相的第 k 个抽头 × 4 个通道
+                    a2 = _mm_add_ps (a2, _mm_mul_ps (x, _mm_load_ps (taps + 4)));    // 第 2 相
+                    a3 = _mm_add_ps (a3, _mm_mul_ps (x, _mm_load_ps (taps + 8)));
+                    a4 = _mm_add_ps (a4, _mm_mul_ps (x, _mm_load_ps (taps + 12)));
+                    a5 = _mm_add_ps (a5, _mm_mul_ps (x, _mm_load_ps (taps + 16)));
+                    a6 = _mm_add_ps (a6, _mm_mul_ps (x, _mm_load_ps (taps + 20)));
+                    a7 = _mm_add_ps (a7, _mm_mul_ps (x, _mm_load_ps (taps + 24)));   // 第 7 相
                 }
 
                 auto peak = _mm_and_ps (_mm_loadu_ps (window + phaseZeroTap), absMask);
@@ -271,7 +272,7 @@ namespace celadon
         }
        #else
         // 没有 SIMD 的平台：逐个输出走参照实现（同一个函数，逐位相同是必然的）。
-        void computePeakGroups (const float* line, const float*, const PhaseTable& reversedPhases, float* peaks, int numGroups) noexcept
+        void computePeakGroups (const float* line, const float*, const float*, const PhaseTable& reversedPhases, float* peaks, int numGroups) noexcept
         {
             for (int i = 0; i < numGroups * 12; ++i)
                 peaks[i] = directFormPeak (line + i, reversedPhases);
@@ -337,6 +338,16 @@ namespace celadon
 
             tapsByTap[(size_t) (tapStride * k + tapStride - 1)] = 0.0f;
         }
+
+        // 预广播表（SSE2 核，T-032）：同一批 float 系数，每个抽头按第 1 … 7 相各复制成 4 个相同的通道（数值逐位不变，只是换了存放）。
+        static_assert (std::tuple_size<decltype (tapsBroadcast)>::value == (size_t) (tapsPerPhase * broadcastStride),
+                       "tapsBroadcast 的大小必须是 抽头数 × 28");
+        jassert ((reinterpret_cast<std::uintptr_t> (tapsBroadcast.data()) & 15u) == 0);   // alignas (16)：核用对齐加载
+
+        for (int k = 0; k < tapsPerPhase; ++k)
+            for (int phase = 1; phase < oversamplingFactor; ++phase)
+                for (int lane = 0; lane < 4; ++lane)
+                    tapsBroadcast[(size_t) (broadcastStride * k + 4 * (phase - 1) + lane)] = reversedPhases[(size_t) phase][(size_t) k];
     }
 
     const char* TruePeakDetector::getBlockKernelName() noexcept
@@ -390,7 +401,7 @@ namespace celadon
         const auto numGroups = (numSamples + groupSize - 1) / groupSize;
         std::fill (data + historyLength + numSamples, data + historyLength + numGroups * groupSize, 0.0f);
 
-        computePeakGroups (data, tapsByTap.data(), reversedPhases, peakScratch.data(), numGroups);
+        computePeakGroups (data, tapsByTap.data(), tapsBroadcast.data(), reversedPhases, peakScratch.data(), numGroups);
 
         // 历史推进 numSamples 个样本，与逐个 processSample 写入的结果完全相同（环形缓冲只留得下最后 64 个写入）。
         for (int i = juce::jmax (0, numSamples - tapsPerPhase); i < numSamples; ++i)

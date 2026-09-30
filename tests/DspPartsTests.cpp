@@ -480,7 +480,8 @@ namespace celadon::test
 
         // 性能护栏：防止以后退化回逐样本串行乘加（v0.4 约 190 ～ 260 ns，v0.5 NEON 约 9 ～ 13 ns）。
         // 立体声、块 512、15 遍取最短（别的进程抢 CPU 只会让某一遍变慢）；门槛留 2 倍以上余量，防误报。
-        // SSE2 没有融合乘加、乘和加各占一个发射口，同样的逐位写法约慢 3 倍，门槛单独放宽；纯标量平台只记录。
+        // SSE2 没有融合乘加、乘和加各占一个发射口，同样的逐位写法本来约慢 3 倍（107 实测 29 ns）；T-032 换成预广播系数表后
+        // 107 实测 18 ns，门槛 50 ns（约 2.8 倍余量，与 NEON 的比例相同）；纯标量平台只记录。
         void testPerformanceGuard()
         {
             const juce::String kernel (TruePeakDetector::getBlockKernelName());
@@ -515,7 +516,7 @@ namespace celadon::test
             if (kernel == "NEON")
                 expect (bestNs <= 30.0, "NEON block detector too slow: " + juce::String (bestNs, 2) + " ns");
             else if (kernel == "SSE2")
-                expect (bestNs <= 80.0, "SSE2 block detector too slow: " + juce::String (bestNs, 2) + " ns");
+                expect (bestNs <= 50.0, "SSE2 block detector too slow: " + juce::String (bestNs, 2) + " ns");
             else
                 logMessage ("  no SIMD kernel on this platform: guard is informational only");
            #endif

@@ -36,6 +36,9 @@
 
 namespace celadon
 {
+    // MSVC /W4 的 C4324「结构因对齐说明符而补齐」：tapsBroadcast 的 alignas (16) 让类尾部补到 16 字节的倍数，是有意的（SSE2 核对齐加载）。
+    JUCE_BEGIN_IGNORE_WARNINGS_MSVC (4324)
+
     class TruePeakDetector
     {
     public:
@@ -81,7 +84,15 @@ namespace celadon
         std::array<std::array<float, (size_t) tapsPerPhase>, (size_t) oversamplingFactor> reversedPhases {};
 
         // 同一批系数按抽头重排给向量核用：tapsByTap[8k + p − 1] = reversedPhases[p][k]（p = 1 … 7），每个 k 的第 8 格补 0。
+        // NEON 核用它：vfmaq_laneq 按通道取系数，正是为这种紧凑布局设计的。
         std::array<float, (size_t) (tapsPerPhase * 8)> tapsByTap {};
+
+        // 同一批系数再按「抽头 → 相位 → 4 个相同的通道」预先广播给 SSE2 核（T-032，2026-09-29）：
+        // tapsBroadcast[28k + 4(p − 1) + lane] = reversedPhases[p][k]，每个抽头 7 相 × 4 通道 = 28 个 float，全表 7 KB。
+        // 核里每个抽头 7 次对齐加载直接拿到「4 个相同的系数」，省掉原来的 2 次加载 + 7 次 shufps；乘、加的操作数与顺序不变，
+        // 所以与参照实现、与旧核都逐位相同（107 实测 29 → 18 ns / 样本 / 声道）。alignas (16) 让核能用对齐加载。
+        // 两张表都在构造时填好、不按平台裁掉：头文件不分平台，多一张表只占几 KB，构造不在音频线程。
+        alignas (16) std::array<float, (size_t) (tapsPerPhase * 4 * (oversamplingFactor - 1))> tapsBroadcast {};
 
         std::vector<ChannelState> channels;
 
@@ -89,4 +100,6 @@ namespace celadon
         std::array<float, (size_t) (historyLength + chunkLength + groupSize)> line {};
         std::array<float, (size_t) (chunkLength + groupSize)> peakScratch {};
     };
+
+    JUCE_END_IGNORE_WARNINGS_MSVC
 }
