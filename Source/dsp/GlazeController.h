@@ -52,7 +52,9 @@
     归一化往返会漂几个 ulp（BUG-004，ADR-018；setManualConditions）。
     已提交的校准只在条件与参考一致时施加（「适用」）；不适用就只用前馈（偏差按 1 dB/s 回到 0），条件连续 1 s 不变且没有
     过渡、不在 Listen / 旁通 / 离线时才开新一轮。轮中条件变了：本块起当前子窗作废、偏差保持；变回来就接着采（已完成的
-    子窗保留），3 s 没变回来就放弃本轮、以新条件为底重来。
+    子窗保留），3 s 没变回来就放弃本轮、以新条件为底重来。「刚对同一条件试过（结束为无效）就不反复重开」只记真正结束为无效的
+    那一轮（finishRound）；放弃的轮与换方案丢掉的轮都不算「试过」，条件变回原样照样能再开（T-032 R5-01：修前校准中把 GLAZE
+    拧到 0 或切 Bypass 做 A/B ≥ 3 s、或换风格再切回，之后永远不再校准）。
 
     约束反馈（PHASE2-NOTES 设计决定 1）：Glue 均值 / p95、Heat 在 3 s 窗内累计超出 ≥ 1 s，或保护层新进入「方案受限」，
     或校准结束为「预算受限」→ 以当前实际净提升为基础下调约束反馈上限（每次 1 dB；预算受限时取当时净提升），下限是手动链
@@ -213,6 +215,17 @@ namespace celadon::glaze
             // 16 受手动设置限制、32 保护层在退让或恢复（未稳定也未卡住）、64 参考条件未知、128 已提交的校准适用（不需要）、
             // 256 用户条件稳定不足 1 s、512 刚对同一条件试过。0 = 本块开了新一轮或正在轮中。
             int calibrationGateMask = 0;
+
+            // ---- T-032（R5-02 / R5-03 / R5-04 / R5-08）：保护层与约束反馈的运行量（上一块 endBlock 之后的值）----
+            bool guardLimitsSet = false;              // 保护层已按某份方案设过上限（GlazeGuard::setLimits）
+            StyleConstants guardLimits;               // 保护层此刻生效的约束上限 = blendConstants(目标方案源的常数, 目标方案的权重)
+            std::int64_t guardSteadySamples = 0;      // g_保护 连续没变的有效音乐样本数（静音 / 停播 / 旁通冻结时不推进也不清）
+            std::int64_t guardStuckSamples = 0;       // 「卡住」门槛：activeConstants().guardRecoverAfterSeconds + 1 s 折算的样本数
+            std::int64_t samplesSinceFeedback = 0;    // 上一次约束反馈以来的有效音乐样本数（「过渡 + 3 s 观察」按它计）
+            int monitorWindowSlots = 0;               // 上游监视窗的时隙数（activeConstants().guardWindowSeconds / 100 ms）
+            int monitorTriggerSlots = 0;              // 上游监视的触发时隙数（guardTriggerSeconds / 100 ms）
+            float absorbedGuardDb = 0.0f;             // 沿用执行快照时并进冻结方案的保护退让（≤ 0）；解除冻结时改由 carry 淡出
+            float guardCarryDb = 0.0f;                // 此刻由编排器接着施加的退让（lowerGainCap 吸收 / 解除冻结的 carry 剩余量）
         };
 
         TestProbe getProbeForTesting() const noexcept;
