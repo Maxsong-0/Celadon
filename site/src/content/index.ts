@@ -1,68 +1,71 @@
+import type { Locale } from '@/i18n/paths';
+
+/*
+  使用说明与公开算法的结构（ADR-024 双语）：这里只有路由末段、Markdown 文件名与侧栏分组的键；
+  页面标题、摘要、分组名在 i18n 的 docs 命名空间（pages.<kind>.<file>、groups.<键>），组件里用 usePageText 取当前语言的；
+  正文是 content/<kind>/<语言>/<file>.md，两种语言文件名相同（scripts/check-i18n.mjs 核对成对）。
+*/
+export type Kind = 'docs' | 'algorithms';
+export type GroupKey = 'start' | 'process' | 'judge' | 'overview' | 'stages' | 'orchestration';
+
 export interface PageMeta {
   /** 路由末段；'' = 该分区首页 */
   slug: string;
-  title: string;
-  summary: string;
-  /** Markdown 文件名（不含扩展名） */
+  /** Markdown 文件名（不含扩展名），也是 docs 命名空间里 pages.<kind>.<file> 的键 */
   file: string;
 }
 export interface NavGroup {
-  group: string;
+  group: GroupKey;
   pages: PageMeta[];
 }
 
 export const docsNav: NavGroup[] = [
   {
-    group: '开始',
+    group: 'start',
     pages: [
-      { slug: '', title: '快速上手', summary: '插到总轨、播放、拧 GLAZE——三步。', file: 'quickstart' },
-      { slug: 'install', title: '安装与兼容', summary: 'macOS（Apple Silicon / Intel）、Windows x64、宿主、延迟。', file: 'install' },
-      { slug: 'interface', title: '界面总览', summary: '顶栏、表、频谱仪、GLAZE、四张卡片各是什么。', file: 'interface' }
+      { slug: '', file: 'quickstart' },
+      { slug: 'install', file: 'install' },
+      { slug: 'interface', file: 'interface' }
     ]
   },
   {
-    group: '处理',
+    group: 'process',
     pages: [
-      { slug: 'glaze', title: 'GLAZE 与风格', summary: '大旋钮的含义、四种风格、聆听与重新聆听。', file: 'glaze' },
-      { slug: 'balance', title: 'BALANCE 卡片', summary: '回补、抑制、提亮、速度与 27 段修正曲线。', file: 'balance' },
-      { slug: 'clay', title: 'CLAY 卡片', summary: '低切、收单、加宽各自的自动 / 关 / 手动。', file: 'clay' },
-      { slug: 'color', title: 'COLOR 卡片', summary: '音调、粘合、热度、干湿、输出。', file: 'color' },
-      { slug: 'limit', title: 'LIMIT 卡片', summary: '增益、上限、削波、释放、预读与试听差值。', file: 'limit' },
-      { slug: 'advanced', title: '高级面板', summary: '推响不刺、目标频谱与参考学习、发行安全。', file: 'advanced' }
+      { slug: 'glaze', file: 'glaze' },
+      { slug: 'balance', file: 'balance' },
+      { slug: 'clay', file: 'clay' },
+      { slug: 'color', file: 'color' },
+      { slug: 'limit', file: 'limit' },
+      { slug: 'advanced', file: 'advanced' }
     ]
   },
   {
-    group: '判断',
+    group: 'judge',
     pages: [
-      { slug: 'listening', title: '监听方式', summary: 'A / B、等响、试听差值、归一化预听。', file: 'listening' },
-      { slug: 'meters', title: '表与频谱仪', summary: '每个读数是什么、该看多少。', file: 'meters' },
-      { slug: 'controls', title: '手感与键位', summary: '拖动、精调、双击、直接输入、缩放、语言。', file: 'controls' },
-      { slug: 'faq', title: '常见问题', summary: '声音没变、校准丢了、宿主没看到新版本……', file: 'faq' }
+      { slug: 'listening', file: 'listening' },
+      { slug: 'meters', file: 'meters' },
+      { slug: 'controls', file: 'controls' },
+      { slug: 'faq', file: 'faq' }
     ]
   }
 ];
 
 export const algoNav: NavGroup[] = [
+  { group: 'overview', pages: [{ slug: '', file: 'overview' }] },
   {
-    group: '总览',
+    group: 'stages',
     pages: [
-      { slug: '', title: '信号链与设计原则', summary: '固定顺序、延迟补偿旁通、零差、逐位契约、真峰值口径。', file: 'overview' }
+      { slug: 'balance', file: 'balance' },
+      { slug: 'clay', file: 'clay' },
+      { slug: 'color', file: 'color' },
+      { slug: 'limit', file: 'limit' }
     ]
   },
   {
-    group: '四道工序',
+    group: 'orchestration',
     pages: [
-      { slug: 'balance', title: 'BALANCE · 动态频谱平衡', summary: '27 段、参考轮廓、死区、自动许可、上行掩蔽转移。', file: 'balance' },
-      { slug: 'clay', title: 'CLAY · 修坯', summary: 'M/S 三级、先试后用、峰值守护。', file: 'clay' },
-      { slug: 'color', title: 'COLOR · 染色', summary: 'Tone、分频 Glue、保留低频主体的 Heat。', file: 'color' },
-      { slug: 'limit', title: 'LIMIT · 真峰值限幅', summary: '8× 检测 1× 施加、双包络、三角攻击沿、周期释放。', file: 'limit' }
-    ]
-  },
-  {
-    group: '编排与验证',
-    pages: [
-      { slug: 'glaze', title: 'GLAZE · 决策与校准', summary: '画像 → 方案 → 校准 → 保护；存档与重开。', file: 'glaze' },
-      { slug: 'verification', title: '性能与验证', summary: '预算口径、实测数字、测试与逐位契约的编译前提。', file: 'verification' }
+      { slug: 'glaze', file: 'glaze' },
+      { slug: 'verification', file: 'verification' }
     ]
   }
 ];
@@ -71,14 +74,14 @@ export function flatten(nav: NavGroup[]): PageMeta[] {
   return nav.flatMap(g => g.pages);
 }
 
-// Markdown 正文按需加载（每页一个小包）。
-const docsFiles = import.meta.glob('./docs/*.md', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>;
-const algoFiles = import.meta.glob('./algorithms/*.md', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>;
+// Markdown 正文按需加载（每页每种语言一个小包）。
+const docsFiles = import.meta.glob('./docs/*/*.md', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>;
+const algoFiles = import.meta.glob('./algorithms/*/*.md', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>;
 
-export function loadMarkdown(kind: 'docs' | 'algorithms', file: string): Promise<string> {
+export function loadMarkdown(kind: Kind, file: string, locale: Locale): Promise<string> {
   const table = kind === 'docs' ? docsFiles : algoFiles;
-  const loader = table[`./${kind}/${file}.md`];
-  if (!loader) return Promise.reject(new Error(`没有这一页：${kind}/${file}`));
+  const loader = table[`./${kind}/${locale}/${file}.md`];
+  if (!loader) return Promise.reject(new Error(`${kind}/${locale}/${file}.md`));
   return loader();
 }
 
@@ -86,7 +89,7 @@ export function loadMarkdown(kind: 'docs' | 'algorithms', file: string): Promise
 
 /**
  * 标题锚点 id。说明页 h2 / h3 的 id、搜索结果的深链、本页目录三处共用这一个函数，链接才一定对得上。
- * 中文照留，标点与空白折成一个「-」。
+ * 中文照留（中文页的锚点是中文），英文转小写；标点与空白折成一个「-」。
  */
 export function slugify(text: string) {
   return text
@@ -97,23 +100,20 @@ export function slugify(text: string) {
     .replace(/^-+|-+$/g, '');
 }
 
-/** 可检索的一页：在 PageMeta 之外带上分区、侧栏分组与站内路径。 */
+/** 可检索的一页：在 PageMeta 之外带上分区、侧栏分组与站内路径（标题与摘要按语言另取）。 */
 export interface SitePage extends PageMeta {
-  kind: 'docs' | 'algorithms';
-  /** 分区名：使用说明 / 公开算法 */
-  kindLabel: string;
-  /** 侧栏分组：开始 / 处理 / 判断 / 总览 …… */
-  group: string;
-  /** 站内路径（不带 #），如 /docs、/docs/install */
+  kind: Kind;
+  group: GroupKey;
+  /** 站内路径（不带 # 与语言前缀），如 /docs、/docs/install */
   path: string;
 }
 
-function sitePages(nav: NavGroup[], kind: SitePage['kind'], kindLabel: string, base: string): SitePage[] {
-  return nav.flatMap(g => g.pages.map(p => ({ ...p, kind, kindLabel, group: g.group, path: p.slug ? `${base}/${p.slug}` : base })));
+function sitePages(nav: NavGroup[], kind: Kind, base: string): SitePage[] {
+  return nav.flatMap(g => g.pages.map(p => ({ ...p, kind, group: g.group, path: p.slug ? `${base}/${p.slug}` : base })));
 }
 
 /** 说明 + 算法的全部页面，按侧栏顺序。 */
-export const allPages: SitePage[] = [...sitePages(docsNav, 'docs', '使用说明', '/docs'), ...sitePages(algoNav, 'algorithms', '公开算法', '/algorithms')];
+export const allPages: SitePage[] = [...sitePages(docsNav, 'docs', '/docs'), ...sitePages(algoNav, 'algorithms', '/algorithms')];
 
 const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&nbsp;': ' ' };
 

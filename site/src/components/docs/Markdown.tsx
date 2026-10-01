@@ -1,4 +1,5 @@
 import { type ReactNode, isValidElement, Children, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { LocaleLink } from '@/i18n/locale';
@@ -50,7 +51,7 @@ const components: Components = {
     if (typeof src === 'string' && src.startsWith('figure:')) {
       const key = src.slice('figure:'.length);
       const Fig = figures[key];
-      if (!Fig) return <p className="warn">缺少示意图：{key}</p>;
+      if (!Fig) return <MissingFigure name={key} />;
       // 示意图是说明页这一节的主角，用瓷板（设计规格-官网 第 3 节）
       return (
         <figure className="my-10">
@@ -67,7 +68,8 @@ const components: Components = {
   },
   blockquote: ({ children }) => {
     const text = textOf(children).trim();
-    const warn = text.startsWith('⚠') || text.startsWith('注意');
+    // 警示：以 ⚠ 开头（两种语言的正文都这样写），或中文「注意」/ 英文 Caution、Warning 开头
+    const warn = text.startsWith('⚠') || text.startsWith('注意') || /^(caution|warning)\b/i.test(text);
     return <blockquote className={warn ? 'warn not-italic border-0 pl-5' : 'note not-italic border-0 pl-5'}>{children}</blockquote>;
   },
   table: ({ children }) => (
@@ -81,6 +83,11 @@ const components: Components = {
     return <pre>{only}</pre>;
   }
 };
+
+function MissingFigure({ name }: { name: string }) {
+  const { t } = useTranslation('docs');
+  return <p className="warn">{t('markdown.missingFigure', { key: name })}</p>;
+}
 
 const remarkPlugins = [remarkGfm];
 

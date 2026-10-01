@@ -1,1 +1,150 @@
-{}
+{
+  "sections": {
+    "docs": "Docs",
+    "algorithms": "Open algorithms"
+  },
+  "sectionsShort": {
+    "docs": "Docs",
+    "algorithms": "Algorithms"
+  },
+  "groups": {
+    "start": "Getting started",
+    "process": "Processing",
+    "judge": "Judging",
+    "overview": "Overview",
+    "stages": "The four stages",
+    "orchestration": "Orchestration and verification"
+  },
+  "pages": {
+    "docs": {
+      "quickstart": {
+        "title": "Quick start",
+        "summary": "Insert it on the master bus, press play, turn GLAZE — three steps."
+      },
+      "install": {
+        "title": "Install and compatibility",
+        "summary": "macOS (Apple silicon / Intel), Windows x64, hosts, latency."
+      },
+      "interface": {
+        "title": "Interface tour",
+        "summary": "What the top bar, meters, spectrum analyser, GLAZE and the four cards are."
+      },
+      "glaze": {
+        "title": "GLAZE and styles",
+        "summary": "What the big knob means, the four styles, listening and relearning."
+      },
+      "balance": {
+        "title": "The BALANCE card",
+        "summary": "Recover, Tame, Brighten, Speed and the 27-band correction curve."
+      },
+      "clay": {
+        "title": "The CLAY card",
+        "summary": "Auto / Off / Manual for Low cut, Mono and Width."
+      },
+      "color": {
+        "title": "The COLOR card",
+        "summary": "Tone, Glue, Heat, Mix and Output."
+      },
+      "limit": {
+        "title": "The LIMIT card",
+        "summary": "Gain, Ceiling, Clip, Release, Lookahead and Listen to difference."
+      },
+      "advanced": {
+        "title": "The Advanced panel",
+        "summary": "Loud, not harsh; Target spectrum and reference learning; Release safety."
+      },
+      "listening": {
+        "title": "Monitoring",
+        "summary": "A / B, Match, Listen to difference, Normalisation preview."
+      },
+      "meters": {
+        "title": "Meters and spectrum analyser",
+        "summary": "What each reading means and what to aim for."
+      },
+      "controls": {
+        "title": "Controls and shortcuts",
+        "summary": "Dragging, fine adjustment, double-click, typing values, scaling, language."
+      },
+      "faq": {
+        "title": "FAQ",
+        "summary": "No change in sound, lost calibration, the host not seeing the new version…"
+      }
+    },
+    "algorithms": {
+      "overview": {
+        "title": "Signal chain and design principles",
+        "summary": "Fixed order, latency-compensated bypass, null tests, the bit-exact contract, how true peak is measured."
+      },
+      "balance": {
+        "title": "BALANCE · dynamic spectral balance",
+        "summary": "27 bands, reference contour, dead zone, automatic permission, upward masking transfer."
+      },
+      "clay": {
+        "title": "CLAY · stereo clean-up",
+        "summary": "Three M/S stages, try before applying, the peak guard."
+      },
+      "color": {
+        "title": "COLOR · tone, glue and heat",
+        "summary": "Tone, split-band Glue, and Heat that keeps the low-end body intact."
+      },
+      "limit": {
+        "title": "LIMIT · true-peak limiting",
+        "summary": "8× detection, 1× application, dual envelopes, triangular attack, period-aware release."
+      },
+      "glaze": {
+        "title": "GLAZE · decisions and calibration",
+        "summary": "Profile → plan → calibration → protection; saving and reopening."
+      },
+      "verification": {
+        "title": "Performance and verification",
+        "summary": "How the budget is measured, real numbers, tests, and the build requirements behind the bit-exact contract."
+      }
+    }
+  },
+  "layout": {
+    "docsFooter": "The text matches the plugin's hover help. For the maths, see <link>Open algorithms</link>.",
+    "algoFooter": "Only the algorithm descriptions, structure and constants are published — no source code. For how to use it, see the <link>docs</link>.",
+    "notFoundTitle": "No such page",
+    "notFoundBody": "The address may have changed. Go back to the <link>{{section}}</link> home page, or press ⌘K / Ctrl K to search.",
+    "loadError": "This page didn't load: {{error}}. Refresh to try again.",
+    "pager": "Previous and next page",
+    "prev": "Previous",
+    "next": "Next",
+    "docTitle": "{{title}} · {{section}} · Celadon",
+    "sectionTitle": "{{section}} · Celadon",
+    "metaDescription": "{{title}}: {{summary}} (Celadon · {{section}})"
+  },
+  "toc": {
+    "label": "On this page",
+    "labelEn": "",
+    "backToTop": "Back to top"
+  },
+  "markdown": {
+    "missingFigure": "Missing figure: {{key}}"
+  },
+  "search": {
+    "label": "Search the docs and algorithms",
+    "placeholder": "Search the docs and algorithms…",
+    "clear": "Clear",
+    "close": "Close search",
+    "cancel": "Cancel",
+    "noResults": "Nothing found for “{{query}}”",
+    "tryThese": "Try other words, or one of these:",
+    "suggestions": [
+      "Match",
+      "true peak",
+      "Relearn",
+      "latency",
+      "mono"
+    ],
+    "loading": "Loading pages…",
+    "results_one": "{{count}} result",
+    "results_other": "{{count}} results",
+    "counts": "{{docs}} docs pages · {{algos}} algorithm pages",
+    "resultsLabel": "Search results",
+    "allPages": "All pages",
+    "select": "Select",
+    "open": "Open",
+    "closeKey": "Close"
+  }
+}
