@@ -4,6 +4,7 @@ import { Chapter, Em, LinkArrow } from '@/components/celadon/Eyebrow';
 import { CHECKSUMS_FILE, RELEASE, downloadHref, type PackageId, type ReleasePackage } from '@/content/release';
 import { ScrollTrigger } from '@/lib/gsap';
 import { onFontsLoaded } from '@/lib/fonts';
+import { scrollToAnchor } from '@/lib/anchor';
 import { useReveal } from '@/lib/reveal';
 import { PLUGIN_VERSION } from '@/lib/site';
 import { cn } from '@/lib/utils';
@@ -474,7 +475,7 @@ function usePlatformGuess(): Guess | null {
 
 /** 页面标题、带 #锚点进来时滚到位置、字体到位后让滚动触发器重新量一遍位置。 */
 function usePageSetup(title: string) {
-  const { hash } = useLocation();
+  const { hash, key } = useLocation();
 
   useEffect(() => {
     const prev = document.title;
@@ -484,17 +485,8 @@ function usePageSetup(title: string) {
     };
   }, [title]);
 
-  useEffect(() => {
-    if (!hash) return;
-    let id: string;
-    try {
-      id = decodeURIComponent(hash.slice(1));
-    } catch {
-      return;
-    }
-    const t = window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'start' }), 80);
-    return () => window.clearTimeout(t);
-  }, [hash]);
+  // 平滑滚动会被字体到位后的 ScrollTrigger 重新测量打断（原来带锚点进来停在页首），由 lib/anchor 处理。
+  useEffect(() => scrollToAnchor(hash), [hash, key]);
 
   // 字体换上后触发器位置会变，重新量（思源的声明是异步插入的，见 lib/fonts）。
   useEffect(() => onFontsLoaded(() => ScrollTrigger.refresh()), []);
