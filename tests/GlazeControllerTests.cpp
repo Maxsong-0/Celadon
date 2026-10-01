@@ -230,6 +230,21 @@ namespace celadon::test
                 sourceIndex = (sourceIndex + (size_t) blockLength) % length;
 
                 host.positionSamples = position;
+
+                // T-038：tempoBpm > 0 时同时报恒定速度、4/4 的拍点（PPQ 与位置严格一致，小节起点按 PPQ ÷ 4）；默认 0 = 不报（原有用例不变）。
+                if (tempoBpm > 0.0)
+                {
+                    host.hasTempo = true;
+                    host.bpm = tempoBpm;
+                    host.hasPpq = true;
+                    host.ppqPosition = (double) position * tempoBpm / (60.0 * sampleRate);
+                    host.hasBarStart = true;
+                    host.ppqLastBarStart = std::floor (host.ppqPosition / 4.0) * 4.0;
+                    host.hasTimeSignature = true;
+                    host.timeSignatureNumerator = 4;
+                    host.timeSignatureDenominator = 4;
+                }
+
                 chain.setHostInfo (host);
                 chain.setParams (params, hostBypassed);
                 const auto nonFinite = chain.process (buffer);
@@ -300,6 +315,7 @@ namespace celadon::test
             bool advancePosition = true;
             bool hostBypassed = false;
             int blocksRun = 0;
+            double tempoBpm = 0.0;   // T-038：> 0 时每块报拍点（见 step）
             juce::AudioBuffer<float> buffer { numChannels, blockSize };
         };
 
@@ -5291,4 +5307,571 @@ namespace celadon::test
     };
 
     static GlazeControllerTests glazeControllerTests;
+
+    //==============================================================================
+    // ---- T-038 House 档（阶段 2 B 追加）----
+    // 编排器的 House 档（设计规格-曲风-House学习方式 第 3、4、7 节；GlazeController.cpp 开头「T-038」一节）：锁定条件、暂定方案与新响段的
+    // 快过渡、锁定后防漏网与重开次数上限、换曲风 / 交付、通用档逐位不变、状态字段、音频线程零分配。都经 CeladonChain（与插件同一接线），
+    // Rig 报恒定 124 BPM 的拍点（tempoBpm）。常数：fastConstants（聆听 2 ～ 3 s：通用档的置信度条件早早满足，House 的锁定条件才是卡口）
+    // 加短的锁定条件（lockSegments / requiredFullSegments）。只在文件末尾追加：上面的用例与工具一个不改，另起一个测试类（GlazeControllerHouse）。
+    namespace
+    {
+        constexpr double houseBpm = 124.0;
+        const double houseBarSeconds = 4.0 * 60.0 / houseBpm;   // 1.935 s
+
+        glaze::Constants houseConstants (int lockSegments, int requiredFullSegments)
+        {
+            auto c = fastConstants();
+            c.house.lockSegments = lockSegments;
+            c.house.requiredFullSegments = requiredFullSegments;
+            return c;
+        }
+
+        ChainParams houseParams (float glazePercent, int genre = 1)
+        {
+            auto p = defaultParams (glazePercent, 0);
+            p.glazeGenre = genre;
+            return p;
+        }
+
+        // 合成的 House（124 BPM、4/4），按段给：bars 小节，drop = 有低音（55 Hz 锯齿 1 ～ 6 次谐波）与和声垫，否则只有鼓（底鼓每拍
+        // 120 → 50 Hz 下滑、踩镲在反拍），gain = 这一段的增益。增益 1 的 drop 约 −12 LUFS、只有鼓的前奏约 −21 LUFS。
+        struct HouseSection
+        {
+            int bars = 0;
+            bool drop = false;
+            float gain = 1.0f;
+        };
+
+        Signal makeHouseSong (double sampleRate, std::initializer_list<HouseSection> sections, juce::int64 seed)
+        {
+            const auto beat = 60.0 / houseBpm;
+            const auto bar = 4.0 * beat;
+            auto totalBars = 0;
+
+            for (const auto& s : sections)
+                totalBars += s.bars;
+
+            const auto numSamples = (int) std::lround ((double) totalBars * bar * sampleRate);
+            const auto twoPi = juce::MathConstants<double>::twoPi;
+            auto signal = makeSilence (numChannels, numSamples);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                juce::Random random (seed + (juce::int64) ch * 7919);
+                double previous = 0.0;
+                auto& channel = signal[(size_t) ch];
+
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const auto t = (double) i / sampleRate;
+                    auto barIndex = (int) (t / bar);
+                    HouseSection section;
+
+                    for (const auto& s : sections)
+                    {
+                        section = s;
+
+                        if (barIndex < s.bars)
+                            break;
+
+                        barIndex -= s.bars;
+                    }
+
+                    const auto beatPosition = std::fmod (t, beat);
+                    const auto offBeatPosition = std::fmod (t + 0.5 * beat, beat);
+                    const auto kick = (section.drop ? 0.5 : 0.35) * std::exp (-beatPosition / 0.12)
+                                    * std::sin (twoPi * (50.0 * beatPosition + 70.0 * 0.03 * (1.0 - std::exp (-beatPosition / 0.03))));
+                    const auto white = (double) random.nextFloat() * 2.0 - 1.0;
+                    const auto hat = 0.09 * std::exp (-offBeatPosition / 0.025) * (white - previous);
+                    previous = white;
+
+                    double bass = 0.0, pad = 0.0;
+
+                    if (section.drop)
+                    {
+                        for (int h = 1; h <= 6; ++h)
+                            bass += std::sin (twoPi * 55.0 * h * t) / h;
+
+                        bass *= 0.22;
+
+                        for (const auto hz : { 220.0, 277.18, 329.63 })
+                            pad += 0.05 * std::sin (twoPi * hz * t + 0.7 * ch);
+                    }
+
+                    channel[(size_t) i] = (float) ((double) section.gain * (kick + hat + bass + pad));
+                }
+            }
+
+            return signal;
+        }
+
+        double secondsOf (int blocksDone)   { return (double) blocksDone * blockSize / defaultRate; }
+    }
+
+    class GlazeControllerHouseTests  : public juce::UnitTest
+    {
+    public:
+        GlazeControllerHouseTests() : juce::UnitTest ("GlazeControllerHouse", "Celadon") {}
+
+        void runTest() override
+        {
+            testLockConditions();
+            testFastTransitionAtTheDrop();
+            testReopenAfterLock();
+            testQuieterSectionsNeverReopen();
+            testGenreSwitches();
+            testDeliveryChangeRecalibrates();
+            testGeneralBitExactWithTempo();
+            testStatusFields();
+            testHouseAudioThreadDoesNotAllocate();
+        }
+
+    private:
+        // 依据：第 3.1 节三条锁定条件、第 3.2 节「暂定期间不跑校准轮」。8 小节只有鼓的前奏接 drop，锁定条件 12 / 4：通用档 3 s 就提交，
+        // House 档要等到已听 12 小节且满编 4 小节（第 12 小节定稿，约 23.2 s）才提交，期间暂定方案每小节更新、一轮校准都没开，
+        // 状态行「锁定条件还没满足」；提交的画像是格式 3，满编段是 drop 的 4 小节；提交后照常校准。
+        void testLockConditions()
+        {
+            beginTest ("House: commits only when heard >= lockSegments bars and full >= requiredFullSegments; provisional updates, no calibration before");
+
+            const auto song = makeHouseSong (defaultRate, { { 8, false, 1.0f }, { 12, true, 1.0f } }, 61);
+
+            Rig general (houseConstants (12, 4), song, defaultParams (60.0f, 0));
+            general.tempoBpm = houseBpm;
+            const auto generalCommitted = general.runUntil (6.0, [&] { return general.probe().commits > 0; });
+            expect (generalCommitted, "control: the general genre commits after its 2 - 3 s listen");
+
+            Rig rig (houseConstants (12, 4), song, houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+            double commitAt = -1.0;
+            auto calibratedBeforeCommit = false, pendingWhileListening = true;
+            auto updatesAtCommit = 0;
+
+            for (int b = 0; b < rig.blocksFor (40.0); ++b)
+            {
+                rig.step();
+                const auto probe = rig.probe();
+
+                if (commitAt >= 0.0)
+                    continue;
+
+                calibratedBeforeCommit = calibratedBeforeCommit || probe.calibrationBegins > 0;
+
+                if (probe.commits > 0)
+                {
+                    commitAt = secondsOf (b + 1);
+                    updatesAtCommit = probe.houseUpdates;
+                }
+                else if (secondsOf (b + 1) > 1.0)
+                {
+                    const auto s = rig.status();
+                    pendingWhileListening = pendingWhileListening && s.houseActive && s.houseLockPending && s.phase == Phase::listening;
+                }
+            }
+
+            const auto committed = rig.committed();
+            const auto& gate = committed.profile.houseGate;
+            const auto status = rig.status();
+            logMessage ("  House commit at " + juce::String (commitAt, 2) + " s (12 bars = " + juce::String (12.0 * houseBarSeconds, 2)
+                        + " s); heard " + juce::String (gate.heardSegments) + ", full " + juce::String (gate.fullSegments) + ", I "
+                        + juce::String (committed.profile.integratedLufs.value, 2) + " LUFS, S_ref " + juce::String (gate.referenceLufs, 2)
+                        + "; provisional updates " + juce::String (updatesAtCommit) + "; calibration rounds " + juce::String (rig.probe().calibrationBegins));
+
+            expect (commitAt >= 12.0 * houseBarSeconds && commitAt <= 12.0 * houseBarSeconds + 1.0, "commit when the 12th bar is finalized");
+            expect (committed.hasProfile && committed.profile.formatVersion == glaze::houseProfileFormatVersion && gate.valid);
+            expect (gate.heardSegments >= 12 && gate.fullSegments >= 4 && gate.fullSegments < gate.heardSegments,
+                    "the full segments are the drop bars, not the intro");
+            expectWithinAbsoluteError (committed.profile.integratedLufs.value, gate.referenceLufs, 1.0f);
+            expect (! calibratedBeforeCommit, "no calibration round during the provisional phase");
+            expect (pendingWhileListening, "status: House, lock pending, listening");
+            expect (updatesAtCommit >= 8, "the provisional plan follows each newly gated bar");
+            expect (rig.probe().calibrationBegins >= 1 && ! status.houseLockPending, "after the lock: calibrated, nothing pending");
+        }
+
+        // 依据：第 3.2 节「出现比当前 S_ref 高 ΔG 以上、而且过了低频门的新段，用 0.5 秒快过渡」。方案过渡 3 s（出厂）：前奏里暂定方案
+        // 每小节一次 3 s 过渡；drop 的第一小节定稿时（约 drop 起点 + 1.94 s）记一次快过渡，正在走的过渡 0.5 s 内走完，接着就是 0.5 s 的过渡。
+        void testFastTransitionAtTheDrop()
+        {
+            beginTest ("House: a new loud section brings a 0.5 s plan transition (the running one hurried along), ordinary updates take 3 s");
+
+            auto constants = houseConstants (64, 8);   // 本用例里不锁定
+            constants.planTransitionSeconds = 3.0;
+            Rig rig (constants, makeHouseSong (defaultRate, { { 8, false, 1.0f }, { 8, true, 1.0f } }, 62), houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+
+            const auto dropAt = 8.0 * houseBarSeconds;
+            const auto slow = (std::int64_t) std::llround (3.0 * defaultRate);
+            const auto fast = (std::int64_t) std::llround (0.5 * defaultRate);
+            const auto learningStep = (std::int64_t) std::llround (1.0 * defaultRate);   // 首次聆听开始时的那一次 1 s 过渡
+            double firstFastAt = -1.0, fastRunningAt = -1.0;
+            auto ordinaryBeforeDrop = true, noFastBeforeDrop = true;
+            auto updatesBeforeDrop = 0;
+
+            for (int b = 0; b < rig.blocksFor (dropAt + 4.0); ++b)
+            {
+                rig.step();
+                const auto probe = rig.probe();
+                const auto t = secondsOf (b + 1);
+
+                if (t < dropAt)
+                {
+                    updatesBeforeDrop = probe.houseUpdates;
+                    noFastBeforeDrop = noFastBeforeDrop && probe.houseFastTransitions == 0;
+
+                    if (probe.transitionActive)
+                        ordinaryBeforeDrop = ordinaryBeforeDrop && (probe.transitionLengthSamples == slow || probe.transitionLengthSamples == learningStep);
+                }
+
+                if (firstFastAt < 0.0 && probe.houseFastTransitions > 0)
+                    firstFastAt = t;
+
+                if (firstFastAt >= 0.0 && fastRunningAt < 0.0 && probe.transitionActive && probe.transitionLengthSamples == fast)
+                    fastRunningAt = t;
+            }
+
+            logMessage ("  drop at " + juce::String (dropAt, 2) + " s; first fast update at " + juce::String (firstFastAt, 2)
+                        + " s; 0.5 s transition running from " + juce::String (fastRunningAt, 2) + " s; updates in the intro "
+                        + juce::String (updatesBeforeDrop));
+            expect (updatesBeforeDrop >= 5, "the intro bars update the provisional plan");
+            expect (ordinaryBeforeDrop && noFastBeforeDrop, "in the intro every update is an ordinary 3 s transition");
+            expect (firstFastAt >= dropAt && firstFastAt <= dropAt + houseBarSeconds + 1.0, "the first drop bar triggers the fast transition");
+            expect (fastRunningAt >= firstFastAt && fastRunningAt <= firstFastAt + 0.55, "the running transition is hurried: 0.5 s later the fast one runs");
+        }
+
+        // 依据：第 4 节。锁定（6 小节、满编 2）后，每 8 小节响 5 LU：连续 4 小节「≥ 画像 I + 3 LU、低频 ≥ 画像 × 0.6」→ 按段落账门控
+        // 重算画像、快过渡、重新校准；每份画像最多重开 2 次（第三个更响的段落不再重开）。
+        void testReopenAfterLock()
+        {
+            beginTest ("House: after the lock, four louder and fuller bars reopen the profile (fast transition, recalibration), at most twice");
+
+            const auto song = makeHouseSong (defaultRate, { { 8, true, 0.25f }, { 8, true, 0.45f }, { 8, true, 0.8f }, { 8, true, 1.4f } }, 63);
+            Rig rig (houseConstants (6, 2), song, houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+
+            std::vector<float> committedLufs;
+            std::vector<double> reopenedAt;
+            auto lastCommits = 0, lastReopens = 0, fastAfterReopen = 0, roundsAtReopen = 0;
+            auto calibratedBetween = true;
+            double waitingFastFrom = -1.0;
+
+            for (int b = 0; b < rig.blocksFor (31.5 * houseBarSeconds); ++b)
+            {
+                rig.step();
+                const auto probe = rig.probe();
+                const auto t = secondsOf (b + 1);
+
+                if (probe.commits != lastCommits)
+                {
+                    lastCommits = probe.commits;
+                    committedLufs.push_back (rig.committed().profile.integratedLufs.value);
+                }
+
+                if (probe.houseReopens != lastReopens)
+                {
+                    lastReopens = probe.houseReopens;
+                    reopenedAt.push_back (t);
+                    waitingFastFrom = t;
+                    calibratedBetween = calibratedBetween && probe.calibrationBegins > roundsAtReopen;   // 两次重开之间校准过
+                    roundsAtReopen = probe.calibrationBegins;
+                }
+
+                if (waitingFastFrom >= 0.0 && probe.transitionActive && probe.transitionLengthSamples == (std::int64_t) std::llround (0.5 * defaultRate))
+                {
+                    ++fastAfterReopen;
+                    waitingFastFrom = -1.0;
+                }
+            }
+
+            const auto committed = rig.committed();
+            juce::String levels;
+
+            for (auto l : committedLufs)
+                levels << juce::String (l, 2) << " ";
+
+            logMessage ("  commits " + juce::String (rig.probe().commits) + " (I: " + levels + "LUFS); reopens " + juce::String (rig.probe().houseReopens)
+                        + (reopenedAt.size() >= 2 ? " at " + juce::String (reopenedAt[0], 1) + " / " + juce::String (reopenedAt[1], 1) + " s" : juce::String())
+                        + "; calibration rounds " + juce::String (rig.probe().calibrationBegins));
+
+            expectEquals (rig.probe().houseReopens, 2, "two reopens, the third louder section is past the cap");
+            expectEquals (committed.profile.houseGate.reopenCount, 2);
+            expectEquals (rig.probe().commits, 3, "the first lock plus two reopens");
+            expect (committedLufs.size() == 3 && committedLufs[1] > committedLufs[0] + 3.0f && committedLufs[2] > committedLufs[1] + 3.0f,
+                    "each reopen moves the profile to the louder section");
+            expect (reopenedAt.size() == 2 && reopenedAt[0] >= 12.0 * houseBarSeconds && reopenedAt[0] <= 13.0 * houseBarSeconds
+                    && reopenedAt[1] >= 20.0 * houseBarSeconds && reopenedAt[1] <= 21.0 * houseBarSeconds,
+                    "each reopen follows the 4th louder bar");
+            expectEquals (fastAfterReopen, 2, "each reopen switches with the fast transition");
+            expect (calibratedBetween && rig.probe().calibrationBegins > roundsAtReopen, "calibration restarts after each reopen");
+        }
+
+        // 依据：第 4 节「只往更满、更响的方向重开，变轻不重开」。锁定在响的段上，之后的安静段与同样响的段都不重开。
+        void testQuieterSectionsNeverReopen()
+        {
+            beginTest ("House: quieter (or equally loud) sections after the lock never reopen");
+
+            const auto song = makeHouseSong (defaultRate, { { 8, true, 0.8f }, { 8, true, 0.25f }, { 8, true, 0.8f } }, 64);
+            Rig rig (houseConstants (6, 2), song, houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+            rig.run (23.5 * houseBarSeconds);
+
+            expectEquals (rig.probe().commits, 1);
+            expectEquals (rig.probe().houseReopens, 0);
+            expect (! rig.probe().houseReopenArmed);
+        }
+
+        // 依据：设计规格-曲风与交付 第 4.3 节「从通用切到 House：画像按 House 档的门控重算；House 的锁定条件还没满足时继续聆听，不清空
+        // 已有的画像」；设计规格第 5 节「旧格式 1 / 2 画像在 House 档下视为锁定条件未满足」。
+        //   - 通用档学完（格式 2）后切到 House：开一轮聆听，旧画像照常生效（画像号不变），够 House 锁定条件后换成格式 3；
+        //   - 再切回通用、再切到另一个 House 子类：House 锁定过的画像不再开聆听；
+        //   - 自动开的那一轮还没完就切回通用：取消，旧画像照常。
+        void testGenreSwitches()
+        {
+            beginTest ("genre switches: general -> House listens with the old profile in effect; back to general cancels the House listen");
+
+            const auto song = makeHouseSong (defaultRate, { { 24, true, 0.5f } }, 65);
+
+            {
+                Rig rig (houseConstants (6, 2), song, defaultParams (60.0f, 0));
+                rig.tempoBpm = houseBpm;
+                rig.run (5.0);
+                const auto general = rig.committed();
+                expect (general.hasProfile && general.profile.formatVersion == glaze::clayProfileFormatVersion, "general profile, format 2");
+
+                rig.params.glazeGenre = 1;
+                rig.run (0.1);
+                expectEquals (rig.probe().houseListenStarts, 1, "switching to House starts a listen");
+                expect (rig.status().relearnInProgress && rig.status().houseLockPending);
+
+                auto oldKept = true;
+                double houseCommitAfter = -1.0;
+
+                for (int b = 0; b < rig.blocksFor (20.0) && houseCommitAfter < 0.0; ++b)
+                {
+                    rig.step();
+                    const auto c = rig.committed();
+
+                    if (c.profile.formatVersion == glaze::houseProfileFormatVersion)
+                        houseCommitAfter = secondsOf (b + 1);
+                    else
+                        oldKept = oldKept && c.profileId == general.profileId;
+                }
+
+                logMessage ("  general -> House: House profile committed " + juce::String (houseCommitAfter, 2) + " s after the switch");
+                expect (oldKept, "the general profile stays in effect while listening");
+                expect (houseCommitAfter >= 6.0 * houseBarSeconds - 0.6 && houseCommitAfter <= 8.0 * houseBarSeconds,
+                        "the House profile replaces it once the lock conditions hold");
+
+                const auto house = rig.committed();
+                rig.params.glazeGenre = 0;
+                rig.run (1.0);
+                expect (! rig.probe().learning && rig.committed().profileId == house.profileId, "back to general: the House profile is kept");
+
+                rig.params.glazeGenre = 2;
+                rig.run (1.0);
+                expectEquals (rig.probe().houseListenStarts, 1, "a House-locked profile needs no new listen");
+                expect (! rig.probe().learning);
+            }
+
+            {
+                Rig rig (houseConstants (6, 2), song, defaultParams (60.0f, 0));
+                rig.tempoBpm = houseBpm;
+                rig.run (5.0);
+                const auto general = rig.committed();
+                rig.params.glazeGenre = 3;
+                rig.run (4.0);
+                expect (rig.probe().relearning, "listening for House");
+                rig.params.glazeGenre = 0;
+                rig.run (0.1);
+                expect (! rig.probe().learning, "back to general cancels the automatic House listen");
+                rig.run (15.0);
+                expect (rig.committed().profileId == general.profileId, "the general profile is untouched");
+                expectEquals (rig.probe().houseListenStarts, 1);
+            }
+        }
+
+        // 依据：设计规格-曲风与交付 第 4.3 节「换交付或曲风都不重新聆听：方案在已锁定的画像上按新目标重算，过渡 3 秒，再校准两轮」。
+        // House 档锁定并校准后换交付（标准 → 俱乐部）、再换子类（Deep → Tech）：每次一个方案过渡、校准重新开始，不重新聆听、画像不变。
+        void testDeliveryChangeRecalibrates()
+        {
+            beginTest ("House, locked and calibrated: a delivery or sub-genre change is one plan transition and a new calibration, no relearn");
+
+            Rig rig (houseConstants (6, 2), makeHouseSong (defaultRate, { { 24, true, 0.5f } }, 66), houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+            const auto locked = rig.runUntil (40.0, [&] { return rig.phase() == Phase::locked && rig.status().calibrationValid
+                                                                && rig.committed().profile.formatVersion == glaze::houseProfileFormatVersion; });
+            expect (locked, "House profile locked and calibrated");
+
+            for (const auto change : { 0, 1 })
+            {
+                const auto before = rig.probe();
+                const auto profileId = rig.committed().profileId;
+
+                if (change == 0)
+                    rig.params.glazeDelivery = 2;
+                else
+                    rig.params.glazeGenre = 2;
+
+                rig.run (0.1);
+                expectEquals (rig.probe().planTransitions, before.planTransitions + 1, change == 0 ? "delivery: one transition" : "genre: one transition");
+                const auto recalibrated = rig.runUntil (10.0, [&] { return rig.probe().calibrationBegins > before.calibrationBegins; });
+                expect (recalibrated, "a new calibration round follows");
+                expect (rig.committed().profileId == profileId && rig.probe().learningStarts == before.learningStarts, "no relearn");
+            }
+        }
+
+        // 依据：任务书「通用 + 标准必须与现在逐位相同」。通用档下宿主报不报拍点，交给模块的参数与链输出逐块逐位相同（聆听、提交、
+        // 过渡、校准都走到）；状态里的 House 各项保持默认。
+        void testGeneralBitExactWithTempo()
+        {
+            beginTest ("general genre: tempo info from the host changes nothing (parameters and output bit-exact, house status fields default)");
+
+            const auto song = makeHouseSong (defaultRate, { { 4, false, 1.0f }, { 8, true, 0.6f } }, 67);
+            Rig plain (fastConstants(), song, defaultParams (60.0f, 0));
+            Rig tempo (fastConstants(), song, defaultParams (60.0f, 0));
+            tempo.tempoBpm = houseBpm;
+
+            auto sameAll = true, houseDefault = true;
+            const glaze::Status defaults;
+
+            for (int b = 0; b < plain.blocksFor (20.0); ++b)
+            {
+                plain.step();
+                tempo.step();
+                sameAll = sameAll && sameParams (plain.chain.getEffectiveParams(), tempo.chain.getEffectiveParams());
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    sameAll = sameAll && std::memcmp (plain.buffer.getReadPointer (ch), tempo.buffer.getReadPointer (ch),
+                                                      sizeof (float) * (size_t) blockSize) == 0;
+
+                const auto s = tempo.status();
+                houseDefault = houseDefault && ! s.houseActive && s.houseHeardSegments == defaults.houseHeardSegments
+                            && s.houseSegmentMode == defaults.houseSegmentMode && ! s.houseLockPending && ! s.housePhaseHint;
+            }
+
+            expect (plain.probe().commits == 1 && plain.probe().calibrationBegins >= 1, "the run went through learning and calibration");
+            expect (sameAll, "parameters and output are bit-identical with and without tempo info");
+            expect (houseDefault, "house status fields stay at their defaults");
+            expectEquals (tempo.chain.getGlazeController().getProbeForTesting().houseUpdates, 0);
+        }
+
+        // 依据：第 7 节状态行（已听 / 目标小节、主段落已听、拿不到拍点时按秒）。
+        void testStatusFields()
+        {
+            beginTest ("House status: bars and targets with tempo, seconds without; main section heard once enough bars are full");
+
+            auto constants = houseConstants (64, 4);
+            const auto song = makeHouseSong (defaultRate, { { 4, false, 1.0f }, { 8, true, 1.0f } }, 68);
+
+            {
+                Rig rig (constants, song, houseParams (40.0f));
+                rig.tempoBpm = houseBpm;
+                rig.run (3.0 * houseBarSeconds + 0.5);
+                const auto early = rig.status();
+                rig.run (6.0 * houseBarSeconds);
+                const auto later = rig.status();
+
+                logMessage ("  bars: heard " + juce::String (early.houseHeardSegments) + " -> " + juce::String (later.houseHeardSegments)
+                            + " / " + juce::String (later.houseTargetSegments) + ", full " + juce::String (later.houseFullSegments)
+                            + " / " + juce::String (later.houseRequiredFullSegments));
+                expect (early.houseActive && early.houseSegmentMode == glaze::SegmentMode::bars && early.houseLockPending);
+                expectEquals (early.houseHeardSegments, 3);
+                expectEquals (later.houseTargetSegments, 64);
+                expectEquals (later.houseRequiredFullSegments, 4);
+                expect (later.houseHeardSegments >= 8 && later.houseFullSegments >= 4 && later.houseMainSectionHeard);
+                expect (! early.houseMainSectionHeard || early.houseFullSegments >= 4);
+            }
+
+            {
+                Rig rig (constants, song, houseParams (40.0f));   // 不报拍点：2 秒段
+                rig.run (9.0);
+                const auto s = rig.status();
+                logMessage ("  seconds: heard " + juce::String (s.houseHeardSeconds, 1) + " / " + juce::String (s.houseTargetSeconds, 0) + " s");
+                expect (s.houseActive && s.houseSegmentMode == glaze::SegmentMode::seconds);
+                expectWithinAbsoluteError (s.houseTargetSeconds, 124.0f, 1.0e-4f);
+                expect (s.houseHeardSeconds >= 6.0f && s.houseHeardSeconds <= 9.0f, "heard seconds follow the effective audio");
+            }
+        }
+
+        // 依据：任务书「音频线程 0 分配、0 锁的现有检查覆盖新代码」。一条 House 链走完：暂定方案与快过渡、锁定、重开、重新聆听、
+        // 换交付 / 子类 / 回通用再回来、宿主不报拍点、跳播与回绕、GLAZE 回 0 再拧起、读取存档（解析在计数区外），
+        // setHostInfo / setParams / process / getStatus 都不经 operator new。
+        void testHouseAudioThreadDoesNotAllocate()
+        {
+            beginTest ("House: setHostInfo / setParams / process / getStatus never allocate through every House path");
+
+            // 安静的前奏 → 首次聆听里 drop 进来（新响段的快过渡）→ 锁定 → 两段各响约 5 LU（两次重开），之后循环。
+            const auto song = makeHouseSong (defaultRate, { { 4, false, 0.5f }, { 4, true, 0.6f }, { 6, true, 1.0f }, { 6, true, 1.8f } }, 69);
+            Rig rig (houseConstants (6, 2), song, houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+
+            Rig donor (houseConstants (6, 2), song, houseParams (50.0f));
+            donor.tempoBpm = houseBpm;
+            donor.run (16.0);
+            const auto savedState = donor.chain.createGlazeStateXml();
+
+            std::uint64_t allocations = 0;
+            auto finite = true;
+            const auto total = rig.blocksFor (95.0);
+
+            for (int b = 0; b < total; ++b)
+            {
+                // ---- 计数区外：准备这一块 ----
+                if (b == rig.blocksFor (45.0)) rig.chain.requestGlazeRelearn();
+                if (b == rig.blocksFor (52.0)) rig.params.glazeDelivery = 2;
+                if (b == rig.blocksFor (55.0)) rig.params.glazeGenre = 0;
+                if (b == rig.blocksFor (57.0)) rig.params.glazeGenre = 3;
+                if (b == rig.blocksFor (60.0)) rig.tempoBpm = 0.0;
+                if (b == rig.blocksFor (64.0)) rig.position += 96000;
+                if (b == rig.blocksFor (66.0)) { rig.host.hasLoop = rig.host.looping = true; rig.position -= 48000; }
+                if (b == rig.blocksFor (68.0)) { rig.tempoBpm = houseBpm; rig.host.hasLoop = rig.host.looping = false; }
+                if (b == rig.blocksFor (72.0)) rig.params.glazePercent = 0.0f;
+                if (b == rig.blocksFor (74.0)) rig.params.glazePercent = 70.0f;
+                if (b == rig.blocksFor (80.0)) rig.chain.restoreGlazeStateXml (savedState.get());
+
+                const auto length = (size_t) rig.source.front().size();
+                rig.buffer.setSize (numChannels, blockSize, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < blockSize; ++i)
+                        rig.buffer.setSample (ch, i, rig.source[(size_t) ch][(rig.sourceIndex + (size_t) i) % length]);
+
+                rig.sourceIndex = (rig.sourceIndex + (size_t) blockSize) % length;
+                rig.host.positionSamples = rig.position;
+                rig.host.hasTempo = rig.host.hasPpq = rig.host.hasBarStart = rig.host.hasTimeSignature = rig.tempoBpm > 0.0;
+
+                if (rig.tempoBpm > 0.0)
+                {
+                    rig.host.bpm = rig.tempoBpm;
+                    rig.host.ppqPosition = (double) rig.position * rig.tempoBpm / (60.0 * defaultRate);
+                    rig.host.ppqLastBarStart = std::floor (rig.host.ppqPosition / 4.0) * 4.0;
+                }
+
+                // ---- 计数区：只夹住音频线程的入口与界面线程的 getStatus ----
+                const auto before = allocationCountOnThisThread();
+                rig.chain.setHostInfo (rig.host);
+                rig.chain.setParams (rig.params, false);
+                rig.chain.process (rig.buffer);
+                juce::ignoreUnused (rig.chain.getGlazeStatus());
+                allocations += allocationCountOnThisThread() - before;
+
+                rig.position += blockSize;
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < blockSize; ++i)
+                        finite = finite && std::isfinite (rig.buffer.getSample (ch, i));
+            }
+
+            const auto probe = rig.probe();
+            logMessage ("  House paths: updates " + juce::String (probe.houseUpdates) + " (fast " + juce::String (probe.houseFastTransitions)
+                        + "), commits " + juce::String (probe.commits) + ", reopens " + juce::String (probe.houseReopens) + ", House listens "
+                        + juce::String (probe.houseListenStarts) + ", jumps " + juce::String (probe.transportJumps) + ", wraps " + juce::String (probe.loopWraps));
+            expect (finite, "output finite throughout");
+            expect (probe.houseUpdates > 0 && probe.houseFastTransitions > 0 && probe.commits >= 2 && probe.houseReopens >= 1
+                    && probe.transportJumps >= 1 && probe.loopWraps >= 1, "the run went through the House paths it claims to cover");
+            expectEquals ((juce::int64) allocations, (juce::int64) 0, "audio thread must not allocate");
+        }
+    };
+
+    static GlazeControllerHouseTests glazeControllerHouseTests;
 }
