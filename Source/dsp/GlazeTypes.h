@@ -226,7 +226,7 @@ namespace celadon::glaze
     // 方案：决策器（纯函数）的输出。
     struct Plan
     {
-        float requestedTargetLufs = 0.0f;   // 风格与 GLAZE 想要的响度
+        float requestedTargetLufs = 0.0f;   // 风格、交付（T-038）与 GLAZE 想要的响度
         float effectiveTargetLufs = 0.0f;   // 经各模块约束后允许追求的响度
         float requestedGainDb = 0.0f;       // G_request
         float effectiveGainDb = 0.0f;       // 约束后的净提升目标
@@ -382,6 +382,7 @@ namespace celadon::glaze
         float houseTargetSeconds = 124.0f;
         bool houseMainSectionHeard = false;  // 满编段已够（锁定条件第 2 条）
         bool houseLockPending = false;       // 锁定条件还没满足：方案是暂定的
+        bool houseLedgerFull = false;        // 段落账满了（SegmentLedger::maxSegments），之后的新段不再计入（第 2.1 节「状态行写明」）
         bool housePhaseHint = false;         // House 档反相提示（低频相关度 < 0.6 持续够久）
         float housePhaseMonoLossDb = 0.0f;   // 提示里写的单声道低频损失（dB，≤ 0）
     };

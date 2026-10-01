@@ -2887,6 +2887,23 @@ namespace celadon::test
                 }
             }
 
+            // 集成时追加（A 报告「需 Max 定」一条，主进程按规格「允许范围」定为硬上限）：最少推响量不许把流媒体 / 俱乐部的目标推过该档上限；
+            // 输入已经比上限响时不推。标准档照旧保留最少推响量（已够响仍温和推响）。
+            beginTest ("T-038: the minimum drive never pushes a streaming / club target past the delivery maximum");
+            {
+                const auto target = [] (float inputLufs, Delivery delivery)
+                {
+                    const auto p = makeProfile (inputLufs, inputLufs + 6.0f, 5.0f);
+                    return planWithGenre (&p, Style::punchy, 100.0f, Genre::general, delivery, nullptr, nullptr).requestedTargetLufs;
+                };
+
+                expect (target (-9.0f, Delivery::streaming) <= -8.0f + 1.0e-4f, utf8 ("流媒体：输入 −9，目标不超过 −8"));
+                expect (target (-7.0f, Delivery::streaming) <= -7.0f + 1.0e-4f, utf8 ("流媒体：输入已比上限响，不再推"));
+                expect (target (-6.0f, Delivery::club) <= -5.0f + 1.0e-4f, utf8 ("俱乐部：输入 −6，目标不超过 −5"));
+                expect (target (-4.0f, Delivery::club) <= -4.0f + 1.0e-4f, utf8 ("俱乐部：输入已比上限响，不再推"));
+                expect (target (-9.0f, Delivery::standard) > -9.0f + 1.0f, utf8 ("标准档照旧保留最少推响量"));
+            }
+
             beginTest ("T-038: General + Standard never reads the genre or delivery constants; explicit defaults equal default PlanInputs");
             {
                 // 通用 + 标准用哪份快照都与出厂逐位相同（含 Clay），也与不设 genre / delivery 的 PlanInputs 逐位相同；标准档（任何曲风）不读

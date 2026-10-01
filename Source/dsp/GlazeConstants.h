@@ -58,7 +58,8 @@ namespace celadon::glaze
         float limitGrPeakCapDb = 0.0f;
         float recoverCap = 0.0f;             // Balance Recover 自动增量上限（0 ～ 100）
         float tameCap = 0.0f;                // Balance Tame 自动增量上限（0 ～ 100）
-        float toneMaxDb = 0.75f;             // Tone 自动增量绝对值上限（× GLAZE）
+        float toneMaxDb = 0.75f;             // Tone 自动增量绝对值上限（× GLAZE）；T-038 House 曲风往亮改用 GenreConstants::toneMaxBrightDb
+                                             // （GlazePlanner toneBrightCapDb），往暗仍是本项
         // 分配权重：初始方案里超限估计按此分给四个模块（只影响初始方案，最终以约束与实测为准）
         float shareHeat = 0.0f, shareGlue = 0.0f, shareClip = 0.0f, shareLimit = 1.0f;
 

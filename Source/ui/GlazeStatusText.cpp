@@ -60,6 +60,8 @@ namespace celadon::ui::glazestatus
             View view;
             view.kind = Kind::houseListening;
 
+            view.houseLedgerFull = status.houseLedgerFull;
+
             if (status.houseSegmentMode == glaze::SegmentMode::seconds)
             {
                 view.houseBySeconds = true;
@@ -87,19 +89,22 @@ namespace celadon::ui::glazestatus
             const auto dot = utf8 (" \xc2\xb7 ");
             const auto progress = view.houseTarget > 0 ? juce::String (view.houseHeard) + " / " + juce::String (view.houseTarget)
                                                        : juce::String (view.houseHeard);
+            // 段落账满了（设计规格-曲风-House学习方式 第 2.1 节「满了以后不再收新段，状态行写明」）：末尾加一段。
+            const auto full = view.houseLedgerFull ? dot + (english ? juce::String ("segment memory full") : utf8 ("段落账已满，新段不再计入"))
+                                                   : juce::String();
 
             if (view.houseBySeconds)
-                return english ? "House" + dot + progress + " s (no tempo from host)"
-                               : "House" + dot + utf8 ("已听 ") + progress + utf8 (" 秒（宿主没给拍点）");
+                return (english ? "House" + dot + progress + " s (no tempo from host)"
+                                : "House" + dot + utf8 ("已听 ") + progress + utf8 (" 秒（宿主没给拍点）")) + full;
 
             if (english)
                 return "House" + dot + progress + " bars" + dot
                      + (view.houseFullBars > 0 ? juce::String (view.houseFullBars) + (view.houseFullBars == 1 ? " bar" : " bars") + " of main section"
-                                               : juce::String ("main section not heard yet"));
+                                               : juce::String ("main section not heard yet")) + full;
 
             return "House" + dot + utf8 ("已听 ") + progress + utf8 (" 小节") + dot
                  + (view.houseFullBars > 0 ? utf8 ("主段落已听 ") + juce::String (view.houseFullBars) + utf8 (" 小节")
-                                           : utf8 ("还没听到主段落"));
+                                           : utf8 ("还没听到主段落")) + full;
         }
 
         // 英文版（v0.1.8.0）：与中文逐条对应，段的划分相同（「 · 」连接）。
@@ -304,6 +309,7 @@ namespace celadon::ui::glazestatus
             && houseHeard == other.houseHeard
             && houseTarget == other.houseTarget
             && houseFullBars == other.houseFullBars
+            && houseLedgerFull == other.houseLedgerFull
             && houseLossTenthsDb == other.houseLossTenthsDb
             && underlyingKind == other.underlyingKind;
     }

@@ -2567,7 +2567,9 @@ namespace celadon::glaze
             const auto difference = referenceSlope - currentSlope;
             const auto outside = std::copysign (juce::jmax (0.0f, std::abs (difference) - automaticToneSlopeDeadbandDbPerOct), difference);
             const auto base = toSlot().plan.increments.colorToneDb / strength;
-            const auto target = juce::jlimit (-caps.toneMaxDb, caps.toneMaxDb,
+            // T-038：往亮的上限与决策器同一口径（House 档 = 子类的 toneMaxBrightDb；通用档 = toneMaxDb，逐位同改前）。
+            const auto brightCap = toneBrightCapDb (caps, c, toSlot().source.genre);
+            const auto target = juce::jlimit (-caps.toneMaxDb, brightCap,
                                              base + outside * juce::jmax (0.0f, c.toneDbPerSlopeDb)) - base;
             // 最快满量 0.15 dB/s；一次镲片/短暂编曲空洞只可能带来极小变化。纯样本时间，导出同逻辑。
             const auto step = 0.15f * (float) ((double) n / sampleRate);
@@ -2652,9 +2654,11 @@ namespace celadon::glaze
                 const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * profileKappa();
                 if (isFinite (cap) && cap > 0.0f)
                 {
+                    // T-038：往亮的上限同上（House 档按子类，通用档 = cap，逐位同改前）。
+                    const auto bright = toneBrightCapDb (blendedCaps(), snapshot, toSlot().source.genre);
                     // 0.01 dB 量化避免稳定段不断重算搁架系数；模块仍以原来的平滑器过渡。
                     const auto offset = std::round (liveToneOffsetDb * 100.0f) * 0.01f;
-                    const auto tone = juce::jlimit (-cap * strength, cap * strength, increments.colorToneDb + offset * strength);
+                    const auto tone = juce::jlimit (-cap * strength, bright * strength, increments.colorToneDb + offset * strength);
                     if (tone != increments.colorToneDb && isFinite (manual.color.toneDb))
                         effective.color.toneDb = juce::jlimit (-3.0f, 3.0f, manual.color.toneDb + tone);
                 }
@@ -3285,6 +3289,7 @@ namespace celadon::glaze
                 s.houseMainSectionHeard = s.houseSegmentMode == SegmentMode::seconds ? g.fullSeconds >= h.fallbackFullSeconds
                                                                                      : g.fullSegments >= h.requiredFullSegments;
                 s.houseLockPending = learning != Learning::none || houseReopenArmed;
+                s.houseLedgerFull = ledger.isStoreFull();
                 s.housePhaseHint = houseHint.active;
                 s.housePhaseMonoLossDb = houseHint.active ? houseHint.monoLossDb : 0.0f;
             }

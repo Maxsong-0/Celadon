@@ -1618,7 +1618,16 @@ namespace celadon::glaze
         const auto lraCorrection = nonNegative (c.lraSlopeDbPerLu) * nonNegative (lra - c.lraReferenceLu);
         const auto preferred = preferredLufsFor (inputs.delivery, ctx.sc, c, lraCorrection);   // T-038：交付「标准」= 原式
         const auto driveFloor = isFinite (c.minimumFullDriveDb) ? clampTo (c.minimumFullDriveDb, 0.0f, 24.0f) : 0.0f;
-        const auto requestFull = juce::jmax (driveFloor, nonNegative (preferred - ctx.inputLufs));
+        auto requestFull = juce::jmax (driveFloor, nonNegative (preferred - ctx.inputLufs));
+
+        // T-038（设计规格-曲风与交付 第 4.1 节「允许范围」）：流媒体 / 俱乐部档的上限是硬上限——最少推响量（minimumFullDriveDb）
+        // 不许把目标推过该档上限；输入已经比上限响时不再推（GLAZE 不衰减，请求为 0）。标准档照旧（已够响仍温和推响），逐位不变。
+        if (inputs.delivery == Delivery::streaming || inputs.delivery == Delivery::club)
+        {
+            const auto upper = inputs.delivery == Delivery::streaming ? c.delivery.streamingMaxLufs : c.delivery.clubMaxLufs;
+            if (isFinite (upper) && isFinite (ctx.inputLufs))
+                requestFull = juce::jmin (requestFull, nonNegative (upper - ctx.inputLufs));
+        }
 
         // ---- 手动值：只有它时的链（手动链的预计净增益、手动本身是否已超约束）----
         const auto manualSettings = manualSettingsOf (manual);

@@ -460,6 +460,15 @@ namespace celadon::test
                 expectEquals (show (housePendingSeconds (listening(), std::numeric_limits<float>::quiet_NaN())), utf8 ("House · 已听 0 / 124 秒（宿主没给拍点）"));
                 expectEquals (show (housePendingSeconds (listening(), -4.0f)), utf8 ("House · 已听 0 / 124 秒（宿主没给拍点）"));
 
+                // 集成时追加（B 报告跨文件请求 1）：段落账满了，状态行末尾写明。
+                auto ledgerFull = housePending (listening(), 64, 3);
+                ledgerFull.houseLedgerFull = true;
+                expectEquals (show (ledgerFull), utf8 ("House · 已听 64 / 64 小节 · 主段落已听 3 小节 · 段落账已满，新段不再计入"));
+                expectEquals (showEnglish (ledgerFull), utf8 ("House \xc2\xb7 64 / 64 bars \xc2\xb7 3 bars of main section \xc2\xb7 segment memory full"));
+                auto ledgerFullSeconds = housePendingSeconds (listening(), 52.0f);
+                ledgerFullSeconds.houseLedgerFull = true;
+                expectEquals (show (ledgerFullSeconds), utf8 ("House · 已听 52 / 124 秒（宿主没给拍点） · 段落账已满，新段不再计入"));
+
                 auto noTarget = housePending (listening(), 23, 0);
                 noTarget.houseTargetSegments = 0;
                 expectEquals (show (noTarget), utf8 ("House · 已听 23 小节 · 还没听到主段落"), "no target: only what was heard");
