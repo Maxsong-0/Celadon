@@ -78,6 +78,62 @@ namespace celadon::ui
     // 深色旋钮帽：径向渐变（左上亮）+ 下方一圈柔和的影子。
     void drawKnobCap (juce::Graphics& g, juce::Point<float> centre, float radius);
 
+    //==============================================================================
+    // 按物理像素缓存的图，贴到整数设备像素上（T-032 R9-01 / 05 / 07、M-3）。
+    //
+    // 贴图若带小数平移或比例 ≠ 1，软件渲染器逐像素双线性重采样（juce_RenderingHelpers.h renderImage），CoreGraphics 也插值——
+    // 又慢又把图糊掉半个像素。这里把坐标系换回设备像素（addTransform (scale (1 / pixelScale))）、最近邻、drawImageAt 整数偏移：
+    // 比例精确为 1，软件渲染器走整块拷贝，CoreGraphics 不插值。上下文自身的小数平移（非整数缩放下组件原点不在整像素上）
+    // 由最近邻吸附到最近的整像素，位置误差 ≤ 0.5 px、不糊。
+    // 上下文此刻的像素比与图不一致时（缩放窗口后、新图还没按新像素比生成的那几帧）照常按比例变换贴图。
+    //
+    // image 的像素 (0, 0) 对应「本地逻辑坐标 × pixelScale」下的整数偏移 deviceOrigin；opacity 是整张图的不透明度。
+    void drawCachedImage (juce::Graphics& g, const juce::Image& image, float pixelScale, juce::Point<int> deviceOrigin, float opacity = 1.0f);
+
+    // 此刻上下文的物理像素比（非有限或 ≤ 0 时按 1）：缓存图按它生成。
+    float physicalPixelScale (juce::Graphics& g) noexcept;
+
+    // 一张按物理像素生成、整数对齐贴的缓存图：覆盖本地逻辑区域 area 在 pixelScale 下的整像素范围。
+    struct AlignedImage
+    {
+        juce::Image image;
+        float pixelScale = 0.0f;              // 生成时的物理像素比（0 = 还没有）
+        juce::Point<int> deviceOrigin;        // 像素 (0, 0) 在「本地坐标 × pixelScale」下的整数偏移
+
+        // 与此刻上下文的像素比完全一致才算有效（按实际像素比生成，贴图才是整块拷贝）。
+        bool isValidFor (float scale) const noexcept   { return image.isValid() && juce::exactlyEqual (pixelScale, scale); }
+
+        // 重新生成：透明 ARGB 图，paintContent 以本地逻辑坐标作画（已加好缩放与平移）。
+        void render (juce::Rectangle<float> area, float scale, const std::function<void (juce::Graphics&)>& paintContent);
+        void draw (juce::Graphics& g, float opacity = 1.0f) const   { drawCachedImage (g, image, pixelScale, deviceOrigin, opacity); }
+    };
+
+    // 组件缓存成按物理像素的图（R9-01：粒子带里的文字小部件）。失效规则与 setBufferedToImage 相同——组件自己 repaint 时
+    // 整块或局部作废、下次 paint 重画；不同的只有贴图：按上下文实际像素比生成、drawCachedImage 整数对齐（JUCE 自带的
+    // StandardCachedComponentImage 用 drawImageTransformed 小数平移贴图，每次双线性重采样、文字糊半个像素）。
+    class AlignedComponentCache  : public juce::CachedComponentImage
+    {
+    public:
+        explicit AlignedComponentCache (juce::Component& ownerToUse) noexcept   : owner (ownerToUse) {}
+
+        void paint (juce::Graphics&) override;
+        bool invalidateAll() override                                   { validArea.clear(); return true; }
+        bool invalidate (const juce::Rectangle<int>& area) override     { validArea.subtract (area); return true; }
+        void releaseResources() override                                { image = {}; validArea.clear(); }
+
+    private:
+        juce::Component& owner;
+        juce::Image image;
+        float pixelScale = 0.0f;
+        juce::RectangleList<int> validArea;
+
+        JUCE_DECLARE_NON_COPYABLE (AlignedComponentCache)
+    };
+
+    // component.setCachedComponentImage (new AlignedComponentCache (component))。
+    void setBufferedToAlignedImage (juce::Component& component);
+
+    //==============================================================================
     // 参数值的显示文字：参数自己的格式（「+3.0」「25」），ASCII 连字符换成 U+2212 减号；withUnit 时接单位（「+3.0 dB」）。
     juce::String formatParameterValue (const juce::RangedAudioParameter& parameter, float value, bool withUnit);
 
@@ -189,6 +245,7 @@ namespace celadon::ui
         Options options;
         juce::String name;
         std::optional<float> effectiveValue;
+        float effectiveBaseValue = 0.0f;          // 上次 setEffectiveValue 时的用户值（加量文字只由它与 effectiveValue 决定）
         juce::String shownAutoText;               // 上次重画时的自动加量文字与实际值比例（-1 = 不显示）
         float shownEffectiveProportion = -1.0f;
         juce::Point<float> lastDragPosition;

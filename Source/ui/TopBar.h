@@ -11,6 +11,10 @@
       - 其余：GLAZE 状态行（「● 已锁定 · 自动→温润 · 目标 −9.6 LUFS」），第二段风格在选「自动」时是紫色。
     胶囊按内容定宽、居中在 x = 600，但不压到左边的品牌与右边的延迟读数；实在放不下时最后一段加省略号。
 
+    编辑器每 33 ms 送一次内容与延迟（T-032 R9-12 / 13）：内容、数值都没变就什么都不做；各段文字的宽度与位置只在内容或
+    胶囊宽度变了时量一次。胶囊整颗是按物理像素的缓存图（AlignedComponentCache，整数对齐贴）：聆听 / 校准中圆点呼吸，
+    每帧只作废、重画圆点那一小块，别处引起的重画（macOS 的脏矩形包围盒）只贴图；胶囊与顶栏的 paint 跳过与脏区不相交的文字。
+
   ==============================================================================
 */
 
@@ -20,6 +24,9 @@
 
 #include "Controls.h"
 #include "GlazeStatusText.h"
+
+#include <limits>
+#include <vector>
 
 namespace celadon::ui
 {
@@ -43,20 +50,47 @@ namespace celadon::ui
             bool operator== (const Content& other) const;
         };
 
-        void setContent (const Content& newContent);
+        // 内容变了返回 true（编辑器据此才重新摆放胶囊）。
+        bool setContent (const Content& newContent);
         void setReduceMotion (bool shouldReduceMotion);
 
-        // 按内容算出的宽度（最少 350，最多 560）：编辑器据此居中摆放。
-        int getPreferredWidth() const;
+        // 按内容算出的宽度（最少 350，最多 560）：编辑器据此居中摆放。内容变了时量一次。
+        int getPreferredWidth() const noexcept                  { return preferredWidth; }
+
+        // 呼吸时每帧重画的那一小块（圆点与光晕，本地坐标）。
+        juce::Rectangle<int> getPulseArea() const noexcept      { return pulseArea; }
+
+        // paint 里真正排版、画出的文字段数累计（截图工具的检查读它：只重画圆点那一帧应当一段都不画）。
+        int getTextDraws() const noexcept                       { return textDraws; }
 
         void paint (juce::Graphics&) override;
+        void resized() override;
 
     private:
+        struct TextItem
+        {
+            juce::String text;
+            juce::Font font;
+            juce::Colour colour;
+            juce::Rectangle<float> area;
+            bool ellipsis = false;
+        };
+
         void timerCallback() override;
+        void measure();          // 内容变了：各段宽度、内容总宽、首选宽度
+        void layoutContent();    // 内容或宽度变了：图标 / 圆点与各段文字的位置
 
         Content content;
         bool reduceMotion = false;
         float pulsePhase = 0.0f;
+
+        std::vector<float> segmentWidths;
+        float separatorWidth = 0.0f, contentWidth = 0.0f;
+        int preferredWidth = 350;
+        std::vector<TextItem> items;
+        float markerX = 0.0f;                // 三角图标左边 / 圆点左边
+        juce::Rectangle<int> pulseArea;
+        int textDraws = 0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StatusPill)
     };
@@ -115,17 +149,25 @@ namespace celadon::ui
         Segmented& getLanguageSelector() noexcept           { return languageSelector; }
         StatusPill& getStatusPill() noexcept                { return pill; }
         AdvancedButton& getAdvancedButton() noexcept        { return advancedButton; }
+        const juce::String& getLatencyText() const noexcept { return latencyText; }
+
+        // paint 里真正排版、画出的文字（品牌、副标题、延迟）累计次数（截图工具的检查读它）。
+        int getTextDraws() const noexcept                   { return textDraws; }
 
         void paint (juce::Graphics&) override;
         void resized() override;
 
     private:
         void layoutPill();
+        void updateLatencyText();
         float brandRight() const;
         float latencyLeft() const;
 
         Language language = Language::chinese;
-        juce::String latencyText;
+        double latencyMs = std::numeric_limits<double>::quiet_NaN();   // 还没收到过
+        juce::String latencyText, subtitleText;
+        float brandWidth = 0.0f, subtitleWidth = 0.0f, latencyWidth = 0.0f;
+        int textDraws = 0;
         StatusPill pill;
         Segmented languageSelector { Segmented::Look::language };
         IconButton settingsButton { IconButton::Icon::settings }, helpButton { IconButton::Icon::help };
