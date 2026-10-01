@@ -1,13 +1,37 @@
 {
   "chapters": {
-    "process": { "label": "四道工序", "en": "The four steps" },
-    "glaze": { "label": "施釉", "en": "One knob" },
-    "showcase": { "label": "真界面", "en": "The instrument" },
-    "listen": { "label": "试听", "en": "Listen" },
-    "judgement": { "label": "判断", "en": "Judgement" },
-    "algorithms": { "label": "公开算法", "en": "Open algorithms" },
-    "numbers": { "label": "数字", "en": "In numbers" },
-    "get": { "label": "获取", "en": "Get Celadon" }
+    "process": {
+      "label": "四道工序",
+      "en": "The four steps"
+    },
+    "glaze": {
+      "label": "施釉",
+      "en": "One knob"
+    },
+    "showcase": {
+      "label": "真界面",
+      "en": "The instrument"
+    },
+    "listen": {
+      "label": "试听",
+      "en": "Listen"
+    },
+    "judgement": {
+      "label": "判断",
+      "en": "Judgement"
+    },
+    "algorithms": {
+      "label": "公开算法",
+      "en": "Open algorithms"
+    },
+    "numbers": {
+      "label": "数字",
+      "en": "In numbers"
+    },
+    "get": {
+      "label": "获取",
+      "en": "Get Celadon"
+    }
   },
   "hero": {
     "eyebrow": "青瓷 · 智能母带",
@@ -34,25 +58,41 @@
         "name": "平衡",
         "verb": "找回被遮住的",
         "lead": "27 段动态频谱平衡。参考不是别人的曲线，是这首歌自己抹平后的轮廓：突出的压下去，被盖住的提起来。",
-        "facts": ["1/3 倍频程 27 段，40 Hz ～ 16 kHz", "死区 ±1 dB，每 hop 最多变 1 dB", "零延迟，Recover / Tame / Brighten / Speed"]
+        "facts": [
+          "1/3 倍频程 27 段，40 Hz ～ 16 kHz",
+          "死区 ±1 dB，每 hop 最多变 1 dB",
+          "零延迟，Recover / Tame / Brighten / Speed"
+        ]
       },
       "clay": {
         "name": "修坯",
         "verb": "把坯体修干净",
         "lead": "施釉之前先修坯。切掉听不见的次声与直流，低频收成单声道，窄的歌适度加宽；先在这首歌上试一遍，会抬峰值就自动让开。",
-        "facts": ["4 阶低切 10 ～ 60 Hz，线性相位收单", "只动 S：单声道回放完全不变", "峰值守护：修坯从不让峰值变高"]
+        "facts": [
+          "4 阶低切 10 ～ 60 Hz，线性相位收单",
+          "只动 S：单声道回放完全不变",
+          "峰值守护：低切与收单从不让峰值变高"
+        ]
       },
       "color": {
         "name": "染色",
         "verb": "添一层温度",
         "lead": "Tone 跷跷板、Glue 分频施压的总线压缩、Heat 保留低频主体的电子管残差染色。密一点、暖一点，后面的限幅就能推得更响。",
-        "facts": ["Heat 8× 过采样，150 Hz 以下原声不碰", "Glue 低 / 中 / 高分开施压", "两侧更轻、奇对称：声像不飘"]
+        "facts": [
+          "Heat 8× 过采样，150 Hz 以下原声不碰",
+          "Glue 低 / 中 / 高分开施压",
+          "两侧更轻、奇对称：声像不飘"
+        ]
       },
       "limit": {
         "name": "限幅",
         "verb": "推响不破",
         "lead": "前瞻真峰值限幅：8× 插值看见采样点之间的峰，1× 域施加增益。三角攻击沿、快慢双包络、持续低音的周期释放。",
-        "facts": ["真峰值 ≤ Ceiling，另留 0.35 dB 重建余量", "短过载按快释放回来，长过载慢包络压住", "Clip 软削波 4× 过采样先削圆"]
+        "facts": [
+          "真峰值 ≤ Ceiling，另留 0.35 dB 重建余量",
+          "短过载按快释放回来，长过载慢包络压住",
+          "Clip 软削波 4× 过采样先削圆"
+        ]
       }
     },
     "visual": {
@@ -74,7 +114,12 @@
   "glaze": {
     "title": "先听这首歌，<br/>再决定<em>推多远</em>。",
     "lead": "GLAZE 不是把所有旋钮同时调大。播放后它先听 15 ～ 30 秒，量这首歌的响度、动态、频谱与起音，得出画像与方案；旋钮只决定朝「这首歌的理想母带」推多远。0 = 完全不动，你的手动设置永远是底。",
-    "phases": ["未学习", "聆听中", "校准中", "已锁定"],
+    "phases": [
+      "未学习",
+      "聆听中",
+      "校准中",
+      "已锁定"
+    ],
     "statusLabel": "GLAZE 状态",
     "hint": "上下拖动旋钮 · ⌘ / Ctrl 精调 · 滚轮微调 · 双击回 35",
     "drivenTitle": "联动 7 项参数",
@@ -84,7 +129,11 @@
     "targetTitle": "目标响度（示意）",
     "targetBody": "由风格与 GLAZE 共同决定，再经各模块的上限收窄；到了动态保护的边界就不再加压，状态显示「受限」。",
     "styleTitle": "风格 · 自动按歌混合",
-    "styles": ["温润", "冲击", "通透"],
+    "styles": [
+      "温润",
+      "冲击",
+      "通透"
+    ],
     "styleBody": "也可以手选：温润厚圆不刺、冲击鼓点有力、通透清楚少压缩。",
     "link": "画像量什么、方案怎么算、校准何时结束"
   },
@@ -92,10 +141,22 @@
     "title": "一整面，<em>一眼看完</em>。",
     "lead": "表、频谱、GLAZE、四张卡片按处理顺序排开；中英双语，界面 70 % ～ 200 % 缩放。下面是插件的真实渲染，不是效果图。",
     "spots": [
-      { "title": "表与频谱", "body": "输入 / 输出电平、LUFS、真峰值与 1/3 倍频程频谱；手动与自动的改动画在同一张图上。" },
-      { "title": "GLAZE", "body": "一个旋钮。先听 15 ～ 30 秒定方案，再朝这首歌的理想母带推；开片越密，推得越远。" },
-      { "title": "A / B 与等响", "body": "处理后 / 原声一键切换；开等响后按实测响度差衰减较响的一边，只比音色，不比音量。" },
-      { "title": "四张卡片", "body": "平衡 → 修坯 → 染色 → 限幅，按处理顺序排开；紫色数字是 GLAZE 此刻的自动加量。" }
+      {
+        "title": "表与频谱",
+        "body": "输入 / 输出电平、LUFS、真峰值与 1/3 倍频程频谱；手动与自动的改动画在同一张图上。"
+      },
+      {
+        "title": "GLAZE",
+        "body": "一个旋钮。先听 15 ～ 30 秒定方案，再朝这首歌的理想母带推；开片越密，推得越远。"
+      },
+      {
+        "title": "A / B 与等响",
+        "body": "处理后 / 原声一键切换；开等响后按实测响度差衰减较响的一边，只比音色，不比音量。"
+      },
+      {
+        "title": "四张卡片",
+        "body": "平衡 → 修坯 → 染色 → 限幅，按处理顺序排开；紫色数字是 GLAZE 此刻的自动加量。"
+      }
     ],
     "altZh": "Celadon 插件界面（中文）：顶部电平表与频谱，中间 GLAZE 旋钮，底部平衡、修坯、染色、限幅四张卡片",
     "altEn": "Celadon 插件界面（英文）：顶部电平表与频谱，中间 GLAZE 旋钮，底部 BALANCE、CLAY、COLOR、LIMIT 四张卡片",
@@ -135,8 +196,16 @@
         "en": "Loudness-matched A / B",
         "body": "测整条链的实测响度差，把较响的一边衰减到另一边；只衰减、不放大，表仍显示衰减前的母带。判断「变好了」还是「只是变响了」。"
       },
-      { "title": "试听差值", "en": "Listen to the difference", "body": "LIMIT 卡片上的耳机：只听被削掉的那部分。鼓点有没有变扁、低音有没有发闷，一听就知道。" },
-      { "title": "参考学习", "en": "Reference from sidechain", "body": "把参考曲接进宿主的外部侧链，累计 10 秒有效声音，得到 27 段相对频谱目标；参考曲不进主输出。" }
+      {
+        "title": "试听差值",
+        "en": "Listen to the difference",
+        "body": "LIMIT 卡片上的耳机：只听被削掉的那部分。鼓点有没有变扁、低音有没有发闷，一听就知道。"
+      },
+      {
+        "title": "参考学习",
+        "en": "Reference from sidechain",
+        "body": "把参考曲接进宿主的外部侧链，累计 10 秒有效声音，得到 27 段相对频谱目标；参考曲不进主输出。"
+      }
     ],
     "artOriginal": "B 原声",
     "artMatched": "A 等响后 −4.8 dB",
@@ -146,11 +215,19 @@
     "bitsEn": "Bit-exact contract",
     "bitsTitle": "逐位契约",
     "bitsBody": "GLAZE 为 0、模块归零或旁通时，输出与输入零差；任意块长、SIMD 与标量、空闲跳过与一直在跑——逐位相同。",
-    "bitsRows": ["GLAZE 0 vs 参照链", "SIMD vs 标量", "块长 17 vs 2048"],
+    "bitsRows": [
+      "GLAZE 0 vs 参照链",
+      "SIMD vs 标量",
+      "块长 17 vs 2048"
+    ],
     "releaseEn": "Release safety",
     "releaseTitle": "发行安全",
     "releaseBody": "归一化预听（只衰减）、编码余量、TPDF 抖动。导出前该关的，界面一直提醒。",
-    "releaseStats": ["LUFS 预听", "dB 编码余量上限", "bit TPDF"]
+    "releaseStats": [
+      "LUFS 预听",
+      "dB 编码余量上限",
+      "bit TPDF"
+    ]
   },
   "algorithms": {
     "title": "算法写在纸上，<em>式子和常数都给你</em>。",
@@ -177,12 +254,36 @@
   "numbers": {
     "intro": "全部来自验证记录。百分比 = 单个音频线程「处理耗时 / 这一块音频的播放时长」，不是整机 CPU；测试数是 0.1.8.6 发布前在 Linux 与 Windows 上的全套结果。",
     "stats": [
-      { "unit": "段", "label": "动态频谱平衡", "note": "1/3 倍频程，40 Hz ～ 16 kHz" },
-      { "unit": "×", "label": "真峰值插值", "note": "8 相 × 64 抽头，限的峰 = 量的峰" },
-      { "unit": "%", "label": "音频线程预算", "note": "48 kHz · M2 Pro · Release · 界面关" },
-      { "unit": "", "label": "自动测试断言", "note": "Linux GCC 与 MSVC + Wine 全套 · 0 失败" },
-      { "unit": "dB", "label": "真峰值重建余量", "note": "16× 参考检测最坏仍低于 Ceiling" },
-      { "unit": "ms", "label": "总延迟", "note": "48 kHz · Lookahead 2 ms · 宿主自动补偿" }
+      {
+        "unit": "段",
+        "label": "动态频谱平衡",
+        "note": "1/3 倍频程，40 Hz ～ 16 kHz"
+      },
+      {
+        "unit": "×",
+        "label": "真峰值插值",
+        "note": "8 相 × 64 抽头，限的峰 = 量的峰"
+      },
+      {
+        "unit": "%",
+        "label": "音频线程预算",
+        "note": "48 kHz · M2 Pro · Release · 界面关"
+      },
+      {
+        "unit": "",
+        "label": "自动测试断言",
+        "note": "Linux GCC 与 MSVC + Wine 全套 · 0 失败"
+      },
+      {
+        "unit": "dB",
+        "label": "真峰值重建余量",
+        "note": "16× 参考检测最坏仍低于 Ceiling"
+      },
+      {
+        "unit": "ms",
+        "label": "总延迟",
+        "note": "48 kHz · Lookahead 2 ms · 宿主自动补偿"
+      }
     ]
   },
   "get": {

@@ -1,13 +1,37 @@
 {
   "chapters": {
-    "process": { "label": "The four steps", "en": "" },
-    "glaze": { "label": "One knob", "en": "" },
-    "showcase": { "label": "The instrument", "en": "" },
-    "listen": { "label": "Listen", "en": "" },
-    "judgement": { "label": "Judgement", "en": "" },
-    "algorithms": { "label": "Open algorithms", "en": "" },
-    "numbers": { "label": "In numbers", "en": "" },
-    "get": { "label": "Get Celadon", "en": "" }
+    "process": {
+      "label": "The four steps",
+      "en": ""
+    },
+    "glaze": {
+      "label": "One knob",
+      "en": ""
+    },
+    "showcase": {
+      "label": "The instrument",
+      "en": ""
+    },
+    "listen": {
+      "label": "Listen",
+      "en": ""
+    },
+    "judgement": {
+      "label": "Judgement",
+      "en": ""
+    },
+    "algorithms": {
+      "label": "Open algorithms",
+      "en": ""
+    },
+    "numbers": {
+      "label": "In numbers",
+      "en": ""
+    },
+    "get": {
+      "label": "Get Celadon",
+      "en": ""
+    }
   },
   "hero": {
     "eyebrow": "Smart mastering",
@@ -34,25 +58,41 @@
         "name": "Spectral balance",
         "verb": "Bring back what's buried",
         "lead": "27-band dynamic spectral balance. The reference isn't someone else's curve — it's this song's own smoothed contour: what sticks out comes down, what's masked comes up.",
-        "facts": ["27 third-octave bands, 40 Hz – 16 kHz", "±1 dB dead zone, at most 1 dB of change per hop", "Zero latency · Recover / Tame / Brighten / Speed"]
+        "facts": [
+          "27 third-octave bands, 40 Hz – 16 kHz",
+          "±1 dB dead zone, at most 1 dB of change per hop",
+          "Zero latency · Recover / Tame / Brighten / Speed"
+        ]
       },
       "clay": {
         "name": "Stereo clean-up",
         "verb": "Clean up the foundation",
         "lead": "Trim before you glaze. Cut inaudible infrasonics and DC, fold the lows to mono, and widen narrow mixes a little — each move is tried on this song first, and backs off by itself if it would raise the peaks.",
-        "facts": ["4th-order low cut, 10–60 Hz; linear-phase mono", "Side channel only: mono playback is untouched", "Peak guard: CLAY never raises the peaks"]
+        "facts": [
+          "4th-order low cut, 10–60 Hz; linear-phase mono",
+          "Side channel only: mono playback is untouched",
+          "Peak guard: Low cut and Mono never raise the peaks"
+        ]
       },
       "color": {
         "name": "Colour and glue",
         "verb": "Add some warmth",
         "lead": "A Tone tilt, Glue bus compression that presses low, mid and high separately, and Heat — tube-style residual colouring that leaves the low-end body alone. A little denser and warmer, and the limiter after it can push louder.",
-        "facts": ["Heat at 8× oversampling; nothing below 150 Hz is touched", "Glue presses low / mid / high separately", "Lighter on the sides, odd-symmetric: the image stays put"]
+        "facts": [
+          "Heat at 8× oversampling; nothing below 150 Hz is touched",
+          "Glue presses low / mid / high separately",
+          "Lighter on the sides, odd-symmetric: the image stays put"
+        ]
       },
       "limit": {
         "name": "True-peak limiting",
         "verb": "Loud, without breaking up",
         "lead": "Lookahead true-peak limiting: 8× interpolation sees the peaks between samples, and gain is applied at 1×. A triangular attack, fast and slow envelopes, and period-aware release for sustained bass.",
-        "facts": ["True peak ≤ Ceiling, plus 0.35 dB reconstruction headroom", "Short overloads recover on the fast release; long ones are held by the slow envelope", "Clip rounds peaks off first with 4× oversampled soft clipping"]
+        "facts": [
+          "True peak ≤ Ceiling, plus 0.35 dB reconstruction headroom",
+          "Short overloads recover on the fast release; long ones are held by the slow envelope",
+          "Clip rounds peaks off first with 4× oversampled soft clipping"
+        ]
       }
     },
     "visual": {
@@ -74,7 +114,12 @@
   "glaze": {
     "title": "It listens to the song first,<br/>then decides <em>how far to push</em>.",
     "lead": "GLAZE doesn't just turn every knob up at once. Once playback starts it listens for 15–30 seconds, measuring the song's loudness, dynamics, spectrum and attacks to build a profile and a plan; the knob only sets how far to push toward this song's ideal master. At 0 nothing moves, and your manual settings are always the floor.",
-    "phases": ["Not learned", "Listening", "Calibrating", "Locked"],
+    "phases": [
+      "Not learned",
+      "Listening",
+      "Calibrating",
+      "Locked"
+    ],
     "statusLabel": "GLAZE status",
     "hint": "Drag up / down · ⌘ / Ctrl for fine · scroll for small steps · double-click resets to 35",
     "drivenTitle": "Drives 7 parameters",
@@ -84,7 +129,11 @@
     "targetTitle": "Target loudness (illustrative)",
     "targetBody": "Set by the style and GLAZE together, then narrowed by each module's limits; at the edge of dynamics protection it stops pushing and the status shows “Limited”.",
     "styleTitle": "Style · blended per song",
-    "styles": ["Warm", "Punchy", "Clean"],
+    "styles": [
+      "Warm",
+      "Punchy",
+      "Clean"
+    ],
     "styleBody": "Or pick one yourself: Warm is thick and round without harshness, Punchy keeps the drums hitting, Clean stays clear with less compression.",
     "link": "What the profile measures, how the plan is made, when calibration ends"
   },
@@ -92,10 +141,22 @@
     "title": "One panel, <em>everything at a glance</em>.",
     "lead": "Meters, spectrum, GLAZE and the four cards laid out in processing order; English and Chinese, scalable from 70 % to 200 %. What you see below is the plugin's real rendering, not a mock-up.",
     "spots": [
-      { "title": "Meters and spectrum", "body": "Input / output levels, LUFS, true peak and a third-octave spectrum; manual and automatic changes are drawn on the same graph." },
-      { "title": "GLAZE", "body": "One knob. It listens for 15–30 seconds to settle on a plan, then pushes toward this song's ideal master; the denser the crackle, the further it's pushing." },
-      { "title": "A / B and Match", "body": "Switch between processed and original in one click; with Match on, the louder side is turned down by the measured difference, so you compare tone, not volume." },
-      { "title": "Four cards", "body": "BALANCE → CLAY → COLOR → LIMIT in processing order; the violet numbers are GLAZE's auto increment right now." }
+      {
+        "title": "Meters and spectrum",
+        "body": "Input / output levels, LUFS, true peak and a third-octave spectrum; manual and automatic changes are drawn on the same graph."
+      },
+      {
+        "title": "GLAZE",
+        "body": "One knob. It listens for 15–30 seconds to settle on a plan, then pushes toward this song's ideal master; the denser the crackle, the further it's pushing."
+      },
+      {
+        "title": "A / B and Match",
+        "body": "Switch between processed and original in one click; with Match on, the louder side is turned down by the measured difference, so you compare tone, not volume."
+      },
+      {
+        "title": "Four cards",
+        "body": "BALANCE → CLAY → COLOR → LIMIT in processing order; the violet numbers are GLAZE's auto increment right now."
+      }
     ],
     "altZh": "Celadon plugin interface in Chinese: meters and spectrum at the top, the GLAZE knob in the middle, and the BALANCE, CLAY, COLOR and LIMIT cards at the bottom",
     "altEn": "Celadon plugin interface in English: meters and spectrum at the top, the GLAZE knob in the middle, and the BALANCE, CLAY, COLOR and LIMIT cards at the bottom",
@@ -135,8 +196,16 @@
         "en": "",
         "body": "Measures the real loudness difference across the whole chain and turns the louder side down to match; it only attenuates, never boosts, and the meters still show the master before attenuation. Tell “better” from “just louder”."
       },
-      { "title": "Listen to the difference", "en": "", "body": "The headphones on the LIMIT card: hear only what's being removed. Whether the drums went flat or the bass got muddy, you'll hear it straight away." },
-      { "title": "Reference learning", "en": "", "body": "Route a reference track to the host's external sidechain; after 10 seconds of usable audio you get a 27-band relative spectral target. The reference never reaches the main output." }
+      {
+        "title": "Listen to the difference",
+        "en": "",
+        "body": "The headphones on the LIMIT card: hear only what's being removed. Whether the drums went flat or the bass got muddy, you'll hear it straight away."
+      },
+      {
+        "title": "Reference learning",
+        "en": "",
+        "body": "Route a reference track to the host's external sidechain; after 10 seconds of usable audio you get a 27-band relative spectral target. The reference never reaches the main output."
+      }
     ],
     "artOriginal": "B Original",
     "artMatched": "A matched −4.8 dB",
@@ -146,11 +215,19 @@
     "bitsEn": "",
     "bitsTitle": "Bit-exact contract",
     "bitsBody": "With GLAZE at 0, or modules at zero or bypassed, the output equals the input exactly; at any block size, SIMD or scalar, idle-skipping or always running — identical bit for bit.",
-    "bitsRows": ["GLAZE 0 vs reference chain", "SIMD vs scalar", "Block size 17 vs 2048"],
+    "bitsRows": [
+      "GLAZE 0 vs reference chain",
+      "SIMD vs scalar",
+      "Block size 17 vs 2048"
+    ],
     "releaseEn": "",
     "releaseTitle": "Release safety",
     "releaseBody": "Normalisation preview (attenuation only), codec margin and TPDF dither. Anything you should switch off before export, the interface keeps reminding you about.",
-    "releaseStats": ["LUFS preview", "dB max codec margin", "bit TPDF"]
+    "releaseStats": [
+      "LUFS preview",
+      "dB max codec margin",
+      "bit TPDF"
+    ]
   },
   "algorithms": {
     "title": "The algorithms on paper — <em>formulas and constants included</em>.",
@@ -177,12 +254,36 @@
   "numbers": {
     "intro": "All taken from verification records. Percentages are a single audio thread's processing time divided by the block's playback time — not total CPU. The test count is the full suite on Linux and Windows before the 0.1.8.6 release.",
     "stats": [
-      { "unit": "bands", "label": "Dynamic spectral balance", "note": "Third-octave, 40 Hz – 16 kHz" },
-      { "unit": "×", "label": "True-peak interpolation", "note": "8 phases × 64 taps — the peak it limits is the peak it measures" },
-      { "unit": "%", "label": "Audio-thread budget", "note": "48 kHz · M2 Pro · Release · UI closed" },
-      { "unit": "", "label": "Automated test assertions", "note": "Full suite on Linux GCC and MSVC + Wine · 0 failures" },
-      { "unit": "dB", "label": "True-peak reconstruction headroom", "note": "Worst case under a 16× reference detector still below Ceiling" },
-      { "unit": "ms", "label": "Total latency", "note": "48 kHz · 2 ms lookahead · compensated by the host" }
+      {
+        "unit": "bands",
+        "label": "Dynamic spectral balance",
+        "note": "Third-octave, 40 Hz – 16 kHz"
+      },
+      {
+        "unit": "×",
+        "label": "True-peak interpolation",
+        "note": "8 phases × 64 taps — the peak it limits is the peak it measures"
+      },
+      {
+        "unit": "%",
+        "label": "Audio-thread budget",
+        "note": "48 kHz · M2 Pro · Release · UI closed"
+      },
+      {
+        "unit": "",
+        "label": "Automated test assertions",
+        "note": "Full suite on Linux GCC and MSVC + Wine · 0 failures"
+      },
+      {
+        "unit": "dB",
+        "label": "True-peak reconstruction headroom",
+        "note": "Worst case under a 16× reference detector still below Ceiling"
+      },
+      {
+        "unit": "ms",
+        "label": "Total latency",
+        "note": "48 kHz · 2 ms lookahead · compensated by the host"
+      }
     ]
   },
   "get": {
