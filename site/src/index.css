@@ -92,7 +92,9 @@
     @apply underline-offset-4;
   }
   /* 等宽字关掉编程连字：JetBrains Mono 会把 -< >- -> 这类组合画成箭头（文件名 Celadon-<版本>-… 就被画歪了）。
-     SVG 示意图里的等宽字用行内 fontFamily，所以 svg text 一并关掉（对黑体无影响）。 */
+     SVG 示意图里的等宽字用行内 fontFamily，所以 svg text 一并关掉（对黑体无影响）。
+     只写 font-variant-ligatures: none——它已关掉 calt（这些箭头靠它）；不另写 font-feature-settings：那会整条覆盖
+     body 上继承来的 "palt" "kern"，示意图里的中文标点随之变宽，与排版时的字宽不一致。 */
   code,
   kbd,
   pre,
@@ -100,7 +102,6 @@
   .font-mono,
   svg text {
     font-variant-ligatures: none;
-    font-feature-settings: "calt" 0, "liga" 0;
   }
   :focus-visible {
     outline: 2px solid var(--color-c500);

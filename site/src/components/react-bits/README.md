@@ -5,7 +5,7 @@
 
 | 文件 | 用在哪 | Celadon 改动 |
 |---|---|---|
-| `SplitText.tsx` | 首屏标题逐字浮现（GSAP SplitText + ScrollTrigger） | 从 `@/lib/gsap` 取已注册的 gsap；加 `force3D` 属性（渐变字要关 3D 合成层）；动画结束清 transform；只等本段文字的字体子集而不是整页 fonts.ready |
+| `SplitText.tsx` | 首屏标题逐字浮现（GSAP SplitText + ScrollTrigger） | 从 `@/lib/gsap` 取已注册的 gsap；加 `force3D` 属性（渐变字要关 3D 合成层）；渐变字逐字各裁一段同一渐变（Chrome 不把逐字图层算进父元素的 background-clip: text）；动画结束清 transform；只等本段文字的字体子集而不是整页 fonts.ready |
 | `Magnet.tsx` | 按钮磁吸 | 无 |
 | `Topography.tsx` | 首屏釉面等高线（OGL WebGL） | 无 |
 

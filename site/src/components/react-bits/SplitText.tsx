@@ -27,6 +27,50 @@ export interface SplitTextProps {
   force3D?: boolean;
 }
 
+/**
+ * Celadon 改动：渐变字（父元素 background-clip: text，如首屏「就好听。」）逐字拆开后，每个字都成了自己的图层
+ * （SplitText 给的 position: relative，动画里的 transform / opacity），Chrome 不把这些图层里的字算进父元素的文字裁切——
+ * 整行一个字也画不出来，动画结束后也不出现。改为每个字各裁一段同一张渐变：背景取整行大小、按这个字在行内的位置反向偏移，
+ * 拼起来与整行渐变一致；父元素自己的渐变先撤掉（免得有的浏览器两层叠画），窗口变化时重算。不是渐变字时返回 null。
+ */
+function glazePerChar(el: HTMLElement) {
+  const cs = window.getComputedStyle(el);
+  const clip = cs.backgroundClip || cs.getPropertyValue('-webkit-background-clip');
+  if (clip !== 'text' || cs.backgroundImage === 'none') return null;
+  const image = cs.backgroundImage;
+  let chars: HTMLElement[] = [];
+  const layout = () => {
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    for (const c of chars) {
+      // offsetLeft / offsetTop 不受 transform 影响：动画途中改窗口大小也算得对
+      const own = c.offsetParent === el;
+      const dx = own ? c.offsetLeft : c.offsetLeft - el.offsetLeft - el.clientLeft;
+      const dy = own ? c.offsetTop : c.offsetTop - el.offsetTop - el.clientTop;
+      const s = c.style;
+      s.backgroundImage = image;
+      s.backgroundSize = `${w}px ${h}px`;
+      s.backgroundPosition = `${-dx}px ${-dy}px`;
+      s.backgroundRepeat = 'no-repeat';
+      s.setProperty('-webkit-background-clip', 'text');
+      s.backgroundClip = 'text';
+    }
+  };
+  const ro = new ResizeObserver(layout);
+  ro.observe(el);
+  el.style.backgroundImage = 'none';
+  return {
+    paint(targets: HTMLElement[]) {
+      chars = targets;
+      layout();
+    },
+    dispose() {
+      ro.disconnect();
+      el.style.backgroundImage = '';
+    }
+  };
+}
+
 const SplitText: React.FC<SplitTextProps> = ({
   text,
   className = '',
@@ -112,6 +156,7 @@ const SplitText: React.FC<SplitTextProps> = ({
         if (!targets.length && splitType.includes('lines') && self.lines.length) targets = self.lines;
         if (!targets.length) targets = self.chars || self.words || self.lines;
       };
+      const glaze = glazePerChar(el);
       const splitInstance = new GSAPSplitText(el, {
         type: splitType,
         smartWrap: true,
@@ -122,6 +167,7 @@ const SplitText: React.FC<SplitTextProps> = ({
         reduceWhiteSpace: false,
         onSplit: (self: GSAPSplitText) => {
           assignTargets(self);
+          glaze?.paint(targets as HTMLElement[]);
           return gsap.fromTo(
             targets,
             { ...from },
@@ -159,6 +205,7 @@ const SplitText: React.FC<SplitTextProps> = ({
         } catch {
           /* ignore */
         }
+        glaze?.dispose();
         el._rbsplitInstance = undefined;
       };
     },

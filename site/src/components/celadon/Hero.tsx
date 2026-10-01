@@ -8,6 +8,7 @@ import { ArrowUpRight, LinkArrow } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { prefersReducedMotion } from '@/lib/utils';
 import { PLUGIN_VERSION } from '@/lib/site';
+import { tracks } from '@/content/listen';
 
 const Topography = lazy(() => import('@/components/react-bits/Topography'));
 
@@ -95,20 +96,24 @@ export default function Hero() {
                 </span>
               </Link>
             </Magnet>
-            <LinkArrow to="/#listen">先听一听</LinkArrow>
+            {/* 试听一节有曲目才显示（见 Listen.tsx），这条链接跟着它 */}
+            {tracks.length ? <LinkArrow to="/#listen">先听一听</LinkArrow> : null}
           </div>
-          <dl data-rise className="mt-16 flex flex-wrap gap-x-8 gap-y-3 text-[13px] text-ink-3">
-            {[
-              ['格式', 'VST3 · AU · 独立运行'],
-              ['系统', 'macOS 12+ · Windows 10 / 11'],
-              ['延迟', '28.8 ms（48 kHz）']
-            ].map(([k, v]) => (
-              <div key={k} className="flex items-baseline gap-3 border-l border-ink/15 pl-4 first:border-0 first:pl-0">
-                <dt className="text-[11px] tracking-[0.2em] text-ink-4">{k}</dt>
-                <dd className="text-ink-2">{v}</dd>
-              </div>
-            ))}
-          </dl>
+          {/* 每项左边一根细线作分隔；折行时（手机上每项一行、平板与窄桌面上第三项换行）行首那根由外层裁掉，各行左缘对齐。 */}
+          <div data-rise className="mt-16 overflow-hidden">
+            <dl className="-ml-[calc(1rem+1px)] flex flex-wrap gap-x-8 gap-y-3 text-[13px] text-ink-3">
+              {[
+                ['格式', 'VST3 · AU · 独立运行'],
+                ['系统', 'macOS 12+ · Windows 10 / 11'],
+                ['延迟', '28.8 ms（48 kHz）']
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-baseline gap-3 border-l border-ink/15 pl-4">
+                  <dt className="text-[11px] tracking-[0.2em] text-ink-4">{k}</dt>
+                  <dd className="text-ink-2">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
 
         <div className="lg:col-span-5 relative z-10 flex justify-center">

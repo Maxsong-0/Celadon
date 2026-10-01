@@ -57,7 +57,7 @@ export default function Bento() {
                   <div className="flex items-baseline gap-3">
                     <span className="font-mono text-[12px] text-c700">0{i + 1}</span>
                     <h3 className="font-serif text-[24px] font-semibold text-ink">{r.title}</h3>
-                    <span className="display text-[13px] italic text-ink-4 hidden sm:inline">{r.en}</span>
+                    <span className="display text-[13px] italic text-ink-4 hidden sm:inline" style={{ fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>{r.en}</span>
                   </div>
                   <p className="mt-3 measure text-[15px] leading-[1.85] text-ink-2">{r.body}</p>
                 </div>
@@ -71,13 +71,13 @@ export default function Bento() {
 
           <div className="lg:col-span-5 grid content-start gap-5">
             <div data-reveal className="biscuit p-7 sm:p-8">
-              <div className="display text-[13px] italic text-ink-4">Bit-exact contract</div>
+              <div className="display text-[13px] italic text-ink-4" style={{ fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>Bit-exact contract</div>
               <h3 className="mt-1 font-serif text-[24px] font-semibold text-ink">逐位契约</h3>
               <p className="mt-3 text-[15px] leading-[1.85] text-ink-2">GLAZE 为 0、模块归零或旁通时，输出与输入零差；任意块长、SIMD 与标量、空闲跳过与一直在跑——逐位相同。</p>
               <ArtBits />
             </div>
             <div data-reveal className="biscuit p-7 sm:p-8">
-              <div className="display text-[13px] italic text-ink-4">Release safety</div>
+              <div className="display text-[13px] italic text-ink-4" style={{ fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>Release safety</div>
               <h3 className="mt-1 font-serif text-[24px] font-semibold text-ink">发行安全</h3>
               <p className="mt-3 text-[15px] leading-[1.85] text-ink-2">归一化预听（只衰减）、编码余量、TPDF 抖动。导出前该关的，界面一直提醒。</p>
               <ArtRelease />

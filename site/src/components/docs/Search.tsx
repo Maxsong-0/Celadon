@@ -251,13 +251,21 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
   const count = items.length;
   const activeIndex = count ? Math.min(active, count - 1) : -1;
 
-  // 页面其余部分设为 inert（读屏与 Tab 都进不去）；关闭时解除，并把焦点还给触发处。
+  // 页面其余部分设为 inert（读屏与 Tab 都进不去）；关闭时解除。
   useLayoutEffect(() => {
     if (!open) return;
     const app = document.getElementById('root');
     if (app) app.inert = true;
     return () => {
       if (app) app.inert = false;
+    };
+  }, [open]);
+
+  // 关闭后把焦点还给触发处。不能放在上面的 layout effect 里：它的清理跑在 React 提交中途，提交收尾时 React 会把焦点
+  // 「恢复」到提交前的输入框上，随后弹层隐藏，焦点掉到 body。普通 effect 的清理在提交之后，这时 #root 也已解除 inert。
+  useEffect(() => {
+    if (!open) return;
+    return () => {
       const back = returnFocus.current;
       if (back?.isConnected) back.focus({ preventScroll: true });
     };

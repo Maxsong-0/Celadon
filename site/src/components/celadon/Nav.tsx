@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import type { SearchDialogProps } from '@/components/docs/Search';
 import { gsap, useGSAP } from '@/lib/gsap';
+import { tracks } from '@/content/listen';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 import Mark from './Mark';
 
@@ -19,9 +20,10 @@ const preloadSearch = () => {
   import('@/components/docs/Search').catch(() => undefined);
 };
 
+// 「试听」一节只在有曲目时渲染（content/listen.json 为空时整节不显示），导航项跟着它：没有曲目就不放这条，免得点了原地不动。
 const items = [
   { label: '工艺', to: '/#process' },
-  { label: '试听', to: '/#listen' },
+  ...(tracks.length ? [{ label: '试听', to: '/#listen' }] : []),
   { label: '算法', to: '/algorithms' },
   { label: '说明', to: '/docs' }
 ];
