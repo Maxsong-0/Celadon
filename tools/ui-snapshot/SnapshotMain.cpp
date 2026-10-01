@@ -10,7 +10,8 @@
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
-      命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字）；
+      命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字），⑲ 续与 ⑳ 是 T-041 的：
+      小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；
       --only bench 跑绘制性能基准（T-032）：瓷面参照与分层的生成耗时、静态背景生成耗时，GLAZE 45 % 播放中 1 / 2 / 4 倍下
       编辑器定时器一帧、整帧重画与只重画粒子带的毫秒（墙钟与本线程 CPU）、各部件累计 paint 与缓存读写、状态胶囊呼吸帧，
       拖动 GLAZE 时消息线程的 CPU 占比，听原声（B）时的粒子带重画；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测；
@@ -911,6 +912,57 @@ namespace
         return diff;
     }
 
+    // ⑳ 用的合成部件（T-041）：挂对齐缓存（AlignedComponentCache），记下最近一次 paint 拿到的裁剪包围盒（用户坐标）。
+    // 内容有底、圆角边、一个会变的圆、字；再挂一个子组件——同频谱仪的斜率控件：子组件自己重画时，父组件的缓存只作废子组件那一块。
+    struct AlignedCacheProbe  : public juce::Component
+    {
+        struct Child  : public juce::Component
+        {
+            void paint (juce::Graphics& g) override
+            {
+                g.setColour (juce::Colour (0xff2a7f86));
+                g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 3.0f);
+            }
+        };
+
+        explicit AlignedCacheProbe (bool opaque)
+        {
+            setOpaque (opaque);
+            addAndMakeVisible (child);
+            celadon::ui::setBufferedToAlignedImage (*this);
+        }
+
+        void resized() override   { child.setBounds (150, 6, 38, 20); }
+
+        void paint (juce::Graphics& g) override
+        {
+            lastClip = g.getClipBounds();
+            ++paints;
+
+            const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+
+            if (isOpaque())
+                g.fillAll (juce::Colour (0xffe6eeec));
+
+            g.setColour (juce::Colour (0xfff4f7f6));
+            g.fillRoundedRectangle (bounds, bounds.getHeight() * 0.5f);
+            g.setColour (juce::Colour (0xff9fb8b4));
+            g.drawRoundedRectangle (bounds, bounds.getHeight() * 0.5f, 1.0f);
+            g.setColour (juce::Colour (0xff3e8f8a).withAlpha (0.35f + 0.65f * shade));
+            g.fillEllipse (dot);
+            g.setColour (juce::Colour (0xff1d3b3a));
+            g.setFont (celadon::ui::uiFont (12.0f));
+            g.drawText (juce::String::fromUTF8 ("Aligned \xe5\xb7\xb2\xe9\x94\x81\xe5\xae\x9a"), juce::Rectangle<float> (64.0f, 0.0f, 80.0f, (float) getHeight()),
+                        juce::Justification::centredLeft, false);
+        }
+
+        Child child;
+        juce::Rectangle<float> dot { 41.3f, 9.6f, 13.0f, 13.0f };
+        float shade = 0.0f;
+        juce::Rectangle<int> lastClip;
+        int paints = 0;
+    };
+
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check)
     {
         using namespace celadon::ui;
@@ -1167,7 +1219,7 @@ namespace
         }
 
         // ⑲ R9-13：状态胶囊整颗缓存（整数对齐）。内容变了（整颗作废）时每段文字照画进缓存；别处引起的重画（macOS 的脏矩形包围盒
-        //     把胶囊圈进去）只从缓存贴、不排版；呼吸只作废圆点那一小块（圆点 7 px + 3 px 光晕 + 1 px 抗锯齿），缓存只重画那一块，
+        //     把胶囊圈进去）只从缓存贴、不排版；呼吸只作废圆点那一小块（圆点 7 px + 3 px 光晕取整，T-041 起不再多留 1 px），缓存只重画那一块，
         //     胶囊与顶栏一段文字都不排版（跳过只按脏区判断，不会漏画）。
         {
             auto* pill = findFirst<StatusPill> (editor);
@@ -1214,6 +1266,140 @@ namespace
                        "T-032 a pulse frame re-renders only the dot into the cache and lays out no text (pill " + juce::String (pillPulse)
                            + ", top bar " + juce::String (barPulse) + ")");
             }
+
+            // ⑲ 续（T-041，BUG-008）：小数物理像素比下也只重画圆点那一块。1.03293 是 T-039 实测的那个（xvfb 1280 × 1024 放不下
+            //     默认大小 2，编辑器被缩进屏幕）；改前缓存「排除有效区」时各有效矩形往里收、接缝贯穿整颗胶囊，每段字都重排。
+            //     每个像素比：整颗重画 → 呼吸若干帧（圆点确实变了）只作废圆点 → 贴图结果须与同一帧整颗重画逐字节相同。
+            //     1 倍及以上一段字都不排版；低于 1 倍时一个设备像素比逻辑像素大，圆点区向外取整后可能与第一段字的 2 px 字形余量
+            //     落进同一列设备像素——那一段照画才不会漏墨迹，只许这一段。
+            if (pill != nullptr && topBar != nullptr)
+            {
+                const auto original = pill->getContent();
+                auto pulsing = original;
+                pulsing.warning = false;
+                pulsing.pulse = true;
+                pill->setContent (pulsing);
+
+                const auto whole = editor.getLocalArea (pill, pill->getLocalBounds());
+                juce::StringArray results;
+                bool allPassed = pill->isPulsing();
+
+                for (const auto scale : { 1.0f, 1.03293f, 1.25f, 1.5f, 1.75f, 2.5f, 0.7f, 0.8f, 0.9f })
+                {
+                    juce::Image frame (juce::Image::ARGB, (int) std::ceil ((float) editor.getWidth() * scale),
+                                       (int) std::ceil ((float) editor.getHeight() * scale), true);
+                    const auto device = (whole.toFloat() * scale).getSmallestIntegerContainer().getIntersection (frame.getBounds());
+                    const auto pulseArea = pill->getPulseArea();
+
+                    pill->repaint();   // 整颗作废：按这一像素比重建缓存
+                    paintFrame (editor, frame, scale, whole);
+                    const auto before = frame.getClippedImage (device).createCopy();
+
+                    // 呼吸一帧只作废圆点：每批推 9 帧（八分之一周期）再画一次。起始相位不定（检查前消息循环里定时器走过几帧），
+                    // 任一固定步长总有些相位前后亮度对称相等、圆点看不出变化——没变就再推一批，最多 4 批。
+                    // 贴图都从清空的画布画起：ARGB 画布上反复贴图会把半透明像素一层层叠上去，比的就不只是缓存了。
+                    PaintProbe probe;
+                    pill->addComponentListener (&probe);
+                    int pillPulse = 0, barPulse = 0, batches = 0;
+                    bool changed = false;
+                    juce::Image partial;
+
+                    while (! changed && batches < 4)
+                    {
+                        const auto pillBefore = pill->getTextDraws(), barBefore = topBar->getTextDraws();
+
+                        for (int i = 0; i < 9; ++i)
+                            pill->advancePulse();
+
+                        paintFrame (editor, frame, scale, editor.getLocalArea (pill, pulseArea));
+                        pillPulse = juce::jmax (pillPulse, pill->getTextDraws() - pillBefore);
+                        barPulse = juce::jmax (barPulse, topBar->getTextDraws() - barBefore);
+                        ++batches;
+
+                        frame.clear (frame.getBounds());
+                        paintFrame (editor, frame, scale, whole);   // 只贴图：缓存里是局部重画过的胶囊
+                        partial = frame.getClippedImage (device).createCopy();
+                        changed = compareImages (before, partial).worst > 0;
+                    }
+
+                    const auto pulseWrites = probe.cacheWrites;
+                    pill->removeComponentListener (&probe);
+
+                    pill->repaint();                                // 对照：同一帧整颗重画
+                    frame.clear (frame.getBounds());
+                    paintFrame (editor, frame, scale, whole);
+                    const auto full = frame.getClippedImage (device).createCopy();
+
+                    const auto diff = compareImages (partial, full);
+                    const auto passed = pulseWrites == batches && pillPulse <= (scale >= 1.0f ? 0 : 1) && barPulse == 0 && diff.worst == 0 && changed;
+                    allPassed = allPassed && passed;
+                    results.add (juce::String (scale, 5) + ": pill " + juce::String (pillPulse) + ", bar " + juce::String (barPulse)
+                                 + ", writes " + juce::String (pulseWrites) + " of " + juce::String (batches) + ", vs full " + juce::String (diff.worst)
+                                 + (changed ? "" : ", dot unchanged") + (passed ? "" : " FAIL"));
+                }
+
+                pill->setContent (original);
+                pill->repaint();
+
+                check (allPassed, "T-041 at fractional pixel ratios a pulse frame re-renders only the dot, lays out no text at >= 1x "
+                                  "(at most the first segment below 1x) and matches a full re-render (" + results.joinIntoString ("; ") + ")");
+            }
+        }
+
+        // ⑳ T-041（BUG-008）：对齐缓存（AlignedComponentCache，胶囊、粒子带 8 个文字小部件、频谱仪 5 个子组件共用）局部作废时，
+        //     各像素比下只重画作废区（裁剪包围盒不超出作废区向外 2 px——设备像素向外取整、再按包围盒换回用户坐标各进一位），
+        //     重画结果与整块重画逐字节相同。两种局部作废：自己 repaint (某一块)（胶囊呼吸）、子组件自己重画（频谱仪斜率控件的分段）；
+        //     透明与不透明两种缓存图。
+        {
+            juce::StringArray failures;
+
+            for (const auto opaque : { false, true })
+            {
+                juce::Component host;
+                host.setBounds (0, 0, 240, 60);
+                AlignedCacheProbe probe (opaque);
+                host.addAndMakeVisible (probe);
+                probe.setBounds (7, 9, 200, 32);
+
+                const auto dotArea = probe.dot.getSmallestIntegerContainer();
+                const auto childArea = probe.child.getBounds();
+
+                for (const auto scale : { 1.0f, 1.03293f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 0.7f, 0.8f, 0.9f })
+                {
+                    juce::Image frame (juce::Image::ARGB, (int) std::ceil (240.0f * scale), (int) std::ceil (60.0f * scale), true);
+                    const auto tag = juce::String (opaque ? "opaque " : "transparent ") + juce::String (scale, 5);
+
+                    probe.repaint();   // 整块作废：按这一像素比重建缓存
+                    paintFrame (host, frame, scale, std::nullopt);
+
+                    const auto partialRepaint = [&] (const juce::String& kind, juce::Rectangle<int> invalidated, const std::function<void()>& invalidate)
+                    {
+                        const auto paintsBefore = probe.paints;
+                        invalidate();
+                        paintFrame (host, frame, scale, invalidated + probe.getPosition());
+                        const auto clip = probe.lastClip;
+                        const auto repainted = probe.paints - paintsBefore;
+
+                        frame.clear (frame.getBounds());                  // 从清空的画布贴：透明画布上反复贴会层层叠加
+                        paintFrame (host, frame, scale, std::nullopt);   // 只贴图
+                        const auto partial = frame.createCopy();
+                        probe.repaint();                                  // 对照：整块重画
+                        frame.clear (frame.getBounds());
+                        paintFrame (host, frame, scale, std::nullopt);
+                        const auto diff = compareImages (partial, frame);
+
+                        if (repainted != 1 || ! invalidated.expanded (2).contains (clip) || diff.worst != 0)
+                            failures.add (tag + " " + kind + ": " + juce::String (repainted) + " paint(s), clip " + clip.toString()
+                                          + " for " + invalidated.toString() + ", vs full " + juce::String (diff.worst));
+                    };
+
+                    partialRepaint ("self", dotArea, [&] { probe.shade = 1.0f - probe.shade; probe.repaint (dotArea); });
+                    partialRepaint ("child", childArea, [&] { probe.child.repaint(); });
+                }
+            }
+
+            check (failures.isEmpty(), "T-041 aligned cache re-renders only the invalidated area at ratios 0.7 - 2.5 and matches a full re-render ("
+                                           + (failures.isEmpty() ? juce::String ("20 cases x 2") : failures.joinIntoString ("; ")) + ")");
         }
 
         return 0;

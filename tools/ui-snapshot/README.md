@@ -31,6 +31,10 @@
 逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中的数值气泡）、`check-original.png`、
 `check-audition.png`、`check-advanced.png`、`check-english.png`。
 
+末尾两条是 T-041（BUG-008）加的小数像素比检查：编辑器保持 1 倍，只把离屏画布的像素比设成 0.7 ～ 2.5（含 T-039 实测的
+1.03293），看状态胶囊呼吸与对齐缓存（`AlignedComponentCache`）的局部作废是不是只重画作废区、结果与整块重画逐字节相同；
+1 倍及以上呼吸帧一段字都不排版，低于 1 倍最多排第一段（设备像素比逻辑像素大，圆点区取整后可能与它的字形余量落进同一列）。
+
 ## 用法
 
 ```bash

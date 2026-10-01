@@ -111,6 +111,8 @@ namespace celadon::ui
     // 组件缓存成按物理像素的图（R9-01：粒子带里的文字小部件）。失效规则与 setBufferedToImage 相同——组件自己 repaint 时
     // 整块或局部作废、下次 paint 重画；不同的只有贴图：按上下文实际像素比生成、drawCachedImage 整数对齐（JUCE 自带的
     // StandardCachedComponentImage 用 drawImageTransformed 小数平移贴图，每次双线性重采样、文字糊半个像素）。
+    // 局部作废后的重画按作废区裁：每块乘像素比、向外取整到设备像素——小数像素比下也只重画碰到作废区的那些设备像素，
+    // 组件 paint 里按 clipRegionIntersects 跳过的绘制照样跳过（T-041；JUCE 那套「排除有效区」在小数像素比下退化成整块重画）。
     class AlignedComponentCache  : public juce::CachedComponentImage
     {
     public:
