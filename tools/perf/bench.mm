@@ -274,8 +274,10 @@ namespace
 
     celadon::CeladonChain::Params chainParamsFor (const Scenario& sc)
     {
-        // 起点 = 新实例默认（Source/ParameterDefaults.h，插件参数表同一处真源；T-032 R10-01）：modules 模式量的链与整插件模式同一场景
-        // 是同一条（GLAZE 35、高级母带两项「自动」……），不再是结构体默认（GLAZE 0、高级母带关）。场景里写的参数照旧覆盖。
+        // 起点 = 新实例默认（Source/ParameterDefaults.h，插件参数表同一处真源；T-032 R10-01），不再是结构体默认：没写 glaze_amount 的
+        // 场景（default）与整插件模式一样是 GLAZE 35（以前是 0）。场景里写的参数照旧覆盖。注意 modules 模式不经 CeladonChain::setParams：
+        // 高级母带的「模式 × GLAZE → 推响不刺 / 目标频谱强度」、编码余量、发行端（预听 / 抖动）是链那一层算的，这里仍不生效
+        // （Balance 一级的 harsh / target 强度为 0），与整插件模式的默认设置在 Balance 上还差这一块。
         auto p = celadon::param::defaults::factoryChainParams();
         for (auto& [id, value] : sc.values)
         {
