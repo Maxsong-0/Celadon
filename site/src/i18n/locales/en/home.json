@@ -1,1 +1,211 @@
-{}
+{
+  "chapters": {
+    "process": { "label": "The four steps", "en": "" },
+    "glaze": { "label": "One knob", "en": "" },
+    "showcase": { "label": "The instrument", "en": "" },
+    "listen": { "label": "Listen", "en": "" },
+    "judgement": { "label": "Judgement", "en": "" },
+    "algorithms": { "label": "Open algorithms", "en": "" },
+    "numbers": { "label": "In numbers", "en": "" },
+    "get": { "label": "Get Celadon", "en": "" }
+  },
+  "hero": {
+    "eyebrow": "Smart mastering",
+    "line1": "One insert on the master bus.",
+    "line2": "It just sounds right.",
+    "tagline": "Mastering, glazed — four steps, one knob.",
+    "lead": "Balance, stereo clean-up, colour and limiting run in a fixed order. <b>GLAZE</b> listens to the song for a dozen seconds or so, then decides how far to push it toward its ideal master — every knob you set is the floor, and it only ever adds on top.",
+    "listenLink": "Have a listen",
+    "format": "Format",
+    "formatValue": "VST3 · AU · Standalone",
+    "system": "System",
+    "systemValue": "macOS 12+ · Windows 10 / 11",
+    "latency": "Latency",
+    "latencyValue": "28.8 ms (48 kHz)",
+    "scroll": "Scroll · the four steps"
+  },
+  "process": {
+    "intro": "The order is fixed: spectral problems first, then density and harmonics, and peaks last.",
+    "introShort": "Fixed order · scroll to step through",
+    "current": "Current step",
+    "caption": "Illustration: before → after",
+    "stages": {
+      "balance": {
+        "name": "Spectral balance",
+        "verb": "Bring back what's buried",
+        "lead": "27-band dynamic spectral balance. The reference isn't someone else's curve — it's this song's own smoothed contour: what sticks out comes down, what's masked comes up.",
+        "facts": ["27 third-octave bands, 40 Hz – 16 kHz", "±1 dB dead zone, at most 1 dB of change per hop", "Zero latency · Recover / Tame / Brighten / Speed"]
+      },
+      "clay": {
+        "name": "Stereo clean-up",
+        "verb": "Clean up the foundation",
+        "lead": "Trim before you glaze. Cut inaudible infrasonics and DC, fold the lows to mono, and widen narrow mixes a little — each move is tried on this song first, and backs off by itself if it would raise the peaks.",
+        "facts": ["4th-order low cut, 10–60 Hz; linear-phase mono", "Side channel only: mono playback is untouched", "Peak guard: CLAY never raises the peaks"]
+      },
+      "color": {
+        "name": "Colour and glue",
+        "verb": "Add some warmth",
+        "lead": "A Tone tilt, Glue bus compression that presses low, mid and high separately, and Heat — tube-style residual colouring that leaves the low-end body alone. A little denser and warmer, and the limiter after it can push louder.",
+        "facts": ["Heat at 8× oversampling; nothing below 150 Hz is touched", "Glue presses low / mid / high separately", "Lighter on the sides, odd-symmetric: the image stays put"]
+      },
+      "limit": {
+        "name": "True-peak limiting",
+        "verb": "Loud, without breaking up",
+        "lead": "Lookahead true-peak limiting: 8× interpolation sees the peaks between samples, and gain is applied at 1×. A triangular attack, fast and slow envelopes, and period-aware release for sustained bass.",
+        "facts": ["True peak ≤ Ceiling, plus 0.35 dB reconstruction headroom", "Short overloads recover on the fast release; long ones are held by the slow envelope", "Clip rounds peaks off first with 4× oversampled soft clipping"]
+      }
+    },
+    "visual": {
+      "balanceNote": "Dashed = the song's own smoothed contour",
+      "clayNote": "Centre line = mono (M), width = side (S)",
+      "infrasonic": "Infrasonic",
+      "mono": "Mono 120 Hz",
+      "lowCut": "Low cut 25 Hz",
+      "width": "Width +0.8 dB",
+      "colorNote": "Peaks rounded, envelope tightened; 2nd and 3rd harmonics added above 150 Hz",
+      "waveform": "Waveform",
+      "spectrum": "Spectrum",
+      "below150": "Untouched below 150 Hz",
+      "newHarmonics": "Dark = added 2nd and 3rd harmonics",
+      "limitNote": "Dashed = Ceiling −1.0 dBTP",
+      "limitChain": "Gain +3.8 dB → 2 ms lookahead → 8× interpolated peak → gain ≤ 1 → hard-clamp safety"
+    }
+  },
+  "glaze": {
+    "title": "It listens to the song first,<br/>then decides <em>how far to push</em>.",
+    "lead": "GLAZE doesn't just turn every knob up at once. Once playback starts it listens for 15–30 seconds, measuring the song's loudness, dynamics, spectrum and attacks to build a profile and a plan; the knob only sets how far to push toward this song's ideal master. At 0 nothing moves, and your manual settings are always the floor.",
+    "phases": ["Not learned", "Listening", "Calibrating", "Locked"],
+    "statusLabel": "GLAZE status",
+    "hint": "Drag up / down · ⌘ / Ctrl for fine · scroll for small steps · double-click resets to 35",
+    "drivenTitle": "Drives 7 parameters",
+    "manual": "Manual",
+    "autoIncrement": "Auto increment",
+    "drivenBody": "Actual value = manual value + auto increment, capped at each module's limit. The auto increment only grows with GLAZE and never cancels out your changes.",
+    "targetTitle": "Target loudness (illustrative)",
+    "targetBody": "Set by the style and GLAZE together, then narrowed by each module's limits; at the edge of dynamics protection it stops pushing and the status shows “Limited”.",
+    "styleTitle": "Style · blended per song",
+    "styles": ["Warm", "Punchy", "Clean"],
+    "styleBody": "Or pick one yourself: Warm is thick and round without harshness, Punchy keeps the drums hitting, Clean stays clear with less compression.",
+    "link": "What the profile measures, how the plan is made, when calibration ends"
+  },
+  "showcase": {
+    "title": "One panel, <em>everything at a glance</em>.",
+    "lead": "Meters, spectrum, GLAZE and the four cards laid out in processing order; English and Chinese, scalable from 70 % to 200 %. What you see below is the plugin's real rendering, not a mock-up.",
+    "spots": [
+      { "title": "Meters and spectrum", "body": "Input / output levels, LUFS, true peak and a third-octave spectrum; manual and automatic changes are drawn on the same graph." },
+      { "title": "GLAZE", "body": "One knob. It listens for 15–30 seconds to settle on a plan, then pushes toward this song's ideal master; the denser the crackle, the further it's pushing." },
+      { "title": "A / B and Match", "body": "Switch between processed and original in one click; with Match on, the louder side is turned down by the measured difference, so you compare tone, not volume." },
+      { "title": "Four cards", "body": "BALANCE → CLAY → COLOR → LIMIT in processing order; the violet numbers are GLAZE's auto increment right now." }
+    ],
+    "altZh": "Celadon plugin interface in Chinese: meters and spectrum at the top, the GLAZE knob in the middle, and the BALANCE, CLAY, COLOR and LIMIT cards at the bottom",
+    "altEn": "Celadon plugin interface in English: meters and spectrum at the top, the GLAZE knob in the middle, and the BALANCE, CLAY, COLOR and LIMIT cards at the bottom",
+    "caption": "Real plugin rendering · 2× of the 1200 × 820 canvas · GLAZE 45 %",
+    "langGroup": "Interface language",
+    "compareBody": "Same song, same moment. At 0 % the glaze is smooth and everything follows your manual settings; at 90 % the crackle is denser, the glaze deeper and the particles busier — this is how the plugin draws how far it's pushing.",
+    "dragHint": "Drag the divider (or use ← →)",
+    "alt0": "GLAZE 0 %: smooth glaze, no crackle",
+    "alt90": "GLAZE 90 %: dense crackle, deep glaze, many particles",
+    "rangeLabel": "Divider position between GLAZE 0 % and 90 %",
+    "rangeValue": "{{pct}} % of the image shows GLAZE 90 %"
+  },
+  "listen": {
+    "title": "Same song, <em>level-matched</em>.",
+    "lead": "The original and the Celadon version are aligned sample by sample and play at the same loudness by default: you compare the sound, not the volume. Switching keeps your place; turn Match off to hear the real loudness difference. Headphones recommended.",
+    "disclaimer": "All tracks are Max's own work, for listening only. The clips on this page are AAC-compressed; the plugin's own processing involves no compression.",
+    "link": "How level-matched A / B works in the plugin",
+    "loadError": "Couldn't load the audio. Try again in a moment.",
+    "tracks": "Tracks",
+    "play": "Play",
+    "pause": "Pause",
+    "version": "Version",
+    "original": "B Original",
+    "celadon": "A Celadon",
+    "match": "Match",
+    "loudness": "Loudness",
+    "truePeak": "True peak",
+    "vsOriginal": "vs original",
+    "footer": "{{settings}} · clip from {{from}}, {{seconds}} s · matched at {{lufs}} LUFS · with the player focused, press <kbd>B</kbd> to switch and Space to play / pause"
+  },
+  "judgement": {
+    "title": "So you can judge it, <em>not just trust it</em>.",
+    "lead": "The hardest part of mastering isn't the processing — it's the judgement. Celadon treats hearing the difference clearly as a feature: level matching, difference listening and a reference, plus a bit-exact promise written into the tests.",
+    "rows": [
+      {
+        "title": "Level-matched A / B",
+        "en": "",
+        "body": "Measures the real loudness difference across the whole chain and turns the louder side down to match; it only attenuates, never boosts, and the meters still show the master before attenuation. Tell “better” from “just louder”."
+      },
+      { "title": "Listen to the difference", "en": "", "body": "The headphones on the LIMIT card: hear only what's being removed. Whether the drums went flat or the bass got muddy, you'll hear it straight away." },
+      { "title": "Reference learning", "en": "", "body": "Route a reference track to the host's external sidechain; after 10 seconds of usable audio you get a 27-band relative spectral target. The reference never reaches the main output." }
+    ],
+    "artOriginal": "B Original",
+    "artMatched": "A matched −4.8 dB",
+    "artDiff": "only what's removed",
+    "artRef": "Sidechain 10 / 10 s · reference ready",
+    "link": "Full guide to monitoring",
+    "bitsEn": "",
+    "bitsTitle": "Bit-exact contract",
+    "bitsBody": "With GLAZE at 0, or modules at zero or bypassed, the output equals the input exactly; at any block size, SIMD or scalar, idle-skipping or always running — identical bit for bit.",
+    "bitsRows": ["GLAZE 0 vs reference chain", "SIMD vs scalar", "Block size 17 vs 2048"],
+    "releaseEn": "",
+    "releaseTitle": "Release safety",
+    "releaseBody": "Normalisation preview (attenuation only), codec margin and TPDF dither. Anything you should switch off before export, the interface keeps reminding you about.",
+    "releaseStats": ["LUFS preview", "dB max codec margin", "bit TPDF"]
+  },
+  "algorithms": {
+    "title": "The algorithms on paper — <em>formulas and constants included</em>.",
+    "lead": "Every stage's structure, formulas and constants are written out: what's done, what's deliberately left out and why — all backed by verification records.",
+    "allLink": "All algorithm pages",
+    "items": [
+      {
+        "title": "Upward masking transfer",
+        "body": "With Recover and Tame both on, a dominant band being pulled down hands part of its cut to a higher neighbour that still has content and sits within 16 dB; A-weighting brings the net gain back near 0, capped at ±0.45 dB.",
+        "art": "Tame's share → the band above"
+      },
+      {
+        "title": "Triangular attack · fast release after short overloads",
+        "body": "A two-stage moving average replaces the rectangular one: the attack ramp has smooth corners, the gain arrives exactly at the peak, and constant gain still returns precisely to 1. After an overload shorter than about 70 ms, the slow envelope isn't allowed below the fast one for half a window.",
+        "art": "Light = rectangular window · dark = two-stage average (smooth corners)"
+      },
+      {
+        "title": "Glue presses low, mid and high separately",
+        "body": "Meters and statistics still follow the linked envelope (100 Hz high-passed sidechain, 2:1, 6 dB knee). If the low band (below ≈180 Hz) or high band (above ≈5 kHz) is lighter on its own, its gain can sit up to 3.2 dB above the linked gain, or go 0.6 dB deeper. When the vocal comes in, the bass no longer ducks with it.",
+        "art": "Light = linked gain · dark = per-band gain after the split"
+      }
+    ]
+  },
+  "numbers": {
+    "intro": "All taken from verification records. Percentages are a single audio thread's processing time divided by the block's playback time — not total CPU. The test count is the full suite on Linux and Windows before the 0.1.8.6 release.",
+    "stats": [
+      { "unit": "bands", "label": "Dynamic spectral balance", "note": "Third-octave, 40 Hz – 16 kHz" },
+      { "unit": "×", "label": "True-peak interpolation", "note": "8 phases × 64 taps — the peak it limits is the peak it measures" },
+      { "unit": "%", "label": "Audio-thread budget", "note": "48 kHz · M2 Pro · Release · UI closed" },
+      { "unit": "", "label": "Automated test assertions", "note": "Full suite on Linux GCC and MSVC + Wine · 0 failures" },
+      { "unit": "dB", "label": "True-peak reconstruction headroom", "note": "Worst case under a 16× reference detector still below Ceiling" },
+      { "unit": "ms", "label": "Total latency", "note": "48 kHz · 2 ms lookahead · compensated by the host" }
+    ]
+  },
+  "get": {
+    "title": "Made for myself, <em>shared with friends</em>.",
+    "lead": "Celadon isn't commercial and isn't for sale. Max and a few friends use it; pick the installer for your computer, then rescan plug-ins in your host.",
+    "system": "System",
+    "arch": "Arch",
+    "firstRun": "First run",
+    "platforms": [
+      {
+        "req": "macOS 12 Monterey or later",
+        "formats": "AU · VST3 · Standalone",
+        "arch": "Separate installers for Apple silicon and Intel",
+        "note": "Check About This Mac → Chip to pick one. The installer isn't notarised: the first time, go to Privacy & Security and click Open Anyway."
+      },
+      {
+        "req": "Windows 10 / 11, 64-bit",
+        "formats": "VST3 · Standalone",
+        "arch": "x64 · static runtime, no VC++ redistributable needed",
+        "note": "The installer isn't code-signed: in SmartScreen, click More info → Run anyway."
+      }
+    ],
+    "install": "Install and compatibility",
+    "changelog": "Changelog"
+  }
+}

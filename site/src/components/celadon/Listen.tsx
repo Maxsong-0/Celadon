@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { Em, LinkArrow, SectionHead } from './Eyebrow';
 import { useReveal } from '@/lib/reveal';
 import { cn } from '@/lib/utils';
@@ -11,26 +12,23 @@ const FADE = 0.025; // 切换 A / B 的交叉淡化（秒）：够短听不出�
 /** 肆 · 试听：同一段音乐的原声与 Celadon 两版，默认等响；清单为空时整节不显示。 */
 export default function Listen() {
   const root = useRef<HTMLElement>(null);
+  const { t } = useTranslation('home');
   useReveal(root);
   if (!tracks.length) return null;
   return (
     <section id="listen" ref={root} className="section relative">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
         <SectionHead
-          chapter={{ n: '肆', label: '试听', en: 'Listen' }}
-          title={
-            <>
-              同一首歌，<Em>等响</Em>对比。
-            </>
-          }
-          lead="原声与 Celadon 两版逐样本对齐，默认对齐到同一响度播放：只比声音，不比音量。切换时位置不变；关掉「等响」听真实的响度差。建议戴耳机。"
+          chapter={{ n: '肆', label: t('chapters.listen.label'), en: t('chapters.listen.en') }}
+          title={<Trans t={t} i18nKey="listen.title" components={{ em: <Em /> }} />}
+          lead={t('listen.lead')}
         />
         <div data-reveal className="mt-16">
           <Player />
         </div>
         <div data-reveal className="mt-6 flex flex-wrap items-baseline justify-between gap-4">
-          <p className="text-[13px] text-ink-4">曲目均为 Max 的原创作品，仅供试听。页面里是 AAC 压缩后的片段；插件本身的处理不经过任何压缩。</p>
-          <LinkArrow to="/docs/listening">插件里怎么做等响 A / B</LinkArrow>
+          <p className="text-[13px] text-ink-4">{t('listen.disclaimer')}</p>
+          <LinkArrow to="/docs/listening">{t('listen.link')}</LinkArrow>
         </div>
       </div>
     </section>
@@ -63,7 +61,8 @@ function Player() {
   const [matched, setMatched] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  const { t } = useTranslation('home');
   const [position, setPosition] = useState(0);
   const engine = useRef<Engine | null>(null);
   const buffers = useRef(new Map<string, Record<Which, AudioBuffer>>());
@@ -108,7 +107,7 @@ function Player() {
 
   const start = useCallback(
     async (from: number) => {
-      setError(null);
+      setError(false);
       const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (!engine.current) {
         const ctx = new Ctx();
@@ -125,7 +124,7 @@ function Player() {
         pair = await load(live.current.track, e.ctx);
       } catch {
         setLoading(false);
-        setError('音频没取到，稍后再试。');
+        setError(true);
         return;
       }
       setLoading(false);
@@ -224,7 +223,7 @@ function Player() {
     <div className="slab" onKeyDown={onKey}>
       <div className="slab-core p-5 sm:p-8">
         {tracks.length > 1 ? (
-          <div role="tablist" aria-label="曲目" className="mb-6 flex flex-wrap gap-x-8 gap-y-2 border-b border-line">
+          <div role="tablist" aria-label={t('listen.tracks')} className="mb-6 flex flex-wrap gap-x-8 gap-y-2 border-b border-line">
             {tracks.map((t, i) => (
               <button
                 key={t.id}
@@ -252,7 +251,7 @@ function Player() {
           <button
             type="button"
             onClick={() => (playing ? pause() : void start(position))}
-            aria-label={playing ? '暂停' : '播放'}
+            aria-label={playing ? t('listen.pause') : t('listen.play')}
             className="grid size-14 place-items-center rounded-full bg-ink text-paper transition-transform duration-500 ease-glaze hover:scale-105 active:scale-95"
           >
             {loading ? (
@@ -272,11 +271,11 @@ function Player() {
             {fmt(position)} / {fmt(duration)}
           </span>
 
-          <div role="group" aria-label="版本" className="inline-flex rounded-full bg-ink/5 p-1 ring-1 ring-ink/8">
+          <div role="group" aria-label={t('listen.version')} className="inline-flex rounded-full bg-ink/5 p-1 ring-1 ring-ink/8">
             {(
               [
-                ['original', 'B 原声'],
-                ['celadon', 'A Celadon']
+                ['original', t('listen.original')],
+                ['celadon', t('listen.celadon')]
               ] as const
             ).map(([v, label]) => (
               <button
@@ -294,29 +293,34 @@ function Player() {
           <label className="inline-flex cursor-pointer items-center gap-2.5 text-[13px] text-ink-2">
             <input type="checkbox" checked={matched} onChange={e => setMatched(e.target.checked)} className="peer sr-only" />
             <span className="relative h-5 w-9 rounded-full bg-ink/15 transition-colors duration-300 peer-checked:bg-c700 peer-focus-visible:ring-2 peer-focus-visible:ring-c500 peer-focus-visible:ring-offset-2 after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-paper after:transition-transform after:duration-300 peer-checked:after:translate-x-4" aria-hidden="true" />
-            等响
+            {t('listen.match')}
           </label>
 
           <dl className="ml-auto flex gap-6 text-[12px] text-ink-4">
             <div>
-              <dt>响度</dt>
+              <dt>{t('listen.loudness')}</dt>
               <dd className="mt-0.5 font-mono text-[13px] text-ink-2 tabular-nums">{version.lufs.toFixed(1)} LUFS</dd>
             </div>
             <div>
-              <dt>真峰值</dt>
+              <dt>{t('listen.truePeak')}</dt>
               <dd className="mt-0.5 font-mono text-[13px] text-ink-2 tabular-nums">{version.truePeak.toFixed(1)} dBTP</dd>
             </div>
             <div>
-              <dt>比原声</dt>
+              <dt>{t('listen.vsOriginal')}</dt>
               <dd className="mt-0.5 font-mono text-[13px] text-ink-2 tabular-nums">{diff >= 0 ? '+' : '−'}{Math.abs(diff).toFixed(1)} dB</dd>
             </div>
           </dl>
         </div>
 
         <p className="mt-5 text-[12.5px] text-ink-4">
-          {track.settings} · 片段 {fmt(track.from)} 起 {Math.round(track.seconds)} 秒 · 等响电平 {track.matchLufs} LUFS · 焦点在播放器里时按 <kbd className="font-mono">B</kbd> 切换、空格播放 / 暂停
+          <Trans
+            t={t}
+            i18nKey="listen.footer"
+            values={{ settings: track.settings, from: fmt(track.from), seconds: Math.round(track.seconds), lufs: track.matchLufs }}
+            components={{ kbd: <kbd className="font-mono" /> }}
+          />
         </p>
-        {error ? <p className="mt-3 text-[13px] text-warn">{error}</p> : null}
+        {error ? <p className="mt-3 text-[13px] text-warn">{t('listen.loadError')}</p> : null}
       </div>
     </div>
   );

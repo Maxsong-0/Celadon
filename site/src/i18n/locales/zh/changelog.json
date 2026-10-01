@@ -1,1 +1,18 @@
-{}
+{
+  "pageTitle": "更新日志 · Celadon",
+  "chapter": { "label": "更新日志", "en": "Changelog" },
+  "heading": "每一窑，<em>改了什么</em>。",
+  "lead": "新的在上。只记听得见、用得着的变化——听感、功能、兼容、修复。版本号就是插件顶栏上显示的那个。",
+  "pending": "插件已经到 {{version}}，这一版的记录还在写。",
+  "listLabel": "版本",
+  "current": "当前版本",
+  "download": "下载这一版",
+  "kinds": {
+    "new": "新增",
+    "sound": "听感",
+    "ui": "界面",
+    "compat": "兼容",
+    "perf": "性能",
+    "fix": "修复"
+  }
+}

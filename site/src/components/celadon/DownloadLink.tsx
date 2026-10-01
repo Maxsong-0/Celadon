@@ -64,7 +64,7 @@ export function DownloadButtonFace({ pkg }: { pkg: ReleasePackage | null }) {
   return (
     <>
       {t('downloadButton.direct', { platform: t(`pkg.${pkg.id}`) })}
-      <span className="sr-only"> ({PLUGIN_VERSION})</span>
+      <span className="sr-only">{t('downloadButton.srVersion', { version: PLUGIN_VERSION })}</span>
       {/* 下载图标悬停时往下沉，不走斜箭头的斜移 */}
       <span className="btn-island-icon bg-white/15 group-hover:translate-x-0 group-hover:translate-y-0.5">
         <DownloadGlyph />

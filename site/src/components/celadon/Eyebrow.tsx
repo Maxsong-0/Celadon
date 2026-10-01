@@ -16,23 +16,29 @@ export interface ChapterProps {
   /** 中文大写序号：壹 贰 叁 肆 伍 陆 柒 捌 */
   n: string;
   label: string;
+  /** 标签下的英文斜体；英文页传空串（标签本身就是英文） */
   en: string;
   align?: 'left' | 'center';
   className?: string;
 }
 
-/** 章节标记：衬线大写数字 + 细线 + 中文标签 + 英文斜体。像书的章首，不像按钮。 */
+/**
+ * 章节标记：衬线大写数字 + 细线 + 标签 + 英文斜体。像书的章首，不像按钮。
+ * 中文页：中文标签 + 英文斜体；英文页：英文标签（大写）、斜体为空不画。大写序号「壹贰叁」两种语言都保留（品牌装饰，Max 2026-10-01 定）。
+ */
 export function Chapter({ n, label, en, align = 'left', className }: ChapterProps) {
   return (
     <p className={cn('flex items-center gap-4 text-ink-3', align === 'center' && 'justify-center', className)}>
-      <span className="font-serif text-[28px] leading-none text-c600" aria-hidden="true">
+      <span className="font-serif text-[28px] leading-none text-c600" aria-hidden="true" lang="zh-CN">
         {n}
       </span>
       <span className="h-px w-12 bg-ink/20" aria-hidden="true" />
-      <span className="text-[13px] tracking-[0.2em]">{label}</span>
-      <span className="display text-[13px] italic text-ink-4" style={{ fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
-        {en}
-      </span>
+      <span className="text-[13px] tracking-[0.2em] [&:lang(en)]:uppercase">{label}</span>
+      {en ? (
+        <span className="display text-[13px] italic text-ink-4" style={{ fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
+          {en}
+        </span>
+      ) : null}
     </p>
   );
 }
@@ -60,7 +66,7 @@ export function SectionHead({
 }
 
 /** 标题里的强调词：实色釉青，不用渐变（渐变字全站只留首屏一处）。 */
-export function Em({ children }: { children: ReactNode }) {
+export function Em({ children }: { children?: ReactNode }) {
   return <span className="text-c700">{children}</span>;
 }
 

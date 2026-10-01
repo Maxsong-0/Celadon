@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import SplitText from '@/components/react-bits/SplitText';
 import Magnet from '@/components/react-bits/Magnet';
 import GlazeKnob from './GlazeKnob';
@@ -9,6 +10,7 @@ import { gsap, useGSAP } from '@/lib/gsap';
 import { prefersReducedMotion } from '@/lib/utils';
 import { PLUGIN_VERSION } from '@/lib/site';
 import { tracks } from '@/content/listen';
+import { useLocale } from '@/i18n/locale';
 
 const Topography = lazy(() => import('@/components/react-bits/Topography'));
 
@@ -16,6 +18,9 @@ const Topography = lazy(() => import('@/components/react-bits/Topography'));
 export default function Hero() {
   const root = useRef<HTMLElement>(null);
   const [webgl, setWebgl] = useState(false);
+  const { t } = useTranslation('home');
+  // 逐字浮起：中文按字，英文按词（按字母拆会把单词拆散、字距也会跳）
+  const split = useLocale() === 'zh' ? 'chars' : 'words';
 
   useEffect(() => {
     if (prefersReducedMotion()) return;
@@ -73,34 +78,35 @@ export default function Hero() {
       <div className="mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-10 px-5 sm:px-8 lg:grid-cols-12 lg:gap-6 pb-24">
         <div className="lg:col-span-7 relative z-10">
           <p data-rise className="flex items-center gap-4 text-[13px] tracking-[0.2em] text-ink-3">
-            <span>青瓷 · 智能母带</span>
+            <span>{t('hero.eyebrow')}</span>
             <span className="h-px w-10 bg-ink/20" aria-hidden="true" />
             <span className="font-mono text-[12px] tracking-[0.08em] text-ink-4">v{PLUGIN_VERSION}</span>
           </p>
-          <h1 className="mt-8 font-serif text-[clamp(2.8rem,7.4vw,6.6rem)] font-semibold leading-[1.04] tracking-[-0.02em] text-ink">
-            <SplitText text="一挂总轨，" tag="span" className="block" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
-            <SplitText text="就好听。" tag="span" className="block glaze-text" splitType="chars" delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
+          {/* 英文一句话比中文长得多（排成 4 行），字号收一档，主按钮仍落在首屏内 */}
+          <h1 className="mt-8 font-serif text-[clamp(2.8rem,7.4vw,6.6rem)] font-semibold leading-[1.04] tracking-[-0.02em] text-ink [&:lang(en)]:text-[clamp(2.4rem,5.4vw,5rem)]">
+            <SplitText text={t('hero.line1')} tag="span" className="block" splitType={split} delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
+            <SplitText text={t('hero.line2')} tag="span" className="block glaze-text" splitType={split} delay={45} duration={1.1} from={{ opacity: 0, y: 46 }} to={{ opacity: 1, y: 0 }} threshold={0} rootMargin="0px" textAlign="left" force3D={false} />
           </h1>
           <p data-rise className="display mt-6 text-[clamp(1.1rem,2vw,1.55rem)] italic text-ink-3" style={{ fontVariationSettings: '"opsz" 96, "SOFT" 60, "WONK" 1' }}>
-            Mastering, glazed — four steps, one knob.
+            {t('hero.tagline')}
           </p>
           <p data-rise className="mt-8 measure text-[17px] leading-[1.85] text-ink-2">
-            平衡、修坯、染色、限幅，四道工序按固定顺序走完。<b className="font-medium text-ink">GLAZE</b> 先听这首歌十几秒，再决定往它的理想母带推多远——你设的每个旋钮都是底，它只往上加。
+            <Trans t={t} i18nKey="hero.lead" components={{ b: <b className="font-medium text-ink" /> }} />
           </p>
           <div data-rise className="mt-11 flex flex-wrap items-center gap-x-8 gap-y-5">
             <Magnet padding={40} magnetStrength={14}>
               <DownloadLink className="group btn-island-primary no-underline">{pkg => <DownloadButtonFace pkg={pkg} />}</DownloadLink>
             </Magnet>
             {/* 试听一节有曲目才显示（见 Listen.tsx），这条链接跟着它 */}
-            {tracks.length ? <LinkArrow to="/#listen">先听一听</LinkArrow> : null}
+            {tracks.length ? <LinkArrow to="/#listen">{t('hero.listenLink')}</LinkArrow> : null}
           </div>
           {/* 每项左边一根细线作分隔；折行时（手机上每项一行、平板与窄桌面上第三项换行）行首那根由外层裁掉，各行左缘对齐。 */}
           <div data-rise className="mt-16 overflow-hidden">
             <dl className="-ml-[calc(1rem+1px)] flex flex-wrap gap-x-8 gap-y-3 text-[13px] text-ink-3">
               {[
-                ['格式', 'VST3 · AU · 独立运行'],
-                ['系统', 'macOS 12+ · Windows 10 / 11'],
-                ['延迟', '28.8 ms（48 kHz）']
+                [t('hero.format'), t('hero.formatValue')],
+                [t('hero.system'), t('hero.systemValue')],
+                [t('hero.latency'), t('hero.latencyValue')]
               ].map(([k, v]) => (
                 <div key={k} className="flex items-baseline gap-3 border-l border-ink/15 pl-4">
                   <dt className="text-[11px] tracking-[0.2em] text-ink-4">{k}</dt>
@@ -119,7 +125,7 @@ export default function Hero() {
       </div>
 
       <div data-rise className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[11px] tracking-[0.3em] text-ink-4" aria-hidden="true">
-        <span>向下 · 四道工序</span>
+        <span>{t('hero.scroll')}</span>
         <span className="block h-8 w-px bg-linear-to-b from-ink/35 to-transparent" />
       </div>
     </section>

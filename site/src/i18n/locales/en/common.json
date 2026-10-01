@@ -26,7 +26,8 @@
   },
   "downloadButton": {
     "version": "Download {{version}}",
-    "direct": "Download for {{platform}}"
+    "direct": "Download for {{platform}}",
+    "srVersion": " ({{version}})"
   },
   "footer": {
     "blurb": "A personal mastering plugin that Max and a few friends use — not for sale. Four stages run in a fixed order: balance → stereo clean-up → colour → limit. GLAZE listens to the song first, then decides how far to push.",

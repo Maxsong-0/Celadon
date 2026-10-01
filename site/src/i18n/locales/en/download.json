@@ -1,4 +1,96 @@
 {
+  "pageTitle": "Download · Celadon",
+  "chapter": {
+    "label": "Download",
+    "en": ""
+  },
+  "heading": "Pick the one <em>for your computer</em>.",
+  "intro": "Celadon {{version}}, released {{date}}. Two Mac installers split by chip, one for Windows; after installing, rescan plug-ins in your host.",
+  "introStale": "Celadon {{version}}: two Mac installers split by chip, one for Windows.",
+  "badgeComputer": "Right for this computer",
+  "badgeMac": "Right for this Mac",
+  "platforms": {
+    "mac-arm64": {
+      "chip": "Apple silicon",
+      "system": "M1 and later · macOS 12 or later",
+      "formats": "VST3 · AU · Standalone",
+      "how": "Apple menu → About This Mac: the Chip line says Apple M…"
+    },
+    "mac-x64": {
+      "chip": "Intel processor",
+      "system": "macOS 12 or later",
+      "formats": "VST3 · AU · Standalone",
+      "how": "About This Mac lists an Intel Processor. Also use this one for hosts running under Rosetta on an Apple silicon Mac."
+    },
+    "win-x64": {
+      "chip": "64-bit",
+      "system": "Windows 10 / 11 · no extra runtime needed",
+      "formats": "VST3 · Standalone",
+      "how": "Windows 11 is always 64-bit; on Windows 10, check System type under Settings → System → About."
+    }
+  },
+  "card": {
+    "download": "Download installer",
+    "srPlatform": " ({{os}} {{chip}})",
+    "file": "File",
+    "how": "How to tell",
+    "copyWhat": "the SHA-256 of the {{os}} {{chip}} installer",
+    "bytes": "{{bytes}} bytes",
+    "selectAll": "Click to select all"
+  },
+  "copy": {
+    "label": "Copy {{what}}",
+    "copy": "Copy",
+    "done": "Copied",
+    "failed": "Copy failed"
+  },
+  "stale": {
+    "title": "The installers haven't been updated to {{version}} yet.",
+    "body": "Until the new installers are up, older files aren't offered here, so nobody installs the wrong one. To see what's changed in this version:",
+    "link": "Changelog"
+  },
+  "firstLaunch": {
+    "kicker": "First launch",
+    "kickerEn": "",
+    "title": "The system will stop it once — <em>allow it</em> and you're done.",
+    "body": "The installers carry no Apple Developer ID signature and no Windows code signature, so the system blocks them the first time. Allow them as shown below; there's no need to turn off any security settings."
+  },
+  "macSteps": [
+    "Double-click the .pkg. When the system says it can't be opened, dismiss the alert — don't click <ui>Move to Trash</ui>.",
+    "Open <ui>System Settings → Privacy & Security</ui>, scroll down to the Celadon entry, click <ui>Open Anyway</ui> and enter your password. On macOS 12 it's under <ui>System Preferences → Security & Privacy</ui>.",
+    "In the installer, click <ui>Customize</ui> to install only the formats you need: VST3, AU or the standalone app."
+  ],
+  "winSteps": [
+    "Double-click the .exe and you'll see <ui>Windows protected your PC</ui>.",
+    "Click <ui>More info</ui>, then <ui>Run anyway</ui>.",
+    "On the wizard's <ui>Components</ui> page you can tick VST3 only; the standalone app is installed by default and appears as Celadon in the Start menu."
+  ],
+  "after": {
+    "kicker": "After installing",
+    "kickerEn": "",
+    "rescanLabel": "Rescan",
+    "rescan": "Rescan plug-ins in your host; Logic validates AUs automatically. If the host has been open all along, save your project and restart it once so it doesn't keep using the old version.",
+    "twiceLabel": "Don't install twice",
+    "twice": "If you've built it yourself in Xcode and it sits in your personal plug-in folder <code>~/Library/Audio/Plug-Ins/</code>, don't run the installer as well — your host would show two copies of Celadon.",
+    "verifyLabel": "Verify the files",
+    "verify": "Optional. On a Mac, run <code>shasum -a 256 file</code> in Terminal; on Windows, run <code>Get-FileHash file</code> in PowerShell. If the result matches the SHA-256 on the card (case doesn't matter), the file is intact. All three checksums are also in a single <sums>{{file}}</sums> file.",
+    "uninstallLabel": "Uninstall",
+    "uninstall": "On Windows, uninstall from Settings → Apps. On a Mac, delete Celadon from Components and VST3 under <code>/Library/Audio/Plug-Ins/</code>, and Celadon from Applications."
+  },
+  "installLink": "Install and compatibility",
+  "changesLink": "What's new in this version",
+  "requirements": "Celadon needs macOS 12 or later (Apple silicon or Intel), or 64-bit Windows 10 / 11.",
+  "notice": {
+    "macTitle": "This is a Mac, but this browser doesn't say which chip.",
+    "macBody": "Apple menu → <ui>About This Mac</ui>: if the <ui>Chip</ui> line says Apple M…, pick Apple silicon; if it lists an Intel <ui>Processor</ui>, pick Intel.",
+    "winArmTitle": "This is Windows on ARM.",
+    "winArmBody": "The installer is x64: it needs Windows 11 (which runs it through emulation), and only x64 hosts can load it — native ARM hosts can't.",
+    "unsupportedTail": "You can still download the installers below and move them to your computer."
+  },
+  "started": {
+    "tag": "Download started",
+    "body": "<code>{{file}}</code>, {{size}} MB. If it didn't start, <retry>click here</retry>. The system will stop it once when you install — allow it as shown below."
+  },
   "unsupported": {
     "phone": "This is a phone. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",
     "tablet": "This is a tablet. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",

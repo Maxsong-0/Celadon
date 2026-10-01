@@ -26,7 +26,8 @@
   },
   "downloadButton": {
     "version": "下载 {{version}}",
-    "direct": "下载 {{platform}}"
+    "direct": "下载 {{platform}}",
+    "srVersion": "（{{version}}）"
   },
   "footer": {
     "blurb": "自用母带插件，Max 和朋友在用，不商用、不售卖。四道工序按固定顺序走：平衡 → 修坯 → 染色 → 限幅；GLAZE 先听这首歌，再决定推多远。",

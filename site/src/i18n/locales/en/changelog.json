@@ -1,1 +1,18 @@
-{}
+{
+  "pageTitle": "Changelog · Celadon",
+  "chapter": { "label": "Changelog", "en": "" },
+  "heading": "What changed, <em>firing by firing</em>.",
+  "lead": "Newest first. Only changes you can hear or use — sound, features, compatibility, fixes. The version number is the one shown in the plugin's top bar.",
+  "pending": "The plugin is already at {{version}}; the notes for this version are still being written.",
+  "listLabel": "Versions",
+  "current": "Current version",
+  "download": "Download this version",
+  "kinds": {
+    "new": "New",
+    "sound": "Sound",
+    "ui": "Interface",
+    "compat": "Compatibility",
+    "perf": "Performance",
+    "fix": "Fix"
+  }
+}

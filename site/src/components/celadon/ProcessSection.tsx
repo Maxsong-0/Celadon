@@ -1,46 +1,16 @@
 import { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { Chapter } from './Eyebrow';
 import { cn, prefersReducedMotion, seeded } from '@/lib/utils';
 
+// 文字（名称、动作、导语、要点）在 i18n 的 home 命名空间 process.stages.<key>；这里只留结构。
 const stages = [
-  {
-    key: 'balance',
-    index: '01',
-    en: 'BALANCE',
-    zh: '平衡',
-    verb: '找回被遮住的',
-    lead: '27 段动态频谱平衡。参考不是别人的曲线，是这首歌自己抹平后的轮廓：突出的压下去，被盖住的提起来。',
-    facts: ['1/3 倍频程 27 段，40 Hz ～ 16 kHz', '死区 ±1 dB，每 hop 最多变 1 dB', '零延迟，Recover / Tame / Brighten / Speed']
-  },
-  {
-    key: 'clay',
-    index: '02',
-    en: 'CLAY',
-    zh: '修坯',
-    verb: '把坯体修干净',
-    lead: '施釉之前先修坯。切掉听不见的次声与直流，低频收成单声道，窄的歌适度加宽；先在这首歌上试一遍，会抬峰值就自动让开。',
-    facts: ['4 阶低切 10 ～ 60 Hz，线性相位收单', '只动 S：单声道回放完全不变', '峰值守护：修坯从不让峰值变高']
-  },
-  {
-    key: 'color',
-    index: '03',
-    en: 'COLOR',
-    zh: '染色',
-    verb: '添一层温度',
-    lead: 'Tone 跷跷板、Glue 分频施压的总线压缩、Heat 保留低频主体的电子管残差染色。密一点、暖一点，后面的限幅就能推得更响。',
-    facts: ['Heat 8× 过采样，150 Hz 以下原声不碰', 'Glue 低 / 中 / 高分开施压', '两侧更轻、奇对称：声像不飘']
-  },
-  {
-    key: 'limit',
-    index: '04',
-    en: 'LIMIT',
-    zh: '限幅',
-    verb: '推响不破',
-    lead: '前瞻真峰值限幅：8× 插值看见采样点之间的峰，1× 域施加增益。三角攻击沿、快慢双包络、持续低音的周期释放。',
-    facts: ['真峰值 ≤ Ceiling，另留 0.35 dB 重建余量', '短过载按快释放回来，长过载慢包络压住', 'Clip 软削波 4× 过采样先削圆']
-  }
-];
+  { key: 'balance', index: '01', en: 'BALANCE' },
+  { key: 'clay', index: '02', en: 'CLAY' },
+  { key: 'color', index: '03', en: 'COLOR' },
+  { key: 'limit', index: '04', en: 'LIMIT' }
+] as const;
 
 /**
  * 壹 · 四道工序：内容块居中时钉住，滚动推进四个阶段；右侧一块瓷面上的图跟着从「处理前」变到「处理后」。
@@ -53,6 +23,7 @@ export default function ProcessSection() {
   const fill = useRef<HTMLSpanElement>(null);
   const [current, setCurrent] = useState(0);
   const [reduced] = useState(prefersReducedMotion);
+  const { t } = useTranslation('home');
 
   useGSAP(
     () => {
@@ -111,8 +82,8 @@ export default function ProcessSection() {
     return (
       <section id="process" ref={root} className="section relative">
         <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
-          <Chapter n="壹" label="四道工序" en="The four steps" />
-          <p className="mt-6 text-[15px] text-ink-3">顺序固定，不可换：先修频谱问题，再加密度与谐波，最后管峰值。</p>
+          <Chapter n="壹" label={t('chapters.process.label')} en={t('chapters.process.en')} />
+          <p className="mt-6 text-[15px] text-ink-3">{t('process.intro')}</p>
           <div className="mt-12 space-y-20">
             {stages.map((s, i) => (
               <div key={s.key} className="grid gap-8 lg:grid-cols-12 lg:items-center">
@@ -138,12 +109,12 @@ export default function ProcessSection() {
     <section id="process" ref={root} className="section relative">
       <div ref={pin} className="mx-auto w-full max-w-[1280px] px-5 sm:px-8">
         <div className="flex flex-wrap items-baseline justify-between gap-4">
-          <Chapter n="壹" label="四道工序" en="The four steps" />
-          <p className="text-[13px] text-ink-4">顺序固定，不可换 · 滚动推进</p>
+          <Chapter n="壹" label={t('chapters.process.label')} en={t('chapters.process.en')} />
+          <p className="text-[13px] text-ink-4">{t('process.introShort')}</p>
         </div>
 
         {/* 手机：顶部 4 段细进度 */}
-        <ol className="mt-6 grid grid-cols-4 gap-2 lg:hidden" aria-label="当前工序">
+        <ol className="mt-6 grid grid-cols-4 gap-2 lg:hidden" aria-label={t('process.current')}>
           {stages.map((s, i) => (
             <li key={s.key} aria-current={i === current ? 'step' : undefined}>
               <span className={cn('block h-0.5 rounded-full transition-colors duration-500', i <= current ? 'bg-c600' : 'bg-ink/12')} />
@@ -154,7 +125,7 @@ export default function ProcessSection() {
 
         <div className="mt-8 grid gap-6 md:gap-10 lg:mt-12 lg:grid-cols-12 lg:gap-8 items-center">
           {/* 桌面：左侧竖排 01～04 刻度，细线随滚动填满 */}
-          <ol className="relative hidden lg:col-span-2 lg:block" aria-label="当前工序">
+          <ol className="relative hidden lg:col-span-2 lg:block" aria-label={t('process.current')}>
             <span className="absolute left-[5px] top-2 bottom-2 w-px bg-ink/12" aria-hidden="true" />
             <span ref={fill} className="absolute left-[5px] top-2 bottom-2 w-px origin-top scale-y-0 bg-c600" aria-hidden="true" />
             {stages.map((s, i) => (
@@ -181,7 +152,7 @@ export default function ProcessSection() {
                 <StageVisuals />
               </div>
             </div>
-            <p className="mt-3 text-center text-[12px] text-ink-4">示意图：处理前 → 处理后</p>
+            <p className="mt-3 text-center text-[12px] text-ink-4">{t('process.caption')}</p>
           </div>
         </div>
       </div>
@@ -190,6 +161,8 @@ export default function ProcessSection() {
 }
 
 function StageText({ s }: { s: (typeof stages)[number] }) {
+  const { t } = useTranslation('home');
+  const facts = t(`process.stages.${s.key}.facts`, { returnObjects: true });
   return (
     <>
       <div className="flex items-baseline gap-4">
@@ -198,12 +171,12 @@ function StageText({ s }: { s: (typeof stages)[number] }) {
       </div>
       {/* 名称一行、动作一行：窄栏里不会在「·」后面断成半截 */}
       <h3 className="mt-4 font-serif text-[clamp(1.9rem,3.2vw,2.75rem)] font-semibold leading-[1.18] text-ink">
-        <span className="block">{s.zh}</span>
-        <span className="block text-c700">{s.verb}</span>
+        <span className="block">{t(`process.stages.${s.key}.name`)}</span>
+        <span className="block text-c700">{t(`process.stages.${s.key}.verb`)}</span>
       </h3>
-      <p className="mt-4 md:mt-5 max-w-md text-[15px] md:text-[16px] leading-[1.8] md:leading-[1.85] text-ink-2">{s.lead}</p>
+      <p className="mt-4 md:mt-5 max-w-md text-[15px] md:text-[16px] leading-[1.8] md:leading-[1.85] text-ink-2">{t(`process.stages.${s.key}.lead`)}</p>
       <ul className="mt-6 space-y-2.5 hidden md:block">
-        {s.facts.map(f => (
+        {facts.map(f => (
           <li key={f} className="flex items-start gap-3 text-[14px] text-ink-3">
             <span className="mt-[9px] size-1.5 shrink-0 rounded-full bg-c500" />
             {f}
@@ -258,6 +231,7 @@ function Frame({ title, note }: { title: string; note: string }) {
 }
 
 function BalanceVisual() {
+  const { t } = useTranslation('home');
   const rnd = seeded(3);
   const bands = Array.from({ length: 27 }, (_, i) => {
     const contour = 250 - Math.sin((i / 26) * Math.PI) * 60 - i * 1.4; // 歌自己的轮廓
@@ -269,7 +243,7 @@ function BalanceVisual() {
   const contourPath = bands.map((b, i) => `${i === 0 ? 'M' : 'L'}${x0 + i * bw + bw / 2} ${b.contour}`).join(' ');
   return (
     <>
-      <Frame title="BALANCE · 27 BANDS" note="虚线 = 这首歌自己的平滑轮廓" />
+      <Frame title="BALANCE · 27 BANDS" note={t('process.visual.balanceNote')} />
       <path d={contourPath} fill="none" stroke="#0A4A57" strokeDasharray="4 5" strokeWidth="1.2" opacity="0.6" />
       <g data-before>
         {bands.map((b, i) => (
@@ -293,6 +267,7 @@ function BalanceVisual() {
 }
 
 function ClayVisual() {
+  const { t } = useTranslation('home');
   // 立体声宽度随频率：上下包络。处理前低频很宽、次声有能量；处理后 120 Hz 以下收成单声道、次声切掉、2 kHz 以上略宽。
   const xs = Array.from({ length: 40 }, (_, i) => 60 + (i / 39) * 520);
   const mid = 236;
@@ -315,20 +290,20 @@ function ClayVisual() {
   };
   return (
     <>
-      <Frame title="CLAY · STEREO WIDTH vs FREQUENCY" note="中线 = 单声道（M），带宽 = 侧声道（S）" />
+      <Frame title="CLAY · STEREO WIDTH vs FREQUENCY" note={t('process.visual.clayNote')} />
       <line x1="60" y1={mid} x2="580" y2={mid} stroke="#0A4A57" strokeWidth="1.2" opacity="0.7" />
       <g data-before>
         <path d={band(before)} fill="url(#pv-fill)" stroke="#33B3C4" strokeWidth="1" />
         <rect x="60" y={mid - 60} width="24" height="120" fill="#E8590C" opacity="0.18" />
-        <text x="72" y={mid + 84} textAnchor="middle" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#C2410C' }}>次声</text>
+        <text x="72" y={mid + 84} textAnchor="middle" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#C2410C' }}>{t('process.visual.infrasonic')}</text>
       </g>
       <g data-after>
         <path d={band(after)} fill="url(#pv-fill)" stroke="#127F90" strokeWidth="1.2" />
         <line x1="143" y1={mid - 110} x2="143" y2={mid + 110} stroke="#6A4DFF" strokeDasharray="3 4" strokeWidth="1" />
-        <text x="148" y={mid - 100} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6A4DFF' }}>收单 120 Hz</text>
+        <text x="148" y={mid - 100} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6A4DFF' }}>{t('process.visual.mono')}</text>
         <line x1="70" y1={mid - 110} x2="70" y2={mid + 110} stroke="#0E6473" strokeDasharray="3 4" strokeWidth="1" />
-        <text x="75" y={mid + 105} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>低切 25 Hz</text>
-        <text x="500" y={mid - 70} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#127F90' }}>加宽 +0.8 dB</text>
+        <text x="75" y={mid + 105} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>{t('process.visual.lowCut')}</text>
+        <text x="500" y={mid - 70} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#127F90' }}>{t('process.visual.width')}</text>
       </g>
       <text x="60" y="412" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>10 Hz</text>
       <text x="580" y="412" textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>20 kHz</text>
@@ -364,14 +339,15 @@ const SPEC = [
 const specX = (f: number) => 60 + (Math.log2(f / 40) / Math.log2(8000 / 40)) * 520;
 
 function ColorVisual() {
+  const { t } = useTranslation('home');
   const base = 392;
   const x150 = specX(150);
   return (
     <>
-      <Frame title="COLOR · TONE → GLUE → HEAT" note="尖峰削圆、包络收紧；150 Hz 以上添 2、3 次谐波" />
+      <Frame title="COLOR · TONE → GLUE → HEAT" note={t('process.visual.colorNote')} />
       {/* 上：波形 */}
       <line x1="60" y1="150" x2="580" y2="150" stroke="#DCE6E9" />
-      <text x="60" y="82" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>波形</text>
+      <text x="60" y="82" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>{t('process.visual.waveform')}</text>
       <g data-before>
         <polyline points={colorWave(false)} fill="none" stroke="#A3E0E8" strokeWidth="1.3" />
       </g>
@@ -380,10 +356,10 @@ function ColorVisual() {
         <polyline points={colorWave(true)} fill="none" stroke="#127F90" strokeWidth="1.5" />
       </g>
       {/* 下：谐波频谱 */}
-      <text x="60" y="262" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>频谱</text>
+      <text x="60" y="262" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>{t('process.visual.spectrum')}</text>
       <line x1="60" y1={base} x2="580" y2={base} stroke="#DCE6E9" />
       <line x1={x150} y1="268" x2={x150} y2={base} stroke="#0D1B21" strokeOpacity="0.35" strokeDasharray="3 4" />
-      <text x={x150 - 6} y="280" textAnchor="end" style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fill: '#586C74' }}>150 Hz 以下原声不碰</text>
+      <text x={x150 - 6} y="280" textAnchor="end" style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fill: '#586C74' }}>{t('process.visual.below150')}</text>
       {SPEC.map(p => (
         <rect key={p.f} x={specX(p.f) - 3} y={base - p.a * 100} width="6" height={p.a * 100} rx="2" fill={p.low ? '#67CAD7' : '#33B3C4'} />
       ))}
@@ -393,7 +369,7 @@ function ColorVisual() {
             <rect key={`${p.f}-${k}`} x={specX(p.f * k) - 2.5} y={base - p.a * (k === 2 ? 34 : 18)} width="5" height={p.a * (k === 2 ? 34 : 18)} rx="2" fill="#0A4A57" opacity="0.85" />
           ))
         )}
-        <text x="580" y={base - 58} textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>深色 = 新添的 2、3 次谐波</text>
+        <text x="580" y={base - 58} textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>{t('process.visual.newHarmonics')}</text>
       </g>
       <text x="60" y="412" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>40 Hz</text>
       <text x="580" y="412" textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>8 kHz</text>
@@ -402,6 +378,7 @@ function ColorVisual() {
 }
 
 function LimitVisual() {
+  const { t } = useTranslation('home');
   const rnd = seeded(5);
   const n = 120;
   const ceiling = 120; // y of ceiling line (top)
@@ -418,7 +395,7 @@ function LimitVisual() {
   }
   return (
     <>
-      <Frame title="LIMIT · TRUE PEAK, 8× DETECT / 1× APPLY" note="虚线 = Ceiling −1.0 dBTP" />
+      <Frame title="LIMIT · TRUE PEAK, 8× DETECT / 1× APPLY" note={t('process.visual.limitNote')} />
       <line x1="60" y1={ceiling} x2="580" y2={ceiling} stroke="#E8590C" strokeDasharray="5 5" strokeWidth="1.2" />
       <line x1="60" y1={mid * 2 - ceiling} x2="580" y2={mid * 2 - ceiling} stroke="#E8590C" strokeDasharray="5 5" strokeWidth="1.2" />
       <g data-before>
@@ -433,7 +410,7 @@ function LimitVisual() {
         ))}
         <text x="580" y={ceiling - 8} textAnchor="end" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>−7.9 LUFS · GR 2.6 dB</text>
       </g>
-      <text x="60" y="412" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>Gain +3.8 dB → 前瞻 2 ms → 8× 插值峰 → 增益 ≤ 1 → 硬钳位保险</text>
+      <text x="60" y="412" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>{t('process.visual.limitChain')}</text>
     </>
   );
 }
