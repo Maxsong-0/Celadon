@@ -52,7 +52,10 @@ xvfb-run -a taskset -c 5 build-ui/celadon_ui_snapshot --only spectrum-bench --se
 Windows 上也能编（CMake + MSVC 或 clang-cl，GUI 目标在 Windows 上不需要额外的依赖包），用法相同。
 
 `EXCLUDE_FROM_ALL`：默认构建（`celadon_tests`）不编它，工具坏了也不挡测试。它会改写用户设置文件里的语言 / 动效 / 默认大小
-（`~/.config/Celadon/Celadon.settings`），跑完会留下最后一种状态的设置。
+（`~/.config/Celadon/Celadon.settings`），跑完会留下最后一种状态的设置。`check` / `bench` / `digest` 开跑前都先放回同一基线
+（中文、不减少动效、默认大小 1），不受上一次留下的值影响（T-039：之前 `check` 漏了默认大小，跑过 `zh-zoom70` / `zh-zoom150` 后
+再跑检查，编辑器按 0.7 / 1.5 倍打开，T-032 的两条缓存检查必然失败，看起来像偶发）。`check` 要求编辑器正好 1200 × 820：
+虚拟屏幕至少 1240 × 900（`xvfb-run` 默认 1280 × 1024 够），否则第一条就报失败并停下。
 
 ## macOS 验证说明
 

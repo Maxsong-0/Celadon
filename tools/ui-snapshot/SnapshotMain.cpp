@@ -310,6 +310,15 @@ namespace
     void runSpectrumBench (int seconds);
     void runDigest();
 
+    // 用户设置文件跨进程保留（README「用法」末段）：上一次出图留下的值（zh-zoom70 / zh-zoom150 把默认大小写成 0.7 / 1.5，
+    // zh-reduced 留下减少动效）会被下一次运行的新编辑器读进来。检查、基准、摘要开跑前一律先放回这一份基线（T-039）。
+    void resetUiSettings (celadon::ui::UiSettings& settings)
+    {
+        settings.setLanguage (celadon::Language::chinese);
+        settings.setReduceMotion (false);
+        settings.setDefaultZoom (1.0);
+    }
+
     bool save (juce::Component& component, float scale, const juce::File& file)
     {
         const auto image = component.createComponentSnapshot (component.getLocalBounds(), true, scale);
@@ -351,9 +360,7 @@ int main (int argc, char* argv[])
 
     if (only.contains ("bench"))
     {
-        settings->setLanguage (celadon::Language::chinese);
-        settings->setReduceMotion (false);
-        settings->setDefaultZoom (1.0);
+        resetUiSettings (*settings);
         runBench (benchFrames);
         return 0;
     }
@@ -369,17 +376,14 @@ int main (int argc, char* argv[])
 
     if (only.contains ("digest"))
     {
-        settings->setLanguage (celadon::Language::chinese);
-        settings->setReduceMotion (false);
-        settings->setDefaultZoom (1.0);
+        resetUiSettings (*settings);
         runDigest();
         return 0;
     }
 
     if (only.contains ("check"))
     {
-        settings->setLanguage (celadon::Language::chinese);
-        settings->setReduceMotion (false);
+        resetUiSettings (*settings);   // 原先漏了默认大小：留下 0.7 / 1.5 时编辑器按那个大小打开，T-032 的缓存检查随之失败（T-039）
 
         Session session;
         session.processor.reset (dynamic_cast<CeladonAudioProcessor*> (createPluginFilter()));
@@ -509,6 +513,17 @@ namespace
 
             return *component;
         };
+
+        // 前提：编辑器按 1 倍打开（1200 × 820）。后面的坐标都按 1 倍——⑬～⑮ 的粒子带裁剪框 (0, 300, 1200, 260) 直接用编辑器坐标，
+        // ⑲ 要的「只作废圆点那一块」也只在物理像素比为整数时成立。默认大小不是 1、或虚拟屏幕放不下 1 倍（编辑器自动缩到屏幕里，
+        // 1280 × 1024 下 2 倍会变成 1.033 倍）时，缓存检查会报出与真实原因无关的失败（T-039：0.7 倍时裁剪框落在 GLAZE 标题下方、
+        // 「从缓存读 0 次」；小数像素比下圆点作废后重画的裁剪框是整颗胶囊、「排版了 3 次字」），这里先拦下、不往下跑。
+        check (editor.getWidth() == CeladonAudioProcessorEditor::baseWidth && editor.getHeight() == CeladonAudioProcessorEditor::baseHeight,
+               "checks run at zoom 1 (editor " + juce::String (editor.getWidth()) + " x " + juce::String (editor.getHeight())
+                   + "; needs 1200 x 820 and a virtual screen of at least 1240 x 900)");
+
+        if (failures > 0)
+            return failures;
 
         auto& knob = find (celadon::param::glazeAmount);
         auto& bubble = find ("value_bubble");
