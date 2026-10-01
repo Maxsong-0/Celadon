@@ -10,7 +10,7 @@
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
-      命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊呼吸帧不排版文字）；
+      命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字）；
       --only bench 跑绘制性能基准（T-032）：瓷面参照与分层的生成耗时、静态背景生成耗时，GLAZE 45 % 播放中 1 / 2 / 4 倍下
       编辑器定时器一帧、整帧重画与只重画粒子带的毫秒（墙钟与本线程 CPU）、各部件累计 paint 与缓存读写、状态胶囊呼吸帧，
       拖动 GLAZE 时消息线程的 CPU 占比，听原声（B）时的粒子带重画；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测；
@@ -1119,27 +1119,53 @@ namespace
             editor.advanceForSnapshot (0.05);
         }
 
-        // ⑲ R9-13：状态胶囊呼吸时只重画圆点那一小块（圆点 7 px + 3 px 光晕 + 1 px 抗锯齿），这一帧胶囊与顶栏一段文字都不排版；
-        //     整个胶囊重画时每段文字照画（跳过只按脏区判断，不会漏画）。
+        // ⑲ R9-13：状态胶囊整颗缓存（整数对齐）。内容变了（整颗作废）时每段文字照画进缓存；别处引起的重画（macOS 的脏矩形包围盒
+        //     把胶囊圈进去）只从缓存贴、不排版；呼吸只作废圆点那一小块（圆点 7 px + 3 px 光晕 + 1 px 抗锯齿），缓存只重画那一块，
+        //     胶囊与顶栏一段文字都不排版（跳过只按脏区判断，不会漏画）。
         {
             auto* pill = findFirst<StatusPill> (editor);
             auto* topBar = findFirst<TopBar> (editor);
             const auto area = pill != nullptr ? pill->getPulseArea() : juce::Rectangle<int>();
             check (pill != nullptr && topBar != nullptr && ! area.isEmpty() && area.getWidth() <= 16 && area.getHeight() <= 16
-                       && pill->getLocalBounds().contains (area),
-                   "T-032 status pill pulses by repainting only its dot (" + area.toString() + " of " + (pill != nullptr ? pill->getLocalBounds().toString() : juce::String ("-")) + ")");
+                       && pill->getLocalBounds().contains (area)
+                       && dynamic_cast<AlignedComponentCache*> (pill->getCachedComponentImage()) != nullptr,
+                   "T-032 status pill has an aligned image cache and pulses by invalidating only its dot (" + area.toString() + " of "
+                       + (pill != nullptr ? pill->getLocalBounds().toString() : juce::String ("-")) + ")");
 
             if (pill != nullptr && topBar != nullptr)
             {
-                const auto pillBefore = pill->getTextDraws(), barBefore = topBar->getTextDraws();
-                paintFrame (editor, target, 1.0f, editor.getLocalArea (pill, area));
-                const auto pillPulse = pill->getTextDraws() - pillBefore, barPulse = topBar->getTextDraws() - barBefore;
-                paintFrame (editor, target, 1.0f, editor.getLocalArea (pill, pill->getLocalBounds()));
-                const auto pillWhole = pill->getTextDraws() - pillBefore - pillPulse;
+                PaintProbe probe;
+                pill->addComponentListener (&probe);
+                const auto whole = editor.getLocalArea (pill, pill->getLocalBounds());
 
-                check (pillPulse == 0 && barPulse == 0 && pillWhole > 0,
-                       "T-032 a pulse frame lays out no text (pill " + juce::String (pillPulse) + ", top bar " + juce::String (barPulse)
-                           + "); a whole-pill repaint draws " + juce::String (pillWhole) + " text item(s)");
+                pill->repaint();   // 内容变了：整颗作废
+                const auto renderedBefore = pill->getTextDraws();
+                paintFrame (editor, target, 1.0f, whole);
+                const auto renderedText = pill->getTextDraws() - renderedBefore;
+                const auto renderedWrites = probe.cacheWrites;
+
+                probe.reset();     // 别处引起的重画：缓存没作废
+                const auto blitBefore = pill->getTextDraws();
+                paintFrame (editor, target, 1.0f, whole);
+                const auto blitText = pill->getTextDraws() - blitBefore;
+                const auto blitPaints = probe.paints, blitReads = probe.cacheReads, blitWrites = probe.cacheWrites;
+
+                probe.reset();     // 呼吸一帧：只作废圆点那一块
+                const auto pulseBefore = pill->getTextDraws(), barBefore = topBar->getTextDraws();
+                pill->repaint (area);
+                paintFrame (editor, target, 1.0f, editor.getLocalArea (pill, area));
+                const auto pillPulse = pill->getTextDraws() - pulseBefore, barPulse = topBar->getTextDraws() - barBefore;
+                const auto pulseWrites = probe.cacheWrites;
+                pill->removeComponentListener (&probe);
+
+                check (renderedText > 0 && renderedWrites == 1,
+                       "T-032 a content change re-renders the whole pill into its cache (" + juce::String (renderedText) + " text item(s))");
+                check (blitPaints == 1 && blitReads == 1 && blitWrites == 0 && blitText == 0,
+                       "T-032 repaints from elsewhere only blit the cached pill (" + juce::String (blitReads) + " read, "
+                           + juce::String (blitWrites) + " re-render, " + juce::String (blitText) + " text)");
+                check (pillPulse == 0 && barPulse == 0 && pulseWrites == 1,
+                       "T-032 a pulse frame re-renders only the dot into the cache and lays out no text (pill " + juce::String (pillPulse)
+                           + ", top bar " + juce::String (barPulse) + ")");
             }
         }
 
@@ -1410,21 +1436,28 @@ namespace
             std::cout << "  band-only paint       avg " << bandOnly.per (count).text() << "  (particle band dirty: macOS bounding-box case)" << std::endl;
             report ("band frames, scale " + juce::String (pixelScale), count);
 
-            // 状态胶囊呼吸的一帧：改后脏区只有圆点（顶栏、胶囊的 paint 都跳过与它不相交的文字）；改前呼吸每帧重画整个胶囊。
+            // 状态胶囊呼吸的一帧：改后只作废圆点那一块（缓存只重画那一块，顶栏、胶囊的 paint 都跳过与它不相交的文字）；
+            // 改前呼吸每帧 repaint() 整个胶囊、整颗重画。另量两种整颗胶囊的重画：缓存没作废（macOS 的包围盒把胶囊圈进去，
+            // 改后只贴图）与内容变了（整颗作废）。
             if (auto* pill = findFirst<celadon::ui::StatusPill> (editor))
             {
-                const auto pulse = editor.getLocalArea (pill, pill->getPulseArea());
+                const auto pulseArea = pill->getPulseArea();
+                const auto pulse = editor.getLocalArea (pill, pulseArea);
                 const auto whole = editor.getLocalArea (pill, pill->getLocalBounds());
-                Clock pulseTotal, wholeTotal;
+                Clock pulseTotal, wholeTotal, changedTotal;
 
                 for (int frame = 0; frame < count; ++frame)
                 {
+                    pill->repaint (pulseArea);
                     pulseTotal += paintTimed (editor, target, pixelScale, pulse);
                     wholeTotal += paintTimed (editor, target, pixelScale, whole);
+                    pill->repaint();
+                    changedTotal += paintTimed (editor, target, pixelScale, whole);
                 }
 
                 std::cout << "  status pill breathing frame (dirty " << pulse.toString() << ") avg " << pulseTotal.per (count).text()
-                          << "; whole pill " << whole.toString() << " avg " << wholeTotal.per (count).text() << std::endl;
+                          << "; whole pill " << whole.toString() << " avg " << wholeTotal.per (count).text()
+                          << "; whole pill after a content change avg " << changedTotal.per (count).text() << std::endl;
 
                 for (auto& p : probes)
                     p->reset();

@@ -65,6 +65,11 @@ namespace celadon::ui
     {
         content.dotColour = palette::c500;
         measure();
+
+        // 整颗胶囊缓存成按物理像素的图、整数对齐贴（R9-13）。聆听 / 校准中音乐在放，频谱每帧重画；macOS 只拿脏矩形的包围盒，
+        // 频谱与圆点合起来的包围盒总把胶囊圈进去，只缩小 repaint 矩形的话每帧照样重排全部文字。缓存后：呼吸只作废圆点那一小块，
+        // 缓存按那一块的裁剪重画（paint 跳过与脏区不相交的文字）；别处引起的重画只贴图。
+        setBufferedToAlignedImage (*this);
     }
 
     StatusPill::~StatusPill()
