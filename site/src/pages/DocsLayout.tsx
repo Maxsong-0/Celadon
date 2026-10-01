@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
+import { LocaleLink } from '@/i18n/locale';
 import Markdown from '@/components/docs/Markdown';
 import Toc from '@/components/docs/Toc';
 import { Eyebrow } from '@/components/celadon/Eyebrow';
@@ -84,7 +85,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                 {pages.map(p => {
                   const active = p.slug === slug;
                   return (
-                    <Link
+                    <LocaleLink
                       key={p.slug}
                       to={p.slug ? `${base}/${p.slug}` : base}
                       aria-current={active ? 'page' : undefined}
@@ -94,7 +95,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                       )}
                     >
                       {p.title}
-                    </Link>
+                    </LocaleLink>
                   );
                 })}
               </div>
@@ -108,7 +109,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                         const active = p.slug === slug;
                         return (
                           <li key={p.slug}>
-                            <Link
+                            <LocaleLink
                               to={p.slug ? `${base}/${p.slug}` : base}
                               aria-current={active ? 'page' : undefined}
                               className={cn(
@@ -117,7 +118,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                               )}
                             >
                               {p.title}
-                            </Link>
+                            </LocaleLink>
                           </li>
                         );
                       })}
@@ -129,11 +130,11 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
             <p className="mt-10 hidden text-[12px] leading-relaxed text-ink-4 lg:block">
               {kind === 'docs' ? (
                 <>
-                  说明文字与插件里的悬停提示一致。想看算法：<Link to="/algorithms" className="text-c700 underline decoration-c300">公开算法</Link>。
+                  说明文字与插件里的悬停提示一致。想看算法：<LocaleLink to="/algorithms" className="text-c700 underline decoration-c300">公开算法</LocaleLink>。
                 </>
               ) : (
                 <>
-                  只公开算法描述、结构与常数，不贴源码。想看怎么用：<Link to="/docs" className="text-c700 underline decoration-c300">使用说明</Link>。
+                  只公开算法描述、结构与常数，不贴源码。想看怎么用：<LocaleLink to="/docs" className="text-c700 underline decoration-c300">使用说明</LocaleLink>。
                 </>
               )}
             </p>
@@ -146,7 +147,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
               <p className="text-[12px] tracking-[0.2em] text-c700">{label}</p>
               <h1 className="mt-4 font-serif text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.12] tracking-tight text-ink">没有这一页</h1>
               <p className="mt-5 text-[17px] leading-[1.75] text-ink-2">
-                地址可能改过了。回到<Link to={base} className="mx-1 text-c700 underline decoration-c300 underline-offset-4">{label}</Link>首页，或按 ⌘K / Ctrl K 搜一下。
+                地址可能改过了。回到<LocaleLink to={base} className="mx-1 text-c700 underline decoration-c300 underline-offset-4">{label}</LocaleLink>首页，或按 ⌘K / Ctrl K 搜一下。
               </p>
             </header>
           ) : (
@@ -183,7 +184,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
 function Pager({ to, dir, title }: { to: string; dir: 'prev' | 'next'; title: string }) {
   const next = dir === 'next';
   return (
-    <Link
+    <LocaleLink
       to={to}
       rel={dir}
       className={cn(
@@ -197,7 +198,7 @@ function Pager({ to, dir, title }: { to: string; dir: 'prev' | 'next'; title: st
         {title}
         {next ? <Arrow className="group-hover:translate-x-0.5" /> : null}
       </span>
-    </Link>
+    </LocaleLink>
   );
 }
 

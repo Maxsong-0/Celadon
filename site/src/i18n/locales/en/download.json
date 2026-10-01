@@ -1,0 +1,11 @@
+{
+  "unsupported": {
+    "phone": "This is a phone. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",
+    "tablet": "This is a tablet. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",
+    "linux": "This is Linux. Celadon is available for Mac and Windows only for now.",
+    "chromeos": "This is ChromeOS. Celadon is available for Mac and Windows only for now.",
+    "old-windows": "This is Windows 7 / 8. Celadon needs Windows 10 or 11 (64-bit).",
+    "windows-32": "This is 32-bit Windows. Celadon is 64-bit only.",
+    "old-macos": "This Mac is running something older than macOS 12. Celadon needs macOS 12 (Monterey) or later."
+  }
+}

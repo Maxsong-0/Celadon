@@ -1,8 +1,11 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Trans, useTranslation } from 'react-i18next';
 import Nav from '@/components/celadon/Nav';
 import Footer from '@/components/celadon/Footer';
+import LangHint from '@/components/celadon/LangHint';
 import Home from '@/pages/Home';
+import { LocaleLink, LocaleSync, useLocalePath } from '@/i18n/locale';
 
 const DocsLayout = lazy(() => import('@/pages/DocsLayout'));
 const Download = lazy(() => import('@/pages/Download'));
@@ -16,73 +19,99 @@ function ScrollToTop() {
   return null;
 }
 
+/**
+ * 两种语言共用同一组页面（ADR-024）：英文挂在根下，中文挂在 /zh 下；页面组件不感知前缀，只读当前语言。
+ * 路径都是相对的（docs/* 等），由外层的 / 或 /zh 决定落在哪种语言。
+ */
+function pageRoutes() {
+  return (
+    <>
+      <Route index element={<Home />} />
+      <Route
+        path="docs/*"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <DocsLayout kind="docs" />
+          </Suspense>
+        }
+      />
+      <Route path="algorithms/references" element={<LocalizedRedirect to="/algorithms" />} />
+      <Route
+        path="algorithms/*"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <DocsLayout kind="algorithms" />
+          </Suspense>
+        }
+      />
+      <Route
+        path="download"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <Download />
+          </Suspense>
+        }
+      />
+      <Route
+        path="changelog"
+        element={
+          <Suspense fallback={<PageFallback />}>
+            <Changelog />
+          </Suspense>
+        }
+      />
+      <Route path="*" element={<NotFound />} />
+    </>
+  );
+}
+
 // 纸纹在 index.css 的 body::before（静态）；不再有全站点击火花与每帧重绘的噪点（设计规格-官网 第 1 节第 6 条）。
 export default function App() {
   return (
     <>
+      <LocaleSync />
       <ScrollToTop />
       <Nav />
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route
-          path="/docs/*"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <DocsLayout kind="docs" />
-            </Suspense>
-          }
-        />
-        <Route path="/algorithms/references" element={<Navigate to="/algorithms" replace />} />
-        <Route
-          path="/algorithms/*"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <DocsLayout kind="algorithms" />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/download"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <Download />
-            </Suspense>
-          }
-        />
-        <Route
-          path="/changelog"
-          element={
-            <Suspense fallback={<PageFallback />}>
-              <Changelog />
-            </Suspense>
-          }
-        />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+      <LangHint />
+      {/* 某页的界面短句第一次用到时要拉一下（按语言懒加载），这时只让页面区域显示占位，导航与页脚不动 */}
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/zh">{pageRoutes()}</Route>
+          <Route path="/">{pageRoutes()}</Route>
+        </Routes>
+      </Suspense>
       <Footer />
     </>
   );
 }
 
+function LocalizedRedirect({ to }: { to: string }) {
+  const localize = useLocalePath();
+  return <Navigate to={localize(to)} replace />;
+}
+
 function PageFallback() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-[60dvh] grid place-items-center pt-32">
       <div className="flex items-center gap-3 text-[13px] text-ink-4">
         <span className="size-2 rounded-full bg-c400 animate-pulse" />
-        正在开窑……
+        {t('pageLoading')}
       </div>
     </div>
   );
 }
 
 function NotFound() {
+  const { t } = useTranslation();
+  const link = 'text-c700 underline decoration-c300 mx-1';
   return (
     <main className="min-h-[70dvh] grid place-items-center pt-32 px-6 text-center">
       <div>
         <div className="display text-[96px] leading-none text-c300">404</div>
-        <p className="mt-4 font-serif text-2xl text-ink">这一页没烧出来。</p>
+        <p className="mt-4 font-serif text-2xl text-ink">{t('notFound.title')}</p>
         <p className="mt-2 text-ink-3 text-sm">
-          回到<a href="/" className="text-c700 underline decoration-c300 ml-1">首页</a>，或看看<a href="/docs" className="text-c700 underline decoration-c300 ml-1">使用说明</a>。
+          <Trans i18nKey="notFound.body" components={{ home: <LocaleLink to="/" className={link} />, docs: <LocaleLink to="/docs" className={link} /> }} />
         </p>
       </div>
     </main>

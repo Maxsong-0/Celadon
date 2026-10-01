@@ -6,7 +6,9 @@ import { CHECKSUMS_FILE, RELEASE, downloadHref, type PackageId, type ReleasePack
 import { ScrollTrigger } from '@/lib/gsap';
 import { onFontsLoaded } from '@/lib/fonts';
 import { scrollToAnchor } from '@/lib/anchor';
-import { PACKAGE_LABEL, UNSUPPORTED_TEXT, type Detection } from '@/lib/platform';
+import type { Detection } from '@/lib/platform';
+import { useTranslation } from 'react-i18next';
+import { useLocalePath } from '@/i18n/locale';
 import { useReveal } from '@/lib/reveal';
 import { PLUGIN_VERSION } from '@/lib/site';
 import { usePlatform } from '@/lib/usePlatform';
@@ -68,7 +70,8 @@ export default function Download() {
   const ready = RELEASE.version === PLUGIN_VERSION;
   const started = ready ? (RELEASE.packages.find(p => p.id === params.get('started')) ?? null) : null;
   const matched = detection.kind === 'match' ? detection.id : null;
-  const onDownload = (pkg: ReleasePackage) => navigate(startedPath(pkg), { replace: true });
+  const localize = useLocalePath();
+  const onDownload = (pkg: ReleasePackage) => navigate(localize(startedPath(pkg)), { replace: true });
 
   return (
     <main ref={root}>
@@ -272,6 +275,7 @@ const REQUIREMENTS = 'Celadon 要 macOS 12 及以上（Apple 芯片或 Intel）�
  * 识别可能在首帧之后才改判（异步问 CPU 架构），所以这块不进入场动画（data-reveal 只处理挂载时就在的元素）。
  */
 function DeviceNotice({ detection }: { detection: Detection }) {
+  const { t } = useTranslation('download');
   let title: ReactNode;
   let body: ReactNode;
   switch (detection.kind) {
@@ -288,7 +292,7 @@ function DeviceNotice({ detection }: { detection: Detection }) {
       body = <>安装包是 x64 版：要 Windows 11（靠系统转译运行），而且只有 x64 版的宿主加载得了，ARM 原生版的宿主加载不了。</>;
       break;
     case 'unsupported':
-      title = UNSUPPORTED_TEXT[detection.reason];
+      title = t(`unsupported.${detection.reason}`);
       body = <>{REQUIREMENTS}下面的安装包照样能下，传到电脑上再装。</>;
       break;
     default:
@@ -304,6 +308,7 @@ function DeviceNotice({ detection }: { detection: Detection }) {
 
 /** 「第一次打开」一节顶上：刚点了下载（一键直下跳过来，或点了上面的卡片）。下载被拦或没开始时还能再点一次。 */
 function StartedNotice({ pkg }: { pkg: ReleasePackage }) {
+  const { t } = useTranslation();
   return (
     <div role="status" className="slab mb-16 max-w-3xl p-1.5 sm:mb-20">
       <div className="slab-core p-7 sm:p-8">
@@ -312,7 +317,7 @@ function StartedNotice({ pkg }: { pkg: ReleasePackage }) {
           下载已开始
         </p>
         <p className="mt-4 font-serif text-[clamp(1.25rem,2.2vw,1.5rem)] font-medium leading-snug text-ink">
-          Celadon {RELEASE.version} · {PACKAGE_LABEL[pkg.id]}
+          Celadon {RELEASE.version} · {t(`pkg.${pkg.id}`)}
         </p>
         <p className="mt-3 measure text-[15.5px] leading-[1.8] text-ink-2">
           <Code>{pkg.file}</Code>，{(pkg.bytes / 1e6).toFixed(1)} MB。没开始的话

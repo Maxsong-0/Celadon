@@ -1,7 +1,7 @@
 import { type ReactNode, isValidElement, Children, memo } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Link } from 'react-router-dom';
+import { LocaleLink } from '@/i18n/locale';
 import { slugify } from '@/content';
 import { figures } from './Figures';
 
@@ -37,7 +37,7 @@ const components: Components = {
   },
   a: ({ href = '', children }) => {
     if (href.startsWith('/')) {
-      return <Link to={href}>{children}</Link>;
+      return <LocaleLink to={href}>{children}</LocaleLink>;
     }
     const external = /^https?:/.test(href);
     return (

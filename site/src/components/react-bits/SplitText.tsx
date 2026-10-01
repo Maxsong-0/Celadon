@@ -8,8 +8,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 // Celadon 改动：gsap 与插件统一从 @/lib/gsap 取（那里只注册一次）。
 import { gsap, ScrollTrigger, SplitText as GSAPSplitText, useGSAP } from '@/lib/gsap';
-// Celadon 改动：思源的 @font-face 是异步插入的（不挡首屏），等字体前先等声明到。
-import { cjkFontFaces } from '@/lib/fonts';
+// Celadon 改动：中文页的思源 @font-face 是异步插入的（不挡首屏），等字体前先等声明到；英文页立即就绪。
+import { fontFacesReady } from '@/lib/fonts';
 
 export interface SplitTextProps {
   text: string;
@@ -112,7 +112,7 @@ const SplitText: React.FC<SplitTextProps> = ({
       }
     };
     const timer = window.setTimeout(finish, 600);
-    cjkFontFaces
+    fontFacesReady()
       .then(() => {
         if (done) return;
         const cs = window.getComputedStyle(el);

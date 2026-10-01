@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { LocaleLink } from '@/i18n/locale';
 import { cn } from '@/lib/utils';
 
 /** 小胶囊标签：只留给说明页侧栏这类小场合；首页各节用 <Chapter>（设计规格-官网 第 1、3 节）。 */
@@ -80,11 +80,12 @@ export function LinkArrow({ to, children, className }: { to: string; children: R
       <ArrowUpRight />
     </>
   );
+  // 站内路径（不带语言前缀）按当前语言补 /zh；站外地址原样
   if (to.startsWith('/')) {
     return (
-      <Link to={to} className={cn('link-arrow', className)}>
+      <LocaleLink to={to} className={cn('link-arrow', className)}>
         {inner}
-      </Link>
+      </LocaleLink>
     );
   }
   return (

@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { LocaleLink } from '@/i18n/locale';
 import { ArrowUpRight, Em, LinkArrow, SectionHead } from './Eyebrow';
 import { useReveal } from '@/lib/reveal';
 
@@ -77,7 +77,7 @@ export default function AlgoTeaser() {
         <ul className="rule-list mt-16">
           {items.map(it => (
             <li key={it.to} data-reveal>
-              <Link to={it.to} className="group grid gap-6 py-10 no-underline md:grid-cols-[140px_minmax(0,1fr)_260px_24px] md:items-center md:gap-10">
+              <LocaleLink to={it.to} className="group grid gap-6 py-10 no-underline md:grid-cols-[140px_minmax(0,1fr)_260px_24px] md:items-center md:gap-10">
                 <div className="font-mono text-[12px] tracking-[0.18em] text-c700">{it.tag}</div>
                 <div>
                   <h3 className="font-serif text-[26px] font-semibold leading-snug text-ink transition-colors duration-300 group-hover:text-c700">{it.title}</h3>
@@ -85,7 +85,7 @@ export default function AlgoTeaser() {
                 </div>
                 <div className="max-w-[320px]">{it.art}</div>
                 <ArrowUpRight className="hidden md:block size-5 text-ink-4 transition-transform duration-500 ease-glaze group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-c700" />
-              </Link>
+              </LocaleLink>
             </li>
           ))}
         </ul>

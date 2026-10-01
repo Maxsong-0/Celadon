@@ -1,0 +1,55 @@
+{
+  "site": {
+    "title": "Celadon · Smart mastering plugin",
+    "description": "Celadon is a mastering plugin that runs four stages in a fixed order — BALANCE dynamic EQ, CLAY stereo clean-up, COLOR tone and glue, LIMIT true-peak limiting — while one GLAZE knob listens to the song and decides how far to push it. VST3 / AU for macOS (Apple silicon / Intel) and Windows x64."
+  },
+  "nav": {
+    "label": "Main",
+    "home": "Celadon home",
+    "process": "Process",
+    "listen": "Listen",
+    "algorithms": "Algorithms",
+    "docs": "Docs",
+    "changelog": "Changelog",
+    "download": "Download",
+    "search": "Search",
+    "searchLabel": "Search the docs and algorithms",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "menuTag": "Celadon",
+    "platforms": "VST3 · AU · macOS 12+ (Apple silicon / Intel) · Windows 10 / 11 x64"
+  },
+  "pkg": {
+    "mac-arm64": "Mac · Apple silicon",
+    "mac-x64": "Mac · Intel",
+    "win-x64": "Windows"
+  },
+  "downloadButton": {
+    "version": "Download {{version}}",
+    "direct": "Download for {{platform}}"
+  },
+  "footer": {
+    "blurb": "A personal mastering plugin that Max and a few friends use — not for sale. Four stages run in a fixed order: balance → stereo clean-up → colour → limit. GLAZE listens to the song first, then decides how far to push.",
+    "docs": "Docs",
+    "quickstart": "Quick start",
+    "glaze": "GLAZE and styles",
+    "listening": "Monitoring",
+    "faq": "FAQ",
+    "algorithms": "Algorithms",
+    "overview": "Signal chain overview",
+    "glazeAlgo": "GLAZE decisions and calibration",
+    "limitAlgo": "LIMIT true-peak limiting",
+    "verification": "Performance and verification",
+    "get": "Get it",
+    "download": "Download {{version}}",
+    "changelog": "Changelog",
+    "install": "Install and compatibility",
+    "copyright": "© 2026 Max Song · VST3 · AU · macOS 12+ · Windows 10 / 11",
+    "credits": "Site animation by GSAP; some components adapted from <link>React Bits</link> (MIT + Commons Clause)."
+  },
+  "pageLoading": "Opening the kiln…",
+  "notFound": {
+    "title": "This page didn't make it out of the kiln.",
+    "body": "Head back <home>home</home>, or browse the <docs>docs</docs>."
+  }
+}

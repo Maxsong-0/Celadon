@@ -11,7 +11,9 @@ import {
   type RefObject
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { LocaleLink, useLocalePath } from '@/i18n/locale';
+import { stripLocale } from '@/i18n/paths';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 import { allPages, loadMarkdown, mdSections, type SitePage } from '@/content';
@@ -218,6 +220,7 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
   const listId = `${uid}-list`;
   const optionId = (i: number) => `${uid}-opt-${i}`;
   const navigate = useNavigate();
+  const localize = useLocalePath();
   const location = useLocation();
 
   const [query, setQuery] = useState('');
@@ -327,11 +330,11 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
       if (anchor) window.open(anchor.href, '_blank', 'noopener');
       return;
     }
-    const here = location.pathname.replace(/\/+$/, '') || '/';
+    const here = stripLocale(location.pathname).replace(/\/+$/, '') || '/';
     const sameSpot = here === entry.page.path && safeDecode(location.hash.slice(1)) === (entry.id ?? '');
     onClose();
     if (!sameSpot) {
-      navigate(hrefOf(entry));
+      navigate(localize(hrefOf(entry)));
       return;
     }
     // 就在这一处：路由不会变，自己滚过去（等弹层解锁滚动之后）。
@@ -561,7 +564,7 @@ function ResultRow({
 }) {
   return (
     <div id={id} role="option" aria-selected={selected} onMouseMove={onHover} className={cn('rounded-xl transition-colors duration-200 ease-glaze', selected && 'bg-c100/40')}>
-      <Link to={hrefOf(entry)} tabIndex={-1} onClick={onClick} className="flex items-start gap-4 px-3 py-2.5 no-underline">
+      <LocaleLink to={hrefOf(entry)} tabIndex={-1} onClick={onClick} className="flex items-start gap-4 px-3 py-2.5 no-underline">
         <span className="min-w-0 flex-1">
           <span className={cn('block font-serif text-[15px] leading-snug', selected ? 'text-c800' : 'text-ink')}>
             {title}
@@ -575,7 +578,7 @@ function ResultRow({
           <span className={cn('mt-1 text-[13px] leading-[1.65] text-ink-3', browse ? 'block truncate' : 'line-clamp-2')}>{sub}</span>
         </span>
         <span className="shrink-0 pt-0.5 text-[11px] tracking-[0.18em] text-ink-4">{entry.page.kind === 'docs' ? '说明' : '算法'}</span>
-      </Link>
+      </LocaleLink>
     </div>
   );
 }
