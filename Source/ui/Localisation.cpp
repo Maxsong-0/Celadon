@@ -244,6 +244,20 @@ namespace celadon::ui
             { Text::warnNonFinite,      "已屏蔽 {0} 个异常音频块（NaN/Inf）", "Blocked {0} invalid audio blocks (NaN/Inf)" },
             { Text::debugBuild,         "Debug 构建：CPU 远高于 Release，只供调试",
                                         "Debug build: far higher CPU than Release, for debugging only" },
+
+            // ---- 曲风与交付（T-038）：选项顺序 = 参数 glaze_genre / glaze_delivery 的下标（ParameterIds.h；只许在末尾追加）。
+            // 三种 House 的名字中英文都写英文简称（Deep / Tech / Melodic；全名在悬停气泡里）：曲风名本来就是英文，选择器也放得下。
+            { Text::genreCaption,       "曲风",                     "Genre" },
+            { Text::genreGeneral,       "通用",                     "General" },
+            { Text::genreDeep,          "Deep",                     "Deep" },
+            { Text::genreTech,          "Tech",                     "Tech" },
+            { Text::genreMelodic,       "Melodic",                  "Melodic" },
+            { Text::deliveryCaption,    "交付",                     "Delivery" },
+            { Text::deliveryStandard,   "标准",                     "Standard" },
+            { Text::deliveryStreaming,  "流媒体",                   "Streaming" },
+            { Text::deliveryClub,       "俱乐部",                   "Club" },
+            // House 档暂定方案期间左下角的第二行（设计规格-曲风-House学习方式 第 7 节「气泡提示」；悬停气泡里也写）。
+            { Text::cornerHouseTip,     "从 drop 开始播放能学得更快", "Start playback at the drop to learn faster" },
         };
 
         static_assert (std::size (table) == (size_t) Text::numTexts, "Localisation 表的行数与 Text 的键数不一致：两边一起改");

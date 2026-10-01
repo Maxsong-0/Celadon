@@ -875,6 +875,21 @@ namespace celadon::ui
         repaint();
     }
 
+    void Segmented::setCaption (const juce::String& newCaption)
+    {
+        if (newCaption == caption)
+            return;
+
+        caption = newCaption;
+        repaint();
+    }
+
+    float Segmented::captionWidth() const
+    {
+        // 说明格：左内边距 10（与各项相同）+ 文字 + 8 + 1 px 细竖线 + 2（与各项之间的间隔相同）。
+        return caption.isEmpty() ? 0.0f : std::ceil (10.0f + textWidth (font, caption) + 8.0f + 1.0f + 2.0f);
+    }
+
     float Segmented::itemWidth (int index) const
     {
         const auto padding = look == Look::compact ? 6.0f : (look == Look::language ? 9.0f : 10.0f);
@@ -889,7 +904,7 @@ namespace celadon::ui
     int Segmented::getNaturalWidth() const
     {
         const auto inset = look == Look::compact ? 0.0f : 2.0f;
-        auto total = 2.0f * inset;
+        auto total = 2.0f * inset + captionWidth();
 
         for (int i = 0; i < labels.size(); ++i)
             total += itemWidth (i) + (i > 0 ? 2.0f : 0.0f);
@@ -900,7 +915,7 @@ namespace celadon::ui
     juce::Rectangle<float> Segmented::segmentBounds (int index) const
     {
         const auto inset = look == Look::compact ? 0.0f : 2.0f;
-        const auto area = getLocalBounds().toFloat().reduced (inset);
+        const auto area = getLocalBounds().toFloat().reduced (inset).withTrimmedLeft (captionWidth());
         const auto count = juce::jmax (1, labels.size());
         constexpr float gapBetween = 2.0f;
 
@@ -953,6 +968,18 @@ namespace celadon::ui
 
             case Look::compact:
                 break;
+        }
+
+        // 说明格（T-038 GLAZE 两侧的「曲风」「交付」）：灰字 + 细竖线，不可点。
+        if (caption.isNotEmpty())
+        {
+            const auto inset = look == Look::compact ? 0.0f : 2.0f;
+            const auto textArea = juce::Rectangle<float> (inset + 10.0f, 0.0f, textWidth (font, caption) + 2.0f, bounds.getHeight());
+            g.setFont (font);
+            g.setColour (palette::ink3);
+            g.drawText (caption, textArea, juce::Justification::centredLeft, false);
+            g.setColour (palette::divider);
+            g.fillRect (inset + captionWidth() - 3.0f, bounds.getHeight() * 0.25f, 1.0f, bounds.getHeight() * 0.5f);
         }
 
         const auto corner = look == Look::bordered ? 6.0f : (look == Look::compact ? 4.0f : (look == Look::language ? 5.0f : 4.0f));
