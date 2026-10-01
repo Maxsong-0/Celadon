@@ -24,7 +24,7 @@ namespace celadon::test
         {
             beginTest ("skeleton: empty after prepare and reset");
             glaze::SegmentLedger ledger;
-            ledger.prepare (48000.0);
+            ledger.prepare (48000.0, 4800);
             expect (ledger.getMode() == glaze::SegmentMode::none);
             expectEquals (ledger.getHeardSegments(), 0);
 
