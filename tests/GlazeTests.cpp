@@ -14,10 +14,10 @@
       6. 学习后响度随 GLAZE 单调上升；
       7. 四种风格的方向（温润 Glue 最多、冲击 Clip 最多、Heat 上限温润 > 冲击 > 通透、自动 Heat 只给风格底量 × 强度、自动权重和为 1；
          T-032 R6-01 起「温润 Heat 最多、通透最少」不再靠自动 Heat 顶到上限成立）；
-      8. T-032 R6-02（A7 分层，A11 收尾）：手动单独超某个模块的预算（受手动设置限制）时自动 Gain 照常推响，画像失配、保护层、校准、
-         约束反馈照常工作，但保护层与上游监视只核对自动部分——手动单独超预算的那一项不设约束，不把手动造成的超出当成自动的超限、
-         不磨光自动增益；「手动超预算」的项变了清空窗口，拧回预算以内不因旧窗口误动作；电平类自动全部撤回（手动 Gain 已超限幅预算）
-         时偏差、保护、校准、画像失配都不动作。
+      8. T-032 R6-02（A7 分层，A11 收尾）：手动单独超某个模块的预算（受手动设置限制：Heat / Glue / Clip）时自动 Gain 照常推响，画像失配、
+         保护层、校准、约束反馈照常工作，但保护层与上游监视只核对自动部分（每项有效上限 = max(风格上限, 手动单独用量)：手动单独超预算
+         的那一项不设约束）——不把手动造成的超出当成自动的超限、不磨光自动增益；「手动超预算」的项变了清空窗口，拧回预算以内不因旧窗口
+         误动作；电平类自动全部撤回（手动 Gain 已超限幅预算）时偏差、保护、校准、画像失配都不动作。
 
     GLAZE 0 的逐位对照为什么用参照链而不是把 v0.5 的输出摘要写成常数：摘要是 Mac（ARM、NEON 路径）上算的，Linux 服务器（x86、
     SSE2 / 标量路径）上同一份代码的浮点结果本来就可能不同，常数会让 CI 误报；参照链在每个平台上都验证「GLAZE 0 = 只有三个模块、
@@ -520,6 +520,7 @@ namespace celadon::test
             // T-032 R6-02：手动单独超某个模块的预算 vs 电平类自动全部撤回
             testManualHeatOverBudget();
             testManualGlueOverBudget();
+            testManualClipOverBudget();       // R6-02 收尾（A11）
             testAutomaticLevelWithdrawn();
         }
 
@@ -1399,24 +1400,27 @@ namespace celadon::test
         //    分开：画像失配、保护层、上游监视、校准与约束反馈都只在后者时停。R6-02 收尾（A11）之前保护层与上游监视按「手动 + 自动」的
         //    总量核对、分不出手动造成的超出，所以前三层只好在「受手动设置限制」时整体关掉（规格「学习、过渡、校准期间保护层同样生效」
         //    在这些组合下被静默取消）；照常开工又会把手动的超出当成自动的超限：保护层白白退让自动 Gain，约束反馈每约 3.5 s 降 1 dB 净增益
-        //    上限，直到自动增益磨光（上限只降不升、随工程保存，IMPL-A7 第 3 节）。A11 起两者只核对自动部分：手动单独已超预算的那一项
-        //    （Plan::manualBudgetMask）不设约束，其余照风格上限；「手动超预算」的项变了就清空两个窗口。
+        //    上限，直到自动增益磨光（上限只降不升、随工程保存，IMPL-A7 第 3 节）。A11 起两者只核对自动部分：每项有效上限 = max(风格上限,
+        //    手动单独用量)，手动链单独已超预算的那一项（Plan::manualBudgetMask）自动部分恒为 0、按不设约束核对，其余照风格上限；
+        //    「手动超预算」的项变了就清空两个窗口。
         //    a. 通透、GLAZE 100、手动 Heat 25（通透 Heat 上限 20）：界面提示受手动限制；保护层在跑、只放开 Heat 一项；校准照常开轮；
         //       30 s 里上游监视不因手动 Heat 触发、上限不降、自动 Gain 不被磨掉（校准偏差可逆、不存档，不算「磨」）；画像失配照常判定；
-        //       关掉画像失配、放一段比画像响的音乐时保护层照常收回自动 Gain，回到原电平后不再降上限；手动 Heat 拧回上限以内的头 4 s
-        //       不因旧的监视窗误触发约束反馈。
+        //       手动 Heat 拧回上限以内的头 4 s 不因旧的监视窗误触发约束反馈；关掉画像失配、放一段比画像响的音乐时保护层照常收回自动
+        //       Gain，回到原电平后 30 s 不再降上限、自动 Gain 还在。
         // 依据：决策与校准第 8 节「手动部分本身已超约束时，自动先撤回自己的增量…不偷偷反向改旋钮」「绝不自动抵消你的修改」、
-        //    第 7 节保护层「学习、过渡、校准期间保护层同样生效」、第 4 节约束反馈；实现修订第 5 节 F-01（画像失配）、F-02（逐模块钳住）。
+        //    第 7 节保护层「学习、过渡、校准期间保护层同样生效」、第 4 节约束反馈；实现修订第 5 节 F-01（画像失配）、F-02（逐模块钳住）；
+        //    任务书 BRIEF-A11 第 1 ～ 4 条。
 
-        // 保护层此刻的上限：只有 releasedHeat / releasedGlue 指定的项是 0（不设约束），其余逐位是通透风格的上限（风格固定 = 通透，权重独热）。
-        static bool onlyReleased (const glaze::StyleConstants& limits, bool releasedHeat, bool releasedGlue)
+        // 保护层此刻的上限：只有 released* 指定的项是 0（不设约束），其余逐位是通透风格的上限（风格固定 = 通透，权重独热）。
+        static bool onlyReleased (const glaze::StyleConstants& limits, bool releasedHeat, bool releasedGlue, bool releasedClip = false)
         {
             const auto& clean = glaze::factoryConstants().clean;
             const auto capOr0 = [] (bool released, float cap) { return released ? 0.0f : cap; };
             return sameBits (limits.heatDriveCap, capOr0 (releasedHeat, clean.heatDriveCap))
                 && sameBits (limits.glueGrMeanCapDb, capOr0 (releasedGlue, clean.glueGrMeanCapDb))
                 && sameBits (limits.glueGrP95CapDb, capOr0 (releasedGlue, clean.glueGrP95CapDb))
-                && sameBits (limits.clipDepthCapDb, clean.clipDepthCapDb) && sameBits (limits.clipActivityCap, clean.clipActivityCap)
+                && sameBits (limits.clipDepthCapDb, capOr0 (releasedClip, clean.clipDepthCapDb))
+                && sameBits (limits.clipActivityCap, capOr0 (releasedClip, clean.clipActivityCap))
                 && sameBits (limits.limitGrMeanCapDb, clean.limitGrMeanCapDb) && sameBits (limits.limitGrP95CapDb, clean.limitGrP95CapDb)
                 && sameBits (limits.limitGrPeakCapDb, clean.limitGrPeakCapDb);
         }
@@ -1428,33 +1432,54 @@ namespace celadon::test
             return rig.chain.getEffectiveParams().limit.gainDb - rig.probe().executedBiasDb;
         }
 
-        // 保护层对自动部分照常动作：同一组设置、关掉画像失配（只让保护层与约束反馈处理「比画像响」），学完、校准稳定后放 3 s 响 burst 倍的
-        // 音乐——自动 Gain 推出的限幅超出由保护层收回；回到原电平后 20 s 不再降上限，自动 Limit Gain 还在（没被磨光）。
-        void checkGuardActsOnAutomaticPart (const Params& p, juce::int64 seed, float peak, float burst, const juce::String& what)
+        // 保护层对自动部分照常动作、且不磨光（任务书第 4 条「保护层动作过、校准开过，同时不磨光」）：同一组设置、关掉画像失配（只让
+        // 保护层与约束反馈处理「比画像响」），学完、校准开过之后放 3 s 响 burst 倍的音乐——限幅超出时保护层退让（修前保护层整个关着，
+        // g_保护 与 executedGuardDb 恒为 0）；回到原电平 5 s 后再看 30 s：不再降上限（反馈步数不变），自动 Limit Gain 还在（没被磨到 0）。
+        // 响段里保护层退到下限进「方案受限」、上游 Glue 超出触发的反馈是自动部分的超限，照常算。executedOnAutomatic：实际执行的
+        // 保护偏移也要 < 0——它只能收回此刻还在的自动部分（增量 + 校准偏差，设计决定 4），校准已把自动增量收回大半时（手动 Glue 100：
+        // Glue 补偿本身就推响，自动 Gain 本来只有 1 dB 上下）只核对保护层自己的 g_保护（任务书「或探针等价量」）。
+        void checkGuardActsOnAutomaticPart (const Params& p, juce::int64 seed, float peak, float burst, bool executedOnAutomatic,
+                                            const juce::String& what)
         {
             constexpr double sr = 48000.0;
             LiveRig hot (makeMusicLikeSignal (2, sr, 8.0, seed, peak), p, sr, false);
             hot.run (12.0);
             const auto learned = hot.probe();
 
-            float deepestGuard = 0.0f;
+            float deepestExecuted = 0.0f, deepestGuard = 0.0f;
             hot.sourceGain = burst;
-            hot.run (3.0, [&] { deepestGuard = juce::jmin (deepestGuard, hot.probe().executedGuardDb); });
+            hot.run (3.0, [&]
+            {
+                const auto probe = hot.probe();
+                deepestExecuted = juce::jmin (deepestExecuted, probe.executedGuardDb);
+                deepestGuard = juce::jmin (deepestGuard, probe.guardDb);
+            });
             hot.sourceGain = 1.0f;
             hot.run (5.0);
             const auto afterBurst = hot.probe();
-            hot.run (20.0);
+
+            float lowestAutomaticGain = afterBurst.increments.limitGainDb;
+            hot.run (30.0, [&] { lowestAutomaticGain = juce::jmin (lowestAutomaticGain, hot.probe().increments.limitGainDb); });
             const auto settled = hot.probe();
 
-            logMessage ("  " + what + ", louder x" + juce::String (burst, 1) + " for 3 s: deepest executed guard " + juce::String (deepestGuard, 2)
-                        + " dB, feedback steps " + juce::String (learned.feedbackSteps) + " -> " + juce::String (afterBurst.feedbackSteps) + " -> "
-                        + juce::String (settled.feedbackSteps) + " (upstream / guard-limit / budget / stuck " + juce::String (settled.feedbackFromUpstream)
-                        + " / " + juce::String (settled.feedbackFromGuardLimit) + " / " + juce::String (settled.feedbackFromBudget) + " / "
-                        + juce::String (settled.feedbackFromStuckGuard) + "), automatic Limit Gain " + juce::String (learned.increments.limitGainDb, 2)
-                        + " -> " + juce::String (settled.increments.limitGainDb, 2) + " dB");
-            expect (deepestGuard < -0.1f, what + ": the guard takes back automatic gain on an automatic overshoot (it was switched off whole before)");
-            expectEquals (settled.feedbackSteps, afterBurst.feedbackSteps, what + ": no further cap step once the music is back to the learned level");
-            expect (settled.increments.limitGainDb > 0.5f, what + ": the automatic Limit Gain is not drained");
+            logMessage ("  " + what + ", louder x" + juce::String (burst, 1) + " for 3 s: deepest guard " + juce::String (deepestGuard, 2)
+                        + " dB (executed " + juce::String (deepestExecuted, 2) + " dB; automatic Limit Gain " + juce::String (learned.increments.limitGainDb, 2)
+                        + " dB, calibration offset " + juce::String (learned.executedBiasDb, 2) + " dB before the burst), calibration rounds before the burst "
+                        + juce::String (learned.calibrationBegins) + ", feedback steps " + juce::String (learned.feedbackSteps) + " -> "
+                        + juce::String (afterBurst.feedbackSteps) + " -> " + juce::String (settled.feedbackSteps) + " (upstream / guard-limit / budget / stuck "
+                        + juce::String (settled.feedbackFromUpstream) + " / " + juce::String (settled.feedbackFromGuardLimit) + " / "
+                        + juce::String (settled.feedbackFromBudget) + " / " + juce::String (settled.feedbackFromStuckGuard) + "), cap "
+                        + juce::String (afterBurst.feedbackMaxGainDb, 2) + " -> " + juce::String (settled.feedbackMaxGainDb, 2)
+                        + " dB, automatic Limit Gain lowest in the 30 s " + juce::String (lowestAutomaticGain, 2) + " dB");
+            expect (learned.calibrationBegins >= 1, what + ": calibration ran on the automatic part before the burst (no round ever began before)");
+            expect (deepestGuard < -0.1f, what + ": the guard retreats on a loud section (it was switched off whole before)");
+
+            if (executedOnAutomatic)
+                expect (deepestExecuted < -0.1f, what + ": and takes back automatic gain for it");
+
+            expectEquals (settled.feedbackSteps, afterBurst.feedbackSteps, what + ": no further cap step in 30 s once the music is back to the learned level");
+            expect (sameBits (settled.feedbackMaxGainDb, afterBurst.feedbackMaxGainDb), what + ": the cap holds for those 30 s");
+            expect (lowestAutomaticGain > 0.5f, what + ": the automatic Limit Gain is not drained");
         }
 
         void testManualHeatOverBudget()
@@ -1503,6 +1528,7 @@ namespace celadon::test
                         + juce::String (held.feedbackFromGuardLimit) + " / " + juce::String (held.feedbackFromStuckGuard)
                         + ", deepest executed guard " + juce::String (deepestGuard, 2) + " dB, calibration rounds " + juce::String (held.calibrationBegins));
             expectEquals (held.feedbackFromUpstream, 0, "the manual Heat excess is not an automatic upstream overshoot");
+            expectEquals (held.feedbackSteps, 0, "no cap step at all in 30 s at the learned level");
             expect (held.feedbackMaxGainDb == capAfterLearning, "the net gain cap is not lowered by the manual Heat");
             expect (lowestDrainable > drainableAfterLearning - 0.5f, "the automatic Limit Gain is not drained");
             expect (held.calibrationBegins >= 1, "calibration runs on the automatic part (no round ever began before)");
@@ -1515,11 +1541,13 @@ namespace celadon::test
             logMessage ("  +12 dB section with manual Heat 25: mismatch steps " + juce::String (mismatchBefore) + " -> " + juce::String (mismatchAfter));
             expect (mismatchAfter > mismatchBefore, "profile mismatch is still judged while only the manual Heat is over budget");
 
-            // 手动 Heat 拧回上限以内：「手动超预算」的项变了，两个窗口清空重判——旧窗口里全是手动造成的 Heat 超出，按新上限一判立即满
-            // 「3 s 窗内累计 ≥ 1 s」，没有清空就会白降 1 dB。看 0.9 s（上游监视要满 1 s 的新超出才触发）与 4 s（整个 3 s 窗换过一遍）。
+            // 手动 Heat 拧回上限以内：「手动超预算」的项变了，两个窗口清空重判——上游监视窗里装满手动 Heat 25 的驱动量，按通透上限一判
+            // 立即满「3 s 窗内累计 ≥ 1 s」，没有清空就会白降 1 dB（IMPL-A7 第 3 节末段）。看 0.9 s（上游监视要满 1 s 的新超出才触发）
+            // 与 4 s（整个 3 s 窗换过一遍）。
             rig.sourceGain = 1.0f;
             rig.run (5.0);            // 过完画像失配的过渡与约束反馈的冷却（过渡 0.5 s + 观察 3 s）
             const auto upstreamBeforeExit = rig.probe().feedbackFromUpstream;
+            const auto stepsBeforeExit = rig.probe().feedbackSteps;
             const auto capBeforeExit = rig.probe().feedbackMaxGainDb;
             rig.params.color.heat = 15.0f;
             rig.run (0.9);
@@ -1528,15 +1556,18 @@ namespace celadon::test
             expect (rig.probe().feedbackMaxGainDb == capBeforeExit, "the cap does not step when the manual Heat comes back within budget");
             expect (onlyReleased (rig.probe().guardLimits, false, false), "back within budget: every item is checked against the clean cap again");
             rig.run (3.1);
+            logMessage ("  manual Heat 25 -> 15: feedback steps " + juce::String (stepsBeforeExit) + " -> " + juce::String (rig.probe().feedbackSteps)
+                        + " in 4 s (upstream " + juce::String (upstreamBeforeExit) + " -> " + juce::String (rig.probe().feedbackFromUpstream) + ")");
             expectEquals (rig.probe().feedbackFromUpstream, upstreamBeforeExit, "still no feedback 4 s after the manual Heat came back within budget");
+            expectEquals (rig.probe().feedbackSteps, stepsBeforeExit, "no cap step of any kind in those 4 s");
             expect (rig.probe().feedbackMaxGainDb == capBeforeExit, "the cap still has not stepped 4 s later");
 
-            checkGuardActsOnAutomaticPart (p, 3204, 0.25f, 4.0f, "manual Heat 25");
+            checkGuardActsOnAutomaticPart (p, 3204, 0.25f, 8.0f, true, "manual Heat 25");
         }
 
         //    b. 通透、GLAZE 100、手动 Glue 100（超 Glue GR 上限）：保护层在跑、只放开 Glue 两项（GR 全是手动的，退让 Limit Gain、降方案都减
-        //       不了它），校准照常开轮；稳态下保护层不为手动造成的 Glue 超出退让自动 Gain，上游监视不触发、上限不降；比画像响时保护层照常
-        //       收回自动 Gain；手动 Glue 拧回 20（预算以内）的头 4 s 不因旧窗口里手动造成的大 GR 退让或降上限。
+        //       不了它），校准照常开轮；稳态下保护层不为手动造成的 Glue 超出退让自动 Gain，上游监视不触发、上限不降；手动 Glue 拧回 20
+        //       （预算以内）的头 4 s 不因旧窗口里手动造成的大 GR 退让或降上限；比画像响时保护层照常收回自动 Gain、之后不磨光。
         void testManualGlueOverBudget()
         {
             beginTest ("manual Glue over the Glue budget: the guard checks the automatic part only, calibration runs, no protection or cap step for a manual excess (T-032 R6-02)");
@@ -1561,19 +1592,20 @@ namespace celadon::test
             expect (onlyReleased (running.guardLimits, false, true), "only the two Glue items are released; every other item keeps the clean cap");
 
             float deepestGuard = 0.0f, lowestDrainable = drainableAfterLearning;
-            rig.run (20.0, [&]
+            rig.run (30.0, [&]
             {
                 deepestGuard = juce::jmin (deepestGuard, rig.probe().executedGuardDb);
                 lowestDrainable = juce::jmin (lowestDrainable, drainableGainDb (rig));
             });
 
             const auto probe = rig.probe();
-            logMessage ("  manual Glue 100 (clean), 20 s: deepest executed guard " + juce::String (deepestGuard, 2) + " dB, cap "
+            logMessage ("  manual Glue 100 (clean), 30 s: deepest executed guard " + juce::String (deepestGuard, 2) + " dB, cap "
                         + juce::String (cap, 2) + " -> " + juce::String (probe.feedbackMaxGainDb, 2) + ", Limit Gain less calibration "
                         + juce::String (drainableAfterLearning, 2) + " -> lowest " + juce::String (lowestDrainable, 2) + " dB, feedback upstream / guard-limit "
                         + juce::String (probe.feedbackFromUpstream) + " / " + juce::String (probe.feedbackFromGuardLimit) + ", calibration rounds "
                         + juce::String (probe.calibrationBegins));
             expectEquals (deepestGuard, 0.0f, "the guard does not retreat the automatic gain for a manual Glue excess");
+            expectEquals (probe.feedbackSteps, 0, "no cap step at all in 30 s");
             expect (probe.feedbackMaxGainDb == cap, "the net gain cap is not lowered by the manual Glue");
             expectEquals (probe.feedbackFromUpstream, 0, "the manual Glue excess is not an automatic upstream overshoot");
             expect (lowestDrainable > drainableAfterLearning - 0.05f, "the automatic Limit Gain is not drained");
@@ -1586,17 +1618,66 @@ namespace celadon::test
             rig.run (4.0, [&] { exitGuard = juce::jmin (exitGuard, rig.probe().executedGuardDb); });
             const auto exited = rig.probe();
             logMessage ("  manual Glue 100 -> 20: deepest executed guard in 4 s " + juce::String (exitGuard, 2) + " dB, cap "
-                        + juce::String (probe.feedbackMaxGainDb, 2) + " -> " + juce::String (exited.feedbackMaxGainDb, 2));
+                        + juce::String (probe.feedbackMaxGainDb, 2) + " -> " + juce::String (exited.feedbackMaxGainDb, 2) + ", feedback steps "
+                        + juce::String (probe.feedbackSteps) + " -> " + juce::String (exited.feedbackSteps));
             expect (! rig.status().limitedByManual, "manual Glue 20 is within the clean budget");
             expect (onlyReleased (exited.guardLimits, false, false), "back within budget: the Glue items are checked against the clean cap again");
             expectEquals (exitGuard, 0.0f, "no retreat from a stale window of manual Glue reduction");
-            expect (exited.feedbackMaxGainDb == probe.feedbackMaxGainDb && exited.feedbackFromUpstream == probe.feedbackFromUpstream,
+            expect (exited.feedbackMaxGainDb == probe.feedbackMaxGainDb && exited.feedbackSteps == probe.feedbackSteps,
                     "no cap step from a stale window of manual Glue reduction");
 
-            checkGuardActsOnAutomaticPart (p, 3205, 0.5f, 3.0f, "manual Glue 100");
+            checkGuardActsOnAutomaticPart (p, 3205, 0.5f, 8.0f, false, "manual Glue 100");
         }
 
-        //    c. 手动 Gain 20（手动已让限幅器远超约束 → 电平类自动全部撤回）：不施加校准偏差与保护偏移、不开校准轮，画像失配也不判
+        //    c. 通透、GLAZE 100、手动 Clip 100 + 手动 Gain 5（手动单独的削波深度超通透 1.5 dB 的 Clip 预算，限幅器没超——软削波已把峰值
+        //       收住）：决策器撤回自动 Clip、只按限幅器核对自动 Gain（F-02 逐模块钳住），自动 Gain 推深的削波是方案许可的；保护层在跑、
+        //       只放开 Clip 两项（与决策器一致；按风格上限、或按「max(风格上限, 手动单独深度)」核对都会把自动 Gain 推深的那一点当超限，
+        //       退到底、约束反馈把自动增益磨光，IMPL-A11 第 4 节实测），校准照常开轮；30 s 不降上限、自动 Gain 不被磨掉。
+        void testManualClipOverBudget()
+        {
+            beginTest ("manual Clip over the Clip budget: the guard leaves the clip items to the planner, checks the limiter, no drain (T-032 R6-02)");
+
+            constexpr double sr = 48000.0;
+            Params p;
+            p.limit.ceilingDb = -1.0f;
+            p.glazePercent = 100.0f;
+            p.glazeStyle = 3;
+            p.limit.clip = 100.0f;
+            p.limit.gainDb = 5.0f;
+            LiveRig rig (makeMusicLikeSignal (2, sr, 8.0, 3206, 0.7f), p, sr);
+            rig.run (6.0);
+
+            const auto learned = rig.probe();
+            expect (rig.status().profileReady && rig.status().limitedByManual, "status: limited by the manual Clip (UI hint)");
+            expect (! learned.targetPlan.automaticLevelWithdrawn && learned.increments.limitGainDb > 0.1f,
+                    "only the Clip item is withdrawn: the automatic Limit Gain still pushes " + juce::String (learned.increments.limitGainDb, 2) + " dB");
+            expect (learned.guardLimitsSet, "the guard runs while only the manual Clip is over budget (it was switched off whole before)");
+            expect (onlyReleased (learned.guardLimits, false, false, true), "only the two Clip items are released; the limiter items keep the clean cap");
+
+            const auto cap = learned.feedbackMaxGainDb;
+            const auto drainableAfterLearning = drainableGainDb (rig);
+            float deepestGuard = 0.0f, lowestDrainable = drainableAfterLearning;
+            rig.run (30.0, [&]
+            {
+                deepestGuard = juce::jmin (deepestGuard, rig.probe().executedGuardDb);
+                lowestDrainable = juce::jmin (lowestDrainable, drainableGainDb (rig));
+            });
+
+            const auto probe = rig.probe();
+            logMessage ("  manual Clip 100 + Gain 5 (clean), 30 s: automatic Limit Gain " + juce::String (learned.increments.limitGainDb, 2)
+                        + " dB, deepest executed guard " + juce::String (deepestGuard, 2) + " dB, cap " + juce::String (cap, 2) + " -> "
+                        + juce::String (probe.feedbackMaxGainDb, 2) + ", Limit Gain less calibration " + juce::String (drainableAfterLearning, 2)
+                        + " -> lowest " + juce::String (lowestDrainable, 2) + " dB, feedback guard-limit / upstream / budget / stuck "
+                        + juce::String (probe.feedbackFromGuardLimit) + " / " + juce::String (probe.feedbackFromUpstream) + " / "
+                        + juce::String (probe.feedbackFromBudget) + " / " + juce::String (probe.feedbackFromStuckGuard) + ", calibration rounds "
+                        + juce::String (probe.calibrationBegins));
+            expectEquals (probe.feedbackSteps, 0, "no cap step in 30 s: the manual clipping is not an automatic overshoot");
+            expect (probe.feedbackMaxGainDb == cap, "the net gain cap is not lowered by the manual Clip");
+            expect (lowestDrainable > drainableAfterLearning - 0.5f, "the automatic Limit Gain is not drained");
+            expect (probe.calibrationBegins >= 1, "calibration runs on the automatic part (no round ever began before)");
+        }
+
+        //    d. 手动 Gain 20（手动已让限幅器远超约束 → 电平类自动全部撤回）：不施加校准偏差与保护偏移、不开校准轮，画像失配也不判
         //       （没有自动加上去的增益可压），实际 Limit Gain 就是手动值；保护层与上游监视不运行。
         void testAutomaticLevelWithdrawn()
         {

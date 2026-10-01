@@ -1599,9 +1599,10 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // T-032 R6-02 收尾（A11）：手动链单独的用量（estimateManualChainUsage）与「手动单独已超预算、自动部分不再为它负责」的项
-        // （Plan::manualBudgetMask）。编排器的保护层与上游监视把这些项置为不设约束，其余照风格上限——所以两条最要紧：手动没超预算
-        // 时掩码必为 0（上限逐位同修前），置了位的项自动增量必为 0（Heat / Glue）或方案确实没按它的预算核对（Clip：自动 Clip 撤回）。
+        // T-032 R6-02 收尾（A11）：手动链单独的用量（estimateManualChainUsage）与「手动链单独已超预算」的项（Plan::manualBudgetMask）。
+        // 保护层与上游监视每项的有效上限 = max(风格上限, 手动单独用量)：编排器把置位的项按不设约束核对，其余照风格上限——所以两条最要紧：
+        // 手动没超预算时掩码必为 0（上限逐位同修前），置了位的项自动增量必为 0（Heat / Glue / Clip；Clip 另有决策器不再按 Clip 预算限制
+        // 自动 Gain）。
         void testManualBudgetMask()
         {
             beginTest ("manual-only usage and the budget items the automatic part no longer answers for (T-032 R6-02 closing)");
@@ -1618,6 +1619,36 @@ namespace celadon::test
                 in.manual = manual;
                 in.lockedWeights = locked;
                 return estimateManualChainUsage (in);
+            };
+
+            // makePlan 封顶用的「置信度拉满」画像（GlazePlanner.cpp makePlan 同一口径：有效特征、27 段与代表性拉到 fullConfidence）；
+            // raised = 有没有哪一项真被拉了（没有就不封顶）。
+            const auto raisedProfile = [&fc] (const MusicProfile& profile, bool& raised)
+            {
+                const auto full = fc.fullConfidence > 0.0f ? fc.fullConfidence : 1.0f;
+                auto confident = profile;
+                raised = false;
+
+                const auto raise = [&] (float& confidence)
+                {
+                    if (! (confidence >= full))
+                    {
+                        confidence = full;
+                        raised = true;
+                    }
+                };
+
+                for (auto* feature : { &confident.integratedLufs, &confident.loudnessRangeLu, &confident.plrDb, &confident.truePeakDbtp,
+                                       &confident.spectralSlopeDbPerOct, &confident.lowShare, &confident.highShare, &confident.lowBandRangeDb,
+                                       &confident.onsetDensityPerSecond, &confident.onsetStrengthDb })
+                    if (feature->valid)
+                        raise (feature->confidence);
+
+                for (auto& band : confident.bandConfidence)
+                    raise (band);
+
+                raise (confident.representativeness);
+                return confident;
             };
 
             // 1. 手动中性：用量（Glue / Heat / Clip）与掩码都是 0；各风格、GLAZE 0 ～ 100 的方案掩码都是 0。
@@ -1639,16 +1670,16 @@ namespace celadon::test
             }
 
             // 2. 性质扫描（随机画像 / 手动值 / 风格 / 约束反馈，GLAZE 35 与 100）：
-            //    a. 手动链单独的用量都不超风格上限（按方案权重混合；Clip 按决策器的容差）⟺ 掩码为 0——掩码为 0 时编排器交给保护层的上限
-            //       逐位是混合常数，与修前相同；
-            //    b. 各位的判定：Heat ⟺ 手动 Heat > 驱动上限；Glue ⟺ 手动单独的 Glue 均值或 p95 GR > 上限（不加容差；决策器按同一模型的
+            //    a. 各位的判定：Heat ⟺ 手动 Heat > 驱动上限；Glue ⟺ 手动单独的 Glue 均值或 p95 GR > 上限（不加容差；决策器按同一模型的
             //       glueCap 判，上限两侧 10⁻³ dB 以内的浮点边界不比）；Clip ⟺ 手动单独的削波深度 > 上限 + 0.05 dB 或活动 > 上限 × 1.02
-            //       （决策器撤回自动 Clip 的同一判定）；
-            //    c. 方案的位：Heat / Glue 置位时该项自动增量为 0；Clip 置位时自动 Clip 为 0；
-            //    d. 置信度封顶按位合并：方案的 Heat / Glue 位包含手动链单独的（取或），Clip 位包含于它（取与）；GLAZE 0 的方案为 0。
+            //       （决策器撤回自动 Clip 的同一判定）。上限按方案权重混合；
+            //    b. 手动链单独的用量都不超风格上限 ⟹ 掩码为 0——掩码为 0 时编排器交给保护层的上限逐位是混合常数，与修前相同；
+            //    c. 方案的位：Heat / Glue / Clip 置位时该项自动增量为 0；
+            //    d. 置信度封顶按位取或（limitPlanTo）：方案的掩码 = 本方案手动链单独的位 | 置信拉满（锁定本方案权重）的 | 「自动」且没锁
+            //       权重时再 | 置信拉满且按它重判权重的——逐位相等；GLAZE 0 的方案为 0。
             {
                 juce::Random random (0xa11b0d9e);
-                int scenarios = 0, withBits = 0, mismatches = 0, zeroMaskOverCap = 0, badIncrements = 0, badMerge = 0;
+                int scenarios = 0, withBits = 0, mismatches = 0, zeroMaskOverCap = 0, badIncrements = 0, badMerge = 0, mergedMore = 0;
                 int heatBits = 0, glueBits = 0, clipBits = 0;
 
                 for (int i = 0; i < 600; ++i)
@@ -1678,42 +1709,54 @@ namespace celadon::test
                         const auto clipOver = u.clipDepthDb > caps.clipDepthCapDb + 0.05f || u.clipActivity > caps.clipActivityCap * 1.02f;
                         const auto expected = (heatOver ? manualBudgetHeat : 0) | (glueOver ? manualBudgetGlue : 0) | (clipOver ? manualBudgetClip : 0);
                         const auto compared = glueEdge ? (int) (manualBudgetHeat | manualBudgetClip) : (int) manualBudgetAll;
+                        const auto own = (int) u.overBudgetMask;
 
                         ++scenarios;
-                        withBits += u.overBudgetMask != 0 ? 1 : 0;
-                        heatBits += (u.overBudgetMask & manualBudgetHeat) != 0 ? 1 : 0;
-                        glueBits += (u.overBudgetMask & manualBudgetGlue) != 0 ? 1 : 0;
-                        clipBits += (u.overBudgetMask & manualBudgetClip) != 0 ? 1 : 0;
-                        mismatches += (u.overBudgetMask & compared) != (expected & compared) ? 1 : 0;
+                        withBits += own != 0 ? 1 : 0;
+                        heatBits += (own & manualBudgetHeat) != 0 ? 1 : 0;
+                        glueBits += (own & manualBudgetGlue) != 0 ? 1 : 0;
+                        clipBits += (own & manualBudgetClip) != 0 ? 1 : 0;
+                        mismatches += (own & compared) != (expected & compared) ? 1 : 0;
 
-                        // 置信度封顶的方案与本方案同一套权重时（离散风格、或没有画像）：封顶方案的输入响度收拢得少、Glue GR 不会更多，Clip 取与，
-                        // 所以本方案手动单独的用量都不超上限 ⟹ 方案掩码为 0。「自动」且权重没锁（首次聆听）时第二份封顶方案另按满置信度的权重判断，
-                        // 上限不同，只核对本方案这一份。
                         const auto withinCaps = ! heatOver && glueOverBy <= -1.0e-3f
                                               && u.clipDepthDb <= caps.clipDepthCapDb && u.clipActivity <= caps.clipActivityCap;
-                        const auto sameWeights = s.style != Style::automatic || ! s.hasProfile;
-                        zeroMaskOverCap += withinCaps && (u.overBudgetMask != 0 || (sameWeights && plan.manualBudgetMask != 0)) ? 1 : 0;
+                        zeroMaskOverCap += withinCaps && own != 0 ? 1 : 0;
 
                         badIncrements += ((plan.manualBudgetMask & manualBudgetHeat) != 0 && plan.increments.colorHeat != 0.0f)
                                       || ((plan.manualBudgetMask & manualBudgetGlue) != 0 && plan.increments.colorGlue != 0.0f)
                                       || ((plan.manualBudgetMask & manualBudgetClip) != 0 && plan.increments.limitClip != 0.0f) ? 1 : 0;
 
-                        const auto own = u.overBudgetMask;
-                        const auto both = (int) (manualBudgetHeat | manualBudgetGlue);
-                        badMerge += (plan.manualBudgetMask & own & both) != (own & both)
-                                 || (plan.manualBudgetMask & manualBudgetClip & ~own) != 0 ? 1 : 0;
+                        auto merged = own;
+
+                        if (profile != nullptr)
+                        {
+                            bool raised = false;
+                            const auto confident = raisedProfile (*profile, raised);
+
+                            if (raised)
+                            {
+                                merged |= usageFor (&confident, Style::automatic, s.manual, &plan.weights).overBudgetMask;
+
+                                if (s.style == Style::automatic)   // randomScenario 不锁权重：makePlan 再按满置信度重判的权重封一次
+                                    merged |= usageFor (&confident, Style::automatic, s.manual, nullptr).overBudgetMask;
+                            }
+                        }
+
+                        badMerge += (int) plan.manualBudgetMask != merged ? 1 : 0;
+                        mergedMore += merged != own ? 1 : 0;
                     }
 
                     badMerge += planFor (s, 0.0f).manualBudgetMask != 0 ? 1 : 0;
                 }
 
                 logMessage ("  manual budget scan: " + juce::String (scenarios) + " plans, " + juce::String (withBits) + " with bits (heat / glue / clip "
-                            + juce::String (heatBits) + " / " + juce::String (glueBits) + " / " + juce::String (clipBits) + ")");
+                            + juce::String (heatBits) + " / " + juce::String (glueBits) + " / " + juce::String (clipBits) + "), "
+                            + juce::String (mergedMore) + " gained a bit from the full-confidence cap");
                 expect (heatBits > 20 && glueBits > 20 && clipBits > 5, utf8 ("扫描覆盖了三种位（前提）"));
                 expectEquals (mismatches, 0, utf8 ("各位按手动链单独的用量与风格上限判定"));
                 expectEquals (zeroMaskOverCap, 0, utf8 ("手动单独的用量都不超风格上限时掩码为 0"));
                 expectEquals (badIncrements, 0, utf8 ("置位的项：自动增量为 0"));
-                expectEquals (badMerge, 0, utf8 ("封顶合并：Heat / Glue 取或、Clip 取与；GLAZE 0 为 0"));
+                expectEquals (badMerge, 0, utf8 ("封顶合并：三位都取或，与各份方案的手动链单独用量逐位相符；GLAZE 0 为 0"));
             }
 
             // 3. Heat：四种风格下手动 Heat 0 ～ 100 每 0.25 扫描，位恰在「超过风格驱动上限」时置（置信度满、权重锁定：方案的位 = 手动链单独的位），
@@ -1801,10 +1844,11 @@ namespace celadon::test
                 expectEquals ((int) planFor (&profile, Style::clean, 100.0f, light).manualBudgetMask, 0, utf8 ("手动 Clip 没超预算：不置位"));
             }
 
-            // 6. 置信度封顶的合并方向（limitPlanTo）。置信度低时决策用的输入响度往「更响」一侧收，Glue 侧链检测电平高、GR 多：
-            //    a. 手动 Glue 让低置信的手动链超 Glue 上限、置信拉满的没超 → 方案仍置 Glue 位（取或：自动 Glue 取小后仍为 0）；
-            //    b. 同一收拢让 Glue 压低峰值、削波更浅：手动 Glue + Clip + Gain 让置信拉满的手动链超 Clip 预算、低置信的没超 → 方案不置
-            //       Clip 位（取与：低置信方案按 Clip 预算核对过，取小之后照样受它约束，保护层继续核对 Clip）。
+            // 6. 置信度封顶的合并（limitPlanTo，三位都取或）。置信度低时决策用的输入响度往「更响」一侧收，Glue 侧链检测电平高、GR 多：
+            //    a. 手动 Glue 让低置信的手动链超 Glue 上限、置信拉满的没超 → 方案置 Glue 位（自动 Glue 取小后为 0）；
+            //    b. 同一收拢让 Glue 压低峰值、削波更浅：手动 Glue + Clip + Gain 让置信拉满的手动链超 Clip 预算、低置信的没超 → 方案同样置
+            //       Clip 位、自动 Clip 为 0。不置（取与）的话保护层按通透的 Clip 上限核对，而更准的那份模型说手动单独的削波已经超了：保护层
+            //       退不掉手动的那份削波，退到底、约束反馈把自动增益磨光。
             {
                 const StyleWeights clean { 0.0f, 0.0f, 1.0f };
                 const auto unsure = makeProfile (-24.0f, -12.0f, 5.0f, 0.5f);
@@ -1840,7 +1884,8 @@ namespace celadon::test
                         if ((own.overBudgetMask & manualBudgetClip) == 0 && (bound.overBudgetMask & manualBudgetClip) != 0)
                         {
                             clipCase = true;
-                            clipMerged = (planFor (&unsure, Style::clean, 100.0f, manual, 1.0e9f, &clean).manualBudgetMask & manualBudgetClip) == 0;
+                            const auto plan = planFor (&unsure, Style::clean, 100.0f, manual, 1.0e9f, &clean);
+                            clipMerged = (plan.manualBudgetMask & manualBudgetClip) != 0 && plan.increments.limitClip == 0.0f;
                             logMessage ("  merge case: manual Glue " + juce::String (glue, 0) + " + Clip 100 + Gain " + juce::String (manual.limit.gainDb, 2)
                                         + " dB: clip depth unsure " + juce::String (own.clipDepthDb, 3) + " / sure " + juce::String (bound.clipDepthDb, 3) + " dB");
                         }
@@ -1849,7 +1894,7 @@ namespace celadon::test
 
                 expect (glueCase && clipCase, utf8 ("找到了两种合并方向的构造（前提）"));
                 expect (glueMerged, utf8 ("Glue 位取或：低置信的手动链超了，方案就置位"));
-                expect (clipMerged, utf8 ("Clip 位取与：置信拉满的封顶方案超了、低置信的没超，方案不放开 Clip"));
+                expect (clipMerged, utf8 ("Clip 位同样取或：置信拉满的封顶方案的手动链超了、低置信的没超，方案置位且自动 Clip 为 0"));
             }
         }
 
@@ -2375,8 +2420,8 @@ namespace celadon::test
             }
 
             // T-032 R6-02 收尾（A11）：PLAN 的 manualBudgetMask（十进制位掩码）。属性在：按属性读、往返逐位；缺属性（A11 之前的存档）：
-            // 受手动设置限制的方案三位全置（分不出是哪一项超了，不把可能是手动造成的超出当成自动的），否则 0；不是 0 ～ 255 的整数、
-            // 或含未定义的位：整份拒收（已提交版本与执行快照都核）。
+            // 受手动设置限制的方案三位全置（分不出是哪一项超了，不把可能是手动造成的超出当成自动的），否则 0；不是 0 ～ 255 的整数：
+            // 整份拒收。未定义的位：已提交版本照读（编排器只认三个已定义的位，与 clayCostLimitedMask 同一做法），执行快照整份拒收。
             {
                 for (auto mask : { 0, 1, 2, 4, 5, 7 })
                 {
@@ -2402,9 +2447,18 @@ namespace celadon::test
                                   utf8 ("缺属性：受手动限制的方案三位全置，否则 0"));
                 }
 
-                for (const auto* bad : { "8", "15", "256", "-1", "x", "2.5" })
+                for (const auto* bad : { "256", "-1", "x", "2.5" })
                     expectRejected<CommittedState> (*stateXml, [bad] (juce::XmlElement& x) { x.getChildByName ("PLAN")->setAttribute ("manualBudgetMask", bad); },
                                                     stateSentinel, utf8 ("manualBudgetMask 非法：") + bad);
+
+                for (auto undefined : { 8, 15 })
+                {
+                    auto future = std::make_unique<juce::XmlElement> (*stateXml);
+                    future->getChildByName ("PLAN")->setAttribute ("manualBudgetMask", undefined);
+                    CommittedState read;
+                    expect (fromXml (*future, read) && read.plan.manualBudgetMask == undefined,
+                            utf8 ("已提交版本里未定义的位照读：") + juce::String (undefined));
+                }
 
                 ExecutionState execution;
                 execution.valid = true;
