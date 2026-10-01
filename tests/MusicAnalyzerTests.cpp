@@ -3199,8 +3199,9 @@ namespace celadon::test
                     "the general I is pulled down by the intro");
             expect (std::abs (houseProfile.lowShare.value - drop.lowShare.value) <= 0.03f, "House lowShare is the drop's");
             expect (std::abs (houseProfile.truePeakDbtp.value - drop.truePeakDbtp.value) <= 0.3f, "House true peak is the drop's");
-            expect (houseProfile.loudnessRangeLu.valid && houseProfile.loudnessRangeLu.value > drop.loudnessRangeLu.value + 2.0f,
-                    "LRA is taken over all heard bars (the intro included)");
+            // 阶段 3 集成改：LRA 也只用满编段（起播位置无关），所以等于 drop 自己的 LRA，不再被前奏撑大。
+            expect (houseProfile.loudnessRangeLu.valid && std::abs (houseProfile.loudnessRangeLu.value - drop.loudnessRangeLu.value) <= 1.0f,
+                    "LRA is taken over the full segments only, so it is the drop's LRA, not stretched by the intro");
             expectWithinAbsoluteError (houseProfile.representativeness, 48.0f / 64.0f, 1.0e-6f);
             expect (houseProfile.integratedLufs.confidence <= houseProfile.representativeness + 1.0e-6f);
             expect (houseProfile.lowCutPeakCostDb.valid && houseProfile.monoPeakCostDb[1].valid && houseProfile.widthPeakCostDb.valid,

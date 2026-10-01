@@ -293,7 +293,7 @@ namespace celadon::glaze
         //     分析窗起点 + hop；Balance 还没 prepare 时不等它）、起音（正在进行的事件的触发时刻，否则当前组的起点）、先试后用（学习中：
         //     还没交齐的最早一块的起点 = 已跑过的样本 − 最长的候选延迟，按块向下取整）。所以每段拿到的数据与宿主分块无关。
         //   - 画像（computeHouseProfile）只由段落账按纯函数算出，各字段的公式与通用画像的同名函数逐项相同（update*Profile、finalizeConfidences），
-        //     只是累计量换成「满编段的和」（LRA、有效时长、代表性换成「全部段的和」）：
+        //     只是累计量换成「满编段的和」（有效时长、代表性换成「全部段的和」；LRA 阶段 3 集成起也用满编段，起播位置无关）：
         //       I：满编段的 400 ms 门块按 BS.1770 相对门（−10 LU）重新门限——门块功率逐个存着，相对门逐个比（通用画像按 0.1 LU 格中心比，
         //          差 ≤ 0.05 LU）；真峰值 = 满编段的最大值；
         //       先试后用：满编段按格序整段整段地取，满 512 块为止（同通用画像的 512 块上限），每一路合并各段最大的 8 个块峰值——≤ 512 块时
@@ -3088,7 +3088,16 @@ namespace celadon::glaze
             {
                 const auto& segment = ledger.getStored (i);
 
-                // 全部段：LRA（3 s 短期响度）、有效时长、代表性。
+                // 全部段：有效时长、代表性。
+                s.effectiveSeconds += segment.effectiveSeconds;
+                (segment.positioned ? s.positionedSeconds : s.unpositionedSeconds) += segment.effectiveSeconds;
+
+                if (! segment.full)
+                    continue;
+
+                // 满编段：LRA（3 s 短期响度）也只用满编段（T-038 阶段 3 集成改，原为全部段）。全部段的 LRA 取决于锁定前听到了哪些段落
+                // （从第 1 小节播时 breakdown 还没出现，从 drop 播时已经听到），LRA 修正因此随起播位置变，合成 Tech 曲上方案增益差 1.4 dB，
+                // 违反验收「从第 1 小节播与从 drop 播增益差 ≤ 0.5 dB」；只用满编段后两者听到的是同一批 drop。
                 for (int k = 0; k < segment.rangeCount; ++k)
                 {
                     const auto bin = (int) segment.rangeBin[(size_t) k];
@@ -3098,11 +3107,6 @@ namespace celadon::glaze
 
                 s.rangeTotalEnergy += segment.rangeEnergy;
                 s.rangeTotalCount += (std::uint64_t) segment.rangeCount;
-                s.effectiveSeconds += segment.effectiveSeconds;
-                (segment.positioned ? s.positionedSeconds : s.unpositionedSeconds) += segment.effectiveSeconds;
-
-                if (! segment.full)
-                    continue;
 
                 // 满编段：其余全部。
                 s.fullSeconds += segment.effectiveSeconds;
@@ -3205,7 +3209,7 @@ namespace celadon::glaze
             houseConfidences();
         }
 
-        // 同 updateLoudnessProfile：I / 真峰值 / PLR 用满编段的时长，LRA 用全部段，代表性另按锁定进度封顶。
+        // 同 updateLoudnessProfile：I / 真峰值 / PLR / LRA 用满编段（LRA 阶段 3 集成改，见 computeHouseProfile），代表性另按锁定进度封顶。
         void houseLoudnessProfile (const HouseGateSummary& gate, bool integratedValid, double integrated) noexcept
         {
             auto& p = houseProfile;

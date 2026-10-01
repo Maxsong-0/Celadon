@@ -1,0 +1,186 @@
+T-038 House 门槛（设计规格-曲风与交付 第 7 节第 4 条）
+歌                           g 曲风       交付          起播  ①方案增益     ②GR 预算    ③落差       ④真峰值      ⑤目标响度   
+synthetic-house-124       100 deep     club         1  PASS      PASS      PASS      PASS      FAIL    
+synthetic-house-124       100 deep     club        33  N/A       PASS      PASS      PASS      FAIL    
+synthetic-house-124       100 deep     standard     1  PASS      PASS      PASS      PASS      N/A     
+synthetic-house-124       100 deep     standard    33  N/A       PASS      PASS      PASS      N/A     
+synthetic-house-124       100 deep     streaming    1  PASS      PASS      PASS      PASS      PASS    
+synthetic-house-124       100 deep     streaming   33  N/A       PASS      PASS      PASS      PASS    
+synthetic-house-124       100 tech     club         1  PASS      PASS      PASS      PASS      FAIL    
+synthetic-house-124       100 tech     club        33  N/A       PASS      PASS      PASS      FAIL    
+synthetic-house-124       100 tech     standard     1  PASS      PASS      PASS      PASS      N/A     
+synthetic-house-124       100 tech     standard    33  N/A       PASS      PASS      PASS      N/A     
+synthetic-house-124       100 tech     streaming    1  PASS      PASS      PASS      PASS      FAIL    
+synthetic-house-124       100 tech     streaming   33  N/A       PASS      PASS      PASS      PASS    
+synthetic-tech-124        100 deep     club         1  PASS      PASS      PASS      PASS      FAIL    
+synthetic-tech-124        100 deep     club        33  N/A       PASS      PASS      PASS      FAIL    
+synthetic-tech-124        100 deep     standard     1  PASS      PASS      PASS      PASS      N/A     
+synthetic-tech-124        100 deep     standard    33  N/A       PASS      PASS      PASS      N/A     
+synthetic-tech-124        100 deep     streaming    1  PASS      PASS      PASS      PASS      PASS    
+synthetic-tech-124        100 deep     streaming   33  N/A       PASS      PASS      PASS      PASS    
+synthetic-tech-124        100 tech     club         1  PASS      PASS      PASS      PASS      FAIL    
+synthetic-tech-124        100 tech     club        33  N/A       PASS      PASS      PASS      FAIL    
+synthetic-tech-124        100 tech     standard     1  PASS      PASS      PASS      PASS      N/A     
+synthetic-tech-124        100 tech     standard    33  N/A       PASS      PASS      PASS      N/A     
+synthetic-tech-124        100 tech     streaming    1  PASS      PASS      PASS      PASS      PASS    
+synthetic-tech-124        100 tech     streaming   33  N/A       PASS      PASS      PASS      PASS    
+
+明细：
+  synthetic-house-124 · g100 · auto · auto · deep · club · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.42 dB、从第 33 小节 6.42 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.26 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.70 / 6.00 dB；drop2：均值 0.25 / 1.50、高于 P95 上限 3.50 的块 0.8 % / 5 %、最大 4.97 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +8.19 LU（少 0.15 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -17.24）；方案自己的目标 -8.00；drop1 -10.93（差 -2.93 LU）；drop2 -10.92（差 -2.92 LU）
+  synthetic-house-124 · g100 · auto · auto · deep · club · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.03 / 6.00 dB；drop2：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.26 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +8.06 LU（少 0.29 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -17.24）；方案自己的目标 -8.00；drop1 -10.60（差 -2.60 LU）；drop2 -10.59（差 -2.59 LU）
+  synthetic-house-124 · g100 · auto · auto · deep · standard · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.42 dB、从第 33 小节 6.42 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.26 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.70 / 6.00 dB；drop2：均值 0.25 / 1.50、高于 P95 上限 3.50 的块 0.8 % / 5 %、最大 4.97 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +8.19 LU（少 0.15 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-house-124 · g100 · auto · auto · deep · standard · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.03 / 6.00 dB；drop2：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.26 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +8.06 LU（少 0.29 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-house-124 · g100 · auto · auto · deep · streaming · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 5.42 dB、从第 33 小节 5.42 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.26 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.70 / 6.00 dB；drop2：均值 0.25 / 1.50、高于 P95 上限 3.50 的块 0.8 % / 5 %、最大 4.97 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +8.19 LU（少 0.15 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 PASS：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -17.24）；方案自己的目标 -11.00；drop1 -11.93（差 -0.93 LU）；drop2 -11.92（差 -0.92 LU）
+  synthetic-house-124 · g100 · auto · auto · deep · streaming · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.03 / 6.00 dB；drop2：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.26 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +8.06 LU（少 0.29 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 PASS：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -17.24）；方案自己的目标 -11.00；drop1 -11.60（差 -0.60 LU）；drop2 -11.59（差 -0.59 LU）
+  synthetic-house-124 · g100 · auto · auto · tech · club · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.42 dB、从第 33 小节 6.42 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.76 / 6.00 dB；drop2：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.8 % / 5 %、最大 5.05 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +7.97 LU（少 0.37 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -17.24）；方案自己的目标 -8.00；drop1 -11.15（差 -3.15 LU）；drop2 -11.14（差 -3.14 LU）
+  synthetic-house-124 · g100 · auto · auto · tech · club · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.33 / 1.50、高于 P95 上限 3.50 的块 1.3 % / 5 %、最大 5.07 / 6.00 dB；drop2：均值 0.33 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.31 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +7.86 LU（少 0.48 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -17.24）；方案自己的目标 -8.00；drop1 -10.82（差 -2.82 LU）；drop2 -10.81（差 -2.81 LU）
+  synthetic-house-124 · g100 · auto · auto · tech · standard · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.42 dB、从第 33 小节 6.42 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.76 / 6.00 dB；drop2：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.8 % / 5 %、最大 5.05 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +7.97 LU（少 0.37 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-house-124 · g100 · auto · auto · tech · standard · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.33 / 1.50、高于 P95 上限 3.50 的块 1.3 % / 5 %、最大 5.07 / 6.00 dB；drop2：均值 0.33 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.31 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +7.86 LU（少 0.48 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-house-124 · g100 · auto · auto · tech · streaming · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 5.42 dB、从第 33 小节 5.42 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.76 / 6.00 dB；drop2：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.8 % / 5 %、最大 5.05 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +7.97 LU（少 0.37 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 FAIL：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -17.24）；方案自己的目标 -11.00；drop1 -12.15（差 -1.15 LU）；drop2 -12.14（差 -1.14 LU）
+  synthetic-house-124 · g100 · auto · auto · tech · streaming · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.33 / 1.50、高于 P95 上限 3.50 的块 1.3 % / 5 %、最大 5.07 / 6.00 dB；drop2：均值 0.33 / 1.50、高于 P95 上限 3.50 的块 1.2 % / 5 %、最大 5.31 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.35 LU、处理后 +7.86 LU（少 0.48 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 PASS：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 0.5 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -17.24）；方案自己的目标 -11.00；drop1 -11.82（差 -0.82 LU）；drop2 -11.81（差 -0.81 LU）
+  synthetic-tech-124 · g100 · auto · auto · deep · club · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.64 dB、从第 33 小节 6.64 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.23 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.20 / 6.00 dB；drop2：均值 0.23 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.49 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.47 LU（少 0.28 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 1.1 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -16.31）；方案自己的目标 -8.00；drop1 -10.20（差 -2.20 LU）；drop2 -10.19（差 -2.19 LU）
+  synthetic-tech-124 · g100 · auto · auto · deep · club · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.37 / 1.50、高于 P95 上限 3.50 的块 2.1 % / 5 %、最大 4.89 / 6.00 dB；drop2：均值 0.37 / 1.50、高于 P95 上限 3.50 的块 2.0 % / 5 %、最大 5.02 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.24 LU（少 0.51 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 0.6 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -16.31）；方案自己的目标 -8.00；drop1 -9.59（差 -1.59 LU）；drop2 -9.58（差 -1.58 LU）
+  synthetic-tech-124 · g100 · auto · auto · deep · standard · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.64 dB、从第 33 小节 6.30 dB，差 -0.33 dB
+    ②GR 预算 PASS：drop1：均值 0.23 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.20 / 6.00 dB；drop2：均值 0.23 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.49 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.47 LU（少 0.28 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-tech-124 · g100 · auto · auto · deep · standard · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.29 / 1.50、高于 P95 上限 3.50 的块 1.3 % / 5 %、最大 4.93 / 6.00 dB；drop2：均值 0.29 / 1.50、高于 P95 上限 3.50 的块 1.4 % / 5 %、最大 5.20 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.36 LU（少 0.39 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-tech-124 · g100 · auto · auto · deep · streaming · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 5.64 dB、从第 33 小节 5.30 dB，差 -0.33 dB
+    ②GR 预算 PASS：drop1：均值 0.23 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.20 / 6.00 dB；drop2：均值 0.23 / 1.50、高于 P95 上限 3.50 的块 0.6 % / 5 %、最大 4.49 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.47 LU（少 0.28 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 PASS：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 1.1 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -16.31）；方案自己的目标 -11.00；drop1 -11.20（差 -0.20 LU）；drop2 -11.19（差 -0.19 LU）
+  synthetic-tech-124 · g100 · auto · auto · deep · streaming · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.29 / 1.50、高于 P95 上限 3.50 的块 1.3 % / 5 %、最大 4.93 / 6.00 dB；drop2：均值 0.29 / 1.50、高于 P95 上限 3.50 的块 1.4 % / 5 %、最大 5.20 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.36 LU（少 0.39 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 PASS：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 0.6 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -16.31）；方案自己的目标 -11.00；drop1 -11.00（差 -0.00 LU）；drop2 -10.99（差 +0.01 LU）
+  synthetic-tech-124 · g100 · auto · auto · tech · club · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.64 dB、从第 33 小节 6.64 dB，差 +0.00 dB
+    ②GR 预算 PASS：drop1：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.33 / 6.00 dB；drop2：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.56 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.27 LU（少 0.48 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 1.1 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -16.31）；方案自己的目标 -8.00；drop1 -10.38（差 -2.38 LU）；drop2 -10.36（差 -2.36 LU）
+  synthetic-tech-124 · g100 · auto · auto · tech · club · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 2.1 % / 5 %、最大 4.96 / 6.00 dB；drop2：均值 0.36 / 1.50、高于 P95 上限 3.50 的块 2.0 % / 5 %、最大 5.05 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.05 LU（少 0.70 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 FAIL：目标 -8.00（基准 -7.0、风格偏移 -1.00、LRA 0.6 LU → 修正 0.00）；GLAZE 100 折算 -8.00（drop 输入 -16.31）；方案自己的目标 -8.00；drop1 -9.81（差 -1.81 LU）；drop2 -9.80（差 -1.80 LU）
+  synthetic-tech-124 · g100 · auto · auto · tech · standard · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 6.64 dB、从第 33 小节 6.30 dB，差 -0.33 dB
+    ②GR 预算 PASS：drop1：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.33 / 6.00 dB；drop2：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.56 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.27 LU（少 0.48 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-tech-124 · g100 · auto · auto · tech · standard · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.34 / 1.50、高于 P95 上限 3.50 的块 1.9 % / 5 %、最大 5.33 / 6.00 dB；drop2：均值 0.34 / 1.50、高于 P95 上限 3.50 的块 1.9 % / 5 %、最大 5.56 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.10 LU（少 0.65 LU）
+    ④真峰值 PASS：真峰值 -1.35 / 上限 -1.00 dBTP
+    ⑤目标响度 N/A：标准档不判（规格只给了流媒体 / 俱乐部的目标）
+  synthetic-tech-124 · g100 · auto · auto · tech · streaming · 起播第 1 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 PASS：从第 1 小节 5.64 dB、从第 33 小节 5.30 dB，差 -0.33 dB
+    ②GR 预算 PASS：drop1：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.33 / 6.00 dB；drop2：均值 0.24 / 1.50、高于 P95 上限 3.50 的块 0.7 % / 5 %、最大 4.56 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.27 LU（少 0.48 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 PASS：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 1.1 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -16.31）；方案自己的目标 -11.00；drop1 -11.38（差 -0.38 LU）；drop2 -11.36（差 -0.36 LU）
+  synthetic-tech-124 · g100 · auto · auto · tech · streaming · 起播第 33 小节（第一遍末 locked，成品末 locked，方案权重 温润 / 冲击 / 通透 0.00/0.00/1.00）
+    ①方案增益 N/A：这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）
+    ②GR 预算 PASS：drop1：均值 0.34 / 1.50、高于 P95 上限 3.50 的块 1.9 % / 5 %、最大 5.33 / 6.00 dB；drop2：均值 0.34 / 1.50、高于 P95 上限 3.50 的块 1.9 % / 5 %、最大 5.56 / 6.00 dB
+    ③落差 PASS：breakdown → drop2：处理前 +8.75 LU、处理后 +8.10 LU（少 0.65 LU）
+    ④真峰值 PASS：真峰值 -2.35 / 上限 -2.00 dBTP
+    ⑤目标响度 PASS：目标 -11.00（基准 -10.0、风格偏移 -1.00、LRA 0.6 LU → 修正 0.00）；GLAZE 100 折算 -11.00（drop 输入 -16.31）；方案自己的目标 -11.00；drop1 -10.98（差 +0.02 LU）；drop2 -10.97（差 +0.03 LU）
+
+门控对照（输入端，整首都听过时按规格第 2.3 节离线门控一遍；ΔG 3.0 LU、系数 0.60；不判定）：
+  synthetic-house-124：S_ref -16.64 LUFS（第 95 百分位，按有效时长加权），低频参考 0.791；ΔG 3.0 LU、低频门系数 0.60 下满编 64 小节
+    intro        intro      第 1～32 小节：段落响度 -21.07 LUFS、低频占比均值 0.719，过门 0 / 32
+    drop1        drop       第 33～64 小节：段落响度 -17.24 LUFS、低频占比均值 0.780，过门 32 / 32
+    breakdown    breakdown  第 65～80 小节：段落响度 -25.59 LUFS、低频占比均值 0.005，过门 0 / 16
+    drop2        drop       第 81～112 小节：段落响度 -17.24 LUFS、低频占比均值 0.780，过门 32 / 32
+  synthetic-tech-124：S_ref -15.69 LUFS（第 95 百分位，按有效时长加权），低频参考 0.841；ΔG 3.0 LU、低频门系数 0.60 下满编 96 小节
+    intro        intro      第 1～32 小节：段落响度 -17.01 LUFS、低频占比均值 0.761，过门 32 / 32
+    drop1        drop       第 33～64 小节：段落响度 -16.31 LUFS、低频占比均值 0.691，过门 32 / 32
+    breakdown    breakdown  第 65～80 小节：段落响度 -25.06 LUFS、低频占比均值 0.005，过门 0 / 16
+    drop2        drop       第 81～112 小节：段落响度 -16.31 LUFS、低频占比均值 0.691，过门 32 / 32
+
+24 行，9 项失败

@@ -64,7 +64,7 @@
       - 三路数据照常累计通用画像（换回通用档时用），另按各自的时间戳归进段落账（SegmentLedger：一段 = 一小节，跨段边界的按起点归属）；
         段落账学习与否都记（锁定后防漏网要看新段），只在 startLearning（「重新聆听」）、reset、clearHouseLedger 时清空；
       - 候选画像（getCandidateProfile）改由段落账的门控算出：I、PLR、真峰值、频谱、低 / 高频、起音、立体声、次声、先试后用代价只用
-        满编段，LRA、有效时长、代表性用全部段；画像格式 houseProfileFormatVersion，houseGate = 门控结果；代表性另按「已听 ÷ 锁定所需」
+        满编段，LRA 也只用满编段（阶段 3 集成改：全部段的 LRA 随起播位置变），有效时长、代表性用全部段；画像格式 houseProfileFormatVersion，houseGate = 门控结果；代表性另按「已听 ÷ 锁定所需」
         封顶（暂定期的信心打折，决策器的 confidenceScale 据此自然收紧）。学习期间每定稿一段重算一次（O(段数)），不学习时冻结，
         编排器重开时用 recomputeHouseProfile 立即重算。getAuxiliaryFeatures 同样换成满编段的一份。
 
