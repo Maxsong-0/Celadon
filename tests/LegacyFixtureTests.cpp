@@ -169,11 +169,11 @@ namespace celadon::test
 // 交给模块的实际参数、Listen 差值、延迟……）与 OUT 整体响度按 IEEE 位喂进 FNV-1a 64，得到三个摘要（音频 / 读数 / 整体响度），
 // 写进日志（grep「digest」）。本段只用 e6b445b（0.1.8.5）就有的公开接口：同一份测试原样放回改动前的源码也能编，同一台机器、
 // 同一套编译选项各跑一次，两边日志的摘要逐字相同 = 这些路径逐位不变（做法同 BalanceTests::testGainAndOutputUnchanged）。
-// T-032 A4 在 107（GCC 15.2，x86-64，-ffp-contract=off，Release）上的改前 / 改后对照见
-// docs/validation/2026-09-29-T032-deep-research/IMPL-A4-chain.md；下面 baselineDigests 是改前的值，日志逐项注明是否与它相同——
-// 只作提示、不判失败：摘要取决于编译器、libm 与架构，别的分支合进来有意改声时它本来就该变。判失败的只有「输出全部有限」与
-// 各场景的阳性对照（场景真的走到了它要覆盖的路径）。
-// monitor-toggles 的整体响度摘要按 R8-03 有意改变（干路期间 OUT 表暂停积分），它的音频与读数摘要仍应与基线相同。
+// T-032 A4 的改前 / 改后对照（2026-10-01，云端容器：Ubuntu 24.04、GCC 13.3、glibc 2.39，x86-64，-ffp-contract=off，Release）见
+// docs/validation/2026-09-29-T032-deep-research/IMPL-A4-chain.md；下面 baselineDigests 是那次的改前值，日志逐项注明是否与它相同——
+// 只作提示、不判失败：摘要取决于编译器、libm 与架构（读数摘要里有 float 的 dB 换算，换一版 libm 的 log10f 就会变；音频与整体响度
+// 摘要只经 double 运算），别的分支合进来有意改声时它本来就该变。判失败的只有「输出全部有限」与各场景的阳性对照（场景真的走到了
+// 它要覆盖的路径）。monitor-toggles 的整体响度摘要按 R8-03 有意改变（听原声期间 OUT 表暂停积分），它的音频与读数摘要仍与改前相同。
 #include <cstddef>
 #include <cstdio>
 #include <functional>
@@ -388,18 +388,19 @@ namespace celadon::test
             return result;
         }
 
-        // T-032 A4 改动前（e6b445b 源码 + 本段测试）在 107 上的摘要：{ 场景, 音频, 读数, 整体响度 }（2026-09-30 实测；meter-sweep 没有音频）。
+        // T-032 A4 改动前（e6b445b 源码 + 本段测试）的摘要：{ 场景, 音频, 读数, 整体响度 }（2026-10-01 云端容器 GCC 13.3 / glibc 2.39 实测；
+        // meter-sweep 没有音频）。前任注明「107 上实测」的那一版：音频与整体响度摘要与此逐字相同，读数摘要七个都不同（多半是 libm，见上）。
         struct BaselineDigest { const char* name; std::uint64_t audio, readings, integrated; };
 
         constexpr BaselineDigest baselineDigests[] =
         {
-            { "manual-busy",         0x14c23c589c9a10c9ull, 0xa942c5f9824c2f95ull, 0xd0aa3ecfe8ce7485ull },
-            { "glaze-auto-defaults", 0x4bf945a6d7dc2323ull, 0xdff3a38c6dcd6ee7ull, 0xd1326040cb49cef7ull },
-            { "preview-steady",      0x43a5f132baa849c7ull, 0xaa18dbf4055f3e68ull, 0xa0732c36fe289a14ull },
-            { "preview-listen-exit", 0xb2d1cc0dc4a2a456ull, 0x45cae4e3c955f3e5ull, 0x664dc2db328108e0ull },
-            { "monitor-toggles",     0x9ca2cb0c4afbe443ull, 0xe1cae13a5b586c98ull, 0x327282438585aaf8ull },
-            { "reset-paths",         0x05977d4ff3ca916aull, 0x454894fcaddf2e3eull, 0xf0abe14883a5c495ull },
-            { "meter-sweep",         0x0000000000000000ull, 0x991fe29851a190d8ull, 0xd5066b8a43585ee8ull },
+            { "manual-busy",         0x14c23c589c9a10c9ull, 0xd87075eda3fe55f0ull, 0xd0aa3ecfe8ce7485ull },
+            { "glaze-auto-defaults", 0x4bf945a6d7dc2323ull, 0x974827b3b1dbb965ull, 0xd1326040cb49cef7ull },
+            { "preview-steady",      0x43a5f132baa849c7ull, 0xbf763e26c0e96dcfull, 0xa0732c36fe289a14ull },
+            { "preview-listen-exit", 0xb2d1cc0dc4a2a456ull, 0x57ecae1cb8d0befbull, 0x664dc2db328108e0ull },
+            { "monitor-toggles",     0x9ca2cb0c4afbe443ull, 0x9b79feb9688b700bull, 0x327282438585aaf8ull },
+            { "reset-paths",         0x05977d4ff3ca916aull, 0x5ed9b4410750dd20ull, 0xf0abe14883a5c495ull },
+            { "meter-sweep",         0x0000000000000000ull, 0x6521e096b6bf16aeull, 0xd5066b8a43585ee8ull },
         };
     }
 

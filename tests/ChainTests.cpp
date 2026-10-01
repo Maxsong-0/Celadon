@@ -2054,9 +2054,9 @@ namespace celadon::test
 //==============================================================================
 // T-032（2026-09-29，A4-chain）：监听、表与实际参数的修复用例（研究 / 核验：docs/validation/2026-09-29-T032-deep-research，
 // 任务书 BRIEF-A4-chain.md）。两个测试类追加在文件末尾，上面的用例一行不动：
-//   CeladonChainMonitoring —— 只用 e6b445b（0.1.8.5）就有的公开接口：同一段用例原样放回改动前的源码也能编，107 上对照跑过，
-//     改前 14 条断言失败（证明用例抓得住缺陷；「Listen 开时退出预听」与「reset 仍把抖动序列回到种子」是对照 / 回归项，改前改后
-//     都过），改后全部通过（2026-09-30 在 107 上对照，数字见 IMPL-A4-chain.md）；
+//   CeladonChainMonitoring —— 只用 e6b445b（0.1.8.5）就有的公开接口：同一段用例原样放回改动前的源码也能编。改前 16 条断言失败
+//     （证明用例抓得住缺陷；「Listen 开时退出预听」与「reset 仍把抖动序列回到种子」是对照 / 回归项，改前改后都过），改后全部通过
+//     （2026-10-01 在云端容器 GCC 13.3 上对照，数字见 IMPL-A4-chain.md；下面注释里的「改前实测」都出自这次对照）；
 //   CeladonChainGuards —— 用到本次新增的接口（LoudnessMeter::setIntegrationPaused、ReleaseSafety 的保持、ParameterDefaults.h）
 //     与非有限参数的链级用例（R8-02），放在文件最末（下面有分隔标记）。
 namespace celadon::test
@@ -2189,7 +2189,7 @@ namespace celadon::test
 
     private:
         // R8-01 / R10-03：退出归一化预听时监听增益不能单样本阶跃。受测链预听开着稳定 3 s，参照链从没开过预听；两条链在同一块做同样的
-        // 切换（关预听 / 听原声 / 宿主旁通 / 试听差值），逐样本比「受测 / 参照」的增益：阶跃在一个样本里变很多（改前 107 实测这组参数
+        // 切换（关预听 / 听原声 / 宿主旁通 / 试听差值），逐样本比「受测 / 参照」的增益：阶跃在一个样本里变很多（改前实测这组参数
         // ——稳态预听 −10.32 dB——下 0.695；研究在 −6 dB 下测到 0.499），斜坡每样本 < 0.01（沿用「Listen switch must ramp」的判据）。
         // Listen 关、链照常出母带时是发行端自己的 50 ms 斜坡（每样本的变化不超过 50 ms 线性斜坡的理论步长）；其余情形交给 Listen 的
         // 20 ms 平滑器。斜坡走完两条链监听同一个增益。
@@ -2282,7 +2282,7 @@ namespace celadon::test
         }
 
         // R8-03：听原声（A / B 的 B）时 OUT 表的整体响度只积分母带——母带 6 s → 原声 6 s → 母带 6 s：原声期间整体读数与切换前相差
-        // < 0.01 LU（改前 107 实测被原声拉低约 2 LU），短期读数是此刻听到的原声（与单独量原声的表相差 < 0.1 LU）；回到母带后整体读数
+        // < 0.01 LU（改前实测被原声拉低 2.03 LU），短期读数是此刻听到的原声（与单独量原声的表相差 < 0.1 LU）；回到母带后整体读数
         // 接着母带的值；OUT 表的样本计数一直在走（子块环不断，校准器与 Listen 的配对不经直方图）。宿主旁通见 CeladonChainGuards。
         void testOriginalFreezesIntegrated()
         {
@@ -2337,7 +2337,7 @@ namespace celadon::test
                     "the OUT meter's sample clock keeps running through the original");
         }
 
-        // R8-04：预听中点表 Reset，整体读数要 400 ms 才回来——这段时间预听保持上一次的衰减，不回 0 dB 再落回（改前 107 实测这组参数下
+        // R8-04：预听中点表 Reset，整体读数要 400 ms 才回来——这段时间预听保持上一次的衰减，不回 0 dB 再落回（改前实测这组参数下
         // Reset 后预听增益回到 0.000 dB，稳态 −10.32 dB；研究在 −6 dB 下测到 0.4 s 的 +6 dB）：Reset 后 2 s 内预听增益最高不超过
         // 稳态 + 0.5 dB。从未有过读数时照旧是 0 dB（头 300 ms）。
         void testMeterResetKeepsPreview()
@@ -2380,7 +2380,7 @@ namespace celadon::test
         }
 
         // 核验漏项：同规格 prepareToPlay（setParams + reset）与播放中途的 restartWithFadeIn 都不把预听增益归一（改前先回 0 dB 再 50 ms
-        // 线性滑回：107 实测这组参数下之后 0.5 s 的预听增益读数最高 −0.33 dB，稳态 −10.32 dB）。两块表不清、整体读数还在，衰减接着生效。
+        // 线性滑回：改前实测这组参数下之后 0.5 s 的预听增益读数最高 −0.33 dB，稳态 −10.32 dB）。两块表不清、整体读数还在，衰减接着生效。
         void testResetKeepsPreviewGain()
         {
             for (int variant = 0; variant < 2; ++variant)
@@ -2451,62 +2451,82 @@ namespace celadon::test
                     "dithered output after reset must equal a freshly prepared chain");
         }
 
-        // R10-08：链自己不管输入（守卫在处理器），但一个 NaN 进了表不能永久污染它。
-        //   - 单独一块 LoudnessMeter：稳定音 2 s → 含 NaN 的一块 → 稳定音 3 s：短期与整体读数恢复成有限值、与出事前相差很小
-        //     （改前 107 实测：整体读数冻结在出事前的值，短期读数从此一直是 −100「无读数」）；
+        // R10-08：链自己不管输入（守卫在处理器），但一个 NaN 进了表不能永久污染它。NaN 之后都把信号推响 +6 dB：读数要跟着走，
+        // 冻结在出事前的值就过不了（改前正是这样——整体读数停在出事前、短期读数从此 −100「无读数」，本容器对照实测见 IMPL-A4-chain.md）。
+        //   - 单独一块 LoudnessMeter：稳定音 2 s → 含 NaN 的一块 → 同一个音 +6 dB 4 s：短期读数等于单独量 +6 dB 那段的表
+        //     （差 < 0.1 LU），整体读数比出事前高出 3 LU 以上（两段按能量平均约高 4.9 LU）；
         //   - 整条链（GLAZE 35，聆听中）：中途一块含 NaN——它过完链延迟到达输出的那一块被清零、整链重启淡入（链的输出守卫，改动前就有），
-        //     输出全部有限；之后 1 s 内 IN 表读数恢复，GLAZE 聆听继续推进（改前 IN 表每个子块都是 NaN，分析器全部跳过：107 实测短期
-        //     读数一直 −100、聆听时长停在 2.90 s 不再增加）。
+        //     输出全部有限；之后 1 s 内 IN 表短期读数恢复，结尾时 IN 表整体读数比出事前高出 2 LU 以上（后面那段 +6 dB），
+        //     GLAZE 聆听继续推进（改前 IN 表每个子块都是 NaN，分析器全部跳过，聆听时长停住不再增加）。
         void testNonFiniteReachingMeters()
         {
-            beginTest ("a NaN reaching a LoudnessMeter no longer poisons it: short-term and integrated recover");
+            beginTest ("a NaN reaching a LoudnessMeter no longer poisons it: short-term and integrated keep following the signal");
             {
-                LoudnessMeter meter;
+                LoudnessMeter meter, louderAlone;
                 meter.prepare (makeSpec (t032Rate));
-                const auto tone = makeSteadyTone (5.0);
+                louderAlone.prepare (makeSpec (t032Rate));
+                const auto tone = makeSteadyTone (2.5);   // 只用到 NaN 那一块的末尾（约 2.005 s）
+                auto louder = makeSteadyTone (4.0);
+                scale (louder, 2.0f);   // +6.02 dB
                 juce::AudioBuffer<float> block (numChannels, maxBlock);
-                float beforeIntegrated = 0.0f, beforeShortTerm = 0.0f;
                 const auto nanBlockStart = (int) (2.0 * t032Rate) / maxBlock * maxBlock;
 
-                for (int start = 0; start < (int) tone[0].size(); start += maxBlock)
+                const auto feed = [&block] (LoudnessMeter& target, const Signal& source, int start, int length, bool poison)
                 {
-                    const auto count = juce::jmin (maxBlock, (int) tone[0].size() - start);
+                    const auto count = juce::jmin (maxBlock, length);
                     block.setSize (numChannels, count, false, false, true);
 
                     for (int ch = 0; ch < numChannels; ++ch)
-                        block.copyFrom (ch, 0, tone[(size_t) ch].data() + start, count);
+                        block.copyFrom (ch, 0, source[(size_t) ch].data() + start, count);
 
-                    if (start == nanBlockStart)
-                    {
-                        beforeIntegrated = meter.getIntegratedLufs();
-                        beforeShortTerm = meter.getShortTermLufs();
+                    if (poison)
                         block.setSample (0, 100, std::numeric_limits<float>::quiet_NaN());
-                    }
 
-                    meter.process (block);
+                    target.process (block);
+                };
+
+                for (int start = 0; start < nanBlockStart; start += maxBlock)
+                    feed (meter, tone, start, nanBlockStart - start, false);
+
+                const auto beforeIntegrated = meter.getIntegratedLufs();
+                const auto beforeShortTerm = meter.getShortTermLufs();
+                feed (meter, tone, nanBlockStart, maxBlock, true);
+
+                for (int start = 0; start < (int) louder[0].size(); start += maxBlock)
+                {
+                    feed (meter, louder, start, (int) louder[0].size() - start, false);
+                    feed (louderAlone, louder, start, (int) louder[0].size() - start, false);
                 }
 
                 const auto integrated = meter.getIntegratedLufs();
                 const auto shortTerm = meter.getShortTermLufs();
                 logMessage ("  meter before the NaN: I " + juce::String (beforeIntegrated, 3) + ", S " + juce::String (beforeShortTerm, 3)
-                            + "; 3 s after: I " + juce::String (integrated, 3) + ", S " + juce::String (shortTerm, 3));
-                expect (std::isfinite (integrated) && std::abs (integrated - beforeIntegrated) < 0.05f,
-                        "integrated loudness recovers after a NaN sample");
-                expect (std::isfinite (shortTerm) && std::abs (shortTerm - beforeShortTerm) < 0.1f,
-                        "short-term loudness recovers after a NaN sample");
+                            + "; 4 s of +6 dB after it: I " + juce::String (integrated, 3) + ", S " + juce::String (shortTerm, 3)
+                            + " (the +6 dB part alone: S " + juce::String (louderAlone.getShortTermLufs(), 3) + ")");
+                expect (std::isfinite (beforeIntegrated) && beforeIntegrated > -70.0f, "the meter had a reading before the NaN");
+                expect (std::isfinite (shortTerm) && std::abs (shortTerm - louderAlone.getShortTermLufs()) < 0.1f,
+                        "short-term loudness follows the signal after a NaN sample");
+                expect (std::isfinite (integrated) && integrated > beforeIntegrated + 3.0f,
+                        "integrated loudness keeps integrating after a NaN sample (not frozen at the old value)");
             }
 
             beginTest ("a NaN input block no longer stalls the chain's IN meter and GLAZE listening");
             {
                 auto p = makeNeutralParams();
                 p.glazePercent = 35.0f;
-                const auto input = makeWideMaterial (t032Rate, 8.0, 41);
+                auto input = makeWideMaterial (t032Rate, 8.0, 41);
                 auto output = makeSilence (numChannels, (int) input[0].size());
                 const auto nanAt = (int) (3.0 * t032Rate) / maxBlock * maxBlock;
+
+                // NaN 那一块之后整段 +6 dB：IN 表的整体读数要跟着抬高（冻结就过不了）。
+                for (auto& channel : input)
+                    for (size_t i = (size_t) (nanAt + maxBlock); i < channel.size(); ++i)
+                        channel[i] *= 2.0f;
 
                 CeladonChain chain;
                 prepareChain (chain, t032Rate, p);
                 processSpan (chain, p, input, output, 0, nanAt, maxBlock, {});
+                const auto inIntegratedBefore = chain.getInputMeter().getIntegratedLufs();
 
                 auto poisoned = input;
                 poisoned[0][(size_t) nanAt + 17] = std::numeric_limits<float>::quiet_NaN();
@@ -2514,12 +2534,12 @@ namespace celadon::test
 
                 const auto oneSecond = (int) (1.0 * t032Rate) / maxBlock * maxBlock;
                 processSpan (chain, p, input, output, nanAt + maxBlock, oneSecond, maxBlock, {});
-                const auto inIntegrated = chain.getInputMeter().getIntegratedLufs();
                 const auto inShortTerm = chain.getInputMeter().getShortTermLufs();
                 const auto listenedAfterOne = chain.getGlazeStatus().listenedSeconds;
 
                 const auto rest = (int) input[0].size() - (nanAt + maxBlock + oneSecond);
                 processSpan (chain, p, input, output, nanAt + maxBlock + oneSecond, rest, maxBlock, {});
+                const auto inIntegratedAtEnd = chain.getInputMeter().getIntegratedLufs();
                 const auto listenedAtEnd = chain.getGlazeStatus().listenedSeconds;
 
                 // NaN 在链延迟之后才到输出：到达的那一块被清零、整链重启——先静音整条链的延迟，再 10 ms 淡入（链的输出守卫）。
@@ -2532,13 +2552,15 @@ namespace celadon::test
                     longestSilence = juce::jmax (longestSilence, run);
                 }
 
-                logMessage ("  1 s after the NaN block: IN I " + juce::String (inIntegrated, 3) + ", S " + juce::String (inShortTerm, 3)
-                            + "; GLAZE listened " + juce::String (listenedAfterOne, 2) + " s → " + juce::String (listenedAtEnd, 2) + " s at the end");
+                logMessage ("  IN I before the NaN block " + juce::String (inIntegratedBefore, 3) + "; 1 s after: IN S " + juce::String (inShortTerm, 3)
+                            + "; at the end (+6 dB since the NaN): IN I " + juce::String (inIntegratedAtEnd, 3) + "; GLAZE listened "
+                            + juce::String (listenedAfterOne, 2) + " s → " + juce::String (listenedAtEnd, 2) + " s at the end");
                 expect (allFinite (output), "every output sample is finite");
                 expect (longestSilence >= latency, "the block the NaN reaches is cleared and the chain restarts: "
                                                        + juce::String (longestSilence) + " silent samples, latency " + juce::String (latency));
-                expect (std::isfinite (inIntegrated) && inIntegrated > -70.0f, "the IN meter's integrated reading is back within 1 s");
                 expect (std::isfinite (inShortTerm) && inShortTerm > -70.0f, "the IN meter's short-term reading is back within 1 s");
+                expect (std::isfinite (inIntegratedAtEnd) && inIntegratedAtEnd > inIntegratedBefore + 2.0f,
+                        "the IN meter's integrated reading keeps integrating after the NaN block (+6 dB pulls it up)");
                 expect (listenedAtEnd > listenedAfterOne + 2.0f, "GLAZE keeps listening after the NaN block");
             }
         }
@@ -2909,8 +2931,9 @@ namespace celadon::test
         // 取「回退值」的链逐位相同。回退值 = 该字段的默认值（ChainParams / 各模块 Params / MasteringSettings 的默认）；例外是修坯的三个手动值：
         // ClayModule 按文档回退中性（低切关 = 0、加宽 0、收单分频点沿用模块初值 80 Hz）。GLAZE、高级母带、Balance、修坯的字段与
         // Limit Ceiling（链先扣编码余量，守卫在链里：这里编码余量 0.3 dB，改前 NaN Ceiling 扣完还是 NaN）现在就判定。
-        // 其余 Color / Limit 字段要等 A2 / A3 的模块守卫合进来（colorLimitGuardsMerged）才跑——之前连跑都不能跑：2026-09-30 在 107 上
-        // color.heat = NaN 让测试进程段错误（ColorModule::heatCompensationFor 里 jlimit 放过 NaN，(int) NaN 越界查表）。
+        // 其余 Color / Limit 字段要等 A2 / A3 的模块守卫合进来（colorLimitGuardsMerged）才跑——之前连跑都不能跑：本线源码上把开关改成 true，
+        // color.toneDb / color.glue 的坏值与回退值不逐位相同，跑到 color.heat 时测试进程段错误（ColorModule::heatCompensationFor 里 jlimit
+        // 放过 NaN，(int) NaN 越界查表；2026-10-01 在云端容器上复现）。
         void testNonFiniteParams()
         {
             beginTest ("every float field of ChainParams fed NaN / +Inf / -Inf: finite, audible, true peak <= Ceiling + 0.01 dB, bit-identical to its fallback");
