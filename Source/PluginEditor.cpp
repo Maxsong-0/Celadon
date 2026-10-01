@@ -198,7 +198,9 @@ public:
         addAndMakeVisible (particles);
         particles.setBounds (0, ParticleField::top, baseWidth, ParticleField::bandHeight);
         addAndMakeVisible (glazeTitle);
-        glazeTitle.setBounds (360, 305, 480, 20);
+        // T-038：标题收窄到曲风 / 交付两个选择之间（x 470 ～ 730，Max 2026-10-01 选「放在 GLAZE 标题行」）：三者的区域不重叠，
+        // 点选择时不会被标题吃掉。标题内容按宽度居中（中心仍是 600），英文最长一版（GLAZE · smart mastering · 校准中）约 242 px，放得下。
+        glazeTitle.setBounds (470, 305, 260, 20);
         addAndMakeVisible (glazeKnob);
         // Keep the knob's interaction coordinates while giving more canvas space to the cards.
         glazeKnob.setTopLeftPosition (0, 0);
@@ -477,17 +479,17 @@ public:
         repaint (0, y - 2, baseWidth, h + 4);
     }
 
-    // T-038 曲风 / 交付：主旋钮左右各一个，按文字宽度（自然宽度随语言变，只在 setLanguage 里量），垂直居中在旋钮中心 y = 422。
-    // 两个都离旋钮的数值弧（半径约 92）留 30 px 左右：曲风右对齐到 x = 476，交付左对齐到 x = 724。左下的说明（y ≥ 494）、
-    // 临时监听的退出提示（y 452 ～ 486）与右下的图例（y 504 起）都在它们下面，不重叠。
+    // T-038 曲风 / 交付：放在 GLAZE 标题行左右（Max 2026-10-01 看两种截图后选定；原默认的「主旋钮左右」作废）。按文字宽度
+    // （自然宽度随语言变，只在 setLanguage 里量），y 302 ～ 328，与标题（y 305 ～ 325）同一行：曲风右对齐到标题左沿 x = 470，
+    // 交付左对齐到标题右沿 x = 730。频谱区下沿（y 298）在它们上面，主旋钮的数值弧在它们下面，都不重叠。
     void layoutGlazeChoices()
     {
-        constexpr int centreY = 422, h = 28, genreRight = 476, deliveryLeft = 724;
+        constexpr int top = 302, h = 26, genreRight = 470, deliveryLeft = 730;
         const auto genreWidth = genreSelector.getNaturalWidth();
         const auto deliveryWidth = deliverySelector.getNaturalWidth();
 
-        genreSelector.setBounds (genreRight - genreWidth, centreY - h / 2, genreWidth, h);
-        deliverySelector.setBounds (deliveryLeft, centreY - h / 2, deliveryWidth, h);
+        genreSelector.setBounds (genreRight - genreWidth, top, genreWidth, h);
+        deliverySelector.setBounds (deliveryLeft, top, deliveryWidth, h);
     }
 
     void noteZoomChanged (double zoom, bool fromUser)

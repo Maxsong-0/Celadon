@@ -24,8 +24,7 @@
 | `zh-glaze90.png` / `zh-glaze0.png` | GLAZE 90 %（开片密、釉色深、粒子多）/ 0 %（无开片、全手动） |
 | `zh-zoom70.png` / `zh-zoom150.png` | 界面大小 70 % / 150 %（含缩放提示） |
 | `zh-reduced.png` | 减少动效（没有粒子与波纹） |
-| `zh-house-layout.png` / `en-house-layout.png` | T-038：曲风 Deep House、交付 俱乐部，两个选择在主旋钮左右（代码里的默认位置）；House 暂定、23 / 64 小节（只存上半，y < 560） |
-| `zh-house-layout-alt.png` / `en-house-layout-alt.png` | 同上，两个选择挪到 GLAZE 标题行左右（备选位置，只在截图里挪） |
+| `zh-house-layout.png` / `en-house-layout.png` | T-038：曲风 Deep House、交付 俱乐部，两个选择在 GLAZE 标题行左右（Max 2026-10-01 选定）；House 暂定、23 / 64 小节（只存上半，y < 560） |
 | `zh-house-status-bars.png` … `en-house-status-seconds.png` | 状态行三种文字（还没听到主段落 / 主段落已听 8 小节 / 宿主没给拍点），只截顶栏胶囊 |
 | `zh-house-tip.png` / `en-house-tip.png` | House 暂定期间 GLAZE 状态的悬停气泡（第 3 行「从 drop 开始播放能学得更快」） |
 | `zh-house-hint.png` / `en-house-hint.png` | House 反相提示：状态胶囊琥珀 + CLAY 卡片两行提示 |

@@ -9,7 +9,7 @@
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced；
-      T-038（曲风 Deep House、交付 俱乐部，House 状态字段注入）：zh / en-house-layout、-house-layout-alt（两个选择的默认 / 备选位置）、
+      T-038（曲风 Deep House、交付 俱乐部，House 状态字段注入）：zh / en-house-layout（两个选择在 GLAZE 标题行左右；Max 2026-10-01 选定，备选图已去掉）、
       -house-status-bars / -main / -seconds（状态行三种文字，只截胶囊）、-house-tip（暂定期间的气泡）、-house-hint（反相提示）。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字），⑲ 续与 ⑳ 是 T-041 的：
@@ -400,19 +400,6 @@ namespace
         s.setParameter (celadon::param::glazeDelivery, 2.0f);
     }
 
-    // 备选位置（给 Max 比）：两个选择挪到 GLAZE 标题行左右（y 302 ～ 328），标题文字居中在 480 ～ 720 之间，不重叠。
-    void moveChoicesToTitleRow (Session& s)
-    {
-        auto* genre = findById (*s.editor, celadon::param::glazeGenre);
-        auto* delivery = findById (*s.editor, celadon::param::glazeDelivery);
-
-        if (genre != nullptr && delivery != nullptr)
-        {
-            genre->setBounds (470 - genre->getWidth(), 302, genre->getWidth(), 26);
-            delivery->setBounds (730, 302, delivery->getWidth(), 26);
-        }
-    }
-
     // 暂定期间的悬停气泡：取 GLAZE 标题此刻的气泡文字（编辑器定时器按 House 状态换好的那一版），在标题左下方手动弹出；
     // 截图只存标题与气泡那一块（编辑器 1 倍时画布坐标 = 编辑器坐标）。
     void showGlazeTooltip (Session& s)
@@ -561,10 +548,6 @@ int main (int argc, char* argv[])
         // 版面：两个选择在主旋钮左右（代码里的默认位置）与备选位置（挪到 GLAZE 标题行），整张。
         { "zh-house-layout", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
         { "en-house-layout", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
-        { "zh-house-layout-alt", celadon::Language::chinese, houseParameters,
-          [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); moveChoicesToTitleRow (s); }, upperCrop },
-        { "en-house-layout-alt", celadon::Language::english, houseParameters,
-          [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); moveChoicesToTitleRow (s); }, upperCrop },
         // 状态行三种文字（设计规格-曲风-House学习方式 第 7 节），只截顶栏胶囊。
         { "zh-house-status-bars", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, pillCrop },
         { "en-house-status-bars", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, pillCrop },

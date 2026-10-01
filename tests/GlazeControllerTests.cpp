@@ -5425,6 +5425,7 @@ namespace celadon::test
             testGeneralBitExactWithTempo();
             testStatusFields();
             testHouseAudioThreadDoesNotAllocate();
+            testHousePhaseHintEndToEnd();   // 集成时追加（B 报告遗留：合并 C 之后补端到端）
         }
 
     private:
@@ -5791,6 +5792,84 @@ namespace celadon::test
                 expectWithinAbsoluteError (s.houseTargetSeconds, 124.0f, 1.0e-4f);
                 expect (s.houseHeardSeconds >= 6.0f && s.houseHeardSeconds <= 9.0f, "heard seconds follow the effective audio");
             }
+        }
+
+        // 集成时追加（B 报告遗留一条；设计规格-曲风-House学习方式 第 9 节）：House 反相提示端到端——编排器判「满编段」并按 4 小节换成秒、
+        // ClayGuard 判门限与持续时长、Status 带出来。前奏 4 小节只有鼓，接 12 小节 drop：低音右声道比左声道相移 90°（低频相关度约 0，
+        // 只看低音时单声道损失约 3 dB；底鼓是单声道，合起来相关度约 0.3）→ drop 里持续 4 小节以上后提示亮、损失深于门限对应的 −0.97 dB；
+        // 对照：低音两声道同相 → 不亮；通用档同一首 → 不亮。
+        void testHousePhaseHintEndToEnd()
+        {
+            beginTest ("House phase hint end to end: a wide (90-degree) bass in the main section lights it; an in-phase bass or the General genre never does");
+
+            const auto makeSong = [] (bool wideBass)
+            {
+                const auto beat = 60.0 / houseBpm;
+                const auto bar = 4.0 * beat;
+                const auto introBars = 4, totalBars = 16;
+                const auto numSamples = (int) std::lround ((double) totalBars * bar * defaultRate);
+                const auto twoPi = juce::MathConstants<double>::twoPi;
+                auto signal = makeSilence (numChannels, numSamples);
+
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const auto t = (double) i / defaultRate;
+                    const auto drop = (int) (t / bar) >= introBars;
+                    const auto beatPosition = std::fmod (t, beat);
+                    const auto kick = (drop ? 0.5 : 0.35) * std::exp (-beatPosition / 0.12)
+                                    * std::sin (twoPi * (50.0 * beatPosition + 70.0 * 0.03 * (1.0 - std::exp (-beatPosition / 0.03))));
+                    double bassLeft = 0.0, bassRight = 0.0;
+
+                    if (drop)
+                    {
+                        for (int h = 1; h <= 6; ++h)
+                        {
+                            bassLeft += std::sin (twoPi * 55.0 * h * t) / h;
+                            bassRight += (wideBass ? std::cos (twoPi * 55.0 * h * t) : std::sin (twoPi * 55.0 * h * t)) / h;
+                        }
+                    }
+
+                    signal[0][(size_t) i] = (float) (kick + 0.22 * bassLeft);
+                    signal[1][(size_t) i] = (float) (kick + 0.22 * bassRight);
+                }
+
+                return signal;
+            };
+
+            const auto runFor = [&makeSong] (bool wideBass, int genre, glaze::Status& out, float& peakLossDb, int& litBlocks)
+            {
+                Rig rig (houseConstants (64, 4), makeSong (wideBass), houseParams (40.0f, genre));
+                rig.tempoBpm = houseBpm;
+                peakLossDb = 0.0f;
+                litBlocks = 0;
+                rig.run (15.0 * houseBarSeconds, [&] (int)
+                {
+                    const auto s = rig.status();
+                    if (s.housePhaseHint)
+                    {
+                        ++litBlocks;
+                        peakLossDb = juce::jmin (peakLossDb, s.housePhaseMonoLossDb);
+                    }
+                });
+                out = rig.status();
+            };
+
+            glaze::Status wide, inPhase, general;
+            float wideLoss = 0.0f, inPhaseLoss = 0.0f, generalLoss = 0.0f;
+            int wideLit = 0, inPhaseLit = 0, generalLit = 0;
+            runFor (true, 1, wide, wideLoss, wideLit);
+            runFor (false, 1, inPhase, inPhaseLoss, inPhaseLit);
+            runFor (true, 0, general, generalLoss, generalLit);
+
+            logMessage ("  wide bass: lit " + juce::String (wideLit) + " blocks, deepest mono loss " + juce::String (wideLoss, 2)
+                        + " dB; in-phase lit " + juce::String (inPhaseLit) + "; General lit " + juce::String (generalLit));
+            expect (wideLit > 0 && wide.housePhaseHint, "a wide bass held for more than 4 bars of main section lights the hint");
+            // 低频段里还有单声道的底鼓：合起来的相关度约 0.3（不是只有低音时的 0），提示里的损失应深于门限 0.6 对应的 −0.97 dB、浅于 −3 dB。
+            expect (wideLoss < 10.0f * std::log10 ((1.0f + 0.6f) / 2.0f) && wideLoss > -3.1f,
+                    "the hint reports a mono bass loss beyond the 0.6-correlation threshold (about -1 to -3 dB)");
+            expectEquals (inPhaseLit, 0, "an in-phase bass never lights it");
+            expectEquals (generalLit, 0, "the General genre never lights it");
+            expect (! general.houseActive);
         }
 
         // 依据：任务书「音频线程 0 分配、0 锁的现有检查覆盖新代码」。一条 House 链走完：暂定方案与快过渡、锁定、重开、重新聆听、
