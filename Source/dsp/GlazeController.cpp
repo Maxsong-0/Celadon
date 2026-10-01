@@ -77,6 +77,28 @@
         核对，其余照风格上限；这组项变了就清空两个窗口（g_保护 不动）。之后画像失配、保护层、上游监视、校准与约束反馈只在电平类自动
         全部撤回（Plan::automaticLevelWithdrawn）时停，limitedByManual 只给界面。手动没超预算时掩码为 0，与修前逐位相同。
 
+    T-038 House 档（设计规格-曲风-House学习方式 第 3、4、7、9 节；阶段 2 B）。一切都在 isHouse(currentGenre) 之后，通用档逐位同改前：
+      - 分析器：每块 beginBlock 交此刻的曲风（setGenre，不变时什么都不做）；切片的宿主 PPQ 按片的偏移推过再交（与位置同一处理），
+        段落账的锚点检查才对得上；House 常数在 prepare / 换常数时交给分析器。
+      - 锁定条件（houseLockSatisfied）：画像的门控结果按分段方式取一组——小节：已听 ≥ lockSegments、满编 ≥ requiredFullSegments；
+        2 秒段：已听有效音频 ≥ fallbackLockSeconds、满编 ≥ fallbackFullSeconds——再加现有的 listeningComplete。常数取本版本的标定快照
+        （新学的画像用它，同 listeningComplete）。
+      - 暂定方案：首次聆听中分析器的 House 画像每重算一次（每定稿一段，约每小节一次）就按它重算方案。一般 3 s 过渡（同 planTransitionSeconds）；
+        这次重算前有新响段定稿就用 fastTransitionSeconds：正在走的过渡先按进度不变地压缩到同样的时长内走完（hurryTransition：
+        length' = 剩余 ÷ (1 − t)，进度 t 不跳），新方案排在它后面、也是快过渡——否则排队要等最多 3 s，drop 被暂定方案压着推。
+        通用档首次聆听的「每 1 s 更新一次」在 House 档不用（段落账一小节才变一次）。暂定期没有已提交画像，校准本来就不开。
+      - 锁定后防漏网（updateHouseLocked）：按段落账的定稿事件数「连续更响更满」的段（同一连续时间段里；跨不连续点、静音段都断开），
+        够 reopenSegments 就进入「待重开」：段落账也够锁定条件时按它门控重算画像（O(段数)，只在段落账有新定稿时试一次），
+        比已提交画像更响才提交——重开次数 +1 记进画像（houseGate.reopenCount，画像号随之变），fastTransitionSeconds 过渡、
+        校准作废重来两轮；够不上锁定条件（刚读档、段落账从空开始）就旧画像照常、接着等。每份画像最多 maxReopens 次。新段里
+        先试后用的代价（锁定后候选不跑）不够 10 s 时分析器改用全部段的块；再不够就沿用已提交画像的代价（同一首歌试过的结论）。
+      - 换曲风（updateHouseGenre，进 / 出 House 档那一块做一次）：通用 → House 正在聆听就同一种聆听重新开始（段落账从空开始，
+        与通用累计对齐）；House → 通用时为 House 开的那一轮取消、用户点的与首次聆听接着按通用规则走完。没在聆听、已提交画像不是
+        House 锁定过的（houseProfileLocked：格式 3 且门控结果有效）就开一轮 relearn 式聆听，旧画像照常生效（maybeStartHouseListen）；
+        用户取消这一轮之后不再自动开，换曲风 / 提交 / 读档时才重新允许。读取工程：段落账清空（旧画像在新画像就绪前照常）。
+      - 反相提示：updateClay 里在 ClayGuard 之后调 updateHouseHint（资格 = 段落账此刻这一段暂判满编，时长 = phaseHintSegments 小节，
+        拿不到拍点用 phaseHintFallbackSeconds），结果拷进状态。GLAZE ≤ 0、方案源不支持自动 Clay 时提示熄灭（同反相保护的指示灯）。
+
   ==============================================================================
 */
 
@@ -969,6 +991,20 @@ namespace celadon::glaze
         std::uint32_t clayConstantsGeneration = 0;
         bool clayConstantsKnown = false;       // ClayGuard 已按 clayConstantsGeneration 那个方案源的标定快照设过常数
 
+        // ---- T-038 House 档（口径见文件开头；通用档不读写下面任何一项）----
+        bool houseWasActive = false;           // 上一块是 House 档（进 / 出 House 档那一块做一次性处理）
+        bool houseListen = false;              // 这一轮聆听是为 House 锁定条件自动开的（回通用档时取消）
+        bool houseListenDeclined = false;      // 用户取消了自动开的那一轮：不再自动开（换曲风 / 提交 / 读档时清）
+        std::uint32_t houseProfileSeen = 0;    // 暂定方案上次用到的分析器 House 画像版本
+        std::uint32_t houseSurgeSeen = 0;      // 上次看到的新响段计数
+        std::uint64_t houseEventCursor = 0;    // 段落账定稿事件读到的序号
+        int houseReopenRun = 0;                // 锁定后连续「更响更满」的段数
+        std::uint32_t houseReopenEpoch = 0;    // 这一串段所在的连续时间段
+        bool houseReopenArmed = false;         // 已满足重开条件，等段落账够锁定条件
+        std::uint32_t houseReopenTriedAt = 0;  // 上次试重开时段落账的定稿计数（没有新定稿不再重算）
+        std::int64_t houseFastSamples = 24000; // fastTransitionSeconds 折算的样本数
+        ClayGuard::HouseHint houseHint;        // 上一块的 House 反相提示（拷进状态）
+
         // ---- 宿主 ----
         HostInfo host;
         std::int64_t hostInputOffset = 0; // 当前宿主块已交给分析器的样本；内部统计切片不重复用原位置。
@@ -1011,6 +1047,7 @@ namespace celadon::glaze
             guardStuckSamples      = toSamples (activeConstants().guardRecoverAfterSeconds + 1.0, sr);
             statePublishSamples    = toSamples (statePublishSeconds, sr);
             positionTolerance      = juce::jmax ((std::int64_t) 2, toSamples (positionToleranceSeconds, sr));
+            houseFastSamples       = juce::jmax ((std::int64_t) 1, toSamples (constants.house.fastTransitionSeconds, sr));
         }
 
         const Constants& activeConstants() const noexcept
@@ -1258,6 +1295,14 @@ namespace celadon::glaze
             learning = kind;
             samplesSinceLearningUpdate = 0;
             ++probe.learningStarts;
+
+            // House 档：段落账随分析器清空了，锁定后防漏网的计数也从头来（新一轮聆听里不重开）；暂定方案等第一段定稿再更新
+            // （清空本身让画像版本 + 1，不为一份空画像开一次过渡）。
+            if (isHouse (currentGenre))
+            {
+                clearHouseReopen();
+                houseProfileSeen = analyzer.getHouseProfileGeneration();
+            }
         }
 
         void stopLearning() noexcept
@@ -1290,8 +1335,12 @@ namespace celadon::glaze
         // 候选可用：整体替换已提交版本（画像、锁定的风格权重、本版本的标定快照；校准作废、约束反馈回到不限），3 s 过渡过去。
         void commitCandidate() noexcept
         {
-            const auto& candidate = analyzer.getCandidateProfile();
+            commitProfile (analyzer.getCandidateProfile(), planTransitionSamples);
+        }
 
+        // 提交一份画像（候选，或 T-038 House 档锁定后重开时按段落账重算的那一份），transitionSamples 内过渡过去。
+        void commitProfile (const MusicProfile& candidate, std::int64_t transitionSamples) noexcept
+        {
             committed.hasProfile = true;
             committed.profile = candidate;
             committed.profileId = computeProfileId (candidate);
@@ -1324,7 +1373,15 @@ namespace celadon::glaze
             updateTiming();
             monitor.configure (sampleRate, activeConstants());
 
-            requestPlanTransition();
+            // House 档：这一轮聆听结束了（自动开的标记、用户取消过的记号都作废），锁定后防漏网从新画像起数。
+            if (isHouse (currentGenre))
+            {
+                houseListen = false;
+                houseListenDeclined = false;
+                clearHouseReopen();
+            }
+
+            requestPlanTransition (transitionSamples);
             stateDirtyUrgent = true;
         }
 
@@ -1332,6 +1389,13 @@ namespace celadon::glaze
         {
             if (learning == Learning::none)
                 return;
+
+            // T-038 House 档：锁定条件与暂定方案另走一条（updateHouseLearning）；通用档照旧。
+            if (isHouse (currentGenre))
+            {
+                updateHouseLearning();
+                return;
+            }
 
             // 提交依据有效音频样本数，实时与离线一致；不能因导出标志放弃已有候选或另换保守方案。
             if (listeningComplete (analyzer.getCandidateProfile()))
@@ -1367,6 +1431,15 @@ namespace celadon::glaze
 
             const auto toggle = (count % 2) == 1;
 
+            // T-038 House 档：用户点了按钮，这一轮就是用户的（取消自动开的那一轮 = 不再自动开，见 maybeStartHouseListen）。
+            if (isHouse (currentGenre))
+            {
+                if (learning == Learning::relearn && toggle && houseListen)
+                    houseListenDeclined = true;
+
+                houseListen = false;
+            }
+
             switch (learning)
             {
                 case Learning::firstListen:
@@ -1391,6 +1464,247 @@ namespace celadon::glaze
                     }
                     break;
             }
+        }
+
+        //==============================================================================
+        // ---- T-038 House 档（口径见文件开头；只在 isHouse(currentGenre) 时调）----
+
+        // 已提交画像是 House 档锁定过的（格式 3、门控结果有效）。旧格式 1 / 2、通用档学的画像不是：House 档下视为锁定条件未满足。
+        static bool houseProfileLocked (const MusicProfile& p) noexcept
+        {
+            return p.formatVersion >= houseProfileFormatVersion && p.houseGate.valid;
+        }
+
+        // 锁定条件第 1、2 条（门控结果按分段方式取一组）。常数取本版本的标定快照（同 listeningComplete）。
+        bool houseCountsSatisfied (const HouseGateSummary& g) const noexcept
+        {
+            const auto& h = constants.house;
+
+            if (! g.valid)
+                return false;
+
+            if (g.mode == SegmentMode::seconds)
+                return g.heardSeconds >= h.fallbackLockSeconds && g.fullSeconds >= h.fallbackFullSeconds;
+
+            return g.heardSegments >= h.lockSegments && g.fullSegments >= h.requiredFullSegments;
+        }
+
+        // 三条锁定条件（设计规格-曲风-House学习方式 第 3.1 节）：已听够、满编段够、现有的置信度条件。
+        bool houseLockSatisfied (const MusicProfile& p) const noexcept
+        {
+            return p.formatVersion >= houseProfileFormatVersion && houseCountsSatisfied (p.houseGate) && listeningComplete (p);
+        }
+
+        // 正在进行的过渡在 remaining 个样本内走完，进度 t 不跳：length' = remaining ÷ (1 − t)，elapsed' = length' − remaining。
+        void hurryTransition (std::int64_t remaining) noexcept
+        {
+            if (! transitionActive || transitionLength <= 0 || remaining <= 0 || transitionLength - transitionElapsed <= remaining)
+                return;
+
+            const auto t = juce::jlimit (0.0, 1.0, (double) transitionElapsed / (double) transitionLength);
+            transitionLength = juce::jmax (remaining, (std::int64_t) std::llround ((double) remaining / (1.0 - t)));
+            transitionElapsed = transitionLength - remaining;
+        }
+
+        // 暂定方案换方案源。urgent（新响段）：正在走的过渡压到 length 内走完，新方案接在后面、同样快（不按 requestSource 的「排队取最长」）。
+        void requestHouseSource (const PlanSource& source, std::int64_t length, bool urgent) noexcept
+        {
+            if (urgent && active && transitionActive && length > 0)
+            {
+                hurryTransition (length);
+                pendingSource = source;
+                pendingLength = length;
+                hasPending = true;
+                return;
+            }
+
+            requestSource (source, length);
+        }
+
+        // House 档的聆听（updateLearning 里替代通用档那一段）：锁定条件满足就提交；首次聆听中按新的门控结果更新暂定方案。
+        void updateHouseLearning() noexcept
+        {
+            const auto& candidate = analyzer.getCandidateProfile();
+
+            if (houseLockSatisfied (candidate))
+            {
+                commitCandidate();
+                return;
+            }
+
+            if (learning != Learning::firstListen || executionHeld)
+                return;
+
+            const auto generation = analyzer.getHouseProfileGeneration();
+
+            if (generation == houseProfileSeen)
+                return;
+
+            houseProfileSeen = generation;
+            const auto surges = analyzer.getSegmentLedger().getSurgeCount();
+            const auto urgent = surges != houseSurgeSeen;
+            houseSurgeSeen = surges;
+            ++probe.houseUpdates;
+
+            if (urgent)
+                ++probe.houseFastTransitions;
+
+            requestHouseSource (desiredSource(), urgent ? houseFastSamples : planTransitionSamples, urgent);
+        }
+
+        void clearHouseReopen() noexcept
+        {
+            houseReopenRun = 0;
+            houseReopenArmed = false;
+            houseEventCursor = analyzer.getSegmentLedger().getEventCount();   // 之前定稿的段不再数
+            houseSurgeSeen = analyzer.getSegmentLedger().getSurgeCount();
+            houseReopenTriedAt = analyzer.getSegmentLedger().getFinalizedCount();
+        }
+
+        // 进 / 出 House 档的那一块（beginBlock，曲风已定）。子类之间换不算（学习方式相同）。
+        void updateHouseGenre() noexcept
+        {
+            const auto house = isHouse (currentGenre);
+
+            if (house == houseWasActive)
+                return;
+
+            houseWasActive = house;
+            houseListenDeclined = false;
+
+            if (house)
+            {
+                // 通用 → House：正在聆听就同一种聆听从此刻重新开始（段落账从空开始，与通用累计对齐）；没在聆听的由 maybeStartHouseListen 处理。
+                clearHouseReopen();
+
+                if (learning != Learning::none)
+                {
+                    const auto wasHouseListen = houseListen;
+                    startLearning (learning);
+                    houseListen = wasHouseListen;
+                }
+
+                return;
+            }
+
+            // House → 通用：为 House 自动开的那一轮取消（旧版本照常）；首次聆听与用户点的重新聆听接着按通用档的规则走完。
+            if (houseListen && learning == Learning::relearn)
+                stopLearning();
+
+            houseListen = false;
+            houseReopenRun = 0;
+            houseReopenArmed = false;
+            clayGuard.updateHouseHint (analyzer.getShortTermView(), 0.0, false, 0.0);   // 提示熄灭、计时清零
+            houseHint = ClayGuard::HouseHint {};
+        }
+
+        // House 档里已提交的画像还没满足 House 锁定条件（旧格式 1 / 2、通用档学的）：开一轮聆听，旧画像照常生效（设计规格-曲风与交付
+        // 第 4.3 节「不清空已有的画像」）。与首次聆听同一个时机（宿主在播或离线导出）。
+        void maybeStartHouseListen() noexcept
+        {
+            if (! prepared || ! committed.hasProfile || learning != Learning::none || houseListenDeclined
+                || houseProfileLocked (committed.profile) || ! (hostPlaying() || offline))
+                return;
+
+            startLearning (Learning::relearn);
+            houseListen = true;
+            ++probe.houseListenStarts;
+        }
+
+        // 锁定后防漏网（endBlock，House 档、不在聆听时）：数段落账新定稿的段，够了就试着重开。
+        void updateHouseLocked() noexcept
+        {
+            const auto& ledger = analyzer.getSegmentLedger();
+            std::array<SegmentLedger::Event, 8> events {};
+
+            for (int attempt = 0; attempt < 64; ++attempt)
+            {
+                const auto got = ledger.readEvents (houseEventCursor, events.data(), (int) events.size());
+                const auto count = std::abs (got);
+
+                if (got < 0)
+                    houseReopenRun = 0;   // 落后太多、丢了事件：「连续」断了
+
+                for (int i = 0; i < count; ++i)
+                    noteHouseSegment (events[(size_t) i]);
+
+                if (count < (int) events.size())
+                    break;
+            }
+
+            if (houseReopenArmed && ledger.getFinalizedCount() != houseReopenTriedAt)
+            {
+                houseReopenTriedAt = ledger.getFinalizedCount();
+                tryHouseReopen();
+            }
+        }
+
+        // 一段定稿：锁定之后（不在聆听、已提交的是 House 锁定过的画像、还能重开）才数「连续更响更满」。
+        void noteHouseSegment (const SegmentLedger::Event& event) noexcept
+        {
+            const auto& p = committed.profile;
+            const auto& h = committed.constants.house;
+
+            if (learning != Learning::none || ! committed.hasProfile || ! houseProfileLocked (p) || p.houseGate.reopenCount >= h.maxReopens
+                || ! p.integratedLufs.valid || ! p.lowShare.valid)
+            {
+                houseReopenRun = 0;
+                return;
+            }
+
+            if (event.epoch != houseReopenEpoch)
+            {
+                houseReopenRun = 0;   // 跳播 / 回绕 / 宿主 reset 之后不算连续
+                houseReopenEpoch = event.epoch;
+            }
+
+            const auto louder = event.heard && event.loudnessValid
+                             && event.loudnessLufs >= p.integratedLufs.value + h.reopenAboveProfileLu;
+            const auto fuller = event.lowShareValid && event.lowShare >= p.lowShare.value * h.lowGateFactor;
+            houseReopenRun = louder && fuller ? houseReopenRun + 1 : 0;
+
+            if (houseReopenRun >= juce::jmax (1, h.reopenSegments))
+                houseReopenArmed = true;
+        }
+
+        // 待重开：段落账也够锁定条件时按它门控重算画像，比已提交画像更响才提交（只往更响更满的方向重开）。
+        void tryHouseReopen() noexcept
+        {
+            const auto& p = committed.profile;
+
+            if (! committed.hasProfile || ! houseProfileLocked (p) || p.houseGate.reopenCount >= committed.constants.house.maxReopens)
+            {
+                houseReopenArmed = false;
+                return;
+            }
+
+            if (! houseCountsSatisfied (analyzer.getSegmentLedger().getSummary()))
+                return;   // 段落账还不够锁定条件（例如刚读档）：旧画像照常，接着等
+
+            analyzer.recomputeHouseProfile();
+            auto reopened = analyzer.getCandidateProfile();
+
+            if (! houseLockSatisfied (reopened))
+                return;
+
+            if (! (reopened.integratedLufs.valid && reopened.integratedLufs.value > p.integratedLufs.value))
+            {
+                houseReopenArmed = false;   // 重算出来并没有更响：不重开
+                houseReopenRun = 0;
+                return;
+            }
+
+            // 新进来的段在锁定之后，先试后用的候选没跑：分析器改用全部段的块仍不够时，沿用已提交画像的代价（同一首歌试过的结论）。
+            if (! reopened.lowCutPeakCostDb.valid)
+            {
+                reopened.lowCutPeakCostDb = p.lowCutPeakCostDb;
+                reopened.monoPeakCostDb = p.monoPeakCostDb;
+                reopened.widthPeakCostDb = p.widthPeakCostDb;
+            }
+
+            reopened.houseGate.reopenCount = p.houseGate.reopenCount + 1;
+            ++probe.houseReopens;
+            commitProfile (reopened, houseFastSamples);
         }
 
         //==============================================================================
@@ -2502,6 +2816,26 @@ namespace celadon::glaze
             }
 
             effective.clay = resolveClayParams (manual.claySettings, liveClay, manual.glazePercent);
+
+            // T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节；判定在 ClayGuard，只提示、不改声音）：资格 = 段落账此刻这一段
+            // 暂判满编，须连续 phaseHintSegments 小节（拿不到拍点时 phaseHintFallbackSeconds 秒）。方案源不支持自动 Clay 时熄灭（同反相指示灯）。
+            if (isHouse (currentGenre))
+            {
+                if (claySupported)
+                {
+                    const auto& ledger = analyzer.getSegmentLedger();
+                    const auto& h = toSlot().source.constants.house;
+                    const auto barSeconds = ledger.getMode() == SegmentMode::bars ? ledger.getCurrentSegmentSeconds() : 0.0;
+                    const auto required = barSeconds > 0.0 ? (double) juce::jmax (1, h.phaseHintSegments) * barSeconds
+                                                           : h.phaseHintFallbackSeconds;
+                    clayGuard.updateHouseHint (analyzer.getShortTermView(), seconds, ledger.isCurrentSegmentFull(), required);
+                    houseHint = clayGuard.getHouseHint();
+                }
+                else
+                {
+                    houseHint = ClayGuard::HouseHint {};
+                }
+            }
         }
 
         const ChainParams& beginBlock (const ChainParams& newManual, bool hostBypassed) noexcept
@@ -2580,6 +2914,12 @@ namespace celadon::glaze
                 requestPlanTransition();
             }
 
+            // T-038：分析器跟着此刻的曲风（不变时什么都不做）；进 / 出 House 档的一次性处理（文件开头「换曲风」）。
+            analyzer.setGenre (currentGenre);
+
+            if (isHouse (currentGenre) || houseWasActive)
+                updateHouseGenre();
+
             // 旧算法版本的已提交方案：照用保存的增量，直到拧 GLAZE（或换风格、重学）才按新算法重算。
             if (savedPlanMode)
             {
@@ -2602,6 +2942,10 @@ namespace celadon::glaze
             // 实时与导出都按音频样本学习。离线宿主可能不报告 Playing，但传来的有效音乐同样是证据。
             if (prepared && ! committed.hasProfile && learning == Learning::none && (hostPlaying() || offline))
                 startLearning (Learning::firstListen);
+
+            // T-038 House 档：已提交画像不是 House 锁定过的 → 开一轮聆听，旧画像照常生效。
+            if (isHouse (currentGenre))
+                maybeStartHouseListen();
 
             unlearnedOfflineWarning = false;
             if (! committed.hasProfile && learning == Learning::firstListen && ! executionHeld && ! toSlot().source.hasProfile
@@ -2680,6 +3024,9 @@ namespace celadon::glaze
                 clayRestoredLastBlock = false;
                 lastClaySeconds = 0.0f;
                 effective.clay = resolveClayParams (manual.claySettings, ClayPlan {}, manual.glazePercent);
+
+                if (isHouse (currentGenre))
+                    houseHint = ClayGuard::HouseHint {};   // T-038：House 反相提示同反相指示灯，GLAZE ≤ 0 时熄灭
 
                 lastExecution.valid = false;
                 return effective;
@@ -2832,6 +3179,10 @@ namespace celadon::glaze
             advanceTransition (n);
             updateCalibration (numInput, numOutput, n);
             updateLearning (n);
+
+            if (isHouse (currentGenre) && learning == Learning::none)
+                updateHouseLocked();   // T-038：锁定后防漏网（文件开头）
+
             updateMismatch (n, juce::Decibels::gainToDecibels (inputMeter.getLastBlockTruePeakLinear(), -100.0f));
             updateFeedback (n, guardMusicActive);
             updateBias (n);
@@ -2916,6 +3267,28 @@ namespace celadon::glaze
             s.clayCostLimitedMask = active ? reportedCostLimitedMask (clayPlanned.costLimitedMask, manual.claySettings)
                                            : static_cast<std::uint8_t> (0);
 
+            // T-038 House 档（GLAZE 卡片状态行与 CLAY 卡片读；通用档保持默认）。计数是段落账此刻的门控结果（锁定之后也照常更新）；
+            // houseLockPending = House 档正在聆听（暂定方案或候选在建）或锁定后待重开。
+            if (isHouse (currentGenre))
+            {
+                const auto& ledger = analyzer.getSegmentLedger();
+                const auto& g = ledger.getSummary();
+                const auto& h = constants.house;
+                s.houseActive = true;
+                s.houseSegmentMode = ledger.getMode();
+                s.houseHeardSegments = g.heardSegments;
+                s.houseTargetSegments = h.lockSegments;
+                s.houseFullSegments = g.fullSegments;
+                s.houseRequiredFullSegments = h.requiredFullSegments;
+                s.houseHeardSeconds = (float) g.heardSeconds;
+                s.houseTargetSeconds = (float) h.fallbackLockSeconds;
+                s.houseMainSectionHeard = s.houseSegmentMode == SegmentMode::seconds ? g.fullSeconds >= h.fallbackFullSeconds
+                                                                                     : g.fullSegments >= h.requiredFullSegments;
+                s.houseLockPending = learning != Learning::none || houseReopenArmed;
+                s.housePhaseHint = houseHint.active;
+                s.housePhaseMonoLossDb = houseHint.active ? houseHint.monoLossDb : 0.0f;
+            }
+
             p.committedPhase = committedPhase;
             p.minListenSeconds = (float) constants.minListenSeconds;
             p.offline = offline;
@@ -2974,6 +3347,13 @@ namespace celadon::glaze
             if (learning != Learning::none)
                 stopLearning();
             analyzer.handleDiscontinuity (Discontinuity::hostReset); // 旧实例的实时频谱不能覆盖新恢复的执行量。
+
+            // T-038 House 档：读取工程后段落账从空开始（旧画像在新画像就绪前照常生效，设计规格-曲风-House学习方式 第 5 节）；
+            // 自动聆听的记号与锁定后的计数作废。只动 House 档的状态（通用档的读数不看这些）。
+            analyzer.clearHouseLedger();
+            houseListen = false;
+            houseListenDeclined = false;
+            clearHouseReopen();
 
             committed = restored.committed;
             feedbackMaxGainDb = isFinite (restored.feedbackMaxGainDb) ? restored.feedbackMaxGainDb : unlimitedGainDb;
@@ -3109,6 +3489,9 @@ namespace celadon::glaze
         const auto channels = (int) spec.numChannels;
         bool adoptedHeard = false;   // 沿用了已听到的执行快照（Clay 保护随之按快照接着走）
 
+        // T-038：House 档的门控 / 分段常数随本版本的标定快照（只拷贝几个数；通用档不用它们）。
+        s.analyzer.setHouseConstants (s.constants.house);
+
         if (s.prepared && s.analyzedSampleRate == s.sampleRate && s.analyzedChannels == channels)
         {
             // prepareToPlay 会先 setParams，lastExecution 此时可能已是下一块尚未听到的量。
@@ -3144,6 +3527,9 @@ namespace celadon::glaze
 
             if (s.learning != Impl::Learning::none)
                 s.learning = Impl::Learning::none;
+
+            s.houseListen = false;   // T-038：分析器整体重建，段落账随之清空；下一块按此刻的曲风重新判断要不要聆听
+            s.clearHouseReopen();
         }
 
         s.clearMismatch();
@@ -3212,6 +3598,12 @@ namespace celadon::glaze
             analysisHost.isPlaying = true;
         if (analysisHost.hasPosition && impl->hostPlaying())
             analysisHost.positionSamples += impl->hostInputOffset;
+
+        // T-038 House 档：切片的 PPQ 同样按片的偏移推过（宿主只报块起点的 PPQ），段落账的锚点检查才对得上（小节起点不动，账本自己补整小节）。
+        if (isHouse (impl->currentGenre) && impl->hostInputOffset > 0 && impl->hostPlaying() && analysisHost.hasPpq
+            && analysisHost.hasTempo && std::isfinite (analysisHost.bpm) && analysisHost.bpm > 0.0)
+            analysisHost.ppqPosition += (double) impl->hostInputOffset * analysisHost.bpm / (60.0 * impl->sampleRate);
+
         impl->analyzer.setHostInfo (analysisHost);
         impl->analyzer.processInput (input, inputMeter);
         impl->hostInputOffset += input.getNumSamples();
@@ -3355,6 +3747,7 @@ namespace celadon::glaze
     {
         auto& s = *impl;
         s.constants = constants;
+        s.analyzer.setHouseConstants (constants.house);
 
         if (! s.committed.hasProfile)
             s.committed.constants = constants;
@@ -3430,6 +3823,10 @@ namespace celadon::glaze
         p.absorbedGuardDb = s.absorbedGuardDb;
         p.guardCarryDb = s.guardCarryDb();
         p.mismatchSamples = s.mismatchSamples;
+
+        p.houseReopenRun = s.houseReopenRun;
+        p.houseReopenArmed = s.houseReopenArmed;
+        p.transitionLengthSamples = s.transitionActive ? s.transitionLength : 0;
         return p;
     }
 

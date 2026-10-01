@@ -58,6 +58,16 @@
         与这里的帧门同一口径，审核 V1-03），高频两项冻结在最后的值。
         分析器只看入口，宿主旁通时入口照常，所以「宿主旁通时冻结」由 ClayGuard 按编排器给的时长 0 做（ClayGuard.h），不在这里。
 
+    ---- T-038 House 档（设计规格-曲风-House学习方式 第 2 节；SegmentLedger.h；实现口径见 MusicAnalyzer.cpp「六」节）----
+
+    编排器每块用 setGenre 告诉分析器此刻的曲风。通用档：上面的一切照旧，下面这些一个都不起作用（逐位同改前）。House 档：
+      - 三路数据照常累计通用画像（换回通用档时用），另按各自的时间戳归进段落账（SegmentLedger：一段 = 一小节，跨段边界的按起点归属）；
+        段落账学习与否都记（锁定后防漏网要看新段），只在 startLearning（「重新聆听」）、reset、clearHouseLedger 时清空；
+      - 候选画像（getCandidateProfile）改由段落账的门控算出：I、PLR、真峰值、频谱、低 / 高频、起音、立体声、次声、先试后用代价只用
+        满编段，LRA、有效时长、代表性用全部段；画像格式 houseProfileFormatVersion，houseGate = 门控结果；代表性另按「已听 ÷ 锁定所需」
+        封顶（暂定期的信心打折，决策器的 confidenceScale 据此自然收紧）。学习期间每定稿一段重算一次（O(段数)），不学习时冻结，
+        编排器重开时用 recomputeHouseProfile 立即重算。getAuxiliaryFeatures 同样换成满编段的一份。
+
   ==============================================================================
 */
 
@@ -66,6 +76,7 @@
 #include "BalanceModule.h"
 #include "GlazeTypes.h"
 #include "LoudnessMeter.h"
+#include "SegmentLedger.h"
 
 #include <juce_dsp/juce_dsp.h>
 
@@ -134,6 +145,23 @@ namespace celadon::glaze
 
         // v0.6 A1 追加：辅助量（学习区间内的高频谱通量统计）。
         const AuxiliaryFeatures& getAuxiliaryFeatures() const noexcept;
+
+        // ---- T-038 House 档（见文件头最后一节）----
+        // 此刻的曲风（编排器每块交；只存一个枚举，不变时不做任何事）。进 / 出 House 档时段落账在此刻断开（没定稿的段就地定稿）。
+        void setGenre (Genre genre) noexcept;
+        Genre getGenre() const noexcept;
+
+        // 门控与分段用的常数（编排器在 prepare / 换标定快照时交；只拷贝几个数）。
+        void setHouseConstants (const HouseConstants& constants) noexcept;
+
+        // House 画像按段落账此刻的内容立即重算（锁定后防漏网重开时编排器调）。音频线程，O(段数)，不分配。
+        void recomputeHouseProfile() noexcept;
+
+        // 段落账清空（读取工程后：旧画像在新画像就绪前照常生效，段落账从空开始）。不分配。
+        void clearHouseLedger() noexcept;
+
+        const SegmentLedger& getSegmentLedger() const noexcept;
+        std::uint32_t getHouseProfileGeneration() const noexcept;   // House 候选画像每重算 / 清空一次 + 1
 
     private:
         struct Impl;
