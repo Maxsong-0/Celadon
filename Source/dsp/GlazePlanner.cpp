@@ -7,9 +7,11 @@
 
     一次 makePlan 的步骤：
 
-      1. 风格权重 w（离散风格独热；自动 = 画像锁定的权重）→ 混合常数 sc；
+      1. 风格权重 w（离散风格独热；自动 = 画像锁定的权重）→ 混合常数 sc；House 曲风再用子类的 Tone 参考斜率、低切目标、加宽系数
+         覆盖 sc 的同名三项（T-038，三参数 blendConstants；通用档不覆盖，动态预算与偏好响度永不覆盖）；
       2. 画像特征按置信度向保守默认值收拢（不知道不当 0）；强度 κ = 底强度 + (1 − 底强度) × 置信度（含代表性）；
-      3. 目标：L_pref = clamp(L_style − f(LRA), −14, −7)，满强度请求 G_full = max(最小推响量, L_pref − I_in)；
+      3. 目标：L_pref = clamp(L_style − f(LRA), −14, −7)（交付「标准」）；流媒体 / 俱乐部 = clamp(L_交付 + 风格偏移 − f(LRA), 该档范围)
+         （T-038，preferredLufsFor）；满强度请求 G_full = max(最小推响量, L_pref − I_in)；
       4. 满强度方案（GLAZE 100、手动的 7 个参数为 0，其余用户设置照用）：
            超限估计 E = max(0, TP_in + G − Ceiling) 按 Heat / Clip / Limit 三项权重分摊削峰（请求为 0 时照样分摊输入自己的超限）；
            Glue 实测不降峰均比，它的权重解释为「每 dB 超限给多少 dB 平均 GR」（密度）；
@@ -20,7 +22,8 @@
            automaticHeatFloor（残差 Heat 表几乎不削峰：不能再用「达不到就给最大」把 Heat 顶到风格上限）；
            自动 Limit Gain 的量程是 24 − 手动 Gain（算法 8 起，T-032 R6-06）：请求放不进量程 → G_full′ 回算成量程顶值能交付的净增益、标受约束；
            Glue 的补偿本身就比 G_full′ 还多（偏响的素材）→ 不用自动 Glue（否则低强度时 Gain 得为负）；
-      5. 按强度 s = GLAZE × κ 展开：Glue / Heat / Tone / Recover / Tame 的增量 = 满强度值 × s；
+      5. 按强度 s = GLAZE × κ 展开：Glue / Heat / Tone / Recover / Tame 的增量 = 满强度值 × s（Tone 的满强度值钳在
+         [−toneMaxDb, toneBrightCapDb]：往亮的上限通用档就是 toneMaxDb，House 子类是 toneMaxBrightDb，T-038）；
          Limit Gain 走 5 个折点的单调折线（各折点按前向模型求「净增益 = 中性链 + s × G_full′」所需的 Gain），
          中段的前馈误差也在 ±0.2 dB 内（实测，见 IMPL-A2）；Clip 在前段从 0 爬到满强度值，爬完之前峰值还到不了阈值的线性段；
       6. 叠加手动值后逐模块核对约束（前向链模型；输入本身已超的量不算手动的，也不因此停摆）：
@@ -1198,7 +1201,8 @@ namespace celadon::glaze
 
         // 修坯 Clay 的自动值（第 2 节，ADR-012 / 根治修订 3.3 修订）。g = GLAZE / 100（> 0）；c = 各项需要度特征的可信度（trustOf：
         // 到 fullConfidence 算满，与 Tone、Glue 低频风险同一口径；分析器给的置信度已含代表性）；f_t、s_w 取 sc（blendConstants 按
-        // 方案的风格权重混合，与其他各项同一份）；f(代价) 见 costFactorOf。
+        // 方案的风格权重混合，与其他各项同一份；House 曲风已被子类覆盖，出厂 25 Hz / 0：低切目标更高、不自动加宽，T-038）；
+        // f(代价) 见 costFactorOf。
         //
         //   ① 低切：need = ramp(subShareDb, −40, −28)（真次声 < 16 Hz 的能量占比）；
         //          k = need · c · min(1, g / clayGlazeFullAt) · f(lowCutPeakCostDb)（清理不是口味项，GLAZE 50 起给满）；
@@ -1403,6 +1407,39 @@ namespace celadon::glaze
     }
 
     //==============================================================================
+    // T-038 曲风（设计规格-曲风与交付 第 3.1 节）：混合之后覆盖，不参与混合——三个子类的音色目标是绝对值，与口味（风格）无关，所以
+    // 温润 / 冲击 / 通透 / 自动在同一子类下得到同一个 Tone 参考、低切目标与加宽系数。越界的曲风值 isHouse 为真、genreConstantsFor 却给
+    // nullptr：两道都过才覆盖，越界按通用（与 genreFromIndex 同一口径）。
+    StyleConstants blendConstants (const Constants& c, const StyleWeights& weights, Genre genre) noexcept
+    {
+        auto s = blendConstants (c, weights);
+        const auto* house = isHouse (genre) ? genreConstantsFor (c, genre) : nullptr;
+
+        if (house != nullptr)
+        {
+            s.toneReferenceSlopeDbPerOct = house->toneReferenceSlopeDbPerOct;
+            s.clayLowCutTargetHz = house->clayLowCutTargetHz;
+            s.clayWidthStyleFactor = house->clayWidthStyleFactor;
+        }
+
+        return s;
+    }
+
+    // House 档往亮的上限（第 3.1 节：+0.4 dB；DJ 变速后，靠极高频撑起来的声音会发假）。通用档原样返回 toneMaxDb：调用方的
+    // clampTo (x, −toneMaxDb, toneMaxDb) 与 main 是同一个式子（非有限的 toneMaxDb 也原样，整项 Tone 的开关仍由 toneMaxDb > 0 管）。
+    // House 子类的值按「预算类上限」处理：≤ 0 或 NaN → 0（不许往亮），+∞ 不设上限（与 toneMaxDb 本身的口径一致，最后还有参数范围 ±3 dB）。
+    float toneBrightCapDb (const StyleConstants& sc, const Constants& c, Genre genre) noexcept
+    {
+        const auto* house = isHouse (genre) ? genreConstantsFor (c, genre) : nullptr;
+
+        if (house == nullptr)
+            return sc.toneMaxDb;
+
+        const auto cap = house->toneMaxBrightDb;
+        return cap > 0.0f ? cap : 0.0f;
+    }
+
+    //==============================================================================
     float confidenceScale (const MusicProfile* profile, const Constants& c) noexcept
     {
         // κ = 底强度 + (1 − 底强度) × 置信度；置信度 = 输入响度、真峰值、代表性三者里最没把握的那个（到 fullConfidence 算满）。
@@ -1442,9 +1479,11 @@ namespace celadon::glaze
         const auto measuredInputLufs = valueOr (profile, &MusicProfile::integratedLufs, defaultInputLufs);
 
         // ---- 环境：特征按置信度向保守默认值收拢 ----
+        // 常数：风格权重混合，House 曲风再覆盖三项音色字段（T-038；通用档逐位就是两参数的混合结果）。手动链估计（estimateManualChainUsage）
+        // 也走这里：覆盖的三项它都不用，所以手动链单独的用量与曲风无关。
         Context ctx;
         ctx.c = &c;
-        ctx.sc = blendConstants (c, weights);
+        ctx.sc = blendConstants (c, weights, inputs.genre);
         ctx.glue.slope = c.glueRatio > 1.0f ? 1.0f - 1.0f / c.glueRatio : 0.0f;
         ctx.glue.kneeWidth = nonNegative (c.glueKneeDb);
 
@@ -1519,6 +1558,31 @@ namespace celadon::glaze
         return mask;
     }
 
+    // 偏好响度 L_pref（决策与校准第 3 节；T-038 交付，设计规格-曲风与交付 第 4.1 节）。sc = 方案的混合常数，lraCorrection = f(LRA) ≥ 0。
+    //   - 标准（以及越界的交付值）：clamp(L_style − f(LRA), minPreferred, maxPreferred)——原式子原顺序，逐位同 main；
+    //   - 流媒体 / 俱乐部：clamp(L_交付 + 风格偏移 − f(LRA), 该档下限, 该档上限)，风格偏移 = L_style − styleOffsetReferenceLufs
+    //     （出厂参考 −9 = 冲击：温润 +0.5、冲击 0、通透 −1；自动风格的 L_style 已按权重混合，偏移随之按权重混合）。LRA 修正照旧在钳位之前减；
+    //     钳位只用该档的范围，不再叠 minPreferred / maxPreferred（俱乐部 −7 正是标准档的上限，温润 −6.5 要越过它）。
+    //   常数是随工程读回来的快照，坏值与标准档遇到坏的 preferredLufs 走同一条路：L_pref 为 NaN → 请求只剩最小推响量（nonNegative 吞掉
+    //   NaN）；范围为 NaN → 不钳；±∞ 让请求或净增益非有限 → makePlanAtConfidence 末尾的兜底（增量归零、净增益退回手动链），都不会流进
+    //   模块参数。House 档的画像 I 是满编段（drop）的响度，所以这里的 L_pref 对准的是响段（第 4.2 节），决策器不必区分。
+    static float preferredLufsFor (Delivery delivery, const StyleConstants& sc, const Constants& c, float lraCorrection) noexcept
+    {
+        const auto& d = c.delivery;
+
+        if (delivery == Delivery::streaming || delivery == Delivery::club)
+        {
+            const auto streaming = delivery == Delivery::streaming;
+            const auto styleOffset = sc.preferredLufs - d.styleOffsetReferenceLufs;
+            const auto target = streaming ? d.streamingTargetLufs : d.clubTargetLufs;
+            return clampTo (target + styleOffset - lraCorrection,
+                            streaming ? d.streamingMinLufs : d.clubMinLufs,
+                            streaming ? d.streamingMaxLufs : d.clubMaxLufs);
+        }
+
+        return clampTo (sc.preferredLufs - lraCorrection, c.minPreferredLufs, c.maxPreferredLufs);
+    }
+
     //==============================================================================
     // 按画像此刻的置信度生成方案（makePlan 再用「置信度拉满」的同一份方案给它封顶）。
     static Plan makePlanAtConfidence (const PlanInputs& inputs) noexcept
@@ -1552,7 +1616,7 @@ namespace celadon::glaze
         // ---- 目标 ----
         const auto lra = lraTrust > 0.0f ? valueOr (profile, &MusicProfile::loudnessRangeLu, c.lraReferenceLu) : c.lraReferenceLu;
         const auto lraCorrection = nonNegative (c.lraSlopeDbPerLu) * nonNegative (lra - c.lraReferenceLu);
-        const auto preferred = clampTo (ctx.sc.preferredLufs - lraCorrection, c.minPreferredLufs, c.maxPreferredLufs);
+        const auto preferred = preferredLufsFor (inputs.delivery, ctx.sc, c, lraCorrection);   // T-038：交付「标准」= 原式
         const auto driveFloor = isFinite (c.minimumFullDriveDb) ? clampTo (c.minimumFullDriveDb, 0.0f, 24.0f) : 0.0f;
         const auto requestFull = juce::jmax (driveFloor, nonNegative (preferred - ctx.inputLufs));
 
@@ -1683,7 +1747,10 @@ namespace celadon::glaze
                                      valueOr (profile, &MusicProfile::spectralSlopeDbPerOct, ctx.sc.toneReferenceSlopeDbPerOct), slopeTrust);
             const auto difference = ctx.sc.toneReferenceSlopeDbPerOct - slope;
             const auto outside = std::copysign (nonNegative (std::abs (difference) - automaticToneSlopeDeadbandDbPerOct), difference);
-            const auto toneFull = clampTo (outside * nonNegative (c.toneDbPerSlopeDb), -ctx.sc.toneMaxDb, ctx.sc.toneMaxDb);
+            // 往暗 −toneMaxDb；往亮 toneBrightCapDb（T-038：通用档就是 toneMaxDb，式子与 main 相同；House 子类 toneMaxBrightDb）。
+            // 参考斜率 ctx.sc.toneReferenceSlopeDbPerOct 在 House 档已是子类的值（planningContext）。两头同样 × GLAZE × κ。
+            const auto toneFull = clampTo (outside * nonNegative (c.toneDbPerSlopeDb), -ctx.sc.toneMaxDb,
+                                           toneBrightCapDb (ctx.sc, c, inputs.genre));
             inc.colorToneDb = toneFull * spectralStrength;
         }
 
