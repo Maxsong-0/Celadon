@@ -1,7 +1,7 @@
 ; Celadon 的 Windows 安装包（Inno Setup 6.7）。
 ; 在服务器上：scripts/windows-wine.sh installer（先 msbuild 编 Release x64，再用 Wine 里的 ISCC 编本文件）；
 ; 在 Windows 上：先按 docs/BUILDING.md 编出 Release x64，再用 Inno Setup 6 打开本文件编译，或
-;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.8.5 installer\Celadon.iss
+;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.8.6 installer\Celadon.iss
 ; 版本号由 /DAppVersion=… 传入（scripts/windows-wine.sh 从 Celadon.jucer 读），产物在 installer\Output\。
 ;
 ; 装什么：
