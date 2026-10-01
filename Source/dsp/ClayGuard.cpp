@@ -52,10 +52,11 @@
           输出 widthDb = min(方案值, 上限)；方案值 ≤ 0 时原样不动（上限 ≥ 0）。
 
       - 冻结：seconds ≤ 0 或非有限 → 整体不动。实时视图的某一路无效 → 只冻那一路（保持期、资格期计时也不走），另一路照常：
-            反相一路：慢路 liveLowCorrelation.valid = false 或数值非有限（门上没有低频内容、静音——分析器在帧门限下把两路都置
-            无效，审核 V1-03 的「视图冻结与保护时钟」由此对齐）；
+            反相一路：慢路 liveLowCorrelation.valid = false 或数值非有限（门上没有低频内容、只有上方内容漏进 125 Hz 段（分析器的
+            泄漏门，BUG-009）、静音——分析器在帧门限下把两路都置无效，审核 V1-03 的「视图冻结与保护时钟」由此对齐）；
             宽度一路：liveHighValid = false，或 P_M / P_S 非有限、为负。
-          理由：「不知道」时不改（GLAZE 通则）。例如间奏里没有低频，反相保护停在原处；低频回来时若还是反相，不必再经历一次攻击。
+          理由：「不知道」时不改（GLAZE 通则）。例如间奏 / breakdown 里没有低频（只有 pad），反相保护停在原处；低频回来时若还是反相，
+          不必再经历一次攻击。
       - active = false（GLAZE ≤ 0）：状态直接回 ClayGuardState{}、资格期计时清零，输出 = 输入（原样返回 planned）。
         ⚠ 旧工程（画像格式 1 / 旧算法方案，没有立体声特征）保护也必须不工作（active = false，或 reset 且不调 update）——
         由编排器保证（GlazeController::updateClay 在方案源不支持 Clay 时 reset、自动值中性）。ADR-015 起反相一路不改声音，旧工程
@@ -175,7 +176,7 @@ namespace celadon::glaze
         {
             const auto dt = juce::jmin (seconds, maxSeconds);
 
-            // 反相一路：慢路低频相关度无效（门上没有低频内容、静音）→ 这一路冻结（保持期、资格期计时也不走）。
+            // 反相一路：慢路低频相关度无效（门上没有低频内容、只有上方内容的泄漏、静音）→ 这一路冻结（保持期、资格期计时也不走）。
             const auto phaseInput = phaseInputOf (view);
 
             if (phaseInput != PhaseInput::unknown)
@@ -204,7 +205,7 @@ namespace celadon::glaze
     {
         const auto& slow = view.liveLowCorrelation;
 
-        // 慢路不知道（门上没有低频内容、静音、刚重启还没平滑满）→ 这一路冻结。
+        // 慢路不知道（门上没有低频内容、只有上方内容的泄漏、静音、刚重启还没平滑满）→ 这一路冻结。
         if (! (slow.valid && std::isfinite (slow.value)))
             return PhaseInput::unknown;
 

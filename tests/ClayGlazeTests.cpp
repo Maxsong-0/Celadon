@@ -1305,6 +1305,9 @@ namespace celadon::test
             testWideBassNeverTriggersPhaseGuard();
             testWholeLowBandInversion();
             testInfrasoundLowCutHelps();
+
+            // ---- T-042 / BUG-009：只有 pad 的 breakdown ----
+            testBreakdownPadDoesNotLightPhaseWarning();
         }
 
     private:
@@ -2487,6 +2490,141 @@ namespace celadon::test
                                       + juce::String (latency * 1000.0, 1) + " ms");
             expect (latency >= constants.clayGuardPhaseMinSeconds + constants.clayGuardPhaseAttackSeconds,
                     "and not before the 0.15 s qualification + 0.1 s attack could have run");
+        }
+
+        //==============================================================================
+        // 13. BUG-009（T-042）只有失谐 pad 的 breakdown 不亮反相提示。素材照合成 House 曲（tools/render/make_synthetic_house.py）连成一首
+        //     52 s 的歌：drop 0 ～ 20 s = 单声道底鼓（120 BPM，RMS −12 dBFS）+ 单声道 55 Hz 音调低音（8 次谐波 1/h，−14 dBFS）+ 失谐 pad
+        //     （makeDetunedPad，基音幅度 0.05，和弦每 2 s 一换，整首连续）；breakdown 20 ～ 44 s = 只有 pad；44 ～ 52 s 再回 drop。鼓与低音
+        //     在两个段界各用 20 ms 升余弦收放。GLAZE 60、抽屉默认，只在 drop 段上循环学完并锁定，再从当前位置无缝接着放这首歌到结尾，
+        //     逐块数 Status 的反相灯与保护单元的提示强度。画像失配关掉（同用例 4：breakdown 的响度与频谱都和 drop 差很多，这里只看 Clay）。
+        //     断言：breakdown 与回到 drop 的整段里灯从未亮过、提示强度始终为 0；breakdown 开头 5 s 之后慢路低频相关度（探针）一直无效
+        //     （低音停下后平滑功率约 3.5 s 落到段门下，之前停在 drop 的 +1 上；之后泄漏帧不计）。
+        //     改前（只有逐段静音门）：合成曲 synthetic-house-124 的 breakdown 里慢路随约 1 Hz 的拍频摆到 −0.95、灯亮了 breakdown 的 89 %
+        //     （全曲 14.4 %；T-042 在 109 上用 celadon_render --trace 复现）。
+        //     阳性对照：同一流程，breakdown 里换成「pad + 右声道反相的同一条音调低音」——灯要在 breakdown 里亮起、提示强度到 1
+        //     （门对真反相照常放行，计数不是空转）。
+        // 依据：MusicAnalyzer.cpp「泄漏门」、BUG-009；ADR-015（反相只提示）。
+        void testBreakdownPadDoesNotLightPhaseWarning()
+        {
+            beginTest ("bass-less detuned pad breakdown between two drops (BUG-009): the phase warning never lights; an anti-phase bass in the breakdown does");
+
+            auto constants = fastConstants();
+            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同用例 4：只看 Clay 的保护
+
+            constexpr double dropSeconds = 20.0, breakdownSeconds = 24.0, returnSeconds = 8.0;
+            constexpr double edgeSeconds = 0.02;
+            const auto songSeconds = dropSeconds + breakdownSeconds + returnSeconds;
+            const auto n = static_cast<int> (songSeconds * kRate);
+            const auto twoPi = juce::MathConstants<double>::twoPi;
+
+            // breakdownBass：breakdown 里低音的符号（0 = 没有低音，−1 = 右声道反相）。
+            auto makeSong = [&] (double breakdownBass)
+            {
+                std::vector<double> kick (static_cast<size_t> (n), 0.0), tone (static_cast<size_t> (n), 0.0);
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto t = static_cast<double> (i) / kRate;
+                    kick[static_cast<size_t> (i)] = kickSample (t - 0.5 * std::floor (t / 0.5));
+
+                    for (int h = 1; h <= 8; ++h)
+                        tone[static_cast<size_t> (i)] += std::sin (twoPi * 55.0 * static_cast<double> (h) * t + 0.3 * static_cast<double> (h))
+                                                        / static_cast<double> (h);
+                }
+
+                kick = withRms (std::move (kick), -12.0);
+                tone = withRms (std::move (tone), -14.0);
+
+                // drop 的权重：段界前后各 edgeSeconds 升余弦，breakdown 里 0。
+                auto dropWeight = [&] (double t)
+                {
+                    auto ramp = [&] (double edge, double sign)
+                    {
+                        const auto u = juce::jlimit (0.0, 1.0, 0.5 + sign * (t - edge) / (2.0 * edgeSeconds));
+                        return 0.5 - 0.5 * std::cos (juce::MathConstants<double>::pi * u);
+                    };
+
+                    return ramp (dropSeconds, -1.0) + ramp (dropSeconds + breakdownSeconds, 1.0);
+                };
+
+                auto song = makeDetunedPad (kRate, songSeconds, 2.0, 0.05);
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto index = static_cast<size_t> (i);
+                    const auto w = dropWeight (static_cast<double> (i) / kRate);
+                    const auto common = w * (kick[index] + tone[index]);
+                    song[0][index] += static_cast<float> (common + (1.0 - w) * std::abs (breakdownBass) * tone[index]);
+                    song[1][index] += static_cast<float> (common + (1.0 - w) * breakdownBass * tone[index]);
+                }
+
+                return song;
+            };
+
+            for (const auto breakdownBass : { 0.0, -1.0 })
+            {
+                const auto control = breakdownBass != 0.0;
+                const auto song = makeSong (breakdownBass);
+                const auto dropSamples = static_cast<int> (dropSeconds * kRate);
+                const auto label = juce::String (control ? "positive control (anti-phase bass in the breakdown)" : "pad-only breakdown");
+
+                auto drop = makeSilence (kChannels, dropSamples);
+
+                for (int ch = 0; ch < kChannels; ++ch)
+                    std::copy_n (song[static_cast<size_t> (ch)].begin(), dropSamples, drop[static_cast<size_t> (ch)].begin());
+
+                ClayRig rig (constants, std::move (drop), glazeParams (60.0f));
+                expect (rig.learnAndCalibrate (40.0), label + ": learns the drop");
+                rig.run (1.0);
+                expect (! rig.status().clayPhaseGuardActive, label + ": fixture - no warning on the drop (mono bass)");
+
+                // 从当前位置无缝接着放整首歌（学习用的循环素材就是这首歌的前 20 s），一直到结尾、不回绕。
+                const auto startIndex = rig.sourceIndex;
+                rig.source = song;
+                rig.sourceIndex = startIndex;
+                const auto totalBlocks = static_cast<int> ((static_cast<size_t> (n) - startIndex) / static_cast<size_t> (kBlock));
+                const auto startSeconds = static_cast<double> (startIndex) / kRate;
+                int lampBlocks = 0, validSlowLateBlocks = 0;
+                float largestFloor = 0.0f, largestFloorInBreakdown = 0.0f;
+                bool lampInBreakdown = false;
+
+                for (int b = 0; b < totalBlocks; ++b)
+                {
+                    rig.step();
+                    const auto t = startSeconds + static_cast<double> ((b + 1) * kBlock) / kRate;   // 本块结束时在歌里的位置
+                    const auto lamp = rig.status().clayPhaseGuardActive;
+                    const auto level = rig.probe().clayGuard.phaseFloor;
+                    const auto inBreakdown = t >= dropSeconds && t < dropSeconds + breakdownSeconds;
+                    lampBlocks += lamp ? 1 : 0;
+                    largestFloor = juce::jmax (largestFloor, level);
+
+                    if (inBreakdown)
+                    {
+                        lampInBreakdown = lampInBreakdown || lamp;
+                        largestFloorInBreakdown = juce::jmax (largestFloorInBreakdown, level);
+
+                        if (t >= dropSeconds + 5.0 && rig.probe().liveLowCorrelation.valid)
+                            ++validSlowLateBlocks;
+                    }
+                }
+
+                logMessage ("  [" + label + "] lamp blocks " + juce::String (lampBlocks) + " / " + juce::String (totalBlocks)
+                            + ", largest floor " + juce::String (largestFloor, 3) + "; breakdown blocks (after 5 s) with a valid slow low correlation "
+                            + juce::String (validSlowLateBlocks));
+
+                if (control)
+                {
+                    expect (lampInBreakdown && largestFloorInBreakdown >= kAtOne,
+                            label + ": the warning does light on a real inversion under the pad (the count is not vacuous)");
+                }
+                else
+                {
+                    expectEquals (lampBlocks, 0, label + ": the phase warning never lights");
+                    expect (largestFloor == 0.0f, label + ": the guard never starts an attack");
+                    expectEquals (validSlowLateBlocks, 0, label + ": the pad's leakage never makes the slow low correlation valid");
+                }
+            }
         }
 
         //==============================================================================
