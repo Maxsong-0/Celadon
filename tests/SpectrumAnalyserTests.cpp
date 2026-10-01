@@ -263,7 +263,8 @@ namespace celadon::test
 
             // 四条曲线的逐位摘要只打进日志（FFT 引擎不同的平台之间本来就不同，没法写死）：改前改后在同一台机器上对照。
             // 2026-09-30 107（x86-64，GCC 15.2，JUCE 回退 FFT）改前：48 k 2ce1118a1553e982、96 k bc392678f355527；
-            // 192 k 改前 14c0b6cf9d12f58f，R9-11 把 192 k 的 FFT 从 32768 改成 16384，这一个按设计会变。
+            // 192 k 改前 14c0b6cf9d12f58f，R9-11 把 192 k 的 FFT 从 32768 改成 16384，这一个按设计会变（改后 5d9dfa509dbc809c）。
+            // 2026-10-01 云端容器（x86-64，GCC 13.3）改前改后实测同上：48 / 96 k 逐位相同，192 k 按设计变。
             for (const auto sampleRate : { 48000.0, 96000.0, 192000.0 })
             {
                 beginTest ("curve digest @" + juce::String (sampleRate, 0) + " (bit-exact record, see the log)");
