@@ -33,6 +33,26 @@
 | D 请求 3 | 工具的逐段统计与插件段落账口径对照 | 集成后在合成曲上对照（见第 3 节） |
 | D 范围外 | 合成曲 breakdown（低频几乎为空）里修坯反相保护指示误亮 14.2 % 时长 | 范围外，报 Max 决定要不要另开任务 |
 
-## 3 集成后的验收（服务器上）
+## 3 集成后又改的（主进程，Max 当场拍板的两条另注）
 
-见本文末尾的结果表（随跑随填）。
+| 提交 | 改什么 | 为什么 |
+|---|---|---|
+| `6b2cc1c` | 第 2 节表里标「已改」的几条 | 跨文件请求 |
+| `ae05c4d` | 曲风 / 交付两个选择放到 GLAZE 标题行左右（x 470 / 730），标题收窄到两者之间 | **Max 看两种截图后选第二种**；三者区域不重叠，点击不被标题吃掉 |
+| `ae05c4d` | `GlazeControllerHouse` 加 House 反相提示端到端用例 | B 遗留；首版期望「损失约 −3 dB」写错（低频里还有单声道底鼓，合起来相关度约 0.3，实测 −1.89 dB），改成「深于 0.6 相关度对应的 −0.97 dB」 |
+| `94d9be3` | House 档 LRA 也只用满编段 | 合成 Tech 曲上全部段的 LRA 随起播位置变（1.1 vs 9.2 LU），方案增益差 1.4 dB，违反门槛 ①；改后 ① 全过（最大差 0.33 dB） |
+| `b835fdb` | 俱乐部档放宽限幅预算：平均 +1 / P95 +2 / 峰值 +3 dB（方案与保护层同一套）；门槛脚本 ③ 俱乐部档 1.5 LU、⑤ 受限时按方案实际目标判 | **Max 选「俱乐部档放宽预算」，再选「保持现在这档」**：合成曲（自动风格判成通透）在原预算内俱乐部版只到 −10.6 ～ −11.2；放宽后 −8.4 ～ −10.4，对比最多少约 1.5 LU |
+
+## 4 集成后的验收（服务器上）
+
+| 项 | 命令 / 方式 | 结果 |
+|---|---|---|
+| 107 全套（GCC） | `scripts/test-linux.sh`（`6b2cc1c`） | 145927 过 / 0 败 / 0 编译警告 |
+| 107 x86-64-v3 全套 | `CELADON_CXX_FLAGS=-march=x86-64-v3 scripts/test-linux.sh`（改了 Limiter，ADR-013） | 145927 过 / 0 败 / 0 警告 |
+| 109 真 MSVC + Wine 全套 | `scripts/windows-wine.sh test` | 145927 过 / 0 败 / 0 警告 |
+| 截图交互检查 | 107 `xvfb-run celadon_ui_snapshot --only check`（`ae05c4d` 布局） | 全过 |
+| 22 首逐位回归 | 109：main `88199cb` 与集成版各渲染 T-022 的 22 首（`--glaze 0,35,70 --style auto --clay auto,off --metrics-only`，12 路并行），比 `audio_hash` | 198 / 198 相同（在 LRA / 俱乐部两处 House / 交付改动之前跑；这两处只在 House 或俱乐部档生效） |
+| 合成曲门槛 | 109 `make_synthetic_house.py` → `celadon_render --glaze 100 --genre deep,tech --delivery standard,streaming,club --bpm 124 --listen-from-bar 1,33` → `house_gate.py` | 集成初 24 行 15 项失败 → LRA 改后 9 项（全是 ⑤）→ 俱乐部放宽 + 新口径后 **0 项**（`synthetic-gate.txt`） |
+| 定向复测 | 109 `--only GlazePlanner`（`b835fdb`）、`--only MusicAnalyzerHouse,GlazeControllerHouse,SegmentLedger,MusicAnalyzer`（`94d9be3`） | 5058 / 0、3572 / 0 |
+
+待做：第 4 步评审（1 个 Opus 5.5 代理）→ 主进程按评审修 → 三套全套与 22 首回归最后各复跑一次。
