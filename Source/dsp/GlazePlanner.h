@@ -101,8 +101,9 @@ namespace celadon::glaze
     // ---- T-032 R6-02 收尾（A11）----
 
     // 手动链单独的用量：只有手动值、没有任何自动增量时，按决策器同一前向模型（同一份环境：风格权重、按置信度收拢的特征、手动的非电平
-    // 设置）估的各约束量，口径与 ModuleStats / 保护层 / 上游监视一致；overBudgetMask = 手动单独已超出风格预算、自动部分不再为它负责的项
-    // （manualBudget* 位，判定见 GlazeTypes.h 与 GlazePlanner.cpp manualBudgetMaskFor）。
+    // 设置）估的各约束量，口径与 ModuleStats / 保护层 / 上游监视一致；overBudgetMask = 手动单独已超出风格预算的项（manualBudget* 位，
+    // 判定见 GlazeTypes.h 与 GlazePlanner.cpp manualBudgetMaskFor）。保护层与上游监视每项的有效上限 = max(风格上限, 手动单独用量)：
+    // 置位的项自动部分恒为 0，编排器按「不设约束」核对；其余项手动单独用量不超风格上限，有效上限就是风格上限（逐位）。
     struct ManualChainUsage
     {
         float heatAmount = 0.0f;                        // 手动 Heat（0 ～ 100；上游监视把它与风格驱动上限换算到同一驱动量域比）
@@ -112,7 +113,7 @@ namespace celadon::glaze
         std::uint8_t overBudgetMask = 0;
     };
 
-    // GLAZE 与 maxGainDb 不参与。makePlan 在 GLAZE > 0 时用同一份计算填 Plan::manualBudgetMask（置信度拉满的封顶方案按位合并，见
+    // GLAZE 与 maxGainDb 不参与。makePlan 在 GLAZE > 0 时用同一份计算填 Plan::manualBudgetMask（置信度拉满的封顶方案按位取或，见
     // GlazePlanner.cpp limitPlanTo），所以置信度满（或没有可拉满的置信度）时两者相等。纯函数、不分配；编排器不在音频线程逐块调它——
     // 掩码随方案重算（evaluate）一起算好存在方案里。
     ManualChainUsage estimateManualChainUsage (const PlanInputs&) noexcept;

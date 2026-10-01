@@ -1788,11 +1788,12 @@ namespace celadon::glaze
         plan.limitedByManual = plan.limitedByManual || bound.limitedByManual;
         plan.automaticLevelWithdrawn = plan.automaticLevelWithdrawn || bound.automaticLevelWithdrawn;   // T-032 R6-02：同样取或（保守）
 
-        // 手动已超预算的项（T-032 A11，GlazeTypes.h manualBudget*）按各位的含义合并：Heat / Glue 说的是「自动增量因手动为 0」，取小之后
-        // 那一项仍是 0（任一份为 0 即为 0）——取或；Clip 说的是「这份方案没按 Clip 预算核对」，取小之后的方案逐项不大于两份里按 Clip 核对
-        // 过的那一份，保护层照样按 Clip 预算核对才稳妥——只在两份都放开时放开，取与（保守）。
-        plan.manualBudgetMask = static_cast<std::uint8_t> (((plan.manualBudgetMask | bound.manualBudgetMask) & (manualBudgetHeat | manualBudgetGlue))
-                                                         | (plan.manualBudgetMask & bound.manualBudgetMask & manualBudgetClip));
+        // 手动链单独已超预算的项（T-032 A11，GlazeTypes.h manualBudget*）取或，与上面三个受限标志同一口径：任一份的手动链单独超了某一项，
+        // 那一份的该项自动增量（Heat / Glue / Clip）就是 0，取小之后仍是 0——这一项的用量全是手动的（Clip 另加两份都许可的自动 Gain 推深
+        // 的部分），保护层与上游监视不该替它退让自动 Gain。取与（只在两份都超时放开）会在两份前向模型一份说超、一份说没超时按风格上限
+        // 核对：实际手动单独已超时保护层退到底、约束反馈把自动增益磨光——正是要修的那种（置信度低的方案输入响度往「更响」收，Glue GR
+        // 估得多、峰值估得低，手动 Clip 的削波深度两份可以分处上限两侧，GlazePlannerTests 有构造）。
+        plan.manualBudgetMask = static_cast<std::uint8_t> (plan.manualBudgetMask | bound.manualBudgetMask);
 
         // 修坯 Clay：三项幅度逐项取小（低切 0 = 关，本来就是最小值；三项都随 GLAZE 单调、都不超上限，取小后照样成立）。
         // 分频点只由画像的逐段统计与常数决定，两份方案相同，保留 plan 自己的；取小后收单为 0 时回到中性默认值（与 planClay 一致）。

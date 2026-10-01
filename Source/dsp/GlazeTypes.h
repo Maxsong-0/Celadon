@@ -154,13 +154,20 @@ namespace celadon::glaze
         float limitClip = 0.0f;        // 0 ～ 100
     };
 
-    // T-032 R6-02 收尾（A11）：Plan::manualBudgetMask 的位——手动单独已超出这一项的风格预算，自动部分不再为它负责：
-    //   - Heat：手动 Heat 超过风格的 Heat 驱动上限。自动 Heat 增量此时恒为 0，Heat 驱动全是手动的（上游监视不核对它）；
+    // T-032 R6-02 收尾（A11）：Plan::manualBudgetMask 的位——手动链单独的用量（只有手动值、没有自动增量时）已超出这一项的风格预算。
+    // 保护层与上游监视每项的有效上限 = max(风格上限, 手动单独用量)；置了位的项上自动部分恒为 0，实测用量就是手动单独用量，这个 max
+    // 永不越限，编排器把它直接置为「不设约束」（GlazeController.cpp releaseManualBudget），不拿前向模型的估计当上限；没置位的项
+    // 有效上限就是风格上限（逐位）：
+    //   - Heat：手动 Heat 超过风格的 Heat 驱动上限（只有上游监视核对 Heat）。自动 Heat 增量此时恒为 0（余量 max(0, heatCap − 手动) = 0，
+    //     heatCap ≤ 驱动上限；撤回的更是 0），Heat 驱动全是手动的；
     //   - Glue：手动 Glue 超过这份素材上两个 GR 上限都不超的最大 Glue（决策器前向模型的 glueCap；即手动链单独的 Glue 均值或 p95 GR 超过
     //     风格上限）。自动 Glue 增量此时恰为 0（撤回、或余量 max(0, glueCap − 手动) = 0），Glue GR 全是手动的——保护层退让 Limit Gain、
-    //     约束反馈降方案都减不了它（保护层与上游监视都不核对 Glue 两项）；
-    //   - Clip：手动 Clip 单独超预算、决策器已撤回自动 Clip 且不再按 Clip 预算核对这份方案（GlazePlanner.cpp feasible：自动 Gain 只受
-    //     限幅器约束）。保护层与决策器一致，不核对 Clip 深度 / 活动两项；限幅器三项照常核对。
+    //     约束反馈降方案都减不了它；
+    //   - Clip：手动 Clip 单独超预算、决策器已撤回自动 Clip（与撤回同一判定，带决策器的容差）。决策器此时不再按 Clip 预算限制自动 Gain
+    //     （GlazePlanner.cpp feasible，v0.6 F-02 逐模块钳住）：自动 Gain 推深的削波是方案许可的，保护层与决策器一致、不核对 Clip 深度 /
+    //     活动两项（按 max(风格上限, 手动单独深度) 核对会与决策器顶牛，自动 Gain 一推就「超」，约束反馈照样把自动增益磨光）；
+    //     限幅器三项照常核对。
+    //   置信度封顶（GlazePlanner.cpp limitPlanTo）三位都取或：任一份方案的手动链单独超了，取小之后那一项的自动增量就是 0。
     //   位的判定与手动链单独的用量见 GlazePlanner.h estimateManualChainUsage；编排器怎样用见 GlazeController.cpp updateGuardLimits。
     inline constexpr std::uint8_t manualBudgetHeat = 1u, manualBudgetGlue = 2u, manualBudgetClip = 4u;
     inline constexpr std::uint8_t manualBudgetAll = static_cast<std::uint8_t> (manualBudgetHeat | manualBudgetGlue | manualBudgetClip);
@@ -184,11 +191,11 @@ namespace celadon::glaze
         // 只给界面）：手动单独超预算的那一项由 manualBudgetMask 交代，保护层与上游监视不核对它，只核对自动部分。
         // 存档缺本属性（v0.1.8.5 及以前）按 limitedByManual 读（旧语义 = 保守）。
         bool automaticLevelWithdrawn = false;
-        // T-032 R6-02 收尾（A11）：手动单独已超出风格预算、自动部分不再为它负责的项（manualBudget* 位，定义见上）。编排器按它把保护层
-        // 与上游监视的这几项置为「不设约束」，其余项照风格上限——修前两者按「手动 + 自动」的总量核对，把手动造成的超出当成自动的超限，
-        // 白白退让自动 Gain、约束反馈把净增益上限磨到手动链（107 实测，IMPL-A7 第 3 节）。GLAZE ≤ 0 的方案为 0；手动没超预算时为 0，
-        // 保护层与上游监视的上限逐位同修前。存档缺本属性（A11 之前）：受手动设置限制的方案三位全置（旧方案分不出是哪一项超了，
-        // 不把可能是手动造成的超出当成自动的），否则 0。
+        // T-032 R6-02 收尾（A11）：手动链单独已超出风格预算的项（manualBudget* 位，定义见上）。编排器按它把保护层与上游监视的这几项
+        // 置为「不设约束」，其余项照风格上限——修前两者按「手动 + 自动」的总量核对，把手动造成的超出当成自动的超限，白白退让自动 Gain、
+        // 约束反馈把净增益上限磨到手动链（107 实测，IMPL-A7 第 3 节）。GLAZE ≤ 0 的方案为 0；手动没超预算时为 0，保护层与上游监视的上限
+        // 逐位同修前。只是方案的附注：决策器的其余输出不看它（有它没它逐位相同）。存档缺本属性（A11 之前）：受手动设置限制的方案三位
+        // 全置（旧方案分不出是哪一项超了，不把可能是手动造成的超出当成自动的），否则 0。
         std::uint8_t manualBudgetMask = 0;
         int algorithmVersion = currentAlgorithmVersion;
         int constantsVersion = 1;
