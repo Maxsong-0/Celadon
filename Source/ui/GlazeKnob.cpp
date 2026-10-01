@@ -132,6 +132,7 @@ namespace celadon::ui
         lastRenderMs = finished;
         lastRenderCostMs = finished - started;
         ++stats.porcelainRenders;
+        DBG ("Celadon porcelain " << current.image.getWidth() << " px: " << juce::String (lastRenderCostMs, 2) << " ms");
         repaint();
     }
 
