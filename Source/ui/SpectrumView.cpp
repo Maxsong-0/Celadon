@@ -933,10 +933,11 @@ namespace celadon::ui
 
         // 哪些整块与这次要重画的区域相交（T-032 R9-04 ③）：在按面板圆角裁剪之前判断——之后裁剪区成了边表，只剩包围盒可比。
         const auto intersects = [&g] (juce::Rectangle<float> area) { return g.clipRegionIntersects (area.getSmallestIntegerContainer()); };
-        const auto strokeArea = [] (const juce::Path& path, float thickness) { return path.getBounds().expanded (thickness); };
+        // 描边超出路径包围盒的上限：尖角接头（JUCE 默认）最多伸出 半宽 × 斜接上限 4 = 2 × 线宽，再加 1 像素抗锯齿。
+        const auto strokeArea = [] (const juce::Path& path, float thickness) { return path.getBounds().expanded (2.0f * thickness + 1.0f); };
         const auto drawOutputFill = intersects (outputFill.getBounds());
-        const auto drawOutputLine = intersects (strokeArea (outputLine, 1.0f));
-        const auto drawAverage = intersects (strokeArea (averageLine, 1.5f));
+        const auto drawOutputLine = intersects (strokeArea (outputLine, 0.8f));
+        const auto drawAverage = intersects (strokeArea (averageLine, 1.4f));
         const auto drawInput = showInput && intersects (inputDashes.getBounds().expanded (1.0f));
         const auto drawPeak = peakToggle.isOn() && intersects (strokeArea (peakLine, 1.0f));
         const auto drawCursor = hoverFrequency.has_value() && intersects (cursorBounds().toFloat());
