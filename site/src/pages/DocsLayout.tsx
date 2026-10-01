@@ -16,7 +16,8 @@ import { cn, prefersReducedMotion } from '@/lib/utils';
 export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
   const nav = kind === 'docs' ? docsNav : algoNav;
   const base = kind === 'docs' ? '/docs' : '/algorithms';
-  const { t } = useTranslation('docs');
+  // figures 一起列上：站内跳进文档页时与 docs 并行拉（示意图组件自己再用它，不串行等）
+  const { t } = useTranslation(['docs', 'figures']);
   const locale = useLocale();
   const text = usePageText();
   const label = t(`sections.${kind}`);

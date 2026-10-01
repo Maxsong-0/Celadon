@@ -1,11 +1,20 @@
 import { useId, type JSX, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { ParseKeys, TFunction } from 'i18next';
+import type FIGURES from '@/i18n/locales/en/figures.json';
 
 /*
   算法页与说明页里的示意图（`![说明](figure:key)`）。纯 SVG。
   每张图两套排版：md 起横排（viewBox 宽 720），手机竖排（viewBox 宽 340）；两套字号都按「渲染出来 10～14 px」定。
-  SVG 文字不会自动换行：每段字都按字宽留足了位置；长说明不进图（正文里都有），需要图例的放在图下的 HTML 里，随宽度换行。
+  SVG 文字不会自动换行：每段字都按字宽留足了位置（中英两种语言都量过）；文案里的 \n 是手动换行。
+  长说明不进图（正文里都有），需要图例的放在图下的 HTML 里，随宽度换行。
+  图内文字在 i18n 的 figures 命名空间；公式、读数、模块名这类两种语言相同的直接写在这里。
   颜色（设计规格-官网）：青 = 信号与模块，紫只表示 GLAZE 自动，橙只表示警告 / 被削掉的部分，灰 = 结构与读数。
 */
+
+type FigT = TFunction<'figures'>;
+type FigKey = ParseKeys<'figures'>;
+type FigureId = keyof typeof FIGURES;
 
 const INK = '#0D1B21';
 const INK2 = '#4B5E66';
@@ -47,6 +56,8 @@ interface V {
   /** 框圆角 */
   r: number;
   mk: (tone: WireTone) => string;
+  /** 图内文字（figures 命名空间） */
+  t: FigT;
 }
 
 const TONE: Record<Tone, { fill: string; stroke: string; title: string; sub: string; dash?: string }> = {
@@ -59,12 +70,17 @@ const TONE: Record<Tone, { fill: string; stroke: string; title: string; sub: str
 
 const WIRE: Record<WireTone, string> = { ink: INK2, v: VIOLET, mute: INK4, c: C500 };
 
-function variant(narrow: boolean, prefix: string): V {
+function variant(narrow: boolean, prefix: string, t: FigT): V {
   const mk = (tone: WireTone) => `url(#${prefix}-${tone})`;
-  return narrow ? { narrow, T: 13.5, S: 11.5, M: 11, r: 9, mk } : { narrow, T: 14, S: 12, M: 12, r: 10, mk };
+  return narrow ? { narrow, T: 13.5, S: 11.5, M: 11, r: 9, mk, t } : { narrow, T: 14, S: 12, M: 12, r: 10, mk, t };
 }
 
 const r1 = (n: number) => Math.round(n * 10) / 10;
+
+/** 文案里的 \n 是手动换行（SVG 文字不会自己换行）。 */
+function lines(s: string | readonly string[]): readonly string[] {
+  return typeof s === 'string' ? s.split('\n') : s.flatMap(x => x.split('\n'));
+}
 
 /** 折线连线，拐角做成小圆角（二次贝塞尔）。 */
 function wirePath(pts: readonly Pt[], radius = 7): string {
@@ -125,20 +141,43 @@ function Label({
   color = INK3,
   anchor = 'start',
   mono = false,
-  weight
+  weight,
+  halo = false
 }: {
   v: V;
   x: number;
   y: number;
-  children: ReactNode;
+  /** \n 换行：第一行基线在 y，之后每行下移 1.3 em */
+  children: string | number;
   color?: string;
   anchor?: 'start' | 'middle' | 'end';
   mono?: boolean;
   weight?: number;
+  /** 压在虚线框上的标签：描一圈底色把线断开，宽度随文字（两种语言长短不同） */
+  halo?: boolean;
 }) {
+  const rows = lines(String(children));
   return (
-    <text x={r1(x)} y={r1(y)} textAnchor={anchor} fontSize={mono ? v.M : v.S} fontWeight={weight} fill={color} style={{ fontFamily: mono ? MONO : SANS }}>
-      {children}
+    <text
+      x={r1(x)}
+      y={r1(y)}
+      textAnchor={anchor}
+      fontSize={mono ? v.M : v.S}
+      fontWeight={weight}
+      fill={color}
+      stroke={halo ? PANEL : undefined}
+      strokeWidth={halo ? 6 : undefined}
+      strokeLinejoin={halo ? 'round' : undefined}
+      paintOrder={halo ? 'stroke' : undefined}
+      style={{ fontFamily: mono ? MONO : SANS }}
+    >
+      {rows.length === 1
+        ? rows[0]
+        : rows.map((row, i) => (
+            <tspan key={i} x={r1(x)} dy={i ? '1.3em' : undefined}>
+              {row}
+            </tspan>
+          ))}
     </text>
   );
 }
@@ -149,13 +188,14 @@ interface BoxSpec {
   w: number;
   h: number;
   title: string;
-  sub?: string | readonly string[];
+  /** 小字；\n 换行 */
+  sub?: string;
   tone?: Tone;
 }
 
 function Box({ v, b }: { v: V; b: BoxSpec }) {
   const t = TONE[b.tone ?? 'c'];
-  const subs = b.sub === undefined ? [] : typeof b.sub === 'string' ? [b.sub] : b.sub;
+  const subs = b.sub === undefined ? [] : lines(b.sub);
   // 标题一行 + 若干行小字，整块在框内垂直居中；字的视觉中心约在基线上 0.35 em
   const gap = subs.length ? v.S * 0.42 : 0;
   const lead = v.S * 1.4;
@@ -169,7 +209,7 @@ function Box({ v, b }: { v: V; b: BoxSpec }) {
         {b.title}
       </text>
       {subs.map((s, i) => (
-        <text key={s} x={r1(cx)} y={r1(top + v.T + gap + i * lead + v.S * 0.85)} textAnchor="middle" fontSize={v.S} fill={t.sub} style={{ fontFamily: SANS }}>
+        <text key={i} x={r1(cx)} y={r1(top + v.T + gap + i * lead + v.S * 0.85)} textAnchor="middle" fontSize={v.S} fill={t.sub} style={{ fontFamily: SANS }}>
           {s}
         </text>
       ))}
@@ -181,7 +221,7 @@ type Swatch = 'line' | 'thick' | 'dash' | 'bar' | 'frame' | 'band' | 'dot';
 interface LegendItem {
   swatch: Swatch;
   color: string;
-  label: string;
+  label: FigKey;
 }
 
 function swatchShape(swatch: Swatch, color: string): JSX.Element {
@@ -212,13 +252,13 @@ function SwatchMark({ swatch, color }: { swatch: Swatch; color: string }) {
 }
 
 /** 图下的图例：HTML，随宽度换行。 */
-function Legend({ items }: { items: readonly LegendItem[] }) {
+function Legend({ items, t }: { items: readonly LegendItem[]; t: FigT }) {
   return (
     <div className="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-2 border-t border-line pt-4 text-[12.5px] leading-snug text-ink-3">
       {items.map(it => (
         <span key={it.label} className="inline-flex items-center gap-2">
           <SwatchMark swatch={it.swatch} color={it.color} />
-          {it.label}
+          {t(it.label)}
         </span>
       ))}
     </div>
@@ -226,10 +266,12 @@ function Legend({ items }: { items: readonly LegendItem[] }) {
 }
 
 /** 一张图：md 起显示横排，手机显示竖排；两套各自一份 marker（id 按实例唯一，同页多张图不串）。 */
-function Figure({ label, wideH, narrowH, draw, legend }: { label: string; wideH: number; narrowH: number; draw: (v: V) => ReactNode; legend?: readonly LegendItem[] }) {
+function Figure({ id, wideH, narrowH, draw, legend }: { id: FigureId; wideH: number; narrowH: number; draw: (v: V) => ReactNode; legend?: readonly LegendItem[] }) {
+  const { t } = useTranslation('figures');
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
-  const wide = variant(false, `${uid}w`);
-  const narrow = variant(true, `${uid}n`);
+  const wide = variant(false, `${uid}w`, t);
+  const narrow = variant(true, `${uid}n`, t);
+  const label = t(`${id}.label`);
   return (
     <div>
       <svg viewBox={`0 0 ${WIDE_W} ${wideH}`} role="img" aria-label={label} className="mx-auto hidden h-auto w-full max-w-[760px] md:block">
@@ -240,7 +282,7 @@ function Figure({ label, wideH, narrowH, draw, legend }: { label: string; wideH:
         <Markers prefix={`${uid}n`} />
         {draw(narrow)}
       </svg>
-      {legend ? <Legend items={legend} /> : null}
+      {legend ? <Legend items={legend} t={t} /> : null}
     </div>
   );
 }
@@ -248,26 +290,27 @@ function Figure({ label, wideH, narrowH, draw, legend }: { label: string; wideH:
 /* ---------------- 信号链 ---------------- */
 
 const CHAIN_MODS = [
-  { title: 'BALANCE', sub: '平衡' },
-  { title: 'CLAY', sub: '修坯' },
-  { title: 'COLOR', sub: '染色' },
-  { title: 'LIMIT', sub: '限幅' }
-] as const;
+  { title: 'BALANCE', sub: 'chain.balance' },
+  { title: 'CLAY', sub: 'chain.clay' },
+  { title: 'COLOR', sub: 'chain.color' },
+  { title: 'LIMIT', sub: 'chain.limit' }
+] as const satisfies readonly { title: string; sub: FigKey }[];
 
 function ChainWide({ v }: { v: V }) {
+  const { t } = v;
   const y = 132;
   const h = 52;
-  const mods = CHAIN_MODS.map((m, i) => ({ ...m, x: 110 + i * 132, y, w: 104, h }));
+  const mods = CHAIN_MODS.map((m, i) => ({ title: m.title, sub: t(m.sub), x: 110 + i * 132, y, w: 104, h }));
   return (
     <>
       {/* GLAZE：读入口特征与模块统计，经一条总线把实际参数交给四个模块 */}
       <Wire v={v} tone="v" dashed pts={[[50, 132], [50, 46], [240, 46]]} />
       <Label v={v} x={60} y={38} color={VIOLET_TEXT}>
-        入口特征
+        {t('chain.features')}
       </Label>
       <Wire v={v} tone="mute" dashed pts={[[670, 132], [670, 46], [480, 46]]} />
       <Label v={v} x={660} y={38} anchor="end">
-        模块统计
+        {t('chain.stats')}
       </Label>
       <Wire v={v} tone="v" dashed head={false} pts={[[360, 72], [360, 102]]} />
       <Wire v={v} tone="v" dashed head={false} pts={[[162, 102], [558, 102]]} />
@@ -276,16 +319,16 @@ function ChainWide({ v }: { v: V }) {
       ))}
       <Dot x={360} y={102} tone="v" />
       <Label v={v} x={368} y={92} color={VIOLET_TEXT}>
-        实际参数 = 手动 + 自动增量
+        {t('chain.actual')}
       </Label>
-      <Box v={v} b={{ x: 242, y: 20, w: 236, h: 52, title: 'GLAZE 编排器', sub: '画像 → 方案 → 校准 → 保护', tone: 'v' }} />
+      <Box v={v} b={{ x: 242, y: 20, w: 236, h: 52, title: t('chain.glaze'), sub: t('chain.glazeSub'), tone: 'v' }} />
 
       {/* 主信号：顺序固定 */}
-      <Box v={v} b={{ x: 18, y, w: 64, h, title: '输入', tone: 'g' }} />
+      <Box v={v} b={{ x: 18, y, w: 64, h, title: t('chain.input'), tone: 'g' }} />
       {mods.map(m => (
         <Box key={m.title} v={v} b={m} />
       ))}
-      <Box v={v} b={{ x: 638, y, w: 64, h, title: '输出', tone: 'g' }} />
+      <Box v={v} b={{ x: 638, y, w: 64, h, title: t('chain.output'), tone: 'g' }} />
       {[82, 214, 346, 478, 610].map(x => (
         <Wire key={x} v={v} pts={[[x, 158], [x + 26, 158]]} />
       ))}
@@ -293,13 +336,14 @@ function ChainWide({ v }: { v: V }) {
       {/* 入口与出口两块表 */}
       <Wire v={v} tone="mute" dashed pts={[[50, 184], [50, 220]]} />
       <Wire v={v} tone="mute" dashed pts={[[670, 184], [670, 220]]} />
-      <Box v={v} b={{ x: 18, y: 222, w: 116, h: 46, title: 'IN 表', sub: '真峰值 · LUFS', tone: 'g' }} />
-      <Box v={v} b={{ x: 578, y: 222, w: 124, h: 46, title: 'OUT 表', sub: '真峰值 · LUFS · GR', tone: 'g' }} />
+      <Box v={v} b={{ x: 18, y: 222, w: 116, h: 46, title: t('chain.inMeter'), sub: t('chain.inSub'), tone: 'g' }} />
+      <Box v={v} b={{ x: 578, y: 222, w: 124, h: 46, title: t('chain.outMeter'), sub: t('chain.outSub'), tone: 'g' }} />
     </>
   );
 }
 
 function ChainNarrow({ v }: { v: V }) {
+  const { t } = v;
   const rows = [16, 80, 144, 208, 272, 336];
   return (
     <>
@@ -312,27 +356,27 @@ function ChainNarrow({ v }: { v: V }) {
       <Dot x={189} y={198} tone="v" />
       <Wire v={v} tone="v" dashed pts={[[266, 60], [266, 164]]} />
       <Label v={v} x={274} y={116} color={VIOLET_TEXT}>
-        入口特征
+        {t('chain.featuresNarrow')}
       </Label>
       <Wire v={v} tone="mute" dashed pts={[[266, 336], [266, 232]]} />
       <Label v={v} x={274} y={288}>
-        模块统计
+        {t('chain.statsNarrow')}
       </Label>
-      <Box v={v} b={{ x: 208, y: 166, w: 116, h: 64, title: 'GLAZE 编排器', sub: ['画像 → 方案', '校准 → 保护'], tone: 'v' }} />
+      <Box v={v} b={{ x: 208, y: 166, w: 116, h: 64, title: t('chain.glazeNarrow'), sub: t('chain.glazeSubNarrow'), tone: 'v' }} />
 
-      <Box v={v} b={{ x: 20, y: rows[0], w: 150, h: 44, title: '输入', tone: 'g' }} />
+      <Box v={v} b={{ x: 20, y: rows[0], w: 150, h: 44, title: t('chain.input'), tone: 'g' }} />
       {CHAIN_MODS.map((m, i) => (
-        <Box key={m.title} v={v} b={{ x: 20, y: rows[i + 1], w: 150, h: 44, title: m.title, sub: m.sub }} />
+        <Box key={m.title} v={v} b={{ x: 20, y: rows[i + 1], w: 150, h: 44, title: m.title, sub: t(m.sub) }} />
       ))}
-      <Box v={v} b={{ x: 20, y: rows[5], w: 150, h: 44, title: '输出', tone: 'g' }} />
+      <Box v={v} b={{ x: 20, y: rows[5], w: 150, h: 44, title: t('chain.output'), tone: 'g' }} />
       {rows.slice(0, 5).map(y => (
         <Wire key={y} v={v} pts={[[95, y + 44], [95, y + 62]]} />
       ))}
 
       <Wire v={v} tone="mute" dashed pts={[[170, 38], [206, 38]]} />
       <Wire v={v} tone="mute" dashed pts={[[170, 358], [206, 358]]} />
-      <Box v={v} b={{ x: 208, y: 16, w: 116, h: 44, title: 'IN 表', sub: '真峰值 · LUFS', tone: 'g' }} />
-      <Box v={v} b={{ x: 208, y: 336, w: 116, h: 44, title: 'OUT 表', sub: '真峰值 · LUFS · GR', tone: 'g' }} />
+      <Box v={v} b={{ x: 208, y: 16, w: 116, h: 44, title: t('chain.inMeter'), sub: t('chain.inSub'), tone: 'g' }} />
+      <Box v={v} b={{ x: 208, y: 336, w: 116, h: 44, title: t('chain.outMeter'), sub: t('chain.outSub'), tone: 'g' }} />
     </>
   );
 }
@@ -378,7 +422,7 @@ function LimiterPlot({ v }: { v: V }) {
   return (
     <>
       <Label v={v} x={x0} y={20} mono>
-        |x| 与 8× 插值真峰值
+        {v.t('limiter.peak')}
       </Label>
       <line x1={x0} y1={aBase} x2={x1} y2={aBase} stroke={LINE} />
       <line x1={x0} y1={ceilY} x2={x1} y2={ceilY} stroke={WARN} strokeWidth={1.1} strokeDasharray="5 4" />
@@ -389,7 +433,7 @@ function LimiterPlot({ v }: { v: V }) {
       <path d={path(LIM.a.map((a, i) => a * LIM.env[i]), yA)} fill="none" stroke={C600} strokeWidth={1.6} />
 
       <Label v={v} x={x0} y={gTop - 16} mono>
-        增益
+        {v.t('limiter.gain')}
       </Label>
       <line x1={x0} y1={gTop} x2={x1} y2={gTop} stroke={LINE} />
       <line x1={x0} y1={gBot} x2={x1} y2={gBot} stroke={LINE} strokeDasharray="2 4" />
@@ -444,11 +488,11 @@ function TruePeakPlot({ v }: { v: V }) {
       <line x1={x0 - 16} y1={base} x2={right} y2={base} stroke={LINE} />
       <line x1={x0 - 16} y1={spY} x2={right} y2={spY} stroke={INK4} strokeDasharray="3 4" />
       <Label v={v} x={right} y={spY + 15} anchor="end">
-        采样点峰值
+        {v.t('truepeak.samplePeak')}
       </Label>
       <line x1={x0 - 16} y1={tpY} x2={right} y2={tpY} stroke={WARN} strokeDasharray="5 4" />
       <Label v={v} x={right} y={tpY - 7} anchor="end" color={WARN_TEXT}>
-        真峰值
+        {v.t('truepeak.truePeak')}
       </Label>
       <polyline points={TP.curve.map(([t, val]) => `${r1(X(t))},${r1(Y(val))}`).join(' ')} fill="none" stroke={C500} strokeWidth={1.6} />
       {TP.s.map((val, i) => (
@@ -489,7 +533,7 @@ function BalancePlot({ v }: { v: V }) {
   return (
     <>
       <Label v={v} x={x0} y={v.narrow ? 18 : 20} mono>
-        {v.narrow ? 'Lfast[b] 与 R[b]' : 'Lfast[b] 与参考轮廓 R[b]'}
+        {v.t(v.narrow ? 'balance.titleNarrow' : 'balance.title')}
       </Label>
       {BAL.R.map((R, i) => {
         const L = R + BAL.D[i];
@@ -524,42 +568,43 @@ function BalancePlot({ v }: { v: V }) {
 
 /* ---------------- Glue ---------------- */
 
-function GlueWide({ v }: { v: V }) {
-  const bands: BoxSpec[] = [
-    { x: 140, y: 134, w: 152, h: 48, title: '低 ≤ 180 Hz', sub: '攻击 36 ms' },
-    { x: 316, y: 134, w: 152, h: 48, title: '中', sub: '跟联动攻击' },
-    { x: 492, y: 134, w: 152, h: 48, title: '高 ≥ 5 kHz', sub: '攻击 8 ms' }
+function glueBands(t: FigT): readonly Pick<BoxSpec, 'title' | 'sub'>[] {
+  return [
+    { title: t('glue.low'), sub: t('glue.lowSub') },
+    { title: t('glue.mid'), sub: t('glue.midSub') },
+    { title: t('glue.high'), sub: t('glue.highSub') }
   ];
+}
+
+function GlueWide({ v }: { v: V }) {
+  const { t } = v;
+  const bands = glueBands(t).map((b, i): BoxSpec => ({ ...b, x: 140 + i * 176, y: 134, w: 152, h: 48 }));
   return (
     <>
       <Wire v={v} pts={[[104, 44], [150, 44]]} />
       <Wire v={v} pts={[[348, 44], [394, 44]]} />
-      {/* 音频进三段；联动包络 g 从上方驱动三段，各段自己的攻击与偏移 */}
+      {/* 音频进三段；联动包络 g 从上方驱动：低、高各自有攻击与偏移，中频直接用联动增益（0.1.8.6） */}
       <Wire v={v} pts={[[64, 68], [64, 158], [118, 158]]} />
       <Wire v={v} dashed pts={[[498, 68], [498, 86], [392, 86], [392, 106]]} />
       <Wire v={v} pts={[[392, 200], [392, 220]]} />
-      <Box v={v} b={{ x: 24, y: 20, w: 80, h: 48, title: '输入', tone: 'g' }} />
-      <Box v={v} b={{ x: 152, y: 20, w: 196, h: 48, title: '侧链 100 Hz 高通', sub: 'L / R 取大 · 2:1 · 6 dB 拐点' }} />
-      <Box v={v} b={{ x: 396, y: 20, w: 204, h: 48, title: '联动包络 g', sub: '攻击 20 ms · 自动释放' }} />
+      <Box v={v} b={{ x: 24, y: 20, w: 80, h: 48, title: t('glue.input'), tone: 'g' }} />
+      <Box v={v} b={{ x: 152, y: 20, w: 196, h: 48, title: t('glue.sidechain'), sub: t('glue.sidechainSub') }} />
+      <Box v={v} b={{ x: 396, y: 20, w: 204, h: 48, title: t('glue.envelope'), sub: t('glue.envelopeSub') }} />
       <rect x={120} y={108} width={544} height={92} rx={14} fill="none" stroke={C300} strokeDasharray="4 4" />
-      <rect x={132} y={100} width={96} height={16} fill={PANEL} />
-      <Label v={v} x={140} y={112} color={C700} weight={600}>
-        三段分开施压
+      <Label v={v} x={140} y={112} color={C700} weight={600} halo>
+        {t('glue.bands')}
       </Label>
       {bands.map(b => (
         <Box key={b.title} v={v} b={b} />
       ))}
-      <Box v={v} b={{ x: 292, y: 222, w: 200, h: 48, title: '求和 → 输出', sub: '三路差为 0 时退回单增益', tone: 'g' }} />
+      <Box v={v} b={{ x: 292, y: 222, w: 200, h: 48, title: t('glue.sum'), sub: t('glue.sumSub'), tone: 'g' }} />
     </>
   );
 }
 
 function GlueNarrow({ v }: { v: V }) {
-  const bands: BoxSpec[] = [
-    { x: 28, y: 176, w: 284, h: 44, title: '低 ≤ 180 Hz', sub: '攻击 36 ms' },
-    { x: 28, y: 232, w: 284, h: 44, title: '中', sub: '跟联动攻击' },
-    { x: 28, y: 288, w: 284, h: 44, title: '高 ≥ 5 kHz', sub: '攻击 8 ms' }
-  ];
+  const { t } = v;
+  const bands = glueBands(t).map((b, i): BoxSpec => ({ ...b, x: 28, y: 176 + i * 56, w: 284, h: 44 }));
   return (
     <>
       <Wire v={v} pts={[[116, 38], [138, 38]]} />
@@ -567,18 +612,17 @@ function GlueNarrow({ v }: { v: V }) {
       <Wire v={v} pts={[[68, 60], [68, 154]]} />
       <Wire v={v} dashed pts={[[230, 128], [230, 154]]} />
       <Wire v={v} pts={[[170, 352], [170, 370]]} />
-      <Box v={v} b={{ x: 20, y: 16, w: 96, h: 44, title: '输入', tone: 'g' }} />
-      <Box v={v} b={{ x: 140, y: 16, w: 180, h: 44, title: '侧链 100 Hz 高通', sub: 'L / R 取大 · 2:1 · 6 dB 拐点' }} />
-      <Box v={v} b={{ x: 140, y: 84, w: 180, h: 44, title: '联动包络 g', sub: '攻击 20 ms · 自动释放' }} />
+      <Box v={v} b={{ x: 20, y: 16, w: 96, h: 44, title: t('glue.input'), tone: 'g' }} />
+      <Box v={v} b={{ x: 140, y: 16, w: 180, h: 44, title: t('glue.sidechain'), sub: t('glue.sidechainSub') }} />
+      <Box v={v} b={{ x: 140, y: 84, w: 180, h: 44, title: t('glue.envelope'), sub: t('glue.envelopeSub') }} />
       <rect x={12} y={156} width={316} height={196} rx={12} fill="none" stroke={C300} strokeDasharray="4 4" />
-      <rect x={86} y={148} width={86} height={16} fill={PANEL} />
-      <Label v={v} x={92} y={160} color={C700} weight={600}>
-        三段分开施压
+      <Label v={v} x={92} y={160} color={C700} weight={600} halo>
+        {t('glue.bands')}
       </Label>
       {bands.map(b => (
         <Box key={b.title} v={v} b={b} />
       ))}
-      <Box v={v} b={{ x: 70, y: 372, w: 200, h: 44, title: '求和 → 输出', sub: '三路差为 0 时退回单增益', tone: 'g' }} />
+      <Box v={v} b={{ x: 70, y: 372, w: 200, h: 44, title: t('glue.sum'), sub: t('glue.sumSub'), tone: 'g' }} />
     </>
   );
 }
@@ -586,53 +630,58 @@ function GlueNarrow({ v }: { v: V }) {
 /* ---------------- Heat ---------------- */
 
 function HeatWide({ v }: { v: V }) {
+  const { t } = v;
+  // 下排框高 62：电子管那格的小字两行
   return (
     <>
       <Wire v={v} pts={[[104, 106], [128, 106], [128, 44], [150, 44]]} />
-      <Wire v={v} pts={[[128, 106], [128, 168], [150, 168]]} />
+      <Wire v={v} pts={[[128, 106], [128, 171], [150, 171]]} />
       <Dot x={128} y={106} />
       <Wire v={v} pts={[[384, 44], [526, 44]]} />
-      <Wire v={v} pts={[[300, 168], [322, 168]]} />
-      <Wire v={v} pts={[[504, 168], [526, 168]]} />
-      <Wire v={v} pts={[[612, 144], [612, 70]]} />
-      <Box v={v} b={{ x: 24, y: 82, w: 80, h: 48, title: '输入', tone: 'g' }} />
-      <Box v={v} b={{ x: 152, y: 20, w: 232, h: 48, title: '干路 · 64 样本延迟', sub: '原声完整保留', tone: 'g' }} />
-      <Box v={v} b={{ x: 152, y: 144, w: 148, h: 48, title: '150 Hz 高通', sub: '低音不进非线性' }} />
-      <Box v={v} b={{ x: 324, y: 144, w: 180, h: 48, title: 'M / S 电子管曲线', sub: '8× 过采样 · S 更轻、奇对称' }} />
-      <Box v={v} b={{ x: 528, y: 144, w: 168, h: 48, title: '残差', sub: '湿 − 干' }} />
-      <Box v={v} b={{ x: 528, y: 20, w: 168, h: 48, title: '求和 → Mix → Output', tone: 'g' }} />
+      <Wire v={v} pts={[[300, 171], [322, 171]]} />
+      <Wire v={v} pts={[[504, 171], [526, 171]]} />
+      <Wire v={v} pts={[[612, 140], [612, 70]]} />
+      <Box v={v} b={{ x: 24, y: 82, w: 80, h: 48, title: t('heat.input'), tone: 'g' }} />
+      <Box v={v} b={{ x: 152, y: 20, w: 232, h: 48, title: t('heat.dry'), sub: t('heat.drySub'), tone: 'g' }} />
+      <Box v={v} b={{ x: 152, y: 140, w: 148, h: 62, title: t('heat.hpf'), sub: t('heat.hpfSub') }} />
+      <Box v={v} b={{ x: 324, y: 140, w: 180, h: 62, title: t('heat.tube'), sub: t('heat.tubeSub') }} />
+      <Box v={v} b={{ x: 528, y: 140, w: 168, h: 62, title: t('heat.residual'), sub: t('heat.residualSub') }} />
+      <Box v={v} b={{ x: 528, y: 20, w: 168, h: 48, title: t('heat.sum'), tone: 'g' }} />
     </>
   );
 }
 
 function HeatNarrow({ v }: { v: V }) {
+  const { t } = v;
   return (
     <>
       <Wire v={v} head={false} pts={[[170, 52], [170, 68]]} />
       <Wire v={v} pts={[[170, 68], [86, 68], [86, 82]]} />
-      <Wire v={v} pts={[[170, 68], [254, 68], [254, 82]]} />
+      <Wire v={v} pts={[[170, 68], [246, 68], [246, 82]]} />
       <Dot x={170} y={68} />
-      <Wire v={v} pts={[[254, 140], [254, 162]]} />
-      <Wire v={v} pts={[[254, 220], [254, 242]]} />
-      <Wire v={v} pts={[[254, 288], [254, 310]]} />
+      <Wire v={v} pts={[[246, 140], [246, 162]]} />
+      <Wire v={v} pts={[[246, 220], [246, 242]]} />
+      <Wire v={v} pts={[[246, 288], [246, 310]]} />
       <Wire v={v} pts={[[86, 140], [86, 310]]} />
-      <Box v={v} b={{ x: 110, y: 12, w: 120, h: 40, title: '输入', tone: 'g' }} />
-      <Box v={v} b={{ x: 20, y: 84, w: 132, h: 56, title: '干路', sub: ['64 样本延迟', '原声完整保留'], tone: 'g' }} />
-      <Box v={v} b={{ x: 188, y: 84, w: 132, h: 56, title: '150 Hz 高通', sub: '低音不进非线性' }} />
-      <Box v={v} b={{ x: 188, y: 164, w: 132, h: 56, title: 'M / S 电子管', sub: ['8× 过采样', 'S 更轻、奇对称'] }} />
-      <Box v={v} b={{ x: 188, y: 244, w: 132, h: 44, title: '残差', sub: '湿 − 干' }} />
-      <Box v={v} b={{ x: 20, y: 312, w: 300, h: 44, title: '求和 → Mix → Output', tone: 'g' }} />
+      <Box v={v} b={{ x: 110, y: 12, w: 120, h: 40, title: t('heat.input'), tone: 'g' }} />
+      <Box v={v} b={{ x: 20, y: 84, w: 132, h: 56, title: t('heat.dryNarrow'), sub: t('heat.drySubNarrow'), tone: 'g' }} />
+      <Box v={v} b={{ x: 172, y: 84, w: 148, h: 56, title: t('heat.hpf'), sub: t('heat.hpfSub') }} />
+      <Box v={v} b={{ x: 172, y: 164, w: 148, h: 56, title: t('heat.tubeNarrow'), sub: t('heat.tubeSub') }} />
+      <Box v={v} b={{ x: 172, y: 244, w: 148, h: 44, title: t('heat.residual'), sub: t('heat.residualSub') }} />
+      <Box v={v} b={{ x: 20, y: 312, w: 300, h: 44, title: t('heat.sum'), tone: 'g' }} />
     </>
   );
 }
 
 /* ---------------- CLAY ---------------- */
 
+// 峰值守护只管 ① 低切与 ② 收单（两条虚线）；③ 加宽的增量加在守护之后，不经守护（0.1.8.6）。
 function ClayWide({ v }: { v: V }) {
+  const { t } = v;
   return (
     <>
-      <Wire v={v} pts={[[80, 136], [98, 136]]} />
-      <Wire v={v} head={false} pts={[[300, 136], [318, 136]]} />
+      <Wire v={v} pts={[[80, 136], [94, 136]]} />
+      <Wire v={v} head={false} pts={[[304, 136], [318, 136]]} />
       <Wire v={v} pts={[[318, 136], [318, 56], [334, 56]]} />
       <Wire v={v} pts={[[318, 136], [318, 216], [334, 216]]} />
       <Dot x={318} y={136} />
@@ -640,24 +689,27 @@ function ClayWide({ v }: { v: V }) {
       <Wire v={v} pts={[[448, 216], [466, 216]]} />
       <Wire v={v} pts={[[572, 216], [590, 216]]} />
       <Wire v={v} pts={[[646, 192], [646, 82]]} />
-      <Wire v={v} tone="c" dashed pts={[[200, 196], [200, 162]]} />
+      <Wire v={v} tone="c" dashed pts={[[200, 184], [200, 162]]} />
+      <Wire v={v} tone="c" dashed pts={[[250, 246], [250, 256], [520, 256], [520, 242]]} />
       <Box v={v} b={{ x: 16, y: 112, w: 64, h: 48, title: 'L / R', tone: 'g' }} />
-      <Box v={v} b={{ x: 100, y: 112, w: 200, h: 48, title: '① 低切', sub: '4 阶 Butterworth · 10～60 Hz' }} />
-      <Box v={v} b={{ x: 336, y: 32, w: 112, h: 48, title: 'M', sub: '(L + R) / 2 · 不动', tone: 'g' }} />
+      <Box v={v} b={{ x: 96, y: 112, w: 208, h: 48, title: t('clay.lowCut'), sub: t('clay.lowCutSub') }} />
+      <Box v={v} b={{ x: 336, y: 32, w: 112, h: 48, title: t('clay.mid'), sub: t('clay.midSub'), tone: 'g' }} />
       <Box v={v} b={{ x: 336, y: 192, w: 112, h: 48, title: 'S', sub: '(L − R) / 2', tone: 'g' }} />
-      <Box v={v} b={{ x: 468, y: 192, w: 104, h: 48, title: '② 收单', sub: '线性相位' }} />
-      <Box v={v} b={{ x: 592, y: 192, w: 108, h: 48, title: '③ 加宽', sub: '2 kHz 高架' }} />
+      <Box v={v} b={{ x: 468, y: 192, w: 104, h: 48, title: t('clay.mono'), sub: t('clay.monoSub') }} />
+      <Box v={v} b={{ x: 592, y: 192, w: 108, h: 48, title: t('clay.width'), sub: t('clay.widthSub') }} />
       <Box v={v} b={{ x: 592, y: 32, w: 108, h: 48, title: 'L′ / R′', sub: '= M ± S', tone: 'g' }} />
-      <Box v={v} b={{ x: 100, y: 196, w: 200, h: 48, title: '峰值守护', sub: '前瞻 8 ms · 会抬峰值就让开', tone: 'o' }} />
+      <Box v={v} b={{ x: 96, y: 184, w: 208, h: 62, title: t('clay.guard'), sub: t('clay.guardSub'), tone: 'o' }} />
     </>
   );
 }
 
 function ClayNarrow({ v }: { v: V }) {
+  const { t } = v;
   return (
     <>
       <Wire v={v} pts={[[70, 56], [70, 86]]} />
-      <Wire v={v} tone="c" dashed pts={[[248, 64], [248, 86]]} />
+      <Wire v={v} tone="c" dashed pts={[[226, 64], [226, 86]]} />
+      <Wire v={v} tone="c" dashed pts={[[320, 36], [332, 36], [332, 258], [322, 258]]} />
       <Wire v={v} head={false} pts={[[170, 136], [170, 152]]} />
       <Wire v={v} pts={[[170, 152], [86, 152], [86, 166]]} />
       <Wire v={v} pts={[[170, 152], [254, 152], [254, 166]]} />
@@ -667,12 +719,12 @@ function ClayNarrow({ v }: { v: V }) {
       <Wire v={v} pts={[[254, 348], [254, 370]]} />
       <Wire v={v} pts={[[86, 212], [86, 370]]} />
       <Box v={v} b={{ x: 20, y: 12, w: 100, h: 44, title: 'L / R', tone: 'g' }} />
-      <Box v={v} b={{ x: 176, y: 8, w: 144, h: 56, title: '峰值守护', sub: ['前瞻 8 ms', '会抬峰值就让开'], tone: 'o' }} />
-      <Box v={v} b={{ x: 20, y: 88, w: 300, h: 48, title: '① 低切', sub: '4 阶 Butterworth · 10～60 Hz' }} />
-      <Box v={v} b={{ x: 20, y: 168, w: 132, h: 44, title: 'M', sub: '(L + R) / 2 · 不动', tone: 'g' }} />
+      <Box v={v} b={{ x: 132, y: 8, w: 188, h: 56, title: t('clay.guard'), sub: t('clay.guardSub'), tone: 'o' }} />
+      <Box v={v} b={{ x: 20, y: 88, w: 300, h: 48, title: t('clay.lowCut'), sub: t('clay.lowCutSub') }} />
+      <Box v={v} b={{ x: 20, y: 168, w: 132, h: 44, title: t('clay.mid'), sub: t('clay.midSub'), tone: 'g' }} />
       <Box v={v} b={{ x: 188, y: 168, w: 132, h: 44, title: 'S', sub: '(L − R) / 2', tone: 'g' }} />
-      <Box v={v} b={{ x: 188, y: 236, w: 132, h: 44, title: '② 收单', sub: '线性相位' }} />
-      <Box v={v} b={{ x: 188, y: 304, w: 132, h: 44, title: '③ 加宽', sub: '2 kHz 高架' }} />
+      <Box v={v} b={{ x: 188, y: 236, w: 132, h: 44, title: t('clay.mono'), sub: t('clay.monoSub') }} />
+      <Box v={v} b={{ x: 188, y: 304, w: 132, h: 44, title: t('clay.width'), sub: t('clay.widthSub') }} />
       <Box v={v} b={{ x: 20, y: 372, w: 300, h: 44, title: 'L′ / R′', sub: '= M ± S', tone: 'g' }} />
     </>
   );
@@ -681,6 +733,7 @@ function ClayNarrow({ v }: { v: V }) {
 /* ---------------- GLAZE 状态机 ---------------- */
 
 function GlazeWide({ v }: { v: V }) {
+  const { t } = v;
   return (
     <>
       <Wire v={v} pts={[[144, 50], [178, 50]]} />
@@ -691,33 +744,24 @@ function GlazeWide({ v }: { v: V }) {
       {/* 重新聆听：建候选版本，旧方案照常生效，听完再平滑换过去 */}
       <Wire v={v} tone="v" dashed pts={[[566, 76], [566, 132], [252, 132], [252, 78]]} />
       <Label v={v} x={409} y={152} anchor="middle" color={VIOLET_TEXT} weight={600}>
-        重新聆听 → 候选版本
+        {t('glaze.relearn')}
       </Label>
       <Label v={v} x={409} y={170} anchor="middle">
-        旧方案照常生效，听完约 3 s 平滑换过去
+        {t('glaze.relearnNote')}
       </Label>
-      <Box v={v} b={{ x: 16, y: 24, w: 128, h: 52, title: '未学习', sub: '播放后自动开始', tone: 'g' }} />
-      <Box v={v} b={{ x: 180, y: 24, w: 144, h: 52, title: '聆听中', sub: '15～30 s · 攒证据', tone: 'v' }} />
-      <Box v={v} b={{ x: 360, y: 24, w: 156, h: 52, title: '校准中', sub: '对齐输入输出响度差', tone: 'v' }} />
-      <Box v={v} b={{ x: 552, y: 24, w: 152, h: 52, title: '已锁定', sub: '基准附近有界保护' }} />
-      <Box v={v} b={{ x: 580, y: 172, w: 124, h: 52, title: '受限 · 慢速退让', sub: 'g_保护 ∈ [−3, 0] dB', tone: 'g' }} />
-      <Box
-        v={v}
-        b={{
-          x: 16,
-          y: 248,
-          w: 688,
-          h: 52,
-          title: '随工程保存：画像 + 方案 + 校准 + 标定快照 + 执行快照',
-          sub: '重开不重学；同一起点重渲染逐位可复现；参考条件一变，校准即失效',
-          tone: 'g'
-        }}
-      />
+      <Box v={v} b={{ x: 16, y: 24, w: 128, h: 52, title: t('glaze.notLearned'), sub: t('glaze.notLearnedSub'), tone: 'g' }} />
+      <Box v={v} b={{ x: 180, y: 24, w: 144, h: 52, title: t('glaze.listening'), sub: t('glaze.listeningSub'), tone: 'v' }} />
+      <Box v={v} b={{ x: 360, y: 24, w: 156, h: 52, title: t('glaze.calibrating'), sub: t('glaze.calibratingSub'), tone: 'v' }} />
+      <Box v={v} b={{ x: 552, y: 24, w: 152, h: 52, title: t('glaze.locked'), sub: t('glaze.lockedSub') }} />
+      {/* 框高 64：英文的小字两行 */}
+      <Box v={v} b={{ x: 568, y: 172, w: 136, h: 64, title: t('glaze.limited'), sub: t('glaze.limitedSub'), tone: 'g' }} />
+      <Box v={v} b={{ x: 16, y: 248, w: 688, h: 52, title: t('glaze.saved'), sub: t('glaze.savedSub'), tone: 'g' }} />
     </>
   );
 }
 
 function GlazeNarrow({ v }: { v: V }) {
+  const { t } = v;
   return (
     <>
       <Wire v={v} pts={[[126, 60], [126, 82]]} />
@@ -727,17 +771,17 @@ function GlazeNarrow({ v }: { v: V }) {
       <Wire v={v} dashed pts={[[142, 324], [142, 278]]} />
       <Wire v={v} tone="v" dashed pts={[[232, 252], [264, 252], [264, 108], [234, 108]]} />
       <Label v={v} x={272} y={174} color={VIOLET_TEXT} weight={600}>
-        重新聆听
+        {t('glaze.relearnNarrow')}
       </Label>
       <Label v={v} x={272} y={191} color={VIOLET_TEXT}>
-        候选版本
+        {t('glaze.candidateNarrow')}
       </Label>
-      <Box v={v} b={{ x: 20, y: 12, w: 212, h: 48, title: '未学习', sub: '播放后自动开始', tone: 'g' }} />
-      <Box v={v} b={{ x: 20, y: 84, w: 212, h: 48, title: '聆听中', sub: '15～30 s · 攒证据', tone: 'v' }} />
-      <Box v={v} b={{ x: 20, y: 156, w: 212, h: 48, title: '校准中', sub: '对齐输入输出响度差', tone: 'v' }} />
-      <Box v={v} b={{ x: 20, y: 228, w: 212, h: 48, title: '已锁定', sub: '基准附近有界保护' }} />
-      <Box v={v} b={{ x: 20, y: 324, w: 212, h: 52, title: '受限 · 慢速退让', sub: 'g_保护 ∈ [−3, 0] dB', tone: 'g' }} />
-      <Box v={v} b={{ x: 20, y: 400, w: 300, h: 84, title: '随工程保存', sub: ['画像 + 方案 + 校准 + 快照', '重开不重学，逐位可复现', '参考条件一变，校准即失效'], tone: 'g' }} />
+      <Box v={v} b={{ x: 20, y: 12, w: 212, h: 48, title: t('glaze.notLearned'), sub: t('glaze.notLearnedSub'), tone: 'g' }} />
+      <Box v={v} b={{ x: 20, y: 84, w: 212, h: 48, title: t('glaze.listening'), sub: t('glaze.listeningSub'), tone: 'v' }} />
+      <Box v={v} b={{ x: 20, y: 156, w: 212, h: 48, title: t('glaze.calibrating'), sub: t('glaze.calibratingSub'), tone: 'v' }} />
+      <Box v={v} b={{ x: 20, y: 228, w: 212, h: 48, title: t('glaze.locked'), sub: t('glaze.lockedSub') }} />
+      <Box v={v} b={{ x: 20, y: 324, w: 212, h: 64, title: t('glaze.limited'), sub: t('glaze.limitedSub'), tone: 'g' }} />
+      <Box v={v} b={{ x: 20, y: 400, w: 300, h: 84, title: t('glaze.savedNarrow'), sub: t('glaze.savedSubNarrow'), tone: 'g' }} />
     </>
   );
 }
@@ -750,19 +794,22 @@ interface LatRow {
   total: number;
   parts: readonly number[];
   fills: readonly string[];
-  note: string;
+  note?: FigKey;
 }
 const LAT: readonly LatRow[] = [
-  { name: 'BALANCE', total: 0, parts: [], fills: [], note: '' },
-  { name: 'CLAY', total: 1102, parts: [574, 528], fills: [C300, C400], note: '收单 574 + 守护 528' },
-  { name: 'COLOR', total: 64, parts: [64], fills: [C500], note: '' },
-  { name: 'LIMIT', total: 218, parts: [60, 96, 62], fills: [C600, C700, C600], note: '过采样 60 + 前瞻 96 + 62' }
+  { name: 'BALANCE', total: 0, parts: [], fills: [] },
+  { name: 'CLAY', total: 1102, parts: [574, 528], fills: [C300, C400], note: 'latency.clay' },
+  { name: 'COLOR', total: 64, parts: [64], fills: [C500] },
+  { name: 'LIMIT', total: 218, parts: [60, 96, 62], fills: [C600, C700, C600], note: 'latency.limit' }
 ];
 const LAT_SUM = LAT.reduce((s, row) => s + row.total, 0);
+const LAT_MS = ((LAT_SUM / 48000) * 1000).toFixed(1);
 
 function LatencyPlot({ v }: { v: V }) {
+  const { t } = v;
   const x0 = v.narrow ? 84 : 136;
-  const span = v.narrow ? 240 : 340;
+  // 横排右侧留足 LIMIT 那行的读数（英文最长）
+  const span = v.narrow ? 240 : 320;
   const k = span / LAT_SUM;
   const pitch = v.narrow ? 48 : 36;
   const top = 30;
@@ -797,12 +844,12 @@ function LatencyPlot({ v }: { v: V }) {
             {v.narrow ? (
               row.note ? (
                 <Label v={v} x={row.name === 'LIMIT' ? x0 + span : start} y={cy + 22} anchor={row.name === 'LIMIT' ? 'end' : 'start'} color={INK3}>
-                  {row.note}
+                  {t(row.note)}
                 </Label>
               ) : null
             ) : (
               <Label v={v} x={end + 10} y={cy + 4.5} mono color={INK3}>
-                {row.note ? `${row.total} = ${row.note}` : row.total}
+                {row.note ? `${row.total} = ${t(row.note)}` : row.total}
               </Label>
             )}
           </g>
@@ -810,67 +857,67 @@ function LatencyPlot({ v }: { v: V }) {
       })}
       <path d={`M${x0} ${sumY - 4} V${sumY} H${x0 + span} V${sumY - 4}`} fill="none" stroke={INK4} strokeWidth={1} />
       <Label v={v} x={x0 + span / 2} y={sumY + 22} anchor="middle" color={INK} weight={600}>
-        合计 {LAT_SUM} 样本 ≈ 28.8 ms
+        {t('latency.total', { n: LAT_SUM, ms: LAT_MS })}
       </Label>
     </>
   );
 }
 
 export const figures: Record<string, () => JSX.Element> = {
-  chain: () => <Figure label="信号链示意图" wideH={284} narrowH={396} draw={v => (v.narrow ? <ChainNarrow v={v} /> : <ChainWide v={v} />)} />,
+  chain: () => <Figure id="chain" wideH={284} narrowH={396} draw={v => (v.narrow ? <ChainNarrow v={v} /> : <ChainWide v={v} />)} />,
 
   limiter: () => (
     <Figure
-      label="限幅器示意图"
+      id="limiter"
       wideH={296}
       narrowH={280}
       draw={v => <LimiterPlot v={v} />}
       legend={[
-        { swatch: 'line', color: C200, label: '输入 |x|（8× 插值峰值）' },
-        { swatch: 'line', color: C600, label: '限幅后' },
-        { swatch: 'line', color: '#C7D3D6', label: 'r[n] 需求增益' },
-        { swatch: 'dash', color: C300, label: 'rMin 前瞻滑动最小' },
-        { swatch: 'thick', color: C800, label: '最终增益（1× 域施加，不限幅时恰为 1.0）' }
+        { swatch: 'line', color: C200, label: 'limiter.legend.input' },
+        { swatch: 'line', color: C600, label: 'limiter.legend.limited' },
+        { swatch: 'line', color: '#C7D3D6', label: 'limiter.legend.required' },
+        { swatch: 'dash', color: C300, label: 'limiter.legend.rMin' },
+        { swatch: 'thick', color: C800, label: 'limiter.legend.final' }
       ]}
     />
   ),
 
   truepeak: () => (
     <Figure
-      label="真峰值示意图"
+      id="truepeak"
       wideH={206}
       narrowH={192}
       draw={v => <TruePeakPlot v={v} />}
       legend={[
-        { swatch: 'dot', color: C800, label: '采样点' },
-        { swatch: 'line', color: C500, label: '采样点之间的真实波形' }
+        { swatch: 'dot', color: C800, label: 'truepeak.legend.samples' },
+        { swatch: 'line', color: C500, label: 'truepeak.legend.wave' }
       ]}
     />
   ),
 
   balance: () => (
     <Figure
-      label="Balance 分析示意图"
+      id="balance"
       wideH={246}
       narrowH={206}
       draw={v => <BalancePlot v={v} />}
       legend={[
-        { swatch: 'bar', color: C200, label: 'Lfast[b] 快跟踪电平' },
-        { swatch: 'dash', color: C800, label: 'R[b] 参考轮廓' },
-        { swatch: 'band', color: C500, label: '±1 dB 死区：不动' },
-        { swatch: 'bar', color: WARN, label: 'D > +1 dB：Tame 压下' },
-        { swatch: 'frame', color: C600, label: 'D < −1 dB：Recover 抬起' }
+        { swatch: 'bar', color: C200, label: 'balance.legend.fast' },
+        { swatch: 'dash', color: C800, label: 'balance.legend.ref' },
+        { swatch: 'band', color: C500, label: 'balance.legend.dead' },
+        { swatch: 'bar', color: WARN, label: 'balance.legend.tame' },
+        { swatch: 'frame', color: C600, label: 'balance.legend.recover' }
       ]}
     />
   ),
 
-  glue: () => <Figure label="Glue 分频施压示意图" wideH={284} narrowH={430} draw={v => (v.narrow ? <GlueNarrow v={v} /> : <GlueWide v={v} />)} />,
+  glue: () => <Figure id="glue" wideH={284} narrowH={430} draw={v => (v.narrow ? <GlueNarrow v={v} /> : <GlueWide v={v} />)} />,
 
-  heat: () => <Figure label="Heat 残差染色示意图" wideH={208} narrowH={370} draw={v => (v.narrow ? <HeatNarrow v={v} /> : <HeatWide v={v} />)} />,
+  heat: () => <Figure id="heat" wideH={214} narrowH={370} draw={v => (v.narrow ? <HeatNarrow v={v} /> : <HeatWide v={v} />)} />,
 
-  clay: () => <Figure label="Clay 修坯示意图" wideH={260} narrowH={430} draw={v => (v.narrow ? <ClayNarrow v={v} /> : <ClayWide v={v} />)} />,
+  clay: () => <Figure id="clay" wideH={268} narrowH={430} draw={v => (v.narrow ? <ClayNarrow v={v} /> : <ClayWide v={v} />)} />,
 
-  glaze: () => <Figure label="GLAZE 状态机示意图" wideH={316} narrowH={498} draw={v => (v.narrow ? <GlazeNarrow v={v} /> : <GlazeWide v={v} />)} />,
+  glaze: () => <Figure id="glaze" wideH={316} narrowH={498} draw={v => (v.narrow ? <GlazeNarrow v={v} /> : <GlazeWide v={v} />)} />,
 
-  latency: () => <Figure label="延迟构成示意图" wideH={192} narrowH={250} draw={v => <LatencyPlot v={v} />} />
+  latency: () => <Figure id="latency" wideH={192} narrowH={250} draw={v => <LatencyPlot v={v} />} />
 };

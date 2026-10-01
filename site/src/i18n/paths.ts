@@ -32,13 +32,14 @@ export function localizePath(to: string, locale: Locale): string {
 }
 
 /** 首屏要用的界面短句命名空间（与 common 一起在初始化时并行拉，少一轮等待）。 */
-export function pageNamespace(pathname: string): Namespace {
+export function pageNamespaces(pathname: string): readonly Namespace[] {
   const p = stripLocale(pathname);
-  if (p === '/') return 'home';
-  if (p.startsWith('/download')) return 'download';
-  if (p.startsWith('/changelog')) return 'changelog';
-  if (p.startsWith('/docs') || p.startsWith('/algorithms')) return 'docs';
-  return 'common';
+  if (p === '/') return ['home'];
+  if (p.startsWith('/download')) return ['download'];
+  if (p.startsWith('/changelog')) return ['changelog'];
+  // 说明页 / 算法页的示意图文字单独一个命名空间，与 docs 一起并行拉，不等正文渲染到图再拉
+  if (p.startsWith('/docs') || p.startsWith('/algorithms')) return ['docs', 'figures'];
+  return [];
 }
 
 const LANG_KEY = 'celadon.lang';

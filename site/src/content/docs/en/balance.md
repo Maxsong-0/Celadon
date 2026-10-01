@@ -24,6 +24,6 @@ Loud, not harsh (harshness control at 2–8 kHz) and Target spectrum (Warm / Neu
 
 - Analysis: 2048-point FFT (4096 at 96 kHz), hop 512 (≈ 10 ms), averaged across left and right; the same gains go to both channels, so the stereo image is unaffected.
 - ±1 dB dead zone; at most 1 dB of change per hop; bands below the −60 dBFS silence gate are never lifted.
-- 27 peaking filters with Q ≈ 4.3; coefficients are recalculated every 64 samples and interpolated in between, so there's no zipper noise.
+- 27 peaking filters with Q ≈ 4.3; coefficients are recalculated every 1/8 hop (64 samples at 48 kHz) and interpolated in between, so there's no zipper noise.
 
 Algorithm details: [BALANCE · dynamic spectral balance](/algorithms/balance).

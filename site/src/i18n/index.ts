@@ -1,7 +1,7 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import resourcesToBackend from 'i18next-resources-to-backend';
-import { localeFromPath, pageNamespace, type Locale } from './paths';
+import { localeFromPath, pageNamespaces, type Locale } from './paths';
 
 /*
   界面短句：src/i18n/locales/<语言>/<命名空间>.json，按语言懒加载（英文首屏不下载中文文案）。
@@ -9,7 +9,7 @@ import { localeFromPath, pageNamespace, type Locale } from './paths';
   初始化同时并行拉 common 与这一页的命名空间；其余命名空间在组件第一次用到时拉（useTranslation 挂起，外层 Suspense 接住）。
 */
 const initial: Locale = typeof location === 'undefined' ? 'en' : localeFromPath(location.pathname);
-const firstPage = typeof location === 'undefined' ? 'common' : pageNamespace(location.pathname);
+const firstPage = typeof location === 'undefined' ? [] : pageNamespaces(location.pathname);
 
 void i18n
   .use(resourcesToBackend((lng: string, ns: string) => import(`./locales/${lng}/${ns}.json`)))
@@ -19,7 +19,7 @@ void i18n
     fallbackLng: 'en',
     supportedLngs: ['en', 'zh'],
     load: 'currentOnly',
-    ns: firstPage === 'common' ? ['common'] : ['common', firstPage],
+    ns: ['common', ...firstPage],
     defaultNS: 'common',
     interpolation: { escapeValue: false }, // React 自己转义
     react: { useSuspense: true }
