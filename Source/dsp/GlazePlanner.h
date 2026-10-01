@@ -52,6 +52,16 @@
       - 旧快照（clay* 常数缺字段按 0 读）→ 两项全部中性、costLimitedMask 为 0；
       - 置信度低的画像不比同一份画像置信度拉满时给得多（makePlan 的封顶照样覆盖 Clay 各项）。
 
+    曲风与交付（T-038，设计规格-曲风与交付 第 3.1、4.1、4.2 节；ADR-026）：PlanInputs::genre / delivery 是方案源自己的两个开关。
+      - 曲风只换音色目标：House 子类（Deep / Tech / Melodic-Progressive）在风格权重混合之后，用该子类的 GenreConstants 覆盖 Tone 参考
+        斜率、修坯低切目标、自动加宽系数（三参数的 blendConstants），自动 Tone 往亮的上限改用 toneMaxBrightDb（toneBrightCapDb；往暗仍是
+        toneMaxDb，同样 × GLAZE × κ）。动态预算（Heat / Glue / Clip / Limit 各上限、四个份额、Recover / Tame 上限）与偏好响度一律不动，
+        自动风格的权重（resolveAutomaticWeights）也不看曲风——同一份输入下 House 与通用的方案只有 Tone 增量与 Clay 可能不同；
+      - 交付只换目标响度：标准 = L_style − f(LRA) 钳在 minPreferred ～ maxPreferred（原路径）；流媒体 / 俱乐部 = 该档目标 + 风格偏移
+        （混合后的 L_style − DeliveryConstants::styleOffsetReferenceLufs）− f(LRA)，钳在该档的范围里。其余步骤照旧：requested / effective
+        目标与增益、约束、校准目标都按这个 L_pref 走（流媒体的 −2 dBTP 由链在交给编排器之前封进 manual 的 Ceiling，决策器照用）；
+      - 通用 + 标准（以及越界的枚举值）不读任何曲风 / 交付常数，方案与 main 逐位相同。
+
     性能：makePlan 只有定长局部变量，不分配；典型一次约 1 µs（GLAZE 连续自动化时编排器可每块调一次，见 IMPL-A2 实测）。
 
   ==============================================================================
@@ -88,6 +98,17 @@ namespace celadon::glaze
 
     // 三种风格的偏好与约束按权重混合（各项线性加权）。保护层用它作生效的约束上限，决策器生成方案也用它。
     StyleConstants blendConstants (const Constants&, const StyleWeights&) noexcept;
+
+    // T-038：风格混合之后再按曲风覆盖音色字段（设计规格-曲风与交付 第 3.1 节）——决策器生成方案实际用的常数。House 子类只替换
+    // toneReferenceSlopeDbPerOct、clayLowCutTargetHz、clayWidthStyleFactor 三项；通用档（以及越界的曲风值）一项都不覆盖，逐位等于
+    // 两参数版。其余字段（动态预算、偏好响度、Tone 往暗上限 toneMaxDb）两版恒逐位相同，所以保护层与上游监视用哪一版都一样。
+    StyleConstants blendConstants (const Constants&, const StyleWeights&, Genre) noexcept;
+
+    // T-038：自动 Tone 满强度增量（乘 GLAZE × κ 之前）往亮的上限。通用档（以及越界的曲风值）= sc.toneMaxDb，与往暗对称（逐位同 main）；
+    // House 子类 = 该子类的 GenreConstants::toneMaxBrightDb（≤ 0 或 NaN = 不许往亮，同「预算类上限」的约定）。往暗一律是 −sc.toneMaxDb；
+    // sc.toneMaxDb ≤ 0 时整项 Tone 照旧不动（曲风只换往亮的边界，不重开风格关掉的 Tone）。sc = 上面任一版的混合结果。
+    // 方案的 Tone 按 [−toneMaxDb, 本值] × GLAZE × κ 封顶；编排器运行中的 Tone 跟随应按同一范围封顶。纯函数、不分配。
+    float toneBrightCapDb (const StyleConstants& sc, const Constants&, Genre) noexcept;
 
     // 生成方案。
     Plan makePlan (const PlanInputs&) noexcept;

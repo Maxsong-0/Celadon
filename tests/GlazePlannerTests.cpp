@@ -18,6 +18,10 @@
     代价无效 → 该项中性）、costLimitedMask 的位；删掉的四个旧常数不再进快照；画像格式 2 的代价字段与方案 / 执行快照的
     costLimitedMask 存取、画像号（格式 1 不变）。
 
+    T-038 曲风与交付（设计规格-曲风与交付 第 3.1、4.1、4.2 节；ADR-026）追加：阶段 1 的存档口径（画像格式 3、参考条件、快照常数），
+    阶段 2 的决策器——House 子类在风格混合之后覆盖 Tone 参考 / 低切目标 / 加宽系数、Tone 往亮封顶 +0.4、动态预算与通用档逐位相同、
+    流媒体 / 俱乐部的目标（风格偏移、LRA 修正、该档钳位）、通用 + 标准不读任何新常数、新档位下的单调 / 范围 / 0 分配。
+
   ==============================================================================
 */
 
@@ -438,6 +442,7 @@ namespace celadon::test
             testOddSnapshots();
             testNoAllocation();
             testGenreDeliveryStorage();               // T-038 阶段 1（存档口径）
+            testGenreAndDeliveryPlanning();           // T-038 阶段 2（决策器：曲风覆盖、Tone 往亮上限、交付目标）
 
             // v0.1.7.0 修坯 Clay（A5；ADR-012 根治修订 P3 改写 / 追加）
             testClayFormulas();
@@ -2422,6 +2427,616 @@ namespace celadon::test
 
                 expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("house_lockSegments", "x"); }, factory,
                                            utf8 ("House 常数存在但损坏"));
+            }
+        }
+
+        //==============================================================================
+        // ---- T-038 阶段 2（设计规格-曲风与交付 第 3.1、4.1、4.2 节；ADR-026）：决策器的曲风覆盖、Tone 往亮上限与交付目标 ----
+        // 出厂起点值（GlazeConstants.h / .cpp）：House 子类的 Tone 参考斜率 Deep −3.5 / Tech −2.5 / Melodic-Progressive −3.0 dB/oct、往亮上限
+        // +0.4 dB、低切目标 25 Hz、加宽系数 0；风格（温润 / 冲击 / 通透）的参考斜率 −3.5 / −2.5 / −2.5、Tone 上限都是 0.75 dB、偏好响度
+        // −8.5 / −9 / −10；交付 流媒体 −10（−12 ～ −8）、俱乐部 −7（−9 ～ −5），风格偏移参考 −9（= 冲击）。期望值按规格公式手算，注释写出
+        // 算式；置信度满、GLAZE 100 时强度 GLAZE × κ = 1。
+
+        static Plan planWithGenre (const MusicProfile* profile, Style style, float glaze, Genre genre, Delivery delivery,
+                                   const Constants* constants = nullptr, const StyleWeights* locked = nullptr)
+        {
+            PlanInputs in;
+            in.profile = profile;
+            in.style = style;
+            in.genre = genre;
+            in.delivery = delivery;
+            in.glazePercent = glaze;
+            in.manual = defaultManual();
+            in.constants = constants;
+            in.lockedWeights = locked;
+            return makePlan (in);
+        }
+
+        static PlanInputs scenarioInputs (const Scenario& s, float glaze, Genre genre, Delivery delivery, const Constants* constants = nullptr)
+        {
+            PlanInputs in;
+            in.profile = s.hasProfile ? &s.profile : nullptr;
+            in.style = s.style;
+            in.genre = genre;
+            in.delivery = delivery;
+            in.glazePercent = glaze;
+            in.manual = s.manual;
+            in.maxGainDb = s.maxGainDb;
+            in.constants = constants;
+            return in;
+        }
+
+        static Plan planWithGenre (const Scenario& s, float glaze, Genre genre, Delivery delivery, const Constants* constants = nullptr)
+        {
+            return makePlan (scenarioInputs (s, glaze, genre, delivery, constants));
+        }
+
+        // StyleConstants 的全部字段逐位相同（字段数由 static_assert 守住：加了字段要在这里补上，「其余字段不变」才查得全）。
+        static bool sameStyleConstants (const StyleConstants& a, const StyleConstants& b) noexcept
+        {
+            static_assert (sizeof (StyleConstants) == 21 * sizeof (float), "StyleConstants gained a field: compare it here too");
+
+            return sameBits (a.preferredLufs, b.preferredLufs) && sameBits (a.heatDriveCap, b.heatDriveCap)
+                && sameBits (a.glueGrMeanCapDb, b.glueGrMeanCapDb) && sameBits (a.glueGrP95CapDb, b.glueGrP95CapDb)
+                && sameBits (a.clipDepthCapDb, b.clipDepthCapDb) && sameBits (a.clipActivityCap, b.clipActivityCap)
+                && sameBits (a.limitGrMeanCapDb, b.limitGrMeanCapDb) && sameBits (a.limitGrP95CapDb, b.limitGrP95CapDb)
+                && sameBits (a.limitGrPeakCapDb, b.limitGrPeakCapDb) && sameBits (a.recoverCap, b.recoverCap)
+                && sameBits (a.tameCap, b.tameCap) && sameBits (a.toneMaxDb, b.toneMaxDb)
+                && sameBits (a.shareHeat, b.shareHeat) && sameBits (a.shareGlue, b.shareGlue)
+                && sameBits (a.shareClip, b.shareClip) && sameBits (a.shareLimit, b.shareLimit)
+                && sameBits (a.heatPeakReductionCapDb, b.heatPeakReductionCapDb)
+                && sameBits (a.toneReferenceSlopeDbPerOct, b.toneReferenceSlopeDbPerOct)
+                && sameBits (a.clayLowCutTargetHz, b.clayLowCutTargetHz) && sameBits (a.clayWidthStyleFactor, b.clayWidthStyleFactor)
+                && sameBits (a.automaticHeatFloor, b.automaticHeatFloor);
+        }
+
+        // 方案里除 Tone 增量以外的字段逐位相同（samePlan 本来就不比 Clay）。
+        static bool sameExceptTone (const Plan& a, const Plan& b) noexcept
+        {
+            auto copy = a;
+            copy.increments.colorToneDb = b.increments.colorToneDb;
+            return samePlan (copy, b);
+        }
+
+        static bool sameUsage (const ManualChainUsage& a, const ManualChainUsage& b) noexcept
+        {
+            return sameBits (a.heatAmount, b.heatAmount) && sameBits (a.glueGrMeanDb, b.glueGrMeanDb) && sameBits (a.glueGrP95Db, b.glueGrP95Db)
+                && sameBits (a.clipDepthDb, b.clipDepthDb) && sameBits (a.clipActivity, b.clipActivity)
+                && sameBits (a.limitGrPeakDb, b.limitGrPeakDb) && sameBits (a.limitGrMeanDb, b.limitGrMeanDb)
+                && sameBits (a.limitGrP95Db, b.limitGrP95Db) && a.overBudgetMask == b.overBudgetMask;
+        }
+
+        static juce::String genreLabel (Genre genre, Style style)
+        {
+            return utf8 ("曲风 ") + juce::String ((int) genre) + utf8 ("、风格 ") + juce::String ((int) style);
+        }
+
+        void testGenreAndDeliveryPlanning()
+        {
+            const auto& c = factoryConstants();
+            const Genre houses[] { Genre::deepHouse, Genre::techHouse, Genre::melodicProgressive };
+            const Style styles[] { Style::automatic, Style::warm, Style::punchy, Style::clean };
+            const StyleWeights mixedWeights { 0.2f, 0.5f, 0.3f };
+            const auto nan = std::numeric_limits<float>::quiet_NaN();
+            const auto inf = std::numeric_limits<float>::infinity();
+
+            // 弄坏的曲风常数与交付常数（NaN、±∞、颠倒的范围、离谱的目标）：旧路径一个都不许读，新路径照样给有限、在范围内的方案。
+            auto badGenre = factoryConstants();
+
+            for (auto* g : { &badGenre.deepHouse, &badGenre.techHouse, &badGenre.melodicProgressive })
+            {
+                g->toneReferenceSlopeDbPerOct = nan;
+                g->toneMaxBrightDb = inf;
+                g->clayLowCutTargetHz = 60.0f;
+                g->clayWidthStyleFactor = 1.0f;
+            }
+
+            auto badDelivery = factoryConstants();
+            badDelivery.delivery.streamingTargetLufs = nan;
+            badDelivery.delivery.streamingMinLufs = -5.0f;    // 颠倒的范围
+            badDelivery.delivery.streamingMaxLufs = -9.0f;
+            badDelivery.delivery.clubTargetLufs = inf;
+            badDelivery.delivery.clubMinLufs = nan;
+            badDelivery.delivery.clubMaxLufs = -inf;
+            badDelivery.delivery.styleOffsetReferenceLufs = 40.0f;
+
+            auto badBoth = badGenre;
+            badBoth.delivery = badDelivery.delivery;
+
+            beginTest ("T-038: House genres override the Tone reference, low-cut target and width factor after the style blend; General overrides nothing");
+            {
+                // blendConstants 三参数版：House 只换三项音色字段（不参与混合，与风格无关），其余 18 项（动态预算、偏好响度、Tone 往暗上限、
+                // Heat 底量）逐位等于两参数版；通用档与越界的曲风值一项都不换。
+                for (const auto& w : { weightsFor (Style::warm, {}), weightsFor (Style::punchy, {}), weightsFor (Style::clean, {}), mixedWeights })
+                {
+                    const auto plain = blendConstants (c, w);
+                    expect (sameStyleConstants (blendConstants (c, w, Genre::general), plain), utf8 ("通用档不覆盖任何一项"));
+                    expect (sameStyleConstants (blendConstants (c, w, static_cast<Genre> (9)), plain), utf8 ("越界的曲风值按通用"));
+
+                    for (auto genre : houses)
+                    {
+                        const auto& own = *genreConstantsFor (c, genre);
+                        auto expected = plain;
+                        expected.toneReferenceSlopeDbPerOct = own.toneReferenceSlopeDbPerOct;
+                        expected.clayLowCutTargetHz = own.clayLowCutTargetHz;
+                        expected.clayWidthStyleFactor = own.clayWidthStyleFactor;
+                        expect (sameStyleConstants (blendConstants (c, w, genre), expected),
+                                utf8 ("House 只覆盖三项音色字段：曲风 ") + juce::String ((int) genre));
+                    }
+                }
+
+                expectEquals (blendConstants (c, weightsFor (Style::punchy, {}), Genre::deepHouse).toneReferenceSlopeDbPerOct, -3.5f);
+                expectEquals (blendConstants (c, mixedWeights, Genre::techHouse).toneReferenceSlopeDbPerOct, -2.5f);
+                expectEquals (blendConstants (c, weightsFor (Style::warm, {}), Genre::melodicProgressive).toneReferenceSlopeDbPerOct, -3.0f);
+                expectEquals (blendConstants (c, weightsFor (Style::clean, {}), Genre::melodicProgressive).clayLowCutTargetHz, 25.0f);
+                expectEquals (blendConstants (c, weightsFor (Style::clean, {}), Genre::techHouse).clayWidthStyleFactor, 0.0f);
+
+                // 方案的 Tone 参考：画像斜率比子类参考暗 1 dB/oct（超出容忍区 0.65）→ 往亮 (1 − 0.35) × 0.5 = 0.325 dB；亮 1 dB/oct → −0.325 dB；
+                // 正好等于参考 → 0（死区）。四种风格同一个值——温润的参考 −3.5、冲击 / 通透的 −2.5 在 House 档都不再用。
+                const auto inside = (1.0f - automaticToneSlopeDeadbandDbPerOct) * c.toneDbPerSlopeDb;
+
+                for (auto genre : houses)
+                {
+                    const auto reference = genreConstantsFor (c, genre)->toneReferenceSlopeDbPerOct;
+
+                    for (auto style : styles)
+                    {
+                        const auto toneAt = [genre, style] (float slope)
+                        {
+                            auto p = makeProfile (-20.0f, -8.0f);
+                            setFeature (p.spectralSlopeDbPerOct, slope);
+                            return planWithGenre (&p, style, 100.0f, genre, Delivery::standard).increments.colorToneDb;
+                        };
+
+                        const auto label = genreLabel (genre, style);
+                        expectWithinAbsoluteError (toneAt (reference - 1.0f), inside, 1.0e-6f, label + utf8 ("：暗 1 dB/oct → 往亮"));
+                        expectWithinAbsoluteError (toneAt (reference + 1.0f), -inside, 1.0e-6f, label + utf8 ("：亮 1 dB/oct → 往暗"));
+                        expectEquals (toneAt (reference), 0.0f, label + utf8 ("：等于子类参考 → 不动"));
+                    }
+                }
+
+                // 对照：通用档照旧按风格的参考。斜率 −4.5 的画像：通用 + 冲击（参考 −2.5）差 2 dB/oct → (2 − 0.35) × 0.5 = 0.825，顶到 0.75；
+                // Deep + 冲击（参考 −3.5）只差 1 → 0.325。
+                auto darkMix = makeProfile (-20.0f, -8.0f);
+                setFeature (darkMix.spectralSlopeDbPerOct, -4.5f);
+                expectWithinAbsoluteError (planFor (&darkMix, Style::punchy, 100.0f).increments.colorToneDb, 0.75f, 1.0e-6f, utf8 ("通用 + 冲击按风格参考"));
+                expectWithinAbsoluteError (planWithGenre (&darkMix, Style::punchy, 100.0f, Genre::deepHouse, Delivery::standard).increments.colorToneDb,
+                                           inside, 1.0e-6f, utf8 ("Deep + 冲击按子类参考"));
+
+                // 修坯：clayProfile（三项需要度都是 0.5、代价 0）。House 低切 = 10 · (25 / 10)^0.5 = 15.8114 Hz、不加宽、不收单，四种风格相同；
+                // 真次声 −28 dB（need 1，k = 1）→ 低切正好是目标 25 Hz。通用档照旧按风格（testClayFormulas：12.6491 / 13.4164 / 14.1421 Hz，
+                // 加宽 0.3 / 0.45 / 0.75 dB）。
+                const auto clay = clayProfile();
+                auto subsonic = clayProfile();
+                subsonic.subShareDb.value = -28.0f;
+
+                for (auto genre : houses)
+                    for (auto style : styles)
+                    {
+                        const auto label = genreLabel (genre, style);
+                        const auto house = planWithGenre (&clay, style, 100.0f, genre, Delivery::standard).clay;
+                        expectWithinAbsoluteError (house.lowCutHz, 15.811388f, 1.0e-4f, label + utf8 ("：低切按 25 Hz 目标"));
+                        expectEquals (house.widthDb, 0.0f, label + utf8 ("：House 不自动加宽"));
+                        expectEquals (house.monoAmount, 0.0f, label + utf8 ("：自动不收单（ADR-015）"));
+                        expectEquals (maskOf (house), 0, label + utf8 ("：代价 0 dB → 不置代价位"));
+                        expectWithinAbsoluteError (planWithGenre (&subsonic, style, 100.0f, genre, Delivery::standard).clay.lowCutHz, 25.0f, 1.0e-4f,
+                                                   label + utf8 ("：need 1 → 低切 = 子类目标"));
+                    }
+
+                expect (sameClay (planWithGenre (&clay, Style::warm, 100.0f, Genre::general, Delivery::standard).clay, planFor (&clay, Style::warm, 100.0f).clay),
+                        utf8 ("通用档的修坯照旧"));
+                expectWithinAbsoluteError (planFor (&clay, Style::clean, 100.0f).clay.widthDb, 0.75f, 1.0e-6f, utf8 ("阳性对照：通用 + 通透会加宽"));
+
+                // 代价位：加宽试过会抬高峰值 0.8 dB（系数 0）时，通用档「本应加宽、被代价否决」置加宽位；House 本来就不加宽，不置这一位
+                // （界面不该说「试过会抬高峰值」）。低切代价 0.4 dB（系数 0.5）两边都置低切位。
+                auto costly = clayProfile();
+                setClayCosts (costly, 0.4f, 0.0f, 0.8f);
+                expectEquals (maskOf (planFor (&costly, Style::clean, 100.0f).clay), (int) (clayCostLimitedLowCut | clayCostLimitedWidth));
+                expectEquals (maskOf (planWithGenre (&costly, Style::clean, 100.0f, Genre::deepHouse, Delivery::standard).clay), (int) clayCostLimitedLowCut);
+            }
+
+            beginTest ("T-038: a House genre changes only the automatic Tone and Clay; level decisions and the manual-chain usage match General");
+            {
+                // 规格第 2 节「曲风只换目标、不换流程」：动态预算（Heat / Glue / Clip / Limit 上限、份额、Recover / Tame 上限）与偏好响度归风格与
+                // 交付。同一份输入下，House 与通用的方案除 Tone 增量与 Clay 外逐位相同（增量、目标、权重、各受限标志、manualBudgetMask、版本）；
+                // 手动链单独的用量（保护层与上游监视的口径）也逐位相同，且与交付无关。
+                juce::Random random (0x5eed7038);
+                int differences = 0, usageDifferences = 0, toneDiffers = 0, clayDiffers = 0;
+
+                for (int trial = 0; trial < 60; ++trial)
+                {
+                    auto scenario = randomScenario (random);
+                    addRandomClayFeatures (scenario.profile, random);
+                    const auto generalUsage = estimateManualChainUsage (scenarioInputs (scenario, 60.0f, Genre::general, Delivery::standard));
+
+                    for (auto delivery : { Delivery::standard, Delivery::streaming, Delivery::club })
+                    {
+                        for (auto glaze : { 0.0f, 25.0f, 70.0f, 100.0f })
+                        {
+                            const auto general = planWithGenre (scenario, glaze, Genre::general, delivery);
+
+                            for (auto genre : houses)
+                            {
+                                const auto house = planWithGenre (scenario, glaze, genre, delivery);
+                                differences += sameExceptTone (house, general) ? 0 : 1;
+                                toneDiffers += sameBits (house.increments.colorToneDb, general.increments.colorToneDb) ? 0 : 1;
+                                clayDiffers += sameClay (house.clay, general.clay) ? 0 : 1;
+                            }
+                        }
+
+                        for (auto genre : { Genre::general, Genre::deepHouse, Genre::techHouse, Genre::melodicProgressive })
+                            usageDifferences += sameUsage (estimateManualChainUsage (scenarioInputs (scenario, 60.0f, genre, delivery)), generalUsage) ? 0 : 1;
+                    }
+                }
+
+                expectEquals (differences, 0, utf8 ("House 档只许改 Tone 与 Clay"));
+                expectEquals (usageDifferences, 0, utf8 ("手动链单独的用量与曲风、交付无关"));
+                expect (toneDiffers > 0 && clayDiffers > 0, utf8 ("阳性对照：曲风确实改了 Tone 与 Clay"));
+            }
+
+            beginTest ("T-038: House Tone brightens by at most toneMaxBrightDb (+0.4 dB) x GLAZE x kappa; darkening keeps toneMaxDb");
+            {
+                // 画像比子类参考暗 4 dB/oct：满强度要往亮 (4 − 0.35) × 0.5 = 1.825 dB → 通用档会顶到 toneMaxDb 0.75，House 顶到 +0.4；
+                // 亮 4 dB/oct：往暗 −1.825 → 照旧顶到 −0.75。缩放口径与 toneMaxDb 相同：GLAZE 50 → 一半；置信度 0.4（κ = 0.675、斜率按可信度
+                // 0.5 向参考收拢，仍要 0.825 > 0.4）→ 0.4 × κ。
+                for (auto genre : houses)
+                {
+                    const auto reference = genreConstantsFor (c, genre)->toneReferenceSlopeDbPerOct;
+                    auto dark = makeProfile (-20.0f, -8.0f);
+                    setFeature (dark.spectralSlopeDbPerOct, reference - 4.0f);
+                    auto bright = makeProfile (-20.0f, -8.0f);
+                    setFeature (bright.spectralSlopeDbPerOct, reference + 4.0f);
+                    auto unsureDark = makeProfile (-20.0f, -8.0f, 5.0f, 0.4f);
+                    setFeature (unsureDark.spectralSlopeDbPerOct, reference - 4.0f, 0.4f);
+                    const auto kappa = confidenceScale (&unsureDark, c);
+
+                    for (auto style : styles)
+                    {
+                        const auto label = genreLabel (genre, style);
+                        const auto toneOf = [genre, style] (const MusicProfile& p, float glaze)
+                        {
+                            return planWithGenre (&p, style, glaze, genre, Delivery::standard).increments.colorToneDb;
+                        };
+
+                        expectWithinAbsoluteError (toneOf (dark, 100.0f), 0.4f, 1.0e-6f, label + utf8 ("：往亮封顶 +0.4"));
+                        expectWithinAbsoluteError (toneOf (dark, 50.0f), 0.2f, 1.0e-6f, label + utf8 ("：往亮 × GLAZE"));
+                        expectWithinAbsoluteError (toneOf (unsureDark, 100.0f), 0.4f * kappa, 1.0e-6f, label + utf8 ("：往亮 × κ"));
+                        expectWithinAbsoluteError (toneOf (bright, 100.0f), -0.75f, 1.0e-6f, label + utf8 ("：往暗仍是 toneMaxDb"));
+                        expectWithinAbsoluteError (toneOf (bright, 50.0f), -0.375f, 1.0e-6f, label + utf8 ("：往暗 × GLAZE"));
+                    }
+                }
+
+                // Tech House 的参考 −2.5 与冲击 / 通透相同：同一份画像下，往暗与上限以内的修正和通用档逐位相同，只有往亮的上限不同。
+                // 斜率 1.5 / −1.5 / −2.5 / −3.0 / −3.5 → 满强度 −0.75（往暗封顶）/ −0.325 / 0（死区）/ +0.075 / +0.325。
+                for (auto style : { Style::punchy, Style::clean })
+                {
+                    for (auto slope : { 1.5f, -1.5f, -2.5f, -3.0f, -3.5f })
+                    {
+                        auto p = makeProfile (-20.0f, -8.0f);
+                        setFeature (p.spectralSlopeDbPerOct, slope);
+                        expect (sameBits (planWithGenre (&p, style, 80.0f, Genre::techHouse, Delivery::standard).increments.colorToneDb,
+                                          planFor (&p, style, 80.0f).increments.colorToneDb),
+                                utf8 ("Tech 与通用同参考：上限以内逐位相同，斜率 ") + juce::String (slope));
+                    }
+
+                    auto veryDark = makeProfile (-20.0f, -8.0f);
+                    setFeature (veryDark.spectralSlopeDbPerOct, -6.5f);
+                    expectWithinAbsoluteError (planFor (&veryDark, style, 100.0f).increments.colorToneDb, 0.75f, 1.0e-6f, utf8 ("通用档往亮仍到 0.75"));
+                    expectWithinAbsoluteError (planWithGenre (&veryDark, style, 100.0f, Genre::techHouse, Delivery::standard).increments.colorToneDb, 0.4f,
+                                               1.0e-6f, utf8 ("Tech 往亮到 0.4"));
+                }
+
+                // 快照里的往亮上限（Deep、温润，参考 −3.5）：0、负数、NaN → 不许往亮（往暗照旧 −0.75）；0.6 → 0.6（House 档往亮的上限就是
+                // 这个字段，与 toneMaxDb 无关）；+∞ → 不设上限（与 toneMaxDb 本身的口径一致），满强度 1.825。
+                // 风格的 toneMaxDb ≤ 0 → 整项 Tone 都不动（曲风只换往亮的边界，不重开风格关掉的 Tone）。
+                auto deepDark = makeProfile (-20.0f, -8.0f);
+                setFeature (deepDark.spectralSlopeDbPerOct, -3.5f - 4.0f);
+                auto deepBright = makeProfile (-20.0f, -8.0f);
+                setFeature (deepBright.spectralSlopeDbPerOct, -3.5f + 4.0f);
+
+                const struct { float cap, resolved, tone; } brightCaps[] =
+                {
+                    { 0.0f, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f }, { nan, 0.0f, 0.0f }, { 0.6f, 0.6f, 0.6f }, { inf, inf, 1.825f }
+                };
+
+                for (const auto& b : brightCaps)
+                {
+                    auto snapshot = factoryConstants();
+                    snapshot.deepHouse.toneMaxBrightDb = b.cap;
+                    const auto label = utf8 ("往亮上限 ") + juce::String (b.cap);
+                    expectEquals (toneBrightCapDb (blendConstants (snapshot, weightsFor (Style::warm, {}), Genre::deepHouse), snapshot, Genre::deepHouse),
+                                  b.resolved, label);
+                    expectWithinAbsoluteError (planWithGenre (&deepDark, Style::warm, 100.0f, Genre::deepHouse, Delivery::standard, &snapshot).increments.colorToneDb,
+                                               b.tone, 1.0e-5f, label);
+                    expectWithinAbsoluteError (planWithGenre (&deepBright, Style::warm, 100.0f, Genre::deepHouse, Delivery::standard, &snapshot).increments.colorToneDb,
+                                               -0.75f, 1.0e-6f, label + utf8 ("：往暗不受影响"));
+                }
+
+                auto noTone = factoryConstants();
+                noTone.warm.toneMaxDb = 0.0f;
+                expectEquals (planWithGenre (&deepDark, Style::warm, 100.0f, Genre::deepHouse, Delivery::standard, &noTone).increments.colorToneDb, 0.0f,
+                              utf8 ("风格关掉 Tone 时 House 也不往亮"));
+                expectEquals (planWithGenre (&deepBright, Style::warm, 100.0f, Genre::deepHouse, Delivery::standard, &noTone).increments.colorToneDb, 0.0f,
+                              utf8 ("风格关掉 Tone 时 House 也不往暗"));
+
+                // toneBrightCapDb：通用档（及越界的曲风值）就是混合后的 toneMaxDb（逐位），House 子类是 +0.4。
+                for (const auto& w : { weightsFor (Style::warm, {}), mixedWeights })
+                {
+                    const auto plain = blendConstants (c, w);
+                    expect (sameBits (toneBrightCapDb (plain, c, Genre::general), plain.toneMaxDb), utf8 ("通用档往亮上限 = toneMaxDb"));
+                    expect (sameBits (toneBrightCapDb (plain, c, static_cast<Genre> (9)), plain.toneMaxDb), utf8 ("越界的曲风值按通用"));
+
+                    for (auto genre : houses)
+                        expectEquals (toneBrightCapDb (blendConstants (c, w, genre), c, genre), 0.4f);
+                }
+            }
+
+            beginTest ("T-038: streaming / club aim at the delivery target plus the style offset, minus the LRA correction, clamped to the delivery range");
+            {
+                // 输入 −24 LUFS、真峰值 −14、全可信：离各档目标都远多于 3 dB 的最小推响量，GLAZE 100 时 requestedTargetLufs 就是 L_pref
+                // （= 输入 + 请求；手动中性、峰值在 Ceiling 下，手动链净增益 0）。
+                //   风格偏移 = L_style − (−9)：温润 +0.5、冲击 0、通透 −1 → 流媒体 −9.5 / −10 / −11、俱乐部 −6.5 / −7 / −8；标准照旧 −8.5 / −9 / −10；
+                //   LRA 12（修正 (12 − 6) / 3 = 2）→ 流媒体 −11.5 / −12 / −13 → −12（下限）、俱乐部 −8.5 / −9 / −10 → −9；
+                //   LRA 18（修正 4）→ 流媒体全是 −12、俱乐部全是 −9（标准 −12.5 / −13 / −14 仍在 −14 ～ −7 里）。
+                const auto requestedTarget = [] (float lra, Style style, Delivery delivery, const Constants* constants, const StyleWeights* locked)
+                {
+                    const auto p = makeProfile (-24.0f, -14.0f, lra);
+                    return planWithGenre (&p, style, 100.0f, Genre::general, delivery, constants, locked).requestedTargetLufs;
+                };
+
+                const struct { Style style; float lra, standard, streaming, club; } table[] =
+                {
+                    { Style::warm,    5.0f,  -8.5f,  -9.5f, -6.5f },
+                    { Style::punchy,  5.0f,  -9.0f, -10.0f, -7.0f },
+                    { Style::clean,   5.0f, -10.0f, -11.0f, -8.0f },
+                    { Style::warm,   12.0f, -10.5f, -11.5f, -8.5f },
+                    { Style::punchy, 12.0f, -11.0f, -12.0f, -9.0f },
+                    { Style::clean,  12.0f, -12.0f, -12.0f, -9.0f },
+                    { Style::warm,   18.0f, -12.5f, -12.0f, -9.0f },
+                    { Style::punchy, 18.0f, -13.0f, -12.0f, -9.0f },
+                    { Style::clean,  18.0f, -14.0f, -12.0f, -9.0f }
+                };
+
+                for (const auto& row : table)
+                {
+                    const auto label = utf8 ("风格 ") + juce::String ((int) row.style) + utf8 ("、LRA ") + juce::String (row.lra);
+                    expectWithinAbsoluteError (requestedTarget (row.lra, row.style, Delivery::standard, nullptr, nullptr), row.standard, 1.0e-4f,
+                                               label + utf8 ("：标准"));
+                    expectWithinAbsoluteError (requestedTarget (row.lra, row.style, Delivery::streaming, nullptr, nullptr), row.streaming, 1.0e-4f,
+                                               label + utf8 ("：流媒体"));
+                    expectWithinAbsoluteError (requestedTarget (row.lra, row.style, Delivery::club, nullptr, nullptr), row.club, 1.0e-4f,
+                                               label + utf8 ("：俱乐部"));
+                }
+
+                // 自动风格：偏移按权重混合。锁定 {0.2, 0.5, 0.3} → L_style = 0.2 × (−8.5) + 0.5 × (−9) + 0.3 × (−10) = −9.2，偏移 −0.2 →
+                // 流媒体 −10.2、俱乐部 −7.2、标准 −9.2。
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::automatic, Delivery::streaming, nullptr, &mixedWeights), -10.2f, 1.0e-4f);
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::automatic, Delivery::club, nullptr, &mixedWeights), -7.2f, 1.0e-4f);
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::automatic, Delivery::standard, nullptr, &mixedWeights), -9.2f, 1.0e-4f);
+
+                // 上限：温润的偏好改成 −4（偏移 +5）→ 流媒体 −5 钳到 −8、俱乐部 −2 钳到 −5、标准 −4 钳到 maxPreferred −7。
+                auto loudStyle = factoryConstants();
+                loudStyle.warm.preferredLufs = -4.0f;
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::warm, Delivery::streaming, &loudStyle, nullptr), -8.0f, 1.0e-4f, utf8 ("流媒体上限"));
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::warm, Delivery::club, &loudStyle, nullptr), -5.0f, 1.0e-4f, utf8 ("俱乐部上限"));
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::warm, Delivery::standard, &loudStyle, nullptr), -7.0f, 1.0e-4f, utf8 ("标准上限"));
+
+                // 钳位只用该档的范围：标准档的 minPreferred / maxPreferred 改成 −30 / −20，标准被钳到 −20，流媒体 / 俱乐部不受影响（−10 / −7）。
+                auto narrow = factoryConstants();
+                narrow.minPreferredLufs = -30.0f;
+                narrow.maxPreferredLufs = -20.0f;
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::punchy, Delivery::standard, &narrow, nullptr), -20.0f, 1.0e-4f);
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::punchy, Delivery::streaming, &narrow, nullptr), -10.0f, 1.0e-4f,
+                                           utf8 ("流媒体不看 minPreferred / maxPreferred"));
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::punchy, Delivery::club, &narrow, nullptr), -7.0f, 1.0e-4f,
+                                           utf8 ("俱乐部不看 minPreferred / maxPreferred"));
+
+                // 档位常数取自快照：流媒体目标 −11、风格偏移参考 −8.5（温润 = 0）→ 冲击偏移 −0.5 → 流媒体 −11.5、俱乐部 −7.5；温润俱乐部 −7。
+                auto custom = factoryConstants();
+                custom.delivery.streamingTargetLufs = -11.0f;
+                custom.delivery.styleOffsetReferenceLufs = -8.5f;
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::punchy, Delivery::streaming, &custom, nullptr), -11.5f, 1.0e-4f);
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::punchy, Delivery::club, &custom, nullptr), -7.5f, 1.0e-4f);
+                expectWithinAbsoluteError (requestedTarget (5.0f, Style::warm, Delivery::club, &custom, nullptr), -7.0f, 1.0e-4f);
+
+                // 方案字段口径一致（GlazePlanner.h「方案字段的口径」）：目标 = 画像 I + 对应的净增益，effective 不超过 requested；GLAZE 50 的请求
+                // 是满强度的一半；GLAZE 0 没有方案，三档逐位相同。有效增益随请求单调：俱乐部 ≥ 标准 ≥ 流媒体（受同一份风格预算约束）。
+                const auto profile = makeProfile (-24.0f, -14.0f, 5.0f);
+                const auto atZero = planWithGenre (&profile, Style::punchy, 0.0f, Genre::general, Delivery::standard);
+
+                for (auto delivery : { Delivery::standard, Delivery::streaming, Delivery::club })
+                {
+                    const auto label = utf8 ("交付 ") + juce::String ((int) delivery);
+                    const auto full = planWithGenre (&profile, Style::punchy, 100.0f, Genre::general, delivery);
+                    const auto half = planWithGenre (&profile, Style::punchy, 50.0f, Genre::general, delivery);
+                    expect (sameBits (full.requestedTargetLufs, -24.0f + full.requestedGainDb), label + utf8 ("：requested 目标 = I + 请求增益"));
+                    expect (sameBits (full.effectiveTargetLufs, -24.0f + full.effectiveGainDb), label + utf8 ("：effective 目标 = I + 有效增益"));
+                    expect (full.effectiveGainDb <= full.requestedGainDb + 1.0e-4f && full.effectiveTargetLufs <= full.requestedTargetLufs + 1.0e-4f,
+                            label + utf8 ("：effective 不超过 requested"));
+                    expectWithinAbsoluteError (half.requestedGainDb, 0.5f * full.requestedGainDb, 1.0e-4f, label + utf8 ("：请求随 GLAZE 线性"));
+                    expect (samePlan (planWithGenre (&profile, Style::punchy, 0.0f, Genre::general, delivery), atZero), label + utf8 ("：GLAZE 0 与交付无关"));
+                }
+
+                const auto club = planWithGenre (&profile, Style::punchy, 100.0f, Genre::general, Delivery::club);
+                const auto standard = planWithGenre (&profile, Style::punchy, 100.0f, Genre::general, Delivery::standard);
+                const auto streaming = planWithGenre (&profile, Style::punchy, 100.0f, Genre::general, Delivery::streaming);
+                expect (club.requestedTargetLufs > standard.requestedTargetLufs && standard.requestedTargetLufs > streaming.requestedTargetLufs);
+                expect (club.effectiveGainDb >= standard.effectiveGainDb - 1.0e-3f && standard.effectiveGainDb >= streaming.effectiveGainDb - 1.0e-3f,
+                        utf8 ("有效增益随交付目标单调"));
+
+                // 交付只换目标响度：Tone、Clay、Recover / Tame、风格权重与交付无关（两版母带的音色决策一致，规格第 4.3 节）。
+                auto voiced = clayProfile();
+                setFeature (voiced.spectralSlopeDbPerOct, -4.5f);
+
+                for (auto genre : { Genre::general, Genre::deepHouse })
+                {
+                    const auto reference = planWithGenre (&voiced, Style::automatic, 80.0f, genre, Delivery::standard);
+
+                    for (auto delivery : { Delivery::streaming, Delivery::club })
+                    {
+                        const auto other = planWithGenre (&voiced, Style::automatic, 80.0f, genre, delivery);
+                        expect (sameBits (other.increments.colorToneDb, reference.increments.colorToneDb) && sameClay (other.clay, reference.clay)
+                                    && sameBits (other.increments.balanceRecover, reference.increments.balanceRecover)
+                                    && sameBits (other.increments.balanceTame, reference.increments.balanceTame)
+                                    && sameBits (other.weights.warm, reference.weights.warm) && sameBits (other.weights.punchy, reference.weights.punchy)
+                                    && sameBits (other.weights.clean, reference.weights.clean),
+                                utf8 ("交付不改音色决策：曲风 ") + juce::String ((int) genre) + utf8 ("、交付 ") + juce::String ((int) delivery));
+                    }
+
+                    expect (reference.increments.colorToneDb != 0.0f && ! isNeutral (reference.clay), utf8 ("阳性对照：这份画像会动 Tone 与 Clay"));
+                }
+            }
+
+            beginTest ("T-038: General + Standard never reads the genre or delivery constants; explicit defaults equal default PlanInputs");
+            {
+                // 通用 + 标准用哪份快照都与出厂逐位相同（含 Clay），也与不设 genre / delivery 的 PlanInputs 逐位相同；标准档（任何曲风）不读
+                // 交付常数；通用档（任何交付）不读曲风常数；越界的枚举值（曲风 9 / −1、交付 5）按通用 / 标准。
+                juce::Random random (0x5eed703b);
+                int mismatches = 0, checked = 0;
+
+                for (int trial = 0; trial < 40; ++trial)
+                {
+                    auto scenario = randomScenario (random);
+                    addRandomClayFeatures (scenario.profile, random);
+
+                    for (auto glaze : { 0.0f, 30.0f, 100.0f })
+                    {
+                        PlanInputs plain;    // 不设曲风与交付：默认就是通用 + 标准
+                        plain.profile = scenario.hasProfile ? &scenario.profile : nullptr;
+                        plain.style = scenario.style;
+                        plain.glazePercent = glaze;
+                        plain.manual = scenario.manual;
+                        plain.maxGainDb = scenario.maxGainDb;
+                        const auto reference = makePlan (plain);
+
+                        const auto compare = [&mismatches, &checked] (const Plan& a, const Plan& b)
+                        {
+                            mismatches += samePlan (a, b) && sameClay (a.clay, b.clay) ? 0 : 1;
+                            ++checked;
+                        };
+
+                        compare (planWithGenre (scenario, glaze, Genre::general, Delivery::standard), reference);
+                        compare (planWithGenre (scenario, glaze, Genre::general, Delivery::standard, &badBoth), reference);
+                        compare (planWithGenre (scenario, glaze, static_cast<Genre> (9), static_cast<Delivery> (5)), reference);
+                        compare (planWithGenre (scenario, glaze, static_cast<Genre> (-1), Delivery::standard, &badBoth), reference);
+
+                        for (auto genre : houses)
+                            compare (planWithGenre (scenario, glaze, genre, Delivery::standard, &badDelivery),
+                                     planWithGenre (scenario, glaze, genre, Delivery::standard));
+
+                        for (auto delivery : { Delivery::streaming, Delivery::club })
+                            compare (planWithGenre (scenario, glaze, Genre::general, delivery, &badGenre),
+                                     planWithGenre (scenario, glaze, Genre::general, delivery));
+                    }
+                }
+
+                expectEquals (mismatches, 0, juce::String (checked) + utf8 (" 组对照里有不逐位相同的"));
+            }
+
+            beginTest ("T-038: every genre and delivery keeps the planner properties: monotone in GLAZE, within ranges, Tone inside its signed caps");
+            {
+                // 依据：GlazePlanner.h 的保证（随 GLAZE 单调、叠加手动后在参数范围内、方案值有限）在新档位里照样成立；Tone 增量在
+                // [−toneMaxDb, toneBrightCapDb] × GLAZE × κ 之内（出厂 House 往亮 ≤ 0.4 × GLAZE × κ）。坏的曲风 / 交付常数（badBoth）同样。
+                juce::Random random (0x5eed7039);
+                int failures = 0, checked = 0;
+                const Constants* snapshots[] { &c, &badBoth };
+
+                for (const auto* snapshot : snapshots)
+                    for (int trial = 0; trial < 25; ++trial)
+                    {
+                        const auto scenario = randomScenario (random);
+                        const auto kappa = confidenceScale (scenario.hasProfile ? &scenario.profile : nullptr, *snapshot);
+
+                        for (auto genre : { Genre::general, Genre::deepHouse, Genre::techHouse, Genre::melodicProgressive })
+                            for (auto delivery : { Delivery::standard, Delivery::streaming, Delivery::club })
+                            {
+                                auto previous = planWithGenre (scenario, 0.0f, genre, delivery, snapshot);
+
+                                for (int step = 1; step <= 40; ++step)
+                                {
+                                    const auto glazePercent = 2.5f * (float) step;
+                                    const auto plan = planWithGenre (scenario, glazePercent, genre, delivery, snapshot);
+                                    const auto& a = plan.increments;
+                                    const auto& b = previous.increments;
+                                    const auto sc = blendConstants (*snapshot, plan.weights, genre);
+                                    const auto strength = glazePercent * 0.01f * kappa;
+                                    const auto p = applyIncrements (scenario.manual, a);
+
+                                    const bool monotone = a.balanceRecover >= b.balanceRecover && a.balanceTame >= b.balanceTame
+                                                       && std::abs (a.colorToneDb) >= std::abs (b.colorToneDb) && a.colorToneDb * b.colorToneDb >= 0.0f
+                                                       && a.colorGlue >= b.colorGlue && a.colorHeat >= b.colorHeat
+                                                       && a.limitGainDb >= b.limitGainDb && a.limitClip >= b.limitClip
+                                                       && plan.requestedGainDb >= previous.requestedGainDb && plan.effectiveGainDb >= previous.effectiveGainDb
+                                                       && plan.effectiveTargetLufs >= previous.effectiveTargetLufs
+                                                       && plan.requestedTargetLufs >= previous.requestedTargetLufs;
+                                    const bool toneInside = a.colorToneDb <= toneBrightCapDb (sc, *snapshot, genre) * strength + 1.0e-5f
+                                                         && a.colorToneDb >= -sc.toneMaxDb * strength - 1.0e-5f
+                                                         && (snapshot != &c || ! isHouse (genre) || a.colorToneDb <= 0.4f * strength + 1.0e-5f);
+                                    const bool inRange = std::isfinite (plan.requestedGainDb) && std::isfinite (plan.effectiveGainDb)
+                                                      && std::isfinite (plan.requestedTargetLufs) && std::isfinite (plan.effectiveTargetLufs)
+                                                      && std::isfinite (plan.estimatedExcessDb) && std::isfinite (a.colorToneDb)
+                                                      && std::isfinite (plan.clay.lowCutHz) && std::isfinite (plan.clay.widthDb)
+                                                      && p.limit.gainDb >= 0.0f && p.limit.gainDb <= 24.0f && p.color.heat >= 0.0f && p.color.heat <= 100.0f
+                                                      && p.color.glue >= 0.0f && p.color.glue <= 100.0f && p.limit.clip >= 0.0f && p.limit.clip <= 100.0f
+                                                      && p.color.toneDb >= -3.0f && p.color.toneDb <= 3.0f;
+
+                                    if (! (monotone && toneInside && inRange) && ++failures <= 5)
+                                        logMessage (utf8 ("  不满足：快照 ") + (snapshot == &c ? "factory" : "bad") + utf8 ("，曲风 ") + juce::String ((int) genre)
+                                                    + utf8 ("，交付 ") + juce::String ((int) delivery) + ", GLAZE " + juce::String (glazePercent)
+                                                    + (monotone ? "" : " monotone") + (toneInside ? "" : " tone") + (inRange ? "" : " range"));
+
+                                    ++checked;
+                                    previous = plan;
+                                }
+                            }
+                    }
+
+                expectEquals (failures, 0, juce::String (checked) + utf8 (" 个方案里有不满足性质的"));
+            }
+
+            beginTest ("T-038: House and delivery planning do not allocate");
+            {
+                // 依据：GlazePlanner.h「无状态、不分配」（编排器可能每块调 makePlan）；口径同 testNoAllocation（计数先读进局部量再断言）。
+                juce::Random random (0x5eed703a);
+                std::vector<Scenario> scenarios;
+
+                for (int i = 0; i < 12; ++i)
+                {
+                    auto scenario = randomScenario (random);
+                    addRandomClayFeatures (scenario.profile, random);
+                    scenarios.push_back (scenario);
+                }
+
+                const StyleWeights locked { 0.3f, 0.3f, 0.4f };
+                float sink = 0.0f;
+                const auto before = allocationCountOnThisThread();
+
+                for (const auto& s : scenarios)
+                    for (auto genre : { Genre::general, Genre::deepHouse, Genre::techHouse, Genre::melodicProgressive })
+                        for (auto delivery : { Delivery::standard, Delivery::streaming, Delivery::club })
+                            for (auto glaze : { 0.0f, 33.0f, 100.0f })
+                            {
+                                PlanInputs in;
+                                in.profile = s.hasProfile ? &s.profile : nullptr;
+                                in.style = s.style;
+                                in.genre = genre;
+                                in.delivery = delivery;
+                                in.glazePercent = glaze;
+                                in.manual = s.manual;
+                                in.maxGainDb = s.maxGainDb;
+                                in.lockedWeights = glaze > 50.0f ? &locked : nullptr;
+                                const auto plan = makePlan (in);
+                                const auto actual = applyIncrements (s.manual, plan.increments);
+                                const auto sc = blendConstants (c, plan.weights, genre);
+                                const auto usage = estimateManualChainUsage (in);
+                                sink += actual.limit.gainDb + actual.color.toneDb + plan.clay.lowCutHz + sc.clayLowCutTargetHz
+                                      + toneBrightCapDb (sc, c, genre) + usage.limitGrPeakDb;
+                            }
+
+                const auto allocationsInPath = allocationCountOnThisThread() - before;
+
+                expectEquals ((int) (allocationsInPath), 0, utf8 ("曲风与交付的决策路径不应分配内存"));
+                expect (std::isfinite (sink));
             }
         }
 
