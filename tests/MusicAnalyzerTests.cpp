@@ -18,6 +18,7 @@
 #include "TestHelpers.h"
 
 #include "../Source/dsp/BalanceModule.h"
+#include "../Source/dsp/GlazeProfile.h"
 #include "../Source/dsp/LoudnessMeter.h"
 #include "../Source/dsp/MusicAnalyzer.h"
 
@@ -3045,4 +3046,336 @@ namespace celadon::test
     };
 
     static MusicAnalyzerClayTests musicAnalyzerClayTests;
+
+    //==============================================================================
+    // ---- T-038 House 档（阶段 2 B 追加）----
+    // 分析器接上段落账（SegmentLedger）之后：House 档的候选画像由满编段门控算出（设计规格-曲风-House学习方式 第 2 节；MusicAnalyzer.cpp
+    // 「六」节）。只在文件末尾追加：上面的旧用例与工具一个不改，另起一个测试类（名字 MusicAnalyzerHouse），复用上面的 Rig 与逐位比较。
+    namespace
+    {
+        constexpr double houseTrackBpm = 124.0;
+
+        // 恒定速度、4/4、在播的宿主：PPQ 与位置严格一致，小节起点按 PPQ ÷ 4。
+        HostInfo tempoHost (std::int64_t position, double sampleRate)
+        {
+            auto info = playingAt (position);
+            info.hasTempo = true;
+            info.bpm = houseTrackBpm;
+            info.hasPpq = true;
+            info.ppqPosition = (double) position * houseTrackBpm / (60.0 * sampleRate);
+            info.hasBarStart = true;
+            info.ppqLastBarStart = std::floor (info.ppqPosition / 4.0) * 4.0;
+            info.hasTimeSignature = true;
+            info.timeSignatureNumerator = 4;
+            info.timeSignatureDenominator = 4;
+            return info;
+        }
+
+        // 合成的 House（124 BPM、4/4）：前奏 introBars 小节只有鼓（底鼓每拍 120 → 50 Hz 下滑、踩镲在反拍），之后 dropBars 小节 drop
+        // （底鼓更响 + 持续低音 55 Hz 锯齿 1 ～ 6 次谐波 + 和声垫 + 踩镲）；drop 比前奏响约 8 LU（Max 曲库里「前奏 16 ～ 32 小节只有鼓」
+        // 的典型，设计规格第 1 节）。两声道踩镲噪声不相关，其余左右相同。末尾多 extraSeconds 秒 drop，让最后一小节交齐、定稿。
+        Signal makeHouseTrack (double sampleRate, int introBars, int dropBars, double extraSeconds, juce::int64 seed)
+        {
+            const auto beat = 60.0 / houseTrackBpm;
+            const auto bar = 4.0 * beat;
+            const auto numSamples = (int) std::lround (((double) (introBars + dropBars) * bar + extraSeconds) * sampleRate);
+            const auto dropStart = (double) introBars * bar;
+            const auto twoPi = juce::MathConstants<double>::twoPi;
+            auto signal = makeSilence (numChannels, numSamples);
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                juce::Random random (seed + (juce::int64) ch * 7919);
+                double previous = 0.0;
+                auto& channel = signal[(size_t) ch];
+
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const auto t = (double) i / sampleRate;
+                    const auto inDrop = t >= dropStart;
+                    const auto beatPosition = std::fmod (t, beat);
+                    const auto offBeatPosition = std::fmod (t + 0.5 * beat, beat);
+                    const auto kick = (inDrop ? 0.5 : 0.35) * std::exp (-beatPosition / 0.12)
+                                    * std::sin (twoPi * (50.0 * beatPosition + 70.0 * 0.03 * (1.0 - std::exp (-beatPosition / 0.03))));
+                    const auto white = (double) random.nextFloat() * 2.0 - 1.0;
+                    const auto hat = (inDrop ? 0.10 : 0.08) * std::exp (-offBeatPosition / 0.025) * (white - previous);
+                    previous = white;
+
+                    double bass = 0.0, pad = 0.0;
+
+                    if (inDrop)
+                    {
+                        for (int h = 1; h <= 6; ++h)
+                            bass += std::sin (twoPi * 55.0 * h * t) / h;
+
+                        bass *= 0.22;
+
+                        for (const auto hz : { 220.0, 277.18, 329.63 })
+                            pad += 0.05 * std::sin (twoPi * hz * t + 0.7 * ch);
+                    }
+
+                    channel[(size_t) i] = (float) (kick + hat + bass + pad);
+                }
+            }
+
+            return signal;
+        }
+
+        bool sameHouseGate (const glaze::HouseGateSummary& a, const glaze::HouseGateSummary& b)
+        {
+            return a.valid == b.valid && a.mode == b.mode && sameFloat (a.referenceLufs, b.referenceLufs)
+                && sameFloat (a.lowShareReference, b.lowShareReference) && sameFloat (a.gateWidthLu, b.gateWidthLu)
+                && sameFloat (a.lowGateFactor, b.lowGateFactor) && a.heardSegments == b.heardSegments && a.fullSegments == b.fullSegments
+                && sameDouble (a.heardSeconds, b.heardSeconds) && sameDouble (a.fullSeconds, b.fullSeconds) && a.reopenCount == b.reopenCount;
+        }
+
+        // House 画像逐位相同：通用画像的全部字段 + 格式 2 的修坯字段 + 门控结果。
+        bool sameHouseProfile (const MusicProfile& a, const MusicProfile& b)
+        {
+            return sameProfile (a, b) && sameClayProfile (a, b) && sameHouseGate (a.houseGate, b.houseGate);
+        }
+    }
+
+    class MusicAnalyzerHouseTests  : public juce::UnitTest
+    {
+    public:
+        MusicAnalyzerHouseTests() : juce::UnitTest ("MusicAnalyzerHouse", "Celadon") {}
+
+        void runTest() override
+        {
+            testIntroThenDrop();
+            testGeneralUntouched();
+            testBlockSizeIndependence();
+            testLedgerAfterLearning();
+            testNoAllocation();
+        }
+
+    private:
+        // 依据：设计规格第 1、2 节。32 小节只有鼓的前奏接 16 小节 drop：House 档的画像取的是 drop——I、真峰值、低频占比与只听 drop
+        // 的通用画像相近（I 差 ≤ 0.5 LU：满编段的门块逐个过相对门、通用画像按 0.1 LU 格中心，又多了前奏 → drop 交界的几个门块）；
+        // 通用档的画像被前奏拉低。门控结果：已听 48 小节、满编 = drop 的 16 小节；代表性按「已听 48 ÷ 锁定所需 64」封顶 0.75；格式 3。
+        void testIntroThenDrop()
+        {
+            beginTest ("House: a 32-bar drums-only intro, then the drop - the House profile is the drop's, the general one is pulled down");
+
+            constexpr double sampleRate = 48000.0;
+            const auto track = makeHouseTrack (sampleRate, 32, 16, 1.0, 11);
+            const auto host = [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); };
+
+            Rig house (sampleRate);
+            house.analyzer.setGenre (glaze::Genre::deepHouse);
+            house.analyzer.startLearning();
+            house.feed (track, 512, 1, host);
+            const auto houseProfile = house.profile();
+            const auto& gate = houseProfile.houseGate;
+
+            Rig general (sampleRate);
+            general.analyzer.startLearning();
+            general.feed (track, 512, 1, host);
+            const auto& generalProfile = general.profile();
+
+            Rig dropOnly (sampleRate);
+            dropOnly.analyzer.startLearning();
+            dropOnly.feed (makeHouseTrack (sampleRate, 0, 16, 1.0, 12), 512, 1, host);
+            const auto& drop = dropOnly.profile();
+
+            logMessage ("  House I " + juce::String (houseProfile.integratedLufs.value, 2) + " LUFS (drop alone "
+                        + juce::String (drop.integratedLufs.value, 2) + ", general over the whole track "
+                        + juce::String (generalProfile.integratedLufs.value, 2) + "); lowShare " + juce::String (houseProfile.lowShare.value, 3)
+                        + " (drop " + juce::String (drop.lowShare.value, 3) + ", general " + juce::String (generalProfile.lowShare.value, 3)
+                        + "); S_ref " + juce::String (gate.referenceLufs, 2) + ", heard " + juce::String (gate.heardSegments)
+                        + ", full " + juce::String (gate.fullSegments) + ", representativeness " + juce::String (houseProfile.representativeness, 3));
+
+            expect (houseProfile.formatVersion == glaze::houseProfileFormatVersion && gate.valid && gate.mode == glaze::SegmentMode::bars,
+                    "House profile: format 3 with a valid bar-mode gate");
+            expect (generalProfile.formatVersion == glaze::clayProfileFormatVersion && ! generalProfile.houseGate.valid,
+                    "the general profile stays format 2");
+            expectEquals (gate.heardSegments, 48);
+            expectEquals (gate.fullSegments, 16, "the full segments are the 16 drop bars");
+            expect (houseProfile.integratedLufs.valid && std::abs (houseProfile.integratedLufs.value - drop.integratedLufs.value) <= 0.5f,
+                    "House I is the drop's I");
+            expect (houseProfile.integratedLufs.value - generalProfile.integratedLufs.value > 1.5f,
+                    "the general I is pulled down by the intro");
+            expect (std::abs (houseProfile.lowShare.value - drop.lowShare.value) <= 0.03f, "House lowShare is the drop's");
+            expect (std::abs (houseProfile.truePeakDbtp.value - drop.truePeakDbtp.value) <= 0.3f, "House true peak is the drop's");
+            expect (houseProfile.loudnessRangeLu.valid && houseProfile.loudnessRangeLu.value > drop.loudnessRangeLu.value + 2.0f,
+                    "LRA is taken over all heard bars (the intro included)");
+            expectWithinAbsoluteError (houseProfile.representativeness, 48.0f / 64.0f, 1.0e-6f);
+            expect (houseProfile.integratedLufs.confidence <= houseProfile.representativeness + 1.0e-6f);
+            expect (houseProfile.lowCutPeakCostDb.valid && houseProfile.monoPeakCostDb[1].valid && houseProfile.widthPeakCostDb.valid,
+                    "the try-before-use costs come from the full segments' blocks");
+        }
+
+        // 依据：任务书「通用档完全不走这些代码（逐位不变）」。通用档下交宿主拍点、显式 setGenre(通用)：画像与辅助量与不交拍点、
+        // 从没调过 setGenre 的逐位相同；House 档里通用累计照常——学完换回通用档，候选画像与一直在通用档的逐位相同。
+        void testGeneralUntouched()
+        {
+            beginTest ("general mode is bit-identical with or without tempo info; the House run leaves the general accumulation untouched");
+
+            constexpr double sampleRate = 48000.0;
+            const auto track = makeHouseTrack (sampleRate, 6, 6, 1.0, 21);
+
+            Rig plain (sampleRate);
+            plain.analyzer.startLearning();
+            plain.feed (track, 512, 1, [] (std::int64_t fed, int) { return playingAt (fed); });
+
+            Rig tempo (sampleRate);
+            tempo.analyzer.setGenre (glaze::Genre::general);
+            tempo.analyzer.startLearning();
+            tempo.feed (track, 512, 1, [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); });
+
+            expect (sameProfile (plain.profile(), tempo.profile()) && sameClayProfile (plain.profile(), tempo.profile()),
+                    "general profile: tempo info changes nothing");
+            expect (sameAuxiliary (plain.analyzer.getAuxiliaryFeatures(), tempo.analyzer.getAuxiliaryFeatures()));
+            expectEquals (tempo.analyzer.getSegmentLedger().getNumStored(), 0, "the ledger is not touched in general mode");
+
+            Rig house (sampleRate);
+            house.analyzer.setGenre (glaze::Genre::techHouse);
+            house.analyzer.startLearning();
+            house.feed (track, 512, 1, [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); });
+            expect (house.analyzer.getSegmentLedger().getNumStored() > 0);
+            house.analyzer.setGenre (glaze::Genre::general);
+
+            expect (sameProfile (plain.profile(), house.profile()) && sameClayProfile (plain.profile(), house.profile()),
+                    "switching back to general returns the untouched general profile");
+            expect (sameAuxiliary (plain.analyzer.getAuxiliaryFeatures(), house.analyzer.getAuxiliaryFeatures()));
+        }
+
+        // 依据：设计规格第 2.1 节「恒定速度下，任意分块得到的画像逐位相同（测试覆盖）」。6 小节前奏 + 6 小节 drop：块长 512、1、333、
+        // 4096 与两种随机块长下 House 画像（含门控结果）与辅助量逐位相同。
+        void testBlockSizeIndependence()
+        {
+            beginTest ("House profile and gate are bit-identical for any host block size at a constant tempo (1 ... 4096, random)");
+
+            constexpr double sampleRate = 48000.0;
+            const auto track = makeHouseTrack (sampleRate, 6, 6, 1.0, 31);
+            const auto host = [] (std::int64_t fed, int) { return tempoHost (fed + 7777, sampleRate); };   // 不从小节线起播
+
+            Rig reference (sampleRate);
+            reference.analyzer.setGenre (glaze::Genre::melodicProgressive);
+            reference.analyzer.startLearning();
+            reference.feed (track, 512, 1, host);
+            expect (reference.profile().houseGate.fullSegments > 0 && reference.profile().integratedLufs.valid
+                    && reference.profile().onsetDensityPerSecond.valid, "the material exercises the gate and all three streams");
+
+            for (const auto [blockSize, seed] : { std::pair<int, juce::int64> { 1, 0 }, std::pair<int, juce::int64> { 333, 0 },
+                                                  std::pair<int, juce::int64> { 4096, 0 }, std::pair<int, juce::int64> { 0, 5 },
+                                                  std::pair<int, juce::int64> { 0, 77 } })
+            {
+                Rig rig (sampleRate);
+                rig.analyzer.setGenre (glaze::Genre::melodicProgressive);
+                rig.analyzer.startLearning();
+                rig.feed (track, blockSize, seed, host);
+                const auto tag = blockSize > 0 ? "block " + juce::String (blockSize) : "random blocks, seed " + juce::String (seed);
+                expect (sameHouseProfile (reference.profile(), rig.profile()), "House profile: " + tag);
+                expect (sameAuxiliary (reference.analyzer.getAuxiliaryFeatures(), rig.analyzer.getAuxiliaryFeatures()), "auxiliary: " + tag);
+            }
+        }
+
+        // 依据：设计规格第 4 节「锁定后继续按段记账」、MusicAnalyzer.h「不学习时冻结，编排器重开时 recomputeHouseProfile」。
+        // 学完前奏停止学习，再播 drop：段落账照记、画像不动；recomputeHouseProfile 之后画像取的是 drop。startLearning 清空段落账。
+        void testLedgerAfterLearning()
+        {
+            beginTest ("after stopLearning the ledger keeps recording and the profile stays frozen until recomputeHouseProfile");
+
+            constexpr double sampleRate = 48000.0;
+            const auto track = makeHouseTrack (sampleRate, 8, 8, 1.0, 41);
+            const auto barSamples = (int) std::lround (4.0 * 60.0 / houseTrackBpm * sampleRate);
+            const auto host = [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); };
+
+            Rig rig (sampleRate);
+            rig.analyzer.setGenre (glaze::Genre::deepHouse);
+            rig.analyzer.startLearning();
+            rig.feed (sliceOf (track, 0, 8 * barSamples), 512, 1, host);
+            rig.analyzer.stopLearning();
+            const auto introProfile = rig.profile();
+            const auto generation = rig.analyzer.getHouseProfileGeneration();
+
+            rig.feed (sliceOf (track, 8 * barSamples, (int) track.front().size() - 8 * barSamples), 512, 1, host);
+            expect (sameHouseProfile (introProfile, rig.profile()), "not learning: the House profile is frozen");
+            expect (rig.analyzer.getHouseProfileGeneration() == generation);
+            expect (rig.analyzer.getSegmentLedger().getHeardSegments() >= 15, "but the ledger kept recording the drop");
+
+            rig.analyzer.recomputeHouseProfile();
+            const auto& regated = rig.profile();
+            logMessage ("  intro-only House I " + juce::String (introProfile.integratedLufs.value, 2) + " -> regated "
+                        + juce::String (regated.integratedLufs.value, 2) + " LUFS, full " + juce::String (regated.houseGate.fullSegments));
+            expect (regated.integratedLufs.value > introProfile.integratedLufs.value + 4.0f, "regating picks the drop");
+            expect (regated.houseGate.fullSegments >= 7 && regated.houseGate.fullSegments <= 8);
+
+            rig.analyzer.startLearning();
+            expectEquals (rig.analyzer.getSegmentLedger().getNumStored(), 0, "a relearn clears the ledger");
+            expect (! rig.profile().houseGate.valid && ! rig.profile().integratedLufs.valid);
+        }
+
+        // 依据：MusicAnalyzer.h「音频线程不分配」。House 档：学习、三种不连续点、宿主 reset、停止学习、立即重算、清空段落账、换曲风，
+        // 每块都不经 operator new。
+        void testNoAllocation()
+        {
+            beginTest ("House: the audio-thread API does not allocate (ledger, gating, profile, genre switches)");
+
+            constexpr double sampleRate = 48000.0;
+            Rig rig (sampleRate);
+            const auto input = makeHouseTrack (sampleRate, 4, 4, 0.5, 51);
+            juce::AudioBuffer<float> block (numChannels, 4096);
+            juce::Random random (3);
+            std::uint64_t allocations = 0;
+            float sink = 0.0f;
+
+            for (int start = 0, index = 0; start < (int) input.front().size(); ++index)
+            {
+                const auto length = juce::jmin (1 + random.nextInt (4096), (int) input.front().size() - start);
+                block.setSize (numChannels, length, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+
+                const auto before = allocationCountOnThisThread();
+
+                rig.analyzer.setHostInfo (index % 50 == 49 ? playingAt (start) : tempoHost (start, sampleRate));
+                rig.analyzer.setGenre (index == 70 ? glaze::Genre::general : glaze::Genre::deepHouse);
+
+                if (index == 0)
+                    rig.analyzer.startLearning();
+
+                if (index == 20)
+                    rig.analyzer.handleDiscontinuity (Discontinuity::transportJump);
+
+                if (index == 30)
+                    rig.analyzer.handleDiscontinuity (Discontinuity::loopWrap);
+
+                if (index == 40)
+                {
+                    rig.analyzer.handleDiscontinuity (Discontinuity::hostReset);
+                    rig.meter.reset();
+                    rig.balance.reset();
+                }
+
+                rig.meter.process (block);
+                rig.analyzer.processInput (block, rig.meter);
+                rig.balance.process (block);
+                rig.analyzer.processSpectrum (rig.balance);
+                sink += rig.analyzer.getCandidateProfile().integratedLufs.value + rig.analyzer.getCandidateProfile().houseGate.referenceLufs
+                      + (float) rig.analyzer.getSegmentLedger().getCurrentSegmentSeconds()
+                      + (rig.analyzer.getSegmentLedger().isCurrentSegmentFull() ? 1.0f : 0.0f);
+
+                if (index == 60)
+                {
+                    rig.analyzer.stopLearning();
+                    rig.analyzer.recomputeHouseProfile();
+                }
+
+                if (index == 80)
+                    rig.analyzer.clearHouseLedger();
+
+                allocations += allocationCountOnThisThread() - before;
+                start += length;
+            }
+
+            expect (std::isfinite (sink));
+            expectEquals ((int) allocations, 0);
+        }
+    };
+
+    static MusicAnalyzerHouseTests musicAnalyzerHouseTests;
 }
