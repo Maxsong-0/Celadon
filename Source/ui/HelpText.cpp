@@ -216,6 +216,23 @@ namespace celadon::help
               "Auto picks per song; Warm: thick, round, never harsh; Punchy: strong drums, louder; Clean: clear, less compression, more dynamics.",
               "When unsure, use Auto; the status at the top shows which way it is leaning." },
 
+            // T-038 曲风与交付（设计规格-曲风与交付 第 2 节）。阶段 1 的占位文案，阶段 2 由界面线（C）定稿。
+            { param::glazeGenre,
+              "曲风 · 音色目标与学法",
+              "通用按现在的方式处理；三种 House 按子类定明暗与低切，不自动加宽，并改用按小节、只认主段落的学法。",
+              "写的是哪种 House 就选哪种；不确定就用通用。",
+              "Genre · tonal target and learning",
+              "General works as before; the three House types set brightness and low cut per sub-genre, never widen automatically, and learn bar by bar from the main section only.",
+              "Pick the House type you wrote; when unsure, use General." },
+
+            { param::glazeDelivery,
+              "交付 · 响度与真峰值",
+              "标准按风格定响度；流媒体约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部约 −7 LUFS，给 DJ 和下载店。",
+              "同一首歌切换后导出两次，就得到两版母带；切换后先播一遍 drop 再导出。",
+              "Delivery · loudness and true peak",
+              "Standard sets loudness by style; Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores.",
+              "Switch and export twice to get both masters from one song; play the drop once after switching before you export." },
+
             { uiid::glazeRelearn,
               "重新聆听",
               "再听 15～30 秒重新定方案；听的时候旧方案照常生效，听完约 3 秒平滑换过去。",

@@ -109,6 +109,8 @@ CeladonAudioProcessor::CeladonAudioProcessor()
 
     glazeAmount             = parameters.getRawParameterValue (celadon::param::glazeAmount);
     glazeStyle              = parameters.getRawParameterValue (celadon::param::glazeStyle);
+    glazeGenre              = parameters.getRawParameterValue (celadon::param::glazeGenre);
+    glazeDelivery           = parameters.getRawParameterValue (celadon::param::glazeDelivery);
 
     // Clay 修坯（v0.1.7.0）：三个 *_mode 是 AudioParameterChoice，原始值是选项下标（0 自动 / 1 关 / 2 手动）的 float，
     // 在 readParams 里按 clayModeFromRawValue 取整、钳到 0..2 转成 celadon::ClayMode。
@@ -137,7 +139,7 @@ CeladonAudioProcessor::CeladonAudioProcessor()
              && colorParams.mix != nullptr && colorParams.output != nullptr && colorParams.bypass != nullptr);
     jassert (balanceParams.recover != nullptr && balanceParams.tame != nullptr && balanceParams.brighten != nullptr
              && balanceParams.speed != nullptr && balanceParams.bypass != nullptr);
-    jassert (glazeAmount != nullptr && glazeStyle != nullptr);
+    jassert (glazeAmount != nullptr && glazeStyle != nullptr && glazeGenre != nullptr && glazeDelivery != nullptr);
     jassert (clayParams.lowCutMode != nullptr && clayParams.lowCutHz != nullptr && clayParams.monoMode != nullptr
              && clayParams.monoHz != nullptr && clayParams.widthMode != nullptr && clayParams.widthDb != nullptr
              && clayParams.bypass != nullptr);
@@ -281,6 +283,7 @@ CeladonAudioProcessor::CeladonAudioProcessor()
             fromTable.balance.bypass == truth.balance.bypass,
 
             same (fromTable.glazePercent, truth.glazePercent), fromTable.glazeStyle == truth.glazeStyle,
+            fromTable.glazeGenre == truth.glazeGenre, fromTable.glazeDelivery == truth.glazeDelivery,
 
             fromTable.claySettings.lowCutMode == truth.claySettings.lowCutMode,
             same (fromTable.claySettings.lowCutHz, truth.claySettings.lowCutHz),
@@ -447,6 +450,12 @@ celadon::CeladonChain::Params CeladonAudioProcessor::readParams() const noexcept
 
     // GLAZE 风格（v0.6，ADR-008）：四选一，原始值是选项下标的 float，取整方式同 Balance Speed，钳到 0..3（= glaze::Style）。
     p.glazeStyle = juce::jlimit (0, 3, juce::roundToInt (finiteOr (glazeStyle, (float) defaults::glazeStyleIndex)));
+
+    // 曲风与交付（T-038）：同上取整、钳到选项范围（= glaze::Genre / glaze::Delivery 的下标）。
+    p.glazeGenre = juce::jlimit (0, celadon::glaze::numGenres - 1,
+                                 juce::roundToInt (finiteOr (glazeGenre, (float) defaults::glazeGenreIndex)));
+    p.glazeDelivery = juce::jlimit (0, celadon::glaze::numDeliveries - 1,
+                                    juce::roundToInt (finiteOr (glazeDelivery, (float) defaults::glazeDeliveryIndex)));
 
     // 高级母带控制（0.1.9.0，设计规格-高级母带控制第 2 节）：三个选项按下标转枚举（取整同上、钳到选项范围）。
     const auto choice = [] (float value, int maximum) noexcept { return std::isfinite (value) ? juce::jlimit (0, maximum, juce::roundToInt (value)) : 0; };
@@ -757,6 +766,33 @@ celadon::glaze::HostInfo CeladonAudioProcessor::readHostInfo() const noexcept
         info.loopEndSamples = toSamples (loop->ppqEnd);
     }
 
+    // 拍点（T-038：House 档按小节记账、限幅跟拍）。只收有限且合理的值；拿不到的项保持 has* = false。
+    if (bpm.hasValue() && std::isfinite (*bpm) && *bpm > 0.0)
+    {
+        info.hasTempo = true;
+        info.bpm = *bpm;
+    }
+
+    if (ppq.hasValue() && std::isfinite (*ppq))
+    {
+        info.hasPpq = true;
+        info.ppqPosition = *ppq;
+    }
+
+    if (const auto barStart = position->getPpqPositionOfLastBarStart(); barStart.hasValue() && std::isfinite (*barStart))
+    {
+        info.hasBarStart = true;
+        info.ppqLastBarStart = *barStart;
+    }
+
+    if (const auto signature = position->getTimeSignature();
+        signature.hasValue() && signature->numerator > 0 && signature->denominator > 0)
+    {
+        info.hasTimeSignature = true;
+        info.timeSignatureNumerator = signature->numerator;
+        info.timeSignatureDenominator = signature->denominator;
+    }
+
     return info;
 }
 
@@ -946,6 +982,9 @@ void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState,
                 if (withId->paramID == celadon::param::masterTargetMode
                     || withId->paramID == celadon::param::masterCodecMarginDb
                     || withId->paramID == celadon::param::masterDither)
+                    node.setProperty ("value", 0.0f, nullptr);
+                // T-038：旧工程一律通用 + 标准（与默认下标相同，这里写明，不依赖默认值以后不变）。
+                if (withId->paramID == celadon::param::glazeGenre || withId->paramID == celadon::param::glazeDelivery)
                     node.setProperty ("value", 0.0f, nullptr);
                 newState.appendChild (node, nullptr);
             }

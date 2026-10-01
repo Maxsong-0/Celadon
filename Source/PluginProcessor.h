@@ -294,6 +294,8 @@ private:
     ClayParameterPointers clayParams;
     std::atomic<float>* glazeAmount = nullptr;   // GLAZE 总旋钮 0 ～ 100 %（ADR-006）
     std::atomic<float>* glazeStyle = nullptr;    // GLAZE 风格：选项下标 0 ～ 3（自动 / 温润 / 冲击 / 通透，v0.6）
+    std::atomic<float>* glazeGenre = nullptr;    // T-038 曲风：选项下标 0 ～ 3（通用 / Deep / Tech / Melodic-Progressive）
+    std::atomic<float>* glazeDelivery = nullptr; // T-038 交付：选项下标 0 ～ 2（标准 / 流媒体 / 俱乐部）
 
     celadon::CeladonChain chain;   // 含两块表与 GLAZE 编排器（v0.6）
 

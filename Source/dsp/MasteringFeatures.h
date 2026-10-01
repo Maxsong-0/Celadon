@@ -25,6 +25,11 @@ namespace celadon
         //（余量已扣进 limit.ceilingDb，回喂不再扣第二次）。再把它喂给链（离线工具的同决策重放，ADR-016）时，模式不是「关」且
         // 这两项 ≥ 0 就直接用、不再经乘法，逐位同值。插件从不设它们（readParams 不填），保持 −1 = 未设，链照旧算，逐位不变。
         float harshResolved = -1.0f, targetResolved = -1.0f;
+
+        // T-038：解析后的目标频谱斜率（同上，实际参数的无损回喂通道）。House 档「目标频谱 = 自动」按曲风取斜率（Melodic 的 −1.25
+        // 不是任何一种显式形状），回写时置 targetSlopeResolvedSet、填算好的斜率；回喂时直接用。插件从不设，链照旧按形状算，逐位不变。
+        bool targetSlopeResolvedSet = false;
+        float targetSlopeResolvedDbPerOct = 0.0f;
     };
 
     struct MasteringStatus

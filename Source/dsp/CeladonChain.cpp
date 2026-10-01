@@ -27,6 +27,37 @@ namespace celadon
 
             return false;
         }
+
+        // T-038 House 档「目标频谱 = 自动」的形状斜率（dB / 倍频程；设计规格-曲风与交付 第 3.1 节起点值，待 Max 试听调）。
+        // 显式形状只用于回写实际参数（targetMode 必须是一种显式形状）；斜率另经 targetSlopeResolved* 无损回喂。
+        float houseTargetSlopeFor (glaze::Genre genre) noexcept
+        {
+            switch (genre)
+            {
+                case glaze::Genre::deepHouse:          return -1.5f;
+                case glaze::Genre::techHouse:          return -0.75f;
+                case glaze::Genre::melodicProgressive: return -1.25f;
+                case glaze::Genre::general:
+                default:                               return -0.75f;
+            }
+        }
+
+        TargetMode houseTargetShapeFor (glaze::Genre genre) noexcept
+        {
+            return houseTargetSlopeFor (genre) <= -1.25f ? TargetMode::warm : TargetMode::neutral;
+        }
+    }
+
+    float CeladonChain::beatReleaseCapFor (glaze::Genre genre, bool autoRelease) const noexcept
+    {
+        const auto& house = glaze::factoryConstants().house;
+
+        if (! glaze::isHouse (genre) || ! autoRelease || ! hostTempoValid || ! hostPlaying
+            || ! (house.beatReleaseDivisor > 0.0f) || hostBpm < (double) house.beatMinBpm || hostBpm > (double) house.beatMaxBpm)
+            return 0.0f;
+
+        const auto capMs = 60000.0 / hostBpm / (double) house.beatReleaseDivisor;   // 一拍（四分音符）÷ 本项
+        return std::isfinite (capMs) && capMs > 0.0 ? (float) capMs : 0.0f;
     }
 
     void CeladonChain::prepare (const juce::dsp::ProcessSpec& spec)
@@ -102,6 +133,9 @@ namespace celadon
     {
         offline = info.offline;
         if (offline) previewRequested.store (false, std::memory_order_relaxed);
+        hostTempoValid = info.hasTempo && std::isfinite (info.bpm) && info.bpm > 0.0;
+        hostBpm = hostTempoValid ? info.bpm : 0.0;
+        hostPlaying = offline || ! info.hasPlayState || info.isPlaying;   // 同编排器 hostPlaying()
         controller.setHostInfo (info);
     }
 
@@ -142,11 +176,19 @@ namespace celadon
                                 : isResolved (mastering.targetResolved) ? juce::jmin (1.0f, mastering.targetResolved)
                                 : unit (finiteOr (mastering.targetAmount, neutralMastering.targetAmount))
                                     * (mastering.targetMode == TargetMode::automatic ? glaze : 1.0f);
+        // T-038：House 档「目标频谱 = 自动」按曲风取形状斜率（设计规格-曲风与交付 第 3.1 节；与按风格的映射一样写在链里、不进标定快照）。
+        // 通用档照旧按风格；回喂的实际参数带着解析好的斜率时直接用（MasteringFeatures.h targetSlopeResolved*）。
+        const auto genre = glaze::genreFromIndex (newParams.glazeGenre);
+        const auto houseAutomaticTarget = mastering.targetMode == TargetMode::automatic && glaze::isHouse (genre);
         auto mode = mastering.targetMode;
         if (mode == TargetMode::automatic)
-            mode = newParams.glazeStyle == 1 ? TargetMode::warm : (newParams.glazeStyle == 3 ? TargetMode::bright : TargetMode::neutral);
+            mode = houseAutomaticTarget ? houseTargetShapeFor (genre)
+                 : newParams.glazeStyle == 1 ? TargetMode::warm : (newParams.glazeStyle == 3 ? TargetMode::bright : TargetMode::neutral);
         // Per-octave energy: neutral follows a gentle downward tilt, warm/bright bracket it.
-        advanced.targetSlopeDbPerOct = mode == TargetMode::warm ? -1.5f : (mode == TargetMode::bright ? 0.0f : -0.75f);
+        advanced.targetSlopeDbPerOct = mastering.targetSlopeResolvedSet && std::isfinite (mastering.targetSlopeResolvedDbPerOct)
+                                           ? mastering.targetSlopeResolvedDbPerOct
+                                       : houseAutomaticTarget ? houseTargetSlopeFor (genre)
+                                       : mode == TargetMode::warm ? -1.5f : (mode == TargetMode::bright ? 0.0f : -0.75f);
         const auto referenceStatus = reference.getSnapshot();
         advanced.hasTargetReference = mode == TargetMode::reference && referenceStatus.hasReference;
         advanced.targetReferenceDb = referenceStatus.relativeDb;
@@ -159,6 +201,14 @@ namespace celadon
 
         const auto margin = std::isfinite (mastering.codecMarginDb) ? juce::jlimit (0.0f, 1.5f, mastering.codecMarginDb) : 0.0f;
         if (margin > 0.0f) adjusted.limit.ceilingDb = juce::jlimit (-4.5f, 0.0f, adjusted.limit.ceilingDb - margin);
+        // T-038 交付「流媒体」：有效 Ceiling 不高于 −2 dBTP（设计规格-曲风与交付 第 4.1 节；用户 Ceiling 更低时照用户的）。
+        // 与编码余量一样在交给编排器之前扣，校准参考条件里的 Ceiling 因此跟着变。标准 / 俱乐部不动，逐位同现在。
+        if (glaze::deliveryFromIndex (newParams.glazeDelivery) == glaze::Delivery::streaming)
+        {
+            const auto cap = glaze::factoryConstants().delivery.streamingTruePeakCapDbtp;
+            if (std::isfinite (cap))
+                adjusted.limit.ceilingDb = juce::jmin (adjusted.limit.ceilingDb, juce::jlimit (-4.5f, 0.0f, cap));
+        }
         effective = controller.beginBlock (adjusted, dryPath);
         // Saved GLAZE execution snapshots predate these user-controlled additions.
         // 回写的是交给模块的实际值（CeladonChain.h getEffectiveParams；T-032 R10-01）：h、t 写成算好的那个 float，推响不刺的模式改手动
@@ -169,6 +219,11 @@ namespace celadon
         effective.mastering.harshResolved = advanced.harshAmount;
         effective.mastering.targetMode = mode == TargetMode::reference && ! referenceStatus.hasReference ? TargetMode::off : mode;
         effective.mastering.targetResolved = advanced.targetAmount;
+        if (houseAutomaticTarget)
+        {
+            effective.mastering.targetSlopeResolvedSet = true;
+            effective.mastering.targetSlopeResolvedDbPerOct = advanced.targetSlopeDbPerOct;
+        }
         effective.mastering.codecMarginDb = 0.0f;
         effective.balance.harshAmount = advanced.harshAmount;
         effective.balance.transientPreserve = advanced.transientPreserve;
@@ -177,6 +232,10 @@ namespace celadon
         effective.balance.hasTargetReference = advanced.hasTargetReference;
         effective.balance.targetReferenceDb = advanced.targetReferenceDb;
         effective.limit.ceilingDb = adjusted.limit.ceilingDb;
+        // T-038 限幅跟拍（设计规格-曲风-House学习方式 第 8 节）：回喂的实际参数已带正的上限时照用（同决策重放），否则按此刻的曲风、
+        // 释放方式与宿主速度算；条件不满足为 0（不封顶，逐位同现在）。常数取出厂值（链不持有标定快照，同上面的目标频谱映射）。
+        if (! (std::isfinite (effective.limit.beatReleaseCapMs) && effective.limit.beatReleaseCapMs > 0.0f))
+            effective.limit.beatReleaseCapMs = beatReleaseCapFor (genre, effective.limit.autoRelease);
         releaseAllowed = ! dryPath && ! auditionDifference;
         if (! releaseAllowed || offline) previewRequested.store (false, std::memory_order_relaxed);
         const auto nextPreview = releaseAllowed && ! offline && previewRequested.load (std::memory_order_relaxed);

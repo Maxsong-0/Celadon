@@ -130,12 +130,24 @@ namespace celadon::glaze
         // 只换常数、不动状态：剩余保持期、资格期计时、当前下限与上限照旧，按新的速率与门槛继续走
         //（新的最短持续时间比已累计的短 → 下一块就算满资格）。
         tuning = makeTuning (constants);
+        houseHintCorrelation = std::isfinite (constants.house.phaseHintCorrelation)
+                                   ? juce::jlimit (-1.0f, 1.0f, constants.house.phaseHintCorrelation) : 0.6f;
     }
 
     void ClayGuard::reset() noexcept
     {
         state = ClayGuardState{};
         phasePendingSeconds = 0.0;
+        houseHint = HouseHint{};
+        houseHintPendingSeconds = 0.0;
+    }
+
+    // T-038 阶段 1 占位：接口先定死、恒不提示；阶段 2 由 C 按设计规格-曲风-House学习方式 第 9 节实现（ClayGuard.h 的说明）。
+    void ClayGuard::updateHouseHint (const ShortTermView& view, double seconds, bool eligible, double requiredSeconds) noexcept
+    {
+        juce::ignoreUnused (view, seconds, eligible, requiredSeconds);
+        houseHint = HouseHint{};
+        houseHintPendingSeconds = 0.0;
     }
 
     void ClayGuard::setState (const ClayGuardState& restored) noexcept

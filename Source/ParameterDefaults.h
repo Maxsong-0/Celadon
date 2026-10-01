@@ -73,6 +73,10 @@ namespace celadon::param::defaults
     inline constexpr int   masterDitherIndex     = 0;      // master_dither          下标 0 = Off（Off / 16 bit / 24 bit = celadon::DitherMode）
     inline constexpr float masterPreviewLufs     = -14.0f; // master_preview_lufs    −14 LUFS
 
+    // ---- 曲风与交付（T-038，设计规格-曲风与交付 第 5 节）：新实例与旧工程都是通用 + 标准（与 main 逐位相同）----
+    inline constexpr int   glazeGenreIndex       = 0;      // glaze_genre     下标 0 = General（= glaze::Genre::general）
+    inline constexpr int   glazeDeliveryIndex    = 0;      // glaze_delivery  下标 0 = Standard（= glaze::Delivery::standard）
+
     // 新实例的整份链级参数（处理器 readParams 在参数表默认下读到的就是它）。claySettings 只填用户设置；clay（交给 ClayModule 的
     // 实际值）作为输入时编排器忽略（ChainParams.h 文件头），保持结构默认。balance.automaticRecover / automaticTame 与
     // balance.harsh* / target* 不是参数（编排器与链填），同样保持结构默认。
@@ -102,8 +106,10 @@ namespace celadon::param::defaults
         p.balance.speed    = static_cast<BalanceModule::Speed> (balanceSpeedIndex);
         p.balance.bypass   = balanceBypass;
 
-        p.glazePercent = glazeAmount;
-        p.glazeStyle   = glazeStyleIndex;
+        p.glazePercent  = glazeAmount;
+        p.glazeStyle    = glazeStyleIndex;
+        p.glazeGenre    = glazeGenreIndex;
+        p.glazeDelivery = glazeDeliveryIndex;
 
         p.claySettings.lowCutMode = static_cast<ClayMode> (clayLowCutModeIndex);
         p.claySettings.lowCutHz   = clayLowCutHz;

@@ -91,7 +91,8 @@ namespace celadon::glaze
 
     // 本版本能读写的数据格式版本：画像（MusicProfile::formatVersion 的上限）与已提交版本（GLAZE_STATE 的 formatVersion）。
     // 读到比它高的版本 → 读取失败（按未学习处理）；低于 1 同样失败。
-    inline constexpr int profileFormatVersion = 2;   // 2 = v0.1.7.0 加立体声 / 超低频字段；仍读 1（新字段 valid = false、数组 0）
+    inline constexpr int profileFormatVersion = 3;   // 2 = v0.1.7.0 加立体声 / 超低频字段；仍读 1（新字段 valid = false、数组 0）
+                                                     // 3 = T-038 House 档门控结果（只有 House 档学出的画像写成格式 3；仍读 1 / 2）
     inline constexpr int stateFormatVersion = 1;
 
     // ---- v0.1.7.0 修坯 Clay 追加（A6）----
@@ -100,6 +101,12 @@ namespace celadon::glaze
     // profileFormatVersion（本版本能读的上限）分开：以后格式再升，Clay 特征仍从 2 起就有。
     // 用它的地方：画像 XML 写 / 读新字段、computeProfileId 是否把新字段并进哈希、编排器判断「旧画像 → 自动 Clay 中性、提示重新聆听」。
     inline constexpr int clayProfileFormatVersion = 2;
+
+    // ---- T-038 曲风追加 ----
+
+    // 画像带 House 门控结果（MusicProfile::houseGate）的最低格式版本。分析器只在 House 档学出的画像上把 formatVersion 设成它；
+    // 通用档的画像仍是 clayProfileFormatVersion（与 main 逐字节相同、画像号不变）。写 / 读 houseGate、computeProfileId 是否并进它都看这里。
+    inline constexpr int houseProfileFormatVersion = 3;
 
     inline constexpr const char* profileTag = "GLAZE_PROFILE";
 

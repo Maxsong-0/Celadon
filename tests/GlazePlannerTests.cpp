@@ -25,6 +25,7 @@
 
 #include "../Source/dsp/BalanceModule.h"
 #include "../Source/dsp/ColorModule.h"
+#include "../Source/dsp/GlazeCalibrator.h"
 #include "../Source/dsp/GlazeConstants.h"
 #include "../Source/dsp/GlazePlanner.h"
 #include "../Source/dsp/GlazeProfile.h"
@@ -436,6 +437,7 @@ namespace celadon::test
             testConstantsRoundTrip();
             testOddSnapshots();
             testNoAllocation();
+            testGenreDeliveryStorage();               // T-038 阶段 1（存档口径）
 
             // v0.1.7.0 修坯 Clay（A5；ADR-012 根治修订 P3 改写 / 追加）
             testClayFormulas();
@@ -2307,6 +2309,119 @@ namespace celadon::test
                 expect (back.calibration.reference.style == Style::punchy && back.calibration.reference.sampleRate == 44100.0);
                 expect (back.hasProfile == hasProfile && back.profileId == state.profileId);
                 expect (bitwiseEqual (back.constants, state.constants));
+            }
+        }
+
+        //==============================================================================
+        // T-038（设计规格-曲风与交付 第 6 节、设计规格-曲风-House学习方式 第 5 节）：画像格式 3 的门控结果、校准参考条件里的
+        // 曲风与交付、标定快照的曲风 / House / 交付常数——三处存档口径。通用 + 标准的存档必须与 main 逐字节相同（不写新属性）。
+        void testGenreDeliveryStorage()
+        {
+            beginTest ("T-038: house gate round-trips in format-3 profiles; format-2 profiles write and hash none of it");
+            {
+                auto profile = oddProfile();
+                profile.formatVersion = clayProfileFormatVersion;
+                const auto idBefore = computeProfileId (profile);
+                const auto textBefore = toXml (profile)->toString();
+
+                profile.houseGate.valid = true;          // 格式 2：门控结果不写、不进画像号
+                profile.houseGate.referenceLufs = -7.25f;
+                expect (computeProfileId (profile) == idBefore, utf8 ("格式 2 的画像号不含门控结果"));
+                expect (toXml (profile)->toString() == textBefore);
+
+                profile.formatVersion = houseProfileFormatVersion;
+                profile.houseGate = { true, SegmentMode::bars, -7.25f, 0.41f, 3.0f, 0.6f, 71, 23, 137.5, 44.25, 1 };
+                const auto xml3 = toXml (profile);
+                MusicProfile back = makeProfile (-9.0f, -1.0f);
+                expect (fromXml (*xml3, back));
+                expect (bitwiseEqual (back, profile), utf8 ("格式 3 画像往返不逐位相同"));
+                expect (back.houseGate.valid && back.houseGate.mode == SegmentMode::bars && back.houseGate.fullSegments == 23
+                            && back.houseGate.heardSeconds == 137.5 && back.houseGate.reopenCount == 1);
+                expect (computeProfileId (back) != idBefore, utf8 ("格式 3 的门控结果进画像号"));
+
+                expectRejected<MusicProfile> (*xml3, [] (juce::XmlElement& x) { x.setAttribute ("houseGateMode", 3); }, back,
+                                              utf8 ("分段方式越界"));
+                expectRejected<MusicProfile> (*xml3, [] (juce::XmlElement& x) { x.removeAttribute ("houseFullSegments"); }, back,
+                                              utf8 ("格式 3 缺门控字段"));
+
+                MusicProfile fromFormat2 = back;          // 格式 2 读入：门控结果清成默认（House 档下视为锁定条件未满足）
+                expect (fromXml (*juce::parseXML (textBefore), fromFormat2));
+                expect (! fromFormat2.houseGate.valid && fromFormat2.houseGate.heardSegments == 0 && fromFormat2.formatVersion == 2);
+            }
+
+            beginTest ("T-038: calibration reference stores genre and delivery only when not General / Standard");
+            {
+                CommittedState state;
+                state.calibration.valid = true;
+                state.calibration.reference = { 0xdeadbeefu, Style::punchy, 63.0f, 0x12345678u, -1.5f, 3.5f, 44100.0 };
+                state.constants = factoryConstants();
+
+                const auto plainText = toXml (state)->toString();
+                expect (! plainText.contains (" genre=") && ! plainText.contains (" delivery="), utf8 ("通用 + 标准不写新属性"));
+
+                state.calibration.reference.genre = Genre::techHouse;
+                state.calibration.reference.delivery = Delivery::club;
+                const auto xml = toXml (state);
+                CommittedState back;
+                expect (fromXml (*xml, back));
+                expect (bitwiseEqual (back, state));
+                expect (back.calibration.reference.genre == Genre::techHouse && back.calibration.reference.delivery == Delivery::club);
+
+                CommittedState legacy;                     // 缺属性 = 通用 / 标准
+                expect (fromXml (*juce::parseXML (plainText), legacy));
+                expect (legacy.calibration.reference.genre == Genre::general && legacy.calibration.reference.delivery == Delivery::standard);
+
+                expectRejected<CommittedState> (*xml, [] (juce::XmlElement& x) { x.getChildByName ("CALIBRATION")->setAttribute ("genre", 4); },
+                                                back, utf8 ("曲风越界"));
+                expectRejected<CommittedState> (*xml, [] (juce::XmlElement& x) { x.getChildByName ("CALIBRATION")->setAttribute ("delivery", 3); },
+                                                back, utf8 ("交付越界"));
+
+                auto a = state.calibration.reference, b = a;
+                expect (GlazeCalibrator::referenceMatches (a, b));
+                b.delivery = Delivery::streaming;
+                expect (! GlazeCalibrator::referenceMatches (a, b), utf8 ("换交付 → 参考条件不再适用"));
+                b = a;
+                b.genre = Genre::deepHouse;
+                expect (! GlazeCalibrator::referenceMatches (a, b), utf8 ("换曲风 → 参考条件不再适用"));
+            }
+
+            beginTest ("T-038: constants without genre / house / delivery fields read the factory values; present but broken is rejected");
+            {
+                const auto& factory = factoryConstants();
+                expectEquals (factory.deepHouse.toneReferenceSlopeDbPerOct, -3.5f);
+                expectEquals (factory.techHouse.toneReferenceSlopeDbPerOct, -2.5f);
+                expectEquals (factory.melodicProgressive.toneReferenceSlopeDbPerOct, -3.0f);
+                for (const auto* g : { &factory.deepHouse, &factory.techHouse, &factory.melodicProgressive })
+                    expect (g->toneMaxBrightDb == 0.4f && g->clayLowCutTargetHz == 25.0f && g->clayWidthStyleFactor == 0.0f);
+                expect (genreConstantsFor (factory, Genre::general) == nullptr);
+                expect (genreConstantsFor (factory, Genre::techHouse) == &factory.techHouse);
+                expect (factory.house.lockSegments == 64 && factory.house.requiredFullSegments == 8 && factory.delivery.clubTargetLufs == -7.0f);
+
+                const auto good = toXml (factory);
+                expect (good->hasAttribute ("deepHouse_toneReferenceSlopeDbPerOct") && good->hasAttribute ("house_lockSegments")
+                            && good->hasAttribute ("delivery_streamingTruePeakCapDbtp"));
+
+                juce::XmlElement legacy (*good);
+                juce::StringArray drop;
+                for (int i = 0; i < legacy.getNumAttributes(); ++i)
+                {
+                    const auto attribute = legacy.getAttributeName (i);
+                    if (attribute.startsWith ("deepHouse_") || attribute.startsWith ("techHouse_") || attribute.startsWith ("melodicProgressive_")
+                        || attribute.startsWith ("house_") || attribute.startsWith ("delivery_"))
+                        drop.add (attribute);
+                }
+                for (const auto& attribute : drop)
+                    legacy.removeAttribute (attribute);
+
+                auto out = factory;                         // 先弄乱，确认缺字段时取的是出厂值，不是沿用 out 里原来的值
+                out.house.lockSegments = 7;
+                out.techHouse.toneReferenceSlopeDbPerOct = 9.0f;
+                out.delivery.clubMaxLufs = 0.0f;
+                expect (fromXml (legacy, out));
+                expect (bitwiseEqual (out, factory), utf8 ("旧快照缺 T-038 字段时按出厂值读"));
+
+                expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("house_lockSegments", "x"); }, factory,
+                                           utf8 ("House 常数存在但损坏"));
             }
         }
 

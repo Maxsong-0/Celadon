@@ -69,6 +69,10 @@ namespace celadon::glaze
     {
         const MusicProfile* profile = nullptr;   // 可为空（未学习）：按低置信度保守方案
         Style style = Style::automatic;
+        // T-038（设计规格-曲风与交付 第 3、4 节）：方案源自己的曲风与交付（方案过渡时新旧两份方案各用各的，不读 manual 里的下标）。
+        // 通用 + 标准 = 与 main 逐位相同的方案。
+        Genre genre = Genre::general;
+        Delivery delivery = Delivery::standard;
         float glazePercent = 0.0f;               // 0 ～ 100
         ChainParams manual;             // 用户在各模块旋钮上的值（手动基准）
         const Constants* constants = nullptr;    // 标定快照（为空时用出厂常数）

@@ -214,6 +214,16 @@ namespace celadon::param
                     "Export Dither", juce::StringArray { "Off", "16 bit", "24 bit" }, defaults::masterDitherIndex));
         layout.add (makeFloat (masterPreviewLufs, "Normalisation Preview Target", { -24.0f, -8.0f, 0.1f }, defaults::masterPreviewLufs,
                     decibelAttributes().withLabel ("LUFS"), kParamVersionMastering));
+
+        // ---- 曲风与交付（T-038，设计规格-曲风与交付 第 5 节、ADR-026；版本 9）----
+        // 一首歌定一次，不进宿主自动化。APVTS 按选项下标存状态：以后只许在末尾追加选项（禁止重排、插入、删除），旧工程才不会错位。
+        // 选项顺序 = glaze::Genre / glaze::Delivery 的下标；旧工程缺这两个参数时按 0（通用 / 标准）读（addMissingParameterNodes）。
+        layout.add (std::make_unique<juce::AudioParameterChoice> (makeId (glazeGenre, kParamVersionGenre), "Genre",
+                    juce::StringArray { "General", "Deep House", "Tech House", "Melodic-Progressive" }, defaults::glazeGenreIndex,
+                    juce::AudioParameterChoiceAttributes().withAutomatable (false)));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (makeId (glazeDelivery, kParamVersionGenre), "Delivery",
+                    juce::StringArray { "Standard", "Streaming", "Club" }, defaults::glazeDeliveryIndex,
+                    juce::AudioParameterChoiceAttributes().withAutomatable (false)));
         return layout;
     }
 }

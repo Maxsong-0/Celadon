@@ -747,6 +747,8 @@ namespace celadon::glaze
             bool hasLockedWeights = false;
             StyleWeights lockedWeights;
             Style style = Style::automatic;
+            Genre genre = Genre::general;              // T-038：方案源自己的曲风与交付（过渡时新旧方案各用各的）
+            Delivery delivery = Delivery::standard;
             Constants constants;
             float maxGainDb = unlimitedGainDb;
             bool useSavedPlan = false;       // 旧算法版本的已提交方案：照用保存的自动增量（时间线与保存第 5 节）
@@ -875,6 +877,8 @@ namespace celadon::glaze
         bool active = false;             // 本块 GLAZE > 0
         bool paused = false;             // 本块宿主旁通：暂停校准与 Tone 跟随；Listen 只影响最终监听增益。
         Style currentStyle = Style::automatic;
+        Genre currentGenre = Genre::general;           // T-038：与 currentStyle 同一套规则（换了就换方案源、3 s 过渡、重新校准）
+        Delivery currentDelivery = Delivery::standard;
         bool styleKnown = false;
         float executedBiasDb = 0.0f, executedGuardDb = 0.0f;
         int lastLatency = 0;
@@ -888,6 +892,8 @@ namespace celadon::glaze
         ChainParams referenceManual;
         std::uint32_t referenceProfileId = 0;
         Style referenceStyle = Style::automatic;
+        Genre referenceGenre = Genre::general;
+        Delivery referenceDelivery = Delivery::standard;
         float referenceFeedback = 0.0f;
         bool referenceSavedPlan = false;
         double referenceRate = 0.0;
@@ -1027,6 +1033,8 @@ namespace celadon::glaze
         {
             PlanSource s;
             s.style = currentStyle;
+            s.genre = currentGenre;
+            s.delivery = currentDelivery;
 
             if (executionHeld)
             {
@@ -1151,6 +1159,8 @@ namespace celadon::glaze
                 PlanInputs in;
                 in.profile = slot.source.hasProfile ? &slot.source.profile : nullptr;
                 in.style = slot.source.style;
+                in.genre = slot.source.genre;
+                in.delivery = slot.source.delivery;
                 in.glazePercent = glaze;
                 in.manual = manual;
                 in.constants = &slot.source.constants;
@@ -1572,6 +1582,8 @@ namespace celadon::glaze
             auto r = manualConditionsFor (m);
             r.profileId = committed.hasProfile ? committed.profileId : 0u;
             r.style = currentStyle;
+            r.genre = currentGenre;
+            r.delivery = currentDelivery;
             r.glazePercent = m.glazePercent;
             r.ceilingDb = m.limit.ceilingDb;
             r.lookaheadMs = m.limit.lookaheadMs;
@@ -1804,6 +1816,8 @@ namespace celadon::glaze
             PlanInputs in;
             in.profile = source.hasProfile ? &source.profile : nullptr;
             in.style = source.style;
+            in.genre = source.genre;
+            in.delivery = source.delivery;
             in.glazePercent = 0.0f;
             in.manual = manual;
             in.constants = &source.constants;
@@ -1999,6 +2013,8 @@ namespace celadon::glaze
             PlanInputs in;
             in.profile = &section;
             in.style = source.style;
+            in.genre = source.genre;
+            in.delivery = source.delivery;
             in.glazePercent = manual.glazePercent;
             in.manual = manual;
             in.constants = &source.constants;
@@ -2508,12 +2524,17 @@ namespace celadon::glaze
 
             // 换风格：方案源换成新风格（约束反馈上限回到不限），3 s 过渡；GLAZE ≤ 0 时直接到位。
             // 第一块与刚读取工程的这一块：方案源按此刻的风格直接落到位（读取后立即生效，不做过渡）。
+            // T-038：曲风与交付与风格同一套规则（设计规格-曲风与交付 第 4.3 节：不重新聆听，方案重算、过渡、重新校准）。
             const auto style = styleFromIndex (manual.glazeStyle);
+            const auto genre = genreFromIndex (manual.glazeGenre);
+            const auto delivery = deliveryFromIndex (manual.glazeDelivery);
 
             if (prepared && executionHeld)
             {
                 auto reference = makeReference (manual);
                 reference.style = style;
+                reference.genre = genre;
+                reference.delivery = delivery;
                 if (! GlazeCalibrator::referenceMatches (execution.reference, reference))
                 {
                     executionHeld = false;
@@ -2533,15 +2554,19 @@ namespace celadon::glaze
             if (restored || ! styleKnown)
             {
                 currentStyle = style;
+                currentGenre = genre;
+                currentDelivery = delivery;
                 styleKnown = true;
                 snapTo (desiredSource());
 
                 if (restored)
                     publishStatus();
             }
-            else if (style != currentStyle)
+            else if (style != currentStyle || genre != currentGenre || delivery != currentDelivery)
             {
                 currentStyle = style;
+                currentGenre = genre;
+                currentDelivery = delivery;
                 feedbackMaxGainDb = unlimitedGainDb;
                 savedPlanMode = false;
                 planLimitedLatched = false;
@@ -2595,6 +2620,7 @@ namespace celadon::glaze
                 const auto unchanged = referenceKnown && samePlanningManual (manual, referenceManual)
                                         && sameBits (manual.glazePercent, referenceManual.glazePercent)
                                         && profileId == referenceProfileId && currentStyle == referenceStyle
+                                        && currentGenre == referenceGenre && currentDelivery == referenceDelivery
                                         && sameBits (feedbackMaxGainDb, referenceFeedback) && savedPlanMode == referenceSavedPlan
                                         && sampleRate == referenceRate;
 
@@ -2618,6 +2644,8 @@ namespace celadon::glaze
                     referenceManual = manual;
                     referenceProfileId = profileId;
                     referenceStyle = currentStyle;
+                    referenceGenre = currentGenre;
+                    referenceDelivery = currentDelivery;
                     referenceFeedback = feedbackMaxGainDb;
                     referenceSavedPlan = savedPlanMode;
                     referenceRate = sampleRate;

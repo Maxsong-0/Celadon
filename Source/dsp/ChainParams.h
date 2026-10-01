@@ -46,6 +46,8 @@ namespace celadon
 
         float glazePercent = 0.0f;   // GLAZE 0 ～ 100 %（v0.6 起由 GlazeController 按音乐状态解释，ADR-008；v0.4 的 GlazeMacro 偏移表已退役）
         int glazeStyle = 0;          // glaze::Style 的下标 0 ～ 3（自动 / 温润 / 冲击 / 通透；参数 glaze_style）
+        int glazeGenre = 0;          // T-038：glaze::Genre 的下标 0 ～ 3（通用 / Deep House / Tech House / Melodic-Progressive；参数 glaze_genre）
+        int glazeDelivery = 0;       // T-038：glaze::Delivery 的下标 0 ～ 2（标准 / 流媒体 / 俱乐部；参数 glaze_delivery）
 
         MasteringSettings mastering;
         ClaySettings claySettings;   // v0.1.7.0：用户三态设置

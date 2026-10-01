@@ -70,6 +70,10 @@ namespace celadon
             float clip        = 0.0f;     // 0 ～ 100
             bool  listen      = false;
             bool  bypass      = false;
+            // T-038 限幅跟拍（设计规格-曲风-House学习方式 第 8 节）：Auto 释放的慢段释放时间上限（ms）。0 或非有限 = 不封顶（逐位同现在）；
+            // 正值时慢段释放取 min(自适应值, 本项)，下限仍是 slowReleaseMinMs。链只在 House 档、Auto 释放、宿主 BPM 合理时给正值。
+            // 不是宿主参数；手动 Release 与短过载快释放分支都不看它。
+            float beatReleaseCapMs = 0.0f;
         };
 
         // 峰值附近增益保持平坦的样本数：覆盖真峰值插值器的全部抽头（ADR-004）。

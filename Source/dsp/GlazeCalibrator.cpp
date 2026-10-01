@@ -541,6 +541,8 @@ namespace celadon::glaze
 
         return a.profileId == b.profileId
             && a.style == b.style
+            && a.genre == b.genre            // T-038：换曲风或交付 → 方案重算、重新校准（设计规格-曲风与交付 第 4.3 节）
+            && a.delivery == b.delivery
             && close (a.glazePercent, b.glazePercent)
             && manualMatches
             && close (a.ceilingDb, b.ceilingDb)
