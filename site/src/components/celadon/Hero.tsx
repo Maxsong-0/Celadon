@@ -1,10 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import SplitText from '@/components/react-bits/SplitText';
 import Magnet from '@/components/react-bits/Magnet';
 import GlazeKnob from './GlazeKnob';
 import ParticleField from './ParticleField';
-import { ArrowUpRight, LinkArrow } from './Eyebrow';
+import { LinkArrow } from './Eyebrow';
+import DownloadLink, { DownloadButtonFace } from './DownloadLink';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { prefersReducedMotion } from '@/lib/utils';
 import { PLUGIN_VERSION } from '@/lib/site';
@@ -89,12 +89,7 @@ export default function Hero() {
           </p>
           <div data-rise className="mt-11 flex flex-wrap items-center gap-x-8 gap-y-5">
             <Magnet padding={40} magnetStrength={14}>
-              <Link to="/download" className="group btn-island-primary no-underline">
-                下载 {PLUGIN_VERSION}
-                <span className="btn-island-icon bg-white/15">
-                  <ArrowUpRight />
-                </span>
-              </Link>
+              <DownloadLink className="group btn-island-primary no-underline">{pkg => <DownloadButtonFace pkg={pkg} />}</DownloadLink>
             </Magnet>
             {/* 试听一节有曲目才显示（见 Listen.tsx），这条链接跟着它 */}
             {tracks.length ? <LinkArrow to="/#listen">先听一听</LinkArrow> : null}

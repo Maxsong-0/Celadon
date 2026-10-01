@@ -1,18 +1,23 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Chapter, Em, LinkArrow } from '@/components/celadon/Eyebrow';
+import { DownloadGlyph, afterDownloadClick, startedPath } from '@/components/celadon/DownloadLink';
 import { CHECKSUMS_FILE, RELEASE, downloadHref, type PackageId, type ReleasePackage } from '@/content/release';
 import { ScrollTrigger } from '@/lib/gsap';
 import { onFontsLoaded } from '@/lib/fonts';
 import { scrollToAnchor } from '@/lib/anchor';
+import { PACKAGE_LABEL, UNSUPPORTED_TEXT, type Detection } from '@/lib/platform';
 import { useReveal } from '@/lib/reveal';
 import { PLUGIN_VERSION } from '@/lib/site';
+import { usePlatform } from '@/lib/usePlatform';
 import { cn } from '@/lib/utils';
 
 /*
   /download：三张平台卡 + 第一次打开的放行步骤 + 装好之后的注意事项。
   安装包信息只从 content/release.ts 读；它与插件版本（PLUGIN_VERSION）不一致时不给旧文件，只提示还没更新。
-  按设计规格：猜得到这台电脑用哪个包时，那一张是瓷板 + 主按钮，其余是素坯 + 文字链接（同一行最多一块瓷板）。
+  按设计规格：认得出这台电脑用哪个包时，那一张是瓷板 + 主按钮，其余是素坯 + 文字链接（同一行最多一块瓷板）。
+  识别见 lib/platform.ts：看不出 Mac 的芯片、ARM 版 Windows、系统不支持时，页首说明一句（三张卡照样能下）。
+  点了下载（这里的卡片，或导航 / 首页的一键直下）→ ?started=<包>#first-launch：「第一次打开」一节顶上写「下载已开始」。
 */
 
 interface Platform {
@@ -56,9 +61,14 @@ export default function Download() {
   const root = useRef<HTMLElement>(null);
   useReveal(root);
   usePageSetup('下载 · Celadon');
-  const pick = usePlatformGuess();
+  const detection = usePlatform();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   // 安装包与插件版本对不上（改了 .jucer 还没出包）时，宁可不给，也不给错文件。
   const ready = RELEASE.version === PLUGIN_VERSION;
+  const started = ready ? (RELEASE.packages.find(p => p.id === params.get('started')) ?? null) : null;
+  const matched = detection.kind === 'match' ? detection.id : null;
+  const onDownload = (pkg: ReleasePackage) => navigate(startedPath(pkg), { replace: true });
 
   return (
     <main ref={root}>
@@ -82,10 +92,18 @@ export default function Download() {
             </p>
           </header>
 
+          <DeviceNotice detection={detection} />
+
           {ready ? (
             <div className="mt-16 grid gap-5 xl:grid-cols-3">
               {RELEASE.packages.map(pkg => (
-                <PackageCard key={pkg.id} pkg={pkg} platform={PLATFORMS[pkg.id]} badge={pick?.id === pkg.id ? badgeFor(pick) : null} />
+                <PackageCard
+                  key={pkg.id}
+                  pkg={pkg}
+                  platform={PLATFORMS[pkg.id]}
+                  badge={matched === pkg.id ? (pkg.id === 'win-x64' ? '适合这台电脑' : '适合这台 Mac') : null}
+                  onDownload={onDownload}
+                />
               ))}
             </div>
           ) : (
@@ -94,8 +112,9 @@ export default function Download() {
         </div>
       </section>
 
-      <section className="section-last">
+      <section id="first-launch" className="section-last scroll-mt-16">
         <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
+          {started ? <StartedNotice pkg={started} /> : null}
           <div className="max-w-3xl">
             <div data-reveal>
               <Kicker label="第一次打开" en="First launch" />
@@ -147,9 +166,20 @@ export default function Download() {
   );
 }
 
-function PackageCard({ pkg, platform, badge }: { pkg: ReleasePackage; platform: Platform; badge: string | null }) {
+function PackageCard({
+  pkg,
+  platform,
+  badge,
+  onDownload
+}: {
+  pkg: ReleasePackage;
+  platform: Platform;
+  badge: string | null;
+  onDownload: (pkg: ReleasePackage) => void;
+}) {
   const featured = badge !== null;
   const href = downloadHref(pkg.file);
+  const onClick = (e: MouseEvent<HTMLAnchorElement>) => afterDownloadClick(e, () => onDownload(pkg));
   // 两种状态的 DOM 结构完全一样，只换类名：异步猜出芯片后切换不会重建节点（入场动画的状态留在原节点上）。
   // 素坯卡也留同样 6px 的外框（透明），三张卡的瓷面上下左右对齐，瓷板只多出一圈托。
   return (
@@ -174,7 +204,7 @@ function PackageCard({ pkg, platform, badge }: { pkg: ReleasePackage; platform: 
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
               {/* 三张卡的按钮字一样，读屏时补上平台；下载图标悬停时往下沉 2px（其余链接的 ↗ 是斜移） */}
               {featured ? (
-                <a href={href} download className="group btn-island-primary no-underline">
+                <a href={href} download onClick={onClick} className="group btn-island-primary no-underline">
                   下载安装包
                   <span className="sr-only">（{platform.os} {platform.chip}）</span>
                   <span className="btn-island-icon bg-white/15 group-hover:translate-x-0 group-hover:translate-y-0.5">
@@ -182,7 +212,7 @@ function PackageCard({ pkg, platform, badge }: { pkg: ReleasePackage; platform: 
                   </span>
                 </a>
               ) : (
-                <a href={href} download className="link-arrow">
+                <a href={href} download onClick={onClick} className="link-arrow">
                   <span>
                     下载安装包
                     <span className="sr-only">（{platform.os} {platform.chip}）</span>
@@ -230,6 +260,71 @@ function StaleNotice() {
       <p className="mt-4 measure text-[15.5px] leading-[1.8] text-ink-2">新包放上来之前，这里不给旧版本的文件，免得装错。想先看看这一版改了什么：</p>
       <div className="mt-6">
         <LinkArrow to="/changelog">更新日志</LinkArrow>
+      </div>
+    </div>
+  );
+}
+
+const REQUIREMENTS = 'Celadon 要 macOS 12 及以上（Apple 芯片或 Intel），或 64 位 Windows 10 / 11。';
+
+/**
+ * 页首一句话：认不准或用不了时说清楚为什么、该怎么选。认得准（match）或认不出（unknown）时不显示。
+ * 识别可能在首帧之后才改判（异步问 CPU 架构），所以这块不进入场动画（data-reveal 只处理挂载时就在的元素）。
+ */
+function DeviceNotice({ detection }: { detection: Detection }) {
+  let title: ReactNode;
+  let body: ReactNode;
+  switch (detection.kind) {
+    case 'mac':
+      title = '认出是 Mac，但这个浏览器看不出芯片。';
+      body = (
+        <>
+          苹果菜单 → <Ui>关于本机</Ui>：<Ui>芯片</Ui>一栏写 Apple M… 选 Apple 芯片；写着<Ui>处理器</Ui>、是 Intel 的，选 Intel。
+        </>
+      );
+      break;
+    case 'win-arm':
+      title = '这台是 ARM 版 Windows。';
+      body = <>安装包是 x64 版：要 Windows 11（靠系统转译运行），而且只有 x64 版的宿主加载得了，ARM 原生版的宿主加载不了。</>;
+      break;
+    case 'unsupported':
+      title = UNSUPPORTED_TEXT[detection.reason];
+      body = <>{REQUIREMENTS}下面的安装包照样能下，传到电脑上再装。</>;
+      break;
+    default:
+      return null;
+  }
+  return (
+    <div role="note" className="biscuit mt-12 max-w-3xl p-7 sm:p-8">
+      <p className="font-serif text-[clamp(1.25rem,2.2vw,1.5rem)] font-medium leading-snug text-ink">{title}</p>
+      <p className="mt-3 measure text-[15.5px] leading-[1.8] text-ink-2">{body}</p>
+    </div>
+  );
+}
+
+/** 「第一次打开」一节顶上：刚点了下载（一键直下跳过来，或点了上面的卡片）。下载被拦或没开始时还能再点一次。 */
+function StartedNotice({ pkg }: { pkg: ReleasePackage }) {
+  return (
+    <div role="status" className="slab mb-16 max-w-3xl p-1.5 sm:mb-20">
+      <div className="slab-core p-7 sm:p-8">
+        <p className="flex items-center gap-2 text-[12px] tracking-[0.12em] text-c700">
+          <span className="size-1.5 rounded-full bg-c500" aria-hidden="true" />
+          下载已开始
+        </p>
+        <p className="mt-4 font-serif text-[clamp(1.25rem,2.2vw,1.5rem)] font-medium leading-snug text-ink">
+          Celadon {RELEASE.version} · {PACKAGE_LABEL[pkg.id]}
+        </p>
+        <p className="mt-3 measure text-[15.5px] leading-[1.8] text-ink-2">
+          <Code>{pkg.file}</Code>，{(pkg.bytes / 1e6).toFixed(1)} MB。没开始的话
+          <a
+            href={downloadHref(pkg.file)}
+            download
+            className="mx-1 text-c700 underline decoration-c300 decoration-1 underline-offset-4 transition-colors duration-300 ease-glaze hover:decoration-c600"
+          >
+            再点这里
+          </a>
+          。装的时候系统会拦一下，照下面放行一次就好。
+        </p>
       </div>
     </div>
   );
@@ -411,68 +506,6 @@ async function copyText(text: string): Promise<boolean> {
   return ok;
 }
 
-interface Guess {
-  id: PackageId;
-  /** false = 只知道是 Mac、不知道芯片（按多数给 Apple 芯片） */
-  sure: boolean;
-}
-
-function badgeFor(guess: Guess): string {
-  if (!guess.sure) return '多数 Mac 选这个';
-  return guess.id === 'win-x64' ? '适合这台电脑' : '适合这台 Mac';
-}
-
-interface UADataLike {
-  platform?: string;
-  mobile?: boolean;
-  getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }>;
-}
-
-function uaData(): UADataLike | undefined {
-  return (navigator as unknown as { userAgentData?: UADataLike }).userAgentData;
-}
-
-/**
- * 猜这台电脑该用哪个包（只用来决定哪张卡是主角，三张都一直能下）。
- * Windows 直接认；Mac 先按「多数 Mac 是 Apple 芯片」给出，Chromium 系浏览器再异步问 CPU 架构改准；手机、平板、Linux 不猜。
- */
-function guessFromUserAgent(): Guess | null {
-  if (typeof navigator === 'undefined') return null;
-  const data = uaData();
-  if (data?.mobile) return null;
-  const platform = data?.platform || navigator.platform || '';
-  const ua = navigator.userAgent;
-  if (/^Win/i.test(platform) || /Windows NT/.test(ua)) return { id: 'win-x64', sure: true };
-  // iPad 的桌面版 Safari 也自称 Mac：多点触控就不是 Mac。
-  const isMac = (/^Mac/i.test(platform) || /Macintosh/.test(ua)) && navigator.maxTouchPoints < 2;
-  return isMac ? { id: 'mac-arm64', sure: false } : null;
-}
-
-function usePlatformGuess(): Guess | null {
-  const [guess, setGuess] = useState(guessFromUserAgent);
-  const macUnsure = guess !== null && !guess.sure;
-
-  useEffect(() => {
-    if (!macUnsure) return;
-    const data = uaData();
-    if (!data?.getHighEntropyValues) return;
-    let alive = true;
-    data.getHighEntropyValues(['architecture']).then(
-      v => {
-        if (!alive) return;
-        if (v.architecture === 'arm') setGuess({ id: 'mac-arm64', sure: true });
-        else if (v.architecture === 'x86') setGuess({ id: 'mac-x64', sure: true });
-      },
-      () => {}
-    );
-    return () => {
-      alive = false;
-    };
-  }, [macUnsure]);
-
-  return guess;
-}
-
 /** 页面标题、带 #锚点进来时滚到位置、字体到位后让滚动触发器重新量一遍位置。 */
 function usePageSetup(title: string) {
   const { hash, key } = useLocation();
@@ -495,14 +528,6 @@ function usePageSetup(title: string) {
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split('-');
   return `${y} 年 ${Number(m)} 月 ${Number(d)} 日`;
-}
-
-function DownloadGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" className={cn('size-3.5', className)} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M8 2.5v8M4.5 7.5 8 11l3.5-3.5M3 13.5h10" />
-    </svg>
-  );
 }
 
 function CopyGlyph() {

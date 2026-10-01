@@ -5,6 +5,8 @@ import { gsap, useGSAP } from '@/lib/gsap';
 import { tracks } from '@/content/listen';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 import Mark from './Mark';
+import DownloadLink, { DownloadGlyph } from './DownloadLink';
+import { PACKAGE_LABEL } from '@/lib/platform';
 
 // 搜索弹层单独成包：第一次打开时才拉（指针移到搜索按钮上就先预取），首屏不背它。
 // 包没拉到（断网）就当没打开：立刻关掉，别让页面卡在锁住滚动的状态。
@@ -25,7 +27,8 @@ const items = [
   { label: '工艺', to: '/#process' },
   ...(tracks.length ? [{ label: '试听', to: '/#listen' }] : []),
   { label: '算法', to: '/algorithms' },
-  { label: '说明', to: '/docs' }
+  { label: '说明', to: '/docs' },
+  { label: '版本', to: '/changelog' }
 ];
 
 const SITE_ORIGIN = 'https://celadon.maxsong.me';
@@ -206,17 +209,24 @@ export default function Nav() {
             <SearchGlyph className="size-[15px]" />
             <kbd className="rounded-md bg-paper/80 px-1.5 font-sans text-[11px] leading-5 tracking-wide text-ink-4 ring-1 ring-ink/10">{SHORTCUT}</kbd>
           </button>
-          <Link
-            to="/download"
-            className="hidden md:inline-flex items-center gap-2 rounded-full bg-c700 pl-3.5 pr-1.5 py-1 text-[13px] text-paper no-underline transition-transform duration-500 ease-glaze hover:bg-c800 active:scale-[0.98]"
-          >
-            下载
-            <span className="grid size-6 place-items-center rounded-full bg-white/15">
-              <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 12 12 4M6 4h6v6" />
-              </svg>
-            </span>
-          </Link>
+          {/* 认得出这台电脑就直接下对应的安装包（见 DownloadLink），认不出去下载页 */}
+          <DownloadLink className="hidden md:inline-flex items-center gap-2 rounded-full bg-c700 pl-3.5 pr-1.5 py-1 text-[13px] text-paper no-underline transition-transform duration-500 ease-glaze hover:bg-c800 active:scale-[0.98]">
+            {pkg => (
+              <>
+                下载
+                {pkg ? <span className="sr-only"> {PACKAGE_LABEL[pkg.id]}</span> : null}
+                <span className="grid size-6 place-items-center rounded-full bg-white/15">
+                  {pkg ? (
+                    <DownloadGlyph />
+                  ) : (
+                    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 12 12 4M6 4h6v6" />
+                    </svg>
+                  )}
+                </span>
+              </>
+            )}
+          </DownloadLink>
           {/* 手机：放大镜 + 汉堡 */}
           <button
             type="button"

@@ -19,7 +19,7 @@ const stats: Stat[] = [
   { value: 27, unit: '段', label: '动态频谱平衡', note: '1/3 倍频程，40 Hz ～ 16 kHz' },
   { value: 8, unit: '×', label: '真峰值插值', note: '8 相 × 64 抽头，限的峰 = 量的峰' },
   { value: 1.3, unit: '%', label: '音频线程预算', note: '48 kHz · M2 Pro · Release · 界面关' },
-  { value: 132981, unit: '', label: '自动测试断言', note: 'Linux GCC 与 MSVC + Wine 全套 · 0 失败', grouped: true },
+  { value: 134523, unit: '', label: '自动测试断言', note: 'Linux GCC 与 MSVC + Wine 全套 · 0 失败', grouped: true },
   { value: 0.35, unit: 'dB', label: '真峰值重建余量', note: '16× 参考检测最坏仍低于 Ceiling' },
   { value: 28.8, unit: 'ms', label: '总延迟', note: '48 kHz · Lookahead 2 ms · 宿主自动补偿' }
 ];
@@ -122,7 +122,7 @@ export default function Stats() {
           <Chapter n="柒" label="数字" en="In numbers" />
         </div>
         <p data-reveal className="mt-8 measure text-[15px] leading-[1.85] text-ink-2">
-          全部来自验证记录。百分比 = 单个音频线程「处理耗时 / 这一块音频的播放时长」，不是整机 CPU；测试数是 0.1.8.5 发布前在 Linux 与 Windows 上的全套结果。
+          全部来自验证记录。百分比 = 单个音频线程「处理耗时 / 这一块音频的播放时长」，不是整机 CPU；测试数是 0.1.8.6 发布前在 Linux 与 Windows 上的全套结果。
         </p>
         <ul ref={list} role="list" className="mt-16 grid grid-cols-2 border-y border-line md:grid-cols-3 lg:grid-cols-6">
           {stats.map((s, i) => (
