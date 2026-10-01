@@ -1,0 +1,130 @@
+{
+  "chain": {
+    "label": "Signal chain diagram",
+    "features": "Input features",
+    "featuresNarrow": "Input\nfeatures",
+    "stats": "Module stats",
+    "statsNarrow": "Module\nstats",
+    "actual": "Actual = manual + auto increment",
+    "glaze": "GLAZE orchestrator",
+    "glazeNarrow": "GLAZE",
+    "glazeSub": "Profile → plan → calibrate → protect",
+    "glazeSubNarrow": "Profile → plan\ncalibrate → protect",
+    "input": "Input",
+    "output": "Output",
+    "balance": "Dynamic EQ",
+    "clay": "Stereo",
+    "color": "Tone",
+    "limit": "Limiter",
+    "inMeter": "IN meter",
+    "outMeter": "OUT meter",
+    "inSub": "dBTP · LUFS",
+    "outSub": "dBTP · LUFS · GR"
+  },
+  "limiter": {
+    "label": "Limiter diagram",
+    "peak": "|x| and 8× interpolated true peak",
+    "gain": "Gain",
+    "legend": {
+      "input": "Input |x| (8× interpolated peak)",
+      "limited": "After limiting",
+      "required": "r[n] required gain",
+      "rMin": "rMin lookahead sliding minimum",
+      "final": "Final gain (applied at 1×; exactly 1.0 when not limiting)"
+    }
+  },
+  "truepeak": {
+    "label": "True-peak diagram",
+    "samplePeak": "Sample peak",
+    "truePeak": "True peak",
+    "legend": {
+      "samples": "Samples",
+      "wave": "The real waveform between samples"
+    }
+  },
+  "balance": {
+    "label": "Balance analysis diagram",
+    "title": "Lfast[b] and reference contour R[b]",
+    "titleNarrow": "Lfast[b] and R[b]",
+    "legend": {
+      "fast": "Lfast[b] fast-tracked level",
+      "ref": "R[b] reference contour",
+      "dead": "±1 dB dead zone: no change",
+      "tame": "D > +1 dB: Tame pulls it down",
+      "recover": "D < −1 dB: Recover lifts it"
+    }
+  },
+  "glue": {
+    "label": "Glue split-band diagram",
+    "input": "Input",
+    "sidechain": "Sidechain 100 Hz HPF",
+    "sidechainSub": "L / R max · 2:1 · 6 dB knee",
+    "envelope": "Linked envelope g",
+    "envelopeSub": "Attack 20 ms · auto release",
+    "bands": "Split-band pressure",
+    "low": "Low ≤ 180 Hz",
+    "lowSub": "Attack 36 ms",
+    "mid": "Mid",
+    "midSub": "Uses the linked gain",
+    "high": "High ≥ 5 kHz",
+    "highSub": "Attack 8 ms",
+    "sum": "Sum → output",
+    "sumSub": "One gain if both offsets are 0"
+  },
+  "heat": {
+    "label": "Heat residual colouring diagram",
+    "input": "Input",
+    "dry": "Dry · 64-sample delay",
+    "drySub": "Original kept whole",
+    "dryNarrow": "Dry",
+    "drySubNarrow": "64-sample delay\nOriginal kept whole",
+    "hpf": "150 Hz HPF",
+    "hpfSub": "Bass stays linear",
+    "tube": "M / S tube curve",
+    "tubeNarrow": "M / S tube",
+    "tubeSub": "8× oversampled\nS lighter, odd-symmetric",
+    "residual": "Residual",
+    "residualSub": "Wet − dry",
+    "sum": "Sum → Mix → Output"
+  },
+  "clay": {
+    "label": "Clay diagram",
+    "lowCut": "① Low cut",
+    "lowCutSub": "4th-order Butterworth · 10–60 Hz",
+    "mid": "M · untouched",
+    "midSub": "(L + R) / 2",
+    "mono": "② Mono",
+    "monoSub": "Linear phase",
+    "width": "③ Width",
+    "widthSub": "2 kHz high shelf",
+    "guard": "Peak guard · ① ② only",
+    "guardSub": "8 ms lookahead\nyields if a peak would rise"
+  },
+  "glaze": {
+    "label": "GLAZE state machine diagram",
+    "relearn": "Relearn → candidate version",
+    "relearnNote": "Old plan stays on; ~3 s crossfade when done",
+    "relearnNarrow": "Relearn",
+    "candidateNarrow": "candidate",
+    "notLearned": "Not learned",
+    "notLearnedSub": "Starts on playback",
+    "listening": "Listening",
+    "listeningSub": "15–30 s of evidence",
+    "calibrating": "Calibrating",
+    "calibratingSub": "Aligns in/out loudness",
+    "locked": "Locked",
+    "lockedSub": "Bounded protection",
+    "limited": "Limited",
+    "limitedSub": "Slow back-off\ng_guard ∈ [−3, 0] dB",
+    "saved": "Saved with the project: profile + plan + calibration + constants + execution snapshots",
+    "savedSub": "No relearning on reopen · bit-exact re-render from the same start · changed reference conditions void calibration",
+    "savedNarrow": "Saved with the project",
+    "savedSubNarrow": "Profile + plan + calibration + snapshots\nNo relearning; bit-exact re-render\nChanged conditions void calibration"
+  },
+  "latency": {
+    "label": "Latency breakdown diagram",
+    "clay": "Mono 574 + guard 528",
+    "limit": "Clip oversampling 60 + lookahead 96 + 62",
+    "total": "Total {{n}} samples ≈ {{ms}} ms"
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "chain": {
+    "label": "信号链示意图",
+    "features": "入口特征",
+    "featuresNarrow": "入口特征",
+    "stats": "模块统计",
+    "statsNarrow": "模块统计",
+    "actual": "实际参数 = 手动 + 自动增量",
+    "glaze": "GLAZE 编排器",
+    "glazeNarrow": "GLAZE 编排器",
+    "glazeSub": "画像 → 方案 → 校准 → 保护",
+    "glazeSubNarrow": "画像 → 方案\n校准 → 保护",
+    "input": "输入",
+    "output": "输出",
+    "balance": "平衡",
+    "clay": "修坯",
+    "color": "染色",
+    "limit": "限幅",
+    "inMeter": "IN 表",
+    "outMeter": "OUT 表",
+    "inSub": "真峰值 · LUFS",
+    "outSub": "真峰值 · LUFS · GR"
+  },
+  "limiter": {
+    "label": "限幅器示意图",
+    "peak": "|x| 与 8× 插值真峰值",
+    "gain": "增益",
+    "legend": {
+      "input": "输入 |x|（8× 插值峰值）",
+      "limited": "限幅后",
+      "required": "r[n] 需求增益",
+      "rMin": "rMin 前瞻滑动最小",
+      "final": "最终增益（1× 域施加，不限幅时恰为 1.0）"
+    }
+  },
+  "truepeak": {
+    "label": "真峰值示意图",
+    "samplePeak": "采样点峰值",
+    "truePeak": "真峰值",
+    "legend": {
+      "samples": "采样点",
+      "wave": "采样点之间的真实波形"
+    }
+  },
+  "balance": {
+    "label": "Balance 分析示意图",
+    "title": "Lfast[b] 与参考轮廓 R[b]",
+    "titleNarrow": "Lfast[b] 与 R[b]",
+    "legend": {
+      "fast": "Lfast[b] 快跟踪电平",
+      "ref": "R[b] 参考轮廓",
+      "dead": "±1 dB 死区：不动",
+      "tame": "D > +1 dB：Tame 压下",
+      "recover": "D < −1 dB：Recover 抬起"
+    }
+  },
+  "glue": {
+    "label": "Glue 分频施压示意图",
+    "input": "输入",
+    "sidechain": "侧链 100 Hz 高通",
+    "sidechainSub": "L / R 取大 · 2:1 · 6 dB 拐点",
+    "envelope": "联动包络 g",
+    "envelopeSub": "攻击 20 ms · 自动释放",
+    "bands": "分频施压",
+    "low": "低 ≤ 180 Hz",
+    "lowSub": "攻击 36 ms",
+    "mid": "中",
+    "midSub": "直接用联动增益",
+    "high": "高 ≥ 5 kHz",
+    "highSub": "攻击 8 ms",
+    "sum": "求和 → 输出",
+    "sumSub": "低、高差为 0 时退回单增益"
+  },
+  "heat": {
+    "label": "Heat 残差染色示意图",
+    "input": "输入",
+    "dry": "干路 · 64 样本延迟",
+    "drySub": "原声完整保留",
+    "dryNarrow": "干路",
+    "drySubNarrow": "64 样本延迟\n原声完整保留",
+    "hpf": "150 Hz 高通",
+    "hpfSub": "低音不进非线性",
+    "tube": "M / S 电子管曲线",
+    "tubeNarrow": "M / S 电子管",
+    "tubeSub": "8× 过采样\nS 更轻、奇对称",
+    "residual": "残差",
+    "residualSub": "湿 − 干",
+    "sum": "求和 → Mix → Output"
+  },
+  "clay": {
+    "label": "Clay 修坯示意图",
+    "lowCut": "① 低切",
+    "lowCutSub": "4 阶 Butterworth · 10～60 Hz",
+    "mid": "M",
+    "midSub": "(L + R) / 2 · 不动",
+    "mono": "② 收单",
+    "monoSub": "线性相位",
+    "width": "③ 加宽",
+    "widthSub": "2 kHz 高架",
+    "guard": "峰值守护 · 只管 ①②",
+    "guardSub": "前瞻 8 ms\n会抬峰值就让开"
+  },
+  "glaze": {
+    "label": "GLAZE 状态机示意图",
+    "relearn": "重新聆听 → 候选版本",
+    "relearnNote": "旧方案照常生效，听完约 3 s 平滑换过去",
+    "relearnNarrow": "重新聆听",
+    "candidateNarrow": "候选版本",
+    "notLearned": "未学习",
+    "notLearnedSub": "播放后自动开始",
+    "listening": "聆听中",
+    "listeningSub": "15～30 s · 攒证据",
+    "calibrating": "校准中",
+    "calibratingSub": "对齐输入输出响度差",
+    "locked": "已锁定",
+    "lockedSub": "基准附近有界保护",
+    "limited": "受限 · 慢速退让",
+    "limitedSub": "g_保护 ∈ [−3, 0] dB",
+    "saved": "随工程保存：画像 + 方案 + 校准 + 标定快照 + 执行快照",
+    "savedSub": "重开不重学；同一起点重渲染逐位可复现；参考条件一变，校准即失效",
+    "savedNarrow": "随工程保存",
+    "savedSubNarrow": "画像 + 方案 + 校准 + 快照\n重开不重学，逐位可复现\n参考条件一变，校准即失效"
+  },
+  "latency": {
+    "label": "延迟构成示意图",
+    "clay": "收单 574 + 守护 528",
+    "limit": "Clip 过采样 60 + 前瞻 96 + 62",
+    "total": "合计 {{n}} 样本 ≈ {{ms}} ms"
+  }
+}

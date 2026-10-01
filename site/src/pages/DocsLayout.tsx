@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { useLocation, useParams } from 'react-router-dom';
+import { Trans, useTranslation } from 'react-i18next';
+import { LocaleLink, useLocale } from '@/i18n/locale';
 import Markdown from '@/components/docs/Markdown';
 import Toc from '@/components/docs/Toc';
 import { Eyebrow } from '@/components/celadon/Eyebrow';
 import { algoNav, docsNav, flatten, loadMarkdown, mdHeadings, type PageMeta } from '@/content';
+import { usePageText } from '@/content/usePageText';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 
 /**
@@ -13,13 +16,19 @@ import { cn, prefersReducedMotion } from '@/lib/utils';
 export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
   const nav = kind === 'docs' ? docsNav : algoNav;
   const base = kind === 'docs' ? '/docs' : '/algorithms';
-  const label = kind === 'docs' ? '使用说明' : '公开算法';
+  // figures 一起列上：站内跳进文档页时与 docs 并行拉（示意图组件自己再用它，不串行等）
+  const { t } = useTranslation(['docs', 'figures']);
+  const locale = useLocale();
+  const text = usePageText();
+  const label = t(`sections.${kind}`);
   const params = useParams();
   const slug = (params['*'] ?? '').replace(/\/+$/, '');
   const pages = useMemo(() => flatten(nav), [nav]);
   const index = pages.findIndex(p => p.slug === slug);
   const page: PageMeta | undefined = pages[index];
-  const group = page ? nav.find(g => g.pages.includes(page))?.group : undefined;
+  const groupKey = page ? nav.find(g => g.pages.includes(page))?.group : undefined;
+  const group = groupKey ? t(`groups.${groupKey}`) : undefined;
+  const meta = page ? text(kind, page.file) : null;
   const prev = index > 0 ? pages[index - 1] : undefined;
   const next = index >= 0 && index < pages.length - 1 ? pages[index + 1] : undefined;
   const { pathname, hash } = useLocation();
@@ -34,19 +43,19 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
     let alive = true;
     setSource(null);
     setError(null);
-    loadMarkdown(kind, page.file)
+    loadMarkdown(kind, page.file, locale)
       .then(s => alive && setSource(s))
       .catch(e => alive && setError(String(e)));
     return () => {
       alive = false;
     };
-  }, [kind, page]);
+  }, [kind, page, locale]);
 
   // 标题与摘要随页面换；导航（Nav）在每次换路径时先把它们恢复成站点默认，这里再覆盖成本页的。
   useEffect(() => {
-    document.title = page ? `${page.title} · ${label} · Celadon` : `${label} · Celadon`;
-    if (page) document.querySelector('meta[name="description"]')?.setAttribute('content', `${page.title}：${page.summary}（Celadon 青瓷 · ${label}）`);
-  }, [page, label, pathname]);
+    document.title = meta ? t('layout.docTitle', { title: meta.title, section: label }) : t('layout.sectionTitle', { section: label });
+    if (meta) document.querySelector('meta[name="description"]')?.setAttribute('content', t('layout.metaDescription', { title: meta.title, summary: meta.summary, section: label }));
+  }, [meta?.title, meta?.summary, label, pathname, t]);
 
   useEffect(() => {
     if (!source || !hash) return;
@@ -84,7 +93,7 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                 {pages.map(p => {
                   const active = p.slug === slug;
                   return (
-                    <Link
+                    <LocaleLink
                       key={p.slug}
                       to={p.slug ? `${base}/${p.slug}` : base}
                       aria-current={active ? 'page' : undefined}
@@ -93,8 +102,8 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                         active ? 'bg-ink text-paper ring-ink' : 'bg-panel/70 text-ink-2 ring-ink/8 hover:bg-panel'
                       )}
                     >
-                      {p.title}
-                    </Link>
+                      {text(kind, p.file).title}
+                    </LocaleLink>
                   );
                 })}
               </div>
@@ -102,13 +111,13 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
               <div className="hidden lg:block space-y-7">
                 {nav.map(g => (
                   <div key={g.group}>
-                    <div className="mb-3 text-[11px] tracking-[0.22em] text-ink-4">{g.group}</div>
+                    <div className="mb-3 text-[11px] tracking-[0.22em] text-ink-4 [&:lang(en)]:uppercase [&:lang(en)]:tracking-[0.14em]">{t(`groups.${g.group}`)}</div>
                     <ul className="space-y-0.5 border-l border-line">
                       {g.pages.map(p => {
                         const active = p.slug === slug;
                         return (
                           <li key={p.slug}>
-                            <Link
+                            <LocaleLink
                               to={p.slug ? `${base}/${p.slug}` : base}
                               aria-current={active ? 'page' : undefined}
                               className={cn(
@@ -116,8 +125,8 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                                 active ? 'border-c600 font-medium text-ink' : 'border-transparent text-ink-3 hover:border-line-2 hover:text-ink'
                               )}
                             >
-                              {p.title}
-                            </Link>
+                              {text(kind, p.file).title}
+                            </LocaleLink>
                           </li>
                         );
                       })}
@@ -128,13 +137,9 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
             </nav>
             <p className="mt-10 hidden text-[12px] leading-relaxed text-ink-4 lg:block">
               {kind === 'docs' ? (
-                <>
-                  说明文字与插件里的悬停提示一致。想看算法：<Link to="/algorithms" className="text-c700 underline decoration-c300">公开算法</Link>。
-                </>
+                <Trans t={t} i18nKey="layout.docsFooter" components={{ link: <LocaleLink to="/algorithms" className="text-c700 underline decoration-c300" /> }} />
               ) : (
-                <>
-                  只公开算法描述、结构与常数，不贴源码。想看怎么用：<Link to="/docs" className="text-c700 underline decoration-c300">使用说明</Link>。
-                </>
+                <Trans t={t} i18nKey="layout.algoFooter" components={{ link: <LocaleLink to="/docs" className="text-c700 underline decoration-c300" /> }} />
               )}
             </p>
           </div>
@@ -144,9 +149,14 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
           {!page ? (
             <header>
               <p className="text-[12px] tracking-[0.2em] text-c700">{label}</p>
-              <h1 className="mt-4 font-serif text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.12] tracking-tight text-ink">没有这一页</h1>
+              <h1 className="mt-4 font-serif text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.12] tracking-tight text-ink">{t('layout.notFoundTitle')}</h1>
               <p className="mt-5 text-[17px] leading-[1.75] text-ink-2">
-                地址可能改过了。回到<Link to={base} className="mx-1 text-c700 underline decoration-c300 underline-offset-4">{label}</Link>首页，或按 ⌘K / Ctrl K 搜一下。
+                <Trans
+                  t={t}
+                  i18nKey="layout.notFoundBody"
+                  values={{ section: label }}
+                  components={{ link: <LocaleLink to={base} className="text-c700 underline decoration-c300 underline-offset-4 [&:lang(zh)]:mx-1" /> }}
+                />
               </p>
             </header>
           ) : (
@@ -156,24 +166,24 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
                   {label}
                   {group ? <span className="text-ink-4"> · {group}</span> : null}
                 </p>
-                <h1 className="mt-4 font-serif text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.12] tracking-tight text-ink">{page.title}</h1>
-                <p className="mt-5 max-w-[var(--measure)] text-[17px] leading-[1.75] text-ink-2">{page.summary}</p>
+                <h1 className="mt-4 font-serif text-[clamp(2rem,4vw,3.2rem)] font-medium leading-[1.12] tracking-tight text-ink">{meta?.title}</h1>
+                <p className="mt-5 max-w-[var(--measure)] text-[17px] leading-[1.75] text-ink-2">{meta?.summary}</p>
                 <div className="hairline mt-10" />
               </header>
               {error ? (
-                <p className="rounded-2xl bg-warn-soft px-5 py-4 text-[15px] leading-relaxed text-ink-2 ring-1 ring-warn/25">这一页没载入：{error}。刷新再试一次。</p>
+                <p className="rounded-2xl bg-warn-soft px-5 py-4 text-[15px] leading-relaxed text-ink-2 ring-1 ring-warn/25">{t('layout.loadError', { error })}</p>
               ) : null}
               {source === null && !error ? <Skeleton /> : null}
               {source ? <Markdown source={source} /> : null}
-              <nav className="mt-24 grid gap-3 sm:grid-cols-2" aria-label="上一页与下一页">
-                {prev ? <Pager to={prev.slug ? `${base}/${prev.slug}` : base} dir="prev" title={prev.title} /> : <span className="hidden sm:block" aria-hidden="true" />}
-                {next ? <Pager to={next.slug ? `${base}/${next.slug}` : base} dir="next" title={next.title} /> : null}
+              <nav className="mt-24 grid gap-3 sm:grid-cols-2" aria-label={t('layout.pager')}>
+                {prev ? <Pager to={prev.slug ? `${base}/${prev.slug}` : base} dir="prev" title={text(kind, prev.file).title} /> : <span className="hidden sm:block" aria-hidden="true" />}
+                {next ? <Pager to={next.slug ? `${base}/${next.slug}` : base} dir="next" title={text(kind, next.file).title} /> : null}
               </nav>
             </>
           )}
         </article>
 
-        {headings.length > 1 && page ? <Toc key={`${kind}/${page.file}`} items={headings} className="hidden xl:block" /> : null}
+        {headings.length > 1 && page ? <Toc key={`${locale}/${kind}/${page.file}`} items={headings} className="hidden xl:block" /> : null}
       </div>
     </main>
   );
@@ -181,9 +191,10 @@ export default function DocsLayout({ kind }: { kind: 'docs' | 'algorithms' }) {
 
 /** 上一页 / 下一页：素坯（次要内容），不用瓷板。 */
 function Pager({ to, dir, title }: { to: string; dir: 'prev' | 'next'; title: string }) {
+  const { t } = useTranslation('docs');
   const next = dir === 'next';
   return (
-    <Link
+    <LocaleLink
       to={to}
       rel={dir}
       className={cn(
@@ -191,13 +202,13 @@ function Pager({ to, dir, title }: { to: string; dir: 'prev' | 'next'; title: st
         next && 'sm:text-right'
       )}
     >
-      <span className="block text-[12px] tracking-[0.2em] text-ink-4">{next ? '下一页' : '上一页'}</span>
+      <span className="block text-[12px] tracking-[0.2em] text-ink-4">{next ? t('layout.next') : t('layout.prev')}</span>
       <span className={cn('mt-2 flex items-center gap-2.5 font-serif text-[19px] leading-snug text-ink transition-colors duration-300 group-hover:text-c700', next && 'sm:justify-end')}>
         {next ? null : <Arrow className="rotate-180 group-hover:-translate-x-0.5" />}
         {title}
         {next ? <Arrow className="group-hover:translate-x-0.5" /> : null}
       </span>
-    </Link>
+    </LocaleLink>
   );
 }
 

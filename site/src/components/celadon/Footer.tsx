@@ -1,15 +1,17 @@
-import { Link } from 'react-router-dom';
+import { Trans, useTranslation } from 'react-i18next';
 import Mark from './Mark';
 import Seal from './Seal';
+import { LocaleLink } from '@/i18n/locale';
 import { PLUGIN_VERSION } from '@/lib/site';
 
-/** 页脚：落款（竖排「青瓷」+ 印章，全站唯一一枚）+ 三列链接。同一张纸，只用一根细线隔开，不换底色。 */
+/** 页脚：落款（竖排「青瓷」+ 印章，全站唯一一枚；两种语言都保留，是品牌字）+ 三列链接。同一张纸，只用一根细线隔开，不换底色。 */
 export default function Footer() {
+  const { t } = useTranslation();
   return (
     <footer className="relative border-t border-line">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8 py-16 sm:py-20 grid gap-12 md:grid-cols-12">
         <div className="md:col-span-6 flex gap-6">
-          <div className="vertical display text-[56px] leading-none text-c800/85 select-none" aria-hidden="true">
+          <div className="vertical display text-[56px] leading-none text-c800/85 select-none" aria-hidden="true" lang="zh-CN">
             青瓷
           </div>
           <div>
@@ -20,47 +22,46 @@ export default function Footer() {
                 <div className="font-mono text-[12px] tracking-[0.08em] text-ink-4">v{PLUGIN_VERSION}</div>
               </div>
             </div>
-            <p className="mt-6 max-w-sm text-sm leading-relaxed text-ink-3">
-              自用母带插件，Max 和朋友在用，不商用、不售卖。四道工序按固定顺序走：平衡 → 修坯 → 染色 → 限幅；GLAZE 先听这首歌，再决定推多远。
-            </p>
+            <p className="mt-6 max-w-sm text-sm leading-relaxed text-ink-3">{t('footer.blurb')}</p>
             <Seal className="mt-8" />
           </div>
         </div>
         <FooterCol
-          title="使用说明"
+          title={t('footer.docs')}
           links={[
-            ['快速上手', '/docs'],
-            ['GLAZE 与风格', '/docs/glaze'],
-            ['监听方式', '/docs/listening'],
-            ['常见问题', '/docs/faq']
+            [t('footer.quickstart'), '/docs'],
+            [t('footer.glaze'), '/docs/glaze'],
+            [t('footer.listening'), '/docs/listening'],
+            [t('footer.faq'), '/docs/faq']
           ]}
         />
         <FooterCol
-          title="公开算法"
+          title={t('footer.algorithms')}
           links={[
-            ['信号链总览', '/algorithms'],
-            ['GLAZE 决策与校准', '/algorithms/glaze'],
-            ['LIMIT 真峰值限幅', '/algorithms/limit'],
-            ['性能与验证', '/algorithms/verification']
+            [t('footer.overview'), '/algorithms'],
+            [t('footer.glazeAlgo'), '/algorithms/glaze'],
+            [t('footer.limitAlgo'), '/algorithms/limit'],
+            [t('footer.verification'), '/algorithms/verification']
           ]}
         />
         <FooterCol
-          title="获取"
+          title={t('footer.get')}
           links={[
-            [`下载 ${PLUGIN_VERSION}`, '/download'],
-            ['更新日志', '/changelog'],
-            ['安装与兼容', '/docs/install']
+            [t('footer.download', { version: PLUGIN_VERSION }), '/download'],
+            [t('footer.changelog'), '/changelog'],
+            [t('footer.install'), '/docs/install']
           ]}
         />
       </div>
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8 pb-10 flex flex-col sm:flex-row gap-3 justify-between text-[12px] text-ink-4">
-        <p>© 2026 Max Song · VST3 · AU · macOS 12+ · Windows 10 / 11</p>
+        <p>{t('footer.copyright')}</p>
         <p>
-          站点动效 GSAP；部分组件改自{' '}
-          <a className="underline decoration-ink/20 hover:text-ink-2" href="https://reactbits.dev" target="_blank" rel="noreferrer">
-            React Bits
-          </a>
-          （MIT + Commons Clause）
+          <Trans
+            i18nKey="footer.credits"
+            components={{
+              link: <a className="underline decoration-ink/20 hover:text-ink-2" href="https://reactbits.dev" target="_blank" rel="noreferrer" />
+            }}
+          />
         </p>
       </div>
     </footer>
@@ -74,9 +75,9 @@ function FooterCol({ title, links }: { title: string; links: [string, string][] 
       <ul className="space-y-2.5">
         {links.map(([label, to]) => (
           <li key={to}>
-            <Link to={to} className="text-sm text-ink-2 no-underline transition-colors duration-300 hover:text-c700">
+            <LocaleLink to={to} className="text-sm text-ink-2 no-underline transition-colors duration-300 hover:text-c700">
               {label}
-            </Link>
+            </LocaleLink>
           </li>
         ))}
       </ul>

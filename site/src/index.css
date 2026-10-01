@@ -53,6 +53,17 @@
   --measure: 34em;
 }
 
+/*
+  英文页（ADR-024，<html lang="en">）：正文换 Inter，衬线与标题以 Fraunces 打头（思源只在中文页加载，
+  品牌字「青瓷」这类零星汉字落到系统字体）；行宽按英文每行 60～75 个字符。
+*/
+html:lang(en) {
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Fraunces Variable", Georgia, "Songti SC", serif;
+  --font-display: "Fraunces Variable", Georgia, "Songti SC", serif;
+  --measure: 36em;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;

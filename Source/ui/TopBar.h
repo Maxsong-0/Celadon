@@ -63,6 +63,11 @@ namespace celadon::ui
         // paint 里真正排版、画出的文字段数累计（截图工具的检查读它：只重画圆点那一帧应当一段都不画）。
         int getTextDraws() const noexcept                       { return textDraws; }
 
+        // 呼吸推一帧（2.4 s 一个周期）并只作废圆点那一块：30 Hz 定时器调它；截图工具的检查直接调，不等墙钟（T-041）。
+        void advancePulse();
+        bool isPulsing() const noexcept                         { return content.pulse && ! reduceMotion; }
+        const Content& getContent() const noexcept              { return content; }
+
         void paint (juce::Graphics&) override;
         void resized() override;
 

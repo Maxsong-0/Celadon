@@ -31,6 +31,10 @@
 逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中的数值气泡）、`check-original.png`、
 `check-audition.png`、`check-advanced.png`、`check-english.png`。
 
+末尾两条是 T-041（BUG-008）加的小数像素比检查：编辑器保持 1 倍，只把离屏画布的像素比设成 0.7 ～ 2.5（含 T-039 实测的
+1.03293），看状态胶囊呼吸与对齐缓存（`AlignedComponentCache`）的局部作废是不是只重画作废区、结果与整块重画逐字节相同；
+1 倍及以上呼吸帧一段字都不排版，低于 1 倍最多排第一段（设备像素比逻辑像素大，圆点区取整后可能与它的字形余量落进同一列）。
+
 ## 用法
 
 ```bash
@@ -42,12 +46,20 @@ xvfb-run -a build-ui/celadon_ui_snapshot --out shots                    # 全部
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --scale 2          # 2 倍（看 Retina 上的细节）
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --only zh-default,en-help
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --only check       # 交互检查
+xvfb-run -a taskset -c 5 build-ui/celadon_ui_snapshot --only spectrum-bench --seconds 4   # 频谱仪 30 / 60 / 120 帧基准（T-036）
 ```
+
+`--only spectrum-bench`（T-036）：音乐按帧率在放，每帧处理 1 / fps 秒音频、`advanceForSnapshot (1 / fps)`、只重画频谱仪那一块，
+30 / 60 / 120 帧 × 1 / 2 倍各跑 `--seconds` 秒，打印每帧与每秒的 CPU（软件渲染器口径，绑单核跑更稳）。只用改前改后都有的接口，
+能在改前的树上量基线。每帧重画整块频谱仪是上限：真机上只重画曲线新旧包围盒。
 
 Windows 上也能编（CMake + MSVC 或 clang-cl，GUI 目标在 Windows 上不需要额外的依赖包），用法相同。
 
 `EXCLUDE_FROM_ALL`：默认构建（`celadon_tests`）不编它，工具坏了也不挡测试。它会改写用户设置文件里的语言 / 动效 / 默认大小
-（`~/.config/Celadon/Celadon.settings`），跑完会留下最后一种状态的设置。
+（`~/.config/Celadon/Celadon.settings`），跑完会留下最后一种状态的设置。`check` / `bench` / `digest` 开跑前都先放回同一基线
+（中文、不减少动效、默认大小 1），不受上一次留下的值影响（T-039：之前 `check` 漏了默认大小，跑过 `zh-zoom70` / `zh-zoom150` 后
+再跑检查，编辑器按 0.7 / 1.5 倍打开，T-032 的两条缓存检查必然失败，看起来像偶发）。`check` 要求编辑器正好 1200 × 820：
+虚拟屏幕至少 1240 × 900（`xvfb-run` 默认 1280 × 1024 够），否则第一条就报失败并停下。
 
 ## macOS 验证说明
 
