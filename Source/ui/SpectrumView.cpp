@@ -415,6 +415,18 @@ namespace celadon::ui
             pointFrequency[(size_t) i] = SpectrumAnalyser::frequencyAt (i);
         }
 
+        // dB 刻度的底框位置与宽度（字是数字，不随语言变）：量一次，paint 里不再每帧量字宽。
+        {
+            const auto font = monoFont (10.0f);
+            auto db = -12.0f;
+
+            for (auto& chip : dbChips)
+            {
+                chip = dbLabelFor (db, font).chip;
+                db -= 12.0f;
+            }
+        }
+
         for (auto* toggle : { &outputToggle, &inputToggle, &peakToggle })
         {
             addAndMakeVisible (*toggle);
@@ -694,14 +706,12 @@ namespace celadon::ui
                 return padded (area);
             }
 
-            case Layer::dbChips:
             case Layer::dbText:
             {
                 juce::Rectangle<float> area;
-                const auto font = monoFont (10.0f);
 
-                for (float db = -12.0f; db >= -72.0f; db -= 12.0f)
-                    area = area.getUnion (dbLabelFor (db, font).chip);
+                for (const auto& chip : dbChips)
+                    area = area.getUnion (chip);
 
                 return padded (area);
             }
@@ -728,6 +738,15 @@ namespace celadon::ui
         {
             case Layer::back:
             {
+                // 先把裁剪区换成边表（整张图满覆盖）：原来网格是在面板圆角的边表裁剪区里 fillRect 的，小数像素比下细线边缘走
+                // EdgeTable (Rectangle<float>) 的抗锯齿；新图默认的矩形列表裁剪区走另一套浮点矩形抗锯齿
+                // （FloatRectangleRasterisingInfo），边缘覆盖会差 1（与竖纹瓦片同一个处理，见 prepareStripes）。
+                {
+                    juce::Path whole;
+                    whole.addRectangle (layerArea (Layer::back).toFloat().expanded (1.0f));
+                    g.reduceClipRegion (whole);
+                }
+
                 // 面板渐变铺满整个矩形：圆角由贴图时的面板裁剪给出（与原来 fillPath (panel) 同一路径、同一覆盖）。
                 g.setGradientFill (juce::ColourGradient (juce::Colours::white, 0.0f, 0.0f, palette::spectrumFloor, 0.0f, h, false));
                 g.fillAll();
@@ -773,26 +792,16 @@ namespace celadon::ui
                 break;
             }
 
-            case Layer::dbChips:
             case Layer::dbText:
             {
                 const auto dbFont = monoFont (10.0f);
+                g.setFont (dbFont);
+                g.setColour (palette::ink2);
 
                 for (float db = -12.0f; db >= -72.0f; db -= 12.0f)
                 {
                     const auto label = dbLabelFor (db, dbFont);
-
-                    if (which == Layer::dbChips)
-                    {
-                        g.setColour (juce::Colours::white.withAlpha (0.8f));
-                        g.fillRoundedRectangle (label.chip, 3.0f);
-                    }
-                    else
-                    {
-                        g.setFont (dbFont);
-                        g.setColour (palette::ink2);
-                        g.drawText (label.text, label.chip, juce::Justification::centred, false);
-                    }
+                    g.drawText (label.text, label.chip, juce::Justification::centred, false);
                 }
 
                 break;
@@ -838,7 +847,12 @@ namespace celadon::ui
 
             cached.area = area;
             cached.origin = { x0, y0 };
-            cached.image = juce::Image (juce::Image::ARGB, juce::jmax (1, x1 - x0), juce::jmax (1, y1 - y0), true);
+            // 底层不透明，用 RGB 图：JUCE 9 的软件渲染器往 ARGB 上混色按 ÷255 四舍五入，往 RGB 上按 × (256 − α) >> 8，
+            // 半透明的网格 / 斜线画进 ARGB 底层再贴到 RGB 的窗口后备图（Linux 的窗口、截图工具都是 RGB）会差 1；画进 RGB 底层
+            // 与直接画同一套算式。RGB 贴 RGB 满覆盖的行是整行拷贝，也最快。其余几张有透明背景，只能是 ARGB（它们的元素
+            // 是往全透明上画一次，贴回去与直接画相同）。
+            const auto format = which == Layer::back ? juce::Image::RGB : juce::Image::ARGB;
+            cached.image = juce::Image (format, juce::jmax (1, x1 - x0), juce::jmax (1, y1 - y0), true);
             cached.pixelScale = pixelScale;
             cached.valid = true;
 
@@ -870,8 +884,12 @@ namespace celadon::ui
             return;
 
         // 竖纹瓦片（T-032 R9-04 ①）：一行，宽 = 面板宽 × 像素比（向上取整再多 1 像素）。条纹用与原来逐条 fillRect (x, 0, 0.8, h)
-        // 同样的逻辑坐标、同样的像素比与颜色栅格化（相位以组件原点为 0），所以每个设备像素上的覆盖与颜色都一样；纵向靠平铺。
+        // 同样的逻辑坐标、同样的像素比与颜色栅格化（相位以组件原点为 0），每个设备像素上的覆盖与颜色都一样；纵向靠平铺。
+        // OUT 内部（边缘覆盖满）贴出来与原来逐像素相同；OUT 的抗锯齿边上，瓦片像素（已按条纹覆盖率乘过、8 位舍入）再乘一次
+        // 边缘覆盖率，原来是两个覆盖率先相乘再乘颜色，差 ≤ 2 LSB。逐像素相同的写法试过：裁到 OUT 后一次 fillRectList 516 条
+        // （一张每行 1032 条边的边表）——×1 9.6 ms / ×4 63 ms，比瓦片（5.0 / 34 ms）慢近一倍，不取。
         // 整面宽的一行而不是 2 逻辑像素宽的小瓦片：任何像素比下条纹间距都正好 2 逻辑像素，不会因取整漂移。
+        // 一行高：面板高 × 像素比不是整数时（×1.25 等）最底下那一行原来只被条纹部分覆盖，现在满覆盖（那一行被渐隐盖住，差 ≤ 1）。
         // 先把裁剪区换成边表（整行满覆盖）：原来的条纹是在「面板 ∩ OUT」的边表裁剪区里 fillRect 的，走 EdgeTable (Rectangle<float>)
         // 的抗锯齿；新图默认的矩形列表裁剪区走另一套浮点矩形抗锯齿（FloatRectangleRasterisingInfo），边缘覆盖会差 1。
         stripeRow = juce::Image (juce::Image::ARGB, (int) std::ceil ((float) width * pixelScale) + 1, 1, true);
@@ -923,7 +941,7 @@ namespace celadon::ui
         const auto drawPeak = peakToggle.isOn() && intersects (strokeArea (peakLine, 1.0f));
         const auto drawCursor = hoverFrequency.has_value() && intersects (cursorBounds().toFloat());
         const auto drawFrequencyLabels = intersects (layer (Layer::frequencyText).area.toFloat());
-        const auto drawDbLabels = intersects (layer (Layer::dbChips).area.toFloat());
+        const auto drawDbLabels = intersects (layer (Layer::dbText).area.toFloat());
         const auto drawReadout = intersects (layer (Layer::readoutShadow).area.toFloat());
 
         {
@@ -1042,13 +1060,18 @@ namespace celadon::ui
                 g.drawEllipse (dot, 1.6f);
             }
 
-            // ---- 刻度（缓存图）----
+            // ---- 刻度：字是缓存图；dB 的白色底框每次直接画（6 个小圆角矩形，×2 约 0.06 ms）——半透明的抗锯齿边先画进
+            // 透明图再贴，个别边缘像素与直接画差 1（JUCE 单像素与成段的覆盖率算式不同），直接画与原来逐像素相同 ----
             if (drawFrequencyLabels)
                 drawLayer (g, Layer::frequencyText);
 
             if (drawDbLabels)
             {
-                drawLayer (g, Layer::dbChips);
+                g.setColour (juce::Colours::white.withAlpha (0.8f));
+
+                for (const auto& chip : dbChips)
+                    g.fillRoundedRectangle (chip, 3.0f);
+
                 drawLayer (g, Layer::dbText);
             }
 
