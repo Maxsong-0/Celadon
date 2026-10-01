@@ -13,6 +13,12 @@
     0 dBFS 的正弦在自己那个点上读 0 dB（Hann 窗按相干增益归一）。显示时的斜率（dB/oct，绕 1 kHz 转）由画图的一方加。
     只依赖 juce_dsp：无头测试也能编（SpectrumAnalyserTests）。
 
+    T-032（2026-09-30）：
+      - 每个点在 FFT bin 上怎么取（插值的两个 bin 与系数 / 取最大的 bin 区间）只随采样率变：setSampleRate 按原来 analyse 里
+        同一组 double 算式、同样的顺序算一次存表（pointRanges），analyse 每帧只查表——显示逐位不变（R7-05 / R9-10）；
+      - FFT 长度封顶 16384：96 kHz 以上不再翻到 32768（192 kHz 的窗口约 85 ms，低频仍按插值取点，R9-11）；
+      - IN 虚线关着时界面让这里跳过 IN 那路的加窗 + FFT（setInputSpectrumEnabled，R7-05 顺带）。
+
   ==============================================================================
 */
 
@@ -37,9 +43,10 @@ namespace celadon::ui
 
         SpectrumAnalyser();
 
-        // 采样率变了（或第一次）：按它选 FFT 长度（≤ 50 kHz 用 8192 点，更高依次加倍），清空历史。
+        // 采样率变了（或第一次）：按它选 FFT 长度（≤ 50 kHz 用 8192 点，更高一律 16384），重算每个点的取法表，清空历史。
         void setSampleRate (double newSampleRate);
         double getSampleRate() const noexcept                  { return sampleRate; }
+        int getFftSize() const noexcept                        { return fftSize; }
 
         // 追加新样本（按到达顺序）。
         void push (Stream stream, const float* samples, int numSamples);
@@ -64,6 +71,13 @@ namespace celadon::ui
         // 整体清零（编辑器刚打开、采样率变了）。
         void reset();
 
+        // IN 那一路做不做频谱（加窗 + FFT）。界面上 IN 虚线关着时不做：样本照收（环形缓冲、RMS 照常），只省掉每帧一次加窗与 FFT；
+        // 关的一刻 IN 的显示曲线落到底线。重新打开后，下一次有 IN 新样本的 update() 直接取那一帧的测量值（不从底线按「升」慢慢爬），
+        // 在那之前 hasInputSpectrum() 为假（界面据此先不画 IN）。默认开：只用计算器的一方（测试、别的工具）与以前逐位相同。
+        void setInputSpectrumEnabled (bool shouldAnalyse) noexcept;
+        bool isInputSpectrumEnabled() const noexcept            { return inputSpectrumEnabled; }
+        bool hasInputSpectrum() const noexcept                  { return inputSpectrumEnabled && ! inputSeedPending; }
+
         // OUT 换了来源（A / B 切换、试听差值开关）：OUT 的历史、显示、平均线与峰值线清掉重来——前一种信号的峰值不再保持 1.5 s、
         // 平均线不再慢慢退，曲线只描述此刻听到的。平均线与峰值线等 OUT 攒满一整个 FFT 窗口的新样本后，从那一刻的显示曲线起步。
         // IN 不动。
@@ -81,6 +95,16 @@ namespace celadon::ui
             float recentRmsDb = floorDb;
         };
 
+        // 一个显示点在 bin 上的取法（setSampleRate 里算好）：interpolate = 点比一个 bin 还窄（低频），在 first、last 两个 bin 之间
+        // 按 t 做功率插值；否则点覆盖 [first, last] 几个 bin（高频），取其中最大的功率。
+        struct PointRange
+        {
+            int first = 0, last = 0;
+            double t = 0.0;
+            bool interpolate = false;
+        };
+
+        void updatePointRanges();
         void analyse (Channel& channel, std::vector<float>& spectrumDb);
 
         double sampleRate = 48000.0;
@@ -90,10 +114,14 @@ namespace celadon::ui
         std::vector<float> window, fftBuffer, measured;
         float windowGain = 1.0f;
 
+        std::vector<PointRange> pointRanges;
+
         std::array<Channel, 2> channels;
         std::vector<float> average, averageSmoothed, peak, scratch;
         std::vector<int> peakHoldFrames;
         int outputSamplesSinceRestart = -1;   // ≥ 0：restartOutput 之后 OUT 已到的新样本数（攒满 FFT 长度才恢复平均线与峰值线）
+        bool inputSpectrumEnabled = true;
+        bool inputSeedPending = false;        // IN 刚重新打开：下一次分析直接取测量值
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumAnalyser)
     };

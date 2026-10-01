@@ -8,6 +8,7 @@
 
 #include "SpectrumAnalyser.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace celadon::ui
@@ -68,7 +69,10 @@ namespace celadon::ui
         if (! (newSampleRate > 0.0))
             newSampleRate = 48000.0;
 
-        const auto order = newSampleRate <= 50000.0 ? 13 : (newSampleRate <= 100000.0 ? 14 : 15);
+        // ≤ 50 kHz 用 8192 点（48 kHz 时窗口约 170 ms）；更高一律 16384（T-032 R9-11）：显示上限 20 kHz，高于它的内容本就不画，
+        // 192 kHz 时再翻到 32768 只让没有 vDSP 的平台（Windows 的 JUCE 回退 FFT）每帧多花一倍；封顶后 192 kHz 的窗口约 85 ms，
+        // 频率分辨率减半，低频的点仍按相邻两个 bin 插值，看起来差别很小。
+        const auto order = newSampleRate <= 50000.0 ? 13 : 14;
 
         if (fft != nullptr && order == fftOrder && juce::approximatelyEqual (newSampleRate, sampleRate))
             return;
@@ -91,11 +95,50 @@ namespace celadon::ui
         windowGain = (float) (2.0 / sum);
         fftBuffer.assign ((size_t) (2 * fftSize), 0.0f);
         measured.assign ((size_t) numPoints, floorDb);
+        updatePointRanges();
 
         for (auto& channel : channels)
             channel.history.assign ((size_t) fftSize, 0.0f);
 
         reset();
+    }
+
+    void SpectrumAnalyser::updatePointRanges()
+    {
+        // T-032（R7-05 / R9-10）：每个点的 bin 区间与插值系数只随采样率变，以前在 analyse 里每帧每点重算（3 次 pow + floor / ceil）。
+        // 这里用原来那组 double 算式、同样的顺序算一次存表（2^±halfStep 与点号无关，只算一次，值相同），analyse 查表的结果逐位不变。
+        const auto binWidth = sampleRate / (double) fftSize;
+        const auto lastBin = fftSize / 2;
+        const auto halfStep = 0.5 * std::log2 ((double) maxFrequency / (double) minFrequency) / (double) (numPoints - 1);
+        const auto lowRatio = std::pow (2.0, -halfStep);
+        const auto highRatio = std::pow (2.0, halfStep);
+
+        pointRanges.resize ((size_t) numPoints);
+
+        for (int i = 0; i < numPoints; ++i)
+        {
+            const auto f = (double) frequencyAt (i);
+            const auto low = f * lowRatio / binWidth;
+            const auto high = f * highRatio / binWidth;
+            auto& range = pointRanges[(size_t) i];
+            range.interpolate = high - low < 1.0;
+
+            if (range.interpolate)
+            {
+                // 低频：一个点比一个 bin 还窄——在相邻两个 bin 之间按功率插值。
+                const auto position = juce::jlimit (0.0, (double) lastBin, f / binWidth);
+                range.first = juce::jlimit (0, lastBin, (int) std::floor (position));
+                range.last = juce::jmin (lastBin, range.first + 1);
+                range.t = position - (double) range.first;
+            }
+            else
+            {
+                // 高频：一个点覆盖好几个 bin——取其中最大的（保住谐波的尖峰；取平均会把正弦压低几个 dB）。
+                range.first = juce::jlimit (0, lastBin, (int) std::floor (low));
+                range.last = juce::jlimit (range.first, lastBin, (int) std::ceil (high));
+                range.t = 0.0;
+            }
+        }
     }
 
     void SpectrumAnalyser::reset()
@@ -115,6 +158,22 @@ namespace celadon::ui
         peak.assign ((size_t) numPoints, floorDb);
         peakHoldFrames.assign ((size_t) numPoints, 0);
         outputSamplesSinceRestart = -1;
+    }
+
+    void SpectrumAnalyser::setInputSpectrumEnabled (bool shouldAnalyse) noexcept
+    {
+        if (shouldAnalyse == inputSpectrumEnabled)
+            return;
+
+        inputSpectrumEnabled = shouldAnalyse;
+        inputSeedPending = shouldAnalyse;
+
+        // 关：IN 的显示曲线落到底线（不再跟踪，不留一条停住的旧曲线）。开：下一次分析直接取测量值（见 update）。
+        if (! shouldAnalyse)
+        {
+            auto& display = channels[(size_t) Stream::input].display;
+            std::fill (display.begin(), display.end(), floorDb);
+        }
     }
 
     void SpectrumAnalyser::restartOutput()
@@ -169,35 +228,21 @@ namespace celadon::ui
         std::fill (fftBuffer.begin() + fftSize, fftBuffer.end(), 0.0f);
         fft->performFrequencyOnlyForwardTransform (fftBuffer.data(), true);
 
-        const auto binWidth = sampleRate / (double) fftSize;
-        const auto lastBin = fftSize / 2;
-        const auto halfStep = 0.5 * std::log2 ((double) maxFrequency / (double) minFrequency) / (double) (numPoints - 1);
-
         const auto powerAt = [this] (int bin) { const auto m = (double) fftBuffer[(size_t) bin]; return m * m; };
 
+        // 每个点的取法查 setSampleRate 算好的表（updatePointRanges）。
         for (int i = 0; i < numPoints; ++i)
         {
-            const auto f = (double) frequencyAt (i);
-            const auto low = f * std::pow (2.0, -halfStep) / binWidth;
-            const auto high = f * std::pow (2.0, halfStep) / binWidth;
+            const auto& range = pointRanges[(size_t) i];
             double power = 0.0;
 
-            if (high - low < 1.0)
+            if (range.interpolate)
             {
-                // 低频：一个点比一个 bin 还窄——在相邻两个 bin 之间按功率插值。
-                const auto position = juce::jlimit (0.0, (double) lastBin, f / binWidth);
-                const auto below = juce::jlimit (0, lastBin, (int) std::floor (position));
-                const auto above = juce::jmin (lastBin, below + 1);
-                const auto t = position - (double) below;
-                power = powerAt (below) * (1.0 - t) + powerAt (above) * t;
+                power = powerAt (range.first) * (1.0 - range.t) + powerAt (range.last) * range.t;
             }
             else
             {
-                // 高频：一个点覆盖好几个 bin——取其中最大的（保住谐波的尖峰；取平均会把正弦压低几个 dB）。
-                const auto first = juce::jlimit (0, lastBin, (int) std::floor (low));
-                const auto last = juce::jlimit (first, lastBin, (int) std::ceil (high));
-
-                for (int bin = first; bin <= last; ++bin)
+                for (int bin = range.first; bin <= range.last; ++bin)
                     power = juce::jmax (power, powerAt (bin));
             }
 
@@ -208,29 +253,48 @@ namespace celadon::ui
 
     void SpectrumAnalyser::update()
     {
-        for (auto& channel : channels)
+        for (size_t index = 0; index < channels.size(); ++index)
         {
+            auto& channel = channels[index];
+
+            // IN 虚线关着时不做 IN 的频谱（setInputSpectrumEnabled）：RMS 照算，显示曲线留在底线。
+            const auto isInput = index == (size_t) Stream::input;
+            const auto analysed = ! isInput || inputSpectrumEnabled;
+
             if (channel.newSamples > 0)
             {
                 const auto meanSquare = channel.newEnergy / (double) channel.newSamples;
                 channel.recentRmsDb = meanSquare > 0.0 ? juce::jmax (floorDb, (float) (10.0 * std::log10 (meanSquare))) : floorDb;
 
-                // 不沿频率平滑（在 dB 上平均会把一两个点宽的谐波尖峰削掉十几 dB）；平滑只给平均线。
-                analyse (channel, measured);
-
-                for (int i = 0; i < numPoints; ++i)
+                if (analysed)
                 {
-                    auto& shown = channel.display[(size_t) i];
-                    const auto target = measured[(size_t) i];
-                    shown += (target - shown) * (target > shown ? riseAmount : fallAmount);
+                    // 不沿频率平滑（在 dB 上平均会把一两个点宽的谐波尖峰削掉十几 dB）；平滑只给平均线。
+                    analyse (channel, measured);
+
+                    if (isInput && inputSeedPending)
+                    {
+                        // IN 刚重新打开：直接取这一帧的测量值——关着的那段时间没有跟踪，从底线按「升」爬上来会让人以为信号在变。
+                        std::copy (measured.begin(), measured.end(), channel.display.begin());
+                        inputSeedPending = false;
+                    }
+                    else
+                    {
+                        for (int i = 0; i < numPoints; ++i)
+                        {
+                            auto& shown = channel.display[(size_t) i];
+                            const auto target = measured[(size_t) i];
+                            shown += (target - shown) * (target > shown ? riseAmount : fallAmount);
+                        }
+                    }
                 }
             }
             else
             {
                 channel.recentRmsDb = floorDb;
 
-                for (auto& shown : channel.display)
-                    shown = juce::jmax (floorDb, shown - idleFallDb);
+                if (analysed)
+                    for (auto& shown : channel.display)
+                        shown = juce::jmax (floorDb, shown - idleFallDb);
             }
 
             channel.newSamples = 0;
