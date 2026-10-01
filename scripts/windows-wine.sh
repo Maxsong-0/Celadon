@@ -103,7 +103,7 @@ mkdir -p "$BUILD" "$HOME/.cache/celadon-locks"
 exec 9>"$HOME/.cache/celadon-locks/win-$(basename "$CELADON_REMOTE").lock"
 flock 9
 
-[ -x "$MSVC/bin/x64/cl" ] || { echo "服务器上没有 $MSVC：先跑 scripts/setup-windows-wine.sh" >&2; exit 1; }
+[ -x "$MSVC/bin/x64/cl" ] || { echo "服务器上没有 ${MSVC}：先跑 scripts/setup-windows-wine.sh" >&2; exit 1; }
 export PATH="$MSVC/bin/x64:$PATH"
 export WINEDEBUG=-all
 
@@ -160,7 +160,7 @@ build_plugin() {
   juce="$(awk '/: warning [A-Z]+[0-9]+/ && index($0, "\\JUCE\\modules\\")' "$log" | sort -u | wc -l)"
   grep -E ': (fatal )?error ' "$log" | sort -u | head -40 || true
   [ -n "$own" ] && printf '%s\n' "$own"
-  echo "msbuild 退出码 $status；本工程源码的警告 / 错误 $(printf '%s' "$own" | grep -c . || true) 条；JUCE 模块警告 $juce 条（完整日志：$log）"
+  echo "msbuild 退出码 ${status}；本工程源码的警告 / 错误 $(printf '%s' "$own" | grep -c . || true) 条；JUCE 模块警告 $juce 条（完整日志：${log}）"
 
   if [ "$status" -ne 0 ] || [ -n "$own" ]; then
     return 1

@@ -57,7 +57,7 @@ while read -r sum name || [ -n "${sum:-}" ]; do
   [[ "$sum" =~ ^[0-9a-f]{64}$ ]] || die "SHA256SUMS 里有一行不是 SHA-256：$sum"
   [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]*$ ]] || die "SHA256SUMS 里的文件名不合规：$name"
   [[ "$name" == Celadon-"$VERSION"-* ]] || die "$name 不是 $VERSION 的安装包"
-  [ -f "$REL/$name" ] || die "SHA256SUMS 列了 $name，发布目录里却没有"
+  [ -f "$REL/$name" ] || die "SHA256SUMS 列了 ${name}，发布目录里却没有"
   FILES+=("$name")
   SUMS+=("$sum")
 done <"$REL/SHA256SUMS"
@@ -75,10 +75,10 @@ done
 for linked in $(grep -oE 'Celadon-[0-9][0-9.]*-[A-Za-z0-9._+-]+' "$CHUNK" | sort -u); do
   found=0
   for name in "${FILES[@]}"; do [ "$name" = "$linked" ] && found=1; done
-  [ "$found" = 1 ] || die "下载页链接了 $linked，但它不在 $(basename "$REL")/SHA256SUMS 里"
+  [ "$found" = 1 ] || die "下载页链接了 ${linked}，但它不在 $(basename "$REL")/SHA256SUMS 里"
 done
 
-echo "✔ 本机检查通过：版本 $VERSION，发布目录 $(basename "$REL")，${#FILES[@]} 个安装包 + SHA256SUMS，与下载页一致"
+echo "✔ 本机检查通过：版本 ${VERSION}，发布目录 $(basename "$REL")，${#FILES[@]} 个安装包 + SHA256SUMS，与下载页一致"
 for i in "${!FILES[@]}"; do
   printf '    %-44s %9s 字节  %s…\n' "${FILES[$i]}" "$(stat -f%z "$REL/${FILES[$i]}")" "${SUMS[$i]:0:12}"
 done

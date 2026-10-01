@@ -19,7 +19,7 @@ if [ "$#" -lt 2 ]; then
   exit 2
 fi
 if [ ! -f "$LIB" ]; then
-  echo "找不到 $LIB：先跑一次 scripts/test-local.sh" >&2
+  echo "找不到 ${LIB}：先跑一次 scripts/test-local.sh" >&2
   exit 2
 fi
 
