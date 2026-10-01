@@ -2102,7 +2102,9 @@ namespace celadon::glaze
             // 只核对自动部分（T-032 R6-02 收尾，A11）：手动单独已超预算的项不设约束，其余照风格上限（releaseManualBudget 的说明）。
             // 手动没超预算（掩码 0）时交出去的上限与修前逐位相同。
             const auto released = static_cast<std::uint8_t> (slot.plan.manualBudgetMask & manualBudgetAll);
-            const auto caps = releaseManualBudget (blendConstants (slot.source.constants, slot.plan.weights), released);
+            // T-038：保护层 / 上游监视与方案同一套上限（俱乐部档放宽限幅预算；其余交付逐位同两参数版）。
+            const auto caps = releaseManualBudget (blendConstants (slot.source.constants, slot.plan.weights, slot.source.genre,
+                                                                   slot.source.delivery), released);
             guard.setLimits (caps, slot.source.constants);
             monitor.setCaps (caps);
 

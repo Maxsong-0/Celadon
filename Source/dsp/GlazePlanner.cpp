@@ -1425,6 +1425,27 @@ namespace celadon::glaze
         return s;
     }
 
+    StyleConstants blendConstants (const Constants& c, const StyleWeights& weights, Genre genre, Delivery delivery) noexcept
+    {
+        auto s = blendConstants (c, weights, genre);
+
+        if (delivery == Delivery::club)
+        {
+            // 只放宽风格里生效的上限（> 0 且有限）：0 / 负值 / NaN 是「不设约束」的约定，加上余量会把它变成生效的上限。
+            const auto widen = [] (float& cap, float extra) noexcept
+            {
+                if (isFinite (cap) && cap > 0.0f && isFinite (extra) && extra > 0.0f)
+                    cap += extra;
+            };
+
+            widen (s.limitGrMeanCapDb, c.delivery.clubLimitGrMeanExtraDb);
+            widen (s.limitGrP95CapDb, c.delivery.clubLimitGrP95ExtraDb);
+            widen (s.limitGrPeakCapDb, c.delivery.clubLimitGrPeakExtraDb);
+        }
+
+        return s;
+    }
+
     // House 档往亮的上限（第 3.1 节：+0.4 dB；DJ 变速后，靠极高频撑起来的声音会发假）。通用档原样返回 toneMaxDb：调用方的
     // clampTo (x, −toneMaxDb, toneMaxDb) 与 main 是同一个式子（非有限的 toneMaxDb 也原样，整项 Tone 的开关仍由 toneMaxDb > 0 管）。
     // House 子类的值按「预算类上限」处理：≤ 0 或 NaN → 0（不许往亮），+∞ 不设上限（与 toneMaxDb 本身的口径一致，最后还有参数范围 ±3 dB）。
@@ -1483,7 +1504,7 @@ namespace celadon::glaze
         // 也走这里：覆盖的三项它都不用，所以手动链单独的用量与曲风无关。
         Context ctx;
         ctx.c = &c;
-        ctx.sc = blendConstants (c, weights, inputs.genre);
+        ctx.sc = blendConstants (c, weights, inputs.genre, inputs.delivery);   // T-038：曲风覆盖音色、俱乐部档放宽限幅预算
         ctx.glue.slope = c.glueRatio > 1.0f ? 1.0f - 1.0f / c.glueRatio : 0.0f;
         ctx.glue.kneeWidth = nonNegative (c.glueKneeDb);
 

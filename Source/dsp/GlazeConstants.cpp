@@ -226,6 +226,9 @@ namespace celadon::glaze
             v.optionalField ("delivery_clubMinLufs", d.clubMinLufs, f.clubMinLufs);
             v.optionalField ("delivery_clubMaxLufs", d.clubMaxLufs, f.clubMaxLufs);
             v.optionalField ("delivery_styleOffsetReferenceLufs", d.styleOffsetReferenceLufs, f.styleOffsetReferenceLufs);
+            v.optionalField ("delivery_clubLimitGrMeanExtraDb", d.clubLimitGrMeanExtraDb, f.clubLimitGrMeanExtraDb);
+            v.optionalField ("delivery_clubLimitGrP95ExtraDb", d.clubLimitGrP95ExtraDb, f.clubLimitGrP95ExtraDb);
+            v.optionalField ("delivery_clubLimitGrPeakExtraDb", d.clubLimitGrPeakExtraDb, f.clubLimitGrPeakExtraDb);
         }
 
         float legacyHeatFloorOf (const Constants& c) noexcept

@@ -2904,6 +2904,48 @@ namespace celadon::test
                 expect (target (-9.0f, Delivery::standard) > -9.0f + 1.0f, utf8 ("标准档照旧保留最少推响量"));
             }
 
+            // 集成时追加（Max 2026-10-01「俱乐部档放宽预算」）：四参数 blendConstants 只在俱乐部档、只对生效的限幅上限加余量。
+            beginTest ("T-038: the club delivery widens only the enforced limiter budgets (+1 / +2 / +3 dB); other deliveries are the 3-argument blend");
+            {
+                const auto& clubFactory = factoryConstants();
+                const StyleWeights weightsList[] { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.2f, 0.5f, 0.3f } };
+
+                for (const auto& w : weightsList)
+                    for (int genre = 0; genre < numGenres; ++genre)
+                    {
+                        const auto base = blendConstants (clubFactory, w, (Genre) genre);
+                        const auto club = blendConstants (clubFactory, w, (Genre) genre, Delivery::club);
+                        expectEquals (club.limitGrMeanCapDb, base.limitGrMeanCapDb + 1.0f);
+                        expectEquals (club.limitGrP95CapDb, base.limitGrP95CapDb + 2.0f);
+                        expectEquals (club.limitGrPeakCapDb, base.limitGrPeakCapDb + 3.0f);
+                        expect (club.heatDriveCap == base.heatDriveCap && club.glueGrMeanCapDb == base.glueGrMeanCapDb
+                                    && club.clipDepthCapDb == base.clipDepthCapDb && club.preferredLufs == base.preferredLufs,
+                                utf8 ("俱乐部档只动限幅三项"));
+
+                        for (const auto delivery : { Delivery::standard, Delivery::streaming })
+                        {
+                            const auto other = blendConstants (clubFactory, w, (Genre) genre, delivery);
+                            expect (sameBits (other.limitGrMeanCapDb, base.limitGrMeanCapDb) && sameBits (other.limitGrP95CapDb, base.limitGrP95CapDb)
+                                        && sameBits (other.limitGrPeakCapDb, base.limitGrPeakCapDb),
+                                    utf8 ("标准 / 流媒体档与三参数版逐位相同"));
+                        }
+                    }
+
+                auto unenforced = clubFactory;   // 不设约束（0）的上限不会被余量变成生效的上限
+                unenforced.clean.limitGrPeakCapDb = 0.0f;
+                expectEquals (blendConstants (unenforced, { 0.0f, 0.0f, 1.0f }, Genre::general, Delivery::club).limitGrPeakCapDb, 0.0f);
+
+                // 受限幅预算限制的素材（动态大）：俱乐部档放宽后方案的实际增益更高；把余量设成 0 就退回原来的上限。
+                const auto p = makeProfile (-20.0f, -2.0f, 5.0f);
+                auto noExtra = clubFactory;
+                noExtra.delivery.clubLimitGrMeanExtraDb = noExtra.delivery.clubLimitGrP95ExtraDb = noExtra.delivery.clubLimitGrPeakExtraDb = 0.0f;
+                const auto widened = planWithGenre (&p, Style::clean, 100.0f, Genre::deepHouse, Delivery::club, nullptr, nullptr);
+                const auto strict = planWithGenre (&p, Style::clean, 100.0f, Genre::deepHouse, Delivery::club, &noExtra, nullptr);
+                logMessage ("  club effective gain: widened " + juce::String (widened.effectiveGainDb, 2) + " dB, strict "
+                            + juce::String (strict.effectiveGainDb, 2) + " dB");
+                expect (widened.effectiveGainDb > strict.effectiveGainDb + 0.5f, utf8 ("放宽后俱乐部版能推得更响"));
+            }
+
             beginTest ("T-038: General + Standard never reads the genre or delivery constants; explicit defaults equal default PlanInputs");
             {
                 // 通用 + 标准用哪份快照都与出厂逐位相同（含 Clay），也与不设 genre / delivery 的 PlanInputs 逐位相同；标准档（任何曲风）不读

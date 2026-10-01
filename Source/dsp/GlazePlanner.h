@@ -104,6 +104,11 @@ namespace celadon::glaze
     // 两参数版。其余字段（动态预算、偏好响度、Tone 往暗上限 toneMaxDb）两版恒逐位相同，所以保护层与上游监视用哪一版都一样。
     StyleConstants blendConstants (const Constants&, const StyleWeights&, Genre) noexcept;
 
+    // T-038 集成（Max 2026-10-01「俱乐部档放宽预算」）：在三参数版之上，俱乐部档把风格里生效的（> 0 且有限）限幅三项上限各加
+    // DeliveryConstants::clubLimitGr*ExtraDb；其余交付与其余字段逐位等于三参数版。方案（planningContext）与编排器的保护层 / 上游监视
+    // 都用这一版（同一方案源的曲风与交付），运行时不会把方案许可的限幅当成超预算退让。纯函数、不分配。
+    StyleConstants blendConstants (const Constants&, const StyleWeights&, Genre, Delivery) noexcept;
+
     // T-038：自动 Tone 满强度增量（乘 GLAZE × κ 之前）往亮的上限。通用档（以及越界的曲风值）= sc.toneMaxDb，与往暗对称（逐位同 main）；
     // House 子类 = 该子类的 GenreConstants::toneMaxBrightDb（≤ 0 或 NaN = 不许往亮，同「预算类上限」的约定）。往暗一律是 −sc.toneMaxDb；
     // sc.toneMaxDb ≤ 0 时整项 Tone 照旧不动（曲风只换往亮的边界，不重开风格关掉的 Tone）。sc = 上面任一版的混合结果。

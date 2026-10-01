@@ -5,10 +5,11 @@
 #      celadon_render 加 --listen-from-bar 1,<drop 起始小节>；比第一遍结束时已提交方案的 plan_gain_db，两行都得「已锁定」）；
 #   ② drop 段限幅 GR 不超风格预算：drop 各小节的块 GR（块内最大，比插件保护层按 10 ms 时隙的均值偏严）——均值 ≤ limitGrMeanCapDb、
 #      高于 limitGrP95CapDb 的块 ≤ 5 %（即 P95 ≤ 上限）、最大 ≤ limitGrPeakCapDb；预算取成品末尾保护层生效的上限（budget_* 列）；
-#   ③ breakdown → drop 的响度落差：处理后比处理前最多少 1 LU（段落响度 = 段内各小节有效子块的 K 加权能量平均，输入 / 成品各一份）；
+#   ③ breakdown → drop 的响度落差：处理后比处理前最多少 1 LU（俱乐部档 1.5 LU，Max 2026-10-01）（段落响度 = 段内各小节有效子块的 K 加权能量平均，输入 / 成品各一份）；
 #   ④ 真峰值不超过交付档上限：成品真峰值 ≤ 交给限幅器的有效 Ceiling + 0.01 dB；流媒体档另查有效 Ceiling ≤ −2.0 dBTP；
 #   ⑤ drop 段响度落在目标 ±1 LU（只有流媒体 / 俱乐部）：目标 = clamp(基准 + 风格偏移 − LRA 修正, 档内范围)（规格第 4.1 节），
 #      GLAZE < 100 时按决策器同一关系折算：目标_g = drop 输入响度 + GLAZE × (目标 − drop 输入响度)；每个 drop 段分别判。
+#      方案受预算限制（plan_effective_target_lufs 比 plan_requested_target_lufs 低 0.05 LU 以上）时改判方案实际目标 ±1 LU，另列差距（Max 2026-10-01）。
 # 另打印「门控对照」：用输入端逐小节的段响度与低频占比按规格第 2.3 节离线门控一遍（整首都听过），前奏被挡住、drop 通过的比例——
 # 门控阈值标定（规格第 6 节）用；不判定。
 #
@@ -41,6 +42,8 @@ PLAN_GAIN_TOLERANCE_DB = 0.5       # ①
 P95_OVER_FRACTION = 0.05           # ②：高于 P95 上限的块不超过 5 %
 BUDGET_EPSILON_DB = 0.01           # ② ④ 的比较余量（同 gate_check.py 的真峰值容差）
 BREAKDOWN_DROP_LOSS_LU = 1.0       # ③
+BREAKDOWN_DROP_LOSS_CLUB_LU = 1.5  # ③ 俱乐部档（Max 2026-10-01：俱乐部档放宽限幅预算 +1 / +2 / +3 dB，对比最多少 1.5 LU）
+TARGET_LIMITED_EPSILON_LU = 0.05   # ⑤ 方案自己的实际目标比请求目标低这么多以上 = 受预算限制
 TARGET_WINDOW_LU = 1.0             # ⑤
 
 EXTENDED_COLUMNS = ('genre', 'delivery', 'listen_from_bar', 'plan_gain_db', 'effective_ceiling_dbtp', 'segments_file')
@@ -223,7 +226,8 @@ def gate_budget(row, out_segments, drops):
     return ('PASS' if 'PASS' in verdicts else 'N/A'), '；'.join(notes)
 
 
-def gate_breakdown(in_segments, out_segments, sections):
+def gate_breakdown(row, in_segments, out_segments, sections):
+    limit = BREAKDOWN_DROP_LOSS_CLUB_LU if row.get('delivery') == 'club' else BREAKDOWN_DROP_LOSS_LU
     if out_segments is None or in_segments is None:
         return 'N/A', '缺输入或成品的逐段统计（--segments-csv）'
     pairs = []
@@ -243,7 +247,7 @@ def gate_breakdown(in_segments, out_segments, sections):
             verdicts.append('N/A')
             notes.append(f"{breakdown['name']} → {drop['name']}：有一段没有有效子块")
             continue
-        ok = dout >= din - BREAKDOWN_DROP_LOSS_LU - 1e-9
+        ok = dout >= din - limit - 1e-9
         verdicts.append('PASS' if ok else 'FAIL')
         notes.append(f"{breakdown['name']} → {drop['name']}：处理前 {fmt(din, 2, True)} LU、处理后 {fmt(dout, 2, True)} LU（少 {fmt(din - dout)} LU）")
     if 'FAIL' in verdicts:
@@ -308,6 +312,12 @@ def gate_target(row, in_segments, out_segments, drops):
         return 'N/A', 'drop 段输入没有有效子块'
     scaled = drop_in + glaze * (target - drop_in)
     verdicts, notes = [], [f"{note}；GLAZE {fmt(100.0 * glaze, 0)} 折算 {fmt(scaled)}（drop 输入 {fmt(drop_in)}）；方案自己的目标 {fmt(num(row.get('plan_requested_target_lufs')))}"]
+    # Max 2026-10-01（选「保持现在这档」）：方案受风格（俱乐部档已放宽的）预算限制时，判它自己实际能到的目标 ±1 LU，另列离原目标差多少。
+    effective = num(row.get('plan_effective_target_lufs'))
+    requested = num(row.get('plan_requested_target_lufs'))
+    if math.isfinite(effective) and math.isfinite(requested) and effective < requested - TARGET_LIMITED_EPSILON_LU:
+        notes.append(f"方案受预算限制：实际目标 {fmt(effective)}，比原目标低 {fmt(requested - effective)} LU，按实际目标判")
+        scaled = effective
     for section in drops:
         out = section_loudness(out_segments, section)
         if not math.isfinite(out):
@@ -400,7 +410,7 @@ def main(argv):
                 results = [
                     gate_plan_gain(row, partners if row['listen_from_bar'] == '1' else []),
                     gate_budget(row, out_segments, drops),
-                    gate_breakdown(in_segments, out_segments, sections),
+                    gate_breakdown(row, in_segments, out_segments, sections),
                     gate_true_peak(row),
                     gate_target(row, in_segments, out_segments, drops),
                 ]
