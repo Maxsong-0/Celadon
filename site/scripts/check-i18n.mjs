@@ -4,10 +4,11 @@
 //   3. 导航：每页在两种语言的 docs 命名空间里都有标题与摘要，每个分组都有名字；
 //   4. 英文资源里不得出现汉字（JSON、Markdown 去掉代码后、changelog.ts 的 en 文案、share.json）；
 //   5. index.html 写死的英文标题 / 描述 / 分享卡片与文案一致（gen-zh-html 按同一份文案出中文版）；
-//   6. 对外文案不提任何对标插件（ADR-023），两种语言都查。
+//   6. 对外文案不提任何对标插件（ADR-023），两种语言都查；
+//   7. 站内链接：正文与组件里的站内路径都在路由表里，带 #锚点 的锚点存在（正文按同语言目标页的标题算，与 Markdown.tsx 同一个 slugify）。
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { LOCALES, SITE, read, readJson, readNav } from './site-data.mjs';
+import { LOCALES, SITE, allPaths, read, readJson, readNav } from './site-data.mjs';
 
 const errors = [];
 const fail = msg => errors.push(msg);
@@ -145,9 +146,68 @@ for (const rel of [...walk('src'), 'index.html']) {
     });
 }
 
+// ---- 7. 站内链接与锚点 ----
+const routes = new Set(allPaths(nav));
+// 带扩展名的是静态文件（public/ 下的图片、安装包页另有 /downloads/），其余是页面路由
+const isFile = route => /\.[a-z0-9]+$/i.test(route);
+const fileExists = route => existsSync(path.join(SITE, 'public', route));
+// 与 src/content/index.ts 的 slugify 相同（标题 id、本页目录、搜索深链共用）
+const slugify = t =>
+  t
+    .trim()
+    .toLowerCase()
+    .replace(/[`*_~]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+|-+$/g, '');
+const pageFile = route => {
+  for (const kind of ['docs', 'algorithms']) {
+    const base = `/${kind}`;
+    if (route !== base && !route.startsWith(`${base}/`)) continue;
+    const slug = route.slice(base.length + 1);
+    return { kind, file: nav[kind].pages.find(p => p.slug === slug)?.file };
+  }
+  return null;
+};
+const headingIds = (kind, file, l) =>
+  new Set(
+    stripCode(read(`src/content/${kind}/${l}/${file}.md`))
+      .split('\n')
+      .filter(line => /^#{2,3} /.test(line))
+      .map(line => slugify(line.replace(/^#{2,3} /, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')))
+  );
+for (const kind of ['docs', 'algorithms'])
+  for (const l of LOCALES)
+    for (const p of nav[kind].pages) {
+      const rel = `src/content/${kind}/${l}/${p.file}.md`;
+      if (!existsSync(path.join(SITE, rel))) continue;
+      for (const m of stripCode(read(rel)).matchAll(/\]\(((?:\/|#)[^)\s]*)\)/g)) {
+        const [route0, hash] = m[1].split('#');
+        const route = route0 === '' ? (p.slug ? `/${kind}/${p.slug}` : `/${kind}`) : route0.replace(/\/+$/, '') || '/';
+        if (isFile(route)) {
+          if (!fileExists(route)) fail(`${rel}：链接的文件 ${m[1]} 在 public/ 里不存在`);
+          continue;
+        }
+        if (!routes.has(route)) {
+          fail(`${rel}：站内链接 ${m[1]} 不在路由表里`);
+          continue;
+        }
+        const target = pageFile(route);
+        if (hash && target?.file && !headingIds(target.kind, target.file, l).has(hash)) fail(`${rel}：锚点 ${m[1]} 在目标页（${l}）的标题里找不到`);
+      }
+    }
+const codeFiles = walk('src').filter(f => /\.tsx?$/.test(f));
+const ids = new Set(codeFiles.flatMap(f => [...read(f).matchAll(/\bid="([\w-]+)"/g)].map(m => m[1])));
+for (const rel of codeFiles)
+  for (const m of read(rel).matchAll(/\bto(?:=\{?|: )['"`](\/[^'"`]*)['"`]/g)) {
+    const [route0, hash] = m[1].split('#');
+    const route = route0.replace(/\/+$/, '') || '/';
+    if (isFile(route) ? !fileExists(route) : !routes.has(route)) fail(`${rel}：站内链接 ${m[1]} 不在路由表里（或文件不存在）`);
+    if (hash && !ids.has(hash)) fail(`${rel}：锚点 ${m[1]} 找不到 id="${hash}" 的元素`);
+  }
+
 if (errors.length) {
   console.error(`check-i18n：${errors.length} 处不通过\n  - ${errors.join('\n  - ')}`);
   process.exit(1);
 }
 const pages = nav.docs.pages.length + nav.algorithms.pages.length;
-console.log(`check-i18n：通过（${nsFiles.en.length} 个命名空间、${pages} 篇 Markdown × 2 种语言、index.html 头部、ADR-023）`);
+console.log(`check-i18n：通过（${nsFiles.en.length} 个命名空间、${pages} 篇 Markdown × 2 种语言、index.html 头部、ADR-023、站内链接与锚点）`);
