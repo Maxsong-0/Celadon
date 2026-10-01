@@ -18,7 +18,7 @@ The violet part is GLAZE's automatic share: automatic Recover only lifts sustain
 
 ## Two Advanced options run here too
 
-Loud, not harsh (harshness control at 2–8 kHz) and Target spectrum (Warm / Neutral / Bright / Reference) reuse BALANCE's 27-band analysis and add bounded corrections on the same set of filters, with no extra latency. **When BALANCE is bypassed, they don't work either.** See [The Advanced panel](/docs/advanced).
+“Loud, not harsh” (harshness control at 2–8 kHz) and Target spectrum (Warm / Neutral / Bright / Reference) reuse BALANCE's 27-band analysis and add bounded corrections on the same set of filters, with no extra latency. **When BALANCE is bypassed, they don't work either.** See [The Advanced panel](/docs/advanced).
 
 ## A few numbers
 

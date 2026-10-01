@@ -15,16 +15,16 @@ M = (L + R) / 2, S = (L − R) / 2; output L' = M' + S', R' = M' − S'.
 - Precision: coefficients and state in double; coefficients are recalculated every 64 samples from the smoothed parameters. Frequency parameters are smoothed over 20 ms in the log domain; a and widthDb linearly over 20 ms.
 - Shadow running: while not bypassed, all three stages keep running and the output selects / crossfades (20 ms) by actual value, so when a stage goes from 0 to non-zero its filter state is already settled — no low-frequency jump transient.
 - Bit-exact pass-through: when all three actual values are 0 (and no fade is in progress), output = input.
-- Mono compatibility comes for free: ② and ③ only touch S, so L + R = 2M is completely unchanged; ① removes energy below 30 Hz.
+- Mono compatibility comes for free: ② and ③ only touch S, so L + R = 2M is completely unchanged; ① only removes sub-bass below its 10–60 Hz setting.
 - Mono uses linear phase (latency D = 2(L_max − 1)), and crossover changes spread their pre-warm across blocks (the spike dropped from +11 to +0.125 percentage points).
 
 ## Try before applying
 
-Auto isn't “decide, then do”: **it's tried on this song first, and reduced or vetoed if it would raise the peaks.** The decision-maker proposes candidate values from the profile; a short render estimates their peak cost; anything too costly is reduced in proportion, and skipped if it reaches 0; the interface's third line reads “Tried on this song: the low cut would raise peaks, reduced automatically”.
+Auto isn't “decide, then do”: **it's tried on this song first, and reduced or vetoed if it would raise the peaks.** The decision-maker proposes candidate values from the profile; a short render estimates their peak cost; anything too costly is reduced in proportion, and skipped if it reaches 0; the interface's third line reads “Tried on this song: low cut would raise peaks, reduced automatically”.
 
 ## Peak guard
 
-**Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before these two stages, steps aside as needed at moments that would raise a peak (taking a fast path while the g path sits at all-ones), and passes “how many dB it would exceed without the guard” to the orchestrator as pressure feedback: if a peak keeps rising during playback, the automatic values are reduced step by step. The guard also applies to manual Low cut / Mono (the manual value isn't rewritten; it just yields a little at the peaks).
+**Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before these two stages, steps aside as needed at moments that would raise a peak (taking a fast path while the g path sits at all-ones), and passes “how many dB it would exceed without the guard” to the orchestrator as pressure feedback: if it keeps raising the peaks during playback, the automatic values are reduced step by step. The guard also applies to manual Low cut / Mono (the manual value isn't rewritten; it just yields a little at the peaks).
 
 ③ Width doesn't go through the guard (since 0.1.8.6): the shelf is used only to compute an increment δ = HS(S') − S', which is added back onto the guard's output (L + δ, R − δ), so Width takes effect at its nominal value — previously the guard took most of the widening back (+3 dB left only about 0.3 dB on wide pink noise). Automatic Width is still kept in check by the trial run (at most +1.5 dB); a large manual widening can raise the peaks slightly (at most about +1 dB measured at +3 dB on wide material), which the LIMIT stage after it keeps in check. At Width 0 it's bit-identical to the old version.
 

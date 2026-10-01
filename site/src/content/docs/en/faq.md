@@ -13,7 +13,7 @@ Fixed in 0.1.8.5: the values of three knobs — Release, Low cut and Mono — ca
 
 ## Why is everything under Advanced off in my old projects?
 
-Compatibility: Loud, not harsh, Target spectrum, codec margin and dither, added in 0.1.8.5, all load as off in old projects, so they sound exactly as before; only new instances default to Auto. Turn them on by hand if you want them.
+Compatibility: “Loud, not harsh”, Target spectrum, codec margin and dither, added in 0.1.8.5, all load as off in old projects, so they sound exactly as before; only new instances default to Auto. Turn them on by hand if you want them.
 
 ## My host doesn't see the new version?
 
@@ -45,8 +45,8 @@ That's a debug build: it uses far more CPU than Release and is only for debuggin
 
 ## Will CLAY ruin the stereo image or mono compatibility?
 
-Mono and Width only touch the side channel S, so mono playback (L + R) is completely unchanged; Low cut removes energy below 30 Hz. Auto never applies Mono; it only lights an amber warning when the lows are out of phase.
+Mono and Width only touch the side channel S, so mono playback (L + R) is completely unchanged; Low cut removes only sub-bass below its 10–60 Hz setting (Auto cuts only when there's infrasound below 16 Hz). Auto never applies Mono; it only lights an amber warning when the lows are out of phase.
 
 ## How do I check CPU use?
 
-There's no CPU meter next to Latency at the top right. For reference: on an M2 Pro with GLAZE 100 and the interface closed, about 1.3 % of the audio-thread budget at 48 kHz. With the interface open there's roughly an extra quarter of a core for drawing; Reduce motion saves a little.
+There's no CPU meter next to Latency at the top right. For reference: on an M2 Pro with GLAZE 100 and the interface closed, about 1.3% of the audio-thread budget at 48 kHz. With the interface open there's roughly an extra quarter of a core for drawing; Reduce motion saves a little.

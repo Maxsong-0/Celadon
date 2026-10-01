@@ -8,7 +8,7 @@ The order is fixed: **fix spectral problems first, then add density and harmonic
 
 | Module | What it does | Latency (samples) |
 |---|---|---|
-| BALANCE | 27-band dynamic spectral balance (including Loud, not harsh and Target spectrum) | 0 |
+| BALANCE | 27-band dynamic spectral balance (including “Loud, not harsh” and Target spectrum) | 0 |
 | CLAY | Low cut / linear-phase Mono / Width + peak guard | D + G (48 kHz: 574 + 528) |
 | COLOR | Tone → split-band Glue → residual Heat → Mix → Output | 64 |
 | LIMIT | Gain → Clip (4×) → lookahead true-peak limiting (8× detection / 1× application) → hard clamp | 60 + Lookahead + 62 |

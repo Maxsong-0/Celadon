@@ -61,7 +61,7 @@
     "sidechainSub": "L / R 取大 · 2:1 · 6 dB 拐点",
     "envelope": "联动包络 g",
     "envelopeSub": "攻击 20 ms · 自动释放",
-    "bands": "三段分开施压",
+    "bands": "分频施压",
     "low": "低 ≤ 180 Hz",
     "lowSub": "攻击 36 ms",
     "mid": "中",
@@ -124,7 +124,7 @@
   "latency": {
     "label": "延迟构成示意图",
     "clay": "收单 574 + 守护 528",
-    "limit": "过采样 60 + 前瞻 96 + 62",
+    "limit": "Clip 过采样 60 + 前瞻 96 + 62",
     "total": "合计 {{n}} 样本 ≈ {{ms}} ms"
   }
 }

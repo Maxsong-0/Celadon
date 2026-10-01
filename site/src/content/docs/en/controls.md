@@ -14,11 +14,11 @@ While you drag, a dark value bubble appears above the control (with a small “F
 
 ## Colours
 
-Celadon = your settings; violet = GLAZE's automatic increment right now; orange = needs attention (true peak over the ceiling, plan limited, invalid audio blocks blocked…).
+Cyan = your settings; violet = GLAZE's automatic increment right now; orange = needs attention (true peak over the ceiling, plan limited, invalid (NaN / Inf) audio blocks caught…).
 
 ## Window
 
-- A fixed 1200 × 820 canvas that scales proportionally from 70 % to 200 %. Settings offers five common sizes + a slider + a preview in proportion to your screen (with a warning if it won't fit); you can also drag the bottom-right corner, which keeps the aspect ratio.
+- A fixed 1200 × 820 canvas that scales proportionally from 70% to 200%. Settings offers five common sizes + a slider + a preview in proportion to your screen (with a warning if it won't fit); you can also drag the bottom-right corner, which keeps the aspect ratio.
 - The scale is saved with the project; the default size for new windows is set in Settings and follows you.
 
 ## Settings and Help
@@ -29,4 +29,4 @@ Celadon = your settings; violet = GLAZE's automatic increment right now; orange 
 
 ## Hover help
 
-Appears after a 600 ms hover, in three lines: name · what it does / what you'll hear · where to start. For CLAY's three lights, the second line is the live value (“Low cut 22 Hz · no mono · high-frequency width +0.8 dB”) and the third is this song's cost note or an old-project hint.
+Appears after a 600 ms hover, in three lines: name · what it does / what you'll hear · where to start. For CLAY's three lamps, the second line is the live value (“Low cut 22 Hz · No mono · High width +0.8 dB”) and the third is this song's cost note or an old-project hint.

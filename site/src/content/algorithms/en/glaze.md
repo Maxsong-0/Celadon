@@ -15,7 +15,7 @@
 | Unit | Responsibility |
 |---|---|
 | **MusicAnalyzer** | Input features: M / S / I / LRA, PLR / PSR, positive and negative spectral evidence (reusing BALANCE's 27-band frames), attack activity, confidence → profile |
-| **GlazePlanner** | A pure function: profile + style + GLAZE + manual values + calibration snapshot → plan (7 automatic increments, Clay automatic values, target loudness, style weights) |
+| **GlazePlanner** | A pure function: profile + style + GLAZE + manual values + constants snapshot → plan (7 automatic increments, Clay automatic values, target loudness, style weights) |
 | **GlazeConstants** | Every constant and conversion table, versioned (style preferences, module constraints, the Heat conversion table) |
 | **GlazeCalibrator** | Has an end condition: matches the input-to-output loudness difference with direction-aware anti-saturation; not a continuous closed loop |
 | **GlazeGuard** | Backs off slowly when a constraint keeps being exceeded, g_guard ∈ [−3, 0] dB; only takes back automatic gain |
@@ -41,7 +41,7 @@
 - Automatic Tone can brighten (positive) or soften (negative): it's compared with the profile at equal weight, with a 0.35 dB/oct dead zone, an effective bandwidth, 0.15 dB/s following at full strength, and a style limit of ±0.75 dB × GLAZE. The style and loudness target aren't re-chosen because of short-term brightness.
 - Auto style is no longer pushed wholesale toward Clean by a 60 s LRA confidence that hasn't filled up yet; LRA still constrains the dynamics features on its own.
 - The parallel Heat's share of peak reduction is an optional contribution: when it falls short, it doesn't lock up a limiter that still has headroom.
-- **Automatic Heat only takes on peaks it can genuinely shave (algorithm / calibration version 8, 0.1.8.6)**: Heat is added for peak reduction only when the peaks this song allows to be shaved within the Heat limit amount to ≥ 0.1 dB; otherwise only the style baseline applies (12 for all three styles out of the box); full-strength automatic Heat drops from the old per-style 70 / 50 / 20 to about 12. Old projects store version-7 snapshots, which take the old branch by snapshot version and stay bit-identical; the new rule applies after Relearn.
+- **Automatic Heat only takes on peaks it can genuinely shave (algorithm / constants version 8, 0.1.8.6)**: Heat is added for peak reduction only if, within its limit, it can shave at least 0.1 dB off this song's peaks; otherwise only the style baseline applies (12 for all three styles out of the box); full-strength automatic Heat drops from the old per-style 70 / 50 / 20 to about 12. Old projects store version-7 snapshots, which take the old branch by snapshot version and stay bit-identical; the new rule applies after Relearn.
 
 ## Calibration reference conditions
 
@@ -70,5 +70,5 @@ The protection layer's timing follows music time only: while the host is stopped
 3. Material that's already loud enough gets a requested gain of 0; when a limit is exceeded, the target is lowered.
 4. Final output true peak ≤ Ceiling + 0.01 dB (as measured by the 8× meter).
 5. Reopening a project: no relearning, and re-rendering from the same starting point is bit-for-bit reproducible.
-6. Performance: with GLAZE on, the whole plugin at 48k / 512 costs ≤ 0.15 % more, with the worst block ≤ 0.5 percentage points more; zero allocations and zero locks on the audio thread.
+6. Performance: with GLAZE on, the whole plugin at 48k / 512 costs ≤ 0.15% more, with the worst block ≤ 0.5 percentage points more; zero allocations and zero locks on the audio thread.
 7. Synthetic music with only GLAZE = 50: a cumulative loudness increase of 6.47 LU; GLAZE 0 / 25 / 50 / 75 / 100 → −23.97 / −20.61 / −17.24 / −13.96 / −10.64 LUFS (one piece of material, not a guarantee for any song).

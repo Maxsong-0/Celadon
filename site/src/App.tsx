@@ -5,7 +5,7 @@ import Nav from '@/components/celadon/Nav';
 import Footer from '@/components/celadon/Footer';
 import LangHint from '@/components/celadon/LangHint';
 import Home from '@/pages/Home';
-import { LocaleLink, LocaleSync, useLocalePath } from '@/i18n/locale';
+import { LocaleLink, LocaleSync, useLocale, useLocalePath } from '@/i18n/locale';
 
 const DocsLayout = lazy(() => import('@/pages/DocsLayout'));
 const Download = lazy(() => import('@/pages/Download'));
@@ -75,13 +75,25 @@ export default function App() {
       <LangHint />
       {/* 某页的界面短句第一次用到时要拉一下（按语言懒加载），这时只让页面区域显示占位，导航与页脚不动 */}
       <Suspense fallback={<PageFallback />}>
-        <Routes>
-          <Route path="/zh">{pageRoutes()}</Route>
-          <Route path="/">{pageRoutes()}</Route>
-        </Routes>
+        <LocaleRoutes />
       </Suspense>
       <Footer />
     </>
+  );
+}
+
+/**
+ * 同一页的两种语言按两棵树渲染（key = 语言）：切语言时整页重挂。
+ * 否则 / 与 /zh 下同一位置的页面组件会被复用，只在挂载时按语言定下的东西停在旧语言——
+ * 首屏标题按字 / 按词拆分、真界面截图的默认语言、钉住滚动按旧文字量出的位置。站内普通跳转不受影响（同语言 key 不变）。
+ */
+function LocaleRoutes() {
+  const locale = useLocale();
+  return (
+    <Routes key={locale}>
+      <Route path="/zh">{pageRoutes()}</Route>
+      <Route path="/">{pageRoutes()}</Route>
+    </Routes>
   );
 }
 

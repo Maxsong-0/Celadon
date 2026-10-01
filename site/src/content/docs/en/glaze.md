@@ -6,10 +6,10 @@ GLAZE doesn't turn every knob up at once. It **listens to the song first and dec
 |---|---|
 | 0 | Nothing moves: the manual values on the four cards are all there is, and the output is bit-identical to having no GLAZE at all |
 | 35 (default) | Gentle: new instances start here |
-| Higher | Louder, more correction, more colour; every automatic increment only grows with GLAZE and never exceeds each module's limit |
+| Higher | Louder, more correction, more colour; every automatic increment only ever rises as GLAZE goes up and never exceeds each module's limit |
 | Limited | The dynamics-protection limit has been reached; turning it further won't get louder. Lower it to keep more movement |
 
-**Actual value = clamp(manual value + automatic increment).** The manual knobs are the floor and GLAZE adds on top; it never automatically cancels out your changes. On screen, celadon is your value and violet is the automatic increment.
+**Actual value = clamp(manual value + automatic increment).** The manual knobs are the floor and GLAZE adds on top; it never automatically cancels out your changes. On screen, cyan is your value and violet is the automatic increment.
 
 GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat, and LIMIT's Gain / Clip. CLAY's three controls and the automatic options under Advanced follow it too (see below).
 
@@ -47,12 +47,12 @@ The style also sets the shape of the automatic Target spectrum under Advanced: W
 
 ## How it relates to Advanced and CLAY
 
-- With Loud, not harsh and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.
+- With “Loud, not harsh” and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.
 - CLAY's three controls on Auto are decided by the plan and do nothing at GLAZE 0; on Manual they work even at GLAZE 0; Off never processes.
 - Whenever an Advanced setting changes (or a manual parameter or the sample rate does), the calibration's reference conditions change and calibration realigns.
 
 ## Saving and reopening
 
-The profile, plan, calibration, calibration snapshot and execution snapshot are all saved with the project. Reopening doesn't relearn, and re-rendering from the same starting point is bit-for-bit reproducible. Offline export and real-time playback learn and calibrate on the same sample timeline, so switching to offline neither stops learning nor undoes calibration.
+The profile, plan, calibration, constants snapshot and execution snapshot are all saved with the project. Reopening doesn't relearn, and re-rendering from the same starting point is bit-for-bit reproducible. Offline export and real-time playback learn and calibrate on the same sample timeline, so switching to offline neither stops learning nor undoes calibration.
 
 For the algorithm details: [GLAZE · decisions and calibration](/algorithms/glaze).

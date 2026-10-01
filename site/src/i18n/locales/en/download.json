@@ -81,9 +81,9 @@
   "changesLink": "What's new in this version",
   "requirements": "Celadon needs macOS 12 or later (Apple silicon or Intel), or 64-bit Windows 10 / 11.",
   "notice": {
-    "macTitle": "This is a Mac, but this browser doesn't say which chip.",
+    "macTitle": "Looks like a Mac, but this browser doesn't say which chip.",
     "macBody": "Apple menu → <ui>About This Mac</ui>: if the <ui>Chip</ui> line says Apple M…, pick Apple silicon; if it lists an Intel <ui>Processor</ui>, pick Intel.",
-    "winArmTitle": "This is Windows on ARM.",
+    "winArmTitle": "Looks like Windows on ARM.",
     "winArmBody": "The installer is x64: it needs Windows 11 (which runs it through emulation), and only x64 hosts can load it — native ARM hosts can't.",
     "unsupportedTail": "You can still download the installers below and move them to your computer."
   },
@@ -92,12 +92,12 @@
     "body": "<code>{{file}}</code>, {{size}} MB. If it didn't start, <retry>click here</retry>. The system will stop it once when you install — allow it as shown below."
   },
   "unsupported": {
-    "phone": "This is a phone. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",
-    "tablet": "This is a tablet. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",
-    "linux": "This is Linux. Celadon is available for Mac and Windows only for now.",
-    "chromeos": "This is ChromeOS. Celadon is available for Mac and Windows only for now.",
-    "old-windows": "This is Windows 7 / 8. Celadon needs Windows 10 or 11 (64-bit).",
-    "windows-32": "This is 32-bit Windows. Celadon is 64-bit only.",
-    "old-macos": "This Mac is running something older than macOS 12. Celadon needs macOS 12 (Monterey) or later."
+    "phone": "Looks like you're on a phone. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",
+    "tablet": "Looks like you're on a tablet. Celadon is an audio plug-in for computers — install it on a Mac or Windows PC.",
+    "linux": "Looks like you're on Linux. Celadon is available for Mac and Windows only for now.",
+    "chromeos": "Looks like you're on ChromeOS. Celadon is available for Mac and Windows only for now.",
+    "old-windows": "Looks like Windows 7 / 8. Celadon needs Windows 10 or 11 (64-bit).",
+    "windows-32": "Looks like 32-bit Windows. Celadon is 64-bit only.",
+    "old-macos": "Looks like this Mac is running something older than macOS 12. Celadon needs macOS 12 (Monterey) or later."
   }
 }

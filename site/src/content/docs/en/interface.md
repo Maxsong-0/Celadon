@@ -1,4 +1,4 @@
-The interface is a fixed 1200 × 820 canvas that scales with the window (70 %–200 %). Light background, a single celadon hue; **celadon = your settings, violet = GLAZE's automatic increment right now, orange = needs attention** (true peak over the ceiling, plan limited, NaN… shown in only one place at a time).
+The interface is a fixed 1200 × 820 canvas that scales with the window (70%–200%). Light background, a single cyan hue; **cyan = your settings, violet = GLAZE's automatic increment right now, orange = needs attention** (true peak over the ceiling, plan limited, NaN… shown in only one place at a time).
 
 ## Top bar
 
@@ -20,14 +20,14 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70 %–
 - Particles on both sides: streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
 - A row of buttons: style (Auto / Warm / Punchy / Clean) · Relearn | A / B · Match.
 - Two lines of description at bottom left (replaced by control hints while you hover or drag); a colour legend at bottom right.
-- Exit hints for temporary monitoring: listening to the original, listening to the difference and normalisation preview are mutually exclusive; while one is on, a clickable hint to leave it stays here. Closing the window leaves them all.
+- Exit hints for temporary monitoring: listening to the original, listening to the difference and normalisation preview are mutually exclusive; while one is on, a clickable hint to leave it stays here. Closing the window exits all of them.
 
 ## The four cards (bottom half, in real processing order)
 
 | No. | Card | In one line | Main controls |
 |---|---|---|---|
 | 01 | **BALANCE** Dynamic EQ | Bring back what's buried, pull down what sticks out | 27-band correction bars · Recover / Tame / Brighten · Speed |
-| 02 | **CLAY** Stereo | Clean-up: Low cut · Mono · Width | Three rows = light + name + current value + Auto / Off / Manual; a 10 Hz – 1 kHz mini graph |
+| 02 | **CLAY** Stereo | Clean-up: Low cut · Mono · Width | Three rows = lamp + name + current value + Auto / Off / Manual; a 10 Hz – 1 kHz mini graph |
 | 03 | **COLOR** Tone | A little denser, a little warmer | Tone / Glue / Heat · Mix · Output · Glue GR meter |
 | 04 | **LIMIT** Limiter | Loud, without breaking up | Gain / Ceiling / Clip · Release (AUTO) · Lookahead · Limit GR meter · the headphones for Listen to difference |
 

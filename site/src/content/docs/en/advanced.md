@@ -9,8 +9,8 @@ Eases harsh bands at 2–8 kHz while keeping drums and transients. It runs insid
 | Control | What it does | Where to start |
 |---|---|---|
 | **Mode** Auto / Off / Manual | Controls harshness through BALANCE: Auto scales with GLAZE, Manual uses a fixed amount. Inactive when Off or BALANCE is bypassed. | Start with Auto; choose Off to compare this stage alone. |
-| **Amount** 0–100 % | Sets the depth of high-frequency harshness control; Auto also scales it with GLAZE. Inactive when Off. | Start at 50 %; too much can lose air, so compare at matched loudness. |
-| **Transients** 0–100 % | Relaxes harshness reduction on detected attacks to preserve drums and plucks; active in both Auto and Manual. | Raise it if drums soften; lower it if the attacks themselves sound harsh. |
+| **Amount** 0–100% | Sets the depth of high-frequency harshness control; Auto also scales it with GLAZE. Inactive when Off. | Start at 50%; too much can lose air, so compare at matched loudness. |
+| **Transients** 0–100% | Relaxes harshness reduction on detected attacks to preserve drums and plucks; active in both Auto and Manual. | Raise it if drums soften; lower it if the attacks themselves sound harsh. |
 
 The panel shows “Current reduction x dB”. At full amount it cuts at most an extra 3 dB per band, and together with Tame it's still capped at −8 dB. It isn't a de-esser and doesn't recognise voices or instruments.
 
@@ -21,7 +21,7 @@ Gently moves the **shape** of the 27 bands toward a target: it doesn't copy the 
 | Control | What it does | Where to start |
 |---|---|---|
 | **Mode** Off / Auto / Warm / Neutral / Bright / Reference | Auto follows GLAZE; Warm, Neutral, Bright and a learned Reference are independent manual targets. | Use a preset first; learn the Reference target from the DAW's external sidechain. |
-| **Amount** 0–100 % | Sets how strongly the 27 bands move toward the target; the graph shows the current target correction. Inactive with Target off. | Start gently and keep the mix's character; every band need not match exactly. |
+| **Amount** 0–100% | Sets how strongly the 27 bands move toward the target; the graph shows the current target correction. Inactive with Target off. | Start gently and keep the mix's character; every band need not match exactly. |
 | **Current target correction · 27 bands** | Low to high frequencies run left to right; up is boost, down is cut, on a ±6 dB scale. This is not the reference's raw spectrum. | Judge the overall sound first; a flat curve is normal without an active target or usable input. |
 
 Preset shapes: Warm −1.5, Neutral −0.75, Bright 0 dB / octave (pivoting at 1 kHz). Auto picks the shape from the GLAZE style: Warm → Warm, Clean → Bright, Auto / Punchy → Neutral.
@@ -48,4 +48,4 @@ Preset shapes: Warm −1.5, Neutral −0.75, Bright 0 dB / octave (pivoting at 1
 
 ## Old projects and defaults
 
-When you load an old project that doesn't contain these parameters, Loud, not harsh, Target spectrum, codec margin and dither are all off, so it sounds exactly as before. New instances default to Loud, not harsh on Auto (Amount 50, Transients 50) and Target spectrum on Auto (Amount 35): at GLAZE 35 % that's at most about 0.53 dB of harshness reduction per band and about ±0.31 dB of target correction; at GLAZE 0 both are zero.
+When you load an old project that doesn't contain these parameters, “Loud, not harsh”, Target spectrum, codec margin and dither are all off, so it sounds exactly as before. New instances default to “Loud, not harsh” on Auto (Amount 50, Transients 50) and Target spectrum on Auto (Amount 35): at GLAZE 35% that's at most about 0.53 dB of harshness reduction per band and about ±0.31 dB of target correction; at GLAZE 0 both are zero.

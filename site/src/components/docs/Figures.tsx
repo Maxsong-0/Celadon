@@ -807,9 +807,9 @@ const LAT_MS = ((LAT_SUM / 48000) * 1000).toFixed(1);
 
 function LatencyPlot({ v }: { v: V }) {
   const { t } = v;
-  const x0 = v.narrow ? 84 : 136;
-  // 横排右侧留足 LIMIT 那行的读数（英文最长）
-  const span = v.narrow ? 240 : 320;
+  // 横排右侧留足 LIMIT 那行的读数（英文「Clip oversampling 60 + lookahead 96 + 62」最长）
+  const x0 = v.narrow ? 84 : 112;
+  const span = v.narrow ? 240 : 290;
   const k = span / LAT_SUM;
   const pitch = v.narrow ? 48 : 36;
   const top = 30;
@@ -848,7 +848,8 @@ function LatencyPlot({ v }: { v: V }) {
                 </Label>
               ) : null
             ) : (
-              <Label v={v} x={end + 10} y={cy + 4.5} mono color={INK3}>
+              // 读数用正文字体：等宽字太宽，英文那行放不下
+              <Label v={v} x={end + 10} y={cy + 4.5} color={INK3}>
                 {row.note ? `${row.total} = ${t(row.note)}` : row.total}
               </Label>
             )}

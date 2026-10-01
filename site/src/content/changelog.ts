@@ -44,7 +44,7 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'sound',
         text: {
           zh: '推响不刺只压真正刺耳的 2 ～ 8 kHz：音量突然变大、鼓点密集的段落不再被当成刺耳压下去。COLOR 的 Glue 中频也压得更贴近设定，不再多压一截。',
-          en: "Loud, not harsh now only tames genuinely harsh 2–8 kHz content: sudden jumps in level and busy drum passages are no longer mistaken for harshness and pulled down. COLOR's Glue mid band also tracks the setting more closely instead of compressing extra."
+          en: "“Loud, not harsh” now only tames genuinely harsh 2–8 kHz content: sudden jumps in level and busy drum passages are no longer mistaken for harshness and pulled down. COLOR's Glue mid band also tracks the setting more closely instead of compressing extra."
         }
       },
       {
@@ -87,7 +87,7 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'new',
         text: {
           zh: '「高级」面板的三个页签能用了：推响不刺（压住 2 ～ 8 kHz 的刺耳，鼓点照样留住）、目标频谱（温暖 / 均衡 / 明亮，或从侧链学一首参考曲的频谱形状，不学响度）、发行安全（归一化预听、编码余量、TPDF 抖动）。',
-          en: "All three tabs of the Advanced panel now work: Loud, not harsh (tames harshness at 2–8 kHz while keeping the drums), Target spectrum (Warm / Neutral / Bright, or learn a reference track's spectral shape from the sidechain — the shape, not the loudness) and Release safety (normalisation preview, codec margin, TPDF dither)."
+          en: "All three tabs of the Advanced panel now work: “Loud, not harsh” (tames harshness at 2–8 kHz while keeping the drums), Target spectrum (Warm / Neutral / Bright, or learn a reference track's spectral shape from the sidechain — the shape, not the loudness) and Release safety (normalisation preview, codec margin, TPDF dither)."
         }
       },
       {
@@ -115,7 +115,7 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'compat',
         text: {
           zh: '旧工程打开后，新加的推响不刺、目标频谱、编码余量、抖动一律关着，声音与从前一样；新建的实例才默认「自动」。',
-          en: 'When you open an old project, the new Loud, not harsh, Target spectrum, codec margin and dither are all off, so it sounds exactly as before; only new instances default to Auto.'
+          en: 'When you open an old project, the new “Loud, not harsh”, Target spectrum, codec margin and dither are all off, so it sounds exactly as before; only new instances default to Auto.'
         }
       }
     ]
@@ -130,7 +130,7 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'ui',
         text: {
           zh: '界面整个重做：浅色单色青、瓷器质感的 GLAZE 主旋钮、实时频谱仪，四道工序各一张卡片；窗口可在 70 % ～ 200 % 之间缩放。',
-          en: 'A complete interface redesign: a light, single-hue celadon palette, a porcelain GLAZE knob, a live spectrum analyser and one card per stage; the window scales from 70 % to 200 %.'
+          en: 'A complete interface redesign: a light, single-hue celadon palette, a porcelain GLAZE knob, a live spectrum analyser and one card per stage; the window scales from 70% to 200%.'
         }
       },
       {
@@ -274,14 +274,14 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'new',
         text: {
           zh: 'GLAZE 默认 35 %：新实例插上就开始工作；旧工程里没存 GLAZE 的，仍从 0 开始。',
-          en: "GLAZE defaults to 35 %: new instances start working as soon as they're inserted; old projects with no saved GLAZE value still start at 0."
+          en: "GLAZE defaults to 35%: new instances start working as soon as they're inserted; old projects with no saved GLAZE value still start at 0."
         }
       },
       {
         kind: 'sound',
         text: {
           zh: '热度（Heat）换了做法：原声完整保留，只把染色多出来的部分加回去。高频不再发刺，低音也不再搅浑中高频——1 kHz 满档的失真从 39.8 % 降到 2.7 %。',
-          en: 'Heat works differently: the original is kept intact and only the extra colouring is added back. The highs no longer get spiky and the bass no longer muddies the mids and highs — distortion at 1 kHz on full Heat fell from 39.8 % to 2.7 %.'
+          en: 'Heat works differently: the original is kept intact and only the extra colouring is added back. The highs no longer get spiky and the bass no longer muddies the mids and highs — distortion at 1 kHz on full Heat fell from 39.8% to 2.7%.'
         }
       },
       {
@@ -295,7 +295,7 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'sound',
         text: {
           zh: '等响改为测整条链的实际响度差，只衰减、不放大；抑制上限从 6 dB 提到 8 dB，提亮单独打开也生效。',
-          en: 'Match now measures the real loudness difference across the whole chain and only attenuates, never boosts; the Tame ceiling rose from 6 dB to 8 dB, and Brighten works on its own too.'
+          en: "Match now measures the real loudness difference across the whole chain and only attenuates, never boosts; Tame's maximum cut rose from 6 dB to 8 dB, and Brighten works on its own too."
         }
       },
       {
@@ -312,7 +312,7 @@ export const CHANGELOG: ReleaseNote[] = [
     version: null,
     label: { zh: '更早', en: 'Earlier' },
     date: '2026-09-24',
-    range: { zh: '2026-09-24 ～ 26', en: 'Sep 24 – 26, 2026' },
+    range: { zh: '2026-09-24 ～ 26', en: 'Sep 24–26, 2026' },
     note: { zh: '内部开发版', en: 'Internal builds' },
     title: { zh: '从一个限幅器开始', en: 'It started with a limiter' },
     items: [
@@ -348,7 +348,7 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'perf',
         text: {
           zh: '性能全面优化：48 kHz 下单核占用从约 8 % 降到 1 % 左右。',
-          en: 'Across-the-board performance work: single-core load at 48 kHz fell from about 8 % to around 1 %.'
+          en: 'Across-the-board performance work: single-core load at 48 kHz fell from about 8% to around 1%.'
         }
       }
     ]

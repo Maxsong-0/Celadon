@@ -30,7 +30,7 @@ The manual amount follows the curve above. The automatically added part needs it
 
 - **Automatic Recover**: only interior bands with a sustained gap that has energy on both sides may be lifted; it fades in after 150 ms and reaches full permission at 500 ms. End bands, monotonic natural roll-offs and anything under the silence gate are not filled in.
 - **Automatic Tame**: needs evidence that the band keeps sticking out locally; per-band permission fades in over 180–450 ms; after an attack is detected it's held off for 60 ms; the automatically added cut is at most 2.5 dB per band.
-- **Harmonic-support protection**: uses the existing FFT to recognise reliable 1:2:3 spectral-line relationships (a complete set present in at least one channel), entering over 60 ms and leaving over 300 ms, and takes back up to 75 % of the automatic Tame permission. It doesn't recognise voices or instruments.
+- **Harmonic-support protection**: uses the existing FFT to recognise reliable 1:2:3 spectral-line relationships (a complete set present in at least one channel), entering over 60 ms and leaving over 300 ms, and takes back up to 75% of the automatic Tame permission. It doesn't recognise voices or instruments.
 - **One-knob baseline** (a full-strength request, then scaled by GLAZE, confidence, style limits and module budget): automatic Recover 8, automatic Tame 24.
 
 ## Upward masking transfer (0.1.7.2)

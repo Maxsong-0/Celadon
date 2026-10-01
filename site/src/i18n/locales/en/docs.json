@@ -10,7 +10,7 @@
   "groups": {
     "start": "Getting started",
     "process": "Processing",
-    "judge": "Judging",
+    "judge": "Judging the result",
     "overview": "Overview",
     "stages": "The four stages",
     "orchestration": "Orchestration and verification"

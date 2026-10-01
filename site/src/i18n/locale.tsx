@@ -33,7 +33,9 @@ export function LocaleSync() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (locale === 'en' && savedLocale() === 'zh') navigate(localizePath(pathname, 'zh') + search + hash, { replace: true });
+    // 说明 / 算法页的标题锚点两种语言不同（按标题文字生成），带过去也对不上，只留首页这类两种语言相同的锚点
+    const keepHash = !/^\/(docs|algorithms)(\/|$)/.test(pathname);
+    if (locale === 'en' && savedLocale() === 'zh') navigate(localizePath(pathname, 'zh') + search + (keepHash ? hash : ''), { replace: true });
     // 只在进站时判断一次（依赖留空是有意的）：之后用户在站内点了英文链接就听用户的
   }, []);
 

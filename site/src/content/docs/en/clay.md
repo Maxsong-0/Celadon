@@ -2,7 +2,7 @@ Before porcelain is glazed, the clay body is trimmed — cleaned up and evened o
 
 ## Three rows · three modes
 
-The card has three rows, top to bottom: Low cut, Mono, Width. Each row = a light + the name + the current value + Auto / Off / Manual.
+The card has three rows, top to bottom: Low cut, Mono, Width. Each row = a lamp + the name + the current value + Auto / Off / Manual.
 
 | Mode | Meaning |
 |---|---|
@@ -10,7 +10,7 @@ The card has three rows, top to bottom: Low cut, Mono, Width. Each row = a light
 | Off | Never processes |
 | Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection changes it. In Manual the value can be dragged |
 
-Lights: lit = processing (violet = Auto, celadon = Manual); amber Mono light = out-of-phase lows warning (check the mix); amber Width light = width guard engaged. Hover a light and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: the low cut would raise peaks, reduced automatically”.
+Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of-phase lows warning (check the mix); amber Width lamp = width guard engaged. Hover a lamp and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: low cut would raise peaks, reduced automatically”.
 
 ## Controls
 
@@ -32,6 +32,6 @@ Below the three rows is a 10 Hz – 1 kHz mini graph: the slope below the low cu
 
 ## Old projects
 
-Old projects have no CLAY profile: the three lights stay dark and the third line says to click Relearn to enable automatic CLAY. If all three rows are set to Off or Manual, no relearn is needed.
+Old projects have no CLAY profile: the three lamps stay dark and the third line says to click Relearn to enable automatic CLAY. If all three rows are set to Off or Manual, no relearn is needed.
 
 Algorithm details: [CLAY · stereo clean-up](/algorithms/clay).

@@ -38,7 +38,7 @@
     "line1": "One insert on the master bus.",
     "line2": "It just sounds right.",
     "tagline": "Mastering, glazed — four steps, one knob.",
-    "lead": "Balance, stereo clean-up, colour and limiting run in a fixed order. <b>GLAZE</b> listens to the song for a dozen seconds or so, then decides how far to push it toward its ideal master — every knob you set is the floor, and it only ever adds on top.",
+    "lead": "Balance, stereo clean-up, colour and limiting run in a fixed order. <b>GLAZE</b> listens to the song for 15–30 seconds, then decides how far to push it toward its ideal master — every knob you set is the floor, and it only ever adds on top.",
     "listenLink": "Have a listen",
     "format": "Format",
     "formatValue": "VST3 · AU · Standalone",
@@ -67,7 +67,7 @@
       "clay": {
         "name": "Stereo clean-up",
         "verb": "Clean up the foundation",
-        "lead": "Trim before you glaze. Cut inaudible infrasonics and DC, fold the lows to mono, and widen narrow mixes a little — each move is tried on this song first, and backs off by itself if it would raise the peaks.",
+        "lead": "Trim before you glaze. Cut inaudible infrasonics and DC, fold the lows to mono when you ask for it, and widen narrow mixes a little — automatic moves are tried on this song first, and Low cut and Mono step aside whenever they would raise a peak.",
         "facts": [
           "4th-order low cut, 10–60 Hz; linear-phase mono",
           "Side channel only: mono playback is untouched",
@@ -77,10 +77,10 @@
       "color": {
         "name": "Colour and glue",
         "verb": "Add some warmth",
-        "lead": "A Tone tilt, Glue bus compression that presses low, mid and high separately, and Heat — tube-style residual colouring that leaves the low-end body alone. A little denser and warmer, and the limiter after it can push louder.",
+        "lead": "A Tone tilt, Glue bus compression that presses the low and high bands separately, and Heat — tube-style residual colouring that leaves the low-end body alone. A little denser and warmer, and the limiter after it can push louder.",
         "facts": [
           "Heat at 8× oversampling; nothing below 150 Hz is touched",
-          "Glue presses low / mid / high separately",
+          "Glue presses the low and high bands separately",
           "Lighter on the sides, odd-symmetric: the image stays put"
         ]
       },
@@ -97,7 +97,7 @@
     },
     "visual": {
       "balanceNote": "Dashed = the song's own smoothed contour",
-      "clayNote": "Centre line = mono (M), width = side (S)",
+      "clayNote": "Centre line = mono (M), band thickness = side (S)",
       "infrasonic": "Infrasonic",
       "mono": "Mono 120 Hz",
       "lowCut": "Low cut 25 Hz",
@@ -125,7 +125,7 @@
     "drivenTitle": "Drives 7 parameters",
     "manual": "Manual",
     "autoIncrement": "Auto increment",
-    "drivenBody": "Actual value = manual value + auto increment, capped at each module's limit. The auto increment only grows with GLAZE and never cancels out your changes.",
+    "drivenBody": "Actual value = manual value + auto increment, capped at each module's limit. The auto increment only ever rises as GLAZE goes up, and never cancels out your changes.",
     "targetTitle": "Target loudness (illustrative)",
     "targetBody": "Set by the style and GLAZE together, then narrowed by each module's limits; at the edge of dynamics protection it stops pushing and the status shows “Limited”.",
     "styleTitle": "Style · blended per song",
@@ -139,7 +139,7 @@
   },
   "showcase": {
     "title": "One panel, <em>everything at a glance</em>.",
-    "lead": "Meters, spectrum, GLAZE and the four cards laid out in processing order; English and Chinese, scalable from 70 % to 200 %. What you see below is the plugin's real rendering, not a mock-up.",
+    "lead": "Meters, spectrum, GLAZE and the four cards laid out in processing order; English and Chinese, scalable from 70% to 200%. What you see below is the plugin's real rendering, not a mock-up.",
     "spots": [
       {
         "title": "Meters and spectrum",
@@ -160,14 +160,14 @@
     ],
     "altZh": "Celadon plugin interface in Chinese: meters and spectrum at the top, the GLAZE knob in the middle, and the BALANCE, CLAY, COLOR and LIMIT cards at the bottom",
     "altEn": "Celadon plugin interface in English: meters and spectrum at the top, the GLAZE knob in the middle, and the BALANCE, CLAY, COLOR and LIMIT cards at the bottom",
-    "caption": "Real plugin rendering · 2× of the 1200 × 820 canvas · GLAZE 45 %",
+    "caption": "Real plugin rendering · 2× of the 1200 × 820 canvas · GLAZE 45%",
     "langGroup": "Interface language",
-    "compareBody": "Same song, same moment. At 0 % the glaze is smooth and everything follows your manual settings; at 90 % the crackle is denser, the glaze deeper and the particles busier — this is how the plugin draws how far it's pushing.",
+    "compareBody": "Same song, same moment. At 0% the glaze is smooth and everything follows your manual settings; at 90% the crackle is denser, the glaze deeper and the particles busier — this is how the plugin draws how far it's pushing.",
     "dragHint": "Drag the divider (or use ← →)",
-    "alt0": "GLAZE 0 %: smooth glaze, no crackle",
-    "alt90": "GLAZE 90 %: dense crackle, deep glaze, many particles",
-    "rangeLabel": "Divider position between GLAZE 0 % and 90 %",
-    "rangeValue": "{{pct}} % of the image shows GLAZE 90 %"
+    "alt0": "GLAZE 0%: smooth glaze, no crackle",
+    "alt90": "GLAZE 90%: dense crackle, deep glaze, many particles",
+    "rangeLabel": "Divider position between GLAZE 0% and 90%",
+    "rangeValue": "{{pct}} % of the image shows GLAZE 90%"
   },
   "listen": {
     "title": "Same song, <em>level-matched</em>.",
@@ -197,7 +197,7 @@
         "body": "Measures the real loudness difference across the whole chain and turns the louder side down to match; it only attenuates, never boosts, and the meters still show the master before attenuation. Tell “better” from “just louder”."
       },
       {
-        "title": "Listen to the difference",
+        "title": "Listen to difference",
         "en": "",
         "body": "The headphones on the LIMIT card: hear only what's being removed. Whether the drums went flat or the bass got muddy, you'll hear it straight away."
       },
@@ -214,7 +214,7 @@
     "link": "Full guide to monitoring",
     "bitsEn": "",
     "bitsTitle": "Bit-exact contract",
-    "bitsBody": "With GLAZE at 0, or modules at zero or bypassed, the output equals the input exactly; at any block size, SIMD or scalar, idle-skipping or always running — identical bit for bit.",
+    "bitsBody": "With GLAZE at 0, the chain is bit-identical to the same chain without GLAZE; with a module at zero or bypassed, it passes the input through unchanged — at any block size, SIMD or scalar, idle-skipping or always running, identical bit for bit.",
     "bitsRows": [
       "GLAZE 0 vs reference chain",
       "SIMD vs scalar",
@@ -222,7 +222,7 @@
     ],
     "releaseEn": "",
     "releaseTitle": "Release safety",
-    "releaseBody": "Normalisation preview (attenuation only), codec margin and TPDF dither. Anything you should switch off before export, the interface keeps reminding you about.",
+    "releaseBody": "Normalisation preview (attenuation only), codec margin and TPDF dither. The interface keeps reminding you about anything you should switch off before export.",
     "releaseStats": [
       "LUFS preview",
       "dB max codec margin",
@@ -245,7 +245,7 @@
         "art": "Light = rectangular window · dark = two-stage average (smooth corners)"
       },
       {
-        "title": "Glue presses low, mid and high separately",
+        "title": "Glue presses the low and high bands separately",
         "body": "Meters and statistics still follow the linked envelope (100 Hz high-passed sidechain, 2:1, 6 dB knee). If the low band (below ≈180 Hz) or high band (above ≈5 kHz) is lighter on its own, its gain can sit up to 3.2 dB above the linked gain, or go 0.6 dB deeper. When the vocal comes in, the bass no longer ducks with it.",
         "art": "Light = linked gain · dark = per-band gain after the split"
       }
@@ -266,7 +266,7 @@
       },
       {
         "unit": "%",
-        "label": "Audio-thread budget",
+        "label": "Audio-thread load",
         "note": "48 kHz · M2 Pro · Release · UI closed"
       },
       {
@@ -290,7 +290,7 @@
     "title": "Made for myself, <em>shared with friends</em>.",
     "lead": "Celadon isn't commercial and isn't for sale. Max and a few friends use it; pick the installer for your computer, then rescan plug-ins in your host.",
     "system": "System",
-    "arch": "Arch",
+    "arch": "Architecture",
     "firstRun": "First run",
     "platforms": [
       {

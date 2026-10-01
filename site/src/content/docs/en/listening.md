@@ -1,4 +1,4 @@
-The hardest part of mastering isn't the processing — it's the judgement. Celadon treats hearing the difference clearly as a feature. The three kinds of temporary monitoring (listening to the original, listening to the difference and normalisation preview) are mutually exclusive; while one is on, the main window keeps showing a clickable hint to leave it, and closing the editor leaves them all.
+The hardest part of mastering isn't the processing — it's the judgement. Celadon treats hearing the difference clearly as a feature. The three kinds of temporary monitoring (listening to the original, listening to the difference and normalisation preview) are mutually exclusive; while one is on, the main window keeps showing a clickable hint to leave it, and closing the editor exits all of them.
 
 ## A / B
 
@@ -30,6 +30,6 @@ Under Advanced → Release safety. It attenuates monitoring to the selected LUFS
 ## Before you export
 
 1. Turn Match off.
-2. Leave Normalisation preview and Listen to difference (click the hint in the main window if one is showing).
+2. Exit Normalisation preview and Listen to difference (click the hint in the main window if one is showing).
 3. Check that the OUT true-peak maximum ≤ Ceiling; set a codec margin if you need one.
 4. If you're responsible for the final bit-depth reduction, turn dither on; otherwise leave it off.

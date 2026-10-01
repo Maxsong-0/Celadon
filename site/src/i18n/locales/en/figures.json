@@ -8,8 +8,8 @@
     "actual": "Actual = manual + auto increment",
     "glaze": "GLAZE orchestrator",
     "glazeNarrow": "GLAZE",
-    "glazeSub": "Profile → plan → calibrate → guard",
-    "glazeSubNarrow": "Profile → plan\ncalibrate → guard",
+    "glazeSub": "Profile → plan → calibrate → protect",
+    "glazeSubNarrow": "Profile → plan\ncalibrate → protect",
     "input": "Input",
     "output": "Output",
     "balance": "Dynamic EQ",
@@ -111,20 +111,20 @@
     "listening": "Listening",
     "listeningSub": "15–30 s of evidence",
     "calibrating": "Calibrating",
-    "calibratingSub": "Matches loudness gap",
+    "calibratingSub": "Aligns in/out loudness",
     "locked": "Locked",
     "lockedSub": "Bounded protection",
     "limited": "Limited",
     "limitedSub": "Slow back-off\ng_guard ∈ [−3, 0] dB",
     "saved": "Saved with the project: profile + plan + calibration + constants + execution snapshots",
-    "savedSub": "No relearning on reopen · bit-exact re-render from the same start · a reference change voids calibration",
+    "savedSub": "No relearning on reopen · bit-exact re-render from the same start · changed reference conditions void calibration",
     "savedNarrow": "Saved with the project",
-    "savedSubNarrow": "Profile + plan + calibration + snapshots\nNo relearning; bit-exact re-render\nA reference change voids calibration"
+    "savedSubNarrow": "Profile + plan + calibration + snapshots\nNo relearning; bit-exact re-render\nChanged conditions void calibration"
   },
   "latency": {
     "label": "Latency breakdown diagram",
     "clay": "Mono 574 + guard 528",
-    "limit": "Clip 60 + lookahead 96 + 62",
+    "limit": "Clip oversampling 60 + lookahead 96 + 62",
     "total": "Total {{n}} samples ≈ {{ms}} ms"
   }
 }
