@@ -1609,7 +1609,7 @@ namespace celadon::test
             // 依据：任务书 BRIEF-A11 第 1 条「每项约束的有效上限 = max(风格上限, 手动单独用量)，手动没超预算时逐位等于风格上限」；
             //       GlazeTypes.h manualBudget* 的判定；决策与校准第 8 节「手动部分本身已超约束时，自动先撤回自己的增量」。
             const auto& fc = factoryConstants();
-            const auto usageFor = [] (const MusicProfile* profile, Style style, const ChainParams& manual, const StyleWeights* locked = nullptr)
+            const auto usageFor = [] (const MusicProfile* profile, Style style, const ChainParams& manual, const StyleWeights* locked)
             {
                 PlanInputs in;
                 in.profile = profile;
@@ -1627,7 +1627,7 @@ namespace celadon::test
 
                 for (auto style : { Style::automatic, Style::warm, Style::punchy, Style::clean })
                 {
-                    const auto u = usageFor (&profile, style, defaultManual());
+                    const auto u = usageFor (&profile, style, defaultManual(), nullptr);
                     allZero = allZero && u.overBudgetMask == 0 && u.heatAmount == 0.0f && u.glueGrMeanDb == 0.0f && u.glueGrP95Db == 0.0f
                                       && u.clipDepthDb == 0.0f && u.clipActivity == 0.0f;
 
@@ -1664,7 +1664,7 @@ namespace celadon::test
                     }
 
                     const auto* profile = s.hasProfile ? &s.profile : nullptr;
-                    const auto u = usageFor (profile, s.style, s.manual);
+                    const auto u = usageFor (profile, s.style, s.manual, nullptr);
 
                     for (auto glaze : { 35.0f, 100.0f })
                     {
@@ -1732,7 +1732,7 @@ namespace celadon::test
                         manual.color.heat = heat;
                         const auto plan = planFor (&profile, style, 100.0f, manual);
                         const auto set = (plan.manualBudgetMask & manualBudgetHeat) != 0;
-                        wrong += set != (heat > cap) || set != ((usageFor (&profile, style, manual).overBudgetMask & manualBudgetHeat) != 0)
+                        wrong += set != (heat > cap) || set != ((usageFor (&profile, style, manual, nullptr).overBudgetMask & manualBudgetHeat) != 0)
                                  || (set && plan.increments.colorHeat != 0.0f) ? 1 : 0;
                         gainGone += set && ! plan.automaticLevelWithdrawn && ! (plan.increments.limitGainDb > 0.0f) ? 1 : 0;
                     }
@@ -1756,7 +1756,7 @@ namespace celadon::test
                     auto manual = defaultManual();
                     manual.color.glue = (float) step * 0.025f;
                     const auto plan = planFor (&profile, Style::clean, 100.0f, manual);
-                    const auto u = usageFor (&profile, Style::clean, manual);
+                    const auto u = usageFor (&profile, Style::clean, manual, nullptr);
                     const auto set = (plan.manualBudgetMask & manualBudgetGlue) != 0;
 
                     nonMonotone += previous && ! set ? 1 : 0;
@@ -1788,7 +1788,7 @@ namespace celadon::test
                 heavy.limit.clip = 100.0f;
                 heavy.limit.gainDb = 5.0f;
                 const auto plan = planFor (&profile, Style::clean, 100.0f, heavy);
-                const auto u = usageFor (&profile, Style::clean, heavy);
+                const auto u = usageFor (&profile, Style::clean, heavy, nullptr);
                 logMessage ("  manual Clip 100 + Gain 5: clip depth " + juce::String (u.clipDepthDb, 2) + " dB, limiter peak GR "
                             + juce::String (u.limitGrPeakDb, 2) + " dB, automatic Limit Gain " + juce::String (plan.increments.limitGainDb, 2) + " dB");
                 expect ((plan.manualBudgetMask & manualBudgetClip) != 0 && plan.limitedByManual && ! plan.automaticLevelWithdrawn,
