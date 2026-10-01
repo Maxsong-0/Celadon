@@ -45,11 +45,12 @@ fi
 
 "${SSH[@]}" "$HOST" "mkdir -p '$REMOTE/Celadon' '$REMOTE/JUCE'"
 
-# 只同步源码：Projucer 生成物、编译产物、系统垃圾文件不过网。
+# 只同步入库的源码（含 JuceLibraryCode/：截图工具强制包含其中的 JucePluginDefines.h，BUG-005）：Xcode 工程、编译产物、
+# 预览包、验证日志、系统垃圾文件不过网。排除项与 render-linux.sh 共用 paths.sh 的 CELADON_SOURCE_RSYNC_EXCLUDES。
 # 不用 -a（它带 -t 保留 Mac 端修改时间）：改用 --checksum 按内容判断，只重写内容变了的文件，
 # 重写后修改时间是服务器当前时间，ninja 一定会重编；否则较旧的 mtime 可能让 ninja 以为 .o 已是最新。
 rsync -rlpD --checksum --delete --delete-excluded \
-  --exclude 'Builds/' --exclude 'JuceLibraryCode/' --exclude 'build/' --exclude '.DS_Store' --exclude '.claude/' --exclude 'artifacts/' --exclude 'docs/' \
+  "${CELADON_SOURCE_RSYNC_EXCLUDES[@]}" \
   -e "${SSH[*]}" "$ROOT"/ "$HOST:$REMOTE/Celadon/"
 
 # JUCE 只传 modules/（测试直接编模块源码）；examples、docs、Mac 上的 .app 都不传。JUCE 树不会改，保留 -a。
