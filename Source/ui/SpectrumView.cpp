@@ -767,6 +767,8 @@ namespace celadon::ui
                     g.fillRect (std::round (xOf (f)), 0.0f, 1.0f, h);
 
                 // ---- 修坯：低切以下打斜线（修坯此刻实际在处理时才画）----
+                // 斜线正好 45°：边表按变换后坐标的浮点舍入选每行采样 1 次还是 2 次，直接画时随面板在窗口里的位置差 ≤ 5 LSB；
+                // 画在这张图里与位置无关（见文件头）。
                 if (clayActive && clayLowCutHz > 0.0f)
                 {
                     juce::Graphics::ScopedSaveState hatchState (g);
