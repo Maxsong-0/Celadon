@@ -111,12 +111,12 @@ if ! "${SSH[@]}" "$HOST" "mkdir -p '$REMOTE/Celadon' '$REMOTE/JUCE' '$REMOTE_SON
 fi
 
 echo "render-linux.sh：同步源码到 $HOST …" >&2
-# 与 test-linux.sh 相同的排除项：不传 artifacts/（几百 MB 的预览包，以及渲染结果本身）与 docs/（验证日志，与编译无关；审核 V3-03）。
+# 排除项与 test-linux.sh 共用 paths.sh 的 CELADON_SOURCE_RSYNC_EXCLUDES：不传 artifacts/（几百 MB 的预览包，以及渲染结果本身）
+# 与 docs/（验证日志，与编译无关；审核 V3-03）；JuceLibraryCode/ 照传（BUG-005）。
 # 不用 -a（它带 -t 保留 Mac 端修改时间）：改用 --checksum 按内容判断，只重写内容变了的文件，
 # 重写后修改时间是服务器当前时间，ninja 一定会重编。
 rsync -rlpD --checksum --delete --delete-excluded \
-  --exclude 'Builds/' --exclude 'JuceLibraryCode/' --exclude 'build/' --exclude 'artifacts/' --exclude 'docs/' \
-  --exclude '.DS_Store' --exclude '.claude/' \
+  "${CELADON_SOURCE_RSYNC_EXCLUDES[@]}" \
   -e "${SSH[*]}" "$ROOT"/ "$HOST:$REMOTE/Celadon/"
 
 # JUCE 只传 modules/（工具直接编模块源码）；JUCE 树不会改，保留 -a。
