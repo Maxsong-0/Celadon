@@ -9,6 +9,7 @@ import { onFontsLoaded } from '@/lib/fonts';
 import { scrollToAnchor } from '@/lib/anchor';
 import { useReveal } from '@/lib/reveal';
 import { PLUGIN_VERSION } from '@/lib/site';
+import { formatDate } from '@/lib/format';
 
 /*
   /changelog：版本时间线，新的在上。左栏版本号（大字）+ 日期，桌面上随滚动钉住；右栏一句话 + 细线条目。
@@ -58,8 +59,8 @@ function Entry({ note, current }: { note: ReleaseNote; current: boolean }) {
         <div className="flex items-baseline justify-between gap-4 md:block">
           <h2 className="display text-[clamp(2.5rem,4.6vw,3.75rem)] leading-none tabular-nums text-ink">{note.version ?? note.label?.[locale]}</h2>
           <p className="font-mono text-[12px] tracking-wider text-ink-3 md:mt-4">
-            {/* 单日写成 <time>；合并条目写按语言的区间 */}
-            {note.range ? note.range[locale] : <time dateTime={note.date}>{note.date}</time>}
+            {/* 单日写成 <time>；合并条目写按语言的区间。英文按「Oct 1, 2026」写（与区间同一写法），中文保持原来的 2026-10-01 */}
+            {note.range ? note.range[locale] : <time dateTime={note.date}>{locale === 'en' ? formatDate(note.date, 'en') : note.date}</time>}
           </p>
         </div>
         {current ? (
