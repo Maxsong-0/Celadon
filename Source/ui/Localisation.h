@@ -88,6 +88,11 @@ namespace celadon::ui
         // ---- 警告 ----
         warnTruePeak, warnNonFinite, debugBuild,
 
+        // ---- 曲风与交付（T-038，GLAZE 主旋钮两侧的两个选择；设计规格-曲风与交付 第 5 节）----
+        genreCaption, genreGeneral, genreDeep, genreTech, genreMelodic,
+        deliveryCaption, deliveryStandard, deliveryStreaming, deliveryClub,
+        cornerHouseTip,
+
         numTexts
     };
 

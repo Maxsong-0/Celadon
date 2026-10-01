@@ -19,6 +19,9 @@
     不带语言参数的旧接口仍返回中文，逐字不变（测试按中文原文核对）。三灯指示改在 CLAY 卡片上逐行显示（每行一盏灯），
     判定与文字仍在这里。
 
+    T-038 曲风与交付：两个参数的文案定稿；House 档反相提示的读数（ClayReadout::housePhaseHint）与文字、House 暂定方案期间
+    GLAZE 状态的悬停气泡也在这里（文件末尾），同样进无头测试。
+
   ==============================================================================
 */
 
@@ -88,6 +91,10 @@ namespace celadon::help
         bool lowCutCostLimited = false;
         bool monoCostLimited = false;
         bool widthCostLimited = false;
+        // T-038 House 档反相提示（Status::housePhaseHint；设计规格-曲风-House学习方式 第 9 节）：说的是混音本身，不按三态与旁通筛
+        //（clayReadoutFor）。损失显示到 0.1 dB（正数，至少 1）；读不到损失时 0（提示照亮、不写数）。
+        bool housePhaseHint = false;
+        int housePhaseLossTenthsDb = 0;
 
         bool operator== (const ClayReadout& other) const noexcept;
         bool operator!= (const ClayReadout& other) const noexcept   { return ! operator== (other); }
@@ -113,10 +120,27 @@ namespace celadon::help
     juce::String clayCostLine (const ClayReadout& readout, Language language = Language::chinese);
 
     // 完整气泡：第 1 行 = 文案表 ui_clay_indicator 的第 1 行；第 2 行 = clayLiveLine；
-    // 第 3 行按优先级：needsRelearn → clayRelearnHint + 「。」；否则有代价说明 → clayCostLine + 「。」；否则文案表的第 3 行。
+    // 第 3 行按优先级：needsRelearn → clayRelearnHint + 「。」；否则 House 反相提示（T-038）→ 提示第 1 行 + 为什么要回混音；
+    // 否则有代价说明 → clayCostLine + 「。」；否则文案表的第 3 行。
     juce::String clayIndicatorTooltip (const ClayReadout& readout, Language language = Language::chinese);
 
     // CLAY 卡片每行右边的数值（v0.1.8.0）：「25 Hz」「120 Hz」「120 Hz · 80%」「+0.8 dB」「−0.5 dB」；该级没在处理时返回空串
     //（由界面写「未启用」之类）。负号用 U+2212。
     juce::String clayStageValue (const ClayReadout& readout, ClayStage stage);
+
+    //==============================================================================
+    // T-038 House 档（设计规格-曲风-House学习方式 第 7、9 节）
+    //
+    // 反相提示：「俱乐部单声道会丢低频（约 1.6 dB），请回混音修」。lossTenthsDb = 损失 × 10（ClayReadout::housePhaseLossTenthsDb）；
+    // ≤ 0 时不写括号里的数。两行版给 CLAY 卡片（逗号处断开：第 1 行说问题、第 2 行「请回混音修」），一行版给 GLAZE 状态行。
+    juce::StringArray housePhaseHintLines (int lossTenthsDb, Language language);
+    juce::String housePhaseHintText (int lossTenthsDb, Language language);
+
+    // Status::housePhaseMonoLossDb（dB，≤ 0）→ 上面两个函数要的 lossTenthsDb：|x| × 10 四舍五入，至少 1、最多 999；非有限 → 0。
+    // CLAY 卡片（clayReadoutFor）与 GLAZE 状态行（GlazeStatusText）共用，两处写的数一定相同。
+    int houseLossTenthsFor (float lossDb) noexcept;
+
+    // House 档暂定方案期间（锁定条件还没满足）GLAZE 状态的悬停气泡：第 1 行同 ui_glaze_status，第 2 行说 House 怎么学，
+    // 第 3 行「从 drop 开始播放能学得更快。」（与左下角提示同一句，Localisation 表 cornerHouseTip）。
+    juce::String houseListeningTooltip (Language language);
 }

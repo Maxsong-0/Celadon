@@ -5,6 +5,8 @@
     设计规格-Limit「验收 · 自动测试」四条 + 分块无关性 + Lookahead 变动；
     v0.5：Clip 级空闲跳过与「永不跳过」的参照逐位相同。
     v0.1.8.0：试听差值（process 的 difference 输出）——不改输出、没衰减时恰为 0、与输出拼回加了 Gain 的输入、旁通与淡入时归零、分块无关。
+    T-038：限幅跟拍（Params::beatReleaseCapMs）——不封顶的各种写法逐位同没有这一项、手动 Release / 低频周期下限 / 短过载不看它、
+    124 BPM 上限让慢段更快恢复、块长无关、中途开关上限增益不出台阶、不分配。
 
   ==============================================================================
 */
@@ -236,9 +238,327 @@ namespace celadon::test
             testSlidingMinimumMatchesReferences();
             testHardClipCeilingDelayFollowsResets();
             testParamsGuardNonFiniteAndOutOfRange();
+            testBeatReleaseCapNeutralCases();
+            testBeatReleaseCapRecoversFasterWithoutSteps();
         }
 
     private:
+        //==============================================================================
+        // T-038 限幅跟拍（设计规格-曲风-House学习方式 第 8 节；LimiterModule::Params::beatReleaseCapMs）的共用材料：
+        // 直流 0.95 推 +8 dB（真峰值 −8.9 dB 的持续限幅，慢段自适应释放约 620 ms）1.5 s，再降到 0.05（推完 0.126，不再限幅）1.5 s。
+        // 直流让增益能逐样本还原：Clip 0、不触硬钳位时 输出 = 延迟整个本级的输入 × Gain × g（g 在当前样本上算、不延迟）。
+        static constexpr double capRate = 48000.0;
+        static constexpr int capLoudSamples = 72000;
+        static constexpr int capQuietSamples = 72000;
+        static constexpr int capBlock = 480;   // 10 ms：切换都落在块边界上
+        static constexpr float capGainDb = 8.0f;
+
+        static float beatCapFor (double bpm)   { return (float) (60000.0 / bpm / 3.0); }   // 一拍（四分音符）÷ 3，同链
+
+        static Signal makeLoudThenQuietDc()
+        {
+            auto signal = makeSilence (numChannels, capLoudSamples + capQuietSamples);
+
+            for (auto& channel : signal)
+                for (int i = 0; i < (int) channel.size(); ++i)
+                    channel[(size_t) i] = i < capLoudSamples ? 0.95f : 0.05f;
+
+            return signal;
+        }
+
+        static LimiterModule::Params capParams (float capMs, bool autoRelease = true)
+        {
+            auto p = makeParams (capGainDb, -1.0f, 2.0f, autoRelease, 0.0f);
+            p.releaseMs = 300.0f;
+            p.beatReleaseCapMs = capMs;
+            return p;
+        }
+
+        // 按 capBlock 一块处理；从第 switchAt 个样本起（块边界）换成 second 的上限。返回输出与延迟。
+        struct CapRun
+        {
+            Signal output;
+            int latency = 0;
+        };
+
+        static CapRun runCapSchedule (const Signal& input, const LimiterModule::Params& first, int switchAt,
+                                      const LimiterModule::Params& second, int blockSize = capBlock)
+        {
+            LimiterModule limiter;
+            prepareLimiter (limiter, capRate, first);
+            CapRun run { input, 0 };
+            const auto length = (int) input.front().size();
+            juce::AudioBuffer<float> block (numChannels, blockSize);
+
+            for (int start = 0; start < length; start += blockSize)
+            {
+                if (start == switchAt)
+                    limiter.setParams (second);
+
+                const auto count = juce::jmin (blockSize, length - start);
+                block.setSize (numChannels, count, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, count);
+
+                limiter.process (block);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + count, run.output[(size_t) ch].begin() + start);
+            }
+
+            run.latency = limiter.getLatencySamples();
+            return run;
+        }
+
+        // 逐样本还原限幅增益 g(n) = y(n) / (x(n − 延迟) × Gain)（n < 延迟时记 1）。
+        static std::vector<double> gainTrajectory (const Signal& input, const CapRun& run)
+        {
+            const auto gain = (double) juce::Decibels::decibelsToGain (capGainDb);
+            std::vector<double> trajectory (input.front().size(), 1.0);
+
+            for (int n = run.latency; n < (int) trajectory.size(); ++n)
+                trajectory[(size_t) n] = (double) run.output[0][(size_t) n] / ((double) input[0][(size_t) (n - run.latency)] * gain);
+
+            return trajectory;
+        }
+
+        struct Step
+        {
+            double size = 0.0;
+            int at = 0;
+        };
+
+        static Step maxStep (const std::vector<double>& trajectory, int from, int to)
+        {
+            Step largest;
+
+            for (int n = juce::jmax (1, from); n < to; ++n)
+            {
+                const auto size = std::abs (trajectory[(size_t) n] - trajectory[(size_t) (n - 1)]);
+
+                if (size > largest.size)
+                    largest = { size, n };
+            }
+
+            return largest;
+        }
+
+        // 限幅跟拍 ①：不封顶的各种写法与「没有这一项」逐位相同；手动 Release、快段的低频周期下限、短过载松开都不看上限。
+        // 「改前」的逐位对照另由日志里的输出指纹给（不封顶时本文件其余用例的指纹与改动前一致，报告里逐行比过）。
+        void testBeatReleaseCapNeutralCases()
+        {
+            beginTest ("beat release cap: 0 / non-finite / negative / >= 800 ms equal no cap bit for bit; manual Release, the LF floor and short overloads ignore it");
+
+            const auto input = makeLoudThenQuietDc();
+            const auto length = (int) input.front().size();
+            const auto reference = runCapSchedule (input, capParams (0.0f), -1, capParams (0.0f));
+
+            {
+                Fingerprint fingerprint;
+                fingerprint.add (reference.output);
+                logMessage ("  no-cap output fingerprint " + fingerprint.toString());
+            }
+
+            const float neutral[] = { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                                      -std::numeric_limits<float>::infinity(), -5.0f, 800.0f, 5000.0f };
+
+            for (const auto capMs : neutral)
+            {
+                const auto run = runCapSchedule (input, capParams (capMs), -1, capParams (capMs));
+                expectEquals (maxAbsDifference (reference.output, run.output, 0, length), 0.0f,
+                              "cap " + juce::String (capMs) + " ms must be bit-identical to no cap");
+            }
+
+            // 下限：低于 slowReleaseMinMs 的上限按 100 ms 用（与直接给 100 ms 逐位相同）。
+            {
+                const auto low = runCapSchedule (input, capParams (40.0f), -1, capParams (40.0f));
+                const auto floorCap = runCapSchedule (input, capParams (100.0f), -1, capParams (100.0f));
+                expectEquals (maxAbsDifference (low.output, floorCap.output, 0, length), 0.0f, "a 40 ms cap behaves as the 100 ms floor");
+                expect (maxAbsDifference (reference.output, floorCap.output, 0, length) > 1.0e-3f, "the 100 ms floor cap must change the release");
+            }
+
+            // 手动 Release：上限不起作用（链也只在 Auto 时给上限；模块自己同样不看）。
+            {
+                const auto manual = runCapSchedule (input, capParams (0.0f, false), -1, capParams (0.0f, false));
+                const auto manualCapped = runCapSchedule (input, capParams (beatCapFor (124.0), false), -1, capParams (beatCapFor (124.0), false));
+                expectEquals (maxAbsDifference (manual.output, manualCapped.output, 0, length), 0.0f, "manual Release ignores the cap");
+            }
+
+            // 快段的低频周期下限：观察器只看本级输入，上限改不了它的轨迹（每块读一次，逐位相同）。
+            {
+                const auto bass = makeLowHighSignal (capRate, 55.0, 2.0);
+                const auto bassLength = (int) bass.front().size();
+                auto plain = makeParams (9.0f, -1.0f, 2.0f, true, 0.0f);
+                auto capped = plain;
+                capped.beatReleaseCapMs = beatCapFor (124.0);
+
+                LimiterModule a, b;
+                prepareLimiter (a, capRate, plain);
+                prepareLimiter (b, capRate, capped);
+                juce::AudioBuffer<float> blockA (numChannels, 333), blockB (numChannels, 333);
+                int fastMismatches = 0;
+                float longestFast = 0.0f;
+
+                for (int start = 0; start < bassLength; start += 333)
+                {
+                    const auto count = juce::jmin (333, bassLength - start);
+                    blockA.setSize (numChannels, count, false, false, true);
+                    blockB.setSize (numChannels, count, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                    {
+                        blockA.copyFrom (ch, 0, bass[(size_t) ch].data() + start, count);
+                        blockB.copyFrom (ch, 0, bass[(size_t) ch].data() + start, count);
+                    }
+
+                    a.process (blockA);
+                    b.process (blockB);
+                    fastMismatches += sameBits (a.getAutoFastReleaseMsForTesting(), b.getAutoFastReleaseMsForTesting()) ? 0 : 1;
+                    longestFast = juce::jmax (longestFast, b.getAutoFastReleaseMsForTesting());
+                }
+
+                expectEquals (fastMismatches, 0, "the fast segment's low-frequency period floor must not see the cap");
+                expect (longestFast > 35.0f, "case must exercise the low-frequency floor (" + juce::String (longestFast, 2) + " ms)");
+            }
+
+            // 短过载（12 ms）：500 ms 平均衰减很浅，自适应慢段本来就短于 124 BPM 的上限（约 112 ms < 161 ms）——不进封顶那一支，
+            // 输出逐位相同；松开仍由快包络带（同 testShortOverloadDoesNotHoldTheSlowEnvelope 的材料）。
+            {
+                constexpr float quiet = 0.08f, hot = 0.95f;
+                auto signal = makeSine (numChannels, capRate, 3000.0, quiet, 0.35 + 0.012 + 0.45);
+                const auto hotStart = (int) (0.35 * capRate);
+                const auto hotEnd = hotStart + (int) (0.012 * capRate);
+
+                for (int i = hotStart; i < hotEnd; ++i)
+                    for (auto& channel : signal)
+                        channel[(size_t) i] = hot * (float) std::sin (juce::MathConstants<double>::twoPi * 3000.0 * i / capRate);
+
+                auto plain = makeParams (8.0f, -1.0f, 2.0f, true, 0.0f);
+                auto capped = plain;
+                capped.beatReleaseCapMs = beatCapFor (124.0);
+                LimiterModule a, b;
+                prepareLimiter (a, capRate, plain);
+                prepareLimiter (b, capRate, capped);
+                const auto outA = runLimiter (a, signal, 128);
+                const auto outB = runLimiter (b, signal, 128);
+                expectEquals (maxAbsDifference (outA, outB, 0, (int) signal.front().size()), 0.0f,
+                              "a short overload is released by the fast envelope whether or not the cap is set");
+            }
+        }
+
+        // 限幅跟拍 ②：124 BPM 的上限（161 ms）让慢段明显更快恢复（持续限幅之后 300 ms 处高出 1.5 dB 以上）、上限越小越快；
+        // 上限常量时与块长无关、不分配；处理中途开 / 关上限：切换之前与不切换逐位相同，之后增益连续——整段的最大每样本增量
+        // 不超过两种固定设置各自的最大值，切换附近的增量不超过最快的慢段释放（100 ms：1 / (0.1 s × fs)），比 0.1 dB 的台阶
+        //（约 0.0115）小两个数量级。
+        void testBeatReleaseCapRecoversFasterWithoutSteps()
+        {
+            beginTest ("beat release cap: a 124 BPM cap (161 ms) recovers the slow segment faster; block-size independent; toggling never steps the gain");
+
+            const auto input = makeLoudThenQuietDc();
+            const auto length = (int) input.front().size();
+            const auto cap124 = beatCapFor (124.0);
+            const auto quietStart = capLoudSamples;
+            const auto probe = quietStart + (int) (0.3 * capRate);
+
+            const auto none = runCapSchedule (input, capParams (0.0f), -1, capParams (0.0f));
+            const auto capped = runCapSchedule (input, capParams (cap124), -1, capParams (cap124));
+            const auto fastest = runCapSchedule (input, capParams (100.0f), -1, capParams (100.0f));
+            const auto gNone = gainTrajectory (input, none);
+            const auto gCapped = gainTrajectory (input, capped);
+            const auto gFastest = gainTrajectory (input, fastest);
+
+            const auto dbAt = [] (const std::vector<double>& g, int n) { return toDb (g[(size_t) n]); };
+            logMessage ("  gain 300 ms after the overload: no cap " + juce::String (dbAt (gNone, probe), 2) + " dB, 124 BPM cap ("
+                        + juce::String (cap124, 1) + " ms) " + juce::String (dbAt (gCapped, probe), 2) + " dB, 100 ms cap "
+                        + juce::String (dbAt (gFastest, probe), 2) + " dB; during the overload " + juce::String (dbAt (gNone, quietStart - 1), 2) + " dB");
+
+            expect (dbAt (gNone, quietStart - 1) < -8.0f, "the loud section must be limited hard (sustained overload)");
+            expect (dbAt (gCapped, probe) - dbAt (gNone, probe) >= 1.5f, "the 124 BPM cap must recover the slow segment clearly faster");
+            expect (dbAt (gFastest, probe) >= dbAt (gCapped, probe), "a smaller cap recovers at least as fast");
+            expect (gCapped[(size_t) probe] < 0.999, "the capped release is still a release, not a jump to unity");
+
+            // 进入安静段之前（限幅中）各方案增益相同：上限只改释放、不改压的深度。
+            expect (std::abs (gCapped[(size_t) (quietStart - 1)] - gNone[(size_t) (quietStart - 1)]) < 1.0e-4,
+                    "the cap must not change the depth of a sustained overload");
+
+            // 安静段里增益只升不降。
+            for (const auto* g : { &gNone, &gCapped, &gFastest })
+            {
+                auto falls = 0;
+
+                for (int n = quietStart + none.latency + 1; n < length; ++n)
+                    falls += (*g)[(size_t) n] < (*g)[(size_t) (n - 1)] - 1.0e-9 ? 1 : 0;
+
+                expectEquals (falls, 0, "the gain only rises after the overload");
+            }
+
+            // 上限常量时与块长无关。
+            for (const auto blockSize : { 17, 333, 2048 })
+            {
+                const auto other = runCapSchedule (input, capParams (cap124), -1, capParams (cap124), blockSize);
+                expectEquals (maxAbsDifference (capped.output, other.output, 0, length), 0.0f, "block=" + juce::String (blockSize));
+            }
+
+            // 中途开 / 关：安静段开始后 150 ms 打开上限（on）或关掉上限（off）。
+            const auto toggleAt = quietStart + 15 * capBlock;
+            const auto on = runCapSchedule (input, capParams (0.0f), toggleAt, capParams (cap124));
+            const auto off = runCapSchedule (input, capParams (cap124), toggleAt, capParams (0.0f));
+            const auto gOn = gainTrajectory (input, on);
+            const auto gOff = gainTrajectory (input, off);
+
+            expectEquals (maxAbsDifference (none.output, on.output, 0, toggleAt), 0.0f, "before switching on: identical to no cap");
+            expectEquals (maxAbsDifference (capped.output, off.output, 0, toggleAt), 0.0f, "before switching off: identical to the capped run");
+
+            // 整个安静段：最大的每样本增量出在安静段开头约 7 ms 处——直流阶跃让真峰值插值过冲、增益多压下去一点，快段（30 ms）
+            // 再把它放回来（与上限无关：切换之前的两对运行逐位相同）。切换不能让它更大。
+            // 切换附近（前 10 ms 到后 100 ms）：快段早已回到 1 附近，增益由慢段定，每样本的增量不超过最快的慢段释放
+            //（slowReleaseMinMs 100 ms：1 / (0.1 s × fs) ≈ 2.1e-4；0.1 dB 的台阶约 0.0115）。
+            const auto stepBound = 1.0 / (0.1 * capRate);
+            const auto from = quietStart + none.latency + 1;
+            const auto windowFrom = toggleAt - (int) (0.01 * capRate), windowTo = toggleAt + (int) (0.1 * capRate);
+            const auto describeStep = [&] (const std::vector<double>& g, int first, int last)
+            {
+                const auto step = maxStep (g, first, last);
+                return juce::String (step.size, 8) + " at +" + juce::String (1000.0 * (double) (step.at - quietStart) / capRate, 2) + " ms (g "
+                     + juce::String (g[(size_t) step.at - 1], 6) + " -> " + juce::String (g[(size_t) step.at], 6) + ")";
+            };
+            logMessage ("  largest per-sample gain change after the overload: switched on " + describeStep (gOn, from, length) + ", switched off "
+                        + describeStep (gOff, from, length) + ", never capped " + describeStep (gNone, from, length) + ", always capped "
+                        + describeStep (gCapped, from, length));
+            logMessage ("  around the switch (-10 .. +100 ms): switched on " + describeStep (gOn, windowFrom, windowTo) + ", switched off "
+                        + describeStep (gOff, windowFrom, windowTo) + " (bound " + juce::String (stepBound, 8) + ")");
+
+            const auto steadyLargest = juce::jmax (maxStep (gNone, from, length).size, maxStep (gCapped, from, length).size);
+            expect (maxStep (gOn, from, length).size <= steadyLargest && maxStep (gOff, from, length).size <= steadyLargest,
+                    "switching the cap never makes a larger per-sample gain change than either steady setting");
+            expect (maxStep (gOn, windowFrom, windowTo).size <= stepBound && maxStep (gOff, windowFrom, windowTo).size <= stepBound,
+                    "around the switch the gain moves no faster than the fastest slow release: no step");
+            expect (gOn[(size_t) probe] > gNone[(size_t) probe], "switched on: recovers faster than never capped");
+            expect (gOff[(size_t) probe] < gCapped[(size_t) probe], "switched off: recovers slower than always capped");
+
+            // 上限生效时音频线程不分配（setParams 每块调，带上限）。
+            {
+                LimiterModule limiter;
+                prepareLimiter (limiter, capRate, capParams (cap124));
+                juce::AudioBuffer<float> block (numChannels, capBlock);
+                std::uint64_t allocations = 0;
+
+                for (int start = 0; start + capBlock <= length; start += capBlock)
+                {
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) ch].data() + start, capBlock);
+
+                    const auto before = allocationCountOnThisThread();
+                    limiter.setParams (capParams (start < quietStart ? cap124 : beatCapFor (100.0 + (double) (start % 41))));
+                    limiter.process (block);
+                    allocations += allocationCountOnThisThread() - before;
+                }
+
+                expectEquals ((juce::int64) allocations, (juce::int64) 0, "the capped release must not allocate");
+            }
+        }
+
         void testShortOverloadDoesNotHoldTheSlowEnvelope()
         {
             beginTest ("a short overload releases with the fast envelope; a sustained overload still holds");
@@ -1002,7 +1322,8 @@ namespace celadon::test
                                      { "ceilingDb",   &Params::ceilingDb,   false },
                                      { "releaseMs",   &Params::releaseMs,   true  },   // 手动释放才用到释放系数
                                      { "lookaheadMs", &Params::lookaheadMs, false },
-                                     { "clip",        &Params::clip,        false } };
+                                     { "clip",        &Params::clip,        false },
+                                     { "beatReleaseCapMs", &Params::beatReleaseCapMs, false } };   // T-038：非有限 = 不封顶（默认 0）
 
             const float nonFinite[] = { std::numeric_limits<float>::quiet_NaN(),
                                         std::numeric_limits<float>::infinity(),
@@ -1012,9 +1333,10 @@ namespace celadon::test
 
             for (const auto& field : fields)
             {
-                // 基准：每个字段都不是默认值（Gain 24、Ceiling −2、Release 250、Lookahead 5、Clip 30）。
+                // 基准：每个字段都不是默认值（Gain 24、Ceiling −2、Release 250、Lookahead 5、Clip 30、跟拍上限 161 ms ≈ 124 BPM）。
                 auto base = makeParams (24.0f, -2.0f, 5.0f, ! field.manualRelease, 30.0f);
                 base.releaseMs = 250.0f;
+                base.beatReleaseCapMs = 161.3f;
 
                 for (int v = 0; v < 3; ++v)
                 {
@@ -1056,7 +1378,11 @@ namespace celadon::test
                                      { "clip 150 -> 100",        &Params::clip,        150.0f,  100.0f },
                                      { "clip -20 -> 0",          &Params::clip,        -20.0f,  0.0f },
                                      { "lookaheadMs 20 -> 10",   &Params::lookaheadMs, 20.0f,   10.0f },
-                                     { "lookaheadMs 0.2 -> 1",   &Params::lookaheadMs, 0.2f,    1.0f } };
+                                     { "lookaheadMs 0.2 -> 1",   &Params::lookaheadMs, 0.2f,    1.0f },
+                                     // T-038 跟拍上限：负值 = 不封顶；低于 100 ms 按慢段下限用；800 ms 及以上与不封顶等价。
+                                     { "beatReleaseCapMs -5 -> 0",    &Params::beatReleaseCapMs, -5.0f,    0.0f },
+                                     { "beatReleaseCapMs 40 -> 100",  &Params::beatReleaseCapMs, 40.0f,    100.0f },
+                                     { "beatReleaseCapMs 5000 -> 0",  &Params::beatReleaseCapMs, 5000.0f,  0.0f } };
 
             for (const auto& clamp : clamps)
             {

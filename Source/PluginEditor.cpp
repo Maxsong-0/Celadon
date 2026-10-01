@@ -210,6 +210,21 @@ public:
         addAndMakeVisible (styleSelector);
         styleAttachment = std::make_unique<SegmentedAttachment> (styleSelector, *state.getParameter (param::glazeStyle));
 
+        // T-038 曲风与交付：与风格同一种选择器（带灰字说明格），分放 GLAZE 主旋钮左右——声音从左边流进 GLAZE、从右边流出，
+        // 曲风说的是进来的音乐，交付说的是出去的母带（位置待 Max 看截图定，设计规格-曲风与交付 第 5 节）。选项文字在 setLanguage 里填。
+        genreSelector.setOptions ({ "", "", "", "" });
+        deliverySelector.setOptions ({ "", "", "" });
+
+        for (auto* selector : { &genreSelector, &deliverySelector })
+        {
+            selector->setFont (uiFont (12.0f, Weight::medium));
+            selector->setEqualWidths (false);
+            addAndMakeVisible (*selector);
+        }
+
+        genreAttachment = std::make_unique<SegmentedAttachment> (genreSelector, *state.getParameter (param::glazeGenre));
+        deliveryAttachment = std::make_unique<SegmentedAttachment> (deliverySelector, *state.getParameter (param::glazeDelivery));
+
         addAndMakeVisible (relearnButton);
 
         abSelector.setOptions ({ "", "" });
@@ -285,6 +300,8 @@ public:
         // 组件 ID：截图工具按它找控件、模拟操作（卡片里的旋钮 / 滑条 / 三态 / 电源键按参数 ID 命名）。
         glazeKnob.setComponentID (param::glazeAmount);
         styleSelector.setComponentID (param::glazeStyle);
+        genreSelector.setComponentID (param::glazeGenre);
+        deliverySelector.setComponentID (param::glazeDelivery);
         abSelector.setComponentID ("ab");
         matchButton.setComponentID ("match");
         relearnButton.setComponentID ("relearn");
@@ -302,7 +319,8 @@ public:
         // 包围盒，带里的组件每帧都被拖进来重画、重新排版文字。各自缓存成按物理像素的图、整数对齐贴；它们的状态一改就
         // repaint，缓存随之作废重画。主旋钮自管整颗缓存（GlazeKnob），粒子的柔光与流线也是缓存图（ParticleField）。
         for (auto* widget : std::initializer_list<juce::Component*> { &glazeTitle, &styleSelector, &relearnButton, &abSelector,
-                                                                      &matchButton, &monitoringButton, &cornerNote, &legend })
+                                                                      &matchButton, &monitoringButton, &cornerNote, &legend,
+                                                                      &genreSelector, &deliverySelector })
             setBufferedToAlignedImage (*widget);
 
         startTimerHz (10);
@@ -400,6 +418,15 @@ public:
         styleSelector.setOptions ({ glazestatus::styleName (glaze::Style::automatic, language), glazestatus::styleName (glaze::Style::warm, language),
                                     glazestatus::styleName (glaze::Style::punchy, language), glazestatus::styleName (glaze::Style::clean, language) });
         styleSelector.setTooltip (help::tooltipFor (param::glazeStyle, language));
+        genreSelector.setCaption (tr (Text::genreCaption, language));
+        genreSelector.setOptions ({ tr (Text::genreGeneral, language), tr (Text::genreDeep, language),
+                                    tr (Text::genreTech, language), tr (Text::genreMelodic, language) });
+        genreSelector.setTooltip (help::tooltipFor (param::glazeGenre, language));
+        deliverySelector.setCaption (tr (Text::deliveryCaption, language));
+        deliverySelector.setOptions ({ tr (Text::deliveryStandard, language), tr (Text::deliveryStreaming, language),
+                                       tr (Text::deliveryClub, language) });
+        deliverySelector.setTooltip (help::tooltipFor (param::glazeDelivery, language));
+        layoutGlazeChoices();
         relearnButton.setTooltip (help::tooltipFor (uiid::glazeRelearn, language));
         abSelector.setOptions ({ tr (Text::processed, language), tr (Text::original, language) });
         matchButton.setTooltip (help::tooltipFor (param::limitListen, language));
@@ -448,6 +475,19 @@ public:
 
         legend.setBounds (baseWidth - 24 - legendWidth, 504, legendWidth, 18);
         repaint (0, y - 2, baseWidth, h + 4);
+    }
+
+    // T-038 曲风 / 交付：主旋钮左右各一个，按文字宽度（自然宽度随语言变，只在 setLanguage 里量），垂直居中在旋钮中心 y = 422。
+    // 两个都离旋钮的数值弧（半径约 92）留 30 px 左右：曲风右对齐到 x = 476，交付左对齐到 x = 724。左下的说明（y ≥ 494）、
+    // 临时监听的退出提示（y 452 ～ 486）与右下的图例（y 504 起）都在它们下面，不重叠。
+    void layoutGlazeChoices()
+    {
+        constexpr int centreY = 422, h = 28, genreRight = 476, deliveryLeft = 724;
+        const auto genreWidth = genreSelector.getNaturalWidth();
+        const auto deliveryWidth = deliverySelector.getNaturalWidth();
+
+        genreSelector.setBounds (genreRight - genreWidth, centreY - h / 2, genreWidth, h);
+        deliverySelector.setBounds (deliveryLeft, centreY - h / 2, deliveryWidth, h);
     }
 
     void noteZoomChanged (double zoom, bool fromUser)
@@ -506,6 +546,8 @@ public:
     GlazeKnob glazeKnob;
     Segmented styleSelector { Segmented::Look::bordered };
     std::unique_ptr<SegmentedAttachment> styleAttachment;
+    Segmented genreSelector { Segmented::Look::bordered }, deliverySelector { Segmented::Look::bordered };   // T-038
+    std::unique_ptr<SegmentedAttachment> genreAttachment, deliveryAttachment;
     PillButton relearnButton { PillButton::Icon::relearn };
     Segmented abSelector { Segmented::Look::bordered };
     PillButton matchButton { PillButton::Icon::match };
@@ -804,6 +846,7 @@ void CeladonAudioProcessorEditor::setGlazeEffectiveParamsSource (GlazeEffectiveP
 void CeladonAudioProcessorEditor::applyLanguage()
 {
     canvas->setLanguage (settings->getLanguage());
+    glazeTooltipValid = false;   // 上一行把 GLAZE 状态的两处气泡写回了通用版：House 档暂定期间要随即重设（T-038）
     timerCallback();
 }
 
@@ -1205,8 +1248,19 @@ void CeladonAudioProcessorEditor::timerCallback()
     loudness.shortTermLufs = processor.getOutputShortTermLufs();
     loudness.truePeakMaxDb = truePeakMaxDb;
     loudness.ceilingDb = ceiling;
-    loudness.hasTarget = view.kind == glazestatus::Kind::locked && view.hasTarget;
-    loudness.targetLufs = (float) view.targetTenthsLufs / 10.0f;
+
+    // 目标标记照「已锁定」那一行：House 反相提示（T-038）压住状态行时照常显示（提示说的是混音，不改目标）。
+    auto targetView = view;
+
+    if (view.kind == glazestatus::Kind::housePhaseHint)
+    {
+        auto unhinted = status;
+        unhinted.housePhaseHint = false;
+        targetView = glazestatus::classify (unhinted, glazePercent, style, listenOn);
+    }
+
+    loudness.hasTarget = targetView.kind == glazestatus::Kind::locked && targetView.hasTarget;
+    loudness.targetLufs = (float) targetView.targetTenthsLufs / 10.0f;
     c.spectrum.getLoudnessHud().setValues (loudness);
 
     // ---- 频谱仪：平时由垂直同步推（spectrumFrame，T-036）；垂直同步 100 ms 没来（离屏、宿主 / 系统不给）就由这里按 30 Hz 推 ----
@@ -1255,9 +1309,11 @@ void CeladonAudioProcessorEditor::timerCallback()
 
         auto chip = Chip::locked;
 
-        switch (view.kind)
+        // House 反相提示（T-038）压住的是哪一行，阶段标签就照哪一行画：提示不改变「聆听中 / 已锁定」。
+        switch (view.kind == Kind::housePhaseHint ? view.underlyingKind : view.kind)
         {
-            case Kind::listening:           chip = Chip::listening;   break;
+            case Kind::listening:
+            case Kind::houseListening:      chip = Chip::listening;   break;
             case Kind::calibrating:         chip = Chip::calibrating; break;
             case Kind::calibrationPaused:   chip = Chip::paused;      break;
             case Kind::unlearned:
@@ -1266,10 +1322,26 @@ void CeladonAudioProcessorEditor::timerCallback()
             case Kind::limitedByManual:     chip = Chip::limited;     break;
             case Kind::awaitingCalibration:
             case Kind::locked:
-            case Kind::profileMismatch:     chip = Chip::locked;      break;
+            case Kind::profileMismatch:
+            case Kind::housePhaseHint:      chip = Chip::locked;      break;
         }
 
         c.glazeTitle.setChip (chip);
+
+        // T-038：House 档锁定条件还没满足（含还没开始播放）时，GLAZE 状态的悬停气泡换成 House 版、左下第二行写
+        //「从 drop 开始播放能学得更快」（设计规格-曲风-House学习方式 第 7 节）。气泡只在 House 与否或语言变了时重设
+        //（标题与顶栏状态胶囊两处；Canvas::setLanguage / TopBar::setLanguage 会写回通用版，applyLanguage 让这里随后重设）。
+        const auto houseTip = glazestatus::houseLearningTipApplies (status);
+
+        if (! glazeTooltipValid || houseTip != glazeTooltipHouse || language != glazeTooltipLanguage)
+        {
+            const auto tooltip = houseTip ? help::houseListeningTooltip (language) : help::tooltipFor (uiid::glazeStatus, language);
+            c.glazeTitle.setTooltip (tooltip);
+            c.topBar.getStatusPill().setTooltip (tooltip);
+            glazeTooltipHouse = houseTip;
+            glazeTooltipLanguage = language;
+            glazeTooltipValid = true;
+        }
 
         if (c.isHintActive())
         {
@@ -1281,6 +1353,9 @@ void CeladonAudioProcessorEditor::timerCallback()
 
             if (! (glazePercent > 0.0f))
                 second = tr (Text::glazeManual, language);
+            else if (houseTip && (view.kind == Kind::houseListening || view.kind == Kind::housePhaseHint
+                                  || view.kind == Kind::unlearned || view.kind == Kind::unlearnedExported))
+                second = tr (Text::cornerHouseTip, language);
             else if (view.kind == Kind::listening)
                 second = trFormat (Text::cornerListening, language, { juce::String (view.listenedSeconds), juce::String (view.requiredSeconds) });
             else if (view.kind == Kind::unlearned || view.kind == Kind::unlearnedExported)
@@ -1382,7 +1457,7 @@ void CeladonAudioProcessorEditor::timerCallback()
             pill.accentSegment = pill.segments.size() > 1 ? 1 : -1;
             pill.accentColour = view.kind == Kind::locked && style == glaze::Style::automatic ? palette::violet : palette::c800;
             pill.dotColour = palette::c500;
-            pill.pulse = view.kind == Kind::listening || view.kind == Kind::calibrating;
+            pill.pulse = view.kind == Kind::listening || view.kind == Kind::calibrating || view.kind == Kind::houseListening;
         }
 
        #if JUCE_DEBUG

@@ -4,7 +4,7 @@
     LocalisationTests.cpp
     界面语言（v0.1.8.0）的自动测试：Localisation 表每个键都有一行、顺序与枚举一致、两种语言都非空且是合法 UTF-8、
     英文里没有混进中文；占位符替换；语言代号往返。GLAZE 状态行每一种情形都有英文、英文不混中文、
-    按「 · 」拆出的段拼回去就是整行文字。
+    按「 · 」拆出的段拼回去就是整行文字。T-038：曲风 / 交付两个选择的文字与参数选项一一对应、House 暂定期间的提示。
 
   ==============================================================================
 */
@@ -179,7 +179,9 @@ namespace celadon::test
 
                 std::vector<View> views;
 
-                for (int kind = 0; kind <= (int) Kind::profileMismatch; ++kind)
+                // T-038 起末尾多了 House 的两种（houseListening、housePhaseHint）：第二、三个变体顺带给出 House 的读数
+                //（按小节 23 / 64、主段落 8、损失 1.6 dB；第三个按秒）。
+                for (int kind = 0; kind <= (int) Kind::housePhaseHint; ++kind)
                 {
                     View view;
                     view.kind = (Kind) kind;
@@ -193,9 +195,14 @@ namespace celadon::test
                     view.yieldedTenthsDb = 15;
                     view.resolvedStyle = glaze::Style::warm;
                     view.pausedByTransport = kind % 2 == 0;
+                    view.houseHeard = 23;
+                    view.houseTarget = 64;
+                    view.houseFullBars = 8;
+                    view.houseLossTenthsDb = 16;
                     views.push_back (view);
 
                     view.olderPlan = true;
+                    view.houseBySeconds = true;
                     views.push_back (view);
                 }
 
@@ -224,6 +231,37 @@ namespace celadon::test
                 expectEquals (segmentsFor (locked, Language::chinese).size(), 3);
                 expectEquals (styleName (glaze::Style::punchy, Language::english), juce::String ("Punchy"));
                 expectEquals (styleName (glaze::Style::punchy), utf8 ("冲击"));
+            }
+
+            // T-038：曲风 / 交付两个选择的说明格与选项（顺序 = 参数 glaze_genre / glaze_delivery 的下标）与 House 暂定期间的提示。
+            beginTest ("genre and delivery labels follow the parameter option order in both languages; the House tip reads as in the spec");
+            {
+                const Text genre[] = { Text::genreGeneral, Text::genreDeep, Text::genreTech, Text::genreMelodic };
+                const Text delivery[] = { Text::deliveryStandard, Text::deliveryStreaming, Text::deliveryClub };
+                expectEquals ((int) std::size (genre), glaze::numGenres, "one label per genre option");
+                expectEquals ((int) std::size (delivery), glaze::numDeliveries, "one label per delivery option");
+
+                expectEquals (ui::tr (Text::genreCaption, Language::chinese), utf8 ("曲风"));
+                expectEquals (ui::tr (Text::deliveryCaption, Language::chinese), utf8 ("交付"));
+                expectEquals (ui::tr (Text::genreCaption, Language::english), juce::String ("Genre"));
+                expectEquals (ui::tr (Text::deliveryCaption, Language::english), juce::String ("Delivery"));
+                expectEquals (ui::tr (Text::genreGeneral, Language::chinese), utf8 ("通用"));
+                expectEquals (ui::tr (Text::genreMelodic, Language::english), juce::String ("Melodic"));
+                expectEquals (ui::tr (Text::deliveryStreaming, Language::chinese), utf8 ("流媒体"));
+                expectEquals (ui::tr (Text::deliveryClub, Language::english), juce::String ("Club"));
+
+                for (const auto language : { Language::chinese, Language::english })
+                {
+                    juce::StringArray seen;
+
+                    for (const auto key : genre)       seen.addIfNotAlreadyThere (ui::tr (key, language));
+                    for (const auto key : delivery)    seen.addIfNotAlreadyThere (ui::tr (key, language));
+
+                    expectEquals (seen.size(), (int) (std::size (genre) + std::size (delivery)), "labels must be distinct within a language");
+                }
+
+                expectEquals (ui::tr (Text::cornerHouseTip, Language::chinese), utf8 ("从 drop 开始播放能学得更快"));
+                expectEquals (ui::tr (Text::cornerHouseTip, Language::english), juce::String ("Start playback at the drop to learn faster"));
             }
         }
     };

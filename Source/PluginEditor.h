@@ -6,6 +6,7 @@
 
       上层：左 IN 表 · 正中频谱仪（带响度小窗）· 右 OUT / GR 表；
       中层：GLAZE 主旋钮在正中，两侧粒子流；下面一排 风格 · 重新聆听 | A / B · 等响；
+            旋钮左边「曲风」、右边「交付」两个选择（T-038，位置待 Max 看截图定）；
       下层：按处理顺序的四张卡片 BALANCE → CLAY → COLOR → LIMIT。
 
     画布（Canvas）是一个固定 1200 × 820 的子组件，编辑器按窗口大小给它一个缩放变换——所有文字与矢量在任何比例下都清晰，
@@ -138,6 +139,11 @@ private:
     celadon::Language glazeSegmentsLanguage = celadon::Language::chinese;
     juce::StringArray glazeSegments;
     bool glazeSegmentsValid = false;
+
+    // GLAZE 状态的悬停气泡（标题与状态胶囊）此刻是哪一版：House 档暂定期间换成 House 版（T-038），只在变了时重设。
+    bool glazeTooltipHouse = false;
+    celadon::Language glazeTooltipLanguage = celadon::Language::chinese;
+    bool glazeTooltipValid = false;
 
     bool writingZoom = false;
     bool fittingZoomToScreen = false;              // applyStoredZoom 为放进屏幕缩小窗口时：resized 不写回

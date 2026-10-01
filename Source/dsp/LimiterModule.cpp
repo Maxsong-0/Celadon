@@ -114,6 +114,10 @@ namespace celadon
             p.clip      = finiteInRange (raw.clip,      0.0f,  100.0f,  defaults.clip);
             // 前瞻只拦非有限值：范围钳制与取整由 lookaheadSamplesFor 负责，这里不再钳，免得两处各取一次整。
             p.lookaheadMs = std::isfinite (raw.lookaheadMs) ? raw.lookaheadMs : defaults.lookaheadMs;
+            // T-038 限幅跟拍的慢段释放上限：非有限或 ≤ 0 = 不封顶（默认 0）；正值原样，落到 [slowReleaseMinMs, slowReleaseMaxMs]
+            // 由 nextReleaseEnvelope 负责（≥ slowReleaseMaxMs 与不封顶等价，见那里）。
+            p.beatReleaseCapMs = std::isfinite (raw.beatReleaseCapMs) && raw.beatReleaseCapMs > 0.0f ? raw.beatReleaseCapMs
+                                                                                                   : defaults.beatReleaseCapMs;
 
             return p;
         }
@@ -1085,7 +1089,20 @@ namespace celadon
             averageReductionDb = reductionDb + (averageReductionDb - reductionDb) * averageCoeff;
 
             const auto depth = juce::jlimit (0.0, 1.0, averageReductionDb / (double) deepReductionDb);
-            slowReleaseCoeff = timeConstantCoeff (sampleRate, juce::jmap (depth, (double) slowReleaseMinMs, (double) slowReleaseMaxMs));
+            auto slowReleaseMs = juce::jmap (depth, (double) slowReleaseMinMs, (double) slowReleaseMaxMs);
+
+            // T-038 限幅跟拍（设计规格-曲风-House学习方式 第 8 节）：慢段释放取 min(自适应值, 上限)，下限仍是 slowReleaseMinMs。
+            // 上限由链给（House 档、Auto 释放、宿主在播且 BPM 100 ～ 140 时 = 一拍 ÷ 3，否则 0），只在这里用：快段（含低频周期下限）、
+            // 短过载松开与手动 Release 都不看它。上限 ≤ 0（sanitised 已把非有限值归 0）或 ≥ slowReleaseMaxMs 时不进这一支——
+            // 自适应值本来就不超过 slowReleaseMaxMs，两种情况都与不封顶逐位相同（变量换成局部量不改舍入：同一个 double 照样传下去）。
+            // 上限变化没有增益台阶：它只改每 32 样本重算一次的释放时间常数，包络从当前值按新的常数接着回升、再过两级移动平均，
+            // 切换前后增益连续、只是回升的快慢变了（LimiterTests 中途开关上限的用例逐样本核对）。
+            const auto beatCapMs = (double) params.beatReleaseCapMs;
+
+            if (beatCapMs > 0.0 && beatCapMs < (double) slowReleaseMaxMs)
+                slowReleaseMs = juce::jmin (slowReleaseMs, juce::jmax ((double) slowReleaseMinMs, beatCapMs));
+
+            slowReleaseCoeff = timeConstantCoeff (sampleRate, slowReleaseMs);
         }
 
         return (float) lastEnvelope;

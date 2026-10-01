@@ -216,22 +216,23 @@ namespace celadon::help
               "Auto picks per song; Warm: thick, round, never harsh; Punchy: strong drums, louder; Clean: clear, less compression, more dynamics.",
               "When unsure, use Auto; the status at the top shows which way it is leaning." },
 
-            // T-038 曲风与交付（设计规格-曲风与交付 第 2 节）。阶段 1 的占位文案，阶段 2 由界面线（C）定稿。
+            // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 主旋钮左右两侧的两个选择）。
+            // 选择器上 House 只写 Deep / Tech / Melodic，全名写在这里。
             { param::glazeGenre,
               "曲风 · 音色目标与学法",
-              "通用按现在的方式处理；三种 House 按子类定明暗与低切，不自动加宽，并改用按小节、只认主段落的学法。",
-              "写的是哪种 House 就选哪种；不确定就用通用。",
+              "通用照原来的方式；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，GLAZE 按小节聆听、听到主段落（drop）才锁定，自动释放跟着宿主速度收紧。",
+              "写的是哪种 House 就选哪种，拿不准选最接近的；不是 House 用通用。换曲风不用重新聆听，约 3 秒平滑换过去。",
               "Genre · tonal target and learning",
-              "General works as before; the three House types set brightness and low cut per sub-genre, never widen automatically, and learn bar by bar from the main section only.",
-              "Pick the House type you wrote; when unsure, use General." },
+              "General works as before; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, while GLAZE learns bar by bar, locks only after hearing the main section (the drop) and tightens Auto release to the host tempo.",
+              "Pick the House type you wrote, or the closest one; use General for anything else. Switching needs no relearn and fades over in about 3 s." },
 
             { param::glazeDelivery,
               "交付 · 响度与真峰值",
-              "标准按风格定响度；流媒体约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部约 −7 LUFS，给 DJ 和下载店。",
-              "同一首歌切换后导出两次，就得到两版母带；切换后先播一遍 drop 再导出。",
+              "标准：按风格定响度（同原来）；流媒体：约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部：约 −7 LUFS，给 DJ 和下载店，上限照你设的不变。House 档按 drop 的响度算。",
+              "同一首歌每档各导出一次，就得到两版母带；切换后先播一遍 drop 再导出，让校准在新目标上走完。",
               "Delivery · loudness and true peak",
-              "Standard sets loudness by style; Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores.",
-              "Switch and export twice to get both masters from one song; play the drop once after switching before you export." },
+              "Standard sets loudness by style (as before); Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores and keeps your Ceiling. In House mode the target is the loudness of the drop.",
+              "Export once per setting to get both masters from one song; after switching, play the drop once before exporting so calibration settles on the new target." },
 
             { uiid::glazeRelearn,
               "重新聆听",
@@ -525,6 +526,17 @@ namespace celadon::help
         }
     }
 
+    // T-038 House 反相提示里的损失（dB，≤ 0）→ 显示用的 0.1 dB 整数（正数，至少 1）；非有限 → 0（提示照亮，不写数）。
+    int houseLossTenthsFor (float lossDb) noexcept
+    {
+        if (! std::isfinite (lossDb))
+            return 0;
+
+        const auto limit = static_cast<double> (maxShownTenthsDb) / 10.0;
+        const auto magnitude = juce::jmin (std::abs (static_cast<double> (lossDb)), limit);
+        return juce::jlimit (1, maxShownTenthsDb, juce::roundToInt (magnitude * 10.0));
+    }
+
     //==============================================================================
     const juce::Array<Entry>& allEntries()
     {
@@ -579,7 +591,9 @@ namespace celadon::help
             && bypassed == other.bypassed
             && lowCutCostLimited == other.lowCutCostLimited
             && monoCostLimited == other.monoCostLimited
-            && widthCostLimited == other.widthCostLimited;
+            && widthCostLimited == other.widthCostLimited
+            && housePhaseHint == other.housePhaseHint
+            && housePhaseLossTenthsDb == other.housePhaseLossTenthsDb;
     }
 
     ClayReadout clayReadoutFor (const glaze::Status& status, const ClayUserState& user) noexcept
@@ -589,6 +603,14 @@ namespace celadon::help
         // 旧工程提示与旁通无关（说的是画像），但只在有自动态的项时才有意义：三项都选了「关」或「手动」，重新聆听也不改变声音。
         // 正在重新聆听时已提交的仍是旧画像（clayNeedsRelearn 仍为真），但「点重新聆听」的提示已经没有意义（A6 报告备注）。
         readout.needsRelearn = status.clayNeedsRelearn && ! status.relearnInProgress && (user.lowCutAuto || user.monoAuto || user.widthAuto);
+
+        // T-038 House 档反相提示：说的是混音本身（俱乐部单声道回放会丢低频），修坯怎么设、旁通与否都改变不了它，所以不按三态与旁通筛；
+        // 曲风不是 House 时编排器不置这一项（houseActive = false 时一律不显示）。
+        if (status.houseActive && status.housePhaseHint)
+        {
+            readout.housePhaseHint = true;
+            readout.housePhaseLossTenthsDb = houseLossTenthsFor (status.housePhaseMonoLossDb);
+        }
 
         // 旁通：模块在往干信号淡化，交给它的实际值不代表在处理——全清零（三灯全暗、第 2 行写「修坯已旁通」）。
         // 清零后读数不随被旁通的实际值变动，气泡文字也不会白白重拼。
@@ -792,6 +814,13 @@ namespace celadon::help
         {
             advice = clayRelearnHint (language) + fullStop;
         }
+        else if (readout.housePhaseHint)
+        {
+            // T-038 House 档反相提示（卡片上已写两行）：气泡里说为什么要回混音——收单只去掉侧声道，单声道回放听的是中声道，救不回来（ADR-015）。
+            advice = housePhaseHintLines (readout.housePhaseLossTenthsDb, language)[0]
+                   + (english ? utf8 ("; mono-ing cannot help mono playback, so narrow or phase-align the lows in the mix.")
+                              : utf8 ("：收单救不回单声道回放，请回混音把低频收窄或对齐相位。"));
+        }
         else
         {
             const auto costLine = clayCostLine (readout, language);
@@ -827,5 +856,55 @@ namespace celadon::help
         }
 
         return {};
+    }
+
+    //==============================================================================
+    // T-038 House 档（设计规格-曲风-House学习方式 第 7、9 节）
+    //==============================================================================
+    juce::StringArray housePhaseHintLines (int lossTenthsDb, Language language)
+    {
+        const auto english = language == Language::english;
+        const auto withLoss = lossTenthsDb > 0;
+        const auto amount = formatTenths (juce::jmin (lossTenthsDb, maxShownTenthsDb));
+        juce::StringArray lines;
+
+        if (english)
+        {
+            lines.add (withLoss ? "Club mono loses low end (about " + amount + " dB)" : juce::String ("Club mono loses low end"));
+            lines.add ("Fix it in the mix");
+            return lines;
+        }
+
+        lines.add (withLoss ? utf8 ("俱乐部单声道会丢低频（约 ") + amount + utf8 (" dB）") : utf8 ("俱乐部单声道会丢低频"));
+        lines.add (utf8 ("请回混音修"));
+        return lines;
+    }
+
+    juce::String housePhaseHintText (int lossTenthsDb, Language language)
+    {
+        // 一行版：两句用逗号接上（中文全角「，」；英文第二句改小写接在「, 」后）。
+        const auto lines = housePhaseHintLines (lossTenthsDb, language);
+
+        if (language == Language::english)
+            return lines[0] + ", " + lines[1].substring (0, 1).toLowerCase() + lines[1].substring (1);
+
+        return lines[0] + utf8 ("，") + lines[1];
+    }
+
+    juce::String houseListeningTooltip (Language language)
+    {
+        const auto english = language == Language::english;
+        const auto* entry = find (uiid::glazeStatus);
+        jassert (entry != nullptr);   // 文案表里必须有 ui_glaze_status（HelpTextTests 也查）
+
+        const auto title = entry != nullptr ? utf8 (english ? entry->titleEn : entry->title) : juce::String();
+        const auto how = english
+            ? utf8 ("In House mode GLAZE listens bar by bar and plans from the main section only (full sections such as the drop); "
+                    "it locks once enough bars and enough of the main section have been heard, and until then the plan is provisional and conservative.")
+            : utf8 ("House 档按小节聆听，只用主段落（drop 这类满编的段落）定方案；听够小节数、又听到足够的主段落才锁定，"
+                    "在那之前方案是暂定的、推得保守。");
+
+        // 第 3 行与左下角的提示同一句（Localisation 表 cornerHouseTip），补句末标点。
+        return title + "\n" + how + "\n" + ui::tr (ui::Text::cornerHouseTip, language) + (english ? juce::String (".") : utf8 ("。"));
     }
 }
