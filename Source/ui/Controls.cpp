@@ -170,20 +170,30 @@ namespace celadon::ui
 
         if (! validArea.containsRectangle (bounds))
         {
+            // 按作废区裁（T-041，BUG-008）：作废区 = 整块 − 有效区，每块乘像素比后向外取整到设备像素，在加缩放之前裁——碰到作废区
+            // 的设备像素都在里面，别的都不在。不能反过来「排除有效区」：有缩放时 JUCE 软件渲染器把每个被排除的矩形往里收到整像素
+            // （juce_RenderingHelpers.h excludeClipRectangle → getLargestIntegerWithin），小数像素比下相邻有效矩形之间留下贯穿整块的
+            // 细缝，裁剪包围盒成了整张图，paint 里按脏区跳过的绘制（状态胶囊的文字）全都照画。
+            juce::RectangleList<int> invalid (bounds);
+            invalid.subtract (validArea);
+
+            juce::RectangleList<int> deviceInvalid;
+
+            for (const auto& area : invalid)
+                deviceInvalid.add ((area.toFloat() * scale).getSmallestIntegerContainer());
+
             juce::Graphics imageGraphics (image);
             auto& context = imageGraphics.getInternalContext();
+            context.clipToRectangleList (deviceInvalid);
+
+            // 清底也在设备像素下做：加了缩放再 fillRect (bounds, true) 时 JUCE 把目标矩形四舍五入到整像素，小数像素比下图的最后
+            // 一行 / 一列清不到，组件边上的抗锯齿每重画一次叠一层，局部重画与整块重画的结果就不一样了。不透明的组件同样先清：
+            // 图的最后一行 / 一列只被它盖住一部分，不清就混进上一次的内容。
+            context.setFill (juce::Colours::transparentBlack);
+            context.fillRect (image.getBounds(), true);
+            context.setFill (juce::Colours::black);
+
             context.addTransform (juce::AffineTransform::scale (scale));
-
-            for (const auto& valid : validArea)
-                context.excludeClipRectangle (valid);
-
-            if (! owner.isOpaque())
-            {
-                context.setFill (juce::Colours::transparentBlack);
-                context.fillRect (bounds, true);
-                context.setFill (juce::Colours::black);
-            }
-
             owner.paintEntireComponent (imageGraphics, true);
         }
 

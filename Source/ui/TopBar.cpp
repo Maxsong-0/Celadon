@@ -47,7 +47,9 @@ namespace celadon::ui
 
         // 只在 area 与这次的脏区相交时才排版、画字（JUCE 只在光栅层裁剪，paint 里的整形照做）。area 左右各放宽 2 px：
         // 字形的墨迹可能越出排版框一点（负的左侧边距、字距），放宽后跳过的文字画了也全落在裁剪区外，结果逐位相同。
-        // 胶囊呼吸时的脏区（圆点 + 光晕 + 1 px）右缘到第一段文字左缘至少还有 2 px，放宽后仍不相交。
+        // 胶囊呼吸时的脏区（圆点 + 光晕取整，右缘 ≤ 圆点左边 + 11）到第一段文字（圆点左边 + 14）放宽后的左缘还有 1 ～ 2 px。
+        // 有缩放时脏区先向外取整到设备像素、clipRegionIntersects 再按包围盒换回用户坐标向外取整：1 倍及以上仍不相交；低于 1 倍
+        // 一个设备像素比逻辑像素大，可能与第一段文字落进同一列设备像素——那时就得画那一段，跳过可能漏画墨迹（T-041）。
         bool needsDrawing (juce::Graphics& g, juce::Rectangle<float> area)
         {
             return g.clipRegionIntersects (area.expanded (2.0f, 0.0f).getSmallestIntegerContainer());
@@ -109,7 +111,12 @@ namespace celadon::ui
 
     void StatusPill::timerCallback()
     {
-        // 圆点呼吸：2.4 s 一个周期（设计稿 pulse 动画）。只有圆点在变：只重画圆点那一小块。
+        advancePulse();
+    }
+
+    void StatusPill::advancePulse()
+    {
+        // 圆点呼吸：2.4 s 一个周期（设计稿 pulse 动画），每帧 1 / 30 s。只有圆点在变：只重画圆点那一小块。
         pulsePhase = std::fmod (pulsePhase + 1.0f / (30.0f * 2.4f), 1.0f);
         repaint (pulseArea);
     }
@@ -159,9 +166,10 @@ namespace celadon::ui
         markerX = x;
         x += content.warning ? 13.0f + 7.0f : 7.0f + 7.0f;
 
-        // 圆点 7 × 7 + 3 px 光晕，再留 1 px 给抗锯齿。
+        // 圆点 7 × 7 + 3 px 光晕取整到逻辑像素。抗锯齿不出这个框：缓存（AlignedComponentCache）与窗口重画都把它向外取整到设备
+        // 像素。不再多留 1 px（T-041）：多的那 1 px 在小数像素比下取整后与第一段文字的 2 px 字形余量碰上，每个呼吸帧都重排那段字。
         pulseArea = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ markerX + 3.5f, centreY }).expanded (3.0f)
-                        .getSmallestIntegerContainer().expanded (1);
+                        .getSmallestIntegerContainer();
 
         for (int i = 0; i < content.segments.size() && x < right - 8.0f; ++i)
         {
