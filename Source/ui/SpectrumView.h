@@ -10,7 +10,8 @@
       - CLAY 的低切与收单频率画成竖虚线与标签，低切以下打斜线（修坯此刻实际在处理时才画）；
       - 悬停读数：「−18.80dB | 882.32Hz | A5 + 4 音分」；鼠标不在面板上时读的是此刻最响的那个峰。
 
-    绘制开销（T-032 R9-04 / R9-10，2026-09-30 ～ 10-01）：
+    绘制开销（T-032 R9-04 / R9-10，2026-09-30 ～ 10-01；其中竖纹单独填、dB 底框与读数文字每次照画、OUT 填充用轮廓的拷贝三处
+    已被 T-036 改掉，见下节）：
       - 竖纹是一张按像素比生成的一行瓦片（条纹在设备像素上的覆盖与原来逐条 fillRect 相同），纵向平铺后一次 fillPath 填进 OUT；
         渐隐同样直接 fillPath，不再裁剪、不再 516 次 fillRect。代价：瓦片里条纹已按 8 位预乘存好，OUT 抗锯齿边上的
         条纹像素再乘一次边缘覆盖率（原来是两个覆盖率先相乘、只舍入一次），那些像素差 ≤ 2 LSB（< ×1.5）/ ≤ 1 LSB（≥ ×1.5）；
@@ -26,15 +27,18 @@
         （macOS 只拿脏区的包围盒，省得少；Linux 的软件渲染器与 Windows 的 Direct2D 按矩形列表裁剪，省得多）。
 
     T-036（2026-10-01，Max「更顺滑、响应更快，可以模仿 MiniMeters」）：
-      - 编辑器按屏幕刷新推（垂直同步，60 / 120 帧），setSpectrum 带上距上一帧的秒数；悬停读数「此刻最响的峰」按秒换（约 0.27 s 一次）；
+      - 编辑器按屏幕刷新推（垂直同步，60 / 120 帧，封顶 120），setSpectrum 带上距上一帧的秒数。读数（此刻最响的峰、悬停处）的 dB
+        约 0.27 s 换一次，鼠标移动时立即换；文字拼好缓存（readoutString），变了才重画读数框；
       - OUT 填充按响度上色（像 MiniMeters）：每一列的颜色由它 ±2 像素里曲线顶的高度定——安静 = 灰青、半透明，越响越亮越饱和，
         最响是亮薄荷青；白色竖纹与往下渐隐照旧。颜色与竖纹合成一行图（prepareOutputRow），纵向平铺一次填进 OUT：原来横向渐变 +
         竖纹瓦片两遍填充，现在一遍。图例 OUT 色块同一条色带；
-      - 曲线变了只重画「新旧曲线的包围盒 ∪ 悬停光标 ∪ 读数框（文字变了时）」，安静段落脏区小；图例开关、斜率、响度小窗
-        setBufferedToImage——频谱一秒重画 60 / 120 次时它们从缓存贴，不再每帧重排文字；dB 刻度的白底框并进刻度那张缓存图，
-        读数框的影子 / 白底 / 描边 / 文字并成一张（文字变了才重画）。半透明元素先画进透明图再贴，个别边缘像素与直接画差 1；
-      - 曲线每个逻辑像素一个点（SpectrumAnalyser::numPoints = 1033）；平均线本身已沿频率平滑，路径隔一个点取一个；
-        峰值线每两个点取较高的那个（尖峰不丢、线段少一半）。
+      - 曲线在屏上变了（按加斜率、钳位后的纵坐标比，0.1 像素）才重建、重画，只重画「新旧曲线的包围盒 ∪ 悬停光标」，安静段落
+        脏区小；在 paint 里重建的那一帧（换斜率）画出的区域也并进「旧区域」。图例开关、斜率、响度小窗用对齐缓存
+        （setBufferedToAlignedImage）——频谱一秒重画 60 / 120 次时它们从缓存贴、不重排文字，小数像素比下字也不糊；dB 刻度的白底框
+        并进刻度那张缓存图，读数框的影子 / 白底 / 描边 / 文字并成一张。缓存图尺寸不变就复用、关掉备份（Direct2D 不回读）。
+        半透明元素先画进透明图再贴，个别边缘像素与直接画差 1；
+      - 曲线每个逻辑像素一个点（SpectrumAnalyser::numPoints = 1033）；OUT 填充与轮廓各自直接建路径（不拷贝）；平均线本身已沿
+        频率平滑，路径隔一个点取一个、斜角接头；峰值线每两个点取较高的那个（尖峰不丢、线段少一半）；渐隐裁到 y ≥ 40 再填。
 
   ==============================================================================
 */
@@ -189,8 +193,10 @@ namespace celadon::ui
         void updateTilt();
         void updateMarkerLabels();
         void layoutControls();
-        juce::String readoutText() const;
-        void updatePeakReadout();
+        juce::String readoutTextFor (float frequency, float db) const;
+        void refreshReadout();
+        void updatePeakReadout (const std::vector<float>& values);
+        static float curveDbAt (const std::vector<float>& values, float frequency) noexcept;
         void setHoverFrequency (std::optional<float> frequency);
         juce::Rectangle<int> cursorBounds() const;
         juce::Rectangle<float> readoutBox() const noexcept;
@@ -215,7 +221,9 @@ namespace celadon::ui
         std::array<float, SpectrumAnalyser::numPoints> pointX {}, pointFrequency {}, tilt {};   // 每点的横坐标、频率、斜率（dB）
         std::optional<float> hoverFrequency;
         float peakFrequency = 1000.0f, peakDb = SpectrumAnalyser::floorDb;
-        double secondsSincePeakReadout = 1.0e9;
+        double secondsSinceReadout = 1.0e9;                         // 距上次刷新读数（最响的峰 / 悬停处的 dB）的秒数
+        float hoverDb = SpectrumAnalyser::floorDb;                  // 悬停处 OUT 的值（未加斜率），与读数同节奏刷新
+        juce::String readoutString;                                 // 此刻该显示的读数文字（refreshReadout 拼好）
         bool inputReady = false;         // 计算器此刻有 IN 的曲线（IN 开着、且打开以来算过至少一帧）
         juce::String shownReadout;       // 读数框缓存图里的文字：与此刻的读数不同就重画那张图
 
@@ -236,7 +244,8 @@ namespace celadon::ui
         bool curvePathsValid = false, inputDashesValid = false;
 
         std::array<CachedLayer, (size_t) Layer::count> layers;
-        juce::Image stripeRow;                                       // 竖纹瓦片：一行，宽 = 面板宽 × 像素比
+        juce::Image stripeRow;                                       // 竖纹瓦片：一行，宽 = 面板宽 × 像素比（T-036 起只用来量覆盖率）
+        std::vector<float> stripeAlpha;                              // ……每个设备像素列的条纹不透明度（合成 outputRow 用）
         float stripeRowScale = 0.0f;
         juce::Colour stripeRowColour;
 

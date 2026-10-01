@@ -22,6 +22,7 @@ namespace
     constexpr double minZoom = UiSettings::minZoom;
     constexpr double maxZoom = UiSettings::maxZoom;
     constexpr int refreshHz = 30;
+    constexpr double maxSpectrumFps = 120.0;            // 频谱仪跟屏幕刷新、但最多这么多帧（T-036；高于它的屏按整数分频：144 Hz → 72、240 Hz → 120）
     constexpr double spectrumVBlankTimeoutMs = 100.0;   // 垂直同步这么久没来就由 30 Hz 定时器推频谱仪（T-036）
     constexpr double spectrumMinStepMs = 15.0;          // 定时器推的两帧至少隔这么久（刚被别处推过就跳过）
     constexpr double maxSpectrumStepSeconds = 0.25;     // 一帧最多按这么长算（窗口刚露出来、卡顿之后不一次跳到底）
@@ -745,7 +746,7 @@ CeladonAudioProcessorEditor::CeladonAudioProcessorEditor (CeladonAudioProcessor&
     tap.setActive (true);
     pullBuffer.resize ((size_t) celadon::AnalyzerTap::capacity);
 
-    // 频谱仪跟屏幕刷新走（T-036）：频谱仪所在的显示器每次垂直同步推一帧（60 Hz 屏 60 帧、120 Hz 屏 120 帧）。
+    // 频谱仪跟屏幕刷新走（T-036）：频谱仪所在的显示器每次垂直同步推一帧（60 Hz 屏 60 帧、120 Hz 屏 120 帧，封顶 maxSpectrumFps）。
     spectrumVBlank = juce::VBlankAttachment (&canvas->spectrum, [this] (double timestampSeconds) { spectrumFrame (timestampSeconds); });
 
     applyLanguage();
@@ -876,14 +877,19 @@ void CeladonAudioProcessorEditor::setReleasePreviewEnabled (bool enabled)
 void CeladonAudioProcessorEditor::spectrumFrame (double timestampSeconds)
 {
     // 垂直同步的一帧：两次回调连着时按帧时间戳之差算时长（帧与帧等距，动画最匀）；中间由定时器推过（垂直同步停过）就按墙钟。
+    // 刷新率高于 maxSpectrumFps 的屏：离上一帧不到一帧时长就跳过这一次（时间戳不更新，时长累到下一帧），按整数分频、仍然等距。
     const auto now = juce::Time::getMillisecondCounterHiRes();
+    lastVBlankMs = now;
+
+    if (lastAdvanceWasVBlank && timestampSeconds > lastVBlankSeconds && timestampSeconds - lastVBlankSeconds < 0.9 / maxSpectrumFps)
+        return;
+
     auto seconds = (now - lastSpectrumAdvanceMs) / 1000.0;
 
     if (lastAdvanceWasVBlank && timestampSeconds > lastVBlankSeconds)
         seconds = timestampSeconds - lastVBlankSeconds;
 
     lastVBlankSeconds = timestampSeconds;
-    lastVBlankMs = now;
     lastAdvanceWasVBlank = true;
     advanceSpectrum (seconds, now);
 }
@@ -906,6 +912,12 @@ void CeladonAudioProcessorEditor::advanceSpectrum (double elapsedSeconds, double
         analyser.push (stream == celadon::AnalyzerTap::Stream::input ? SpectrumAnalyser::Stream::input : SpectrumAnalyser::Stream::output,
                        pullBuffer.data(), count);
     }
+
+    // 窗口最小化 / 被宿主藏起来（有窗口但看不见）：样本照收（历史与电平不断档，取样口不积压），不做 FFT、不建路径、不重画；
+    // 再显示时下一帧直接按最新的窗口分析（时长钳到 0.25 s，曲线一两帧就到位）。没有窗口的离屏编辑器（截图工具）照常算。
+    // 被别的窗口挡住时 JUCE 拿不到，照常推（macOS 的遮挡状态待办）。
+    if (auto* peer = canvas->spectrum.getPeer(); peer != nullptr && (peer->isMinimised() || ! canvas->spectrum.isShowing()))
+        return;
 
     analyser.update (seconds);
     canvas->spectrum.setSpectrum (analyser, seconds);
@@ -1116,9 +1128,11 @@ void CeladonAudioProcessorEditor::handleAsyncUpdate()
 //==============================================================================
 void CeladonAudioProcessorEditor::advanceForSnapshot (double seconds)
 {
-    // 离屏没有垂直同步：频谱仪按给定的时长推一帧（不按墙钟，两次运行逐像素相同）；随后的 timerCallback 看到刚推过，不再推。
+    // 离屏没有垂直同步：频谱仪按给定的时长推一帧（不按墙钟，两次运行逐像素相同）。随后的 timerCallback 不再推：把「最近一次
+    // 垂直同步」记成现在，看门狗认为垂直同步还活着（不依赖这一帧算得快不快——慢机、Debug 下也不多推，评审 R-06）。
     lastAdvanceWasVBlank = false;
-    advanceSpectrum (seconds, juce::Time::getMillisecondCounterHiRes());
+    lastVBlankMs = juce::Time::getMillisecondCounterHiRes();
+    advanceSpectrum (seconds, lastVBlankMs);
     timerCallback();
     canvas->particles.advance (seconds);
 }
@@ -1195,7 +1209,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     loudness.targetLufs = (float) view.targetTenthsLufs / 10.0f;
     c.spectrum.getLoudnessHud().setValues (loudness);
 
-    // ---- 频谱仪：平时由垂直同步推（spectrumFrame，T-036）；垂直同步 100 ms 没来（窗口被挡住、宿主不给、离屏）就由这里按 30 Hz 推 ----
+    // ---- 频谱仪：平时由垂直同步推（spectrumFrame，T-036）；垂直同步 100 ms 没来（离屏、宿主 / 系统不给）就由这里按 30 Hz 推 ----
     if (now - lastVBlankMs >= spectrumVBlankTimeoutMs && now - lastSpectrumAdvanceMs >= spectrumMinStepMs)
     {
         lastAdvanceWasVBlank = false;

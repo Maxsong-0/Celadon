@@ -31,7 +31,7 @@ namespace celadon
         enum class Stream : int { input = 0, output = 1 };
 
         // 每路容量（样本）：192 kHz 下约 170 ms。界面每帧来取一次（T-036 起跟屏幕刷新，8 ～ 17 ms；垂直同步停了时 30 Hz 定时器
-        // 接着取，33 ms），宿主块再大也装得下。
+        // 接着取，切换那一下最长约 133 ms = 100 ms 超时 + 一个定时器周期），宿主块再大也装得下。
         static constexpr int capacity = 1 << 15;
 
         AnalyzerTap()

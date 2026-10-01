@@ -465,15 +465,18 @@ namespace celadon::ui
         }
 
         inputToggle.setOn (false);
-        slopeControl.onChange = [this] { updateTilt(); updatePeakReadout(); repaint(); };
+        slopeControl.onChange = [this] { updateTilt(); updatePeakReadout (output); refreshReadout(); repaint(); };
         addAndMakeVisible (slopeControl);
 
         addAndMakeVisible (hud);
 
         // 频谱一秒重画 60 / 120 次（T-036）：图例开关、斜率、响度小窗都压在面板上，曲线一动就在脏区里——各自缓存成图，
-        // 自己没变时只贴图，不再每帧重排文字（它们自己 repaint 时缓存作废、下次重画）。
+        // 自己没变时只贴图，不再每帧重排文字（它们自己 repaint 时缓存作废、下次重画）。用项目自己的对齐缓存（Controls.h，
+        // T-032 A9）：按实际像素比生成、整数对齐贴图；JUCE 自带的 setBufferedToImage 在小数像素比（界面 70 % / 115 %、
+        // Windows 125 % / 150 %）下每帧双线性重采样，字发糊。
         for (auto* child : std::initializer_list<juce::Component*> { &outputToggle, &inputToggle, &peakToggle, &slopeControl, &hud })
-            child->setBufferedToImage (true);
+            setBufferedToAlignedImage (*child);
+
         updateTilt();
         setLanguage (Language::chinese);
     }
@@ -491,7 +494,9 @@ namespace celadon::ui
         readoutWidth = (int) std::ceil (textWidth (monoFont (11.5f, Weight::semibold),
                                                     minusSign() + "88.88dB | 88.88kHz | C#8 " + minusSign() + " 88 " + tr (Text::cents, language)) + 22.0f);
         shownReadout.clear();
+        readoutString.clear();
         invalidate (Layer::readout);
+        refreshReadout();
         updateMarkerLabels();
         layoutControls();
         repaint();
@@ -553,16 +558,17 @@ namespace celadon::ui
         const auto nextInputReady = analyser.hasInputSpectrum();
 
         if (std::isfinite (elapsedSeconds) && elapsedSeconds > 0.0)
-            secondsSincePeakReadout += elapsedSeconds;
+            secondsSinceReadout += elapsedSeconds;
 
-        // 几条曲线都没有看得出的变化（没有音乐、曲线已经落到底）就不重画：停着的时候不白占 CPU。
-        const auto differs = [] (const std::vector<float>& shown, const std::vector<float>& next)
+        // 几条曲线在屏上都没有看得出的变化（没有音乐、曲线已经落到底、只在面板底边以下起伏）就不重建、不重画：
+        // 按加了斜率、钳到面板里的纵坐标比（0.1 个逻辑像素），比的是上一次画出来的那组值，慢慢漂也会在累计过门槛时重画。
+        const auto differs = [this] (const std::vector<float>& shown, const std::vector<float>& next)
         {
             if (shown.size() != next.size())
                 return true;
 
             for (size_t i = 0; i < shown.size(); ++i)
-                if (std::abs (shown[i] - next[i]) > 0.02f)
+                if (std::abs (yOf (shown[i] + tilt[i]) - yOf (next[i] + tilt[i])) > 0.1f)
                     return true;
 
             return false;
@@ -574,22 +580,29 @@ namespace celadon::ui
                           || differs (output, nextOutput) || differs (input, nextInput)
                           || differs (average, analyser.getAverageDb()) || differs (peak, analyser.getPeakDb());
 
-        if (! changed)
-            return;
+        if (changed)
+        {
+            inputReady = nextInputReady;
+            output  = nextOutput;
+            input   = nextInput;
+            average = analyser.getAverageDb();
+            peak    = analyser.getPeakDb();
+            inputDashesValid = false;
+            buildCurvePaths();
+            repaintCurves();
+        }
 
-        inputReady = nextInputReady;
-        output  = nextOutput;
-        input   = nextInput;
-        average = analyser.getAverageDb();
-        peak    = analyser.getPeakDb();
-        inputDashesValid = false;
-        buildCurvePaths();
+        // 读数（鼠标不在面板上时是此刻最响的峰，悬停时是光标处）的 dB 约 0.27 s 换一次（原来 30 帧时每 8 帧；T-036 起悬停处也按这个
+        // 节奏，鼠标移动时立即）：两位小数一秒变几十次读不清，读数框也不必每帧重画。用计算器此刻的值，不受上面 0.1 像素门槛影响。
+        if (secondsSinceReadout >= 8.0 / 30.0)
+        {
+            updatePeakReadout (nextOutput);
 
-        // 鼠标不在面板上时，读数跟着此刻最响的峰（约 0.27 s 换一次——原来 30 帧时每 8 帧——免得数字跳得看不清）。
-        if (secondsSincePeakReadout >= 8.0 / 30.0)
-            updatePeakReadout();
+            if (hoverFrequency.has_value())
+                hoverDb = curveDbAt (nextOutput, *hoverFrequency);
 
-        repaintCurves();
+            refreshReadout();
+        }
     }
 
     juce::Rectangle<float> SpectrumView::curveRegion() const
@@ -597,12 +610,11 @@ namespace celadon::ui
         // 此刻几条曲线（含描边外伸）占的区域：OUT 的填充一直到底边，所以区域总是从最高的曲线顶到面板底。
         // 描边超出路径包围盒的上限同 paint：尖角接头最多伸出 2 × 线宽，再加 1 像素抗锯齿。
         const auto strokeArea = [] (const juce::Path& path, float thickness) { return path.getBounds().expanded (2.0f * thickness + 1.0f); };
-        auto area = outputFill.getBounds().getUnion (strokeArea (outputLine, 0.8f)).getUnion (strokeArea (averageLine, 1.4f));
+        // 峰值线与 IN 线不论开关都算进去：开关切换那一帧是整面重画，之后的「旧区域」也要盖住它们可能画过的地方。
+        auto area = outputFill.getBounds().getUnion (strokeArea (outputLine, 0.8f)).getUnion (strokeArea (averageLine, 1.4f))
+                                          .getUnion (strokeArea (peakLine, 1.0f));
 
-        if (peakToggle.isOn())
-            area = area.getUnion (strokeArea (peakLine, 1.0f));
-
-        if (inputToggle.isOn() && inputReady)
+        if (! inputLine.isEmpty())
             area = area.getUnion (strokeArea (inputLine, 1.1f));
 
         return area.getIntersection (getLocalBounds().toFloat());
@@ -610,22 +622,43 @@ namespace celadon::ui
 
     void SpectrumView::repaintCurves()
     {
-        // 曲线变了（T-036）：只重画新旧曲线合起来的区域；悬停时光标圆点跟着曲线走、读数文字也可能变，各自补上。
-        // 图例、斜率、响度小窗在脏区里的部分从各自的缓存图贴（构造函数里 setBufferedToImage）。
+        // 曲线变了（T-036）：只重画新旧曲线合起来的区域；悬停时光标圆点跟着曲线走，补上光标那一列（读数框由 refreshReadout 管）。
+        // 图例、斜率、响度小窗在脏区里的部分从各自的缓存图贴（构造函数里 setBufferedToAlignedImage）。
         const auto area = curveRegion();
         repaint (area.getUnion (curveArea).getSmallestIntegerContainer());
         curveArea = area;
 
         if (hoverFrequency.has_value())
             repaint (cursorBounds());
-
-        if (readoutText() != shownReadout)
-            repaint (layerArea (Layer::readout));
     }
 
-    void SpectrumView::updatePeakReadout()
+    float SpectrumView::curveDbAt (const std::vector<float>& values, float frequency) noexcept
     {
-        secondsSincePeakReadout = 0.0;
+        // 某个频率上一条曲线的值（未加斜率）：相邻两点之间按对数频率线性插值。
+        const auto position = juce::jlimit (0.0f, 1.0f, SpectrumAnalyser::positionOf (frequency)) * (float) (SpectrumAnalyser::numPoints - 1);
+        const auto below = juce::jlimit (0, SpectrumAnalyser::numPoints - 1, (int) std::floor (position));
+        const auto above = juce::jmin (SpectrumAnalyser::numPoints - 1, below + 1);
+        const auto t = position - (float) below;
+        return values[(size_t) below] + (values[(size_t) above] - values[(size_t) below]) * t;
+    }
+
+    void SpectrumView::refreshReadout()
+    {
+        // 读数框的文字（缓存成串，paint 里与缓存图里的文字比）：变了才重拼、才重画读数框。
+        const auto frequency = hoverFrequency.value_or (peakFrequency);
+        const auto db = hoverFrequency.has_value() ? hoverDb + tiltAt (frequency) : peakDb;
+        auto text = readoutTextFor (frequency, db);
+
+        if (text == readoutString)
+            return;
+
+        readoutString = std::move (text);
+        repaint (layerArea (Layer::readout));
+    }
+
+    void SpectrumView::updatePeakReadout (const std::vector<float>& values)
+    {
+        secondsSinceReadout = 0.0;
         auto best = SpectrumAnalyser::floorDb - 100.0f;
 
         for (size_t i = 0; i < pointFrequency.size(); ++i)
@@ -635,7 +668,7 @@ namespace celadon::ui
             if (frequency < 30.0f || frequency > 16000.0f)
                 continue;
 
-            const auto value = output[i] + tilt[i];
+            const auto value = values[i] + tilt[i];
 
             if (value > best)
             {
@@ -681,20 +714,8 @@ namespace celadon::ui
         return { 48.0f, 12.0f, (float) readoutWidth, 26.0f };
     }
 
-    juce::String SpectrumView::readoutText() const
+    juce::String SpectrumView::readoutTextFor (float frequency, float db) const
     {
-        const auto frequency = hoverFrequency.value_or (peakFrequency);
-        float db = peakDb;
-
-        if (hoverFrequency.has_value())
-        {
-            const auto position = SpectrumAnalyser::positionOf (frequency) * (float) (SpectrumAnalyser::numPoints - 1);
-            const auto below = juce::jlimit (0, SpectrumAnalyser::numPoints - 1, (int) std::floor (position));
-            const auto above = juce::jmin (SpectrumAnalyser::numPoints - 1, below + 1);
-            const auto t = position - (float) below;
-            db = output[(size_t) below] + (output[(size_t) above] - output[(size_t) below]) * t + tiltAt (frequency);
-        }
-
         if (db <= SpectrumAnalyser::floorDb + 1.0f)
             return juce::String::charToString ((juce::juce_wchar) 0x2014) + "dB | " + frequencyText (frequency) + " | " + noteText (frequency, language);
 
@@ -714,12 +735,15 @@ namespace celadon::ui
     void SpectrumView::setHoverFrequency (std::optional<float> frequency)
     {
         // 悬停只改光标与读数（T-032 R9-04 ③）：只重画新旧光标列，读数文字变了再重画读数框；paint 里与这些区域不相交的整块直接跳过。
+        // 鼠标移动时读数立即换到新位置（之后按 8 / 30 s 的节奏刷新，见 setSpectrum）。
         repaint (cursorBounds());
         hoverFrequency = frequency;
         repaint (cursorBounds());
 
-        if (readoutText() != shownReadout)
-            repaint (layerArea (Layer::readout));
+        if (hoverFrequency.has_value())
+            hoverDb = curveDbAt (output, *hoverFrequency);
+
+        refreshReadout();
     }
 
     //==============================================================================
@@ -747,10 +771,10 @@ namespace celadon::ui
 
     void SpectrumView::buildCurvePaths()
     {
-        // 数据或斜率变了才重建（悬停时只重画光标与读数，不再重建）。OUT 只建一次：填充是它的拷贝接到右下角、左下角再闭合
+        // 数据或斜率变了才重建（悬停时只重画光标与读数，不再重建）。OUT 的填充与轮廓同一组点：填充接到右下角、左下角再闭合
         // （T-032 R9-04 ④）。平均线本身已沿频率平滑过两遍（±13 点），隔一个点取一个看不出差别，描边少一半的段。
         buildLine (output, outputLine);
-        outputFill = outputLine;
+        buildLine (output, outputFill);   // 直接建（clear 保留容量），不拷贝 outputLine：播放中每帧建一次，拷贝就是一次分配
         outputFill.lineTo ((float) width, (float) height);
         outputFill.lineTo (0.0f, (float) height);
         outputFill.closeSubPath();
@@ -817,12 +841,11 @@ namespace celadon::ui
             return;
 
         prepareStripes (pixelScale, juce::Colours::white.withAlpha (0.18f));
-        const auto rowWidth = stripeRow.getWidth();
+        const auto rowWidth = (int) stripeAlpha.size();
 
         if (! outputRow.isValid() || outputRow.getWidth() != rowWidth)
             outputRow = juce::Image (juce::Image::ARGB, rowWidth, 1, true);
 
-        const juce::Image::BitmapData stripes (stripeRow, juce::Image::BitmapData::readOnly);
         juce::Image::BitmapData row (outputRow, juce::Image::BitmapData::writeOnly);
         const auto last = SpectrumAnalyser::numPoints - 1;
 
@@ -833,7 +856,7 @@ namespace celadon::ui
             const auto u = columnLevel[(size_t) i] + (columnLevel[(size_t) i + 1] - columnLevel[(size_t) i]) * (logical - (float) i);
             const auto fill = levelColour (u);
             const auto fillAlpha = fill.getFloatAlpha();
-            const auto stripe = stripes.getPixelColour (x, 0).getFloatAlpha();   // 白色，预乘后 r = g = b = a
+            const auto stripe = stripeAlpha[(size_t) x];
             const auto alpha = stripe + fillAlpha * (1.0f - stripe);
 
             if (alpha <= 0.0f)
@@ -1004,6 +1027,13 @@ namespace celadon::ui
             const auto which = (Layer) index;
             auto& cached = layers[index];
 
+            // 显卡设备丢了（Windows 的 Direct2D 图关了备份，见下）：内容没了，当作作废重画。
+            if (cached.valid && cached.image.isValid())
+                if (auto data = cached.image.getPixelData())
+                    if (auto* backup = data->getBackupExtensions())
+                        if (backup->needsBackup() && ! backup->canBackup())
+                            cached.valid = false;
+
             if (cached.valid && juce::approximatelyEqual (cached.pixelScale, pixelScale))
                 continue;
 
@@ -1021,8 +1051,21 @@ namespace celadon::ui
             // 半透明的网格 / 斜线画进 ARGB 底层再贴到 RGB 的窗口后备图（Linux 的窗口、截图工具都是 RGB）会差 1；画进 RGB 底层
             // 与直接画同一套算式。RGB 贴 RGB 满覆盖的行是整行拷贝，也最快。其余几张有透明背景，只能是 ARGB（它们的元素
             // 是往全透明上画一次，贴回去与直接画相同）。
+            // 尺寸与格式没变就复用原图、清成透明再画（读数框随文字变，T-036 起约 0.27 s 一次）；内容随时能重画，关掉备份——
+            // Windows 的 Direct2D 图开着备份时，每往图里画一次都要从显存回读一次（同 AlignedComponentCache）。
             const auto format = which == Layer::back ? juce::Image::RGB : juce::Image::ARGB;
-            cached.image = juce::Image (format, juce::jmax (1, x1 - x0), juce::jmax (1, y1 - y0), true);
+            const auto w = juce::jmax (1, x1 - x0), h = juce::jmax (1, y1 - y0);
+
+            if (cached.image.isValid() && cached.image.getWidth() == w && cached.image.getHeight() == h && cached.image.getFormat() == format)
+            {
+                cached.image.clear (cached.image.getBounds());
+            }
+            else
+            {
+                cached.image = juce::Image (format, w, h, true);
+                cached.image.setBackupEnabled (false);
+            }
+
             cached.pixelScale = pixelScale;
             cached.valid = true;
 
@@ -1063,15 +1106,29 @@ namespace celadon::ui
         // 先把裁剪区换成边表（整行满覆盖）：原来的条纹是在「面板 ∩ OUT」的边表裁剪区里 fillRect 的，走 EdgeTable (Rectangle<float>)
         // 的抗锯齿；新图默认的矩形列表裁剪区走另一套浮点矩形抗锯齿（FloatRectangleRasterisingInfo），边缘覆盖会差 1。
         stripeRow = juce::Image (juce::Image::ARGB, (int) std::ceil ((float) width * pixelScale) + 1, 1, true);
-        juce::Graphics g (stripeRow);
-        g.addTransform (juce::AffineTransform::scale (pixelScale));
-        juce::Path wholeRow;
-        wholeRow.addRectangle (0.0f, 0.0f, (float) width + 4.0f, (float) height);
-        g.reduceClipRegion (wholeRow);
-        g.setColour (colour);
 
-        for (float x = 0.0f; x < (float) width; x += 2.0f)
-            g.fillRect (x, 0.0f, 0.8f, (float) height);
+        {
+            juce::Graphics g (stripeRow);
+            g.addTransform (juce::AffineTransform::scale (pixelScale));
+            juce::Path wholeRow;
+            wholeRow.addRectangle (0.0f, 0.0f, (float) width + 4.0f, (float) height);
+            g.reduceClipRegion (wholeRow);
+            g.setColour (colour);
+
+            for (float x = 0.0f; x < (float) width; x += 2.0f)
+                g.fillRect (x, 0.0f, 0.8f, (float) height);
+        }
+
+        // T-036：条纹不再单独填（与按响度上色合成一行图，prepareOutputRow），只要每个设备像素列的条纹不透明度——读一次存下，
+        // 每帧合成时不再读图（Windows 的 Direct2D 图每次读都要从显存回读）。
+        stripeAlpha.resize ((size_t) stripeRow.getWidth());
+
+        {
+            const juce::Image::BitmapData data (stripeRow, juce::Image::BitmapData::readOnly);
+
+            for (int x = 0; x < stripeRow.getWidth(); ++x)
+                stripeAlpha[(size_t) x] = data.getPixelColour (x, 0).getFloatAlpha();   // 白色，预乘后 r = g = b = a
+        }
 
         stripeRowScale = pixelScale;
         stripeRowColour = colour;
@@ -1083,19 +1140,22 @@ namespace celadon::ui
         const auto pixelScale = juce::jmax (0.01f, g.getInternalContext().getPhysicalPixelScaleFactor());
 
         // 读数文字变了：读数框那张缓存图（影子 + 白底 + 描边 + 字）重画。
-        if (const auto text = readoutText(); text != shownReadout)
+        if (readoutString != shownReadout)
         {
-            shownReadout = text;
+            shownReadout = readoutString;
             invalidate (Layer::readout);
         }
 
         prepareLayers (pixelScale);
 
         if (! curvePathsValid)
+        {
+            // 在这里重建（换了斜率、曲线静止时）：这一帧画出的区域并进「旧区域」，下一次只重画新旧包围盒时不漏掉它（评审 R-02）。
             buildCurvePaths();
+            curveArea = curveArea.getUnion (curveRegion());
+        }
 
         const auto h = (float) height;
-        const auto numPoints = SpectrumAnalyser::numPoints;
         const auto outputAlpha = outputToggle.isOn() ? 1.0f : 0.12f;
         const auto showInput = inputToggle.isOn() && inputReady;
 
@@ -1147,7 +1207,9 @@ namespace celadon::ui
                     g.fillPath (outputFill);
                 }
 
-                // 往下渐隐：同样直接填 OUT 的形状。
+                // 往下渐隐：同样直接填 OUT 的形状。y < 40 处渐隐全透明，先裁掉（曲线很响时少填十几 % 的像素）。
+                juce::Graphics::ScopedSaveState fadeState (g);
+                g.reduceClipRegion (juce::Rectangle<int> (0, 40, width, height - 40));
                 g.setGradientFill (juce::ColourGradient (palette::spectrumFloor.withAlpha (0.0f), 0.0f, 40.0f,
                                                          palette::spectrumFloor.withAlpha (0.92f * outputAlpha), 0.0f, h, false));
                 g.fillPath (outputFill);
@@ -1162,7 +1224,8 @@ namespace celadon::ui
             if (drawAverage)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.9f * outputAlpha));
-                g.strokePath (averageLine, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                // 斜角接头、平头：1.4 px 的线、相邻点 2 px，看不出与圆角的差别；软件渲染器每帧省约 0.2 ms（评审 R-07 实测）。
+                g.strokePath (averageLine, juce::PathStrokeType (1.4f, juce::PathStrokeType::beveled, juce::PathStrokeType::butt));
             }
 
             // ---- IN（虚线）与峰值 ----
@@ -1221,11 +1284,7 @@ namespace celadon::ui
                 g.setColour (palette::c900.withAlpha (0.45f));
                 g.drawDashedLine (juce::Line<float> (x, 0.0f, x, h), dashes, 2, 1.0f);
 
-                const auto position = SpectrumAnalyser::positionOf (*hoverFrequency) * (float) (numPoints - 1);
-                const auto below = juce::jlimit (0, numPoints - 1, (int) std::floor (position));
-                const auto above = juce::jmin (numPoints - 1, below + 1);
-                const auto t = position - (float) below;
-                const auto db = output[(size_t) below] + (output[(size_t) above] - output[(size_t) below]) * t + tiltAt (*hoverFrequency);
+                const auto db = curveDbAt (output, *hoverFrequency) + tiltAt (*hoverFrequency);
                 const auto dot = juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ x, yOf (db) });
                 g.setColour (juce::Colours::white);
                 g.fillEllipse (dot);

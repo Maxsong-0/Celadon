@@ -88,12 +88,13 @@ namespace celadon::ui
     void SpectrumAnalyser::updatePointRanges()
     {
         // 每个点的取法只随采样率变（T-032 R7-05 / R9-10 的做法）：中心频率在 bin 轴上的位置 → 插值的左 bin 与 Hermite 权重；
-        // 点区间 [f · 2^−半步, f · 2^+半步]（半步 = 相邻两点间隔的一半，倍频程）里完整落入的 bin 范围。
+        // 取最大的窗口 [f · 2^−半宽, f · 2^+半宽] 里完整落入的 bin 范围。半宽按 peakWindowPoints 个点的点距算（见头文件）：
+        // 比 1033 点的点距宽，相邻点的窗口重叠，相当于沿频率滑动取最大。
         const auto binWidth = sampleRate / (double) fftSize;
         const auto lastBin = fftSize / 2;
-        const auto halfStep = 0.5 * std::log2 ((double) maxFrequency / (double) minFrequency) / (double) (numPoints - 1);
-        const auto lowRatio = std::pow (2.0, -halfStep);
-        const auto highRatio = std::pow (2.0, halfStep);
+        const auto halfWidth = 0.5 * std::log2 ((double) maxFrequency / (double) minFrequency) / (double) (peakWindowPoints - 1);
+        const auto lowRatio = std::pow (2.0, -halfWidth);
+        const auto highRatio = std::pow (2.0, halfWidth);
 
         pointRanges.resize ((size_t) numPoints);
         lastBinUsed = 1;
@@ -280,7 +281,7 @@ namespace celadon::ui
             binSlope[(size_t) bin] = slope;
         }
 
-        // 每个点：bin 之间的三次插值，与完整落在点区间里的 bin 的最大值比大，最后换成 dB。
+        // 每个点：bin 之间的三次插值，与完整落在取最大窗口里的 bin 的最大值比大，最后换成 dB。
         for (int i = 0; i < numPoints; ++i)
         {
             const auto& range = pointRanges[(size_t) i];

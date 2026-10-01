@@ -9,7 +9,7 @@
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
-      --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
+      --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字）；
       --only bench 跑绘制性能基准（T-032）：瓷面参照与分层的生成耗时、静态背景生成耗时，GLAZE 45 % 播放中 1 / 2 / 4 倍下
       编辑器定时器一帧、整帧重画与只重画粒子带的毫秒（墙钟与本线程 CPU）、各部件累计 paint 与缓存读写、状态胶囊呼吸帧，
@@ -1115,6 +1115,24 @@ namespace
             editor.advanceForSnapshot (0.05);
             check (laidOut() && topBar.getLatencyText().startsWith (tr (Text::latency, celadon::Language::chinese) + " "),
                    "T-032 bottom row and latency label back to Chinese");
+        }
+
+        // T-036（评审 R-01）：频谱仪的 5 个子组件（三个图例开关、斜率、响度小窗）挂整数对齐的缓存——频谱一秒重画 60 / 120 次时
+        //     它们从缓存贴；不能是 JUCE 自带的 setBufferedToImage（小数像素比下每帧双线性重采样、字发糊）。
+        {
+            auto* view = findFirst<SpectrumView> (editor);
+            int aligned = 0, children = 0;
+
+            if (view != nullptr)
+                for (auto* child : view->getChildren())
+                {
+                    ++children;
+                    aligned += dynamic_cast<AlignedComponentCache*> (child->getCachedComponentImage()) != nullptr ? 1 : 0;
+                }
+
+            check (view != nullptr && children == 5 && aligned == 5,
+                   "T-036 the spectrum's legend toggles, slope control and loudness HUD have aligned image caches ("
+                       + juce::String (aligned) + " of " + juce::String (children) + ")");
         }
 
         // ⑱ R9-12：「高级」面板关着时只记下状态，打开时一次刷新到最新（预听开着 → 按钮写「停止预听」）。

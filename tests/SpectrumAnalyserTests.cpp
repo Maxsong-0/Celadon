@@ -176,6 +176,49 @@ namespace celadon::test
             return mismatches;
         }
 
+        // 参照：对最近 fftSize 个样本（最旧的在前）照同一套 Hann 窗与相干增益做 FFT，返回各 bin 的线性幅度（0 dBFS 正弦 = 1）。
+        static std::vector<double> referenceBinMagnitudes (const std::vector<float>& recent, int fftOrder)
+        {
+            const auto fftSize = 1 << fftOrder;
+            juce::dsp::FFT fft (fftOrder);
+            std::vector<float> window ((size_t) fftSize), buffer ((size_t) (2 * fftSize), 0.0f);
+            double sum = 0.0;
+
+            for (int i = 0; i < fftSize; ++i)
+            {
+                window[(size_t) i] = 0.5f - 0.5f * std::cos (juce::MathConstants<float>::twoPi * (float) i / (float) fftSize);
+                sum += (double) window[(size_t) i];
+            }
+
+            for (int i = 0; i < fftSize; ++i)
+                buffer[(size_t) i] = recent[(size_t) i] * window[(size_t) i];
+
+            fft.performFrequencyOnlyForwardTransform (buffer.data(), true);
+            std::vector<double> magnitudes ((size_t) (fftSize / 2 + 1));
+
+            for (size_t bin = 0; bin < magnitudes.size(); ++bin)
+                magnitudes[bin] = std::abs ((double) buffer[bin]) * 2.0 / sum;
+
+            return magnitudes;
+        }
+
+        // T-036 之前（480 点）的高频读数口径：每点 [f · 2^−h, f · 2^+h]（h = 480 点点距的一半）里 floor ～ ceil 的 bin 取最大（dB）。
+        // 噪声类内容「取最大」的读数随窗口里的 bin 数变；T-036 把点加密到 1033 后，取最大的窗口仍按这个宽度，读数与改前同口径。
+        static float legacyPeakDb (const std::vector<double>& magnitudes, double sampleRate, int fftSize, float frequency)
+        {
+            const auto binWidth = sampleRate / (double) fftSize;
+            const auto lastBin = fftSize / 2;
+            const auto halfStep = 0.5 * std::log2 ((double) Analyser::maxFrequency / (double) Analyser::minFrequency) / 479.0;
+            const auto first = juce::jlimit (0, lastBin, (int) std::floor ((double) frequency * std::pow (2.0, -halfStep) / binWidth));
+            const auto last = juce::jlimit (first, lastBin, (int) std::ceil ((double) frequency * std::pow (2.0, halfStep) / binWidth));
+            double magnitude = 0.0;
+
+            for (int bin = first; bin <= last; ++bin)
+                magnitude = juce::jmax (magnitude, magnitudes[(size_t) bin]);
+
+            return magnitude > 0.0 ? (float) (20.0 * std::log10 (magnitude)) : Analyser::floorDb;
+        }
+
         void runTest() override
         {
             beginTest ("FFT length is 8192 up to 50 kHz and 16384 above (capped at 16384 for 176.4 / 192 kHz)");
@@ -269,6 +312,138 @@ namespace celadon::test
 
                 expectEquals (risingBreaks, 0, "rises monotonically towards the peak");
                 expectEquals (fallingBreaks, 0, "falls monotonically after the peak");
+            }
+
+            // 插值的两条关键性质（评审 R-08）：随机信号（多正弦、强弱相邻正弦、噪声、正弦 + 直流、脉冲）× 四种采样率，逐点核
+            //   ① 不低于两端较小者：点值 ≥ min (bin k, bin k + 1)（k = 点的中心频率所在的 bin）——在幅度上用不限幅的 Catmull-Rom，
+            //      强峰旁会冲到 0 以下、画出假的深缺口，这一条抓得到；
+            //   ② 低频（取最大窗口比一个 bin 窄，点值只由插值决定）隆起有限：点值 ≤ max (bin k, bin k + 1) + 0.65 dB——夹在两个 bin
+            //      之间的峰本来就比两个 bin 都高（Hann 扇贝损失最多 1.42 dB），圆包允许越过一点，但不能甩出假峰。
+            for (const auto sampleRate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+            {
+                beginTest ("interpolation never dips below the lower bin and barely bulges above the higher one @" + juce::String (sampleRate, 0));
+
+                Analyser analyser;
+                analyser.setSampleRate (sampleRate);
+                const auto fftSize = analyser.getFftSize();
+                const auto fftOrder = fftSize == 8192 ? 13 : 14;
+                const auto binWidth = sampleRate / (double) fftSize;
+                juce::Random random (20261001 + (int) sampleRate);
+                int dips = 0, bulges = 0, checked = 0;
+                float worstBulgeDb = 0.0f;
+
+                for (int signal = 0; signal < 40; ++signal)
+                {
+                    std::vector<float> samples ((size_t) fftSize + 333, 0.0f);
+                    const auto kind = signal % 5;
+
+                    for (size_t n = 0; n < samples.size(); ++n)
+                    {
+                        const auto t = (double) n / sampleRate;
+                        double value = 0.0;
+
+                        if (kind == 0 || kind == 2)   // 几个随机正弦（kind 2 再加噪声）
+                            for (int k = 0; k < 6; ++k)
+                                value += (0.05 + 0.1 * (double) ((signal * 7 + k * 13) % 10) / 10.0)
+                                         * std::sin (juce::MathConstants<double>::twoPi * (25.0 + (double) ((signal * 131 + k * 977) % 3000)) * t);
+
+                        if (kind == 1)                 // 强弱相邻：0 dBFS 与 −80 dBFS 两个正弦隔 3 个 bin
+                        {
+                            const auto f = 40.0 + 7.3 * (double) signal;
+                            value = std::sin (juce::MathConstants<double>::twoPi * f * t)
+                                    + 1.0e-4 * std::sin (juce::MathConstants<double>::twoPi * (f + 3.0 * binWidth) * t);
+                        }
+
+                        if (kind == 2)
+                            value += 0.01 * (double) (random.nextFloat() * 2.0f - 1.0f);
+
+                        if (kind == 3)                 // 正弦 + 直流
+                            value = 0.3 + 0.5 * std::sin (juce::MathConstants<double>::twoPi * (60.0 + (double) signal) * t);
+
+                        if (kind == 4)                 // 一个脉冲
+                            value = n == samples.size() / 2 + (size_t) signal ? 1.0 : 0.0;
+
+                        samples[n] = (float) value;
+                    }
+
+                    analyser.reset();
+                    analyser.push (Stream::output, samples.data(), (int) samples.size());
+                    analyser.update (1.0 / 60.0);
+
+                    const std::vector<float> recent (samples.end() - fftSize, samples.end());
+                    const auto bins = referenceBinMagnitudes (recent, fftOrder);
+                    const auto& measured = analyser.getMeasuredDb (Stream::output);
+
+                    for (int i = 0; i < Analyser::numPoints; ++i)
+                    {
+                        const auto f = (double) Analyser::frequencyAt (i);
+                        const auto k = juce::jlimit (0, fftSize / 2 - 1, (int) std::floor (f / binWidth));
+                        const auto lower = juce::jmin (bins[(size_t) k], bins[(size_t) k + 1]);
+                        const auto higher = juce::jmax (bins[(size_t) k], bins[(size_t) k + 1]);
+                        const auto value = std::pow (10.0, (double) measured[(size_t) i] / 20.0);
+
+                        if (lower <= 1.0e-6)   // 底线（−120 dB）以下不比
+                            continue;
+
+                        ++checked;
+
+                        if (value < lower * (1.0 - 1.0e-3))
+                            ++dips;
+
+                        // 低频：取最大的窗口比一个 bin 窄（480 点点距的整宽 < 1 个 bin），点值只由插值决定。
+                        const auto windowBins = f * (std::pow (2.0, 0.5 * std::log2 (1000.0) / 479.0) - std::pow (2.0, -0.5 * std::log2 (1000.0) / 479.0)) / binWidth;
+
+                        if (windowBins < 1.0)
+                        {
+                            const auto bulge = (float) (20.0 * std::log10 (value / higher));
+                            worstBulgeDb = juce::jmax (worstBulgeDb, bulge);
+
+                            if (bulge > 0.65f)
+                                ++bulges;
+                        }
+                    }
+                }
+
+                logMessage ("  " + juce::String (checked) + " points checked: " + juce::String (dips) + " dips below the lower bin, "
+                            + juce::String (bulges) + " bulges over 0.65 dB (worst " + juce::String (worstBulgeDb, 3) + " dB)");
+                expect (checked > 10000, "the check covers enough points");
+                expectEquals (dips, 0, "never below the lower of the two bins");
+                expectEquals (bulges, 0, "low-frequency bulge at most 0.65 dB");
+            }
+
+            // 高频读数口径（T-036）：白噪在 2 ～ 16 kHz 的读数与改前（480 点）同口径——取最大窗口跟着点距缩窄的话，这里会低 5 ～ 8 dB。
+            for (const auto sampleRate : { 44100.0, 48000.0, 96000.0 })
+            {
+                beginTest ("white noise reads the same at high frequencies as before T-036 @" + juce::String (sampleRate, 0));
+
+                Analyser analyser;
+                analyser.setSampleRate (sampleRate);
+                const auto fftSize = analyser.getFftSize();
+                std::vector<float> noise ((size_t) fftSize + 777);
+                juce::Random random (20261001);
+
+                for (auto& sample : noise)
+                    sample = 0.25f * (random.nextFloat() * 2.0f - 1.0f);
+
+                analyser.push (Stream::output, noise.data(), (int) noise.size());
+                analyser.update (1.0 / 60.0);
+
+                const std::vector<float> recent (noise.end() - fftSize, noise.end());
+                const auto bins = referenceBinMagnitudes (recent, fftSize == 8192 ? 13 : 14);
+                double difference = 0.0;
+                int count = 0;
+
+                for (int i = indexOf (2000.0f); i <= indexOf (16000.0f); i += 3)
+                {
+                    difference += (double) (analyser.getMeasuredDb (Stream::output)[(size_t) i]
+                                            - legacyPeakDb (bins, sampleRate, fftSize, Analyser::frequencyAt (i)));
+                    ++count;
+                }
+
+                const auto meanDifference = (float) (difference / (double) count);
+                logMessage ("  2 ~ 16 kHz white noise, new minus pre-T-036 reading: mean " + juce::String (meanDifference, 2) + " dB over "
+                            + juce::String (count) + " points");
+                expect (std::abs (meanDifference) < 1.5f, "same high-frequency level as before: " + juce::String (meanDifference, 2) + " dB");
             }
 
             // 动态按时间算：同一个测量目标，一帧 1 / 30 s 与四帧 1 / 120 s（后三帧没有新样本，继续靠近同一个测量值）走到同一处。
