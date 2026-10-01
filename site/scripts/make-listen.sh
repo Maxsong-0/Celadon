@@ -80,4 +80,4 @@ PY
 rm -rf "$entries"
 "${SSH[@]}" "$HOST" "rm -rf '$REMOTE'"
 du -sh "$SITE/public/audio"
-echo "✔ 完成。渲染成品留在 $RENDER_OUT（artifacts/ 不入库，可删）。"
+echo "✔ 完成。渲染成品留在 ${RENDER_OUT}（artifacts/ 不入库，可删）。"

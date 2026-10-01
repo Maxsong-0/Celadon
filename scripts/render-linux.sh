@@ -23,8 +23,8 @@ usage() {
   cat >&2 <<'USAGE'
 用法：scripts/render-linux.sh <本地歌曲目录> [celadon_render 的额外参数…]
   例：scripts/render-linux.sh ~/Music/对照歌 --glaze 0,50 --style auto,warm
-  --in / --out 由脚本给；结果拉回 $CELADON_RENDER_OUT（默认 <仓库>/artifacts/render-<日期时间>/）。
-  目标主机 $CELADON_TEST_HOST（默认 maxsong@192.168.100.107）。渲染前先跑 celadon_render --selftest，
+  --in / --out 由脚本给；结果拉回 ${CELADON_RENDER_OUT}（默认 <仓库>/artifacts/render-<日期时间>/）。
+  目标主机 ${CELADON_TEST_HOST}（默认 maxsong@192.168.100.107）。渲染前先跑 celadon_render --selftest，
   CELADON_RENDER_SKIP_SELFTEST=1 可跳过。详见 tools/render/README.md。
 USAGE
 }
@@ -106,7 +106,7 @@ echo $$ > "$LOCK/pid"
 trap 'rm -rf "$LOCK"' EXIT
 
 if ! "${SSH[@]}" "$HOST" "mkdir -p '$REMOTE/Celadon' '$REMOTE/JUCE' '$REMOTE_SONGS'"; then
-  echo "render-linux.sh：连不上 $HOST（服务器宕机，或不在家里网络 / VPN 下）" >&2
+  echo "render-linux.sh：连不上 ${HOST}（服务器宕机，或不在家里网络 / VPN 下）" >&2
   exit 1
 fi
 
@@ -170,13 +170,13 @@ if "${SSH[@]}" "$HOST" "test -d $(printf '%q' "$REMOTE_OUT")"; then
       .cache/celadon-render/*/out-*) "${SSH[@]}" "$HOST" "rm -rf $(printf '%q' "$REMOTE_OUT")" ;;
     esac
   else
-    echo "render-linux.sh：拉回失败（rsync 返回 $pull），服务器上的结果保留在 ~/$REMOTE_OUT" >&2
+    echo "render-linux.sh：拉回失败（rsync 返回 ${pull}），服务器上的结果保留在 ~/$REMOTE_OUT" >&2
   fi
 fi
 rmdir "$OUT_DIR" 2>/dev/null || true   # 什么都没拉回（例如编译失败）时不留空目录
 
 if [ "$status" -ne 0 ]; then
-  echo "render-linux.sh：远端构建、自检或渲染失败（返回 $status），看上面的输出" >&2
+  echo "render-linux.sh：远端构建、自检或渲染失败（返回 ${status}），看上面的输出" >&2
   exit "$status"
 fi
 
@@ -184,4 +184,4 @@ if [ "$pull" -ne 0 ]; then
   exit "$pull"
 fi
 
-echo "render-linux.sh：完成，结果在 $OUT_DIR（先盲听、再看 metrics.md；盲听做法见 tools/render/README.md）" >&2
+echo "render-linux.sh：完成，结果在 ${OUT_DIR}（先盲听、再看 metrics.md；盲听做法见 tools/render/README.md）" >&2

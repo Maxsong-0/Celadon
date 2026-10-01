@@ -16,9 +16,9 @@ VERSION="$(sed -n 's/^ *version="\([0-9.]*\)".*/\1/p' "$ROOT/Celadon.jucer" | he
 
 for b in Celadon.vst3 Celadon.component Celadon.app; do
   exe="$REL/$b/Contents/MacOS/Celadon"
-  [ -f "$exe" ] || { echo "没有 $REL/$b：先编 Release 通用版（docs/BUILDING.md）" >&2; exit 1; }
+  [ -f "$exe" ] || { echo "没有 $REL/${b}：先编 Release 通用版（docs/BUILDING.md）" >&2; exit 1; }
   archs="$(lipo -archs "$exe")"
-  case "$archs" in *arm64*x86_64*|*x86_64*arm64*) ;; *) echo "$b 不是通用二进制（$archs）：编的时候要带 -destination 'generic/platform=macOS' ONLY_ACTIVE_ARCH=NO" >&2; exit 1 ;; esac
+  case "$archs" in *arm64*x86_64*|*x86_64*arm64*) ;; *) echo "$b 不是通用二进制（${archs}）：编的时候要带 -destination 'generic/platform=macOS' ONLY_ACTIVE_ARCH=NO" >&2; exit 1 ;; esac
   plugin_version="$(defaults read "$REL/$b/Contents/Info.plist" CFBundleShortVersionString)"
   [ "$plugin_version" = "$VERSION" ] || { echo "$b 的版本 $plugin_version 与 Celadon.jucer 的 $VERSION 不一致：先重新编" >&2; exit 1; }
 done

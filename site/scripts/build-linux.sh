@@ -3,7 +3,7 @@
 # 做法照仓库 scripts/test-linux.sh：把 site/ rsync 到服务器，在那里 pnpm install + build，再把 dist/ 与 pnpm-lock.yaml 拉回来。
 #
 # 用法：site/scripts/build-linux.sh            # install + typecheck + build，拉回 dist 与 lock
-#       site/scripts/build-linux.sh serve      # 同上，然后在服务器上用 python 起静态服务（端口 $SITE_PORT，默认 8787）供浏览器验收
+#       site/scripts/build-linux.sh serve      # 同上，然后在服务器上用 python 起静态服务（端口 ${SITE_PORT}，默认 8787）供浏览器验收
 #       site/scripts/build-linux.sh stop       # 停掉上面那个静态服务
 # 环境：CELADON_TEST_HOST 覆盖目标主机（默认 maxsong@192.168.100.107）。
 set -euo pipefail
@@ -42,7 +42,7 @@ else
 fi
 echo "--- typecheck ---"
 pnpm exec tsc --noEmit
-echo "--- build（插件版本 $CELADON_VERSION）---"
+echo "--- build（插件版本 ${CELADON_VERSION}）---"
 pnpm exec vite build 2>&1 | tail -n 40
 echo "--- dist ---"
 du -sh dist; find dist -type f | wc -l
@@ -50,7 +50,7 @@ REMOTE_SCRIPT
 status=$?
 set -e
 if [ "$status" -ne 0 ]; then
-  echo "远端构建失败（退出码 $status）" >&2
+  echo "远端构建失败（退出码 ${status}）" >&2
   exit "$status"
 fi
 
