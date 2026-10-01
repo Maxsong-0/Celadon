@@ -1764,12 +1764,13 @@ namespace
     // 前奏 / breakdown / drop 后选 ΔG 与低频门系数）与 House 门槛（设计规格-曲风与交付 第 7 节第 4 条）。只读音频、不碰链：
     // 不依赖编排器的 SegmentLedger，口径按规格第 2.3 节在这里独立算一份（README「逐段统计」写明与插件的差别）。
 
-    // 与 MusicAnalyzer.cpp 同值的三个常数（那边在匿名命名空间里，这里照抄并注明出处；改那边要同步改这里）：
+    // 与 MusicAnalyzer.cpp 同值的几个常数（那边在匿名命名空间里，这里照抄并注明出处；改那边要同步改这里）：
     constexpr int lowShareLastBand = 4;                  // lowShareLastBand：低频 = 100 Hz 段及以下（段 0 ～ 4，上边界 112 Hz）
     constexpr double frameAbsoluteGatePower = 1.0e-7;    // frameAbsoluteGatePower：帧总功率 −70 dBFS 绝对门
     constexpr double frameRelativeGateRatio = 0.01;      // frameRelativeGateRatio：帧总功率低于均值 20 dB 的帧不计
     constexpr double effectiveAbsoluteGateLufs = -70.0;  // 「有效音频」门：400 ms 门块 ≥ −70 LUFS（absoluteGateLufs）……
     constexpr double effectiveRelativeGateLu = -20.0;    // ……且不低于参考 I 以下 20 LU（effectiveRelativeGateLu）
+    constexpr int shortTermSubBlocks = 30;               // shortTermSubBlocks：短期响度 S 的 3 s 窗（EBU Tech 3341）
 
     // 分段网格：有 --bpm 时一段 = 一小节，第 k 段（从 0 起）的起点 = round(k × 每小节样本数)（锚点 0、恒定速度：规格第 2.1 节
     // 「锚点样本 + round(n × 每小节样本数)」）；没给 --bpm 时每 HouseConstants::fallbackSegmentSeconds（出厂 2 s）一段，按样本墙钟算
@@ -1810,6 +1811,8 @@ namespace
         std::int64_t start = 0, end = 0;           // [start, end)（样本；最后一段截到音频末尾）
         double energy = 0.0;                        // 过了有效音频门的 100 ms 子块的 K 加权均方之和（子块按起点归段）
         int validSubBlocks = 0;
+        bool hasShortTerm = false;                  // EBU 短期响度 S（3 s 窗、不门限）在本段最后一个子块结尾处的读数（参考：门控用的是上面的段响度）
+        double shortTermLufs = 0.0;
         double lowPower = 0.0, totalPower = 0.0;    // 过了帧门的 Balance 帧：段 0 ～ 4 / 全部 27 段的功率之和（帧按分析窗起点归段）
         int frames = 0;
         double grWeighted = 0.0, grMax = 0.0;       // 只有成品：逐块限幅 GR（块按成品时间轴的起点归段，按块长加权）
@@ -1883,6 +1886,27 @@ namespace
 
             for (std::size_t i = 0; i < all.size(); ++i)
             {
+                // 短期响度 S：以本子块结尾的 30 个子块（3 s）均方平均，不门限、不满 3 s 不给（同 MusicAnalyzer 的 shortTermLufs）。
+                // 每段记它最后一个子块处的读数（子块按起点归段，后面的覆盖前面的）。
+                if (i + 1 >= static_cast<std::size_t> (shortTermSubBlocks))
+                {
+                    double shortSum = 0.0;
+                    auto finite = true;
+
+                    for (std::size_t back = 0; back < static_cast<std::size_t> (shortTermSubBlocks); ++back)
+                    {
+                        const auto ms = all[i - back].meanSquare;
+                        finite = finite && std::isfinite (ms) && ms >= 0.0;
+                        shortSum += finite ? ms : 0.0;
+                    }
+
+                    if (auto* s = finite ? segmentOf (all[i].endSample - subBlockLength) : nullptr)
+                    {
+                        s->hasShortTerm = true;
+                        s->shortTermLufs = -0.691 + 10.0 * std::log10 (std::max (shortSum / shortTermSubBlocks, 1.0e-30));
+                    }
+                }
+
                 // 400 ms 门块：以本子块结尾的至多 4 个子块的均方平均（同 MusicAnalyzer::consumeSubBlock 的 gatingPower）。
                 double windowSum = 0.0;
                 int windowCount = 0;
@@ -2019,10 +2043,11 @@ namespace
         }
     }
 
-    // 逐段统计表（CSV）。segment 从 1 起（按小节分段时 = 小节号）；没有有效子块的段 lufs 留空，没有过门帧的段 low_share 留空。
+    // 逐段统计表（CSV）。segment 从 1 起（按小节分段时 = 小节号）；没有有效子块的段 lufs 留空，没有过门帧的段 low_share 留空，
+    // 歌开头不满 3 s 的段 short_term_lufs 留空。
     std::string segmentsCsvText (const SegmentReport& report, double sampleRate, bool withReductions)
     {
-        std::string csv = "segment,mode,start_sample,end_sample,start_s,end_s,lufs,valid_s,low_share,frames";
+        std::string csv = "segment,mode,start_sample,end_sample,start_s,end_s,lufs,valid_s,short_term_lufs,low_share,frames";
 
         if (withReductions)
             csv += ",gr_mean_db,gr_max_db,gr_blocks,gr_over_p95_cap_blocks";
@@ -2040,6 +2065,7 @@ namespace
                  + fixed (static_cast<double> (s.start) / sampleRate, 4) + "," + fixed (static_cast<double> (s.end) / sampleRate, 4) + ","
                  + (hasLoudness ? fixed (-0.691 + 10.0 * std::log10 (s.energy / s.validSubBlocks), 3) : std::string()) + ","
                  + fixed (s.validSubBlocks * report.subBlockSeconds, 1) + ","
+                 + (s.hasShortTerm ? fixed (s.shortTermLufs, 3) : std::string()) + ","
                  + (hasLowShare ? fixed (s.lowPower / s.totalPower, 4) : std::string()) + "," + std::to_string (s.frames);
 
             if (withReductions)
@@ -3328,6 +3354,17 @@ namespace
                                               + " / " + std::to_string (report.segments[3].validSubBlocks) + " / "
                                               + std::to_string (report.segments[4].validSubBlocks) + "（期望 0 / 20 / 20 / 20 / ≤ 3）"
                                         : "段数 " + std::to_string (report.segments.size()) + "（期望 5）");
+
+            // 短期响度 S（3 s 窗、不门限）取每段最后一个子块处：第 2 小节结尾的窗是 1 s 静音 + 2 s 正弦 → −20 + 10·log10(2/3) = −21.76，
+            // 第 3 小节结尾的窗全是正弦 → −20.0（容差 0.1 LU）；第 1 小节结尾还不满 3 s，没有读数。
+            const auto expectedPartial = -20.0 + 10.0 * std::log10 (2.0 / 3.0);
+            test.check (sized && ! report.segments[0].hasShortTerm && report.segments[1].hasShortTerm && report.segments[2].hasShortTerm
+                            && std::abs (report.segments[1].shortTermLufs - expectedPartial) < 0.1
+                            && std::abs (report.segments[2].shortTermLufs + 20.0) < 0.1,
+                        "逐段短期响度", sized ? "第 2 / 3 小节结尾 " + fixed (report.segments[1].shortTermLufs, 3) + " / "
+                                                  + fixed (report.segments[2].shortTermLufs, 3) + " LUFS（期望 " + fixed (expectedPartial, 2)
+                                                  + " / -20.0 ± 0.1），第 1 小节" + (report.segments[0].hasShortTerm ? "有读数（不该有）" : "没有读数")
+                                            : "段数不对");
 
             test.check (sized && shareOf (1) >= 0.0 && shareOf (1) < 0.005 && std::abs (shareOf (3) - 0.497) < 0.02 && ! report.droppedFrames,
                         "逐段低频占比", sized ? "只有 1 kHz 的段 " + fixed (shareOf (1), 4) + "（期望 < 0.005），60 Hz + 1 kHz 等幅的段 "
