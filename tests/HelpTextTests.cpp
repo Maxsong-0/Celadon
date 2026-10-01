@@ -526,6 +526,46 @@ namespace celadon::test
                 // 无效位（高于三个有效位）不产生任何说明。
                 expectEquals (thirdLineFor (withCostMask (plain, 0xf8u)), advice, "undefined mask bits are ignored");
             }
+
+            // 依据：ADR-014 T-032 修订（2026-09-29，研究 R4-01 / 核验 V4）——峰值守护只管低切与收单，加宽的增量不经守护（ClayModule.h
+            // 文件头④）。三处文案不能再说「任何状态下峰值处都会自动让一点」「修坯从不让峰值变高」（旧文案：加宽在正常电平下其实被
+            // 守护回收约 95 %、界面却说只让一点）；中英文都要讲到「加宽不经守护」「低切 / 收单在会抬峰值的瞬间让开」。指示灯管自动与手动
+            // 两种状态，「由先试后用把关」只对自动加宽成立（手动加宽只有末级限幅器兜），所以要写明是「自动加宽」。
+            // 阳性对照：同一组断言对改前的 HelpText.cpp（e6b445b）全部不过（T-032 报告记录）。
+            beginTest ("Clay texts (T-032): the peak guard covers low cut and mono only; width is not guarded");
+            {
+                const auto* lowCut = help::find (param::clayLowCutHz);
+                const auto* widthMode = help::find (param::clayWidthMode);
+                const auto* indicator = help::find (uiid::clayIndicator);
+                expect (lowCut != nullptr && widthMode != nullptr && indicator != nullptr, "the three Clay entries exist");
+
+                if (lowCut != nullptr && widthMode != nullptr && indicator != nullptr)
+                {
+                    expect (utf8Contains (utf8 (widthMode->effect), "加宽不经峰值守护"), "width mode: says width is not guarded");
+                    expect (! utf8Contains (utf8 (widthMode->effect), "让一点"), "width mode: no longer claims it yields a little at peaks");
+                    expect (juce::String (widthMode->effectEn).contains ("not run through the peak guard")
+                              && ! juce::String (widthMode->effectEn).contains ("yields a little"),
+                            "width mode (English): says width is not guarded, no longer claims it yields a little");
+
+                    expect (utf8Contains (utf8 (indicator->effect), "低切与收单从不让峰值变高")
+                              && utf8Contains (utf8 (indicator->effect), "加宽不经守护"),
+                            "indicator: the guard covers low cut and mono, width is not guarded");
+                    expect (! utf8Contains (utf8 (indicator->effect), "修坯从不让峰值变高"), "indicator: no longer claims Clay as a whole never raises peaks");
+                    expect (juce::String (indicator->effectEn).contains ("Low cut and mono never make peaks higher")
+                              && juce::String (indicator->effectEn).contains ("width is not guarded")
+                              && ! juce::String (indicator->effectEn).contains ("Clay never makes peaks higher"),
+                            "indicator (English): same scope");
+                    expect (utf8Contains (utf8 (indicator->effect), "自动加宽由先试后用把关")
+                              && juce::String (indicator->effectEn).contains ("automatic width is kept in check by the trial"),
+                            "indicator: only the automatic width goes through the trial (a manual width is what you set)");
+
+                    expect (utf8Contains (utf8 (lowCut->advice), "峰值守护会把低切让回去") && ! utf8Contains (utf8 (lowCut->advice), "让一点"),
+                            "low cut advice: the guard yields the low cut at peaks it would raise");
+                    expect (juce::String (lowCut->adviceEn).contains ("the peak guard yields the low cut")
+                              && ! juce::String (lowCut->adviceEn).contains ("yields a little"),
+                            "low cut advice (English): same");
+                }
+            }
         }
     };
 
