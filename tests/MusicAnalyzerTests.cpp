@@ -835,7 +835,7 @@ namespace celadon::test
                 const auto reference = collect (off, true, 1);
                 const auto expectedFrames = ((int) input.front().size() - window) / hop + 1;
 
-                // 拆片时最后一帧要等 hop 后第 64 个样本才发布：输入正好停在那之前时少一帧。
+                // 拆片时最后一帧要等 hop 后第 1/8 hop 个样本（48 k 下 64，随采样率翻倍；T-032 R2-07）才发布：输入正好停在那之前时少一帧。
                 expect ((int) reference.size() == expectedFrames || (int) reference.size() == expectedFrames - 1, "frame count " + tag);
 
                 int timestampErrors = 0, unitErrors = 0;

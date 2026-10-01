@@ -18,9 +18,12 @@
       | Tone 上限 / 参考斜率    | 0.75 / −3.5 | 0.75 / −2.5 | 0.75 / −2.5 | 规格第 5 节 ±0.75 dB × GLAZE；温润容许更暗，提亮更少 |
       | 修坯低切目标 f_t（Hz）  | 16        | 18          | 20         | ADR-012 / 根治修订 3.3：只切听不到的次声，不碰 30 Hz 以上的音乐超低音；温润留得最多 |
       | 修坯加宽风格系数 s_w    | 0.4       | 0.6         | 1.0        | 同上第 2 节③：宽度是口味项，通透最开阔、温润最收敛 |
+      | 自动 Heat 底量          | 12        | 12          | 12         | T-032 R6-01（算法 / 标定 8）：v7 前是一个全局值 12；挪成风格常数让风格差异可标定，出厂先都 12，差异待 Max 试听（12 / 8 / 4 只是候选） |
 
     分配权重的用法（见 GlazePlanner.cpp）：Heat / Clip / Limit 三项归一后分摊「超限估计」（削峰）；Glue 实测不降峰均比，
-    它的一项解释为「每 dB 超限估计给 Glue 多少 dB 平均 GR」（压紧动态、增加密度）。
+    它的一项解释为「每 dB 超限估计给 Glue 多少 dB 平均 GR」（压紧动态、增加密度）。算法 8 起（T-032 R6-01）Heat 只承担换算表里
+    该电平真能削掉的份额（不到 Constants::heatUsefulCrestDb 就只留底量），出厂残差 Heat 表下自动 Heat 因此恒为底量 × 强度：
+    温润 GLAZE 100 从 70 降到 12、默认 35 % 从 24.5 降到 4.2（可闻变化，待 Max 试听）。
 
     修坯 Clay 的全局常数（阈值、地板频率、分频点范围、加宽上限、相关度下限、ClayGuard 时间常数、ADR-012 的代价系数与
     收单收益斜坡）默认值就是出厂值，只写在 GlazeConstants.h；这里只写两项风格常数。快照读写时全部 clay* 字段都是「可缺省」的：
@@ -47,7 +50,9 @@ namespace celadon::glaze
             Constants c;   // A2 追加的字段（模型、映射、换算表）的默认值就是出厂值，这里只写风格与阶段 0 字段
             // 7 = v0.1.7.0：快照加入修坯 Clay 的常数（本文件的两项风格常数 + GlazeConstants.h 的 clay* 字段）。ADR-012 的改动
             // （低切目标、次声阈值、收单收益、代价系数）发生在 v0.1.7.0 发布之前，仍属版本 7（与算法 7 / 画像格式 2 同一口径）。
-            c.version = 7;
+            // 8 = T-032（2026-09-29）：自动 Heat 底量挪成风格常数（三种风格出厂 12）、新常数 heatUsefulCrestDb（GlazeConstants.h，
+            // 默认值即出厂值 0.1 dB）；与算法 8 同一口径（GlazeTypes.h currentAlgorithmVersion）。
+            c.version = 8;
             c.algorithmVersion = currentAlgorithmVersion;
 
             auto& warm = c.warm;
@@ -71,6 +76,7 @@ namespace celadon::glaze
             warm.shareLimit = 0.60f;
             warm.clayLowCutTargetHz = 16.0f;
             warm.clayWidthStyleFactor = 0.4f;
+            warm.automaticHeatFloor = 12.0f;   // T-032：三种风格先同为 12（v7 前的全局底量），差异待 Max 试听标定
 
             auto& punchy = c.punchy;
             punchy.preferredLufs = -9.0f;
@@ -93,6 +99,7 @@ namespace celadon::glaze
             punchy.shareLimit = 0.50f;
             punchy.clayLowCutTargetHz = 18.0f;
             punchy.clayWidthStyleFactor = 0.6f;
+            punchy.automaticHeatFloor = 12.0f;
 
             auto& clean = c.clean;
             clean.preferredLufs = -10.0f;
@@ -115,6 +122,7 @@ namespace celadon::glaze
             clean.shareLimit = 0.80f;
             clean.clayLowCutTargetHz = 20.0f;   // = 分析器低切候选的截止频率（代价按 20 Hz 量，三种风格的目标都不高于它）
             clean.clayWidthStyleFactor = 1.0f;
+            clean.automaticHeatFloor = 12.0f;
 
             // 阶段 0 的全局字段按结构体默认值即为出厂值：
             //   - 目标：L_pref 钳在 −14 ～ −7（规格原文）；LRA 修正 f(LRA) = (LRA − 6 LU) × 1/3 dB（6 LU 以下不修正：动态不大的歌
@@ -153,6 +161,37 @@ namespace celadon::glaze
             // v0.1.7.0 修坯 Clay：旧快照没有 → 按 0 读（该风格不低切、不加宽；见 visitConstants 末尾的说明）。
             v.optionalField (name ("clayLowCutTargetHz").toRawUTF8(), s.clayLowCutTargetHz, 0.0f);
             v.optionalField (name ("clayWidthStyleFactor").toRawUTF8(), s.clayWidthStyleFactor, 0.0f);
+            // 自动 Heat 底量（算法 8 起是风格常数）不在这里：它的旧快照默认值是旧的全局字段，见 visitHeatFloor。
+        }
+
+        // 算法 8（T-032 R6-01）：自动 Heat 底量从 Constants 的一个全局值挪成三种风格各一个。存与读分开写（同 GlazeProfile.cpp 的
+        // visitConditionsFormat）：
+        //   - 写：三个风格字段 warm_ / punchy_ / clean_automaticHeatFloor，另把三者中最小的写成旧的全局 automaticHeatFloor——
+        //     v0.1.8.5 及以前的插件读新存档只认全局字段（旧算法只有一个底量），取最小偏保守；也让「新版本写出的存档带齐旧字段表」
+        //     的契约（tests/ClayGlazeTests legacyAttributes）继续成立。全局字段由三个风格字段决定，往返仍逐位相同；
+        //   - 读：先读全局字段（v0.1.6.2 ～ v0.1.8.5 的快照有它；更早的没有 → 0），再读三个风格字段，缺失时都取全局值——旧快照
+        //     三种风格的底量逐位等于原来的全局值（blendConstants 对三者逐位相同的底量直接取原值，混合权重下也逐位不变）。
+        //     存在但损坏照样拒收（xmlio 的约定）。
+        float legacyHeatFloorOf (const Constants& c) noexcept
+        {
+            return juce::jmin (juce::jmin (c.warm.automaticHeatFloor, c.punchy.automaticHeatFloor), c.clean.automaticHeatFloor);
+        }
+
+        void visitHeatFloor (xmlio::Writer& w, const Constants& c)
+        {
+            w.field ("automaticHeatFloor", legacyHeatFloorOf (c));
+            w.field ("warm_automaticHeatFloor", c.warm.automaticHeatFloor);
+            w.field ("punchy_automaticHeatFloor", c.punchy.automaticHeatFloor);
+            w.field ("clean_automaticHeatFloor", c.clean.automaticHeatFloor);
+        }
+
+        void visitHeatFloor (xmlio::Reader& r, Constants& c)
+        {
+            float legacy = 0.0f;
+            r.optionalField ("automaticHeatFloor", legacy, 0.0f);
+            r.optionalField ("warm_automaticHeatFloor", c.warm.automaticHeatFloor, legacy);
+            r.optionalField ("punchy_automaticHeatFloor", c.punchy.automaticHeatFloor, legacy);
+            r.optionalField ("clean_automaticHeatFloor", c.clean.automaticHeatFloor, legacy);
         }
 
         template <typename Visitor, typename ConstantsT>
@@ -239,7 +278,7 @@ namespace celadon::glaze
             v.optionalField ("minimumFullDriveDb", c.minimumFullDriveDb, 0.0f);
             v.optionalField ("automaticRecoverFloor", c.automaticRecoverFloor, 0.0f);
             v.optionalField ("automaticTameFloor", c.automaticTameFloor, 0.0f);
-            v.optionalField ("automaticHeatFloor", c.automaticHeatFloor, 0.0f);
+            visitHeatFloor (v, c);   // 算法 8：三个风格字段 + 旧的全局字段（见上）
             v.optionalField ("liveHeatMaxReduction", c.liveHeatMaxReduction, 0.0f);
             v.optionalField ("liveGlueMaxReduction", c.liveGlueMaxReduction, 0.0f);
             v.optionalField ("liveColorDensityDeadbandDb", c.liveColorDensityDeadbandDb, 1.5f);
@@ -283,6 +322,10 @@ namespace celadon::glaze
             v.optionalField ("clayMonoLossHighDb", c.clayMonoLossHighDb, 0.0f);
             v.optionalField ("clayGuardPhaseFastGate", c.clayGuardPhaseFastGate, 0.0f);
             v.optionalField ("clayGuardPhaseMinSeconds", c.clayGuardPhaseMinSeconds, 0.0);
+
+            // 算法 8（T-032 R6-01）：Heat 承担削峰的门槛。旧快照缺字段按 0 读——它们的 algorithmVersion < 8，决策器永远不进用到它的
+            // 分支（版本门是唯一开关，缺省值不是兼容手段；GlazeConstants.h 的说明）。
+            v.optionalField ("heatUsefulCrestDb", c.heatUsefulCrestDb, 0.0f);
         }
 
         //==============================================================================
@@ -401,6 +444,7 @@ namespace celadon::glaze
         void Writer::optionalField (const char* name, const double& value, double) { field (name, value); }
         void Writer::field (const char* name, const std::uint8_t& value)   { element.setAttribute (name, juce::String (static_cast<int> (value))); }
         void Writer::optionalField (const char* name, const std::uint8_t& value, std::uint8_t) { field (name, value); }
+        void Writer::optionalField (const char* name, const bool& value, bool) { field (name, value); }
 
         void Writer::writeFloats (const char* name, const float* values, int count)
         {
@@ -496,6 +540,14 @@ namespace celadon::glaze
         {
             if (element.hasAttribute (name))
                 field (name, value);   // 同 float：存在但损坏（不是整数、越出 0 ～ 255）仍拒收。
+            else
+                value = legacyDefault;
+        }
+
+        void Reader::optionalField (const char* name, bool& value, bool legacyDefault)
+        {
+            if (element.hasAttribute (name))
+                field (name, value);   // 同上：存在但不是 0 / 1 仍拒收。
             else
                 value = legacyDefault;
         }

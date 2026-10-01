@@ -343,17 +343,29 @@ namespace celadon::test
             return size;
         }
 
-        // v0.5 起每 hop 的分析拆成三片，最后一片在 hop 后第 64 个样本才发布 G：读数时刻落在 hop 后第 1 ～ 64 个样本
-        // （含）之间时，拆片版读到的还是上一帧，一口气做完的版本已是新一帧。只晚 64 个样本发布，值不变。
-        bool isInsidePublishWindow (int samplesProcessed, double sampleRate)
+        // v0.5 起每 hop 的分析拆成三片，最后一片在 hop 后第 1/8 hop 处（= 系数重算间隔：48 k 下第 64 个样本，T-032 R2-07 起随
+        // 采样率翻倍，192 k 下第 256 个）才发布 G：读数时刻落在 hop 后第 1 ～ 1/8 hop 个样本（含）之间时，拆片版读到的还是上一帧，
+        // 一口气做完的版本已是新一帧。只晚发布，值不变。
+        int publishDelayFor (double sampleRate)
+        {
+            return fftSizeFor (sampleRate) / 32;   // hop / 8
+        }
+
+        // 读数时刻（已处理的样本数）在所属 hop 里的相位 0 ～ hop − 1；第一次分析（第「点数」个样本）之前与正好在它上面时返回 −1。
+        int phaseAfterHop (int samplesProcessed, double sampleRate)
         {
             const auto fftSize = fftSizeFor (sampleRate);
 
             if (samplesProcessed <= fftSize)
-                return false;
+                return -1;
 
-            const auto phase = (samplesProcessed - fftSize) % (fftSize / 4);
-            return phase >= 1 && phase <= 64;
+            return (samplesProcessed - fftSize) % (fftSize / 4);
+        }
+
+        bool isInsidePublishWindow (int samplesProcessed, double sampleRate)
+        {
+            const auto phase = phaseAfterHop (samplesProcessed, sampleRate);
+            return phase >= 1 && phase <= publishDelayFor (sampleRate);
         }
 
         struct BlockRun
@@ -1557,13 +1569,17 @@ namespace celadon::test
             }
         }
 
-        // v0.5 R5：每 hop 的分析拆成三片（hop 后第 0 / 32 / 64 个样本）与一口气做完（setAnalysisSlicingForTesting (false)，
-        // 即 v0.4 的做法）逐位相同：输出每个样本都相同；每块读到的 27 段 G，除了读数落在 hop 后第 1 ～ 64 个样本之间的那些
-        // （拆片后最后一片在第 64 个样本才发布，这 64 个样本里读到的还是上一帧——只晚发布，值不变），全部逐位相同。
-        // 用最坏的情形：每一块都换参数（Recover / Tame 在 0 与满之间跳、Brighten、Speed 轮换），每隔几块切一次旁通——
-        // 参数在分析片之间变了，拆片版也必须只用 hop 边界上的快照。四个采样率 × 块长 1（只 48k）/ 7 / 32 / 33 / 64 / 100 /
-        // 512 / 2048（超过 prepare 的 512，内部切块）。
-        // 依据：新目标最早在 hop 后第 64 个样本那次系数重算才用到；hop 边界上那次重算的插值比例是 0，只用到片 0 提交的起点。
+        // v0.5 R5：每 hop 的分析拆成三片（hop 后第 0 / 半个 / 一个重算间隔处，48 k 下第 0 / 32 / 64 个样本）与一口气做完
+        // （setAnalysisSlicingForTesting (false)，即 v0.4 的做法）逐位相同：输出每个样本都相同；每块读到的 27 段 G，除了读数落在
+        // hop 后第 1 ～ 1/8 hop 个样本之间的那些（拆片后最后一片在 hop 后第 1/8 hop 处才发布，这段里读到的还是上一帧——只晚发布，
+        // 值不变），全部逐位相同。用最坏的情形：每一块都换参数（Recover / Tame 在 0 与满之间跳、Brighten、Speed 轮换），每隔几块
+        // 切一次旁通——参数在分析片之间变了，拆片版也必须只用 hop 边界上的快照。四个采样率 × 块长 1（只 48k）/ 7 / 32 / 33 / 64 /
+        // 100 / 512 / 2048（超过 prepare 的 512，内部切块）。
+        // 依据：新目标最早在 hop 后第一个重算间隔那次系数重算才用到；hop 边界上那次重算的插值比例是 0，只用到片 0 提交的起点。
+        // 阳性对照（T-032 R2-07 起重算间隔随采样率翻倍，发布窗 = hop 后 1 ～ 1/8 hop 个样本）：每个采样率下，拆片版读到上一帧的
+        // 读数必须存在，而且其中最晚的一个正好落在窗的最后一个样本（相位 = 1/8 hop）上。窗外的读数（含相位 1/8 hop + 1）已逐位
+        // 比过、必须相同，两条合起来把发布时刻钉死在 hop 后第 1/8 hop 个样本：窗口写小了在窗外红，模块实际晚得比 1/8 hop 少
+        // （例如拆片间隔没跟着采样率缩放、仍是 64 样本）在这里红。块长 32 / 64 在每个采样率下每个 hop 都有一次读数正落在该相位上。
         void testSlicedAnalysisMatchesUnsliced()
         {
             beginTest ("analysis sliced over three points in each hop is bit-exact with the one-shot analysis");
@@ -1583,6 +1599,8 @@ namespace celadon::test
             for (auto sampleRate : { 44100.0, 48000.0, 96000.0, 192000.0 })
             {
                 const auto input = makeCombSignal (numChannels, sampleRate, sampleRate > 100000.0 ? 1.5 : 2.5, 31);
+                int delayedReadings = 0;      // 落在发布窗内且拆片版读到上一帧的读数（阳性对照，见上）
+                int latestDelayedPhase = -1;  // 这些读数里最晚的 hop 内相位
 
                 for (auto blockSize : { 1, 7, 32, 33, 64, 100, 512, 2048 })
                 {
@@ -1610,7 +1628,15 @@ namespace celadon::test
                     for (size_t k = 0; k < a.gains.size(); ++k)
                     {
                         if (isInsidePublishWindow (a.readPositions[k], sampleRate))
+                        {
+                            if (! sameGains (a.gains[k], b.gains[k]))
+                            {
+                                ++delayedReadings;
+                                latestDelayedPhase = juce::jmax (latestDelayedPhase, phaseAfterHop (a.readPositions[k], sampleRate));
+                            }
+
                             continue;
+                        }
 
                         ++compared;
                         mismatches += sameGains (a.gains[k], b.gains[k]) ? 0 : 1;
@@ -1619,6 +1645,11 @@ namespace celadon::test
                     expect (compared > 0, "some readings must be compared " + tag);
                     expectEquals (mismatches, 0, "published band gains " + tag);
                 }
+
+                expect (delayedReadings > 0, "positive control: readings inside the " + juce::String (publishDelayFor (sampleRate))
+                                                 + "-sample publish window really see the previous frame @" + juce::String (sampleRate));
+                expectEquals (latestDelayedPhase, publishDelayFor (sampleRate),
+                              "positive control: the sliced analysis publishes exactly hop / 8 samples after the hop @" + juce::String (sampleRate));
             }
         }
 
@@ -1850,7 +1881,7 @@ namespace celadon::test
                 && std::memcmp (a.bandCross.data(), b.bandCross.data(), sizeof (a.bandCross)) == 0;
         }
 
-        // 两串帧公共前缀里不逐位相同的帧数（拆片时最后一帧晚 64 个样本发布，输入正好停在那之前时会少一帧，所以只比公共前缀）。
+        // 两串帧公共前缀里不逐位相同的帧数（拆片时最后一帧晚 1/8 hop 发布，输入正好停在那之前时会少一帧，所以只比公共前缀）。
         int countDifferentSnapshots (const std::vector<FrameSnapshot>& a, const std::vector<FrameSnapshot>& b)
         {
             int different = 0;
@@ -2368,9 +2399,9 @@ namespace celadon::test
         // 素材：makeRichSignal + 500 / 1000 / 1500 Hz 谐波组（让自动 Tame 的谐波保护去读各声道的 FFT 缓冲），Recover / Tame 满、
         // 自动份额 40 / 60、Brighten 30、Fast：分析、跟踪、判断、谐波保护、滤波都在工作。四个采样率、2.5 s、块 512：48 / 44.1 kHz
         // 块长 = hop，读数正落在 hop 边界上；96 kHz 落在 hop 的 0 / ½ 处，192 kHz 落在 0 / ¼ / ½ / ¾ 处——都不在拆片的发布窗
-        // （hop 后 1 ～ 64 个样本）里，所以两种做法每块读到的 G 可以逐块比（isInsidePublishWindow 的同一依据）；2.5 s 在四个采样率下
-        // 都不停在某个 hop 后 64 个样本以内，两种做法发布的帧数也相同。阳性对照：处理真的改了信号、G 最大超过 1 dB、bandCross 真的
-        // 翻过来（|X_A − X_B| / P 最大 > 1：谐波组那几段两声道相同，ρ 接近 1）。
+        // （hop 后 1 ～ 1/8 hop 个样本：48 k 下 64、192 k 下 256）里，所以两种做法每块读到的 G 可以逐块比（isInsidePublishWindow 的
+        // 同一依据）；2.5 s 在四个采样率下都不停在某个 hop 后 1/8 hop 以内，两种做法发布的帧数也相同。阳性对照：处理真的改了信号、
+        // G 最大超过 1 dB、bandCross 真的翻过来（|X_A − X_B| / P 最大 > 1：谐波组那几段两声道相同，ρ 接近 1）。
         void testGainAndOutputUnchanged()
         {
             beginTest ("G and output unchanged: logged digests; flipping R reverses bandCross but leaves G bit-exact");

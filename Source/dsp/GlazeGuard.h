@@ -78,6 +78,12 @@ namespace celadon::glaze
         // g_保护停在 −1 dB 时校准器会把这 1 dB 当成偏差补回去，与保护层互相顶）。
         bool isEngaged() const noexcept;
 
+        // ---- T-032 R5-02 追加（只给编排器的测试探针读）----
+
+        // 此刻生效的约束上限（最近一次 setLimits 交来的混合后常数）与「已经设过上限」标志。
+        const StyleConstants& getLimits() const noexcept   { return limits; }
+        bool hasLimits() const noexcept                    { return limitsSet; }
+
     private:
         // 10 ms 音乐时隙（环形缓冲的一格）。
         struct Slot
