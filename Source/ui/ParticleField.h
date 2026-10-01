@@ -11,9 +11,11 @@
       - 「减少动效」：粒子与波纹都关掉，只留静止的流线与柔光。
 
     流线与粒子的参数（位置、时长、颜色、缓动）与设计稿用同一个线性同余种子生成，画出来一样。
-    动画由显示器的垂直同步驱动（VBlankAttachment），最多 30 帧 / s（与界面刷新率一致：60 Hz 屏隔帧、120 Hz 屏每四帧重画一次），
-    没有东西在动时不重画。节流带半个 VBlank 的容差（isFrameDue）：显示器周期不正好是 1/60 s、时间戳有抖动时，
-    该画的那一帧也不会拖到下一个 VBlank（否则 60 Hz 屏会掉到每 3 个 VBlank 一帧，20 帧 / s 且忽快忽慢）。
+    动画由显示器的垂直同步驱动（VBlankAttachment），约 30 帧 / s（与界面刷新率一致），没有东西在动时不重画。每帧取离 1/30 s
+    最近的整数个 VBlank（即半个 VBlank 的容差，isFrameDue）：60 / 90 / 120 / 240 Hz 屏正好 30 帧（隔 2 / 3 / 4 / 8 个 VBlank），
+    144 Hz 28.8 帧，72 / 100 Hz 36 / 33 帧；75 / 165 Hz 上 1/30 s 不是整数个 VBlank，在 2 / 3（5 / 6）个之间交替，平均约 29.3 / 29.7 帧。
+    不用严格的「距上一帧 ≥ 1/30 s」：60 Hz 屏两个 VBlank 恰好 1/30 s，显示器周期略短于 1/60 s 或时间戳抖一点，
+    该画的那一帧就拖到第 3 个 VBlank（20 帧 / s、忽快忽慢）。
 
     流线与柔光是两张按物理像素缓存的图（T-032 R9-05 / M-3）：按上下文的实际像素比生成（不封顶）、按整数设备像素贴
     （最近邻），软件渲染器与 CoreGraphics 都走整块拷贝；像素比变了（缩放窗口）才重新生成。每帧真正画的只有波纹与粒子。
@@ -42,7 +44,7 @@ namespace celadon::ui
         static constexpr int top = 300;
         static constexpr int bandHeight = 260;
 
-        // 最多 30 帧 / s（规格「界面刷新 30 Hz」）。
+        // 目标帧率（规格「界面刷新 30 Hz」）：按离 1 / maxFrameRate 最近的整数个 VBlank 画（isFrameDue）。
         static constexpr double maxFrameRate = 30.0;
 
         // 节流规则（纯函数，截图工具的检查直接测）：距上一帧 sinceLastFrame 秒、这次 VBlank 距上次 vblankInterval 秒时该不该画。
