@@ -65,6 +65,11 @@
     过渡后重测；预算受限与锁定后保护层卡住这两种「吸收」（不额外减、净增益连续）把适用的校准改绑到新上限、继续适用，
     不重测（BUG-003：修前每次吸收都重开一轮，又推回保护层，整首歌停在「校准中」）。
 
+    手动设置（T-032 R6-02 收尾，A11）：保护层、上游监视、校准偏差与校准轮、约束反馈、画像失配只在电平类自动全部撤回
+    （Plan::automaticLevelWithdrawn：手动已让限幅器超约束、Limit 旁通、上限低于手动链净增益）时停。手动只让 Heat / Glue / Clip
+    某一项超出风格预算时照常工作，但保护层与上游监视只核对自动部分：那一项（Plan::manualBudgetMask）不设约束，其余照风格上限；
+    这组项变了就清空两个窗口。界面「受手动设置限制」仍看 limitedByManual（任一模块被撤回）。
+
   ==============================================================================
 */
 
@@ -211,17 +216,21 @@ namespace celadon::glaze
             float calibrationLastErrorDb = 0.0f;      // 最近一轮的修正量 e = 目标净提升 − 实测净提升
             float calibrationSuggestedDb = 0.0f;      // 校准器此刻的建议偏差（相对本轮基线）
             // 轮中本块作废当前子窗的原因（位或，上一块）：1 宿主旁通 / 暂停、2 GLAZE ≤ 0、4 方案过渡中、8 条件与本轮参考不一致、
-            // 16 受手动设置限制、32 保护层介入（GlazeGuard::isEngaged）。偏差变了（换工作点）由校准器自己当作中断，看执行偏差列。
+            // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；T-032 R6-02 收尾前是「受手动设置限制」）、32 保护层介入
+            // （GlazeGuard::isEngaged）。偏差变了（换工作点）由校准器自己当作中断，看执行偏差列。
             int calibrationInterruptMask = 0;
             // 不在轮中时没开新一轮的原因（位或，上一块）：1 没有已提交画像、2 GLAZE ≤ 0、4 宿主旁通 / 暂停、8 方案过渡中、
-            // 16 受手动设置限制、32 保护层在退让或恢复（未稳定也未卡住），或编排器接着施加的退让（carry）还没淡完、64 参考条件未知、
+            // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；R6-02 收尾前是「受手动设置限制」）、32 保护层在退让或恢复（未稳定
+            // 也未卡住），或编排器接着施加的退让（carry）还没淡完、64 参考条件未知、
             // 128 已提交的校准适用（不需要）、256 用户条件稳定不足 1 s、512 刚对同一条件试过而结束为无效（T-032 R5-01 起放弃的轮、
             // 换方案丢掉的轮不算）。0 = 本块开了新一轮或正在轮中。
             int calibrationGateMask = 0;
 
             // ---- T-032（R5-02 / R5-03 / R5-04 / R5-08）：保护层与约束反馈的运行量（上一块 endBlock 之后的值）----
             bool guardLimitsSet = false;              // 保护层已按某份方案设过上限（GlazeGuard::setLimits）
-            StyleConstants guardLimits;               // 保护层此刻生效的约束上限 = blendConstants(目标方案源的常数, 目标方案的权重)
+            // 保护层此刻生效的约束上限 = blendConstants(目标方案源的常数, 目标方案的权重)，其中目标方案 manualBudgetMask 标出的项（手动单独
+            // 已超预算）置 0 = 不设约束（T-032 A11；上游监视用同一份，heatDriveCap 也在里面）。掩码为 0 时与混合常数逐位相同。
+            StyleConstants guardLimits;
             std::int64_t guardSteadySamples = 0;      // g_保护 连续没变的有效音乐样本数（静音 / 停播 / 旁通冻结时不推进也不清）
             std::int64_t guardStuckSamples = 0;       // 「卡住」门槛：activeConstants().guardRecoverAfterSeconds + 1 s 折算的样本数
             std::int64_t samplesSinceFeedback = 0;    // 上一次约束反馈以来的有效音乐样本数（「过渡 + 3 s 观察」按它计）

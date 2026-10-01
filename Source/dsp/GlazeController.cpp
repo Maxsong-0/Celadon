@@ -72,6 +72,10 @@
       - 实时 Tame 许可 = 上限 × GLAZE × κ × 证据，只在已提交画像之后放开（R6-04；κ = 1 时逐位同修前）。
       - 同一次调用里同输入的纯函数只算一次（R5-06：Tame / Tone 的混合上限与 κ、偏差目标的修正范围与「校准适用」、音色 /
         密度跟随的斜率回归），逐位不变；不做跨块缓存。
+      - 保护层与上游监视只核对自动部分（R6-02 收尾，实施 A11，IMPL-A11-r602-guard-auto-share.md）：每项有效上限 = max(风格上限,
+        手动单独用量)。手动链单独已超出风格预算的项（Plan::manualBudgetMask，决策器在方案重算时算好）自动部分恒为 0，按「不设约束」
+        核对，其余照风格上限；这组项变了就清空两个窗口（g_保护 不动）。之后画像失配、保护层、上游监视、校准与约束反馈只在电平类自动
+        全部撤回（Plan::automaticLevelWithdrawn）时停，limitedByManual 只给界面。手动没超预算时掩码为 0，与修前逐位相同。
 
   ==============================================================================
 */
@@ -709,6 +713,32 @@ namespace celadon::glaze
         };
 
         //==============================================================================
+        // 保护层与上游监视生效的上限（T-032 R6-02 收尾，A11）：每项 = max(风格上限, 手动单独用量)。风格上限按方案权重混合；手动链单独已
+        // 超预算的项（Plan::manualBudgetMask，只认三个已定义的位）置 0 = 不设约束（GlazeGuard 与 UpstreamMonitor 同一约定），其余项手动
+        // 单独用量不超风格上限，max 就是风格上限。released = 0 时逐位原样返回。置位的项为什么是「不设约束」而不是拿决策器估的手动单独
+        // 用量当上限：
+        //   - Heat（只有上游监视看）：自动 Heat 此时恒为 0，驱动量全是手动的——实测的就是手动单独用量，max 永不越限；
+        //   - Glue 均值 / p95：自动 Glue 此时恒为 0，GR 全是手动的，保护层退让 Limit Gain、约束反馈降方案都减不了它。决策器估的手动单独
+        //     GR 是前向模型的估计，实测比它大一点就被当成自动的超限、白白磨光自动 Gain（IMPL-A11 第 4 节实测）；实测的就是手动单独用量，
+        //     max 永不越限；
+        //   - Clip 深度 / 活动：决策器撤回了自动 Clip、且不再按 Clip 预算限制自动 Gain（feasible，F-02 逐模块钳住）。保护层若按
+        //     「max(风格上限, 手动单独深度)」核对，会与决策器顶牛——自动 Gain 一推，削波就比手动单独深，保护层退到底、约束反馈把上限
+        //     磨到手动链，与修前同一种磨光。所以与决策器一致：不核对这两项，限幅器三项照常核对自动 Gain。
+        StyleConstants releaseManualBudget (StyleConstants caps, std::uint8_t released) noexcept
+        {
+            if ((released & manualBudgetHeat) != 0)
+                caps.heatDriveCap = 0.0f;
+
+            if ((released & manualBudgetGlue) != 0)
+                caps.glueGrMeanCapDb = caps.glueGrP95CapDb = 0.0f;
+
+            if ((released & manualBudgetClip) != 0)
+                caps.clipDepthCapDb = caps.clipActivityCap = 0.0f;
+
+            return caps;
+        }
+
+        //==============================================================================
         // 方案源：决策器除 GLAZE 与手动值以外的全部输入。方案切换 = 换方案源（过渡）；GLAZE / 手动值变 = 同一方案源重算。
         struct PlanSource
         {
@@ -888,6 +918,9 @@ namespace celadon::glaze
         bool guardClean = true;
         std::uint32_t guardLimitsEvaluation = 0;
         bool guardLimitsKnown = false;
+        // 保护层与上游监视此刻按哪些项放开了约束（上一次 updateGuardLimits 交出去的 manualBudgetMask，T-032 A11）；变了就清两个窗口。
+        // 保护层 reset / prepare 不动上限，所以这里也不跟着清。
+        std::uint8_t guardReleasedMask = 0;
         bool guardWasPlanLimited = false;
         bool planLimitedLatched = false;
         float lastGuardDb = 0.0f;
@@ -1634,9 +1667,11 @@ namespace celadon::glaze
                 {
                     // 诊断（TestProbe::calibrationInterruptMask，位的含义见那里）
                     probe.calibrationInterruptMask = (paused ? 1 : 0) | (! active ? 2 : 0) | (transitionActive ? 4 : 0) | (! matches ? 8 : 0)
-                                                   | (toSlot().plan.limitedByManual ? 16 : 0) | (guard.isEngaged() ? 32 : 0);
+                                                   | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (guard.isEngaged() ? 32 : 0);
 
-                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.limitedByManual)
+                    // 电平类自动全部撤回（T-032 R6-02 收尾）：没有自动加上去的增益可校准。手动只让 Heat / Glue / Clip 某一项超预算时照常采集
+                    // （自动 Gain 仍在推响；保护层与上游监视已只核对自动部分，不会因手动的超出介入）。
+                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.automaticLevelWithdrawn)
                         calibrator.invalidateCurrentWindow();
 
                     calibrator.process (inputBlocks.data(), numInput, outputBlocks.data(), numOutput,
@@ -1647,7 +1682,7 @@ namespace celadon::glaze
                 }
             }
 
-            // 开新一轮：已学过、GLAZE > 0、不在宿主旁通、没有方案过渡、不受手动限制、已提交的校准对此刻不适用、
+            // 开新一轮：已学过、GLAZE > 0、不在宿主旁通、没有方案过渡、电平类自动没有全部撤回、已提交的校准对此刻不适用、
             // 条件连续 1 s 没变，且不是刚刚对同一条件试过（试过而失败的不反复重试，等条件变了再说）。
             // 保护层：在参考状态（g_保护 = 0）才开；它若停在某个退让值上一直不动（超过它自己「安全多久才恢复」的等待 + 1 s，
             // 说明卡在回差区、不会自己回来），也开——这一轮会因保护层持续介入结束为「预算受限」，约束反馈把这点退让吸收进方案
@@ -1666,13 +1701,13 @@ namespace celadon::glaze
             {
                 probe.calibrationInterruptMask = 0;
                 probe.calibrationGateMask = (! committed.hasProfile ? 1 : 0) | (! active ? 2 : 0) | (paused ? 4 : 0) | (transitionActive ? 8 : 0)
-                                          | (toSlot().plan.limitedByManual ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
+                                          | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
                                           | (calibrationApplicable() ? 128 : 0) | (referenceStableSamples < stableSamples ? 256 : 0)
                                           | (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference) ? 512 : 0);
             }
 
             if (! roundActive && committed.hasProfile && active && ! paused && ! transitionActive
-                && ! toSlot().plan.limitedByManual && guardSettled && referenceKnown && ! calibrationApplicable()
+                && ! toSlot().plan.automaticLevelWithdrawn && guardSettled && referenceKnown && ! calibrationApplicable()
                 && referenceStableSamples >= stableSamples
                 && ! (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference)))
             {
@@ -1681,10 +1716,10 @@ namespace celadon::glaze
         }
 
         // 此刻应施加的校准偏差：轮中 = 校准器的建议（条件暂时不一致或暂停时保持不动：已完成的子窗是在这个偏差下测的）；
-        // 已提交的校准适用 = 它的偏差（钳到此刻的修正范围）；否则 0（纯前馈）。GLAZE ≤ 0、受手动限制、没学过：0。
+        // 已提交的校准适用 = 它的偏差（钳到此刻的修正范围）；否则 0（纯前馈）。GLAZE ≤ 0、电平类自动全部撤回、没学过：0。
         float biasTarget() const noexcept
         {
-            if (! active || ! committed.hasProfile || toSlot().plan.limitedByManual)
+            if (! active || ! committed.hasProfile || toSlot().plan.automaticLevelWithdrawn)
                 return 0.0f;
 
             // 修正范围与「校准适用」下面各会用到两次，同输入只算一次（R5-06）。
@@ -1738,9 +1773,24 @@ namespace celadon::glaze
             if (guardLimitsKnown && guardLimitsEvaluation == slot.evaluations)
                 return;
 
-            const auto caps = blendConstants (slot.source.constants, slot.plan.weights);
+            // 只核对自动部分（T-032 R6-02 收尾，A11）：手动单独已超预算的项不设约束，其余照风格上限（releaseManualBudget 的说明）。
+            // 手动没超预算（掩码 0）时交出去的上限与修前逐位相同。
+            const auto released = static_cast<std::uint8_t> (slot.plan.manualBudgetMask & manualBudgetAll);
+            const auto caps = releaseManualBudget (blendConstants (slot.source.constants, slot.plan.weights), released);
             guard.setLimits (caps, slot.source.constants);
             monitor.setCaps (caps);
+
+            // 「手动超预算」的项变了：两个窗口里的数据是按另一套口径攒的——手动 Heat 25 拧回 15（通透上限 20）那一刻，上游监视窗里全是
+            // 手动造成的超出，按新上限一判立即满「3 s 窗内累计 ≥ 1 s」、约束反馈白降 1 dB（只降不升、随工程保存；IMPL-A7 第 3 节末段）；
+            // 保护层同理会按旧时隙退让自动 Gain。清空两个窗口，按新口径从头判定；保护层已执行的退让不动（照常按规则恢复，净增益不跳）。
+            // 掩码一直是 0（手动没超预算）时永不进这里，与修前逐位相同。
+            if (released != guardReleasedMask)
+            {
+                monitor.clear();
+                guard.clearStatistics();
+                guardReleasedMask = released;
+            }
+
             guardLimitsEvaluation = slot.evaluations;
             guardLimitsKnown = true;
         }
@@ -1981,7 +2031,8 @@ namespace celadon::glaze
 
             guardWasPlanLimited = planLimited;
 
-            if (! active || ! toSlot().source.hasProfile || transitionActive || toSlot().plan.limitedByManual
+            // 电平类自动全部撤回时没有自动增益可降（T-032 R6-02 收尾：手动只让某一项超预算时照常，保护层与上游监视已不核对那一项）。
+            if (! active || ! toSlot().source.hasProfile || transitionActive || toSlot().plan.automaticLevelWithdrawn
                 || samplesSinceFeedback < feedbackCooldownSamples)
                 return;
 
@@ -2289,10 +2340,11 @@ namespace celadon::glaze
             executedBiasDb = 0.0f;
             executedGuardDb = 0.0f;
 
-            // 受手动设置限制：校准偏差与保护偏移不施加（手动造成的超限只提示，不偷偷改）。电平类自动全部撤回（Plan::automaticLevelWithdrawn）
-            // 时是没有自动加上去的增益；只是 Heat / Glue / Clip 某一项手动单独超预算时自动 Gain 仍在推响，但保护层按总量核对、分不出
-            // 手动造成的超出，施加会把它当自动的超限收掉（T-032 R6-02，GlazeTypes.h Plan 的说明）。
-            if (toSlot().plan.limitedByManual)
+            // 电平类自动全部撤回（Plan::automaticLevelWithdrawn）：没有自动加上去的增益，校准偏差与保护偏移都不施加（手动造成的超限只提示，
+            // 不偷偷改）。手动只让 Heat / Glue / Clip 某一项超预算时（界面照旧「受手动设置限制」）自动 Gain 仍在推响，偏差与保护照常施加：
+            // 保护层与上游监视已只核对自动部分，手动单独超预算的那一项不设约束（updateGuardLimits，T-032 R6-02 收尾 A11）；执行量本来就
+            // 只收回自动加上去的那一份（下面设计决定 4）。
+            if (toSlot().plan.automaticLevelWithdrawn)
                 return;
 
             const auto manualGain = manual.limit.gainDb;
@@ -2711,10 +2763,11 @@ namespace celadon::glaze
             }
 
             // ---- 保护层（GLAZE > 0 才工作；宿主旁通、Color / Limit 旁通期间冻结：输出是干路，统计不代表听到的）----
-            // 受手动设置限制时也清零、不工作（它若照常累计退让，等手动设置改回来那一刻会突然施加一大步）。电平类自动全部撤回时没有自动
-            // 加上去的增益可收回（设计决定 4）；只是某一项手动单独超预算时，保护层与上游监视按「手动 + 自动」的总量与风格上限核对，
-            // 会把手动造成的超出当成自动的超限——白白退让自动 Gain、约束反馈每约 3.5 s 降 1 dB 把自动增益磨光（T-032 R6-02，107 实测）。
-            if (active && ! toSlot().plan.limitedByManual)
+            // 电平类自动全部撤回时清零、不工作：没有自动加上去的增益可收回（设计决定 4），它若照常累计退让，等手动设置改回来那一刻会
+            // 突然施加一大步。手动只让 Heat / Glue / Clip 某一项超预算时照常工作（规格「学习、过渡、校准期间保护层同样生效」）：
+            // updateGuardLimits 把那一项放开、只核对自动部分——修前按「手动 + 自动」的总量核对，会白白退让自动 Gain、约束反馈每约 3.5 s
+            // 降 1 dB 把自动增益磨光（T-032 R6-02，IMPL-A7 第 3 节 107 实测），所以当时这道门只好连同这些组合一起关着。
+            if (active && ! toSlot().plan.automaticLevelWithdrawn)
             {
                 updateGuardLimits();
 

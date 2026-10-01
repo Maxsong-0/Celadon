@@ -114,10 +114,12 @@ namespace celadon::glaze
 
     void GlazeGuard::clearWindows() noexcept
     {
-        partGlueSum = partLimitSum = partClipSum = 0.0;
-        partLimitPeak = partClipDepth = 0.0f;
-        partSamples = 0;
+        discardPartialSlot();
+        clearStatistics();
+    }
 
+    void GlazeGuard::clearStatistics() noexcept
+    {
         writeIndex = 0;
         historyCount = statsCount = 0;
         overSlotsInHistory = 0;

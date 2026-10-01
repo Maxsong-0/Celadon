@@ -16,8 +16,9 @@
       - 画像无效 / 置信度低 → 按置信度收紧正向增益与处理量；
       - 手动设置已超约束 → 撤回**该模块**的自动增量并标 limitedByManual（界面提示），不反向改手动值；其中手动已让限幅器超约束、
         Limit 旁通、约束反馈上限低于手动链净增益这三种「电平类自动全部撤回」另标 automaticLevelWithdrawn（T-032 R6-02）：手动
-        Heat / Glue / Clip 单独超预算时自动 Gain 照常推响，编排器的画像失配照常判定（看 automaticLevelWithdrawn）；保护层、校准与
-        约束反馈仍看 limitedByManual，原因见 GlazeTypes.h Plan::automaticLevelWithdrawn；
+        Heat / Glue / Clip 单独超预算时自动 Gain 照常推响，编排器的画像失配、保护层、校准与约束反馈照常工作（都只看
+        automaticLevelWithdrawn）；手动单独已超预算的那几项记在 manualBudgetMask（T-032 A11，位的含义见 GlazeTypes.h），保护层与
+        上游监视不核对它们、只核对自动部分。手动没超预算（手动链单独的用量都不超风格上限）时 manualBudgetMask = 0；
       - 算法 8 起（T-032，按快照的 algorithmVersion 分流，旧快照逐位不变）：自动 Heat 只承担换算表里该电平真能削掉的峰均比份额、
         削不到 Constants::heatUsefulCrestDb 就只留风格底量 StyleConstants::automaticHeatFloor × 强度（出厂残差 Heat 表下恒为底量，
         与音乐无关的「顶到风格上限」不再出现）；满强度增益不超过 Limit Gain 量程（24 − 手动 Gain）能交付的净增益，超出即受约束。
@@ -96,4 +97,24 @@ namespace celadon::glaze
     // 最没把握的那个。规格要求「正向增益与校准额度一起按比例收紧」——编排器给校准器的修正范围用
     // calibrationMaxDb × GLAZE / 100 × confidenceScale(...)，与方案同一个 κ。profile 为空 = 未学习（κ = 底强度）。纯函数、不分配。
     float confidenceScale (const MusicProfile* profile, const Constants&) noexcept;
+
+    // ---- T-032 R6-02 收尾（A11）----
+
+    // 手动链单独的用量：只有手动值、没有任何自动增量时，按决策器同一前向模型（同一份环境：风格权重、按置信度收拢的特征、手动的非电平
+    // 设置）估的各约束量，口径与 ModuleStats / 保护层 / 上游监视一致；overBudgetMask = 手动单独已超出风格预算的项（manualBudget* 位，
+    // 判定见 GlazeTypes.h 与 GlazePlanner.cpp manualBudgetMaskFor）。保护层与上游监视每项的有效上限 = max(风格上限, 手动单独用量)：
+    // 置位的项自动部分恒为 0，编排器按「不设约束」核对；其余项手动单独用量不超风格上限，有效上限就是风格上限（逐位）。
+    struct ManualChainUsage
+    {
+        float heatAmount = 0.0f;                        // 手动 Heat（0 ～ 100；上游监视把它与风格驱动上限换算到同一驱动量域比）
+        float glueGrMeanDb = 0.0f, glueGrP95Db = 0.0f;  // Glue 均值 / p95 GR
+        float clipDepthDb = 0.0f, clipActivity = 0.0f;  // Clip 深度 / 活动占比
+        float limitGrPeakDb = 0.0f, limitGrMeanDb = 0.0f, limitGrP95Db = 0.0f;
+        std::uint8_t overBudgetMask = 0;
+    };
+
+    // GLAZE 与 maxGainDb 不参与。makePlan 在 GLAZE > 0 时用同一份计算填 Plan::manualBudgetMask（置信度拉满的封顶方案按位取或，见
+    // GlazePlanner.cpp limitPlanTo），所以置信度满（或没有可拉满的置信度）时两者相等。纯函数、不分配；编排器不在音频线程逐块调它——
+    // 掩码随方案重算（evaluate）一起算好存在方案里。
+    ManualChainUsage estimateManualChainUsage (const PlanInputs&) noexcept;
 }
