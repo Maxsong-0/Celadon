@@ -1,9 +1,8 @@
 import { useRef } from 'react';
-import { Link } from 'react-router-dom';
 import Magnet from '@/components/react-bits/Magnet';
-import { ArrowUpRight, Em, LinkArrow, SectionHead } from './Eyebrow';
+import { Em, LinkArrow, SectionHead } from './Eyebrow';
+import DownloadLink, { DownloadButtonFace } from './DownloadLink';
 import { useReveal } from '@/lib/reveal';
-import { PLUGIN_VERSION } from '@/lib/site';
 
 const platforms = [
   {
@@ -68,12 +67,7 @@ export default function Platforms() {
 
         <div data-reveal className="mt-14 flex flex-wrap items-center justify-center gap-x-8 gap-y-5">
           <Magnet padding={40} magnetStrength={14}>
-            <Link to="/download" className="group btn-island-primary no-underline">
-              下载 {PLUGIN_VERSION}
-              <span className="btn-island-icon bg-white/15">
-                <ArrowUpRight />
-              </span>
-            </Link>
+            <DownloadLink className="group btn-island-primary no-underline">{pkg => <DownloadButtonFace pkg={pkg} />}</DownloadLink>
           </Magnet>
           <LinkArrow to="/docs/install">安装与兼容说明</LinkArrow>
           <LinkArrow to="/changelog">更新日志</LinkArrow>
