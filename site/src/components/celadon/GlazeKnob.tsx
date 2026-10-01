@@ -57,6 +57,11 @@ function arcPath(cx: number, cy: number, r: number, a0: number, a1: number) {
 
 const CX = 200;
 const CY = 200;
+/** 读数的字号与等宽数字格：Fraunces 没有 tnum，每个数字各占一格（0.56 em，与 .tnum-cell 同）、在格里居中；「%」接在最后一格后面。 */
+const READOUT_PX = 44;
+const READOUT_CELL = READOUT_PX * 0.56;
+const PERCENT_GAP = 4;
+const PERCENT_W = 20 * 0.63; // 20 px 的「%」字宽，只用来让整串居中
 const R_TRACK = 176;
 const R_DISC = 150;
 const R_DIMPLE = 44;
@@ -77,6 +82,9 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
   const v01 = clamp(value / 100, 0, 1);
   const angle = START + SWEEP * v01;
   const autoEnd = clamp(angle + (SWEEP * autoIncrement) / 100, START, START + SWEEP);
+  // 读数一格一个数字：数值变化时整串不左右晃（首屏旋钮一直在慢慢「呼吸」，拖动时也一样）
+  const digits = [...String(Math.round(value))];
+  const readoutX0 = CX - (digits.length * READOUT_CELL + PERCENT_GAP + PERCENT_W) / 2;
 
   const set = useCallback((v: number) => onChange?.(clamp(Math.round(v * 10) / 10, 0, 100)), [onChange]);
 
@@ -250,9 +258,13 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
       </g>
 
       {/* 读数 */}
-      <text x={CX} y={CY + R_DISC + 60} textAnchor="middle" className="font-display" style={{ fontSize: 44, fontWeight: 500, fill: '#0D1B21', letterSpacing: '-0.02em', fontVariationSettings: '"opsz" 144, "SOFT" 30' }}>
-        {Math.round(value)}
-        <tspan style={{ fontSize: 20, fill: '#586C74' }} dx="4">
+      <text y={CY + R_DISC + 60} textAnchor="middle" className="font-display" style={{ fontSize: READOUT_PX, fontWeight: 500, fill: '#0D1B21', letterSpacing: '-0.02em', fontVariationSettings: '"opsz" 144, "SOFT" 30' }}>
+        {digits.map((d, k) => (
+          <tspan key={k} x={readoutX0 + READOUT_CELL * (k + 0.5)}>
+            {d}
+          </tspan>
+        ))}
+        <tspan x={readoutX0 + digits.length * READOUT_CELL + PERCENT_GAP} textAnchor="start" style={{ fontSize: 20, fill: '#586C74' }}>
           %
         </tspan>
       </text>

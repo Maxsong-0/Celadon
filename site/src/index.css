@@ -182,6 +182,13 @@
     @apply font-display font-medium tracking-[-0.02em];
     font-variation-settings: "opsz" 144, "SOFT" 30, "WONK" 1;
   }
+  /* 等宽数字格（Tnum）：Fraunces 没有 tnum，会变的读数每个数字放进同宽的一格。
+     0.56 em ≈ display 字形（opsz 144、500）里常用数字的最宽值（1 是 0.37、0 是 0.60），1 不显得太散，0 也不压邻格。 */
+  .tnum-cell {
+    display: inline-block;
+    width: 0.56em;
+    text-align: center;
+  }
 
   /* 青釉渐变文字 */
   .glaze-text {

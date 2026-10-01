@@ -1,5 +1,6 @@
 import { useId, useRef } from 'react';
 import { Chapter } from './Eyebrow';
+import Tnum from './Tnum';
 import { gsap, ScrollTrigger, useGSAP } from '@/lib/gsap';
 import { useReveal } from '@/lib/reveal';
 import { cn, prefersReducedMotion } from '@/lib/utils';
@@ -65,17 +66,27 @@ export default function Stats() {
       if (!list.current || prefersReducedMotion()) return;
       const counters = gsap.utils.toArray<HTMLElement>('[data-count]', list.current).map(el => {
         const i = Number(el.dataset.count);
-        return { el, format: formats[i], to: stats[i].value, final: finals[i], v: 0, shown: '' };
+        return { el, cells: [...el.children] as HTMLElement[], format: formats[i], to: stats[i].value, final: finals[i], v: 0, shown: '' };
       });
       if (!counters.length) return;
       type Counter = (typeof counters)[number];
       const byEl = new Map(counters.map(c => [c.el, c] as const));
+      // 数字是一格一格的（Tnum，数字格同宽）：计数途中的数右对齐填进终值的那些格，位数还不够时左边的格占着位置不显示——
+      // 个位、小数点、千分位与单位都不挪，整串不晃。
+      const fill = (c: Counter, text: string) => {
+        const padded = text.padStart(c.cells.length, ' ');
+        c.cells.forEach((cell, k) => {
+          const blank = padded[k] === ' ';
+          setText(cell, blank ? c.final[k] : padded[k]);
+          cell.style.visibility = blank ? 'hidden' : '';
+        });
+      };
       const paint = (group: Counter[]) => {
         for (const c of group) {
           const text = c.format.format(c.v);
           if (text !== c.shown) {
             c.shown = text;
-            setText(c.el, text);
+            fill(c, text);
           }
         }
       };
@@ -95,7 +106,7 @@ export default function Stats() {
       );
       // 撤掉时写回终值（StrictMode 重挂、热更新时不留半截数字）。
       return () => {
-        for (const c of counters) setText(c.el, c.final);
+        for (const c of counters) fill(c, c.final);
       };
     },
     { scope: root }
@@ -125,7 +136,9 @@ export default function Stats() {
                     aria-hidden="true"
                     className="display block whitespace-nowrap text-[length:clamp(1.75rem,3.6vw,3rem)] leading-none text-ink tabular-nums supports-[width:1cqi]:text-[length:clamp(1.75rem,28cqi,3.4rem)]"
                   >
-                    <span data-count={i}>{finals[i]}</span>
+                    <span data-count={i}>
+                      <Tnum text={finals[i]} />
+                    </span>
                     {s.unit ? <span className="ml-[0.3em] text-[0.45em] text-ink-3">{s.unit}</span> : null}
                   </span>
                 </p>

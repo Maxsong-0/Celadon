@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import GlazeKnob from './GlazeKnob';
+import Tnum from './Tnum';
 import ParticleField from './ParticleField';
 import { Em, LinkArrow, SectionHead } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
@@ -153,7 +154,7 @@ export default function GlazeSection() {
               <div className="sm:pr-8">
                 <div className="text-[12px] tracking-[0.18em] text-ink-4">目标响度（示意）</div>
                 <div className="mt-3 display text-[40px] leading-none text-ink tabular-nums">
-                  {targetLufs.toFixed(1)}
+                  <Tnum text={targetLufs.toFixed(1)} />
                   <span className="text-[16px] text-ink-3 ml-1">LUFS</span>
                 </div>
                 <p className="mt-3 text-[13px] leading-relaxed text-ink-3">由风格与 GLAZE 共同决定，再经各模块的上限收窄；到了动态保护的边界就不再加压，状态显示「受限」。</p>
