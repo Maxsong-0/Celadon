@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""生成分享卡片 site/public/og.png（1200 × 630）。
+"""生成分享卡片 site/public/og.png（中文，1200 × 630）与 og-en.png（英文，--lang en）。
 
 不在 Mac 上跑（全局纪律）：用 site/scripts/make-og.sh，它把站点同步到 107、在 venv 里跑本脚本、再把 og.png 拉回。
 依赖：numpy、Pillow（带 raqm）、scipy、fontTools + brotli（把站点自带的 woff2 字体解成 TTF）。
 
 画面：纸色底；左边大字「Celadon」「青瓷」与一句「一挂总轨，就好听。」；右边一枚豆青瓷旋钮。
+英文版（ADR-024）：「青瓷」换成 Smart mastering plugin（Inter），那句换成首屏英文大标题的两行（Fraunces），旋钮不变。
 旋钮照设计规格-官网第 5 节：中心是同釉的浅凹窝加一圈细刻线（没有深色旋钮帽），指针是釉面边缘刻出的短槽，
 带两层开片、左上棚灯反光与细高光弧、下沿一圈透光的浅色，投影带釉色。
 全部在 2× 画布上逐像素算（高度场 → 法线 → 光照），最后缩到 1× 抗锯齿。开片、云斑用固定种子，每次生成一样。
@@ -280,7 +281,11 @@ def draw_tracked(draw: ImageDraw.ImageDraw, x: float, y: float, text: str, font,
     return x
 
 
-def render(out: Path, S: int, value: float, seed: int) -> None:
+# 左栏文字的右边界（1×）：旋钮刻度点最左约在 KX − TICK_R ≈ 693，再留出投影
+TEXT_RIGHT = 650
+
+
+def render(out: Path, S: int, value: float, seed: int, lang: str) -> None:
     if not features.check('raqm'):
         raise SystemExit('Pillow 没带 raqm（字距与连字要它）；换官方 wheel')
     canvas = np.empty((H * S, W * S, 3))
@@ -294,21 +299,34 @@ def render(out: Path, S: int, value: float, seed: int) -> None:
         tmp = Path(td)
         fraunces = woff2_to_ttf(Path(os.environ.get('OG_FRAUNCES', nm / 'fraunces' / 'files' / 'fraunces-latin-full-normal.woff2')), tmp)
         mono = woff2_to_ttf(Path(os.environ.get('OG_MONO', nm / 'jetbrains-mono' / 'files' / 'jetbrains-mono-latin-wght-normal.woff2')), tmp)
-        cjk_file, cjk_index = cjk_serif()
 
         # 与站点 .display 同一组轴：opsz 144、SOFT 30、WONK 1
         title = variable_font(fraunces, 120 * S, {'opsz': 144, 'wght': 430, 'SOFT': 30, 'WONK': 1})
-        name_cn = ImageFont.truetype(cjk_file, 50 * S, index=cjk_index, layout_engine=ImageFont.Layout.RAQM)
-        slogan = ImageFont.truetype(cjk_file, 36 * S, index=cjk_index, layout_engine=ImageFont.Layout.RAQM)
         url = variable_font(mono, 15 * S, {'wght': 420})
 
         x = 92 * S
         draw.text((x - 4 * S, 256 * S), 'Celadon', font=title, fill=INK, anchor='ls')
-        draw_tracked(draw, x, 330 * S, '青瓷', name_cn, INK3, 0.22 * 50 * S)
         # 一小段釉青细线，接住下面那句话
         draw.rectangle([x, 382 * S, x + 40 * S, 382 * S + max(1, S) - 1], fill=C600)
-        after = draw_tracked(draw, x, 452 * S, '一挂总轨，', slogan, INK2, 0.04 * 36 * S)
-        draw_tracked(draw, after, 452 * S, '就好听。', slogan, C700, 0.04 * 36 * S)
+        if lang == 'zh':
+            cjk_file, cjk_index = cjk_serif()
+            name_cn = ImageFont.truetype(cjk_file, 50 * S, index=cjk_index, layout_engine=ImageFont.Layout.RAQM)
+            slogan = ImageFont.truetype(cjk_file, 36 * S, index=cjk_index, layout_engine=ImageFont.Layout.RAQM)
+            draw_tracked(draw, x, 330 * S, '青瓷', name_cn, INK3, 0.22 * 50 * S)
+            after = draw_tracked(draw, x, 452 * S, '一挂总轨，', slogan, INK2, 0.04 * 36 * S)
+            draw_tracked(draw, after, 452 * S, '就好听。', slogan, C700, 0.04 * 36 * S)
+        else:
+            # 拉丁字整行画（保留字偶距调整）；与首屏英文大标题同一句（home.json hero）
+            inter = woff2_to_ttf(Path(os.environ.get('OG_INTER', nm / 'inter' / 'files' / 'inter-latin-wght-normal.woff2')), tmp)
+            kind = variable_font(inter, 28 * S, {'wght': 450})
+            slogan = variable_font(fraunces, 38 * S, {'opsz': 48, 'wght': 400, 'SOFT': 30, 'WONK': 0})
+            lines = [('One insert on the master bus.', INK2, 432), ('It just sounds right.', C700, 482)]
+            widest = max(slogan.getlength(t) for t, _, _ in lines) / S
+            if 92 + widest > TEXT_RIGHT:
+                raise SystemExit(f'英文那句排到 {92 + widest:.0f} px，压到旋钮（右边界 {TEXT_RIGHT}）')
+            draw.text((x, 330 * S), 'Smart mastering plugin', font=kind, fill=INK3, anchor='ls')
+            for text, fill, y in lines:
+                draw.text((x, y * S), text, font=slogan, fill=fill, anchor='ls')
         draw_tracked(draw, x, 548 * S, 'celadon.maxsong.me', url, INK4, 0.06 * 15 * S)
 
     img = img.resize((W, H), Image.LANCZOS)
@@ -319,12 +337,14 @@ def render(out: Path, S: int, value: float, seed: int) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--out', type=Path, default=SITE / 'public' / 'og.png')
+    ap.add_argument('--lang', choices=['zh', 'en'], default='zh', help='zh → og.png；en → og-en.png（ADR-024）')
+    ap.add_argument('--out', type=Path, default=None, help='默认 public/og.png 或 public/og-en.png')
     ap.add_argument('--scale', type=int, default=2, help='超采样倍数（默认 2）')
     ap.add_argument('--value', type=float, default=0.56, help='旋钮指到的 GLAZE（0 ～ 1），也决定开片深浅')
     ap.add_argument('--seed', type=int, default=11, help='开片与云斑的随机种子')
     args = ap.parse_args()
-    render(args.out, args.scale, args.value, args.seed)
+    out = args.out or SITE / 'public' / ('og.png' if args.lang == 'zh' else 'og-en.png')
+    render(out, args.scale, args.value, args.seed, args.lang)
 
 
 if __name__ == '__main__':

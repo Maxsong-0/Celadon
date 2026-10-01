@@ -1,4 +1,6 @@
 import { useId, useRef, useState, type CSSProperties } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
+import { useLocale } from '@/i18n/locale';
 import { Em, SectionHead } from './Eyebrow';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { useReveal } from '@/lib/reveal';
@@ -7,18 +9,21 @@ import { cn, prefersReducedMotion } from '@/lib/utils';
 const BASE = import.meta.env.BASE_URL;
 const src = (name: string, w: number) => `${BASE}showcase/${name}-${w}.webp`;
 
-// 热点位置：插件界面图上的百分比坐标（图为 1200 × 820 逻辑像素的 2 倍渲染）。
+// 热点位置：插件界面图上的百分比坐标（图为 1200 × 820 逻辑像素的 2 倍渲染）。标题与说明在 home 命名空间 showcase.spots（同一顺序）。
 const spots = [
-  { x: 60, y: 20, title: '表与频谱', body: '输入 / 输出电平、LUFS、真峰值与 1/3 倍频程频谱；手动与自动的改动画在同一张图上。' },
-  { x: 56.5, y: 43, title: 'GLAZE', body: '一个旋钮。先听 15 ～ 30 秒定方案，再朝这首歌的理想母带推；开片越密，推得越远。' },
-  { x: 61.2, y: 65.7, title: 'A / B 与等响', body: '处理后 / 原声一键切换；开等响后按实测响度差衰减较响的一边，只比音色，不比音量。' },
-  { x: 16, y: 70.5, title: '四张卡片', body: '平衡 → 修坯 → 染色 → 限幅，按处理顺序排开；紫色数字是 GLAZE 此刻的自动加量。' }
+  { x: 60, y: 20 },
+  { x: 56.5, y: 43 },
+  { x: 61.2, y: 65.7 },
+  { x: 16, y: 70.5 }
 ] as const;
 
 /** 叁 · 真界面：插件真实渲染的截图（非效果图）+ 四处注释 + GLAZE 0 ↔ 90 对比滑条。 */
 export default function Showcase() {
   const root = useRef<HTMLElement>(null);
-  const [lang, setLang] = useState<'zh' | 'en'>('zh');
+  const { t } = useTranslation('home');
+  const texts = t('showcase.spots', { returnObjects: true });
+  // 截图默认跟网站语言走（英文页先看英文界面），可以再切
+  const [lang, setLang] = useState<'zh' | 'en'>(useLocale());
   const [active, setActive] = useState<number | null>(null);
   useReveal(root);
 
@@ -26,13 +31,9 @@ export default function Showcase() {
     <section id="interface" ref={root} className="section relative">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
         <SectionHead
-          chapter={{ n: '叁', label: '真界面', en: 'The instrument' }}
-          title={
-            <>
-              一整面，<Em>一眼看完</Em>。
-            </>
-          }
-          lead="表、频谱、GLAZE、四张卡片按处理顺序排开；中英双语，界面 70 % ～ 200 % 缩放。下面是插件的真实渲染，不是效果图。"
+          chapter={{ n: '叁', label: t('chapters.showcase.label'), en: t('chapters.showcase.en') }}
+          title={<Trans t={t} i18nKey="showcase.title" components={{ em: <Em /> }} />}
+          lead={t('showcase.lead')}
         />
 
         <figure data-reveal className="mt-16">
@@ -47,15 +48,15 @@ export default function Showcase() {
                   height={1640}
                   loading="lazy"
                   decoding="async"
-                  alt={lang === 'zh' ? 'Celadon 插件界面（中文）：顶部电平表与频谱，中间 GLAZE 旋钮，底部平衡、修坯、染色、限幅四张卡片' : 'Celadon plugin interface in English'}
+                  alt={lang === 'zh' ? t('showcase.altZh') : t('showcase.altEn')}
                   className="block h-auto w-full rounded-[1.1rem]"
                 />
                 {/* 热点：桌面端悬停 / 聚焦显示说明；手机端改看下方的编号列表 */}
                 {spots.map((s, i) => (
-                  <div key={s.title} className="absolute hidden md:block" style={{ left: `${s.x}%`, top: `${s.y}%` }}>
+                  <div key={i} className="absolute hidden md:block" style={{ left: `${s.x}%`, top: `${s.y}%` }}>
                     <button
                       type="button"
-                      aria-label={`${i + 1}. ${s.title}`}
+                      aria-label={`${i + 1}. ${texts[i].title}`}
                       aria-expanded={active === i}
                       onMouseEnter={() => setActive(i)}
                       onMouseLeave={() => setActive(v => (v === i ? null : v))}
@@ -74,8 +75,8 @@ export default function Showcase() {
                         active === i ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'
                       )}
                     >
-                      <div className="font-serif text-[16px] font-semibold text-ink">{s.title}</div>
-                      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{s.body}</p>
+                      <div className="font-serif text-[16px] font-semibold text-ink">{texts[i].title}</div>
+                      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">{texts[i].body}</p>
                     </div>
                   </div>
                 ))}
@@ -83,12 +84,13 @@ export default function Showcase() {
             </div>
           </div>
           <figcaption className="mt-5 flex flex-wrap items-center justify-between gap-4 text-[13px] text-ink-4">
-            <span>插件真实渲染 · 1200 × 820 画布的 2 倍图 · GLAZE 45 %</span>
-            <div role="group" aria-label="界面语言" className="inline-flex rounded-full bg-ink/5 p-1 ring-1 ring-ink/8">
+            <span>{t('showcase.caption')}</span>
+            <div role="group" aria-label={t('showcase.langGroup')} className="inline-flex rounded-full bg-ink/5 p-1 ring-1 ring-ink/8">
               {(['zh', 'en'] as const).map(l => (
                 <button
                   key={l}
                   type="button"
+                  lang={l === 'zh' ? 'zh-CN' : 'en'}
                   aria-pressed={lang === l}
                   onClick={() => setLang(l)}
                   className={cn('rounded-full px-3.5 py-1 text-[12px] transition-colors duration-300', lang === l ? 'bg-panel text-ink shadow-sm' : 'text-ink-3 hover:text-ink')}
@@ -101,8 +103,8 @@ export default function Showcase() {
         </figure>
 
         <ol className="mt-12 grid gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-          {spots.map((s, i) => (
-            <li key={s.title} data-reveal className="border-t border-line pt-5">
+          {texts.map((s, i) => (
+            <li key={i} data-reveal className="border-t border-line pt-5">
               <div className="flex items-baseline gap-3">
                 <span className="font-mono text-[12px] text-c700">{String(i + 1).padStart(2, '0')}</span>
                 <h3 className="font-serif text-[18px] font-semibold text-ink">{s.title}</h3>
@@ -121,6 +123,7 @@ export default function Showcase() {
 /** GLAZE 0 % ↔ 90 % 对比：同一首歌、同一处，拖动分割线看开片、釉色与粒子怎么随 GLAZE 变。 */
 function GlazeCompare() {
   const root = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation('home');
   const [pos, setPos] = useState(50);
   const id = useId();
 
@@ -159,15 +162,15 @@ function GlazeCompare() {
           <h3 className="font-serif text-[26px] font-semibold text-ink">
             GLAZE <span className="font-display tabular-nums">0 %</span> ↔ <span className="font-display tabular-nums">90 %</span>
           </h3>
-          <p className="mt-2 measure text-[15px] leading-[1.85] text-ink-2">同一首歌、同一处。0 % 时釉面光洁、一切照你的手动设置；推到 90 %，开片变密、釉色变深、声音的粒子更多——插件界面就是这样把「推了多远」画出来的。</p>
+          <p className="mt-2 measure text-[15px] leading-[1.85] text-ink-2">{t('showcase.compareBody')}</p>
         </div>
         <label htmlFor={id} className="text-[13px] text-ink-4">
-          拖动分割线（或用 ← →）
+          {t('showcase.dragHint')}
         </label>
       </div>
       <div className="relative mt-8 overflow-hidden rounded-[1.25rem] ring-1 ring-ink/8 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-c500">
-        {img('glaze0', 'GLAZE 0 %：釉面光洁，没有开片')}
-        {img('glaze90', 'GLAZE 90 %：开片密、釉色深、粒子多', 'absolute inset-0', { clipPath: `inset(0 0 0 ${pos}%)` })}
+        {img('glaze0', t('showcase.alt0'))}
+        {img('glaze90', t('showcase.alt90'), 'absolute inset-0', { clipPath: `inset(0 0 0 ${pos}%)` })}
         {/* 分割线与把手（纯装饰；真正的控件是下面盖满整块的 range）。把手放在下沿，别压住旋钮中间的读数 */}
         <div className="pointer-events-none absolute inset-y-0 w-px bg-ink/50" style={{ left: `${pos}%` }} aria-hidden="true">
           <span className="absolute top-[86%] left-1/2 grid size-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-paper ring-1 ring-ink/15 shadow-[0_8px_20px_-10px_rgba(13,40,48,0.5)]">
@@ -185,8 +188,8 @@ function GlazeCompare() {
           max={100}
           value={pos}
           onChange={e => setPos(Number(e.target.value))}
-          aria-label="GLAZE 0 % 与 90 % 的分割位置"
-          aria-valuetext={`露出 90 % 的部分占 ${100 - pos} %`}
+          aria-label={t('showcase.rangeLabel')}
+          aria-valuetext={t('showcase.rangeValue', { pct: 100 - pos })}
           className="absolute inset-0 h-full w-full cursor-ew-resize opacity-0"
         />
       </div>

@@ -1,4 +1,5 @@
 import { useId, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Chapter } from './Eyebrow';
 import Tnum from './Tnum';
 import { gsap, ScrollTrigger, useGSAP } from '@/lib/gsap';
@@ -7,22 +8,12 @@ import { cn, prefersReducedMotion } from '@/lib/utils';
 
 interface Stat {
   value: number;
-  unit: string;
-  label: string;
-  note: string;
   /** 千分位分隔（只给大整数） */
   grouped?: boolean;
 }
 
-// 数字与注释都来自验证记录；改之前先查记录。
-const stats: Stat[] = [
-  { value: 27, unit: '段', label: '动态频谱平衡', note: '1/3 倍频程，40 Hz ～ 16 kHz' },
-  { value: 8, unit: '×', label: '真峰值插值', note: '8 相 × 64 抽头，限的峰 = 量的峰' },
-  { value: 1.3, unit: '%', label: '音频线程预算', note: '48 kHz · M2 Pro · Release · 界面关' },
-  { value: 134597, unit: '', label: '自动测试断言', note: 'Linux GCC 与 MSVC + Wine 全套 · 0 失败', grouped: true },
-  { value: 0.35, unit: 'dB', label: '真峰值重建余量', note: '16× 参考检测最坏仍低于 Ceiling' },
-  { value: 28.8, unit: 'ms', label: '总延迟', note: '48 kHz · Lookahead 2 ms · 宿主自动补偿' }
-];
+// 数字与注释都来自验证记录；改之前先查记录。单位、标签、注释在 home 命名空间 numbers.stats（同一顺序）。
+const stats: Stat[] = [{ value: 27 }, { value: 8 }, { value: 1.3 }, { value: 134597, grouped: true }, { value: 0.35 }, { value: 28.8 }];
 
 // 小数位照目标值本身（1.3 → 1 位、0.35 → 2 位），计数途中也一直是这么多位。格式器只建一次，不在每帧里建。
 const formats = stats.map(s => {
@@ -58,6 +49,8 @@ function setText(el: HTMLElement, text: string) {
 export default function Stats() {
   const root = useRef<HTMLElement>(null);
   const list = useRef<HTMLUListElement>(null);
+  const { t } = useTranslation('home');
+  const texts = t('numbers.stats', { returnObjects: true });
   const titleId = useId();
   useReveal(root);
 
@@ -116,22 +109,22 @@ export default function Stats() {
     <section ref={root} aria-labelledby={titleId} className="section">
       <div className="mx-auto max-w-[1280px] px-5 sm:px-8">
         <h2 id={titleId} className="sr-only">
-          数字
+          {t('chapters.numbers.label')}
         </h2>
         <div data-reveal>
-          <Chapter n="柒" label="数字" en="In numbers" />
+          <Chapter n="柒" label={t('chapters.numbers.label')} en={t('chapters.numbers.en')} />
         </div>
         <p data-reveal className="mt-8 measure text-[15px] leading-[1.85] text-ink-2">
-          全部来自验证记录。百分比 = 单个音频线程「处理耗时 / 这一块音频的播放时长」，不是整机 CPU；测试数是 0.1.8.7 发布前在 Linux 与 Windows 上的全套结果。
+          {t('numbers.intro')}
         </p>
         <ul ref={list} role="list" className="mt-16 grid grid-cols-2 border-y border-line md:grid-cols-3 lg:grid-cols-6">
-          {stats.map((s, i) => (
-            <li key={s.label} className={cellClasses[i]}>
+          {stats.map((_, i) => (
+            <li key={i} className={cellClasses[i]}>
               {/* 入场动效只动格里的字，竖线与横线不跟着飘。 */}
               <div data-reveal>
                 {/* 这一行是尺寸容器：数字字号按格宽（cqi）取，计数途中最宽的一串（如 100,000）也放得下；不认 cqi 的浏览器退回按视口宽取的保守字号。 */}
                 <p className="@container">
-                  <span className="sr-only">{s.unit ? `${finals[i]} ${s.unit}` : finals[i]}</span>
+                  <span className="sr-only">{texts[i].unit ? `${finals[i]} ${texts[i].unit}` : finals[i]}</span>
                   <span
                     aria-hidden="true"
                     className="display block whitespace-nowrap text-[length:clamp(1.75rem,3.6vw,3rem)] leading-none text-ink tabular-nums supports-[width:1cqi]:text-[length:clamp(1.75rem,28cqi,3.4rem)]"
@@ -139,11 +132,11 @@ export default function Stats() {
                     <span data-count={i}>
                       <Tnum text={finals[i]} />
                     </span>
-                    {s.unit ? <span className="ml-[0.3em] text-[0.45em] text-ink-3">{s.unit}</span> : null}
+                    {texts[i].unit ? <span className="ml-[0.3em] text-[0.45em] text-ink-3">{texts[i].unit}</span> : null}
                   </span>
                 </p>
-                <p className="mt-5 text-[14px] font-medium leading-snug text-ink-2">{s.label}</p>
-                <p className="mt-1.5 text-[12px] leading-[1.7] text-ink-4">{s.note}</p>
+                <p className="mt-5 text-[14px] font-medium leading-snug text-ink-2">{texts[i].label}</p>
+                <p className="mt-1.5 text-[12px] leading-[1.7] text-ink-4">{texts[i].note}</p>
               </div>
             </li>
           ))}

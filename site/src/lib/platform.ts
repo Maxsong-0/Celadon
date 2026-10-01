@@ -99,20 +99,4 @@ export function gpuFromWebGL(renderer: string, hasAstc: boolean): GpuHint | unde
   return undefined;
 }
 
-/** 卡片 / 按钮上的平台名。 */
-export const PACKAGE_LABEL: Record<PackageId, string> = {
-  'mac-arm64': 'Mac 版 · Apple 芯片',
-  'mac-x64': 'Mac 版 · Intel',
-  'win-x64': 'Windows 版'
-};
-
-/** 不支持时的一句话原因（下载页顶部的提示）。 */
-export const UNSUPPORTED_TEXT: Record<UnsupportedReason, string> = {
-  phone: '这台是手机。Celadon 是电脑上的音频插件，要装在 Mac 或 Windows 电脑上。',
-  tablet: '这台是平板。Celadon 是电脑上的音频插件，要装在 Mac 或 Windows 电脑上。',
-  linux: '这台是 Linux。Celadon 现在只有 Mac 和 Windows 版。',
-  chromeos: '这台是 ChromeOS。Celadon 现在只有 Mac 和 Windows 版。',
-  'old-windows': '这台是 Windows 7 / 8。Celadon 要 Windows 10 或 11（64 位）。',
-  'windows-32': '这台是 32 位 Windows。Celadon 只有 64 位版。',
-  'old-macos': '这台 Mac 的系统低于 macOS 12。Celadon 要 macOS 12（Monterey）及以上。'
-};
+// 平台名与「不支持」的原因是界面文字：在 i18n 的 common（pkg.*）与 download（unsupported.*）命名空间里，本文件只返回枚举。

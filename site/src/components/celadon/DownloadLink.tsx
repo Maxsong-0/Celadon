@@ -1,7 +1,8 @@
 import type { MouseEvent, ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { RELEASE, downloadHref, type ReleasePackage } from '@/content/release';
-import { PACKAGE_LABEL } from '@/lib/platform';
+import { LocaleLink, useLocalePath } from '@/i18n/locale';
 import { PLUGIN_VERSION } from '@/lib/site';
 import { usePlatform } from '@/lib/usePlatform';
 import { cn } from '@/lib/utils';
@@ -21,21 +22,22 @@ export function useDirectPackage(): ReleasePackage | null {
 export default function DownloadLink({ className, children }: { className?: string; children: (pkg: ReleasePackage | null) => ReactNode }) {
   const pkg = useDirectPackage();
   const navigate = useNavigate();
+  const localize = useLocalePath();
   if (!pkg) {
     return (
-      <Link to="/download" className={className}>
+      <LocaleLink to="/download" className={className}>
         {children(null)}
-      </Link>
+      </LocaleLink>
     );
   }
   return (
-    <a href={downloadHref(pkg.file)} download className={className} onClick={e => afterDownloadClick(e, () => navigate(startedPath(pkg)))}>
+    <a href={downloadHref(pkg.file)} download className={className} onClick={e => afterDownloadClick(e, () => navigate(localize(startedPath(pkg))))}>
       {children(pkg)}
     </a>
   );
 }
 
-/** 下载页里「下载已开始」那一屏的地址。 */
+/** 下载页里「下载已开始」那一屏的地址（不带语言前缀，调用处按当前语言补）。 */
 export function startedPath(pkg: ReleasePackage): string {
   return `/download?started=${pkg.id}#first-launch`;
 }
@@ -46,12 +48,13 @@ export function afterDownloadClick(e: MouseEvent<HTMLAnchorElement>, then: () =>
   then();
 }
 
-/** 首页两个大按钮（btn-island-primary）的字与图标：认得出时「下载 Mac 版 · Apple 芯片」+ 下载图标，认不出「下载 0.1.8.6」+ 斜箭头。 */
+/** 首页两个大按钮（btn-island-primary）的字与图标：认得出时「Download for Mac · Apple silicon」+ 下载图标，认不出「Download <当前版本>」+ 斜箭头。 */
 export function DownloadButtonFace({ pkg }: { pkg: ReleasePackage | null }) {
+  const { t } = useTranslation();
   if (!pkg) {
     return (
       <>
-        下载 {PLUGIN_VERSION}
+        {t('downloadButton.version', { version: PLUGIN_VERSION })}
         <span className="btn-island-icon bg-white/15">
           <ArrowUpRight />
         </span>
@@ -60,8 +63,8 @@ export function DownloadButtonFace({ pkg }: { pkg: ReleasePackage | null }) {
   }
   return (
     <>
-      下载 {PACKAGE_LABEL[pkg.id]}
-      <span className="sr-only">（{PLUGIN_VERSION}）</span>
+      {t('downloadButton.direct', { platform: t(`pkg.${pkg.id}`) })}
+      <span className="sr-only">{t('downloadButton.srVersion', { version: PLUGIN_VERSION })}</span>
       {/* 下载图标悬停时往下沉，不走斜箭头的斜移 */}
       <span className="btn-island-icon bg-white/15 group-hover:translate-x-0 group-hover:translate-y-0.5">
         <DownloadGlyph />

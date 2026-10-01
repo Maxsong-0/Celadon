@@ -40,10 +40,9 @@ if [ -f pnpm-lock.yaml ]; then
 else
   pnpm install --prefer-offline 2>&1 | tail -n 5
 fi
-echo "--- typecheck ---"
-pnpm exec tsc --noEmit
+# 构建步骤只在 package.json 的 build 里定义一处：check-i18n → tsc → vite build → 站点地图 → 中文首屏 HTML（ADR-024）
 echo "--- build（插件版本 ${CELADON_VERSION}）---"
-pnpm exec vite build 2>&1 | tail -n 40
+pnpm run build 2>&1 | grep -vE '^dist/assets/' | tail -n 40
 echo "--- dist ---"
 du -sh dist; find dist -type f | wc -l
 REMOTE_SCRIPT

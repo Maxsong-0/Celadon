@@ -11,15 +11,22 @@ import {
   type RefObject
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { LocaleLink, useLocale, useLocalePath } from '@/i18n/locale';
+import { stripLocale, type Locale } from '@/i18n/paths';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 import { allPages, loadMarkdown, mdSections, type SitePage } from '@/content';
+import { usePageText, type PageText } from '@/content/usePageText';
+
+/** 带上当前语言标题与摘要的一页。 */
+type LocalPage = SitePage & PageText;
 
 /** 索引里的一条：一页的导语（id = null，结果链到页首），或一页里的一个 h2 小节（链到 #锚点）。 */
 interface Entry {
   key: string;
-  page: SitePage;
+  page: LocalPage;
   id: string | null;
   section: string | null;
   text: string;
@@ -29,7 +36,7 @@ interface Entry {
   order: number;
 }
 
-function makeEntry(page: SitePage, order: number, id: string | null, section: string | null, text: string): Entry {
+function makeEntry(page: LocalPage, order: number, id: string | null, section: string | null, text: string): Entry {
   return {
     key: id === null ? page.path : `${page.path}#${id}`,
     page,
@@ -41,19 +48,10 @@ function makeEntry(page: SitePage, order: number, id: string | null, section: st
   };
 }
 
-/** 正文到之前就能搜的部分：每页的标题与摘要（content/index.ts 同步可得）。 */
-const pageEntries: Entry[] = allPages.map((p, i) => makeEntry(p, i * 100, null, null, ''));
 const DOCS_COUNT = allPages.filter(p => p.kind === 'docs').length;
 const ALGO_COUNT = allPages.length - DOCS_COUNT;
 
-/** 不输入时列出全部页面，按分区分两组；index 是在整张列表里的位置（键盘 ↑↓ 用）。 */
-const browseGroups = (['docs', 'algorithms'] as const).map(kind => ({
-  kind,
-  label: kind === 'docs' ? '使用说明' : '公开算法',
-  rows: pageEntries.flatMap((entry, index) => (entry.page.kind === kind ? [{ entry, index }] : []))
-}));
-
-function entriesOf(page: SitePage, i: number, md: string): Entry[] {
+function entriesOf(page: LocalPage, i: number, md: string): Entry[] {
   const sections = mdSections(md);
   const intro = sections[0]?.id === null ? sections[0].text : '';
   const out = [makeEntry(page, i * 100, null, null, intro)];
@@ -63,23 +61,25 @@ function entriesOf(page: SitePage, i: number, md: string): Entry[] {
   return out;
 }
 
-// 正文只在第一次打开时拉（每页一个小包，全部并行），之后重开直接用；有页没拉到就把缓存作废，下次打开再试。
-let corpus: Promise<{ entries: Entry[]; complete: boolean }> | null = null;
-function loadCorpus() {
+// 正文只在第一次打开时拉（每页一个小包，全部并行），之后重开直接用；两种语言各存一份（只搜当前语言的页面）。
+// 有页没拉到就把这种语言的缓存作废，下次打开再试。
+const corpora = new Map<Locale, Promise<{ entries: Entry[]; complete: boolean }>>();
+function loadCorpus(locale: Locale, pages: LocalPage[], pageEntries: Entry[]) {
+  let corpus = corpora.get(locale);
   if (!corpus) {
-    const pending = Promise.all(
-      allPages.map((page, i) =>
-        loadMarkdown(page.kind, page.file).then(
+    corpus = Promise.all(
+      pages.map((page, i) =>
+        loadMarkdown(page.kind, page.file, locale).then(
           md => ({ list: entriesOf(page, i, md), ok: true }),
           () => ({ list: [pageEntries[i]], ok: false })
         )
       )
     ).then(parts => {
       const complete = parts.every(p => p.ok);
-      if (!complete) corpus = null;
+      if (!complete) corpora.delete(locale);
       return { entries: parts.flatMap(p => p.list), complete };
     });
-    corpus = pending;
+    corpora.set(locale, corpus);
   }
   return corpus;
 }
@@ -192,8 +192,6 @@ function safeDecode(s: string) {
   }
 }
 
-const SUGGESTIONS = ['等响', '真峰值', '重新聆听', '延迟', '单声道'];
-
 export interface SearchDialogProps {
   open: boolean;
   onClose: () => void;
@@ -218,7 +216,26 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
   const listId = `${uid}-list`;
   const optionId = (i: number) => `${uid}-opt-${i}`;
   const navigate = useNavigate();
+  const localize = useLocalePath();
   const location = useLocation();
+  const { t } = useTranslation('docs');
+  const locale = useLocale();
+  const text = usePageText();
+
+  /** 正文到之前就能搜的部分：每页的标题与摘要（当前语言）。 */
+  const pages = useMemo<LocalPage[]>(() => allPages.map(p => ({ ...p, ...text(p.kind, p.file) })), [text]);
+  const pageEntries = useMemo(() => pages.map((p, i) => makeEntry(p, i * 100, null, null, '')), [pages]);
+  /** 不输入时列出全部页面，按分区分两组；index 是在整张列表里的位置（键盘 ↑↓ 用）。 */
+  const browseGroups = useMemo(
+    () =>
+      (['docs', 'algorithms'] as const).map(kind => ({
+        kind,
+        label: t(`sections.${kind}`),
+        rows: pageEntries.flatMap((entry, index) => (entry.page.kind === kind ? [{ entry, index }] : []))
+      })),
+    [pageEntries, t]
+  );
+  const suggestions = t('search.suggestions', { returnObjects: true });
 
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -228,12 +245,18 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
   /** 正在拉正文 */
   const [pending, setPending] = useState(false);
 
+  // 换了语言：先回到这种语言的标题与摘要，正文下次打开时再拉（已拉过的语言直接用缓存）。
+  useEffect(() => {
+    setEntries(pageEntries);
+    setLoaded(false);
+  }, [pageEntries]);
+
   // 第一次打开时拉全部正文；没拉全（断网等）下次打开再补。
   useEffect(() => {
     if (!open || loaded) return;
     let alive = true;
     setPending(true);
-    loadCorpus().then(({ entries: next, complete }) => {
+    loadCorpus(locale, pages, pageEntries).then(({ entries: next, complete }) => {
       if (!alive) return;
       setEntries(next);
       setLoaded(complete);
@@ -242,7 +265,7 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
     return () => {
       alive = false;
     };
-  }, [open, loaded]);
+  }, [open, loaded, locale, pages, pageEntries]);
 
   const terms = useMemo(() => tokenize(query), [query]);
   const hits = useMemo(() => (terms.length ? rank(entries, terms) : null), [entries, terms]);
@@ -327,11 +350,11 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
       if (anchor) window.open(anchor.href, '_blank', 'noopener');
       return;
     }
-    const here = location.pathname.replace(/\/+$/, '') || '/';
+    const here = stripLocale(location.pathname).replace(/\/+$/, '') || '/';
     const sameSpot = here === entry.page.path && safeDecode(location.hash.slice(1)) === (entry.id ?? '');
     onClose();
     if (!sameSpot) {
-      navigate(hrefOf(entry));
+      navigate(localize(hrefOf(entry)));
       return;
     }
     // 就在这一处：路由不会变，自己滚过去（等弹层解锁滚动之后）。
@@ -396,7 +419,7 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
     }
   };
 
-  const status = pending ? '正在载入正文……' : hits ? `${hits.length} 条结果` : `说明 ${DOCS_COUNT} 页 · 算法 ${ALGO_COUNT} 页`;
+  const status = pending ? t('search.loading') : hits ? t('search.results', { count: hits.length }) : t('search.counts', { docs: DOCS_COUNT, algos: ALGO_COUNT });
 
   const row = (entry: Entry, i: number, browse: boolean) => (
     <ResultRow
@@ -420,7 +443,7 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
         ref={panel}
         role="dialog"
         aria-modal="true"
-        aria-label="搜索说明与算法"
+        aria-label={t('search.label')}
         tabIndex={-1}
         className="relative mx-3 mt-3 flex max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden rounded-[1.25rem] bg-panel shadow-glaze ring-1 ring-ink/8 outline-none sm:mx-auto sm:mt-[12vh] sm:max-h-[min(38rem,76vh)] sm:w-[min(40rem,calc(100vw-4rem))]"
       >
@@ -434,8 +457,8 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
             aria-controls={listId}
             aria-autocomplete="list"
             aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
-            aria-label="搜索说明与算法"
-            placeholder="搜索说明与算法……"
+            aria-label={t('search.label')}
+            placeholder={t('search.placeholder')}
             autoComplete="off"
             autoCapitalize="off"
             spellCheck={false}
@@ -447,7 +470,7 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
           {query ? (
             <button
               type="button"
-              aria-label="清空"
+              aria-label={t('search.clear')}
               onClick={() => {
                 onQuery('');
                 input.current?.focus();
@@ -461,12 +484,12 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
           ) : null}
           <button
             type="button"
-            aria-label="关闭搜索"
+            aria-label={t('search.close')}
             onClick={onClose}
             className="shrink-0 rounded-md px-2 py-1 text-[12px] text-ink-3 ring-1 ring-ink/10 transition-colors duration-300 hover:bg-ink/5 hover:text-ink"
           >
             <span className="hidden sm:inline">esc</span>
-            <span className="sm:hidden">取消</span>
+            <span className="sm:hidden">{t('search.cancel')}</span>
           </button>
         </div>
 
@@ -474,10 +497,10 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
           <div className="px-6 py-12 text-center">
             {!pending ? (
               <>
-                <p className="font-serif text-[18px] text-ink">没找到「{query.trim()}」</p>
-                <p className="mt-2 text-[13px] text-ink-3">换个说法，或者试试这几个：</p>
+                <p className="font-serif text-[18px] text-ink">{t('search.noResults', { query: query.trim() })}</p>
+                <p className="mt-2 text-[13px] text-ink-3">{t('search.tryThese')}</p>
                 <div className="mt-5 flex flex-wrap justify-center gap-2">
-                  {SUGGESTIONS.map(s => (
+                  {suggestions.map(s => (
                     <button
                       key={s}
                       type="button"
@@ -493,11 +516,11 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
                 </div>
               </>
             ) : (
-              <p className="text-[13px] text-ink-3">正在载入正文……</p>
+              <p className="text-[13px] text-ink-3">{t('search.loading')}</p>
             )}
           </div>
         ) : (
-          <div ref={list} id={listId} role="listbox" aria-label={hits ? '搜索结果' : '全部页面'} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+          <div ref={list} id={listId} role="listbox" aria-label={hits ? t('search.resultsLabel') : t('search.allPages')} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
             {hits
               ? hits.map((entry, i) => row(entry, i, false))
               : browseGroups.map(g => (
@@ -516,22 +539,22 @@ export default function SearchDialog({ open, onClose, returnFocus }: SearchDialo
             <span className="flex items-center gap-1.5">
               <Kbd>↑</Kbd>
               <Kbd>↓</Kbd>
-              选择
+              {t('search.select')}
             </span>
             <span className="flex items-center gap-1.5">
               <Kbd>↵</Kbd>
-              打开
+              {t('search.open')}
             </span>
             <span className="flex items-center gap-1.5">
               <Kbd>esc</Kbd>
-              关闭
+              {t('search.closeKey')}
             </span>
           </div>
           <span className="tabular-nums">{status}</span>
         </div>
       </div>
       <p className="sr-only" aria-live="polite">
-        {hits ? `${hits.length} 条结果` : ''}
+        {hits ? t('search.results', { count: hits.length }) : ''}
       </p>
     </div>,
     document.body
@@ -559,9 +582,10 @@ function ResultRow({
   onHover: () => void;
   onClick: (e: ReactMouseEvent<HTMLAnchorElement>) => void;
 }) {
+  const { t } = useTranslation('docs');
   return (
     <div id={id} role="option" aria-selected={selected} onMouseMove={onHover} className={cn('rounded-xl transition-colors duration-200 ease-glaze', selected && 'bg-c100/40')}>
-      <Link to={hrefOf(entry)} tabIndex={-1} onClick={onClick} className="flex items-start gap-4 px-3 py-2.5 no-underline">
+      <LocaleLink to={hrefOf(entry)} tabIndex={-1} onClick={onClick} className="flex items-start gap-4 px-3 py-2.5 no-underline">
         <span className="min-w-0 flex-1">
           <span className={cn('block font-serif text-[15px] leading-snug', selected ? 'text-c800' : 'text-ink')}>
             {title}
@@ -574,8 +598,8 @@ function ResultRow({
           </span>
           <span className={cn('mt-1 text-[13px] leading-[1.65] text-ink-3', browse ? 'block truncate' : 'line-clamp-2')}>{sub}</span>
         </span>
-        <span className="shrink-0 pt-0.5 text-[11px] tracking-[0.18em] text-ink-4">{entry.page.kind === 'docs' ? '说明' : '算法'}</span>
-      </Link>
+        <span className="shrink-0 pt-0.5 text-[11px] tracking-[0.18em] text-ink-4">{t(`sectionsShort.${entry.page.kind}`)}</span>
+      </LocaleLink>
     </div>
   );
 }

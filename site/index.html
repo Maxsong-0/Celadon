@@ -1,42 +1,57 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#F3F1EA" />
-    <title>Celadon · 青瓷 · 一挂总轨就好听的智能母带</title>
-    <meta name="description" content="Celadon（青瓷）是一款自用母带插件：BALANCE 动态频谱平衡 → CLAY 修坯 → COLOR 染色 → LIMIT 真峰值限幅，一个 GLAZE 旋钮按这首歌决定推多远。VST3 / AU，macOS（Apple Silicon / Intel）与 Windows x64。" />
+    <title>Celadon · Smart mastering plugin</title>
+    <meta name="description" content="Celadon is a mastering plugin that runs four stages in a fixed order — BALANCE dynamic EQ, CLAY stereo clean-up, COLOR tone and glue, LIMIT true-peak limiting — while one GLAZE knob listens to the song and decides how far to push it. VST3 / AU on macOS (Apple silicon / Intel), VST3 on Windows x64." />
     <!--
-      规范地址：同一份 index.html 服务所有路由，写死一条会把 /docs/*、/algorithms/* 全指回首页（等于告诉搜索引擎它们是重复页）。
-      所以在这里按当前路径注入唯一的一条；站内跳转时由导航（Nav.tsx）跟着改 href。
+      规范地址与语言版本：同一份 index.html 服务所有路由，写死会把 /docs/*、/algorithms/* 全指回首页（等于告诉搜索引擎它们是重复页）。
+      所以在这里按当前路径注入：canonical 一条 + hreflang 三条（en / zh-CN / x-default，ADR-024：英文在 /，中文在 /zh/）；
+      站内跳转时由导航（Nav.tsx 的 useHeadSync）跟着改。
     -->
     <script>
       (function () {
-        var link = document.createElement('link');
-        link.rel = 'canonical';
-        link.href = 'https://celadon.maxsong.me' + (location.pathname.replace(/\/+$/, '') || '/');
-        document.head.appendChild(link);
+        var origin = 'https://celadon.maxsong.me';
+        var path = location.pathname.replace(/\/+$/, '') || '/';
+        var page = path.replace(/^\/zh(?=\/|$)/, '') || '/';
+        function add(rel, href, lang) {
+          var link = document.createElement('link');
+          link.rel = rel;
+          link.href = origin + href;
+          if (lang) link.hreflang = lang;
+          document.head.appendChild(link);
+        }
+        add('canonical', path);
+        add('alternate', page, 'x-default');
+        add('alternate', page, 'en');
+        add('alternate', page === '/' ? '/zh' : '/zh' + page, 'zh-CN');
       })();
     </script>
 
-    <!-- 分享卡片（微信 / Telegram / X / Slack 等抓取时读这些；抓取器不跑脚本，所以写死站点首页） -->
+    <!--
+      分享卡片（微信 / Telegram / X / Slack 等抓取时读这些；抓取器不跑脚本，所以写死站点首页）。
+      文字与 src/i18n/share.json 的 en 一致（check-i18n 核对）；中文页的那份由 scripts/gen-zh-html.mjs 构建时生成 dist/index.zh.html。
+    -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Celadon 青瓷" />
-    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:site_name" content="Celadon" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_CN" />
     <meta property="og:url" content="https://celadon.maxsong.me/" />
-    <meta property="og:title" content="Celadon 青瓷 · 一挂总轨，就好听。" />
-    <meta property="og:description" content="自用母带插件：BALANCE → CLAY → COLOR → LIMIT 四道工序按固定顺序走，一个 GLAZE 旋钮先听这首歌，再决定推多远。VST3 / AU，macOS 与 Windows。" />
-    <meta property="og:image" content="https://celadon.maxsong.me/og.png" />
+    <meta property="og:title" content="Celadon · Smart mastering plugin" />
+    <meta property="og:description" content="A personal mastering plugin: BALANCE → CLAY → COLOR → LIMIT in a fixed order, with one GLAZE knob that listens to the song before deciding how far to push. VST3 / AU on macOS, VST3 on Windows." />
+    <meta property="og:image" content="https://celadon.maxsong.me/og-en.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Celadon 青瓷：纸色底上一枚带开片的豆青瓷旋钮，旁边写着「一挂总轨，就好听。」" />
+    <meta property="og:image:alt" content="Celadon: a crackle-glazed celadon knob on a paper-coloured ground, next to the line “One insert on the master bus. It just sounds right.”" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Celadon 青瓷 · 一挂总轨，就好听。" />
-    <meta name="twitter:description" content="自用母带插件：四道工序按固定顺序走，一个 GLAZE 旋钮先听这首歌，再决定推多远。" />
-    <meta name="twitter:image" content="https://celadon.maxsong.me/og.png" />
-    <meta name="twitter:image:alt" content="Celadon 青瓷：纸色底上一枚带开片的豆青瓷旋钮，旁边写着「一挂总轨，就好听。」" />
+    <meta name="twitter:title" content="Celadon · Smart mastering plugin" />
+    <meta name="twitter:description" content="Four stages in a fixed order, and one GLAZE knob that listens to the song before deciding how far to push." />
+    <meta name="twitter:image" content="https://celadon.maxsong.me/og-en.png" />
+    <meta name="twitter:image:alt" content="Celadon: a crackle-glazed celadon knob on a paper-coloured ground, next to the line “One insert on the master bus. It just sounds right.”" />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>

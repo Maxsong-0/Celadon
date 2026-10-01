@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { cn, prefersReducedMotion } from '@/lib/utils';
 
@@ -74,16 +75,20 @@ export default function Toc({ items, className }: { items: TocItem[]; className?
     { dependencies: [active, items], scope: list }
   );
 
+  const { t } = useTranslation('docs');
+  const labelEn = t('toc.labelEn');
   const toTop = () => window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
 
   return (
-    <nav aria-label="本页目录" className={className}>
+    <nav aria-label={t('toc.label')} className={className}>
       <div className="sticky top-28 max-h-[calc(100dvh-8.5rem)] overflow-y-auto overscroll-contain pb-8 [scrollbar-width:thin]">
-        <p className="mb-4 flex items-baseline gap-2 text-[11px] tracking-[0.22em] text-ink-4">
-          本页目录
-          <span className="display text-[12px] italic tracking-normal" style={{ fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
-            On this page
-          </span>
+        <p className="mb-4 flex items-baseline gap-2 text-[11px] tracking-[0.22em] text-ink-4 [&:lang(en)]:uppercase [&:lang(en)]:tracking-[0.14em]">
+          {t('toc.label')}
+          {labelEn ? (
+            <span className="display text-[12px] italic tracking-normal" style={{ fontVariationSettings: '"opsz" 14, "SOFT" 50' }}>
+              {labelEn}
+            </span>
+          ) : null}
         </p>
         <div ref={list} className="relative border-l border-line">
           <span ref={marker} aria-hidden="true" className="absolute -left-px top-0 h-0 w-px bg-c600 opacity-0" />
@@ -112,7 +117,7 @@ export default function Toc({ items, className }: { items: TocItem[]; className?
           <svg viewBox="0 0 16 16" className="size-3 transition-transform duration-500 ease-glaze group-hover:-translate-y-0.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" />
           </svg>
-          回到顶部
+          {t('toc.backToTop')}
         </button>
       </div>
     </nav>
