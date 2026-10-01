@@ -20,6 +20,8 @@ const BOOST_MAX = 8;
 /** 速度跟随的时间常数（秒）：加速与换向快、回落慢——起得快、收得慢（停手后约 1 s 回到常速）。 */
 const ATTACK = 0.15;
 const RELEASE = 0.4;
+/** 停手多久（秒）后回到平时的方向（向左）：只有正在往上滚时才倒着走，停下来不会一直倒着走。 */
+const SETTLE = 0.4;
 
 // 一份：英文模块名用 Fraunces 大字，中文小字，青釉圆点隔开（每份以圆点收尾，份与份之间的间距和份内一样）。
 const line = (
@@ -51,7 +53,8 @@ export default function Marquee() {
       const wrap = gsap.utils.wrap(0, 1);
       let pos = 0; // 当前走过的份数（0～1）
       let speed = 1; // 当前速度：每 CYCLE 秒走几份；正 = 向左
-      let dir = 1; // 最近一次滚动的方向：1 = 向下（跑马灯向左）、-1 = 向上
+      let dir = 1; // 当前方向：1 = 向左（平时与向下滚）、-1 = 向右（正在向上滚）
+      let idle = 0; // 距最近一次明显滚动过了几秒
       let lastY = 0;
       let running = false;
 
@@ -62,8 +65,15 @@ export default function Marquee() {
         const y = window.scrollY;
         const scrollV = (y - lastY) / dt;
         lastY = y;
-        if (scrollV > 20) dir = 1;
-        else if (scrollV < -20) dir = -1;
+        if (scrollV > 20) {
+          dir = 1;
+          idle = 0;
+        } else if (scrollV < -20) {
+          dir = -1;
+          idle = 0;
+        } else if ((idle += dt) > SETTLE) {
+          dir = 1;
+        }
         const target = dir * Math.min(1 + Math.abs(scrollV) / BOOST_PER, BOOST_MAX);
         const rising = Math.sign(target) !== Math.sign(speed) || Math.abs(target) > Math.abs(speed);
         speed += (target - speed) * (1 - Math.exp(-dt / (rising ? ATTACK : RELEASE)));
