@@ -2,7 +2,7 @@
 
 <JUCERPROJECT id="CBwc4r" name="Celadon" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="Max Song"
-              version="0.1.8.5"
+              version="0.1.8.6"
               bundleIdentifier="me.maxsong.celadon" pluginManufacturerCode="Maxs"
               pluginCode="Cldn" pluginVST3Category="Fx,Mastering">
   <MAINGROUP id="UBEL9r" name="Celadon">
