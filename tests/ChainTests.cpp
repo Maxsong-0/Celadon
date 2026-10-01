@@ -2682,9 +2682,9 @@ namespace celadon::test
 {
     namespace
     {
-        // Color / Limit 的非有限参数守卫在 A2 / A3 线（ColorModule::setParams / LimiterModule::setParams），合进来之前这两组字段只记日志；
-        // 主进程合并 A2 / A3 后改成 true，用例对它们同样判定（T-032 R8-02）。
-        constexpr bool colorLimitGuardsMerged = false;
+        // Color / Limit 的非有限参数守卫在 A2 / A3 线（ColorModule::setParams / LimiterModule::setParams）。A2 / A3 已与本线合在一起（T-032 集成），
+        // 用例对这两组字段同样判定（T-032 R8-02）；只在单独检出 A4 线、没有 A2 / A3 时才需要改回 false。
+        constexpr bool colorLimitGuardsMerged = true;
 
         // 在 ReleaseSafety 上按固定读数跑 seconds 秒（块长 127，两声道 1 kHz 0.4）。
         void renderWithReading (ReleaseSafety& module, float lufs, double seconds)
