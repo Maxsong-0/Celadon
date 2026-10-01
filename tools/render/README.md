@@ -233,8 +233,10 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 ## T-038：曲风、交付、模拟走带与逐段统计
 
 规格：设计规格-曲风与交付（第 7 节验收）、设计规格-曲风-House学习方式（第 2、6 节）；决策 ADR-026。**都不给新选项时与改动前逐位相同**：
-HostInfo、网格、文件名、metrics.md 头部与 metrics.csv 一字不差（2026-10-01 在 22 首门槛歌上与 main `88199cb` 逐字节比过，
-`docs/validation/2026-10-01-T038-impl/REPORT-D.md`）；只要给了任一新选项，metrics.csv 末尾就追加下面的列、metrics.md 头部多一行。
+HostInfo、网格、文件名、metrics.md 头部与 metrics.csv 一字不差。2026-10-01 在 109 上用 T-022 的 22 首门槛歌对照 main `88199cb`
+（`--glaze 0,35,70 --style auto`，修坯 auto / off、带同决策重放）：176 个成品 wav 逐字节相同、metrics.csv 22 / 22 逐字节相同、metrics.md
+去掉生成时间后 22 / 22 相同；另给 `--bpm 124`（通用 + 标准）跑一遍，176 行 `audio_hash` 与 main 不给拍点的也全部相同。
+只要给了任一新选项，metrics.csv 末尾就追加下面的列、metrics.md 头部多一行。
 
 ### 模拟宿主走带（`--bpm` / `--meter`）
 
