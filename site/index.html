@@ -31,7 +31,10 @@
       })();
     </script>
 
-    <!-- 分享卡片（微信 / Telegram / X / Slack 等抓取时读这些；抓取器不跑脚本，所以写死站点首页） -->
+    <!--
+      分享卡片（微信 / Telegram / X / Slack 等抓取时读这些；抓取器不跑脚本，所以写死站点首页）。
+      文字与 src/i18n/share.json 的 en 一致（check-i18n 核对）；中文页的那份由 scripts/gen-zh-html.mjs 构建时生成 dist/index.zh.html。
+    -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Celadon" />
     <meta property="og:locale" content="en_US" />
@@ -39,16 +42,16 @@
     <meta property="og:url" content="https://celadon.maxsong.me/" />
     <meta property="og:title" content="Celadon · Smart mastering plugin" />
     <meta property="og:description" content="A mastering plugin: BALANCE → CLAY → COLOR → LIMIT in a fixed order, with one GLAZE knob that listens to the song before deciding how far to push. VST3 / AU for macOS and Windows." />
-    <meta property="og:image" content="https://celadon.maxsong.me/og.png" />
+    <meta property="og:image" content="https://celadon.maxsong.me/og-en.png" />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Celadon 青瓷：纸色底上一枚带开片的豆青瓷旋钮，旁边写着「一挂总轨，就好听。」" />
+    <meta property="og:image:alt" content="Celadon: a crackle-glazed celadon knob on a paper-coloured ground, next to the line “One insert on the master bus. It just sounds right.”" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Celadon · Smart mastering plugin" />
     <meta name="twitter:description" content="Four stages in a fixed order, and one GLAZE knob that listens to the song before deciding how far to push." />
-    <meta name="twitter:image" content="https://celadon.maxsong.me/og.png" />
-    <meta name="twitter:image:alt" content="Celadon 青瓷：纸色底上一枚带开片的豆青瓷旋钮，旁边写着「一挂总轨，就好听。」" />
+    <meta name="twitter:image" content="https://celadon.maxsong.me/og-en.png" />
+    <meta name="twitter:image:alt" content="Celadon: a crackle-glazed celadon knob on a paper-coloured ground, next to the line “One insert on the master bus. It just sounds right.”" />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Celadon 站点的静态服务（只用 Python 标准库；服务器上没有 nginx、没有 sudo）。
 
-- SPA：只有「看起来像页面路由」的路径（最后一段没有扩展名，如 /docs/install）不存在时才回落到 index.html。
+- SPA：只有「看起来像页面路由」的路径（最后一段没有扩展名，如 /docs/install）不存在时才回落到 index.html；
+  /zh 与 /zh/… 回落到 index.zh.html（中文标题与分享卡片，构建时由 scripts/gen-zh-html.mjs 生成；ADR-024），没有这份时退回 index.html。
   带扩展名的文件缺了一律 404，/assets/ 下的更是如此——发版后旧标签页再请求已删掉的旧 JS，
   拿到的是 404，而不是一页 HTML（那样浏览器会报 MIME 类型错误）。
 - 下载：给了 --downloads DIR 时，/downloads/<文件名> 从 DIR 提供安装包：附件下载（Content-Disposition）、
@@ -46,6 +47,16 @@ DOWNLOAD_TYPES = {
 }
 # 没有扩展名的纯文本（校验和清单）
 TEXT_NAMES = {'SHA256SUMS'}
+
+
+ZH_ROUTE = re.compile(r'/zh(/|$)')
+
+
+def fallback_page(clean):
+    """页面路由回落到哪份 HTML：中文路由用 index.zh.html（存在时），其余 index.html。"""
+    if ZH_ROUTE.match(clean) and os.path.isfile(os.path.join(ROOT, 'index.zh.html')):
+        return '/index.zh.html'
+    return '/index.html'
 
 
 def looks_like_route(clean):
@@ -132,12 +143,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(404, 'Not Found')
                 return None
             if not os.path.exists(os.path.join(path, 'index.html')):
-                self.path = '/index.html'
+                self.path = fallback_page(clean)
         elif not os.path.isfile(path):
             if not looks_like_route(clean):
                 self.send_error(404, 'Not Found')
                 return None
-            self.path = '/index.html'
+            self.path = fallback_page(clean)
         else:
             self.path = clean
         return super().send_head()
