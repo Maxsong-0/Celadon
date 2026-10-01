@@ -75,7 +75,7 @@ public:
     void showAdvanced (bool shouldShow);
     void setZoom (double zoom);
 
-    // 截图工具用：立刻刷新一帧读数，并把粒子动画往前推 seconds 秒（离屏时没有垂直同步）。
+    // 截图工具用：频谱仪往前推 seconds 秒、立刻刷新一帧读数，并把粒子动画往前推 seconds 秒（离屏时没有垂直同步）。
     void advanceForSnapshot (double seconds);
 
     // 截图工具的基准用：上一次生成静态背景花的毫秒数（打开编辑器、缩放停下时在消息线程同步生成）。
@@ -94,6 +94,8 @@ private:
     void applyReduceMotion();
     void updateDismissLayer();
     void restartOutputSpectrum();
+    void spectrumFrame (double timestampSeconds);
+    void advanceSpectrum (double elapsedSeconds, double nowMs);
     void applyStoredZoom();
     double readStoredZoom() const;
     double fitZoomToScreen (double zoom) const;
@@ -113,6 +115,14 @@ private:
 
     celadon::ui::SpectrumAnalyser analyser;
     std::vector<float> pullBuffer;
+
+    // 频谱仪按屏幕刷新推（T-036）：垂直同步回调挂在频谱仪组件上（60 / 120 帧）；垂直同步停了 / 没有（窗口被挡住、离屏）时
+    // 30 Hz 定时器接着推。析构时先于画布释放（它要求组件在它的整个生命周期里有效）。
+    juce::VBlankAttachment spectrumVBlank;
+    double lastSpectrumAdvanceMs = 0.0;            // 最近一次推频谱的时刻（墙钟，毫秒）
+    double lastVBlankMs = -1.0e9;                  // 最近一次垂直同步回调的时刻（墙钟，毫秒）
+    double lastVBlankSeconds = 0.0;                // ……它带来的帧时间戳（秒）
+    bool lastAdvanceWasVBlank = false;             // 上一次推频谱的是垂直同步（下一帧的时长按两次时间戳之差算）
 
     std::unique_ptr<juce::MouseListener> cornerListener;   // 右下角缩放把手的按下 / 松开（显示大小提示）
 

@@ -4,8 +4,8 @@
     SpectrumView.h
     上半部分正中的频谱仪面板（V4 设计稿 1032 × 238）与右上角的响度小窗。
 
-      - 20 Hz ～ 20 kHz 对数横轴，−84 ～ −3 dB 纵轴；OUT 是插件最终输出（听原声时就是原声），填充用单色青的横向渐变、
-        62 % 不透明、白色细竖纹、往下渐隐；白线 = 平均；深青细线 = 峰值保持；虚线 = IN（链入口）。三者都可开关；
+      - 20 Hz ～ 20 kHz 对数横轴，−84 ～ −3 dB 纵轴；OUT 是插件最终输出（听原声时就是原声），填充按响度上色（T-036，见下）、
+        白色细竖纹、往下渐隐；白线 = 平均；深青细线 = 峰值保持；虚线 = IN（链入口）。三者都可开关；
       - 显示斜率 0 / 3 / 4.5 dB/oct（绕 1 kHz 转，默认 4.5：音乐的频谱大致按这个斜率往下走，转平后各段高低一眼可比）；
       - CLAY 的低切与收单频率画成竖虚线与标签，低切以下打斜线（修坯此刻实际在处理时才画）；
       - 悬停读数：「−18.80dB | 882.32Hz | A5 + 4 音分」；鼠标不在面板上时读的是此刻最响的那个峰。
@@ -24,6 +24,17 @@
       - 每点的横坐标、频率与斜率在构造 / 换斜率时算好；几条曲线的路径（OUT 只建一次，填充用它的拷贝闭合）在数据或斜率变了才重建；
       - 悬停只重画新旧光标列与读数框（读数文字变了才重画），paint 按裁剪区跳过不相交的整块
         （macOS 只拿脏区的包围盒，省得少；Linux 的软件渲染器与 Windows 的 Direct2D 按矩形列表裁剪，省得多）。
+
+    T-036（2026-10-01，Max「更顺滑、响应更快，可以模仿 MiniMeters」）：
+      - 编辑器按屏幕刷新推（垂直同步，60 / 120 帧），setSpectrum 带上距上一帧的秒数；悬停读数「此刻最响的峰」按秒换（约 0.27 s 一次）；
+      - OUT 填充按响度上色（像 MiniMeters）：每一列的颜色由它 ±2 像素里曲线顶的高度定——安静 = 灰青、半透明，越响越亮越饱和，
+        最响是亮薄荷青；白色竖纹与往下渐隐照旧。颜色与竖纹合成一行图（prepareOutputRow），纵向平铺一次填进 OUT：原来横向渐变 +
+        竖纹瓦片两遍填充，现在一遍。图例 OUT 色块同一条色带；
+      - 曲线变了只重画「新旧曲线的包围盒 ∪ 悬停光标 ∪ 读数框（文字变了时）」，安静段落脏区小；图例开关、斜率、响度小窗
+        setBufferedToImage——频谱一秒重画 60 / 120 次时它们从缓存贴，不再每帧重排文字；dB 刻度的白底框并进刻度那张缓存图，
+        读数框的影子 / 白底 / 描边 / 文字并成一张（文字变了才重画）。半透明元素先画进透明图再贴，个别边缘像素与直接画差 1；
+      - 曲线每个逻辑像素一个点（SpectrumAnalyser::numPoints = 1033）；平均线本身已沿频率平滑，路径隔一个点取一个；
+        峰值线每两个点取较高的那个（尖峰不丢、线段少一半）。
 
   ==============================================================================
 */
@@ -93,9 +104,10 @@ namespace celadon::ui
 
         void setLanguage (Language newLanguage);
 
-        // 每帧调（计算器 update() 之后）：从计算器拷出几条曲线，有看得出的变化才重画。顺带把 IN 虚线开没开告诉计算器——
-        // 关着时它跳过 IN 那路的加窗 + FFT（T-032 R7-05）；刚打开时计算器下一次 update 才有 IN 的曲线，这之前不画 IN。
-        void setSpectrum (SpectrumAnalyser& analyser);
+        // 每帧调（计算器 update() 之后），elapsedSeconds = 距上一帧的秒数：从计算器拷出几条曲线，有看得出的变化才重画
+        // （只重画新旧曲线的包围盒）。顺带把 IN 虚线开没开告诉计算器——关着时它跳过 IN 那路的加窗 + FFT（T-032 R7-05）；
+        // 刚打开时计算器下一次 update 才有 IN 的曲线，这之前不画 IN。
+        void setSpectrum (SpectrumAnalyser& analyser, double elapsedSeconds);
 
         // CLAY 此刻的实际频率（0 = 没在处理）；active = 修坯没被旁通。
         void setClayMarkers (float lowCutHz, float monoHz, bool active);
@@ -168,10 +180,8 @@ namespace celadon::ui
         {
             back,               // 面板渐变 + 网格 + 修坯低切以下的斜线（不透明的 RGB 图，贴时按面板圆角裁剪）
             frequencyText,      // 100Hz / 1kHz / 10kHz
-            dbText,             // dB 刻度的字（白色底框每次直接画，见 paint）
-            readoutShadow,      // 读数框的影子
-            readoutBox,         // 读数框的白底
-            readoutBorder,      // 读数框的描边
+            dbLabels,           // dB 刻度：白色底框 + 字（T-036 起底框也进缓存）
+            readout,            // 读数框：影子 + 白底 + 描边 + 文字（文字变了才重画，T-036）
             count
         };
 
@@ -185,8 +195,13 @@ namespace celadon::ui
         juce::Rectangle<int> cursorBounds() const;
         juce::Rectangle<float> readoutBox() const noexcept;
 
-        void buildLine (const std::vector<float>& values, juce::Path& path) const;
+        void buildLine (const std::vector<float>& values, juce::Path& path, int step = 1) const;
+        void buildEnvelope (const std::vector<float>& values, juce::Path& path) const;
         void buildCurvePaths();
+        void buildColumnLevels();
+        void prepareOutputRow (float pixelScale);
+        juce::Rectangle<float> curveRegion() const;
+        void repaintCurves();
         CachedLayer& layer (Layer which) noexcept                     { return layers[(size_t) which]; }
         void invalidate (Layer which) noexcept                        { layer (which).valid = false; }
         juce::Rectangle<int> layerArea (Layer which) const;
@@ -200,9 +215,9 @@ namespace celadon::ui
         std::array<float, SpectrumAnalyser::numPoints> pointX {}, pointFrequency {}, tilt {};   // 每点的横坐标、频率、斜率（dB）
         std::optional<float> hoverFrequency;
         float peakFrequency = 1000.0f, peakDb = SpectrumAnalyser::floorDb;
-        int framesSincePeakReadout = 1000;
+        double secondsSincePeakReadout = 1.0e9;
         bool inputReady = false;         // 计算器此刻有 IN 的曲线（IN 开着、且打开以来算过至少一帧）
-        juce::String shownReadout;       // 上次画出来的读数文字：悬停时文字变了才重画读数框
+        juce::String shownReadout;       // 读数框缓存图里的文字：与此刻的读数不同就重画那张图
 
         float clayLowCutHz = 0.0f, clayMonoHz = 0.0f;
         bool clayActive = false;
@@ -212,7 +227,12 @@ namespace celadon::ui
 
         juce::Path panel;                                            // 圆角面板（裁剪与描边）
         juce::Path outputLine, outputFill, averageLine, peakLine;   // 加了斜率的曲线；outputFill = outputLine 闭合到底边
-        juce::Path inputDashes;                                      // IN 的虚线（已展开成填充路径）
+        juce::Path inputLine, inputDashes;                           // IN 的折线与虚线（虚线已展开成填充路径，画的时候才展开）
+        std::array<float, SpectrumAnalyser::numPoints> columnLevel {};   // 每个逻辑像素 OUT 填充的颜色位置（0 = 底边、1 = 顶边）
+        juce::Image outputRow;                                       // OUT 填充的一行：按响度上色 + 白色竖纹（曲线变了才重建）
+        float outputRowScale = 0.0f;
+        bool outputRowValid = false;
+        juce::Rectangle<float> curveArea;                            // 上一次重画时曲线占的区域（下一帧与新区域合起来标脏）
         bool curvePathsValid = false, inputDashesValid = false;
 
         std::array<CachedLayer, (size_t) Layer::count> layers;
