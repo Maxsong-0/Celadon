@@ -35,6 +35,42 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    id: 'v0.1.8.7',
+    version: '0.1.8.7',
+    date: '2026-10-01',
+    title: { zh: '频谱仪更顺、更跟手', en: 'A smoother, more responsive spectrum analyser' },
+    items: [
+      {
+        kind: 'ui',
+        text: {
+          zh: '频谱跟着屏幕刷新走：60 Hz 屏每秒 60 帧、120 Hz 屏 120 帧（原来固定 30 帧），曲线动起来顺得多。',
+          en: "The spectrum now follows your screen's refresh rate: 60 frames a second on a 60 Hz display, 120 on a 120 Hz one (previously a fixed 30), so the curve moves far more smoothly."
+        }
+      },
+      {
+        kind: 'ui',
+        text: {
+          zh: '更跟手：起音几乎一帧到位，回落更利落；宿主缓冲设得大时，曲线也不再「先掉一下再跳回来」。',
+          en: 'More responsive: attacks land in about one frame and the fall-off is crisper; with a large host buffer, the curve no longer dips and then jumps back.'
+        }
+      },
+      {
+        kind: 'ui',
+        text: {
+          zh: '低频曲线变圆滑：夹在两个频点之间的峰画成圆包，顶的高度更接近真实电平；高频的读数口径与之前相同。',
+          en: 'A smoother low-frequency curve: a peak that falls between two frequency bins is drawn as a rounded hump whose top sits closer to the true level; high-frequency readings work the same as before.'
+        }
+      },
+      {
+        kind: 'ui',
+        text: {
+          zh: '输出填充按响度上色：越响的地方颜色越亮，一眼看出哪一段最满。',
+          en: "The output fill is coloured by loudness: the louder a region, the brighter it gets, so you can see at a glance where it's fullest."
+        }
+      }
+    ]
+  },
+  {
     id: 'v0.1.8.6',
     version: '0.1.8.6',
     date: '2026-10-01',

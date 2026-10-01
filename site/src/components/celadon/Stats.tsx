@@ -13,7 +13,7 @@ interface Stat {
 }
 
 // 数字与注释都来自验证记录；改之前先查记录。单位、标签、注释在 home 命名空间 numbers.stats（同一顺序）。
-const stats: Stat[] = [{ value: 27 }, { value: 8 }, { value: 1.3 }, { value: 134523, grouped: true }, { value: 0.35 }, { value: 28.8 }];
+const stats: Stat[] = [{ value: 27 }, { value: 8 }, { value: 1.3 }, { value: 134597, grouped: true }, { value: 0.35 }, { value: 28.8 }];
 
 // 小数位照目标值本身（1.3 → 1 位、0.35 → 2 位），计数途中也一直是这么多位。格式器只建一次，不在每帧里建。
 const formats = stats.map(s => {

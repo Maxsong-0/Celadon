@@ -22,10 +22,10 @@ The meters read the master **before** any listening attenuation: Match and norma
 ## Spectrum analyser
 
 - 20 Hz – 20 kHz on a log axis, −84 to −3 dB.
-- OUT fill (the original, while you're listening to it); white line = average; thin dark celadon line = peak hold; dashed line = IN; each can be turned on or off.
+- OUT fill (the original, while you're listening to it), coloured by loudness: the louder a region, the brighter it gets (grey-cyan → bright mint); white line = average; thin dark cyan line = peak hold; dashed line = IN; each can be turned on or off.
 - Display slope 0 / 3 / 4.5 dB/oct, pivoting at 1 kHz, 4.5 by default — pink noise is flat at 3 dB/oct, and most masters look most comfortable at around 4.5.
 - While CLAY is working, it draws the low-cut and mono frequencies; hovering shows “dB | Hz | note + cents”.
-- It taps the signal at the end of the chain; the display refreshes at 30 Hz.
+- It taps the signal at the end of the chain. The spectrum follows your screen's refresh rate (60 frames a second on a 60 Hz display, 120 on a 120 Hz one, at most 120); attacks land in about one frame and the fall-off takes about 0.1 s, with an 8192-point window (low-frequency resolution unchanged). The readout — at the mouse, or the loudest peak when the mouse is off the panel — updates about every 0.27 s. The meters and loudness readings still refresh at 30 Hz.
 
 ## Correction curve (BALANCE card)
 

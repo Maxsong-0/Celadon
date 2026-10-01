@@ -252,7 +252,7 @@
     ]
   },
   "numbers": {
-    "intro": "All taken from verification records. Percentages are a single audio thread's processing time divided by the block's playback time — not total CPU. The test count is the full suite on Linux and Windows before the 0.1.8.6 release.",
+    "intro": "All taken from verification records. Percentages are a single audio thread's processing time divided by the block's playback time — not total CPU. The test count is the full suite on Linux and Windows before the 0.1.8.7 release.",
     "stats": [
       {
         "unit": "bands",

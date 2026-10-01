@@ -9,11 +9,13 @@
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
-      --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
+      --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字）；
       --only bench 跑绘制性能基准（T-032）：瓷面参照与分层的生成耗时、静态背景生成耗时，GLAZE 45 % 播放中 1 / 2 / 4 倍下
       编辑器定时器一帧、整帧重画与只重画粒子带的毫秒（墙钟与本线程 CPU）、各部件累计 paint 与缓存读写、状态胶囊呼吸帧，
       拖动 GLAZE 时消息线程的 CPU 占比，听原声（B）时的粒子带重画；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测；
+      --only spectrum-bench 跑频谱仪专项基准（T-036）：30 / 60 / 120 帧 × 1 / 2 倍，音乐按帧率在放，每帧推一帧、只重画频谱仪那块，
+      打印每帧与每秒的 CPU；--seconds N 改每种组合跑几秒（默认 3）。只用改前改后都有的接口，能在改前的树上量基线；
       --only digest 打印逐位摘要（瓷面参照实现 renderGlaze 的 200 种组合、静态背景的 4 种像素比）：改动前后各跑一次逐行比，
       应当逐位不变的项一字不差。
       --deterministic：出图时播放不跑消息循环（编辑器 / 胶囊 / 旋钮的定时器不按墙钟插进来），两次运行逐像素相同（电平表除外），
@@ -305,7 +307,17 @@ namespace
     int runChecks (Session& session, const juce::File& outDir, float scale);
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
+    void runSpectrumBench (int seconds);
     void runDigest();
+
+    // 用户设置文件跨进程保留（README「用法」末段）：上一次出图留下的值（zh-zoom70 / zh-zoom150 把默认大小写成 0.7 / 1.5，
+    // zh-reduced 留下减少动效）会被下一次运行的新编辑器读进来。检查、基准、摘要开跑前一律先放回这一份基线（T-039）。
+    void resetUiSettings (celadon::ui::UiSettings& settings)
+    {
+        settings.setLanguage (celadon::Language::chinese);
+        settings.setReduceMotion (false);
+        settings.setDefaultZoom (1.0);
+    }
 
     bool save (juce::Component& component, float scale, const juce::File& file)
     {
@@ -328,6 +340,7 @@ int main (int argc, char* argv[])
     juce::File outDir = juce::File::getCurrentWorkingDirectory();
     float scale = 1.0f;
     int benchFrames = 120;
+    int benchSeconds = 3;
     juce::StringArray only;
 
     for (int i = 1; i < argc; ++i)
@@ -338,6 +351,7 @@ int main (int argc, char* argv[])
         else if (arg == "--scale" && i + 1 < argc)  scale = (float) juce::String (argv[++i]).getDoubleValue();
         else if (arg == "--only" && i + 1 < argc)   only.addTokens (argv[++i], ",", {});
         else if (arg == "--frames" && i + 1 < argc) benchFrames = juce::jmax (1, juce::String (argv[++i]).getIntValue());
+        else if (arg == "--seconds" && i + 1 < argc) benchSeconds = juce::jlimit (1, 60, juce::String (argv[++i]).getIntValue());
         else if (arg == "--deterministic")          deterministic = true;
     }
 
@@ -346,26 +360,30 @@ int main (int argc, char* argv[])
 
     if (only.contains ("bench"))
     {
+        resetUiSettings (*settings);
+        runBench (benchFrames);
+        return 0;
+    }
+
+    if (only.contains ("spectrum-bench"))
+    {
         settings->setLanguage (celadon::Language::chinese);
         settings->setReduceMotion (false);
         settings->setDefaultZoom (1.0);
-        runBench (benchFrames);
+        runSpectrumBench (benchSeconds);
         return 0;
     }
 
     if (only.contains ("digest"))
     {
-        settings->setLanguage (celadon::Language::chinese);
-        settings->setReduceMotion (false);
-        settings->setDefaultZoom (1.0);
+        resetUiSettings (*settings);
         runDigest();
         return 0;
     }
 
     if (only.contains ("check"))
     {
-        settings->setLanguage (celadon::Language::chinese);
-        settings->setReduceMotion (false);
+        resetUiSettings (*settings);   // 原先漏了默认大小：留下 0.7 / 1.5 时编辑器按那个大小打开，T-032 的缓存检查随之失败（T-039）
 
         Session session;
         session.processor.reset (dynamic_cast<CeladonAudioProcessor*> (createPluginFilter()));
@@ -495,6 +513,17 @@ namespace
 
             return *component;
         };
+
+        // 前提：编辑器按 1 倍打开（1200 × 820）。后面的坐标都按 1 倍——⑬～⑮ 的粒子带裁剪框 (0, 300, 1200, 260) 直接用编辑器坐标，
+        // ⑲ 要的「只作废圆点那一块」也只在物理像素比为整数时成立。默认大小不是 1、或虚拟屏幕放不下 1 倍（编辑器自动缩到屏幕里，
+        // 1280 × 1024 下 2 倍会变成 1.033 倍）时，缓存检查会报出与真实原因无关的失败（T-039：0.7 倍时裁剪框落在 GLAZE 标题下方、
+        // 「从缓存读 0 次」；小数像素比下圆点作废后重画的裁剪框是整颗胶囊、「排版了 3 次字」），这里先拦下、不往下跑。
+        check (editor.getWidth() == CeladonAudioProcessorEditor::baseWidth && editor.getHeight() == CeladonAudioProcessorEditor::baseHeight,
+               "checks run at zoom 1 (editor " + juce::String (editor.getWidth()) + " x " + juce::String (editor.getHeight())
+                   + "; needs 1200 x 820 and a virtual screen of at least 1240 x 900)");
+
+        if (failures > 0)
+            return failures;
 
         auto& knob = find (celadon::param::glazeAmount);
         auto& bubble = find ("value_bubble");
@@ -1103,6 +1132,24 @@ namespace
                    "T-032 bottom row and latency label back to Chinese");
         }
 
+        // T-036（评审 R-01）：频谱仪的 5 个子组件（三个图例开关、斜率、响度小窗）挂整数对齐的缓存——频谱一秒重画 60 / 120 次时
+        //     它们从缓存贴；不能是 JUCE 自带的 setBufferedToImage（小数像素比下每帧双线性重采样、字发糊）。
+        {
+            auto* view = findFirst<SpectrumView> (editor);
+            int aligned = 0, children = 0;
+
+            if (view != nullptr)
+                for (auto* child : view->getChildren())
+                {
+                    ++children;
+                    aligned += dynamic_cast<AlignedComponentCache*> (child->getCachedComponentImage()) != nullptr ? 1 : 0;
+                }
+
+            check (view != nullptr && children == 5 && aligned == 5,
+                   "T-036 the spectrum's legend toggles, slope control and loudness HUD have aligned image caches ("
+                       + juce::String (aligned) + " of " + juce::String (children) + ")");
+        }
+
         // ⑱ R9-12：「高级」面板关着时只记下状态，打开时一次刷新到最新（预听开着 → 按钮写「停止预听」）。
         {
             editor.showAdvanced (false);
@@ -1528,6 +1575,76 @@ namespace
         session->editor.reset();
         session->processor->releaseResources();
         std::cout << "==== bench done" << std::endl;
+    }
+
+    //==============================================================================
+    // 频谱仪专项基准（--only spectrum-bench，T-036）：音乐按帧率在放，每帧先处理 1 / fps 秒的音频（每块 ≤ 512 个样本），
+    // 再走 advanceForSnapshot (1 / fps)（取样口 → 计算器 → 视图，外加编辑器其余读数），然后只把频谱仪那一块标脏重画。
+    // 只用改前改后都有的接口：同一份基准能在改前的树上量基线。每帧重画整块频谱仪是上限——真机上只重画曲线新旧包围盒，
+    // 安静时更小。「每秒 CPU」= 帧率 × 每帧 CPU；advance 里含编辑器其余读数（真机上它们留在 30 Hz 定时器里），只作参考，
+    // 频谱仪自己的开销看 paint 一项。软件渲染器口径，Mac 的绝对值要 Max 用活动监视器实测。
+    void runSpectrumBench (int seconds)
+    {
+        std::cout << "==== spectrum bench: " << seconds << " s per case (software renderer; Mac absolute numbers need Max)" << std::endl;
+
+        for (const auto fps : { 30, 60, 120 })
+        {
+            for (const auto pixelScale : { 1.0f, 2.0f })
+            {
+                auto session = makeSession (45.0f);
+                session->play (3.0);
+                auto& editor = *session->editor;
+                auto* view = findFirst<celadon::ui::SpectrumView> (editor);
+
+                if (view == nullptr)
+                {
+                    std::cout << "no SpectrumView in the editor" << std::endl;
+                    return;
+                }
+
+                const auto area = editor.getLocalArea (view, view->getLocalBounds());
+                auto target = frameFor (editor, pixelScale);
+                paintTimed (editor, target, pixelScale, std::nullopt);   // 暖机：这一比例的缓存先生成
+                dispatchEvents (600);
+                paintTimed (editor, target, pixelScale, std::nullopt);
+
+                const auto frames = fps * seconds;
+                const auto samplesPerFrame = sampleRate / (double) fps;
+                double owed = 0.0;
+                Clock advance, paint;
+
+                for (int frame = 0; frame < frames; ++frame)
+                {
+                    owed += samplesPerFrame;
+                    auto due = (int) owed;
+                    owed -= (double) due;
+
+                    while (due > 0)
+                    {
+                        const auto n = juce::jmin (due, blockSize);
+                        juce::AudioBuffer<float> chunk (session->buffer.getArrayOfWritePointers(), 2, n);
+                        session->music.render (chunk, n);
+                        session->processor->processBlock (chunk, session->midi);
+                        due -= n;
+                    }
+
+                    const auto started = Clock::now();
+                    editor.advanceForSnapshot (1.0 / (double) fps);
+                    advance += started.elapsed();
+                    paint += paintTimed (editor, target, pixelScale, area);
+                }
+
+                const auto advanceAvg = advance.per (frames), paintAvg = paint.per (frames);
+                std::cout << "---- " << fps << " fps, scale " << pixelScale << ", " << frames << " frames: advance avg " << advanceAvg.text()
+                          << "; spectrum paint avg " << paintAvg.text() << "; per second cpu: paint " << ms ((double) fps * paintAvg.cpu)
+                          << " ms, advance " << ms ((double) fps * advanceAvg.cpu) << " ms" << std::endl;
+
+                session->editor.reset();
+                session->processor->releaseResources();
+            }
+        }
+
+        std::cout << "==== spectrum bench done" << std::endl;
     }
 
     //==============================================================================

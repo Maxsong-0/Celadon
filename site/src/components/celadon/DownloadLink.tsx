@@ -48,7 +48,7 @@ export function afterDownloadClick(e: MouseEvent<HTMLAnchorElement>, then: () =>
   then();
 }
 
-/** 首页两个大按钮（btn-island-primary）的字与图标：认得出时「Download for Mac · Apple silicon」+ 下载图标，认不出「Download 0.1.8.6」+ 斜箭头。 */
+/** 首页两个大按钮（btn-island-primary）的字与图标：认得出时「Download for Mac · Apple silicon」+ 下载图标，认不出「Download <当前版本>」+ 斜箭头。 */
 export function DownloadButtonFace({ pkg }: { pkg: ReleasePackage | null }) {
   const { t } = useTranslation();
   if (!pkg) {
