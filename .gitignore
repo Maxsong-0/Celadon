@@ -24,3 +24,7 @@ __pycache__/
 
 # Windows 安装包产物（scripts/windows-wine.sh installer / ISCC）
 /installer/Output/
+
+# 站点（site/，T-031）：依赖与构建产物只放本机 / 服务器，pnpm-lock.yaml 照常入库
+/site/node_modules/
+/site/dist/
