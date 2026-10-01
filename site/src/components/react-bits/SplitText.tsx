@@ -8,6 +8,8 @@
 import React, { useRef, useEffect, useState } from 'react';
 // Celadon 改动：gsap 与插件统一从 @/lib/gsap 取（那里只注册一次）。
 import { gsap, ScrollTrigger, SplitText as GSAPSplitText, useGSAP } from '@/lib/gsap';
+// Celadon 改动：思源的 @font-face 是异步插入的（不挡首屏），等字体前先等声明到。
+import { cjkFontFaces } from '@/lib/fonts';
 
 export interface SplitTextProps {
   text: string;
@@ -98,7 +100,7 @@ const SplitText: React.FC<SplitTextProps> = ({
   }, [onLetterAnimationComplete]);
 
   // Celadon 改动：只等这段文字用到的字体子集，不等整页 document.fonts.ready
-  // （思源宋体按 unicode-range 拆成上百个子集，整页等齐要好几秒，标题会一直藏着）。最多等 0.6 s。
+  // （思源宋体按 unicode-range 拆成上百个子集，整页等齐要好几秒，标题会一直藏着）。最多等 0.6 s（含等异步插入的声明）。
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -110,12 +112,13 @@ const SplitText: React.FC<SplitTextProps> = ({
       }
     };
     const timer = window.setTimeout(finish, 600);
-    try {
-      const cs = window.getComputedStyle(el);
-      document.fonts.load(`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, text).then(finish, finish);
-    } catch {
-      finish();
-    }
+    cjkFontFaces
+      .then(() => {
+        if (done) return;
+        const cs = window.getComputedStyle(el);
+        return document.fonts.load(`${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`, text);
+      })
+      .then(finish, finish);
     return () => window.clearTimeout(timer);
   }, [text]);
 

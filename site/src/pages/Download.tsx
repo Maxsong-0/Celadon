@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Chapter, Em, LinkArrow } from '@/components/celadon/Eyebrow';
 import { CHECKSUMS_FILE, RELEASE, downloadHref, type PackageId, type ReleasePackage } from '@/content/release';
 import { ScrollTrigger } from '@/lib/gsap';
+import { onFontsLoaded } from '@/lib/fonts';
 import { useReveal } from '@/lib/reveal';
 import { PLUGIN_VERSION } from '@/lib/site';
 import { cn } from '@/lib/utils';
@@ -495,15 +496,8 @@ function usePageSetup(title: string) {
     return () => window.clearTimeout(t);
   }, [hash]);
 
-  useEffect(() => {
-    let alive = true;
-    document.fonts?.ready.then(() => {
-      if (alive) ScrollTrigger.refresh();
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // 字体换上后触发器位置会变，重新量（思源的声明是异步插入的，见 lib/fonts）。
+  useEffect(() => onFontsLoaded(() => ScrollTrigger.refresh()), []);
 }
 
 function formatDate(iso: string): string {

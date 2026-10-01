@@ -12,6 +12,7 @@ import AlgoTeaser from '@/components/celadon/AlgoTeaser';
 import Platforms from '@/components/celadon/Platforms';
 import Stats from '@/components/celadon/Stats';
 import { ScrollTrigger } from '@/lib/gsap';
+import { onFontsLoaded } from '@/lib/fonts';
 
 /** 首页：首屏 → 跑马灯 → 壹 工序 → 贰 施釉 → 叁 真界面 → 肆 试听 → 伍 判断 → 陆 公开算法 → 柒 数字 → 捌 获取（设计规格-官网 第 4 节）。 */
 export default function Home() {
@@ -28,10 +29,8 @@ export default function Home() {
     return () => window.clearTimeout(t);
   }, [hash]);
 
-  useEffect(() => {
-    // 字体到位后触发器位置会变，刷新一次。
-    document.fonts?.ready.then(() => ScrollTrigger.refresh());
-  }, []);
+  // 字体换上后触发器位置会变，重新量（思源的声明是异步插入的，见 lib/fonts）。
+  useEffect(() => onFontsLoaded(() => ScrollTrigger.refresh()), []);
 
   return (
     <main>
