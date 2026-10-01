@@ -16,6 +16,10 @@
     只有「延迟 = 各模块之和」把 Clay 加进了求和；CeladonChainClay 的逐位对照改成「旧链在 Clay 的位置插一段 D 样本纯延迟」，
     延迟断言改成 282 + D（48 / 96 kHz 为 1384 / 2584）。
 
+    T-032（2026-09-29，A4-chain）起文件末尾再追加两个测试类（上面的用例一行不动）：CeladonChainMonitoring（退出预听不阶跃、
+    听原声冻结 OUT 整体响度、预听中点表 Reset / 整链 reset 保住衰减、表对 NaN 自愈、实际参数无损回喂；只用改动前就有的接口）与
+    CeladonChainGuards（表的暂停积分、发行端的读数保持、新实例默认值真源、非有限参数的链级守卫）。
+
   ==============================================================================
 */
 
@@ -24,7 +28,9 @@
 #include "../Source/dsp/CeladonChain.h"
 #include "../Source/dsp/ClayGuard.h"
 
+#include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace celadon::test
 {
@@ -2043,4 +2049,1013 @@ namespace celadon::test
     };
 
     static ChainClayTests chainClayTests;
+}
+
+//==============================================================================
+// T-032（2026-09-29，A4-chain）：监听、表与实际参数的修复用例（研究 / 核验：docs/validation/2026-09-29-T032-deep-research，
+// 任务书 BRIEF-A4-chain.md）。两个测试类追加在文件末尾，上面的用例一行不动：
+//   CeladonChainMonitoring —— 只用 e6b445b（0.1.8.5）就有的公开接口：同一段用例原样放回改动前的源码也能编。改前 16 条断言失败
+//     （证明用例抓得住缺陷；「Listen 开时退出预听」与「reset 仍把抖动序列回到种子」是对照 / 回归项，改前改后都过），改后全部通过
+//     （2026-10-01 在云端容器 GCC 13.3 上对照，数字见 IMPL-A4-chain.md；下面注释里的「改前实测」都出自这次对照）；
+//   CeladonChainGuards —— 用到本次新增的接口（LoudnessMeter::setIntegrationPaused、ReleaseSafety 的保持、ParameterDefaults.h）
+//     与非有限参数的链级用例（R8-02），放在文件最末（下面有分隔标记）。
+namespace celadon::test
+{
+    namespace
+    {
+        constexpr double t032Rate = 48000.0;
+
+        // 稳定的测试音：1 kHz 0.14 + 3.3 kHz 0.06（两声道相同）。一个 100 ms 子块正好 100 / 330 个周期，每个子块的 K 加权能量相同，
+        // 整体响度读数稳定；母带 +6 dB（Color Output）后采样峰值 0.4（−8 dBFS），远低于 Ceiling −1 dBTP，限幅器不动作
+        //（试听差值 = 限幅器削掉的部分 = 0）。
+        Signal makeSteadyTone (double seconds)
+        {
+            auto tone = makeSine (numChannels, t032Rate, 1000.0, 0.14f, seconds);
+            const auto upper = makeSine (numChannels, t032Rate, 3300.0, 0.06f, seconds, 0.7);
+
+            for (size_t ch = 0; ch < tone.size(); ++ch)
+                for (size_t i = 0; i < tone[ch].size(); ++i)
+                    tone[ch][i] += upper[ch][i];
+
+            return tone;
+        }
+
+        // 一块的监听状态：宿主旁通 / 听原声 / 试听差值（setParams 的后三个参数）。
+        struct Monitor { bool hostBypassed = false, compareOriginal = false, auditionDifference = false; };
+
+        // 从 start 起处理 length 个样本（块长 blockSize），每块先 setParams 再 process（与处理器相同：预听开关、A / B、旁通都在
+        // setParams 里生效），输出写回 output 的同一位置。
+        void processSpan (CeladonChain& chain, const CeladonChain::Params& p, const Signal& input, Signal& output,
+                          int start, int length, int blockSize, Monitor monitor)
+        {
+            juce::AudioBuffer<float> block (numChannels, blockSize);
+
+            for (int offset = start; offset < start + length; offset += blockSize)
+            {
+                const auto count = juce::jmin (blockSize, start + length - offset);
+                block.setSize (numChannels, count, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, input[(size_t) ch].data() + offset, count);
+
+                chain.setParams (p, monitor.hostBypassed, monitor.compareOriginal, monitor.auditionDifference);
+                chain.process (block);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + count, output[(size_t) ch].begin() + offset);
+            }
+        }
+
+        // 受测链对参照链的逐样本增益比（左声道；参照 |x| ≤ 0.03 的样本不相除，记 NaN——正弦过零处不相除，同上面「Listen switch must ramp」）。
+        struct GainTrace
+        {
+            std::vector<float> ratio;
+
+            // [from, to) 里相邻两个可用样本之间 |Δ增益| / Δ样本数 的最大值：每样本的增益变化率。阶跃 = 一个样本变很多。
+            float maxSlope (int from, int to) const
+            {
+                float worst = 0.0f;
+                int previous = -1;
+
+                for (int i = juce::jmax (0, from); i < juce::jmin (to, (int) ratio.size()); ++i)
+                {
+                    if (std::isnan (ratio[(size_t) i]))
+                        continue;
+
+                    if (previous >= 0)
+                        worst = juce::jmax (worst, std::abs (ratio[(size_t) i] - ratio[(size_t) previous]) / (float) (i - previous));
+
+                    previous = i;
+                }
+
+                return worst;
+            }
+
+            // [from, to) 里可用样本的平均；一个都没有时返回 NaN。
+            float mean (int from, int to) const
+            {
+                double sum = 0.0;
+                int count = 0;
+
+                for (int i = juce::jmax (0, from); i < juce::jmin (to, (int) ratio.size()); ++i)
+                    if (! std::isnan (ratio[(size_t) i]))
+                    {
+                        sum += (double) ratio[(size_t) i];
+                        ++count;
+                    }
+
+                return count > 0 ? (float) (sum / (double) count) : std::numeric_limits<float>::quiet_NaN();
+            }
+        };
+
+        GainTrace gainTrace (const Signal& monitored, const Signal& reference)
+        {
+            GainTrace trace;
+            trace.ratio.resize (reference[0].size());
+
+            for (size_t i = 0; i < reference[0].size(); ++i)
+                trace.ratio[i] = std::abs (reference[0][i]) > 0.03f ? monitored[0][i] / reference[0][i]
+                                                                    : std::numeric_limits<float>::quiet_NaN();
+
+            return trace;
+        }
+
+        // 预听场景的参数：母带 +6 dB（Color Output），预听目标 −20 LUFS → 稳态预听衰减约 −10 dB。
+        CeladonChain::Params makePreviewParams (bool listen)
+        {
+            auto p = makeNeutralParams();
+            p.color.outputDb = 6.0f;
+            p.limit.listen = listen;
+            p.mastering.previewTargetLufs = -20.0f;
+            return p;
+        }
+    }
+
+    class ChainMonitoringTests  : public juce::UnitTest
+    {
+    public:
+        ChainMonitoringTests() : juce::UnitTest ("CeladonChainMonitoring", "Celadon") {}
+
+        void runTest() override
+        {
+            testPreviewExitNeverSteps();
+            testOriginalFreezesIntegrated();
+            testMeterResetKeepsPreview();
+            testResetKeepsPreviewGain();
+            testDitherRestartsOnReset();
+            testNonFiniteReachingMeters();
+            testEffectiveParamsReplay();
+        }
+
+    private:
+        // R8-01 / R10-03：退出归一化预听时监听增益不能单样本阶跃。受测链预听开着稳定 3 s，参照链从没开过预听；两条链在同一块做同样的
+        // 切换（关预听 / 听原声 / 宿主旁通 / 试听差值），逐样本比「受测 / 参照」的增益：阶跃在一个样本里变很多（改前实测这组参数
+        // ——稳态预听 −10.32 dB——下 0.695；研究在 −6 dB 下测到 0.499），斜坡每样本 < 0.01（沿用「Listen switch must ramp」的判据）。
+        // Listen 关、链照常出母带时是发行端自己的 50 ms 斜坡（每样本的变化不超过 50 ms 线性斜坡的理论步长）；其余情形交给 Listen 的
+        // 20 ms 平滑器。斜坡走完两条链监听同一个增益。
+        // 宿主旁通：预听增益读数从第一个旁通块起是 0 dB（R10-03 核验保留的原意）。Listen 开的一行改前就交接给 Listen（对照）。
+        void testPreviewExitNeverSteps()
+        {
+            struct ExitCase { const char* name; bool listen; Monitor after; bool userTurnsPreviewOff; bool rampsItself; };
+            const ExitCase cases[] =
+            {
+                { "Listen off, preview switched off", false, {},                     true,  true  },
+                { "Listen on, preview switched off",  true,  {},                     true,  false },
+                { "A/B original",                     false, { false, true, false }, false, false },
+                { "host bypass",                      false, { true, false, false }, false, false },
+                { "difference audition",              false, { false, false, true }, false, false },
+            };
+
+            constexpr int blockSize = 128;
+            const auto switchAt = (int) (3.0 * t032Rate);           // 128 的整数倍：切换落在块边界
+            const auto total = switchAt + (int) (0.2 * t032Rate);
+            const auto input = makeSteadyTone ((double) total / t032Rate);
+            const auto window = (int) (0.05 * t032Rate);
+
+            for (const auto& c : cases)
+            {
+                beginTest (juce::String ("leaving the normalisation preview never steps the monitor gain: ") + c.name);
+
+                const auto p = makePreviewParams (c.listen);
+                CeladonChain previewed, reference;
+                prepareChain (previewed, t032Rate, p);
+                prepareChain (reference, t032Rate, p);
+                previewed.setReleasePreviewEnabled (true);
+
+                auto a = makeSilence (numChannels, total);
+                auto r = a;
+                processSpan (previewed, p, input, a, 0, switchAt, blockSize, {});
+                processSpan (reference, p, input, r, 0, switchAt, blockSize, {});
+                const auto steadyGainDb = previewed.getMasteringStatus().previewGainDb;
+
+                if (c.userTurnsPreviewOff)
+                    previewed.setReleasePreviewEnabled (false);
+
+                processSpan (previewed, p, input, a, switchAt, blockSize, blockSize, c.after);
+                processSpan (reference, p, input, r, switchAt, blockSize, blockSize, c.after);
+                const auto gainDbAfterSwitch = previewed.getMasteringStatus().previewGainDb;
+
+                processSpan (previewed, p, input, a, switchAt + blockSize, total - switchAt - blockSize, blockSize, c.after);
+                processSpan (reference, p, input, r, switchAt + blockSize, total - switchAt - blockSize, blockSize, c.after);
+
+                const auto trace = gainTrace (a, r);
+                const auto before = trace.mean (switchAt - window, switchAt);
+                const auto slope = trace.maxSlope (switchAt - window, total);
+                const auto settled = trace.mean (switchAt + (int) ((c.rampsItself ? 0.07 : 0.04) * t032Rate), total);
+                logMessage ("  " + juce::String (c.name) + ": steady preview " + juce::String (steadyGainDb, 2) + " dB, gain ratio before "
+                            + juce::String (before, 4) + ", after " + juce::String (settled, 4) + ", max change per sample "
+                            + juce::String (slope, 6));
+
+                expect (steadyGainDb < -3.0f, "the preview really attenuated before the switch: " + juce::String (steadyGainDb, 2) + " dB");
+                expect (slope < 0.01f, juce::String (c.name) + ": the monitor gain must ramp, max change per sample "
+                                           + juce::String (slope, 6));
+
+                if (c.after.auditionDifference)
+                {
+                    // 差值 = 限幅器削掉的部分（这里为 0）：交叉淡化走完两条链都送出差值，逐样本相同。
+                    float tail = 0.0f;
+                    const auto tailStart = switchAt + (int) (0.1 * t032Rate);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        for (int i = tailStart; i < total; ++i)
+                            tail = juce::jmax (tail, std::abs (a[(size_t) ch][(size_t) i] - r[(size_t) ch][(size_t) i]));
+
+                    expect (tail < 1.0e-6f, "after the cross-fade both chains send the same difference signal, max diff " + juce::String (tail));
+                }
+                else
+                {
+                    expect (std::abs (settled - 1.0f) < 0.01f, juce::String (c.name) + ": after the hand-over both chains monitor the same gain, ratio "
+                                                                   + juce::String (settled, 4));
+                }
+
+                if (c.rampsItself)
+                {
+                    // Listen 关、在线、链照常出母带：发行端自己的 50 ms 线性斜坡（ReleaseSafety::prepare 的 0.05 s）。
+                    const auto theory = (1.0f - juce::Decibels::decibelsToGain (steadyGainDb)) / (float) (0.05 * t032Rate);
+                    expect (slope <= theory * 1.05f + 1.0e-5f, "the 50 ms release-safety ramp, not a faster one: "
+                                                                  + juce::String (slope, 7) + " > " + juce::String (theory, 7));
+                }
+
+                if (c.after.hostBypassed)
+                    expectEquals (gainDbAfterSwitch, 0.0f, "host bypass: the preview gain reads 0 dB from the first bypassed block");
+            }
+        }
+
+        // R8-03：听原声（A / B 的 B）时 OUT 表的整体响度只积分母带——母带 6 s → 原声 6 s → 母带 6 s：原声期间整体读数与切换前相差
+        // < 0.01 LU（改前实测被原声拉低 2.03 LU），短期读数是此刻听到的原声（与单独量原声的表相差 < 0.1 LU）；回到母带后整体读数
+        // 接着母带的值；OUT 表的样本计数一直在走（子块环不断，校准器与 Listen 的配对不经直方图）。宿主旁通见 CeladonChainGuards。
+        void testOriginalFreezesIntegrated()
+        {
+            beginTest ("A/B original freezes the OUT integrated loudness at the master's value; short-term shows what is heard");
+
+            auto p = makeNeutralParams();
+            p.color.outputDb = 6.0f;
+            const auto six = (int) (6.0 * t032Rate);
+            const auto input = makeSteadyTone (18.0);
+            auto output = makeSilence (numChannels, 3 * six);
+
+            CeladonChain chain;
+            prepareChain (chain, t032Rate, p);
+            processSpan (chain, p, input, output, 0, six, maxBlock, {});
+            const auto masterIntegrated = chain.getOutputIntegratedLufs();
+
+            processSpan (chain, p, input, output, six, six, maxBlock, { false, true, false });
+            const auto originalIntegrated = chain.getOutputIntegratedLufs();
+            const auto originalShortTerm = chain.getOutputShortTermLufs();
+
+            processSpan (chain, p, input, output, 2 * six, six, maxBlock, {});
+            const auto backIntegrated = chain.getOutputIntegratedLufs();
+
+            LoudnessMeter dry;
+            dry.prepare (makeSpec (t032Rate));
+            juce::AudioBuffer<float> block (numChannels, maxBlock);
+
+            for (int start = 0; start < six; start += maxBlock)
+            {
+                const auto count = juce::jmin (maxBlock, six - start);
+                block.setSize (numChannels, count, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, count);
+
+                dry.process (block);
+            }
+
+            logMessage ("  master " + juce::String (masterIntegrated, 3) + " LUFS; while listening to the original: integrated "
+                        + juce::String (originalIntegrated, 3) + ", short-term " + juce::String (originalShortTerm, 3) + " (original alone "
+                        + juce::String (dry.getShortTermLufs(), 3) + "); back on the master " + juce::String (backIntegrated, 3));
+
+            expect (masterIntegrated - dry.getIntegratedLufs() > 5.0f, "the master really is louder than the original (+6 dB)");
+            expect (std::abs (originalIntegrated - masterIntegrated) < 0.01f,
+                    "listening to the original must not pull the integrated reading: "
+                    + juce::String (originalIntegrated - masterIntegrated, 4) + " LU");
+            expect (std::abs (originalShortTerm - dry.getShortTermLufs()) < 0.1f, "short-term shows the original that is heard");
+            expect (std::abs (backIntegrated - masterIntegrated) < 0.01f,
+                    "back on the master the integrated reading continues from the master's value: "
+                    + juce::String (backIntegrated - masterIntegrated, 4) + " LU");
+            expect (chain.getOutputMeter().getProcessedSamples() == (std::int64_t) (3 * six),
+                    "the OUT meter's sample clock keeps running through the original");
+        }
+
+        // R8-04：预听中点表 Reset，整体读数要 400 ms 才回来——这段时间预听保持上一次的衰减，不回 0 dB 再落回（改前实测这组参数下
+        // Reset 后预听增益回到 0.000 dB，稳态 −10.32 dB；研究在 −6 dB 下测到 0.4 s 的 +6 dB）：Reset 后 2 s 内预听增益最高不超过
+        // 稳态 + 0.5 dB。从未有过读数时照旧是 0 dB（头 300 ms）。
+        void testMeterResetKeepsPreview()
+        {
+            beginTest ("a meter Reset during the preview keeps the attenuation instead of jumping back to 0 dB for 0.4 s");
+
+            const auto p = makePreviewParams (false);
+            const auto input = makeSteadyTone (5.0);
+            auto output = makeSilence (numChannels, (int) input[0].size());
+            constexpr int blockSize = 128;
+
+            CeladonChain chain;
+            prepareChain (chain, t032Rate, p);
+            chain.setReleasePreviewEnabled (true);
+
+            const auto noReadingEnd = (int) (0.3 * t032Rate) / blockSize * blockSize;
+            processSpan (chain, p, input, output, 0, noReadingEnd, blockSize, {});
+            const auto noReadingGainDb = chain.getMasteringStatus().previewGainDb;
+
+            const auto resetAt = (int) (3.0 * t032Rate);
+            processSpan (chain, p, input, output, noReadingEnd, resetAt - noReadingEnd, blockSize, {});
+            const auto steadyGainDb = chain.getMasteringStatus().previewGainDb;
+
+            chain.requestMeterReset();
+            auto highest = -1000.0f;
+
+            for (int start = resetAt; start < resetAt + (int) (2.0 * t032Rate); start += blockSize)
+            {
+                processSpan (chain, p, input, output, start, blockSize, blockSize, {});
+                highest = juce::jmax (highest, chain.getMasteringStatus().previewGainDb);
+            }
+
+            logMessage ("  no reading yet " + juce::String (noReadingGainDb, 3) + " dB; steady " + juce::String (steadyGainDb, 3)
+                        + " dB; highest in the 2 s after Reset " + juce::String (highest, 3) + " dB");
+
+            expectEquals (noReadingGainDb, 0.0f, "never had a reading: the preview stays at unity");
+            expect (steadyGainDb < -3.0f, "the preview really attenuated");
+            expect (highest <= steadyGainDb + 0.5f, "Reset must not bring the preview back to unity: highest "
+                                                        + juce::String (highest, 3) + " dB, steady " + juce::String (steadyGainDb, 3) + " dB");
+        }
+
+        // 核验漏项：同规格 prepareToPlay（setParams + reset）与播放中途的 restartWithFadeIn 都不把预听增益归一（改前先回 0 dB 再 50 ms
+        // 线性滑回：改前实测这组参数下之后 0.5 s 的预听增益读数最高 −0.33 dB，稳态 −10.32 dB）。两块表不清、整体读数还在，衰减接着生效。
+        void testResetKeepsPreviewGain()
+        {
+            for (int variant = 0; variant < 2; ++variant)
+            {
+                beginTest (variant == 0 ? "same-spec prepareToPlay (setParams + reset) keeps the preview attenuation"
+                                        : "restartWithFadeIn keeps the preview attenuation");
+
+                const auto p = makePreviewParams (false);
+                const auto input = makeSteadyTone (4.0);
+                auto output = makeSilence (numChannels, (int) input[0].size());
+                constexpr int blockSize = 128;
+
+                CeladonChain chain;
+                prepareChain (chain, t032Rate, p);
+                chain.setReleasePreviewEnabled (true);
+
+                const auto resetAt = (int) (3.0 * t032Rate);
+                processSpan (chain, p, input, output, 0, resetAt, blockSize, {});
+                const auto steadyGainDb = chain.getMasteringStatus().previewGainDb;
+
+                if (variant == 0)
+                {
+                    chain.setParams (p, false);
+                    chain.reset();
+                }
+                else
+                {
+                    chain.restartWithFadeIn();
+                }
+
+                auto highest = -1000.0f;
+
+                for (int start = resetAt; start < resetAt + (int) (0.5 * t032Rate); start += blockSize)
+                {
+                    processSpan (chain, p, input, output, start, blockSize, blockSize, {});
+                    highest = juce::jmax (highest, chain.getMasteringStatus().previewGainDb);
+                }
+
+                logMessage ("  steady " + juce::String (steadyGainDb, 3) + " dB; highest in the 0.5 s after "
+                            + (variant == 0 ? juce::String ("reset ") : juce::String ("restartWithFadeIn ")) + juce::String (highest, 3) + " dB");
+                expect (steadyGainDb < -3.0f, "the preview really attenuated");
+                expect (highest <= steadyGainDb + 0.1f, "the preview attenuation survives: highest " + juce::String (highest, 3) + " dB");
+                expect (chain.isReleasePreviewEnabled(), "the preview is still on");
+            }
+        }
+
+        // 发行端的 reset 拆成两半之后（核验漏项），整链 reset 仍要把 TPDF 随机序列回到固定种子：抖动开着时，跑过一段再 reset 的链与
+        // 新 prepare 的链逐位相同（导出可复现）。
+        void testDitherRestartsOnReset()
+        {
+            beginTest ("reset still restarts the TPDF sequence: with dither on, reset after running == fresh prepare, bit-exact");
+
+            auto p = makeNeutralParams();
+            p.limit.gainDb = 3.0f;
+            p.mastering.dither = DitherMode::bits24;
+
+            const auto warmUp = makeNoise (numChannels, (int) (1.0 * t032Rate), 0.4f, 31);
+            const auto input = makeNoise (numChannels, (int) (1.0 * t032Rate), 0.4f, 32);
+
+            CeladonChain used, fresh;
+            prepareChain (used, t032Rate, p);
+            runChain (used, warmUp, maxBlock);
+            used.setParams (p, false);
+            used.reset();
+            prepareChain (fresh, t032Rate, p);
+
+            expect (bitIdentical (runChain (used, input, maxBlock), runChain (fresh, input, maxBlock)),
+                    "dithered output after reset must equal a freshly prepared chain");
+        }
+
+        // R10-08：链自己不管输入（守卫在处理器），但一个 NaN 进了表不能永久污染它。NaN 之后都把信号推响 +6 dB：读数要跟着走，
+        // 冻结在出事前的值就过不了（改前正是这样——整体读数停在出事前、短期读数从此 −100「无读数」，本容器对照实测见 IMPL-A4-chain.md）。
+        //   - 单独一块 LoudnessMeter：稳定音 2 s → 含 NaN 的一块 → 同一个音 +6 dB 4 s：短期读数等于单独量 +6 dB 那段的表
+        //     （差 < 0.1 LU），整体读数比出事前高出 3 LU 以上（两段按能量平均约高 4.9 LU）；
+        //   - 整条链（GLAZE 35，聆听中）：中途一块含 NaN——它过完链延迟到达输出的那一块被清零、整链重启淡入（链的输出守卫，改动前就有），
+        //     输出全部有限；之后 1 s 内 IN 表短期读数恢复，结尾时 IN 表整体读数比出事前高出 2 LU 以上（后面那段 +6 dB），
+        //     GLAZE 聆听继续推进（改前 IN 表每个子块都是 NaN，分析器全部跳过，聆听时长停住不再增加）。
+        void testNonFiniteReachingMeters()
+        {
+            beginTest ("a NaN reaching a LoudnessMeter no longer poisons it: short-term and integrated keep following the signal");
+            {
+                LoudnessMeter meter, louderAlone;
+                meter.prepare (makeSpec (t032Rate));
+                louderAlone.prepare (makeSpec (t032Rate));
+                const auto tone = makeSteadyTone (2.5);   // 只用到 NaN 那一块的末尾（约 2.005 s）
+                auto louder = makeSteadyTone (4.0);
+                scale (louder, 2.0f);   // +6.02 dB
+                juce::AudioBuffer<float> block (numChannels, maxBlock);
+                const auto nanBlockStart = (int) (2.0 * t032Rate) / maxBlock * maxBlock;
+
+                const auto feed = [&block] (LoudnessMeter& target, const Signal& source, int start, int length, bool poison)
+                {
+                    const auto count = juce::jmin (maxBlock, length);
+                    block.setSize (numChannels, count, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, source[(size_t) ch].data() + start, count);
+
+                    if (poison)
+                        block.setSample (0, 100, std::numeric_limits<float>::quiet_NaN());
+
+                    target.process (block);
+                };
+
+                for (int start = 0; start < nanBlockStart; start += maxBlock)
+                    feed (meter, tone, start, nanBlockStart - start, false);
+
+                const auto beforeIntegrated = meter.getIntegratedLufs();
+                const auto beforeShortTerm = meter.getShortTermLufs();
+                feed (meter, tone, nanBlockStart, maxBlock, true);
+
+                for (int start = 0; start < (int) louder[0].size(); start += maxBlock)
+                {
+                    feed (meter, louder, start, (int) louder[0].size() - start, false);
+                    feed (louderAlone, louder, start, (int) louder[0].size() - start, false);
+                }
+
+                const auto integrated = meter.getIntegratedLufs();
+                const auto shortTerm = meter.getShortTermLufs();
+                logMessage ("  meter before the NaN: I " + juce::String (beforeIntegrated, 3) + ", S " + juce::String (beforeShortTerm, 3)
+                            + "; 4 s of +6 dB after it: I " + juce::String (integrated, 3) + ", S " + juce::String (shortTerm, 3)
+                            + " (the +6 dB part alone: S " + juce::String (louderAlone.getShortTermLufs(), 3) + ")");
+                expect (std::isfinite (beforeIntegrated) && beforeIntegrated > -70.0f, "the meter had a reading before the NaN");
+                expect (std::isfinite (shortTerm) && std::abs (shortTerm - louderAlone.getShortTermLufs()) < 0.1f,
+                        "short-term loudness follows the signal after a NaN sample");
+                expect (std::isfinite (integrated) && integrated > beforeIntegrated + 3.0f,
+                        "integrated loudness keeps integrating after a NaN sample (not frozen at the old value)");
+            }
+
+            beginTest ("a NaN input block no longer stalls the chain's IN meter and GLAZE listening");
+            {
+                auto p = makeNeutralParams();
+                p.glazePercent = 35.0f;
+                auto input = makeWideMaterial (t032Rate, 8.0, 41);
+                auto output = makeSilence (numChannels, (int) input[0].size());
+                const auto nanAt = (int) (3.0 * t032Rate) / maxBlock * maxBlock;
+
+                // NaN 那一块之后整段 +6 dB：IN 表的整体读数要跟着抬高（冻结就过不了）。
+                for (auto& channel : input)
+                    for (size_t i = (size_t) (nanAt + maxBlock); i < channel.size(); ++i)
+                        channel[i] *= 2.0f;
+
+                CeladonChain chain;
+                prepareChain (chain, t032Rate, p);
+                processSpan (chain, p, input, output, 0, nanAt, maxBlock, {});
+                const auto inIntegratedBefore = chain.getInputMeter().getIntegratedLufs();
+
+                auto poisoned = input;
+                poisoned[0][(size_t) nanAt + 17] = std::numeric_limits<float>::quiet_NaN();
+                processSpan (chain, p, poisoned, output, nanAt, maxBlock, maxBlock, {});
+
+                const auto oneSecond = (int) (1.0 * t032Rate) / maxBlock * maxBlock;
+                processSpan (chain, p, input, output, nanAt + maxBlock, oneSecond, maxBlock, {});
+                const auto inShortTerm = chain.getInputMeter().getShortTermLufs();
+                const auto listenedAfterOne = chain.getGlazeStatus().listenedSeconds;
+
+                const auto rest = (int) input[0].size() - (nanAt + maxBlock + oneSecond);
+                processSpan (chain, p, input, output, nanAt + maxBlock + oneSecond, rest, maxBlock, {});
+                const auto inIntegratedAtEnd = chain.getInputMeter().getIntegratedLufs();
+                const auto listenedAtEnd = chain.getGlazeStatus().listenedSeconds;
+
+                // NaN 在链延迟之后才到输出：到达的那一块被清零、整链重启——先静音整条链的延迟，再 10 ms 淡入（链的输出守卫）。
+                const auto latency = chain.getLatencySamples();
+                int longestSilence = 0, run = 0;
+
+                for (int i = nanAt; i < juce::jmin ((int) output[0].size(), nanAt + 2 * latency + 4 * maxBlock); ++i)
+                {
+                    run = (output[0][(size_t) i] == 0.0f && output[1][(size_t) i] == 0.0f) ? run + 1 : 0;
+                    longestSilence = juce::jmax (longestSilence, run);
+                }
+
+                logMessage ("  IN I before the NaN block " + juce::String (inIntegratedBefore, 3) + "; 1 s after: IN S " + juce::String (inShortTerm, 3)
+                            + "; at the end (+6 dB since the NaN): IN I " + juce::String (inIntegratedAtEnd, 3) + "; GLAZE listened "
+                            + juce::String (listenedAfterOne, 2) + " s → " + juce::String (listenedAtEnd, 2) + " s at the end");
+                expect (allFinite (output), "every output sample is finite");
+                expect (longestSilence >= latency, "the block the NaN reaches is cleared and the chain restarts: "
+                                                       + juce::String (longestSilence) + " silent samples, latency " + juce::String (latency));
+                expect (std::isfinite (inShortTerm) && inShortTerm > -70.0f, "the IN meter's short-term reading is back within 1 s");
+                expect (std::isfinite (inIntegratedAtEnd) && inIntegratedAtEnd > inIntegratedBefore + 2.0f,
+                        "the IN meter's integrated reading keeps integrating after the NaN block (+6 dB pulls it up)");
+                expect (listenedAtEnd > listenedAfterOne + 2.0f, "GLAZE keeps listening after the NaN block");
+            }
+        }
+
+        // R10-01：getEffectiveParams() 回写的是交给模块的实际值——GLAZE 35、推响不刺 / 目标频谱两项「自动」、编码余量 0.5 dB 的链，
+        // 逐块把它的实际参数喂给一条 GLAZE 0 的链（离线工具的同决策重放，ADR-016），输出逐位相同（改前 mastering 回写的是原始设置：
+        // GLAZE 0 的链把两项「自动」算成 0，编码余量再扣一次）。对照有牙：把 mastering 换回原始设置重放，输出明显不同。
+        void testEffectiveParamsReplay()
+        {
+            beginTest ("getEffectiveParams() fed back into a GLAZE 0 chain reproduces GLAZE 35 + automatic advanced mastering + codec reserve, bit for bit");
+
+            auto source = makeNeutralParams();
+            source.glazePercent = 35.0f;
+            source.limit.gainDb = 4.0f;
+            source.mastering.harshMode = HarshMode::automatic;
+            source.mastering.harshAmount = 50.0f;
+            source.mastering.transientPreserve = 50.0f;
+            source.mastering.targetMode = TargetMode::automatic;
+            source.mastering.targetAmount = 35.0f;
+            source.mastering.codecMarginDb = 0.5f;
+            source.claySettings.lowCutMode = source.claySettings.monoMode = source.claySettings.widthMode = ClayMode::off;
+
+            const auto input = makeWideMaterial (t032Rate, 6.0, 43);
+            const auto numSamples = (int) input[0].size();
+            std::vector<CeladonChain::Params> executed;
+            auto automatic = makeSilence (numChannels, numSamples);
+
+            {
+                CeladonChain chain;
+                prepareChain (chain, t032Rate, source);
+                juce::AudioBuffer<float> block (numChannels, maxBlock);
+
+                for (int start = 0; start < numSamples; start += maxBlock)
+                {
+                    const auto count = juce::jmin (maxBlock, numSamples - start);
+                    block.setSize (numChannels, count, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) ch].data() + start, count);
+
+                    chain.setParams (source, false);
+                    executed.push_back (chain.getEffectiveParams());
+                    chain.process (block);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + count, automatic[(size_t) ch].begin() + start);
+                }
+            }
+
+            const auto replay = [&input, numSamples] (const std::vector<CeladonChain::Params>& executedLog, bool rawMastering,
+                                                      const MasteringSettings& raw)
+            {
+                const auto asInput = [&] (CeladonChain::Params p)
+                {
+                    p.glazePercent = 0.0f;                  // 编排器不决策：实际参数 = 喂进去的参数
+                    p.limit.listen = false;
+                    p.clay = ClayModule::Params {};         // 作为输入时编排器忽略（ChainParams.h）
+
+                    if (rawMastering)
+                        p.mastering = raw;
+
+                    return p;
+                };
+
+                auto output = makeSilence (numChannels, numSamples);
+                CeladonChain chain;
+                prepareChain (chain, t032Rate, asInput (executedLog.front()));
+                juce::AudioBuffer<float> block (numChannels, maxBlock);
+                std::size_t index = 0;
+
+                for (int start = 0; start < numSamples; start += maxBlock, ++index)
+                {
+                    const auto count = juce::jmin (maxBlock, numSamples - start);
+                    block.setSize (numChannels, count, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) ch].data() + start, count);
+
+                    chain.setParams (asInput (executedLog[juce::jmin (index, executedLog.size() - 1)]), false);
+                    chain.process (block);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + count, output[(size_t) ch].begin() + start);
+                }
+
+                return output;
+            };
+
+            const auto replayed = replay (executed, false, source.mastering);
+            const auto rawReplayed = replay (executed, true, source.mastering);
+
+            const auto masteringBlocks = std::count_if (executed.begin(), executed.end(), [] (const CeladonChain::Params& e)
+            {
+                return e.balance.harshAmount > 0.0f && e.balance.targetAmount > 0.0f;
+            });
+
+            logMessage ("  " + juce::String ((int) executed.size()) + " blocks, advanced mastering active in "
+                        + juce::String ((int) masteringBlocks) + "; executed ceiling " + juce::String (executed.back().limit.ceilingDb, 3)
+                        + " dBTP; replay max diff " + juce::String (maxAbsDifferenceWhole (automatic, replayed))
+                        + ", replay with the raw settings max diff " + juce::String (maxAbsDifferenceWhole (automatic, rawReplayed)));
+
+            expect (masteringBlocks > 0, "advanced mastering really acts in the GLAZE 35 chain");
+            expectEquals (executed.back().limit.ceilingDb, -1.5f, "the executed Ceiling already includes the 0.5 dB codec reserve");
+            expect (bitIdentical (automatic, replayed), "feeding the executed params back reproduces the chain bit for bit");
+            expect (maxAbsDifferenceWhole (automatic, rawReplayed) > 1.0e-6f,
+                    "control: replaying the raw mastering settings does not reproduce it (the resolved amounts are what make it exact)");
+        }
+    };
+
+    static ChainMonitoringTests chainMonitoringTests;
+}
+
+//==============================================================================
+// ---- T-032 CeladonChainGuards（用到本次新增的接口；对照改动前的源码时从这一行起整段去掉）----
+#include "../Source/ParameterDefaults.h"
+#include "../Source/ParameterRanges.h"
+
+namespace celadon::test
+{
+    namespace
+    {
+        // Color / Limit 的非有限参数守卫在 A2 / A3 线（ColorModule::setParams / LimiterModule::setParams），合进来之前这两组字段只记日志；
+        // 主进程合并 A2 / A3 后改成 true，用例对它们同样判定（T-032 R8-02）。
+        constexpr bool colorLimitGuardsMerged = false;
+
+        // 在 ReleaseSafety 上按固定读数跑 seconds 秒（块长 127，两声道 1 kHz 0.4）。
+        void renderWithReading (ReleaseSafety& module, float lufs, double seconds)
+        {
+            juce::AudioBuffer<float> block (numChannels, 127);
+
+            for (int done = 0; done < (int) (seconds * t032Rate); done += block.getNumSamples())
+            {
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                        block.setSample (ch, i, 0.4f * (float) std::sin (juce::MathConstants<double>::twoPi * 1000.0 * (done + i) / t032Rate));
+
+                module.process (block, lufs);
+            }
+        }
+
+        // 把 input 的 [start, start + length) 送进一块表（块长 blockSize）。
+        void meterSpan (LoudnessMeter& meter, const Signal& input, int start, int length, int blockSize)
+        {
+            juce::AudioBuffer<float> block (numChannels, blockSize);
+
+            for (int offset = start; offset < start + length; offset += blockSize)
+            {
+                const auto count = juce::jmin (blockSize, start + length - offset);
+                block.setSize (numChannels, count, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, input[(size_t) ch].data() + offset, count);
+
+                meter.process (block);
+            }
+        }
+    }
+
+    class ChainGuardsTests  : public juce::UnitTest
+    {
+    public:
+        ChainGuardsTests() : juce::UnitTest ("CeladonChainGuards", "Celadon") {}
+
+        void runTest() override
+        {
+            testHostBypassIntegrationPolicy();
+            testPauseExcludesTouchedSubBlocks();
+            testReleaseSafetyHold();
+            testFactoryDefaults();
+            testNonFiniteParams();
+        }
+
+    private:
+        // R8-03 的宿主旁通一半接在同一个开关上，口径待 Max 确认（CeladonChain::pauseIntegrationOnHostBypass）：
+        // 现在（false）宿主旁通期间照旧积分——整体读数被原声拉低；改成 true 后与听原声一样冻结。
+        void testHostBypassIntegrationPolicy()
+        {
+            beginTest (juce::String ("host bypass: the OUT integrated loudness ")
+                       + (CeladonChain::pauseIntegrationOnHostBypass ? "freezes (confirmed policy)" : "keeps integrating until Max confirms the freeze"));
+
+            auto p = makeNeutralParams();
+            p.color.outputDb = 6.0f;
+            const auto six = (int) (6.0 * t032Rate);
+            const auto input = makeSteadyTone (12.0);
+            auto output = makeSilence (numChannels, 2 * six);
+
+            CeladonChain chain;
+            prepareChain (chain, t032Rate, p);
+            processSpan (chain, p, input, output, 0, six, maxBlock, {});
+            const auto masterIntegrated = chain.getOutputIntegratedLufs();
+            processSpan (chain, p, input, output, six, six, maxBlock, { true, false, false });
+            const auto bypassedIntegrated = chain.getOutputIntegratedLufs();
+
+            logMessage ("  master " + juce::String (masterIntegrated, 3) + " LUFS, after 6 s of host bypass " + juce::String (bypassedIntegrated, 3));
+
+            if constexpr (CeladonChain::pauseIntegrationOnHostBypass)
+                expect (std::abs (bypassedIntegrated - masterIntegrated) < 0.01f, "host bypass freezes the integrated reading");
+            else
+                expect (bypassedIntegrated < masterIntegrated - 0.5f, "host bypass still integrates the dry signal (policy pending)");
+        }
+
+        // LoudnessMeter::setIntegrationPaused：只要有一个样本是在暂停中处理的，这个 100 ms 子块就不进任何门块——包括暂停开始 / 结束
+        // 那一块里跨边界的半截子块。暂停期间送一段 +20 dB 的突发：漏进一个门块，整体读数就会抬高约 0.8 LU；全挡住时整体读数与
+        // 只听稳定音的表相差 < 0.01 LU。三种暂停：短于一个子块且落在子块中间（暂停里一个子块也没结束）、跨很多子块且两头都在子块
+        // 中间、两头正好对齐子块边界。另核：短期读数照常反映暂停期间的突发；子块环不受暂停影响（时间戳连续）。
+        void testPauseExcludesTouchedSubBlocks()
+        {
+            struct PauseCase { const char* name; int start; int length; };
+            constexpr int sub = 4800;   // 48 kHz 的 100 ms 子块
+            const PauseCase cases[] =
+            {
+                { "short pause inside one sub-block", 50 * sub + 1234, 1000 },
+                { "long pause, both edges mid-sub-block", 50 * sub + 2000, 13 * sub + 777 },
+                { "pause aligned to sub-block boundaries", 50 * sub, 3 * sub },
+            };
+
+            const auto tone = makeSteadyTone (12.0);
+            auto burst = tone;
+            scale (burst, 10.0f);   // +20 dB
+
+            LoudnessMeter reference;
+            reference.prepare (makeSpec (t032Rate));
+            meterSpan (reference, tone, 0, (int) tone[0].size(), 512);
+
+            for (const auto& c : cases)
+            {
+                beginTest (juce::String ("setIntegrationPaused keeps every touched sub-block out of the integrated loudness: ") + c.name);
+
+                LoudnessMeter meter;
+                meter.prepare (makeSpec (t032Rate));
+                meterSpan (meter, tone, 0, c.start, 512);
+                const auto shortTermBefore = meter.getShortTermLufs();
+
+                meter.setIntegrationPaused (true);
+                meterSpan (meter, burst, c.start, c.length, 512);
+                const auto shortTermDuring = meter.getShortTermLufs();
+                meter.setIntegrationPaused (false);
+
+                meterSpan (meter, tone, c.start + c.length, (int) tone[0].size() - c.start - c.length, 512);
+
+                std::int64_t cursor = 0;
+                std::vector<LoudnessMeter::SubBlock> blocks ((size_t) LoudnessMeter::subBlockRingCapacity);
+                const auto got = meter.readSubBlocksSince (cursor, blocks.data(), (int) blocks.size());
+                auto contiguous = got > 0;
+
+                for (int i = 1; i < juce::jmax (0, got); ++i)
+                    contiguous = contiguous && blocks[(size_t) i].endSample - blocks[(size_t) i - 1].endSample == (std::int64_t) sub;
+
+                logMessage ("  " + juce::String (c.name) + ": integrated " + juce::String (meter.getIntegratedLufs(), 4) + " (tone only "
+                            + juce::String (reference.getIntegratedLufs(), 4) + "), short-term before / during the pause "
+                            + juce::String (shortTermBefore, 2) + " / " + juce::String (shortTermDuring, 2));
+
+                expect (std::abs (meter.getIntegratedLufs() - reference.getIntegratedLufs()) < 0.01f,
+                        juce::String (c.name) + ": nothing from the pause leaks into the integrated loudness ("
+                        + juce::String (meter.getIntegratedLufs() - reference.getIntegratedLufs(), 4) + " LU)");
+
+                if (c.length >= sub)
+                    expect (shortTermDuring > shortTermBefore + 3.0f, "short-term keeps showing what passes during the pause");
+
+                expect (contiguous, "the sub-block ring is not affected by the pause");
+                expect (! meter.isIntegrationPaused(), "resumed");
+            }
+        }
+
+        // R8-04（ReleaseSafety 单元）：暂时没有读数（≤ −90 LUFS）时保持上一次有效读数算出的衰减；从未有过读数、reset()、关掉预听、
+        // 非有限的坏读数都回到 1 并忘掉记忆（坏读数之后再来「没有读数」也不会跳回旧衰减）；resetDitherSequence 只动随机序列。
+        void testReleaseSafetyHold()
+        {
+            beginTest ("release safety: a missing reading holds the last attenuation; never-read / reset / disabled / bad readings return to unity");
+
+            ReleaseSafety module;
+            module.prepare (t032Rate);
+            module.setParams (true, -14.0f, 0);
+
+            renderWithReading (module, -100.0f, 0.2);
+            expectEquals (module.getPreviewGainDb(), 0.0f, "never had a reading: unity");
+            expect (! module.holdsLastValidTargetForTesting());
+
+            renderWithReading (module, -8.0f, 0.2);
+            expectWithinAbsoluteError (module.getPreviewGainDb(), -6.0f, 0.001f, "a valid reading attenuates");
+            renderWithReading (module, -100.0f, 1.0);
+            expectWithinAbsoluteError (module.getPreviewGainDb(), -6.0f, 0.001f, "a missing reading holds the last attenuation");
+            expect (module.holdsLastValidTargetForTesting());
+
+            renderWithReading (module, std::numeric_limits<float>::quiet_NaN(), 0.1);
+            expectEquals (module.getPreviewGainDb(), 0.0f, "a non-finite reading returns to unity");
+            expect (! module.holdsLastValidTargetForTesting(), "… and forgets the last reading");
+            renderWithReading (module, -100.0f, 0.2);
+            expectEquals (module.getPreviewGainDb(), 0.0f, "no jump back to the old attenuation after a bad reading");
+
+            renderWithReading (module, -8.0f, 0.2);
+            module.resetDitherSequence();
+            expectWithinAbsoluteError (module.getPreviewGainDb(), -6.0f, 0.001f, "resetDitherSequence keeps the gain");
+            expect (module.holdsLastValidTargetForTesting(), "… and the remembered reading");
+
+            module.reset();
+            expectEquals (module.getPreviewGainDb(), 0.0f, "reset returns to unity immediately");
+            renderWithReading (module, -100.0f, 0.2);
+            expectEquals (module.getPreviewGainDb(), 0.0f, "reset forgets the last reading");
+
+            renderWithReading (module, -8.0f, 0.2);
+            module.setParams (false, -14.0f, 0);
+            expect (! module.holdsLastValidTargetForTesting(), "disabling the preview forgets the last reading");
+            renderWithReading (module, -8.0f, 0.2);
+            expectEquals (module.getPreviewGainDb(), 0.0f, "disabled preview ramps back to unity");
+            module.setParams (true, -14.0f, 0);
+            renderWithReading (module, -100.0f, 0.2);
+            expectEquals (module.getPreviewGainDb(), 0.0f, "re-enabled without a reading: unity, not the old attenuation");
+        }
+
+        // R10-01：新实例默认值的一处真源。逐项核对规格的默认值（设计规格各模块「参数」表、高级母带第 2 节、ADR-020），浮点参数的默认值
+        // 落在 ParameterRanges.h 的范围里、是合法格点。高级母带的新实例默认是两项「自动」——与 MasteringSettings{} 的中性默认（关）不同，
+        // 离线工具以前用的正是后者。处理器 Debug 版构造时再把真正的参数表与它逐项核对（PluginProcessor.cpp）。
+        void testFactoryDefaults()
+        {
+            beginTest ("ParameterDefaults.h: the new-instance defaults, each a legal value of its parameter range");
+
+            namespace ranges = param::ranges;
+            const auto d = param::defaults::factoryChainParams();
+            // 在范围里、落在步进格点上（连续刻度 = 对数刻度不吸附，只看范围）。不用 snapToLegalValue 比：它按 float 重算格点，
+            // 0.01 这类步长会差 1 ulp（−3 + 0.01f × 300 ≠ 0）。
+            const auto legal = [] (const juce::NormalisableRange<float>& range, float value)
+            {
+                if (value < range.start || value > range.end)
+                    return false;
+
+                if (range.interval <= 0.0f)
+                    return true;
+
+                const auto steps = (value - range.start) / range.interval;
+                return std::abs (steps - std::round (steps)) < 1.0e-3f;
+            };
+
+            expect (legal (ranges::limitGain(), d.limit.gainDb) && legal (ranges::limitCeiling(), d.limit.ceilingDb)
+                    && legal (ranges::limitRelease(), d.limit.releaseMs) && legal (ranges::limitLookahead(), d.limit.lookaheadMs)
+                    && legal (ranges::limitClip(), d.limit.clip), "Limit defaults inside their ranges");
+            expect (legal (ranges::colorTone(), d.color.toneDb) && legal (ranges::colorGlue(), d.color.glue)
+                    && legal (ranges::colorHeat(), d.color.heat) && legal (ranges::colorMix(), d.color.mixPercent)
+                    && legal (ranges::colorOutput(), d.color.outputDb), "Color defaults inside their ranges");
+            expect (legal (ranges::balanceRecover(), d.balance.recover) && legal (ranges::balanceTame(), d.balance.tame)
+                    && legal (ranges::balanceBrighten(), d.balance.brighten), "Balance defaults inside their ranges");
+            expect (legal (ranges::glazeAmount(), d.glazePercent), "GLAZE default inside its range");
+            expect (legal (ranges::clayLowCut(), d.claySettings.lowCutHz) && legal (ranges::clayMono(), d.claySettings.monoHz)
+                    && legal (ranges::clayWidth(), d.claySettings.widthDb), "Clay manual defaults inside their ranges");
+
+            expect (juce::exactlyEqual (d.limit.ceilingDb, -1.0f) && juce::exactlyEqual (d.limit.lookaheadMs, 2.0f) && d.limit.autoRelease
+                    && ! d.limit.listen && ! d.limit.bypass, "Limit: Ceiling −1 dBTP, Lookahead 2 ms, auto release");
+            expect (juce::exactlyEqual (d.color.mixPercent, 100.0f) && d.balance.speed == BalanceModule::Speed::mid, "Color Mix 100 %, Balance Mid");
+            expect (juce::exactlyEqual (d.glazePercent, 35.0f) && d.glazeStyle == 0, "GLAZE 35 %, style Auto");
+            expect (d.claySettings.lowCutMode == ClayMode::automatic && d.claySettings.monoMode == ClayMode::automatic
+                    && d.claySettings.widthMode == ClayMode::automatic, "Clay: three times Auto");
+
+            const auto& m = d.mastering;
+            expect (m.harshMode == HarshMode::automatic && juce::exactlyEqual (m.harshAmount, 50.0f)
+                    && juce::exactlyEqual (m.transientPreserve, 50.0f), "harshness protection Auto 50 %, transient preserve 50 %");
+            expect (m.targetMode == TargetMode::automatic && juce::exactlyEqual (m.targetAmount, 35.0f), "spectrum target Auto 35 %");
+            expect (juce::exactlyEqual (m.codecMarginDb, 0.0f) && m.dither == DitherMode::off && juce::exactlyEqual (m.previewTargetLufs, -14.0f),
+                    "codec reserve 0, dither off, preview −14 LUFS");
+            expect (m.harshResolved < 0.0f && m.targetResolved < 0.0f, "new-instance params carry no resolved amounts");
+
+            const MasteringSettings neutral {};
+            expect (neutral.harshMode == HarshMode::off && neutral.targetMode == TargetMode::off,
+                    "the struct defaults stay neutral (old callers), which is exactly why the tools must use factoryChainParams()");
+        }
+
+        // R8-02 链级：ChainParams 的每个浮点字段分别喂 NaN / +Inf / −Inf（其余参数把整条链推满：Limit Gain +24 dB、Glue / Heat / Clip、
+        // 手动推响不刺 / 暖色目标 / 编码余量、修坯三项手动、预听开着）——输出全部有限、不静音、真峰值 ≤ 实际 Ceiling + 0.01 dB，并与该字段
+        // 取「回退值」的链逐位相同。回退值 = 该字段的默认值（ChainParams / 各模块 Params / MasteringSettings 的默认）；例外是修坯的三个手动值：
+        // ClayModule 按文档回退中性（低切关 = 0、加宽 0、收单分频点沿用模块初值 80 Hz）。GLAZE、高级母带、Balance、修坯的字段与
+        // Limit Ceiling（链先扣编码余量，守卫在链里：这里编码余量 0.3 dB，改前 NaN Ceiling 扣完还是 NaN）现在就判定。
+        // 其余 Color / Limit 字段要等 A2 / A3 的模块守卫合进来（colorLimitGuardsMerged）才跑——之前连跑都不能跑：本线源码上把开关改成 true，
+        // color.toneDb / color.glue 的坏值与回退值不逐位相同，跑到 color.heat 时测试进程段错误（ColorModule::heatCompensationFor 里 jlimit
+        // 放过 NaN，(int) NaN 越界查表；2026-10-01 在云端容器上复现）。
+        void testNonFiniteParams()
+        {
+            beginTest ("every float field of ChainParams fed NaN / +Inf / -Inf: finite, audible, true peak <= Ceiling + 0.01 dB, bit-identical to its fallback");
+
+            using Accessor = float& (*) (CeladonChain::Params&);
+            struct Field { const char* name; Accessor field; float fallback; const char* pendingOwner; };
+
+            const CeladonChain::Params defaults {};
+            auto base = makeNeutralParams();
+            base.balance.recover = 30.0f;  base.balance.tame = 30.0f;  base.balance.brighten = 10.0f;
+            base.color.toneDb = 0.5f;  base.color.glue = 30.0f;  base.color.heat = 30.0f;  base.color.mixPercent = 90.0f;
+            base.limit.gainDb = 24.0f;  base.limit.clip = 20.0f;  base.limit.autoRelease = false;  base.limit.releaseMs = 150.0f;
+            base.mastering.harshMode = HarshMode::manual;  base.mastering.harshAmount = 60.0f;  base.mastering.transientPreserve = 40.0f;
+            base.mastering.targetMode = TargetMode::warm;  base.mastering.targetAmount = 40.0f;  base.mastering.codecMarginDb = 0.3f;
+            base.claySettings.lowCutMode = base.claySettings.monoMode = base.claySettings.widthMode = ClayMode::manual;
+            base.claySettings.lowCutHz = 30.0f;  base.claySettings.monoHz = 150.0f;  base.claySettings.widthDb = 1.0f;
+
+            const char* const colorOwner = "A2 (ColorModule::setParams)";
+            const char* const limitOwner = "A3 (LimiterModule::setParams)";
+            const Field fields[] =
+            {
+                { "balance.recover",            [] (CeladonChain::Params& p) -> float& { return p.balance.recover; },            defaults.balance.recover, nullptr },
+                { "balance.tame",               [] (CeladonChain::Params& p) -> float& { return p.balance.tame; },               defaults.balance.tame, nullptr },
+                { "balance.brighten",           [] (CeladonChain::Params& p) -> float& { return p.balance.brighten; },           defaults.balance.brighten, nullptr },
+                { "balance.automaticRecover",   [] (CeladonChain::Params& p) -> float& { return p.balance.automaticRecover; },   defaults.balance.automaticRecover, nullptr },
+                { "balance.automaticTame",      [] (CeladonChain::Params& p) -> float& { return p.balance.automaticTame; },      defaults.balance.automaticTame, nullptr },
+                { "balance.harshAmount",        [] (CeladonChain::Params& p) -> float& { return p.balance.harshAmount; },        defaults.balance.harshAmount, nullptr },
+                { "balance.transientPreserve",  [] (CeladonChain::Params& p) -> float& { return p.balance.transientPreserve; },  defaults.balance.transientPreserve, nullptr },
+                { "balance.targetAmount",       [] (CeladonChain::Params& p) -> float& { return p.balance.targetAmount; },       defaults.balance.targetAmount, nullptr },
+                { "balance.targetSlopeDbPerOct",[] (CeladonChain::Params& p) -> float& { return p.balance.targetSlopeDbPerOct; },defaults.balance.targetSlopeDbPerOct, nullptr },
+                { "color.toneDb",               [] (CeladonChain::Params& p) -> float& { return p.color.toneDb; },               defaults.color.toneDb, colorOwner },
+                { "color.glue",                 [] (CeladonChain::Params& p) -> float& { return p.color.glue; },                 defaults.color.glue, colorOwner },
+                { "color.heat",                 [] (CeladonChain::Params& p) -> float& { return p.color.heat; },                 defaults.color.heat, colorOwner },
+                { "color.mixPercent",           [] (CeladonChain::Params& p) -> float& { return p.color.mixPercent; },           defaults.color.mixPercent, colorOwner },
+                { "color.outputDb",             [] (CeladonChain::Params& p) -> float& { return p.color.outputDb; },             defaults.color.outputDb, colorOwner },
+                { "limit.gainDb",               [] (CeladonChain::Params& p) -> float& { return p.limit.gainDb; },               defaults.limit.gainDb, limitOwner },
+                { "limit.ceilingDb",            [] (CeladonChain::Params& p) -> float& { return p.limit.ceilingDb; },            defaults.limit.ceilingDb, nullptr },
+                { "limit.releaseMs",            [] (CeladonChain::Params& p) -> float& { return p.limit.releaseMs; },            defaults.limit.releaseMs, limitOwner },
+                { "limit.lookaheadMs",          [] (CeladonChain::Params& p) -> float& { return p.limit.lookaheadMs; },          defaults.limit.lookaheadMs, limitOwner },
+                { "limit.clip",                 [] (CeladonChain::Params& p) -> float& { return p.limit.clip; },                 defaults.limit.clip, limitOwner },
+                { "glazePercent",               [] (CeladonChain::Params& p) -> float& { return p.glazePercent; },               defaults.glazePercent, nullptr },
+                { "mastering.harshAmount",      [] (CeladonChain::Params& p) -> float& { return p.mastering.harshAmount; },      defaults.mastering.harshAmount, nullptr },
+                { "mastering.transientPreserve",[] (CeladonChain::Params& p) -> float& { return p.mastering.transientPreserve; },defaults.mastering.transientPreserve, nullptr },
+                { "mastering.targetAmount",     [] (CeladonChain::Params& p) -> float& { return p.mastering.targetAmount; },     defaults.mastering.targetAmount, nullptr },
+                { "mastering.codecMarginDb",    [] (CeladonChain::Params& p) -> float& { return p.mastering.codecMarginDb; },    defaults.mastering.codecMarginDb, nullptr },
+                { "mastering.previewTargetLufs",[] (CeladonChain::Params& p) -> float& { return p.mastering.previewTargetLufs; },defaults.mastering.previewTargetLufs, nullptr },
+                { "mastering.harshResolved",    [] (CeladonChain::Params& p) -> float& { return p.mastering.harshResolved; },    defaults.mastering.harshResolved, nullptr },
+                { "mastering.targetResolved",   [] (CeladonChain::Params& p) -> float& { return p.mastering.targetResolved; },   defaults.mastering.targetResolved, nullptr },
+                { "claySettings.lowCutHz",      [] (CeladonChain::Params& p) -> float& { return p.claySettings.lowCutHz; },      0.0f, nullptr },
+                { "claySettings.monoHz",        [] (CeladonChain::Params& p) -> float& { return p.claySettings.monoHz; },        ClayModule::Params {}.monoHz, nullptr },
+                { "claySettings.widthDb",       [] (CeladonChain::Params& p) -> float& { return p.claySettings.widthDb; },       0.0f, nullptr },
+                { "clay.lowCutHz",              [] (CeladonChain::Params& p) -> float& { return p.clay.lowCutHz; },              defaults.clay.lowCutHz, nullptr },
+                { "clay.monoHz",                [] (CeladonChain::Params& p) -> float& { return p.clay.monoHz; },                defaults.clay.monoHz, nullptr },
+                { "clay.monoAmount",            [] (CeladonChain::Params& p) -> float& { return p.clay.monoAmount; },            defaults.clay.monoAmount, nullptr },
+                { "clay.widthDb",               [] (CeladonChain::Params& p) -> float& { return p.clay.widthDb; },               defaults.clay.widthDb, nullptr },
+            };
+
+            const auto input = makeWideMaterial (t032Rate, 1.0, 51);
+            const auto render = [&input] (const CeladonChain::Params& p, float& ceilingDb)
+            {
+                CeladonChain chain;
+                prepareChain (chain, t032Rate, p);
+                chain.setReleasePreviewEnabled (true);
+                auto output = makeSilence (numChannels, (int) input[0].size());
+                processSpan (chain, p, input, output, 0, (int) input[0].size(), maxBlock, {});
+                ceilingDb = chain.getEffectiveParams().limit.ceilingDb;
+                return output;
+            };
+
+            const float badValues[] = { std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                                        -std::numeric_limits<float>::infinity() };
+            const char* const badNames[] = { "NaN", "+Inf", "-Inf" };
+            int judged = 0, pendingSkipped = 0;
+
+            for (const auto& f : fields)
+            {
+                if (f.pendingOwner != nullptr && ! colorLimitGuardsMerged)
+                {
+                    logMessage ("  skipped until " + juce::String (f.pendingOwner) + " is merged: " + f.name);
+                    ++pendingSkipped;
+                    continue;
+                }
+
+                auto fallbackParams = base;
+                f.field (fallbackParams) = f.fallback;
+                float fallbackCeilingDb = 0.0f;
+                const auto expected = render (fallbackParams, fallbackCeilingDb);
+
+                for (size_t v = 0; v < std::size (badValues); ++v)
+                {
+                    auto badParams = base;
+                    f.field (badParams) = badValues[v];
+                    float ceilingDb = 0.0f;
+                    const auto got = render (badParams, ceilingDb);
+
+                    double energy = 0.0;
+
+                    for (const auto& channel : got)
+                        for (auto sample : channel)
+                            energy += (double) sample * (double) sample;
+
+                    const auto finite = allFinite (got);
+                    const auto audible = energy > 1.0;   // 1 s 立体声推满的输出能量在 1e4 量级；静音为 0
+                    const auto peakDb = toDb (truePeakOf (got));
+                    const auto underCeiling = finite && peakDb <= fallbackCeilingDb + 0.01f;
+                    const auto identical = bitIdentical (got, expected);
+                    const auto tag = juce::String (f.name) + " = " + badNames[v];
+
+                    ++judged;
+                    expect (finite, tag + ": output must stay finite");
+                    expect (audible, tag + ": output must not go silent");
+                    expect (underCeiling, tag + ": true peak " + juce::String (peakDb, 3) + " dBTP must stay under the Ceiling "
+                                              + juce::String (fallbackCeilingDb, 3) + " + 0.01 dB");
+                    expect (identical, tag + ": must behave exactly like its fallback value");
+                }
+            }
+
+            logMessage ("  " + juce::String (judged) + " field / value pairs judged; " + juce::String (pendingSkipped)
+                        + " Color / Limit fields skipped until their module guards are merged (A2 / A3)");
+            expect (judged == 3 * (int) (std::size (fields) - (size_t) pendingSkipped), "every non-pending field was judged with all three values");
+        }
+    };
+
+    static ChainGuardsTests chainGuardsTests;
 }

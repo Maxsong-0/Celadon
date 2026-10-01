@@ -169,12 +169,14 @@ public:
 
 private:
     //==============================================================================
-    // 把全部参数（Balance + Clay 设置 + Color + Limit + GLAZE）读成一份快照，每块调一次；只读原子指针，不查字符串。
+    // 把全部参数（Balance + Clay 设置 + Color + Limit + GLAZE + 高级母带）读成一份快照，每块调一次；只读原子指针，不查字符串。
     // Clay 只读用户设置（claySettings）；交给 ClayModule 的实际参数（clay）由链里的编排器按三态合成，这里保持默认。
+    // 非有限的原始值换成新实例默认值（T-032 R8-02，Lookahead 除外——交给 LookaheadHold）。
     celadon::CeladonChain::Params readParams() const noexcept;
 
-    // 读入的状态树里缺哪个参数（旧版本存的状态），就补一个只带 id 的节点，让它回到默认值。
-    void addMissingParameterNodes (juce::ValueTree& newState) const;
+    // 读入的状态树里缺哪个参数（旧版本存的状态），就补一个只带 id 的节点，让它回到默认值（少数参数特判成旧版的值）。
+    // stateFormat = 存档根元素的 celadonStateFormat（没有 = 0，≤ 0.1.8.5；T-032 R10-02 起写 1），按存档区分回退规则的锚点。
+    void addMissingParameterNodes (juce::ValueTree& newState, int stateFormat) const;
     void processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed);
     void processBuses (juce::AudioBuffer<float>& buffer, bool hostBypassed);
 

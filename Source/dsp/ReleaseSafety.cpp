@@ -25,6 +25,13 @@ namespace celadon
     {
         previewGain.setCurrentAndTargetValue (1.0);
         previewGainDb = 0.0f;
+        lastValidTargetGain = 1.0;
+        hasValidTarget = false;
+        resetDitherSequence();
+    }
+
+    void ReleaseSafety::resetDitherSequence() noexcept
+    {
         randomStates = initialRandomStates;
     }
 
@@ -33,6 +40,13 @@ namespace celadon
         previewEnabled = enabled && std::isfinite (target);
         targetLufs = std::isfinite (target) ? target : -14.0f;
         ditherBits = bits == 16 || bits == 24 ? bits : 0;
+
+        // 关掉预听就忘掉上一次的读数：下次打开时从「从未有读数 → 1」重新判断，不沿用上一段预听的衰减。
+        if (! previewEnabled)
+        {
+            hasValidTarget = false;
+            lastValidTargetGain = 1.0;
+        }
     }
 
     void ReleaseSafety::setCurrentPreviewGain (double gain) noexcept
@@ -59,12 +73,29 @@ namespace celadon
             return;
 
         double targetGain = 1.0;
-        if (previewEnabled && std::isfinite (integratedLufs) && integratedLufs > -90.0f)
+        if (previewEnabled)
         {
-            // 用 double 相减，极端但有限的输入也不会溢出。禁止正增益；下限只防坏读数。
-            const auto attenuationDb = juce::jlimit (-144.0, 0.0,
-                static_cast<double> (targetLufs) - static_cast<double> (integratedLufs));
-            targetGain = std::pow (10.0, attenuationDb / 20.0);
+            if (! std::isfinite (integratedLufs))
+            {
+                // 坏读数（非有限）：回到 1，并忘掉上一次的有效读数——之后再来「暂时没有读数」也不会跳回旧的衰减。
+                lastValidTargetGain = 1.0;
+                hasValidTarget = false;
+            }
+            else if (integratedLufs > -90.0f)
+            {
+                // 用 double 相减，极端但有限的输入也不会溢出。禁止正增益；下限只防坏读数。
+                const auto attenuationDb = juce::jlimit (-144.0, 0.0,
+                    static_cast<double> (targetLufs) - static_cast<double> (integratedLufs));
+                targetGain = std::pow (10.0, attenuationDb / 20.0);
+                lastValidTargetGain = targetGain;
+                hasValidTarget = true;
+            }
+            else if (hasValidTarget)
+            {
+                // 暂时没有读数（≤ −90 LUFS：界面 Reset 清表后的前 400 ms）而此前有过有效读数：保持上一次的目标，
+                // 不先回 1 再落回来（T-032 R8-04：改前监听 +N dB 爆响约 0.4 s）。预听只衰减、永不放大，保持不比回 1 危险。
+                targetGain = lastValidTargetGain;
+            }
         }
         previewGain.setTargetValue (targetGain);
         // JUCE 会忽略极近的目标值；归一时仍明确落到 1，保证最终逐位旁通。
