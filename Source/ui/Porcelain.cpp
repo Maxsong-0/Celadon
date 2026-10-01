@@ -520,15 +520,19 @@ namespace celadon::ui::porcelain
             }
         }
 
-        // 外缘两圈与旋钮帽（裁剪之外、最上层；与 GLAZE 无关）。
-        void drawRimAndCap (juce::Graphics& g)
+        // 外缘两圈（裁剪之外；与 GLAZE 无关）。
+        void drawRims (juce::Graphics& g)
         {
             // 外缘保留一圈细薄釉光；减淡外围深线，让主体不再像镶在金属圈里的宝石。
             g.setColour (juce::Colour (0xfffffdf5).withAlpha (0.62f));
             g.drawEllipse (-85.5f, -85.5f, 171.0f, 171.0f, 0.9f);
             g.setColour (juce::Colour (0x163d665e));
             g.drawEllipse (-87.0f, -87.0f, 174.0f, 174.0f, 0.8f);
+        }
 
+        // 旋钮帽：柔影、帽、细上缘（最上层；与 GLAZE 无关）。
+        void drawCap (juce::Graphics& g)
+        {
             // 深青色旋钮帽保留读数与指针的对比度；柔影和细上缘使它像瓷面上的凹入控制区。
             juce::ColourGradient shadow (juce::Colour (6, 24, 29).withAlpha (0.25f), 0.0f, 2.0f,
                                          juce::Colour (6, 24, 29).withAlpha (0.0f), capRadius + 5.0f, 2.0f, true);
@@ -623,7 +627,8 @@ namespace celadon::ui::porcelain
                 drawSheen (g);
             }
 
-            drawRimAndCap (g);
+            drawRims (g);
+            drawCap (g);
         }
 
         if (desaturated)
@@ -650,10 +655,13 @@ namespace celadon::ui::porcelain
                 }
         }
 
-        // 覆盖层：与参照同一组绘制调用、同一叠放顺序（釉面圆裁剪里的积釉 / 釉光 / 反光，之后外环与帽子），画在透明图上。
-        overlay = juce::Image (juce::Image::ARGB, size, size, true);
+        // 两张覆盖层：与参照同一组绘制调用、同一叠放顺序，各画在一张透明、与瓷面同尺寸的图上（同一坐标，光栅化与参照逐位相同）。
+        // ① 釉面圆裁剪里的积釉 / 釉光 / 反光 + 两圈外环；② 旋钮帽（柔影、帽、细上缘）。分两张是为了精度：帽子的抗锯齿边缘
+        // 正好压在釉光与柔影上，四层先在透明图上合成成一张再叠，8 位取整会累到 3 LSB（帽沿 13 个像素）；分开后 ≤ 2 LSB。
+        // 帽子那张不裁小：裁成外接矩形要整数平移坐标，光栅化的末位跟着变，反而又到 3 LSB。
+        sheenOverlay = juce::Image (juce::Image::ARGB, size, size, true);
         {
-            juce::Graphics g (overlay);
+            juce::Graphics g (sheenOverlay);
             g.addTransform (toImageTransform (size));
 
             {
@@ -662,7 +670,14 @@ namespace celadon::ui::porcelain
                 drawSheen (g);
             }
 
-            drawRimAndCap (g);
+            drawRims (g);
+        }
+
+        capOverlay = juce::Image (juce::Image::ARGB, size, size, true);
+        {
+            juce::Graphics g (capOverlay);
+            g.addTransform (toImageTransform (size));
+            drawCap (g);
         }
 
         layerSize = size;
@@ -743,8 +758,9 @@ namespace celadon::ui::porcelain
                 }
             }
 
-            // 覆盖层与图同尺寸、像素对像素（此刻的颜色是 Graphics 初始的不透明黑：整张原样叠上）。
-            g.drawImageAt (overlay, 0, 0);
+            // 两张覆盖层与图同尺寸、像素对像素（此刻的颜色是 Graphics 初始的不透明黑：整张原样叠上）。
+            g.drawImageAt (sheenOverlay, 0, 0);
+            g.drawImageAt (capOverlay, 0, 0);
         }
 
         if (desaturated)
