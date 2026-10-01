@@ -525,6 +525,13 @@ namespace celadon::ui
 
     void AdvancedPanel::setStatus (const celadon::MasteringStatus& newStatus)
     {
+        // 面板多数时候是关着的：只记下，不拼读数、不量曲线；打开时 visibilityChanged 按最新状态一次刷新（T-032 R9-12）。
+        if (! isVisible())
+        {
+            status = newStatus;
+            return;
+        }
+
         const auto oldReferenceText = referenceStatusText();
         const bool readingsChanged = juce::String (finiteReading (status.harshReductionDb), 1) != juce::String (finiteReading (newStatus.harshReductionDb), 1)
                                   || juce::String (finiteReading (status.previewGainDb), 1) != juce::String (finiteReading (newStatus.previewGainDb), 1);
@@ -536,6 +543,17 @@ namespace celadon::ui
             refreshControls();
         if (readingsChanged || controlsChanged || oldReferenceText != referenceStatusText())
             repaint();
+    }
+
+    void AdvancedPanel::visibilityChanged()
+    {
+        if (! isVisible())
+            return;
+
+        // 关着时攒下的状态（学习进度、预听、参考谱修正曲线……）：控件、曲线与读数一次刷新到最新。
+        targetCurve.setValues (status.targetCorrectionDb);
+        refreshControls();
+        repaint();
     }
 
     void AdvancedPanel::refreshControls()

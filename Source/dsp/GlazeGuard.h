@@ -78,6 +78,20 @@ namespace celadon::glaze
         // g_保护停在 −1 dB 时校准器会把这 1 dB 当成偏差补回去，与保护层互相顶）。
         bool isEngaged() const noexcept;
 
+        // ---- T-032 R5-02 追加（只给编排器的测试探针读）----
+
+        // 此刻生效的约束上限（最近一次 setLimits 交来的混合后常数）与「已经设过上限」标志。
+        const StyleConstants& getLimits() const noexcept   { return limits; }
+        bool hasLimits() const noexcept                    { return limitsSet; }
+
+        // ---- T-032 R6-02 收尾（A11）----
+
+        // 约束的口径变了（编排器因手动单独超预算把某几项放开或收回，GlazeController.cpp updateGuardLimits）：窗口里已完成的时隙是按
+        // 另一套口径攒的——手动 Glue 从超预算拧回上限以内那一刻，旧时隙里手动造成的大 GR 按新上限一判就是「持续超出」，会白白退让
+        // 自动 Gain。清掉已完成时隙的统计窗、3 s 超出计时与 p95 计数，按新口径从头判定。不动的：g_保护（已执行的退让照常按规则恢复，
+        // 净增益不跳）、连续安全时隙数、「方案受限」、正在累计的那一格（时隙网格不变，链按它切片）。上限本身照旧（setLimits 管）。
+        void clearStatistics() noexcept;
+
     private:
         // 10 ms 音乐时隙（环形缓冲的一格）。
         struct Slot

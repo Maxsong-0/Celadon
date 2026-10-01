@@ -32,6 +32,11 @@
     BUG-004（T-026，ADR-018）：CALIBRATION 与执行快照的 REFERENCE 按新口径另存 conditionsFormat="2"、discreteParamsHash 与
       三个对数刻度值（limitReleaseMs、clayLowCutHz、clayMonoHz）；口径号为 2 时四项缺一即拒收，口径号不是 1 / 2 拒收。
       旧口径的参考（旧存档读回、还没升格）一个新属性也不写，存出来与修前逐字相同；manualParamsHash 两种口径都写（旧口径哈希）。
+    T-032 R6-02（2026-09-29）：PLAN 多存 automaticLevelWithdrawn（电平类自动全部撤回；编排器的画像失配看它，见 GlazeTypes.h）。
+      缺属性 = 取同一节点里的 limitedByManual（旧语义，保守）；在但不是 0 / 1 拒收。执行快照的 PLAN 同一字段表。
+    T-032 R6-02 收尾（A11）：PLAN 多存 manualBudgetMask（手动链单独已超预算的项，保护层与上游监视不核对它们，见 GlazeTypes.h；十进制）。
+      缺属性 = 受手动设置限制的方案三位全置、否则 0；在但不是 0 ～ 255 的整数拒收。已提交版本里未定义的位照读（编排器只认三个已定义的位，
+      与 clayCostLimitedMask 同一做法）；执行快照的 PLAN 含未定义的位整份拒收（与其他执行量同一做法）。
 
   ==============================================================================
 */
@@ -166,6 +171,17 @@ namespace celadon::glaze
 
             v.field ("limitedByConstraints", plan.limitedByConstraints);
             v.field ("limitedByManual", plan.limitedByManual);
+            // T-032 R6-02：电平类自动全部撤回。v0.1.8.5 及以前的存档没有这个属性：缺省取刚读到的 limitedByManual（旧语义 = 保守）——
+            // 旧方案的「受手动限制」分不出是哪一种，按全撤读，看本标志的门不会比修前更早开工（算法 < 6 的存档进「照用保存的方案」
+            // 模式，用的就是读回的方案；缺省 false 会让它们对一份「自动全撤」的旧方案照常开工）；兼容算法的存档下一块就重算，缺省值
+            // 无影响。属性在但不是 0 / 1 照样拒收。
+            v.optionalField ("automaticLevelWithdrawn", plan.automaticLevelWithdrawn, plan.limitedByManual);
+            // T-032 R6-02 收尾（A11）：手动链单独已超预算的项（GlazeTypes.h manualBudget*，十进制位掩码）。A11 之前的存档没有这个属性：
+            // 受手动设置限制的方案分不出是哪一项超了，三项全按「手动已超」读（保护层与上游监视不把可能是手动造成的超出当成自动的，
+            // 只核对限幅器；v0.1.8.5 及以前的存档这时 automaticLevelWithdrawn 也按 limitedByManual 读，保护层本来就整体停着），不受限的读 0
+            // （与修前逐位同）。属性在但不是 0 ～ 255 的整数照样拒收；未定义的位已提交版本照读（编排器只认三个已定义的位），执行快照拒收
+            // （fromXml (ExecutionState) 另核）。
+            v.optionalField ("manualBudgetMask", plan.manualBudgetMask, plan.limitedByManual ? manualBudgetAll : std::uint8_t { 0 });
             v.field ("algorithmVersion", plan.algorithmVersion);
             v.field ("constantsVersion", plan.constantsVersion);
         }
@@ -600,6 +616,9 @@ namespace celadon::glaze
             || weights.clean < 0.0f || weights.clean > 1.0f || ! (weights.warm + weights.punchy + weights.clean > 0.0f)
             || ! (parsed.reference.sampleRate > 0.0)
             || ! std::isfinite (parsed.reference.sampleRate))
+            return false;
+        // T-032 A11：手动链单独超预算的项只许 GlazeTypes.h 定义的三位（与上面 Clay 代价位同一做法；已提交版本照读、编排器只认这三位）。
+        if ((parsed.plan.manualBudgetMask & ~manualBudgetAll) != 0)
             return false;
         out = parsed;
         return true;

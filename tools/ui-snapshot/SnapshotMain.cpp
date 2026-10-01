@@ -5,10 +5,19 @@
     celadon_ui_snapshot：在 Linux 上把整个插件（处理器 + v0.1.8.0 的编辑器）跑起来，喂一段合成的音乐，
     再把编辑器按几种状态离屏渲染成 PNG，对照 V4 设计稿检查布局、配色、中英文与缩放（见 README.md）。
 
-    用法：celadon_ui_snapshot --out <目录> [--scale 2] [--only 名字,名字]
+    用法：celadon_ui_snapshot --out <目录> [--scale 2] [--only 名字,名字] [--frames N] [--deterministic]
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
+      --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
+      命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字）；
+      --only bench 跑绘制性能基准（T-032）：瓷面参照与分层的生成耗时、静态背景生成耗时，GLAZE 45 % 播放中 1 / 2 / 4 倍下
+      编辑器定时器一帧、整帧重画与只重画粒子带的毫秒（墙钟与本线程 CPU）、各部件累计 paint 与缓存读写、状态胶囊呼吸帧，
+      拖动 GLAZE 时消息线程的 CPU 占比，听原声（B）时的粒子带重画；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测；
+      --only digest 打印逐位摘要（瓷面参照实现 renderGlaze 的 200 种组合、静态背景的 4 种像素比）：改动前后各跑一次逐行比，
+      应当逐位不变的项一字不差。
+      --deterministic：出图时播放不跑消息循环（编辑器 / 胶囊 / 旋钮的定时器不按墙钟插进来），两次运行逐像素相同（电平表除外），
+      用于改前改后逐像素对比；听原声那张图的瓷面因此还没换成去色版（换图靠主旋钮的定时器）。
 
   ==============================================================================
 */
@@ -18,14 +27,20 @@
 #include "../../Source/ParameterIds.h"
 #include "../../Source/PluginEditor.h"
 #include "../../Source/PluginProcessor.h"
+#include "../../Source/ui/Porcelain.h"
 #include "../../Source/ui/UiSettings.h"
 
 #if JUCE_MAC
  #include <CoreFoundation/CoreFoundation.h>
 #endif
 
+#include <chrono>
 #include <cmath>
+#include <ctime>
+#include <functional>
 #include <iostream>
+#include <optional>
+#include <vector>
 
 // PluginProcessor.cpp 里定义（插件外壳平时由 juce_audio_plugin_client 声明，截图工具不编它）。
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
@@ -43,6 +58,11 @@ namespace
 
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 512;
+
+    // --deterministic：播放时不跑消息循环。编辑器自己的 30 Hz 定时器、状态胶囊的呼吸、主旋钮的定时器都按墙钟触发，
+    // 跑消息循环时它们落在哪一帧每次不同（频谱取样口被拉的时刻、粒子跟的电平、圆点的相位都跟着变）；不跑时每帧只走
+    // advanceForSnapshot，两次运行逐像素相同（只剩电平表按墙钟算的下落），改前改后的截图才能逐像素比。
+    bool deterministic = false;
 
     // 一段 120 BPM 的合成音乐：底鼓、军鼓、踩镲、贝斯、和弦，立体声。每次调用往后写 numSamples 个样本。
     class Music
@@ -150,7 +170,9 @@ namespace
                 {
                     sinceFrame = 0;
                     editor->advanceForSnapshot (1600.0 / sampleRate);
-                    dispatchEvents (1);
+
+                    if (! deterministic)
+                        dispatchEvents (1);
                 }
             }
         }
@@ -200,7 +222,90 @@ namespace
             target.mouseUp (mouseEvent (target, to, extra, from, 1, true));
     }
 
+    //==============================================================================
+    // 检查与基准共用：挂在组件上的 paint 计时（JUCE 9 的 ComponentPaintDiagnostics）。cacheReads = 这次从组件缓存图读
+    //（setBufferedToImage / AlignedComponentCache），cacheWrites = 这次缓存作废、重画进缓存图。
+    struct PaintProbe  : public juce::ComponentListener
+    {
+        juce::String name;
+        double totalMs = 0.0;
+        int paints = 0, cacheReads = 0, cacheWrites = 0;
+
+        void componentPainted (juce::Component&, const juce::ComponentPaintDiagnostics& diagnostics) override
+        {
+            totalMs += diagnostics.totalPaintDuration.get<std::chrono::duration<double, std::milli>>();
+            ++paints;
+            cacheReads += diagnostics.readFromCache ? 1 : 0;
+            cacheWrites += diagnostics.wroteToCache ? 1 : 0;
+        }
+
+        void reset()
+        {
+            totalMs = 0.0;
+            paints = 0;
+            cacheReads = 0;
+            cacheWrites = 0;
+        }
+    };
+
+    void collectDescendants (juce::Component& root, std::vector<juce::Component*>& out)
+    {
+        for (auto* child : root.getChildren())
+        {
+            out.push_back (child);
+            collectDescendants (*child, out);
+        }
+    }
+
+    template <typename ComponentType>
+    ComponentType* findFirst (juce::Component& root)
+    {
+        std::vector<juce::Component*> all;
+        collectDescendants (root, all);
+
+        for (auto* component : all)
+            if (auto* found = dynamic_cast<ComponentType*> (component))
+                return found;
+
+        return nullptr;
+    }
+
+    // 画一帧到离屏图：clipLogical 给了就只标脏那一块（编辑器逻辑坐标）。返回毫秒。
+    double paintFrame (juce::Component& editor, juce::Image& target, float scale, std::optional<juce::Rectangle<int>> clipLogical)
+    {
+        juce::Graphics g (target);
+
+        if (! juce::approximatelyEqual (scale, 1.0f))
+            g.addTransform (juce::AffineTransform::scale (scale));
+
+        if (clipLogical.has_value())
+            g.reduceClipRegion (*clipLogical);
+
+        const auto started = juce::Time::getMillisecondCounterHiRes();
+        editor.paintEntireComponent (g, true);
+        return juce::Time::getMillisecondCounterHiRes() - started;
+    }
+
+    juce::String ms (double value)
+    {
+        return juce::String (value, 3);
+    }
+
+    std::unique_ptr<Session> makeSession (float glazePercent)
+    {
+        auto session = std::make_unique<Session>();
+        session->processor.reset (dynamic_cast<CeladonAudioProcessor*> (createPluginFilter()));
+        session->processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
+        session->processor->prepareToPlay (sampleRate, blockSize);
+        session->setParameter (celadon::param::glazeAmount, glazePercent);
+        session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditor()));
+        return session;
+    }
+
     int runChecks (Session& session, const juce::File& outDir, float scale);
+    int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
+    void runBench (int frames);
+    void runDigest();
 
     bool save (juce::Component& component, float scale, const juce::File& file)
     {
@@ -222,19 +327,40 @@ int main (int argc, char* argv[])
 
     juce::File outDir = juce::File::getCurrentWorkingDirectory();
     float scale = 1.0f;
+    int benchFrames = 120;
     juce::StringArray only;
 
     for (int i = 1; i < argc; ++i)
     {
         const juce::String arg (argv[i]);
 
-        if (arg == "--out" && i + 1 < argc)        outDir = juce::File::getCurrentWorkingDirectory().getChildFile (argv[++i]);
-        else if (arg == "--scale" && i + 1 < argc) scale = (float) juce::String (argv[++i]).getDoubleValue();
-        else if (arg == "--only" && i + 1 < argc)  only.addTokens (argv[++i], ",", {});
+        if (arg == "--out" && i + 1 < argc)         outDir = juce::File::getCurrentWorkingDirectory().getChildFile (argv[++i]);
+        else if (arg == "--scale" && i + 1 < argc)  scale = (float) juce::String (argv[++i]).getDoubleValue();
+        else if (arg == "--only" && i + 1 < argc)   only.addTokens (argv[++i], ",", {});
+        else if (arg == "--frames" && i + 1 < argc) benchFrames = juce::jmax (1, juce::String (argv[++i]).getIntValue());
+        else if (arg == "--deterministic")          deterministic = true;
     }
 
     outDir.createDirectory();
     juce::SharedResourcePointer<celadon::ui::UiSettings> settings;
+
+    if (only.contains ("bench"))
+    {
+        settings->setLanguage (celadon::Language::chinese);
+        settings->setReduceMotion (false);
+        settings->setDefaultZoom (1.0);
+        runBench (benchFrames);
+        return 0;
+    }
+
+    if (only.contains ("digest"))
+    {
+        settings->setLanguage (celadon::Language::chinese);
+        settings->setReduceMotion (false);
+        settings->setDefaultZoom (1.0);
+        runDigest();
+        return 0;
+    }
 
     if (only.contains ("check"))
     {
@@ -693,7 +819,792 @@ namespace
             settings->setLanguage (celadon::Language::chinese);
         }
 
+        failures += runCacheChecks (session, check);
+
         std::cout << (failures == 0 ? "all interaction checks passed" : juce::String (failures) + " interaction checks FAILED") << std::endl;
         return failures;
+    }
+
+    //==============================================================================
+    // T-032 界面性能改动的回归检查：各缓存命中、分层瓷面与原算法逐像素对照、30 帧节流、底排与延迟读数的触发条件。
+    // 返回 0（失败已由 check 计入 runChecks 的总数）。
+    struct ImageDiff
+    {
+        int worst = 0;
+        long long pixels = 0, offBy1 = 0, offBy2 = 0, offByMore = 0;
+        juce::Point<int> worstAt { -1, -1 };             // 第一个差到 worst 的像素与两边的值（预乘 ARGB）
+        juce::uint32 worstA = 0, worstB = 0;
+
+        juce::String describeWorst() const
+        {
+            return worstAt.x < 0 ? juce::String ("-")
+                                 : "(" + juce::String (worstAt.x) + ", " + juce::String (worstAt.y) + ") #"
+                                       + juce::String::toHexString ((juce::int64) worstA).paddedLeft ('0', 8) + " vs #"
+                                       + juce::String::toHexString ((juce::int64) worstB).paddedLeft ('0', 8);
+        }
+    };
+
+    // 两张同尺寸 ARGB 图逐像素、逐通道（预乘值）比。尺寸不同按 255 记。
+    ImageDiff compareImages (const juce::Image& a, const juce::Image& b)
+    {
+        ImageDiff diff;
+
+        if (a.getWidth() != b.getWidth() || a.getHeight() != b.getHeight())
+        {
+            diff.worst = 255;
+            return diff;
+        }
+
+        const juce::Image::BitmapData da (a, juce::Image::BitmapData::readOnly), db (b, juce::Image::BitmapData::readOnly);
+
+        for (int y = 0; y < da.height; ++y)
+            for (int x = 0; x < da.width; ++x)
+            {
+                const auto& p = *reinterpret_cast<const juce::PixelARGB*> (da.getPixelPointer (x, y));
+                const auto& q = *reinterpret_cast<const juce::PixelARGB*> (db.getPixelPointer (x, y));
+                const auto d = juce::jmax (std::abs ((int) p.getAlpha() - (int) q.getAlpha()), std::abs ((int) p.getRed() - (int) q.getRed()),
+                                           std::abs ((int) p.getGreen() - (int) q.getGreen()), std::abs ((int) p.getBlue() - (int) q.getBlue()));
+                ++diff.pixels;
+
+                if (d > diff.worst)
+                {
+                    diff.worst = d;
+                    diff.worstAt = { x, y };
+                    diff.worstA = p.getNativeARGB();
+                    diff.worstB = q.getNativeARGB();
+                }
+
+                diff.offBy1 += d == 1 ? 1 : 0;
+                diff.offBy2 += d == 2 ? 1 : 0;
+                diff.offByMore += d > 2 ? 1 : 0;
+            }
+
+        return diff;
+    }
+
+    int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+        auto& editor = *session.editor;
+        juce::SharedResourcePointer<UiSettings> settings;
+
+        const auto find = [&editor] (const juce::String& id) -> juce::Component&
+        {
+            auto* component = findById (editor, id);
+
+            if (component == nullptr)
+            {
+                std::cout << "FAIL missing component " << id << std::endl;
+                std::exit (2);
+            }
+
+            return *component;
+        };
+
+        // 回到中文、让语言切换与各定时器（瓷面交叉淡化、按像素比重生成）先跑完。
+        settings->setLanguage (celadon::Language::chinese);
+        dispatchEvents (400);
+        editor.advanceForSnapshot (0.05);
+
+        juce::Image target (juce::Image::RGB, editor.getWidth(), editor.getHeight(), false);
+        const juce::Rectangle<int> band (0, ParticleField::top, editor.getWidth(), ParticleField::bandHeight);
+        paintFrame (editor, target, 1.0f, std::nullopt);
+
+        // ⑫ R9-02：分层渲染与原算法（renderGlaze）逐像素相差 ≤ 2 LSB——各缩放下的像素比（含主旋钮 200 / 224 的换算）× GLAZE × 去色。
+        {
+            porcelain::GlazeRenderer renderer;
+            ImageDiff total;
+            juce::String worstCase = "-";
+
+            for (const auto pixelScale : { 0.625f, 0.892857f, 1.0f, 1.339286f, 1.5f, 1.785714f, 2.0f, 2.5f, 3.571429f, 4.0f })
+                for (const auto t : { 0.0f, 0.03f, 0.2f, 0.35f, 0.45f, 0.5f, 0.65f, 0.8f, 0.9f, 1.0f })
+                    for (const auto desaturated : { false, true })
+                    {
+                        const auto diff = compareImages (porcelain::renderGlaze (t, pixelScale, desaturated), renderer.render (t, pixelScale, desaturated));
+
+                        if (diff.worst > total.worst)
+                            worstCase = "scale " + juce::String (pixelScale) + " t " + juce::String (t) + (desaturated ? " desaturated" : "")
+                                          + " px " + diff.describeWorst() + " reference vs layered";
+
+                        total.worst = juce::jmax (total.worst, diff.worst);
+                        total.pixels += diff.pixels;
+                        total.offBy1 += diff.offBy1;
+                        total.offBy2 += diff.offBy2;
+                        total.offByMore += diff.offByMore;
+                    }
+
+            check (total.worst <= 2, "T-032 layered porcelain within 2 LSB of renderGlaze (worst " + juce::String (total.worst) + " at " + worstCase
+                                         + "; of " + juce::String (total.pixels) + " px: off by 1 " + juce::String (total.offBy1) + ", by 2 "
+                                         + juce::String (total.offBy2) + ", by more " + juce::String (total.offByMore) + ")");
+            check (renderer.getLayerBuilds() == 10, "T-032 porcelain layers rebuilt only when the image size changes (" + juce::String (renderer.getLayerBuilds()) + " builds for 10 scales)");
+        }
+
+        // ⑬ R9-01 / 07 / 14：整颗主旋钮的缓存图——GLAZE 不动时重画粒子带只贴图；值、听原声一变就重新合成一次。
+        {
+            auto& glazeKnob = static_cast<GlazeKnob&> (find (celadon::param::glazeAmount));
+            paintFrame (editor, target, 1.0f, band);
+            const auto before = glazeKnob.getPaintStats();
+
+            for (int i = 0; i < 5; ++i)
+                paintFrame (editor, target, 1.0f, band);
+
+            const auto steady = glazeKnob.getPaintStats();
+            check (steady.paints == before.paints + 5 && steady.faceRenders == before.faceRenders,
+                   "T-032 GLAZE knob: 5 band repaints only blit its cached face (" + juce::String (steady.paints - before.paints) + " paints, "
+                       + juce::String (steady.faceRenders - before.faceRenders) + " face renders)");
+
+            auto* glaze = session.processor->getParameters().getParameter (celadon::param::glazeAmount);
+            glaze->setValueNotifyingHost (glaze->convertTo0to1 (glaze->convertFrom0to1 (glaze->getValue()) + 1.0f));
+            paintFrame (editor, target, 1.0f, band);
+            paintFrame (editor, target, 1.0f, band);
+            const auto moved = glazeKnob.getPaintStats();
+            check (moved.faceRenders == steady.faceRenders + 1, "T-032 GLAZE knob: a value change re-composes the face once ("
+                                                                    + juce::String (moved.faceRenders - steady.faceRenders) + ")");
+
+            glazeKnob.setComparing (true);
+            paintFrame (editor, target, 1.0f, band);
+            paintFrame (editor, target, 1.0f, band);
+            const auto comparing = glazeKnob.getPaintStats();
+            check (comparing.faceRenders == moved.faceRenders + 1, "T-032 GLAZE knob: listening to the original re-composes the face once ("
+                                                                       + juce::String (comparing.faceRenders - moved.faceRenders) + ")");
+            glazeKnob.setComparing (session.processor->isComparingOriginal());
+            dispatchEvents (400);
+        }
+
+        // ⑭ R9-01：粒子带里的 8 个文字小部件都挂着整数对齐的缓存；重画粒子带时从缓存读、不再重画进缓存。
+        {
+            int cached = 0;
+            juce::StringArray missing;
+
+            for (const auto* id : { "glaze_title", "glaze_style", "relearn", "ab", "match", "monitoring", "corner_note", "legend" })
+            {
+                if (dynamic_cast<AlignedComponentCache*> (find (id).getCachedComponentImage()) != nullptr)
+                    ++cached;
+                else
+                    missing.add (id);
+            }
+
+            check (cached == 8, "T-032 the 8 text widgets in the particle band have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
+
+            PaintProbe probe;
+            auto& title = find ("glaze_title");
+            title.addComponentListener (&probe);
+            paintFrame (editor, target, 1.0f, band);
+            probe.reset();
+
+            for (int i = 0; i < 5; ++i)
+                paintFrame (editor, target, 1.0f, band);
+
+            title.removeComponentListener (&probe);
+            check (probe.paints == 5 && probe.cacheReads == 5 && probe.cacheWrites == 0,
+                   "T-032 band repaints read the GLAZE title from its cache (" + juce::String (probe.cacheReads) + " reads, "
+                       + juce::String (probe.cacheWrites) + " re-renders of 5)");
+        }
+
+        // ⑮ R9-05 / M-3：粒子的柔光与流线缓存图——像素比不变时不重新生成。
+        {
+            auto* field = findFirst<ParticleField> (editor);
+            const auto before = field != nullptr ? field->getCacheStats() : ParticleField::CacheStats {};
+
+            for (int i = 0; i < 5; ++i)
+            {
+                editor.advanceForSnapshot (1.0 / 30.0);
+                paintFrame (editor, target, 1.0f, band);
+            }
+
+            const auto after = field != nullptr ? field->getCacheStats() : ParticleField::CacheStats { -1, -1 };
+            check (field != nullptr && after.lineRenders == before.lineRenders && after.glowRenders == before.glowRenders && before.lineRenders > 0,
+                   "T-032 particle glow and streamlines stay cached across frames (" + juce::String (after.lineRenders) + " / "
+                       + juce::String (after.glowRenders) + " renders so far)");
+        }
+
+        // ⑯ R9-06：30 帧 / s 节流在各种刷新率与时间戳抖动下都按整数个 VBlank 画（60 Hz 每 2 个、90 Hz 每 3 个、120 Hz 每 4 个、
+        //     144 Hz 每 5 个）；对照：只按「≥ 1/30 s」严格比，60.001 Hz 屏就掉到每 3 个 VBlank 一帧。
+        {
+            struct Case { double hz, jitterMs; int expected; };
+            juce::Random random (0x7032);
+            juce::StringArray results;
+            bool allOk = true;
+
+            for (const auto& c : { Case { 60.0, 0.0, 2 }, Case { 60.001, 0.0, 2 }, Case { 59.94, 0.0, 2 }, Case { 60.0, 1.5, 2 },
+                                   Case { 90.0, 0.0, 3 }, Case { 120.0, 0.0, 4 }, Case { 120.0, 1.0, 4 }, Case { 144.0, 0.0, 5 } })
+            {
+                const auto period = 1.0 / c.hz;
+                double lastVBlank = -1.0, lastFrame = -1.0, lastStrictFrame = -1.0;
+                int lastFrameIndex = -1, lastStrictIndex = -1, minGap = 1000, maxGap = 0, strictMaxGap = 0;
+
+                for (int k = 0; k < 900; ++k)
+                {
+                    // 时间戳从 1 s 起：真实的 VBlank 时间戳恒为正（开机以来的秒数），第 0 帧带抖动也不能变成负数去撞「< 0 = 还没有」。
+                    const auto t = 1.0 + (double) k * period + (random.nextDouble() * 2.0 - 1.0) * c.jitterMs * 1.0e-3;
+                    const auto dt = lastVBlank < 0.0 ? 0.0 : t - lastVBlank;
+                    lastVBlank = t;
+
+                    if (lastFrame < 0.0 || ParticleField::isFrameDue (t - lastFrame, dt))
+                    {
+                        if (lastFrameIndex >= 0)
+                        {
+                            minGap = juce::jmin (minGap, k - lastFrameIndex);
+                            maxGap = juce::jmax (maxGap, k - lastFrameIndex);
+                        }
+
+                        lastFrame = t;
+                        lastFrameIndex = k;
+                    }
+
+                    if (lastStrictFrame < 0.0 || t - lastStrictFrame >= 1.0 / ParticleField::maxFrameRate)
+                    {
+                        if (lastStrictIndex >= 0)
+                            strictMaxGap = juce::jmax (strictMaxGap, k - lastStrictIndex);
+
+                        lastStrictFrame = t;
+                        lastStrictIndex = k;
+                    }
+                }
+
+                const auto ok = minGap == c.expected && maxGap == c.expected;
+                allOk = allOk && ok;
+                results.add (juce::String (c.hz, 3) + " Hz" + (c.jitterMs > 0.0 ? " +/-" + juce::String (c.jitterMs, 1) + " ms" : juce::String())
+                             + ": every " + juce::String (minGap) + (maxGap != minGap ? "-" + juce::String (maxGap) : juce::String())
+                             + " (strict >= 1/30 s: up to " + juce::String (strictMaxGap) + ")");
+            }
+
+            check (allOk, "T-032 particle frame pacing locks to whole VBlanks at 30 fps [" + results.joinIntoString ("; ") + "]");
+        }
+
+        // ⑰ R9-12：底排不再每帧重排——等响的文字变了（开 ↔ 关）才按新宽度重排；语言切换也重排。
+        {
+            auto& match = static_cast<PillButton&> (find ("match"));
+            auto& relearn = static_cast<PillButton&> (find ("relearn"));
+            auto& ab = static_cast<Segmented&> (find ("ab"));
+            const auto laidOut = [&] { return match.getWidth() == match.getNaturalWidth() && relearn.getWidth() == relearn.getNaturalWidth()
+                                              && ab.getWidth() == ab.getNaturalWidth(); };
+
+            const auto before = match.getText();
+            click (match, { 20.0f, 14.0f });
+            editor.advanceForSnapshot (0.05);
+            check (match.getText() != before && laidOut(), "T-032 bottom row re-laid out after the Match text changed (" + match.getText() + ")");
+            click (match, { 20.0f, 14.0f });
+            editor.advanceForSnapshot (0.05);
+
+            settings->setLanguage (celadon::Language::english);
+            dispatchEvents (50);
+            editor.advanceForSnapshot (0.05);
+            auto& topBar = static_cast<TopBar&> (*find ("language").getParentComponent());
+            check (laidOut() && relearn.getText() == tr (Text::relearn, celadon::Language::english),
+                   "T-032 bottom row re-laid out for English (" + relearn.getText() + ")");
+            check (topBar.getLatencyText().startsWith (tr (Text::latency, celadon::Language::english) + " "),
+                   "T-032 latency label follows the language at once (" + topBar.getLatencyText() + ")");
+
+            settings->setLanguage (celadon::Language::chinese);
+            dispatchEvents (50);
+            editor.advanceForSnapshot (0.05);
+            check (laidOut() && topBar.getLatencyText().startsWith (tr (Text::latency, celadon::Language::chinese) + " "),
+                   "T-032 bottom row and latency label back to Chinese");
+        }
+
+        // ⑱ R9-12：「高级」面板关着时只记下状态，打开时一次刷新到最新（预听开着 → 按钮写「停止预听」）。
+        {
+            editor.showAdvanced (false);
+            editor.setReleasePreviewEnabled (true);
+            editor.advanceForSnapshot (0.05);
+            auto& preview = static_cast<PillButton&> (find ("adv_preview"));
+            const auto hiddenText = preview.getText();
+            editor.showAdvanced (true);
+            const auto shownText = preview.getText();
+            check (session.processor->isReleasePreviewEnabled() && shownText == tr (Text::previewStop, celadon::Language::chinese),
+                   "T-032 Advanced panel refreshes the stored status when it opens (" + hiddenText + " -> " + shownText + ")");
+            editor.showAdvanced (false);
+            editor.setReleasePreviewEnabled (false);
+            editor.advanceForSnapshot (0.05);
+        }
+
+        // ⑲ R9-13：状态胶囊整颗缓存（整数对齐）。内容变了（整颗作废）时每段文字照画进缓存；别处引起的重画（macOS 的脏矩形包围盒
+        //     把胶囊圈进去）只从缓存贴、不排版；呼吸只作废圆点那一小块（圆点 7 px + 3 px 光晕 + 1 px 抗锯齿），缓存只重画那一块，
+        //     胶囊与顶栏一段文字都不排版（跳过只按脏区判断，不会漏画）。
+        {
+            auto* pill = findFirst<StatusPill> (editor);
+            auto* topBar = findFirst<TopBar> (editor);
+            const auto area = pill != nullptr ? pill->getPulseArea() : juce::Rectangle<int>();
+            check (pill != nullptr && topBar != nullptr && ! area.isEmpty() && area.getWidth() <= 16 && area.getHeight() <= 16
+                       && pill->getLocalBounds().contains (area)
+                       && dynamic_cast<AlignedComponentCache*> (pill->getCachedComponentImage()) != nullptr,
+                   "T-032 status pill has an aligned image cache and pulses by invalidating only its dot (" + area.toString() + " of "
+                       + (pill != nullptr ? pill->getLocalBounds().toString() : juce::String ("-")) + ")");
+
+            if (pill != nullptr && topBar != nullptr)
+            {
+                PaintProbe probe;
+                pill->addComponentListener (&probe);
+                const auto whole = editor.getLocalArea (pill, pill->getLocalBounds());
+
+                pill->repaint();   // 内容变了：整颗作废
+                const auto renderedBefore = pill->getTextDraws();
+                paintFrame (editor, target, 1.0f, whole);
+                const auto renderedText = pill->getTextDraws() - renderedBefore;
+                const auto renderedWrites = probe.cacheWrites;
+
+                probe.reset();     // 别处引起的重画：缓存没作废
+                const auto blitBefore = pill->getTextDraws();
+                paintFrame (editor, target, 1.0f, whole);
+                const auto blitText = pill->getTextDraws() - blitBefore;
+                const auto blitPaints = probe.paints, blitReads = probe.cacheReads, blitWrites = probe.cacheWrites;
+
+                probe.reset();     // 呼吸一帧：只作废圆点那一块
+                const auto pulseBefore = pill->getTextDraws(), barBefore = topBar->getTextDraws();
+                pill->repaint (area);
+                paintFrame (editor, target, 1.0f, editor.getLocalArea (pill, area));
+                const auto pillPulse = pill->getTextDraws() - pulseBefore, barPulse = topBar->getTextDraws() - barBefore;
+                const auto pulseWrites = probe.cacheWrites;
+                pill->removeComponentListener (&probe);
+
+                check (renderedText > 0 && renderedWrites == 1,
+                       "T-032 a content change re-renders the whole pill into its cache (" + juce::String (renderedText) + " text item(s))");
+                check (blitPaints == 1 && blitReads == 1 && blitWrites == 0 && blitText == 0,
+                       "T-032 repaints from elsewhere only blit the cached pill (" + juce::String (blitReads) + " read, "
+                           + juce::String (blitWrites) + " re-render, " + juce::String (blitText) + " text)");
+                check (pillPulse == 0 && barPulse == 0 && pulseWrites == 1,
+                       "T-032 a pulse frame re-renders only the dot into the cache and lays out no text (pill " + juce::String (pillPulse)
+                           + ", top bar " + juce::String (barPulse) + ")");
+            }
+        }
+
+        return 0;
+    }
+}
+
+//==============================================================================
+// 性能基准（--only bench，T-032 R9-01 / 02 / 05 / 06 / 07 / 08 / 12 / 13 / 14 的改前改后对照）。
+// 离屏没有窗口系统的脏矩形，这里按两种口径各量一遍：
+//   full = 整个编辑器重画（宿主首帧、缩放后的那一帧）；
+//   band = 只把粒子带（画布 y 300 ～ 560 的整条）标脏——macOS 的 CoreGraphics 只拿脏矩形的包围盒，粒子每帧 repaint
+//          在 Mac 上就是这一条整带，带里的主旋钮、标题、按钮、图例都要跟着重画。
+// 每项给墙钟与本线程 CPU 时间两个数（机器与别的任务共用时墙钟会被抢占拉长，CPU 时间不受影响）。另外给主旋钮、粒子、
+// 中层文字部件与顶栏状态胶囊各挂一个 ComponentListener（JUCE 9 的 ComponentPaintDiagnostics，墙钟），累计各自的 paint 时长
+// 与「从缓存读」的次数。数字是软件渲染器的（Linux / Windows 非 Direct2D 的路径），Mac 的绝对值需 Max 用活动监视器实测。
+namespace
+{
+    // 本线程的 CPU 时间（毫秒）；没有对应接口的平台退回墙钟。
+    double threadCpuMs() noexcept
+    {
+       #if JUCE_WINDOWS
+        return juce::Time::getMillisecondCounterHiRes();
+       #else
+        timespec now {};
+        clock_gettime (CLOCK_THREAD_CPUTIME_ID, &now);
+        return (double) now.tv_sec * 1000.0 + (double) now.tv_nsec * 1.0e-6;
+       #endif
+    }
+
+    struct Clock
+    {
+        double wall = 0.0, cpu = 0.0;
+
+        static Clock now() noexcept                        { return { juce::Time::getMillisecondCounterHiRes(), threadCpuMs() }; }
+        Clock elapsed() const noexcept                     { const auto n = now(); return { n.wall - wall, n.cpu - cpu }; }
+        Clock& operator+= (const Clock& other) noexcept    { wall += other.wall; cpu += other.cpu; return *this; }
+        Clock per (int count) const noexcept               { return { wall / juce::jmax (1, count), cpu / juce::jmax (1, count) }; }
+        juce::String text() const                          { return ms (wall) + " ms (cpu " + ms (cpu) + ")"; }
+    };
+
+    // 画一帧（同 paintFrame），返回墙钟与 CPU 时间。
+    Clock paintTimed (juce::Component& editor, juce::Image& target, float scale, std::optional<juce::Rectangle<int>> clipLogical)
+    {
+        juce::Graphics g (target);
+
+        if (! juce::approximatelyEqual (scale, 1.0f))
+            g.addTransform (juce::AffineTransform::scale (scale));
+
+        if (clipLogical.has_value())
+            g.reduceClipRegion (*clipLogical);
+
+        const auto started = Clock::now();
+        editor.paintEntireComponent (g, true);
+        return started.elapsed();
+    }
+
+    juce::Image frameFor (juce::Component& editor, float scale)
+    {
+        return { juce::Image::RGB, juce::roundToInt ((float) editor.getWidth() * scale), juce::roundToInt ((float) editor.getHeight() * scale), false };
+    }
+
+    void runBench (int frames)
+    {
+        std::cout << "==== bench: frames=" << frames << " (software renderer; wall and thread-CPU ms; Mac absolute numbers need Max)" << std::endl;
+
+        // ---- 1. 瓷面生成：拖动 GLAZE 时每次重新生成的开销，各取 5 次最短 ----
+        //   renderGlaze = 原算法（逐像素全量，T-032 前主旋钮每次都走它）；layered = GlazeRenderer（R9-02 分层，界面现在用它）。
+        celadon::ui::porcelain::GlazeRenderer renderer;
+
+        const auto timeGlaze = [&renderer] (float t, float pixelScale, bool desaturated, bool layered)
+        {
+            Clock best { 1.0e9, 1.0e9 };
+
+            for (int repeat = 0; repeat < 5; ++repeat)
+            {
+                const auto started = Clock::now();
+                const auto image = layered ? renderer.render (t, pixelScale, desaturated) : celadon::ui::porcelain::renderGlaze (t, pixelScale, desaturated);
+                const auto took = started.elapsed();
+                juce::ignoreUnused (image);
+                best = { juce::jmin (best.wall, took.wall), juce::jmin (best.cpu, took.cpu) };
+            }
+
+            return best;
+        };
+
+        for (const auto pixelScale : { 1.0f, 2.0f, 4.0f })
+        {
+            // 分层的第一次（这个像素比下建底层逐像素量、两张覆盖层与裂纹轮廓）单独量一次。
+            const auto firstStarted = Clock::now();
+            juce::ignoreUnused (renderer.render (0.45f, pixelScale, false));
+            std::cout << "porcelain layered first render (builds layers)  scale=" << pixelScale << "  " << firstStarted.elapsed().text() << std::endl;
+
+            for (const auto t : { 0.2f, 0.45f, 0.9f })
+                std::cout << "porcelain scale=" << pixelScale << " t=" << t << "  renderGlaze " << timeGlaze (t, pixelScale, false, false).text()
+                          << "   layered " << timeGlaze (t, pixelScale, false, true).text() << std::endl;
+        }
+
+        std::cout << "porcelain scale=2 t=0.45 desaturated  renderGlaze " << timeGlaze (0.45f, 2.0f, true, false).text()
+                  << "   layered " << timeGlaze (0.45f, 2.0f, true, true).text() << std::endl;
+
+        // ---- 2. 打开编辑器与缩放（R9-08）：静态背景在消息线程同步生成。----
+        //   打开：新建编辑器后的第一帧 − 第二帧（子组件全藏起来量，只剩静态背景；改前改后同一口径）；
+        //   缩放：同一个编辑器 1 → 2 倍，旧图先拉伸、像素比稳定 150 ms 后画布定时器重新生成——量那段消息循环的 CPU 时间，
+        //         减去同样长的空转（改后面板阴影的模糊图沿用，不再重做）；改后另有 renderStaticLayer 自己记的耗时。
+        const auto hideChildren = [] (juce::Component& editor)
+        {
+            for (auto* child : editor.getChildren())
+            {
+                if (child->getNumChildComponents() == 0)
+                    child->setVisible (false);
+
+                for (auto* grandChild : child->getChildren())
+                    grandChild->setVisible (false);
+            }
+        };
+
+        for (const auto pixelScale : { 1.0f, 2.0f })
+        {
+            auto session = makeSession (45.0f);
+            auto& editor = *session->editor;
+            hideChildren (editor);
+
+            auto target = frameFor (editor, pixelScale);
+            const auto first = paintTimed (editor, target, pixelScale, std::nullopt);
+            const auto second = paintTimed (editor, target, pixelScale, std::nullopt);
+            std::cout << "static layer, editor opened at scale=" << pixelScale << ": first frame " << first.text() << ", second " << second.text()
+                      << " -> generating it " << Clock { first.wall - second.wall, first.cpu - second.cpu }.text()
+                      << "; renderStaticLayer's own timer " << ms (editor.getStaticLayerRenderMs()) << " ms" << std::endl;
+
+            if (pixelScale < 2.0f)
+            {
+                dispatchEvents (400);
+                auto zoomed = frameFor (editor, 2.0f);
+                paintTimed (editor, zoomed, 2.0f, std::nullopt);   // 像素比变了：先拉伸旧图，150 ms 后重生成
+                const auto busyStarted = Clock::now();
+                dispatchEvents (600);
+                const auto busy = busyStarted.elapsed();
+                const auto idleStarted = Clock::now();
+                dispatchEvents (600);
+                const auto idle = idleStarted.elapsed();
+                std::cout << "static layer, zoom 1 -> 2 in the same editor: message thread cpu " << ms (busy.cpu) << " ms vs idle " << ms (idle.cpu)
+                          << " ms -> regenerating it ~" << ms (busy.cpu - idle.cpu) << " ms cpu; renderStaticLayer's own timer "
+                          << ms (editor.getStaticLayerRenderMs()) << " ms" << std::endl;
+            }
+
+            session->editor.reset();
+            session->processor->releaseResources();
+        }
+
+        // 打开编辑器的第一帧（全部组件：静态背景、第一次瓷面、各缓存图）与第二帧。
+        for (const auto pixelScale : { 1.0f, 2.0f })
+        {
+            auto session = makeSession (45.0f);
+            session->play (0.5);
+            auto& editor = *session->editor;
+            auto target = frameFor (editor, pixelScale);
+            const auto first = paintTimed (editor, target, pixelScale, std::nullopt);
+            const auto second = paintTimed (editor, target, pixelScale, std::nullopt);
+            std::cout << "editor opened at scale=" << pixelScale << ": first full frame " << first.text() << ", second " << second.text() << std::endl;
+            session->editor.reset();
+            session->processor->releaseResources();
+        }
+
+        // ---- 3. 每帧口径：GLAZE 45 %、音乐在放（粒子在动）----
+        auto session = makeSession (45.0f);
+        session->play (3.0);
+
+        auto& editor = *session->editor;
+        std::vector<juce::Component*> all;
+        collectDescendants (editor, all);
+
+        std::vector<std::unique_ptr<PaintProbe>> probes;
+        std::vector<juce::Component*> probed;
+
+        const auto probe = [&] (juce::Component* component, const juce::String& name)
+        {
+            auto p = std::make_unique<PaintProbe>();
+            p->name = name;
+            component->addComponentListener (p.get());
+            probes.push_back (std::move (p));
+            probed.push_back (component);
+        };
+
+        for (auto* component : all)
+        {
+            if (dynamic_cast<celadon::ui::ParticleField*> (component) != nullptr)        probe (component, "ParticleField");
+            else if (dynamic_cast<celadon::ui::GlazeKnob*> (component) != nullptr)       probe (component, "GlazeKnob");
+            else if (dynamic_cast<celadon::ui::GlazeTitle*> (component) != nullptr)      probe (component, "GlazeTitle");
+            else if (dynamic_cast<celadon::ui::CornerNote*> (component) != nullptr)      probe (component, "CornerNote");
+            else if (dynamic_cast<celadon::ui::ColourLegend*> (component) != nullptr)    probe (component, "ColourLegend");
+            else if (dynamic_cast<celadon::ui::StatusPill*> (component) != nullptr)      probe (component, "StatusPill");
+            else if (component->getComponentID() == "relearn" || component->getComponentID() == "match"
+                     || component->getComponentID() == celadon::param::glazeStyle || component->getComponentID() == "ab"
+                     || component->getComponentID() == "monitoring")
+                probe (component, component->getComponentID());
+        }
+
+        auto* knob = findFirst<celadon::ui::GlazeKnob> (editor);
+        auto* field = findFirst<celadon::ui::ParticleField> (editor);
+        celadon::ui::GlazeKnob::PaintStats knobBefore;
+        celadon::ui::ParticleField::CacheStats fieldBefore;
+
+        const auto startPhase = [&]
+        {
+            for (auto& p : probes)
+                p->reset();
+
+            knobBefore = knob->getPaintStats();
+            fieldBefore = field->getCacheStats();
+        };
+
+        const auto report = [&] (const juce::String& phase, int count)
+        {
+            for (auto& p : probes)
+            {
+                std::cout << "  " << p->name.paddedRight (' ', 14) << " paints " << juce::String (p->paints).paddedLeft (' ', 5)
+                          << "  total " << ms (p->totalMs).paddedLeft (' ', 9) << " ms  avg " << ms (p->paints > 0 ? p->totalMs / p->paints : 0.0)
+                          << " ms  cacheReads " << p->cacheReads << "  cacheWrites " << p->cacheWrites << std::endl;
+                p->reset();
+            }
+
+            const auto knobNow = knob->getPaintStats();
+            const auto fieldNow = field->getCacheStats();
+            std::cout << "  [" << phase << ", " << count << " frames] GlazeKnob face renders " << (knobNow.faceRenders - knobBefore.faceRenders)
+                      << " of " << (knobNow.paints - knobBefore.paints) << " paints; porcelain renders " << (knobNow.porcelainRenders - knobBefore.porcelainRenders)
+                      << " (layer builds " << (knobNow.porcelainLayerBuilds - knobBefore.porcelainLayerBuilds) << ", last " << ms (knobNow.lastPorcelainMs) << " ms)"
+                      << "; ParticleField line / glow renders " << (fieldNow.lineRenders - fieldBefore.lineRenders) << " / "
+                      << (fieldNow.glowRenders - fieldBefore.glowRenders) << std::endl;
+        };
+
+        const juce::Rectangle<int> band (0, celadon::ui::ParticleField::top, editor.getWidth(), celadon::ui::ParticleField::bandHeight);
+
+        for (const auto pixelScale : { 1.0f, 2.0f, 4.0f })
+        {
+            const auto count = pixelScale > 2.0f ? juce::jmax (10, frames / 4) : frames;
+            auto target = frameFor (editor, pixelScale);
+            paintTimed (editor, target, pixelScale, std::nullopt);   // 暖机：这一比例的缓存先生成
+            dispatchEvents (600);                                   // 让缩放后 150 ms 的静态底图 / 瓷面重生成先做完
+            paintTimed (editor, target, pixelScale, std::nullopt);
+            dispatchEvents (100);
+            paintTimed (editor, target, pixelScale, std::nullopt);
+
+            startPhase();
+            Clock timer, full, bandOnly;
+
+            for (int frame = 0; frame < count; ++frame)
+            {
+                const auto started = Clock::now();
+                editor.advanceForSnapshot (1.0 / 30.0);   // 编辑器 30 Hz 定时器的一帧（R9-12）+ 粒子往前走一帧
+                timer += started.elapsed();
+                dispatchEvents (1);
+                full += paintTimed (editor, target, pixelScale, std::nullopt);
+            }
+
+            std::cout << "---- steady GLAZE 45 %, playing, scale " << pixelScale << ": " << count << " frames" << std::endl;
+            std::cout << "  editor timer callback avg " << timer.per (count).text() << std::endl;
+            std::cout << "  full-frame paint      avg " << full.per (count).text() << std::endl;
+            report ("full frames, scale " + juce::String (pixelScale), count);
+
+            for (int frame = 0; frame < count; ++frame)
+            {
+                editor.advanceForSnapshot (1.0 / 30.0);
+                dispatchEvents (1);
+                bandOnly += paintTimed (editor, target, pixelScale, band);
+            }
+
+            std::cout << "  band-only paint       avg " << bandOnly.per (count).text() << "  (particle band dirty: macOS bounding-box case)" << std::endl;
+            report ("band frames, scale " + juce::String (pixelScale), count);
+
+            // 状态胶囊呼吸的一帧：改后只作废圆点那一块（缓存只重画那一块，顶栏、胶囊的 paint 都跳过与它不相交的文字）；
+            // 改前呼吸每帧 repaint() 整个胶囊、整颗重画。另量两种整颗胶囊的重画：缓存没作废（macOS 的包围盒把胶囊圈进去，
+            // 改后只贴图）与内容变了（整颗作废）。
+            if (auto* pill = findFirst<celadon::ui::StatusPill> (editor))
+            {
+                const auto pulseArea = pill->getPulseArea();
+                const auto pulse = editor.getLocalArea (pill, pulseArea);
+                const auto whole = editor.getLocalArea (pill, pill->getLocalBounds());
+                Clock pulseTotal, wholeTotal, changedTotal;
+
+                for (int frame = 0; frame < count; ++frame)
+                {
+                    pill->repaint (pulseArea);
+                    pulseTotal += paintTimed (editor, target, pixelScale, pulse);
+                    wholeTotal += paintTimed (editor, target, pixelScale, whole);
+                    pill->repaint();
+                    changedTotal += paintTimed (editor, target, pixelScale, whole);
+                }
+
+                std::cout << "  status pill breathing frame (dirty " << pulse.toString() << ") avg " << pulseTotal.per (count).text()
+                          << "; whole pill " << whole.toString() << " avg " << wholeTotal.per (count).text()
+                          << "; whole pill after a content change avg " << changedTotal.per (count).text() << std::endl;
+
+                for (auto& p : probes)
+                    p->reset();
+            }
+        }
+
+        // ---- 4. 拖动 GLAZE：35 % → 65 %，每帧走 33 ms 消息循环让旋钮的定时器按节流重生成瓷面 ----
+        for (const auto pixelScale : { 2.0f, 4.0f })
+        {
+            auto target = frameFor (editor, pixelScale);
+            paintTimed (editor, target, pixelScale, std::nullopt);
+            dispatchEvents (600);
+            paintTimed (editor, target, pixelScale, std::nullopt);
+
+            constexpr int dragFrames = 60;
+            Clock bandTotal;
+            startPhase();
+            const auto started = Clock::now();
+
+            for (int frame = 0; frame < dragFrames; ++frame)
+            {
+                session->setParameter (celadon::param::glazeAmount, 35.0f + 30.0f * (float) frame / (float) (dragFrames - 1));
+                editor.advanceForSnapshot (1.0 / 30.0);
+                dispatchEvents (33);
+                bandTotal += paintTimed (editor, target, pixelScale, band);
+            }
+
+            const auto wall = started.elapsed();
+            std::cout << "---- drag GLAZE 35 -> 65 %, scale " << pixelScale << ": " << dragFrames << " frames" << std::endl;
+            std::cout << "  band-only paint avg " << bandTotal.per (dragFrames).text() << std::endl;
+            std::cout << "  message thread busy " << ms (wall.cpu) << " ms cpu over " << ms (wall.wall) << " ms wall ("
+                      << ms (100.0 * wall.cpu / juce::jmax (1.0, wall.wall)) << " %; porcelain re-renders + paints + timer)" << std::endl;
+            report ("drag, scale " + juce::String (pixelScale), dragFrames);
+
+            session->setParameter (celadon::param::glazeAmount, 45.0f);
+            dispatchEvents (300);
+        }
+
+        // ---- 5. 听原声（B）：主旋钮改前每次 paint 开透明图层，改后缓存图乘 0.55 贴 ----
+        {
+            const auto pixelScale = 2.0f;
+            auto target = frameFor (editor, pixelScale);
+            editor.setListeningToOriginal (true);
+            session->play (1.0);
+            paintTimed (editor, target, pixelScale, std::nullopt);
+            dispatchEvents (600);
+            paintTimed (editor, target, pixelScale, std::nullopt);
+
+            startPhase();
+            Clock bandTotal;
+
+            for (int frame = 0; frame < frames; ++frame)
+            {
+                editor.advanceForSnapshot (1.0 / 30.0);
+                dispatchEvents (1);
+                bandTotal += paintTimed (editor, target, pixelScale, band);
+            }
+
+            std::cout << "---- comparing (B), scale 2: " << frames << " frames" << std::endl;
+            std::cout << "  band-only paint avg " << bandTotal.per (frames).text() << std::endl;
+            report ("comparing, scale 2", frames);
+            editor.setListeningToOriginal (false);
+        }
+
+        for (size_t i = 0; i < probes.size(); ++i)
+            probed[i]->removeComponentListener (probes[i].get());
+
+        session->editor.reset();
+        session->processor->releaseResources();
+        std::cout << "==== bench done" << std::endl;
+    }
+
+    //==============================================================================
+    // 逐位摘要（--only digest，T-032）：改动前后各跑一次、逐行比。FNV-1a 64 位喂的是图的原始字节（预乘 ARGB / RGB，
+    // 不经 PNG 的反预乘），只用来判「两次是否逐位相同」。
+    juce::uint64 pixelDigest (const juce::Image& image)
+    {
+        juce::uint64 hash = 14695981039346656037ull;
+        const juce::Image::BitmapData data (image, juce::Image::BitmapData::readOnly);
+
+        for (int y = 0; y < data.height; ++y)
+            for (int x = 0; x < data.width; ++x)
+            {
+                const auto* pixel = data.getPixelPointer (x, y);
+
+                for (int k = 0; k < data.pixelStride; ++k)
+                    hash = (hash ^ (juce::uint64) pixel[k]) * 1099511628211ull;
+            }
+
+        return hash;
+    }
+
+    juce::String hex (juce::uint64 value)
+    {
+        return juce::String::toHexString ((juce::int64) value).paddedLeft ('0', 16);
+    }
+
+    void runDigest()
+    {
+        // ---- 瓷面参照实现（renderGlaze）：各缩放下主旋钮的像素比（含 200 / 224 的换算）× GLAZE × 去色 ----
+        juce::uint64 combined = 14695981039346656037ull;
+
+        for (const auto pixelScale : { 0.625f, 0.892857f, 1.0f, 1.339286f, 1.5f, 1.785714f, 2.0f, 2.5f, 3.571429f, 4.0f })
+            for (const auto t : { 0.0f, 0.03f, 0.2f, 0.35f, 0.45f, 0.5f, 0.65f, 0.8f, 0.9f, 1.0f })
+                for (const auto desaturated : { false, true })
+                {
+                    const auto image = celadon::ui::porcelain::renderGlaze (t, pixelScale, desaturated);
+                    const auto digest = pixelDigest (image);
+                    combined = (combined ^ digest) * 1099511628211ull;
+                    std::cout << "digest porcelain scale=" << juce::String (pixelScale, 6) << " t=" << juce::String (t, 2)
+                              << " desaturated=" << (desaturated ? 1 : 0) << " " << image.getWidth() << "x" << image.getHeight()
+                              << " " << hex (digest) << std::endl;
+                }
+
+        std::cout << "digest porcelain all " << hex (combined) << std::endl;
+
+        // ---- 静态背景：子组件全部藏起来，整张编辑器只剩画布贴的静态背景（与一条分隔线）----
+        auto session = makeSession (45.0f);
+        auto& editor = *session->editor;
+
+        const auto hideChildren = [&editor]
+        {
+            for (auto* child : editor.getChildren())
+            {
+                if (child->getNumChildComponents() == 0)
+                    child->setVisible (false);
+
+                for (auto* grandChild : child->getChildren())
+                    grandChild->setVisible (false);
+            }
+        };
+
+        for (const auto scale : { 1.0f, 2.0f, 0.7f, 1.5f })
+        {
+            juce::Image target (juce::Image::RGB, juce::roundToInt ((float) editor.getWidth() * scale),
+                                juce::roundToInt ((float) editor.getHeight() * scale), false);
+            hideChildren();
+            paintFrame (editor, target, scale, std::nullopt);   // 这一像素比的静态背景：第一次同步生成，之后缩放停稳 150 ms 再生成
+            dispatchEvents (400);
+            hideChildren();
+            paintFrame (editor, target, scale, std::nullopt);
+            std::cout << "digest static scale=" << juce::String (scale, 2) << " " << target.getWidth() << "x" << target.getHeight()
+                      << " " << hex (pixelDigest (target)) << std::endl;
+        }
+
+        session->editor.reset();
+        session->processor->releaseResources();
+        std::cout << "==== digest done" << std::endl;
     }
 }

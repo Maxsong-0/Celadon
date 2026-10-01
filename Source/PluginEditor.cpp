@@ -10,6 +10,7 @@
 
 #include "PluginEditor.h"
 
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -84,13 +85,78 @@ namespace
         return 0.0f;
     }
 
-    // 面板的阴影（设计稿 0 1px 2px rgba(13,40,48,.05), 0 8px 24px rgba(13,40,48,.06)）。
-    void drawPanelShadow (juce::Graphics& g, juce::Rectangle<float> area, float radius)
+    // ---- 静态背景的面板阴影（T-032 R9-08）----
+    // 设计稿 0 1px 2px rgba(13,40,48,.05), 0 8px 24px rgba(13,40,48,.06)：每块面板两层 DropShadow。
+    // DropShadow::drawForPath 每次都在逻辑分辨率里重画路径、做盒模糊，再按上下文比例贴（juce_DropShadowEffect.cpp）——
+    // 模糊出来的图与像素比无关：按同一算法生成一次，之后每次重画静态背景只贴图，结果与每次现算逐位相同。
+    struct ShadowMask
     {
-        juce::Path shape;
-        shape.addRoundedRectangle (area, radius);
-        juce::DropShadow (palette::shadowTint.withAlpha (0.07f), 20, { 0, 8 }).drawForPath (g, shape);
-        juce::DropShadow (palette::shadowTint.withAlpha (0.06f), 3, { 0, 1 }).drawForPath (g, shape);
+        juce::Image image;              // 单通道，逻辑分辨率
+        juce::Point<int> position;      // 左上角（逻辑坐标）
+        juce::Colour colour;
+    };
+
+    ShadowMask makeShadowMask (const juce::DropShadow& shadow, const juce::Path& path, const juce::ImageType& imageType)
+    {
+        // 与 drawForPath 相同的外接区域：路径外接整数矩形 + 偏移，四周各扩 radius + 1。drawForPath 还会与「裁剪 + radius + 1」
+        // 求交：静态背景的裁剪是整张画布，七块面板的阴影都在里面，求交不改变区域。
+        const auto area = (path.getBounds().getSmallestIntegerContainer() + shadow.offset).expanded (shadow.radius + 1);
+        juce::Image image (juce::Image::SingleChannel, area.getWidth(), area.getHeight(), true, imageType);
+
+        {
+            juce::Graphics maskGraphics (image);
+            maskGraphics.setColour (juce::Colours::white);
+            maskGraphics.fillPath (path, juce::AffineTransform::translation ((float) (shadow.offset.x - area.getX()),
+                                                                            (float) (shadow.offset.y - area.getY())));
+        }
+
+        image.getPixelData()->applySingleChannelBoxBlurEffect (shadow.radius);
+        return { image, area.getPosition(), shadow.colour };
+    }
+
+    std::vector<ShadowMask> makePanelShadows (const juce::ImageType& imageType)
+    {
+        std::vector<ShadowMask> masks;
+
+        const auto add = [&masks, &imageType] (juce::Rectangle<float> area, float cornerRadius)
+        {
+            juce::Path shape;
+            shape.addRoundedRectangle (area, cornerRadius);
+            masks.push_back (makeShadowMask (juce::DropShadow (palette::shadowTint.withAlpha (0.07f), 20, { 0, 8 }), shape, imageType));
+            masks.push_back (makeShadowMask (juce::DropShadow (palette::shadowTint.withAlpha (0.06f), 3, { 0, 1 }), shape, imageType));
+        };
+
+        add ({ 16.0f, 60.0f, 60.0f, 238.0f }, 12.0f);
+        add ({ 1124.0f, 60.0f, 60.0f, 238.0f }, 12.0f);
+        add ({ 84.0f, 60.0f, 1032.0f, 238.0f }, 14.0f);
+
+        for (const auto x : { 16.0f, 314.0f, 612.0f, 910.0f })
+            add ({ x, 560.0f, (float) ModuleCard::width, (float) ModuleCard::height }, 14.0f);
+
+        return masks;
+    }
+
+    // ---- 静态背景的细颗粒 ----
+    // 每个物理像素一点点随机明暗（设计稿 3.5 % 的灰噪声，线性同余序列逐像素取一档）。查找表 lut[档][通道值] 用与原来逐像素
+    // 现算同一条浮点算式生成，结果逐位相同；逐像素只剩三次查表（原来每像素三次浮点取整、钳位）。
+    const std::array<std::array<juce::uint8, 256>, 256>& grainTable()
+    {
+        static const auto table = []
+        {
+            std::array<std::array<juce::uint8, 256>, 256> result {};
+
+            for (int level = 0; level < 256; ++level)
+            {
+                const auto noise = ((float) level / 255.0f - 0.5f) * 0.035f * 255.0f * 0.5f;
+
+                for (int channel = 0; channel < 256; ++channel)
+                    result[(size_t) level][(size_t) channel] = (juce::uint8) juce::jlimit (0, 255, juce::roundToInt ((float) channel + noise));
+            }
+
+            return result;
+        }();
+
+        return table;
     }
 }
 
@@ -219,11 +285,21 @@ public:
         matchButton.setComponentID ("match");
         relearnButton.setComponentID ("relearn");
         cornerNote.setComponentID ("corner_note");
+        glazeTitle.setComponentID ("glaze_title");
+        legend.setComponentID ("legend");
+        monitoringButton.setComponentID ("monitoring");
         valueEntry.setComponentID ("value_entry");
         bubble.setComponentID ("value_bubble");
         topBar.getLanguageSelector().setComponentID ("language");
         topBar.getAdvancedButton().setComponentID (uiid::advanced);
         advancedPanel.setComponentID ("advanced_panel");
+
+        // 粒子带（画布 y 300 ～ 560）里的文字小部件（T-032 R9-01）：粒子最多 30 帧 / s 地重画这条带，macOS 只拿脏矩形的
+        // 包围盒，带里的组件每帧都被拖进来重画、重新排版文字。各自缓存成按物理像素的图、整数对齐贴；它们的状态一改就
+        // repaint，缓存随之作废重画。主旋钮自管整颗缓存（GlazeKnob），粒子的柔光与流线也是缓存图（ParticleField）。
+        for (auto* widget : std::initializer_list<juce::Component*> { &glazeTitle, &styleSelector, &relearnButton, &abSelector,
+                                                                      &matchButton, &monitoringButton, &cornerNote, &legend })
+            setBufferedToAlignedImage (*widget);
 
         startTimerHz (10);
     }
@@ -296,6 +372,7 @@ public:
     }
 
     bool isHintActive() const noexcept   { return hintActive; }
+    double getStaticLayerRenderMs() const noexcept   { return lastStaticLayerMs; }
 
     // Windows：Alt 单击打开输入框后松开 Alt，这个 WM_SYSKEYUP 没人要的话 JUCE 会转给宿主窗口，系统随即激活宿主的菜单栏，
     // 接下来敲的数字进了菜单（juce_Windowing_windows.cpp 的 WM_SYSKEYUP）。输入框开着时把按键抬起吃掉。
@@ -337,6 +414,8 @@ public:
     }
 
     // 风格 · 重新聆听 | A / B · 等响：一排、整体居中在 x = 600（设计稿 200 ～ 1000，间隔 8）。宽度都没变时什么都不做。
+    // 量宽度要排版文字：只在自然宽度可能变了时调——语言切换（setLanguage）、重新聆听 / 等响的文字或小橙点变了（编辑器定时器
+    // 看 PillButton::setText / setDot 的返回值），不每帧调（T-032 R9-12）。
     void layoutBottomRow()
     {
         constexpr int y = 524, h = 30, gap = 8, dividerWidth = 1 + 2 * 6;
@@ -344,10 +423,10 @@ public:
         const auto relearnWidth = relearnButton.getNaturalWidth();
         const auto abWidth = abSelector.getNaturalWidth();
         const auto matchWidth = matchButton.getNaturalWidth();
-        const auto legendWidthNow = legend.getNaturalWidth();
+        const auto legendWidth = legend.getNaturalWidth();
 
         if (relearnWidth == relearnButton.getWidth() && abWidth == abSelector.getWidth() && matchWidth == matchButton.getWidth()
-             && legendWidthNow == legend.getWidth())
+             && legendWidth == legend.getWidth())
             return;
 
         const auto total = styleWidth + gap + relearnWidth + gap + dividerWidth + gap + abWidth + gap + matchWidth;
@@ -363,7 +442,6 @@ public:
         x += abWidth + gap;
         matchButton.setBounds (x, y, matchWidth, h);
 
-        const auto legendWidth = legend.getNaturalWidth();
         legend.setBounds (baseWidth - 24 - legendWidth, 504, legendWidth, 18);
         repaint (0, y - 2, baseWidth, h + 4);
     }
@@ -485,8 +563,11 @@ private:
     // 静态背景：底色、三团柔光、点阵、细颗粒、面板阴影、卡片之间的箭头。按物理像素生成一次，之后每帧只是贴图。
     // 分三段：Graphics 画底 → BitmapData 加颗粒 → 再开一个 Graphics 画阴影与箭头。同一张图同一时刻只能有一个 Graphics 或
     // BitmapData（Windows 上默认的图像是 Direct2D 的，两个同时开着时颗粒会被丢掉）。
+    // 打开编辑器与每次缩放停下都在消息线程同步生成一次（T-032 R9-08）：面板阴影的模糊图与像素比无关，只在第一次生成；
+    // 颗粒逐像素查表。两处都与原来每次现算逐位相同。耗时记在 lastStaticLayerMs（截图工具的基准读它；Debug 版打日志）。
     void renderStaticLayer (float pixelScale)
     {
+        const auto started = juce::Time::getMillisecondCounterHiRes();
         const auto w = juce::jmax (1, juce::roundToInt ((float) baseWidth * pixelScale));
         const auto h = juce::jmax (1, juce::roundToInt ((float) baseHeight * pixelScale));
         staticLayer = juce::Image (juce::Image::RGB, w, h, false);
@@ -525,54 +606,67 @@ private:
                     g.fillEllipse (x - 0.8f, y - 0.8f, 1.6f, 1.6f);
         }
 
-        // 细颗粒：每个物理像素一点点随机明暗（设计稿 3.5 % 的灰噪声）。
+        // 细颗粒：每个物理像素一点点随机明暗（设计稿 3.5 % 的灰噪声）；同一条线性同余序列逐像素取一档，查表加到三个通道上。
         {
             const juce::Image::BitmapData data (staticLayer, juce::Image::BitmapData::readWrite);
+            const auto& lut = grainTable();
             std::uint32_t seed = 0x6772616eu;
 
             for (int y = 0; y < data.height; ++y)
+            {
+                auto* line = data.getLinePointer (y);
+
                 for (int x = 0; x < data.width; ++x)
                 {
                     seed = seed * 1664525u + 1013904223u;
-                    const auto noise = ((float) (seed >> 24) / 255.0f - 0.5f) * 0.035f * 255.0f * 0.5f;
-                    auto* pixel = reinterpret_cast<juce::PixelRGB*> (data.getPixelPointer (x, y));
-                    const auto adjust = [noise] (juce::uint8 channel) { return (juce::uint8) juce::jlimit (0, 255, juce::roundToInt ((float) channel + noise)); };
-                    pixel->setARGB (255, adjust (pixel->getRed()), adjust (pixel->getGreen()), adjust (pixel->getBlue()));
+                    const auto& adjust = lut[(size_t) (seed >> 24)];
+                    auto* pixel = reinterpret_cast<juce::PixelRGB*> (line + (size_t) x * (size_t) data.pixelStride);
+                    pixel->setARGB (255, adjust[pixel->getRed()], adjust[pixel->getGreen()], adjust[pixel->getBlue()]);
                 }
+            }
         }
 
-        juce::Graphics g (staticLayer);
-        g.addTransform (toLayer);
-
-        // 面板阴影
-        drawPanelShadow (g, { 16.0f, 60.0f, 60.0f, 238.0f }, 12.0f);
-        drawPanelShadow (g, { 1124.0f, 60.0f, 60.0f, 238.0f }, 12.0f);
-        drawPanelShadow (g, { 84.0f, 60.0f, 1032.0f, 238.0f }, 14.0f);
-
-        for (const auto x : { 16.0f, 314.0f, 612.0f, 910.0f })
-            drawPanelShadow (g, { x, 560.0f, (float) ModuleCard::width, (float) ModuleCard::height }, 14.0f);
-
-        // 卡片之间的小箭头：处理顺序
-        for (const auto x : { 292.0f, 590.0f, 888.0f })
         {
-            const juce::Rectangle<float> circle (x, 674.0f, 20.0f, 20.0f);
-            g.setColour (palette::panel);
-            g.fillEllipse (circle);
-            g.setColour (palette::segmentBorder);
-            g.drawEllipse (circle.reduced (0.5f), 1.0f);
+            juce::Graphics g (staticLayer);
+            g.addTransform (toLayer);
 
-            juce::Path arrow;
-            arrow.startNewSubPath (circle.getX() + 8.5f, circle.getY() + 7.0f);
-            arrow.lineTo (circle.getX() + 11.8f, circle.getY() + 10.0f);
-            arrow.lineTo (circle.getX() + 8.5f, circle.getY() + 13.0f);
-            g.setColour (palette::c600);
-            g.strokePath (arrow, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            // 面板阴影：第一次用到时按这张图的临时图类型生成（与 DropShadow::drawForPath 用的同一种），之后只贴。
+            if (panelShadows.empty())
+                panelShadows = makePanelShadows (*g.getInternalContext().getPreferredImageTypeForTemporaryImages());
+
+            for (const auto& shadow : panelShadows)
+            {
+                g.setColour (shadow.colour);
+                g.drawImageAt (shadow.image, shadow.position.x, shadow.position.y, true);
+            }
+
+            // 卡片之间的小箭头：处理顺序
+            for (const auto x : { 292.0f, 590.0f, 888.0f })
+            {
+                const juce::Rectangle<float> circle (x, 674.0f, 20.0f, 20.0f);
+                g.setColour (palette::panel);
+                g.fillEllipse (circle);
+                g.setColour (palette::segmentBorder);
+                g.drawEllipse (circle.reduced (0.5f), 1.0f);
+
+                juce::Path arrow;
+                arrow.startNewSubPath (circle.getX() + 8.5f, circle.getY() + 7.0f);
+                arrow.lineTo (circle.getX() + 11.8f, circle.getY() + 10.0f);
+                arrow.lineTo (circle.getX() + 8.5f, circle.getY() + 13.0f);
+                g.setColour (palette::c600);
+                g.strokePath (arrow, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
         }
+
+        lastStaticLayerMs = juce::Time::getMillisecondCounterHiRes() - started;
+        DBG ("Celadon static layer " << w << " x " << h << ": " << juce::String (lastStaticLayerMs, 1) << " ms");
     }
 
     juce::Image staticLayer;
     float staticLayerScale = 0.0f, wantedScale = 0.0f;
     double scaleChangedMs = 0.0;
+    std::vector<ShadowMask> panelShadows;        // 七块面板各两层阴影的模糊图（逻辑分辨率，生成一次）
+    double lastStaticLayerMs = 0.0;
     double hideHudAtMs = 0.0;
     bool draggingSize = false;
     bool hintActive = false;
@@ -981,6 +1075,11 @@ void CeladonAudioProcessorEditor::advanceForSnapshot (double seconds)
     canvas->particles.advance (seconds);
 }
 
+double CeladonAudioProcessorEditor::getStaticLayerRenderMs() const noexcept
+{
+    return canvas != nullptr ? canvas->getStaticLayerRenderMs() : 0.0;
+}
+
 void CeladonAudioProcessorEditor::timerCallback()
 {
     if (canvas == nullptr)
@@ -1137,18 +1236,32 @@ void CeladonAudioProcessorEditor::timerCallback()
             c.cornerNote.setLines (tr (Text::drivesParameters, language), second, false);
         }
 
+        // 底排按文字宽度摆放：重新聆听 / 等响的文字与小橙点都改自然宽度，只在它们变了时重排（语言切换由 Canvas::setLanguage 重排），
+        // 不每帧量字（T-032 R9-12）。
         const auto mismatch = view.kind == Kind::profileMismatch;
-        c.relearnButton.setText (status.relearnInProgress ? tr (Text::relearnCancel, language) : tr (Text::relearn, language));
+        auto bottomRowChanged = c.relearnButton.setText (status.relearnInProgress ? tr (Text::relearnCancel, language) : tr (Text::relearn, language));
         c.relearnButton.setLook (mismatch ? PillButton::Look::attention : PillButton::Look::normal);
-        c.relearnButton.setDot (mismatch);
+        bottomRowChanged = c.relearnButton.setDot (mismatch) || bottomRowChanged;
 
         const auto hasDifference = processor.hasListenDifference();
         const auto difference = processor.getListenDifferenceDb();   // 处理结果 − 原声
-        c.matchButton.setText (c.matchOn ? (hasDifference ? trFormat (Text::matchWithDifference, language, { juce::String (std::abs (difference), 1) })
-                                                          : tr (Text::match, language))
-                                         : tr (Text::matchOff, language));
+        bottomRowChanged = c.matchButton.setText (c.matchOn ? (hasDifference ? trFormat (Text::matchWithDifference, language, { juce::String (std::abs (difference), 1) })
+                                                                             : tr (Text::match, language))
+                                                            : tr (Text::matchOff, language))
+                        || bottomRowChanged;
         c.matchButton.setLook (c.matchOn ? PillButton::Look::normal : PillButton::Look::off);
-        c.layoutBottomRow();
+
+        if (bottomRowChanged)
+            c.layoutBottomRow();
+
+        // GLAZE 状态行的几段（两处用）：View 已量化到显示精度，与上次相同（且语言没变）就沿用上次拼好的。
+        if (! glazeSegmentsValid || view != glazeSegmentsView || language != glazeSegmentsLanguage)
+        {
+            glazeSegments = glazestatus::segmentsFor (view, language);
+            glazeSegmentsView = view;
+            glazeSegmentsLanguage = language;
+            glazeSegmentsValid = true;
+        }
 
         // ---- 顶部状态胶囊：需要注意 > 听原声 / 试听差值 > GLAZE 状态 ----
         StatusPill::Content pill;
@@ -1180,7 +1293,7 @@ void CeladonAudioProcessorEditor::timerCallback()
         else if (glazestatus::toneFor (view.kind) == glazestatus::Tone::amber && glazePercent > 0.0f)
         {
             pill.warning = true;
-            pill.segments = glazestatus::segmentsFor (view, language);
+            pill.segments = glazeSegments;
         }
         else if (comparing)
         {
@@ -1210,7 +1323,7 @@ void CeladonAudioProcessorEditor::timerCallback()
         }
         else
         {
-            pill.segments = glazestatus::segmentsFor (view, language);
+            pill.segments = glazeSegments;
             pill.accentSegment = pill.segments.size() > 1 ? 1 : -1;
             pill.accentColour = view.kind == Kind::locked && style == glaze::Style::automatic ? palette::violet : palette::c800;
             pill.dotColour = palette::c500;

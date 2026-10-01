@@ -11,6 +11,15 @@
 
     只在 GLAZE、原声比较或像素比改变时重新渲染，按物理像素生成并缓存，平时每帧只贴图。
 
+    分层渲染（T-032 R9-02，GlazeRenderer）：底层每个像素里贵的量（三次梯度噪声、两次开方、覆盖率、在哪段釉色渐变里）都与
+    GLAZE 无关，按像素比算一次存着，每次只按当次的三档釉色逐像素着色（与原算法同一个着色函数，底层逐位相同；比「缓存 depth 0 / 1
+    两张基底图再混合」多占一半内存，但不引入混合的两次 8 位量化）；裂纹的描边轮廓按同一精度缓存成 Path、每次 fillPath
+    （软件渲染器的 strokePath 本来就是这样做的，裂纹逐位相同；CoreGraphics / Direct2D 的 strokePath 走各自的原生描边，
+    改成填 JUCE 描好的轮廓后抗锯齿会有亚像素级的差别）；与 GLAZE 无关的积釉、釉光、反光、两圈外环缓存成一张覆盖层，
+    帽子（柔影、帽、细上缘）另一张。叠放顺序与原算法（renderGlaze，保留作逐像素参照）相同：底层 → 裂纹 → 两张覆盖层 → 去色。
+    与参照的差别只来自覆盖层先在透明图上合成、再整张叠上的 8 位取整，≤ 2 LSB（截图工具 --only check 逐像素核对；
+    帽子并进同一张时帽沿会到 3 LSB，所以分开）。
+
   ==============================================================================
 */
 
@@ -41,9 +50,42 @@ namespace celadon::ui::porcelain
     // GLAZE 比例（0 ～ 1）下显示前几条裂纹。
     int visibleCrackCount (float glazeProportion) noexcept;
 
-    // 渲染瓷面：返回 ARGB 图，覆盖逻辑区域 [−imageHalf, imageHalf]²，每逻辑像素 pixelScale 个像素。
+    // 渲染瓷面（参照实现：逐像素全量算）：返回 ARGB 图，覆盖逻辑区域 [−imageHalf, imageHalf]²，
+    // 每逻辑像素约 pixelScale 个像素（边长 round (2 × imageHalf × pixelScale)）。
     // desaturated = 听原声（A / B 的 B）时的去色版本（饱和度 30 %）。
+    // 界面用下面的 GlazeRenderer；这个函数是它逐像素对照的基准（截图工具的检查与基准）。
     juce::Image renderGlaze (float glazeProportion, float pixelScale, bool desaturated);
+
+    // 分层渲染（见文件头）：结果与 renderGlaze 同尺寸、同叠放顺序，底层与裂纹逐位相同（软件渲染器），覆盖层的取整让个别像素差 ≤ 2 LSB。
+    // 各层按图的边长缓存，边长变了（像素比变了）才重建；只在消息线程用（与 GlazeKnob 同一线程）。
+    class GlazeRenderer
+    {
+    public:
+        juce::Image render (float glazeProportion, float pixelScale, bool desaturated);
+
+        // 各层重建的次数（截图工具读它：像素比不变时应当一直不变）。
+        int getLayerBuilds() const noexcept   { return layerBuilds; }
+
+    private:
+        // 底层一个像素里与 GLAZE 无关的量：段别（内段 g0 → g1 / 外段 g1 → g2）放在覆盖率的符号里，每像素 12 字节。
+        struct StoredSample
+        {
+            float signedCoverage = 0.0f;            // 0 = 圆外（透明）；< 0 = 外段
+            float mix = 0.0f;                       // 段内位置
+            float variation = 0.0f;                 // 云斑与微粒（亮度起伏约 2 %）
+        };
+
+        void buildLayers (int size);
+        void buildCrackOutlines (float accuracy);
+
+        int layerSize = 0;
+        std::vector<StoredSample> baseSamples;      // size × size，逐行
+        juce::Image sheenOverlay;                   // 积釉、釉光、反光 + 两圈外环（与 GLAZE 无关）
+        juce::Image capOverlay;                     // 旋钮帽：柔影、帽、细上缘（与 GLAZE 无关）
+        std::vector<juce::Path> crackOutlines;      // 每条裂纹的描边轮廓（与参照 strokePath 同一精度）
+        float crackOutlineAccuracy = 0.0f;
+        int layerBuilds = 0;
+    };
 
     // 把一张图去色到 saturation（1 = 原样，0 = 灰）：CSS saturate() 同一组系数。
     void desaturate (juce::Image& image, float saturation);

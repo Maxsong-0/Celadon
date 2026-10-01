@@ -77,6 +77,7 @@ namespace celadon::test
                 && sameBits (a.weights.warm, b.weights.warm) && sameBits (a.weights.punchy, b.weights.punchy)
                 && sameBits (a.weights.clean, b.weights.clean)
                 && a.limitedByConstraints == b.limitedByConstraints && a.limitedByManual == b.limitedByManual
+                && a.automaticLevelWithdrawn == b.automaticLevelWithdrawn && a.manualBudgetMask == b.manualBudgetMask
                 && a.algorithmVersion == b.algorithmVersion && a.constantsVersion == b.constantsVersion;
         }
 
@@ -415,12 +416,15 @@ namespace celadon::test
             testExcessLowersTarget();
             testMaxGainFeedback();
             testStyleDirections();
+            testHeatOnlyClaimsRealCrestReduction();   // T-032 R6-01
+            testGainRangeBoundsEffectiveGain();       // T-032 R6-06
             testGlueLowFrequencyRisk();
             testLowConfidenceTightens();
             testConfidenceNeverMoreAggressive();
             testManualSweepIsContinuous();
             testClipRampsFromGlazeZero();
             testManualLimits();
+            testManualBudgetMask();                   // T-032 R6-02 收尾（A11）
             testDeterminism();
             testAutomaticWeights();
             testBlendConstants();
@@ -754,7 +758,7 @@ namespace celadon::test
             const auto plan = planFor (&profile, Style::clean, 100.0f);
             expectEquals (plan.estimatedExcessDb, 0.0f);
             expect (plan.increments.colorHeat > 0.0f);
-            expect (plan.increments.colorHeat <= factoryConstants().automaticHeatFloor);
+            expect (plan.increments.colorHeat <= factoryConstants().clean.automaticHeatFloor);   // T-032：底量是风格常数
             expectWithinAbsoluteError (plan.effectiveGainDb, 8.0f, 1.0e-3f, "color compensation preserves the planned net gain");
 
             auto manual = defaultManual();
@@ -881,8 +885,15 @@ namespace celadon::test
             const auto punchy = planFor (&profile, Style::punchy, 100.0f);
             const auto clean = planFor (&profile, Style::clean, 100.0f);
 
-            expect (warm.increments.colorHeat > punchy.increments.colorHeat && punchy.increments.colorHeat > clean.increments.colorHeat,
-                    utf8 ("Heat：温润 > 冲击 > 通透"));
+            // T-032 R6-01：出厂残差 Heat 表几乎不削峰，自动 Heat 恒为风格底量 × 强度（出厂三种风格都 12，风格差异待 Max 标定），
+            // 原来的「温润 > 冲击 > 通透」只靠 HeatRow::inverse 把 Heat 顶到 heatDriveCap 的缺陷成立。风格间的 Heat 取向由驱动上限体现。
+            const auto& fc = factoryConstants();
+            expect (fc.warm.heatDriveCap > fc.punchy.heatDriveCap && fc.punchy.heatDriveCap > fc.clean.heatDriveCap,
+                    utf8 ("Heat 驱动上限：温润 > 冲击 > 通透"));
+            expect (warm.increments.colorHeat > 0.0f && warm.increments.colorHeat <= fc.warm.automaticHeatFloor + 1.0e-3f
+                        && punchy.increments.colorHeat > 0.0f && punchy.increments.colorHeat <= fc.punchy.automaticHeatFloor + 1.0e-3f
+                        && clean.increments.colorHeat > 0.0f && clean.increments.colorHeat <= fc.clean.automaticHeatFloor + 1.0e-3f,
+                    utf8 ("Heat：三种风格都只给自己的底量（出厂表削不了峰）"));
             expect (warm.increments.colorGlue > clean.increments.colorGlue && warm.increments.colorGlue > punchy.increments.colorGlue,
                     utf8 ("Glue：温润最多"));
             expect (punchy.increments.limitClip > warm.increments.limitClip && punchy.increments.limitClip > clean.increments.limitClip,
@@ -913,10 +924,307 @@ namespace celadon::test
             expect (samePlan (planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &allClean), clean));
 
             const auto mixed = planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &half);
-            expect (mixed.increments.colorHeat < warm.increments.colorHeat && mixed.increments.colorHeat > clean.increments.colorHeat);
+            // T-032：底量三种风格相同时混合方案的 Heat 也是底量（blendConstants 对逐位相同的底量直接取原值）；上限按权重混合。
+            expect (mixed.increments.colorHeat <= juce::jmax (warm.increments.colorHeat, clean.increments.colorHeat) + 1.0e-6f
+                        && mixed.increments.colorHeat >= juce::jmin (warm.increments.colorHeat, clean.increments.colorHeat) - 1.0e-6f);
+            expectWithinAbsoluteError (blendConstants (fc, half).heatDriveCap, 0.5f * (fc.warm.heatDriveCap + fc.clean.heatDriveCap), 1.0e-4f);
             expectWithinAbsoluteError (mixed.weights.warm, 0.5f, 1.0e-6f);
             expect (mixed.requestedGainDb < warm.requestedGainDb && mixed.requestedGainDb > clean.requestedGainDb,
                     utf8 ("混合风格的偏好响度应在两种风格之间"));
+        }
+
+        //==============================================================================
+        // T-032 R6-01（算法 8）：自动 Heat 只承担换算表里该电平、上限以内真能削掉的峰均比；削不到 heatUsefulCrestDb 就只留风格底量。
+        void testHeatOnlyClaimsRealCrestReduction()
+        {
+            beginTest ("Automatic Heat only takes the crest reduction the Heat table can deliver (algorithm 8)");
+
+            // 依据：设计规格-GLAZE 7.1「自动 Heat 12（底量）」、7.4「Heat 的削峰份额改为可选贡献」；决策与校准第 4 节「约束是上限，
+            //       不是必须花完的额度」、第 1 节对 v0.4「与音乐无关」的批评。出厂残差 Heat 表几乎不削峰（crest 列 ≤ 0.00023 dB），
+            //       修前 HeatRow::inverse「达不到就给表的最大 Heat」让自动 Heat 只要超限估计 > 0 就顶到 heatDriveCap（70 / 50 / 20）。
+            const auto& c = factoryConstants();
+
+            // 1. 性质扫描：3 风格 × I × PLR × 置信度 × GLAZE。自动 Heat ≤ 风格底量 × GLAZE × κ；两份方案都不受约束时（强度 = GLAZE × κ
+            //    落网格），与「换算表的响度 / 峰值两列清零」逐位相同——削峰那条路根本没走，Heat 与表里 0.0002 dB 级的残差无关。
+            auto flatTable = c;
+            flatTable.heatLoudnessDb.fill (0.0f);
+            flatTable.heatPeakDb.fill (0.0f);
+
+            int cases = 0, overFloor = 0, compared = 0, differs = 0, withoutFloor = 0;
+            float highest = 0.0f;
+
+            for (auto style : { Style::warm, Style::punchy, Style::clean })
+                for (auto lufs : { -24.0f, -18.0f, -14.0f, -10.0f, -7.0f })
+                    for (auto plr : { 8.0f, 12.0f, 16.0f })
+                        for (auto confidence : { 1.0f, 0.5f })
+                            for (auto glaze : { 35.0f, 100.0f })
+                            {
+                                const auto profile = makeProfile (lufs, lufs + plr, 5.0f, confidence);
+                                const auto bound = constantsFor (c, style).automaticHeatFloor * glaze * 0.01f * confidenceScale (&profile, c);
+
+                                PlanInputs in;
+                                in.profile = &profile;
+                                in.style = style;
+                                in.glazePercent = glaze;
+                                in.manual = defaultManual();
+                                in.constants = &c;
+                                const auto plan = makePlan (in);
+                                in.constants = &flatTable;
+                                const auto flat = makePlan (in);
+
+                                ++cases;
+                                highest = juce::jmax (highest, plan.increments.colorHeat);
+                                overFloor += plan.increments.colorHeat <= bound + 1.0e-3f ? 0 : 1;
+
+                                if (! plan.limitedByConstraints && ! flat.limitedByConstraints)
+                                {
+                                    ++compared;
+                                    differs += sameBits (plan.increments.colorHeat, flat.increments.colorHeat) ? 0 : 1;
+                                    withoutFloor += plan.increments.colorHeat > 0.0f ? 0 : 1;
+                                }
+                            }
+
+            logMessage (utf8 ("  Heat 扫描：") + juce::String (cases) + utf8 (" 份方案，最大自动 Heat ") + juce::String (highest, 3)
+                        + utf8 ("，其中 ") + juce::String (compared) + utf8 (" 份两边都不受约束、逐位对照"));
+            expectEquals (overFloor, 0, utf8 ("自动 Heat 不应超过风格底量 × GLAZE × κ（修前顶到 heatDriveCap）"));
+            expect (compared >= cases / 4, utf8 ("扫描里要有足够多不受约束的方案可比"));
+            expectEquals (differs, 0, utf8 ("出厂表削不了峰：Heat 应与换算表清零时逐位相同"));
+            expectEquals (withoutFloor, 0, utf8 ("Color 开着、GLAZE > 0：底量照给"));
+
+            // 2. 超限估计过 0 处连续（修前温润、I −24：TP −16.6 → Heat 12、TP −16.4 → 70，一步跳 58 个单位；GLAZE 35 时 4.2 → 24.5）。
+            for (auto glaze : { 35.0f, 100.0f })
+            {
+                float previous = 0.0f, largestStep = 0.0f;
+
+                for (int i = 0; i <= 60; ++i)
+                {
+                    const auto profile = makeProfile (-24.0f, -16.8f + 0.01f * (float) i);
+                    const auto heat = planFor (&profile, Style::warm, glaze).increments.colorHeat;
+
+                    if (i > 0)
+                        largestStep = juce::jmax (largestStep, std::abs (heat - previous));
+
+                    previous = heat;
+                }
+
+                logMessage (utf8 ("  温润 I −24，TP −16.8 → −16.2 扫描，GLAZE ") + juce::String (glaze, 0) + utf8 ("：相邻两步 Heat 最大变化 ")
+                            + juce::String (largestStep, 4));
+                expect (largestStep <= 0.01f, utf8 ("超限估计过 0 时自动 Heat 不许跳变"));
+            }
+
+            // 3. 版本门是唯一开关：同一份出厂常数标成算法 7（v0.1.7.0 ～ v0.1.8.5 存的快照），方案走旧分支、Heat 照旧顶到上限（旧工程
+            //    逐位不变；改前改后的摘要对照见 IMPL-A7 报告）；旧分支不读 heatUsefulCrestDb（旧快照读成 0 也一样）。算法 8 的坏快照里
+            //    门槛 ≤ 0、非有限都按「削不了」，不会退回顶到上限。
+            {
+                auto v7 = c;
+                v7.version = 7;
+                v7.algorithmVersion = 7;
+                const auto hot = makeProfile (-18.0f, -6.0f);
+
+                PlanInputs in;
+                in.profile = &hot;
+                in.style = Style::warm;
+                in.glazePercent = 100.0f;
+                in.manual = defaultManual();
+                in.constants = &v7;
+                const auto legacy = makePlan (in);
+                expect (legacy.increments.colorHeat > c.warm.automaticHeatFloor + 10.0f, utf8 ("算法 7 的快照照旧（旧分支原样）"));
+
+                auto v7WithoutThreshold = v7;
+                v7WithoutThreshold.heatUsefulCrestDb = 0.0f;
+                in.constants = &v7WithoutThreshold;
+                expect (samePlan (makePlan (in), legacy), utf8 ("旧分支不看 heatUsefulCrestDb"));
+
+                in.constants = &c;
+                const auto current = makePlan (in);
+                expect (current.increments.colorHeat > 0.0f && current.increments.colorHeat <= c.warm.automaticHeatFloor + 1.0e-3f,
+                        utf8 ("算法 8：同一素材只给底量"));
+
+                for (auto threshold : { 0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity() })
+                {
+                    auto broken = c;
+                    broken.heatUsefulCrestDb = threshold;
+                    in.constants = &broken;
+                    expect (makePlan (in).increments.colorHeat <= c.warm.automaticHeatFloor + 1.0e-3f,
+                            utf8 ("门槛 ≤ 0 或非有限按「削不了」：") + juce::String (threshold));
+                }
+            }
+
+            // 4. 换算表真能削峰时，新规则照常让 Heat 承担它那一份（不是一律只给底量），而且与旧规则逐位相同（表能交付份额时两者本来
+            //    一致）；门槛抬到这张表能削的量之上 → 只留底量。人为的削峰型表：峰值随 Heat 线性下降、Heat 100 削 1 dB，响度不变。
+            {
+                auto shaving = c;
+
+                for (int level = 0; level < heatTableLevels; ++level)
+                    for (int j = 0; j < heatTableAmounts; ++j)
+                    {
+                        const auto index = (size_t) (level * heatTableAmounts + j);
+                        shaving.heatLoudnessDb[index] = 0.0f;
+                        shaving.heatPeakDb[index] = -0.01f * shaving.heatTableAmount[(size_t) j];
+                    }
+
+                auto shavingV7 = shaving;
+                shavingV7.version = 7;
+                shavingV7.algorithmVersion = 7;
+                auto shavingAboveThreshold = shaving;
+                shavingAboveThreshold.heatUsefulCrestDb = 5.0f;
+
+                const auto hot = makeProfile (-18.0f, -6.0f);
+                PlanInputs in;
+                in.profile = &hot;
+                in.style = Style::warm;
+                in.glazePercent = 100.0f;
+                in.manual = defaultManual();
+                in.constants = &shaving;
+                const auto withShaving = makePlan (in);
+                in.constants = &shavingV7;
+                const auto oldRule = makePlan (in);
+                in.constants = &shavingAboveThreshold;
+                const auto aboveThreshold = makePlan (in);
+
+                logMessage (utf8 ("  削峰型表：温润 I −18 / TP −6，Heat 新规则 ") + juce::String (withShaving.increments.colorHeat, 3)
+                            + utf8 ("、旧规则 ") + juce::String (oldRule.increments.colorHeat, 3) + utf8 ("、门槛 5 dB ")
+                            + juce::String (aboveThreshold.increments.colorHeat, 3));
+                expect (withShaving.increments.colorHeat > c.warm.automaticHeatFloor + 1.0f, utf8 ("表能削峰时 Heat 照常承担它那一份"));
+                expect (withShaving.increments.colorHeat < c.warm.heatDriveCap - 1.0f, utf8 ("只承担份额，不顶到上限"));
+                expect (sameIncrements (withShaving.increments, oldRule.increments), utf8 ("表能交付份额时新旧规则逐位相同"));
+                expect (aboveThreshold.increments.colorHeat <= c.warm.automaticHeatFloor + 1.0e-3f, utf8 ("能削的量不到门槛：只留底量"));
+            }
+
+            // 5. 底量是风格常数（算法 8 起；出厂三种风格都 12，风格差异待 Max 试听标定）：标成 12 / 8 / 4 时各风格照自己的底量给，
+            //    温润 > 冲击 > 通透；混合权重按权重混合。
+            {
+                auto tuned = c;
+                tuned.warm.automaticHeatFloor = 12.0f;
+                tuned.punchy.automaticHeatFloor = 8.0f;
+                tuned.clean.automaticHeatFloor = 4.0f;
+                const auto profile = makeProfile (-24.0f, -16.0f);
+
+                const auto planOf = [&] (Style style, const StyleWeights* locked)
+                {
+                    PlanInputs in;
+                    in.profile = &profile;
+                    in.style = style;
+                    in.glazePercent = 100.0f;
+                    in.manual = defaultManual();
+                    in.constants = &tuned;
+                    in.lockedWeights = locked;
+                    return makePlan (in);
+                };
+
+                const StyleWeights half { 0.5f, 0.0f, 0.5f };
+                const auto warm = planOf (Style::warm, nullptr);
+                const auto punchy = planOf (Style::punchy, nullptr);
+                const auto clean = planOf (Style::clean, nullptr);
+                const auto mixed = planOf (Style::automatic, &half);
+                expect (! warm.limitedByConstraints && ! punchy.limitedByConstraints && ! clean.limitedByConstraints && ! mixed.limitedByConstraints,
+                        utf8 ("这份素材不受约束：强度都是 1"));
+                expectEquals (warm.increments.colorHeat, 12.0f);
+                expectEquals (punchy.increments.colorHeat, 8.0f);
+                expectEquals (clean.increments.colorHeat, 4.0f);
+                expectWithinAbsoluteError (mixed.increments.colorHeat, 8.0f, 1.0e-4f, utf8 ("半温润半通透：底量按权重混合"));
+            }
+        }
+
+        //==============================================================================
+        // T-032 R6-06（算法 8）：满强度增益不超过 Limit Gain 量程（24 − 手动 Gain）能交付的净增益。
+        void testGainRangeBoundsEffectiveGain()
+        {
+            beginTest ("The planned net gain never claims more than the Limit Gain range (24 dB minus manual Gain) can deliver (algorithm 8)");
+
+            // 依据：GlazePlanner.h「effectiveGainDb … 校准器用它作目标净提升」；参数范围 Limit Gain 0 ～ 24 dB（applyIncrements 钳位）。
+            // 修前 G_full′ 不受量程约束：I −40 LUFS 请求 30 dB 时目标照写，Gain 实际钳在 24，校准目标永远追不上（每首都「部分校准」）；
+            // 手动 Gain + 自动请求 > 24 dB 同样虚报。
+            // 「能交付的净增益」= 同一前向模型下、实际交给模块的参数（手动 + 自动增量，钳位之后）的整链预计净增益——GLAZE 0 的方案
+            // 就是「手动链的预计净增益」，把实际参数当手动值喂进去即得（只用公开接口，不复制决策器的内部算式）。
+            const auto deliverable = [] (const MusicProfile& profile, Style style, const ChainParams& manual, const Plan& plan)
+            {
+                return planFor (&profile, style, 0.0f, applyIncrements (manual, plan.increments)).effectiveGainDb;
+            };
+
+            // 1. 请求放不进量程的两类：极安静素材（手动中性，请求 > 24 dB）与手动 Gain + 自动请求 > 24 dB。后一类取峰值低、超限估计 0
+            //    的素材（没有自动 Glue 补偿、整链不进限幅器）：这样满强度就用满量程，核对的只是量程这一条（手动 Gain 把峰值推进限幅器时
+            //    强度另被约束压低，那是既有的约束核对，不在本条）。
+            struct Case { float lufs, truePeak, manualGainDb; };
+            const Case ranged[] = { { -40.0f, -28.0f, 0.0f }, { -46.0f, -34.0f, 0.0f }, { -52.0f, -40.0f, 0.0f },
+                                    { -30.0f, -26.0f, 12.0f }, { -36.0f, -32.0f, 6.0f }, { -28.0f, -26.0f, 18.0f } };
+            int atRange = 0;
+
+            for (const auto& k : ranged)
+                for (auto style : { Style::warm, Style::punchy, Style::clean })
+                {
+                    const auto profile = makeProfile (k.lufs, k.truePeak);
+                    auto manual = defaultManual();
+                    manual.limit.gainDb = k.manualGainDb;
+                    const auto plan = planFor (&profile, style, 100.0f, manual);
+                    const auto actual = applyIncrements (manual, plan.increments);
+                    const auto delivered = deliverable (profile, style, manual, plan);
+                    const auto full = actual.limit.gainDb >= 24.0f - 1.0e-3f;
+                    atRange += full ? 1 : 0;
+
+                    logMessage (utf8 ("  I ") + juce::String (k.lufs, 0) + " / TP " + juce::String (k.truePeak, 0) + utf8 ("，手动 Gain ")
+                                + juce::String (k.manualGainDb, 0) + utf8 ("，风格 ") + juce::String ((int) style) + utf8 ("：请求 ")
+                                + juce::String (plan.requestedGainDb, 2) + utf8 ("、目标 ") + juce::String (plan.effectiveGainDb, 2)
+                                + utf8 (" dB，实际 Limit Gain ") + juce::String (actual.limit.gainDb, 2) + utf8 ("、能交付 ")
+                                + juce::String (delivered, 2) + utf8 (" dB，受约束 ") + juce::String ((int) plan.limitedByConstraints));
+
+                    expect (full, utf8 ("这些素材满强度应用满 Limit Gain 量程"));
+                    expect (plan.limitedByConstraints, utf8 ("请求放不进量程应标受约束"));
+                    expect (plan.effectiveGainDb <= delivered + 0.5f, utf8 ("目标净提升不应超过量程能交付的净增益"));
+                    expect (plan.effectiveGainDb < plan.requestedGainDb, utf8 ("目标低于请求"));
+                }
+
+            expectEquals (atRange, 18);
+
+            // 2. 量程以内（I −30 / TP −24、手动中性：请求 20 dB，超限估计 0）：新规则不起作用——不受约束、目标 = 请求，与修前一样。
+            {
+                const auto profile = makeProfile (-30.0f, -24.0f);
+                const auto plan = planFor (&profile, Style::clean, 100.0f);
+                expect (! plan.limitedByConstraints, utf8 ("量程以内不受约束"));
+                expect (sameBits (plan.effectiveGainDb, plan.requestedGainDb), utf8 ("量程以内目标 = 请求（逐位）"));
+                expect (applyIncrements (defaultManual(), plan.increments).limit.gainDb < 24.0f - 1.0f);
+            }
+
+            // 3. 连续：手动 Gain 从 0 扫到 16 dB（I −30 / TP −26，通透：请求 20 dB），跨过「请求刚好放满量程」的边界时目标不跳；
+            //    目标随手动 Gain 单调不减（量程每少 1 dB、手动多 1 dB，净增益最多持平）。
+            {
+                const auto profile = makeProfile (-30.0f, -26.0f);
+                float previous = 0.0f, largestStep = 0.0f;
+                bool monotone = true;
+
+                for (int i = 0; i <= 64; ++i)
+                {
+                    auto manual = defaultManual();
+                    manual.limit.gainDb = 0.25f * (float) i;
+                    const auto target = planFor (&profile, Style::clean, 100.0f, manual).effectiveGainDb;
+
+                    if (i > 0)
+                    {
+                        largestStep = juce::jmax (largestStep, std::abs (target - previous));
+                        monotone = monotone && target >= previous - 1.0e-3f;
+                    }
+
+                    previous = target;
+                }
+
+                logMessage (utf8 ("  手动 Gain 0 → 16 dB 扫描（每步 0.25 dB）：目标相邻两步最大变化 ") + juce::String (largestStep, 4) + " dB");
+                expect (largestStep <= 0.3f, utf8 ("跨过量程边界时目标不跳"));
+                expect (monotone, utf8 ("目标随手动 Gain 单调不减"));
+            }
+
+            // 4. 任务书原例（I −24 / 手动 Gain 12 / 通透）只记录：真实峰值下手动 Gain 已把峰值推近限幅器，强度由既有的约束核对压低、
+            //    满强度用不到量程顶；目标与能交付量之差来自「手动链净增益 + 强度 × G_full′」的叠加近似（校准器收口），与量程无关。
+            {
+                const auto profile = makeProfile (-24.0f, -14.0f);
+                auto manual = defaultManual();
+                manual.limit.gainDb = 12.0f;
+                const auto plan = planFor (&profile, Style::clean, 100.0f, manual);
+                logMessage (utf8 ("  任务书原例 I −24 / TP −14 / 手动 Gain 12：目标 ") + juce::String (plan.effectiveGainDb, 2) + utf8 (" dB，实际 Limit Gain ")
+                            + juce::String (applyIncrements (manual, plan.increments).limit.gainDb, 2) + utf8 ("，能交付 ")
+                            + juce::String (deliverable (profile, Style::clean, manual, plan), 2) + utf8 (" dB，受约束 ")
+                            + juce::String ((int) plan.limitedByConstraints));
+                expect (applyIncrements (manual, plan.increments).limit.gainDb <= 24.0f);
+            }
         }
 
         //==============================================================================
@@ -1211,6 +1519,8 @@ namespace celadon::test
             expectEquals (heatPlan.increments.colorHeat, 0.0f);
             expectEquals (applyIncrements (heavyHeat, heatPlan.increments).color.heat, heavyHeat.color.heat, utf8 ("不应反向改手动 Heat"));
             expect (heatPlan.increments.limitGainDb > 0.0f, utf8 ("其它模块照常工作"));
+            // T-032 R6-02：只撤回 Heat 的自动增量、自动 Gain 仍在推响 → 电平类自动没有全部撤回，编排器的保护层 / 校准照常。
+            expect (! heatPlan.automaticLevelWithdrawn, utf8 ("手动 Heat 超染色预算不算电平类自动全部撤回"));
 
             // 手动 Gain 12 dB 推一个热混音：限幅器只靠手动就超上限 → 所有动电平的自动增量撤回，手动 Gain 不减。
             const auto hot = makeProfile (-12.0f, -2.0f);
@@ -1218,6 +1528,7 @@ namespace celadon::test
             heavyGain.limit.gainDb = 12.0f;
             const auto gainPlan = planFor (&hot, Style::punchy, 100.0f, heavyGain);
             expect (gainPlan.limitedByManual);
+            expect (gainPlan.automaticLevelWithdrawn, utf8 ("手动已让限幅器超约束：电平类自动全部撤回"));
             expectEquals (gainPlan.increments.limitGainDb, 0.0f);
             expectEquals (gainPlan.increments.colorHeat, 0.0f);
             expectEquals (gainPlan.increments.colorGlue, 0.0f);
@@ -1231,13 +1542,45 @@ namespace celadon::test
             const auto gluePlan = planFor (&loud, Style::warm, 100.0f, heavyGlue);
             expect (gluePlan.limitedByManual);
             expectEquals (gluePlan.increments.colorGlue, 0.0f);
+            expect (! gluePlan.automaticLevelWithdrawn, utf8 ("手动 Glue 超预算同样不算电平类自动全部撤回"));
 
             // Limit 旁通：自动推不了响度（没有限幅器兜底），标受手动限制。
             auto bypassed = defaultManual();
             bypassed.limit.bypass = true;
             const auto bypassPlan = planFor (&profile, Style::clean, 100.0f, bypassed);
             expect (bypassPlan.limitedByManual);
+            expect (bypassPlan.automaticLevelWithdrawn, utf8 ("Limit 旁通：电平类自动全部撤回"));
             expectEquals (bypassPlan.increments.limitGainDb, 0.0f);
+
+            // 约束反馈上限低于手动链净增益：自动全部撤回，两个标志都置（GlazePlanner.h「maxGainDb 低于手动链净增益」）。
+            auto someGain = defaultManual();
+            someGain.limit.gainDb = 6.0f;
+            const auto manualNet = planFor (&profile, Style::clean, 0.0f, someGain).effectiveGainDb;   // GLAZE 0 = 手动链的预计净增益
+            const auto cappedPlan = planFor (&profile, Style::clean, 100.0f, someGain, manualNet - 1.0f);
+            expect (cappedPlan.limitedByManual && cappedPlan.automaticLevelWithdrawn && cappedPlan.limitedByConstraints);
+            expect (allIncrementsZero (cappedPlan.increments) || (cappedPlan.increments.limitGainDb == 0.0f && cappedPlan.increments.colorGlue == 0.0f
+                                                                  && cappedPlan.increments.colorHeat == 0.0f && cappedPlan.increments.limitClip == 0.0f),
+                    utf8 ("动电平的自动增量全为 0"));
+            expect (! planFor (&profile, Style::clean, 100.0f, someGain).automaticLevelWithdrawn, utf8 ("不设上限时不撤回"));
+
+            // limitPlanTo 对新标志同样取或（T-032 R6-02 核验第 2 点）：置信度低的方案按「置信度拉满」的方案逐项封顶。手动 Glue 90 让手动链
+            // 净增益随决策用的输入响度变（置信度低 → 输入响度往更响一侧收拢 → 侧链检测电平高、GR 多、净增益小），上限取在两者之间：
+            // 低置信方案自己不撤回，封顶方案撤回——合起来必须撤回（两个标志都置）。
+            {
+                auto glueHeavy = defaultManual();
+                glueHeavy.color.glue = 90.0f;
+                const auto unsure = makeProfile (-24.0f, -12.0f, 5.0f, 0.5f);
+                const auto sure = makeProfile (-24.0f, -12.0f, 5.0f, 1.0f);
+                const auto unsureNet = planFor (&unsure, Style::clean, 0.0f, glueHeavy).effectiveGainDb;
+                const auto sureNet = planFor (&sure, Style::clean, 0.0f, glueHeavy).effectiveGainDb;
+                logMessage (utf8 ("  手动 Glue 90：低置信时手动链净增益 ") + juce::String (unsureNet, 3) + utf8 (" dB，置信拉满 ") + juce::String (sureNet, 3) + " dB");
+                expect (sureNet > unsureNet + 0.1f, utf8 ("构造前提：两种置信度下手动链净增益不同"));
+
+                const auto between = 0.5f * (unsureNet + sureNet);
+                const auto boundPlan = planFor (&unsure, Style::clean, 100.0f, glueHeavy, between);
+                expect (boundPlan.automaticLevelWithdrawn && boundPlan.limitedByManual, utf8 ("封顶方案全部撤回：合起来也全部撤回"));
+                expectEquals (boundPlan.increments.limitGainDb, 0.0f, utf8 ("取小之后自动 Limit Gain 为 0"));
+            }
 
             // 输入本身已超 Ceiling（手动全默认）：不是手动的问题，方案照常按风格分摊峰值，也不标受手动限制。
             const auto clipped = makeProfile (-10.0f, 3.0f);
@@ -1253,6 +1596,306 @@ namespace celadon::test
             expect (! withManual.limitedByManual);
             expectWithinAbsoluteError (applyIncrements (someHeat, withManual.increments).color.heat,
                                        applyIncrements (defaultManual(), base.increments).color.heat + 5.0f, 1.0e-3f);
+        }
+
+        //==============================================================================
+        // T-032 R6-02 收尾（A11）：手动链单独的用量（estimateManualChainUsage）与「手动链单独已超预算」的项（Plan::manualBudgetMask）。
+        // 保护层与上游监视每项的有效上限 = max(风格上限, 手动单独用量)：编排器把置位的项按不设约束核对，其余照风格上限——所以两条最要紧：
+        // 手动没超预算时掩码必为 0（上限逐位同修前），置了位的项自动增量必为 0（Heat / Glue / Clip；Clip 另有决策器不再按 Clip 预算限制
+        // 自动 Gain）。
+        void testManualBudgetMask()
+        {
+            beginTest ("manual-only usage and the budget items the automatic part no longer answers for (T-032 R6-02 closing)");
+
+            // 依据：任务书 BRIEF-A11 第 1 条「每项约束的有效上限 = max(风格上限, 手动单独用量)，手动没超预算时逐位等于风格上限」；
+            //       GlazeTypes.h manualBudget* 的判定；决策与校准第 8 节「手动部分本身已超约束时，自动先撤回自己的增量」。
+            const auto& fc = factoryConstants();
+            const auto usageFor = [] (const MusicProfile* profile, Style style, const ChainParams& manual, const StyleWeights* locked)
+            {
+                PlanInputs in;
+                in.profile = profile;
+                in.style = style;
+                in.glazePercent = 100.0f;
+                in.manual = manual;
+                in.lockedWeights = locked;
+                return estimateManualChainUsage (in);
+            };
+
+            // makePlan 封顶用的「置信度拉满」画像（GlazePlanner.cpp makePlan 同一口径：有效特征、27 段与代表性拉到 fullConfidence）；
+            // raised = 有没有哪一项真被拉了（没有就不封顶）。
+            const auto raisedProfile = [&fc] (const MusicProfile& profile, bool& raised)
+            {
+                const auto full = fc.fullConfidence > 0.0f ? fc.fullConfidence : 1.0f;
+                auto confident = profile;
+                raised = false;
+
+                const auto raise = [&] (float& confidence)
+                {
+                    if (! (confidence >= full))
+                    {
+                        confidence = full;
+                        raised = true;
+                    }
+                };
+
+                for (auto* feature : { &confident.integratedLufs, &confident.loudnessRangeLu, &confident.plrDb, &confident.truePeakDbtp,
+                                       &confident.spectralSlopeDbPerOct, &confident.lowShare, &confident.highShare, &confident.lowBandRangeDb,
+                                       &confident.onsetDensityPerSecond, &confident.onsetStrengthDb })
+                    if (feature->valid)
+                        raise (feature->confidence);
+
+                for (auto& band : confident.bandConfidence)
+                    raise (band);
+
+                raise (confident.representativeness);
+                return confident;
+            };
+
+            // 1. 手动中性：用量（Glue / Heat / Clip）与掩码都是 0；各风格、GLAZE 0 ～ 100 的方案掩码都是 0。
+            {
+                const auto profile = makeProfile (-14.0f, -3.0f);
+                bool allZero = true;
+
+                for (auto style : { Style::automatic, Style::warm, Style::punchy, Style::clean })
+                {
+                    const auto u = usageFor (&profile, style, defaultManual(), nullptr);
+                    allZero = allZero && u.overBudgetMask == 0 && u.heatAmount == 0.0f && u.glueGrMeanDb == 0.0f && u.glueGrP95Db == 0.0f
+                                      && u.clipDepthDb == 0.0f && u.clipActivity == 0.0f;
+
+                    for (auto glaze : { 0.0f, 0.1f, 35.0f, 100.0f })
+                        allZero = allZero && planFor (&profile, style, glaze).manualBudgetMask == 0 && planFor (nullptr, style, glaze).manualBudgetMask == 0;
+                }
+
+                expect (allZero, utf8 ("手动中性：手动链单独的 Glue / Heat / Clip 用量与掩码都是 0"));
+            }
+
+            // 2. 性质扫描（随机画像 / 手动值 / 风格 / 约束反馈，GLAZE 35 与 100）：
+            //    a. 各位的判定：Heat ⟺ 手动 Heat > 驱动上限；Glue ⟺ 手动单独的 Glue 均值或 p95 GR > 上限（不加容差；决策器按同一模型的
+            //       glueCap 判，上限两侧 10⁻³ dB 以内的浮点边界不比）；Clip ⟺ 手动单独的削波深度 > 上限 + 0.05 dB 或活动 > 上限 × 1.02
+            //       （决策器撤回自动 Clip 的同一判定）。上限按方案权重混合；
+            //    b. 手动链单独的用量都不超风格上限 ⟹ 掩码为 0——掩码为 0 时编排器交给保护层的上限逐位是混合常数，与修前相同；
+            //    c. 方案的位：Heat / Glue / Clip 置位时该项自动增量为 0；
+            //    d. 置信度封顶按位取或（limitPlanTo）：方案的掩码 = 本方案手动链单独的位 | 置信拉满（锁定本方案权重）的 | 「自动」且没锁
+            //       权重时再 | 置信拉满且按它重判权重的——逐位相等；GLAZE 0 的方案为 0。
+            {
+                juce::Random random (0xa11b0d9e);
+                int scenarios = 0, withBits = 0, mismatches = 0, zeroMaskOverCap = 0, badIncrements = 0, badMerge = 0, mergedMore = 0;
+                int heatBits = 0, glueBits = 0, clipBits = 0;
+
+                for (int i = 0; i < 600; ++i)
+                {
+                    auto s = randomScenario (random);
+
+                    if (random.nextBool())   // 多给一些手动超预算的组合
+                    {
+                        s.manual.color.heat = random.nextFloat() * 100.0f;
+                        s.manual.color.glue = random.nextFloat() * 100.0f;
+                        s.manual.limit.clip = random.nextFloat() < 0.5f ? random.nextFloat() * 100.0f : 0.0f;
+                        s.manual.limit.gainDb = random.nextFloat() * 12.0f;
+                    }
+
+                    const auto* profile = s.hasProfile ? &s.profile : nullptr;
+                    const auto u = usageFor (profile, s.style, s.manual, nullptr);
+
+                    for (auto glaze : { 35.0f, 100.0f })
+                    {
+                        const auto plan = planFor (s, glaze);
+                        const auto caps = blendConstants (fc, plan.weights);
+                        const auto heat = juce::jlimit (0.0f, 100.0f, std::isfinite (s.manual.color.heat) ? s.manual.color.heat : 0.0f);
+                        const auto heatOver = heat > caps.heatDriveCap;
+                        const auto glueOverBy = juce::jmax (u.glueGrMeanDb - caps.glueGrMeanCapDb, u.glueGrP95Db - caps.glueGrP95CapDb);
+                        const auto glueOver = glueOverBy > 0.0f;
+                        const auto glueEdge = std::abs (glueOverBy) < 1.0e-3f;
+                        const auto clipOver = u.clipDepthDb > caps.clipDepthCapDb + 0.05f || u.clipActivity > caps.clipActivityCap * 1.02f;
+                        const auto expected = (heatOver ? manualBudgetHeat : 0) | (glueOver ? manualBudgetGlue : 0) | (clipOver ? manualBudgetClip : 0);
+                        const auto compared = glueEdge ? (int) (manualBudgetHeat | manualBudgetClip) : (int) manualBudgetAll;
+                        const auto own = (int) u.overBudgetMask;
+
+                        ++scenarios;
+                        withBits += own != 0 ? 1 : 0;
+                        heatBits += (own & manualBudgetHeat) != 0 ? 1 : 0;
+                        glueBits += (own & manualBudgetGlue) != 0 ? 1 : 0;
+                        clipBits += (own & manualBudgetClip) != 0 ? 1 : 0;
+                        mismatches += (own & compared) != (expected & compared) ? 1 : 0;
+
+                        const auto withinCaps = ! heatOver && glueOverBy <= -1.0e-3f
+                                              && u.clipDepthDb <= caps.clipDepthCapDb && u.clipActivity <= caps.clipActivityCap;
+                        zeroMaskOverCap += withinCaps && own != 0 ? 1 : 0;
+
+                        badIncrements += ((plan.manualBudgetMask & manualBudgetHeat) != 0 && plan.increments.colorHeat != 0.0f)
+                                      || ((plan.manualBudgetMask & manualBudgetGlue) != 0 && plan.increments.colorGlue != 0.0f)
+                                      || ((plan.manualBudgetMask & manualBudgetClip) != 0 && plan.increments.limitClip != 0.0f) ? 1 : 0;
+
+                        auto merged = own;
+
+                        if (profile != nullptr)
+                        {
+                            bool raised = false;
+                            const auto confident = raisedProfile (*profile, raised);
+
+                            if (raised)
+                            {
+                                merged |= usageFor (&confident, Style::automatic, s.manual, &plan.weights).overBudgetMask;
+
+                                if (s.style == Style::automatic)   // randomScenario 不锁权重：makePlan 再按满置信度重判的权重封一次
+                                    merged |= usageFor (&confident, Style::automatic, s.manual, nullptr).overBudgetMask;
+                            }
+                        }
+
+                        badMerge += (int) plan.manualBudgetMask != merged ? 1 : 0;
+                        mergedMore += merged != own ? 1 : 0;
+                    }
+
+                    badMerge += planFor (s, 0.0f).manualBudgetMask != 0 ? 1 : 0;
+                }
+
+                logMessage ("  manual budget scan: " + juce::String (scenarios) + " plans, " + juce::String (withBits) + " with bits (heat / glue / clip "
+                            + juce::String (heatBits) + " / " + juce::String (glueBits) + " / " + juce::String (clipBits) + "), "
+                            + juce::String (mergedMore) + " gained a bit from the full-confidence cap");
+                expect (heatBits > 20 && glueBits > 20 && clipBits > 5, utf8 ("扫描覆盖了三种位（前提）"));
+                expectEquals (mismatches, 0, utf8 ("各位按手动链单独的用量与风格上限判定"));
+                expectEquals (zeroMaskOverCap, 0, utf8 ("手动单独的用量都不超风格上限时掩码为 0"));
+                expectEquals (badIncrements, 0, utf8 ("置位的项：自动增量为 0"));
+                expectEquals (badMerge, 0, utf8 ("封顶合并：三位都取或，与各份方案的手动链单独用量逐位相符；GLAZE 0 为 0"));
+            }
+
+            // 3. Heat：四种风格下手动 Heat 0 ～ 100 每 0.25 扫描，位恰在「超过风格驱动上限」时置（置信度满、权重锁定：方案的位 = 手动链单独的位），
+            //    置位后自动 Heat 为 0，自动 Gain 照常。
+            {
+                const auto profile = makeProfile (-20.0f, -8.0f);
+                int wrong = 0, gainGone = 0;
+
+                for (auto style : { Style::warm, Style::punchy, Style::clean })
+                {
+                    const auto cap = blendConstants (fc, weightsFor (style, {})).heatDriveCap;
+
+                    for (float heat = 0.0f; heat <= 100.0f; heat += 0.25f)
+                    {
+                        auto manual = defaultManual();
+                        manual.color.heat = heat;
+                        const auto plan = planFor (&profile, style, 100.0f, manual);
+                        const auto set = (plan.manualBudgetMask & manualBudgetHeat) != 0;
+                        wrong += set != (heat > cap) || set != ((usageFor (&profile, style, manual, nullptr).overBudgetMask & manualBudgetHeat) != 0)
+                                 || (set && plan.increments.colorHeat != 0.0f) ? 1 : 0;
+                        gainGone += set && ! plan.automaticLevelWithdrawn && ! (plan.increments.limitGainDb > 0.0f) ? 1 : 0;
+                    }
+                }
+
+                expectEquals (wrong, 0, utf8 ("Heat 位恰在手动 Heat 超过风格驱动上限时置，置位后自动 Heat 为 0"));
+                expectEquals (gainGone, 0, utf8 ("只有手动 Heat 超预算时自动 Gain 照常推响"));
+            }
+
+            // 4. Glue：通透、响素材上把手动 Glue 从 0 往上扫，位从「手动单独 GR 刚超上限」那一格起置、之后一直置；上限附近「超了但没超过
+            //    决策器撤回的容差」那一段（不标受手动限制）同样置位——那里自动 Glue 的余量已是 0，Glue GR 全是手动的。
+            {
+                const auto profile = makeProfile (-12.0f, -2.0f);
+                const StyleWeights clean { 0.0f, 0.0f, 1.0f };
+                const auto caps = blendConstants (fc, clean);
+                int nonMonotone = 0, wrongIncrement = 0, slivers = 0, wrongBit = 0, firstSet = -1;
+                bool previous = false;
+
+                for (int step = 0; step <= 4000; ++step)
+                {
+                    auto manual = defaultManual();
+                    manual.color.glue = (float) step * 0.025f;
+                    const auto plan = planFor (&profile, Style::clean, 100.0f, manual);
+                    const auto u = usageFor (&profile, Style::clean, manual, nullptr);
+                    const auto set = (plan.manualBudgetMask & manualBudgetGlue) != 0;
+
+                    nonMonotone += previous && ! set ? 1 : 0;
+                    wrongIncrement += set && plan.increments.colorGlue != 0.0f ? 1 : 0;
+
+                    if (set && firstSet < 0)
+                        firstSet = step;
+
+                    const auto overBy = juce::jmax (u.glueGrMeanDb - caps.glueGrMeanCapDb, u.glueGrP95Db - caps.glueGrP95CapDb);
+                    slivers += set && overBy > 0.0f && overBy <= 0.05f && ! plan.limitedByManual ? 1 : 0;
+                    wrongBit += std::abs (overBy) >= 1.0e-3f && set != (overBy > 0.0f) ? 1 : 0;
+                    previous = set;
+                }
+
+                logMessage ("  Glue bit from manual Glue " + juce::String ((float) firstSet * 0.025f, 3) + ", " + juce::String (slivers)
+                            + " steps over the cap within the withdrawal tolerance");
+                expect (firstSet > 0, utf8 ("响素材上手动 Glue 够大时置 Glue 位（前提）"));
+                expectEquals (wrongBit, 0, utf8 ("Glue 位 ⟺ 手动单独的 GR 超上限（边界 10⁻³ dB 以内不比）"));
+                expectEquals (nonMonotone, 0, utf8 ("Glue 位随手动 Glue 单调"));
+                expectEquals (wrongIncrement, 0, utf8 ("置位后自动 Glue 为 0"));
+                expect (slivers > 0, utf8 ("超上限但在撤回容差以内（不标受手动限制）也置位：自动 Glue 余量已是 0"));
+            }
+
+            // 5. Clip：手动 Clip 100（阈值 = Ceiling）+ 手动 Gain 5 dB 把 TP −3 的素材压进削波器：深度超出通透的 Clip 预算、决策器撤回自动 Clip，
+            //    限幅器没超（软削波已把峰值收住）——Clip 位置、电平类自动没有全部撤回、自动 Gain 照常推。手动 Clip 20 没超：不置位。
+            {
+                const auto profile = makeProfile (-14.0f, -3.0f);
+                auto heavy = defaultManual();
+                heavy.limit.clip = 100.0f;
+                heavy.limit.gainDb = 5.0f;
+                const auto plan = planFor (&profile, Style::clean, 100.0f, heavy);
+                const auto u = usageFor (&profile, Style::clean, heavy, nullptr);
+                logMessage ("  manual Clip 100 + Gain 5: clip depth " + juce::String (u.clipDepthDb, 2) + " dB, limiter peak GR "
+                            + juce::String (u.limitGrPeakDb, 2) + " dB, automatic Limit Gain " + juce::String (plan.increments.limitGainDb, 2) + " dB");
+                expect ((plan.manualBudgetMask & manualBudgetClip) != 0 && plan.limitedByManual && ! plan.automaticLevelWithdrawn,
+                        utf8 ("手动 Clip 单独超预算：Clip 位、受手动限制，电平类自动没有全部撤回"));
+                expectEquals (plan.increments.limitClip, 0.0f, utf8 ("自动 Clip 撤回"));
+                expect (plan.increments.limitGainDb > 0.0f, utf8 ("自动 Gain 照常推（决策器此时只按限幅器核对）"));
+
+                auto light = defaultManual();
+                light.limit.clip = 20.0f;
+                expectEquals ((int) planFor (&profile, Style::clean, 100.0f, light).manualBudgetMask, 0, utf8 ("手动 Clip 没超预算：不置位"));
+            }
+
+            // 6. 置信度封顶的合并（limitPlanTo，三位都取或）。置信度低时决策用的输入响度往「更响」一侧收，Glue 侧链检测电平高、GR 多：
+            //    a. 手动 Glue 让低置信的手动链超 Glue 上限、置信拉满的没超 → 方案置 Glue 位（自动 Glue 取小后为 0）；
+            //    b. 同一收拢让 Glue 压低峰值、削波更浅：手动 Glue + Clip + Gain 让置信拉满的手动链超 Clip 预算、低置信的没超 → 方案同样置
+            //       Clip 位、自动 Clip 为 0。不置（取与）的话保护层按通透的 Clip 上限核对，而更准的那份模型说手动单独的削波已经超了：保护层
+            //       退不掉手动的那份削波，退到底、约束反馈把自动增益磨光。
+            {
+                const StyleWeights clean { 0.0f, 0.0f, 1.0f };
+                const auto unsure = makeProfile (-24.0f, -12.0f, 5.0f, 0.5f);
+                const auto sure = makeProfile (-24.0f, -12.0f, 5.0f, 1.0f);
+
+                bool glueCase = false, clipCase = false, glueMerged = true, clipMerged = true;
+
+                for (int step = 0; step <= 1000 && ! glueCase; ++step)
+                {
+                    auto manual = defaultManual();
+                    manual.color.glue = (float) step * 0.1f;
+                    const auto own = usageFor (&unsure, Style::clean, manual, &clean).overBudgetMask;
+                    const auto bound = usageFor (&sure, Style::clean, manual, &clean).overBudgetMask;
+
+                    if ((own & manualBudgetGlue) != 0 && (bound & manualBudgetGlue) == 0)
+                    {
+                        glueCase = true;
+                        glueMerged = (planFor (&unsure, Style::clean, 100.0f, manual, 1.0e9f, &clean).manualBudgetMask & manualBudgetGlue) != 0;
+                    }
+                }
+
+                for (float glue : { 40.0f, 60.0f, 80.0f, 100.0f })
+                {
+                    for (int step = 0; step <= 480 && ! clipCase; ++step)
+                    {
+                        auto manual = defaultManual();
+                        manual.color.glue = glue;
+                        manual.limit.clip = 100.0f;
+                        manual.limit.gainDb = (float) step * 0.05f;
+                        const auto own = usageFor (&unsure, Style::clean, manual, &clean);
+                        const auto bound = usageFor (&sure, Style::clean, manual, &clean);
+
+                        if ((own.overBudgetMask & manualBudgetClip) == 0 && (bound.overBudgetMask & manualBudgetClip) != 0)
+                        {
+                            clipCase = true;
+                            const auto plan = planFor (&unsure, Style::clean, 100.0f, manual, 1.0e9f, &clean);
+                            clipMerged = (plan.manualBudgetMask & manualBudgetClip) != 0 && plan.increments.limitClip == 0.0f;
+                            logMessage ("  merge case: manual Glue " + juce::String (glue, 0) + " + Clip 100 + Gain " + juce::String (manual.limit.gainDb, 2)
+                                        + " dB: clip depth unsure " + juce::String (own.clipDepthDb, 3) + " / sure " + juce::String (bound.clipDepthDb, 3) + " dB");
+                        }
+                    }
+                }
+
+                expect (glueCase && clipCase, utf8 ("找到了两种合并方向的构造（前提）"));
+                expect (glueMerged, utf8 ("Glue 位取或：低置信的手动链超了，方案就置位"));
+                expect (clipMerged, utf8 ("Clip 位同样取或：置信拉满的封顶方案的手动链超了、低置信的没超，方案置位且自动 Clip 为 0"));
+            }
         }
 
         //==============================================================================
@@ -1730,6 +2373,122 @@ namespace celadon::test
             CommittedState newer;
             expect (fromXml (*newerAlgorithm, newer), utf8 ("方案算法版本不同不应拒收"));
             expectEquals (newer.plan.algorithmVersion, currentAlgorithmVersion + 5);
+
+            // T-032 R6-02：PLAN 的 automaticLevelWithdrawn 可缺省——v0.1.8.5 及以前的存档没有它，缺省取同一方案的 limitedByManual
+            //（旧语义 = 保守）；属性在但不是 0 / 1 照样拒收。
+            expectRejected<CommittedState> (*stateXml, [] (juce::XmlElement& x) { x.getChildByName ("PLAN")->setAttribute ("automaticLevelWithdrawn", "2"); },
+                                            stateSentinel, utf8 ("automaticLevelWithdrawn 不是 0 / 1"));
+
+            for (auto limited : { false, true })
+            {
+                auto legacyPlan = std::make_unique<juce::XmlElement> (*stateXml);
+                auto* planNode = legacyPlan->getChildByName ("PLAN");
+                planNode->setAttribute ("limitedByManual", limited ? "1" : "0");
+                planNode->setAttribute ("automaticLevelWithdrawn", "0");   // 先证明属性在时按属性读……
+                CommittedState explicitState;
+                expect (fromXml (*legacyPlan, explicitState) && explicitState.plan.limitedByManual == limited && ! explicitState.plan.automaticLevelWithdrawn);
+                planNode->removeAttribute ("automaticLevelWithdrawn");     // ……缺属性才取 limitedByManual
+                CommittedState legacyState;
+                expect (fromXml (*legacyPlan, legacyState), utf8 ("旧存档缺 automaticLevelWithdrawn 不应拒收"));
+                expect (legacyState.plan.limitedByManual == limited && legacyState.plan.automaticLevelWithdrawn == limited,
+                        utf8 ("缺属性时 automaticLevelWithdrawn 取 limitedByManual"));
+            }
+
+            // 执行快照的 PLAN 与已提交版本同一字段表（GlazeProfile.cpp visitPlan）：缺属性同样取 limitedByManual，属性在就按属性读。
+            {
+                ExecutionState execution;
+                execution.valid = true;
+                execution.hasProfile = true;
+                execution.profile = sentinel;
+                execution.constants = factoryConstants();
+                execution.plan = state.plan;
+                execution.plan.limitedByManual = true;
+                execution.plan.automaticLevelWithdrawn = false;
+                execution.reference.glazePercent = 50.0f;
+                execution.reference.sampleRate = 48000.0;
+                const auto executionXml = toXml (execution);
+
+                ExecutionState explicitBack;
+                expect (fromXml (*executionXml, explicitBack) && explicitBack.plan.limitedByManual && ! explicitBack.plan.automaticLevelWithdrawn,
+                        utf8 ("执行快照：属性在时按属性读"));
+
+                auto legacyExecution = std::make_unique<juce::XmlElement> (*executionXml);
+                legacyExecution->getChildByName ("PLAN")->removeAttribute ("automaticLevelWithdrawn");
+                ExecutionState legacyBack;
+                expect (fromXml (*legacyExecution, legacyBack) && legacyBack.plan.automaticLevelWithdrawn,
+                        utf8 ("执行快照缺属性：取 limitedByManual（保守）"));
+            }
+
+            // T-032 R6-02 收尾（A11）：PLAN 的 manualBudgetMask（十进制位掩码）。属性在：按属性读、往返逐位；缺属性（A11 之前的存档）：
+            // 受手动设置限制的方案三位全置（分不出是哪一项超了，不把可能是手动造成的超出当成自动的），否则 0；不是 0 ～ 255 的整数：
+            // 整份拒收。未定义的位：已提交版本照读（编排器只认三个已定义的位，与 clayCostLimitedMask 同一做法），执行快照整份拒收。
+            {
+                for (auto mask : { 0, 1, 2, 4, 5, 7 })
+                {
+                    auto masked = state;
+                    masked.plan.manualBudgetMask = (std::uint8_t) mask;
+                    CommittedState back;
+                    expect (fromXml (*toXml (masked), back) && back.plan.manualBudgetMask == mask && bitwiseEqual (back, masked),
+                            utf8 ("manualBudgetMask 往返逐位：") + juce::String (mask));
+                }
+
+                for (auto limited : { false, true })
+                {
+                    auto legacyPlan = std::make_unique<juce::XmlElement> (*stateXml);
+                    auto* planNode = legacyPlan->getChildByName ("PLAN");
+                    planNode->setAttribute ("limitedByManual", limited ? "1" : "0");
+                    planNode->setAttribute ("manualBudgetMask", 2);
+                    CommittedState explicitState;
+                    expect (fromXml (*legacyPlan, explicitState) && explicitState.plan.manualBudgetMask == 2, utf8 ("属性在时按属性读"));
+                    planNode->removeAttribute ("manualBudgetMask");
+                    CommittedState legacyState;
+                    expect (fromXml (*legacyPlan, legacyState), utf8 ("旧存档缺 manualBudgetMask 不应拒收"));
+                    expectEquals ((int) legacyState.plan.manualBudgetMask, limited ? (int) manualBudgetAll : 0,
+                                  utf8 ("缺属性：受手动限制的方案三位全置，否则 0"));
+                }
+
+                for (const auto* bad : { "256", "-1", "x", "2.5" })
+                    expectRejected<CommittedState> (*stateXml, [bad] (juce::XmlElement& x) { x.getChildByName ("PLAN")->setAttribute ("manualBudgetMask", bad); },
+                                                    stateSentinel, utf8 ("manualBudgetMask 非法：") + bad);
+
+                for (auto undefined : { 8, 15 })
+                {
+                    auto future = std::make_unique<juce::XmlElement> (*stateXml);
+                    future->getChildByName ("PLAN")->setAttribute ("manualBudgetMask", undefined);
+                    CommittedState read;
+                    expect (fromXml (*future, read) && read.plan.manualBudgetMask == undefined,
+                            utf8 ("已提交版本里未定义的位照读：") + juce::String (undefined));
+                }
+
+                ExecutionState execution;
+                execution.valid = true;
+                execution.hasProfile = true;
+                execution.profile = sentinel;
+                execution.constants = factoryConstants();
+                execution.plan = state.plan;
+                execution.plan.limitedByManual = true;
+                execution.plan.manualBudgetMask = manualBudgetGlue;
+                execution.reference.glazePercent = 50.0f;
+                execution.reference.sampleRate = 48000.0;
+                const auto executionXml = toXml (execution);
+
+                ExecutionState back;
+                expect (fromXml (*executionXml, back) && back.plan.manualBudgetMask == manualBudgetGlue, utf8 ("执行快照：属性在时按属性读"));
+
+                auto legacyExecution = std::make_unique<juce::XmlElement> (*executionXml);
+                legacyExecution->getChildByName ("PLAN")->removeAttribute ("manualBudgetMask");
+                ExecutionState legacyBack;
+                expect (fromXml (*legacyExecution, legacyBack) && legacyBack.plan.manualBudgetMask == manualBudgetAll,
+                        utf8 ("执行快照缺属性：受手动限制 → 三位全置"));
+
+                for (const auto* bad : { "8", "256" })
+                {
+                    auto broken = std::make_unique<juce::XmlElement> (*executionXml);
+                    broken->getChildByName ("PLAN")->setAttribute ("manualBudgetMask", bad);
+                    ExecutionState rejected;
+                    expect (! fromXml (*broken, rejected), utf8 ("执行快照 manualBudgetMask 非法应拒收：") + bad);
+                }
+            }
         }
 
         //==============================================================================
@@ -1780,19 +2539,69 @@ namespace celadon::test
             expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setTagName ("GLAZE_OTHER"); }, sentinel, utf8 ("节点名不对"));
             expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("automaticHeatFloor", "oops"); }, sentinel,
                                        "a present but malformed optional field is not a legacy snapshot");
+            expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("warm_automaticHeatFloor", "oops"); }, sentinel,
+                                       "a present but malformed per-style heat floor is rejected");
+            expectRejected<Constants> (*good, [] (juce::XmlElement& x) { x.setAttribute ("heatUsefulCrestDb", "oops"); }, sentinel,
+                                       "a present but malformed heatUsefulCrestDb is rejected");
+
+            // T-032 R6-01：出厂 v8 快照写三个风格底量，旧的全局 automaticHeatFloor 照写（= 三者中最小的，旧版本插件只认它）。
+            expect (factory.version >= 8 && currentAlgorithmVersion >= 8, utf8 ("T-032：标定 / 算法版本升到 8"));
+            expectEquals (factory.heatUsefulCrestDb, 0.1f);
+            expect (good->hasAttribute ("warm_automaticHeatFloor") && good->hasAttribute ("punchy_automaticHeatFloor")
+                        && good->hasAttribute ("clean_automaticHeatFloor") && good->hasAttribute ("automaticHeatFloor") && good->hasAttribute ("heatUsefulCrestDb"));
+            expect (good->getStringAttribute ("automaticHeatFloor") == good->getStringAttribute ("clean_automaticHeatFloor"),
+                    utf8 ("出厂三种底量相同：全局字段就是它"));
+
+            // v7 及以前的快照只有全局 automaticHeatFloor（例如 9）：三种风格都按它读，混合权重下逐位等于原值。
+            {
+                auto v7 = toXml (factory);
+                v7->setAttribute ("version", 7);
+                v7->setAttribute ("algorithmVersion", 7);
+                for (const auto* field : { "warm_automaticHeatFloor", "punchy_automaticHeatFloor", "clean_automaticHeatFloor", "heatUsefulCrestDb" })
+                    v7->removeAttribute (field);
+                const float nine = 9.0f;
+                std::uint32_t nineBits = 0;
+                std::memcpy (&nineBits, &nine, sizeof (nineBits));
+                v7->setAttribute ("automaticHeatFloor", juce::String::toHexString ((int) nineBits).paddedLeft ('0', 8));
+                Constants fromV7 = factory;
+                expect (fromXml (*v7, fromV7), utf8 ("v7 快照应读得回"));
+                expect (sameBits (fromV7.warm.automaticHeatFloor, 9.0f) && sameBits (fromV7.punchy.automaticHeatFloor, 9.0f)
+                            && sameBits (fromV7.clean.automaticHeatFloor, 9.0f), utf8 ("三种风格都取旧的全局底量"));
+                expectEquals (fromV7.heatUsefulCrestDb, 0.0f, utf8 ("旧快照缺 heatUsefulCrestDb 按 0 读（算法 7 不进新分支，缺省不是兼容手段）"));
+                expect (sameBits (blendConstants (fromV7, { 0.12f, 0.88f, 0.0f }).automaticHeatFloor, 9.0f)
+                            && sameBits (blendConstants (fromV7, { 0.3f, 0.3f, 0.4f }).automaticHeatFloor, 9.0f),
+                        utf8 ("三者逐位相同时混合直接取原值，不经加权求和"));
+                Constants v7RoundTrip;
+                expect (fromXml (*toXml (fromV7), v7RoundTrip) && bitwiseEqual (v7RoundTrip, fromV7), utf8 ("v7 读回再存往返逐位相同"));
+
+                auto tuned = factory;   // Max 标定后三者不同：按权重线性混合，全局字段取最小
+                tuned.warm.automaticHeatFloor = 12.0f;
+                tuned.punchy.automaticHeatFloor = 8.0f;
+                tuned.clean.automaticHeatFloor = 4.0f;
+                expectWithinAbsoluteError (blendConstants (tuned, { 0.5f, 0.0f, 0.5f }).automaticHeatFloor, 8.0f, 1.0e-5f);
+                const auto tunedXml = toXml (tuned);
+                expect (tunedXml->getStringAttribute ("automaticHeatFloor") == tunedXml->getStringAttribute ("clean_automaticHeatFloor"),
+                        utf8 ("全局字段 = 三者中最小的（旧版本读到偏保守的那份）"));
+                Constants tunedBack;
+                expect (fromXml (*tunedXml, tunedBack) && bitwiseEqual (tunedBack, tuned));
+            }
 
             // 旧版没有这些字段：从任意调用方初值读回都必须关掉新底量，不能继承当前出厂值。
             auto legacyXml = toXml (factory);
             legacyXml->setAttribute ("algorithmVersion", 1);
             legacyXml->setAttribute ("version", 1);
-            for (const auto* field : { "minimumFullDriveDb", "automaticRecoverFloor", "automaticTameFloor", "automaticHeatFloor" })
+            for (const auto* field : { "minimumFullDriveDb", "automaticRecoverFloor", "automaticTameFloor", "automaticHeatFloor",
+                                       "warm_automaticHeatFloor", "punchy_automaticHeatFloor", "clean_automaticHeatFloor", "heatUsefulCrestDb" })
                 legacyXml->removeAttribute (field);
             auto legacy = factory;
             expect (fromXml (*legacyXml, legacy));
             expectEquals (legacy.minimumFullDriveDb, 0.0f);
             expectEquals (legacy.automaticRecoverFloor, 0.0f);
             expectEquals (legacy.automaticTameFloor, 0.0f);
-            expectEquals (legacy.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.warm.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.punchy.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.clean.automaticHeatFloor, 0.0f);
+            expectEquals (legacy.heatUsefulCrestDb, 0.0f);
             expectEquals (legacy.algorithmVersion, 1);
             expect (legacy.algorithmVersion != currentAlgorithmVersion, "the controller can recognise an old saved plan");
             Constants legacyRoundTrip;

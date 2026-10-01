@@ -116,6 +116,8 @@ namespace celadon::ui
         static constexpr int cardWidth = 680;
 
         void setLanguage (Language newLanguage);
+
+        // 编辑器每帧都送（T-032 R9-12）：面板关着时只记下，打开时（visibilityChanged）按最新状态刷新一次。
         void setStatus (const celadon::MasteringStatus& newStatus);
         int getCardHeight() const noexcept   { return cardHeight; }
 
@@ -124,6 +126,7 @@ namespace celadon::ui
 
         void paint (juce::Graphics&) override;
         void resized() override;
+        void visibilityChanged() override;
         void mouseUp (const juce::MouseEvent&) override;
 
     private:

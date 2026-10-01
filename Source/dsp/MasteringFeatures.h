@@ -8,7 +8,7 @@ namespace celadon
     enum class DitherMode : int { off = 0, bits16 = 1, bits24 = 2 };
     enum class ReferenceState : int { idle = 0, waitingForSidechain = 1, learning = 2, ready = 3 };
 
-    // Neutral defaults preserve old callers. New-instance defaults live in Parameters.cpp.
+    // Neutral defaults preserve old callers. New-instance defaults live in ParameterDefaults.h (Parameters.cpp reads them).
     struct MasteringSettings
     {
         HarshMode harshMode = HarshMode::off;
@@ -17,6 +17,14 @@ namespace celadon
         float targetAmount = 35.0f, codecMarginDb = 0.0f;
         DitherMode dither = DitherMode::off;
         float previewTargetLufs = -14.0f;
+
+        // 解析后的实际强度（0 ～ 1，交给 Balance 的 h、t）——实际参数的无损回喂通道（T-032 R10-01，2026-09-29）。
+        // 链按「模式 × GLAZE」算 h、t（CeladonChain::setParams；unit(amount) × glaze 不能从 0 ～ 100 的 amount 逐位复现）。
+        // getEffectiveParams().mastering 回写的是「交给模块的实际值」：这两项填算好的那个 float，harshMode 改成手动（关仍是关）、
+        // targetMode 改成解析出的显式形状（自动按风格落到温润 / 中性 / 明亮；「参考」还没学好 → 关），codecMarginDb 置 0
+        //（余量已扣进 limit.ceilingDb，回喂不再扣第二次）。再把它喂给链（离线工具的同决策重放，ADR-016）时，模式不是「关」且
+        // 这两项 ≥ 0 就直接用、不再经乘法，逐位同值。插件从不设它们（readParams 不填），保持 −1 = 未设，链照旧算，逐位不变。
+        float harshResolved = -1.0f, targetResolved = -1.0f;
     };
 
     struct MasteringStatus

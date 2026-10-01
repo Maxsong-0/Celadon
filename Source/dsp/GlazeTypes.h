@@ -23,13 +23,21 @@ namespace celadon::glaze
 {
     // 方案默认值和出厂常数共用版本，GLAZE 0 学完后保存的空方案也必须属于当前算法。
     // 7 = v0.1.7.0 修坯 Clay（设计规格-Clay、ADR-009）：画像加立体声 / 超低频特征，方案加 Clay 四项。
-    inline constexpr int currentAlgorithmVersion = 7;
+    // 8 = T-032（2026-09-29，设计规格-GLAZE 7.4「版本」段）：R6-01 自动 Heat 只承担换算表里该电平真能削掉的峰均比份额、削不到
+    //     Constants::heatUsefulCrestDb 就只留风格底量 StyleConstants::automaticHeatFloor × 强度（原来 HeatRow::inverse「达不到就给最大」
+    //     让残差 Heat 表下的自动 Heat 与音乐无关地顶到 70 / 50 / 20）；R6-06 满强度增益按 Limit Gain 量程（24 − 手动 Gain）回算。
+    //     两条新规则都按**快照**的 Constants::algorithmVersion ≥ 8 分流（GlazePlanner.cpp makeFullPlan / completeFullPlan，与 ≥ 3 那一处
+    //     同一写法）：算法 6 / 7 的存档重开时 committed.constants 就是存档里的快照，方案走旧分支、增量逐位同存档。
+    inline constexpr int currentAlgorithmVersion = 8;
 
     // 与本版本「行为相同」的最早算法版本。7 只在 6 上加了 Clay，而 6 保存的画像（格式 1）没有 Clay 所需特征 → Clay 中性，
     // 其余自动增量的算法没变；所以算法 6 保存的方案与执行快照照常采用、不进「照用旧增量」模式，v0.1.6.2 工程打开后
     // **在约束反馈第一次触发之前**交给模块的参数逐位不变（tests/LegacyFixtureTests 用 v0.1.6.2 真实写出的存档核对）；触发之后按修复后的
     // 上限公式（applyFeedback 不再把校准偏差算两次）与旧版有意不同（审核 V2-01）。输出因 Clay 线性相位收单整体晚 D 个样本（ADR-012）
-    // （T-012 阶段 2 主进程裁决，A6 报告「请主进程裁决」一条）。以后升算法版本时，若改了既有增量的行为，把本常数跟着升。
+    // （T-012 阶段 2 主进程裁决，A6 报告「请主进程裁决」一条）。
+    // 8 改了既有增量的行为（自动 Heat、满强度增益），但按快照的 algorithmVersion 分流：旧存档重开时用存档里的快照重算，走旧分支、
+    // 结果逐位同存档，所以「行为相同」仍成立，本常数保持 6（T-032 核验 V6 第 1 节第 2 点：升版不丢校准 / 执行快照——calibrationApplicable
+    // 只比参考条件、executionHeld 只在参考条件变时释放）。以后升算法版本时，若改了既有增量的行为**且不能按快照版本分流**，才把本常数跟着升。
     inline constexpr int oldestCompatibleAlgorithmVersion = 6;
 
     constexpr bool isCompatibleAlgorithm (int version) noexcept
@@ -146,6 +154,24 @@ namespace celadon::glaze
         float limitClip = 0.0f;        // 0 ～ 100
     };
 
+    // T-032 R6-02 收尾（A11）：Plan::manualBudgetMask 的位——手动链单独的用量（只有手动值、没有自动增量时）已超出这一项的风格预算。
+    // 保护层与上游监视每项的有效上限 = max(风格上限, 手动单独用量)；置了位的项上自动部分恒为 0，实测用量就是手动单独用量，这个 max
+    // 永不越限，编排器把它直接置为「不设约束」（GlazeController.cpp releaseManualBudget），不拿前向模型的估计当上限；没置位的项
+    // 有效上限就是风格上限（逐位）：
+    //   - Heat：手动 Heat 超过风格的 Heat 驱动上限（只有上游监视核对 Heat）。自动 Heat 增量此时恒为 0（余量 max(0, heatCap − 手动) = 0，
+    //     heatCap ≤ 驱动上限；撤回的更是 0），Heat 驱动全是手动的；
+    //   - Glue：手动 Glue 超过这份素材上两个 GR 上限都不超的最大 Glue（决策器前向模型的 glueCap；即手动链单独的 Glue 均值或 p95 GR 超过
+    //     风格上限）。自动 Glue 增量此时恰为 0（撤回、或余量 max(0, glueCap − 手动) = 0），Glue GR 全是手动的——保护层退让 Limit Gain、
+    //     约束反馈降方案都减不了它；
+    //   - Clip：手动 Clip 单独超预算、决策器已撤回自动 Clip（与撤回同一判定，带决策器的容差）。决策器此时不再按 Clip 预算限制自动 Gain
+    //     （GlazePlanner.cpp feasible，v0.6 F-02 逐模块钳住）：自动 Gain 推深的削波是方案许可的，保护层与决策器一致、不核对 Clip 深度 /
+    //     活动两项（按 max(风格上限, 手动单独深度) 核对会与决策器顶牛，自动 Gain 一推就「超」，约束反馈照样把自动增益磨光）；
+    //     限幅器三项照常核对。
+    //   置信度封顶（GlazePlanner.cpp limitPlanTo）三位都取或：任一份方案的手动链单独超了，取小之后那一项的自动增量就是 0。
+    //   位的判定与手动链单独的用量见 GlazePlanner.h estimateManualChainUsage；编排器怎样用见 GlazeController.cpp updateGuardLimits。
+    inline constexpr std::uint8_t manualBudgetHeat = 1u, manualBudgetGlue = 2u, manualBudgetClip = 4u;
+    inline constexpr std::uint8_t manualBudgetAll = static_cast<std::uint8_t> (manualBudgetHeat | manualBudgetGlue | manualBudgetClip);
+
     // 方案：决策器（纯函数）的输出。
     struct Plan
     {
@@ -158,7 +184,19 @@ namespace celadon::glaze
         ClayPlan clay;                      // v0.1.7.0（算法 7）：Clay「自动」态的值；旧算法方案读入时为中性值
         StyleWeights weights;
         bool limitedByConstraints = false;  // 目标因约束被降低过
-        bool limitedByManual = false;       // 手动设置已超约束，自动增量已撤回
+        bool limitedByManual = false;       // 手动设置已超约束，该模块的自动增量已撤回（任一模块；界面「受手动设置限制」看它）
+        // T-032 R6-02：电平类自动**全部**撤回——手动已让限幅器超约束、Limit 旁通、或约束反馈上限低于手动链净增益（都属 limitedByManual）。
+        // 只有这时才没有自动加上去的增益；手动 Heat / Glue / Clip 单独超预算时只撤回那一项，自动 Gain 与其余模块照常展开（v0.6 F-02 逐模块
+        // 钳住）。编排器的画像失配、保护层、上游监视、校准偏差与校准轮、约束反馈都只在本标志为真时停（R6-02 收尾 A11；limitedByManual
+        // 只给界面）：手动单独超预算的那一项由 manualBudgetMask 交代，保护层与上游监视不核对它，只核对自动部分。
+        // 存档缺本属性（v0.1.8.5 及以前）按 limitedByManual 读（旧语义 = 保守）。
+        bool automaticLevelWithdrawn = false;
+        // T-032 R6-02 收尾（A11）：手动链单独已超出风格预算的项（manualBudget* 位，定义见上）。编排器按它把保护层与上游监视的这几项
+        // 置为「不设约束」，其余项照风格上限——修前两者按「手动 + 自动」的总量核对，把手动造成的超出当成自动的超限，白白退让自动 Gain、
+        // 约束反馈把净增益上限磨到手动链（107 实测，IMPL-A7 第 3 节）。GLAZE ≤ 0 的方案为 0；手动没超预算时为 0，保护层与上游监视的上限
+        // 逐位同修前。只是方案的附注：决策器的其余输出不看它（有它没它逐位相同）。存档缺本属性（A11 之前）：受手动设置限制的方案三位
+        // 全置（旧方案分不出是哪一项超了，不把可能是手动造成的超出当成自动的），否则 0。
+        std::uint8_t manualBudgetMask = 0;
         int algorithmVersion = currentAlgorithmVersion;
         int constantsVersion = 1;
     };

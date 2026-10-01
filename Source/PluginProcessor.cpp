@@ -8,6 +8,7 @@
 
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "ParameterDefaults.h"
 #include "ui/HelpText.h"
 #include "dsp/GlazePlanner.h"
 #include "dsp/GlazeProfile.h"
@@ -40,6 +41,27 @@ namespace
         constexpr auto last  = static_cast<int> (celadon::ClayMode::manual);
         return static_cast<celadon::ClayMode> (juce::jlimit (first, last, juce::roundToInt (rawValue)));
     }
+
+    // 参数原始值的第二道防线（T-032 R8-02）：APVTS 各层只钳有限值（JUCE 9.0.2 的 jlimit / NormalisableRange 对 NaN 原样放行，
+    // 工程文件里的 "nan" 读回来就是 quiet_NaN），宿主写坏、手改或损坏的工程会把非有限值原样送到这里。一律换成新实例默认值
+    //（ParameterDefaults.h）。真正的守卫在各模块（DSP 不信任外部值）；这里只保证链与界面拿到的每个参数都有限。
+    float finiteOr (float value, float fallback) noexcept
+    {
+        return std::isfinite (value) ? value : fallback;
+    }
+
+    float finiteOr (const std::atomic<float>* raw, float fallback) noexcept
+    {
+        return finiteOr (raw->load(), fallback);
+    }
+
+    constexpr float asRaw (bool value) noexcept   { return value ? 1.0f : 0.0f; }
+
+    // 存档格式（T-032 R10-02）：getStateInformation 在根元素写格式号与写它的版本；setStateInformation 读出格式号交给
+    // addMissingParameterNodes（没有这个属性 = 0：≤ 0.1.8.5 的存档）。改参数语义、改缺参回退规则、要按存档区分 DSP 兼容时必须升号。
+    constexpr const char* stateFormatAttribute = "celadonStateFormat";
+    constexpr const char* stateVersionAttribute = "celadonVersion";
+    constexpr int currentStateFormat = 1;
 }
 
 //==============================================================================
@@ -233,6 +255,57 @@ CeladonAudioProcessor::CeladonAudioProcessor()
             jassert (clayModeFromRawValue (choice->convertFrom0to1 (asParameter.getDefaultValue())) == celadon::ClayMode::automatic);
         }
     }
+
+    // 新实例默认值一处真源（T-032 R10-01）：刚构造完，APVTS 里每个参数都是默认值（原始值 = convertFrom0to1 (getDefaultValue())），
+    // 按音频线程同一套换算（readParams）读成链级参数，必须与 ParameterDefaults.h 的 factoryChainParams() 逐项一致——离线工具与
+    // 性能基准用的就是它。对数刻度（Release、Clay 两个频率）的往返会漂几个 ulp，浮点按 approximatelyEqual；选项与开关按值。
+    // 加参数时这里加一项（项数与 allParameterIds 核对）。
+    {
+        const auto fromTable = readParams();
+        const auto truth = celadon::param::defaults::factoryChainParams();
+        const auto same = [] (float a, float b) { return juce::approximatelyEqual (a, b); };
+
+        const bool defaultsMatch[] =
+        {
+            same (fromTable.limit.gainDb, truth.limit.gainDb), same (fromTable.limit.ceilingDb, truth.limit.ceilingDb),
+            same (fromTable.limit.releaseMs, truth.limit.releaseMs), fromTable.limit.autoRelease == truth.limit.autoRelease,
+            same (fromTable.limit.lookaheadMs, truth.limit.lookaheadMs), same (fromTable.limit.clip, truth.limit.clip),
+            fromTable.limit.listen == truth.limit.listen, fromTable.limit.bypass == truth.limit.bypass,
+
+            same (fromTable.color.toneDb, truth.color.toneDb), same (fromTable.color.glue, truth.color.glue),
+            same (fromTable.color.heat, truth.color.heat), same (fromTable.color.mixPercent, truth.color.mixPercent),
+            same (fromTable.color.outputDb, truth.color.outputDb), fromTable.color.bypass == truth.color.bypass,
+
+            same (fromTable.balance.recover, truth.balance.recover), same (fromTable.balance.tame, truth.balance.tame),
+            same (fromTable.balance.brighten, truth.balance.brighten), fromTable.balance.speed == truth.balance.speed,
+            fromTable.balance.bypass == truth.balance.bypass,
+
+            same (fromTable.glazePercent, truth.glazePercent), fromTable.glazeStyle == truth.glazeStyle,
+
+            fromTable.claySettings.lowCutMode == truth.claySettings.lowCutMode,
+            same (fromTable.claySettings.lowCutHz, truth.claySettings.lowCutHz),
+            fromTable.claySettings.monoMode == truth.claySettings.monoMode,
+            same (fromTable.claySettings.monoHz, truth.claySettings.monoHz),
+            fromTable.claySettings.widthMode == truth.claySettings.widthMode,
+            same (fromTable.claySettings.widthDb, truth.claySettings.widthDb),
+            fromTable.claySettings.bypass == truth.claySettings.bypass,
+
+            fromTable.mastering.harshMode == truth.mastering.harshMode,
+            same (fromTable.mastering.harshAmount, truth.mastering.harshAmount),
+            same (fromTable.mastering.transientPreserve, truth.mastering.transientPreserve),
+            fromTable.mastering.targetMode == truth.mastering.targetMode,
+            same (fromTable.mastering.targetAmount, truth.mastering.targetAmount),
+            same (fromTable.mastering.codecMarginDb, truth.mastering.codecMarginDb),
+            fromTable.mastering.dither == truth.mastering.dither,
+            same (fromTable.mastering.previewTargetLufs, truth.mastering.previewTargetLufs),
+        };
+
+        static_assert (sizeof (defaultsMatch) / sizeof (defaultsMatch[0]) == std::size (celadon::param::allParameterIds),
+                       "加了参数：在这里补一项新实例默认值核对，并在 ParameterDefaults.h 写它的默认值");
+
+        for (const auto matches : defaultsMatch)
+            jassert (matches);
+    }
    #endif
 
     startTimerHz (30);
@@ -317,9 +390,12 @@ void CeladonAudioProcessor::changeProgramName (int index, const juce::String& ne
 //==============================================================================
 celadon::CeladonChain::Params CeladonAudioProcessor::readParams() const noexcept
 {
+    namespace defaults = celadon::param::defaults;
     celadon::CeladonChain::Params p;
 
     // 按信号顺序读：Balance → Clay → Color → Limit。布尔参数在 APVTS 里是 0 / 1 的 float，按 0.5 判。
+    // 每个原始值先过 finiteOr（T-032 R8-02）：非有限值换成新实例默认值（ParameterDefaults.h）。有限值原样通过，逐位不变。
+    // 例外是 Lookahead：它的非有限值由处理器层的 LookaheadHold 处理（当作「没变」、沿用正在用的前瞻，不因坏值改延迟），这里原样交出。
 
     // Balance（设计规格-Balance「参数」表）。Speed 是三选一：原始值是选项下标的 float（0 Slow / 1 Mid / 2 Fast），
     // 取整后钳到 0..2 再转枚举——枚举值与选项顺序一一对应（BalanceModule::Speed 定义 slow = 0, mid = 1, fast = 2）。
@@ -327,60 +403,61 @@ celadon::CeladonChain::Params CeladonAudioProcessor::readParams() const noexcept
     // 界面附件看到的完全一致（它对恰好 .5 按奇偶取整，但 APVTS 的原始值已按步长 1 吸附成整数，不会出现 .5）。
     // 钳制是防越界的保险，不信任外部值。
     {
-        const auto speedIndex = juce::jlimit (0, 2, juce::roundToInt (balanceParams.speed->load()));
+        const auto speedIndex = juce::jlimit (0, 2, juce::roundToInt (finiteOr (balanceParams.speed, (float) defaults::balanceSpeedIndex)));
 
-        p.balance.recover  = balanceParams.recover->load();
-        p.balance.tame     = balanceParams.tame->load();
-        p.balance.brighten = balanceParams.brighten->load();
+        p.balance.recover  = finiteOr (balanceParams.recover, defaults::balanceRecover);
+        p.balance.tame     = finiteOr (balanceParams.tame, defaults::balanceTame);
+        p.balance.brighten = finiteOr (balanceParams.brighten, defaults::balanceBrighten);
         p.balance.speed    = static_cast<celadon::BalanceModule::Speed> (speedIndex);
-        p.balance.bypass   = balanceParams.bypass->load() >= 0.5f;
+        p.balance.bypass   = finiteOr (balanceParams.bypass, asRaw (defaults::balanceBypass)) >= 0.5f;
     }
 
     // Clay 修坯（v0.1.7.0，设计规格-Clay 第 5、6 节；ADR-009 三态）。这里只读用户在「高级」抽屉里的设置：三个三态按下标转枚举
     //（clayModeFromRawValue：取整同 Balance Speed、钳到 自动 ～ 手动），三个手动值与 Bypass 原样交出（范围已由参数钳过）。
     // 交给 ClayModule 的实际参数 p.clay 不在这里填：链里的 GLAZE 编排器每块按三态合成——自动 = 决策器方案 + 实时保护
     //（GLAZE 0 时为中性）、关 = 中性、手动 = 这里的手动值（GLAZE 0 也生效）。
-    p.claySettings.lowCutMode = clayModeFromRawValue (clayParams.lowCutMode->load());
-    p.claySettings.lowCutHz   = clayParams.lowCutHz->load();
-    p.claySettings.monoMode   = clayModeFromRawValue (clayParams.monoMode->load());
-    p.claySettings.monoHz     = clayParams.monoHz->load();
-    p.claySettings.widthMode  = clayModeFromRawValue (clayParams.widthMode->load());
-    p.claySettings.widthDb    = clayParams.widthDb->load();
-    p.claySettings.bypass     = clayParams.bypass->load() >= 0.5f;
+    p.claySettings.lowCutMode = clayModeFromRawValue (finiteOr (clayParams.lowCutMode, (float) defaults::clayLowCutModeIndex));
+    p.claySettings.lowCutHz   = finiteOr (clayParams.lowCutHz, defaults::clayLowCutHz);
+    p.claySettings.monoMode   = clayModeFromRawValue (finiteOr (clayParams.monoMode, (float) defaults::clayMonoModeIndex));
+    p.claySettings.monoHz     = finiteOr (clayParams.monoHz, defaults::clayMonoHz);
+    p.claySettings.widthMode  = clayModeFromRawValue (finiteOr (clayParams.widthMode, (float) defaults::clayWidthModeIndex));
+    p.claySettings.widthDb    = finiteOr (clayParams.widthDb, defaults::clayWidthDb);
+    p.claySettings.bypass     = finiteOr (clayParams.bypass, asRaw (defaults::clayBypass)) >= 0.5f;
 
     // Color（设计规格-Color「参数」表）。
-    p.color.toneDb     = colorParams.tone->load();
-    p.color.glue       = colorParams.glue->load();
-    p.color.heat       = colorParams.heat->load();
-    p.color.mixPercent = colorParams.mix->load();
-    p.color.outputDb   = colorParams.output->load();
-    p.color.bypass     = colorParams.bypass->load() >= 0.5f;
+    p.color.toneDb     = finiteOr (colorParams.tone, defaults::colorToneDb);
+    p.color.glue       = finiteOr (colorParams.glue, defaults::colorGlue);
+    p.color.heat       = finiteOr (colorParams.heat, defaults::colorHeat);
+    p.color.mixPercent = finiteOr (colorParams.mix, defaults::colorMix);
+    p.color.outputDb   = finiteOr (colorParams.output, defaults::colorOutputDb);
+    p.color.bypass     = finiteOr (colorParams.bypass, asRaw (defaults::colorBypass)) >= 0.5f;
 
     // Limit（设计规格-Limit「参数」表）。
-    p.limit.gainDb      = limitParams.gain->load();
-    p.limit.ceilingDb   = limitParams.ceiling->load();
-    p.limit.releaseMs   = limitParams.release->load();
-    p.limit.autoRelease = limitParams.releaseAuto->load() >= 0.5f;
-    p.limit.lookaheadMs = limitParams.lookahead->load();
-    p.limit.clip        = limitParams.clip->load();
-    p.limit.listen      = limitParams.listen->load() >= 0.5f;
-    p.limit.bypass      = limitParams.bypass->load() >= 0.5f;
+    p.limit.gainDb      = finiteOr (limitParams.gain, defaults::limitGainDb);
+    p.limit.ceilingDb   = finiteOr (limitParams.ceiling, defaults::limitCeilingDb);
+    p.limit.releaseMs   = finiteOr (limitParams.release, defaults::limitReleaseMs);
+    p.limit.autoRelease = finiteOr (limitParams.releaseAuto, asRaw (defaults::limitReleaseAuto)) >= 0.5f;
+    p.limit.lookaheadMs = limitParams.lookahead->load();   // 非有限值交给 LookaheadHold（见上）
+    p.limit.clip        = finiteOr (limitParams.clip, defaults::limitClip);
+    p.limit.listen      = finiteOr (limitParams.listen, asRaw (defaults::limitListen)) >= 0.5f;
+    p.limit.bypass      = finiteOr (limitParams.bypass, asRaw (defaults::limitBypass)) >= 0.5f;
 
     // GLAZE（ADR-008）：这里只读原始值；自动增量由链里的 GLAZE 编排器在 CeladonChain::setParams 里算。
-    p.glazePercent = glazeAmount->load();
+    p.glazePercent = finiteOr (glazeAmount, defaults::glazeAmount);
 
     // GLAZE 风格（v0.6，ADR-008）：四选一，原始值是选项下标的 float，取整方式同 Balance Speed，钳到 0..3（= glaze::Style）。
-    p.glazeStyle = juce::jlimit (0, 3, juce::roundToInt (glazeStyle->load()));
+    p.glazeStyle = juce::jlimit (0, 3, juce::roundToInt (finiteOr (glazeStyle, (float) defaults::glazeStyleIndex)));
 
+    // 高级母带控制（0.1.9.0，设计规格-高级母带控制第 2 节）：三个选项按下标转枚举（取整同上、钳到选项范围）。
     const auto choice = [] (float value, int maximum) noexcept { return std::isfinite (value) ? juce::jlimit (0, maximum, juce::roundToInt (value)) : 0; };
-    p.mastering.harshMode = static_cast<celadon::HarshMode> (choice (masteringParams.harshMode->load(), 2));
-    p.mastering.harshAmount = masteringParams.harshAmount->load();
-    p.mastering.transientPreserve = masteringParams.transient->load();
-    p.mastering.targetMode = static_cast<celadon::TargetMode> (choice (masteringParams.targetMode->load(), 5));
-    p.mastering.targetAmount = masteringParams.targetAmount->load();
-    p.mastering.codecMarginDb = masteringParams.codecMarginDb->load();
-    p.mastering.dither = static_cast<celadon::DitherMode> (choice (masteringParams.dither->load(), 2));
-    p.mastering.previewTargetLufs = masteringParams.previewLufs->load();
+    p.mastering.harshMode = static_cast<celadon::HarshMode> (choice (finiteOr (masteringParams.harshMode, (float) defaults::masterHarshModeIndex), 2));
+    p.mastering.harshAmount = finiteOr (masteringParams.harshAmount, defaults::masterHarshAmount);
+    p.mastering.transientPreserve = finiteOr (masteringParams.transient, defaults::masterTransient);
+    p.mastering.targetMode = static_cast<celadon::TargetMode> (choice (finiteOr (masteringParams.targetMode, (float) defaults::masterTargetModeIndex), 5));
+    p.mastering.targetAmount = finiteOr (masteringParams.targetAmount, defaults::masterTargetAmount);
+    p.mastering.codecMarginDb = finiteOr (masteringParams.codecMarginDb, defaults::masterCodecMarginDb);
+    p.mastering.dither = static_cast<celadon::DitherMode> (choice (finiteOr (masteringParams.dither, (float) defaults::masterDitherIndex), 2));
+    p.mastering.previewTargetLufs = finiteOr (masteringParams.previewLufs, defaults::masterPreviewLufs);
     return p;
 }
 
@@ -568,7 +645,7 @@ void CeladonAudioProcessor::processBuses (juce::AudioBuffer<float>& buffer, bool
 
 void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed)
 {
-    juce::ScopedNoDenormals noDenormals;
+    // FTZ / DAZ 已由唯一的调用方 processBuses 设好（T-032 R10-06：这里原来重复声明了一次）。
 
     const auto totalNumInputChannels  = getMainBusNumInputChannels();
     const auto totalNumOutputChannels = getMainBusNumOutputChannels();
@@ -770,6 +847,10 @@ void CeladonAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     if (const auto xml = state.createXml())
     {
+        // 存档格式号与写它的版本（T-032 R10-02）：以后按存档区分参数语义 / DSP 兼容的锚点。只写在导出的 XML 上，不进参数状态树。
+        xml->setAttribute (stateFormatAttribute, currentStateFormat);
+        xml->setAttribute (stateVersionAttribute, JucePlugin_VersionString);
+
         if (auto glaze = chain.createGlazeStateXml())
             xml->addChildElement (glaze.release());
 
@@ -811,8 +892,14 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
                 if (reference == nullptr) reference.reset (node); else delete node;
             }
             chain.setReleasePreviewEnabled (false);
+
+            // 存档格式号（T-032 R10-02）：没有这个属性 = 0（≤ 0.1.8.5 的存档）。读完就摘掉，两个属性都不进参数状态树（存档时再写当前值）。
+            const auto stateFormat = xml->getIntAttribute (stateFormatAttribute, 0);
+            xml->removeAttribute (stateFormatAttribute);
+            xml->removeAttribute (stateVersionAttribute);
+
             auto newState = juce::ValueTree::fromXml (*xml);
-            addMissingParameterNodes (newState);
+            addMissingParameterNodes (newState, stateFormat);
             parameters.replaceState (newState);
 
             chain.restoreGlazeStateXml (glaze.get());
@@ -821,8 +908,13 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
     }
 }
 
-void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState) const
+void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState, int stateFormat) const
 {
+    // stateFormat（T-032 R10-02）：存档的格式号（0 = ≤ 0.1.8.5，没有 celadonStateFormat 属性；1 = T-032 起）。目前两种格式缺参的
+    // 回退规则相同（下面的特判按「这个参数在存档里缺席」推断存档早于它）；以后参数语义、缺参默认或 DSP 兼容要按存档区分时，
+    // 在这里按格式号分支——不必再靠「缺哪个参数」猜存档的年代。
+    juce::ignoreUnused (stateFormat);
+
     // 旧版本存的状态里没有后来才加的参数（v0.3 之前没有 Balance、v0.4 之前没有 GLAZE、v0.1.7.0 之前没有 Clay）。APVTS 换树时对缺席的参数
     // 只补一个空节点、保留实例当前值（juce_AudioProcessorValueTreeState.cpp updateParameterConnectionsToChildTrees），
     // 于是对「已经在用的实例」读旧预设 / 旧片段（Ableton Hot-Swap、FL 预设）时，GLAZE 会沿用读之前的值，而不是

@@ -46,9 +46,11 @@ namespace celadon::ui
 
         explicit PillButton (Icon icon);
 
-        void setText (const juce::String& newText);
+        // setText / setDot 返回这次有没有改变（两者都改自然宽度：编辑器只在变了时重排底排，T-032 R9-12）。
+        bool setText (const juce::String& newText);
         void setLook (Look newLook);
-        void setDot (bool shouldShowDot);   // 右边的小橙点（建议重新聆听）
+        bool setDot (bool shouldShowDot);   // 右边的小橙点（建议重新聆听）
+        const juce::String& getText() const noexcept   { return text; }
         int getNaturalWidth() const;
 
         void paint (juce::Graphics&) override;

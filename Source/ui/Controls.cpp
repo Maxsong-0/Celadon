@@ -98,6 +98,105 @@ namespace celadon::ui
         g.fillEllipse (juce::Rectangle<float> (radius * 2.0f, radius * 2.0f).withCentre (centre));
     }
 
+    //==============================================================================
+    float physicalPixelScale (juce::Graphics& g) noexcept
+    {
+        const auto scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+        return std::isfinite (scale) && scale > 0.0f ? scale : 1.0f;
+    }
+
+    void drawCachedImage (juce::Graphics& g, const juce::Image& image, float pixelScale, juce::Point<int> deviceOrigin, float opacity)
+    {
+        if (! image.isValid() || ! (pixelScale > 0.0f) || ! (opacity > 0.0f))
+            return;
+
+        juce::Graphics::ScopedSaveState saved (g);
+        g.setColour (juce::Colours::black.withAlpha (juce::jmin (1.0f, opacity)));   // 贴 ARGB 图时只取这个颜色的 α
+
+        // 图按此刻的像素比生成（相差只在浮点末位，例如 √(s²) 与 s）：换回设备像素、最近邻、整数偏移贴。
+        if (std::abs (physicalPixelScale (g) - pixelScale) <= 1.0e-4f * pixelScale)
+        {
+            g.addTransform (juce::AffineTransform::scale (1.0f / pixelScale));
+            g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+            g.drawImageAt (image, deviceOrigin.x, deviceOrigin.y);
+            return;
+        }
+
+        g.drawImageTransformed (image, juce::AffineTransform::translation ((float) deviceOrigin.x, (float) deviceOrigin.y)
+                                           .scaled (1.0f / pixelScale), false);
+    }
+
+    void AlignedImage::render (juce::Rectangle<float> area, float scale, const std::function<void (juce::Graphics&)>& paintContent)
+    {
+        // 像素 (0, 0) 落在 area 左上角 × scale 向下取整的整数设备偏移上：内容照本地坐标画，贴回去时不再有额外的吸附。
+        const auto pixels = (area * scale).getSmallestIntegerContainer();
+        const auto w = juce::jmax (1, pixels.getWidth()), h = juce::jmax (1, pixels.getHeight());
+
+        // 尺寸没变（拖 GLAZE 时整颗主旋钮每次重新合成）就清空同一张重画，不每次重新分配（Windows 上是一张显卡位图）。
+        if (image.isValid() && image.getWidth() == w && image.getHeight() == h)
+            image.clear (image.getBounds());
+        else
+            image = juce::Image (juce::Image::ARGB, w, h, true);
+
+        pixelScale = scale;
+        deviceOrigin = pixels.getPosition();
+
+        juce::Graphics g (image);
+        g.addTransform (juce::AffineTransform::scale (scale).translated ((float) -deviceOrigin.x, (float) -deviceOrigin.y));
+        paintContent (g);
+    }
+
+    void AlignedComponentCache::paint (juce::Graphics& g)
+    {
+        // 与 juce::detail::StandardCachedComponentImage 同一套失效与重画（只重画作废的部分），贴图换成整数对齐。
+        const auto scale = physicalPixelScale (g);
+        const auto bounds = owner.getLocalBounds();
+        const auto w = juce::jmax (1, (int) std::ceil ((float) bounds.getWidth() * scale));
+        const auto h = juce::jmax (1, (int) std::ceil ((float) bounds.getHeight() * scale));
+
+        if (! image.isValid() || image.getWidth() != w || image.getHeight() != h || ! juce::exactlyEqual (pixelScale, scale))
+        {
+            const auto imageType = g.getInternalContext().getPreferredImageTypeForTemporaryImages();
+            image = juce::Image (owner.isOpaque() ? juce::Image::RGB : juce::Image::ARGB, w, h, ! owner.isOpaque(), *imageType);
+            image.setBackupEnabled (false);   // 内容随时能重画：显卡设备丢失时下面按「需要备份却备份不了」整块作废
+            pixelScale = scale;
+            validArea.clear();
+        }
+
+        if (auto data = image.getPixelData())
+            if (auto* backup = data->getBackupExtensions())
+                if (backup->needsBackup() && ! backup->canBackup())
+                    validArea.clear();
+
+        if (! validArea.containsRectangle (bounds))
+        {
+            juce::Graphics imageGraphics (image);
+            auto& context = imageGraphics.getInternalContext();
+            context.addTransform (juce::AffineTransform::scale (scale));
+
+            for (const auto& valid : validArea)
+                context.excludeClipRectangle (valid);
+
+            if (! owner.isOpaque())
+            {
+                context.setFill (juce::Colours::transparentBlack);
+                context.fillRect (bounds, true);
+                context.setFill (juce::Colours::black);
+            }
+
+            owner.paintEntireComponent (imageGraphics, true);
+        }
+
+        validArea = bounds;
+        drawCachedImage (g, image, pixelScale, {}, owner.getAlpha());
+    }
+
+    void setBufferedToAlignedImage (juce::Component& component)
+    {
+        component.setCachedComponentImage (new AlignedComponentCache (component));
+    }
+
+    //==============================================================================
     juce::String formatParameterValue (const juce::RangedAudioParameter& parameter, float value, bool withUnit)
     {
         auto text = parameter.getText (parameter.convertTo0to1 (value), 0).trim();
@@ -315,9 +414,15 @@ namespace celadon::ui
         if (effective.has_value() && ! std::isfinite (*effective))
             effective.reset();
 
-        effectiveValue = effective;
+        // 编辑器每帧都来（T-032 R9-12）：加量文字与实际值比例只由实际值与用户值决定，两者都与上次相同就什么都不会变，
+        // 不必再拼一次字符串来比。
+        if (effective == effectiveValue && juce::exactlyEqual (getValue(), effectiveBaseValue))
+            return;
 
-        // 与上次画出来的比：比例挪动超过阈值、或加量文字变了才重画（编辑器每帧都来）。
+        effectiveValue = effective;
+        effectiveBaseValue = getValue();
+
+        // 与上次画出来的比：比例挪动超过阈值、或加量文字变了才重画。
         const auto text = autoAmountText();
         const auto proportion = effective.has_value() ? getParameter().convertTo0to1 (*effective) : -1.0f;
 

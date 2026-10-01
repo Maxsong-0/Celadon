@@ -11,7 +11,9 @@
 
 #include "TestHelpers.h"
 
+#include <algorithm>
 #include <cstring>
+#include <limits>
 
 namespace celadon::test
 {
@@ -154,6 +156,51 @@ namespace celadon::test
                 energy += juce::square ((double) signal[0][(size_t) (first + i)]);
             return std::sqrt (energy / count);
         }
+
+        bool sameBits (float a, float b) noexcept
+        {
+            return std::memcmp (&a, &b, sizeof (float)) == 0;
+        }
+
+        // 输出的逐位指纹（FNV-1a 64 位，按每个样本的 32 位位模式、声道依次喂入）：只打进日志，不断言。
+        // 用途：换核 / 换算法但声称「输出逐位不变」时，改动前后各跑一次、对照日志里的指纹（T-032：SSE2 预广播系数表、
+        // van Herk 滑动最小值、ceilingDelay 重置填法三项都靠它取证）。同一平台、同一编译选项下指纹才可比（NEON 与 SSE2 本来就不同）。
+        struct Fingerprint
+        {
+            std::uint64_t hash = 14695981039346656037ull;
+
+            void add (const float* samples, int count) noexcept
+            {
+                for (int i = 0; i < count; ++i)
+                {
+                    std::uint32_t bits = 0;
+                    std::memcpy (&bits, samples + i, sizeof (bits));
+
+                    for (int shift = 0; shift < 32; shift += 8)
+                    {
+                        hash ^= (std::uint64_t) ((bits >> shift) & 0xffu);
+                        hash *= 1099511628211ull;
+                    }
+                }
+            }
+
+            void add (const Signal& signal) noexcept
+            {
+                for (const auto& channel : signal)
+                    add (channel.data(), (int) channel.size());
+            }
+
+            void add (const juce::AudioBuffer<float>& buffer) noexcept
+            {
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    add (buffer.getReadPointer (ch), buffer.getNumSamples());
+            }
+
+            juce::String toString() const
+            {
+                return juce::String::toHexString ((juce::int64) hash).paddedLeft ('0', 16);
+            }
+        };
     }
 
     class LimiterTests  : public juce::UnitTest
@@ -186,6 +233,9 @@ namespace celadon::test
             testLowFrequencyReleaseRejectsUnstablePeriods();
             testLowFrequencyReleaseBlockResetAndAllocation();
             testShortOverloadDoesNotHoldTheSlowEnvelope();
+            testSlidingMinimumMatchesReferences();
+            testHardClipCeilingDelayFollowsResets();
+            testParamsGuardNonFiniteAndOutOfRange();
         }
 
     private:
@@ -637,6 +687,12 @@ namespace celadon::test
             const auto a = runLimiter (used, input, maxBlock);
             const auto b = runLimiter (fresh, input, maxBlock);
             expectEquals (maxAbsDifference (a, b, 0, (int) input[0].size()), 0.0f, "reset == fresh prepare");
+            {
+                Fingerprint fingerprint;
+                fingerprint.add (reference);
+                fingerprint.add (a);
+                logMessage ("  output fingerprint (block sizes + reset) " + fingerprint.toString());
+            }
             juce::AudioBuffer<float> block (numChannels, maxBlock);
             std::uint64_t allocations = 0;
             for (int start = 0; start + maxBlock <= (int) input[0].size(); start += maxBlock)
@@ -651,6 +707,387 @@ namespace celadon::test
             expectEquals ((juce::int64) allocations, (juce::int64) 0, "active low-frequency observer must not allocate");
         }
 
+        // T-032 R1-02：SlidingMinimum 由单调队列（每样本 2 ～ 3 次整数取模 + 两个数据相关的 while）换成 van Herk / Gil-Werman
+        // 块算法，声称逐位相同。两把尺子逐样本对照：暴力 std::min_element（上次清空以来推入的最近 window 个样本）与旧实现逐行照抄的参照。
+        // 窗长在 1 … maxLookahead + 63（48 kHz 下 543）间随机切换。奇数轮只调 setWindow、不另调 clear：改窗必须自己清空
+        //（块内位置可能已超过新窗长，不清就会越界写）；偶数轮照 resetLimiterState 原来的写法再 clear 一次，结果应一样。
+        // 输入两种：增益状（70 % 恰为 1.0，其余量化到 1/64 网格造大量相等值，偶尔 0）与纯随机 [0, 1)。
+        // 另测块中途缩窗（位置 300 时改成窗长 7）与音频线程用法不分配。
+        void testSlidingMinimumMatchesReferences()
+        {
+            beginTest ("sliding minimum (van Herk) is bit-exact with brute force and with the legacy monotonic queue");
+
+            // v0.1.8.5 及之前的实现，逐行照抄（LimiterModule.cpp @ e6b445b）作参照。
+            struct LegacyMonotonicQueue
+            {
+                void prepare (int maxWindow)
+                {
+                    values.assign ((size_t) (maxWindow + 1), 1.0f);
+                    indices.assign ((size_t) (maxWindow + 1), 0);
+                    clear();
+                }
+
+                void setWindow (int newWindow) noexcept   { window = newWindow; }
+                void clear() noexcept                     { head = 0; count = 0; sampleIndex = 0; }
+
+                float push (float value) noexcept
+                {
+                    const auto capacity = (int) values.size();
+
+                    while (count > 0)
+                    {
+                        const auto back = (head + count - 1) % capacity;
+
+                        if (values[(size_t) back] < value)
+                            break;
+
+                        --count;
+                    }
+
+                    const auto slot = (head + count) % capacity;
+                    values[(size_t) slot] = value;
+                    indices[(size_t) slot] = sampleIndex;
+                    ++count;
+
+                    while (indices[(size_t) head] <= sampleIndex - window)
+                    {
+                        head = (head + 1) % capacity;
+                        --count;
+                    }
+
+                    ++sampleIndex;
+                    return values[(size_t) head];
+                }
+
+                std::vector<float> values;
+                std::vector<std::int64_t> indices;
+                int head = 0, count = 0, window = 1;
+                std::int64_t sampleIndex = 0;
+            };
+
+            constexpr int maxWindow = 480 + LimiterModule::holdSamples;   // 10 ms @ 48 kHz + 保持段 = 543，与 prepare 里的上限一致
+            constexpr int samplesPerTrial = 4000;
+            constexpr int trials = 60;
+
+            LimiterModule::SlidingMinimum vanHerk;
+            LegacyMonotonicQueue legacy;
+            vanHerk.prepare (maxWindow);
+            legacy.prepare (maxWindow);
+
+            std::vector<float> history;
+            history.reserve ((size_t) samplesPerTrial);
+            juce::Random random (0x5157);
+
+            // 暴力参照：history 里最近 window 个（不足 window 个时是全部）的最小值。
+            const auto bruteForceMin = [&history] (int window)
+            {
+                return *std::min_element (history.end() - juce::jmin (window, (int) history.size()), history.end());
+            };
+
+            for (int kind = 0; kind < 2; ++kind)
+            {
+                const auto kindName = kind == 0 ? juce::String ("gain-like input") : juce::String ("random input");
+                int bruteMismatches = 0, legacyMismatches = 0, checked = 0;
+
+                for (int trial = 0; trial < trials; ++trial)
+                {
+                    // 前三轮固定在边界：1、2、最大窗；其余随机。
+                    const auto window = trial == 0 ? 1 : trial == 1 ? 2 : trial == 2 ? maxWindow : 1 + random.nextInt (maxWindow);
+                    vanHerk.setWindow (window);   // 改窗同时清空
+
+                    if (trial % 2 == 0)
+                        vanHerk.clear();
+
+                    legacy.setWindow (window);
+                    legacy.clear();
+                    history.clear();
+
+                    for (int n = 0; n < samplesPerTrial; ++n)
+                    {
+                        float value = 0.0f;
+
+                        if (kind == 0)
+                        {
+                            const auto roll = random.nextInt (100);
+                            value = roll < 70 ? 1.0f
+                                  : roll < 72 ? 0.0f
+                                              : (float) (1 + random.nextInt (64)) / 64.0f;
+                        }
+                        else
+                        {
+                            value = random.nextFloat();
+                        }
+
+                        history.push_back (value);
+                        const auto expected = bruteForceMin (window);
+                        const auto got = vanHerk.push (value);
+                        const auto legacyGot = legacy.push (value);
+
+                        bruteMismatches  += sameBits (got, expected)  ? 0 : 1;
+                        legacyMismatches += sameBits (got, legacyGot) ? 0 : 1;
+                        ++checked;
+                    }
+                }
+
+                logMessage ("  " + kindName + ": " + juce::String (checked) + " samples over " + juce::String (trials) + " window lengths");
+                expectEquals (bruteMismatches, 0, kindName + ": van Herk differs from brute-force min");
+                expectEquals (legacyMismatches, 0, kindName + ": van Herk differs from the legacy monotonic queue");
+            }
+
+            // 块中途缩窗：窗长 500 推 300 个（块内位置 300），直接改成 7——位置已超过新窗长；改窗不清空就会一路越界写、结果也不对。
+            {
+                vanHerk.setWindow (500);
+
+                for (int n = 0; n < 300; ++n)
+                    juce::ignoreUnused (vanHerk.push (random.nextFloat()));
+
+                vanHerk.setWindow (7);
+                history.clear();
+                int mismatches = 0;
+
+                for (int n = 0; n < 2000; ++n)
+                {
+                    const auto value = random.nextFloat();
+                    history.push_back (value);
+                    mismatches += sameBits (vanHerk.push (value), bruteForceMin (7)) ? 0 : 1;
+                }
+
+                expectEquals (mismatches, 0, "shrinking the window mid-block must restart cleanly");
+            }
+
+            // 音频线程用法：push / setWindow / clear 都不分配（计数见 TestMain.cpp）。
+            vanHerk.setWindow (maxWindow);
+            const auto before = allocationCountOnThisThread();
+
+            for (int n = 0; n < 3 * maxWindow; ++n)
+                juce::ignoreUnused (vanHerk.push (random.nextFloat()));
+
+            vanHerk.setWindow (7);
+            vanHerk.clear();
+            const auto allocations = allocationCountOnThisThread() - before;
+            expectEquals ((int) allocations, 0, "sliding minimum must not allocate on the audio thread");
+        }
+
+        // T-032 R1-03：输出硬钳位的 Ceiling 延迟线在重置时填成当前 Ceiling（与 Gain 延迟线同构），不再清成 0。
+        // 从输出上看不出来：重置同时清空了音频延迟线，头 coreDelay 个样本 delayed = 0，钳到 ±0 与 ±Ceiling 都是 +0
+        //（输出逐位不变由其余用例兜底），但以后若「换前瞻不清音频延迟线」，清零就会把这 coreDelay 个样本静默钳成 0。
+        // 所以直接查延迟线接下来要交出的值（测试钩子在副本上推）：prepare、restartWithFadeIn、reset 之后全是当前 Ceiling
+        //（reset 时平滑器先被重置、再落到新目标，要两段式填）；换前瞻的重置发生在下一块开头、Ceiling 还没开始滑，
+        // 那一刻的值填满整条线，之后才是逐样本滑动的新值。清零的旧写法这里拿到的全是 0。
+        void testHardClipCeilingDelayFollowsResets()
+        {
+            beginTest ("hard-clip ceiling delay is refilled with the current ceiling on every reset, never with zeros");
+
+            constexpr double sampleRate = 48000.0;
+            const auto gainOf = [] (float db) { return juce::Decibels::decibelsToGain (db); };   // 与 reset() 同一个式子
+
+            // pending 的前 count 个值都与 expected 逐位相同。
+            const auto checkPending = [this] (const std::vector<float>& pending, int count, float expected, const juce::String& what)
+            {
+                int mismatches = 0;
+
+                for (int i = 0; i < count; ++i)
+                    mismatches += sameBits (pending[(size_t) i], expected) ? 0 : 1;
+
+                expect (count > 0 && count <= (int) pending.size() && expected > 0.0f, what + ": fixture must be meaningful");
+                expectEquals (mismatches, 0, what);
+            };
+
+            LimiterModule limiter;
+            auto params = makeParams (6.0f, -1.0f, 2.0f, true, 0.0f);
+            prepareLimiter (limiter, sampleRate, params);
+
+            const auto coreDelay = (int) limiter.getPendingHardClipCeilingsForTesting().size();
+            expect (coreDelay > 0, "the core delay must not be empty");
+            checkPending (limiter.getPendingHardClipCeilingsForTesting(), coreDelay, gainOf (-1.0f), "after prepare");
+
+            // 跑一段（Ceiling 不变，平滑器停在目标上），再中途重启。
+            juce::ignoreUnused (runLimiter (limiter, makeNoise (numChannels, 4800, 1.0f, 73), maxBlock));
+            limiter.restartWithFadeIn (100);
+            checkPending (limiter.getPendingHardClipCeilingsForTesting(), coreDelay, gainOf (-1.0f), "after restartWithFadeIn");
+
+            // reset() 先按平滑器当前值（旧的 −1）重置状态，再把平滑器落到新目标 −2.5：延迟线必须跟着第二次填成 −2.5。
+            params.ceilingDb = -2.5f;
+            limiter.setParams (params);
+            limiter.reset();
+            checkPending (limiter.getPendingHardClipCeilingsForTesting(), coreDelay, gainOf (-2.5f), "after reset with a new ceiling");
+
+            // 换前瞻、同时把 Ceiling 改回 −1：下一块开头重置时平滑器还停在 −2.5（从这一块的第一个样本才开始滑），
+            // 整条线填 −2.5；送 1 个样本后，前 coreDelay′ − 1 个仍是 −2.5，最新的一个是滑向 −1 的第一步。
+            params.ceilingDb = -1.0f;
+            params.lookaheadMs = 5.0f;
+            limiter.setParams (params);
+            juce::AudioBuffer<float> one (numChannels, 1);
+            one.clear();
+            limiter.process (one);
+
+            const auto pending = limiter.getPendingHardClipCeilingsForTesting();
+            const auto newCoreDelay = (int) pending.size();
+            expect (newCoreDelay > coreDelay, "the lookahead change must lengthen the core delay");
+            checkPending (pending, newCoreDelay - 1, gainOf (-2.5f), "after a lookahead change while the ceiling starts to ramp");
+            expect (pending.back() > gainOf (-2.5f) && pending.back() < gainOf (-1.0f), "the newest value is the first step of the ceiling ramp");
+        }
+
+        // T-032 R8-02（Limit 部分）：setParams 不信任外部值。APVTS 与链只钳有限值，"nan" 会从工程文件原样读回：
+        // 释放时间 NaN → 释放系数 NaN → 包络永远 NaN → MovingAverage::push 里 jmin (1.0, NaN) 返回 1.0 → 限幅器静默失效、
+        // 只剩硬钳位在削（不报非有限）；Gain / Ceiling NaN → decibelsToGain 返回 0 → 永久静音；前瞻 NaN → 被悄悄当成 1 个样本。
+        // 每个 float 字段分别喂 NaN / +Inf / −Inf，两种时机：prepare 时就是坏值（工程读回），与处理中途从正常值变成坏值
+        //（自动化 / 预设写坏）。0 dBFS 噪声推 +24 dB：输出有限、坏值生效之后的尾段不静音、真峰值 ≤ Ceiling + 0.01 dB，
+        // 且与「该字段在同一时刻取默认值」的限幅器逐位相同、上报延迟相同。基准参数的每个字段都不取默认值，换成默认值才看得出变化。
+        // 越界的有限值钳到边界（与直接给边界值的限幅器逐位相同；Ceiling 下限 −4.5：链扣掉编码余量后会交 −4.5，钳到 −3 会让
+        // 编码余量失效）；范围内的值原样保留（−4.5 真的限在 −4.5）。
+        void testParamsGuardNonFiniteAndOutOfRange()
+        {
+            beginTest ("setParams: non-finite fields fall back to defaults, out-of-range finite fields are clamped, in-range fields untouched");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr int blockSize = 333;
+            constexpr int switchAt = 12 * blockSize;                         // 中途换参数的块边界（约 83 ms 处）
+            const auto input = makeNoise (numChannels, 24000, 1.0f, 61);   // 0 dBFS 噪声
+            const auto length = (int) input.front().size();
+            constexpr int tailLength = 4000;                                 // 尾段：换参数之后早已走完延迟与淡入
+
+            using Params = LimiterModule::Params;
+            using Member = float Params::*;
+            const Params defaults;
+
+            struct Run
+            {
+                Signal output;
+                int latency = 0;
+            };
+
+            // prepare 时拿 first，从第 switchAt 个样本起拿 second（setParams 在块与块之间调，与处理器一样）。
+            const auto runSchedule = [&] (const Params& first, const Params& second)
+            {
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, first);
+                Run run { input, 0 };
+                juce::AudioBuffer<float> block (numChannels, blockSize);
+
+                for (int start = 0; start < length; start += blockSize)
+                {
+                    if (start == switchAt)
+                        limiter.setParams (second);
+
+                    const auto count = juce::jmin (blockSize, length - start);
+                    block.setSize (numChannels, count, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) ch].data() + start, count);
+
+                    limiter.process (block);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + count, run.output[(size_t) ch].begin() + start);
+                }
+
+                run.latency = limiter.getLatencySamples();
+                return run;
+            };
+
+            const auto tailPeak = [&] (const Signal& signal)
+            {
+                float peak = 0.0f;
+
+                for (const auto& channel : signal)
+                    for (int i = length - tailLength; i < length; ++i)
+                        peak = juce::jmax (peak, std::abs (channel[(size_t) i]));
+
+                return peak;
+            };
+
+            struct Field { const char* name; Member member; bool manualRelease; };
+            const Field fields[] = { { "gainDb",      &Params::gainDb,      false },
+                                     { "ceilingDb",   &Params::ceilingDb,   false },
+                                     { "releaseMs",   &Params::releaseMs,   true  },   // 手动释放才用到释放系数
+                                     { "lookaheadMs", &Params::lookaheadMs, false },
+                                     { "clip",        &Params::clip,        false } };
+
+            const float nonFinite[] = { std::numeric_limits<float>::quiet_NaN(),
+                                        std::numeric_limits<float>::infinity(),
+                                        -std::numeric_limits<float>::infinity() };
+            const char* const nonFiniteNames[] = { "NaN", "+Inf", "-Inf" };
+            int cases = 0;
+
+            for (const auto& field : fields)
+            {
+                // 基准：每个字段都不是默认值（Gain 24、Ceiling −2、Release 250、Lookahead 5、Clip 30）。
+                auto base = makeParams (24.0f, -2.0f, 5.0f, ! field.manualRelease, 30.0f);
+                base.releaseMs = 250.0f;
+
+                for (int v = 0; v < 3; ++v)
+                {
+                    auto poisoned = base;
+                    auto defaulted = base;
+                    poisoned.*(field.member) = nonFinite[v];
+                    defaulted.*(field.member) = defaults.*(field.member);
+                    const auto ceilingDb = juce::jmax (base.ceilingDb, defaulted.ceilingDb);
+
+                    for (int midway = 0; midway < 2; ++midway)
+                    {
+                        // midway = 0：prepare 时就是坏值，中途换回正常值；1：先正常，中途变坏。参照在同样的时刻拿「该字段 = 默认」。
+                        const auto a = midway == 0 ? runSchedule (poisoned, base) : runSchedule (base, poisoned);
+                        const auto b = midway == 0 ? runSchedule (defaulted, base) : runSchedule (base, defaulted);
+                        const auto caseName = juce::String (field.name) + " = " + nonFiniteNames[v]
+                                            + (midway == 0 ? " at prepare" : " mid-stream");
+
+                        expectEquals (a.latency, b.latency, caseName + ": latency must match the defaulted parameters");
+                        expect (allFinite (a.output), caseName + ": output must stay finite");
+                        expect (tailPeak (a.output) > 0.1f, caseName + ": output must not fall silent");
+                        expect (toDb (truePeakOf (a.output)) <= ceilingDb + 0.01f, caseName + ": true peak must stay under the ceiling");
+                        expectEquals (maxAbsDifference (a.output, b.output, 0, length), 0.0f,
+                                      caseName + ": must be bit-identical to the defaulted parameters");
+                        ++cases;
+                    }
+                }
+            }
+
+            logMessage ("  " + juce::String (cases) + " non-finite cases");
+
+            // 越界的有限值钳到边界：与直接给边界值的限幅器逐位相同（前瞻由 lookaheadSamplesFor 钳，效果一样）。
+            struct Clamp { const char* name; Member member; float wild; float clamped; };
+            const Clamp clamps[] = { { "gainDb 30 -> 24",        &Params::gainDb,      30.0f,   24.0f },
+                                     { "gainDb -6 -> 0",         &Params::gainDb,      -6.0f,   0.0f },
+                                     { "ceilingDb -9 -> -4.5",   &Params::ceilingDb,   -9.0f,   -4.5f },
+                                     { "ceilingDb +2 -> 0",      &Params::ceilingDb,   2.0f,    0.0f },
+                                     { "releaseMs 1 -> 10",      &Params::releaseMs,   1.0f,    10.0f },
+                                     { "releaseMs 5000 -> 1000", &Params::releaseMs,   5000.0f, 1000.0f },
+                                     { "clip 150 -> 100",        &Params::clip,        150.0f,  100.0f },
+                                     { "clip -20 -> 0",          &Params::clip,        -20.0f,  0.0f },
+                                     { "lookaheadMs 20 -> 10",   &Params::lookaheadMs, 20.0f,   10.0f },
+                                     { "lookaheadMs 0.2 -> 1",   &Params::lookaheadMs, 0.2f,    1.0f } };
+
+            for (const auto& clamp : clamps)
+            {
+                const auto manual = clamp.member == &Params::releaseMs;
+                auto wild = makeParams (12.0f, -1.0f, 2.0f, ! manual, 30.0f);
+                auto clamped = wild;
+                wild.*(clamp.member) = clamp.wild;
+                clamped.*(clamp.member) = clamp.clamped;
+
+                const auto a = runSchedule (wild, wild);
+                const auto b = runSchedule (clamped, clamped);
+                expectEquals (a.latency, b.latency, juce::String (clamp.name) + ": latency must match the clamped value");
+                expect (allFinite (a.output), juce::String (clamp.name) + ": output must stay finite");
+                expectEquals (maxAbsDifference (a.output, b.output, 0, length), 0.0f,
+                              juce::String (clamp.name) + ": must be bit-identical to the clamped value");
+            }
+
+            // 范围内的值原样保留：Ceiling −4.5（编码余量 1.5 dB 时链交下来的值）真的限在 −4.5 附近，而不是被改回 −3 或默认 −1。
+            {
+                LimiterModule limiter;
+                prepareLimiter (limiter, sampleRate, makeParams (12.0f, -4.5f, 2.0f, true, 0.0f));
+                auto padded = input;
+                appendSilence (padded, limiter.getLatencySamples() + 64);
+                const auto output = runLimiter (limiter, padded, blockSize);
+                const auto peakDb = toDb (truePeakOf (output));
+                logMessage ("  ceiling -4.5 dBTP delivers " + juce::String (peakDb, 3) + " dBTP");
+                expect (peakDb <= -4.5f + 0.01f, "ceiling -4.5 must be honoured");
+                expect (peakDb > -4.5f - 1.0f, "ceiling -4.5 must not be clamped to -3 or defaulted to -1 (peak far below)");
+            }
+        }
+
         // 验收 1：各种信号推 +12 / +24 dB → 输出真峰值 ≤ Ceiling + 0.01 dB。
         void testTruePeakNeverExceedsCeiling()
         {
@@ -659,6 +1096,7 @@ namespace celadon::test
             float worstOwnDb = -100.0f, worstReferenceDb = -100.0f;
             juce::String worstOwnCase, worstReferenceCase;
             int runs = 0, referenceRuns = 0, referenceOver01 = 0, referenceOver03 = 0;
+            Fingerprint outputs;
 
             for (auto sampleRate : { 44100.0, 48000.0, 96000.0 })
             {
@@ -677,6 +1115,7 @@ namespace celadon::test
                         auto input = named.signal;
                         appendSilence (input, limiter.getLatencySamples() + 64);
                         const auto output = runLimiter (limiter, input, maxBlock);
+                        outputs.add (output);
 
                         const auto caseName = juce::String (named.name) + " @" + juce::String (sampleRate)
                                             + " la=" + juce::String (lookaheadMs) + " auto=" + juce::String ((int) autoRelease)
@@ -714,7 +1153,7 @@ namespace celadon::test
                     }
             }
 
-            logMessage ("  runs: " + juce::String (runs));
+            logMessage ("  runs: " + juce::String (runs) + ", output fingerprint " + outputs.toString());
             logMessage ("  worst overshoot (own meter):       " + juce::String (worstOwnDb, 4) + " dB  [" + worstOwnCase + "]");
             // 验收口径是插件自己的表（ADR-004）；16× 参考只作记录，量「自己的表」相对理想重建差多少。
             logMessage ("  16x reference (for information only, not a pass criterion):");
@@ -737,6 +1176,7 @@ namespace celadon::test
             float worstReferenceDb = -100.0f;
             juce::String worstCase;
             int runs = 0;
+            Fingerprint outputs;
 
             for (auto sampleRate : { 44100.0, 48000.0, 96000.0 })
             {
@@ -768,6 +1208,7 @@ namespace celadon::test
                       auto input = named.signal;
                       appendSilence (input, limiter.getLatencySamples() + 128);
                       const auto output = runLimiter (limiter, input, maxBlock);
+                      outputs.add (output);
                       const auto caseName = juce::String (named.name) + " @" + juce::String (sampleRate)
                                           + " gain=" + juce::String (gainDb) + " clip=" + juce::String (clip);
 
@@ -790,7 +1231,7 @@ namespace celadon::test
             }
 
             logMessage ("  independent reference: " + juce::String (runs) + " cases; worst "
-                        + juce::String (worstReferenceDb, 4) + " dB above ceiling [" + worstCase + "]");
+                        + juce::String (worstReferenceDb, 4) + " dB above ceiling [" + worstCase + "]; output fingerprint " + outputs.toString());
 
             // 负控：采样点没超过 Ceiling 的 fs/4 正弦，重建峰值高出约 0.5 dB，必须能被同一门槛拒绝。
             const auto control = makeSine (numChannels, 48000.0, 12000.0,
@@ -934,6 +1375,10 @@ namespace celadon::test
                     expectEquals (maxAbsDifference (reference, output, 0, (int) input.front().size()), 0.0f,
                                   "block size " + juce::String (blockSize));
             }
+
+            Fingerprint fingerprint;
+            fingerprint.add (reference);
+            logMessage ("  output fingerprint " + fingerprint.toString());
         }
 
         // Lookahead 变动：上报延迟立即更新，之后照样不超 Ceiling、不出 NaN。
@@ -958,6 +1403,11 @@ namespace celadon::test
             auto second = runLimiter (limiter, makeSquare (numChannels, sampleRate, 100.0, 1.0f, 0.5), maxBlock);
             expect (allFinite (first) && allFinite (second));
             expect (toDb (truePeakOf (second)) <= -1.0f + 0.01f);
+
+            Fingerprint fingerprint;
+            fingerprint.add (first);
+            fingerprint.add (second);
+            logMessage ("  output fingerprint (before + after the change) " + fingerprint.toString());
         }
 
         void testGainReductionMeter()
@@ -1004,6 +1454,10 @@ namespace celadon::test
                         diff = juce::jmax (diff, std::abs (input[ch][(size_t) i] - output[ch][(size_t) (i + latency)]));
 
                 expectEquals (diff, 0.0f, autoRelease ? "auto release" : "manual release");
+
+                Fingerprint fingerprint;
+                fingerprint.add (output);
+                logMessage (juce::String ("  output fingerprint (") + (autoRelease ? "auto" : "manual") + ") " + fingerprint.toString());
             }
         }
 
@@ -1039,6 +1493,10 @@ namespace celadon::test
                     diff = juce::jmax (diff, std::abs (output[ch][(size_t) i] - input[ch][(size_t) (i - latency)]));
 
             expectEquals (diff, 0.0f, "after the fade the limiter is transparent again");
+
+            Fingerprint fingerprint;
+            fingerprint.add (output);
+            logMessage ("  output fingerprint " + fingerprint.toString());
         }
 
         // Gain 的 20 ms 平滑：−60 dBFS 直流（加 +24 dB 也远不到 Ceiling −1，限幅器不动作）、Gain 0 → 24 dB 在块边界一步切换。
@@ -1177,6 +1635,7 @@ namespace celadon::test
                 juce::Random random (41 + (int) sampleRate + blockLimit);
                 int mismatches = 0, grMismatches = 0;
                 bool restarted = false, retuned = false, bypassOn = false, bypassOff = false, listened = false;
+                Fingerprint outputs;
 
                 for (int start = 0; start < total;)
                 {
@@ -1215,6 +1674,7 @@ namespace celadon::test
 
                     skipping.process (a);
                     reference.process (b);
+                    outputs.add (a);
 
                     for (int ch = 0; ch < numChannels; ++ch)
                         mismatches += std::memcmp (a.getReadPointer (ch), b.getReadPointer (ch), sizeof (float) * (size_t) length) == 0 ? 0 : 1;
@@ -1233,7 +1693,8 @@ namespace celadon::test
                 // 不能是空测试：跳过的样本要占相当比例（长空闲段 + 表走完后一直空闲），参照一个都不跳。
                 const auto skipped = skipping.getClipIdleSkippedSamples();
                 const auto skippedShare = (double) skipped / (double) total;
-                logMessage ("  " + caseName + ": skipped " + juce::String (100.0 * skippedShare, 1) + "% of samples");
+                logMessage ("  " + caseName + ": skipped " + juce::String (100.0 * skippedShare, 1) + "% of samples, output fingerprint "
+                            + outputs.toString());
                 expect (skippedShare > 0.3, "too few skipped samples (" + juce::String (skipped) + ") " + caseName);
                 expectEquals (reference.getClipIdleSkippedSamples(), (juce::int64) 0);
             }

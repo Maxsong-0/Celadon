@@ -7,11 +7,13 @@
     本类只做波形整形，不含过采样——调用方自己负责在过采样域里调用它，
     避免两层过采样叠在一起。只依赖 juce_dsp（Source/dsp/ 的硬规则）。
 
-    两种用法：
+    三种用法：
       - processSample：逐样本，tanh 用 std::tanh（Limit 的 SoftClip 在用，v0.5 起保持逐位不变）；
-      - processTubeBlock：Tube 曲线的整段版本（Color 的 Heat 在 8× 域、驱动量不变的一段上整段调用），
+      - processTubeBlock：Tube 曲线的整段版本（Color 的 Heat 残差 makeup 标定、测试在用），
         tanh 换成 4 路并行的有理式 fastTanh，快约 6 倍；整条 Tube 曲线与 processSample 差 ≤ −128 dBFS
-        （drive 1 时即 fastTanh 自身 4.1e-7 的误差；v0.5 验收 V1 扫描实测 −128.9 dBFS），所以两种用法不逐位相同。
+        （drive 1 时即 fastTanh 自身 4.1e-7 的误差；v0.5 验收 V1 扫描实测 −128.9 dBFS），所以两种用法不逐位相同；
+      - processTubeResidualBlock：Tube (x) − x 的整段版本（Color 的 Heat 在 8× 域、驱动量不变的一段上整段调用，
+        2026-09-29 T-032 R3-04），与「processTubeBlock 后再逐样本减原样本」逐位相同，只是少一次拷贝与一遍循环。
 
   ==============================================================================
 */
@@ -57,6 +59,12 @@ namespace celadon
         // （尾巴补齐成 4 个再算），每个样本的结果与它在块里的位置、块长都无关。
         void processTubeBlock (float* data, int numSamples) const noexcept;
 
+        // Tube 残差的整段版本：data[i] = Tube (data[i]) − data[i]（Color 的 Heat 只把非线性残差加回原声，T-032 R3-04）。
+        // 与「processTubeBlock 后再逐样本减原样本」逐位相同：4 路里 Tube (x) 先舍入成 float，再减同一个原样本，
+        // 是同一个 IEEE 单精度减法、同一对操作数（ADR-013：乘和减各自舍入、不融合）；只是不再要先拷贝一份原样本、再走第二遍循环。
+        // 尾巴补 0 的 lane 得 fastTanh (b) − fastTanh (b) = 0，丢弃不用；NaN 进 NaN 出。ColorTests 按位对照。
+        void processTubeResidualBlock (float* data, int numSamples) const noexcept;
+
         // tanh 的 4 路并行有理式（Eigen generic_fast_tanh_float 的 13 / 6 次式，不融合乘加的那组钳位常数）：
         //   |x| < 4e-4 直接返回 x（略去的 x³/3 < 2.2e-11）；|x| > 7.9053 钳位（结果已是 ±1）；其余 p(x) / q(x)。
         //   与 double tanh 的最大绝对误差 4.10e-7（−127.7 dB，x ≈ 5.83；逐个 float 穷举），奇对称逐位成立，|y| ≤ 1，
@@ -98,7 +106,7 @@ namespace celadon
         float tanhOfAsymmetry = 0.0f;
         float inverseSlopeAtZero = 1.0f;
 
-        // processTubeBlock 用：与块里同一个 fastTanh 算出的 tanh(b) 与 1 / 原点斜率——这样 x = 0 时
+        // processTubeBlock / processTubeResidualBlock 用：与块里同一个 fastTanh 算出的 tanh(b) 与 1 / 原点斜率——这样 x = 0 时
         // 两项 fastTanh (b) 逐位相同、相减精确为 0。
         float fastTanhOfAsymmetry = 0.0f;
         float fastInverseSlopeAtZero = 1.0f;

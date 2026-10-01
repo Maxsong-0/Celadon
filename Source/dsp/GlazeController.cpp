@@ -13,8 +13,9 @@
         饱和，指数平滑会差一个尾巴）。hostReset / 读取工程 / 采样率重建时直接落到目标（规格「平滑器到目标」）。
       - 方案重算最短间隔 5 ms：GLAZE / 手动值连续自动化时，192 kHz 块 32 也不会每块都调决策器（约 1 µs），「每 hop 的决策计算
         摊到固定位置，不产生新尖峰」；新方案源（过渡、提交、读取）第一次用到时立即算，不受这个间隔限制。48 k 块 ≥ 240 时就是每块。
-      - 约束反馈：每次下调 1 dB，两次之间至少隔「一个方案过渡 + 3 s 观察」（PHASE2-NOTES 设计决定 1）；上游约束（Glue 均值 /
-        p95、Heat 驱动）按 100 ms 音乐时隙、保护层同样的窗口口径（3 s 窗、累计超出 ≥ 1 s）判定，容差 Glue 0.1 dB、Heat 0.5；
+      - 约束反馈：每次下调 1 dB，两次之间至少隔「一个方案过渡 + 3 s 观察」（PHASE2-NOTES 设计决定 1；按保护层的时间轴即有效音乐
+        计，T-032 核验 M2）；上游约束（Glue 均值 / p95、Heat 驱动）按 100 ms 音乐时隙、保护层同样的窗口口径（3 s 窗、累计超出
+        ≥ 1 s）判定，容差 Glue 0.1 dB、Heat 0.5；
         p95 近似为「超过 p95 上限的时隙 > 5 %」（与保护层同一近似）。保护层的「方案受限」按进入的那一刻（边沿）计一次，
         它在下限停留期间不重复触发（它要等恢复才清除，否则同一次超限会连降好几档）。
       - 已提交版本与执行快照每块尝试发布：固定大小拷贝，音频线程只 try-lock，拿不到下块再发，不分配或等待。
@@ -59,6 +60,22 @@
         对得上就换成新口径（upgradeLegacyConditions）。对不上的照旧只按旧口径哈希比，与修前相同。prepare 沿用已听到的执行快照
         之前，对那份副本同样升格（它可能还是读进来的旧口径）。
       - 稳定计时（条件连续 1 s 不变才开新一轮）照旧逐块精确比（多比一次旧口径哈希），容差只用于「校准适不适用」。
+
+    T-032（2026-09-29 深度研究，实施 A6；docs/validation/2026-09-29-T032-deep-research/IMPL-A6-glaze-controller.md）：
+      - 「刚对同一条件试过」只记结束为无效的那一轮（finishRound）；放弃的轮、换方案丢掉的轮不算，条件变回原样照样再开（R5-01）。
+      - 方案槽的重算序号取全局单调计数：保护层与上游监视的上限逐次跟上每一份新方案（R5-02；修前两槽各自计数、隔次撞号）。
+      - 「g_保护 多久没变过」与约束反馈的观察期只在保护层的时间轴（有效音乐、不旁通）上走：静音 / 停播 / 旁通不把临时退让
+        判成「卡住」、不让观察期空转（R5-03、核验 M2）。
+      - 解除执行快照的冻结时，快照里并进去的保护退让交给 carry、按方案过渡同长淡出（R5-04，与约束反馈吸收同一套）；carry 淡完
+        之前不开新的校准轮。
+      - 读档清画像失配的累计与提示、冷却视为已过；提交新画像时按新标定快照重折算「卡住」门槛与上游监视窗（R5-08）。
+      - 实时 Tame 许可 = 上限 × GLAZE × κ × 证据，只在已提交画像之后放开（R6-04；κ = 1 时逐位同修前）。
+      - 同一次调用里同输入的纯函数只算一次（R5-06：Tame / Tone 的混合上限与 κ、偏差目标的修正范围与「校准适用」、音色 /
+        密度跟随的斜率回归），逐位不变；不做跨块缓存。
+      - 保护层与上游监视只核对自动部分（R6-02 收尾，实施 A11，IMPL-A11-r602-guard-auto-share.md）：每项有效上限 = max(风格上限,
+        手动单独用量)。手动链单独已超出风格预算的项（Plan::manualBudgetMask，决策器在方案重算时算好）自动部分恒为 0，按「不设约束」
+        核对，其余照风格上限；这组项变了就清空两个窗口（g_保护 不动）。之后画像失配、保护层、上游监视、校准与约束反馈只在电平类自动
+        全部撤回（Plan::automaticLevelWithdrawn）时停，limitedByManual 只给界面。手动没超预算时掩码为 0，与修前逐位相同。
 
   ==============================================================================
 */
@@ -643,6 +660,10 @@ namespace celadon::glaze
             // 窗内被判为超出的时隙累计 ≥ 触发时长（出厂 3 s 窗内 ≥ 1 s）。
             bool isOver() const noexcept   { return overCount >= triggerSlots; }
 
+            // 折算后的窗与触发时隙数（只给测试探针读，T-032 R5-08）。
+            int getWindowSlots() const noexcept    { return windowSlots; }
+            int getTriggerSlots() const noexcept   { return triggerSlots; }
+
         private:
             static bool enforced (float cap) noexcept   { return isFinite (cap) && cap > 0.0f; }
 
@@ -692,6 +713,32 @@ namespace celadon::glaze
         };
 
         //==============================================================================
+        // 保护层与上游监视生效的上限（T-032 R6-02 收尾，A11）：每项 = max(风格上限, 手动单独用量)。风格上限按方案权重混合；手动链单独已
+        // 超预算的项（Plan::manualBudgetMask，只认三个已定义的位）置 0 = 不设约束（GlazeGuard 与 UpstreamMonitor 同一约定），其余项手动
+        // 单独用量不超风格上限，max 就是风格上限。released = 0 时逐位原样返回。置位的项为什么是「不设约束」而不是拿决策器估的手动单独
+        // 用量当上限：
+        //   - Heat（只有上游监视看）：自动 Heat 此时恒为 0，驱动量全是手动的——实测的就是手动单独用量，max 永不越限；
+        //   - Glue 均值 / p95：自动 Glue 此时恒为 0，GR 全是手动的，保护层退让 Limit Gain、约束反馈降方案都减不了它。决策器估的手动单独
+        //     GR 是前向模型的估计，实测比它大一点就被当成自动的超限、白白磨光自动 Gain（IMPL-A11 第 4 节实测）；实测的就是手动单独用量，
+        //     max 永不越限；
+        //   - Clip 深度 / 活动：决策器撤回了自动 Clip、且不再按 Clip 预算限制自动 Gain（feasible，F-02 逐模块钳住）。保护层若按
+        //     「max(风格上限, 手动单独深度)」核对，会与决策器顶牛——自动 Gain 一推，削波就比手动单独深，保护层退到底、约束反馈把上限
+        //     磨到手动链，与修前同一种磨光。所以与决策器一致：不核对这两项，限幅器三项照常核对自动 Gain。
+        StyleConstants releaseManualBudget (StyleConstants caps, std::uint8_t released) noexcept
+        {
+            if ((released & manualBudgetHeat) != 0)
+                caps.heatDriveCap = 0.0f;
+
+            if ((released & manualBudgetGlue) != 0)
+                caps.glueGrMeanCapDb = caps.glueGrP95CapDb = 0.0f;
+
+            if ((released & manualBudgetClip) != 0)
+                caps.clipDepthCapDb = caps.clipActivityCap = 0.0f;
+
+            return caps;
+        }
+
+        //==============================================================================
         // 方案源：决策器除 GLAZE 与手动值以外的全部输入。方案切换 = 换方案源（过渡）；GLAZE / 手动值变 = 同一方案源重算。
         struct PlanSource
         {
@@ -715,7 +762,11 @@ namespace celadon::glaze
             std::uint32_t evaluatedGeneration = 0;
             float evaluatedGlaze = 0.0f;
             ChainParams evaluatedManual;
-            std::uint32_t evaluations = 0;   // 每重算一次 + 1（保护层上限等据此知道方案变了）
+            // 最近一次重算的全局序号（Impl::evaluationCounter，每次 evaluate 递增；保护层上限等据此知道方案变了）。
+            // 必须是全局单调而不是每槽各自计数（T-032 R5-02）：两槽轮流当过渡终点，各自计数每隔一次方案切换就撞上一次
+            //（槽 0 = 1 记 1 → 槽 1 = 1 跳过 → 槽 0 = 2 更新 → 槽 1 = 2 跳过……），首次聆听 / 提交 / 换风格后保护层与上游监视
+            // 有一半几率沿用上一份方案的上限，直到用户碰任一进方案的旋钮。
+            std::uint32_t evaluations = 0;
         };
 
         // 随工程保存的内容：已提交版本 + 约束反馈上限。
@@ -814,6 +865,7 @@ namespace celadon::glaze
         PlanSource pendingSource;
         std::int64_t pendingLength = 0;
         std::uint32_t generationCounter = 0;
+        std::uint32_t evaluationCounter = 0;   // 方案重算的全局序号（PlanSlot::evaluations 取它；R5-02）
         std::int64_t samplesSincePlan = 0;
 
         // ---- 本块 ----
@@ -866,10 +918,20 @@ namespace celadon::glaze
         bool guardClean = true;
         std::uint32_t guardLimitsEvaluation = 0;
         bool guardLimitsKnown = false;
+        // 保护层与上游监视此刻按哪些项放开了约束（上一次 updateGuardLimits 交出去的 manualBudgetMask，T-032 A11）；变了就清两个窗口。
+        // 保护层 reset / prepare 不动上限，所以这里也不跟着清。
+        std::uint8_t guardReleasedMask = 0;
         bool guardWasPlanLimited = false;
         bool planLimitedLatched = false;
         float lastGuardDb = 0.0f;
-        std::int64_t guardSteadySamples = 0, guardStuckSamples = 288000;   // g_保护 多久没变过；「卡住」的门槛
+        // g_保护 多久没变过（只数保护层自己的时间轴：有效音乐的块；静音 / 停播 / 旁通冻结时不推进也不清，R5-03）；「卡住」的门槛
+        //（activeConstants().guardRecoverAfterSeconds + 1 s：超过它自己的恢复等待仍没动 = 停在回差区、不会自己回来）。
+        std::int64_t guardSteadySamples = 0, guardStuckSamples = 288000;
+
+        // 沿用执行快照（保存重开、宿主 reset、同规格重建）时 adoptExecution 并进冻结方案的保护退让（≤ 0）。解除冻结时新方案按已提交
+        // 画像重算、不含这一份，改由下面的 carry 接着施加、随方案过渡同长淡出（releaseAbsorbedGuard，R5-04）：修前直接丢掉，
+        // 重开后第一次拧旋钮 / 换风格净增益阶跃最多 3 dB。
+        float absorbedGuardDb = 0.0f;
 
         // 约束反馈把保护层此刻的退让吸收进方案时：保护层清零，它原来的退让量改由这里接着施加、随方案过渡线性淡出，
         // 两者相加净增益连续（不会先双算一次退让、再慢慢恢复）。
@@ -886,7 +948,7 @@ namespace celadon::glaze
         double mismatchEnergy = 0.0;                      // 这段时间 M 的能量和（按样本加权），求这一段的平均响度
         float mismatchPeakDb = -100.0f;                   // 这段时间入口真峰值的最大值
         std::int64_t samplesSinceMismatch = std::numeric_limits<std::int64_t>::max() / 4;
-        bool profileMismatch = false;                     // 状态行提示；提交新画像时清
+        bool profileMismatch = false;                     // 状态行提示；提交新画像、读取工程时清
 
         // ---- 修坯 Clay（v0.1.7.0；口径见文件开头）----
         ClayGuard clayGuard;
@@ -1101,7 +1163,7 @@ namespace celadon::glaze
             slot.evaluatedGeneration = slot.source.generation;
             slot.evaluatedGlaze = glaze;
             slot.evaluatedManual = manual;
-            ++slot.evaluations;
+            slot.evaluations = ++evaluationCounter;   // 全局单调（R5-02），不是每槽各自 +1
         }
 
         // 方案按本块的 GLAZE 与手动值更新：新方案源立即算；同一方案源的输入变了，按最短间隔重算。
@@ -1227,6 +1289,7 @@ namespace celadon::glaze
             committed.constants = constants;
             committed.calibration = Calibration {};
             executionHeld = false;
+            absorbedGuardDb = 0.0f;   // 冻结方案留在过渡起点槽里，并进去的退让随增量混合淡出，不需要 carry（R5-04）
             execution.valid = false;
             heldBiasKnown = false;
             executionRequiresCalibration = false;
@@ -1244,6 +1307,12 @@ namespace celadon::glaze
             unlearnedOfflineWarning = false;
             committedPhase = Phase::planTransition;
             ++probe.commits;
+
+            // 已提交的标定快照换了：编排器侧按它折算的「卡住」门槛与上游监视窗一并重折算（R5-08；修前只在读档 / prepare 折算，
+            // 旧快照读回后重新聆听提交新画像，这两项仍按旧快照的时长）。几个乘法 + 固定数组清零，音频线程可调；监视窗清空
+            // 对新方案来说本来就合理（旧数据是旧方案的）。保护层自己的时长随 updateGuardLimits → setLimits 跟着方案源走。
+            updateTiming();
+            monitor.configure (sampleRate, activeConstants());
 
             requestPlanTransition();
             stateDirtyUrgent = true;
@@ -1404,6 +1473,11 @@ namespace celadon::glaze
                 execution.plan.effectiveTargetLufs += absorbed;
                 heldBiasDb += execution.protectionDb - absorbed;
                 execution.protectionDb = 0.0f;
+                absorbedGuardDb = absorbed;   // 解除冻结时由 carry 接着施加、随过渡淡出（releaseAbsorbedGuard，R5-04）
+            }
+            else
+            {
+                absorbedGuardDb = 0.0f;
             }
             liveToneOffsetDb = execution.valid ? execution.liveToneOffsetDb : 0.0f;
             liveToneProfileId = execution.valid && committed.hasProfile ? committed.profileId : 0;
@@ -1536,9 +1610,7 @@ namespace celadon::glaze
             calibrator.setConstants (committed.constants);
             calibrator.begin (toSlot().plan.effectiveGainDb, correctionLimitDb(), currentReference, lastLatency);
             roundActive = true;
-            roundReference = currentReference;
-            lastAttemptReference = currentReference;
-            haveLastAttempt = true;
+            roundReference = currentReference;   // 「刚对同一条件试过」只在结束为无效时记（finishRound，R5-01），开轮不记
             roundMismatchSamples = 0;
             committedPhase = Phase::calibrating;
             ++probe.calibrationBegins;
@@ -1546,9 +1618,21 @@ namespace celadon::glaze
 
         void finishRound() noexcept
         {
+            const auto limit = correctionLimitDb();   // 同输入只算一次（R5-06）
             committed.calibration = calibrator.getResult();
-            committed.calibration.gainBiasDb = juce::jlimit (-correctionLimitDb(), correctionLimitDb(),
-                calibrationBaseBiasDb + committed.calibration.gainBiasDb);
+            committed.calibration.gainBiasDb = juce::jlimit (-limit, limit, calibrationBaseBiasDb + committed.calibration.gainBiasDb);
+
+            // 「刚对同一条件试过、不反复重开」只记真正结束为无效的一轮（begin() 目标非有限时立即结束为无效：finish() 的其余
+            // 路径都 valid = true），否则没有这道门每块都会重开。放弃的轮（updateCalibration：条件变了 3 s 没变回来）与换方案
+            // 丢掉的轮（requestPlanTransition）不经这里、不算「试过」——条件变回原样（校准中把 GLAZE 拧到 0 或切 Limit Bypass
+            // 做 A/B ≥ 3 s 再拧回、换风格再切回）照样能再开（T-032 R5-01 / 核验 M1：修前 beginRound 一开轮就记，放弃后参考逐位
+            // 相同、状态行写「稳定后自动校准」却永远不校准）。
+            if (! committed.calibration.valid)
+            {
+                lastAttemptReference = roundReference;
+                haveLastAttempt = true;
+            }
+
             heldBiasKnown = false;
             executionRequiresCalibration = false;
             calibrationBaseBiasDb = 0.0f;
@@ -1583,9 +1667,11 @@ namespace celadon::glaze
                 {
                     // 诊断（TestProbe::calibrationInterruptMask，位的含义见那里）
                     probe.calibrationInterruptMask = (paused ? 1 : 0) | (! active ? 2 : 0) | (transitionActive ? 4 : 0) | (! matches ? 8 : 0)
-                                                   | (toSlot().plan.limitedByManual ? 16 : 0) | (guard.isEngaged() ? 32 : 0);
+                                                   | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (guard.isEngaged() ? 32 : 0);
 
-                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.limitedByManual)
+                    // 电平类自动全部撤回（T-032 R6-02 收尾）：没有自动加上去的增益可校准。手动只让 Heat / Glue / Clip 某一项超预算时照常采集
+                    // （自动 Gain 仍在推响；保护层与上游监视已只核对自动部分，不会因手动的超出介入）。
+                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.automaticLevelWithdrawn)
                         calibrator.invalidateCurrentWindow();
 
                     calibrator.process (inputBlocks.data(), numInput, outputBlocks.data(), numOutput,
@@ -1596,12 +1682,15 @@ namespace celadon::glaze
                 }
             }
 
-            // 开新一轮：已学过、GLAZE > 0、不在宿主旁通、没有方案过渡、不受手动限制、已提交的校准对此刻不适用、
+            // 开新一轮：已学过、GLAZE > 0、不在宿主旁通、没有方案过渡、电平类自动没有全部撤回、已提交的校准对此刻不适用、
             // 条件连续 1 s 没变，且不是刚刚对同一条件试过（试过而失败的不反复重试，等条件变了再说）。
             // 保护层：在参考状态（g_保护 = 0）才开；它若停在某个退让值上一直不动（超过它自己「安全多久才恢复」的等待 + 1 s，
             // 说明卡在回差区、不会自己回来），也开——这一轮会因保护层持续介入结束为「预算受限」，约束反馈把这点退让吸收进方案
             // （规格「不无限等待」）。正在退让或恢复时不开：量了也不能用，还会白白耗掉这一轮的保护预算。
-            const auto guardSettled = ! guard.isEngaged() || guardSteadySamples >= guardStuckSamples;
+            // 编排器接着施加的退让（guardCarryDb：约束反馈吸收、解除执行快照冻结时随过渡长度淡出的那一份）同样在改实际增益，
+            // 淡完之前也不开（T-032 R5-04：解除冻结的淡出不伴随方案过渡，没有这一条，条件稳定 1 s 后开的轮可能在淡出中途采集；
+            // 约束反馈的 carry 与方案过渡同长、比过渡早一块结束，过渡本来就挡着，这一条对它不起作用）。
+            const auto guardSettled = (! guard.isEngaged() || guardSteadySamples >= guardStuckSamples) && guardCarryLength <= 0;
 
             // 诊断（TestProbe::calibrationGateMask，位的含义见那里；与下面开新一轮的条件逐项对应）
             if (roundActive)
@@ -1612,13 +1701,13 @@ namespace celadon::glaze
             {
                 probe.calibrationInterruptMask = 0;
                 probe.calibrationGateMask = (! committed.hasProfile ? 1 : 0) | (! active ? 2 : 0) | (paused ? 4 : 0) | (transitionActive ? 8 : 0)
-                                          | (toSlot().plan.limitedByManual ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
+                                          | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
                                           | (calibrationApplicable() ? 128 : 0) | (referenceStableSamples < stableSamples ? 256 : 0)
                                           | (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference) ? 512 : 0);
             }
 
             if (! roundActive && committed.hasProfile && active && ! paused && ! transitionActive
-                && ! toSlot().plan.limitedByManual && guardSettled && referenceKnown && ! calibrationApplicable()
+                && ! toSlot().plan.automaticLevelWithdrawn && guardSettled && referenceKnown && ! calibrationApplicable()
                 && referenceStableSamples >= stableSamples
                 && ! (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference)))
             {
@@ -1627,12 +1716,14 @@ namespace celadon::glaze
         }
 
         // 此刻应施加的校准偏差：轮中 = 校准器的建议（条件暂时不一致或暂停时保持不动：已完成的子窗是在这个偏差下测的）；
-        // 已提交的校准适用 = 它的偏差（钳到此刻的修正范围）；否则 0（纯前馈）。GLAZE ≤ 0、受手动限制、没学过：0。
+        // 已提交的校准适用 = 它的偏差（钳到此刻的修正范围）；否则 0（纯前馈）。GLAZE ≤ 0、电平类自动全部撤回、没学过：0。
         float biasTarget() const noexcept
         {
-            if (! active || ! committed.hasProfile || toSlot().plan.limitedByManual)
+            if (! active || ! committed.hasProfile || toSlot().plan.automaticLevelWithdrawn)
                 return 0.0f;
 
+            // 修正范围与「校准适用」下面各会用到两次，同输入只算一次（R5-06）。
+            const auto limit = correctionLimitDb();
             auto target = 0.0f;
 
             if (calibratorRunning())
@@ -1640,17 +1731,18 @@ namespace celadon::glaze
                 const auto matches = GlazeCalibrator::referenceMatches (roundReference, currentReference);
                 target = matches && ! paused ? calibrationBaseBiasDb + calibrator.getResult().gainBiasDb : appliedBiasDb;
             }
-            // 第一块只恢复真正执行的偏差；之后已验证、计划未变的目标继续以原有 1 dB/s 追完。
-            // 保护吸收/计划改写后校准不适用，保留偏差作为新轮基线，不能把旧目标补回去。
-            else if (heldBiasKnown && (snapBias || ! calibrationApplicable()))
-                target = heldBiasDb;
-            else if (calibrationApplicable())
+            else
             {
-                const auto limit = correctionLimitDb();
-                target = juce::jlimit (-limit, limit, committed.calibration.gainBiasDb);
+                const auto applicable = calibrationApplicable();
+
+                // 第一块只恢复真正执行的偏差；之后已验证、计划未变的目标继续以原有 1 dB/s 追完。
+                // 保护吸收/计划改写后校准不适用，保留偏差作为新轮基线，不能把旧目标补回去。
+                if (heldBiasKnown && (snapBias || ! applicable))
+                    target = heldBiasDb;
+                else if (applicable)
+                    target = juce::jlimit (-limit, limit, committed.calibration.gainBiasDb);
             }
 
-            const auto limit = correctionLimitDb();
             return isFinite (target) ? juce::jlimit (-limit, limit, target) : 0.0f;
         }
 
@@ -1681,9 +1773,24 @@ namespace celadon::glaze
             if (guardLimitsKnown && guardLimitsEvaluation == slot.evaluations)
                 return;
 
-            const auto caps = blendConstants (slot.source.constants, slot.plan.weights);
+            // 只核对自动部分（T-032 R6-02 收尾，A11）：手动单独已超预算的项不设约束，其余照风格上限（releaseManualBudget 的说明）。
+            // 手动没超预算（掩码 0）时交出去的上限与修前逐位相同。
+            const auto released = static_cast<std::uint8_t> (slot.plan.manualBudgetMask & manualBudgetAll);
+            const auto caps = releaseManualBudget (blendConstants (slot.source.constants, slot.plan.weights), released);
             guard.setLimits (caps, slot.source.constants);
             monitor.setCaps (caps);
+
+            // 「手动超预算」的项变了：两个窗口里的数据是按另一套口径攒的——手动 Heat 25 拧回 15（通透上限 20）那一刻，上游监视窗里全是
+            // 手动造成的超出，按新上限一判立即满「3 s 窗内累计 ≥ 1 s」、约束反馈白降 1 dB（只降不升、随工程保存；IMPL-A7 第 3 节末段）；
+            // 保护层同理会按旧时隙退让自动 Gain。清空两个窗口，按新口径从头判定；保护层已执行的退让不动（照常按规则恢复，净增益不跳）。
+            // 掩码一直是 0（手动没超预算）时永不进这里，与修前逐位相同。
+            if (released != guardReleasedMask)
+            {
+                monitor.clear();
+                guard.clearStatistics();
+                guardReleasedMask = released;
+            }
+
             guardLimitsEvaluation = slot.evaluations;
             guardLimitsKnown = true;
         }
@@ -1794,6 +1901,7 @@ namespace celadon::glaze
             feedbackMaxGainDb = next;
             savedPlanMode = false;
             executionHeld = false;
+            absorbedGuardDb = 0.0f;   // 冻结方案留在过渡起点槽里，并进去的退让随增量混合淡出，不需要 carry（R5-04）
 
             if (keepCalibration)
             {
@@ -1842,7 +1950,7 @@ namespace celadon::glaze
             const auto& profileLoudness = source.profile.integratedLufs;
 
             if (! active || savedPlanMode || ! source.hasProfile || ! profileLoudness.valid || ! isFinite (profileLoudness.value)
-                || toSlot().plan.limitedByManual)
+                || toSlot().plan.automaticLevelWithdrawn)   // T-032 R6-02：只在电平类自动全部撤回时不判（手动单独超某模块预算时自动 Gain 仍在推响）
             {
                 clearMismatch();
                 return;
@@ -1908,9 +2016,13 @@ namespace celadon::glaze
                 ++probe.mismatchSteps;
         }
 
-        void updateFeedback (std::int64_t n) noexcept
+        // musicActive = 本块保护层的时间轴在走（有效音乐、不在宿主旁通、Color / Limit 没旁通，见 endBlock）。「过渡 + 3 s 观察」
+        // 的观察期只在这样的块累加（T-032 核验 M2）：上游监视窗只在这样的块加时隙，观察期若按宿主时间走，反馈 → 过渡 →
+        // 静音 / 停播 3 s 之后冷却到期，会按过渡期装进窗里的旧数据在静音中再降 1 dB，而设计要的是观察新方案 3 s。
+        void updateFeedback (std::int64_t n, bool musicActive) noexcept
         {
-            samplesSinceFeedback += n;
+            if (musicActive)
+                samplesSinceFeedback += n;
 
             const auto planLimited = guard.isPlanLimited();
 
@@ -1919,7 +2031,8 @@ namespace celadon::glaze
 
             guardWasPlanLimited = planLimited;
 
-            if (! active || ! toSlot().source.hasProfile || transitionActive || toSlot().plan.limitedByManual
+            // 电平类自动全部撤回时没有自动增益可降（T-032 R6-02 收尾：手动只让某一项超预算时照常，保护层与上游监视已不核对那一项）。
+            if (! active || ! toSlot().source.hasProfile || transitionActive || toSlot().plan.automaticLevelWithdrawn
                 || samplesSinceFeedback < feedbackCooldownSamples)
                 return;
 
@@ -1957,6 +2070,26 @@ namespace celadon::glaze
             guardCarryElapsed = guardCarryLength = 0;
         }
 
+        // 解除执行快照的冻结（beginBlock：参考条件变了——拧 GLAZE / 手动值 / 换风格）时调（R5-04）：快照方案里并进去的保护退让
+        //（adoptExecution 的 absorbed，守护本身在沿用时已清零）不随新方案一起消失，改由编排器接着施加、按方案过渡同长线性淡出，
+        // 与 lowerGainCap 吸收退让时同一套 carry（computeEffective 里 guardDb = 守护 + carry）：净增益在这一项上连续，而方案
+        // 本身仍按 GLAZE 即时重算、不做过渡（时间线与保存 §4「拧 GLAZE 不重做方案过渡」）。换风格那一支先经这里再开 3 s 过渡，
+        // 两者同长同步淡出。过渡中途保存的混合值差仍是阶跃（少见，接受）。GLAZE ≤ 0 时不用：自动部分整个关掉、保护偏移本来
+        // 就归零，留着的 carry 反而会在 GLAZE 回来时凭空施加一段退让。此刻若已有 carry 在走（理论上不会：沿用期间没有），
+        // 从它的剩余量接着算，同样连续。
+        void releaseAbsorbedGuard() noexcept
+        {
+            const auto absorbed = absorbedGuardDb;
+            absorbedGuardDb = 0.0f;
+
+            if (! active || ! (absorbed < 0.0f))
+                return;
+
+            guardCarryStartDb = absorbed + guardCarryDb();
+            guardCarryElapsed = 0;
+            guardCarryLength = juce::jmax ((std::int64_t) 1, planTransitionSamples);
+        }
+
         //==============================================================================
         // ---- 实际参数 ----
 
@@ -1989,7 +2122,28 @@ namespace celadon::glaze
             return true;
         }
 
-        void updateLiveColor (std::int64_t n) noexcept
+        // 同一块里 updateLiveTone 与 updateLiveColor 都要这份 27 段加权回归，输入（分析器视图、已提交画像）在两次之间不变：
+        // 只算一次、结果逐位相同（R5-06）。按需算——两处的门都没过就一次也不算。
+        struct LiveSlopes
+        {
+            bool computed = false, ok = false;
+            float referenceSlope = 0.0f, currentSlope = 0.0f;
+        };
+
+        bool liveSlopes (LiveSlopes& s, float& referenceSlope, float& currentSlope) const noexcept
+        {
+            if (! s.computed)
+            {
+                s.ok = matchingLiveSlopes (s.referenceSlope, s.currentSlope);
+                s.computed = true;
+            }
+
+            referenceSlope = s.referenceSlope;
+            currentSlope = s.currentSlope;
+            return s.ok;
+        }
+
+        void updateLiveColor (std::int64_t n, LiveSlopes& slopes) noexcept
         {
             if (! active || savedPlanMode || ! committed.hasProfile)
             {
@@ -2013,7 +2167,7 @@ namespace celadon::glaze
                 || ! profile.plrDb.valid || ! isFinite (profile.plrDb.value) || profile.plrDb.confidence < 0.5f)
                 return; // 静音、低置信度、未填满的窗口保持已听到的量，不追底噪。
             float referenceSlope = 0.0f, currentSlope = 0.0f;
-            if (! matchingLiveSlopes (referenceSlope, currentSlope))
+            if (! liveSlopes (slopes, referenceSlope, currentSlope))
                 return;
             const auto& c = toSlot().source.constants;
             if (! isFinite (c.liveColorDensityRangeDb) || ! (c.liveColorDensityRangeDb > 0.0f)
@@ -2046,7 +2200,7 @@ namespace celadon::glaze
             approach (liveGlueReduction, juce::jmax (density, 0.5f * brightness), c.liveGlueMaxReduction);
         }
 
-        void updateLiveTone (std::int64_t n) noexcept
+        void updateLiveTone (std::int64_t n, LiveSlopes& slopes) noexcept
         {
             if (! active || savedPlanMode || ! committed.hasProfile)
             {
@@ -2078,7 +2232,7 @@ namespace celadon::glaze
                 || ! isFinite (c.toneDbPerSlopeDb))
                 return;
             float referenceSlope = 0.0f, currentSlope = 0.0f;
-            if (! matchingLiveSlopes (referenceSlope, currentSlope))
+            if (! liveSlopes (slopes, referenceSlope, currentSlope))
                 return;
             const auto difference = referenceSlope - currentSlope;
             const auto outside = std::copysign (juce::jmax (0.0f, std::abs (difference) - automaticToneSlopeDeadbandDbPerOct), difference);
@@ -2105,19 +2259,50 @@ namespace celadon::glaze
                     effective.color.glue -= juce::jmax (0.0f, effective.color.glue - manual.color.glue) * liveGlueReduction;
             }
 
+            // 目标方案源的标定快照、按方案权重混合后的上限、已提交画像的置信度 κ：下面 Tame 与 Tone 两处同输入，各只算一次
+            //（R5-06；纯函数，逐位相同）。都按需算——门没过的块一次也不算。
+            const auto& snapshot = toSlot().source.constants;
+            StyleConstants caps;
+            float kappa = 0.0f;
+            bool capsKnown = false, kappaKnown = false;
+
+            const auto blendedCaps = [&]() noexcept -> const StyleConstants&
+            {
+                if (! capsKnown)
+                {
+                    caps = blendConstants (snapshot, toSlot().plan.weights);
+                    capsKnown = true;
+                }
+
+                return caps;
+            };
+
+            const auto profileKappa = [&]() noexcept
+            {
+                if (! kappaKnown)
+                {
+                    kappa = confidenceScale (&committed.profile, snapshot);
+                    kappaKnown = true;
+                }
+
+                return kappa;
+            };
+
             // 当前频谱仅提高自动 Tame 权限，不改已提交画像、计划增量、响度目标或校准参考。
             // 证据已在分析器按音频帧平滑；Balance 还会逐 hop 插值。离线与实时同逻辑，旧保存方案保持原行为。
+            // 许可 = 上限 × GLAZE × κ × 证据：与方案里的自动 Tame（GlazePlanner：GLAZE × κ）、updateLiveTone 同一口径，且只在
+            // 已提交画像之后放开（规格 7.2「学习结束后」；T-032 R6-04：修前不乘 κ、未学习 / 首次聆听中也按满置信度放许可，
+            // 与方案侧口径不一致）。κ = 1 时与修前逐位相同。恢复路径不变：证据还没稳定的块沿用执行快照里实际执行过的份额；
+            // 未学习的沿用期间也只用快照份额，不放新许可。
             if (active && ! savedPlanMode && ! manual.balance.bypass && toSlot().valid)
             {
                 const auto& evidence = analyzer.getShortTermView().liveTameEvidenceDb;
-                const auto& snapshot = toSlot().source.constants;
-                if (evidence.valid && isFinite (evidence.value) && snapshot.tameEvidenceFullDb > 0.0f)
+                if (committed.hasProfile && evidence.valid && isFinite (evidence.value) && snapshot.tameEvidenceFullDb > 0.0f)
                 {
                     restoredTamePending = false;
-                    const auto caps = blendConstants (snapshot, toSlot().plan.weights);
                     const auto glaze = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f);
-                    const auto tameCap = isFinite (caps.tameCap) ? juce::jlimit (0.0f, 100.0f, caps.tameCap) : 0.0f;
-                    const auto liveTame = tameCap * glaze
+                    const auto tameCap = isFinite (blendedCaps().tameCap) ? juce::jlimit (0.0f, 100.0f, blendedCaps().tameCap) : 0.0f;
+                    const auto liveTame = tameCap * glaze * profileKappa()
                                         * juce::jlimit (0.0f, 1.0f, evidence.value / snapshot.tameEvidenceFullDb);
                     effective.balance.tame = juce::jlimit (0.0f, 100.0f,
                         manual.balance.tame + juce::jmax (increments.balanceTame, liveTame));
@@ -2133,9 +2318,8 @@ namespace celadon::glaze
             if (active && ! savedPlanMode && committed.hasProfile && liveToneProfileId == committed.profileId
                 && ! manual.color.bypass && manual.color.mixPercent > 0.0f && toSlot().valid)
             {
-                const auto& c = toSlot().source.constants;
-                const auto cap = blendConstants (c, toSlot().plan.weights).toneMaxDb;
-                const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * confidenceScale (&committed.profile, c);
+                const auto cap = blendedCaps().toneMaxDb;
+                const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * profileKappa();
                 if (isFinite (cap) && cap > 0.0f)
                 {
                     // 0.01 dB 量化避免稳定段不断重算搁架系数；模块仍以原来的平滑器过渡。
@@ -2156,8 +2340,11 @@ namespace celadon::glaze
             executedBiasDb = 0.0f;
             executedGuardDb = 0.0f;
 
-            // 受手动设置限制：自动增量本来就撤回了，校准偏差与保护偏移也不施加（手动造成的超限只提示，不偷偷改）。
-            if (toSlot().plan.limitedByManual)
+            // 电平类自动全部撤回（Plan::automaticLevelWithdrawn）：没有自动加上去的增益，校准偏差与保护偏移都不施加（手动造成的超限只提示，
+            // 不偷偷改）。手动只让 Heat / Glue / Clip 某一项超预算时（界面照旧「受手动设置限制」）自动 Gain 仍在推响，偏差与保护照常施加：
+            // 保护层与上游监视已只核对自动部分，手动单独超预算的那一项不设约束（updateGuardLimits，T-032 R6-02 收尾 A11）；执行量本来就
+            // 只收回自动加上去的那一份（下面设计决定 4）。
+            if (toSlot().plan.automaticLevelWithdrawn)
                 return;
 
             const auto manualGain = manual.limit.gainDb;
@@ -2339,6 +2526,7 @@ namespace celadon::glaze
                     liveColorProfileId = 0;
                     clayRestorePending = false;   // 条件变了：快照里的 Clay 值同样不再适用（保护状态照常接着走）
                     snapTo (desiredSource());
+                    releaseAbsorbedGuard();       // 快照里并进去的保护退让改由 carry 淡出，净增益不阶跃（R5-04）
                 }
             }
 
@@ -2536,6 +2724,10 @@ namespace celadon::glaze
             spectrumTakenAtBlockStart = false;
             const auto& view = analyzer.getShortTermView();
 
+            // 保护层的时间轴（T-032 R5-03 / 核验 M2）：有效音乐、不在宿主旁通、Color / Limit 没旁通（旁通期间输出是干路，统计不代表
+            // 听到的）。保护层本身、上游监视、「g_保护 多久没变过」与约束反馈的观察期都按它走；静音 / 停播 / 旁通冻结的块一律不计。
+            const auto guardMusicActive = view.musicActive && ! paused && ! manual.color.bypass && ! manual.limit.bypass;
+
             // Clay 保护的时间轴（下一块 beginBlock 一次交给 ClayGuard）：只推进有效音乐——静音（分析器门下）、宿主旁通、停播都
             // 冻结，保持期也不走；按切片累计，与宿主块怎么切无关。
             if (view.musicActive && ! paused && hostPlaying())
@@ -2571,21 +2763,28 @@ namespace celadon::glaze
             }
 
             // ---- 保护层（GLAZE > 0 才工作；宿主旁通、Color / Limit 旁通期间冻结：输出是干路，统计不代表听到的）----
-            // 受手动设置限制时也清零、不工作：自动增量已撤回，没有自动加上去的增益可收回（设计决定 4），它若照常累计退让，
-            // 等手动设置改回来那一刻会突然施加一大步。
-            if (active && ! toSlot().plan.limitedByManual)
+            // 电平类自动全部撤回时清零、不工作：没有自动加上去的增益可收回（设计决定 4），它若照常累计退让，等手动设置改回来那一刻会
+            // 突然施加一大步。手动只让 Heat / Glue / Clip 某一项超预算时照常工作（规格「学习、过渡、校准期间保护层同样生效」）：
+            // updateGuardLimits 把那一项放开、只核对自动部分——修前按「手动 + 自动」的总量核对，会白白退让自动 Gain、约束反馈每约 3.5 s
+            // 降 1 dB 把自动增益磨光（T-032 R6-02，IMPL-A7 第 3 节 107 实测），所以当时这道门只好连同这些组合一起关着。
+            if (active && ! toSlot().plan.automaticLevelWithdrawn)
             {
                 updateGuardLimits();
 
                 auto guardStats = stats;
-                guardStats.musicActive = view.musicActive && ! paused && ! manual.color.bypass && ! manual.limit.bypass;
+                guardStats.musicActive = guardMusicActive;
                 if (! guardStats.musicActive)
                     guard.discardPartialSlot(); // 冻结只丢未完成片段；完整历史/保护保留，避免 1-sample 切片风暴。
                 guard.process (guardStats);
                 guardClean = false;
 
+                // 「g_保护 多久没变过」按保护层自己的时间轴计（T-032 R5-03）：它在静音 / 停播 / 旁通的块整块不计、g_保护 不动，
+                // 这些块若也算「没变」，音乐停 6 s（或一段空拍、Limit Bypass 开着）就把一次临时退让当成「卡住」永久并进方案
+                // 上限（只降不升、随工程保存），而规格「静音、停播不计入恢复时间」——音乐一回来本可 5 s 后恢复到 0。
+                // 冻结块不加也不清；lastGuardDb 照旧每块更新。
                 const auto guardDb = guard.getProtectionDb();
-                guardSteadySamples = sameBits (guardDb, lastGuardDb) ? guardSteadySamples + n : 0;
+                if (guardMusicActive)
+                    guardSteadySamples = sameBits (guardDb, lastGuardDb) ? guardSteadySamples + n : 0;
                 lastGuardDb = guardDb;
 
                 if (toSlot().source.hasProfile)
@@ -2606,10 +2805,12 @@ namespace celadon::glaze
             updateCalibration (numInput, numOutput, n);
             updateLearning (n);
             updateMismatch (n, juce::Decibels::gainToDecibels (inputMeter.getLastBlockTruePeakLinear(), -100.0f));
-            updateFeedback (n);
+            updateFeedback (n, guardMusicActive);
             updateBias (n);
-            updateLiveTone (n);
-            updateLiveColor (n);
+
+            LiveSlopes slopes;   // 音色 / 密度跟随共用的斜率回归，同一块只算一次（R5-06）
+            updateLiveTone (n, slopes);
+            updateLiveColor (n, slopes);
 
             if (guardCarryLength > 0)
             {
@@ -2778,6 +2979,14 @@ namespace celadon::glaze
             // 旧工程的标定快照里保护层的时长可能不同：按它重新折算。
             updateTiming();
             monitor.configure (sampleRate, activeConstants());
+
+            // 画像失配的运行态属于读档前那份画像（T-032 R5-08，与 commitCandidate 换画像时同一口径）：累计的音乐不能拿来与读回的新
+            // 画像比（修前播放中读档可能在第一块就跳过「持续满 1 s」的要求给新方案降上限），冷却视为已过；「建议重新聆听」的提示
+            // 说的也是旧画像，一并清掉（修前播放中换读另一份工程 / 预设，旧提示一直挂着，直到下一次提交）。失配给的上限随工程保存、
+            // 已随 feedbackMaxGainDb 读回，不受影响。
+            clearMismatch();
+            samplesSinceMismatch = mismatchCooldownSamples;
+            profileMismatch = false;
             return true;
         }
 
@@ -3182,6 +3391,17 @@ namespace celadon::glaze
         p.calibrationGuardSeconds = progress.guardSeconds;
         p.calibrationLastErrorDb = progress.lastRoundErrorDb;
         p.calibrationSuggestedDb = s.calibrator.getResult().gainBiasDb;
+
+        p.guardLimitsSet = s.guard.hasLimits();
+        p.guardLimits = s.guard.getLimits();
+        p.guardSteadySamples = s.guardSteadySamples;
+        p.guardStuckSamples = s.guardStuckSamples;
+        p.samplesSinceFeedback = s.samplesSinceFeedback;
+        p.monitorWindowSlots = s.monitor.getWindowSlots();
+        p.monitorTriggerSlots = s.monitor.getTriggerSlots();
+        p.absorbedGuardDb = s.absorbedGuardDb;
+        p.guardCarryDb = s.guardCarryDb();
+        p.mismatchSamples = s.mismatchSamples;
         return p;
     }
 

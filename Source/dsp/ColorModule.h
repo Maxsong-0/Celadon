@@ -10,7 +10,8 @@
       │   → Glue（前馈总线压缩：侧链 100 Hz 高通、左右联动峰值、2:1、6 dB 软拐点、
       │           攻击 20 ms、释放 50 ～ 500 ms 按近 500 ms 平均压缩量自适应、自动补偿；Glue = 0 彻底关闭。
       │           联动包络仍决定压缩量和表读数。低 / 高两侧若自己更轻，增益最多比联动增益高 3.2 dB，
-      │           响的一侧保持原来的压缩。三路增益相等时退回整段同一个增益。
+      │           响的一侧保持原来的压缩；中频直接用联动增益、没有自己的检测器（2026-09-29 T-032 R3-01）。
+      │           低 / 高两路的差都为 0 时退回整段同一个增益。
       │           分频只在 Glue 开着时跑；关掉后只留侧链高通，重开时分频从 0 起、由开关淡入。）
             │   → Heat（原声延迟 64 样本 + 非线性残差：M/S → 150 Hz 高通 → 同一 8× Tube(x)−x
             │           → 5 Hz 去直流 → M/S 解码；Heat = 0 时 20 ms 淡出到等长延迟原声）
@@ -26,11 +27,13 @@
 
     沿用 v0.5 性能优化（研究 P3 R1 ～ R4），已适配当前残差拓扑：
       - Heat 的 8× 过采样换成块式 SIMD 半带 FIR（HalfBandOversampler：同系数、同线性相位、同延迟 64）；
-      - Tube 在驱动量不变的一段上整段调用 Saturator::processTubeBlock（4 路并行有理式 tanh）；
+      - Tube 在驱动量不变的一段上整段调用 Saturator 的 4 路整段 Tube（有理式 tanh）；残差 Tube(x) − x 就在这 4 路里
+        直接减原样本（Saturator::processTubeResidualBlock，不再先拷贝一份，T-032 R3-04）；
       - 空闲整段跳过：Tone 归零且状态落到 0、Glue 完全关掉、Mix / Output / Bypass 都静止、Heat 湿路静止在 0
         持续 ≥ 256 样本时，各自整段跳过，都与不跳过逐位相同（含 ±0 与 NaN / Inf 输入；Heat 重开时用最近 256 个
         高通后的 M/S 输入预热过采样器）；150 Hz 高通一直运行，空闲时 5 Hz 直流阻断吃已有 2× 链的近似残差；
-      - 三条 64 样本延迟按块拷贝；ARM 上 Tone 搁架、Glue 侧链高通和分频两声道打包（与标量写法逐位相同）；
+      - 三条 64 样本延迟按块拷贝；ARM / x64 上 Tone 搁架、Glue 侧链高通、分频与 Heat 的 M/S 150 Hz 高通（T-032 R3-04）
+        两声道打包（与标量写法逐位相同）；
       - Glue 完全关掉时不做低/高分频，避免每样本空转四次双二阶；侧链高通仍一直跑，重开联动压缩才有连续历史；
       - Heat 残差 makeup 表与采样率无关，进程内只标定一次。
 
@@ -111,7 +114,8 @@ namespace celadon
         void setHeatHighFrequencyProtectionEnabled (bool enabled) noexcept { heatGuardEnabled = enabled; }
         float getHeatHighFrequencyGainForTesting() const noexcept { return (float) heatGuardGain; }
 
-        // 测试用。默认开着：有 NEON / SSE2 的平台上立体声的 Tone、侧链高通、Glue 分频两声道打包算；关掉 = 逐声道走标量。
+        // 测试用。默认开着：有 NEON / SSE2 的平台上立体声的 Tone、侧链高通、Glue 分频、Heat 的 M/S 高通两声道打包算；
+        // 关掉 = 逐声道走标量。
         // 两种做法逐位相同（ColorTests 在左右不同的立体声上对照）。随时可调。
         void setPackedStereoForTesting (bool shouldPack) noexcept { packedStereo = shouldPack; }
 
@@ -210,14 +214,14 @@ namespace celadon
         std::vector<BiquadState> sidechainStates;
         std::vector<double> sidechainPeaks; // 本块每个样本的侧链峰值（左右取大）
         std::vector<double> glueHighpassed; // Glue 开着时的逐声道侧链高通输出，分频检测器直接用，不再滤第二遍
-        // 分频只产生相对联动增益的差：检测器吃上面的高通输出，音频分裂用同一组系数的另一套状态。
-        // Glue 完全关掉时这两套状态不推进，重开时清零。
+        // 分频只产生相对联动增益的差：低 / 高两路检测器吃上面的高通输出，音频分裂用同一组系数的另一套状态。
+        // 中频没有自己的检测器与包络，直接用联动增益（T-032 R3-01）。Glue 完全关掉时这两套状态不推进，重开时清零。
         BiquadCoefficients glueLowpass, glueHighpass;
         std::vector<BiquadState> bandDetectorLowStates, bandDetectorHighStates;
         std::vector<BiquadState> audioLowStates, audioHighStates;
-        std::vector<double> glueLowPeaks, glueMidPeaks, glueHighPeaks;
+        std::vector<double> glueLowPeaks, glueHighPeaks;
         std::vector<double> glueAudioLow, glueAudioHigh;   // [声道 × maxBlockSize + 样本]
-        double lowReductionDb = 0.0, midReductionDb = 0.0, highReductionDb = 0.0;
+        double lowReductionDb = 0.0, highReductionDb = 0.0;
         double lowBandAttackCoeff = 0.0, highBandAttackCoeff = 0.0;
         float glueForMapping = -1.0f;       // 当前阈值 / 补偿对应的 Glue 值
         double thresholdDb = 0.0;           // 阈值：0 → 0 dBFS，100 → −24 dBFS
@@ -243,7 +247,6 @@ namespace celadon
         int heatGuardCounter = 0;
         bool heatGuardEnabled = true;
         juce::AudioBuffer<float> heatInputScratch;   // 高通后的 M/S（mono = Mid），也是预热历史的唯一来源
-        std::vector<float> heatResidualScratch;     // 8× 曲线整形前的输入副本，所有声道顺序共用
         float heatForTube = -1.0f;          // 当前驱动量对应的 Heat 值
         int heatUpdateCounter = 0;          // 过采样域计数器，跨块延续
         const float* heatCompensation = nullptr;   // h = 0 … 100 的轻微残差 makeup（进程内只标定一次）

@@ -81,7 +81,14 @@ namespace celadon
         std::array<std::array<float, (size_t) tapsPerPhase>, (size_t) oversamplingFactor> reversedPhases {};
 
         // 同一批系数按抽头重排给向量核用：tapsByTap[8k + p − 1] = reversedPhases[p][k]（p = 1 … 7），每个 k 的第 8 格补 0。
+        // NEON 核用它：vfmaq_laneq 按通道取系数，正是为这种紧凑布局设计的。
         std::array<float, (size_t) (tapsPerPhase * 8)> tapsByTap {};
+
+        // SSE2 核的系数（T-032，2026-09-29）：指向全部检测器共用的预广播表（TruePeak.cpp 的 SharedCoefficients），
+        // 每个抽头按第 1 … 7 相各 4 个相同的 float：tapsBroadcast[28k + 4(p − 1) + lane] = reversedPhases[p][k]，全表 7 KB。
+        // 表在静态存储里按 16 字节对齐、构造后只读，检测器自己不带对齐要求——对齐的数组成员会把 16 字节对齐一路传给
+        // LimiterModule、LoudnessMeter、CeladonChain 与处理器，MSVC /W4 下这些类会逐个报 C4324。拷贝检测器只拷指针，照样有效。
+        const float* tapsBroadcast = nullptr;
 
         std::vector<ChannelState> channels;
 

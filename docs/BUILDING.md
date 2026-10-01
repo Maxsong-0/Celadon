@@ -52,6 +52,9 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
   192 kHz、32 ～ 64 样本缓冲在老的 Intel 笔记本上仍有爆音风险——对外承诺之前先在 Intel 真机上跑一遍性能网格。
 - 不要提高 x86_64 的指令集基线（`-mavx`、`-mavx2`、`-mfma`、x86_64h）：macOS 12 ～ 14 的 Rosetta 没有 AVX，Rosetta 里跑的宿主
   会直接崩（SIGILL）；FMA 还会破坏逐位契约（ADR-013）。
+- 但测试要额外考验一次有 FMA 的目标（ADR-013 后果第 3 条）：改了 `HalfBand` / `Saturator` / `TruePeak` / `Balance` / `Color` / `Clay` /
+  `LinearPhaseLowpass` / `Limiter` 或任何编译选项之后，除基线全套外再跑
+  `CELADON_CXX_FLAGS=-march=x86-64-v3 scripts/test-linux.sh`（独立构建目录，不污染基线；只是测试构建，插件仍按上一条不提基线）。
 
 ## Windows：x64，Visual Studio 2022
 

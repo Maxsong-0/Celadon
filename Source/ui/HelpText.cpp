@@ -411,10 +411,10 @@ namespace celadon::help
             { param::clayLowCutHz,
               "低切 · 清理超低频",
               "4 阶高通切掉这个频率以下的次声与直流；「自动」时手动值不生效，这里显示的是此刻的实际值。",
-              "16～25 Hz 足够；它会转动低频相位，峰值守护会在峰值处自动让一点，不让限幅器多压。",
+              "16～25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压。",
               "Low cut · clean up sub-bass",
               "A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual value.",
-              "16–25 Hz is enough; it rotates the low-end phase, and the peak guard yields a little at peaks so the limiter does not work harder." },
+              "16–25 Hz is enough; it rotates the low-end phase, and whenever that would raise a peak the peak guard yields the low cut so the limiter does not work harder." },
 
             { param::clayMonoMode,
               "收单 · 自动 / 关 / 手动",
@@ -434,10 +434,10 @@ namespace celadon::help
 
             { param::clayWidthMode,
               "加宽 · 自动 / 关 / 手动",
-              "自动：只在高频偏窄、且试过不会抬高峰值时适度加宽（最多 +1.5 dB），并盯住相关度防止发虚；关：不加宽；手动：按手动值，负值收窄。任何状态下峰值处都会自动让一点。",
+              "自动：只在高频偏窄、且试过不会抬高峰值时适度加宽（最多 +1.5 dB），并盯住相关度防止发虚；关：不加宽；手动：按手动值，负值收窄。加宽不经峰值守护：设多少就是多少。",
               "本来就宽的歌自动不会动；想更宽先试手动 +0.5～+1 dB。",
               "Width · Auto / Off / Manual",
-              "Auto: widens a narrow top end moderately (up to +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow; Off: no widening; Manual: your value, negative narrows. In every mode it yields a little at peaks.",
+              "Auto: widens a narrow top end moderately (up to +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow; Off: no widening; Manual: your value, negative narrows. Width is not run through the peak guard: what you set is what you get.",
               "Songs that are already wide are left alone; to go wider, try Manual at +0.5 to +1 dB." },
 
             { param::clayWidthDb,
@@ -460,10 +460,10 @@ namespace celadon::help
             // 是静态说明（无实时数据时的底稿）；第 3 行照常显示，所以灯色的含义写在第 3 行。
             { uiid::clayIndicator,
               "修坯 · 立体声像与超低频清理",
-              "三盏灯自上而下：低切（清超低频）、收单（低频收成单声道）、加宽（窄歌的高频适度加宽）。修坯从不让峰值变高：会抬峰值的瞬间自动让开。",
+              "三盏灯自上而下：低切（清超低频）、收单（低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",
               "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查），加宽灯琥珀 = 宽度保护介入。想手动覆盖，把该行切到「手动」。",
               "Clay · stereo image and sub-bass cleanup",
-              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono), width (moderate widening of narrow highs). Clay never makes peaks higher: it steps aside at moments that would.",
+              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not guarded, and automatic width is kept in check by the trial.",
               "Lit = processing (violet = auto, cyan = manual); amber mono = out-of-phase lows warning (check the mix), amber width = width guard engaged. To override, switch a row to Manual." },
         };
 

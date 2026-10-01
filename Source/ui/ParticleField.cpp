@@ -32,10 +32,10 @@ namespace celadon::ui
         };
 
         constexpr float centreX = 600.0f, centreY = 422.0f, rimRadius = 96.43f;
+        constexpr float bandWidth = 1200.0f;
         constexpr int linesPerSide = 14, particlesPerSide = 100, samplesPerLine = 48;
         constexpr double ringDuration = 3.9;
         constexpr double ringBegins[] = { 0.0, -1.3, -2.6 };
-        constexpr double maxFrameRate = 45.0;
 
         // 两边各自的缓动（SMIL calcMode="spline" 的 keySplines）：左边进来时先慢后快（被吸进去），右边出去时先快后慢。
         constexpr float easeLeft[]  = { 0.45f, 0.0f, 0.85f, 0.7f };
@@ -216,13 +216,23 @@ namespace celadon::ui
         repaint();
     }
 
+    bool ParticleField::isFrameDue (double sinceLastFrame, double vblankInterval) noexcept
+    {
+        // 严格按「距上一帧 ≥ 1/30 s」节流时，60 Hz 屏两个 VBlank 恰好 1/30 s：显示器周期略短于 1/60 s（60.001 Hz）或
+        // Windows / Linux 的回调时间戳抖一点，这一帧就拖到第 3 个 VBlank——20 帧 / s、忽快忽慢。容差取这次 VBlank 间隔的一半
+        // （最多半帧）：该画的那个 VBlank 一定画，早一个 VBlank 的一定不画。
+        constexpr auto frameInterval = 1.0 / maxFrameRate;
+        const auto tolerance = 0.5 * juce::jlimit (0.0, frameInterval, vblankInterval);
+        return sinceLastFrame >= frameInterval - tolerance;
+    }
+
     void ParticleField::onVBlank (double timestampSeconds)
     {
         const auto dt = lastVBlank < 0.0 ? 0.0 : timestampSeconds - lastVBlank;
         lastVBlank = timestampSeconds;
         step (dt);
 
-        if (animating && (lastRepaint < 0.0 || timestampSeconds - lastRepaint >= 1.0 / maxFrameRate))
+        if (animating && (lastRepaint < 0.0 || isFrameDue (timestampSeconds - lastRepaint, dt)))
         {
             lastRepaint = timestampSeconds;
             repaint();
@@ -242,51 +252,73 @@ namespace celadon::ui
 
     void ParticleField::renderLines (float pixelScale)
     {
-        const auto w = juce::jmax (1, juce::roundToInt (1200.0f * pixelScale));
-        const auto h = juce::jmax (1, juce::roundToInt ((float) bandHeight * pixelScale));
-        lineImage = juce::Image (juce::Image::ARGB, w, h, true);
-        lineImageScale = pixelScale;
+        // 28 条流线（全不透明度）：只覆盖流线的外接矩形（线宽 0.9 与抗锯齿各留足余量），两端与上下的空白不进图。
+        // 像素 (0, 0) 落在整数设备偏移上，流线相对设备像素网格的位置与整条带一张图时完全相同。
+        const auto area = leftCurves.getBounds().getUnion (rightCurves.getBounds()).expanded (2.5f)
+                              .translated (0.0f, (float) -top)
+                              .getIntersection ({ 0.0f, 0.0f, bandWidth, (float) bandHeight });
 
-        juce::Graphics g (lineImage);
-        g.addTransform (juce::AffineTransform::translation (0.0f, (float) -top).scaled (pixelScale));
+        lineImage.render (area, pixelScale, [this] (juce::Graphics& g)
+        {
+            g.addTransform (juce::AffineTransform::translation (0.0f, (float) -top));   // 流线按画布坐标
 
-        juce::ColourGradient leftGradient (juce::Colour (0x0033b3c4), 20.0f, 0.0f, juce::Colour (0xff0e6473), 492.0f, 0.0f, false);
-        leftGradient.addColour (0.6, juce::Colour (0x8c1799ab));
-        g.setGradientFill (leftGradient);
-        g.strokePath (leftCurves, juce::PathStrokeType (0.9f));
+            juce::ColourGradient leftGradient (juce::Colour (0x0033b3c4), 20.0f, 0.0f, juce::Colour (0xff0e6473), 492.0f, 0.0f, false);
+            leftGradient.addColour (0.6, juce::Colour (0x8c1799ab));
+            g.setGradientFill (leftGradient);
+            g.strokePath (leftCurves, juce::PathStrokeType (0.9f));
 
-        juce::ColourGradient rightGradient (juce::Colour (0xff0e6473), 708.0f, 0.0f, juce::Colour (0x0033b3c4), 1180.0f, 0.0f, false);
-        rightGradient.addColour (0.4, juce::Colour (0x8c1799ab));
-        g.setGradientFill (rightGradient);
-        g.strokePath (rightCurves, juce::PathStrokeType (0.9f));
+            juce::ColourGradient rightGradient (juce::Colour (0xff0e6473), 708.0f, 0.0f, juce::Colour (0x0033b3c4), 1180.0f, 0.0f, false);
+            rightGradient.addColour (0.4, juce::Colour (0x8c1799ab));
+            g.setGradientFill (rightGradient);
+            g.strokePath (rightCurves, juce::PathStrokeType (0.9f));
+        });
+
+        ++cacheStats.lineRenders;
+    }
+
+    void ParticleField::renderGlow (float pixelScale)
+    {
+        // 旋钮后面的一团浅青（R9-05）：径向渐变按像素求值、每次填充还要重建查找表，最多 30 帧 / s 地画是这条带最贵的一项。
+        // 形状固定、只有强度跟 GLAZE：按全不透明度画一次，每帧按 0.1 + 0.4 × GLAZE 的不透明度整块贴。
+        const juce::Point<float> centre (centreX, centreY);
+        const auto area = juce::Rectangle<float> (400.0f, 400.0f).withCentre (centre).translated (0.0f, (float) -top)
+                              .getIntersection ({ 0.0f, 0.0f, bandWidth, (float) bandHeight });
+
+        glowImage.render (area, pixelScale, [centre] (juce::Graphics& g)
+        {
+            g.addTransform (juce::AffineTransform::translation (0.0f, (float) -top));   // 柔光按画布坐标
+
+            juce::ColourGradient glow (juce::Colour (0x5733b3c4), centre, juce::Colour (0x0067cad7), centre.translated (200.0f, 0.0f), true);
+            glow.addColour (0.55, juce::Colour (0x1f67cad7));
+            g.setGradientFill (glow);
+            g.fillEllipse (juce::Rectangle<float> (400.0f, 400.0f).withCentre (centre));
+        });
+
+        ++cacheStats.glowRenders;
     }
 
     void ParticleField::paint (juce::Graphics& g)
     {
-        // 流线缓存最多按 2.5 倍像素生成（很淡的细线，再高看不出区别，200 % × Retina 时图会很大）。
-        const auto pixelScale = juce::jlimit (0.5f, 2.5f, g.getInternalContext().getPhysicalPixelScaleFactor());
-        g.addTransform (juce::AffineTransform::translation (0.0f, (float) -top));   // 以下按画布坐标画
+        // 柔光与流线是按此刻物理像素比生成的缓存图，每帧只按各自的不透明度整数对齐贴一次（R9-05 / M-3）。
+        // 不给像素比封顶（原来流线封顶 2.5）：封了顶，更高的像素比就只能按比例变换贴图、每帧逐像素重采样整张图——
+        // 恰好是最贵的配置最慢。两张图都只覆盖各自的范围（流线约 1165 × 215、柔光 400 × 260 逻辑像素），4 倍时合计约 23 MB，远小于同像素比的静态背景。
+        const auto pixelScale = physicalPixelScale (g);
 
-        // 柔光：旋钮后面的一团浅青（强度跟 GLAZE）。
-        {
-            const juce::Point<float> centre (centreX, centreY);
-            juce::ColourGradient glow (juce::Colour (0x5733b3c4), centre, juce::Colour (0x0067cad7), centre.translated (200.0f, 0.0f), true);
-            glow.addColour (0.55, juce::Colour (0x1f67cad7));
-            glow.multiplyOpacity (0.1f + 0.4f * glaze);
-            g.setGradientFill (glow);
-            g.fillEllipse (juce::Rectangle<float> (400.0f, 400.0f).withCentre (centre));
-        }
+        if (! glowImage.isValidFor (pixelScale))
+            renderGlow (pixelScale);
 
-        // 流线（缓存图）
-        if (! lineImage.isValid() || ! juce::approximatelyEqual (lineImageScale, pixelScale))
+        if (! lineImage.isValidFor (pixelScale))
             renderLines (pixelScale);
 
+        glowImage.draw (g, 0.1f + 0.4f * glaze);
+
         const auto lineOpacity = ((reduceMotion ? 0.04f : 0.06f) + 0.22f * glaze) * brightness;
-        g.setOpacity (juce::jlimit (0.0f, 1.0f, lineOpacity));
-        g.drawImageTransformed (lineImage, juce::AffineTransform::scale (1.0f / lineImageScale).translated (0.0f, (float) top), false);
+        lineImage.draw (g, juce::jlimit (0.0f, 1.0f, lineOpacity));
 
         if (reduceMotion || glaze <= 0.0f)
             return;
+
+        g.addTransform (juce::AffineTransform::translation (0.0f, (float) -top));   // 以下按画布坐标画
 
         // 波纹：三圈从旋钮边缘（r 106）向外扩到 r 236，前 20 % 淡入、之后淡出。
         {

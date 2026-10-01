@@ -15,7 +15,8 @@
          拧 GLAZE 仍中性；与「Clay 全关」逐位相同；点「重新聆听」后自动 Clay 启用。
       4. 反相提示（ADR-015 起只提示、不改收单）：学完正常素材后插入 2 s 低频反相段 → 资格期 0.15 s + 分析帧与块的滞后内亮灯、
          再 0.1 s 提示强度到 1；段后至少保持 2 s、再按 2 s 线性退回 0；每一块的收单都不变；「关」「手动」态同样不变。
-      5. 手动态：GLAZE 0 时手动低切 30 Hz 生效（实际值恰为 30、15 Hz 分量降约 24 dB、200 Hz 以上不变）。
+      5. 手动态：GLAZE 0 时手动低切 30 Hz 生效（实际值恰为 30、15 Hz 分量降约 24 dB、200 Hz 以上不变）；T-032 起另有手动加宽
+         +3 dB 在正常电平（−12 dBFS 宽粉噪）下 4 kHz 以上的 S/M 真的抬高 3 ± 0.3 dB（峰值守护不再回收加宽，研究 R4-01）。
       6. 块长与离线：Clay 生效时 64 / 1024 样本块 × 实时 / 离线各渲染 60 s——同块长实时与离线逐样本相同；
          64 与 1024 每个 3 s 窗的短期响度差 < 0.02 LU（Codex rendercheck 同口径）。
       7. 执行快照：学习 + 反相提示满强度时保存 → 新链读取 → 首块 effective.clay 与保存前相同；实时 / 离线续渲逐样本相同，
@@ -367,6 +368,23 @@ namespace celadon::test
         double powerRatioDb (double numerator, double denominator)
         {
             return 10.0 * std::log10 (juce::jmax (numerator, 1.0e-30) / juce::jmax (denominator, 1.0e-30));
+        }
+
+        // 单声道的 M = (L + R) / 2（sign = +1）或 S = (L − R) / 2（sign = −1），double 里算（T-032 加宽用例量 S/M 用）。
+        Signal midOrSide (const Signal& signal, double sign)
+        {
+            Signal out = makeSilence (1, static_cast<int> (signal[0].size()));
+
+            for (size_t i = 0; i < signal[0].size(); ++i)
+                out[0][i] = static_cast<float> (0.5 * (static_cast<double> (signal[0][i]) + sign * static_cast<double> (signal[1][i])));
+
+            return out;
+        }
+
+        // 4 kHz 以上的 S/M（dB）。整链里 Balance 的 EQ、Glue / 限幅器的联动增益对 S 与 M 一视同仁，S/M 不受它们影响。
+        double highSideToMidDb (const Signal& signal, int skip)
+        {
+            return powerRatioDb (bandPower (midOrSide (signal, -1.0), 4000.0, 0.0, skip), bandPower (midOrSide (signal, 1.0), 4000.0, 0.0, skip));
         }
 
         //==============================================================================
@@ -1277,6 +1295,7 @@ namespace celadon::test
             testLegacyProject();
             testPhaseProtection();
             testManualLowCutAtGlazeZero();
+            testManualWidthAtNormalLevel();
             testBlockSizeAndOfflineRender();
             testExecutionSnapshot();
             testAudioPathDoesNotAllocate();
@@ -1493,6 +1512,23 @@ namespace celadon::test
                         + ", automatic " + juce::String (rhoAuto, 3));
             expect (std::abs (rhoAuto - rhoOff) < 0.02, "ADR-015: the automatic Clay leaves the low-band stereo as it is: "
                                                         + juce::String (rhoAuto, 3) + " vs " + juce::String (rhoOff, 3));
+
+            // T-032（R4-01，2026-09-29）：自动加宽确实到了整链输出上（端到端的通路检查）。量 4 kHz 以上的 S/M（dB）：Balance 的 EQ 与
+            // Glue / 限幅器的联动增益对 S 与 M 一视同仁、S/M 不受它们影响，Heat 的非线性很轻；高架 16 kHz = widthDb、2 kHz = widthDb / 2，
+            // 4 kHz 以上的踩镲噪声接近平台——自动链比全关高 ≥ 0.6 × 交给模块的 widthDb。
+            // 注意它不是 R4-01 的阳性对照：这份素材的高频很窄（S/M 约 −25 dB），加宽几乎不改变 L / R 的峰值，守护回收加宽的旧版本在这里
+            // 也只少一点（e6b445b 实测 +0.435 dB / widthDb 0.454 dB，同样过这条）。那条缺陷的阳性对照在用例 5b（整链、手动 +3 dB、
+            // 宽粉噪）与 ClayTests 的 testWidthIsNotRecoveredByPeakGuard（模块：旧版本 +3 dB 只剩 +0.316 dB）。
+            {
+                const auto highAuto = highSideToMidDb (outAuto, skip);
+                const auto highOff = highSideToMidDb (outOff, skip);
+                const auto widthHanded = static_cast<double> (executed.widthDb);
+                logMessage ("  side / mid above 4 kHz: all Off " + juce::String (highOff, 3) + " dB, automatic " + juce::String (highAuto, 3)
+                            + " dB (+" + juce::String (highAuto - highOff, 3) + " dB for a width of " + juce::String (widthHanded, 3) + " dB)");
+                expect (highAuto - highOff >= 0.6 * widthHanded,
+                        "T-032: the automatic width really reaches the output (side / mid above 4 kHz up by at least 0.6 x widthDb): +"
+                            + juce::String (highAuto - highOff, 3) + " dB for " + juce::String (widthHanded, 3) + " dB");
+            }
 
             const auto peakAuto = automatic.chain.getAndResetOutputTruePeakDb();
             const auto peakOff = allOffRig.chain.getAndResetOutputTruePeakDb();
@@ -1869,6 +1905,77 @@ namespace celadon::test
             expect (dropDb <= -18.0, "the manual low cut removes the sub-20 Hz content at GLAZE 0");
             expect (std::abs (controlDb) < 0.1, "positive control: the default drawer leaves the sub-20 Hz content as it came in");
             expect (std::abs (highDb) < 0.05, "content above 200 Hz is untouched by the low cut");
+        }
+
+        //==============================================================================
+        // 5b. T-032（研究 R4-01 / 核验 V4，2026-09-29）：手动加宽在正常电平下真的到了整链输出上——R4-01 在整链层面的阳性对照
+        //    （用例 2 的自动加宽素材高频很窄，修订前的守护在那里也只回收一点，分不出新旧）。素材 = 两声道各自独立的粉噪（高频本来就宽，
+        //    S/M ≈ 0 dB），峰值归一到 −12 dBFS（远在守护地板 −40 dBFS 之上；真峰值低于 Ceiling，GLAZE 0、各模块中性：整链只剩延迟与
+        //    Clay）。加宽「手动 +3 dB」vs 抽屉默认，各 4 s，跳过前 1 s：
+        //      - 每块实际值：widthDb 恰为 3、低切与收单仍是自动态的 0；
+        //      - 输出 4 kHz 以上的 S/M 比默认高 3 ± 0.3 dB（高架 16 kHz = widthDb、2 kHz = widthDb / 2，4 kHz 以上的粉噪按能量加权约
+        //        0.99 widthDb，同 ClayTests 的 testWidthIsNotRecoveredByPeakGuard）；4 kHz 以上的 M 不变（< 0.05 dB）；
+        //      - 阳性对照：默认的 S/M 与输入相差 < 0.05 dB（GLAZE 0 自动态不动它，测量也量得到侧声道）。
+        //    修订前（e6b445b）峰值守护把加宽当成修坯的改动量回收，同一用例只剩零点几 dB（T-032 A8 报告实测），S/M 那一条不过。
+        // 依据：ADR-014 的 T-032 修订（守护只管低切 / 收单，③ 的增量不经守护）；设计规格-Clay 第 5 节三态表「手动：严格等于旋钮值，
+        //    GLAZE 为 0 时也生效」。
+        void testManualWidthAtNormalLevel()
+        {
+            beginTest ("manual +3 dB width at GLAZE 0 on -12 dBFS wide noise (T-032): the side above 4 kHz gains the full 3 dB at the chain output");
+
+            const auto numSamples = static_cast<int> (8.0 * kRate);
+            auto material = makeSilence (kChannels, numSamples);
+            float peak = 0.0f;
+
+            for (int ch = 0; ch < kChannels; ++ch)
+            {
+                const auto noise = makePinkNoise (numSamples, -18.0, 707 + ch);
+                auto& channel = material[static_cast<size_t> (ch)];
+
+                for (size_t i = 0; i < channel.size(); ++i)
+                {
+                    channel[i] = static_cast<float> (noise[i]);
+                    peak = juce::jmax (peak, std::abs (channel[i]));
+                }
+            }
+
+            scale (material, juce::Decibels::decibelsToGain (-12.0f) / peak);
+            const auto inputPeakDb = toDb (truePeakOf (material));
+            expect (inputPeakDb < kCeilingDb - 1.0f, "fixture: input true peak below the ceiling (limiter transparent at Gain 0): "
+                                                     + juce::String (inputPeakDb, 2) + " dBTP");
+
+            auto manual = glazeParams (0.0f);
+            manual.claySettings.widthMode = ClayMode::manual;
+            manual.claySettings.widthDb = 3.0f;
+
+            ClayRig automatic (fastConstants(), material, glazeParams (0.0f));
+            ClayRig widened (fastConstants(), material, manual);
+
+            const auto blocks = automatic.blocksFor (4.0);
+            bool exact = true;
+            const auto outAuto = automatic.capture (blocks);
+            const auto outWide = widened.capture (blocks, [&] (int)
+            {
+                const auto& executedClay = widened.clay();
+                exact = exact && executedClay.widthDb == 3.0f && executedClay.lowCutHz == 0.0f
+                              && executedClay.monoAmount == 0.0f && ! executedClay.bypass;
+            });
+
+            auto input = makeSilence (kChannels, blocks * kBlock);
+
+            for (size_t ch = 0; ch < input.size(); ++ch)
+                std::copy (material[ch].begin(), material[ch].begin() + static_cast<std::ptrdiff_t> (blocks * kBlock), input[ch].begin());
+
+            const auto skip = static_cast<int> (kRate);
+            const auto gainDb = highSideToMidDb (outWide, skip) - highSideToMidDb (outAuto, skip);
+            const auto midDb = powerRatioDb (bandPower (midOrSide (outWide, 1.0), 4000.0, 0.0, skip), bandPower (midOrSide (outAuto, 1.0), 4000.0, 0.0, skip));
+            const auto controlDb = highSideToMidDb (outAuto, skip) - highSideToMidDb (input, skip);
+            logMessage ("  side / mid above 4 kHz: manual +3 dB vs default " + juce::String (gainDb, 3) + " dB (mid above 4 kHz "
+                        + juce::String (midDb, 4) + " dB); default vs input " + juce::String (controlDb, 4) + " dB");
+            expect (exact, "effective.clay: width exactly +3 dB on every block, automatic low cut / mono neutral at GLAZE 0");
+            expectWithinAbsoluteError (gainDb, 3.0, 0.3, "the manual +3 dB width reaches the chain output at normal level (side / mid above 4 kHz)");
+            expect (std::abs (midDb) < 0.05, "the mid above 4 kHz is untouched by the width");
+            expect (std::abs (controlDb) < 0.05, "positive control: the default drawer leaves the side / mid as it came in");
         }
 
         //==============================================================================
