@@ -12,6 +12,15 @@ cmake_minimum_required(VERSION 3.22)
 
 project(Celadon VERSION 0.1.8.7 LANGUAGES C CXX)
 
+# 目标是 Windows 时对象文件全路径最长 250 字符（BUG-007）。CMake 按「主机」取这个上限：Linux 主机 1000、Windows 主机 250。
+# 在 109 上用 msvc-wine 交叉编（Linux 主机，scripts/windows-wine.sh）时就是 1000、从不缩短，而 Wine 里的 cl.exe 受 Windows 的
+# 260 字符路径上限（MAX_PATH）限制。仓库外的 JUCE 模块，其对象文件路径里嵌着源文件的整条绝对路径（远端目录名因此出现两次），
+# 工作树名稍长就越线：…/juce_audio_formats_flac_1.c.obj 262 字符 → C1083「Cannot open compiler generated file」。
+# 按 Windows 主机的默认值设：超过时由 CMake 换成散列的短路径；真 Windows 上（test-windows.ps1）本来就是这个值，不变。
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND NOT DEFINED CMAKE_OBJECT_PATH_MAX)
+    set(CMAKE_OBJECT_PATH_MAX 250)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
