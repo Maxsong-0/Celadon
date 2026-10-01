@@ -3148,6 +3148,7 @@ namespace celadon::test
             testBlockSizeIndependence();
             testLedgerAfterLearning();
             testNoAllocation();
+            testPerformance();
         }
 
     private:
@@ -3374,6 +3375,86 @@ namespace celadon::test
 
             expect (std::isfinite (sink));
             expectEquals ((int) allocations, 0);
+        }
+
+        // 性能护栏（记录为主）：House 档学习中每块 512 样本的分析器开销（与通用档同一种量法：多遍取每块最短再求均值 / 最坏），以及段落账
+        // 满 512 段（全部满编、带先试后用的块）时一次 recomputeHouseProfile（门控之后的整份画像合并）的耗时——这是锁定后重开那一块的最坏情况。
+        // 门槛只拦大退化：每块均值 < 60 µs（同通用档学习中的门槛）、满账本一次重算 < 1 ms。
+        void testPerformance()
+        {
+            beginTest ("performance guard: House mode per block (learning) and one recompute with a full 512-segment ledger");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr int blockLength = 512;
+            const auto input = makeHouseTrack (sampleRate, 2, 4, 0.0, 61);
+            const auto numBlocks = (int) input.front().size() / blockLength;
+            juce::AudioBuffer<float> block (numChannels, blockLength);
+
+            std::vector<juce::int64> best ((size_t) numBlocks, std::numeric_limits<juce::int64>::max());
+
+            for (int pass = 0; pass < 3; ++pass)
+            {
+                Rig rig (sampleRate);
+                rig.analyzer.setGenre (glaze::Genre::deepHouse);
+                rig.analyzer.startLearning();
+
+                for (int b = 0; b < numBlocks; ++b)
+                {
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) ch].data() + b * blockLength, blockLength);
+
+                    rig.analyzer.setHostInfo (tempoHost ((std::int64_t) b * blockLength, sampleRate));
+                    rig.meter.process (block);
+                    const auto t0 = juce::Time::getHighResolutionTicks();
+                    rig.analyzer.processInput (block, rig.meter);
+                    const auto t1 = juce::Time::getHighResolutionTicks();
+                    rig.balance.process (block);
+                    const auto t2 = juce::Time::getHighResolutionTicks();
+                    rig.analyzer.processSpectrum (rig.balance);
+                    const auto t3 = juce::Time::getHighResolutionTicks();
+                    best[(size_t) b] = juce::jmin (best[(size_t) b], (t1 - t0) + (t3 - t2));
+                }
+            }
+
+            double sum = 0.0, worst = 0.0;
+
+            for (auto ticks : best)
+            {
+                const auto seconds = juce::Time::highResolutionTicksToSeconds (ticks);
+                sum += seconds;
+                worst = juce::jmax (worst, seconds);
+            }
+
+            const auto mean = 1.0e6 * sum / numBlocks;
+
+            // 满账本：把 2 秒一段的素材（不报拍点、带位置）喂满 512 段，学习一直开着（每段都有先试后用的块）。
+            Rig full (sampleRate);
+            full.analyzer.setGenre (glaze::Genre::techHouse);
+            full.analyzer.startLearning();
+            const auto loop = makeHouseTrack (sampleRate, 0, 8, 0.0, 62);
+
+            for (int guard = 0; guard < 200 && full.analyzer.getSegmentLedger().getNumStored() < glaze::SegmentLedger::maxSegments; ++guard)
+                full.feed (loop, 4096, 1, [] (std::int64_t fed, int) { return playingAt (fed); });
+
+            juce::int64 bestRecompute = std::numeric_limits<juce::int64>::max();
+
+            for (int k = 0; k < 10; ++k)
+            {
+                const auto t0 = juce::Time::getHighResolutionTicks();
+                full.analyzer.recomputeHouseProfile();
+                bestRecompute = juce::jmin (bestRecompute, juce::Time::getHighResolutionTicks() - t0);
+            }
+
+            const auto recomputeMicroseconds = 1.0e6 * juce::Time::highResolutionTicksToSeconds (bestRecompute);
+            const auto& gate = full.profile().houseGate;
+            logMessage ("  House analyzer @48k block 512, learning: mean " + juce::String (mean, 2) + " us, worst block "
+                        + juce::String (1.0e6 * worst, 2) + " us (includes the per-bar gate / profile recompute); full ledger ("
+                        + juce::String (full.analyzer.getSegmentLedger().getNumStored()) + " segments, " + juce::String (gate.fullSegments)
+                        + " full, " + juce::String ((double) full.fed / sampleRate, 0) + " s fed): one recompute "
+                        + juce::String (recomputeMicroseconds, 1) + " us");
+            expect (mean < 60.0, "House analyzer too slow while learning: " + juce::String (mean, 2) + " us per block");
+            expect (gate.fullSegments > 400, "the full ledger is mostly full segments");
+            expect (recomputeMicroseconds < 1000.0, "one recompute with a full ledger: " + juce::String (recomputeMicroseconds, 1) + " us");
         }
     };
 
