@@ -78,8 +78,9 @@ namespace celadon::test
         constexpr double slicedWorstBlockRatioLimit = 0.65;
         constexpr double processorLayerLoadLimitPercent = 8.0;
         // 单音频线程预算上限：处理耗时 / 该块播放时长，不是活动监视器里的整机百分比。
-        // Apple M2 Pro 上整插件的历史读数约 1.3%（48 kHz）到 5%（192 kHz）。10% 用来拦住空转回归。
-        constexpr double audioThreadBudgetPercent = 10.0;
+        // Apple M2 Pro 上整插件的历史读数约 1.3%（48 kHz）到 5%（192 kHz）。15% 用来拦住空转回归
+        //（2026-10-01 Max 定由 10% 放宽到 15%：云端 4 核测试机上，未改动的 main 在 96 kHz、块 64 读到 11.4%）。
+        constexpr double audioThreadBudgetPercent = 15.0;
 
         // 白噪声本身就是宽带：每个 bin 都有能量，27 段都不会掉进 −60 dBFS 的静音门，
         // 分析、判断、27 个滤波器全程都在干活。幅度 0.5（峰值 −6 dBFS、RMS 约 −10.8 dBFS）：
@@ -709,11 +710,11 @@ namespace celadon::test
             }
         }
 
-        // 48 / 96 kHz、块 64：母带常用的小缓冲。开着 Balance、Glue、Heat 和 Limit，均值必须低于 10%。
-        // 192 kHz 只记录。块 64 的单块尖峰含 FFT 落点，不拿最坏块跟 10% 比。
+        // 48 / 96 kHz、块 64：母带常用的小缓冲。开着 Balance、Glue、Heat 和 Limit，均值必须低于 15%。
+        // 192 kHz 只记录。块 64 的单块尖峰含 FFT 落点，不拿最坏块跟 15% 比。
         void testAudioThreadBudget()
         {
-            beginTest ("engaged chain stays under 10% of one audio thread at 48 and 96 kHz, block 64");
+            beginTest ("engaged chain stays under 15% of one audio thread at 48 and 96 kHz, block 64");
 
             CeladonChain::Params engaged;
             engaged.balance = makeBalanceParams (60.0f, 60.0f);
@@ -746,7 +747,7 @@ namespace celadon::test
                 expect (load.allFinite, "engaged chain output must be finite");
 
                 // 本机 192 kHz 块 64 的均值大约 13%。按与 M2 Pro 历史读数的速度比，对应到 M2 上大约 5%。
-                // 48 / 96 kHz 在本机必须低于 10%。
+                // 48 / 96 kHz 在本机必须低于 15%。
                 if (rate <= 96000.0)
                     expect (load.meanPercent < audioThreadBudgetPercent,
                             "@" + juce::String (rate, 0) + " mean " + percent (load.meanPercent)
