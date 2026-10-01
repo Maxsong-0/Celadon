@@ -61,6 +61,7 @@ scripts/render-linux.sh ~/Music/Celadon对照 --glaze 0,50 --style auto,warm --m
 
 ```bash
 celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--clay auto,off] [--style auto] [--block 512] [--match-lufs -16] [--metrics-only] [--trace]
+               [--genre general] [--delivery standard] [--bpm 124 [--meter 4/4] [--listen-from-bar 1,33]] [--segments-csv]
 ```
 
 | 选项 | 默认 | 说明 |
@@ -75,7 +76,14 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--metrics-only` | 关 | 照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用：几十首 × 8 组的 float wav 有好几 GB） |
 | `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案与保护状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、校准状态；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；列见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
 | `--no-replay` | 关 | 不做同决策重放（默认每组 GLAZE > 0 的修坯「自动」之后多一组 `clay-replay-off` 与阳性对照，见下） |
+| `--genre` | `general` | T-038 曲风 `general` / `deep` / `tech` / `melodic`（= 参数 `glaze_genre` 的下标 0～3），可逗号分隔多个（网格的一维） |
+| `--delivery` | `standard` | T-038 交付 `standard` / `streaming` / `club`（= `glaze_delivery` 的下标 0～2），可逗号分隔多个（网格的一维） |
+| `--bpm` | 不给 | 模拟宿主走带（20～999 BPM）：每块给速度、PPQ、上一小节起点与拍号（见下「T-038」）。不给时与改动前一样不给拍点 |
+| `--meter` | `4/4` | 拍号（分子 1～32，分母 1 / 2 / 4 / 8 / 16 / 32）；要与 `--bpm` 一起用 |
+| `--listen-from-bar` | `1` | 第一遍（聆听）从第几小节起播到歌尾（1 = 从头），可逗号分隔多个（网格的一维）；要 `--bpm`。第二遍（成品）照旧从头渲染 |
+| `--segments-csv` | 关 | 逐段写统计到 `segments/`（有 `--bpm` 时一段 = 一小节，否则每 2 秒）：输入端每首一份、成品每组一份（见下「T-038」） |
 | `--selftest` | — | 只跑自检，不读歌（其余选项忽略） |
+| `--selftest-house` | — | 只跑 T-038 新选项的自检（见下「T-038」），不读歌；`render-linux.sh` 不跑它，改了相关代码手动跑 |
 
 进度、警告、错误都写 stderr。返回 0 = 全部成功；1 = 有文件读 / 写失败（其余照做，指标表照写）或自检失败；2 = 参数错误。
 采样率按文件自己的（8 k～768 kHz）；单声道复制成双声道，多声道只取前两个；输入里的 NaN / Inf 样本按 0 处理（备注里写数量，
@@ -104,9 +112,12 @@ stderr 也报一次；插件是在处理器层把含非有限值的整块清零�
   <歌名>__g<GLAZE>_clay-<auto|off|replay-off>_<风格>.wav   成品，32-bit float，已按整体响度对齐，允许 > 0 dBFS
   metrics.md                                     指标表（人看），每做完一首歌重写一次
   metrics.csv                                    同一份数据（脚本 / 表格软件用）
+  segments/<歌名>__input.csv、segments/<成品名>.csv   --segments-csv 的逐段统计（T-038，见下）
 ```
 
 例：`Song A__g35_clay-auto_auto.wav`。同名不同扩展名的两首（`a.wav`、`a.flac`）歌名后加扩展名区分（`a-wav`、`a-flac`）。
+T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`、`_from-b<小节>`，如 `Song A__g35_clay-auto_auto_deep_club_from-b33.wav`
+（默认组合的文件名与改动前一字不差）。
 
 ### 指标（metrics.md / metrics.csv）
 
@@ -216,7 +227,112 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 | 真峰值 | 所有成品 ≤ −1.0 + 0.01 dBTP |
 
 「自动」对「全关」的跨链差只打印作参考（`ref:` 列），不判定。旧的跨链门槛脚本 `docs/validation/2026-09-26-clay/render/gate_check.py`
-留作 T-012 的证据，不再维护。
+留作 T-012 的证据，不再维护。`gate_check.py` 按（歌, GLAZE, 风格）配对：用了 `--genre` / `--delivery` / `--listen-from-bar` 的多值网格时，
+同一首歌同一 GLAZE 会有几组「自动」，它分不开——修坯门槛照旧用默认运行（通用 + 标准）的指标表判。
+
+## T-038：曲风、交付、模拟走带与逐段统计
+
+规格：设计规格-曲风与交付（第 7 节验收）、设计规格-曲风-House学习方式（第 2、6 节）；决策 ADR-026。**都不给新选项时与改动前逐位相同**：
+HostInfo、网格、文件名、metrics.md 头部与 metrics.csv 一字不差（2026-10-01 在 22 首门槛歌上与 main `88199cb` 逐字节比过，
+`docs/validation/2026-10-01-T038-impl/REPORT-D.md`）；只要给了任一新选项，metrics.csv 末尾就追加下面的列、metrics.md 头部多一行。
+
+### 模拟宿主走带（`--bpm` / `--meter`）
+
+离线导出从工程开头起播的口径：恒定速度，样本 0 = PPQ 0。每块按块起点给（同 `PluginProcessor::readHostInfo` 的各项）：
+`hasTempo` / `bpm`；`hasPpq`，`ppqPosition = 位置样本 × BPM ÷ (60 × 采样率)`（四分音符计）；`hasBarStart`，
+`ppqLastBarStart = floor(PPQ ÷ 每小节拍数) × 每小节拍数`（每小节拍数 = 分子 × 4 ÷ 分母，6/8 = 3）；`hasTimeSignature` 与分子 / 分母；
+在播（`isPlaying`）、离线、位置照旧。PPQ 只由样本位置决定，任何块长下同一位置逐位相同。三遍（聆听、成品、重放）用同一条时间线。
+`--listen-from-bar N`：第一遍从第 N 小节的起点样本 `round((N − 1) × 每小节样本数)` 起播到歌尾，宿主位置照实际样本给（门槛 ①「从 drop 播」）。
+
+### 逐段统计（`--segments-csv`）
+
+门控阈值标定（House学习方式 第 6 节：逐小节导出段响度与低频占比）与 House 门槛用。只读音频，不依赖编排器的 SegmentLedger，口径在工具里独立算：
+
+- **分段**：有 `--bpm` 时一段 = 一小节，第 k 段起点 = `round(k × 每小节样本数)`（锚点 0、恒定速度，同规格 2.1 节）；没给时每
+  `HouseConstants::fallbackSegmentSeconds`（出厂 2 s）一段，**按样本墙钟**分（插件分 2 秒段时按有效音频样本推进，这里不同）。
+- **段响度 `lufs`**：段内过了「有效音频」门的 100 ms 子块的 K 加权能量平均，换算成 LUFS（规格 2.3 节；子块来自插件自己的
+  `LoudnessMeter`，与 IN 表、分析器同一测点同一算法；子块按起点归段）。门 = 以本子块结尾的 400 ms 门块（前 3 个子块用已有的）≥ −70 LUFS，
+  且不低于参考 I − 20 LU——判据同 `MusicAnalyzer` 的 `effective`，**参考 I 换成整段音频的 BS.1770 整体响度**（插件用学习区间的 I）。
+  紧接响段的静音段，前 3 个子块的门块还带着响段，按这个口径算有效，读数是 K 加权滤波器的余振（比前一段低 20 LU 以上）。
+- **低频占比 `low_share`**：与画像 `lowShare` 同一口径——一个独立的 `BalanceModule`（参数全 0，只用它的分析；处理的是拷贝）逐帧给 27 段
+  1/3 倍频程功率（两声道功率平均，段边界 35.6 Hz～17.8 kHz 连续铺满、bin 按重叠宽度计权），低频 = **100 Hz 段及以下（段 0～4，上边界
+  112 Hz）的功率 ÷ 全部 27 段的功率**，未加权线性功率，过帧门的帧上分别累加再相除；帧按分析窗起点（`endSample − 窗长`）归段，窗还没装满的帧不用。
+  帧门 = 总功率 ≥ −70 dBFS（`frameAbsoluteGatePower`），且不低于全曲过绝对门各帧平均 20 dB（插件按学习区间的均值）。
+  三个门限常数照抄 `MusicAnalyzer.cpp`（那边在匿名命名空间里），改那边要同步改 `RenderMain.cpp` 的 `lowShareLastBand` 等。
+- **限幅 GR**（只有成品）：第二遍（或重放）逐块读 `getAndResetLimitGainReductionDb()`（块内最大），块按成品时间轴的起点归段
+  （开头延迟段归第 1 段，原曲之后的余振不计）。`gr_over_p95_cap_blocks` = 块 GR 高于这组风格预算 `limitGrP95CapDb` 的块数
+  （成品末尾保护层生效的上限；重放行用同组「自动」的）。块内最大比保护层按 10 ms 时隙的均值偏严。
+- 成品那份按对齐前、截到原曲长度量（与输入同一条时间轴、同一张段表）。
+
+| 列 | 含义 |
+|---|---|
+| `segment` / `mode` | 段号（从 1 起；按小节分时 = 小节号）/ `bars` 或 `seconds` |
+| `start_sample` / `end_sample` / `start_s` / `end_s` | 段的起止（`[start, end)`，最后一段截到音频末尾） |
+| `lufs` / `valid_s` | 段响度（没有有效子块时空）/ 有效子块时长 |
+| `low_share` / `frames` | 低频占比（没有过门帧时空）/ 过门帧数 |
+| `gr_mean_db` / `gr_max_db` / `gr_blocks` / `gr_over_p95_cap_blocks` | 只有成品：按块长加权的块 GR 均值 / 最大 / 块数 / 高于 P95 预算的块数 |
+
+### T-038 追加列（metrics.csv 末尾）
+
+方案、画像、House 各列取**第一遍（聆听）结束时已提交的版本**（门槛 ①「锁定后的方案增益」比的就是它）；有效 Ceiling、跟拍上限、风格预算取成品那一遍。
+重放行（GLAZE 0 的链）不填方案各列；输入行只填 `bpm` / `meter` / `segments_file`。
+
+| 列 | 含义 |
+|---|---|
+| `genre` / `delivery` / `bpm` / `meter` / `listen_from_bar` / `listen_start_s` | 这一组的曲风、交付、模拟走带、第一遍起播小节与秒数 |
+| `listen_has_profile` / `plan_gain_db` / `plan_requested_gain_db` | 第一遍末有没有已提交画像；方案的约束后净提升（`effectiveGainDb`）/ 想要的净提升 |
+| `plan_requested_target_lufs` / `plan_effective_target_lufs` | 方案想要 / 约束后的目标响度 |
+| `listen_calibration_valid` / `calibration_bias_db` | 已提交的校准有效 / 校准偏差 |
+| `weight_warm` / `weight_punchy` / `weight_clean` | 方案的风格权重（「自动」风格锁定的那份） |
+| `profile_lufs` / `profile_lra_lu` / `profile_low_share` | 画像 I、LRA、低频占比 |
+| `house_gate_valid` / `house_segment_mode` / `house_heard_segments` / `house_full_segments` / `house_heard_s` / `house_full_s` / `house_reopens` | 画像格式 3 的 House 门控结果（`MusicProfile::houseGate`；没有时空） |
+| `house_lock_pending` | 第一遍末状态行的「锁定条件还没满足」 |
+| `effective_ceiling_dbtp` | 成品最后一块交给限幅器的有效 Ceiling（编码余量、流媒体 −2 dBTP 都已算进去） |
+| `beat_release_cap_ms` | 成品各块慢段释放上限的最大值（House 限幅跟拍；0 = 没封顶） |
+| `budget_limit_gr_mean_db` / `budget_limit_gr_p95_db` / `budget_limit_gr_peak_db` | 成品末尾保护层生效的约束上限 = 风格预算（GLAZE 0 等没设时空） |
+| `segments_file` | 这一行的逐段统计（相对 `--out`） |
+
+### 合成测试曲与 House 门槛
+
+```bash
+python3 tools/render/make_synthetic_house.py <目录>           # 要 numpy（109 上：~/.venvs/audio/bin/python）
+celadon_render --in <目录> --out <输出> --glaze 100 --clay auto --genre deep --delivery standard,streaming,club \
+               --bpm 124 --listen-from-bar 1,33 --segments-csv --metrics-only --no-replay
+python3 tools/render/house_gate.py <输出> [<输出> …] --annotations <目录>   # 只用标准库；有失败返回 1
+```
+
+`make_synthetic_house.py` 出两首 124 BPM / 48 kHz / 24 bit 立体声：`synthetic-house-124`（32 小节纯鼓前奏 → 32 小节 drop（kick + hat + clap +
+沙锤 + offbeat bass + pad）→ 16 小节 breakdown（只有 pad）→ 32 小节 drop）与 `synthetic-tech-124`（同样段落，前奏就有滚动 bass），各带段落标注
+`<歌名>.json`（小节从 1 起、两端都含，`kind` ∈ intro / drop / breakdown）。配比按「前奏比 drop 轻约 4 LU、breakdown 轻约 8 LU」调：离线门控
+（出厂 ΔG 3 LU、系数 0.6）挡住 House 的 32 / 32 前奏小节、放过 64 / 64 drop 小节，Tech 的前奏能过门（规格 2.4 节）。只是脚本的阳性对照，
+真正的门槛与阈值标定用 Max 的 House（规格第 3.2、6 节）。
+
+`house_gate.py` 判五条（设计规格-曲风与交付 第 7 节第 4 条），每条 PASS / FAIL / N/A（未判只列原因）：
+
+| 门槛 | 判法 |
+|---|---|
+| ① 方案增益 | 同一组设置 `listen_from_bar = 1` 与 `> 1`（drop 起点）两行的 `plan_gain_db` 差 ≤ 0.5 dB，两行第一遍末都「已锁定」；缺从 drop 起播的一行 → N/A |
+| ② GR 预算 | 每个 drop 段：块 GR 均值 ≤ `limitGrMeanCapDb`、高于 `limitGrP95CapDb` 的块 ≤ 5 %（= P95 ≤ 上限）、最大 ≤ `limitGrPeakCapDb`（+0.01 dB）；块内最大口径偏严 |
+| ③ 落差 | 每个 breakdown → 下一个 drop：成品的段落响度落差 ≥ 输入的落差 − 1 LU（段落响度 = 段内各小节有效子块的 K 加权能量平均） |
+| ④ 真峰值 | 成品真峰值 ≤ 有效 Ceiling + 0.01 dB；流媒体另查有效 Ceiling ≤ −2.0 dBTP |
+| ⑤ 目标响度 | 只有流媒体 / 俱乐部：目标 = clamp(−10 / −7 + 风格偏移 − LRA 修正, −12～−8 / −9～−5)（规格 4.1 节，按方案权重与画像 LRA 算；规格常数写在脚本里），GLAZE < 100 按决策器同一关系折算 `drop 输入 + GLAZE × (目标 − drop 输入)`；每个 drop 段的成品段落响度在 ±1 LU 内 |
+
+另打印「门控对照」：输入端逐小节按规格 2.3 节离线门控一遍（整首都听过；`--gate-width` / `--low-factor` 可改），列出各段落过门的小节数——标定用，不判定。
+House 档的行若画像没有门控结果（`house_gate_valid` ≠ 1），说明里写明「House 学习方式没有生效」。
+
+### 自检（`--selftest-house`）
+
+| 项 | 期望（依据） |
+|---|---|
+| 模拟走带 120 BPM 4/4、6/8 | 第 96000 样本 PPQ 4 / 小节起点 4，前一样本小节起点 0，第 300000 样本 12.5 / 12；6/8 每小节 3 拍（双精度精确值，按 == 比） |
+| 不给 `--bpm` | 四类拍点字段都没有，其余同改动前 |
+| 分段网格 | 124 BPM 下 600 个段起点各归本段、前一样本归上一段；不给 `--bpm` 时每段 2 s |
+| 逐段响度 / 低频占比 | 120 BPM 五小节（静音 / 1 kHz / 1 kHz / 60 Hz + 1 kHz / 静音，−20 dBFS）：响段 −20.0 ± 0.1 LUFS、各 20 个有效子块；只有 1 kHz 的段 < 0.005，60 Hz + 1 kHz 等幅约 0.497 ± 0.02（Hann 窗下 60 Hz 约 1.3 % 漏到 35.2 Hz 以下） |
+| 通用档给拍点逐位不变 | GLAZE 35 两遍流程，给不给 `--bpm` 成品哈希相同（新行为都在 House 之后） |
+| House 档限幅跟拍 | Deep House + 124 BPM：慢段释放上限 60000 / 124 / 3 = 161.29 ms；不给拍点为 0 |
+| 交付流媒体 −2 dBTP | 白噪声 0.9：有效 Ceiling 标准 −1 / 流媒体 −2，成品真峰值各自不超（+0.01） |
+| 第一遍从第 N 小节起播 | 第 3 小节 = 第 192000 样本，逐块追踪第一行 4.0000 s |
+| 文件名、追加列个数 | 带后缀的文件名与标签；列名与值个数相同（33） |
 
 ## 盲听
 
