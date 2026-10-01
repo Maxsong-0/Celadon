@@ -42,7 +42,12 @@ xvfb-run -a build-ui/celadon_ui_snapshot --out shots                    # 全部
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --scale 2          # 2 倍（看 Retina 上的细节）
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --only zh-default,en-help
 xvfb-run -a build-ui/celadon_ui_snapshot --out shots --only check       # 交互检查
+xvfb-run -a taskset -c 5 build-ui/celadon_ui_snapshot --only spectrum-bench --seconds 4   # 频谱仪 30 / 60 / 120 帧基准（T-036）
 ```
+
+`--only spectrum-bench`（T-036）：音乐按帧率在放，每帧处理 1 / fps 秒音频、`advanceForSnapshot (1 / fps)`、只重画频谱仪那一块，
+30 / 60 / 120 帧 × 1 / 2 倍各跑 `--seconds` 秒，打印每帧与每秒的 CPU（软件渲染器口径，绑单核跑更稳）。只用改前改后都有的接口，
+能在改前的树上量基线。每帧重画整块频谱仪是上限：真机上只重画曲线新旧包围盒。
 
 Windows 上也能编（CMake + MSVC 或 clang-cl，GUI 目标在 Windows 上不需要额外的依赖包），用法相同。
 
