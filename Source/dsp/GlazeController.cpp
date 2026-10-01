@@ -1296,9 +1296,13 @@ namespace celadon::glaze
             samplesSinceLearningUpdate = 0;
             ++probe.learningStarts;
 
-            // House 档：段落账随分析器清空了，锁定后防漏网的计数也从头来（新一轮聆听里不重开）。
+            // House 档：段落账随分析器清空了，锁定后防漏网的计数也从头来（新一轮聆听里不重开）；暂定方案等第一段定稿再更新
+            // （清空本身让画像版本 + 1，不为一份空画像开一次过渡）。
             if (isHouse (currentGenre))
+            {
                 clearHouseReopen();
+                houseProfileSeen = analyzer.getHouseProfileGeneration();
+            }
         }
 
         void stopLearning() noexcept
