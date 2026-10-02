@@ -52,7 +52,12 @@ namespace celadon::glaze
             // （低切目标、次声阈值、收单收益、代价系数）发生在 v0.1.7.0 发布之前，仍属版本 7（与算法 7 / 画像格式 2 同一口径）。
             // 8 = T-032（2026-09-29）：自动 Heat 底量挪成风格常数（三种风格出厂 12）、新常数 heatUsefulCrestDb（GlazeConstants.h，
             // 默认值即出厂值 0.1 dB）；与算法 8 同一口径（GlazeTypes.h currentAlgorithmVersion）。
-            c.version = 8;
+            // 9 = T-045（2026-10-02，ADR-029）：三种风格的限幅 GR 预算一起放宽——均值 +1、P95 +2、峰值 +3 dB（与俱乐部档放宽同幅，
+            // 俱乐部档照旧在此之上再加）。起因：手动推 Gain 约 4 dB（House 素材，Jamendo 37 首中位）三项预算就都超，决策器判「手动已超约束」
+            // 撤回全部电平类自动、停校准（「受手动设置限制」）；只放宽峰值（+2 dB）实测只让 3 / 37 首多推 2 dB。代价：GLAZE 自己的自动方案也
+            // 压得更多、更响（Max 2026-10-02 选定，要试听）。旧工程的已提交版本带着自己的快照（版本 8、旧预算），重新聆听后才用新值。
+            // T-038 的曲风 / House / 交付字段（可缺省）同在这一版。算法版本不升（只改常数，决策方式不变）。
+            c.version = 9;
             c.algorithmVersion = currentAlgorithmVersion;
 
             auto& warm = c.warm;
@@ -63,9 +68,9 @@ namespace celadon::glaze
             warm.glueGrP95CapDb = 4.0f;
             warm.clipDepthCapDb = 3.0f;
             warm.clipActivityCap = 0.01f;
-            warm.limitGrMeanCapDb = 1.0f;
-            warm.limitGrP95CapDb = 2.5f;
-            warm.limitGrPeakCapDb = 4.0f;
+            warm.limitGrMeanCapDb = 2.0f;  // T-045 / ADR-029：1.0 → 2.0
+            warm.limitGrP95CapDb = 4.5f;  // T-045 / ADR-029：2.5 → 4.5
+            warm.limitGrPeakCapDb = 7.0f;  // T-045 / ADR-029：4.0 → 7.0
             warm.recoverCap = 35.0f;
             warm.tameCap = 65.0f;
             warm.toneMaxDb = 0.75f;
@@ -86,9 +91,9 @@ namespace celadon::glaze
             punchy.glueGrP95CapDb = 2.0f;
             punchy.clipDepthCapDb = 6.0f;
             punchy.clipActivityCap = 0.03f;
-            punchy.limitGrMeanCapDb = 0.8f;
-            punchy.limitGrP95CapDb = 2.0f;
-            punchy.limitGrPeakCapDb = 3.0f;
+            punchy.limitGrMeanCapDb = 1.8f;  // T-045 / ADR-029：0.8 → 1.8
+            punchy.limitGrP95CapDb = 4.0f;  // T-045 / ADR-029：2.0 → 4.0
+            punchy.limitGrPeakCapDb = 6.0f;  // T-045 / ADR-029：3.0 → 6.0
             punchy.recoverCap = 30.0f;
             punchy.tameCap = 55.0f;
             punchy.toneMaxDb = 0.75f;
@@ -109,9 +114,9 @@ namespace celadon::glaze
             clean.glueGrP95CapDb = 2.5f;
             clean.clipDepthCapDb = 1.5f;
             clean.clipActivityCap = 0.003f;
-            clean.limitGrMeanCapDb = 1.5f;
-            clean.limitGrP95CapDb = 3.5f;
-            clean.limitGrPeakCapDb = 6.0f;
+            clean.limitGrMeanCapDb = 2.5f;  // T-045 / ADR-029：1.5 → 2.5
+            clean.limitGrP95CapDb = 5.5f;  // T-045 / ADR-029：3.5 → 5.5
+            clean.limitGrPeakCapDb = 9.0f;  // T-045 / ADR-029：6.0 → 9.0
             clean.recoverCap = 20.0f;
             clean.tameCap = 45.0f;
             clean.toneMaxDb = 0.75f;

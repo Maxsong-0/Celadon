@@ -11,6 +11,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 
+#include "../Source/dsp/GlazeConstants.h"
 #include "../Source/dsp/LimiterModule.h"
 #include "../Source/dsp/TruePeak.h"
 
@@ -22,6 +23,18 @@
 
 namespace celadon::test
 {
+    // 保护层机制测试（退让、卡住、吸收、冻结、搬出 carry……）用的限幅预算：固定成 0.1.8.x 的出厂值（常数版本 8：温润 1.0 / 2.5 / 4.0、
+    // 冲击 0.8 / 2.0 / 3.0、通透 1.5 / 3.5 / 6.0 dB 均值 / P95 / 峰值）。这些用例靠「推热的素材超出预算、保护层出手」走到要测的路径，
+    // 测的是机制、不是出厂预算的数；T-045（ADR-029）把出厂预算三项各放宽 +1 / +2 / +3 dB 后，同一段素材不再超预算，路径就走不到了。
+    // 出厂预算本身的效果由决策器测试（GlazePlannerTests 的前馈对实测、风格倚重）与真歌渲染验收。
+    inline glaze::Constants withTightLimitBudgets (glaze::Constants c) noexcept
+    {
+        c.warm.limitGrMeanCapDb = 1.0f;   c.warm.limitGrP95CapDb = 2.5f;   c.warm.limitGrPeakCapDb = 4.0f;
+        c.punchy.limitGrMeanCapDb = 0.8f; c.punchy.limitGrP95CapDb = 2.0f; c.punchy.limitGrPeakCapDb = 3.0f;
+        c.clean.limitGrMeanCapDb = 1.5f;  c.clean.limitGrP95CapDb = 3.5f;  c.clean.limitGrPeakCapDb = 6.0f;
+        return c;
+    }
+
     // 当前线程自启动以来经全局 operator new 分配的次数（TestMain.cpp 替换了全局 new / delete）。
     // 用法：前后各读一次，差值为 0 = 这段代码没有经 operator new 分配。不含直接 std::malloc 的分配（JUCE HeapBlock）。
     std::uint64_t allocationCountOnThisThread() noexcept;

@@ -1195,7 +1195,7 @@ namespace celadon::test
             // 锁定后：跳播不动保护层，宿主 reset 把它归 0、过渡直接到终点。保护层靠一段推热的素材逼出退让
             //（冲击风格的限幅上限最紧：峰值 3 dB、p95 2 dB）。画像失配关掉：+14 dB 会先触发它直接压低上限，保护层就不必退了。
             {
-                auto constants = fastConstants();
+                auto constants = withTightLimitBudgets (fastConstants());   // 保护层要出手（TestHelpers.h 的说明）
                 constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;
                 Rig rig (constants, makeMusic (defaultRate, 8.0, 16, 0.2f), defaultParams (100.0f, 2));
                 rig.run (6.0);
@@ -1650,7 +1650,7 @@ namespace celadon::test
         void testSameSpecReprepareKeepsHeardExecution()
         {
             beginTest ("a block-size-only rebuild retains actual Guard retreat, not the unprotected plan");
-            auto guardedConstants = fastConstants();
+            auto guardedConstants = withTightLimitBudgets (fastConstants());   // 保护层要出手（TestHelpers.h 的说明）
             guardedConstants.mismatchThresholdLu = guardedConstants.mismatchReleaseLu = 1.0e9f;
             Rig guarded (guardedConstants, makeMusic (defaultRate, 8.0, 16, 0.2f), defaultParams (100.0f, 2));
             guarded.run (6.0);
@@ -2546,7 +2546,7 @@ namespace celadon::test
             // ×5（约 +14 dB）：限幅量超出冲击的上限，保护层退到约 −0.9 dB 后停在回差区；×2（约 +6 dB）：Clip 与限幅器还放得下，
             // 保护层不动——对照组，方案不许被降。
             // 画像失配关掉（门槛无限大）：+14 dB 会先触发它（按这一段直接压低上限），这里要测的是保护层卡住后的吸收路径。
-            auto constants = fastConstants();
+            auto constants = withTightLimitBudgets (fastConstants());   // 保护层要出手（TestHelpers.h 的说明）
             constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;
 
             for (const auto gain : { 2.0f, 5.0f })
@@ -2614,7 +2614,7 @@ namespace celadon::test
             for (const auto& c : { Case { "budget limited during a round", true, 6.0 },
                                    Case { "stuck guard while locked", false, 2.0 } })
             {
-                auto constants = fastConstants();
+                auto constants = withTightLimitBudgets (fastConstants());   // 保护层要出手（TestHelpers.h 的说明）
                 constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 要测的是保护层路径，不让画像失配先动手
                 constants.calibrationWindowSeconds = c.windowSeconds;
 
@@ -2809,7 +2809,7 @@ namespace celadon::test
             beginTest ("manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic");
 
             {
-                Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 25, 0.3f));
+                Rig rig (withTightLimitBudgets (fastConstants()), makeMusic (defaultRate, 8.0, 25, 0.3f));   // 保护层要出手（TestHelpers.h 的说明）
                 rig.params.glazePercent = 100.0f;
                 rig.params.limit.gainDb = 3.0f;
                 rig.run (6.0);
@@ -4760,7 +4760,7 @@ namespace celadon::test
         {
             beginTest ("silence, host bypass and Color bypass neither make a retreated guard 'stuck' nor run the feedback observation (guard time, not host time)");
 
-            auto constants = fastConstants();
+            auto constants = withTightLimitBudgets (fastConstants());   // 保护层要出手（TestHelpers.h 的说明）
             constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同 12b：要测的是保护层路径
             const auto music = makeMusic (defaultRate, 8.0, 24, 0.2f);
             const auto second = (std::int64_t) defaultRate;
@@ -4844,7 +4844,7 @@ namespace celadon::test
         {
             beginTest ("releasing a frozen execution (reopen / host reset, then GLAZE or style) carries its absorbed guard retreat out over a transition");
 
-            auto constants = fastConstants();
+            auto constants = withTightLimitBudgets (fastConstants());   // 保护层要出手（TestHelpers.h 的说明）
             constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 要测的是保护层路径，不让画像失配先动手
             const auto music = makeMusic (defaultRate, 8.0, 24, 0.2f);
             const auto params = defaultParams (100.0f, 2);

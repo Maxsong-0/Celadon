@@ -908,7 +908,7 @@ namespace celadon::test
             expect (punchy.increments.limitClip > warm.increments.limitClip && punchy.increments.limitClip > clean.increments.limitClip,
                     utf8 ("Clip：冲击的削波阈值最低（参数最大）"));
 
-            // 真实链上：限幅器的量通透最大、削波深度冲击最大。
+            // 真实链上：通透的峰值削减最靠限幅器、削波深度冲击最大、Glue 温润最多。
             const auto music = atLufs (makeMusic (8.0), -18.0f);
             const auto measured = profileOf (music);
             const auto run = [&] (Style style)
@@ -923,7 +923,18 @@ namespace celadon::test
             logMessage (utf8 ("  限幅峰值 GR 温润 / 冲击 / 通透：") + juce::String (warmRun.limitPeakDb, 2) + " / " + juce::String (punchyRun.limitPeakDb, 2)
                         + " / " + juce::String (cleanRun.limitPeakDb, 2) + utf8 (" dB；削波深度 ") + juce::String (warmRun.clipDepthMaxDb, 2) + " / "
                         + juce::String (punchyRun.clipDepthMaxDb, 2) + " / " + juce::String (cleanRun.clipDepthMaxDb, 2) + " dB");
-            expect (cleanRun.limitPeakDb > warmRun.limitPeakDb && cleanRun.limitPeakDb > punchyRun.limitPeakDb, utf8 ("通透应以 Limit 为主"));
+            // 「以 X 为主」= 这种风格自己的峰值削减里 X 的占比最高（同一段素材上比）。T-045（ADR-029，Max 2026-10-02「接受，改规格」）：
+            // 限幅预算三项放宽后，温润的目标最响（−8.5 LUFS）、不再被预算挡住，GLAZE 100 时限幅的绝对量可以超过通透（这段素材上
+            // 6.4 对 5.0 dB），所以不再比限幅的绝对量；通透的峰值削减仍几乎全靠限幅（削波最浅）。
+            const auto limiterShare = [] (const auto& r)
+            {
+                const auto total = r.limitPeakDb + r.clipDepthMaxDb;
+                return total > 0.0f ? r.limitPeakDb / total : 0.0f;
+            };
+            logMessage (utf8 ("  峰值削减里限幅的占比 温润 / 冲击 / 通透：") + juce::String (limiterShare (warmRun), 3) + " / "
+                        + juce::String (limiterShare (punchyRun), 3) + " / " + juce::String (limiterShare (cleanRun), 3));
+            expect (limiterShare (cleanRun) > limiterShare (warmRun) && limiterShare (cleanRun) > limiterShare (punchyRun),
+                    utf8 ("通透应以 Limit 为主（峰值削减里限幅的占比最高）"));
             expect (punchyRun.clipDepthMaxDb > warmRun.clipDepthMaxDb && punchyRun.clipDepthMaxDb > cleanRun.clipDepthMaxDb, utf8 ("冲击应以 Clip 为主"));
             expect (warmRun.glueMeanDb > punchyRun.glueMeanDb && warmRun.glueMeanDb > cleanRun.glueMeanDb, utf8 ("温润的 Glue 压得最多"));
 
