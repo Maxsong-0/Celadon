@@ -3359,20 +3359,11 @@ namespace celadon::glaze
             liveFeed.restart (acceptFrom);
         }
 
-        // 在 at 处断开：开着的最新一段截到此刻（now：数据只送到这里，此刻之后的块归新段），就地定稿交给接收者，下一块重新锚定——
-        // 交出去的 [start, end) 在同一条时间轴上首尾相接。SegmentLedger::endEpoch 不截段尾（House 那一份照旧不截），这里经
-        // openSegmentAt 拿到正在播的那一段改它的段尾：这一段紧接着就在 endEpoch 里定稿，账本之后不会再按段尾找它。
+        // 在 at 处断开：开着的段截到此刻（now：数据只送到这里，此刻之后的块归新段），就地定稿交给接收者，下一块重新锚定——
+        // 交出去的 [start, end) 在同一条时间轴上首尾相接（SegmentLedger::endEpochAt；House 那一份照旧用不截段尾的 endEpoch）。
         void liveEndEpoch (std::int64_t at) noexcept
         {
-            if (now > 0)
-            {
-                auto hint = -1;
-
-                if (auto* open = liveLedger.openSegmentAt (now - 1, hint); open != nullptr && open->end > now)
-                    open->end = now;
-            }
-
-            liveLedger.endEpoch (at);
+            liveLedger.endEpochAt (now, at);
             liveFeed.restart (at);
         }
 
@@ -3539,6 +3530,8 @@ namespace celadon::glaze
         if (! s.learning)
             s.trials.requestRestart();
     }
+
+    bool MusicAnalyzer::isLiveMode() const noexcept   { return impl->liveMode; }
 
     void MusicAnalyzer::setSegmentSink (SegmentSink* sink) noexcept
     {

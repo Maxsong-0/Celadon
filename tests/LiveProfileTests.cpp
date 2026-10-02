@@ -347,9 +347,9 @@ namespace celadon::test
             glaze::MusicAnalyzer analyzer;
             std::int64_t fed = 0;
 
-            AnalyzerRig()
+            explicit AnalyzerRig (int maximumBlock = 512)
             {
-                const juce::dsp::ProcessSpec spec { rate, 512u, 2u };
+                const juce::dsp::ProcessSpec spec { rate, (juce::uint32) maximumBlock, 2u };
                 const BalanceModule::Params params {};
                 meter.prepare (spec);
                 balance.setParams (params);
@@ -471,6 +471,7 @@ namespace celadon::test
             testStateRoundTrip();
             testBadState();
             testDeterminismAndReset();
+            testAnalyzerToProfileBlockSizes();
             testNoAllocation();
             testCommitRing();
             testBadSegment();
@@ -479,13 +480,53 @@ namespace celadon::test
 
     private:
         //==============================================================================
+        // 整条串起来（主进程 2026-10-02 加，代理 A 的跨文件请求 4）：分析器实时模式 → 实时段落账 → SegmentSink → LiveProfile，宿主块长
+        // 4096 / 512 / 480 / 32 / 7 下实时画像的状态（全部累计，经 createStateXml）逐位相同、并入段数相同。用例 f 只证明「段序列相同 ⟹
+        // 结果逐位相同」，分析器那边证明了「段序列与块长无关」（MusicAnalyzerLive 用例 c）；这一条把两头接起来核对。
+        void testAnalyzerToProfileBlockSizes()
+        {
+            beginTest ("analyzer live mode -> live ledger -> sink -> LiveProfile: the live profile is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7");
+
+            const auto track = makeIntroDrop (8, 8, 1.0);
+            juce::String reference;
+            std::uint64_t referenceCommits = 0;
+
+            for (const auto blockSize : { 4096, 512, 480, 32, 7 })
+            {
+                AnalyzerRig rig (4096);
+                LiveProfile live;
+                setUp (live);
+                rig.analyzer.setGenre (glaze::Genre::deepHouse);
+                rig.analyzer.setSegmentSink (&live);
+                rig.analyzer.setLiveMode (true);
+                rig.feed (track, blockSize);
+
+                const auto state = live.createStateXml()->toString();
+                const auto commits = live.getDiagnostics().commits;
+
+                if (reference.isEmpty())
+                {
+                    reference = state;
+                    referenceCommits = commits;
+                    expect (commits >= 14, "the run committed the bars: " + juce::String ((juce::int64) commits));
+                    expect (live.getProfile().integratedLufs.valid, "the live profile has an I");
+                }
+                else
+                {
+                    expect (commits == referenceCommits, "same number of commits for block " + juce::String (blockSize));
+                    expect (state == reference, "live profile state bit-identical for block " + juce::String (blockSize));
+                }
+            }
+        }
+
+        //==============================================================================
         // a. 等价性（LiveProfile.h「等价性（测试锚点）」）。分析器 House 档 16 小节前奏 + 16 小节 drop，学习中（试算跑着）；lockSegments = 1
         // 让 House 的代表性只看不重复素材（= 1），实时画像的 M0 取极小（c = 1）——两边的置信度都只剩各特征的观测充分度，可以逐位比。
         // 容差（其余逐位）：
         //   - I：实时画像的相对门按 0.1 LU 格中心判、门上能量按格求和（House 逐块比、逐块求和）。先断言没有门块离相对门不到 0.1 LU
         //     （否则门边那一格的门块可能归属不同，差可达 0.05 LU 量级），之后只剩求和顺序（double 末位）与 float 舍入：1e-4 LU；PLR 同；
         //   - 试算代价：每路 P99 由 0.01 dB 一格的直方图按格中心插值，每个 P99 ≤ 半格 0.005 dB，代价 ≤ 0.01 dB；
-        //   - LRA：实时画像用全部段（House 只用满编段），对照是测试里按 House 同一公式在全部存下的段上算的参照，逐位；
+        //   - LRA：4/4 型主段加权，与 House（只用满编段）逐位；响度型用全部段，对照是测试里按 House 同一公式在全部存下的段上算的参照，逐位；
         //   - 按设计不同、单独核对的字段：effectiveSeconds（= M = 满编段有效时长之和）、formatVersion（2 / 3）、houseGate（不填）、
         //     混合损失的 confidence（houseConfidences 没给，实时画像照通用画像给）。
         void testHouseEquivalence()
@@ -569,7 +610,11 @@ namespace celadon::test
                     "PLR within 1e-4 dB (= true peak - I): " + juce::String (plrDiff, 7));
             expect (sameFeature (p.truePeakDbtp, expected.truePeakDbtp), "true peak bitwise (largest full segment)");
 
-            // LRA：全部段上的参照（House 同一公式）。
+            // LRA，4/4 型（Max 2026-10-02「按曲风分口径」）：主段加权 = House 只用满编段，逐位。
+            expect (sameFeature (p.loudnessRangeLu, expected.loudnessRangeLu) && expected.loudnessRangeLu.valid,
+                    "4/4 LRA bitwise (main-weighted = House, full segments only)");
+
+            // LRA，响度型：全部段上的参照（House 同一公式，测试里在全部存下的段上算）。换模型只改读数口径、不动累计，所以同一实例换过去就能比。
             {
                 std::array<std::uint64_t, 800> counts {};
                 double energy = 0.0;
@@ -620,10 +665,17 @@ namespace celadon::test
                 reference.value = (float) (high - low);
                 reference.valid = gated >= 10;
                 reference.effectiveSeconds = seconds;
-                reference.confidence = fractionOf (seconds, 60.0);
-                logMessage ("  LRA over all segments " + juce::String (p.loudnessRangeLu.value, 2) + " LU (House, full segments only: "
-                            + juce::String (expected.loudnessRangeLu.value, 2) + ")");
-                expect (sameFeature (p.loudnessRangeLu, reference), "LRA over all segments bitwise (House formula)");
+
+                // 换到响度型读一次再换回来（setConstants 只按新模型重算读数，累计不动；换回后画像与换之前逐位相同，后面的比较照用 p）。
+                // 只比数值、有效与时长：置信度按响度型的 M0 算，不在这一条的范围里。
+                live.setConstants (noForgetting(), MainSectionModel::loudness);
+                const auto loudnessModel = live.getProfile().loudnessRangeLu;
+                live.setConstants (noForgetting(), MainSectionModel::fourOnFloor);
+                logMessage ("  LRA: 4/4 (full segments) " + juce::String (p.loudnessRangeLu.value, 2) + " LU, loudness model (all segments) "
+                            + juce::String (loudnessModel.value, 2) + " LU");
+                expect (loudnessModel.valid == reference.valid && sameFloat (loudnessModel.value, reference.value)
+                            && sameDouble (loudnessModel.effectiveSeconds, reference.effectiveSeconds),
+                        "loudness-model LRA over all segments bitwise (House formula)");
             }
 
             // 频谱、立体声、起音、次声：逐位。
@@ -683,8 +735,8 @@ namespace celadon::test
 
         //==============================================================================
         // b. 遗忘不变性（规格第 3 节「breakdown（w ≈ 0）里什么都不动」）。出厂常数、4/4 型：24 小节 drop 之后 8 小节 breakdown（比 drop
-        // 轻 12 LU、低频占比 0.1：两个因子都是 0，m = 0；8 小节 15.5 s，不到换歌的 20 s、也不到无主段的 60 s）——除 LRA（全部段的统计）
-        // 外画像逐位不变，M、c 逐位不变；之后 16 小节更响、更多低频的新 drop：I 与 lowShare 向它移动。
+        // 轻 12 LU、低频占比 0.1：两个因子都是 0，m = 0；8 小节 15.5 s，不到无主段的 60 s；更轻又没有低音，不算「换歌」）——画像（4/4 型
+        // 的 LRA 也是主段加权）、M、c 都逐位不变；之后 16 小节更响、更多低频的新 drop：I 与 lowShare 向它移动。
         void testBreakdownLeavesMainUntouched()
         {
             beginTest ("b. a breakdown (m = 0) leaves the main profile, main mass and confidence bit-identical; a new drop moves it");
@@ -709,7 +761,7 @@ namespace celadon::test
             const auto after = live.getProfile();
             const auto diagnosticsAfter = live.getDiagnostics();
             expect (allZero, "the breakdown bars get m = 0");
-            expect (sameProfile (before, after, false), "the main profile (everything but the all-segment LRA) is bit-identical");
+            expect (sameProfile (before, after, true), "the main profile (the 4/4 LRA included) is bit-identical");
             expect (sameDouble (diagnosticsBefore.mainMassSeconds, diagnosticsAfter.mainMassSeconds)
                         && sameFloat (diagnosticsBefore.confidence, diagnosticsAfter.confidence),
                     "main mass and confidence bit-identical");
@@ -908,66 +960,114 @@ namespace celadon::test
                     "a main bar stops the time decay");
         }
 
-        // d2. 换歌软遗忘（规格第 3 节）：段响度与 I 差 7 LU 的小节（m = 0）每段 1.9 s，第 11 段累计 20.9 s ≥ 20 s 时触发：全部累计 × 0.2
-        // （M 正好 × 0.2）；第 10 段（19 s）不触发。中间夹一段只差 2 LU 的，清零重计；差 5.9 LU（不超过 6）的永不触发。无主段衰减关掉。
+        // d2. 换歌软遗忘（规格第 3 节；Max 2026-10-02「响的算、轻的要有低音」）：「像换了一首歌」的段——比 I 响 6 LU 以上，或 4/4 型里
+        // 轻 6 LU 以上但低频因子 ≥ 0.5——每段 1.9 s，第 11 段累计 20.9 s ≥ 20 s 时触发：全部累计 × 0.2（M 正好 × 0.2）；第 10 段（19 s）
+        // 不触发；中间夹一段只差 2 LU 的，清零重计。breakdown（轻 7 LU、没有低音）永不触发；响度型里更轻的段永不触发；只响 5.9 LU 的永不触发。
+        // 「响」的那几段低频占比取 0.1：4/4 型 m = 0、不进主段，I 不跟着它走（真实的更响新歌会进主段、I 自己很快跟上，用不着软遗忘）。
+        // 无主段衰减关掉。
         void testNewProgram()
         {
-            beginTest ("d. new program: segments more than 6 LU from I for 20 s scale every mass by 0.2; an in-range segment restarts the count");
+            beginTest ("d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every mass by 0.2; breakdowns never do");
 
             LiveConstants c;
             c.noMainSeconds = infinity;
-            LiveProfile live;
-            setUp (live, c);
-            std::int64_t index = 0;
+            const auto keep = (double) c.newProgramKeep;   // float 0.2f：换成 double 是 0.2000000030
 
-            for (int i = 0; i < 16; ++i)
-                live.segmentFinalized (makeSegment (dropSpec(), index++));
-
-            const auto level = live.getProfile().integratedLufs.value;
-            auto distant = breakdownSpec();
-            distant.loudnessLufs = (double) level - 7.0;
-
-            const auto runDistant = [&] (int bars, int& triggeredAt, double& massBefore, double& massAfter)
+            struct Run
             {
-                triggeredAt = -1;
+                int triggeredAt = -1;
+                double massBefore = 0.0, massAfter = 0.0;
+            };
+
+            // 前 16 小节 drop 立起主段，返回此刻的 I。
+            const auto prime = [&] (LiveProfile& live, MainSectionModel model, std::int64_t& index)
+            {
+                setUp (live, c, model);
+
+                for (int i = 0; i < 16; ++i)
+                    live.segmentFinalized (makeSegment (dropSpec(), index++));
+
+                return (double) live.getProfile().integratedLufs.value;
+            };
+
+            const auto runBars = [&] (LiveProfile& live, const Spec& spec, int bars, std::int64_t& index)
+            {
+                Run run;
 
                 for (int i = 0; i < bars; ++i)
                 {
                     const auto before = live.getDiagnostics().mainMassSeconds;
-                    live.segmentFinalized (makeSegment (distant, index++));
+                    live.segmentFinalized (makeSegment (spec, index++));
 
-                    if (lastRecord (live).newProgram && triggeredAt < 0)
+                    if (lastRecord (live).newProgram && run.triggeredAt < 0)
                     {
-                        triggeredAt = i + 1;
-                        massBefore = before;
-                        massAfter = live.getDiagnostics().mainMassSeconds;
+                        run.triggeredAt = i + 1;
+                        run.massBefore = before;
+                        run.massAfter = live.getDiagnostics().mainMassSeconds;
                     }
                 }
+
+                return run;
             };
 
-            int triggeredAt = -1;
-            double massBefore = 0.0, massAfter = 0.0;
-            runDistant (10, triggeredAt, massBefore, massAfter);
-            expect (triggeredAt < 0 && live.getDiagnostics().newProgramCount == 0, "10 bars (19 s) do not trigger");
+            // 1. 4/4 型：轻 7 LU、低音满（lowShare 同 drop）——像换成一首更轻的歌。
+            {
+                LiveProfile live;
+                std::int64_t index = 0;
+                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                auto quieterWithBass = dropSpec();
+                quieterWithBass.loudnessLufs = level - 7.0;
 
-            live.segmentFinalized (segmentReading (index++, (double) level - 2.0, 0.6));   // 只差 2 LU：清零
-            runDistant (10, triggeredAt, massBefore, massAfter);
-            expect (triggeredAt < 0, "an in-range bar restarts the count: 10 more bars still do not trigger");
+                auto run = runBars (live, quieterWithBass, 10, index);
+                expect (run.triggeredAt < 0 && live.getDiagnostics().newProgramCount == 0, "quieter with bass: 10 bars (19 s) do not trigger");
 
-            runDistant (1, triggeredAt, massBefore, massAfter);
-            expect (triggeredAt == 1 && live.getDiagnostics().newProgramCount == 1, "the 11th consecutive bar (20.9 s) triggers");
-            const auto keep = (double) c.newProgramKeep;   // float 0.2f：换成 double 是 0.2000000030
-            expect (std::abs (massAfter - keep * massBefore) <= 1.0e-12 * massBefore, "every mass x newProgramKeep (main mass exactly)");
+                live.segmentFinalized (segmentReading (index++, level - 2.0, 0.6));   // 只差 2 LU：不算，清零
+                run = runBars (live, quieterWithBass, 10, index);
+                expect (run.triggeredAt < 0, "a bar that does not count restarts the count: 10 more bars still do not trigger");
 
-            // 5.9 LU：不超过 6 LU，永不触发。
-            auto nearby = distant;
-            nearby.loudnessLufs = (double) live.getProfile().integratedLufs.value - 5.9;
-            const auto count = live.getDiagnostics().newProgramCount;
+                run = runBars (live, quieterWithBass, 1, index);
+                expect (run.triggeredAt == 1 && live.getDiagnostics().newProgramCount == 1, "quieter with bass: the 11th consecutive bar (20.9 s) triggers");
+                expect (std::abs (run.massAfter - keep * run.massBefore) <= 1.0e-12 * run.massBefore, "every mass x newProgramKeep (main mass exactly)");
+            }
 
-            for (int i = 0; i < 40; ++i)
-                live.segmentFinalized (makeSegment (nearby, index++));
+            // 2. 4/4 型：breakdown（轻 7 LU、没有低音）永不触发——规格「breakdown 里什么都不动」。
+            {
+                LiveProfile live;
+                std::int64_t index = 0;
+                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                auto breakdown = breakdownSpec();
+                breakdown.loudnessLufs = level - 7.0;
+                runBars (live, breakdown, 40, index);
+                expect (live.getDiagnostics().newProgramCount == 0, "a 40-bar breakdown (7 LU quieter, no bass) never triggers");
+            }
 
-            expect (live.getDiagnostics().newProgramCount == count, "5.9 LU away never triggers");
+            // 3. 4/4 型：响 7 LU 的第 11 段触发；之后只响 5.9 LU（不超过 6）的永不触发。
+            {
+                LiveProfile live;
+                std::int64_t index = 0;
+                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                auto louder = dropSpec();
+                louder.lowShare = 0.1;
+                louder.loudnessLufs = level + 7.0;
+                const auto run = runBars (live, louder, 11, index);
+                expect (run.triggeredAt == 11 && live.getDiagnostics().newProgramCount == 1, "louder by 7 LU: the 11th bar triggers");
+
+                auto nearby = louder;
+                nearby.loudnessLufs = (double) live.getProfile().integratedLufs.value + 5.9;
+                runBars (live, nearby, 40, index);
+                expect (live.getDiagnostics().newProgramCount == 1, "louder by 5.9 LU never triggers");
+            }
+
+            // 4. 响度型：轻 7 LU、低音满也永不触发（更轻的新材料交给长时间无主段的时间衰减）。
+            {
+                LiveProfile live;
+                std::int64_t index = 0;
+                const auto level = prime (live, MainSectionModel::loudness, index);
+                auto quieterWithBass = dropSpec();
+                quieterWithBass.loudnessLufs = level - 7.0;
+                runBars (live, quieterWithBass, 40, index);
+                expect (live.getDiagnostics().newProgramCount == 0, "loudness model: quieter segments never trigger");
+            }
         }
 
         //==============================================================================
@@ -1265,14 +1365,19 @@ namespace celadon::test
             LiveProfile live;
             setUp (live, c);
 
+            // 每 8 段：2 段 breakdown、3 段 drop、3 段「响 9 LU、没有低音」（m = 0、I 不动，3 × 1.9 s ≥ 4 s：换歌软遗忘真走到）。
+            auto louder = dropSpec();
+            louder.loudnessLufs = 0.97;
+            louder.lowShare = 0.1;
             std::vector<Segment> segments;
 
             for (int i = 0; i < 40; ++i)
-                segments.push_back (makeSegment (i % 5 < 2 ? breakdownSpec() : dropSpec(), i));
+                segments.push_back (makeSegment (i % 8 < 2 ? breakdownSpec() : i % 8 < 5 ? dropSpec() : louder, i));
 
             LiveCommitRecord records[LiveProfile::commitCapacity];
             std::uint64_t cursor = 0;
             float sink = 0.0f;
+            auto sawNewProgram = false;
             const auto before = allocationCountOnThisThread();
 
             for (size_t i = 0; i < segments.size(); ++i)
@@ -1283,7 +1388,10 @@ namespace celadon::test
                     live.segmentFinalized (segments[i]);
 
                 sink += live.mainnessFor (true, -9.0f, true, 0.5f) + live.getProfile().integratedLufs.value + live.getDiagnostics().confidence;
-                (void) live.readCommits (cursor, records, LiveProfile::commitCapacity);
+                const auto read = live.readCommits (cursor, records, LiveProfile::commitCapacity);
+
+                for (int k = 0; k < std::abs (read); ++k)
+                    sawNewProgram = sawNewProgram || records[k].newProgram;
 
                 if (i == 20)
                     live.reset();
@@ -1291,6 +1399,7 @@ namespace celadon::test
 
             const auto after = allocationCountOnThisThread();
             expect (after == before, "no allocation: " + juce::String ((juce::int64) (after - before)));
+            expect (sawNewProgram, "the run went through the new-program soft forget");
             expect (std::isfinite (sink));
         }
 

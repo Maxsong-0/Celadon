@@ -3679,7 +3679,10 @@ namespace celadon::glaze
             analysisHost.positionSamples += impl->hostInputOffset;
 
         // T-038 House 档：切片的 PPQ 同样按片的偏移推过（宿主只报块起点的 PPQ），段落账的锚点检查才对得上（小节起点不动，账本自己补整小节）。
-        if (isHouse (impl->currentGenre) && impl->hostInputOffset > 0 && impl->hostPlaying() && analysisHost.hasPpq
+        // T-048：分析器实时模式开着时通用档也记账（实时段落账），同样要推——否则宿主块 > 50 ms 时实时段的边界随块长变。实时模式关着、
+        // 通用档时分析器不读 PPQ（只有段落账读），这一行对它没有影响：关着时逐位不变。
+        if ((isHouse (impl->currentGenre) || impl->analyzer.isLiveMode()) && impl->hostInputOffset > 0 && impl->hostPlaying()
+            && analysisHost.hasPpq
             && analysisHost.hasTempo && std::isfinite (analysisHost.bpm) && analysisHost.bpm > 0.0)
             analysisHost.ppqPosition += (double) impl->hostInputOffset * analysisHost.bpm / (60.0 * impl->sampleRate);
 

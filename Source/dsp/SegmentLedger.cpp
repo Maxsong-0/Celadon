@@ -353,6 +353,19 @@ namespace celadon::glaze
         ++epoch;
     }
 
+    void SegmentLedger::endEpochAt (std::int64_t dataEnd, std::int64_t newAcceptFrom) noexcept
+    {
+        for (int i = 0; i < openCount; ++i)
+        {
+            auto& open = pool[(size_t) order[(size_t) ((openHead + i) % maxOpenSegments)]];
+
+            if (open.end > dataEnd)
+                open.end = std::max (open.start, dataEnd);
+        }
+
+        endEpoch (newAcceptFrom);
+    }
+
     //==============================================================================
     // 二、记账
     //==============================================================================

@@ -7,8 +7,8 @@
     一、累计与遗忘（「全局缩放因子 + 周期性重规范」）
       三个遗忘域各有一个全局缩放因子 g：实值 = 存储值 × g。
         - 主段域（按进账遗忘）：并入一段先 g × exp(−(w ÷ W_mem + 无主段的时间衰减))，再把这一段 × m 加进去（存储值加 m ÷ g 倍）。
-          装着 4/4 型 I 的门块、真峰值、频谱 / 立体声 / 低频起伏 / 通量、起音、次声、试算与混合损失、主段质量 M。
-        - 参考域（全部段，不看 m）：每段 g × exp(−有效时长 ÷ referenceMemorySeconds)：S_ref、lowRef、LRA 的直方图。
+          装着 4/4 型 I 的门块与 LRA、真峰值、频谱 / 立体声 / 低频起伏 / 通量、起音、次声、试算与混合损失、主段质量 M。
+        - 参考域（全部段，不看 m）：每段 g × exp(−有效时长 ÷ referenceMemorySeconds)：S_ref、lowRef、响度型 / 被动型 LRA 的直方图。
         - 全部段域（全部段，不看 m）：每段 g × exp(−有效时长 ÷ W_mem)：响度型 / 被动型的 I（门块）与它的有效时长。
       遗忘只改 g（一次乘法），存储值不逐格乘，不会一路衰减进次正规数（x86 没开 FTZ 时慢几十倍）。g 低于 renormaliseBelow（1e-30）时
       把这一域的存储值一次乘回实值、g 回到 1（重规范），实值绝对值低于 flushBelow（1e-250）的归零——之后再乘 g ≥ 1e-30 也落不进
@@ -30,9 +30,10 @@
       常数改了也自洽（例如 ΔG = 0 时第一段 m = 0.5）。两道参考分开冷启动：S_ref 有了、lowRef 还没有时只有低频因子按自己算。
 
     三、换歌软遗忘与长时间无主段（规格第 3 节）
-      - 换歌：段响度与「这一段并入之前」画像的 I 相差超过 newProgramLu 的段，有效音频累计满 newProgramSeconds → 三个域的 g 一起
-        × newProgramKeep（在这一段并入之前做：新素材按原权重进来），计数清零重来。夹一段不超的清零重计；段响度或 I 读不出的段不算数
-        也不清零（没有证据）。不看宿主走带。
+      - 换歌：「像换了一首歌」的段（比「这一段并入之前」画像的 I 响 newProgramLu 以上；或 4/4 型里轻 newProgramLu 以上但低频因子 ≥ 0.5，
+        见 looksLikeNewProgram——breakdown 更轻又没有低音，不算）有效音频累计满 newProgramSeconds → 三个域的 g 一起 × newProgramKeep
+        （在这一段并入之前做：新素材按原权重进来），计数清零重来。夹一段不算的清零重计；段响度或 I 读不出的段不算数也不清零（没有证据）。
+        不看宿主走带。更轻、不算的新材料交给下面的无主段时间衰减。
       - 无主段：上一次 m ≥ mainThreshold 之后的有效音频（secondsSinceMain）超过 noMainSeconds 的部分，按 exp(−超出 ÷ noMainDecaySeconds)
         乘在主段域上，与这一段按进账的遗忘相乘（两个乘性因子叠加：无主段时额外遗忘，按进账照旧）。只算越过门槛之后的那部分有效音频，
         所以与段怎么切无关。
@@ -42,7 +43,8 @@
         权重全为 1 时退回 House 的整数公式、逐位相同）。与 House 画像按设计的差别：
         - effectiveSeconds = 主段质量 M（House 是全部段的有效时长）；representativeness = c = 1 − exp(−M ÷ M0)；各特征 confidence =
           min(c, 观测充分度) × 起音一致性（House 是 min(代表性, 观测充分度)）；
-        - LRA 用全部段（参考域，按有效音频遗忘；House 阶段 3 起只用满编段）；响度型 / 被动型的 I 用全部段（全部段域）；
+        - LRA 与 I 一样按曲风分口径：4/4 型用主段域（按 m，同 House 阶段 3 起「只用满编段」）；响度型 / 被动型 LRA 用全部段（参考域，按有效
+          音频遗忘）、I 用全部段（全部段域）；
         - I 的相对门按 0.1 LU 格中心判（同通用画像；House 逐个门块比——相差只在相对门那一格里的门块，≤ 0.05 LU）；
         - 真峰值：主段加权的「段最大值」直方图（0.1 dB 一格，每格另记落进来的最大线性值），取「其上至少有 peakTailSeconds 主段质量」的
           最高一格里的最大值；遗忘关掉、每个 m > 0 的段 w ≥ peakTailSeconds 时就是 House 的满编段最大值（逐位）；
@@ -812,6 +814,9 @@ namespace celadon::glaze
             double trialBlocks = 0.0;                                      // 有效块数（全部块，含没交数值的）
             std::vector<double> trialWeights;                              // [路 × trialBins]：每路交来的块峰值（每段最大的 8 个）按格的 Σ m
             std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};
+            // 4/4 型的 LRA（Max 2026-10-02「按曲风分口径」）：3 s 短期响度的格号按 m 计入，同 House 画像「LRA 只用满编段」（T-038 阶段 3）。
+            std::array<double, (size_t) histogramBins> range {};
+            double rangeEnergy = 0.0, rangeCount = 0.0;
         };
 
         // 参考域（全部段，按有效音频遗忘）。
@@ -821,7 +826,7 @@ namespace celadon::glaze
             double loudnessTotal = 0.0;
             std::array<double, (size_t) lowShareBins> lowShare {};         // 响度因子 ≥ 0.5 的段的 lowShare，权重 = 有效时长
             double lowShareTotal = 0.0;
-            std::array<double, (size_t) histogramBins> range {};           // LRA：3 s 短期响度的格号，每个取样权重 1
+            std::array<double, (size_t) histogramBins> range {};           // 响度型 / 被动型的 LRA：3 s 短期响度的格号，每个取样权重 1
             double rangeEnergy = 0.0, rangeCount = 0.0;
         };
 
@@ -994,6 +999,9 @@ namespace celadon::glaze
             v.trial ("trialWeights", s.trialWeights, self.trialLowBin, self.trialTopBin);
             v.array ("blendIntended", s.blendIntended);
             v.array ("blendOutput", s.blendOutput);
+            v.array ("mainRangeWeights", s.range);
+            v.value ("mainRangeEnergy", s.rangeEnergy);
+            v.value ("mainRangeCount", s.rangeCount);
         }
 
         template <typename Self, typename Visitor>
@@ -1244,7 +1252,7 @@ namespace celadon::glaze
 
             if (usable)
             {
-                record.newProgram = noteNewProgram (segment);
+                record.newProgram = noteNewProgram (segment, factors);
 
                 if (record.newProgram)
                     forgetAll ((double) constants.newProgramKeep);
@@ -1291,15 +1299,15 @@ namespace celadon::glaze
             ++recordTotal;
         }
 
-        // 换歌（文件头第三节）：返回这一段是否触发软遗忘。
-        bool noteNewProgram (const SegmentLedger::Segment& segment) noexcept
+        // 换歌（文件头第三节）：返回这一段是否触发软遗忘。factors = 这一段按并入之前的参考算的两个因子。
+        bool noteNewProgram (const SegmentLedger::Segment& segment, const Factors& factors) noexcept
         {
             const auto& level = profile.integratedLufs;
 
             if (! segment.loudnessValid || ! level.valid || ! std::isfinite (level.value))
                 return false;   // 没有可比的读数：不算数也不清零
 
-            if (! (std::abs ((double) segment.loudnessLufs - (double) level.value) > (double) constants.newProgramLu))
+            if (! looksLikeNewProgram ((double) segment.loudnessLufs - (double) level.value, factors))
             {
                 newProgramSeconds = 0.0;
                 return false;
@@ -1313,6 +1321,20 @@ namespace celadon::glaze
             newProgramSeconds = 0.0;
             ++newProgramCount;
             return true;
+        }
+
+        // 一段算不算「像换了一首歌」（Max 2026-10-02「响的算、轻的要有低音」）：比 I 响 newProgramLu 以上的段都算；更轻的段只在 4/4 型、
+        // 且低频因子 ≥ 0.5（低音满）时才算——House 的 breakdown 本来就比 drop 轻 6 ～ 10 LU、又没有低音，按原来的「相差超过」会被当成
+        // 换歌（32 小节的 breakdown 能把 c 从约 1 打到约 0.05），与「breakdown 里什么都不动」冲突。其余更轻的新材料交给长时间无主段的
+        // 时间衰减（约 2 分钟跟上）。比较都是严格大于。
+        bool looksLikeNewProgram (double differenceLu, const Factors& factors) const noexcept
+        {
+            const auto threshold = (double) constants.newProgramLu;
+
+            if (differenceLu > threshold)
+                return true;
+
+            return model == MainSectionModel::fourOnFloor && -differenceLu > threshold && factors.low >= 0.5f;
         }
 
         // 长时间无主段（文件头第三节）：返回这一段里越过 noMainSeconds 之后的有效音频（秒）。
@@ -1338,6 +1360,13 @@ namespace celadon::glaze
 
             for (int k = 0; k < segment.gatingCount; ++k)
                 s.gating.add ((double) segment.gatingPower[(size_t) k], gain);
+
+            // 4/4 型的 LRA（同 addReference 的 LRA 三项，权重 m）。
+            for (int k = 0; k < segment.rangeCount; ++k)
+                s.range[(size_t) segment.rangeBin[(size_t) k]] += gain;
+
+            s.rangeEnergy += segment.rangeEnergy * gain;
+            s.rangeCount += (double) segment.rangeCount * gain;
 
             if (segment.truePeak > 0.0f && weight > 0.0)
             {
@@ -1574,7 +1603,7 @@ namespace celadon::glaze
             return true;
         }
 
-        // 同 houseLoudnessProfile：I（4/4 型主段域；响度型 / 被动型全部段域）、LRA（参考域）、真峰值（主段域）、PLR。
+        // 同 houseLoudnessProfile：I 与 LRA（4/4 型主段域；响度型 / 被动型 I 用全部段域、LRA 用参考域）、真峰值（主段域）、PLR。
         void liveLoudnessProfile (const Sums& s, Measured& measured) noexcept
         {
             auto& p = profile;
@@ -1592,20 +1621,25 @@ namespace celadon::glaze
 
             measured.integrated = fraction (integratedSeconds, loudnessFullSeconds);
 
-            // LRA：同 houseLoudnessProfile 的 LRA 段（全部段；整数个数换成加权的个数：index = ⌊(n − 1) × 分位 + 0.5⌋，累计 > index 的那一格）。
-            const auto& r = referenceStore;
-            const auto rangeTotal = r.rangeCount * referenceScale;
+            // LRA：同 houseLoudnessProfile 的 LRA 段（整数个数换成加权的个数：index = ⌊(n − 1) × 分位 + 0.5⌋，累计 > index 的那一格）。
+            // 口径按曲风分（Max 2026-10-02「按曲风分口径」，与 I 的分法一致）：4/4 型用主段域（按 m 计入、按进账遗忘，同 House 画像
+            // 「LRA 只用满编段」：全部段的 LRA 随起播位置变，T-038 阶段 3）；响度型 / 被动型用参考域（全部段，同现在通用档的口径）。
+            const auto& range = fourOnFloor ? mainStore.range : referenceStore.range;
+            const auto rangeEnergy = fourOnFloor ? mainStore.rangeEnergy : referenceStore.rangeEnergy;
+            const auto rangeCount = fourOnFloor ? mainStore.rangeCount : referenceStore.rangeCount;
+            const auto rangeScale = fourOnFloor ? mainScale : referenceScale;
+            const auto rangeTotal = rangeCount * rangeScale;
             const auto rangeSeconds = rangeTotal * (double) subBlockLength / sampleRate;
             invalidate (p.loudnessRangeLu);
 
             if (rangeTotal > 0.0)
             {
-                const auto relativeGate = energyToLufs (r.rangeEnergy / r.rangeCount) + lraRelativeGateLu;
+                const auto relativeGate = energyToLufs (rangeEnergy / rangeCount) + lraRelativeGateLu;
                 const auto firstBin = firstBinAtOrAbove (relativeGate);
                 double gated = 0.0;
 
                 for (int bin = firstBin; bin < histogramBins; ++bin)
-                    gated += r.range[(size_t) bin] * referenceScale;
+                    gated += range[(size_t) bin] * rangeScale;
 
                 if (gated >= minimumLraValues)
                 {
@@ -1616,7 +1650,7 @@ namespace celadon::glaze
 
                     for (int bin = firstBin; bin < histogramBins; ++bin)
                     {
-                        cumulative += r.range[(size_t) bin] * referenceScale;
+                        cumulative += range[(size_t) bin] * rangeScale;
 
                         if (! haveLow && cumulative > lowIndex)
                         {

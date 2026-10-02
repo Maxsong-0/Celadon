@@ -188,6 +188,7 @@ namespace celadon::glaze
         // ---- T-048 实时模式（见文件头最后一节；消息线程、处理之前调，prepare / reset 之后保持设定）----
         // 开：分配实时段落账（约 2 MB），候选从此一直跑；关：开着的段先就地定稿交给接收者。
         void setLiveMode (bool enabled);
+        bool isLiveMode() const noexcept;
         // 实时段落账定稿的段交给它（nullptr = 不交）。只存指针、不拥有；接收者在音频线程上被调，必须 0 分配、0 锁。
         void setSegmentSink (SegmentSink* sink) noexcept;
 

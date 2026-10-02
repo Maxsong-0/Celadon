@@ -145,9 +145,11 @@ namespace celadon::glaze
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> trialTop {};   // 每一路最大的 8 个（降序）
             std::array<double, (size_t) blendSeries> blendIntended {}, blendOutput {};   // 混合损失候选：各有效块两份 K 加权能量之和
 
-            // ---- T-048 实时试算（口径同上面三项，只差「什么时候记」）----
-            // 上面三项只在学习期间记（House 门控画像只用学习区间的试算，改了会动现在的方案）；下面三项在候选真跑的每一块都记
-            // （学习期间、或分析器的实时模式开着），只给实时画像（LiveProfile）读。实时模式关着时与上面三项同时记、数值相同。
+            // ---- T-048 实时试算（口径同上面三项，只差「什么时候记」；只给实时画像 LiveProfile 读）----
+            // 分析器有两份账（MusicAnalyzer.cpp 第「七」节）：
+            //   - House 门控那一份：上面三项与下面三项都只在学习期间记、数值相同（House 门控画像只用学习区间的试算；实时模式开不开都一样，
+            //     所以 House 方案逐位不变）；
+            //   - 实时段落账（实时模式开着才有）：下面三项在候选真跑的每一块都记（候选在实时模式下一直跑），上面三项仍只在学习期间记。
             int liveTrialBlocks = 0;
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> liveTrialTop {};
             std::array<double, (size_t) blendSeries> liveBlendIntended {}, liveBlendOutput {};
@@ -201,6 +203,10 @@ namespace celadon::glaze
 
         // 不连续点 / 换曲风：没定稿的段就地定稿，下一块重新锚定。acceptFrom 同 reset。
         void endEpoch (std::int64_t acceptFrom) noexcept;
+
+        // T-048：同 endEpoch，但先把开着的段截到 dataEnd（数据只送到这里；之后的样本属于下一条时间轴的新段）再就地定稿——
+        // 交出去的段 [start, end) 首尾相接（分析器实时模式用；House 门控那一份照旧用 endEpoch，不截）。start 晚于 dataEnd 的段截成空段。
+        void endEpochAt (std::int64_t dataEnd, std::int64_t acceptFrom) noexcept;
 
         // ---- 记账（音频线程）----
         // time 所在的、还没定稿的段；没有就是 nullptr。hint = 调用方自己的缓存（每路一个，初值 −1），连续查同一段时不扫池。
