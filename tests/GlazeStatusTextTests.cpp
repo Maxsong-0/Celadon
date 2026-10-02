@@ -469,6 +469,12 @@ namespace celadon::test
                 ledgerFullSeconds.houseLedgerFull = true;
                 expectEquals (show (ledgerFullSeconds), utf8 ("House · 已听 52 / 124 秒（宿主没给拍点） · 段落账已满，新段不再计入"));
 
+                // 评审 F7：House 聆听时出现过离线导出（锁住到锁定为止），末尾写明成品中途换过方案。
+                auto exporting = housePending (listening(), 23, 0);
+                exporting.houseOfflineListening = true;
+                expectEquals (show (exporting), utf8 ("House · 已听 23 / 64 小节 · 还没听到主段落 · 导出时还没学完，成品中途换过方案：先完整播放一遍再导出"));
+                expectEquals (showEnglish (exporting), utf8 ("House \xc2\xb7 23 / 64 bars \xc2\xb7 main section not heard yet \xc2\xb7 exported before learning finished: play it through once, then export again"));
+
                 auto noTarget = housePending (listening(), 23, 0);
                 noTarget.houseTargetSegments = 0;
                 expectEquals (show (noTarget), utf8 ("House · 已听 23 小节 · 还没听到主段落"), "no target: only what was heard");

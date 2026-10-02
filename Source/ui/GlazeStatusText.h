@@ -91,6 +91,7 @@ namespace celadon::ui::glazestatus
         int houseTarget = 0;                                    // House 聆听：锁定所需的小节（或秒）；0 = 编排器没给，只写已听
         int houseFullBars = 0;                                  // House 聆听（按小节）：主段落已听的小节；0 = 还没听到
         bool houseLedgerFull = false;                           // House 聆听：段落账满了，新段不再计入（状态行末尾写明）
+        bool houseOfflineListening = false;                     // House 聆听时正在离线导出：导出中途会换方案（状态行末尾写明，评审 F7）
         int houseLossTenthsDb = 0;                              // House 反相提示：单声道低频损失 × 10（正数；0 = 读不到，不写数）
         Kind underlyingKind = Kind::unlearned;                  // House 反相提示：被它压住的那一行（界面按它画 GLAZE 阶段标签）
 

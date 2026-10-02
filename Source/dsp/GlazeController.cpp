@@ -1007,6 +1007,7 @@ namespace celadon::glaze
         bool houseInMain = false;              // T-038 评审 F1：此刻的段落与已提交 House 画像比，是不是主段落（最近一次读得到时的判定）
         bool houseMainKnown = false;           // 上面这一项有过读数（换了已提交画像 / 离开 House 档后清）
         std::uint32_t houseMainProfileId = 0;  // 上面的判定是对哪份已提交画像做的
+        bool houseExportedWhileListening = false;   // 评审 F7：House 档还在聆听时出现过离线导出（一直提示到锁定为止，导出结束后也看得到）
 
         // ---- 宿主 ----
         HostInfo host;
@@ -2872,6 +2873,12 @@ namespace celadon::glaze
 
             effective.clay = resolveClayParams (manual.claySettings, liveClay, manual.glazePercent);
 
+            // 评审 F7：House 档还在聆听（锁定条件没满足、或锁定后待重开）时离线导出 → 锁住提示，直到不再聆听；离开 House 档清。
+            {
+                const auto pending = isHouse (currentGenre) && (learning != Learning::none || houseReopenArmed);
+                houseExportedWhileListening = pending && (houseExportedWhileListening || offline);
+            }
+
             // T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节；判定在 ClayGuard，只提示、不改声音）：资格 = 段落账此刻这一段
             // 暂判满编，须连续 phaseHintSegments 小节（拿不到拍点时 phaseHintFallbackSeconds 秒）。方案源不支持自动 Clay 时熄灭（同反相指示灯）。
             if (isHouse (currentGenre))
@@ -3341,6 +3348,7 @@ namespace celadon::glaze
                                                                                      : g.fullSegments >= h.requiredFullSegments;
                 s.houseLockPending = learning != Learning::none || houseReopenArmed;
                 s.houseLedgerFull = ledger.isStoreFull();
+                s.houseOfflineListening = s.houseLockPending && (offline || houseExportedWhileListening);   // 评审 F7
                 s.housePhaseHint = houseHint.active;
                 s.housePhaseMonoLossDb = houseHint.active ? houseHint.monoLossDb : 0.0f;
             }

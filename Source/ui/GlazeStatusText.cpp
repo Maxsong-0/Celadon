@@ -61,6 +61,7 @@ namespace celadon::ui::glazestatus
             view.kind = Kind::houseListening;
 
             view.houseLedgerFull = status.houseLedgerFull;
+            view.houseOfflineListening = status.houseOfflineListening;
 
             if (status.houseSegmentMode == glaze::SegmentMode::seconds)
             {
@@ -90,8 +91,12 @@ namespace celadon::ui::glazestatus
             const auto progress = view.houseTarget > 0 ? juce::String (view.houseHeard) + " / " + juce::String (view.houseTarget)
                                                        : juce::String (view.houseHeard);
             // 段落账满了（设计规格-曲风-House学习方式 第 2.1 节「满了以后不再收新段，状态行写明」）：末尾加一段。
-            const auto full = view.houseLedgerFull ? dot + (english ? juce::String ("segment memory full") : utf8 ("段落账已满，新段不再计入"))
-                                                   : juce::String();
+            auto full = view.houseLedgerFull ? dot + (english ? juce::String ("segment memory full") : utf8 ("段落账已满，新段不再计入"))
+                                             : juce::String();
+            // 评审 F7（Max 2026-10-01「加状态提示」）：House 档还在聆听时离线导出，听满锁定条件那一刻会换方案、成品中段增益会变。
+            if (view.houseOfflineListening)
+                full += dot + (english ? juce::String ("exported before learning finished: play it through once, then export again")
+                                       : utf8 ("导出时还没学完，成品中途换过方案：先完整播放一遍再导出"));
 
             if (view.houseBySeconds)
                 return (english ? "House" + dot + progress + " s (no tempo from host)"
@@ -310,6 +315,7 @@ namespace celadon::ui::glazestatus
             && houseTarget == other.houseTarget
             && houseFullBars == other.houseFullBars
             && houseLedgerFull == other.houseLedgerFull
+            && houseOfflineListening == other.houseOfflineListening
             && houseLossTenthsDb == other.houseLossTenthsDb
             && underlyingKind == other.underlyingKind;
     }

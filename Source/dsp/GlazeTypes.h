@@ -383,6 +383,7 @@ namespace celadon::glaze
         bool houseMainSectionHeard = false;  // 满编段已够（锁定条件第 2 条）
         bool houseLockPending = false;       // 锁定条件还没满足：方案是暂定的
         bool houseLedgerFull = false;        // 段落账满了（SegmentLedger::maxSegments），之后的新段不再计入（第 2.1 节「状态行写明」）
+        bool houseOfflineListening = false;  // House 档还在聆听时出现过离线导出（锁住到锁定为止）：成品中途换过方案（评审 F7，Max 2026-10-01「加状态提示」）
         bool housePhaseHint = false;         // House 档反相提示（低频相关度 < 0.6 持续够久）
         float housePhaseMonoLossDb = 0.0f;   // 提示里写的单声道低频损失（dB，≤ 0）
     };

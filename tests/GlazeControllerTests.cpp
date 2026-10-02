@@ -5427,6 +5427,7 @@ namespace celadon::test
             testHouseAudioThreadDoesNotAllocate();
             testHousePhaseHintEndToEnd();   // 集成时追加（B 报告遗留：合并 C 之后补端到端）
             testCalibrationOnlyInMainSection();   // 评审 F1
+            testOfflineExportWhileListeningIsFlagged();   // 评审 F7
         }
 
     private:
@@ -5926,6 +5927,40 @@ namespace celadon::test
             expectEquals (sampledInBreakdown, 0, "no calibration block is sampled in the breakdown");
             expect (validWithBreakdown && validAllDrop, "both runs end with a valid calibration of a House profile");
             expect (std::abs (biasWithBreakdown - biasAllDrop) <= 0.2f, "the calibration bias does not depend on a breakdown after the lock");
+        }
+
+        // 评审 F7（Max 2026-10-01「加状态提示」）：House 档还在聆听时离线导出，Status::houseOfflineListening 亮起，导出结束（回到实时）后
+        // 照样亮着、直到锁定；通用档同样的操作不亮。
+        void testOfflineExportWhileListeningIsFlagged()
+        {
+            beginTest ("House: an offline export while still listening is flagged and the flag stays until the lock; General never flags");
+
+            const auto song = makeHouseSong (defaultRate, { { 4, false, 1.0f }, { 12, true, 1.0f } }, 77);
+
+            for (const auto genre : { 1, 0 })
+            {
+                Rig rig (houseConstants (12, 4), song, houseParams (40.0f, genre));
+                rig.tempoBpm = houseBpm;
+                rig.host.offline = true;
+                rig.run (3.0 * houseBarSeconds);
+                const auto exporting = rig.status();
+                rig.host.offline = false;
+                rig.run (1.0 * houseBarSeconds);
+                const auto afterExport = rig.status();
+                rig.run (14.0 * houseBarSeconds);
+                const auto locked = rig.status();
+
+                if (genre == 1)
+                {
+                    expect (exporting.houseOfflineListening, "offline while House is listening: flagged");
+                    expect (afterExport.houseOfflineListening && afterExport.houseLockPending, "back to real time, still listening: still flagged");
+                    expect (! locked.houseLockPending && ! locked.houseOfflineListening, "once locked: the flag clears");
+                }
+                else
+                {
+                    expect (! exporting.houseOfflineListening && ! afterExport.houseOfflineListening, "General genre: never flagged");
+                }
+            }
         }
 
         // 依据：任务书「音频线程 0 分配、0 锁的现有检查覆盖新代码」。一条 House 链走完：暂定方案与快过渡、锁定、重开、重新聆听、
