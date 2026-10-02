@@ -18,6 +18,7 @@
 #include "TestHelpers.h"
 
 #include "../Source/dsp/BalanceModule.h"
+#include "../Source/dsp/ClayModule.h"
 #include "../Source/dsp/LoudnessMeter.h"
 #include "../Source/dsp/MusicAnalyzer.h"
 
@@ -1964,11 +1965,15 @@ namespace celadon::test
             return out;
         }
 
-        // 先试后用的峰值代价（ADR-012，画像格式 2 追加）逐位相同。
+        // 先试后用的峰值代价（ADR-012，画像格式 2 追加）与守护混合损失（T-043）逐位相同。
         bool sameTrialCosts (const MusicProfile& a, const MusicProfile& b)
         {
             for (size_t i = 0; i < a.monoPeakCostDb.size(); ++i)
                 if (! sameFeature (a.monoPeakCostDb[i], b.monoPeakCostDb[i]))
+                    return false;
+
+            for (size_t i = 0; i < a.lowCutBlendLossDb.size(); ++i)
+                if (! sameFeature (a.lowCutBlendLossDb[i], b.lowCutBlendLossDb[i]))
                     return false;
 
             return sameFeature (a.lowCutPeakCostDb, b.lowCutPeakCostDb) && sameFeature (a.widthPeakCostDb, b.widthPeakCostDb);
@@ -2046,6 +2051,7 @@ namespace celadon::test
             testClayUncorrelatedNoise();
             testClaySubShareIsTrueInfrasound();
             testClayLearningIntervalAndFreeze();
+            testTrialBlendLoss();
             testClayLiveViewFollowsAndFreezes();
             testClayLiveViewIgnoresLeakageFromAbove();
             testClayBlockSizeIndependence();
@@ -2413,6 +2419,83 @@ namespace celadon::test
             expectWithinAbsoluteError (kickShare.value, (float) expectedKick, 1.0f, "45 Hz kick sub share vs line-spectrum value");
             expect (kickShare.value <= -40.0f, "a 45 Hz kick is not infrasound: no automatic low-cut need");
             expect (oldFilterReading >= -20.0, "positive control: the former 30 Hz lowpass read the kick fundamental as sub-bass");
+        }
+
+        //==============================================================================
+        // T-043（ADR-027）先试后用的守护混合损失（lowCutBlendLossDb，候选 clayBlendCandidateHz 10 / 20 Hz；MusicAnalyzer.h「五」）：
+        //   - 稳态 60 Hz 正弦（0.5，左右相同）学 12 s：两点都有效、|L| < 0.002 dB（守护不动作；只有起振的高通余量可能在头几百毫秒
+        //     碰到守护，大半落在 250 ms 预热里）；
+        //   - 偏置低音（49 Hz 0.4 + 98 Hz 0.15 + 4 Hz 0.15，左右相同；ClayTests 同一素材）学 12 s：两点都有效、L₂₀ > L₁₀ > 0、
+        //     L₂₀ > 0.1 dB（109 渲染实测约 0.12 / 0.21 dB）；
+        //     与链里的 ClayModule 在同一素材上过 20 Hz 低切量到的损失一致（±0.02 dB：分析器只计学习区间里过了预热的有效块，模块计全程；
+        //     两边用的是同一份守护实现）；
+        //   - 学 6 s（有效块不满 10 s）→ 两点都无效（与峰值代价同时）；
+        //   - 块长 7 / 333 / 4096 与 512 两点逐位相同（sameTrialCosts 也已并进块长无关那条）。
+        void testTrialBlendLoss()
+        {
+            beginTest ("trial guard blend loss (T-043): 0 on a steady tone, > 0.1 dB at 20 Hz on offset bass matching ClayModule, valid with the peak costs, block-size independent");
+
+            constexpr double sampleRate = 48000.0;
+            const auto learn = [&] (const Signal& signal, int blockSize)
+            {
+                Rig rig (sampleRate);
+                rig.analyzer.startLearning();
+                rig.feed (signal, blockSize);
+                return rig.profile();
+            };
+
+            const auto steady = learn (makeSine (numChannels, sampleRate, 60.0, 0.5f, 12.0), 512);
+            expect (steady.lowCutBlendLossDb[0].valid && steady.lowCutBlendLossDb[1].valid, "12 s of learning define both points");
+            expect (std::abs (steady.lowCutBlendLossDb[0].value) < 0.002f && std::abs (steady.lowCutBlendLossDb[1].value) < 0.002f,
+                    "steady tone: the guard does not blend, the loss is ~0 ("
+                        + juce::String (steady.lowCutBlendLossDb[0].value, 6) + " / " + juce::String (steady.lowCutBlendLossDb[1].value, 6) + ")");
+
+            auto offset = makeSine (numChannels, sampleRate, 49.0, 0.4f, 12.0);
+            const auto harmonic = makeSine (numChannels, sampleRate, 98.0, 0.15f, 12.0);
+            const auto infra = makeSine (numChannels, sampleRate, 4.0, 0.15f, 12.0);
+
+            for (size_t ch = 0; ch < offset.size(); ++ch)
+                for (size_t i = 0; i < offset[ch].size(); ++i)
+                    offset[ch][i] += harmonic[ch][i] + infra[ch][i];
+
+            const auto learned = learn (offset, 512);
+            const auto& l10 = learned.lowCutBlendLossDb[0];
+            const auto& l20 = learned.lowCutBlendLossDb[1];
+
+            ClayModule clay;
+            ClayModule::Params lowCut;
+            lowCut.lowCutHz = 20.0f;
+            clay.setParams (lowCut);
+            clay.prepare ({ sampleRate, 512, (juce::uint32) numChannels });
+            clay.setParams (lowCut);
+            juce::AudioBuffer<float> block (numChannels, 512);
+
+            for (int start = 0; start + 512 <= (int) offset[0].size(); start += 512)
+            {
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, offset[(size_t) ch].data() + start, 512);
+
+                clay.process (block);
+            }
+
+            const auto stats = clay.getAndResetPeakGuardStats();
+            const auto moduleLoss = 10.0 * std::log10 (stats.blendIntendedEnergy / stats.blendOutputEnergy);
+            logMessage ("  offset bass: trial blend loss 10 Hz " + juce::String (l10.value, 4) + " dB, 20 Hz " + juce::String (l20.value, 4)
+                        + " dB; ClayModule at 20 Hz " + juce::String (moduleLoss, 4) + " dB");
+            expect (l10.valid && l20.valid && l20.value > l10.value && l10.value > 0.0f && l20.value > 0.1f,
+                    "offset bass: the loss grows with the cutoff and exceeds 0.1 dB at 20 Hz");
+            expectWithinAbsoluteError ((double) l20.value, moduleLoss, 0.02, "the 20 Hz point agrees with the chain's ClayModule on the same material");
+
+            const auto shortSpan = learn (sliceOf (offset, 0, (int) (6.0 * sampleRate)), 512);
+            expect (! shortSpan.lowCutBlendLossDb[0].valid && ! shortSpan.lowCutBlendLossDb[1].valid && ! shortSpan.lowCutPeakCostDb.valid,
+                    "fewer than 10 s of valid blocks: unknown, together with the peak costs");
+
+            for (auto blockSize : { 7, 333, 4096 })
+            {
+                const auto other = learn (offset, blockSize);
+                expect (sameFeature (other.lowCutBlendLossDb[0], l10) && sameFeature (other.lowCutBlendLossDb[1], l20),
+                        "block size " + juce::String (blockSize) + ": both points bit-identical");
+            }
         }
 
         //==============================================================================

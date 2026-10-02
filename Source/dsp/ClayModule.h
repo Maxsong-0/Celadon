@@ -50,6 +50,10 @@
       T-032 实现报告第 4 节）；①② 都不作用时
       y 与 x 逐位相同、守护不动作，输出 = x ± δ——加宽不进守护统计、不进代价格。放弃的替代：给 E 加 0.5 ～ 1 dB 余量能让加宽恢复，
       但低切的守护同时被削弱（低音密素材 25 Hz 低切的压力 0.49 → 0.10 dB，压力反馈不再降档），正是 ADR-014 要防的场景。
+      T-043 混合损失（2026-10-01，BUG-010 / ADR-027）：「g = 0 时输出就是干路」不等于「任何时刻都不比不修坯更轻」——低切是最小相位，
+      y 与 x 在 40 ～ 80 Hz 相位不同，0 < g < 1 时两者部分抵消（|x + g(y − x)| < |x|、|y|）。低音密、带次声偏置的歌守护几乎一直在拉
+      （woqu 75 % 的样本），低音小 0.7 dB、整体 −0.2 LU，次声却只少了 2.8 dB。守护的算术不改（somggggg 没有它入口峰值 +0.57 dB），
+      改为量出这份代价（getLastProcessBlend，K 加权）交给「先试后用」与压力反馈去减量 / 否决低切。
       为什么要延迟：最小相位 IIR 收单在低频的相位旋转会把已经很密的波形的峰值抬高 1 ～ 4 dB（ADR-012）；线性相位的互补高通
       S_d − S_low 只削低频的侧声道、不错开峰。低切与加宽仍是零延迟 IIR（线性相位低切要上百毫秒延迟，见根治修订第 5 节），
       只是跟着 M / S 一起延迟 D 对齐。
@@ -79,6 +83,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "LinearPhaseLowpass.h"
+#include "LoudnessMeter.h"   // T-043：混合损失测量借用 K 加权系数（LoudnessMeter::designKWeighting）
 
 #include <array>
 #include <cstdint>
@@ -129,11 +134,15 @@ namespace celadon
         // 按采样率算的固定延迟 D + G（与 prepare 之后的 getLatencySamples() 相同；采样率无效时为 0）。测试与离线工具用。
         static int latencyFor (double sampleRate) noexcept;
 
-        // 峰值守护的诊断统计（只给测试 / 离线工具；音频线程读、读完清零）：自上次读取以来 g < 1 的输出样本数与最小的 g。
+        // 峰值守护的诊断统计（只给测试 / 离线工具；音频线程读、读完清零）：自上次读取以来 g < 1 的输出样本数与最小的 g，
+        // 以及混合损失测量（T-043，见 getLastProcessBlend）量过的样本数与两份 K 加权能量的累计。
         struct PeakGuardStats
         {
             std::int64_t guardedSamples = 0;
             float minGain = 1.0f;
+            double blendIntendedEnergy = 0.0;
+            double blendOutputEnergy = 0.0;
+            std::int64_t blendSamples = 0;
         };
 
         PeakGuardStats getAndResetPeakGuardStats() noexcept;
@@ -148,6 +157,25 @@ namespace celadon
         };
 
         PressureReport getLastProcessPressure() const noexcept;
+
+        // 上一次 process() 的混合损失测量（T-043，ADR-027）：守护把输出拉回干路时 x + g·(y − x) 与「本该输出」y 的相位不同处会互相
+        // 抵消（4 阶最小相位低切在 40 ～ 80 Hz 转了相位：0 < g < 1 时低音变小，真歌 woqu 整体 −0.2 LU）。这里按 BS.1770 的 K 加权
+        // （LoudnessMeter 同一组系数）累计两份能量：本该输出 = 各输出样本 g 当 1 时的值（y ± δ），实际输出 = 守护后的值（± δ）。
+        // 损失 dB = 10·log10(intendedEnergy / outputEnergy)，正 = 守护让成品比修坯本该给的更轻。只在①② 作用（守护前瞻环里有处理过的
+        // 样本）的段里量，不作用的段不量、滤波器归零（中性时零开销）；seconds = 量过的样本时长。模块输出不受测量影响（逐位不变）。
+        struct BlendReport
+        {
+            double intendedEnergy = 0.0;
+            double outputEnergy = 0.0;
+            double seconds = 0.0;
+        };
+
+        BlendReport getLastProcessBlend() const noexcept;
+
+        // 只给分析器的「先试后用」候选（MusicAnalyzer，T-043）：之后每次 process() 把每个输出样本的两份 K 加权能量（各声道之和）
+        // 写进 intendedPerSample / outputPerSample[0 .. 本次样本数)，没量的样本写 0。调用方按样本号把它们归到自己的块网格上，求和顺序
+        // 因此与 process 怎么切块无关（逐位）。两个指针都给才生效，nullptr 关掉；数组长度 ≥ 每次 process 的样本数，由调用方保证。
+        void setBlendTap (double* intendedPerSample, double* outputPerSample) noexcept;
 
         // 只给测试 / 诊断：此刻起（参数不再变的话）输出是否 = 输入逐位延迟 D + G。即：未在旁通淡化中，并且要么完全旁通，
         // 要么三项实际值为 0、平滑与淡化都已静止、延迟线里也已没有低切作用过的样本（单声道模块只看 ①）；
@@ -243,8 +271,13 @@ namespace celadon
         void processStereo (float* left, float* right, int numSamples) noexcept;
         void processMono (float* samples, int numSamples) noexcept;                // 原地；同上
 
+    public:
         //==============================================================================
         // ④ 峰值守护（ADR-014，算法见文件头）。逐样本、状态与块长无关；prepare 按采样率分配，process / reset 不分配。
+        // T-043 起公开给分析器的「先试后用」混合损失候选（MusicAnalyzer）：候选只要低切 + 守护 + 混合损失测量，单独用这个类型，
+        // 不必搭一整个 ClayModule（收单的线性相位低通、加宽高架、延迟线都用不上，学习期的 CPU 才进得了预算）。单独用时调用方负责
+        // ClayModule::process 替它做的三件事：段长 ≤ maxSegmentLength、从 reset 起每 64 样本的网格点上调 decideBlendMeasuring、
+        // 每段前设好 tapIntended / tapOutput（不用抽头就留 nullptr）；dry 与 io 是同一时刻的干路与处理后（ClayModule 里两者都已延迟 D）。
         // T-024 起按段处理（状态在段内放局部变量），g 路径静止在全 1 时跳过（见 ClayModule.cpp 的 PeakGuard::processBlock），
         // 输出、统计、代价格与改前逐样本的实现逐位相同。
         struct PeakGuard
@@ -351,7 +384,37 @@ namespace celadon
             double costBlockMaxRatio = 0.0;    // 本格 max |y| / B（未守护的处理后相对界）
             double pressureSumDb = 0.0;        // 本次 process() 走完的格的 dB 之和（每次 process 开头清零）
             int pressureBlocks = 0;
+
+            // 混合损失测量（T-043，ADR-027；见 getLastProcessBlend）。processBlock 只把本段各输出样本「g 当 1 时的值」写进 intended
+            // （一次写入，守护的算术与输出逐位不变）。量不量只在 64 样本网格点上定（decideBlendMeasuring，ClayModule::process 在系数
+            // 重算的同一网格点上调）：此刻前瞻环里有①② 处理过的样本就量这一格，否则不量、两组滤波器归零——格里要输出的样本都早于格首
+            // G > 64 个样本、此刻已在环里，所以不会漏量；按网格定（不按调用切出的段）才与宿主块长无关（逐位）。实际输出 = 本该输出 +
+            // 差值，差值单独过一组 K 加权（线性：K(实际) = K(本该) + K(差值)），差值整段为 0 且它的滤波器已静下来时跳过那一组。
+            // 段长 ≤ maxSegmentLength（ClayModule::process 按 64 样本网格切段）。
+            static constexpr int maxSegmentLength = 64;
+
+            struct KState
+            {
+                double shelfS1 = 0.0, shelfS2 = 0.0, highpassS1 = 0.0, highpassS2 = 0.0;
+            };
+
+            void measureBlend (float* const* io, int channelCount, int numSamples) noexcept;
+            void clearBlendFilters() noexcept;
+            void decideBlendMeasuring() noexcept;
+
+            LoudnessMeter::Biquad blendShelf, blendHighpass;   // K 加权系数（prepare 按采样率定）
+            std::array<KState, 2> blendIntendedState {}, blendDifferenceState {};
+            std::array<std::array<float, maxSegmentLength>, 2> intended {};
+            bool blendDifferenceQuiet = true;  // 差值那组滤波器已归零（跳过它与逐位为 0 等价）
+            bool blendMeasuring = false;       // 这一格量不量（decideBlendMeasuring 在网格点上定）
+            double* tapIntended = nullptr;     // setBlendTap：本段第 0 个输出样本对应的位置（ClayModule::process 每段前设好偏移）
+            double* tapOutput = nullptr;
+            double blendIntendedEnergy = 0.0;  // 本次 process() 量到的两份能量与样本数（每次 process 开头清零）
+            double blendOutputEnergy = 0.0;
+            std::int64_t blendSamples = 0;
         };
+
+    private:
 
         //==============================================================================
         Params params;                          // setParams 钳制后的实际值
@@ -402,6 +465,8 @@ namespace celadon
 
         // ④ 峰值守护。
         PeakGuard peakGuard;
+        double* blendTapIntended = nullptr;     // setBlendTap（只给分析器的试用候选）
+        double* blendTapOutput = nullptr;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ClayModule)
     };
