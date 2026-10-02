@@ -139,5 +139,7 @@ docs/validation/2026-10-01-T044-clay-guard-loud-masters/tools/render-on-109.sh b
   容差（0.15 dB）以内——按设计保留。
 - **改前源码对照**（107）：同一夹具（限过幅 + 次声 0.06）改前 70 s 不降档（旧量 2 s 平均最大 0.025 dB、混合损失 0.041 dB）；改后 52.1 s
   降档（代价 +0.295 dB、攒满 512 块）。
-- **测试**：定向 ClayGuard / ClayModule / GlazeController / ClayGlaze 6473 过 / 0 败；全套见档案日志 2026-10-01-2 T-044 节。
+- **测试**：定向 ClayGuard / ClayModule / GlazeController / ClayGlaze 6473 过 / 0 败；全套 107 GCC **137122 / 0 / 0 编译警告**，109 真 MSVC + Wine
+  **137122 / 0 / 0 警告**，107 `-march=x86-64-v3` 137121 / 1——唯一失败是分析器学习期计时护栏（60 µs）：空闲的 107 上连跑三次，main `fd486ba`
+  本身 v3 就是 61.25 / 61.53 / 61.17 µs，本分支 61.22 / 60.44 / 60.81 µs，不是本线造成（T-043 余项④，T-038 `42cb2f1` 把护栏调到 75 µs）。
 
