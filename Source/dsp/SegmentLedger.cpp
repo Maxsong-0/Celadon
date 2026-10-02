@@ -2,7 +2,7 @@
   ==============================================================================
 
     SegmentLedger.cpp
-    T-038 House 档按小节记账（口径见 SegmentLedger.h）。
+    T-038 House 档按小节记账（口径见 SegmentLedger.h）。T-048：每定稿一段交给 SegmentSink（finalizeOldest，含 endEpoch 就地定稿的段）。
 
   ==============================================================================
 */
@@ -471,6 +471,12 @@ namespace celadon::glaze
         --openCount;
 
         deriveSegment (segment);
+
+        // T-048：每定稿一段交一次给接收者（SegmentSink，文件头见 SegmentLedger.h 末尾）——存不存进账本都交（没有有效音频、账本满了、
+        // 重放不如旧值的段同样交），交的是算好有效时长 / 段响度 / 低频占比之后、门控之前的段（full 是账本自己的结果，接收者不用）。
+        // 只读这一段，账本的状态一个不改：没设接收者时与 T-048 之前逐位相同。
+        if (sink != nullptr)
+            sink->segmentFinalized (segment);
 
         // 新响段：比「这一段并入之前」的 S_ref 高 ΔG 以上、且过了那时的低频门（设计规格第 3.2 节）。
         const auto surge = summary.valid && lowReferenceValid && segment.heard && segment.loudnessValid && segment.lowShareValid

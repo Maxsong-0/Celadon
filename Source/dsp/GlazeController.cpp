@@ -3705,6 +3705,20 @@ namespace celadon::glaze
         impl->pendingRelearn.fetch_add (1, std::memory_order_acq_rel);
     }
 
+    void GlazeController::setLiveSegmentSink (SegmentSink* sink)
+    {
+        // 关：先关实时模式（开着的段交给原来的接收者），再撤接收者；开：先交接收者再开（第一段就交得到）。
+        if (sink == nullptr)
+        {
+            impl->analyzer.setLiveMode (false);
+            impl->analyzer.setSegmentSink (nullptr);
+            return;
+        }
+
+        impl->analyzer.setSegmentSink (sink);
+        impl->analyzer.setLiveMode (true);
+    }
+
     std::unique_ptr<juce::XmlElement> GlazeController::createStateXml() const
     {
         SaveState copy;
