@@ -98,12 +98,14 @@ namespace celadon::glaze
         ~LiveProfile() override;
 
         // 消息线程：分配固定容量并冷启动。sampleRate 用来把段的样本数换成秒。
+        // （实现：固定容量在构造时就一次分配好，prepare 只按采样率换算并冷启动，不再分配。）
         void prepare (double sampleRate);
 
         // 冷启动：清空全部累计与参考（不分配）。提交序号跨 reset 单调。
         void reset() noexcept;
 
         // 常数与此刻的主段模型（编排器 / 工具在处理之前交；换曲风时再交一次：已有累计保留，之后的段按新模型算 m）。只拷贝。
+        // （实现：拷贝之后按新常数重算派生的 S_ref / lowRef 与画像——分位、I 取哪个域、M0 都随模型变；不分配、几 µs，累计一项不动。）
         void setConstants (const LiveConstants& constants, MainSectionModel model) noexcept;
 
         // ---- 音频线程 ----
