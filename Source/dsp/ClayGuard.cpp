@@ -413,8 +413,19 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    bool ClayPressureMonitor::update (double pressure, double seconds) noexcept
+    bool ClayPressureMonitor::update (double pressure, double seconds, double blendIntended, double blendOutput, double blendSeconds) noexcept
     {
+        // 混合损失（T-043）：按它自己覆盖的有效音乐秒数平滑两份能量；段里没有量过（blendSeconds = 0）或数值坏了就冻结。
+        if (blendSeconds > 0.0 && std::isfinite (blendSeconds) && std::isfinite (blendIntended) && std::isfinite (blendOutput)
+            && blendIntended >= 0.0 && blendOutput >= 0.0)
+        {
+            const auto dt = juce::jmin (blendSeconds, maxSeconds);
+            const auto retain = std::exp (-dt / smoothingSeconds);
+            blendIntendedSmoothed = blendIntendedSmoothed * retain + blendIntended;
+            blendOutputSmoothed = blendOutputSmoothed * retain + blendOutput;
+            blendAboveSeconds = blendLossDb() > blendThreshold ? juce::jmin (blendAboveSeconds + dt, maxSeconds) : 0.0;
+        }
+
         if (! (seconds > 0.0) || ! std::isfinite (seconds))
             return false;
 
@@ -425,15 +436,24 @@ namespace celadon::glaze
         sinceStep = juce::jmin (sinceStep + dt, maxSeconds);
         aboveSeconds = smoothed > threshold ? juce::jmin (aboveSeconds + dt, maxSeconds) : 0.0;
 
-        if (aboveSeconds >= sustainSeconds && sinceStep >= cooldownSeconds)
+        if ((aboveSeconds >= sustainSeconds || blendAboveSeconds >= sustainSeconds) && sinceStep >= cooldownSeconds)
         {
             smoothed = 0.0;
             aboveSeconds = 0.0;
             sinceStep = 0.0;
+            blendIntendedSmoothed = 0.0;
+            blendOutputSmoothed = 0.0;
+            blendAboveSeconds = 0.0;
             return true;
         }
 
         return false;
+    }
+
+    double ClayPressureMonitor::blendLossDb() const noexcept
+    {
+        return blendIntendedSmoothed > 0.0 && blendOutputSmoothed > 0.0
+                 ? 10.0 * std::log10 (blendIntendedSmoothed / blendOutputSmoothed) : 0.0;
     }
 
     void ClayPressureMonitor::reset() noexcept
@@ -441,6 +461,9 @@ namespace celadon::glaze
         smoothed = 0.0;
         aboveSeconds = 0.0;
         sinceStep = cooldownSeconds;
+        blendIntendedSmoothed = 0.0;
+        blendOutputSmoothed = 0.0;
+        blendAboveSeconds = 0.0;
     }
 
     float ClayPressureMonitor::nextScale (float scale) noexcept

@@ -73,7 +73,7 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--block` | `512` | 宿主块长（样本，1～65536），两遍都用它 |
 | `--match-lufs` | `-16` | 成品按整体响度只乘增益对齐到这个值（-60～0 LUFS） |
 | `--metrics-only` | 关 | 照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用：几十首 × 8 组的 float wav 有好几 GB） |
-| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案与保护状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、校准状态；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；列见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
+| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案与保护状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、守护混合损失的两份 K 加权能量（`blend_intended_energy` / `blend_output_energy`，T-043）、校准状态；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；列见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
 | `--no-replay` | 关 | 不做同决策重放（默认每组 GLAZE > 0 的修坯「自动」之后多一组 `clay-replay-off` 与阳性对照，见下） |
 | `--selftest` | — | 只跑自检，不读歌（其余选项忽略） |
 
@@ -138,6 +138,8 @@ stderr 也报一次；插件是在处理器层把含非有限值的整块清零�
 | — | `clay_pressure_scale` / `clay_pressure_steps` | 成品末尾修坯压力反馈的缩放（1 = 不限）与降档次数（ADR-014） |
 | — | `replay_check` / `replay_max_diff_dbfs` | 只在 GLAZE > 0 的「自动」行：同决策重放的阳性对照 ok / mismatch / n/a 与重放对自动链的最大样本差（`-inf` = 逐位相同；允许 ≤ −180 dBFS） |
 | 有效音乐（表头） | `music_seconds` | 这段音频 K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（与校准器同一门限；歌尾静音不算）。门槛看原始输入行的值 |
+| — | `trial_blend10_db` / `trial_blend20_db` | T-043（ADR-027）：成品末尾已提交画像里「先试后用」量到的峰值守护混合损失（10 / 20 Hz 低切候选，K 加权「本该 / 实际」，dB）。决策器按两点幂律把低切频率封顶在预测 0.09 dB 处 |
+| — | `clay_blend_loss_db` | T-043：第二遍链里修坯峰值守护的混合损失（全曲两份 K 加权能量之比，dB；低切 / 收单都没作用过时为空）。正 = 守护把低切拉回干路时与干路相位不同、互相抵消，成品比修坯本该给的更轻；与同决策重放的响度差几乎一一对应（woqu：0.215 dB ↔ −0.199 LU） |
 
 `clay-replay-off` 行是 GLAZE 0 的链，GLAZE 状态列没有意义：`glaze_phase` 写 `replay`，`calibration_valid` / `resolved_style` / `listen_phase` 空。
 

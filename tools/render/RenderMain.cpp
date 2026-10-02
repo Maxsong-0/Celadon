@@ -1128,6 +1128,9 @@ namespace
         double widthGuardPercent = 0.0;    // 宽度保护介入的时长占比（%）
         double peakGuardPercent = 0.0;     // 修坯峰值守护 g < 1 的样本占比（%，ADR-014）
         double peakGuardMinGain = 1.0;     // 全曲最小的 g
+        double blendIntendedEnergy = 0.0;  // 守护混合损失测量（T-043，ADR-027）：全曲「本该输出」与实际输出的 K 加权能量、量过的样本数
+        double blendOutputEnergy = 0.0;
+        std::int64_t blendSamples = 0;
         double slowInvertedPercent = 0.0;  // 分析器慢路低频相关度有效的块里 ρ < −0.2 的占比（%）：歌里有没有真反相段（门槛用）
         double limitInputPeakDb = -1000.0; // 限幅器入口峰值相对 Ceiling 的最大值（dB）= max(GR − 本块实际 Limit Gain)，只计 GR > 0 的块：
                                            // 扣掉两条链各自校准出的增益差，只剩入口峰值（与 ClayGlazeTests 的 readLimiter 同口径）
@@ -1170,6 +1173,9 @@ namespace
             peakGuard = chain.getClayForTesting().getAndResetPeakGuardStats();
             peakGuardSamples += peakGuard.guardedSamples;
             result.peakGuardMinGain = std::min (result.peakGuardMinGain, static_cast<double> (peakGuard.minGain));
+            result.blendIntendedEnergy += peakGuard.blendIntendedEnergy;
+            result.blendOutputEnergy += peakGuard.blendOutputEnergy;
+            result.blendSamples += peakGuard.blendSamples;
 
             if (reduction > 0.0)
                 result.limitInputPeakDb = std::max (result.limitInputPeakDb,
@@ -1278,12 +1284,21 @@ namespace
                     result.trace = "t_sec,limit_gr_db,planned_lowcut_hz,planned_mono_amount,planned_mono_hz,planned_width_db,"
                                    "live_mono_amount,live_width_db,guard_phase_floor,guard_phase_hold_s,guard_phase_active,"
                                    "guard_seconds,rho_slow,rho_fast,clay_lowcut_hz,clay_mono_amount,clay_mono_hz,clay_width_db,"
-                                   "peak_guard_samples,peak_guard_min_gain,limit_gain_db,tone_db,glue,heat,"
+                                   "peak_guard_samples,peak_guard_min_gain,blend_intended_energy,blend_output_energy,"
+                                   "limit_gain_db,tone_db,glue,heat,"
                                  + std::string (calibrationTraceHeader()) + "\n";
 
                 const auto feature = [] (const celadon::glaze::Feature& f)
                 {
                     return f.valid ? fixed (f.value, 4) : std::string();
+                };
+
+                // 守护混合损失的两份 K 加权能量（T-043）：量级跨很多个数量级，用科学计数法。
+                const auto energy = [] (double value)
+                {
+                    char text[32];
+                    std::snprintf (text, sizeof (text), "%.9e", value);
+                    return std::string (text);
                 };
 
                 result.trace += fixed (static_cast<double> (position - latency) / sampleRate, 4) + ","
@@ -1297,6 +1312,7 @@ namespace
                               + fixed (blockStatus.clayLowCutHz, 2) + "," + fixed (blockStatus.clayMonoAmount, 4) + ","
                               + fixed (blockStatus.clayMonoHz, 1) + "," + fixed (blockStatus.clayWidthDb, 3) + ","
                               + std::to_string (peakGuard.guardedSamples) + "," + fixed (peakGuard.minGain, 4) + ","
+                              + energy (peakGuard.blendIntendedEnergy) + "," + energy (peakGuard.blendOutputEnergy) + ","
                               + fixed (effective.limit.gainDb, 3) + "," + fixed (effective.color.toneDb, 3) + ","
                               + fixed (effective.color.glue, 2) + "," + fixed (effective.color.heat, 2) + ","
                               + calibrationTraceColumns (chain->getGlazeController()) + "\n";
@@ -1510,6 +1526,8 @@ namespace
         double grMeanDb = 0.0, grMaxDb = 0.0;
         double phaseGuardPercent = 0.0, widthGuardPercent = 0.0;
         double peakGuardPercent = 0.0, peakGuardMinGain = 1.0, slowInvertedPercent = 0.0, limitInputPeakDb = -1000.0;
+        double blendIntendedEnergy = 0.0, blendOutputEnergy = 0.0;   // 守护混合损失（T-043）：全曲两份 K 加权能量
+        std::int64_t blendSamples = 0;
         Status status;                         // 成品末尾（getGlazeStatus）
         Phase listenPhase = Phase::unlearned;  // 第一遍（聆听）结束时
         std::string fileName;                  // 写成功的成品文件名；失败为空
@@ -1672,6 +1690,10 @@ namespace
             row.replayMaxDifference < 0.0 ? empty
                 : (row.replayMaxDifference > 0.0 ? fixed (toDbfs (row.replayMaxDifference), 1) : std::string ("-inf")),
             fixed (m.musicSeconds, 1),
+            profileFeature (row, row.profile.lowCutBlendLossDb[0], 3),
+            profileFeature (row, row.profile.lowCutBlendLossDb[1], 3),
+            render && row.blendSamples > 0 && row.blendIntendedEnergy > 0.0 && row.blendOutputEnergy > 0.0
+                ? fixed (10.0 * std::log10 (row.blendIntendedEnergy / row.blendOutputEnergy), 3) : empty,
         };
 
         std::string line;
@@ -1691,7 +1713,8 @@ namespace
                           "calibration_valid,resolved_style,listen_phase,audio_hash,file,trial_lowcut_cost_db,trial_mono60_cost_db,"
                           "trial_mono80_cost_db,trial_mono120_cost_db,trial_mono160_cost_db,trial_width_cost_db,profile_sub_share_db,"
                           "profile_low_corr,trial_seconds,peak_guard_pct,peak_guard_min_gain,slow_inverted_pct,limit_input_peak_db,"
-                          "clay_pressure_scale,clay_pressure_steps,replay_check,replay_max_diff_dbfs,music_seconds\n";
+                          "clay_pressure_scale,clay_pressure_steps,replay_check,replay_max_diff_dbfs,music_seconds,trial_blend10_db,"
+                          "trial_blend20_db,clay_blend_loss_db\n";
 
         for (const auto& report : reports)
             for (const auto& row : report.rows)
@@ -1942,6 +1965,9 @@ namespace
         row.phaseGuardPercent = off.phaseGuardPercent;
         row.widthGuardPercent = off.widthGuardPercent;
         row.peakGuardPercent = off.peakGuardPercent;
+        row.blendIntendedEnergy = off.blendIntendedEnergy;
+        row.blendOutputEnergy = off.blendOutputEnergy;
+        row.blendSamples = off.blendSamples;
         row.peakGuardMinGain = off.peakGuardMinGain;
         row.slowInvertedPercent = off.slowInvertedPercent;
         row.limitInputPeakDb = off.limitInputPeakDb;
@@ -1998,6 +2024,9 @@ namespace
             row.phaseGuardPercent = render.phaseGuardPercent;
             row.widthGuardPercent = render.widthGuardPercent;
             row.peakGuardPercent = render.peakGuardPercent;
+            row.blendIntendedEnergy = render.blendIntendedEnergy;
+            row.blendOutputEnergy = render.blendOutputEnergy;
+            row.blendSamples = render.blendSamples;
             row.peakGuardMinGain = render.peakGuardMinGain;
             row.slowInvertedPercent = render.slowInvertedPercent;
             row.limitInputPeakDb = render.limitInputPeakDb;

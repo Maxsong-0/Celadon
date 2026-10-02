@@ -394,6 +394,22 @@ namespace celadon::test
             return signal;
         }
 
+        // 守护不动作的低音素材（T-043）：单一 60 Hz 稳态正弦（0.3，两声道相同；4 s 里整数周期，循环播放没有接缝）。低切只转它的相位、
+        // 不改幅度，峰值的前移（20 Hz 低切在 60 Hz 约 51°，约 2.4 ms）落在守护 ±8 ms 的局部峰值窗里，守护从不动作（ClayTests 稳态单音
+        // 那条），混合损失为 0——用作「Clay 开着、守护与压力反馈都不该动」的播放素材。makeClayMaterial 的 60 + 110 Hz 谐波对经低切
+        // 抬峰，守护频繁回收、回收时与干路相位不同处互相抵消（混合损失），压力反馈的第二个触发量（ADR-027）会降档。
+        Signal makeSteadyBass()
+        {
+            const auto numSamples = (int) (4.0 * defaultRate);
+            auto signal = makeSilence (numChannels, numSamples);
+            const auto twoPi = juce::MathConstants<double>::twoPi;
+
+            for (int i = 0; i < numSamples; ++i)
+                signal[0][(size_t) i] = signal[1][(size_t) i] = (float) (0.3 * std::sin (twoPi * 60.0 * (double) i / defaultRate));
+
+            return signal;
+        }
+
         // 按 Clay 规格「最需要处理」造的画像（格式 2，特征全部有效、置信度 1；数字按 Clay 子文档第 2 节与根治修订 3.3 算）：
         //   真次声占比 −10 dB → need_sub = ramp(−10, −40, −28) = 1 → 低切给满（通透 20 Hz、温润 16 Hz）；
         //   低频 S/M −30 dB、ρ 0.98 → 单声道回放低音损失 10·log10((1 + 0.98) / 2) = −0.04 dB → need_mono = ramp(−0.04, −0.5, −3) = 0
@@ -3301,7 +3317,8 @@ namespace celadon::test
             saved.plan.algorithmVersion = glaze::oldestCompatibleAlgorithmVersion - 1;   // 比兼容下限还旧：照用保存的增量
             saved.plan.clay = { 40.0f, 150.0f, 0.8f, 1.0f, 0 };   // 旧算法方案里的 Clay 值不采用
 
-            Rig rig (clayConstants(), material, defaultParams (60.0f, 3));
+            // 播放守护不动作的稳态低音（T-043）：谐波素材上守护的混合损失会让压力反馈降档，方案就不再逐块等于过渡混合。
+            Rig rig (clayConstants(), makeSteadyBass(), defaultParams (60.0f, 3));
             rig.chain.restoreGlazeStateXml (glaze::toXml (saved).get());
             rig.run (0.5);
             expect (rig.probe().savedPlanMode && rig.status().savedPlanFromOlderAlgorithm, "the older plan is kept as saved");
@@ -3375,7 +3392,10 @@ namespace celadon::test
         //    每档走方案过渡：
         //      - 25 s 内至少降两档（缩放 ≤ 0.25），状态报低切「因代价减量 / 跳过」（costLimitedMask 的低切位）；自动低切比学完时低；
         //      - 存档带着缩放（控制器节点的 clayPressureScale 属性），读回新链后缩放与方案一致；删掉这个属性的旧存档 = 1；
-        //    阳性对照：同一画像、单声道正弦素材（60 / 110 Hz，守护几乎不动作）20 s 不降档。
+        //    阳性对照：同一画像、守护不动作的稳态低音（makeSteadyBass）20 s 不降档。
+        //    T-043（ADR-027）：原先的阳性对照素材（60 / 110 Hz + 白噪声）峰值超出很小、守护却频繁回收——ADR-014 当时以为「回收量夸大了
+        //    伤害」；按混合损失看，回收时低切后的信号与干路在 60 Hz 差约 51°、互相抵消，低音实打实变小，第二个触发量在 20 s 内降档
+        //    （第一个触发量照旧不动：平滑后的超出量 < 0.2 dB）。
         void testClayPressureFeedback()
         {
             beginTest ("Clay pressure feedback (ADR-014): a guard that keeps pulling the low cut back steps the automatic Clay scale down, and it is saved");
@@ -3394,15 +3414,33 @@ namespace celadon::test
                 square[0][i] = square[1][i] = phase < 0.5 ? 0.5f : -0.5f;
             }
 
-            // 阳性对照：守护几乎不动作的素材不降档。
+            // 阳性对照：守护不动作的素材不降档。
             {
-                Rig calm (clayConstants(), normal, defaultParams (60.0f, 3));
+                Rig calm (clayConstants(), makeSteadyBass(), defaultParams (60.0f, 3));
                 calm.chain.restoreGlazeStateXml (saved.get());
                 calm.run (20.0);
                 expect (calm.probe().clayAutomaticSupported);
-                expectEquals (calm.probe().clayPressureSteps, 0, "gentle material: no pressure step (smoothed pull-back "
-                                                                 + juce::String (calm.probe().clayPressureSmoothed, 4) + ")");
+                expectEquals (calm.probe().clayPressureSteps, 0, "steady bass: no pressure step (smoothed excess "
+                                                                 + juce::String (calm.probe().clayPressureSmoothed, 4) + " dB, blend loss "
+                                                                 + juce::String (calm.probe().clayBlendLossSmoothedDb, 4) + " dB)");
                 expectEquals (calm.probe().clayPressureScale, 1.0f);
+                expect (calm.probe().clayBlendLossSmoothedDb < 0.01, "the guard never blends on a steady tone");
+            }
+
+            // T-043：谐波素材——峰值超出很小，混合损失却持续超过 0.15 dB → 第二个触发量降档。
+            {
+                Rig gentle (clayConstants(), normal, defaultParams (60.0f, 3));
+                gentle.chain.restoreGlazeStateXml (saved.get());
+                auto peakBlend = 0.0;
+                gentle.runUntil (20.0, [&]
+                {
+                    peakBlend = juce::jmax (peakBlend, gentle.probe().clayBlendLossSmoothedDb);
+                    return gentle.probe().clayPressureSteps > 0;
+                });
+                logMessage ("  60 + 110 Hz material: blend loss up to " + juce::String (peakBlend, 3) + " dB, steps "
+                            + juce::String (gentle.probe().clayPressureSteps) + ", smoothed excess " + juce::String (gentle.probe().clayPressureSmoothed, 4));
+                expect (gentle.probe().clayPressureSteps >= 1 && peakBlend > glaze::ClayPressureMonitor::blendThreshold,
+                        "the guard's blending costs > 0.15 dB of bass on the harmonic pair: the second trigger steps down");
             }
 
             Rig rig (clayConstants(), square, defaultParams (60.0f, 3));

@@ -1305,6 +1305,7 @@ namespace celadon::test
             testWideBassNeverTriggersPhaseGuard();
             testWholeLowBandInversion();
             testInfrasoundLowCutHelps();
+            testOffsetBassBlendLossCap();
 
             // ---- T-042 / BUG-009：只有 pad 的 breakdown ----
             testBreakdownPadDoesNotLightPhaseWarning();
@@ -2680,6 +2681,75 @@ namespace celadon::test
                         "the automatic low cut does not raise the peaks reaching the limiter");
             else
                 expect (withClay.grMaxDb <= 0.05f, "neither chain limits: nothing to raise");
+        }
+
+        //==============================================================================
+        // 13. T-043（BUG-010 / ADR-027）偏置低音（真歌 woqu 的机制）：49 Hz 贝斯 0.45 + 98 Hz 二次谐波 0.07 + 4 Hz 次声偏置 0.10
+        //     （两声道相同）+ −40 dBFS 白噪声；8 s 里 49 / 98 / 4 Hz 都是整数周期，循环播放没有接缝。20 Hz 低切改变贝斯的波峰形状并去掉
+        //     偏置，越过守护局部界的峰很多，守护大半时间在拉，回收时与干路互相抵消——不经守护的低切峰值反而更低（代价 ≤ 0.2 dB，照做），
+        //     ADR-014 的两层都看不出来。109 渲染实测（30 s 同素材、GLAZE 60）：试用损失 10 / 20 Hz = 0.085 / 0.106 dB → 封到 12.05 Hz、
+        //     链内 0.084 dB。GLAZE 60、学完并校准锁定后：
+        //       - 画像：先试后用的两点混合损失有效、20 Hz 那点 > 门槛 0.09 dB（夹具确实会抵消）；峰值代价 ≤ 0.2 dB（代价系数 1：低切
+        //         若被减量，只可能是混合损失封顶）；
+        //       - 方案：低切 ≤ 本文件按定义算的越过点 10·(0.09 / L₁₀)^(1/q)（q = log₂(L₂₀ / L₁₀)）、低于 20 Hz，越过点在地板 10 Hz 之下
+        //         则为 0（否决）——两种都置低切代价位（L₁₀ 离门槛只有约 0.005 dB，环境略变就可能走到否决那一支，断言对两支都成立）；
+        //       - 链里（低切开着时）：锁定后 6 s，ClayModule 统计的守护混合损失 ≤ 0.12 dB（门槛 0.09 + 试用（原始输入）对链内的偏差）。
+        // 依据：BUG-010、ADR-027；GlazePlanner.cpp capLowCutForBlend；MusicAnalyzer「五」。
+        void testOffsetBassBlendLossCap()
+        {
+            beginTest ("offset bass (T-043): the trial's guard blend loss caps the automatic low cut, and the chain's guard then loses <= 0.12 dB");
+
+            const auto constants = confidentConstants();
+            const auto numSamples = static_cast<int> (8.0 * kRate);
+            auto material = makeSilence (kChannels, numSamples);
+            juce::Random noise (4343);
+            const auto twoPi = juce::MathConstants<double>::twoPi;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto t = static_cast<double> (i) / kRate;
+                const auto value = static_cast<float> (0.45 * std::sin (twoPi * 49.0 * t) + 0.07 * std::sin (twoPi * 98.0 * t)
+                                                       + 0.10 * std::sin (twoPi * 4.0 * t) + 0.01 * (noise.nextDouble() * 2.0 - 1.0));
+
+                for (auto& channel : material)
+                    channel[static_cast<size_t> (i)] = value;
+            }
+
+            ClayRig rig (constants, material, glazeParams (60.0f));
+            expect (rig.learnAndCalibrate (60.0), "learns, calibrates and locks");
+
+            const auto profile = rig.committed().profile;
+            const auto& l10 = profile.lowCutBlendLossDb[0];
+            const auto& l20 = profile.lowCutBlendLossDb[1];
+            logMessage ("  profile: " + featureText ("subShareDb", profile.subShareDb) + "; costs: " + costText (profile)
+                        + "; blend loss 10 Hz " + juce::String (l10.value, 4) + ", 20 Hz " + juce::String (l20.value, 4) + " dB");
+            expect (l10.valid && l20.valid && l20.value > constants.clayBlendLossLimitDb && l10.value > 0.0f,
+                    "fixture: the trial measures a blend loss above the 0.09 dB limit at 20 Hz");
+            expect (profile.lowCutPeakCostDb.valid && profile.lowCutPeakCostDb.value <= constants.clayCostFullDb,
+                    "fixture: the unguarded low cut does not raise the peaks (the peak-cost layer lets it through)");
+
+            const auto q = std::log2 ((double) l20.value / (double) l10.value);
+            const auto crossing = 10.0 * std::pow ((double) constants.clayBlendLossLimitDb / (double) l10.value, 1.0 / q);
+            const auto s = rig.status();
+            logMessage ("  automatic: " + statusText (s) + ", predicted crossing " + juce::String (crossing, 3) + " Hz");
+            if (crossing < (double) constants.clayLowCutFloorHz)
+                expectEquals (s.clayLowCutHz, 0.0f, "the predicted crossing lies below the floor: no low cut");
+            else
+                expect ((double) s.clayLowCutHz <= crossing * 1.0001 && s.clayLowCutHz < 20.0f,
+                        "the planned low cut is capped at the predicted 0.09 dB crossing: " + juce::String (s.clayLowCutHz, 3) + " Hz");
+
+            expect ((s.clayCostLimitedMask & glaze::clayCostLimitedLowCut) != 0, "the status explains it (low-cut cost bit)");
+
+            if (! (s.clayLowCutHz > 0.0f))
+                return;
+
+            rig.chain.getClayForTesting().getAndResetPeakGuardStats();
+            rig.run (6.0);
+            const auto stats = rig.chain.getClayForTesting().getAndResetPeakGuardStats();
+            const auto chainLoss = stats.blendOutputEnergy > 0.0 ? 10.0 * std::log10 (stats.blendIntendedEnergy / stats.blendOutputEnergy) : 0.0;
+            logMessage ("  chain over 6 s: guard blend loss " + juce::String (chainLoss, 4) + " dB, guarded "
+                        + juce::String (100.0 * (double) stats.guardedSamples / (6.0 * kRate), 1) + " % of samples");
+            expect (stats.blendSamples > 0 && chainLoss <= 0.12, "the chain's guard now loses <= 0.12 dB");
         }
     };
 

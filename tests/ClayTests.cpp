@@ -45,6 +45,7 @@
 #include <complex>
 #include <cstring>
 #include <limits>
+#include <numeric>
 
 namespace celadon::test
 {
@@ -861,6 +862,8 @@ namespace celadon::test
                 testWidthIsNotRecoveredByPeakGuard();
                 testLowCutAndMonoEffectsAtNormalLevel();
                 testOutputDigestsForGuardComparison();
+                testBlendLossMeasurement();
+                testBlendTapIsBlockSizeIndependent();
             }
 
         private:
@@ -2458,6 +2461,226 @@ namespace celadon::test
                 prepareClay (active, sampleRate, 2, allStagesParams());
                 const auto activeOut = runClay (active, input, 333);
                 expect (allFinite (sliceOf (activeOut, nanAt + delay + 128, numSamples)), "an active module recovers from the NaN by the next grid point");
+            }
+
+            //==============================================================================
+            // T-043（ADR-027）混合损失测量的独立核对工具：BS.1770-4 的 48 kHz K 加权系数（标准表，与被测代码按采样率推导的那套不共享
+            // 实现），直接 I 型、double。
+            static double kWeightedEnergy (const std::vector<float>& x)
+            {
+                static constexpr double shelfB[] { 1.53512485958697, -2.69169618940638, 1.19839281085285 };
+                static constexpr double shelfA[] { 1.0, -1.69065929318241, 0.73248077421585 };
+                static constexpr double rlbB[] { 1.0, -2.0, 1.0 };
+                static constexpr double rlbA[] { 1.0, -1.99004745483398, 0.99007225036621 };
+                double x1 = 0, x2 = 0, y1 = 0, y2 = 0, z1 = 0, z2 = 0, w1 = 0, w2 = 0, energy = 0;
+
+                for (auto sample : x)
+                {
+                    const auto in = (double) sample;
+                    const auto y = shelfB[0] * in + shelfB[1] * x1 + shelfB[2] * x2 - shelfA[1] * y1 - shelfA[2] * y2;
+                    x2 = x1; x1 = in; y2 = y1; y1 = y;
+                    const auto w = rlbB[0] * y + rlbB[1] * z1 + rlbB[2] * z2 - rlbA[1] * w1 - rlbA[2] * w2;
+                    z2 = z1; z1 = y; w2 = w1; w1 = w;
+                    energy += w * w;
+                }
+
+                return energy;
+            }
+
+            // 「woqu 式」素材：49 Hz 贝斯 0.4 + 98 Hz 二次谐波 0.15 + 4 Hz 次声偏置 0.15（左右相同）。20 Hz 低切在 49 / 98 Hz 转的相位不同，
+            // 改变了贝斯的波峰形状并去掉偏置，越过守护局部界的峰很多 → 守护大半时间在拉、g 停在 0 ～ 1 之间，回收时低切后的信号与干路
+            // 互相抵消（真歌 woqu 的机制；109 实测试用损失 10 / 20 Hz ≈ 0.12 / 0.21 dB）。只有单一正弦 + 偏置时守护多半整段退回干路
+            // （g ≈ 0，不混合就不抵消），损失反而很小——所以要谐波。
+            static Signal makeOffsetBass (double sampleRate, int numSamples)
+            {
+                auto signal = makeSineOfLength (2, sampleRate, 49.0, 0.4f, numSamples);
+
+                for (auto& channel : signal)
+                {
+                    addSine (channel, sampleRate, 98.0, 0.15f);
+                    addSine (channel, sampleRate, 4.0, 0.15f);
+                }
+
+                return signal;
+            }
+
+            // T-043（ADR-027）混合损失测量（ClayModule::getLastProcessBlend / 统计 / setBlendTap；守护的 measureBlend）：
+            //  - 中性（三项 0）：从不量（每次 process 的 seconds = 0、统计里 0 个样本）；
+            //  - 稳态 60 Hz 正弦过 20 Hz 低切（守护不动作）：量了、两份能量逐位相等（损失恰为 0）；
+            //  - 偏置低音（makeOffsetBass）过 20 Hz 低切：守护大半时间在拉；
+            //      实际输出那份 = 本文件独立算的 K 加权能量（相对 1e-6）；
+            //      本该输出那份 = 同一素材 × 2^−8（峰值约 −48 dBFS，低于守护地板 −40 dBFS，守护不动作）的输出乘回 2^8 后的 K 加权能量——
+            //      低切与 M/S 都是线性的，double 里乘 2 的幂与舍入可交换，所以它逐位就是大信号的「g 当 1」输出（相对 1e-6）；
+            //      损失 10·log10(本该 / 实际) > 0.1 dB（守护的回收在 49 / 98 Hz 互相抵消）；
+            //  - 单声道模块同样量（一个声道）。
+            void testBlendLossMeasurement()
+            {
+                beginTest ("blend-loss measurement (T-043): idle modules measure nothing, steady tones lose exactly 0, guarded offset bass loses > 0.1 dB, K-weighted as specified");
+
+                constexpr double sampleRate = 48000.0;
+                const auto numSamples = (int) (4.0 * sampleRate);
+
+                {
+                    ClayModule clay;
+                    prepareClay (clay, sampleRate, 2, neutralParams());
+                    juce::AudioBuffer<float> block (2, 512);
+                    auto input = makeProgramme (512 * 40, sampleRate, -12.0f, 7);
+                    auto measuredSeconds = 0.0;
+
+                    for (int start = 0; start < 512 * 40; start += 512)
+                    {
+                        for (int ch = 0; ch < 2; ++ch)
+                            block.copyFrom (ch, 0, input[(size_t) ch].data() + start, 512);
+
+                        clay.process (block);
+                        measuredSeconds += clay.getLastProcessBlend().seconds;
+                    }
+
+                    expectEquals (measuredSeconds, 0.0, "neutral module: nothing measured");
+                    expectEquals ((int) clay.getAndResetPeakGuardStats().blendSamples, 0);
+                }
+
+                {
+                    // 先过 1 s 起振（突然开始的正弦经高通有一段衰减的低频余量，可能短暂碰到守护；同稳态单音那条），再量 3 s。
+                    ClayModule clay;
+                    prepareClay (clay, sampleRate, 2, makeParams (20.0f, 120.0f, 0.0f, 0.0f));
+                    const auto tone = makeSineOfLength (2, sampleRate, 60.0, 0.5f, numSamples);
+                    const auto settle = (int) sampleRate;
+                    runClay (clay, sliceOf (tone, 0, settle), 512);
+                    clay.getAndResetPeakGuardStats();
+                    runClay (clay, sliceOf (tone, settle, numSamples), 512);
+                    const auto stats = clay.getAndResetPeakGuardStats();
+                    expect (stats.blendSamples > numSamples / 2, "a low cut that is on is measured");   // 3 s 量满
+                    expectEquals ((int) stats.guardedSamples, 0, "positive control: the guard never engages on a steady tone");
+                    expect (stats.blendIntendedEnergy == stats.blendOutputEnergy && stats.blendIntendedEnergy > 0.0,
+                            "g = 1 throughout: the two energies are bit-identical (loss exactly 0)");
+                }
+
+                const auto loud = makeOffsetBass (sampleRate, numSamples);
+                auto quiet = loud;
+
+                for (auto& channel : quiet)
+                    for (auto& sample : channel)
+                        sample = std::ldexp (sample, -8);
+
+                ClayModule clay, reference;
+                const auto lowCut = makeParams (20.0f, 120.0f, 0.0f, 0.0f);
+                prepareClay (clay, sampleRate, 2, lowCut);
+                prepareClay (reference, sampleRate, 2, lowCut);
+                const auto out = runClay (clay, loud, 512);
+                auto intended = runClay (reference, quiet, 512);
+                const auto stats = clay.getAndResetPeakGuardStats();
+                expectEquals ((int) reference.getAndResetPeakGuardStats().guardedSamples, 0, "positive control: below the floor the guard never acts");
+
+                for (auto& channel : intended)
+                    for (auto& sample : channel)
+                        sample = std::ldexp (sample, 8);
+
+                const auto outputEnergy = kWeightedEnergy (out[0]) + kWeightedEnergy (out[1]);
+                const auto intendedEnergy = kWeightedEnergy (intended[0]) + kWeightedEnergy (intended[1]);
+                const auto lossDb = 10.0 * std::log10 (stats.blendIntendedEnergy / stats.blendOutputEnergy);
+                logMessage ("  offset bass through 20 Hz: guarded " + juce::String (100.0 * (double) stats.guardedSamples / numSamples, 1)
+                            + " % of samples, min g " + juce::String (stats.minGain, 3) + ", blend loss " + juce::String (lossDb, 4)
+                            + " dB (independent " + juce::String (10.0 * std::log10 (intendedEnergy / outputEnergy), 4) + " dB)");
+                expectWithinAbsoluteError (stats.blendOutputEnergy / outputEnergy, 1.0, 1.0e-6, "output energy = independent K-weighted energy of the output");
+                expectWithinAbsoluteError (stats.blendIntendedEnergy / intendedEnergy, 1.0, 1.0e-6, "intended energy = K-weighted energy of the unguarded low cut");
+                expect (stats.guardedSamples > numSamples / 4, "positive control: the guard pulls back a lot");
+                expect (lossDb > 0.1, "the guard's blending costs > 0.1 dB of K-weighted level on offset bass");
+
+                {
+                    ClayModule mono;
+                    prepareClay (mono, sampleRate, 1, lowCut);
+                    runClay (mono, Signal { loud[0] }, 512);
+                    const auto monoStats = mono.getAndResetPeakGuardStats();
+                    expect (monoStats.blendSamples > 0 && monoStats.blendIntendedEnergy > monoStats.blendOutputEnergy,
+                            "a mono module measures the same way (one channel)");
+                }
+            }
+
+            // T-043：抽头（setBlendTap）逐样本的两份能量与宿主块长无关（逐位）。素材：偏置低音 1 s → 数字静音 2.5 s → 偏置低音 1 s。
+            // 静音里低切还在余振（20 Hz 4 阶最慢的极点按约 48 /s 衰减，到状态归零门槛 1e-30 约 1.5 s），余振归零后 y 与干路逐位相同、守护
+            // 前瞻环里不再有处理过的样本，64 样本网格点上停量、滤波器归零（抽头写 0）；声音回来后重新开始量。1 / 37 / 512 / 4096 块长，
+            // 两条抽头逐位相同；抽头之和与统计里的两份能量一致（相对 1e-9）；输出也逐位相同。
+            void testBlendTapIsBlockSizeIndependent()
+            {
+                beginTest ("blend-loss tap (T-043): per-sample energies are bit-identical for block sizes 1 / 37 / 512 / 4096, across a stop and restart");
+
+                constexpr double sampleRate = 48000.0;
+                const auto second = (int) sampleRate;
+                auto input = makeOffsetBass (sampleRate, second);
+                const auto tail = makeOffsetBass (sampleRate, second);
+
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    input[(size_t) ch].insert (input[(size_t) ch].end(), (size_t) (5 * second / 2), 0.0f);
+                    input[(size_t) ch].insert (input[(size_t) ch].end(), tail[(size_t) ch].begin(), tail[(size_t) ch].end());
+                }
+
+                const auto numSamples = (int) input[0].size();
+
+                struct Run
+                {
+                    std::vector<double> intended, output;
+                    Signal audio;
+                    ClayModule::PeakGuardStats stats;
+                };
+
+                const auto run = [&] (int blockSize)
+                {
+                    Run r;
+                    r.intended.assign ((size_t) numSamples, -1.0);
+                    r.output.assign ((size_t) numSamples, -1.0);
+                    r.audio = input;
+                    ClayModule clay;
+                    prepareClay (clay, sampleRate, 2, makeParams (20.0f, 120.0f, 0.0f, 0.0f));
+                    juce::AudioBuffer<float> block (2, blockSize);
+
+                    for (int start = 0; start < numSamples; start += blockSize)
+                    {
+                        const auto length = juce::jmin (blockSize, numSamples - start);
+                        block.setSize (2, length, false, false, true);
+
+                        for (int ch = 0; ch < 2; ++ch)
+                            block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+
+                        clay.setBlendTap (r.intended.data() + start, r.output.data() + start);
+                        clay.process (block);
+
+                        for (int ch = 0; ch < 2; ++ch)
+                            std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + length, r.audio[(size_t) ch].begin() + start);
+                    }
+
+                    r.stats = clay.getAndResetPeakGuardStats();
+                    return r;
+                };
+
+                const auto reference = run (512);
+                auto zeroRun = 0, longestZeroRun = 0;
+
+                for (int i = second; i < 7 * second / 2; ++i)
+                {
+                    zeroRun = reference.intended[(size_t) i] == 0.0 ? zeroRun + 1 : 0;
+                    longestZeroRun = juce::jmax (longestZeroRun, zeroRun);
+                }
+
+                expect (longestZeroRun > 64, "positive control: measurement stops in the silent gap (and the tap writes 0 there)");
+                expectWithinAbsoluteError (std::accumulate (reference.intended.begin(), reference.intended.end(), 0.0) / reference.stats.blendIntendedEnergy,
+                                           1.0, 1.0e-9, "the tap sums to the intended energy");
+                expectWithinAbsoluteError (std::accumulate (reference.output.begin(), reference.output.end(), 0.0) / reference.stats.blendOutputEnergy,
+                                           1.0, 1.0e-9, "the tap sums to the output energy");
+
+                for (auto blockSize : { 1, 37, 4096 })
+                {
+                    const auto other = run (blockSize);
+                    auto sameTap = true;
+
+                    for (int i = 0; i < numSamples; ++i)
+                        sameTap = sameTap && std::memcmp (&other.intended[(size_t) i], &reference.intended[(size_t) i], sizeof (double)) == 0
+                                          && std::memcmp (&other.output[(size_t) i], &reference.output[(size_t) i], sizeof (double)) == 0;
+
+                    expect (sameTap, "block size " + juce::String (blockSize) + ": the tap is bit-identical");
+                    expectEquals (countDifferentBits (other.audio, reference.audio), 0, "block size " + juce::String (blockSize) + ": the output is bit-identical");
+                }
             }
         };
 
