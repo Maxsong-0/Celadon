@@ -2933,9 +2933,18 @@ namespace celadon::test
             }
 
             // 集成时追加（Max 2026-10-01「俱乐部档放宽预算」）：四参数 blendConstants 只在俱乐部档、只对生效的限幅上限加余量。
-            beginTest ("T-038: the club delivery widens only the enforced limiter budgets (+1 / +2 / +3 dB); other deliveries are the 3-argument blend");
+            // T-045（ADR-029，Max 2026-10-02「不再叠加」）起出厂余量为 0（风格预算本身已放宽到原来的俱乐部预算）；机制用一份显式设了
+            // +1 / +2 / +3 dB 余量的快照测。
+            beginTest ("T-038: the club delivery widens only the enforced limiter budgets by the snapshot's extras (factory 0 since T-045); other deliveries are the 3-argument blend");
             {
-                const auto& clubFactory = factoryConstants();
+                const auto& factory = factoryConstants();
+                expect (factory.delivery.clubLimitGrMeanExtraDb == 0.0f && factory.delivery.clubLimitGrP95ExtraDb == 0.0f
+                            && factory.delivery.clubLimitGrPeakExtraDb == 0.0f,
+                        utf8 ("出厂：俱乐部档不再叠加余量（T-045）"));
+                auto clubFactory = factory;
+                clubFactory.delivery.clubLimitGrMeanExtraDb = 1.0f;
+                clubFactory.delivery.clubLimitGrP95ExtraDb = 2.0f;
+                clubFactory.delivery.clubLimitGrPeakExtraDb = 3.0f;
                 const StyleWeights weightsList[] { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.2f, 0.5f, 0.3f } };
 
                 for (const auto& w : weightsList)
@@ -2967,7 +2976,7 @@ namespace celadon::test
                 const auto p = makeProfile (-20.0f, -2.0f, 5.0f);
                 auto noExtra = clubFactory;
                 noExtra.delivery.clubLimitGrMeanExtraDb = noExtra.delivery.clubLimitGrP95ExtraDb = noExtra.delivery.clubLimitGrPeakExtraDb = 0.0f;
-                const auto widened = planWithGenre (&p, Style::clean, 100.0f, Genre::deepHouse, Delivery::club, nullptr, nullptr);
+                const auto widened = planWithGenre (&p, Style::clean, 100.0f, Genre::deepHouse, Delivery::club, &clubFactory, nullptr);
                 const auto strict = planWithGenre (&p, Style::clean, 100.0f, Genre::deepHouse, Delivery::club, &noExtra, nullptr);
                 logMessage ("  club effective gain: widened " + juce::String (widened.effectiveGainDb, 2) + " dB, strict "
                             + juce::String (strict.effectiveGainDb, 2) + " dB");

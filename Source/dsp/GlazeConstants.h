@@ -134,10 +134,11 @@ namespace celadon::glaze
         float styleOffsetReferenceLufs = -9.0f;     // 风格偏移 = 风格混合后的 preferredLufs − 本项（冲击 = 0）
         // 俱乐部档放宽的限幅预算（Max 2026-10-01：风格预算内推不到 −7 LUFS 时「俱乐部档放宽预算」）：只在俱乐部档、只对风格里
         // 生效的（> 0）限幅三项各加这么多 dB，方案与运行时保护层 / 上游监视用同一套（GlazePlanner blendConstants 四参数版）。
-        // 起点值，待 Max 试听标定；Heat / Glue / Clip 预算不动。
-        float clubLimitGrMeanExtraDb = 1.0f;
-        float clubLimitGrP95ExtraDb = 2.0f;
-        float clubLimitGrPeakExtraDb = 3.0f;
+        // Heat / Glue / Clip 预算不动。出厂值 2026-10-02 起为 0（T-045，ADR-029）：三种风格的预算本身已各放宽 +1 / +2 / +3 dB，正好等于原来的
+        // 俱乐部预算，再叠一层会让合成 House 曲 breakdown → drop 落差少 2.2 LU（门槛 1.5）；Max 选「不再叠加」。机制保留，快照里仍可设。
+        float clubLimitGrMeanExtraDb = 0.0f;
+        float clubLimitGrP95ExtraDb = 0.0f;
+        float clubLimitGrPeakExtraDb = 0.0f;
     };
 
     struct Constants

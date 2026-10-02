@@ -5,7 +5,7 @@
 #      celadon_render 加 --listen-from-bar 1,<drop 起始小节>；比第一遍结束时已提交方案的 plan_gain_db，两行都得「已锁定」）；
 #   ② drop 段限幅 GR 不超风格预算：drop 各小节的块 GR（块内最大，比插件保护层按 10 ms 时隙的均值偏严）——均值 ≤ limitGrMeanCapDb、
 #      高于 limitGrP95CapDb 的块 ≤ 5 %（即 P95 ≤ 上限）、最大 ≤ limitGrPeakCapDb；预算取成品末尾保护层生效的上限（budget_* 列）；
-#   ③ breakdown → drop 的响度落差：处理后比处理前最多少 1 LU（俱乐部档 1.5 LU，Max 2026-10-01）（段落响度 = 段内各小节有效子块的 K 加权能量平均，输入 / 成品各一份）；
+#   ③ breakdown → drop 的响度落差：处理后比处理前最多少 1.2 LU（Max 2026-10-02，T-045 后由 1 LU 改；俱乐部档 1.5 LU，Max 2026-10-01）（段落响度 = 段内各小节有效子块的 K 加权能量平均，输入 / 成品各一份）；
 #   ④ 真峰值不超过交付档上限：成品真峰值 ≤ 交给限幅器的有效 Ceiling + 0.01 dB；流媒体档另查有效 Ceiling ≤ −2.0 dBTP；
 #   ⑤ drop 段响度落在目标 ±1 LU（只有流媒体 / 俱乐部）：目标 = clamp(基准 + 风格偏移 − LRA 修正, 档内范围)（规格第 4.1 节），
 #      GLAZE < 100 时按决策器同一关系折算：目标_g = drop 输入响度 + GLAZE × (目标 − drop 输入响度)；每个 drop 段分别判。
@@ -41,8 +41,8 @@ LRA_SLOPE_DB_PER_LU = 1.0 / 3.0
 PLAN_GAIN_TOLERANCE_DB = 0.5       # ①
 P95_OVER_FRACTION = 0.05           # ②：高于 P95 上限的块不超过 5 %
 BUDGET_EPSILON_DB = 0.01           # ② ④ 的比较余量（同 gate_check.py 的真峰值容差）
-BREAKDOWN_DROP_LOSS_LU = 1.0       # ③
-BREAKDOWN_DROP_LOSS_CLUB_LU = 1.5  # ③ 俱乐部档（Max 2026-10-01：俱乐部档放宽限幅预算 +1 / +2 / +3 dB，对比最多少 1.5 LU）
+BREAKDOWN_DROP_LOSS_LU = 1.2       # ③ 标准 / 流媒体（Max 2026-10-02：T-045 三种风格限幅预算放宽后合成 House 曲少 1.08 LU，门槛 1.0 → 1.2）
+BREAKDOWN_DROP_LOSS_CLUB_LU = 1.5  # ③ 俱乐部档（Max 2026-10-01 定 1.5；T-045 起俱乐部不再叠加余量，合成曲实测少 1.34 ～ 1.39 LU）
 TARGET_LIMITED_EPSILON_LU = 0.05   # ⑤ 方案自己的实际目标比请求目标低这么多以上 = 受预算限制
 TARGET_WINDOW_LU = 1.0             # ⑤
 
