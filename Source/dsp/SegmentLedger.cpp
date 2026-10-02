@@ -118,6 +118,7 @@ namespace celadon::glaze
         numStored = 0;
         storeFull = false;
         lastStoredSlot = -1;
+        lastFinal = LastFinal {};
 
         summary = HouseGateSummary {};
         summary.gateWidthLu = gateWidthLu;
@@ -480,10 +481,17 @@ namespace celadon::glaze
         poolUsed[(size_t) slot] = false;
         ++finalizedCount;
 
+        lastFinal.valid = true;
+        lastFinal.epoch = segment.epoch;
+        lastFinal.heard = segment.heard;
+        lastFinal.loudnessValid = segment.loudnessValid;
+        lastFinal.loudnessLufs = segment.loudnessLufs;
+        lastFinal.lowShareValid = segment.lowShareValid;
+        lastFinal.lowShare = segment.lowShare;
+
         if (stored >= 0)
         {
             lastStoredSlot = stored;
-            lastStoredEpoch = segment.epoch;
             ++storedRevision;
             recomputeGate();
         }
@@ -607,83 +615,88 @@ namespace celadon::glaze
         if (! summary.valid || ! lowReferenceValid)
             return false;
 
-        if (openCount > 0)
-        {
-            const auto& open = newest();
-            const auto effectiveSeconds = (double) open.effectiveSubBlocks * (double) subBlockLength / sampleRate;
-
-            if (effectiveSeconds >= minimumProvisionalSeconds && open.frameSeconds >= minimumProvisionalSeconds && open.effectiveEnergy > 0.0)
-            {
-                double total = 0.0, low = 0.0;
-
-                for (size_t b = 0; b < (size_t) numBands; ++b)
-                {
-                    total += open.powerSum[b];
-
-                    if (b <= (size_t) lowShareLastBand)
-                        low += open.powerSum[b];
-                }
-
-                if (! (total > 0.0) || ! std::isfinite (total))
-                    return false;
-
-                const auto loudness = (float) energyToLufs (open.effectiveEnergy / (double) open.effectiveSubBlocks);
-                return passesGate (true, std::isfinite (loudness), loudness, true, (float) (low / total));
-            }
-
-            // 这一段刚开始：沿用同一段连续时间里上一段的门控结果（小节交界处不闪断）。
-            if (lastStoredSlot >= 0 && lastStoredEpoch == open.epoch)
-                return store[(size_t) lastStoredSlot].full;
-
-            return false;
-        }
-
-        return lastStoredSlot >= 0 && lastStoredEpoch == epoch && store[(size_t) lastStoredSlot].full;
+        float loudness = 0.0f, lowShareNow = 0.0f;
+        return getCurrentReading (loudness, lowShareNow) == Reading::measured && passesGate (true, true, loudness, true, lowShareNow);
     }
 
-    bool SegmentLedger::getCurrentReading (float& loudnessLufs, float& lowShareOut) const noexcept
+    SegmentLedger::Reading SegmentLedger::getCurrentReading (float& loudnessLufs, float& lowShareOut) const noexcept
     {
-        const auto fromStored = [&] (const Segment& s) noexcept
-        {
-            if (! s.loudnessValid || ! s.lowShareValid || ! std::isfinite (s.loudnessLufs) || ! std::isfinite (s.lowShare))
-                return false;
-
-            loudnessLufs = s.loudnessLufs;
-            lowShareOut = s.lowShare;
-            return true;
-        };
-
         if (openCount > 0)
         {
             const auto& open = newest();
-            const auto effectiveSeconds = (double) open.effectiveSubBlocks * (double) subBlockLength / sampleRate;
+            const auto own = readOpen (open, loudnessLufs, lowShareOut);
 
-            if (effectiveSeconds >= minimumProvisionalSeconds && open.frameSeconds >= minimumProvisionalSeconds && open.effectiveEnergy > 0.0)
+            if (own != Reading::none)
+                return own;
+
+            // 这一段刚开始：沿用紧挨着的上一段（小节交界处不闪断）。上一段多半还开着（帧要越过段尾才定稿）——先看开着的前几段，
+            // 都读不出再看最近定稿的那一段；只认同一段连续时间里的。不能直接跳到最近定稿的：那是再前一段，breakdown 的第二小节
+            // 刚开始时它还是 drop 的最后一小节。
+            for (int back = 2; back <= openCount; ++back)
             {
-                double total = 0.0, low = 0.0;
+                const auto& previous = pool[(size_t) order[(size_t) ((openHead + openCount - back) % maxOpenSegments)]];
 
-                for (size_t b = 0; b < (size_t) numBands; ++b)
-                {
-                    total += open.powerSum[b];
+                if (previous.epoch != open.epoch)
+                    break;
 
-                    if (b <= (size_t) lowShareLastBand)
-                        low += open.powerSum[b];
-                }
+                const auto earlier = readOpen (previous, loudnessLufs, lowShareOut);
 
-                const auto loudness = (float) energyToLufs (open.effectiveEnergy / (double) open.effectiveSubBlocks);
-
-                if (! (total > 0.0) || ! std::isfinite (total) || ! std::isfinite (loudness))
-                    return false;
-
-                loudnessLufs = loudness;
-                lowShareOut = (float) (low / total);
-                return true;
+                if (earlier != Reading::none)
+                    return earlier;
             }
 
-            return lastStoredSlot >= 0 && lastStoredEpoch == open.epoch && fromStored (store[(size_t) lastStoredSlot]);
+            return lastFinal.valid && lastFinal.epoch == open.epoch ? readLastFinal (loudnessLufs, lowShareOut) : Reading::none;
         }
 
-        return lastStoredSlot >= 0 && lastStoredEpoch == epoch && fromStored (store[(size_t) lastStoredSlot]);
+        return lastFinal.valid && lastFinal.epoch == epoch ? readLastFinal (loudnessLufs, lowShareOut) : Reading::none;
+    }
+
+    // 正在播的段按它自己的数据暂判（文件头第五节）：有效音频与过帧门的帧都够 minimumProvisionalSeconds = measured；已经播了
+    // minimumProvisionalSeconds、有效音频却不够 = quiet（过不了「有效音频」门的安静段落）；刚开始、或帧还没跟上 = none（调用方退回上一段）。
+    // 有效音频够了、读数却不是有限正数（异常数据）按 quiet：不当作满编、不在它上面校准（与改前 isCurrentSegmentFull 判「否」一致）。
+    SegmentLedger::Reading SegmentLedger::readOpen (const Segment& open, float& loudnessLufs, float& lowShareOut) const noexcept
+    {
+        const auto seconds = [this] (int subBlocks) noexcept { return (double) subBlocks * (double) subBlockLength / sampleRate; };
+
+        if (seconds (open.effectiveSubBlocks) < minimumProvisionalSeconds)
+            return seconds (open.subBlocks) >= minimumProvisionalSeconds ? Reading::quiet : Reading::none;
+
+        if (open.frameSeconds < minimumProvisionalSeconds)
+            return Reading::none;
+
+        double total = 0.0, low = 0.0;
+
+        for (size_t b = 0; b < (size_t) numBands; ++b)
+        {
+            total += open.powerSum[b];
+
+            if (b <= (size_t) lowShareLastBand)
+                low += open.powerSum[b];
+        }
+
+        const auto loudness = open.effectiveEnergy > 0.0 ? (float) energyToLufs (open.effectiveEnergy / (double) open.effectiveSubBlocks) : 0.0f;
+
+        if (! (open.effectiveEnergy > 0.0) || ! (total > 0.0) || ! std::isfinite (total) || ! std::isfinite (loudness))
+            return Reading::quiet;
+
+        loudnessLufs = loudness;
+        lowShareOut = (float) (low / total);
+        return Reading::measured;
+    }
+
+    // 最近定稿的那一段：没听到一半（heard = false，含有效音频为 0、没进账本的段）= quiet；听到了、读数齐 = measured；
+    // 听到了、帧不够算低频占比 = none。
+    SegmentLedger::Reading SegmentLedger::readLastFinal (float& loudnessLufs, float& lowShareOut) const noexcept
+    {
+        if (! lastFinal.heard)
+            return Reading::quiet;
+
+        if (! lastFinal.loudnessValid || ! lastFinal.lowShareValid || ! std::isfinite (lastFinal.loudnessLufs) || ! std::isfinite (lastFinal.lowShare))
+            return Reading::none;
+
+        loudnessLufs = lastFinal.loudnessLufs;
+        lowShareOut = lastFinal.lowShare;
+        return Reading::measured;
     }
 
     double SegmentLedger::getCurrentSegmentSeconds() const noexcept

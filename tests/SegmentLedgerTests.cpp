@@ -180,6 +180,7 @@ namespace celadon::test
             testCapacity();
             testGates();
             testHeardNeedsHalfABar();
+            testQuietSegmentIsNotInherited();
             testBlockSizeIndependence();
             testReanchoring();
             testNoAllocation();
@@ -445,6 +446,48 @@ namespace celadon::test
             expectEquals (firstSurge, 0, "the first one is the first drop bar");
             expect (events[1].surge && ! events[2].surge, "from the third drop bar on S_ref is the drop");
             expect (f.ledger.getSurgeCount() == 2u);
+        }
+
+        // 依据：SegmentLedger.h 文件头第五节（T-038 评审 F1 返修）。安静的 breakdown（有效音频为 0、不进账本）不得沿用前面 drop 的判定：
+        // 播够 0.5 s 就是 quiet、不是满编段；只有段刚开始才退回上一段，而上一段若也安静，退回的就是「安静」，不是很久以前的 drop。
+        void testQuietSegmentIsNotInherited()
+        {
+            beginTest ("a quiet segment (no effective audio) reads quiet and is not full; only a just-started segment falls back to the last finalized one");
+
+            Feeder f;
+            const auto bar = [] (std::int64_t t) { return (int) ((double) t / samplesPerBar); };
+            f.loudnessAt = [bar] (std::int64_t t) { return bar (t) < 8 ? -14.0 : -8.0; };
+            f.lowShareAt = [bar] (std::int64_t t) { return bar (t) < 8 ? 0.2 : 0.5; };
+            f.effectiveAt = [bar] (std::int64_t t) { const auto n = bar (t); return n < 24 || n >= 32; };   // 第 24 ～ 31 小节：安静
+            std::int64_t position = 0;
+            const auto host = [] (std::int64_t p) { return barHost (p, houseBpm); };
+            const auto playTo = [&] (double bars, double extraSeconds)
+            {
+                const auto target = (std::int64_t) std::llround (bars * samplesPerBar + extraSeconds * rate);
+                f.play (position, (double) (target - position) / rate, 512, host);
+            };
+
+            float loudness = 0.0f, lowShare = 0.0f;
+
+            playTo (24.0, 0.2);   // drop 之后、安静段刚开始：退回上一段（drop 最后一小节）
+            expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::measured, "just after the drop: falls back to the last drop bar");
+            expectWithinAbsoluteError (loudness, -8.0f, 0.051f);
+            expect (f.ledger.isCurrentSegmentFull(), "the bar line right after the drop does not flicker");
+
+            playTo (24.0, 1.0);   // 安静段播了 1 s
+            loudness = lowShare = 123.0f;
+            expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::quiet, "1 s into the quiet section: quiet");
+            expect (loudness == 123.0f && lowShare == 123.0f, "quiet leaves the outputs unchanged");
+            expect (! f.ledger.isCurrentSegmentFull(), "a quiet section is not full");
+
+            playTo (28.0, 0.2);   // 安静段中间的小节刚开始：上一段也安静
+            expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::quiet, "inside the quiet section a new bar inherits quiet, not the old drop");
+            expect (! f.ledger.isCurrentSegmentFull());
+
+            playTo (32.0, 1.0);   // drop 回来
+            expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::measured, "the drop comes back: measured");
+            expectWithinAbsoluteError (lowShare, 0.5f, 0.00051f);
+            expect (f.ledger.isCurrentSegmentFull());
         }
 
         // 依据：SegmentLedger.h「有效音频 ≥ 标称长度的一半才算已听」；没有有效音频的段不进账本。

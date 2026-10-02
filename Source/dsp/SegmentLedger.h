@@ -44,7 +44,10 @@
       - readEvents：每定稿一段一条事件（段响度、低频占比、是否已听 / 满编 / 新响段、所属的连续时间段），环形缓冲按序号读，
         编排器据此判「锁定后连续 4 小节更响更满」；
       - isCurrentSegmentFull / getCurrentSegmentSeconds：此刻正在播的这一段（还没定稿）按当前的门暂判是不是满编段、它的标称时长
-        （House 反相提示的资格与「持续 4 小节」换成的秒数）。
+        （House 反相提示的资格与「持续 4 小节」换成的秒数）；
+      - getCurrentReading：同一段的暂判读数（段响度、低频占比），或「安静」——播够了 minimumProvisionalSeconds、有效音频却不够
+        （过不了分析器「有效音频」门的 breakdown、静音）。安静的段绝不是满编段，也绝不沿用上一段的结果（T-038 评审 F1 返修）；
+        只有刚开始、自己还读不出的段才退回紧挨着的上一段（还开着的前一段；没有就是最近定稿的那一段，存没存进账本都算）。
 
     实时约束：全部状态定长；prepare 分配账本（约 1.8 MB），音频线程只拷贝、清零，不分配、不加锁。reset 只把计数归零（账本里旧段的内容
     下次用到那一格时整体覆盖），不清零 1.8 MB。
@@ -208,10 +211,12 @@ namespace celadon::glaze
         std::uint32_t getStoredRevision() const noexcept      { return storedRevision; }
         bool isCurrentSegmentFull() const noexcept;
         double getCurrentSegmentSeconds() const noexcept;
-        // T-038 集成（评审 F1）：此刻正在播的这一段的暂判读数（段响度 LUFS、低频占比，口径同定稿）；不够 minimumProvisionalSeconds 时
-        // 沿用同一段连续时间里最近定稿的那一段（同 isCurrentSegmentFull 的退路）。读不到返回 false、不改输出。编排器拿它与**已提交画像**比，
-        // 判「此刻是否在主段落」（House 档只在主段落校准）——不用段落账自己的相对门：读档后段落账从空开始，门控结果要很久才有。
-        bool getCurrentReading (float& loudnessLufs, float& lowShare) const noexcept;
+        // T-038 集成（评审 F1）：此刻正在播的这一段的暂判（文件头第五节）。measured = 读数可比（段响度 LUFS、低频占比，口径同定稿，
+        // 写进两个输出）；quiet = 安静的段（有效音频不够），输出不改；none = 读不出（刚开始且同一段连续时间里没有定稿过的段、宿主停着），
+        // 输出不改。编排器拿 measured 的读数与**已提交画像**比，判「此刻是否在主段落」（House 档只在主段落校准），quiet 就是不在——
+        // 不用段落账自己的相对门：读档后段落账从空开始，门控结果要很久才有。isCurrentSegmentFull = measured 且过此刻的门。
+        enum class Reading { none, quiet, measured };
+        Reading getCurrentReading (float& loudnessLufs, float& lowShare) const noexcept;
         int getOpenSegments() const noexcept                  { return openCount; }
 
         // 读 cursor 之后的事件（最多 maxCount 条），cursor 推进到读完的位置。读者落后超过环形容量：跳到能读到的最早一条，返回负的条数。
@@ -250,6 +255,8 @@ namespace celadon::glaze
         int commit (const Segment& segment) noexcept;   // 返回存进的格（−1 = 没存）
         void recomputeGate() noexcept;
         bool passesGate (bool heard, bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept;
+        Reading readOpen (const Segment& open, float& loudnessLufs, float& lowShare) const noexcept;
+        Reading readLastFinal (float& loudnessLufs, float& lowShare) const noexcept;
 
         double sampleRate = 48000.0;
         int subBlockLength = 4800;
@@ -272,8 +279,22 @@ namespace celadon::glaze
         std::vector<Segment> store;               // prepare 分配 maxSegments 格；前 numStored 格有效（格序 = 第一次存进的先后）
         int numStored = 0;
         bool storeFull = false;
-        int lastStoredSlot = -1;                  // 最近定稿的那一段存进的格（isCurrentSegmentFull 的退路）
-        std::uint32_t lastStoredEpoch = 0;
+        int lastStoredSlot = -1;                  // 最近存进账本的那一格（getMode 在没有开着的段时用它的分段方式）
+
+        // 最近定稿的那一段（存没存进账本都记）：此刻这一段刚开始、自己还读不出时的退路。不用「最近存进的那一格」——有效音频为 0 的段
+        // 不进账本，安静的 breakdown 整段都会继承前面 drop 最后一小节的结果（T-038 评审 F1 返修）。上一段还在等定稿时这里是再前一段，
+        // 所以退路先看还开着的前几段，最后才看这里。
+        struct LastFinal
+        {
+            bool valid = false;
+            std::uint32_t epoch = 0;
+            bool heard = false;
+            bool loudnessValid = false;
+            float loudnessLufs = 0.0f;
+            bool lowShareValid = false;
+            float lowShare = 0.0f;
+        };
+        LastFinal lastFinal;
 
         HouseGateSummary summary;
         bool lowReferenceValid = false;

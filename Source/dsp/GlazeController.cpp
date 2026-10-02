@@ -1983,8 +1983,10 @@ namespace celadon::glaze
         // 32 drop + breakdown」从头播，第 64 个已听小节正好是 breakdown 开头），限幅器在 breakdown 里不工作，测到的净提升偏高，偏差
         // 给成负值，成品整首少推约 1.4 dB（合成曲俱乐部档，从第 1 小节播比从 drop 播轻约 0.8 LU）。所以 House 档、已提交的是 House 门控
         // 画像时，只在主段落校准：此刻这一段的暂判读数（段落账 getCurrentReading）与**已提交画像**比——段响度 ≥ 画像 I − ΔG、低频占比 ≥
-        // 画像 lowShare × 系数（与门控同一套常数）。读不到（段刚开始且同一段连续时间里没有定稿段、静音）时沿用最近一次的判定；从来没读到过
-        // 就当作不在主段落（锁定后一直没有主段落，校准就等着，按前馈出声）。通用档、或已提交画像不是 House 门控学出的：永远 false，逐位同改前。
+        // 画像 lowShare × 系数（与门控同一套常数）。段落账说「安静」（播够 0.5 s、有效音频却不够：过不了分析器「有效音频」门的 breakdown、
+        // 静音）就是不在主段落——不能沿用之前的判定（返修：安静的 breakdown 不进段落账，曾整段沿用前面 drop 的「在主段落」）。读不出（段刚开始
+        // 且同一段连续时间里没有定稿过的段、宿主停着）时沿用最近一次的判定；从来没读到过就当作不在主段落（锁定后一直没有主段落，校准就等着，
+        // 按前馈出声）。通用档、或已提交画像不是 House 门控学出的：永远 false，逐位同改前。
         bool houseCalibrationOutsideMain() noexcept
         {
             if (! isHouse (currentGenre) || ! committed.hasProfile || ! committed.profile.houseGate.valid)
@@ -2006,7 +2008,9 @@ namespace celadon::glaze
 
             float loudness = 0.0f, lowShare = 0.0f;
 
-            if (analyzer.getSegmentLedger().getCurrentReading (loudness, lowShare))
+            const auto reading = analyzer.getSegmentLedger().getCurrentReading (loudness, lowShare);
+
+            if (reading == SegmentLedger::Reading::measured)
             {
                 const auto& h = constants.house;
                 const HouseConstants factory;
@@ -2014,6 +2018,11 @@ namespace celadon::glaze
                 const auto factor = isFinite (h.lowGateFactor) && h.lowGateFactor >= 0.0f ? juce::jmin (1.0f, h.lowGateFactor)
                                                                                            : factory.lowGateFactor;
                 houseInMain = loudness >= p.integratedLufs.value - width && lowShare >= p.lowShare.value * factor;
+                houseMainKnown = true;
+            }
+            else if (reading == SegmentLedger::Reading::quiet)
+            {
+                houseInMain = false;
                 houseMainKnown = true;
             }
 
