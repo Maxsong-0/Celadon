@@ -46,6 +46,14 @@ namespace celadon::test
         constexpr int preparedBlock = 512;
         constexpr int numBands = BalanceModule::numBands;
 
+        // 学习中的性能护栏门槛（µs / 块，48 kHz、块 512）：通用档与 House 档两条共用这一个数，改就一起改（T-043 / T-038 约定）。
+        // 沿革：ADR-012 先试后用起 60 µs（估 20 ～ 30 µs 留约 2 倍）。2026-10-01 合并 main fd486ba（T-043，ADR-027：学习期多两个守护混合损失
+        // 候选，各一份 ClayModule::PeakGuard 加 K 加权双二阶）后实测：通用护栏（粉噪 + 鼓）约 55.6 ～ 56.8 µs，House 护栏（重低音的 House 曲）
+        // 约 58.6 ～ 59.4 µs（107 / 109 各三遍）；同一首 House 曲在通用档是 58.5 µs——House 档自己的段落账只占约 0.3 µs，其余是混合损失候选在
+        // 重低音素材上的开销。60 µs 只剩 1 ～ 2 % 余量，机器负载与测量抖动就会误报，所以改 75 µs：按设计新增的学习期工作量、实测最高约 59.4 µs，
+        // 留约 25 %。只在学习期；75 µs / 块 ≈ 单核 0.7 %（192 kHz 时块长相同、按样本数线性，约 2.8 %）。不学习（常态）的门槛 20 µs 不变。
+        constexpr double learningGuardMicroseconds = 75.0;
+
         //==============================================================================
         // 信号
 
@@ -1846,7 +1854,8 @@ namespace celadon::test
         // v0.1.7.0 根治修订（ADR-012，设计规格-Clay-根治修订第 4 节第 5 条）按设计让学习期多做事：先试后用的 6 路候选（5 个 IIR 双二阶、
         // 4 组线性相位滑动和、M / S 延迟环、块峰值记账）只在学习中跑，另外真次声低通从 2 级变 4 级（学习与否都跑）。所以分两种量：
         //   - 学习中（候选在跑）：门槛 20 → 60 µs。按运算量估计约 20 ～ 30 µs（大头是每样本 4 次 LinearPhaseLowpass::process 的
-        //     函数调用与 5 个双二阶；未实测——本代理不编译，服务器日志复核），门槛留约 2 倍；
+        //     函数调用与 5 个双二阶；未实测——本代理不编译，服务器日志复核），门槛留约 2 倍；2026-10-01 T-043 后改 75 µs，依据见文件头
+        //     learningGuardMicroseconds；
         //   - 不学习（常态，候选不跑）：保持原门槛 20 µs（估计约 6 ～ 8 µs）——候选若在学习区间外也跑，这一条先报出来。
         void testPerformanceGuard()
         {
@@ -1907,7 +1916,7 @@ namespace celadon::test
                         + juce::String (100.0 * learningMean * 1.0e-6 / (blockLength / sampleRate), 3) + " % of one core), worst "
                         + juce::String (learningWorst, 2) + " us; not learning: mean " + juce::String (steadyMean, 2)
                         + " us, worst " + juce::String (steadyWorst, 2) + " us");
-            expect (learningMean < 60.0, "analyzer too slow while learning: " + juce::String (learningMean, 2) + " us per block");
+            expect (learningMean < learningGuardMicroseconds, "analyzer too slow while learning: " + juce::String (learningMean, 2) + " us per block");
             expect (steadyMean < 20.0, "analyzer too slow when not learning: " + juce::String (steadyMean, 2) + " us per block");
         }
     };
@@ -3609,7 +3618,7 @@ namespace celadon::test
 
         // 性能护栏（记录为主）：House 档学习中每块 512 样本的分析器开销（与通用档同一种量法：多遍取每块最短再求均值 / 最坏），以及段落账
         // 满 512 段（全部满编、带先试后用的块）时一次 recomputeHouseProfile（门控之后的整份画像合并）的耗时——这是锁定后重开那一块的最坏情况。
-        // 门槛只拦大退化：每块均值 < 60 µs（同通用档学习中的门槛）、满账本一次重算 < 1 ms。
+        // 门槛只拦大退化：每块均值 < learningGuardMicroseconds（同通用档学习中的门槛，2026-10-01 起 75 µs，依据见文件头）、满账本一次重算 < 1 ms。
         void testPerformance()
         {
             beginTest ("performance guard: House mode per block (learning) and one recompute with a full 512-segment ledger");
@@ -3682,7 +3691,7 @@ namespace celadon::test
                         + juce::String (full.analyzer.getSegmentLedger().getNumStored()) + " segments, " + juce::String (gate.fullSegments)
                         + " full, " + juce::String ((double) full.fed / sampleRate, 0) + " s fed): one recompute "
                         + juce::String (recomputeMicroseconds, 1) + " us");
-            expect (mean < 60.0, "House analyzer too slow while learning: " + juce::String (mean, 2) + " us per block");
+            expect (mean < learningGuardMicroseconds, "House analyzer too slow while learning: " + juce::String (mean, 2) + " us per block");
             expect (gate.fullSegments > 400, "the full ledger is mostly full segments");
             expect (recomputeMicroseconds < 1000.0, "one recompute with a full ledger: " + juce::String (recomputeMicroseconds, 1) + " us");
         }
