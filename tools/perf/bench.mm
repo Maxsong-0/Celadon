@@ -601,9 +601,15 @@ namespace
                                 stats.clipActiveFraction = limiter->getBlockStats().clipActiveFraction;
                                 stats.clipDepthMaxDb = limiter->getBlockStats().clipDepthMaxDb;
                                 stats.outputTruePeakDbtp = juce::Decibels::gainToDecibels (meterOut->getLastBlockTruePeakLinear(), -100.0f);
-                                const auto clayPressure = clay->getLastProcessPressure();   // ADR-014：修坯峰值守护的代价格
-                                stats.clayPressureDb = clayPressure.meanDb;
+                                const auto clayPressure = clay->getLastProcessPressure();   // ADR-014 / ADR-028：压力反馈的计时与峰值块（同链）
                                 stats.clayPressureSeconds = clayPressure.seconds;
+                                stats.clayPeakBlocks = clayPressure.peakBlocks;
+                                stats.clayPeakBlockCount = clayPressure.numPeakBlocks;
+                                stats.clayPeakBlocksDropped = clayPressure.droppedPeakBlocks;
+                                const auto clayBlend = clay->getLastProcessBlend();      // T-043：守护的混合损失（ADR-027，同链）
+                                stats.clayBlendIntendedEnergy = clayBlend.intendedEnergy;
+                                stats.clayBlendOutputEnergy = clayBlend.outputEnergy;
+                                stats.clayBlendSeconds = clayBlend.seconds;
                                 // 频谱帧已在块开头交过（spectrumDeferred = true，同链）。
                                 controller->endBlock (*balance, *meterIn, *meterOut, stats,
                                                       balance->getLatencySamples() + clay->getLatencySamples()

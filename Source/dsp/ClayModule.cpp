@@ -312,12 +312,14 @@ namespace celadon
     {
         PressureReport report;
 
-        if (peakGuard.pressureBlocks > 0 && sampleRate > 0.0)
-        {
-            report.meanDb = static_cast<float> (peakGuard.pressureSumDb / static_cast<double> (peakGuard.pressureBlocks));
-            report.seconds = static_cast<double> (peakGuard.pressureBlocks) * static_cast<double> (peakGuard.costBlockLength) / sampleRate;
-        }
+        if (peakGuard.clockCells > 0 && sampleRate > 0.0)
+            report.seconds = static_cast<double> (peakGuard.clockCells) * static_cast<double> (peakGuard.clockCellLength) / sampleRate;
 
+        if (peakGuard.reportedBlocks > 0)
+            report.peakBlocks = peakGuard.reportedPeaks.data();
+
+        report.numPeakBlocks = peakGuard.reportedBlocks;
+        report.droppedPeakBlocks = peakGuard.droppedBlocks;
         return report;
     }
 
@@ -571,8 +573,9 @@ namespace celadon
         const auto numSamples    = io.getNumSamples();
         const auto channelsToUse = juce::jmin (numChannels, io.getNumChannels());
 
-        peakGuard.pressureSumDb = 0.0;
-        peakGuard.pressureBlocks = 0;
+        peakGuard.clockCells = 0;
+        peakGuard.reportedBlocks = 0;
+        peakGuard.droppedBlocks = 0;
         peakGuard.blendIntendedEnergy = 0.0;
         peakGuard.blendOutputEnergy = 0.0;
         peakGuard.blendSamples = 0;
@@ -825,6 +828,7 @@ namespace celadon
         //    （本段 δ 全为 0 时交 nullptr：widthIdle 的段恒如此）。
         const float* const dryChannels[] { dryLefts.data(), dryRights.data() };
         float* const wetChannels[] { left, right };
+        peakGuard.trackPeakBlocks (dryChannels, wetChannels, 2, numSamples);   // ADR-028：守护改写 io 之前记①② 处理后与干路的块峰值
 
         if constexpr (widthActive)
         {
@@ -912,6 +916,7 @@ namespace celadon
         // ④ 单声道守护（同立体声，一个声道；没有 ③，增量恒 0 → nullptr）。
         const float* const dryChannels[] { drySamples.data() };
         float* const wetChannels[] { samples };
+        peakGuard.trackPeakBlocks (dryChannels, wetChannels, 1, numSamples);
         peakGuard.process (dryChannels, wetChannels, nullptr, 1, numSamples);
     }
 
@@ -941,6 +946,8 @@ namespace celadon
     //    E、P、界 B、g_req 的环与代价格照常逐样本维护（出快路时必须是一直全速跑到这里的值）。「越界」= 某声道 |y| > B：
     //    原判据「x、y 有限且 |y| > B」的必要条件，没越界时 g_req 恰为 1、代价格也不变；越界就走全速那一支，由它按原判据细判。
     //    修坯中性时恒走快路；工作时只要守护没在动作也走。快路与全速逐位相同，不是近似：进出都不需要重建任何状态。
+    //  - T-044（ADR-028）起「代价格」只剩 10 ms 时钟（不再累计超出量）；压力反馈第一触发量的输入改为 trackPeakBlocks 记的峰值块，
+    //    在守护之外、ClayModule 调 process 之前记——这个循环里的浮点算术与输出逐位不变。
     namespace
     {
         // 就地后缀最值：v[i] = pick (v[i], …, v[length − 1])，length 是 2 的幂。长度 ≥ 8 时分 4 段各算各的（4 条独立的依赖链，
@@ -1044,7 +1051,8 @@ namespace celadon
 
         ringLength = lookahead + 1;
         ring.assign (static_cast<std::size_t> (ringLength), Frame {});
-        costBlockLength = fs > 0.0 ? juce::jmax (1, static_cast<int> (std::lround (0.01 * fs))) : 1;
+        clockCellLength = fs > 0.0 ? juce::jmax (1, static_cast<int> (std::lround (0.01 * fs))) : 1;
+        peakBlockLength = fs > 0.0 ? juce::jmax (1, static_cast<int> (std::lround (peakBlockSeconds * fs))) : 1;
         releaseRing.assign (static_cast<std::size_t> (attack + 1), 1.0);
 
         // 分段：段长 S = 2^segmentShift 取不超过 min(2W, A) 的最大者、封顶 64（A ≥ 64，即 21.3 kHz 起都是 64）。S ≤ 窗长 − 1
@@ -1102,10 +1110,13 @@ namespace celadon
         envelope = 0.0;
         sampleCount = 0;
         stats = PeakGuardStats {};
-        costBlockPosition = 0;
-        costBlockMaxRatio = 0.0;
-        pressureSumDb = 0.0;
-        pressureBlocks = 0;
+        clockCellPosition = 0;
+        clockCells = 0;
+        peakBlockPosition = 0;
+        peakBlockWet = 0.0f;
+        peakBlockDry = 0.0f;
+        reportedBlocks = 0;
+        droppedBlocks = 0;
         clearBlendFilters();
         blendMeasuring = false;
         blendIntendedEnergy = 0.0;
@@ -1198,6 +1209,60 @@ namespace celadon
         stats.blendSamples += numSamples;
     }
 
+    // 峰值块（ADR-028，压力反馈第一触发量的输入）：从 reset 起每 peakBlockLength 个样本一块（与 process 怎么切段无关），块里两声道
+    // ①② 处理后 max |y| 与干路 max |x|——与「先试后用」的 100 ms 块峰值同一定义（MusicAnalyzer 第「五」节）。非有限样本不计（链的
+    // NaN 保护会整体 reset；这里只防统计被污染：NaN 的比较为假、±Inf 不 < 最大有限值）。只读 dry / io，模块输出逐位不受影响。
+    // 走完的块按顺序记进 reportedPeaks（本次 ClayModule::process 开头清零），装不下的只计数（droppedBlocks）。
+    void ClayModule::PeakGuard::trackPeakBlocks (const float* const* dry, const float* const* io, int callerChannels, int numSamples) noexcept
+    {
+        const auto channelCount = juce::jmin (callerChannels, channels);
+        constexpr auto largest = std::numeric_limits<float>::max();
+        const auto peakOf = [] (float peak, float sample) noexcept
+        {
+            const auto magnitude = std::abs (sample);
+            return magnitude > peak && magnitude <= largest ? magnitude : peak;
+        };
+
+        for (int offset = 0; offset < numSamples;)
+        {
+            const auto run = juce::jmin (numSamples - offset, peakBlockLength - peakBlockPosition);
+            auto wet = peakBlockWet;
+            auto dryPeak = peakBlockDry;
+
+            for (int c = 0; c < channelCount; ++c)
+            {
+                for (int i = offset; i < offset + run; ++i)
+                {
+                    wet = peakOf (wet, io[c][i]);
+                    dryPeak = peakOf (dryPeak, dry[c][i]);
+                }
+            }
+
+            offset += run;
+            peakBlockPosition += run;
+            peakBlockWet = wet;
+            peakBlockDry = dryPeak;
+
+            if (peakBlockPosition < peakBlockLength)
+                continue;
+
+            if (reportedBlocks < maxReportedBlocks)
+            {
+                reportedPeaks[static_cast<std::size_t> (2 * reportedBlocks)] = wet;
+                reportedPeaks[static_cast<std::size_t> (2 * reportedBlocks + 1)] = dryPeak;
+                ++reportedBlocks;
+            }
+            else
+            {
+                ++droppedBlocks;
+            }
+
+            peakBlockPosition = 0;
+            peakBlockWet = 0.0f;
+            peakBlockDry = 0.0f;
+        }
+    }
+
     void ClayModule::PeakGuard::process (const float* const* dry, float* const* io, const float* const* delta, int callerChannels,
                                          int numSamples) noexcept
     {
@@ -1288,7 +1353,7 @@ namespace celadon
         const auto requirementSpan = static_cast<std::int64_t> (attack);
         const auto retain = envelopeRetain;
         const auto step = releaseStep;
-        const auto costLength = costBlockLength;
+        const auto cellLength = clockCellLength;
         auto* const releases = releaseRing.data();
         const auto releaseCount = static_cast<int> (releaseRing.size());
         const auto releaseCountValue = static_cast<double> (releaseRing.size());
@@ -1312,10 +1377,8 @@ namespace celadon
         auto lowPrefix = prefixMin;
         auto lowQueue = QueueView { requirementSegments.entries.data(), requirementSegments.mask, requirementSegments.head, requirementSegments.count };
         auto env = envelope;
-        auto costPosition = costBlockPosition;
-        auto costRatio = costBlockMaxRatio;
-        auto sumDb = pressureSumDb;
-        auto blocks = pressureBlocks;
+        auto cellPosition = clockCellPosition;
+        auto cells = clockCells;
         auto idle = gainIdle;
         auto releaseAt = releaseIndex;
         auto releaseTotal = releaseSum;
@@ -1432,20 +1495,18 @@ namespace celadon
                     const auto d = y - x;
                     const auto limit = (bound - (d > 0.0 ? x : -x)) / std::abs (d);
                     required = juce::jmin (required, juce::jlimit (0.0, 1.0, limit));
-                    costRatio = juce::jmax (costRatio, std::abs (y) / bound);
                 }
             }
 
             lowPrefix = segmentStart ? required : juce::jmin (lowPrefix, required);
             lowValues[m & lowMask] = required;
 
-            // 代价格（压力反馈）：k 的时间轴上每 costBlockLength 个样本收一格。
-            if (++costPosition >= costLength)
+            // 10 ms 时钟格（压力反馈的计时）：k 的时间轴上每 clockCellLength 个样本走完一格。T-044 起格里不再累计超出量（ADR-028：
+            // 第一触发量改看峰值块，见 trackPeakBlocks），格只当时钟用，计时口径与之前逐位相同。
+            if (++cellPosition >= cellLength)
             {
-                sumDb += costRatio > 1.0 ? 20.0 * std::log10 (costRatio) : 0.0;
-                ++blocks;
-                costRatio = 0.0;
-                costPosition = 0;
+                ++cells;
+                cellPosition = 0;
             }
 
             // 输出样本 j = m − G：环里最老的一格（下一个样本会覆盖它）。带 δ 的那条路里，j 早于这一轮的起点时格上的 δ 没写过——
@@ -1574,10 +1635,8 @@ namespace celadon
         requirementSegments.head = lowQueue.head;
         requirementSegments.count = lowQueue.count;
         envelope = env;
-        costBlockPosition = costPosition;
-        costBlockMaxRatio = costRatio;
-        pressureSumDb = sumDb;
-        pressureBlocks = blocks;
+        clockCellPosition = cellPosition;
+        clockCells = cells;
         gainIdle = idle;
         releaseIndex = releaseAt;
         releaseSum = releaseTotal;

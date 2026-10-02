@@ -29,6 +29,8 @@
 
 #include "../Source/dsp/ClayGuard.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -1560,67 +1562,208 @@ namespace celadon::test
         //     出厂的 9 个数就是规格的数字（改标定时同步改 specConstants 与本条）。
         // 依据：ClayGuard.h「缺省 = 出厂值：Constants 的 clay* 字段默认值就是出厂值」；设计规格-Clay-分析决策与验收 §3 表、
         //    设计规格-Clay-根治修订 3.4（−0.2、0.15 s）与 ADR-014（快路门 0.1）。
-        // ADR-014 修坯压力反馈的监测单元（ClayGuard.h ClayPressureMonitor；输入 = 代价格的平均，dB）：
-        //   - 平滑按有效音乐秒数的一阶平滑（2 s）：持续 0.3 dB 时，平滑值过 0.2 dB 用 t₁ = 2·ln(0.3 / 0.1) = 2.197 s，再连续 1 s
-        //     → 约 3.20 s 时第一次返回 true（按 10 ms 一段喂，容差两段）；返回时平滑值、计时清零；
-        //   - 冷却：距上次下调不足 4 s 不再返回 true（第二次在 4 s 处：那时平滑值已重新超过门槛 1 s 以上）；
-        //   - 冻结：seconds ≤ 0 / 非有限不动；代价非有限按 0、负数按 0、> 60 dB 按 60；
-        //   - 低于门槛（0.15 dB 持续）永不触发；门槛之上但不足 1 s 就掉下来 → 连续计时重来；
+        // ADR-014 / ADR-028 修坯压力反馈的第一触发量（ClayGuard.h ClayPressureMonitor；输入 = ClayModule 报的 100 ms 峰值块，T-044 起
+        // 与「先试后用」同口径）：
+        //   - 代价 = 20·log10(P99 处理后 / P99 干路)，P99 = numpy 默认的线性插值百分位（与 MusicAnalyzer::percentileOfTop 同式）：与存下
+        //     全部块、排序后算的参照逐位相同（n = 100、137、1000、12600）；n = 13000 时两边按 exactBlocks 的同一个秩估计（参照取全部块
+        //     降序后同一位置）；
+        //   - 构造 / reset 之后走完的第一块不攒（它开始时监视器还没看到前面的音频）；有效块不满 100（10 s）没有代价：99 块时 costReady 为假；
+        //   - 两档证据：每切片一块（0.1 s）、处理后 = 干路 × 10^(0.8/20)（≥ 0.6 dB，先试「不做」的线）：第一块作废 + 100 块，再持续 1 s
+        //     → 约 11.1 s 返回 true；返回时累计清空；冷却 4 s 里的块不攒、跨冷却结束的那块也不攒 → 下一次约在 4 + 0.1 + 10 + 1 = 15.2 s 之后；
+        //     0.3 dB（只会「减量」的区间）：要满 512 块 → 约 0.1 + 51.2 + 1 = 52.3 s；511 块时代价已是 0.3 dB 却不算（costCalls 为假）；
+        //   - 0.15 dB 恒定永不触发；处理后比干路低 1 dB 永不触发、代价为负；
+        //   - 有效性：music = false 的切片里的块不攒；跨切片的块要每片都有效（中途一片 music = false → 那一块不攒、之后的照常）；
+        //     dropped 的块不攒、之后的照常；非有限 / 负的块峰值不攒；干路全 0 → 不判；处理后全 0 → 按 −120 dB 封底；
+        //   - seconds ≤ 0 的切片：块照攒、代价照算，但持续与冷却的计时不走；reset 清空一切、冷却回到已满；
         //   - nextScale：1 → 0.5 → 0.25 → 0 → 0，NaN → 0。
+        // 依据：ClayGuard.h ClayPressureMonitor、MusicAnalyzer.cpp 第「五」节（先试的 P99 定义）、ADR-028、BUG-011。
+        static double referencePercentile (std::vector<double> values, int countForPosition)
+        {
+            std::sort (values.begin(), values.end(), std::greater<double>());   // 降序：第 j 小（0 起）= values[count − 1 − j]
+            const auto position = 0.99 * (double) (countForPosition - 1);
+            const auto lower = (int) std::floor (position);
+            const auto below = values[(size_t) (countForPosition - 1 - lower)];
+
+            if (lower + 1 >= countForPosition)
+                return below;
+
+            const auto above = values[(size_t) (countForPosition - 2 - lower)];
+            return below + (above - below) * (position - (double) lower);
+        }
+
         void testPressureMonitor()
         {
-            beginTest ("Clay pressure monitor (ADR-014): smoothed peak excess above 0.2 dB for 1 s steps the scale down, with a 4 s cooldown");
+            beginTest ("Clay pressure monitor (ADR-014 / ADR-028): the P99 peak-block cost, same formula as the trial, above 0.2 dB for 1 s steps the scale down");
 
-            constexpr double slice = 0.01;
-            const auto feedUntilStep = [] (ClayPressureMonitor& m, double pressureDb, double maxSeconds)
+            using Blocks = ClayPressureMonitor::PeakBlocks;
+            constexpr double slice = 0.1;
+
+            // 每切片走完一块：干路峰值按固定种子在 0.3 ～ 0.6 之间（真素材每块不同），处理后 = 干路 × 10^(ratioDb / 20)。
+            const auto feedOne = [] (ClayPressureMonitor& m, juce::Random& rng, double ratioDb, bool music = true, double seconds = 0.1)
             {
-                for (double t = slice; t <= maxSeconds + 1.0e-9; t += slice)
-                    if (m.update (pressureDb, slice))
+                const auto dry = 0.3f + 0.3f * rng.nextFloat();
+                const std::array<float, 2> pair { (float) ((double) dry * std::pow (10.0, ratioDb / 20.0)), dry };
+                return m.update (Blocks { pair.data(), 1, 0 }, music, seconds);
+            };
+
+            const auto feedUntilStep = [&feedOne] (ClayPressureMonitor& m, juce::Random& rng, double ratioDb, double maxSeconds)
+            {
+                auto t = 0.0;
+
+                for (int k = 1; (double) k * slice <= maxSeconds + 1.0e-9; ++k)
+                {
+                    t = (double) k * slice;
+
+                    if (feedOne (m, rng, ratioDb))
                         return t;
+                }
 
                 return -1.0;
             };
 
-            ClayPressureMonitor monitor;
-            const auto first = feedUntilStep (monitor, 0.3, 10.0);
-            const auto expectedFirst = 2.0 * std::log (0.3 / 0.1) + 1.0;
-            logMessage ("  first step after " + juce::String (first, 3) + " s (analytic " + juce::String (expectedFirst, 3) + " s)");
-            expectWithinAbsoluteError (first, expectedFirst, 2.0 * slice, "sustained 0.3 dB: first step after the smoother crosses 0.2 dB plus 1 s");
-            expectEquals (monitor.smoothed, 0.0, "a step clears the smoother");
+            // 1. 与先试同式：存下全部块排序后的参照逐位相同；超出 exactBlocks 按同一个秩估计。
+            {
+                juce::Random rng (4401);
+                ClayPressureMonitor monitor;
+                std::vector<double> wets, drys;
+                const std::array<float, 2> prime { 0.9f, 0.9f };
+                monitor.update (Blocks { prime.data(), 1, 0 }, true, 0.0);
+                expectEquals (monitor.blockCount, 0, "the first block after construction is not kept (it began before the monitor saw anything)");
 
-            const auto second = feedUntilStep (monitor, 0.3, 10.0);
-            expectWithinAbsoluteError (second, 4.0, 2.0 * slice, "the next step waits for the 4 s cooldown");
+                for (int n = 1; n <= 13000; ++n)
+                {
+                    const auto dry = 0.05f + 0.9f * rng.nextFloat();
+                    const auto wet = dry * (0.8f + 0.5f * rng.nextFloat());   // 处理后与干路各自排序（同先试），不是逐块成对比
+                    const std::array<float, 2> pair { wet, dry };
+                    monitor.update (Blocks { pair.data(), 1, 0 }, true, 0.0);   // seconds 0：只攒块，不推进计时、不触发
+                    wets.push_back ((double) wet);
+                    drys.push_back ((double) dry);
 
-            ClayPressureMonitor frozen;
-            frozen.update (0.3, 0.5);
-            const auto before = frozen.smoothed;
-            expect (! frozen.update (10.0, 0.0) && ! frozen.update (10.0, -1.0) && ! frozen.update (10.0, std::numeric_limits<double>::quiet_NaN()));
-            expectEquals (frozen.smoothed, before, "seconds <= 0 or NaN: frozen");
+                    if (n == 99)
+                        expect (! monitor.costReady() && monitor.costDb() == 0.0, "99 valid blocks (< 10 s): no cost yet");
 
-            ClayPressureMonitor clean;
-            clean.update (std::numeric_limits<double>::quiet_NaN(), 1.0);
-            expectEquals (clean.smoothed, 0.0, "NaN pressure reads as 0");
-            clean.update (-3.0, 1.0);
-            expectEquals (clean.smoothed, 0.0, "negative pressure reads as 0");
+                    if (n == 100 || n == 137 || n == 1000 || n == ClayPressureMonitor::exactBlocks || n == 13000)
+                    {
+                        const auto count = juce::jmin (n, ClayPressureMonitor::exactBlocks);
+                        const auto expected = 20.0 * std::log10 (referencePercentile (wets, count) / referencePercentile (drys, count));
+                        expect (monitor.costReady(), "ready at " + juce::String (n) + " blocks");
+                        expectEquals (monitor.costDb(), expected, "P99 cost at " + juce::String (n) + " blocks equals the sorted reference bit for bit");
+                    }
+                }
 
-            ClayPressureMonitor over, capped;
-            over.update (500.0, 0.5);
-            capped.update (60.0, 0.5);
-            expectEquals (over.smoothed, capped.smoothed, "pressure above 60 dB is clamped to 60");
-            expectWithinAbsoluteError (capped.smoothed, 60.0 * (1.0 - std::exp (-0.25)), 1.0e-9);
+                expectEquals (monitor.blockCount, 13000);
+            }
 
-            ClayPressureMonitor low;
-            expectEquals (feedUntilStep (low, 0.15, 30.0), -1.0, "0.15 dB sustained stays below the 0.2 dB threshold: never steps");
+            // 2. 两档证据。0.8 dB（≥ 0.6）：第 100 块起就算，再连续 1 s → 约 11.1 s 降档；冷却 4 s 不攒 + 跨界那块 + 重攒 10 s + 持续 1 s
+            //    → 下一次约 15.2 s 后。0.3 dB（0.2 ～ 0.6）：要满 512 块 → 约 52.3 s；511 块时不算。
+            {
+                juce::Random rng (4402);
+                ClayPressureMonitor monitor;
+                const auto first = feedUntilStep (monitor, rng, 0.8, 30.0);
+                logMessage ("  0.8 dB peak cost: first step after " + juce::String (first, 2) + " s");
+                expectWithinAbsoluteError (first, 11.1, 0.15, "a constant 0.8 dB cost (at or above the trial's veto line): 10 s of evidence, then 1 s");
+                expect (monitor.blockCount == 0 && ! monitor.costReady() && monitor.aboveSeconds == 0.0, "a step clears the accumulation");
 
-            ClayPressureMonitor broken;
-            // 1.4 s @ 0.5 dB：平滑值约从 1.02 s 起 > 0.2 dB（到 1.4 s 是 0.252）；之后喂 0，再过约 0.46 s 掉回门槛之下——连续高于门槛
-            // 合计约 0.84 s < 1 s，全程不触发，掉下来之后连续计时清零。
-            for (int k = 0; k < 140; ++k)
-                expect (! broken.update (0.5, slice));
-            expect (broken.aboveSeconds > 0.3, "positive control: above the threshold for a while");
-            for (int k = 0; k < 300; ++k)
-                expect (! broken.update (0.0, slice), "never steps: the excursion above the threshold is shorter than 1 s");
-            expectEquals (broken.aboveSeconds, 0.0, "dropping below the threshold restarts the sustain count");
+                const auto second = feedUntilStep (monitor, rng, 0.8, 40.0);
+                logMessage ("  second step after another " + juce::String (second, 2) + " s");
+                expectWithinAbsoluteError (second, 15.2, 0.2, "the next step: 4 s cooldown (blocks not kept) + the straddling block + 10 s + 1 s");
+
+                ClayPressureMonitor moderate;
+                const std::array<float, 2> prime { 0.5f, 0.5f };
+                moderate.update (Blocks { prime.data(), 1, 0 }, true, 0.0);   // 第一块作废（不计时）
+
+                for (int k = 0; k < ClayPressureMonitor::confirmBlocks - 1; ++k)
+                    expect (! feedOne (moderate, rng, 0.3), "0.3 dB with fewer than 512 blocks never steps");
+
+                expect (moderate.costReady() && std::abs (moderate.costDb() - 0.3) < 1.0e-4 && ! moderate.costCalls(),
+                        "511 blocks: the cost is 0.3 dB but does not call for a step yet");
+
+                ClayPressureMonitor confirm;
+                juce::Random rngConfirm (4402);
+                const auto late = feedUntilStep (confirm, rngConfirm, 0.3, 80.0);
+                logMessage ("  0.3 dB peak cost: first step after " + juce::String (late, 2) + " s");
+                expectWithinAbsoluteError (late, 52.3, 0.15, "a constant 0.3 dB cost (between 0.2 and 0.6 dB): 512 blocks (51.2 s), then 1 s");
+            }
+
+            // 3. 门槛之下 / 处理后更低：永不触发。
+            {
+                juce::Random rng (4403);
+                ClayPressureMonitor low, quieter;
+                expectEquals (feedUntilStep (low, rng, 0.15, 40.0), -1.0, "0.15 dB sustained stays below the 0.2 dB threshold: never steps");
+                expectWithinAbsoluteError (low.costDb(), 0.15, 1.0e-5);
+                expectEquals (feedUntilStep (quieter, rng, -1.0, 40.0), -1.0, "the processing lowers the top peaks: never steps");
+                expect (quieter.costReady() && quieter.costDb() < -0.99, "the cost is negative: " + juce::String (quieter.costDb(), 3));
+            }
+
+            // 4. 有效性。
+            {
+                juce::Random rng (4404);
+                ClayPressureMonitor m;
+                const std::array<float, 2> pair { 0.5f, 0.4f };
+                m.update (Blocks { pair.data(), 1, 0 }, true, slice);
+                expectEquals (m.blockCount, 0, "the first block after construction is not kept");
+
+                for (int k = 0; k < 50; ++k)
+                    m.update (Blocks { pair.data(), 1, 0 }, true, slice);
+
+                for (int k = 0; k < 50; ++k)
+                    m.update (Blocks { pair.data(), 1, 0 }, false, 0.0);
+
+                expectEquals (m.blockCount, 50, "blocks completed outside effective music are not kept");
+
+                m.update (Blocks { pair.data(), 1, 0 }, true, slice);
+                expectEquals (m.blockCount, 50, "the block straddling the gap (part of it outside music) is not kept either");
+                m.update (Blocks { pair.data(), 1, 0 }, true, slice);
+                expectEquals (m.blockCount, 51, "the next whole block is kept");
+
+                m.update (Blocks {}, true, 0.05);    // 半块在有效音乐里……
+                m.update (Blocks {}, false, 0.0);    // ……中途有一片不在
+                m.update (Blocks { pair.data(), 1, 0 }, true, 0.05);
+                expectEquals (m.blockCount, 51, "a block spanning several slices must be in music in every one of them");
+
+                const std::array<float, 4> two { 0.5f, 0.4f, 0.5f, 0.4f };
+                m.update (Blocks { pair.data(), 1, 0 }, true, slice);
+                m.update (Blocks { two.data(), 2, 3 }, true, slice);
+                expectEquals (m.blockCount, 54, "reported blocks are kept, dropped ones are not");
+                m.update (Blocks { pair.data(), 1, 0 }, true, slice);
+                expectEquals (m.blockCount, 55, "the block after a slice with drops is kept (it lies wholly in the next slice)");
+
+                const auto nan = std::numeric_limits<float>::quiet_NaN();
+                const std::array<float, 2> badWet { nan, 0.4f }, badDry { 0.5f, -1.0f }, infWet { std::numeric_limits<float>::infinity(), 0.4f };
+                m.update (Blocks { badWet.data(), 1, 0 }, true, slice);
+                m.update (Blocks { badDry.data(), 1, 0 }, true, slice);
+                m.update (Blocks { infWet.data(), 1, 0 }, true, slice);
+                expectEquals (m.blockCount, 55, "non-finite or negative block peaks are not kept");
+                m.update (Blocks { nullptr, 3, 0 }, true, slice);
+                expectEquals (m.blockCount, 55, "a null block pointer reports nothing");
+
+                ClayPressureMonitor silentDry, silentWet;
+                const std::array<float, 2> zeroDry { 0.0f, 0.0f }, zeroWet { 0.0f, 0.5f };
+
+                for (int k = 0; k < 150; ++k)
+                {
+                    silentDry.update (Blocks { zeroDry.data(), 1, 0 }, true, slice);
+                    silentWet.update (Blocks { zeroWet.data(), 1, 0 }, true, slice);
+                }
+
+                expect (! silentDry.costReady(), "all-zero dry peaks: no cost (no division by zero)");
+                expectWithinAbsoluteError (silentWet.costDb(), -120.0, 1.0e-9, "all-zero processed peaks: floored at −120 dB");
+
+                // seconds ≤ 0：块照攒、代价照算，计时不走。
+                ClayPressureMonitor frozen;
+                const auto before = frozen.sinceStep;
+
+                for (int k = 0; k < 150; ++k)
+                    expect (! feedOne (frozen, rng, 1.0, true, 0.0), "no decision while the slices carry no seconds");
+
+                expect (frozen.costReady() && frozen.costDb() > 0.99, "blocks still accumulate");
+                expect (frozen.aboveSeconds == 0.0 && frozen.sinceStep == before, "the sustain and cooldown clocks do not move");
+
+                frozen.reset();
+                expect (frozen.blockCount == 0 && ! frozen.costReady() && frozen.aboveSeconds == 0.0
+                            && frozen.sinceStep == ClayPressureMonitor::cooldownSeconds && ! frozen.openBlockClean,
+                        "reset clears everything and leaves the cooldown satisfied");
+            }
 
             expectEquals (ClayPressureMonitor::nextScale (1.0f), 0.5f);
             expectEquals (ClayPressureMonitor::nextScale (0.5f), 0.25f);
@@ -1632,7 +1775,8 @@ namespace celadon::test
         // T-043（ADR-027）压力反馈的第二个触发量：守护的混合损失（ClayGuard.h ClayPressureMonitor）。
         //   - 两份能量按 blendSeconds 一阶平滑（2 s）后求比；本该 / 实际的比恒定时平滑后的比从第一段起就恒等于它（同一个衰减乘在
         //     两边）：恒定 0.2 dB > 0.15 dB → 连续 1 s 后（约 1.00 s，冷却初值已满）返回 true；返回时两份平滑能量与计时清零；
-        //   - 冷却与第一条共用：混合损失触发之后，混合损失或峰值超出都要等满 4 s；
+        //   - 冷却与第一条共用：混合损失触发之后，混合损失要等满 4 s；峰值块代价（第一条，ADR-028）冷却期里的块不攒，要 4 s + 重攒
+        //     10 s + 持续 1 s；
         //   - 0.14 dB 恒定永不触发；能量非有限 / 为负、blendSeconds ≤ 0 / 非有限 → 这一段不计（冻结）；reset 清零；
         //   - 混合损失从未超过门槛时，与只有第一条的轨迹逐位相同（默认参数 = 显式传 0）；
         //   - 第一条的门在 seconds：seconds ≤ 0 的段只推进混合损失的平滑与计时，不判断触发。
@@ -1640,13 +1784,14 @@ namespace celadon::test
         {
             beginTest ("Clay pressure monitor, second trigger (T-043): smoothed guard blend loss above 0.15 dB for 1 s steps down, sharing the cooldown");
 
+            using Blocks = ClayPressureMonitor::PeakBlocks;
             constexpr double slice = 0.01;
             constexpr double intended = 1.0e-3;
             const auto outputFor = [] (double lossDb) { return intended * std::pow (10.0, -lossDb / 10.0); };
             const auto feedBlendUntilStep = [&outputFor] (ClayPressureMonitor& m, double lossDb, double maxSeconds)
             {
                 for (double t = slice; t <= maxSeconds + 1.0e-9; t += slice)
-                    if (m.update (0.0, slice, intended, outputFor (lossDb), slice))
+                    if (m.update (Blocks {}, true, slice, intended, outputFor (lossDb), slice))
                         return t;
 
                 return -1.0;
@@ -1662,16 +1807,22 @@ namespace celadon::test
             const auto second = feedBlendUntilStep (monitor, 0.2, 10.0);
             expectWithinAbsoluteError (second, 4.0, 2.0 * slice, "the next step waits for the shared 4 s cooldown");
 
-            // 共用冷却：混合损失触发之后，持续 0.5 dB 的峰值超出（单独时约 1.92 s 就会触发）也要等满 4 s。
+            // 共用冷却：混合损失触发之后，峰值块代价 0.8 dB（每 0.1 s 一块，≥ 0.6 dB 那一档）冷却期里不攒，要 4 s + 10 s + 1 s。
             ClayPressureMonitor shared;
             expect (feedBlendUntilStep (shared, 0.3, 5.0) > 0.0, "positive control: the blend trigger fires");
-            auto pressureStep = -1.0;
+            auto peakStep = -1.0;
+            juce::Random rng (4405);
 
-            for (double t = slice; t <= 10.0 + 1.0e-9 && pressureStep < 0.0; t += slice)
-                if (shared.update (0.5, slice))
-                    pressureStep = t;
+            for (int k = 1; k <= 300 && peakStep < 0.0; ++k)
+            {
+                const auto dry = 0.3f + 0.3f * rng.nextFloat();
+                const std::array<float, 2> pair { (float) ((double) dry * std::pow (10.0, 0.8 / 20.0)), dry };
 
-            expectWithinAbsoluteError (pressureStep, 4.0, 2.0 * slice, "a peak-excess step after a blend step also waits for the 4 s cooldown");
+                if (shared.update (Blocks { pair.data(), 1, 0 }, true, 0.1))
+                    peakStep = 0.1 * (double) k;
+            }
+
+            expectWithinAbsoluteError (peakStep, 15.2, 0.2, "a peak-cost step after a blend step waits for the cooldown, then re-accumulates 10 s");
 
             ClayPressureMonitor below;
             expectEquals (feedBlendUntilStep (below, 0.14, 30.0), -1.0, "0.14 dB sustained stays below the 0.15 dB threshold: never steps");
@@ -1679,49 +1830,53 @@ namespace celadon::test
 
             // 冻结与坏值：这一段不计。
             ClayPressureMonitor frozen;
-            frozen.update (0.0, slice, intended, outputFor (0.2), slice);
+            frozen.update (Blocks {}, true, slice, intended, outputFor (0.2), slice);
             const auto i0 = frozen.blendIntendedSmoothed, o0 = frozen.blendOutputSmoothed, a0 = frozen.blendAboveSeconds;
             const auto nan = std::numeric_limits<double>::quiet_NaN();
-            frozen.update (0.0, slice, intended, outputFor (0.2), 0.0);
-            frozen.update (0.0, slice, intended, outputFor (0.2), -1.0);
-            frozen.update (0.0, slice, intended, outputFor (0.2), nan);
-            frozen.update (0.0, slice, nan, outputFor (0.2), slice);
-            frozen.update (0.0, slice, intended, -1.0, slice);
-            frozen.update (0.0, slice, std::numeric_limits<double>::infinity(), outputFor (0.2), slice);
+            frozen.update (Blocks {}, true, slice, intended, outputFor (0.2), 0.0);
+            frozen.update (Blocks {}, true, slice, intended, outputFor (0.2), -1.0);
+            frozen.update (Blocks {}, true, slice, intended, outputFor (0.2), nan);
+            frozen.update (Blocks {}, true, slice, nan, outputFor (0.2), slice);
+            frozen.update (Blocks {}, true, slice, intended, -1.0, slice);
+            frozen.update (Blocks {}, true, slice, std::numeric_limits<double>::infinity(), outputFor (0.2), slice);
             expect (frozen.blendIntendedSmoothed == i0 && frozen.blendOutputSmoothed == o0 && frozen.blendAboveSeconds == a0,
                     "blendSeconds <= 0 / NaN and non-finite or negative energies leave the blend state untouched");
 
             ClayPressureMonitor empty;
             expectEquals (empty.blendLossDb(), 0.0, "no energy yet: 0 dB");
-            empty.update (0.0, slice, intended, outputFor (0.3), slice);
+            empty.update (Blocks {}, true, slice, intended, outputFor (0.3), slice);
             expect (empty.blendLossDb() > 0.29, "positive control: one slice gives the loss");
             empty.reset();
             expect (empty.blendIntendedSmoothed == 0.0 && empty.blendOutputSmoothed == 0.0 && empty.blendAboveSeconds == 0.0
                         && empty.blendLossDb() == 0.0, "reset clears the blend state");
 
-            // 第一条不受影响：默认参数与显式传 0 的两条轨迹逐位相同（触发时刻、平滑值）。
+            // 第一条不受影响：默认参数与显式传 0 的两条轨迹逐位相同（触发时刻、代价、计时）。
             ClayPressureMonitor defaults, zeros;
             auto stepsDefault = 0, stepsZero = 0;
+            juce::Random wobble (4406);
 
             for (int k = 0; k < 2000; ++k)
             {
-                const auto pressure = 0.25 + 0.2 * std::sin (0.01 * (double) k);
-                stepsDefault += defaults.update (pressure, slice) ? 1 : 0;
-                stepsZero += zeros.update (pressure, slice, 0.0, 0.0, 0.0) ? 1 : 0;
-                expect (defaults.smoothed == zeros.smoothed && defaults.aboveSeconds == zeros.aboveSeconds && defaults.sinceStep == zeros.sinceStep);
+                const auto dry = 0.3f + 0.3f * wobble.nextFloat();
+                const auto ratioDb = 0.45 + 0.3 * std::sin (0.01 * (double) k);   // 0.15 ～ 0.75 dB：两档都会碰到
+                const std::array<float, 2> pair { (float) ((double) dry * std::pow (10.0, ratioDb / 20.0)), dry };
+                stepsDefault += defaults.update (Blocks { pair.data(), 1, 0 }, true, 0.1) ? 1 : 0;
+                stepsZero += zeros.update (Blocks { pair.data(), 1, 0 }, true, 0.1, 0.0, 0.0, 0.0) ? 1 : 0;
+                expect (defaults.cost == zeros.cost && defaults.aboveSeconds == zeros.aboveSeconds && defaults.sinceStep == zeros.sinceStep
+                        && defaults.blockCount == zeros.blockCount);
             }
 
             expectEquals (stepsZero, stepsDefault);
-            expect (stepsDefault > 0, "positive control: the peak-excess trigger fires on this trajectory");
+            expect (stepsDefault > 0, "positive control: the peak-cost trigger fires on this trajectory");
 
             // seconds ≤ 0 的段：混合损失照样平滑、计时（> 1 s），但不判断；下一段 seconds > 0 时立即触发。
             ClayPressureMonitor gated;
 
             for (int k = 0; k < 150; ++k)
-                expect (! gated.update (0.0, 0.0, intended, outputFor (0.2), slice), "no decision while the peak-excess slice has no seconds");
+                expect (! gated.update (Blocks {}, true, 0.0, intended, outputFor (0.2), slice), "no decision while the slice has no seconds");
 
             expect (gated.blendAboveSeconds >= 1.0, "the blend sustain still counts");
-            expect (gated.update (0.0, slice, intended, outputFor (0.2), slice), "the first slice with seconds steps down");
+            expect (gated.update (Blocks {}, true, slice, intended, outputFor (0.2), slice), "the first slice with seconds steps down");
         }
 
         // ADR-014 scaleClayPlan（压力反馈的缩放作用在自动方案上）：方案 = 低切 20 Hz、收单 0.8 @ 120 Hz、加宽 1.2 dB、原有代价位 = 加宽，地板 10 Hz：
