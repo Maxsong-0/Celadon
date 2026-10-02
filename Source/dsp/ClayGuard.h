@@ -126,8 +126,8 @@ namespace celadon::glaze
     //   触发：上面的条件连续 sustainSeconds（有效音乐秒数）成立，且距上次下调已过 cooldownSeconds → update 返回 true，调用方（编排器）
     //         把自动 Clay 的缩放降一档（nextScale：1 → 0.5 → 0.25 → 0）并开方案过渡；本单元同时清空累计与计时，在新方案下重攒。
     //   纯算术、不分配；块长只影响判断时刻的量化（最多一个切片），与 GlazeGuard 按块读统计同一口径。
-    //   T-043 第二个触发量（ADR-027）：守护的混合损失——守护把低切拉回干路时与干路相位不同处互相抵消，「超出量」很小、守护却几乎
-    //   一直在拉的歌（woqu：超出量从未持续过 0.2 dB，混合损失 0.2 dB）上面那条量不到。ClayModule::getLastProcessBlend 的两份 K 加权
+    //   T-043 第二个触发量（ADR-027）：守护的混合损失——守护把低切拉回干路时与干路相位不同处互相抵消，顶峰没被抬、守护却几乎
+    //   一直在拉的歌（woqu：T-044 之前的超出量从未持续过 0.2 dB，现在的整段块峰值代价也不到 0.2 dB；混合损失 0.2 dB）上面那条量不到。ClayModule::getLastProcessBlend 的两份 K 加权
     //   能量按它们覆盖的有效音乐秒数一阶平滑（时间常数同 smoothingSeconds），损失 = 10·log10(本该 / 实际) 连续 sustainSeconds 高于
     //   blendThreshold 也降一档；两个触发量共用冷却与档位，任一触发都把两边一起清零。blendThreshold = 修坯门槛响度容差 0.1 LU 的
     //   1.5 倍：先试后用已把方案频率封在预测损失 clayBlendLossLimitDb（出厂 0.09 dB，GlazePlanner capLowCutForBlend），这里只接住
