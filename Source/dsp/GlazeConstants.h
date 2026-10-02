@@ -121,6 +121,39 @@ namespace celadon::glaze
         double phaseHintFallbackSeconds = 8.0;      //   宿主没给拍点时改为持续这么多秒
     };
 
+    // T-048 实时画像的常数（设计规格-实时GLAZE-主段与增益 第 2、3、6 节）。阶段 1 插件不读，只给 LiveProfile、测试与渲染工具用。
+    // 注释里 ① = 库内已标定（T-038），③ = 起点值，阶段 1 在 109 上做因果重放标定后改。不进 Constants（不进标定快照与存档）。
+    struct LiveModelConstants
+    {
+        float gateWidthLu = 3.0f;            // 响度门 ΔG：段响度在 S_ref − ΔG 处 m 的响度因子 = 0.5
+        float loudnessRampLu = 1.5f;         // 响度门斜坡宽：因子 = clamp(0.5 + (L_seg − (S_ref − ΔG)) ÷ 本项, 0, 1)
+        float lowGateFactor = 0.6f;          // 低频门系数（只 4/4 型用；≤ 0 = 不用低频门）
+        float lowRampWidth = 0.15f;          // 低频门斜坡宽（lowShare ÷ lowRef 的单位）
+        float referencePercentile = 0.95f;   // S_ref = 全部段段响度（按有效时长加权）的这个分位；lowRef 同分位
+        double memoryBars = 48.0;            // W_mem：按小节分段时 = 本项 × 小节秒数（≤ 0 = 不按小节，用 memorySeconds）
+        double memorySeconds = 90.0;         // W_mem：2 秒段、或 memoryBars ≤ 0 时
+        double confidenceBars = 8.0;         // M0：按小节分段时 = 本项 × 小节秒数（≤ 0 = 用 confidenceSeconds）
+        double confidenceSeconds = 16.0;     // M0：2 秒段、或 confidenceBars ≤ 0 时
+    };
+
+    struct LiveConstants
+    {
+        // 4/4 型（House 三类；以后 Techno、EDM / Trance、DnB / Bass）：ΔG 3、低频门 0.6、P95、M0 8 小节 ①；斜坡宽、W_mem ③
+        LiveModelConstants fourOnFloor { 3.0f, 1.5f, 0.6f, 0.15f, 0.95f, 48.0, 90.0, 8.0, 16.0 };
+        // 响度型（通用；以后 Hip-Hop / Pop、Rock / Metal）：只用响度门 ③
+        LiveModelConstants loudness { 6.0f, 3.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
+        // 被动型（以后 Acoustic / Jazz、Classical、Ambient）：有效音频一律 m = 1，门与分位不用 ③
+        LiveModelConstants passive { 0.0f, 1.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
+
+        double referenceMemorySeconds = 180.0;   // S_ref / lowRef / LRA 的直方图按有效音频时长遗忘的时间常数 ③
+        float mainThreshold = 0.5f;              // 「主段」的 m 门：无主段判定、以后的棘轮都用它
+        double noMainSeconds = 60.0;             // 连续这么多有效音频没有 m ≥ mainThreshold 的段 → 主段累计改按有效音频时长衰减 ③
+        double noMainDecaySeconds = 120.0;       //   衰减的时间常数 ③
+        float newProgramLu = 6.0f;               // 换歌软遗忘：段响度与主段电平差超过本项的段 ③
+        double newProgramSeconds = 20.0;         //   连续累计这么多有效音频 ③
+        float newProgramKeep = 0.2f;             //   全部累计质量 × 本项 ③
+    };
+
     // 交付三档（设计规格-曲风与交付 第 4.1 节）。「标准」不用这里的任何一项：仍按风格 preferredLufs 与 min / maxPreferredLufs。
     struct DeliveryConstants
     {

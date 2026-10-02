@@ -50,6 +50,10 @@
         <FILE id="adv04x" name="ReleaseSafety.cpp" compile="1" resource="0" file="Source/dsp/ReleaseSafety.cpp"/>
         <FILE id="T38slh" name="SegmentLedger.h" compile="0" resource="0" file="Source/dsp/SegmentLedger.h"/>
         <FILE id="T38slc" name="SegmentLedger.cpp" compile="1" resource="0" file="Source/dsp/SegmentLedger.cpp"/>
+        <FILE id="T48lph" name="LiveProfile.h" compile="0" resource="0" file="Source/dsp/LiveProfile.h"/>
+        <FILE id="T48lpc" name="LiveProfile.cpp" compile="1" resource="0" file="Source/dsp/LiveProfile.cpp"/>
+        <FILE id="T48cth" name="ClayTrials.h" compile="0" resource="0" file="Source/dsp/ClayTrials.h"/>
+        <FILE id="T48ctc" name="ClayTrials.cpp" compile="1" resource="0" file="Source/dsp/ClayTrials.cpp"/>
         <FILE id="ecbLo2" name="BalanceModule.cpp" compile="1" resource="0"
               file="Source/dsp/BalanceModule.cpp"/>
         <FILE id="G1lOch" name="BalanceModule.h" compile="0" resource="0"

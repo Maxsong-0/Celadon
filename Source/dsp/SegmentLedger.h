@@ -66,6 +66,8 @@
 
 namespace celadon::glaze
 {
+    class SegmentSink;   // T-048：段定稿的接收者，定义在本文件末尾
+
     class SegmentLedger
     {
     public:
@@ -143,6 +145,13 @@ namespace celadon::glaze
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> trialTop {};   // 每一路最大的 8 个（降序）
             std::array<double, (size_t) blendSeries> blendIntended {}, blendOutput {};   // 混合损失候选：各有效块两份 K 加权能量之和
 
+            // ---- T-048 实时试算（口径同上面三项，只差「什么时候记」）----
+            // 上面三项只在学习期间记（House 门控画像只用学习区间的试算，改了会动现在的方案）；下面三项在候选真跑的每一块都记
+            // （学习期间、或分析器的实时模式开着），只给实时画像（LiveProfile）读。实时模式关着时与上面三项同时记、数值相同。
+            int liveTrialBlocks = 0;
+            std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> liveTrialTop {};
+            std::array<double, (size_t) blendSeries> liveBlendIntended {}, liveBlendOutput {};
+
             // ---- 定稿时算出 ----
             double effectiveSeconds = 0.0;
             bool heard = false;
@@ -178,6 +187,10 @@ namespace celadon::glaze
 
         // 门控与分段用的常数（编排器经分析器交来；只拷贝、清洗几个数）。
         void setConstants (const HouseConstants& constants) noexcept;
+
+        // T-048：段定稿的接收者（nullptr = 不交）。只存指针，不拥有；在开始处理音频之前设，处理中不换。
+        void setSink (SegmentSink* newSink) noexcept   { sink = newSink; }
+        SegmentSink* getSink() const noexcept          { return sink; }
 
         // 清空段落账（「重新聆听」、宿主复位、读取工程）。acceptFrom = 门块 / 短期响度窗口最早的样本不早于它才收（同分析器学习区间）。
         // 不分配、不清零账本的内容（只把计数归零）。事件序号与新响段计数跨 reset 单调。
@@ -308,5 +321,18 @@ namespace celadon::glaze
         std::uint32_t surgeCount = 0;
         std::uint32_t finalizedCount = 0;
         std::uint32_t storedRevision = 0;
+
+        SegmentSink* sink = nullptr;              // T-048：见 setSink
+    };
+
+    // T-048 段定稿的接收者（实时画像 LiveProfile 实现它；设计规格-实时GLAZE-主段与增益 第 1 节）。
+    // SegmentLedger 每定稿一段调一次 segmentFinalized：不论这一段存没存进账本（没有有效音频、账本满了、重放不如旧值都照样交），
+    // 交的是 deriveSegment 之后的段（effectiveSeconds / loudnessLufs / lowShare / heard 已算好；full 是账本自己的门控结果，接收者不用）。
+    // 不连续点（endEpoch）就地定稿的段同样交。音频线程调用：实现必须 0 分配、0 锁、不抛异常。
+    class SegmentSink
+    {
+    public:
+        virtual ~SegmentSink() = default;
+        virtual void segmentFinalized (const SegmentLedger::Segment& segment) noexcept = 0;
     };
 }
