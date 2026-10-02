@@ -1226,11 +1226,22 @@ namespace
         return total;
     }
 
+    // 同决策重放的输入（ADR-016）：自动链第二遍实际交给模块的参数，按交的顺序——prepare 之前那次 setParams（读回存档后的第一次：
+    // 执行快照里修坯的首块值在这里就被用掉，模块 prepare 时落在它上面）与之后逐块的。重放链照同一顺序喂：prepare 前用 prepared，
+    // 之后逐块用 blocks。T-044 之前只记逐块、prepare 前拿第一块顶：第一遍末尾正在降档的歌（存档的压力缩放是目标档，快照里的修坯值
+    // 还是降档前的）自动链开头有一段修坯 20 ms 的参数斜坡、重放链没有，阳性对照最大差 −40 ～ −80 dBFS、判 mismatch（改前 Jamendo
+    // tech g70 一行，T-044 后降档变多的 emotapes / somggggg / tech 六行）。
+    struct EffectiveLog
+    {
+        celadon::ChainParams prepared = makeFactoryParams();
+        std::vector<celadon::ChainParams> blocks;
+    };
+
     // 第二遍：新链读回第一遍的存档，从头渲染整首歌 + 延迟与余振的补零，作为成品。
-    // effectiveLog ≠ nullptr 时逐块记下链实际交给模块的参数（getEffectiveParams），给「同决策重放」用（ADR-016）。
+    // effectiveLog ≠ nullptr 时记下链实际交给模块的参数（prepare 前一份 + 逐块，getEffectiveParams），给「同决策重放」用（ADR-016）。
     void renderPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
                      const celadon::ChainParams& params, const juce::XmlElement* state, bool trace, RenderResult& result,
-                     std::vector<celadon::ChainParams>* effectiveLog = nullptr)
+                     EffectiveLog* effectiveLog = nullptr)
     {
         auto chain = std::make_unique<celadon::CeladonChain>();
 
@@ -1238,6 +1249,10 @@ namespace
         // rendercheck 验过「读回在 prepare 之前 / 之后」两种顺序结果逐样本相同。
         chain->restoreGlazeStateXml (state);
         chain->setParams (params, false);
+
+        if (effectiveLog != nullptr)
+            effectiveLog->prepared = chain->getEffectiveParams();   // prepare 时模块落在它上面（prepare 不再调 setParams）
+
         chain->prepare (makeSpec (sampleRate, blockSize));
 
         // 链延迟只由 Lookahead（固定 2 ms）、Color 的过采样滤波器与 Clay 的 D + G 决定，prepare 之后就是定值；渲染中仍逐块核对。
@@ -1249,8 +1264,8 @@ namespace
 
         if (effectiveLog != nullptr)
         {
-            effectiveLog->clear();
-            effectiveLog->reserve (static_cast<std::size_t> (total / juce::jmax (1, blockSize) + 1));
+            effectiveLog->blocks.clear();
+            effectiveLog->blocks.reserve (static_cast<std::size_t> (total / juce::jmax (1, blockSize) + 1));
         }
 
         PassStats stats;
@@ -1265,7 +1280,7 @@ namespace
             chain->setParams (params, false);
 
             if (effectiveLog != nullptr)
-                effectiveLog->push_back (chain->getEffectiveParams());   // 这一块交给模块的就是它（setParams 里算好，process 用）
+                effectiveLog->blocks.push_back (chain->getEffectiveParams());   // 这一块交给模块的就是它（setParams 里算好，process 用）
 
             if (chain->process (block))
                 ++result.nonFiniteBlocks;
@@ -1288,7 +1303,8 @@ namespace
                                    "live_mono_amount,live_width_db,guard_phase_floor,guard_phase_hold_s,guard_phase_active,"
                                    "guard_seconds,rho_slow,rho_fast,clay_lowcut_hz,clay_mono_amount,clay_mono_hz,clay_width_db,"
                                    "peak_guard_samples,peak_guard_min_gain,blend_intended_energy,blend_output_energy,"
-                                   "limit_gain_db,tone_db,glue,heat,"
+                                   "limit_gain_db,tone_db,glue,heat,clay_pressure_scale,clay_peak_cost_db,clay_peak_cost_blocks,"
+                                   "clay_blend_loss_db,"
                                  + std::string (calibrationTraceHeader()) + "\n";
 
                 const auto feature = [] (const celadon::glaze::Feature& f)
@@ -1318,6 +1334,9 @@ namespace
                               + energy (peakGuard.blendIntendedEnergy) + "," + energy (peakGuard.blendOutputEnergy) + ","
                               + fixed (effective.limit.gainDb, 3) + "," + fixed (effective.color.toneDb, 3) + ","
                               + fixed (effective.color.glue, 2) + "," + fixed (effective.color.heat, 2) + ","
+                              + fixed (probe.clayPressureScale, 4) + ","
+                              + (probe.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks ? fixed (probe.clayPeakCostDb, 3) : std::string())
+                              + "," + std::to_string (probe.clayPeakCostBlocks) + "," + fixed (probe.clayBlendLossSmoothedDb, 3) + ","
                               + calibrationTraceColumns (chain->getGlazeController()) + "\n";
             }
         }
@@ -1423,13 +1442,14 @@ namespace
         return p;
     }
 
-    // 重放一遍：块长、宿主时间线与自动链的第二遍相同，每块参数取 effectiveLog 里同一块的。latency 应与自动链相同（Clay 的 D + G 不随参数变）。
+    // 重放一遍：块长、宿主时间线与自动链的第二遍相同；prepare 前交 effectiveLog.prepared，之后每块取 blocks 里同一块的。
+    // latency 应与自动链相同（Clay 的 D + G 不随参数变）。
     void replayPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
-                     const std::vector<celadon::ChainParams>& effectiveLog, ReplayClay mode, RenderResult& result)
+                     const EffectiveLog& effectiveLog, ReplayClay mode, RenderResult& result)
     {
         auto chain = std::make_unique<celadon::CeladonChain>();
-        const auto first = effectiveLog.empty() ? makeFactoryParams() : effectiveLog.front();
-        chain->setParams (replayParams (first, mode), false);
+        const auto& blocks = effectiveLog.blocks;
+        chain->setParams (replayParams (effectiveLog.prepared, mode), false);
         chain->prepare (makeSpec (sampleRate, blockSize));
 
         const auto latency = chain->getLatencySamples();
@@ -1447,7 +1467,7 @@ namespace
             juce::AudioBuffer<float> block (result.io.getArrayOfWritePointers(), 2, position, length);
 
             chain->setHostInfo (makeHostInfo (position));
-            chain->setParams (replayParams (effectiveLog[std::min (index, effectiveLog.size() - 1)], mode), false);
+            chain->setParams (replayParams (blocks.empty() ? effectiveLog.prepared : blocks[std::min (index, blocks.size() - 1)], mode), false);
 
             if (chain->process (block))
                 ++result.nonFiniteBlocks;
@@ -1929,13 +1949,16 @@ namespace
     //      → automatic.replayCheck = ok / mismatch / n/a，最大差记进 replayMaxDifference；
     //   ② 重放全关（off）：同样的参数、修坯关，出一行 clay-replay-off（门槛拿它与「自动」比，tools/render/gate_check.py）。
     void replayAutomatic (const Options& options, const Song& song, SongReport& report, Row& automatic,
-                          const std::vector<celadon::ChainParams>& effectiveLog, const juce::AudioBuffer<float>& autoAudio,
+                          const EffectiveLog& effectiveLog, const juce::AudioBuffer<float>& autoAudio,
                           int autoLatency, int& failures, int& written)
     {
         const auto notePrefix = comboLabel (automatic.combo, " ") + "：";
-        const auto clayExpressible = std::all_of (effectiveLog.begin(), effectiveLog.end(),
+        const auto& blocks = effectiveLog.blocks;
+        const auto clayExpressible = clayExpressibleAsManual (effectiveLog.prepared.clay)
+                                  && std::all_of (blocks.begin(), blocks.end(),
                                                   [] (const celadon::ChainParams& p) { return clayExpressibleAsManual (p.clay); });
-        const auto masteringExpressible = std::all_of (effectiveLog.begin(), effectiveLog.end(),
+        const auto masteringExpressible = masteringReplayable (effectiveLog.prepared.mastering)
+                                       && std::all_of (blocks.begin(), blocks.end(),
                                                        [] (const celadon::ChainParams& p) { return masteringReplayable (p.mastering); });
 
         if (clayExpressible && masteringExpressible)
@@ -2026,7 +2049,7 @@ namespace
             started = nowSeconds();
             RenderResult render;
             const auto replay = options.replay && combo.clay == ClayChoice::automatic && combo.glaze > 0.0f;
-            std::vector<celadon::ChainParams> effectiveLog;
+            EffectiveLog effectiveLog;
             renderPass (song.audio, song.sampleRate, options.blockSize, params, listen.state.get(), options.trace, render,
                         replay ? &effectiveLog : nullptr);
             row.grMeanDb = render.grMeanDb;
@@ -2355,20 +2378,22 @@ namespace
             const auto listen = listenPass (signal, selfTestRate, 512, params);
 
             RenderResult render;
-            std::vector<celadon::ChainParams> effectiveLog;
+            EffectiveLog effectiveLog;
             renderPass (signal, selfTestRate, 512, params, listen.state.get(), false, render, &effectiveLog);
+            const auto& logged = effectiveLog.blocks;
             const juce::AudioBuffer<float> finished (render.io.getArrayOfWritePointers(), 2, render.latencySamples, render.outputLength);
             const auto autoHash = hashAudio (finished);
 
-            const auto expressible = std::all_of (effectiveLog.begin(), effectiveLog.end(),
+            const auto expressible = clayExpressibleAsManual (effectiveLog.prepared.clay) && masteringReplayable (effectiveLog.prepared.mastering)
+                                  && std::all_of (logged.begin(), logged.end(),
                                                   [] (const celadon::ChainParams& p)
                                                   { return clayExpressibleAsManual (p.clay) && masteringReplayable (p.mastering); });
-            const auto lowCutBlocks = std::count_if (effectiveLog.begin(), effectiveLog.end(),
+            const auto lowCutBlocks = std::count_if (logged.begin(), logged.end(),
                                                      [] (const celadon::ChainParams& p) { return p.clay.lowCutHz > 0.0f; });
-            const auto automatedBlocks = std::count_if (effectiveLog.begin(), effectiveLog.end(),
+            const auto automatedBlocks = std::count_if (logged.begin(), logged.end(),
                                                         [&params] (const celadon::ChainParams& p) { return p.limit.gainDb != params.limit.gainDb; });
             // 高级母带（新实例默认：推响不刺「自动」50、目标频谱「自动」35，T-032 R10-01）在 GLAZE 35 下真的交给了模块非零强度的块。
-            const auto masteringBlocks = std::count_if (effectiveLog.begin(), effectiveLog.end(),
+            const auto masteringBlocks = std::count_if (logged.begin(), logged.end(),
                                                         [] (const celadon::ChainParams& p)
                                                         { return p.balance.harshAmount > 0.0f && p.balance.targetAmount > 0.0f; });
 
@@ -2383,7 +2408,7 @@ namespace
                         std::string (! expressible ? "有块的修坯值「手动」表达不了"
                                      : (identical ? "修坯手动照填重放与自动链成品逐位相同"
                                                   : "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −180 dBFS）"))
-                            + "（" + std::to_string (effectiveLog.size()) + " 块；Limit Gain 被 GLAZE 改过的块 "
+                            + "（" + std::to_string (logged.size()) + " 块；Limit Gain 被 GLAZE 改过的块 "
                             + std::to_string (automatedBlocks) + "，自动低切开着的块 " + std::to_string (lowCutBlocks)
                             + "，推响不刺与目标频谱都在起作用的块 " + std::to_string (masteringBlocks) + "）");
 
@@ -2394,8 +2419,9 @@ namespace
             // 对照有牙：把每块的 mastering 换回原始设置（T-032 之前 getEffectiveParams() 回写的就是它）再重放——GLAZE 0 的重放链把
             // 两项「自动」算成 0，成品必须与自动链明显不同（最大样本差 > 1e-6）。证明上面的「复现」靠的是实际值回喂，而不是两项没起作用。
             auto rawLog = effectiveLog;
+            rawLog.prepared.mastering = params.mastering;
 
-            for (auto& p : rawLog)
+            for (auto& p : rawLog.blocks)
                 p.mastering = params.mastering;
 
             RenderResult raw;

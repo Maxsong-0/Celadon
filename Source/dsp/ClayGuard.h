@@ -114,9 +114,16 @@ namespace celadon::glaze
     //   为什么是整段累计、不是滑动窗：限幅器只在整首最响的那些峰上工作，安静段的局部峰抬一点不增加它的负担（那里守护的拉锯归第二
     //   触发量管）；滑动 10 s / 30 s 窗会在整首顶峰其实下降的歌（Jamendo tech：整首 −0.09 dB）的安静段里找出 +0.2 dB 的窗、把低切
     //   一路降到关。块的有效：要整块都在有效音乐里（跨切片的块要每片都是），且不在降档后的冷却期里（方案还在过渡，块峰值不代表新方案）。
-    //   满 minimumBlocks 个有效块（10 s，同先试 trialMinimumSeconds）才判；只留最大的 topCount 个块，exactBlocks（21 分钟有效音乐）
-    //   以内 P99 精确，超出后两边按同一个秩（从大往小第 126 个附近）估计——偏向更高的百分位、两边同秩，仍是顶峰的比较。
-    //   触发：代价连续 sustainSeconds（有效音乐秒数）高于 threshold，且距上次下调已过 cooldownSeconds → update 返回 true，调用方（编排器）
+    //   只留最大的 topCount 个块，exactBlocks（21 分钟有效音乐）以内 P99 精确，超出后两边按同一个秩（从大往小第 126 个附近）估计——
+    //   偏向更高的百分位、两边同秩，仍是顶峰的比较。
+    //   证据分两档（两档的数都是先试自己的常数）：代价 ≥ vetoThreshold（0.6 dB，先试「不做」的线 clayCostZeroDb）——满 minimumBlocks
+    //   （10 s，先试的最短时长 trialMinimumSeconds）就算；代价在 threshold 与 vetoThreshold 之间（先试只会「减量」的区间）——要满
+    //   confirmBlocks（512 块 = 51.2 s，先试的记录容量 trialCapacity）才算。为什么：累计的块少时 P99 就是最大的那三四块，一段鼓点或一个
+    //   drop 就能把它推过 0.2 dB，而降档是单向的；真歌 Jamendo tech（整首顶峰 −0.09 dB）只要 10 s 就判时在 34 s 被一个新进来的大块推到
+    //   +0.25 dB、连降两档（woqu、emotapes 同理，都发生在头 10 s）；满 512 块后 P99 至少落在第 5 大块之后，这几首的累计代价最高 +0.14 dB。
+    //   代价 ≥ 0.6 dB 的歌（WTF +1.2、will we be okay +1.9、somggggg +0.7）10 s 的证据就够，与 T-044 之前一样快；0.2 ～ 0.6 dB 的
+    //   （Jamendo deep +0.51）多等 41 s。
+    //   触发：上面的条件连续 sustainSeconds（有效音乐秒数）成立，且距上次下调已过 cooldownSeconds → update 返回 true，调用方（编排器）
     //         把自动 Clay 的缩放降一档（nextScale：1 → 0.5 → 0.25 → 0）并开方案过渡；本单元同时清空累计与计时，在新方案下重攒。
     //   纯算术、不分配；块长只影响判断时刻的量化（最多一个切片），与 GlazeGuard 按块读统计同一口径。
     //   T-043 第二个触发量（ADR-027）：守护的混合损失——守护把低切拉回干路时与干路相位不同处互相抵消，「超出量」很小、守护却几乎
@@ -127,9 +134,11 @@ namespace celadon::glaze
     //   正常歌 2 s 平滑后的起伏（真歌 somggggg_mp3 0.07 ～ 0.12 dB）碰不到它。混合损失从未超过门槛时，返回值与只有第一条时逐位相同。
     struct ClayPressureMonitor
     {
-        static constexpr double threshold = 0.2;        // dB：先试「照做」的上限
+        static constexpr double threshold = 0.2;        // dB：先试「照做」的上限（clayCostFullDb 出厂值）
+        static constexpr double vetoThreshold = 0.6;    // dB：先试「不做」的线（clayCostZeroDb 出厂值）
         static constexpr double percentile = 0.99;      // 同 MusicAnalyzer 的 trialPercentile
-        static constexpr int minimumBlocks = 100;       // 有效块满 10 s（100 × 0.1 s）才判，同 trialMinimumSeconds
+        static constexpr int minimumBlocks = 100;       // 有效块满 10 s（100 × 0.1 s，同 trialMinimumSeconds）才有代价；≥ vetoThreshold 就算
+        static constexpr int confirmBlocks = 512;       // 代价在 threshold 与 vetoThreshold 之间时要满 51.2 s（同 trialCapacity）才算
         static constexpr int topCount = 128;            // 每个序列只留最大的这么多块
         static constexpr int exactBlocks = 100 * (topCount - 2);   // 12600 块（21 分钟有效音乐）以内 P99 精确
         static constexpr double floorRatio = 1.0e-6;    // 处理后的 P99 按干路 P99 的 −120 dB 封底（同 trialPeakFloorRatio）
@@ -164,6 +173,12 @@ namespace celadon::glaze
         bool costReady() const noexcept   { return costValid; }
         double costDb() const noexcept    { return costValid ? cost : 0.0; }
 
+        // 此刻的代价算不算「该降」（两档证据，见上）：≥ vetoThreshold，或 > threshold 且有效块满 confirmBlocks。
+        bool costCalls() const noexcept
+        {
+            return costValid && (cost >= vetoThreshold || (cost > threshold && blockCount >= confirmBlocks));
+        }
+
         // 平滑后的混合损失（dB）：两份平滑能量都 > 0 才有，否则 0。
         double blendLossDb() const noexcept;
 
@@ -180,7 +195,7 @@ namespace celadon::glaze
         bool openBlockClean = false;         // 正在走的那一块到此为止都在有效音乐里（初值 / 清零后为假：跨过断点的块不算）
         bool costValid = false;
         double cost = 0.0;                   // 第一触发量的代价（dB）
-        double aboveSeconds = 0.0;           // 代价连续高于门槛的有效音乐秒数
+        double aboveSeconds = 0.0;           // costCalls() 连续成立的有效音乐秒数
         double sinceStep = cooldownSeconds;  // 距上次下调的有效音乐秒数（初值 = 冷却已满）
         double blendIntendedSmoothed = 0.0;  // 混合损失的两份平滑能量（T-043）
         double blendOutputSmoothed = 0.0;

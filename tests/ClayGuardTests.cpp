@@ -1298,9 +1298,10 @@ namespace celadon::test
         //   - 代价 = 20·log10(P99 处理后 / P99 干路)，P99 = numpy 默认的线性插值百分位（与 MusicAnalyzer::percentileOfTop 同式）：与存下
         //     全部块、排序后算的参照逐位相同（n = 100、137、1000、12600）；n = 13000 时两边按 exactBlocks 的同一个秩估计（参照取全部块
         //     降序后同一位置）；
-        //   - 构造 / reset 之后走完的第一块不攒（它开始时监视器还没看到前面的音频）；有效块不满 100（10 s）不判：99 块时 costReady 为假；
-        //   - 每切片一块（0.1 s）、处理后 = 干路 × 10^(0.3/20)：第一块作废 + 100 块攒满，代价 0.3 dB 再持续 1 s → 约 11.1 s 返回 true；
-        //     返回时累计清空；冷却 4 s 里的块不攒、跨冷却结束的那块也不攒 → 下一次约在 4 + 0.1 + 10 + 1 = 15.2 s 之后；
+        //   - 构造 / reset 之后走完的第一块不攒（它开始时监视器还没看到前面的音频）；有效块不满 100（10 s）没有代价：99 块时 costReady 为假；
+        //   - 两档证据：每切片一块（0.1 s）、处理后 = 干路 × 10^(0.8/20)（≥ 0.6 dB，先试「不做」的线）：第一块作废 + 100 块，再持续 1 s
+        //     → 约 11.1 s 返回 true；返回时累计清空；冷却 4 s 里的块不攒、跨冷却结束的那块也不攒 → 下一次约在 4 + 0.1 + 10 + 1 = 15.2 s 之后；
+        //     0.3 dB（只会「减量」的区间）：要满 512 块 → 约 0.1 + 51.2 + 1 = 52.3 s；511 块时代价已是 0.3 dB 却不算（costCalls 为假）；
         //   - 0.15 dB 恒定永不触发；处理后比干路低 1 dB 永不触发、代价为负；
         //   - 有效性：music = false 的切片里的块不攒；跨切片的块要每片都有效（中途一片 music = false → 那一块不攒、之后的照常）；
         //     dropped 的块不攒、之后的照常；非有限 / 负的块峰值不攒；干路全 0 → 不判；处理后全 0 → 按 −120 dB 封底；
@@ -1384,18 +1385,35 @@ namespace celadon::test
                 expectEquals (monitor.blockCount, 13000);
             }
 
-            // 2. 持续 0.3 dB：第 100 块起代价 0.3 dB，再连续 1 s → 约 11.0 s 降档；冷却 4 s 不攒 + 重攒 10 s + 持续 1 s → 下一次约 15 s 后。
+            // 2. 两档证据。0.8 dB（≥ 0.6）：第 100 块起就算，再连续 1 s → 约 11.1 s 降档；冷却 4 s 不攒 + 跨界那块 + 重攒 10 s + 持续 1 s
+            //    → 下一次约 15.2 s 后。0.3 dB（0.2 ～ 0.6）：要满 512 块 → 约 52.3 s；511 块时不算。
             {
                 juce::Random rng (4402);
                 ClayPressureMonitor monitor;
-                const auto first = feedUntilStep (monitor, rng, 0.3, 30.0);
-                logMessage ("  0.3 dB peak cost: first step after " + juce::String (first, 2) + " s");
-                expectWithinAbsoluteError (first, 11.1, 0.15, "a constant 0.3 dB cost: first block dropped, 10 s to accumulate, then 1 s above 0.2 dB");
+                const auto first = feedUntilStep (monitor, rng, 0.8, 30.0);
+                logMessage ("  0.8 dB peak cost: first step after " + juce::String (first, 2) + " s");
+                expectWithinAbsoluteError (first, 11.1, 0.15, "a constant 0.8 dB cost (at or above the trial's veto line): 10 s of evidence, then 1 s");
                 expect (monitor.blockCount == 0 && ! monitor.costReady() && monitor.aboveSeconds == 0.0, "a step clears the accumulation");
 
-                const auto second = feedUntilStep (monitor, rng, 0.3, 40.0);
+                const auto second = feedUntilStep (monitor, rng, 0.8, 40.0);
                 logMessage ("  second step after another " + juce::String (second, 2) + " s");
                 expectWithinAbsoluteError (second, 15.2, 0.2, "the next step: 4 s cooldown (blocks not kept) + the straddling block + 10 s + 1 s");
+
+                ClayPressureMonitor moderate;
+                const std::array<float, 2> prime { 0.5f, 0.5f };
+                moderate.update (Blocks { prime.data(), 1, 0 }, true, 0.0);   // 第一块作废（不计时）
+
+                for (int k = 0; k < ClayPressureMonitor::confirmBlocks - 1; ++k)
+                    expect (! feedOne (moderate, rng, 0.3), "0.3 dB with fewer than 512 blocks never steps");
+
+                expect (moderate.costReady() && std::abs (moderate.costDb() - 0.3) < 1.0e-4 && ! moderate.costCalls(),
+                        "511 blocks: the cost is 0.3 dB but does not call for a step yet");
+
+                ClayPressureMonitor confirm;
+                juce::Random rngConfirm (4402);
+                const auto late = feedUntilStep (confirm, rngConfirm, 0.3, 80.0);
+                logMessage ("  0.3 dB peak cost: first step after " + juce::String (late, 2) + " s");
+                expectWithinAbsoluteError (late, 52.3, 0.15, "a constant 0.3 dB cost (between 0.2 and 0.6 dB): 512 blocks (51.2 s), then 1 s");
             }
 
             // 3. 门槛之下 / 处理后更低：永不触发。
@@ -1520,7 +1538,7 @@ namespace celadon::test
             const auto second = feedBlendUntilStep (monitor, 0.2, 10.0);
             expectWithinAbsoluteError (second, 4.0, 2.0 * slice, "the next step waits for the shared 4 s cooldown");
 
-            // 共用冷却：混合损失触发之后，峰值块代价 0.5 dB（每 0.1 s 一块）冷却期里不攒，要 4 s + 10 s + 1 s。
+            // 共用冷却：混合损失触发之后，峰值块代价 0.8 dB（每 0.1 s 一块，≥ 0.6 dB 那一档）冷却期里不攒，要 4 s + 10 s + 1 s。
             ClayPressureMonitor shared;
             expect (feedBlendUntilStep (shared, 0.3, 5.0) > 0.0, "positive control: the blend trigger fires");
             auto peakStep = -1.0;
@@ -1529,7 +1547,7 @@ namespace celadon::test
             for (int k = 1; k <= 300 && peakStep < 0.0; ++k)
             {
                 const auto dry = 0.3f + 0.3f * rng.nextFloat();
-                const std::array<float, 2> pair { (float) ((double) dry * std::pow (10.0, 0.5 / 20.0)), dry };
+                const std::array<float, 2> pair { (float) ((double) dry * std::pow (10.0, 0.8 / 20.0)), dry };
 
                 if (shared.update (Blocks { pair.data(), 1, 0 }, true, 0.1))
                     peakStep = 0.1 * (double) k;
@@ -1571,7 +1589,7 @@ namespace celadon::test
             for (int k = 0; k < 2000; ++k)
             {
                 const auto dry = 0.3f + 0.3f * wobble.nextFloat();
-                const auto ratioDb = 0.25 + 0.2 * std::sin (0.01 * (double) k);
+                const auto ratioDb = 0.45 + 0.3 * std::sin (0.01 * (double) k);   // 0.15 ～ 0.75 dB：两档都会碰到
                 const std::array<float, 2> pair { (float) ((double) dry * std::pow (10.0, ratioDb / 20.0)), dry };
                 stepsDefault += defaults.update (Blocks { pair.data(), 1, 0 }, true, 0.1) ? 1 : 0;
                 stepsZero += zeros.update (Blocks { pair.data(), 1, 0 }, true, 0.1, 0.0, 0.0, 0.0) ? 1 : 0;

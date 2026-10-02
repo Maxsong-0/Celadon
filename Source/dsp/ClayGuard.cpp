@@ -506,7 +506,7 @@ namespace celadon::glaze
 
         const auto dt = juce::jmin (seconds, maxSeconds);
         sinceStep = juce::jmin (sinceStep + dt, maxSeconds);
-        aboveSeconds = costValid && cost > threshold ? juce::jmin (aboveSeconds + dt, maxSeconds) : 0.0;
+        aboveSeconds = costCalls() ? juce::jmin (aboveSeconds + dt, maxSeconds) : 0.0;
 
         if ((aboveSeconds >= sustainSeconds || blendAboveSeconds >= sustainSeconds) && sinceStep >= cooldownSeconds)
         {

@@ -3448,10 +3448,11 @@ namespace celadon::test
         //    ClayGuard / ClayGlaze 测试核对。
         // Clay 6. 修坯压力反馈（ADR-014）：方案要低切（clayStateFrom 的画像：need_sub = 1，通透 20 Hz；代价 −0.5 dB → 照做），
         //    素材却是 40 Hz 方波（±0.5，单声道）——4 阶高通让方波平顶倾斜、每个边沿都冲过 ±0.5，ClayModule 的峰值守护每半个周期
-        //    都要把低切的改动量拉回来。编排器按有效音乐累计 100 ms 峰值块（T-044 / ADR-028 起与先试同口径：整段 P99 比），攒满 10 s 后
-        //    持续 1 s 超过 0.2 dB 就把自动 Clay 的缩放降一档（1 → 0.5 → 0.25 → 0），每档走方案过渡、冷却 4 s 后重攒：
-        //      - 40 s 内至少降两档（缩放 ≤ 0.25；T-044 之前按 2 s 平滑的代价格 25 s 内就够，现在每档要攒满 10 s），状态报低切「因代价
-        //        减量 / 跳过」（costLimitedMask 的低切位）；自动低切比学完时低；
+        //    都要把低切的改动量拉回来，回收时与干路相位不同处互相抵消（混合损失）。压力反馈（两个触发量共用档位与冷却）把自动 Clay
+        //    的缩放降一档（1 → 0.5 → 0.25 → 0），每档走方案过渡：
+        //      - 40 s 内至少降两档（缩放 ≤ 0.25），状态报低切「因代价减量 / 跳过」（costLimitedMask 的低切位）；自动低切比学完时低。
+        //        T-044 实测：两档都是第二触发量（混合损失，2 s 平滑）先到——第一触发量（峰值块 P99，ADR-028）每档要先攒满 10 s，
+        //        攒不满就随降档清空了；第一触发量另由 Clay 6b 专测；
         //      - 存档带着缩放（控制器节点的 clayPressureScale 属性），读回新链后缩放与方案一致；删掉这个属性的旧存档 = 1；
         //    阳性对照：同一画像、守护不动作的稳态低音（makeSteadyBass）20 s 不降档。
         //    T-043（ADR-027）：原先的阳性对照素材（60 / 110 Hz + 白噪声）峰值超出很小、守护却频繁回收——ADR-014 当时以为「回收量夸大了
@@ -3510,11 +3511,17 @@ namespace celadon::test
             const auto initialLowCut = rig.probe().clayPlanned.lowCutHz;
             expect (initialLowCut > 15.0f, "positive control: the restored profile plans a real low cut: " + juce::String (initialLowCut));
 
-            const auto stepped = rig.runUntil (40.0, [&] { return rig.probe().clayPressureScale <= 0.25f; });
+            auto squareCost = 0.0;
+            const auto stepped = rig.runUntil (40.0, [&]
+            {
+                squareCost = juce::jmax (squareCost, rig.probe().clayPeakCostDb);
+                return rig.probe().clayPressureScale <= 0.25f;
+            });
             rig.run (4.0);   // 让最后一次方案过渡走完
 
             const auto probe = rig.probe();
-            logMessage ("  pressure steps " + juce::String (probe.clayPressureSteps) + ", scale " + juce::String (probe.clayPressureScale)
+            logMessage ("  square wave: peak cost up to " + juce::String (squareCost, 3) + " dB; pressure steps " + juce::String (probe.clayPressureSteps)
+                        + ", scale " + juce::String (probe.clayPressureScale)
                         + ", planned low cut " + juce::String (probe.clayPlanned.lowCutHz) + " Hz (was " + juce::String (initialLowCut) + ")");
             expect (stepped && probe.clayPressureSteps >= 2, "the low cut's sustained peak cost steps the scale down at least twice within 40 s");
             expect (probe.clayPlanned.lowCutHz < initialLowCut, "the automatic low cut is lower (or off) after the steps");
@@ -3543,9 +3550,9 @@ namespace celadon::test
 
         // Clay 6b. 压力反馈第一触发量与先试同口径（T-044，BUG-011 / ADR-028）。同一份要低切 20 Hz 的画像（Clay 6），播放
         //    makeInfraBassMaterial：
-        //      - 限过幅、次声 0.06：切掉被限幅器算进去的次声，顶峰真被抬（先试口径约 +0.6 dB，已到先试「不做」的线）。40 s 内降档，
-        //        且是第一触发量降的——降之前峰值块代价 > 0.2 dB、混合损失 < 0.15 dB。T-044 之前的「10 ms 格超界平均」在这份素材上
-        //        2 s 平均最大约 0.05 dB，从不降档（模型见 makeInfraBassMaterial）；
+        //      - 限过幅、次声 0.06：切掉被限幅器算进去的次声，顶峰真被抬（链里约 +0.3 dB：先试只会「减量」的区间，要满 512 块 =
+        //        51.2 s 才算）。70 s 内降档，且是第一触发量降的——降之前代价 > 0.2 dB 且攒满 512 块、混合损失 < 0.15 dB。T-044 之前的
+        //        「10 ms 格超界平均」在这份素材上 2 s 平均最大约 0.03 dB，从不降档（改前源码实测，见 T-044 REPORT）；
         //      - 不限幅、次声 0.08：顶峰来自低音与次声同向叠加，切掉次声顶峰下降——守护照样有活干（局部峰被抬），但第一触发量的代价
         //        为负、30 s 不因它降档（滑动短窗口径会在这类歌的安静段误降，见 ClayGuard.h）。
         void testClayPressurePeakCost()
@@ -3567,7 +3574,7 @@ namespace celadon::test
 
                 auto costBeforeStep = 0.0, blendBeforeStep = 0.0;
                 auto blocksBeforeStep = 0;
-                const auto stepped = rig.runUntil (40.0, [&]
+                const auto stepped = rig.runUntil (70.0, [&]
                 {
                     const auto probe = rig.probe();
 
@@ -3583,9 +3590,9 @@ namespace celadon::test
                 logMessage ("  limited bass + infrasound: step " + juce::String (stepped ? "yes" : "no") + ", peak cost before it "
                             + juce::String (costBeforeStep, 3) + " dB over " + juce::String (0.1 * blocksBeforeStep, 1) + " s, blend loss max "
                             + juce::String (blendBeforeStep, 3) + " dB");
-                expect (stepped, "the low cut lifts the top peaks of the limited material: the first trigger steps down within 40 s");
-                expect (costBeforeStep > glaze::ClayPressureMonitor::threshold && blocksBeforeStep >= glaze::ClayPressureMonitor::minimumBlocks,
-                        "... on the trial's measure (P99 peak-block cost above 0.2 dB after at least 10 s)");
+                expect (stepped, "the low cut lifts the top peaks of the limited material: the first trigger steps down within 70 s");
+                expect (costBeforeStep > glaze::ClayPressureMonitor::threshold && blocksBeforeStep >= glaze::ClayPressureMonitor::confirmBlocks,
+                        "... on the trial's measure (P99 peak-block cost above 0.2 dB over at least 51.2 s)");
                 expect (blendBeforeStep < glaze::ClayPressureMonitor::blendThreshold, "... and not through the blend loss (second trigger)");
 
                 rig.run (4.0);   // 让这一档的方案过渡走完
