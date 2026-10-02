@@ -27,7 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from house_gate import fmt, num, weighted_percentile  # noqa: E402
 
 CLASSES = ('deep', 'tech', 'melodic')
-FACTORY_SLOPE = {'deep': -3.5, 'tech': -2.5, 'melodic': -3.0}   # GlazeConstants.cpp genre 表的出厂 Tone 参考斜率
+# GlazeConstants.cpp genre 表的出厂 Tone 参考斜率（2026-10-01 标定后三类都 −2.25；标定时比的是起点值 −3.5 / −2.5 / −3.0，见报告）
+FACTORY_SLOPE = {'deep': -2.25, 'tech': -2.25, 'melodic': -2.25}
 FACTORY_WIDTH_LU, FACTORY_LOW_FACTOR = 3.0, 0.6
 LOCK_SEGMENTS, REQUIRED_FULL = 64, 8
 REOPEN_ABOVE_LU, REOPEN_SEGMENTS = 3.0, 4

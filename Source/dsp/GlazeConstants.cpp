@@ -124,12 +124,13 @@ namespace celadon::glaze
             clean.clayWidthStyleFactor = 1.0f;
             clean.automaticHeatFloor = 12.0f;
 
-            // T-038 三个 House 子类（设计规格-曲风与交付 第 3.1 节的起点值，待 Max 用每类 10 ～ 20 首参考曲标定，第 3.2 节）：
-            // Tone 参考斜率按 Beatport 2018 统计的明暗顺序（Deep、Prog 更暗，Tech 最亮）；Tone 往亮 +0.4 dB、低切 25 Hz、
-            // 不自动加宽三类相同，取 GenreConstants 的结构体默认值。House 共用常数与交付三档的出厂值同样就是结构体默认值。
-            c.deepHouse.toneReferenceSlopeDbPerOct = -3.5f;
-            c.techHouse.toneReferenceSlopeDbPerOct = -2.5f;
-            c.melodicProgressive.toneReferenceSlopeDbPerOct = -3.0f;
+            // T-038 三个 House 子类（设计规格-曲风与交付 第 3.1 节）：Tone 参考斜率 2026-10-01 按 Jamendo 45 首标定（每类 15 首的 House 门控
+            // 画像谱斜率中位数 −2.21 / −2.19 / −2.24，取到 0.25 → 三类都 −2.25；Max 选定。起点值 −3.5 / −2.5 / −3.0 让几乎每首 Deep /
+            // Melodic 都被往暗推，报告 docs/validation/2026-10-01-T038-calibration/REPORT.md）。Tone 往亮 +0.4 dB、低切 25 Hz、不自动加宽
+            // 三类相同。四项都取 GenreConstants 的结构体默认值；House 共用常数与交付三档的出厂值同样就是结构体默认值。
+            c.deepHouse = GenreConstants {};
+            c.techHouse = GenreConstants {};
+            c.melodicProgressive = GenreConstants {};
 
             // 阶段 0 的全局字段按结构体默认值即为出厂值：
             //   - 目标：L_pref 钳在 −14 ～ −7（规格原文）；LRA 修正 f(LRA) = (LRA − 6 LU) × 1/3 dB（6 LU 以下不修正：动态不大的歌

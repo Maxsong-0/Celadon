@@ -2393,9 +2393,9 @@ namespace celadon::test
             beginTest ("T-038: constants without genre / house / delivery fields read the factory values; present but broken is rejected");
             {
                 const auto& factory = factoryConstants();
-                expectEquals (factory.deepHouse.toneReferenceSlopeDbPerOct, -3.5f);
-                expectEquals (factory.techHouse.toneReferenceSlopeDbPerOct, -2.5f);
-                expectEquals (factory.melodicProgressive.toneReferenceSlopeDbPerOct, -3.0f);
+                expectEquals (factory.deepHouse.toneReferenceSlopeDbPerOct, -2.25f);   // 2026-10-01 标定（三类相同）
+                expectEquals (factory.techHouse.toneReferenceSlopeDbPerOct, -2.25f);
+                expectEquals (factory.melodicProgressive.toneReferenceSlopeDbPerOct, -2.25f);
                 for (const auto* g : { &factory.deepHouse, &factory.techHouse, &factory.melodicProgressive })
                     expect (g->toneMaxBrightDb == 0.4f && g->clayLowCutTargetHz == 25.0f && g->clayWidthStyleFactor == 0.0f);
                 expect (genreConstantsFor (factory, Genre::general) == nullptr);
@@ -2565,9 +2565,9 @@ namespace celadon::test
                     }
                 }
 
-                expectEquals (blendConstants (c, weightsFor (Style::punchy, {}), Genre::deepHouse).toneReferenceSlopeDbPerOct, -3.5f);
-                expectEquals (blendConstants (c, mixedWeights, Genre::techHouse).toneReferenceSlopeDbPerOct, -2.5f);
-                expectEquals (blendConstants (c, weightsFor (Style::warm, {}), Genre::melodicProgressive).toneReferenceSlopeDbPerOct, -3.0f);
+                expectEquals (blendConstants (c, weightsFor (Style::punchy, {}), Genre::deepHouse).toneReferenceSlopeDbPerOct, -2.25f);
+                expectEquals (blendConstants (c, mixedWeights, Genre::techHouse).toneReferenceSlopeDbPerOct, -2.25f);
+                expectEquals (blendConstants (c, weightsFor (Style::warm, {}), Genre::melodicProgressive).toneReferenceSlopeDbPerOct, -2.25f);
                 expectEquals (blendConstants (c, weightsFor (Style::clean, {}), Genre::melodicProgressive).clayLowCutTargetHz, 25.0f);
                 expectEquals (blendConstants (c, weightsFor (Style::clean, {}), Genre::techHouse).clayWidthStyleFactor, 0.0f);
 
@@ -2595,11 +2595,18 @@ namespace celadon::test
                     }
                 }
 
-                // 对照：通用档照旧按风格的参考。斜率 −4.5 的画像：通用 + 冲击（参考 −2.5）差 2 dB/oct → (2 − 0.35) × 0.5 = 0.825，顶到 0.75；
-                // Deep + 冲击（参考 −3.5）只差 1 → 0.325。
+                // 对照：通用档照旧按风格的参考。画像比 Deep 的参考暗 1 dB/oct：Deep + 冲击 → inside（0.325）；通用 + 冲击按冲击自己的参考
+                // （出厂 −2.5，Deep 标定后 −2.25：只差 0.75 → (0.75 − 0.35) × 0.5 = 0.2）。两个参考必须不同，这一组才分得出用的是哪一个。
+                const auto deepReference = genreConstantsFor (c, Genre::deepHouse)->toneReferenceSlopeDbPerOct;
+                const auto punchyGap = c.punchy.toneReferenceSlopeDbPerOct - (deepReference - 1.0f);
+                const auto punchyTone = juce::jlimit (-c.punchy.toneMaxDb, c.punchy.toneMaxDb,
+                                                      std::copysign (juce::jmax (0.0f, std::abs (punchyGap) - automaticToneSlopeDeadbandDbPerOct), punchyGap)
+                                                          * c.toneDbPerSlopeDb);
+                expect (std::abs (c.punchy.toneReferenceSlopeDbPerOct - deepReference) > 0.1f && std::abs (punchyTone - inside) > 0.05f,
+                        utf8 ("前提：冲击与 Deep 的参考不同"));
                 auto darkMix = makeProfile (-20.0f, -8.0f);
-                setFeature (darkMix.spectralSlopeDbPerOct, -4.5f);
-                expectWithinAbsoluteError (planFor (&darkMix, Style::punchy, 100.0f).increments.colorToneDb, 0.75f, 1.0e-6f, utf8 ("通用 + 冲击按风格参考"));
+                setFeature (darkMix.spectralSlopeDbPerOct, deepReference - 1.0f);
+                expectWithinAbsoluteError (planFor (&darkMix, Style::punchy, 100.0f).increments.colorToneDb, punchyTone, 1.0e-6f, utf8 ("通用 + 冲击按风格参考"));
                 expectWithinAbsoluteError (planWithGenre (&darkMix, Style::punchy, 100.0f, Genre::deepHouse, Delivery::standard).increments.colorToneDb,
                                            inside, 1.0e-6f, utf8 ("Deep + 冲击按子类参考"));
 
@@ -2706,17 +2713,24 @@ namespace celadon::test
                     }
                 }
 
-                // Tech House 的参考 −2.5 与冲击 / 通透相同：同一份画像下，往暗与上限以内的修正和通用档逐位相同，只有往亮的上限不同。
-                // 斜率 1.5 / −1.5 / −2.5 / −3.0 / −3.5 → 满强度 −0.75（往暗封顶）/ −0.325 / 0（死区）/ +0.075 / +0.325。
+                // House 与通用档同一个 Tone 式子：把通用档冲击 / 通透的参考在快照里换成 Tech 的参考，同一份画像下往暗与上限以内的修正
+                // 逐位相同，只有往亮的上限不同。斜率 = 参考 + 4 / + 1 / 0 / − 0.5 / − 1 → 满强度 −0.75（往暗封顶）/ −0.325 / 0（死区）/
+                // +0.075 / +0.325。（标定前 Tech 的参考 −2.5 正好等于冲击 / 通透的，这一组直接比出厂通用档；2026-10-01 标定成 −2.25 后改为
+                // 在快照里对齐参考再比。）
+                const auto techReference = genreConstantsFor (c, Genre::techHouse)->toneReferenceSlopeDbPerOct;
+                Constants generalAligned = c;
+                generalAligned.punchy.toneReferenceSlopeDbPerOct = techReference;
+                generalAligned.clean.toneReferenceSlopeDbPerOct = techReference;
+
                 for (auto style : { Style::punchy, Style::clean })
                 {
-                    for (auto slope : { 1.5f, -1.5f, -2.5f, -3.0f, -3.5f })
+                    for (auto offset : { 4.0f, 1.0f, 0.0f, -0.5f, -1.0f })
                     {
                         auto p = makeProfile (-20.0f, -8.0f);
-                        setFeature (p.spectralSlopeDbPerOct, slope);
+                        setFeature (p.spectralSlopeDbPerOct, techReference + offset);
                         expect (sameBits (planWithGenre (&p, style, 80.0f, Genre::techHouse, Delivery::standard).increments.colorToneDb,
-                                          planFor (&p, style, 80.0f).increments.colorToneDb),
-                                utf8 ("Tech 与通用同参考：上限以内逐位相同，斜率 ") + juce::String (slope));
+                                          planWithGenre (&p, style, 80.0f, Genre::general, Delivery::standard, &generalAligned).increments.colorToneDb),
+                                utf8 ("Tech 与参考对齐的通用档：上限以内逐位相同，参考 + ") + juce::String (offset));
                     }
 
                     auto veryDark = makeProfile (-20.0f, -8.0f);
@@ -2726,13 +2740,14 @@ namespace celadon::test
                                                1.0e-6f, utf8 ("Tech 往亮到 0.4"));
                 }
 
-                // 快照里的往亮上限（Deep、温润，参考 −3.5）：0、负数、NaN → 不许往亮（往暗照旧 −0.75）；0.6 → 0.6（House 档往亮的上限就是
+                // 快照里的往亮上限（Deep、温润，参考取出厂的 Deep 值）：0、负数、NaN → 不许往亮（往暗照旧 −0.75）；0.6 → 0.6（House 档往亮的上限就是
                 // 这个字段，与 toneMaxDb 无关）；+∞ → 不设上限（与 toneMaxDb 本身的口径一致），满强度 1.825。
                 // 风格的 toneMaxDb ≤ 0 → 整项 Tone 都不动（曲风只换往亮的边界，不重开风格关掉的 Tone）。
+                const auto deepReference = factoryConstants().deepHouse.toneReferenceSlopeDbPerOct;
                 auto deepDark = makeProfile (-20.0f, -8.0f);
-                setFeature (deepDark.spectralSlopeDbPerOct, -3.5f - 4.0f);
+                setFeature (deepDark.spectralSlopeDbPerOct, deepReference - 4.0f);
                 auto deepBright = makeProfile (-20.0f, -8.0f);
-                setFeature (deepBright.spectralSlopeDbPerOct, -3.5f + 4.0f);
+                setFeature (deepBright.spectralSlopeDbPerOct, deepReference + 4.0f);
 
                 const struct { float cap, resolved, tone; } brightCaps[] =
                 {

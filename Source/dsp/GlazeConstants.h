@@ -85,13 +85,15 @@ namespace celadon::glaze
     };
 
     // ---- T-038 曲风与交付（设计规格-曲风与交付 第 3、4 节，设计规格-曲风-House学习方式；ADR-026）----
-    // 默认值就是出厂起点值（只在这里写一次），待 Max 用曲库标定（规格第 3.2 节）。标定快照存取同其他字段；旧快照缺字段按出厂值读
+    // 默认值就是出厂值（只在这里写一次）。2026-10-01 按 Jamendo 45 首标定（规格第 3.2 节，报告 docs/validation/2026-10-01-T038-calibration/）：
+    // Tone 参考斜率改成 −2.25（三类相同）；门控 ΔG / 低频门系数、64 / 8 小节、重开条件数据支持起点值、未改；其余待 Max 试听再调。
+    // 标定快照存取同其他字段；旧快照缺字段按出厂值读
     // （GlazeConstants.cpp visitGenre / visitHouse / visitDelivery）——通用 + 标准用不到这些字段，旧工程逐位不变。
 
     // 一个 House 子类覆盖的音色字段（在风格权重混合之后覆盖；通用档不覆盖任何一项）。
     struct GenreConstants
     {
-        float toneReferenceSlopeDbPerOct = -3.0f;   // 覆盖 StyleConstants::toneReferenceSlopeDbPerOct
+        float toneReferenceSlopeDbPerOct = -2.25f;  // 覆盖 StyleConstants::toneReferenceSlopeDbPerOct（2026-10-01 标定，三类相同）
         float toneMaxBrightDb = 0.4f;               // Tone 往亮的上限（往暗仍用 StyleConstants::toneMaxDb）
         float clayLowCutTargetHz = 25.0f;           // 覆盖 StyleConstants::clayLowCutTargetHz（ADR-026 第 5 条）
         float clayWidthStyleFactor = 0.0f;          // 覆盖 StyleConstants::clayWidthStyleFactor：House 档不自动加宽
