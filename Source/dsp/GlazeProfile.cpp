@@ -37,6 +37,10 @@
     T-032 R6-02 收尾（A11）：PLAN 多存 manualBudgetMask（手动链单独已超预算的项，保护层与上游监视不核对它们，见 GlazeTypes.h；十进制）。
       缺属性 = 受手动设置限制的方案三位全置、否则 0；在但不是 0 ～ 255 的整数拒收。已提交版本里未定义的位照读（编排器只认三个已定义的位，
       与 clayCostLimitedMask 同一做法）；执行快照的 PLAN 含未定义的位整份拒收（与其他执行量同一做法）。
+    T-043（2026-10-01，ADR-027）：画像格式 2 多两个**可选**特征 lowCutBlendLossDb0 ～ 1（先试后用量的峰值守护混合损失，候选频率
+      clayBlendCandidateHz），不升格式号（格式 3 归 T-038 的 House 门控）。每个各自：写——与 Feature{} 逐位相同（没量过）时一个属性
+      都不写，旧画像重存逐字节不变；否则四个属性全写。读——四个一个都没有 = 不知道（旧画像）；有任何一个就四个都要齐全且格式正确，
+      否则整份拒收。画像号：有效的那几个按下标顺序接在格式 2 字段的最后，旧画像与没量出来的画像，画像号与改前逐位相同。
 
   ==============================================================================
 */
@@ -46,6 +50,7 @@
 #include "ClayModule.h"
 
 #include <cmath>
+#include <cstring>
 #include <limits>
 
 namespace celadon::glaze
@@ -121,6 +126,30 @@ namespace celadon::glaze
             visitFeature (v, "widthPeakCostDb", p.widthPeakCostDb);
         }
 
+        // T-043 的可选特征（见文件头）：属性前缀（第 i 个 = clayBlendCandidateHz[i]）与「是不是没量过」的判断。
+        constexpr const char* blendLossNames[] = { "lowCutBlendLossDb0", "lowCutBlendLossDb1" };
+        static_assert (sizeof (blendLossNames) / sizeof (blendLossNames[0])
+                           == std::tuple_size<decltype (MusicProfile::lowCutBlendLossDb)>::value,
+                       "每个混合损失候选都要有属性名");
+
+        bool isUnsetFeature (const Feature& f) noexcept
+        {
+            const Feature unset {};
+            return f.valid == unset.valid
+                && std::memcmp (&f.value, &unset.value, sizeof (f.value)) == 0
+                && std::memcmp (&f.effectiveSeconds, &unset.effectiveSeconds, sizeof (f.effectiveSeconds)) == 0
+                && std::memcmp (&f.confidence, &unset.confidence, sizeof (f.confidence)) == 0;
+        }
+
+        bool hasAnyFeatureAttribute (const juce::XmlElement& xml, const char* prefix)
+        {
+            for (const auto* name : { "value", "valid", "seconds", "confidence" })
+                if (xml.hasAttribute (join (prefix, name)))
+                    return true;
+
+            return false;
+        }
+
         // 画像格式 3（T-038 House 档门控结果，设计规格-曲风-House学习方式 第 5 节）：只在 formatVersion ≥ houseProfileFormatVersion 时
         // 写 / 读，与格式 2 的字段同样严格（缺一个就整份拒收）。分段方式是枚举，按 0 ～ 2 的小整数存，存在但越界照样拒收。
         void visitSegmentMode (xmlio::Writer& w, const SegmentMode& mode)
@@ -171,6 +200,7 @@ namespace celadon::glaze
             p.lowCutPeakCostDb = Feature {};
             p.monoPeakCostDb.fill (Feature {});
             p.widthPeakCostDb = Feature {};
+            p.lowCutBlendLossDb.fill (Feature {});
         }
 
         template <typename Visitor, typename PlanT>
@@ -425,6 +455,11 @@ namespace celadon::glaze
                 addFeature (h, cost, levelStep);
 
             addFeature (h, p.widthPeakCostDb, levelStep);
+
+            // T-043 的可选特征：有效的才加，按下标顺序接在最后（旧画像、没量出来的画像，画像号与改前逐位相同）。
+            for (const auto& loss : p.lowCutBlendLossDb)
+                if (loss.valid)
+                    addFeature (h, loss, levelStep);
         }
 
         // T-038 House 档门控结果：只在格式 ≥ 3 时加，接在最后——格式 1 / 2 的画像号与 main 逐位相同。门控结果决定画像取了哪些段，
@@ -459,7 +494,13 @@ namespace celadon::glaze
 
         // 按画像自己的格式写：格式 1 的旧画像重存仍是格式 1（没有 Clay 特征），画像号也就不变。
         if (profile.formatVersion >= clayProfileFormatVersion)
+        {
             visitProfileClay (writer, profile);
+
+            for (std::size_t i = 0; i < profile.lowCutBlendLossDb.size(); ++i)   // T-043：可选特征，没量过不写
+                if (! isUnsetFeature (profile.lowCutBlendLossDb[i]))
+                    visitFeature (writer, blendLossNames[i], profile.lowCutBlendLossDb[i]);
+        }
 
         if (profile.formatVersion >= houseProfileFormatVersion)
             visitProfileHouse (writer, profile);
@@ -481,9 +522,22 @@ namespace celadon::glaze
         visitProfile (reader, parsed);
 
         if (format >= clayProfileFormatVersion)
+        {
             visitProfileClay (reader, parsed);   // 格式 2 起 Clay 特征与其他字段同样必须齐全
+
+            // T-043 的可选特征：一个属性都没有 = 不知道（旧画像）；有任何一个就四个都要齐全（visitFeature 严格读）。
+            for (std::size_t i = 0; i < parsed.lowCutBlendLossDb.size(); ++i)
+            {
+                if (hasAnyFeatureAttribute (xml, blendLossNames[i]))
+                    visitFeature (reader, blendLossNames[i], parsed.lowCutBlendLossDb[i]);
+                else
+                    parsed.lowCutBlendLossDb[i] = Feature {};
+            }
+        }
         else
+        {
             clearClayFeatures (parsed);          // 格式 1：没有这些特征 =「不知道」
+        }
 
         if (format >= houseProfileFormatVersion)
             visitProfileHouse (reader, parsed);  // 格式 3：House 门控结果同样必须齐全

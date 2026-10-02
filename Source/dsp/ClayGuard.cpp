@@ -52,10 +52,11 @@
           输出 widthDb = min(方案值, 上限)；方案值 ≤ 0 时原样不动（上限 ≥ 0）。
 
       - 冻结：seconds ≤ 0 或非有限 → 整体不动。实时视图的某一路无效 → 只冻那一路（保持期、资格期计时也不走），另一路照常：
-            反相一路：慢路 liveLowCorrelation.valid = false 或数值非有限（门上没有低频内容、静音——分析器在帧门限下把两路都置
-            无效，审核 V1-03 的「视图冻结与保护时钟」由此对齐）；
+            反相一路：慢路 liveLowCorrelation.valid = false 或数值非有限（门上没有低频内容、只有上方内容漏进 125 Hz 段（分析器的
+            泄漏门，BUG-009）、静音——分析器在帧门限下把两路都置无效，审核 V1-03 的「视图冻结与保护时钟」由此对齐）；
             宽度一路：liveHighValid = false，或 P_M / P_S 非有限、为负。
-          理由：「不知道」时不改（GLAZE 通则）。例如间奏里没有低频，反相保护停在原处；低频回来时若还是反相，不必再经历一次攻击。
+          理由：「不知道」时不改（GLAZE 通则）。例如间奏 / breakdown 里没有低频（只有 pad），反相保护停在原处；低频回来时若还是反相，
+          不必再经历一次攻击。
       - active = false（GLAZE ≤ 0）：状态直接回 ClayGuardState{}、资格期计时清零，输出 = 输入（原样返回 planned）。
         ⚠ 旧工程（画像格式 1 / 旧算法方案，没有立体声特征）保护也必须不工作（active = false，或 reset 且不调 update）——
         由编排器保证（GlazeController::updateClay 在方案源不支持 Clay 时 reset、自动值中性）。ADR-015 起反相一路不改声音，旧工程
@@ -270,7 +271,7 @@ namespace celadon::glaze
         {
             const auto dt = juce::jmin (seconds, maxSeconds);
 
-            // 反相一路：慢路低频相关度无效（门上没有低频内容、静音）→ 这一路冻结（保持期、资格期计时也不走）。
+            // 反相一路：慢路低频相关度无效（门上没有低频内容、只有上方内容的泄漏、静音）→ 这一路冻结（保持期、资格期计时也不走）。
             const auto phaseInput = phaseInputOf (view);
 
             if (phaseInput != PhaseInput::unknown)
@@ -299,7 +300,7 @@ namespace celadon::glaze
     {
         const auto& slow = view.liveLowCorrelation;
 
-        // 慢路不知道（门上没有低频内容、静音、刚重启还没平滑满）→ 这一路冻结。
+        // 慢路不知道（门上没有低频内容、只有上方内容的泄漏、静音、刚重启还没平滑满）→ 这一路冻结。
         if (! (slow.valid && std::isfinite (slow.value)))
             return PhaseInput::unknown;
 
@@ -506,8 +507,19 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    bool ClayPressureMonitor::update (double pressure, double seconds) noexcept
+    bool ClayPressureMonitor::update (double pressure, double seconds, double blendIntended, double blendOutput, double blendSeconds) noexcept
     {
+        // 混合损失（T-043）：按它自己覆盖的有效音乐秒数平滑两份能量；段里没有量过（blendSeconds = 0）或数值坏了就冻结。
+        if (blendSeconds > 0.0 && std::isfinite (blendSeconds) && std::isfinite (blendIntended) && std::isfinite (blendOutput)
+            && blendIntended >= 0.0 && blendOutput >= 0.0)
+        {
+            const auto dt = juce::jmin (blendSeconds, maxSeconds);
+            const auto retain = std::exp (-dt / smoothingSeconds);
+            blendIntendedSmoothed = blendIntendedSmoothed * retain + blendIntended;
+            blendOutputSmoothed = blendOutputSmoothed * retain + blendOutput;
+            blendAboveSeconds = blendLossDb() > blendThreshold ? juce::jmin (blendAboveSeconds + dt, maxSeconds) : 0.0;
+        }
+
         if (! (seconds > 0.0) || ! std::isfinite (seconds))
             return false;
 
@@ -518,15 +530,24 @@ namespace celadon::glaze
         sinceStep = juce::jmin (sinceStep + dt, maxSeconds);
         aboveSeconds = smoothed > threshold ? juce::jmin (aboveSeconds + dt, maxSeconds) : 0.0;
 
-        if (aboveSeconds >= sustainSeconds && sinceStep >= cooldownSeconds)
+        if ((aboveSeconds >= sustainSeconds || blendAboveSeconds >= sustainSeconds) && sinceStep >= cooldownSeconds)
         {
             smoothed = 0.0;
             aboveSeconds = 0.0;
             sinceStep = 0.0;
+            blendIntendedSmoothed = 0.0;
+            blendOutputSmoothed = 0.0;
+            blendAboveSeconds = 0.0;
             return true;
         }
 
         return false;
+    }
+
+    double ClayPressureMonitor::blendLossDb() const noexcept
+    {
+        return blendIntendedSmoothed > 0.0 && blendOutputSmoothed > 0.0
+                 ? 10.0 * std::log10 (blendIntendedSmoothed / blendOutputSmoothed) : 0.0;
     }
 
     void ClayPressureMonitor::reset() noexcept
@@ -534,6 +555,9 @@ namespace celadon::glaze
         smoothed = 0.0;
         aboveSeconds = 0.0;
         sinceStep = cooldownSeconds;
+        blendIntendedSmoothed = 0.0;
+        blendOutputSmoothed = 0.0;
+        blendAboveSeconds = 0.0;
     }
 
     float ClayPressureMonitor::nextScale (float scale) noexcept

@@ -456,6 +456,8 @@ namespace celadon::test
             testClayConfidence();
             testClayConstants();
             testClayCostStorage();
+            testClayBlendLossCap();
+            testClayBlendLossStorage();
             testClayDeterminismAndNoAllocation();
         }
 
@@ -4580,11 +4582,12 @@ namespace celadon::test
             expectEquals (factory.clayMonoLossHighDb, -3.0f);
             expectEquals (factory.clayGuardPhaseFastGate, 0.1f);   // ADR-014：0.3 → 0.1
             expectEquals (factory.clayGuardPhaseMinSeconds, 0.15);
+            expectEquals (factory.clayBlendLossLimitDb, 0.09f, "T-043 (ADR-027): guard blend-loss cap");
 
             // ---- 快照读写 ----
-            // 字段表独立于 GlazeConstants.cpp 的访问器：逐项核对「全部 32 个 clay* 字段都进了快照、都能按位读回、缺了都按 0 读」。
+            // 字段表独立于 GlazeConstants.cpp 的访问器：逐项核对「全部 33 个 clay* 字段都进了快照、都能按位读回、缺了都按 0 读」。
             // ADR-012 删掉了 clayMonoSideRatioLowDb / HighDb、clayMonoCorrelationLow / High（4 个），加了代价系数两端、收单损失两端、
-            // 反相快路门（float 5 个）与最短持续秒数（double 1 个）：30 − 4 + 6 = 32。
+            // 反相快路门（float 5 个）与最短持续秒数（double 1 个）：30 − 4 + 6 = 32；T-043 加混合损失封顶门槛（float 1 个）= 33。
             float Constants::* const floatFields[] =
             {
                 &Constants::clayGlazeFullAt, &Constants::claySubShareLowDb, &Constants::claySubShareHighDb, &Constants::clayLowCutFloorHz,
@@ -4593,7 +4596,7 @@ namespace celadon::test
                 &Constants::clayWidthNarrowStartDb, &Constants::clayWidthNarrowFullDb, &Constants::clayWidthMaxDb,
                 &Constants::clayMinCorrelationAfterWidth, &Constants::clayGuardPhaseCorrelation,
                 &Constants::clayCostFullDb, &Constants::clayCostZeroDb, &Constants::clayMonoLossLowDb, &Constants::clayMonoLossHighDb,
-                &Constants::clayGuardPhaseFastGate
+                &Constants::clayGuardPhaseFastGate, &Constants::clayBlendLossLimitDb
             };
             double Constants::* const doubleFields[] =
             {
@@ -4602,7 +4605,7 @@ namespace celadon::test
             };
             float StyleConstants::* const styleFields[] = { &StyleConstants::clayLowCutTargetHz, &StyleConstants::clayWidthStyleFactor };
             StyleConstants Constants::* const styleSlots[] = { &Constants::warm, &Constants::punchy, &Constants::clean };
-            constexpr int clayFieldCount = 20 + 6 + 3 * 2;
+            constexpr int clayFieldCount = 21 + 6 + 3 * 2;
 
             // 每个 clay* 字段各给一个与出厂值、结构体默认值都不同的值（1000 / 500 起步）。
             const auto distinct = [&] (Constants snapshot)
@@ -4650,7 +4653,7 @@ namespace celadon::test
                 return same;
             };
 
-            // 写：32 个 clay* 属性都在（风格字段带 warm_ / punchy_ / clean_ 前缀）；读：走「文本 → 解析 → 读取」，逐项按位读回
+            // 写：33 个 clay* 属性都在（风格字段带 warm_ / punchy_ / clean_ 前缀）；读：走「文本 → 解析 → 读取」，逐项按位读回
             // （调用方初值是结构体默认值，与 original 的每个 clay* 字段都不同）。
             const auto original = distinct (factory);
             const auto parsedXml = juce::parseXML (toXml (original)->toString());
@@ -4801,6 +4804,201 @@ namespace celadon::test
         }
 
         //==============================================================================
+        // T-043（ADR-027）守护混合损失的低切封顶（GlazePlanner.cpp planClay → capLowCutForBlend）。画像 = clayProfile（低切 need 0.5、
+        // c = 1、代价 0 dB）、锁定权重 warmClean（f_t = 18 Hz）、GLAZE 100（强度 1）→ 封顶前 lowCutHz = 10·√1.8 = 13.4164 Hz（风格混合那条
+        // 已钉）。出厂门槛 0.09 dB。预测按定义在本文件独立算：两点 (10 Hz, L₁)、(20 Hz, L₂) 都 > 0 → 幂律 L₁·(f/10)^q，q = log₂(L₂/L₁)；
+        // 有 ≤ 0 的 → L 在 ln f 上的直线；越过点 = 预测恰为门槛的频率。
+        //   - {0.02, 0.05}：13.4164 Hz 处预测 0.0295 → 不封（逐位相同）；{0.04, 0.2}：预测 0.0792 → 不封；
+        //   - {0.06, 0.2}：预测 0.0999 > 0.09 → 封到 10·(0.09 / 0.06)^(1/q) = 12.627 Hz、置低切代价位、其余项不动；
+        //   - {−0.01, 0.3}（直线）：预测 0.1215 → 封到 10·2^((0.09 + 0.01) / 0.31) = 12.507 Hz；
+        //   - 地板处已超 {0.1, 0.2} → 不低切（0）、置位；两点缺一个（无效 / NaN）→ 不封；门槛 0 / 负 / NaN / +Inf → 不封；
+        //   - 外推：三风格目标都 25 Hz、需要度 1（次声 −20 dB）→ 封顶前 25 Hz；{0.03, 0.08}：25 Hz 处预测 0.1097 → 越过点
+        //     10·3^(1/q) = 21.73 Hz（高于 20 Hz，按同一条幂律外推）；
+        //   - GLAZE 1 ～ 100 扫一遍（{0.06, 0.2}）：低切单调不减、不超过越过点。
+        void testClayBlendLossCap()
+        {
+            beginTest ("Clay low cut is capped where the trial-predicted guard blend loss reaches 0.09 dB (T-043)");
+
+            const StyleWeights warmClean { 0.5f, 0.0f, 0.5f };
+            const auto& factory = factoryConstants();
+            const auto withLosses = [] (MusicProfile p, float l1, float l2)
+            {
+                setFeature (p.lowCutBlendLossDb[0], l1);
+                setFeature (p.lowCutBlendLossDb[1], l2);
+                return p;
+            };
+            const auto clayOf = [&] (const MusicProfile& p, const Constants& c, float glaze = 100.0f)
+            {
+                return clayPlanWith (&p, Style::automatic, glaze, c, &warmClean).clay;
+            };
+            const auto powerLawCrossing = [] (double l1, double l2, double limit)
+            {
+                const auto q = std::log2 (l2 / l1);
+                return 10.0 * std::pow (limit / l1, 1.0 / q);
+            };
+
+            const auto base = clayProfile();
+            const auto uncapped = clayOf (base, factory);
+            expectWithinAbsoluteError (uncapped.lowCutHz, 13.416408f, 1.0e-4f, "positive control: 10 sqrt(1.8) Hz before the cap");
+            expectEquals ((int) (uncapped.costLimitedMask & clayCostLimitedLowCut), 0);
+
+            expect (sameClay (clayOf (withLosses (base, 0.02f, 0.05f), factory), uncapped), "predicted 0.03 dB: bit-identical plan");
+            expect (sameClay (clayOf (withLosses (base, 0.04f, 0.2f), factory), uncapped), "predicted 0.079 dB: bit-identical plan");
+
+            const auto crossing = withLosses (base, 0.06f, 0.2f);
+            const auto capped = clayOf (crossing, factory);
+            const auto expectedCap = powerLawCrossing (0.06, 0.2, 0.09);
+            logMessage ("  {0.06, 0.2} dB: low cut " + juce::String (capped.lowCutHz, 4) + " Hz (analytic " + juce::String (expectedCap, 4) + ")");
+            expectWithinAbsoluteError ((double) capped.lowCutHz, expectedCap, 2.0e-4, "capped where the power law reaches 0.09 dB");
+            expect ((capped.costLimitedMask & clayCostLimitedLowCut) != 0, "a capped low cut marks the cost bit");
+            expect (sameBits (capped.widthDb, uncapped.widthDb) && sameBits (capped.monoAmount, uncapped.monoAmount),
+                    "only the low cut changes");
+
+            const auto linear = clayOf (withLosses (base, -0.01f, 0.3f), factory);
+            expectWithinAbsoluteError ((double) linear.lowCutHz, 10.0 * std::pow (2.0, (0.09 + 0.01) / 0.31), 2.0e-4,
+                                       "a point <= 0 falls back to a straight line in ln f");
+
+            const auto atFloor = clayOf (withLosses (base, 0.1f, 0.2f), factory);
+            expect (atFloor.lowCutHz == 0.0f && (atFloor.costLimitedMask & clayCostLimitedLowCut) != 0,
+                    "already above the limit at the 10 Hz floor: no low cut, cost bit set");
+
+            auto missing = crossing;
+            missing.lowCutBlendLossDb[1].valid = false;
+            expect (sameClay (clayOf (missing, factory), uncapped), "one of the two points unknown: no cap");
+            auto notFinite = crossing;
+            notFinite.lowCutBlendLossDb[0].value = std::numeric_limits<float>::quiet_NaN();
+            expect (sameClay (clayOf (notFinite, factory), uncapped), "a NaN point: no cap");
+
+            for (auto limit : { 0.0f, -0.1f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity() })
+            {
+                auto c = factory;
+                c.clayBlendLossLimitDb = limit;
+                expect (sameClay (clayOf (crossing, c), uncapped), "limit " + juce::String (limit) + ": cannot judge, no cap");
+            }
+
+            // 外推：目标 25 Hz、需要度 1。
+            {
+                auto c = factory;
+                c.warm.clayLowCutTargetHz = c.punchy.clayLowCutTargetHz = c.clean.clayLowCutTargetHz = 25.0f;
+                auto needy = base;
+                setFeature (needy.subShareDb, -20.0f);
+                const auto at25 = clayOf (needy, c);
+                expectWithinAbsoluteError (at25.lowCutHz, 25.0f, 1.0e-4f, "positive control: 25 Hz before the cap");
+                const auto extrapolated = clayOf (withLosses (needy, 0.03f, 0.08f), c);
+                expectWithinAbsoluteError ((double) extrapolated.lowCutHz, powerLawCrossing (0.03, 0.08, 0.09), 2.0e-3,
+                                           "above 20 Hz the same power law is extended");
+                expect (extrapolated.lowCutHz > 20.0f, "the crossing lies above the 20 Hz candidate");
+            }
+
+            // GLAZE 扫描：单调不减、不超过越过点。
+            {
+                auto previous = 0.0f;
+                auto monotone = true, bounded = true;
+
+                for (int g = 1; g <= 100; ++g)
+                {
+                    const auto hz = clayOf (crossing, factory, (float) g).lowCutHz;
+                    monotone = monotone && hz >= previous;
+                    bounded = bounded && (double) hz <= expectedCap + 2.0e-4;
+                    previous = hz;
+                }
+
+                expect (monotone, "the capped low cut never decreases as GLAZE rises");
+                expect (bounded, "and never exceeds the crossing");
+            }
+        }
+
+        // T-043（ADR-027）画像里的两个混合损失特征（GlazeProfile.cpp 文件头）：可选字段，不升格式号。
+        //   - 量过的（与 Feature{} 不逐位相同）四个属性全写、逐位往返（含 NaN、−0、无效）；没量过的一个属性都不写（旧画像重存逐字节不变）；
+        //   - 画像号：没量过 / 无效的不进哈希（与改前逐位相同），有效的进；
+        //   - 四个属性缺一个、或值不是十六进制 → 整份拒收、out 不变；一个都没有 → 读成不知道（旧画像）；
+        //   - 格式 1 读入后清成不知道。
+        void testClayBlendLossStorage()
+        {
+            beginTest ("Guard blend-loss features are optional profile fields: written only when measured, hashed only when valid (T-043)");
+
+            const auto names = { "lowCutBlendLossDb0", "lowCutBlendLossDb1" };
+            const auto suffixes = { "_value", "_valid", "_seconds", "_confidence" };
+
+            const auto unset = clayProfile();
+            const auto unsetXml = toXml (unset);
+
+            for (const auto* prefix : names)
+                for (const auto* suffix : suffixes)
+                    expect (! unsetXml->hasAttribute (juce::String (prefix) + suffix), "an unmeasured feature writes nothing");
+
+            auto measured = unset;
+            setFeature (measured.lowCutBlendLossDb[0], -0.0f, 0.75f);
+            measured.lowCutBlendLossDb[0].effectiveSeconds = 14.5;
+            measured.lowCutBlendLossDb[1].value = std::numeric_limits<float>::quiet_NaN();
+            measured.lowCutBlendLossDb[1].valid = false;
+
+            const auto measuredXml = toXml (measured);
+
+            for (const auto* prefix : names)
+                for (const auto* suffix : suffixes)
+                    expect (measuredXml->hasAttribute (juce::String (prefix) + suffix), juce::String ("written: ") + prefix + suffix);
+
+            {
+                const auto parsed = juce::parseXML (measuredXml->toString());
+                auto back = makeProfile (-9.0f, -1.0f);
+                expect (parsed != nullptr && fromXml (*parsed, back), "a profile with blend losses reads back");
+                expect (bitwiseEqual (back, measured), "bit-exact round trip");
+                expect (std::isnan (back.lowCutBlendLossDb[1].value) && ! back.lowCutBlendLossDb[1].valid
+                            && std::signbit (back.lowCutBlendLossDb[0].value) && back.lowCutBlendLossDb[0].effectiveSeconds == 14.5,
+                        "NaN, invalid and -0 survive");
+            }
+
+            {
+                // 旧画像（没有这些属性）读进一份原本有值的 out：读成不知道。
+                auto back = measured;
+                expect (fromXml (*unsetXml, back), "an old profile still reads");
+
+                for (const auto& f : back.lowCutBlendLossDb)
+                    expect (! f.valid && f.value == 0.0f && f.effectiveSeconds == 0.0 && f.confidence == 0.0f, "missing = unknown");
+            }
+
+            // 画像号：没量过 = 只有无效值 = 改前；有效的才进哈希。
+            auto invalidOnly = unset;
+            invalidOnly.lowCutBlendLossDb[0].value = 0.3f;   // 无效、却与 Feature{} 不同（会写进 XML，但不进画像号）
+            invalidOnly.lowCutBlendLossDb[0].effectiveSeconds = 11.0;
+            expectEquals ((juce::int64) computeProfileId (invalidOnly), (juce::int64) computeProfileId (unset),
+                          "invalid blend features do not enter the profile id");
+            expect (computeProfileId (measured) != computeProfileId (unset), "a valid blend feature changes the profile id");
+
+            // 缺一个属性 / 值不是十六进制 → 整份拒收、out 不变。
+            const auto sentinel = makeProfile (-11.0f, -2.0f);
+
+            for (const auto* attribute : { "lowCutBlendLossDb0_value", "lowCutBlendLossDb1_valid", "lowCutBlendLossDb1_seconds",
+                                           "lowCutBlendLossDb0_confidence" })
+            {
+                auto broken = juce::parseXML (measuredXml->toString());
+                broken->removeAttribute (attribute);
+                auto out = sentinel;
+                expect (! fromXml (*broken, out) && bitwiseEqual (out, sentinel), juce::String ("missing ") + attribute + " rejects the profile");
+            }
+
+            {
+                auto broken = juce::parseXML (measuredXml->toString());
+                broken->setAttribute ("lowCutBlendLossDb1_value", "0.1");
+                auto out = sentinel;
+                expect (! fromXml (*broken, out) && bitwiseEqual (out, sentinel), "a non-hex value rejects the profile");
+            }
+
+            // 格式 1：读入后清成不知道。
+            {
+                auto legacy = measured;
+                legacy.formatVersion = 1;
+                const auto legacyXml = toXml (legacy);
+                expect (! legacyXml->hasAttribute ("lowCutBlendLossDb0_value"), "format 1 writes no Clay fields at all");
+                auto back = measured;
+                expect (fromXml (*legacyXml, back));
+
+                for (const auto& f : back.lowCutBlendLossDb)
+                    expect (! f.valid && f.value == 0.0f, "format 1 reads as unknown");
+            }
+        }
+
         void testClayCostStorage()
         {
             beginTest ("Peak costs and costLimitedMask are saved, hashed and read back exactly");

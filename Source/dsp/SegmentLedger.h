@@ -76,6 +76,7 @@ namespace celadon::glaze
         static constexpr int trialSeries = 7;             // 先试后用：原始 + 6 个候选（低切、收单 ×4、加宽）
         static constexpr int trialTopCount = 8;           // 每一路留最大的 8 个块峰值（同分析器：≤ 512 块时 P99 只用到前 7 个）
         static constexpr int trialCapacity = 512;         // 合并时最多用这么多块（整段整段地取，同分析器的 512 块上限）
+        static constexpr int blendSeries = 2;             // 守护混合损失候选（T-043，clayBlendCandidateHz 的 10 / 20 Hz；同分析器）
         static constexpr int lowRangeBins = 280;          // 低频逐帧电平直方图（−120 … +20 dB，0.5 dB 一格；同分析器）
         static constexpr int lowShareLastBand = 4;        // 低频 = 100 Hz 段及以下（段 0 ～ 4；同分析器 lowShare）
         static constexpr int eventCapacity = 32;          // 定稿事件的环形缓冲
@@ -140,6 +141,7 @@ namespace celadon::glaze
             // ---- 先试后用（100 ms 块，按块起点归属）----
             int trialBlocks = 0;
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> trialTop {};   // 每一路最大的 8 个（降序）
+            std::array<double, (size_t) blendSeries> blendIntended {}, blendOutput {};   // 混合损失候选：各有效块两份 K 加权能量之和
 
             // ---- 定稿时算出 ----
             double effectiveSeconds = 0.0;

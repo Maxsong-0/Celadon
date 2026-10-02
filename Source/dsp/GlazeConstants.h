@@ -352,6 +352,14 @@ namespace celadon::glaze
         // 保护时长不变，整体反相的判定只晚约 0.05 s（慢路过 0.1 约 0.18 s，仍在验收 4(c) 的 0.5 s 之内）。
         float clayGuardPhaseFastGate = 0.1f;
         double clayGuardPhaseMinSeconds = 0.15;       // 触发条件须连续成立这么久才开始攻击
+        // ---- T-043 修坯峰值守护的混合损失（ADR-027）：默认值就是出厂值 ----
+        // 守护把低切拉回干路时，与干路相位不同处互相抵消，直接是响度损失（真歌 woqu −0.2 LU）。画像里两个候选频率的混合损失
+        // （MusicProfile::lowCutBlendLossDb，clayBlendCandidateHz 10 / 20 Hz）按幂律预测（两端之外照同一条线外推）；低切频率封顶在
+        // 「预测损失 = 本项」处，地板频率处已超 → 不低切（GlazePlanner.cpp planClay）。0.09 = 修坯门槛的响度容差 0.1 LU 减去试用
+        // （原始输入）对链内实测约 ±10 % 的偏差（真歌：woqu 链内比试用高 3 ～ 6 %，somggggg / mp3 低约 10 %）——封在 0.1 上，woqu 这类
+        // 歌链内会擦着门槛。【设计】，待 Max 试听标定。缺字段按 0 读 / ≤ 0 / 非有限 → 判断不了 → 不封顶（与代价两端 0 / 0 的「中性」
+        // 不同：这是在已有决策上加的限制，判断不了就不加——旧快照、旧画像一样都不变）。
+        float clayBlendLossLimitDb = 0.09f;
     };
 
     // 修坯 Clay 加宽的相关度约束（设计规格-Clay-分析决策与验收第 2 节③、第 3 节）：加宽 γ = 10^(w/20) 后预测的高频相关度

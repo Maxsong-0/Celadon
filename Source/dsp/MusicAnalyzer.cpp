@@ -22,6 +22,7 @@
 
 #include "MusicAnalyzer.h"
 
+#include "ClayModule.h"
 #include "GlazeProfile.h"
 #include "LinearPhaseLowpass.h"
 #include "TruePeak.h"
@@ -212,6 +213,24 @@ namespace celadon::glaze
         //     与这里的帧门是同一个口径（审核 V1-03：原来视图冻结时仍标有效，保护时钟却按编排器的另一个门走，可能拿过期的 ρ 攻击）。
         //     高频两项（宽度保护读）同理：帧门限下 liveHighValid = false、功率值保留，ClayGuard 见到无效就冻结宽度一路（T-012 阶段 4
         //     主进程按「同类一起修」补上：原来静音时高频仍标有效，宽度保护时钟与反相一路不同口径）。
+        //     泄漏门（BUG-009，T-042）：本帧低频组的核心（段 0 ～ 4，40 ～ 100 Hz）门上功率 < lowLeakageRatio（−35 dB）× 段 6 ～ 8
+        //     （160 ～ 250 Hz）的功率时，本帧低频组按「没有内容」算——两路的 ΣX、ΣP 都记 0，与整组都在段静音门下同一处理（平滑值按
+        //     系数衰减、比值停在最后的真内容上，平滑功率落到门下就无效）。为什么：段 5（125 Hz）的格子伸到 152 Hz（48 k / 2048 点时
+        //     bin 6 = 129 ～ 152 Hz 按 0.49 计入），Hann 主瓣再把 ~200 Hz 以内的内容漏进来；没有低音、只有 140 Hz 以上内容的段落里，
+        //     低频组的读数全是这部分泄漏，相关度就是漏进来那些分音的左右关系。合成 House 的 breakdown（只有左右各自失谐 ±0.3 % 的
+        //     pad，最低分音 174.6 / 196 Hz）：段 0 ～ 4 全在 −60 dBFS 门下、段 5 却在门上，慢路随 ~1 Hz 的拍频摆到 −0.95，反相提示亮了
+        //     breakdown 的 89 %（全曲 14.4 %）。
+        //     判据为什么看「核心对上方」而不看「低频对全频」：22 首门槛歌里真反相段（WTF、will we be okay 等，40 ～ 80 Hz 各段 ρ 都 < −0.2、
+        //     3 s 平均 ρ −0.3 ～ −0.5、持续到 7 ～ 9 s）的低频组占全频也只有 −20 ～ −29 dB，与 breakdown 的泄漏（−25 ～ −31 dB）重叠，
+        //     按占比设门要么修不掉、要么把真反相一起关掉；核心对上方：真反相帧 ≥ −34 dB（只有 l_kskdhjf 不到 1 % 的尾巴更低），
+        //     breakdown 的泄漏 −42 ～ −45 dB。门限按 Balance 的 Hann 窗与段权重逐 Hz 算（44.1 ～ 192 kHz 各采样率）：单个满幅正弦要
+        //     单独把门打开，频率只能落在 140.5 ～ 162 Hz（段 5 格子上沿之上不到一个 bin，2048 点分辨率的极限，这里本来就分不开），
+        //     ≥ 162 Hz 的任何内容都打不开；−38 dB 时 48 k 系的 170 ～ 175 Hz 也打得开（174.6 Hz 正在第一旁瓣上，核心 / 上方 =
+        //     −37.6 dB），所以取 −35 dB。上方取到段 8：250 Hz 一带的分音在段 6 ～ 7 里也只剩旁瓣，只看段 6 ～ 7 时核心 / 上方可到
+        //     −20 dB、比门限松得多；算上段 8，200 ～ 300 Hz 的分音 ≤ −46 dB。≥ 300 Hz 的内容漏进核心约 −66 dB 以下，满幅也在
+        //     −60 dBFS 段门下。核心与上方都是 0（例如只有段 5 一段有内容、上方什么都没有）时不算泄漏。只改「哪些帧算低频内容」，相关度的算法与有效规则不变；声音不受影响（ADR-015 起反相只提示）。
+        //     高频组不需要这道门：组宽 2 ～ 16 kHz（约 600 个 bin），从下方漏进的只有段 17 下沿一个 bin 以内的内容，与组内真内容同性质；
+        //     画像的立体声特征是学习区间里的功率域时间和，泄漏帧功率小、被真低音稀释，且低频组的画像特征自 ADR-015 起不进任何决策，不改。
         constexpr double subCutoffHz = 16.0;
         constexpr std::array<double, 4> subStageQ { 0.5097955791041592, 0.6013448869350453,    // 8 阶 Butterworth 四对极点的 Q
                                                     0.8999762231364156, 2.5629154477415055 };  // = 1 / (2·cos((2k − 1)·π/16))
@@ -232,9 +251,18 @@ namespace celadon::glaze
         // 120 ms 把散布压到约 ±0.35（∝ 1 / √τ）；整体反相时它约 83 ms 过零（τ·ln 2），慢路约 210 ms。
         constexpr double liveFastLowSeconds = 0.12;
         constexpr double liveBandGatePower = 1.0e-6;    // 实时视图的逐段静音门：本帧段功率 −60 dBFS（与 bandGateDb 同一电平）
+        // 实时视图的泄漏门（BUG-009，见上「泄漏门」）：核心 = 低频组的段 0 ～ 4，上方 = 段 6 ～ 8；核心门上功率 < 上方功率 × 10^(−35/10)
+        // → 本帧低频组只算泄漏、不计。
+        constexpr int lowStereoCoreLastBand = 4;
+        constexpr int lowLeakageFirstBand = 6;
+        constexpr int lowLeakageLastBand = 8;
+        constexpr double lowLeakageRatio = 3.1622776601683794e-4;   // −35 dB
 
         static_assert (lowStereoLastBand < highStereoFirstBand && highStereoLastBand == numBands - 1,
                        "修坯的低频组 / 高频组段号必须落在 27 段之内且不重叠");
+        static_assert (lowStereoFirstBand <= lowStereoCoreLastBand && lowStereoCoreLastBand < lowStereoLastBand
+                           && lowLeakageFirstBand == lowStereoLastBand + 1 && lowLeakageLastBand < highStereoFirstBand,
+                       "泄漏门：核心是低频组去掉最上一段，上方从低频组的下一段起、不碰高频组");
 
         //==============================================================================
         // 五、修坯 Clay 的先试后用（ADR-012，设计规格-Clay-根治修订 3.2）。为什么：最小相位 IIR 在低频的相位旋转会把已经很密 /
@@ -276,6 +304,10 @@ namespace celadon::glaze
         constexpr int numMonoTrials = (int) clayMonoCandidateHz.size();
         constexpr int trialLowCut = 0, trialFirstMono = 1, trialWidth = 1 + numMonoTrials;
         constexpr int numTrials = 2 + numMonoTrials;    // 低切、收单 ×4、加宽
+        constexpr int numBlendTrials = (int) clayBlendCandidateHz.size();
+        constexpr int trialWriters = 1 + numTrials + numBlendTrials;   // 交齐一块要的写入：原始 + 6 个峰值候选 + 2 个混合损失候选（T-043）
+        constexpr int trialBlendSharedCut = 1;          // 这个混合损失候选的低切 = 峰值代价的低切候选（同频率、同 Q、同输入）：直接用它的输出
+        static_assert (clayBlendCandidateHz[(size_t) trialBlendSharedCut] == (float) trialLowCutHz, "共用的低切候选频率必须相同");
 
         // n ≤ 容量时，P99 的下侧顺序统计量从大往小数是第 n − 1 − ⌊0.99·(n − 1)⌋ ≤ 0.01·(n − 1) + 1 个（0 起），上侧再大一个。
         static_assert ((1.0 - trialPercentile) * (double) (trialCapacity - 1) + 1.0 < (double) (trialTopCount - 1),
@@ -304,7 +336,8 @@ namespace celadon::glaze
         static_assert (SegmentLedger::lowRangeBins == lowRangeBins && SegmentLedger::lowShareLastBand == lowShareLastBand,
                        "段落账的低频直方图与低频段边界必须与分析器相同");
         static_assert (SegmentLedger::trialSeries == numTrials + 1 && SegmentLedger::trialTopCount == trialTopCount
-                       && SegmentLedger::trialCapacity == trialCapacity, "段落账的先试后用记账必须与分析器同口径");
+                       && SegmentLedger::trialCapacity == trialCapacity && SegmentLedger::blendSeries == numBlendTrials,
+                       "段落账的先试后用记账必须与分析器同口径");
         static_assert (strengthBins <= 256, "起音强度的格号按 8 位存");
         static_assert (SegmentLedger::loudnessHistogramMinLufs == histogramMinLufs && SegmentLedger::loudnessBinsPerLu == histogramBinsPerLu,
                        "段落账的响度直方图与分析器 I / LRA 的直方图同格");
@@ -559,7 +592,7 @@ namespace celadon::glaze
         std::array<int, (size_t) numTrials> trialCandidateLeft {};           // 各候选当前块还差几个输出交齐
         std::array<std::int64_t, (size_t) numTrials> trialCandidateBlock {}; // 各候选当前块的块号（与原始同一个网格）
 
-        // 一块的交齐记录：原始与 6 个候选各写一次，写满才记下（有效的话）。2 个槽按块号奇偶轮用（D_c < 块长）。
+        // 一块的交齐记录：原始、6 个峰值候选与 2 个混合损失候选各写一次，写满才记下（有效的话）。2 个槽按块号奇偶轮用（D_c < 块长）。
         struct TrialRecord
         {
             std::int64_t block = -1;
@@ -567,6 +600,7 @@ namespace celadon::glaze
             bool valid = false;
             int writes = 0;
             std::array<double, (size_t) numTrials> candidates {};
+            std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};   // 混合损失候选这一块的两份 K 加权能量（T-043）
         };
 
         std::array<TrialRecord, 2> trialRecords {};
@@ -580,6 +614,24 @@ namespace celadon::glaze
         std::array<double, (size_t) maximumGroupLength> trialMidScratch {}, trialSideScratch {};
         std::array<std::array<double, (size_t) maximumGroupLength>, (size_t) numMonoTrials> trialLowScratch {};
         std::array<std::array<double, (size_t) maximumGroupLength>, (size_t) numTrials> trialPeakScratch {};
+
+        // 混合损失候选（T-043，ADR-027）：低切（频率 clayBlendCandidateHz）+ ClayModule 的峰值守护（ClayModule::PeakGuard，与链里
+        // 同一份实现；不搭整个 ClayModule——收单低通、加宽高架、延迟线都用不上）跑在原始输入上。守护的抽头给出逐输出样本的两份
+        // K 加权能量，按「输出样本号 − 守护前瞻 G」归到试用块——与收单候选按 D_c 对齐同一做法，是交齐记录的第 8、9 个写者；记下的
+        // 有效块（与 P99 同一批，同一个容量上限）两份能量各自求和。逐样本按样本号归块、守护按从起跑算的 64 样本网格切段与定「量不量」，
+        // 求和顺序与宿主怎么切块无关（逐位）。20 Hz 那个直接用峰值代价低切候选的输出（trialCutOut）。prepare 时分配，音频线程上只清零。
+        std::array<ClayModule::PeakGuard, (size_t) numBlendTrials> trialGuards;
+        std::array<std::array<BiquadCoefficients, trialCutQ.size()>, (size_t) numBlendTrials> trialBlendCut {};
+        std::array<std::array<std::array<BiquadState, trialCutQ.size()>, 2>, (size_t) numBlendTrials> trialBlendCutState {};   // [候选][声道][级]
+        int trialClayDelay = 0;                                             // 守护前瞻 G（两个候选相同）
+        int trialGuardGridLeft = 0;                                         // 到下一个 64 样本网格点还有几个样本（从候选起跑算）
+        std::array<std::array<float, (size_t) maximumGroupLength>, 2> trialCutOut {};   // 峰值代价低切候选本段的 L / R 输出
+        std::array<std::array<std::array<float, (size_t) ClayModule::PeakGuard::maxSegmentLength>, 2>, (size_t) numBlendTrials> trialBlendIo {};
+        std::array<std::array<double, (size_t) maximumGroupLength>, (size_t) numBlendTrials> trialClayIntended {}, trialClayOutput {};
+        std::array<double, (size_t) numBlendTrials> trialBlendIntendedBlock {}, trialBlendOutputBlock {};   // 各候选当前块的累计
+        int trialBlendLeft = 0;                                             // 当前块还差几个输出交齐（两个候选延迟相同，共用）
+        std::int64_t trialBlendBlock = 0;                                   // 当前块的块号（与原始同一个网格）
+        std::array<double, (size_t) numBlendTrials> trialBlendIntendedTotal {}, trialBlendOutputTotal {};   // 记下的有效块之和
 
         //==============================================================================
         // 输出
@@ -611,7 +663,7 @@ namespace celadon::glaze
         bool houseGridKnown = false;              // 上次重启以来已在 House 档里跑过样本（原点已知）
         bool houseEventPending = false;           // 正在进行、要计入段落账的起音事件（触发时在有效门上）
         std::int64_t houseEventTime = 0;          // 它的触发组的起点
-        int maxTrialDelay = 0;                    // 先试后用候选里最长的延迟（样本）
+        int maxTrialDelay = 0;                    // 先试后用各写者里最长的延迟（样本；收单候选 D_c 与混合损失候选的守护前瞻 G 取大）
 
         // 画像合并用的累计量（computeHouseProfile 每次从段落账重新合并；口径同通用画像的同名累计量）。
         struct HouseSums
@@ -634,6 +686,7 @@ namespace celadon::glaze
             double subEnergy = 0.0, midEnergy = 0.0;
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) numTrials + 1> trialTop {};
             int trialCount = 0;
+            std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};   // 合并进来的块的两份 K 加权能量（T-043）
         };
 
         // House 画像各特征的观测充分度（口径同通用画像的 measured*）。
@@ -690,7 +743,16 @@ namespace celadon::glaze
                 jassert (trialDelay[(size_t) trialFirstMono + c] < trialBlockLength);
             }
 
-            maxTrialDelay = 0;
+            // 混合损失候选：低切系数与守护前瞻 G（约 11 ms，同样短于一块）。
+            for (size_t c = 0; c < trialBlendCut.size(); ++c)
+                for (size_t stage = 0; stage < trialCutQ.size(); ++stage)
+                    trialBlendCut[c][stage] = makeHighpass (sampleRate, (double) clayBlendCandidateHz[c], trialCutQ[stage]);
+
+            trialClayDelay = ClayModule::PeakGuard::windowFor (sampleRate) + ClayModule::PeakGuard::attackFor (sampleRate);
+            jassert (trialClayDelay < trialBlockLength);
+
+            // House 段落账：一块的记录要等全部写者交齐（含混合损失候选，它们比原始晚 G）——最长的那个延迟决定段何时可定稿。
+            maxTrialDelay = trialClayDelay;
 
             for (const auto delay : trialDelay)
                 maxTrialDelay = juce::jmax (maxTrialDelay, delay);
@@ -716,6 +778,11 @@ namespace celadon::glaze
             trialSideHistory.assign ((size_t) historyLength, 0.0);
             trialHistoryMask = historyLength - 1;
             trialHistoryWrite = 0;
+
+            // 混合损失候选（T-043）：守护按立体声准备（单声道输入时两路喂同一个声道）。
+            for (auto& guard : trialGuards)
+                guard.prepare (sampleRate, 2);
+
             trialRestartPending = true;
 
             // T-038 House 档的段落账（第「六」节）：按采样率分配，之后音频线程只拷贝、清零（先交常数：prepare 按新采样率折算段长）。
@@ -819,6 +886,8 @@ namespace celadon::glaze
                 top.fill (0.0);
 
             trialCount = 0;
+            trialBlendIntendedTotal.fill (0.0);
+            trialBlendOutputTotal.fill (0.0);
             trialDirty = false;
             trialRestartPending = true;
 
@@ -934,6 +1003,25 @@ namespace celadon::glaze
                 trialCandidateMax[c] = 0.0;
                 trialCandidateBlock[c] = source >= 0 ? source / blockSamples : 0;
                 trialCandidateLeft[c] = (int) (source >= 0 ? blockSamples - source % blockSamples : blockSamples - source);
+            }
+
+            // 混合损失候选（T-043）：从零状态重新起跑，块网格同收单候选（按自己的延迟 G 对齐）；守护的 64 样本网格从这里起算。
+            for (auto& guard : trialGuards)
+                guard.reset();
+
+            for (auto& candidate : trialBlendCutState)
+                for (auto& channelStates : candidate)
+                    channelStates.fill (BiquadState {});
+
+            trialGuardGridLeft = 0;
+
+            trialBlendIntendedBlock.fill (0.0);
+            trialBlendOutputBlock.fill (0.0);
+
+            {
+                const auto source = position - (std::int64_t) trialClayDelay;
+                trialBlendBlock = source >= 0 ? source / blockSamples : 0;
+                trialBlendLeft = (int) (source >= 0 ? blockSamples - source % blockSamples : blockSamples - source);
             }
 
             for (auto& record : trialRecords)
@@ -1602,14 +1690,20 @@ namespace celadon::glaze
                 const auto side = trialSideScratch[i];
 
                 // 原始：max(|L|, |R|)。0 低切：L、R 各两级高通，max(|L'|, |R'|)（单声道只跑一路：两路逐位相同）。
+                // 低切输出另存一份 float（T-043：20 Hz 的混合损失候选直接用它，与 ClayModule 的低切同样以 float 交给守护）。
                 auto inputPeak = std::abs (l);
-                auto cutPeak = std::abs (runBiquad (runBiquad (l, cutFirst, leftFirst), cutSecond, leftSecond));
+                const auto cutLeft = runBiquad (runBiquad (l, cutFirst, leftFirst), cutSecond, leftSecond);
+                auto cutPeak = std::abs (cutLeft);
+                trialCutOut[0][i] = (float) cutLeft;
+                trialCutOut[1][i] = (float) cutLeft;
 
                 if (stereo)
                 {
                     const auto r = (double) right[k];
                     inputPeak = juce::jmax (inputPeak, std::abs (r));
-                    cutPeak = juce::jmax (cutPeak, std::abs (runBiquad (runBiquad (r, cutFirst, rightFirst), cutSecond, rightSecond)));
+                    const auto cutRight = runBiquad (runBiquad (r, cutFirst, rightFirst), cutSecond, rightSecond);
+                    cutPeak = juce::jmax (cutPeak, std::abs (cutRight));
+                    trialCutOut[1][i] = (float) cutRight;
                 }
 
                 originalMax = juce::jmax (originalMax, inputPeak);
@@ -1672,6 +1766,101 @@ namespace celadon::glaze
                 trialCandidateMax[c] = blockMax;
                 trialCandidateLeft[c] = remaining;
             }
+
+            // 5. 混合损失候选（T-043）：按从起跑算的 64 样本网格切段（网格点上各守护先定这一格量不量，ClayModule::process 的同一做法），
+            //    每段算各候选的低切输出（20 Hz 那个用上面存的 trialCutOut），连同原始干路送进各自的守护；守护的抽头写出逐输出样本的两份
+            //    K 加权能量，按共同的块边界（两个延迟相同）累计，交齐一块就各自写进这一块的记录（第 8、9 个写者）。没量的输出样本
+            //    （守护前瞻环里还没有低切过的样本）能量记 0。守护原地写回的输出用不着。
+            for (int done = 0; done < count;)
+            {
+                if (trialGuardGridLeft == 0)
+                {
+                    for (auto& guard : trialGuards)
+                        guard.decideBlendMeasuring();
+
+                    trialGuardGridLeft = ClayModule::PeakGuard::maxSegmentLength;
+                }
+
+                const auto chunk = juce::jmin (count - done, trialGuardGridLeft);
+                const float* const dry[] { left + done, right + done };
+
+                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+                {
+                    auto& io = trialBlendIo[c];
+
+                    if ((int) c == trialBlendSharedCut)
+                    {
+                        for (int k = 0; k < chunk; ++k)
+                        {
+                            io[0][(size_t) k] = trialCutOut[0][(size_t) (done + k)];
+                            io[1][(size_t) k] = trialCutOut[1][(size_t) (done + k)];
+                        }
+                    }
+                    else
+                    {
+                        const auto first = trialBlendCut[c][0];
+                        const auto second = trialBlendCut[c][1];
+                        auto& states = trialBlendCutState[c];
+
+                        for (int k = 0; k < chunk; ++k)
+                        {
+                            io[0][(size_t) k] = (float) runBiquad (runBiquad ((double) dry[0][k], first, states[0][0]), second, states[0][1]);
+                            io[1][(size_t) k] = stereo ? (float) runBiquad (runBiquad ((double) dry[1][k], first, states[1][0]), second, states[1][1])
+                                                       : io[0][(size_t) k];
+                        }
+                    }
+
+                    auto& guard = trialGuards[c];
+                    guard.tapIntended = trialClayIntended[c].data() + done;
+                    guard.tapOutput = trialClayOutput[c].data() + done;
+                    float* const channels[] { io[0].data(), io[1].data() };
+                    guard.process (dry, channels, nullptr, 2, chunk);
+                }
+
+                done += chunk;
+                trialGuardGridLeft -= chunk;
+            }
+
+            auto intendedSum = trialBlendIntendedBlock;
+            auto outputSum = trialBlendOutputBlock;
+            auto remaining = trialBlendLeft;
+
+            for (int k = 0; k < count;)
+            {
+                const auto take = juce::jmin (count - k, remaining);
+
+                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+                {
+                    for (int e = k; e < k + take; ++e)
+                    {
+                        intendedSum[c] += trialClayIntended[c][(size_t) e];
+                        outputSum[c] += trialClayOutput[c][(size_t) e];
+                    }
+                }
+
+                k += take;
+                remaining -= take;
+
+                if (remaining == 0)
+                {
+                    for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+                    {
+                        auto& record = trialRecordFor (trialBlendBlock);
+                        record.blendIntended[c] = intendedSum[c];
+                        record.blendOutput[c] = outputSum[c];
+                        countTrialWrite (record);
+                    }
+
+                    ++trialBlendBlock;
+                    intendedSum.fill (0.0);
+                    outputSum.fill (0.0);
+                    remaining = trialBlockLength;
+                }
+            }
+
+            trialBlendIntendedBlock = intendedSum;
+            trialBlendOutputBlock = outputSum;
+            trialBlendLeft = remaining;
         }
 
         // 候选的 IIR 状态在长时间静音里同样会衰减进非规格化数：每组末尾归零（与真次声低通同一门槛、同一网格）。
@@ -1688,6 +1877,14 @@ namespace celadon::glaze
 
             snapToZero (trialShelfState.s1);
             snapToZero (trialShelfState.s2);
+
+            for (auto& candidate : trialBlendCutState)   // T-043 混合损失候选的低切（守护自己的状态由它的网格归零）
+                for (auto& channelStates : candidate)
+                    for (auto& stageState : channelStates)
+                    {
+                        snapToZero (stageState.s1);
+                        snapToZero (stageState.s2);
+                    }
         }
 
         // 原始一侧（processGroup 每组调一次）：本组按起音那套边界算不算；块的最后一组结组时交出这一块。
@@ -1726,10 +1923,10 @@ namespace celadon::glaze
             return record;
         }
 
-        // 原始与 6 个候选都写过这一块才算交齐：有效的记下（封顶 trialCapacity，满了之后不再记），然后腾出槽位。
+        // 原始、6 个峰值候选与混合损失候选都写过这一块才算交齐：有效的记下（封顶 trialCapacity，满了之后不再记），然后腾出槽位。
         void countTrialWrite (TrialRecord& record) noexcept
         {
-            if (++record.writes < numTrials + 1)
+            if (++record.writes < trialWriters)
                 return;
 
             // House 档：交齐的有效块按块起点归段（每段每一路留最大的 8 个，第「六」节）。
@@ -1742,6 +1939,12 @@ namespace celadon::glaze
 
                 for (size_t c = 0; c < (size_t) numTrials; ++c)
                     insertTop (trialTop[c + 1], trialCount, record.candidates[c]);
+
+                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+                {
+                    trialBlendIntendedTotal[c] += record.blendIntended[c];
+                    trialBlendOutputTotal[c] += record.blendOutput[c];
+                }
 
                 ++trialCount;
                 trialDirty = true;
@@ -2232,7 +2435,7 @@ namespace celadon::glaze
         {
             // 本帧两组的和：只计段功率在 −60 dBFS 门上的段（门下的段不计——例如门下不相关的底噪不能把低频相关度拉向 0）。
             // 整组都在门下时本帧的和为 0，平滑值按系数衰减、比值不变。
-            double lowCrossNow = 0.0, lowPowerNow = 0.0, highMidNow = 0.0, highSideNow = 0.0;
+            double lowCrossNow = 0.0, lowPowerNow = 0.0, lowCorePowerNow = 0.0, highMidNow = 0.0, highSideNow = 0.0;
 
             for (int b = lowStereoFirstBand; b <= lowStereoLastBand; ++b)
             {
@@ -2242,8 +2445,21 @@ namespace celadon::glaze
                 {
                     lowCrossNow += cross[i];
                     lowPowerNow += power[i];
+
+                    if (b <= lowStereoCoreLastBand)
+                        lowCorePowerNow += power[i];
                 }
             }
+
+            // 泄漏门（BUG-009）：核心门上功率低于上方段 6 ～ 8 的 −35 dB → 低频组只剩上方内容漏进来的部分（段 5 的格子与 Hann 主瓣），
+            // 本帧按「没有低频内容」算，同整组在门下。核心与上方都是 0 时不算泄漏。
+            double leakageSourcePower = 0.0;
+
+            for (int b = lowLeakageFirstBand; b <= lowLeakageLastBand; ++b)
+                leakageSourcePower += power[(size_t) b];
+
+            if (lowCorePowerNow < lowLeakageRatio * leakageSourcePower)
+                lowCrossNow = lowPowerNow = 0.0;
 
             for (int b = highStereoFirstBand; b <= highStereoLastBand; ++b)
             {
@@ -2679,6 +2895,17 @@ namespace celadon::glaze
                 const auto candidate = percentileOfTop (trialTop[(size_t) slot + 1]);
                 setFeature (cost, 20.0 * std::log10 (juce::jmax (candidate, trialPeakFloorRatio * original) / original), seconds);
             }
+
+            // 混合损失（T-043，ADR-027）：同一批有效块里两份 K 加权能量之比，每个候选频率一个。两份都 > 0 才知道（整段静音时不知道）。
+            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+            {
+                auto& loss = profile.lowCutBlendLossDb[c];
+
+                if (enough && trialBlendIntendedTotal[c] > 0.0 && trialBlendOutputTotal[c] > 0.0)
+                    setFeature (loss, 10.0 * std::log10 (trialBlendIntendedTotal[c] / trialBlendOutputTotal[c]), seconds);
+                else
+                    invalidate (loss);
+            }
         }
 
         // 线性插值的 P99（定义同 numpy.percentile 默认，逐位口径见文件头「五」）：位置 0.99·(n − 1) 两侧的顺序统计量插值。top 降序，第 j 小（0 起）= top[n − 1 − j]。
@@ -2767,6 +2994,8 @@ namespace celadon::glaze
 
             // 先试后用的代价（ADR-012）：观测充分度 = 有效块时长 / 10 s（有效时恒为 1），同样再与代表性取小。
             finalize (profile.lowCutPeakCostDb, measuredTrial);
+            for (auto& loss : profile.lowCutBlendLossDb)
+                finalize (loss, measuredTrial);
             finalize (profile.widthPeakCostDb, measuredTrial);
             finalize (aux.trialPeakP99Db, measuredTrial);
 
@@ -2993,6 +3222,12 @@ namespace celadon::glaze
             for (size_t c = 0; c < (size_t) numTrials; ++c)
                 insertTop (segment->trialTop[c + 1], filled, record.candidates[c]);
 
+            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)   // T-043 混合损失：两份能量按段求和（House 画像按满编段合并）
+            {
+                segment->blendIntended[c] += record.blendIntended[c];
+                segment->blendOutput[c] += record.blendOutput[c];
+            }
+
             ++segment->trialBlocks;
         }
 
@@ -3025,6 +3260,8 @@ namespace celadon::glaze
                 top.fill (0.0);
 
             s.trialCount = 0;
+            s.blendIntended.fill (0.0);
+            s.blendOutput.fill (0.0);
         }
 
         // 先试后用的块：按格序整段整段地取（满 trialCapacity 块为止），每一路合并各段最大的 8 个（第「六」节）。
@@ -3036,6 +3273,8 @@ namespace celadon::glaze
                 top.fill (0.0);
 
             s.trialCount = 0;
+            s.blendIntended.fill (0.0);
+            s.blendOutput.fill (0.0);
             auto inserted = 0;   // 已插入的个数（insertTop 的 filled 口径；每一路相同）
 
             for (int i = 0; i < ledger.getNumStored(); ++i)
@@ -3056,6 +3295,12 @@ namespace celadon::glaze
                         insertTop (s.trialTop[series], inserted, segment.trialTop[series][(size_t) k]);
 
                     ++inserted;
+                }
+
+                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)   // 混合损失与峰值代价同一批块（同通用画像：同一批有效块）
+                {
+                    s.blendIntended[c] += segment.blendIntended[c];
+                    s.blendOutput[c] += segment.blendOutput[c];
                 }
 
                 s.trialCount += segment.trialBlocks;
@@ -3581,6 +3826,17 @@ namespace celadon::glaze
 
                 const auto candidate = percentile (s.trialTop[(size_t) slot + 1]);
                 setFeature (cost, 20.0 * std::log10 (juce::jmax (candidate, trialPeakFloorRatio * original) / original), seconds);
+            }
+
+            // 混合损失（T-043，ADR-027）：同 updateTrialProfile，两份能量换成合并进来的块之和（满编段，不够 10 s 时全部段）。
+            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+            {
+                auto& loss = p.lowCutBlendLossDb[c];
+
+                if (enough && s.blendIntended[c] > 0.0 && s.blendOutput[c] > 0.0)
+                    setFeature (loss, 10.0 * std::log10 (s.blendIntended[c] / s.blendOutput[c]), seconds);
+                else
+                    invalidate (loss);
             }
         }
 

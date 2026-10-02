@@ -387,6 +387,9 @@ namespace celadon::glaze
             // 分支（版本门是唯一开关，缺省值不是兼容手段；GlazeConstants.h 的说明）。
             v.optionalField ("heatUsefulCrestDb", c.heatUsefulCrestDb, 0.0f);
 
+            // T-043（ADR-027）：守护混合损失的封顶门槛。缺字段按 0 读 → 决策器「判断不了」→ 不封顶（旧快照不变）。
+            v.optionalField ("clayBlendLossLimitDb", c.clayBlendLossLimitDb, 0.0f);
+
             // T-038 曲风与交付（见 visitGenre 上方说明）。出厂值取一份局部副本，避免读快照时与 factoryConstants() 的静态初始化互相依赖。
             const auto factory = makeFactoryConstants();
             visitGenre (v, "deepHouse", c.deepHouse, factory.deepHouse);

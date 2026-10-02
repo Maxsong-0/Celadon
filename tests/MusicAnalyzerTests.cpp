@@ -18,6 +18,7 @@
 #include "TestHelpers.h"
 
 #include "../Source/dsp/BalanceModule.h"
+#include "../Source/dsp/ClayModule.h"
 #include "../Source/dsp/GlazeProfile.h"
 #include "../Source/dsp/LoudnessMeter.h"
 #include "../Source/dsp/MusicAnalyzer.h"
@@ -1965,11 +1966,15 @@ namespace celadon::test
             return out;
         }
 
-        // 先试后用的峰值代价（ADR-012，画像格式 2 追加）逐位相同。
+        // 先试后用的峰值代价（ADR-012，画像格式 2 追加）与守护混合损失（T-043）逐位相同。
         bool sameTrialCosts (const MusicProfile& a, const MusicProfile& b)
         {
             for (size_t i = 0; i < a.monoPeakCostDb.size(); ++i)
                 if (! sameFeature (a.monoPeakCostDb[i], b.monoPeakCostDb[i]))
+                    return false;
+
+            for (size_t i = 0; i < a.lowCutBlendLossDb.size(); ++i)
+                if (! sameFeature (a.lowCutBlendLossDb[i], b.lowCutBlendLossDb[i]))
                     return false;
 
             return sameFeature (a.lowCutPeakCostDb, b.lowCutPeakCostDb) && sameFeature (a.widthPeakCostDb, b.widthPeakCostDb);
@@ -2047,7 +2052,9 @@ namespace celadon::test
             testClayUncorrelatedNoise();
             testClaySubShareIsTrueInfrasound();
             testClayLearningIntervalAndFreeze();
+            testTrialBlendLoss();
             testClayLiveViewFollowsAndFreezes();
+            testClayLiveViewIgnoresLeakageFromAbove();
             testClayBlockSizeIndependence();
             testClayNoAllocation();
             testClayTrialCosts();
@@ -2416,6 +2423,83 @@ namespace celadon::test
         }
 
         //==============================================================================
+        // T-043（ADR-027）先试后用的守护混合损失（lowCutBlendLossDb，候选 clayBlendCandidateHz 10 / 20 Hz；MusicAnalyzer.h「五」）：
+        //   - 稳态 60 Hz 正弦（0.5，左右相同）学 12 s：两点都有效、|L| < 0.002 dB（守护不动作；只有起振的高通余量可能在头几百毫秒
+        //     碰到守护，大半落在 250 ms 预热里）；
+        //   - 偏置低音（49 Hz 0.4 + 98 Hz 0.15 + 4 Hz 0.15，左右相同；ClayTests 同一素材）学 12 s：两点都有效、L₂₀ > L₁₀ > 0、
+        //     L₂₀ > 0.1 dB（109 渲染实测约 0.12 / 0.21 dB）；
+        //     与链里的 ClayModule 在同一素材上过 20 Hz 低切量到的损失一致（±0.02 dB：分析器只计学习区间里过了预热的有效块，模块计全程；
+        //     两边用的是同一份守护实现）；
+        //   - 学 6 s（有效块不满 10 s）→ 两点都无效（与峰值代价同时）；
+        //   - 块长 7 / 333 / 4096 与 512 两点逐位相同（sameTrialCosts 也已并进块长无关那条）。
+        void testTrialBlendLoss()
+        {
+            beginTest ("trial guard blend loss (T-043): 0 on a steady tone, > 0.1 dB at 20 Hz on offset bass matching ClayModule, valid with the peak costs, block-size independent");
+
+            constexpr double sampleRate = 48000.0;
+            const auto learn = [&] (const Signal& signal, int blockSize)
+            {
+                Rig rig (sampleRate);
+                rig.analyzer.startLearning();
+                rig.feed (signal, blockSize);
+                return rig.profile();
+            };
+
+            const auto steady = learn (makeSine (numChannels, sampleRate, 60.0, 0.5f, 12.0), 512);
+            expect (steady.lowCutBlendLossDb[0].valid && steady.lowCutBlendLossDb[1].valid, "12 s of learning define both points");
+            expect (std::abs (steady.lowCutBlendLossDb[0].value) < 0.002f && std::abs (steady.lowCutBlendLossDb[1].value) < 0.002f,
+                    "steady tone: the guard does not blend, the loss is ~0 ("
+                        + juce::String (steady.lowCutBlendLossDb[0].value, 6) + " / " + juce::String (steady.lowCutBlendLossDb[1].value, 6) + ")");
+
+            auto offset = makeSine (numChannels, sampleRate, 49.0, 0.4f, 12.0);
+            const auto harmonic = makeSine (numChannels, sampleRate, 98.0, 0.15f, 12.0);
+            const auto infra = makeSine (numChannels, sampleRate, 4.0, 0.15f, 12.0);
+
+            for (size_t ch = 0; ch < offset.size(); ++ch)
+                for (size_t i = 0; i < offset[ch].size(); ++i)
+                    offset[ch][i] += harmonic[ch][i] + infra[ch][i];
+
+            const auto learned = learn (offset, 512);
+            const auto& l10 = learned.lowCutBlendLossDb[0];
+            const auto& l20 = learned.lowCutBlendLossDb[1];
+
+            ClayModule clay;
+            ClayModule::Params lowCut;
+            lowCut.lowCutHz = 20.0f;
+            clay.setParams (lowCut);
+            clay.prepare ({ sampleRate, 512, (juce::uint32) numChannels });
+            clay.setParams (lowCut);
+            juce::AudioBuffer<float> block (numChannels, 512);
+
+            for (int start = 0; start + 512 <= (int) offset[0].size(); start += 512)
+            {
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, offset[(size_t) ch].data() + start, 512);
+
+                clay.process (block);
+            }
+
+            const auto stats = clay.getAndResetPeakGuardStats();
+            const auto moduleLoss = 10.0 * std::log10 (stats.blendIntendedEnergy / stats.blendOutputEnergy);
+            logMessage ("  offset bass: trial blend loss 10 Hz " + juce::String (l10.value, 4) + " dB, 20 Hz " + juce::String (l20.value, 4)
+                        + " dB; ClayModule at 20 Hz " + juce::String (moduleLoss, 4) + " dB");
+            expect (l10.valid && l20.valid && l20.value > l10.value && l10.value > 0.0f && l20.value > 0.1f,
+                    "offset bass: the loss grows with the cutoff and exceeds 0.1 dB at 20 Hz");
+            expectWithinAbsoluteError ((double) l20.value, moduleLoss, 0.02, "the 20 Hz point agrees with the chain's ClayModule on the same material");
+
+            const auto shortSpan = learn (sliceOf (offset, 0, (int) (6.0 * sampleRate)), 512);
+            expect (! shortSpan.lowCutBlendLossDb[0].valid && ! shortSpan.lowCutBlendLossDb[1].valid && ! shortSpan.lowCutPeakCostDb.valid,
+                    "fewer than 10 s of valid blocks: unknown, together with the peak costs");
+
+            for (auto blockSize : { 7, 333, 4096 })
+            {
+                const auto other = learn (offset, blockSize);
+                expect (sameFeature (other.lowCutBlendLossDb[0], l10) && sameFeature (other.lowCutBlendLossDb[1], l20),
+                        "block size " + juce::String (blockSize) + ": both points bit-identical");
+            }
+        }
+
+        //==============================================================================
         // 依据：MusicAnalyzer.h「学习区间从 startLearning 那一刻起按样本精确划分；stopLearning 按到达立即冻结」、1.3（画像只来自
         // 学习区间）、1.4（实时视图学习与否都更新，不进画像）。
         //   - 学习前 5 s：M 是 10 Hz 正弦（幅度 0.01；真次声低通在 10 Hz 处只差 0.002 dB，E_sub / E_全 ≈ 0 dB）、S 是 150 Hz 低通的
@@ -2630,6 +2714,138 @@ namespace celadon::test
 
             expectEquals (cursor, total);
             expect (! rig.profile().lowCorrelation.valid && ! rig.profile().subShareDb.valid, "the live view never writes the profile");
+        }
+
+        //==============================================================================
+        // 依据：MusicAnalyzer.cpp「泄漏门」（BUG-009，T-042）——低频组没有低音、只有上方内容时，读数只是漏进 125 Hz 段（段 5 的格子
+        // 到 152 Hz、Hann 主瓣再往上）的部分，不能当低频相关度。素材 makeDetunedPad（Am – F – C – G 每 2 s 一换，最低分音 174.6 / 196 Hz，
+        // 左右失谐 ±0.3 %），48 kHz、块长 512、12 s，不学习（实时视图照常更新）。每块读一次视图，同时自己读 Balance 帧做阳性对照：
+        //   a. 安静的 pad（基音幅度 0.03，与合成 House 曲 breakdown 的 pad 同量级）：两路低频相关度每一块都无效。阳性对照：有帧是
+        //      「段 5 在 −60 dBFS 段门上、段 0 ～ 4 全在门下」——只靠逐段静音门（改前）这些帧算低频内容，合成曲上慢路随约 1 Hz 的拍频
+        //      摆到 −0.95、反相提示亮了 breakdown 的 89 %；
+        //   b. 响的 pad（基音幅度 0.5，+24 dB）：泄漏把段 0 ～ 4 也推到段门上（阳性对照：有帧的核心段在门上），绝对电平的门挡不住，
+        //      挡住它的是「核心对上方 −35 dB」——两路照样每一块都无效；
+        //   c. 同一个响的 pad 底下加 55 Hz 反相正弦（左 +、右 −，幅度 0.15：功率比 pad 每个基音低约 10 dB，核心 / 上方约 −15 dB）：
+        //      真低音在核心里，门照常放行——最后 8 s 两路每一块都有效，慢路 ≤ −0.5、快路 ≤ −0.3（F 和弦时段 5 里还有 174.6 Hz 的泄漏，
+        //      比低音低约 8 dB，最坏把 ρ 抬到约 −0.74，所以断言不写 −1）。
+        void testClayLiveViewIgnoresLeakageFromAbove()
+        {
+            beginTest ("Clay live view: a bass-less detuned pad above 140 Hz only leaks into the 125 Hz band - the low correlation stays unknown; a real anti-phase sub under it still reads");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr double seconds = 12.0;
+            constexpr int blockLength = 512;
+            const auto lateFromBlock = static_cast<int> (4.0 * sampleRate / blockLength);   // 最后 8 s
+
+            struct Outcome
+            {
+                int blocks = 0, validBlocks = 0, lateBlocks = 0, lateValidBlocks = 0;
+                float lateHighestSlow = -1.0f, lateHighestFast = -1.0f;
+                int frames = 0, edgeOnlyFrames = 0, coreOverGateFrames = 0;
+            };
+
+            auto run = [&] (const Signal& input)
+            {
+                Rig rig (sampleRate);
+                Outcome o;
+                std::int64_t frameCursor = 0;
+                std::array<BalanceModule::FrameSnapshot, 64> frames {};
+                const auto& view = rig.analyzer.getShortTermView();
+
+                // 自己的游标读 Balance 帧（与分析器读的是同一批帧）：只看逐段 −60 dBFS 门，数段 5 独自在门上、核心段有门上功率的帧。
+                auto drainFrames = [&]
+                {
+                    for (;;)
+                    {
+                        const auto got = std::abs (rig.balance.readFramesSince (frameCursor, frames.data(), (int) frames.size()));
+
+                        for (int f = 0; f < got; ++f)
+                        {
+                            const auto& power = frames[(size_t) f].bandPower;
+                            bool coreOverGate = false;
+
+                            for (int b = 0; b <= 4; ++b)
+                                coreOverGate = coreOverGate || power[(size_t) b] >= 1.0e-6f;
+
+                            ++o.frames;
+                            o.coreOverGateFrames += coreOverGate ? 1 : 0;
+                            o.edgeOnlyFrames += (! coreOverGate && power[(size_t) 5] >= 1.0e-6f) ? 1 : 0;
+                        }
+
+                        if (got < (int) frames.size())
+                            return;
+                    }
+                };
+
+                // 上一块处理完之后的视图（feed 在每块之前调这个钩子；最后一块在 feed 之后补看）。
+                auto inspect = [&]
+                {
+                    const auto& slow = view.liveLowCorrelation;
+                    const auto& fast = view.liveLowCorrelationFast;
+                    o.validBlocks += (slow.valid || fast.valid) ? 1 : 0;
+
+                    if (o.blocks >= lateFromBlock)
+                    {
+                        ++o.lateBlocks;
+
+                        if (slow.valid && fast.valid)
+                        {
+                            ++o.lateValidBlocks;
+                            o.lateHighestSlow = juce::jmax (o.lateHighestSlow, slow.value);
+                            o.lateHighestFast = juce::jmax (o.lateHighestFast, fast.value);
+                        }
+                    }
+
+                    ++o.blocks;
+                };
+
+                bool first = true;
+                rig.feed (input, blockLength, 1, {}, [&] (Rig&)
+                {
+                    if (! first)
+                        inspect();
+
+                    first = false;
+                    drainFrames();
+                });
+                inspect();
+                drainFrames();
+                return o;
+            };
+
+            auto percent = [] (int part, int whole) { return juce::String (100.0 * (double) part / (double) juce::jmax (1, whole), 1) + " %"; };
+
+            const auto quietPad = makeDetunedPad (sampleRate, seconds, 2.0, 0.03);
+            const auto loudPad = makeDetunedPad (sampleRate, seconds, 2.0, 0.5);
+            auto padOverSub = loudPad;
+            const auto sub = makeSine (1, sampleRate, 55.0, 0.15f, seconds);
+
+            for (size_t i = 0; i < padOverSub.front().size(); ++i)
+            {
+                padOverSub[0][i] += sub[0][i];
+                padOverSub[1][i] -= sub[0][i];
+            }
+
+            const auto quiet = run (quietPad);
+            const auto loud = run (loudPad);
+            const auto withSub = run (padOverSub);
+
+            logMessage ("  quiet pad: blocks with a valid low correlation " + juce::String (quiet.validBlocks) + " / " + juce::String (quiet.blocks)
+                        + "; frames where only the 125 Hz band is over the band gate " + percent (quiet.edgeOnlyFrames, quiet.frames));
+            logMessage ("  loud pad: blocks with a valid low correlation " + juce::String (loud.validBlocks) + " / " + juce::String (loud.blocks)
+                        + "; frames with 40 - 100 Hz leakage over the band gate " + percent (loud.coreOverGateFrames, loud.frames));
+            logMessage ("  loud pad + anti-phase 55 Hz: last 8 s valid " + juce::String (withSub.lateValidBlocks) + " / "
+                        + juce::String (withSub.lateBlocks) + ", highest slow rho " + juce::String (withSub.lateHighestSlow, 3)
+                        + ", highest fast rho " + juce::String (withSub.lateHighestFast, 3));
+
+            expectEquals (quiet.validBlocks, 0, "a: leakage of a bass-less pad never makes the low correlation valid");
+            expect (quiet.edgeOnlyFrames > 0, "a: positive control - the per-band silence gate alone would have counted the 125 Hz leakage");
+            expectEquals (loud.validBlocks, 0, "b: the gate is relative - a +24 dB pad's leakage is still not low content");
+            expect (loud.coreOverGateFrames > 0, "b: positive control - the leakage does reach the 40 - 100 Hz bands over the band gate");
+            expect (withSub.lateBlocks > 0 && withSub.lateValidBlocks == withSub.lateBlocks,
+                    "c: a real sub under the pad keeps both live correlations valid");
+            expect (withSub.lateHighestSlow <= -0.5f, "c: ... and the slow path reads the anti-phase sub");
+            expect (withSub.lateHighestFast <= -0.3f, "c: ... and so does the fast path");
         }
 
         //==============================================================================
@@ -3206,6 +3422,19 @@ namespace celadon::test
             expect (houseProfile.integratedLufs.confidence <= houseProfile.representativeness + 1.0e-6f);
             expect (houseProfile.lowCutPeakCostDb.valid && houseProfile.monoPeakCostDb[1].valid && houseProfile.widthPeakCostDb.valid,
                     "the try-before-use costs come from the full segments' blocks");
+
+            // 换底到 main fd486ba（T-043 守护混合损失）：House 画像的混合损失同样按满编段的块合并，与只听 drop 的通用画像相近。合并前
+            // House 画像从空画像算起、没有这一项，决策器在 House 档就一直「判断不了」、不按混合损失封顶低切。
+            for (size_t c = 0; c < houseProfile.lowCutBlendLossDb.size(); ++c)
+            {
+                const auto& h = houseProfile.lowCutBlendLossDb[c];
+                const auto& d = drop.lowCutBlendLossDb[c];
+                logMessage ("  blend loss candidate " + juce::String ((int) c) + ": House " + juce::String (h.value, 4) + " dB (valid "
+                            + juce::String ((int) h.valid) + "), drop alone " + juce::String (d.value, 4) + ", general "
+                            + juce::String (generalProfile.lowCutBlendLossDb[c].value, 4));
+                expect (h.valid && d.valid, "the blend loss comes from the full segments' blocks, candidate " + juce::String ((int) c));
+                expect (std::abs (h.value - d.value) <= 0.1f, "House blend loss is the drop's, candidate " + juce::String ((int) c));
+            }
         }
 
         // 依据：任务书「通用档完全不走这些代码（逐位不变）」。通用档下交宿主拍点、显式 setGenre(通用)：画像与辅助量与不交拍点、

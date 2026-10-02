@@ -402,6 +402,10 @@ namespace celadon
         const auto clayPressure  = clay.getLastProcessPressure();   // ADR-014：修坯峰值守护的代价格
         stats.clayPressureDb      = clayPressure.meanDb;
         stats.clayPressureSeconds = clayPressure.seconds;
+        const auto clayBlend      = clay.getLastProcessBlend();      // T-043：守护的混合损失（ADR-027）
+        stats.clayBlendIntendedEnergy = clayBlend.intendedEnergy;
+        stats.clayBlendOutputEnergy   = clayBlend.outputEnergy;
+        stats.clayBlendSeconds        = clayBlend.seconds;
         stats.musicActive = false;   // 编排器按分析器的有效信号门限填
 
         controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true);

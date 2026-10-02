@@ -24,11 +24,8 @@ namespace celadon
         }
     }
 
-    void LoudnessMeter::prepare (const juce::dsp::ProcessSpec& spec)
+    void LoudnessMeter::designKWeighting (double fs, Biquad& shelfOut, Biquad& highpassOut) noexcept
     {
-        sampleRate  = spec.sampleRate;
-        numChannels = (int) juce::jmax ((juce::uint32) 1, spec.numChannels);
-
         const auto pi = juce::MathConstants<double>::pi;
 
         // 第 1 级：高搁架（模拟头部的声学效应）。
@@ -37,16 +34,16 @@ namespace celadon
             constexpr double gainDb = 3.999843853973347;
             constexpr double q = 0.7071752369554196;
 
-            const auto k  = std::tan (pi * f0 / sampleRate);
+            const auto k  = std::tan (pi * f0 / fs);
             const auto vh = std::pow (10.0, gainDb / 20.0);
             const auto vb = std::pow (vh, 0.4996667741545416);
             const auto a0 = 1.0 + k / q + k * k;
 
-            shelf.b0 = (vh + vb * k / q + k * k) / a0;
-            shelf.b1 = 2.0 * (k * k - vh) / a0;
-            shelf.b2 = (vh - vb * k / q + k * k) / a0;
-            shelf.a1 = 2.0 * (k * k - 1.0) / a0;
-            shelf.a2 = (1.0 - k / q + k * k) / a0;
+            shelfOut.b0 = (vh + vb * k / q + k * k) / a0;
+            shelfOut.b1 = 2.0 * (k * k - vh) / a0;
+            shelfOut.b2 = (vh - vb * k / q + k * k) / a0;
+            shelfOut.a1 = 2.0 * (k * k - 1.0) / a0;
+            shelfOut.a2 = (1.0 - k / q + k * k) / a0;
         }
 
         // 第 2 级：RLB 高通（约 38 Hz）。分子按标准表保持 1, −2, 1。
@@ -54,15 +51,23 @@ namespace celadon
             constexpr double f0 = 38.13547087602444;
             constexpr double q = 0.5003270373238773;
 
-            const auto k  = std::tan (pi * f0 / sampleRate);
+            const auto k  = std::tan (pi * f0 / fs);
             const auto a0 = 1.0 + k / q + k * k;
 
-            highpass.b0 = 1.0;
-            highpass.b1 = -2.0;
-            highpass.b2 = 1.0;
-            highpass.a1 = 2.0 * (k * k - 1.0) / a0;
-            highpass.a2 = (1.0 - k / q + k * k) / a0;
+            highpassOut.b0 = 1.0;
+            highpassOut.b1 = -2.0;
+            highpassOut.b2 = 1.0;
+            highpassOut.a1 = 2.0 * (k * k - 1.0) / a0;
+            highpassOut.a2 = (1.0 - k / q + k * k) / a0;
         }
+    }
+
+    void LoudnessMeter::prepare (const juce::dsp::ProcessSpec& spec)
+    {
+        sampleRate  = spec.sampleRate;
+        numChannels = (int) juce::jmax ((juce::uint32) 1, spec.numChannels);
+
+        designKWeighting (sampleRate, shelf, highpass);
 
         channelStates.assign ((size_t) numChannels, ChannelState {});
         truePeak.prepare (numChannels);

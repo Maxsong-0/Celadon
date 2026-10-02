@@ -1199,6 +1199,49 @@ namespace celadon::glaze
             return true;
         }
 
+        // 守护混合损失的低切频率封顶（T-043，ADR-027）。画像里两个候选频率（clayBlendCandidateHz：10 / 20 Hz）的混合损失 L₁、L₂（dB；
+        // 两个都有效且有限才用，少一个就判断不了）。预测 L(f)：两个都 > 0 → 幂律 L₁·(f / f₁)^q，q = ln(L₂ / L₁) / ln(f₂ / f₁)（log-log
+        // 直线，理由见 GlazeTypes.h clayBlendCandidateHz）；否则（有 ≤ 0 的：几乎没损失或量化噪声）→ L 在 ln f 上的直线。两种都对 f 单调，
+        // 两端之外照同一条线外推。门槛 limit：地板处预测已超 → 0（不低切）；hz 处没超 → hz 原样（逐位）；否则解出预测恰为 limit 的频率。
+        // 「越过点」只取决于画像、门槛与地板，结果 = min(hz, 越过点)，随 hz 单调不减（planClay 的 GLAZE 单调保留）。门槛 ≤ 0 / 非有限、
+        // 地板 ≤ 0 / 非有限 → 判断不了 → hz 原样。double 里算，不分配。
+        float capLowCutForBlend (const MusicProfile& p, float hz, float floorHz, float limitDb) noexcept
+        {
+            if (! (limitDb > 0.0f) || ! isFinite (limitDb) || ! (floorHz > 0.0f) || ! isFinite (floorHz) || ! (hz > 0.0f))
+                return hz;
+
+            const auto& first = p.lowCutBlendLossDb[0];
+            const auto& second = p.lowCutBlendLossDb[1];
+
+            if (! first.valid || ! second.valid || ! isFinite (first.value) || ! isFinite (second.value))
+                return hz;
+
+            const auto x1 = std::log (static_cast<double> (clayBlendCandidateHz[0]));
+            const auto x2 = std::log (static_cast<double> (clayBlendCandidateHz[1]));
+            const auto l1 = static_cast<double> (first.value);
+            const auto l2 = static_cast<double> (second.value);
+            const auto powerLaw = l1 > 0.0 && l2 > 0.0;
+
+            // 预测按 u(L) 在 x = ln f 上的直线：幂律 u = ln L，否则 u = L。
+            const auto u1 = powerLaw ? std::log (l1) : l1;
+            const auto u2 = powerLaw ? std::log (l2) : l2;
+            const auto slope = (u2 - u1) / (x2 - x1);
+            const auto limit = static_cast<double> (limitDb);
+            const auto uLimit = powerLaw ? std::log (limit) : limit;
+            const auto predicted = [&] (double x) noexcept { return u1 + slope * (x - x1); };
+
+            const auto from = std::log (static_cast<double> (floorHz));
+            const auto to = std::log (static_cast<double> (hz));
+
+            if (predicted (from) > uLimit)
+                return 0.0f;
+
+            if (! (to > from) || ! (predicted (to) > uLimit))   // predicted(from) ≤ uLimit < predicted(to) ⟹ slope > 0
+                return hz;
+
+            return static_cast<float> (std::exp (x1 + (uLimit - u1) / slope));
+        }
+
         // 修坯 Clay 的自动值（第 2 节，ADR-012 / 根治修订 3.3 修订）。g = GLAZE / 100（> 0）；c = 各项需要度特征的可信度（trustOf：
         // 到 fullConfidence 算满，与 Tone、Glue 低频风险同一口径；分析器给的置信度已含代表性）；f_t、s_w 取 sc（blendConstants 按
         // 方案的风格权重混合，与其他各项同一份；House 曲风已被子类覆盖，出厂 25 Hz / 0：低切目标更高、不自动加宽，T-038）；
@@ -1208,6 +1251,7 @@ namespace celadon::glaze
         //          k = need · c · min(1, g / clayGlazeFullAt) · f(lowCutPeakCostDb)（清理不是口味项，GLAZE 50 起给满）；
         //          k ≤ clayLowCutMinK 或 f_t ≤ 地板 → 关（0）；否则 lowCutHz = 地板 · (f_t / 地板)^k（地板 10 Hz：k 刚过门槛时从 0
         //          跳到略高于 10 Hz，10 Hz 的 4 阶高通在 20 Hz 只衰减 0.02 dB，起步无感）；f_t 出厂 16 / 18 / 20 Hz；
+        //          再按守护混合损失封顶（T-043，capLowCutForBlend）：预测损失超门槛的频率不用，封到越过点、地板处已超就关，置代价位；
         //   ② 收单：自动态恒为中性（ADR-015：收单只改立体声、单声道回放不变，「为单声道回放收单」不成立）——monoAmount 0、分频点
         //          ClayPlan 的默认值，与 ClayPlan{} 逐位相同；画像里的收单代价（monoPeakCostDb）照测照存，决策不用；
         //   ③ 加宽：need = ramp(highSideToMidDb, −10, −18)，s_w 按 0 ～ 1 用；原公式 clayWidthMaxDb · need · c · s_w · g（口味项，
@@ -1261,7 +1305,18 @@ namespace celadon::glaze
                     {
                         const auto hz = static_cast<double> (floorHz)
                                       * std::pow (static_cast<double> (targetHz) / static_cast<double> (floorHz), static_cast<double> (k));
-                        clay.lowCutHz = clampTo (static_cast<float> (hz), ClayModule::minLowCutHz, ClayModule::maxLowCutHz);
+                        auto lowCutHz = clampTo (static_cast<float> (hz), ClayModule::minLowCutHz, ClayModule::maxLowCutHz);
+
+                        // 守护混合损失封顶（T-043）：没越过门槛时原样（逐位）；封到模块下限以下就关。
+                        const auto capped = capLowCutForBlend (p, lowCutHz, floorHz, c.clayBlendLossLimitDb);
+
+                        if (capped < lowCutHz)
+                        {
+                            markLimited (clayCostLimitedLowCut);
+                            lowCutHz = capped >= ClayModule::minLowCutHz ? capped : 0.0f;
+                        }
+
+                        clay.lowCutHz = lowCutHz;
                     }
                 }
             }

@@ -308,6 +308,7 @@ namespace celadon::test
             testLegacyAndNonFiniteConstants();
             testConstantsAndDefaults();
             testPressureMonitor();
+            testPressureMonitorBlendLoss();
             testScaleClayPlan();
 
             testResolveCombinations();
@@ -1626,6 +1627,101 @@ namespace celadon::test
             expectEquals (ClayPressureMonitor::nextScale (0.25f), 0.0f);
             expectEquals (ClayPressureMonitor::nextScale (0.0f), 0.0f);
             expectEquals (ClayPressureMonitor::nextScale (std::numeric_limits<float>::quiet_NaN()), 0.0f);
+        }
+
+        // T-043（ADR-027）压力反馈的第二个触发量：守护的混合损失（ClayGuard.h ClayPressureMonitor）。
+        //   - 两份能量按 blendSeconds 一阶平滑（2 s）后求比；本该 / 实际的比恒定时平滑后的比从第一段起就恒等于它（同一个衰减乘在
+        //     两边）：恒定 0.2 dB > 0.15 dB → 连续 1 s 后（约 1.00 s，冷却初值已满）返回 true；返回时两份平滑能量与计时清零；
+        //   - 冷却与第一条共用：混合损失触发之后，混合损失或峰值超出都要等满 4 s；
+        //   - 0.14 dB 恒定永不触发；能量非有限 / 为负、blendSeconds ≤ 0 / 非有限 → 这一段不计（冻结）；reset 清零；
+        //   - 混合损失从未超过门槛时，与只有第一条的轨迹逐位相同（默认参数 = 显式传 0）；
+        //   - 第一条的门在 seconds：seconds ≤ 0 的段只推进混合损失的平滑与计时，不判断触发。
+        void testPressureMonitorBlendLoss()
+        {
+            beginTest ("Clay pressure monitor, second trigger (T-043): smoothed guard blend loss above 0.15 dB for 1 s steps down, sharing the cooldown");
+
+            constexpr double slice = 0.01;
+            constexpr double intended = 1.0e-3;
+            const auto outputFor = [] (double lossDb) { return intended * std::pow (10.0, -lossDb / 10.0); };
+            const auto feedBlendUntilStep = [&outputFor] (ClayPressureMonitor& m, double lossDb, double maxSeconds)
+            {
+                for (double t = slice; t <= maxSeconds + 1.0e-9; t += slice)
+                    if (m.update (0.0, slice, intended, outputFor (lossDb), slice))
+                        return t;
+
+                return -1.0;
+            };
+
+            ClayPressureMonitor monitor;
+            const auto first = feedBlendUntilStep (monitor, 0.2, 10.0);
+            logMessage ("  0.2 dB blend loss: first step after " + juce::String (first, 3) + " s");
+            expectWithinAbsoluteError (first, 1.0, 2.0 * slice, "a constant 0.2 dB loss is above 0.15 dB from the first slice: step after 1 s");
+            expect (monitor.blendIntendedSmoothed == 0.0 && monitor.blendOutputSmoothed == 0.0 && monitor.blendAboveSeconds == 0.0,
+                    "a step clears the blend smoother and its sustain count");
+
+            const auto second = feedBlendUntilStep (monitor, 0.2, 10.0);
+            expectWithinAbsoluteError (second, 4.0, 2.0 * slice, "the next step waits for the shared 4 s cooldown");
+
+            // 共用冷却：混合损失触发之后，持续 0.5 dB 的峰值超出（单独时约 1.92 s 就会触发）也要等满 4 s。
+            ClayPressureMonitor shared;
+            expect (feedBlendUntilStep (shared, 0.3, 5.0) > 0.0, "positive control: the blend trigger fires");
+            auto pressureStep = -1.0;
+
+            for (double t = slice; t <= 10.0 + 1.0e-9 && pressureStep < 0.0; t += slice)
+                if (shared.update (0.5, slice))
+                    pressureStep = t;
+
+            expectWithinAbsoluteError (pressureStep, 4.0, 2.0 * slice, "a peak-excess step after a blend step also waits for the 4 s cooldown");
+
+            ClayPressureMonitor below;
+            expectEquals (feedBlendUntilStep (below, 0.14, 30.0), -1.0, "0.14 dB sustained stays below the 0.15 dB threshold: never steps");
+            expectWithinAbsoluteError (below.blendLossDb(), 0.14, 1.0e-9, "blendLossDb reads the smoothed loss");
+
+            // 冻结与坏值：这一段不计。
+            ClayPressureMonitor frozen;
+            frozen.update (0.0, slice, intended, outputFor (0.2), slice);
+            const auto i0 = frozen.blendIntendedSmoothed, o0 = frozen.blendOutputSmoothed, a0 = frozen.blendAboveSeconds;
+            const auto nan = std::numeric_limits<double>::quiet_NaN();
+            frozen.update (0.0, slice, intended, outputFor (0.2), 0.0);
+            frozen.update (0.0, slice, intended, outputFor (0.2), -1.0);
+            frozen.update (0.0, slice, intended, outputFor (0.2), nan);
+            frozen.update (0.0, slice, nan, outputFor (0.2), slice);
+            frozen.update (0.0, slice, intended, -1.0, slice);
+            frozen.update (0.0, slice, std::numeric_limits<double>::infinity(), outputFor (0.2), slice);
+            expect (frozen.blendIntendedSmoothed == i0 && frozen.blendOutputSmoothed == o0 && frozen.blendAboveSeconds == a0,
+                    "blendSeconds <= 0 / NaN and non-finite or negative energies leave the blend state untouched");
+
+            ClayPressureMonitor empty;
+            expectEquals (empty.blendLossDb(), 0.0, "no energy yet: 0 dB");
+            empty.update (0.0, slice, intended, outputFor (0.3), slice);
+            expect (empty.blendLossDb() > 0.29, "positive control: one slice gives the loss");
+            empty.reset();
+            expect (empty.blendIntendedSmoothed == 0.0 && empty.blendOutputSmoothed == 0.0 && empty.blendAboveSeconds == 0.0
+                        && empty.blendLossDb() == 0.0, "reset clears the blend state");
+
+            // 第一条不受影响：默认参数与显式传 0 的两条轨迹逐位相同（触发时刻、平滑值）。
+            ClayPressureMonitor defaults, zeros;
+            auto stepsDefault = 0, stepsZero = 0;
+
+            for (int k = 0; k < 2000; ++k)
+            {
+                const auto pressure = 0.25 + 0.2 * std::sin (0.01 * (double) k);
+                stepsDefault += defaults.update (pressure, slice) ? 1 : 0;
+                stepsZero += zeros.update (pressure, slice, 0.0, 0.0, 0.0) ? 1 : 0;
+                expect (defaults.smoothed == zeros.smoothed && defaults.aboveSeconds == zeros.aboveSeconds && defaults.sinceStep == zeros.sinceStep);
+            }
+
+            expectEquals (stepsZero, stepsDefault);
+            expect (stepsDefault > 0, "positive control: the peak-excess trigger fires on this trajectory");
+
+            // seconds ≤ 0 的段：混合损失照样平滑、计时（> 1 s），但不判断；下一段 seconds > 0 时立即触发。
+            ClayPressureMonitor gated;
+
+            for (int k = 0; k < 150; ++k)
+                expect (! gated.update (0.0, 0.0, intended, outputFor (0.2), slice), "no decision while the peak-excess slice has no seconds");
+
+            expect (gated.blendAboveSeconds >= 1.0, "the blend sustain still counts");
+            expect (gated.update (0.0, slice, intended, outputFor (0.2), slice), "the first slice with seconds steps down");
         }
 
         // ADR-014 scaleClayPlan（压力反馈的缩放作用在自动方案上）：方案 = 低切 20 Hz、收单 0.8 @ 120 Hz、加宽 1.2 dB、原有代价位 = 加宽，地板 10 Hz：

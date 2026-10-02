@@ -1305,6 +1305,10 @@ namespace celadon::test
             testWideBassNeverTriggersPhaseGuard();
             testWholeLowBandInversion();
             testInfrasoundLowCutHelps();
+            testOffsetBassBlendLossCap();
+
+            // ---- T-042 / BUG-009：只有 pad 的 breakdown ----
+            testBreakdownPadDoesNotLightPhaseWarning();
         }
 
     private:
@@ -2490,6 +2494,141 @@ namespace celadon::test
         }
 
         //==============================================================================
+        // 13. BUG-009（T-042）只有失谐 pad 的 breakdown 不亮反相提示。素材照合成 House 曲（tools/render/make_synthetic_house.py）连成一首
+        //     52 s 的歌：drop 0 ～ 20 s = 单声道底鼓（120 BPM，RMS −12 dBFS）+ 单声道 55 Hz 音调低音（8 次谐波 1/h，−14 dBFS）+ 失谐 pad
+        //     （makeDetunedPad，基音幅度 0.05，和弦每 2 s 一换，整首连续）；breakdown 20 ～ 44 s = 只有 pad；44 ～ 52 s 再回 drop。鼓与低音
+        //     在两个段界各用 20 ms 升余弦收放。GLAZE 60、抽屉默认，只在 drop 段上循环学完并锁定，再从当前位置无缝接着放这首歌到结尾，
+        //     逐块数 Status 的反相灯与保护单元的提示强度。画像失配关掉（同用例 4：breakdown 的响度与频谱都和 drop 差很多，这里只看 Clay）。
+        //     断言：breakdown 与回到 drop 的整段里灯从未亮过、提示强度始终为 0；breakdown 开头 5 s 之后慢路低频相关度（探针）一直无效
+        //     （低音停下后平滑功率约 3.5 s 落到段门下，之前停在 drop 的 +1 上；之后泄漏帧不计）。
+        //     改前（只有逐段静音门）：合成曲 synthetic-house-124 的 breakdown 里慢路随约 1 Hz 的拍频摆到 −0.95、灯亮了 breakdown 的 89 %
+        //     （全曲 14.4 %；T-042 在 109 上用 celadon_render --trace 复现）。
+        //     阳性对照：同一流程，breakdown 里换成「pad + 右声道反相的同一条音调低音」——灯要在 breakdown 里亮起、提示强度到 1
+        //     （门对真反相照常放行，计数不是空转）。
+        // 依据：MusicAnalyzer.cpp「泄漏门」、BUG-009；ADR-015（反相只提示）。
+        void testBreakdownPadDoesNotLightPhaseWarning()
+        {
+            beginTest ("bass-less detuned pad breakdown between two drops (BUG-009): the phase warning never lights; an anti-phase bass in the breakdown does");
+
+            auto constants = fastConstants();
+            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同用例 4：只看 Clay 的保护
+
+            constexpr double dropSeconds = 20.0, breakdownSeconds = 24.0, returnSeconds = 8.0;
+            constexpr double edgeSeconds = 0.02;
+            const auto songSeconds = dropSeconds + breakdownSeconds + returnSeconds;
+            const auto n = static_cast<int> (songSeconds * kRate);
+            const auto twoPi = juce::MathConstants<double>::twoPi;
+
+            // breakdownBass：breakdown 里低音的符号（0 = 没有低音，−1 = 右声道反相）。
+            auto makeSong = [&] (double breakdownBass)
+            {
+                std::vector<double> kick (static_cast<size_t> (n), 0.0), tone (static_cast<size_t> (n), 0.0);
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto t = static_cast<double> (i) / kRate;
+                    kick[static_cast<size_t> (i)] = kickSample (t - 0.5 * std::floor (t / 0.5));
+
+                    for (int h = 1; h <= 8; ++h)
+                        tone[static_cast<size_t> (i)] += std::sin (twoPi * 55.0 * static_cast<double> (h) * t + 0.3 * static_cast<double> (h))
+                                                        / static_cast<double> (h);
+                }
+
+                kick = withRms (std::move (kick), -12.0);
+                tone = withRms (std::move (tone), -14.0);
+
+                // drop 的权重：段界前后各 edgeSeconds 升余弦，breakdown 里 0。
+                auto dropWeight = [&] (double t)
+                {
+                    auto ramp = [&] (double edge, double sign)
+                    {
+                        const auto u = juce::jlimit (0.0, 1.0, 0.5 + sign * (t - edge) / (2.0 * edgeSeconds));
+                        return 0.5 - 0.5 * std::cos (juce::MathConstants<double>::pi * u);
+                    };
+
+                    return ramp (dropSeconds, -1.0) + ramp (dropSeconds + breakdownSeconds, 1.0);
+                };
+
+                auto song = makeDetunedPad (kRate, songSeconds, 2.0, 0.05);
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto index = static_cast<size_t> (i);
+                    const auto w = dropWeight (static_cast<double> (i) / kRate);
+                    const auto common = w * (kick[index] + tone[index]);
+                    song[0][index] += static_cast<float> (common + (1.0 - w) * std::abs (breakdownBass) * tone[index]);
+                    song[1][index] += static_cast<float> (common + (1.0 - w) * breakdownBass * tone[index]);
+                }
+
+                return song;
+            };
+
+            for (const auto breakdownBass : { 0.0, -1.0 })
+            {
+                const auto control = breakdownBass != 0.0;
+                const auto song = makeSong (breakdownBass);
+                const auto dropSamples = static_cast<int> (dropSeconds * kRate);
+                const auto label = juce::String (control ? "positive control (anti-phase bass in the breakdown)" : "pad-only breakdown");
+
+                auto drop = makeSilence (kChannels, dropSamples);
+
+                for (int ch = 0; ch < kChannels; ++ch)
+                    std::copy_n (song[static_cast<size_t> (ch)].begin(), dropSamples, drop[static_cast<size_t> (ch)].begin());
+
+                ClayRig rig (constants, std::move (drop), glazeParams (60.0f));
+                expect (rig.learnAndCalibrate (40.0), label + ": learns the drop");
+                rig.run (1.0);
+                expect (! rig.status().clayPhaseGuardActive, label + ": fixture - no warning on the drop (mono bass)");
+
+                // 从当前位置无缝接着放整首歌（学习用的循环素材就是这首歌的前 20 s），一直到结尾、不回绕。
+                const auto startIndex = rig.sourceIndex;
+                rig.source = song;
+                rig.sourceIndex = startIndex;
+                const auto totalBlocks = static_cast<int> ((static_cast<size_t> (n) - startIndex) / static_cast<size_t> (kBlock));
+                const auto startSeconds = static_cast<double> (startIndex) / kRate;
+                int lampBlocks = 0, validSlowLateBlocks = 0;
+                float largestFloor = 0.0f, largestFloorInBreakdown = 0.0f;
+                bool lampInBreakdown = false;
+
+                for (int b = 0; b < totalBlocks; ++b)
+                {
+                    rig.step();
+                    const auto t = startSeconds + static_cast<double> ((b + 1) * kBlock) / kRate;   // 本块结束时在歌里的位置
+                    const auto lamp = rig.status().clayPhaseGuardActive;
+                    const auto level = rig.probe().clayGuard.phaseFloor;
+                    const auto inBreakdown = t >= dropSeconds && t < dropSeconds + breakdownSeconds;
+                    lampBlocks += lamp ? 1 : 0;
+                    largestFloor = juce::jmax (largestFloor, level);
+
+                    if (inBreakdown)
+                    {
+                        lampInBreakdown = lampInBreakdown || lamp;
+                        largestFloorInBreakdown = juce::jmax (largestFloorInBreakdown, level);
+
+                        if (t >= dropSeconds + 5.0 && rig.probe().liveLowCorrelation.valid)
+                            ++validSlowLateBlocks;
+                    }
+                }
+
+                logMessage ("  [" + label + "] lamp blocks " + juce::String (lampBlocks) + " / " + juce::String (totalBlocks)
+                            + ", largest floor " + juce::String (largestFloor, 3) + "; breakdown blocks (after 5 s) with a valid slow low correlation "
+                            + juce::String (validSlowLateBlocks));
+
+                if (control)
+                {
+                    expect (lampInBreakdown && largestFloorInBreakdown >= kAtOne,
+                            label + ": the warning does light on a real inversion under the pad (the count is not vacuous)");
+                }
+                else
+                {
+                    expectEquals (lampBlocks, 0, label + ": the phase warning never lights");
+                    expect (largestFloor == 0.0f, label + ": the guard never starts an attack");
+                    expectEquals (validSlowLateBlocks, 0, label + ": the pad's leakage never makes the slow low correlation valid");
+                }
+            }
+        }
+
+        //==============================================================================
         // 12. 根治修订 4(d) 约 10 Hz 次声 + 音乐（makeClayMusic：单声道低音、宽高频——收单与加宽都不需要，只看低切；10.3 Hz、幅度 0.4，
         //     10.3 而不是 10 的理由同 stereoTestRecipe）。numpy 复算（种子 909 ～ 911）：真次声占比约 −1.9 dB → need_sub = 1；IIR 20 Hz
         //     低切的代价 −1.0 ～ −0.8 dB（去掉次声，峰值变低）→ 照做。GLAZE 60、聆听 12 s、学完并校准锁定后：
@@ -2542,6 +2681,75 @@ namespace celadon::test
                         "the automatic low cut does not raise the peaks reaching the limiter");
             else
                 expect (withClay.grMaxDb <= 0.05f, "neither chain limits: nothing to raise");
+        }
+
+        //==============================================================================
+        // 13. T-043（BUG-010 / ADR-027）偏置低音（真歌 woqu 的机制）：49 Hz 贝斯 0.45 + 98 Hz 二次谐波 0.07 + 4 Hz 次声偏置 0.10
+        //     （两声道相同）+ −40 dBFS 白噪声；8 s 里 49 / 98 / 4 Hz 都是整数周期，循环播放没有接缝。20 Hz 低切改变贝斯的波峰形状并去掉
+        //     偏置，越过守护局部界的峰很多，守护大半时间在拉，回收时与干路互相抵消——不经守护的低切峰值反而更低（代价 ≤ 0.2 dB，照做），
+        //     ADR-014 的两层都看不出来。109 渲染实测（30 s 同素材、GLAZE 60）：试用损失 10 / 20 Hz = 0.085 / 0.106 dB → 封到 12.05 Hz、
+        //     链内 0.084 dB。GLAZE 60、学完并校准锁定后：
+        //       - 画像：先试后用的两点混合损失有效、20 Hz 那点 > 门槛 0.09 dB（夹具确实会抵消）；峰值代价 ≤ 0.2 dB（代价系数 1：低切
+        //         若被减量，只可能是混合损失封顶）；
+        //       - 方案：低切 ≤ 本文件按定义算的越过点 10·(0.09 / L₁₀)^(1/q)（q = log₂(L₂₀ / L₁₀)）、低于 20 Hz，越过点在地板 10 Hz 之下
+        //         则为 0（否决）——两种都置低切代价位（L₁₀ 离门槛只有约 0.005 dB，环境略变就可能走到否决那一支，断言对两支都成立）；
+        //       - 链里（低切开着时）：锁定后 6 s，ClayModule 统计的守护混合损失 ≤ 0.12 dB（门槛 0.09 + 试用（原始输入）对链内的偏差）。
+        // 依据：BUG-010、ADR-027；GlazePlanner.cpp capLowCutForBlend；MusicAnalyzer「五」。
+        void testOffsetBassBlendLossCap()
+        {
+            beginTest ("offset bass (T-043): the trial's guard blend loss caps the automatic low cut, and the chain's guard then loses <= 0.12 dB");
+
+            const auto constants = confidentConstants();
+            const auto numSamples = static_cast<int> (8.0 * kRate);
+            auto material = makeSilence (kChannels, numSamples);
+            juce::Random noise (4343);
+            const auto twoPi = juce::MathConstants<double>::twoPi;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto t = static_cast<double> (i) / kRate;
+                const auto value = static_cast<float> (0.45 * std::sin (twoPi * 49.0 * t) + 0.07 * std::sin (twoPi * 98.0 * t)
+                                                       + 0.10 * std::sin (twoPi * 4.0 * t) + 0.01 * (noise.nextDouble() * 2.0 - 1.0));
+
+                for (auto& channel : material)
+                    channel[static_cast<size_t> (i)] = value;
+            }
+
+            ClayRig rig (constants, material, glazeParams (60.0f));
+            expect (rig.learnAndCalibrate (60.0), "learns, calibrates and locks");
+
+            const auto profile = rig.committed().profile;
+            const auto& l10 = profile.lowCutBlendLossDb[0];
+            const auto& l20 = profile.lowCutBlendLossDb[1];
+            logMessage ("  profile: " + featureText ("subShareDb", profile.subShareDb) + "; costs: " + costText (profile)
+                        + "; blend loss 10 Hz " + juce::String (l10.value, 4) + ", 20 Hz " + juce::String (l20.value, 4) + " dB");
+            expect (l10.valid && l20.valid && l20.value > constants.clayBlendLossLimitDb && l10.value > 0.0f,
+                    "fixture: the trial measures a blend loss above the 0.09 dB limit at 20 Hz");
+            expect (profile.lowCutPeakCostDb.valid && profile.lowCutPeakCostDb.value <= constants.clayCostFullDb,
+                    "fixture: the unguarded low cut does not raise the peaks (the peak-cost layer lets it through)");
+
+            const auto q = std::log2 ((double) l20.value / (double) l10.value);
+            const auto crossing = 10.0 * std::pow ((double) constants.clayBlendLossLimitDb / (double) l10.value, 1.0 / q);
+            const auto s = rig.status();
+            logMessage ("  automatic: " + statusText (s) + ", predicted crossing " + juce::String (crossing, 3) + " Hz");
+            if (crossing < (double) constants.clayLowCutFloorHz)
+                expectEquals (s.clayLowCutHz, 0.0f, "the predicted crossing lies below the floor: no low cut");
+            else
+                expect ((double) s.clayLowCutHz <= crossing * 1.0001 && s.clayLowCutHz < 20.0f,
+                        "the planned low cut is capped at the predicted 0.09 dB crossing: " + juce::String (s.clayLowCutHz, 3) + " Hz");
+
+            expect ((s.clayCostLimitedMask & glaze::clayCostLimitedLowCut) != 0, "the status explains it (low-cut cost bit)");
+
+            if (! (s.clayLowCutHz > 0.0f))
+                return;
+
+            rig.chain.getClayForTesting().getAndResetPeakGuardStats();
+            rig.run (6.0);
+            const auto stats = rig.chain.getClayForTesting().getAndResetPeakGuardStats();
+            const auto chainLoss = stats.blendOutputEnergy > 0.0 ? 10.0 * std::log10 (stats.blendIntendedEnergy / stats.blendOutputEnergy) : 0.0;
+            logMessage ("  chain over 6 s: guard blend loss " + juce::String (chainLoss, 4) + " dB, guarded "
+                        + juce::String (100.0 * (double) stats.guardedSamples / (6.0 * kRate), 1) + " % of samples");
+            expect (stats.blendSamples > 0 && chainLoss <= 0.12, "the chain's guard now loses <= 0.12 dB");
         }
     };
 

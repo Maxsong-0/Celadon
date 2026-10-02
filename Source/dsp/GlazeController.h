@@ -218,6 +218,7 @@ namespace celadon::glaze
             Feature liveLowCorrelationFast;
             float clayPressureScale = 1.0f;      // 修坯压力反馈给自动 Clay 的缩放（ADR-014；随工程保存）
             double clayPressureSmoothed = 0.0;   // 压力监测的平滑值（dB）
+            double clayBlendLossSmoothedDb = 0.0;   // 守护混合损失的平滑值（dB，T-043：ClayPressureMonitor::blendLossDb）
 
             // ---- T-015（BUG-003）校准诊断：渲染工具 --trace 的校准列用（tools/render/README.md）----
             bool roundActive = false;                 // 校准轮进行中（阶段「校准中」）

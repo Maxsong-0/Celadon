@@ -52,10 +52,15 @@
       - 先试后用的峰值代价（样本流，只在学习区间内跑）：把低切 / 收单 ×4 / 加宽的候选处理跑在原始输入上，比较 100 ms 块峰值
         P99 的变化（lowCutPeakCostDb、monoPeakCostDb[4]、widthPeakCostDb）；块网格与起音同一套边界，有效块满 10 s 才有效。
         不学习时候选不跑（不耗 CPU）；收单候选的线性相位低通与 M / S 延迟环在 prepare 时按采样率分配。
+        T-043（ADR-027）：另把低切候选（10 / 14 / 20 Hz，clayBlendCandidateHz）各过一个真 ClayModule（含峰值守护），同一批有效块里
+        量守护的混合损失（lowCutBlendLossDb[3]，K 加权的「本该 / 实际」能量比，dB）；候选模块在 prepare 时分配，学习期间每个样本
+        多跑三份 Clay。
       - 实时视图（帧流，不进画像）：liveLowCorrelation = 300 ms 慢路，liveLowCorrelationFast = 120 ms 快路（同门、同运行均值起步、
         同重启规则），liveHigh* = 300 ms；本帧门下的段不计；不连续点 / 丢帧时清空，重新平滑满各自的时间常数才有效；组内平滑功率
         落到段静音门下即无效。帧门限下（静音）两路低频相关度标无效（平滑状态保留，回到门上接着平滑——ClayGuard 见到无效就冻结，
-        与这里的帧门同一口径，审核 V1-03），高频两项冻结在最后的值。
+        与这里的帧门同一口径，审核 V1-03），高频两项冻结在最后的值。泄漏门（BUG-009）：本帧低频组的核心（40 ～ 100 Hz）门上功率
+        低于 160 ～ 250 Hz 的 −35 dB 时，低频组的读数只是上方内容漏进 125 Hz 段的部分，本帧低频组不计（同整组在门下）——没有低音、
+        只有 pad 的段落里两路低频相关度因此无效（ClayGuard 冻结反相一路），不再跟着漏进来的分音摆。
         分析器只看入口，宿主旁通时入口照常，所以「宿主旁通时冻结」由 ClayGuard 按编排器给的时长 0 做（ClayGuard.h），不在这里。
 
     ---- T-038 House 档（设计规格-曲风-House学习方式 第 2 节；SegmentLedger.h；实现口径见 MusicAnalyzer.cpp「六」节）----
@@ -94,7 +99,8 @@ namespace celadon::glaze
         // ---- v0.1.7.0 修坯 Clay 的实时立体声视图（设计规格-Clay-分析决策与验收 1.4；不进画像，ClayGuard 读）----
         // 由 Balance 帧的 bandPower / bandCross 做 300 ms 功率域一阶平滑；静音门下的段不计；静音 / 宿主旁通时冻结。
         Feature liveLowCorrelation;       // 40 ～ 125 Hz：Σ X̃ / Σ P̃（−1 ～ 1），300 ms 慢路（ADR-012：不再与快路取小）；
-                                          // 门上无内容或本帧在帧门限下（静音）时 valid = false（与 ClayGuard 的冻结对齐）
+                                          // 门上无内容或本帧在帧门限下（静音）时 valid = false（与 ClayGuard 的冻结对齐）；
+                                          // 只有上方内容漏进来（核心 40 ～ 100 Hz 低于 160 ～ 250 Hz 的 −35 dB）的帧不计（BUG-009）
         Feature liveLowCorrelationFast;   // 同上，120 ms 快路（ClayGuard 只在慢路已 < clayGuardPhaseFastGate 时用它加速）
         float liveHighMidPower = 0.0f;    // 2 ～ 16 kHz 的 Σ P̃_M（线性）
         float liveHighSidePower = 0.0f;   // 2 ～ 16 kHz 的 Σ P̃_S（线性）

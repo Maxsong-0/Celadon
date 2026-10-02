@@ -430,6 +430,7 @@ namespace celadon::test
 
             // 依据：设计规格-Clay-根治修订 3.5「某项因代价被减量 / 否决时写『本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}』
             // （优先级低于『点重新聆听』提示）」；任务书「跳过 = 该项实际值为 0；多项用『、』连接」。两种都有时分别点名（HelpText.h）。
+            // T-043（ADR-027）：低切也会因峰值守护的混合损失被封顶，含低切的那句原因写「会抬高峰值或削弱低音」；不含低切的照旧。
             beginTest ("Clay tooltip line 3 (ADR-012): tried-and-limited items explain themselves, skipped vs reduced, several joined");
             {
                 const auto* entry = help::find (uiid::clayIndicator);
@@ -443,15 +444,15 @@ namespace celadon::test
 
                 // 单项：低切被否决（实际值 0 → 跳过）/ 被减量（实际值 14 Hz → 减量）。
                 expectEquals (thirdLineFor (withCostMask (clayStatus (0.0f, 120.0f, 0.4f, 0.6f), lowCutBit)),
-                              utf8 ("本曲试过：低切会抬高峰值，已自动跳过。"));
+                              utf8 ("本曲试过：低切会抬高峰值或削弱低音，已自动跳过。"));
                 expectEquals (thirdLineFor (withCostMask (clayStatus (14.0f, 120.0f, 0.4f, 0.6f), lowCutBit)),
-                              utf8 ("本曲试过：低切会抬高峰值，已自动减量。"));
+                              utf8 ("本曲试过：低切会抬高峰值或削弱低音，已自动减量。"));
 
                 // 多项同一种：按处理顺序（低切 → 收单 → 加宽）用「、」连接。
                 expectEquals (thirdLineFor (withCostMask (clayStatus (0.0f, 80.0f, 0.0f, 0.0f), lowCutBit | monoBit | widthBit)),
-                              utf8 ("本曲试过：低切、收单、加宽会抬高峰值，已自动跳过。"));
+                              utf8 ("本曲试过：低切、收单、加宽会抬高峰值或削弱低音，已自动跳过。"));
                 expectEquals (thirdLineFor (withCostMask (clayStatus (14.0f, 120.0f, 0.3f, 0.5f), widthBit | lowCutBit)),
-                              utf8 ("本曲试过：低切、加宽会抬高峰值，已自动减量。"));
+                              utf8 ("本曲试过：低切、加宽会抬高峰值或削弱低音，已自动减量。"));
 
                 // 两种都有：收单被否决、加宽被减量。
                 expectEquals (thirdLineFor (withCostMask (clayStatus (18.0f, 80.0f, 0.0f, 0.5f), monoBit | widthBit)),
@@ -485,7 +486,7 @@ namespace celadon::test
                 expectEquals (thirdLineFor (withRelearn), utf8 ("点「重新聆听」后启用自动修坯。"));
                 auto noRelearn = withRelearn;
                 noRelearn.clayNeedsRelearn = false;
-                expectEquals (thirdLineFor (noRelearn), utf8 ("本曲试过：低切会抬高峰值，已自动跳过。"));
+                expectEquals (thirdLineFor (noRelearn), utf8 ("本曲试过：低切会抬高峰值或削弱低音，已自动跳过。"));
 
                 // 只算「自动」态的项：低切改成「手动」→ 不再写它；还有自动态的加宽被减量 → 只写加宽。
                 const auto both = withCostMask (clayStatus (30.0f, 120.0f, 0.4f, 0.5f), lowCutBit | widthBit);

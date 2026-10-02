@@ -3182,11 +3182,15 @@ namespace celadon::glaze
             // 修坯压力反馈（ADR-014）：GLAZE 活跃、方案源支持自动 Clay、缩放还没降到 0 时，按有效音乐时间监测本切片走完的代价格
             // （不经守护时相关峰值会超出界多少 dB）；持续超过「先试后用」照做的上限 → 降一档。旁通 / 三项为 0 时代价本来就是 0。
             // 时间按代价格计（ClayModule 从 reset 起的 10 ms 网格），与宿主块怎么切无关；只有「有效音乐」的门按切片取。
+            // T-043（ADR-027）：同一个门里再交守护的混合损失（本切片两份 K 加权能量与量过的秒数），持续超过 blendThreshold 也降一档。
             if (active && claySupported && clayPressureScale > 0.0f && clayScaleCanAct())
             {
-                const auto musicSeconds = view.musicActive && ! paused && hostPlaying() ? stats.clayPressureSeconds : 0.0;
+                const auto music = view.musicActive && ! paused && hostPlaying();
+                const auto musicSeconds = music ? stats.clayPressureSeconds : 0.0;
+                const auto blendSeconds = music ? stats.clayBlendSeconds : 0.0;
 
-                if (clayPressure.update ((double) stats.clayPressureDb, musicSeconds))
+                if (clayPressure.update ((double) stats.clayPressureDb, musicSeconds,
+                                         stats.clayBlendIntendedEnergy, stats.clayBlendOutputEnergy, blendSeconds))
                     lowerClayScale();
             }
             else
@@ -3859,6 +3863,7 @@ namespace celadon::glaze
         p.feedbackMaxGainDb = s.feedbackMaxGainDb;
         p.clayPressureScale = s.clayPressureScale;
         p.clayPressureSmoothed = s.clayPressure.smoothed;
+        p.clayBlendLossSmoothedDb = s.clayPressure.blendLossDb();
         p.savedPlanMode = s.savedPlanMode;
         p.executionSnapshotActive = s.executionHeld;
         p.liveHeatReduction = s.liveHeatReduction;

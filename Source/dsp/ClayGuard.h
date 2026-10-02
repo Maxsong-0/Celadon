@@ -131,6 +131,12 @@ namespace celadon::glaze
     //         → update 返回 true，调用方（编排器）把自动 Clay 的缩放降一档（nextScale：1 → 0.5 → 0.25 → 0）并开方案过渡；
     //         本单元同时清零平滑值与计时，在新方案下重新判断。
     //   纯算术、不分配；块长只影响判断时刻的量化（最多一个切片），与 GlazeGuard 按块读统计同一口径。
+    //   T-043 第二个触发量（ADR-027）：守护的混合损失——守护把低切拉回干路时与干路相位不同处互相抵消，「超出量」很小、守护却几乎
+    //   一直在拉的歌（woqu：超出量从未持续过 0.2 dB，混合损失 0.2 dB）上面那条量不到。ClayModule::getLastProcessBlend 的两份 K 加权
+    //   能量按它们覆盖的有效音乐秒数一阶平滑（时间常数同 smoothingSeconds），损失 = 10·log10(本该 / 实际) 连续 sustainSeconds 高于
+    //   blendThreshold 也降一档；两个触发量共用冷却与档位，任一触发都把两边一起清零。blendThreshold = 修坯门槛响度容差 0.1 LU 的
+    //   1.5 倍：先试后用已把方案频率封在预测损失 0.1 dB（GlazePlanner capLowCutForBlend），这里只接住学习区间之外更糟的段落；
+    //   正常歌 2 s 平滑后的起伏（真歌 somggggg_mp3 0.07 ～ 0.12 dB）碰不到它。混合损失从未超过门槛时，返回值与只有第一条时逐位相同。
     struct ClayPressureMonitor
     {
         static constexpr double smoothingSeconds = 2.0;
@@ -138,10 +144,16 @@ namespace celadon::glaze
         static constexpr double maxPressureDb = 60.0;   // 输入钳位
         static constexpr double sustainSeconds = 1.0;
         static constexpr double cooldownSeconds = 4.0;
+        static constexpr double blendThreshold = 0.15;  // dB（T-043）
 
-        // pressure = 本段代价格的平均（dB，非有限按 0，钳到 0 ～ 60）；seconds = 本段的有效音乐秒数。返回 true = 该降一档。
-        bool update (double pressure, double seconds) noexcept;
+        // pressure = 本段代价格的平均（dB，非有限按 0，钳到 0 ～ 60）；seconds = 本段的有效音乐秒数。
+        // blendIntended / blendOutput = 本段守护混合损失测量的两份 K 加权能量，blendSeconds = 它们覆盖的有效音乐秒数（不在有效音乐里时
+        // 调用方传 0：这一段的能量不计、混合损失的平滑冻结）；非有限 / 负能量这一段不计。返回 true = 该降一档。
+        bool update (double pressure, double seconds, double blendIntended = 0.0, double blendOutput = 0.0, double blendSeconds = 0.0) noexcept;
         void reset() noexcept;
+
+        // 平滑后的混合损失（dB）：两份平滑能量都 > 0 才有，否则 0。
+        double blendLossDb() const noexcept;
 
         // 下一档缩放：> 0.5 → 0.5，> 0.25 → 0.25，其余 → 0（非有限 → 0）。
         static float nextScale (float scale) noexcept;
@@ -149,6 +161,9 @@ namespace celadon::glaze
         double smoothed = 0.0;               // 平滑后的代价（dB）
         double aboveSeconds = 0.0;           // 平滑值连续高于门槛的有效音乐秒数
         double sinceStep = cooldownSeconds;  // 距上次下调的有效音乐秒数（初值 = 冷却已满）
+        double blendIntendedSmoothed = 0.0;  // 混合损失的两份平滑能量（T-043）
+        double blendOutputSmoothed = 0.0;
+        double blendAboveSeconds = 0.0;      // 平滑后的混合损失连续高于 blendThreshold 的有效音乐秒数
     };
 
     // 压力反馈的缩放作用在自动方案上（编排器在方案（含过渡混合）交给 ClayGuard 之前乘，纯函数、不分配）：
