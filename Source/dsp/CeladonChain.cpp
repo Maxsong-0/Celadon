@@ -340,9 +340,11 @@ namespace celadon
         stats.clipDepthMaxDb     = limitStats.clipDepthMaxDb;
 
         stats.outputTruePeakDbtp = juce::Decibels::gainToDecibels (outputMeter.getLastBlockTruePeakLinear(), -100.0f);
-        const auto clayPressure  = clay.getLastProcessPressure();   // ADR-014：修坯峰值守护的代价格
-        stats.clayPressureDb      = clayPressure.meanDb;
-        stats.clayPressureSeconds = clayPressure.seconds;
+        const auto clayPressure  = clay.getLastProcessPressure();   // ADR-014 / ADR-028：压力反馈的计时与峰值块
+        stats.clayPressureSeconds   = clayPressure.seconds;
+        stats.clayPeakBlocks        = clayPressure.peakBlocks;
+        stats.clayPeakBlockCount    = clayPressure.numPeakBlocks;
+        stats.clayPeakBlocksDropped = clayPressure.droppedPeakBlocks;
         const auto clayBlend      = clay.getLastProcessBlend();      // T-043：守护的混合损失（ADR-027）
         stats.clayBlendIntendedEnergy = clayBlend.intendedEnergy;
         stats.clayBlendOutputEnergy   = clayBlend.outputEnergy;

@@ -54,6 +54,12 @@
       y 与 x 在 40 ～ 80 Hz 相位不同，0 < g < 1 时两者部分抵消（|x + g(y − x)| < |x|、|y|）。低音密、带次声偏置的歌守护几乎一直在拉
       （woqu 75 % 的样本），低音小 0.7 dB、整体 −0.2 LU，次声却只少了 2.8 dB。守护的算术不改（somggggg 没有它入口峰值 +0.57 dB），
       改为量出这份代价（getLastProcessBlend，K 加权）交给「先试后用」与压力反馈去减量 / 否决低切。
+      T-044 压力反馈的口径（2026-10-01，BUG-011 / ADR-028）：上面「低切回收小得多」是合成素材的结论；在已经限过幅、带次声偏置的成品
+      上（Jamendo House、22 首里的 somggggg / emotapes / fule / woqu），切掉被成品限幅器算进去的次声，原来被它压住的那一侧峰值就冒出来
+      （不守护时 deep 整首峰值 −0.64 → +0.72 dBFS；每次触发超界中位 0.27 dB），守护 70 ～ 83 % 的时长 g < 1、低切只剩 35 ～ 40 %。
+      守护拦得对，错在它上面那层：压力反馈原本累计「10 ms 格超界 dB 的平均」，被大量没超界的格稀释、比先试的口径小约 4 倍，却沿用
+      先试的 0.2 dB 门槛，整首顶峰真被抬 0.5 ～ 0.7 dB 的歌也从不降档。现在第一触发量与先试同口径：按有效音乐累计 100 ms 块峰值
+      （PressureReport::peakBlocks），算整段的 P99 比（ClayGuard.h ClayPressureMonitor）；守护的算术与输出一位不动。
       为什么要延迟：最小相位 IIR 收单在低频的相位旋转会把已经很密的波形的峰值抬高 1 ～ 4 dB（ADR-012）；线性相位的互补高通
       S_d − S_low 只削低频的侧声道、不错开峰。低切与加宽仍是零延迟 IIR（线性相位低切要上百毫秒延迟，见根治修订第 5 节），
       只是跟着 M / S 一起延迟 D 对齐。
@@ -147,13 +153,19 @@ namespace celadon
 
         PeakGuardStats getAndResetPeakGuardStats() noexcept;
 
-        // 上一次 process() 里走完的「代价格」（从 reset 起每 10 ms 一格的固定网格）：每格 = 低切 / 收单（①②）若不经守护、会让相关峰值
-        // 超出界 B 多少 dB（max |y| / B 折成 dB，≤ 0 记 0；y = ①② 的输出——T-032 起③ 加宽不进守护，也不计在这里）——与「先试后用」的
-        // 代价同一单位（ADR-014 压力反馈的输入：链每个切片交给编排器）。
+        // 上一次 process() 的压力反馈输入（ADR-014 3a；第一触发量的口径 T-044 / ADR-028 改为与「先试后用」相同）。链每个切片交给编排器。
+        //   seconds：走完的 10 ms 时钟格的总时长（从 reset 起的固定网格，格数 × 格长 / fs）——压力反馈的计时（持续、冷却、混合损失），
+        //            口径与 T-044 之前逐位相同；
+        //   peakBlocks：走完的 100 ms 峰值块（从 reset 起的固定网格，与 process 怎么切无关），按时间顺序成对存 [①② 处理后两声道 max |y|,
+        //            干路两声道 max |x|]（非有限样本不计；y = ①② 的输出，T-032 起③ 加宽不进守护，也不计在这里）。与先试的 100 ms 块峰值
+        //            同一定义：编排器按有效音乐累计它们，算整段的 P99 比（ClayGuard.h ClayPressureMonitor）。指针指向模块内部，下一次
+        //            process() 之前有效；一次 process 走完的块超过 PeakGuard::maxReportedBlocks（64 块 = 6.4 s）时，多出的只计数，调用方按无效处理。
         struct PressureReport
         {
-            float meanDb = 0.0f;      // 这些格的平均
-            double seconds = 0.0;     // 这些格的总时长（格数 × 格长 / fs）
+            double seconds = 0.0;
+            const float* peakBlocks = nullptr;   // 2 × numPeakBlocks 个数；没有块时为 nullptr
+            int numPeakBlocks = 0;
+            int droppedPeakBlocks = 0;
         };
 
         PressureReport getLastProcessPressure() const noexcept;
@@ -378,12 +390,25 @@ namespace celadon
 
             PeakGuardStats stats;
 
-            // 代价格（ADR-014 压力反馈）：格长 round(0.01 fs)，在 k（界 B 已知的样本）的时间轴上、从 reset 起的固定网格。
-            int costBlockLength = 1;
-            int costBlockPosition = 0;
-            double costBlockMaxRatio = 0.0;    // 本格 max |y| / B（未守护的处理后相对界）
-            double pressureSumDb = 0.0;        // 本次 process() 走完的格的 dB 之和（每次 process 开头清零）
-            int pressureBlocks = 0;
+            // 10 ms 时钟格（ADR-014 压力反馈的计时）：格长 round(0.01 fs)，在 k（界 B 已知的样本）的时间轴上、从 reset 起的固定网格。
+            // T-044 之前格里还累计「不经守护会超出界 B 多少 dB」当第一触发量；那个平均被大量没超界的格稀释、比先试的口径小约 4 倍
+            // （BUG-011），ADR-028 改看峰值块，格只留作时钟。
+            int clockCellLength = 1;
+            int clockCellPosition = 0;
+            int clockCells = 0;                // 本次 process() 走完的格数（每次 process 开头清零）
+
+            // 峰值块（ADR-028，压力反馈第一触发量的输入，见 trackPeakBlocks）：块长 round(0.1 fs)，在写环样本 m 的时间轴上、从 reset 起
+            // 的固定网格。只由 ClayModule 在调 process 之前调（分析器单独用 PeakGuard 时不跑，不多花 CPU）。
+            static constexpr double peakBlockSeconds = 0.1;   // 同 MusicAnalyzer 的 trialBlockSeconds
+            static constexpr int maxReportedBlocks = 64;
+            void trackPeakBlocks (const float* const* dry, const float* const* io, int callerChannels, int numSamples) noexcept;
+            int peakBlockLength = 1;
+            int peakBlockPosition = 0;
+            float peakBlockWet = 0.0f;         // 当前块到此为止的 ①② 处理后 max |y| 与干路 max |x|
+            float peakBlockDry = 0.0f;
+            std::array<float, 2 * maxReportedBlocks> reportedPeaks {};   // 本次 process() 走完的块：[处理后, 干路] 成对
+            int reportedBlocks = 0;            // 本次 process() 记下的块数（每次 process 开头清零）
+            int droppedBlocks = 0;             // 本次 process() 装不下、只计数的块
 
             // 混合损失测量（T-043，ADR-027；见 getLastProcessBlend）。processBlock 只把本段各输出样本「g 当 1 时的值」写进 intended
             // （一次写入，守护的算术与输出逐位不变）。量不量只在 64 样本网格点上定（decideBlendMeasuring，ClayModule::process 在系数
