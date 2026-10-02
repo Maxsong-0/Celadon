@@ -10,13 +10,13 @@ The card has three rows, top to bottom: Low cut, Mono, Width. Each row = a lamp 
 | Off | Never processes |
 | Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection changes it. In Manual the value can be dragged |
 
-Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of-phase lows warning (check the mix); amber Width lamp = width guard engaged. Hover a lamp and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: low cut would raise peaks, reduced automatically”.
+Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of-phase lows warning (check the mix); amber Width lamp = width guard engaged. Hover a lamp and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: low cut would raise peaks or thin the low end, reduced automatically”.
 
 ## Controls
 
 | Control | What it does | Where to start |
 |---|---|---|
-| **Low cut · Auto / Off / Manual** | Auto: cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks, and backs off during playback if it keeps raising them; Off: never cuts; Manual: cuts at your frequency, even at GLAZE 0. | Usually keep Auto; choose Off to keep deliberate sub-bass effects. |
+| **Low cut · Auto / Off / Manual** | Auto: cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks or thin the low end, and backs off during playback if it keeps doing either; Off: never cuts; Manual: cuts at your frequency, even at GLAZE 0. | Usually keep Auto; choose Off to keep deliberate sub-bass effects. |
 | **Low cut frequency** 10–60 Hz | A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual value. | 16–25 Hz is enough; it rotates the low-end phase, and whenever that would raise a peak the peak guard yields the low cut so the limiter does not work harder. |
 | **Mono · Auto / Off / Manual** | Auto: no mono-ing, only an amber warning when the lows are out of phase (bass lost on mono playback); Off: no mono-ing, no warning; Manual: everything below your frequency becomes mono. | Mono-ing only focuses stereo bass and cannot change mono playback; for tighter lows use Manual, starting at 100–150 Hz. |
 | **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used and the display shows the actual value. | 80–150 Hz is common; above 200 Hz guitars and keys get narrower too. |

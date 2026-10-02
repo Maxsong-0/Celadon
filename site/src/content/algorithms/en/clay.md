@@ -20,7 +20,7 @@ M = (L + R) / 2, S = (L − R) / 2; output L' = M' + S', R' = M' − S'.
 
 ## Try before applying
 
-Auto isn't “decide, then do”: **it's tried on this song first, and reduced or vetoed if it would raise the peaks.** The decision-maker proposes candidate values from the profile; a short render estimates their peak cost; anything too costly is reduced in proportion, and skipped if it reaches 0; the interface's third line reads “Tried on this song: low cut would raise peaks, reduced automatically”.
+Auto isn't “decide, then do”: **it's tried on this song first, and reduced or vetoed if it would raise the peaks or thin the low end.** The decision-maker proposes candidate values from the profile; a short render estimates their peak cost; anything too costly is reduced in proportion, and skipped if it reaches 0. Low cut is also tried for blend loss (how much low end cancels when the guard pulls it back — see the next section): its frequency is capped so the predicted loss stays within 0.09 dB, and it's skipped if even the lowest frequency goes over. The interface's third line reads “Tried on this song: low cut would raise peaks or thin the low end, reduced automatically”.
 
 ## Peak guard
 
@@ -39,7 +39,7 @@ After being rewritten to work in 64-sample segments, the output is bit-identical
 
 | Control | What Auto does |
 |---|---|
-| Low cut | Cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks |
+| Low cut | Cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks or thin the low end |
 | Mono | **No mono-ing** (removed after listening tests on 2026-09-27); it only lights an amber warning when the lows are out of phase — mono-ing only reduces stereo bass and leaves mono playback unchanged, and it sounded unnatural |
 | Width | Widens a narrow top end moderately (at most +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow |
 
