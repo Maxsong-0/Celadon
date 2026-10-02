@@ -5426,6 +5426,7 @@ namespace celadon::test
             testStatusFields();
             testHouseAudioThreadDoesNotAllocate();
             testHousePhaseHintEndToEnd();   // 集成时追加（B 报告遗留：合并 C 之后补端到端）
+            testCalibrationOnlyInMainSection();   // 评审 F1
         }
 
     private:
@@ -5870,6 +5871,61 @@ namespace celadon::test
             expectEquals (inPhaseLit, 0, "an in-phase bass never lights it");
             expectEquals (generalLit, 0, "the General genre never lights it");
             expect (! general.houseActive);
+        }
+
+        // 评审 F1（T-038 集成）：House 门控画像只代表满编段，校准只在主段落采样。4 小节鼓前奏 → 6 小节 drop → 8 小节很轻的鼓（breakdown，
+        // 比 drop 轻约 20 dB）→ 10 小节 drop，锁定条件 10 / 4：从头播时第 10 个已听小节（drop 的最后一小节）一定稿就锁定，正好进 breakdown。
+        // 修前校准在 breakdown 里采样（限幅器不工作，测到的净提升偏高，偏差给成负值）；修后 breakdown 里轮中每块都作废当前子窗（中断位 64）、
+        // 不在轮中时不开新一轮（门位 1024），等到第二段 drop 才校准——最终偏差与「前奏后全是 drop」的同一首（锁定与校准都在 drop 里）相差
+        // ≤ 0.2 dB。俱乐部档（限幅最多，修前偏差最大）、GLAZE 100。
+        void testCalibrationOnlyInMainSection()
+        {
+            beginTest ("House: calibration samples only the main section; a lock landing in a breakdown waits for the next drop");
+
+            const auto constants = houseConstants (10, 4);
+            auto params = houseParams (100.0f, 1);
+            params.glazeDelivery = 2;
+            const auto withBreakdown = makeHouseSong (defaultRate, { { 4, false, 1.0f }, { 6, true, 1.0f }, { 8, false, 0.1f }, { 10, true, 1.0f } }, 91);
+            const auto allDrop = makeHouseSong (defaultRate, { { 4, false, 1.0f }, { 24, true, 1.0f } }, 91);
+            const auto breakdownStart = 10.0 * houseBarSeconds, breakdownEnd = 18.0 * houseBarSeconds;
+
+            int sampledInBreakdown = 0, waitedInBreakdown = 0;
+            float biasWithBreakdown = 0.0f, biasAllDrop = 0.0f;
+            bool validWithBreakdown = false, validAllDrop = false;
+
+            {
+                Rig rig (constants, withBreakdown, params);
+                rig.tempoBpm = houseBpm;
+                rig.run (28.0 * houseBarSeconds - 0.1, [&] (int b)
+                {
+                    const auto t = secondsOf (b + 1);
+                    if (t > breakdownStart + 1.0 && t < breakdownEnd)
+                    {
+                        const auto pr = rig.probe();
+                        const auto outside = (pr.calibrationInterruptMask & 64) != 0 || (pr.calibrationGateMask & 1024) != 0;
+                        (outside ? waitedInBreakdown : sampledInBreakdown) += 1;
+                    }
+                });
+                const auto c = rig.committed();
+                biasWithBreakdown = c.calibration.gainBiasDb;
+                validWithBreakdown = c.calibration.valid && c.profile.houseGate.valid;
+            }
+
+            {
+                Rig rig (constants, allDrop, params);
+                rig.tempoBpm = houseBpm;
+                rig.run (28.0 * houseBarSeconds - 0.1);
+                const auto c = rig.committed();
+                biasAllDrop = c.calibration.gainBiasDb;
+                validAllDrop = c.calibration.valid && c.profile.houseGate.valid;
+            }
+
+            logMessage ("  breakdown blocks: waited " + juce::String (waitedInBreakdown) + ", sampled " + juce::String (sampledInBreakdown)
+                        + "; bias with breakdown " + juce::String (biasWithBreakdown, 3) + " dB, all drop " + juce::String (biasAllDrop, 3) + " dB");
+            expect (waitedInBreakdown > 0, "the breakdown blocks are recognised as outside the main section");
+            expectEquals (sampledInBreakdown, 0, "no calibration block is sampled in the breakdown");
+            expect (validWithBreakdown && validAllDrop, "both runs end with a valid calibration of a House profile");
+            expect (std::abs (biasWithBreakdown - biasAllDrop) <= 0.2f, "the calibration bias does not depend on a breakdown after the lock");
         }
 
         // 依据：任务书「音频线程 0 分配、0 锁的现有检查覆盖新代码」。一条 House 链走完：暂定方案与快过渡、锁定、重开、重新聆听、

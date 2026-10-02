@@ -2803,10 +2803,10 @@ namespace celadon::glaze
         // 不连续点 / 换曲风：没定稿的段就地定稿，各路的位置从 at 重新数（宿主 reset 后表的时间轴从 0 起）。
         void houseEndEpoch (std::int64_t at) noexcept
         {
-            const auto before = ledger.getFinalizedCount();
+            const auto before = ledger.getStoredRevision();   // 同 houseAdvance（评审 F3）：账本真变了才置脏
             ledger.endEpoch (at);
 
-            if (ledger.getFinalizedCount() != before)
+            if (ledger.getStoredRevision() != before)
                 houseDirty = true;
 
             houseSubBlockPosition = houseFramePosition = at;
@@ -2844,10 +2844,11 @@ namespace celadon::glaze
         // 每次 processInput / processSpectrum 末尾：定稿交齐的段；学习中有新定稿就重算画像（不学习时留着，等 recomputeHouseProfile）。
         void houseAdvance() noexcept
         {
-            const auto before = ledger.getFinalizedCount();
+            // T-038 评审 F3：只在账本真变了时置脏（新存进一段或覆盖了旧段）；没存进的段（静音、账本满、重放不如旧值）不触发 O(段数) 的重算。
+            const auto before = ledger.getStoredRevision();
             ledger.finalizeBefore (houseCompleteBefore());
 
-            if (ledger.getFinalizedCount() != before)
+            if (ledger.getStoredRevision() != before)
                 houseDirty = true;
 
             if (houseDirty && learning)

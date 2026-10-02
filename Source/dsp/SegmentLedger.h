@@ -203,8 +203,15 @@ namespace celadon::glaze
         std::uint32_t getEpoch() const noexcept               { return epoch; }
         std::uint32_t getSurgeCount() const noexcept          { return surgeCount; }
         std::uint32_t getFinalizedCount() const noexcept      { return finalizedCount; }
+        // 账本内容真变了的次数（新存进一段或覆盖了旧段；没有有效音频的段、账本满了、重放不如旧值的不算）。T-038 评审 F3：
+        // 分析器只在它变了时重算画像，静音段与账本满后的段不再白算、编排器也不再为没变的画像发暂定过渡。
+        std::uint32_t getStoredRevision() const noexcept      { return storedRevision; }
         bool isCurrentSegmentFull() const noexcept;
         double getCurrentSegmentSeconds() const noexcept;
+        // T-038 集成（评审 F1）：此刻正在播的这一段的暂判读数（段响度 LUFS、低频占比，口径同定稿）；不够 minimumProvisionalSeconds 时
+        // 沿用同一段连续时间里最近定稿的那一段（同 isCurrentSegmentFull 的退路）。读不到返回 false、不改输出。编排器拿它与**已提交画像**比，
+        // 判「此刻是否在主段落」（House 档只在主段落校准）——不用段落账自己的相对门：读档后段落账从空开始，门控结果要很久才有。
+        bool getCurrentReading (float& loudnessLufs, float& lowShare) const noexcept;
         int getOpenSegments() const noexcept                  { return openCount; }
 
         // 读 cursor 之后的事件（最多 maxCount 条），cursor 推进到读完的位置。读者落后超过环形容量：跳到能读到的最早一条，返回负的条数。
@@ -277,5 +284,6 @@ namespace celadon::glaze
         std::uint64_t eventTotal = 0;
         std::uint32_t surgeCount = 0;
         std::uint32_t finalizedCount = 0;
+        std::uint32_t storedRevision = 0;
     };
 }

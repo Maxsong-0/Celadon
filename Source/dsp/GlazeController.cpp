@@ -1004,6 +1004,9 @@ namespace celadon::glaze
         std::uint32_t houseReopenTriedAt = 0;  // 上次试重开时段落账的定稿计数（没有新定稿不再重算）
         std::int64_t houseFastSamples = 24000; // fastTransitionSeconds 折算的样本数
         ClayGuard::HouseHint houseHint;        // 上一块的 House 反相提示（拷进状态）
+        bool houseInMain = false;              // T-038 评审 F1：此刻的段落与已提交 House 画像比，是不是主段落（最近一次读得到时的判定）
+        bool houseMainKnown = false;           // 上面这一项有过读数（换了已提交画像 / 离开 House 档后清）
+        std::uint32_t houseMainProfileId = 0;  // 上面的判定是对哪份已提交画像做的
 
         // ---- 宿主 ----
         HostInfo host;
@@ -1975,8 +1978,51 @@ namespace celadon::glaze
             }
         }
 
+        // T-038 评审 F1：House 门控画像只代表满编段（drop），校准却把锁定之后的任何段落当工作点——锁定点落在 breakdown 时（「32 前奏 +
+        // 32 drop + breakdown」从头播，第 64 个已听小节正好是 breakdown 开头），限幅器在 breakdown 里不工作，测到的净提升偏高，偏差
+        // 给成负值，成品整首少推约 1.4 dB（合成曲俱乐部档，从第 1 小节播比从 drop 播轻约 0.8 LU）。所以 House 档、已提交的是 House 门控
+        // 画像时，只在主段落校准：此刻这一段的暂判读数（段落账 getCurrentReading）与**已提交画像**比——段响度 ≥ 画像 I − ΔG、低频占比 ≥
+        // 画像 lowShare × 系数（与门控同一套常数）。读不到（段刚开始且同一段连续时间里没有定稿段、静音）时沿用最近一次的判定；从来没读到过
+        // 就当作不在主段落（锁定后一直没有主段落，校准就等着，按前馈出声）。通用档、或已提交画像不是 House 门控学出的：永远 false，逐位同改前。
+        bool houseCalibrationOutsideMain() noexcept
+        {
+            if (! isHouse (currentGenre) || ! committed.hasProfile || ! committed.profile.houseGate.valid)
+            {
+                houseMainKnown = false;
+                return false;
+            }
+
+            const auto& p = committed.profile;
+
+            if (houseMainProfileId != committed.profileId)
+            {
+                houseMainKnown = false;   // 换了画像：旧判定是对旧画像做的
+                houseMainProfileId = committed.profileId;
+            }
+
+            if (! p.integratedLufs.valid || ! isFinite (p.integratedLufs.value) || ! p.lowShare.valid || ! isFinite (p.lowShare.value))
+                return false;   // 画像没有可比的读数：不设这道门（与改前相同）
+
+            float loudness = 0.0f, lowShare = 0.0f;
+
+            if (analyzer.getSegmentLedger().getCurrentReading (loudness, lowShare))
+            {
+                const auto& h = constants.house;
+                const HouseConstants factory;
+                const auto width = isFinite (h.gateWidthLu) && h.gateWidthLu >= 0.0f ? h.gateWidthLu : factory.gateWidthLu;
+                const auto factor = isFinite (h.lowGateFactor) && h.lowGateFactor >= 0.0f ? juce::jmin (1.0f, h.lowGateFactor)
+                                                                                           : factory.lowGateFactor;
+                houseInMain = loudness >= p.integratedLufs.value - width && lowShare >= p.lowShare.value * factor;
+                houseMainKnown = true;
+            }
+
+            return ! (houseMainKnown && houseInMain);
+        }
+
         void updateCalibration (int numInput, int numOutput, std::int64_t n) noexcept
         {
+            const auto outsideMain = houseCalibrationOutsideMain();
+
             if (roundActive)
             {
                 const auto matches = referenceKnown && GlazeCalibrator::referenceMatches (roundReference, currentReference);
@@ -1993,11 +2039,12 @@ namespace celadon::glaze
                 {
                     // 诊断（TestProbe::calibrationInterruptMask，位的含义见那里）
                     probe.calibrationInterruptMask = (paused ? 1 : 0) | (! active ? 2 : 0) | (transitionActive ? 4 : 0) | (! matches ? 8 : 0)
-                                                   | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (guard.isEngaged() ? 32 : 0);
+                                                   | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (guard.isEngaged() ? 32 : 0)
+                                                   | (outsideMain ? 64 : 0);
 
                     // 电平类自动全部撤回（T-032 R6-02 收尾）：没有自动加上去的增益可校准。手动只让 Heat / Glue / Clip 某一项超预算时照常采集
                     // （自动 Gain 仍在推响；保护层与上游监视已只核对自动部分，不会因手动的超出介入）。
-                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.automaticLevelWithdrawn)
+                    if (paused || ! active || transitionActive || ! matches || toSlot().plan.automaticLevelWithdrawn || outsideMain)
                         calibrator.invalidateCurrentWindow();
 
                     calibrator.process (inputBlocks.data(), numInput, outputBlocks.data(), numOutput,
@@ -2029,13 +2076,15 @@ namespace celadon::glaze
                 probe.calibrationGateMask = (! committed.hasProfile ? 1 : 0) | (! active ? 2 : 0) | (paused ? 4 : 0) | (transitionActive ? 8 : 0)
                                           | (toSlot().plan.automaticLevelWithdrawn ? 16 : 0) | (! guardSettled ? 32 : 0) | (! referenceKnown ? 64 : 0)
                                           | (calibrationApplicable() ? 128 : 0) | (referenceStableSamples < stableSamples ? 256 : 0)
-                                          | (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference) ? 512 : 0);
+                                          | (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference) ? 512 : 0)
+                                          | (outsideMain ? 1024 : 0);
             }
 
             if (! roundActive && committed.hasProfile && active && ! paused && ! transitionActive
                 && ! toSlot().plan.automaticLevelWithdrawn && guardSettled && referenceKnown && ! calibrationApplicable()
                 && referenceStableSamples >= stableSamples
-                && ! (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference)))
+                && ! (haveLastAttempt && GlazeCalibrator::referenceMatches (lastAttemptReference, currentReference))
+                && ! outsideMain)
             {
                 beginRound();
             }

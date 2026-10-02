@@ -238,7 +238,8 @@ namespace celadon::glaze
         }
 
         // T-038：参考条件里的曲风与交付（ADR-026）。同 visitConditionsFormat：是默认值（通用 / 标准）时不写属性——旧存档读回来再存
-        // 出去逐字不变，通用 + 标准的新存档也与 main 逐字节相同。读：缺属性 = 默认值；在但越界 → 整份拒收。
+        // 出去逐字不变，通用 + 标准的参考条件也与 main 逐字节相同（整份状态不是：标定快照多写曲风 / House / 交付三组常数，评审 F8；
+        // 没有逻辑比较快照的字节，行为逐位相同）。读：缺属性 = 默认值；在但越界 → 整份拒收。
         void visitGenreDelivery (xmlio::Writer& w, const CalibrationReference& reference)
         {
             if (reference.genre != Genre::general)

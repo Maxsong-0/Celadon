@@ -484,6 +484,7 @@ namespace celadon::glaze
         {
             lastStoredSlot = stored;
             lastStoredEpoch = segment.epoch;
+            ++storedRevision;
             recomputeGate();
         }
 
@@ -638,6 +639,51 @@ namespace celadon::glaze
         }
 
         return lastStoredSlot >= 0 && lastStoredEpoch == epoch && store[(size_t) lastStoredSlot].full;
+    }
+
+    bool SegmentLedger::getCurrentReading (float& loudnessLufs, float& lowShareOut) const noexcept
+    {
+        const auto fromStored = [&] (const Segment& s) noexcept
+        {
+            if (! s.loudnessValid || ! s.lowShareValid || ! std::isfinite (s.loudnessLufs) || ! std::isfinite (s.lowShare))
+                return false;
+
+            loudnessLufs = s.loudnessLufs;
+            lowShareOut = s.lowShare;
+            return true;
+        };
+
+        if (openCount > 0)
+        {
+            const auto& open = newest();
+            const auto effectiveSeconds = (double) open.effectiveSubBlocks * (double) subBlockLength / sampleRate;
+
+            if (effectiveSeconds >= minimumProvisionalSeconds && open.frameSeconds >= minimumProvisionalSeconds && open.effectiveEnergy > 0.0)
+            {
+                double total = 0.0, low = 0.0;
+
+                for (size_t b = 0; b < (size_t) numBands; ++b)
+                {
+                    total += open.powerSum[b];
+
+                    if (b <= (size_t) lowShareLastBand)
+                        low += open.powerSum[b];
+                }
+
+                const auto loudness = (float) energyToLufs (open.effectiveEnergy / (double) open.effectiveSubBlocks);
+
+                if (! (total > 0.0) || ! std::isfinite (total) || ! std::isfinite (loudness))
+                    return false;
+
+                loudnessLufs = loudness;
+                lowShareOut = (float) (low / total);
+                return true;
+            }
+
+            return lastStoredSlot >= 0 && lastStoredEpoch == open.epoch && fromStored (store[(size_t) lastStoredSlot]);
+        }
+
+        return lastStoredSlot >= 0 && lastStoredEpoch == epoch && fromStored (store[(size_t) lastStoredSlot]);
     }
 
     double SegmentLedger::getCurrentSegmentSeconds() const noexcept
