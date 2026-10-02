@@ -836,7 +836,7 @@ namespace celadon::glaze
         CommittedState committed;
         float feedbackMaxGainDb = unlimitedGainDb;
         float clayPressureScale = 1.0f;        // 修坯压力反馈（ADR-014）：自动 Clay 三项缩放的目标，随工程保存；新画像（提交）时回到 1
-        ClayPressureMonitor clayPressure;      // 代价格的监测（运行状态，不存档）
+        ClayPressureMonitor clayPressure;      // 压力反馈的监测：峰值块的整段 P99 比（ADR-028）与混合损失（ADR-027）；运行状态，不存档
         float clayScaleRampStart = 1.0f;       // 降档时从此刻的实际缩放线性走到目标（方案过渡同长），不开方案过渡
         std::int64_t clayScaleRampElapsed = 0, clayScaleRampLength = 0;
         ClayPlan clayPlannedUnscaled;          // 上一块方案（含过渡混合）给的自动值，缩放之前（监测只在它有东西可缩时工作）
@@ -2733,17 +2733,19 @@ namespace celadon::glaze
             if (view.musicActive && ! paused && hostPlaying())
                 claySeconds += (double) n / sampleRate;
 
-            // 修坯压力反馈（ADR-014）：GLAZE 活跃、方案源支持自动 Clay、缩放还没降到 0 时，按有效音乐时间监测本切片走完的代价格
-            // （不经守护时相关峰值会超出界多少 dB）；持续超过「先试后用」照做的上限 → 降一档。旁通 / 三项为 0 时代价本来就是 0。
-            // 时间按代价格计（ClayModule 从 reset 起的 10 ms 网格），与宿主块怎么切无关；只有「有效音乐」的门按切片取。
+            // 修坯压力反馈（ADR-014）：GLAZE 活跃、方案源支持自动 Clay、缩放还没降到 0 时，按有效音乐累计本切片走完的峰值块
+            // （①② 不经守护的处理后与干路的 100 ms 块峰值，ADR-028）：整段的 P99 比——与「先试后用」同口径——持续超过照做的上限
+            // → 降一档。旁通 / 三项为 0 时处理后逐位就是干路，代价 0。块与计时都在 ClayModule 从 reset 起的固定网格上（100 ms 块、
+            // 10 ms 时钟格），与宿主块怎么切无关；只有「有效音乐」的门按切片取。
             // T-043（ADR-027）：同一个门里再交守护的混合损失（本切片两份 K 加权能量与量过的秒数），持续超过 blendThreshold 也降一档。
             if (active && claySupported && clayPressureScale > 0.0f && clayScaleCanAct())
             {
                 const auto music = view.musicActive && ! paused && hostPlaying();
                 const auto musicSeconds = music ? stats.clayPressureSeconds : 0.0;
                 const auto blendSeconds = music ? stats.clayBlendSeconds : 0.0;
+                const ClayPressureMonitor::PeakBlocks blocks { stats.clayPeakBlocks, stats.clayPeakBlockCount, stats.clayPeakBlocksDropped };
 
-                if (clayPressure.update ((double) stats.clayPressureDb, musicSeconds,
+                if (clayPressure.update (blocks, music, musicSeconds,
                                          stats.clayBlendIntendedEnergy, stats.clayBlendOutputEnergy, blendSeconds))
                     lowerClayScale();
             }
@@ -3368,7 +3370,8 @@ namespace celadon::glaze
         p.guardDb = s.guard.getProtectionDb();
         p.feedbackMaxGainDb = s.feedbackMaxGainDb;
         p.clayPressureScale = s.clayPressureScale;
-        p.clayPressureSmoothed = s.clayPressure.smoothed;
+        p.clayPeakCostDb = s.clayPressure.costDb();
+        p.clayPeakCostBlocks = s.clayPressure.blockCount;
         p.clayBlendLossSmoothedDb = s.clayPressure.blendLossDb();
         p.savedPlanMode = s.savedPlanMode;
         p.executionSnapshotActive = s.executionHeld;

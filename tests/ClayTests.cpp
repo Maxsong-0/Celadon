@@ -21,7 +21,7 @@
       - 低切关 / 开的 20 ms 输出淡化（低切在延迟之前，淡化晚 D 个样本到输出）与影子运行
       - reset、音频路径 0 分配、输入里的 NaN 不会让影子滤波器卡死
       - 峰值守护（ADR-014；T-032 2026-09-29 修订：只管①②，③ 加宽的增量绕过守护）：①② 的输出逐样本不越界（立体声两组、单声道一组，
-        各带「不带守护会越界」的阳性对照）、③ 的增量原样叠在守护输出上（加宽与否守护统计、代价格逐位相同；只开加宽拧回 0 时
+        各带「不带守护会越界」的阳性对照）、③ 的增量原样叠在守护输出上（加宽与否守护统计、压力反馈报告逐位相同；只开加宽拧回 0 时
         isPassThrough 等 δ 的尾巴走出前瞻环才报真；δ 恰为 0 的样本不做加法，−0 仍是 −0）；稳态低音与纯 S 高频加宽不误动作、谐波对经低切抬高峰值时动作；正常电平（守护
         地板之上）下加宽 +3 / +1.5 / −3 dB 的高频侧声道增益 = widthDb ± 0.3 dB 且守护统计为 0；低切 / 收单在固定种子夹具上的效果钉在
         记录值（回归护栏）；widthDb = 0 的一批场景（怪值、随机块长、参数扫动、四个采样率）的输出摘要——改守护前后逐位对照的依据
@@ -660,7 +660,8 @@ namespace celadon::test
 
         //==============================================================================
         // 输出摘要（FNV-1a 64 位，自带实现、与平台无关）：改守护前后「widthDb = 0 的输出逐位不变」的对照依据（T-032 验收门）。
-        // 把每块输出样本的位、每次 process 的代价格报告、末尾的守护统计、isPassThrough 与延迟逐字节喂进去。
+        // 把每块输出样本的位、每次 process 的压力反馈报告（10 ms 时钟与 100 ms 峰值块，ADR-028；T-044 之前是代价格）、末尾的守护统计、
+        // isPassThrough 与延迟逐字节喂进去。
         struct Digest
         {
             std::uint64_t hash = 14695981039346656037ull;
@@ -726,8 +727,12 @@ namespace celadon::test
                     digest.add (block.getReadPointer (ch), static_cast<size_t> (length) * sizeof (float));
 
                 const auto pressure = clay.getLastProcessPressure();
-                digest.addValue (pressure.meanDb);
                 digest.addValue (pressure.seconds);
+                digest.addValue (pressure.numPeakBlocks);
+                digest.addValue (pressure.droppedPeakBlocks);
+
+                if (pressure.peakBlocks != nullptr)
+                    digest.add (pressure.peakBlocks, static_cast<size_t> (2 * pressure.numPeakBlocks) * sizeof (float));
                 start += length;
             }
 
@@ -1977,7 +1982,8 @@ namespace celadon::test
             //      模块报告 g < 1 的样本数 > 0。改前 a 组是「低切 60 + 收单 300 + 加宽 +3 dB」，越界几乎全来自加宽——只开①② 时那份素材
             //      上一个样本都不越界（改前 e6b445b 实测 −0.01 dB），所以 T-032 起 a 组只开低切，收单由 b 组提供。
             //  (2) ③ 的拆分（ADR-014 修订后的决定 1「|输出 − ③ 增量| ≤ B」）：两组立体声再各开 +3 dB 加宽，与加宽 0 的模块逐块并排跑。
-            //      守护只看①②：两边的守护统计（g < 1 的样本数、最小 g）与每块的代价格逐位相同；输出 = 加宽 0 的守护输出 + δ，
+            //      守护只看①②：两边的守护统计（g < 1 的样本数、最小 g）与每块的压力反馈报告（10 ms 时钟与 100 ms 峰值块，ADR-028）
+            //      逐位相同；输出 = 加宽 0 的守护输出 + δ，
             //      δ = 不带守护的①②③ 输出 − 不带守护的①② 输出（参照同上），逐样本差 ≤ 2e-6（三次 float 舍入）——守护在动作的样本
             //      （加宽 0 的输出 ≠ 不带守护的①② 输出）也一样，且这种样本必须有（g < 1 那一支确实加回了 δ）。改前加宽进守护，这个差
             //      达 0.62（e6b445b 实测）。加宽本身不受界约束：只记录它越过界多少（素材相关，不断言）。
@@ -2064,7 +2070,7 @@ namespace celadon::test
                     auto widenedParams = c.params;
                     widenedParams.widthDb = 3.0f;
 
-                    // 加宽 0 与 +3 dB 两个模块逐块并排跑（单声道没有 ③，只跑加宽 0），每块比代价格。
+                    // 加宽 0 与 +3 dB 两个模块逐块并排跑（单声道没有 ③，只跑加宽 0），每块比压力反馈报告（时钟与峰值块）。
                     ClayModule plain, widened;
                     prepareClay (plain, sampleRate, channels, c.params);
                     prepareClay (widened, sampleRate, channels, widenedParams);
@@ -2094,7 +2100,11 @@ namespace celadon::test
                             widened.process (widenedBlock);
                             const auto p = plain.getLastProcessPressure();
                             const auto q = widened.getLastProcessPressure();
-                            samePressure = samePressure && std::memcmp (&p.meanDb, &q.meanDb, sizeof (float)) == 0 && p.seconds == q.seconds;
+                            // 压力反馈的输入（ADR-028：10 ms 时钟与 100 ms 峰值块）只看①②：加宽与否逐位相同。
+                            samePressure = samePressure && p.seconds == q.seconds && p.numPeakBlocks == q.numPeakBlocks
+                                        && p.droppedPeakBlocks == q.droppedPeakBlocks
+                                        && (p.numPeakBlocks == 0
+                                            || std::memcmp (p.peakBlocks, q.peakBlocks, static_cast<size_t> (2 * p.numPeakBlocks) * sizeof (float)) == 0);
                         }
 
                         for (int ch = 0; ch < channels; ++ch)
@@ -2336,7 +2346,7 @@ namespace celadon::test
             }
 
             // T-032 验收门：widthDb = 0 的全部场景在改守护前后必须逐位相同。这里对一批固定种子的场景（怪值、随机块长、参数扫动、旁通来回、
-            // 地板上下的电平、44.1 / 48 / 96 / 192 kHz、立体声与单声道）做输出摘要并打印（FNV-1a 64 位，含每次 process 的代价格、末尾的
+            // 地板上下的电平、44.1 / 48 / 96 / 192 kHz、立体声与单声道）做输出摘要并打印（FNV-1a 64 位，含每次 process 的压力反馈报告、末尾的
             // 守护统计、isPassThrough 与延迟）；同一份测试源码分别对改前（e6b445b）与改后的 ClayModule 编译运行，两边的摘要记在 T-032 报告里
             // 逐行对照（另有 T-024 guard_compare 式的新旧并排逐样本对照，也见报告）。标「positive control」的两个场景带加宽（widthDb ≠ 0），
             // 是摘要机制本身的阳性对照：它们改后必须变。摘要依赖平台的 libm 与编译器（系数里的 cos / sin / pow），所以本用例自身只断言

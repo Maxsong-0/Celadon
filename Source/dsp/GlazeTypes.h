@@ -226,8 +226,10 @@ namespace celadon::glaze
         float clipDepthMaxDb = 0.0f;      // 本块最大削波深度
         float heatDrive = 0.0f;           // 本块 Heat 实际驱动量
         float outputTruePeakDbtp = -100.0f;
-        float clayPressureDb = 0.0f;      // 本块走完的修坯代价格的平均：不经守护时相关峰值会超出界多少 dB（ADR-014 压力反馈）
-        double clayPressureSeconds = 0.0; // 这些代价格的总时长（本块没走完一格为 0）
+        double clayPressureSeconds = 0.0; // 本块走完的修坯 10 ms 时钟格的总时长（压力反馈的计时，ADR-014；本块没走完一格为 0）
+        const float* clayPeakBlocks = nullptr;   // 本块走完的修坯 100 ms 峰值块 [①② 处理后 max |y|, 干路 max |x|] × clayPeakBlockCount
+        int clayPeakBlockCount = 0;              // （压力反馈第一触发量的输入，ADR-028；指向 ClayModule 内部，endBlock 之内有效）
+        int clayPeakBlocksDropped = 0;           // 一次 process 装不下、没报上来的块（按无效处理）
         double clayBlendIntendedEnergy = 0.0;   // 修坯守护的混合损失测量（T-043，ADR-027；ClayModule::getLastProcessBlend）：本块「本该输出」
         double clayBlendOutputEnergy = 0.0;     // 与实际输出的 K 加权能量；损失 dB = 10·log10(本该 / 实际)
         double clayBlendSeconds = 0.0;          // 量过的时长（①② 不作用的段不量，为 0）

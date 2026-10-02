@@ -59,6 +59,7 @@
 #include "../../Source/dsp/CeladonChain.h"
 #include "../../Source/dsp/ChainParams.h"
 #include "../../Source/dsp/GlazeTypes.h"
+#include "../../Source/dsp/ClayGuard.h"
 #include "../../Source/dsp/ClayModule.h"
 #include "../../Source/dsp/LoudnessMeter.h"
 #include "../../Source/dsp/TruePeak.h"
@@ -1142,6 +1143,8 @@ namespace
         celadon::glaze::MusicProfile profile;
         float clayPressureScale = 1.0f;    // 成品末尾修坯压力反馈的缩放与降档次数（ADR-014）
         int clayPressureSteps = 0;
+        double clayPeakCostDb = 0.0;       // 成品末尾压力反馈第一触发量的代价（与先试同口径，ADR-028）与攒下的有效块数（每块 0.1 s）
+        int clayPeakCostBlocks = 0;
     };
 
     // 成品 / 重放两种渲染逐块共用的统计：限幅 GR、保护介入、峰值守护、限幅入口峰值、慢路反相占比。
@@ -1329,6 +1332,8 @@ namespace
         const auto finalProbe = chain->getGlazeController().getProbeForTesting();
         result.clayPressureScale = finalProbe.clayPressureScale;
         result.clayPressureSteps = finalProbe.clayPressureSteps;
+        result.clayPeakCostDb = finalProbe.clayPeakCostDb;
+        result.clayPeakCostBlocks = finalProbe.clayPeakCostBlocks;
     }
 
     //==============================================================================
@@ -1535,6 +1540,8 @@ namespace
         celadon::glaze::MusicProfile profile;
         float clayPressureScale = 1.0f;
         int clayPressureSteps = 0;
+        double clayPeakCostDb = 0.0;
+        int clayPeakCostBlocks = 0;
         std::string replayCheck;               // 「自动」行（GLAZE > 0）：同决策重放阳性对照 ok / mismatch / n/a（ADR-016）；其余行为空
         double replayMaxDifference = -1.0;     // 阳性对照的最大样本差（线性；< 0 = 没做）
     };
@@ -1694,6 +1701,9 @@ namespace
             profileFeature (row, row.profile.lowCutBlendLossDb[1], 3),
             render && row.blendSamples > 0 && row.blendIntendedEnergy > 0.0 && row.blendOutputEnergy > 0.0
                 ? fixed (10.0 * std::log10 (row.blendIntendedEnergy / row.blendOutputEnergy), 3) : empty,
+            render && ! replay && row.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks
+                ? fixed (row.clayPeakCostDb, 3) : empty,
+            render && ! replay ? fixed (0.1 * (double) row.clayPeakCostBlocks, 1) : empty,
         };
 
         std::string line;
@@ -1714,7 +1724,7 @@ namespace
                           "trial_mono80_cost_db,trial_mono120_cost_db,trial_mono160_cost_db,trial_width_cost_db,profile_sub_share_db,"
                           "profile_low_corr,trial_seconds,peak_guard_pct,peak_guard_min_gain,slow_inverted_pct,limit_input_peak_db,"
                           "clay_pressure_scale,clay_pressure_steps,replay_check,replay_max_diff_dbfs,music_seconds,trial_blend10_db,"
-                          "trial_blend20_db,clay_blend_loss_db\n";
+                          "trial_blend20_db,clay_blend_loss_db,clay_peak_cost_db,clay_peak_cost_s\n";
 
         for (const auto& report : reports)
             for (const auto& row : report.rows)
@@ -2035,6 +2045,8 @@ namespace
             row.profile = render.profile;
             row.clayPressureScale = render.clayPressureScale;
             row.clayPressureSteps = render.clayPressureSteps;
+            row.clayPeakCostDb = render.clayPeakCostDb;
+            row.clayPeakCostBlocks = render.clayPeakCostBlocks;
 
             // 对齐前的自动链成品留一份（measureAlignWrite 会原地乘对齐增益）：同决策重放的阳性对照逐样本比它。
             juce::AudioBuffer<float> autoAudio;

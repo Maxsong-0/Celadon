@@ -413,7 +413,42 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    bool ClayPressureMonitor::update (double pressure, double seconds, double blendIntended, double blendOutput, double blendSeconds) noexcept
+    namespace
+    {
+        // top[0 .. filled) 降序、最多留 topCount 个：插入 value，挤掉最小的（与 MusicAnalyzer 的 insertTop 同一写法）。
+        void insertTop (std::array<double, (size_t) ClayPressureMonitor::topCount>& top, int filled, double value) noexcept
+        {
+            constexpr auto capacity = ClayPressureMonitor::topCount;
+            auto slot = juce::jmin (filled, capacity - 1);
+
+            if (filled >= capacity && ! (value > top[(size_t) slot]))
+                return;
+
+            for (; slot > 0 && top[(size_t) slot - 1] < value; --slot)
+                top[(size_t) slot] = top[(size_t) slot - 1];
+
+            top[(size_t) slot] = value;
+        }
+
+        // 模块报上来的块峰值只会是有限的非负数（ClayModule::PeakGuard::trackPeakBlocks）；这里只防坏输入。
+        bool usablePeak (float value) noexcept   { return std::isfinite (value) && value >= 0.0f; }
+    }
+
+    double ClayPressureMonitor::percentileOfTop (const std::array<double, (size_t) topCount>& top, int count) noexcept
+    {
+        const auto position = percentile * (double) (count - 1);
+        const auto lower = (int) std::floor (position);
+        const auto below = top[(size_t) (count - 1 - lower)];
+
+        if (lower + 1 >= count)
+            return below;
+
+        const auto above = top[(size_t) (count - 2 - lower)];
+        return below + (above - below) * (position - (double) lower);
+    }
+
+    bool ClayPressureMonitor::update (const PeakBlocks& blocks, bool music, double seconds,
+                                      double blendIntended, double blendOutput, double blendSeconds) noexcept
     {
         // 混合损失（T-043）：按它自己覆盖的有效音乐秒数平滑两份能量；段里没有量过（blendSeconds = 0）或数值坏了就冻结。
         if (blendSeconds > 0.0 && std::isfinite (blendSeconds) && std::isfinite (blendIntended) && std::isfinite (blendOutput)
@@ -426,20 +461,56 @@ namespace celadon::glaze
             blendAboveSeconds = blendLossDb() > blendThreshold ? juce::jmin (blendAboveSeconds + dt, maxSeconds) : 0.0;
         }
 
+        // 峰值块（ADR-028）：按时间顺序。本切片「可攒」= 在有效音乐里、且不在降档后的冷却期里（方案还在过渡，块峰值不代表新方案）。
+        // 第一块可能是从之前的切片走过来的——要那些切片也都可攒（openBlockClean）；之后的块整块都在本切片里，看本切片。装不下、没报
+        // 上来的块不计，它们之后的块照常（整块都在本切片里）。
+        const auto usable = music && sinceStep >= cooldownSeconds;
+        const auto reported = blocks.pairs != nullptr ? juce::jmax (0, blocks.count) : 0;
+        auto clean = openBlockClean && usable;
+        auto added = false;
+
+        for (int b = 0; b < reported; ++b)
+        {
+            const auto wet = blocks.pairs[2 * b];
+            const auto dry = blocks.pairs[2 * b + 1];
+
+            if (clean && usablePeak (wet) && usablePeak (dry))
+            {
+                insertTop (topWet, blockCount, (double) wet);
+                insertTop (topDry, blockCount, (double) dry);
+                blockCount = juce::jmin (blockCount + 1, std::numeric_limits<int>::max() - 1);
+                added = true;
+            }
+
+            clean = usable;
+        }
+
+        openBlockClean = reported > 0 || blocks.dropped > 0 ? usable : clean;
+
+        if (added && blockCount >= minimumBlocks)
+        {
+            // 与先试同式：n 超过 exactBlocks 时两边按同一个秩估计（见 ClayGuard.h）。干路 P99 不 > 0（整段都是 0）时不判。
+            const auto count = juce::jmin (blockCount, exactBlocks);
+            const auto dryPeak = percentileOfTop (topDry, count);
+
+            if (dryPeak > 0.0)
+            {
+                const auto wetPeak = percentileOfTop (topWet, count);
+                cost = 20.0 * std::log10 (juce::jmax (wetPeak, floorRatio * dryPeak) / dryPeak);
+                costValid = true;
+            }
+        }
+
         if (! (seconds > 0.0) || ! std::isfinite (seconds))
             return false;
 
         const auto dt = juce::jmin (seconds, maxSeconds);
-        const auto p = std::isfinite (pressure) ? juce::jlimit (0.0, maxPressureDb, pressure) : 0.0;
-
-        smoothed += (p - smoothed) * (1.0 - std::exp (-dt / smoothingSeconds));
         sinceStep = juce::jmin (sinceStep + dt, maxSeconds);
-        aboveSeconds = smoothed > threshold ? juce::jmin (aboveSeconds + dt, maxSeconds) : 0.0;
+        aboveSeconds = costValid && cost > threshold ? juce::jmin (aboveSeconds + dt, maxSeconds) : 0.0;
 
         if ((aboveSeconds >= sustainSeconds || blendAboveSeconds >= sustainSeconds) && sinceStep >= cooldownSeconds)
         {
-            smoothed = 0.0;
-            aboveSeconds = 0.0;
+            clearPeakCost();
             sinceStep = 0.0;
             blendIntendedSmoothed = 0.0;
             blendOutputSmoothed = 0.0;
@@ -456,10 +527,20 @@ namespace celadon::glaze
                  ? 10.0 * std::log10 (blendIntendedSmoothed / blendOutputSmoothed) : 0.0;
     }
 
+    void ClayPressureMonitor::clearPeakCost() noexcept
+    {
+        topWet.fill (0.0);
+        topDry.fill (0.0);
+        blockCount = 0;
+        costValid = false;
+        cost = 0.0;
+        aboveSeconds = 0.0;
+    }
+
     void ClayPressureMonitor::reset() noexcept
     {
-        smoothed = 0.0;
-        aboveSeconds = 0.0;
+        clearPeakCost();
+        openBlockClean = false;
         sinceStep = cooldownSeconds;
         blendIntendedSmoothed = 0.0;
         blendOutputSmoothed = 0.0;
