@@ -102,6 +102,8 @@
 
 namespace celadon::glaze
 {
+    class SegmentSink;   // T-048：段定稿的接收者（SegmentLedger.h）
+
     class GlazeController
     {
     public:
@@ -157,6 +159,11 @@ namespace celadon::glaze
         // xml 为空或正式状态读取失败 → 未学习；有效 EXECUTION 独立恢复当前执行量。
         // 临时画像仍未正式学习完成，重新积累证据期间保持已听到的执行方案；不序列化滤波器/检测器音频历史。
         void restoreStateXml (const juce::XmlElement* xml);
+
+        // T-048 阶段 1 直通（插件不调；测试与渲染工具用）：非空 = 分析器打开实时模式、定稿的段交给 sink；nullptr = 关（开着的段先交给
+        // 原来的 sink）。prepare 之后、处理之前调；设定在分析器里，prepare / 宿主 reset / 读档之后保持。编排器其余行为一律不变
+        // （它不读实时段落账，输出与不开时逐位相同，见 MusicAnalyzer.h「T-048」一节）。
+        void setLiveSegmentSink (SegmentSink* sink);
 
         // ---- 任何线程 ----
 

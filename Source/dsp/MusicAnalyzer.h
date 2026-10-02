@@ -49,9 +49,10 @@
       - 立体声画像（帧流）：Balance 帧的 bandPower / bandCross，与频谱证据同一批帧、同一逐段 −60 dBFS 静音门权重做功率域
         时间和，组特征按组内功率和；有效 / 有效时长 / 置信度同现有特征口径（至少 1 s、10 s 观测充分），逐段可信度同 bandConfidence。
         逐段没有统计时数值 0、可信度 0（0 dB / ρ = 0 看上去像「很宽」，读的人先看 bandStereoConfidence）。
-      - 先试后用的峰值代价（样本流，只在学习区间内跑）：把低切 / 收单 ×4 / 加宽的候选处理跑在原始输入上，比较 100 ms 块峰值
-        P99 的变化（lowCutPeakCostDb、monoPeakCostDb[4]、widthPeakCostDb）；块网格与起音同一套边界，有效块满 10 s 才有效。
-        不学习时候选不跑（不耗 CPU）；收单候选的线性相位低通与 M / S 延迟环在 prepare 时按采样率分配。
+      - 先试后用的峰值代价（样本流，只在学习区间内跑；候选处理在 ClayTrials，T-048 阶段 1 原样抽出）：把低切 / 收单 ×4 / 加宽的候选处理
+        跑在原始输入上，比较 100 ms 块峰值 P99 的变化（lowCutPeakCostDb、monoPeakCostDb[4]、widthPeakCostDb）；块网格与起音同一套边界，
+        有效块满 10 s 才有效。不学习时候选不跑（不耗 CPU；实时模式开着时例外，见最后一节）；收单候选的线性相位低通与 M / S 延迟环
+        在 prepare 时按采样率分配。
         T-043（ADR-027）：另把两个低切候选（10 / 20 Hz，clayBlendCandidateHz；20 Hz 那个直接用上面峰值代价低切候选的输出）各过一份
         ClayModule 的峰值守护（ClayModule::PeakGuard，与链里同一份实现，不搭整个 ClayModule），同一批有效块里量守护的混合损失
         （lowCutBlendLossDb[2]，K 加权的「本该 / 实际」能量比，dB）；守护在 prepare 时分配，学习期间每个样本多跑两份守护。
@@ -72,6 +73,21 @@
         满编段，LRA 也只用满编段（阶段 3 集成改：全部段的 LRA 随起播位置变），有效时长、代表性用全部段；画像格式 houseProfileFormatVersion，houseGate = 门控结果；代表性另按「已听 ÷ 锁定所需」
         封顶（暂定期的信心打折，决策器的 confidenceScale 据此自然收紧）。学习期间每定稿一段重算一次（O(段数)），不学习时冻结，
         编排器重开时用 recomputeHouseProfile 立即重算。getAuxiliaryFeatures 同样换成满编段的一份。
+
+    ---- T-048 实时模式（设计规格-实时GLAZE 第 3 节；ADR-030；实现口径见 MusicAnalyzer.cpp「七」节）----
+
+    阶段 1 插件不开，只在测试与渲染工具里开。setSegmentSink 交接收者（LiveProfile），setLiveMode (true) 打开（都在消息线程、处理之前调）：
+      - 另起一份「实时段落账」（与 House 档门控那一份同一个 SegmentLedger 类、同一套分段与记账口径）：所有曲风都分段、都往段里累计，
+        每定稿一段交给接收者。它不进任何画像——候选画像（通用档与 House 档）、辅助量、短期视图、House 档那一份段落账（getSegmentLedger，
+        连段里的 live* 四项）都与实时模式关着时逐位相同；
+      - 先试后用的候选一直跑（不只在学习期间）：每个按有效音频门有效的块都进实时段的 liveTrialBlocks / liveTrialTop / liveBlend*；
+        学习区间内的块同时进 trialBlocks / trialTop / blend*。开始学习时候选照旧从零状态重新起跑（学习期的代价与关着时逐位相同），
+        所以实时一侧每次开始学习后有 250 ms 的预热空档；
+      - 段落账的段只在不连续点断开（跳播、回绕、宿主 reset、时间轴断开）：开着的段截到此刻、就地定稿交出去再重新锚定，交出去的
+        [start, end) 在同一条时间轴上首尾相接。重新聆听、clearHouseLedger、换曲风都不断开它；reset / prepare / setLiveMode (false)
+        也是先把开着的段交出去再清。宿主走带信息只按 SegmentLedger 现有的规则用（小节锚定），不另加按走带触发的逻辑；
+      - 段与宿主分块无关（实时段要等先试后用的块交齐才定稿）。
+    关着时（默认）实时段落账不分配、不跑，接收者一次都不调；一切输出与 T-048 之前逐位相同。
 
   ==============================================================================
 */
@@ -168,6 +184,12 @@ namespace celadon::glaze
 
         const SegmentLedger& getSegmentLedger() const noexcept;
         std::uint32_t getHouseProfileGeneration() const noexcept;   // House 候选画像每重算 / 清空一次 + 1
+
+        // ---- T-048 实时模式（见文件头最后一节；消息线程、处理之前调，prepare / reset 之后保持设定）----
+        // 开：分配实时段落账（约 2 MB），候选从此一直跑；关：开着的段先就地定稿交给接收者。
+        void setLiveMode (bool enabled);
+        // 实时段落账定稿的段交给它（nullptr = 不交）。只存指针、不拥有；接收者在音频线程上被调，必须 0 分配、0 锁。
+        void setSegmentSink (SegmentSink* sink) noexcept;
 
     private:
         struct Impl;

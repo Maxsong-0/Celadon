@@ -9,29 +9,34 @@
       二、帧流：Balance 每帧原始段功率（约 10 ms 一帧）→ 长期段电平、频谱正负证据、斜率、低 / 高频占比、辅助谱通量；
               v0.1.7.0 起另读同一帧的左右交叉功率 → 修坯 Clay 的立体声画像字段与实时立体声视图；
       三、样本流：链入口原始样本 → 起音包络（功率域）与事件；v0.1.7.0 起另有 M 的 8 阶 16 Hz 低通 → 修坯 Clay 的真次声占比，
-              学习期间另把修坯的候选处理跑在原始样本上 → 先试后用的峰值代价（第「五」节，ADR-012）。
+              学习期间（实时模式开着时一直）另把修坯的候选处理跑在原始样本上 → 先试后用的峰值代价（第「五」节，ADR-012；
+              候选本身在 ClayTrials，T-048 阶段 1 原样抽出）。
     修坯 Clay 的特征（下面第「四」「五」节）挂在帧流与样本流上，不另起时间轴、不新增 FFT。
     画像只由各路的累计量按纯函数算出（每次有新数据就重算），停止学习后固定。
     T-038 House 档（第「六」节）：三路数据另按段归进段落账（SegmentLedger），候选画像改由满编段门控算出；通用档不进第「六」节的任何代码。
+    T-048 实时模式（第「七」节，默认关）：另一份实时段落账，所有曲风都按第「六」节同一口径分段、记账，定稿的段交给 SegmentSink；
+    关着时实时段落账不分配、不跑，一切输出与 T-048 之前逐位相同。
 
-    实时约束：全部状态在 Impl 里定长（构造时一次分配；先试后用的收单候选低通与 M / S 延迟环随采样率定长，prepare 时分配），
-    音频线程上的函数不分配、不加锁、不做系统调用；时间常数一律按样本数折算。reset 逐项清零，不在栈上构造整个 Impl（约 40 KB）。
+    实时约束：全部状态在 Impl 里定长（构造时一次分配；先试后用的收单候选低通与 M / S 延迟环随采样率定长，prepare 时分配；
+    实时段落账在打开实时模式与 prepare 时分配），音频线程上的函数不分配、不加锁、不做系统调用；时间常数一律按样本数折算。
+    reset 逐项清零，不在栈上构造整个 Impl（约 140 KB：其中 House 与实时两份段落账的定长成员各约 50 KB）。
 
   ==============================================================================
 */
 
 #include "MusicAnalyzer.h"
 
-#include "ClayModule.h"
+#include "ClayTrials.h"
 #include "GlazeProfile.h"
-#include "LinearPhaseLowpass.h"
 #include "TruePeak.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
+#include <type_traits>
 #include <vector>
 
 namespace celadon::glaze
@@ -265,53 +270,19 @@ namespace celadon::glaze
                        "泄漏门：核心是低频组去掉最上一段，上方从低频组的下一段起、不碰高频组");
 
         //==============================================================================
-        // 五、修坯 Clay 的先试后用（ADR-012，设计规格-Clay-根治修订 3.2）。为什么：最小相位 IIR 在低频的相位旋转会把已经很密 /
-        //     削平的波形的峰值重新错开冒出来（真歌试渲染：低切让成品歌峰值 +4 dB、末级限幅多压、响度反而 −0.9 LU）；决策不能只看
-        //     特征，要先量「这首歌真做了之后峰值怎样」。学习区间内把候选处理跑在链入口的原始样本上，量 100 ms 块峰值 P99 的变化。
-        //   - 候选（各自单独作用在原始输入上；系数公式与 ClayModule 一致，double）：
-        //       0      低切：L、R 各两级 RBJ 高通（4 阶 Butterworth，Q 同 ClayModule），20 Hz（自动低切目标的上限）；
-        //       1 ～ 4 收单：线性相位收单 a = 1，分频点 clayMonoCandidateHz（60 / 80 / 120 / 160 Hz），与 Clay 同一个 LinearPhaseLowpass：
-        //              S' = S 延迟 D_c − LP(S)、M 延迟 D_c，L' = M_d + S'、R' = M_d − S'。D_c = 2(L_c − 1) 是候选自己的群延迟——
-        //              只需与 LP 的输出对齐，不必用 Clay 的最大延迟；
-        //       5      加宽：S 过 2 kHz 高架（斜率 S = 1）+1.5 dB（自动加宽上限），L' = M + S''、R' = M − S''。
-        //     max(|M + x|, |M − x|) = |M| + |x|，浮点下也精确（较大的那个本来就是 |M| + |x| 的一次舍入），收单与加宽直接按它算块峰值。
-        //   - 块网格：从重启起算、与起音的组网格对齐（一块 = round(0.1 s / 组长) 个整组，48 kHz 下正好 4800 样本），与起音 / 真次声
-        //     同一套边界——块里每个组都「过了重启预热、在学习区间内、在有效音频门上」才是有效块；另外候选（开始学习、重启时）从零状态
-        //     起跑后 250 ms 内开始的块不算（IIR 起跑瞬态：20 Hz 那级高通振铃约 21 ms 的时间常数，250 ms 后低于 −100 dB）。
-        //     候选输出晚 D_c 个样本：它的第 k 块取输出的 [k·块长 + D_c, (k + 1)·块长 + D_c)，与原始的第 k 块是同一段音频（延迟补偿）——
-        //     纯单声道素材（S = 0）收单后逐位就是延迟了的原始，所以代价精确为 0。原始与 6 个候选都交齐了这一块才记下（D_c < 块长，
-        //     任何时刻最多两块没交齐：2 个记录槽按块号奇偶轮用）。
-        //   - P99 = 线性插值的百分位（定义同 numpy.percentile 默认；逐位口径以「存全部 + nth_element + 同一插值」为准——numpy 的 lerp 在 t ≥ 0.5 时换了写法，末位可能不同，审核 V4-04）：位置 0.99·(n − 1) 两侧的顺序统计量插值。最多记 512 个有效块
-        //     （51.2 s：聆听最长 maxListenSeconds 30 s ≈ 300 块，余量给有效门口径的差别；满了之后的块不再记，代价按前 512 块算）。
-        //     n ≤ 512 时 P99 只用到从大往小数第 7 个以内的值，所以每个序列只留最大的 8 个块峰值（有序插入）就能逐位得到与「存下全部
-        //     块峰值再 std::nth_element」相同的结果——后者每记一块要对 7 × 最多 512 个数做选择，192 kHz / 32 样本块下是单块约 10 µs
-        //     的尖峰（整插件最坏块验收会看到），这里每块只有几十次比较。
-        //     代价 = 20·log10(P99 候选) − 20·log10(P99 原始)（dB，正 = 峰值变高）；有效块满 10 s 才有效，置信度同其他特征：
+        // 五、修坯 Clay 的先试后用（ADR-012，设计规格-Clay-根治修订 3.2；T-043 守护混合损失，ADR-027）：候选处理、100 ms 块网格、交齐与
+        //     P99 代价的口径全在 ClayTrials.h（T-048 阶段 1 从这一节原样抽出，逐位不变）。分析器这边只管三件事：
+        //   - 什么时候跑：学习期间跑（不学习时不耗 CPU）；实时模式开着时一直跑（第「七」节）。每次开始学习、每次组网格重启都从零状态
+        //     重新起跑（实时模式开着时也一样，所以学习期的代价与实时模式关着时逐位相同）；
+        //   - 每个组算不算（noteGroup 的两种口径）：学习口径 = 过了重启预热、在学习区间内、在有效音频门上（与起音 / 真次声同一套边界）；
+        //     实时口径 = 过了重启预热、在有效音频门上；
+        //   - 交齐的块进哪里（trialBlockCompleted）：学习口径有效、且交齐时还在学习的块进学习累计（最多 ClayTrials::capacity 块）与
+        //     House 段落账；实时口径有效的块进实时段落账（第「七」节）。实时模式关着时候选只在学习期间跑，「交齐时还在学习」恒成立，
+        //     与原来「有效就记」逐位相同；开着时学习停下之后才交齐的块（原来根本交不齐）不进学习累计。
+        //   - 代价（updateTrialProfile）= ClayTrials::costsOf（与 House 画像的 houseTrialProfile 同一份），置信度同其他特征：
         //     min(观测充分度 = 有效块时长 / 10 s, 代表性)。
-        //   - 候选只在学习期间跑（不学习时不耗 CPU）；每次开始学习、每次重启都从零状态重新起跑。
-        constexpr double trialBlockSeconds = 0.1;
-        constexpr int trialCapacity = 512;
-        constexpr int trialTopCount = 8;
-        constexpr double trialMinimumSeconds = 10.0;
-        constexpr double trialFullSeconds = 10.0;
-        constexpr double trialPercentile = 0.99;
-        constexpr double trialWarmUpSeconds = onsetWarmUpSeconds;
-        constexpr double trialLowCutHz = 20.0;
-        constexpr std::array<double, 2> trialCutQ { 0.54119610014619698, 1.3065629648763766 };   // 同 ClayModule 的 cutFirstQ / cutSecondQ
-        constexpr double trialWidthShelfHz = 2000.0;    // 同 ClayModule::widthShelfHz
-        constexpr double trialWidthDb = 1.5;            // 自动加宽上限（GlazeConstants 的 clayWidthMaxDb 出厂值）
-        constexpr double trialPeakFloorRatio = 1.0e-6;  // 候选 P99 按原始 P99 的 −120 dB 封底（例如低切把纯直流削成 0），代价不出 −∞
-        constexpr int numMonoTrials = (int) clayMonoCandidateHz.size();
-        constexpr int trialLowCut = 0, trialFirstMono = 1, trialWidth = 1 + numMonoTrials;
-        constexpr int numTrials = 2 + numMonoTrials;    // 低切、收单 ×4、加宽
-        constexpr int numBlendTrials = (int) clayBlendCandidateHz.size();
-        constexpr int trialWriters = 1 + numTrials + numBlendTrials;   // 交齐一块要的写入：原始 + 6 个峰值候选 + 2 个混合损失候选（T-043）
-        constexpr int trialBlendSharedCut = 1;          // 这个混合损失候选的低切 = 峰值代价的低切候选（同频率、同 Q、同输入）：直接用它的输出
-        static_assert (clayBlendCandidateHz[(size_t) trialBlendSharedCut] == (float) trialLowCutHz, "共用的低切候选频率必须相同");
-
-        // n ≤ 容量时，P99 的下侧顺序统计量从大往小数是第 n − 1 − ⌊0.99·(n − 1)⌋ ≤ 0.01·(n − 1) + 1 个（0 起），上侧再大一个。
-        static_assert ((1.0 - trialPercentile) * (double) (trialCapacity - 1) + 1.0 < (double) (trialTopCount - 1),
-                       "每个序列留的最大值个数必须覆盖容量内 P99 用到的两个顺序统计量");
+        static_assert (ClayTrials::warmUpSeconds == onsetWarmUpSeconds, "候选起跑的预热与起音的重启预热同长（同一套边界）");
+        static_assert (maximumGroupLength <= ClayTrials::maxSegmentSamples, "候选一次处理一个组里的一段");
 
         //==============================================================================
         // 六、T-038 House 档（设计规格-曲风-House学习方式 第 2 节；段的切分、定稿与门控见 SegmentLedger.h）。只在 setGenre 交来 House 子类时走。
@@ -335,12 +306,32 @@ namespace celadon::glaze
         //          已听小节 ÷ lockSegments；2 秒段：已听秒数 ÷ fallbackLockSeconds）。
         static_assert (SegmentLedger::lowRangeBins == lowRangeBins && SegmentLedger::lowShareLastBand == lowShareLastBand,
                        "段落账的低频直方图与低频段边界必须与分析器相同");
-        static_assert (SegmentLedger::trialSeries == numTrials + 1 && SegmentLedger::trialTopCount == trialTopCount
-                       && SegmentLedger::trialCapacity == trialCapacity && SegmentLedger::blendSeries == numBlendTrials,
-                       "段落账的先试后用记账必须与分析器同口径");
+        static_assert (SegmentLedger::trialSeries == ClayTrials::numSeries && SegmentLedger::trialTopCount == ClayTrials::topCount
+                       && SegmentLedger::trialCapacity == ClayTrials::capacity && SegmentLedger::blendSeries == ClayTrials::numBlend,
+                       "段落账的先试后用记账必须与 ClayTrials 同口径");
+        static_assert (std::is_same_v<decltype (SegmentLedger::Segment::trialTop), ClayTrials::TopSeries>
+                       && std::is_same_v<decltype (SegmentLedger::Segment::liveTrialTop), ClayTrials::TopSeries>
+                       && std::is_same_v<decltype (SegmentLedger::Segment::blendIntended), ClayTrials::BlendSums>
+                       && std::is_same_v<decltype (SegmentLedger::Segment::liveBlendOutput), ClayTrials::BlendSums>,
+                       "段的先试后用累计与 ClayTrials 的累计同一种类型（ClayTrials::accumulate 直接往段里并）");
         static_assert (strengthBins <= 256, "起音强度的格号按 8 位存");
         static_assert (SegmentLedger::loudnessHistogramMinLufs == histogramMinLufs && SegmentLedger::loudnessBinsPerLu == histogramBinsPerLu,
                        "段落账的响度直方图与分析器 I / LRA 的直方图同格");
+
+        //==============================================================================
+        // 七、T-048 实时模式（MusicAnalyzer.h 文件头「T-048」一节；设计规格-实时GLAZE 第 3 节）。默认关；关着时下面一项都不跑。
+        //   - 另一份段落账（liveLedger，与 House 档那一份同一个类、同一套常数）：所有曲风都分段，三路数据按第「六」节同一口径归段
+        //     （同样的门、同样按起点归属、同样等四路都越过段尾才定稿），定稿的段交给 SegmentSink（SegmentLedger::setSink）。它不进任何画像：
+        //     通用画像、House 档那一份段落账与 House 画像、辅助量与实时模式关着时逐位相同（House 那一份连 live* 四项也与关着时一样，
+        //     只记学习期间的块）。为什么不复用 House 那一份：它的定稿时刻、事件、计数与账本内容编排器每块都读（锁定后防漏网、此刻是否
+        //     主段落），实时一侧要的「不学习也等先试后用的块交齐再定稿」「通用档也记」「重新聆听不清」都会改动它们。
+        //   - 先试后用：实时模式开着时候选一直跑；实时口径有效的块进 live*，其中学习口径有效、交齐时还在学习的块同时进 trial*（第「五」节）。
+        //     定稿要等先试后用的块交齐（与 House 档学习期间同一条），所以起点落在这一段里的有效块全都记进了它的 live*，与宿主分块无关。
+        //     开始学习时候选照旧从零状态重新起跑：重启那一刻还没交齐的块作废、之后 250 ms 的块不算（实时一侧每次开始学习有这个空档）。
+        //   - 断开：只在不连续点（跳播、回绕、宿主 reset、时间轴断开、子块长变了）。开着的段截到此刻（此刻之后的数据不会再归它）、
+        //     就地定稿交出去，下一块重新锚定——交出去的段 [start, end) 在同一条时间轴上首尾相接。重新聆听、clearHouseLedger、换曲风
+        //     都不碰它（段不丢、不截）。reset / prepare / setLiveMode (false) 先同样就地定稿交出去再清。
+        //   - 宿主走带信息只按 SegmentLedger 现有的规则用（小节锚定、位置分格），不另加按走带触发的逻辑。
 
         //==============================================================================
         double energyToLufs (double meanSquare) noexcept
@@ -415,7 +406,8 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    struct MusicAnalyzer::Impl
+    // 先试后用交齐的块由 ClayTrials 回调进来（BlockReceiver，第「五」节 trialBlockCompleted）。
+    struct MusicAnalyzer::Impl final : private ClayTrials::BlockReceiver
     {
         Impl()   { configure (48000.0, 2); allocate(); resetAll(); }
 
@@ -430,27 +422,8 @@ namespace celadon::glaze
         int refractoryGroups = 1;
         double triggerRatio = 0.0, rearmRatio = 0.0;
 
-        // 修坯 Clay 的双二阶（样本流，第「四」「五」节：真次声低通、先试后用的低切高通与加宽高架），系数按采样率算
-        // （转置直接 II 型，double）。
-        struct BiquadCoefficients
-        {
-            double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
-        };
-
-        struct BiquadState
-        {
-            double s1 = 0.0, s2 = 0.0;
-        };
-
-        std::array<BiquadCoefficients, subStageQ.size()> subLowpass {};
-
-        // 先试后用（第「五」节）的配置：块网格、各候选的系数与延迟（configure 里按采样率算）。
-        int trialBlockGroups = 1, trialBlockLength = 1;         // 一块 = trialBlockGroups 个整组 = trialBlockLength 个样本
-        std::int64_t trialWarmUpSamples = 0;                    // 候选从零状态起跑后，这么多样本之内开始的块不算
-        std::array<BiquadCoefficients, trialCutQ.size()> trialCut {};   // 低切：两级高通（L、R 同一组系数）
-        BiquadCoefficients trialShelf;                          // 加宽：S 的高架
-        std::array<int, (size_t) numMonoTrials> trialMonoLength {};     // 收单：各分频点的滑动平均长度 L_c
-        std::array<int, (size_t) numTrials> trialDelay {};      // 各候选输出相对原始的延迟：低切 / 加宽 0，收单 D_c = 2(L_c − 1)
+        // 修坯 Clay 的真次声低通（样本流，第「四」节）：四级双二阶，系数按采样率算（转置直接 II 型，double；与先试后用的候选共用 ClayBiquad）。
+        std::array<ClayBiquad::Coefficients, subStageQ.size()> subLowpass {};
 
         // 帧流的常数随 Balance 的 hop 定（第一次读到帧时算，hop 变了重算）
         int hop = 0, frameWindow = 0;
@@ -568,70 +541,19 @@ namespace celadon::glaze
         bool onsetDirty = false;
 
         // 修坯 Clay 的真次声占比（第「四」节）：与起音同一个组网格、同一套边界；有效时长就是 onsetEffectiveSamples
-        std::array<BiquadState, subStageQ.size()> subState {};
+        std::array<ClayBiquad::State, subStageQ.size()> subState {};
         double groupSubEnergy = 0.0, groupMidEnergy = 0.0;   // 本组（还没完成）的 Σ 低通输出²、Σ M²
         double subEnergy = 0.0, midEnergy = 0.0;             // 学习区间内有效组的累计 E_sub、E_全
 
         //==============================================================================
-        // 五、先试后用（样本流，只在学习期间跑）
-        // 候选的滤波器状态（每次起跑清零）。收单候选的低通与 M / S 延迟环随采样率定长：allocate（prepare）里分配，音频线程只清零。
-        std::array<LinearPhaseLowpass, (size_t) numMonoTrials> trialMonoLowpass;
-        std::vector<double> trialMidHistory, trialSideHistory;      // M、S 的延迟环（2 的幂长度 > 最长的 D_c）
-        int trialHistoryMask = 0;
-        int trialHistoryWrite = 0;
-        std::array<std::array<BiquadState, trialCutQ.size()>, 2> trialCutState {};   // [声道][级]
-        BiquadState trialShelfState;
-        bool trialRestartPending = true;    // 下一个学习中的样本前先让候选从零状态重新起跑（开始学习、重启、坏样本之后）
-        std::int64_t trialRunSamples = 0;   // 候选起跑以来跑过的样本数（封顶在预热长度：只用来判断「过了预热」）
-
-        // 块网格上的记账：原始的当前块（随组推进，块末在 processGroup 里交），各候选的当前块（按自己的延迟对齐，按样本倒数）。
-        double trialOriginalMax = 0.0;      // 原始当前块的峰值 max(|L|, |R|)
-        bool trialBlockWarm = false;        // 原始当前块开始时候选已过预热
-        bool trialBlockValid = false;       // 原始当前块到目前为止的每个组都算数
-        std::array<double, (size_t) numTrials> trialCandidateMax {};         // 各候选当前块的峰值
-        std::array<int, (size_t) numTrials> trialCandidateLeft {};           // 各候选当前块还差几个输出交齐
-        std::array<std::int64_t, (size_t) numTrials> trialCandidateBlock {}; // 各候选当前块的块号（与原始同一个网格）
-
-        // 一块的交齐记录：原始、6 个峰值候选与 2 个混合损失候选各写一次，写满才记下（有效的话）。2 个槽按块号奇偶轮用（D_c < 块长）。
-        struct TrialRecord
-        {
-            std::int64_t block = -1;
-            double original = 0.0;
-            bool valid = false;
-            int writes = 0;
-            std::array<double, (size_t) numTrials> candidates {};
-            std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};   // 混合损失候选这一块的两份 K 加权能量（T-043）
-        };
-
-        std::array<TrialRecord, 2> trialRecords {};
-
-        // 记下的有效块：[0] 原始、[1 + c] 候选 c 各自最大的 trialTopCount 个块峰值（降序），与块数一起足以求 P99（见第「五」节）。
-        std::array<std::array<double, (size_t) trialTopCount>, (size_t) numTrials + 1> trialTop {};
-        int trialCount = 0;                 // 记下的有效块数（封顶 trialCapacity）
+        // 五、先试后用（样本流；学习期间跑，实时模式开着时一直跑）：候选与块记账在 ClayTrials（prepare 时分配，音频线程只清零），
+        // 这里只留学习区间的累计——学习口径有效、交齐时还在学习的块：[0] 原始、[1 + c] 候选 c 各自最大的 topCount 个块峰值（降序），
+        // 与块数一起足以求 P99（ClayTrials.h 第六节）；两个混合损失候选的两份能量之和（与 P99 同一批块、同一个容量上限）。
+        ClayTrials trials;
+        ClayTrials::TopSeries trialTop {};
+        int trialCount = 0;                 // 记下的有效块数（封顶 ClayTrials::capacity）
         bool trialDirty = false;            // 记下了新块，画像的代价字段待重算
-
-        // 一段（≤ 一个组长）的逐样本暂存：M、S、各收单候选的 LP(S)、各候选的逐样本峰值。定长，不分配。
-        std::array<double, (size_t) maximumGroupLength> trialMidScratch {}, trialSideScratch {};
-        std::array<std::array<double, (size_t) maximumGroupLength>, (size_t) numMonoTrials> trialLowScratch {};
-        std::array<std::array<double, (size_t) maximumGroupLength>, (size_t) numTrials> trialPeakScratch {};
-
-        // 混合损失候选（T-043，ADR-027）：低切（频率 clayBlendCandidateHz）+ ClayModule 的峰值守护（ClayModule::PeakGuard，与链里
-        // 同一份实现；不搭整个 ClayModule——收单低通、加宽高架、延迟线都用不上）跑在原始输入上。守护的抽头给出逐输出样本的两份
-        // K 加权能量，按「输出样本号 − 守护前瞻 G」归到试用块——与收单候选按 D_c 对齐同一做法，是交齐记录的第 8、9 个写者；记下的
-        // 有效块（与 P99 同一批，同一个容量上限）两份能量各自求和。逐样本按样本号归块、守护按从起跑算的 64 样本网格切段与定「量不量」，
-        // 求和顺序与宿主怎么切块无关（逐位）。20 Hz 那个直接用峰值代价低切候选的输出（trialCutOut）。prepare 时分配，音频线程上只清零。
-        std::array<ClayModule::PeakGuard, (size_t) numBlendTrials> trialGuards;
-        std::array<std::array<BiquadCoefficients, trialCutQ.size()>, (size_t) numBlendTrials> trialBlendCut {};
-        std::array<std::array<std::array<BiquadState, trialCutQ.size()>, 2>, (size_t) numBlendTrials> trialBlendCutState {};   // [候选][声道][级]
-        int trialClayDelay = 0;                                             // 守护前瞻 G（两个候选相同）
-        int trialGuardGridLeft = 0;                                         // 到下一个 64 样本网格点还有几个样本（从候选起跑算）
-        std::array<std::array<float, (size_t) maximumGroupLength>, 2> trialCutOut {};   // 峰值代价低切候选本段的 L / R 输出
-        std::array<std::array<std::array<float, (size_t) ClayModule::PeakGuard::maxSegmentLength>, 2>, (size_t) numBlendTrials> trialBlendIo {};
-        std::array<std::array<double, (size_t) maximumGroupLength>, (size_t) numBlendTrials> trialClayIntended {}, trialClayOutput {};
-        std::array<double, (size_t) numBlendTrials> trialBlendIntendedBlock {}, trialBlendOutputBlock {};   // 各候选当前块的累计
-        int trialBlendLeft = 0;                                             // 当前块还差几个输出交齐（两个候选延迟相同，共用）
-        std::int64_t trialBlendBlock = 0;                                   // 当前块的块号（与原始同一个网格）
-        std::array<double, (size_t) numBlendTrials> trialBlendIntendedTotal {}, trialBlendOutputTotal {};   // 记下的有效块之和
+        ClayTrials::BlendSums trialBlendIntendedTotal {}, trialBlendOutputTotal {};
 
         //==============================================================================
         // 输出
@@ -647,7 +569,26 @@ namespace celadon::glaze
         std::array<float, (size_t) numBands> measuredStereoBand {};
 
         //==============================================================================
-        // 六、House 档（第「六」节；通用档不读写下面任何一项）
+        // 六、House 档（第「六」节；通用档不读写下面任何一项）与 七、实时模式共用的「一份段落账的喂法」：三路数据各自读到哪里、
+        // 起音组网格原点是否已知、正在进行的起音事件、各路找段的缓存。House 那一份与实时那一份各一个，口径相同。
+        struct LedgerFeed
+        {
+            std::int64_t subBlockPosition = 0;    // 子块流读到的位置（最后一个子块的末尾）
+            std::int64_t framePosition = 0;       // 帧流读到的位置（最后一帧分析窗起点 + hop）
+            bool gridKnown = false;               // 上次重启以来已为这份账跑过样本（组网格原点已知）
+            bool eventPending = false;            // 正在进行、要计入这份账的起音事件（触发时在有效门上）
+            std::int64_t eventTime = 0;           // 它的触发组的起点
+            int subHint = -1, frameHint = -1, onsetHint = -1, trialHint = -1;   // 各路找段的缓存
+
+            // 段落账清空 / 断开：各路的位置从 at 重新数，进行中的事件作废，缓存作废（网格原点是否已知不在这里：随组网格重启）。
+            void restart (std::int64_t at) noexcept
+            {
+                subBlockPosition = framePosition = at;
+                eventPending = false;
+                subHint = frameHint = onsetHint = trialHint = -1;
+            }
+        };
+
         Genre genre = Genre::general;
         bool houseActive = false;                 // isHouse (genre)
         HouseConstants houseConstants;
@@ -656,14 +597,8 @@ namespace celadon::glaze
         AuxiliaryFeatures houseAux;
         bool houseDirty = false;                  // 段落账有新定稿的段，画像还没按它重算（不学习时留着，等 recomputeHouseProfile）
         std::uint32_t houseGeneration = 0;
-        int houseSubHint = -1, houseFrameHint = -1, houseOnsetHint = -1, houseTrialHint = -1;   // 各路找段的缓存
-        std::int64_t houseSubBlockPosition = 0;   // 子块流读到的位置（最后一个子块的末尾）
-        std::int64_t houseFramePosition = 0;      // 帧流读到的位置（最后一帧分析窗起点 + hop）
-        std::int64_t onsetGridOrigin = 0;         // 起音组网格（也是先试后用的块网格）原点的分析器时间
-        bool houseGridKnown = false;              // 上次重启以来已在 House 档里跑过样本（原点已知）
-        bool houseEventPending = false;           // 正在进行、要计入段落账的起音事件（触发时在有效门上）
-        std::int64_t houseEventTime = 0;          // 它的触发组的起点
-        int maxTrialDelay = 0;                    // 先试后用各写者里最长的延迟（样本；收单候选 D_c 与混合损失候选的守护前瞻 G 取大）
+        LedgerFeed houseFeed;
+        std::int64_t onsetGridOrigin = 0;         // 起音组网格（也是先试后用的块网格）原点的分析器时间（House 档或实时模式开着时才更新）
 
         // 画像合并用的累计量（computeHouseProfile 每次从段落账重新合并；口径同通用画像的同名累计量）。
         struct HouseSums
@@ -684,9 +619,9 @@ namespace celadon::glaze
             std::int64_t onsetEffectiveSamples = 0, onsetEvents = 0;
             std::array<std::uint32_t, (size_t) strengthBins> strengthCount {};
             double subEnergy = 0.0, midEnergy = 0.0;
-            std::array<std::array<double, (size_t) trialTopCount>, (size_t) numTrials + 1> trialTop {};
+            ClayTrials::TopSeries trialTop {};
             int trialCount = 0;
-            std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};   // 合并进来的块的两份 K 加权能量（T-043）
+            ClayTrials::BlendSums blendIntended {}, blendOutput {};   // 合并进来的块的两份 K 加权能量（T-043）
         };
 
         // House 画像各特征的观测充分度（口径同通用画像的 measured*）。
@@ -700,6 +635,13 @@ namespace celadon::glaze
         HouseSums houseSums;
         HouseMeasured houseMeasured;
         float houseRepresentativeness = 0.0f;
+
+        //==============================================================================
+        // 七、T-048 实时模式（第「七」节；关着时下面一项都不碰，实时段落账也不分配）
+        bool liveMode = false;
+        SegmentLedger liveLedger;                 // 实时段落账：打开实时模式与 prepare 时分配；定稿的段交给 liveSink
+        LedgerFeed liveFeed;
+        SegmentSink* liveSink = nullptr;          // 只存指针、不拥有（setSegmentSink；在处理之前设）
 
         //==============================================================================
         void configure (double newSampleRate, int newNumChannels) noexcept
@@ -721,73 +663,33 @@ namespace celadon::glaze
             const auto subFrequency = juce::jmin (subCutoffHz, 0.45 * sampleRate);
 
             for (size_t stage = 0; stage < subLowpass.size(); ++stage)
-                subLowpass[stage] = makeLowpass (sampleRate, subFrequency, subStageQ[stage]);
-
-            // 先试后用（第「五」节）：块 = 整数个组（与起音的组网格对齐：44.1 / 48 / 96 / 192 kHz 下正好 100 ms）。
-            trialBlockGroups = juce::jmax (1, juce::roundToInt (trialBlockSeconds / groupSeconds));
-            trialBlockLength = trialBlockGroups * groupLength;
-            trialWarmUpSamples = (std::int64_t) std::ceil (trialWarmUpSeconds * sampleRate);
-
-            for (size_t stage = 0; stage < trialCut.size(); ++stage)
-                trialCut[stage] = makeHighpass (sampleRate, trialLowCutHz, trialCutQ[stage]);
-
-            trialShelf = makeHighShelf (sampleRate, trialWidthShelfHz, trialWidthDb);
-            trialDelay.fill (0);
-
-            for (size_t c = 0; c < trialMonoLength.size(); ++c)
-            {
-                trialMonoLength[c] = LinearPhaseLowpass::lengthFor (sampleRate, (double) clayMonoCandidateHz[c]);
-                trialDelay[(size_t) trialFirstMono + c] = LinearPhaseLowpass::groupDelayFor (trialMonoLength[c]);
-
-                // 记录槽按块号奇偶轮用的前提：候选的延迟短于一块（60 Hz 的 D_c ≈ 0.008·fs，一块 ≈ 0.1·fs，任何采样率都成立）。
-                jassert (trialDelay[(size_t) trialFirstMono + c] < trialBlockLength);
-            }
-
-            // 混合损失候选：低切系数与守护前瞻 G（约 11 ms，同样短于一块）。
-            for (size_t c = 0; c < trialBlendCut.size(); ++c)
-                for (size_t stage = 0; stage < trialCutQ.size(); ++stage)
-                    trialBlendCut[c][stage] = makeHighpass (sampleRate, (double) clayBlendCandidateHz[c], trialCutQ[stage]);
-
-            trialClayDelay = ClayModule::PeakGuard::windowFor (sampleRate) + ClayModule::PeakGuard::attackFor (sampleRate);
-            jassert (trialClayDelay < trialBlockLength);
-
-            // House 段落账：一块的记录要等全部写者交齐（含混合损失候选，它们比原始晚 G）——最长的那个延迟决定段何时可定稿。
-            maxTrialDelay = trialClayDelay;
-
-            for (const auto delay : trialDelay)
-                maxTrialDelay = juce::jmax (maxTrialDelay, delay);
+                subLowpass[stage] = ClayBiquad::lowpass (sampleRate, subFrequency, subStageQ[stage]);
 
             hop = 0;
             frameWindow = 0;
         }
 
-        // prepare（消息线程，也在构造时）：先试后用里随采样率定长的部分——收单候选的线性相位低通（按各自的 L_c）与
-        // M / S 延迟环（2 的幂长度，大于最长的 D_c）。之后音频线程上只清零，不再分配。
+        // prepare（消息线程，也在构造时；configure 之后）：先试后用的候选（ClayTrials：块网格与系数随采样率与组长，收单候选的线性相位
+        // 低通、M / S 延迟环与两份守护随采样率定长）与段落账。之后音频线程上只清零，不再分配。
         void allocate()
         {
-            auto longestDelay = 0;
-
-            for (size_t c = 0; c < trialMonoLowpass.size(); ++c)
-            {
-                trialMonoLowpass[c].prepare (trialMonoLength[c]);
-                longestDelay = juce::jmax (longestDelay, trialDelay[(size_t) trialFirstMono + c]);
-            }
-
-            const auto historyLength = juce::nextPowerOfTwo (longestDelay + 1);
-            trialMidHistory.assign ((size_t) historyLength, 0.0);
-            trialSideHistory.assign ((size_t) historyLength, 0.0);
-            trialHistoryMask = historyLength - 1;
-            trialHistoryWrite = 0;
-
-            // 混合损失候选（T-043）：守护按立体声准备（单声道输入时两路喂同一个声道）。
-            for (auto& guard : trialGuards)
-                guard.prepare (sampleRate, 2);
-
-            trialRestartPending = true;
+            trials.prepare (sampleRate, groupLength);
 
             // T-038 House 档的段落账（第「六」节）：按采样率分配，之后音频线程只拷贝、清零（先交常数：prepare 按新采样率折算段长）。
             ledger.setConstants (houseConstants);
             ledger.prepare (sampleRate, subBlockLength);
+
+            // T-048 实时段落账（第「七」节）：账本（512 段 × 约 4 KB ≈ 2 MB）只在实时模式开着时分配；关着时只有 SegmentLedger 自身的
+            // 定长成员（8 个开着的段、门控直方图，约 50 KB，在 Impl 里）。
+            if (liveMode)
+                prepareLiveLedger();
+        }
+
+        void prepareLiveLedger()
+        {
+            liveLedger.setConstants (houseConstants);
+            liveLedger.prepare (sampleRate, subBlockLength);
+            liveLedger.setSink (liveSink);
         }
 
         void updateFrameConstants (int newHop, int newWindow) noexcept
@@ -830,6 +732,10 @@ namespace celadon::glaze
             restartOnsets();
             clearLearning();
             clearHouse (0);
+
+            // T-048：实时段落账回到空（开着的段已由调用方先就地定稿交出去：MusicAnalyzer::reset / prepare）。
+            if (liveMode)
+                clearLive (0);
         }
 
         void clearLearning() noexcept
@@ -881,7 +787,8 @@ namespace celadon::glaze
             subEnergy = 0.0;
             midEnergy = 0.0;
 
-            // 先试后用：记下的块清空；候选只在学习期间跑，新的学习区间从零状态重新起跑（下一个学习中的样本前）。
+            // 先试后用：记下的块清空；新的学习区间从零状态重新起跑（下一个样本前；实时模式开着、候选一直在跑时也重新起跑，
+            // 所以学习区间里的候选状态与块网格和实时模式关着时逐位相同）。
             for (auto& top : trialTop)
                 top.fill (0.0);
 
@@ -889,7 +796,7 @@ namespace celadon::glaze
             trialBlendIntendedTotal.fill (0.0);
             trialBlendOutputTotal.fill (0.0);
             trialDirty = false;
-            trialRestartPending = true;
+            trials.requestRestart();
 
             loudnessDirty = spectrumDirty = onsetDirty = false;
 
@@ -959,73 +866,19 @@ namespace celadon::glaze
             eventCounts = false;
 
             // 修坯 Clay 的真次声低通与本组能量随组网格一起重起（重启后的起始瞬态落在 250 ms 预热里，不计入）。
-            subState.fill (BiquadState {});
+            subState.fill (ClayBiquad::State {});
             groupSubEnergy = 0.0;
             groupMidEnergy = 0.0;
 
-            // 先试后用的块网格随组网格一起从这里重新数；候选在下一个学习中的样本前从零状态重新起跑（清零在音频线程上做，
-            // 不学习时不做——候选反正不跑）。已记下的有效块不动（同其他累计）。
-            trialRestartPending = true;
+            // 先试后用的块网格随组网格一起从这里重新数；候选在下一个要跑的样本前从零状态重新起跑（清零在音频线程上做，
+            // 候选不跑的时候不做）。已记下的有效块不动（同其他累计）。
+            trials.requestRestart();
 
-            // House 档（第「六」节）：进行中的事件作废（与上面的事件状态一起），组网格的原点等下一个样本再定。
-            houseEventPending = false;
-            houseGridKnown = false;
-        }
-
-        // 候选从零状态重新起跑（第「五」节）。position = 下一个要跑的样本从重启起算的序号（组网格上的位置）。只清零、不分配。
-        void restartTrial (std::int64_t position) noexcept
-        {
-            trialRestartPending = false;
-
-            for (auto& channelStates : trialCutState)
-                channelStates.fill (BiquadState {});
-
-            trialShelfState = BiquadState {};
-
-            for (size_t c = 0; c < trialMonoLowpass.size(); ++c)
-                trialMonoLowpass[c].reset (trialMonoLength[c]);
-
-            std::fill (trialMidHistory.begin(), trialMidHistory.end(), 0.0);
-            std::fill (trialSideHistory.begin(), trialSideHistory.end(), 0.0);
-            trialHistoryWrite = 0;
-            trialRunSamples = 0;
-
-            // 原始的当前块在候选起跑之前就开始了：不算。各候选的当前块按自己的延迟对到同一个网格上——候选此刻的输出对应原始的
-            // 第 position − D_c 个样本；早于重启点的那 D_c 个输出（延迟环里的 0）并进第 0 块，而第 0 块落在重启后 250 ms 的预热里。
-            trialOriginalMax = 0.0;
-            trialBlockWarm = false;
-            trialBlockValid = false;
-            const auto blockSamples = (std::int64_t) trialBlockLength;
-
-            for (size_t c = 0; c < (size_t) numTrials; ++c)
-            {
-                const auto source = position - (std::int64_t) trialDelay[c];
-                trialCandidateMax[c] = 0.0;
-                trialCandidateBlock[c] = source >= 0 ? source / blockSamples : 0;
-                trialCandidateLeft[c] = (int) (source >= 0 ? blockSamples - source % blockSamples : blockSamples - source);
-            }
-
-            // 混合损失候选（T-043）：从零状态重新起跑，块网格同收单候选（按自己的延迟 G 对齐）；守护的 64 样本网格从这里起算。
-            for (auto& guard : trialGuards)
-                guard.reset();
-
-            for (auto& candidate : trialBlendCutState)
-                for (auto& channelStates : candidate)
-                    channelStates.fill (BiquadState {});
-
-            trialGuardGridLeft = 0;
-
-            trialBlendIntendedBlock.fill (0.0);
-            trialBlendOutputBlock.fill (0.0);
-
-            {
-                const auto source = position - (std::int64_t) trialClayDelay;
-                trialBlendBlock = source >= 0 ? source / blockSamples : 0;
-                trialBlendLeft = (int) (source >= 0 ? blockSamples - source % blockSamples : blockSamples - source);
-            }
-
-            for (auto& record : trialRecords)
-                record = TrialRecord {};
+            // House 档（第「六」节）与实时段落账（第「七」节）：进行中的事件作废（与上面的事件状态一起），组网格的原点等下一个样本再定。
+            houseFeed.eventPending = false;
+            houseFeed.gridKnown = false;
+            liveFeed.eventPending = false;
+            liveFeed.gridKnown = false;
         }
 
         // 在时间戳 at 处断开：丢弃跨越它的全部窗口（子块、帧、包络）。已完成的累计（直方图、证据、事件数、有效时长）不动。
@@ -1040,6 +893,10 @@ namespace celadon::glaze
             // House 档：跨越不连续点的数据上面都丢了，段落账里没定稿的段已经交齐，就地定稿；下一块重新锚定。
             if (houseActive)
                 houseEndEpoch (at);
+
+            // 实时段落账同理（第「七」节）：开着的段截到此刻、就地定稿交出去。
+            if (liveMode)
+                liveEndEpoch (at);
         }
 
         //==============================================================================
@@ -1056,6 +913,7 @@ namespace celadon::glaze
             {
                 subBlockLength = juce::jmax (1, meter.getSubBlockLength());
                 ledger.setSubBlockLength (subBlockLength);   // House 档段落账的「有效时长」按它折算（只存一个数）
+                liveLedger.setSubBlockLength (subBlockLength);   // 实时段落账同理（没分配时也只存一个数）
                 beginDiscontinuity (blockStart);
             }
 
@@ -1083,9 +941,12 @@ namespace celadon::glaze
             now = meterNow;
             lastBlockSamples = numSamples;
 
-            // House 档：先按宿主拍点把这一块盖进段里（锚点与整数段边界，第「六」节），三路数据再各自找段。
+            // House 档：先按宿主拍点把这一块盖进段里（锚点与整数段边界，第「六」节），三路数据再各自找段。实时段落账同一做法（第「七」节）。
             if (houseActive)
                 ledger.beginBlock (blockStart, numSamples, host);
+
+            if (liveMode)
+                liveLedger.beginBlock (blockStart, numSamples, host);
 
             runOnsets (input, blockStart);
 
@@ -1128,6 +989,9 @@ namespace celadon::glaze
 
             if (houseActive)
                 houseAdvance();
+
+            if (liveMode)
+                liveAdvance();
         }
 
         double windowSum (int newestCount) const noexcept
@@ -1156,9 +1020,12 @@ namespace celadon::glaze
             const auto length = (std::int64_t) subBlockLength;
             const auto start = subBlock.endSample - length;
 
-            // House 档：子块流读到这里了（丢掉的子块同样算读过：之后不会再有起点早于它的子块）。
+            // House 档与实时段落账：子块流读到这里了（丢掉的子块同样算读过：之后不会再有起点早于它的子块）。
             if (houseActive)
-                houseSubBlockPosition = juce::jmax (houseSubBlockPosition, subBlock.endSample);
+                houseFeed.subBlockPosition = juce::jmax (houseFeed.subBlockPosition, subBlock.endSample);
+
+            if (liveMode)
+                liveFeed.subBlockPosition = juce::jmax (liveFeed.subBlockPosition, subBlock.endSample);
 
             // 跨越不连续点、或数值坏了的子块：丢掉，窗口从下一个干净的子块重新填。
             if (start < discardSubBlocksBefore
@@ -1230,9 +1097,12 @@ namespace celadon::glaze
                                    && (! haveReference || gatingLufs >= reference + effectiveRelativeGateLu);
             view.musicActive = effective;
 
-            // House 档：同一个子块按起点归段（学习与否都记：锁定后防漏网要看新段）。
+            // House 档：同一个子块按起点归段（学习与否都记：锁定后防漏网要看新段）。实时段落账同一口径（第「七」节）。
             if (houseActive)
-                noteHouseSubBlock (subBlock, start, effective, gatingPower, gatingLufs, haveShortTerm, shortTermPower, shortTermLufs);
+                noteSubBlock (ledger, houseFeed, subBlock, start, effective, gatingPower, gatingLufs, haveShortTerm, shortTermPower, shortTermLufs);
+
+            if (liveMode)
+                noteSubBlock (liveLedger, liveFeed, subBlock, start, effective, gatingPower, gatingLufs, haveShortTerm, shortTermPower, shortTermLufs);
 
             if (! learning)
                 return;
@@ -1344,22 +1214,29 @@ namespace celadon::glaze
             const auto channelsToUse = juce::jmin (numChannels, input.getNumChannels());
             const auto* const* channels = input.getArrayOfReadPointers();
 
-            // 先试后用只在学习期间跑（本块内不变：开始 / 停止学习只发生在块之间）；单声道时 L、R 取同一个声道。
-            const auto trialRunning = learning && channelsToUse > 0;
+            // 先试后用在学习期间跑、实时模式开着时一直跑（本块内不变：开始 / 停止学习、开关实时模式只发生在块之间）；
+            // 单声道时 L、R 取同一个声道。
+            const auto trialRunning = trialsRun() && channelsToUse > 0;
             const auto trialStereo = channelsToUse >= 2;
 
-            // 按组切段：一段 = 到本组结束（或本块结束）为止。段内逐样本做起音功率与真次声；学习中再把候选跑一遍这一段；组满再结组。
+            // 按组切段：一段 = 到本组结束（或本块结束）为止。段内逐样本做起音功率与真次声；候选在跑时再把候选跑一遍这一段；组满再结组。
             // 每个样本仍是「起音 / 真次声 → 候选 → （组末）结组」的先后，与逐样本处理逐位相同，所以照样与块长无关。
             for (int segmentStart = 0; segmentStart < numSamples;)
             {
                 const auto segmentLength = juce::jmin (numSamples - segmentStart, groupLength - groupFill);
                 const auto segmentPosition = groupsSinceRestart * (std::int64_t) groupLength + groupFill;   // 从重启起算的样本序号
 
-                // House 档：组网格（也是先试后用的块网格）原点的分析器时间 = 这一段首样本的时间 − 它在网格上的序号（两次重启之间不变）。
-                if (houseActive)
+                // House 档与实时段落账：组网格（也是先试后用的块网格）原点的分析器时间 = 这一段首样本的时间 − 它在网格上的序号
+                // （两次重启之间不变，两份账算出的是同一个数）。
+                if (houseActive || liveMode)
                 {
                     onsetGridOrigin = blockStart + segmentStart - segmentPosition;
-                    houseGridKnown = true;
+
+                    if (houseActive)
+                        houseFeed.gridKnown = true;
+
+                    if (liveMode)
+                        liveFeed.gridKnown = true;
                 }
 
                 for (int i = segmentStart; i < segmentStart + segmentLength; ++i)
@@ -1381,15 +1258,15 @@ namespace celadon::glaze
                     auto low = mid;
 
                     for (size_t stage = 0; stage < subLowpass.size(); ++stage)
-                        low = runBiquad (low, subLowpass[stage], subState[stage]);
+                        low = ClayBiquad::run (low, subLowpass[stage], subState[stage]);
 
                     groupSubEnergy += low * low;
                     groupMidEnergy += mid * mid;
                 }
 
                 if (trialRunning)
-                    runTrial (channels[0] + segmentStart, channels[trialStereo ? 1 : 0] + segmentStart, trialStereo,
-                              segmentLength, segmentPosition);
+                    trials.process (channels[0] + segmentStart, channels[trialStereo ? 1 : 0] + segmentStart, trialStereo,
+                                    segmentLength, segmentPosition, *this);
 
                 segmentStart += segmentLength;
 
@@ -1408,86 +1285,15 @@ namespace celadon::glaze
                     }
 
                     if (trialRunning)
-                        snapTrialStates();
+                        trials.snapStates();
                 }
             }
         }
 
-        // 修坯 Clay 的样本流工具（第「四」「五」节）。
-        // RBJ 二阶低通（Audio EQ Cookbook 的 LPF），按 a0 归一。1 − cos w0 写成 2·sin²(w0 / 2)：16 Hz / 192 kHz 时 1 − cos w0 ≈ 1.4e-7，
-        // 直接相减会丢掉一半以上的有效数字。四级（Q = 1 / (2·cos((2k − 1)·π/16))）串联 = 双线性变换的 8 阶 Butterworth：
-        // |H|² = 1 / (1 + (tan(πf / fs) / tan(πf₀ / fs))¹⁶)（测试据此算解析值）。
-        static BiquadCoefficients makeLowpass (double rate, double frequency, double q) noexcept
-        {
-            const auto w0 = juce::MathConstants<double>::twoPi * frequency / rate;
-            const auto halfSine = std::sin (0.5 * w0);
-            const auto oneMinusCos = 2.0 * halfSine * halfSine;
-            const auto alpha = std::sin (w0) / (2.0 * q);
-            const auto a0 = 1.0 + alpha;
+        // 先试后用的候选此刻跑不跑（第「五」节）：学习期间，或实时模式开着。
+        bool trialsRun() const noexcept   { return learning || liveMode; }
 
-            BiquadCoefficients c;
-            c.b0 = 0.5 * oneMinusCos / a0;
-            c.b1 = oneMinusCos / a0;
-            c.b2 = c.b0;
-            c.a1 = -2.0 * std::cos (w0) / a0;
-            c.a2 = (1.0 - alpha) / a0;
-            return c;
-        }
-
-        // RBJ 二阶高通：与 ClayModule::designHighpass 同式（频率钳在 0.45 fs 以下）。先试后用的低切候选用它，两级 Q 同 ClayModule。
-        static BiquadCoefficients makeHighpass (double rate, double frequency, double q) noexcept
-        {
-            const auto w0 = juce::MathConstants<double>::twoPi * juce::jmin (frequency, 0.45 * rate) / rate;
-            const auto cosW0 = std::cos (w0);
-            const auto alpha = std::sin (w0) / (2.0 * q);
-            const auto a0 = 1.0 + alpha;
-
-            BiquadCoefficients c;
-            c.b0 = (1.0 + cosW0) * 0.5 / a0;
-            c.b1 = -(1.0 + cosW0) / a0;
-            c.b2 = c.b0;
-            c.a1 = -2.0 * cosW0 / a0;
-            c.a2 = (1.0 - alpha) / a0;
-            return c;
-        }
-
-        // RBJ 高架（斜率 S = 1）：与 ClayModule::designWidthShelf 同式——A = 10^(dB/40)，平台增益 A²，α = sin(w0)/2 · √2
-        // （S = 1 时根号里恒为 2）；频率钳在 0.45 fs 以下。先试后用的加宽候选用它。
-        static BiquadCoefficients makeHighShelf (double rate, double frequency, double gainDb) noexcept
-        {
-            const auto w0 = juce::MathConstants<double>::twoPi * juce::jmin (frequency, 0.45 * rate) / rate;
-            const auto cosW0 = std::cos (w0);
-            const auto alpha = std::sin (w0) / 2.0 * std::sqrt (2.0);
-            const auto a = std::pow (10.0, gainDb / 40.0);
-            const auto aPlus1 = a + 1.0;
-            const auto aMinus1 = a - 1.0;
-            const auto twoSqrtAAlpha = 2.0 * std::sqrt (a) * alpha;
-
-            const auto b0 =        a * (aPlus1 + aMinus1 * cosW0 + twoSqrtAAlpha);
-            const auto b1 = -2.0 * a * (aMinus1 + aPlus1 * cosW0);
-            const auto b2 =        a * (aPlus1 + aMinus1 * cosW0 - twoSqrtAAlpha);
-            const auto a0 =            (aPlus1 - aMinus1 * cosW0 + twoSqrtAAlpha);
-            const auto a1 =      2.0 * (aMinus1 - aPlus1 * cosW0);
-            const auto a2 =            (aPlus1 - aMinus1 * cosW0 - twoSqrtAAlpha);
-
-            BiquadCoefficients c;
-            c.b0 = b0 / a0;
-            c.b1 = b1 / a0;
-            c.b2 = b2 / a0;
-            c.a1 = a1 / a0;
-            c.a2 = a2 / a0;
-            return c;
-        }
-
-        // 转置直接 II 型双二阶（double）。
-        static double runBiquad (double x, const BiquadCoefficients& c, BiquadState& s) noexcept
-        {
-            const auto y = c.b0 * x + s.s1;
-            s.s1 = c.b1 * x - c.a1 * y + s.s2;
-            s.s2 = c.b2 * x - c.a2 * y;
-            return y;
-        }
-
+        // 修坯 Clay 的样本流工具（第「四」节；双二阶的设计与运行在 ClayBiquad，ClayTrials.h）。
         // M = (L + R) / 2。单声道 M = 该声道：与「单声道按左右相同的双声道」一致（(x + x) / 2 与 x 逐位相同）。
         // 多于两个声道只取前两个（L / R，与 Balance 交叉功率取的是同一对）。
         static double midSampleOf (const float* const* samples, int channelsToUse, int index) noexcept
@@ -1539,7 +1345,7 @@ namespace celadon::glaze
 
             if (groupsSinceRestart <= warmUpGroups)
             {
-                noteTrialGroup (false);   // 重启预热里的组：先试后用的块同样不算
+                noteTrialGroup (false, false);   // 重启预热里的组：先试后用的块同样不算（两种口径都不算）
                 return;
             }
 
@@ -1565,12 +1371,15 @@ namespace celadon::glaze
                 midEnergy += groupMidEnergy;
             }
 
-            // House 档：同一组按组起点归段（有效门同上；学习与否都记）。
+            // House 档：同一组按组起点归段（有效门同上；学习与否都记）。实时段落账同一口径（第「七」节）。
             if (houseActive && effective)
-                noteHouseGroup (groupEnd - (std::int64_t) groupLength);
+                noteGroupInto (ledger, houseFeed, groupEnd - (std::int64_t) groupLength);
 
-            // 先试后用：同一套边界决定这一组算不算（块里每个组都算，块才算）。
-            noteTrialGroup (inside && effective);
+            if (liveMode && effective)
+                noteGroupInto (liveLedger, liveFeed, groupEnd - (std::int64_t) groupLength);
+
+            // 先试后用：同一套边界决定这一组算不算（块里每个组都算，块才算）。学习口径还要在学习区间内，实时口径不看学习区间。
+            noteTrialGroup (inside && effective, effective);
 
             const auto denominator = juce::jmax (slow, onsetSlowFloorPower);
 
@@ -1584,11 +1393,17 @@ namespace celadon::glaze
                         eventPeakRatio = fast / denominator;
                         eventCounts = inside && effective;
 
-                        // House 档：事件归触发的那一组所在的段（在有效门上才计；事件结束前那一段不定稿）。
+                        // House 档：事件归触发的那一组所在的段（在有效门上才计；事件结束前那一段不定稿）。实时段落账同理。
                         if (houseActive)
                         {
-                            houseEventPending = effective;
-                            houseEventTime = groupEnd - (std::int64_t) groupLength;
+                            houseFeed.eventPending = effective;
+                            houseFeed.eventTime = groupEnd - (std::int64_t) groupLength;
+                        }
+
+                        if (liveMode)
+                        {
+                            liveFeed.eventPending = effective;
+                            liveFeed.eventTime = groupEnd - (std::int64_t) groupLength;
                         }
                     }
                     break;
@@ -1612,8 +1427,11 @@ namespace celadon::glaze
 
         void finishEvent() noexcept
         {
-            if (houseEventPending)
-                noteHouseEvent();
+            if (houseFeed.eventPending)
+                noteEventInto (ledger, houseFeed);
+
+            if (liveFeed.eventPending)
+                noteEventInto (liveLedger, liveFeed);
 
             if (! (eventCounts && learning))
                 return;
@@ -1626,345 +1444,36 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // 五、先试后用（样本流，学习期间；第「五」节）
+        // 五、先试后用（样本流；第「五」节，候选与块记账在 ClayTrials）
         //==============================================================================
-        // 一段 = 同一个组里连续的 length 个样本（≤ 组长）。left / right = 原始 L / R（单声道时两者是同一个声道）；
-        // position = 段首从重启起算的样本序号（候选需要重新起跑时用来对齐块网格）。
-        void runTrial (const float* left, const float* right, bool stereo, int length, std::int64_t position) noexcept
+        // 原始一侧（processGroup 每组调一次）：本组按两种口径算不算；候选没在跑时不调（ClayTrials 自己在等着重新起跑时也不记）。
+        void noteTrialGroup (bool countsLearning, bool countsLive) noexcept
         {
-            if (trialRestartPending)
-                restartTrial (position);
-
-            // 坏样本（NaN / Inf）会把候选的滤波器状态弄坏：只跑它之前的样本，候选从下一段起从零重来。那一组的起音功率也非有限，
-            // 组末整体重启（restartOnsets），跨越它的块本来就作废。
-            auto count = 0;
-
-            while (count < length && std::isfinite (left[count]) && std::isfinite (right[count]))
-                ++count;
-
-            if (count < length)
-                trialRestartPending = true;
-
-            if (count == 0)
-                return;
-
-            // 1. M / S（单声道时 right 就是 left：M = 该声道、S = 0，与 midSampleOf 同一口径）。
-            for (int k = 0; k < count; ++k)
-            {
-                const auto l = (double) left[k];
-                const auto r = (double) right[k];
-                trialMidScratch[(size_t) k] = 0.5 * (l + r);
-                trialSideScratch[(size_t) k] = 0.5 * (l - r);
-            }
-
-            // 2. 收单候选的线性相位低通。函数调用单独成环：调用会冲掉寄存器，第 3 步的 IIR 状态这样才能整段留在寄存器里。
-            for (size_t c = 0; c < trialMonoLowpass.size(); ++c)
-            {
-                auto& lowpass = trialMonoLowpass[c];
-                auto& lowSide = trialLowScratch[c];
-
-                for (int k = 0; k < count; ++k)
-                    lowSide[(size_t) k] = lowpass.process (trialSideScratch[(size_t) k]);
-            }
-
-            // 3. 逐样本：原始的块峰值累计；六个候选各自此刻的输出峰值先写暂存（第 4 步按各自的块边界累计）。
-            const auto cutFirst = trialCut[0];
-            const auto cutSecond = trialCut[1];
-            const auto shelf = trialShelf;
-            auto leftFirst = trialCutState[0][0];
-            auto leftSecond = trialCutState[0][1];
-            auto rightFirst = trialCutState[1][0];
-            auto rightSecond = trialCutState[1][1];
-            auto shelfState = trialShelfState;
-            auto originalMax = trialOriginalMax;
-            auto write = trialHistoryWrite;
-            const auto mask = trialHistoryMask;
-            auto* midHistory = trialMidHistory.data();
-            auto* sideHistory = trialSideHistory.data();
-
-            for (int k = 0; k < count; ++k)
-            {
-                const auto i = (size_t) k;
-                const auto l = (double) left[k];
-                const auto mid = trialMidScratch[i];
-                const auto side = trialSideScratch[i];
-
-                // 原始：max(|L|, |R|)。0 低切：L、R 各两级高通，max(|L'|, |R'|)（单声道只跑一路：两路逐位相同）。
-                // 低切输出另存一份 float（T-043：20 Hz 的混合损失候选直接用它，与 ClayModule 的低切同样以 float 交给守护）。
-                auto inputPeak = std::abs (l);
-                const auto cutLeft = runBiquad (runBiquad (l, cutFirst, leftFirst), cutSecond, leftSecond);
-                auto cutPeak = std::abs (cutLeft);
-                trialCutOut[0][i] = (float) cutLeft;
-                trialCutOut[1][i] = (float) cutLeft;
-
-                if (stereo)
-                {
-                    const auto r = (double) right[k];
-                    inputPeak = juce::jmax (inputPeak, std::abs (r));
-                    const auto cutRight = runBiquad (runBiquad (r, cutFirst, rightFirst), cutSecond, rightSecond);
-                    cutPeak = juce::jmax (cutPeak, std::abs (cutRight));
-                    trialCutOut[1][i] = (float) cutRight;
-                }
-
-                originalMax = juce::jmax (originalMax, inputPeak);
-                trialPeakScratch[(size_t) trialLowCut][i] = cutPeak;
-
-                // 5 加宽：S'' = 高架(S)，峰值 |M| + |S''|。
-                trialPeakScratch[(size_t) trialWidth][i] = std::abs (mid) + std::abs (runBiquad (side, shelf, shelfState));
-
-                // 1 ～ 4 收单：S' = S 延迟 D_c − LP(S)、M 延迟 D_c，峰值 |M_d| + |S'|。先写延迟环再读（D_c ≥ 2，读不到刚写的这一格）。
-                midHistory[write] = mid;
-                sideHistory[write] = side;
-
-                for (size_t c = 0; c < (size_t) numMonoTrials; ++c)
-                {
-                    const auto delayed = (write + mask + 1 - trialDelay[(size_t) trialFirstMono + c]) & mask;
-                    trialPeakScratch[(size_t) trialFirstMono + c][i] = std::abs (midHistory[delayed])
-                                                                       + std::abs (sideHistory[delayed] - trialLowScratch[c][i]);
-                }
-
-                write = (write + 1) & mask;
-            }
-
-            trialCutState[0][0] = leftFirst;
-            trialCutState[0][1] = leftSecond;
-            trialCutState[1][0] = rightFirst;
-            trialCutState[1][1] = rightSecond;
-            trialShelfState = shelfState;
-            trialOriginalMax = originalMax;
-            trialHistoryWrite = write;
-            trialRunSamples = juce::jmin (trialRunSamples + (std::int64_t) count, trialWarmUpSamples);
-
-            // 4. 各候选按自己（延迟补偿后）的块边界累计块峰值；交齐一块就写进这一块的记录。
-            for (size_t c = 0; c < (size_t) numTrials; ++c)
-            {
-                const auto& peaks = trialPeakScratch[c];
-                auto blockMax = trialCandidateMax[c];
-                auto remaining = trialCandidateLeft[c];
-
-                for (int k = 0; k < count;)
-                {
-                    const auto take = juce::jmin (count - k, remaining);
-
-                    for (int e = k; e < k + take; ++e)
-                        blockMax = juce::jmax (blockMax, peaks[(size_t) e]);
-
-                    k += take;
-                    remaining -= take;
-
-                    if (remaining == 0)
-                    {
-                        auto& record = trialRecordFor (trialCandidateBlock[c]);
-                        record.candidates[c] = blockMax;
-                        countTrialWrite (record);
-                        ++trialCandidateBlock[c];
-                        blockMax = 0.0;
-                        remaining = trialBlockLength;
-                    }
-                }
-
-                trialCandidateMax[c] = blockMax;
-                trialCandidateLeft[c] = remaining;
-            }
-
-            // 5. 混合损失候选（T-043）：按从起跑算的 64 样本网格切段（网格点上各守护先定这一格量不量，ClayModule::process 的同一做法），
-            //    每段算各候选的低切输出（20 Hz 那个用上面存的 trialCutOut），连同原始干路送进各自的守护；守护的抽头写出逐输出样本的两份
-            //    K 加权能量，按共同的块边界（两个延迟相同）累计，交齐一块就各自写进这一块的记录（第 8、9 个写者）。没量的输出样本
-            //    （守护前瞻环里还没有低切过的样本）能量记 0。守护原地写回的输出用不着。
-            for (int done = 0; done < count;)
-            {
-                if (trialGuardGridLeft == 0)
-                {
-                    for (auto& guard : trialGuards)
-                        guard.decideBlendMeasuring();
-
-                    trialGuardGridLeft = ClayModule::PeakGuard::maxSegmentLength;
-                }
-
-                const auto chunk = juce::jmin (count - done, trialGuardGridLeft);
-                const float* const dry[] { left + done, right + done };
-
-                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-                {
-                    auto& io = trialBlendIo[c];
-
-                    if ((int) c == trialBlendSharedCut)
-                    {
-                        for (int k = 0; k < chunk; ++k)
-                        {
-                            io[0][(size_t) k] = trialCutOut[0][(size_t) (done + k)];
-                            io[1][(size_t) k] = trialCutOut[1][(size_t) (done + k)];
-                        }
-                    }
-                    else
-                    {
-                        const auto first = trialBlendCut[c][0];
-                        const auto second = trialBlendCut[c][1];
-                        auto& states = trialBlendCutState[c];
-
-                        for (int k = 0; k < chunk; ++k)
-                        {
-                            io[0][(size_t) k] = (float) runBiquad (runBiquad ((double) dry[0][k], first, states[0][0]), second, states[0][1]);
-                            io[1][(size_t) k] = stereo ? (float) runBiquad (runBiquad ((double) dry[1][k], first, states[1][0]), second, states[1][1])
-                                                       : io[0][(size_t) k];
-                        }
-                    }
-
-                    auto& guard = trialGuards[c];
-                    guard.tapIntended = trialClayIntended[c].data() + done;
-                    guard.tapOutput = trialClayOutput[c].data() + done;
-                    float* const channels[] { io[0].data(), io[1].data() };
-                    guard.process (dry, channels, nullptr, 2, chunk);
-                }
-
-                done += chunk;
-                trialGuardGridLeft -= chunk;
-            }
-
-            auto intendedSum = trialBlendIntendedBlock;
-            auto outputSum = trialBlendOutputBlock;
-            auto remaining = trialBlendLeft;
-
-            for (int k = 0; k < count;)
-            {
-                const auto take = juce::jmin (count - k, remaining);
-
-                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-                {
-                    for (int e = k; e < k + take; ++e)
-                    {
-                        intendedSum[c] += trialClayIntended[c][(size_t) e];
-                        outputSum[c] += trialClayOutput[c][(size_t) e];
-                    }
-                }
-
-                k += take;
-                remaining -= take;
-
-                if (remaining == 0)
-                {
-                    for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-                    {
-                        auto& record = trialRecordFor (trialBlendBlock);
-                        record.blendIntended[c] = intendedSum[c];
-                        record.blendOutput[c] = outputSum[c];
-                        countTrialWrite (record);
-                    }
-
-                    ++trialBlendBlock;
-                    intendedSum.fill (0.0);
-                    outputSum.fill (0.0);
-                    remaining = trialBlockLength;
-                }
-            }
-
-            trialBlendIntendedBlock = intendedSum;
-            trialBlendOutputBlock = outputSum;
-            trialBlendLeft = remaining;
+            if (trialsRun())
+                trials.noteGroup (groupsSinceRestart, countsLearning, countsLive, *this);
         }
 
-        // 候选的 IIR 状态在长时间静音里同样会衰减进非规格化数：每组末尾归零（与真次声低通同一门槛、同一网格）。
-        void snapTrialStates() noexcept
+        // ClayTrials 每交齐一块调一次（按块号先后；第「五」节「交齐的块进哪里」）。
+        void trialBlockCompleted (const ClayTrials::Block& block) noexcept override
         {
-            for (auto& channelStates : trialCutState)
+            // 学习口径：块按学习区间有效、且交齐时还在学习。实时模式关着时候选只在学习期间跑，后一条恒成立（= 原来的「有效就记」）。
+            const auto learningBlock = learning && block.valid;
+
+            // House 档：交齐的有效块按块起点归段（每段每一路留最大的 8 个，第「六」节）。live* 与 trial* 同口径（实时模式关着时两者同时记、
+            // 数值相同；开着时 House 那一份照样只记学习口径的块，与关着时逐位相同）。
+            if (houseActive && learningBlock)
+                noteLedgerTrial (ledger, houseFeed, block, true, true);
+
+            // 实时段落账（第「七」节）：实时口径有效的块进 live*，学习口径的块同时进 trial*。
+            if (liveMode && (learningBlock || block.liveValid))
+                noteLedgerTrial (liveLedger, liveFeed, block, learningBlock, block.liveValid);
+
+            if (learningBlock && trialCount < ClayTrials::capacity)
             {
-                for (auto& stageState : channelStates)
-                {
-                    snapToZero (stageState.s1);
-                    snapToZero (stageState.s2);
-                }
-            }
-
-            snapToZero (trialShelfState.s1);
-            snapToZero (trialShelfState.s2);
-
-            for (auto& candidate : trialBlendCutState)   // T-043 混合损失候选的低切（守护自己的状态由它的网格归零）
-                for (auto& channelStates : candidate)
-                    for (auto& stageState : channelStates)
-                    {
-                        snapToZero (stageState.s1);
-                        snapToZero (stageState.s2);
-                    }
-        }
-
-        // 原始一侧（processGroup 每组调一次）：本组按起音那套边界算不算；块的最后一组结组时交出这一块。
-        // 候选没在跑（不在学习、或正等着重新起跑）时不记。
-        void noteTrialGroup (bool counts) noexcept
-        {
-            if (! learning || trialRestartPending)
-                return;
-
-            trialBlockValid = trialBlockValid && counts;
-
-            if (groupsSinceRestart % trialBlockGroups != 0)
-                return;
-
-            auto& record = trialRecordFor (groupsSinceRestart / trialBlockGroups - 1);
-            record.original = trialOriginalMax;
-            record.valid = trialBlockWarm && trialBlockValid;
-            countTrialWrite (record);
-
-            // 下一块：开始时候选已跑满预热才算。
-            trialOriginalMax = 0.0;
-            trialBlockValid = true;
-            trialBlockWarm = trialRunSamples >= trialWarmUpSamples;
-        }
-
-        TrialRecord& trialRecordFor (std::int64_t block) noexcept
-        {
-            auto& record = trialRecords[(size_t) (block & 1)];
-
-            if (record.block != block)
-            {
-                record = TrialRecord {};
-                record.block = block;
-            }
-
-            return record;
-        }
-
-        // 原始、6 个峰值候选与混合损失候选都写过这一块才算交齐：有效的记下（封顶 trialCapacity，满了之后不再记），然后腾出槽位。
-        void countTrialWrite (TrialRecord& record) noexcept
-        {
-            if (++record.writes < trialWriters)
-                return;
-
-            // House 档：交齐的有效块按块起点归段（每段每一路留最大的 8 个，第「六」节）。
-            if (houseActive && record.valid)
-                noteHouseTrial (record);
-
-            if (record.valid && trialCount < trialCapacity)
-            {
-                insertTop (trialTop[0], trialCount, record.original);
-
-                for (size_t c = 0; c < (size_t) numTrials; ++c)
-                    insertTop (trialTop[c + 1], trialCount, record.candidates[c]);
-
-                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-                {
-                    trialBlendIntendedTotal[c] += record.blendIntended[c];
-                    trialBlendOutputTotal[c] += record.blendOutput[c];
-                }
-
+                ClayTrials::accumulate (trialTop, trialBlendIntendedTotal, trialBlendOutputTotal, trialCount, block);
                 ++trialCount;
                 trialDirty = true;
             }
-
-            record = TrialRecord {};
-        }
-
-        // top[0 .. filled) 降序、最多留 trialTopCount 个：插入 value，挤掉最小的。
-        static void insertTop (std::array<double, (size_t) trialTopCount>& top, int filled, double value) noexcept
-        {
-            auto slot = juce::jmin (filled, trialTopCount - 1);
-
-            if (filled >= trialTopCount && ! (value > top[(size_t) slot]))
-                return;
-
-            for (; slot > 0 && top[(size_t) slot - 1] < value; --slot)
-                top[(size_t) slot] = top[(size_t) slot - 1];
-
-            top[(size_t) slot] = value;
         }
 
         //==============================================================================
@@ -2037,6 +1546,9 @@ namespace celadon::glaze
 
             if (houseActive)
                 houseAdvance();
+
+            if (liveMode)
+                liveAdvance();
         }
 
         void frameDiscontinuity (std::int64_t at) noexcept
@@ -2044,9 +1556,12 @@ namespace celadon::glaze
             discardFramesBefore = at;
             restartSpectrum();
 
-            // House 档：分析窗早于 at 的帧不会再来了，帧流就算读到了 at。
+            // House 档与实时段落账：分析窗早于 at 的帧不会再来了，帧流就算读到了 at。
             if (houseActive)
-                houseFramePosition = juce::jmax (houseFramePosition, at);
+                houseFeed.framePosition = juce::jmax (houseFeed.framePosition, at);
+
+            if (liveMode)
+                liveFeed.framePosition = juce::jmax (liveFeed.framePosition, at);
         }
 
         void consumeFrame (const BalanceModule::FrameSnapshot& frame, std::int64_t end) noexcept
@@ -2062,9 +1577,12 @@ namespace celadon::glaze
             if (havePreviousFrame && end - previousFrameEnd != (std::int64_t) hop)
                 restartSpectrum();   // 丢过帧：时间平均与谱通量都从这一帧重新开始
 
-            // House 档：帧流读到这里了（之后的帧分析窗起点都不早于它）。
+            // House 档与实时段落账：帧流读到这里了（之后的帧分析窗起点都不早于它）。
             if (houseActive)
-                houseFramePosition = juce::jmax (houseFramePosition, windowStart + (std::int64_t) hop);
+                houseFeed.framePosition = juce::jmax (houseFeed.framePosition, windowStart + (std::int64_t) hop);
+
+            if (liveMode)
+                liveFeed.framePosition = juce::jmax (liveFeed.framePosition, windowStart + (std::int64_t) hop);
 
             std::array<double, (size_t) numBands> power {}, cross {};
             double total = 0.0;
@@ -2108,15 +1626,22 @@ namespace celadon::glaze
             const auto music = total >= frameAbsoluteGatePower && relativeOk;
 
             // House 档：这一帧按分析窗起点归段。帧门同上，只是相对门不看「在不在学习区间里」——锁定后停止学习，按学习区间冻结的帧均值
-            // 接着用（学习中、窗在区间里时与 music 逐项相同；所以 houseMusic 为真时 music 也为真，频谱证据照常算到）。
+            // 接着用（学习中、窗在区间里时与 music 逐项相同；所以 ledgerMusic 为真时 music 也为真，频谱证据照常算到）。
+            // 实时段落账同一个帧门（第「七」节；门与曲风无关，两份账算出的是同一个值）。
             SegmentLedger::Segment* houseSegment = nullptr;
-            auto houseMusic = false;
+            SegmentLedger::Segment* liveSegment = nullptr;
+            auto ledgerMusic = false;
 
-            if (houseActive)
+            if (houseActive || liveMode)
             {
-                houseSegment = ledger.openSegmentAt (windowStart, houseFrameHint);
-                houseMusic = total >= frameAbsoluteGatePower
-                          && (learnFrames == 0 || total >= frameRelativeGateRatio * learnTotalPowerSum / (double) learnFrames);
+                if (houseActive)
+                    houseSegment = ledger.openSegmentAt (windowStart, houseFeed.frameHint);
+
+                if (liveMode)
+                    liveSegment = liveLedger.openSegmentAt (windowStart, liveFeed.frameHint);
+
+                ledgerMusic = total >= frameAbsoluteGatePower
+                           && (learnFrames == 0 || total >= frameRelativeGateRatio * learnTotalPowerSum / (double) learnFrames);
             }
 
             // 修坯 Clay 的实时立体声视图：帧门限之上才更新（学习与否都更新）。门限下（静音）两路低频相关度标无效、平滑状态保留，
@@ -2182,12 +1707,15 @@ namespace celadon::glaze
                 spectrumDirty = true;
             }
 
-            if (houseSegment != nullptr && haveFlux)   // House 档：同上，按段（含静音帧）
+            for (auto* segment : { houseSegment, liveSegment })   // House 档与实时段落账：同上，按段（含静音帧）
             {
-                ++houseSegment->fluxFrames;
+                if (segment != nullptr && haveFlux)
+                {
+                    ++segment->fluxFrames;
 
-                if (fluxEvent)
-                    ++houseSegment->fluxEvents;
+                    if (fluxEvent)
+                        ++segment->fluxEvents;
+                }
             }
 
             if (inside && music)
@@ -2215,13 +1743,15 @@ namespace celadon::glaze
                 spectrumDirty = true;
             }
 
-            if (houseSegment != nullptr && houseMusic)   // House 档：同上，按段
-                noteHouseMusicFrame (*houseSegment, power, haveFlux, flux);
+            if (ledgerMusic)   // House 档与实时段落账：同上，按段
+                for (auto* segment : { houseSegment, liveSegment })
+                    if (segment != nullptr)
+                        noteMusicFrame (*segment, power, haveFlux, flux);
 
             // 长期画像按原来的学习边界累计；短期突出证据与学习状态无关，实时播放和离线渲染走同一路径。
             // 共用一轮稳健轮廓计算，不增加 FFT，也不重新启动画像学习。House 档的段在同一轮里顺带累计（第「六」节）。
             if (music && framesSinceRestart >= settleFrames)
-                accumulateEvidence (inside, power, cross, houseMusic ? houseSegment : nullptr);
+                accumulateEvidence (inside, power, cross, ledgerMusic ? houseSegment : nullptr, ledgerMusic ? liveSegment : nullptr);
             else
             {
                 livePositiveSeconds.fill (0.0);
@@ -2290,8 +1820,10 @@ namespace celadon::glaze
         }
 
         // house = House 档这一帧所在的段（帧门之上才给，第「六」节）：频谱证据与立体声在同一轮里按同一口径另加进段里；通用档恒为空。
+        // liveSegment = 实时段落账里这一帧所在的段（第「七」节，同一口径；实时模式关着时恒为空）。
         void accumulateEvidence (bool collectLearning, const std::array<double, (size_t) numBands>& currentPower,
-                                 const std::array<double, (size_t) numBands>& currentCross, SegmentLedger::Segment* house = nullptr) noexcept
+                                 const std::array<double, (size_t) numBands>& currentCross, SegmentLedger::Segment* house,
+                                 SegmentLedger::Segment* liveSegment) noexcept
         {
             std::array<double, (size_t) numBands> level {}, gate {}, weights {}, firstResidual {};
             std::array<bool, (size_t) numBands> evaluated {};
@@ -2306,8 +1838,9 @@ namespace celadon::glaze
             if (collectLearning)
                 accumulateStereo (currentPower, currentCross, gate);
 
-            if (house != nullptr)
-                accumulateHouseStereo (*house, currentPower, currentCross, gate);
+            for (auto* segment : { house, liveSegment })
+                if (segment != nullptr)
+                    accumulateSegmentStereo (*segment, currentPower, currentCross, gate);
 
             // 第一遍：邻段只按静音门加权。
             for (int b = 0; b < numBands; ++b)
@@ -2380,15 +1913,18 @@ namespace celadon::glaze
                     validWeight[i] += gate[i];
                 }
 
-                if (house != nullptr)   // House 档：同一份残差、同一权重，加进段里
+                for (auto* segment : { house, liveSegment })   // House 档与实时段落账：同一份残差、同一权重，加进段里
                 {
-                    house->tameSum[i] += gate[i] * positive;
-                    house->recoverSum[i] += gate[i] * juce::jmax (0.0, -residual - toleranceDb);
+                    if (segment == nullptr)
+                        continue;
+
+                    segment->tameSum[i] += gate[i] * positive;
+                    segment->recoverSum[i] += gate[i] * juce::jmax (0.0, -residual - toleranceDb);
 
                     if (residual < -toleranceDb)
-                        house->deficitWeight[i] += gate[i];
+                        segment->deficitWeight[i] += gate[i];
 
-                    house->validWeight[i] += gate[i];
+                    segment->validWeight[i] += gate[i];
                 }
 
                 if (positive > 0.0 && currentPower[i] >= averagedPower[i] * liveTamePresentRatio)
@@ -2866,72 +2402,25 @@ namespace celadon::glaze
             measuredOnset = fraction (seconds, onsetFullSeconds);
         }
 
-        // 先试后用（第「五」节）：代价字段只由记下的有效块按纯函数算出。每记下一块重算一次（至多每 100 ms 音频一次，O(候选数)）。
+        // 先试后用（第「五」节）：代价字段只由记下的有效块按纯函数算出（ClayTrials::costsOf，与 House 画像同一份）。每记下一块重算一次
+        // （至多每 100 ms 音频一次，O(候选数)）。置信度在 finalizeConfidences 里按 min(观测充分度, 代表性) 给。
         void updateTrialProfile() noexcept
         {
             trialDirty = false;
-
-            const auto seconds = (double) trialCount * (double) trialBlockLength / sampleRate;
-            measuredTrial = fraction (seconds, trialFullSeconds);
-
-            const auto original = trialCount > 0 ? percentileOfTop (trialTop[0]) : 0.0;
-            const auto enough = seconds >= trialMinimumSeconds && original > 0.0;
-
-            if (enough)
-                setFeature (aux.trialPeakP99Db, 20.0 * std::log10 (original), seconds);
-            else
-                invalidate (aux.trialPeakP99Db);
-
-            for (int slot = 0; slot < numTrials; ++slot)
-            {
-                auto& cost = trialFeatureOf (slot);
-
-                if (! enough)
-                {
-                    invalidate (cost);
-                    continue;
-                }
-
-                const auto candidate = percentileOfTop (trialTop[(size_t) slot + 1]);
-                setFeature (cost, 20.0 * std::log10 (juce::jmax (candidate, trialPeakFloorRatio * original) / original), seconds);
-            }
-
-            // 混合损失（T-043，ADR-027）：同一批有效块里两份 K 加权能量之比，每个候选频率一个。两份都 > 0 才知道（整段静音时不知道）。
-            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-            {
-                auto& loss = profile.lowCutBlendLossDb[c];
-
-                if (enough && trialBlendIntendedTotal[c] > 0.0 && trialBlendOutputTotal[c] > 0.0)
-                    setFeature (loss, 10.0 * std::log10 (trialBlendIntendedTotal[c] / trialBlendOutputTotal[c]), seconds);
-                else
-                    invalidate (loss);
-            }
+            applyTrialCosts (ClayTrials::costsOf (trialTop, trialBlendIntendedTotal, trialBlendOutputTotal, trialCount,
+                                                  trials.getBlockLength(), sampleRate),
+                             profile, aux, measuredTrial);
         }
 
-        // 线性插值的 P99（定义同 numpy.percentile 默认，逐位口径见文件头「五」）：位置 0.99·(n − 1) 两侧的顺序统计量插值。top 降序，第 j 小（0 起）= top[n − 1 − j]。
-        double percentileOfTop (const std::array<double, (size_t) trialTopCount>& top) const noexcept
+        // 一份代价写进画像的同名字段与辅助量的基准 P99（通用画像与 House 画像共用）。
+        static void applyTrialCosts (const ClayTrials::Costs& costs, MusicProfile& target, AuxiliaryFeatures& targetAux, float& measured) noexcept
         {
-            const auto n = trialCount;
-            const auto position = trialPercentile * (double) (n - 1);
-            const auto lower = (int) std::floor (position);
-            const auto below = top[(size_t) (n - 1 - lower)];
-
-            if (lower + 1 >= n)
-                return below;
-
-            const auto above = top[(size_t) (n - 2 - lower)];
-            return below + (above - below) * (position - (double) lower);
-        }
-
-        Feature& trialFeatureOf (int slot) noexcept
-        {
-            if (slot == trialLowCut)
-                return profile.lowCutPeakCostDb;
-
-            if (slot == trialWidth)
-                return profile.widthPeakCostDb;
-
-            return profile.monoPeakCostDb[(size_t) (slot - trialFirstMono)];
+            targetAux.trialPeakP99Db = costs.originalP99Db;
+            target.lowCutPeakCostDb = costs.lowCutPeakCostDb;
+            target.monoPeakCostDb = costs.monoPeakCostDb;
+            target.widthPeakCostDb = costs.widthPeakCostDb;
+            target.lowCutBlendLossDb = costs.blendLossDb;
+            measured = costs.measured;
         }
 
         // 修坯 Clay 的真次声占比（1.2 / 根治修订 3.1）：只由累计量按纯函数算出。有效时长与起音同一份（同一批组计入）。
@@ -3017,9 +2506,7 @@ namespace celadon::glaze
         {
             ledger.reset (acceptFrom);
             houseDirty = false;
-            houseSubBlockPosition = houseFramePosition = acceptFrom;
-            houseEventPending = false;
-            houseSubHint = houseFrameHint = houseOnsetHint = houseTrialHint = -1;
+            houseFeed.restart (acceptFrom);
 
             houseProfile = MusicProfile {};
             houseProfile.formatVersion = houseProfileFormatVersion;
@@ -3038,34 +2525,30 @@ namespace celadon::glaze
             if (ledger.getStoredRevision() != before)
                 houseDirty = true;
 
-            houseSubBlockPosition = houseFramePosition = at;
-            houseEventPending = false;
-            houseSubHint = houseFrameHint = houseOnsetHint = houseTrialHint = -1;
+            houseFeed.restart (at);
         }
 
-        // 四路数据都已越过的时刻：段尾不晚于它的段，数据已经交齐（第「六」节「定稿」）。
-        std::int64_t houseCompleteBefore() const noexcept
+        // 一份段落账（House 那一份或实时那一份）此刻四路数据都已越过的时刻：段尾不晚于它的段，数据已经交齐（第「六」节「定稿」）。
+        // trialsCount = 先试后用的块要不要等（House 那一份：学习中；实时那一份：一直要）。
+        std::int64_t completeBefore (const LedgerFeed& feed, bool trialsCount) const noexcept
         {
             // 子块：最后读到的子块末尾；表的响度计量关着（两个子块长都没有新子块）时按此刻 − 两个子块，免得段永远定不了稿。
-            auto position = juce::jmax (houseSubBlockPosition, now - 2 * (std::int64_t) subBlockLength);
+            auto position = juce::jmax (feed.subBlockPosition, now - 2 * (std::int64_t) subBlockLength);
 
             // 帧：Balance 还没 prepare（hop 未知）时不等它。
             if (hop > 0)
-                position = juce::jmin (position, houseFramePosition);
+                position = juce::jmin (position, feed.framePosition);
 
             // 起音：正在进行的事件归它触发的那一段；否则当前组的起点。
-            if (houseEventPending)
-                position = juce::jmin (position, houseEventTime);
-            else if (houseGridKnown)
+            if (feed.eventPending)
+                position = juce::jmin (position, feed.eventTime);
+            else if (feed.gridKnown)
                 position = juce::jmin (position, onsetGridOrigin + groupsSinceRestart * (std::int64_t) groupLength);
 
-            // 先试后用（学习中候选在跑）：第 k 块的最后一笔在网格位置 (k + 1)·块长 + 最长延迟交齐，还没交齐的最早一块的起点。
-            if (learning && ! trialRestartPending && houseGridKnown)
-            {
-                const auto ran = groupsSinceRestart * (std::int64_t) groupLength + groupFill - (std::int64_t) maxTrialDelay;
-                const auto blocks = ran > 0 ? ran / (std::int64_t) trialBlockLength : 0;
-                position = juce::jmin (position, onsetGridOrigin + blocks * (std::int64_t) trialBlockLength);
-            }
+            // 先试后用（候选在跑）：第 k 块的最后一笔在网格位置 (k + 1)·块长 + 最长延迟交齐，还没交齐的最早一块的起点。
+            if (trialsCount && ! trials.isRestartPending() && feed.gridKnown)
+                position = juce::jmin (position, onsetGridOrigin
+                                                     + trials.pendingBlockStart (groupsSinceRestart * (std::int64_t) groupLength + groupFill));
 
             return position;
         }
@@ -3075,7 +2558,7 @@ namespace celadon::glaze
         {
             // T-038 评审 F3：只在账本真变了时置脏（新存进一段或覆盖了旧段）；没存进的段（静音、账本满、重放不如旧值）不触发 O(段数) 的重算。
             const auto before = ledger.getStoredRevision();
-            ledger.finalizeBefore (houseCompleteBefore());
+            ledger.finalizeBefore (completeBefore (houseFeed, learning));
 
             if (ledger.getStoredRevision() != before)
                 houseDirty = true;
@@ -3091,20 +2574,21 @@ namespace celadon::glaze
             ++houseGeneration;
         }
 
-        // ---- 归段（三路数据各自调；口径与通用画像的同一处累计相同）----
+        // ---- 归段（三路数据各自调；口径与通用画像的同一处累计相同。target / feed = House 那一份或实时那一份段落账）----
 
         // 子块（consumeSubBlock）：子块数、有效子块的 K 加权能量、真峰值；门块功率与 3 s 短期响度随产生它们的子块，窗口最早的样本
         // 早于段落账的起点就不收（同学习区间）。
-        void noteHouseSubBlock (const LoudnessMeter::SubBlock& subBlock, std::int64_t start, bool effective, double gatingPower,
-                                double gatingLufs, bool haveShortTerm, double shortTermPower, double shortTermLufs) noexcept
+        void noteSubBlock (SegmentLedger& target, LedgerFeed& feed, const LoudnessMeter::SubBlock& subBlock, std::int64_t start,
+                           bool effective, double gatingPower, double gatingLufs, bool haveShortTerm, double shortTermPower,
+                           double shortTermLufs) noexcept
         {
-            auto* segment = ledger.openSegmentAt (start, houseSubHint);
+            auto* segment = target.openSegmentAt (start, feed.subHint);
 
             if (segment == nullptr)
                 return;
 
             const auto length = (std::int64_t) subBlockLength;
-            const auto acceptFrom = ledger.getAcceptFrom();
+            const auto acceptFrom = target.getAcceptFrom();
             ++segment->subBlocks;
             segment->truePeak = juce::jmax (segment->truePeak, juce::jmax (0.0f, subBlock.truePeakLinear));
 
@@ -3127,8 +2611,8 @@ namespace celadon::glaze
         }
 
         // 帧门之上的帧（consumeFrame）：长期段功率、低频起伏直方图、谱通量（同 consumeFrame 里「inside && music」那一段）。
-        void noteHouseMusicFrame (SegmentLedger::Segment& segment, const std::array<double, (size_t) numBands>& power,
-                                  bool haveFlux, double flux) noexcept
+        void noteMusicFrame (SegmentLedger::Segment& segment, const std::array<double, (size_t) numBands>& power,
+                             bool haveFlux, double flux) noexcept
         {
             ++segment.frames;
             segment.frameSeconds += (double) hop / sampleRate;
@@ -3155,9 +2639,9 @@ namespace celadon::glaze
         }
 
         // 立体声（accumulateEvidence 里，与频谱证据同一批帧、同一逐段静音门权重；同 accumulateStereo）。
-        static void accumulateHouseStereo (SegmentLedger::Segment& segment, const std::array<double, (size_t) numBands>& currentPower,
-                                           const std::array<double, (size_t) numBands>& currentCross,
-                                           const std::array<double, (size_t) numBands>& gate) noexcept
+        static void accumulateSegmentStereo (SegmentLedger::Segment& segment, const std::array<double, (size_t) numBands>& currentPower,
+                                             const std::array<double, (size_t) numBands>& currentCross,
+                                             const std::array<double, (size_t) numBands>& gate) noexcept
         {
             double lowGate = 0.0, highGate = 0.0;
 
@@ -3180,9 +2664,9 @@ namespace celadon::glaze
         }
 
         // 起音组（processGroup，在有效门上）：有效时长与真次声的两份能量（同「inside && effective」那一段）。
-        void noteHouseGroup (std::int64_t groupStart) noexcept
+        void noteGroupInto (SegmentLedger& target, LedgerFeed& feed, std::int64_t groupStart) noexcept
         {
-            auto* segment = ledger.openSegmentAt (groupStart, houseOnsetHint);
+            auto* segment = target.openSegmentAt (groupStart, feed.onsetHint);
 
             if (segment == nullptr)
                 return;
@@ -3193,10 +2677,10 @@ namespace celadon::glaze
         }
 
         // 起音事件结束（finishEvent）：计入触发的那一组所在的段；强度的格同 finishEvent。
-        void noteHouseEvent() noexcept
+        void noteEventInto (SegmentLedger& target, LedgerFeed& feed) noexcept
         {
-            houseEventPending = false;
-            auto* segment = ledger.openSegmentAt (houseEventTime, houseOnsetHint);
+            feed.eventPending = false;
+            auto* segment = target.openSegmentAt (feed.eventTime, feed.onsetHint);
 
             if (segment == nullptr || segment->strengthCount >= SegmentLedger::maxEvents)
                 return;
@@ -3207,28 +2691,30 @@ namespace celadon::glaze
             ++segment->onsetEvents;
         }
 
-        // 先试后用交齐的有效块（countTrialWrite）：按块起点归段，每一路插进段里最大的 8 个（同 insertTop）。
-        void noteHouseTrial (const TrialRecord& record) noexcept
+        // 先试后用交齐的块（trialBlockCompleted）：按块起点归段，每一路插进段里最大的 8 个（ClayTrials::accumulate）。
+        // learningSeries → trialBlocks / trialTop / blend*（学习期专用；T-043 混合损失两份能量按段求和，House 画像按满编段合并），
+        // liveSeries → live* 四项（实时画像读）。
+        void noteLedgerTrial (SegmentLedger& target, LedgerFeed& feed, const ClayTrials::Block& block, bool learningSeries,
+                              bool liveSeries) noexcept
         {
-            const auto time = onsetGridOrigin + record.block * (std::int64_t) trialBlockLength;
-            auto* segment = ledger.openSegmentAt (time, houseTrialHint);
+            const auto time = onsetGridOrigin + block.index * (std::int64_t) trials.getBlockLength();
+            auto* segment = target.openSegmentAt (time, feed.trialHint);
 
             if (segment == nullptr)
                 return;
 
-            const auto filled = segment->trialBlocks;
-            insertTop (segment->trialTop[0], filled, record.original);
-
-            for (size_t c = 0; c < (size_t) numTrials; ++c)
-                insertTop (segment->trialTop[c + 1], filled, record.candidates[c]);
-
-            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)   // T-043 混合损失：两份能量按段求和（House 画像按满编段合并）
+            if (learningSeries)
             {
-                segment->blendIntended[c] += record.blendIntended[c];
-                segment->blendOutput[c] += record.blendOutput[c];
+                ClayTrials::accumulate (segment->trialTop, segment->blendIntended, segment->blendOutput, segment->trialBlocks, block);
+                ++segment->trialBlocks;
             }
 
-            ++segment->trialBlocks;
+            if (liveSeries)
+            {
+                ClayTrials::accumulate (segment->liveTrialTop, segment->liveBlendIntended, segment->liveBlendOutput,
+                                        segment->liveTrialBlocks, block);
+                ++segment->liveTrialBlocks;
+            }
         }
 
         // ---- 画像（只由段落账按纯函数算出；每个字段的公式与通用画像的同名函数逐项相同，只是累计量换成满编段 / 全部段的和）----
@@ -3264,7 +2750,7 @@ namespace celadon::glaze
             s.blendOutput.fill (0.0);
         }
 
-        // 先试后用的块：按格序整段整段地取（满 trialCapacity 块为止），每一路合并各段最大的 8 个（第「六」节）。
+        // 先试后用的块：按格序整段整段地取（满 ClayTrials::capacity 块为止），每一路合并各段最大的 8 个（第「六」节）。
         void mergeHouseTrial (bool fullOnly) noexcept
         {
             auto& s = houseSums;
@@ -3284,20 +2770,20 @@ namespace celadon::glaze
                 if ((fullOnly && ! segment.full) || segment.trialBlocks <= 0)
                     continue;
 
-                if (s.trialCount + segment.trialBlocks > trialCapacity)
+                if (s.trialCount + segment.trialBlocks > ClayTrials::capacity)
                     break;
 
-                const auto values = juce::jmin (segment.trialBlocks, trialTopCount);
+                const auto values = juce::jmin (segment.trialBlocks, ClayTrials::topCount);
 
                 for (int k = 0; k < values; ++k)
                 {
                     for (size_t series = 0; series < s.trialTop.size(); ++series)
-                        insertTop (s.trialTop[series], inserted, segment.trialTop[series][(size_t) k]);
+                        ClayTrials::insertTop (s.trialTop[series], inserted, segment.trialTop[series][(size_t) k]);
 
                     ++inserted;
                 }
 
-                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)   // 混合损失与峰值代价同一批块（同通用画像：同一批有效块）
+                for (size_t c = 0; c < (size_t) ClayTrials::numBlend; ++c)   // 混合损失与峰值代价同一批块（同通用画像：同一批有效块）
                 {
                     s.blendIntended[c] += segment.blendIntended[c];
                     s.blendOutput[c] += segment.blendOutput[c];
@@ -3401,7 +2887,7 @@ namespace celadon::glaze
             // 先试后用：满编段的块不够 10 s（锁定后才进来的段，候选不跑）就改用全部段的块。
             mergeHouseTrial (true);
 
-            if ((double) s.trialCount * (double) trialBlockLength / sampleRate < trialMinimumSeconds)
+            if ((double) s.trialCount * (double) trials.getBlockLength() / sampleRate < ClayTrials::minimumSeconds)
                 mergeHouseTrial (false);
 
             // I：满编段的门块按 BS.1770 相对门重新门限（门块功率逐个与相对门比，第二遍）。
@@ -3782,62 +3268,12 @@ namespace celadon::glaze
             houseMeasured.onset = fraction (seconds, onsetFullSeconds);
         }
 
-        // 同 updateTrialProfile / percentileOfTop（块数 = 合并进来的块数）。
+        // 同 updateTrialProfile（同一份 ClayTrials::costsOf；块数 = 合并进来的块数，满编段，不够 10 s 时全部段）。
         void houseTrialProfile() noexcept
         {
-            auto& p = houseProfile;
             const auto& s = houseSums;
-            const auto n = s.trialCount;
-            const auto seconds = (double) n * (double) trialBlockLength / sampleRate;
-            houseMeasured.trial = fraction (seconds, trialFullSeconds);
-
-            const auto percentile = [n] (const std::array<double, (size_t) trialTopCount>& top) noexcept
-            {
-                const auto position = trialPercentile * (double) (n - 1);
-                const auto lower = (int) std::floor (position);
-                const auto below = top[(size_t) (n - 1 - lower)];
-
-                if (lower + 1 >= n)
-                    return below;
-
-                const auto above = top[(size_t) (n - 2 - lower)];
-                return below + (above - below) * (position - (double) lower);
-            };
-
-            const auto original = n > 0 ? percentile (s.trialTop[0]) : 0.0;
-            const auto enough = seconds >= trialMinimumSeconds && original > 0.0;
-
-            if (enough)
-                setFeature (houseAux.trialPeakP99Db, 20.0 * std::log10 (original), seconds);
-            else
-                invalidate (houseAux.trialPeakP99Db);
-
-            for (int slot = 0; slot < numTrials; ++slot)
-            {
-                auto& cost = slot == trialLowCut ? p.lowCutPeakCostDb
-                           : slot == trialWidth ? p.widthPeakCostDb
-                                                : p.monoPeakCostDb[(size_t) (slot - trialFirstMono)];
-
-                if (! enough)
-                {
-                    invalidate (cost);
-                    continue;
-                }
-
-                const auto candidate = percentile (s.trialTop[(size_t) slot + 1]);
-                setFeature (cost, 20.0 * std::log10 (juce::jmax (candidate, trialPeakFloorRatio * original) / original), seconds);
-            }
-
-            // 混合损失（T-043，ADR-027）：同 updateTrialProfile，两份能量换成合并进来的块之和（满编段，不够 10 s 时全部段）。
-            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-            {
-                auto& loss = p.lowCutBlendLossDb[c];
-
-                if (enough && s.blendIntended[c] > 0.0 && s.blendOutput[c] > 0.0)
-                    setFeature (loss, 10.0 * std::log10 (s.blendIntended[c] / s.blendOutput[c]), seconds);
-                else
-                    invalidate (loss);
-            }
+            applyTrialCosts (ClayTrials::costsOf (s.trialTop, s.blendIntended, s.blendOutput, s.trialCount, trials.getBlockLength(), sampleRate),
+                             houseProfile, houseAux, houseMeasured.trial);
         }
 
         // 同 updateSubProfile。
@@ -3912,6 +3348,39 @@ namespace celadon::glaze
                 p.bandStereoConfidence[b] = juce::jmin (rep, m.stereoBand[b]);
             }
         }
+
+        //==============================================================================
+        // 七、T-048 实时模式（口径见本文件开头第「七」节）。只在 liveMode 时调。
+        //==============================================================================
+        // 实时段落账回到空（不分配；开着的段由调用方先 liveEndEpoch 交出去）。各路的位置从 acceptFrom 重新数。
+        void clearLive (std::int64_t acceptFrom) noexcept
+        {
+            liveLedger.reset (acceptFrom);
+            liveFeed.restart (acceptFrom);
+        }
+
+        // 在 at 处断开：开着的最新一段截到此刻（now：数据只送到这里，此刻之后的块归新段），就地定稿交给接收者，下一块重新锚定——
+        // 交出去的 [start, end) 在同一条时间轴上首尾相接。SegmentLedger::endEpoch 不截段尾（House 那一份照旧不截），这里经
+        // openSegmentAt 拿到正在播的那一段改它的段尾：这一段紧接着就在 endEpoch 里定稿，账本之后不会再按段尾找它。
+        void liveEndEpoch (std::int64_t at) noexcept
+        {
+            if (now > 0)
+            {
+                auto hint = -1;
+
+                if (auto* open = liveLedger.openSegmentAt (now - 1, hint); open != nullptr && open->end > now)
+                    open->end = now;
+            }
+
+            liveLedger.endEpoch (at);
+            liveFeed.restart (at);
+        }
+
+        // 每次 processInput / processSpectrum 末尾：定稿交齐的段（一直等先试后用的块交齐：候选在实时模式下一直跑）。
+        void liveAdvance() noexcept
+        {
+            liveLedger.finalizeBefore (completeBefore (liveFeed, true));
+        }
     };
 
     //==============================================================================
@@ -3920,13 +3389,21 @@ namespace celadon::glaze
 
     void MusicAnalyzer::prepare (const juce::dsp::ProcessSpec& spec)
     {
+        // T-048：实时段落账里开着的段先就地定稿交出去（按旧采样率折算；重新分配会丢掉它们）。
+        if (impl->liveMode)
+            impl->liveEndEpoch (impl->now);
+
         impl->configure (spec.sampleRate, (int) spec.numChannels);
-        impl->allocate();   // 先试后用随采样率定长的部分（收单候选低通、M / S 延迟环）：只在这里分配
+        impl->allocate();   // 先试后用随采样率定长的部分（收单候选低通、M / S 延迟环）与段落账：只在这里分配
         impl->resetAll();
     }
 
     void MusicAnalyzer::reset()
     {
+        // T-048：实时段落账里开着的段先就地定稿交出去，再清。
+        if (impl->liveMode)
+            impl->liveEndEpoch (impl->now);
+
         impl->resetAll();
     }
 
@@ -3962,6 +3439,7 @@ namespace celadon::glaze
         impl->learnStart = impl->now;
 
         // House 档：「重新聆听」时段落账清空、从头再来（设计规格-曲风-House学习方式 第 4 节）；起点与学习区间相同。
+        // 实时段落账不清、不断开（第「七」节）。
         if (impl->houseActive)
             impl->clearHouse (impl->now);
     }
@@ -4008,7 +3486,7 @@ namespace celadon::glaze
         s.houseActive = true;
         s.ledger.setSubBlockLength (s.subBlockLength);
         s.houseEndEpoch (s.now);
-        s.houseGridKnown = false;
+        s.houseFeed.gridKnown = false;
         s.houseDirty = true;
     }
 
@@ -4018,6 +3496,7 @@ namespace celadon::glaze
     {
         impl->houseConstants = constants;
         impl->ledger.setConstants (constants);
+        impl->liveLedger.setConstants (constants);   // 实时段落账的分段常数同一份（门控常数它不用）
     }
 
     void MusicAnalyzer::recomputeHouseProfile() noexcept
@@ -4033,4 +3512,37 @@ namespace celadon::glaze
 
     const SegmentLedger& MusicAnalyzer::getSegmentLedger() const noexcept   { return impl->ledger; }
     std::uint32_t MusicAnalyzer::getHouseProfileGeneration() const noexcept  { return impl->houseGeneration; }
+
+    //==============================================================================
+    // T-048 实时模式（文件头第「七」节）
+    void MusicAnalyzer::setLiveMode (bool enabled)
+    {
+        auto& s = *impl;
+
+        if (enabled == s.liveMode)
+            return;
+
+        if (! enabled)
+        {
+            // 开着的段先就地定稿交给接收者。不在学习时候选从此不跑（下次开始学习、或再打开实时模式时从零状态重新起跑）。
+            s.liveEndEpoch (s.now);
+            s.liveMode = false;
+            return;
+        }
+
+        s.liveMode = true;
+        s.prepareLiveLedger();      // 分配（消息线程），连同常数、子块长与接收者
+        s.clearLive (s.now);        // 此刻之前的窗口不收
+        s.liveFeed.gridKnown = false;
+
+        // 候选原来没在跑（不在学习：状态是旧的）就从零状态起跑；在跑（学习中）就接着跑，学习累计与块网格不受影响。
+        if (! s.learning)
+            s.trials.requestRestart();
+    }
+
+    void MusicAnalyzer::setSegmentSink (SegmentSink* sink) noexcept
+    {
+        impl->liveSink = sink;
+        impl->liveLedger.setSink (sink);
+    }
 }

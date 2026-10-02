@@ -3699,3 +3699,844 @@ namespace celadon::test
 
     static MusicAnalyzerHouseTests musicAnalyzerHouseTests;
 }
+
+//==============================================================================
+// ---- T-048 阶段 1：分析器实时模式（MusicAnalyzer.h 文件头「T-048」一节、MusicAnalyzer.cpp「七」节）----
+// 只在文件末尾追加：上面的旧用例与工具一个不改，另起一个测试类（名字 MusicAnalyzerLive），复用上面的 Rig、信号、宿主与逐位比较。
+// 链一级的对照（实时模式开 / 关时 CeladonChain 的输出逐位相同、直通在 prepare / reset / 读档之后保持）也在这里：它验的是分析器的
+// 实时模式不影响编排器看到的任何东西。
+#include "../Source/dsp/CeladonChain.h"
+
+namespace celadon::test
+{
+    namespace
+    {
+        using glaze::SegmentLedger;
+
+        // 收段的测试接收者：定稿的段原样存下（预先留好容量，音频线程上不分配；装满后只计数）。
+        struct SegmentCollector final : glaze::SegmentSink
+        {
+            explicit SegmentCollector (size_t capacity = 512)   { segments.reserve (capacity); }
+
+            void segmentFinalized (const SegmentLedger::Segment& segment) noexcept override
+            {
+                ++calls;
+
+                if (segments.size() < segments.capacity())
+                    segments.push_back (segment);
+            }
+
+            std::vector<SegmentLedger::Segment> segments;
+            int calls = 0;
+        };
+
+        // 逐字节比（只给没有填充字节的标量与标量数组用：区分 ±0、NaN 的位型也算不同）。
+        template <typename T>
+        bool sameBytes (const T& a, const T& b)
+        {
+            return std::memcmp (&a, &b, sizeof (T)) == 0;
+        }
+
+        // 段的全部字段逐位相同（SegmentLedger.h 的 Segment，一项不漏）。
+        bool sameSegmentAll (const SegmentLedger::Segment& a, const SegmentLedger::Segment& b)
+        {
+            return a.mode == b.mode && a.positioned == b.positioned && a.key == b.key && a.start == b.start && a.end == b.end
+                && a.nominalLength == b.nominalLength && a.epoch == b.epoch
+                && a.subBlocks == b.subBlocks && a.effectiveSubBlocks == b.effectiveSubBlocks && sameBytes (a.effectiveEnergy, b.effectiveEnergy)
+                && sameBytes (a.truePeak, b.truePeak) && a.gatingCount == b.gatingCount && sameBytes (a.gatingPower, b.gatingPower)
+                && a.rangeCount == b.rangeCount && sameBytes (a.rangeEnergy, b.rangeEnergy) && sameBytes (a.rangeBin, b.rangeBin)
+                && a.frames == b.frames && sameBytes (a.frameSeconds, b.frameSeconds) && sameBytes (a.powerSum, b.powerSum)
+                && sameBytes (a.tameSum, b.tameSum) && sameBytes (a.recoverSum, b.recoverSum) && sameBytes (a.deficitWeight, b.deficitWeight)
+                && sameBytes (a.validWeight, b.validWeight) && sameBytes (a.stereoPowerSum, b.stereoPowerSum)
+                && sameBytes (a.stereoCrossSum, b.stereoCrossSum) && sameBytes (a.stereoWeight, b.stereoWeight)
+                && sameBytes (a.lowStereoWeight, b.lowStereoWeight) && sameBytes (a.highStereoWeight, b.highStereoWeight)
+                && sameBytes (a.lowRangeCount, b.lowRangeCount) && a.lowRangeFirst == b.lowRangeFirst && a.lowRangeLast == b.lowRangeLast
+                && a.fluxFrames == b.fluxFrames && a.musicFluxFrames == b.musicFluxFrames && a.fluxEvents == b.fluxEvents
+                && sameBytes (a.fluxSum, b.fluxSum)
+                && a.onsetEffectiveSamples == b.onsetEffectiveSamples && sameBytes (a.subEnergy, b.subEnergy) && sameBytes (a.midEnergy, b.midEnergy)
+                && a.onsetEvents == b.onsetEvents && a.strengthCount == b.strengthCount && sameBytes (a.strengthBin, b.strengthBin)
+                && a.trialBlocks == b.trialBlocks && sameBytes (a.trialTop, b.trialTop) && sameBytes (a.blendIntended, b.blendIntended)
+                && sameBytes (a.blendOutput, b.blendOutput)
+                && a.liveTrialBlocks == b.liveTrialBlocks && sameBytes (a.liveTrialTop, b.liveTrialTop)
+                && sameBytes (a.liveBlendIntended, b.liveBlendIntended) && sameBytes (a.liveBlendOutput, b.liveBlendOutput)
+                && sameBytes (a.effectiveSeconds, b.effectiveSeconds) && a.heard == b.heard && a.loudnessValid == b.loudnessValid
+                && sameBytes (a.loudnessLufs, b.loudnessLufs) && a.lowShareValid == b.lowShareValid && sameBytes (a.lowShare, b.lowShare)
+                && a.full == b.full;
+        }
+
+        bool sameSegments (const std::vector<SegmentLedger::Segment>& a, const std::vector<SegmentLedger::Segment>& b)
+        {
+            if (a.size() != b.size())
+                return false;
+
+            for (size_t i = 0; i < a.size(); ++i)
+                if (! sameSegmentAll (a[i], b[i]))
+                    return false;
+
+            return true;
+        }
+
+        // 学习期专用的三项与实时的三项逐位相同（同一批块）。
+        bool liveEqualsTrial (const SegmentLedger::Segment& s)
+        {
+            return s.trialBlocks == s.liveTrialBlocks && sameBytes (s.trialTop, s.liveTrialTop)
+                && sameBytes (s.blendIntended, s.liveBlendIntended) && sameBytes (s.blendOutput, s.liveBlendOutput);
+        }
+
+        bool sameEvent (const SegmentLedger::Event& a, const SegmentLedger::Event& b)
+        {
+            return a.sequence == b.sequence && a.epoch == b.epoch && a.stored == b.stored && a.heard == b.heard && a.full == b.full
+                && a.surge == b.surge && a.loudnessValid == b.loudnessValid && sameFloat (a.loudnessLufs, b.loudnessLufs)
+                && a.lowShareValid == b.lowShareValid && sameFloat (a.lowShare, b.lowShare);
+        }
+
+        // House 档那一份段落账此刻能读到的一切（编排器、画像与状态读的全部读数）逐位相同。
+        bool sameLedgerState (const SegmentLedger& a, const SegmentLedger& b)
+        {
+            if (a.getNumStored() != b.getNumStored() || a.isStoreFull() != b.isStoreFull() || a.getMode() != b.getMode()
+                || a.getHeardSegments() != b.getHeardSegments() || a.getEpoch() != b.getEpoch() || a.getSurgeCount() != b.getSurgeCount()
+                || a.getFinalizedCount() != b.getFinalizedCount() || a.getStoredRevision() != b.getStoredRevision()
+                || a.getOpenSegments() != b.getOpenSegments() || a.getEventCount() != b.getEventCount()
+                || a.getAcceptFrom() != b.getAcceptFrom() || a.isCurrentSegmentFull() != b.isCurrentSegmentFull()
+                || ! sameDouble (a.getCurrentSegmentSeconds(), b.getCurrentSegmentSeconds()) || ! sameHouseGate (a.getSummary(), b.getSummary()))
+                return false;
+
+            float loudnessA = -1.0f, lowA = -1.0f, loudnessB = -1.0f, lowB = -1.0f;
+
+            if (a.getCurrentReading (loudnessA, lowA) != b.getCurrentReading (loudnessB, lowB)
+                || ! sameFloat (loudnessA, loudnessB) || ! sameFloat (lowA, lowB))
+                return false;
+
+            for (int i = 0; i < a.getNumStored(); ++i)
+                if (! sameSegmentAll (a.getStored (i), b.getStored (i)))
+                    return false;
+
+            std::array<SegmentLedger::Event, (size_t) SegmentLedger::eventCapacity> eventsA {}, eventsB {};
+            std::uint64_t cursorA = 0, cursorB = 0;
+            const auto gotA = a.readEvents (cursorA, eventsA.data(), (int) eventsA.size());
+            const auto gotB = b.readEvents (cursorB, eventsB.data(), (int) eventsB.size());
+
+            if (gotA != gotB || cursorA != cursorB)
+                return false;
+
+            for (int i = 0; i < std::abs (gotA); ++i)
+                if (! sameEvent (eventsA[(size_t) i], eventsB[(size_t) i]))
+                    return false;
+
+            return true;
+        }
+
+        bool sameShortTermView (const ShortTermView& a, const ShortTermView& b)
+        {
+            return sameFeature (a.momentaryLufs, b.momentaryLufs) && sameFeature (a.shortTermLufs, b.shortTermLufs)
+                && sameFeature (a.psr3sDb, b.psr3sDb) && sameFeature (a.liveTameEvidenceDb, b.liveTameEvidenceDb)
+                && sameFeature (a.liveSpectralSlopeDbPerOct, b.liveSpectralSlopeDbPerOct) && sameArray (a.liveSlopeWeights, b.liveSlopeWeights)
+                && sameLiveStereo (a, b) && a.musicActive == b.musicActive;
+        }
+
+        // 分析器此刻能被编排器读到的一切逐位相同：候选画像（含修坯字段与门控结果）、辅助量、短期视图、House 档的段落账、画像版本号。
+        juce::String differenceBetween (const MusicAnalyzer& a, const MusicAnalyzer& b)
+        {
+            if (! sameHouseProfile (a.getCandidateProfile(), b.getCandidateProfile()))
+                return "candidate profile";
+
+            if (! sameAuxiliary (a.getAuxiliaryFeatures(), b.getAuxiliaryFeatures()))
+                return "auxiliary features";
+
+            if (! sameShortTermView (a.getShortTermView(), b.getShortTermView()))
+                return "short-term view";
+
+            if (! sameLedgerState (a.getSegmentLedger(), b.getSegmentLedger()))
+                return "House ledger";
+
+            if (a.getHouseProfileGeneration() != b.getHouseProfileGeneration() || a.isLearning() != b.isLearning() || a.getGenre() != b.getGenre())
+                return "generation / learning / genre";
+
+            return {};
+        }
+
+        // 脚本的一步：在起点 ≥ at 的第一块之前对分析器做一件事（开始 / 停止学习、换曲风、不连续点……）。
+        struct Step
+        {
+            std::int64_t at = 0;
+            std::function<void (MusicAnalyzer&)> action;
+        };
+
+        // 宿主走带的分段线性映射：分析器时间 t → 宿主播放位置。每一项 = (从分析器时间起, 那一刻的宿主位置)，按时间先后。
+        struct Transport
+        {
+            std::vector<std::pair<std::int64_t, std::int64_t>> pieces { { 0, 0 } };
+
+            std::int64_t positionAt (std::int64_t t) const
+            {
+                auto position = t;
+
+                for (const auto& [from, start] : pieces)
+                    if (t >= from)
+                        position = start + (t - from);
+
+                return position;
+            }
+        };
+
+        // 按脚本逐块喂一份或两份分析器（每块先做到期的步骤、交宿主信息，再处理；两份时每块之后比较）。返回第一处不同的块号（−1 = 处处相同），
+        // what 写不同的是哪一项。
+        int runScript (std::initializer_list<Rig*> rigs, const Signal& input, int blockSize,
+                       const std::function<HostInfo (std::int64_t)>& hostAt, const std::vector<Step>& steps, juce::String& what)
+        {
+            juce::AudioBuffer<float> block (numChannels, blockSize);
+            const auto numSamples = (int) input.front().size();
+            size_t next = 0;
+            auto index = 0;
+
+            for (int start = 0; start < numSamples; start += blockSize, ++index)
+            {
+                const auto length = juce::jmin (blockSize, numSamples - start);
+
+                for (; next < steps.size() && steps[next].at <= (std::int64_t) start; ++next)
+                    for (auto* rig : rigs)
+                        steps[next].action (rig->analyzer);
+
+                for (auto* rig : rigs)
+                {
+                    block.setSize (numChannels, length, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) juce::jmin (ch, (int) input.size() - 1)].data() + start, length);
+
+                    rig->analyzer.setHostInfo (hostAt (start));
+                    rig->processBlock (block);   // Balance 原地处理这一块：每份分析器各拷一份输入
+                }
+
+                if (rigs.size() == 2)
+                {
+                    what = differenceBetween ((*rigs.begin())->analyzer, (*(rigs.begin() + 1))->analyzer);
+
+                    if (what.isNotEmpty())
+                        return index;
+                }
+            }
+
+            return -1;
+        }
+
+        std::int64_t samplesAt (double seconds)   { return (std::int64_t) std::llround (seconds * 48000.0); }
+
+        Signal sliceTo (const Signal& signal, std::int64_t length)
+        {
+            return sliceOf (signal, 0, (int) juce::jmin ((std::int64_t) signal.front().size(), length));
+        }
+
+        // 链一级的对照用：先交参数再 prepare（与处理器的 prepareToPlay 同一顺序），每块报恒定 124 BPM 的拍点与位置。
+        struct ChainRun
+        {
+            ChainRun (const glaze::Constants& constants, const ChainParams& p, glaze::SegmentSink* sink) : params (p)
+            {
+                chain->getGlazeController().setConstantsForTesting (constants);
+                chain->setParams (params, false);
+                chain->prepare ({ 48000.0, (juce::uint32) preparedBlock, (juce::uint32) numChannels });
+
+                if (sink != nullptr)
+                    chain->setLiveSegmentSink (sink);
+            }
+
+            void step (const Signal& input, std::int64_t time, std::int64_t position)
+            {
+                const auto length = (std::int64_t) input.front().size();
+                buffer.setSize (numChannels, preparedBlock, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < preparedBlock; ++i)
+                        buffer.setSample (ch, i, input[(size_t) ch][(size_t) ((time + i) % length)]);
+
+                chain->setHostInfo (tempoHost (position, 48000.0));
+                chain->setParams (params, false);
+                chain->process (buffer);
+            }
+
+            std::unique_ptr<CeladonChain> chain = std::make_unique<CeladonChain>();
+            ChainParams params;
+            juce::AudioBuffer<float> buffer { numChannels, preparedBlock };
+        };
+
+        bool sameBuffers (const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
+        {
+            if (a.getNumChannels() != b.getNumChannels() || a.getNumSamples() != b.getNumSamples())
+                return false;
+
+            for (int ch = 0; ch < a.getNumChannels(); ++ch)
+                if (std::memcmp (a.getReadPointer (ch), b.getReadPointer (ch), sizeof (float) * (size_t) a.getNumSamples()) != 0)
+                    return false;
+
+            return true;
+        }
+
+        // 聆听 2 ～ 3 s（通用档很快提交）、House 锁定条件缩到 8 小节 / 满编 3 小节，过渡与校准都缩短：60 多秒里走得完两轮聆听。
+        glaze::Constants shortListenConstants()
+        {
+            auto c = glaze::factoryConstants();
+            c.minListenSeconds = 2.0;
+            c.maxListenSeconds = 3.0;
+            c.planTransitionSeconds = 0.5;
+            c.calibrationSettleSeconds = 0.5;
+            c.calibrationWindowSeconds = 2.0;
+            c.house.lockSegments = 8;
+            c.house.requiredFullSegments = 3;
+            return c;
+        }
+    }
+
+    class MusicAnalyzerLiveTests  : public juce::UnitTest
+    {
+    public:
+        MusicAnalyzerLiveTests() : juce::UnitTest ("MusicAnalyzerLive", "Celadon") {}
+
+        void runTest() override
+        {
+            testOffEqualsOnAnalyzer();
+            testOffEqualsOnChain();
+            testSegmentsContiguous();
+            testBlockSizeIndependence();
+            testLiveTrialData();
+            testNoAllocation();
+            testChainPassThroughKeepsSetting();
+            testPerformance();
+        }
+
+    private:
+        //==============================================================================
+        // 依据：任务书「实时模式关着时插件一切输出不变；关：sink 一次都不被调；开 vs 关，候选画像（通用档与 House 档）逐位相同」、
+        // MusicAnalyzer.h「T-048」一节。两份分析器（关：交了接收者但没开实时模式；开）按同一份脚本逐块喂 65 s 合成 House 曲，**每一块之后**
+        // 比较编排器能读到的一切（候选画像全部字段与门控结果、辅助量、短期视图、House 档那一份段落账的全部读数与每一段的全部字段、事件、
+        // 计数）。三个脚本：House 档里学习 / 停止 / 立即重算 / 重新聆听 / 停止 / 清空段落账；通用档里学习 / 停止 / 重新聆听；混着来——
+        // 通用 → House → 通用 → 另一个 House 子类，中间开始 / 停止学习、跳播与回绕（House 那一份段落账跨换曲风留着，实时模式不许动它）。
+        void testOffEqualsOnAnalyzer()
+        {
+            beginTest ("live mode off vs on: everything the controller reads from the analyzer is bit-identical, block by block (65 s, three scripts)");
+
+            const auto track = makeHouseTrack (48000.0, 4, 30, 0.0, 71);   // 34 小节 ≈ 65.8 s
+            using G = glaze::Genre;
+            const auto learn = [] (MusicAnalyzer& a) { a.startLearning(); };
+            const auto stop = [] (MusicAnalyzer& a) { a.stopLearning(); };
+            const auto genre = [] (G g) { return [g] (MusicAnalyzer& a) { a.setGenre (g); }; };
+
+            struct Script
+            {
+                const char* name;
+                Transport transport;
+                std::vector<Step> steps;
+            };
+
+            Transport jumping;
+            jumping.pieces = { { 0, 0 }, { samplesAt (24.0), samplesAt (29.0) }, { samplesAt (60.0), samplesAt (10.0) } };
+
+            const std::vector<Script> scripts {
+                { "House: learn, stop, recompute, relearn, stop, clear", Transport {},
+                  { { 0, genre (G::deepHouse) }, { 0, learn }, { samplesAt (20.0), stop },
+                    { samplesAt (22.0), [] (MusicAnalyzer& a) { a.recomputeHouseProfile(); } },
+                    { samplesAt (40.0), learn }, { samplesAt (56.0), stop },
+                    { samplesAt (60.0), [] (MusicAnalyzer& a) { a.clearHouseLedger(); } } } },
+                { "general: learn, stop, relearn", Transport {},
+                  { { 0, learn }, { samplesAt (18.0), stop }, { samplesAt (30.0), learn }, { samplesAt (50.0), stop } } },
+                { "mixed: genre switches, learning, a jump and a loop wrap", jumping,
+                  { { 0, learn }, { samplesAt (8.0), genre (G::deepHouse) }, { samplesAt (16.0), stop },
+                    { samplesAt (24.0), [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::transportJump); } },
+                    { samplesAt (30.0), genre (G::general) }, { samplesAt (34.0), learn }, { samplesAt (42.0), genre (G::techHouse) },
+                    { samplesAt (50.0), stop }, { samplesAt (52.0), [] (MusicAnalyzer& a) { a.recomputeHouseProfile(); } },
+                    { samplesAt (56.0), genre (G::general) },
+                    { samplesAt (60.0), [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::loopWrap); } } } },
+            };
+
+            for (const auto& script : scripts)
+            {
+                SegmentCollector offCollector, onCollector;   // 先于分析器声明：分析器先析构（它持有接收者的指针）
+                Rig off (48000.0), on (48000.0);
+                off.analyzer.setSegmentSink (&offCollector);   // 交了接收者、没开实时模式
+                on.analyzer.setSegmentSink (&onCollector);
+                on.analyzer.setLiveMode (true);
+
+                const auto& transport = script.transport;
+                juce::String what;
+                const auto firstDifference = runScript ({ &off, &on }, track, 512,
+                                                        [&transport] (std::int64_t t) { return tempoHost (transport.positionAt (t), 48000.0); },
+                                                        script.steps, what);
+
+                logMessage ("  " + juce::String (script.name) + ": " + juce::String (onCollector.calls) + " live segments, House ledger "
+                            + juce::String (on.analyzer.getSegmentLedger().getNumStored()) + " stored, "
+                            + juce::String (on.analyzer.getSegmentLedger().getFinalizedCount()) + " finalized");
+                expect (firstDifference < 0, juce::String (script.name) + ": first difference at block " + juce::String (firstDifference) + " (" + what + ")");
+                expectEquals (offCollector.calls, 0, juce::String (script.name) + ": live mode off never calls the sink");
+                expect (onCollector.calls >= 25, juce::String (script.name) + ": live mode on delivered the bars (positive control)");
+            }
+        }
+
+        //==============================================================================
+        // 依据：任务书「实时模式开 vs 关，CeladonChain 的输出逐位相同（House 档跑过学习 / 停止 / 重新聆听；时长 ≥ 60 s）」、
+        // GlazeController::setLiveSegmentSink「编排器其余行为一律不变」。两条链（一条经 setLiveSegmentSink 开实时模式）按同一宿主走 69 s：
+        // 首次聆听 → 提交 → 过渡 → 校准，30 s 处「重新聆听」，50 s 处跳播 3 s；每一块的输出逐位相同，编排器的计数也相同。通用档（GLAZE 100）
+        // 与 Deep House（GLAZE 70）各一遍。
+        void testOffEqualsOnChain()
+        {
+            beginTest ("live mode off vs on: CeladonChain output is bit-identical (general and Deep House, learn / commit / relearn / jump, 69 s)");
+
+            const auto track = makeHouseTrack (48000.0, 4, 32, 0.0, 72);   // 36 小节 ≈ 69.7 s
+            const auto blocks = (int) (track.front().size() / (size_t) preparedBlock);
+
+            for (const auto genre : { 0, 1 })
+            {
+                ChainParams params;
+                params.limit.ceilingDb = -1.0f;
+                params.glazePercent = genre == 0 ? 100.0f : 70.0f;
+                params.glazeGenre = genre;
+
+                SegmentCollector collector;
+                ChainRun off (shortListenConstants(), params, nullptr), on (shortListenConstants(), params, &collector);
+                auto firstDifference = -1;
+                std::int64_t position = 0;
+
+                for (int b = 0; b < blocks; ++b)
+                {
+                    const auto time = (std::int64_t) b * preparedBlock;
+
+                    if (time == samplesAt (30.0) - samplesAt (30.0) % preparedBlock)
+                    {
+                        off.chain->requestGlazeRelearn();
+                        on.chain->requestGlazeRelearn();
+                    }
+
+                    if (time == samplesAt (50.0) - samplesAt (50.0) % preparedBlock)
+                        position += samplesAt (3.0);   // 跳播：编排器自己从宿主位置认出来
+
+                    off.step (track, time, position);
+                    on.step (track, time, position);
+                    position += preparedBlock;
+
+                    if (firstDifference < 0 && ! sameBuffers (off.buffer, on.buffer))
+                        firstDifference = b;
+                }
+
+                const auto probeOff = off.chain->getGlazeController().getProbeForTesting();
+                const auto probeOn = on.chain->getGlazeController().getProbeForTesting();
+                const auto tag = juce::String (genre == 0 ? "general" : "Deep House");
+                logMessage ("  " + tag + ": " + juce::String (probeOn.learningStarts) + " learning starts, " + juce::String (probeOn.commits)
+                            + " commits, " + juce::String (probeOn.transportJumps) + " jumps, " + juce::String (collector.calls) + " live segments");
+                expect (firstDifference < 0, tag + ": first different output block " + juce::String (firstDifference));
+                expect (probeOff.commits == probeOn.commits && probeOff.learningStarts == probeOn.learningStarts
+                            && probeOff.planTransitions == probeOn.planTransitions && probeOff.calibrationBegins == probeOn.calibrationBegins
+                            && probeOff.houseUpdates == probeOn.houseUpdates && probeOff.houseReopens == probeOn.houseReopens,
+                        tag + ": the controller took the same decisions");
+                expect (probeOn.learningStarts >= 2 && probeOn.commits >= 2 && probeOn.transportJumps >= 1,
+                        tag + ": first listen, relearn and the jump all happened (positive control)");
+                expect (collector.calls >= 30, tag + ": the live ledger delivered segments (positive control)");
+            }
+        }
+
+        //==============================================================================
+        // 依据：任务书「实时模式开：sink 收到的段按时间先后、每段恰好一次、[start, end) 首尾相接不漏（跨学习开始 / 停止 / 重新聆听、换曲风、
+        // 跳播与回绕）；通用档与 House 档都覆盖」、MusicAnalyzer.cpp「七」节「只在不连续点断开」。48 s：6 s 开始学习、12 s 换 Deep House、
+        // 18 s 停止、24 s 跳播（宿主位置 +5 s）、30 s 重新聆听、36 s 回绕（宿主位置回到 10 s）、42 s 换回通用、46 s 清空 House 段落账，
+        // 48 s 处 reset（开着的段先交出去）。期望：第一段从 0 起、最后一段止于 48 s、相邻两段首尾相接（同一条时间轴）；不完整的段只出现在
+        // 跳播 / 回绕 / 结尾三处的两侧，其余段都是整段（学习、换曲风、清空都不断开）；跳播与回绕之后段的连续时间段号变大。
+        // 宿主两种：恒定 124 BPM 的拍点（按小节）、只有位置（按位置的 2 秒格）。
+        void testSegmentsContiguous()
+        {
+            beginTest ("live mode: segments arrive in time order, once each, end-to-end contiguous across learning, genre switches, jumps and loops");
+
+            const auto jumpAt = samplesAt (24.0), loopAt = samplesAt (36.0), endAt = samplesAt (48.0);
+            const auto track = sliceTo (makeHouseTrack (48000.0, 4, 22, 0.0, 73), endAt);
+            using G = glaze::Genre;
+
+            Transport transport;
+            transport.pieces = { { 0, 0 }, { jumpAt, jumpAt + samplesAt (5.0) }, { loopAt, samplesAt (10.0) } };
+
+            const std::vector<Step> steps {
+                { samplesAt (6.0), [] (MusicAnalyzer& a) { a.startLearning(); } },
+                { samplesAt (12.0), [] (MusicAnalyzer& a) { a.setGenre (G::deepHouse); } },
+                { samplesAt (18.0), [] (MusicAnalyzer& a) { a.stopLearning(); } },
+                { jumpAt, [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::transportJump); } },
+                { samplesAt (30.0), [] (MusicAnalyzer& a) { a.startLearning(); } },
+                { loopAt, [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::loopWrap); } },
+                { samplesAt (42.0), [] (MusicAnalyzer& a) { a.setGenre (G::general); } },
+                { samplesAt (46.0), [] (MusicAnalyzer& a) { a.clearHouseLedger(); } },
+            };
+
+            for (const auto bars : { true, false })
+            {
+                SegmentCollector collector;
+                Rig rig (48000.0);
+                rig.analyzer.setSegmentSink (&collector);
+                rig.analyzer.setLiveMode (true);
+                juce::String unused;
+                runScript ({ &rig }, track, 512, [&transport, bars] (std::int64_t t)
+                {
+                    const auto position = transport.positionAt (t);
+                    return bars ? tempoHost (position, 48000.0) : playingAt (position);
+                }, steps, unused);
+                rig.analyzer.reset();   // 开着的段先就地定稿交出去
+
+                const auto& s = collector.segments;
+                const auto tag = juce::String (bars ? "bars" : "2-second cells");
+                auto contiguous = ! s.empty() && s.front().start == 0 && s.back().end == endAt;
+                auto partialOnlyAtCuts = true, modes = true, epochs = true;
+
+                for (size_t i = 0; i < s.size(); ++i)
+                {
+                    contiguous = contiguous && s[i].start < s[i].end && (i + 1 == s.size() || s[i].end == s[i + 1].start);
+                    const auto whole = s[i].end - s[i].start == s[i].nominalLength;
+                    const auto atCut = s[i].start == jumpAt || s[i].start == loopAt || s[i].end == jumpAt || s[i].end == loopAt || s[i].end == endAt;
+                    partialOnlyAtCuts = partialOnlyAtCuts && (whole || atCut);
+                    modes = modes && s[i].mode == (bars ? glaze::SegmentMode::bars : glaze::SegmentMode::seconds) && s[i].positioned;
+
+                    if (i > 0)
+                        epochs = epochs && (s[i].start == jumpAt || s[i].start == loopAt ? s[i].epoch > s[i - 1].epoch : s[i].epoch == s[i - 1].epoch);
+                }
+
+                logMessage ("  " + tag + ": " + juce::String ((int) s.size()) + " segments over 48 s");
+                expect (collector.calls == (int) s.size() && s.size() >= 20, tag + ": every call stored (no overflow)");
+                expect (contiguous, tag + ": first starts at 0, last ends at 48 s, each one starts where the previous ended");
+                expect (partialOnlyAtCuts, tag + ": learning, genre switches and clearing never cut a segment; only the jump, the loop and the end do");
+                expect (modes, tag + ": segment mode follows the host");
+                expect (epochs, tag + ": the continuous-time index moves on exactly at the jump and the loop");
+            }
+        }
+
+        //==============================================================================
+        // 依据：任务书「交给 sink 的段序列与宿主切块无关：块长 7、32、480、512、4096 逐位相同（逐字段比 Segment）」。事件都放在
+        // 430080 样本（= 这五个块长的最小公倍数，8.96 s）的整数倍上，各种块长下发生在同一个样本：通用档起步，1 × 开始学习、2 × 换 Deep House、
+        // 3 × 停止学习、4 × 跳播（宿主位置 +777777）、5 × 重新聆听、6 × 处 reset（交出开着的段）。
+        void testBlockSizeIndependence()
+        {
+            beginTest ("live mode: the delivered segments are bit-identical for host blocks of 7, 32, 480, 512 and 4096 samples");
+
+            constexpr std::int64_t unit = 430080;
+            const auto track = sliceTo (makeHouseTrack (48000.0, 6, 22, 0.0, 74), 6 * unit);
+            Transport transport;
+            transport.pieces = { { 0, 0 }, { 4 * unit, 4 * unit + 777777 } };
+
+            const std::vector<Step> steps {
+                { 1 * unit, [] (MusicAnalyzer& a) { a.startLearning(); } },
+                { 2 * unit, [] (MusicAnalyzer& a) { a.setGenre (glaze::Genre::deepHouse); } },
+                { 3 * unit, [] (MusicAnalyzer& a) { a.stopLearning(); } },
+                { 4 * unit, [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::transportJump); } },
+                { 5 * unit, [] (MusicAnalyzer& a) { a.startLearning(); } },
+            };
+
+            const auto run = [&] (int blockSize)
+            {
+                auto rig = std::make_unique<Rig> (48000.0);
+                auto collector = std::make_unique<SegmentCollector>();
+                rig->analyzer.setSegmentSink (collector.get());
+                rig->analyzer.setLiveMode (true);
+                juce::String unused;
+                runScript ({ rig.get() }, track, blockSize,
+                           [&transport] (std::int64_t t) { return tempoHost (transport.positionAt (t), 48000.0); }, steps, unused);
+                rig->analyzer.reset();
+                return collector;
+            };
+
+            const auto reference = run (512);
+            auto withTrials = 0;
+
+            for (const auto& segment : reference->segments)
+                withTrials += segment.liveTrialBlocks > 0 && segment.trialBlocks > 0 ? 1 : 0;
+
+            expect (reference->segments.size() >= 25 && withTrials >= 5, "the run delivers bars, some with learning-period trial blocks");
+
+            for (const auto blockSize : { 7, 32, 480, 4096 })
+            {
+                const auto other = run (blockSize);
+                expect (sameSegments (reference->segments, other->segments), "block " + juce::String (blockSize) + " vs 512: every field of every segment");
+            }
+        }
+
+        //==============================================================================
+        // 依据：任务书「liveTrial* 在不学习时也有数据；学习期间实时模式关着时 live* 与 trial* 逐位相同」、MusicAnalyzer.cpp「五」「七」节。
+        // 稳定的素材（粉噪 + 鼓，一直在有效门上），124 BPM 拍点，通用档：
+        //   - 实时模式开、前 19 s 不学习：每一段的 liveTrialBlocks = 起点落在这一段里、且晚于开头 250 ms 预热的块数（48 kHz：块起点是 4800 的
+        //     整数倍、第 3 块起有效）——每个有效块都记进了段；trialBlocks = 0；
+        //   - 20 ～ 40 s 学习：学习区间里的段 trial* 与 live* 逐位相同；停止之后 live* 照记、trial* 不记；
+        //   - 实时模式关、House 档学习 30 s：House 段落账里每一段的 live* 与 trial* 逐位相同，且确实有块（阳性对照）。
+        void testLiveTrialData()
+        {
+            beginTest ("live trial data: every valid block lands in its segment when not learning; live* == trial* while learning (on and off)");
+
+            constexpr double sampleRate = 48000.0;
+            auto input = makePinkNoise (numChannels, (int) (50.0 * sampleRate), -24.0f, 75);
+            addInto (input, makeDrumPattern (sampleRate, 50.0, 76));
+            const auto learnAt = samplesAt (20.0), stopAt = samplesAt (40.0);
+
+            {
+                SegmentCollector collector;
+                Rig rig (sampleRate);
+                rig.analyzer.setSegmentSink (&collector);
+                rig.analyzer.setLiveMode (true);
+                juce::String unused;
+                runScript ({ &rig }, input, 512, [] (std::int64_t t) { return tempoHost (t, 48000.0); },
+                           { { learnAt, [] (MusicAnalyzer& a) { a.startLearning(); } }, { stopAt, [] (MusicAnalyzer& a) { a.stopLearning(); } } },
+                           unused);
+
+                auto idleExact = true, learningSame = true, afterStop = true;
+                int idleSegments = 0, learningSegments = 0, afterSegments = 0;
+
+                for (const auto& s : collector.segments)
+                {
+                    if (s.end <= samplesAt (19.0))
+                    {
+                        // 起点落在 [start, end) 里、且不早于第 3 块（14400）的块数。
+                        const auto first = juce::jmax ((std::int64_t) 3, (s.start + 4799) / 4800);
+                        const auto last = (s.end + 4799) / 4800;   // 不含
+                        idleExact = idleExact && s.liveTrialBlocks == (int) juce::jmax ((std::int64_t) 0, last - first) && s.trialBlocks == 0;
+                        ++idleSegments;
+                    }
+                    else if (s.start >= learnAt && s.end <= stopAt - 6000)
+                    {
+                        learningSame = learningSame && liveEqualsTrial (s) && s.trialBlocks > 0;
+                        ++learningSegments;
+                    }
+                    else if (s.start >= stopAt + 6000)
+                    {
+                        afterStop = afterStop && s.trialBlocks == 0 && s.liveTrialBlocks >= 18;
+                        ++afterSegments;
+                    }
+                }
+
+                logMessage ("  live on: " + juce::String (idleSegments) + " idle bars, " + juce::String (learningSegments) + " learning bars, "
+                            + juce::String (afterSegments) + " bars after the stop");
+                expect (idleSegments >= 8 && idleExact, "not learning: liveTrialBlocks = the valid blocks starting in the bar; trialBlocks = 0");
+                expect (learningSegments >= 8 && learningSame, "learning: live* == trial* bit for bit");
+                expect (afterSegments >= 3 && afterStop, "after stopLearning the live trial keeps recording, the learning one does not");
+            }
+
+            {
+                Rig rig (sampleRate);
+                rig.analyzer.setGenre (glaze::Genre::deepHouse);
+                rig.analyzer.startLearning();
+                rig.feed (sliceOf (input, 0, (int) samplesAt (30.0)), 512, 1, [] (std::int64_t fed, int) { return tempoHost (fed, 48000.0); });
+
+                const auto& ledger = rig.analyzer.getSegmentLedger();
+                auto same = ledger.getNumStored() >= 12, someBlocks = false;
+
+                for (int i = 0; i < ledger.getNumStored(); ++i)
+                {
+                    same = same && liveEqualsTrial (ledger.getStored (i));
+                    someBlocks = someBlocks || ledger.getStored (i).liveTrialBlocks > 0;
+                }
+
+                expect (same && someBlocks, "live mode off, House learning: live* == trial* in every stored segment, with blocks");
+            }
+        }
+
+        //==============================================================================
+        // 依据：任务书「实时模式开着时 processInput / processSpectrum 不分配」、MusicAnalyzer.h「音频线程不分配」。实时模式开、随机块长：
+        // 学习 / 停止 / 重新聆听、通用与 House 来回换、三种不连续点（含表与 Balance 的 reset）、立即重算、清空段落账、分析器 reset，
+        // 每块都不经 operator new（接收者把段存进预先留好容量的 vector）。
+        void testNoAllocation()
+        {
+            beginTest ("live mode: the audio-thread API does not allocate (both ledgers, sink delivery, genre switches, discontinuities)");
+
+            constexpr double sampleRate = 48000.0;
+            SegmentCollector collector (256);
+            Rig rig (sampleRate);
+            rig.analyzer.setSegmentSink (&collector);
+            rig.analyzer.setLiveMode (true);
+            const auto input = makeHouseTrack (sampleRate, 4, 8, 0.5, 77);
+            juce::AudioBuffer<float> block (numChannels, 4096);
+            juce::Random random (9);
+            std::uint64_t allocations = 0;
+            float sink = 0.0f;
+
+            for (int start = 0, index = 0; start < (int) input.front().size(); ++index)
+            {
+                const auto length = juce::jmin (1 + random.nextInt (4096), (int) input.front().size() - start);
+                block.setSize (numChannels, length, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+
+                const auto before = allocationCountOnThisThread();
+
+                rig.analyzer.setHostInfo (index % 40 == 39 ? playingAt (start) : tempoHost (start, sampleRate));
+                rig.analyzer.setGenre (index >= 25 && index < 45 ? glaze::Genre::deepHouse
+                                       : index >= 70 ? glaze::Genre::techHouse : glaze::Genre::general);
+
+                if (index == 0 || index == 50)
+                    rig.analyzer.startLearning();
+
+                if (index == 20)
+                    rig.analyzer.handleDiscontinuity (Discontinuity::transportJump);
+
+                if (index == 30)
+                    rig.analyzer.handleDiscontinuity (Discontinuity::loopWrap);
+
+                if (index == 40)
+                {
+                    rig.analyzer.handleDiscontinuity (Discontinuity::hostReset);
+                    rig.meter.reset();
+                    rig.balance.reset();
+                }
+
+                if (index == 85)
+                    rig.analyzer.reset();
+
+                rig.meter.process (block);
+                rig.analyzer.processInput (block, rig.meter);
+                rig.balance.process (block);
+                rig.analyzer.processSpectrum (rig.balance);
+                sink += rig.analyzer.getCandidateProfile().integratedLufs.value + rig.analyzer.getShortTermView().momentaryLufs.value;
+
+                if (index == 35 || index == 60)
+                {
+                    rig.analyzer.stopLearning();
+                    rig.analyzer.recomputeHouseProfile();
+                }
+
+                if (index == 75)
+                    rig.analyzer.clearHouseLedger();
+
+                allocations += allocationCountOnThisThread() - before;
+                start += length;
+            }
+
+            expect (std::isfinite (sink));
+            expect (collector.calls > 5, "segments were delivered (positive control)");
+            expectEquals ((int) allocations, 0);
+        }
+
+        //==============================================================================
+        // 依据：GlazeController::setLiveSegmentSink「prepare / 宿主 reset / 读档之后保持设定；nullptr = 关（开着的段先交出去）」。一条链开着
+        // 实时模式走 8 s，之后依次 reset（链的 restartWithFadeIn 之外的那种：编排器按宿主 reset 处理）、同规格 prepare、读回自己的存档，每次之后
+        // 再走 6 s：段照样一直交来；setLiveSegmentSink (nullptr) 时把开着的段交出去，之后一段都不再交。
+        void testChainPassThroughKeepsSetting()
+        {
+            beginTest ("chain pass-through: the live sink survives reset, prepare and a state restore; nullptr turns it off");
+
+            ChainParams params;
+            params.limit.ceilingDb = -1.0f;
+            params.glazePercent = 50.0f;
+            params.glazeGenre = 1;
+            SegmentCollector collector;
+            ChainRun run (shortListenConstants(), params, &collector);
+            const auto track = makeHouseTrack (48000.0, 4, 12, 0.0, 78);
+            std::int64_t time = 0;
+
+            const auto play = [&] (double seconds)
+            {
+                for (int b = 0; b < (int) (seconds * 48000.0) / preparedBlock; ++b, time += preparedBlock)
+                    run.step (track, time, time);
+            };
+
+            play (8.0);
+            const auto afterStart = collector.calls;
+            run.chain->reset();
+            play (6.0);
+            const auto afterReset = collector.calls;
+            run.chain->setParams (params, false);
+            run.chain->prepare ({ 48000.0, (juce::uint32) preparedBlock, (juce::uint32) numChannels });
+            play (6.0);
+            const auto afterPrepare = collector.calls;
+            const auto state = run.chain->createGlazeStateXml();
+            run.chain->restoreGlazeStateXml (state.get());
+            play (6.0);
+            const auto afterRestore = collector.calls;
+            run.chain->setLiveSegmentSink (nullptr);
+            const auto afterOff = collector.calls;
+            play (6.0);
+
+            logMessage ("  segments: " + juce::String (afterStart) + " after 8 s, " + juce::String (afterReset) + " after reset, "
+                        + juce::String (afterPrepare) + " after prepare, " + juce::String (afterRestore) + " after restore, "
+                        + juce::String (afterOff) + " after turning it off");
+            expect (afterStart >= 3, "segments arrive while playing");
+            expect (afterReset >= afterStart + 2, "still on after reset");
+            expect (afterPrepare >= afterReset + 2, "still on after prepare");
+            expect (afterRestore >= afterPrepare + 2, "still on after a state restore");
+            expect (afterOff >= afterRestore + 1, "turning it off hands over the open segment");
+            expectEquals (collector.calls, afterOff, "nothing after it is off");
+        }
+
+        //==============================================================================
+        // 性能（依据：任务书「分析器每块均值（实时模式关：学习中 / 不学习；实时模式开），与现有 learningGuardMicroseconds 护栏对照」；
+        // 不改现有护栏）：同上面通用档护栏的量法（48 kHz 立体声、块 512、4 遍取每块最短再求均值 / 最坏）。四种：关 · 学习中、关 · 不学习、
+        // 开 · 不学习（通用档：候选一直跑 + 实时段落账）、开 · House 档学习中（候选 + 两份段落账 + 门控画像）。实时模式开着的两种都要低于
+        // learningGuardMicroseconds（它的工作量上限就是「学习中」再加一份段落账）。
+        void testPerformance()
+        {
+            beginTest ("performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (general / House learning)");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr int blockLength = 512;
+            auto input = makePinkNoise (numChannels, (int) (10.0 * sampleRate), -24.0f, 101);
+            addInto (input, makeDrumPattern (sampleRate, 10.0, 5));
+            const auto numBlocks = (int) input.front().size() / blockLength;
+            juce::AudioBuffer<float> block (numChannels, blockLength);
+            SegmentCollector collector (64);
+
+            auto measure = [&] (bool live, bool learn, bool house)
+            {
+                std::vector<juce::int64> best ((size_t) numBlocks, std::numeric_limits<juce::int64>::max());
+
+                for (int pass = 0; pass < 4; ++pass)
+                {
+                    Rig rig (sampleRate);
+
+                    if (house)
+                        rig.analyzer.setGenre (glaze::Genre::deepHouse);
+
+                    if (live)
+                    {
+                        rig.analyzer.setSegmentSink (&collector);
+                        rig.analyzer.setLiveMode (true);
+                    }
+
+                    if (learn)
+                        rig.analyzer.startLearning();
+
+                    for (int b = 0; b < numBlocks; ++b)
+                    {
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            block.copyFrom (ch, 0, input[(size_t) ch].data() + b * blockLength, blockLength);
+
+                        rig.analyzer.setHostInfo (tempoHost ((std::int64_t) b * blockLength, sampleRate));
+                        rig.meter.process (block);
+                        const auto t0 = juce::Time::getHighResolutionTicks();
+                        rig.analyzer.processInput (block, rig.meter);
+                        const auto t1 = juce::Time::getHighResolutionTicks();
+                        rig.balance.process (block);
+                        const auto t2 = juce::Time::getHighResolutionTicks();
+                        rig.analyzer.processSpectrum (rig.balance);
+                        const auto t3 = juce::Time::getHighResolutionTicks();
+                        best[(size_t) b] = juce::jmin (best[(size_t) b], (t1 - t0) + (t3 - t2));
+                    }
+                }
+
+                double sum = 0.0, worst = 0.0;
+
+                for (auto ticks : best)
+                {
+                    const auto seconds = juce::Time::highResolutionTicksToSeconds (ticks);
+                    sum += seconds;
+                    worst = juce::jmax (worst, seconds);
+                }
+
+                return std::pair<double, double> { 1.0e6 * sum / numBlocks, 1.0e6 * worst };
+            };
+
+            const auto offLearning = measure (false, true, false);
+            const auto offIdle = measure (false, false, false);
+            const auto liveIdle = measure (true, false, false);
+            const auto liveHouse = measure (true, true, true);
+            const auto text = [] (const std::pair<double, double>& m)
+            {
+                return "mean " + juce::String (m.first, 2) + " us, worst " + juce::String (m.second, 2) + " us";
+            };
+
+            logMessage ("  analyzer @48k block 512 - live off, learning: " + text (offLearning) + "; live off, not learning: " + text (offIdle)
+                        + "; live on, general, not learning: " + text (liveIdle) + "; live on, House, learning: " + text (liveHouse)
+                        + " (guard " + juce::String (learningGuardMicroseconds, 0) + " us)");
+            expect (liveIdle.first < learningGuardMicroseconds, "live mode (general, not learning) too slow: " + juce::String (liveIdle.first, 2) + " us per block");
+            expect (liveHouse.first < learningGuardMicroseconds, "live mode (House, learning) too slow: " + juce::String (liveHouse.first, 2) + " us per block");
+            expect (collector.calls > 0, "the live runs delivered segments (positive control)");
+        }
+    };
+
+    static MusicAnalyzerLiveTests musicAnalyzerLiveTests;
+}
