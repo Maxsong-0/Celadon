@@ -326,6 +326,9 @@ namespace celadon::glaze
             // 算法 8（T-032 R6-01）：Heat 承担削峰的门槛。旧快照缺字段按 0 读——它们的 algorithmVersion < 8，决策器永远不进用到它的
             // 分支（版本门是唯一开关，缺省值不是兼容手段；GlazeConstants.h 的说明）。
             v.optionalField ("heatUsefulCrestDb", c.heatUsefulCrestDb, 0.0f);
+
+            // T-043（ADR-027）：守护混合损失的封顶门槛。缺字段按 0 读 → 决策器「判断不了」→ 不封顶（旧快照不变）。
+            v.optionalField ("clayBlendLossLimitDb", c.clayBlendLossLimitDb, 0.0f);
         }
 
         //==============================================================================

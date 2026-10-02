@@ -98,6 +98,11 @@ namespace celadon::glaze
         Feature lowCutPeakCostDb;                                    // IIR 4 阶 20 Hz 低切
         std::array<Feature, 4> monoPeakCostDb {};                    // 线性相位收单 a = 1，分频点 = clayMonoCandidateHz[i]
         Feature widthPeakCostDb;                                     // 2 kHz 高架 +1.5 dB（侧声道）
+        // T-043（ADR-027）：低切候选（频率 = clayBlendCandidateHz[i]）过 ClayModule 的峰值守护，守护的混合损失
+        // 10·log10(本该 / 实际)（K 加权，dB；正 = 守护把低切拉回干路时与干路相位不同、互相抵消，成品比低切本该给的更轻）。
+        // 与上面的代价同一学习区间、同一批有效块，同时有效。决策器按两点的幂律插值，把低切频率封顶在预测损失 = 门槛处。
+        // 画像里是可选字段：旧画像没有 = 不知道（valid = false），决策器不据它封顶。
+        std::array<Feature, 2> lowCutBlendLossDb {};
 
         double effectiveSeconds = 0.0;   // 累计有效音频时长（新增样本折算）
         float representativeness = 0.0f; // 代表性置信度 0 ～ 1：同一段反复循环不增加
@@ -114,6 +119,14 @@ namespace celadon::glaze
 
     // 先试后用的收单候选分频点（Hz，递增；ADR-012）：分析器按它们各测一个代价，决策器按对数频率在相邻两点间插值。
     inline constexpr std::array<float, 4> clayMonoCandidateHz { 60.0f, 80.0f, 120.0f, 160.0f };
+
+    // 守护混合损失的试用候选（T-043，ADR-027）：低切频率，升序。10 Hz = 出厂地板（clayLowCutFloorHz），20 Hz = 风格目标的上限
+    // （f_t 出厂 16 / 18 / 20 Hz），也是峰值代价那个低切候选（分析器直接用它的输出）。两点之间按幂律 L ∝ f^q 插值（log-log 直线）：
+    // 低切在 f ≫ fc 处的相位差 ∝ fc / f，混合损失 ∝ 相位差²，渐近 q = 2；真歌（5 首，10 / 12 / 14 / 16 / 20 Hz 实测）q 在 1.5 ～ 1.8，
+    // 两点幂律在 12 / 14 Hz 处与实测差 ≤ 0.006 dB（三点分段线性的精度，CPU 只要两份守护）。
+    inline constexpr std::array<float, 2> clayBlendCandidateHz { 10.0f, 20.0f };
+    static_assert (clayBlendCandidateHz.size() == std::tuple_size<decltype (MusicProfile::lowCutBlendLossDb)>::value,
+                   "每个混合损失候选都要有一个画像特征");
 
     // 因「试过会抬高峰值」被减量 / 否决的项（ClayPlan::costLimitedMask、Status::clayCostLimitedMask 的位）。
     inline constexpr std::uint8_t clayCostLimitedLowCut = 1u, clayCostLimitedMono = 2u, clayCostLimitedWidth = 4u;
@@ -215,6 +228,9 @@ namespace celadon::glaze
         float outputTruePeakDbtp = -100.0f;
         float clayPressureDb = 0.0f;      // 本块走完的修坯代价格的平均：不经守护时相关峰值会超出界多少 dB（ADR-014 压力反馈）
         double clayPressureSeconds = 0.0; // 这些代价格的总时长（本块没走完一格为 0）
+        double clayBlendIntendedEnergy = 0.0;   // 修坯守护的混合损失测量（T-043，ADR-027；ClayModule::getLastProcessBlend）：本块「本该输出」
+        double clayBlendOutputEnergy = 0.0;     // 与实际输出的 K 加权能量；损失 dB = 10·log10(本该 / 实际)
+        double clayBlendSeconds = 0.0;          // 量过的时长（①② 不作用的段不量，为 0）
         bool musicActive = false;         // 本块输入在有效信号门限之上（给「有效音乐」统计用）
     };
 

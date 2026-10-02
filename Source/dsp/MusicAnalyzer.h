@@ -52,6 +52,9 @@
       - 先试后用的峰值代价（样本流，只在学习区间内跑）：把低切 / 收单 ×4 / 加宽的候选处理跑在原始输入上，比较 100 ms 块峰值
         P99 的变化（lowCutPeakCostDb、monoPeakCostDb[4]、widthPeakCostDb）；块网格与起音同一套边界，有效块满 10 s 才有效。
         不学习时候选不跑（不耗 CPU）；收单候选的线性相位低通与 M / S 延迟环在 prepare 时按采样率分配。
+        T-043（ADR-027）：另把低切候选（10 / 14 / 20 Hz，clayBlendCandidateHz）各过一个真 ClayModule（含峰值守护），同一批有效块里
+        量守护的混合损失（lowCutBlendLossDb[3]，K 加权的「本该 / 实际」能量比，dB）；候选模块在 prepare 时分配，学习期间每个样本
+        多跑三份 Clay。
       - 实时视图（帧流，不进画像）：liveLowCorrelation = 300 ms 慢路，liveLowCorrelationFast = 120 ms 快路（同门、同运行均值起步、
         同重启规则），liveHigh* = 300 ms；本帧门下的段不计；不连续点 / 丢帧时清空，重新平滑满各自的时间常数才有效；组内平滑功率
         落到段静音门下即无效。帧门限下（静音）两路低频相关度标无效（平滑状态保留，回到门上接着平滑——ClayGuard 见到无效就冻结，

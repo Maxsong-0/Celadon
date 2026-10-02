@@ -402,19 +402,19 @@ namespace celadon::help
             // 关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改它。
             { param::clayLowCutMode,
               "低切 · 自动 / 关 / 手动",
-              "自动：只在这首歌真有听不见的次声（16 Hz 以下）、且试过不会抬高峰值才切，播放中若一直抬峰值会自动减量；关：永远不切；手动：按手动频率切，GLAZE 为 0 也生效。",
+              "自动：只在这首歌真有听不见的次声（16 Hz 以下）、且试过不会抬高峰值也不会削弱低音才切，播放中若一直抬峰值或削弱低音会自动减量；关：永远不切；手动：按手动频率切，GLAZE 为 0 也生效。",
               "一般保持自动；想留住刻意的超低频效果时选「关」。",
               "Low cut · Auto / Off / Manual",
-              "Auto: cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks, and backs off during playback if it keeps raising them; Off: never cuts; Manual: cuts at your frequency, even at GLAZE 0.",
+              "Auto: cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks or thin the low end, and backs off during playback if it keeps doing either; Off: never cuts; Manual: cuts at your frequency, even at GLAZE 0.",
               "Usually keep Auto; choose Off to keep deliberate sub-bass effects." },
 
             { param::clayLowCutHz,
               "低切 · 清理超低频",
               "4 阶高通切掉这个频率以下的次声与直流；「自动」时手动值不生效，这里显示的是此刻的实际值。",
-              "16～25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压。",
+              "16～25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压；让得太频繁会削弱低音，所以自动会把频率压低或不切。",
               "Low cut · clean up sub-bass",
               "A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual value.",
-              "16–25 Hz is enough; it rotates the low-end phase, and whenever that would raise a peak the peak guard yields the low cut so the limiter does not work harder." },
+              "16–25 Hz is enough; it rotates the low-end phase, and whenever that would raise a peak the peak guard yields the low cut so the limiter does not work harder; yielding too often thins the low end, so Auto lowers the frequency or skips the cut." },
 
             { param::clayMonoMode,
               "收单 · 自动 / 关 / 手动",
@@ -730,10 +730,14 @@ namespace celadon::help
         if (limitedNames.isEmpty())
             return {};
 
+        // 低切还可能因峰值守护的混合损失被封顶（T-043，ADR-027：守护让得太频繁、与干路相位不同处互相抵消，低音变弱），原因一并说上。
+        const auto lowCutLimited = readout.lowCutCostLimited;
+
         if (english)
         {
             // 「Tried on this song: low cut, mono raise peaks — skipped low cut, reduced mono」
-            const auto line = "Tried on this song: " + limitedNames.joinIntoString (", ") + " would raise peaks, ";
+            const auto line = "Tried on this song: " + limitedNames.joinIntoString (", ")
+                            + (lowCutLimited ? " would raise peaks or thin the low end, " : " would raise peaks, ");
 
             if (reducedNames.isEmpty())
                 return line + "skipped automatically";
@@ -745,7 +749,8 @@ namespace celadon::help
         }
 
         const auto separator = utf8 ("、");
-        const auto line = utf8 ("本曲试过：") + limitedNames.joinIntoString (separator) + utf8 ("会抬高峰值，已自动");
+        const auto line = utf8 ("本曲试过：") + limitedNames.joinIntoString (separator)
+                        + utf8 (lowCutLimited ? "会抬高峰值或削弱低音，已自动" : "会抬高峰值，已自动");
 
         if (reducedNames.isEmpty())
             return line + utf8 ("跳过");

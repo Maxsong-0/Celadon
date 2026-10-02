@@ -112,12 +112,25 @@ namespace celadon
         // 子块长度（样本）= round(0.1 × 采样率)；prepare 之前是 4800。（v0.6 A1 追加：分析器按它折算时长与窗口。）
         int getSubBlockLength() const noexcept   { return subBlockLength; }
 
-    private:
+        // K 加权的两级系数（T-043：修坯峰值守护的混合损失按与本表同一口径的 K 加权量，ClayModule 借用）。prepare 用的就是它，
+        // 表的读数逐位不变。采样率须 > 0。
         struct Biquad
         {
             double b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0;
         };
 
+        static void designKWeighting (double fs, Biquad& shelfOut, Biquad& highpassOut) noexcept;
+
+        static double kWeight (double x, const Biquad& f, double& s1, double& s2) noexcept
+        {
+            // 转置直接 II 型双二阶，double 精度（38 Hz 高通在 float 下误差偏大）。
+            const auto y = f.b0 * x + s1;
+            s1 = f.b1 * x - f.a1 * y + s2;
+            s2 = f.b2 * x - f.a2 * y;
+            return y;
+        }
+
+    private:
         struct ChannelState
         {
             double shelfS1 = 0.0, shelfS2 = 0.0;
@@ -138,15 +151,6 @@ namespace celadon
         void measureLoudness (const float* const* channels, int channelsToUse, int startSample, int numSamples) noexcept;
         void restartSubBlockGrid() noexcept;
         void publishSubBlock() noexcept;
-
-        static double kWeight (double x, const Biquad& f, double& s1, double& s2) noexcept
-        {
-            // 转置直接 II 型双二阶，double 精度（38 Hz 高通在 float 下误差偏大）。
-            const auto y = f.b0 * x + s1;
-            s1 = f.b1 * x - f.a1 * y + s2;
-            s2 = f.b2 * x - f.a2 * y;
-            return y;
-        }
 
         double sampleRate = 0.0;
         int numChannels = 0;

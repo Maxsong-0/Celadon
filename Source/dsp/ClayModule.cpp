@@ -321,6 +321,26 @@ namespace celadon
         return report;
     }
 
+    ClayModule::BlendReport ClayModule::getLastProcessBlend() const noexcept
+    {
+        BlendReport report;
+
+        if (peakGuard.blendSamples > 0 && sampleRate > 0.0)
+        {
+            report.intendedEnergy = peakGuard.blendIntendedEnergy;
+            report.outputEnergy = peakGuard.blendOutputEnergy;
+            report.seconds = static_cast<double> (peakGuard.blendSamples) / sampleRate;
+        }
+
+        return report;
+    }
+
+    void ClayModule::setBlendTap (double* intendedPerSample, double* outputPerSample) noexcept
+    {
+        blendTapIntended = intendedPerSample;
+        blendTapOutput = outputPerSample;
+    }
+
     ClayModule::PeakGuardStats ClayModule::getAndResetPeakGuardStats() noexcept
     {
         const auto result = peakGuard.stats;
@@ -553,6 +573,9 @@ namespace celadon
 
         peakGuard.pressureSumDb = 0.0;
         peakGuard.pressureBlocks = 0;
+        peakGuard.blendIntendedEnergy = 0.0;
+        peakGuard.blendOutputEnergy = 0.0;
+        peakGuard.blendSamples = 0;
 
         if (sampleRate <= 0.0 || coreDelay <= 0 || numSamples <= 0 || channelsToUse <= 0)
             return;
@@ -566,9 +589,13 @@ namespace celadon
             {
                 updateCoefficients();
                 samplesUntilCoefficientUpdate = coefficientUpdateInterval;
+                peakGuard.decideBlendMeasuring();   // T-043：混合损失这一格量不量，按同一网格定（与块长无关）
             }
 
             const auto length = juce::jmin (numSamples - offset, samplesUntilCoefficientUpdate);
+            const auto tapping = blendTapIntended != nullptr && blendTapOutput != nullptr;
+            peakGuard.tapIntended = tapping ? blendTapIntended + offset : nullptr;
+            peakGuard.tapOutput = tapping ? blendTapOutput + offset : nullptr;
 
             // 立体声按段选两份之一（T-032）：段首③ 已逐位直通且无余振（widthIdle）→ 本段每个样本的 δ 都精确为 0（直通时不跑高架，
             // 状态保持 0；系数只在网格点换，段不跨网格点），走整段不碰③ 的那份；否则逐样本判断。两份对 widthIdle 的段输出逐位相同，
@@ -1011,6 +1038,10 @@ namespace celadon
         envelopeRetain = fs > 0.0 ? std::exp (-1.0 / (peakGuardEnvelopeSeconds * fs)) : 0.0;
         releaseStep    = fs > 0.0 ? 1.0 / (peakGuardReleaseSeconds * fs) : 1.0;
 
+        // 混合损失测量的 K 加权（T-043）：与 LoudnessMeter 同一组系数。采样率无效时系数留默认（直通），反正 process 什么都不做。
+        if (fs > 0.0)
+            LoudnessMeter::designKWeighting (fs, blendShelf, blendHighpass);
+
         ringLength = lookahead + 1;
         ring.assign (static_cast<std::size_t> (ringLength), Frame {});
         costBlockLength = fs > 0.0 ? juce::jmax (1, static_cast<int> (std::lround (0.01 * fs))) : 1;
@@ -1075,6 +1106,96 @@ namespace celadon
         costBlockMaxRatio = 0.0;
         pressureSumDb = 0.0;
         pressureBlocks = 0;
+        clearBlendFilters();
+        blendMeasuring = false;
+        blendIntendedEnergy = 0.0;
+        blendOutputEnergy = 0.0;
+        blendSamples = 0;
+    }
+
+    void ClayModule::PeakGuard::clearBlendFilters() noexcept
+    {
+        blendIntendedState.fill (KState {});
+        blendDifferenceState.fill (KState {});
+        blendDifferenceQuiet = true;
+    }
+
+    // 混合损失测量（T-043，ADR-027）：本段的输出样本 io[c][0 .. n)（守护后、已加回 δ）与 intended[c][0 .. n)（g 当 1 时的值）。
+    // 两份按 K 加权累计能量；差值 = 实际 − 本该，单独一组滤波器（线性：K(实际) = K(本该) + K(差值)）。差值整段为 0 且那组滤波器
+    // 已归零（blendDifferenceQuiet）时跳过它——状态全 0、输入全 0 的滤波器输出恰为 0、状态不变，跳过与照跑逐位等价；把小状态清零
+    // 这个改变状态的动作只在 64 样本网格点上做（decideBlendMeasuring），所以逐样本的结果与段怎么切（宿主块长）无关。非有限值（链的
+    // NaN 保护会整体 reset，这里只防测量本身被污染）：本段的贡献丢掉、滤波器归零。
+    void ClayModule::PeakGuard::measureBlend (float* const* io, int channelCount, int numSamples) noexcept
+    {
+        auto anyDifference = false;
+
+        for (int c = 0; c < channelCount && ! anyDifference; ++c)
+            for (int i = 0; i < numSamples; ++i)
+                if (io[c][i] != intended[static_cast<std::size_t> (c)][static_cast<std::size_t> (i)])
+                {
+                    anyDifference = true;
+                    break;
+                }
+
+        const auto runDifference = anyDifference || ! blendDifferenceQuiet;
+        const auto tapping = tapIntended != nullptr;
+        auto intendedEnergy = 0.0, outputEnergy = 0.0;
+
+        for (int c = 0; c < channelCount; ++c)
+        {
+            auto& is = blendIntendedState[static_cast<std::size_t> (c)];
+            auto& ds = blendDifferenceState[static_cast<std::size_t> (c)];
+            const auto& ref = intended[static_cast<std::size_t> (c)];
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto r = static_cast<double> (ref[static_cast<std::size_t> (i)]);
+                auto k = LoudnessMeter::kWeight (r, blendShelf, is.shelfS1, is.shelfS2);
+                k = LoudnessMeter::kWeight (k, blendHighpass, is.highpassS1, is.highpassS2);
+                auto out = k;
+
+                if (runDifference)
+                {
+                    const auto d = static_cast<double> (io[c][i]) - r;
+                    auto kd = LoudnessMeter::kWeight (d, blendShelf, ds.shelfS1, ds.shelfS2);
+                    kd = LoudnessMeter::kWeight (kd, blendHighpass, ds.highpassS1, ds.highpassS2);
+                    out = k + kd;
+                }
+
+                intendedEnergy += k * k;
+                outputEnergy += out * out;
+
+                // 抽头：每个输出样本各声道之和（第 0 声道写、第 1 声道加）。
+                if (tapping)
+                {
+                    tapIntended[i] = c == 0 ? k * k : tapIntended[i] + k * k;
+                    tapOutput[i] = c == 0 ? out * out : tapOutput[i] + out * out;
+                }
+            }
+        }
+
+        if (! (std::isfinite (intendedEnergy) && std::isfinite (outputEnergy)))
+        {
+            clearBlendFilters();
+
+            if (tapping)
+            {
+                std::fill (tapIntended, tapIntended + numSamples, 0.0);
+                std::fill (tapOutput, tapOutput + numSamples, 0.0);
+            }
+
+            return;
+        }
+
+        if (anyDifference)
+            blendDifferenceQuiet = false;
+
+        blendIntendedEnergy += intendedEnergy;
+        blendOutputEnergy += outputEnergy;
+        blendSamples += numSamples;
+        stats.blendIntendedEnergy += intendedEnergy;
+        stats.blendOutputEnergy += outputEnergy;
+        stats.blendSamples += numSamples;
     }
 
     void ClayModule::PeakGuard::process (const float* const* dry, float* const* io, const float* const* delta, int callerChannels,
@@ -1085,6 +1206,7 @@ namespace celadon
         // 否则带 δ：存 δ、输出时加回。从不带 δ 的那条转过来时记下起点 incrementsFrom——更早的格没写 δ，但那些样本的 δ 本来就都是 0
         // （不带 δ 的那条只收 δ 全为 0 的段），输出时按 0 算。两条路的输出因此逐位相同，选路只影响快慢；选路只看样本号与 δ，
         // 与块长无关。
+        jassert (numSamples <= maxSegmentLength);   // intended 的容量（ClayModule::process 按 64 样本网格切段）
         const auto withIncrement = delta != nullptr || lastIncrement >= sampleCount - lookahead;
 
         if (withIncrement && ! incrementsWritten)
@@ -1109,6 +1231,48 @@ namespace celadon
             else
                 processBlock<1, false> (dry, io, nullptr, numSamples);
         }
+
+        // 混合损失测量（T-043）：这一格定了要量就量（decideBlendMeasuring）；不量的格里输出逐位 = y ± δ、差值为 0，抽头写 0。
+        if (blendMeasuring)
+        {
+            measureBlend (io, stereo ? 2 : 1, numSamples);
+        }
+        else if (tapIntended != nullptr)
+        {
+            std::fill (tapIntended, tapIntended + numSamples, 0.0);
+            std::fill (tapOutput, tapOutput + numSamples, 0.0);
+        }
+    }
+
+    // 64 样本网格点上（ClayModule::process 重算系数的同一时刻）定这一格量不量：前瞻环里有①② 处理过的样本（lastProcessed 在最近
+    // ringLength 个样本里）就量。这一格要输出的样本是 G > 64 个样本之前的输入，此刻都已在环里，所以要量的不会漏；只看①②——③ 的增量
+    // δ 不进守护，g 不会因它 < 1。由量转为不量时两组滤波器归零（下次从零起，与之前怎么切块无关）。
+    void ClayModule::PeakGuard::decideBlendMeasuring() noexcept
+    {
+        const auto measure = lastProcessed >= sampleCount - ringLength;
+
+        if (blendMeasuring && ! measure)
+        {
+            clearBlendFilters();
+        }
+        else if (! blendDifferenceQuiet)
+        {
+            // 差值那组滤波器的状态都已低于门槛（约 −300 dB，远低于能量里任何有意义的量）→ 归零、标「静」：之后整段没有差值的段可以跳过它。
+            constexpr double quietThreshold = 1.0e-15;
+            auto quiet = true;
+
+            for (const auto& ds : blendDifferenceState)
+                quiet = quiet && std::abs (ds.shelfS1) < quietThreshold && std::abs (ds.shelfS2) < quietThreshold
+                              && std::abs (ds.highpassS1) < quietThreshold && std::abs (ds.highpassS2) < quietThreshold;
+
+            if (quiet)
+            {
+                blendDifferenceState.fill (KState {});
+                blendDifferenceQuiet = true;
+            }
+        }
+
+        blendMeasuring = measure;
     }
 
     template <int numChannels, bool withIncrement>
@@ -1159,6 +1323,7 @@ namespace celadon
         auto previous = released;
         auto guardedSamples = stats.guardedSamples;
         auto minGain = stats.minGain;
+        float* const intendedOut[] { intended[0].data(), intended[1].data() };   // 混合损失测量（T-043）：g 当 1 时的输出
 
         for (int i = 0; i < numSamples; ++i, ++m)
         {
@@ -1300,6 +1465,8 @@ namespace celadon
                                                 : atJ.wet[static_cast<std::size_t> (c)];
                     else
                         io[c][i] = atJ.wet[static_cast<std::size_t> (c)];
+
+                    intendedOut[c][i] = io[c][i];
                 }
             }
             else
@@ -1355,10 +1522,11 @@ namespace celadon
                     if constexpr (withIncrement)
                     {
                         const auto increment = incrementAtJ ? atJ.delta[static_cast<std::size_t> (c)] : 0.0f;
+                        intendedOut[c][i] = plusIncrement (y, increment);
 
                         if (gain >= 1.0)
                         {
-                            io[c][i] = plusIncrement (y, increment);
+                            io[c][i] = intendedOut[c][i];
                             continue;
                         }
 
@@ -1369,6 +1537,8 @@ namespace celadon
                     }
                     else
                     {
+                        intendedOut[c][i] = y;
+
                         if (gain >= 1.0)
                         {
                             io[c][i] = y;
