@@ -30,6 +30,8 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
 - Release 会顺手把 VST3 / AU 拷进 `~/Library/Audio/Plug-Ins/`（Projucer 的 plugin copy step，脚本阶段里写的是
   `${HOME}/Library/Audio/Plug-Ins/…`），产物本身在 `Builds/MacOSX/build/Release/`。只想验证、不想覆盖系统里已装的插件时，
   命令行再加一个构建设置 `HOME=<临时目录>`：只改脚本阶段看到的 HOME，拷贝落进临时目录，Xcode 其他行为不变。
+  **写在命令后面**（`xcodebuild … build HOME=/tmp/x`）；写在命令前面当环境变量（`HOME=/tmp/x xcodebuild …`）不改构建设置，照样装进系统
+  （2026-10-02 踩过）。动手前用 `xcodebuild … -showBuildSettings HOME=/tmp/x | grep INSTALL_PATH` 核对。
 - 检查：`lipo -archs Builds/MacOSX/build/Release/Celadon.vst3/Contents/MacOS/Celadon` 应打印 `x86_64 arm64`
   （`Celadon.component`、`Celadon.app` 同样）；AU 两个架构都过一遍 `auval -v aufx Cldn Maxs` 与
   `arch -x86_64 auval -v aufx Cldn Maxs`（后者走 Rosetta）。
