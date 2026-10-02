@@ -242,6 +242,12 @@ namespace celadon::ui
         return { (float) padX, 204.0f, 246.0f, 20.0f };
     }
 
+    juce::Rectangle<float> ClayCard::houseHintBounds() const
+    {
+        // 小图连同下面一行标签（204 ～ 238）的位置，往上借 12 px 放两行字；下边距与其余卡片的最后一行齐（248 − 10）。
+        return { (float) padX, 192.0f, 246.0f, 46.0f };
+    }
+
     void ClayCard::layoutContent()
     {
         for (size_t i = 0; i < rows.size(); ++i)
@@ -256,7 +262,8 @@ namespace celadon::ui
     {
         const auto position = getMouseXYRelative().toFloat();
 
-        if (position.y < (float) (headerTop + headerHeight) || stripBounds().expanded (0.0f, 16.0f).contains (position))
+        if (position.y < (float) (headerTop + headerHeight) || stripBounds().expanded (0.0f, 16.0f).contains (position)
+            || (readout.housePhaseHint && houseHintBounds().contains (position)))
             return getHeaderTooltip();
 
         for (size_t i = 0; i < rows.size(); ++i)
@@ -297,6 +304,26 @@ namespace celadon::ui
             g.setColour (palette::ink.withMultipliedAlpha (alpha));
             g.drawText (tr (names[i], language), juce::Rectangle<float> (area.getX() + 15.0f, area.getY(), 96.0f, 17.0f),
                         juce::Justification::centredLeft, false);
+        }
+
+        // T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节）：亮着时小图那一格换成两行琥珀提示——说的是混音本身
+        //（俱乐部单声道回放会丢低频），修坯救不回来，所以不随旁通变淡；灭了就回到小图。
+        if (readout.housePhaseHint)
+        {
+            const auto box = houseHintBounds();
+            g.setColour (palette::warningSoft);
+            g.fillRoundedRectangle (box, 8.0f);
+            g.setColour (palette::warning.withAlpha (0.45f));
+            g.drawRoundedRectangle (box.reduced (0.5f), 7.5f, 1.0f);
+
+            const auto lines = help::housePhaseHintLines (readout.housePhaseLossTenthsDb, language);
+            const auto text = box.reduced (10.0f, 5.0f);
+            g.setColour (palette::warningText);
+            g.setFont (uiFont (12.0f, Weight::medium));
+            g.drawFittedText (lines[0], text.withHeight (text.getHeight() * 0.5f).toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
+            g.setFont (uiFont (12.0f));
+            g.drawFittedText (lines[1], text.withTrimmedTop (text.getHeight() * 0.5f).toNearestInt(), juce::Justification::centredLeft, 1, 0.85f);
+            return;
         }
 
         // 频段小图：10 Hz ～ 1 kHz（对数），低切以下斜线、收单区浅青、其上立体声区更浅。

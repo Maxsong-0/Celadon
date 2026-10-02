@@ -15,7 +15,9 @@
         缺省构造 = 出厂常数 = 规格数字；
       - resolveClayParams：27 种三态组合 × GLAZE 0 / 50 × Bypass（含每项三态 = 9 种单项情形）、钳制与非有限、GLAZE NaN / 负、
         纯函数、「手动」「关」不受保护改动；
-      - update / setConstants / setState / reset / resolveClayParams（以及构造）不经 operator new 分配。
+      - update / setConstants / setState / reset / resolveClayParams（以及构造）不经 operator new 分配；
+      - T-038 House 档反相提示（updateHouseHint）：门限严格 < 0.6、连续满 8 s（块长无关、一断从头计）、保持 2 s 且保持期里可重新装满、
+        不 eligible 立即熄灭并清零、冻结、单声道损失 10·log10((1 + ρ) / 2) 与 1 s 平滑、只提示（update 的输出与状态逐位不受影响）、不分配。
 
     只按 ClayGuard.h 的公开接口写；实时视图（ShortTermView）手工构造，不经过分析器。时间按 48 kHz 样本数折算，
     默认 10 ms（480 样本）一块。
@@ -315,10 +317,277 @@ namespace celadon::test
             testResolveClampsAndPurity();
             testManualAndOffIgnoreGuard();
 
+            testHouseHintThresholdAndDuration();
+            testHouseHintHoldEligibilityAndFreeze();
+            testHouseHintLossAndIsolation();
+
             testDoesNotAllocate();
         }
 
     private:
+        //==============================================================================
+        // T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节；ClayGuard.cpp 文件头）：慢路 ρ < 0.6 在满编段里连续满
+        // requiredSeconds（4 小节或 8 s）才亮；条件消失后保持 2 s（同反相保护的保持期）；不 eligible 立即熄灭、计时清零；
+        // 冻结时不动；只提示、不改声音、不进 ClayGuardState。下面用 8 s（拿不到拍点时编排器给的值）。
+        static constexpr double houseRequiredSeconds = 8.0;
+
+        static ShortTermView houseView (float lowCorrelation, bool lowValid = true)
+        {
+            return makeView (lowCorrelation, lowValid, 1.0f, 0.01f, true);
+        }
+
+        // 同一视图连续喂 seconds 秒（blockSamples 一块，最后一块可短），返回此刻的提示。
+        static ClayGuard::HouseHint feedHouse (ClayGuard& guard, const ShortTermView& view, double seconds, bool eligible,
+                                               double requiredSeconds = houseRequiredSeconds, int blockSamples = gridSamples)
+        {
+            const auto total = static_cast<int> (std::lround (seconds * clayRate));
+
+            for (int done = 0; done < total;)
+            {
+                const auto length = juce::jmin (blockSamples, total - done);
+                guard.updateHouseHint (view, static_cast<double> (length) / clayRate, eligible, requiredSeconds);
+                done += length;
+            }
+
+            return guard.getHouseHint();
+        }
+
+        static float expectedLossDb (double rho)   { return static_cast<float> (10.0 * std::log10 ((1.0 + rho) / 2.0)); }
+
+        // 门限（严格小于 0.6；常数可改）与持续时长（连续满 8 s；一断从头计；块长无关：总在第一个累计 ≥ 8 s 的块末亮起）。
+        void testHouseHintThresholdAndDuration()
+        {
+            beginTest ("House phase hint: slow correlation strictly below 0.6 for 8 s of continuous audio, block-size independent, any break restarts it");
+
+            const auto requiredSamples = static_cast<int> (houseRequiredSeconds * clayRate);
+
+            // 门限：0.59 亮；0.6、0.61、0.9 一直不亮（喂 20 s）。
+            for (const auto rho : { 0.59f, 0.6f, 0.61f, 0.9f })
+            {
+                ClayGuard guard;
+                const auto hint = feedHouse (guard, houseView (rho), 20.0, true);
+                expect (hint.active == (rho < 0.6f), "rho " + juce::String (rho, 2) + (rho < 0.6f ? " must light the hint" : " must not light the hint"));
+                expect (hint.active || hint.monoLossDb == 0.0f, "an unlit hint reports no loss");
+            }
+
+            // 持续时长：差一个样本不亮，满 8 s 那一块亮；各种块长（含随机块长）都在第一个累计 ≥ 8 s 的块末亮起。
+            {
+                ClayGuard guard;
+                feedHouse (guard, houseView (0.4f), (double) (requiredSamples - 1) / clayRate, true, houseRequiredSeconds, 1);
+                expect (! guard.getHouseHint().active, "one sample short of 8 s: still off");
+                guard.updateHouseHint (houseView (0.4f), 1.0 / clayRate, true, houseRequiredSeconds);
+                expect (guard.getHouseHint().active, "the sample that completes 8 s lights it");
+            }
+
+            juce::Random random (0x48537eLL);
+
+            for (int partition = 0; partition < 6; ++partition)
+            {
+                const int fixedSizes[] = { 17, 333, 480, 4096, 8192 };
+                ClayGuard guard;
+                int done = 0, litAt = -1, expectedAt = -1;
+
+                while (done < requiredSamples + 20000)
+                {
+                    const auto length = partition < 5 ? fixedSizes[partition] : 1 + random.nextInt (3000);
+                    guard.updateHouseHint (houseView (0.4f), static_cast<double> (length) / clayRate, true, houseRequiredSeconds);
+                    done += length;
+
+                    if (expectedAt < 0 && done >= requiredSamples)
+                        expectedAt = done;
+
+                    if (litAt < 0 && guard.getHouseHint().active)
+                        litAt = done;
+                }
+
+                expectEquals (litAt, expectedAt, "lights at the end of the first block that completes 8 s (partition " + juce::String (partition) + ")");
+                expect (std::abs (guard.getHouseHint().monoLossDb - expectedLossDb (0.4)) < 1.0e-5f, "loss at rho 0.4 is 10 log10(0.7)");
+            }
+
+            // 须连续：7 s 后一块 ρ 0.7 → 从头计；之后再 7.99 s 不亮、8 s 亮。
+            {
+                ClayGuard guard;
+                feedHouse (guard, houseView (0.4f), 7.0, true);
+                feedHouse (guard, houseView (0.7f), 0.01, true);
+                expect (! feedHouse (guard, houseView (0.4f), 7.99, true).active, "a single clear block restarts the 8 s");
+                expect (feedHouse (guard, houseView (0.4f), 0.01, true).active, "8 s after the break it lights");
+            }
+
+            // 常数：门限换成 0.3 → ρ 0.4 不亮、0.25 亮；非有限按出厂 0.6；requiredSeconds 非有限 / ≤ 0 → 条件一成立就亮。
+            {
+                auto constants = glaze::Constants{};
+                constants.house.phaseHintCorrelation = 0.3f;
+                ClayGuard strict;
+                strict.setConstants (constants);
+                expect (! feedHouse (strict, houseView (0.4f), 20.0, true).active, "custom threshold 0.3: rho 0.4 stays off");
+                expect (feedHouse (strict, houseView (0.25f), 8.0, true).active, "custom threshold 0.3: rho 0.25 lights");
+
+                constants.house.phaseHintCorrelation = std::numeric_limits<float>::quiet_NaN();
+                ClayGuard fallback;
+                fallback.setConstants (constants);
+                expect (feedHouse (fallback, houseView (0.59f), 8.0, true).active, "a non-finite threshold falls back to 0.6");
+
+                for (const auto required : { 0.0, -3.0, std::numeric_limits<double>::quiet_NaN() })
+                {
+                    ClayGuard immediate;
+                    immediate.updateHouseHint (houseView (0.4f), 0.01, true, required);
+                    expect (immediate.getHouseHint().active, "required " + juce::String (required) + " s lights on the first qualifying block");
+                }
+            }
+        }
+
+        // 保持（2 s，与反相保护同一常数）、eligible（不 eligible 立即熄灭并清零）、冻结（seconds ≤ 0 / 慢路无效时不动）。
+        void testHouseHintHoldEligibilityAndFreeze()
+        {
+            beginTest ("House phase hint: holds 2 s after the condition clears (re-armed while it returns), goes out at once when not eligible, freezes on silence");
+
+            // 保持：亮后 ρ 0.7 共 1.99 s 仍亮；回到 0.4 一块 → 保持期重新装满；再 0.7 满 2 s 那一块熄灭；熄灭后要重新满 8 s。
+            for (const auto blockSamples : { gridSamples, 37, 2400 })
+            {
+                const auto tag = " (block " + juce::String (blockSamples) + ")";
+                ClayGuard guard;
+                feedHouse (guard, houseView (0.4f), 8.0, true, houseRequiredSeconds, blockSamples);
+                expect (guard.getHouseHint().active, "lit" + tag);
+                expect (feedHouse (guard, houseView (0.7f), 1.99, true, houseRequiredSeconds, blockSamples).active, "held 1.99 s" + tag);
+                feedHouse (guard, houseView (0.4f), 0.05, true, houseRequiredSeconds, blockSamples);
+                expect (feedHouse (guard, houseView (0.7f), 1.99, true, houseRequiredSeconds, blockSamples).active, "hold re-armed" + tag);
+                expect (! feedHouse (guard, houseView (0.7f), 0.01, true, houseRequiredSeconds, blockSamples).active, "off after 2 s" + tag);
+                expect (guard.getHouseHint().monoLossDb == 0.0f, "an unlit hint reports no loss" + tag);
+                expect (! feedHouse (guard, houseView (0.4f), 7.99, true, houseRequiredSeconds, blockSamples).active, "needs 8 s again" + tag);
+            }
+
+            // 保持期常数 0（旧快照缺字段）：条件一断就熄灭。
+            {
+                auto constants = glaze::Constants{};
+                constants.clayGuardPhaseHoldSeconds = 0.0;
+                ClayGuard guard;
+                guard.setConstants (constants);
+                feedHouse (guard, houseView (0.4f), 8.0, true);
+                expect (! feedHouse (guard, houseView (0.7f), 0.01, true).active, "hold 0: goes out with the first clear block");
+            }
+
+            // 不 eligible：从不亮；亮着时一块不 eligible → 立即熄灭、资格期清零（回到满编段要重新满 8 s）。
+            {
+                ClayGuard guard;
+                expect (! feedHouse (guard, houseView (0.2f), 20.0, false).active, "never lights outside the main section");
+
+                feedHouse (guard, houseView (0.2f), 8.0, true);
+                expect (guard.getHouseHint().active, "lit inside the main section");
+                guard.updateHouseHint (houseView (0.2f), 0.01, false, houseRequiredSeconds);
+                expect (! guard.getHouseHint().active && guard.getHouseHint().monoLossDb == 0.0f, "leaving the main section puts it out at once");
+                expect (! feedHouse (guard, houseView (0.2f), 7.99, true).active, "back in the main section it needs 8 s again");
+
+                ClayGuard partial;
+                feedHouse (partial, houseView (0.2f), 7.0, true);
+                partial.updateHouseHint (houseView (0.2f), 0.0, false, houseRequiredSeconds);   // seconds 0 也算：不 eligible 优先
+                expect (! feedHouse (partial, houseView (0.2f), 7.99, true).active, "not eligible clears a pending qualification");
+            }
+
+            // 冻结：资格期里、亮着时、保持期里，seconds ≤ 0 / 非有限或慢路无效都不改状态（静音不算打断，也不算成立）。
+            {
+                const ShortTermView invalidViews[] = { houseView (0.2f, false), houseView (std::numeric_limits<float>::quiet_NaN()) };
+                const double frozenSeconds[] = { 0.0, -1.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity() };
+
+                ClayGuard guard;
+                feedHouse (guard, houseView (0.4f), 7.0, true);
+
+                for (const auto& view : invalidViews)
+                    feedHouse (guard, view, 30.0, true);
+
+                for (const auto s : frozenSeconds)
+                    guard.updateHouseHint (houseView (0.9f), s, true, houseRequiredSeconds);
+
+                expect (! guard.getHouseHint().active, "frozen while qualifying");
+                expect (feedHouse (guard, houseView (0.4f), 1.0, true).active, "the qualification resumes after the freeze (7 + 1 s)");
+
+                const auto lit = guard.getHouseHint();
+                feedHouse (guard, houseView (0.9f), 1.0, true);   // 进保持期 1 s
+
+                for (const auto& view : invalidViews)
+                    feedHouse (guard, view, 30.0, true);
+
+                for (const auto s : frozenSeconds)
+                    guard.updateHouseHint (houseView (0.9f), s, true, houseRequiredSeconds);
+
+                expect (guard.getHouseHint().active && guard.getHouseHint().monoLossDb == lit.monoLossDb, "frozen during the hold (loss kept)");
+                expect (! feedHouse (guard, houseView (0.9f), 1.0, true).active, "the hold resumes after the freeze (1 + 1 s)");
+            }
+        }
+
+        // 单声道损失（亮起时按公式、之后 1 s 平滑、保持期不变）；只提示：update 的输出与 ClayGuardState 逐位不受影响；reset 清掉；不分配。
+        void testHouseHintLossAndIsolation()
+        {
+            beginTest ("House phase hint: loss = 10 log10((1 + rho) / 2), smoothed over 1 s; never touches update(), the guard state or allocation; reset clears it");
+
+            // 损失：亮起那一刻按 ρ 0.4；改成 ρ 0.2 再过 1 s ≈ 走了 1 − 1/e；保持期里不变。ρ −1 钳到 −0.99（约 −23 dB，有限）。
+            for (const auto blockSamples : { gridSamples, 53, 4800 })
+            {
+                const auto tag = " (block " + juce::String (blockSamples) + ")";
+                ClayGuard guard;
+                const auto lit = feedHouse (guard, houseView (0.4f), 8.0, true, houseRequiredSeconds, blockSamples);
+                expect (std::abs (lit.monoLossDb - expectedLossDb (0.4)) < 1.0e-5f, "loss at activation" + tag);
+
+                const auto smoothed = feedHouse (guard, houseView (0.2f), 1.0, true, houseRequiredSeconds, blockSamples);
+                const auto expected = expectedLossDb (0.4) + (expectedLossDb (0.2) - expectedLossDb (0.4)) * (1.0f - std::exp (-1.0f));
+                expect (std::abs (smoothed.monoLossDb - expected) < 5.0e-4f,
+                        "1 s of smoothing toward rho 0.2: " + juce::String (smoothed.monoLossDb, 4) + " dB, expected " + juce::String (expected, 4) + tag);
+
+                const auto held = feedHouse (guard, houseView (0.8f), 1.5, true, houseRequiredSeconds, blockSamples);
+                expect (held.active && held.monoLossDb == smoothed.monoLossDb, "the loss does not move during the hold" + tag);
+            }
+
+            {
+                ClayGuard guard;
+                const auto hint = feedHouse (guard, houseView (-1.0f), 8.0, true);
+                expect (hint.active && std::isfinite (hint.monoLossDb) && std::abs (hint.monoLossDb - expectedLossDb (-0.99)) < 1.0e-4f,
+                        "fully inverted lows report about -23 dB, not -inf (" + juce::String (hint.monoLossDb, 2) + ")");
+            }
+
+            // 只提示：两只保护单元喂同样的 update 序列，其中一只每块再调 updateHouseHint（亮、保持、熄灭都走到）——
+            // 每块的输出与 ClayGuardState 逐位相同。
+            {
+                ClayGuard plain, hinted;
+                plain.setConstants (specConstants());
+                hinted.setConstants (specConstants());
+                const auto planned = plannedAuto();
+                const ShortTermView views[] = { houseView (0.4f), invertedWide(), correlatedWide(), houseView (0.55f), correlatedVeryWide() };
+                int mismatches = 0, litBlocks = 0;
+
+                for (int block = 0; block < 3000; ++block)
+                {
+                    const auto& view = views[(block / 400) % 5];
+                    const auto a = plain.update (planned, view, 0.01, true);
+                    hinted.updateHouseHint (view, 0.01, block % 997 != 0, 2.0);
+                    const auto b = hinted.update (planned, view, 0.01, true);
+                    mismatches += samePlan (a, b) && sameState (plain.getState(), hinted.getState()) ? 0 : 1;
+                    litBlocks += hinted.getHouseHint().active ? 1 : 0;
+                }
+
+                expectEquals (mismatches, 0, "updateHouseHint never changes update() or the guard state");
+                expect (litBlocks > 0, "the scan must light the hint (" + juce::String (litBlocks) + " blocks)");
+            }
+
+            // reset 清掉提示与资格期；setState 不碰它（提示不在快照里）；updateHouseHint 不分配。
+            {
+                ClayGuard guard;
+                feedHouse (guard, houseView (0.4f), 8.0, true);
+                guard.setState (ClayGuardState{});
+                expect (guard.getHouseHint().active, "setState leaves the hint alone (it is not part of the snapshot)");
+                guard.reset();
+                expect (! guard.getHouseHint().active && guard.getHouseHint().monoLossDb == 0.0f, "reset puts it out");
+                expect (! feedHouse (guard, houseView (0.4f), 7.99, true).active, "after reset it needs 8 s again");
+
+                const auto before = allocationCountOnThisThread();
+
+                for (int k = 0; k < 5000; ++k)
+                    guard.updateHouseHint (houseView (k % 7 == 0 ? 0.8f : 0.3f, k % 13 != 0), 0.01 * (double) (k % 3), k % 101 != 0, 1.0);
+
+                // 先取计数再拼断言文字：实参的求值顺序不定，文字的 juce::String 可能先于计数构造。
+                const auto allocations = (juce::int64) (allocationCountOnThisThread() - before);
+                expectEquals (allocations, (juce::int64) 0, "updateHouseHint does not allocate");
+            }
+        }
+
         //==============================================================================
         // 1. 反相提示时序（10 ms 一块；ADR-015 起只提示、不改收单）：低频同相 1 s 不动（提示强度 0）；反相 0.14 s 仍在资格期（强度 0、
         //    不亮灯）；满 0.15 s 起攻击：0.2 s → 强度 0.5（线性 1 / 0.1 s）、保持期 2 s；0.25 s → 1；条件消失后 1.99 s 仍是 1（保持 2 s）；

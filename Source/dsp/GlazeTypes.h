@@ -28,6 +28,9 @@ namespace celadon::glaze
     //     让残差 Heat 表下的自动 Heat 与音乐无关地顶到 70 / 50 / 20）；R6-06 满强度增益按 Limit Gain 量程（24 − 手动 Gain）回算。
     //     两条新规则都按**快照**的 Constants::algorithmVersion ≥ 8 分流（GlazePlanner.cpp makeFullPlan / completeFullPlan，与 ≥ 3 那一处
     //     同一写法）：算法 6 / 7 的存档重开时 committed.constants 就是存档里的快照，方案走旧分支、增量逐位同存档。
+    // T-038（2026-10-01，曲风与交付）**不升**本常数：新行为全部按参数「曲风 ≠ 通用」或「交付 ≠ 标准」分流，不靠算法版本区分；
+    //     升号会让 0.1.8.x 存的方案（算法 8）与重算出的方案在 sameCalibrationPlan 里版本不等，旧工程重开走另一条路径、不再与 main
+    //     逐位相同（设计规格-曲风与交付 第 6 节，2026-10-01 阶段 1 更正）。
     inline constexpr int currentAlgorithmVersion = 8;
 
     // 与本版本「行为相同」的最早算法版本。7 只在 6 上加了 Clay，而 6 保存的画像（格式 1）没有 Clay 所需特征 → Clay 中性，
@@ -49,6 +52,27 @@ namespace celadon::glaze
     // 风格：顺序 = 参数 glaze_style 的选项顺序（AudioParameterChoice 下标）。
     enum class Style : int { automatic = 0, warm = 1, punchy = 2, clean = 3 };
 
+    // T-038 曲风与交付（设计规格-曲风与交付 第 2 节、ADR-026）。顺序 = 参数 glaze_genre / glaze_delivery 的选项下标；
+    // 两个参数不可自动化，以后只许在末尾追加选项（APVTS 按下标存状态，旧工程不会错位）。
+    enum class Genre : int { general = 0, deepHouse = 1, techHouse = 2, melodicProgressive = 3 };
+    inline constexpr int numGenres = 4;
+    enum class Delivery : int { standard = 0, streaming = 1, club = 2 };
+    inline constexpr int numDeliveries = 3;
+
+    // 三个 House 子类共用学习方式、限幅跟拍、反相提示（设计规格-曲风-House学习方式）；通用档一律走原有路径。
+    constexpr bool isHouse (Genre genre) noexcept   { return genre != Genre::general; }
+
+    // 参数原始下标（处理器已取整钳位；无头调用可能越界）→ 枚举。越界按默认（通用 / 标准），与读不到参数时同一口径。
+    constexpr Genre genreFromIndex (int index) noexcept
+    {
+        return index >= 0 && index < numGenres ? static_cast<Genre> (index) : Genre::general;
+    }
+
+    constexpr Delivery deliveryFromIndex (int index) noexcept
+    {
+        return index >= 0 && index < numDeliveries ? static_cast<Delivery> (index) : Delivery::standard;
+    }
+
     // 不连续点：三种各有自己的清理规则（设计规格-GLAZE-时间线与保存 第 3 节）。
     enum class Discontinuity : int { transportJump = 0, loopWrap = 1, hostReset = 2 };
 
@@ -59,6 +83,26 @@ namespace celadon::glaze
         bool valid = false;
         double effectiveSeconds = 0.0;
         float confidence = 0.0f;
+    };
+
+    // T-038 按小节记账的分段方式（SegmentLedger）：没有分段 / 按宿主小节 / 宿主没给拍点时按 2 秒。
+    enum class SegmentMode : std::uint8_t { none = 0, bars = 1, seconds = 2 };
+
+    // T-038 House 档门控结果（设计规格-曲风-House学习方式 第 2、3、5 节）。画像格式 3 才存；不存逐段数据。
+    // 「小节」在分 2 秒段时按段数计（heardSegments / fullSegments 同一口径），时长另记秒数，锁定条件按 mode 选用哪一组。
+    struct HouseGateSummary
+    {
+        bool valid = false;                  // House 档门控算出过结果（false = 旧画像或通用档画像）
+        SegmentMode mode = SegmentMode::none;
+        float referenceLufs = 0.0f;          // S_ref：已听各段响度的第 95 百分位（按时长加权）
+        float lowShareReference = 0.0f;      // 低频参考：已过响度门的各段 lowShare 的第 95 百分位
+        float gateWidthLu = 0.0f;            // 本次门控用的 ΔG（快照值）
+        float lowGateFactor = 0.0f;          // 本次门控用的低频门系数（快照值）
+        int heardSegments = 0;               // 不重复的已听段数
+        int fullSegments = 0;                // 满编段数（过了两道门）
+        double heardSeconds = 0.0;           // 不重复的已听有效音频秒数
+        double fullSeconds = 0.0;            // 满编段的有效音频秒数
+        int reopenCount = 0;                 // 锁定后已重开次数（设计规格-曲风-House学习方式 第 4 节，上限见 Constants::house）
     };
 
     // 画像：从入口音乐测得的整首歌特征（设计规格-GLAZE-分析器）。一首歌一份，随工程保存。
@@ -106,7 +150,14 @@ namespace celadon::glaze
 
         double effectiveSeconds = 0.0;   // 累计有效音频时长（新增样本折算）
         float representativeness = 0.0f; // 代表性置信度 0 ～ 1：同一段反复循环不增加
-        int formatVersion = 2;           // 画像数据格式版本（保存 / 读取用）；2 = 含上面的立体声 / 超低频字段（1 = v0.6～0.1.6.2）
+
+        // ---- 格式版本 3（T-038 House 档，设计规格-曲风-House学习方式 第 5 节）----
+        // 只有 House 档学出的画像才是格式 3（houseGate.valid = true）；通用档学出的画像仍是格式 2，与 main 逐字节相同。
+        // 读格式 1 / 2 时 houseGate 保持默认（valid = false）：House 档下视为「锁定条件未满足」、继续聆听，不清空。
+        HouseGateSummary houseGate;
+
+        int formatVersion = 2;           // 画像数据格式版本（保存 / 读取用）；2 = 含上面的立体声 / 超低频字段（1 = v0.6～0.1.6.2）；
+                                         // 3 = 另有 houseGate（T-038，只在 House 档）
     };
 
     // 三种风格的混合权重（和为 1）。「自动」按画像算出后随画像一起锁定。
@@ -188,7 +239,7 @@ namespace celadon::glaze
     // 方案：决策器（纯函数）的输出。
     struct Plan
     {
-        float requestedTargetLufs = 0.0f;   // 风格与 GLAZE 想要的响度
+        float requestedTargetLufs = 0.0f;   // 风格、交付（T-038）与 GLAZE 想要的响度
         float effectiveTargetLufs = 0.0f;   // 经各模块约束后允许追求的响度
         float requestedGainDb = 0.0f;       // G_request
         float effectiveGainDb = 0.0f;       // 约束后的净提升目标
@@ -260,6 +311,11 @@ namespace celadon::glaze
         float limitReleaseMs = 0.0f;          // 三个对数刻度值（ParameterRanges.h）：按相对容差比
         float clayLowCutHz = 0.0f;            // Clay 两项只在旧口径也计入时有值（Clay 非默认设置、该项「手动」），否则 0
         float clayMonoHz = 0.0f;
+
+        // ---- T-038：曲风与交付（设计规格-曲风与交付 第 4.3、5 节）。换了任一项，方案重算、重新校准。----
+        // 不进上面两个哈希（旧存档的哈希逐位不变）；存档只在不是默认值时写这两个属性，缺属性 = 通用 / 标准。
+        Genre genre = Genre::general;
+        Delivery delivery = Delivery::standard;
     };
 
     struct Calibration
@@ -283,6 +339,18 @@ namespace celadon::glaze
         bool looping = false;
         std::int64_t loopStartSamples = 0;
         std::int64_t loopEndSamples = 0;
+
+        // ---- T-038：拍点（House 档按小节记账、限幅跟拍用；设计规格-曲风-House学习方式 第 2.1、8 节）----
+        // 都是本块起点的值；拿不到的项 has* = false，数值保持 0（不当真）。PPQ 按四分音符计；拍号 = 分子 / 分母。
+        bool hasTempo = false;
+        double bpm = 0.0;
+        bool hasPpq = false;
+        double ppqPosition = 0.0;
+        bool hasBarStart = false;
+        double ppqLastBarStart = 0.0;
+        bool hasTimeSignature = false;
+        int timeSignatureNumerator = 4;
+        int timeSignatureDenominator = 4;
     };
 
     enum class Phase : int { unlearned = 0, listening = 1, planTransition = 2, calibrating = 3, locked = 4 };
@@ -319,5 +387,22 @@ namespace celadon::glaze
         bool clayWidthGuardActive = false;   // 宽度保护介入中（指示灯「宽」变琥珀）
         bool clayNeedsRelearn = false;       // 有自动态的项，但已提交画像缺立体声 / 超低频特征（旧工程）：提示点「重新聆听」
         std::uint8_t clayCostLimitedMask = 0;// ADR-012：自动态下哪几项因「试过会抬高峰值」被减量 / 否决（clayCostLimited* 位）
+
+        // ---- T-038 House 档（设计规格-曲风-House学习方式 第 3、7、9 节；编排器填，界面状态行与 CLAY 卡片读）----
+        // houseActive = 此刻曲风是 House 子类；为 false 时下面各项保持默认，界面照通用档显示。
+        bool houseActive = false;
+        SegmentMode houseSegmentMode = SegmentMode::none;
+        int houseHeardSegments = 0;          // 不重复的已听小节（分 2 秒段时为段数）
+        int houseTargetSegments = 64;        // 锁定所需（小节；分 2 秒段时界面改读下面两项秒数）
+        int houseFullSegments = 0;           // 满编段
+        int houseRequiredFullSegments = 8;
+        float houseHeardSeconds = 0.0f;
+        float houseTargetSeconds = 124.0f;
+        bool houseMainSectionHeard = false;  // 满编段已够（锁定条件第 2 条）
+        bool houseLockPending = false;       // 锁定条件还没满足：方案是暂定的
+        bool houseLedgerFull = false;        // 段落账满了（SegmentLedger::maxSegments），之后的新段不再计入（第 2.1 节「状态行写明」）
+        bool houseOfflineListening = false;  // House 档还在聆听时出现过离线导出（锁住到锁定为止）：成品中途换过方案（评审 F7，Max 2026-10-01「加状态提示」）
+        bool housePhaseHint = false;         // House 档反相提示（低频相关度 < 0.6 持续够久）
+        float housePhaseMonoLossDb = 0.0f;   // 提示里写的单声道低频损失（dB，≤ 0）
     };
 }

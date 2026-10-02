@@ -719,7 +719,7 @@ namespace celadon::test
                 for (size_t i = input[ch].size() / 2; i < input[ch].size(); ++i)
                     input[ch][i] *= 6.0f;
 
-            auto c = glaze::factoryConstants();
+            auto c = withTightLimitBudgets (glaze::factoryConstants());   // 要让保护层在推热的后一半出手（TestHelpers.h 的说明）
             c.minListenSeconds = 2.0;
             c.maxListenSeconds = 3.0;
             c.planTransitionSeconds = 0.5;

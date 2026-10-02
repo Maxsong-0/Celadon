@@ -52,7 +52,12 @@ namespace celadon::glaze
             // （低切目标、次声阈值、收单收益、代价系数）发生在 v0.1.7.0 发布之前，仍属版本 7（与算法 7 / 画像格式 2 同一口径）。
             // 8 = T-032（2026-09-29）：自动 Heat 底量挪成风格常数（三种风格出厂 12）、新常数 heatUsefulCrestDb（GlazeConstants.h，
             // 默认值即出厂值 0.1 dB）；与算法 8 同一口径（GlazeTypes.h currentAlgorithmVersion）。
-            c.version = 8;
+            // 9 = T-045（2026-10-02，ADR-029）：三种风格的限幅 GR 预算一起放宽——均值 +1、P95 +2、峰值 +3 dB（与俱乐部档放宽同幅，
+            // 俱乐部档照旧在此之上再加）。起因：手动推 Gain 约 4 dB（House 素材，Jamendo 37 首中位）三项预算就都超，决策器判「手动已超约束」
+            // 撤回全部电平类自动、停校准（「受手动设置限制」）；只放宽峰值（+2 dB）实测只让 3 / 37 首多推 2 dB。代价：GLAZE 自己的自动方案也
+            // 压得更多、更响（Max 2026-10-02 选定，要试听）。旧工程的已提交版本带着自己的快照（版本 8、旧预算），重新聆听后才用新值。
+            // T-038 的曲风 / House / 交付字段（可缺省）同在这一版。算法版本不升（只改常数，决策方式不变）。
+            c.version = 9;
             c.algorithmVersion = currentAlgorithmVersion;
 
             auto& warm = c.warm;
@@ -63,9 +68,9 @@ namespace celadon::glaze
             warm.glueGrP95CapDb = 4.0f;
             warm.clipDepthCapDb = 3.0f;
             warm.clipActivityCap = 0.01f;
-            warm.limitGrMeanCapDb = 1.0f;
-            warm.limitGrP95CapDb = 2.5f;
-            warm.limitGrPeakCapDb = 4.0f;
+            warm.limitGrMeanCapDb = 2.0f;  // T-045 / ADR-029：1.0 → 2.0
+            warm.limitGrP95CapDb = 4.5f;  // T-045 / ADR-029：2.5 → 4.5
+            warm.limitGrPeakCapDb = 7.0f;  // T-045 / ADR-029：4.0 → 7.0
             warm.recoverCap = 35.0f;
             warm.tameCap = 65.0f;
             warm.toneMaxDb = 0.75f;
@@ -86,9 +91,9 @@ namespace celadon::glaze
             punchy.glueGrP95CapDb = 2.0f;
             punchy.clipDepthCapDb = 6.0f;
             punchy.clipActivityCap = 0.03f;
-            punchy.limitGrMeanCapDb = 0.8f;
-            punchy.limitGrP95CapDb = 2.0f;
-            punchy.limitGrPeakCapDb = 3.0f;
+            punchy.limitGrMeanCapDb = 1.8f;  // T-045 / ADR-029：0.8 → 1.8
+            punchy.limitGrP95CapDb = 4.0f;  // T-045 / ADR-029：2.0 → 4.0
+            punchy.limitGrPeakCapDb = 6.0f;  // T-045 / ADR-029：3.0 → 6.0
             punchy.recoverCap = 30.0f;
             punchy.tameCap = 55.0f;
             punchy.toneMaxDb = 0.75f;
@@ -109,9 +114,9 @@ namespace celadon::glaze
             clean.glueGrP95CapDb = 2.5f;
             clean.clipDepthCapDb = 1.5f;
             clean.clipActivityCap = 0.003f;
-            clean.limitGrMeanCapDb = 1.5f;
-            clean.limitGrP95CapDb = 3.5f;
-            clean.limitGrPeakCapDb = 6.0f;
+            clean.limitGrMeanCapDb = 2.5f;  // T-045 / ADR-029：1.5 → 2.5
+            clean.limitGrP95CapDb = 5.5f;  // T-045 / ADR-029：3.5 → 5.5
+            clean.limitGrPeakCapDb = 9.0f;  // T-045 / ADR-029：6.0 → 9.0
             clean.recoverCap = 20.0f;
             clean.tameCap = 45.0f;
             clean.toneMaxDb = 0.75f;
@@ -123,6 +128,14 @@ namespace celadon::glaze
             clean.clayLowCutTargetHz = 20.0f;   // = 分析器低切候选的截止频率（代价按 20 Hz 量，三种风格的目标都不高于它）
             clean.clayWidthStyleFactor = 1.0f;
             clean.automaticHeatFloor = 12.0f;
+
+            // T-038 三个 House 子类（设计规格-曲风与交付 第 3.1 节）：Tone 参考斜率 2026-10-01 按 Jamendo 45 首标定（每类 15 首的 House 门控
+            // 画像谱斜率中位数 −2.21 / −2.19 / −2.24，取到 0.25 → 三类都 −2.25；Max 选定。起点值 −3.5 / −2.5 / −3.0 让几乎每首 Deep /
+            // Melodic 都被往暗推，报告 docs/validation/2026-10-01-T038-calibration/REPORT.md）。Tone 往亮 +0.4 dB、低切 25 Hz、不自动加宽
+            // 三类相同。四项都取 GenreConstants 的结构体默认值；House 共用常数与交付三档的出厂值同样就是结构体默认值。
+            c.deepHouse = GenreConstants {};
+            c.techHouse = GenreConstants {};
+            c.melodicProgressive = GenreConstants {};
 
             // 阶段 0 的全局字段按结构体默认值即为出厂值：
             //   - 目标：L_pref 钳在 −14 ～ −7（规格原文）；LRA 修正 f(LRA) = (LRA − 6 LU) × 1/3 dB（6 LU 以下不修正：动态不大的歌
@@ -172,6 +185,58 @@ namespace celadon::glaze
         //   - 读：先读全局字段（v0.1.6.2 ～ v0.1.8.5 的快照有它；更早的没有 → 0），再读三个风格字段，缺失时都取全局值——旧快照
         //     三种风格的底量逐位等于原来的全局值（blendConstants 对三者逐位相同的底量直接取原值，混合权重下也逐位不变）。
         //     存在但损坏照样拒收（xmlio 的约定）。
+        // T-038：三个 House 子类、House 共用常数、交付三档。旧快照（T-038 之前）没有这些字段 → 按出厂值读（factory 参数）：
+        // 通用 + 标准用不到它们，旧工程逐位不变；旧工程切到 House 时用此刻的出厂值。写的一方忽略 factory。
+        template <typename Visitor, typename GenreT>
+        void visitGenre (Visitor& v, const juce::String& prefix, GenreT& g, const GenreConstants& factory)
+        {
+            auto name = [&prefix] (const char* fieldName) { return prefix + "_" + fieldName; };
+
+            v.optionalField (name ("toneReferenceSlopeDbPerOct").toRawUTF8(), g.toneReferenceSlopeDbPerOct, factory.toneReferenceSlopeDbPerOct);
+            v.optionalField (name ("toneMaxBrightDb").toRawUTF8(), g.toneMaxBrightDb, factory.toneMaxBrightDb);
+            // 属性名不带「clay」：tests/GlazePlannerTests 的修坯快照测试按属性名里的 clay 数 32 个修坯字段，曲风覆盖的两项不算在内。
+            v.optionalField (name ("lowCutTargetHz").toRawUTF8(), g.clayLowCutTargetHz, factory.clayLowCutTargetHz);
+            v.optionalField (name ("widthStyleFactor").toRawUTF8(), g.clayWidthStyleFactor, factory.clayWidthStyleFactor);
+        }
+
+        template <typename Visitor, typename HouseT>
+        void visitHouse (Visitor& v, HouseT& h, const HouseConstants& f)
+        {
+            v.optionalField ("house_gateWidthLu", h.gateWidthLu, f.gateWidthLu);
+            v.optionalField ("house_lowGateFactor", h.lowGateFactor, f.lowGateFactor);
+            v.optionalField ("house_lockSegments", h.lockSegments, f.lockSegments);
+            v.optionalField ("house_requiredFullSegments", h.requiredFullSegments, f.requiredFullSegments);
+            v.optionalField ("house_fallbackSegmentSeconds", h.fallbackSegmentSeconds, f.fallbackSegmentSeconds);
+            v.optionalField ("house_fallbackLockSeconds", h.fallbackLockSeconds, f.fallbackLockSeconds);
+            v.optionalField ("house_fallbackFullSeconds", h.fallbackFullSeconds, f.fallbackFullSeconds);
+            v.optionalField ("house_fastTransitionSeconds", h.fastTransitionSeconds, f.fastTransitionSeconds);
+            v.optionalField ("house_reopenAboveProfileLu", h.reopenAboveProfileLu, f.reopenAboveProfileLu);
+            v.optionalField ("house_reopenSegments", h.reopenSegments, f.reopenSegments);
+            v.optionalField ("house_maxReopens", h.maxReopens, f.maxReopens);
+            v.optionalField ("house_beatReleaseDivisor", h.beatReleaseDivisor, f.beatReleaseDivisor);
+            v.optionalField ("house_beatMinBpm", h.beatMinBpm, f.beatMinBpm);
+            v.optionalField ("house_beatMaxBpm", h.beatMaxBpm, f.beatMaxBpm);
+            v.optionalField ("house_phaseHintCorrelation", h.phaseHintCorrelation, f.phaseHintCorrelation);
+            v.optionalField ("house_phaseHintSegments", h.phaseHintSegments, f.phaseHintSegments);
+            v.optionalField ("house_phaseHintFallbackSeconds", h.phaseHintFallbackSeconds, f.phaseHintFallbackSeconds);
+        }
+
+        template <typename Visitor, typename DeliveryT>
+        void visitDelivery (Visitor& v, DeliveryT& d, const DeliveryConstants& f)
+        {
+            v.optionalField ("delivery_streamingTargetLufs", d.streamingTargetLufs, f.streamingTargetLufs);
+            v.optionalField ("delivery_streamingMinLufs", d.streamingMinLufs, f.streamingMinLufs);
+            v.optionalField ("delivery_streamingMaxLufs", d.streamingMaxLufs, f.streamingMaxLufs);
+            v.optionalField ("delivery_streamingTruePeakCapDbtp", d.streamingTruePeakCapDbtp, f.streamingTruePeakCapDbtp);
+            v.optionalField ("delivery_clubTargetLufs", d.clubTargetLufs, f.clubTargetLufs);
+            v.optionalField ("delivery_clubMinLufs", d.clubMinLufs, f.clubMinLufs);
+            v.optionalField ("delivery_clubMaxLufs", d.clubMaxLufs, f.clubMaxLufs);
+            v.optionalField ("delivery_styleOffsetReferenceLufs", d.styleOffsetReferenceLufs, f.styleOffsetReferenceLufs);
+            v.optionalField ("delivery_clubLimitGrMeanExtraDb", d.clubLimitGrMeanExtraDb, f.clubLimitGrMeanExtraDb);
+            v.optionalField ("delivery_clubLimitGrP95ExtraDb", d.clubLimitGrP95ExtraDb, f.clubLimitGrP95ExtraDb);
+            v.optionalField ("delivery_clubLimitGrPeakExtraDb", d.clubLimitGrPeakExtraDb, f.clubLimitGrPeakExtraDb);
+        }
+
         float legacyHeatFloorOf (const Constants& c) noexcept
         {
             return juce::jmin (juce::jmin (c.warm.automaticHeatFloor, c.punchy.automaticHeatFloor), c.clean.automaticHeatFloor);
@@ -329,6 +394,14 @@ namespace celadon::glaze
 
             // T-043（ADR-027）：守护混合损失的封顶门槛。缺字段按 0 读 → 决策器「判断不了」→ 不封顶（旧快照不变）。
             v.optionalField ("clayBlendLossLimitDb", c.clayBlendLossLimitDb, 0.0f);
+
+            // T-038 曲风与交付（见 visitGenre 上方说明）。出厂值取一份局部副本，避免读快照时与 factoryConstants() 的静态初始化互相依赖。
+            const auto factory = makeFactoryConstants();
+            visitGenre (v, "deepHouse", c.deepHouse, factory.deepHouse);
+            visitGenre (v, "techHouse", c.techHouse, factory.techHouse);
+            visitGenre (v, "melodicProgressive", c.melodicProgressive, factory.melodicProgressive);
+            visitHouse (v, c.house, factory.house);
+            visitDelivery (v, c.delivery, factory.delivery);
         }
 
         //==============================================================================
@@ -448,6 +521,7 @@ namespace celadon::glaze
         void Writer::field (const char* name, const std::uint8_t& value)   { element.setAttribute (name, juce::String (static_cast<int> (value))); }
         void Writer::optionalField (const char* name, const std::uint8_t& value, std::uint8_t) { field (name, value); }
         void Writer::optionalField (const char* name, const bool& value, bool) { field (name, value); }
+        void Writer::optionalField (const char* name, const int& value, int) { field (name, value); }
 
         void Writer::writeFloats (const char* name, const float* values, int count)
         {
@@ -555,6 +629,14 @@ namespace celadon::glaze
                 value = legacyDefault;
         }
 
+        void Reader::optionalField (const char* name, int& value, int legacyDefault)
+        {
+            if (element.hasAttribute (name))
+                field (name, value);   // 同上：存在但不是十进制整数仍拒收。
+            else
+                value = legacyDefault;
+        }
+
         void Reader::field (const char* name, Style& value)
         {
             int parsed = 0;
@@ -610,6 +692,18 @@ namespace celadon::glaze
             case Style::clean:
             case Style::automatic:
             default:            return constants.clean;   // 自动不对应单一常数（决策器按权重混合）；这里只作兜底
+        }
+    }
+
+    const GenreConstants* genreConstantsFor (const Constants& constants, Genre genre) noexcept
+    {
+        switch (genre)
+        {
+            case Genre::deepHouse:          return &constants.deepHouse;
+            case Genre::techHouse:          return &constants.techHouse;
+            case Genre::melodicProgressive: return &constants.melodicProgressive;
+            case Genre::general:
+            default:                        return nullptr;
         }
     }
 

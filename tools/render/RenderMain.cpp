@@ -15,7 +15,14 @@
     用法：celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--clay auto,off]
                          [--style auto[,warm,punchy,clean]] [--block 512] [--match-lufs -16]
                          [--metrics-only] [--trace] [--no-replay]
+                         [--genre general[,deep,tech,melodic]] [--delivery standard[,streaming,club]]
+                         [--bpm 124 [--meter 4/4] [--listen-from-bar 1[,33]]] [--segments-csv]
           celadon_render --selftest   （指标算法、文件名、延迟对齐、GLAZE 0 逐位直通、同决策重放的阳性对照；render-linux.sh 渲染前先跑）
+          celadon_render --selftest-house   （T-038：模拟走带、分段统计、曲风 / 交付 / 走带穿到链上的阳性对照）
+
+    T-038（曲风与交付，设计规格-曲风与交付、设计规格-曲风-House学习方式）：曲风 / 交付 / 聆听起点是网格的另三维；--bpm 模拟宿主走带
+    （每块给速度、PPQ、上一小节起点、拍号）；--segments-csv 逐段（一小节或 2 秒）写输入端与成品的段响度、低频占比、限幅 GR（门控标定、
+    House 门槛 tools/render/house_gate.py）。都不给时与改动前逐位相同：HostInfo、网格、文件名、metrics.csv 一字不差。
 
     每首歌、每组设置分两遍（「先完整聆听再出成品」）：
       1. 聆听：新链 → setParams → prepare（与 PluginProcessor::prepareToPlay 同一顺序），按离线宿主口径（offline、在播、
@@ -56,8 +63,10 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "../../Source/ParameterDefaults.h"
+#include "../../Source/dsp/BalanceModule.h"
 #include "../../Source/dsp/CeladonChain.h"
 #include "../../Source/dsp/ChainParams.h"
+#include "../../Source/dsp/GlazeConstants.h"
 #include "../../Source/dsp/GlazeTypes.h"
 #include "../../Source/dsp/ClayGuard.h"
 #include "../../Source/dsp/ClayModule.h"
@@ -119,6 +128,19 @@ namespace
     constexpr std::array<const char*, 4> styleIds   { { "auto", "warm", "punchy", "clean" } };
     constexpr std::array<const char*, 4> styleNames { { "自动", "温润", "冲击", "通透" } };
 
+    // T-038 曲风与交付：下标 = glaze::Genre / glaze::Delivery（= 参数 glaze_genre / glaze_delivery 的选项顺序，设计规格-曲风与交付 第 2 节）。
+    constexpr std::array<const char*, 4> genreIds      { { "general", "deep", "tech", "melodic" } };
+    constexpr std::array<const char*, 4> genreNames    { { "通用", "Deep House", "Tech House", "Melodic-Progressive" } };
+    constexpr std::array<const char*, 3> deliveryIds   { { "standard", "streaming", "club" } };
+    constexpr std::array<const char*, 3> deliveryNames { { "标准", "流媒体", "俱乐部" } };
+    static_assert (genreIds.size() == (std::size_t) celadon::glaze::numGenres && deliveryIds.size() == (std::size_t) celadon::glaze::numDeliveries,
+                   "命令行的曲风 / 交付取值要与 GlazeTypes.h 的枚举一一对应");
+
+    // 模拟宿主走带（--bpm）：速度与拍号的合理范围（宿主常见上限 999 BPM；拍号分母只认 2 的幂）。
+    constexpr double minTransportBpm = 20.0;
+    constexpr double maxTransportBpm = 999.0;
+    constexpr int maxMeterNumerator = 32;
+
     //==============================================================================
     // 设置网格
 
@@ -139,6 +161,16 @@ namespace
         bool replay = true;         // 每组 GLAZE > 0 的「自动」之后加「同决策重放 · 修坯关」一行与阳性对照（ADR-016）；--no-replay 关掉
         bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案 / 保护 / 实时相关度、校准状态）
                                     // 与 trace/<成品名>__listen.csv（第一遍逐块的校准状态），诊断用
+
+        // ---- T-038 曲风与交付（设计规格-曲风与交付、设计规格-曲风-House学习方式）----
+        std::vector<int> genres { static_cast<int> (celadon::glaze::Genre::general) };          // --genre：网格的一维（glaze::Genre 下标）
+        std::vector<int> deliveries { static_cast<int> (celadon::glaze::Delivery::standard) };  // --delivery：网格的一维（glaze::Delivery 下标）
+        double bpm = 0.0;           // --bpm：模拟宿主走带的速度；0 = 不给拍点（HostInfo 与改动前逐位相同）
+        int meterNumerator = 4;     // --meter：拍号（只在给了 --bpm 时有意义）
+        int meterDenominator = 4;
+        std::vector<int> listenFromBars { 1 };   // --listen-from-bar：第一遍（聆听）从第几小节起播（1 = 从头；网格的一维，要 --bpm）
+        bool segmentsCsv = false;   // --segments-csv：逐段（有 --bpm 时一段 = 一小节，否则每 2 秒）写输入端 / 成品的统计，见 writeSegments
+        bool extended = false;      // 用了上面任一新选项：metrics.csv 末尾追加 T-038 的列、metrics.md 头部多写一行（默认运行的两份表与改动前相同）
     };
 
     struct Combo
@@ -146,6 +178,9 @@ namespace
         float glaze = 0.0f;                       // GLAZE 0 ～ 100 %
         ClayChoice clay = ClayChoice::automatic;
         int style = 0;                            // glaze::Style 下标
+        int genre = 0;                            // glaze::Genre 下标（T-038）
+        int delivery = 0;                         // glaze::Delivery 下标（T-038）
+        int listenFromBar = 1;                    // 第一遍从第几小节起播（T-038 House 门槛 ①：从第 1 小节播 vs 从 drop 播）
     };
 
     //==============================================================================
@@ -343,21 +378,71 @@ namespace
         for (std::size_t i = 0; i < options.styles.size(); ++i)
             text += (i > 0 ? " / " : "") + std::string (styleIds[static_cast<std::size_t> (options.styles[i])]);
 
+        // T-038 的三维只在用了新选项时写（默认运行的表头、stderr 与改动前相同）。
+        if (options.extended)
+        {
+            text += " × 曲风 ";
+
+            for (std::size_t i = 0; i < options.genres.size(); ++i)
+                text += (i > 0 ? " / " : "") + std::string (genreIds[static_cast<std::size_t> (options.genres[i])]);
+
+            text += " × 交付 ";
+
+            for (std::size_t i = 0; i < options.deliveries.size(); ++i)
+                text += (i > 0 ? " / " : "") + std::string (deliveryIds[static_cast<std::size_t> (options.deliveries[i])]);
+
+            if (options.listenFromBars.size() > 1 || options.listenFromBars.front() != 1)
+            {
+                text += " × 聆听起点 第 ";
+
+                for (std::size_t i = 0; i < options.listenFromBars.size(); ++i)
+                    text += (i > 0 ? " / " : "") + std::to_string (options.listenFromBars[i]);
+
+                text += " 小节";
+            }
+        }
+
         return text;
     }
 
-    // 「g35 clay-auto auto」（separator 分隔三段）。
+    // T-038：曲风 / 交付 / 聆听起点不是默认值时接在组合名后面（默认组合的标签与文件名与改动前逐字相同）。
+    std::string comboSuffix (const Combo& combo, const char* separator)
+    {
+        std::string text;
+
+        if (combo.genre != static_cast<int> (celadon::glaze::Genre::general))
+            text += separator + std::string (genreIds[static_cast<std::size_t> (combo.genre)]);
+
+        if (combo.delivery != static_cast<int> (celadon::glaze::Delivery::standard))
+            text += separator + std::string (deliveryIds[static_cast<std::size_t> (combo.delivery)]);
+
+        if (combo.listenFromBar != 1)
+            text += separator + std::string ("from-b") + std::to_string (combo.listenFromBar);
+
+        return text;
+    }
+
+    // 「g35 clay-auto auto」（separator 分隔三段；T-038 非默认的曲风 / 交付 / 聆听起点接在后面，如「g35 · clay-auto · auto · deep · club」）。
     std::string comboLabel (const Combo& combo, const char* separator)
     {
         return "g" + formatGlaze (combo.glaze) + separator + "clay-" + clayId (combo.clay) + separator
-             + styleIds[static_cast<std::size_t> (combo.style)];
+             + styleIds[static_cast<std::size_t> (combo.style)] + comboSuffix (combo, separator);
     }
 
-    // 成品文件名：<歌名>__g<GLAZE>_clay-<auto|off>_<风格>.wav。
+    // 成品文件名：<歌名>__g<GLAZE>_clay-<auto|off>_<风格>[_<曲风>][_<交付>][_from-b<小节>].wav（后三段只在不是默认值时有）。
     std::string outputFileName (const std::string& song, const Combo& combo)
     {
         return song + "__g" + formatGlaze (combo.glaze) + "_clay-" + clayId (combo.clay) + "_"
-             + styleIds[static_cast<std::size_t> (combo.style)] + ".wav";
+             + styleIds[static_cast<std::size_t> (combo.style)] + comboSuffix (combo, "_") + ".wav";
+    }
+
+    // 成品名去掉 .wav（逐段统计 segments/<它>.csv 与成品同名，便于对照）。
+    std::string withoutWavExtension (const std::string& fileName)
+    {
+        const std::string extension = ".wav";
+        const auto hasExtension = fileName.size() > extension.size()
+                               && fileName.compare (fileName.size() - extension.size(), extension.size(), extension) == 0;
+        return hasExtension ? fileName.substr (0, fileName.size() - extension.size()) : fileName;
     }
 
     double nowSeconds()
@@ -405,18 +490,58 @@ namespace
                      "                      trace/<成品名>__listen.csv：第一遍逐块的校准状态（诊断用）\n"
                      "  --no-replay         不做「同决策重放」（默认每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链逐块照搬\n"
                      "                      它实际交给模块的参数、修坯换成「关」，出一行 clay-replay-off，并做逐位阳性对照；ADR-016）\n"
+                     "  --genre general     曲风 general / deep / tech / melodic（可逗号分隔多个，网格的一维），默认 general（T-038）\n"
+                     "  --delivery standard 交付 standard / streaming / club（可逗号分隔多个，网格的一维），默认 standard（T-038）\n"
+                     "  --bpm 124           模拟宿主走带：每块给速度、PPQ（从 0 起按样本推进）、上一小节起点与拍号；不给就不给拍点（同改动前）\n"
+                     "  --meter 4/4         拍号（要与 --bpm 一起用），默认 4/4\n"
+                     "  --listen-from-bar 1 第一遍（聆听）从第几小节起播（1 = 从头；可逗号分隔多个，网格的一维；要 --bpm）：\n"
+                     "                      House 门槛「从第 1 小节播 vs 从 drop 播」用，第二遍（成品）照旧从头渲染\n"
+                     "  --segments-csv      逐段写统计到 segments/：<歌名>__input.csv（输入端：段响度、低频占比）与 <成品名>.csv\n"
+                     "                      （成品同一套 + 逐段限幅 GR）；有 --bpm 时一段 = 一小节，否则每 2 秒一段（T-038 门控标定与 House 门槛）\n"
                      "  --selftest          只跑自检（指标算法、文件名、延迟对齐、GLAZE 0 逐位直通的阳性对照），不读歌\n"
+                     "  --selftest-house    只跑 T-038 新选项的自检（模拟走带、分段统计、曲风 / 交付穿到链上的阳性对照），不读歌\n"
                      "读 --in 目录第一层的 wav / aiff / flac，每首歌 × 每组设置写一个 32-bit float wav，另写 metrics.md 与\n"
                      "metrics.csv。进度与错误写 stderr；返回 0 成功、1 有文件读写失败（或自检失败）、2 参数错误。\n"
                      "详见 tools/render/README.md。\n";
     }
 
-    enum class ParseResult { run, help, selfTest, invalid };
+    enum class ParseResult { run, help, selfTest, selfTestHouse, invalid };
+
+    // 「曲风 / 交付」这类按名字选的一维：逗号分隔、去重，按 ids 的下标存。认不出时把原因写进 error。
+    template <std::size_t N>
+    bool parseNamedList (const std::string& option, const std::string& value, const std::array<const char*, N>& ids,
+                         std::vector<int>& out, std::string& error)
+    {
+        out.clear();
+
+        for (const auto& item : splitList (value))
+        {
+            const auto found = std::find_if (ids.begin(), ids.end(), [&item] (const char* id) { return item == id; });
+
+            if (found == ids.end())
+            {
+                std::string known;
+
+                for (std::size_t k = 0; k < N; ++k)
+                    known += (k > 0 ? " / " : "") + std::string (ids[k]);
+
+                error = option + " 只认 " + known + "，不认「" + item + "」";
+                return false;
+            }
+
+            const auto index = static_cast<int> (found - ids.begin());
+
+            if (std::find (out.begin(), out.end(), index) == out.end())
+                out.push_back (index);
+        }
+
+        return true;
+    }
 
     // 解析失败时把原因写进 error（中文，直接给用户看）。
     ParseResult parseArguments (int argc, char* argv[], Options& options, std::string& error)
     {
-        bool haveInput = false, haveOutput = false;
+        bool haveInput = false, haveOutput = false, haveMeter = false, haveListenFrom = false;
 
         for (int i = 1; i < argc; ++i)
         {
@@ -428,13 +553,23 @@ namespace
             if (name == "--selftest")
                 return ParseResult::selfTest;
 
+            if (name == "--selftest-house")
+                return ParseResult::selfTestHouse;
+
             if (name == "--trace")
             {
                 options.trace = true;
                 continue;
             }
 
-            if (name == "--metrics-only")   // 不带取值的运行选项（另外两个是 --trace、--no-replay）
+            if (name == "--segments-csv")
+            {
+                options.segmentsCsv = true;
+                options.extended = true;
+                continue;
+            }
+
+            if (name == "--metrics-only")   // 不带取值的运行选项（另外三个是 --trace、--no-replay、--segments-csv）
             {
                 options.metricsOnly = true;
                 continue;
@@ -557,6 +692,79 @@ namespace
 
                 options.matchLufs = parsed;
             }
+            else if (name == "--genre")
+            {
+                if (! parseNamedList (name, value, genreIds, options.genres, error))
+                    return ParseResult::invalid;
+
+                options.extended = true;
+            }
+            else if (name == "--delivery")
+            {
+                if (! parseNamedList (name, value, deliveryIds, options.deliveries, error))
+                    return ParseResult::invalid;
+
+                options.extended = true;
+            }
+            else if (name == "--bpm")
+            {
+                double parsed = 0.0;
+
+                if (! parseNumber (value, parsed) || parsed < minTransportBpm || parsed > maxTransportBpm)
+                {
+                    error = "--bpm 要 20 ~ 999 之间的数";
+                    return ParseResult::invalid;
+                }
+
+                options.bpm = parsed;
+                options.extended = true;
+            }
+            else if (name == "--meter")
+            {
+                // 「4/4」「3/4」「6/8」：分子 1 ～ 32，分母 1 / 2 / 4 / 8 / 16 / 32（宿主的拍号分母都是 2 的幂）。
+                const auto slash = value.find ('/');
+                double numerator = 0.0, denominator = 0.0;
+                const auto ok = slash != std::string::npos
+                             && parseNumber (trimmed (value.substr (0, slash)), numerator)
+                             && parseNumber (trimmed (value.substr (slash + 1)), denominator)
+                             && numerator >= 1.0 && numerator <= static_cast<double> (maxMeterNumerator) && std::floor (numerator) == numerator
+                             && (denominator == 1.0 || denominator == 2.0 || denominator == 4.0 || denominator == 8.0
+                                 || denominator == 16.0 || denominator == 32.0);
+
+                if (! ok)
+                {
+                    error = "--meter 要写成「分子/分母」，分子 1 ~ 32 的整数、分母 1 / 2 / 4 / 8 / 16 / 32（如 4/4、6/8）";
+                    return ParseResult::invalid;
+                }
+
+                options.meterNumerator = static_cast<int> (numerator);
+                options.meterDenominator = static_cast<int> (denominator);
+                options.extended = true;
+                haveMeter = true;
+            }
+            else if (name == "--listen-from-bar")
+            {
+                options.listenFromBars.clear();
+
+                for (const auto& item : splitList (value))
+                {
+                    double parsed = 0.0;
+
+                    if (! parseNumber (item, parsed) || parsed < 1.0 || parsed > 100000.0 || std::floor (parsed) != parsed)
+                    {
+                        error = "--listen-from-bar 的「" + item + "」不是 ≥ 1 的整数（小节号从 1 起）";
+                        return ParseResult::invalid;
+                    }
+
+                    const auto bar = static_cast<int> (parsed);
+
+                    if (std::find (options.listenFromBars.begin(), options.listenFromBars.end(), bar) == options.listenFromBars.end())
+                        options.listenFromBars.push_back (bar);
+                }
+
+                options.extended = true;
+                haveListenFrom = true;
+            }
             else
             {
                 error = "不认识的选项 " + name;
@@ -570,6 +778,13 @@ namespace
             return ParseResult::invalid;
         }
 
+        // 拍号与「从第几小节起播」都按模拟走带的小节网格算：没有速度就没有小节。
+        if ((haveMeter || haveListenFrom) && ! (options.bpm > 0.0))
+        {
+            error = std::string (haveMeter ? "--meter" : "--listen-from-bar") + " 要与 --bpm 一起用（小节按模拟走带的速度与拍号算）";
+            return ParseResult::invalid;
+        }
+
         if (options.inputDir == options.outputDir)
         {
             error = "--out 不能与 --in 是同一个目录（成品会在下次运行时被当成歌曲读进来）";
@@ -580,6 +795,7 @@ namespace
     }
 
     // 网格顺序：GLAZE 在外、修坯居中、风格在内——同一 GLAZE 的「自动 / 全关」两组相邻，表里好对比。
+    // T-038 的曲风、交付、聆听起点排在风格之后（默认各只有一个取值：网格与改动前相同）。
     std::vector<Combo> makeCombos (const Options& options)
     {
         std::vector<Combo> combos;
@@ -587,7 +803,10 @@ namespace
         for (const auto percent : options.glaze)
             for (const auto choice : options.clay)
                 for (const auto style : options.styles)
-                    combos.push_back ({ percent, choice, style });
+                    for (const auto genre : options.genres)
+                        for (const auto delivery : options.deliveries)
+                            for (const auto fromBar : options.listenFromBars)
+                                combos.push_back ({ percent, choice, style, genre, delivery, fromBar });
 
         return combos;
     }
@@ -1006,6 +1225,8 @@ namespace
         auto p = makeFactoryParams();
         p.glazePercent = combo.glaze;
         p.glazeStyle = combo.style;
+        p.glazeGenre = combo.genre;         // T-038（默认 0 / 0 = 通用 / 标准 = 出厂值，与改动前相同）
+        p.glazeDelivery = combo.delivery;
 
         // 「全关」= 抽屉里三项都选「关」（ADR-009：永远 0，GLAZE 多大都不处理）；单项对照 = 只留这一项「自动」。
         // 手动值与 Bypass 保持默认。
@@ -1026,7 +1247,39 @@ namespace
         return { sampleRate, static_cast<juce::uint32> (blockSize), 2u };
     }
 
-    celadon::glaze::HostInfo makeHostInfo (std::int64_t position) noexcept
+    // T-038 模拟宿主走带（--bpm；设计规格-曲风-House学习方式 第 2.1、8 节要用的拍点）：恒定速度、样本 0 = PPQ 0（离线导出从工程开头起播），
+    // PPQ 按样本位置算（与宿主分块无关：同一位置在任何块长下逐位相同）。enabled = false 时 makeHostInfo 与改动前逐位相同。
+    struct Transport
+    {
+        bool enabled = false;
+        double bpm = 0.0;
+        int numerator = 4, denominator = 4;
+        double sampleRate = 0.0;
+
+        // 每小节多少个四分音符（PPQ 按四分音符计，宿主口径）：4/4 → 4、3/4 → 3、6/8 → 3。
+        double quartersPerBar() const noexcept   { return static_cast<double> (numerator) * 4.0 / static_cast<double> (denominator); }
+        double samplesPerBar() const noexcept    { return quartersPerBar() * 60.0 / bpm * sampleRate; }
+        double ppqAt (std::int64_t position) const noexcept   { return static_cast<double> (position) * bpm / (60.0 * sampleRate); }
+
+        // 第 bar 小节（从 1 起）的起点样本：锚点 0 + round((bar − 1) × 每小节样本数)（与 SegmentGrid 同一取整）。
+        std::int64_t barStartSample (int bar) const noexcept
+        {
+            return std::llround (static_cast<double> (bar - 1) * samplesPerBar());
+        }
+    };
+
+    Transport makeTransport (const Options& options, double sampleRate) noexcept
+    {
+        Transport transport;
+        transport.enabled = options.bpm > 0.0;
+        transport.bpm = options.bpm;
+        transport.numerator = options.meterNumerator;
+        transport.denominator = options.meterDenominator;
+        transport.sampleRate = sampleRate;
+        return transport;
+    }
+
+    celadon::glaze::HostInfo makeHostInfo (std::int64_t position, const Transport& transport = Transport {}) noexcept
     {
         // 离线导出的宿主口径（设计规格-Clay-分析决策与验收 第 7 节）：离线、在播、位置从 0 起随块连续推进。
         // 拿到位置时处理器也给循环信息（PluginProcessor::readHostInfo：hasLoop = true），导出不循环。
@@ -1038,6 +1291,22 @@ namespace
         info.positionSamples = position;
         info.hasLoop = true;
         info.looping = false;
+
+        // T-038：给了 --bpm 才填拍点（同 PluginProcessor::readHostInfo 的各项：速度、PPQ、上一小节起点、拍号，都是本块起点的值）。
+        if (transport.enabled)
+        {
+            const auto quartersPerBar = transport.quartersPerBar();
+            info.hasTempo = true;
+            info.bpm = transport.bpm;
+            info.hasPpq = true;
+            info.ppqPosition = transport.ppqAt (position);
+            info.hasBarStart = true;
+            info.ppqLastBarStart = std::floor (info.ppqPosition / quartersPerBar) * quartersPerBar;
+            info.hasTimeSignature = true;
+            info.timeSignatureNumerator = transport.numerator;
+            info.timeSignatureDenominator = transport.denominator;
+        }
+
         return info;
     }
 
@@ -1070,11 +1339,14 @@ namespace
         Status status;                             // 第一遍结束时的状态
         int nonFiniteBlocks = 0;
         std::string trace;                         // --trace：第一遍逐块的校准列（不追踪时为空）
+        celadon::glaze::CommittedState committed;  // T-038：第一遍结束时已提交的版本（方案增益、目标、权重、画像；House 门槛 ① / ⑤ 用）
     };
 
     // 第一遍：整首歌送进一条新链，输出丢弃（GLAZE 学习、方案过渡、校准都在这一遍走完），最后把 GLAZE 状态存下来。
+    // T-038：transport 给模拟走带的拍点；startSample > 0 = 从这个位置起播到歌尾（House 门槛「从 drop 播」；宿主位置照实际样本给）。
     ListenResult listenPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
-                             const celadon::ChainParams& params, bool trace = false)
+                             const celadon::ChainParams& params, bool trace = false, const Transport& transport = Transport {},
+                             int startSample = 0)
     {
         ListenResult result;
         auto chain = std::make_unique<celadon::CeladonChain>();
@@ -1086,7 +1358,7 @@ namespace
         const auto numSamples = input.getNumSamples();
         juce::AudioBuffer<float> block (2, blockSize);
 
-        for (int position = 0; position < numSamples; position += blockSize)
+        for (int position = std::max (0, startSample); position < numSamples; position += blockSize)
         {
             const auto length = std::min (blockSize, numSamples - position);
             block.setSize (2, length, false, false, true);
@@ -1095,7 +1367,7 @@ namespace
                 block.copyFrom (ch, 0, input, ch, position, length);
 
             // 每块顺序照 PluginProcessor::processChain：宿主时间线 → 参数 → 处理。
-            chain->setHostInfo (makeHostInfo (position));
+            chain->setHostInfo (makeHostInfo (position, transport));
             chain->setParams (params, false);
 
             if (chain->process (block))
@@ -1115,8 +1387,17 @@ namespace
 
         result.status = chain->getGlazeStatus();
         result.state = chain->createGlazeStateXml();
+        result.committed = chain->getGlazeController().getCommittedStateForTesting();
         return result;
     }
+
+    // T-038：第二遍 / 重放逐块的限幅 GR（成品时间轴上的块起点；--segments-csv 按段汇总，见 writeSegments）。
+    struct BlockReduction
+    {
+        std::int64_t outputStart = 0;   // 块起点减链延迟（成品时间轴；开头延迟段为负）
+        int length = 0;
+        double reductionDb = 0.0;       // getAndResetLimitGainReductionDb()：块内最大压缩量
+    };
 
     struct RenderResult
     {
@@ -1145,6 +1426,13 @@ namespace
         int clayPressureSteps = 0;
         double clayPeakCostDb = 0.0;       // 成品末尾压力反馈第一触发量的代价（与先试同口径，ADR-028）与攒下的有效块数（每块 0.1 s）
         int clayPeakCostBlocks = 0;
+
+        // ---- T-038（metrics.csv 的追加列，见 csvExtendedFields）----
+        float effectiveCeilingDb = 0.0f;   // 最后一块交给限幅器的有效 Ceiling（编码余量、流媒体 −2 dBTP 上限都已算进去）
+        float beatReleaseCapMaxMs = 0.0f;  // 各块交给限幅器的慢段释放上限的最大值（0 = 一直没封顶；House 限幅跟拍）
+        bool hasGuardLimits = false;       // 成品末尾保护层生效的约束上限（= 风格预算：blendConstants(方案源常数, 方案权重)）
+        celadon::glaze::StyleConstants guardLimits;
+        std::vector<BlockReduction> reductions;   // --segments-csv：逐块限幅 GR（不分段时为空）
     };
 
     // 成品 / 重放两种渲染逐块共用的统计：限幅 GR、保护介入、峰值守护、限幅入口峰值、慢路反相占比。
@@ -1239,9 +1527,11 @@ namespace
 
     // 第二遍：新链读回第一遍的存档，从头渲染整首歌 + 延迟与余振的补零，作为成品。
     // effectiveLog ≠ nullptr 时记下链实际交给模块的参数（prepare 前一份 + 逐块，getEffectiveParams），给「同决策重放」用（ADR-016）。
+    // T-038：transport 给模拟走带的拍点（与第一遍同一条时间线）；recordReductions = 逐块记限幅 GR（--segments-csv）。
     void renderPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
                      const celadon::ChainParams& params, const juce::XmlElement* state, bool trace, RenderResult& result,
-                     EffectiveLog* effectiveLog = nullptr)
+                     EffectiveLog* effectiveLog = nullptr, const Transport& transport = Transport {},
+                     bool recordReductions = false)
     {
         auto chain = std::make_unique<celadon::CeladonChain>();
 
@@ -1270,17 +1560,27 @@ namespace
 
         PassStats stats;
 
+        if (recordReductions)
+        {
+            result.reductions.clear();
+            result.reductions.reserve (static_cast<std::size_t> (total / juce::jmax (1, blockSize) + 1));
+        }
+
         // 原地处理整段缓冲（末尾 latency + ringOut 个样本是补的零），每块一个视图，不拷贝。
         for (int position = 0; position < total; position += blockSize)
         {
             const auto length = std::min (blockSize, total - position);
             juce::AudioBuffer<float> block (result.io.getArrayOfWritePointers(), 2, position, length);
 
-            chain->setHostInfo (makeHostInfo (position));
+            chain->setHostInfo (makeHostInfo (position, transport));
             chain->setParams (params, false);
 
             if (effectiveLog != nullptr)
                 effectiveLog->blocks.push_back (chain->getEffectiveParams());   // 这一块交给模块的就是它（setParams 里算好，process 用）
+
+            // T-038：这一块交给限幅器的有效 Ceiling 与慢段释放上限（只读，不改链的状态）。
+            result.effectiveCeilingDb = chain->getEffectiveParams().limit.ceilingDb;
+            result.beatReleaseCapMaxMs = std::max (result.beatReleaseCapMaxMs, chain->getEffectiveParams().limit.beatReleaseCapMs);
 
             if (chain->process (block))
                 ++result.nonFiniteBlocks;
@@ -1289,6 +1589,9 @@ namespace
                 result.latencyChanged = true;
 
             stats.addBlock (*chain, length, result);
+
+            if (recordReductions)
+                result.reductions.push_back ({ static_cast<std::int64_t> (position) - latency, length, stats.reduction });
 
             if (trace)
             {
@@ -1353,6 +1656,8 @@ namespace
         result.clayPressureSteps = finalProbe.clayPressureSteps;
         result.clayPeakCostDb = finalProbe.clayPeakCostDb;
         result.clayPeakCostBlocks = finalProbe.clayPeakCostBlocks;
+        result.hasGuardLimits = finalProbe.guardLimitsSet;   // T-038 House 门槛 ②：风格预算（保护层此刻生效的约束上限）
+        result.guardLimits = finalProbe.guardLimits;
     }
 
     //==============================================================================
@@ -1444,8 +1749,10 @@ namespace
 
     // 重放一遍：块长、宿主时间线与自动链的第二遍相同；prepare 前交 effectiveLog.prepared，之后每块取 blocks 里同一块的。
     // latency 应与自动链相同（Clay 的 D + G 不随参数变）。
+    // T-038：transport 与自动链第二遍相同（限幅跟拍的上限随实际参数回喂，见 CeladonChain::setParams）；recordReductions 同 renderPass。
     void replayPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
-                     const EffectiveLog& effectiveLog, ReplayClay mode, RenderResult& result)
+                     const EffectiveLog& effectiveLog, ReplayClay mode, RenderResult& result,
+                     const Transport& transport = Transport {}, bool recordReductions = false)
     {
         auto chain = std::make_unique<celadon::CeladonChain>();
         const auto& blocks = effectiveLog.blocks;
@@ -1461,13 +1768,21 @@ namespace
         PassStats stats;
         std::size_t index = 0;
 
+        if (recordReductions)
+        {
+            result.reductions.clear();
+            result.reductions.reserve (static_cast<std::size_t> (total / juce::jmax (1, blockSize) + 1));
+        }
+
         for (int position = 0; position < total; position += blockSize, ++index)
         {
             const auto length = std::min (blockSize, total - position);
             juce::AudioBuffer<float> block (result.io.getArrayOfWritePointers(), 2, position, length);
 
-            chain->setHostInfo (makeHostInfo (position));
+            chain->setHostInfo (makeHostInfo (position, transport));
             chain->setParams (replayParams (blocks.empty() ? effectiveLog.prepared : blocks[std::min (index, blocks.size() - 1)], mode), false);
+            result.effectiveCeilingDb = chain->getEffectiveParams().limit.ceilingDb;
+            result.beatReleaseCapMaxMs = std::max (result.beatReleaseCapMaxMs, chain->getEffectiveParams().limit.beatReleaseCapMs);
 
             if (chain->process (block))
                 ++result.nonFiniteBlocks;
@@ -1476,10 +1791,333 @@ namespace
                 result.latencyChanged = true;
 
             stats.addBlock (*chain, length, result);
+
+            if (recordReductions)
+                result.reductions.push_back ({ static_cast<std::int64_t> (position) - latency, length, stats.reduction });
         }
 
         stats.finish (total, result);
         result.status = chain->getGlazeStatus();
+    }
+
+    //==============================================================================
+    // 逐段统计（T-038 --segments-csv）：门控阈值的标定（设计规格-曲风-House学习方式 第 6 节：逐小节导出段响度与低频占比，人工标出
+    // 前奏 / breakdown / drop 后选 ΔG 与低频门系数）与 House 门槛（设计规格-曲风与交付 第 7 节第 4 条）。只读音频、不碰链：
+    // 不依赖编排器的 SegmentLedger，口径按规格第 2.3 节在这里独立算一份（README「逐段统计」写明与插件的差别）。
+
+    // 与 MusicAnalyzer.cpp 同值的几个常数（那边在匿名命名空间里，这里照抄并注明出处；改那边要同步改这里）：
+    constexpr int lowShareLastBand = 4;                  // lowShareLastBand：低频 = 100 Hz 段及以下（段 0 ～ 4，上边界 112 Hz）
+    constexpr double frameAbsoluteGatePower = 1.0e-7;    // frameAbsoluteGatePower：帧总功率 −70 dBFS 绝对门
+    constexpr double frameRelativeGateRatio = 0.01;      // frameRelativeGateRatio：帧总功率低于均值 20 dB 的帧不计
+    constexpr double effectiveAbsoluteGateLufs = -70.0;  // 「有效音频」门：400 ms 门块 ≥ −70 LUFS（absoluteGateLufs）……
+    constexpr double effectiveRelativeGateLu = -20.0;    // ……且不低于参考 I 以下 20 LU（effectiveRelativeGateLu）
+    constexpr int shortTermSubBlocks = 30;               // shortTermSubBlocks：短期响度 S 的 3 s 窗（EBU Tech 3341）
+
+    // 分段网格：有 --bpm 时一段 = 一小节，第 k 段（从 0 起）的起点 = round(k × 每小节样本数)（锚点 0、恒定速度：规格第 2.1 节
+    // 「锚点样本 + round(n × 每小节样本数)」）；没给 --bpm 时每 HouseConstants::fallbackSegmentSeconds（出厂 2 s）一段，按样本墙钟算
+    // （插件分 2 秒段时按有效音频样本推进，离线标定只需要大致的段，这一点与插件不同）。
+    struct SegmentGrid
+    {
+        bool bars = false;
+        double samplesPerSegment = 1.0;
+
+        std::int64_t startOf (std::int64_t k) const noexcept   { return std::llround (static_cast<double> (k) * samplesPerSegment); }
+
+        // 样本所在的段（从 0 起）。先按除法估，再按 startOf 的取整修正一步：边界样本永远归后一段。
+        std::int64_t indexOf (std::int64_t sample) const noexcept
+        {
+            auto k = static_cast<std::int64_t> (std::floor (static_cast<double> (std::max<std::int64_t> (0, sample)) / samplesPerSegment));
+
+            while (k > 0 && startOf (k) > sample)
+                --k;
+
+            while (startOf (k + 1) <= sample)
+                ++k;
+
+            return k;
+        }
+    };
+
+    SegmentGrid makeSegmentGrid (const Transport& transport, double sampleRate)
+    {
+        SegmentGrid grid;
+        grid.bars = transport.enabled;
+        grid.samplesPerSegment = std::max (1.0, transport.enabled ? transport.samplesPerBar()
+                                                                  : celadon::glaze::factoryConstants().house.fallbackSegmentSeconds * sampleRate);
+        return grid;
+    }
+
+    struct SegmentStat
+    {
+        std::int64_t start = 0, end = 0;           // [start, end)（样本；最后一段截到音频末尾）
+        double energy = 0.0;                        // 过了有效音频门的 100 ms 子块的 K 加权均方之和（子块按起点归段）
+        int validSubBlocks = 0;
+        bool hasShortTerm = false;                  // EBU 短期响度 S（3 s 窗、不门限）在本段最后一个子块结尾处的读数（参考：门控用的是上面的段响度）
+        double shortTermLufs = 0.0;
+        double lowPower = 0.0, totalPower = 0.0;    // 过了帧门的 Balance 帧：段 0 ～ 4 / 全部 27 段的功率之和（帧按分析窗起点归段）
+        int frames = 0;
+        double grWeighted = 0.0, grMax = 0.0;       // 只有成品：逐块限幅 GR（块按成品时间轴的起点归段，按块长加权）
+        std::int64_t grSamples = 0;
+        int grBlocks = 0, grOverP95Cap = 0;         // 块数；块 GR 高于风格预算 limitGrP95CapDb 的块数（门槛 ②：占比 ≤ 5 % 即 P95 ≤ 上限）
+    };
+
+    struct SegmentReport
+    {
+        SegmentGrid grid;
+        double subBlockSeconds = 0.1;
+        double referenceLufs = 0.0;                 // 有效音频门的参考 I：整段音频的 BS.1770 整体响度（插件用学习区间的 I，这里用整首）
+        bool hasReference = false;
+        bool droppedFrames = false;                 // 读 Balance 帧时丢过帧（不该发生：每段只送 4096 个样本）
+        std::vector<SegmentStat> segments;
+    };
+
+    // 量一段立体声音频（输入，或对齐前的成品截到原曲长度）的逐段统计：
+    //   - 段响度（规格第 2.3 节）：段内过了「有效音频」门的 100 ms 子块的 K 加权能量平均，换算成 LUFS。门 = 以本子块结尾的 400 ms 门块
+    //     （前 3 个子块用已有的）≥ −70 LUFS，且不低于参考 I − 20 LU——与 MusicAnalyzer 的 effective 同一套判据，参考 I 换成整首的；
+    //   - 低频占比（与画像 lowShare 同一口径）：一个独立的 BalanceModule（参数全 0，只用它的分析）逐帧给 27 段功率，过帧门
+    //     （总功率 ≥ −70 dBFS，且不低于全曲过绝对门各帧的平均 20 dB）的帧上 Σ段 0～4 ÷ Σ全部 27 段；插件的相对门按学习区间的均值。
+    SegmentReport measureSegments (const juce::AudioBuffer<float>& audio, int numSamples, double sampleRate, const SegmentGrid& grid)
+    {
+        SegmentReport report;
+        report.grid = grid;
+        numSamples = juce::jlimit (0, audio.getNumSamples(), numSamples);
+
+        if (numSamples <= 0)
+            return report;
+
+        const auto count = grid.indexOf (numSamples - 1) + 1;
+        report.segments.resize (static_cast<std::size_t> (count));
+
+        for (std::int64_t k = 0; k < count; ++k)
+        {
+            auto& s = report.segments[static_cast<std::size_t> (k)];
+            s.start = grid.startOf (k);
+            s.end = std::min<std::int64_t> (grid.startOf (k + 1), numSamples);
+        }
+
+        const auto segmentOf = [&report, &grid] (std::int64_t sample) -> SegmentStat*
+        {
+            const auto k = grid.indexOf (sample);
+            return k >= 0 && k < static_cast<std::int64_t> (report.segments.size()) ? &report.segments[static_cast<std::size_t> (k)] : nullptr;
+        };
+
+        // ---- 段响度：插件自己的表出 100 ms 子块（与 IN 表、分析器同一测点同一算法）；每 4 s 读一次（子块环形缓冲存 12.8 s）----
+        {
+            celadon::LoudnessMeter meter;
+            const auto chunk = static_cast<int> (std::llround (4.0 * sampleRate));
+            meter.prepare ({ sampleRate, static_cast<juce::uint32> (juce::jmax (1, chunk)), 2u });
+            report.subBlockSeconds = static_cast<double> (meter.getSubBlockLength()) / sampleRate;
+            std::array<celadon::LoudnessMeter::SubBlock, static_cast<std::size_t> (celadon::LoudnessMeter::subBlockRingCapacity)> blocks {};
+            std::vector<celadon::LoudnessMeter::SubBlock> all;
+            std::int64_t cursor = 0;
+
+            for (int start = 0; start < numSamples; start += chunk)
+            {
+                const auto length = std::min (chunk, numSamples - start);
+                const juce::AudioBuffer<float> part (const_cast<float* const*> (audio.getArrayOfReadPointers()), 2, start, length);
+                meter.process (part);
+                const auto read = std::abs (meter.readSubBlocksSince (cursor, blocks.data(), static_cast<int> (blocks.size())));
+                all.insert (all.end(), blocks.begin(), blocks.begin() + read);
+            }
+
+            const auto integrated = meter.getIntegratedLufs();
+            report.hasReference = integrated > celadon::LoudnessMeter::noReading;
+            report.referenceLufs = static_cast<double> (integrated);
+            const auto subBlockLength = static_cast<std::int64_t> (meter.getSubBlockLength());
+
+            for (std::size_t i = 0; i < all.size(); ++i)
+            {
+                // 短期响度 S：以本子块结尾的 30 个子块（3 s）均方平均，不门限、不满 3 s 不给（同 MusicAnalyzer 的 shortTermLufs）。
+                // 每段记它最后一个子块处的读数（子块按起点归段，后面的覆盖前面的）。
+                if (i + 1 >= static_cast<std::size_t> (shortTermSubBlocks))
+                {
+                    double shortSum = 0.0;
+                    auto finite = true;
+
+                    for (std::size_t back = 0; back < static_cast<std::size_t> (shortTermSubBlocks); ++back)
+                    {
+                        const auto ms = all[i - back].meanSquare;
+                        finite = finite && std::isfinite (ms) && ms >= 0.0;
+                        shortSum += finite ? ms : 0.0;
+                    }
+
+                    if (auto* s = finite ? segmentOf (all[i].endSample - subBlockLength) : nullptr)
+                    {
+                        s->hasShortTerm = true;
+                        s->shortTermLufs = -0.691 + 10.0 * std::log10 (std::max (shortSum / shortTermSubBlocks, 1.0e-30));
+                    }
+                }
+
+                // 400 ms 门块：以本子块结尾的至多 4 个子块的均方平均（同 MusicAnalyzer::consumeSubBlock 的 gatingPower）。
+                double windowSum = 0.0;
+                int windowCount = 0;
+
+                for (std::size_t back = 0; back < 4 && back <= i; ++back)
+                {
+                    const auto ms = all[i - back].meanSquare;
+
+                    if (std::isfinite (ms) && ms >= 0.0)
+                    {
+                        windowSum += ms;
+                        ++windowCount;
+                    }
+                }
+
+                const auto ms = all[i].meanSquare;
+
+                if (windowCount == 0 || ! std::isfinite (ms) || ms < 0.0)
+                    continue;
+
+                const auto gatingLufs = -0.691 + 10.0 * std::log10 (std::max (windowSum / windowCount, 1.0e-30));
+                const auto effective = gatingLufs >= effectiveAbsoluteGateLufs
+                                    && (! report.hasReference || gatingLufs >= report.referenceLufs + effectiveRelativeGateLu);
+
+                if (! effective)
+                    continue;
+
+                if (auto* s = segmentOf (all[i].endSample - subBlockLength))
+                {
+                    s->energy += ms;
+                    ++s->validSubBlocks;
+                }
+            }
+        }
+
+        // ---- 低频占比：独立的 Balance 只做分析（参数全 0，输出逐位直通；处理的是一份拷贝）----
+        {
+            celadon::BalanceModule balance;
+            constexpr int chunk = 4096;   // 每段至多 4096 / hop 帧（48 k 下 8 帧，8 kHz 也不超过 32），远小于帧环形缓冲的 64
+            balance.prepare ({ sampleRate, static_cast<juce::uint32> (chunk), 2u });
+            balance.setParams (celadon::BalanceModule::Params {});
+            const auto window = static_cast<std::int64_t> (balance.getAnalysisWindowSamples());
+
+            struct FramePower { std::int64_t start; double low, total; };
+            std::vector<FramePower> frames;
+            std::array<celadon::BalanceModule::FrameSnapshot, static_cast<std::size_t> (celadon::BalanceModule::frameRingCapacity)> snapshots {};
+            juce::AudioBuffer<float> scratch (2, chunk);
+            std::int64_t cursor = 0;
+
+            for (int start = 0; start < numSamples; start += chunk)
+            {
+                const auto length = std::min (chunk, numSamples - start);
+                scratch.setSize (2, length, false, false, true);
+
+                for (int ch = 0; ch < 2; ++ch)
+                    scratch.copyFrom (ch, 0, audio, ch, start, length);
+
+                balance.process (scratch);
+                const auto read = balance.readFramesSince (cursor, snapshots.data(), static_cast<int> (snapshots.size()));
+                report.droppedFrames = report.droppedFrames || read < 0;
+
+                for (int f = 0; f < std::abs (read); ++f)
+                {
+                    const auto& snapshot = snapshots[static_cast<std::size_t> (f)];
+                    const auto windowStart = snapshot.endSample - window;
+
+                    if (windowStart < 0)
+                        continue;   // 分析窗还没装满（同分析器：窗起点早于开播的帧不用）
+
+                    double low = 0.0, total = 0.0;
+
+                    for (int b = 0; b < celadon::BalanceModule::numBands; ++b)
+                    {
+                        const auto p = std::max (0.0, static_cast<double> (snapshot.bandPower[static_cast<std::size_t> (b)]));
+                        total += p;
+                        low += b <= lowShareLastBand ? p : 0.0;
+                    }
+
+                    if (std::isfinite (total))
+                        frames.push_back ({ windowStart, low, total });
+                }
+            }
+
+            double gatedSum = 0.0;
+            int gatedCount = 0;
+
+            for (const auto& frame : frames)
+            {
+                if (frame.total >= frameAbsoluteGatePower)
+                {
+                    gatedSum += frame.total;
+                    ++gatedCount;
+                }
+            }
+
+            const auto relativeGate = gatedCount > 0 ? frameRelativeGateRatio * gatedSum / gatedCount : 0.0;
+
+            for (const auto& frame : frames)
+            {
+                if (frame.total < frameAbsoluteGatePower || frame.total < relativeGate)
+                    continue;
+
+                if (auto* s = segmentOf (frame.start))
+                {
+                    s->lowPower += frame.low;
+                    s->totalPower += frame.total;
+                    ++s->frames;
+                }
+            }
+        }
+
+        return report;
+    }
+
+    // 成品的逐块限幅 GR 按段汇总（块按成品时间轴的起点归段；开头的延迟段归第 0 段，原曲之后的余振不计）。
+    // p95CapDb > 0 时另数「块 GR 高于它」的块：风格预算的 P95 一项按块计（GlazeGuard 按 10 ms 时隙的均值比，这里的块值是块内最大，偏严）。
+    void addReductions (SegmentReport& report, const std::vector<BlockReduction>& reductions, double p95CapDb)
+    {
+        for (const auto& r : reductions)
+        {
+            const auto k = report.grid.indexOf (std::max<std::int64_t> (0, r.outputStart));
+
+            if (k < 0 || k >= static_cast<std::int64_t> (report.segments.size()))
+                continue;
+
+            auto& s = report.segments[static_cast<std::size_t> (k)];
+            s.grWeighted += r.reductionDb * static_cast<double> (r.length);
+            s.grSamples += r.length;
+            s.grMax = std::max (s.grMax, r.reductionDb);
+            ++s.grBlocks;
+
+            if (p95CapDb > 0.0 && r.reductionDb > p95CapDb)
+                ++s.grOverP95Cap;
+        }
+    }
+
+    // 逐段统计表（CSV）。segment 从 1 起（按小节分段时 = 小节号）；没有有效子块的段 lufs 留空，没有过门帧的段 low_share 留空，
+    // 歌开头不满 3 s 的段 short_term_lufs 留空。
+    std::string segmentsCsvText (const SegmentReport& report, double sampleRate, bool withReductions)
+    {
+        std::string csv = "segment,mode,start_sample,end_sample,start_s,end_s,lufs,valid_s,short_term_lufs,low_share,frames";
+
+        if (withReductions)
+            csv += ",gr_mean_db,gr_max_db,gr_blocks,gr_over_p95_cap_blocks";
+
+        csv += "\n";
+        const auto* mode = report.grid.bars ? "bars" : "seconds";
+
+        for (std::size_t k = 0; k < report.segments.size(); ++k)
+        {
+            const auto& s = report.segments[k];
+            const auto hasLoudness = s.validSubBlocks > 0 && s.energy > 0.0;
+            const auto hasLowShare = s.frames > 0 && s.totalPower > 0.0;
+
+            csv += std::to_string (k + 1) + "," + mode + "," + std::to_string (s.start) + "," + std::to_string (s.end) + ","
+                 + fixed (static_cast<double> (s.start) / sampleRate, 4) + "," + fixed (static_cast<double> (s.end) / sampleRate, 4) + ","
+                 + (hasLoudness ? fixed (-0.691 + 10.0 * std::log10 (s.energy / s.validSubBlocks), 3) : std::string()) + ","
+                 + fixed (s.validSubBlocks * report.subBlockSeconds, 1) + ","
+                 + (s.hasShortTerm ? fixed (s.shortTermLufs, 3) : std::string()) + ","
+                 + (hasLowShare ? fixed (s.lowPower / s.totalPower, 4) : std::string()) + "," + std::to_string (s.frames);
+
+            if (withReductions)
+                csv += "," + (s.grSamples > 0 ? fixed (s.grWeighted / static_cast<double> (s.grSamples), 3) : std::string()) + ","
+                     + (s.grBlocks > 0 ? fixed (s.grMax, 3) : std::string()) + "," + std::to_string (s.grBlocks) + ","
+                     + std::to_string (s.grOverP95Cap);
+
+            csv += "\n";
+        }
+
+        return csv;
     }
 
     //==============================================================================
@@ -1564,6 +2202,16 @@ namespace
         int clayPeakCostBlocks = 0;
         std::string replayCheck;               // 「自动」行（GLAZE > 0）：同决策重放阳性对照 ok / mismatch / n/a（ADR-016）；其余行为空
         double replayMaxDifference = -1.0;     // 阳性对照的最大样本差（线性；< 0 = 没做）
+
+        // ---- T-038 追加列（用了新选项时写在 metrics.csv 末尾，见 csvExtendedFields）----
+        celadon::glaze::CommittedState listenCommitted;   // 第一遍（聆听）结束时已提交的版本：方案增益、目标、权重、画像、House 门控结果
+        Status listenStatus;                               // 第一遍结束时的状态（House 锁定进度）
+        int listenStartSample = 0;                         // 第一遍从哪个样本起播（--listen-from-bar）
+        float effectiveCeilingDb = 0.0f;                   // 成品最后一块交给限幅器的有效 Ceiling
+        float beatReleaseCapMaxMs = 0.0f;                  // 成品各块慢段释放上限的最大值（0 = 没封顶）
+        bool hasGuardLimits = false;                       // 成品末尾的风格预算（保护层生效的约束上限）
+        celadon::glaze::StyleConstants guardLimits;
+        std::string segmentsFile;                          // --segments-csv：这一行的逐段统计文件（segments/ 下；写失败为空）
     };
 
     struct SongReport
@@ -1656,7 +2304,88 @@ namespace
         return ! row.isInput && row.hasProfile && feature.valid ? fixed (feature.value, decimals) : std::string();
     }
 
-    std::string csvRow (const SongReport& report, const Row& row)
+    // T-038 追加列的列名（用了新选项时接在 metrics.csv 表头末尾；与 csvExtendedFields 一一对应，--selftest-house 核对个数）。
+    const char* csvExtendedHeader() noexcept
+    {
+        return "genre,delivery,bpm,meter,listen_from_bar,listen_start_s,listen_has_profile,plan_gain_db,plan_requested_gain_db,"
+               "plan_requested_target_lufs,plan_effective_target_lufs,listen_calibration_valid,calibration_bias_db,weight_warm,"
+               "weight_punchy,weight_clean,profile_lufs,profile_lra_lu,profile_low_share,profile_slope_db_per_oct,house_gate_valid,"
+               "house_segment_mode,"
+               "house_heard_segments,house_full_segments,house_heard_s,house_full_s,house_reopens,house_lock_pending,"
+               "effective_ceiling_dbtp,beat_release_cap_ms,budget_limit_gr_mean_db,budget_limit_gr_p95_db,budget_limit_gr_peak_db,"
+               "segments_file";
+    }
+
+    const char* segmentModeId (celadon::glaze::SegmentMode mode) noexcept
+    {
+        switch (mode)
+        {
+            case celadon::glaze::SegmentMode::none:    return "none";
+            case celadon::glaze::SegmentMode::bars:    return "bars";
+            case celadon::glaze::SegmentMode::seconds: return "seconds";
+        }
+
+        return "none";
+    }
+
+    // T-038 追加列的值（含义见 README「T-038 追加列」）。方案 / 画像 / House 门控各列取第一遍（聆听）结束时已提交的版本——
+    // 门槛 ①「锁定后的方案增益」比的就是它；有效 Ceiling、跟拍上限、风格预算取成品那一遍。重放行（GLAZE 0 的链）不填方案各列。
+    std::vector<std::string> csvExtendedFields (const SongReport& report, const Row& row, const Options& options)
+    {
+        const auto empty = std::string();
+        const auto render = ! row.isInput;
+        const auto replay = render && row.combo.clay == ClayChoice::replayOff;
+        const auto listened = render && ! replay;
+        const auto& c = row.listenCommitted;
+        const auto planned = listened && c.hasProfile;
+        const auto& g = c.profile.houseGate;
+        const auto gated = planned && g.valid;
+        const auto transport = options.bpm > 0.0;
+
+        const auto feature = [planned] (const celadon::glaze::Feature& f, int decimals)
+        {
+            return planned && f.valid ? fixed (f.value, decimals) : std::string();
+        };
+
+        return {
+            render ? std::string (genreIds[static_cast<std::size_t> (row.combo.genre)]) : empty,
+            render ? std::string (deliveryIds[static_cast<std::size_t> (row.combo.delivery)]) : empty,
+            transport ? fixed (options.bpm, 3) : empty,
+            transport ? std::to_string (options.meterNumerator) + "/" + std::to_string (options.meterDenominator) : empty,
+            render ? std::to_string (row.combo.listenFromBar) : empty,
+            listened && report.sampleRate > 0.0 ? fixed (static_cast<double> (row.listenStartSample) / report.sampleRate, 3) : empty,
+            listened ? std::string (c.hasProfile ? "1" : "0") : empty,
+            planned ? fixed (c.plan.effectiveGainDb, 3) : empty,
+            planned ? fixed (c.plan.requestedGainDb, 3) : empty,
+            planned ? fixed (c.plan.requestedTargetLufs, 3) : empty,
+            planned ? fixed (c.plan.effectiveTargetLufs, 3) : empty,
+            planned ? std::string (c.calibration.valid ? "1" : "0") : empty,
+            planned ? fixed (c.calibration.gainBiasDb, 3) : empty,
+            planned ? fixed (c.plan.weights.warm, 4) : empty,
+            planned ? fixed (c.plan.weights.punchy, 4) : empty,
+            planned ? fixed (c.plan.weights.clean, 4) : empty,
+            feature (c.profile.integratedLufs, 3),
+            feature (c.profile.loudnessRangeLu, 3),
+            feature (c.profile.lowShare, 4),
+            feature (c.profile.spectralSlopeDbPerOct, 3),
+            planned ? std::string (g.valid ? "1" : "0") : empty,
+            gated ? std::string (segmentModeId (g.mode)) : empty,
+            gated ? std::to_string (g.heardSegments) : empty,
+            gated ? std::to_string (g.fullSegments) : empty,
+            gated ? fixed (g.heardSeconds, 1) : empty,
+            gated ? fixed (g.fullSeconds, 1) : empty,
+            gated ? std::to_string (g.reopenCount) : empty,
+            listened ? std::string (row.listenStatus.houseLockPending ? "1" : "0") : empty,
+            render ? fixed (row.effectiveCeilingDb, 3) : empty,
+            render ? fixed (row.beatReleaseCapMaxMs, 2) : empty,
+            render && row.hasGuardLimits ? fixed (row.guardLimits.limitGrMeanCapDb, 3) : empty,
+            render && row.hasGuardLimits ? fixed (row.guardLimits.limitGrP95CapDb, 3) : empty,
+            render && row.hasGuardLimits ? fixed (row.guardLimits.limitGrPeakCapDb, 3) : empty,
+            row.segmentsFile,
+        };
+    }
+
+    std::string csvRow (const SongReport& report, const Row& row, const Options& options)
     {
         const auto& m = row.measurement;
         const auto& s = row.status;
@@ -1731,10 +2460,15 @@ namespace
         for (std::size_t i = 0; i < fields.size(); ++i)
             line += (i > 0 ? "," : "") + csvField (fields[i]);
 
+        // T-038：用了新选项才追加（默认运行的 metrics.csv 与改动前逐字节相同）。
+        if (options.extended)
+            for (const auto& field : csvExtendedFields (report, row, options))
+                line += "," + csvField (field);
+
         return line;
     }
 
-    std::string makeCsv (const std::vector<SongReport>& reports)
+    std::string makeCsv (const std::vector<SongReport>& reports, const Options& options)
     {
         // 列名英文 snake_case（给脚本 / 表格软件用）；含义与 metrics.md 的「口径」一节相同。
         std::string csv = "kind,song,source_file,sample_rate,duration_s,glaze,clay,style,lufs,align_gain_db,true_peak_dbtp,"
@@ -1744,11 +2478,16 @@ namespace
                           "trial_mono80_cost_db,trial_mono120_cost_db,trial_mono160_cost_db,trial_width_cost_db,profile_sub_share_db,"
                           "profile_low_corr,trial_seconds,peak_guard_pct,peak_guard_min_gain,slow_inverted_pct,limit_input_peak_db,"
                           "clay_pressure_scale,clay_pressure_steps,replay_check,replay_max_diff_dbfs,music_seconds,trial_blend10_db,"
-                          "trial_blend20_db,clay_blend_loss_db,clay_peak_cost_db,clay_peak_cost_s\n";
+                          "trial_blend20_db,clay_blend_loss_db,clay_peak_cost_db,clay_peak_cost_s";
+
+        if (options.extended)
+            csv += std::string (",") + csvExtendedHeader();
+
+        csv += "\n";
 
         for (const auto& report : reports)
             for (const auto& row : report.rows)
-                csv += csvRow (report, row) + "\n";
+                csv += csvRow (report, row, options) + "\n";
 
         return csv;
     }
@@ -1799,7 +2538,29 @@ namespace
         md += "- 其余参数全是新实例默认（Ceiling -1.0 dBTP、Lookahead 2 ms、Limit Gain 0 等，见 Source/ParameterDefaults.h，"
               "插件参数表同一处真源）\n";
         md += "- 高级母带（新实例默认）：" + masteringText (makeFactoryParams().mastering)
-            + "；两项「自动」的实际强度随 GLAZE 联动，GLAZE 0 时为 0\n\n";
+            + "；两项「自动」的实际强度随 GLAZE 联动，GLAZE 0 时为 0\n";
+
+        // T-038：用了新选项才写这一行（默认运行的表头与改动前相同）。
+        if (options.extended)
+        {
+            std::string genres, deliveries;
+
+            for (std::size_t i = 0; i < options.genres.size(); ++i)
+                genres += (i > 0 ? " / " : "") + std::string (genreNames[static_cast<std::size_t> (options.genres[i])]);
+
+            for (std::size_t i = 0; i < options.deliveries.size(); ++i)
+                deliveries += (i > 0 ? " / " : "") + std::string (deliveryNames[static_cast<std::size_t> (options.deliveries[i])]);
+
+            md += "- T-038：曲风 " + genres + "、交付 " + deliveries + "（组合名里只写出非默认的）；宿主走带："
+                + (options.bpm > 0.0 ? "模拟 " + fixed (options.bpm, 2) + " BPM、" + std::to_string (options.meterNumerator) + "/"
+                                         + std::to_string (options.meterDenominator) + "（PPQ 从 0 起按样本推进；组合名带 from-bN 的组第一遍从第 N 小节起播）"
+                                     : std::string ("不给拍点（同改动前）"))
+                + (options.segmentsCsv ? std::string ("；逐段统计在 segments/（") + (options.bpm > 0.0 ? "一段 = 一小节" : "每 2 秒一段") + "）"
+                                       : std::string())
+                + "；metrics.csv 末尾另有 T-038 的列（README「T-038 追加列」）\n";
+        }
+
+        md += "\n";
         md += "先盲听、再看这张表（盲听做法见 tools/render/README.md）。\n\n";
 
         for (std::size_t i = 0; i < reports.size(); ++i)
@@ -1879,12 +2640,14 @@ namespace
 
             for (const auto& off : report.rows)
             {
+                // T-038：同一曲风 / 交付 / 聆听起点的两组才成对（默认各只有一个取值，配对与改动前相同）。
                 if (off.isInput || off.combo.glaze > 0.0f || off.combo.clay != ClayChoice::off
-                    || off.combo.style != automatic.combo.style)
+                    || off.combo.style != automatic.combo.style || off.combo.genre != automatic.combo.genre
+                    || off.combo.delivery != automatic.combo.delivery || off.combo.listenFromBar != automatic.combo.listenFromBar)
                     continue;
 
                 const auto prefix = std::string ("GLAZE 0 · 风格 ") + styleIds[static_cast<std::size_t> (automatic.combo.style)]
-                                  + "：修坯「自动」与「全关」两组成品";
+                                  + comboSuffix (automatic.combo, " · ") + "：修坯「自动」与「全关」两组成品";
                 const auto note = automatic.measurement.hash == off.measurement.hash
                                     ? prefix + "逐位相同（阳性对照通过）"
                                     : prefix + "不同！违反设计规格-Clay 第 4 节「逐位直通」（GLAZE 0 时 Clay 自动值应为 0），请查";
@@ -1892,6 +2655,38 @@ namespace
                 std::cerr << "  " << note << "\n";
             }
         }
+    }
+
+    // T-038 --segments-csv：把一份逐段统计写到 <out>/segments/<baseName>.csv，返回相对 --out 的路径（写失败返回空、记备注、计失败）。
+    std::string writeSegments (const Options& options, SongReport& report, const std::string& baseName, const SegmentReport& segments,
+                               double sampleRate, bool withReductions, int& failures)
+    {
+        const auto dir = options.outputDir.getChildFile ("segments");
+        const auto fileName = baseName + ".csv";
+
+        if (! dir.createDirectory()
+            || ! writeText (dir.getChildFile (juce::String::fromUTF8 (fileName.c_str())), segmentsCsvText (segments, sampleRate, withReductions)))
+        {
+            report.notes.push_back ("写逐段统计 segments/" + fileName + " 失败");
+            ++failures;
+            return {};
+        }
+
+        if (segments.droppedFrames)
+            report.notes.push_back ("segments/" + fileName + "：读 Balance 分析帧时丢过帧（不该发生），低频占比少算了几帧");
+
+        return "segments/" + fileName;
+    }
+
+    // 成品的逐段统计：对齐前的成品截到原曲长度（与输入同一条时间轴、同一张段表），再并上逐块限幅 GR。必须在 measureAlignWrite
+    // 之前调（它原地乘对齐增益）。p95CapDb = 这一组的风格预算 limitGrP95CapDb（没有为 0：不数超出的块）。
+    SegmentReport outputSegments (RenderResult& render, int numInput, double sampleRate, const SegmentGrid& grid, double p95CapDb)
+    {
+        const auto length = std::min (numInput, render.outputLength);
+        const juce::AudioBuffer<float> finished (render.io.getArrayOfWritePointers(), 2, render.latencySamples, length);
+        auto segments = measureSegments (finished, length, sampleRate, grid);
+        addReductions (segments, render.reductions, p95CapDb);
+        return segments;
     }
 
     // 成品 = 丢掉开头链延迟之后的一段（视图，不拷贝）：先量（对齐前），再只乘增益对齐响度，最后写 32-bit float wav
@@ -1948,9 +2743,10 @@ namespace
     //   ① 阳性对照（copy）：修坯用「手动」填自动链的实际值，成品应复现自动链（最大样本差 ≤ replayTolerance）
     //      → automatic.replayCheck = ok / mismatch / n/a，最大差记进 replayMaxDifference；
     //   ② 重放全关（off）：同样的参数、修坯关，出一行 clay-replay-off（门槛拿它与「自动」比，tools/render/gate_check.py）。
+    // T-038：transport 与自动链第二遍相同；--segments-csv 时「重放全关」也写一份逐段统计（超预算块数按自动行的风格预算数）。
     void replayAutomatic (const Options& options, const Song& song, SongReport& report, Row& automatic,
                           const EffectiveLog& effectiveLog, const juce::AudioBuffer<float>& autoAudio,
-                          int autoLatency, int& failures, int& written)
+                          int autoLatency, int& failures, int& written, const Transport& transport, const SegmentGrid& grid)
     {
         const auto notePrefix = comboLabel (automatic.combo, " ") + "：";
         const auto& blocks = effectiveLog.blocks;
@@ -1960,11 +2756,12 @@ namespace
         const auto masteringExpressible = masteringReplayable (effectiveLog.prepared.mastering)
                                        && std::all_of (blocks.begin(), blocks.end(),
                                                        [] (const celadon::ChainParams& p) { return masteringReplayable (p.mastering); });
+        const auto p95CapDb = automatic.hasGuardLimits ? static_cast<double> (automatic.guardLimits.limitGrP95CapDb) : 0.0;
 
         if (clayExpressible && masteringExpressible)
         {
             RenderResult copy;
-            replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::copy, copy);
+            replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::copy, copy, transport);
             const juce::AudioBuffer<float> finished (copy.io.getArrayOfWritePointers(), 2, copy.latencySamples, copy.outputLength);
             const auto difference = copy.latencySamples == autoLatency ? maxAbsDifference (finished, autoAudio) : 1.0;
             automatic.replayMaxDifference = difference;
@@ -1992,7 +2789,7 @@ namespace
         std::cerr << "      重放全关：" << std::flush;
 
         RenderResult off;
-        replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::off, off);
+        replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::off, off, transport, options.segmentsCsv);
         row.grMeanDb = off.grMeanDb;
         row.grMaxDb = off.grMaxDb;
         row.phaseGuardPercent = off.phaseGuardPercent;
@@ -2005,6 +2802,14 @@ namespace
         row.slowInvertedPercent = off.slowInvertedPercent;
         row.limitInputPeakDb = off.limitInputPeakDb;
         row.status = off.status;
+        row.effectiveCeilingDb = off.effectiveCeilingDb;
+        row.beatReleaseCapMaxMs = off.beatReleaseCapMaxMs;
+
+        if (options.segmentsCsv)
+            row.segmentsFile = writeSegments (options, report, withoutWavExtension (outputFileName (report.name, row.combo)),
+                                              outputSegments (off, song.audio.getNumSamples(), song.sampleRate, grid, p95CapDb),
+                                              song.sampleRate, true, failures);
+
         measureAlignWrite (options, song, report, off, row, failures, written);
 
         // 注意：automatic 引用的是 report.rows 的最后一个元素，下面 push_back 之后它可能失效——此后不再用它。
@@ -2021,9 +2826,20 @@ namespace
     void processSong (const Options& options, const std::vector<Combo>& combos, const Song& song,
                       SongReport& report, int& failures, int& written)
     {
+        // T-038：模拟走带与分段网格按这首歌自己的采样率算（不给 --bpm 时 transport 关着，HostInfo 与改动前相同）。
+        const auto transport = makeTransport (options, song.sampleRate);
+        const auto grid = makeSegmentGrid (transport, song.sampleRate);
+        const auto numInput = song.audio.getNumSamples();
+
         Row inputRow;
         inputRow.isInput = true;
         inputRow.measurement = measure (song.audio, song.sampleRate);
+
+        // --segments-csv：输入端的逐段统计（门控阈值标定用；每首歌一份，与设置无关）。
+        if (options.segmentsCsv)
+            inputRow.segmentsFile = writeSegments (options, report, report.name + "__input",
+                                                   measureSegments (song.audio, numInput, song.sampleRate, grid), song.sampleRate, false, failures);
+
         report.rows.push_back (inputRow);
         std::cerr << "  原始输入：" << loudnessText (inputRow.measurement) << "\n";
 
@@ -2038,10 +2854,20 @@ namespace
 
             std::cerr << "  [" << (c + 1) << "/" << combos.size() << "] " << label << "：聆听 " << std::flush;
 
-            // ① 第一遍：完整聆听，输出丢弃，最后存 GLAZE 状态。
+            // ① 第一遍：完整聆听，输出丢弃，最后存 GLAZE 状态。--listen-from-bar N（N > 1）从第 N 小节起播到歌尾（宿主位置照实际样本给）。
+            const auto listenStart = combo.listenFromBar > 1 && transport.enabled
+                                       ? static_cast<int> (std::min<std::int64_t> (transport.barStartSample (combo.listenFromBar), numInput))
+                                       : 0;
+
+            if (listenStart >= numInput && combo.listenFromBar > 1)
+                report.notes.push_back (label + "：聆听起点第 " + std::to_string (combo.listenFromBar) + " 小节已超出歌曲长度，第一遍什么都没听到");
+
             auto started = nowSeconds();
-            const auto listen = listenPass (song.audio, song.sampleRate, options.blockSize, params, options.trace);
+            const auto listen = listenPass (song.audio, song.sampleRate, options.blockSize, params, options.trace, transport, listenStart);
             row.listenPhase = listen.status.phase;
+            row.listenCommitted = listen.committed;
+            row.listenStatus = listen.status;
+            row.listenStartSample = listenStart;
             std::cerr << fixed (nowSeconds() - started, 1) << " s（第一遍末 " << phaseName (listen.status.phase)
                       << (listen.status.calibrationValid ? " · 校准有效" : "") << "）→ 成品 " << std::flush;
 
@@ -2051,7 +2877,11 @@ namespace
             const auto replay = options.replay && combo.clay == ClayChoice::automatic && combo.glaze > 0.0f;
             EffectiveLog effectiveLog;
             renderPass (song.audio, song.sampleRate, options.blockSize, params, listen.state.get(), options.trace, render,
-                        replay ? &effectiveLog : nullptr);
+                        replay ? &effectiveLog : nullptr, transport, options.segmentsCsv);
+            row.effectiveCeilingDb = render.effectiveCeilingDb;
+            row.beatReleaseCapMaxMs = render.beatReleaseCapMaxMs;
+            row.hasGuardLimits = render.hasGuardLimits;
+            row.guardLimits = render.guardLimits;
             row.grMeanDb = render.grMeanDb;
             row.grMaxDb = render.grMaxDb;
             row.phaseGuardPercent = render.phaseGuardPercent;
@@ -2076,6 +2906,13 @@ namespace
 
             if (replay)
                 autoAudio.makeCopyOf (juce::AudioBuffer<float> (render.io.getArrayOfWritePointers(), 2, render.latencySamples, render.outputLength));
+
+            // --segments-csv：成品的逐段统计（对齐前；measureAlignWrite 会原地乘对齐增益，所以在它之前量）。
+            if (options.segmentsCsv)
+                row.segmentsFile = writeSegments (options, report, withoutWavExtension (outputFileName (report.name, combo)),
+                                                  outputSegments (render, numInput, song.sampleRate, grid,
+                                                                  render.hasGuardLimits ? static_cast<double> (render.guardLimits.limitGrP95CapDb) : 0.0),
+                                                  song.sampleRate, true, failures);
 
             // ③ 量、对齐、写（见 measureAlignWrite）。
             const auto notePrefix = label + "：";
@@ -2128,7 +2965,7 @@ namespace
             render.io.setSize (0, 0);   // 成品已写完：先放掉这段缓冲（长歌几百 MB），重放各自再分配
             report.rows.push_back (std::move (row));
             auto& automatic = report.rows.back();
-            replayAutomatic (options, song, report, automatic, effectiveLog, autoAudio, autoLatency, failures, written);
+            replayAutomatic (options, song, report, automatic, effectiveLog, autoAudio, autoLatency, failures, written, transport, grid);
         }
     }
 
@@ -2446,6 +3283,273 @@ namespace
 
         return test.failed == 0 ? 0 : 1;
     }
+
+    //==============================================================================
+    // T-038 新选项的自检（--selftest-house）：模拟走带、分段网格与逐段统计、曲风 / 交付 / 走带穿到链上的阳性对照、文件名与追加列。
+    // 与 --selftest 分开：那一份的项目与输出保持原样（render-linux.sh 渲染前照旧只跑它）；改了下面几项相关的代码，在服务器上手动跑一次。
+
+    // 自检用：真歌同一套两遍流程（listenPass → renderPass，块长 512）跑一组设置，返回对齐前成品的哈希；render 里留着整段结果。
+    std::uint64_t selfTestRender (const juce::AudioBuffer<float>& signal, const Combo& combo, const Transport& transport, RenderResult& render)
+    {
+        const auto params = makeComboParams (combo);
+        const auto listen = listenPass (signal, selfTestRate, 512, params, false, transport);
+        renderPass (signal, selfTestRate, 512, params, listen.state.get(), false, render, nullptr, transport);
+        const juce::AudioBuffer<float> finished (render.io.getArrayOfWritePointers(), 2, render.latencySamples, render.outputLength);
+        return hashAudio (finished);
+    }
+
+    double selfTestTruePeak (RenderResult& render)
+    {
+        const juce::AudioBuffer<float> finished (render.io.getArrayOfWritePointers(), 2, render.latencySamples, render.outputLength);
+        const auto m = measure (finished, selfTestRate);
+        return m.hasTruePeak ? m.truePeakDbtp : -1000.0;
+    }
+
+    int runHouseSelfTest()
+    {
+        SelfTest test;
+
+        Transport tempo120;   // 120 BPM / 48 kHz：一拍正好 24000 样本、一小节（4/4）96000 样本 = 2 s = 20 个 100 ms 子块，边界上的 PPQ 是精确值
+        tempo120.enabled = true;
+        tempo120.bpm = 120.0;
+        tempo120.sampleRate = selfTestRate;
+
+        // ---- 模拟走带（makeHostInfo；同 PluginProcessor::readHostInfo 的各项）----
+        // 96000 × 120 / (60 × 48000) = 4 与 300000 × 120 / 2880000 = 12.5 都是精确的双精度运算，所以按 == 比；前一样本 95999 的 PPQ
+        // 3.99996 还在第 1 小节。6/8 = 每小节 3 个四分音符：第 72000 样本 PPQ 3、小节起点 3。不给 --bpm：四类拍点字段都是「没有」，
+        // 其余（离线、在播、位置、循环）照旧——与改动前逐位相同的那一份。
+        {
+            const auto atBar2 = makeHostInfo (96000, tempo120);
+            const auto before = makeHostInfo (95999, tempo120);
+            const auto inside = makeHostInfo (300000, tempo120);
+            const auto fieldsOk = atBar2.hasTempo && atBar2.bpm == 120.0 && atBar2.hasPpq && atBar2.hasBarStart && atBar2.hasTimeSignature
+                               && atBar2.timeSignatureNumerator == 4 && atBar2.timeSignatureDenominator == 4 && atBar2.offline
+                               && atBar2.isPlaying && atBar2.hasPosition && atBar2.positionSamples == 96000;
+
+            test.check (fieldsOk && atBar2.ppqPosition == 4.0 && atBar2.ppqLastBarStart == 4.0 && before.ppqLastBarStart == 0.0
+                            && inside.ppqPosition == 12.5 && inside.ppqLastBarStart == 12.0,
+                        "模拟走带 120 BPM 4/4",
+                        "第 96000 样本 PPQ " + fixed (atBar2.ppqPosition, 6) + " / 小节起点 " + fixed (atBar2.ppqLastBarStart, 6)
+                            + "，第 95999 样本小节起点 " + fixed (before.ppqLastBarStart, 6) + "，第 300000 样本 PPQ "
+                            + fixed (inside.ppqPosition, 6) + " / 小节起点 " + fixed (inside.ppqLastBarStart, 6) + "（期望 4 / 4、0、12.5 / 12）");
+
+            auto compound = tempo120;
+            compound.numerator = 6;
+            compound.denominator = 8;
+            const auto sixEight = makeHostInfo (72000, compound);
+
+            test.check (compound.quartersPerBar() == 3.0 && sixEight.ppqPosition == 3.0 && sixEight.ppqLastBarStart == 3.0
+                            && sixEight.timeSignatureNumerator == 6 && sixEight.timeSignatureDenominator == 8,
+                        "模拟走带 6/8", "每小节 " + fixed (compound.quartersPerBar(), 3) + " 拍，第 72000 样本 PPQ "
+                                        + fixed (sixEight.ppqPosition, 6) + " / 小节起点 " + fixed (sixEight.ppqLastBarStart, 6) + "（期望 3、3 / 3）");
+
+            const auto none = makeHostInfo (96000);
+            test.check (! none.hasTempo && ! none.hasPpq && ! none.hasBarStart && ! none.hasTimeSignature && none.offline && none.isPlaying
+                            && none.hasPosition && none.positionSamples == 96000 && none.hasLoop && ! none.looping,
+                        "不给 --bpm 时不给拍点", none.hasTempo || none.hasPpq || none.hasBarStart || none.hasTimeSignature
+                                                     ? std::string ("却给了拍点字段") : std::string ("四类拍点字段都没有，其余同改动前"));
+        }
+
+        // ---- 分段网格：124 BPM 4/4 每小节 92903.23 样本；600 个段起点各归本段、前一样本归上一段；不给 --bpm 时每 2 秒一段 ----
+        {
+            auto tempo124 = tempo120;
+            tempo124.bpm = 124.0;
+            const auto grid = makeSegmentGrid (tempo124, selfTestRate);
+            const auto seconds = makeSegmentGrid (Transport {}, selfTestRate);
+            int bad = 0;
+
+            for (std::int64_t k = 0; k < 600; ++k)
+            {
+                bad += grid.indexOf (grid.startOf (k)) == k ? 0 : 1;
+
+                if (k > 0)
+                    bad += grid.indexOf (grid.startOf (k) - 1) == k - 1 ? 0 : 1;
+            }
+
+            test.check (bad == 0 && grid.bars && std::abs (grid.samplesPerSegment - 4.0 * 60.0 / 124.0 * selfTestRate) < 1.0e-6
+                            && tempo124.barStartSample (2) == grid.startOf (1) && ! seconds.bars
+                            && seconds.samplesPerSegment == celadon::glaze::factoryConstants().house.fallbackSegmentSeconds * selfTestRate,
+                        "分段网格", "124 BPM 每小节 " + fixed (grid.samplesPerSegment, 4) + " 样本，600 个边界里归错 " + std::to_string (bad)
+                                    + " 个；不给 --bpm 时每段 " + fixed (seconds.samplesPerSegment, 0) + " 样本");
+        }
+
+        // ---- 逐段统计：120 BPM 五小节——静音 / 1 kHz / 1 kHz / 60 Hz + 1 kHz / 静音（正弦幅度各 0.1 = −20 dBFS，两声道相同、相位连续）----
+        //   - 段响度：1 kHz 两声道 −20 dBFS = −20.0 LUFS（同 --selftest 的整体响度一项，容差 0.1 LU）；开头的静音段没有读数；
+        //     紧接响段的静音段：前 3 个子块的 400 ms 门块还带着响段，按分析器的口径算有效，但它们自己的能量只剩 K 加权滤波器的余振，
+        //     读数比前一段低 20 LU 以上（2026-10-01 109 实测 −44.6 LUFS）；
+        //   - 子块数：段边界与 100 ms 子块对齐，三个响段各 20 个有效子块（2.0 s），末尾静音段 ≤ 3 个；
+        //   - 低频占比：只有 1 kHz 的段 < 0.005；60 Hz + 1 kHz 等幅的段 = 60 Hz 落进 35.6 ～ 112 Hz 的部分 ÷ 两者之和。Hann 窗下
+        //     60 Hz 有约 1.3 % 的功率漏到 35.2 Hz 以下的 bin（不在 27 段里），期望约 0.987 / 1.987 = 0.497，容差 0.02。
+        {
+            const auto grid = makeSegmentGrid (tempo120, selfTestRate);
+            constexpr int bar = 96000;
+            const auto tone = [] (int i)
+            {
+                const auto index = i / bar;
+
+                if (index == 0 || index == 4)
+                    return 0.0f;
+
+                auto x = testSine (1000.0, i, 0.1);
+
+                if (index == 3)
+                    x += testSine (60.0, i, 0.1);
+
+                return x;
+            };
+
+            const auto signal = testSignal (5 * bar, tone, tone);
+            const auto report = measureSegments (signal, signal.getNumSamples(), selfTestRate, grid);
+            const auto lufsOf = [&report] (std::size_t k)
+            {
+                const auto& s = report.segments[k];
+                return s.validSubBlocks > 0 && s.energy > 0.0 ? -0.691 + 10.0 * std::log10 (s.energy / s.validSubBlocks) : -1000.0;
+            };
+            const auto shareOf = [&report] (std::size_t k)
+            {
+                const auto& s = report.segments[k];
+                return s.frames > 0 && s.totalPower > 0.0 ? s.lowPower / s.totalPower : -1.0;
+            };
+
+            const auto sized = report.segments.size() == 5;
+            test.check (sized && std::abs (lufsOf (1) + 20.0) < 0.1 && std::abs (lufsOf (2) + 20.0) < 0.1 && lufsOf (0) < -60.0
+                            && lufsOf (4) < lufsOf (3) - 20.0 && report.segments[1].validSubBlocks == 20 && report.segments[2].validSubBlocks == 20
+                            && report.segments[3].validSubBlocks == 20 && report.segments[0].validSubBlocks == 0
+                            && report.segments[4].validSubBlocks <= 3,
+                        "逐段响度", sized ? "第 2 / 3 小节 " + fixed (lufsOf (1), 3) + " / " + fixed (lufsOf (2), 3) + " LUFS（期望 -20.0 ± 0.1），"
+                                              "第 1 / 5 小节 " + fixed (lufsOf (0), 1) + " / " + fixed (lufsOf (4), 1) + "，"
+                                              "有效子块 " + std::to_string (report.segments[0].validSubBlocks) + " / "
+                                              + std::to_string (report.segments[1].validSubBlocks) + " / " + std::to_string (report.segments[2].validSubBlocks)
+                                              + " / " + std::to_string (report.segments[3].validSubBlocks) + " / "
+                                              + std::to_string (report.segments[4].validSubBlocks) + "（期望 0 / 20 / 20 / 20 / ≤ 3）"
+                                        : "段数 " + std::to_string (report.segments.size()) + "（期望 5）");
+
+            // 短期响度 S（3 s 窗、不门限）取每段最后一个子块处：第 2 小节结尾的窗是 1 s 静音 + 2 s 正弦 → −20 + 10·log10(2/3) = −21.76，
+            // 第 3 小节结尾的窗全是正弦 → −20.0（容差 0.1 LU）；第 1 小节结尾还不满 3 s，没有读数。
+            const auto expectedPartial = -20.0 + 10.0 * std::log10 (2.0 / 3.0);
+            test.check (sized && ! report.segments[0].hasShortTerm && report.segments[1].hasShortTerm && report.segments[2].hasShortTerm
+                            && std::abs (report.segments[1].shortTermLufs - expectedPartial) < 0.1
+                            && std::abs (report.segments[2].shortTermLufs + 20.0) < 0.1,
+                        "逐段短期响度", sized ? "第 2 / 3 小节结尾 " + fixed (report.segments[1].shortTermLufs, 3) + " / "
+                                                  + fixed (report.segments[2].shortTermLufs, 3) + " LUFS（期望 " + fixed (expectedPartial, 2)
+                                                  + " / -20.0 ± 0.1），第 1 小节" + (report.segments[0].hasShortTerm ? "有读数（不该有）" : "没有读数")
+                                            : "段数不对");
+
+            test.check (sized && shareOf (1) >= 0.0 && shareOf (1) < 0.005 && std::abs (shareOf (3) - 0.497) < 0.02 && ! report.droppedFrames,
+                        "逐段低频占比", sized ? "只有 1 kHz 的段 " + fixed (shareOf (1), 4) + "（期望 < 0.005），60 Hz + 1 kHz 等幅的段 "
+                                                  + fixed (shareOf (3), 4) + "（期望 0.497 ± 0.02）" + (report.droppedFrames ? "；丢过帧" : "")
+                                            : "段数不对");
+        }
+
+        // ---- 曲风 / 交付 / 走带穿到链上（真歌同一套两遍流程）：信号同 --selftest 的同决策重放（白噪声 −26 dBFS 峰值 + 8 Hz 正弦 0.1，20 s）----
+        //   - 通用档给不给拍点逐位相同（设计规格-曲风与交付 第 1 节：新行为都在 isHouse 之后；通用档不看拍点）；
+        //   - House 档 + 124 BPM：交给限幅器的慢段释放上限 = 60000 / 124 / 3 = 161.29 ms（设计规格-曲风-House学习方式 第 8 节；出厂
+        //     beatReleaseDivisor 3，出厂自动释放）；House 档不给拍点、通用档给拍点都是 0（不封顶）——证明模拟走带真的送到了链上。
+        {
+            auto signal = testNoise (static_cast<int> (20.0 * selfTestRate), 0.05f);
+
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < signal.getNumSamples(); ++i)
+                    signal.setSample (ch, i, signal.getSample (ch, i) + testSine (8.0, i, 0.1));
+
+            auto tempo124 = tempo120;
+            tempo124.bpm = 124.0;
+
+            Combo general;
+            general.glaze = 35.0f;
+            RenderResult plain, withTempo;
+            const auto plainHash = selfTestRender (signal, general, Transport {}, plain);
+            const auto tempoHash = selfTestRender (signal, general, tempo124, withTempo);
+
+            test.check (plainHash == tempoHash && plain.beatReleaseCapMaxMs == 0.0f && withTempo.beatReleaseCapMaxMs == 0.0f,
+                        "通用档给拍点逐位不变", std::string (plainHash == tempoHash ? "给不给 --bpm 成品哈希相同" : "给了 --bpm 成品却变了")
+                                                  + "，慢段释放上限 " + fixed (withTempo.beatReleaseCapMaxMs, 2) + " ms（期望 0）");
+
+            auto deep = general;
+            deep.genre = static_cast<int> (celadon::glaze::Genre::deepHouse);
+            RenderResult deepTempo, deepPlain;
+            selfTestRender (signal, deep, tempo124, deepTempo);
+            selfTestRender (signal, deep, Transport {}, deepPlain);
+            const auto expectedCap = 60000.0 / 124.0 / 3.0;
+
+            test.check (std::abs (static_cast<double> (deepTempo.beatReleaseCapMaxMs) - expectedCap) < 0.01 && deepPlain.beatReleaseCapMaxMs == 0.0f,
+                        "House 档限幅跟拍", "124 BPM 时上限 " + fixed (deepTempo.beatReleaseCapMaxMs, 3) + " ms（期望 " + fixed (expectedCap, 3)
+                                              + "），不给拍点 " + fixed (deepPlain.beatReleaseCapMaxMs, 3) + " ms（期望 0）");
+        }
+
+        // ---- 交付「流媒体」：有效 Ceiling = min(用户 −1.0 − 编码余量 0, −2.0) = −2.0 dBTP（设计规格-曲风与交付 第 4.1 节），成品真峰值跟着降 ----
+        // 信号：两路白噪声幅度 0.9（采样峰值 −0.9 dBFS，真峰值更高）：两档限幅器都得动作，真峰值贴着各自的有效 Ceiling（+0.01 dB 容差同门槛）。
+        {
+            const auto hot = testNoise (static_cast<int> (10.0 * selfTestRate), 0.9f);
+            Combo standard;
+            standard.glaze = 35.0f;
+            auto streaming = standard;
+            streaming.delivery = static_cast<int> (celadon::glaze::Delivery::streaming);
+            RenderResult standardRender, streamingRender;
+            selfTestRender (hot, standard, Transport {}, standardRender);
+            selfTestRender (hot, streaming, Transport {}, streamingRender);
+            const auto standardPeak = selfTestTruePeak (standardRender);
+            const auto streamingPeak = selfTestTruePeak (streamingRender);
+
+            test.check (standardRender.effectiveCeilingDb == -1.0f && streamingRender.effectiveCeilingDb == -2.0f
+                            && standardPeak <= -1.0 + 0.01 && streamingPeak <= -2.0 + 0.01 && streamingPeak < standardPeak - 0.5,
+                        "交付流媒体 −2 dBTP", "有效 Ceiling 标准 " + fixed (standardRender.effectiveCeilingDb, 2) + " / 流媒体 "
+                                                + fixed (streamingRender.effectiveCeilingDb, 2) + " dBTP（期望 -1 / -2），成品真峰值 "
+                                                + fixed (standardPeak, 3) + " / " + fixed (streamingPeak, 3) + " dBTP");
+        }
+
+        // ---- --listen-from-bar：第一遍从第 3 小节（120 BPM = 第 4 s、第 192000 样本）起播——逐块追踪的第一行就在 4.0000 s ----
+        {
+            const auto noise = testNoise (static_cast<int> (8.0 * selfTestRate), 0.05f);
+            const auto start = static_cast<int> (tempo120.barStartSample (3));
+            const auto listen = listenPass (noise, selfTestRate, 512, makeComboParams (Combo {}), true, tempo120, start);
+            const auto newline = listen.trace.find ('\n');
+            const auto firstRow = newline == std::string::npos ? std::string() : listen.trace.substr (newline + 1, 7);
+            const auto rows = static_cast<int> (std::count (listen.trace.begin(), listen.trace.end(), '\n')) - 1;
+            const auto expectedRows = (noise.getNumSamples() - start + 511) / 512;
+
+            test.check (start == 192000 && firstRow == "4.0000," && rows == expectedRows, "第一遍从第 N 小节起播",
+                        "起点 " + std::to_string (start) + " 样本，追踪第一行「" + firstRow + "」，" + std::to_string (rows) + " 块（期望 192000、"
+                            "「4.0000,」、" + std::to_string (expectedRows) + " 块）");
+        }
+
+        // ---- 文件名、标签与追加列个数 ----
+        {
+            Combo combo;
+            combo.glaze = 35.0f;
+            const auto plain = outputFileName ("Song A", combo);
+            combo.genre = static_cast<int> (celadon::glaze::Genre::deepHouse);
+            combo.delivery = static_cast<int> (celadon::glaze::Delivery::club);
+            combo.listenFromBar = 33;
+            const auto extended = outputFileName ("Song A", combo);
+            const auto label = comboLabel (combo, " · ");
+
+            test.check (plain == "Song A__g35_clay-auto_auto.wav" && extended == "Song A__g35_clay-auto_auto_deep_club_from-b33.wav"
+                            && label == "g35 · clay-auto · auto · deep · club · from-b33" && withoutWavExtension (extended)
+                                                                                                == "Song A__g35_clay-auto_auto_deep_club_from-b33",
+                        "T-038 成品文件名", plain + "、" + extended + "、" + label);
+
+            Options options;
+            options.extended = true;
+            options.bpm = 124.0;
+            SongReport report;
+            report.sampleRate = selfTestRate;
+            Row row;
+            row.combo = combo;
+            const std::string header = csvExtendedHeader();
+            const auto columns = static_cast<std::size_t> (std::count (header.begin(), header.end(), ',')) + 1;
+            const auto fields = csvExtendedFields (report, row, options).size();
+
+            test.check (columns == fields, "T-038 追加列个数", std::to_string (columns) + " 个列名、" + std::to_string (fields) + " 个值");
+        }
+
+        if (test.failed == 0)
+            std::cerr << "T-038 自检全部通过\n";
+        else
+            std::cerr << "T-038 自检有 " << test.failed << " 项失败\n";
+
+        return test.failed == 0 ? 0 : 1;
+    }
 }
 
 int main (int argc, char* argv[])
@@ -2466,6 +3570,9 @@ int main (int argc, char* argv[])
 
         case ParseResult::selfTest:
             return runSelfTest();
+
+        case ParseResult::selfTestHouse:
+            return runHouseSelfTest();
 
         case ParseResult::invalid:
             std::cerr << "celadon_render：" << error << "\n\n";
@@ -2556,7 +3663,7 @@ int main (int argc, char* argv[])
 
         // 每首歌做完就重写一次指标表：中途中断也留下已完成的部分。
         if (! writeText (metricsMd, makeMarkdown (options, combos, reports, generatedAt))
-            || ! writeText (metricsCsv, makeCsv (reports)))
+            || ! writeText (metricsCsv, makeCsv (reports, options)))
         {
             std::cerr << "celadon_render：写不了指标表 " << metricsMd.getFullPathName().toStdString() << "\n";
             return 1;

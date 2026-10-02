@@ -27,6 +27,7 @@ namespace celadon::param
     inline constexpr int kParamVersionClay       = 7;   // v0.1.7.0 修坯 Clay（已发布最大值 6 + 1）
 
     inline constexpr int kParamVersionMastering = 8;
+    inline constexpr int kParamVersionGenre     = 9;   // T-038 曲风与交付（已发布最大值 8 + 1）
 
     // ---- Limit（v0.1）----
     inline constexpr const char* limitGain        = "limit_gain";
@@ -76,6 +77,10 @@ namespace celadon::param
     inline constexpr const char* masterDither = "master_dither";
     inline constexpr const char* masterPreviewLufs = "master_preview_lufs";
 
+    // ---- 曲风与交付（T-038，设计规格-曲风与交付 第 5 节、ADR-026）：都不可自动化；选项只许在末尾追加 ----
+    inline constexpr const char* glazeGenre    = "glaze_genre";      // 通用 / Deep House / Tech House / Melodic-Progressive（下标 = glaze::Genre）
+    inline constexpr const char* glazeDelivery = "glaze_delivery";   // 标准 / 流媒体 / 俱乐部（下标 = glaze::Delivery）
+
     // 已发布的全部参数（测试与 Debug 版构造检查据此确认每个参数都有提示文案）。加参数时同步加在这里。
     inline constexpr const char* allParameterIds[] =
     {
@@ -84,7 +89,8 @@ namespace celadon::param
         balanceRecover, balanceTame, balanceBrighten, balanceSpeed, balanceBypass,
         glazeAmount, glazeStyle,
         clayLowCutMode, clayLowCutHz, clayMonoMode, clayMonoHz, clayWidthMode, clayWidthDb, clayBypass,
-        masterHarshMode, masterHarshAmount, masterTransient, masterTargetMode, masterTargetAmount, masterCodecMarginDb, masterDither, masterPreviewLufs
+        masterHarshMode, masterHarshAmount, masterTransient, masterTargetMode, masterTargetAmount, masterCodecMarginDb, masterDither, masterPreviewLufs,
+        glazeGenre, glazeDelivery
     };
 }
 

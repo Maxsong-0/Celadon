@@ -70,6 +70,19 @@
     某一项超出风格预算时照常工作，但保护层与上游监视只核对自动部分：那一项（Plan::manualBudgetMask）不设约束，其余照风格上限；
     这组项变了就清空两个窗口。界面「受手动设置限制」仍看 limitedByManual（任一模块被撤回）。
 
+    T-038 House 档（设计规格-曲风-House学习方式 第 3、4、7、9 节；只在曲风为 House 子类时走，通用档逐位同改前；数值与理由见 .cpp 开头）：
+      - 分析器每块跟着此刻的曲风（MusicAnalyzer::setGenre），House 档的候选画像由段落账的满编段门控算出；
+      - 锁定：House 档提交候选要三条都满足——不重复的已听小节 ≥ lockSegments（2 秒段：已听有效音频 ≥ fallbackLockSeconds）、满编段
+        ≥ requiredFullSegments 小节（2 秒段 ≥ fallbackFullSeconds 秒）、现有的置信度条件（listeningComplete）；
+      - 暂定方案（首次聆听）：每次段落重新门控后按当前的满编段重算，一般 3 s 过渡、新响段进来 fastTransitionSeconds 快过渡（正在走的
+        过渡按进度连续地加快走完）；暂定期不开校准轮（没有已提交画像，本来就不校准）；
+      - 锁定后防漏网：连续 reopenSegments 段「段响度 ≥ 画像 I + reopenAboveProfileLu、低频占比 ≥ 画像 lowShare × lowGateFactor」→ 按段落账
+        门控重算画像（更响才换），快过渡换过去、重新校准两轮；每份画像最多重开 maxReopens 次；段落账不够锁定条件（例如刚读档）时
+        旧画像照常、等够了再换；现有 10 LU 画像失配保护照旧；
+      - 换曲风：通用 → House 时正在聆听就从此刻重新开始这一轮；已提交画像不是 House 锁定过的（格式 1 / 2、通用档学的）就开一轮
+        聆听、旧画像照常生效（不清空）；House → 通用时为 House 开的那一轮取消。「重新聆听」清空段落账；读取工程后段落账从空开始；
+      - 状态：Status 的 house* 各项；反相提示每块交 ClayGuard::updateHouseHint（资格 = 此刻这一段是满编段，时长 = phaseHintSegments 小节）。
+
   ==============================================================================
 */
 
@@ -219,13 +232,14 @@ namespace celadon::glaze
             float calibrationSuggestedDb = 0.0f;      // 校准器此刻的建议偏差（相对本轮基线）
             // 轮中本块作废当前子窗的原因（位或，上一块）：1 宿主旁通 / 暂停、2 GLAZE ≤ 0、4 方案过渡中、8 条件与本轮参考不一致、
             // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；T-032 R6-02 收尾前是「受手动设置限制」）、32 保护层介入
-            // （GlazeGuard::isEngaged）。偏差变了（换工作点）由校准器自己当作中断，看执行偏差列。
+            // （GlazeGuard::isEngaged）、64 House 档此刻不在主段落（T-038 评审 F1：House 门控画像只代表满编段，校准只在主段落采样）。
+            // 偏差变了（换工作点）由校准器自己当作中断，看执行偏差列。
             int calibrationInterruptMask = 0;
             // 不在轮中时没开新一轮的原因（位或，上一块）：1 没有已提交画像、2 GLAZE ≤ 0、4 宿主旁通 / 暂停、8 方案过渡中、
             // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；R6-02 收尾前是「受手动设置限制」）、32 保护层在退让或恢复（未稳定
             // 也未卡住），或编排器接着施加的退让（carry）还没淡完、64 参考条件未知、
             // 128 已提交的校准适用（不需要）、256 用户条件稳定不足 1 s、512 刚对同一条件试过而结束为无效（T-032 R5-01 起放弃的轮、
-            // 换方案丢掉的轮不算）。0 = 本块开了新一轮或正在轮中。
+            // 换方案丢掉的轮不算）、1024 House 档此刻不在主段落或还读不到（T-038 评审 F1）。0 = 本块开了新一轮或正在轮中。
             int calibrationGateMask = 0;
 
             // ---- T-032（R5-02 / R5-03 / R5-04 / R5-08）：保护层与约束反馈的运行量（上一块 endBlock 之后的值）----
@@ -241,6 +255,15 @@ namespace celadon::glaze
             float absorbedGuardDb = 0.0f;             // 沿用执行快照时并进冻结方案的保护退让（≤ 0）；解除冻结时改由 carry 淡出
             float guardCarryDb = 0.0f;                // 此刻由编排器接着施加的退让（lowerGainCap 吸收 / 解除冻结的 carry 剩余量）
             std::int64_t mismatchSamples = 0;         // 画像失配此刻累计的有效音乐样本（M 在回差线以上；满持续时长才可能触发）
+
+            // ---- T-038 House 档（上一块 endBlock 之后的值）----
+            int houseListenStarts = 0;                // 为 House 锁定条件开的聆听（通用 → House、旧画像在 House 档）
+            int houseUpdates = 0;                     // 首次聆听中暂定方案按新的门控结果更新的次数
+            int houseFastTransitions = 0;             // 其中新响段触发的快过渡次数
+            int houseReopens = 0;                     // 锁定后防漏网重开（按段落账门控重算并提交）的次数
+            int houseReopenRun = 0;                   // 锁定后连续「更响更满」的段数
+            bool houseReopenArmed = false;            // 已满足重开条件，等段落账够锁定条件
+            std::int64_t transitionLengthSamples = 0; // 正在进行的方案过渡的长度（样本；没在过渡为 0）
         };
 
         TestProbe getProbeForTesting() const noexcept;

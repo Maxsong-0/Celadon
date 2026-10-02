@@ -63,6 +63,19 @@
         遇到反相低频时声音也不会变；宽度保护只会收回方案的加宽，旧方案加宽为 0，不受影响。
       - 资格期计时不存档（ClayGuardState 已定、随执行快照保存）：setState / reset 后从 0 起算。恢复后若反相还在继续，只是晚最多
         phaseMinSeconds 才重新把保持期拉满；下限与剩余保持期照快照接着走，输出不变。
+      - T-038 House 档反相提示（updateHouseHint，设计规格-曲风-House学习方式 第 9 节）：与上面的反相保护分开的一条更严的提示，
+          只提示、不改声音，不进 ClayGuardState、不存档。
+          亮：eligible（编排器判定此刻在 House 档的满编段里）且慢路 ρ 有效、< houseHintCorrelation（出厂 0.6：左右等功率时单声道
+          低频损失 10·log10((1 + ρ) / 2) 约 1 dB 起），连续满 requiredSeconds（编排器按 4 小节换成秒、拿不到拍点时 8 s）。只按有效音频
+          秒数累加、满资格的判断带与反相保护相同的 1 µs 容差，所以与块长无关（只差「在哪一块的末尾看到」）。
+          保持（照反相保护的写法）：亮着时条件不成立，先保持 phaseHoldSeconds（与反相保护同一个常数，出厂 2 s）再熄灭；保持期里条件
+          回来就重新装满。慢路 ρ 在 0.6 上下抖动时提示不闪，熄灭后要重新连续满 requiredSeconds 才再亮。
+          熄灭：保持期用完，或不 eligible（离开满编段、曲风不是 House）→ 立即熄灭、计时清零。
+          冻结：seconds ≤ 0 / 非有限（静音、旁通、停播）或慢路无效（门上没有低频内容）→ 状态不动（同反相保护：「不知道」时不改）。
+          单声道损失 monoLossDb：亮起那一刻 = 10·log10((1 + ρ) / 2)；之后条件成立的块按 1 s 一阶平滑跟随当时的 ρ（界面显示到 0.1 dB，
+          平滑后不随相关度的小抖动来回跳；按秒数指数衰减，块长无关到舍入）；保持期里不更新（那时 ρ 已在门限之上，不代表问题段）。
+          ρ 先钳到 [−0.99, 1]，完全反相时写约 −23 dB 封顶、不出 −∞。
+          houseHintPendingSeconds 两种状态各一种含义：没亮时 = 条件已连续成立的秒数（资格期）；亮着时 = 剩余保持秒数。
       - 方案值非有限（不该出现）按中性处理（monoAmount 0、widthDb 0）：保护照常工作，输出也是有限值；lowCutHz、monoHz 原样透传。
       - 标志是推导量，冻结块里也按当前状态重算：phaseActive = phaseFloor > 0（反相提示，ADR-015；与方案值无关）；
         widthActive = widthCapDb < 方案值（宽度保护真在改输出时才亮）。界面标志要再与三态相与——这一步归编排器（写 Status 时）。
@@ -89,6 +102,19 @@ namespace celadon::glaze
     {
         // 时长常数与单块时长的防呆上限（约 11.6 天）：比任何真实设置都长，只防坏快照里的天文数字。
         constexpr double maxSeconds = 1.0e6;
+
+        // 满资格的判断容差（远小于 192 kHz 的一个样本 5.2 µs）：反相保护与 House 提示共用（理由见 advancePhase）。
+        constexpr double qualificationToleranceSeconds = 1.0e-6;
+
+        // T-038 House 反相提示里单声道损失的显示平滑（见文件头）。只影响提示里写的数，不影响亮灭、不影响声音。
+        constexpr double houseHintLossSmoothingSeconds = 1.0;
+
+        // 左右等功率时单声道低频的功率损失：10·log10((1 + ρ) / 2)（dB，≤ 0）。ρ 钳到 [−0.99, 1]：完全反相时约 −23 dB 封顶。
+        float houseMonoLossDb (float correlation) noexcept
+        {
+            const auto rho = juce::jlimit (-0.99, 1.0, static_cast<double> (correlation));
+            return static_cast<float> (10.0 * std::log10 ((1.0 + rho) * 0.5));
+        }
 
         float finiteOr (float value, float fallback) noexcept
         {
@@ -131,12 +157,81 @@ namespace celadon::glaze
         // 只换常数、不动状态：剩余保持期、资格期计时、当前下限与上限照旧，按新的速率与门槛继续走
         //（新的最短持续时间比已累计的短 → 下一块就算满资格）。
         tuning = makeTuning (constants);
+        houseHintCorrelation = std::isfinite (constants.house.phaseHintCorrelation)
+                                   ? juce::jlimit (-1.0f, 1.0f, constants.house.phaseHintCorrelation) : 0.6f;
     }
 
     void ClayGuard::reset() noexcept
     {
         state = ClayGuardState{};
         phasePendingSeconds = 0.0;
+        houseHint = HouseHint{};
+        houseHintPendingSeconds = 0.0;
+    }
+
+    // T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节）：口径见文件头。
+    void ClayGuard::updateHouseHint (const ShortTermView& view, double seconds, bool eligible, double requiredSeconds) noexcept
+    {
+        // 不在 House 档的满编段里：熄灭、计时清零（再亮要重新连续满 requiredSeconds）。
+        if (! eligible)
+        {
+            houseHint = HouseHint{};
+            houseHintPendingSeconds = 0.0;
+            return;
+        }
+
+        // 冻结：静音 / 旁通 / 停播块，或慢路不知道（门上没有低频内容）。
+        if (! (seconds > 0.0 && std::isfinite (seconds)))
+            return;
+
+        const auto& slow = view.liveLowCorrelation;
+
+        if (! (slow.valid && std::isfinite (slow.value)))
+            return;
+
+        const auto dt = juce::jmin (seconds, maxSeconds);
+        const auto holds = slow.value < houseHintCorrelation;
+
+        if (! houseHint.active)
+        {
+            // 资格期：须连续成立，一断就从头计。
+            if (! holds)
+            {
+                houseHintPendingSeconds = 0.0;
+                return;
+            }
+
+            houseHintPendingSeconds = juce::jmin (houseHintPendingSeconds + dt, maxSeconds);
+
+            if (! (cleanSeconds (requiredSeconds) - houseHintPendingSeconds > qualificationToleranceSeconds))
+            {
+                houseHint.active = true;
+                houseHint.monoLossDb = houseMonoLossDb (slow.value);
+                houseHintPendingSeconds = tuning.phaseHoldSeconds;   // 亮着时改记剩余保持秒数
+            }
+
+            return;
+        }
+
+        if (holds)
+        {
+            // 条件还在：重新装满保持期，损失按 1 s 平滑跟随此刻的 ρ。
+            houseHintPendingSeconds = tuning.phaseHoldSeconds;
+            const auto target = static_cast<double> (houseMonoLossDb (slow.value));
+            const auto current = static_cast<double> (houseHint.monoLossDb);
+            houseHint.monoLossDb = static_cast<float> (target + (current - target) * std::exp (-dt / houseHintLossSmoothingSeconds));
+            return;
+        }
+
+        // 条件不成立：耗保持期，用完就熄灭（保持期为 0 = 立即熄灭，旧快照缺字段时如此）。用完的判断带同样的 1 µs 容差：
+        // 秒数按块累加，恰好用完的那一块在不同块长下会剩 ±1e-16 s，不带容差就差一块。
+        houseHintPendingSeconds -= dt;
+
+        if (! (houseHintPendingSeconds > qualificationToleranceSeconds))
+        {
+            houseHint = HouseHint{};
+            houseHintPendingSeconds = 0.0;
+        }
     }
 
     void ClayGuard::setState (const ClayGuardState& restored) noexcept
@@ -231,10 +326,9 @@ namespace celadon::glaze
 
         if (conditionHolds)
         {
-            // 满资格的判断带 1 µs 容差（远小于 192 kHz 的一个样本 5.2 µs）：资格期按 double 秒数累加，块长不同，恰好在满资格那一刻
+            // 满资格的判断带 1 µs 容差（qualificationToleranceSeconds）：资格期按 double 秒数累加，块长不同，恰好在满资格那一刻
             // 结束的块会累加成 0.15000… 或 0.14999…；不带容差时一边算「满了」、一边还差 1e-17 s，保持期（满资格就装上 2 s）因此
             // 相差整整 2 s（T-012 阶段 4 服务器测试 ClayGuard 块长一致用例，块长 333 时暴露）。
-            constexpr double qualificationToleranceSeconds = 1.0e-6;
             const auto needed = tuning.phaseMinSeconds - phasePendingSeconds;   // 还差多久满资格（≤ 容差 = 已满）
 
             if (! (needed > qualificationToleranceSeconds))

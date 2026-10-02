@@ -8,7 +8,9 @@
     用法：celadon_ui_snapshot --out <目录> [--scale 2] [--only 名字,名字] [--frames N] [--deterministic]
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
-      zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced。
+      zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced；
+      T-038（曲风 Deep House、交付 俱乐部，House 状态字段注入）：zh / en-house-layout（两个选择在 GLAZE 标题行左右；Max 2026-10-01 选定，备选图已去掉）、
+      -house-status-bars / -main / -seconds（状态行三种文字，只截胶囊）、-house-tip（暂定期间的气泡）、-house-hint（反相提示）。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字），⑲ 续与 ⑳ 是 T-041 的：
       小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；
@@ -150,6 +152,7 @@ namespace
         Music music;
         juce::AudioBuffer<float> buffer { 2, blockSize };
         juce::MidiBuffer midi;
+        juce::Rectangle<int> crop;   // T-038：状态的 after 动作可以指定只存这一块（编辑器坐标）；空 = 照 State::crop
 
         void setParameter (const char* id, float value)
         {
@@ -320,9 +323,10 @@ namespace
         settings.setDefaultZoom (1.0);
     }
 
-    bool save (juce::Component& component, float scale, const juce::File& file)
+    bool save (juce::Component& component, float scale, const juce::File& file, juce::Rectangle<int> area = {})
     {
-        const auto image = component.createComponentSnapshot (component.getLocalBounds(), true, scale);
+        // area 为空 = 整个组件；否则只存这一块（T-038 的状态行 / 气泡截图只要局部，图小）。
+        const auto image = component.createComponentSnapshot (area.isEmpty() ? component.getLocalBounds() : area, true, scale);
         file.deleteFile();
         juce::FileOutputStream stream (file);
 
@@ -331,6 +335,88 @@ namespace
 
         juce::PNGImageFormat png;
         return png.writeImageToStream (image, stream);
+    }
+
+    //==============================================================================
+    // T-038 曲风与交付 / House 档的截图（README「T-038」一节）。House 档的 house* 字段由编排器（阶段 2 的 B 线）填，截图时把处理器的
+    // 状态快照改一改再交给编辑器（setGlazeStatusSource 是公开接口）：界面只按字段渲染，这里验的是渲染，不是编排器。
+    using StatusEdit = std::function<void (celadon::glaze::Status&)>;
+
+    void injectStatus (Session& s, StatusEdit edit)
+    {
+        auto* processor = s.processor.get();
+        s.editor->setGlazeStatusSource ([processor, edit] { auto status = processor->getGlazeStatus(); edit (status); return status; });
+        s.editor->advanceForSnapshot (0.05);
+    }
+
+    // 锁定条件还没满足：按小节（宿主给了拍点）。
+    StatusEdit housePendingBars (int heard, int full)
+    {
+        return [heard, full] (celadon::glaze::Status& status)
+        {
+            status.houseActive = true;
+            status.houseLockPending = true;
+            status.houseSegmentMode = celadon::glaze::SegmentMode::bars;
+            status.houseHeardSegments = heard;
+            status.houseTargetSegments = 64;
+            status.houseFullSegments = full;
+            status.houseRequiredFullSegments = 8;
+            status.houseMainSectionHeard = full >= 8;
+        };
+    }
+
+    // 同上，宿主没给拍点：按秒。
+    StatusEdit housePendingSeconds (float heard)
+    {
+        return [heard] (celadon::glaze::Status& status)
+        {
+            status.houseActive = true;
+            status.houseLockPending = true;
+            status.houseSegmentMode = celadon::glaze::SegmentMode::seconds;
+            status.houseHeardSeconds = heard;
+            status.houseTargetSeconds = 124.0f;
+        };
+    }
+
+    // 已锁定、House 反相提示亮着（单声道低频损失 lossDb）。
+    StatusEdit housePhaseHint (float lossDb)
+    {
+        return [lossDb] (celadon::glaze::Status& status)
+        {
+            status.houseActive = true;
+            status.houseLockPending = false;
+            status.houseSegmentMode = celadon::glaze::SegmentMode::bars;
+            status.houseHeardSegments = 64;
+            status.houseFullSegments = 16;
+            status.housePhaseHint = true;
+            status.housePhaseMonoLossDb = lossDb;
+        };
+    }
+
+    // 曲风 Deep House、交付 俱乐部（建编辑器之前设：两个选择显示选中项）。
+    void houseParameters (Session& s)
+    {
+        s.setParameter (celadon::param::glazeGenre, 1.0f);
+        s.setParameter (celadon::param::glazeDelivery, 2.0f);
+    }
+
+    // 暂定期间的悬停气泡：取 GLAZE 标题此刻的气泡文字（编辑器定时器按 House 状态换好的那一版），在标题左下方手动弹出；
+    // 截图只存标题与气泡那一块（编辑器 1 倍时画布坐标 = 编辑器坐标）。
+    void showGlazeTooltip (Session& s)
+    {
+        auto* title = findById (*s.editor, "glaze_title");
+        auto* window = findFirst<juce::TooltipWindow> (*s.editor);
+        auto* client = dynamic_cast<juce::SettableTooltipClient*> (title);
+
+        if (title == nullptr || window == nullptr || client == nullptr || window->getParentComponent() == nullptr)
+        {
+            std::cout << "FAILED to find the GLAZE title tooltip" << std::endl;
+            return;
+        }
+
+        const auto anchor = window->getParentComponent()->localPointToGlobal (juce::Point<int> (440, 326));
+        window->displayTip (anchor, client->getTooltip());
+        s.crop = window->getBounds().getUnion (title->getBounds()).expanded (16).getIntersection (s.editor->getLocalBounds());
     }
 }
 
@@ -408,9 +494,15 @@ int main (int argc, char* argv[])
         celadon::Language language;
         std::function<void (Session&)> before;   // 建编辑器之前（参数、设置）
         std::function<void (Session&)> after;    // 跑完音频之后（界面动作）
+        juce::Rectangle<int> crop {};            // 只存这一块（编辑器坐标，1 倍）；空 = 整张
     };
 
     const auto none = [] (Session&) {};
+
+    // T-038 局部截图的范围：顶栏状态胶囊（居中 x = 600、最宽 560）；版面那几张只要上半（顶栏、频谱、中层到底排，y < 560），
+    // 卡片与位置无关、图小一半。气泡那两张的范围由 showGlazeTooltip 按气泡实际大小定。
+    const juce::Rectangle<int> pillCrop { 300, 0, 600, 52 };
+    const juce::Rectangle<int> upperCrop { 0, 0, 1200, 560 };
 
     const State states[] =
     {
@@ -451,6 +543,26 @@ int main (int argc, char* argv[])
         { "zh-zoom70",   celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); } },
         { "zh-zoom150",  celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (1.5); } },
         { "zh-reduced",  celadon::Language::chinese, [] (Session&) {}, none },
+
+        // ---- T-038 曲风与交付 / House 档（曲风 Deep House、交付 俱乐部；House 的状态字段注入，见 injectStatus）----
+        // 版面：两个选择在主旋钮左右（代码里的默认位置）与备选位置（挪到 GLAZE 标题行），整张。
+        { "zh-house-layout", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
+        { "en-house-layout", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
+        // 状态行三种文字（设计规格-曲风-House学习方式 第 7 节），只截顶栏胶囊。
+        { "zh-house-status-bars", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, pillCrop },
+        { "en-house-status-bars", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, pillCrop },
+        { "zh-house-status-main", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (41, 8)); }, pillCrop },
+        { "en-house-status-main", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (41, 8)); }, pillCrop },
+        { "zh-house-status-seconds", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingSeconds (52.0f)); }, pillCrop },
+        { "en-house-status-seconds", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingSeconds (52.0f)); }, pillCrop },
+        // 暂定期间的悬停气泡（第 3 行「从 drop 开始播放能学得更快」），截标题与气泡一块。
+        { "zh-house-tip", celadon::Language::chinese, houseParameters,
+          [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); showGlazeTooltip (s); } },
+        { "en-house-tip", celadon::Language::english, houseParameters,
+          [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); showGlazeTooltip (s); } },
+        // House 反相提示：状态胶囊（琥珀）+ CLAY 卡片两行提示，整张。
+        { "zh-house-hint", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePhaseHint (-1.62f)); } },
+        { "en-house-hint", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePhaseHint (-1.62f)); } },
     };
 
     for (const auto& state : states)
@@ -477,7 +589,7 @@ int main (int argc, char* argv[])
         session.editor->advanceForSnapshot (0.05);
 
         const auto file = outDir.getChildFile (juce::String (state.name) + ".png");
-        const auto ok = save (*session.editor, scale, file);
+        const auto ok = save (*session.editor, scale, file, session.crop.isEmpty() ? state.crop : session.crop);
         std::cout << (ok ? "wrote " : "FAILED ") << file.getFullPathName() << " (" << session.editor->getWidth() << " x "
                   << session.editor->getHeight() << ")" << std::endl;
 
@@ -609,6 +721,32 @@ namespace
             drag (lowCutValue, { 10.0f, 7.0f }, { 10.0f, -29.0f });
             check (value (celadon::param::clayLowCutHz) > before + 3.0f, "manual low cut value drags (" + juce::String (before, 1) + " -> "
                                                                          + juce::String (value (celadon::param::clayLowCutHz), 1) + " Hz)");
+        }
+
+        // ⑦ 续（T-038）：曲风 / 交付两个选择——点最右一格选中最后一项（Melodic / 俱乐部），点左边的灰字说明格什么都不改；
+        //    两个都在主旋钮两侧、不与旋钮和左下说明重叠。查完放回通用 / 标准，后面的检查不受影响。
+        {
+            auto& genre = find (celadon::param::glazeGenre);
+            auto& delivery = find (celadon::param::glazeDelivery);
+            const auto genreY = (float) genre.getHeight() * 0.5f, deliveryY = (float) delivery.getHeight() * 0.5f;
+
+            click (genre, { (float) genre.getWidth() - 12.0f, genreY });
+            check (juce::roundToInt (value (celadon::param::glazeGenre)) == 3, "genre: last segment -> Melodic-Progressive");
+            click (genre, { 12.0f, genreY });
+            check (juce::roundToInt (value (celadon::param::glazeGenre)) == 3, "genre: the caption cell is not a choice");
+            click (delivery, { (float) delivery.getWidth() - 12.0f, deliveryY });
+            check (juce::roundToInt (value (celadon::param::glazeDelivery)) == 2, "delivery: last segment -> Club");
+
+            const auto knobArea = juce::Rectangle<int> (500, 322, 200, 200);
+            const auto cornerArea = find ("corner_note").getBounds();
+            check (! genre.getBounds().intersects (knobArea) && ! delivery.getBounds().intersects (knobArea)
+                       && ! genre.getBounds().intersects (cornerArea) && genre.getRight() <= delivery.getX(),
+                   "genre / delivery sit either side of the knob (" + genre.getBounds().toString() + ", " + delivery.getBounds().toString() + ")");
+
+            session.setParameter (celadon::param::glazeGenre, 0.0f);
+            session.setParameter (celadon::param::glazeDelivery, 0.0f);
+            check (static_cast<celadon::ui::Segmented&> (genre).getSelected() == 0 && static_cast<celadon::ui::Segmented&> (delivery).getSelected() == 0,
+                   "host changes show up on both selectors");
         }
 
         // ⑧ 电源键旁通、AUTO 小胶囊、等响、A / B。
@@ -1052,12 +1190,13 @@ namespace
             dispatchEvents (400);
         }
 
-        // ⑭ R9-01：粒子带里的 8 个文字小部件都挂着整数对齐的缓存；重画粒子带时从缓存读、不再重画进缓存。
+        // ⑭ R9-01：粒子带里的 10 个文字小部件（T-038 起多了曲风、交付两个选择）都挂着整数对齐的缓存；重画粒子带时从缓存读、不再重画进缓存。
         {
             int cached = 0;
             juce::StringArray missing;
 
-            for (const auto* id : { "glaze_title", "glaze_style", "relearn", "ab", "match", "monitoring", "corner_note", "legend" })
+            for (const auto* id : { "glaze_title", "glaze_style", "relearn", "ab", "match", "monitoring", "corner_note", "legend",
+                                    "glaze_genre", "glaze_delivery" })
             {
                 if (dynamic_cast<AlignedComponentCache*> (find (id).getCachedComponentImage()) != nullptr)
                     ++cached;
@@ -1065,7 +1204,7 @@ namespace
                     missing.add (id);
             }
 
-            check (cached == 8, "T-032 the 8 text widgets in the particle band have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
+            check (cached == 10, "T-032 the 10 text widgets in the particle band have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
 
             PaintProbe probe;
             auto& title = find ("glaze_title");
@@ -1593,7 +1732,8 @@ namespace
             else if (dynamic_cast<celadon::ui::StatusPill*> (component) != nullptr)      probe (component, "StatusPill");
             else if (component->getComponentID() == "relearn" || component->getComponentID() == "match"
                      || component->getComponentID() == celadon::param::glazeStyle || component->getComponentID() == "ab"
-                     || component->getComponentID() == "monitoring")
+                     || component->getComponentID() == "monitoring"
+                     || component->getComponentID() == celadon::param::glazeGenre || component->getComponentID() == celadon::param::glazeDelivery)
                 probe (component, component->getComponentID());
         }
 

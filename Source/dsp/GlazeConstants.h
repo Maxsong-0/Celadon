@@ -58,7 +58,8 @@ namespace celadon::glaze
         float limitGrPeakCapDb = 0.0f;
         float recoverCap = 0.0f;             // Balance Recover 自动增量上限（0 ～ 100）
         float tameCap = 0.0f;                // Balance Tame 自动增量上限（0 ～ 100）
-        float toneMaxDb = 0.75f;             // Tone 自动增量绝对值上限（× GLAZE）
+        float toneMaxDb = 0.75f;             // Tone 自动增量绝对值上限（× GLAZE）；T-038 House 曲风往亮改用 GenreConstants::toneMaxBrightDb
+                                             // （GlazePlanner toneBrightCapDb），往暗仍是本项
         // 分配权重：初始方案里超限估计按此分给四个模块（只影响初始方案，最终以约束与实测为准）
         float shareHeat = 0.0f, shareGlue = 0.0f, shareClip = 0.0f, shareLimit = 1.0f;
 
@@ -83,12 +84,74 @@ namespace celadon::glaze
         float automaticHeatFloor = 0.0f;
     };
 
+    // ---- T-038 曲风与交付（设计规格-曲风与交付 第 3、4 节，设计规格-曲风-House学习方式；ADR-026）----
+    // 默认值就是出厂值（只在这里写一次）。2026-10-01 按 Jamendo 45 首标定（规格第 3.2 节，报告 docs/validation/2026-10-01-T038-calibration/）：
+    // Tone 参考斜率改成 −2.25（三类相同）；门控 ΔG / 低频门系数、64 / 8 小节、重开条件数据支持起点值、未改；其余待 Max 试听再调。
+    // 标定快照存取同其他字段；旧快照缺字段按出厂值读
+    // （GlazeConstants.cpp visitGenre / visitHouse / visitDelivery）——通用 + 标准用不到这些字段，旧工程逐位不变。
+
+    // 一个 House 子类覆盖的音色字段（在风格权重混合之后覆盖；通用档不覆盖任何一项）。
+    struct GenreConstants
+    {
+        float toneReferenceSlopeDbPerOct = -2.25f;  // 覆盖 StyleConstants::toneReferenceSlopeDbPerOct（2026-10-01 标定，三类相同）
+        float toneMaxBrightDb = 0.4f;               // Tone 往亮的上限（往暗仍用 StyleConstants::toneMaxDb）
+        float clayLowCutTargetHz = 25.0f;           // 覆盖 StyleConstants::clayLowCutTargetHz（ADR-026 第 5 条）
+        float clayWidthStyleFactor = 0.0f;          // 覆盖 StyleConstants::clayWidthStyleFactor：House 档不自动加宽
+    };
+
+    // 三个 House 子类共用的学习方式、锁定条件、限幅跟拍、反相提示常数（设计规格-曲风-House学习方式）。
+    struct HouseConstants
+    {
+        float gateWidthLu = 3.0f;                   // 响度门 ΔG：段响度 ≥ S_ref − 本项（第 2.3 节）
+        float lowGateFactor = 0.6f;                 // 低频门：段 lowShare ≥ 低频参考 × 本项
+        int lockSegments = 64;                      // 锁定条件 1：不重复的已听小节（第 3.1 节）
+        int requiredFullSegments = 8;               // 锁定条件 2：满编段小节
+        double fallbackSegmentSeconds = 2.0;        // 宿主没给拍点时每段秒数（第 2.1 节）
+        double fallbackLockSeconds = 124.0;         // 分 2 秒段时的锁定条件 1（不重复的有效音频秒数）
+        double fallbackFullSeconds = 16.0;          // 分 2 秒段时的锁定条件 2
+        double fastTransitionSeconds = 0.5;         // 新响段进来时的方案过渡（第 3.2 节；与 mismatchTransitionSeconds 同速）
+        float reopenAboveProfileLu = 3.0f;          // 锁定后重开：段响度 ≥ 画像 I + 本项（第 4 节）
+        int reopenSegments = 4;                     //   且连续这么多小节
+        int maxReopens = 2;                         //   每份画像最多重开次数
+        float beatReleaseDivisor = 3.0f;            // 限幅慢段释放上限 = 一拍 ÷ 本项（第 8 节）
+        float beatMinBpm = 100.0f;                  // 宿主 BPM 在 [Min, Max] 里才封顶
+        float beatMaxBpm = 140.0f;
+        float phaseHintCorrelation = 0.6f;          // 反相提示：慢路低频相关度 < 本项（第 9 节）
+        int phaseHintSegments = 4;                  //   持续这么多小节
+        double phaseHintFallbackSeconds = 8.0;      //   宿主没给拍点时改为持续这么多秒
+    };
+
+    // 交付三档（设计规格-曲风与交付 第 4.1 节）。「标准」不用这里的任何一项：仍按风格 preferredLufs 与 min / maxPreferredLufs。
+    struct DeliveryConstants
+    {
+        float streamingTargetLufs = -10.0f;
+        float streamingMinLufs = -12.0f;
+        float streamingMaxLufs = -8.0f;
+        float streamingTruePeakCapDbtp = -2.0f;     // 有效 Ceiling 不高于本项（Spotify / SoundCloud：响于 −14 LUFS 时 < −2 dBTP）
+        float clubTargetLufs = -7.0f;
+        float clubMinLufs = -9.0f;
+        float clubMaxLufs = -5.0f;
+        float styleOffsetReferenceLufs = -9.0f;     // 风格偏移 = 风格混合后的 preferredLufs − 本项（冲击 = 0）
+        // 俱乐部档放宽的限幅预算（Max 2026-10-01：风格预算内推不到 −7 LUFS 时「俱乐部档放宽预算」）：只在俱乐部档、只对风格里
+        // 生效的（> 0）限幅三项各加这么多 dB，方案与运行时保护层 / 上游监视用同一套（GlazePlanner blendConstants 四参数版）。
+        // Heat / Glue / Clip 预算不动。出厂值 2026-10-02 起为 0（T-045，ADR-029）：三种风格的预算本身已各放宽 +1 / +2 / +3 dB，正好等于原来的
+        // 俱乐部预算，再叠一层会让合成 House 曲 breakdown → drop 落差少 2.2 LU（门槛 1.5）；Max 选「不再叠加」。机制保留，快照里仍可设。
+        float clubLimitGrMeanExtraDb = 0.0f;
+        float clubLimitGrP95ExtraDb = 0.0f;
+        float clubLimitGrPeakExtraDb = 0.0f;
+    };
+
     struct Constants
     {
         int version = 1;             // 标定快照版本
         int algorithmVersion = currentAlgorithmVersion;    // 方案算法版本（与常数分开：算法升级走兼容策略）
 
         StyleConstants warm, punchy, clean;
+
+        // T-038：三个 House 子类、House 共用常数、交付三档。出厂值见 GlazeConstants.cpp makeFactory（子类的音色起点值）。
+        GenreConstants deepHouse, techHouse, melodicProgressive;
+        HouseConstants house;
+        DeliveryConstants delivery;
 
         // 目标：L_pref = clamp(L_style − lraSlope × max(0, LRA − lraReferenceLu), minPreferred, maxPreferred)
         float lraReferenceLu = 6.0f;
@@ -321,6 +384,9 @@ namespace celadon::glaze
     // 某风格的常数（automatic 不对应单一常数：由决策器按权重混合）。
     const StyleConstants& constantsFor (const Constants&, Style concreteStyle) noexcept;
 
+    // T-038：某曲风覆盖的音色字段；通用档返回 nullptr（不覆盖）。
+    const GenreConstants* genreConstantsFor (const Constants&, Genre) noexcept;
+
     // 保存 / 读取（读取失败返回 false，out 不变）。
     std::unique_ptr<juce::XmlElement> toXml (const Constants&);
     bool fromXml (const juce::XmlElement&, Constants& out);
@@ -365,6 +431,8 @@ namespace celadon::glaze
             // T-032 R6-02 追加：布尔字段（Plan::automaticLevelWithdrawn）同样可以「旧存档缺属性按默认值读」；默认值可以是另一个
             // 已读到的字段（visitPlan 里传 plan.limitedByManual），写的一方忽略它。字段类型必须正好是 bool。
             void optionalField (const char* name, const bool& value, bool legacyDefault);
+            // T-038 追加：整数字段（House 常数里的小节数）同样可以「旧快照缺字段按默认值读」。字段类型必须正好是 int。
+            void optionalField (const char* name, const int& value, int legacyDefault);
 
             template <size_t N>
             void field (const char* name, const std::array<float, N>& values)
@@ -394,6 +462,7 @@ namespace celadon::glaze
             void field (const char* name, std::uint8_t& value);
             void optionalField (const char* name, std::uint8_t& value, std::uint8_t legacyDefault);
             void optionalField (const char* name, bool& value, bool legacyDefault);   // T-032 追加（同 Writer）：存在但不是 0 / 1 仍拒收
+            void optionalField (const char* name, int& value, int legacyDefault);     // T-038 追加（同 Writer）：存在但不是十进制整数仍拒收
 
             template <size_t N>
             void field (const char* name, std::array<float, N>& values)

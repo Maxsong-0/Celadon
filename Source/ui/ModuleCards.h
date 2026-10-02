@@ -9,6 +9,7 @@
       - 旋钮与滑条的手感见 Controls.h；紫色 = GLAZE 此刻的自动加量（弧 + 小圆点 + 数值后的「+13」）；
       - CLAY：三行 = 灯 + 名字 + 此刻的数值 + 自动 / 关 / 手动；「手动」时数值可以拖（改的是手动值）；
         下面一条 10 Hz ～ 1 kHz 的小图：低切以下斜线、收单的单声道区、其上的立体声区。
+        T-038：House 档反相提示亮着时，小图那一格换成两行琥珀字「俱乐部单声道会丢低频（约 1.6 dB）/ 请回混音修」。
       - BALANCE：27 段修正量的小柱图 + 回补 / 抑制 / 提亮 + 速度；
       - COLOR：音调 / 粘合 / 热度 + 干湿、输出、粘合衰减；
       - LIMIT：增益 / 上限 / 削波 + 释放（带 AUTO）、预读、限幅衰减（方案受限时橙色）；卡片头电源键左边是耳机「试听差值」。
@@ -109,6 +110,7 @@ namespace celadon::ui
         int modeOf (const Row& row) const;
         juce::Rectangle<float> rowBounds (int index) const;
         juce::Rectangle<float> stripBounds() const;
+        juce::Rectangle<float> houseHintBounds() const;   // T-038 House 反相提示亮着时占小图那一格（两行琥珀字）
 
         std::array<Row, 3> rows;
         help::ClayReadout readout;

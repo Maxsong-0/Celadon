@@ -59,8 +59,27 @@ namespace celadon::glaze
         const ClayGuardState& getState() const noexcept   { return state; }
         void setState (const ClayGuardState& restored) noexcept;   // 执行快照恢复（钳到合法范围；资格期计时从 0 起算）
 
+        // ---- T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节）----
+        // 只提示、不改声音；与上面的反相保护分开，不进 ClayGuardState、不存档。
+        //   view = 分析器此刻的实时视图（读慢路 liveLowCorrelation）；seconds = 有效音频秒数（同 update）；
+        //   eligible = 编排器判定此刻在 House 档的满编段里；requiredSeconds = 条件须连续成立多久才提示（编排器按 4 小节换成秒，
+        //   拿不到拍点时传 Constants::house.phaseHintFallbackSeconds）。不 eligible 时提示熄灭、计时清零；条件消失后先保持
+        //   clayGuardPhaseHoldSeconds（出厂 2 s，同反相保护）再熄灭。
+        struct HouseHint
+        {
+            bool active = false;
+            float monoLossDb = 0.0f;   // 10·log10((1 + ρ) / 2)，≤ 0：亮起时按公式算，之后 1 s 一阶平滑，保持期不更新，ρ 钳到 [−0.99, 1]；
+                                       // active 为 false 时 0
+        };
+
+        void updateHouseHint (const ShortTermView& view, double seconds, bool eligible, double requiredSeconds) noexcept;
+        const HouseHint& getHouseHint() const noexcept   { return houseHint; }
+
     private:
         ClayGuardState state;
+        HouseHint houseHint;
+        double houseHintPendingSeconds = 0.0;   // 没亮时 = 条件已连续成立的有效音频秒数（资格期）；亮着时 = 剩余保持秒数
+        float houseHintCorrelation = 0.6f;      // setConstants 从 Constants::house.phaseHintCorrelation 拷贝
         // ---- 由实现代理 A2 补全（T-012）：从 Constants 拷贝的阈值与时间常数等 ----
 
         // 反相触发条件已连续成立的有效音频秒数（封顶 phaseMinSeconds）。不在 ClayGuardState 里、不存档（见文件头）。

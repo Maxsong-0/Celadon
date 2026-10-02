@@ -2,7 +2,7 @@
 
 <JUCERPROJECT id="CBwc4r" name="Celadon" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" companyName="Max Song"
-              version="0.1.8.7"
+              version="0.1.8.8"
               bundleIdentifier="me.maxsong.celadon" pluginManufacturerCode="Maxs"
               pluginCode="Cldn" pluginVST3Category="Fx,Mastering">
   <MAINGROUP id="UBEL9r" name="Celadon">
@@ -48,6 +48,8 @@
         <FILE id="adv02x" name="ReferenceSpectrum.cpp" compile="1" resource="0" file="Source/dsp/ReferenceSpectrum.cpp"/>
         <FILE id="adv03x" name="ReleaseSafety.h" compile="0" resource="0" file="Source/dsp/ReleaseSafety.h"/>
         <FILE id="adv04x" name="ReleaseSafety.cpp" compile="1" resource="0" file="Source/dsp/ReleaseSafety.cpp"/>
+        <FILE id="T38slh" name="SegmentLedger.h" compile="0" resource="0" file="Source/dsp/SegmentLedger.h"/>
+        <FILE id="T38slc" name="SegmentLedger.cpp" compile="1" resource="0" file="Source/dsp/SegmentLedger.cpp"/>
         <FILE id="ecbLo2" name="BalanceModule.cpp" compile="1" resource="0"
               file="Source/dsp/BalanceModule.cpp"/>
         <FILE id="G1lOch" name="BalanceModule.h" compile="0" resource="0"

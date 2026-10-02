@@ -190,6 +190,8 @@ namespace celadon
         void processListen (juce::AudioBuffer<float>& io);
         void applyListenGain (juce::AudioBuffer<float>& io, int start, int length);
         void updateListenTarget();
+        // T-038 限幅跟拍：House 档、Auto 释放、宿主在播且 BPM 在合理区间时 = 一拍 ÷ beatReleaseDivisor（ms），否则 0（不封顶）。
+        float beatReleaseCapFor (glaze::Genre genre, bool autoRelease) const noexcept;
 
         // 试听差值：淡入中、试听中、淡出中都算「在用」——这时限幅器要写差值、宿主大块要切片。
         bool differenceInvolved() const noexcept   { return differenceMix.isSmoothing() || differenceMix.getCurrentValue() > 0.0f; }
@@ -209,6 +211,9 @@ namespace celadon
         std::atomic<float> publishedPreviewGain { 0.0f }, publishedCodecMargin { 0.0f };
         std::atomic<int> publishedDither { 0 };
         bool offline = false, releaseAllowed = true, previewActive = false;
+        // T-038 限幅跟拍：本块宿主的速度与走带（setHostInfo 记下，setParams 算慢段释放上限用；设计规格-曲风-House学习方式 第 8 节）。
+        bool hostTempoValid = false, hostPlaying = true;
+        double hostBpm = 0.0;
 
 
         Params effective;

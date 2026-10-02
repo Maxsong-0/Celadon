@@ -24,10 +24,17 @@
 | `zh-glaze90.png` / `zh-glaze0.png` | GLAZE 90 %（开片密、釉色深、粒子多）/ 0 %（无开片、全手动） |
 | `zh-zoom70.png` / `zh-zoom150.png` | 界面大小 70 % / 150 %（含缩放提示） |
 | `zh-reduced.png` | 减少动效（没有粒子与波纹） |
+| `zh-house-layout.png` / `en-house-layout.png` | T-038：曲风 Deep House、交付 俱乐部，两个选择在 GLAZE 标题行左右（Max 2026-10-01 选定）；House 暂定、23 / 64 小节（只存上半，y < 560） |
+| `zh-house-status-bars.png` … `en-house-status-seconds.png` | 状态行三种文字（还没听到主段落 / 主段落已听 8 小节 / 宿主没给拍点），只截顶栏胶囊 |
+| `zh-house-tip.png` / `en-house-tip.png` | House 暂定期间 GLAZE 状态的悬停气泡（第 3 行「从 drop 开始播放能学得更快」） |
+| `zh-house-hint.png` / `en-house-hint.png` | House 反相提示：状态胶囊琥珀 + CLAY 卡片两行提示 |
+
+T-038 那几张的 House 状态（`Status` 的 `house*` 字段）由编排器填；截图工具把处理器的状态快照改一改再交给编辑器
+（`setGlazeStatusSource`，见 `injectStatus`），验的是界面怎么按字段画，不是编排器什么时候置这些字段。
 
 `--only check` 另跑一组交互检查：直接给真实控件发鼠标事件（拖动、⌘ 精调、双击回默认、Alt 单击输入（含中文输入法的全角数字、
 输入框开着时按键抬起不外传——Windows 上松开 Alt 会激活宿主菜单栏）、滚轮、滑条、
-分段选择、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
+分段选择、曲风 / 交付两个选择（T-038：点选、说明格不可点、位置不压旋钮与左下说明）、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
 逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中的数值气泡）、`check-original.png`、
 `check-audition.png`、`check-advanced.png`、`check-english.png`。
 

@@ -783,8 +783,98 @@ namespace celadon::test
             testDigests();                        // T-032 逐位证据（只记录）
             testReleaseRouting();
             testMonitoringHandover();
+            testGenreAndDelivery();               // T-038
         }
     private:
+        //==============================================================================
+        // T-038（设计规格-曲风与交付 第 3.1、4.1 节；设计规格-曲风-House学习方式 第 8 节）：链路上的三处小行为——
+        // 流媒体档封顶有效 Ceiling、House 档「目标频谱 = 自动」按曲风取斜率并能无损回喂、House 档限幅跟拍的慢段释放上限。
+        // 通用 + 标准一律不动（逐位与 main 相同由 22 首回归与 LegacyFixtureTests 把关，这里只核对实际参数）。
+        void testGenreAndDelivery()
+        {
+            beginTest ("T-038: streaming caps the effective ceiling at -2 dBTP; standard and club leave it; a lower user ceiling wins");
+            {
+                for (int delivery = 0; delivery < glaze::numDeliveries; ++delivery)
+                {
+                    ChainParams params;
+                    params.limit.ceilingDb = -1.0f;
+                    params.glazeDelivery = delivery;
+                    CeladonChain chain;
+                    prepareMasteringChain (chain, params);
+                    expectEquals (chain.getEffectiveParams().limit.ceilingDb, delivery == (int) glaze::Delivery::streaming ? -2.0f : -1.0f);
+                }
+
+                ChainParams lower;
+                lower.limit.ceilingDb = -3.0f;
+                lower.glazeDelivery = (int) glaze::Delivery::streaming;
+                CeladonChain chain;
+                prepareMasteringChain (chain, lower);
+                expectEquals (chain.getEffectiveParams().limit.ceilingDb, -3.0f);
+
+                ChainParams margin;   // 编码余量先扣，再与 -2 取小
+                margin.limit.ceilingDb = -0.5f;
+                margin.mastering.codecMarginDb = 1.0f;
+                margin.glazeDelivery = (int) glaze::Delivery::streaming;
+                CeladonChain withMargin;
+                prepareMasteringChain (withMargin, margin);
+                expectEquals (withMargin.getEffectiveParams().limit.ceilingDb, -2.0f);
+            }
+
+            beginTest ("T-038: House automatic spectrum target uses the genre slope and feeds back losslessly at GLAZE 0");
+            {
+                // 通用：风格「自动」→ 中性 -0.75（与 main 相同）；Deep -1.5、Tech -0.75、Melodic-Progressive -1.25。
+                constexpr float expected[glaze::numGenres] { -0.75f, -1.5f, -0.75f, -1.25f };
+
+                for (int genre = 0; genre < glaze::numGenres; ++genre)
+                {
+                    ChainParams params;
+                    params.mastering.targetMode = TargetMode::automatic;
+                    params.glazeGenre = genre;
+                    CeladonChain chain;
+                    prepareMasteringChain (chain, params);
+                    const auto effective = chain.getEffectiveParams();
+                    expectEquals (effective.balance.targetSlopeDbPerOct, expected[genre]);
+                    expect (effective.mastering.targetSlopeResolvedSet == (genre != (int) glaze::Genre::general));
+                    expect (effective.mastering.targetMode != TargetMode::automatic);
+
+                    CeladonChain replay;   // 实际参数原样再喂（同决策重放的用法）：斜率逐位相同
+                    prepareMasteringChain (replay, effective);
+                    expectEquals (replay.getEffectiveParams().balance.targetSlopeDbPerOct, expected[genre]);
+                }
+            }
+
+            beginTest ("T-038: House beat release cap = one beat / 3, only with auto release, a playing host and 100..140 BPM");
+            {
+                const auto capFor = [this] (int genre, bool autoRelease, bool hasTempo, double bpm, bool playing)
+                {
+                    ChainParams params;
+                    params.glazeGenre = genre;
+                    params.limit.autoRelease = autoRelease;
+                    CeladonChain chain;
+                    prepareMasteringChain (chain, params);
+
+                    glaze::HostInfo info;
+                    info.hasPlayState = true;
+                    info.isPlaying = playing;
+                    info.hasTempo = hasTempo;
+                    info.bpm = bpm;
+                    chain.setHostInfo (info);
+                    chain.setParams (params, false);
+                    return chain.getEffectiveParams().limit.beatReleaseCapMs;
+                };
+
+                const auto deep = (int) glaze::Genre::deepHouse;
+                expectEquals (capFor (deep, true, true, 124.0, true), (float) (60000.0 / 124.0 / 3.0));
+                expectEquals (capFor ((int) glaze::Genre::techHouse, true, true, 128.0, true), (float) (60000.0 / 128.0 / 3.0));
+                expectEquals (capFor ((int) glaze::Genre::general, true, true, 124.0, true), 0.0f);
+                expectEquals (capFor (deep, false, true, 124.0, true), 0.0f);    // 手动 Release
+                expectEquals (capFor (deep, true, true, 90.0, true), 0.0f);      // BPM 不在 100 ～ 140
+                expectEquals (capFor (deep, true, true, 150.0, true), 0.0f);
+                expectEquals (capFor (deep, true, false, 0.0, true), 0.0f);      // 宿主没给速度
+                expectEquals (capFor (deep, true, true, 124.0, false), 0.0f);    // 没在播放
+            }
+        }
+
         //==============================================================================
         // T-032 R2-01：宽带电平一降不许被当成「刺耳」。粉噪 −20 dBFS（本身平滑：每个 1/3 倍频程功率相同，2 ～ 8 kHz 各段与两邻段
         // 均值之差的期望约 0 dB，在 1.5 dB 死区之内），6 s 处整体 −10 dB；harshAmount = 1、起音保留默认 0.5。改前本段用 Welch

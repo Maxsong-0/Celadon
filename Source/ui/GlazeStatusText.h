@@ -26,6 +26,15 @@
         聆听中 n / N s（梅子青）→ 未学习 · 播放后自动聆听（灰青，不写导出说明：GLAZE 0 导出就是手动处理结果）
         → 已锁定 · 自动→温润（灰青，不写目标：GLAZE 0 不追目标）
 
+    T-038 House 档（设计规格-曲风-House学习方式 第 7、9 节；Status 的 house* 字段由编排器填，这里只按字段渲染。houseActive = false
+    时这些字段一律不看，与通用档逐字相同）：
+        3'. House · 已听 23 / 64 小节 · 还没听到主段落      梅子青  锁定条件还没满足（houseLockPending）且已开始聆听：取代第 3 行；
+            House · 已听 41 / 64 小节 · 主段落已听 8 小节          宿主没给拍点时「House · 已听 52 / 124 秒（宿主没给拍点）」。
+                                                                   GLAZE 0 也显示（它是学习状态）
+        2'. 俱乐部单声道会丢低频（约 1.6 dB），请回混音修    琥珀   House 反相提示（housePhaseHint）：压过第 1、2、3b 行以外的一切
+                                                                   （手动设置、方案受限、画像失配更要紧）；GLAZE 0 不显示（同其他琥珀行）
+        暂定期间悬停气泡的第 3 行写「从 drop 开始播放能学得更快」：houseLearningTipApplies 判定，文字在 HelpText houseListeningTooltip。
+
     原则：要用户动手的（琥珀）＞ 正在进行的（梅子青）＞ 稳态说明（灰青）；琥珀之内先写根因（手动设置）。
     「校准暂停」只在此刻本该校准时才压过别的状态：聆听不受 Listen 影响（分析的是入口），已锁定且校准有效时没有东西被暂停。
 
@@ -52,7 +61,9 @@ namespace celadon::ui::glazestatus
         locked,                 // 已锁定 · 自动→温润 · 目标 −9.6 LUFS
         planLimited,            // 方案受限 · 已退让 1.5 dB
         limitedByManual,        // 受手动设置限制
-        profileMismatch         // 与聆听时的音乐差很多 · 建议重新聆听（追加在末尾：不改已有枚举值）
+        profileMismatch,        // 与聆听时的音乐差很多 · 建议重新聆听（追加在末尾：不改已有枚举值）
+        houseListening,         // T-038：House · 已听 23 / 64 小节 · 还没听到主段落（追加在末尾，同上）
+        housePhaseHint          // T-038：俱乐部单声道会丢低频（约 1.6 dB），请回混音修
     };
 
     // 颜色类别：灰青 / 梅子青 / 琥珀（界面按 palette::textDim / accent / reduction 画）。
@@ -73,6 +84,16 @@ namespace celadon::ui::glazestatus
         int yieldedTenthsDb = 0;                                // 方案受限：|g_保护| × 10，四舍五入，0 ～ 30
         bool pausedByTransport = false;                         // 校准暂停：原因是宿主停止播放（聆听与校准都要有音乐）
         bool olderPlan = false;                                 // 已锁定：照用旧算法保存的方案（GLAZE > 0 时才提示）
+
+        // ---- T-038 House 档 ----
+        bool houseBySeconds = false;                            // House 聆听：宿主没给拍点，按秒计（否则按小节）
+        int houseHeard = 0;                                     // House 聆听：已听小节（或整秒，向下取整），不超过 houseTarget
+        int houseTarget = 0;                                    // House 聆听：锁定所需的小节（或秒）；0 = 编排器没给，只写已听
+        int houseFullBars = 0;                                  // House 聆听（按小节）：主段落已听的小节；0 = 还没听到
+        bool houseLedgerFull = false;                           // House 聆听：段落账满了，新段不再计入（状态行末尾写明）
+        bool houseOfflineListening = false;                     // House 聆听时正在离线导出：导出中途会换方案（状态行末尾写明，评审 F7）
+        int houseLossTenthsDb = 0;                              // House 反相提示：单声道低频损失 × 10（正数；0 = 读不到，不写数）
+        Kind underlyingKind = Kind::unlearned;                  // House 反相提示：被它压住的那一行（界面按它画 GLAZE 阶段标签）
 
         bool operator== (const View& other) const noexcept;
         bool operator!= (const View& other) const noexcept   { return ! operator== (other); }
@@ -98,4 +119,8 @@ namespace celadon::ui::glazestatus
 
     // 参数 glaze_style 的原始值（选项下标的 float）→ 风格：取整方式同 AudioParameterChoice::getIndex，钳到 0 ～ 3，非有限值按「自动」。
     glaze::Style styleFromParameterValue (float rawValue) noexcept;
+
+    // T-038：House 档锁定条件还没满足（含还没开始播放）时，GLAZE 状态的悬停气泡换成 House 版（第 3 行「从 drop 开始播放能学得更快」）。
+    // 与状态行此刻显示哪一行无关：琥珀行压住了聆听进度时，提示照样有用。
+    bool houseLearningTipApplies (const glaze::Status& status) noexcept;
 }

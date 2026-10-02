@@ -8,6 +8,10 @@
     被测代码只依赖 juce_core（与 HelpText 一样进无头测试编译）。只按 GlazeStatusText.h 的公开接口写。中文前缀断言用
     TestHelpers.h 的 utf8StartsWith（审核 V3-01：juce::String::startsWith 对中文 needle 只比前 1/3 的字节）。
 
+    T-038 House 档（设计规格-曲风-House学习方式 第 7、9 节）：house* 字段为默认值（houseActive = false）时逐字同通用档；锁定条件没满足
+    时按小节 / 秒写进度（三种文字逐字对照、封顶、坏值）；反相提示是琥珀行（只压不过手动设置、方案受限、画像失配，记下被压的一行，
+    GLAZE 0 不显示）；暂定期间的悬停提示何时出现。
+
   ==============================================================================
 */
 
@@ -71,6 +75,44 @@ namespace celadon::test
         gs::Kind kindOf (const Status& s, float glaze = 50.0f, Style style = Style::automatic, bool listenOn = false)
         {
             return gs::classify (s, glaze, style, listenOn).kind;
+        }
+
+        juce::String showEnglish (const Status& s, float glaze = 50.0f, Style style = Style::automatic)
+        {
+            return gs::textFor (gs::classify (s, glaze, style, false), Language::english);
+        }
+
+        // T-038 House 档锁定条件还没满足（编排器给的样子）：按小节、已听 heard、主段落 full。
+        Status housePending (Status s, int heard, int full)
+        {
+            s.houseActive = true;
+            s.houseLockPending = true;
+            s.houseSegmentMode = glaze::SegmentMode::bars;
+            s.houseHeardSegments = heard;
+            s.houseTargetSegments = 64;
+            s.houseFullSegments = full;
+            s.houseRequiredFullSegments = 8;
+            return s;
+        }
+
+        // 同上，宿主没给拍点：按秒。
+        Status housePendingSeconds (Status s, float heardSeconds)
+        {
+            s.houseActive = true;
+            s.houseLockPending = true;
+            s.houseSegmentMode = glaze::SegmentMode::seconds;
+            s.houseHeardSeconds = heardSeconds;
+            s.houseTargetSeconds = 124.0f;
+            return s;
+        }
+
+        // House 反相提示亮着（编排器把 ClayGuard::getHouseHint 写进 Status）。
+        Status houseHinted (Status s, float lossDb = -1.62f)
+        {
+            s.houseActive = true;
+            s.housePhaseHint = true;
+            s.housePhaseMonoLossDb = lossDb;
+            return s;
         }
     }
 
@@ -365,7 +407,169 @@ namespace celadon::test
                             const auto text = gs::textFor (view);
                             expect (text.isNotEmpty() && ! text.containsChar ((juce::juce_wchar) 0xFFFD),
                                     "empty or broken text for phase " + juce::String ((int) phase) + " flags " + juce::String (flags));
+
+                            // T-038：同一组合再叠上 House 的四种情形（按小节暂定、按秒暂定、反相提示、二者都有）。
+                            for (int house = 0; house < 4; ++house)
+                            {
+                                auto h = house == 1 ? housePendingSeconds (s, 52.0f) : housePending (s, 23, flags % 3 == 0 ? 0 : 8);
+                                h.houseLockPending = house != 2;
+                                h.housePhaseHint = house >= 2;
+                                h.housePhaseMonoLossDb = -1.62f;
+
+                                for (const auto language : { Language::chinese, Language::english })
+                                {
+                                    const auto houseText = gs::textFor (gs::classify (h, glaze, Style::automatic, false), language);
+                                    expect (houseText.isNotEmpty() && ! houseText.containsChar ((juce::juce_wchar) 0xFFFD),
+                                            "empty or broken House text for phase " + juce::String ((int) phase) + " flags " + juce::String (flags));
+                                }
+                            }
                         }
+            }
+
+            // 依据：设计规格-曲风-House学习方式 第 7 节状态行三种文字（逐字对照）；第 3.2 节暂定方案；Status 的 house* 字段说明。
+            beginTest ("House: bar / second progress while the lock is pending (spec texts), capped and robust; defaults leave the general line untouched");
+            {
+                // houseActive = false：其余 house* 字段写了什么都不看，逐字同通用档。
+                auto general = listening();
+                general.houseLockPending = true;
+                general.housePhaseHint = true;
+                general.houseHeardSegments = 23;
+                expectEquals (show (general), show (listening()), "houseActive false: the House fields are ignored");
+                expect (gs::classify (general, 50.0f, Style::automatic, false) == gs::classify (listening(), 50.0f, Style::automatic, false));
+
+                const auto noMain = housePending (listening(), 23, 0);
+                expectEquals (show (noMain), utf8 ("House · 已听 23 / 64 小节 · 还没听到主段落"));
+                expectEquals (showEnglish (noMain), utf8 ("House \xc2\xb7 23 / 64 bars \xc2\xb7 main section not heard yet"));
+                expect (toneOf (noMain) == gs::Tone::accent);
+                expect (kindOf (noMain) == gs::Kind::houseListening);
+                expectEquals (gs::segmentsFor (gs::classify (noMain, 50.0f, Style::automatic, false), Language::chinese).size(), 3);
+
+                const auto withMain = housePending (listening(), 41, 8);
+                expectEquals (show (withMain), utf8 ("House · 已听 41 / 64 小节 · 主段落已听 8 小节"));
+                expectEquals (showEnglish (withMain), utf8 ("House \xc2\xb7 41 / 64 bars \xc2\xb7 8 bars of main section"));
+                expectEquals (showEnglish (housePending (listening(), 41, 1)), utf8 ("House \xc2\xb7 41 / 64 bars \xc2\xb7 1 bar of main section"));
+
+                const auto seconds = housePendingSeconds (listening(), 52.7f);
+                expectEquals (show (seconds), utf8 ("House · 已听 52 / 124 秒（宿主没给拍点）"));
+                expectEquals (showEnglish (seconds), utf8 ("House \xc2\xb7 52 / 124 s (no tempo from host)"));
+                expect (toneOf (seconds) == gs::Tone::accent);
+
+                // 封顶：小节够了、主段落还不够时停在 64 / 64；坏值不炸。
+                expectEquals (show (housePending (listening(), 80, 3)), utf8 ("House · 已听 64 / 64 小节 · 主段落已听 3 小节"));
+                expectEquals (show (housePendingSeconds (listening(), 300.0f)), utf8 ("House · 已听 124 / 124 秒（宿主没给拍点）"));
+                expectEquals (show (housePendingSeconds (listening(), std::numeric_limits<float>::quiet_NaN())), utf8 ("House · 已听 0 / 124 秒（宿主没给拍点）"));
+                expectEquals (show (housePendingSeconds (listening(), -4.0f)), utf8 ("House · 已听 0 / 124 秒（宿主没给拍点）"));
+
+                // 集成时追加（B 报告跨文件请求 1）：段落账满了，状态行末尾写明。
+                auto ledgerFull = housePending (listening(), 64, 3);
+                ledgerFull.houseLedgerFull = true;
+                expectEquals (show (ledgerFull), utf8 ("House · 已听 64 / 64 小节 · 主段落已听 3 小节 · 段落账已满，新段不再计入"));
+                expectEquals (showEnglish (ledgerFull), utf8 ("House \xc2\xb7 64 / 64 bars \xc2\xb7 3 bars of main section \xc2\xb7 segment memory full"));
+                auto ledgerFullSeconds = housePendingSeconds (listening(), 52.0f);
+                ledgerFullSeconds.houseLedgerFull = true;
+                expectEquals (show (ledgerFullSeconds), utf8 ("House · 已听 52 / 124 秒（宿主没给拍点） · 段落账已满，新段不再计入"));
+
+                // 评审 F7：House 聆听时出现过离线导出（锁住到锁定为止），末尾写明成品中途换过方案。
+                auto exporting = housePending (listening(), 23, 0);
+                exporting.houseOfflineListening = true;
+                expectEquals (show (exporting), utf8 ("House · 已听 23 / 64 小节 · 还没听到主段落 · 导出时还没学完，成品中途换过方案：先完整播放一遍再导出"));
+                expectEquals (showEnglish (exporting), utf8 ("House \xc2\xb7 23 / 64 bars \xc2\xb7 main section not heard yet \xc2\xb7 exported before learning finished: play it through once, then export again"));
+
+                auto noTarget = housePending (listening(), 23, 0);
+                noTarget.houseTargetSegments = 0;
+                expectEquals (show (noTarget), utf8 ("House · 已听 23 小节 · 还没听到主段落"), "no target: only what was heard");
+                noTarget.houseHeardSegments = -5;
+                expectEquals (show (noTarget), utf8 ("House · 已听 0 小节 · 还没听到主段落"));
+
+                auto none = housePending (listening(), 0, 0);
+                none.houseSegmentMode = glaze::SegmentMode::none;
+                expectEquals (show (none), utf8 ("House · 已听 0 / 64 小节 · 还没听到主段落"), "no segment yet reads as bars");
+
+                // 锁定条件没满足时，暂定方案在过渡 / 已锁定的阶段里也写进度；还没开始播放（未学习）时照通用档；GLAZE 0 也写（学习状态）。
+                expect (kindOf (housePending (learned (Phase::planTransition), 30, 0)) == gs::Kind::houseListening);
+                expect (kindOf (housePending (locked(), 30, 8)) == gs::Kind::houseListening);
+                expectEquals (show (housePending (unlearned(), 0, 0)), show (unlearned()), "not started yet: the general unlearned line");
+                expectEquals (show (noMain, 0.0f), utf8 ("House · 已听 23 / 64 小节 · 还没听到主段落"), "GLAZE 0 still shows the learning state");
+
+                auto relearnPending = housePending (locked(), 12, 0);
+                relearnPending.relearnInProgress = true;
+                expect (kindOf (relearnPending) == gs::Kind::houseListening);
+
+                // 琥珀照样压过它；锁定条件满足后（houseLockPending = false）照通用档。
+                auto manual = housePending (listening(), 23, 0);
+                manual.limitedByManual = true;
+                expect (kindOf (manual) == gs::Kind::limitedByManual);
+                auto lockedHouse = housePending (locked(), 64, 8);
+                lockedHouse.houseLockPending = false;
+                expectEquals (show (lockedHouse), show (locked()), "locked House plan: the general locked line");
+
+                // View 相等只看显示内容：已听小节变了要重画，与 House 无关的量不算。
+                expect (gs::classify (housePending (listening(), 23, 0), 50.0f, Style::automatic, false)
+                        != gs::classify (housePending (listening(), 24, 0), 50.0f, Style::automatic, false), "a shown bar count changed");
+                auto otherSeconds = housePending (listening(), 23, 0);
+                otherSeconds.houseHeardSeconds = 99.0f;
+                expect (gs::classify (otherSeconds, 50.0f, Style::automatic, false) == gs::classify (noMain, 60.0f, Style::clean, true),
+                        "fields not on the line do not change the view");
+            }
+
+            // 依据：设计规格-曲风-House学习方式 第 9 节（CLAY 卡片与 GLAZE 状态行写「俱乐部单声道会丢低频（约 x dB），请回混音修」）。
+            beginTest ("House phase hint: amber line, outranked only by manual limit / plan limit / mismatch, remembers the covered line, hidden at GLAZE 0");
+            {
+                const auto hinted = houseHinted (locked());
+                expectEquals (show (hinted), utf8 ("俱乐部单声道会丢低频（约 1.6 dB），请回混音修"));
+                expectEquals (showEnglish (hinted), juce::String ("Club mono loses low end (about 1.6 dB), fix it in the mix"));
+                expect (toneOf (hinted) == gs::Tone::amber);
+                expectEquals (gs::segmentsFor (gs::classify (hinted, 50.0f, Style::automatic, false), Language::chinese).size(), 1);
+
+                const auto view = gs::classify (hinted, 50.0f, Style::automatic, false);
+                expect (view.kind == gs::Kind::housePhaseHint && view.underlyingKind == gs::Kind::locked, "remembers the locked line it covers");
+                expect (gs::classify (houseHinted (housePending (listening(), 41, 8)), 50.0f, Style::automatic, false).underlyingKind
+                            == gs::Kind::houseListening, "covers the House progress while the lock is pending");
+                expect (gs::classify (houseHinted (learned (Phase::calibrating)), 50.0f, Style::automatic, false).underlyingKind
+                            == gs::Kind::calibrating);
+
+                auto manual = houseHinted (locked());
+                manual.limitedByManual = true;
+                expect (kindOf (manual) == gs::Kind::limitedByManual, "manual limit outranks the hint");
+                auto limited = houseHinted (locked());
+                limited.planLimited = true;
+                expect (kindOf (limited) == gs::Kind::planLimited, "plan limit outranks the hint");
+                auto mismatch = houseHinted (locked());
+                mismatch.profileMismatch = true;
+                expect (kindOf (mismatch) == gs::Kind::profileMismatch, "a profile mismatch outranks the hint");
+
+                expect (kindOf (hinted, 0.0f) == gs::Kind::locked, "GLAZE 0: no amber line");
+                auto general = hinted;
+                general.houseActive = false;
+                expect (kindOf (general) == gs::Kind::locked, "houseActive false: no hint");
+
+                // 损失的写法：0.1 dB、四舍五入、至少 0.1；读不到（非有限）时不写数；荒唐值封顶。
+                expectEquals (show (houseHinted (locked(), -0.97f)), utf8 ("俱乐部单声道会丢低频（约 1.0 dB），请回混音修"));
+                expectEquals (show (houseHinted (locked(), -0.001f)), utf8 ("俱乐部单声道会丢低频（约 0.1 dB），请回混音修"));
+                expectEquals (show (houseHinted (locked(), std::numeric_limits<float>::quiet_NaN())), utf8 ("俱乐部单声道会丢低频，请回混音修"));
+                expectEquals (showEnglish (houseHinted (locked(), std::numeric_limits<float>::infinity())),
+                              juce::String ("Club mono loses low end, fix it in the mix"));
+                expectEquals (show (houseHinted (locked(), -1.0e6f)), utf8 ("俱乐部单声道会丢低频（约 99.9 dB），请回混音修"));
+
+                expect (gs::classify (houseHinted (locked(), -1.62f), 50.0f, Style::automatic, false)
+                        != gs::classify (houseHinted (locked(), -1.71f), 50.0f, Style::automatic, false), "a shown loss digit changed");
+                expect (gs::classify (houseHinted (locked(), -1.62f), 50.0f, Style::automatic, false)
+                        == gs::classify (houseHinted (locked(), -1.58f), 70.0f, Style::warm, true), "same shown loss, same view");
+            }
+
+            // 依据：设计规格-曲风-House学习方式 第 7 节「气泡提示（暂定期间）：从 drop 开始播放能学得更快」。
+            beginTest ("House learning tip applies whenever the House lock is pending, whatever line is shown");
+            {
+                Status s;
+                expect (! gs::houseLearningTipApplies (s));
+                s.houseLockPending = true;
+                expect (! gs::houseLearningTipApplies (s), "not House: no tip");
+                s.houseActive = true;
+                expect (gs::houseLearningTipApplies (s), "House and the lock is pending (even before playback)");
+                s.limitedByManual = true;
+                expect (gs::houseLearningTipApplies (s), "an amber line on top does not hide the tip");
+                s.houseLockPending = false;
+                expect (! gs::houseLearningTipApplies (s), "locked: no tip");
             }
         }
     };

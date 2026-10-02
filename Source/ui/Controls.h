@@ -363,7 +363,11 @@ namespace celadon::ui
         void setFont (const juce::Font& newFont)                 { font = newFont; repaint(); }
         void setPrefix (int index, const juce::String& prefix);  // A / B 的「A」「B」：等宽粗体接在名字前
 
-        // 按文字算出来的自然宽度（setEqualWidths (false) 时有用）。
+        // 容器里最左边的一格灰字说明（T-038：GLAZE 两侧的「曲风」「交付」），不可点、后面一道细竖线，各项排在它右边。
+        // 空串 = 没有（默认；其余选择器的样子与点按逐像素不变）。
+        void setCaption (const juce::String& newCaption);
+
+        // 按文字算出来的自然宽度（setEqualWidths (false) 时有用；有说明格时含说明格）。
         int getNaturalWidth() const;
 
         std::function<void (int)> onSelect;
@@ -377,8 +381,10 @@ namespace celadon::ui
         juce::Rectangle<float> segmentBounds (int index) const;
         int segmentAt (juce::Point<float> position) const;
         float itemWidth (int index) const;
+        float captionWidth() const;   // 说明格的宽度（含右边细竖线的空隙）；没有说明时 0
 
         Look look;
+        juce::String caption;
         juce::StringArray labels, prefixes;
         juce::Array<std::optional<Colours>> selectedColours;
         juce::Font font;
