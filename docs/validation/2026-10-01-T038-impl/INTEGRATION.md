@@ -55,4 +55,16 @@
 | 合成曲门槛 | 109 `make_synthetic_house.py` → `celadon_render --glaze 100 --genre deep,tech --delivery standard,streaming,club --bpm 124 --listen-from-bar 1,33` → `house_gate.py` | 集成初 24 行 15 项失败 → LRA 改后 9 项（全是 ⑤）→ 俱乐部放宽 + 新口径后 **0 项**（`synthetic-gate.txt`） |
 | 定向复测 | 109 `--only GlazePlanner`（`b835fdb`）、`--only MusicAnalyzerHouse,GlazeControllerHouse,SegmentLedger,MusicAnalyzer`（`94d9be3`） | 5058 / 0、3572 / 0 |
 
-待做：第 4 步评审（1 个 Opus 5.5 代理）→ 主进程按评审修 → 三套全套与 22 首回归最后各复跑一次。
+## 5 评审修复后的复验（2026-10-01 17:4x～18:3x，HEAD `f2687b4`）
+
+评审（[REVIEW.md](REVIEW.md)）后改了 F1 / F2 / F3 / F7 / F8（`13d72d8`、`9836746`），F1 第一版在 107 定向测试里失败，返修 `f2687b4`（段落账三态读数，经过见 REVIEW.md F1 行）。之后一次复验：
+
+| 项 | 命令 / 方式 | 结果 |
+|---|---|---|
+| 定向 | 107 `--only GlazeControllerHouse,SegmentLedger,MusicAnalyzerHouse,MusicAnalyzer,GlazeStatusText,GlazePlanner,GlazeController,ClayGuard` | 23765 / 0；F1 用例 breakdown 等待 1358 块、采样 0，偏差 0.514 对 0.667 dB |
+| 107 全套（GCC） | `scripts/test-linux.sh` | 146051 过 / 0 败 / 0 编译警告 |
+| 107 x86-64-v3 全套 | `CELADON_CXX_FLAGS=-march=x86-64-v3 scripts/test-linux.sh`；另把 50 个本工程源文件全部重编一遍查警告 | 146051 过 / 0 败；重编 0 警告 |
+| 109 真 MSVC + Wine 全套 | `scripts/windows-wine.sh test`；同样全部重编查警告 | 146051 过 / 0 败；重编 0 警告 |
+| 截图交互检查 | 107 `xvfb-run celadon_ui_snapshot --only check` | 全过 |
+| 22 首逐位回归 | 109：集成版重渲（main `88199cb` 的输出沿用第 4 节），比 `audio_hash` | **198 / 198 相同** |
+| 合成曲门槛 | 109 同第 4 节（门槛 ① 已按 F2 计入校准偏差） | **24 行 0 项失败**（`synthetic-gate.txt` 已换成这一版）。House 曲俱乐部档从第 1 / 第 33 小节播：实际增益都是 7.51 dB、两段 drop 都是 −9.53 LUFS（修前从第 1 小节播是 −10.25，轻 0.72 LU）——评审时的「从头播轻约 0.8 LU」消失；Tech 曲 deep 档标准 / 流媒体差 −0.33 dB（同第 4 节的最大差，门槛 0.5 dB） |

@@ -14,13 +14,13 @@
 
 | 编号 | 级别 | 内容（摘要） | 处理 |
 |---|---|---|---|
-| F1 | 高 | 校准在非满编段采样（`GlazeController.cpp` updateCalibration / 开新一轮） | **已改，待服务器验证**：House 档、已提交的是 House 门控画像时只在主段落校准——段落账新接口 `getCurrentReading`（当前段暂判响度与低频占比），与**已提交画像**比（≥ 画像 I − ΔG、≥ 画像 lowShare × 系数）；不在主段落时轮中作废当前子窗（中断位 64）、不开新一轮（门位 1024）；从没读到过就当作不在主段落（等着，按前馈出声）；换画像时清判定。新测试 `testCalibrationOnlyInMainSection`（4 前奏 / 6 drop / 8 轻 breakdown / 10 drop，锁定落在 breakdown；断言 breakdown 里不采样、最终偏差与「全是 drop」的同一首差 ≤ 0.2 dB） |
-| F2 | 中 | 门槛 ① 漏掉校准偏差（`house_gate.py` gate_plan_gain） | **已改，待复跑**：改比「方案增益 + 校准偏差」（`calibration_bias_db`，`listen_calibration_valid` 为真时计入） |
-| F3 | 低 | 没存进账本的段也触发画像重算（`MusicAnalyzer.cpp` houseAdvance / houseEndEpoch） | **已改，待服务器验证**：段落账加 `getStoredRevision`（新存进或覆盖旧段才 +1），两处都改按它置脏 |
+| F1 | 高 | 校准在非满编段采样（`GlazeController.cpp` updateCalibration / 开新一轮） | **已改，已验证**（[INTEGRATION.md](INTEGRATION.md) 第 5 节）：House 档、已提交的是 House 门控画像时只在主段落校准——段落账新接口 `getCurrentReading`（当前段暂判响度与低频占比），与**已提交画像**比（≥ 画像 I − ΔG、≥ 画像 lowShare × 系数）；不在主段落时轮中作废当前子窗（中断位 64）、不开新一轮（门位 1024）；从没读到过就当作不在主段落（等着，按前馈出声）；换画像时清判定。新测试 `testCalibrationOnlyInMainSection`（4 前奏 / 6 drop / 8 轻 breakdown / 10 drop，锁定落在 breakdown；断言 breakdown 里不采样、最终偏差与「全是 drop」的同一首差 ≤ 0.2 dB）。**返修（`f2687b4`）**：第一版（`13d72d8`）在 107 上这条测试失败——breakdown 1358 块全采样、偏差 −2.832 dB 对 0.667 dB。根因：轻 breakdown 过不了分析器「有效音频」门（相对画像 I），有效子块为 0 的段不进账本，`getCurrentReading` 读不出就退回「最近存进账本的那一格」＝ drop 最后一小节，整段 breakdown 都判成主段落；`isCurrentSegmentFull`（House 反相提示资格）同一根因。修法：段落账读数改三态（measured / quiet / none）——播够 0.5 s、有效音频却不够＝quiet（不在主段落、不是满编段）；刚开始的段先退回还开着的前一段、再退回最近定稿的一段（存没存进账本都记），不再退回最近存进的那一格（只修前者时仍有 5 块漏网：breakdown 第二小节刚开始，上一段还在等定稿，最近定稿的是再前一段 drop）。新增 `SegmentLedger` 测试 `testQuietSegmentIsNotInherited`。107 定向：breakdown 等待 1358 块、采样 0，偏差 0.514 对 0.667 dB |
+| F2 | 中 | 门槛 ① 漏掉校准偏差（`house_gate.py` gate_plan_gain） | **已改，已复跑**（24 行 0 项失败）：改比「方案增益 + 校准偏差」（`calibration_bias_db`，`listen_calibration_valid` 为真时计入） |
+| F3 | 低 | 没存进账本的段也触发画像重算（`MusicAnalyzer.cpp` houseAdvance / houseEndEpoch） | **已改，已验证**：段落账加 `getStoredRevision`（新存进或覆盖旧段才 +1），两处都改按它置脏 |
 | F4 | 低 | 先试后用低切候选 20 Hz，House 目标 25 Hz，代价偏乐观（仅当实际切点 > 20 Hz） | 不改（Max 2026-10-01 对 F6 选「维持现在」，House 档仍按真次声判要不要切，候选 20 Hz 只在切点 > 20 Hz 时偏乐观，且有峰值守护兜底） |
 | F5 | 低 | 满 512 段时一次 65 µs | 接受（评审：学习期账本很难长到 512 段；F3 修后重复重算消失） |
 | F6 | 待定 | House 档 25 Hz 低切多半不会生效：需要度仍按 < 16 Hz 真次声占比算，干净混音基本不切（参考曲 7/9 为 0 Hz） | **Max 2026-10-01 选「维持现在」**：有次声才切、切的话目标 25 Hz；规格不改 |
-| F7 | 建议 | 旧画像切到 House 后直接离线导出，导出中途听满 64 小节会换方案，没有导出提示 | **Max 2026-10-01 选「加状态提示」，已改，待服务器验证**：Status 加 `houseOfflineListening`（House 档聆听中出现过离线导出就锁住，到锁定为止）；状态行 House 聆听这一行末尾写「导出时还没学完，成品中途换过方案：先完整播放一遍再导出」；新测试（状态行 2 条、编排器 1 组） |
+| F7 | 建议 | 旧画像切到 House 后直接离线导出，导出中途听满 64 小节会换方案，没有导出提示 | **Max 2026-10-01 选「加状态提示」，已改，已验证**：Status 加 `houseOfflineListening`（House 档聆听中出现过离线导出就锁住，到锁定为止）；状态行 House 聆听这一行末尾写「导出时还没学完，成品中途换过方案：先完整播放一遍再导出」；新测试（状态行 2 条、编排器 1 组） |
 | F8 | 建议 | 注释「通用 + 标准的新存档与 main 逐字节相同」只对参考条件成立；House 画像（格式 3）在 0.1.8.x 打开按未学习 | **已改注释**；降级不兼容写进版本档（第 5 步） |
 | 范围外 | — | 参考曲 deep-0155328、tech-0046047 在通用档下修坯峰值守护亮 70 % / 81 % 的时长（现有行为） | **Max 2026-10-01 选「另开任务查」**，已挂后台任务卡片 |
 
@@ -31,7 +31,7 @@
 
 ## 没核实（照录）
 
-HEAD 上 107 GCC / x86-64-v3 / 109 MSVC 三套没重跑；Mac clang 下 House 档与块长无关只做了推理；「切换交付后立即导出开头多长没校准完」没量；F1 修法当时未实现；界面截图未目视；新增测试代码未逐条审。
+HEAD 上 107 GCC / x86-64-v3 / 109 MSVC 三套没重跑（主进程修完后已补跑，见 INTEGRATION.md 第 5 节）；Mac clang 下 House 档与块长无关只做了推理；「切换交付后立即导出开头多长没校准完」没量；F1 修法当时未实现；界面截图未目视；新增测试代码未逐条审。
 
 ## 主进程处理时顺带发现（范围外，未处理）
 
