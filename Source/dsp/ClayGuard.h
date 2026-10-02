@@ -130,8 +130,9 @@ namespace celadon::glaze
     //   一直在拉的歌（woqu：超出量从未持续过 0.2 dB，混合损失 0.2 dB）上面那条量不到。ClayModule::getLastProcessBlend 的两份 K 加权
     //   能量按它们覆盖的有效音乐秒数一阶平滑（时间常数同 smoothingSeconds），损失 = 10·log10(本该 / 实际) 连续 sustainSeconds 高于
     //   blendThreshold 也降一档；两个触发量共用冷却与档位，任一触发都把两边一起清零。blendThreshold = 修坯门槛响度容差 0.1 LU 的
-    //   1.5 倍：先试后用已把方案频率封在预测损失 0.1 dB（GlazePlanner capLowCutForBlend），这里只接住学习区间之外更糟的段落；
-    //   正常歌 2 s 平滑后的起伏（真歌 somggggg_mp3 0.07 ～ 0.12 dB）碰不到它。混合损失从未超过门槛时，返回值与只有第一条时逐位相同。
+    //   1.5 倍：先试后用已把方案频率封在预测损失 clayBlendLossLimitDb（出厂 0.09 dB，GlazePlanner capLowCutForBlend），这里只接住
+    //   学习区间之外更糟的段落；正常歌 2 s 平滑后的起伏（真歌 somggggg_mp3 0.07 ～ 0.12 dB）碰不到它。混合损失从未超过门槛时，返回值
+    //   与只有第一条时逐位相同。
     struct ClayPressureMonitor
     {
         static constexpr double threshold = 0.2;        // dB：先试「照做」的上限（clayCostFullDb 出厂值）
