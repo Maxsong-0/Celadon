@@ -78,6 +78,64 @@ namespace celadon::test
         return signal;
     }
 
+    // 只有失谐 pad 的立体声段落（BUG-009 的 House breakdown，照 tools/render/make_synthetic_house.py 的 pad_bar）：和弦 Am – F – C – G
+    // （中音区三和弦）每个 chordSeconds 秒循环；每个音 6 个分音、幅度 amplitude / h，左声道频率 × 0.997、右声道 × 1.003（宽），
+    // 相位偏移同脚本；和弦之间 60 ms 升余弦交叉淡化（边界前后各 30 ms，同脚本），开头 60 ms 淡入（不让第一帧带宽带的起振）。最低的分音是 F 的 174.6 Hz 与 G 的 196 Hz——都在修坯低频组
+    // （40 ～ 125 Hz，段 5 的格子到 152 Hz）之上，低频组只收到它们漏进 125 Hz 段的部分；左右失谐让漏进来的相关度随约 1 Hz 的拍频摆动。
+    inline Signal makeDetunedPad (double sampleRate, double seconds, double chordSeconds, double amplitude)
+    {
+        static constexpr double chords[4][3] = { { 220.0, 261.626, 329.628 }, { 174.614, 220.0, 261.626 },
+                                                 { 261.626, 329.628, 391.995 }, { 195.998, 246.942, 293.665 } };
+        constexpr double detune[2] = { 0.997, 1.003 };
+        constexpr double fadeSeconds = 0.03;
+        const auto twoPi = juce::MathConstants<double>::twoPi;
+        const auto numSamples = (int) (seconds * sampleRate);
+        auto signal = makeSilence (2, numSamples);
+
+        // 第 s 个和弦段的包络：[s·C − x, s·C + x] 升、[(s + 1)·C − x, (s + 1)·C + x] 降（升余弦），中间 1；第 0 段从 0 起升。
+        auto envelope = [&] (int s, double t)
+        {
+            const auto start = (double) s * chordSeconds, end = start + chordSeconds;
+            const auto rise = s == 0 ? juce::jlimit (0.0, 1.0, t / (2.0 * fadeSeconds))
+                                     : juce::jlimit (0.0, 1.0, (t - (start - fadeSeconds)) / (2.0 * fadeSeconds));
+            const auto fall = juce::jlimit (0.0, 1.0, ((end + fadeSeconds) - t) / (2.0 * fadeSeconds));
+            const auto ramp = juce::jmin (rise, fall);
+            return 0.5 - 0.5 * std::cos (juce::MathConstants<double>::pi * ramp);
+        };
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto t = (double) i / sampleRate;
+            const auto current = (int) std::floor (t / chordSeconds);
+
+            for (int s = juce::jmax (0, current - 1); s <= current + 1; ++s)
+            {
+                const auto gain = envelope (s, t);
+
+                if (gain <= 0.0)
+                    continue;
+
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    double value = 0.0;
+
+                    for (int voice = 0; voice < 3; ++voice)
+                    {
+                        const auto frequency = chords[s % 4][voice] * detune[ch];
+                        const auto offset = 0.37 * (double) (voice + 1) + 1.7 * (double) ch;
+
+                        for (int h = 1; h <= 6; ++h)
+                            value += std::sin (twoPi * frequency * (double) h * t + offset * (double) h) / (double) h;
+                    }
+
+                    signal[(size_t) ch][(size_t) i] += (float) (amplitude * gain * value);
+                }
+            }
+        }
+
+        return signal;
+    }
+
     // 均匀白噪声；seed 固定，结果可复现。声道之间不相关。
     inline Signal makeNoise (int numChannels, int numSamples, float amplitude, juce::int64 seed)
     {

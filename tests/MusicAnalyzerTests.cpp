@@ -2047,6 +2047,7 @@ namespace celadon::test
             testClaySubShareIsTrueInfrasound();
             testClayLearningIntervalAndFreeze();
             testClayLiveViewFollowsAndFreezes();
+            testClayLiveViewIgnoresLeakageFromAbove();
             testClayBlockSizeIndependence();
             testClayNoAllocation();
             testClayTrialCosts();
@@ -2629,6 +2630,138 @@ namespace celadon::test
 
             expectEquals (cursor, total);
             expect (! rig.profile().lowCorrelation.valid && ! rig.profile().subShareDb.valid, "the live view never writes the profile");
+        }
+
+        //==============================================================================
+        // 依据：MusicAnalyzer.cpp「泄漏门」（BUG-009，T-042）——低频组没有低音、只有上方内容时，读数只是漏进 125 Hz 段（段 5 的格子
+        // 到 152 Hz、Hann 主瓣再往上）的部分，不能当低频相关度。素材 makeDetunedPad（Am – F – C – G 每 2 s 一换，最低分音 174.6 / 196 Hz，
+        // 左右失谐 ±0.3 %），48 kHz、块长 512、12 s，不学习（实时视图照常更新）。每块读一次视图，同时自己读 Balance 帧做阳性对照：
+        //   a. 安静的 pad（基音幅度 0.03，与合成 House 曲 breakdown 的 pad 同量级）：两路低频相关度每一块都无效。阳性对照：有帧是
+        //      「段 5 在 −60 dBFS 段门上、段 0 ～ 4 全在门下」——只靠逐段静音门（改前）这些帧算低频内容，合成曲上慢路随约 1 Hz 的拍频
+        //      摆到 −0.95、反相提示亮了 breakdown 的 89 %；
+        //   b. 响的 pad（基音幅度 0.5，+24 dB）：泄漏把段 0 ～ 4 也推到段门上（阳性对照：有帧的核心段在门上），绝对电平的门挡不住，
+        //      挡住它的是「核心对上方 −35 dB」——两路照样每一块都无效；
+        //   c. 同一个响的 pad 底下加 55 Hz 反相正弦（左 +、右 −，幅度 0.15：功率比 pad 每个基音低约 10 dB，核心 / 上方约 −15 dB）：
+        //      真低音在核心里，门照常放行——最后 8 s 两路每一块都有效，慢路 ≤ −0.5、快路 ≤ −0.3（F 和弦时段 5 里还有 174.6 Hz 的泄漏，
+        //      比低音低约 8 dB，最坏把 ρ 抬到约 −0.74，所以断言不写 −1）。
+        void testClayLiveViewIgnoresLeakageFromAbove()
+        {
+            beginTest ("Clay live view: a bass-less detuned pad above 140 Hz only leaks into the 125 Hz band - the low correlation stays unknown; a real anti-phase sub under it still reads");
+
+            constexpr double sampleRate = 48000.0;
+            constexpr double seconds = 12.0;
+            constexpr int blockLength = 512;
+            const auto lateFromBlock = static_cast<int> (4.0 * sampleRate / blockLength);   // 最后 8 s
+
+            struct Outcome
+            {
+                int blocks = 0, validBlocks = 0, lateBlocks = 0, lateValidBlocks = 0;
+                float lateHighestSlow = -1.0f, lateHighestFast = -1.0f;
+                int frames = 0, edgeOnlyFrames = 0, coreOverGateFrames = 0;
+            };
+
+            auto run = [&] (const Signal& input)
+            {
+                Rig rig (sampleRate);
+                Outcome o;
+                std::int64_t frameCursor = 0;
+                std::array<BalanceModule::FrameSnapshot, 64> frames {};
+                const auto& view = rig.analyzer.getShortTermView();
+
+                // 自己的游标读 Balance 帧（与分析器读的是同一批帧）：只看逐段 −60 dBFS 门，数段 5 独自在门上、核心段有门上功率的帧。
+                auto drainFrames = [&]
+                {
+                    for (;;)
+                    {
+                        const auto got = std::abs (rig.balance.readFramesSince (frameCursor, frames.data(), (int) frames.size()));
+
+                        for (int f = 0; f < got; ++f)
+                        {
+                            const auto& power = frames[(size_t) f].bandPower;
+                            bool coreOverGate = false;
+
+                            for (int b = 0; b <= 4; ++b)
+                                coreOverGate = coreOverGate || power[(size_t) b] >= 1.0e-6f;
+
+                            ++o.frames;
+                            o.coreOverGateFrames += coreOverGate ? 1 : 0;
+                            o.edgeOnlyFrames += (! coreOverGate && power[(size_t) 5] >= 1.0e-6f) ? 1 : 0;
+                        }
+
+                        if (got < (int) frames.size())
+                            return;
+                    }
+                };
+
+                // 上一块处理完之后的视图（feed 在每块之前调这个钩子；最后一块在 feed 之后补看）。
+                auto inspect = [&]
+                {
+                    const auto& slow = view.liveLowCorrelation;
+                    const auto& fast = view.liveLowCorrelationFast;
+                    o.validBlocks += (slow.valid || fast.valid) ? 1 : 0;
+
+                    if (o.blocks >= lateFromBlock)
+                    {
+                        ++o.lateBlocks;
+
+                        if (slow.valid && fast.valid)
+                        {
+                            ++o.lateValidBlocks;
+                            o.lateHighestSlow = juce::jmax (o.lateHighestSlow, slow.value);
+                            o.lateHighestFast = juce::jmax (o.lateHighestFast, fast.value);
+                        }
+                    }
+
+                    ++o.blocks;
+                };
+
+                bool first = true;
+                rig.feed (input, blockLength, 1, {}, [&] (Rig&)
+                {
+                    if (! first)
+                        inspect();
+
+                    first = false;
+                    drainFrames();
+                });
+                inspect();
+                drainFrames();
+                return o;
+            };
+
+            auto percent = [] (int part, int whole) { return juce::String (100.0 * (double) part / (double) juce::jmax (1, whole), 1) + " %"; };
+
+            const auto quietPad = makeDetunedPad (sampleRate, seconds, 2.0, 0.03);
+            const auto loudPad = makeDetunedPad (sampleRate, seconds, 2.0, 0.5);
+            auto padOverSub = loudPad;
+            const auto sub = makeSine (1, sampleRate, 55.0, 0.15f, seconds);
+
+            for (size_t i = 0; i < padOverSub.front().size(); ++i)
+            {
+                padOverSub[0][i] += sub[0][i];
+                padOverSub[1][i] -= sub[0][i];
+            }
+
+            const auto quiet = run (quietPad);
+            const auto loud = run (loudPad);
+            const auto withSub = run (padOverSub);
+
+            logMessage ("  quiet pad: blocks with a valid low correlation " + juce::String (quiet.validBlocks) + " / " + juce::String (quiet.blocks)
+                        + "; frames where only the 125 Hz band is over the band gate " + percent (quiet.edgeOnlyFrames, quiet.frames));
+            logMessage ("  loud pad: blocks with a valid low correlation " + juce::String (loud.validBlocks) + " / " + juce::String (loud.blocks)
+                        + "; frames with 40 - 100 Hz leakage over the band gate " + percent (loud.coreOverGateFrames, loud.frames));
+            logMessage ("  loud pad + anti-phase 55 Hz: last 8 s valid " + juce::String (withSub.lateValidBlocks) + " / "
+                        + juce::String (withSub.lateBlocks) + ", highest slow rho " + juce::String (withSub.lateHighestSlow, 3)
+                        + ", highest fast rho " + juce::String (withSub.lateHighestFast, 3));
+
+            expectEquals (quiet.validBlocks, 0, "a: leakage of a bass-less pad never makes the low correlation valid");
+            expect (quiet.edgeOnlyFrames > 0, "a: positive control - the per-band silence gate alone would have counted the 125 Hz leakage");
+            expectEquals (loud.validBlocks, 0, "b: the gate is relative - a +24 dB pad's leakage is still not low content");
+            expect (loud.coreOverGateFrames > 0, "b: positive control - the leakage does reach the 40 - 100 Hz bands over the band gate");
+            expect (withSub.lateBlocks > 0 && withSub.lateValidBlocks == withSub.lateBlocks,
+                    "c: a real sub under the pad keeps both live correlations valid");
+            expect (withSub.lateHighestSlow <= -0.5f, "c: ... and the slow path reads the anti-phase sub");
+            expect (withSub.lateHighestFast <= -0.3f, "c: ... and so does the fast path");
         }
 
         //==============================================================================

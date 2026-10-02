@@ -210,6 +210,24 @@ namespace celadon::glaze
         //     与这里的帧门是同一个口径（审核 V1-03：原来视图冻结时仍标有效，保护时钟却按编排器的另一个门走，可能拿过期的 ρ 攻击）。
         //     高频两项（宽度保护读）同理：帧门限下 liveHighValid = false、功率值保留，ClayGuard 见到无效就冻结宽度一路（T-012 阶段 4
         //     主进程按「同类一起修」补上：原来静音时高频仍标有效，宽度保护时钟与反相一路不同口径）。
+        //     泄漏门（BUG-009，T-042）：本帧低频组的核心（段 0 ～ 4，40 ～ 100 Hz）门上功率 < lowLeakageRatio（−35 dB）× 段 6 ～ 8
+        //     （160 ～ 250 Hz）的功率时，本帧低频组按「没有内容」算——两路的 ΣX、ΣP 都记 0，与整组都在段静音门下同一处理（平滑值按
+        //     系数衰减、比值停在最后的真内容上，平滑功率落到门下就无效）。为什么：段 5（125 Hz）的格子伸到 152 Hz（48 k / 2048 点时
+        //     bin 6 = 129 ～ 152 Hz 按 0.49 计入），Hann 主瓣再把 ~200 Hz 以内的内容漏进来；没有低音、只有 140 Hz 以上内容的段落里，
+        //     低频组的读数全是这部分泄漏，相关度就是漏进来那些分音的左右关系。合成 House 的 breakdown（只有左右各自失谐 ±0.3 % 的
+        //     pad，最低分音 174.6 / 196 Hz）：段 0 ～ 4 全在 −60 dBFS 门下、段 5 却在门上，慢路随 ~1 Hz 的拍频摆到 −0.95，反相提示亮了
+        //     breakdown 的 89 %（全曲 14.4 %）。
+        //     判据为什么看「核心对上方」而不看「低频对全频」：22 首门槛歌里真反相段（WTF、will we be okay 等，40 ～ 80 Hz 各段 ρ 都 < −0.2、
+        //     3 s 平均 ρ −0.3 ～ −0.5、持续到 7 ～ 9 s）的低频组占全频也只有 −20 ～ −29 dB，与 breakdown 的泄漏（−25 ～ −31 dB）重叠，
+        //     按占比设门要么修不掉、要么把真反相一起关掉；核心对上方：真反相帧 ≥ −34 dB（只有 l_kskdhjf 不到 1 % 的尾巴更低），
+        //     breakdown 的泄漏 −42 ～ −45 dB。门限按 Balance 的 Hann 窗与段权重逐 Hz 算（44.1 ～ 192 kHz 各采样率）：单个满幅正弦要
+        //     单独把门打开，频率只能落在 140.5 ～ 162 Hz（段 5 格子上沿之上不到一个 bin，2048 点分辨率的极限，这里本来就分不开），
+        //     ≥ 162 Hz 的任何内容都打不开；−38 dB 时 48 k 系的 170 ～ 175 Hz 也打得开（174.6 Hz 正在第一旁瓣上，核心 / 上方 =
+        //     −37.6 dB），所以取 −35 dB。上方取到段 8：250 Hz 一带的分音在段 6 ～ 7 里也只剩旁瓣，只看段 6 ～ 7 时核心 / 上方可到
+        //     −20 dB、比门限松得多；算上段 8，200 ～ 300 Hz 的分音 ≤ −46 dB。≥ 300 Hz 的内容漏进核心约 −66 dB 以下，满幅也在
+        //     −60 dBFS 段门下。核心与上方都是 0（例如只有段 5 一段有内容、上方什么都没有）时不算泄漏。只改「哪些帧算低频内容」，相关度的算法与有效规则不变；声音不受影响（ADR-015 起反相只提示）。
+        //     高频组不需要这道门：组宽 2 ～ 16 kHz（约 600 个 bin），从下方漏进的只有段 17 下沿一个 bin 以内的内容，与组内真内容同性质；
+        //     画像的立体声特征是学习区间里的功率域时间和，泄漏帧功率小、被真低音稀释，且低频组的画像特征自 ADR-015 起不进任何决策，不改。
         constexpr double subCutoffHz = 16.0;
         constexpr std::array<double, 4> subStageQ { 0.5097955791041592, 0.6013448869350453,    // 8 阶 Butterworth 四对极点的 Q
                                                     0.8999762231364156, 2.5629154477415055 };  // = 1 / (2·cos((2k − 1)·π/16))
@@ -230,9 +248,18 @@ namespace celadon::glaze
         // 120 ms 把散布压到约 ±0.35（∝ 1 / √τ）；整体反相时它约 83 ms 过零（τ·ln 2），慢路约 210 ms。
         constexpr double liveFastLowSeconds = 0.12;
         constexpr double liveBandGatePower = 1.0e-6;    // 实时视图的逐段静音门：本帧段功率 −60 dBFS（与 bandGateDb 同一电平）
+        // 实时视图的泄漏门（BUG-009，见上「泄漏门」）：核心 = 低频组的段 0 ～ 4，上方 = 段 6 ～ 8；核心门上功率 < 上方功率 × 10^(−35/10)
+        // → 本帧低频组只算泄漏、不计。
+        constexpr int lowStereoCoreLastBand = 4;
+        constexpr int lowLeakageFirstBand = 6;
+        constexpr int lowLeakageLastBand = 8;
+        constexpr double lowLeakageRatio = 3.1622776601683794e-4;   // −35 dB
 
         static_assert (lowStereoLastBand < highStereoFirstBand && highStereoLastBand == numBands - 1,
                        "修坯的低频组 / 高频组段号必须落在 27 段之内且不重叠");
+        static_assert (lowStereoFirstBand <= lowStereoCoreLastBand && lowStereoCoreLastBand < lowStereoLastBand
+                           && lowLeakageFirstBand == lowStereoLastBand + 1 && lowLeakageLastBand < highStereoFirstBand,
+                       "泄漏门：核心是低频组去掉最上一段，上方从低频组的下一段起、不碰高频组");
 
         //==============================================================================
         // 五、修坯 Clay 的先试后用（ADR-012，设计规格-Clay-根治修订 3.2）。为什么：最小相位 IIR 在低频的相位旋转会把已经很密 /
@@ -2040,7 +2067,7 @@ namespace celadon::glaze
         {
             // 本帧两组的和：只计段功率在 −60 dBFS 门上的段（门下的段不计——例如门下不相关的底噪不能把低频相关度拉向 0）。
             // 整组都在门下时本帧的和为 0，平滑值按系数衰减、比值不变。
-            double lowCrossNow = 0.0, lowPowerNow = 0.0, highMidNow = 0.0, highSideNow = 0.0;
+            double lowCrossNow = 0.0, lowPowerNow = 0.0, lowCorePowerNow = 0.0, highMidNow = 0.0, highSideNow = 0.0;
 
             for (int b = lowStereoFirstBand; b <= lowStereoLastBand; ++b)
             {
@@ -2050,8 +2077,21 @@ namespace celadon::glaze
                 {
                     lowCrossNow += cross[i];
                     lowPowerNow += power[i];
+
+                    if (b <= lowStereoCoreLastBand)
+                        lowCorePowerNow += power[i];
                 }
             }
+
+            // 泄漏门（BUG-009）：核心门上功率低于上方段 6 ～ 8 的 −35 dB → 低频组只剩上方内容漏进来的部分（段 5 的格子与 Hann 主瓣），
+            // 本帧按「没有低频内容」算，同整组在门下。核心与上方都是 0 时不算泄漏。
+            double leakageSourcePower = 0.0;
+
+            for (int b = lowLeakageFirstBand; b <= lowLeakageLastBand; ++b)
+                leakageSourcePower += power[(size_t) b];
+
+            if (lowCorePowerNow < lowLeakageRatio * leakageSourcePower)
+                lowCrossNow = lowPowerNow = 0.0;
 
             for (int b = highStereoFirstBand; b <= highStereoLastBand; ++b)
             {
