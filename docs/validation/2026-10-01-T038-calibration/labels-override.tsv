@@ -1,0 +1,88 @@
+# T-038 第 5 步：自动段落标签的人工改标（2026-10-01，主进程看 15 张图逐首核对；看的是频谱 + 底鼓起伏 / 低音底 / 中高频密度，不是听）。
+# 格式：track<TAB>first_bar<TAB>last_bar<TAB>label（闭区间；label = intro / drop / breakdown / outro / exclude）。改标后交界前后各 1 小节照样不计。
+# 整首 exclude 的 7 首：速度低置信、小节线漂（底鼓 / 低音读数逐小节锯齿）——tech 0080793（100 BPM 贴下限、65 小节）、melodic 0706729、melodic 0726856、
+# tech 0237793（另：段落看不清）；看图分不开前奏与主段落——deep 0388822（开头明亮的一段比后面低音满的主段落还响）、deep 0658529（平铺的 deep groove）、
+# melodic 0743013（低音时有时无，段落看不清）。
+track	first_bar	last_bar	label
+# deep：0155923 / 0395474 同一位制作人同一套编排（各 269 小节）：前 8 小节只有次低音，主段落到第 120 小节，121～150 没有低音（breakdown）；自动标签把整首当前奏
+track_0155923	1	8	intro
+track_0155923	9	20	exclude
+track_0155923	21	120	drop
+track_0155923	121	150	breakdown
+track_0155923	151	258	drop
+track_0155923	259	269	outro
+track_0388822	1	9999	exclude
+track_0395474	1	8	intro
+track_0395474	9	24	exclude
+track_0395474	25	120	drop
+track_0395474	121	150	breakdown
+track_0395474	151	258	drop
+track_0395474	259	269	outro
+track_0658529	1	9999	exclude
+# 0944904：81～96 介于 drop 与尾奏之间，不计
+track_0944904	81	96	exclude
+track_0944904	97	120	outro
+# 1086373：69～116 自动标成 breakdown，图上低音大半还在，不计
+track_1086373	68	118	exclude
+# 1089928：自动标签把 breakdown 与 drop 标反（breakdown 的中高频更亮）
+track_1089928	1	48	drop
+track_1089928	49	64	breakdown
+track_1089928	65	96	drop
+track_1089928	97	99	exclude
+# 1091136：一整段不变的 groove
+track_1091136	1	4	intro
+track_1091136	5	146	drop
+track_1091136	147	154	outro
+# 1096811：同上，标反
+track_1096811	1	6	intro
+track_1096811	7	20	exclude
+track_1096811	21	68	drop
+track_1096811	69	86	breakdown
+track_1096811	87	118	drop
+track_1096811	119	127	outro
+# tech
+track_0080793	1	9999	exclude
+# 0130611：标反（43～80 没有低音）；速度低置信，保留但在报告里单列
+track_0130611	1	42	drop
+track_0130611	43	80	breakdown
+track_0130611	81	128	drop
+track_0130611	129	136	exclude
+track_0130611	137	140	outro
+track_0237793	1	9999	exclude
+track_0244162	22	46	exclude
+# 0253672：标反（81～104 轻约 6 LU）
+track_0253672	1	20	intro
+track_0253672	21	80	drop
+track_0253672	81	104	breakdown
+track_0253672	105	150	drop
+track_0253672	151	155	outro
+# 0331159：第二段 drop 被标成尾奏
+track_0331159	1	31	intro
+track_0331159	32	80	drop
+track_0331159	81	95	breakdown
+track_0331159	96	128	drop
+# 0343381：78～132 是第二段主段落还是长尾奏看不准，不计
+track_0343381	78	132	exclude
+track_0343381	133	159	outro
+# melodic
+# 0560109：190 小节被标成尾奏
+track_0560109	1	22	intro
+track_0560109	23	128	drop
+track_0560109	129	152	breakdown
+track_0560109	153	235	drop
+track_0560109	236	241	outro
+track_0706729	1	9999	exclude
+track_0726856	1	9999	exclude
+track_0743013	1	9999	exclude
+# 0781874：两段「breakdown」低音满、只是高频暗，不计
+track_0781874	48	65	exclude
+track_0781874	127	160	exclude
+# 1033705：81～98 低音还在，算 drop
+track_1033705	1	16	intro
+track_1033705	17	33	exclude
+track_1033705	34	98	drop
+track_1033705	99	113	breakdown
+track_1033705	114	190	drop
+track_1033705	191	195	outro
+# 1123057：89～106 低音在起来，不计
+track_1123057	89	106	exclude

@@ -2264,7 +2264,8 @@ namespace
     {
         return "genre,delivery,bpm,meter,listen_from_bar,listen_start_s,listen_has_profile,plan_gain_db,plan_requested_gain_db,"
                "plan_requested_target_lufs,plan_effective_target_lufs,listen_calibration_valid,calibration_bias_db,weight_warm,"
-               "weight_punchy,weight_clean,profile_lufs,profile_lra_lu,profile_low_share,house_gate_valid,house_segment_mode,"
+               "weight_punchy,weight_clean,profile_lufs,profile_lra_lu,profile_low_share,profile_slope_db_per_oct,house_gate_valid,"
+               "house_segment_mode,"
                "house_heard_segments,house_full_segments,house_heard_s,house_full_s,house_reopens,house_lock_pending,"
                "effective_ceiling_dbtp,beat_release_cap_ms,budget_limit_gr_mean_db,budget_limit_gr_p95_db,budget_limit_gr_peak_db,"
                "segments_file";
@@ -2321,6 +2322,7 @@ namespace
             feature (c.profile.integratedLufs, 3),
             feature (c.profile.loudnessRangeLu, 3),
             feature (c.profile.lowShare, 4),
+            feature (c.profile.spectralSlopeDbPerOct, 3),
             planned ? std::string (g.valid ? "1" : "0") : empty,
             gated ? std::string (segmentModeId (g.mode)) : empty,
             gated ? std::to_string (g.heardSegments) : empty,

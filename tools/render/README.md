@@ -290,6 +290,7 @@ HostInfo、网格、文件名、metrics.md 头部与 metrics.csv 一字不差。
 | `listen_calibration_valid` / `calibration_bias_db` | 已提交的校准有效 / 校准偏差 |
 | `weight_warm` / `weight_punchy` / `weight_clean` | 方案的风格权重（「自动」风格锁定的那份） |
 | `profile_lufs` / `profile_lra_lu` / `profile_low_share` | 画像 I、LRA、低频占比 |
+| `profile_slope_db_per_oct` | 画像谱斜率（dB / 倍频程，Balance 段内总功率口径，粉噪 = 0；House 档是门控画像的，只算满编段）。T-038 第 5 步标定 Tone 参考斜率用：每个子类取参考曲的中位数 |
 | `house_gate_valid` / `house_segment_mode` / `house_heard_segments` / `house_full_segments` / `house_heard_s` / `house_full_s` / `house_reopens` | 画像格式 3 的 House 门控结果（`MusicProfile::houseGate`；没有时空） |
 | `house_lock_pending` | 第一遍末状态行的「锁定条件还没满足」 |
 | `effective_ceiling_dbtp` | 成品最后一块交给限幅器的有效 Ceiling（编码余量、流媒体 −2 dBTP 都已算进去） |
