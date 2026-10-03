@@ -184,6 +184,7 @@ namespace celadon::test
             testBlockSizeIndependence();
             testReanchoring();
             testNoAllocation();
+            testStartJustBeforeBarLine();   // T-048 阶段 1 修订（代理 B2）
         }
 
     private:
@@ -633,6 +634,56 @@ namespace celadon::test
             // 先读出计数再断言：断言的消息字符串本身会分配，实参求值的先后不定。
             const auto allocations = (int) (allocationCountOnThisThread() - before);
             expectEquals (allocations, 0, "no operator new on the audio thread");
+        }
+
+        //==============================================================================
+        // T-048 阶段 1 修订（代理 B2，任务书第 4 条；REPORT-C 5.7）：从第 N 小节起播、起点 = round(小节线)。124 BPM 一小节 92903.2258 样本
+        // （每小节的小数部分 7/31）：第 33 小节线在起点之后 0.23 个样本、第 3 小节在 0.45 个样本之后——原来锚定把偏移钳在「每小节样本 − 1」
+        // 再取整，原点晚一个样本，第一段成了 [0, 1) 的碎段（上一小节的键），这一小节从样本 1 起；现在这条小节线就近取整落在起点上，第一段就是
+        // 这一小节、从 0 起，之后的小节线在 0 + round(k × 每小节样本数)。第 4 小节线在起点之前 0.32 个样本：原来就对，照旧。
+        // 对照（照旧）：起点在小节线前半个样本及以上（第 33 小节线前 1.23 个样本、第 4 小节线前 0.68 个样本）——那几个样本就近取整属于上一小节，
+        // 第一段是上一小节的 [0, 1)，这一小节从样本 1 起。块长 512 / 4096 / 随机都一样。
+        void testStartJustBeforeBarLine()
+        {
+            beginTest ("start just before a bar line (less than half a sample): the first segment is that bar from the start sample, no 1-sample piece");
+
+            struct Case
+            {
+                std::int64_t position;   // 起播的宿主位置
+                int firstBar;            // 第一段是第几小节（从 1 起）
+                std::int64_t firstEnd;   // 第一段的 end（分析器时间 = 起播之后的样本数）
+                std::int64_t secondEnd;  // 第二段的 end
+            };
+
+            const auto line = [] (int bar) { return (double) (bar - 1) * samplesPerBar; };
+            const auto bar = (std::int64_t) std::llround (samplesPerBar);
+            const std::vector<Case> cases {
+                { (std::int64_t) std::llround (line (33)), 33, bar, (std::int64_t) std::llround (2.0 * samplesPerBar) },   // 0.23 个样本之后
+                { (std::int64_t) std::llround (line (3)), 3, bar, (std::int64_t) std::llround (2.0 * samplesPerBar) },     // 0.45 个样本之后
+                { (std::int64_t) std::llround (line (4)), 4, bar, (std::int64_t) std::llround (2.0 * samplesPerBar) },     // 0.32 个样本之前
+                { (std::int64_t) std::llround (line (33)) - 1, 32, 1, 1 + (std::int64_t) std::llround (line (34)) - (std::int64_t) std::llround (line (33)) },
+                { (std::int64_t) std::floor (line (4)), 3, 1, 1 + (std::int64_t) std::llround (line (5)) - (std::int64_t) std::llround (line (4)) },
+            };
+
+            for (const auto& c : cases)
+            {
+                for (const auto blockSize : { 512, 4096, 0 })
+                {
+                    Feeder f;
+                    auto position = c.position;
+                    f.play (position, 7.0, blockSize, [] (std::int64_t p) { return barHost (p, houseBpm); }, 5);
+
+                    const auto tag = "start " + juce::String (c.position) + ", block " + juce::String (blockSize);
+                    const auto& first = f.ledger.getStored (0);
+                    const auto& second = f.ledger.getStored (1);
+                    expect (f.ledger.getNumStored() >= 3, tag + ": bars stored");
+                    expect (first.start == 0 && first.end == c.firstEnd && first.key == 64 * (std::int64_t) (c.firstBar - 1),
+                            tag + ": first segment = bar " + juce::String (c.firstBar) + " [0, " + juce::String (c.firstEnd) + "), got ["
+                                + juce::String (first.start) + ", " + juce::String (first.end) + ") key " + juce::String (first.key));
+                    expect (second.start == first.end && second.end == c.secondEnd && second.key == first.key + 64,
+                            tag + ": the next bar follows on the grid");
+                }
+            }
         }
     };
 

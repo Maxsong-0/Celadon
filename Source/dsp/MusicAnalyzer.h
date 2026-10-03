@@ -84,9 +84,17 @@
         学习区间内的块同时进 trialBlocks / trialTop / blend*。开始学习时候选照旧从零状态重新起跑（学习期的代价与关着时逐位相同），
         所以实时一侧每次开始学习后有 250 ms 的预热空档；
       - 段落账的段只在不连续点断开（跳播、回绕、宿主 reset、时间轴断开）：开着的段截到此刻、就地定稿交出去再重新锚定，交出去的
-        [start, end) 在同一条时间轴上首尾相接。重新聆听、clearHouseLedger、换曲风都不断开它；reset / prepare / setLiveMode (false)
-        也是先把开着的段交出去再清。宿主走带信息只按 SegmentLedger 现有的规则用（小节锚定），不另加按走带触发的逻辑；
-      - 段与宿主分块无关（实时段要等先试后用的块交齐才定稿）。
+        [start, end) 首尾相接（上一次断开之后还没收过数据的断开什么都不做）。重新聆听、clearHouseLedger、换曲风都不断开它；
+        reset / prepare / setLiveMode (false) 也是先把开着的段交出去再清。宿主走带信息只按 SegmentLedger 现有的规则用（小节锚定），
+        不另加按走带触发的逻辑；
+      - 段与宿主分块无关、与学不学习无关（T-048 阶段 1 修订）：实时段要等先试后用的块交齐才定稿；子块有效门、帧门、起音组有效门的
+        相对参考是实时段落账自己的长期参考（按进来的音频遗忘，cpp「七」节 ①～⑤），不是学习区间的——学习在宿主块边界上停、读档后
+        不学习，参考学习区间的门会让段随块长、随学不学习变。段里 trial* 三项照 SegmentLedger.h 只记学习期间（实时画像只读 live*）；
+      - 时间轴与 advanceTo：交给接收者的段与时刻在「实时时间轴」上（= 分析器时间轴 + 偏移；表 / 分析器 reset、prepare 让分析器时间轴
+        从 0 重新数时偏移加大），在分析器的一生里单调不减。processInput / processSpectrum 末尾各调一次 advanceTo (T)：T = 此刻交齐的
+        位置——end ≤ T 的段都已交出、之后交来的段 end > T；就地定稿之后报到此刻；
+      - setLiveMode (false, &balance)：链在下一块开头才交 Balance 的帧，关的那一刻最后一块的帧还在 Balance 里——先把它们只交给实时
+        段落账（通用画像、House 账、短期视图下一块照常收），再就地定稿。GlazeController / CeladonChain::setLiveSegmentSink (nullptr) 这样调。
     关着时（默认）实时段落账不分配、不跑，接收者一次都不调；一切输出与 T-048 之前逐位相同。
 
   ==============================================================================
@@ -186,8 +194,9 @@ namespace celadon::glaze
         std::uint32_t getHouseProfileGeneration() const noexcept;   // House 候选画像每重算 / 清空一次 + 1
 
         // ---- T-048 实时模式（见文件头最后一节；消息线程、处理之前调，prepare / reset 之后保持设定）----
-        // 开：分配实时段落账（约 2 MB），候选从此一直跑；关：开着的段先就地定稿交给接收者。
-        void setLiveMode (bool enabled);
+        // 开：分配实时段落账（约 2 MB），候选从此一直跑；关：pendingFrames 非空时先把它已发布、分析器还没读的帧只交给实时段落账
+        // （链交帧晚一块：关之前最后一块的帧；见文件头），再把开着的段就地定稿交给接收者。
+        void setLiveMode (bool enabled, const BalanceModule* pendingFrames = nullptr);
         bool isLiveMode() const noexcept;
         // 实时段落账定稿的段交给它（nullptr = 不交）。只存指针、不拥有；接收者在音频线程上被调，必须 0 分配、0 锁。
         void setSegmentSink (SegmentSink* sink) noexcept;
