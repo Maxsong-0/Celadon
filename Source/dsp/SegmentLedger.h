@@ -340,5 +340,11 @@ namespace celadon::glaze
     public:
         virtual ~SegmentSink() = default;
         virtual void segmentFinalized (const SegmentLedger::Segment& segment) noexcept = 0;
+
+        // T-048 阶段 1 修订（Max 2026-10-02 选「回看重判」）：分析器每处理完一块（processInput、processSpectrum 末尾各一次）报告它的时间轴
+        // 走到了哪里（样本，与 Segment 的 start / end 同一条时间轴；不连续点之后同样单调不减）。接收者据此按**绝对样本网格**安排自己的
+        // 工作（实时画像的回看重算分片、按时刻发布）：结果只取决于段序列与这个时间，不取决于被调了几次、宿主块多长。默认什么都不做。
+        // 音频线程：0 分配、0 锁、不抛异常。
+        virtual void advanceTo (std::int64_t analyzerTime) noexcept   { (void) analyzerTime; }
     };
 }
