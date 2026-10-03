@@ -173,19 +173,22 @@ namespace celadon::glaze
         // 换歌软遗忘 keep = 0 时事件时钟加这么多（exp(−800) 在 double 里就是 0，又不会让时钟变成 ∞ 之后相减出 NaN）。
         constexpr double maximumLogKeep = 800.0;
 
-        // 一遍重算每一步的工作量估计（纳秒，107 实测标定，见 REPORT-A2；只决定一片做几步，不影响结果）。
-        constexpr double costAdmit = 2500.0;               // 进账判断、换歌的回看（平常 ≤ 十几段）
-        constexpr double costReferenceEntry = 45.0;        // 一段的参考权重（一个 exp）与直方图
-        constexpr double costAllEntry = 25.0;              // 响度型 / 被动型多一个 exp
-        constexpr double costPick = 1800.0;                // 一次分位（扫 800 / 1000 格）加清零
-        constexpr double costLowEntry = 15.0;
-        constexpr double costJudgeEntry = 45.0;            // m′ 与主段权重（一个 exp）
-        constexpr double costAccumulateBase = 220.0;       // 一段的 27 段 × 8 张表与零散的和
-        constexpr double costPerValue = 2.0;               // 每个门块 / 短期响度 / 低频格 / 起音强度 / 试算值
-        constexpr double costTrialSeries = 600.0;          // 一路试算 P99（从顶往下扫几格）
-        constexpr double costGateEntry = 12.0;             // 一段的第二遍门限（另按门块数加）与清试算格
-        constexpr double costFinalize = 6000.0;            // 画像（频谱、LRA、起音、置信度）、诊断、提交记录
-        constexpr double costClear = 3000.0;               // 其余直方图清零（约 30 KB）
+        // 一遍重算每一步的工作量估计（纳秒；只决定一片做几步，不影响结果）。107 实测（REPORT-A2）：窗口 512 段的一遍同步重算 70 µs，
+        // 约每段 130 ns + 固定 4 µs；这里的估计比实测高约三成（每段约 170 ns、固定约 5 µs），一片按估计做满 8 µs 时实际约 6 µs。
+        constexpr double costAdmit = 625.0;                // 进账判断、换歌的回看（平常 ≤ 十几段）
+        constexpr double costReferenceEntry = 11.0;        // 一段的参考权重（一个 exp）与直方图
+        constexpr double costAllEntry = 6.0;               // 响度型 / 被动型多一个 exp
+        constexpr double costPick = 450.0;                 // 一次分位（扫 800 / 1000 格）加清零
+        constexpr double costLowEntry = 4.0;
+        constexpr double costJudgeEntry = 11.0;            // m′ 与主段权重（一个 exp）
+        constexpr double costAccumulateBase = 5.0;         // 累计时每段都有的开销（非主段只有这一点）
+        constexpr double costMainAccumulate = 120.0;       // 主段：27 段 × 8 张表与零散的和（另按值的个数加，见 deriveEntry）
+        constexpr double costAllAccumulate = 20.0;         // 响度型 / 被动型：全部段的门块与 LRA（另按值的个数加）
+        constexpr double costPerValue = 0.5;               // 每个门块 / 短期响度 / 低频格 / 起音强度 / 试算值
+        constexpr double costTrialSeries = 150.0;          // 一路试算 P99（从顶往下扫几格）
+        constexpr double costGateEntry = 3.0;              // 一段的第二遍门限（另按门块数加）与清试算格
+        constexpr double costFinalize = 1500.0;            // 画像（频谱、LRA、起音、置信度）、诊断、提交记录
+        constexpr double costClear = 750.0;                // 其余直方图清零（约 30 KB）
 
         constexpr const char* liveStateTag = "LIVE_PROFILE";
         constexpr int liveStateFormatVersion = 2;
@@ -784,6 +787,10 @@ namespace celadon::glaze
         std::uint64_t recordTotal = 0;
         PublicationListener* listener = nullptr;
 
+        // 工作量统计（LiveDiagnostics 最后几项；不进状态、不影响结果）
+        int passSlices = 0, publishedPassSlices = 0;
+        std::uint64_t catchUps = 0, forcedPublications = 0;
+
         //==============================================================================
         Entry& entryAt (std::uint64_t sequence) noexcept               { return slots[(size_t) (sequence % (std::uint64_t) slotCount)]; }
         const Entry& entryAt (std::uint64_t sequence) const noexcept   { return slots[(size_t) (sequence % (std::uint64_t) slotCount)]; }
@@ -859,6 +866,8 @@ namespace celadon::glaze
             work = Context {};
             published = Context {};
             publishedTime = 0;
+            passSlices = publishedPassSlices = 0;
+            catchUps = forcedPublications = 0;
             recomputePublished();
         }
 
@@ -887,6 +896,7 @@ namespace celadon::glaze
 
                 finishPass();
                 publish();
+                ++forcedPublications;
             }
         }
 
@@ -981,7 +991,7 @@ namespace celadon::glaze
             e.peakBin = e.truePeak > 0.0f ? peakBinOf (e.truePeak) : 0;
             const auto lowRangeSpan = e.lowRangeLast >= e.lowRangeFirst ? e.lowRangeLast - e.lowRangeFirst + 1 : 0;
             const auto trialValues = (int) trialSeries * juce::jmin (e.trialBlocks, trialTopCount);
-            e.accumulateCost = costAccumulateBase
+            e.accumulateCost = costMainAccumulate
                              + costPerValue * (double) (2 * e.gatingCount + 2 * e.rangeCount + lowRangeSpan + e.strengthCount + trialValues);
         }
 
@@ -1014,6 +1024,7 @@ namespace celadon::glaze
                     if (nextGrid <= t && nextGrid < due)
                     {
                         runSlice();
+                        ++passSlices;
                         nextGrid = saturatingAdd (nextGrid, gridSamples);
                         continue;
                     }
@@ -1021,6 +1032,7 @@ namespace celadon::glaze
                     if (due <= t)
                     {
                         finishPass();   // 补完欠的片（大块、离线、成批交段）
+                        ++catchUps;
                         continue;
                     }
 
@@ -1067,6 +1079,7 @@ namespace celadon::glaze
             work.first = work.count - (std::uint64_t) work.size;
             step = admittedCount < work.count ? Step::admit : Step::referenceSweep;
             cursor = 0;
+            passSlices = 0;
 
             if (step == Step::referenceSweep)
                 beginReferenceSweep();
@@ -1104,10 +1117,9 @@ namespace celadon::glaze
                 case Step::lowPick:         return costPick;
                 case Step::lowSweep:        return costLowEntry;
                 case Step::judgeSweep:      return costJudgeEntry;
-                case Step::accumulate:      return cursor < work.size ? entryAt (work.first + (std::uint64_t) cursor).accumulateCost : 0.0;
+                case Step::accumulate:      return accumulateCostAt (cursor);
                 case Step::trialPick:       return costTrialSeries;
-                case Step::gateSweep:       return cursor < work.size ? costGateEntry + costPerValue * (double) entryAt (work.first + (std::uint64_t) cursor).gatingCount
-                                                                      : 0.0;
+                case Step::gateSweep:       return gateCostAt (cursor);
                 case Step::finalize:        return costFinalize;
                 case Step::clearHistograms: return costClear;
                 case Step::idle:
@@ -1115,6 +1127,44 @@ namespace celadon::glaze
             }
 
             return 0.0;
+        }
+
+        // 累计一段的估计：主段权重 > 0 的段才做主段那一大份（按段的内容，Entry::accumulateCost），响度型 / 被动型另有全部段的门块与 LRA。
+        double accumulateCostAt (int position) const noexcept
+        {
+            if (position >= work.size)
+                return 0.0;
+
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+            auto cost = costAccumulateBase;
+
+            if (mainFactor[(size_t) position] > 0.0)
+                cost += e.accumulateCost;
+
+            if (needsAllDomain() && e.usable)
+                cost += costAllAccumulate + costPerValue * (double) (e.gatingCount + e.rangeCount);
+
+            return cost;
+        }
+
+        // 第二遍门限一段的估计：有权重的段逐个比门块；主段还要清它写过的试算格。
+        double gateCostAt (int position) const noexcept
+        {
+            if (position >= work.size)
+                return 0.0;
+
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+            const auto main = mainFactor[(size_t) position] > 0.0;
+            const auto weighted = fourOnFloor() ? main : e.usable;
+            auto cost = costGateEntry;
+
+            if (weighted)
+                cost += costPerValue * (double) e.gatingCount;
+
+            if (main)
+                cost += costPerValue * (double) (trialSeries * juce::jmin (e.trialBlocks, trialTopCount));
+
+            return cost;
         }
 
         // 一步（文件头第二节）。sweep 每步一段；窗口空（冷启动）时各 sweep 一步也不做，直接到下一阶段。
@@ -2328,6 +2378,7 @@ namespace celadon::glaze
                 publishedWeight[(size_t) position] *= entryAt (published.first + (std::uint64_t) position).effectiveSeconds;
 
             publishedTime = entryAt (published.count - 1).due;
+            publishedPassSlices = passSlices;
             step = Step::idle;
 
             pendingRecord.sequence = recordTotal;
@@ -2389,6 +2440,9 @@ namespace celadon::glaze
             d.oldestReferenceShare = r.oldestReferenceShare;
             d.publishTime = publishedTime;
             d.pendingSegments = (int) (arrived - published.count);
+            d.lastPassSlices = publishedPassSlices;
+            d.catchUps = catchUps;
+            d.forcedPublications = forcedPublications;
             return d;
         }
 

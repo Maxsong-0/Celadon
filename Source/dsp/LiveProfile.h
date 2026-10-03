@@ -202,7 +202,11 @@ namespace celadon::glaze
         float oldestMainShare = 0.0f;        // 窗口里最老一段在 M 里的份额（窗口满时下一次就丢掉它）
         float oldestReferenceShare = 0.0f;   // 同上，在参考权重里的份额
         std::int64_t publishTime = 0;        // 这一份画像的发布时刻（冷启动 0）
+        // ---- 工作量统计：不属于这一份画像，随交段与 advanceTo 的先后、宿主块长变（逐位比较时不比）----
         int pendingSegments = 0;             // 读数那一刻已交来、还没发布的段
+        int lastPassSlices = 0;              // 这一份画像那一遍用了几片（同步补完的不算片）
+        std::uint64_t catchUps = 0;          // 冷启动以来，到了发布时刻还没做完、在那次调用里补完的遍数
+        std::uint64_t forcedPublications = 0;   // 冷启动以来，队列满时就地发布的份数
     };
 
     // 已发布那一份画像里窗口每一段的判断（readJudgements；渲染工具写「最终判断」、测试核对等价性）。
