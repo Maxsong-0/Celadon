@@ -1154,14 +1154,14 @@ namespace celadon::glaze
                 return 0.0;
 
             const auto& e = entryAt (work.first + (std::uint64_t) position);
-            const auto main = mainFactor[(size_t) position] > 0.0;
-            const auto weighted = fourOnFloor() ? main : e.usable;
+            const auto isMain = mainFactor[(size_t) position] > 0.0;
+            const auto weighted = fourOnFloor() ? isMain : e.usable;
             auto cost = costGateEntry;
 
             if (weighted)
                 cost += costPerValue * (double) e.gatingCount;
 
-            if (main)
+            if (isMain)
                 cost += costPerValue * (double) (trialSeries * juce::jmin (e.trialBlocks, trialTopCount));
 
             return cost;
