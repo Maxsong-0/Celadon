@@ -5604,6 +5604,7 @@ namespace celadon::test
             testHousePhaseHintEndToEnd();   // 集成时追加（B 报告遗留：合并 C 之后补端到端）
             testCalibrationOnlyInMainSection();   // 评审 F1
             testOfflineExportWhileListeningIsFlagged();   // 评审 F7
+            testReopenAfterReloadCarriesBlendLoss();   // T-049
         }
 
     private:
@@ -6216,6 +6217,54 @@ namespace celadon::test
             expect (probe.houseUpdates > 0 && probe.houseFastTransitions > 0 && probe.commits >= 2 && probe.houseReopens >= 1
                     && probe.transportJumps >= 1 && probe.loopWraps >= 1, "the run went through the House paths it claims to cover");
             expectEquals ((juce::int64) allocations, (juce::int64) 0, "audio thread must not allocate");
+        }
+
+        // 依据：GlazeController.cpp 开头「T-038」一节「新段里先试后用的代价……再不够就沿用已提交画像的代价」。读档后段落账从空开始、锁定后
+        // 候选不跑，重开时新算的画像一个试算块都没有：峰值代价沿用已提交画像的。T-049：混合损失（T-043）与代价出自同一批块，要一起沿用——
+        // 原来漏了，重开后的画像混合损失无效，决策器就不按它给低切封顶（capLowCutForBlend 两个候选缺一个就判断不了）。
+        void testReopenAfterReloadCarriesBlendLoss()
+        {
+            beginTest ("House: a reopen after reloading the project carries the blend losses over together with the try-before-use costs");
+
+            const auto song = makeHouseSong (defaultRate, { { 10, true, 0.45f }, { 8, true, 1.4f } }, 78);
+            const auto sameFeature = [] (const glaze::Feature& a, const glaze::Feature& b)
+            {
+                return sameBits (a.value, b.value) && a.valid == b.valid && a.effectiveSeconds == b.effectiveSeconds
+                    && sameBits (a.confidence, b.confidence);
+            };
+
+            // 第一次锁定在较轻的段上（还没听到更响的段），存档。
+            Rig donor (houseConstants (8, 4), song, houseParams (60.0f));
+            donor.tempoBpm = houseBpm;
+            const auto locked = donor.runUntil (10.0 * houseBarSeconds, [&] { return donor.probe().commits > 0; });
+            const auto saved = donor.committed().profile;
+            const auto xml = donor.chain.createGlazeStateXml();
+            expect (locked && saved.lowCutPeakCostDb.valid && saved.lowCutBlendLossDb[0].valid && saved.lowCutBlendLossDb[1].valid,
+                    "the first lock (on the quieter section) measured the costs and both blend losses");
+
+            // 读档后从头播：较轻的段之后，更响的段连续 4 小节 → 重开一次。
+            Rig rig (houseConstants (8, 4), song, houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+            rig.chain.restoreGlazeStateXml (xml.get());
+            rig.step();
+            expect (glaze::bitwiseEqual (rig.committed().profile, saved), "the reloaded project carries the saved profile");
+
+            rig.run (17.0 * houseBarSeconds);
+            const auto reopened = rig.committed().profile;
+            logMessage ("  reopens " + juce::String (rig.probe().houseReopens) + "; I " + juce::String (saved.integratedLufs.value, 2) + " -> "
+                        + juce::String (reopened.integratedLufs.value, 2) + " LUFS; blend loss 10 / 20 Hz "
+                        + juce::String (reopened.lowCutBlendLossDb[0].value, 4) + " / " + juce::String (reopened.lowCutBlendLossDb[1].value, 4)
+                        + " dB (valid " + juce::String ((int) reopened.lowCutBlendLossDb[0].valid) + " / "
+                        + juce::String ((int) reopened.lowCutBlendLossDb[1].valid) + ")");
+            expectEquals (rig.probe().houseReopens, 1, "the louder section reopens the reloaded profile once");
+            expect (reopened.houseGate.reopenCount == 1 && reopened.integratedLufs.value > saved.integratedLufs.value + 3.0f,
+                    "the reopened profile is the louder section's");
+            expect (sameFeature (reopened.lowCutPeakCostDb, saved.lowCutPeakCostDb) && sameFeature (reopened.widthPeakCostDb, saved.widthPeakCostDb),
+                    "no trial blocks since reloading: the committed costs are carried over");
+
+            for (size_t c = 0; c < saved.lowCutBlendLossDb.size(); ++c)
+                expect (sameFeature (reopened.lowCutBlendLossDb[c], saved.lowCutBlendLossDb[c]),
+                        "the blend loss is carried over with the costs, candidate " + juce::String ((int) c));
         }
     };
 

@@ -3439,10 +3439,18 @@ namespace celadon::test
                 const auto& h = houseProfile.lowCutBlendLossDb[c];
                 const auto& d = drop.lowCutBlendLossDb[c];
                 logMessage ("  blend loss candidate " + juce::String ((int) c) + ": House " + juce::String (h.value, 4) + " dB (valid "
-                            + juce::String ((int) h.valid) + "), drop alone " + juce::String (d.value, 4) + ", general "
-                            + juce::String (generalProfile.lowCutBlendLossDb[c].value, 4));
+                            + juce::String ((int) h.valid) + ", confidence " + juce::String (h.confidence, 4) + "), drop alone "
+                            + juce::String (d.value, 4) + ", general " + juce::String (generalProfile.lowCutBlendLossDb[c].value, 4));
                 expect (h.valid && d.valid, "the blend loss comes from the full segments' blocks, candidate " + juce::String ((int) c));
                 expect (std::abs (h.value - d.value) <= 0.1f, "House blend loss is the drop's, candidate " + juce::String ((int) c));
+
+                // T-049：置信度与低切代价同一口径（同一批块，min(代表性, 试算观测充分度)），两种画像都一样。原来 houseConfidences
+                // 漏了这两项，House 画像里恒为 0。
+                const auto& g = generalProfile.lowCutBlendLossDb[c];
+                expect (h.confidence > 0.0f && sameFloat (h.confidence, houseProfile.lowCutPeakCostDb.confidence),
+                        "House blend loss confidence = the low-cut cost's (same blocks, same rule), candidate " + juce::String ((int) c));
+                expect (g.valid && sameFloat (g.confidence, generalProfile.lowCutPeakCostDb.confidence),
+                        "general blend loss confidence = the low-cut cost's, candidate " + juce::String ((int) c));
             }
         }
 

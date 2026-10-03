@@ -3900,6 +3900,8 @@ namespace celadon::glaze
             finalize (p.highCorrelation, m.highStereo);
 
             finalize (p.lowCutPeakCostDb, m.trial);
+            for (auto& loss : p.lowCutBlendLossDb)
+                finalize (loss, m.trial);
             finalize (p.widthPeakCostDb, m.trial);
             finalize (a.trialPeakP99Db, m.trial);
 

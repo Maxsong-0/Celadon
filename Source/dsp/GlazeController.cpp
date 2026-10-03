@@ -91,7 +91,8 @@
         够 reopenSegments 就进入「待重开」：段落账也够锁定条件时按它门控重算画像（O(段数)，只在段落账有新定稿时试一次），
         比已提交画像更响才提交——重开次数 +1 记进画像（houseGate.reopenCount，画像号随之变），fastTransitionSeconds 过渡、
         校准作废重来两轮；够不上锁定条件（刚读档、段落账从空开始）就旧画像照常、接着等。每份画像最多 maxReopens 次。新段里
-        先试后用的代价（锁定后候选不跑）不够 10 s 时分析器改用全部段的块；再不够就沿用已提交画像的代价（同一首歌试过的结论）。
+        先试后用的代价（锁定后候选不跑）不够 10 s 时分析器改用全部段的块；再不够就沿用已提交画像的代价（同一首歌试过的结论），
+        混合损失（T-043）出自同一批块、一起沿用（T-049）。
       - 换曲风（updateHouseGenre，进 / 出 House 档那一块做一次）：通用 → House 正在聆听就同一种聆听重新开始（段落账从空开始，
         与通用累计对齐）；House → 通用时为 House 开的那一轮取消、用户点的与首次聆听接着按通用规则走完。没在聆听、已提交画像不是
         House 锁定过的（houseProfileLocked：格式 3 且门控结果有效）就开一轮 relearn 式聆听，旧画像照常生效（maybeStartHouseListen）；
@@ -1699,11 +1700,13 @@ namespace celadon::glaze
             }
 
             // 新进来的段在锁定之后，先试后用的候选没跑：分析器改用全部段的块仍不够时，沿用已提交画像的代价（同一首歌试过的结论）。
+            // 混合损失（T-043）与代价出自同一批块，一起沿用（T-049）：漏了它，决策器就不按混合损失给低切封顶。
             if (! reopened.lowCutPeakCostDb.valid)
             {
                 reopened.lowCutPeakCostDb = p.lowCutPeakCostDb;
                 reopened.monoPeakCostDb = p.monoPeakCostDb;
                 reopened.widthPeakCostDb = p.widthPeakCostDb;
+                reopened.lowCutBlendLossDb = p.lowCutBlendLossDb;
             }
 
             reopened.houseGate.reopenCount = p.houseGate.reopenCount + 1;
