@@ -63,6 +63,7 @@ scripts/render-linux.sh ~/Music/Celadon对照 --glaze 0,50 --style auto,warm --m
 ```bash
 celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--clay auto,off] [--style auto] [--block 512] [--match-lufs -16] [--metrics-only] [--trace]
                [--genre general] [--delivery standard] [--bpm 124 [--meter 4/4] [--listen-from-bar 1,33]] [--segments-csv]
+               [--live-trace [--live-only] [--live-constants 键=值,…] [--live-model fourOnFloor|loudness|passive] [--live-tag 名字]]
 ```
 
 | 选项 | 默认 | 说明 |
@@ -83,8 +84,14 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--meter` | `4/4` | 拍号（分子 1～32，分母 1 / 2 / 4 / 8 / 16 / 32）；要与 `--bpm` 一起用 |
 | `--listen-from-bar` | `1` | 第一遍（聆听）从第几小节起播到歌尾（1 = 从头），可逗号分隔多个（网格的一维）；要 `--bpm`。第二遍（成品）照旧从头渲染 |
 | `--segments-csv` | 关 | 逐段写统计到 `segments/`（有 `--bpm` 时一段 = 一小节，否则每 2 秒）：输入端每首一份、成品每组一份（见下「T-038」） |
+| `--live-trace` | 关 | T-048：每一遍的链接上实时画像，逐段写追踪到 `live/<标签>/`（见下「T-048」）；链的输出逐位不变 |
+| `--live-only` | 关 | T-048：只跑第一遍（聆听）出追踪，不出成品、不做重放——最快的追踪跑法；要 `--live-trace` |
+| `--live-constants` | 不给 | T-048：覆盖实时画像常数 `LiveConstants` 的任意字段，`键=值` 逗号分隔（键表见下「T-048」）；不认识的键、不合法的值报错；要 `--live-trace` 与 `--live-tag` |
+| `--live-model` | 按曲风 | T-048：主段模型一律用 `fourOnFloor` / `loudness` / `passive`（默认 House 三类 4/4 型、通用响度型）；要 `--live-trace` 与 `--live-tag` |
+| `--live-tag` | `default` | T-048：追踪的输出分组 `live/<标签>/`（字母、数字、`.` `_` `-`，不以 `.` 开头，≤ 64 个字符）；扫参时一组常数一个标签 |
 | `--selftest` | — | 只跑自检，不读歌（其余选项忽略） |
 | `--selftest-house` | — | 只跑 T-038 新选项的自检（见下「T-038」），不读歌；`render-linux.sh` 不跑它，改了相关代码手动跑 |
+| `--selftest-live` | — | 只跑 T-048 实时画像追踪的自检（见下「T-048」），不读歌；`render-linux.sh` 不跑它，改了相关代码手动跑 |
 
 进度、警告、错误都写 stderr。返回 0 = 全部成功；1 = 有文件读 / 写失败（其余照做，指标表照写）或自检失败；2 = 参数错误。
 采样率按文件自己的（8 k～768 kHz）；单声道复制成双声道，多声道只取前两个；输入里的 NaN / Inf 样本按 0 处理（备注里写数量，
@@ -114,6 +121,7 @@ stderr 也报一次；插件是在处理器层把含非有限值的整块清零�
   metrics.md                                     指标表（人看），每做完一首歌重写一次
   metrics.csv                                    同一份数据（脚本 / 表格软件用）
   segments/<歌名>__input.csv、segments/<成品名>.csv   --segments-csv 的逐段统计（T-038，见下）
+  live/<标签>/<歌名>__<曲风>[_from-b<N>].csv、__final.csv、<歌名>__passes.csv   --live-trace 的实时画像追踪（T-048，见下）
 ```
 
 例：`Song A__g35_clay-auto_auto.wav`。同名不同扩展名的两首（`a.wav`、`a.flac`）歌名后加扩展名区分（`a-wav`、`a-flac`）。
@@ -343,6 +351,149 @@ House 档的行若画像没有门控结果（`house_gate_valid` ≠ 1），说�
 | 交付流媒体 −2 dBTP | 白噪声 0.9：有效 Ceiling 标准 −1 / 流媒体 −2，成品真峰值各自不超（+0.01） |
 | 第一遍从第 N 小节起播 | 第 3 小节 = 第 192000 样本，逐块追踪第一行 4.0000 s |
 | 文件名、追加列个数 | 带后缀的文件名与标签；列名与值个数相同（33） |
+
+## T-048：实时画像追踪与因果重放
+
+规格：设计规格-实时GLAZE-主段与增益（第 1～3 节实时画像、第 7 节因果重放验收）；T-048 阶段 1（`docs/validation/2026-10-02-T048-phase1/`，
+BRIEF 第 3 节、REPORT-A / B / C）。**不给 `--live-trace` 时一切输出与改动前逐字节相同**；给了也只多写 `live/` 下的追踪、metrics.md 头部一行
+与每首歌的备注——成品 wav、metrics.csv、`--trace` / `--segments-csv` 的文件都与不给时逐字节相同（追踪不改链的输出，验证记录见 REPORT-C）。
+
+### 做法
+
+- 每一遍新建的链（第一遍聆听、第二遍成品、两遍重放）`prepare` 之后调 `CeladonChain::setLiveSegmentSink`，接上工具自己的接收者：里面一个
+  `LiveProfile`（`prepare (采样率)`、`setConstants (常数, 主段模型)`；主段模型默认 `mainSectionModelFor (这一遍的曲风)`）。分析器随之打开实时
+  模式，实时段落账每定稿一段（有拍点一小节、否则 2 s）就交给接收者。
+- 接收者在音频线程上被调：把段交给 `LiveProfile`，再把「这一段并入之后」的画像（`MusicProfile` 整份）与诊断拷进 64 格的定长环形缓冲——只有
+  定长拷贝，不分配、不加锁。主线程每处理完一块用 `readCommits` 读新提交、按序号配上快照，写成一行。快照取「这一段并入之后」而不是「这一块
+  处理完之后」：一块里有两次提交时（大块长、不连续点截短的段）后者会把同一份画像写在两行上，追踪就随宿主块长变了；平常一块至多一次提交，两者相同。
+- 一遍结束（这一遍要读的状态、成品、指标都读完之后）：先补一个 **0 样本的块**（同样的宿主时间线接在流的末尾、同样的参数，不加任何音频），再
+  `setLiveSegmentSink (nullptr)`——分析器把开着的段（歌尾不满一小节的那一截）就地定稿交出来。为什么补块：链在「下一块」开头才把上一块的 Balance
+  帧交给分析器，离线流在最后一块之后就停了，不补的话歌尾一两段的频谱证据（低频占比、27 段电平……）少了最后一块的帧、随块长变。
+- **只写一份**：实时画像只看输入（与 GLAZE、风格、修坯、交付无关），同一首歌 × 曲风 × 聆听起点在一次运行里（一次运行只有一组常数、一个模型
+  覆盖，用标签分开）只写第一次跑到的那一遍**第一遍**；其余各遍照样追踪，只与写下的那份逐行比较（`__passes.csv`）。第二遍与重放从不当写下的
+  那份：读档之后分析器不学习，交来的段可能从第一段起就不同；输入尾部还多了延迟与余振的补零。
+
+### 最快的跑法（标定、扫参用）
+
+```bash
+celadon_render --in <歌曲目录> --out <输出> --glaze 0 --genre deep --bpm 124 --live-trace --live-only [--segments-csv] \
+               [--live-constants fourOnFloor.gateWidthLu=3.5,newProgramLu=8 --live-tag dg35-np8]
+```
+
+- `--live-only`：每首歌 × 每个曲风 × 每个聆听起点只跑一遍第一遍（取网格里第一个这样的组合的参数），不出成品、不做重放，指标表只有原始输入行；
+  GLAZE 0 最快（链不按保护层时隙切片）。一首 3～4 分钟的歌约 5 s。
+- 与完整跑法（`--glaze 70,100 --style auto,warm --clay auto,off …`、带重放）写出的追踪与 `__final.csv` **逐字节相同**（同一块长；合成两首、真歌两首，
+  REPORT-C 2.4 节）。
+- 块长：自检合成曲与 `make_synthetic_house.py` 两首在 512 / 4096 下逐字节相同；Jamendo 45 首 4/4 型 43 / 45、响度型 30 / 45 首逐字节相同，其余只差帧门相关的
+  频谱列（`low_share` 等），I、m、c 到 4～5 位小数相同——来源在分析器：实时段落账的帧门参考学习区间的帧均值，学习在宿主块边界上停（REPORT-C 2.4 节）。
+  比较不同块长时，`__final.csv` 的 `tag` 一行要去掉（标签不同）。
+- 批量（Jamendo 45 首、合成曲）用 `calibrate_house.py render-live`，见下「因果重放的批跑与分析」。
+
+### 输出（`--out` 之下）
+
+```text
+live/<标签>/<歌名>__<曲风>[_from-b<N>].csv          追踪：一次提交一行（列见下）
+live/<标签>/<歌名>__<曲风>[_from-b<N>]__final.csv   汇总：这一遍的设定、常数全部 35 项的实际值、最终诊断与画像（键,值）
+live/<标签>/<歌名>__passes.csv                      逐遍比较（有别的遍可比时才写；--live-only 不写）
+```
+
+追踪的列（空格 = 不知道，即 `valid = false`，不用 0 冒充；LUFS / dB / 秒 4 位小数，比例与因子 5 位）：
+
+| 列 | 含义 |
+|---|---|
+| `sequence` | 第几次并入（从 0 起，= `LiveCommitRecord::sequence`） |
+| `bar` / `bar_offset` | 有 `--bpm` 时：段的中点落在第几小节（歌曲的小节网格，同 `--segments-csv`；从第 N 小节起播时也按歌曲数）/ 段起点 − 该小节起点（样本，对齐时 0） |
+| `start_sample` / `end_sample` / `start_s` / `end_s` | 段在分析器时间轴上的 `[start, end)`（这一遍送进链的第一个样本 = 0；从第 N 小节起播时加 `__final.csv` 的 `pass_start_sample` 才是歌曲里的位置） |
+| `nominal_s` / `mode` | 段的标称长度 / `bars`、`seconds`、`none` |
+| `epoch` / `heard` / `live_trial_blocks` | 段所属的连续时间段（不连续点 + 1）/ 已听（有效音频 ≥ 半段）/ 段里实时试算的有效块数（段里有、提交记录里没有的三项） |
+| `effective_s` / `loudness_lufs` / `low_share` | 段的有效时长 / 段响度 / 低频占比 |
+| `loudness_factor` / `low_factor` / `mainness` / `weight_s` | m 的两个因子 / 主段度 m / 并入权重 w = m × 有效时长 |
+| `reference_lufs` / `low_reference` | 并入**之前**的 S_ref / lowRef（m 就是按它们算的） |
+| `main_level_lufs` / `main_mass_s` / `confidence` | 并入之后画像的 I（4/4 型 = 主段电平）/ 主段质量 M / 置信度 c |
+| `time_decay` / `new_program` | 这一段并入时「长时间无主段」的时间衰减在生效 / 这一段触发了换歌软遗忘 |
+| `reference_after_lufs` / `low_reference_after` / `active_s` / `seconds_since_main` / `new_program_count` | 并入之后的诊断（`getDiagnostics`）：S_ref、lowRef、并入过的有效音频总时长（不遗忘）、最近一次 m ≥ mainThreshold 之后的有效音频、换歌累计次数 |
+| `lra_lu` / `plr_db` / `true_peak_dbtp` / `slope_db_per_oct` / `profile_low_share` / `profile_high_share` / `representativeness` | 并入之后画像的这几项 |
+| `cost_lowcut_db` / `cost_mono60_db` … `cost_mono160_db` / `cost_width_db` / `blend10_db` / `blend20_db` | 并入之后画像的实时试算代价与混合损失 |
+
+`__final.csv` 的键：`song`、`genre`、`model`（实际用的主段模型）、`model_source`（`genre` / `live-model`）、`tag`、`constants_override`（`--live-constants` 原文）、
+`bpm`、`meter`、`listen_from_bar`、`pass_start_sample`、`commits`（行数）、`trace_digest`（全部行的位级摘要：写出的每个量的二进制位按 FNV-1a 累加，
+固定小数位看不出的末位差它看得出）、`anomaly_overrun` / `anomaly_mismatch`（读提交落后环形容量 / 记录与快照配不上：工具自己的错，不该是 1）；
+`diag.*`（finish 之后的 `getDiagnostics`）；`profile.<特征>` 与 `profile.<特征>.confidence`（finish 之后的画像，I、LRA、PLR、真峰值、斜率、低 / 高频
+占比、低频起伏、起音两项、次声、低 / 高频侧中比与相关度、6 项试算代价、2 项混合损失）与 `profile.effective_s` / `representativeness` / `format_version`；
+`const.<键>`（常数全部 35 项的实际值，float 9 位、double 17 位有效数字）。取自网格里哪一组、宿主块长都**不写**（追踪与它们无关，这样最快跑法与完整
+跑法的两份能逐字节比；取自哪一组写在 metrics.md 的备注与 `__passes.csv` 里）。
+
+`__passes.csv` 每遍一行：`pass`（`listen` / `render` / `replay-copy` / `replay-off`）、`combo`、`genre`、`start_bar`、`commits`、`digest`、`written`（就是写下的那份）、
+`compared`、`matching_rows` / `reference_rows`（与写下的那份开头逐字相同的行数 / 写下的那份的行数）、`first_difference_sample`（第一处不同的段起点）、
+`first_difference_columns`（那一行里不同的列，`;` 连起来；段数不同而前缀全同时写 `rows`）、`digest_differs`（各行逐字相同、摘要却不同）、`overrun`、`mismatch`。
+其余第一遍（只差 GLAZE / 风格 / 修坯 / 交付）应全部逐行相同——不同就是「实时画像只看输入」不成立，备注与 stderr 单独记一条「注意」。
+
+### `--live-constants` 的键
+
+键名 = `GlazeConstants.h` 里 `LiveConstants` 的字段名，主段模型的 9 个字段带 `fourOnFloor.` / `loudness.` / `passive.` 前缀，共 3 × 9 + 8 = 35 个。
+取值范围与 `LiveProfile.cpp` 的 `sanitise` 一一对应——那边把坏值悄悄换成出厂值，这里直接报错（扫参时给错的值不能变成「其实跑的是出厂值」）。
+`inf` / `-inf` 只在 sanitise 也收的键上合法；同一个键给两次、少了 `=`、不是数（含 NaN、溢出）都报错。
+
+| 键 | 取值 | 出厂（4/4 型 / 响度型 / 被动型） |
+|---|---|---|
+| `<模型>.gateWidthLu`（ΔG） | 有限的数 | 3 / 6 / 0 |
+| `<模型>.loudnessRampLu` | > 0 的有限数 | 1.5 / 3 / 1 |
+| `<模型>.lowGateFactor`（≤ 0 = 不用低频门） | 有限的数 | 0.6 / 0 / 0 |
+| `<模型>.lowRampWidth` | > 0 的有限数 | 0.15 |
+| `<模型>.referencePercentile` | (0, 1] | 0.95 / 0.90 / 0.90 |
+| `<模型>.memoryBars`（≤ 0 = 不按小节） | 数，可 ±inf | 48 / 0 / 0 |
+| `<模型>.memorySeconds` | > 0，可 inf | 90 |
+| `<模型>.confidenceBars`（≤ 0 = 用秒） | 数，可 ±inf | 8 / 0 / 0 |
+| `<模型>.confidenceSeconds` | > 0，可 inf | 16 / 20 / 20 |
+| `referenceMemorySeconds` | > 0，可 inf | 180 |
+| `mainThreshold` | [0, 1] | 0.5 |
+| `noMainSeconds` / `noMainDecaySeconds` | ≥ 0 可 inf / > 0 可 inf | 60 / 120 |
+| `newProgramLu` / `newProgramSeconds` / `newProgramKeep` | ≥ 0 可 inf / > 0 可 inf / [0, 1] | 6 / 20 / 0.2 |
+| `peakTailSeconds`（≤ 0 = 只取最大值） | 数，可 ±inf | 0.5 |
+
+改了常数（`--live-constants`）或模型（`--live-model`）必须给 `--live-tag`，免得与出厂常数的追踪混在 `live/default/` 里；这几个选项离开 `--live-trace` 都报错。
+
+### 因果重放的批跑与分析（`calibrate_house.py`）
+
+```bash
+PY=~/.venvs/audio/bin/python                                   # 109：要 numpy（出图另要 matplotlib）
+$PY tools/render/calibrate_house.py render-live <工作目录> <celadon_render> -j 12 --tag default                 # 各首的 House 子类（4/4 型）
+$PY tools/render/calibrate_house.py render-live <工作目录> <celadon_render> -j 12 --tag general --genre general # 通用档（响度型）
+$PY tools/render/calibrate_house.py analyze-live <工作目录> --auto-labels labels-auto.tsv --labels labels-override.tsv \
+    --tags default,general --out <汇总.md> [--figures <图目录>]
+$PY tools/render/calibrate_house.py prep-synthetic <合成曲工作目录>    # 合成 House 两首，段落标签取自标注（之后照上面两步）
+```
+
+- **工作目录**同 T-038：`manifest.tsv`（class、track、bpm …）与 `<类>/<曲>/<曲>.wav`（起点已裁到小节线）。109 上 Jamendo 45 首在 `~/.cache/celadon-t048-cal/`。
+- `render-live`：逐首跑最快的追踪（`--glaze 0 --live-trace --live-only --segments-csv`，曲风 `auto` = 各首自己的子类 deep / tech / melodic，`general` = 一律
+  通用档），`--live-constants` / `--live-model` 原样交给 celadon_render；`-j` 并行首数。输出 `<工作目录>/live/<标签>/`：`traces/`（追踪与 `__final.csv`）、
+  `segments/`（输入端逐小节统计，drop 响度的口径要它）、`logs/`、`run.tsv`（日期、渲染工具与它的 sha256、参数）。同一标签重跑先清掉上一次的。
+- `analyze-live`：标签是 T-038 的（逐小节自动标签 + 人工改标；整首 exclude 的不计，交界前后各 1 小节不计）。每个标签写 `live/<标签>/` 下的
+  `analysis.md`（汇总与规格第 7 节门槛对照、各段落 m 的分布、逐首表、超限的 breakdown）、`tracks.csv`（逐首）、`bars.csv`（逐小节：手里的 I、误差、m、c）、
+  `breakdowns.csv`（逐段 breakdown）；`--out` 写几个标签并排的汇总；`--figures` 每页 3 首出 I / m / c 的轨迹图。
+- **指标**（精确定义在 `calibrate_house.py` 的 `live_track_metrics` 文档串与 REPORT-C 第 3 节）：M1 最终 I 与人工标的 drop 响度之差；M2 第 16 小节起逐小节
+  |手里的 I − drop 响度| 的逐首中位（汇总中位 ≤ 0.3、P90 ≤ 1.0 LU），另给从第一个 drop + 4 小节起的同一指标；M3 每段 breakdown 里 I 的最大漂移（≤ 0.5 LU）；
+  M4 第一个 drop 4 小节后与最终值之差（≤ 1 LU）及达到并保持 ±1 LU 所需的小节数；另给各段落 m ≥ 0.5 的占比、换歌软遗忘与无主段时间衰减的触发次数、
+  c 到 0.8 所需的有效时长。
+
+### 自检（`--selftest-live`）
+
+合成 House 曲（124 BPM、48 kHz：8 小节鼓前奏 → 12 小节 drop → 8 小节 breakdown → 8 小节 drop，最后一段 drop 再多放 0.4 小节就截断——歌尾不留静音），
+Deep House、GLAZE 0、块长 512、出厂常数，走真歌同一套第一遍：
+
+| 项 | 期望 |
+|---|---|
+| `--live-constants` 解析 / 拒收坏值 | 改到 5 个字段（含 inf / -inf）、其余保持出厂值、键表 35 个键；10 种坏写法都报错 |
+| 追踪选项的命令行约定 | 单独 `--live-only`、改常数不给标签、标签 `../x` 都报错；完整的一组解析对 |
+| 段首尾相接 | 第一段从 0 起、相邻两段首尾相接、最后一段止于音频末尾（finish 交出了歌尾）；没有读提交落后、没有配不上 |
+| 按小节对齐 | 36 小节 + 1 段尾巴，每段起止与工具的小节网格逐样本相同 |
+| 从第 N 小节起播的小节号 | 从第 9 小节起播：小节号按歌曲数（第一段整段在第 9 小节、最后一段在第 37 小节），段起点离网格 ≤ 1 样本 |
+| I 有效、段落门 | 每段之后 I 都有效；breakdown 里 m ≥ 0.5 的 0 小节、第二段 drop 里 m < 0.5 的 0 小节 |
+| 块长 512 / 4096 / 480 | 追踪逐字节相同、位级摘要相同 |
+| 收尾补块（对照） | 不补 0 样本块时块长 4096 与 512 的追踪不同、且只差最后一两段（证明上一项考得到收尾补块） |
+| 与 GLAZE、风格无关 | GLAZE 70 温润与 GLAZE 0 的追踪逐字节相同；接不接追踪，第一遍存下的 GLAZE 状态逐字相同 |
+| 追踪不改链的输出 | GLAZE 70 第二遍接不接追踪，成品哈希相同（另打印「信息」：第二遍追踪与第一遍有多少段相同、第一处差在哪些列） |
+| 主段模型 / 常数穿到画像 | 通用档（响度型）段数相同、摘要不同；`fourOnFloor.confidenceBars=64` 时最终 c 比出厂更低 |
 
 ## 盲听
 

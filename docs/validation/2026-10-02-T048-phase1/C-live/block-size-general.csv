@@ -1,0 +1,17 @@
+track,rows,different_rows,first_sequence,first_bar,columns,max_d_i_lu,max_d_mainness,max_d_confidence,final_other_lines
+track_0107869__general,156,2,148,149,low_share,0.0000,0.00000,0.00000,0
+track_0155328__general,172,0,,,只差位级摘要,0.0000,0.00000,0.00000,0
+track_0200569__general,86,1,31,32,low_share,0.0000,0.00000,0.00000,0
+track_0241941__general,212,1,205,206,low_share,0.0000,0.00000,0.00000,0
+track_0268597__general,231,34,9,10,low_reference;low_reference_after;low_share;profile_low_share;slope_db_per_oct,0.0000,0.00000,0.00000,1
+track_0388822__general,210,60,17,18,low_share;profile_low_share;slope_db_per_oct,0.0000,0.00000,0.00000,0
+track_0395469__general,181,11,35,36,low_share;profile_low_share;slope_db_per_oct,0.0000,0.00000,0.00000,1
+track_0743013__general,133,2,115,116,low_share;profile_low_share,0.0000,0.00000,0.00000,0
+track_0769505__general,208,9,150,151,low_share;profile_high_share;profile_low_share;slope_db_per_oct,0.0000,0.00000,0.00000,0
+track_0889219__general,212,0,,,只差位级摘要,0.0000,0.00000,0.00000,0
+track_0921855__general,150,1,140,141,low_share,0.0000,0.00000,0.00000,0
+track_0944904__general,121,2,46,47,low_share;slope_db_per_oct,0.0000,0.00000,0.00000,0
+track_0966855__general,167,5,35,36,low_share;profile_high_share,0.0000,0.00000,0.00000,0
+track_1091136__general,155,6,20,21,low_share;profile_low_share,0.0000,0.00000,0.00000,0
+track_1123057__general,172,6,30,31,low_share;slope_db_per_oct,0.0000,0.00000,0.00000,2
+# 逐字节相同（追踪与去掉 tag 的汇总）：30 / 45
