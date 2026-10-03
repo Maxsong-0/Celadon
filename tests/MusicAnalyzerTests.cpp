@@ -4018,6 +4018,9 @@ namespace celadon::test
             testAdvanceToTimeline();
             testTurningOffKeepsLastFrames();
             testStartFromBarN();
+
+            // 第「七」节 ⑥（Max 2026-10-03「持续偏轻就加快遗忘」）
+            testQuietProgramReleasesGates();
         }
 
     private:
@@ -5075,6 +5078,83 @@ namespace celadon::test
                     else
                         expect (sameSegments (reference, s), tag + " vs 512");
                 }
+            }
+        }
+
+        //==============================================================================
+        // 第「七」节 ⑥（Max 2026-10-03「持续偏轻就加快遗忘」）：合成 House 前 60 s 原样，之后整段压低 28 dB（像同一实例换成一首轻得多的歌，
+        // 绝对门挡不住、相对门挡住）。实时段落账：换了之后头 20 s 的小节一个有效子块都没有（还没满 liveGateQuietSeconds；阳性对照：新素材
+        // 确实在相对门之下——用最稳的子块门判，帧门与起音门在底鼓上可能漏过几帧）；之后加快遗忘，换了 65 s 之后的整小节三道门都已放开：
+        // 帧、有效子块、有效起音样本都不少于前面响的 drop 小节的 90 %。没有 ⑥ 时按 180 s 遗忘，子块门要约 13 分钟才放开，这一项考得到。
+        // 块长 512 与 4096 交来的段逐字段相同（⑥ 也只看各路自己的数据）。
+        void testQuietProgramReleasesGates()
+        {
+            beginTest ("live gates: a program 28 dB quieter stays gated for the first 20 s, then forgetting speeds up and all three gates open within 65 s");
+
+            auto track = makeHouseTrack (48000.0, 4, 80, 0.0, 98);   // 4 小节鼓前奏 + 80 小节 drop ≈ 162.6 s
+            const auto switchAt = samplesAt (60.0);
+
+            for (auto& channel : track)
+                for (size_t i = (size_t) switchAt; i < channel.size(); ++i)
+                    channel[i] *= (float) juce::Decibels::decibelsToGain (-28.0);
+
+            std::vector<SegmentLedger::Segment> reference;
+
+            for (const auto blockSize : { 512, 4096 })
+            {
+                const auto collector = runLive (track, blockSize, glaze::Genre::general, 0, {});
+                const auto& segments = collector->segments;
+                const auto tag = "block " + juce::String (blockSize);
+                const auto whole = [] (const SegmentLedger::Segment& s) { return s.end - s.start == s.nominalLength; };
+
+                // 响的 drop 小节（前奏之后、换之前）各道门放过的量取最小值，作「全放开」的基准。
+                std::int64_t loudFrames = std::numeric_limits<std::int64_t>::max(), loudOnset = loudFrames;
+                int loudSubBlocks = std::numeric_limits<int>::max(), loudSegments = 0;
+
+                for (const auto& s : segments)
+                {
+                    if (whole (s) && s.start >= samplesAt (12.0) && s.end <= switchAt)
+                    {
+                        ++loudSegments;
+                        loudFrames = juce::jmin (loudFrames, s.frames);
+                        loudOnset = juce::jmin (loudOnset, s.onsetEffectiveSamples);
+                        loudSubBlocks = juce::jmin (loudSubBlocks, s.effectiveSubBlocks);
+                    }
+                }
+
+                expect (loudSegments >= 20 && loudFrames > 0 && loudOnset > 0 && loudSubBlocks > 0, tag + ": the loud bars pass all three gates");
+
+                int heldSegments = 0, heldOpen = 0, laterSegments = 0, laterClosed = 0;
+
+                for (const auto& s : segments)
+                {
+                    if (s.start >= switchAt + samplesAt (2.0) && s.end <= switchAt + samplesAt (18.0))
+                    {
+                        ++heldSegments;
+                        heldOpen += s.effectiveSubBlocks > 0 ? 1 : 0;
+                    }
+                    else if (whole (s) && s.start >= switchAt + samplesAt (65.0))
+                    {
+                        ++laterSegments;
+                        const auto open = s.frames * 10 >= loudFrames * 9 && s.onsetEffectiveSamples * 10 >= loudOnset * 9
+                                          && s.effectiveSubBlocks * 10 >= loudSubBlocks * 9;
+                        laterClosed += open ? 0 : 1;
+                    }
+                }
+
+                expect (heldSegments >= 6 && heldOpen == 0, tag + ": the first 20 s after the switch stay gated (" + juce::String (heldOpen) + " of "
+                                                                + juce::String (heldSegments) + " bars have effective sub-blocks)");
+                expect (laterSegments >= 15 && laterClosed == 0, tag + ": 65 s after the switch all three gates are open (" + juce::String (laterClosed)
+                                                                    + " of " + juce::String (laterSegments) + " bars pass less than 90 % of a loud bar)");
+
+                if (reference.empty())
+                {
+                    reference = segments;
+                    continue;
+                }
+
+                juce::String where;
+                expect (sameLiveSegments (reference, segments, where), tag + " vs 512: " + where);
             }
         }
     };

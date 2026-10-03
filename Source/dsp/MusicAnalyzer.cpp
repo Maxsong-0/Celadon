@@ -341,7 +341,16 @@ namespace celadon::glaze
         //       ④ 按进来的音频遗忘：每并进一项，旧的全部乘 exp(−这一项的时长 ÷ liveGateMemorySeconds)。静音不推进遗忘（参考不会在
         //          歌间停顿里漂走）；换成一首轻得多的歌，参考按它的有效时长跟过去。时间常数取 180 s：参考代表「这首歌的主体」，不随
         //          一两个段落起落（32 小节的 breakdown 只把帧均值拉低约 1.4 dB，离 20 dB 的门很远），与实时画像参考域的遗忘同量级；
-        //       ⑤ 参考随实时段落账一起清（打开实时模式、reset、prepare），不在不连续点清（跳播、回绕还是同一首歌）。
+        //       ⑤ 参考随实时段落账一起清（打开实时模式、reset、prepare），不在不连续点清（跳播、回绕还是同一首歌）；
+        //       ⑥ 持续偏轻就加快遗忘（Max 2026-10-03）：④ 的 180 s 让换成轻 20 dB 以上的素材（同一实例换成一首轻得多的歌、长时间 solo 一条
+        //          很轻的轨）要 5～13 分钟才过门（按功率平均：轻 28 dB 时帧门约 1.85 τ、子块门约 4.25 τ），这期间实时画像认不出新素材。
+        //          每一路各自净计「有声（绝对门之上、并进参考的项）却没过相对门」比「过了相对门」多出的时长：没过门的项加、过门的项减，
+        //          夹在 0 与 liveGateQuietSeconds 之间，静音不计。到顶时没过门的项按 liveGateFastMemorySeconds 遗忘着并进，过门的项照旧按 ④。
+        //          净计而不是「过门就清零」：轻下来的新素材里底鼓之类的瞬态会先过门，清零会让加快一拍一断、永远加不上去；多数项都过门之后
+        //          净计自然回落、回到平时的遗忘。估算（之前响了 1～5 分钟、新素材轻 28 dB）：帧门约 40～45 s、子块门约 50～60 s 之后放开
+        //          （子块门慢：实时 I 自带 −10 LU 相对门，旧的响素材的权重要降到新素材的
+        //          约 1.5 % 以下，新素材的门块才进得了积分）；快遗忘取 10 s 时子块门要 75～90 s。普通 breakdown 只比主体轻 10 LU 左右、
+        //          过得了相对门，碰不到这条；每一路只看自己的数据，与宿主切块无关（同 ①）。
         //     House 门控那一份照旧用学习区间的参考（House 画像逐位不变）。实时帧门不再蕴含学习口径的帧门，所以一帧的频谱证据只算一次
         //     （computeEvidence），按各自的门分给各收方：学习区间、短期视图与 House 段照旧在学习口径的帧门之上才收，实时段在实时帧门之上才收。
         //   - 先试后用：实时模式开着时候选一直跑；实时口径有效的块进 live*，其中学习口径有效、交齐时还在学习的块同时进 trial*（第「五」节）。
@@ -363,6 +372,8 @@ namespace celadon::glaze
         //     再就地定稿：通用画像、House 账与短期视图一个不碰——它们下一块开头照常收这些帧，编排器看到的与没开过实时模式逐位相同。
         //   - 宿主走带信息只按 SegmentLedger 现有的规则用（小节锚定、位置分格），不另加按走带触发的逻辑。
         constexpr double liveGateMemorySeconds = 180.0;   // 实时段落账三道相对门参考的遗忘时间常数（按进来的音频计，见上 ④）
+        constexpr double liveGateQuietSeconds = 20.0;     // 有声却没过相对门比过了门净多出这么久，就加快遗忘（见上 ⑥；同实时画像换歌判定的 20 s）
+        constexpr double liveGateFastMemorySeconds = 5.0;    // 加快之后的遗忘时间常数（见上 ⑥：轻 28 dB 的新素材约 1 分钟内过门）
 
         //==============================================================================
         double energyToLufs (double meanSquare) noexcept
@@ -436,11 +447,36 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // 第「七」节：实时段落账三道相对门的参考（口径 ①～⑤ 见本文件开头第「七」节）。retain = exp(−这一项的时长 ÷ liveGateMemorySeconds)。
-        double liveRetainFor (double itemSeconds) noexcept
+        // 第「七」节：实时段落账三道相对门的参考（口径 ①～⑥ 见本文件开头第「七」节）。
+        // 一路参考的遗忘（④⑥）：平时每并进一项，旧值乘 exp(−项长 ÷ liveGateMemorySeconds)；「没过相对门」比「过了」净多出 liveGateQuietSeconds
+        // 之后，没过门的项改乘 exp(−项长 ÷ liveGateFastMemorySeconds)。项长随这一路定（帧 = hop、门块 = 子块长、组 = 组长）。
+        struct LiveForgetting
         {
-            return std::exp (-itemSeconds / liveGateMemorySeconds);
-        }
+            double itemSeconds = 0.0, retain = 1.0, fastRetain = 1.0;   // 随项长定（setItemSeconds）
+            double quietSeconds = 0.0;                                   // 没过门比过了门净多出的有声时长，夹在 [0, liveGateQuietSeconds]（随参考一起清）
+
+            void setItemSeconds (double seconds) noexcept
+            {
+                itemSeconds = seconds;
+                retain = std::exp (-seconds / liveGateMemorySeconds);
+                fastRetain = std::exp (-seconds / liveGateFastMemorySeconds);
+            }
+
+            void clear() noexcept   { quietSeconds = 0.0; }
+
+            // 一项要并进参考的项判完门之后调（passes = 过了相对门；还没有参考时算过）：更新净计，返回并进它时旧值的保留系数。
+            double retainFor (bool passes) noexcept
+            {
+                if (passes)
+                {
+                    quietSeconds = juce::jmax (0.0, quietSeconds - itemSeconds);
+                    return retain;
+                }
+
+                quietSeconds = juce::jmin (liveGateQuietSeconds, quietSeconds + itemSeconds);
+                return quietSeconds >= liveGateQuietSeconds ? fastRetain : retain;
+            }
+        };
 
         // 按进来的项遗忘的长期均值（帧门：帧总功率；起音组有效门：组平均功率）。运行均值起步：第一项之后均值就是它自己。
         // weight ≥ 1、sum ≥ 绝对门 × weight（只并绝对门之上的项），不会成为次正规数。
@@ -553,7 +589,6 @@ namespace celadon::glaze
         double liveFastLowRetain = 0.0;     // 低频相关度快路 120 ms 平滑的每帧保留系数
         int liveStereoSettleFrames = 1;     // 重启后平滑满 300 ms 所需的帧数
         int liveFastSettleFrames = 1;       // 重启后快路平滑满 120 ms 所需的帧数
-        double liveFrameRetain = 1.0;       // 第「七」节：实时帧均值每并进一帧旧值的保留系数（按 hop）
 
         //==============================================================================
         // 时间轴：IN 表的累计样本数
@@ -812,11 +847,12 @@ namespace celadon::glaze
         SegmentSink* liveSink = nullptr;          // 只存指针、不拥有（setSegmentSink；在处理之前设）
         bool liveEpochFed = false;                // 上一次断开 / 清空之后实时段落账收过一块数据（没收过的断开什么都不截，第「七」节「断开」）
 
-        // 三道相对门的参考（第「七」节 ①～⑤）：与学习无关，随实时段落账一起清。
+        // 三道相对门的参考（第「七」节 ①～⑥）：与学习无关，随实时段落账一起清。
         LiveMean liveFrameReference;              // 帧门：绝对门之上的帧总功率
         LiveIntegral liveLoudnessReference;       // 子块有效门：绝对门之上的 400 ms 门块（实时 I）
         LiveMean liveOnsetReference;              // 起音组有效门：慢包络在绝对门之上的组的平均功率
-        double liveSubBlockRetain = 1.0, liveGroupRetain = 1.0;   // 每并进一个门块 / 一组旧值的保留系数（帧的在帧流常数里）
+        // 三路各自的遗忘（④⑥）：项长随帧流的 hop / 表的子块长 / 组长定（变了重设，连续偏轻的时长不清），连续偏轻的时长随参考一起清。
+        LiveForgetting liveFrameForgetting, liveSubBlockForgetting, liveGroupForgetting;
 
         // 第「七」节「时间轴与 advanceTo」：把实时段落账交来的段换到单调的实时时间轴上再交给接收者，并报 advanceTo。
         struct LiveAxis final : SegmentSink
@@ -879,8 +915,8 @@ namespace celadon::glaze
             rearmRatio = std::pow (10.0, onsetRearmDb * 0.1);
 
             // 第「七」节：实时参考每并进一组 / 一个门块（子块长随表，变了在 processInput 里重算）旧值的保留系数。
-            liveGroupRetain = liveRetainFor (groupSeconds);
-            liveSubBlockRetain = liveRetainFor ((double) subBlockLength / sampleRate);
+            liveGroupForgetting.setItemSeconds (groupSeconds);
+            liveSubBlockForgetting.setItemSeconds ((double) subBlockLength / sampleRate);
 
             // 修坯 Clay 的真次声低通（截止频率封顶 0.45 fs 只防病态采样率；正常采样率下恒为 16 Hz）。
             const auto subFrequency = juce::jmin (subCutoffHz, 0.45 * sampleRate);
@@ -938,7 +974,7 @@ namespace celadon::glaze
             liveFastLowRetain = std::exp (-hopSeconds / liveFastLowSeconds);
             liveStereoSettleFrames = juce::jmax (1, (int) std::ceil (liveStereoSeconds / hopSeconds));
             liveFastSettleFrames = juce::jmax (1, (int) std::ceil (liveFastLowSeconds / hopSeconds));
-            liveFrameRetain = liveRetainFor (hopSeconds);
+            liveFrameForgetting.setItemSeconds (hopSeconds);
         }
 
         //==============================================================================
@@ -1139,7 +1175,7 @@ namespace celadon::glaze
                 subBlockLength = juce::jmax (1, meter.getSubBlockLength());
                 ledger.setSubBlockLength (subBlockLength);   // House 档段落账的「有效时长」按它折算（只存一个数）
                 liveLedger.setSubBlockLength (subBlockLength);   // 实时段落账同理（没分配时也只存一个数）
-                liveSubBlockRetain = liveRetainFor ((double) subBlockLength / sampleRate);
+                liveSubBlockForgetting.setItemSeconds ((double) subBlockLength / sampleRate);
                 beginDiscontinuity (blockStart);
             }
 
@@ -1348,7 +1384,7 @@ namespace celadon::glaze
 
                 if (windowCount >= gatingSubBlocks && subBlock.endSample - gatingSubBlocks * length >= liveLedger.getAcceptFrom()
                     && gatingLufs >= absoluteGateLufs)
-                    liveLoudnessReference.add (gatingPower, gatingLufs, liveSubBlockRetain);
+                    liveLoudnessReference.add (gatingPower, gatingLufs, liveSubBlockForgetting.retainFor (liveEffective));
             }
 
             if (! learning)
@@ -2104,7 +2140,7 @@ namespace celadon::glaze
             music = audible && (! liveFrameReference.valid() || step.total >= frameRelativeGateRatio * liveFrameReference.mean());
 
             if (audible && step.windowStart >= liveLedger.getAcceptFrom())
-                liveFrameReference.add (step.total, liveFrameRetain);
+                liveFrameReference.add (step.total, liveFrameForgetting.retainFor (music));
 
             if (segment != nullptr)
             {
@@ -3728,6 +3764,9 @@ namespace celadon::glaze
             liveFrameReference.clear();
             liveLoudnessReference.clear();
             liveOnsetReference.clear();
+            liveFrameForgetting.clear();
+            liveSubBlockForgetting.clear();
+            liveGroupForgetting.clear();
         }
 
         // 在 at 处断开：开着的段截到此刻（now：数据只送到这里，此刻之后的块归新段），就地定稿交给接收者，下一块重新锚定——
@@ -3766,7 +3805,7 @@ namespace celadon::glaze
                                             || slow >= onsetEffectiveRelativeRatio * liveOnsetReference.mean());
 
             if (audible && groupStart >= liveLedger.getAcceptFrom())
-                liveOnsetReference.add (meanPower, liveGroupRetain);
+                liveOnsetReference.add (meanPower, liveGroupForgetting.retainFor (passes));
 
             return passes;
         }
