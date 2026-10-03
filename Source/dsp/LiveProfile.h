@@ -30,16 +30,16 @@
       误差估计写在 .cpp 文件头。
 
     二、时间：回看重算按绝对样本网格分片，按确定的时刻发布
-      - 分析器每处理完一块调 advanceTo（报告它的时间轴走到哪里；渲染工具与测试台在分析器接上之前自己调）。
+      - 分析器每处理完一块调 advanceTo，报实时段落账**交齐的位置** T：end ≤ T 的段都已交出、之后交来的段 end > T（SegmentLedger.h
+        SegmentSink::advanceTo、MusicAnalyzer.h「时间轴与 advanceTo」）。渲染工具与测试台不另报。
       - 网格点 = sliceGridSeconds 的整数倍（绝对样本，与宿主块长无关）；每个网格点最多做一片重算（估计 ≤ sliceBudgetNanoseconds）。
       - 第 k 段的画像在 D_k = max(段尾 + publishDelaySeconds, D_{k−1}) 这一刻发布：advanceTo 报告的时间 ≥ D_k 时，先把第 k 段那一遍
         重算做完（来不及的就在这次调用里补完——大块、离线、成批交段），再发布。getProfile / getDiagnostics / readCommits / readJudgements
         只读已发布的那一份。
       - 所以已发布的画像只取决于段序列与 advanceTo 报告的时间：内容 = 前 k 段的纯函数（与分片怎么切、advanceTo 调了几次、宿主块多长
-        都无关）；时刻 = D_k。前提：段在 D_k 之前交来（分析器的定稿延迟 = 先试后用的块交齐约 0.1 s + 候选延迟 + 帧晚一块，远小于 0.5 s）；
-        晚于 D_k 才交来的段在它交来后的第一次 advanceTo 发布（内容不变，只是看得见得晚）。
-      - advanceTo 的时间只增不减：比上一次早或相同的调用什么都不做（分析器 processInput 与 processSpectrum 末尾各调一次，
-        与工具 / 测试台的调用叠加也无妨）。
+        都无关）；时刻 = D_k。前提：段在 D_k 之前交来——分析器报的是交齐位置，T ≥ D_k > 段尾时这一段必已交来，所以由分析器驱动时
+        前提恒成立；别的调用方报得比交齐位置早到 D_k 之后，晚于 D_k 才交来的段在它交来后的第一次 advanceTo 发布（内容不变，只是看得见得晚）。
+      - advanceTo 的时间只增不减：比上一次早或相同的调用什么都不做（分析器 processInput 与 processSpectrum 末尾各调一次）。
       - 交来的段超过 queueCapacity 段还没发布（调用方一直不调 advanceTo）：segmentFinalized 就地把最早那一段算完并立刻发布（内容不变，
         时刻提前）——只是防误用的退路，正常使用碰不到。
 
@@ -246,7 +246,7 @@ namespace celadon::glaze
         // SegmentSink：分析器每定稿一段调一次。只入队（O(1)）；进账与重算在 advanceTo 的分片里。
         void segmentFinalized (const SegmentLedger::Segment& segment) noexcept override;
 
-        // SegmentSink：分析器时间轴走到了 analyzerTime（样本）。做到期的网格点上的分片、发布到期的画像（文件头第二节）。
+        // SegmentSink：实时段落账交齐到了 analyzerTime（样本，end 不晚于它的段都已交来）。做到期的网格点上的分片、发布到期的画像（文件头第二节）。
         void advanceTo (std::int64_t analyzerTime) noexcept override;
 
         // 流结束（离线渲染的歌尾、测试）：把已交来、还没发布的段全部算完并按序发布（提交记录照记各自的发布时刻 D；时间轴不动）。

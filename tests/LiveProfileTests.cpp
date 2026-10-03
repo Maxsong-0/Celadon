@@ -433,7 +433,7 @@ namespace celadon::test
 
         //==============================================================================
         // 分析器测试台（与链里的顺序相同：IN 表 → processInput → Balance → processSpectrum），宿主给恒定 124 BPM 的拍点。
-        // live ≠ nullptr 时每块之后调 live->advanceTo（分析器这一侧还不调；B2 接上之后两边都调也无妨——结果与调用次数无关，用例 f 证明）。
+        // 时间轴只由分析器报（processInput / processSpectrum 末尾的 advanceTo = 实时段落账交齐的位置），测试台不报——整链用例考的就是这一条路。
         struct AnalyzerRig
         {
             LoudnessMeter meter;
@@ -469,7 +469,7 @@ namespace celadon::test
                 return info;
             }
 
-            void feed (const Signal& input, int blockSize, LiveProfile* live = nullptr)
+            void feed (const Signal& input, int blockSize)
             {
                 const auto numSamples = (int) input.front().size();
                 juce::AudioBuffer<float> block (2, blockSize);
@@ -488,9 +488,6 @@ namespace celadon::test
                     balance.process (block);
                     analyzer.processSpectrum (balance);
                     fed += length;
-
-                    if (live != nullptr)
-                        live->advanceTo (fed);
                 }
             }
         };
@@ -1841,7 +1838,7 @@ namespace celadon::test
         }
 
         // f. 整条串起来：分析器实时模式 → 实时段落账 → SegmentSink → LiveProfile，宿主块长 4096 / 512 / 480 / 32 / 7 下每一份发布（提交记录、
-        // 画像、诊断）与最终状态（经 createStateXml）逐位相同。测试台每块之后调 advanceTo（分析器这一侧阶段 1 还不调）。
+        // 画像、诊断）与最终状态（经 createStateXml）逐位相同。时间轴只由分析器报（交齐位置），测试台不报。
         void testAnalyzerToProfileBlockSizes()
         {
             beginTest ("analyzer live mode -> live ledger -> sink -> LiveProfile: every publication is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7");
@@ -1860,7 +1857,7 @@ namespace celadon::test
                 rig.analyzer.setGenre (glaze::Genre::deepHouse);
                 rig.analyzer.setSegmentSink (&live);
                 rig.analyzer.setLiveMode (true);
-                rig.feed (track, blockSize, &live);
+                rig.feed (track, blockSize);
                 live.flush();
 
                 const auto state = live.createStateXml()->toString();

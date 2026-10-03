@@ -1581,13 +1581,13 @@ namespace
     // 第 7 节「因果重放验收」，T-048 阶段 1 BRIEF 第 3 节）。不给这些选项时下面的东西一样都不跑：链、表、文件名与改动前逐字节相同。
     //
     // 每一遍新建的链（聆听 / 成品 / 重放）prepare 之后接一个 LiveTraceSink：分析器打开实时模式，实时段落账每定稿一段就交给它，它入队交给
-    // 实时画像 LiveProfile（T-048 阶段 1 修订「回看重判」：每来一段按此刻的参考把窗口里的段全部重判一遍）。每处理完一块，追踪器把这一遍的
-    // 分析器时间（送进链的样本数）报给接收者（advanceTo；分析器这一侧阶段 1 还不报，B2 接上之后两边都报也无妨——结果与调用次数无关）。
+    // 实时画像 LiveProfile（T-048 阶段 1 修订「回看重判」：每来一段按此刻的参考把窗口里的段全部重判一遍）。分析器每块报实时段落账交齐的
+    // 位置（advanceTo，MusicAnalyzer.h「时间轴与 advanceTo」），接收者转给 LiveProfile；追踪器自己不报时间。
     // LiveProfile 在「段尾 + 发布延迟」这一刻发布那一段的画像，并回调接收者（PublicationListener）：接收者把这一份画像与诊断整份拷进定长
     // 环形缓冲（音频线程上被调：只做定长拷贝，不分配、不加锁）。主线程每处理完一块用 readCommits 读新提交，按序号与快照配对，写成 CSV
-    // 一行（LiveTracer）。一次 advanceTo 可能发布好几份（大块、补完欠的片），每一份都有自己的快照，所以追踪与宿主块长无关。一遍结束时先补
-    // 一个 0 样本的块（把最后一块的 Balance 帧交给分析器，见 LiveTracer::finish），再关实时模式交出歌尾，最后 flush（还没到发布时刻的段
-    // 按序发布完，各行仍记各自的发布时刻）。
+    // 一行（LiveTracer）。一次 advanceTo 可能发布好几份（大块、补完欠的片），每一份都有自己的快照，所以追踪与宿主块长无关。一遍结束时关实时
+    // 模式（链把最后一块还在 Balance 里的帧补交给实时段落账，再交出歌尾，见 LiveTracer::finish），最后 flush（还没到发布时刻的段按序发布完，
+    // 各行仍记各自的发布时刻）。
     //
     // 实时画像只看输入（与 GLAZE、风格、修坯、交付无关），所以同一首歌、同一曲风、同一聆听起点、同一组常数只写一份：第一次跑到的那一遍
     // 聆听（第一遍）写成 live/<标签>/<歌名>__<曲风>[_from-b<N>].csv 与 __final.csv；之后的各遍照样追踪、只与写下的那份逐行比较，结论写进
@@ -1901,19 +1901,18 @@ namespace
         bool mismatch = false;   // 提交记录与快照配不上（序号、I 或段的到达信息不一致，不该发生）：追踪不可信
     };
 
-    // 一遍的追踪：prepare 之后 attach，每处理完一块 afterBlock（报分析器时间、读新提交、写行），最后 finish（补交最后一块的帧、交出开着的段、
-    // 发布完、再读一次、记下最终画像与判断）。flushOnFinish = false 只给自检的对照用（证明 finish 的补块真有用，见 runLiveSelfTest「收尾补块」）。
+    // 一遍的追踪：prepare 之后 attach，每处理完一块 afterBlock（读新提交、写行），最后 finish（关实时模式交出最后一块的帧与开着的段、
+    // 发布完、再读一次、记下最终画像与判断）。时间轴只由分析器报（advanceTo = 实时段落账交齐的位置，MusicAnalyzer.h「时间轴与 advanceTo」），
+    // 追踪器自己不报：报「送进链的样本数」会走在交齐位置前面，段就可能晚于自己的发布时刻才到。
     class LiveTracer
     {
     public:
         LiveTracer (double sampleRateToUse, const celadon::glaze::LiveConstants& constants, celadon::glaze::MainSectionModel model,
-                    const Transport& transportToUse, bool flushOnFinishToUse = true)
+                    const Transport& transportToUse)
             : sink (std::make_unique<LiveTraceSink> (sampleRateToUse, constants, model)),
               sampleRate (sampleRateToUse),
-              transport (transportToUse),
               grid (makeSegmentGrid (transportToUse, sampleRateToUse)),
-              buffer (static_cast<std::size_t> (LiveTraceSink::capacity)),
-              flushOnFinish (flushOnFinishToUse)
+              buffer (static_cast<std::size_t> (LiveTraceSink::capacity))
         {
         }
 
@@ -1922,36 +1921,21 @@ namespace
         void attach (celadon::CeladonChain& chain, std::int64_t passStartSample = 0)
         {
             passStart = passStartSample;
-            analyzerTime = 0;
             chain.setLiveSegmentSink (sink.get());
         }
 
-        // 每处理完一块（length 个样本）：分析器时间轴 = 这一遍送进链的样本数（分析器按 IN 表的累计样本数记时，新链从 0 起）。
-        void afterBlock (int length)
+        // 每处理完一块：这一块里分析器报过的交齐位置可能已经让实时画像发布了几份，读出来写行。
+        void afterBlock()
         {
-            analyzerTime += length;
-            sink->advanceTo (analyzerTime);
             collect();
         }
 
-        // 收尾（这一遍要读的状态都读完之后调：存档、成品、指标与不追踪时取自同一时刻）。先补一个 0 样本的块，再关实时模式——分析器把
-        // 开着的段（歌尾那一截）就地定稿交给接收者——之后链不再引用接收者。
-        // 为什么补块：链在「下一块」开头才把上一块的 Balance 帧交给分析器（CeladonChain::process 第一行 analyzeSpectrum），离线流在最后
-        // 一块之后就停了，最后一块的帧没人交：歌尾一两段的频谱证据（低频占比、27 段电平……）少了最后一块的帧，少多少随块长变（真歌实测：
-        // 块长 4096 与 512 的倒数第二段 lowShare 差 0.0005；自检的合成曲原来歌尾留 1 s 静音，帧在帧门之下，没考到——现在歌尾不留静音，
-        // 见 makeLiveTestTrack 与自检「收尾补块」）。0 样本的块宿主也会调（CeladonChain::process 与各模块都按 0 样本处理）：不加任何音频，
-        // 宿主时间线接在流的末尾（endPosition），参数与最后一块相同，只让链把待交的帧交出去（返回的「有非有限值」不看：0 个样本）。
-        void finish (celadon::CeladonChain& chain, std::int64_t endPosition, const celadon::ChainParams& params)
+        // 收尾（这一遍要读的状态都读完之后调：存档、成品、指标与不追踪时取自同一时刻）。关实时模式：链把最后一块还在 Balance 里的帧
+        // 只交给实时段落账（CeladonChain::setLiveSegmentSink 带上自己的 balance；链在「下一块」开头才交上一块的帧，离线流没有下一块），
+        // 再把开着的段（歌尾那一截）就地定稿交给接收者、报到此刻——之后链不再引用接收者。T-048 阶段 1 修订 B2 之前这里要先补一个
+        // 0 样本的块，否则歌尾一两段少了最后一块的帧、随块长变（MusicAnalyzerLive 用例 5d 对照两种做法逐字段相同）。
+        void finish (celadon::CeladonChain& chain)
         {
-            if (flushOnFinish)
-            {
-                juce::AudioBuffer<float> empty (2, 0);
-                chain.setHostInfo (makeHostInfo (endPosition, transport));
-                chain.setParams (params, false);
-                chain.process (empty);
-                collect();
-            }
-
             chain.setLiveSegmentSink (nullptr);
             sink->flush();
             collect();
@@ -2004,14 +1988,11 @@ namespace
 
         std::unique_ptr<LiveTraceSink> sink;
         double sampleRate = 48000.0;
-        Transport transport;
         SegmentGrid grid;
         std::vector<celadon::glaze::LiveCommitRecord> buffer;
         std::uint64_t cursor = 0;
         LiveTraceResult result;
-        bool flushOnFinish = true;
         std::int64_t passStart = 0;
-        std::int64_t analyzerTime = 0;
     };
 
     // 没有 --live-trace 时为空（各遍照旧不接追踪）。
@@ -2091,7 +2072,7 @@ namespace
                 ++result.nonFiniteBlocks;
 
             if (live != nullptr)
-                live->afterBlock (length);
+                live->afterBlock();
 
             if (trace)
             {
@@ -2110,9 +2091,8 @@ namespace
         result.committed = chain->getGlazeController().getCommittedStateForTesting();
 
         // 追踪最后收尾（补交最后一块的帧、交出歌尾那一截段）：放在读完状态之后，存下的状态与不追踪时一样取自同一时刻。
-        // 补的 0 样本块接在流的末尾：送过样本就是歌尾，一块都没送（起播点已超出歌尾）就是起播点。
         if (live != nullptr)
-            live->finish (*chain, std::max (std::max (0, startSample), numSamples), params);
+            live->finish (*chain);
 
         return result;
     }
@@ -2316,7 +2296,7 @@ namespace
                 ++result.nonFiniteBlocks;
 
             if (live != nullptr)
-                live->afterBlock (length);
+                live->afterBlock();
 
             if (chain->getLatencySamples() != latency)
                 result.latencyChanged = true;
@@ -2393,7 +2373,7 @@ namespace
         result.guardLimits = finalProbe.guardLimits;
 
         if (live != nullptr)
-            live->finish (*chain, total, params);   // 读完上面的状态之后再收尾（同 listenPass；补的 0 样本块接在补零的末尾）
+            live->finish (*chain);   // 读完上面的状态之后再收尾（同 listenPass）
     }
 
     //==============================================================================
@@ -2528,7 +2508,7 @@ namespace
                 ++result.nonFiniteBlocks;
 
             if (live != nullptr)
-                live->afterBlock (length);
+                live->afterBlock();
 
             if (chain->getLatencySamples() != latency)
                 result.latencyChanged = true;
@@ -2542,9 +2522,9 @@ namespace
         stats.finish (total, result);
         result.status = chain->getGlazeStatus();
 
-        // 读完上面的状态之后再收尾（同 listenPass）：补的 0 样本块用最后一块的参数。
+        // 读完上面的状态之后再收尾（同 listenPass）。
         if (live != nullptr)
-            live->finish (*chain, total, replayParams (blocks.empty() ? effectiveLog.prepared : blocks.back(), mode));
+            live->finish (*chain);
     }
 
     //==============================================================================
@@ -4723,7 +4703,7 @@ namespace
 
     // 自检用的合成 House 曲（transport 的速度与采样率、4/4）：前奏 introBars 小节只有鼓（底鼓 + 反拍踩镲）→ drop（底鼓更响 + 55 Hz 持续低音
     // 1 ～ 6 次谐波 + 和声垫 + 踩镲）→ breakdown（只有和声垫：比 drop 轻 10 LU 以上、没有低音）→ drop，最后一段 drop 再多放 tailBars 小节
-    // （不满一小节）就截断。歌尾不留静音：最后一块的 Balance 帧落在有声、过帧门的段里，收尾补块（LiveTracer::finish）才考得到；最后一段是
+    // （不满一小节）就截断。歌尾不留静音：最后一块的 Balance 帧落在有声、过帧门的段里，关实时模式时链补交这些帧（LiveTracer::finish）才考得到；最后一段是
     // 不满一小节的尾巴，追踪靠 finish 交出来。写法照 tests/MusicAnalyzerTests.cpp 的 makeHouseTrack，另加 breakdown 与第二段 drop。
     juce::AudioBuffer<float> makeLiveTestTrack (const Transport& transport, int introBars, int dropBars, int breakdownBars, int lastDropBars,
                                                 double tailBars)
@@ -4775,8 +4755,7 @@ namespace
         return signal;
     }
 
-    // 自检用：真歌同一套第一遍，traced 时接追踪（主段模型按曲风）。返回这一遍的结果（存档、状态）与追踪。flushOnFinish = false 只给
-    // 「收尾补块」的对照用。
+    // 自检用：真歌同一套第一遍，traced 时接追踪（主段模型按曲风）。返回这一遍的结果（存档、状态）与追踪。
     struct LiveSelfRun
     {
         ListenResult listen;
@@ -4784,11 +4763,10 @@ namespace
     };
 
     LiveSelfRun liveSelfListen (const juce::AudioBuffer<float>& signal, const Combo& combo, int blockSize, const Transport& transport,
-                                const celadon::glaze::LiveConstants& constants, bool traced, bool flushOnFinish = true)
+                                const celadon::glaze::LiveConstants& constants, bool traced)
     {
         LiveSelfRun run;
-        LiveTracer tracer (selfTestRate, constants, celadon::glaze::mainSectionModelFor (celadon::glaze::genreFromIndex (combo.genre)), transport,
-                           flushOnFinish);
+        LiveTracer tracer (selfTestRate, constants, celadon::glaze::mainSectionModelFor (celadon::glaze::genreFromIndex (combo.genre)), transport);
         run.listen = listenPass (signal, selfTestRate, blockSize, makeComboParams (combo), false, transport, 0, traced ? &tracer : nullptr);
         run.trace = tracer.getResult();
         return run;
@@ -4975,32 +4953,14 @@ namespace
                             + fixed (base.trace.finalProfile.integratedLufs.value, 2) + " LUFS、c " + fixed (base.trace.finalDiagnostics.confidence, 3));
         }
 
-        // 块长无关：4096、480（不是 2 的幂）与 512 的追踪逐字节相同、位级摘要相同（段与宿主分块无关，快照取「并入之后」，收尾补交最后一块的帧）。
+        // 块长无关：4096、480（不是 2 的幂）与 512 的追踪逐字节相同、位级摘要相同（段与宿主分块无关，发布时刻按分析器报的交齐位置，
+        // 关实时模式时链补交最后一块的帧——不补时歌尾一两段随块长变，那一项的对照在 MusicAnalyzerLive 用例 5d）。
         {
             const auto big = liveSelfListen (track, deep, 4096, tempo124, factory, true);
             const auto odd = liveSelfListen (track, deep, 480, tempo124, factory, true);
             test.check (sameTrace (big.trace, base.trace) && sameTrace (odd.trace, base.trace), "块长 512 / 4096 / 480",
                         "追踪" + std::string (sameTrace (big.trace, base.trace) ? "" : "（4096 不同）") + (sameTrace (odd.trace, base.trace) ? "" : "（480 不同）")
                             + (sameTrace (big.trace, base.trace) && sameTrace (odd.trace, base.trace) ? "逐字节相同，摘要 " + hex64 (base.trace.digest.value) : ""));
-        }
-
-        // 收尾补块的对照（有牙）：不补 0 样本块时，最后一块的 Balance 帧没交给分析器，块长 4096 与 512 的追踪不同、且只差在歌尾（前缀相同）。
-        {
-            const auto unflushed512 = liveSelfListen (track, deep, 512, tempo124, factory, true, false);
-            const auto unflushed4096 = liveSelfListen (track, deep, 4096, tempo124, factory, true, false);
-            const auto& a = unflushed512.trace.rows;
-            const auto& b = unflushed4096.trace.rows;
-            std::size_t k = 0;
-
-            while (k < a.size() && k < b.size() && a[k] == b[k])
-                ++k;
-
-            const auto differs = ! sameTrace (unflushed512.trace, unflushed4096.trace);
-            const auto atTail = a.size() == b.size() && k + 2 >= a.size();
-            test.check (differs && atTail, "收尾补块（对照）",
-                        std::string ("不补 0 样本块时块长 4096 与 512 的追踪") + (differs ? "不同" : "竟相同（这一项考不到收尾补块）") + "，前 "
-                            + std::to_string (k) + " / " + std::to_string (a.size()) + " 段逐字相同（期望只差最后一两段）"
-                            + (k < a.size() && k < b.size() ? "：" + differingColumns (a[k], b[k]) : std::string()));
         }
 
         // 与 GLAZE、风格无关（最快的追踪跑法 = GLAZE 0 的依据）：GLAZE 70、温润的第一遍追踪与 GLAZE 0 的逐字节相同；
