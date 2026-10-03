@@ -17,12 +17,18 @@
                          [--metrics-only] [--trace] [--no-replay]
                          [--genre general[,deep,tech,melodic]] [--delivery standard[,streaming,club]]
                          [--bpm 124 [--meter 4/4] [--listen-from-bar 1[,33]]] [--segments-csv]
+                         [--live-trace [--live-only] [--live-constants 键=值,…] [--live-model fourOnFloor|loudness|passive] [--live-tag 名字]]
           celadon_render --selftest   （指标算法、文件名、延迟对齐、GLAZE 0 逐位直通、同决策重放的阳性对照；render-linux.sh 渲染前先跑）
           celadon_render --selftest-house   （T-038：模拟走带、分段统计、曲风 / 交付 / 走带穿到链上的阳性对照）
+          celadon_render --selftest-live    （T-048：实时画像追踪的阳性对照——段首尾相接、块长无关、与 GLAZE 无关、不改链的输出）
 
     T-038（曲风与交付，设计规格-曲风与交付、设计规格-曲风-House学习方式）：曲风 / 交付 / 聆听起点是网格的另三维；--bpm 模拟宿主走带
     （每块给速度、PPQ、上一小节起点、拍号）；--segments-csv 逐段（一小节或 2 秒）写输入端与成品的段响度、低频占比、限幅 GR（门控标定、
     House 门槛 tools/render/house_gate.py）。都不给时与改动前逐位相同：HostInfo、网格、文件名、metrics.csv 一字不差。
+
+    T-048（实时 GLAZE 阶段 1，设计规格-实时GLAZE-主段与增益 第 7 节「因果重放」）：--live-trace 给每一遍新建的链接上实时画像 LiveProfile
+    （分析器实时模式 → 实时段落账 → LiveProfile），逐段写追踪 live/<标签>/（见「T-048 实时画像追踪」一节与 README）；--live-only 只跑第一遍
+    （最快的追踪跑法）。不给这些选项时一切输出与改动前逐字节相同；给了也只多写追踪文件与 metrics.md 的说明（链的输出逐位不变）。
 
     每首歌、每组设置分两遍（「先完整聆听再出成品」）：
       1. 聆听：新链 → setParams → prepare（与 PluginProcessor::prepareToPlay 同一顺序），按离线宿主口径（offline、在播、
@@ -70,6 +76,7 @@
 #include "../../Source/dsp/GlazeTypes.h"
 #include "../../Source/dsp/ClayGuard.h"
 #include "../../Source/dsp/ClayModule.h"
+#include "../../Source/dsp/LiveProfile.h"
 #include "../../Source/dsp/LoudnessMeter.h"
 #include "../../Source/dsp/TruePeak.h"
 
@@ -86,6 +93,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -117,6 +125,10 @@ namespace
     // 读文件时每段的样本数（大文件分段读）。
     constexpr int readChunkSamples = 1 << 16;
 
+    // FNV-1a（64 位）的两个常数：成品哈希（hashAudio）与实时画像追踪的位级摘要（BitDigest）共用。
+    constexpr std::uint64_t fnvOffsetBasis = 14695981039346656037ull;
+    constexpr std::uint64_t fnvPrime = 1099511628211ull;
+
     // 命令行与文件的合理范围。采样率超出 8 k ～ 768 kHz 多半是文件头坏了；块长上限只是防手误。
     constexpr double minSampleRate = 8000.0;
     constexpr double maxSampleRate = 768000.0;
@@ -140,6 +152,14 @@ namespace
     constexpr double minTransportBpm = 20.0;
     constexpr double maxTransportBpm = 999.0;
     constexpr int maxMeterNumerator = 32;
+
+    // T-048 实时画像追踪：主段模型的命令行名（下标 = glaze::MainSectionModel，= 枚举名）、标签（输出分组 live/<标签>/）的默认值与长度上限。
+    constexpr std::array<const char*, 3> liveModelIds { { "fourOnFloor", "loudness", "passive" } };
+    static_assert ((int) celadon::glaze::MainSectionModel::fourOnFloor == 0 && (int) celadon::glaze::MainSectionModel::loudness == 1
+                       && (int) celadon::glaze::MainSectionModel::passive == 2,
+                   "liveModelIds 的下标要与 MainSectionModel 一一对应");
+    constexpr const char* defaultLiveTag = "default";
+    constexpr std::size_t maxLiveTagLength = 64;
 
     //==============================================================================
     // 设置网格
@@ -171,6 +191,15 @@ namespace
         std::vector<int> listenFromBars { 1 };   // --listen-from-bar：第一遍（聆听）从第几小节起播（1 = 从头；网格的一维，要 --bpm）
         bool segmentsCsv = false;   // --segments-csv：逐段（有 --bpm 时一段 = 一小节，否则每 2 秒）写输入端 / 成品的统计，见 writeSegments
         bool extended = false;      // 用了上面任一新选项：metrics.csv 末尾追加 T-038 的列、metrics.md 头部多写一行（默认运行的两份表与改动前相同）
+
+        // ---- T-048 实时画像追踪（见「T-048 实时画像追踪」一节；不设 extended：metrics.csv 不因追踪多列）----
+        bool liveTrace = false;                        // --live-trace：每一遍的链接上实时画像，逐段写 live/<标签>/
+        bool liveOnly = false;                         // --live-only：只跑第一遍（聆听）出追踪，不出成品、不做重放（最快的追踪跑法）
+        celadon::glaze::LiveConstants liveConstants;   // --live-constants 覆盖之后的常数（不给 = 出厂值，即 LiveConstants 的默认值）
+        std::string liveConstantsText;                 // --live-constants 原文（记进汇总）
+        bool liveModelOverride = false;                // --live-model：主段模型不按曲风取（mainSectionModelFor），一律用 liveModel
+        celadon::glaze::MainSectionModel liveModel = celadon::glaze::MainSectionModel::fourOnFloor;
+        std::string liveTag = defaultLiveTag;          // --live-tag：输出分组 live/<标签>/（扫参时一组常数一个标签）
     };
 
     struct Combo
@@ -498,14 +527,193 @@ namespace
                      "                      House 门槛「从第 1 小节播 vs 从 drop 播」用，第二遍（成品）照旧从头渲染\n"
                      "  --segments-csv      逐段写统计到 segments/：<歌名>__input.csv（输入端：段响度、低频占比）与 <成品名>.csv\n"
                      "                      （成品同一套 + 逐段限幅 GR）；有 --bpm 时一段 = 一小节，否则每 2 秒一段（T-038 门控标定与 House 门槛）\n"
+                     "  --live-trace        T-048：每一遍的链接上实时画像（分析器实时模式），逐段写追踪到 live/<标签>/<歌名>__<曲风>.csv\n"
+                     "                      与 __final.csv（同一首歌、曲风、聆听起点、常数只写一份；链的输出逐位不变）\n"
+                     "  --live-only         只跑第一遍（聆听）出追踪：每首歌 × 每个曲风 × 每个聆听起点一遍，不出成品、不做重放（最快的跑法）\n"
+                     "  --live-constants k=v,...  覆盖实时画像常数 LiveConstants 的任意字段（如 fourOnFloor.gateWidthLu=3.5,newProgramLu=8,\n"
+                     "                      referenceMemorySeconds=240；键名同 GlazeConstants.h，主段模型的字段带 fourOnFloor. / loudness. /\n"
+                     "                      passive. 前缀）；不认识的键、取值不合法都报错\n"
+                     "  --live-model m      主段模型一律用 fourOnFloor / loudness / passive（默认按曲风：House 三类 4/4 型，通用响度型）\n"
+                     "  --live-tag 名字     追踪的输出分组 live/<名字>/（字母、数字、. _ -），默认 default；改了常数或模型时必须给\n"
                      "  --selftest          只跑自检（指标算法、文件名、延迟对齐、GLAZE 0 逐位直通的阳性对照），不读歌\n"
                      "  --selftest-house    只跑 T-038 新选项的自检（模拟走带、分段统计、曲风 / 交付穿到链上的阳性对照），不读歌\n"
+                     "  --selftest-live     只跑 T-048 实时画像追踪的自检（合成 House 曲上段首尾相接、块长与 GLAZE 无关、不改链的输出），不读歌\n"
                      "读 --in 目录第一层的 wav / aiff / flac，每首歌 × 每组设置写一个 32-bit float wav，另写 metrics.md 与\n"
                      "metrics.csv。进度与错误写 stderr；返回 0 成功、1 有文件读写失败（或自检失败）、2 参数错误。\n"
                      "详见 tools/render/README.md。\n";
     }
 
-    enum class ParseResult { run, help, selfTest, selfTestHouse, invalid };
+    // ---- T-048 --live-constants：LiveConstants 的键表与取值范围 ----
+    // 每个键的合法取值与 LiveProfile.cpp 的 sanitise 一一对应：那边把坏值悄悄换成出厂值，这里直接报错——扫参时给错的值不能变成
+    // 「其实跑的是出厂值」。+∞ 只在 sanitise 也收的键上合法（「不遗忘 / 永不触发」，等价性测试就这么关掉遗忘）。sanitise 改了这里要跟着改
+    // （跨文件请求：把 sanitise 公开出来，两边共用一份）。
+    enum class LiveDomain
+    {
+        finite,           // 有限的数
+        positiveFinite,   // > 0 的有限数
+        percentile,       // (0, 1]
+        notNan,           // 任意数，含 ±∞（如 memoryBars ≤ 0 = 不按小节、peakTailSeconds ≤ 0 = 只取最大值）
+        positive,         // > 0，含 +∞
+        unit,             // [0, 1]
+        nonNegative       // ≥ 0，含 +∞
+    };
+
+    bool inLiveDomain (double value, LiveDomain domain) noexcept
+    {
+        switch (domain)
+        {
+            case LiveDomain::finite:         return std::isfinite (value);
+            case LiveDomain::positiveFinite: return std::isfinite (value) && value > 0.0;
+            case LiveDomain::percentile:     return value > 0.0 && value <= 1.0;
+            case LiveDomain::notNan:         return ! std::isnan (value);
+            case LiveDomain::positive:       return value > 0.0;
+            case LiveDomain::unit:           return value >= 0.0 && value <= 1.0;
+            case LiveDomain::nonNegative:    return value >= 0.0;
+        }
+
+        return false;
+    }
+
+    const char* liveDomainText (LiveDomain domain) noexcept
+    {
+        switch (domain)
+        {
+            case LiveDomain::finite:         return "有限的数";
+            case LiveDomain::positiveFinite: return "> 0 的有限数";
+            case LiveDomain::percentile:     return "(0, 1] 之间的数";
+            case LiveDomain::notNan:         return "数（可写 inf / -inf）";
+            case LiveDomain::positive:       return "> 0 的数（可写 inf）";
+            case LiveDomain::unit:           return "[0, 1] 之间的数";
+            case LiveDomain::nonNegative:    return "≥ 0 的数（可写 inf）";
+        }
+
+        return "数";
+    }
+
+    // LiveConstants 的全部字段：键名 = 字段名，主段模型的字段带「模型名.」前缀（共 3 × 9 + 8 = 35 个）。解析、汇总（__final.csv）、
+    // 自检共用这一张表——LiveConstants 加字段时只在这里加一行。visit (键名, 字段的引用（float& 或 double&）, 取值范围)。
+    template <typename Visitor>
+    void visitLiveConstants (celadon::glaze::LiveConstants& c, Visitor&& visit)
+    {
+        const auto model = [&visit] (const std::string& prefix, celadon::glaze::LiveModelConstants& m)
+        {
+            visit (prefix + ".gateWidthLu", m.gateWidthLu, LiveDomain::finite);
+            visit (prefix + ".loudnessRampLu", m.loudnessRampLu, LiveDomain::positiveFinite);
+            visit (prefix + ".lowGateFactor", m.lowGateFactor, LiveDomain::finite);
+            visit (prefix + ".lowRampWidth", m.lowRampWidth, LiveDomain::positiveFinite);
+            visit (prefix + ".referencePercentile", m.referencePercentile, LiveDomain::percentile);
+            visit (prefix + ".memoryBars", m.memoryBars, LiveDomain::notNan);
+            visit (prefix + ".memorySeconds", m.memorySeconds, LiveDomain::positive);
+            visit (prefix + ".confidenceBars", m.confidenceBars, LiveDomain::notNan);
+            visit (prefix + ".confidenceSeconds", m.confidenceSeconds, LiveDomain::positive);
+        };
+
+        model ("fourOnFloor", c.fourOnFloor);
+        model ("loudness", c.loudness);
+        model ("passive", c.passive);
+        visit (std::string ("referenceMemorySeconds"), c.referenceMemorySeconds, LiveDomain::positive);
+        visit (std::string ("mainThreshold"), c.mainThreshold, LiveDomain::unit);
+        visit (std::string ("noMainSeconds"), c.noMainSeconds, LiveDomain::nonNegative);
+        visit (std::string ("noMainDecaySeconds"), c.noMainDecaySeconds, LiveDomain::positive);
+        visit (std::string ("newProgramLu"), c.newProgramLu, LiveDomain::nonNegative);
+        visit (std::string ("newProgramSeconds"), c.newProgramSeconds, LiveDomain::positive);
+        visit (std::string ("newProgramKeep"), c.newProgramKeep, LiveDomain::unit);
+        visit (std::string ("peakTailSeconds"), c.peakTailSeconds, LiveDomain::notNan);
+    }
+
+    // 一个常数值：整个字符串得是一个数（strtod，C 区域设置）；收 inf / -inf（由取值范围决定合不合法），不收 NaN 与溢出。
+    bool parseLiveNumber (const std::string& text, double& value)
+    {
+        if (text.empty())
+            return false;
+
+        errno = 0;
+        char* end = nullptr;
+        const auto parsed = std::strtod (text.c_str(), &end);
+
+        if (end == text.c_str() || *end != '\0' || errno == ERANGE || std::isnan (parsed))
+            return false;
+
+        value = parsed;
+        return true;
+    }
+
+    // 「fourOnFloor.gateWidthLu=3.5,newProgramLu=8」→ 改写 constants 里对应的字段。键不认识、少了「=」、值不是数或不在该键的取值范围、
+    // 同一个键给了两次，都报错（error 写原因，constants 可能已改了一部分：调用方报错退出，不再用它）。
+    bool parseLiveConstants (const std::string& text, celadon::glaze::LiveConstants& constants, std::string& error)
+    {
+        std::vector<std::string> seen;
+
+        for (const auto& item : splitList (text))
+        {
+            const auto equals = item.find ('=');
+
+            if (equals == std::string::npos)
+            {
+                error = "--live-constants 的「" + item + "」要写成 键=值（如 fourOnFloor.gateWidthLu=3.5）";
+                return false;
+            }
+
+            const auto key = trimmed (item.substr (0, equals));
+            const auto valueText = trimmed (item.substr (equals + 1));
+
+            if (std::find (seen.begin(), seen.end(), key) != seen.end())
+            {
+                error = "--live-constants 里键「" + key + "」给了两次";
+                return false;
+            }
+
+            seen.push_back (key);
+            double parsed = 0.0;
+            const auto isNumber = parseLiveNumber (valueText, parsed);
+            auto found = false, accepted = false;
+            auto domain = LiveDomain::finite;
+
+            visitLiveConstants (constants, [&] (const std::string& name, auto& field, LiveDomain fieldDomain)
+            {
+                if (name != key)
+                    return;
+
+                using Field = std::remove_reference_t<decltype (field)>;
+                const auto value = static_cast<Field> (parsed);   // float 字段：先舍入成 float 再查范围（1e40 → inf）
+                found = true;
+                domain = fieldDomain;
+                accepted = isNumber && inLiveDomain (static_cast<double> (value), fieldDomain);
+
+                if (accepted)
+                    field = value;
+            });
+
+            if (! found)
+            {
+                error = "--live-constants 不认识键「" + key + "」（键名同 GlazeConstants.h 的 LiveConstants，主段模型的字段带 fourOnFloor. / "
+                        "loudness. / passive. 前缀；全部键见 tools/render/README.md）";
+                return false;
+            }
+
+            if (! accepted)
+            {
+                error = "--live-constants 的 " + key + " 要 " + liveDomainText (domain) + "，不认「" + valueText + "」";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // 标签只用作目录名：字母、数字、. _ -，不以「.」开头（免得藏起来或跳出 live/），至多 64 个字符。
+    bool validLiveTag (const std::string& tag) noexcept
+    {
+        if (tag.empty() || tag.size() > maxLiveTagLength || tag.front() == '.')
+            return false;
+
+        return std::all_of (tag.begin(), tag.end(), [] (char c)
+        {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+        });
+    }
+
+    enum class ParseResult { run, help, selfTest, selfTestHouse, selfTestLive, invalid };
 
     // 「曲风 / 交付」这类按名字选的一维：逗号分隔、去重，按 ids 的下标存。认不出时把原因写进 error。
     template <std::size_t N>
@@ -542,6 +750,7 @@ namespace
     ParseResult parseArguments (int argc, char* argv[], Options& options, std::string& error)
     {
         bool haveInput = false, haveOutput = false, haveMeter = false, haveListenFrom = false;
+        bool haveLiveConstants = false, haveLiveTag = false;   // T-048：这两个与 --live-model、--live-only 都要 --live-trace
 
         for (int i = 1; i < argc; ++i)
         {
@@ -556,9 +765,24 @@ namespace
             if (name == "--selftest-house")
                 return ParseResult::selfTestHouse;
 
+            if (name == "--selftest-live")
+                return ParseResult::selfTestLive;
+
             if (name == "--trace")
             {
                 options.trace = true;
+                continue;
+            }
+
+            if (name == "--live-trace")
+            {
+                options.liveTrace = true;
+                continue;
+            }
+
+            if (name == "--live-only")
+            {
+                options.liveOnly = true;
                 continue;
             }
 
@@ -765,6 +989,44 @@ namespace
                 options.extended = true;
                 haveListenFrom = true;
             }
+            else if (name == "--live-constants")
+            {
+                if (haveLiveConstants)
+                {
+                    error = "--live-constants 只能给一次（多个键写在同一个值里，逗号分隔）";
+                    return ParseResult::invalid;
+                }
+
+                if (! parseLiveConstants (value, options.liveConstants, error))
+                    return ParseResult::invalid;
+
+                options.liveConstantsText = value;
+                haveLiveConstants = true;
+            }
+            else if (name == "--live-model")
+            {
+                const auto found = std::find_if (liveModelIds.begin(), liveModelIds.end(), [&value] (const char* id) { return value == id; });
+
+                if (found == liveModelIds.end())
+                {
+                    error = "--live-model 只认 fourOnFloor / loudness / passive，不认「" + value + "」";
+                    return ParseResult::invalid;
+                }
+
+                options.liveModel = static_cast<celadon::glaze::MainSectionModel> (found - liveModelIds.begin());
+                options.liveModelOverride = true;
+            }
+            else if (name == "--live-tag")
+            {
+                if (! validLiveTag (value))
+                {
+                    error = "--live-tag 只用字母、数字、. _ -，不以「.」开头，至多 64 个字符，不认「" + value + "」";
+                    return ParseResult::invalid;
+                }
+
+                options.liveTag = value;
+                haveLiveTag = true;
+            }
             else
             {
                 error = "不认识的选项 " + name;
@@ -775,6 +1037,21 @@ namespace
         if (! haveInput || ! haveOutput)
         {
             error = "必须给出 --in 与 --out";
+            return ParseResult::invalid;
+        }
+
+        // T-048：追踪的几个附属选项离开 --live-trace 没有意义；改了常数或模型却不给标签，追踪会写进 live/default/、与出厂常数的混在一起。
+        if (! options.liveTrace && (options.liveOnly || haveLiveConstants || options.liveModelOverride || haveLiveTag))
+        {
+            error = std::string (options.liveOnly ? "--live-only" : haveLiveConstants ? "--live-constants"
+                                 : options.liveModelOverride ? "--live-model" : "--live-tag")
+                  + " 要与 --live-trace 一起用";
+            return ParseResult::invalid;
+        }
+
+        if ((haveLiveConstants || options.liveModelOverride) && ! haveLiveTag)
+        {
+            error = "改了实时画像常数（--live-constants）或主段模型（--live-model）时要给 --live-tag，免得与出厂常数的追踪混在 live/default/ 里";
             return ParseResult::invalid;
         }
 
@@ -1032,9 +1309,7 @@ namespace
     // FNV-1a（64 位）逐样本按位累加（左声道整段，再右声道）。两段音频逐位相同则哈希相同；哈希不同则一定不逐位相同。
     std::uint64_t hashAudio (const juce::AudioBuffer<float>& audio) noexcept
     {
-        constexpr std::uint64_t offsetBasis = 14695981039346656037ull;
-        constexpr std::uint64_t prime = 1099511628211ull;
-        auto hash = offsetBasis;
+        auto hash = fnvOffsetBasis;
 
         for (int ch = 0; ch < audio.getNumChannels(); ++ch)
         {
@@ -1048,7 +1323,7 @@ namespace
                 for (int shift = 0; shift < 32; shift += 8)
                 {
                     hash ^= static_cast<std::uint64_t> ((bits >> shift) & 0xffu);
-                    hash *= prime;
+                    hash *= fnvPrime;
                 }
             }
         }
@@ -1279,6 +1554,41 @@ namespace
         return transport;
     }
 
+    // 分段网格（T-038 --segments-csv 的逐段统计与 T-048 实时画像追踪的小节号共用）：有 --bpm 时一段 = 一小节，第 k 段（从 0 起）的起点 =
+    // round(k × 每小节样本数)（锚点 0、恒定速度：规格第 2.1 节「锚点样本 + round(n × 每小节样本数)」）；没给 --bpm 时每
+    // HouseConstants::fallbackSegmentSeconds（出厂 2 s）一段，按样本墙钟算（插件分 2 秒段时按有效音频样本推进，离线标定只需要大致的段，
+    // 这一点与插件不同）。
+    struct SegmentGrid
+    {
+        bool bars = false;
+        double samplesPerSegment = 1.0;
+
+        std::int64_t startOf (std::int64_t k) const noexcept   { return std::llround (static_cast<double> (k) * samplesPerSegment); }
+
+        // 样本所在的段（从 0 起）。先按除法估，再按 startOf 的取整修正一步：边界样本永远归后一段。
+        std::int64_t indexOf (std::int64_t sample) const noexcept
+        {
+            auto k = static_cast<std::int64_t> (std::floor (static_cast<double> (std::max<std::int64_t> (0, sample)) / samplesPerSegment));
+
+            while (k > 0 && startOf (k) > sample)
+                --k;
+
+            while (startOf (k + 1) <= sample)
+                ++k;
+
+            return k;
+        }
+    };
+
+    SegmentGrid makeSegmentGrid (const Transport& transport, double sampleRate)
+    {
+        SegmentGrid grid;
+        grid.bars = transport.enabled;
+        grid.samplesPerSegment = std::max (1.0, transport.enabled ? transport.samplesPerBar()
+                                                                  : celadon::glaze::factoryConstants().house.fallbackSegmentSeconds * sampleRate);
+        return grid;
+    }
+
     celadon::glaze::HostInfo makeHostInfo (std::int64_t position, const Transport& transport = Transport {}) noexcept
     {
         // 离线导出的宿主口径（设计规格-Clay-分析决策与验收 第 7 节）：离线、在播、位置从 0 起随块连续推进。
@@ -1308,6 +1618,380 @@ namespace
         }
 
         return info;
+    }
+
+    //==============================================================================
+    // T-048 实时画像追踪（--live-trace / --live-only / --live-constants / --live-model / --live-tag；设计规格-实时GLAZE-主段与增益
+    // 第 7 节「因果重放验收」，T-048 阶段 1 BRIEF 第 3 节）。不给这些选项时下面的东西一样都不跑：链、表、文件名与改动前逐字节相同。
+    //
+    // 每一遍新建的链（聆听 / 成品 / 重放）prepare 之后接一个 LiveTraceSink：分析器打开实时模式，实时段落账每定稿一段就交给它；它把段交给
+    // 实时画像 LiveProfile，再把「这一段并入之后」的画像与诊断拷进定长环形缓冲（音频线程上被调：只做定长拷贝，不分配、不加锁）。主线程
+    // 每处理完一块用 readCommits 读新提交，按序号与快照配对，写成 CSV 一行（LiveTracer）。为什么快照取「这一段并入之后」而不是「这一块
+    // 处理完之后」：一块里有两次提交时（大块长、不连续点截短的段）后者会把同一份画像写到两行上，追踪就随宿主块长变了；平常一块至多
+    // 一次提交，两者相同。一遍结束时先补一个 0 样本的块（把最后一块的 Balance 帧交给分析器，见 LiveTracer::finish），再关实时模式交出歌尾。
+    //
+    // 实时画像只看输入（与 GLAZE、风格、修坯、交付无关），所以同一首歌、同一曲风、同一聆听起点、同一组常数只写一份：第一次跑到的那一遍
+    // 聆听（第一遍）写成 live/<标签>/<歌名>__<曲风>[_from-b<N>].csv 与 __final.csv；之后的各遍照样追踪、只与写下的那份逐行比较，结论写进
+    // live/<标签>/<歌名>__passes.csv、metrics.md 的备注与 stderr。第二遍与重放从不当写下的那份：读档之后分析器不学习，实时段落账交来的段
+    // 可能从第一段起就与第一遍不同（差在哪些列见 __passes.csv 的 first_difference_columns），输入尾部还多了延迟与余振的补零。
+
+    const char* segmentModeId (celadon::glaze::SegmentMode mode) noexcept
+    {
+        switch (mode)
+        {
+            case celadon::glaze::SegmentMode::none:    return "none";
+            case celadon::glaze::SegmentMode::bars:    return "bars";
+            case celadon::glaze::SegmentMode::seconds: return "seconds";
+        }
+
+        return "none";
+    }
+
+    // 这一遍用哪个主段模型：给了 --live-model 就一律用它，否则按曲风（mainSectionModelFor：House 三类 4/4 型、通用响度型）。
+    celadon::glaze::MainSectionModel liveModelFor (const Options& options, int genre) noexcept
+    {
+        return options.liveModelOverride ? options.liveModel
+                                         : celadon::glaze::mainSectionModelFor (celadon::glaze::genreFromIndex (genre));
+    }
+
+    // 分析器实时段落账的接收者。segmentFinalized 在音频线程上被调：交给实时画像，再把并入之后的读数整份拷进定长环形缓冲——只有定长拷贝，
+    // 不分配、不加锁（Snapshot 是可平凡拷贝的定长结构，见 static_assert）。主线程按提交记录的序号来取（snapshotFor）。
+    class LiveTraceSink final : public celadon::glaze::SegmentSink
+    {
+    public:
+        static constexpr int capacity = celadon::glaze::LiveProfile::commitCapacity;   // 与提交记录的环形缓冲一样长：一块里最多交这么多段
+
+        // 「这一段并入之后」的读数：画像整份、诊断，加上段里有、提交记录里没有的三项。
+        struct Snapshot
+        {
+            std::uint64_t sequence = 0;     // 第几次并入（从 0 起，= LiveCommitRecord::sequence：新实例从 0 起，每并入一段 + 1）
+            std::uint32_t epoch = 0;        // 段所属的连续时间段（跳播 / 回绕 / 宿主 reset 之后 + 1）
+            bool heard = false;             // 段的「已听」（有效音频 ≥ 半段）
+            int liveTrialBlocks = 0;        // 段里实时试算的有效块数（开始学习后的预热空档在这里看得出来）
+            celadon::glaze::MusicProfile profile;
+            celadon::glaze::LiveDiagnostics diagnostics;
+        };
+
+        static_assert (std::is_trivially_copyable<Snapshot>::value, "快照在音频线程上整份拷贝：必须是定长、可平凡拷贝的结构（不分配）");
+
+        LiveTraceSink (double sampleRate, const celadon::glaze::LiveConstants& constants, celadon::glaze::MainSectionModel model)
+        {
+            live.prepare (sampleRate);
+            live.setConstants (constants, model);
+        }
+
+        void segmentFinalized (const celadon::glaze::SegmentLedger::Segment& segment) noexcept override
+        {
+            live.segmentFinalized (segment);
+
+            auto& s = snapshots[static_cast<std::size_t> (finalized % static_cast<std::uint64_t> (capacity))];
+            s.sequence = finalized;
+            s.epoch = segment.epoch;
+            s.heard = segment.heard;
+            s.liveTrialBlocks = segment.liveTrialBlocks;
+            s.profile = live.getProfile();
+            s.diagnostics = live.getDiagnostics();
+            ++finalized;
+        }
+
+        const celadon::glaze::LiveProfile& getLiveProfile() const noexcept   { return live; }
+
+        // 第 sequence 次并入之后的快照；已被环形缓冲覆盖（一块里交来的段超过容量，不该发生）返回 nullptr。
+        const Snapshot* snapshotFor (std::uint64_t sequence) const noexcept
+        {
+            if (sequence >= finalized || finalized - sequence > static_cast<std::uint64_t> (capacity))
+                return nullptr;
+
+            const auto& s = snapshots[static_cast<std::size_t> (sequence % static_cast<std::uint64_t> (capacity))];
+            return s.sequence == sequence ? &s : nullptr;
+        }
+
+    private:
+        celadon::glaze::LiveProfile live;
+        std::array<Snapshot, static_cast<std::size_t> (capacity)> snapshots {};
+        std::uint64_t finalized = 0;
+    };
+
+    // 位级摘要（FNV-1a 64 位，同 hashAudio）：追踪 CSV 里的数按固定小数位写（读着方便、逐字节可比），摘要按写出的每个量的二进制位累加——
+    // 两份追踪的摘要相同 = 写出的量逐位相同（固定小数位看不出的末位差，摘要看得出）。无效的量只记「无效」，不记它的值（同 CSV 里的空格）。
+    struct BitDigest
+    {
+        std::uint64_t value = fnvOffsetBasis;
+
+        template <typename T>
+        void add (T x) noexcept
+        {
+            static_assert (std::is_arithmetic<T>::value, "只累加数");
+            std::array<unsigned char, sizeof (T)> bytes {};
+            std::memcpy (bytes.data(), &x, sizeof (T));
+
+            for (const auto byte : bytes)
+            {
+                value ^= static_cast<std::uint64_t> (byte);
+                value *= fnvPrime;
+            }
+        }
+
+        void add (bool x) noexcept   { add (static_cast<std::uint8_t> (x ? 1 : 0)); }
+
+        template <typename T>
+        void addOptional (bool valid, T x) noexcept
+        {
+            add (valid);
+
+            if (valid)
+                add (x);
+        }
+
+        void addFeature (const celadon::glaze::Feature& f) noexcept   { addOptional (f.valid, f.value); }
+    };
+
+    std::string hex64 (std::uint64_t value)
+    {
+        char text[32] = {};
+        const auto written = std::snprintf (text, sizeof (text), "%016llx", static_cast<unsigned long long> (value));
+        return written > 0 ? std::string (text) : std::string ("?");
+    }
+
+    // 追踪 CSV 的表头（列的含义见 README「T-048 实时画像追踪」）。空格 = 不知道（valid = false），不用 0 冒充。
+    std::string liveTraceHeader()
+    {
+        std::string header = "sequence,bar,bar_offset,start_sample,end_sample,start_s,end_s,nominal_s,mode,epoch,heard,effective_s,"
+                             "loudness_lufs,low_share,loudness_factor,low_factor,mainness,weight_s,reference_lufs,low_reference,"
+                             "main_level_lufs,main_mass_s,confidence,time_decay,new_program,live_trial_blocks,"
+                             "reference_after_lufs,low_reference_after,active_s,seconds_since_main,new_program_count,"
+                             "lra_lu,plr_db,true_peak_dbtp,slope_db_per_oct,profile_low_share,profile_high_share,representativeness,"
+                             "cost_lowcut_db";
+
+        for (const auto hz : celadon::glaze::clayMonoCandidateHz)
+            header += ",cost_mono" + std::to_string (static_cast<int> (hz)) + "_db";
+
+        header += ",cost_width_db";
+
+        for (const auto hz : celadon::glaze::clayBlendCandidateHz)
+            header += ",blend" + std::to_string (static_cast<int> (hz)) + "_db";
+
+        return header;
+    }
+
+    // 一次提交一行：LiveCommitRecord 的全部字段 + 小节号（有 --bpm 时）+ 这一段并入之后画像的主要字段与诊断。
+    // start / end 是分析器时间轴（这一遍送进链的第一个样本 = 0，同 LiveCommitRecord）；小节号按歌曲时间轴（= 分析器时间 + passStart，
+    // 从第 N 小节起播时 passStart = 起播样本）算段的中点落在哪一小节（工具的小节网格，同 --segments-csv）：段起点与网格差一两个样本的取整
+    // 也归对小节；bar_offset = 段起点 − 该小节起点（歌曲时间轴的样本，对齐时为 0）。
+    std::string liveTraceRow (const celadon::glaze::LiveCommitRecord& r, const LiveTraceSink::Snapshot& s, const SegmentGrid& grid,
+                              double sampleRate, std::int64_t passStart)
+    {
+        const auto optional = [] (bool valid, double value, int decimals) { return valid ? fixed (value, decimals) : std::string(); };
+        const auto feature = [] (const celadon::glaze::Feature& f, int decimals) { return f.valid ? fixed (f.value, decimals) : std::string(); };
+        const auto flag = [] (bool on) { return std::string (on ? "1" : "0"); };
+        std::string bar, offset;
+
+        if (grid.bars)
+        {
+            const auto songStart = r.start + passStart;
+            const auto index = grid.indexOf (songStart + (r.end - r.start) / 2);
+            bar = std::to_string (index + 1);
+            offset = std::to_string (songStart - grid.startOf (index));
+        }
+
+        const auto& d = s.diagnostics;
+        const auto& p = s.profile;
+        auto row = std::to_string (r.sequence) + "," + bar + "," + offset + "," + std::to_string (r.start) + "," + std::to_string (r.end) + ","
+                 + fixed (static_cast<double> (r.start) / sampleRate, 4) + "," + fixed (static_cast<double> (r.end) / sampleRate, 4) + ","
+                 + fixed (r.nominalSeconds, 4) + "," + segmentModeId (r.mode) + "," + std::to_string (s.epoch) + "," + flag (s.heard) + ","
+                 + fixed (r.effectiveSeconds, 4) + "," + optional (r.loudnessValid, r.loudnessLufs, 4) + ","
+                 + optional (r.lowShareValid, r.lowShare, 5) + "," + fixed (r.loudnessFactor, 5) + "," + fixed (r.lowFactor, 5) + ","
+                 + fixed (r.mainness, 5) + "," + fixed (r.weightSeconds, 4) + "," + optional (r.referenceValid, r.referenceLufs, 4) + ","
+                 + optional (r.lowReferenceValid, r.lowReference, 5) + "," + optional (r.mainLevelValid, r.mainLevelLufs, 4) + ","
+                 + fixed (r.mainMassSeconds, 4) + "," + fixed (r.confidence, 5) + "," + flag (r.timeDecay) + "," + flag (r.newProgram) + ","
+                 + std::to_string (s.liveTrialBlocks) + "," + optional (d.referenceValid, d.referenceLufs, 4) + ","
+                 + optional (d.lowReferenceValid, d.lowReference, 5) + "," + fixed (d.activeSeconds, 4) + "," + fixed (d.secondsSinceMain, 4) + ","
+                 + std::to_string (d.newProgramCount) + "," + feature (p.loudnessRangeLu, 4) + "," + feature (p.plrDb, 4) + ","
+                 + feature (p.truePeakDbtp, 4) + "," + feature (p.spectralSlopeDbPerOct, 4) + "," + feature (p.lowShare, 5) + ","
+                 + feature (p.highShare, 5) + "," + fixed (p.representativeness, 5) + "," + feature (p.lowCutPeakCostDb, 4);
+
+        for (const auto& cost : p.monoPeakCostDb)
+            row += "," + feature (cost, 4);
+
+        row += "," + feature (p.widthPeakCostDb, 4);
+
+        for (const auto& loss : p.lowCutBlendLossDb)
+            row += "," + feature (loss, 4);
+
+        return row;
+    }
+
+    // 与 liveTraceRow 同一批量、同一顺序累加进摘要（改了一边要改另一边）。
+    void addToDigest (BitDigest& digest, const celadon::glaze::LiveCommitRecord& r, const LiveTraceSink::Snapshot& s) noexcept
+    {
+        digest.add (r.sequence);
+        digest.add (r.start);
+        digest.add (r.end);
+        digest.add (r.nominalSeconds);
+        digest.add (static_cast<std::uint8_t> (r.mode));
+        digest.add (s.epoch);
+        digest.add (s.heard);
+        digest.add (r.effectiveSeconds);
+        digest.addOptional (r.loudnessValid, r.loudnessLufs);
+        digest.addOptional (r.lowShareValid, r.lowShare);
+        digest.add (r.loudnessFactor);
+        digest.add (r.lowFactor);
+        digest.add (r.mainness);
+        digest.add (r.weightSeconds);
+        digest.addOptional (r.referenceValid, r.referenceLufs);
+        digest.addOptional (r.lowReferenceValid, r.lowReference);
+        digest.addOptional (r.mainLevelValid, r.mainLevelLufs);
+        digest.add (r.mainMassSeconds);
+        digest.add (r.confidence);
+        digest.add (r.timeDecay);
+        digest.add (r.newProgram);
+        digest.add (s.liveTrialBlocks);
+
+        const auto& d = s.diagnostics;
+        digest.addOptional (d.referenceValid, d.referenceLufs);
+        digest.addOptional (d.lowReferenceValid, d.lowReference);
+        digest.add (d.activeSeconds);
+        digest.add (d.secondsSinceMain);
+        digest.add (d.newProgramCount);
+
+        const auto& p = s.profile;
+        digest.addFeature (p.loudnessRangeLu);
+        digest.addFeature (p.plrDb);
+        digest.addFeature (p.truePeakDbtp);
+        digest.addFeature (p.spectralSlopeDbPerOct);
+        digest.addFeature (p.lowShare);
+        digest.addFeature (p.highShare);
+        digest.add (p.representativeness);
+        digest.addFeature (p.lowCutPeakCostDb);
+
+        for (const auto& cost : p.monoPeakCostDb)
+            digest.addFeature (cost);
+
+        digest.addFeature (p.widthPeakCostDb);
+
+        for (const auto& loss : p.lowCutBlendLossDb)
+            digest.addFeature (loss);
+    }
+
+    // 一遍的追踪结果（主线程）。
+    struct LiveTraceResult
+    {
+        std::vector<std::string> rows;                            // 数据行（表头见 liveTraceHeader），一次提交一行，按提交先后
+        std::vector<celadon::glaze::LiveCommitRecord> records;    // 同样的提交（自检与逐遍比较用）
+        BitDigest digest;                                         // 全部行的位级摘要
+        celadon::glaze::MusicProfile finalProfile;                // finish 之后（开着的段已交出）的画像与诊断
+        celadon::glaze::LiveDiagnostics finalDiagnostics;
+        bool overrun = false;    // 读提交时落后超过环形容量（一块里交来的段超过 64 段，不该发生）：少了几行，追踪不完整
+        bool mismatch = false;   // 提交记录与快照配不上（序号或 I 不一致，不该发生）：追踪不可信
+    };
+
+    // 一遍的追踪：prepare 之后 attach，每处理完一块 afterBlock（读新提交、写行），最后 finish（补交最后一块的帧、交出开着的段、再读一次、
+    // 记下最终画像）。flushOnFinish = false 只给自检的对照用（证明 finish 的补块真有用，见 runLiveSelfTest「收尾补块」）。
+    class LiveTracer
+    {
+    public:
+        LiveTracer (double sampleRateToUse, const celadon::glaze::LiveConstants& constants, celadon::glaze::MainSectionModel model,
+                    const Transport& transportToUse, bool flushOnFinishToUse = true)
+            : sink (std::make_unique<LiveTraceSink> (sampleRateToUse, constants, model)),
+              sampleRate (sampleRateToUse),
+              transport (transportToUse),
+              grid (makeSegmentGrid (transportToUse, sampleRateToUse)),
+              buffer (static_cast<std::size_t> (LiveTraceSink::capacity)),
+              flushOnFinish (flushOnFinishToUse)
+        {
+        }
+
+        // 消息线程，链 prepare 之后、处理之前（分析器打开实时模式）。passStartSample = 这一遍送进链的第一个样本在歌曲里的位置
+        // （从第 N 小节起播时 > 0），追踪的小节号按它换到歌曲的小节网格上（liveTraceRow）。
+        void attach (celadon::CeladonChain& chain, std::int64_t passStartSample = 0)
+        {
+            passStart = passStartSample;
+            chain.setLiveSegmentSink (sink.get());
+        }
+
+        void afterBlock()   { collect(); }
+
+        // 收尾（这一遍要读的状态都读完之后调：存档、成品、指标与不追踪时取自同一时刻）。先补一个 0 样本的块，再关实时模式——分析器把
+        // 开着的段（歌尾那一截）就地定稿交给接收者——之后链不再引用接收者。
+        // 为什么补块：链在「下一块」开头才把上一块的 Balance 帧交给分析器（CeladonChain::process 第一行 analyzeSpectrum），离线流在最后
+        // 一块之后就停了，最后一块的帧没人交：歌尾一两段的频谱证据（低频占比、27 段电平……）少了最后一块的帧，少多少随块长变（真歌实测：
+        // 块长 4096 与 512 的倒数第二段 lowShare 差 0.0005；自检的合成曲原来歌尾留 1 s 静音，帧在帧门之下，没考到——现在歌尾不留静音，
+        // 见 makeLiveTestTrack 与自检「收尾补块」）。0 样本的块宿主也会调（CeladonChain::process 与各模块都按 0 样本处理）：不加任何音频，
+        // 宿主时间线接在流的末尾（endPosition），参数与最后一块相同，只让链把待交的帧交出去（返回的「有非有限值」不看：0 个样本）。
+        void finish (celadon::CeladonChain& chain, std::int64_t endPosition, const celadon::ChainParams& params)
+        {
+            if (flushOnFinish)
+            {
+                juce::AudioBuffer<float> empty (2, 0);
+                chain.setHostInfo (makeHostInfo (endPosition, transport));
+                chain.setParams (params, false);
+                chain.process (empty);
+                collect();
+            }
+
+            chain.setLiveSegmentSink (nullptr);
+            collect();
+            result.finalProfile = sink->getLiveProfile().getProfile();
+            result.finalDiagnostics = sink->getLiveProfile().getDiagnostics();
+        }
+
+        const LiveTraceResult& getResult() const noexcept   { return result; }
+
+    private:
+        void collect()
+        {
+            while (true)
+            {
+                const auto read = sink->getLiveProfile().readCommits (cursor, buffer.data(), static_cast<int> (buffer.size()));
+                result.overrun = result.overrun || read < 0;
+                const auto count = std::abs (read);
+
+                for (int i = 0; i < count; ++i)
+                    addRow (buffer[static_cast<std::size_t> (i)]);
+
+                if (count < static_cast<int> (buffer.size()))
+                    return;
+            }
+        }
+
+        void addRow (const celadon::glaze::LiveCommitRecord& record)
+        {
+            // 记录与快照是同一次并入的两半：序号对得上、I 逐位相同（record 的 mainLevel 就是并入之后画像的 integratedLufs）。
+            const auto* snapshot = sink->snapshotFor (record.sequence);
+
+            if (snapshot == nullptr)
+            {
+                result.mismatch = true;
+                return;
+            }
+
+            const auto& level = snapshot->profile.integratedLufs;
+            result.mismatch = result.mismatch || level.valid != record.mainLevelValid
+                           || (level.valid && std::memcmp (&level.value, &record.mainLevelLufs, sizeof (float)) != 0);
+
+            result.rows.push_back (liveTraceRow (record, *snapshot, grid, sampleRate, passStart));
+            result.records.push_back (record);
+            addToDigest (result.digest, record, *snapshot);
+        }
+
+        std::unique_ptr<LiveTraceSink> sink;
+        double sampleRate = 48000.0;
+        Transport transport;
+        SegmentGrid grid;
+        std::vector<celadon::glaze::LiveCommitRecord> buffer;
+        std::uint64_t cursor = 0;
+        LiveTraceResult result;
+        bool flushOnFinish = true;
+        std::int64_t passStart = 0;
+    };
+
+    // 没有 --live-trace 时为空（各遍照旧不接追踪）。
+    std::unique_ptr<LiveTracer> makeLiveTracer (const Options& options, int genre, double sampleRate, const Transport& transport)
+    {
+        if (! options.liveTrace)
+            return nullptr;
+
+        return std::make_unique<LiveTracer> (sampleRate, options.liveConstants, liveModelFor (options, genre), transport);
     }
 
     // --trace 的校准诊断列（两遍的追踪共用；T-015 / BUG-003「整首停在校准中」由它们查出，列的含义见 README「逐块追踪」）。
@@ -1344,9 +2028,10 @@ namespace
 
     // 第一遍：整首歌送进一条新链，输出丢弃（GLAZE 学习、方案过渡、校准都在这一遍走完），最后把 GLAZE 状态存下来。
     // T-038：transport 给模拟走带的拍点；startSample > 0 = 从这个位置起播到歌尾（House 门槛「从 drop 播」；宿主位置照实际样本给）。
+    // T-048：live ≠ nullptr 时这一遍接实时画像追踪（见「T-048 实时画像追踪」）。
     ListenResult listenPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
                              const celadon::ChainParams& params, bool trace = false, const Transport& transport = Transport {},
-                             int startSample = 0)
+                             int startSample = 0, LiveTracer* live = nullptr)
     {
         ListenResult result;
         auto chain = std::make_unique<celadon::CeladonChain>();
@@ -1354,6 +2039,9 @@ namespace
         // 顺序照 PluginProcessor::prepareToPlay：先交参数再 prepare，各模块的平滑器直接落在这份参数上、不从默认值滑过来。
         chain->setParams (params, false);
         chain->prepare (makeSpec (sampleRate, blockSize));
+
+        if (live != nullptr)
+            live->attach (*chain, std::max (0, startSample));
 
         const auto numSamples = input.getNumSamples();
         juce::AudioBuffer<float> block (2, blockSize);
@@ -1373,6 +2061,9 @@ namespace
             if (chain->process (block))
                 ++result.nonFiniteBlocks;
 
+            if (live != nullptr)
+                live->afterBlock();
+
             if (trace)
             {
                 // 一行 = 一块；t 按输入时间轴（块起点）。聆听、方案过渡、校准、约束反馈都在这一遍走完，校准卡住先看这份。
@@ -1388,6 +2079,12 @@ namespace
         result.status = chain->getGlazeStatus();
         result.state = chain->createGlazeStateXml();
         result.committed = chain->getGlazeController().getCommittedStateForTesting();
+
+        // 追踪最后收尾（补交最后一块的帧、交出歌尾那一截段）：放在读完状态之后，存下的状态与不追踪时一样取自同一时刻。
+        // 补的 0 样本块接在流的末尾：送过样本就是歌尾，一块都没送（起播点已超出歌尾）就是起播点。
+        if (live != nullptr)
+            live->finish (*chain, std::max (std::max (0, startSample), numSamples), params);
+
         return result;
     }
 
@@ -1528,10 +2225,11 @@ namespace
     // 第二遍：新链读回第一遍的存档，从头渲染整首歌 + 延迟与余振的补零，作为成品。
     // effectiveLog ≠ nullptr 时记下链实际交给模块的参数（prepare 前一份 + 逐块，getEffectiveParams），给「同决策重放」用（ADR-016）。
     // T-038：transport 给模拟走带的拍点（与第一遍同一条时间线）；recordReductions = 逐块记限幅 GR（--segments-csv）。
+    // T-048：live ≠ nullptr 时这一遍接实时画像追踪。
     void renderPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
                      const celadon::ChainParams& params, const juce::XmlElement* state, bool trace, RenderResult& result,
                      EffectiveLog* effectiveLog = nullptr, const Transport& transport = Transport {},
-                     bool recordReductions = false)
+                     bool recordReductions = false, LiveTracer* live = nullptr)
     {
         auto chain = std::make_unique<celadon::CeladonChain>();
 
@@ -1544,6 +2242,9 @@ namespace
             effectiveLog->prepared = chain->getEffectiveParams();   // prepare 时模块落在它上面（prepare 不再调 setParams）
 
         chain->prepare (makeSpec (sampleRate, blockSize));
+
+        if (live != nullptr)
+            live->attach (*chain);
 
         // 链延迟只由 Lookahead（固定 2 ms）、Color 的过采样滤波器与 Clay 的 D + G 决定，prepare 之后就是定值；渲染中仍逐块核对。
         const auto latency = chain->getLatencySamples();
@@ -1584,6 +2285,9 @@ namespace
 
             if (chain->process (block))
                 ++result.nonFiniteBlocks;
+
+            if (live != nullptr)
+                live->afterBlock();
 
             if (chain->getLatencySamples() != latency)
                 result.latencyChanged = true;
@@ -1658,6 +2362,9 @@ namespace
         result.clayPeakCostBlocks = finalProbe.clayPeakCostBlocks;
         result.hasGuardLimits = finalProbe.guardLimitsSet;   // T-038 House 门槛 ②：风格预算（保护层此刻生效的约束上限）
         result.guardLimits = finalProbe.guardLimits;
+
+        if (live != nullptr)
+            live->finish (*chain, total, params);   // 读完上面的状态之后再收尾（同 listenPass；补的 0 样本块接在补零的末尾）
     }
 
     //==============================================================================
@@ -1750,14 +2457,18 @@ namespace
     // 重放一遍：块长、宿主时间线与自动链的第二遍相同；prepare 前交 effectiveLog.prepared，之后每块取 blocks 里同一块的。
     // latency 应与自动链相同（Clay 的 D + G 不随参数变）。
     // T-038：transport 与自动链第二遍相同（限幅跟拍的上限随实际参数回喂，见 CeladonChain::setParams）；recordReductions 同 renderPass。
+    // T-048：live ≠ nullptr 时这一遍接实时画像追踪。
     void replayPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
                      const EffectiveLog& effectiveLog, ReplayClay mode, RenderResult& result,
-                     const Transport& transport = Transport {}, bool recordReductions = false)
+                     const Transport& transport = Transport {}, bool recordReductions = false, LiveTracer* live = nullptr)
     {
         auto chain = std::make_unique<celadon::CeladonChain>();
         const auto& blocks = effectiveLog.blocks;
         chain->setParams (replayParams (effectiveLog.prepared, mode), false);
         chain->prepare (makeSpec (sampleRate, blockSize));
+
+        if (live != nullptr)
+            live->attach (*chain);
 
         const auto latency = chain->getLatencySamples();
         const auto total = prepareIo (input, sampleRate, latency, result);
@@ -1787,6 +2498,9 @@ namespace
             if (chain->process (block))
                 ++result.nonFiniteBlocks;
 
+            if (live != nullptr)
+                live->afterBlock();
+
             if (chain->getLatencySamples() != latency)
                 result.latencyChanged = true;
 
@@ -1798,6 +2512,10 @@ namespace
 
         stats.finish (total, result);
         result.status = chain->getGlazeStatus();
+
+        // 读完上面的状态之后再收尾（同 listenPass）：补的 0 样本块用最后一块的参数。
+        if (live != nullptr)
+            live->finish (*chain, total, replayParams (blocks.empty() ? effectiveLog.prepared : blocks.back(), mode));
     }
 
     //==============================================================================
@@ -1812,40 +2530,6 @@ namespace
     constexpr double effectiveAbsoluteGateLufs = -70.0;  // 「有效音频」门：400 ms 门块 ≥ −70 LUFS（absoluteGateLufs）……
     constexpr double effectiveRelativeGateLu = -20.0;    // ……且不低于参考 I 以下 20 LU（effectiveRelativeGateLu）
     constexpr int shortTermSubBlocks = 30;               // shortTermSubBlocks：短期响度 S 的 3 s 窗（EBU Tech 3341）
-
-    // 分段网格：有 --bpm 时一段 = 一小节，第 k 段（从 0 起）的起点 = round(k × 每小节样本数)（锚点 0、恒定速度：规格第 2.1 节
-    // 「锚点样本 + round(n × 每小节样本数)」）；没给 --bpm 时每 HouseConstants::fallbackSegmentSeconds（出厂 2 s）一段，按样本墙钟算
-    // （插件分 2 秒段时按有效音频样本推进，离线标定只需要大致的段，这一点与插件不同）。
-    struct SegmentGrid
-    {
-        bool bars = false;
-        double samplesPerSegment = 1.0;
-
-        std::int64_t startOf (std::int64_t k) const noexcept   { return std::llround (static_cast<double> (k) * samplesPerSegment); }
-
-        // 样本所在的段（从 0 起）。先按除法估，再按 startOf 的取整修正一步：边界样本永远归后一段。
-        std::int64_t indexOf (std::int64_t sample) const noexcept
-        {
-            auto k = static_cast<std::int64_t> (std::floor (static_cast<double> (std::max<std::int64_t> (0, sample)) / samplesPerSegment));
-
-            while (k > 0 && startOf (k) > sample)
-                --k;
-
-            while (startOf (k + 1) <= sample)
-                ++k;
-
-            return k;
-        }
-    };
-
-    SegmentGrid makeSegmentGrid (const Transport& transport, double sampleRate)
-    {
-        SegmentGrid grid;
-        grid.bars = transport.enabled;
-        grid.samplesPerSegment = std::max (1.0, transport.enabled ? transport.samplesPerBar()
-                                                                  : celadon::glaze::factoryConstants().house.fallbackSegmentSeconds * sampleRate);
-        return grid;
-    }
 
     struct SegmentStat
     {
@@ -2316,18 +3000,6 @@ namespace
                "segments_file";
     }
 
-    const char* segmentModeId (celadon::glaze::SegmentMode mode) noexcept
-    {
-        switch (mode)
-        {
-            case celadon::glaze::SegmentMode::none:    return "none";
-            case celadon::glaze::SegmentMode::bars:    return "bars";
-            case celadon::glaze::SegmentMode::seconds: return "seconds";
-        }
-
-        return "none";
-    }
-
     // T-038 追加列的值（含义见 README「T-038 追加列」）。方案 / 画像 / House 门控各列取第一遍（聆听）结束时已提交的版本——
     // 门槛 ①「锁定后的方案增益」比的就是它；有效 Ceiling、跟拍上限、风格预算取成品那一遍。重放行（GLAZE 0 的链）不填方案各列。
     std::vector<std::string> csvExtendedFields (const SongReport& report, const Row& row, const Options& options)
@@ -2560,6 +3232,17 @@ namespace
                 + "；metrics.csv 末尾另有 T-038 的列（README「T-038 追加列」）\n";
         }
 
+        // T-048：给了 --live-trace 才写这一行（不给时表头与改动前相同）。
+        if (options.liveTrace)
+        {
+            md += "- T-048 实时画像追踪：live/" + mdText (options.liveTag) + "/（每首歌 × 曲风 × 聆听起点一份，取第一次跑到的那一遍第一遍；主段模型 "
+                + (options.liveModelOverride ? std::string (liveModelIds[static_cast<std::size_t> (options.liveModel)]) + "（--live-model）"
+                                             : std::string ("按曲风：House 三类 4/4 型、通用响度型"))
+                + "；常数 " + (options.liveConstantsText.empty() ? std::string ("出厂值") : "出厂值改 " + mdText (options.liveConstantsText))
+                + (options.liveOnly ? std::string ("；--live-only：只跑第一遍，没有成品行") : std::string ("；追踪不改链的输出"))
+                + "；README「T-048 实时画像追踪」）\n";
+        }
+
         md += "\n";
         md += "先盲听、再看这张表（盲听做法见 tools/render/README.md）。\n\n";
 
@@ -2678,6 +3361,355 @@ namespace
         return "segments/" + fileName;
     }
 
+    //==============================================================================
+    // T-048 实时画像追踪的落盘与逐遍比较（每首歌一份 LiveTraceBook；口径见「T-048 实时画像追踪」一节）。
+
+    // 一遍追踪落到哪一份：曲风 + 本遍起点小节（第二遍、重放都从第 1 小节起）。文件名基 = <歌名>__<曲风>[_from-b<N>]。
+    std::string liveTraceBase (const std::string& song, int genre, int startBar)
+    {
+        return song + "__" + genreIds[static_cast<std::size_t> (genre)] + (startBar > 1 ? "_from-b" + std::to_string (startBar) : std::string());
+    }
+
+    juce::File liveTraceDirectory (const Options& options)
+    {
+        return options.outputDir.getChildFile ("live").getChildFile (juce::String::fromUTF8 (options.liveTag.c_str()));
+    }
+
+    // 常数原样写出：float 9 位、double 17 位有效数字（读回逐位相同；±∞ 写 inf / -inf）。
+    std::string exactNumber (float value)
+    {
+        char text[48] = {};
+        return std::snprintf (text, sizeof (text), "%.9g", static_cast<double> (value)) > 0 ? std::string (text) : std::string ("?");
+    }
+
+    std::string exactNumber (double value)
+    {
+        char text[48] = {};
+        return std::snprintf (text, sizeof (text), "%.17g", value) > 0 ? std::string (text) : std::string ("?");
+    }
+
+    // <基>__final.csv（键,值）：这一遍的设定（歌、曲风、主段模型、标签、常数全部 35 项的实际值）、追踪的段数与位级摘要、finish 之后的
+    // 诊断与画像（每个特征的值与 confidence；空 = 不知道）。只写决定追踪的量：取自网格里哪一组（GLAZE、风格……）、宿主块长都不写——
+    // 追踪与它们无关，这样最快跑法与完整跑法的两份文件能逐字节比（取自哪一组写在 metrics.md 备注与 __passes.csv 里）。
+    std::string liveFinalCsv (const Options& options, const SongReport& report, const LiveTraceResult& result, const Combo& combo,
+                              int startBar, std::int64_t startSample)
+    {
+        std::string csv = "key,value\n";
+        const auto add = [&csv] (const std::string& key, const std::string& value) { csv += csvField (key) + "," + csvField (value) + "\n"; };
+        const auto flag = [] (bool on) { return std::string (on ? "1" : "0"); };
+        const auto optional = [] (bool valid, double value, int decimals) { return valid ? fixed (value, decimals) : std::string(); };
+        const auto feature = [&add] (const std::string& key, const celadon::glaze::Feature& f, int decimals)
+        {
+            add ("profile." + key, f.valid ? fixed (f.value, decimals) : std::string());
+            add ("profile." + key + ".confidence", f.valid ? fixed (f.confidence, 4) : std::string());
+        };
+
+        const auto model = liveModelFor (options, combo.genre);
+        add ("format", "1");
+        add ("song", report.name);
+        add ("source_file", report.sourceFile);
+        add ("sample_rate", fixed (report.sampleRate, 0));
+        add ("duration_s", fixed (report.durationSeconds, 3));
+        add ("genre", genreIds[static_cast<std::size_t> (combo.genre)]);
+        add ("model", liveModelIds[static_cast<std::size_t> (model)]);
+        add ("model_source", options.liveModelOverride ? "live-model" : "genre");
+        add ("tag", options.liveTag);
+        add ("constants_override", options.liveConstantsText);
+        add ("bpm", options.bpm > 0.0 ? fixed (options.bpm, 3) : std::string());
+        add ("meter", options.bpm > 0.0 ? std::to_string (options.meterNumerator) + "/" + std::to_string (options.meterDenominator) : std::string());
+        add ("listen_from_bar", std::to_string (startBar));
+        add ("pass_start_sample", std::to_string (startSample));
+        add ("commits", std::to_string (result.rows.size()));
+        add ("trace_digest", hex64 (result.digest.value));
+        add ("anomaly_overrun", flag (result.overrun));
+        add ("anomaly_mismatch", flag (result.mismatch));
+
+        const auto& d = result.finalDiagnostics;
+        add ("diag.commits", std::to_string (d.commits));
+        add ("diag.reference_lufs", optional (d.referenceValid, d.referenceLufs, 4));
+        add ("diag.low_reference", optional (d.lowReferenceValid, d.lowReference, 5));
+        add ("diag.main_mass_s", fixed (d.mainMassSeconds, 4));
+        add ("diag.confidence", fixed (d.confidence, 5));
+        add ("diag.active_s", fixed (d.activeSeconds, 4));
+        add ("diag.seconds_since_main", fixed (d.secondsSinceMain, 4));
+        add ("diag.time_decay_active", flag (d.timeDecayActive));
+        add ("diag.new_program_count", std::to_string (d.newProgramCount));
+
+        const auto& p = result.finalProfile;
+        feature ("integrated_lufs", p.integratedLufs, 4);
+        feature ("loudness_range_lu", p.loudnessRangeLu, 4);
+        feature ("plr_db", p.plrDb, 4);
+        feature ("true_peak_dbtp", p.truePeakDbtp, 4);
+        feature ("slope_db_per_oct", p.spectralSlopeDbPerOct, 4);
+        feature ("low_share", p.lowShare, 5);
+        feature ("high_share", p.highShare, 5);
+        feature ("low_band_range_db", p.lowBandRangeDb, 4);
+        feature ("onset_density_per_s", p.onsetDensityPerSecond, 4);
+        feature ("onset_strength_db", p.onsetStrengthDb, 4);
+        feature ("sub_share_db", p.subShareDb, 4);
+        feature ("low_side_to_mid_db", p.lowSideToMidDb, 4);
+        feature ("low_correlation", p.lowCorrelation, 4);
+        feature ("high_side_to_mid_db", p.highSideToMidDb, 4);
+        feature ("high_correlation", p.highCorrelation, 4);
+        feature ("cost_lowcut_db", p.lowCutPeakCostDb, 4);
+
+        for (std::size_t i = 0; i < p.monoPeakCostDb.size(); ++i)
+            feature ("cost_mono" + std::to_string (static_cast<int> (celadon::glaze::clayMonoCandidateHz[i])) + "_db", p.monoPeakCostDb[i], 4);
+
+        feature ("cost_width_db", p.widthPeakCostDb, 4);
+
+        for (std::size_t i = 0; i < p.lowCutBlendLossDb.size(); ++i)
+            feature ("blend" + std::to_string (static_cast<int> (celadon::glaze::clayBlendCandidateHz[i])) + "_db", p.lowCutBlendLossDb[i], 4);
+
+        add ("profile.effective_s", fixed (p.effectiveSeconds, 4));
+        add ("profile.representativeness", fixed (p.representativeness, 5));
+        add ("profile.format_version", std::to_string (p.formatVersion));
+
+        auto constants = options.liveConstants;
+        visitLiveConstants (constants, [&add] (const std::string& name, auto& value, LiveDomain) { add ("const." + name, exactNumber (value)); });
+        return csv;
+    }
+
+    // 一遍追踪在 <歌名>__passes.csv 里的一行。
+    struct LivePass
+    {
+        std::string pass;                    // listen（第一遍）/ render（第二遍）/ replay-copy、replay-off（同决策重放）
+        std::string combo;                   // 组合标签
+        int genre = 0;
+        int startBar = 1;                    // 本遍从第几小节起送进链（第二遍、重放都是 1）
+        std::size_t rows = 0;
+        std::uint64_t digest = 0;
+        bool written = false;                // 这一遍就是写下的那份
+        bool compared = false;               // 有写下的那份可比
+        std::size_t matching = 0;            // 与写下的那份开头逐字相同的行数
+        std::size_t referenceRows = 0;       // 写下的那份的行数
+        std::int64_t firstDifference = -1;   // 第一处不同的那一段的起点（样本；完全相同 = −1）
+        std::string differingColumns;        // 第一处不同的那一行里不同的列（「;」连起来；段数不同而前缀全同时写 rows）
+        bool digestDiffers = false;          // 各行逐字相同、位级摘要却不同（固定小数位看不出的末位差）
+        bool overrun = false, mismatch = false;
+
+        bool identical() const noexcept   { return firstDifference < 0 && ! digestDiffers; }
+    };
+
+    // 两行追踪（同一张表头 liveTraceHeader）里不同的列名，用「;」连起来：逐遍比较时一眼看出差在段的哪一项（有效时长？试算块数？）。
+    std::string differingColumns (const std::string& a, const std::string& b)
+    {
+        const auto names = splitList (liveTraceHeader());
+        const auto left = splitList (a), right = splitList (b);
+        std::string out;
+
+        for (std::size_t i = 0; i < std::max (left.size(), right.size()); ++i)
+        {
+            if (i < left.size() && i < right.size() && left[i] == right[i])
+                continue;
+
+            out += (out.empty() ? "" : ";") + (i < names.size() ? names[i] : "column" + std::to_string (i + 1));
+        }
+
+        return out;
+    }
+
+    struct LiveTraceBook
+    {
+        struct Written
+        {
+            int genre = 0, startBar = 1;
+            std::string base, combo;
+            std::vector<std::string> rows;
+            std::vector<std::int64_t> starts;   // 各行段起点（比较时报第一处不同在哪）
+            std::uint64_t digest = 0;           // 写下的那份的位级摘要
+        };
+
+        std::vector<Written> written;
+        std::vector<LivePass> passes;
+    };
+
+    // 一遍追踪交账：第一遍（pass = listen）且这个（曲风、起点）还没写过 → 写成 <基>.csv 与 <基>__final.csv；否则与写下的那份逐行比较。
+    // 第二遍与重放从不当「写下的那份」：输入尾部多了延迟与余振的补零，读档之后分析器也不学习（交来的段可能从第一段起就不同）。
+    void offerLiveTrace (const Options& options, SongReport& report, LiveTraceBook& book, const LiveTracer& tracer, const std::string& pass,
+                         const Combo& combo, int startBar, std::int64_t startSample, int& failures)
+    {
+        const auto& result = tracer.getResult();
+        LivePass entry;
+        entry.pass = pass;
+        entry.combo = comboLabel (combo, " · ");
+        entry.genre = combo.genre;
+        entry.startBar = startBar;
+        entry.rows = result.rows.size();
+        entry.digest = result.digest.value;
+        entry.overrun = result.overrun;
+        entry.mismatch = result.mismatch;
+
+        const auto found = std::find_if (book.written.begin(), book.written.end(), [&combo, startBar] (const LiveTraceBook::Written& w)
+        {
+            return w.genre == combo.genre && w.startBar == startBar;
+        });
+
+        if (found == book.written.end() && pass == "listen")
+        {
+            const auto dir = liveTraceDirectory (options);
+            const auto base = liveTraceBase (report.name, combo.genre, startBar);
+            const auto relative = "live/" + options.liveTag + "/" + base;
+            auto text = liveTraceHeader() + "\n";
+
+            for (const auto& row : result.rows)
+                text += row + "\n";
+
+            if (! dir.createDirectory()
+                || ! writeText (dir.getChildFile (juce::String::fromUTF8 ((base + ".csv").c_str())), text)
+                || ! writeText (dir.getChildFile (juce::String::fromUTF8 ((base + "__final.csv").c_str())),
+                                liveFinalCsv (options, report, result, combo, startBar, startSample)))
+            {
+                report.notes.push_back ("写实时画像追踪 " + relative + ".csv / __final.csv 失败");
+                ++failures;
+            }
+            else
+            {
+                report.notes.push_back ("实时画像追踪 " + relative + ".csv（" + std::to_string (result.rows.size()) + " 段，取自「"
+                                        + entry.combo + "」的第一遍）");
+            }
+
+            LiveTraceBook::Written w;
+            w.genre = combo.genre;
+            w.startBar = startBar;
+            w.base = base;
+            w.combo = entry.combo;
+            w.rows = result.rows;
+            w.digest = result.digest.value;
+
+            for (const auto& r : result.records)
+                w.starts.push_back (r.start);
+
+            book.written.push_back (std::move (w));
+            entry.written = true;
+        }
+        else if (found != book.written.end())
+        {
+            entry.compared = true;
+            entry.referenceRows = found->rows.size();
+            const auto common = std::min (found->rows.size(), result.rows.size());
+            std::size_t k = 0;
+
+            while (k < common && found->rows[k] == result.rows[k])
+                ++k;
+
+            entry.matching = k;
+
+            if (k < result.records.size())
+                entry.firstDifference = result.records[k].start;
+            else if (k < found->starts.size())
+                entry.firstDifference = found->starts[k];
+
+            if (k < common)
+                entry.differingColumns = differingColumns (found->rows[k], result.rows[k]);
+            else if (found->rows.size() != result.rows.size())
+                entry.differingColumns = "rows";
+
+            entry.digestDiffers = entry.firstDifference < 0 && found->digest != result.digest.value;
+        }
+
+        // 读提交落后、记录与快照配不上：工具自己的错，追踪不可信（不该发生）。
+        if (result.overrun || result.mismatch)
+        {
+            const auto passName = pass == "listen" ? "第一遍" : pass == "render" ? "第二遍" : pass == "replay-copy" ? "重放（修坯手动照填）" : "重放（修坯关）";
+            report.notes.push_back ("「" + entry.combo + "」" + passName + "的实时画像追踪"
+                                    + (result.overrun ? "不完整（读提交落后超过环形容量）" : "配不上（提交记录与快照的序号或 I 不一致）") + "，请查");
+            ++failures;
+        }
+
+        book.passes.push_back (std::move (entry));
+    }
+
+    // 一首歌做完：有过逐遍比较时写 live/<标签>/<歌名>__passes.csv，并把结论写进备注与 stderr。第一遍之间（只差 GLAZE / 风格 / 修坯 /
+    // 交付）应逐行相同——不同就是「实时画像只看输入」不成立，单独记一条注意；第二遍与重放只报前缀。
+    void writeLivePasses (const Options& options, SongReport& report, const LiveTraceBook& book, int& failures)
+    {
+        if (std::none_of (book.passes.begin(), book.passes.end(), [] (const LivePass& p) { return ! p.written; }))
+            return;
+
+        std::string csv = "pass,combo,genre,start_bar,commits,digest,written,compared,matching_rows,reference_rows,first_difference_sample,"
+                          "first_difference_columns,digest_differs,overrun,mismatch\n";
+        int sameListen = 0, differentListen = 0, sameOther = 0, prefixOther = 0, uncompared = 0;
+        std::size_t shortestPrefix = std::numeric_limits<std::size_t>::max(), prefixOf = 0;
+
+        for (const auto& p : book.passes)
+        {
+            csv += csvField (p.pass) + "," + csvField (p.combo) + "," + genreIds[static_cast<std::size_t> (p.genre)] + "," + std::to_string (p.startBar)
+                 + "," + std::to_string (p.rows) + "," + hex64 (p.digest) + "," + (p.written ? "1" : "0") + "," + (p.compared ? "1" : "0") + ","
+                 + (p.compared ? std::to_string (p.matching) : std::string()) + "," + (p.compared ? std::to_string (p.referenceRows) : std::string())
+                 + "," + (p.compared && p.firstDifference >= 0 ? std::to_string (p.firstDifference) : std::string()) + ","
+                 + csvField (p.differingColumns) + "," + (p.digestDiffers ? "1" : "0") + ","
+                 + (p.overrun ? "1" : "0") + "," + (p.mismatch ? "1" : "0") + "\n";
+
+            if (p.written)
+                continue;
+
+            if (! p.compared)
+            {
+                ++uncompared;
+                continue;
+            }
+
+            const auto identical = p.identical();
+
+            if (p.pass == "listen")
+            {
+                if (identical)
+                    ++sameListen;
+                else
+                    ++differentListen;
+
+                if (! identical)
+                {
+                    const auto note = "注意：「" + p.combo + "」第一遍的实时画像追踪与写下的那份不同（"
+                                    + (p.digestDiffers ? std::string ("各行逐字相同、位级摘要不同")
+                                                       : "前 " + std::to_string (p.matching) + " / " + std::to_string (p.referenceRows)
+                                                             + " 段相同，第一处不同在第 " + std::to_string (p.firstDifference) + " 样本起的段："
+                                                             + p.differingColumns)
+                                    + "）——实时画像本应只看输入";
+                    report.notes.push_back (note);
+                    std::cerr << "  " << note << "\n";
+                }
+            }
+            else
+            {
+                if (identical)
+                    ++sameOther;
+                else
+                    ++prefixOther;
+
+                if (! identical && p.matching < shortestPrefix)
+                {
+                    shortestPrefix = p.matching;
+                    prefixOf = p.referenceRows;
+                }
+            }
+        }
+
+        const auto relative = "live/" + options.liveTag + "/" + report.name + "__passes.csv";
+        const auto dir = liveTraceDirectory (options);
+
+        if (! dir.createDirectory() || ! writeText (dir.getChildFile (juce::String::fromUTF8 ((report.name + "__passes.csv").c_str())), csv))
+        {
+            report.notes.push_back ("写 " + relative + " 失败");
+            ++failures;
+            return;
+        }
+
+        auto summary = "实时画像逐遍比较（" + relative + "）：其余第一遍 " + std::to_string (sameListen) + " 遍逐行相同、"
+                     + std::to_string (differentListen) + " 遍不同；第二遍与重放 " + std::to_string (sameOther) + " 遍逐行相同、"
+                     + std::to_string (prefixOther) + " 遍只有前缀相同";
+
+        if (prefixOther > 0)
+            summary += "（最短前缀 " + std::to_string (shortestPrefix) + " / " + std::to_string (prefixOf) + " 段）";
+
+        if (uncompared > 0)
+            summary += "；" + std::to_string (uncompared) + " 遍没有可比的第一遍";
+
+        report.notes.push_back (summary);
+        std::cerr << "  " << summary << "\n";
+    }
+
     // 成品的逐段统计：对齐前的成品截到原曲长度（与输入同一条时间轴、同一张段表），再并上逐块限幅 GR。必须在 measureAlignWrite
     // 之前调（它原地乘对齐增益）。p95CapDb = 这一组的风格预算 limitGrP95CapDb（没有为 0：不数超出的块）。
     SegmentReport outputSegments (RenderResult& render, int numInput, double sampleRate, const SegmentGrid& grid, double p95CapDb)
@@ -2744,9 +3776,11 @@ namespace
     //      → automatic.replayCheck = ok / mismatch / n/a，最大差记进 replayMaxDifference；
     //   ② 重放全关（off）：同样的参数、修坯关，出一行 clay-replay-off（门槛拿它与「自动」比，tools/render/gate_check.py）。
     // T-038：transport 与自动链第二遍相同；--segments-csv 时「重放全关」也写一份逐段统计（超预算块数按自动行的风格预算数）。
+    // T-048：--live-trace 时两遍重放也接实时画像追踪，与第一遍写下的那份比较（liveBook）。
     void replayAutomatic (const Options& options, const Song& song, SongReport& report, Row& automatic,
                           const EffectiveLog& effectiveLog, const juce::AudioBuffer<float>& autoAudio,
-                          int autoLatency, int& failures, int& written, const Transport& transport, const SegmentGrid& grid)
+                          int autoLatency, int& failures, int& written, const Transport& transport, const SegmentGrid& grid,
+                          LiveTraceBook& liveBook)
     {
         const auto notePrefix = comboLabel (automatic.combo, " ") + "：";
         const auto& blocks = effectiveLog.blocks;
@@ -2761,7 +3795,12 @@ namespace
         if (clayExpressible && masteringExpressible)
         {
             RenderResult copy;
-            replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::copy, copy, transport);
+            const auto copyTrace = makeLiveTracer (options, automatic.combo.genre, song.sampleRate, transport);
+            replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::copy, copy, transport, false, copyTrace.get());
+
+            if (copyTrace != nullptr)
+                offerLiveTrace (options, report, liveBook, *copyTrace, "replay-copy", automatic.combo, 1, 0, failures);
+
             const juce::AudioBuffer<float> finished (copy.io.getArrayOfWritePointers(), 2, copy.latencySamples, copy.outputLength);
             const auto difference = copy.latencySamples == autoLatency ? maxAbsDifference (finished, autoAudio) : 1.0;
             automatic.replayMaxDifference = difference;
@@ -2789,7 +3828,13 @@ namespace
         std::cerr << "      重放全关：" << std::flush;
 
         RenderResult off;
-        replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::off, off, transport, options.segmentsCsv);
+        const auto offTrace = makeLiveTracer (options, row.combo.genre, song.sampleRate, transport);
+        replayPass (song.audio, song.sampleRate, options.blockSize, effectiveLog, ReplayClay::off, off, transport, options.segmentsCsv,
+                    offTrace.get());
+
+        if (offTrace != nullptr)
+            offerLiveTrace (options, report, liveBook, *offTrace, "replay-off", row.combo, 1, 0, failures);
+
         row.grMeanDb = off.grMeanDb;
         row.grMaxDb = off.grMaxDb;
         row.phaseGuardPercent = off.phaseGuardPercent;
@@ -2822,6 +3867,51 @@ namespace
         report.rows.push_back (std::move (row));
     }
 
+    // 第一遍从哪个样本起播：--listen-from-bar N（N > 1，要 --bpm）= 第 N 小节的起点，超出歌尾时截到歌尾（什么都听不到）；否则从头。
+    int listenStartFor (const Combo& combo, const Transport& transport, int numInput)
+    {
+        return combo.listenFromBar > 1 && transport.enabled
+                   ? static_cast<int> (std::min<std::int64_t> (transport.barStartSample (combo.listenFromBar), numInput))
+                   : 0;
+    }
+
+    // 这一遍第一遍的追踪落在哪个起点小节（文件名的 from-bN 与逐遍比较的键）：真从第 N 小节起播时是 N，否则 1。
+    int listenStartBar (const Combo& combo, int listenStart) noexcept
+    {
+        return listenStart > 0 ? combo.listenFromBar : 1;
+    }
+
+    // --live-only（T-048 最快的追踪跑法）：每个（曲风、聆听起点）只跑一遍第一遍——取网格里第一个这样的组合的参数（实时画像与 GLAZE、风格、
+    // 修坯、交付无关，跑哪一个都一样；GLAZE 0 最快：链不按保护层时隙切片）——出追踪；不出成品、不做重放，指标表只有原始输入行。
+    void processSongLiveOnly (const Options& options, const std::vector<Combo>& combos, const Song& song, SongReport& report,
+                              const Transport& transport, LiveTraceBook& liveBook, int& failures)
+    {
+        const auto numInput = song.audio.getNumSamples();
+        std::vector<std::pair<int, int>> done;
+
+        for (const auto& combo : combos)
+        {
+            const auto key = std::make_pair (combo.genre, combo.listenFromBar);
+
+            if (std::find (done.begin(), done.end(), key) != done.end())
+                continue;
+
+            done.push_back (key);
+            const auto label = comboLabel (combo, " ");
+            const auto listenStart = listenStartFor (combo, transport, numInput);
+
+            if (listenStart >= numInput && combo.listenFromBar > 1)
+                report.notes.push_back (label + "：聆听起点第 " + std::to_string (combo.listenFromBar) + " 小节已超出歌曲长度，第一遍什么都没听到");
+
+            std::cerr << "  [追踪] " << label << "：第一遍 " << std::flush;
+            const auto started = nowSeconds();
+            const auto tracer = makeLiveTracer (options, combo.genre, song.sampleRate, transport);
+            listenPass (song.audio, song.sampleRate, options.blockSize, makeComboParams (combo), false, transport, listenStart, tracer.get());
+            std::cerr << fixed (nowSeconds() - started, 1) << " s，" << tracer->getResult().rows.size() << " 段\n";
+            offerLiveTrace (options, report, liveBook, *tracer, "listen", combo, listenStartBar (combo, listenStart), listenStart, failures);
+        }
+    }
+
     // 一首歌：原始输入对照行 + 网格里的每组设置（聆听 → 读回 → 成品 → 量 → 对齐 → 写）。
     void processSong (const Options& options, const std::vector<Combo>& combos, const Song& song,
                       SongReport& report, int& failures, int& written)
@@ -2843,6 +3933,15 @@ namespace
         report.rows.push_back (inputRow);
         std::cerr << "  原始输入：" << loudnessText (inputRow.measurement) << "\n";
 
+        // T-048：这首歌各遍的实时画像追踪（没有 --live-trace 时一直是空的）。
+        LiveTraceBook liveBook;
+
+        if (options.liveOnly)
+        {
+            processSongLiveOnly (options, combos, song, report, transport, liveBook, failures);
+            return;
+        }
+
         for (std::size_t c = 0; c < combos.size(); ++c)
         {
             const auto& combo = combos[c];
@@ -2855,15 +3954,15 @@ namespace
             std::cerr << "  [" << (c + 1) << "/" << combos.size() << "] " << label << "：聆听 " << std::flush;
 
             // ① 第一遍：完整聆听，输出丢弃，最后存 GLAZE 状态。--listen-from-bar N（N > 1）从第 N 小节起播到歌尾（宿主位置照实际样本给）。
-            const auto listenStart = combo.listenFromBar > 1 && transport.enabled
-                                       ? static_cast<int> (std::min<std::int64_t> (transport.barStartSample (combo.listenFromBar), numInput))
-                                       : 0;
+            const auto listenStart = listenStartFor (combo, transport, numInput);
 
             if (listenStart >= numInput && combo.listenFromBar > 1)
                 report.notes.push_back (label + "：聆听起点第 " + std::to_string (combo.listenFromBar) + " 小节已超出歌曲长度，第一遍什么都没听到");
 
             auto started = nowSeconds();
-            const auto listen = listenPass (song.audio, song.sampleRate, options.blockSize, params, options.trace, transport, listenStart);
+            const auto listenTrace = makeLiveTracer (options, combo.genre, song.sampleRate, transport);
+            const auto listen = listenPass (song.audio, song.sampleRate, options.blockSize, params, options.trace, transport, listenStart,
+                                            listenTrace.get());
             row.listenPhase = listen.status.phase;
             row.listenCommitted = listen.committed;
             row.listenStatus = listen.status;
@@ -2871,13 +3970,20 @@ namespace
             std::cerr << fixed (nowSeconds() - started, 1) << " s（第一遍末 " << phaseName (listen.status.phase)
                       << (listen.status.calibrationValid ? " · 校准有效" : "") << "）→ 成品 " << std::flush;
 
+            if (listenTrace != nullptr)
+                offerLiveTrace (options, report, liveBook, *listenTrace, "listen", combo, listenStartBar (combo, listenStart), listenStart, failures);
+
             // ② 第二遍：新链读回存档，从头渲染成品。GLAZE > 0 的「自动」组逐块记下实际参数，留给同决策重放（ADR-016）。
             started = nowSeconds();
             RenderResult render;
             const auto replay = options.replay && combo.clay == ClayChoice::automatic && combo.glaze > 0.0f;
             EffectiveLog effectiveLog;
+            const auto renderTrace = makeLiveTracer (options, combo.genre, song.sampleRate, transport);
             renderPass (song.audio, song.sampleRate, options.blockSize, params, listen.state.get(), options.trace, render,
-                        replay ? &effectiveLog : nullptr, transport, options.segmentsCsv);
+                        replay ? &effectiveLog : nullptr, transport, options.segmentsCsv, renderTrace.get());
+
+            if (renderTrace != nullptr)
+                offerLiveTrace (options, report, liveBook, *renderTrace, "render", combo, 1, 0, failures);
             row.effectiveCeilingDb = render.effectiveCeilingDb;
             row.beatReleaseCapMaxMs = render.beatReleaseCapMaxMs;
             row.hasGuardLimits = render.hasGuardLimits;
@@ -2965,8 +4071,11 @@ namespace
             render.io.setSize (0, 0);   // 成品已写完：先放掉这段缓冲（长歌几百 MB），重放各自再分配
             report.rows.push_back (std::move (row));
             auto& automatic = report.rows.back();
-            replayAutomatic (options, song, report, automatic, effectiveLog, autoAudio, autoLatency, failures, written, transport, grid);
+            replayAutomatic (options, song, report, automatic, effectiveLog, autoAudio, autoLatency, failures, written, transport, grid,
+                             liveBook);
         }
+
+        writeLivePasses (options, report, liveBook, failures);
     }
 
     //==============================================================================
@@ -3550,6 +4659,357 @@ namespace
 
         return test.failed == 0 ? 0 : 1;
     }
+
+    //==============================================================================
+    // T-048 实时画像追踪的自检（--selftest-live）：合成 House 曲走真歌同一套第一遍 / 第二遍，核对追踪管线本身（段首尾相接、按小节对齐、
+    // 块长与 GLAZE 无关、模型与常数真的穿到画像、不改链的输出）与几个命令行约定。与 --selftest / --selftest-house 分开（那两份的项目与
+    // 输出保持原样）；改了追踪相关的代码在服务器上手动跑（几十秒）。
+
+    // 自检用的合成 House 曲（transport 的速度与采样率、4/4）：前奏 introBars 小节只有鼓（底鼓 + 反拍踩镲）→ drop（底鼓更响 + 55 Hz 持续低音
+    // 1 ～ 6 次谐波 + 和声垫 + 踩镲）→ breakdown（只有和声垫：比 drop 轻 10 LU 以上、没有低音）→ drop，最后一段 drop 再多放 tailBars 小节
+    // （不满一小节）就截断。歌尾不留静音：最后一块的 Balance 帧落在有声、过帧门的段里，收尾补块（LiveTracer::finish）才考得到；最后一段是
+    // 不满一小节的尾巴，追踪靠 finish 交出来。写法照 tests/MusicAnalyzerTests.cpp 的 makeHouseTrack，另加 breakdown 与第二段 drop。
+    juce::AudioBuffer<float> makeLiveTestTrack (const Transport& transport, int introBars, int dropBars, int breakdownBars, int lastDropBars,
+                                                double tailBars)
+    {
+        const auto beat = 60.0 / transport.bpm;
+        const auto barSeconds = transport.quartersPerBar() * beat;
+        const auto musicBars = introBars + dropBars + breakdownBars + lastDropBars;
+        const auto numSamples = static_cast<int> (std::llround ((static_cast<double> (musicBars) + tailBars) * barSeconds * transport.sampleRate));
+        const auto twoPi = juce::MathConstants<double>::twoPi;
+        juce::AudioBuffer<float> signal (2, numSamples);
+
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            juce::Random random (20261002 + 7919 * ch);   // 踩镲噪声两声道不相关，其余左右相同（和声垫差一点相位）
+            double previous = 0.0;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto t = static_cast<double> (i) / transport.sampleRate;
+                const auto bar = static_cast<int> (std::floor (t / barSeconds));
+                const auto intro = bar < introBars;
+                const auto drop = (bar >= introBars && bar < introBars + dropBars) || bar >= introBars + dropBars + breakdownBars;   // 含尾巴
+                const auto breakdown = bar >= introBars + dropBars && bar < introBars + dropBars + breakdownBars;
+                const auto beatPosition = std::fmod (t, beat);
+                const auto offBeatPosition = std::fmod (t + 0.5 * beat, beat);
+                const auto white = static_cast<double> (random.nextFloat()) * 2.0 - 1.0;
+                double x = 0.0;
+
+                if (intro || drop)
+                {
+                    x += (drop ? 0.5 : 0.35) * std::exp (-beatPosition / 0.12)
+                       * std::sin (twoPi * (50.0 * beatPosition + 70.0 * 0.03 * (1.0 - std::exp (-beatPosition / 0.03))));
+                    x += (drop ? 0.10 : 0.08) * std::exp (-offBeatPosition / 0.025) * (white - previous);
+                }
+
+                if (drop)
+                    for (int h = 1; h <= 6; ++h)
+                        x += 0.22 * std::sin (twoPi * 55.0 * h * t) / h;
+
+                if (drop || breakdown)
+                    for (const auto hz : { 220.0, 277.18, 329.63 })
+                        x += 0.05 * std::sin (twoPi * hz * t + 0.7 * ch);
+
+                previous = white;
+                signal.setSample (ch, i, static_cast<float> (x));
+            }
+        }
+
+        return signal;
+    }
+
+    // 自检用：真歌同一套第一遍，traced 时接追踪（主段模型按曲风）。返回这一遍的结果（存档、状态）与追踪。flushOnFinish = false 只给
+    // 「收尾补块」的对照用。
+    struct LiveSelfRun
+    {
+        ListenResult listen;
+        LiveTraceResult trace;
+    };
+
+    LiveSelfRun liveSelfListen (const juce::AudioBuffer<float>& signal, const Combo& combo, int blockSize, const Transport& transport,
+                                const celadon::glaze::LiveConstants& constants, bool traced, bool flushOnFinish = true)
+    {
+        LiveSelfRun run;
+        LiveTracer tracer (selfTestRate, constants, celadon::glaze::mainSectionModelFor (celadon::glaze::genreFromIndex (combo.genre)), transport,
+                           flushOnFinish);
+        run.listen = listenPass (signal, selfTestRate, blockSize, makeComboParams (combo), false, transport, 0, traced ? &tracer : nullptr);
+        run.trace = tracer.getResult();
+        return run;
+    }
+
+    bool sameTrace (const LiveTraceResult& a, const LiveTraceResult& b)
+    {
+        return a.rows == b.rows && a.digest.value == b.digest.value;
+    }
+
+    // 命令行（自检用）：words 前面补上程序名，交给 parseArguments。
+    ParseResult parseWords (std::vector<std::string> words, Options& options, std::string& error)
+    {
+        words.insert (words.begin(), "celadon_render");
+        std::vector<char*> argv;
+
+        for (auto& word : words)
+            argv.push_back (word.data());
+
+        return parseArguments (static_cast<int> (argv.size()), argv.data(), options, error);
+    }
+
+    int runLiveSelfTest()
+    {
+        SelfTest test;
+
+        // ---- --live-constants：键表 35 个键；改得到字段、收 inf（只在允许的键上）；坏值一律拒收（不悄悄换出厂值）----
+        {
+            celadon::glaze::LiveConstants c;
+            std::string error;
+            const auto ok = parseLiveConstants ("fourOnFloor.gateWidthLu=3.5, newProgramLu=8,referenceMemorySeconds=240,noMainSeconds=inf,"
+                                                "loudness.memoryBars=-inf", c, error);
+            int keys = 0;
+            visitLiveConstants (c, [&keys] (const std::string&, auto&, LiveDomain) { ++keys; });
+
+            test.check (ok && c.fourOnFloor.gateWidthLu == 3.5f && c.newProgramLu == 8.0f && c.referenceMemorySeconds == 240.0
+                            && std::isinf (c.noMainSeconds) && c.noMainSeconds > 0.0 && std::isinf (c.loudness.memoryBars) && c.loudness.memoryBars < 0.0
+                            && c.fourOnFloor.lowGateFactor == celadon::glaze::LiveConstants {}.fourOnFloor.lowGateFactor && keys == 35,
+                        "--live-constants 解析", ok ? "改到 5 个字段（含 inf / -inf），其余保持出厂值；键表 " + std::to_string (keys) + " 个键（期望 35）"
+                                                    : "解析失败：" + error);
+
+            const std::array<const char*, 10> bad { { "nosuch=1", "mainThreshold=1.5", "fourOnFloor.gateWidthLu=inf", "newProgramLu=8,newProgramLu=9",
+                                                      "newProgramLu", "newProgramLu=abc", "loudness.referencePercentile=0", "peakTailSeconds=nan",
+                                                      "fourOnFloor.loudnessRampLu=0", "newProgramKeep=1e400" } };
+            std::string accepted;
+
+            for (const auto* text : bad)
+            {
+                celadon::glaze::LiveConstants scratch;
+                std::string why;
+
+                if (parseLiveConstants (text, scratch, why) || why.empty())
+                    accepted += std::string (accepted.empty() ? "" : "、") + text;
+            }
+
+            test.check (accepted.empty(), "--live-constants 拒收坏值",
+                        accepted.empty() ? std::to_string (bad.size()) + " 种坏写法（不认识的键、越界、不许 inf 的 inf、重复、缺「=」、不是数、NaN、溢出）都报错"
+                                         : "这些没报错：" + accepted);
+        }
+
+        // ---- 命令行：附属选项离不开 --live-trace；改常数 / 模型必须给标签；标签不能跳出 live/ ----
+        {
+            Options plain, tagless, full, escape;
+            std::string e1, e2, e3, e4;
+            const auto r1 = parseWords ({ "--in", "a", "--out", "b", "--live-only" }, plain, e1);
+            const auto r2 = parseWords ({ "--in", "a", "--out", "b", "--live-trace", "--live-constants", "newProgramLu=8" }, tagless, e2);
+            const auto r3 = parseWords ({ "--in", "a", "--out", "b", "--live-trace", "--live-only", "--live-constants", "newProgramLu=8",
+                                          "--live-tag", "np8", "--live-model", "loudness" }, full, e3);
+            const auto r4 = parseWords ({ "--in", "a", "--out", "b", "--live-trace", "--live-tag", "../x" }, escape, e4);
+            const auto fullOk = r3 == ParseResult::run && full.liveTrace && full.liveOnly && full.liveConstants.newProgramLu == 8.0f
+                             && full.liveConstantsText == "newProgramLu=8" && full.liveModelOverride
+                             && full.liveModel == celadon::glaze::MainSectionModel::loudness && full.liveTag == "np8" && ! full.extended;
+
+            test.check (r1 == ParseResult::invalid && r2 == ParseResult::invalid && fullOk && r4 == ParseResult::invalid, "追踪选项的命令行约定",
+                        std::string (r1 == ParseResult::invalid ? "" : "--live-only 单独给却没报错；")
+                            + (r2 == ParseResult::invalid ? "" : "改常数不给标签却没报错；") + (fullOk ? "" : "完整的一组没解析对（" + e3 + "）；")
+                            + (r4 == ParseResult::invalid ? "" : "标签 ../x 没报错；")
+                            + "单独 --live-only、改常数不给标签、标签 ../x 都报错，完整的一组解析对");
+        }
+
+        // ---- 合成 House 曲：Deep House、124 BPM、GLAZE 0、块长 512、出厂常数 ----
+        Transport tempo124;
+        tempo124.enabled = true;
+        tempo124.bpm = 124.0;
+        tempo124.sampleRate = selfTestRate;
+        constexpr int introBars = 8, dropBars = 12, breakdownBars = 8, lastDropBars = 8;
+        constexpr int musicBars = introBars + dropBars + breakdownBars + lastDropBars;
+        constexpr double tailBars = 0.4;   // 歌尾：最后一段 drop 多放 0.4 小节就截断（约 0.77 s，有声，见 makeLiveTestTrack）
+        const auto track = makeLiveTestTrack (tempo124, introBars, dropBars, breakdownBars, lastDropBars, tailBars);
+        const auto grid = makeSegmentGrid (tempo124, selfTestRate);
+        const celadon::glaze::LiveConstants factory;
+
+        Combo deep;
+        deep.glaze = 0.0f;
+        deep.genre = static_cast<int> (celadon::glaze::Genre::deepHouse);
+        const auto base = liveSelfListen (track, deep, 512, tempo124, factory, true);
+        const auto& records = base.trace.records;
+
+        // 首尾相接、交出歌尾：第一段从 0 起，相邻两段首尾相接，最后一段止于音频末尾（finish 把开着的那一截交出来了）。
+        {
+            auto contiguous = ! records.empty() && records.front().start == 0 && records.back().end == track.getNumSamples();
+
+            for (std::size_t k = 1; k < records.size(); ++k)
+                contiguous = contiguous && records[k].start == records[k - 1].end;
+
+            test.check (contiguous && ! base.trace.overrun && ! base.trace.mismatch, "段首尾相接",
+                        std::to_string (records.size()) + " 段，" + (contiguous ? "从 0 起首尾相接、止于音频末尾 " + std::to_string (track.getNumSamples()) + " 样本"
+                                                                     : std::string ("有缺口或重叠")) + (base.trace.overrun ? "；读提交落后" : "")
+                            + (base.trace.mismatch ? "；记录与快照配不上" : ""));
+        }
+
+        // 按小节、与工具的小节网格逐样本对齐：第 k 段 = 第 k + 1 小节 [round(k × 每小节样本数), round((k + 1) × …))，最后一段是不满一小节的尾巴。
+        {
+            int misaligned = 0;
+
+            for (std::size_t k = 0; k < records.size(); ++k)
+            {
+                const auto& r = records[k];
+                const auto start = grid.startOf (static_cast<std::int64_t> (k));
+                const auto end = grid.startOf (static_cast<std::int64_t> (k) + 1);
+                const auto last = k + 1 == records.size();
+                const auto aligned = r.mode == celadon::glaze::SegmentMode::bars && r.start == start && (r.end == end || (last && r.end < end));
+                misaligned += aligned ? 0 : 1;
+            }
+
+            test.check (records.size() == static_cast<std::size_t> (musicBars + 1) && misaligned == 0, "按小节对齐",
+                        std::to_string (records.size()) + " 段（期望 " + std::to_string (musicBars) + " 小节 + 1 段尾巴），不在小节线上的 "
+                            + std::to_string (misaligned) + " 段（期望 0）");
+        }
+
+        // 从第 N 小节起播（--listen-from-bar）：分析器时间轴从起播样本算 0，追踪的小节号要换回歌曲的小节网格——第一段是第 N 小节（账本锚点
+        // 取整时前面可能多一段不到 1 拍的、属于第 N − 1 小节的碎段），段起点与网格差 ≤ 1 样本，最后一段是第 musicBars + 1 小节的尾巴。
+        {
+            constexpr int fromBar = introBars + 1;
+            LiveTracer tracer (selfTestRate, factory, celadon::glaze::MainSectionModel::fourOnFloor, tempo124);
+            listenPass (track, selfTestRate, 512, makeComboParams (deep), false, tempo124, static_cast<int> (tempo124.barStartSample (fromBar)), &tracer);
+            const auto& rows = tracer.getResult().rows;
+            int before = 0, offGrid = 0, firstBar = 0, lastBar = 0;
+
+            for (const auto& row : rows)
+            {
+                const auto cells = splitList (row);
+                const auto bar = cells.size() > 2 ? std::atoi (cells[1].c_str()) : 0;
+                const auto offset = cells.size() > 2 ? std::atoll (cells[2].c_str()) : 0;
+
+                if (bar < fromBar)
+                {
+                    ++before;
+                    continue;
+                }
+
+                firstBar = firstBar == 0 ? bar : firstBar;
+                lastBar = bar;
+                offGrid += std::llabs (offset) <= 1 ? 0 : 1;
+            }
+
+            test.check (before <= 1 && firstBar == fromBar && lastBar == musicBars + 1 && offGrid == 0, "从第 N 小节起播的小节号",
+                        "从第 " + std::to_string (fromBar) + " 小节起播：" + std::to_string (rows.size()) + " 段，第一段整段在第 " + std::to_string (firstBar)
+                            + " 小节（期望 " + std::to_string (fromBar) + "），最后一段在第 " + std::to_string (lastBar) + " 小节（期望 "
+                            + std::to_string (musicBars + 1) + "），起点小节之前的碎段 " + std::to_string (before) + " 个（期望 ≤ 1），离网格超过 1 样本的 "
+                            + std::to_string (offGrid) + " 段（期望 0）");
+        }
+
+        // I 一直有效（第一段就有有效音频：冷启动以自己为参考，m = 1）；管线的阳性对照：breakdown 各小节 m < 0.5、第二段 drop 各小节 m ≥ 0.5。
+        {
+            const auto allValid = std::all_of (records.begin(), records.end(), [] (const celadon::glaze::LiveCommitRecord& r) { return r.mainLevelValid; });
+            int breakdownMain = 0, dropMissed = 0;
+
+            for (std::size_t k = 0; k < records.size() && k < static_cast<std::size_t> (musicBars); ++k)
+            {
+                const auto bar = static_cast<int> (k);
+
+                if (bar >= introBars + dropBars && bar < introBars + dropBars + breakdownBars)
+                    breakdownMain += records[k].mainness >= 0.5f ? 1 : 0;
+                else if (bar >= introBars + dropBars + breakdownBars)
+                    dropMissed += records[k].mainness < 0.5f ? 1 : 0;
+            }
+
+            test.check (allValid && breakdownMain == 0 && dropMissed == 0, "I 有效、段落门",
+                        std::string (allValid ? "每段之后 I 都有效" : "有段之后 I 无效") + "；breakdown 里 m ≥ 0.5 的 " + std::to_string (breakdownMain)
+                            + " 小节、第二段 drop 里 m < 0.5 的 " + std::to_string (dropMissed) + " 小节（期望 0 / 0）；最终 I "
+                            + fixed (base.trace.finalProfile.integratedLufs.value, 2) + " LUFS、c " + fixed (base.trace.finalDiagnostics.confidence, 3));
+        }
+
+        // 块长无关：4096、480（不是 2 的幂）与 512 的追踪逐字节相同、位级摘要相同（段与宿主分块无关，快照取「并入之后」，收尾补交最后一块的帧）。
+        {
+            const auto big = liveSelfListen (track, deep, 4096, tempo124, factory, true);
+            const auto odd = liveSelfListen (track, deep, 480, tempo124, factory, true);
+            test.check (sameTrace (big.trace, base.trace) && sameTrace (odd.trace, base.trace), "块长 512 / 4096 / 480",
+                        "追踪" + std::string (sameTrace (big.trace, base.trace) ? "" : "（4096 不同）") + (sameTrace (odd.trace, base.trace) ? "" : "（480 不同）")
+                            + (sameTrace (big.trace, base.trace) && sameTrace (odd.trace, base.trace) ? "逐字节相同，摘要 " + hex64 (base.trace.digest.value) : ""));
+        }
+
+        // 收尾补块的对照（有牙）：不补 0 样本块时，最后一块的 Balance 帧没交给分析器，块长 4096 与 512 的追踪不同、且只差在歌尾（前缀相同）。
+        {
+            const auto unflushed512 = liveSelfListen (track, deep, 512, tempo124, factory, true, false);
+            const auto unflushed4096 = liveSelfListen (track, deep, 4096, tempo124, factory, true, false);
+            const auto& a = unflushed512.trace.rows;
+            const auto& b = unflushed4096.trace.rows;
+            std::size_t k = 0;
+
+            while (k < a.size() && k < b.size() && a[k] == b[k])
+                ++k;
+
+            const auto differs = ! sameTrace (unflushed512.trace, unflushed4096.trace);
+            const auto atTail = a.size() == b.size() && k + 2 >= a.size();
+            test.check (differs && atTail, "收尾补块（对照）",
+                        std::string ("不补 0 样本块时块长 4096 与 512 的追踪") + (differs ? "不同" : "竟相同（这一项考不到收尾补块）") + "，前 "
+                            + std::to_string (k) + " / " + std::to_string (a.size()) + " 段逐字相同（期望只差最后一两段）"
+                            + (k < a.size() && k < b.size() ? "：" + differingColumns (a[k], b[k]) : std::string()));
+        }
+
+        // 与 GLAZE、风格无关（最快的追踪跑法 = GLAZE 0 的依据）：GLAZE 70、温润的第一遍追踪与 GLAZE 0 的逐字节相同；
+        // 存档与不追踪时逐字相同（追踪不改编排器）；第二遍成品与不追踪时逐位相同（追踪不改链的输出）。
+        Combo warm70 = deep;
+        warm70.glaze = 70.0f;
+        warm70.style = static_cast<int> (celadon::glaze::Style::warm);
+        const auto traced70 = liveSelfListen (track, warm70, 512, tempo124, factory, true);
+        const auto plain70 = liveSelfListen (track, warm70, 512, tempo124, factory, false);
+        {
+            const auto sameState = traced70.listen.state != nullptr && plain70.listen.state != nullptr
+                                && traced70.listen.state->toString() == plain70.listen.state->toString();
+            test.check (sameTrace (traced70.trace, base.trace) && sameState, "与 GLAZE、风格无关",
+                        std::string (sameTrace (traced70.trace, base.trace) ? "GLAZE 70 温润与 GLAZE 0 的追踪逐字节相同" : "GLAZE 70 温润的追踪与 GLAZE 0 不同")
+                            + (sameState ? "；接不接追踪，第一遍存下的 GLAZE 状态逐字相同" : "；接了追踪存档却变了"));
+        }
+
+        {
+            const auto params70 = makeComboParams (warm70);
+            RenderResult plainRender, tracedRender;
+            renderPass (track, selfTestRate, 512, params70, plain70.listen.state.get(), false, plainRender, nullptr, tempo124);
+            LiveTracer renderTracer (selfTestRate, factory, celadon::glaze::MainSectionModel::fourOnFloor, tempo124);
+            renderPass (track, selfTestRate, 512, params70, plain70.listen.state.get(), false, tracedRender, nullptr, tempo124, false, &renderTracer);
+            const juce::AudioBuffer<float> a (plainRender.io.getArrayOfWritePointers(), 2, plainRender.latencySamples, plainRender.outputLength);
+            const juce::AudioBuffer<float> b (tracedRender.io.getArrayOfWritePointers(), 2, tracedRender.latencySamples, tracedRender.outputLength);
+            const auto same = plainRender.outputLength == tracedRender.outputLength && hashAudio (a) == hashAudio (b);
+            test.check (same, "追踪不改链的输出", same ? "GLAZE 70 第二遍接不接追踪，成品哈希相同（" + hex64 (hashAudio (a)) + "）" : std::string ("接了追踪成品却变了"));
+
+            // 信息（不判定）：第二遍（读档、不学习）的追踪与第一遍有多少段相同、第一处不同差在哪些列——读档之后分析器不学习，
+            // 输入尾部还多了延迟与余振的补零。
+            const auto& second = renderTracer.getResult().rows;
+            std::size_t k = 0;
+
+            while (k < second.size() && k < base.trace.rows.size() && second[k] == base.trace.rows[k])
+                ++k;
+
+            std::cerr << "信息  第二遍追踪：" << second.size() << " 段，与第一遍前 " << k << " / " << base.trace.rows.size() << " 段逐字相同"
+                      << (k < second.size() && k < base.trace.rows.size() ? "；第一处不同：" + differingColumns (base.trace.rows[k], second[k])
+                                                                         : std::string())
+                      << "\n";
+        }
+
+        // 对照有牙：通用档（响度型）的追踪必须与 Deep House（4/4 型）的不同（段数相同：分段与曲风无关）；常数穿到画像：M0 放大 8 倍，最终 c 更低。
+        {
+            auto general = deep;
+            general.genre = static_cast<int> (celadon::glaze::Genre::general);
+            const auto loudness = liveSelfListen (track, general, 512, tempo124, factory, true);
+            test.check (loudness.trace.rows.size() == base.trace.rows.size() && loudness.trace.digest.value != base.trace.digest.value,
+                        "主段模型穿到画像", "通用档（响度型）" + std::to_string (loudness.trace.rows.size()) + " 段，摘要 " + hex64 (loudness.trace.digest.value)
+                                            + (loudness.trace.digest.value != base.trace.digest.value ? "，与 4/4 型不同" : "，竟与 4/4 型相同"));
+
+            celadon::glaze::LiveConstants slow;
+            std::string error;
+            const auto parsed = parseLiveConstants ("fourOnFloor.confidenceBars=64", slow, error);
+            const auto slowRun = liveSelfListen (track, deep, 512, tempo124, slow, true);
+            test.check (parsed && slowRun.trace.finalDiagnostics.confidence < base.trace.finalDiagnostics.confidence,
+                        "--live-constants 穿到画像", "fourOnFloor.confidenceBars=64 时最终 c " + fixed (slowRun.trace.finalDiagnostics.confidence, 3)
+                                                    + "（出厂 8 小节 " + fixed (base.trace.finalDiagnostics.confidence, 3) + "，期望更低）");
+        }
+
+        if (test.failed == 0)
+            std::cerr << "T-048 自检全部通过\n";
+        else
+            std::cerr << "T-048 自检有 " << test.failed << " 项失败\n";
+
+        return test.failed == 0 ? 0 : 1;
+    }
 }
 
 int main (int argc, char* argv[])
@@ -3573,6 +5033,9 @@ int main (int argc, char* argv[])
 
         case ParseResult::selfTestHouse:
             return runHouseSelfTest();
+
+        case ParseResult::selfTestLive:
+            return runLiveSelfTest();
 
         case ParseResult::invalid:
             std::cerr << "celadon_render：" << error << "\n\n";
@@ -3613,6 +5076,10 @@ int main (int argc, char* argv[])
     std::cerr << "celadon_render：" << songs.size() << " 首歌 × " << combos.size() << " 组（" << gridText (options)
               << "），宿主块长 " << options.blockSize << "，对齐到 " << fixed (options.matchLufs, 1) << " LUFS\n"
               << "输出目录：" << options.outputDir.getFullPathName().toStdString() << "\n";
+
+    if (options.liveTrace)
+        std::cerr << "T-048 实时画像追踪：live/" << options.liveTag << "/"
+                  << (options.liveOnly ? "（--live-only：只跑第一遍，每个曲风 × 聆听起点一遍）" : "") << "\n";
 
     juce::AudioFormatManager formats;
     formats.registerBasicFormats();
