@@ -2,17 +2,20 @@
   ==============================================================================
 
     LiveProfileTests.cpp
-    T-048 阶段 1：实时画像 LiveProfile（LiveProfile.h；LiveProfile.cpp 文件头；设计规格-实时GLAZE-主段与增益 第 1～3、5 节；BRIEF 第 3 节）。
+    T-048 阶段 1（修订：回看重判）：实时画像 LiveProfile（LiveProfile.h 文件头；LiveProfile.cpp 文件头；设计规格-实时GLAZE-主段与增益
+    第 1～3、5 节；BRIEF 第 3 节；阶段 1 修订任务书）。
 
-    a. 等价性：分析器 House 档处理一段前奏 + drop，段落账存下的段（试算拷进 liveTrial* / liveBlend*）逐段 commitWithMainness(full ? 1 : 0)
-       交给遗忘关掉的 LiveProfile，画像与分析器的 House 候选画像逐项比；容差逐项写在用例里（多数逐位）。
-    b. 遗忘不变性：主段之后交一串 m = 0 的 breakdown，主段画像、M、c 逐位不变；再交新主段，画像向它移动。
-    c. m 的公式（两个因子、斜坡端点、冷启动、被动型 / 响度型）；mainnessFor 与 segmentFinalized 同一口径。
-    d. 长时间无主段的时间衰减、换歌软遗忘（触发与不触发的边界）。
-    e. 状态 XML 往返逐位相同（含重规范过、缩放因子 ≠ 1 的状态，与经过 XML 文本的往返）；坏数据冷启动并返回 false。
-    f. 同一段序列：另一个实例、reset 后重交，结果逐位相同；音频线程接口不分配。
-    g. 每次并入的耗时（均值 / 最大，µs，写进 REPORT-A）；只设防百倍退化的宽护栏。
-    另：提交记录环形缓冲、坏段不进累计、主段模型切换与格式字段。
+    a. 等价性锚点：分析器 House 档处理一段前奏 + drop，段落账存下的段（试算拷进 liveTrial* / liveBlend*）交给遗忘关掉、参考冻结为
+       账本最终的 S_ref / lowRef、斜坡宽极小（硬门）的 LiveProfile，画像与分析器的 House 候选画像逐项比；不冻结时算出的参考也等于账本的。
+    b. breakdown（m′ = 0）里画像、M、c 逐位不动；新 drop 来了画像向它移动。
+    c. m 的公式（两个因子、斜坡端点、冷启动、被动型 / 响度型）；进账判断 = 上一份画像的 mainnessFor，这一份的判断 = 发布后的 mainnessFor。
+    r. 回看重判（REPORT-C 第 5 节第 1～3 条）：低音重的前奏不再定住 lowRef；冷启动落在淡入小节上不卡住；前奏被重判出主段、drop 来了 I 很快跟上。
+    d. W_mem / M0 换算、长时间无主段、换歌软遗忘（含「轻的那一支要电平稳」：起伏 1.9 vs 2.1 LU、淡出不触发）。
+    e. 状态 XML 往返逐位（窗口、还没发布的段、事件过的时钟）；坏数据冷启动并返回 false。
+    f. 同一段序列结果逐位相同（另一实例、reset、调用次数与时刻：advanceTo 每 7 样本 / 重复 / 一次跳到底 / 队列满）；整链块长 4096 / 512 /
+       480 / 32 / 7 逐位；窗口外的老段丢掉之后画像只取决于窗口；音频线程接口不分配。
+    g. 耗时：每段入队、每片（均值 / 最大），整遍同步重算；状态大小。
+    另：提交记录环形缓冲、坏段、常数取值表。
 
     合成段（makeSegment）各字段按 SegmentLedger::deriveSegment 与分析器的记账口径自洽地造（一小节 124 BPM、48 kHz）。
 
@@ -29,11 +32,13 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <string>
 #include <vector>
 
 namespace celadon::test
@@ -45,6 +50,7 @@ namespace celadon::test
         using glaze::LiveConstants;
         using glaze::LiveDiagnostics;
         using glaze::LiveProfile;
+        using glaze::LiveSegmentJudgement;
         using glaze::MainSectionModel;
         using glaze::MusicProfile;
         using glaze::SegmentLedger;
@@ -79,7 +85,7 @@ namespace celadon::test
             return true;
         }
 
-        // 画像逐位相同（逐字段）；withRange = false 时不比 LRA（全部段的统计，breakdown 里照常变）。
+        // 画像逐位相同（逐字段）；withRange = false 时不比 LRA。
         bool sameProfile (const MusicProfile& a, const MusicProfile& b, bool withRange = true)
         {
             const Feature MusicProfile::* const features[] = {
@@ -109,13 +115,42 @@ namespace celadon::test
                 && a.houseGate.valid == b.houseGate.valid && a.formatVersion == b.formatVersion;
         }
 
-        bool sameDiagnostics (const LiveDiagnostics& a, const LiveDiagnostics& b)
+        // 参考、M、c 逐位相同（breakdown 不变性比这几项：窗口里多了段，窗口的统计照常变）。
+        bool sameMain (const LiveDiagnostics& a, const LiveDiagnostics& b)
         {
-            return a.commits == b.commits && a.referenceValid == b.referenceValid && sameFloat (a.referenceLufs, b.referenceLufs)
+            return a.referenceValid == b.referenceValid && sameFloat (a.referenceLufs, b.referenceLufs)
                 && a.lowReferenceValid == b.lowReferenceValid && sameFloat (a.lowReference, b.lowReference)
-                && sameDouble (a.mainMassSeconds, b.mainMassSeconds) && sameFloat (a.confidence, b.confidence)
-                && sameDouble (a.activeSeconds, b.activeSeconds) && sameDouble (a.secondsSinceMain, b.secondsSinceMain)
-                && a.timeDecayActive == b.timeDecayActive && a.newProgramCount == b.newProgramCount;
+                && sameDouble (a.mainMassSeconds, b.mainMassSeconds) && sameFloat (a.confidence, b.confidence);
+        }
+
+        // 诊断逐位相同。最后几项工作量统计（pendingSegments、lastPassSlices、catchUps、forcedPublications）随交段与 advanceTo 的先后变，不比。
+        bool sameDiagnostics (const LiveDiagnostics& a, const LiveDiagnostics& b, bool withCounters = true)
+        {
+            const auto derived = sameMain (a, b) && a.windowSegments == b.windowSegments && sameFloat (a.oldestMainShare, b.oldestMainShare)
+                              && sameFloat (a.oldestReferenceShare, b.oldestReferenceShare);
+
+            return derived && (! withCounters
+                               || (a.commits == b.commits && sameDouble (a.activeSeconds, b.activeSeconds)
+                                   && sameDouble (a.secondsSinceMain, b.secondsSinceMain) && a.timeDecayActive == b.timeDecayActive
+                                   && a.newProgramCount == b.newProgramCount && a.droppedSegments == b.droppedSegments
+                                   && a.publishTime == b.publishTime));
+        }
+
+        bool sameRecord (const LiveCommitRecord& a, const LiveCommitRecord& b, bool withSequence = true)
+        {
+            return (! withSequence || a.sequence == b.sequence) && a.start == b.start && a.end == b.end && a.publishTime == b.publishTime
+                && sameDouble (a.nominalSeconds, b.nominalSeconds) && a.mode == b.mode && sameDouble (a.effectiveSeconds, b.effectiveSeconds)
+                && a.loudnessValid == b.loudnessValid && sameFloat (a.loudnessLufs, b.loudnessLufs) && a.lowShareValid == b.lowShareValid
+                && sameFloat (a.lowShare, b.lowShare) && sameFloat (a.admissionLoudnessFactor, b.admissionLoudnessFactor)
+                && sameFloat (a.admissionLowFactor, b.admissionLowFactor) && sameFloat (a.admissionMainness, b.admissionMainness)
+                && sameFloat (a.loudnessFactor, b.loudnessFactor) && sameFloat (a.lowFactor, b.lowFactor) && sameFloat (a.mainness, b.mainness)
+                && sameDouble (a.weightSeconds, b.weightSeconds) && a.referenceValid == b.referenceValid
+                && sameFloat (a.referenceLufs, b.referenceLufs) && a.lowReferenceValid == b.lowReferenceValid
+                && sameFloat (a.lowReference, b.lowReference) && a.mainLevelValid == b.mainLevelValid
+                && sameFloat (a.mainLevelLufs, b.mainLevelLufs) && sameDouble (a.mainMassSeconds, b.mainMassSeconds)
+                && sameFloat (a.confidence, b.confidence) && a.timeDecay == b.timeDecay && a.newProgram == b.newProgram
+                && a.newProgramVote == b.newProgramVote && a.newProgramRangeValid == b.newProgramRangeValid
+                && sameFloat (a.newProgramRangeLu, b.newProgramRangeLu);
         }
 
         //==============================================================================
@@ -311,12 +346,32 @@ namespace celadon::test
             live.setConstants (constants, model);
         }
 
+        // 交一段并让它发布（时间推到它的发布时刻）。
+        void feed (LiveProfile& live, const Segment& segment)
+        {
+            live.segmentFinalized (segment);
+            live.advanceTo (live.getNextPublicationTime());
+        }
+
+        void feedPinned (LiveProfile& live, const Segment& segment, float mainness)
+        {
+            live.commitWithMainness (segment, mainness);
+            live.advanceTo (live.getNextPublicationTime());
+        }
+
         LiveCommitRecord lastRecord (const LiveProfile& live)
         {
             LiveCommitRecord records[LiveProfile::commitCapacity];
             std::uint64_t cursor = 0;
             const auto count = std::abs (live.readCommits (cursor, records, LiveProfile::commitCapacity));
             return count > 0 ? records[count - 1] : LiveCommitRecord {};
+        }
+
+        std::vector<LiveSegmentJudgement> judgementsOf (const LiveProfile& live)
+        {
+            std::vector<LiveSegmentJudgement> out ((size_t) LiveProfile::windowCapacity);
+            out.resize ((size_t) live.readJudgements (out.data(), (int) out.size()));
+            return out;
         }
 
         // 遗忘全关（等价性）：W_mem、参考遗忘、无主段衰减、换歌都取 +∞；M0 取极小，c = 1（House 画像的代表性此时也是 1）。
@@ -338,8 +393,47 @@ namespace celadon::test
             return c;
         }
 
+        // 每发布一份记一份快照（监听者；容量事先留好：回调里不分配）。
+        struct Publication
+        {
+            LiveCommitRecord record;
+            MusicProfile profile;
+            LiveDiagnostics diagnostics;
+        };
+
+        struct Recorder final : LiveProfile::PublicationListener
+        {
+            Recorder (const LiveProfile& source, size_t capacity) : live (source)   { publications.reserve (capacity); }
+
+            void livePublished (const LiveCommitRecord& record) noexcept override
+            {
+                if (publications.size() < publications.capacity())
+                    publications.push_back ({ record, live.getProfile(), live.getDiagnostics() });
+                else
+                    overflow = true;
+            }
+
+            const LiveProfile& live;
+            std::vector<Publication> publications;
+            bool overflow = false;
+        };
+
+        bool samePublications (const std::vector<Publication>& a, const std::vector<Publication>& b)
+        {
+            if (a.size() != b.size())
+                return false;
+
+            for (size_t i = 0; i < a.size(); ++i)
+                if (! sameRecord (a[i].record, b[i].record) || ! sameProfile (a[i].profile, b[i].profile)
+                    || ! sameDiagnostics (a[i].diagnostics, b[i].diagnostics))
+                    return false;
+
+            return true;
+        }
+
         //==============================================================================
         // 分析器测试台（与链里的顺序相同：IN 表 → processInput → Balance → processSpectrum），宿主给恒定 124 BPM 的拍点。
+        // live ≠ nullptr 时每块之后调 live->advanceTo（分析器这一侧还不调；B2 接上之后两边都调也无妨——结果与调用次数无关，用例 f 证明）。
         struct AnalyzerRig
         {
             LoudnessMeter meter;
@@ -375,7 +469,7 @@ namespace celadon::test
                 return info;
             }
 
-            void feed (const Signal& input, int blockSize)
+            void feed (const Signal& input, int blockSize, LiveProfile* live = nullptr)
             {
                 const auto numSamples = (int) input.front().size();
                 juce::AudioBuffer<float> block (2, blockSize);
@@ -394,6 +488,9 @@ namespace celadon::test
                     balance.process (block);
                     analyzer.processSpectrum (balance);
                     fed += length;
+
+                    if (live != nullptr)
+                        live->advanceTo (fed);
                 }
             }
         };
@@ -441,7 +538,7 @@ namespace celadon::test
             return signal;
         }
 
-        // 存下的段拷一份、把学习期的试算拷进实时那几项（阶段 1 的分析器还不填 liveTrial*；BRIEF 等价性用例的做法）。
+        // 存下的段拷一份、把学习期的试算拷进实时那几项（House 门控那一份账本的 live* 只在学习期间记，与 trial* 同值；BRIEF 等价性用例的做法）。
         Segment withLiveTrials (const Segment& stored)
         {
             auto segment = stored;
@@ -450,6 +547,22 @@ namespace celadon::test
             segment.liveBlendIntended = stored.blendIntended;
             segment.liveBlendOutput = stored.blendOutput;
             return segment;
+        }
+
+        // 一串段（交来的顺序、时刻都按 makeSegment 的小节网格）。
+        std::vector<Segment> mixedSequence (int count, std::uint32_t seedBase = 100)
+        {
+            std::vector<Segment> segments;
+
+            for (int i = 0; i < count; ++i)
+            {
+                const auto phase = (i / 8) % 4;
+                auto spec = phase == 0 ? introSpec() : phase == 2 ? breakdownSpec() : dropSpec();
+                spec.seed = seedBase + (std::uint32_t) i;
+                segments.push_back (makeSegment (spec, i));
+            }
+
+            return segments;
         }
     }
 
@@ -464,73 +577,40 @@ namespace celadon::test
             testHouseEquivalence();
             testBreakdownLeavesMainUntouched();
             testMainnessFormula();
+            testRejudgeLowReference();
+            testRejudgeFadeInColdStart();
+            testRejudgeIntroLeavesMain();
             testMemoryUnits();
             testNoMainDecay();
             testNewProgram();
+            testNewProgramLevelStable();
             testModelsAndFormat();
+            testConstantsTable();
             testStateRoundTrip();
             testBadState();
             testDeterminismAndReset();
+            testCallPatterns();
             testAnalyzerToProfileBlockSizes();
+            testWindowEviction();
             testNoAllocation();
             testCommitRing();
             testBadSegment();
-            testCommitTiming();
+            testTiming();
         }
 
     private:
         //==============================================================================
-        // 整条串起来（主进程 2026-10-02 加，代理 A 的跨文件请求 4）：分析器实时模式 → 实时段落账 → SegmentSink → LiveProfile，宿主块长
-        // 4096 / 512 / 480 / 32 / 7 下实时画像的状态（全部累计，经 createStateXml）逐位相同、并入段数相同。用例 f 只证明「段序列相同 ⟹
-        // 结果逐位相同」，分析器那边证明了「段序列与块长无关」（MusicAnalyzerLive 用例 c）；这一条把两头接起来核对。
-        void testAnalyzerToProfileBlockSizes()
-        {
-            beginTest ("analyzer live mode -> live ledger -> sink -> LiveProfile: the live profile is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7");
-
-            const auto track = makeIntroDrop (8, 8, 1.0);
-            juce::String reference;
-            std::uint64_t referenceCommits = 0;
-
-            for (const auto blockSize : { 4096, 512, 480, 32, 7 })
-            {
-                AnalyzerRig rig (4096);
-                LiveProfile live;
-                setUp (live);
-                rig.analyzer.setGenre (glaze::Genre::deepHouse);
-                rig.analyzer.setSegmentSink (&live);
-                rig.analyzer.setLiveMode (true);
-                rig.feed (track, blockSize);
-
-                const auto state = live.createStateXml()->toString();
-                const auto commits = live.getDiagnostics().commits;
-
-                if (reference.isEmpty())
-                {
-                    reference = state;
-                    referenceCommits = commits;
-                    expect (commits >= 14, "the run committed the bars: " + juce::String ((juce::int64) commits));
-                    expect (live.getProfile().integratedLufs.valid, "the live profile has an I");
-                }
-                else
-                {
-                    expect (commits == referenceCommits, "same number of commits for block " + juce::String (blockSize));
-                    expect (state == reference, "live profile state bit-identical for block " + juce::String (blockSize));
-                }
-            }
-        }
-
-        //==============================================================================
-        // a. 等价性（LiveProfile.h「等价性（测试锚点）」）。分析器 House 档 16 小节前奏 + 16 小节 drop，学习中（试算跑着）；lockSegments = 1
+        // a. 等价性锚点（LiveProfile.h 文件头第四节）。分析器 House 档 16 小节前奏 + 16 小节 drop，学习中（试算跑着）；lockSegments = 1
         // 让 House 的代表性只看不重复素材（= 1），实时画像的 M0 取极小（c = 1）——两边的置信度都只剩各特征的观测充分度，可以逐位比。
+        // 实时画像：遗忘与事件全关、斜坡宽 1e-6（硬门）、参考冻结为账本最终的 S_ref / lowRef，每段的 m′ 就是账本的 full（逐段核对）。
         // 容差（其余逐位）：
-        //   - I：实时画像的相对门按 0.1 LU 格中心判、门上能量按格求和（House 逐块比、逐块求和）。先断言没有门块离相对门不到 0.1 LU
-        //     （否则门边那一格的门块可能归属不同，差可达 0.05 LU 量级），之后只剩求和顺序（double 末位）与 float 舍入：1e-4 LU；PLR 同；
-        //   - 试算代价：每路 P99 由 0.01 dB 一格的直方图按格中心插值，每个 P99 ≤ 半格 0.005 dB，代价 ≤ 0.01 dB；
+        //   - I / PLR ≤ 1e-4（两遍门限都逐块做，同 House 的公式与求和顺序，实测逐位）；
+        //   - 试算代价 ≤ 0.01 dB：每路 P99 由 0.01 dB 一格的直方图按格中心插值，每个 P99 ≤ 半格 0.005 dB；
         //   - LRA：4/4 型主段加权，与 House（只用满编段）逐位；响度型用全部段，对照是测试里按 House 同一公式在全部存下的段上算的参照，逐位；
         //   - 按设计不同、单独核对的字段：effectiveSeconds（= M = 满编段有效时长之和）、formatVersion（2 / 3）、houseGate（不填）。
         void testHouseEquivalence()
         {
-            beginTest ("a. equivalence: forgetting off, the ledger's stored segments with m = full give the analyzer's House profile");
+            beginTest ("a. equivalence anchor: forgetting off, references frozen to the ledger's, hard gates -> the analyzer's House profile");
 
             AnalyzerRig rig;
             glaze::HouseConstants house;
@@ -544,16 +624,33 @@ namespace celadon::test
             const auto& expected = rig.analyzer.getCandidateProfile();
             const auto& gate = expected.houseGate;
 
+            auto hard = noForgetting();
+            hard.fourOnFloor.loudnessRampLu = 1.0e-6f;
+            hard.fourOnFloor.lowRampWidth = 1.0e-6f;
+
             LiveProfile live;
-            setUp (live, noForgetting());
+            setUp (live, hard);
+            live.setFrozenReferencesForTesting (true, gate.referenceLufs, gate.lowShareReference);
+            LiveProfile computed;   // 同样的常数，参考不冻结（自己按窗口算）
+            setUp (computed, hard);
             int fullSegments = 0, fullTrialBlocks = 0;
             auto allHeard = true;
+            auto nearestGate = 1.0e9;
 
             for (int i = 0; i < ledger.getNumStored(); ++i)
             {
                 const auto& stored = ledger.getStored (i);
-                live.commitWithMainness (withLiveTrials (stored), stored.full ? 1.0f : 0.0f);
+                live.segmentFinalized (withLiveTrials (stored));
+                computed.segmentFinalized (withLiveTrials (stored));
+                live.flush();
+                computed.flush();
                 allHeard = allHeard && stored.heard;
+
+                if (stored.loudnessValid)
+                    nearestGate = juce::jmin (nearestGate, std::abs ((double) stored.loudnessLufs - ((double) gate.referenceLufs - 3.0)));
+
+                if (stored.lowShareValid)
+                    nearestGate = juce::jmin (nearestGate, std::abs ((double) stored.lowShare / (double) gate.lowShareReference - 0.6));
 
                 if (stored.full)
                 {
@@ -565,41 +662,43 @@ namespace celadon::test
             const auto& p = live.getProfile();
             logMessage ("  stored " + juce::String (ledger.getNumStored()) + ", full " + juce::String (fullSegments) + " (trial blocks "
                         + juce::String (fullTrialBlocks) + "); House I " + juce::String (expected.integratedLufs.value, 4) + ", live I "
-                        + juce::String (p.integratedLufs.value, 4) + "; S_ref ledger " + juce::String (gate.referenceLufs, 2) + ", live "
-                        + juce::String (live.getDiagnostics().referenceLufs, 2));
+                        + juce::String (p.integratedLufs.value, 4) + "; S_ref ledger " + juce::String (gate.referenceLufs, 2) + ", computed "
+                        + juce::String (computed.getDiagnostics().referenceLufs, 2) + "; lowRef ledger " + juce::String (gate.lowShareReference, 4)
+                        + ", computed " + juce::String (computed.getDiagnostics().lowReference, 4) + "; nearest reading to a gate "
+                        + juce::String (nearestGate, 4));
 
-            // 用例的前提：drop 都是满编段；试算块在 10 s ～ 512 块之间（House 不走「不够 10 s 改用全部段」与 512 块截断）；代表性 = 1。
+            // 用例的前提：drop 都是满编段；试算块在 10 s ～ 512 块之间（House 不走「不够 10 s 改用全部段」与 512 块截断）；代表性 = 1；
+            // 没有一段的读数贴着门（硬门的斜坡宽 1e-6：贴着门的段 m′ 会是 0.5，House 是 1）。
             expect (gate.valid && fullSegments >= 14 && fullSegments <= 17, "the full segments are the drop bars");
             expect (fullTrialBlocks >= 100 && fullTrialBlocks <= 512, "full-segment trial blocks within 10 s ... 512 blocks");
             expect (sameFloat (expected.representativeness, 1.0f) && sameFloat (p.representativeness, 1.0f), "both representativeness 1");
+            expect (nearestGate >= 1.0e-3, "no reading within 1e-3 of either gate");
 
-            // I：先确认门边那一格没有门块（满编段的门块按 House 的逐块口径求相对门）。
+            // 每段的 m′ = 账本的 full（硬门、冻结参考）。
             {
-                double total = 0.0;
-                std::uint64_t count = 0;
+                const auto judgements = judgementsOf (live);
+                auto same = judgements.size() == (size_t) ledger.getNumStored();
 
-                for (int i = 0; i < ledger.getNumStored(); ++i)
-                    if (ledger.getStored (i).full)
-                        for (int k = 0; k < ledger.getStored (i).gatingCount; ++k)
-                        {
-                            total += (double) ledger.getStored (i).gatingPower[(size_t) k];
-                            ++count;
-                        }
+                for (size_t i = 0; same && i < judgements.size(); ++i)
+                    same = sameFloat (judgements[i].mainness, ledger.getStored ((int) i).full ? 1.0f : 0.0f);
 
-                const auto relativeGate = lufsOf (total / (double) count) - 10.0;
-                auto nearest = 1.0e9;
+                expect (same, "every segment's m' is the ledger's full (1 / 0)");
+            }
 
-                for (int i = 0; i < ledger.getNumStored(); ++i)
-                    if (ledger.getStored (i).full)
-                        for (int k = 0; k < ledger.getStored (i).gatingCount; ++k)
-                            nearest = juce::jmin (nearest, std::abs (lufsOf ((double) ledger.getStored (i).gatingPower[(size_t) k]) - relativeGate));
-
-                logMessage ("  nearest gating block to the -10 LU relative gate: " + juce::String (nearest, 3) + " LU");
-                expect (nearest >= 0.1, "no gating block within one 0.1 LU bin of the relative gate");
+            // 不冻结时算出的参考 = 账本的（全部段都已听时，同一口径：S_ref = 各段段响度按有效时长加权的 P95 格中心；lowRef = 过响度门的段的
+            // lowShare 的 P95），画像也就与冻结的逐位相同。
+            if (allHeard)
+            {
+                const auto d = computed.getDiagnostics();
+                expect (d.referenceValid && sameFloat (d.referenceLufs, gate.referenceLufs), "computed S_ref = the ledger's");
+                expect (d.lowReferenceValid && sameFloat (d.lowReference, gate.lowShareReference), "computed lowRef = the ledger's");
+                expect (sameProfile (computed.getProfile(), p), "the computed-reference profile = the frozen-reference profile");
             }
 
             const auto iDiff = std::abs (p.integratedLufs.value - expected.integratedLufs.value);
             expect (p.integratedLufs.valid && expected.integratedLufs.valid && iDiff <= 1.0e-4f, "I within 1e-4 LU: " + juce::String (iDiff, 7));
+            logMessage ("  I: House " + juce::String (expected.integratedLufs.value, 7) + ", live " + juce::String (p.integratedLufs.value, 7)
+                        + (sameFloat (p.integratedLufs.value, expected.integratedLufs.value) ? " (bitwise)" : " (not bitwise)"));
             expect (sameDouble (p.integratedLufs.effectiveSeconds, expected.integratedLufs.effectiveSeconds)
                         && sameFloat (p.integratedLufs.confidence, expected.integratedLufs.confidence),
                     "I effective seconds (M = full seconds) and confidence bitwise");
@@ -613,7 +712,7 @@ namespace celadon::test
             expect (sameFeature (p.loudnessRangeLu, expected.loudnessRangeLu) && expected.loudnessRangeLu.valid,
                     "4/4 LRA bitwise (main-weighted = House, full segments only)");
 
-            // LRA，响度型：全部段上的参照（House 同一公式，测试里在全部存下的段上算）。换模型只改读数口径、不动累计，所以同一实例换过去就能比。
+            // LRA，响度型：全部段上的参照（House 同一公式，测试里在全部存下的段上算）。换模型只改读数口径、不动窗口，所以同一实例换过去就能比。
             {
                 std::array<std::uint64_t, 800> counts {};
                 double energy = 0.0;
@@ -665,16 +764,16 @@ namespace celadon::test
                 reference.valid = gated >= 10;
                 reference.effectiveSeconds = seconds;
 
-                // 换到响度型读一次再换回来（setConstants 只按新模型重算读数，累计不动；换回后画像与换之前逐位相同，后面的比较照用 p）。
-                // 只比数值、有效与时长：置信度按响度型的 M0 算，不在这一条的范围里。
-                live.setConstants (noForgetting(), MainSectionModel::loudness);
+                const auto before = live.getProfile();
+                live.setConstants (hard, MainSectionModel::loudness);
                 const auto loudnessModel = live.getProfile().loudnessRangeLu;
-                live.setConstants (noForgetting(), MainSectionModel::fourOnFloor);
-                logMessage ("  LRA: 4/4 (full segments) " + juce::String (p.loudnessRangeLu.value, 2) + " LU, loudness model (all segments) "
+                live.setConstants (hard, MainSectionModel::fourOnFloor);
+                logMessage ("  LRA: 4/4 (full segments) " + juce::String (before.loudnessRangeLu.value, 2) + " LU, loudness model (all segments) "
                             + juce::String (loudnessModel.value, 2) + " LU");
                 expect (loudnessModel.valid == reference.valid && sameFloat (loudnessModel.value, reference.value)
                             && sameDouble (loudnessModel.effectiveSeconds, reference.effectiveSeconds),
                         "loudness-model LRA over all segments bitwise (House formula)");
+                expect (sameProfile (before, live.getProfile()), "switching the model back gives the same profile bitwise");
             }
 
             // 频谱、立体声、起音、次声：逐位。
@@ -695,10 +794,12 @@ namespace celadon::test
                         && sameFloats (p.bandStereoConfidence, expected.bandStereoConfidence),
                     "per-band stereo bitwise");
 
-            // 试算：代价 ≤ 0.01 dB，有效性 / 有效时长 / 置信度逐位；混合损失数值逐位。
+            // 试算：代价 ≤ 0.01 dB，有效性 / 有效时长 / 置信度逐位；混合损失整项逐位。
+            auto worstCost = 0.0f;
             const auto checkCost = [&] (const Feature& a, const Feature& b, const juce::String& label)
             {
                 const auto diff = std::abs (a.value - b.value);
+                worstCost = juce::jmax (worstCost, diff);
                 logMessage ("  " + label + ": House " + juce::String (b.value, 4) + " dB, live " + juce::String (a.value, 4) + " (diff "
                             + juce::String (diff, 5) + ")");
                 expect (a.valid && b.valid && diff <= 0.01f && sameDouble (a.effectiveSeconds, b.effectiveSeconds)
@@ -711,6 +812,8 @@ namespace celadon::test
 
             for (size_t i = 0; i < p.monoPeakCostDb.size(); ++i)
                 checkCost (p.monoPeakCostDb[i], expected.monoPeakCostDb[i], "mono cost " + juce::String ((int) i));
+
+            logMessage ("  worst trial-cost difference " + juce::String (worstCost, 5) + " dB");
 
             for (size_t c = 0; c < p.lowCutBlendLossDb.size(); ++c)
             {
@@ -726,44 +829,37 @@ namespace celadon::test
             expect (sameDouble (p.effectiveSeconds, gate.fullSeconds), "effectiveSeconds = main mass M = the full segments' effective seconds");
             expect (p.formatVersion == glaze::clayProfileFormatVersion && ! p.houseGate.valid, "format 2, no houseGate");
             expect (expected.formatVersion == glaze::houseProfileFormatVersion);
-
-            // S_ref 与段落账同口径（已听各段、按有效时长加权的 P95 格中心）：全部段都已听时逐位相同。
-            if (allHeard)
-                expect (sameFloat (live.getDiagnostics().referenceLufs, gate.referenceLufs), "S_ref same as the ledger's");
         }
 
         //==============================================================================
-        // b. 遗忘不变性（规格第 3 节「breakdown（w ≈ 0）里什么都不动」）。出厂常数、4/4 型：24 小节 drop 之后 8 小节 breakdown（比 drop
-        // 轻 12 LU、低频占比 0.1：两个因子都是 0，m = 0；8 小节 15.5 s，不到无主段的 60 s；更轻又没有低音，不算「换歌」）——画像（4/4 型
-        // 的 LRA 也是主段加权）、M、c 都逐位不变；之后 16 小节更响、更多低频的新 drop：I 与 lowShare 向它移动。
+        // b. breakdown（m′ = 0）里什么都不动（规格第 3 节；主段时钟只按此刻的 m′ 走）。出厂常数、4/4 型：24 小节 drop 之后 8 小节 breakdown
+        // （比 drop 轻 12 LU、低频占比 0.1：两个因子都是 0；8 小节 15.5 s，不到无主段的 60 s；更轻又没有低音，不算「换歌」）——每一份画像
+        // （4/4 型的 LRA 也是主段加权）、M、c、参考都与 breakdown 之前逐位相同；之后 16 小节更响、更多低频的新 drop：I 与 lowShare 向它移动。
         void testBreakdownLeavesMainUntouched()
         {
-            beginTest ("b. a breakdown (m = 0) leaves the main profile, main mass and confidence bit-identical; a new drop moves it");
+            beginTest ("b. a breakdown (m' = 0) leaves the published profile, M, c and the references bit-identical; a new drop moves it");
 
             LiveProfile live;
             setUp (live);
             std::int64_t index = 0;
 
             for (int i = 0; i < 24; ++i)
-                live.segmentFinalized (makeSegment (dropSpec(), index++));
+                feed (live, makeSegment (dropSpec(), index++));
 
             const auto before = live.getProfile();
             const auto diagnosticsBefore = live.getDiagnostics();
-            auto allZero = true;
+            auto allZero = true, unchanged = true;
 
             for (int i = 0; i < 8; ++i)
             {
-                live.segmentFinalized (makeSegment (breakdownSpec(), index++));
+                feed (live, makeSegment (breakdownSpec(), index++));
                 allZero = allZero && sameFloat (lastRecord (live).mainness, 0.0f);
+                unchanged = unchanged && sameProfile (before, live.getProfile(), true) && sameMain (diagnosticsBefore, live.getDiagnostics());
             }
 
-            const auto after = live.getProfile();
             const auto diagnosticsAfter = live.getDiagnostics();
-            expect (allZero, "the breakdown bars get m = 0");
-            expect (sameProfile (before, after, true), "the main profile (the 4/4 LRA included) is bit-identical");
-            expect (sameDouble (diagnosticsBefore.mainMassSeconds, diagnosticsAfter.mainMassSeconds)
-                        && sameFloat (diagnosticsBefore.confidence, diagnosticsAfter.confidence),
-                    "main mass and confidence bit-identical");
+            expect (allZero, "the breakdown bars get m' = 0");
+            expect (unchanged, "every published profile (the 4/4 LRA included), M, c and the references stay bit-identical");
             expect (! diagnosticsAfter.timeDecayActive && diagnosticsAfter.newProgramCount == 0);
 
             auto louder = dropSpec();
@@ -772,21 +868,21 @@ namespace celadon::test
             louder.seed = 9;
 
             for (int i = 0; i < 16; ++i)
-                live.segmentFinalized (makeSegment (louder, index++));
+                feed (live, makeSegment (louder, index++));
 
             const auto& moved = live.getProfile();
             logMessage ("  I " + juce::String (before.integratedLufs.value, 2) + " -> " + juce::String (moved.integratedLufs.value, 2)
                         + " LUFS, lowShare " + juce::String (before.lowShare.value, 3) + " -> " + juce::String (moved.lowShare.value, 3));
-            expect (moved.integratedLufs.value > before.integratedLufs.value + 0.5f && moved.integratedLufs.value < -6.0f,
+            expect (moved.integratedLufs.value > before.integratedLufs.value + 0.5f && moved.integratedLufs.value < -5.9f,
                     "I moves toward the new drop");
             expect (moved.lowShare.value > before.lowShare.value + 0.03f && moved.lowShare.value < 0.7f, "lowShare moves toward the new drop");
         }
 
         //==============================================================================
-        // c. 主段度（规格第 2 节；LiveProfile.cpp 文件头第二节）。
+        // c. 主段度（规格第 2 节；LiveProfile.h 文件头第一节）。
         void testMainnessFormula()
         {
-            beginTest ("c. mainness: two soft gates, ramp end points, cold start, passive / loudness models; mainnessFor = segmentFinalized");
+            beginTest ("c. mainness: two soft gates, ramp end points, cold start, passive / loudness models; admission = previous mainnessFor");
 
             const LiveConstants factory;
             const auto& ff = factory.fourOnFloor;
@@ -802,13 +898,21 @@ namespace celadon::test
                 c.fourOnFloor.gateWidthLu = 0.0f;
                 live.setConstants (c, MainSectionModel::fourOnFloor);
                 expectWithinAbsoluteError (live.mainnessFor (true, -30.0f, true, 0.05f), 0.5f, 1.0e-6f, "cold start with dG = 0: ramp(0) = 0.5");
+
+                // 第一段的参考就是它自己（不用特例）：出厂常数下进账与这一份画像里都是 1。
+                LiveProfile first;
+                setUp (first);
+                feed (first, segmentReading (0, -30.0, 0.05));
+                const auto r = lastRecord (first);
+                expect (sameFloat (r.admissionMainness, 1.0f) && sameFloat (r.mainness, 1.0f) && r.referenceValid && r.lowReferenceValid,
+                        "the first published segment is main both at admission and in its own profile");
             }
 
             LiveProfile live;
             setUp (live);
 
             for (int i = 0; i < 10; ++i)
-                live.segmentFinalized (segmentReading (i, -8.03, 0.6037));
+                feed (live, segmentReading (i, -8.03, 0.6037));
 
             const auto d = live.getDiagnostics();
             const auto sRef = d.referenceLufs;
@@ -829,7 +933,8 @@ namespace celadon::test
             expectWithinAbsoluteError (m (sRef - g, lowRef * gLow), 0.25f, 1.0e-5f, "soft AND: the two factors multiply");
             expect (sameFloat (live.mainnessFor (true, sRef, false, 0.0f), 0.0f), "4/4: lowShare unreadable -> m = 0");
 
-            // segmentFinalized 用的就是 mainnessFor 的口径：先按此刻的参考算，再并入，提交记录里的 m 逐位相同。
+            // 进账判断 = 交来之前的 mainnessFor（上一份已发布画像的参考）；这一份画像对它的判断 = 发布之后的 mainnessFor（这一份的参考）；
+            // w′ = m′ × 有效时长。
             {
                 auto same = true;
                 const std::array<std::pair<double, double>, 6> readings { { { -9.5, 0.55 }, { -11.2, 0.6 }, { -8.0, 0.36 }, { -10.9, 0.4 },
@@ -839,14 +944,16 @@ namespace celadon::test
                 for (const auto& reading : readings)
                 {
                     const auto segment = segmentReading (index++, reading.first, reading.second);
-                    const auto predicted = live.mainnessFor (segment.loudnessValid, segment.loudnessLufs, segment.lowShareValid, segment.lowShare);
-                    live.segmentFinalized (segment);
+                    const auto admission = live.mainnessFor (segment.loudnessValid, segment.loudnessLufs, segment.lowShareValid, segment.lowShare);
+                    feed (live, segment);
+                    const auto judged = live.mainnessFor (segment.loudnessValid, segment.loudnessLufs, segment.lowShareValid, segment.lowShare);
                     const auto record = lastRecord (live);
-                    same = same && sameFloat (record.mainness, predicted) && sameFloat (record.loudnessFactor * record.lowFactor, predicted)
-                        && sameDouble (record.weightSeconds, (double) predicted * segment.effectiveSeconds);
+                    same = same && sameFloat (record.admissionMainness, admission) && sameFloat (record.mainness, judged)
+                        && sameFloat (record.loudnessFactor * record.lowFactor, judged)
+                        && sameDouble (record.weightSeconds, (double) judged * segment.effectiveSeconds);
                 }
 
-                expect (same, "segmentFinalized commits exactly mainnessFor's m (and w = m x effective seconds)");
+                expect (same, "admission m = mainnessFor before; m' = mainnessFor after publication; w' = m' x effective seconds");
             }
 
             // 响度型：只看响度（ΔG 6、斜坡 3、P90），低频读不读得出都一样；被动型：有效音频 m = 1。
@@ -865,8 +972,134 @@ namespace celadon::test
         }
 
         //==============================================================================
+        // r1. lowRef 按此刻的 S_ref 选段（REPORT-C 第 5 节第 2 条，tech 0268597）：16 小节低音很重的前奏（lowShare 0.45），之后响 4 LU、
+        // 低频占比只有 0.2 的 drop。前奏一掉到 S_ref − ΔG 之下就不再参与 lowRef，drop 不再被低频门挡：第 4 个 drop 小节起 m′ = 1，
+        // 前奏全部重判为 0，I 就是 drop 的。
+        void testRejudgeLowReference()
+        {
+            beginTest ("r. rejudge: a bass-heavy intro no longer pins lowRef; the drop passes the low gate within 4 bars");
+
+            LiveProfile live;
+            setUp (live);
+            std::int64_t index = 0;
+            auto intro = introSpec();
+            intro.loudnessLufs = -12.03;
+            intro.lowShare = 0.45;
+
+            for (int i = 0; i < 16; ++i)
+                feed (live, makeSegment (intro, index++));
+
+            auto drop = dropSpec();
+            drop.loudnessLufs = -8.03;
+            drop.lowShare = 0.2;
+            std::vector<float> dropMainness;
+
+            for (int i = 0; i < 12; ++i)
+            {
+                feed (live, makeSegment (drop, index++));
+                dropMainness.push_back (lastRecord (live).mainness);
+            }
+
+            const auto judgements = judgementsOf (live);
+            auto introOut = true, dropIn = true;
+
+            for (const auto& j : judgements)
+            {
+                if (j.sequence < 16)
+                    introOut = introOut && sameFloat (j.mainness, 0.0f) && j.weightSeconds == 0.0;
+                else
+                    dropIn = dropIn && sameFloat (j.mainness, 1.0f);
+            }
+
+            const auto d = live.getDiagnostics();
+            logMessage ("  drop m' at publication: " + juce::String (dropMainness[0], 3) + ", " + juce::String (dropMainness[1], 3) + ", "
+                        + juce::String (dropMainness[2], 3) + ", " + juce::String (dropMainness[3], 3) + "; lowRef " + juce::String (d.lowReference, 4)
+                        + ", I " + juce::String (live.getProfile().integratedLufs.value, 3));
+            expect (dropMainness[3] >= 0.99f && dropMainness.back() >= 0.99f, "from the 4th drop bar on the drop is main at its publication");
+            expect (introOut && dropIn, "in the final profile the intro is rejudged out (m' = 0, weight 0) and every drop bar is main");
+            expect (d.lowReferenceValid && std::abs (d.lowReference - 0.2f) < 0.01f, "lowRef is the drop's lowShare");
+            expect (std::abs (live.getProfile().integratedLufs.value + 8.03f) < 0.2f, "I is the drop's level");
+        }
+
+        // r2. 冷启动落在淡入小节上不卡住（REPORT-C 第 5 节第 3 条，tech 0343381）：第 1 小节 −34 LUFS 的淡入（lowShare 0.15），之后只有镲
+        // （−20 LUFS、lowShare 0.03）。第 2 小节一来 S_ref 就移到镲上、淡入掉出门外，lowRef 换成镲的，镲按自己的口径过两道门。
+        void testRejudgeFadeInColdStart()
+        {
+            beginTest ("r. rejudge: a cold start on a fade-in bar does not stick; the next bars take over the references");
+
+            LiveProfile live;
+            setUp (live);
+            feed (live, segmentReading (0, -34.03, 0.15));
+            const auto fadeIn = live.getProfile().integratedLufs.value;
+            std::vector<float> levels, mainnessOfHats;
+
+            for (int i = 1; i <= 6; ++i)
+            {
+                auto hats = dropSpec();
+                hats.loudnessLufs = -20.03;
+                hats.lowShare = 0.03;
+                hats.seed = (std::uint32_t) (40 + i);
+                feed (live, makeSegment (hats, i));
+                levels.push_back (live.getProfile().integratedLufs.value);
+                mainnessOfHats.push_back (lastRecord (live).mainness);
+            }
+
+            logMessage ("  I after the fade-in " + juce::String (fadeIn, 2) + ", then " + juce::String (levels[0], 2) + ", " + juce::String (levels[1], 2)
+                        + ", ... " + juce::String (levels.back(), 2) + " LUFS; hats m' " + juce::String (mainnessOfHats[0], 3) + ", "
+                        + juce::String (mainnessOfHats[1], 3));
+            expect (std::abs (fadeIn + 34.03f) < 0.2f, "the fade-in alone is the first profile (cold start = its own reference)");
+            expect (mainnessOfHats[0] >= 0.99f && std::abs (levels[0] + 20.03f) < 0.3f, "the first hats bar is main and I jumps to it at once");
+            expect (judgementsOf (live).front().mainness == 0.0f, "the fade-in bar is rejudged out");
+        }
+
+        // r3. 前奏被重判出主段（REPORT-C 第 5 节第 1 条、M4）：32 小节前奏（−12 LUFS、低频 0.5），之后响 3.85 LU 的 drop。冷启动时前奏是
+        // 主段；drop 一来 S_ref 移上去、前奏掉出门外，第一个 drop 的 4 小节之后 I 离 drop 不到 1 LU（改前按进账遗忘要几十小节），前奏不再推
+        // 主段时钟（它的权重是 0）。c 在 drop 来时随 M 掉下来再爬回去（M 只剩 drop 的质量）。
+        void testRejudgeIntroLeavesMain()
+        {
+            beginTest ("r. rejudge: the intro taken as main at cold start drops out when the drop comes; I is within 1 LU after 4 drop bars");
+
+            LiveProfile live;
+            setUp (live);
+            std::int64_t index = 0;
+            auto intro = introSpec();
+            intro.loudnessLufs = -11.88;
+
+            for (int i = 0; i < 32; ++i)
+                feed (live, makeSegment (intro, index++));
+
+            const auto introLevel = live.getProfile().integratedLufs.value;
+            const auto introConfidence = live.getDiagnostics().confidence;
+            std::vector<float> levels, confidences;
+
+            for (int i = 0; i < 16; ++i)
+            {
+                feed (live, makeSegment (dropSpec(), index++));
+                levels.push_back (live.getProfile().integratedLufs.value);
+                confidences.push_back (live.getDiagnostics().confidence);
+            }
+
+            const auto dropLevel = levels.back();
+            logMessage ("  intro I " + juce::String (introLevel, 2) + " (c " + juce::String (introConfidence, 3) + "); drop bars 1 ... 4: I "
+                        + juce::String (levels[0], 2) + ", " + juce::String (levels[1], 2) + ", " + juce::String (levels[2], 2) + ", "
+                        + juce::String (levels[3], 2) + " (c " + juce::String (confidences[3], 3) + "); after 16 bars I " + juce::String (dropLevel, 2)
+                        + " (c " + juce::String (confidences.back(), 3) + ")");
+            expect (introConfidence > 0.9f, "the intro alone was main (cold start) and confident");
+            expect (std::abs (levels[3] - dropLevel) <= 1.0f && std::abs (dropLevel + 8.03f) < 0.2f, "4 drop bars in, I is within 1 LU of the drop's");
+
+            auto introWeight = 0.0;
+
+            for (const auto& j : judgementsOf (live))
+                if (j.sequence < 32)
+                    introWeight += j.weightSeconds;
+
+            expect (introWeight == 0.0, "the intro carries no weight once rejudged");
+            expect (confidences.back() > 0.8f, "c climbs back above 0.8 within 16 drop bars");
+        }
+
+        //==============================================================================
         // W_mem 与 M0 的单位（规格第 3 节；LiveConstants 注释）：按小节分段时 = 小节数 × 段的标称长度，2 秒段时 = 秒数常数。两段主段之后
-        // M = w1 × exp(−w2 ÷ W_mem) + w2（按进账遗忘：先遗忘再加），c = 1 − exp(−M ÷ M0)；representativeness = c、effectiveSeconds = M。
+        // M = w1 × exp(−w2 ÷ W_mem) + w2（第一段被比它新的主段进账遗忘），c = 1 − exp(−M ÷ M0)；representativeness = c、effectiveSeconds = M。
         void testMemoryUnits()
         {
             beginTest ("W_mem and M0 follow the segment mode: bars x the bar length, or the seconds constants for 2-second segments");
@@ -894,9 +1127,9 @@ namespace celadon::test
                 const auto memory = mode == glaze::SegmentMode::bars ? ff.memoryBars * nominal : ff.memorySeconds;
                 const auto m0 = mode == glaze::SegmentMode::bars ? ff.confidenceBars * nominal : ff.confidenceSeconds;
 
-                live.segmentFinalized (first);
+                feed (live, first);
                 const auto w1 = lastRecord (live).weightSeconds;
-                live.segmentFinalized (second);
+                feed (live, second);
                 const auto w2 = lastRecord (live).weightSeconds;
                 const auto expectedMass = w1 * std::exp (-w2 / memory) + w2;
                 const auto d = live.getDiagnostics();
@@ -906,11 +1139,16 @@ namespace celadon::test
                 expectWithinAbsoluteError (d.confidence, (float) (1.0 - std::exp (-expectedMass / m0)), 1.0e-6f, label + ": c = 1 - exp(-M / M0)");
                 expect (sameFloat (live.getProfile().representativeness, d.confidence) && sameDouble (live.getProfile().effectiveSeconds, d.mainMassSeconds),
                         label + ": representativeness = c, effectiveSeconds = M");
+
+                const auto judgements = judgementsOf (live);
+                expect (judgements.size() == 2 && std::abs (judgements[0].weightSeconds - w1 * std::exp (-w2 / memory)) <= 1.0e-12 * w1
+                            && sameDouble (judgements[1].weightSeconds, w2),
+                        label + ": the judgements carry each segment's forgotten weight");
             }
         }
 
         //==============================================================================
-        // d1. 长时间无主段（规格第 3 节）：16 小节主段之后，安静小节（m = 0）的有效音频累计到 60 s 之前 M 逐位不动；越过 60 s 的那一段只按
+        // d1. 长时间无主段（规格第 3 节）：16 小节主段之后，安静小节（m′ = 0）的有效音频累计到 60 s 之前 M 逐位不动；越过 60 s 的那一段只按
         // 越过的部分衰减（τ 120 s），之后每段按自己的有效时长衰减；再来一个主段，时间衰减停。换歌关掉（隔离）。
         void testNoMainDecay()
         {
@@ -923,7 +1161,7 @@ namespace celadon::test
             std::int64_t index = 0;
 
             for (int i = 0; i < 16; ++i)
-                live.segmentFinalized (makeSegment (dropSpec(), index++));
+                feed (live, makeSegment (dropSpec(), index++));
 
             auto quiet = breakdownSpec();
             quiet.loudnessLufs = -30.03;
@@ -933,7 +1171,7 @@ namespace celadon::test
             {
                 const auto before = live.getDiagnostics();
                 const auto segment = makeSegment (quiet, index++);
-                live.segmentFinalized (segment);
+                feed (live, segment);
                 const auto after = live.getDiagnostics();
                 const auto record = lastRecord (live);
                 const auto excess = juce::jmax (0.0, before.secondsSinceMain + segment.effectiveSeconds - juce::jmax (before.secondsSinceMain, c.noMainSeconds));
@@ -954,19 +1192,19 @@ namespace celadon::test
             expect (sawDecay && decayOk, "after the 60 s mark it decays by exp(-excess / 120 s)");
             expect (live.getDiagnostics().timeDecayActive);
 
-            live.segmentFinalized (makeSegment (dropSpec(), index++));
+            feed (live, makeSegment (dropSpec(), index++));
             expect (! lastRecord (live).timeDecay && ! live.getDiagnostics().timeDecayActive && live.getDiagnostics().secondsSinceMain == 0.0,
                     "a main bar stops the time decay");
         }
 
-        // d2. 换歌软遗忘（规格第 3 节；Max 2026-10-02「响的算、轻的要有低音」）：「像换了一首歌」的段——比 I 响 6 LU 以上，或 4/4 型里
-        // 轻 6 LU 以上但低频因子 ≥ 0.5——每段 1.9 s，第 11 段累计 20.9 s ≥ 20 s 时触发：全部累计 × 0.2（M 正好 × 0.2）；第 10 段（19 s）
-        // 不触发；中间夹一段只差 2 LU 的，清零重计。breakdown（轻 7 LU、没有低音）永不触发；响度型里更轻的段永不触发；只响 5.9 LU 的永不触发。
-        // 「响」的那几段低频占比取 0.1：4/4 型 m = 0、不进主段，I 不跟着它走（真实的更响新歌会进主段、I 自己很快跟上，用不着软遗忘）。
-        // 无主段衰减关掉。
+        // d2. 换歌软遗忘（规格第 3 节；Max 2026-10-02「响的算、轻的要有低音」）。每段 1.9 s，第 11 段累计 20.9 s ≥ 20 s 时触发：全部更老的段
+        // × 0.2（M 正好 × 0.2）；第 10 段（19 s）不触发；中间夹一段只差 2 LU 的，清零重计。breakdown（轻 7 LU、没有低音）永不触发；
+        // 响度型里更轻的段永不触发；只响 5.9 LU 的永不触发。无主段衰减关掉。
+        // 「响」的那一支要 I 跟不上新素材才数得满 20 s：回看重判下更响的新素材一两小节就当上 S_ref、成了主段（I 立即跟上），这一支实际上
+        // 用不上（用例 4 核对）；所以用冻结参考（只给测试用）把 I 钉在旧 drop 上来考这一支的规则本身。
         void testNewProgram()
         {
-            beginTest ("d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every mass by 0.2; breakdowns never do");
+            beginTest ("d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every older mass by 0.2");
 
             LiveConstants c;
             c.noMainSeconds = infinity;
@@ -984,7 +1222,7 @@ namespace celadon::test
                 setUp (live, c, model);
 
                 for (int i = 0; i < 16; ++i)
-                    live.segmentFinalized (makeSegment (dropSpec(), index++));
+                    feed (live, makeSegment (dropSpec(), index++));
 
                 return (double) live.getProfile().integratedLufs.value;
             };
@@ -996,7 +1234,7 @@ namespace celadon::test
                 for (int i = 0; i < bars; ++i)
                 {
                     const auto before = live.getDiagnostics().mainMassSeconds;
-                    live.segmentFinalized (makeSegment (spec, index++));
+                    feed (live, makeSegment (spec, index++));
 
                     if (lastRecord (live).newProgram && run.triggeredAt < 0)
                     {
@@ -1009,7 +1247,7 @@ namespace celadon::test
                 return run;
             };
 
-            // 1. 4/4 型：轻 7 LU、低音满（lowShare 同 drop）——像换成一首更轻的歌。
+            // 1. 4/4 型：轻 7 LU、低音满（lowShare 同 drop）、电平稳——像换成一首更轻的歌。这些段 m′ = 0（在 S_ref − ΔG 之下），M 只在触发时变。
             {
                 LiveProfile live;
                 std::int64_t index = 0;
@@ -1019,14 +1257,17 @@ namespace celadon::test
 
                 auto run = runBars (live, quieterWithBass, 10, index);
                 expect (run.triggeredAt < 0 && live.getDiagnostics().newProgramCount == 0, "quieter with bass: 10 bars (19 s) do not trigger");
+                expect (lastRecord (live).newProgramVote == 2, "they vote 'quieter with bass'");
 
-                live.segmentFinalized (segmentReading (index++, level - 2.0, 0.6));   // 只差 2 LU：不算，清零
+                feed (live, segmentReading (index++, level - 2.0, 0.6));   // 只差 2 LU：不算，清零
+                expect (lastRecord (live).newProgramVote == 0);
                 run = runBars (live, quieterWithBass, 10, index);
                 expect (run.triggeredAt < 0, "a bar that does not count restarts the count: 10 more bars still do not trigger");
 
                 run = runBars (live, quieterWithBass, 1, index);
                 expect (run.triggeredAt == 1 && live.getDiagnostics().newProgramCount == 1, "quieter with bass: the 11th consecutive bar (20.9 s) triggers");
-                expect (std::abs (run.massAfter - keep * run.massBefore) <= 1.0e-12 * run.massBefore, "every mass x newProgramKeep (main mass exactly)");
+                expect (std::abs (run.massAfter - keep * run.massBefore) <= 1.0e-12 * run.massBefore, "every older mass x newProgramKeep (main mass exactly)");
+                expect (lastRecord (live).newProgramRangeValid && lastRecord (live).newProgramRangeLu <= 0.01f, "the level-stable range was measured (flat)");
             }
 
             // 2. 4/4 型：breakdown（轻 7 LU、没有低音）永不触发——规格「breakdown 里什么都不动」。
@@ -1040,16 +1281,19 @@ namespace celadon::test
                 expect (live.getDiagnostics().newProgramCount == 0, "a 40-bar breakdown (7 LU quieter, no bass) never triggers");
             }
 
-            // 3. 4/4 型：响 7 LU 的第 11 段触发；之后只响 5.9 LU（不超过 6）的永不触发。
+            // 3. 「响」的那一支（I 钉住：冻结参考在旧 drop 上，响 7 LU、低频 0.1 的段过不了冻结的低频门，m′ = 0）：第 11 段触发；之后只响
+            // 5.9 LU（不超过 6）的永不触发。
             {
                 LiveProfile live;
                 std::int64_t index = 0;
                 const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                const auto d = live.getDiagnostics();
+                live.setFrozenReferencesForTesting (true, d.referenceLufs, d.lowReference);
                 auto louder = dropSpec();
                 louder.lowShare = 0.1;
                 louder.loudnessLufs = level + 7.0;
                 const auto run = runBars (live, louder, 11, index);
-                expect (run.triggeredAt == 11 && live.getDiagnostics().newProgramCount == 1, "louder by 7 LU: the 11th bar triggers");
+                expect (run.triggeredAt == 11 && live.getDiagnostics().newProgramCount == 1, "louder by 7 LU (I held): the 11th bar triggers");
 
                 auto nearby = louder;
                 nearby.loudnessLufs = (double) live.getProfile().integratedLufs.value + 5.9;
@@ -1057,7 +1301,23 @@ namespace celadon::test
                 expect (live.getDiagnostics().newProgramCount == 1, "louder by 5.9 LU never triggers");
             }
 
-            // 4. 响度型：轻 7 LU、低音满也永不触发（更轻的新材料交给长时间无主段的时间衰减）。
+            // 4. 不冻结时，响 7 LU 的新素材一两小节就当上 S_ref、成了主段，I 立即跟上，「响」的那一支数不满 20 s——回看重判自己就把旧素材挤出去了。
+            {
+                LiveProfile live;
+                std::int64_t index = 0;
+                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                auto louder = dropSpec();
+                louder.loudnessLufs = level + 7.0;
+                runBars (live, louder, 3, index);
+                const auto followed = live.getProfile().integratedLufs.value;
+                runBars (live, louder, 17, index);
+                logMessage ("  louder by 7 LU, references free: I after 3 bars " + juce::String (followed, 2) + " LUFS (new material "
+                            + juce::String (level + 7.0, 2) + ")");
+                expect (std::abs ((double) followed - (level + 7.0)) < 0.5 && live.getDiagnostics().newProgramCount == 0,
+                        "references free: the louder material is main within 3 bars and never needs the soft forget");
+            }
+
+            // 5. 响度型：轻 7 LU、低音满也永不触发（「轻」的那一支只给 4/4 型）。
             {
                 LiveProfile live;
                 std::int64_t index = 0;
@@ -1069,12 +1329,62 @@ namespace celadon::test
             }
         }
 
+        // d3. 「轻的那一支要电平稳」（Max 2026-10-02；newProgramRangeLu 起点 2 LU）：轻 7 LU、低音满的一串，段响度在两个值之间交替——
+        // 起伏 1.9 LU 时第 11 段（20.9 s）触发，2.1 LU 时一直不触发；一路往下掉的淡出（每小节 −0.3 LU：20 s 里掉 3 LU）不触发，
+        // 同样的淡出在 newProgramRangeLu = ∞（改前）时第 11 段触发。
+        void testNewProgramLevelStable()
+        {
+            beginTest ("d. new program, quieter branch: only a level-stable run counts (range 1.9 LU triggers, 2.1 LU does not, a fade-out never)");
+
+            const auto runAlternating = [this] (double rangeLu, double rangeLimit, int bars, bool fade)
+            {
+                LiveConstants c;
+                c.noMainSeconds = infinity;
+                c.newProgramRangeLu = (float) rangeLimit;
+                LiveProfile live;
+                setUp (live, c);
+                std::int64_t index = 0;
+
+                for (int i = 0; i < 16; ++i)
+                    feed (live, makeSegment (dropSpec(), index++));
+
+                const auto level = (double) live.getProfile().integratedLufs.value;
+                int triggeredAt = -1;
+                float lastRange = 0.0f;
+
+                for (int i = 0; i < bars; ++i)
+                {
+                    auto spec = dropSpec();
+                    spec.loudnessLufs = fade ? level - 7.0 - 0.3 * (double) i : level - 7.0 - (i % 2 == 0 ? 0.0 : rangeLu);
+                    spec.seed = (std::uint32_t) (200 + i);
+                    feed (live, makeSegment (spec, index++));
+                    const auto record = lastRecord (live);
+
+                    if (record.newProgramRangeValid)
+                        lastRange = record.newProgramRangeLu;
+
+                    if (record.newProgram && triggeredAt < 0)
+                        triggeredAt = i + 1;
+                }
+
+                logMessage ("  " + juce::String (fade ? "fade-out -0.3 LU/bar" : "alternating " + juce::String (rangeLu, 1) + " LU")
+                            + ", limit " + juce::String (rangeLimit, 1) + ": triggered at bar " + juce::String (triggeredAt) + ", last range "
+                            + juce::String (lastRange, 3) + " LU");
+                return triggeredAt;
+            };
+
+            expect (runAlternating (1.9, 2.0, 30, false) == 11, "range 1.9 LU: triggers at the 11th bar (20.9 s)");
+            expect (runAlternating (2.1, 2.0, 30, false) < 0, "range 2.1 LU: never triggers");
+            expect (runAlternating (0.0, 2.0, 30, true) < 0, "a fade-out going down 0.3 LU per bar never triggers");
+            expect (runAlternating (0.0, infinity, 30, true) == 11, "the same fade-out triggers with newProgramRangeLu = inf (the old rule)");
+        }
+
         //==============================================================================
-        // 主段模型与格式字段：4/4 型的 I 用主段加权的门块；换成响度型时（已有累计保留）I 立即换成全部段的 BS.1770 积分（遗忘关掉时
-        // 等于测试里按定义逐块算的参照，门边那一格空时只差求和顺序）；格式 2、不填 houseGate；commitWithMainness 钳位。
+        // 主段模型与格式字段：4/4 型的 I 用主段加权的门块；换成响度型时（窗口保留）I 立即换成全部段的 BS.1770 积分（遗忘关掉时等于测试里
+        // 按定义逐块算的参照）；格式 2、不填 houseGate；commitWithMainness 钳位并在每次重判都用钉死的值。
         void testModelsAndFormat()
         {
-            beginTest ("models: 4/4 I is main-weighted, the loudness model's I is every segment's BS.1770 integral; format 2; mainness clamped");
+            beginTest ("models: 4/4 I is main-weighted, the loudness model's I is every segment's BS.1770 integral; format 2; pinned mainness");
 
             LiveProfile live;
             setUp (live, noForgetting());
@@ -1084,11 +1394,11 @@ namespace celadon::test
             for (int i = 0; i < 12; ++i)
                 segments.push_back (makeSegment (dropSpec(), index++));
 
-            for (int i = 0; i < 12; ++i)   // drop 之后的前奏：按 drop 的 S_ref 判，m = 0
+            for (int i = 0; i < 12; ++i)   // drop 之后的前奏：按 drop 的 S_ref 判，m′ = 0
                 segments.push_back (makeSegment (introSpec(), index++));
 
             for (const auto& segment : segments)
-                live.segmentFinalized (segment);
+                feed (live, segment);
 
             const auto mainI = live.getProfile().integratedLufs.value;
             live.setConstants (noForgetting(), MainSectionModel::loudness);
@@ -1106,94 +1416,176 @@ namespace celadon::test
                 sum += x;
 
             const auto gate = lufsOf (sum / (double) blocks.size()) - 10.0;
-            double gated = 0.0, nearest = 1.0e9;
+            const auto gatePower = std::pow (10.0, 0.1 * (gate + 0.691));
+            double gated = 0.0;
             int count = 0;
 
             for (auto x : blocks)
-            {
-                nearest = juce::jmin (nearest, std::abs (lufsOf (x) - gate));
-
-                if (lufsOf (x) >= gate)
+                if (x >= gatePower)
                 {
                     gated += x;
                     ++count;
                 }
-            }
 
             const auto reference = lufsOf (gated / (double) count);
             logMessage ("  4/4 (main) I " + juce::String (mainI, 3) + ", loudness-model (all) I " + juce::String (allI, 3) + ", reference "
                         + juce::String (reference, 3));
             expect (mainI > allI + 1.0f, "the main-weighted I is the drop's, above the all-segment integral");
-            expect (nearest >= 0.1 && std::abs ((double) allI - reference) <= 1.0e-4, "loudness model: the all-segment BS.1770 integral");
+            expect (std::abs ((double) allI - reference) <= 1.0e-4, "loudness model: the all-segment BS.1770 integral (per block, like House)");
 
             expect (live.getProfile().formatVersion == glaze::clayProfileFormatVersion && ! live.getProfile().houseGate.valid);
 
             live.setConstants (noForgetting(), MainSectionModel::fourOnFloor);
-            live.commitWithMainness (makeSegment (dropSpec(), index++), 2.0f);
+            feedPinned (live, makeSegment (dropSpec(), index++), 2.0f);
             const auto high = lastRecord (live).mainness;
-            live.commitWithMainness (makeSegment (dropSpec(), index++), -1.0f);
+            feedPinned (live, makeSegment (dropSpec(), index++), -1.0f);
             const auto low = lastRecord (live).mainness;
-            live.commitWithMainness (makeSegment (dropSpec(), index++), std::numeric_limits<float>::quiet_NaN());
+            feedPinned (live, makeSegment (dropSpec(), index++), std::numeric_limits<float>::quiet_NaN());
             const auto nan = lastRecord (live).mainness;
+            feedPinned (live, makeSegment (introSpec(), index++), 0.7f);
             expect (sameFloat (high, 1.0f) && sameFloat (low, 0.0f) && sameFloat (nan, 0.0f), "commitWithMainness clamps to 0 ... 1, NaN -> 0");
+
+            feed (live, makeSegment (dropSpec(), index++));
+            const auto judgements = judgementsOf (live);
+            expect (judgements.size() >= 3 && sameFloat (judgements[judgements.size() - 2].mainness, 0.7f)
+                        && sameFloat (judgements[judgements.size() - 3].mainness, 0.0f),
+                    "pinned segments keep their mainness through later rejudging");
+        }
+
+        // 公开常数的取值表（LiveProfile.h visitLiveConstantPairs）：键数、每个坏值换成出厂值、合法的 ∞ 原样保留。
+        void testConstantsTable()
+        {
+            beginTest ("constants table: 37 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf");
+
+            const LiveConstants factory;
+            int keys = 0;
+            visitLiveConstants (factory, [&keys] (const char*, const char*, const auto&, glaze::LiveConstantDomain) { ++keys; });
+            expect (keys == 37, "37 keys: " + juce::String (keys));
+
+            // 每个键单独坏一次：NaN 一律坏；-1 在 ≥ 0 / > 0 / [0, 1] / (0, 1] 的范围里坏。
+            LiveConstants damaged;
+            visitLiveConstants (damaged, [] (const char*, const char*, auto& field, glaze::LiveConstantDomain domain)
+            {
+                using Field = std::remove_reference_t<decltype (field)>;
+                field = domain == glaze::LiveConstantDomain::finite || domain == glaze::LiveConstantDomain::notNan
+                            ? std::numeric_limits<Field>::quiet_NaN() : (Field) -1;
+            });
+
+            const auto clean = glaze::sanitiseLiveConstants (damaged);
+            auto allFactory = true;
+            glaze::visitLiveConstantPairs (clean, factory, [&allFactory] (const char*, const char*, const auto& a, const auto& b, glaze::LiveConstantDomain)
+            {
+                allFactory = allFactory && std::memcmp (&a, &b, sizeof (a)) == 0;
+            });
+
+            expect (allFactory, "every damaged field went back to its factory value");
+
+            auto legal = factory;
+            legal.noMainSeconds = infinity;
+            legal.fourOnFloor.memorySeconds = infinity;
+            legal.newProgramRangeLu = std::numeric_limits<float>::infinity();
+            legal.loudness.memoryBars = -infinity;
+            const auto kept = glaze::sanitiseLiveConstants (legal);
+            expect (std::isinf (kept.noMainSeconds) && std::isinf (kept.fourOnFloor.memorySeconds) && std::isinf (kept.newProgramRangeLu)
+                        && std::isinf (kept.loudness.memoryBars) && kept.loudness.memoryBars < 0.0,
+                    "legal infinities are kept");
+
+            auto illegal = factory;
+            illegal.publishDelaySeconds = infinity;
+            illegal.fourOnFloor.gateWidthLu = std::numeric_limits<float>::infinity();
+            const auto fixed = glaze::sanitiseLiveConstants (illegal);
+            expect (fixed.publishDelaySeconds == factory.publishDelaySeconds && fixed.fourOnFloor.gateWidthLu == factory.fourOnFloor.gateWidthLu,
+                    "inf where it is not allowed goes back to the factory value");
         }
 
         //==============================================================================
-        // e. 状态 XML 往返（LiveProfile.h：读回后 getProfile / getDiagnostics 逐位等于保存时）。三种状态：出厂常数下 40 段（缩放因子 ≠ 1）、
-        // W_mem 极小（每段都重规范）、冷启动；之后两边再交同样的段仍逐位相同（状态完整）；另经过 XML 文本往返一次。
+        // e. 状态 XML 往返（LiveProfile.h：读回后已发布的那一份逐位等于保存时）。四种状态：出厂常数 40 段；事件过（换歌、无主段衰减：两个
+        // 事件时钟 ≠ 0）；窗口挤满（600 段，前 88 段已丢）；保存时还有没发布的段（读回时并进来 = 原件发布完之后）。之后两边再交同样的段
+        // 仍逐位相同（状态完整）；另经过 XML 文本往返一次；冷启动；跨采样率。
         void testStateRoundTrip()
         {
-            beginTest ("e. state XML round trip is bit-exact (forgetting scale != 1, renormalised, empty); the restored copy evolves identically");
+            beginTest ("e. state XML round trip is bit-exact (events, a full window, pending segments); the restored copy evolves identically");
 
-            LiveConstants tiny;
-            tiny.fourOnFloor.memoryBars = 0.0;
-            tiny.fourOnFloor.memorySeconds = 0.02;   // 每个主段小节 × exp(−95)：缩放因子低于 1e-30，每段都重规范
-            tiny.referenceMemorySeconds = 0.02;
+            LiveConstants eventful;
+            eventful.noMainSeconds = 5.0;          // 时间衰减很快就开始
+            eventful.newProgramSeconds = 4.0;      // 换歌很快就触发
 
-            const LiveConstants* const variants[] = { nullptr, &tiny };   // 出厂常数 / 每段都重规范
-
-            for (const auto* constants : variants)
+            struct Variant
             {
-                const auto c = constants != nullptr ? *constants : LiveConstants {};
-                LiveProfile a;
-                setUp (a, c);
-                std::int64_t index = 0;
+                const char* name;
+                LiveConstants constants;
+                int segments;
+                int pending;
+            };
 
-                for (int i = 0; i < 40; ++i)
-                {
-                    const auto spec = i % 10 < 2 ? introSpec() : i % 10 < 4 ? breakdownSpec() : dropSpec();
-                    a.segmentFinalized (makeSegment (spec, index++));
-                }
+            const Variant variants[] = { { "factory constants, 40 bars", LiveConstants {}, 40, 0 },
+                                         { "events (new program, time decay)", eventful, 60, 0 },
+                                         { "full window (600 bars)", LiveConstants {}, 600, 0 },
+                                         { "3 segments not yet published", LiveConstants {}, 40, 3 } };
+
+            for (const auto& variant : variants)
+            {
+                LiveProfile a;
+                setUp (a, variant.constants);
+                auto segments = mixedSequence (variant.segments + variant.pending + 10);
+                auto louder = dropSpec();
+                louder.loudnessLufs = 0.97;
+                louder.lowShare = 0.1;
+
+                if (variant.constants.newProgramSeconds < 10.0)   // 事件那一组：每 8 段夹 3 段「响 9 LU」的
+                    for (size_t i = 0; i < segments.size(); ++i)
+                        if (i % 8 >= 5)
+                            segments[i] = makeSegment (louder, (std::int64_t) i);
+
+                for (int i = 0; i < variant.segments; ++i)
+                    feed (a, segments[(size_t) i]);
+
+                for (int i = 0; i < variant.pending; ++i)
+                    a.segmentFinalized (segments[(size_t) (variant.segments + i)]);
 
                 const auto xml = a.createStateXml();
                 const auto text = xml->toString();
-                logMessage ("  state XML: " + juce::String (text.getNumBytesAsUTF8()) + " bytes ("
-                            + (constants != nullptr ? juce::String ("renormalised every bar") : juce::String ("factory constants, 40 bars")) + ")");
+                logMessage ("  state XML: " + juce::String (text.getNumBytesAsUTF8()) + " bytes (" + variant.name + "; window "
+                            + juce::String (a.getDiagnostics().windowSegments) + ", new programs " + juce::String ((int) a.getDiagnostics().newProgramCount)
+                            + ")");
 
                 LiveProfile b;
-                setUp (b, c);
-                expect (b.restoreStateXml (*xml), "restore succeeds");
-                expect (sameProfile (a.getProfile(), b.getProfile()) && sameDiagnostics (a.getDiagnostics(), b.getDiagnostics()),
-                        "restored profile and diagnostics bit-identical");
+                setUp (b, variant.constants);
+                expect (b.restoreStateXml (*xml), juce::String (variant.name) + ": restore succeeds");
+
+                a.flush();   // 原件把还没发布的段发布完（读回的副本已经并进来了）
+                const auto judgementsA = judgementsOf (a), judgementsB = judgementsOf (b);
+                auto sameJudgements = judgementsA.size() == judgementsB.size();
+
+                for (size_t k = 0; sameJudgements && k < judgementsA.size(); ++k)
+                    sameJudgements = judgementsA[k].sequence == judgementsB[k].sequence && sameFloat (judgementsA[k].mainness, judgementsB[k].mainness)
+                                  && sameDouble (judgementsA[k].weightSeconds, judgementsB[k].weightSeconds);
+
+                expect (sameProfile (a.getProfile(), b.getProfile()) && sameDiagnostics (a.getDiagnostics(), b.getDiagnostics(), false) && sameJudgements,
+                        juce::String (variant.name) + ": restored profile, references, M, c and judgements bit-identical");
+                expect (a.getDiagnostics().commits == b.getDiagnostics().commits
+                            && a.getDiagnostics().newProgramCount == b.getDiagnostics().newProgramCount
+                            && sameDouble (a.getDiagnostics().secondsSinceMain, b.getDiagnostics().secondsSinceMain),
+                        juce::String (variant.name) + ": counters restored");
 
                 auto parsed = juce::parseXML (text);
                 LiveProfile viaText;
-                setUp (viaText, c);
+                setUp (viaText, variant.constants);
                 expect (parsed != nullptr && viaText.restoreStateXml (*parsed) && sameProfile (a.getProfile(), viaText.getProfile()),
-                        "round trip through the XML text");
+                        juce::String (variant.name) + ": round trip through the XML text");
 
                 auto same = true;
 
                 for (int i = 0; i < 10; ++i)
                 {
-                    const auto segment = makeSegment (i % 3 == 0 ? breakdownSpec() : dropSpec(), index++);
-                    a.segmentFinalized (segment);
-                    b.segmentFinalized (segment);
-                    same = same && sameProfile (a.getProfile(), b.getProfile()) && sameDiagnostics (a.getDiagnostics(), b.getDiagnostics());
+                    const auto& segment = segments[(size_t) (variant.segments + variant.pending + i)];
+                    feed (a, segment);
+                    feed (b, segment);
+                    same = same && sameProfile (a.getProfile(), b.getProfile()) && sameDiagnostics (a.getDiagnostics(), b.getDiagnostics(), false)
+                        && sameRecord (lastRecord (a), lastRecord (b), false);
                 }
 
-                expect (same, "after restoring, the same segments give the same results (the state is complete)");
-                expect (std::isfinite (a.getProfile().integratedLufs.value) && a.getProfile().integratedLufs.valid);
+                expect (same, juce::String (variant.name) + ": after restoring, the same segments give the same results (the state is complete)");
             }
 
             LiveProfile empty;
@@ -1210,7 +1602,7 @@ namespace celadon::test
                 setUp (a);
 
                 for (int i = 0; i < 20; ++i)
-                    a.segmentFinalized (makeSegment (dropSpec(), i));
+                    feed (a, makeSegment (dropSpec(), i));
 
                 LiveProfile b;
                 b.prepare (2.0 * rate);
@@ -1221,27 +1613,41 @@ namespace celadon::test
                 expect (std::abs (pa.onsetDensityPerSecond.value - pb.onsetDensityPerSecond.value) <= 1.0e-5f
                             && std::abs (pa.lowShare.effectiveSeconds - pb.lowShare.effectiveSeconds) <= 1.0e-9
                             && std::abs (pa.loudnessRangeLu.effectiveSeconds - pb.loudnessRangeLu.effectiveSeconds) <= 1.0e-9
-                            && std::abs (pa.lowCutPeakCostDb.effectiveSeconds - pb.lowCutPeakCostDb.effectiveSeconds) <= 1.0e-9,
+                            && std::abs (pa.lowCutPeakCostDb.effectiveSeconds - pb.lowCutPeakCostDb.effectiveSeconds) <= 1.0e-9
+                            && std::abs (pa.integratedLufs.value - pb.integratedLufs.value) <= 1.0e-5f,
                         "sample-based quantities are converted: durations and rates are unchanged");
             }
         }
 
-        // e. 坏数据：标签 / 格式版本不对、缺属性、数组长度不对、非有限值、该非负的是负数、非法字符、缩放因子越界 → false，冷启动
-        // （之前的累计也清掉）。
+        // e. 坏数据：标签 / 格式版本不对、缺属性、标量坏、计数坏、窗口与段数对不上、base64 坏、段的二进制截短 / 多出 / 里面有越界的格号或
+        // NaN → false，冷启动（之前的窗口也清掉）；之后再交同样的段与全新的实例逐位相同。
         void testBadState()
         {
-            beginTest ("e. bad state data (version, missing / short / non-finite / negative / garbage values, scale) -> cold start, false");
+            beginTest ("e. bad state data (version, attributes, scalars, counts, base64, truncated / extra / corrupt segment bytes) -> cold start, false");
 
             LiveProfile source;
             setUp (source);
 
             for (int i = 0; i < 12; ++i)
-                source.segmentFinalized (makeSegment (dropSpec(), i));
+                feed (source, makeSegment (dropSpec(), i));
 
             const auto good = source.createStateXml();
             LiveProfile cold;
             setUp (cold);
             const auto coldProfile = cold.getProfile();
+
+            // 段的二进制：解出来、改、再编回去。
+            const auto blobOf = [] (const juce::XmlElement& x)
+            {
+                juce::MemoryOutputStream decoded;
+                juce::Base64::convertFromBase64 (decoded, x.getStringAttribute ("segments"));
+                return decoded.getMemoryBlock();
+            };
+
+            const auto setBlob = [] (juce::XmlElement& x, const juce::MemoryBlock& block)
+            {
+                x.setAttribute ("segments", juce::Base64::toBase64 (block.getData(), block.getSize()));
+            };
 
             struct Damage
             {
@@ -1250,24 +1656,41 @@ namespace celadon::test
             };
 
             const std::vector<Damage> damages {
-                { "unknown format version", [] (juce::XmlElement& x) { x.setAttribute ("formatVersion", 2); } },
+                { "unknown format version", [] (juce::XmlElement& x) { x.setAttribute ("formatVersion", 1); } },
                 { "wrong tag", [] (juce::XmlElement& x) { x.setTagName ("LIVE_PROFILE_X"); } },
-                { "missing attribute", [] (juce::XmlElement& x) { x.removeAttribute ("powerSum"); } },
-                { "array too short", [] (juce::XmlElement& x) { x.setAttribute ("powerSum", "z26"); } },
-                { "array too long", [] (juce::XmlElement& x) { x.setAttribute ("lowRangeCount", "z281"); } },
-                { "NaN", [] (juce::XmlElement& x) { x.setAttribute ("mainMass", "7ff8000000000000"); } },
-                { "infinity", [] (juce::XmlElement& x) { x.setAttribute ("activeSeconds", "7ff0000000000000"); } },
-                { "negative mass", [] (juce::XmlElement& x) { x.setAttribute ("mainMass", "bff0000000000000"); } },
-                { "garbage", [] (juce::XmlElement& x) { x.setAttribute ("frames", "12345g7890abcdef"); } },
-                { "short hex", [] (juce::XmlElement& x) { x.setAttribute ("frames", "3ff00000"); } },
-                { "scale 0", [] (juce::XmlElement& x) { x.setAttribute ("mainScale", "z1"); } },
-                { "scale 2", [] (juce::XmlElement& x) { x.setAttribute ("referenceScale", "4000000000000000"); } },
+                { "missing attribute", [] (juce::XmlElement& x) { x.removeAttribute ("mainClock"); } },
+                { "NaN scalar", [] (juce::XmlElement& x) { x.setAttribute ("activeSeconds", "7ff8000000000000"); } },
+                { "infinite scalar", [] (juce::XmlElement& x) { x.setAttribute ("runSeconds", "7ff0000000000000"); } },
+                { "negative clock", [] (juce::XmlElement& x) { x.setAttribute ("mainClock", "bff0000000000000"); } },
+                { "short hex", [] (juce::XmlElement& x) { x.setAttribute ("referenceClock", "3ff00000"); } },
                 { "bad count", [] (juce::XmlElement& x) { x.setAttribute ("commits", "-3"); } },
-                { "bad mode", [] (juce::XmlElement& x) { x.setAttribute ("lastMode", "7"); } },
-                { "trial histogram damaged at its end (read halfway)",
-                  [] (juce::XmlElement& x) { x.setAttribute ("trialWeights", x.getStringAttribute ("trialWeights") + " 12zz"); } } };
+                { "window does not match the commits", [] (juce::XmlElement& x) { x.setAttribute ("window", 11); } },
+                { "too many pending", [] (juce::XmlElement& x) { x.setAttribute ("pending", 99); } },
+                { "garbage base64", [] (juce::XmlElement& x) { x.setAttribute ("segments", "!!!not base64!!!"); } },
+                { "truncated segments",
+                  [&] (juce::XmlElement& x) { auto block = blobOf (x); block.setSize (block.getSize() - 5); setBlob (x, block); } },
+                { "extra bytes after the segments",
+                  [&] (juce::XmlElement& x) { auto block = blobOf (x); block.append ("zz", 2); setBlob (x, block); } },
+                { "NaN inside a segment (effective seconds of the first)",
+                  [&] (juce::XmlElement& x)
+                  {
+                      auto block = blobOf (x);
+                      const double nan = std::numeric_limits<double>::quiet_NaN();
+                      block.copyFrom (&nan, 8 * 3 + 3 + 4, sizeof (nan));   // start, end, nominal、mode / usable / pinned、pinnedMainness 之后
+                      setBlob (x, block);
+                  } },
+                { "a range-bin index out of range inside a segment",
+                  [&] (juce::XmlElement& x)
+                  {
+                      auto block = blobOf (x);
+                      // 第一段：…、truePeak 之后 gatingCount（19）、19 个门块、rangeCount、第一个格号。
+                      const size_t offset = 8 * 3 + 3 + 4 + 8 + 1 + 4 + 1 + 4 + 4 + 4 + 19 * 4 + 4;
+                      const std::uint16_t badBin = 900;
+                      block.copyFrom (&badBin, (int) offset, sizeof (badBin));
+                      setBlob (x, block);
+                  } } };
 
-            // 读档失败后再交同样的段，必须与全新的实例逐位相同：读到一半的数据（例如已经读进来的试算直方图）也清干净了。
+            // 读档失败后再交同样的段，必须与全新的实例逐位相同：读到一半的数据也清干净了。
             std::vector<Segment> after;
 
             for (int i = 0; i < 20; ++i)
@@ -1277,7 +1700,7 @@ namespace celadon::test
             setUp (fresh);
 
             for (const auto& segment : after)
-                fresh.segmentFinalized (segment);
+                feed (fresh, segment);
 
             for (const auto& damage : damages)
             {
@@ -1288,14 +1711,14 @@ namespace celadon::test
                 setUp (target);
 
                 for (int i = 0; i < 5; ++i)
-                    target.segmentFinalized (makeSegment (introSpec(), i));
+                    feed (target, makeSegment (introSpec(), i));
 
                 const auto restored = target.restoreStateXml (*xml);
                 expect (! restored && target.getDiagnostics().commits == 0 && sameProfile (target.getProfile(), coldProfile),
                         juce::String (damage.what) + ": false and cold");
 
                 for (const auto& segment : after)
-                    target.segmentFinalized (segment);
+                    feed (target, segment);
 
                 expect (sameProfile (target.getProfile(), fresh.getProfile()) && sameDiagnostics (target.getDiagnostics(), fresh.getDiagnostics()),
                         juce::String (damage.what) + ": nothing of the half-read state is left");
@@ -1308,41 +1731,37 @@ namespace celadon::test
         {
             beginTest ("f. the same segment sequence gives bit-identical results: another instance, after a reset, with reads in between");
 
-            std::vector<Segment> segments;
-
-            for (int i = 0; i < 60; ++i)
-            {
-                const auto phase = (i / 8) % 4;
-                const auto spec = phase == 0 ? introSpec() : phase == 2 ? breakdownSpec() : dropSpec();
-                segments.push_back (makeSegment (spec, i));
-            }
-
+            const auto segments = mixedSequence (60);
             LiveProfile a;
             setUp (a);
 
             for (const auto& segment : segments)
-                a.segmentFinalized (segment);
+                feed (a, segment);
 
             LiveProfile b;
             setUp (b);
 
             for (size_t i = 0; i < 30; ++i)
-                b.segmentFinalized (segments[i]);
+                feed (b, segments[i]);
 
+            b.segmentFinalized (segments[30]);   // 还没发布的一段也随 reset 丢掉
             b.reset();
             LiveProfile cold;
             setUp (cold);
-            expect (b.getDiagnostics().commits == 0 && sameProfile (b.getProfile(), cold.getProfile()), "reset is a cold start");
+            expect (b.getDiagnostics().commits == 0 && b.getDiagnostics().pendingSegments == 0 && sameProfile (b.getProfile(), cold.getProfile()),
+                    "reset is a cold start");
 
             std::uint64_t cursor = 0;
             LiveCommitRecord records[LiveProfile::commitCapacity];
+            LiveSegmentJudgement judgements[8];
 
             for (const auto& segment : segments)
             {
-                b.segmentFinalized (segment);
+                feed (b, segment);
                 (void) b.getProfile();
                 (void) b.getDiagnostics();
                 (void) b.readCommits (cursor, records, 4);
+                (void) b.readJudgements (judgements, 8);
             }
 
             expect (sameProfile (a.getProfile(), b.getProfile()) && sameDiagnostics (a.getDiagnostics(), b.getDiagnostics()),
@@ -1350,33 +1769,178 @@ namespace celadon::test
             expect (lastRecord (b).sequence == 89, "commit sequence numbers keep counting across reset");
         }
 
-        // f. 音频线程接口不经 operator new 分配（TestHelpers.h allocationCountOnThisThread）：并入（含重规范、换歌、时间衰减）、读数、
-        // 提交记录、reset。
-        void testNoAllocation()
+        // f. 结果与 advanceTo 的调用次数、时刻无关（SegmentSink::advanceTo 的约定）：同一串段，advanceTo（1）正好在各段的发布时刻、（2）每 7 个
+        // 样本、（3）每次都调两遍、（4）每 10 段才一次跳过好几份、（5）一直不调直到最后 flush（队列满时 segmentFinalized 就地发布）——每一份
+        // 发布（提交记录全部字段、画像、诊断）逐位相同、份数相同。
+        void testCallPatterns()
         {
-            beginTest ("f. segmentFinalized / commitWithMainness / reads / reset do not allocate (including renormalisation)");
+            beginTest ("f. publications are bit-identical whatever advanceTo is called with: at due times, every 7 samples, twice, in jumps, never (flush)");
+
+            const auto segments = mixedSequence (48);
+
+            const auto run = [&segments] (int pattern, std::vector<Publication>& out)
+            {
+                LiveProfile live;
+                setUp (live);
+                Recorder recorder (live, segments.size() + 4);
+                live.setPublicationListener (&recorder);
+                std::int64_t time = 0;
+
+                for (size_t i = 0; i < segments.size(); ++i)
+                {
+                    const auto& segment = segments[i];
+
+                    // 分析器在段尾之后才交段（这里在段尾 + 0.2 s）：先把时间推到那里，再交。
+                    const auto arrival = segment.end + (std::int64_t) (0.2 * rate);
+
+                    if (pattern == 1)
+                    {
+                        for (; time + 7 <= arrival; time += 7)
+                            live.advanceTo (time + 7);
+                    }
+                    else if (pattern == 2)
+                    {
+                        live.advanceTo (arrival);
+                        live.advanceTo (arrival);
+                    }
+                    else if (pattern == 3)
+                    {
+                        if (i % 10 == 9)
+                            live.advanceTo (arrival);
+                    }
+                    else if (pattern == 0)
+                    {
+                        live.advanceTo (arrival);
+                    }
+
+                    live.segmentFinalized (segment);
+
+                    if (pattern == 0)
+                        live.advanceTo (live.getNextPublicationTime());
+                }
+
+                if (pattern == 1)
+                    for (const auto end = segments.back().end + (std::int64_t) (2.0 * rate); time < end; time += 7)
+                        live.advanceTo (time + 7);
+
+                live.flush();
+                out = recorder.publications;
+                return ! recorder.overflow;
+            };
+
+            std::vector<Publication> reference;
+            expect (run (0, reference) && reference.size() == segments.size(), "pattern 0 (at due times): one publication per segment");
+            const char* const names[] = { "", "every 7 samples", "every call twice", "jumps every 10 segments", "never (flush at the end)" };
+
+            for (int pattern = 1; pattern <= 4; ++pattern)
+            {
+                std::vector<Publication> other;
+                const auto ok = run (pattern, other);
+                expect (ok && samePublications (reference, other), juce::String ("advanceTo ") + names[pattern] + ": publications bit-identical");
+            }
+        }
+
+        // f. 整条串起来：分析器实时模式 → 实时段落账 → SegmentSink → LiveProfile，宿主块长 4096 / 512 / 480 / 32 / 7 下每一份发布（提交记录、
+        // 画像、诊断）与最终状态（经 createStateXml）逐位相同。测试台每块之后调 advanceTo（分析器这一侧阶段 1 还不调）。
+        void testAnalyzerToProfileBlockSizes()
+        {
+            beginTest ("analyzer live mode -> live ledger -> sink -> LiveProfile: every publication is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7");
+
+            const auto track = makeIntroDrop (8, 8, 1.0);
+            juce::String referenceState;
+            std::vector<Publication> referencePublications;
+
+            for (const auto blockSize : { 4096, 512, 480, 32, 7 })
+            {
+                AnalyzerRig rig (4096);
+                LiveProfile live;
+                setUp (live);
+                Recorder recorder (live, 64);
+                live.setPublicationListener (&recorder);
+                rig.analyzer.setGenre (glaze::Genre::deepHouse);
+                rig.analyzer.setSegmentSink (&live);
+                rig.analyzer.setLiveMode (true);
+                rig.feed (track, blockSize, &live);
+                live.flush();
+
+                const auto state = live.createStateXml()->toString();
+
+                if (referenceState.isEmpty())
+                {
+                    referenceState = state;
+                    referencePublications = recorder.publications;
+                    expect (referencePublications.size() >= 14, "the run published the bars: " + juce::String ((int) referencePublications.size()));
+                    expect (live.getProfile().integratedLufs.valid, "the live profile has an I");
+                }
+                else
+                {
+                    expect (samePublications (recorder.publications, referencePublications),
+                            "every publication bit-identical for block " + juce::String (blockSize));
+                    expect (state == referenceState, "final live profile state bit-identical for block " + juce::String (blockSize));
+                }
+            }
+        }
+
+        // 窗口外的老段直接丢弃（LiveProfile.cpp 文件头第五节）：事件关掉时画像只取决于窗口——600 段之后的画像与「只交最后 512 段」的
+        // 全新实例逐位相同；诊断报窗口 512、丢掉 88 段、最老一段的份额。
+        void testWindowEviction()
+        {
+            beginTest ("old segments beyond the 512-segment window are dropped; with events off the profile depends only on the window");
 
             LiveConstants c;
-            c.fourOnFloor.memoryBars = 0.0;
-            c.fourOnFloor.memorySeconds = 0.02;   // 每段重规范
+            c.noMainSeconds = infinity;
+            c.newProgramLu = std::numeric_limits<float>::infinity();
+            const auto segments = mixedSequence (600, 300);
+            LiveProfile all;
+            setUp (all, c);
+
+            for (const auto& segment : segments)
+                feed (all, segment);
+
+            LiveProfile last;
+            setUp (last, c);
+
+            for (size_t i = segments.size() - (size_t) LiveProfile::windowCapacity; i < segments.size(); ++i)
+                feed (last, segments[i]);
+
+            const auto d = all.getDiagnostics();
+            logMessage ("  window " + juce::String (d.windowSegments) + ", dropped " + juce::String ((int) d.droppedSegments) + ", oldest share of M "
+                        + juce::String (d.oldestMainShare, 8) + ", of the references " + juce::String (d.oldestReferenceShare, 6));
+            expect (d.windowSegments == LiveProfile::windowCapacity && d.droppedSegments == 88, "window 512, 88 dropped");
+            expect (sameProfile (all.getProfile(), last.getProfile()) && sameDiagnostics (all.getDiagnostics(), last.getDiagnostics(), false),
+                    "the profile equals a fresh instance fed only the window's 512 segments");
+            expect (d.oldestMainShare >= 0.0f && d.oldestMainShare < 1.0e-3f && d.oldestReferenceShare < 0.01f, "the oldest segment's shares are small");
+        }
+
+        // f. 音频线程接口不经 operator new 分配（TestHelpers.h allocationCountOnThisThread）：入队、advanceTo（分片、发布、补完欠的片）、
+        // 队列满时的就地发布、flush、读数、提交记录、判断、reset、钉死的主段度、监听者回调。
+        void testNoAllocation()
+        {
+            beginTest ("f. segmentFinalized / advanceTo / flush / reads / reset do not allocate (slices, publications, catch-up, a full queue)");
+
+            LiveConstants c;
             c.noMainSeconds = 5.0;                // 时间衰减很快就开始
             c.newProgramSeconds = 4.0;            // 换歌很快就触发
             LiveProfile live;
             setUp (live, c);
+            Recorder recorder (live, 4096);
+            live.setPublicationListener (&recorder);
 
-            // 每 8 段：2 段 breakdown、3 段 drop、3 段「响 9 LU、没有低音」（m = 0、I 不动，3 × 1.9 s ≥ 4 s：换歌软遗忘真走到）。
+            // 每 8 段：2 段 breakdown、3 段 drop、3 段「响 9 LU、没有低音」（换歌软遗忘真走到）。
             auto louder = dropSpec();
             louder.loudnessLufs = 0.97;
             louder.lowShare = 0.1;
             std::vector<Segment> segments;
 
-            for (int i = 0; i < 40; ++i)
+            for (int i = 0; i < 640; ++i)
                 segments.push_back (makeSegment (i % 8 < 2 ? breakdownSpec() : i % 8 < 5 ? dropSpec() : louder, i));
 
             LiveCommitRecord records[LiveProfile::commitCapacity];
+            LiveSegmentJudgement judgements[16];
             std::uint64_t cursor = 0;
             float sink = 0.0f;
             auto sawNewProgram = false;
+            std::int64_t time = 0;
             const auto before = allocationCountOnThisThread();
 
             for (size_t i = 0; i < segments.size(); ++i)
@@ -1386,20 +1950,29 @@ namespace celadon::test
                 else
                     live.segmentFinalized (segments[i]);
 
+                // 前 200 段：每 512 样本一次（分片）；200 ～ 260：不调（队列满：就地发布）；之后一次跳到发布时刻（补完欠的片）。
+                if (i < 200)
+                    for (; time < segments[i].end + 24000; time += 512)
+                        live.advanceTo (time);
+                else if (i >= 260)
+                    live.advanceTo (live.getNextPublicationTime());
+
                 sink += live.mainnessFor (true, -9.0f, true, 0.5f) + live.getProfile().integratedLufs.value + live.getDiagnostics().confidence;
                 const auto read = live.readCommits (cursor, records, LiveProfile::commitCapacity);
+                sink += (float) live.readJudgements (judgements, 16);
 
                 for (int k = 0; k < std::abs (read); ++k)
                     sawNewProgram = sawNewProgram || records[k].newProgram;
 
-                if (i == 20)
+                if (i == 100)
                     live.reset();
             }
 
+            live.flush();
             const auto after = allocationCountOnThisThread();
             expect (after == before, "no allocation: " + juce::String ((juce::int64) (after - before)));
             expect (sawNewProgram, "the run went through the new-program soft forget");
-            expect (std::isfinite (sink));
+            expect (! recorder.overflow && std::isfinite (sink));
         }
 
         //==============================================================================
@@ -1412,7 +1985,7 @@ namespace celadon::test
             setUp (live);
 
             for (int i = 0; i < 100; ++i)
-                live.segmentFinalized (makeSegment (dropSpec(), i));
+                feed (live, makeSegment (dropSpec(), i));
 
             LiveCommitRecord records[LiveProfile::commitCapacity];
             std::uint64_t cursor = 0;
@@ -1425,51 +1998,65 @@ namespace celadon::test
             std::uint64_t ahead = 500;
             expect (live.readCommits (ahead, records, 8) == 0 && ahead == 100, "a cursor ahead of the total is clamped");
 
-            live.segmentFinalized (makeSegment (dropSpec(), 100));
+            const auto segment = makeSegment (dropSpec(), 100);
+            live.segmentFinalized (segment);
+            expect (live.getNextPublicationTime() == segment.end + 24000 && live.getDiagnostics().pendingSegments == 1,
+                    "a new segment is due at its end + 0.5 s");
+            live.advanceTo (segment.end + 23999);
+            expect (live.getDiagnostics().commits == 100, "not published one sample before its due time");
+            live.advanceTo (segment.end + 24000);
             const auto record = lastRecord (live);
             expect (record.sequence == 100 && record.start == 100 * barSamples && record.end == 101 * barSamples
-                        && record.mode == glaze::SegmentMode::bars && std::abs (record.nominalSeconds - (double) barSamples / rate) < 1.0e-12
-                        && record.mainLevelValid && record.referenceValid,
-                    "the record carries the segment, its weight and the profile after the commit");
+                        && record.publishTime == segment.end + 24000 && record.mode == glaze::SegmentMode::bars
+                        && std::abs (record.nominalSeconds - (double) barSamples / rate) < 1.0e-12 && record.mainLevelValid && record.referenceValid,
+                    "published exactly at its due time; the record carries the segment, its judgement and the profile");
+            expect (live.getDiagnostics().publishTime == segment.end + 24000 && live.getNextPublicationTime() == LiveProfile::noPublication);
         }
 
-        // 坏段（累计量里有 NaN）：只记一条 m = 0、有效时长 0 的提交，任何累计都不碰。
+        // 坏段（累计量里有 NaN）：只记一条 m = 0、有效时长 0 的提交，画像不变。
         void testBadSegment()
         {
-            beginTest ("a segment with non-finite data is recorded with m = 0 and touches no accumulation");
+            beginTest ("a segment with non-finite data is recorded with m = 0 and leaves the profile unchanged");
 
             LiveProfile live;
             setUp (live);
 
             for (int i = 0; i < 8; ++i)
-                live.segmentFinalized (makeSegment (dropSpec(), i));
+                feed (live, makeSegment (dropSpec(), i));
 
             const auto before = live.getProfile();
             auto bad = makeSegment (dropSpec(), 8);
             bad.powerSum[3] = std::numeric_limits<double>::quiet_NaN();
-            live.segmentFinalized (bad);
+            feed (live, bad);
             const auto record = lastRecord (live);
             expect (sameFloat (record.mainness, 0.0f) && record.effectiveSeconds == 0.0, "recorded with m = 0");
             expect (sameProfile (before, live.getProfile()), "the profile is untouched");
 
             bad = makeSegment (dropSpec(), 9);
             bad.rangeCount = 1000;   // 越出定长数组
-            live.segmentFinalized (bad);
+            feed (live, bad);
             expect (sameProfile (before, live.getProfile()), "an out-of-range count is rejected too");
         }
 
         //==============================================================================
-        // g. 每次并入的耗时（音频线程上的一次 segmentFinalized）。护栏：均值 ≤ 500 µs、最大 ≤ 20 ms——107 实测均值约几 µs（REPORT-A），
-        // 护栏只防百倍退化（例如每段重扫 0.58 MB 的试算直方图），不当性能门槛；最大值含操作系统的调度抖动，所以放得更宽。
-        void testCommitTiming()
+        // g. 耗时（写进 REPORT-A2）：每段入队（segmentFinalized）、每片（advanceTo 每次只跨一个网格点：至多一片）、一遍同步重算（setConstants）；
+        // 4/4 型 2000 段（窗口挤满之后）与响度型 700 段（多一个全部段权重的 exp）。护栏只防百倍退化（例如每片重扫 0.58 MB 的试算直方图），
+        // 不当性能门槛：均值 ≤ 200 µs、最大 ≤ 20 ms（含调度抖动）；每一遍都在发布时刻之前按网格做完（不用补完）。
+        void testTiming()
         {
-            beginTest ("g. per-commit time (mean / max, us) with a wide guard against a 100x regression");
+            beginTest ("g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression");
 
+            timeModel (MainSectionModel::fourOnFloor, 2000, true);
+            timeModel (MainSectionModel::loudness, 700, false);
+        }
+
+        void timeModel (MainSectionModel model, int count, bool measurePasses)
+        {
             LiveProfile live;
-            setUp (live);
+            setUp (live, LiveConstants {}, model);
             std::vector<Segment> segments;
 
-            for (int i = 0; i < 2000; ++i)
+            for (int i = 0; i < count; ++i)
             {
                 const auto phase = (i / 16) % 4;
                 auto spec = phase == 0 ? introSpec() : phase == 2 ? breakdownSpec() : dropSpec();
@@ -1477,57 +2064,138 @@ namespace celadon::test
                 segments.push_back (makeSegment (spec, i));
             }
 
-            double total = 0.0, worst = 0.0;
-            const auto ticksPerMicrosecond = (double) juce::Time::getHighResolutionTicksPerSecond() / 1.0e6;
-            std::vector<double> times;
-            times.reserve (segments.size());
+            using Clock = std::chrono::steady_clock;   // 纳秒级（juce 的高精度计时在 Linux 上只到微秒）
+            const auto microsecondsSince = [] (Clock::time_point start) { return std::chrono::duration<double, std::micro> (Clock::now() - start).count(); };
+            const auto grid = (std::int64_t) std::llround (LiveProfile::sliceGridSeconds * rate);
+            std::vector<double> enqueueTimes, sliceTimes;
+            enqueueTimes.reserve (segments.size());
+            sliceTimes.reserve (segments.size() * 400);
+            std::vector<double> passCalls;
+            passCalls.reserve (256);
+            std::int64_t time = 0;
+            int maxSlicesPerPass = 0;
 
             for (const auto& segment : segments)
             {
-                const auto start = juce::Time::getHighResolutionTicks();
+                // 段尾 + 0.2 s 交来（分析器的定稿延迟），之后每个网格点调一次 advanceTo：每次至多一片。
+                const auto arrival = segment.end + (std::int64_t) (0.2 * rate);
+
+                for (; time + grid <= arrival; time += grid)
+                    live.advanceTo (time + grid);
+
+                auto start = Clock::now();
                 live.segmentFinalized (segment);
-                const auto elapsed = (double) (juce::Time::getHighResolutionTicks() - start) / ticksPerMicrosecond;
-                total += elapsed;
-                worst = juce::jmax (worst, elapsed);
-                times.push_back (elapsed);
+                enqueueTimes.push_back (microsecondsSince (start));
+                const auto due = live.getNextPublicationTime();
+
+                passCalls.clear();
+
+                for (; time + grid < due; time += grid)
+                {
+                    start = Clock::now();
+                    live.advanceTo (time + grid);
+                    passCalls.push_back (microsecondsSince (start));
+                }
+
+                // 发布时刻那一次：这一遍要是还没做完，就在这里补完（catchUps 计数；不该发生：一遍的片数少于 0.3 s 的网格点）。
+                live.advanceTo (due);
+                time = due;
+
+                // 交段之后每个网格点正好一片，直到这一遍做完：前 lastPassSlices 次调用就是这一遍的片（之后的网格点是空的，不记）。
+                const auto used = live.getDiagnostics().lastPassSlices;
+                maxSlicesPerPass = juce::jmax (maxSlicesPerPass, used);
+
+                for (size_t k = 0; k < passCalls.size() && k < (size_t) used; ++k)
+                    sliceTimes.push_back (passCalls[k]);
             }
 
-            const auto mean = total / (double) segments.size();
-            std::sort (times.begin(), times.end());
-            const auto at = [&times] (double share) { return times[(size_t) std::floor (share * (double) (times.size() - 1))]; };
-            logMessage ("  per commit: median " + juce::String (at (0.5), 2) + " us, P99 " + juce::String (at (0.99), 2) + " us, P99.9 "
-                        + juce::String (at (0.999), 2) + " us");
+            const auto lateFull = live.getDiagnostics().catchUps;
 
-            const auto resetStart = juce::Time::getHighResolutionTicks();
-            live.reset();
-            logMessage ("  reset (cold start, clears every accumulation): "
-                        + juce::String ((double) (juce::Time::getHighResolutionTicks() - resetStart) / ticksPerMicrosecond, 1) + " us");
-
-            for (const auto& segment : segments)   // 状态大小按跑满 2000 小节之后量
-                live.segmentFinalized (segment);
-
-            // 重规范那一次（W_mem 极小，每段都重规范）的耗时，单独量。
-            LiveConstants tiny;
-            tiny.fourOnFloor.memoryBars = 0.0;
-            tiny.fourOnFloor.memorySeconds = 0.02;
-            LiveProfile renormalising;
-            setUp (renormalising, tiny);
-            double renormTotal = 0.0, renormWorst = 0.0;
-
-            for (size_t i = 0; i < 200; ++i)
+            const auto stats = [] (std::vector<double> times)
             {
-                const auto start = juce::Time::getHighResolutionTicks();
-                renormalising.segmentFinalized (segments[i]);
-                const auto elapsed = (double) (juce::Time::getHighResolutionTicks() - start) / ticksPerMicrosecond;
-                renormTotal += elapsed;
-                renormWorst = juce::jmax (renormWorst, elapsed);
+                std::sort (times.begin(), times.end());
+                double total = 0.0;
+
+                for (auto x : times)
+                    total += x;
+
+                const auto at = [&times] (double share) { return times[(size_t) std::floor (share * (double) (times.size() - 1))]; };
+                return std::array<double, 5> { total / (double) times.size(), at (0.5), at (0.99), at (0.999), times.back() };
+            };
+
+            const auto enqueue = stats (enqueueTimes);
+            const auto slices = stats (sliceTimes);
+            const juce::String label (model == MainSectionModel::fourOnFloor ? "4/4" : "loudness");
+            logMessage ("  [" + label + ", " + juce::String (count) + " bars] enqueue (segmentFinalized): mean " + juce::String (enqueue[0], 2)
+                        + " us, median " + juce::String (enqueue[1], 2) + ", P99 " + juce::String (enqueue[2], 2) + ", P99.9 " + juce::String (enqueue[3], 2)
+                        + ", max " + juce::String (enqueue[4], 1));
+            logMessage ("  [" + label + "] slice (one per grid point while a pass is running, " + juce::String ((int) sliceTimes.size())
+                        + " calls): mean " + juce::String (slices[0], 2) + " us, median " + juce::String (slices[1], 2) + ", P99 " + juce::String (slices[2], 2)
+                        + ", P99.9 " + juce::String (slices[3], 2) + ", max " + juce::String (slices[4], 1));
+            logMessage ("  [" + label + "] slices used by one pass: up to " + juce::String (maxSlicesPerPass) + " (of "
+                        + juce::String ((int) ((0.5 - 0.2) / LiveProfile::sliceGridSeconds)) + " grid points before the due time); passes finished late: "
+                        + juce::String ((juce::int64) lateFull));
+
+            if (measurePasses)
+            {
+                // 一遍同步重算（setConstants 重算已发布的那一份）的耗时随窗口段数：取 5 次里最短的（标定工作量估计用：斜率 = 每段，截距 = 固定）。
+                juce::String line ("  synchronous full pass (setConstants) by window size:");
+
+                for (const auto size : { 1, 64, 256, 512 })
+                {
+                    LiveProfile sized;
+                    setUp (sized, LiveConstants {}, model);
+
+                    for (int i = 0; i < size; ++i)
+                        feed (sized, segments[(size_t) i]);
+
+                    auto best = 1.0e30;
+
+                    for (int repeat = 0; repeat < 5; ++repeat)
+                    {
+                        const auto passStart = Clock::now();
+                        sized.setConstants (LiveConstants {}, model);
+                        best = juce::jmin (best, microsecondsSince (passStart));
+                    }
+
+                    line << " " << size << " segments " << juce::String (best, 1) << " us;";
+                }
+
+                logMessage (line);
+                logMessage ("  state XML after the " + juce::String (count) + " bars: " + juce::String (live.createStateXml()->toString().getNumBytesAsUTF8())
+                            + " bytes");
+
+                // 每段的耗时按种类（标定 LiveProfile.cpp 的工作量估计）：窗口 512 段 drop，主段度钉成 1（全部主段）或 0（全部非主段），两种模型。
+                juce::String kinds ("  per-segment cost of a 512-segment pass (us / segment):");
+
+                for (const auto kindModel : { MainSectionModel::fourOnFloor, MainSectionModel::loudness })
+                    for (const auto pinned : { 0.0f, 1.0f })
+                    {
+                        LiveProfile sized;
+                        setUp (sized, LiveConstants {}, kindModel);
+
+                        for (int i = 0; i < 512; ++i)
+                            feedPinned (sized, makeSegment (dropSpec(), i), pinned);
+
+                        auto best = 1.0e30;
+
+                        for (int repeat = 0; repeat < 5; ++repeat)
+                        {
+                            const auto passStart = Clock::now();
+                            sized.setConstants (LiveConstants {}, kindModel);
+                            best = juce::jmin (best, microsecondsSince (passStart));
+                        }
+
+                        kinds << " " << (kindModel == MainSectionModel::fourOnFloor ? "4/4" : "loudness") << (pinned > 0.5f ? " main " : " non-main ")
+                              << juce::String (best / 512.0, 4) << ";";
+                    }
+
+                logMessage (kinds);
             }
 
-            logMessage ("  per commit: mean " + juce::String (mean, 2) + " us, max " + juce::String (worst, 1) + " us (2000 bars); "
-                        + "renormalising every bar: mean " + juce::String (renormTotal / 200.0, 1) + " us, max " + juce::String (renormWorst, 1) + " us");
-            logMessage ("  state XML after the 2000 bars: " + juce::String (live.createStateXml()->toString().getNumBytesAsUTF8()) + " bytes");
-            expect (mean <= 500.0, "mean per commit within the 500 us guard");
-            expect (worst <= 20000.0, "max per commit within the 20 ms guard");
+            expect (lateFull == 0, label + ": every pass finished on the slice grid before its due time");
+            expect (enqueue[0] <= 200.0 && slices[0] <= 200.0, label + ": means within the 200 us guard");
+            expect (enqueue[4] <= 20000.0 && slices[4] <= 20000.0, label + ": maxima within the 20 ms guard");
         }
     };
 

@@ -527,12 +527,13 @@ namespace
                      "                      House 门槛「从第 1 小节播 vs 从 drop 播」用，第二遍（成品）照旧从头渲染\n"
                      "  --segments-csv      逐段写统计到 segments/：<歌名>__input.csv（输入端：段响度、低频占比）与 <成品名>.csv\n"
                      "                      （成品同一套 + 逐段限幅 GR）；有 --bpm 时一段 = 一小节，否则每 2 秒一段（T-038 门控标定与 House 门槛）\n"
-                     "  --live-trace        T-048：每一遍的链接上实时画像（分析器实时模式），逐段写追踪到 live/<标签>/<歌名>__<曲风>.csv\n"
-                     "                      与 __final.csv（同一首歌、曲风、聆听起点、常数只写一份；链的输出逐位不变）\n"
+                     "  --live-trace        T-048：每一遍的链接上实时画像（分析器实时模式），每发布一份画像写一行追踪到\n"
+                     "                      live/<标签>/<歌名>__<曲风>.csv，另写 __final.csv 与 __judgements.csv（歌尾窗口里每段的最终判断；\n"
+                     "                      同一首歌、曲风、聆听起点、常数只写一份；链的输出逐位不变）\n"
                      "  --live-only         只跑第一遍（聆听）出追踪：每首歌 × 每个曲风 × 每个聆听起点一遍，不出成品、不做重放（最快的跑法）\n"
                      "  --live-constants k=v,...  覆盖实时画像常数 LiveConstants 的任意字段（如 fourOnFloor.gateWidthLu=3.5,newProgramLu=8,\n"
                      "                      referenceMemorySeconds=240；键名同 GlazeConstants.h，主段模型的字段带 fourOnFloor. / loudness. /\n"
-                     "                      passive. 前缀）；不认识的键、取值不合法都报错\n"
+                     "                      passive. 前缀；取值范围是 LiveProfile.h 的公开表）；不认识的键、取值不合法都报错\n"
                      "  --live-model m      主段模型一律用 fourOnFloor / loudness / passive（默认按曲风：House 三类 4/4 型，通用响度型）\n"
                      "  --live-tag 名字     追踪的输出分组 live/<名字>/（字母、数字、. _ -），默认 default；改了常数或模型时必须给\n"
                      "  --selftest          只跑自检（指标算法、文件名、延迟对齐、GLAZE 0 逐位直通的阳性对照），不读歌\n"
@@ -544,81 +545,36 @@ namespace
     }
 
     // ---- T-048 --live-constants：LiveConstants 的键表与取值范围 ----
-    // 每个键的合法取值与 LiveProfile.cpp 的 sanitise 一一对应：那边把坏值悄悄换成出厂值，这里直接报错——扫参时给错的值不能变成
-    // 「其实跑的是出厂值」。+∞ 只在 sanitise 也收的键上合法（「不遗忘 / 永不触发」，等价性测试就这么关掉遗忘）。sanitise 改了这里要跟着改
-    // （跨文件请求：把 sanitise 公开出来，两边共用一份）。
-    enum class LiveDomain
-    {
-        finite,           // 有限的数
-        positiveFinite,   // > 0 的有限数
-        percentile,       // (0, 1]
-        notNan,           // 任意数，含 ±∞（如 memoryBars ≤ 0 = 不按小节、peakTailSeconds ≤ 0 = 只取最大值）
-        positive,         // > 0，含 +∞
-        unit,             // [0, 1]
-        nonNegative       // ≥ 0，含 +∞
-    };
-
-    bool inLiveDomain (double value, LiveDomain domain) noexcept
-    {
-        switch (domain)
-        {
-            case LiveDomain::finite:         return std::isfinite (value);
-            case LiveDomain::positiveFinite: return std::isfinite (value) && value > 0.0;
-            case LiveDomain::percentile:     return value > 0.0 && value <= 1.0;
-            case LiveDomain::notNan:         return ! std::isnan (value);
-            case LiveDomain::positive:       return value > 0.0;
-            case LiveDomain::unit:           return value >= 0.0 && value <= 1.0;
-            case LiveDomain::nonNegative:    return value >= 0.0;
-        }
-
-        return false;
-    }
+    // 键与合法取值用 LiveProfile.h 的公开表（visitLiveConstants / isInLiveConstantDomain；LiveProfile 的清洗 sanitiseLiveConstants 用的是
+    // 同一张表）：那边把坏值悄悄换成出厂值，这里直接报错——扫参时给错的值不能变成「其实跑的是出厂值」。+∞ 只在表里注明「含 ∞」的键上
+    // 合法（「不遗忘 / 永不触发」）。键名 = 字段名，主段模型的字段带「模型名.」前缀（共 3 × 9 + 10 = 37 个）。
+    using LiveDomain = celadon::glaze::LiveConstantDomain;
 
     const char* liveDomainText (LiveDomain domain) noexcept
     {
         switch (domain)
         {
-            case LiveDomain::finite:         return "有限的数";
-            case LiveDomain::positiveFinite: return "> 0 的有限数";
-            case LiveDomain::percentile:     return "(0, 1] 之间的数";
-            case LiveDomain::notNan:         return "数（可写 inf / -inf）";
-            case LiveDomain::positive:       return "> 0 的数（可写 inf）";
-            case LiveDomain::unit:           return "[0, 1] 之间的数";
-            case LiveDomain::nonNegative:    return "≥ 0 的数（可写 inf）";
+            case LiveDomain::finite:            return "有限的数";
+            case LiveDomain::positiveFinite:    return "> 0 的有限数";
+            case LiveDomain::percentile:        return "(0, 1] 之间的数";
+            case LiveDomain::notNan:            return "数（可写 inf / -inf）";
+            case LiveDomain::positive:          return "> 0 的数（可写 inf）";
+            case LiveDomain::unit:              return "[0, 1] 之间的数";
+            case LiveDomain::nonNegative:       return "≥ 0 的数（可写 inf）";
+            case LiveDomain::nonNegativeFinite: return "≥ 0 的有限数";
         }
 
         return "数";
     }
 
-    // LiveConstants 的全部字段：键名 = 字段名，主段模型的字段带「模型名.」前缀（共 3 × 9 + 8 = 35 个）。解析、汇总（__final.csv）、
-    // 自检共用这一张表——LiveConstants 加字段时只在这里加一行。visit (键名, 字段的引用（float& 或 double&）, 取值范围)。
-    template <typename Visitor>
-    void visitLiveConstants (celadon::glaze::LiveConstants& c, Visitor&& visit)
+    // 解析、汇总（__final.csv）、自检共用：visit (键名, 字段的引用（float& 或 double&）, 取值范围)。
+    template <typename Constants, typename Visitor>
+    void visitLiveConstantKeys (Constants& c, Visitor&& visit)
     {
-        const auto model = [&visit] (const std::string& prefix, celadon::glaze::LiveModelConstants& m)
+        celadon::glaze::visitLiveConstants (c, [&visit] (const char* model, const char* name, auto& field, LiveDomain domain)
         {
-            visit (prefix + ".gateWidthLu", m.gateWidthLu, LiveDomain::finite);
-            visit (prefix + ".loudnessRampLu", m.loudnessRampLu, LiveDomain::positiveFinite);
-            visit (prefix + ".lowGateFactor", m.lowGateFactor, LiveDomain::finite);
-            visit (prefix + ".lowRampWidth", m.lowRampWidth, LiveDomain::positiveFinite);
-            visit (prefix + ".referencePercentile", m.referencePercentile, LiveDomain::percentile);
-            visit (prefix + ".memoryBars", m.memoryBars, LiveDomain::notNan);
-            visit (prefix + ".memorySeconds", m.memorySeconds, LiveDomain::positive);
-            visit (prefix + ".confidenceBars", m.confidenceBars, LiveDomain::notNan);
-            visit (prefix + ".confidenceSeconds", m.confidenceSeconds, LiveDomain::positive);
-        };
-
-        model ("fourOnFloor", c.fourOnFloor);
-        model ("loudness", c.loudness);
-        model ("passive", c.passive);
-        visit (std::string ("referenceMemorySeconds"), c.referenceMemorySeconds, LiveDomain::positive);
-        visit (std::string ("mainThreshold"), c.mainThreshold, LiveDomain::unit);
-        visit (std::string ("noMainSeconds"), c.noMainSeconds, LiveDomain::nonNegative);
-        visit (std::string ("noMainDecaySeconds"), c.noMainDecaySeconds, LiveDomain::positive);
-        visit (std::string ("newProgramLu"), c.newProgramLu, LiveDomain::nonNegative);
-        visit (std::string ("newProgramSeconds"), c.newProgramSeconds, LiveDomain::positive);
-        visit (std::string ("newProgramKeep"), c.newProgramKeep, LiveDomain::unit);
-        visit (std::string ("peakTailSeconds"), c.peakTailSeconds, LiveDomain::notNan);
+            visit (model == nullptr ? std::string (name) : std::string (model) + "." + name, field, domain);
+        });
     }
 
     // 一个常数值：整个字符串得是一个数（strtod，C 区域设置）；收 inf / -inf（由取值范围决定合不合法），不收 NaN 与溢出。
@@ -669,7 +625,7 @@ namespace
             auto found = false, accepted = false;
             auto domain = LiveDomain::finite;
 
-            visitLiveConstants (constants, [&] (const std::string& name, auto& field, LiveDomain fieldDomain)
+            visitLiveConstantKeys (constants, [&] (const std::string& name, auto& field, LiveDomain fieldDomain)
             {
                 if (name != key)
                     return;
@@ -678,7 +634,7 @@ namespace
                 const auto value = static_cast<Field> (parsed);   // float 字段：先舍入成 float 再查范围（1e40 → inf）
                 found = true;
                 domain = fieldDomain;
-                accepted = isNumber && inLiveDomain (static_cast<double> (value), fieldDomain);
+                accepted = isNumber && celadon::glaze::isInLiveConstantDomain (static_cast<double> (value), fieldDomain);
 
                 if (accepted)
                     field = value;
@@ -1624,11 +1580,14 @@ namespace
     // T-048 实时画像追踪（--live-trace / --live-only / --live-constants / --live-model / --live-tag；设计规格-实时GLAZE-主段与增益
     // 第 7 节「因果重放验收」，T-048 阶段 1 BRIEF 第 3 节）。不给这些选项时下面的东西一样都不跑：链、表、文件名与改动前逐字节相同。
     //
-    // 每一遍新建的链（聆听 / 成品 / 重放）prepare 之后接一个 LiveTraceSink：分析器打开实时模式，实时段落账每定稿一段就交给它；它把段交给
-    // 实时画像 LiveProfile，再把「这一段并入之后」的画像与诊断拷进定长环形缓冲（音频线程上被调：只做定长拷贝，不分配、不加锁）。主线程
-    // 每处理完一块用 readCommits 读新提交，按序号与快照配对，写成 CSV 一行（LiveTracer）。为什么快照取「这一段并入之后」而不是「这一块
-    // 处理完之后」：一块里有两次提交时（大块长、不连续点截短的段）后者会把同一份画像写到两行上，追踪就随宿主块长变了；平常一块至多
-    // 一次提交，两者相同。一遍结束时先补一个 0 样本的块（把最后一块的 Balance 帧交给分析器，见 LiveTracer::finish），再关实时模式交出歌尾。
+    // 每一遍新建的链（聆听 / 成品 / 重放）prepare 之后接一个 LiveTraceSink：分析器打开实时模式，实时段落账每定稿一段就交给它，它入队交给
+    // 实时画像 LiveProfile（T-048 阶段 1 修订「回看重判」：每来一段按此刻的参考把窗口里的段全部重判一遍）。每处理完一块，追踪器把这一遍的
+    // 分析器时间（送进链的样本数）报给接收者（advanceTo；分析器这一侧阶段 1 还不报，B2 接上之后两边都报也无妨——结果与调用次数无关）。
+    // LiveProfile 在「段尾 + 发布延迟」这一刻发布那一段的画像，并回调接收者（PublicationListener）：接收者把这一份画像与诊断整份拷进定长
+    // 环形缓冲（音频线程上被调：只做定长拷贝，不分配、不加锁）。主线程每处理完一块用 readCommits 读新提交，按序号与快照配对，写成 CSV
+    // 一行（LiveTracer）。一次 advanceTo 可能发布好几份（大块、补完欠的片），每一份都有自己的快照，所以追踪与宿主块长无关。一遍结束时先补
+    // 一个 0 样本的块（把最后一块的 Balance 帧交给分析器，见 LiveTracer::finish），再关实时模式交出歌尾，最后 flush（还没到发布时刻的段
+    // 按序发布完，各行仍记各自的发布时刻）。
     //
     // 实时画像只看输入（与 GLAZE、风格、修坯、交付无关），所以同一首歌、同一曲风、同一聆听起点、同一组常数只写一份：第一次跑到的那一遍
     // 聆听（第一遍）写成 live/<标签>/<歌名>__<曲风>[_from-b<N>].csv 与 __final.csv；之后的各遍照样追踪、只与写下的那份逐行比较，结论写进
@@ -1654,17 +1613,20 @@ namespace
                                          : celadon::glaze::mainSectionModelFor (celadon::glaze::genreFromIndex (genre));
     }
 
-    // 分析器实时段落账的接收者。segmentFinalized 在音频线程上被调：交给实时画像，再把并入之后的读数整份拷进定长环形缓冲——只有定长拷贝，
-    // 不分配、不加锁（Snapshot 是可平凡拷贝的定长结构，见 static_assert）。主线程按提交记录的序号来取（snapshotFor）。
-    class LiveTraceSink final : public celadon::glaze::SegmentSink
+    // 分析器实时段落账的接收者。segmentFinalized / advanceTo 在音频线程上被调：段入队交给实时画像；每发布一份画像（livePublished 回调），
+    // 把这一份的画像与诊断整份拷进定长环形缓冲——只有定长拷贝，不分配、不加锁（Snapshot 是可平凡拷贝的定长结构，见 static_assert）。
+    // 主线程按提交记录的序号来取（snapshotFor）。段里有、提交记录里没有的三项（epoch、已听、实时试算块数）按到达序号另记一份：新实例里
+    // 提交记录的序号就是段的到达序号（每段发布一份、按到达的先后）。
+    class LiveTraceSink final : public celadon::glaze::SegmentSink, private celadon::glaze::LiveProfile::PublicationListener
     {
     public:
-        static constexpr int capacity = celadon::glaze::LiveProfile::commitCapacity;   // 与提交记录的环形缓冲一样长：一块里最多交这么多段
+        static constexpr int capacity = celadon::glaze::LiveProfile::commitCapacity;   // 与提交记录的环形缓冲一样长：一块里最多发布这么多份
+        static constexpr int arrivalCapacity = capacity + celadon::glaze::LiveProfile::queueCapacity;   // 交来还没发布的段不超过队列容量
 
-        // 「这一段并入之后」的读数：画像整份、诊断，加上段里有、提交记录里没有的三项。
+        // 一份发布的读数：画像整份、诊断，加上段里有、提交记录里没有的三项。
         struct Snapshot
         {
-            std::uint64_t sequence = 0;     // 第几次并入（从 0 起，= LiveCommitRecord::sequence：新实例从 0 起，每并入一段 + 1）
+            std::uint64_t sequence = 0;     // 第几份发布（从 0 起，= LiveCommitRecord::sequence = 段的到达序号）
             std::uint32_t epoch = 0;        // 段所属的连续时间段（跳播 / 回绕 / 宿主 reset 之后 + 1）
             bool heard = false;             // 段的「已听」（有效音频 ≥ 半段）
             int liveTrialBlocks = 0;        // 段里实时试算的有效块数（开始学习后的预热空档在这里看得出来）
@@ -1678,28 +1640,42 @@ namespace
         {
             live.prepare (sampleRate);
             live.setConstants (constants, model);
+            live.setPublicationListener (this);
+        }
+
+        ~LiveTraceSink() override
+        {
+            live.setPublicationListener (nullptr);
         }
 
         void segmentFinalized (const celadon::glaze::SegmentLedger::Segment& segment) noexcept override
         {
+            auto& a = arrivals[static_cast<std::size_t> (arrived % static_cast<std::uint64_t> (arrivalCapacity))];
+            a.sequence = arrived;
+            a.epoch = segment.epoch;
+            a.heard = segment.heard;
+            a.liveTrialBlocks = segment.liveTrialBlocks;
+            ++arrived;
             live.segmentFinalized (segment);
+        }
 
-            auto& s = snapshots[static_cast<std::size_t> (finalized % static_cast<std::uint64_t> (capacity))];
-            s.sequence = finalized;
-            s.epoch = segment.epoch;
-            s.heard = segment.heard;
-            s.liveTrialBlocks = segment.liveTrialBlocks;
-            s.profile = live.getProfile();
-            s.diagnostics = live.getDiagnostics();
-            ++finalized;
+        void advanceTo (std::int64_t analyzerTime) noexcept override
+        {
+            live.advanceTo (analyzerTime);
+        }
+
+        // 流结束：还没到发布时刻的段按序发布完（LiveProfile::flush）。
+        void flush() noexcept
+        {
+            live.flush();
         }
 
         const celadon::glaze::LiveProfile& getLiveProfile() const noexcept   { return live; }
 
-        // 第 sequence 次并入之后的快照；已被环形缓冲覆盖（一块里交来的段超过容量，不该发生）返回 nullptr。
+        // 第 sequence 份发布的快照；还没发布、或已被环形缓冲覆盖（一块里发布的超过容量，不该发生）返回 nullptr。
         const Snapshot* snapshotFor (std::uint64_t sequence) const noexcept
         {
-            if (sequence >= finalized || finalized - sequence > static_cast<std::uint64_t> (capacity))
+            if (sequence >= published || published - sequence > static_cast<std::uint64_t> (capacity))
                 return nullptr;
 
             const auto& s = snapshots[static_cast<std::size_t> (sequence % static_cast<std::uint64_t> (capacity))];
@@ -1707,9 +1683,32 @@ namespace
         }
 
     private:
+        struct Arrival
+        {
+            std::uint64_t sequence = std::numeric_limits<std::uint64_t>::max();
+            std::uint32_t epoch = 0;
+            bool heard = false;
+            int liveTrialBlocks = 0;
+        };
+
+        void livePublished (const celadon::glaze::LiveCommitRecord& record) noexcept override
+        {
+            auto& s = snapshots[static_cast<std::size_t> (record.sequence % static_cast<std::uint64_t> (capacity))];
+            const auto& a = arrivals[static_cast<std::size_t> (record.sequence % static_cast<std::uint64_t> (arrivalCapacity))];
+            const auto known = a.sequence == record.sequence;
+            s.sequence = record.sequence;
+            s.epoch = known ? a.epoch : 0;
+            s.heard = known && a.heard;
+            s.liveTrialBlocks = known ? a.liveTrialBlocks : -1;   // −1：段的到达信息配不上（不该发生；追踪记成异常）
+            s.profile = live.getProfile();
+            s.diagnostics = live.getDiagnostics();
+            published = record.sequence + 1;
+        }
+
         celadon::glaze::LiveProfile live;
         std::array<Snapshot, static_cast<std::size_t> (capacity)> snapshots {};
-        std::uint64_t finalized = 0;
+        std::array<Arrival, static_cast<std::size_t> (arrivalCapacity)> arrivals {};
+        std::uint64_t arrived = 0, published = 0;
     };
 
     // 位级摘要（FNV-1a 64 位，同 hashAudio）：追踪 CSV 里的数按固定小数位写（读着方便、逐字节可比），摘要按写出的每个量的二进制位累加——
@@ -1771,6 +1770,9 @@ namespace
         for (const auto hz : celadon::glaze::clayBlendCandidateHz)
             header += ",blend" + std::to_string (static_cast<int> (hz)) + "_db";
 
+        // T-048 阶段 1 修订（回看重判）加的列：发布时刻、进账判断（按上一份画像的参考；长时间无主段与换歌只看它）、换歌的票与起伏、
+        // 窗口段数与最老一段在 M 里的份额。
+        header += ",publish_s,admission_loudness_factor,admission_low_factor,admission_mainness,np_vote,np_range_lu,window_segments,oldest_main_share";
         return header;
     }
 
@@ -1818,6 +1820,10 @@ namespace
         for (const auto& loss : p.lowCutBlendLossDb)
             row += "," + feature (loss, 4);
 
+        row += "," + fixed (static_cast<double> (r.publishTime) / sampleRate, 4) + "," + fixed (r.admissionLoudnessFactor, 5) + ","
+             + fixed (r.admissionLowFactor, 5) + "," + fixed (r.admissionMainness, 5) + "," + std::to_string (static_cast<int> (r.newProgramVote)) + ","
+             + optional (r.newProgramRangeValid, r.newProgramRangeLu, 4) + "," + std::to_string (d.windowSegments) + ","
+             + fixed (d.oldestMainShare, 6);
         return row;
     }
 
@@ -1871,6 +1877,15 @@ namespace
 
         for (const auto& loss : p.lowCutBlendLossDb)
             digest.addFeature (loss);
+
+        digest.add (r.publishTime);
+        digest.add (r.admissionLoudnessFactor);
+        digest.add (r.admissionLowFactor);
+        digest.add (r.admissionMainness);
+        digest.add (r.newProgramVote);
+        digest.addOptional (r.newProgramRangeValid, r.newProgramRangeLu);
+        digest.add (d.windowSegments);
+        digest.add (d.oldestMainShare);
     }
 
     // 一遍的追踪结果（主线程）。
@@ -1879,14 +1894,15 @@ namespace
         std::vector<std::string> rows;                            // 数据行（表头见 liveTraceHeader），一次提交一行，按提交先后
         std::vector<celadon::glaze::LiveCommitRecord> records;    // 同样的提交（自检与逐遍比较用）
         BitDigest digest;                                         // 全部行的位级摘要
-        celadon::glaze::MusicProfile finalProfile;                // finish 之后（开着的段已交出）的画像与诊断
+        celadon::glaze::MusicProfile finalProfile;                // finish 之后（开着的段已交出、全部发布）的画像与诊断
         celadon::glaze::LiveDiagnostics finalDiagnostics;
+        std::vector<celadon::glaze::LiveSegmentJudgement> judgements;   // finish 之后窗口里每一段的最终判断（回看重判到歌尾，从旧到新）
         bool overrun = false;    // 读提交时落后超过环形容量（一块里交来的段超过 64 段，不该发生）：少了几行，追踪不完整
-        bool mismatch = false;   // 提交记录与快照配不上（序号或 I 不一致，不该发生）：追踪不可信
+        bool mismatch = false;   // 提交记录与快照配不上（序号、I 或段的到达信息不一致，不该发生）：追踪不可信
     };
 
-    // 一遍的追踪：prepare 之后 attach，每处理完一块 afterBlock（读新提交、写行），最后 finish（补交最后一块的帧、交出开着的段、再读一次、
-    // 记下最终画像）。flushOnFinish = false 只给自检的对照用（证明 finish 的补块真有用，见 runLiveSelfTest「收尾补块」）。
+    // 一遍的追踪：prepare 之后 attach，每处理完一块 afterBlock（报分析器时间、读新提交、写行），最后 finish（补交最后一块的帧、交出开着的段、
+    // 发布完、再读一次、记下最终画像与判断）。flushOnFinish = false 只给自检的对照用（证明 finish 的补块真有用，见 runLiveSelfTest「收尾补块」）。
     class LiveTracer
     {
     public:
@@ -1906,10 +1922,17 @@ namespace
         void attach (celadon::CeladonChain& chain, std::int64_t passStartSample = 0)
         {
             passStart = passStartSample;
+            analyzerTime = 0;
             chain.setLiveSegmentSink (sink.get());
         }
 
-        void afterBlock()   { collect(); }
+        // 每处理完一块（length 个样本）：分析器时间轴 = 这一遍送进链的样本数（分析器按 IN 表的累计样本数记时，新链从 0 起）。
+        void afterBlock (int length)
+        {
+            analyzerTime += length;
+            sink->advanceTo (analyzerTime);
+            collect();
+        }
 
         // 收尾（这一遍要读的状态都读完之后调：存档、成品、指标与不追踪时取自同一时刻）。先补一个 0 样本的块，再关实时模式——分析器把
         // 开着的段（歌尾那一截）就地定稿交给接收者——之后链不再引用接收者。
@@ -1930,12 +1953,17 @@ namespace
             }
 
             chain.setLiveSegmentSink (nullptr);
+            sink->flush();
             collect();
             result.finalProfile = sink->getLiveProfile().getProfile();
             result.finalDiagnostics = sink->getLiveProfile().getDiagnostics();
+            result.judgements.resize (static_cast<std::size_t> (celadon::glaze::LiveProfile::windowCapacity));
+            result.judgements.resize (static_cast<std::size_t> (sink->getLiveProfile().readJudgements (result.judgements.data(),
+                                                                                                      celadon::glaze::LiveProfile::windowCapacity)));
         }
 
         const LiveTraceResult& getResult() const noexcept   { return result; }
+        const SegmentGrid& getGrid() const noexcept          { return grid; }
 
     private:
         void collect()
@@ -1966,7 +1994,7 @@ namespace
             }
 
             const auto& level = snapshot->profile.integratedLufs;
-            result.mismatch = result.mismatch || level.valid != record.mainLevelValid
+            result.mismatch = result.mismatch || level.valid != record.mainLevelValid || snapshot->liveTrialBlocks < 0
                            || (level.valid && std::memcmp (&level.value, &record.mainLevelLufs, sizeof (float)) != 0);
 
             result.rows.push_back (liveTraceRow (record, *snapshot, grid, sampleRate, passStart));
@@ -1983,6 +2011,7 @@ namespace
         LiveTraceResult result;
         bool flushOnFinish = true;
         std::int64_t passStart = 0;
+        std::int64_t analyzerTime = 0;
     };
 
     // 没有 --live-trace 时为空（各遍照旧不接追踪）。
@@ -2062,7 +2091,7 @@ namespace
                 ++result.nonFiniteBlocks;
 
             if (live != nullptr)
-                live->afterBlock();
+                live->afterBlock (length);
 
             if (trace)
             {
@@ -2287,7 +2316,7 @@ namespace
                 ++result.nonFiniteBlocks;
 
             if (live != nullptr)
-                live->afterBlock();
+                live->afterBlock (length);
 
             if (chain->getLatencySamples() != latency)
                 result.latencyChanged = true;
@@ -2499,7 +2528,7 @@ namespace
                 ++result.nonFiniteBlocks;
 
             if (live != nullptr)
-                live->afterBlock();
+                live->afterBlock (length);
 
             if (chain->getLatencySamples() != latency)
                 result.latencyChanged = true;
@@ -3388,7 +3417,7 @@ namespace
         return std::snprintf (text, sizeof (text), "%.17g", value) > 0 ? std::string (text) : std::string ("?");
     }
 
-    // <基>__final.csv（键,值）：这一遍的设定（歌、曲风、主段模型、标签、常数全部 35 项的实际值）、追踪的段数与位级摘要、finish 之后的
+    // <基>__final.csv（键,值）：这一遍的设定（歌、曲风、主段模型、标签、常数全部 37 项的实际值）、追踪的段数与位级摘要、finish 之后的
     // 诊断与画像（每个特征的值与 confidence；空 = 不知道）。只写决定追踪的量：取自网格里哪一组（GLAZE、风格……）、宿主块长都不写——
     // 追踪与它们无关，这样最快跑法与完整跑法的两份文件能逐字节比（取自哪一组写在 metrics.md 备注与 __passes.csv 里）。
     std::string liveFinalCsv (const Options& options, const SongReport& report, const LiveTraceResult& result, const Combo& combo,
@@ -3405,7 +3434,7 @@ namespace
         };
 
         const auto model = liveModelFor (options, combo.genre);
-        add ("format", "1");
+        add ("format", "2");   // 2：T-048 阶段 1 修订（回看重判）——多了 diag.window_segments 等与常数 newProgramRangeLu、publishDelaySeconds
         add ("song", report.name);
         add ("source_file", report.sourceFile);
         add ("sample_rate", fixed (report.sampleRate, 0));
@@ -3434,6 +3463,11 @@ namespace
         add ("diag.seconds_since_main", fixed (d.secondsSinceMain, 4));
         add ("diag.time_decay_active", flag (d.timeDecayActive));
         add ("diag.new_program_count", std::to_string (d.newProgramCount));
+        add ("diag.window_segments", std::to_string (d.windowSegments));
+        add ("diag.dropped_segments", std::to_string (d.droppedSegments));
+        add ("diag.oldest_main_share", fixed (d.oldestMainShare, 6));
+        add ("diag.oldest_reference_share", fixed (d.oldestReferenceShare, 6));
+        add ("diag.publish_s", fixed (static_cast<double> (d.publishTime) / report.sampleRate, 4));
 
         const auto& p = result.finalProfile;
         feature ("integrated_lufs", p.integratedLufs, 4);
@@ -3465,8 +3499,28 @@ namespace
         add ("profile.representativeness", fixed (p.representativeness, 5));
         add ("profile.format_version", std::to_string (p.formatVersion));
 
-        auto constants = options.liveConstants;
-        visitLiveConstants (constants, [&add] (const std::string& name, auto& value, LiveDomain) { add ("const." + name, exactNumber (value)); });
+        visitLiveConstantKeys (options.liveConstants, [&add] (const std::string& name, const auto& value, LiveDomain) { add ("const." + name, exactNumber (value)); });
+        return csv;
+    }
+
+    // <基>__judgements.csv：finish 之后（回看重判到歌尾）窗口里每一段的最终判断——段落的「最终 m′」对照 T-038 离线门控（追踪里的 mainness
+    // 是那一段第一次发布时的判断）。bar 同追踪（按歌曲的小节网格算段的中点，没有 --bpm 时空着）。
+    std::string liveJudgementsCsv (const LiveTraceResult& result, const SegmentGrid& grid, std::int64_t passStart, double sampleRate)
+    {
+        std::string csv = "sequence,bar,start_sample,end_sample,start_s,end_s,mainness_final,weight_final_s\n";
+
+        for (const auto& j : result.judgements)
+        {
+            std::string bar;
+
+            if (grid.bars)
+                bar = std::to_string (grid.indexOf (j.start + passStart + (j.end - j.start) / 2) + 1);
+
+            csv += std::to_string (j.sequence) + "," + bar + "," + std::to_string (j.start) + "," + std::to_string (j.end) + ","
+                 + fixed (static_cast<double> (j.start) / sampleRate, 4) + "," + fixed (static_cast<double> (j.end) / sampleRate, 4) + ","
+                 + fixed (j.mainness, 5) + "," + fixed (j.weightSeconds, 5) + "\n";
+        }
+
         return csv;
     }
 
@@ -3558,9 +3612,11 @@ namespace
             if (! dir.createDirectory()
                 || ! writeText (dir.getChildFile (juce::String::fromUTF8 ((base + ".csv").c_str())), text)
                 || ! writeText (dir.getChildFile (juce::String::fromUTF8 ((base + "__final.csv").c_str())),
-                                liveFinalCsv (options, report, result, combo, startBar, startSample)))
+                                liveFinalCsv (options, report, result, combo, startBar, startSample))
+                || ! writeText (dir.getChildFile (juce::String::fromUTF8 ((base + "__judgements.csv").c_str())),
+                                liveJudgementsCsv (result, tracer.getGrid(), startSample, report.sampleRate)))
             {
-                report.notes.push_back ("写实时画像追踪 " + relative + ".csv / __final.csv 失败");
+                report.notes.push_back ("写实时画像追踪 " + relative + ".csv / __final.csv / __judgements.csv 失败");
                 ++failures;
             }
             else
@@ -4759,24 +4815,26 @@ namespace
     {
         SelfTest test;
 
-        // ---- --live-constants：键表 35 个键；改得到字段、收 inf（只在允许的键上）；坏值一律拒收（不悄悄换出厂值）----
+        // ---- --live-constants：键表 37 个键（LiveProfile.h 的公开表）；改得到字段、收 inf（只在允许的键上）；坏值一律拒收（不悄悄换出厂值）----
         {
             celadon::glaze::LiveConstants c;
             std::string error;
             const auto ok = parseLiveConstants ("fourOnFloor.gateWidthLu=3.5, newProgramLu=8,referenceMemorySeconds=240,noMainSeconds=inf,"
-                                                "loudness.memoryBars=-inf", c, error);
+                                                "loudness.memoryBars=-inf,newProgramRangeLu=inf,publishDelaySeconds=0.25", c, error);
             int keys = 0;
-            visitLiveConstants (c, [&keys] (const std::string&, auto&, LiveDomain) { ++keys; });
+            visitLiveConstantKeys (c, [&keys] (const std::string&, auto&, LiveDomain) { ++keys; });
 
             test.check (ok && c.fourOnFloor.gateWidthLu == 3.5f && c.newProgramLu == 8.0f && c.referenceMemorySeconds == 240.0
                             && std::isinf (c.noMainSeconds) && c.noMainSeconds > 0.0 && std::isinf (c.loudness.memoryBars) && c.loudness.memoryBars < 0.0
-                            && c.fourOnFloor.lowGateFactor == celadon::glaze::LiveConstants {}.fourOnFloor.lowGateFactor && keys == 35,
-                        "--live-constants 解析", ok ? "改到 5 个字段（含 inf / -inf），其余保持出厂值；键表 " + std::to_string (keys) + " 个键（期望 35）"
+                            && std::isinf (c.newProgramRangeLu) && c.publishDelaySeconds == 0.25
+                            && c.fourOnFloor.lowGateFactor == celadon::glaze::LiveConstants {}.fourOnFloor.lowGateFactor && keys == 37,
+                        "--live-constants 解析", ok ? "改到 7 个字段（含 inf / -inf），其余保持出厂值；键表 " + std::to_string (keys) + " 个键（期望 37）"
                                                     : "解析失败：" + error);
 
-            const std::array<const char*, 10> bad { { "nosuch=1", "mainThreshold=1.5", "fourOnFloor.gateWidthLu=inf", "newProgramLu=8,newProgramLu=9",
+            const std::array<const char*, 12> bad { { "nosuch=1", "mainThreshold=1.5", "fourOnFloor.gateWidthLu=inf", "newProgramLu=8,newProgramLu=9",
                                                       "newProgramLu", "newProgramLu=abc", "loudness.referencePercentile=0", "peakTailSeconds=nan",
-                                                      "fourOnFloor.loudnessRampLu=0", "newProgramKeep=1e400" } };
+                                                      "fourOnFloor.loudnessRampLu=0", "newProgramKeep=1e400", "publishDelaySeconds=inf",
+                                                      "newProgramRangeLu=-1" } };
             std::string accepted;
 
             for (const auto* text : bad)
@@ -4789,7 +4847,7 @@ namespace
             }
 
             test.check (accepted.empty(), "--live-constants 拒收坏值",
-                        accepted.empty() ? std::to_string (bad.size()) + " 种坏写法（不认识的键、越界、不许 inf 的 inf、重复、缺「=」、不是数、NaN、溢出）都报错"
+                        accepted.empty() ? std::to_string (bad.size()) + " 种坏写法（不认识的键、越界、不许 inf 的 inf、重复、缺「=」、不是数、NaN、溢出、负数）都报错"
                                          : "这些没报错：" + accepted);
         }
 

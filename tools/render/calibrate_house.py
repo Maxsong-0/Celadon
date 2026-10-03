@@ -669,7 +669,7 @@ def render_live_one(args, out, r):
     if code != 0:
         return code
     base = f"{r['track']}__{genre}"
-    for name in (base + '.csv', base + '__final.csv'):
+    for name in (base + '.csv', base + '__final.csv', base + '__judgements.csv'):
         shutil.move(os.path.join(run, LIVE_DIR, args.tag, name), os.path.join(out, 'traces', name))
     shutil.move(os.path.join(run, 'segments', r['track'] + '__input.csv'), os.path.join(out, 'segments', r['track'] + '__input.csv'))
     shutil.rmtree(run)
@@ -704,16 +704,23 @@ def cmd_render_live(args):
 
 
 def load_live_trace(base, track):
-    """live/<标签>/traces/<曲>__<曲风>.csv（追踪，一次提交一行）与 __final.csv（键,值）。找不到 → (None, None)。"""
+    """live/<标签>/traces/<曲>__<曲风>.csv（追踪，每发布一份画像一行）、__final.csv（键,值）与 __judgements.csv（歌尾窗口里每段的最终判断，
+    T-048 阶段 1 修订起才有；没有 → 空表）。找不到追踪 → (None, None, None)。"""
     folder = os.path.join(base, 'traces')
-    names = sorted(n for n in os.listdir(folder) if n.startswith(track + '__') and n.endswith('.csv') and not n.endswith('__final.csv'))
+    names = sorted(n for n in os.listdir(folder) if n.startswith(track + '__') and n.endswith('.csv')
+                   and not n.endswith('__final.csv') and not n.endswith('__judgements.csv'))
     if not names:
-        return None, None
+        return None, None, None
     with open(os.path.join(folder, names[0]), encoding='utf-8') as f:
         trace = list(csv.DictReader(f))
     with open(os.path.join(folder, names[0][:-4] + '__final.csv'), encoding='utf-8') as f:
         final = {r['key']: r['value'] for r in csv.DictReader(f)}
-    return trace, final
+    judgements = []
+    judgements_path = os.path.join(folder, names[0][:-4] + '__judgements.csv')
+    if os.path.isfile(judgements_path):
+        with open(judgements_path, encoding='utf-8') as f:
+            judgements = list(csv.DictReader(f))
+    return trace, final, judgements
 
 
 def live_summary(values):
@@ -751,10 +758,11 @@ def settle_bars(held, counted, first_drop, reference, last_bar=None):
     return 1 if not outside else outside[-1] - first_drop + 1
 
 
-def live_track_metrics(r, bars, kinds, trace, final):
+def live_track_metrics(r, bars, kinds, trace, final, judgements=()):
     """一首歌的因果重放指标。
-    记号：I_k = 第 k 小节那一段并入之后的 I（追踪的 main_level_lufs；同一小节有几段时取最后一段）；第 j 小节播放时决策器手里的 I 记作
-    held(j) = I_{j−1}（段要等它播完、先试后用的块交齐才定稿，约晚 0.1 s，所以第 j 小节里用的是上一小节并入之后的 I）；D = 人工标为 drop 的
+    记号：I_k = 第 k 小节那一段的画像发布之后的 I（追踪的 main_level_lufs；同一小节有几段时取最后一段）；第 j 小节播放时决策器手里的 I 记作
+    held(j) = I_{j−1}（第 j − 1 小节的画像在它的段尾 + 发布延迟 0.5 s 时发布，也就是第 j 小节开头 0.5 s 之后；之前的 0.5 s 里手里还是
+    I_{j−2}——这里不细分，与改前同一口径）；D = 人工标为 drop 的
     已听小节的段响度能量平均（drop_loudness，T-038 analyze 的同一口径；段响度来自同一次运行 --segments-csv 的输入端统计）；I_end = 最后一次
     提交（歌尾不满一小节的那一截）之后的 I；d = 第一个标为 drop 的小节（T-038 的交界小节不算，所以真正的第一个 drop 小节多半是 d − 1）；
     已听 = 有效音频 ≥ 半小节（T-038 口径）。计入的小节 = 已听、且标为四类段落之一（SECTION_KINDS）的小节：transition（交界 ±1）、exclude
@@ -768,9 +776,11 @@ def live_track_metrics(r, bars, kinds, trace, final):
       M4  δ4 = held(d + 4) − I_end = I_{d+3} − I_end（第一个 drop 的 4 小节并入之后与最终值之差；第 3 条要 |δ4| ≤ 1 LU）；n = settle_bars
           （达到并一直保持 ±1 LU 所需的 drop 小节数；n ≤ 4 ⟺ 第 3 条成立且一直保持到歌尾）；另给以「最后一个 drop 小节并入之后的 I」为
           终值、窗口截到那之后一小节的同一对（_alt：不受尾奏影响）；
-      另  各类段落已听小节里 m ≥ 0.5 的占比（交界不计）；换歌软遗忘触发的次数与所在小节；无主段时间衰减生效的段数与次数（从不生效到
-          生效记一次）；c 第一次 ≥ 0.8 时累计并入的有效音频（active_s）与小节、之后跌回 0.8 以下的次数；held(d) − D（第一个 drop 开始时
-          手里的 I；前奏被当成主段、又比 drop 轻时为负）。"""
+      另  各类段落已听小节里 m ≥ 0.5 的占比（交界不计）——两种口径：「首判」= 那一小节的画像第一次发布时对它的判断（追踪的 mainness），
+          「终判」= 歌尾窗口里回看重判之后的判断（__judgements.csv 的 mainness_final；对照 T-038 离线门控的就是它）；换歌软遗忘触发的次数
+          与所在小节、触发时那一串的段响度起伏；无主段时间衰减生效的段数与次数（从不生效到生效记一次）；c 第一次 ≥ 0.8 时累计并入的有效
+          音频（active_s）与小节、之后跌回 0.8 以下的次数、第一个 drop 之后 c 的最低值（前奏被重判出主段时 M 掉下来）；held(d) − D
+          （第一个 drop 开始时手里的 I；前奏被当成主段、又比 drop 轻时为负）。"""
     track = r['track']
     excluded = bool(bars) and all(kinds[b[0]] == 'exclude' for b in bars)
     heard = {b[0]: b[4] for b in bars}
@@ -805,18 +815,28 @@ def live_track_metrics(r, bars, kinds, trace, final):
                            'new_program': sum(row['new_program'] == '1' for row in span),
                            'time_decay': sum(row['time_decay'] == '1' for row in span)})
 
-    main_counts = {kind: [0, 0] for kind in SECTION_KINDS}   # [m ≥ 0.5 的计入小节, 计入小节]
+    main_counts = {kind: [0, 0] for kind in SECTION_KINDS}   # [m ≥ 0.5 的计入小节, 计入小节]（首判）
     for bar in counted:
         if bar in rows_by_bar:
             main_counts[kinds[bar]][1] += 1
             main_counts[kinds[bar]][0] += num(rows_by_bar[bar]['mainness']) >= MAIN_THRESHOLD
 
+    final_by_bar = {int(j['bar']): num(j['mainness_final']) for j in judgements if j.get('bar')}
+    final_counts = {kind: [0, 0] for kind in SECTION_KINDS}   # 同上（终判：回看重判到歌尾）
+    for bar in counted:
+        if bar in final_by_bar and math.isfinite(final_by_bar[bar]):
+            final_counts[kinds[bar]][1] += 1
+            final_counts[kinds[bar]][0] += final_by_bar[bar] >= MAIN_THRESHOLD
+
     new_program_bars = [row['bar'] for row in trace if row['new_program'] == '1']
+    new_program_ranges = [row.get('np_range_lu', '') or '?' for row in trace if row['new_program'] == '1']
     decay_flags = [row['time_decay'] == '1' for row in trace]
     decay_episodes = sum(1 for i, on in enumerate(decay_flags) if on and (i == 0 or not decay_flags[i - 1]))
     first_decay = next((row['bar'] for row in trace if row['time_decay'] == '1'), '')
     confidences = [num(row['confidence']) for row in trace]
     reach = next((i for i, c in enumerate(confidences) if c >= CONFIDENCE_FULL), None)
+    after_first_drop = [num(row['confidence']) for row in trace if row['bar'] and first_drop and int(row['bar']) >= first_drop]
+    min_c_after_drop = min((c for c in after_first_drop if math.isfinite(c)), default=math.nan)
     dips = sum(1 for i in range(1, len(confidences)) if reach is not None and i > reach
                and confidences[i - 1] >= CONFIDENCE_FULL > confidences[i])
     misaligned = sum(1 for row in trace[:-1] if row['bar_offset'] not in ('', '0'))
@@ -840,9 +860,10 @@ def live_track_metrics(r, bars, kinds, trace, final):
         'm4_delta4': delta4, 'm4_settle_bars': settle, 'm4_alt_delta4': alt_delta4, 'm4_alt_settle_bars': alt_settle,
         'held_at_first_drop_minus_drop': held(first_drop) - drop if usable else math.nan,
         'new_program_count': len(new_program_bars), 'new_program_bars': ' '.join(new_program_bars),
+        'new_program_ranges_lu': ' '.join(new_program_ranges),
         'time_decay_segments': sum(decay_flags), 'time_decay_episodes': decay_episodes, 'time_decay_first_bar': first_decay,
         'c08_active_s': num(trace[reach]['active_s']) if reach is not None else math.nan,
-        'c08_bar': trace[reach]['bar'] if reach is not None else '', 'c08_dips': dips,
+        'c08_bar': trace[reach]['bar'] if reach is not None else '', 'c08_dips': dips, 'min_c_after_first_drop': min_c_after_drop,
         'final_confidence': num(final.get('diag.confidence')), 'final_main_mass_s': num(final.get('diag.main_mass_s')),
         'final_lra_lu': num(final.get('profile.loudness_range_lu')), 'final_slope': num(final.get('profile.slope_db_per_oct')),
         'final_low_share': num(final.get('profile.low_share')),
@@ -850,12 +871,14 @@ def live_track_metrics(r, bars, kinds, trace, final):
     }
     for kind in SECTION_KINDS:
         row[f'{kind}_main_bars'], row[f'{kind}_heard_bars'] = main_counts[kind]
+        row[f'{kind}_final_main_bars'], row[f'{kind}_final_bars'] = final_counts[kind]
     counted_set = set(counted)
     per_bar = [{'class': r['class'], 'track': track, 'bar': bar, 'label': kinds[bar], 'heard': int(bool(heard.get(bar))),
                 'counted': int(bar in counted_set),
                 'segment_lufs': next((b[1] for b in bars if b[0] == bar), math.nan), 'drop_lufs': drop, 'i_after': level.get(bar, math.nan),
                 'i_held': held(bar), 'abs_error_held': abs(held(bar) - drop) if math.isfinite(drop) else math.nan,
                 'mainness': num(rows_by_bar[bar]['mainness']) if bar in rows_by_bar else math.nan,
+                'mainness_final': final_by_bar.get(bar, math.nan),
                 'confidence': num(rows_by_bar[bar]['confidence']) if bar in rows_by_bar else math.nan,
                 'time_decay': rows_by_bar[bar]['time_decay'] if bar in rows_by_bar else '',
                 'new_program': rows_by_bar[bar]['new_program'] if bar in rows_by_bar else ''} for bar in sorted(kinds)]
@@ -867,13 +890,13 @@ def analyze_live_tag(work, tag, rows, labels):
     base = live_dir(work, tag)
     tracks, missing = [], []
     for r in rows:
-        trace, final = load_live_trace(base, r['track'])
+        trace, final, judgements = load_live_trace(base, r['track'])
         segments_path = os.path.join(base, 'segments', r['track'] + '__input.csv')
         if trace is None or not os.path.isfile(segments_path):
             missing.append(r['track'])
             continue
         bars = track_bars(read_segments(segments_path), float(r['bpm']))
-        tracks.append(live_track_metrics(r, bars, bar_kinds(labels, r['track'], bars), trace, final))
+        tracks.append(live_track_metrics(r, bars, bar_kinds(labels, r['track'], bars), trace, final, judgements))
     meta = {}
     if os.path.isfile(os.path.join(base, 'run.tsv')):
         with open(os.path.join(base, 'run.tsv'), encoding='utf-8') as f:
@@ -904,6 +927,8 @@ def live_headline(result):
     pooled_m2 = [t2['abs_error_held'] for t in result['tracks'] if not t['row']['excluded'] and math.isfinite(t['row']['drop_lufs'])
                  for t2 in t['bars'] if t2['bar'] >= LIVE_START_BAR and t2['counted'] and math.isfinite(t2['abs_error_held'])]
     main = {kind: [sum(x[f'{kind}_main_bars'] for x in rows), sum(x[f'{kind}_heard_bars'] for x in rows)] for kind in SECTION_KINDS}
+    final_main = {kind: [sum(x.get(f'{kind}_final_main_bars', 0) for x in rows), sum(x.get(f'{kind}_final_bars', 0) for x in rows)]
+                  for kind in SECTION_KINDS}
     return {
         'tracks': len(rows), 'scored': len(scored),
         'm1': live_summary([abs(x['m1_final_minus_drop']) for x in scored]),
@@ -921,7 +946,8 @@ def live_headline(result):
         'held': live_summary([x['held_at_first_drop_minus_drop'] for x in scored]),
         'c08': live_summary([x['c08_active_s'] for x in rows]),
         'c08_never': sum(1 for x in rows if not math.isfinite(x['c08_active_s'])),
-        'main': main,
+        'main': main, 'final_main': final_main,
+        'min_c_after_drop': live_summary([x.get('min_c_after_first_drop', math.nan) for x in scored]),
         'new_program_tracks': sum(1 for x in rows if x['new_program_count'] > 0),
         'new_program_total': sum(x['new_program_count'] for x in rows),
         'decay_tracks': sum(1 for x in rows if x['time_decay_episodes'] > 0),
@@ -965,14 +991,19 @@ def live_tag_markdown(result):
            f"| M4（终值 = 最后一个 drop 小节之后的 I） | {stats_cells(h['m4_alt'])} | ≤ {LIVE_SETTLE_LIMIT_LU} | {h['m4_alt_pass']} / {h['scored']} 首 |",
            f"| 第一个 drop 开始时手里的 I − D（LU，带符号） | {stats_cells(h['held'])} | — | 负 = 前奏当了主段、比 drop 轻 |",
            f"| c 第一次到 {CONFIDENCE_FULL} 时的累计有效音频（s） | {stats_cells(h['c08'], 1)} | — | 到不了的 {h['c08_never']} 首 |",
+           f"| 第一个 drop 之后 c 的最低值 | {stats_cells(h['min_c_after_drop'])} | — | 前奏被重判出主段时 M 掉下来 |",
            '', '## 各类段落的主段度（已听小节里 m ≥ 0.5 的占比；对照 T-038 出厂离线门控）', '',
-           '| 段落 | m ≥ 0.5 | 已听小节 | 占比 | 换成 T-038 的说法 | T-038 出厂 |', '|---|---|---|---|---|---|']
+           '首判 = 那一小节的画像第一次发布时对它的判断；终判 = 歌尾窗口里回看重判之后的判断（离线门控的对照）。', '',
+           '| 段落 | 首判 m ≥ 0.5 | 已听小节 | 首判占比 | 终判占比 | 换成 T-038 的说法（终判） | T-038 出厂 |', '|---|---|---|---|---|---|---|']
     for kind in SECTION_KINDS:
         main, heard_bars = h['main'][kind]
         share = 100.0 * main / heard_bars if heard_bars else math.nan
+        final_main, final_bars = h['final_main'][kind]
+        final_share = 100.0 * final_main / final_bars if final_bars else math.nan
         word, reference = T038_GATE_PERCENT.get(kind, ('', None))
-        said = (f'{word} {fmt(share if word == "过" else 100.0 - share, 0)} %' if word else '—')
-        out.append(f"| {kind} | {main} | {heard_bars} | {fmt(share, 0)} % | {said} | {f'{word} {reference} %' if reference else '—'} |")
+        said = (f'{word} {fmt(final_share if word == "过" else 100.0 - final_share, 0)} %' if word and math.isfinite(final_share) else '—')
+        out.append(f"| {kind} | {main} | {heard_bars} | {fmt(share, 0)} % | {fmt(final_share, 0)} % | {said} | "
+                   f"{f'{word} {reference} %' if reference else '—'} |")
     out += ['', '## 换歌软遗忘、无主段时间衰减', '',
             f"- 换歌软遗忘：{h['new_program_tracks']} 首触发过，共 {h['new_program_total']} 次；无主段时间衰减：{h['decay_tracks']} 首生效过（逐首见下表）。", '',
             '## 逐首', '',
@@ -988,7 +1019,7 @@ def live_tag_markdown(result):
                    f"{fmt(x['m2b_median'])} | {fmt(x['m3_max_drift'])}（{x['m3_breakdowns']}） | {fmt(x['m4_delta4'], 2, True)} / "
                    f"{fmt(x['m4_settle_bars'], 0)} | {fmt(x['held_at_first_drop_minus_drop'], 2, True)} | "
                    f"{x['intro_main_bars']} / {x['intro_heard_bars']} | {x['drop_main_bars']} / {x['drop_heard_bars']} | "
-                   f"{x['new_program_count']}{'（' + x['new_program_bars'] + '）' if x['new_program_bars'] else ''} | "
+                   f"{x['new_program_count']}{'（' + x['new_program_bars'] + '，起伏 ' + x['new_program_ranges_lu'] + ' LU）' if x['new_program_bars'] else ''} | "
                    f"{x['time_decay_episodes']} / {x['time_decay_segments']} | {fmt(x['c08_active_s'], 1)} / {x['c08_bar'] or '—'} |")
     over = [b for t in result['tracks'] for b in t['breakdowns'] if math.isfinite(b['drift']) and b['drift'] > LIVE_DRIFT_LIMIT_LU]
     out += ['', f'## 漂移超过 {LIVE_DRIFT_LIMIT_LU} LU 的 breakdown', '']
@@ -1023,8 +1054,11 @@ def live_combined_markdown(results):
     line('M4 保持所需 drop 小节数（≤ 4 的首数）', lambda h: triple('m4_settle', 0)(h) + f"（{h['m4_settle_pass']} / {h['scored']}）")
     line('第一个 drop 开始时 I − D', triple('held'))
     line('c 到 0.8 的累计有效音频 s（到不了的首数）', lambda h: triple('c08', 1)(h) + f"（{h['c08_never']}）")
+    line('第一个 drop 之后 c 的最低值', triple('min_c_after_drop'))
     for kind in SECTION_KINDS:
-        line(f'{kind} 已听小节 m ≥ 0.5 占比', lambda h, k=kind: f"{fmt(100.0 * h['main'][k][0] / h['main'][k][1], 0) if h['main'][k][1] else '—'} %")
+        line(f'{kind} 已听小节 m ≥ 0.5 占比（首判 / 终判）',
+             lambda h, k=kind: f"{fmt(100.0 * h['main'][k][0] / h['main'][k][1], 0) if h['main'][k][1] else '—'} % / "
+                               f"{fmt(100.0 * h['final_main'][k][0] / h['final_main'][k][1], 0) if h['final_main'][k][1] else '—'} %")
     line('换歌软遗忘：触发的首数 / 次数', lambda h: f"{h['new_program_tracks']} / {h['new_program_total']}")
     line('无主段时间衰减生效的首数', lambda h: str(h['decay_tracks']))
     return '\n'.join(out) + '\n'
@@ -1057,7 +1091,10 @@ def plot_live(rows, results, figures):
                 t = tracks[r['track']]
                 colour = lines[j % len(lines)]
                 top.plot(bars, [b['i_held'] for b in t['bars']], color=colour, lw=1.4, drawstyle='steps-post', label=f'I（{tag}）')
-                bottom.plot(bars, [b['mainness'] for b in t['bars']], color=colour, lw=0.9, drawstyle='steps-mid', label=f'm（{tag}）')
+                bottom.plot(bars, [b['mainness'] for b in t['bars']], color=colour, lw=0.9, drawstyle='steps-mid', label=f'm 首判（{tag}）')
+                if any(math.isfinite(b.get('mainness_final', math.nan)) for b in t['bars']):
+                    bottom.plot(bars, [b.get('mainness_final', math.nan) for b in t['bars']], color=colour, lw=0.7, ls='--', drawstyle='steps-mid',
+                                label=f'm 终判（{tag}）')
                 bottom.plot(bars, [b['confidence'] for b in t['bars']], color=colour, lw=0.9, ls=':', label=f'c（{tag}）')
             for b in first['bars']:
                 top.axvspan(b['bar'] - 0.5, b['bar'] + 0.5, ymin=0.95, ymax=1.0, color=colours.get(b['label'], '#ffffff'))
