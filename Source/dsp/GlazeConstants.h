@@ -158,6 +158,13 @@ namespace celadon::glaze
         // 「已听」的满编段的 w（至少半小节有效音频，124 BPM 约 1 s），遗忘关掉时与 House 逐位相同；一个满主段小节（w ≈ 1.94 s）的峰值约
         // ln(1.94 ÷ 0.5) ≈ 1.4 个 W_mem 的新主段之后退出读数；m < 0.26 的单个小节不够单独定真峰值。≤ 0 = 只取最大值（不随遗忘退出）。③
         double peakTailSeconds = 0.5;
+        // T-048 阶段 1 修订（Max 2026-10-02「轻的那一支要电平稳」）：换歌软遗忘「比 I 轻 newProgramLu 以上且低频因子 ≥ 0.5」那一支，只有
+        // 最近累计满 newProgramSeconds 的那一串段的段响度起伏（最大 − 最小）≤ 本项才算——带低音的淡出一路往下掉，不算换歌（REPORT-C
+        // 第 5 节第 4 条：deep 0944904、tech 0244162 的歌尾）。「响 newProgramLu 以上」那一支不看它。+∞ = 不要求电平稳（回到改前）。③
+        float newProgramRangeLu = 2.0f;
+        // T-048 阶段 1 修订（回看重判）：第 k 段的实时画像在「段尾 + 本项」这一刻发布（分析器时间轴，LiveProfile.h 文件头第二节）。
+        // 要盖住段定稿的延迟（先试后用的块交齐约 0.1 s + 候选延迟 + Balance 帧晚一块）与一遍回看重算的分片；越长决策器拿到新段越晚。③
+        double publishDelaySeconds = 0.5;
     };
 
     // 交付三档（设计规格-曲风与交付 第 4.1 节）。「标准」不用这里的任何一项：仍按风格 preferredLufs 与 min / maxPreferredLufs。

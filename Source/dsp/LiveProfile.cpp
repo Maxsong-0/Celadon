@@ -2,66 +2,55 @@
   ==============================================================================
 
     LiveProfile.cpp
-    T-048 实时画像（接口与约定见 LiveProfile.h；设计规格-实时GLAZE-主段与增益 第 1～3、5 节；T-048 阶段 1 BRIEF 第 3 节）。
+    T-048 实时画像：回看重判（规则与时间约定见 LiveProfile.h 文件头；设计规格-实时GLAZE-主段与增益 第 1～3、5 节；T-048 阶段 1 BRIEF
+    第 3 节与阶段 1 修订任务书）。
 
-    一、累计与遗忘（「全局缩放因子 + 周期性重规范」）
-      三个遗忘域各有一个全局缩放因子 g：实值 = 存储值 × g。
-        - 主段域（按进账遗忘）：并入一段先 g × exp(−(w ÷ W_mem + 无主段的时间衰减))，再把这一段 × m 加进去（存储值加 m ÷ g 倍）。
-          装着 4/4 型 I 的门块与 LRA、真峰值、频谱 / 立体声 / 低频起伏 / 通量、起音、次声、试算与混合损失、主段质量 M。
-        - 参考域（全部段，不看 m）：每段 g × exp(−有效时长 ÷ referenceMemorySeconds)：S_ref、lowRef、响度型 / 被动型 LRA 的直方图。
-        - 全部段域（全部段，不看 m）：每段 g × exp(−有效时长 ÷ W_mem)：响度型 / 被动型的 I（门块）与它的有效时长。
-      遗忘只改 g（一次乘法），存储值不逐格乘，不会一路衰减进次正规数（x86 没开 FTZ 时慢几十倍）。g 低于 renormaliseBelow（1e-30）时
-      把这一域的存储值一次乘回实值、g 回到 1（重规范），实值绝对值低于 flushBelow（1e-250）的归零——之后再乘 g ≥ 1e-30 也落不进
-      次正规数。是否重规范只在并入一段时按 g 判定，所以重规范的位置只取决于交来的段序列（与宿主分块无关）。
-      W_mem 与参考遗忘都取无穷（等价性测试）时 g 恒为 1：存储值就是 Σ m × 段的量；m = 1 时与 House 画像按段求和逐位相同
-      （同一顺序，× 1 与 ÷ 1 都精确）。
+    一、数据
+      - 段环 slots（windowCapacity + queueCapacity 格）：第 n 个交来的段（reset 以来从 0 数）转成定长的 Entry 存在 n mod 格数。Entry 只留
+        画像要的量（试算块峰值只留所在的格号）。已发布那一份画像的窗口 = 它最近的 windowCapacity 段，之后是还没发布的段（≤ queueCapacity）；
+        新段只会盖掉比已发布窗口更老的格，所以已发布与在途那一遍读的段都不会被改（队列满时见 makeRoomInQueue）。
+      - 每一段进账（admit）时定下、之后不变的：进账判断（按上一份已发布画像的参考）、换歌的票、两个事件时钟的印记。
+      - 事件时钟（对数域，Counters::mainClock / referenceClock）：换歌软遗忘加 ln(1 ÷ keep)（主段与参考同加；keep = 0 记 800，exp(−800) = 0），
+        长时间无主段加「超出秒数 ÷ noMainDecaySeconds」（只主段）。段 i 的全局因子 = exp(−(这一份画像的时钟 − 印记_i))：乘在事件发生时
+        窗口里全部更老的段上，不碰它们存的量，之后重判也不撤销。
 
-    二、主段度 m 与参考（规格第 2 节；数值在 LiveConstants，清洗见 sanitise）
-      ramp_w(x) = clamp(0.5 + x ÷ w, 0, 1)。4/4 型：m = ramp(L_seg − (S_ref − ΔG)) × ramp(lowShare ÷ lowRef − g_low)（g_low ≤ 0 时
-      没有低频因子）；响度型：只有响度因子；被动型：有效音频 m = 1。段响度读不出（没有有效音频）的段 m = 0；4/4 型低频占比读不出的段
-      低频因子 = 0（同 SegmentLedger 门控：读不出的那道门过不了）。
-      S_ref = 参考域段响度直方图（0.1 LU 一格，按有效时长加权）的 referencePercentile 分位格中心；lowRef = 响度因子 ≥ 0.5 的段的
-      lowShare 直方图（0.001 一格，同样加权）的同分位格中心；分位的取法同 SegmentLedger.cpp weightedPercentileBin。
-      m 用「这一段并入之前」的参考算（因果；LiveCommitRecord 记的就是它）。
-      冷启动（还没有 S_ref / lowRef）：以这一段自己为参考——S_ref = L_seg、lowRef = lowShare，即响度因子 = ramp(ΔG)、低频因子 =
-      ramp(1 − g_low)（出厂常数下都是 1：第一段当主段）。理由：此刻它是唯一的证据；规格第 5 节已接受「冷启动时 DJ 前奏会被当成主段」，
-      置信度 c 从 0 起爬、决策器按 c 收紧，之后真主段一来 S_ref 上移、前奏掉出门外，前奏的累计按进账遗忘淡出。不取 m = 0：那样
-      第一段白丢、c 晚一段起爬，对只有一种段落的素材（整段都是 drop 的片段）也没有好处；用公式本身（以自己为参考）而不另设一个数，
-      常数改了也自洽（例如 ΔG = 0 时第一段 m = 0.5）。两道参考分开冷启动：S_ref 有了、lowRef 还没有时只有低频因子按自己算。
+    二、一遍重算（第 k 份画像 = 前 k 段；按序的工作步，见 Step）
+      admit（第 k 段进账）→ referenceSweep（新 → 老：参考权重 ρ、全部段权重 a、段响度直方图）→ referencePick（S_ref）→ lowSweep（按 S_ref 的
+      响度因子 λ、lowShare 直方图）→ lowPick（lowRef）→ judgeSweep（新 → 老：m′、主段时钟、主段权重 f）→ accumulate（老 → 新：全部累计，
+      顺序同 House 按存进账本的先后求和）→ trialPick（每路一步：P99 与代价）→ gateSweep（老 → 新：I 的第二遍门限，顺手把这一遍写过的
+      试算格清零）→ finalize（画像、诊断、提交记录）→ clearHistograms（其余直方图清零）。
+      每步有一个工作量估计（纳秒，costOf）；一片做到估计用完 sliceBudgetNanoseconds 为止（至少一步）。估计只决定 CPU 怎么摊：一遍的结果
+      是窗口（段、印记、事件时钟）与常数的纯函数，分几片、几时做都一样，所以已发布的画像与分片无关。
 
-    三、换歌软遗忘与长时间无主段（规格第 3 节）
-      - 换歌：「像换了一首歌」的段（比「这一段并入之前」画像的 I 响 newProgramLu 以上；或 4/4 型里轻 newProgramLu 以上但低频因子 ≥ 0.5，
-        见 looksLikeNewProgram——breakdown 更轻又没有低音，不算）有效音频累计满 newProgramSeconds → 三个域的 g 一起 × newProgramKeep
-        （在这一段并入之前做：新素材按原权重进来），计数清零重来。夹一段不算的清零重计；段响度或 I 读不出的段不算数也不清零（没有证据）。
-        不看宿主走带。更轻、不算的新材料交给下面的无主段时间衰减。
-      - 无主段：上一次 m ≥ mainThreshold 之后的有效音频（secondsSinceMain）超过 noMainSeconds 的部分，按 exp(−超出 ÷ noMainDecaySeconds)
-        乘在主段域上，与这一段按进账的遗忘相乘（两个乘性因子叠加：无主段时额外遗忘，按进账照旧）。只算越过门槛之后的那部分有效音频，
-        所以与段怎么切无关。
+    三、权重（LiveProfile.h 文件头第一节的公式；e = 有效时长，W_j = 第 j 段按它的分段方式换算的 W_mem）
+      ρ_i = exp(−Σ_{j>i} e_j ÷ referenceMemorySeconds − Δ参考时钟_i)、参考权重 r_i = e_i × ρ_i；a_i = exp(−Σ_{j>i} e_j ÷ W_j − Δ参考时钟_i)；
+      f_i = m′_i × exp(−Σ_{j>i} m′_j e_j ÷ W_j − Δ主段时钟_i)。遗忘与事件关掉时 ρ = a = 1、f = m′（exp(−0) = 1 精确）：硬门、冻结参考下 f
+      就是 House 的「满编 1 / 否则 0」，累计逐位同 House 的按段求和。
 
-    四、画像（逐项同 MusicAnalyzer.cpp「六」节 houseLoudnessProfile / houseSpectrumProfile / houseStereoGroup / houseOnsetProfile /
-        houseTrialProfile / houseSubProfile / houseConfidences；House 的整数计数在这里是加权的实数，推广写在各函数旁边，
-        权重全为 1 时退回 House 的整数公式、逐位相同）。与 House 画像按设计的差别：
-        - effectiveSeconds = 主段质量 M（House 是全部段的有效时长）；representativeness = c = 1 − exp(−M ÷ M0)；各特征 confidence =
-          min(c, 观测充分度) × 起音一致性（House 是 min(代表性, 观测充分度)）；
-        - LRA 与 I 一样按曲风分口径：4/4 型用主段域（按 m，同 House 阶段 3 起「只用满编段」）；响度型 / 被动型 LRA 用全部段（参考域，按有效
-          音频遗忘）、I 用全部段（全部段域）；
-        - I 的相对门按 0.1 LU 格中心判（同通用画像；House 逐个门块比——相差只在相对门那一格里的门块，≤ 0.05 LU）；
-        - 真峰值：主段加权的「段最大值」直方图（0.1 dB 一格，每格另记落进来的最大线性值），取「其上至少有 peakTailSeconds 主段质量」的
-          最高一格里的最大值；遗忘关掉、每个 m > 0 的段 w ≥ peakTailSeconds 时就是 House 的满编段最大值（逐位）；
-        - 试算 P99：每一路一张加权直方图（0.01 dB 一格），每段交来的「每路最大的 8 个块峰值」按 m 计入、其余块只计入总块数，按格中心
-          做 numpy 线性插值的加权推广（trialPercentileOf）；每个 P99 误差 ≤ 半格（0.005 dB）。块数不设 512 的上限（靠遗忘）；
-        - 混合损失的 confidence 照通用画像 finalizeConfidences 给（House 的 houseConfidences 自 T-049 起同一口径）；
-        - formatVersion = clayProfileFormatVersion、houseGate 不填（理由见 computeProfile）。
+    四、与 House 画像逐项的对应（MusicAnalyzer.cpp「六」节 computeHouseProfile / houseLoudnessProfile / houseSpectrumProfile /
+      houseStereoGroup / houseOnsetProfile / houseTrialProfile / houseSubProfile / houseConfidences；House 的整数计数在这里是加权的实数，
+      权重全为 1 时退回 House 的整数公式）。与 House 按设计的差别：
+        - I：4/4 型主段权重、响度型 / 被动型全部段权重；两遍门限都逐块做（窗口里有每个门块），与 House 同一公式、同一求和顺序；
+        - LRA 按曲风分口径（a3c1b0e）：4/4 型主段权重（同 House「只用满编段」），响度型 / 被动型参考权重（全部段）；
+        - effectiveSeconds = M、representativeness = c、各特征 confidence = min(c, 观测充分度)（混合损失也给，同 T-049 后的 House）；
+        - 真峰值：主段加权的「段最大值」直方图（0.1 dB 一格，每格记最大线性值），取其上主段质量 ≥ peakTailSeconds 的最高一格的最大值；
+        - 试算 P99：每路一张加权直方图（0.01 dB 一格），每段交来的「每路最大的 8 个」按 f 计入、其余块只计入总块数，numpy 线性插值的
+          加权推广（trialPercentileOf）；每个 P99 误差 ≤ 半格 0.005 dB；
+        - formatVersion = clayProfileFormatVersion（2）、houseGate 不填（理由见 finalizeProfile）。
 
-    五、状态 XML（格式版本 1，节点 LIVE_PROFILE）
-      三个域的全部存储值与缩放因子、不遗忘的计数与时钟、由段还原的换算（子块长、hop）与采样率；派生量（S_ref / lowRef、画像）读回后
-      重算，所以读回后 getProfile / getDiagnostics 逐位等于保存时（常数与主段模型相同的前提下：常数不是状态）。double / float 写成
-      IEEE 位模式的十六进制（16 / 8 位），数组里连续的 +0.0 写成「z个数」。读的时候严格：缺属性、位数不对、非法字符、长度不对、
-      非有限值、该非负的是负数、缩放因子不在 (0, 1]、格式版本不认识 → 冷启动并返回 false。
+    五、老段（挤出窗口）：直接丢弃，不进「老账」。丢掉的那一截权重（相对于无限记忆）：
+        - 主段：稳态下窗口最老一段之后有约 512 × φ 个主段小节（φ = 主段小节占比），它的 f ≈ exp(−512 φ × 1.94 s ÷ W_mem)，整截尾巴约占
+          M 的 exp(−10.4 φ)（出厂 W_mem = 48 小节）：φ = 1 时 3e-5、0.5 时 0.6 %、0.25 时 7 %——只在主段很稀的长素材里显出来，丢的是
+          16 分钟以前的素材。
+        - 参考（τ = 180 s）：窗口约 993 s，尾巴约占 exp(−993 ÷ 180) ≈ 0.4 %；全部段（τ = W_mem = 90 s）约 1.6e-5。
+      LiveDiagnostics::oldestMainShare / oldestReferenceShare 报此刻最老一段的份额（窗口满时下一段就丢掉它）。
 
-    实时约束：全部容量在构造（Impl）时一次分配（试算直方图约 0.58 MB，其余约 0.1 MB），prepare / reset / 并入 / 读数都不分配、不加锁。
-    每次并入 O(直方图格数)：几千次加乘（107 实测中位 5 µs，见 REPORT-A）；冷启动与重规范（数小时的主段素材才一次）各扫一遍三个域，
-    试算直方图只扫每一路有数的那一段（整张扫一遍约 50 µs）。
+    六、状态 XML（格式版本 2，节点 LIVE_PROFILE）
+      已发布那一份画像的事件时钟与计时（Counters）、窗口里的段与还没发布的段（逐段的原始量与印记，小端二进制 + base64），采样率。派生量
+      （参考、画像、判断）读回后同步重算——与保存时逐位相同；还没发布的段按序进账、重算、立刻发布。读的时候严格：缺属性、位数不对、
+      base64 坏、长度不对、非有限值、计数或格号越界、格式版本不认识 → 冷启动并返回 false。
+
+    实时约束：全部容量在构造（Impl）时一次分配；prepare / reset / 音频线程接口不分配、不加锁。
 
   ==============================================================================
 */
@@ -148,7 +137,7 @@ namespace celadon::glaze
                        "段落账的试算路数必须与分析器（这里抄的一份）相同");
         static_assert (SegmentLedger::loudnessHistogramMinLufs == histogramMinLufs && SegmentLedger::loudnessBinsPerLu == histogramBinsPerLu
                            && SegmentLedger::loudnessBins == histogramBins,
-                       "段落账的响度直方图与分析器 I / LRA 的直方图同格（S_ref、LRA、I 三张表都用它）");
+                       "段落账的响度直方图与分析器 I / LRA 的直方图同格（S_ref、LRA 两张表都用它）");
         static_assert (strengthBins <= 256, "段里的起音强度格号按 8 位存");
         static_assert (std::tuple_size<decltype (MusicProfile::monoPeakCostDb)>::value == (size_t) numMonoTrials
                            && std::tuple_size<decltype (MusicProfile::lowCutBlendLossDb)>::value == (size_t) numBlendTrials,
@@ -159,45 +148,55 @@ namespace celadon::glaze
         // 实时画像自己的直方图（「分位数一律用定长直方图」；格宽的理由写在各自旁边）。
         constexpr int lowShareBins = SegmentLedger::lowShareBins;   // lowRef：0 … 1、0.001 一格（同 SegmentLedger）
 
-        // 真峰值：段最大值（线性）按 dB 分格，−100 … +40 dB、0.1 dB 一格（与响度同一格宽：格只决定「哪些段并在一起算质量」）；每格另记
-        // 落进来的最大线性值，读数取那一格记下的最大值——遗忘关掉时就是 House 的最大值逐位，遗忘开着时最多高估一格以内（偏保守）。
-        // −100 dB 以下并进第 0 格（gainToDecibels 本身在 −100 dB 封底）。
+        // 真峰值：段最大值（线性）按 dB 分格，−100 … +40 dB、0.1 dB 一格（格只决定「哪些段并在一起算质量」）；每格另记落进来的最大线性值，
+        // 读数取那一格记下的最大值——遗忘关掉时就是 House 的最大值逐位。−100 dB 以下并进第 0 格（gainToDecibels 本身在 −100 dB 封底）。
         constexpr double peakMinDb = -100.0;
         constexpr int peakBinsPerDb = 10;
         constexpr int peakBins = 140 * peakBinsPerDb;
 
-        // 试算块峰值：−80 … +24 dBFS、0.01 dB 一格（有效块的峰值不低于约 −70 dBFS：块里每个组都要过「慢包络 ≥ −70 dBFS」的有效门）。
-        // P99 按格中心算：每个 P99 误差 ≤ 半格 0.005 dB，代价（两个 P99 之差）≤ 0.01 dB，比决策器代价斜坡的两端（0.2 / 0.6 dB）小一个
-        // 量级以上；再细就要几 MB。越界的块峰值钳进两端的格（实际碰不到）。
+        // 试算块峰值：−80 … +24 dBFS、0.01 dB 一格（有效块的峰值不低于约 −70 dBFS）。P99 按格中心算：每个 P99 误差 ≤ 半格 0.005 dB，
+        // 代价（两个 P99 之差）≤ 0.01 dB，比决策器代价斜坡的两端（0.2 / 0.6 dB）小一个量级以上。越界的块峰值钳进两端的格。
         constexpr double trialMinDb = -80.0;
         constexpr int trialBinsPerDb = 100;
         constexpr int trialBins = 104 * trialBinsPerDb;
         constexpr int trialSeries = numTrials + 1;   // [0] 原始，[1 + c] 候选 c（同 Segment::liveTrialTop）
+        constexpr int trialTopCount = SegmentLedger::trialTopCount;
+        static_assert (trialBins <= 65536, "试算格号按 16 位存");
 
-        // 重规范门槛与归零门槛（文件头第一节）。
-        constexpr double renormaliseBelow = 1.0e-30;
-        constexpr double flushBelow = 1.0e-250;
+        // 段的 27 段频谱累计：8 张表按这个顺序放在 Entry::spectrum / Sums::spectrum 里（一个循环累加，编译器好向量化）。
+        enum SpectrumTable : int
+        {
+            powerTable = 0, tameTable, recoverTable, deficitTable, validTable, stereoPowerTable, stereoCrossTable, stereoWeightTable,
+            spectrumTables
+        };
+
+        // 换歌软遗忘 keep = 0 时事件时钟加这么多（exp(−800) 在 double 里就是 0，又不会让时钟变成 ∞ 之后相减出 NaN）。
+        constexpr double maximumLogKeep = 800.0;
+
+        // 一遍重算每一步的工作量估计（纳秒，107 实测标定，见 REPORT-A2；只决定一片做几步，不影响结果）。
+        constexpr double costAdmit = 2500.0;               // 进账判断、换歌的回看（平常 ≤ 十几段）
+        constexpr double costReferenceEntry = 45.0;        // 一段的参考权重（一个 exp）与直方图
+        constexpr double costAllEntry = 25.0;              // 响度型 / 被动型多一个 exp
+        constexpr double costPick = 1800.0;                // 一次分位（扫 800 / 1000 格）加清零
+        constexpr double costLowEntry = 15.0;
+        constexpr double costJudgeEntry = 45.0;            // m′ 与主段权重（一个 exp）
+        constexpr double costAccumulateBase = 220.0;       // 一段的 27 段 × 8 张表与零散的和
+        constexpr double costPerValue = 2.0;               // 每个门块 / 短期响度 / 低频格 / 起音强度 / 试算值
+        constexpr double costTrialSeries = 600.0;          // 一路试算 P99（从顶往下扫几格）
+        constexpr double costGateEntry = 12.0;             // 一段的第二遍门限（另按门块数加）与清试算格
+        constexpr double costFinalize = 6000.0;            // 画像（频谱、LRA、起音、置信度）、诊断、提交记录
+        constexpr double costClear = 3000.0;               // 其余直方图清零（约 30 KB）
 
         constexpr const char* liveStateTag = "LIVE_PROFILE";
-        constexpr int liveStateFormatVersion = 1;
+        constexpr int liveStateFormatVersion = 2;
 
         //==============================================================================
         // 帮助函数：口径同 MusicAnalyzer.cpp 匿名命名空间里的同名函数（那边不导出，这里各写一个小的）。
 
-        // 同 MusicAnalyzer.cpp energyToLufs。
         double energyToLufs (double meanSquare) noexcept
         {
             return meanSquare > 0.0 ? -0.691 + 10.0 * std::log10 (meanSquare)
                                     : -std::numeric_limits<double>::infinity();
-        }
-
-        // 同 MusicAnalyzer.cpp histogramBinOf（越界钳进两端）；另把 ±∞ / NaN 钳进两端（那边的调用方保证有限，这里的门块功率可能是 0）。
-        int histogramBinOf (double lufs) noexcept
-        {
-            if (! std::isfinite (lufs))
-                return lufs > 0.0 ? histogramBins - 1 : 0;
-
-            return juce::jlimit (0, histogramBins - 1, (int) std::floor ((lufs - histogramMinLufs) * (double) histogramBinsPerLu));
         }
 
         // 同 MusicAnalyzer.cpp firstBinAtOrAbove：格中心 ≥ gate 的第一格（= histogramBins：没有一格在门之上）。NaN 当最低（第 0 格）。
@@ -214,19 +213,16 @@ namespace celadon::glaze
             return (int) std::ceil (position);
         }
 
-        // 同 MusicAnalyzer.cpp binCentreLufs。
         double binCentreLufs (int bin) noexcept
         {
             return histogramMinLufs + ((double) bin + 0.5) / (double) histogramBinsPerLu;
         }
 
-        // 同 MusicAnalyzer.cpp fraction。
         float fraction (double numerator, double fullScale) noexcept
         {
             return fullScale > 0.0 ? (float) juce::jlimit (0.0, 1.0, numerator / fullScale) : 0.0f;
         }
 
-        // 同 MusicAnalyzer.cpp invalidate / setFeature。
         void invalidate (Feature& feature) noexcept
         {
             feature = Feature {};
@@ -239,7 +235,6 @@ namespace celadon::glaze
             feature.effectiveSeconds = effectiveSeconds;
         }
 
-        // 同 MusicAnalyzer.cpp sideToMidDbOf / correlationOf。
         double sideToMidDbOf (double power, double cross) noexcept
         {
             const auto floorPower = stereoRatioFloor * power;
@@ -254,7 +249,6 @@ namespace celadon::glaze
         }
 
         // 同 SegmentLedger.cpp weightedPercentileBin：累计权重第一次达到 share × 总权重的那一格（相对 1e-9 的容差）；没有权重 → −1。
-        // 权重是按同一缩放存的（比例与 g 无关），直接用存储值。
         template <size_t N>
         int weightedPercentileBin (const std::array<double, N>& weights, double total, double share) noexcept
         {
@@ -286,14 +280,22 @@ namespace celadon::glaze
             return y > 0.0 ? (y < 1.0 ? y : 1.0) : 0.0;
         }
 
-        // 真峰值的格（−100 … +40 dB、0.1 dB 一格）。
+        int loudnessBinOf (float lufs) noexcept   // 同 SegmentLedger.cpp recomputeGate 的格
+        {
+            return juce::jlimit (0, histogramBins - 1, (int) std::floor (((double) lufs - histogramMinLufs) * (double) histogramBinsPerLu));
+        }
+
+        int lowShareBinOf (float share) noexcept
+        {
+            return juce::jlimit (0, lowShareBins - 1, (int) std::floor ((double) share * (double) lowShareBins));
+        }
+
         int peakBinOf (float peak) noexcept
         {
             const auto db = juce::Decibels::gainToDecibels ((double) peak);   // ≥ −100
             return juce::jlimit (0, peakBins - 1, (int) std::floor ((db - peakMinDb) * (double) peakBinsPerDb));
         }
 
-        // 试算块峰值的格（−80 … +24 dBFS、0.01 dB 一格）与格中心的线性值。
         int trialBinOf (double peak) noexcept
         {
             if (! (peak > 0.0))
@@ -308,88 +310,47 @@ namespace celadon::glaze
             return std::pow (10.0, (trialMinDb + ((double) bin + 0.5) / (double) trialBinsPerDb) / 20.0);
         }
 
-        // 重规范时的一个存储值：乘回实值，太小的归零（文件头第一节）。
-        double rescaled (double stored, double scale) noexcept
+        std::int64_t saturatingAdd (std::int64_t a, std::int64_t b) noexcept
         {
-            const auto value = stored * scale;
-            return std::abs (value) < flushBelow ? 0.0 : value;
+            if (b > 0 && a > std::numeric_limits<std::int64_t>::max() - b)
+                return std::numeric_limits<std::int64_t>::max();
+
+            if (b < 0 && a < std::numeric_limits<std::int64_t>::min() - b)
+                return std::numeric_limits<std::int64_t>::min();
+
+            return a + b;
         }
 
-        //==============================================================================
-        // 常数清洗：坏值（NaN、该正的不正）按出厂值（LiveConstants 的默认值就是出厂值），合法范围内原样用；+∞ 是合法的「不遗忘 /
-        // 永不触发」（等价性测试就这么关掉遗忘）。
-        LiveModelConstants sanitise (const LiveModelConstants& c, const LiveModelConstants& factory) noexcept
+        // 网格 = grid 的整数倍（grid ≥ 1）。t 之前（含）最近的网格点，与严格晚于 t 的第一个网格点（饱和在 int64 的两端）。
+        std::int64_t gridQuotient (std::int64_t t, std::int64_t grid) noexcept
         {
-            auto s = c;
+            auto quotient = t / grid;
 
-            if (! std::isfinite (s.gateWidthLu))
-                s.gateWidthLu = factory.gateWidthLu;
+            if (t < 0 && quotient * grid != t)
+                --quotient;   // 向下取整
 
-            if (! (s.loudnessRampLu > 0.0f) || ! std::isfinite (s.loudnessRampLu))
-                s.loudnessRampLu = factory.loudnessRampLu;
-
-            if (! std::isfinite (s.lowGateFactor))
-                s.lowGateFactor = factory.lowGateFactor;
-
-            if (! (s.lowRampWidth > 0.0f) || ! std::isfinite (s.lowRampWidth))
-                s.lowRampWidth = factory.lowRampWidth;
-
-            if (! (s.referencePercentile > 0.0f && s.referencePercentile <= 1.0f))
-                s.referencePercentile = factory.referencePercentile;
-
-            if (std::isnan (s.memoryBars))
-                s.memoryBars = factory.memoryBars;
-
-            if (! (s.memorySeconds > 0.0))
-                s.memorySeconds = factory.memorySeconds;
-
-            if (std::isnan (s.confidenceBars))
-                s.confidenceBars = factory.confidenceBars;
-
-            if (! (s.confidenceSeconds > 0.0))
-                s.confidenceSeconds = factory.confidenceSeconds;
-
-            return s;
+            return quotient;
         }
 
-        LiveConstants sanitise (const LiveConstants& c) noexcept
+        std::int64_t gridPointAtOrBefore (std::int64_t t, std::int64_t grid) noexcept
         {
-            const LiveConstants factory;
-            auto s = c;
-            s.fourOnFloor = sanitise (c.fourOnFloor, factory.fourOnFloor);
-            s.loudness = sanitise (c.loudness, factory.loudness);
-            s.passive = sanitise (c.passive, factory.passive);
+            const auto quotient = gridQuotient (t, grid);
+            return quotient <= std::numeric_limits<std::int64_t>::min() / grid ? std::numeric_limits<std::int64_t>::min() : quotient * grid;
+        }
 
-            if (! (s.referenceMemorySeconds > 0.0))
-                s.referenceMemorySeconds = factory.referenceMemorySeconds;
+        std::int64_t gridPointAfter (std::int64_t t, std::int64_t grid) noexcept
+        {
+            const auto quotient = gridQuotient (t, grid);
 
-            if (! (s.mainThreshold >= 0.0f && s.mainThreshold <= 1.0f))
-                s.mainThreshold = factory.mainThreshold;
+            if (quotient >= std::numeric_limits<std::int64_t>::max() / grid - 1)
+                return std::numeric_limits<std::int64_t>::max();
 
-            if (! (s.noMainSeconds >= 0.0))
-                s.noMainSeconds = factory.noMainSeconds;
-
-            if (! (s.noMainDecaySeconds > 0.0))
-                s.noMainDecaySeconds = factory.noMainDecaySeconds;
-
-            if (! (s.newProgramLu >= 0.0f))
-                s.newProgramLu = factory.newProgramLu;
-
-            if (! (s.newProgramSeconds > 0.0))
-                s.newProgramSeconds = factory.newProgramSeconds;
-
-            if (! (s.newProgramKeep >= 0.0f && s.newProgramKeep <= 1.0f))
-                s.newProgramKeep = factory.newProgramKeep;
-
-            if (std::isnan (s.peakTailSeconds))
-                s.peakTailSeconds = factory.peakTailSeconds;
-
-            return s;
+            return (quotient + 1) * grid;
         }
 
         //==============================================================================
         // 段的数据能不能用：计数在定长数组的范围里、和都是有限值、该非负的非负。分析器交来的段本来就满足；不满足的段（坏数据）只记一条
-        // 提交记录（m = 0、有效时长 0），不碰任何累计——一个 NaN 进了累计，之后的画像就全坏了。
+        // 提交记录（m = 0、有效时长 0），不进任何量——一个 NaN 进了累计，之后的画像就全坏了。
         template <size_t N>
         bool finiteArray (const std::array<double, N>& values, bool nonNegative) noexcept
         {
@@ -414,7 +375,8 @@ namespace celadon::glaze
 
             if (s.gatingCount < 0 || s.gatingCount > SegmentLedger::maxSubBlocks || s.rangeCount < 0 || s.rangeCount > SegmentLedger::maxSubBlocks
                 || s.strengthCount < 0 || s.strengthCount > SegmentLedger::maxEvents || s.liveTrialBlocks < 0
-                || s.frames < 0 || s.fluxFrames < 0 || s.fluxEvents < 0 || s.onsetEffectiveSamples < 0 || s.onsetEvents < 0)
+                || s.frames < 0 || s.fluxFrames < 0 || s.fluxEvents < 0 || s.onsetEffectiveSamples < 0 || s.onsetEvents < 0
+                || s.effectiveSubBlocks < 0)
                 return false;
 
             if (s.lowRangeLast >= s.lowRangeFirst && (s.lowRangeFirst < 0 || s.lowRangeLast >= lowRangeBins))
@@ -450,22 +412,22 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // 状态 XML 的编码（文件头第五节）。
+        // 状态 XML 的编码（文件头第六节）：标量写 IEEE 位模式的十六进制（16 位）、计数写十进制；段写小端二进制再 base64。
         constexpr const char* hexDigits = "0123456789abcdef";
 
-        template <typename Bits>
-        void appendHex (std::string& out, Bits bits)
+        juce::String hexOf (double x)
         {
-            constexpr int digits = (int) sizeof (Bits) * 2;
-            char buffer[digits];
+            std::uint64_t bits = 0;
+            std::memcpy (&bits, &x, sizeof (bits));
+            char buffer[16];
 
-            for (int i = digits - 1; i >= 0; --i)
+            for (int i = 15; i >= 0; --i)
             {
                 buffer[i] = hexDigits[(size_t) (bits & 15u)];
-                bits = (Bits) (bits >> 4);
+                bits >>= 4;
             }
 
-            out.append (buffer, (size_t) digits);
+            return juce::String (buffer, 16);
         }
 
         int hexValue (char c) noexcept
@@ -476,130 +438,33 @@ namespace celadon::glaze
             return -1;
         }
 
-        // 恰好 sizeof (Bits) × 2 位十六进制、后面是空格或结尾。
-        template <typename Bits>
-        bool parseHex (const char*& p, Bits& bits) noexcept
+        // 恰好 16 位十六进制、有限值。
+        bool parseHexDouble (const juce::String& text, double& out) noexcept
         {
-            constexpr int digits = (int) sizeof (Bits) * 2;
-            Bits value = 0;
+            const auto* p = text.toRawUTF8();
+            std::uint64_t bits = 0;
 
-            for (int i = 0; i < digits; ++i)
+            for (int i = 0; i < 16; ++i)
             {
                 const auto digit = hexValue (p[i]);
 
                 if (digit < 0)
                     return false;
 
-                value = (Bits) ((value << 4) | (Bits) digit);
+                bits = (bits << 4) | (std::uint64_t) digit;
             }
 
-            if (p[digits] != 0 && p[digits] != ' ')
+            if (p[16] != 0)
                 return false;
 
-            p += digits;
-            bits = value;
+            double value = 0.0;
+            std::memcpy (&value, &bits, sizeof (value));
+
+            if (! std::isfinite (value))
+                return false;
+
+            out = value;
             return true;
-        }
-
-        template <typename Real>
-        using BitsOf = typename std::conditional<sizeof (Real) == 8, std::uint64_t, std::uint32_t>::type;
-
-        template <typename Real>
-        juce::String encodeReals (const Real* values, size_t count)
-        {
-            std::string out;
-            size_t zeros = 0;
-
-            const auto flushZeros = [&]
-            {
-                if (zeros == 0)
-                    return;
-
-                if (! out.empty())
-                    out += ' ';
-
-                out += 'z';
-                out += std::to_string (zeros);
-                zeros = 0;
-            };
-
-            for (size_t i = 0; i < count; ++i)
-            {
-                BitsOf<Real> bits;
-                std::memcpy (&bits, &values[i], sizeof (bits));
-
-                if (bits == 0)   // 只有 +0.0（−0.0 的位模式不是 0，照常写出）
-                {
-                    ++zeros;
-                    continue;
-                }
-
-                flushZeros();
-
-                if (! out.empty())
-                    out += ' ';
-
-                appendHex (out, bits);
-            }
-
-            flushZeros();
-            return juce::String (out);
-        }
-
-        // 长度必须正好 count；非法字符、非有限值 → false。
-        template <typename Real>
-        bool decodeReals (const juce::String& text, Real* values, size_t count) noexcept
-        {
-            const char* p = text.toRawUTF8();
-            size_t filled = 0;
-
-            while (*p != 0)
-            {
-                if (*p == ' ')
-                {
-                    ++p;
-                    continue;
-                }
-
-                if (*p == 'z')
-                {
-                    ++p;
-                    size_t run = 0;
-                    auto digits = 0;
-
-                    while (*p >= '0' && *p <= '9')
-                    {
-                        run = run * 10 + (size_t) (*p - '0');
-
-                        if (++digits > 9 || run > count)
-                            return false;
-
-                        ++p;
-                    }
-
-                    if (digits == 0 || run == 0 || run > count - filled || (*p != 0 && *p != ' '))
-                        return false;
-
-                    std::fill (values + filled, values + filled + run, Real (0));
-                    filled += run;
-                    continue;
-                }
-
-                BitsOf<Real> bits = 0;
-
-                if (filled >= count || ! parseHex (p, bits))
-                    return false;
-
-                Real value;
-                std::memcpy (&value, &bits, sizeof (value));
-
-                if (! std::isfinite (value))
-                    return false;
-
-                values[filled++] = value;
-            }
-
-            return filled == count;
         }
 
         // 十进制无符号整数（严格：只有数字、不溢出）。
@@ -629,141 +494,47 @@ namespace celadon::glaze
             return true;
         }
 
-        // 写：浮点写位模式，计数写十进制。
-        class StateWriter
+        // 小端二进制（juce::OutputStream / InputStream 的 writeInt / writeDouble … 都是小端，与平台无关）。读的一侧数着剩余字节，
+        // 不够就记失败（juce 读过头只返回 0，不报错）。
+        class BlobReader
         {
         public:
-            explicit StateWriter (juce::XmlElement& target) noexcept : element (target) {}
+            BlobReader (const void* data, size_t size) noexcept : stream (data, size, false) {}
 
-            void value (const char* name, const double& x)          { scalar (name, x); }
-            void scalar (const char* name, double x)                { element.setAttribute (name, encodeReals (&x, 1)); }
-            void count (const char* name, std::uint64_t x)          { element.setAttribute (name, juce::String ((juce::uint64) x)); }
-
-            template <typename Array>
-            void array (const char* name, const Array& values)      { element.setAttribute (name, encodeReals (values.data(), values.size())); }
-
-            template <typename Array>
-            void signedArray (const char* name, const Array& values) { array (name, values); }
-
-            template <typename Vector, typename Ranges>
-            void trial (const char* name, const Vector& values, const Ranges&, const Ranges&)   { array (name, values); }
-
-        private:
-            juce::XmlElement& element;
-        };
-
-        // 读：缺属性、格式不对、非有限值、该非负的是负数都记失败（ok = false）。
-        class StateReader
-        {
-        public:
-            explicit StateReader (const juce::XmlElement& source) noexcept : element (source) {}
-
-            void value (const char* name, double& x)
+            bool enough (size_t bytes) noexcept
             {
-                scalar (name, x);
-
-                if (ok && x < 0.0)
+                if (ok && (size_t) stream.getNumBytesRemaining() < bytes)
                     ok = false;
+
+                return ok;
             }
 
-            void scalar (const char* name, double& x)
+            std::int64_t i64() noexcept   { return enough (8) ? stream.readInt64() : 0; }
+            int i32() noexcept            { return enough (4) ? stream.readInt() : 0; }
+            std::uint16_t u16() noexcept  { return enough (2) ? (std::uint16_t) (unsigned short) stream.readShort() : (std::uint16_t) 0; }
+            std::uint8_t u8() noexcept    { return enough (1) ? (std::uint8_t) (unsigned char) stream.readByte() : (std::uint8_t) 0; }
+            bool flag() noexcept          { const auto x = u8(); ok = ok && x <= 1; return x == 1; }
+
+            double f64() noexcept
             {
-                double parsed = 0.0;
-
-                if (! element.hasAttribute (name) || ! decodeReals (element.getStringAttribute (name), &parsed, 1))
-                    ok = false;
-                else
-                    x = parsed;
+                const auto x = enough (8) ? stream.readDouble() : 0.0;
+                ok = ok && std::isfinite (x);
+                return x;
             }
 
-            void count (const char* name, std::uint64_t maximum, std::uint64_t& x)
+            float f32() noexcept
             {
-                std::uint64_t parsed = 0;
-
-                if (! element.hasAttribute (name) || ! parseUnsigned (element.getStringAttribute (name), maximum, parsed))
-                    ok = false;
-                else
-                    x = parsed;
+                const auto x = enough (4) ? stream.readFloat() : 0.0f;
+                ok = ok && std::isfinite (x);
+                return x;
             }
 
-            template <typename Array>
-            void array (const char* name, Array& values)
-            {
-                signedArray (name, values);
-
-                if (ok)
-                    for (const auto x : values)
-                        if (x < 0.0)
-                            ok = false;
-            }
-
-            template <typename Array>
-            void signedArray (const char* name, Array& values)
-            {
-                if (! element.hasAttribute (name) || ! decodeReals (element.getStringAttribute (name), values.data(), values.size()))
-                    ok = false;
-            }
-
-            // 读进来的数可以落在任何格：有数的范围由调用方读完后整张重扫（Impl::recomputeTrialRanges）。
-            template <typename Vector, typename Ranges>
-            void trial (const char* name, Vector& values, const Ranges&, const Ranges&)   { array (name, values); }
+            bool atEnd() noexcept   { return stream.getNumBytesRemaining() == 0; }
 
             bool ok = true;
 
         private:
-            const juce::XmlElement& element;
-        };
-
-        // 遗忘域字段表的另两个访问者：清零、重规范（存档读写用上面两个）。试算直方图（7 路 × 10400 格，0.58 MB，整张扫一遍约 50 µs）
-        // 只扫每一路有数的那一段 [low, top]（Impl 跟踪着；空的路 low > top），冷启动与重规范在音频线程上就不会因它冒尖。
-        struct Clearer
-        {
-            void value (const char*, double& x) noexcept   { x = 0.0; }
-
-            template <typename Array>
-            void array (const char*, Array& values) noexcept   { std::fill (values.begin(), values.end(), 0.0); }
-
-            template <typename Array>
-            void signedArray (const char* name, Array& values) noexcept   { array (name, values); }
-
-            template <typename Vector, typename Ranges>
-            void trial (const char*, Vector& values, const Ranges& low, const Ranges& top) noexcept
-            {
-                for (size_t series = 0; series < low.size(); ++series)
-                    if (low[series] <= top[series])
-                    {
-                        auto* first = values.data() + series * (size_t) trialBins;
-                        std::fill (first + low[series], first + top[series] + 1, 0.0);
-                    }
-            }
-        };
-
-        struct Rescaler
-        {
-            double scale = 1.0;
-
-            void value (const char*, double& x) const noexcept   { x = rescaled (x, scale); }
-
-            template <typename Array>
-            void array (const char*, Array& values) const noexcept
-            {
-                for (auto& x : values)
-                    x = rescaled (x, scale);
-            }
-
-            template <typename Array>
-            void signedArray (const char* name, Array& values) const noexcept   { array (name, values); }
-
-            template <typename Vector, typename Ranges>
-            void trial (const char*, Vector& values, const Ranges& low, const Ranges& top) const noexcept
-            {
-                for (size_t series = 0; series < low.size(); ++series)
-                    for (auto bin = low[series]; bin <= top[series]; ++bin)
-                    {
-                        auto& x = values[series * (size_t) trialBins + (size_t) bin];
-                        x = rescaled (x, scale);
-                    }
-            }
+            juce::MemoryInputStream stream;
         };
     }
 
@@ -773,68 +544,130 @@ namespace celadon::glaze
         return isHouse (genre) ? MainSectionModel::fourOnFloor : MainSectionModel::loudness;
     }
 
+    bool isInLiveConstantDomain (double value, LiveConstantDomain domain) noexcept
+    {
+        switch (domain)
+        {
+            case LiveConstantDomain::finite:            return std::isfinite (value);
+            case LiveConstantDomain::positiveFinite:    return std::isfinite (value) && value > 0.0;
+            case LiveConstantDomain::percentile:        return value > 0.0 && value <= 1.0;
+            case LiveConstantDomain::notNan:            return ! std::isnan (value);
+            case LiveConstantDomain::positive:          return value > 0.0;
+            case LiveConstantDomain::unit:              return value >= 0.0 && value <= 1.0;
+            case LiveConstantDomain::nonNegative:       return value >= 0.0;
+            case LiveConstantDomain::nonNegativeFinite: return std::isfinite (value) && value >= 0.0;
+        }
+
+        return false;
+    }
+
+    LiveConstants sanitiseLiveConstants (const LiveConstants& constants) noexcept
+    {
+        auto clean = constants;
+        const LiveConstants factory;
+
+        visitLiveConstantPairs (clean, factory, [] (const char*, const char*, auto& field, const auto& fallback, LiveConstantDomain domain)
+        {
+            if (! isInLiveConstantDomain ((double) field, domain))
+                field = fallback;
+        });
+
+        return clean;
+    }
+
     //==============================================================================
     struct LiveProfile::Impl
     {
-        // I 的门块直方图（−70 … +10 LUFS、0.1 LU 一格，同通用画像的门块直方图）：每格的能量和与块数；另有逐块累加的总和——相对门用它，
-        // 求和顺序与 House 画像逐块求和相同（遗忘关掉时相对门逐位相同）。
-        struct GatingHistogram
-        {
-            std::array<double, (size_t) histogramBins> energy {}, count {};
-            double totalEnergy = 0.0, totalCount = 0.0;
+        static constexpr int slotCount = windowCapacity + queueCapacity;
 
-            void add (double power, double gain) noexcept
-            {
-                const auto bin = (size_t) histogramBinOf (energyToLufs (power));
-                energy[bin] += power * gain;
-                count[bin] += gain;
-                totalEnergy += power * gain;
-                totalCount += gain;
-            }
+        // 一段（定长；只留画像要的量，文件头第一节）。
+        struct Entry
+        {
+            std::int64_t start = 0, end = 0, nominalLength = 0;
+            std::int64_t due = 0;                   // 发布时刻 D
+            SegmentMode mode = SegmentMode::none;
+            bool usable = false;                    // usableSegment；坏段只记提交，不进任何量
+            bool pinned = false;                    // commitWithMainness：每次重判都用 pinnedMainness
+            float pinnedMainness = 0.0f;
+
+            double effectiveSeconds = 0.0;          // 坏段 0
+            bool loudnessValid = false, lowShareValid = false;
+            float loudnessLufs = 0.0f, lowShare = 0.0f;
+            float truePeak = 0.0f;
+
+            int gatingCount = 0;
+            std::array<float, (size_t) SegmentLedger::maxSubBlocks> gatingPower {};
+            int rangeCount = 0;
+            std::array<std::uint16_t, (size_t) SegmentLedger::maxSubBlocks> rangeBin {};
+            double rangeEnergy = 0.0;
+
+            double frames = 0.0;
+            std::array<std::array<double, (size_t) numBands>, (size_t) spectrumTables> spectrum {};
+            double lowStereoWeight = 0.0, highStereoWeight = 0.0;
+            int lowRangeFirst = lowRangeBins, lowRangeLast = -1;
+            std::array<std::uint16_t, (size_t) lowRangeBins> lowRangeCount {};
+            double fluxFrames = 0.0, fluxEvents = 0.0;
+
+            double onsetSamples = 0.0, onsetEvents = 0.0;
+            int strengthCount = 0;
+            std::array<std::uint8_t, (size_t) SegmentLedger::maxEvents> strengthBin {};
+            double subEnergy = 0.0, midEnergy = 0.0;
+
+            int trialBlocks = 0;                    // 有效块数（全部块，含没交数值的）
+            std::array<std::array<std::uint16_t, (size_t) trialTopCount>, (size_t) trialSeries> trialBin {};   // 每路交来的 min(块数, 8) 个块峰值的格
+            std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};
+
+            int subBlockLength = 0, hopLength = 0;  // 由段还原（0 = 还原不了；见 makeEntry）
+
+            // 派生（进队与读档时算）
+            int loudnessBin = 0, lowShareBin = 0, peakBin = 0;
+            double accumulateCost = 0.0;
+
+            // 进账（admit 时定下，之后不变）
+            bool admitted = false;
+            float admissionLoudnessFactor = 0.0f, admissionLowFactor = 0.0f, admissionMainness = 0.0f;
+            std::uint8_t vote = 0;                  // LiveCommitRecord::newProgramVote
+            bool timeDecay = false, newProgram = false, newProgramRangeValid = false;
+            float newProgramRangeLu = 0.0f;
+            double mainStamp = 0.0, referenceStamp = 0.0;   // 进账（含这一段触发的事件）之后的事件时钟
         };
 
-        // 主段域的存储值（× mainForgetting.scale 才是实值）。口径同 MusicAnalyzer.cpp HouseSums 的满编段部分，整数计数换成加权实数。
-        struct MainStore
+        // 跟着一份画像走的事件时钟与计时（这一份画像最新那一段进账之后）。
+        struct Counters
         {
-            MainStore() : trialWeights ((size_t) trialSeries * (size_t) trialBins, 0.0) {}
+            double mainClock = 0.0, referenceClock = 0.0;
+            double secondsSinceMain = 0.0;          // 最近一次进账 m ≥ mainThreshold 之后的有效音频
+            double runSeconds = 0.0;                // 换歌：这一串「像换歌」的段的有效音频（从 runStart 起）
+            std::uint64_t runStart = 0;             // 这一串的第一段（到达序号）
+            std::uint64_t newProgramCount = 0;
+            double activeSeconds = 0.0;
+        };
 
-            double mass = 0.0;                                             // 主段质量 M = Σ w（House 的 fullSeconds）
-            GatingHistogram gating;                                        // 4/4 型的 I
-            std::array<double, (size_t) peakBins> peakWeight {};           // 真峰值：每格 Σ w
-            std::array<float, (size_t) peakBins> peakMax {};               // 每格落进来的最大线性值（不缩放；重规范后权重归零的格清掉）
-            double frames = 0.0;                                           // 帧门之上的帧
-            std::array<double, (size_t) numBands> powerSum {}, tameSum {}, recoverSum {}, deficitWeight {}, validWeight {};
-            std::array<double, (size_t) numBands> stereoPowerSum {}, stereoCrossSum {}, stereoWeight {};
+        // 一份画像的输入：前 count 段，窗口 = [first, first + size)。
+        struct Context
+        {
+            std::uint64_t count = 0, first = 0;
+            int size = 0;
+            Counters counters;
+        };
+
+        // 一遍重算的累计（实值）。口径同 MusicAnalyzer.cpp HouseSums 的满编段部分，整数计数换成加权实数。
+        struct Sums
+        {
+            double mass = 0.0;                      // M = Σ f × e（House 的 fullSeconds）
+            double gatingEnergy = 0.0, gatingCount = 0.0;          // 主段：门块功率与个数（相对门）
+            double rangeEnergy = 0.0, rangeCount = 0.0;            // 4/4 型 LRA
+            double frames = 0.0;
+            std::array<std::array<double, (size_t) numBands>, (size_t) spectrumTables> spectrum {};
             double lowStereoWeight = 0.0, highStereoWeight = 0.0;
-            std::array<double, (size_t) lowRangeBins> lowRangeCount {};
             double fluxFrames = 0.0, fluxEvents = 0.0;
             double onsetSamples = 0.0, onsetEvents = 0.0;
-            std::array<double, (size_t) strengthBins> strengthCount {};
             double subEnergy = 0.0, midEnergy = 0.0;
-            double trialBlocks = 0.0;                                      // 有效块数（全部块，含没交数值的）
-            std::vector<double> trialWeights;                              // [路 × trialBins]：每路交来的块峰值（每段最大的 8 个）按格的 Σ m
+            double trialBlocks = 0.0;
             std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};
-            // 4/4 型的 LRA（Max 2026-10-02「按曲风分口径」）：3 s 短期响度的格号按 m 计入，同 House 画像「LRA 只用满编段」（T-038 阶段 3）。
-            std::array<double, (size_t) histogramBins> range {};
-            double rangeEnergy = 0.0, rangeCount = 0.0;
-        };
-
-        // 参考域（全部段，按有效音频遗忘）。
-        struct ReferenceStore
-        {
-            std::array<double, (size_t) histogramBins> loudness {};        // 段响度，权重 = 有效时长
-            double loudnessTotal = 0.0;
-            std::array<double, (size_t) lowShareBins> lowShare {};         // 响度因子 ≥ 0.5 的段的 lowShare，权重 = 有效时长
-            double lowShareTotal = 0.0;
-            std::array<double, (size_t) histogramBins> range {};           // 响度型 / 被动型的 LRA：3 s 短期响度的格号，每个取样权重 1
-            double rangeEnergy = 0.0, rangeCount = 0.0;
-        };
-
-        // 全部段域（全部段，按有效音频、τ = W_mem 遗忘）：响度型 / 被动型的 I。
-        struct AllStore
-        {
-            double mass = 0.0;                                             // Σ 有效时长
-            GatingHistogram gating;
+            double allMass = 0.0, allGatingEnergy = 0.0, allGatingCount = 0.0;   // 响度型 / 被动型的 I（全部段权重）
+            double referenceRangeEnergy = 0.0, referenceRangeCount = 0.0;        // 响度型 / 被动型的 LRA（参考权重）
+            double referenceMass = 0.0;             // Σ r（可用的段）
         };
 
         // House 画像各特征的观测充分度（同 MusicAnalyzer.cpp HouseMeasured）。
@@ -845,31 +678,40 @@ namespace celadon::glaze
             std::array<float, (size_t) numBands> band {}, stereoBand {};
         };
 
-        // 主段域此刻的实值（存储值 × g）：画像各函数读它，公式就与 House 画像读 HouseSums 一样。
-        struct Sums
-        {
-            double mass = 0.0, frames = 0.0;
-            std::array<double, (size_t) numBands> powerSum {}, tameSum {}, recoverSum {}, deficitWeight {}, validWeight {};
-            std::array<double, (size_t) numBands> stereoPowerSum {}, stereoCrossSum {}, stereoWeight {};
-            double lowStereoWeight = 0.0, highStereoWeight = 0.0;
-            double fluxFrames = 0.0, fluxEvents = 0.0;
-            double onsetSamples = 0.0, onsetEvents = 0.0;
-            double subEnergy = 0.0, midEnergy = 0.0;
-            double trialBlocks = 0.0;
-            std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};
-        };
-
         struct Factors
         {
             float loudness = 0.0f, low = 0.0f;
         };
 
-        Impl()
+        // 一份画像的派生结果（工作区算好、发布时整份拷过去）。
+        struct Result
         {
-            trialTopBin.fill (-1);           // 构造时整张都是 0：范围为空
-            trialLowBin.fill (trialBins);
+            MusicProfile profile;
+            bool referenceValid = false, lowReferenceValid = false;
+            float referenceLufs = 0.0f, lowReference = 0.0f;
+            double mainMass = 0.0;
+            float confidence = 0.0f;
+            float oldestMainShare = 0.0f, oldestReferenceShare = 0.0f;
+        };
+
+        enum class Step : std::uint8_t
+        {
+            idle, admit, referenceSweep, referencePick, lowSweep, lowPick, judgeSweep, accumulate, trialPick, gateSweep, finalize,
+            clearHistograms, complete
+        };
+
+        Impl()
+            : slots ((size_t) slotCount),
+              lambda ((size_t) windowCapacity, 0.0f), mainness ((size_t) windowCapacity, 0.0f),
+              referenceFactor ((size_t) windowCapacity, 0.0), allFactor ((size_t) windowCapacity, 0.0),
+              mainFactor ((size_t) windowCapacity, 0.0),
+              trialWeights ((size_t) trialSeries * (size_t) trialBins, 0.0),
+              publishedMainness ((size_t) windowCapacity, 0.0f), publishedWeight ((size_t) windowCapacity, 0.0)
+        {
+            trialTop.fill (-1);
+            trialLow.fill (trialBins);
             configure (48000.0);
-            clearAll();
+            coldStart();
         }
 
         //==============================================================================
@@ -877,43 +719,75 @@ namespace celadon::glaze
         double sampleRate = 48000.0;
         int trialBlockLength = 4800;            // 同分析器：一块 = 整数个起音组（48 kHz 4800 样本）
         int defaultSubBlockLength = 4800;       // 同分析器 / IN 表：round(0.1 s × 采样率)
+        std::int64_t gridSamples = 240;
+        std::int64_t delaySamples = 24000;
         LiveConstants constants;                // 已清洗
         MainSectionModel model = MainSectionModel::loudness;
+        bool frozen = false;                    // setFrozenReferencesForTesting
+        float frozenReference = 0.0f, frozenLowReference = 0.0f;
 
-        // 由段还原的换算（文件头第四节「频谱」）：分析器的子块长与 Balance 的 hop。
-        int subBlockLength = 4800;
-        int hopLength = 0;                      // 0 = 还没见过有帧的段（同 House 画像在 Balance 没 prepare 时 hopSeconds = 0）
+        // 段环
+        std::vector<Entry> slots;
+        std::uint64_t arrived = 0;              // 交来的段（reset 以来）
+        std::uint64_t admittedCount = 0;        // 已进账的段
+        std::int64_t lastDue = std::numeric_limits<std::int64_t>::min();
+        Counters counters;                      // 最近一次进账之后
 
-        // 三个遗忘域
-        double mainScale = 1.0, referenceScale = 1.0, allScale = 1.0;
-        MainStore mainStore;
-        ReferenceStore referenceStore;
-        AllStore allStore;
-        int peakTopBin = -1;                                       // 真峰值有权重的最高一格（派生，−1 = 没有）
-        // 试算直方图每一路有数的格的范围 [trialLowBin, trialTopBin]（空 = trialBins / −1）：并入时扩、重规范后缩、读档后整张重扫。
-        // 清零与重规范只扫这一段，所以它必须罩住全部非零的格（读档失败的半截数据也一样：先重扫再清，见 restoreState）。
-        std::array<int, (size_t) trialSeries> trialTopBin {}, trialLowBin {};
+        // 时间
+        bool haveNow = false;
+        std::int64_t now = 0;
+        std::int64_t nextGrid = 0;
 
-        // 不遗忘的计数与时钟
-        std::uint64_t commits = 0;              // 冷启动以来并入的段
-        double activeSeconds = 0.0;             // 并入过的有效音频（不遗忘）
-        double secondsSinceMain = 0.0;          // 最近一次 m ≥ mainThreshold 之后的有效音频
-        double newProgramSeconds = 0.0;         // 换歌：连续「相差超过 newProgramLu」的段的有效音频
-        std::uint64_t newProgramCount = 0;
-        SegmentMode lastMode = SegmentMode::none;   // 最近一段的分段方式与标称长度：M0 / W_mem 按小节换算用
-        double lastNominalSeconds = 0.0;
+        // 在途的一遍
+        Step step = Step::idle;
+        Context work;
+        int cursor = 0;
+        float passReference = 0.0f, passLowReference = 0.0f;
+        bool passReferenceValid = false, passLowReferenceValid = false;
+        double sweepEffective = 0.0, sweepAll = 0.0, sweepMain = 0.0;   // 新 → 老扫时「比 i 新的段」的和
+        int passHop = 0, passSubBlock = 0;      // 窗口里最新一段还原出的 hop / 子块长
+        double oldestReferenceWeight = 0.0;
+        Sums sums;
+        std::array<double, (size_t) histogramBins> loudnessWeights {};
+        double loudnessTotal = 0.0;
+        std::array<double, (size_t) lowShareBins> lowShareWeights {};
+        double lowShareTotal = 0.0;
+        std::array<double, (size_t) histogramBins> mainRange {}, referenceRange {};
+        std::array<double, (size_t) peakBins> peakWeight {};
+        std::array<float, (size_t) peakBins> peakMax {};
+        int peakTop = -1;
+        std::array<double, (size_t) strengthBins> strengthWeights {};
+        std::array<double, (size_t) lowRangeBins> lowRangeWeights {};
+        std::vector<float> lambda, mainness;    // 按窗口位置（0 = 最老）
+        std::vector<double> referenceFactor, allFactor, mainFactor;
+        std::vector<double> trialWeights;       // [路 × trialBins]
+        std::array<int, (size_t) trialSeries> trialTop {}, trialLow {};   // 有数的格的范围（空 = −1 / trialBins）
+        int trialDirtyEnd = 0;                  // 试算格：窗口位置 [trialCleanEnd, trialDirtyEnd) 的段写过、还没清
+        int trialCleanEnd = 0;
+        double gatePower = 0.0, gatedEnergy = 0.0, gatedCount = 0.0;
+        bool gateValid = false;
+        std::array<Feature, (size_t) numTrials> trialCost {};   // trialPick 算好的代价（finalize 时放进画像）
+        std::array<Feature, (size_t) numBlendTrials> blendLoss {};
+        float trialMeasured = 0.0f;
+        Result result;
+        LiveCommitRecord pendingRecord;
 
-        // 派生（每次并入后、读档后重算）
-        bool referenceValid = false, lowReferenceValid = false;
-        float referenceLufs = 0.0f, lowReference = 0.0f;
-        float confidence = 0.0f;
-        MusicProfile profile;
+        // 已发布
+        Context published;
+        Result publishedResult;
+        std::vector<float> publishedMainness;
+        std::vector<double> publishedWeight;
+        std::int64_t publishedTime = 0;
 
         // 提交记录（不进状态）
         std::array<LiveCommitRecord, (size_t) commitCapacity> records {};
         std::uint64_t recordTotal = 0;
+        PublicationListener* listener = nullptr;
 
         //==============================================================================
+        Entry& entryAt (std::uint64_t sequence) noexcept               { return slots[(size_t) (sequence % (std::uint64_t) slotCount)]; }
+        const Entry& entryAt (std::uint64_t sequence) const noexcept   { return slots[(size_t) (sequence % (std::uint64_t) slotCount)]; }
+
         void configure (double newSampleRate) noexcept
         {
             sampleRate = newSampleRate > 0.0 && std::isfinite (newSampleRate) ? newSampleRate : 48000.0;
@@ -923,16 +797,13 @@ namespace celadon::glaze
             const auto groupSeconds = (double) groupLength / sampleRate;
             trialBlockLength = juce::jmax (1, juce::roundToInt (trialBlockSeconds / groupSeconds)) * groupLength;
             defaultSubBlockLength = juce::jmax (1, juce::roundToInt (sampleRate * 0.1));
+            gridSamples = juce::jmax ((std::int64_t) 1, (std::int64_t) std::llround (sliceGridSeconds * sampleRate));
+            refreshDelay();
         }
 
-        // 拷贝常数与主段模型，再按新常数重算派生的参考与画像（不分配，几 µs）：S_ref / lowRef 的分位、I 取哪个域、M0 都随模型变，
-        // 不重算的话换模型后的第一段会按旧分位的 S_ref 算 m（头注释「之后的段按新模型算 m」），读数也还是旧模型的。累计一项不动。
-        void setConstants (const LiveConstants& newConstants, MainSectionModel newModel) noexcept
+        void refreshDelay() noexcept
         {
-            constants = sanitise (newConstants);
-            model = newModel == MainSectionModel::fourOnFloor || newModel == MainSectionModel::passive ? newModel : MainSectionModel::loudness;
-            refreshReferences();
-            computeProfile();
+            delaySamples = (std::int64_t) std::llround (juce::jmin (constants.publishDelaySeconds, 86400.0) * sampleRate);
         }
 
         const LiveModelConstants& modelConstants() const noexcept
@@ -942,246 +813,455 @@ namespace celadon::glaze
                                                       : constants.loudness;
         }
 
+        bool fourOnFloor() const noexcept       { return model == MainSectionModel::fourOnFloor; }
+        bool needsAllDomain() const noexcept    { return model != MainSectionModel::fourOnFloor; }
+
+        double nominalSecondsOf (const Entry& e) const noexcept
+        {
+            return e.nominalLength > 0 ? (double) e.nominalLength / sampleRate : 0.0;
+        }
+
         // W_mem：按小节分段 = memoryBars × 小节秒数（段的标称长度），否则 memorySeconds（可为 +∞ = 不遗忘）。
-        double memorySecondsFor (SegmentMode mode, double nominalSeconds) const noexcept
+        double memorySecondsOf (const Entry& e) const noexcept
         {
             const auto& mc = modelConstants();
+            const auto nominal = nominalSecondsOf (e);
 
-            if (mode == SegmentMode::bars && mc.memoryBars > 0.0 && nominalSeconds > 0.0)
-                return mc.memoryBars * nominalSeconds;
+            if (e.mode == SegmentMode::bars && mc.memoryBars > 0.0 && nominal > 0.0)
+                return mc.memoryBars * nominal;
 
             return mc.memorySeconds;
         }
 
-        // M0：同 W_mem 的换算（confidenceBars / confidenceSeconds），按最近一段的分段方式。
-        double confidenceSecondsNow() const noexcept
+        // M0：同 W_mem 的换算（confidenceBars / confidenceSeconds），按窗口里最新一段的分段方式。
+        double confidenceSecondsOf (const Entry* newest) const noexcept
         {
             const auto& mc = modelConstants();
 
-            if (lastMode == SegmentMode::bars && mc.confidenceBars > 0.0 && lastNominalSeconds > 0.0)
-                return mc.confidenceBars * lastNominalSeconds;
+            if (newest != nullptr && newest->mode == SegmentMode::bars && mc.confidenceBars > 0.0 && nominalSecondsOf (*newest) > 0.0)
+                return mc.confidenceBars * nominalSecondsOf (*newest);
 
             return mc.confidenceSeconds;
         }
 
         //==============================================================================
-        // 字段表：三个遗忘域里按缩放存的全部量（冷启动、重规范、存档都走它；增减字段只改这里）。peakMax 不缩放，单独处理。
-        template <typename Self, typename Visitor>
-        static void visitMain (Self& self, Visitor& v)
+        // 冷启动（不分配）：窗口、队列、事件、时间轴、已发布的画像。提交序号与环形缓冲不动。
+        void coldStart() noexcept
         {
-            auto& s = self.mainStore;
-            v.value ("mainMass", s.mass);
-            v.array ("mainGatingEnergy", s.gating.energy);
-            v.array ("mainGatingCount", s.gating.count);
-            v.value ("mainGatingTotalEnergy", s.gating.totalEnergy);
-            v.value ("mainGatingTotalCount", s.gating.totalCount);
-            v.array ("peakWeight", s.peakWeight);
-            v.value ("frames", s.frames);
-            v.array ("powerSum", s.powerSum);
-            v.array ("tameSum", s.tameSum);
-            v.array ("recoverSum", s.recoverSum);
-            v.array ("deficitWeight", s.deficitWeight);
-            v.array ("validWeight", s.validWeight);
-            v.array ("stereoPowerSum", s.stereoPowerSum);
-            v.signedArray ("stereoCrossSum", s.stereoCrossSum);
-            v.array ("stereoWeight", s.stereoWeight);
-            v.value ("lowStereoWeight", s.lowStereoWeight);
-            v.value ("highStereoWeight", s.highStereoWeight);
-            v.array ("lowRangeCount", s.lowRangeCount);
-            v.value ("fluxFrames", s.fluxFrames);
-            v.value ("fluxEvents", s.fluxEvents);
-            v.value ("onsetSamples", s.onsetSamples);
-            v.value ("onsetEvents", s.onsetEvents);
-            v.array ("strengthCount", s.strengthCount);
-            v.value ("subEnergy", s.subEnergy);
-            v.value ("midEnergy", s.midEnergy);
-            v.value ("trialBlocks", s.trialBlocks);
-            v.trial ("trialWeights", s.trialWeights, self.trialLowBin, self.trialTopBin);
-            v.array ("blendIntended", s.blendIntended);
-            v.array ("blendOutput", s.blendOutput);
-            v.array ("mainRangeWeights", s.range);
-            v.value ("mainRangeEnergy", s.rangeEnergy);
-            v.value ("mainRangeCount", s.rangeCount);
-        }
-
-        template <typename Self, typename Visitor>
-        static void visitReference (Self& self, Visitor& v)
-        {
-            auto& s = self.referenceStore;
-            v.array ("referenceLoudness", s.loudness);
-            v.value ("referenceLoudnessTotal", s.loudnessTotal);
-            v.array ("referenceLowShare", s.lowShare);
-            v.value ("referenceLowShareTotal", s.lowShareTotal);
-            v.array ("rangeWeights", s.range);
-            v.value ("rangeEnergy", s.rangeEnergy);
-            v.value ("rangeCount", s.rangeCount);
-        }
-
-        template <typename Self, typename Visitor>
-        static void visitAll (Self& self, Visitor& v)
-        {
-            auto& s = self.allStore;
-            v.value ("allMass", s.mass);
-            v.array ("allGatingEnergy", s.gating.energy);
-            v.array ("allGatingCount", s.gating.count);
-            v.value ("allGatingTotalEnergy", s.gating.totalEnergy);
-            v.value ("allGatingTotalCount", s.gating.totalCount);
+            discardPass();
+            arrived = admittedCount = 0;
+            lastDue = std::numeric_limits<std::int64_t>::min();
+            counters = Counters {};
+            haveNow = false;
+            now = 0;
+            nextGrid = 0;
+            step = Step::idle;
+            work = Context {};
+            published = Context {};
+            publishedTime = 0;
+            recomputePublished();
         }
 
         //==============================================================================
-        // 冷启动：清空全部累计与参考（不分配）；提交序号与环形缓冲不动。
-        void clearAll() noexcept
+        // 进队（segmentFinalized / commitWithMainness）：转成 Entry、定发布时刻。只做定长拷贝与几十次对数（试算格号），O(1)。
+        void enqueue (const SegmentLedger::Segment& segment, bool pinned, float pinnedMainness) noexcept
         {
-            Clearer clearer;
-            visitMain (*this, clearer);
-            visitReference (*this, clearer);
-            visitAll (*this, clearer);
-            mainStore.peakMax.fill (0.0f);
-            mainScale = referenceScale = allScale = 1.0;
-
-            commits = 0;
-            activeSeconds = secondsSinceMain = newProgramSeconds = 0.0;
-            newProgramCount = 0;
-            lastMode = SegmentMode::none;
-            lastNominalSeconds = 0.0;
-            subBlockLength = defaultSubBlockLength;
-            hopLength = 0;
-
-            peakTopBin = -1;                 // 全清了：范围为空（不用重扫）
-            trialTopBin.fill (-1);
-            trialLowBin.fill (trialBins);
-            refreshReferences();
-            computeProfile();
+            makeRoomInQueue();
+            auto& e = entryAt (arrived);
+            makeEntry (segment, e);
+            e.pinned = pinned;
+            e.pinnedMainness = pinnedMainness;
+            e.due = juce::jmax (saturatingAdd (segment.end, delaySamples), lastDue);
+            lastDue = e.due;
+            ++arrived;
         }
 
-        // 真峰值有权重的最高一格（1400 格，从上往下扫到第一个就停）。
-        void refreshPeakTop() noexcept
+        // 队列满（调用方一直不调 advanceTo）：最早那一段就地算完、立刻发布（LiveProfile.h 文件头第二节最后一条）。新段只能盖掉比已发布
+        // 窗口更老的格，所以要先腾出一格。
+        void makeRoomInQueue() noexcept
         {
-            peakTopBin = -1;
-
-            for (int bin = peakBins - 1; bin >= 0; --bin)
-                if (mainStore.peakWeight[(size_t) bin] != 0.0)
-                {
-                    peakTopBin = bin;
-                    break;
-                }
-        }
-
-        // 试算直方图有数的范围：整张重扫（读档后，消息线程）。按「非零」算，读进来的负数（随后判坏数据）也罩住。
-        void recomputeTrialRanges() noexcept
-        {
-            for (int series = 0; series < trialSeries; ++series)
+            while (arrived - published.count >= (std::uint64_t) queueCapacity)
             {
-                const auto* weights = trialWeightsOf (series);
-                auto top = -1, low = trialBins;
+                if (step == Step::idle)
+                    startNextPass();
 
-                for (int bin = 0; bin < trialBins; ++bin)
-                    if (weights[bin] != 0.0)
+                finishPass();
+                publish();
+            }
+        }
+
+        void makeEntry (const SegmentLedger::Segment& s, Entry& e) const noexcept
+        {
+            e = Entry {};
+            e.start = s.start;
+            e.end = s.end;
+            e.nominalLength = juce::jmax ((std::int64_t) 0, s.nominalLength);
+            e.mode = s.mode == SegmentMode::bars || s.mode == SegmentMode::seconds ? s.mode : SegmentMode::none;
+            e.usable = usableSegment (s);
+            e.loudnessValid = s.loudnessValid && std::isfinite (s.loudnessLufs);
+            e.loudnessLufs = e.loudnessValid ? s.loudnessLufs : 0.0f;
+            e.lowShareValid = s.lowShareValid && std::isfinite (s.lowShare);
+            e.lowShare = e.lowShareValid ? s.lowShare : 0.0f;
+
+            if (! e.usable)
+            {
+                deriveEntry (e);
+                return;
+            }
+
+            e.effectiveSeconds = s.effectiveSeconds;
+            e.truePeak = s.truePeak;
+            e.gatingCount = s.gatingCount;
+            e.gatingPower = s.gatingPower;
+            e.rangeCount = s.rangeCount;
+            e.rangeBin = s.rangeBin;
+            e.rangeEnergy = s.rangeEnergy;
+
+            e.frames = (double) s.frames;
+            e.spectrum[(size_t) powerTable] = s.powerSum;
+            e.spectrum[(size_t) tameTable] = s.tameSum;
+            e.spectrum[(size_t) recoverTable] = s.recoverSum;
+            e.spectrum[(size_t) deficitTable] = s.deficitWeight;
+            e.spectrum[(size_t) validTable] = s.validWeight;
+            e.spectrum[(size_t) stereoPowerTable] = s.stereoPowerSum;
+            e.spectrum[(size_t) stereoCrossTable] = s.stereoCrossSum;
+            e.spectrum[(size_t) stereoWeightTable] = s.stereoWeight;
+            e.lowStereoWeight = s.lowStereoWeight;
+            e.highStereoWeight = s.highStereoWeight;
+
+            if (s.lowRangeLast >= s.lowRangeFirst)
+            {
+                e.lowRangeFirst = s.lowRangeFirst;
+                e.lowRangeLast = s.lowRangeLast;
+                e.lowRangeCount = s.lowRangeCount;
+            }
+
+            e.fluxFrames = (double) s.fluxFrames;
+            e.fluxEvents = (double) s.fluxEvents;
+            e.onsetSamples = (double) s.onsetEffectiveSamples;
+            e.onsetEvents = (double) s.onsetEvents;
+            e.strengthCount = s.strengthCount;
+            e.strengthBin = s.strengthBin;
+            e.subEnergy = s.subEnergy;
+            e.midEnergy = s.midEnergy;
+
+            // 试算：每路交来的最大 8 个（不足 8 块就是全部块）只留格号；全部块计入总块数（没交数值的块都在这 8 个之下）。
+            e.trialBlocks = s.liveTrialBlocks;
+            const auto values = juce::jmin (s.liveTrialBlocks, trialTopCount);
+
+            for (size_t series = 0; series < (size_t) trialSeries; ++series)
+                for (int k = 0; k < values; ++k)
+                    e.trialBin[series][(size_t) k] = (std::uint16_t) trialBinOf (s.liveTrialTop[series][(size_t) k]);
+
+            e.blendIntended = s.liveBlendIntended;
+            e.blendOutput = s.liveBlendOutput;
+
+            // Segment 不带分析器的子块长与 Balance 的 hop：由段还原（逐个加起来的时长 ÷ 个数 × 采样率，舍入误差远小于半个样本），
+            // 让频谱 / LRA 的时长与 House 画像同一个公式（个数 × 长度 ÷ 采样率）。
+            if (s.effectiveSubBlocks > 0 && s.effectiveSeconds > 0.0)
+            {
+                const auto length = std::llround (s.effectiveSeconds * sampleRate / (double) s.effectiveSubBlocks);
+                e.subBlockLength = length >= 1 && length <= (long long) std::numeric_limits<int>::max() ? (int) length : 0;
+            }
+
+            if (s.frames > 0 && s.frameSeconds > 0.0)
+            {
+                const auto length = std::llround (s.frameSeconds * sampleRate / (double) s.frames);
+                e.hopLength = length >= 1 && length <= (long long) std::numeric_limits<int>::max() ? (int) length : 0;
+            }
+
+            deriveEntry (e);
+        }
+
+        // 派生的格号与工作量估计（与常数无关；进队与读档后算）。
+        static void deriveEntry (Entry& e) noexcept
+        {
+            e.loudnessBin = e.loudnessValid ? loudnessBinOf (e.loudnessLufs) : 0;
+            e.lowShareBin = e.lowShareValid ? lowShareBinOf (e.lowShare) : 0;
+            e.peakBin = e.truePeak > 0.0f ? peakBinOf (e.truePeak) : 0;
+            const auto lowRangeSpan = e.lowRangeLast >= e.lowRangeFirst ? e.lowRangeLast - e.lowRangeFirst + 1 : 0;
+            const auto trialValues = (int) trialSeries * juce::jmin (e.trialBlocks, trialTopCount);
+            e.accumulateCost = costAccumulateBase
+                             + costPerValue * (double) (2 * e.gatingCount + 2 * e.rangeCount + lowRangeSpan + e.strengthCount + trialValues);
+        }
+
+        //==============================================================================
+        // 时间（LiveProfile.h 文件头第二节）。
+        void advanceTo (std::int64_t t) noexcept
+        {
+            if (haveNow && t <= now)
+                return;   // 时间只增不减：重复或更早的调用什么都不做
+
+            if (! haveNow)
+            {
+                // 冷启动后的第一次：时间轴从这里起算，第一片落在 t 之前（含）最近的网格点上（不补冷启动之前的网格点）。
+                haveNow = true;
+                nextGrid = gridPointAtOrBefore (t, gridSamples);
+            }
+
+            for (;;)
+            {
+                if (step == Step::idle && arrived > published.count)
+                    startNextPass();
+
+                if (step == Step::idle)
+                    break;
+
+                const auto due = entryAt (work.count - 1).due;
+
+                if (step != Step::complete)
+                {
+                    if (nextGrid <= t && nextGrid < due)
                     {
-                        low = juce::jmin (low, bin);
-                        top = bin;
+                        runSlice();
+                        nextGrid = saturatingAdd (nextGrid, gridSamples);
+                        continue;
                     }
 
-                trialTopBin[(size_t) series] = top;
-                trialLowBin[(size_t) series] = low;
-            }
-        }
+                    if (due <= t)
+                    {
+                        finishPass();   // 补完欠的片（大块、离线、成批交段）
+                        continue;
+                    }
 
-        // 重规范之后两头可能归零了：只在原范围里往里收。
-        void shrinkTrialRanges() noexcept
-        {
-            for (int series = 0; series < trialSeries; ++series)
-            {
-                const auto* weights = trialWeightsOf (series);
-                auto& low = trialLowBin[(size_t) series];
-                auto& top = trialTopBin[(size_t) series];
-
-                while (low <= top && weights[low] == 0.0)
-                    ++low;
-
-                while (top >= low && weights[top] == 0.0)
-                    --top;
-
-                if (low > top)
-                {
-                    low = trialBins;
-                    top = -1;
+                    break;
                 }
+
+                if (due <= t)
+                {
+                    publish();
+                    continue;
+                }
+
+                break;
+            }
+
+            now = t;
+
+            // 没有在做的一遍时网格点不攒着：下一片落在 t 之后的第一个网格点上。
+            if (step == Step::idle || step == Step::complete)
+                nextGrid = juce::jmax (nextGrid, gridPointAfter (t, gridSamples));
+        }
+
+        // 把还没发布的段全部算完、按序发布（发布时刻照记 D；时间轴不动）。
+        void flush() noexcept
+        {
+            for (;;)
+            {
+                if (step == Step::idle && arrived > published.count)
+                    startNextPass();
+
+                if (step == Step::idle)
+                    return;
+
+                finishPass();
+                publish();
             }
         }
 
-        double* trialWeightsOf (int series) noexcept               { return mainStore.trialWeights.data() + (size_t) series * (size_t) trialBins; }
-        const double* trialWeightsOf (int series) const noexcept   { return mainStore.trialWeights.data() + (size_t) series * (size_t) trialBins; }
+        // 下一遍：第 published.count + 1 份画像。进账（admit）落在第一片里。
+        void startNextPass() noexcept
+        {
+            work.count = published.count + 1;
+            work.size = (int) juce::jmin (work.count, (std::uint64_t) windowCapacity);
+            work.first = work.count - (std::uint64_t) work.size;
+            step = admittedCount < work.count ? Step::admit : Step::referenceSweep;
+            cursor = 0;
+
+            if (step == Step::referenceSweep)
+                beginReferenceSweep();
+        }
+
+        void runSlice() noexcept
+        {
+            double spent = 0.0;
+
+            while (step != Step::complete)
+            {
+                const auto cost = costOfNextStep();
+
+                if (spent > 0.0 && spent + cost > sliceBudgetNanoseconds)
+                    break;
+
+                doStep();
+                spent += cost;
+            }
+        }
+
+        void finishPass() noexcept
+        {
+            while (step != Step::complete)
+                doStep();
+        }
+
+        double costOfNextStep() const noexcept
+        {
+            switch (step)
+            {
+                case Step::admit:           return costAdmit;
+                case Step::referenceSweep:  return costReferenceEntry + (needsAllDomain() ? costAllEntry : 0.0);
+                case Step::referencePick:
+                case Step::lowPick:         return costPick;
+                case Step::lowSweep:        return costLowEntry;
+                case Step::judgeSweep:      return costJudgeEntry;
+                case Step::accumulate:      return cursor < work.size ? entryAt (work.first + (std::uint64_t) cursor).accumulateCost : 0.0;
+                case Step::trialPick:       return costTrialSeries;
+                case Step::gateSweep:       return cursor < work.size ? costGateEntry + costPerValue * (double) entryAt (work.first + (std::uint64_t) cursor).gatingCount
+                                                                      : 0.0;
+                case Step::finalize:        return costFinalize;
+                case Step::clearHistograms: return costClear;
+                case Step::idle:
+                case Step::complete:        return 0.0;
+            }
+
+            return 0.0;
+        }
+
+        // 一步（文件头第二节）。sweep 每步一段；窗口空（冷启动）时各 sweep 一步也不做，直接到下一阶段。
+        void doStep() noexcept
+        {
+            switch (step)
+            {
+                case Step::admit:
+                    admitNewest();
+                    step = Step::referenceSweep;
+                    cursor = 0;
+                    beginReferenceSweep();
+                    return;
+
+                case Step::referenceSweep:
+                    if (cursor < work.size)
+                        referenceOne (work.size - 1 - cursor++);
+
+                    if (cursor >= work.size)
+                        step = Step::referencePick;
+
+                    return;
+
+                case Step::referencePick:
+                    pickReference();
+                    step = Step::lowSweep;
+                    cursor = 0;
+                    return;
+
+                case Step::lowSweep:
+                    if (cursor < work.size)
+                        lowOne (cursor++);
+
+                    if (cursor >= work.size)
+                        step = Step::lowPick;
+
+                    return;
+
+                case Step::lowPick:
+                    pickLowReference();
+                    step = Step::judgeSweep;
+                    cursor = 0;
+                    sweepMain = 0.0;
+                    return;
+
+                case Step::judgeSweep:
+                    if (cursor < work.size)
+                        judgeOne (work.size - 1 - cursor++);
+
+                    if (cursor >= work.size)
+                    {
+                        step = Step::accumulate;
+                        cursor = 0;
+                        beginAccumulate();
+                    }
+
+                    return;
+
+                case Step::accumulate:
+                    if (cursor < work.size)
+                        accumulateOne (cursor++);
+
+                    if (cursor >= work.size)
+                    {
+                        step = Step::trialPick;
+                        cursor = 0;
+                    }
+
+                    return;
+
+                case Step::trialPick:
+                    trialOne (cursor++);
+
+                    if (cursor >= trialSeries)
+                    {
+                        step = Step::gateSweep;
+                        cursor = 0;
+                        beginGateSweep();
+                    }
+
+                    return;
+
+                case Step::gateSweep:
+                    if (cursor < work.size)
+                        gateOne (cursor++);
+
+                    if (cursor >= work.size)
+                        step = Step::finalize;
+
+                    return;
+
+                case Step::finalize:
+                    finalizeProfile();
+                    step = Step::clearHistograms;
+                    return;
+
+                case Step::clearHistograms:
+                    clearHistograms();
+                    step = Step::complete;
+                    return;
+
+                case Step::idle:
+                case Step::complete:
+                    return;
+            }
+        }
 
         //==============================================================================
-        // 遗忘：只乘缩放因子；低于门槛就重规范（文件头第一节）。factor ∈ [0, 1]。
-        void decayMain (double factor) noexcept
+        // 进账（文件头第一节）：按上一份已发布画像的参考判一次，定换歌与无主段的事件、印记。
+        void admitNewest() noexcept
         {
-            if (! (factor < 1.0))
-                return;
+            const auto sequence = work.count - 1;
+            auto& e = entryAt (sequence);
+            const auto f = factorsFor (e.loudnessValid, e.loudnessLufs, e.lowShareValid, e.lowShare);
+            const auto m = ! e.usable ? 0.0f : e.pinned ? e.pinnedMainness : f.loudness * f.low;
+            e.admissionLoudnessFactor = f.loudness;
+            e.admissionLowFactor = f.low;
+            e.admissionMainness = m;
+            e.vote = 0;
+            e.timeDecay = e.newProgram = e.newProgramRangeValid = false;
+            e.newProgramRangeLu = 0.0f;
 
-            mainScale *= juce::jmax (0.0, factor);
-
-            if (mainScale < renormaliseBelow)
-                renormaliseMain();
-        }
-
-        void decayReference (double factor) noexcept
-        {
-            if (! (factor < 1.0))
-                return;
-
-            referenceScale *= juce::jmax (0.0, factor);
-
-            if (referenceScale < renormaliseBelow)
+            if (e.usable)
             {
-                Rescaler rescaler { referenceScale };
-                visitReference (*this, rescaler);
-                referenceScale = 1.0;
+                noteNewProgram (sequence, e);
+                noteMainness (m, e);
+                counters.activeSeconds += e.effectiveSeconds;
             }
-        }
-
-        void decayAll (double factor) noexcept
-        {
-            if (! (factor < 1.0))
-                return;
-
-            allScale *= juce::jmax (0.0, factor);
-
-            if (allScale < renormaliseBelow)
+            else
             {
-                Rescaler rescaler { allScale };
-                visitAll (*this, rescaler);
-                allScale = 1.0;
+                e.vote = 3;   // 坏段：不算数也不清零
             }
+
+            e.mainStamp = counters.mainClock;
+            e.referenceStamp = counters.referenceClock;
+            e.admitted = true;
+            admittedCount = work.count;
+            work.counters = counters;
         }
 
-        void renormaliseMain() noexcept
-        {
-            Rescaler rescaler { mainScale };
-            visitMain (*this, rescaler);
-            mainScale = 1.0;
-
-            for (size_t bin = 0; bin < (size_t) peakBins; ++bin)
-                if (! (mainStore.peakWeight[bin] > 0.0))
-                    mainStore.peakMax[bin] = 0.0f;
-
-            refreshPeakTop();
-            shrinkTrialRanges();
-        }
-
-        // 换歌软遗忘：三个域一起 × keep。
-        void forgetAll (double keep) noexcept
-        {
-            decayMain (keep);
-            decayReference (keep);
-            decayAll (keep);
-        }
-
-        //==============================================================================
-        // 主段度（文件头第二节）。用此刻的参考；mainnessFor 与并入共用这一个函数。
+        // 主段度的两个因子：参考 = 已发布那一份（或冻结的）；没有参考时以这份读数自己为参考（两道参考各自冷启动）。
         Factors factorsFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept
         {
+            const auto referenceValid = frozen || publishedResult.referenceValid;
+            const auto reference = frozen ? frozenReference : publishedResult.referenceLufs;
+            const auto lowReferenceValid = frozen || publishedResult.lowReferenceValid;
+            const auto lowReference = frozen ? frozenLowReference : publishedResult.lowReference;
             Factors f;
 
             if (! loudnessValid || ! std::isfinite (loudnessLufs))
@@ -1195,426 +1275,639 @@ namespace celadon::glaze
 
             const auto& mc = modelConstants();
             const auto gate = (double) mc.gateWidthLu;
-            const auto above = referenceValid ? (double) loudnessLufs - ((double) referenceLufs - gate)
-                                              : gate;   // 冷启动：以这一段自己为参考（S_ref = L_seg）
+            const auto above = referenceValid ? (double) loudnessLufs - ((double) reference - gate) : gate;
             f.loudness = (float) ramp (above, (double) mc.loudnessRampLu);
-
-            if (model != MainSectionModel::fourOnFloor || ! (mc.lowGateFactor > 0.0f))
-            {
-                f.low = 1.0f;
-                return f;
-            }
-
-            if (! lowShareValid || ! std::isfinite (lowShare))
-                return f;   // 低频读不出：过不了低频门（同 SegmentLedger）
-
-            const auto ratio = lowReferenceValid ? (double) lowShare / (double) lowReference
-                                                 : 1.0;   // 冷启动：lowRef = 这一段自己的 lowShare
-            f.low = (float) ramp (ratio - (double) mc.lowGateFactor, (double) mc.lowRampWidth);
+            f.low = lowFactorOf (lowShareValid, lowShare, lowReferenceValid, lowReference);
             return f;
         }
 
-        static float mainnessOf (const Factors& f) noexcept
+        // 4/4 型的低频因子（其余模型、或低频门系数 ≤ 0：1）。低频读不出：过不了低频门（同 SegmentLedger）。
+        float lowFactorOf (bool lowShareValid, float lowShare, bool lowReferenceValid, float lowReference) const noexcept
         {
-            return f.loudness * f.low;
+            const auto& mc = modelConstants();
+
+            if (! fourOnFloor() || ! (mc.lowGateFactor > 0.0f))
+                return 1.0f;
+
+            if (! lowShareValid || ! std::isfinite (lowShare))
+                return 0.0f;
+
+            const auto ratio = lowReferenceValid ? (double) lowShare / (double) lowReference : 1.0;
+            return (float) ramp (ratio - (double) mc.lowGateFactor, (double) mc.lowRampWidth);
         }
 
-        //==============================================================================
-        // 并入一段（segmentFinalized / commitWithMainness 共用；文件头第一～三节）。
-        void commit (const SegmentLedger::Segment& segment, float mainness, const Factors& factors) noexcept
+        // 换歌软遗忘（Max 2026-10-02「响的算、轻的要有低音」+「轻的那一支要电平稳」）：
+        //   票 1 = 比上一份画像的 I 响 newProgramLu 以上；票 2 = 4/4 型里轻 newProgramLu 以上且低频因子 ≥ 0.5；票 0 = 都不是（清零重计）；
+        //   票 3 = 段响度或 I 读不出（不算数也不清零）。这一串（票 1 / 2）的有效音频累计满 newProgramSeconds 之后，每来一段量一次「最近
+        //   newProgramSeconds 的那一截」：全是票 1，或段响度起伏（最大 − 最小）≤ newProgramRangeLu，才触发——带低音的淡出一路往下掉不算。
+        //   触发：两个事件时钟加 ln(1 ÷ keep)（全部更老的段 × keep），这一串清零重来。比较都是严格大于。
+        void noteNewProgram (std::uint64_t sequence, Entry& e) noexcept
         {
-            const auto usable = usableSegment (segment);
-            const auto effective = usable ? segment.effectiveSeconds : 0.0;
-            const auto m = usable ? mainness : 0.0f;
-            const auto w = (double) m * effective;
-            const auto nominalSeconds = segment.nominalLength > 0 ? (double) segment.nominalLength / sampleRate : 0.0;
-            const auto memory = memorySecondsFor (segment.mode, nominalSeconds);
+            const auto& level = publishedResult.profile.integratedLufs;
 
-            LiveCommitRecord record;
-            record.sequence = recordTotal;
-            record.start = segment.start;
-            record.end = segment.end;
-            record.nominalSeconds = nominalSeconds;
-            record.mode = segment.mode;
-            record.effectiveSeconds = effective;
-            record.loudnessValid = segment.loudnessValid;
-            record.loudnessLufs = segment.loudnessLufs;
-            record.lowShareValid = segment.lowShareValid;
-            record.lowShare = segment.lowShare;
-            record.loudnessFactor = factors.loudness;
-            record.lowFactor = factors.low;
-            record.mainness = m;
-            record.weightSeconds = w;
-            record.referenceValid = referenceValid;
-            record.referenceLufs = referenceLufs;
-            record.lowReferenceValid = lowReferenceValid;
-            record.lowReference = lowReference;
-
-            if (usable)
+            if (! e.loudnessValid || ! level.valid || ! std::isfinite (level.value))
             {
-                record.newProgram = noteNewProgram (segment, factors);
-
-                if (record.newProgram)
-                    forgetAll ((double) constants.newProgramKeep);
+                e.vote = 3;
+                return;
             }
 
-            // 主段域：按进账遗忘 × 无主段的时间衰减，再把这一段 × m 加进去。
-            const auto excess = noteMainness (m, effective);
-            record.timeDecay = excess > 0.0;
-            const auto exponent = w / memory + excess / constants.noMainDecaySeconds;
-
-            if (exponent > 0.0)
-                decayMain (std::exp (-exponent));
-
-            if (m > 0.0f)
-                addMain (segment, (double) m / mainScale);
-
-            // 参考域与全部段域：全部段、按有效音频遗忘。
-            if (usable)
-            {
-                if (effective > 0.0)
-                {
-                    decayReference (std::exp (-effective / constants.referenceMemorySeconds));
-                    decayAll (std::exp (-effective / memory));
-                }
-
-                addReference (segment, factors);
-                addAll (segment);
-                recoverLengths (segment);
-            }
-
-            ++commits;
-            activeSeconds += effective;
-            lastMode = segment.mode;
-            lastNominalSeconds = nominalSeconds;
-
-            refreshReferences();
-            computeProfile();
-
-            record.mainLevelValid = profile.integratedLufs.valid;
-            record.mainLevelLufs = profile.integratedLufs.value;
-            record.mainMassSeconds = mainStore.mass * mainScale;
-            record.confidence = confidence;
-            records[(size_t) (recordTotal % (std::uint64_t) commitCapacity)] = record;
-            ++recordTotal;
-        }
-
-        // 换歌（文件头第三节）：返回这一段是否触发软遗忘。factors = 这一段按并入之前的参考算的两个因子。
-        bool noteNewProgram (const SegmentLedger::Segment& segment, const Factors& factors) noexcept
-        {
-            const auto& level = profile.integratedLufs;
-
-            if (! segment.loudnessValid || ! level.valid || ! std::isfinite (level.value))
-                return false;   // 没有可比的读数：不算数也不清零
-
-            if (! looksLikeNewProgram ((double) segment.loudnessLufs - (double) level.value, factors))
-            {
-                newProgramSeconds = 0.0;
-                return false;
-            }
-
-            newProgramSeconds += segment.effectiveSeconds;
-
-            if (! (newProgramSeconds >= constants.newProgramSeconds))
-                return false;
-
-            newProgramSeconds = 0.0;
-            ++newProgramCount;
-            return true;
-        }
-
-        // 一段算不算「像换了一首歌」（Max 2026-10-02「响的算、轻的要有低音」）：比 I 响 newProgramLu 以上的段都算；更轻的段只在 4/4 型、
-        // 且低频因子 ≥ 0.5（低音满）时才算——House 的 breakdown 本来就比 drop 轻 6 ～ 10 LU、又没有低音，按原来的「相差超过」会被当成
-        // 换歌（32 小节的 breakdown 能把 c 从约 1 打到约 0.05），与「breakdown 里什么都不动」冲突。其余更轻的新材料交给长时间无主段的
-        // 时间衰减（约 2 分钟跟上）。比较都是严格大于。
-        bool looksLikeNewProgram (double differenceLu, const Factors& factors) const noexcept
-        {
             const auto threshold = (double) constants.newProgramLu;
+            const auto difference = (double) e.loudnessLufs - (double) level.value;
 
-            if (differenceLu > threshold)
-                return true;
+            if (difference > threshold)
+                e.vote = 1;
+            else if (fourOnFloor() && -difference > threshold && e.admissionLowFactor >= 0.5f)
+                e.vote = 2;
+            else
+                e.vote = 0;
 
-            return model == MainSectionModel::fourOnFloor && -differenceLu > threshold && factors.low >= 0.5f;
+            if (e.vote == 0)
+            {
+                counters.runSeconds = 0.0;
+                counters.runStart = sequence + 1;
+                return;
+            }
+
+            counters.runSeconds += e.effectiveSeconds;
+
+            if (! (counters.runSeconds >= constants.newProgramSeconds))
+                return;
+
+            // 最近 newProgramSeconds 的那一截：从这一段往回，跳过票 3，最早到这一串的开头（也不早于窗口的开头）。
+            const auto earliest = juce::jmax (counters.runStart, work.first);
+            double seconds = 0.0;
+            auto lowest = std::numeric_limits<double>::infinity(), highest = -std::numeric_limits<double>::infinity();
+            auto onlyLouder = true;
+
+            for (auto s = sequence + 1; s > earliest; --s)
+            {
+                const auto& previous = entryAt (s - 1);
+
+                if (previous.vote == 3)
+                    continue;
+
+                seconds += previous.effectiveSeconds;
+                lowest = juce::jmin (lowest, (double) previous.loudnessLufs);
+                highest = juce::jmax (highest, (double) previous.loudnessLufs);
+                onlyLouder = onlyLouder && previous.vote == 1;
+
+                if (seconds >= constants.newProgramSeconds)
+                    break;
+            }
+
+            e.newProgramRangeValid = true;
+            e.newProgramRangeLu = (float) (highest - lowest);
+
+            if (! (seconds >= constants.newProgramSeconds) || ! (onlyLouder || highest - lowest <= (double) constants.newProgramRangeLu))
+                return;
+
+            const auto keep = (double) constants.newProgramKeep;
+            const auto logKeep = keep > 0.0 ? juce::jmin (-std::log (keep), maximumLogKeep) : maximumLogKeep;
+            counters.mainClock += logKeep;
+            counters.referenceClock += logKeep;
+            ++counters.newProgramCount;
+            counters.runSeconds = 0.0;
+            counters.runStart = sequence + 1;
+            e.newProgram = true;
         }
 
-        // 长时间无主段（文件头第三节）：返回这一段里越过 noMainSeconds 之后的有效音频（秒）。
-        double noteMainness (float m, double effective) noexcept
+        // 长时间无主段：上一次进账 m ≥ mainThreshold 之后的有效音频超过 noMainSeconds 的那一部分，按 ÷ noMainDecaySeconds 加进主段时钟
+        // （乘在更老的主段上）。只算越过门槛之后的秒数，所以与段怎么切无关。
+        void noteMainness (float m, Entry& e) noexcept
         {
             if (m >= constants.mainThreshold)
             {
-                secondsSinceMain = 0.0;
-                return 0.0;
+                counters.secondsSinceMain = 0.0;
+                return;
             }
 
-            const auto before = secondsSinceMain;
-            secondsSinceMain += effective;
-            return juce::jmax (0.0, secondsSinceMain - juce::jmax (before, constants.noMainSeconds));
+            const auto before = counters.secondsSinceMain;
+            counters.secondsSinceMain += e.effectiveSeconds;
+            const auto excess = juce::jmax (0.0, counters.secondsSinceMain - juce::jmax (before, constants.noMainSeconds));
+
+            if (excess > 0.0)
+            {
+                counters.mainClock += excess / constants.noMainDecaySeconds;
+                e.timeDecay = true;
+            }
         }
 
-        // 这一段 × m 并进主段域（gain = m ÷ g）。逐项同 MusicAnalyzer.cpp computeHouseProfile 对一个满编段做的累加（同一顺序）。
-        void addMain (const SegmentLedger::Segment& segment, double gain) noexcept
+        //==============================================================================
+        // 参考（新 → 老）：参考权重 ρ、全部段权重 a、段响度直方图；窗口里最新一段的 hop / 子块长。
+        void beginReferenceSweep() noexcept
         {
-            auto& s = mainStore;
-            const auto weight = segment.effectiveSeconds * gain;   // w ÷ g
+            sweepEffective = sweepAll = 0.0;
+            loudnessTotal = 0.0;
+            passHop = passSubBlock = 0;
+            oldestReferenceWeight = 0.0;
+            sums.referenceMass = 0.0;
+        }
+
+        void referenceOne (int position) noexcept
+        {
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+            const auto effective = e.usable ? e.effectiveSeconds : 0.0;
+            const auto clockGap = work.counters.referenceClock - e.referenceStamp;
+            const auto rho = std::exp (-(sweepEffective / constants.referenceMemorySeconds) - clockGap);
+            referenceFactor[(size_t) position] = rho;
+            allFactor[(size_t) position] = needsAllDomain() ? std::exp (-sweepAll - clockGap) : 0.0;
+            const auto weight = effective * rho;
+
+            if (e.usable)
+            {
+                sums.referenceMass += weight;
+
+                if (e.loudnessValid && weight > 0.0)
+                {
+                    loudnessWeights[(size_t) e.loudnessBin] += weight;
+                    loudnessTotal += weight;
+                }
+
+                if (passHop == 0 && e.hopLength > 0)
+                    passHop = e.hopLength;
+
+                if (passSubBlock == 0 && e.subBlockLength > 0)
+                    passSubBlock = e.subBlockLength;
+            }
+
+            if (position == 0)
+                oldestReferenceWeight = weight;
+
+            sweepEffective += effective;
+            sweepAll += effective / memorySecondsOf (e);
+        }
+
+        void pickReference() noexcept
+        {
+            if (frozen)
+            {
+                passReferenceValid = true;
+                passReference = frozenReference;
+            }
+            else
+            {
+                const auto bin = weightedPercentileBin (loudnessWeights, loudnessTotal, (double) modelConstants().referencePercentile);
+                passReferenceValid = bin >= 0;
+                passReference = passReferenceValid ? (float) binCentreLufs (bin) : 0.0f;
+            }
+
+            loudnessWeights.fill (0.0);
+            lowShareTotal = 0.0;
+        }
+
+        // 按此刻 S_ref 的响度因子 λ；λ ≥ 0.5 的段的 lowShare 进 lowRef 的直方图（Max 2026-10-02：不再由「当时过没过响度门」决定）。
+        void lowOne (int position) noexcept
+        {
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+            auto factor = 0.0f;
+
+            if (e.usable && e.loudnessValid)
+            {
+                if (model == MainSectionModel::passive)
+                {
+                    factor = 1.0f;
+                }
+                else
+                {
+                    const auto& mc = modelConstants();
+                    const auto gate = (double) mc.gateWidthLu;
+                    const auto above = passReferenceValid ? (double) e.loudnessLufs - ((double) passReference - gate) : gate;
+                    factor = (float) ramp (above, (double) mc.loudnessRampLu);
+                }
+            }
+
+            lambda[(size_t) position] = factor;
+            const auto weight = (e.usable ? e.effectiveSeconds : 0.0) * referenceFactor[(size_t) position];
+
+            if (factor >= 0.5f && e.lowShareValid && weight > 0.0)
+            {
+                lowShareWeights[(size_t) e.lowShareBin] += weight;
+                lowShareTotal += weight;
+            }
+        }
+
+        void pickLowReference() noexcept
+        {
+            if (frozen)
+            {
+                passLowReferenceValid = true;
+                passLowReference = frozenLowReference;
+            }
+            else
+            {
+                const auto bin = weightedPercentileBin (lowShareWeights, lowShareTotal, (double) modelConstants().referencePercentile);
+                passLowReferenceValid = bin >= 0;
+                passLowReference = passLowReferenceValid ? (float) (((double) bin + 0.5) / (double) lowShareBins) : 0.0f;
+            }
+
+            lowShareWeights.fill (0.0);
+        }
+
+        // 重判（新 → 老）：m′ 与主段权重 f = m′ × exp(−比它新的主段进账 ÷ W_mem − Δ主段时钟)。
+        void judgeOne (int position) noexcept
+        {
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+            auto m = 0.0f;
+
+            if (e.usable)
+                m = e.pinned ? e.pinnedMainness
+                             : lambda[(size_t) position] * lowFactorOf (e.lowShareValid, e.lowShare, passLowReferenceValid, passLowReference);
+
+            mainness[(size_t) position] = m;
+            mainFactor[(size_t) position] = m > 0.0f ? (double) m * std::exp (-sweepMain - (work.counters.mainClock - e.mainStamp)) : 0.0;
+            sweepMain += (double) m * (e.usable ? e.effectiveSeconds : 0.0) / memorySecondsOf (e);
+        }
+
+        //==============================================================================
+        // 累计（老 → 新，顺序同 House 按存进账本的先后求和）。
+        void beginAccumulate() noexcept
+        {
+            const auto referenceMass = sums.referenceMass;
+            sums = Sums {};
+            sums.referenceMass = referenceMass;
+            peakTop = -1;
+            trialTop.fill (-1);
+            trialLow.fill (trialBins);
+            trialDirtyEnd = trialCleanEnd = 0;
+        }
+
+        void accumulateOne (int position) noexcept
+        {
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+            const auto f = mainFactor[(size_t) position];
+
+            if (f > 0.0)
+                addMain (e, f);
+
+            trialDirtyEnd = position + 1;
+
+            if (needsAllDomain() && e.usable)
+            {
+                const auto a = allFactor[(size_t) position];
+                sums.allMass += a * e.effectiveSeconds;
+
+                for (int k = 0; k < e.gatingCount; ++k)
+                {
+                    sums.allGatingEnergy += a * (double) e.gatingPower[(size_t) k];
+                    sums.allGatingCount += a;
+                }
+
+                const auto rho = referenceFactor[(size_t) position];
+
+                for (int k = 0; k < e.rangeCount; ++k)
+                    referenceRange[(size_t) e.rangeBin[(size_t) k]] += rho;
+
+                sums.referenceRangeEnergy += e.rangeEnergy * rho;
+                sums.referenceRangeCount += (double) e.rangeCount * rho;
+            }
+        }
+
+        // 这一段 × f 并进主段的和。逐项同 MusicAnalyzer.cpp computeHouseProfile 对一个满编段做的累加（f = 1 时逐位相同）。
+        void addMain (const Entry& e, double f) noexcept
+        {
+            auto& s = sums;
+            const auto weight = f * e.effectiveSeconds;
             s.mass += weight;
 
-            for (int k = 0; k < segment.gatingCount; ++k)
-                s.gating.add ((double) segment.gatingPower[(size_t) k], gain);
-
-            // 4/4 型的 LRA（同 addReference 的 LRA 三项，权重 m）。
-            for (int k = 0; k < segment.rangeCount; ++k)
-                s.range[(size_t) segment.rangeBin[(size_t) k]] += gain;
-
-            s.rangeEnergy += segment.rangeEnergy * gain;
-            s.rangeCount += (double) segment.rangeCount * gain;
-
-            if (segment.truePeak > 0.0f && weight > 0.0)
+            for (int k = 0; k < e.gatingCount; ++k)
             {
-                const auto bin = peakBinOf (segment.truePeak);
-                s.peakWeight[(size_t) bin] += weight;
-                s.peakMax[(size_t) bin] = juce::jmax (s.peakMax[(size_t) bin], segment.truePeak);
-                peakTopBin = juce::jmax (peakTopBin, bin);
+                s.gatingEnergy += f * (double) e.gatingPower[(size_t) k];
+                s.gatingCount += f;
             }
 
-            s.frames += (double) segment.frames * gain;
+            // 4/4 型的 LRA（Max 2026-10-02「按曲风分口径」）：3 s 短期响度的格号按 f 计入（同 House「LRA 只用满编段」）。
+            for (int k = 0; k < e.rangeCount; ++k)
+                mainRange[(size_t) e.rangeBin[(size_t) k]] += f;
 
-            for (size_t b = 0; b < (size_t) numBands; ++b)
+            s.rangeEnergy += e.rangeEnergy * f;
+            s.rangeCount += (double) e.rangeCount * f;
+
+            if (e.truePeak > 0.0f && weight > 0.0)
             {
-                s.powerSum[b] += segment.powerSum[b] * gain;
-                s.tameSum[b] += segment.tameSum[b] * gain;
-                s.recoverSum[b] += segment.recoverSum[b] * gain;
-                s.deficitWeight[b] += segment.deficitWeight[b] * gain;
-                s.validWeight[b] += segment.validWeight[b] * gain;
-                s.stereoPowerSum[b] += segment.stereoPowerSum[b] * gain;
-                s.stereoCrossSum[b] += segment.stereoCrossSum[b] * gain;
-                s.stereoWeight[b] += segment.stereoWeight[b] * gain;
+                peakWeight[(size_t) e.peakBin] += weight;
+                peakMax[(size_t) e.peakBin] = juce::jmax (peakMax[(size_t) e.peakBin], e.truePeak);
+                peakTop = juce::jmax (peakTop, e.peakBin);
             }
 
-            s.lowStereoWeight += segment.lowStereoWeight * gain;
-            s.highStereoWeight += segment.highStereoWeight * gain;
+            s.frames += e.frames * f;
 
-            for (int bin = segment.lowRangeFirst; bin <= segment.lowRangeLast; ++bin)
-                s.lowRangeCount[(size_t) bin] += (double) segment.lowRangeCount[(size_t) bin] * gain;
+            for (size_t table = 0; table < (size_t) spectrumTables; ++table)
+                for (size_t b = 0; b < (size_t) numBands; ++b)
+                    s.spectrum[table][b] += e.spectrum[table][b] * f;
 
-            s.fluxFrames += (double) segment.fluxFrames * gain;
-            s.fluxEvents += (double) segment.fluxEvents * gain;
-            s.onsetSamples += (double) segment.onsetEffectiveSamples * gain;
-            s.onsetEvents += (double) segment.onsetEvents * gain;
+            s.lowStereoWeight += e.lowStereoWeight * f;
+            s.highStereoWeight += e.highStereoWeight * f;
 
-            for (int k = 0; k < segment.strengthCount; ++k)
-                s.strengthCount[(size_t) segment.strengthBin[(size_t) k]] += gain;
+            for (int bin = e.lowRangeFirst; bin <= e.lowRangeLast; ++bin)
+                lowRangeWeights[(size_t) bin] += (double) e.lowRangeCount[(size_t) bin] * f;
 
-            s.subEnergy += segment.subEnergy * gain;
-            s.midEnergy += segment.midEnergy * gain;
+            s.fluxFrames += e.fluxFrames * f;
+            s.fluxEvents += e.fluxEvents * f;
+            s.onsetSamples += e.onsetSamples * f;
+            s.onsetEvents += e.onsetEvents * f;
 
-            // 试算：每路交来的最大 8 个（不足 8 块就是全部块）按格计入；全部块计入总块数（没交数值的块都在这 8 个之下）。
-            if (segment.liveTrialBlocks > 0)
+            for (int k = 0; k < e.strengthCount; ++k)
+                strengthWeights[(size_t) e.strengthBin[(size_t) k]] += f;
+
+            s.subEnergy += e.subEnergy * f;
+            s.midEnergy += e.midEnergy * f;
+
+            if (e.trialBlocks > 0)
             {
-                s.trialBlocks += (double) segment.liveTrialBlocks * gain;
-                const auto values = juce::jmin (segment.liveTrialBlocks, SegmentLedger::trialTopCount);
+                s.trialBlocks += (double) e.trialBlocks * f;
+                const auto values = juce::jmin (e.trialBlocks, trialTopCount);
 
-                for (int series = 0; series < trialSeries; ++series)
+                for (size_t series = 0; series < (size_t) trialSeries; ++series)
                 {
-                    auto* weights = trialWeightsOf (series);
+                    auto* weights = trialWeights.data() + series * (size_t) trialBins;
 
                     for (int k = 0; k < values; ++k)
                     {
-                        const auto bin = trialBinOf (segment.liveTrialTop[(size_t) series][(size_t) k]);
-                        weights[bin] += gain;
-                        trialTopBin[(size_t) series] = juce::jmax (trialTopBin[(size_t) series], bin);
-                        trialLowBin[(size_t) series] = juce::jmin (trialLowBin[(size_t) series], bin);
+                        const auto bin = (int) e.trialBin[series][(size_t) k];
+                        weights[bin] += f;
+                        trialTop[series] = juce::jmax (trialTop[series], bin);
+                        trialLow[series] = juce::jmin (trialLow[series], bin);
                     }
                 }
             }
 
             for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
             {
-                s.blendIntended[c] += segment.liveBlendIntended[c] * gain;
-                s.blendOutput[c] += segment.liveBlendOutput[c] * gain;
+                s.blendIntended[c] += e.blendIntended[c] * f;
+                s.blendOutput[c] += e.blendOutput[c] * f;
             }
         }
 
-        // 参考域：段响度（权重 = 有效时长）、过响度门的 lowShare、LRA 的 3 s 短期响度（全部段）。
-        void addReference (const SegmentLedger::Segment& segment, const Factors& factors) noexcept
+        //==============================================================================
+        // 试算（同 houseTrialProfile：块数 = 加权的有效块数，P99 由每路的直方图按 trialPercentileOf 求）。每步一路：第 0 步是原始。
+        void trialOne (int series) noexcept
         {
-            auto& s = referenceStore;
-            const auto gain = 1.0 / referenceScale;
-            const auto weight = segment.effectiveSeconds * gain;
+            const auto n = sums.trialBlocks;
+            const auto seconds = n * (double) trialBlockLength / sampleRate;
 
-            if (segment.loudnessValid && weight > 0.0)
+            if (series == 0)
             {
-                // 同 SegmentLedger.cpp recomputeGate 的格。
-                const auto bin = juce::jlimit (0, histogramBins - 1,
-                                               (int) std::floor (((double) segment.loudnessLufs - histogramMinLufs) * (double) histogramBinsPerLu));
-                s.loudness[(size_t) bin] += weight;
-                s.loudnessTotal += weight;
+                trialMeasured = fraction (seconds, trialFullSeconds);
+                trialOriginal = n > 0.0 ? trialPercentileOf (0, n) : 0.0;
+                trialEnough = seconds >= trialMinimumSeconds && trialOriginal > 0.0;
+
+                for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+                {
+                    auto& loss = blendLoss[c];
+
+                    if (trialEnough && sums.blendIntended[c] > 0.0 && sums.blendOutput[c] > 0.0)
+                        setFeature (loss, 10.0 * std::log10 (sums.blendIntended[c] / sums.blendOutput[c]), seconds);
+                    else
+                        invalidate (loss);
+                }
+
+                return;
             }
 
-            if (factors.loudness >= 0.5f && segment.lowShareValid && weight > 0.0)
+            auto& cost = trialCost[(size_t) (series - 1)];
+
+            if (! trialEnough)
             {
-                const auto bin = juce::jlimit (0, lowShareBins - 1, (int) std::floor ((double) segment.lowShare * (double) lowShareBins));
-                s.lowShare[(size_t) bin] += weight;
-                s.lowShareTotal += weight;
+                invalidate (cost);
+                return;
             }
 
-            for (int k = 0; k < segment.rangeCount; ++k)
-                s.range[(size_t) segment.rangeBin[(size_t) k]] += gain;
-
-            s.rangeEnergy += segment.rangeEnergy * gain;
-            s.rangeCount += (double) segment.rangeCount * gain;
+            const auto candidate = trialPercentileOf (series, n);
+            setFeature (cost, 20.0 * std::log10 (juce::jmax (candidate, trialPeakFloorRatio * trialOriginal) / trialOriginal), seconds);
         }
 
-        // 全部段域：门块（权重 1）与有效时长。
-        void addAll (const SegmentLedger::Segment& segment) noexcept
-        {
-            auto& s = allStore;
-            const auto gain = 1.0 / allScale;
-            s.mass += segment.effectiveSeconds * gain;
+        double trialOriginal = 0.0;
+        bool trialEnough = false;
 
-            for (int k = 0; k < segment.gatingCount; ++k)
-                s.gating.add ((double) segment.gatingPower[(size_t) k], gain);
-        }
-
-        // Segment 不带分析器的子块长与 Balance 的 hop：由段还原（逐个加起来的时长 ÷ 个数 × 采样率，舍入误差远小于半个样本），
-        // 让频谱 / LRA 的时长与 House 画像同一个公式（个数 × 长度 ÷ 采样率）。
-        void recoverLengths (const SegmentLedger::Segment& segment) noexcept
+        // 第 series 路的加权 P99（线性幅度）：numpy 线性插值（= houseTrialProfile 的 percentile）对权重的推广。
+        //   条目 = 有权重的格（值取格中心），按值升序在「质量坐标」上排开：条目 k 的起点 S_k = 它下面的质量（总块数 W 减去从顶往下累计到
+        //   它为止的质量；W 里含没交数值的块，它们都在每段交来的 8 个之下）。条目先占 max(0, u_k − 1) 长的平台（值不变），再用 min(u_k, 1)
+        //   的长度线性过渡到上面一格的值；目标位置 = q × (W − min(u_顶, 1))。等权（u = 1）时平台长 0、过渡长 1、目标 = q × (n − 1)：
+        //   就是 numpy（与 House 同式）；整数权重时与「拆成 u 个等权条目」相同，所以几个块落进同一格不改变结果（只差格中心与真值）。
+        //   从顶往下扫，几格就到。目标落进「没交数值的块」里（只在一段占了尾部超过 8 块时）取记下的最低一格。
+        double trialPercentileOf (int series, double total) const noexcept
         {
-            if (segment.effectiveSubBlocks > 0 && segment.effectiveSeconds > 0.0)
+            const auto top = trialTop[(size_t) series];
+
+            if (top < 0)
+                return 0.0;
+
+            const auto* weights = trialWeights.data() + (size_t) series * (size_t) trialBins;
+            const auto topMass = weights[top];
+            const auto target = trialPercentile * (total - juce::jmin (topMass, 1.0));
+            double above = 0.0;
+            int previous = -1;
+
+            for (int bin = top; bin >= trialLow[(size_t) series]; --bin)
             {
-                const auto length = std::llround (segment.effectiveSeconds * sampleRate / (double) segment.effectiveSubBlocks);
+                const auto mass = weights[bin];
 
-                if (length >= 1 && length <= (long long) std::numeric_limits<int>::max())
-                    subBlockLength = (int) length;
+                if (! (mass > 0.0))
+                    continue;
+
+                const auto start = total - (above + mass);
+
+                if (start <= target)
+                {
+                    const auto offset = target - start;
+                    const auto plateau = juce::jmax (0.0, mass - 1.0);
+                    const auto value = trialBinLinear (bin);
+
+                    if (offset <= plateau || previous < 0)
+                        return value;
+
+                    return value + (trialBinLinear (previous) - value) * ((offset - plateau) / (mass - plateau));
+                }
+
+                above += mass;
+                previous = bin;
             }
 
-            if (segment.frames > 0 && segment.frameSeconds > 0.0)
-            {
-                const auto length = std::llround (segment.frameSeconds * sampleRate / (double) segment.frames);
+            return previous >= 0 ? trialBinLinear (previous) : 0.0;
+        }
 
-                if (length >= 1 && length <= (long long) std::numeric_limits<int>::max())
-                    hopLength = (int) length;
+        //==============================================================================
+        // I 的第二遍门限（老 → 新）：同 House computeHouseProfile——门块功率逐个与相对门比（4/4 型主段权重，响度型 / 被动型全部段权重）；
+        // 顺手把这一段写过的试算格清零（下一遍从干净的直方图起）。
+        void beginGateSweep() noexcept
+        {
+            const auto energy = fourOnFloor() ? sums.gatingEnergy : sums.allGatingEnergy;
+            const auto count = fourOnFloor() ? sums.gatingCount : sums.allGatingCount;
+            gateValid = count > 0.0;
+            gatedEnergy = gatedCount = 0.0;
+
+            if (gateValid)
+            {
+                const auto relativeGate = energyToLufs (energy / count) + integratedRelativeGateLu;
+                gatePower = std::pow (10.0, 0.1 * (relativeGate + 0.691));
             }
         }
 
-        // S_ref 与 lowRef（文件头第二节；同 SegmentLedger.cpp recomputeGate 的格中心）。分位按此刻的主段模型。
-        void refreshReferences() noexcept
+        void gateOne (int position) noexcept
         {
-            const auto share = (double) modelConstants().referencePercentile;
-            const auto& s = referenceStore;
-            const auto loudnessBin = weightedPercentileBin (s.loudness, s.loudnessTotal, share);
-            referenceValid = loudnessBin >= 0;
-            referenceLufs = referenceValid ? (float) (histogramMinLufs + ((double) loudnessBin + 0.5) / (double) histogramBinsPerLu) : 0.0f;
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+            const auto weight = fourOnFloor() ? mainFactor[(size_t) position] : (e.usable ? allFactor[(size_t) position] : 0.0);
 
-            const auto lowBin = weightedPercentileBin (s.lowShare, s.lowShareTotal, share);
-            lowReferenceValid = lowBin >= 0;
-            lowReference = lowReferenceValid ? (float) (((double) lowBin + 0.5) / (double) lowShareBins) : 0.0f;
+            if (gateValid && weight > 0.0)
+                for (int k = 0; k < e.gatingCount; ++k)
+                {
+                    const auto power = (double) e.gatingPower[(size_t) k];
+
+                    if (power >= gatePower)
+                    {
+                        gatedEnergy += weight * power;
+                        gatedCount += weight;
+                    }
+                }
+
+            clearTrialBinsOf (position);
+            trialCleanEnd = position + 1;
+        }
+
+        void clearTrialBinsOf (int position) noexcept
+        {
+            const auto& e = entryAt (work.first + (std::uint64_t) position);
+
+            if (! (mainFactor[(size_t) position] > 0.0) || e.trialBlocks <= 0)
+                return;
+
+            const auto values = juce::jmin (e.trialBlocks, trialTopCount);
+
+            for (size_t series = 0; series < (size_t) trialSeries; ++series)
+            {
+                auto* weights = trialWeights.data() + series * (size_t) trialBins;
+
+                for (int k = 0; k < values; ++k)
+                    weights[e.trialBin[series][(size_t) k]] = 0.0;
+            }
+        }
+
+        // 其余直方图清零（下一遍从干净的起）。
+        void clearHistograms() noexcept
+        {
+            mainRange.fill (0.0);
+            referenceRange.fill (0.0);
+
+            if (peakTop >= 0)
+            {
+                std::fill (peakWeight.begin(), peakWeight.begin() + peakTop + 1, 0.0);
+                std::fill (peakMax.begin(), peakMax.begin() + peakTop + 1, 0.0f);
+            }
+
+            peakTop = -1;
+            strengthWeights.fill (0.0);
+            lowRangeWeights.fill (0.0);
+            trialTop.fill (-1);
+            trialLow.fill (trialBins);
+        }
+
+        // 在途的一遍作废（reset / setConstants / 读档）：把它写过、还没清的直方图清干净。窗口里的段此刻都还在（不会被盖掉）。
+        void discardPass() noexcept
+        {
+            if (step == Step::accumulate || step == Step::trialPick || step == Step::gateSweep)
+                for (auto position = trialCleanEnd; position < trialDirtyEnd; ++position)
+                    clearTrialBinsOf (position);
+
+            trialDirtyEnd = trialCleanEnd = 0;
+            loudnessWeights.fill (0.0);
+            lowShareWeights.fill (0.0);
+            peakTop = juce::jmax (peakTop, peakBins - 1);   // 不知道写到哪一格：整张清
+            clearHistograms();
         }
 
         //==============================================================================
         // 画像（文件头第四节）。同 MusicAnalyzer.cpp computeHouseProfile 的分工。
         //
         // formatVersion = clayProfileFormatVersion（2）、houseGate 不填（valid = false）：决策器（GlazePlanner.cpp）两项都不读——只读各特征的
-        // value / valid / confidence、representativeness（confidenceScale 取 I、真峰值、代表性三者最没把握的那个）、bandConfidence；编排器
-        // （GlazeController.cpp）用 formatVersion ≥ 2 判「方案源带 Clay 特征」（sourceSupportsClay、clayNeedsRelearn）——实时画像带着，所以是 2；
-        // 用 formatVersion ≥ 3 且 houseGate.valid 判「House 档锁定过的画像」（锁定、重开、只在主段落校准）——那是 T-038 学习 → 锁定的
-        // 机制，实时画像没有锁定，它的段数也不去重，填进去会让那几条逻辑按不可比的数走；S_ref / lowRef 从 getDiagnostics 读。
-        void computeProfile() noexcept
+        // value / valid / confidence、representativeness、bandConfidence；编排器（GlazeController.cpp）用 formatVersion ≥ 2 判「方案源带
+        // Clay 特征」——实时画像带着，所以是 2；用 formatVersion ≥ 3 且 houseGate.valid 判「House 档锁定过的画像」——那是 T-038 学习 → 锁定
+        // 的机制，实时画像没有锁定；S_ref / lowRef 从 getDiagnostics 读。
+        void finalizeProfile() noexcept
         {
-            profile = MusicProfile {};
-            profile.formatVersion = clayProfileFormatVersion;
-            confidence = currentConfidence();
+            auto& r = result;
+            r.profile = MusicProfile {};
+            r.profile.formatVersion = clayProfileFormatVersion;
+            r.referenceValid = passReferenceValid;
+            r.referenceLufs = passReference;
+            r.lowReferenceValid = passLowReferenceValid;
+            r.lowReference = passLowReference;
+            r.mainMass = sums.mass;
 
-            const auto s = realSums();
+            const auto* newest = work.size > 0 ? &entryAt (work.count - 1) : nullptr;
+            r.confidence = sums.mass > 0.0 ? (float) (1.0 - std::exp (-sums.mass / confidenceSecondsOf (newest))) : 0.0f;
+            r.oldestMainShare = work.size > 0 && sums.mass > 0.0 ? (float) (mainFactor[0] * entryAt (work.first).effectiveSeconds / sums.mass) : 0.0f;
+            r.oldestReferenceShare = sums.referenceMass > 0.0 ? (float) (oldestReferenceWeight / sums.referenceMass) : 0.0f;
+
             Measured measured;
-            liveLoudnessProfile (s, measured);
-            const auto fluxOnsetsValid = liveSpectrumProfile (s, measured);
-            liveOnsetProfile (s, measured);
-            liveTrialProfile (s, measured);
-            liveSubProfile (s, measured);
-            liveConfidences (s, measured, fluxOnsetsValid);
+            loudnessProfile (measured);
+            const auto fluxOnsetsValid = spectrumProfile (measured);
+            onsetProfile (measured);
+            subProfile (measured);
+
+            r.profile.lowCutPeakCostDb = trialCost[(size_t) trialLowCut];
+            r.profile.widthPeakCostDb = trialCost[(size_t) trialWidth];
+
+            for (size_t c = 0; c < (size_t) numMonoTrials; ++c)
+                r.profile.monoPeakCostDb[c] = trialCost[(size_t) trialFirstMono + c];
+
+            r.profile.lowCutBlendLossDb = blendLoss;
+            measured.trial = work.size > 0 ? trialMeasured : 0.0f;
+            confidences (measured, fluxOnsetsValid);
+
+            if (work.size > 0)
+                writeRecord (*newest);
         }
 
-        // c = 1 − exp(−M ÷ M0)（规格第 3 节）。
-        float currentConfidence() const noexcept
+        // 这一份画像最新那一段的提交记录（发布时写进环形缓冲）。
+        void writeRecord (const Entry& e) noexcept
         {
-            const auto mass = mainStore.mass * mainScale;
-            return mass > 0.0 ? (float) (1.0 - std::exp (-mass / confidenceSecondsNow())) : 0.0f;
+            const auto position = (size_t) (work.size - 1);
+            auto& record = pendingRecord;
+            record = LiveCommitRecord {};
+            record.start = e.start;
+            record.end = e.end;
+            record.publishTime = e.due;
+            record.nominalSeconds = nominalSecondsOf (e);
+            record.mode = e.mode;
+            record.effectiveSeconds = e.usable ? e.effectiveSeconds : 0.0;
+            record.loudnessValid = e.loudnessValid;
+            record.loudnessLufs = e.loudnessLufs;
+            record.lowShareValid = e.lowShareValid;
+            record.lowShare = e.lowShare;
+            record.admissionLoudnessFactor = e.admissionLoudnessFactor;
+            record.admissionLowFactor = e.admissionLowFactor;
+            record.admissionMainness = e.admissionMainness;
+            record.loudnessFactor = e.usable ? lambda[position] : 0.0f;
+            record.lowFactor = e.usable ? lowFactorOf (e.lowShareValid, e.lowShare, passLowReferenceValid, passLowReference) : 0.0f;
+            record.mainness = mainness[position];
+            record.weightSeconds = (double) mainness[position] * record.effectiveSeconds;
+            record.referenceValid = passReferenceValid;
+            record.referenceLufs = passReference;
+            record.lowReferenceValid = passLowReferenceValid;
+            record.lowReference = passLowReference;
+            record.mainLevelValid = result.profile.integratedLufs.valid;
+            record.mainLevelLufs = result.profile.integratedLufs.value;
+            record.mainMassSeconds = result.mainMass;
+            record.confidence = result.confidence;
+            record.timeDecay = e.timeDecay;
+            record.newProgram = e.newProgram;
+            record.newProgramVote = e.vote;
+            record.newProgramRangeValid = e.newProgramRangeValid;
+            record.newProgramRangeLu = e.newProgramRangeLu;
         }
 
-        Sums realSums() const noexcept
+        // 同 houseLoudnessProfile：I（gateSweep 的结果）、LRA（4/4 型主段，响度型 / 被动型参考权重）、真峰值、PLR。
+        void loudnessProfile (Measured& measured) noexcept
         {
-            const auto& m = mainStore;
-            const auto g = mainScale;
-            Sums s;
-            s.mass = m.mass * g;
-            s.frames = m.frames * g;
-
-            for (size_t b = 0; b < (size_t) numBands; ++b)
-            {
-                s.powerSum[b] = m.powerSum[b] * g;
-                s.tameSum[b] = m.tameSum[b] * g;
-                s.recoverSum[b] = m.recoverSum[b] * g;
-                s.deficitWeight[b] = m.deficitWeight[b] * g;
-                s.validWeight[b] = m.validWeight[b] * g;
-                s.stereoPowerSum[b] = m.stereoPowerSum[b] * g;
-                s.stereoCrossSum[b] = m.stereoCrossSum[b] * g;
-                s.stereoWeight[b] = m.stereoWeight[b] * g;
-            }
-
-            s.lowStereoWeight = m.lowStereoWeight * g;
-            s.highStereoWeight = m.highStereoWeight * g;
-            s.fluxFrames = m.fluxFrames * g;
-            s.fluxEvents = m.fluxEvents * g;
-            s.onsetSamples = m.onsetSamples * g;
-            s.onsetEvents = m.onsetEvents * g;
-            s.subEnergy = m.subEnergy * g;
-            s.midEnergy = m.midEnergy * g;
-            s.trialBlocks = m.trialBlocks * g;
-
-            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-            {
-                s.blendIntended[c] = m.blendIntended[c] * g;
-                s.blendOutput[c] = m.blendOutput[c] * g;
-            }
-
-            return s;
-        }
-
-        // BS.1770 门控积分（−10 LU 相对门）：相对门按逐块总和（同 House 逐块求和），「在不在门上」按格中心（同通用画像），门上的格
-        // 能量与块数求和。比值与缩放因子无关，直接用存储值。没有门块 / 门上没有块 → false。
-        static bool gatedIntegral (const GatingHistogram& h, double& lufs) noexcept
-        {
-            if (! (h.totalCount > 0.0))
-                return false;
-
-            const auto relativeGate = energyToLufs (h.totalEnergy / h.totalCount) + integratedRelativeGateLu;
-            double gatedEnergy = 0.0, gatedCount = 0.0;
-
-            for (auto bin = (size_t) firstBinAtOrAbove (relativeGate); bin < (size_t) histogramBins; ++bin)
-            {
-                gatedEnergy += h.energy[bin];
-                gatedCount += h.count[bin];
-            }
-
-            if (! (gatedCount > 0.0))
-                return false;
-
-            lufs = energyToLufs (gatedEnergy / gatedCount);
-            return true;
-        }
-
-        // 同 houseLoudnessProfile：I 与 LRA（4/4 型主段域；响度型 / 被动型 I 用全部段域、LRA 用参考域）、真峰值（主段域）、PLR。
-        void liveLoudnessProfile (const Sums& s, Measured& measured) noexcept
-        {
-            auto& p = profile;
-            const auto mainSeconds = s.mass;
+            auto& p = result.profile;
+            const auto mainSeconds = sums.mass;
             p.effectiveSeconds = mainSeconds;
 
-            const auto fourOnFloor = model == MainSectionModel::fourOnFloor;
-            const auto integratedSeconds = fourOnFloor ? mainSeconds : allStore.mass * allScale;
-            double integrated = 0.0;
+            const auto integratedSeconds = fourOnFloor() ? mainSeconds : sums.allMass;
+            const auto integratedValid = gateValid && gatedCount > 0.0;
+            const auto integrated = integratedValid ? energyToLufs (gatedEnergy / gatedCount) : 0.0;
 
-            if (gatedIntegral (fourOnFloor ? mainStore.gating : allStore.gating, integrated))
+            if (integratedValid)
                 setFeature (p.integratedLufs, integrated, integratedSeconds);
             else
                 invalidate (p.integratedLufs);
@@ -1622,24 +1915,21 @@ namespace celadon::glaze
             measured.integrated = fraction (integratedSeconds, loudnessFullSeconds);
 
             // LRA：同 houseLoudnessProfile 的 LRA 段（整数个数换成加权的个数：index = ⌊(n − 1) × 分位 + 0.5⌋，累计 > index 的那一格）。
-            // 口径按曲风分（Max 2026-10-02「按曲风分口径」，与 I 的分法一致）：4/4 型用主段域（按 m 计入、按进账遗忘，同 House 画像
-            // 「LRA 只用满编段」：全部段的 LRA 随起播位置变，T-038 阶段 3）；响度型 / 被动型用参考域（全部段，同现在通用档的口径）。
-            const auto& range = fourOnFloor ? mainStore.range : referenceStore.range;
-            const auto rangeEnergy = fourOnFloor ? mainStore.rangeEnergy : referenceStore.rangeEnergy;
-            const auto rangeCount = fourOnFloor ? mainStore.rangeCount : referenceStore.rangeCount;
-            const auto rangeScale = fourOnFloor ? mainScale : referenceScale;
-            const auto rangeTotal = rangeCount * rangeScale;
-            const auto rangeSeconds = rangeTotal * (double) subBlockLength / sampleRate;
+            const auto& range = fourOnFloor() ? mainRange : referenceRange;
+            const auto rangeEnergy = fourOnFloor() ? sums.rangeEnergy : sums.referenceRangeEnergy;
+            const auto rangeCount = fourOnFloor() ? sums.rangeCount : sums.referenceRangeCount;
+            const auto subBlock = passSubBlock > 0 ? passSubBlock : defaultSubBlockLength;
+            const auto rangeSeconds = rangeCount * (double) subBlock / sampleRate;
             invalidate (p.loudnessRangeLu);
 
-            if (rangeTotal > 0.0)
+            if (rangeCount > 0.0)
             {
                 const auto relativeGate = energyToLufs (rangeEnergy / rangeCount) + lraRelativeGateLu;
                 const auto firstBin = firstBinAtOrAbove (relativeGate);
                 double gated = 0.0;
 
                 for (int bin = firstBin; bin < histogramBins; ++bin)
-                    gated += range[(size_t) bin] * rangeScale;
+                    gated += range[(size_t) bin];
 
                 if (gated >= minimumLraValues)
                 {
@@ -1650,7 +1940,7 @@ namespace celadon::glaze
 
                     for (int bin = firstBin; bin < histogramBins; ++bin)
                     {
-                        cumulative += range[(size_t) bin] * rangeScale;
+                        cumulative += range[(size_t) bin];
 
                         if (! haveLow && cumulative > lowIndex)
                         {
@@ -1675,7 +1965,7 @@ namespace celadon::glaze
             const auto peakBin = peakTailBin();
 
             if (peakBin >= 0)
-                setFeature (p.truePeakDbtp, juce::Decibels::gainToDecibels ((double) mainStore.peakMax[(size_t) peakBin]), mainSeconds);
+                setFeature (p.truePeakDbtp, juce::Decibels::gainToDecibels ((double) peakMax[(size_t) peakBin]), mainSeconds);
             else
                 invalidate (p.truePeakDbtp);
 
@@ -1690,32 +1980,34 @@ namespace celadon::glaze
         // 真峰值的格：从高往低累计主段质量，第一次 ≥ peakTailSeconds 的那一格；全部加起来都不到（冷启动）取最高一格（= 最大值）。
         int peakTailBin() const noexcept
         {
-            if (peakTopBin < 0)
+            if (peakTop < 0)
                 return -1;
 
             double cumulative = 0.0;
 
-            for (int bin = peakTopBin; bin >= 0; --bin)
+            for (int bin = peakTop; bin >= 0; --bin)
             {
-                const auto weight = mainStore.peakWeight[(size_t) bin];
+                const auto weight = peakWeight[(size_t) bin];
 
                 if (! (weight > 0.0))
                     continue;
 
-                cumulative += weight * mainScale;
+                cumulative += weight;
 
                 if (cumulative >= constants.peakTailSeconds)
                     return bin;
             }
 
-            return peakTopBin;
+            return peakTop;
         }
 
         // 同 houseSpectrumProfile（主段加权的和）。返回辅助量「通量突起密度」是否有效（起音一致性要用；它本身不进画像）。
-        bool liveSpectrumProfile (const Sums& s, Measured& measured) noexcept
+        bool spectrumProfile (Measured& measured) noexcept
         {
-            auto& p = profile;
-            const auto hopSeconds = hopLength > 0 ? (double) hopLength / sampleRate : 0.0;
+            auto& p = result.profile;
+            const auto& s = sums;
+            const auto& powerSum = s.spectrum[(size_t) powerTable];
+            const auto hopSeconds = passHop > 0 ? (double) passHop / sampleRate : 0.0;
             const auto frameSeconds = s.frames * hopSeconds;
             std::array<double, (size_t) numBands> meanPower {}, levelDb {};
             double total = 0.0, low = 0.0, high = 0.0;
@@ -1723,7 +2015,7 @@ namespace celadon::glaze
             for (int b = 0; b < numBands; ++b)
             {
                 const auto i = (size_t) b;
-                meanPower[i] = s.frames > 0.0 ? s.powerSum[i] / s.frames : 0.0;
+                meanPower[i] = s.frames > 0.0 ? powerSum[i] / s.frames : 0.0;
                 levelDb[i] = meanPower[i] > 0.0 ? juce::jmax (noDataDb, 10.0 * std::log10 (meanPower[i])) : noDataDb;
                 p.bandLongTermDb[i] = (float) levelDb[i];
 
@@ -1794,9 +2086,14 @@ namespace celadon::glaze
                     inBand[i] = false;
             }
 
+            const auto& tameSum = s.spectrum[(size_t) tameTable];
+            const auto& recoverSum = s.spectrum[(size_t) recoverTable];
+            const auto& deficitWeight = s.spectrum[(size_t) deficitTable];
+            const auto& validWeight = s.spectrum[(size_t) validTable];
+
             for (size_t b = 0; b < (size_t) numBands; ++b)
             {
-                const auto weight = s.validWeight[b];
+                const auto weight = validWeight[b];
 
                 if (weight <= 0.0)
                 {
@@ -1806,12 +2103,12 @@ namespace celadon::glaze
                     continue;
                 }
 
-                p.tameEvidenceDb[b] = (float) (s.tameSum[b] / weight);
+                p.tameEvidenceDb[b] = (float) (tameSum[b] / weight);
 
-                const auto persistence = s.deficitWeight[b] / weight;
+                const auto persistence = deficitWeight[b] / weight;
                 const auto persistenceGain = juce::jlimit (0.0, 1.0, (persistence - recoverPersistenceStart)
                                                                          / (recoverPersistenceFull - recoverPersistenceStart));
-                p.recoverEvidenceDb[b] = inBand[b] ? (float) (s.recoverSum[b] / weight * persistenceGain) : 0.0f;
+                p.recoverEvidenceDb[b] = inBand[b] ? (float) (recoverSum[b] / weight * persistenceGain) : 0.0f;
                 measured.band[b] = fraction (weight * hopSeconds, spectrumFullSeconds);
             }
 
@@ -1831,7 +2128,7 @@ namespace celadon::glaze
 
                 for (int bin = 0; bin < lowRangeBins && highBin < 0; ++bin)
                 {
-                    cumulative += mainStore.lowRangeCount[(size_t) bin] * mainScale;
+                    cumulative += lowRangeWeights[(size_t) bin];
 
                     if (lowBin < 0 && cumulative > lowIndex)
                         lowBin = bin;
@@ -1851,15 +2148,19 @@ namespace celadon::glaze
             }
 
             // 立体声（同 houseSpectrumProfile 的立体声段）。
+            const auto& stereoPowerSum = s.spectrum[(size_t) stereoPowerTable];
+            const auto& stereoCrossSum = s.spectrum[(size_t) stereoCrossTable];
+            const auto& stereoWeight = s.spectrum[(size_t) stereoWeightTable];
+
             for (size_t b = 0; b < (size_t) numBands; ++b)
             {
-                const auto summedPower = s.stereoPowerSum[b];
+                const auto summedPower = stereoPowerSum[b];
 
-                if (s.stereoWeight[b] > 0.0 && summedPower > 0.0)
+                if (stereoWeight[b] > 0.0 && summedPower > 0.0)
                 {
-                    p.bandSideToMidDb[b] = (float) sideToMidDbOf (summedPower, s.stereoCrossSum[b]);
-                    p.bandCorrelation[b] = (float) correlationOf (summedPower, s.stereoCrossSum[b]);
-                    measured.stereoBand[b] = fraction (s.stereoWeight[b] * hopSeconds, stereoFullSeconds);
+                    p.bandSideToMidDb[b] = (float) sideToMidDbOf (summedPower, stereoCrossSum[b]);
+                    p.bandCorrelation[b] = (float) correlationOf (summedPower, stereoCrossSum[b]);
+                    measured.stereoBand[b] = fraction (stereoWeight[b] * hopSeconds, stereoFullSeconds);
                 }
                 else
                 {
@@ -1869,23 +2170,25 @@ namespace celadon::glaze
                 }
             }
 
-            liveStereoGroup (s, lowStereoFirstBand, lowStereoLastBand, s.lowStereoWeight * hopSeconds,
-                             p.lowSideToMidDb, p.lowCorrelation, measured.lowStereo);
-            liveStereoGroup (s, highStereoFirstBand, highStereoLastBand, s.highStereoWeight * hopSeconds,
-                             p.highSideToMidDb, p.highCorrelation, measured.highStereo);
+            stereoGroup (lowStereoFirstBand, lowStereoLastBand, s.lowStereoWeight * hopSeconds,
+                         p.lowSideToMidDb, p.lowCorrelation, measured.lowStereo);
+            stereoGroup (highStereoFirstBand, highStereoLastBand, s.highStereoWeight * hopSeconds,
+                         p.highSideToMidDb, p.highCorrelation, measured.highStereo);
             return fluxOnsetsValid;
         }
 
         // 同 houseStereoGroup。
-        static void liveStereoGroup (const Sums& s, int firstBand, int lastBand, double observedSeconds, Feature& sideToMid,
-                                     Feature& correlation, float& measured) noexcept
+        void stereoGroup (int firstBand, int lastBand, double observedSeconds, Feature& sideToMid, Feature& correlation,
+                          float& measured) const noexcept
         {
+            const auto& stereoPowerSum = sums.spectrum[(size_t) stereoPowerTable];
+            const auto& stereoCrossSum = sums.spectrum[(size_t) stereoCrossTable];
             double summedPower = 0.0, summedCross = 0.0;
 
             for (int b = firstBand; b <= lastBand; ++b)
             {
-                summedPower += s.stereoPowerSum[(size_t) b];
-                summedCross += s.stereoCrossSum[(size_t) b];
+                summedPower += stereoPowerSum[(size_t) b];
+                summedCross += stereoCrossSum[(size_t) b];
             }
 
             if (observedSeconds >= minimumStereoSeconds && summedPower > 0.0)
@@ -1903,9 +2206,10 @@ namespace celadon::glaze
         }
 
         // 同 houseOnsetProfile（事件数、中位数的「个数」是加权的：middle = ⌊(E − 1) ÷ 2⌋，E 为整数时就是分析器的整数除法）。
-        void liveOnsetProfile (const Sums& s, Measured& measured) noexcept
+        void onsetProfile (Measured& measured) noexcept
         {
-            auto& p = profile;
+            auto& p = result.profile;
+            const auto& s = sums;
             const auto seconds = s.onsetSamples / sampleRate;
 
             if (seconds >= minimumOnsetSeconds)
@@ -1921,7 +2225,7 @@ namespace celadon::glaze
 
                 for (int bin = 0; bin < strengthBins; ++bin)
                 {
-                    cumulative += mainStore.strengthCount[(size_t) bin] * mainScale;
+                    cumulative += strengthWeights[(size_t) bin];
 
                     if (cumulative > middle)
                     {
@@ -1942,109 +2246,26 @@ namespace celadon::glaze
             measured.onset = fraction (seconds, onsetFullSeconds);
         }
 
-        // 同 houseTrialProfile：块数 = 加权的有效块数，P99 由每路的直方图按 trialPercentileOf 求。
-        void liveTrialProfile (const Sums& s, Measured& measured) noexcept
-        {
-            auto& p = profile;
-            const auto n = s.trialBlocks;
-            const auto seconds = n * (double) trialBlockLength / sampleRate;
-            measured.trial = fraction (seconds, trialFullSeconds);
-
-            const auto original = n > 0.0 ? trialPercentileOf (0, n) : 0.0;
-            const auto enough = seconds >= trialMinimumSeconds && original > 0.0;
-
-            for (int slot = 0; slot < numTrials; ++slot)
-            {
-                auto& cost = slot == trialLowCut ? p.lowCutPeakCostDb
-                           : slot == trialWidth ? p.widthPeakCostDb
-                                                : p.monoPeakCostDb[(size_t) (slot - trialFirstMono)];
-
-                if (! enough)
-                {
-                    invalidate (cost);
-                    continue;
-                }
-
-                const auto candidate = trialPercentileOf (slot + 1, n);
-                setFeature (cost, 20.0 * std::log10 (juce::jmax (candidate, trialPeakFloorRatio * original) / original), seconds);
-            }
-
-            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
-            {
-                auto& loss = p.lowCutBlendLossDb[c];
-
-                if (enough && s.blendIntended[c] > 0.0 && s.blendOutput[c] > 0.0)
-                    setFeature (loss, 10.0 * std::log10 (s.blendIntended[c] / s.blendOutput[c]), seconds);
-                else
-                    invalidate (loss);
-            }
-        }
-
-        // 第 series 路的加权 P99（线性幅度）：numpy 线性插值（= houseTrialProfile 的 percentile）对权重的推广。
-        //   条目 = 有权重的格（值取格中心），按值升序在「质量坐标」上排开：条目 k 的起点 S_k = 它下面的质量（总块数 W 减去从顶往下累计到
-        //   它为止的质量；W 里含没交数值的块，它们都在每段交来的 8 个之下）。条目先占 max(0, u_k − 1) 长的平台（值不变），再用 min(u_k, 1)
-        //   的长度线性过渡到上面一格的值；目标位置 = q × (W − min(u_顶, 1))。等权（u = 1）时平台长 0、过渡长 1、目标 = q × (n − 1)：
-        //   就是 numpy（与 House 同式）；整数权重时与「拆成 u 个等权条目」相同，所以几个块落进同一格不改变结果（只差格中心与真值）。
-        //   从顶往下扫，几格就到。目标落进「没交数值的块」里（只在一段占了尾部超过 8 块时）取记下的最低一格。
-        double trialPercentileOf (int series, double total) const noexcept
-        {
-            const auto top = trialTopBin[(size_t) series];
-
-            if (top < 0)
-                return 0.0;
-
-            const auto* weights = trialWeightsOf (series);
-            const auto topMass = weights[top] * mainScale;
-            const auto target = trialPercentile * (total - juce::jmin (topMass, 1.0));
-            double above = 0.0;
-            int previous = -1;
-
-            for (int bin = top; bin >= trialLowBin[(size_t) series]; --bin)
-            {
-                const auto mass = weights[bin] * mainScale;
-
-                if (! (mass > 0.0))
-                    continue;
-
-                const auto start = total - (above + mass);
-
-                if (start <= target)
-                {
-                    const auto offset = target - start;
-                    const auto plateau = juce::jmax (0.0, mass - 1.0);
-                    const auto value = trialBinLinear (bin);
-
-                    if (offset <= plateau || previous < 0)
-                        return value;
-
-                    return value + (trialBinLinear (previous) - value) * ((offset - plateau) / (mass - plateau));
-                }
-
-                above += mass;
-                previous = bin;
-            }
-
-            return previous >= 0 ? trialBinLinear (previous) : 0.0;
-        }
-
         // 同 houseSubProfile。
-        void liveSubProfile (const Sums& s, Measured& measured) noexcept
+        void subProfile (Measured& measured) noexcept
         {
+            const auto& s = sums;
             const auto seconds = s.onsetSamples / sampleRate;
 
             if (seconds >= minimumSubSeconds && s.midEnergy > 0.0)
-                setFeature (profile.subShareDb, 10.0 * std::log10 (juce::jlimit (subShareFloor, 1.0, s.subEnergy / s.midEnergy)), seconds);
+                setFeature (result.profile.subShareDb, 10.0 * std::log10 (juce::jlimit (subShareFloor, 1.0, s.subEnergy / s.midEnergy)), seconds);
             else
-                invalidate (profile.subShareDb);
+                invalidate (result.profile.subShareDb);
 
             measured.sub = fraction (seconds, subFullSeconds);
         }
 
-        // 同 houseConfidences，代表性换成 c；混合损失照通用画像 finalizeConfidences 也给置信度。
-        void liveConfidences (const Sums& s, const Measured& measured, bool fluxOnsetsValid) noexcept
+        // 同 houseConfidences，代表性换成 c（混合损失也给，同 T-049 之后的 House 与通用画像）。
+        void confidences (const Measured& measured, bool fluxOnsetsValid) noexcept
         {
-            auto& p = profile;
-            const auto rep = confidence;
+            auto& p = result.profile;
+            const auto& s = sums;
+            const auto rep = result.confidence;
             p.representativeness = rep;
 
             auto finalize = [rep] (Feature& feature, float observed, float factor = 1.0f)
@@ -2095,140 +2316,478 @@ namespace celadon::glaze
         }
 
         //==============================================================================
+        // 发布（文件头第二节）：工作区的结果整份拷进「已发布」，提交记录进环形缓冲，通知监听者。
+        void publish() noexcept
+        {
+            published = work;
+            publishedResult = result;
+            std::swap (publishedMainness, mainness);
+            std::swap (publishedWeight, mainFactor);
+
+            for (int position = 0; position < published.size; ++position)
+                publishedWeight[(size_t) position] *= entryAt (published.first + (std::uint64_t) position).effectiveSeconds;
+
+            publishedTime = entryAt (published.count - 1).due;
+            step = Step::idle;
+
+            pendingRecord.sequence = recordTotal;
+            const auto& record = records[(size_t) (recordTotal % (std::uint64_t) commitCapacity)] = pendingRecord;
+            ++recordTotal;
+
+            if (listener != nullptr)
+                listener->livePublished (record);
+        }
+
+        // 按此刻的常数把已发布那一份重算一遍、就地替换（setConstants / 冻结参考 / 冷启动 / 读档）：不发提交记录。在途的那一遍作废，
+        // 从重算开头重来（进账判断不重做）。
+        void recomputePublished() noexcept
+        {
+            const auto hadPass = step != Step::idle;
+            discardPass();
+
+            const auto inFlight = work;
+            work = published;
+            step = Step::referenceSweep;
+            cursor = 0;
+            beginReferenceSweep();
+            finishPass();
+
+            publishedResult = result;
+            std::swap (publishedMainness, mainness);
+            std::swap (publishedWeight, mainFactor);
+
+            for (int position = 0; position < published.size; ++position)
+                publishedWeight[(size_t) position] *= entryAt (published.first + (std::uint64_t) position).effectiveSeconds;
+
+            work = inFlight;
+            step = Step::idle;
+
+            if (hadPass)
+                startNextPass();
+        }
+
+        //==============================================================================
         LiveDiagnostics diagnostics() const noexcept
         {
+            const auto& r = publishedResult;
+            const auto& c = published.counters;
             LiveDiagnostics d;
-            d.commits = commits;
-            d.referenceValid = referenceValid;
-            d.referenceLufs = referenceLufs;
-            d.lowReferenceValid = lowReferenceValid;
-            d.lowReference = lowReference;
-            d.mainMassSeconds = mainStore.mass * mainScale;
-            d.confidence = confidence;
-            d.activeSeconds = activeSeconds;
-            d.secondsSinceMain = secondsSinceMain;
-            d.timeDecayActive = secondsSinceMain >= constants.noMainSeconds;
-            d.newProgramCount = (std::uint32_t) juce::jmin (newProgramCount, (std::uint64_t) std::numeric_limits<std::uint32_t>::max());
+            d.commits = published.count;
+            d.referenceValid = r.referenceValid;
+            d.referenceLufs = r.referenceLufs;
+            d.lowReferenceValid = r.lowReferenceValid;
+            d.lowReference = r.lowReference;
+            d.mainMassSeconds = r.mainMass;
+            d.confidence = r.confidence;
+            d.activeSeconds = c.activeSeconds;
+            d.secondsSinceMain = c.secondsSinceMain;
+            d.timeDecayActive = c.secondsSinceMain >= constants.noMainSeconds;
+            d.newProgramCount = (std::uint32_t) juce::jmin (c.newProgramCount, (std::uint64_t) std::numeric_limits<std::uint32_t>::max());
+            d.windowSegments = published.size;
+            d.droppedSegments = published.first;
+            d.oldestMainShare = r.oldestMainShare;
+            d.oldestReferenceShare = r.oldestReferenceShare;
+            d.publishTime = publishedTime;
+            d.pendingSegments = (int) (arrived - published.count);
             return d;
         }
 
         // 同 SegmentLedger::readEvents。
-        int readCommits (std::uint64_t& cursor, LiveCommitRecord* out, int maxCount) const noexcept
+        int readCommits (std::uint64_t& cursorToMove, LiveCommitRecord* out, int maxCount) const noexcept
         {
             auto lost = false;
 
-            if (cursor > recordTotal)
-                cursor = recordTotal;
+            if (cursorToMove > recordTotal)
+                cursorToMove = recordTotal;
 
-            if (recordTotal - cursor > (std::uint64_t) commitCapacity)
+            if (recordTotal - cursorToMove > (std::uint64_t) commitCapacity)
             {
-                cursor = recordTotal - (std::uint64_t) commitCapacity;
+                cursorToMove = recordTotal - (std::uint64_t) commitCapacity;
                 lost = true;
             }
 
             auto count = 0;
 
-            while (out != nullptr && cursor < recordTotal && count < maxCount)
+            while (out != nullptr && cursorToMove < recordTotal && count < maxCount)
             {
-                out[count++] = records[(size_t) (cursor % (std::uint64_t) commitCapacity)];
-                ++cursor;
+                out[count++] = records[(size_t) (cursorToMove % (std::uint64_t) commitCapacity)];
+                ++cursorToMove;
             }
 
             return lost ? -count : count;
         }
 
+        int readJudgements (LiveSegmentJudgement* out, int maxCount) const noexcept
+        {
+            if (out == nullptr)
+                return published.size;
+
+            const auto count = juce::jmin (maxCount, published.size);
+
+            for (int position = 0; position < count; ++position)
+            {
+                const auto sequence = published.first + (std::uint64_t) position;
+                const auto& e = entryAt (sequence);
+                auto& j = out[position];
+                j.sequence = sequence;
+                j.start = e.start;
+                j.end = e.end;
+                j.mainness = publishedMainness[(size_t) position];
+                j.weightSeconds = publishedWeight[(size_t) position];
+            }
+
+            return juce::jmax (0, count);
+        }
+
+        std::int64_t nextPublicationTime() const noexcept
+        {
+            return arrived > published.count ? entryAt (published.count).due : noPublication;
+        }
+
         //==============================================================================
-        // 状态 XML（文件头第五节）。
+        // 状态 XML（文件头第六节）。
+        void writeEntry (juce::MemoryOutputStream& out, const Entry& e, bool admittedPart) const
+        {
+            out.writeInt64 (e.start);
+            out.writeInt64 (e.end);
+            out.writeInt64 (e.nominalLength);
+            out.writeByte ((char) e.mode);
+            out.writeByte ((char) (e.usable ? 1 : 0));
+            out.writeByte ((char) (e.pinned ? 1 : 0));
+            out.writeFloat (e.pinnedMainness);
+            out.writeDouble (e.effectiveSeconds);
+            out.writeByte ((char) (e.loudnessValid ? 1 : 0));
+            out.writeFloat (e.loudnessLufs);
+            out.writeByte ((char) (e.lowShareValid ? 1 : 0));
+            out.writeFloat (e.lowShare);
+            out.writeFloat (e.truePeak);
+
+            out.writeInt (e.gatingCount);
+
+            for (int k = 0; k < e.gatingCount; ++k)
+                out.writeFloat (e.gatingPower[(size_t) k]);
+
+            out.writeInt (e.rangeCount);
+
+            for (int k = 0; k < e.rangeCount; ++k)
+                out.writeShort ((short) e.rangeBin[(size_t) k]);
+
+            out.writeDouble (e.rangeEnergy);
+            out.writeDouble (e.frames);
+
+            for (const auto& table : e.spectrum)
+                for (const auto x : table)
+                    out.writeDouble (x);
+
+            out.writeDouble (e.lowStereoWeight);
+            out.writeDouble (e.highStereoWeight);
+            out.writeInt (e.lowRangeFirst);
+            out.writeInt (e.lowRangeLast);
+
+            for (int bin = e.lowRangeFirst; bin <= e.lowRangeLast; ++bin)
+                out.writeShort ((short) e.lowRangeCount[(size_t) bin]);
+
+            out.writeDouble (e.fluxFrames);
+            out.writeDouble (e.fluxEvents);
+            out.writeDouble (e.onsetSamples);
+            out.writeDouble (e.onsetEvents);
+            out.writeInt (e.strengthCount);
+
+            for (int k = 0; k < e.strengthCount; ++k)
+                out.writeByte ((char) e.strengthBin[(size_t) k]);
+
+            out.writeDouble (e.subEnergy);
+            out.writeDouble (e.midEnergy);
+            out.writeInt (e.trialBlocks);
+
+            for (const auto& series : e.trialBin)
+                for (int k = 0; k < juce::jmin (e.trialBlocks, trialTopCount); ++k)
+                    out.writeShort ((short) series[(size_t) k]);
+
+            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+            {
+                out.writeDouble (e.blendIntended[c]);
+                out.writeDouble (e.blendOutput[c]);
+            }
+
+            out.writeInt (e.subBlockLength);
+            out.writeInt (e.hopLength);
+
+            // 进账的部分只写已发布窗口里的段；还没发布的段读回后重新进账。
+            out.writeByte ((char) (admittedPart ? 1 : 0));
+
+            if (admittedPart)
+            {
+                out.writeFloat (e.admissionLoudnessFactor);
+                out.writeFloat (e.admissionLowFactor);
+                out.writeFloat (e.admissionMainness);
+                out.writeByte ((char) e.vote);
+                out.writeByte ((char) ((e.timeDecay ? 1 : 0) | (e.newProgram ? 2 : 0) | (e.newProgramRangeValid ? 4 : 0)));
+                out.writeFloat (e.newProgramRangeLu);
+                out.writeDouble (e.mainStamp);
+                out.writeDouble (e.referenceStamp);
+            }
+        }
+
+        bool readEntry (BlobReader& in, Entry& e, bool expectAdmitted) const noexcept
+        {
+            e = Entry {};
+            e.start = in.i64();
+            e.end = in.i64();
+            e.nominalLength = in.i64();
+            const auto mode = in.u8();
+            e.mode = mode <= (std::uint8_t) SegmentMode::seconds ? static_cast<SegmentMode> (mode) : SegmentMode::none;
+            in.ok = in.ok && mode <= (std::uint8_t) SegmentMode::seconds && e.nominalLength >= 0;
+            e.usable = in.flag();
+            e.pinned = in.flag();
+            e.pinnedMainness = in.f32();
+            e.effectiveSeconds = in.f64();
+            e.loudnessValid = in.flag();
+            e.loudnessLufs = in.f32();
+            e.lowShareValid = in.flag();
+            e.lowShare = in.f32();
+            e.truePeak = in.f32();
+            in.ok = in.ok && e.pinnedMainness >= 0.0f && e.pinnedMainness <= 1.0f && e.effectiveSeconds >= 0.0 && e.truePeak >= 0.0f;
+
+            e.gatingCount = in.i32();
+            in.ok = in.ok && e.gatingCount >= 0 && e.gatingCount <= SegmentLedger::maxSubBlocks;
+
+            for (int k = 0; in.ok && k < e.gatingCount; ++k)
+            {
+                e.gatingPower[(size_t) k] = in.f32();
+                in.ok = in.ok && e.gatingPower[(size_t) k] >= 0.0f;
+            }
+
+            e.rangeCount = in.i32();
+            in.ok = in.ok && e.rangeCount >= 0 && e.rangeCount <= SegmentLedger::maxSubBlocks;
+
+            for (int k = 0; in.ok && k < e.rangeCount; ++k)
+            {
+                e.rangeBin[(size_t) k] = in.u16();
+                in.ok = in.ok && (int) e.rangeBin[(size_t) k] < histogramBins;
+            }
+
+            e.rangeEnergy = in.f64();
+            e.frames = in.f64();
+            in.ok = in.ok && e.rangeEnergy >= 0.0 && e.frames >= 0.0;
+
+            for (size_t table = 0; table < (size_t) spectrumTables; ++table)
+                for (auto& x : e.spectrum[table])
+                {
+                    x = in.f64();
+                    in.ok = in.ok && (table == (size_t) stereoCrossTable || x >= 0.0);
+                }
+
+            e.lowStereoWeight = in.f64();
+            e.highStereoWeight = in.f64();
+            e.lowRangeFirst = in.i32();
+            e.lowRangeLast = in.i32();
+            in.ok = in.ok && e.lowStereoWeight >= 0.0 && e.highStereoWeight >= 0.0
+                 && ((e.lowRangeFirst == lowRangeBins && e.lowRangeLast == -1)
+                     || (e.lowRangeFirst >= 0 && e.lowRangeLast >= e.lowRangeFirst && e.lowRangeLast < lowRangeBins));
+
+            for (int bin = e.lowRangeFirst; in.ok && bin <= e.lowRangeLast; ++bin)
+                e.lowRangeCount[(size_t) bin] = in.u16();
+
+            e.fluxFrames = in.f64();
+            e.fluxEvents = in.f64();
+            e.onsetSamples = in.f64();
+            e.onsetEvents = in.f64();
+            e.strengthCount = in.i32();
+            in.ok = in.ok && e.fluxFrames >= 0.0 && e.fluxEvents >= 0.0 && e.onsetSamples >= 0.0 && e.onsetEvents >= 0.0
+                 && e.strengthCount >= 0 && e.strengthCount <= SegmentLedger::maxEvents;
+
+            for (int k = 0; in.ok && k < e.strengthCount; ++k)
+            {
+                e.strengthBin[(size_t) k] = in.u8();
+                in.ok = in.ok && (int) e.strengthBin[(size_t) k] < strengthBins;
+            }
+
+            e.subEnergy = in.f64();
+            e.midEnergy = in.f64();
+            e.trialBlocks = in.i32();
+            in.ok = in.ok && e.subEnergy >= 0.0 && e.midEnergy >= 0.0 && e.trialBlocks >= 0;
+
+            for (auto& series : e.trialBin)
+                for (int k = 0; in.ok && k < juce::jmin (e.trialBlocks, trialTopCount); ++k)
+                {
+                    series[(size_t) k] = in.u16();
+                    in.ok = in.ok && (int) series[(size_t) k] < trialBins;
+                }
+
+            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+            {
+                e.blendIntended[c] = in.f64();
+                e.blendOutput[c] = in.f64();
+                in.ok = in.ok && e.blendIntended[c] >= 0.0 && e.blendOutput[c] >= 0.0;
+            }
+
+            e.subBlockLength = in.i32();
+            e.hopLength = in.i32();
+            in.ok = in.ok && e.subBlockLength >= 0 && e.hopLength >= 0;
+
+            const auto admittedPart = in.flag();
+            in.ok = in.ok && admittedPart == expectAdmitted;
+
+            if (in.ok && admittedPart)
+            {
+                e.admissionLoudnessFactor = in.f32();
+                e.admissionLowFactor = in.f32();
+                e.admissionMainness = in.f32();
+                e.vote = in.u8();
+                const auto flags = in.u8();
+                e.timeDecay = (flags & 1) != 0;
+                e.newProgram = (flags & 2) != 0;
+                e.newProgramRangeValid = (flags & 4) != 0;
+                e.newProgramRangeLu = in.f32();
+                e.mainStamp = in.f64();
+                e.referenceStamp = in.f64();
+                e.admitted = true;
+                in.ok = in.ok && e.vote <= 3 && flags <= 7;
+            }
+
+            // 坏段只有身份与读数（makeEntry）：其余的量必须是空的。
+            in.ok = in.ok && (e.usable || (e.effectiveSeconds == 0.0 && e.gatingCount == 0 && e.rangeCount == 0 && e.frames == 0.0
+                                           && e.trialBlocks == 0 && e.strengthCount == 0));
+            deriveEntry (e);
+            return in.ok;
+        }
+
         std::unique_ptr<juce::XmlElement> createState() const
         {
             auto xml = std::make_unique<juce::XmlElement> (liveStateTag);
             xml->setAttribute ("formatVersion", liveStateFormatVersion);
+            xml->setAttribute ("sampleRate", hexOf (sampleRate));
 
-            StateWriter writer (*xml);
-            writer.scalar ("sampleRate", sampleRate);
-            writer.count ("subBlockLength", (std::uint64_t) subBlockLength);
-            writer.count ("hopLength", (std::uint64_t) hopLength);
-            writer.scalar ("mainScale", mainScale);
-            writer.scalar ("referenceScale", referenceScale);
-            writer.scalar ("allScale", allScale);
-            writer.count ("commits", commits);
-            writer.scalar ("activeSeconds", activeSeconds);
-            writer.scalar ("secondsSinceMain", secondsSinceMain);
-            writer.scalar ("newProgramSeconds", newProgramSeconds);
-            writer.count ("newProgramCount", newProgramCount);
-            writer.count ("lastMode", (std::uint64_t) lastMode);
-            writer.scalar ("lastNominalSeconds", lastNominalSeconds);
+            const auto& c = published.counters;
+            xml->setAttribute ("mainClock", hexOf (c.mainClock));
+            xml->setAttribute ("referenceClock", hexOf (c.referenceClock));
+            xml->setAttribute ("secondsSinceMain", hexOf (c.secondsSinceMain));
+            xml->setAttribute ("runSeconds", hexOf (c.runSeconds));
+            xml->setAttribute ("activeSeconds", hexOf (c.activeSeconds));
+            xml->setAttribute ("runStart", juce::String ((juce::uint64) c.runStart));
+            xml->setAttribute ("newProgramCount", juce::String ((juce::uint64) c.newProgramCount));
+            xml->setAttribute ("commits", juce::String ((juce::uint64) published.count));
+            xml->setAttribute ("window", published.size);
+            xml->setAttribute ("pending", (int) (arrived - published.count));
 
-            visitMain (*this, writer);
-            visitReference (*this, writer);
-            visitAll (*this, writer);
-            xml->setAttribute ("peakMax", encodeReals (mainStore.peakMax.data(), mainStore.peakMax.size()));
+            juce::MemoryOutputStream blob;
+
+            for (auto sequence = published.first; sequence < arrived; ++sequence)
+                writeEntry (blob, entryAt (sequence), sequence < published.count);
+
+            xml->setAttribute ("segments", juce::Base64::toBase64 (blob.getData(), blob.getDataSize()));
             return xml;
         }
 
         bool restoreState (const juce::XmlElement& xml)
         {
-            clearAll();
+            coldStart();
 
             if (xml.getTagName() != liveStateTag || xml.getStringAttribute ("formatVersion") != juce::String (liveStateFormatVersion))
                 return false;
 
-            StateReader reader (xml);
+            auto ok = true;
+            const auto scalar = [&xml, &ok] (const char* name, double& value)
+            {
+                if (! xml.hasAttribute (name) || ! parseHexDouble (xml.getStringAttribute (name), value))
+                    ok = false;
+            };
+
+            const auto count = [&xml, &ok] (const char* name, std::uint64_t maximum, std::uint64_t& value)
+            {
+                if (! xml.hasAttribute (name) || ! parseUnsigned (xml.getStringAttribute (name), maximum, value))
+                    ok = false;
+            };
+
             double savedRate = 0.0;
-            std::uint64_t subBlocks = 0, hop = 0, mode = 0;
-            reader.scalar ("sampleRate", savedRate);
-            reader.count ("subBlockLength", (std::uint64_t) std::numeric_limits<int>::max(), subBlocks);
-            reader.count ("hopLength", (std::uint64_t) std::numeric_limits<int>::max(), hop);
-            reader.scalar ("mainScale", mainScale);
-            reader.scalar ("referenceScale", referenceScale);
-            reader.scalar ("allScale", allScale);
-            reader.count ("commits", std::numeric_limits<std::uint64_t>::max(), commits);
-            reader.value ("activeSeconds", activeSeconds);
-            reader.value ("secondsSinceMain", secondsSinceMain);
-            reader.value ("newProgramSeconds", newProgramSeconds);
-            reader.count ("newProgramCount", std::numeric_limits<std::uint64_t>::max(), newProgramCount);
-            reader.count ("lastMode", (std::uint64_t) SegmentMode::seconds, mode);
-            reader.value ("lastNominalSeconds", lastNominalSeconds);
+            Counters c;
+            std::uint64_t commits = 0, window = 0, pending = 0;
+            scalar ("sampleRate", savedRate);
+            scalar ("mainClock", c.mainClock);
+            scalar ("referenceClock", c.referenceClock);
+            scalar ("secondsSinceMain", c.secondsSinceMain);
+            scalar ("runSeconds", c.runSeconds);
+            scalar ("activeSeconds", c.activeSeconds);
+            count ("runStart", std::numeric_limits<std::uint64_t>::max(), c.runStart);
+            count ("newProgramCount", std::numeric_limits<std::uint64_t>::max(), c.newProgramCount);
+            count ("commits", std::numeric_limits<std::uint64_t>::max() / 2, commits);
+            count ("window", (std::uint64_t) windowCapacity, window);
+            count ("pending", (std::uint64_t) queueCapacity, pending);
 
-            visitMain (*this, reader);
-            visitReference (*this, reader);
-            visitAll (*this, reader);
-
-            if (! xml.hasAttribute ("peakMax") || ! decodeReals (xml.getStringAttribute ("peakMax"), mainStore.peakMax.data(), mainStore.peakMax.size()))
-                reader.ok = false;
-
-            const auto scaleOk = [] (double g) { return g > 0.0 && g <= 1.0; };
-            auto ok = reader.ok && savedRate > 0.0 && subBlocks >= 1 && scaleOk (mainScale) && scaleOk (referenceScale) && scaleOk (allScale);
-
-            for (const auto peak : mainStore.peakMax)
-                ok = ok && peak >= 0.0f;
-
-            // 读进来的试算直方图可以落在任何格（读到一半失败的也是）：先整张重扫有数的范围，清零才罩得住全部非零格。
-            recomputeTrialRanges();
+            ok = ok && savedRate > 0.0 && c.mainClock >= 0.0 && c.referenceClock >= 0.0 && c.secondsSinceMain >= 0.0 && c.runSeconds >= 0.0
+              && c.activeSeconds >= 0.0 && window <= commits && window == juce::jmin (commits, (std::uint64_t) windowCapacity)
+              && c.runStart <= commits && xml.hasAttribute ("segments");
 
             if (! ok)
+                return false;
+
+            juce::MemoryOutputStream decoded;
+
+            if (! juce::Base64::convertFromBase64 (decoded, xml.getStringAttribute ("segments")))
+                return false;
+
+            // 读进来的段先放进环（顺序同保存时：窗口在前、还没发布的在后），读完全部再换算采样率。
+            BlobReader in (decoded.getData(), decoded.getDataSize());
+            const auto first = commits - window;
+            const auto ratio = sampleRate / savedRate;
+
+            for (std::uint64_t k = 0; k < window + pending && ok; ++k)
             {
-                clearAll();
+                auto& e = entryAt (first + k);
+                ok = readEntry (in, e, k < window);
+
+                if (ok && ratio != 1.0)
+                {
+                    // 采样率变了：按样本计的量换成新采样率下的同一段时长（其余都按秒或按个数存）。
+                    e.start = (std::int64_t) std::llround ((double) e.start * ratio);
+                    e.end = (std::int64_t) std::llround ((double) e.end * ratio);
+                    e.nominalLength = (std::int64_t) std::llround ((double) e.nominalLength * ratio);
+                    e.onsetSamples *= ratio;
+                    e.subBlockLength = e.subBlockLength > 0 ? juce::jmax (1, juce::roundToInt ((double) e.subBlockLength * ratio)) : 0;
+                    e.hopLength = e.hopLength > 0 ? juce::jmax (1, juce::roundToInt ((double) e.hopLength * ratio)) : 0;
+                }
+            }
+
+            if (! ok || ! in.atEnd())
+            {
+                coldStart();
                 return false;
             }
 
-            subBlockLength = (int) subBlocks;
-            hopLength = (int) hop;
-            lastMode = static_cast<SegmentMode> (mode);
+            // 已发布那一份：前 commits 段、窗口 [first, commits)；按此刻的常数重算（与保存时逐位相同：同一批段、印记、时钟）。
+            arrived = commits + pending;
+            admittedCount = commits;
+            counters = c;
+            published.count = commits;
+            published.first = first;
+            published.size = (int) window;
+            published.counters = c;
+            work = published;
+            recomputePublished();
 
-            // 采样率变了：按样本计的量换成新采样率下的同一段时长（其余都按秒或按个数存）。
-            if (savedRate != sampleRate)
+            // 保存时还没发布的段：按序进账、重算、立刻发布（时间轴重新起算；不另发提交记录）。
+            for (std::uint64_t k = 0; k < pending; ++k)
             {
-                const auto ratio = sampleRate / savedRate;
-                mainStore.onsetSamples *= ratio;
-                subBlockLength = juce::jmax (1, juce::roundToInt ((double) subBlockLength * ratio));
-                hopLength = hopLength > 0 ? juce::jmax (1, juce::roundToInt ((double) hopLength * ratio)) : 0;
+                startNextPass();
+                finishPass();
+                publishQuietly();
             }
 
-            refreshPeakTop();
-            refreshReferences();
-            computeProfile();
             return true;
+        }
+
+        // 发布但不写提交记录、不通知（读档时把保存时还没发布的段并进来）。
+        void publishQuietly() noexcept
+        {
+            const auto total = recordTotal;
+            const auto saved = records[(size_t) (total % (std::uint64_t) commitCapacity)];
+            auto* const savedListener = listener;
+            listener = nullptr;
+            publish();
+            listener = savedListener;
+            recordTotal = total;
+            records[(size_t) (total % (std::uint64_t) commitCapacity)] = saved;
         }
     };
 
@@ -2239,43 +2798,63 @@ namespace celadon::glaze
     void LiveProfile::prepare (double sampleRate)
     {
         impl->configure (sampleRate);
-        impl->clearAll();
+        impl->coldStart();
     }
 
     void LiveProfile::reset() noexcept
     {
-        impl->clearAll();
+        impl->coldStart();
     }
 
     void LiveProfile::setConstants (const LiveConstants& constants, MainSectionModel model) noexcept
     {
-        impl->setConstants (constants, model);
+        impl->constants = sanitiseLiveConstants (constants);
+        impl->model = model == MainSectionModel::fourOnFloor || model == MainSectionModel::passive ? model : MainSectionModel::loudness;
+        impl->refreshDelay();
+        impl->recomputePublished();
     }
 
     void LiveProfile::segmentFinalized (const SegmentLedger::Segment& segment) noexcept
     {
-        const auto factors = impl->factorsFor (segment.loudnessValid, segment.loudnessLufs, segment.lowShareValid, segment.lowShare);
-        impl->commit (segment, Impl::mainnessOf (factors), factors);
+        impl->enqueue (segment, false, 0.0f);
+    }
+
+    void LiveProfile::advanceTo (std::int64_t analyzerTime) noexcept
+    {
+        impl->advanceTo (analyzerTime);
+    }
+
+    void LiveProfile::flush() noexcept
+    {
+        impl->flush();
     }
 
     void LiveProfile::commitWithMainness (const SegmentLedger::Segment& segment, float mainness) noexcept
     {
-        const auto factors = impl->factorsFor (segment.loudnessValid, segment.loudnessLufs, segment.lowShareValid, segment.lowShare);
-        const auto clamped = std::isfinite (mainness) ? juce::jlimit (0.0f, 1.0f, mainness) : 0.0f;
-        impl->commit (segment, clamped, factors);
+        impl->enqueue (segment, true, std::isfinite (mainness) ? juce::jlimit (0.0f, 1.0f, mainness) : 0.0f);
     }
 
     float LiveProfile::mainnessFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept
     {
-        return Impl::mainnessOf (impl->factorsFor (loudnessValid, loudnessLufs, lowShareValid, lowShare));
+        const auto f = impl->factorsFor (loudnessValid, loudnessLufs, lowShareValid, lowShare);
+        return f.loudness * f.low;
     }
 
-    const MusicProfile& LiveProfile::getProfile() const noexcept   { return impl->profile; }
+    std::int64_t LiveProfile::getNextPublicationTime() const noexcept   { return impl->nextPublicationTime(); }
+
+    void LiveProfile::setPublicationListener (PublicationListener* listener) noexcept   { impl->listener = listener; }
+
+    const MusicProfile& LiveProfile::getProfile() const noexcept   { return impl->publishedResult.profile; }
     LiveDiagnostics LiveProfile::getDiagnostics() const noexcept   { return impl->diagnostics(); }
 
     int LiveProfile::readCommits (std::uint64_t& cursor, LiveCommitRecord* out, int maxCount) const noexcept
     {
         return impl->readCommits (cursor, out, maxCount);
+    }
+
+    int LiveProfile::readJudgements (LiveSegmentJudgement* out, int maxCount) const noexcept
+    {
+        return impl->readJudgements (out, maxCount);
     }
 
     std::unique_ptr<juce::XmlElement> LiveProfile::createStateXml() const
@@ -2286,5 +2865,13 @@ namespace celadon::glaze
     bool LiveProfile::restoreStateXml (const juce::XmlElement& xml)
     {
         return impl->restoreState (xml);
+    }
+
+    void LiveProfile::setFrozenReferencesForTesting (bool enabled, float referenceLufs, float lowReference) noexcept
+    {
+        impl->frozen = enabled;
+        impl->frozenReference = referenceLufs;
+        impl->frozenLowReference = lowReference;
+        impl->recomputePublished();
     }
 }
