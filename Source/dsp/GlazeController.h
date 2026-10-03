@@ -163,7 +163,10 @@ namespace celadon::glaze
         // T-048 阶段 1 直通（插件不调；测试与渲染工具用）：非空 = 分析器打开实时模式、定稿的段交给 sink；nullptr = 关（开着的段先交给
         // 原来的 sink）。prepare 之后、处理之前调；设定在分析器里，prepare / 宿主 reset / 读档之后保持。编排器其余行为一律不变
         // （它不读实时段落账，输出与不开时逐位相同，见 MusicAnalyzer.h「T-048」一节）。
-        void setLiveSegmentSink (SegmentSink* sink);
+        // pendingFrames（关的时候）= 帧还没交给分析器的 Balance：链在下一块开头才交帧（analyzeSpectrum），关的那一刻最后一块的帧还在
+        // 它那里，分析器先把这些帧只交给实时段落账再就地定稿（别的一律不碰，下一块开头照常交）。CeladonChain 交它自己的 Balance；
+        // 不经链、每块 endBlock 里就交了帧的调用方给 nullptr。
+        void setLiveSegmentSink (SegmentSink* sink, const BalanceModule* pendingFrames = nullptr);
 
         // ---- 任何线程 ----
 

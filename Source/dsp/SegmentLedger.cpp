@@ -2,7 +2,8 @@
   ==============================================================================
 
     SegmentLedger.cpp
-    T-038 House 档按小节记账（口径见 SegmentLedger.h）。T-048：每定稿一段交给 SegmentSink（finalizeOldest，含 endEpoch 就地定稿的段）。
+    T-038 House 档按小节记账（口径见 SegmentLedger.h）。T-048：每定稿一段交给 SegmentSink（finalizeOldest，含 endEpoch 就地定稿的段）；
+    阶段 1 修订：锚定时块起点离下一条小节线不到半个样本就从那条小节线算起（anchor，不再开 1 个样本的碎段）。
 
   ==============================================================================
 */
@@ -255,7 +256,19 @@ namespace celadon::glaze
                     barStart = host.ppqLastBarStart + std::floor (since / quarters + 1.0e-9) * quarters;
             }
 
-            const auto offset = juce::jlimit (0.0, regime.samplesPerSegment - 1.0, (ppq - barStart) * regime.samplesPerQuarter);
+            // 块起点离下一条小节线不到半个样本（宿主把小节线取整到了它前面那个样本，例如从第 N 小节起播、起点 = round(小节线)）：这条
+            // 小节线按就近取整就落在块起点上，从它算起。否则下面把偏移钳在「每小节样本 − 1」再取整，原点被拉晚一个样本，小节线落到块起点
+            // 之后一个样本，开出一个只有 1 个样本的碎段，下一小节的第一个子块、帧、起音组都按起点归进它（T-048 REPORT-C 5.7）。
+            // 离小节线半个样本及以上的块起点照旧：那几个样本就近取整确实属于上一小节。
+            auto exactOffset = (ppq - barStart) * regime.samplesPerQuarter;
+
+            if (exactOffset > regime.samplesPerSegment - 0.5)
+            {
+                barStart += quarters;
+                exactOffset -= regime.samplesPerSegment;
+            }
+
+            const auto offset = juce::jlimit (0.0, regime.samplesPerSegment - 1.0, exactOffset);
             regime.anchorPpq = ppq;
             regime.originPpq = barStart;
             regime.originSample = blockStart - (std::int64_t) std::llround (offset);

@@ -3711,12 +3711,12 @@ namespace celadon::glaze
         impl->pendingRelearn.fetch_add (1, std::memory_order_acq_rel);
     }
 
-    void GlazeController::setLiveSegmentSink (SegmentSink* sink)
+    void GlazeController::setLiveSegmentSink (SegmentSink* sink, const BalanceModule* pendingFrames)
     {
-        // 关：先关实时模式（开着的段交给原来的接收者），再撤接收者；开：先交接收者再开（第一段就交得到）。
+        // 关：先关实时模式（还没交的帧先只交给实时段落账，开着的段交给原来的接收者），再撤接收者；开：先交接收者再开（第一段就交得到）。
         if (sink == nullptr)
         {
-            impl->analyzer.setLiveMode (false);
+            impl->analyzer.setLiveMode (false, pendingFrames);
             impl->analyzer.setSegmentSink (nullptr);
             return;
         }
