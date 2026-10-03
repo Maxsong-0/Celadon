@@ -527,8 +527,7 @@ namespace celadon::test
         //     （否则门边那一格的门块可能归属不同，差可达 0.05 LU 量级），之后只剩求和顺序（double 末位）与 float 舍入：1e-4 LU；PLR 同；
         //   - 试算代价：每路 P99 由 0.01 dB 一格的直方图按格中心插值，每个 P99 ≤ 半格 0.005 dB，代价 ≤ 0.01 dB；
         //   - LRA：4/4 型主段加权，与 House（只用满编段）逐位；响度型用全部段，对照是测试里按 House 同一公式在全部存下的段上算的参照，逐位；
-        //   - 按设计不同、单独核对的字段：effectiveSeconds（= M = 满编段有效时长之和）、formatVersion（2 / 3）、houseGate（不填）、
-        //     混合损失的 confidence（houseConfidences 没给，实时画像照通用画像给）。
+        //   - 按设计不同、单独核对的字段：effectiveSeconds（= M = 满编段有效时长之和）、formatVersion（2 / 3）、houseGate（不填）。
         void testHouseEquivalence()
         {
             beginTest ("a. equivalence: forgetting off, the ledger's stored segments with m = full give the analyzer's House profile");
@@ -717,10 +716,10 @@ namespace celadon::test
             {
                 const auto& a = p.lowCutBlendLossDb[c];
                 const auto& b = expected.lowCutBlendLossDb[c];
-                expect (a.valid && b.valid && sameFloat (a.value, b.value) && sameDouble (a.effectiveSeconds, b.effectiveSeconds),
-                        "blend loss " + juce::String ((int) c) + " bitwise");
-                expect (sameFloat (b.confidence, 0.0f) && sameFloat (a.confidence, fractionOf (a.effectiveSeconds, 10.0)),
-                        "blend loss confidence: House leaves 0, live gives min(c, observation) like the general profile");
+                // T-049（main 9c18ff9）起 House 也给混合损失置信度 = min(代表性, 试算观测充分度)，与实时画像同一口径：整项逐位。
+                expect (a.valid && b.valid && sameFeature (a, b), "blend loss " + juce::String ((int) c) + " bitwise (confidence included)");
+                expect (sameFloat (a.confidence, fractionOf (a.effectiveSeconds, 10.0)),
+                        "blend loss confidence = min(c, observation) like the general profile");
             }
 
             // 按设计不同的几项。

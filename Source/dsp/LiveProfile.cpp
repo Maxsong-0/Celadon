@@ -50,7 +50,7 @@
           最高一格里的最大值；遗忘关掉、每个 m > 0 的段 w ≥ peakTailSeconds 时就是 House 的满编段最大值（逐位）；
         - 试算 P99：每一路一张加权直方图（0.01 dB 一格），每段交来的「每路最大的 8 个块峰值」按 m 计入、其余块只计入总块数，按格中心
           做 numpy 线性插值的加权推广（trialPercentileOf）；每个 P99 误差 ≤ 半格（0.005 dB）。块数不设 512 的上限（靠遗忘）；
-        - 混合损失的 confidence 照通用画像 finalizeConfidences 给（houseConfidences 没给、恒为 0；决策器只看 valid，不受影响）；
+        - 混合损失的 confidence 照通用画像 finalizeConfidences 给（House 的 houseConfidences 自 T-049 起同一口径）；
         - formatVersion = clayProfileFormatVersion、houseGate 不填（理由见 computeProfile）。
 
     五、状态 XML（格式版本 1，节点 LIVE_PROFILE）
