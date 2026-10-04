@@ -1,0 +1,108 @@
+# 2026-10-04 00:13:26 PDT  src=/home/maxsong/.cache/celadon-spark/tmp/P1T/rev-a2  args=--only LiveProfileReverse,LiveProfile
+# uptime:  00:13:26 up  4:42,  3 users,  load average: 6.42, 7.07, 5.01
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+Random seed: 0x58cda47
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / a. equivalence: forgetting off, the ledger's stored segments with m = full give the analyzer's House profile...
+  stored 32, full 16 (trial blocks 310); House I -12.3665, live I -12.3665; S_ref ledger -12.25, live -12.25
+  nearest gating block to the -10 LU relative gate: 7.250 LU
+  LRA: 4/4 (full segments) 0.20 LU, loudness model (all segments) 8.80 LU
+  low-cut cost: House 0.8508 dB, live 0.8527 (diff 0.00186)
+  width cost: House 0.0025 dB, live 0.0009 (diff 0.00162)
+  mono cost 0: House -0.0002 dB, live 0.0000 (diff 0.00023)
+  mono cost 1: House -0.0041 dB, live -0.0091 (diff 0.00502)
+  mono cost 2: House -0.0363 dB, live -0.0382 (diff 0.00196)
+  mono cost 3: House -0.0791 dB, live -0.0846 (diff 0.00554)
+Completed tests in LiveProfile / a. equivalence: forgetting off, the ledger's stored segments with m = full give the analyzer's House profile
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / b. a breakdown (m = 0) leaves the main profile, main mass and confidence bit-identical; a new drop moves it...
+  I -8.03 -> -6.93 LUFS, lowShare 0.600 -> 0.661
+Completed tests in LiveProfile / b. a breakdown (m = 0) leaves the main profile, main mass and confidence bit-identical; a new drop moves it
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / c. mainness: two soft gates, ramp end points, cold start, passive / loudness models; mainnessFor = segmentFinalized...
+Completed tests in LiveProfile / c. mainness: two soft gates, ramp end points, cold start, passive / loudness models; mainnessFor = segmentFinalized
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / W_mem and M0 follow the segment mode: bars x the bar length, or the seconds constants for 2-second segments...
+Completed tests in LiveProfile / W_mem and M0 follow the segment mode: bars x the bar length, or the seconds constants for 2-second segments
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / d. no main section for 60 s: main mass decays by effective time (tau 120 s) from the 60 s mark on, until a main bar...
+Completed tests in LiveProfile / d. no main section for 60 s: main mass decays by effective time (tau 120 s) from the 60 s mark on, until a main bar
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every mass by 0.2; breakdowns never do...
+Completed tests in LiveProfile / d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every mass by 0.2; breakdowns never do
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / models: 4/4 I is main-weighted, the loudness model's I is every segment's BS.1770 integral; format 2; mainness clamped...
+  4/4 (main) I -8.044, loudness-model (all) I -10.079, reference -10.079
+Completed tests in LiveProfile / models: 4/4 I is main-weighted, the loudness model's I is every segment's BS.1770 integral; format 2; mainness clamped
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / e. state XML round trip is bit-exact (forgetting scale != 1, renormalised, empty); the restored copy evolves identically...
+  state XML: 15288 bytes (factory constants, 40 bars)
+  state XML: 12290 bytes (renormalised every bar)
+Completed tests in LiveProfile / e. state XML round trip is bit-exact (forgetting scale != 1, renormalised, empty); the restored copy evolves identically
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / e. bad state data (version, missing / short / non-finite / negative / garbage values, scale) -> cold start, false...
+Completed tests in LiveProfile / e. bad state data (version, missing / short / non-finite / negative / garbage values, scale) -> cold start, false
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / f. the same segment sequence gives bit-identical results: another instance, after a reset, with reads in between...
+Completed tests in LiveProfile / f. the same segment sequence gives bit-identical results: another instance, after a reset, with reads in between
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / analyzer live mode -> live ledger -> sink -> LiveProfile: the live profile is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7...
+Completed tests in LiveProfile / analyzer live mode -> live ledger -> sink -> LiveProfile: the live profile is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / f. segmentFinalized / commitWithMainness / reads / reset do not allocate (including renormalisation)...
+Completed tests in LiveProfile / f. segmentFinalized / commitWithMainness / reads / reset do not allocate (including renormalisation)
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / commit records: a 64-entry ring read by cursor; a lagging reader skips to the oldest and gets a negative count...
+Completed tests in LiveProfile / commit records: a 64-entry ring read by cursor; a lagging reader skips to the oldest and gets a negative count
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / a segment with non-finite data is recorded with m = 0 and touches no accumulation...
+Completed tests in LiveProfile / a segment with non-finite data is recorded with m = 0 and touches no accumulation
+-----------------------------------------------------------------
+Starting tests in: LiveProfile / g. per-commit time (mean / max, us) with a wide guard against a 100x regression...
+  per commit: median 2.00 us, P99 3.00 us, P99.9 6.00 us
+  reset (cold start, clears every accumulation): 2.0 us
+  per commit: mean 2.46 us, max 7.0 us (2000 bars); renormalising every bar: mean 3.4 us, max 6.0 us
+  state XML after the 2000 bars: 19655 bytes
+Completed tests in LiveProfile / g. per-commit time (mean / max, us) with a wide guard against a 100x regression
+-----------------------------------------------------------------
+Starting tests in: LiveProfileReverse / r1 on a2daf2b: a bass-heavy intro pins lowRef; does the drop pass the low gate within 4 bars?...
+  [a2daf2b] drop m at commit: 0.000, 0.000, 0.000, 0.000 ... 0.000 (0 of 12 drop bars main); intro m 1.000 ... 1.000, intro weight 30.40 s; lowRef 0.4495, I -12.038
+!!! Test 1 failed: from the 4th drop bar on the drop is main at its publication
+!!! Test 2 failed: in the final profile the intro is rejudged out (m' = 0, weight 0) and every drop bar is main
+!!! Test 3 failed: lowRef is the drop's lowShare
+!!! Test 4 failed: I is the drop's level
+
+FAILED!!  4 tests failed, out of a total of 4
+
+-----------------------------------------------------------------
+Starting tests in: LiveProfileReverse / r2 on a2daf2b: a cold start on a fade-in bar; do the next bars take over the references?...
+  [a2daf2b] I after the fade-in -34.08, then -34.08, -34.08, ... -34.08 LUFS; hats m 0.000, 0.000 ... 0.000; fade-in bar m 1.000 (fixed at commit); lowRef 0.1505
+!!! Test 2 failed: the first hats bar is main and I jumps to it at once
+!!! Test 3 failed: the fade-in bar is rejudged out
+
+FAILED!!  2 tests failed, out of a total of 3
+
+-----------------------------------------------------------------
+Starting tests in: LiveProfileReverse / r3 on a2daf2b: the intro taken as main at cold start; is I within 1 LU after 4 drop bars?...
+  [a2daf2b] intro I -11.90 (c 0.946); drop bars 1 ... 4: I -11.65, -11.43, -11.23, -11.05 (c 0.958); after 16 bars I -9.74 (c 0.977); intro weight (first 32 commits) 60.80 s; within 1 LU of -8.03 after 32 drop bars
+!!! Test 2 failed: 4 drop bars in, I is within 1 LU of the drop's
+!!! Test 3 failed: the intro carries no weight once rejudged
+
+FAILED!!  2 tests failed, out of a total of 4
+
+-----------------------------------------------------------------
+Starting tests in: LiveProfileReverse / d3 on a2daf2b: new program, quieter branch - does the old rule look at the level range?...
+  [a2daf2b] alternating 1.9 LU, (HEAD limit 2.0; a2daf2b has none): triggered at bar 11
+  [a2daf2b] alternating 2.1 LU, (HEAD limit 2.0; a2daf2b has none): triggered at bar 11
+!!! Test 2 failed: range 2.1 LU: never triggers
+  [a2daf2b] fade-out -0.3 LU/bar, (HEAD limit 2.0; a2daf2b has none): triggered at bar 11
+!!! Test 3 failed: a fade-out going down 0.3 LU per bar never triggers
+  [a2daf2b] fade-out -0.3 LU/bar, (HEAD limit inf; a2daf2b has none): triggered at bar 11
+
+FAILED!!  2 tests failed, out of a total of 4
+
+
+==== celadon_tests: 159 passed, 10 failed ====
+TEST_EXIT=1  elapsed=2s
+# uptime after:  00:13:28 up  4:42,  4 users,  load average: 6.42, 7.07, 5.01
