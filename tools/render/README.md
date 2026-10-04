@@ -39,7 +39,7 @@ scripts/render-linux.sh ~/Music/Celadon对照 --glaze 0,50 --style auto,warm --m
 1. 把工作树（不含 `artifacts/`）与 `../JUCE/modules` rsync 到服务器；
 2. 把歌曲目录第一层的 wav / wave / bwf / aif / aiff / aifc / flac rsync 到服务器的歌曲缓存（按大小 + 修改时间增量，同一目录再跑不重传）；
 3. 远端 `cmake` + `cmake --build --target celadon_render`（Release，Ninja；`celadon_render` 是 EXCLUDE_FROM_ALL 目标，测试构建不编它）；
-4. 远端先跑 `celadon_render --selftest`（几秒钟，见下「自检」），通不过就停；
+4. 远端先跑 `celadon_render --selftest`，再跑 `--selftest-house`（各几秒钟，见下「自检」与 T-038 的「自检（`--selftest-house`）」），任一项通不过就停；
 5. 远端运行 `celadon_render --in <歌曲缓存> --out <本次输出> [额外参数]`（`nice -n 10`，单线程）；
 6. 把输出目录拉回本机，再删掉服务器上的本次输出。
 
@@ -47,7 +47,7 @@ scripts/render-linux.sh ~/Music/Celadon对照 --glaze 0,50 --style auto,warm --m
 |---|---|---|
 | `CELADON_TEST_HOST` | `maxsong@192.168.100.107` | 目标主机（与 test-linux.sh 相同；需在家里网络或 VPN 下） |
 | `CELADON_RENDER_OUT` | `<仓库>/artifacts/render-<日期时间>/` | 本机结果目录 |
-| `CELADON_RENDER_SKIP_SELFTEST` | 不设 | 设为 `1` 跳过渲染前的自检（只在明知自检某项因别的改动失败、仍要先听时用） |
+| `CELADON_RENDER_SKIP_SELFTEST` | 不设 | 设为 `1` 跳过渲染前的两项自检（`--selftest`、`--selftest-house`；只在明知自检某项因别的改动失败、仍要先听时用） |
 
 `--in` / `--out` 由脚本给，不要再传。服务器上的布局：
 
@@ -84,7 +84,7 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--listen-from-bar` | `1` | 第一遍（聆听）从第几小节起播到歌尾（1 = 从头），可逗号分隔多个（网格的一维）；要 `--bpm`。第二遍（成品）照旧从头渲染 |
 | `--segments-csv` | 关 | 逐段写统计到 `segments/`（有 `--bpm` 时一段 = 一小节，否则每 2 秒）：输入端每首一份、成品每组一份（见下「T-038」） |
 | `--selftest` | — | 只跑自检，不读歌（其余选项忽略） |
-| `--selftest-house` | — | 只跑 T-038 新选项的自检（见下「T-038」），不读歌；`render-linux.sh` 不跑它，改了相关代码手动跑 |
+| `--selftest-house` | — | 只跑 T-038 新选项的自检（见下「T-038」），不读歌；`render-linux.sh` 渲染前在 `--selftest` 之后跑它 |
 
 进度、警告、错误都写 stderr。返回 0 = 全部成功；1 = 有文件读 / 写失败（其余照做，指标表照写）或自检失败；2 = 参数错误。
 采样率按文件自己的（8 k～768 kHz）；单声道复制成双声道，多声道只取前两个；输入里的 NaN / Inf 样本按 0 处理（备注里写数量，
@@ -231,8 +231,10 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 | 真峰值 | 所有成品 ≤ −1.0 + 0.01 dBTP |
 
 「自动」对「全关」的跨链差只打印作参考（`ref:` 列），不判定。旧的跨链门槛脚本 `docs/validation/2026-09-26-clay/render/gate_check.py`
-留作 T-012 的证据，不再维护。`gate_check.py` 按（歌, GLAZE, 风格）配对：用了 `--genre` / `--delivery` / `--listen-from-bar` 的多值网格时，
-同一首歌同一 GLAZE 会有几组「自动」，它分不开——修坯门槛照旧用默认运行（通用 + 标准）的指标表判。
+留作 T-012 的证据，不再维护。`gate_check.py` 按（歌, GLAZE, 风格）配对；指标表末尾有 T-038 追加列时，`genre` / `delivery` /
+`listen_from_bar` 三列也并入配对键——`--genre` / `--delivery` / `--listen-from-bar` 多值网格里同一首歌同一 GLAZE 的几组「自动」各自成组判。
+某一列取值不止一种时，失败 / 说明的分组标签（如 `Song A g35 deep`、`Song A g35 from-b33`）与表格（接在 `g` 列后）才写出它；
+没有这几列、或每列只有一种取值时，输出与只按（歌, GLAZE, 风格）配对时逐字节相同。
 
 ## T-038：曲风、交付、模拟走带与逐段统计
 
