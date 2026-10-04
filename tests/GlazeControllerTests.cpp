@@ -2927,8 +2927,9 @@ namespace celadon::test
             const auto resets = rig.probe().hostResets;
             auto reported = rig.chain.process (rig.buffer);
 
-            // Clay 线性相位收单让整链多了固定延迟 D（48 kHz 574 样本，比一块 512 长；ADR-012）：Balance 已被 Inf 污染，但非有限值要
-            // 晚 D 个样本才到输出，所以检测最迟在「延迟 / 块长 + 1」块之后。断言的是这个上限内一定检测到——不是放宽检测本身。
+            // Clay 让整链多了固定延迟 D + G（线性相位收单 D，ADR-012；峰值守护前瞻 G，ADR-014；48 kHz 574 + 528 = 1102 样本，
+            // 比一块 512 长）：Balance 已被 Inf 污染，但非有限值要晚 D + G 个样本才到输出，所以检测最迟在「延迟 / 块长 + 1」块之后。
+            // 断言的是这个上限内一定检测到——不是放宽检测本身。
             const auto blocksToReachOutput = rig.chain.getLatencySamples() / rig.blockLength + 1;
             int extraBlocks = 0;
 
