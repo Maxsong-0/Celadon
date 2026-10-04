@@ -1,0 +1,31 @@
+en-advanced.png                  整张不同  频谱仪相同
+en-default.png                   整张相同  频谱仪相同
+en-help.png                      整张相同  频谱仪相同
+en-house-hint.png                整张相同  频谱仪相同
+en-house-layout.png              整张相同  频谱仪相同
+en-house-status-bars.png         整张相同  频谱仪相同 （尺寸 (600, 52)，不含完整频谱仪区域，只比整张）
+en-house-status-main.png         整张相同  频谱仪相同 （尺寸 (600, 52)，不含完整频谱仪区域，只比整张）
+en-house-status-seconds.png      整张相同  频谱仪相同 （尺寸 (600, 52)，不含完整频谱仪区域，只比整张）
+en-house-tip.png                 整张相同  频谱仪相同 （尺寸 (381, 181)，不含完整频谱仪区域，只比整张）
+en-release.png                   整张不同  频谱仪相同
+zh-advanced.png                  整张相同  频谱仪相同
+zh-audition.png                  整张相同  频谱仪相同
+zh-default.png                   整张相同  频谱仪相同
+zh-glaze0.png                    整张相同  频谱仪相同
+zh-glaze90.png                   整张不同  频谱仪相同
+zh-house-hint.png                整张相同  频谱仪相同
+zh-house-layout.png              整张不同  频谱仪相同
+zh-house-status-bars.png         整张相同  频谱仪相同 （尺寸 (600, 52)，不含完整频谱仪区域，只比整张）
+zh-house-status-main.png         整张相同  频谱仪相同 （尺寸 (600, 52)，不含完整频谱仪区域，只比整张）
+zh-house-status-seconds.png      整张相同  频谱仪相同 （尺寸 (600, 52)，不含完整频谱仪区域，只比整张）
+zh-house-tip.png                 整张相同  频谱仪相同 （尺寸 (386, 155)，不含完整频谱仪区域，只比整张）
+zh-input.png                     整张相同  频谱仪相同
+zh-original.png                  整张相同  频谱仪相同
+zh-preview.png                   整张不同  频谱仪相同
+zh-reduced.png                   整张相同  频谱仪相同
+zh-settings.png                  整张相同  频谱仪相同
+zh-target.png                    整张相同  频谱仪相同
+zh-truepeak.png                  整张相同  频谱仪相同
+zh-zoom150.png                   整张相同  频谱仪相同
+zh-zoom70.png                    整张不同  频谱仪不同 （尺寸 (840, 574)，不含完整频谱仪区域，只比整张）
+共 30 张：整张逐字节相同 24，频谱仪那一块相同 29

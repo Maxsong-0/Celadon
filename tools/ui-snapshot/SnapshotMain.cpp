@@ -8,12 +8,14 @@
     用法：celadon_ui_snapshot --out <目录> [--scale 2] [--only 名字,名字] [--frames N] [--deterministic]
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
-      zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced；
+      zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced、zh-input（T-051：频谱仪 IN 虚线开着）；
       T-038（曲风 Deep House、交付 俱乐部，House 状态字段注入）：zh / en-house-layout（两个选择在 GLAZE 标题行左右；Max 2026-10-01 选定，备选图已去掉）、
       -house-status-bars / -main / -seconds（状态行三种文字，只截胶囊）、-house-tip（暂定期间的气泡）、-house-hint（反相提示）。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字），⑲ 续与 ⑳ 是 T-041 的：
-      小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；
+      小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；末尾两条是 T-051 的：
+      频谱仪 IN 虚线自己切段与 JUCE createDashedStroke 逐位相同、频谱仪增量重画（×1 / ×2 矩形列表、×1 包围盒）与整帧重画逐字节相同
+      （评审 B1 的 S8 场景，见 runSpectrumDirtyScenario）；
       --only bench 跑绘制性能基准（T-032）：瓷面参照与分层的生成耗时、静态背景生成耗时，GLAZE 45 % 播放中 1 / 2 / 4 倍下
       编辑器定时器一帧、整帧重画与只重画粒子带的毫秒（墙钟与本线程 CPU）、各部件累计 paint 与缓存读写、状态胶囊呼吸帧，
       拖动 GLAZE 时消息线程的 CPU 占比，听原声（B）时的粒子带重画；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测；
@@ -41,6 +43,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <ctime>
 #include <functional>
 #include <iostream>
@@ -292,6 +295,31 @@ namespace
         return juce::Time::getMillisecondCounterHiRes() - started;
     }
 
+    // 同上，裁剪区是一组矩形（窗口系统的脏矩形列表，编辑器逻辑坐标；T-051 的增量重画检查用）。
+    void paintRegion (juce::Component& editor, juce::Image& target, float scale, const juce::RectangleList<int>& clipLogical)
+    {
+        juce::Graphics g (target);
+
+        if (! juce::approximatelyEqual (scale, 1.0f))
+            g.addTransform (juce::AffineTransform::scale (scale));
+
+        if (g.reduceClipRegion (clipLogical))
+            editor.paintEntireComponent (g, true);
+    }
+
+    // 频谱仪的三个图例开关（OUT / IN / PEAK，SpectrumView 构造时按这个顺序加的 ClickableComponent 子组件）；找不到返回空。
+    std::vector<celadon::ui::ClickableComponent*> spectrumToggles (juce::Component& editor)
+    {
+        std::vector<celadon::ui::ClickableComponent*> toggles;
+
+        if (auto* view = findFirst<celadon::ui::SpectrumView> (editor))
+            for (auto* child : view->getChildren())
+                if (auto* toggle = dynamic_cast<celadon::ui::ClickableComponent*> (child))
+                    toggles.push_back (toggle);
+
+        return toggles.size() == 3 ? toggles : std::vector<celadon::ui::ClickableComponent*> {};
+    }
+
     juce::String ms (double value)
     {
         return juce::String (value, 3);
@@ -310,6 +338,7 @@ namespace
 
     int runChecks (Session& session, const juce::File& outDir, float scale);
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
+    void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
     void runSpectrumBench (int seconds);
     void runDigest();
@@ -543,6 +572,18 @@ int main (int argc, char* argv[])
         { "zh-zoom70",   celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); } },
         { "zh-zoom150",  celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (1.5); } },
         { "zh-reduced",  celadon::Language::chinese, [] (Session&) {}, none },
+        // T-051：频谱仪 IN 虚线开着（默认关；打开后 IN 那路到下一次计算才有曲线，再放 1.5 s）。--deterministic 下改前改后逐字节比虚线。
+        { "zh-input",    celadon::Language::chinese, none, [] (Session& s)
+          {
+              const auto toggles = spectrumToggles (*s.editor);
+
+              if (toggles.empty())
+                  std::cout << "FAILED to find the spectrum legend toggles" << std::endl;
+              else
+                  click (*toggles[1], toggles[1]->getLocalBounds().getCentre().toFloat());
+
+              s.play (1.5);
+          } },
 
         // ---- T-038 曲风与交付 / House 档（曲风 Deep House、交付 俱乐部；House 的状态字段注入，见 injectStatus）----
         // 版面：两个选择在主旋钮左右（代码里的默认位置）与备选位置（挪到 GLAZE 标题行），整张。
@@ -988,6 +1029,7 @@ namespace
         }
 
         failures += runCacheChecks (session, check);
+        runSpectrumChecks (check);   // T-051：失败由 check 计入
 
         std::cout << (failures == 0 ? "all interaction checks passed" : juce::String (failures) + " interaction checks FAILED") << std::endl;
         return failures;
@@ -1542,6 +1584,313 @@ namespace
         }
 
         return 0;
+    }
+
+    //==============================================================================
+    // T-051 的两条频谱仪检查（README「--only check」）：
+    //   IN 虚线：自己切段的 createDashedStrokeReusing 与 JUCE 的 createDashedStroke 逐字节相同（评审 R-07 的改法不改像素）；
+    //   增量重画 vs 整帧（评审 R-08 建议、B1 的 S8 场景，守 R-02 那一类「脏区漏标、旧画面留在屏上」）。
+
+    // 两条路径逐元素、逐位相同：元素类型、坐标的位模式（−0 与 +0 也分开）、绕数规则。
+    bool samePathBits (const juce::Path& a, const juce::Path& b)
+    {
+        if (a.isUsingNonZeroWinding() != b.isUsingNonZeroWinding())
+            return false;
+
+        juce::Path::Iterator i (a), j (b);
+
+        for (;;)
+        {
+            const auto more = i.next();
+
+            if (more != j.next())
+                return false;
+
+            if (! more)
+                return true;
+
+            const float p[] = { i.x1, i.y1, i.x2, i.y2, i.x3, i.y3 };
+            const float q[] = { j.x1, j.y1, j.x2, j.y2, j.x3, j.y3 };
+
+            if (i.elementType != j.elementType || std::memcmp (p, q, sizeof (p)) != 0)
+                return false;
+        }
+    }
+
+    // 离屏编辑器没有对等体，repaint 到顶层就没人接：挂在编辑器上、只记账的缓存图——invalidate 时记下区域（编辑器坐标）、
+    // 返回 true（照常往上传）。编辑器是顶层，paintEntireComponent 不经过缓存图；这个 paint 只在它被当成子组件画时才用到。
+    struct DirtyRecorder  : public juce::CachedComponentImage
+    {
+        explicit DirtyRecorder (juce::Component& ownerToUse) : owner (ownerToUse) {}
+
+        void paint (juce::Graphics& g) override                       { owner.paintEntireComponent (g, false); }
+        bool invalidateAll() override                                 { dirty.add (owner.getLocalBounds()); return true; }
+        bool invalidate (const juce::Rectangle<int>& area) override   { dirty.add (area); return true; }
+        void releaseResources() override                              {}
+
+        juce::Component& owner;
+        juce::RectangleList<int> dirty;
+    };
+
+    // 一种窗口系统口径的「屏幕」：一直留着、每帧只重画脏区的图，以及它与整帧重画对不上的统计。
+    struct DirtyScreen
+    {
+        DirtyScreen (const juce::String& nameToUse, bool useBoundingBox) : name (nameToUse), boundingBox (useBoundingBox) {}
+
+        juce::String name;
+        bool boundingBox = false;      // false = 只重画各脏矩形（Windows Direct2D、Linux）；true = 重画脏区的包围盒（macOS）
+        juce::Image image;
+        int ghostFrames = 0, worst = 0;
+        juce::String firstGhost;
+    };
+
+    // 两张同尺寸、同格式的图在 area（设备像素）里比：返回不同的像素数；worst = 最大的通道差，at = 第一个不同的像素。
+    // 先按行逐字节比（相同的行不拆像素），对不上的行再逐像素量差多少。
+    int countDifferences (const juce::Image& a, const juce::Image& b, juce::Rectangle<int> area, int& worst, juce::Point<int>& at)
+    {
+        const juce::Image::BitmapData da (a, juce::Image::BitmapData::readOnly), db (b, juce::Image::BitmapData::readOnly);
+        area = area.getIntersection ({ da.width, da.height });
+        int different = 0;
+
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+        {
+            if (std::memcmp (da.getPixelPointer (area.getX(), y), db.getPixelPointer (area.getX(), y),
+                             (size_t) area.getWidth() * (size_t) da.pixelStride) == 0)
+                continue;
+
+            for (int x = area.getX(); x < area.getRight(); ++x)
+            {
+                const auto p = da.getPixelColour (x, y), q = db.getPixelColour (x, y);
+                const auto d = juce::jmax (std::abs ((int) p.getRed() - (int) q.getRed()), std::abs ((int) p.getGreen() - (int) q.getGreen()),
+                                           std::abs ((int) p.getBlue() - (int) q.getBlue()), std::abs ((int) p.getAlpha() - (int) q.getAlpha()));
+
+                if (d == 0)
+                    continue;
+
+                if (different++ == 0)
+                    at = { x, y };
+
+                worst = juce::jmax (worst, d);
+            }
+        }
+
+        return different;
+    }
+
+    // S8 跑一遍（一种像素比，几种口径共用同一串帧）。场景（评审 B1 的 S8）：GLAZE 0（链近乎直通）、峰值线关、斜率 0，
+    // 6 kHz −12 dBFS 稳态正弦 12 s（最后 1 s 频谱仪应 0 帧被标脏：曲线已静止）→ 斜率换 4.5（6 kHz 抬高约 11.6 dB；先只重画
+    // 一帧，路径在 paint 里重建，见下）→ 切到 B（OUT 清零重来，最高的曲线一下子没了）→ 再跑 1 s。每帧 = 1 / 60 s 音频 +
+    // advanceForSnapshot，每帧都与整帧重画比（不只比切 B 的那一帧）。返回带统计的各屏；steadyDirtyFrames = 静止那 1 s 里
+    // 频谱仪被标脏的帧数。
+    std::vector<DirtyScreen> runSpectrumDirtyScenario (float scale, std::vector<DirtyScreen> screens, int& framesCompared,
+                                                       int& steadyDirtyFrames, juce::String& error)
+    {
+        using namespace celadon::ui;
+        auto session = makeSession (0.0f);
+        auto& editor = *session->editor;
+        auto* view = findFirst<SpectrumView> (editor);
+        const auto toggles = spectrumToggles (editor);
+        auto* slope = view != nullptr ? findFirst<Segmented> (*view) : nullptr;   // 斜率选择是频谱仪里唯一的 Segmented
+
+        if (view == nullptr || toggles.empty() || slope == nullptr)
+        {
+            error = "spectrum view, its three legend toggles or the slope control not found";
+            return screens;
+        }
+
+        // 峰值线关（开着时峰值保持把脏区一直撑到峰顶，盖住要找的漏标）、斜率 0。
+        click (*toggles[2], toggles[2]->getLocalBounds().getCentre().toFloat());
+        slope->setSelected (0, true);
+
+        // 编辑器要「可见」：Component::internalRepaintUnchecked 对不可见的组件直接返回，repaint 传不到它的缓存图（真实窗口里
+        // 宿主把编辑器设成可见；截图工具平时不设，离屏画不受影响）。没有对等体，设可见不会开窗口。
+        editor.setVisible (true);
+        auto* recorder = new DirtyRecorder (editor);
+        editor.setCachedComponentImage (recorder);   // 编辑器接管，下面 setCachedComponentImage (nullptr) 时删掉
+
+        const auto area = editor.getLocalArea (view, view->getLocalBounds());          // 频谱仪在编辑器里的区域（逻辑坐标）
+        const auto deviceArea = (area.toFloat() * scale).getSmallestIntegerContainer();
+        const auto width = (int) std::ceil ((float) editor.getWidth() * scale), height = (int) std::ceil ((float) editor.getHeight() * scale);
+        juce::Image reference (juce::Image::RGB, width, height, true);   // 窗口后备图是不透明的 RGB
+
+        for (auto& screen : screens)
+        {
+            screen.image = juce::Image (juce::Image::RGB, width, height, true);
+            paintRegion (editor, screen.image, scale, juce::RectangleList<int> (editor.getLocalBounds()));
+        }
+
+        recorder->dirty.clear();
+
+        constexpr int framesPerSecond = 60;
+        constexpr int samplesPerFrame = (int) sampleRate / framesPerSecond;
+        const auto amplitude = juce::Decibels::decibelsToGain (-12.0);
+        const auto increment = juce::MathConstants<double>::twoPi * 6000.0 / sampleRate;
+        double phase = 0.0;
+
+        // 一帧：送 1 / 60 s 正弦 → 编辑器推一帧（频谱仪 setSpectrum、编辑器其余读数）→ 各屏按口径重画记下的脏区（只画频谱仪那一块，
+        // 别处两边都照画、不比）→ 整帧重画频谱仪那一块作对照 → 逐字节比。advance = false：只重画、不推（窗口系统先送来别的
+        // 事件引起的重画，显示器的帧回调还没到）。返回这一帧频谱仪有没有被标脏。
+        const auto frame = [&] (const juce::String& stage, int index, bool advance)
+        {
+            for (int done = 0; advance && done < samplesPerFrame;)
+            {
+                const auto n = juce::jmin (blockSize, samplesPerFrame - done);
+                juce::AudioBuffer<float> chunk (session->buffer.getArrayOfWritePointers(), 2, n);
+
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto sample = (float) (amplitude * std::sin (phase));
+                    phase = std::fmod (phase + increment, juce::MathConstants<double>::twoPi);
+                    chunk.setSample (0, i, sample);
+                    chunk.setSample (1, i, sample);
+                }
+
+                session->processor->processBlock (chunk, session->midi);
+                done += n;
+            }
+
+            if (advance)
+                editor.advanceForSnapshot (1.0 / framesPerSecond);
+
+            const auto region = recorder->dirty;
+            recorder->dirty.clear();
+
+            for (auto& screen : screens)
+            {
+                auto clip = screen.boundingBox && ! region.isEmpty() ? juce::RectangleList<int> (region.getBounds()) : region;
+                clip.clipTo (area);
+                paintRegion (editor, screen.image, scale, clip);
+            }
+
+            const auto markedWhilePainting = recorder->dirty;   // 画的时候又标脏的：真实窗口里留到下一帧画
+            paintRegion (editor, reference, scale, juce::RectangleList<int> (area));
+            recorder->dirty = markedWhilePainting;               // 整帧对照不是真实的那一次绘制，它引起的标脏不算
+            ++framesCompared;
+
+            for (auto& screen : screens)
+            {
+                int worst = 0;
+                juce::Point<int> at;
+                const auto different = countDifferences (screen.image, reference, deviceArea, worst, at);
+
+                if (different == 0)
+                    continue;
+
+                if (screen.ghostFrames++ == 0)
+                    screen.firstGhost = stage + " frame " + juce::String (index) + ": " + juce::String (different) + " px, first at device ("
+                                      + juce::String (at.x) + ", " + juce::String (at.y) + ")";
+
+                screen.worst = juce::jmax (screen.worst, worst);
+            }
+
+            return region.intersects (area);
+        };
+
+        constexpr int steadyFrames = 12 * framesPerSecond;
+
+        for (int i = 0; i < steadyFrames; ++i)
+            if (frame ("steady sine", i, true) && i >= steadyFrames - framesPerSecond)
+                ++steadyDirtyFrames;
+
+        // 斜率 0 → 4.5：点击引起的整面重画先到、显示器的帧回调后到（两者谁先到不固定），路径在 paint 里重建——这一帧只重画、不推。
+        // 评审复现时（577ded0）setSpectrum 按未加斜率的 dB 判变化，曲线静止时换斜率后下一帧也不重画，等价于这里；T-036 修订
+        // （867b454，评审 R-07）改按加斜率后的纵坐标判之后，换到 4.5 时压在底边下、还在往下落的峰值保持数据露出来，先推一帧的话
+        // 旧区域当帧就跟上了，照原样走 S8 抓不到 R-02 那一类漏标。
+        slope->setSelected (2, true);
+        frame ("slope 4.5 repaint", 0, false);
+
+        editor.setListeningToOriginal (true);
+
+        for (int i = 0; i < framesPerSecond; ++i)
+            frame ("B", i, true);
+
+        editor.setCachedComponentImage (nullptr);
+        session->editor.reset();
+        session->processor->releaseResources();
+        return screens;
+    }
+
+    void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+
+        // IN 虚线：随机折线（频谱仪那样每逻辑像素一个点、x 从 0 到 1032）——每点乱跳、缓变、贴顶 / 贴底平直、顶底交替、带重复点，
+        //     同一组 centre / dest 反复用（第二次起不再分配）；与 JUCE createDashedStroke 的结果逐元素逐位比。
+        {
+            const float dashes[] = { 3.0f, 2.0f };
+            const juce::PathStrokeType stroke (1.1f);
+            juce::Random random (20261004);
+            juce::Path line, centre, reused, fresh;
+            int cases = 0, mismatches = 0;
+
+            const auto test = [&] (const std::function<float (int)>& yAt, bool repeatPoints)
+            {
+                line.clear();
+
+                for (int i = 0; i < SpectrumAnalyser::numPoints; ++i)
+                {
+                    const juce::Point<float> point ((float) i / (float) (SpectrumAnalyser::numPoints - 1) * (float) SpectrumView::width, yAt (i));
+
+                    if (i == 0)
+                        line.startNewSubPath (point);
+                    else
+                        line.lineTo (point);
+
+                    if (repeatPoints && i % 7 == 3)
+                        line.lineTo (point);
+                }
+
+                createDashedStrokeReusing (stroke, line, dashes, 2, centre, reused);
+                fresh.clear();
+                stroke.createDashedStroke (fresh, line, dashes, 2);
+                ++cases;
+                mismatches += samePathBits (reused, fresh) ? 0 : 1;
+            };
+
+            const auto h = (float) SpectrumView::height;
+
+            for (int n = 0; n < 40; ++n)
+                test ([&] (int) { return random.nextFloat() * h; }, n % 4 == 0);
+
+            for (int n = 0; n < 40; ++n)
+            {
+                const auto rate = 0.002f + 0.1f * random.nextFloat(), offset = random.nextFloat() * 6.0f, depth = random.nextFloat() * 0.5f * h;
+                test ([=] (int i) { return 0.5f * h + depth * std::sin ((float) i * rate + offset); }, n % 4 == 1);
+            }
+
+            test ([] (int) { return 0.0f; }, false);
+            test ([h] (int) { return h; }, false);
+            test ([h] (int i) { return (i % 2 == 0) ? 0.0f : h; }, false);
+            test ([h] (int i) { return (i / 3) % 2 == 0 ? 0.25f * h : 0.75f * h; }, true);
+
+            check (mismatches == 0, "T-051 IN dashes: createDashedStrokeReusing matches juce::PathStrokeType::createDashedStroke bit for bit ("
+                                        + juce::String (cases - mismatches) + " / " + juce::String (cases) + " polylines)");
+        }
+
+        // 增量重画 vs 整帧：S8 跑两遍——×1 两种口径（矩形列表、包围盒）、×2 矩形列表（评审 B1 的三种口径）。
+        {
+            juce::String error;
+            int frames = 0, steady1 = 0, steady2 = 0;
+            auto screens = runSpectrumDirtyScenario (1.0f, { { "x1 rect list", false }, { "x1 bounding box", true } }, frames, steady1, error);
+
+            for (auto& screen : runSpectrumDirtyScenario (2.0f, { { "x2 rect list", false } }, frames, steady2, error))
+                screens.push_back (std::move (screen));
+
+            juce::StringArray ghosts;
+
+            for (const auto& screen : screens)
+                if (screen.ghostFrames > 0)
+                    ghosts.add (screen.name + " " + juce::String (screen.ghostFrames) + " frame(s), worst " + juce::String (screen.worst)
+                                + " (first: " + screen.firstGhost + ")");
+
+            check (error.isEmpty() && steady1 == 0 && steady2 == 0 && ghosts.isEmpty(),
+                   "T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; "
+                       + (error.isNotEmpty() ? error
+                                             : (ghosts.isEmpty() ? "0 ghosts" : ghosts.joinIntoString ("; ")) + " over " + juce::String (frames)
+                                                   + " frames; spectrum marked dirty in " + juce::String (steady1) + " / " + juce::String (steady2)
+                                                   + " of the last 60 steady frames, needs 0")
+                       + ")");
+        }
     }
 }
 
