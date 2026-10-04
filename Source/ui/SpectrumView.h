@@ -53,6 +53,15 @@
 namespace celadon::ui
 {
     //==============================================================================
+    // 折线的虚线描边（T-051，评审 R-07）：与 juce::PathStrokeType::createDashedStroke（单位变换、精度 1、偏移 0）同一算法、
+    // 同一组浮点运算，dest 逐字节相同；区别只在切出的中线段写进调用方给的 centre（clear() 保留容量）。JUCE 那个每次在函数里
+    // 新建一条 Path 放中线段、边长边重新分配——频谱仪的 IN 虚线播放中每帧重建一次，实测每次 18 次堆分配；centre、dest 用成员
+    // 路径后只剩描边（createStrokedPath）里 JUCE 自己的 2 次（展平迭代器的栈、线段表；Graphics::strokePath 每次也有）。
+    // line 只能由 startNewSubPath / lineTo 组成（频谱仪 buildLine 建的折线）；截图工具 --only check 拿它与 JUCE 的逐字节比。
+    void createDashedStrokeReusing (const juce::PathStrokeType& stroke, const juce::Path& line,
+                                    const float* dashLengths, int numDashLengths, juce::Path& centre, juce::Path& dest);
+
+    //==============================================================================
     // 响度小窗（214 × 88）：整体响度（大字）、短期、真峰值（复位以来的最大值）、峰响比、流媒体归一量、目标响度标记。
     class LoudnessHud  : public juce::Component,
                          public juce::TooltipClient
@@ -236,6 +245,7 @@ namespace celadon::ui
         juce::Path panel;                                            // 圆角面板（裁剪与描边）
         juce::Path outputLine, outputFill, averageLine, peakLine;   // 加了斜率的曲线；outputFill = outputLine 闭合到底边
         juce::Path inputLine, inputDashes;                           // IN 的折线与虚线（虚线已展开成填充路径，画的时候才展开）
+        juce::Path inputDashCentre;                                  // 展开虚线时切出的中线段（只为复用容量，见 createDashedStrokeReusing）
         std::array<float, SpectrumAnalyser::numPoints> columnLevel {};   // 每个逻辑像素 OUT 填充的颜色位置（0 = 底边、1 = 顶边）
         juce::Image outputRow;                                       // OUT 填充的一行：按响度上色 + 白色竖纹（曲线变了才重建）
         float outputRowScale = 0.0f;

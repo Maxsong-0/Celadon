@@ -532,9 +532,9 @@ namespace celadon::test
             const auto reference = run (512, 1);
             expect (reference->ledger.getNumStored() >= 28 && reference->ledger.getSummary().fullSegments > 0, "the run exercises the gates");
 
-            for (const auto [blockSize, seed] : { std::pair<int, juce::int64> { 1, 1 }, std::pair<int, juce::int64> { 333, 1 },
-                                                  std::pair<int, juce::int64> { 4096, 1 }, std::pair<int, juce::int64> { 0, 5 },
-                                                  std::pair<int, juce::int64> { 0, 77 } })
+            for (const auto& [blockSize, seed] : { std::pair<int, juce::int64> { 1, 1 }, std::pair<int, juce::int64> { 333, 1 },
+                                                   std::pair<int, juce::int64> { 4096, 1 }, std::pair<int, juce::int64> { 0, 5 },
+                                                   std::pair<int, juce::int64> { 0, 77 } })
             {
                 const auto other = run (blockSize, seed);
                 auto same = other->ledger.getNumStored() == reference->ledger.getNumStored()

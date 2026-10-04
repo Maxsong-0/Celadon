@@ -1,0 +1,7 @@
+song                             g   genre   dInPk   dLUFS ref:dInPk ref:dLUFS guard%  inv% music_s   lock(auto/off) replay
+synthetic-house-124             35    deep  +0.000  +0.000    +0.000    +0.000   0.00  0.00   216.8              L/L     ok
+synthetic-house-124             35 general  +0.000  +0.000    +0.000    +0.297   0.00  0.00   216.8              L/L     ok
+
+FAILS: 0
+NOTES: 0
+rc=0
