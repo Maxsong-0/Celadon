@@ -19,6 +19,10 @@ T-051 证据（2026-10-04 凌晨，NVIDIA DGX Spark 本机：aarch64，Ubuntu 24
   2. 全部 30 种状态 ×1 改前改后（all-states-before-vs-after.txt）：频谱仪那一块 30 张都相同；整张 24 张逐字节相同，其余 6 张只差在两边的电平表
      （例：zh-zoom70 只差 x 795 ～ 820，在频谱仪 58 ～ 781 之外）。同一个改前二进制跑两遍本来就有 10 张整张不同、频谱仪那一块 30 张相同
      （all-states-before-vs-before.txt）——电平表按墙钟下落，不是这次改动带来的。（compare_crops.py 先转 RGB 再比：RGBA 的 getbbox 只看透明度。）
+     更正（主进程按验收代理 VAL2 复核，2026-10-04）：all-states-before-vs-after.txt 末行「频谱仪那一块相同 29」与上面「30 张都相同」不一致——
+     zh-zoom70 那一行的「频谱仪不同」是 compare_crops.py 的伪迹：0.7 倍图（840 × 574）装不下按 1 倍坐标取的频谱仪裁剪框，脚本回落成整张比较，
+     而整张只差在电平表。VAL2 按缩放换算裁剪框重比：30 个状态里可比的 22 张频谱仪裁剪全部相同，另 8 张是胶囊 / 气泡局部截图、本身没有频谱仪区域；
+     整张逐字节相同的张数随电平表下落时刻在 24 ～ 27 之间浮动（VAL2 那一遍 27 张，另 3 张只差电平表窄带）。结论不变：IN 虚线改动不改频谱仪像素。
   3. 截图工具 --only check 新加的一条：自己切段与 JUCE createDashedStroke 逐元素逐位相同，84 / 84 条折线。
   4. 堆分配（alloc_probe.cpp，300 帧平均）：每次重建改前 18.00 次、改后 2.00 次；剩下 2 次是 createStrokedPath 里 JUCE 自己的
      （PathFlatteningIterator 的栈、LineSection 表），Graphics::strokePath 每次也有。
