@@ -169,23 +169,31 @@
 
 ## 7. 交给 Max：Mac 上的验收与定预算
 
-1. 拿到改动（共享工作树先 `git status` 看有没有别线没提交的东西）：
-   `git fetch origin claude/gracious-newton-3l7sey`，再 `git merge origin/claude/gracious-newton-3l7sey`。
-   只动 `Source/dsp/ClayModule.{h,cpp}` 与本目录；别线若也改了 ClayModule 会有冲突，先问。
-2. 跑前在 TASKS ② 登记「本机性能基准」占用，给在跑的会话发消息；基准期间本机不能有编译。
-3. 整插件（照 T-021 REPORT 第 6 节）：
-   - 基线 v0.1.6.2 树；
-   - `scripts/perf-local.sh XcodeRelease grid all 44100,48000,96000,192000 32,64,512 20 10 5`；
-   - 基线与当前交替各 2 轮，`python3 docs/validation/2026-09-28-T021-perf-acceptance/compare.py <日志目录>`；
-   - 看 48k / 512 平均与 192k / 32 结构性最坏（structWorst / structWorst64k）。
-4. 逐级（看修坯一列降了多少）：`scripts/perf-local.sh XcodeRelease modules all 48000,192000 32,512 20 10 5`。
-   对照 T-021 的 `modules-after-T020.log`：clay_avg 48k / 512 为 0.19 ～ 0.20 %，192k / 32 为 0.77 ～ 0.83 %。
-5. 定新预算（规格第 5 节）。建议取 5 个场景 × 2 轮的最大值，往上取整、留一点余量。
+> 2026-10-04 改（T-024 已合进 main，main 已是 0.1.8.8）：v0.1.6.2 之后 GLAZE、分析器、限制器、段账本等都改过，
+> 整插件 grid 对 v0.1.6.2 的差不再全是修坯。改成三棵树：base = v0.1.6.2、t024 = 提交 c362f74（v0.1.7.1 + T-024，
+> 对 v0.1.6.2 只动了修坯，与 T-021 同口径）、head = 当前 main。定预算看 t024 − base；修坯自 T-024 以来又变了多少
+> （T-032 按段、T-043 混合损失测量、T-044）看 modules 模式 clay 一列 head 对 t024；head − base 只作参考。
+> 搭树、编译、按轮交替跑、记编译活动、出对比表都在 `tools/mac-acceptance.sh`，对比表是 `tools/compare_t024.py`。
+
+1. 跑前在 TASKS ② 登记「本机性能基准」占用，给在跑的会话发消息；基准期间本机不能有编译。接电源、关低电量模式。
+2. 在 Max 的仓库里拉一个独立的 head worktree（不碰共享工作树里别线没提交的东西）：
+   `git -C /Users/maxsong/All-Project/Celadon fetch origin`，
+   `mkdir -p /Users/maxsong/All-Project/celadon-perf-T024`，
+   `git -C /Users/maxsong/All-Project/Celadon worktree add --detach /Users/maxsong/All-Project/celadon-perf-T024/head origin/claude/project-thread-6rn4wa`。
+3. `/Users/maxsong/All-Project/celadon-perf-T024/head/docs/validation/2026-09-28-T024-clay-guard-perf/tools/mac-acceptance.sh all`：
+   - setup：t024 worktree（c362f74）、base 树（照 T-021 REPORT 第 6 节，JuceLibraryCode 取 c362f74 的）、同级 JUCE 链接；
+   - build：三棵树各短跑一格把 celadon_bench 编好；
+   - run：`grid all 44100,48000,96000,192000 32,64,512 20 10 5` 两轮，每轮 base → t024 → head；
+     `modules all 48000,192000 32,512 20 10 5` 两轮，每轮 t024 → head；后台每 2 s 记一次编译进程；
+   - compare：A 表 t024 − base（逐格与两个预算格的最小 / 均值 / 最大）、修坯一级表（ref = T-021 的 `modules-after-T020.log`）、C 表 head − base。
+   日志与 `compare.txt` 落在该目录下 `mac-<日期>/`。
+4. `compile-activity.log` 非空就看时间对上哪一轮，`run` 重跑（或单独重跑那一轮）。
+5. 定新预算（规格第 5 节）。看 A 表，加上修坯一级 head 对 t024 的变化；建议取 5 个场景 × 2 轮的最大值，往上取整、留一点余量。
    - 若如预估落在 48k / 512 +0.15 ～ +0.19、192k / 32 +1.0 ～ +1.2，候选口径是
      **48k / 512 平均增加 ≤ 0.2 pp，192k / 32 结构性最坏增加 ≤ 1.5 pp（对 v0.1.6.2，5 场景各 2 轮交替、看结构性最坏）**，
      并注明守护是 ADR-014 的安全网、开销是它的代价。
-6. 版本：声音逐位不变，只是更快；要出版本就是 v0.1.7.2（版本档、.jucer）。
-   CMakeLists 的 `project(... VERSION 0.1.7.0)` 本来就没跟上 .jucer 的 0.1.7.1，要不要一起改由 Max 定。
+6. 版本：T-024 已合进 main，之后的版本（现在 0.1.8.8）都含它，不再单出 v0.1.7.2；CMakeLists 与 .jucer 已同步。
+   版本档只补一句「修坯性能预算按 T-024 Mac 实测改定」。
 7. 档案待贴文字（TASKS、日志、INDEX、规格第 5 节）：`ARCHIVE-UPDATES.md`。
 
 ## 8. 复现（Linux 容器 / 服务器）
