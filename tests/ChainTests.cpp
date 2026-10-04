@@ -165,7 +165,7 @@ namespace celadon::test
         Signal makeListenMaterial (double sampleRate, double seconds)
         {
             auto input = makeSine (numChannels, sampleRate, 880.0, 0.22f, seconds);
-            for (const auto component : { std::pair<double, float> { 55.0, 0.12f }, { 4600.0, 0.04f } })
+            for (const auto& component : { std::pair<double, float> { 55.0, 0.12f }, { 4600.0, 0.04f } })
             {
                 const auto tone = makeSine (numChannels, sampleRate, component.first, component.second, seconds);
                 for (size_t ch = 0; ch < input.size(); ++ch)
