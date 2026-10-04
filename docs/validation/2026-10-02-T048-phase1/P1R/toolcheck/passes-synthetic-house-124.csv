@@ -1,0 +1,97 @@
+pass,combo,genre,start_bar,commits,digest,written,compared,matching_rows,reference_rows,first_difference_sample,first_difference_columns,digest_differs,overrun,mismatch
+listen,g70 · clay-auto · auto · deep,deep,1,113,b2a92354d3063207,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-auto · auto · deep · from-b33,deep,33,81,5843f3233de4291a,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-auto · auto,general,1,113,debb298af09f24dd,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-auto · auto · from-b33,general,33,81,3bc021d658921d53,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-auto · warm · deep,deep,1,113,b2a92354d3063207,0,1,113,113,,,0,0,0
+render,g70 · clay-auto · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-auto · warm · deep · from-b33,deep,33,81,5843f3233de4291a,0,1,81,81,,,0,0,0
+render,g70 · clay-auto · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-auto · warm,general,1,113,debb298af09f24dd,0,1,113,113,,,0,0,0
+render,g70 · clay-auto · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-auto · warm · from-b33,general,33,81,3bc021d658921d53,0,1,81,81,,,0,0,0
+render,g70 · clay-auto · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g70 · clay-auto · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g70 · clay-replay-off · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · auto · deep,deep,1,113,b2a92354d3063207,0,1,113,113,,,0,0,0
+render,g70 · clay-off · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · auto · deep · from-b33,deep,33,81,5843f3233de4291a,0,1,81,81,,,0,0,0
+render,g70 · clay-off · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · auto,general,1,113,debb298af09f24dd,0,1,113,113,,,0,0,0
+render,g70 · clay-off · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · auto · from-b33,general,33,81,3bc021d658921d53,0,1,81,81,,,0,0,0
+render,g70 · clay-off · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · warm · deep,deep,1,113,b2a92354d3063207,0,1,113,113,,,0,0,0
+render,g70 · clay-off · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · warm · deep · from-b33,deep,33,81,5843f3233de4291a,0,1,81,81,,,0,0,0
+render,g70 · clay-off · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · warm,general,1,113,debb298af09f24dd,0,1,113,113,,,0,0,0
+render,g70 · clay-off · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g70 · clay-off · warm · from-b33,general,33,81,3bc021d658921d53,0,1,81,81,,,0,0,0
+render,g70 · clay-off · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · auto · deep,deep,1,113,b2a92354d3063207,0,1,113,113,,,0,0,0
+render,g100 · clay-auto · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · auto · deep · from-b33,deep,33,81,5843f3233de4291a,0,1,81,81,,,0,0,0
+render,g100 · clay-auto · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · auto,general,1,113,debb298af09f24dd,0,1,113,113,,,0,0,0
+render,g100 · clay-auto · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · auto · from-b33,general,33,81,3bc021d658921d53,0,1,81,81,,,0,0,0
+render,g100 · clay-auto · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · warm · deep,deep,1,113,b2a92354d3063207,0,1,113,113,,,0,0,0
+render,g100 · clay-auto · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · warm · deep · from-b33,deep,33,81,5843f3233de4291a,0,1,81,81,,,0,0,0
+render,g100 · clay-auto · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · warm,general,1,113,debb298af09f24dd,0,1,113,113,,,0,0,0
+render,g100 · clay-auto · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-auto · warm · from-b33,general,33,81,3bc021d658921d53,0,1,81,81,,,0,0,0
+render,g100 · clay-auto · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-copy,g100 · clay-auto · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+replay-off,g100 · clay-replay-off · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · auto · deep,deep,1,113,b2a92354d3063207,0,1,113,113,,,0,0,0
+render,g100 · clay-off · auto · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · auto · deep · from-b33,deep,33,81,5843f3233de4291a,0,1,81,81,,,0,0,0
+render,g100 · clay-off · auto · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · auto,general,1,113,debb298af09f24dd,0,1,113,113,,,0,0,0
+render,g100 · clay-off · auto,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · auto · from-b33,general,33,81,3bc021d658921d53,0,1,81,81,,,0,0,0
+render,g100 · clay-off · auto · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · warm · deep,deep,1,113,b2a92354d3063207,0,1,113,113,,,0,0,0
+render,g100 · clay-off · warm · deep,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · warm · deep · from-b33,deep,33,81,5843f3233de4291a,0,1,81,81,,,0,0,0
+render,g100 · clay-off · warm · deep · from-b33,deep,1,113,62f60b3ba3f147e9,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · warm,general,1,113,debb298af09f24dd,0,1,113,113,,,0,0,0
+render,g100 · clay-off · warm,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0
+listen,g100 · clay-off · warm · from-b33,general,33,81,3bc021d658921d53,0,1,81,81,,,0,0,0
+render,g100 · clay-off · warm · from-b33,general,1,113,22c1f6cc01496947,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks;publish_s,0,0,0

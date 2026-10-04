@@ -1,0 +1,5 @@
+class,track,bar,c_before,c_after,label_first_drop_bar,cause
+deep,track_1089928,8,0.4693,0.0906,1,S_ref +7.6；lowRef 0.01→0.82
+tech,track_0107869,8,0.3992,0.1797,7,S_ref +4.8
+tech,track_0244162,26,0.8406,0.4474,49,S_ref +3.7
+melodic,track_0241941,7,0.4099,0.0947,52,S_ref +7.4；lowRef 0.37→0.32

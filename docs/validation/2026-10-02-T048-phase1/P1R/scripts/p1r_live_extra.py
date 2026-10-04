@@ -161,10 +161,13 @@ def m4_split(track_row, bar_rows):
     d4 = energy_mean(drop4)
     i_d3 = num(by_bar[d + DROP_OFFSET_BARS - 1]['i_after']) if d + DROP_OFFSET_BARS - 1 in by_bar else math.nan
     i_end = num(track_row['final_i_lufs'])
+    # 跟上第一个 drop 要几小节：从第 d − 1 小节（真正的第一个 drop 小节）起，第一个「手里的 I」离 D4 ≤ 1 LU 的小节（0 = drop 开始时就在手里）
+    catch = next((j - (d - 1) for j in range(d - 1, d + 64) if j in by_bar and math.isfinite(num(by_bar[j]['i_held']))
+                  and abs(num(by_bar[j]['i_held']) - d4) <= 1.0), math.nan) if math.isfinite(d4) and d > 1 else math.nan
     return {'class': track_row['class'], 'track': track_row['track'], 'first_drop_bar_d': d, 'drop4_bars': len(drop4),
             'drop4_lufs': d4, 'drop_lufs': num(track_row['drop_lufs']), 'i_d3': i_d3, 'i_end': i_end,
             'delta4': i_d3 - i_end, 'tracking': i_d3 - d4, 'evolution': d4 - i_end,
-            'pass': int(abs(i_d3 - i_end) <= 1.0), 'oracle_pass': int(abs(d4 - i_end) <= 1.0)}
+            'pass': int(abs(i_d3 - i_end) <= 1.0), 'oracle_pass': int(abs(d4 - i_end) <= 1.0), 'catch_bars': catch}
 
 
 def m4_markdown(results):
@@ -179,6 +182,16 @@ def m4_markdown(results):
         out.append(f"| {r['tag']} | {sum(x['pass'] for x in split)} / {len(split)} | {sum(x['oracle_pass'] for x in split)} / {len(split)} | "
                    f"{triple(summary([abs(x['tracking']) for x in split]))} | {triple(summary([abs(x['evolution']) for x in split]))} | "
                    f"{len(tracking_fail)} / {len(evolution_only)} |")
+    out.append('')
+    out.append('跟上第一个 drop 要几小节（从真正的第一个 drop 小节 d − 1 起，第一个「手里的 I」离 D4 ≤ 1 LU 的小节；0 = drop 开始时就在手里；有前奏的歌）：')
+    out.append('')
+    out.append('| 标签 | 中位 / P90 / 最大（小节） | ≤ 4 小节的首数 | 64 小节内跟不上的首数 |')
+    out.append('|---|---|---|---|')
+    for r in results:
+        catches = [x['catch_bars'] for x in r['m4split'] if x['first_drop_bar_d'] > 1]
+        finite = [float(c) for c in catches if math.isfinite(c)]
+        out.append(f"| {r['tag']} | {triple(summary(finite), 0)} | {sum(1 for c in finite if c <= 4)} / {len(catches)} | "
+                   f"{sum(1 for c in catches if not math.isfinite(c))} |")
     out.append('')
     for r in results[:1]:
         fails = sorted((x for x in r['m4split'] if not x['pass']), key=lambda x: x['delta4'])
@@ -219,6 +232,65 @@ def drop_reject(work, tag, track_row, bar_rows):
     return record
 
 
+DIP_EVENT = 0.2      # 一份画像的 c 比前 4 份里的最高低这么多 = 一次「c 下沉事件」
+DIP_LOOKBACK = 4
+
+
+def c_events(work, tag, track_row):
+    """整首歌里 c 的下沉事件（不只第一个 drop）：第 k 份画像的 c 比前 DIP_LOOKBACK 份里的最高低 DIP_EVENT 以上，且上一份还没低这么多
+    （一次连续下沉记一次，记最先跌过线的那一份）。原因按这一份与上一份比：S_ref 升 ≥ 0.5 LU、lowRef 变 ≥ 10 %、换歌、无主段时间衰减。"""
+    folder = os.path.join(work, 'live', tag, 'traces')
+    names = sorted(n for n in os.listdir(folder) if n.startswith(track_row['track'] + '__') and n.endswith('.csv')
+                   and not n.endswith('__final.csv') and not n.endswith('__judgements.csv'))
+    with open(os.path.join(folder, names[0]), encoding='utf-8') as f:
+        rows = list(csv.DictReader(f))
+    events, inside = [], False
+    for k in range(1, len(rows)):
+        c = num(rows[k]['confidence'])
+        peak = max((num(r['confidence']) for r in rows[max(0, k - DIP_LOOKBACK):k]), default=math.nan)
+        falling = math.isfinite(c) and math.isfinite(peak) and peak - c > DIP_EVENT
+        if falling and not inside:
+            prev = rows[k - 1]
+            causes = []
+            if num(rows[k]['reference_lufs']) - num(prev['reference_lufs']) >= 0.5:
+                causes.append(f"S_ref +{num(rows[k]['reference_lufs']) - num(prev['reference_lufs']):.1f}")
+            low_now, low_prev = num(rows[k]['low_reference']), num(prev['low_reference'])
+            if math.isfinite(low_now) and math.isfinite(low_prev) and low_prev > 0 and abs(low_now / low_prev - 1.0) >= 0.1:
+                causes.append(f'lowRef {low_prev:.2f}→{low_now:.2f}')
+            if rows[k]['new_program'] == '1':
+                causes.append('换歌')
+            if rows[k]['time_decay'] == '1':
+                causes.append('无主段衰减')
+            events.append({'class': track_row['class'], 'track': track_row['track'], 'bar': rows[k]['bar'], 'c_before': peak, 'c_after': c,
+                           'label_first_drop_bar': track_row['first_drop_bar'], 'cause': '；'.join(causes) or '其它（参考小幅变化累积）'})
+        inside = falling
+    return events
+
+
+def events_markdown(results):
+    out = [f'## 整首歌里 c 的下沉事件（某一份画像的 c 比前 {DIP_LOOKBACK} 份里的最高低 {DIP_EVENT} 以上；一次连续下沉记一次）', '']
+    for r in results:
+        events = r.get('events', [])
+        if not events:
+            out.append(f"**{r['tag']}**：没有。")
+            out.append('')
+            continue
+        tracks = sorted({e['track'] for e in events})
+        by_cause = {}
+        for e in events:
+            key = 'S_ref 升' if 'S_ref' in e['cause'] else 'lowRef 变' if 'lowRef' in e['cause'] else e['cause']
+            by_cause[key] = by_cause.get(key, 0) + 1
+        out.append(f"**{r['tag']}**：{len(events)} 次、{len(tracks)} 首；原因（同一次有几样时按 S_ref → lowRef 的先后归一类）："
+                   + '、'.join(f'{k} {v} 次' for k, v in sorted(by_cause.items(), key=lambda x: -x[1])) + '。')
+        out.append('')
+        out.append('| 子类 | 曲目 | 小节 | 首个 drop（标签 d） | c 之前 → 之后 | 原因 |')
+        out.append('|---|---|---|---|---|---|')
+        for e in sorted(events, key=lambda e: (e['track'], int(e['bar'] or 0)))[:40]:
+            out.append(f"| {e['class']} | {e['track']} | {e['bar']} | {e['label_first_drop_bar']} | {fmt(e['c_before'])} → {fmt(e['c_after'])} | {e['cause']} |")
+        out.append('')
+    return out
+
+
 def write_csv(path, records):
     if not records:
         return
@@ -248,16 +320,18 @@ def tag_report(work, tag, csv_dir, with_reject=True):
         dip_records.append(c_dip(t, bars[t['track']]))
         split_records.append(m4_split(t, bars[t['track']]))
     reject_records = [drop_reject(work, tag, t, bars[t['track']]) for t in rows] if with_reject else []
+    event_records = [e for t in tracks.values() if t['excluded'] == '0' for e in c_events(work, tag, t)] if with_reject else []
     if csv_dir:
         write_csv(os.path.join(csv_dir, f'{tag}-m2-variants.csv'), m2_records)
         write_csv(os.path.join(csv_dir, f'{tag}-c-dip.csv'), dip_records)
         write_csv(os.path.join(csv_dir, f'{tag}-m4-split.csv'), split_records)
         write_csv(os.path.join(csv_dir, f'{tag}-drop-reject.csv'), reject_records)
+        write_csv(os.path.join(csv_dir, f'{tag}-c-events.csv'), event_records)
     heads = {key: summary([r[f'{key}_median'] for r in m2_records]) for key in pooled}
     pooled_stats = {key: summary(values) for key, values in pooled.items()}
     has_final = any(math.isfinite(num(b['mainness_final'])) for track_bars in bars.values() for b in track_bars)
     return {'tag': tag, 'tracks': tracks, 'rows': rows, 'm2': m2_records, 'dip': dip_records, 'm4split': split_records,
-            'reject': reject_records, 'heads': heads, 'pooled': pooled_stats, 'has_final': has_final}
+            'reject': reject_records, 'events': event_records, 'heads': heads, 'pooled': pooled_stats, 'has_final': has_final}
 
 
 def reject_markdown(results):
@@ -404,6 +478,7 @@ def main(argv):
     out += m4_markdown(results)
     out += dip_markdown(results)
     out += reject_markdown(results)
+    out += events_markdown(results)
     for pair in args.pair:
         out += side_by_side(results, pair)
     text = '\n'.join(out) + '\n'
