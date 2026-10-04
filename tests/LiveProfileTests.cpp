@@ -2025,7 +2025,8 @@ namespace celadon::test
         // 有限但荒谬的段，让累计、比值与 double → float 真的算出非有限值——发布出去的每个读数仍是有限值，出事的几项按「没有」发布：
         //   一、局部：第 15 段 Tame 和 1e300（比值转 float 溢出）、第 3 段交叉功率 −1e300（S/M 的比值溢出：段 3 与低频组）、两段 10 Hz 候选
         //       的本该能量 1e308（相加溢出：混合损失）。出事的逐段数组按「这一段没有统计」、特征无效；其余读数与没出事的对照实例逐位相同。
-        //   二、整份：遗忘全关、两段有效时长 1e308（主段质量 M 相加溢出）→ 整份同冷启动的空画像；reset 之后一切照常。
+        //   二、整份：遗忘全关、两段有效时长 1e308（主段质量 M 相加溢出；这两段的段响度与低频占比也写成 1e30，格号换算不出未定义行为）
+        //       → 整份同冷启动的空画像；reset 之后一切照常。
         // 这两种输入都要实时入口收下荒谬的量才到得了兜底；以后入口若也按读档的物理上界拒收，这里改成直接构造（兜底本身不变）。
         void testPublishGuard()
         {
@@ -2102,7 +2103,11 @@ namespace celadon::test
                 auto segment = makeSegment (dropSpec(), i);
 
                 if (i >= 4)
+                {
                     segment.effectiveSeconds = 1.0e308;
+                    segment.loudnessLufs = 1.0e30f;   // 荒谬的段响度 / 低频占比：格号换算先钳再转整数（clampedBin），不出未定义行为
+                    segment.lowShare = 1.0e30f;
+                }
 
                 feed (overflow, segment);
                 const auto reading = firstBadReading (overflow, false);   // 计数器 activeSeconds 照样相加溢出：兜底只管画像
