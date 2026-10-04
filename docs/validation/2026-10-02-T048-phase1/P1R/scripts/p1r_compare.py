@@ -8,6 +8,8 @@
 #   tree <输出 A> <输出 B> [--out 文件.csv]
 #       两棵 celadon_render 输出树逐文件比（metrics.md 去掉「生成时间」一行再比）；metrics.csv 不同就逐行逐列列出差；wav 不同就报
 #       最大样本差（dBFS）与第一个不同的样本。
+#   segments <工作目录> <标签 A> <标签 B> [--out 逐首.csv]
+#       两个标签的追踪只比段自己的读数（实时段落账交来的段：起止、已听、有效时长、段响度、低频占比），不比画像。
 #
 # 只读两边的文件，不改任何东西；结果打印到 stdout，--out 另写 CSV。
 
@@ -135,6 +137,51 @@ def cmd_live(args):
     return 0 if same == len(records) else 1
 
 
+SEGMENT_COLUMNS = ('start_sample', 'end_sample', 'heard', 'effective_s', 'loudness_lufs', 'low_share')
+
+
+def cmd_segments(args):
+    """两个标签的追踪只比「段自己的读数」（实时段落账交来的段：起止、已听、有效时长、段响度、低频占比），不比画像——两边的实时画像
+    算法可以不同（例如 5a67051 的「提交时定 m」vs HEAD 的「回看重判」），这里看的是分析器交来的段变没变。"""
+    records = []
+    base_a = os.path.join(args.work, 'live', args.tag_a, 'traces')
+    base_b = os.path.join(args.work, 'live', args.tag_b, 'traces')
+    for r in load_manifest(args.work):
+        names = trace_names(base_a, r['track'])
+        if not names or names != trace_names(base_b, r['track']):
+            records.append({'class': r['class'], 'track': r['track'], 'status': '缺追踪'})
+            continue
+        with open(os.path.join(base_a, names[0]), encoding='utf-8') as f:
+            rows_a = list(csv.DictReader(f))
+        with open(os.path.join(base_b, names[0]), encoding='utf-8') as f:
+            rows_b = list(csv.DictReader(f))
+        differing, first, columns, max_abs = 0, '', set(), {}
+        for ra, rb in zip(rows_a, rows_b):
+            cols = [c for c in SEGMENT_COLUMNS if ra[c] != rb[c]]
+            if not cols:
+                continue
+            differing += 1
+            columns.update(cols)
+            for c in cols:
+                delta = abs(to_float(ra[c]) - to_float(rb[c]))
+                if math.isfinite(delta):
+                    max_abs[c] = max(max_abs.get(c, 0.0), delta)
+            if not first:
+                first = f"第 {ra['bar'] or ra['sequence']} 小节（段 {ra['sequence']}）：{';'.join(cols)}"
+        records.append({'class': r['class'], 'track': r['track'], 'segments': f'{len(rows_a)}/{len(rows_b)}',
+                        'status': '相同' if differing == 0 and len(rows_a) == len(rows_b) else '不同', 'differing_segments': differing,
+                        'first_difference': first, 'columns': ';'.join(sorted(columns)),
+                        **{f'max_abs_{c}': (f'{max_abs[c]:.6g}' if c in max_abs else '') for c in SEGMENT_COLUMNS}})
+    same = sum(1 for x in records if x['status'] == '相同')
+    print(f'segments {args.tag_a} vs {args.tag_b}（{args.work}）：段读数 {same} / {len(records)} 首相同')
+    for x in records:
+        if x['status'] != '相同':
+            print(f"  {x['class']} {x['track']}：{x.get('segments')} 段，{x.get('differing_segments')} 段不同，第一处 {x.get('first_difference')}；"
+                  f"段响度最大差 {x.get('max_abs_loudness_lufs')}、低频占比 {x.get('max_abs_low_share')}、有效时长 {x.get('max_abs_effective_s')}")
+    write_csv(args.out, records)
+    return 0 if same == len(records) else 1
+
+
 def metrics_md_text(path):
     with open(path, encoding='utf-8') as f:
         return [line for line in f if not line.startswith('- 生成时间')]
@@ -231,8 +278,13 @@ def main(argv):
     p.add_argument('a')
     p.add_argument('b')
     p.add_argument('--out')
+    p = sub.add_parser('segments', help='两个标签只比段自己的读数（起止、已听、有效时长、段响度、低频占比）')
+    p.add_argument('work')
+    p.add_argument('tag_a')
+    p.add_argument('tag_b')
+    p.add_argument('--out')
     args = parser.parse_args(argv)
-    return cmd_live(args) if args.command == 'live' else cmd_tree(args)
+    return {'live': cmd_live, 'tree': cmd_tree, 'segments': cmd_segments}[args.command](args)
 
 
 if __name__ == '__main__':

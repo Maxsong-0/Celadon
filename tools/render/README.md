@@ -395,8 +395,9 @@ celadon_render --in <歌曲目录> --out <输出> --glaze 0 --genre deep --bpm 1
 - 与完整跑法（`--glaze 70,100 --style auto,warm --clay auto,off …`、带重放）写出的追踪与 `__final.csv` **逐字节相同**（同一块长；REPORT-C 2.4 节，
   `--selftest-live`「与 GLAZE、风格无关」）。
 - 块长：自检合成曲在 512 / 4096 / 480 下逐字节相同（`--selftest-live`）。REPORT-C 2.4 节的真歌块长差别（帧门等三道相对门参考学习区间、学习在宿主
-  块边界上停）B2 已去掉：实时段落账的三道门改参考它自己的长期参考（`MusicAnalyzer.cpp` 第「七」节）；Jamendo 45 首的块长对照待复跑（REPORT-B2 第 6 节）。
-  比较不同块长时，`__final.csv` 的 `tag` 一行要去掉（标签不同）。
+  块边界上停）B2 已去掉：实时段落账的三道门改参考它自己的长期参考（`MusicAnalyzer.cpp` 第「七」节）。复跑（`9e8575a`，DGX Spark 本机，
+  `REPORT-P1-SPARK-REPLAY.md` 第 4 节）：Jamendo 45 首 × 4/4 型 / 响度型、合成两首 × 两型，块长 512 与 4096 的追踪、`__final.csv`、`__judgements.csv`、
+  输入端逐段统计全部逐字节相同。比较不同块长时，`__final.csv` 的 `tag` 一行要去掉（标签不同）。
 - 批量（Jamendo 45 首、合成曲）用 `calibrate_house.py render-live`，见下「因果重放的批跑与分析」。
 
 ### 输出（`--out` 之下）
