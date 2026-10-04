@@ -10,6 +10,7 @@
 
 #include "AtomicHelpers.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -420,7 +421,9 @@ namespace celadon
             for (int h = 0; h < heatTableSize; ++h)
             {
                 configureTube (calibrator, (float) h);
-                shaped = sine;
+                // 每档从同一段正弦重新开始。两者等长，按元素拷回（不用 shaped = sine）：vector 赋值里「目标比源短就在尾部
+                // 补拷」那一支这里走不到，但 aarch64 GCC 13 -O3 推不出两者等长，对它报 -Wstringop-overflow（T-055）。
+                std::copy (sine.begin(), sine.end(), shaped.begin());
                 calibrator.processTubeBlock (shaped.data(), heatCalibrationPoints);
 
                 double sum = 0.0, sumOfSquares = 0.0;
