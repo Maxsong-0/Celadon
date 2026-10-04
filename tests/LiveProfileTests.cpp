@@ -724,6 +724,7 @@ namespace celadon::test
             testStateRoundTrip();
             testBadState();
             testCorruptStateStaysFinite();
+            testRestoreRateConversionOverflow();
             testPublishGuard();
             testDeterminismAndReset();
             testCallPatterns();
@@ -2019,6 +2020,59 @@ namespace celadon::test
                         + " rejected" + (firstBad.isEmpty() ? juce::String() : "; first bad reading: " + firstBad));
             expect (notCold == 0, "every rejected state leaves a cold instance (" + juce::String (notCold) + " did not)");
             expect (bad == 0, "every accepted state keeps the later readings finite and in range (" + juce::String (bad) + " did not)");
+        }
+
+        // 读档换采样率时的越界检查（LiveProfile.cpp convertEntryRate；验收代理 VAL3 发现这个拒收分支没有用例，删掉检查全部用例照过）：
+        // 窗口里每段的 start / end 写成接近 int64 上端、段长不变——entryWithinBounds 只看段长、不看绝对值，同采样率读回照收（不换算，无害）；
+        // 读进 96 k 实例要把时间戳 × 2，越出 int64，必须整份拒收并冷启动，不能带着溢出的时间戳进窗口。
+        void testRestoreRateConversionOverflow()
+        {
+            beginTest ("state: timestamps near the int64 limit are kept at the same rate and rejected when the restore has to convert the rate");
+
+            LiveProfile source;
+            setUp (source);
+
+            constexpr int segmentCount = 12;
+
+            for (int i = 0; i < segmentCount; ++i)
+                feed (source, makeSegment (dropSpec(), i));
+
+            auto xml = source.createStateXml();
+            juce::MemoryOutputStream decoded;
+            juce::Base64::convertFromBase64 (decoded, xml->getStringAttribute ("segments"));
+            auto block = decoded.getMemoryBlock();
+
+            constexpr std::int64_t nearLimit = 9000000000000000000LL;   // 9.0e18 < 2^63 ≈ 9.22e18；× 2 必然越界
+            size_t at = 0;
+
+            for (int i = 0; i < segmentCount; ++i)
+            {
+                const auto layout = layoutOfEntry (block, at);
+                std::int64_t start = 0, end = 0;
+                std::memcpy (&start, (const char*) block.getData() + layout.start, sizeof (start));
+                std::memcpy (&end, (const char*) block.getData() + layout.end, sizeof (end));
+                const std::int64_t newStart = nearLimit + (std::int64_t) i * 100000, newEnd = newStart + (end - start);   // 段长不变、首尾不交叠
+                block.copyFrom (&newStart, (int) layout.start, sizeof (newStart));
+                block.copyFrom (&newEnd, (int) layout.end, sizeof (newEnd));
+                at = layout.next;
+            }
+
+            xml->setAttribute ("segments", juce::Base64::toBase64 (block.getData(), block.getSize()));
+
+            LiveProfile sameRate;
+            setUp (sameRate);
+            expect (sameRate.restoreStateXml (*xml) && sameRate.getDiagnostics().commits == segmentCount,
+                    "at the same rate nothing is converted, so the near-limit timestamps are kept");
+
+            LiveProfile converted;
+            converted.prepare (2.0 * rate);
+            converted.setConstants (LiveConstants {}, MainSectionModel::fourOnFloor);
+            const auto restored = converted.restoreStateXml (*xml);
+            const auto d = converted.getDiagnostics();
+            logMessage ("  near-int64 timestamps restored into a " + juce::String (2.0 * rate / 1000.0) + " kHz instance: returned "
+                        + juce::String ((int) restored) + ", commits " + juce::String ((int) d.commits));
+            expect (! restored && d.commits == 0 && d.windowSegments == 0,
+                    "a rate conversion that would overflow the timestamps rejects the whole state and leaves the instance cold");
         }
 
         // 发布端兜底（P1F，LiveProfile.cpp guardPublishedResult）：不经读档。实时入口只查有限与非负（分析器交来的量有物理上限），由它交来
