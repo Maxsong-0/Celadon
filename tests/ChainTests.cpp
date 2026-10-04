@@ -165,7 +165,7 @@ namespace celadon::test
         Signal makeListenMaterial (double sampleRate, double seconds)
         {
             auto input = makeSine (numChannels, sampleRate, 880.0, 0.22f, seconds);
-            for (const auto component : { std::pair<double, float> { 55.0, 0.12f }, { 4600.0, 0.04f } })
+            for (const auto& component : { std::pair<double, float> { 55.0, 0.12f }, { 4600.0, 0.04f } })
             {
                 const auto tone = makeSine (numChannels, sampleRate, component.first, component.second, seconds);
                 for (size_t ch = 0; ch < input.size(); ++ch)
@@ -1817,7 +1817,7 @@ namespace celadon::test
         //    Balance / Color / Limit 的清空已由 CeladonChain 的 reset 用例证明（restartWithFadeIn 调的是同样的 reset），GLAZE 0 时编排器
         //    的学习状态不影响音频，所以这里差的只能是 Clay。
         //    阳性对照：独立 ClayModule 用同样参数与同样的预热素材跑完后不 reset、接着处理新素材，与全新模块处理同一段新素材相比，
-        //    从它自己的第 D + 10 ms 个输出起仍差 > 1e-3。为什么从 D + 10 ms：Clay 有固定延迟 D（阶段 4 起），链重启后限幅器把整条链的
+        //    从它自己的第 D + 10 ms 个输出起仍差 > 1e-3。为什么从 D + 10 ms：Clay 有固定延迟 D（本类口径 D + G），链重启后限幅器把整条链的
         //    延迟（含 D）都当静音段、之后才 10 ms 淡入，所以 Clay 的第 D + n 个输出落在淡入开始后第 n 个样本；D 之前的输出（延迟线里
         //    预热留下的旧音乐）在链里被静音段盖住，不算。D + 10 ms 之后还差的是 20 Hz 4 阶高通的状态：最慢一对极点的衰减率
         //    sin(π/8)·2π·20 ≈ 48 /s（时间常数约 21 ms），预热留下的状态在淡入之后还响着——链若漏了 clay.reset()，a) b) 一定看得见。

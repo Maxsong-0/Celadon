@@ -124,6 +124,97 @@ namespace celadon::ui
     }
 
     //==============================================================================
+    void createDashedStrokeReusing (const juce::PathStrokeType& stroke, const juce::Path& line,
+                                    const float* dashLengths, int numDashLengths, juce::Path& centre, juce::Path& dest)
+    {
+        // 照抄 JUCE 9.0.2 PathStrokeType::createDashedStroke（juce_PathStrokeType.cpp）的切段循环，偏移 0 时从第一段实线起切；
+        // 每一步的浮点运算与它相同，centre 里的点与 JUCE 函数内那条临时路径逐位相同，最后同一个 createStrokedPath。
+        // 折线的段直接用 Path::Iterator 读（只有直线时与 PathFlatteningIterator 给出的段相同，且不分配）。
+        jassert (numDashLengths > 0);
+        centre.clear();
+
+        if (stroke.getStrokeThickness() <= 0.0f)
+            return;   // JUCE 那个此时 dest 原样不动
+
+        juce::Path::Iterator source (line);
+        float x1 = 0.0f, y1 = 0.0f, x2 = 0.0f, y2 = 0.0f;
+
+        // 下一段（x1, y1）→（x2, y2）：与 PathFlatteningIterator::next 相同，进来先把上一段的终点当起点；
+        // 遇到起点（startNewSubPath）只记下位置。读完返回 false，此时 x2, y2 仍是最后一个点。
+        const auto nextSegment = [&]
+        {
+            x1 = x2;
+            y1 = y2;
+
+            while (source.next())
+            {
+                jassert (source.elementType == juce::Path::Iterator::startNewSubPath
+                         || source.elementType == juce::Path::Iterator::lineTo);   // 曲线、闭合要按 JUCE 先展平，这里不支持
+
+                x2 = source.x1;
+                y2 = source.y1;
+
+                if (source.elementType == juce::Path::Iterator::lineTo)
+                    return true;
+
+                x1 = x2;
+                y1 = y2;
+            }
+
+            return false;
+        };
+
+        int dashNum = 0;
+        float pos = 0.0f, lineLen = 0.0f, lineEndPos = 0.0f, dx = 0.0f, dy = 0.0f;
+        bool first = true;   // 折线不闭合：JUCE 里 first = closesSubPath，第一段之后恒为 false
+
+        for (;;)
+        {
+            const bool isSolid = ((dashNum & 1) == 0);
+            const float dashLen = dashLengths[dashNum++ % numDashLengths];
+            jassert (dashLen > 0.0f);
+
+            if (dashLen <= 0.0f)
+                continue;
+
+            pos += dashLen;
+
+            while (pos > lineEndPos)
+            {
+                if (! nextSegment())
+                {
+                    if (isSolid && ! first)
+                        centre.lineTo (x2, y2);
+
+                    stroke.createStrokedPath (dest, centre, juce::AffineTransform(), 1.0f);
+                    return;
+                }
+
+                if (isSolid)
+                {
+                    if (first)
+                        centre.startNewSubPath (x1, y1);
+                    else
+                        centre.lineTo (x1, y1);
+                }
+
+                dx = x2 - x1;
+                dy = y2 - y1;
+                lineLen = juce::juce_hypot (dx, dy);
+                lineEndPos += lineLen;
+                first = false;
+            }
+
+            const float alpha = (pos - (lineEndPos - lineLen)) / lineLen;
+
+            if (isSolid)
+                centre.lineTo (x1 + dx * alpha, y1 + dy * alpha);
+            else
+                centre.startNewSubPath (x1 + dx * alpha, y1 + dy * alpha);
+        }
+    }
+
+    //==============================================================================
     LoudnessHud::LoudnessHud()
     {
         setSize (214, 88);
@@ -1164,9 +1255,9 @@ namespace celadon::ui
             if (inputLine.isEmpty())
                 buildLine (input, inputLine);
 
+            // IN 的形状每帧在变，虚线每帧重建；中线段与虚线都写进成员路径（容量保留），不再每帧新建路径（T-051，评审 R-07）。
             const float dashes[] = { 3.0f, 2.0f };
-            inputDashes.clear();
-            juce::PathStrokeType (1.1f).createDashedStroke (inputDashes, inputLine, dashes, 2);
+            createDashedStrokeReusing (juce::PathStrokeType (1.1f), inputLine, dashes, 2, inputDashCentre, inputDashes);
             inputDashesValid = true;
         }
 

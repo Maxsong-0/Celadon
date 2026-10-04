@@ -1,0 +1,107 @@
+① 相同  rc=0  docs/validation/2026-09-28-T022-replay-gate/trial-3songs-metrics.csv
+① 相同  rc=1  docs/validation/2026-10-01-T042-leakage-gate/gate22-after-all.csv
+① 相同  rc=1  docs/validation/2026-10-01-T042-leakage-gate/gate22-before-all.csv
+① 相同  rc=0  docs/validation/2026-10-01-T042-leakage-gate/synth-after-synthetic-house-124-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T042-leakage-gate/synth-after-synthetic-tech-124-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T042-leakage-gate/synth-before-synthetic-house-124-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T042-leakage-gate/synth-before-synthetic-tech-124-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/gate22-fix-all.csv
+① 相同  rc=1  docs/validation/2026-10-01-T043-woqu-gate/gate22-main-all.csv
+① 相同  rc=1  docs/validation/2026-10-01-T043-woqu-gate/gate22-noguard-all.csv
+① 相同  rc=1  docs/validation/2026-10-01-T043-woqu-gate/runtime-only-5songs-all.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth1-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth2-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.055_o0.06-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.055_o0.10-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.055_o0.14-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.060_o0.06-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.060_o0.10-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.060_o0.14-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.065_o0.06-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.065_o0.10-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.065_o0.14-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.070_o0.06-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.070_o0.10-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.070_o0.14-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.075_o0.06-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.075_o0.10-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T043-woqu-gate/synth/synth3-h0.075_o0.14-metrics.csv
+① 相同  rc=0  docs/validation/2026-10-01-T044-clay-guard-loud-masters/gate/base-all.csv
+① 相同  rc=0  docs/validation/2026-10-01-T044-clay-guard-loud-masters/gate/fix-all.csv
+① 相同  rc=0  docs/validation/2026-10-01-T044-clay-guard-loud-masters/render-main-c7b607f-metrics.csv
+① 现有指标表 31 份，逐字节相同 31 份
+
+T-038 追加列 34 个（取自 RenderMain.cpp csvExtendedHeader）：genre,delivery,bpm,meter,listen_from_bar,…
+② 单值追加列：改后对 ext-single.csv 与改前对原表 逐字节相同（rc 0 / 0）
+
+③ 曲风两值：改后 rc=1，改前 rc=1；改后输出：
+   song                             g   genre   dInPk   dLUFS ref:dInPk ref:dLUFS guard%  inv% music_s   lock(auto/off) replay
+   WTF                             70    deep  +0.000  -0.500    +0.747    -0.152  15.84 10.43   184.6              L/L     ok
+   WTF                             70 general  +0.000  +0.000    +0.747    +0.348  15.84 10.43   184.6              L/L     ok
+   l_kskdhjf                       70    deep  +0.000  +0.000    +0.000    +0.000  42.81 17.36   195.6              L/L     ok
+   l_kskdhjf                       70 general  +0.000  +0.000    +0.000    +0.000  42.81 17.36   195.6              L/L     ok
+   ooaa                            70    deep  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+   ooaa                            70 general  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+   
+   FAILS: 2
+     - WTF g0 general: GLAZE 0 修坯「自动」与「全关」不逐位相同（违反逐位直通）
+     - WTF g70 deep: 修坯让响度下降 -0.500 LU（< −0.1），限幅器入口峰值没有跟着降（+0.000 dB）
+   NOTES: 8
+     - WTF g70 deep: 反相保护介入 15.8 %——豁免：插件慢路 ρ < −0.2 的块占 10.43 %（有真反相段）
+     - WTF g70 general: 反相保护介入 15.8 %——豁免：插件慢路 ρ < −0.2 的块占 10.43 %（有真反相段）
+     - l_kskdhjf g70 deep: 反相保护介入 42.8 %——豁免：插件慢路 ρ < −0.2 的块占 17.36 %（有真反相段）
+     - l_kskdhjf g70 general: 反相保护介入 42.8 %——豁免：插件慢路 ρ < −0.2 的块占 17.36 %（有真反相段）
+     - ooaa g70 deep clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 deep clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 general clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 general clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+   
+   改前输出（对照：general 的组被 deep 覆盖）：
+   song                             g   dInPk   dLUFS ref:dInPk ref:dLUFS guard%  inv% music_s   lock(auto/off) replay
+   WTF                             70  +0.000  -0.500    +0.747    -0.152  15.84 10.43   184.6              L/L     ok
+   l_kskdhjf                       70  +0.000  +0.000    +0.000    +0.000  42.81 17.36   195.6              L/L     ok
+   ooaa                            70  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+   
+   FAILS: 1
+     - WTF g70: 修坯让响度下降 -0.500 LU（< −0.1），限幅器入口峰值没有跟着降（+0.000 dB）
+   NOTES: 4
+     - WTF g70: 反相保护介入 15.8 %——豁免：插件慢路 ρ < −0.2 的块占 10.43 %（有真反相段）
+     - l_kskdhjf g70: 反相保护介入 42.8 %——豁免：插件慢路 ρ < −0.2 的块占 17.36 %（有真反相段）
+     - ooaa g70 clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+   
+④ 聆听起点 1 / 9 / 33 + 交付 standard / club：WTF 各组顺序 [('club', '1'), ('standard', '1'), ('standard', '9'), ('standard', '33')]
+   song                             g delivery listen_from_bar   dInPk   dLUFS ref:dInPk ref:dLUFS guard%  inv% music_s   lock(auto/off) replay
+   WTF                             70     club               1  +0.000  +0.000    +0.747    +0.348  15.84 10.43   184.6              L/L     ok
+   WTF                             70 standard               1  +0.000  +0.000    +0.747    +0.348  15.84 10.43   184.6              L/L     ok
+   WTF                             70 standard               9  +0.000  +0.000    +0.747    +0.348  15.84 10.43   184.6              L/L     ok
+   WTF                             70 standard              33  +0.000  +0.000    +0.747    +0.348  15.84 10.43   184.6              L/L     ok
+   l_kskdhjf                       70     club               1  +0.000  +0.000    +0.000    +0.000  42.81 17.36   195.6              L/L     ok
+   l_kskdhjf                       70 standard               1  +0.000  +0.000    +0.000    +0.000  42.81 17.36   195.6              L/L     ok
+   l_kskdhjf                       70 standard               9  +0.000  +0.000    +0.000    +0.000  42.81 17.36   195.6              L/L     ok
+   l_kskdhjf                       70 standard              33  +0.000  +0.000    +0.000    +0.000  42.81 17.36   195.6              L/L     ok
+   ooaa                            70     club               1  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+   ooaa                            70 standard               1  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+   ooaa                            70 standard               9  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+   ooaa                            70 standard              33  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+   
+   FAILS: 0
+   NOTES: 16
+     - WTF g70 club from-b1: 反相保护介入 15.8 %——豁免：插件慢路 ρ < −0.2 的块占 10.43 %（有真反相段）
+     - WTF g70 standard from-b1: 反相保护介入 15.8 %——豁免：插件慢路 ρ < −0.2 的块占 10.43 %（有真反相段）
+     - WTF g70 standard from-b9: 反相保护介入 15.8 %——豁免：插件慢路 ρ < −0.2 的块占 10.43 %（有真反相段）
+     - WTF g70 standard from-b33: 反相保护介入 15.8 %——豁免：插件慢路 ρ < −0.2 的块占 10.43 %（有真反相段）
+     - l_kskdhjf g70 club from-b1: 反相保护介入 42.8 %——豁免：插件慢路 ρ < −0.2 的块占 17.36 %（有真反相段）
+     - l_kskdhjf g70 standard from-b1: 反相保护介入 42.8 %——豁免：插件慢路 ρ < −0.2 的块占 17.36 %（有真反相段）
+     - l_kskdhjf g70 standard from-b9: 反相保护介入 42.8 %——豁免：插件慢路 ρ < −0.2 的块占 17.36 %（有真反相段）
+     - l_kskdhjf g70 standard from-b33: 反相保护介入 42.8 %——豁免：插件慢路 ρ < −0.2 的块占 17.36 %（有真反相段）
+     - ooaa g70 club from-b1 clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 club from-b1 clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 standard from-b1 clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 standard from-b1 clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 standard from-b9 clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 standard from-b9 clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 standard from-b33 clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+     - ooaa g70 standard from-b33 clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+   
+结论：全部符合预期

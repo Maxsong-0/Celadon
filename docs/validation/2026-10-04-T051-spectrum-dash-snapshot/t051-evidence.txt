@@ -1,0 +1,50 @@
+T-051 证据（2026-10-04 凌晨，NVIDIA DGX Spark 本机：aarch64，Ubuntu 24.04，GCC 13.3，Release；跑检查时 uptime 负载约 7 ～ 10）
+分支 claude/t051-spectrum-dash-snapshot，基于 main 9c18ff9。
+
+一、本机编截图工具的前提
+  本机缺 libxext-dev / libxcursor-dev / libxi-dev 的头文件（X11/extensions/XShm.h、X11/Xcursor/Xcursor.h、X11/extensions/XInput2.h），
+  ~/.cache/celadon-spark/guidev 里只解了 freetype / fontconfig / x11。所以这里一律用
+    CELADON_CXX_FLAGS="-DJUCE_USE_XSHM=0 -DJUCE_USE_XCURSOR=0 -DJUCE_USE_XINPUT=0" spark-test.sh <树> build celadon_ui_snapshot
+  三项只影响 JUCE 的 X11 窗口层（共享内存贴图、ARGB 光标、XInput2 多点触控）；离屏出图与直接发给控件的鼠标事件不经过它们，
+  改前改后都用同一套开关编，对照公平。运行：xvfb-run -a -s "-screen 0 1280x1024x24"，HOME 指到代理自己的临时目录（不碰 ~/.config/Celadon）。
+  main 基线（同一套开关）：--only check 85 条全过。
+
+二、IN 虚线不改像素（③）
+  1. --deterministic 出图，改前 = main 的 SpectrumView + 本分支的截图工具（多了 zh-input 状态；那一条 IN 虚线检查在 main 上编不过，
+     临时副本里用 patch_tmp_snapshot.py 换成调 JUCE 自己的），改后 = 本分支：
+       zh-input.png ×1   改前两遍 / 改后两遍 sha256 都是 be8e64175eefc2f76c1490d917f06df0e40857d08155d83977f49d41b59d7f0a
+       zh-default.png ×1 改前两遍 / 改后两遍 sha256 都是 7bf527d14840cb1664bad3e99f9e293a2da4c5b6a1060f21d533176b6c11758a
+       zh-input.png ×2   改前 / 改后 sha256 都是 7e7ae8652e44fabd662385ba9035d53867946be2bb1682186b832ad0d4fc32f4
+     zh-input-spectrum.png 是改后 zh-input.png 里频谱仪那一块（编辑器 84, 60, 1032 × 238）：「输入」开着、虚线画出来了。
+  2. 全部 30 种状态 ×1 改前改后（all-states-before-vs-after.txt）：频谱仪那一块 30 张都相同；整张 24 张逐字节相同，其余 6 张只差在两边的电平表
+     （例：zh-zoom70 只差 x 795 ～ 820，在频谱仪 58 ～ 781 之外）。同一个改前二进制跑两遍本来就有 10 张整张不同、频谱仪那一块 30 张相同
+     （all-states-before-vs-before.txt）——电平表按墙钟下落，不是这次改动带来的。（compare_crops.py 先转 RGB 再比：RGBA 的 getbbox 只看透明度。）
+     更正（主进程按验收代理 VAL2 复核，2026-10-04）：all-states-before-vs-after.txt 末行「频谱仪那一块相同 29」与上面「30 张都相同」不一致——
+     zh-zoom70 那一行的「频谱仪不同」是 compare_crops.py 的伪迹：0.7 倍图（840 × 574）装不下按 1 倍坐标取的频谱仪裁剪框，脚本回落成整张比较，
+     而整张只差在电平表。VAL2 按缩放换算裁剪框重比：30 个状态里可比的 22 张频谱仪裁剪全部相同，另 8 张是胶囊 / 气泡局部截图、本身没有频谱仪区域；
+     整张逐字节相同的张数随电平表下落时刻在 24 ～ 27 之间浮动（VAL2 那一遍 27 张，另 3 张只差电平表窄带）。结论不变：IN 虚线改动不改频谱仪像素。
+  3. 截图工具 --only check 新加的一条：自己切段与 JUCE createDashedStroke 逐元素逐位相同，84 / 84 条折线。
+  4. 堆分配（alloc_probe.cpp，300 帧平均）：每次重建改前 18.00 次、改后 2.00 次；剩下 2 次是 createStrokedPath 里 JUCE 自己的
+     （PathFlatteningIterator 的栈、LineSection 表），Graphics::strokePath 每次也有。
+
+三、增量重画 vs 整帧的检查有效（④）
+  检查：--only check 末尾「T-051 spectrum incremental repaint == full repaint」，×1 矩形列表、×1 包围盒、×2 矩形列表，S8 场景每帧都比，
+  共 1562 帧（两种像素比各 781 帧）。整个 --only check 本机 6.8 s。
+
+  1. 照评审原样走（换斜率后下一帧先推频谱、再画）抓不到 R-02：main 临时副本撤掉 R-02 的修复（revert_r02.py all，差异见 r02-revert.diff），
+     这一条照样 PASS（0 ghosts over 1562 frames）。查原因（临时副本里加打印）：换斜率那一帧 setSpectrum 判「变了」，第一处是
+       peak i 848（5836 Hz）shown -94.97 next -120 tilt 11.45
+     ——峰值保持数据（PEAK 关着也在比）在斜率 0 时已落到底边（−84 dB）以下、不再触发重画，「上次画出来的值」停在 −94.97；
+     换到 4.5 抬高 11.45 dB 后露出底边，与此刻的 −120 差出几十像素，于是这一帧就重建路径、更新了旧区域（curveArea），R-02 那条路径走不到。
+     评审复现时（577ded0）setSpectrum 按未加斜率的 dB（0.02 dB）判变化，没有这个问题；T-036 修订（867b454，评审 R-07）改按加斜率后的纵坐标判之后才这样。
+  2. 所以检查在换斜率之后先「只重画、不推频谱」一帧（点击引起的重画先于显示器的帧回调到达，真实窗口里两者谁先到不固定），再切 B：
+       临时副本撤掉 R-02 修复（① paint 并区域 + ② curveRegion 不论开关）：FAIL
+         x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60));
+         x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121))
+         （x1 包围盒 0 帧：别的脏矩形把包围盒撑大、盖住了，同评审说的 macOS 口径）
+       放回 main 的 SpectrumView.cpp（cmp 与 git show main 相同）：PASS，0 ghosts over 1562 frames
+       只撤 ①（revert_r02.py paint-only）：FAIL，数字同上——这条守的是 ①（paint 里重建路径时把画出的区域并进旧区域）。
+     x 935 = 频谱仪里 851 像素 ≈ 6 kHz，y 60 = 频谱仪顶边：切 B 后第一帧 6 kHz 旧峰尖留在屏上。
+  3. 本分支：--only check 87 条全过（main 85 条 + T-051 两条）。
+
+四、celadon_tests --only SpectrumAnalyser,AnalyzerTap：181 过 / 0 败（本分支；编译警告只有 main 原有的 4 条，T-055 另修）。

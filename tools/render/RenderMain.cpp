@@ -4431,7 +4431,7 @@ namespace
 
     //==============================================================================
     // T-038 新选项的自检（--selftest-house）：模拟走带、分段网格与逐段统计、曲风 / 交付 / 走带穿到链上的阳性对照、文件名与追加列。
-    // 与 --selftest 分开：那一份的项目与输出保持原样（render-linux.sh 渲染前照旧只跑它）；改了下面几项相关的代码，在服务器上手动跑一次。
+    // 与 --selftest 分开：那一份的项目与输出保持原样；render-linux.sh 渲染前先跑它、再跑这一份（T-050），改了下面几项相关的代码也可单独跑。
 
     // 自检用：真歌同一套两遍流程（listenPass → renderPass，块长 512）跑一组设置，返回对齐前成品的哈希；render 里留着整段结果。
     std::uint64_t selfTestRender (const juce::AudioBuffer<float>& signal, const Combo& combo, const Transport& transport, RenderResult& render)

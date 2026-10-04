@@ -3506,9 +3506,9 @@ namespace celadon::test
             expect (reference.profile().houseGate.fullSegments > 0 && reference.profile().integratedLufs.valid
                     && reference.profile().onsetDensityPerSecond.valid, "the material exercises the gate and all three streams");
 
-            for (const auto [blockSize, seed] : { std::pair<int, juce::int64> { 1, 0 }, std::pair<int, juce::int64> { 333, 0 },
-                                                  std::pair<int, juce::int64> { 4096, 0 }, std::pair<int, juce::int64> { 0, 5 },
-                                                  std::pair<int, juce::int64> { 0, 77 } })
+            for (const auto& [blockSize, seed] : { std::pair<int, juce::int64> { 1, 0 }, std::pair<int, juce::int64> { 333, 0 },
+                                                   std::pair<int, juce::int64> { 4096, 0 }, std::pair<int, juce::int64> { 0, 5 },
+                                                   std::pair<int, juce::int64> { 0, 77 } })
             {
                 Rig rig (sampleRate);
                 rig.analyzer.setGenre (glaze::Genre::melodicProgressive);

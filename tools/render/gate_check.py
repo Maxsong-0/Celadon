@@ -16,6 +16,10 @@
 #   5. 真峰值：所有成品 ≤ Ceiling + 0.01 dB（渲染工具一律用出厂 Ceiling −1.0 dBTP）。
 # 参考（只打印，不判定）：「自动」对「全关」的跨链差——两条链各自跑 GLAZE，约束反馈发生的时刻不同就会走到不同的方案，
 # 差别里混着方案分岔（T-015：WTF g70 两条链反馈上限 1.145 / 0.274 dB），所以不再拿它判定。
+#
+# 配对：同一组「自动 / 全关 / 重放全关」按（歌, GLAZE, 风格）找；指标表有 T-038 追加列 genre / delivery / listen_from_bar 时
+# 这三列也并入配对键（--genre / --delivery / --listen-from-bar 多值网格里，同一首歌同一 GLAZE 有几组「自动」，各自成组）。
+# 某一维在表里取值不止一种时，分组标签与表格才写出它；只有一种取值（或没有这几列）时输出与只按（歌, GLAZE, 风格）配对时逐字节相同。
 import csv
 import math
 import sys
@@ -23,6 +27,10 @@ from collections import defaultdict
 
 CEILING_DBTP = -1.0
 MIN_LOCK_MUSIC_SECONDS = 30.0
+
+# T-038 网格的另三维（celadon_render 只在用了新选项时把它们追加在 metrics.csv 末尾）。渲染工具自己也按这三维配对
+# （RenderMain.cpp 的 checkGlazeZeroPairs；重放全关行沿用「自动」行的组合），这里与它一致。
+GRID_COLUMNS = ('genre', 'delivery', 'listen_from_bar')
 
 
 def num(value, default=math.nan):
@@ -44,26 +52,58 @@ def input_peak_delta(a, b):
     return float(pa) - float(pb)
 
 
+def grid_value(row, column):
+    """网格维度的取值（成品行总有；空串兜底，免得手拼的表缺格时 None 混进排序）。"""
+    return row.get(column) or ''
+
+
+def grid_sort_value(column, value):
+    """配对键里网格维度的排序值：聆听起点按小节号的数值排（2 在 10 前），曲风 / 交付按字符串排（与 house_gate.py 相同）。"""
+    return num(value, math.inf) if column == 'listen_from_bar' else value
+
+
+def grid_label(column, value):
+    """分组标签里网格维度的写法：聆听起点照成品文件名写 from-b<小节>，曲风 / 交付写选项名（RenderMain.cpp 的 comboSuffix）。"""
+    return f"from-b{value}" if column == 'listen_from_bar' else value
+
+
 def main(path):
-    rows = list(csv.DictReader(open(path, encoding='utf-8')))
+    with open(path, encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        columns = reader.fieldnames or []
     inputs = {r['song']: r for r in rows if r['kind'] == 'input'}
+    renders = [r for r in rows if r['kind'] == 'render']
+
+    # 配对键 =（歌, GLAZE, 风格）+ 表里有的网格列。分组标签与表格只写出取值不止一种的网格列（表格接在 g 列之后）：
+    # 没有这几列、或每列只有一种取值时，输出与只按（歌, GLAZE, 风格）配对时逐字节相同。
+    grid = [c for c in GRID_COLUMNS if c in columns]
+    shown = [c for c in grid if len({grid_value(r, c) for r in renders}) > 1]
+    widths = {c: max([len(c)] + [len(grid_value(r, c)) for r in renders]) for c in shown}
+
     by = defaultdict(dict)
-    for r in rows:
-        if r['kind'] == 'render':
-            by[(r['song'], r['glaze'], r['style'])][r['clay']] = r
+    for r in renders:
+        by[(r['song'], r['glaze'], r['style']) + tuple(grid_value(r, c) for c in grid)][r['clay']] = r
 
     fails, notes = [], []
     has_replay = any('replay-off' in pair for pair in by.values())
     if not has_replay:
         notes.append('指标表里没有 clay-replay-off 行（旧工具，或用了 --no-replay）：修坯门槛无法按 ADR-016 口径判定')
 
-    header = (f"{'song':30} {'g':>3} {'dInPk':>7} {'dLUFS':>7} {'ref:dInPk':>9} {'ref:dLUFS':>9} {'guard%':>6} {'inv%':>5} "
+    header = (f"{'song':30} {'g':>3}" + ''.join(f" {c:>{widths[c]}}" for c in shown)
+              + f" {'dInPk':>7} {'dLUFS':>7} {'ref:dInPk':>9} {'ref:dLUFS':>9} {'guard%':>6} {'inv%':>5} "
               f"{'music_s':>7} {'lock(auto/off)':>16} {'replay':>6}")
     print(header)
 
-    for (song, g, style), pair in sorted(by.items(), key=lambda kv: (kv[0][0], num(kv[0][1]), kv[0][2])):
+    def sort_key(item):
+        key = item[0]
+        return (key[0], num(key[1]), key[2]) + tuple(grid_sort_value(c, v) for c, v in zip(grid, key[3:]))
+
+    for key, pair in sorted(by.items(), key=sort_key):
+        song, g, style = key[:3]
+        dims = dict(zip(grid, key[3:]))
         glaze = num(g)
-        tag = f"{song} g{g}" + ("" if style == 'auto' else f" {style}")
+        tag = f"{song} g{g}" + ("" if style == 'auto' else f" {style}") + ''.join(f" {grid_label(c, dims[c])}" for c in shown)
         music = num(inputs.get(song, {}).get('music_seconds'))
 
         # 5. 真峰值（每一行）
@@ -121,7 +161,8 @@ def main(path):
         guard = num(a.get('phase_guard_pct'), 0.0)
         inv = num(a.get('slow_inverted_pct'), 0.0)
 
-        print(f"{song[:30]:30} {g:>3} {dinp:+7.3f} {dl:+7.3f} {ref_dinp:+9.3f} {ref_dl:+9.3f} {guard:6.2f} {inv:5.2f} "
+        print(f"{song[:30]:30} {g:>3}" + ''.join(f" {dims[c]:>{widths[c]}}" for c in shown)
+              + f" {dinp:+7.3f} {dl:+7.3f} {ref_dinp:+9.3f} {ref_dl:+9.3f} {guard:6.2f} {inv:5.2f} "
               f"{music:7.1f} {'/'.join(locks):>16} {check:>6}")
 
         if rp is not None:

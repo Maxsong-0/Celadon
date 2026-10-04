@@ -1,0 +1,30 @@
+--- a/Source/ui/SpectrumView.cpp
++++ b/Source/ui/SpectrumView.cpp
+@@ -611,10 +611,12 @@
+         // 描边超出路径包围盒的上限同 paint：尖角接头最多伸出 2 × 线宽，再加 1 像素抗锯齿。
+         const auto strokeArea = [] (const juce::Path& path, float thickness) { return path.getBounds().expanded (2.0f * thickness + 1.0f); };
+         // 峰值线与 IN 线不论开关都算进去：开关切换那一帧是整面重画，之后的「旧区域」也要盖住它们可能画过的地方。
+-        auto area = outputFill.getBounds().getUnion (strokeArea (outputLine, 0.8f)).getUnion (strokeArea (averageLine, 1.4f))
+-                                          .getUnion (strokeArea (peakLine, 1.0f));
++        auto area = outputFill.getBounds().getUnion (strokeArea (outputLine, 0.8f)).getUnion (strokeArea (averageLine, 1.4f));
+ 
+-        if (! inputLine.isEmpty())
++        if (peakToggle.isOn())
++            area = area.getUnion (strokeArea (peakLine, 1.0f));
++
++        if (inputToggle.isOn() && inputReady)
+             area = area.getUnion (strokeArea (inputLine, 1.1f));
+ 
+         return area.getIntersection (getLocalBounds().toFloat());
+@@ -1149,11 +1151,7 @@
+         prepareLayers (pixelScale);
+ 
+         if (! curvePathsValid)
+-        {
+-            // 在这里重建（换了斜率、曲线静止时）：这一帧画出的区域并进「旧区域」，下一次只重画新旧包围盒时不漏掉它（评审 R-02）。
+             buildCurvePaths();
+-            curveArea = curveArea.getUnion (curveRegion());
+-        }
+ 
+         const auto h = (float) height;
+         const auto outputAlpha = outputToggle.isOn() ? 1.0f : 0.12f;
