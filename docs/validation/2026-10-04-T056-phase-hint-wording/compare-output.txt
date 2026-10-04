@@ -1,0 +1,5 @@
+① 现有指标表 35 份，返回码分布 {0: 29, 1: 6}
+② 失败分支表：改了 2 行，改后返回 1、「误触发」2 条
+③ docs/validation/2026-10-04-T056-phase-hint-wording/render-after-metrics.csv：返回 0 → 0
+
+不一致：0
