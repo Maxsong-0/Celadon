@@ -5147,6 +5147,26 @@ namespace celadon::test
                 expect (laterSegments >= 15 && laterClosed == 0, tag + ": 65 s after the switch all three gates are open (" + juce::String (laterClosed)
                                                                     + " of " + juce::String (laterSegments) + " bars pass less than 90 % of a loud bar)");
 
+                // 只记录、不断言：每道门实际从换了之后多少秒起一直放开（= 最后一个不到 90 % 的整小节的段尾），把 ⑥ 的「约 1 分钟」量出来。
+                // 断言只卡上面两头（头 18 s 挡住、65 s 之后全放开），中间放开得早一点晚一点都不算错。
+                double framesOpenAt = 0.0, subBlocksOpenAt = 0.0, onsetOpenAt = 0.0;
+
+                for (const auto& s : segments)
+                {
+                    if (! whole (s) || s.start < switchAt)
+                        continue;
+
+                    const auto secondsAfterSwitch = (double) (s.end - switchAt) / 48000.0;
+
+                    if (s.frames * 10 < loudFrames * 9)                    framesOpenAt = secondsAfterSwitch;
+                    if (s.effectiveSubBlocks * 10 < loudSubBlocks * 9)     subBlocksOpenAt = secondsAfterSwitch;
+                    if (s.onsetEffectiveSamples * 10 < loudOnset * 9)      onsetOpenAt = secondsAfterSwitch;
+                }
+
+                logMessage ("  " + tag + ": open for good (>= 90 % of a loud bar) from " + juce::String (framesOpenAt, 1) + " s (frames), "
+                            + juce::String (subBlocksOpenAt, 1) + " s (effective sub-blocks), " + juce::String (onsetOpenAt, 1)
+                            + " s (effective onset samples) after the switch");
+
                 if (reference.empty())
                 {
                     reference = segments;

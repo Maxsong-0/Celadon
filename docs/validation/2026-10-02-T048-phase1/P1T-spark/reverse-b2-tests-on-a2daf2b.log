@@ -1,0 +1,163 @@
+# 2026-10-04 00:06:51 PDT  src=/home/maxsong/.cache/celadon-spark/tmp/P1T/rev-b2  args=--only MusicAnalyzerLive,SegmentLedger
+# uptime:  00:06:51 up  4:35,  3 users,  load average: 4.26, 5.05, 3.65
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+Random seed: 0x75ae63c
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode off vs on: everything the controller reads from the analyzer is bit-identical, block by block (65 s, three scripts)...
+  House: learn, stop, recompute, relearn, stop, clear: 33 live segments, House ledger 2 stored, 32 finalized
+  general: learn, stop, relearn: 33 live segments, House ledger 0 stored, 0 finalized
+  mixed: genre switches, learning, a jump and a loop wrap: 36 live segments, House ledger 21 stored, 22 finalized
+Completed tests in MusicAnalyzerLive / live mode off vs on: everything the controller reads from the analyzer is bit-identical, block by block (65 s, three scripts)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode off vs on: CeladonChain output is bit-identical (general and Deep House, learn / commit / relearn / jump, 69 s)...
+  general: 2 learning starts, 2 commits, 1 jumps, 36 live segments
+  Deep House: 2 learning starts, 2 commits, 1 jumps, 36 live segments
+Completed tests in MusicAnalyzerLive / live mode off vs on: CeladonChain output is bit-identical (general and Deep House, learn / commit / relearn / jump, 69 s)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode: segments arrive in time order, once each, end-to-end contiguous across learning, genre switches, jumps and loops...
+  bars: 28 segments over 48 s
+  2-second cells: 25 segments over 48 s
+Completed tests in MusicAnalyzerLive / live mode: segments arrive in time order, once each, end-to-end contiguous across learning, genre switches, jumps and loops
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode: the delivered segments are bit-identical for host blocks of 7, 32, 480, 512 and 4096 samples...
+Completed tests in MusicAnalyzerLive / live mode: the delivered segments are bit-identical for host blocks of 7, 32, 480, 512 and 4096 samples
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live trial data: every valid block lands in its segment when not learning; live* == trial* while learning (on and off)...
+  live on: 9 idle bars, 9 learning bars, 4 bars after the stop
+Completed tests in MusicAnalyzerLive / live trial data: every valid block lands in its segment when not learning; live* == trial* while learning (on and off)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode: the audio-thread API does not allocate (both ledgers, sink delivery, genre switches, discontinuities)...
+Completed tests in MusicAnalyzerLive / live mode: the audio-thread API does not allocate (both ledgers, sink delivery, genre switches, discontinuities)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / chain pass-through: the live sink survives reset, prepare and a state restore; nullptr turns it off...
+  segments: 4 after 8 s, 8 after reset, 12 after prepare, 16 after restore, 17 after turning it off
+Completed tests in MusicAnalyzerLive / chain pass-through: the live sink survives reset, prepare and a state restore; nullptr turns it off
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (general / House learning)...
+  analyzer @48k block 512 - live off, learning: mean 39.00 us, worst 44.00 us; live off, not learning: mean 3.28 us, worst 4.00 us; live on, general, not learning: mean 38.28 us, worst 44.00 us; live on, House, learning: mean 38.58 us, worst 45.00 us (guard 75 us)
+Completed tests in MusicAnalyzerLive / performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (general / House learning)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5a: learning stopped on real block boundaries - live segments identical for blocks 7 / 32 / 480 / 512 / 4096 (all but learning-period fields)...
+!!! Test 3 failed: general, block 7 vs 512: segment 15 [1393548, 1486452)
+!!! Test 4 failed: general, block 32 vs 512: segment 15 [1393548, 1486452)
+!!! Test 6 failed: general, block 4096 vs 512: segment 21 [1950968, 2043871)
+!!! Test 10 failed: Deep House, block 7 vs 512: segment 15 [1393548, 1486452)
+!!! Test 11 failed: Deep House, block 32 vs 512: segment 15 [1393548, 1486452)
+!!! Test 13 failed: Deep House, block 4096 vs 512: segment 21 [1950968, 2043871)
+
+FAILED!!  6 tests failed, out of a total of 14
+
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5a: CeladonChain commits / locks on its own block boundaries - live segments identical for host blocks 7 / 32 / 480 / 512 / 4096...
+!!! Test 4 failed: general, block 7 vs 512: segment 3 [278710, 371613)
+!!! Test 6 failed: general, block 32 vs 512: segment 3 [278710, 371613)
+!!! Test 8 failed: general, block 480 vs 512: segment 21 [1950968, 2043871)
+!!! Test 10 failed: general, block 4096 vs 512: segment 15 [1393548, 1486452)
+!!! Test 14 failed: Deep House, block 7 vs 512: segment 15 [1393548, 1486452)
+!!! Test 16 failed: Deep House, block 32 vs 512: segment 15 [1393548, 1486452)
+!!! Test 18 failed: Deep House, block 480 vs 512: segment 23 [2136774, 2229677)
+!!! Test 20 failed: Deep House, block 4096 vs 512: segment 23 [2136774, 2229677)
+
+FAILED!!  8 tests failed, out of a total of 20
+
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5b: the same audio gives identical live segments learning from the start and not learning after a state load...
+!!! Test 2 failed: general: learning vs not learning: segment 0 [0, 92903)
+!!! Test 4 failed: general: not learning, the live relative gate still holds off the quiet section
+!!! Test 6 failed: Deep House: learning vs not learning: segment 0 [0, 92903)
+!!! Test 8 failed: Deep House: not learning, the live relative gate still holds off the quiet section
+
+FAILED!!  4 tests failed, out of a total of 9
+
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5b: CeladonChain - the second pass (state restored, not learning) delivers the same live segments as the first (learning)...
+!!! Test 4 failed: general: first vs second pass: segment 0 [0, 92903)
+!!! Test 8 failed: Deep House: first vs second pass: segment 0 [0, 92903)
+
+FAILED!!  2 tests failed, out of a total of 8
+
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5c: advanceTo is called every processInput / processSpectrum, never goes back, and means 'every segment ending by T has been delivered'...
+  24 segments, 0 reports over 849 blocks; last report 0
+!!! Test 3 failed: a report at the end of every processInput and processSpectrum
+!!! Test 7 failed: segments are end-to-end contiguous on the live time line, across jumps, resets and prepare
+!!! Test 8 failed: the last report is the end of the last segment (turning live mode off)
+
+FAILED!!  3 tests failed, out of a total of 8
+
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5d: turning live mode off hands the last host block's Balance frames to the last segment...
+!!! Test 2 failed: turning off = padding a zero-sample block first (every field of every segment)
+  last segment frames: 77 with the fix, 77 without
+!!! Test 4 failed: without handing over the pending frames the last segment misses them (positive control)
+
+FAILED!!  2 tests failed, out of a total of 4
+
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5f: playback from bar N (start = the bar line rounded to a sample): the first live segment is bar N from sample 0, no 1-sample piece...
+!!! Test 1 failed: bar 33, block 512: the first segment is bar 33 from sample 0
+!!! Test 3 failed: bar 33, block 4096: the first segment is bar 33 from sample 0
+!!! Test 6 failed: bar 3, block 512: the first segment is bar 3 from sample 0
+!!! Test 8 failed: bar 3, block 4096: the first segment is bar 3 from sample 0
+
+FAILED!!  4 tests failed, out of a total of 15
+
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / empty after prepare and reset; mode none, no gate result...
+Completed tests in SegmentLedger / empty after prepare and reset; mode none, no gate result
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / bars: one segment per bar at anchor + round(n x samples per bar), keyed by the bar's PPQ...
+Completed tests in SegmentLedger / bars: one segment per bar at anchor + round(n x samples per bar), keyed by the bar's PPQ
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / bars: playback from mid-bar - the first instance starts at the play position, the bar line stays on the grid...
+Completed tests in SegmentLedger / bars: playback from mid-bar - the first instance starts at the play position, the bar line stays on the grid
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / replaying a bar overwrites it by position; a loop counts once...
+Completed tests in SegmentLedger / replaying a bar overwrites it by position; a loop counts once
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / no tempo: 2-second segments - keyed by the host position when there is one, sequential otherwise...
+Completed tests in SegmentLedger / no tempo: 2-second segments - keyed by the host position when there is one, sequential otherwise
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / capacity: 512 segments; further segments are not stored and the ledger says so...
+Completed tests in SegmentLedger / capacity: 512 segments; further segments are not stored and the ledger says so
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / two gates: an intro is full until the drop arrives; then only the drop passes (loudness and low-share gates)...
+  after intro + drop + bass-less + breakdown: S_ref -7.95 LUFS, low ref 0.501, heard 56, full 16
+Completed tests in SegmentLedger / two gates: an intro is full until the drop arrives; then only the drop passes (loudness and low-share gates)
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / a bar counts as heard with effective audio for at least half its length; silent bars are not stored...
+Completed tests in SegmentLedger / a bar counts as heard with effective audio for at least half its length; silent bars are not stored
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / a quiet segment (no effective audio) reads quiet and is not full; only a just-started segment falls back to the last finalized one...
+Completed tests in SegmentLedger / a quiet segment (no effective audio) reads quiet and is not full; only a just-started segment falls back to the last finalized one
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / segments and gate results are bit-identical for any host block size at a constant tempo...
+Completed tests in SegmentLedger / segments and gate results are bit-identical for any host block size at a constant tempo
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / a jittery playhead keeps the anchor; a tempo change re-anchors from that block on...
+Completed tests in SegmentLedger / a jittery playhead keeps the anchor; a tempo change re-anchors from that block on
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / the audio-thread API does not allocate (segmenting, lookups, finalizing, gating, events, resets)...
+Completed tests in SegmentLedger / the audio-thread API does not allocate (segmenting, lookups, finalizing, gating, events, resets)
+-----------------------------------------------------------------
+Starting tests in: SegmentLedger / start just before a bar line (less than half a sample): the first segment is that bar from the start sample, no 1-sample piece...
+!!! Test 2 failed: start 2972903, block 512: first segment = bar 33 [0, 92903), got [0, 1) key 1984
+!!! Test 3 failed: start 2972903, block 512: the next bar follows on the grid
+!!! Test 5 failed: start 2972903, block 4096: first segment = bar 33 [0, 92903), got [0, 1) key 1984
+!!! Test 6 failed: start 2972903, block 4096: the next bar follows on the grid
+!!! Test 8 failed: start 2972903, block 0: first segment = bar 33 [0, 92903), got [0, 1) key 1984
+!!! Test 9 failed: start 2972903, block 0: the next bar follows on the grid
+!!! Test 11 failed: start 185806, block 512: first segment = bar 3 [0, 92903), got [0, 1) key 64
+!!! Test 12 failed: start 185806, block 512: the next bar follows on the grid
+!!! Test 14 failed: start 185806, block 4096: first segment = bar 3 [0, 92903), got [0, 1) key 64
+!!! Test 15 failed: start 185806, block 4096: the next bar follows on the grid
+!!! Test 17 failed: start 185806, block 0: first segment = bar 3 [0, 92903), got [0, 1) key 64
+!!! Test 18 failed: start 185806, block 0: the next bar follows on the grid
+
+FAILED!!  12 tests failed, out of a total of 45
+
+
+==== celadon_tests: 204 passed, 41 failed ====
+TEST_EXIT=1  elapsed=33s
+# uptime after:  00:07:24 up  4:36,  3 users,  load average: 3.98, 4.90, 3.65

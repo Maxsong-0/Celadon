@@ -1,0 +1,226 @@
+
+    //==============================================================================
+    // P1T 反向验证（只在 a2daf2b 源码副本里编，不进仓库的测试）：HEAD 的 r1 ～ r3、d3 四个用例按 a2daf2b 的 LiveProfile 接口最小改写。
+    // 合成段（makeSegment / Spec）与 HEAD 逐字相同；改写只有接口上的对应：
+    //   - feed (live, s)：HEAD 是入队 + advanceTo 到它的发布时刻；a2daf2b 没有发布时刻，segmentFinalized 当场并入。
+    //   - 「发布时 drop 的 m′」：a2daf2b 只有进账那一刻的 m（提交记录的 mainness，用并入之前的参考算）。
+    //   - judgementsOf (live)（此刻按窗口重判的 m′ 与权重）：a2daf2b 不重判，段的 m 与权重定在进账那一刻——用提交记录（环形 64 条，够用）。
+    //   - d3：a2daf2b 的 LiveConstants 没有 newProgramRangeLu（改前的规则 = 不看起伏 = ∞），四种情形都按同一条旧规则跑；记录里也没有起伏两项。
+    // 断言照抄 HEAD：在旧代码上该失败的就失败，日志打印旧算法实际给出的值。
+    class LiveProfileReverseTests  : public juce::UnitTest
+    {
+    public:
+        LiveProfileReverseTests() : juce::UnitTest ("LiveProfileReverse", "Celadon") {}
+
+        void runTest() override
+        {
+            testRejudgeLowReference();
+            testRejudgeFadeInColdStart();
+            testRejudgeIntroLeavesMain();
+            testNewProgramLevelStable();
+        }
+
+    private:
+        static void feed (LiveProfile& live, const Segment& segment)   { live.segmentFinalized (segment); }
+
+        static std::vector<LiveCommitRecord> commitsOf (const LiveProfile& live)
+        {
+            std::vector<LiveCommitRecord> out ((size_t) LiveProfile::commitCapacity);
+            std::uint64_t cursor = 0;
+            out.resize ((size_t) std::abs (live.readCommits (cursor, out.data(), (int) out.size())));
+            return out;
+        }
+
+        // r1（HEAD testRejudgeLowReference）
+        void testRejudgeLowReference()
+        {
+            beginTest ("r1 on a2daf2b: a bass-heavy intro pins lowRef; does the drop pass the low gate within 4 bars?");
+
+            LiveProfile live;
+            setUp (live);
+            std::int64_t index = 0;
+            auto intro = introSpec();
+            intro.loudnessLufs = -12.03;
+            intro.lowShare = 0.45;
+
+            for (int i = 0; i < 16; ++i)
+                feed (live, makeSegment (intro, index++));
+
+            auto drop = dropSpec();
+            drop.loudnessLufs = -8.03;
+            drop.lowShare = 0.2;
+            std::vector<float> dropMainness;
+
+            for (int i = 0; i < 12; ++i)
+            {
+                feed (live, makeSegment (drop, index++));
+                dropMainness.push_back (lastRecord (live).mainness);
+            }
+
+            auto introOut = true, dropIn = true;
+            float introMinM = 1.0f, introMaxM = 0.0f;
+            double introWeight = 0.0;
+            int dropMain = 0;
+
+            for (const auto& r : commitsOf (live))
+            {
+                if (r.sequence < 16)
+                {
+                    introOut = introOut && sameFloat (r.mainness, 0.0f) && r.weightSeconds == 0.0;
+                    introMinM = juce::jmin (introMinM, r.mainness);
+                    introMaxM = juce::jmax (introMaxM, r.mainness);
+                    introWeight += r.weightSeconds;
+                }
+                else
+                {
+                    dropIn = dropIn && sameFloat (r.mainness, 1.0f);
+                    dropMain += r.mainness >= 0.99f ? 1 : 0;
+                }
+            }
+
+            const auto d = live.getDiagnostics();
+            logMessage ("  [a2daf2b] drop m at commit: " + juce::String (dropMainness[0], 3) + ", " + juce::String (dropMainness[1], 3) + ", "
+                        + juce::String (dropMainness[2], 3) + ", " + juce::String (dropMainness[3], 3) + " ... " + juce::String (dropMainness.back(), 3)
+                        + " (" + juce::String (dropMain) + " of 12 drop bars main); intro m " + juce::String (introMinM, 3) + " ... "
+                        + juce::String (introMaxM, 3) + ", intro weight " + juce::String (introWeight, 2) + " s; lowRef "
+                        + juce::String (d.lowReference, 4) + ", I " + juce::String (live.getProfile().integratedLufs.value, 3));
+            expect (dropMainness[3] >= 0.99f && dropMainness.back() >= 0.99f, "from the 4th drop bar on the drop is main at its publication");
+            expect (introOut && dropIn, "in the final profile the intro is rejudged out (m' = 0, weight 0) and every drop bar is main");
+            expect (d.lowReferenceValid && std::abs (d.lowReference - 0.2f) < 0.01f, "lowRef is the drop's lowShare");
+            expect (std::abs (live.getProfile().integratedLufs.value + 8.03f) < 0.2f, "I is the drop's level");
+        }
+
+        // r2（HEAD testRejudgeFadeInColdStart）
+        void testRejudgeFadeInColdStart()
+        {
+            beginTest ("r2 on a2daf2b: a cold start on a fade-in bar; do the next bars take over the references?");
+
+            LiveProfile live;
+            setUp (live);
+            feed (live, segmentReading (0, -34.03, 0.15));
+            const auto fadeIn = live.getProfile().integratedLufs.value;
+            std::vector<float> levels, mainnessOfHats;
+
+            for (int i = 1; i <= 6; ++i)
+            {
+                auto hats = dropSpec();
+                hats.loudnessLufs = -20.03;
+                hats.lowShare = 0.03;
+                hats.seed = (std::uint32_t) (40 + i);
+                feed (live, makeSegment (hats, i));
+                levels.push_back (live.getProfile().integratedLufs.value);
+                mainnessOfHats.push_back (lastRecord (live).mainness);
+            }
+
+            const auto fadeInRecord = commitsOf (live).front();
+            logMessage ("  [a2daf2b] I after the fade-in " + juce::String (fadeIn, 2) + ", then " + juce::String (levels[0], 2) + ", "
+                        + juce::String (levels[1], 2) + ", ... " + juce::String (levels.back(), 2) + " LUFS; hats m " + juce::String (mainnessOfHats[0], 3)
+                        + ", " + juce::String (mainnessOfHats[1], 3) + " ... " + juce::String (mainnessOfHats.back(), 3) + "; fade-in bar m "
+                        + juce::String (fadeInRecord.mainness, 3) + " (fixed at commit); lowRef " + juce::String (live.getDiagnostics().lowReference, 4));
+            expect (std::abs (fadeIn + 34.03f) < 0.2f, "the fade-in alone is the first profile (cold start = its own reference)");
+            expect (mainnessOfHats[0] >= 0.99f && std::abs (levels[0] + 20.03f) < 0.3f, "the first hats bar is main and I jumps to it at once");
+            expect (fadeInRecord.mainness == 0.0f, "the fade-in bar is rejudged out");
+        }
+
+        // r3（HEAD testRejudgeIntroLeavesMain）
+        void testRejudgeIntroLeavesMain()
+        {
+            beginTest ("r3 on a2daf2b: the intro taken as main at cold start; is I within 1 LU after 4 drop bars?");
+
+            LiveProfile live;
+            setUp (live);
+            std::int64_t index = 0;
+            auto intro = introSpec();
+            intro.loudnessLufs = -11.88;
+
+            for (int i = 0; i < 32; ++i)
+                feed (live, makeSegment (intro, index++));
+
+            const auto introLevel = live.getProfile().integratedLufs.value;
+            const auto introConfidence = live.getDiagnostics().confidence;
+            std::vector<float> levels, confidences;
+
+            for (int i = 0; i < 16; ++i)
+            {
+                feed (live, makeSegment (dropSpec(), index++));
+                levels.push_back (live.getProfile().integratedLufs.value);
+                confidences.push_back (live.getDiagnostics().confidence);
+            }
+
+            const auto dropLevel = levels.back();
+            auto introWeight = 0.0;
+
+            for (const auto& r : commitsOf (live))
+                if (r.sequence < 32)
+                    introWeight += r.weightSeconds;
+
+            // 再交 48 个 drop 小节（共 64），看旧算法要几个 drop 小节才进 −8.03 ± 1 LU（HEAD 第 4 小节就进）。
+            int barsToWithin1Lu = -1;
+
+            for (int i = 0; i < 16; ++i)
+                if (barsToWithin1Lu < 0 && std::abs (levels[(size_t) i] + 8.03f) <= 1.0f)
+                    barsToWithin1Lu = i + 1;
+
+            for (int i = 16; i < 64 && barsToWithin1Lu < 0; ++i)
+            {
+                feed (live, makeSegment (dropSpec(), index++));
+
+                if (std::abs (live.getProfile().integratedLufs.value + 8.03f) <= 1.0f)
+                    barsToWithin1Lu = i + 1;
+            }
+
+            logMessage ("  [a2daf2b] intro I " + juce::String (introLevel, 2) + " (c " + juce::String (introConfidence, 3) + "); drop bars 1 ... 4: I "
+                        + juce::String (levels[0], 2) + ", " + juce::String (levels[1], 2) + ", " + juce::String (levels[2], 2) + ", "
+                        + juce::String (levels[3], 2) + " (c " + juce::String (confidences[3], 3) + "); after 16 bars I " + juce::String (dropLevel, 2)
+                        + " (c " + juce::String (confidences.back(), 3) + "); intro weight (first 32 commits) " + juce::String (introWeight, 2)
+                        + " s; within 1 LU of -8.03 after " + juce::String (barsToWithin1Lu) + " drop bars");
+            expect (introConfidence > 0.9f, "the intro alone was main (cold start) and confident");
+            expect (std::abs (levels[3] - dropLevel) <= 1.0f && std::abs (dropLevel + 8.03f) < 0.2f, "4 drop bars in, I is within 1 LU of the drop's");
+            expect (introWeight == 0.0, "the intro carries no weight once rejudged");
+            expect (confidences.back() > 0.8f, "c climbs back above 0.8 within 16 drop bars");
+        }
+
+        // d3（HEAD testNewProgramLevelStable）：a2daf2b 没有 newProgramRangeLu，rangeLimit 只写进日志。
+        void testNewProgramLevelStable()
+        {
+            beginTest ("d3 on a2daf2b: new program, quieter branch - does the old rule look at the level range?");
+
+            const auto runAlternating = [this] (double rangeLu, double rangeLimit, int bars, bool fade)
+            {
+                LiveConstants c;
+                c.noMainSeconds = infinity;
+                LiveProfile live;
+                setUp (live, c);
+                std::int64_t index = 0;
+
+                for (int i = 0; i < 16; ++i)
+                    feed (live, makeSegment (dropSpec(), index++));
+
+                const auto level = (double) live.getProfile().integratedLufs.value;
+                int triggeredAt = -1;
+
+                for (int i = 0; i < bars; ++i)
+                {
+                    auto spec = dropSpec();
+                    spec.loudnessLufs = fade ? level - 7.0 - 0.3 * (double) i : level - 7.0 - (i % 2 == 0 ? 0.0 : rangeLu);
+                    spec.seed = (std::uint32_t) (200 + i);
+                    feed (live, makeSegment (spec, index++));
+                    const auto record = lastRecord (live);
+
+                    if (record.newProgram && triggeredAt < 0)
+                        triggeredAt = i + 1;
+                }
+
+                logMessage ("  [a2daf2b] " + juce::String (fade ? "fade-out -0.3 LU/bar" : "alternating " + juce::String (rangeLu, 1) + " LU")
+                            + ", (HEAD limit " + juce::String (rangeLimit, 1) + "; a2daf2b has none): triggered at bar " + juce::String (triggeredAt));
+                return triggeredAt;
+            };
+
+            expect (runAlternating (1.9, 2.0, 30, false) == 11, "range 1.9 LU: triggers at the 11th bar (20.9 s)");
+            expect (runAlternating (2.1, 2.0, 30, false) < 0, "range 2.1 LU: never triggers");
+            expect (runAlternating (0.0, 2.0, 30, true) < 0, "a fade-out going down 0.3 LU per bar never triggers");
+            expect (runAlternating (0.0, infinity, 30, true) == 11, "the same fade-out triggers with newProgramRangeLu = inf (the old rule)");
+        }
+    };
+
+    static LiveProfileReverseTests liveProfileReverseTests;
