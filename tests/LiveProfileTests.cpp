@@ -2330,6 +2330,21 @@ namespace celadon::test
                     referencePublications = recorder.publications;
                     expect (referencePublications.size() >= 14, "the run published the bars: " + juce::String ((int) referencePublications.size()));
                     expect (live.getProfile().integratedLufs.valid, "the live profile has an I");
+
+                    // P1F：分析器真交出来的段过得了读档的物理上界（LiveProfile.cpp 文件头第六节「量级」）——同采样率读回逐位相同，
+                    // 换到 44.1 k / 96 k 也读得回（分析器以后改了记账口径、越出这些上界时这里先报出来）。
+                    const auto parsed = juce::parseXML (state);
+
+                    for (const auto restoreRate : { rate, 44100.0, 96000.0 })
+                    {
+                        LiveProfile copy;
+                        copy.prepare (restoreRate);
+                        copy.setConstants (LiveConstants {}, MainSectionModel::fourOnFloor);
+                        const auto restored = parsed != nullptr && copy.restoreStateXml (*parsed);
+                        expect (restored && (restoreRate != rate || sameProfile (copy.getProfile(), live.getProfile())),
+                                "the analyzer's state restores at " + juce::String (restoreRate) + " Hz"
+                                    + (restoreRate == rate ? " bit-identical" : ""));
+                    }
                 }
                 else
                 {
