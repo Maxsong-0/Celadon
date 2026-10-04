@@ -9,7 +9,8 @@
 #   --in / --out 由本脚本给，不要再传。歌曲目录只取第一层的 wav / wave / bwf / aif / aiff / aifc / flac。
 # 环境：CELADON_TEST_HOST   目标主机（默认 maxsong@192.168.100.107，与 test-linux.sh 同一台，需在家里网络或 VPN 下）
 #       CELADON_RENDER_OUT  本机结果目录（默认 <仓库>/artifacts/render-<日期时间>/）
-#       CELADON_RENDER_SKIP_SELFTEST=1  跳过渲染前的 celadon_render --selftest（默认先跑：指标算法或延迟对齐坏了就不渲染真歌）
+#       CELADON_RENDER_SKIP_SELFTEST=1  跳过渲染前的 celadon_render --selftest 与 --selftest-house（默认先跑这两项：指标算法、
+#                                       延迟对齐或 T-038 曲风 / 交付 / 走带坏了就不渲染真歌）
 #
 # 远端目录与 test-linux.sh 分开：两边各自 rsync --delete 互不删对方的东西，渲染跑十几分钟也不挡测试。
 #   ~/.cache/celadon-render/<工作树名>-<哈希>/Celadon、JUCE    源码（不传 artifacts/：里面是几百 MB 的预览包与渲染结果）
@@ -24,7 +25,7 @@ usage() {
 用法：scripts/render-linux.sh <本地歌曲目录> [celadon_render 的额外参数…]
   例：scripts/render-linux.sh ~/Music/对照歌 --glaze 0,50 --style auto,warm
   --in / --out 由脚本给；结果拉回 ${CELADON_RENDER_OUT}（默认 <仓库>/artifacts/render-<日期时间>/）。
-  目标主机 ${CELADON_TEST_HOST}（默认 maxsong@192.168.100.107）。渲染前先跑 celadon_render --selftest，
+  目标主机 ${CELADON_TEST_HOST}（默认 maxsong@192.168.100.107）。渲染前先跑 celadon_render --selftest 与 --selftest-house，
   CELADON_RENDER_SKIP_SELFTEST=1 可跳过。详见 tools/render/README.md。
 USAGE
 }
@@ -150,9 +151,11 @@ flock 9
 eval "set -- $CELADON_ARGS"
 nice -n 10 cmake -S Celadon -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release >&2
 nice -n 10 cmake --build "$BUILD" --target celadon_render >&2
-# 先跑自检（合成信号上的阳性对照，几秒钟）：指标算法、延迟对齐或 GLAZE 0 逐位直通坏了，真歌的对照结果就不可信，不渲染。
+# 先跑自检（合成信号上的阳性对照，各几秒钟）：指标算法、延迟对齐或 GLAZE 0 逐位直通坏了，真歌的对照结果就不可信，不渲染；
+# 再跑 T-038 新选项的自检（模拟走带、逐段统计、曲风 / 交付穿到链上）：带 --genre / --delivery / --bpm 渲染时它们坏了同样不可信。
 if [ "$CELADON_SKIP_SELFTEST" != "1" ]; then
   nice -n 10 "$BUILD/celadon_render" --selftest
+  nice -n 10 "$BUILD/celadon_render" --selftest-house
 fi
 nice -n 10 "$BUILD/celadon_render" --in "$HOME/$CELADON_SONGS" --out "$HOME/$CELADON_OUT" "$@"
 REMOTE_SCRIPT
