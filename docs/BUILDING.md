@@ -35,10 +35,16 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
 - 检查：`lipo -archs Builds/MacOSX/build/Release/Celadon.vst3/Contents/MacOS/Celadon` 应打印 `x86_64 arm64`
   （`Celadon.component`、`Celadon.app` 同样）；AU 两个架构都过一遍 `auval -v aufx Cldn Maxs` 与
   `arch -x86_64 auval -v aufx Cldn Maxs`（后者走 Rosetta）。
+- AU 版本：JUCE 写 AU 注册版本（`Info.plist` 的 `AudioComponents → version`）时只取版本号前三段，0.1.8.8 成了 0.1.8（0x108），
+  比 v0.6.1 的 0x601 还低；同一个 `aufx Cldn Maxs` 装了几份时系统只认版本最高的，宿主会一直加载旧 AU。所以 `Celadon.jucer` 的
+  构建后脚本（Post-Build Shell Script）跑 `scripts/au-version.sh`，在签名和拷贝之前把它改成 `JucePlugin_VersionCode` 的编码：
+  0.1.8.8 → 0x10808，宿主与 `auval` 里显示 1.8.8，以后四段号每升一次都跟着升。`auval -v` 输出开头的 Component Version
+  应是 `1.8.8 (0x10808)`。脚本也改 Projucer 生成的 `Builds/MacOSX/Info-AU.plist`（原因写在脚本开头），Projucer 重存会写回，下次构建再改。
 
 安装包（给别的 Mac 用）：编好 Release 通用版后跑 `scripts/package-mac.sh`，在 `installer/Output/` 出两个 .pkg——
 `Celadon-<版本>-macOS-AppleSilicon.pkg`（arm64）与 `Celadon-<版本>-macOS-Intel.pkg`（x86_64）。脚本用 `ditto --arch` 从通用二进制
-拆出单架构副本、重新 ad-hoc 签名，每个包三个可选组件：VST3 → `/Library/Audio/Plug-Ins/VST3`、AU → `/Library/Audio/Plug-Ins/Components`、
+拆出单架构副本、重新 ad-hoc 签名（AU 签名前再过一遍 `scripts/au-version.sh`，构建后已改过的不动），每个包三个可选组件：
+VST3 → `/Library/Audio/Plug-Ins/VST3`、AU → `/Library/Audio/Plug-Ins/Components`、
 独立版 → `/Applications`（系统级，要管理员密码）；组件关掉了「可搬移」，免得安装器把新版装到机器上已有的同 ID 副本那里。
 没有 Apple Developer ID：包不签名、不公证，别人第一次打开会被 Gatekeeper 拦，到「系统设置 → 隐私与安全性」点「仍要打开」。
 本机用 Xcode 装过的（`~/Library/Audio/Plug-Ins/`）不要再装 pkg，否则宿主里会有两份。

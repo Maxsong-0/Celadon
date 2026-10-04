@@ -203,7 +203,8 @@
   </MODULES>
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"/>
   <EXPORTFORMATS>
-    <XCODE_MAC targetFolder="Builds/MacOSX" xcodeValidArchs="arm64,x86_64">
+    <XCODE_MAC targetFolder="Builds/MacOSX" xcodeValidArchs="arm64,x86_64"
+               postbuildCommand="&quot;${PROJECT_DIR}/../../scripts/au-version.sh&quot;">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="Celadon" macOSDeploymentTarget="12.0"
                        osxCompatibility="12.0 SDK" customXcodeFlags="ENABLE_USER_SCRIPT_SANDBOXING=NO"
