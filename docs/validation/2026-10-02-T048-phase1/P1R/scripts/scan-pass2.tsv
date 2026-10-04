@@ -1,0 +1,21 @@
+# P1R 常数扫描第二轮：4/4 型，三个最可能的杠杆交叉——ΔG（gateWidthLu）× 低频门系数（lowGateFactor）× M0（confidenceBars）；
+# 出厂 = 3 / 0.6 / 8（第一轮 base）。名字：g<ΔG×10>-l<系数×100>-c<M0>
+name	genre	constants
+g20-l45-c8	auto	fourOnFloor.gateWidthLu=2,fourOnFloor.lowGateFactor=0.45
+g20-l50-c8	auto	fourOnFloor.gateWidthLu=2,fourOnFloor.lowGateFactor=0.5
+g20-l60-c8	auto	fourOnFloor.gateWidthLu=2
+g25-l45-c8	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.45
+g25-l50-c8	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5
+g30-l45-c8	auto	fourOnFloor.lowGateFactor=0.45
+g30-l50-c8	auto	fourOnFloor.lowGateFactor=0.5
+g20-l45-c6	auto	fourOnFloor.gateWidthLu=2,fourOnFloor.lowGateFactor=0.45,fourOnFloor.confidenceBars=6
+g20-l50-c6	auto	fourOnFloor.gateWidthLu=2,fourOnFloor.lowGateFactor=0.5,fourOnFloor.confidenceBars=6
+g20-l60-c6	auto	fourOnFloor.gateWidthLu=2,fourOnFloor.confidenceBars=6
+g25-l45-c6	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.45,fourOnFloor.confidenceBars=6
+g25-l50-c6	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.confidenceBars=6
+g25-l60-c6	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.confidenceBars=6
+g30-l45-c6	auto	fourOnFloor.lowGateFactor=0.45,fourOnFloor.confidenceBars=6
+g30-l50-c6	auto	fourOnFloor.lowGateFactor=0.5,fourOnFloor.confidenceBars=6
+g25-l50-c8-rp98	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98
+g25-l50-c8-lr1	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.loudnessRampLu=1
+g25-l50-c8-rm90	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,referenceMemorySeconds=90

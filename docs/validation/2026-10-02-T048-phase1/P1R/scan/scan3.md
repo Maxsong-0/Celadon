@@ -1,0 +1,24 @@
+# P1R 常数扫描（HEAD 的 celadon_render，--live-constants；Jamendo 38 首可算 + 合成两首）
+
+门槛：第 1 条 M2 中位 ≤ 0.3、P90 ≤ 1.0；第 2 条每段 breakdown ≤ 0.5；第 3 条每首 |δ4| ≤ 1（✗ = 第 1 条不达标）。
+
+| 组 | 常数 | M1 中位 / P90 | M2（≥16） | M2b | M3 P90 / 最大（达标段） | M4 达标首 / \|δ4\| 中位 / P90 | n ≤ 4 | 跟踪误差 > 1 的首 | c 到 0.8 中位 / P90 s | c 掉了的首 / κ 比最小 | intro / drop / bd m≥0.5 首判 % | 换歌 / 衰减 首 | 合成两首 M4 达标 / M2 中位 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| rp99 | fourOnFloor.referencePercentile=0.99 | 0.21 / 0.68 | 0.28 / 0.82 | 0.28 / 0.73 | 0.18 / 0.45（31 / 31） | 22 / 0.87 / 2.45 | 21 | 7 | 41.5 / 75.4 | 14 / 0.42 | 75 / 83 / 19 | 0 / 7 | 2 / 0.12 |
+| rp100 | fourOnFloor.referencePercentile=1 | 0.25 / 0.67 | 0.29 / 0.77 | 0.28 / 0.75 | 0.18 / 0.45（31 / 31） | 21 / 0.93 / 2.18 | 19 | 7 | 41.5 / 75.4 | 14 / 0.42 | 75 / 81 / 19 | 0 / 7 | 2 / 0.12 |
+| rp98-g25 | fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2.5 | 0.27 / 0.74 | 0.28 / 0.84 | 0.28 / 0.76 | 0.17 / 0.42（31 / 31） | 24 / 0.83 / 2.34 | 22 | 5 | 44.6 / 82.1 | 14 / 0.45 | 72 / 83 / 19 | 0 / 7 | 2 / 0.11 |
+| rp98-g20 | fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2 | 0.36 / 0.88 | 0.32 / 0.86 ✗ | 0.31 / 0.73 | 0.14 / 0.31（31 / 31） | 23 / 0.75 / 2.23 | 23 | 5 | 51.0 / 92.4 | 16 / 0.45 | 69 / 78 / 17 | 0 / 10 | 2 / 0.09 |
+| rp98-lg50 | fourOnFloor.referencePercentile=0.98,fourOnFloor.lowGateFactor=0.5 | 0.19 / 0.64 | 0.24 / 0.78 | 0.23 / 0.70 | 0.18 / 0.48（31 / 31） | 23 / 0.84 / 2.21 | 21 | 6 | 40.7 / 75.4 | 14 / 0.42 | 79 / 89 / 20 | 0 / 5 | 2 / 0.12 |
+| rp98-rm60 | fourOnFloor.referencePercentile=0.98,referenceMemorySeconds=60 | 0.18 / 0.66 | 0.27 / 0.82 | 0.26 / 0.68 | 0.19 / 0.64（30 / 31） | 23 / 0.87 / 2.44 | 21 | 7 | 41.5 / 75.4 | 14 / 0.42 | 76 / 86 / 20 | 0 / 6 | 2 / 0.12 |
+| rp98-mb64 | fourOnFloor.referencePercentile=0.98,fourOnFloor.memoryBars=64 | 0.18 / 0.52 | 0.24 / 0.71 | 0.24 / 0.70 | 0.15 / 0.40（31 / 31） | 23 / 0.88 / 2.05 | 22 | 7 | 40.5 / 70.3 | 14 / 0.42 | 76 / 85 / 20 | 0 / 7 | 2 / 0.13 |
+| rp98-c6 | fourOnFloor.referencePercentile=0.98,fourOnFloor.confidenceBars=6 | 0.17 / 0.54 | 0.25 / 0.72 | 0.24 / 0.71 | 0.18 / 0.47（31 / 31） | 23 / 0.87 / 2.06 | 21 | 7 | 31.4 / 63.2 | 14 / 0.44 | 76 / 85 / 20 | 0 / 7 | 2 / 0.12 |
+| rp98-g25-c6 | fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2.5,fourOnFloor.confidenceBars=6 | 0.27 / 0.74 | 0.28 / 0.84 | 0.28 / 0.76 | 0.17 / 0.42（31 / 31） | 24 / 0.83 / 2.34 | 22 | 5 | 32.4 / 67.1 | 14 / 0.47 | 72 / 83 / 19 | 0 / 7 | 2 / 0.11 |
+| rp99-g25 | fourOnFloor.referencePercentile=0.99,fourOnFloor.gateWidthLu=2.5 | 0.35 / 0.77 | 0.30 / 0.86 | 0.30 / 0.80 | 0.17 / 0.41（31 / 31） | 23 / 0.88 / 2.45 | 22 | 5 | 44.2 / 82.2（1 首到不了） | 14 / 0.45 | 71 / 81 / 18 | 0 / 8 | 2 / 0.11 |
+| rp98-g25-rm60 | fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2.5,referenceMemorySeconds=60 | 0.26 / 0.74 | 0.29 / 0.86 | 0.28 / 0.76 | 0.18 / 0.45（31 / 31） | 24 / 0.84 / 2.45 | 21 | 5 | 44.6 / 82.1 | 14 / 0.45 | 73 / 83 / 18 | 0 / 6 | 2 / 0.11 |
+| rp98-lr1 | fourOnFloor.referencePercentile=0.98,fourOnFloor.loudnessRampLu=1 | 0.19 / 0.57 | 0.25 / 0.71 | 0.24 / 0.71 | 0.18 / 0.47（31 / 31） | 23 / 0.86 / 2.08 | 21 | 6 | 42.3 / 76.3 | 14 / 0.43 | 76 / 85 / 20 | 0 / 7 | 2 / 0.12 |
+| g25-l50-rp98-c6 | fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98,fourOnFloor.confidenceBars=6 | 0.26 / 0.74 | 0.28 / 0.84 | 0.28 / 0.76 | 0.17 / 0.42（31 / 31） | 24 / 0.88 / 2.30 | 22 | 5 | 30.9 / 67.1 | 14 / 0.47 | 74 / 86 / 19 | 0 / 5 | 2 / 0.11 |
+| g25-l50-rp99 | fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.99 | 0.31 / 0.81 | 0.30 / 0.92 | 0.29 / 0.81 | 0.17 / 0.42（31 / 31） | 23 / 0.90 / 2.39 | 22 | 5 | 44.1 / 82.1 | 14 / 0.45 | 74 / 84 / 18 | 0 / 6 | 2 / 0.11 |
+| g25-l50-rp98-rm60 | fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98,referenceMemorySeconds=60 | 0.24 / 0.74 | 0.28 / 0.88 | 0.28 / 0.76 | 0.18 / 0.45（31 / 31） | 24 / 0.88 / 2.39 | 21 | 5 | 44.1 / 77.8 | 14 / 0.45 | 75 / 86 / 18 | 0 / 5 | 2 / 0.11 |
+| g20-l50-rp98 | fourOnFloor.gateWidthLu=2,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98 | 0.34 / 0.90 | 0.32 / 0.92 ✗ | 0.32 / 0.79 | 0.14 / 0.31（31 / 31） | 23 / 0.75 / 2.17 | 23 | 4 | 51.0 / 92.4 | 16 / 0.45 | 70 / 81 / 17 | 0 / 8 | 2 / 0.09 |
+| g25-l45-rp98 | fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.45,fourOnFloor.referencePercentile=0.98 | 0.26 / 0.74 | 0.28 / 0.84 | 0.28 / 0.77 | 0.17 / 0.42（31 / 31） | 23 / 0.88 / 2.27 | 22 | 5 | 44.1 / 79.7 | 14 / 0.45 | 74 / 87 / 19 | 0 / 5 | 2 / 0.11 |
+| g25-l50-rp98-mb64 | fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98,fourOnFloor.memoryBars=64 | 0.26 / 0.72 | 0.27 / 0.84 | 0.28 / 0.76 | 0.14 / 0.36（31 / 31） | 24 / 0.88 / 2.30 | 22 | 5 | 42.8 / 76.8 | 14 / 0.45 | 74 / 86 / 19 | 0 / 5 | 2 / 0.12 |

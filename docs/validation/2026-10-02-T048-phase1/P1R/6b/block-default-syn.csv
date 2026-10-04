@@ -1,0 +1,3 @@
+class,track,status,trace_same,trace_rows,trace_diff_rows,trace_first_bar,trace_first_columns,max_abs_main_level_lufs,max_abs_confidence,max_abs_mainness,max_abs_low_share,max_abs_loudness_lufs,final_diff_keys,judgements_same,judgements_diff_rows,judgements_first_bar,judgements_first_columns,segments_same
+deep,synthetic-house-124,相同,1,113/113,0,,,,,,,,,1,0,,,1
+tech,synthetic-tech-124,相同,1,113/113,0,,,,,,,,,1,0,,,1

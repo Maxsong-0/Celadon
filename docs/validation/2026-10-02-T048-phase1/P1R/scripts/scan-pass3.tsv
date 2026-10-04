@@ -1,0 +1,20 @@
+# P1R 常数扫描第三轮：第一轮里唯一把 M4 往上推的是 S_ref 分位 0.98（23 / 38），围着它交叉；M0 只动 c（第一轮 cb4 / cb6 / cb12 的 M2 / M3 / M4 与出厂逐项相同）
+name	genre	constants
+rp99	auto	fourOnFloor.referencePercentile=0.99
+rp100	auto	fourOnFloor.referencePercentile=1
+rp98-g25	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2.5
+rp98-g20	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2
+rp98-lg50	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.lowGateFactor=0.5
+rp98-rm60	auto	fourOnFloor.referencePercentile=0.98,referenceMemorySeconds=60
+rp98-mb64	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.memoryBars=64
+rp98-c6	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.confidenceBars=6
+rp98-g25-c6	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2.5,fourOnFloor.confidenceBars=6
+rp99-g25	auto	fourOnFloor.referencePercentile=0.99,fourOnFloor.gateWidthLu=2.5
+rp98-g25-rm60	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.gateWidthLu=2.5,referenceMemorySeconds=60
+rp98-lr1	auto	fourOnFloor.referencePercentile=0.98,fourOnFloor.loudnessRampLu=1
+g25-l50-rp98-c6	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98,fourOnFloor.confidenceBars=6
+g25-l50-rp99	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.99
+g25-l50-rp98-rm60	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98,referenceMemorySeconds=60
+g20-l50-rp98	auto	fourOnFloor.gateWidthLu=2,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98
+g25-l45-rp98	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.45,fourOnFloor.referencePercentile=0.98
+g25-l50-rp98-mb64	auto	fourOnFloor.gateWidthLu=2.5,fourOnFloor.lowGateFactor=0.5,fourOnFloor.referencePercentile=0.98,fourOnFloor.memoryBars=64

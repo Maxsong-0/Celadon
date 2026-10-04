@@ -381,7 +381,9 @@ BRIEF 第 3 节、REPORT-A / B / C；阶段 1 修订「回看重判」见 REPORT
   （`readJudgements`，写 `__judgements.csv`）。T-048 阶段 1 修订 B2 之前这里要先补一个 0 样本的块，现在不用（`MusicAnalyzerLive` 用例 5d：两种做法交来的段逐字段相同）。
 - **只写一份**：实时画像只看输入（与 GLAZE、风格、修坯、交付无关），同一首歌 × 曲风 × 聆听起点在一次运行里（一次运行只有一组常数、一个模型
   覆盖，用标签分开）只写第一次跑到的那一遍**第一遍**；其余各遍照样追踪，只与写下的那份逐行比较（`__passes.csv`）。第二遍与重放从不当写下的
-  那份：读档之后分析器不学习，交来的段可能从第一段起就不同；输入尾部还多了延迟与余振的补零。
+  那份：输入尾部多了延迟与余振的补零，歌尾一两段不同。REPORT-C 2.5 节「读档之后分析器不学习，第二遍从第一段起就不同」在 B2（实时段落账与学习
+  脱钩）之后不再出现：`9e8575a` 上合成 House（两个曲风；网格里起播 1 / 33 的各组）的第二遍与重放（都从第 1 小节起）与从第 1 小节起的第一遍前
+  112 / 113 段逐行相同，melodic 1062232 前 118 / 120 段逐行相同，差的只是歌尾（`REPORT-P1-SPARK-REPLAY.md` 第 2 节）。
 
 ### 最快的跑法（标定、扫参用）
 
@@ -393,10 +395,13 @@ celadon_render --in <歌曲目录> --out <输出> --glaze 0 --genre deep --bpm 1
 - `--live-only`：每首歌 × 每个曲风 × 每个聆听起点只跑一遍第一遍（取网格里第一个这样的组合的参数），不出成品、不做重放，指标表只有原始输入行；
   GLAZE 0 最快（链不按保护层时隙切片）。一首 3～4 分钟的歌约 5 s（回看重判每段约 70 µs 的重算，一首几十毫秒，可以不计）。
 - 与完整跑法（`--glaze 70,100 --style auto,warm --clay auto,off …`、带重放）写出的追踪与 `__final.csv` **逐字节相同**（同一块长；REPORT-C 2.4 节，
-  `--selftest-live`「与 GLAZE、风格无关」）。
+  `--selftest-live`「与 GLAZE、风格无关」）。`9e8575a` 上复核（DGX Spark 本机，`REPORT-P1-SPARK-REPLAY.md` 第 2 节）：合成 House（deep / 通用 ×
+  起播 1 / 33）与 melodic 1062232（melodic / 通用）的追踪、`__final.csv`、`__judgements.csv` 逐字节相同；带不带 `--live-trace`，成品 wav、metrics.csv、
+  `trace/`、`segments/` 逐字节相同（162 / 162、82 / 82 个文件）。
 - 块长：自检合成曲在 512 / 4096 / 480 下逐字节相同（`--selftest-live`）。REPORT-C 2.4 节的真歌块长差别（帧门等三道相对门参考学习区间、学习在宿主
-  块边界上停）B2 已去掉：实时段落账的三道门改参考它自己的长期参考（`MusicAnalyzer.cpp` 第「七」节）；Jamendo 45 首的块长对照待复跑（REPORT-B2 第 6 节）。
-  比较不同块长时，`__final.csv` 的 `tag` 一行要去掉（标签不同）。
+  块边界上停）B2 已去掉：实时段落账的三道门改参考它自己的长期参考（`MusicAnalyzer.cpp` 第「七」节）。复跑（`9e8575a`，DGX Spark 本机，
+  `REPORT-P1-SPARK-REPLAY.md` 第 4 节）：Jamendo 45 首 × 4/4 型 / 响度型、合成两首 × 两型，块长 512 与 4096 的追踪、`__final.csv`、`__judgements.csv`、
+  输入端逐段统计全部逐字节相同。比较不同块长时，`__final.csv` 的 `tag` 一行要去掉（标签不同）。
 - 批量（Jamendo 45 首、合成曲）用 `calibrate_house.py render-live`，见下「因果重放的批跑与分析」。
 
 ### 输出（`--out` 之下）
@@ -480,7 +485,7 @@ live/<标签>/<歌名>__passes.csv                          逐遍比较（有�
 ### 因果重放的批跑与分析（`calibrate_house.py`）
 
 ```bash
-PY=~/.venvs/audio/bin/python                                   # 109：要 numpy（出图另要 matplotlib）
+PY=~/.venvs/audio/bin/python                                   # 109：要 numpy（出图另要 matplotlib）；DGX Spark 本机：~/.cache/celadon-spark/venv/bin/python
 $PY tools/render/calibrate_house.py render-live <工作目录> <celadon_render> -j 12 --tag default                 # 各首的 House 子类（4/4 型）
 $PY tools/render/calibrate_house.py render-live <工作目录> <celadon_render> -j 12 --tag general --genre general # 通用档（响度型）
 $PY tools/render/calibrate_house.py analyze-live <工作目录> --auto-labels labels-auto.tsv --labels labels-override.tsv \
@@ -495,7 +500,10 @@ $PY tools/render/calibrate_house.py prep-synthetic <合成曲工作目录>    # 
 - `analyze-live`：标签是 T-038 的（逐小节自动标签 + 人工改标；整首 exclude 的不计，交界前后各 1 小节不计）。每个标签写 `live/<标签>/` 下的
   `analysis.md`（汇总与规格第 7 节门槛对照、各段落 m 的分布、逐首表、超限的 breakdown）、`tracks.csv`（逐首）、`bars.csv`（逐小节：手里的 I、误差、首判 m、
   终判 m、c）、`breakdowns.csv`（逐段 breakdown）；`--out` 写几个标签并排的汇总；`--figures` 每页 3 首出 I / m（首判实线、终判虚线）/ c 的轨迹图。
-  没有 `__judgements.csv` 的旧追踪（REPORT-C 的 `live/default`、`live/general`）照样能分析，终判一栏空着。
+  没有 `__judgements.csv` 的旧追踪（REPORT-C 的 `live/default`、`live/general`）照样能分析，终判一栏空着。`analyze-live` 会改写所给每个标签目录下的
+  这四个文件：复核别人的结果时 `--tags` 只给自己的标签（或先拷一份），别把 C 的 `default` / `general` 放进去。
+  M2 的另两种口径（从第一个 drop 起、全部小节合在一起）、第一个 drop 时 c 的下沉、M4 拆成「跟踪误差 + 歌自己变了」、常数扫描的汇总在
+  `docs/validation/2026-10-02-T048-phase1/P1R/scripts/`（`p1r_live_extra.py`、`p1r_scan.py`，读 analyze-live 写好的 CSV）。
 - **指标**（精确定义在 `calibrate_house.py` 的 `live_track_metrics` 文档串与 REPORT-C 第 3 节）：M1 最终 I 与人工标的 drop 响度之差；M2 第 16 小节起逐小节
   |手里的 I − drop 响度| 的逐首中位（汇总中位 ≤ 0.3、P90 ≤ 1.0 LU），另给从第一个 drop + 4 小节起的同一指标；M3 每段 breakdown 里 I 的最大漂移（≤ 0.5 LU）；
   M4 第一个 drop 4 小节后与最终值之差（≤ 1 LU）及达到并保持 ±1 LU 所需的小节数；另给各段落 m ≥ 0.5 的占比（首判 / 终判）、换歌软遗忘与无主段时间衰减

@@ -1,0 +1,46 @@
+class,track,segments,status,differing_segments,first_difference,columns,max_abs_start_sample,max_abs_end_sample,max_abs_heard,max_abs_effective_s,max_abs_loudness_lufs,max_abs_low_share
+deep,track_0155328,172/172,不同,18,第 2 小节（段 1）：low_share,effective_s;loudness_lufs;low_share,,,,0.2,0.4188,0.00031
+deep,track_0155923,270/270,不同,17,第 27 小节（段 26）：low_share,effective_s;loudness_lufs;low_share,,,,0.1,0.6196,0.00062
+deep,track_0388822,210/210,不同,49,第 2 小节（段 1）：low_share,low_share,,,,,,0.00051
+deep,track_0395474,270/270,不同,17,第 51 小节（段 50）：low_share,effective_s;loudness_lufs;low_share,,,,0.1,0.2702,0.00102
+deep,track_0658529,232/232,不同,41,第 1 小节（段 0）：low_share,effective_s;loudness_lufs;low_share,,,,0.1,0.2548,0.00017
+deep,track_0728914,139/139,相同,0,,,,,,,,
+deep,track_0769505,208/208,不同,9,第 4 小节（段 3）：low_share,low_share,,,,,,0.00011
+deep,track_0873861,102/102,不同,2,第 99 小节（段 98）：low_share,low_share,,,,,,6e-05
+deep,track_0889219,212/212,相同,0,,,,,,,,
+deep,track_0944904,121/121,不同,40,第 9 小节（段 8）：low_share,effective_s;loudness_lufs;low_share,,,,0.3,1.5922,0.00531
+deep,track_0966855,167/167,不同,83,第 3 小节（段 2）：low_share,low_share,,,,,,0.00039
+deep,track_1086373,176/176,不同,2,第 173 小节（段 172）：effective_s;loudness_lufs;low_share,effective_s;loudness_lufs;low_share,,,,0.1,0.196,8e-05
+deep,track_1089928,100/100,不同,3,第 33 小节（段 32）：low_share,low_share,,,,,,4e-05
+deep,track_1091136,155/155,不同,13,第 11 小节（段 10）：low_share,low_share,,,,,,5e-05
+deep,track_1096811,128/128,相同,0,,,,,,,,
+tech,track_0003518,149/149,不同,67,第 1 小节（段 0）：low_share,low_share,,,,,,0.00027
+tech,track_0012410,89/89,不同,9,第 6 小节（段 5）：low_share,low_share,,,,,,0.00096
+tech,track_0046047,178/178,相同,0,,,,,,,,
+tech,track_0080793,66/66,相同,0,,,,,,,,
+tech,track_0107869,156/156,不同,20,第 2 小节（段 1）：low_share,low_share,,,,,,0.00713
+tech,track_0120725,116/116,不同,2,第 31 小节（段 30）：low_share,low_share,,,,,,0.00057
+tech,track_0130611,141/141,相同,0,,,,,,,,
+tech,track_0200569,86/86,不同,3,第 47 小节（段 46）：low_share,effective_s;loudness_lufs;low_share,,,,0.2,0.4744,0.00453
+tech,track_0237793,226/226,不同,20,第 87 小节（段 86）：low_share,low_share,,,,,,0.00514
+tech,track_0244162,160/160,不同,23,第 1 小节（段 0）：low_share,effective_s;loudness_lufs;low_share,,,,0.3,0.678,0.00264
+tech,track_0253672,156/156,不同,21,第 1 小节（段 0）：low_share,low_share,,,,,,0.00025
+tech,track_0268597,231/231,不同,39,第 1 小节（段 0）：low_share,effective_s;loudness_lufs;low_share,,,,0.1,0.7825,0.00035
+tech,track_0331159,129/129,不同,1,第 128 小节（段 127）：low_share,low_share,,,,,,9e-05
+tech,track_0343381,160/160,不同,25,第 13 小节（段 12）：low_share,effective_s;loudness_lufs;low_share,,,,0.2,0.5045,0.00073
+tech,track_0395469,181/181,不同,63,第 4 小节（段 3）：low_share,low_share,,,,,,0.00034
+melodic,track_0241941,212/212,不同,19,第 5 小节（段 4）：low_share,effective_s;loudness_lufs;low_share,,,,0.1,,0.0002
+melodic,track_0560109,242/242,不同,1,第 240 小节（段 239）：heard;effective_s;loudness_lufs;low_share,effective_s;heard;loudness_lufs;low_share,,,1,0.1,0.4218,0.00032
+melodic,track_0647576,184/184,不同,4,第 4 小节（段 3）：low_share,low_share,,,,,,0.0004
+melodic,track_0706729,167/167,不同,3,第 159 小节（段 158）：low_share,effective_s;loudness_lufs;low_share,,,,0.1,0.3474,0.00013
+melodic,track_0726856,208/208,不同,1,第 2 小节（段 1）：low_share,low_share,,,,,,1e-05
+melodic,track_0743013,133/133,不同,11,第 50 小节（段 49）：low_share,low_share,,,,,,0.00034
+melodic,track_0781874,190/190,不同,1,第 11 小节（段 10）：low_share,low_share,,,,,,4e-05
+melodic,track_0807588,129/129,不同,5,第 119 小节（段 118）：low_share,low_share,,,,,,0.0109
+melodic,track_0921855,150/150,不同,8,第 136 小节（段 135）：low_share,low_share,,,,,,0.0046
+melodic,track_1033705,196/196,不同,18,第 1 小节（段 0）：low_share,effective_s;loudness_lufs;low_share,,,,0.4,0.809,0.00213
+melodic,track_1034807,143/143,不同,6,第 1 小节（段 0）：low_share,low_share,,,,,,0.00046
+melodic,track_1062232,120/120,不同,29,第 1 小节（段 0）：low_share,low_share,,,,,,0.00071
+melodic,track_1118385,142/142,不同,2,第 137 小节（段 136）：low_share,low_share,,,,,,6e-05
+melodic,track_1122111,253/253,不同,9,第 2 小节（段 1）：low_share,low_share,,,,,,0.00655
+melodic,track_1123057,172/172,不同,19,第 3 小节（段 2）：low_share,effective_s;loudness_lufs;low_share,,,,0.1,1.5138,0.00377

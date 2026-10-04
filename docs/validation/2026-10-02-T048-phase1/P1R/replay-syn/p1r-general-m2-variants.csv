@@ -1,0 +1,3 @@
+class,track,first_drop_bar_d,m2_median,m2_p90,m2_bars,m2b_median,m2b_p90,m2b_bars,m2c_median,m2c_p90,m2c_bars
+deep,synthetic-house-124,33,1.8107,3.8528,97,1.5671,2.3276,76,1.6069,2.4506,80
+tech,synthetic-tech-124,33,0.7134,1.4682,97,0.8137,1.5363,76,0.7765,1.5309,80
