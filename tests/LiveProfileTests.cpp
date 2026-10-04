@@ -11,11 +11,12 @@
     c. m 的公式（两个因子、斜坡端点、冷启动、被动型 / 响度型）；进账判断 = 上一份画像的 mainnessFor，这一份的判断 = 发布后的 mainnessFor。
     r. 回看重判（REPORT-C 第 5 节第 1～3 条）：低音重的前奏不再定住 lowRef；冷启动落在淡入小节上不卡住；前奏被重判出主段、drop 来了 I 很快跟上。
     d. W_mem / M0 换算、长时间无主段、换歌软遗忘（含「轻的那一支要电平稳」：起伏 1.9 vs 2.1 LU、淡出不触发）。
-    e. 状态 XML 往返逐位（窗口、还没发布的段、事件过的时钟）；坏数据冷启动并返回 false。
-    f. 同一段序列结果逐位相同（另一实例、reset、调用次数与时刻：advanceTo 每 7 样本 / 重复 / 一次跳到底 / 队列满）；整链块长 4096 / 512 /
-       480 / 32 / 7 逐位；窗口外的老段丢掉之后画像只取决于窗口；音频线程接口不分配。
+    e. 状态 XML 往返逐位（窗口、还没发布的段、事件过的时钟）；坏数据冷启动并返回 false——含有限但越出物理上界的量（P1F）；400 份随机损坏的
+       状态：读回的那些之后的读数全是有限值。
+    f. 同一段序列结果逐位相同（另一实例、reset、调用次数与时刻：advanceTo 每 7 样本 / 重复 / 一次跳到底 / 队列满，含窗口已满 512 段时
+       队列满）；整链块长 4096 / 512 / 480 / 32 / 7 逐位；窗口外的老段丢掉之后画像只取决于窗口；音频线程接口不分配。
     g. 耗时：每段入队、每片（均值 / 最大），整遍同步重算；状态大小。
-    另：提交记录环形缓冲、坏段、常数取值表。
+    另：提交记录环形缓冲、坏段、常数取值表、发布端兜底（实时入口交来荒谬的段时画像里不出 ∞ / NaN）。
 
     合成段（makeSegment）各字段按 SegmentLedger::deriveSegment 与分析器的记账口径自洽地造（一小节 124 BPM、48 kHz）。
 
@@ -374,6 +375,143 @@ namespace celadon::test
             return out;
         }
 
+        // 两份窗口判断逐位相同（序号、起止、m′、权重）。
+        bool sameJudgementLists (const std::vector<LiveSegmentJudgement>& a, const std::vector<LiveSegmentJudgement>& b)
+        {
+            if (a.size() != b.size())
+                return false;
+
+            for (size_t k = 0; k < a.size(); ++k)
+                if (a[k].sequence != b[k].sequence || a[k].start != b[k].start || a[k].end != b[k].end
+                    || ! sameFloat (a[k].mainness, b[k].mainness) || ! sameDouble (a[k].weightSeconds, b[k].weightSeconds))
+                    return false;
+
+            return true;
+        }
+
+        // 已发布的这一份里第一个非有限 / 越界的读数（画像的全部特征与逐段数组、诊断里跟着画像走的 M、c、参考、份额；withCounters 时另看
+        // 计数器 activeSeconds / secondsSinceMain）；全都正常时返回空串。
+        juce::String firstBadReading (const LiveProfile& live, bool withCounters = true)
+        {
+            const auto& p = live.getProfile();
+            const Feature MusicProfile::* const features[] = {
+                &MusicProfile::integratedLufs, &MusicProfile::loudnessRangeLu, &MusicProfile::plrDb, &MusicProfile::truePeakDbtp,
+                &MusicProfile::spectralSlopeDbPerOct, &MusicProfile::lowShare, &MusicProfile::highShare, &MusicProfile::lowBandRangeDb,
+                &MusicProfile::onsetDensityPerSecond, &MusicProfile::onsetStrengthDb, &MusicProfile::subShareDb, &MusicProfile::lowSideToMidDb,
+                &MusicProfile::lowCorrelation, &MusicProfile::highSideToMidDb, &MusicProfile::highCorrelation, &MusicProfile::lowCutPeakCostDb,
+                &MusicProfile::widthPeakCostDb };
+            std::vector<const Feature*> all;
+
+            for (const auto member : features)
+                all.push_back (&(p.*member));
+
+            for (const auto& f : p.monoPeakCostDb)
+                all.push_back (&f);
+
+            for (const auto& f : p.lowCutBlendLossDb)
+                all.push_back (&f);
+
+            for (size_t i = 0; i < all.size(); ++i)
+            {
+                const auto& f = *all[i];
+
+                if (! std::isfinite (f.value) || ! std::isfinite (f.effectiveSeconds) || ! (f.confidence >= 0.0f && f.confidence <= 1.0f))
+                    return "feature " + juce::String ((int) i) + ": value " + juce::String (f.value) + ", seconds " + juce::String (f.effectiveSeconds)
+                           + ", confidence " + juce::String (f.confidence);
+            }
+
+            for (size_t b = 0; b < (size_t) numBands; ++b)
+                if (! std::isfinite (p.bandLongTermDb[b]) || ! std::isfinite (p.tameEvidenceDb[b]) || ! std::isfinite (p.recoverEvidenceDb[b])
+                    || ! (p.bandConfidence[b] >= 0.0f && p.bandConfidence[b] <= 1.0f) || ! std::isfinite (p.bandSideToMidDb[b])
+                    || ! std::isfinite (p.bandCorrelation[b]) || ! (p.bandStereoConfidence[b] >= 0.0f && p.bandStereoConfidence[b] <= 1.0f))
+                    return "band " + juce::String ((int) b) + ": long-term " + juce::String (p.bandLongTermDb[b]) + ", tame "
+                           + juce::String (p.tameEvidenceDb[b]) + ", recover " + juce::String (p.recoverEvidenceDb[b]) + ", side / mid "
+                           + juce::String (p.bandSideToMidDb[b]);
+
+            const auto d = live.getDiagnostics();
+
+            if (! std::isfinite (p.effectiveSeconds) || ! (p.representativeness >= 0.0f && p.representativeness <= 1.0f)
+                || ! std::isfinite (d.mainMassSeconds) || ! (d.confidence >= 0.0f && d.confidence <= 1.0f) || ! std::isfinite (d.referenceLufs)
+                || ! std::isfinite (d.lowReference)
+                || (withCounters && (! std::isfinite (d.activeSeconds) || ! std::isfinite (d.secondsSinceMain)))
+                || ! (d.oldestMainShare >= 0.0f && d.oldestMainShare <= 1.0f + 1.0e-6f)
+                || ! (d.oldestReferenceShare >= 0.0f && d.oldestReferenceShare <= 1.0f + 1.0e-6f))
+                return "diagnostics: M " + juce::String (d.mainMassSeconds) + ", c " + juce::String (d.confidence) + ", active "
+                       + juce::String (d.activeSeconds);
+
+            return {};
+        }
+
+        // 状态 XML 里一段的二进制布局（LiveProfile.cpp writeEntry）：从 at 起这一段各字段的字节位置，按 blob 里存的计数逐项走出来
+        // （坏数据用例改字段用）。
+        struct EntryLayout
+        {
+            size_t start = 0, end = 0, nominalLength = 0, effectiveSeconds = 0, loudnessLufs = 0, lowShare = 0, gatingCount = 0, rangeCount = 0;
+            size_t rangeEnergy = 0, frames = 0, spectrum = 0, lowStereoWeight = 0, lowRangeFirst = 0, fluxFrames = 0, fluxEvents = 0;
+            size_t onsetSamples = 0, onsetEvents = 0, strengthCount = 0, subEnergy = 0, midEnergy = 0, trialBlocks = 0, blend = 0;
+            size_t subBlockLength = 0, hopLength = 0, admittedFlag = 0, admissionMainness = 0, newProgramRangeLu = 0, mainStamp = 0;
+            size_t referenceStamp = 0, next = 0;
+
+            // 8 张谱表按 LiveProfile.cpp SpectrumTable 的顺序：0 功率、1 Tame、2 Recover、3 缺失、4 有效、5 立体声功率、6 交叉、7 立体声权重。
+            size_t spectrumAt (int table, int band) const   { return spectrum + (size_t) (table * numBands + band) * 8; }
+        };
+
+        EntryLayout layoutOfEntry (const juce::MemoryBlock& blob, size_t at)
+        {
+            const auto int32At = [&blob] (size_t offset)
+            {
+                std::int32_t x = 0;
+                std::memcpy (&x, (const char*) blob.getData() + offset, sizeof (x));
+                return (int) x;
+            };
+
+            EntryLayout l;
+            l.start = at;                                  // start、end、nominalLength：int64 × 3
+            l.end = at + 8;
+            l.nominalLength = at + 16;
+            l.effectiveSeconds = at + 31;                  // mode / usable / pinned（字节 × 3）、pinnedMainness（float）之后
+            l.loudnessLufs = at + 40;                      // loudnessValid（字节）之后
+            l.lowShare = at + 45;                          // lowShareValid（字节）之后；再后面是 truePeak（float）
+            l.gatingCount = at + 53;
+            l.rangeCount = l.gatingCount + 4 + 4 * (size_t) int32At (l.gatingCount);
+            l.rangeEnergy = l.rangeCount + 4 + 2 * (size_t) int32At (l.rangeCount);
+            l.frames = l.rangeEnergy + 8;
+            l.spectrum = l.frames + 8;
+            l.lowStereoWeight = l.spectrum + 8 * (size_t) numBands * 8;   // 再后面是 highStereoWeight
+            l.lowRangeFirst = l.lowStereoWeight + 16;                     // lowRangeFirst、lowRangeLast、各格的计数（16 位）
+            l.fluxFrames = l.lowRangeFirst + 8 + 2 * (size_t) juce::jmax (0, int32At (l.lowRangeFirst + 4) - int32At (l.lowRangeFirst) + 1);
+            l.fluxEvents = l.fluxFrames + 8;
+            l.onsetSamples = l.fluxFrames + 16;
+            l.onsetEvents = l.fluxFrames + 24;
+            l.strengthCount = l.fluxFrames + 32;
+            l.subEnergy = l.strengthCount + 4 + (size_t) int32At (l.strengthCount);
+            l.midEnergy = l.subEnergy + 8;
+            l.trialBlocks = l.midEnergy + 8;
+            l.blend = l.trialBlocks + 4 + 7 * 2 * (size_t) juce::jlimit (0, 8, int32At (l.trialBlocks));   // 7 路 × min(块数, 8) 个格号
+            l.subBlockLength = l.blend + 2 * 16;                          // 两个候选 × (本该, 实际)
+            l.hopLength = l.subBlockLength + 4;
+            l.admittedFlag = l.hopLength + 4;
+            l.admissionMainness = l.admittedFlag + 1 + 8;                 // 响度因子、低频因子、m（float × 3）
+            l.newProgramRangeLu = l.admittedFlag + 1 + 12 + 2;            // 票、标志（字节 × 2）之后
+            l.mainStamp = l.newProgramRangeLu + 4;
+            l.referenceStamp = l.mainStamp + 8;
+            l.next = ((const char*) blob.getData())[l.admittedFlag] != 0 ? l.referenceStamp + 8 : l.admittedFlag + 1;
+            return l;
+        }
+
+        // 同 LiveProfile.cpp hexOf：状态 XML 里标量的写法（IEEE 位模式的 16 位十六进制）。
+        juce::String hexOfDouble (double x)
+        {
+            std::uint64_t bits = 0;
+            std::memcpy (&bits, &x, sizeof (bits));
+            char digits[16];
+
+            for (int i = 15; i >= 0; --i, bits >>= 4)
+                digits[i] = "0123456789abcdef"[bits & 15u];
+
+            return juce::String (digits, 16);
+        }
+
         // 遗忘全关（等价性）：W_mem、参考遗忘、无主段衰减、换歌都取 +∞；M0 取极小，c = 1（House 画像的代表性此时也是 1）。
         LiveConstants noForgetting()
         {
@@ -585,10 +723,13 @@ namespace celadon::test
             testConstantsTable();
             testStateRoundTrip();
             testBadState();
+            testCorruptStateStaysFinite();
+            testPublishGuard();
             testDeterminismAndReset();
             testCallPatterns();
             testAnalyzerToProfileBlockSizes();
             testWindowEviction();
+            testFullQueueWithFullWindow();
             testNoAllocation();
             testCommitRing();
             testBadSegment();
@@ -1617,10 +1758,11 @@ namespace celadon::test
         }
 
         // e. 坏数据：标签 / 格式版本不对、缺属性、标量坏、计数坏、窗口与段数对不上、base64 坏、段的二进制截短 / 多出 / 里面有越界的格号或
-        // NaN → false，冷启动（之前的窗口也清掉）；之后再交同样的段与全新的实例逐位相同。
+        // NaN → false，冷启动（之前的窗口也清掉）；之后再交同样的段与全新的实例逐位相同。P1F：有限但越出物理上界的量（试算块数 ±1e9、
+        // 1e300 的各种累计、比一段还长的时长、印记与时钟对不上、荒谬的采样率与计数器……）同样 false、冷启动，之后的读数全是有限值。
         void testBadState()
         {
-            beginTest ("e. bad state data (version, attributes, scalars, counts, base64, truncated / extra / corrupt segment bytes) -> cold start, false");
+            beginTest ("e. bad state data (version, attributes, scalars, counts, base64, truncated / extra / corrupt segment bytes, out-of-bounds magnitudes) -> cold start, false");
 
             LiveProfile source;
             setUp (source);
@@ -1644,6 +1786,19 @@ namespace celadon::test
             const auto setBlob = [] (juce::XmlElement& x, const juce::MemoryBlock& block)
             {
                 x.setAttribute ("segments", juce::Base64::toBase64 (block.getData(), block.getSize()));
+            };
+
+            // 第一段某个字段写成 value（P1F：越出物理上界的量级，字节位置按 writeEntry 的布局走出来）。
+            const auto first = layoutOfEntry (blobOf (*good), 0);
+
+            const auto poke = [&] (auto value, size_t offset)
+            {
+                return [&blobOf, &setBlob, value, offset] (juce::XmlElement& x)
+                {
+                    auto block = blobOf (x);
+                    block.copyFrom (&value, (int) offset, sizeof (value));
+                    setBlob (x, block);
+                };
             };
 
             struct Damage
@@ -1685,7 +1840,42 @@ namespace celadon::test
                       const std::uint16_t badBin = 900;
                       block.copyFrom (&badBin, (int) offset, sizeof (badBin));
                       setBlob (x, block);
-                  } } };
+                  } },
+                // ---- P1F：有限但越出物理上界的量（LiveProfile.cpp 文件头第六节「量级」）。VAL1 F5：负的试算块数原来先进 deriveEntry、
+                // 整数乘法溢出（未定义行为）才被挡下；VAL1 F1：1e300 原来被收下，下一份画像的 tameEvidenceDb 成了 ∞。----
+                { "trial blocks -1e9 (VAL1 F5)", poke ((std::int32_t) -1000000000, first.trialBlocks) },
+                { "trial blocks INT_MIN", poke (std::numeric_limits<std::int32_t>::min(), first.trialBlocks) },
+                { "trial blocks +1e9 (a segment has at most 130)", poke ((std::int32_t) 1000000000, first.trialBlocks) },
+                { "Tame sum 1e300 in band 15 (VAL1 F1)", poke (1.0e300, first.spectrumAt (1, 15)) },
+                { "effective seconds 1e300", poke (1.0e300, first.effectiveSeconds) },
+                { "effective seconds 13 s (a segment is at most 12.8 s)", poke (13.0, first.effectiveSeconds) },
+                { "frames 1e300", poke (1.0e300, first.frames) },
+                { "band power 1e300 in band 3", poke (1.0e300, first.spectrumAt (0, 3)) },
+                { "valid weight above the frame count", poke (1.0e6, first.spectrumAt (4, 7)) },
+                { "a cross power beyond the power (band 3)", poke (-1.0e300, first.spectrumAt (6, 3)) },
+                { "short-term energy 1e300", poke (1.0e300, first.rangeEnergy) },
+                { "onset samples 1e300", poke (1.0e300, first.onsetSamples) },
+                { "onset events 1e300", poke (1.0e300, first.onsetEvents) },
+                { "flux events above the flux frames", poke (1.0e6, first.fluxEvents) },
+                { "mid energy 1e300", poke (1.0e300, first.midEnergy) },
+                { "blend energy 1e300", poke (1.0e300, first.blend) },
+                { "segment loudness 1e30 LUFS", poke (1.0e30f, first.loudnessLufs) },
+                { "low share 1.5", poke (1.5f, first.lowShare) },
+                { "a segment 2^40 samples long", poke ((std::int64_t) 1 << 40, first.end) },
+                { "a nominal length of 2^40 samples", poke ((std::int64_t) 1 << 40, first.nominalLength) },
+                { "a segment that ends before it starts", poke ((std::int64_t) -5, first.end) },
+                { "hop length 2^30 samples", poke ((std::int32_t) 1 << 30, first.hopLength) },
+                { "admission mainness 2", poke (2.0f, first.admissionMainness) },
+                { "a main stamp 1e300 (past the clock)", poke (1.0e300, first.mainStamp) },
+                { "a main stamp above the next segment's", poke (1.0, first.mainStamp) },
+                { "a main clock other than the newest stamp", [] (juce::XmlElement& x) { x.setAttribute ("mainClock", hexOfDouble (1.0)); } },
+                { "a reference clock without new programs", [] (juce::XmlElement& x) { x.setAttribute ("referenceClock", hexOfDouble (1.0)); } },
+                { "sample rate 1e300", [] (juce::XmlElement& x) { x.setAttribute ("sampleRate", hexOfDouble (1.0e300)); } },
+                { "sample rate 1 Hz (below 8 kHz)", [] (juce::XmlElement& x) { x.setAttribute ("sampleRate", hexOfDouble (1.0)); } },
+                { "active seconds 1e300", [] (juce::XmlElement& x) { x.setAttribute ("activeSeconds", hexOfDouble (1.0e300)); } },
+                { "seconds since main above the active seconds",
+                  [] (juce::XmlElement& x) { x.setAttribute ("secondsSinceMain", hexOfDouble (x.getIntAttribute ("commits") * 13.0)); } },
+                { "more new programs than commits", [] (juce::XmlElement& x) { x.setAttribute ("newProgramCount", "13"); } } };
 
             // 读档失败后再交同样的段，必须与全新的实例逐位相同：读到一半的数据也清干净了。
             std::vector<Segment> after;
@@ -1719,7 +1909,274 @@ namespace celadon::test
 
                 expect (sameProfile (target.getProfile(), fresh.getProfile()) && sameDiagnostics (target.getDiagnostics(), fresh.getDiagnostics()),
                         juce::String (damage.what) + ": nothing of the half-read state is left");
+                const auto bad = firstBadReading (target);
+                expect (bad.isEmpty(), juce::String (damage.what) + ": every later reading is finite and in range " + bad);
             }
+
+            // 阳性对照：正常的状态照样读回（上面改的都是同一份状态的一个字段）。
+            LiveProfile copy;
+            setUp (copy);
+            expect (copy.restoreStateXml (*good) && sameProfile (copy.getProfile(), source.getProfile()), "the undamaged state restores");
+        }
+
+        // e. 随机损坏的状态（P1F；VAL1 的随机对照 P4 固化进来）：400 份——1 ～ 6 个随机字节、一个 8 字节位置写成极端的有限值、截短、
+        // 改计数属性、改标量属性——读档不崩；读回 false 的是冷启动；读回 true 的（损坏小到量级都在物理上界之内）之后再交段、发布，
+        // 每个读数仍是有限值、置信度在 [0, 1]。出厂常数与「事件常发」（时钟、印记不为 0）各一半。
+        void testCorruptStateStaysFinite()
+        {
+            beginTest ("e. 400 randomly corrupted states: no crash; rejected ones cold-start; accepted ones keep every later reading finite");
+
+            LiveConstants eventful;
+            eventful.noMainSeconds = 5.0;
+            eventful.newProgramSeconds = 4.0;
+            LiveProfile cold;
+            setUp (cold);
+            juce::Random rng (20261004);
+            int accepted = 0, bad = 0, notCold = 0;
+            juce::String firstBad;
+
+            for (int trial = 0; trial < 400; ++trial)
+            {
+                const auto constants = trial % 2 == 0 ? LiveConstants {} : eventful;
+                const auto segments = mixedSequence (60, (std::uint32_t) (1500 + trial));
+                const auto count = 40 + rng.nextInt (15);
+                LiveProfile source;
+                setUp (source, constants);
+                std::int64_t time = 0;
+
+                for (int i = 0; i < count; ++i)   // 时刻随机落后：存档时常有还没发布的段
+                {
+                    source.segmentFinalized (segments[(size_t) i]);
+                    time = juce::jmax (time, segments[(size_t) i].end + (std::int64_t) rng.nextInt (90000));
+                    source.advanceTo (time);
+                }
+
+                auto xml = source.createStateXml();
+                juce::MemoryOutputStream decoded;
+                juce::Base64::convertFromBase64 (decoded, xml->getStringAttribute ("segments"));
+                auto block = decoded.getMemoryBlock();
+                const auto mode = rng.nextInt (7);
+                juce::String detail ("mode " + juce::String (mode));
+
+                if (mode <= 2)   // 1 ～ 6 个随机字节换成随机值
+                {
+                    for (int k = 0; k < 1 + rng.nextInt (6); ++k)
+                        block[(size_t) rng.nextInt ((int) block.getSize())] = (char) rng.nextInt (256);
+                }
+                else if (mode == 3)   // 一个 8 字节的位置（不一定对齐字段）写成极端的有限值
+                {
+                    const double extremes[] = { 1.0e308, -1.0e308, 1.0e-320, 4.0e9, 1.0e19, 1.0e300 };
+                    const auto value = extremes[rng.nextInt (6)];
+                    const auto at = rng.nextInt ((int) block.getSize() - 8);
+                    block.copyFrom (&value, at, sizeof (value));
+                    detail << " value " << juce::String (value, 3) << " at byte " << juce::String (at);
+                }
+                else if (mode == 4)   // 截短
+                {
+                    block.setSize ((size_t) rng.nextInt ((int) block.getSize()));
+                }
+                else if (mode == 5)   // 计数属性
+                {
+                    const char* names[] = { "commits", "window", "pending", "runStart", "newProgramCount" };
+                    xml->setAttribute (names[rng.nextInt (5)], juce::String ((juce::int64) rng.nextInt (1000)));
+                }
+                else   // 标量属性写成极端的有限值
+                {
+                    const char* names[] = { "sampleRate", "mainClock", "referenceClock", "secondsSinceMain", "runSeconds", "activeSeconds" };
+                    const double extremes[] = { 1.0e300, 1.0e-300, 4.0e9, 3.0, 96000.0 };
+                    xml->setAttribute (names[rng.nextInt (6)], hexOfDouble (extremes[rng.nextInt (5)]));
+                }
+
+                xml->setAttribute ("segments", juce::Base64::toBase64 (block.getData(), block.getSize()));
+                LiveProfile target;
+                setUp (target, constants);
+
+                if (! target.restoreStateXml (*xml))
+                {
+                    const auto d = target.getDiagnostics();
+                    notCold += d.commits == 0 && d.pendingSegments == 0 && sameProfile (target.getProfile(), cold.getProfile()) ? 0 : 1;
+                    continue;
+                }
+
+                ++accepted;
+
+                for (int i = count; i < (int) segments.size(); ++i)
+                    feed (target, segments[(size_t) i]);
+
+                target.flush();
+                const auto problem = firstBadReading (target);
+
+                if (problem.isNotEmpty())
+                {
+                    ++bad;
+
+                    if (firstBad.isEmpty())
+                        firstBad = "trial " + juce::String (trial) + " " + detail + ": " + problem;
+                }
+            }
+
+            logMessage ("  400 corrupted states: " + juce::String (accepted) + " accepted (damage within the bounds), " + juce::String (400 - accepted)
+                        + " rejected" + (firstBad.isEmpty() ? juce::String() : "; first bad reading: " + firstBad));
+            expect (notCold == 0, "every rejected state leaves a cold instance (" + juce::String (notCold) + " did not)");
+            expect (bad == 0, "every accepted state keeps the later readings finite and in range (" + juce::String (bad) + " did not)");
+        }
+
+        // 发布端兜底（P1F，LiveProfile.cpp guardPublishedResult）：不经读档。实时入口只查有限与非负（分析器交来的量有物理上限），由它交来
+        // 有限但荒谬的段，让累计、比值与 double → float 真的算出非有限值——发布出去的每个读数仍是有限值，出事的几项按「没有」发布：
+        //   一、局部：第 15 段 Tame 和 1e300（比值转 float 溢出）、第 3 段交叉功率 −1e300（S/M 的比值溢出：段 3 与低频组）、两段 10 Hz 候选
+        //       的本该能量 1e308（相加溢出：混合损失）。出事的逐段数组按「这一段没有统计」、特征无效；其余读数与没出事的对照实例逐位相同。
+        //   二、整份：遗忘全关、两段有效时长 1e308（主段质量 M 相加溢出）→ 整份同冷启动的空画像；reset 之后一切照常。
+        // 这两种输入都要实时入口收下荒谬的量才到得了兜底；以后入口若也按读档的物理上界拒收，这里改成直接构造（兜底本身不变）。
+        void testPublishGuard()
+        {
+            beginTest ("publication guard: absurd but finite live segments never publish inf / NaN; the affected readings are published as missing");
+
+            LiveProfile live, reference;
+            setUp (live);
+            setUp (reference);
+
+            for (int i = 0; i < 12; ++i)   // 12 段：试算满 10 s，混合损失有效
+            {
+                auto segment = makeSegment (dropSpec(), i);
+                feed (reference, segment);
+
+                if (i >= 10)
+                    segment.liveBlendIntended[0] = 1.0e308;
+
+                if (i == 11)
+                {
+                    segment.tameSum[15] = 1.0e300;
+                    segment.stereoCrossSum[3] = -1.0e300;
+                }
+
+                feed (live, segment);
+            }
+
+            const auto& p = live.getProfile();
+            const auto& q = reference.getProfile();
+            const auto bad = firstBadReading (live);
+            expect (bad.isEmpty(), "every published reading is finite " + bad);
+            expect (sameFloat (p.tameEvidenceDb[15], 0.0f) && sameFloat (p.recoverEvidenceDb[15], 0.0f) && sameFloat (p.bandConfidence[15], 0.0f),
+                    "band 15 (Tame ratio overflowed float) is published as having no evidence");
+            expect (sameFloat (p.bandSideToMidDb[3], 0.0f) && sameFloat (p.bandCorrelation[3], 0.0f) && sameFloat (p.bandStereoConfidence[3], 0.0f)
+                        && ! p.lowSideToMidDb.valid,
+                    "band 3 S/M (ratio overflowed) has no stereo statistics; the low-band S/M feature is invalid");
+            expect (! p.lowCutBlendLossDb[0].valid && p.lowCutBlendLossDb[1].valid, "the 10 Hz blend loss (energy sum overflowed) is invalid; 20 Hz is not");
+
+            // 没出事的读数与对照实例逐位相同（兜底只动出事的那几项）。
+            auto untouched = sameFeature (p.integratedLufs, q.integratedLufs) && sameFeature (p.loudnessRangeLu, q.loudnessRangeLu)
+                          && sameFeature (p.plrDb, q.plrDb) && sameFeature (p.truePeakDbtp, q.truePeakDbtp)
+                          && sameFeature (p.spectralSlopeDbPerOct, q.spectralSlopeDbPerOct) && sameFeature (p.lowShare, q.lowShare)
+                          && sameFeature (p.highShare, q.highShare) && sameFeature (p.lowBandRangeDb, q.lowBandRangeDb)
+                          && sameFeature (p.onsetDensityPerSecond, q.onsetDensityPerSecond) && sameFeature (p.onsetStrengthDb, q.onsetStrengthDb)
+                          && sameFeature (p.subShareDb, q.subShareDb) && sameFeature (p.highSideToMidDb, q.highSideToMidDb)
+                          && sameFeature (p.highCorrelation, q.highCorrelation) && sameFeature (p.lowCutPeakCostDb, q.lowCutPeakCostDb)
+                          && sameFeature (p.widthPeakCostDb, q.widthPeakCostDb) && sameFeature (p.lowCutBlendLossDb[1], q.lowCutBlendLossDb[1])
+                          && sameFloats (p.bandLongTermDb, q.bandLongTermDb) && sameDouble (p.effectiveSeconds, q.effectiveSeconds)
+                          && sameFloat (p.representativeness, q.representativeness);
+
+            for (size_t c = 0; c < p.monoPeakCostDb.size(); ++c)
+                untouched = untouched && sameFeature (p.monoPeakCostDb[c], q.monoPeakCostDb[c]);
+
+            for (size_t b = 0; b < (size_t) numBands; ++b)
+            {
+                if (b != 15)
+                    untouched = untouched && sameFloat (p.tameEvidenceDb[b], q.tameEvidenceDb[b]) && sameFloat (p.recoverEvidenceDb[b], q.recoverEvidenceDb[b])
+                             && sameFloat (p.bandConfidence[b], q.bandConfidence[b]);
+
+                if (b != 3)
+                    untouched = untouched && sameFloat (p.bandSideToMidDb[b], q.bandSideToMidDb[b]) && sameFloat (p.bandCorrelation[b], q.bandCorrelation[b])
+                             && sameFloat (p.bandStereoConfidence[b], q.bandStereoConfidence[b]);
+            }
+
+            expect (untouched, "every other reading equals the reference instance bit for bit");
+
+            // 二、整份不可信：主段质量 M 溢出 → 空画像（同冷启动），每一份发布都是有限值；reset 之后与全新实例逐位相同。
+            LiveProfile overflow;
+            setUp (overflow, noForgetting());
+            Recorder recorder (overflow, 16);
+            overflow.setPublicationListener (&recorder);
+
+            for (int i = 0; i < 6; ++i)
+            {
+                auto segment = makeSegment (dropSpec(), i);
+
+                if (i >= 4)
+                    segment.effectiveSeconds = 1.0e308;
+
+                feed (overflow, segment);
+                const auto reading = firstBadReading (overflow, false);   // 计数器 activeSeconds 照样相加溢出：兜底只管画像
+                expect (reading.isEmpty(), "publication " + juce::String (i) + " is finite " + reading);
+            }
+
+            LiveProfile cold;
+            setUp (cold, noForgetting());
+            expect (sameProfile (overflow.getProfile(), cold.getProfile()) && overflow.getDiagnostics().mainMassSeconds == 0.0
+                        && overflow.getDiagnostics().confidence == 0.0f,
+                    "once M overflows the published profile is the empty (cold) one");
+            expect (! recorder.overflow && recorder.publications.size() == 6 && std::isfinite (recorder.publications.back().record.mainMassSeconds)
+                        && ! recorder.publications.back().record.mainLevelValid,
+                    "the commit record carries the guarded values too");
+
+            overflow.reset();
+            LiveProfile fresh;
+            setUp (fresh, noForgetting());
+
+            for (int i = 0; i < 6; ++i)
+            {
+                feed (overflow, makeSegment (dropSpec(), 10 + i));
+                feed (fresh, makeSegment (dropSpec(), 10 + i));
+            }
+
+            expect (sameProfile (overflow.getProfile(), fresh.getProfile()) && sameDiagnostics (overflow.getDiagnostics(), fresh.getDiagnostics(), false),
+                    "after reset nothing of the overflow is left");
+        }
+
+        // f. 队列满、已发布的窗口也满（512 段）：一直不调 advanceTo、连交 80 段，segmentFinalized 就地发布腾格（LiveProfile.cpp makeRoomInQueue）——
+        // 新段只盖比已发布窗口更老的格。每一份发布（就地发布的也算：提交记录、画像、诊断）与「逐段喂」的对照实例逐位相同；连交完的那一刻
+        // 已发布窗口的逐段判断与对照实例在同样段数时相同。（VAL1 变异：容量判断改成 ≥ queueCapacity + 1，新段就盖掉已发布窗口最老的一格；
+        // 原有的「队列满」只发生在窗口不到 512 时，杀不掉它。）
+        void testFullQueueWithFullWindow()
+        {
+            beginTest ("f. a full queue with a full 512-segment window: forced publications leave the published window intact (== fed one by one)");
+
+            const auto segments = mixedSequence (512 + 8 + 80, 4242);
+            LiveProfile a, b;
+            setUp (a);
+            setUp (b);
+            Recorder recordA (a, segments.size() + 8), recordB (b, segments.size() + 8);
+            a.setPublicationListener (&recordA);
+            b.setPublicationListener (&recordB);
+
+            for (int i = 0; i < 520; ++i)
+                feed (a, segments[(size_t) i]);
+
+            expect (a.getDiagnostics().windowSegments == LiveProfile::windowCapacity, "window full before the burst");
+
+            for (int i = 520; i < 600; ++i)
+                a.segmentFinalized (segments[(size_t) i]);   // 不调 advanceTo：队列装满、就地发布
+
+            const auto d = a.getDiagnostics();
+            expect (d.forcedPublications >= 48 && d.pendingSegments == LiveProfile::queueCapacity,
+                    "the full queue forced " + juce::String ((int) d.forcedPublications) + " publications");
+
+            const auto commits = (int) d.commits;
+
+            for (int i = 0; i < commits; ++i)
+                feed (b, segments[(size_t) i]);
+
+            expect (sameJudgementLists (judgementsOf (a), judgementsOf (b)) && sameProfile (a.getProfile(), b.getProfile()),
+                    "right after the burst the published window and profile equal an instance fed the same " + juce::String (commits) + " segments");
+
+            a.flush();
+
+            for (int i = commits; i < (int) segments.size(); ++i)
+                feed (b, segments[(size_t) i]);
+
+            expect (! recordA.overflow && ! recordB.overflow && recordA.publications.size() == segments.size()
+                        && samePublications (recordA.publications, recordB.publications),
+                    "every publication (the forced ones included) is bit-identical to feeding one by one");
+            expect (sameJudgementLists (judgementsOf (a), judgementsOf (b)), "and so is the final window");
         }
 
         //==============================================================================

@@ -49,6 +49,11 @@
       已发布那一份画像的事件时钟与计时（Counters）、窗口里的段与还没发布的段（逐段的原始量与印记，小端二进制 + base64），采样率。派生量
       （参考、画像、判断）读回后同步重算——与保存时逐位相同；还没发布的段按序进账、重算、立刻发布。读的时候严格：缺属性、位数不对、
       base64 坏、长度不对、非有限值、计数或格号越界、格式版本不认识 → 冷启动并返回 false。
+      量级（P1F，VAL1 F1 / F5）：有限但荒谬的量同样是坏数据——每段先按格式读，再查量级与各量之间的关系（entryWithinBounds：时长、样本数、
+      帧数、功率、dB、事件与试算块数各有物理上界，累计量 ≤ 个数 × 上界，按帧记的权重 ≤ 帧数，|交叉功率| ≤ 功率；上界的依据写在
+      stateSegmentSeconds 那组常数旁），计数器同样（countersWithinBounds），窗口里的印记不减、最新一段的印记等于时钟；全部过了才算派生量
+      （deriveEntry：原来不管校验结果先算，坏的试算块数让整数乘法溢出）。发布端另有兜底（guardPublishedResult）：万一算出非有限值，
+      对应的读数按 MusicProfile 的约定当「没有」发布（特征无效、逐段数组同「这一段没有统计」），已发布的画像里不出 ∞ / NaN。
 
     实时约束：全部容量在构造（Impl）时一次分配；prepare / reset / 音频线程接口不分配、不加锁。
 
@@ -193,6 +198,29 @@ namespace celadon::glaze
         constexpr const char* liveStateTag = "LIVE_PROFILE";
         constexpr int liveStateFormatVersion = 2;
 
+        // 读档的物理上界（文件头第六节「量级」；P1F，VAL1 F1：只查有限与非负时，有限但荒谬的量——例如 1e300——被收下，乘上权重、除以帧数、
+        // double → float 之后画像里出 ∞）。每个上界都比分析器交得出的最大值宽（正常存档碰不到），又让后面的累计、比值、float 转换都留在有限范围里。
+        //   - 采样率：宿主的 PCM 采样率 8 k ～ 768 k（同 ReferenceSpectrum::prepare 认的范围）。按样本计的上界都按存档时的采样率折算。
+        //   - 一段的时长：段落账的一段最长一小节 = maximumBarSeconds（6.4 s，= maxSubBlocks × 100 ms；拍点外的 2 秒段同样封顶 6.4 s；变速时
+        //     同一小节重新锚定，整段走完仍 ≤ 一小节；跳播 / 循环回绕由编排器在不连续点就地定稿）；留一倍余量给边界取整与读档换算采样率的取整。
+        //     一段里的帧、门块、起音组、试算块都至少一个样本长、起点都在段里，个数按「这一段的样本数」封顶。
+        //   - 功率：分析器读的是 float 样本（≤ 3.4e38，平方 1.2e77）；K 加权、低切 / 守护、段内按 bin 求和与两声道求和的增益留三个量级。
+        //     每块 / 每帧 / 每样本的功率或能量都 ≤ 它；累计量 ≤ 个数 × 它（跨采样率换算之后每样本的能量最多放大 768 k ÷ 8 k = 96 倍，仍在余量里）。
+        //   - 段响度：有限的正 double 均方的 LUFS 落在 [−3234, +3082]（分析器 SegmentLedger::deriveSegment 的 energyToLufs），取 ±3300 LU。
+        //   - 频谱证据：每帧的偏离 = 电平 − 轮廓（电平在 [−300, +800] dB：1e-30 封底、上面的功率上界；轮廓 = ±3 段电平的加权直线拟合在本段处的
+        //     截距，系数有界），按静音门权重（≤ 1）累计：Tame / Recover 的和 ≤ 有效权重 × 1e5 dB（留百倍余量）。
+        //   - 起音事件：分析器触发后 50 ms 不应期（MusicAnalyzer.cpp onsetRefractorySeconds），一段最多「段长 ÷ 50 ms」+ 1 个。
+        //   - 试算块：100 ms 一块（整数个起音组，与 0.1 s 差不到 0.2 %），一段最多「段长 ÷ 0.1 s」+ 2 块。
+        constexpr double stateMinimumSampleRate = 8000.0;
+        constexpr double stateMaximumSampleRate = 768000.0;
+        constexpr double stateSegmentSeconds = 2.0 * SegmentLedger::maximumBarSeconds;
+        constexpr double stateMaximumPower = 1.0e80;
+        constexpr double stateLoudnessLimitLufs = 3300.0;
+        constexpr double stateEvidenceDb = 1.0e5;
+        constexpr double onsetRefractorySeconds = 0.050;   // 同 MusicAnalyzer.cpp
+        constexpr double stateMaximumOnsetEvents = stateSegmentSeconds / onsetRefractorySeconds + 1.0;
+        constexpr int stateMaximumTrialBlocks = (int) (stateSegmentSeconds / trialBlockSeconds + 0.5) + 2;
+
         //==============================================================================
         // 帮助函数：口径同 MusicAnalyzer.cpp 匿名命名空间里的同名函数（那边不导出，这里各写一个小的）。
 
@@ -236,6 +264,27 @@ namespace celadon::glaze
             feature.value = (float) value;
             feature.valid = true;
             feature.effectiveSeconds = effectiveSeconds;
+        }
+
+        // 画像的每个特征（发布端兜底逐个看，见 Impl::guardPublishedResult）。MusicProfile 加特征时这里加一行。
+        template <typename Visitor>
+        void forEachFeature (MusicProfile& p, Visitor&& visit)
+        {
+            for (auto* feature : { &p.integratedLufs, &p.loudnessRangeLu, &p.plrDb, &p.truePeakDbtp, &p.spectralSlopeDbPerOct, &p.lowShare,
+                                   &p.highShare, &p.lowBandRangeDb, &p.onsetDensityPerSecond, &p.onsetStrengthDb, &p.subShareDb, &p.lowSideToMidDb,
+                                   &p.lowCorrelation, &p.highSideToMidDb, &p.highCorrelation, &p.lowCutPeakCostDb, &p.widthPeakCostDb })
+                visit (*feature);
+
+            for (auto& feature : p.monoPeakCostDb)
+                visit (feature);
+
+            for (auto& feature : p.lowCutBlendLossDb)
+                visit (feature);
+        }
+
+        bool finiteFeature (const Feature& f) noexcept
+        {
+            return std::isfinite (f.value) && std::isfinite (f.effectiveSeconds) && std::isfinite (f.confidence);
         }
 
         double sideToMidDbOf (double power, double cross) noexcept
@@ -283,20 +332,29 @@ namespace celadon::glaze
             return y > 0.0 ? (y < 1.0 ? y : 1.0) : 0.0;
         }
 
+        // 格号 = ⌊position⌋ 钳进 [0, bins − 1]。先在浮点里钳、再转整数：越界的有限值直接转 int 是未定义行为（P1F：实时入口只查有限、
+        // 不查量级，调用方交来荒谬的段响度时派生格号也不能出未定义行为）；钳得到的只有越界的值，范围内的结果与「先转整数再钳」逐位相同。
+        // NaN 落第 0 格（调用方都先查过有限）。
+        int clampedBin (double position, int bins) noexcept
+        {
+            const auto floored = std::floor (position);
+            return floored > 0.0 ? (floored < (double) (bins - 1) ? (int) floored : bins - 1) : 0;
+        }
+
         int loudnessBinOf (float lufs) noexcept   // 同 SegmentLedger.cpp recomputeGate 的格
         {
-            return juce::jlimit (0, histogramBins - 1, (int) std::floor (((double) lufs - histogramMinLufs) * (double) histogramBinsPerLu));
+            return clampedBin (((double) lufs - histogramMinLufs) * (double) histogramBinsPerLu, histogramBins);
         }
 
         int lowShareBinOf (float share) noexcept
         {
-            return juce::jlimit (0, lowShareBins - 1, (int) std::floor ((double) share * (double) lowShareBins));
+            return clampedBin ((double) share * (double) lowShareBins, lowShareBins);
         }
 
         int peakBinOf (float peak) noexcept
         {
             const auto db = juce::Decibels::gainToDecibels ((double) peak);   // ≥ −100
-            return juce::jlimit (0, peakBins - 1, (int) std::floor ((db - peakMinDb) * (double) peakBinsPerDb));
+            return clampedBin ((db - peakMinDb) * (double) peakBinsPerDb, peakBins);
         }
 
         int trialBinOf (double peak) noexcept
@@ -305,7 +363,7 @@ namespace celadon::glaze
                 return 0;
 
             const auto db = 20.0 * std::log10 (peak);
-            return juce::jlimit (0, trialBins - 1, (int) std::floor ((db - trialMinDb) * (double) trialBinsPerDb));
+            return clampedBin ((db - trialMinDb) * (double) trialBinsPerDb, trialBins);
         }
 
         double trialBinLinear (int bin) noexcept
@@ -983,7 +1041,9 @@ namespace celadon::glaze
             deriveEntry (e);
         }
 
-        // 派生的格号与工作量估计（与常数无关；进队与读档后算）。
+        // 派生的格号与工作量估计（与常数无关；进队与读档后算）。前提：计数在定长数组的范围里、试算块数 ≥ 0、低频格的范围合法——进队时
+        // usableSegment 查过（坏段这几项都是 0），读档时 readEntry 与 entryWithinBounds 都过了才调（P1F，VAL1 F5：读档原来不管校验结果
+        // 都先调它，坏的试算块数让这里的整数乘法溢出）。
         static void deriveEntry (Entry& e) noexcept
         {
             e.loudnessBin = e.loudnessValid ? loudnessBinOf (e.loudnessLufs) : 0;
@@ -1903,9 +1963,63 @@ namespace celadon::glaze
             r.profile.lowCutBlendLossDb = blendLoss;
             measured.trial = work.size > 0 ? trialMeasured : 0.0f;
             confidences (measured, fluxOnsetsValid);
+            guardPublishedResult();
 
             if (work.size > 0)
                 writeRecord (*newest);
+        }
+
+        // 发布端兜底（文件头第六节「量级」；P1F，VAL1 F1）：读档挡住了荒谬的量，实时入口只查有限与非负（分析器交来的量本身有物理上限）。
+        // 万一累计、比值或 double → float 里还是出了非有限值，这一份画像里对应的读数按 MusicProfile 现有的约定当「没有」发布，绝不让
+        // ∞ / NaN 流进决策器：特征 → 无效（Feature {}）；逐段数组 → 「这一段没有统计」（长期电平 noDataDb，证据 / 立体声 0，对应的
+        // 置信度 0）；主段质量 M 或 c 本身不是有限值（整份都不可信）→ 同冷启动的空画像（effectiveSeconds = representativeness = 0）。
+        // 只管这一份画像与跟着它走的 M、c、份额（getProfile、提交记录、getDiagnostics 里的这几项）；计数器（activeSeconds 等）不在这里——
+        // 读档时它们有上界，实时入口只在调用方交来荒谬的段时才会溢出。正常数据下全是有限值，这里一项也不改：已发布的画像逐位不变。
+        void guardPublishedResult() noexcept
+        {
+            auto& r = result;
+            auto& p = r.profile;
+
+            if (! std::isfinite (r.mainMass) || ! std::isfinite (r.confidence))
+            {
+                p = MusicProfile {};   // 冷启动（窗口空）时 finalizeProfile 算出的那一份：特征全无效、长期电平 noDataDb、其余 0
+                p.formatVersion = clayProfileFormatVersion;
+                p.bandLongTermDb.fill ((float) noDataDb);
+                r.mainMass = 0.0;
+                r.confidence = 0.0f;
+                r.oldestMainShare = r.oldestReferenceShare = 0.0f;
+                return;
+            }
+
+            if (! std::isfinite (r.oldestMainShare))
+                r.oldestMainShare = 0.0f;
+
+            if (! std::isfinite (r.oldestReferenceShare))
+                r.oldestReferenceShare = 0.0f;
+
+            forEachFeature (p, [] (Feature& feature)
+            {
+                if (! finiteFeature (feature))
+                    invalidate (feature);
+            });
+
+            for (size_t b = 0; b < (size_t) numBands; ++b)
+            {
+                if (! std::isfinite (p.bandLongTermDb[b]))
+                    p.bandLongTermDb[b] = (float) noDataDb;
+
+                if (! std::isfinite (p.tameEvidenceDb[b]) || ! std::isfinite (p.recoverEvidenceDb[b]) || ! std::isfinite (p.bandConfidence[b]))
+                {
+                    p.tameEvidenceDb[b] = p.recoverEvidenceDb[b] = 0.0f;
+                    p.bandConfidence[b] = 0.0f;
+                }
+
+                if (! std::isfinite (p.bandSideToMidDb[b]) || ! std::isfinite (p.bandCorrelation[b]) || ! std::isfinite (p.bandStereoConfidence[b]))
+                {
+                    p.bandSideToMidDb[b] = p.bandCorrelation[b] = 0.0f;
+                    p.bandStereoConfidence[b] = 0.0f;
+                }
+            }
         }
 
         // 这一份画像最新那一段的提交记录（发布时写进环形缓冲）。
@@ -2703,8 +2817,108 @@ namespace celadon::glaze
             // 坏段只有身份与读数（makeEntry）：其余的量必须是空的。
             in.ok = in.ok && (e.usable || (e.effectiveSeconds == 0.0 && e.gatingCount == 0 && e.rangeCount == 0 && e.frames == 0.0
                                            && e.trialBlocks == 0 && e.strengthCount == 0));
-            deriveEntry (e);
-            return in.ok;
+            return in.ok;   // 派生量不在这里算：量级还没查（restoreState 里 entryWithinBounds 过了才 deriveEntry）
+        }
+
+        // 读回的一段的量级与各量之间的关系（文件头第六节「量级」，上界的依据见 stateSegmentSeconds 一组常数）。rate = 存档时的采样率
+        // （按样本计的量还没换算）。readEntry 已挡住格式问题（长度、计数与格号越界、非有限值、该非负的为负）；这里挡「有限但荒谬」：
+        // 每个量不超过它的物理上界，累计量不超过「个数 × 每个的上界」，按帧 / 按样本 / 按块记的权重不超过帧数 / 样本数 / 块数。
+        // 关系都按分析器的记账逐字成立（例如 |交叉功率| ≤ 功率：Balance 每帧已钳，求和的舍入单调），正常存档绝不会被挡下。
+        static bool entryWithinBounds (const Entry& e, double rate) noexcept
+        {
+            const auto segmentSamples = stateSegmentSeconds * rate;   // 一段最多这么多样本（rate ≤ 768 k：≤ 1e7）
+            const auto frames = e.frames;
+
+            // 时间：段不倒着、不长于一段；标称长度、子块长、帧移同样。
+            if (! (e.end >= e.start) || (double) e.end - (double) e.start > segmentSamples + 1.0 || (double) e.nominalLength > segmentSamples + 1.0
+                || (double) e.subBlockLength > segmentSamples || (double) e.hopLength > segmentSamples)
+                return false;
+
+            // 读数与有效时长。真峰值、门块功率是 float，类型本身封顶在 3.4e38（readEntry 已查有限、非负），不另设。
+            if (e.effectiveSeconds > stateSegmentSeconds || std::abs ((double) e.loudnessLufs) > stateLoudnessLimitLufs
+                || ! (e.lowShare >= 0.0f && e.lowShare <= 1.0f))
+                return false;
+
+            // 子块流：3 s 短期功率之和 ≤ 个数 × 功率上界。
+            if (e.rangeEnergy > (double) e.rangeCount * stateMaximumPower)
+                return false;
+
+            // 帧流：帧 ≤ 样本数；每帧的段功率 ≤ 功率上界；静音门权重 ≤ 1、只在帧门之上的帧里记（有效权重、立体声权重、低频组 ≤ 帧数，
+            // 缺失权重 ≤ 有效权重）；证据 ≤ 有效权重 × 证据上界；立体声功率 ≤ 立体声权重 × 功率上界，|交叉| ≤ 功率；低频格每帧一个。
+            if (frames > segmentSamples || e.lowStereoWeight > frames || e.highStereoWeight > frames)
+                return false;
+
+            const auto& power = e.spectrum[(size_t) powerTable];
+            const auto& tame = e.spectrum[(size_t) tameTable];
+            const auto& recover = e.spectrum[(size_t) recoverTable];
+            const auto& deficit = e.spectrum[(size_t) deficitTable];
+            const auto& valid = e.spectrum[(size_t) validTable];
+            const auto& stereoPower = e.spectrum[(size_t) stereoPowerTable];
+            const auto& stereoCross = e.spectrum[(size_t) stereoCrossTable];
+            const auto& stereoWeight = e.spectrum[(size_t) stereoWeightTable];
+
+            for (size_t b = 0; b < (size_t) numBands; ++b)
+                if (power[b] > frames * stateMaximumPower || valid[b] > frames || deficit[b] > valid[b]
+                    || tame[b] > valid[b] * stateEvidenceDb || recover[b] > valid[b] * stateEvidenceDb
+                    || stereoWeight[b] > frames || stereoPower[b] > stereoWeight[b] * stateMaximumPower
+                    || std::abs (stereoCross[b]) > stereoPower[b])
+                    return false;
+
+            double lowRangeTotal = 0.0;
+
+            for (int bin = e.lowRangeFirst; bin <= e.lowRangeLast; ++bin)
+                lowRangeTotal += (double) e.lowRangeCount[(size_t) bin];
+
+            if (lowRangeTotal > frames || e.fluxFrames > segmentSamples || e.fluxEvents > e.fluxFrames)
+                return false;
+
+            // 样本流：起音有效样本 ≤ 段的样本数（加一个起音组）；事件按不应期封顶；两份能量 ≤ 样本数 × 功率上界。
+            if (e.onsetSamples > segmentSamples + (double) maximumGroupLength || e.onsetEvents > stateMaximumOnsetEvents
+                || e.subEnergy > e.onsetSamples * stateMaximumPower || e.midEnergy > e.onsetSamples * stateMaximumPower)
+                return false;
+
+            // 试算：块数按块长封顶；混合损失的两份能量 ≤ 块数 × 每块的样本数 × 功率上界（每块按一段的样本数封顶：跨采样率换算后
+            // 存档采样率下的块可能只剩原来的 1/96）。
+            if (e.trialBlocks > stateMaximumTrialBlocks)
+                return false;
+
+            for (size_t c = 0; c < (size_t) numBlendTrials; ++c)
+                if (e.blendIntended[c] > (double) e.trialBlocks * segmentSamples * stateMaximumPower
+                    || e.blendOutput[c] > (double) e.trialBlocks * segmentSamples * stateMaximumPower)
+                    return false;
+
+            // 进账的部分：两个因子与 m 都是 [0, 1] 的斜坡（钉死的主段度也钳在 [0, 1]）；起伏 = 两个段响度之差；印记非负（与时钟的关系在
+            // restoreState 里查）。
+            if (e.admitted
+                && (! (e.admissionLoudnessFactor >= 0.0f && e.admissionLoudnessFactor <= 1.0f)
+                    || ! (e.admissionLowFactor >= 0.0f && e.admissionLowFactor <= 1.0f)
+                    || ! (e.admissionMainness >= 0.0f && e.admissionMainness <= 1.0f)
+                    || ! (e.newProgramRangeLu >= 0.0f && (double) e.newProgramRangeLu <= 2.0 * stateLoudnessLimitLufs)
+                    || e.mainStamp < 0.0 || e.referenceStamp < 0.0))
+                return false;
+
+            return true;
+        }
+
+        // 按样本计的量换到此刻的采样率（同一段时长；其余的量按秒、按个数存）。换算后放不进原来的整数类型（时间戳接近 int64 两端、
+        // 此刻的采样率荒谬）就算坏数据：不让 llround / roundToInt 越界。
+        bool convertEntryRate (Entry& e, double ratio) const noexcept
+        {
+            constexpr double int64Limit = 9.0e18;   // < 2^63 ≈ 9.22e18
+            constexpr double intLimit = 2.0e9;      // < 2^31 ≈ 2.15e9
+            const auto start = (double) e.start * ratio, end = (double) e.end * ratio, nominal = (double) e.nominalLength * ratio;
+            const auto subBlock = (double) e.subBlockLength * ratio, hop = (double) e.hopLength * ratio;
+
+            if (! (std::abs (start) < int64Limit && std::abs (end) < int64Limit && nominal < int64Limit && subBlock < intLimit && hop < intLimit))
+                return false;
+
+            e.start = (std::int64_t) std::llround (start);
+            e.end = (std::int64_t) std::llround (end);
+            e.nominalLength = (std::int64_t) std::llround (nominal);
+            e.onsetSamples *= ratio;
+            e.subBlockLength = e.subBlockLength > 0 ? juce::jmax (1, juce::roundToInt (subBlock)) : 0;
+            e.hopLength = e.hopLength > 0 ? juce::jmax (1, juce::roundToInt (hop)) : 0;
+            return true;
         }
 
         std::unique_ptr<juce::XmlElement> createState() const
@@ -2732,6 +2946,18 @@ namespace celadon::glaze
 
             xml->setAttribute ("segments", juce::Base64::toBase64 (blob.getData(), blob.getDataSize()));
             return xml;
+        }
+
+        // 读回的计数器的量级与关系（文件头第六节「量级」）：进账过的有效音频 ≤ 段数 × 一段的上界；距上次主段、这一串换歌的有效音频
+        // 都是同一串加法里的一部分（舍入单调，逐位不超过它）；换歌每段至多触发一次；参考时钟只由换歌推进、每次 ≤ maximumLogKeep；
+        // 主段时钟 = 参考时钟再加无主段的衰减（舍入单调，不小于参考时钟）。主段时钟没有上界——衰减按 noMainDecaySeconds 折算，常数可以
+        // 很小——它只以「时钟 − 印记」进 exp，印记与时钟的关系读完段再查。没有进账过的段（冷启动）时全是 0。
+        static bool countersWithinBounds (const Counters& c, std::uint64_t commits) noexcept
+        {
+            return c.activeSeconds <= (double) commits * stateSegmentSeconds && c.secondsSinceMain <= c.activeSeconds
+                && c.runSeconds <= c.activeSeconds && c.newProgramCount <= commits
+                && c.referenceClock <= (double) c.newProgramCount * maximumLogKeep && c.mainClock >= c.referenceClock
+                && (commits > 0 || c.mainClock == 0.0);
         }
 
         bool restoreState (const juce::XmlElement& xml)
@@ -2769,9 +2995,10 @@ namespace celadon::glaze
             count ("window", (std::uint64_t) windowCapacity, window);
             count ("pending", (std::uint64_t) queueCapacity, pending);
 
-            ok = ok && savedRate > 0.0 && c.mainClock >= 0.0 && c.referenceClock >= 0.0 && c.secondsSinceMain >= 0.0 && c.runSeconds >= 0.0
-              && c.activeSeconds >= 0.0 && window <= commits && window == juce::jmin (commits, (std::uint64_t) windowCapacity)
-              && c.runStart <= commits && xml.hasAttribute ("segments");
+            ok = ok && savedRate >= stateMinimumSampleRate && savedRate <= stateMaximumSampleRate && c.mainClock >= 0.0 && c.referenceClock >= 0.0
+              && c.secondsSinceMain >= 0.0 && c.runSeconds >= 0.0 && c.activeSeconds >= 0.0 && window <= commits
+              && window == juce::jmin (commits, (std::uint64_t) windowCapacity) && c.runStart <= commits && countersWithinBounds (c, commits)
+              && xml.hasAttribute ("segments");
 
             if (! ok)
                 return false;
@@ -2781,7 +3008,8 @@ namespace celadon::glaze
             if (! juce::Base64::convertFromBase64 (decoded, xml.getStringAttribute ("segments")))
                 return false;
 
-            // 读进来的段先放进环（顺序同保存时：窗口在前、还没发布的在后），读完全部再换算采样率。
+            // 读进来的段先放进环（顺序同保存时：窗口在前、还没发布的在后）。每段：按格式读 → 查量级（存档采样率下）→ 换算到此刻的采样率
+            // （按样本计的量换成同一段时长；其余都按秒或按个数存）→ 都过了才算派生量（P1F，VAL1 F5）。
             BlobReader in (decoded.getData(), decoded.getDataSize());
             const auto first = commits - window;
             const auto ratio = sampleRate / savedRate;
@@ -2789,19 +3017,25 @@ namespace celadon::glaze
             for (std::uint64_t k = 0; k < window + pending && ok; ++k)
             {
                 auto& e = entryAt (first + k);
-                ok = readEntry (in, e, k < window);
+                ok = readEntry (in, e, k < window) && entryWithinBounds (e, savedRate) && (ratio == 1.0 || convertEntryRate (e, ratio));
 
-                if (ok && ratio != 1.0)
-                {
-                    // 采样率变了：按样本计的量换成新采样率下的同一段时长（其余都按秒或按个数存）。
-                    e.start = (std::int64_t) std::llround ((double) e.start * ratio);
-                    e.end = (std::int64_t) std::llround ((double) e.end * ratio);
-                    e.nominalLength = (std::int64_t) std::llround ((double) e.nominalLength * ratio);
-                    e.onsetSamples *= ratio;
-                    e.subBlockLength = e.subBlockLength > 0 ? juce::jmax (1, juce::roundToInt ((double) e.subBlockLength * ratio)) : 0;
-                    e.hopLength = e.hopLength > 0 ? juce::jmax (1, juce::roundToInt ((double) e.hopLength * ratio)) : 0;
-                }
+                if (ok)
+                    deriveEntry (e);
             }
+
+            // 印记：窗口里按到达先后不减；最新一段的印记就是时钟（admitNewest 把进账之后的时钟记成它的印记，已发布那一份的时钟正是它
+            // 进账之后的）。所以印记 ≤ 时钟，每个全局因子 exp(−(时钟 − 印记)) 都在 [0, 1]——印记比时钟大就会乘出 ∞。
+            double mainBefore = 0.0, referenceBefore = 0.0;
+
+            for (std::uint64_t k = 0; k < window && ok; ++k)
+            {
+                const auto& e = entryAt (first + k);
+                ok = e.mainStamp >= mainBefore && e.referenceStamp >= referenceBefore;
+                mainBefore = e.mainStamp;
+                referenceBefore = e.referenceStamp;
+            }
+
+            ok = ok && (window == 0 || (mainBefore == c.mainClock && referenceBefore == c.referenceClock));
 
             if (! ok || ! in.atEnd())
             {
