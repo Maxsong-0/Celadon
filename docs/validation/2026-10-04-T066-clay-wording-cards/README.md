@@ -21,8 +21,11 @@ T-061 范围外发现挂出的两张后台卡片，Max 2026-10-04 19:4x 同意�
 - **插件测试**（`celadon_tests`，0 警告）：`--only HelpText,HelpTextClay,HelpTextHouse,Localisation` 改后 **5265 过 / 0 败**（`targeted-tests-after.txt`）。
 - **阳性对照**：把改后的树里 `HelpText.cpp` 换回 main 的旧文案、测试保持新的（`targeted-tests-old-control.txt`）：**恰好新加的两条败**（`mono frequency: Auto shows no frequency` 与它的英文版），其余 5263 过；放回新文案全过。
 
-## 没做 / 待定
+## 决定不改（夜间任务，主进程直接定）
 
-- `site/src/content/changelog.ts` 254-255「方案切换」是历史条目，不改历史。
-- 页脚「与插件悬停提示一致」的名实：官网说明页与插件气泡并不逐字相同，是否改成「说的是同一件事」留给 Max。
-- 官网部署 112：见 TASKS（Spark 上没有 112 的 SSH 私钥；`deploy.sh` 还要求 0.1.8.8 的安装包目录；线上站点已迁到 celadonaudio.com，仓库尚未跟进——不先对齐就部署会把线上域名改回去）。
+- `site/src/content/changelog.ts` 254-255「方案切换」是历史条目：更新日志记的是当时发生的事，不改历史。
+- 页脚「说明文字与插件里的悬停提示一致」（`docs.json:105`）：「一致」指内容不互相矛盾，不是逐字相同；T-061 / T-066 把收单、峰值守护、收单频率几处两边对齐之后，说明页与插件气泡没有互相矛盾的地方，句子照旧成立，不改。
+
+## 没做（做不到，不是「待定」）
+
+- 官网部署 112：Spark 上没有 112 的 SSH 私钥（公钥认证被拒）；`deploy.sh` 还要求 0.1.8.8 的安装包目录（现有 release 目录只到 0.1.8.7）；并且线上站点已迁到 celadonaudio.com（10-02 手工改的），仓库尚未跟进——不先对齐就部署会把线上域名改回去。后两条的处理见 TASKS / 日志。
