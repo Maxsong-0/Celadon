@@ -37,10 +37,12 @@ REMOTE=".cache/celadon-win/$(basename "$ROOT")-$KEY"
 if [ "$MODE" = "fetch" ]; then
   DEST="$2"
   mkdir -p "$DEST"
-  # 远端路径经远端 shell 再拆一次词：「Standalone Plugin」的空格要转义（macOS 的 openrsync 没有 --protect-args）。
+  # 「Standalone Plugin」目录名里有空格，远端路径的写法要两种 rsync 都认：openrsync / 旧版 rsync 把远端路径交给远端 shell 再拆一次词
+  # （空格要转义）；rsync ≥ 3.2.4 默认不再拆词，反斜杠成了路径里的字面字符，找不到目录、退出码 23（2026-10-05 Mac 上踩过，Spark 上同样复现）。
+  # 所以用 ? 通配这个空格：前一种由远端 shell 展开，后一种由 rsync 自己展开，都只匹配到那一个目录。
   rsync -a -e "${SSH[*]}" \
     "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/VST3/Celadon.vst3" \
-    "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/Standalone\\ Plugin/Celadon.exe" \
+    "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/Standalone?Plugin/Celadon.exe" \
     "$DEST/"
   # 只取当前版本（Celadon.jucer 的 version）的安装包：服务器上的输出目录里可能还留着旧版本的。
   VERSION="$(sed -n 's/^ *version="\([0-9.]*\)".*/\1/p' "$ROOT/Celadon.jucer" | head -1)"
