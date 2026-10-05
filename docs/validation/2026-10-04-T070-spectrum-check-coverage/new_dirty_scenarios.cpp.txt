@@ -1,0 +1,219 @@
+    // 悬停场景逐像素比时允许的通道差：悬停之后光标列的增量重画与整帧重画在面板最上、最下一行（光标列的左边缘，clip 边界上）各有一个像素差 1 级
+    // （8 位里的 1，肉眼不可见）——只出现在悬停之后、只在 clip 边界与面板边框相交的像素，是 JUCE 软件渲染器裁剪边界的取整，不是残影；
+    // 真正的残影（旧光标、旧曲线没擦掉）差的是几十级以上（S9 的 worst 是 106、S8 的 164），所以悬停场景放 1 级的容差，其余场景一律零容差。
+    constexpr int hoverTolerance = 1;
+
+    // 鼠标移到某个频率上（只有移动，不进不出：频谱仪的悬停只看 mouseMove）。
+    void hoverAt (celadon::ui::SpectrumView& view, float frequency)
+    {
+        const juce::Point<float> at (celadon::ui::SpectrumView::xOf (frequency), 120.0f);
+        view.mouseMove (mouseEvent (view, at, {}, at));
+    }
+
+    // ---- S9（T-058；T-070 起斜率 0 与 4.5 各一份，4.5 是出厂默认；守打开 PEAK 时的重建（R-02 ② 在 T-058 上成了第二道保险，单独撤它 S9 照样全过，
+    // 要验 ② 只能在 main 上撤，见 T-058 证据的 M 变体）；外加「PEAK 关、只剩峰值在落时不重建」）----
+    // 峰值线关、斜率 slopeIndex：6 kHz −12 dBFS 正弦 2 s → 数字静音（暖机，不画）。停播后 OUT 约 0.3 s 落到底边以下、平均线约 1 s 内也落到
+    // 底边以下，峰值保持 1.5 s 后按 12 dB/s 落——5.5 ～ 6.0 s 这 30 帧只剩它在落：PEAK 关着时屏上什么都没变，曲线帧（重建 + 重画曲线区）
+    // 应为 0（main 218789a 每帧一次）。T-070：「不重建」数真的重建（SpectrumView::getCurveBuildCount 的差，评审 F5：原来拿脏区当代理，
+    // 每帧无条件重建、只在判变了时才重画的改法数不出来），脏区里的曲线帧一并数。6.0 s 时 6 kHz 的保持值约 −42 dB（斜率 0 时 y ≈ 114，在响度
+    // 小窗 y ≤ 100 之下），远高于底边上 OUT / 平均线的区域：这时点开 PEAK → 只重画一帧（点击的重画先到）→ 中间不推、紧接着切 B（峰值线清到
+    // 底线）→ 静音 30 帧，每帧都比。点开之后只要推过一帧（下一次判变了的区域含峰值线）、或在稳态正弦里点开（峰值线贴着 OUT 峰顶、被它的区域
+    // 盖住），撤掉 ② 也漏不出来。T-070：停播后鼠标悬停在 6 kHz，光标列与读数框的增量重画也与整帧比（评审 F6）。
+    DirtyScenario peakHoldScenario (int slopeIndex, const juce::String& slopeText)
+    {
+        const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };
+
+        return { [slopeIndex] (SpectrumRig& rig)
+                 {
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     rig.slope->setSelected (slopeIndex, true);
+                 },
+                 [silence] (SpectrumRig& rig, DirtyRun& run)
+                 {
+                     SineSource sine (6000.0, -12.0);
+                     run.warmUp (2 * DirtyRun::framesPerSecond, std::ref (sine));
+                     run.warmUp (210, silence);   // 2.0 ～ 5.5 s
+                     run.sync();
+                     run.tolerance = hoverTolerance;
+                     hoverAt (*rig.view, 6000.0f);
+                     run.repaintOnly ("hover repaint");
+                     juce::String window;   // 计数窗口里的第一个曲线帧（后面切 B 的帧不算）
+                     run.builds = run.countBuilds ([&]
+                                                  {
+                                                      run.counted = run.frames ("silence, peak off", 30, silence);   // 5.5 ～ 6.0 s
+                                                      window = run.firstCurveFrame;
+                                                  });
+
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     run.repaintOnly ("peak on repaint");
+                     rig.editor.setListeningToOriginal (true);
+                     run.frames ("B", 30, silence);
+                     run.firstCurveFrame = window;
+                 },
+                 true,
+                 [slopeText] (const DirtyOutcome& outcome, const CheckFunction& check)
+                 {
+                     check (outcome.noGhosts(),
+                            "T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope " + slopeText
+                                + ", 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; " + outcome.ghostSummary() + ")");
+                     check (outcome.countedAllZero() && outcome.buildsAllZero(),
+                            "T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, slope " + slopeText
+                                + ", silence 5.5 - 6 s: "
+                                + (outcome.error.isNotEmpty() ? outcome.error
+                                                              : outcome.countedText() + " of 30 frames reach the curve area, " + outcome.buildsText()
+                                                                    + " path rebuilds, needs 0" + outcome.firstCurveText())
+                                + ")");
+                 } };
+    }
+
+    // ---- S9b（T-070，评审 F1）：已显示过的视图上 PEAK 开 → 关 ----
+    // 关掉不重建：峰值线靠 setPeakShown(false) 里的整面重画擦掉。T-058 之前峰值保持往下落会每帧判变了、顺手把它擦掉，现在这条 repaint 是唯一的
+    // 手段，撤掉它其他检查都看不出（它们都在第一帧之前把 PEAK 关好，或只测 关 → 开）。PEAK 开着（默认）、斜率 slopeIndex，6 kHz −12 dBFS
+    // 正弦 2 s → 数字静音到 5.5 s（暖机，不画）；这时峰值保持线在 y ≈ 114 附近往下落：先比 30 帧（PEAK 开）→ 点关 → 只重画一帧（点击先到）
+    // → 再比 30 帧静音（PEAK 关）。
+    DirtyScenario peakOffScenario (int slopeIndex, const juce::String& slopeText)
+    {
+        const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };
+
+        return { [slopeIndex] (SpectrumRig& rig) { rig.slope->setSelected (slopeIndex, true); },
+                 [silence] (SpectrumRig& rig, DirtyRun& run)
+                 {
+                     SineSource sine (6000.0, -12.0);
+                     run.warmUp (2 * DirtyRun::framesPerSecond, std::ref (sine));
+                     run.warmUp (210, silence);   // 2.0 ～ 5.5 s
+                     run.sync();
+                     run.frames ("silence, peak on", 30, silence);
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     run.repaintOnly ("peak off repaint");
+                     run.frames ("silence, peak off", 30, silence);
+                 },
+                 true,
+                 [slopeText] (const DirtyOutcome& outcome, const CheckFunction& check)
+                 {
+                     check (outcome.noGhosts(),
+                            "T-070 spectrum incremental repaint == full repaint (S9b: GLAZE 0, slope " + slopeText
+                                + ", 6 kHz -12 dBFS sine 2 s, silence to 5.5 s, 30 frames, peak off, 30 frames; " + outcome.ghostSummary() + ")");
+                 } };
+    }
+
+    // ---- S11（T-070，评审 F4）：IN 虚线开着 ----
+    // T-058 动过 IN 的两处（路径一重建就作废展开好的虚线；比 IN 要先看计算器此刻有没有 IN 的曲线），之前没有任何检查进过 IN。PEAK 关、IN 开、
+    // 斜率 0，合成音乐：暖机 1 s，比 1 s → 斜率换 3 → IN 关 → IN 开，每一步先只重画一帧（点击的重画先到）再比 30 帧。与整帧重画对照；
+    // 「重建时没作废展开好的虚线」这类两边一起错的，由 S12（与全新视图对照）管。
+    DirtyScenario inputScenario()
+    {
+        return { [] (SpectrumRig& rig)
+                 {
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     rig.clickToggle (SpectrumRig::inputToggle);
+                     rig.slope->setSelected (0, true);
+                 },
+                 [] (SpectrumRig& rig, DirtyRun& run)
+                 {
+                     auto& music = rig.session->music;
+                     const SpectrumRig::AudioSource source = [&music] (juce::AudioBuffer<float>& chunk) { music.render (chunk, chunk.getNumSamples()); };
+                     run.warmUp (DirtyRun::framesPerSecond, source);
+                     run.sync();
+                     run.frames ("music, IN on", DirtyRun::framesPerSecond, source);
+                     rig.slope->setSelected (1, true);
+                     run.repaintOnly ("slope 3 repaint");
+                     run.frames ("music, IN on, slope 3", 30, source);
+                     rig.clickToggle (SpectrumRig::inputToggle);
+                     run.repaintOnly ("IN off repaint");
+                     run.frames ("music, IN off", 30, source);
+                     rig.clickToggle (SpectrumRig::inputToggle);
+                     run.repaintOnly ("IN on repaint");
+                     run.frames ("music, IN on again", 30, source);
+                 },
+                 false,
+                 [] (const DirtyOutcome& outcome, const CheckFunction& check)
+                 {
+                     check (outcome.noGhosts(),
+                            "T-070 spectrum incremental repaint == full repaint (S11: GLAZE 0, music, peak off, IN on, slope 0 -> 3, IN off, IN on; "
+                                + outcome.ghostSummary() + ")");
+                 } };
+    }
+
+    // 增量重画检查的场景表（每个场景各起会话；×1 两种口径 + ×2 矩形列表 = 评审 B1 的三种口径）。
+    std::vector<DirtyScenario> dirtyScenarios()
+    {
+        const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };
+
+        return {
+            // ---- S8（T-051；评审 B1 的 S8，守 R-02 ①：paint 里重建路径时把画出的区域并进旧区域）----
+            // 峰值线关（开着时峰值保持把脏区一直撑到峰顶，盖住要找的漏标）、斜率 0，6 kHz −12 dBFS 稳态正弦 12 s（最后 1 s 频谱仪应
+            // 0 帧被标脏：曲线已静止）→ 斜率换 4.5（6 kHz 抬高约 11.6 dB；先只重画一帧，路径在 paint 里重建，见下）→ 切到 B（OUT 清零
+            // 重来，最高的曲线一下子没了）→ 再跑 1 s。每帧都与整帧重画比（不只比切 B 的那一帧）。
+            { [] (SpectrumRig& rig)
+              {
+                  rig.clickToggle (SpectrumRig::peakToggle);
+                  rig.slope->setSelected (0, true);
+              },
+              [] (SpectrumRig& rig, DirtyRun& run)
+              {
+                  SineSource sine (6000.0, -12.0);
+                  const SpectrumRig::AudioSource source = std::ref (sine);
+                  constexpr int steadyFrames = 12 * DirtyRun::framesPerSecond;
+
+                  for (int i = 0; i < steadyFrames; ++i)
+                      if (run.frame ("steady sine", i, source).intersects (rig.area) && i >= steadyFrames - DirtyRun::framesPerSecond)
+                          ++run.counted;
+
+                  // 斜率 0 → 4.5：点击引起的整面重画先到、显示器的帧回调后到，路径在 paint 里重建——这一帧只重画、不推。评审复现时
+                  // （577ded0）setSpectrum 按未加斜率的 dB 判变化，曲线静止时换斜率后下一帧也不重画，等价于这里；T-036 修订（867b454，
+                  // 评审 R-07）改按加斜率后的纵坐标判之后，PEAK 关着也照比的峰值保持数据（压在底边下、还在往下落）换到 4.5 时露出来，
+                  // 先推一帧的话 setSpectrum 当帧就判变了、旧区域跟上了，照原样走 S8 抓不到 R-02 那一类漏标（T-051）。T-058 起 PEAK
+                  // 关着不比峰值线、重建都先换成此刻的值，这一帧的 setSpectrum 不再判变（临时副本里加打印核过），先推一帧也抓得到 ①；
+                  // 照留「只重画」：与 T-051 逐字相同，也正是点击先到的那种顺序。
+                  rig.slope->setSelected (2, true);
+                  run.repaintOnly ("slope 4.5 repaint");
+
+                  rig.editor.setListeningToOriginal (true);
+
+                  for (int i = 0; i < DirtyRun::framesPerSecond; ++i)
+                      run.frame ("B", i, source);
+              },
+              true,
+              [] (const DirtyOutcome& outcome, const CheckFunction& check)
+              {
+                  check (outcome.noGhosts() && outcome.countedAllZero(),
+                         "T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; "
+                             + (outcome.error.isNotEmpty() ? outcome.error
+                                                           : outcome.ghostSummary() + "; spectrum marked dirty in " + outcome.countedText()
+                                                                 + " of the last 60 steady frames, needs 0")
+                             + ")");
+              } },
+
+            peakHoldScenario (0, "0"),
+            peakHoldScenario (2, "4.5"),
+            peakOffScenario (0, "0"),
+            peakOffScenario (2, "4.5"),
+            inputScenario(),
+
+            // ---- 播放（T-058；评审 B1 的第一个场景）：最常见的路径，守 curveRegion 的描边外扩余量与各条线都进区域（峰值线常高出 OUT）----
+            // 峰值线开、斜率默认 4.5，合成音乐暖机 1 s，再比 2 s。只跑 ×1：音乐每帧整块在变，逐帧整帧对照在 ×2 下最贵；撤掉余量或峰值线
+            // 在 ×1 矩形列表下就失败（红绿验证）。repaintCurves 并旧区域它守不住：峰值线区域的顶总在最近的 OUT 之上、每帧只落约 0.6 px，
+            // 新区域本身就盖住了——那一条由 S8 / S9 守（切 B 时曲线一下子清到底）。T-070：鼠标悬停在 3 kHz（光标圆点跟着曲线走，
+            // repaintCurves 补光标那一列；评审 F6）。
+            { [] (SpectrumRig&) {},
+              [] (SpectrumRig& rig, DirtyRun& run)
+              {
+                  auto& music = rig.session->music;
+                  const SpectrumRig::AudioSource source = [&music] (juce::AudioBuffer<float>& chunk) { music.render (chunk, chunk.getNumSamples()); };
+                  run.warmUp (DirtyRun::framesPerSecond, source);
+                  run.sync();
+                  run.tolerance = hoverTolerance;
+                  hoverAt (*rig.view, 3000.0f);
+                  run.repaintOnly ("hover repaint");
+                  run.frames ("music", 2 * DirtyRun::framesPerSecond, source);
+              },
+              false,
+              [] (const DirtyOutcome& outcome, const CheckFunction& check)
+              {
+                  check (outcome.noGhosts(),
+                         "T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5, hover at 3 kHz; "
+                             + outcome.ghostSummary() + ")");
+              } },
+        };
+    }
+

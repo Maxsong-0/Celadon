@@ -897,6 +897,7 @@ namespace celadon::ui
         average = latestAverage;
         peak    = latestPeak;
         inputDashesValid = false;   // IN 虚线由 inputLine 展开：线一重建就作废（原来写在 setSpectrum 与 updateTilt 里）
+        ++curveBuilds;
 
         // OUT 的填充与轮廓同一组点：填充接到右下角、左下角再闭合（T-032 R9-04 ④）。平均线本身已沿频率平滑过两遍（±13 点），
         // 隔一个点取一个看不出差别，描边少一半的段。
