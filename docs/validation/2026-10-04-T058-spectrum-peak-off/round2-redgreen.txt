@@ -1,0 +1,188 @@
+T-058 红绿验证原始输出（代理 C，2026-10-04 PDT，NVIDIA DGX Spark 本机 aarch64 / GCC 13.3 / Release；HOME 指向代理临时目录）。
+做法：临时副本 = git archive 218789a，覆盖本分支的 SpectrumView.{h,cpp}（main 变体用 218789a 的）与最终版 SnapshotMain.cpp（sha256 12a26bd484d19693…）；
+      每个变体用 variants_t058.py 改 SpectrumView.cpp（先断言源码文字对得上）→ spark-test.sh 增量编译 celadon_ui_snapshot → --only check。
+      命令：spark-test.sh <副本> run bash -c 'HOME=<临时>/home XDG_CONFIG_HOME=<临时>/home/.config xvfb-run -a -s "-screen 0 1280x1024x24" "$BUILD/celadon_ui_snapshot" --only check'
+下面每个变体：头两行（变体、三个源文件的 sha256 前 16 位）、编译（警告数、编译了几个文件）、总数，然后是 6 条频谱仪增量 / 新鲜检查的原文（IN 虚线那条从略，都过）。
+同一批变体跑过两轮（第 1 轮用的截图工具只差 S8 一段注释），频谱仪各行两轮逐字相同，只有 V9 的「x1 bounding box」残影帧数 12 / 15 不同：包围盒口径取的是整个编辑器脏区的
+包围盒，含按墙钟下落的电平表，失败时的帧数随之浮动；通过时不受影响（包围盒是矩形列表的超集）。这里是第 2 轮。
+
+### V0-new
+== variant V0-new: base new, mode none; 2026-10-04 17:40:18 PDT
+== SpectrumView.cpp sha256 42d9176d07e16427  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 92 PASS / 0 FAIL; exit 0
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V1-new-no-paint-union
+== variant V1-new-no-paint-union: base new, mode paint-only; 2026-10-04 17:40:33 PDT
+== SpectrumView.cpp sha256 6150868293ef2385  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 91 PASS / 1 FAIL; exit 1
+FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121)) over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V2-new-no-region-peak-in
+== variant V2-new-no-region-peak-in: base new, mode region-only; 2026-10-04 17:41:36 PDT
+== SpectrumView.cpp sha256 9cc5f7afb095a430  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 92 PASS / 0 FAIL; exit 0
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V3-new-no-region-no-force
+== variant V3-new-no-region-no-force: base new, mode region-only+no-force-rebuild; 2026-10-04 17:41:51 PDT
+== SpectrumView.cpp sha256 a735994ba0cdca00  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 90 PASS / 2 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 2417 px, first at device (936, 86)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 6784 px, first at device (1872, 172)) over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+FAIL T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 3829 px differ at the switch, 0 of 30 later frames differ, worst 106, first at (852, 26))
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V4-new-no-force
+== variant V4-new-no-force: base new, mode no-force-rebuild; 2026-10-04 17:42:06 PDT
+== SpectrumView.cpp sha256 111f2e3437b43998  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 91 PASS / 1 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+FAIL T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 3829 px differ at the switch, 0 of 30 later frames differ, worst 106, first at (852, 26))
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V5-new-no-peak-copy
+== variant V5-new-no-peak-copy: base new, mode no-peak-copy; 2026-10-04 17:42:21 PDT
+== SpectrumView.cpp sha256 463f023c846601f0  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 90 PASS / 2 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+FAIL T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 481 px differ at the switch, 0 of 30 later frames differ, worst 106, first at (851, 113))
+FAIL T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 671 px differ at the switch, 0 of 30 later frames differ, worst 106, first at (852, 79))
+
+### V6-new-compare-peak
+== variant V6-new-compare-peak: base new, mode compare-peak-always; 2026-10-04 17:42:35 PDT
+== SpectrumView.cpp sha256 3a03d8e2f6976354  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 91 PASS / 1 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V7-new-no-latest
+== variant V7-new-no-latest: base new, mode no-latest; 2026-10-04 17:42:51 PDT
+== SpectrumView.cpp sha256 33cc279bf2cdfc53  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 91 PASS / 1 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+FAIL T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 1347 px differ at the switch, 15 of 30 later frames differ, worst 242, first at (64, 20))
+
+### V8-new-no-old-area
+== variant V8-new-no-old-area: base new, mode no-old-area; 2026-10-04 17:43:05 PDT
+== SpectrumView.cpp sha256 895787e023da37bd  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 90 PASS / 2 FAIL; exit 1
+FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 603 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 2246 px, first at device (1871, 121)) over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V9-new-no-peak-region
+== variant V9-new-no-peak-region: base new, mode no-peak-region; 2026-10-04 17:43:19 PDT
+== SpectrumView.cpp sha256 36592a4fa3ff2b34  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 90 PASS / 2 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+FAIL T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; x1 rect list 68 frame(s), worst 107 (first: music frame 41: 7 px, first at device (334, 155)); x1 bounding box 15 frame(s), worst 65 (first: music frame 44: 16 px, first at device (335, 155)) over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### V10-new-no-stroke-margin
+== variant V10-new-no-stroke-margin: base new, mode no-stroke-margin; 2026-10-04 17:43:32 PDT
+== SpectrumView.cpp sha256 49a6285e6aba76fc  SpectrumView.h 22ac75378ac73f27  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 90 PASS / 2 FAIL; exit 1
+FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 5 frame(s), worst 54 (first: steady sine frame 2: 3 px, first at device (935, 223)); x1 bounding box 5 frame(s), worst 54 (first: steady sine frame 2: 3 px, first at device (935, 223)); x2 rect list 5 frame(s), worst 108 (first: steady sine frame 2: 4 px, first at device (1871, 447)) over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+FAIL T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; x1 rect list 50 frame(s), worst 50 (first: music frame 70: 3 px, first at device (336, 155)); x1 bounding box 2 frame(s), worst 23 (first: music frame 70: 3 px, first at device (336, 155)) over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### M0-main
+== variant M0-main: base main, mode none; 2026-10-04 17:43:46 PDT
+== SpectrumView.cpp sha256 997ae1ef9732f50a  SpectrumView.h 53a02a329bea59ba  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 91 PASS / 1 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### M1-main-no-region-peak-in
+== variant M1-main-no-region-peak-in: base main, mode region-only; 2026-10-04 17:44:00 PDT
+== SpectrumView.cpp sha256 ad5e01a76a78a4c2  SpectrumView.h 53a02a329bea59ba  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 90 PASS / 2 FAIL; exit 1
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) over 122 frames)
+FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### M2-main-no-paint-union
+== variant M2-main-no-paint-union: base main, mode paint-only; 2026-10-04 17:44:15 PDT
+== SpectrumView.cpp sha256 bd0e82dfbe44da07  SpectrumView.h 53a02a329bea59ba  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 90 PASS / 2 FAIL; exit 1
+FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121)) over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+
+### M3-main-no-r02
+== variant M3-main-no-r02: base main, mode region-only+paint-only; 2026-10-04 17:44:31 PDT
+== SpectrumView.cpp sha256 29ee5fc8d2ff1895  SpectrumView.h 53a02a329bea59ba  SnapshotMain.cpp 12a26bd484d19693
+== build: 0 warning(s); 4 file(s) compiled
+== 89 PASS / 3 FAIL; exit 1
+FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121)) over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) over 122 frames)
+FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at the switch, 0 of 30 later frames differ)
+

@@ -1,0 +1,34 @@
+T-058 探针输出：probe_music_dirty.py 把 --only spectrum-peak-bench 换成「合成音乐 8 s」一个场景（代理 C，2026-10-04 17:4x PDT，DGX Spark，绑 CPU 5）。
+三份 SpectrumView：T-058（music-new）、T-058 撤 R-02 ②（music-new-region-only，variants_t058.py region-only）、main 218789a（music-main）。
+帧数 / 标脏帧 / 曲线帧 / 设备像素不受负载影响；CPU（本线程，ms）是在本机负载约 19 ～ 22 时量的，只作参考（同一像素数的两份之间差到 ~5 %）。
+== music-new：2026-10-04 17:38:58 PDT  17:38:58 up 22:07, 10 users,  load average: 21.66, 14.65, 9.35
+== music-new-region-only：2026-10-04 17:39:20 PDT  17:39:20 up 22:08, 10 users,  load average: 21.05, 14.98, 9.57
+== music-main：2026-10-04 17:39:40 PDT  17:39:40 up 22:08, 10 users,  load average: 18.71, 14.83, 9.64
+
+== music-new
+ music | PEAK off | 60 fps | x1 | fr 480 dirty 479 curves 478 | dev px 73200112 | advance cpu 82.096 | paint cpu 485.657 | cpu 567.753
+ music | PEAK on | 60 fps | x1 | fr 480 dirty 479 curves 478 | dev px 73200112 | advance cpu 82.396 | paint cpu 546.026 | cpu 628.423
+ music | PEAK off | 60 fps | x2 | fr 480 dirty 479 curves 478 | dev px 292800448 | advance cpu 89.427 | paint cpu 1083.439 | cpu 1172.866
+ music | PEAK on | 60 fps | x2 | fr 480 dirty 479 curves 478 | dev px 292800448 | advance cpu 89.489 | paint cpu 1202.042 | cpu 1291.531
+ music | PEAK off | 120 fps | x1 | fr 960 dirty 956 curves 955 | dev px 145097450 | advance cpu 148.819 | paint cpu 805.703 | cpu 954.521
+ music | PEAK on | 120 fps | x1 | fr 960 dirty 956 curves 955 | dev px 145097450 | advance cpu 151.611 | paint cpu 936.624 | cpu 1088.235
+ music | PEAK off | 120 fps | x2 | fr 960 dirty 956 curves 955 | dev px 580389800 | advance cpu 167.632 | paint cpu 1988.253 | cpu 2155.885
+ music | PEAK on | 120 fps | x2 | fr 960 dirty 956 curves 955 | dev px 580389800 | advance cpu 166.691 | paint cpu 2179.774 | cpu 2346.465
+== music-new-region-only
+ music | PEAK off | 60 fps | x1 | fr 480 dirty 479 curves 478 | dev px 65845634 | advance cpu 77.299 | paint cpu 461.728 | cpu 539.027
+ music | PEAK on | 60 fps | x1 | fr 480 dirty 479 curves 478 | dev px 73200112 | advance cpu 78.148 | paint cpu 529.396 | cpu 607.545
+ music | PEAK off | 60 fps | x2 | fr 480 dirty 479 curves 478 | dev px 263382536 | advance cpu 85.834 | paint cpu 1039.081 | cpu 1124.915
+ music | PEAK on | 60 fps | x2 | fr 480 dirty 479 curves 478 | dev px 292800448 | advance cpu 86.559 | paint cpu 1165.455 | cpu 1252.014
+ music | PEAK off | 120 fps | x1 | fr 960 dirty 956 curves 955 | dev px 129892486 | advance cpu 141.749 | paint cpu 770.522 | cpu 912.271
+ music | PEAK on | 120 fps | x1 | fr 960 dirty 956 curves 955 | dev px 145097450 | advance cpu 143.470 | paint cpu 903.564 | cpu 1047.034
+ music | PEAK off | 120 fps | x2 | fr 960 dirty 956 curves 955 | dev px 519569944 | advance cpu 162.675 | paint cpu 1905.391 | cpu 2068.066
+ music | PEAK on | 120 fps | x2 | fr 960 dirty 956 curves 955 | dev px 580389800 | advance cpu 167.358 | paint cpu 2191.031 | cpu 2358.389
+== music-main
+ music | PEAK off | 60 fps | x1 | fr 480 dirty 479 curves 478 | dev px 73200112 | advance cpu 77.281 | paint cpu 464.535 | cpu 541.816
+ music | PEAK on | 60 fps | x1 | fr 480 dirty 479 curves 478 | dev px 73200112 | advance cpu 76.828 | paint cpu 526.436 | cpu 603.264
+ music | PEAK off | 60 fps | x2 | fr 480 dirty 479 curves 478 | dev px 292800448 | advance cpu 86.273 | paint cpu 1054.726 | cpu 1140.999
+ music | PEAK on | 60 fps | x2 | fr 480 dirty 479 curves 478 | dev px 292800448 | advance cpu 86.719 | paint cpu 1167.070 | cpu 1253.789
+ music | PEAK off | 120 fps | x1 | fr 960 dirty 956 curves 955 | dev px 145097450 | advance cpu 142.981 | paint cpu 786.935 | cpu 929.916
+ music | PEAK on | 120 fps | x1 | fr 960 dirty 956 curves 955 | dev px 145097450 | advance cpu 145.029 | paint cpu 920.295 | cpu 1065.324
+ music | PEAK off | 120 fps | x2 | fr 960 dirty 956 curves 955 | dev px 580389800 | advance cpu 162.027 | paint cpu 1934.126 | cpu 2096.153
+ music | PEAK on | 120 fps | x2 | fr 960 dirty 956 curves 955 | dev px 580389800 | advance cpu 163.632 | paint cpu 2162.041 | cpu 2325.672

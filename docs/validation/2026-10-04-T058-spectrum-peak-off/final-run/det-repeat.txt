@@ -1,0 +1,24 @@
+# --deterministic 出图对比 main 的重复运行（2026-10-04 19:17～19:20，Spark 本机，全机锁里）
+# 背景：第一次完整对比（det-diff.txt）30 张里 29 张逐字节相同，zh-glaze90.png 不同（166 个像素，全在设备像素 x 1163～1171、y 95～158，
+# 即右侧「衰减」电平表的填充区；README 写明 --deterministic「两次运行逐像素相同（电平表除外）」，电平表按墙钟下落）。下面重复运行定位：
+
+## 只渲 zh-glaze90，同一个二进制各 3 次（t058_det_repeat.sh）
+base run1 == run2 逐字节相同
+base run1 == run3 逐字节相同
+base run2 == run3 逐字节相同
+final run1 == run2 逐字节相同
+final run1 == run3 逐字节相同
+final run2 == run3 逐字节相同
+base-1 == final-1
+base-2 == final-2
+base-3 == final-3
+
+## 完整 30 张，纯 main 工具与最终工具各 2 次（t058_det_full_repeat.sh）
+base-1 vs base-2（同一个 main 工具两次）：相同 30 张，不同 0 张
+final-1 vs final-2（同一个新工具两次）：相同 30 张，不同 0 张
+base-1 vs final-1：相同 30 张，不同 0 张
+base-2 vs final-2：相同 30 张，不同 0 张
+base-1 vs final-2：相同 30 张，不同 0 张
+完成 19:20:17
+
+# 结论：第一次的 zh-glaze90 差异在后面 5 组完整对比（含同一个二进制两次）与 9 组单图对比里都没有再出现；位置在右侧「衰减」电平表的填充区（按墙钟下落，README 写明确定性出图不含电平表），判为偶发，与频谱仪无关。

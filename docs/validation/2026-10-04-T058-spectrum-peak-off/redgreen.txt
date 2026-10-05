@@ -1,0 +1,43 @@
+变体                                                        S8  S9残影  S9零重建  播放  S10a  S10b  S10c
+V0  T-058                                                 过    过    过    过    过    过    过
+V1  T-058 撤 ①（paint 里重建后不并旧区域）                            败    过    过    过    过    过    过
+V2  T-058 撤 ②（curveRegion 只在开着时算峰值线 / IN 线）               过    过    过    过    过    过    过
+V3  T-058 撤 ② 与打开时的重建                                     过    败    过    过    败    过    过
+V4  T-058 撤打开时的重建                                         过    过    过    过    败    过    过
+V5  T-058 撤 PEAK 关时每帧拷峰值                                  过    过    过    过    败    败    过
+V6  T-058 照旧比峰值线                                          过    过    败    过    过    过    过
+V7  T-058 撤「重建先换成此刻的值」（= 主进程原拟的 P + X1）                   过    过    过    过    过    败    败
+V8  T-058 撤 repaintCurves 并旧区域                            败    败    过    过    过    过    过
+V9  T-058 curveRegion 不算峰值线                               过    败    过    败    过    过    过
+V10 T-058 curveRegion 不按描边外扩                              败    过    过    败    过    过    过
+V11 T-058 撤「悬停读数用此刻的值」                                    过    过    过    过    过    过    败
+M0  main 218789a 的频谱仪 + 新工具                               过    过    败    过    过    过    过
+M1  main 撤 ②                                              过    败    败    过    过    过    过
+M2  main 撤 ①                                              败    过    败    过    过    过    过
+M3  main 撤 ① + ②（= T-051 revert_r02.py all）               败    败    败    过    过    过    过
+
+败的检查原文：
+  V1 S8: FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121)) over 1562 frames; sp
+  V3 S9残影: FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 2417 px, first at device (936, 86)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 6784 px, first at device (1872, 172)) o
+  V3 S10a: FAIL T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 3829 px differ at that moment, 0 of 30 later frames differ, worst 106, first at (852, 26))
+  V4 S10a: FAIL T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 3829 px differ at that moment, 0 of 30 later frames differ, worst 106, first at (852, 26))
+  V5 S10a: FAIL T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 481 px differ at that moment, 0 of 30 later frames differ, worst 106, first at (851, 113))
+  V5 S10b: FAIL T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 671 px differ at that moment, 0 of 30 later frames differ, worst 106, first at (852, 79))
+  V6 S9零重建: FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+  V7 S10b: FAIL T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 1347 px differ at that moment, 15 of 30 later frames differ, worst 242, first at (64, 20))
+  V7 S10c: FAIL T-058 spectrum: the hover readout shows this moment's value (S10c: peak off, slope 0, mouse to 6 kHz, readout area only at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 1106 px differ at that moment, 7 of 30 later frames differ, worst 242, first at (65, 20))
+  V8 S8: FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 603 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 2246 px, first at device (1871, 121)) over 1562 frames; 
+  V8 S9残影: FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) o
+  V9 S9残影: FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) o
+  V9 播放: FAIL T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; x1 rect list 68 frame(s), worst 107 (first: music frame 41: 7 px, first at device (334, 155)); x1 bounding box 14 frame(s), worst 64 (first: music frame 43: 11 px, first at device (333, 156)) over 120 frames)
+  V10 S8: FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 5 frame(s), worst 54 (first: steady sine frame 2: 3 px, first at device (935, 223)); x1 bounding box 5 frame(s), worst 54 (first: steady sine frame 2: 3 px, first at device (935, 223)); x
+  V10 播放: FAIL T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; x1 rect list 50 frame(s), worst 50 (first: music frame 70: 3 px, first at device (336, 155)) over 120 frames)
+  V11 S10c: FAIL T-058 spectrum: the hover readout shows this moment's value (S10c: peak off, slope 0, mouse to 6 kHz, readout area only at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: 1106 px differ at that moment, 7 of 30 later frames differ, worst 242, first at (65, 20))
+  M0 S9零重建: FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+  M1 S9残影: FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) o
+  M1 S9零重建: FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+  M2 S8: FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121)) over 1562 frames; sp
+  M2 S9零重建: FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)
+  M3 S8: FAIL T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60)); x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121)) over 1562 frames; sp
+  M3 S9残影: FAIL T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106 (first: B frame 0: 1399 px, first at device (1871, 346)) o
+  M3 S9零重建: FAIL T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 30 / 30 of 30 frames, needs 0)

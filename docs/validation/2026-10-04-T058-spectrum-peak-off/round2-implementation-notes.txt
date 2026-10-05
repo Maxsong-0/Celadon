@@ -1,0 +1,80 @@
+T-058 证据（实现与检查，代理 C；2026-10-04 17:2x ～ 18:1x PDT，NVIDIA DGX Spark 本机：aarch64，Ubuntu 24.04.5，GCC 13.3，Release）
+分支 claude/goofy-moser-ba4f0f，基于 main 218789a。改前基线与交叉核对见同目录 bench-before.txt / crosscheck-before.txt（代理 A）。
+所有运行都在 spark-test.sh 的全机锁里，HOME / XDG_CONFIG_HOME 指向代理临时目录（没碰 ~/.config/Celadon）。
+
+一、实现（Source/ui/SpectrumView.{h,cpp}；设计细节见 SpectrumView.h 文件头 T-058 段）
+  1. 只比看得见的曲线：changed = IN 出现/消失 || OUT 变 || （IN 有曲线时）IN 变 || 平均线变 || （PEAK 开着时）峰值线变。
+  2. 计算器此刻的值每帧拷进 latestOutput / latestInput / latestAverage / latestPeak（只拷不比，同尺寸赋值不分配）；buildCurvePaths 开头先把
+     它们换进「画出来的那组」再建——setSpectrum 判变了、换斜率或打开 PEAK 后在 paint 里重建，画的都是此刻的曲线。inputDashesValid = false
+     挪进 buildCurvePaths（线一重建虚线就作废）。读数（换斜率、悬停、定时刷新）都用 latestOutput；光标圆点照旧画在画出来的曲线上。
+  3. PEAK 开关收成 setPeakShown：打开时 curvePathsValid = false 再整面重画（paint 里按此刻的值重建、按 R-02 ① 并区域）；关掉只整面重画。
+  4. R-02 ②（curveRegion 不论开关都算峰值线 / IN 线）代码不动，注释改写为「第二道保险」并记下代价（见六）。
+  编译：工作树与临时副本各次编译 0 条警告（-Wall -Wextra -Wshadow -Wconversion）。最后几次改动只动注释：工作树的 celadon_ui_snapshot
+  重编后 sha256 不变（1f56fefed2ac9015…），下面的检查、出图、基准都对应最终源码。
+
+二、截图工具 --only check（本工作树，最终二进制）
+  两遍都是 92 / 92 PASS、退出码 0（main 85 条 + T-051 两条 + T-058 五条）。墙钟 9.95 / 10.78 s（本机负载约 20，见五）。
+  与纯 main 218789a 的截图工具逐行比（数字去掉后）：原有 86 条 PASS / FAIL 行逐字相同（含 S8 那一行），只在 T-051 的 S8 之后多出 5 行：
+    PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, peak on, then B; 0 ghosts over 122 frames)
+    PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, silence 5.5 - 6 s: 0 / 0 of 30 frames, needs 0)
+    PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5; 0 ghosts over 120 frames)
+    PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: ... identical at the switch, 0 of 30 later frames differ)
+    PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: ... identical at the switch, 0 of 30 later frames differ)
+
+三、红绿验证（全文 redgreen.txt；做法：临时副本 git archive 218789a，换 SpectrumView 变体 → 增量编译 → --only check；改法见 variants_t058.py）
+  变体（SpectrumView）                              S8   S9残影  S9零重建  播放  S10a  S10b
+  V0  T-058                                          过    过      过       过    过    过
+  V1  T-058 撤 ①（paint-only）                       败*   过      过       过    过    过
+  V2  T-058 撤 ②（region-only）                      过    过      过       过    过    过     ← ② 在新代码里是第二道保险
+  V3  T-058 撤 ② + 撤打开时的重建                   过    败      过       过    败    过
+  V4  T-058 撤打开时的重建（no-force-rebuild）       过    过      过       过    败    过
+  V5  T-058 撤 PEAK 关时每帧拷峰值（no-peak-copy）   过    过      过       过    败    败
+  V6  T-058 照旧比峰值线（compare-peak-always）      过    过      败 30/30 过    过    过
+  V7  T-058 撤「重建先换成此刻的值」（no-latest）    过    过      过       过    过    败     ← = 主进程原拟的 P + X1
+  V8  T-058 repaintCurves 不并旧区域                  败    败      过       过    过    过
+  V9  T-058 curveRegion 不算峰值线                    过    败      过       败    过    过
+  V10 T-058 curveRegion 不按描边外扩                  败    过      过       败    过    过
+  M0  main 218789a                                   过    过      败 30/30 过    过    过     ← 放回（main 原样）S9 残影通过
+  M1  main 撤 ②                                      过    败      败 30/30 过    过    过
+  M2  main 撤 ①                                      败*   过      败 30/30 过    过    过
+  M3  main 撤 ① + ②（= T-051 revert_r02.py all）     败*   败      败 30/30 过    过    过
+  * 失败文字与 T-051 证据逐字相同：x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60));
+    x2 rect list 6 frame(s), worst 195 (first: B frame 0: 243 px, first at device (1871, 121))。
+  关键失败原文：
+    M1 S9 残影：x1 rect list 30 frame(s), worst 106 (first: B frame 0: 454 px, first at device (935, 173)); x2 rect list 30 frame(s), worst 106
+               (first: B frame 0: 1399 px, first at device (1871, 346))——y 173 − 60 = 113，正是 6.0 s 时峰值线的高度（6 kHz 约 −42 dB）。
+    V3 S9 残影：首个在 (936, 86)，即 PEAK 关期间停在最后一次重建（停播后约 0.3 s）时的旧峰值线（y 26，−12 dB）——没有打开时的重建，
+               画出来的就是它，② 又不在了。
+    V4 / V3 S10a：3829 px differ at the switch, 0 of 30 later frames differ, worst 106, first at (852, 26)（旧峰值线；下一帧判变了就自愈）。
+    V5 S10a / S10b：481 / 671 px differ at the switch，首个在 (851, 113) / (852, 79)——PEAK 关上以后峰值就没再拷过（这里一开始就关，是构造时的
+               底线），打开时的重建把峰值线建在底边；参照的在 y 113（斜率 4.5 时 y 79）。
+    V7 S10b：1347 px differ at the switch, 15 of 30 later frames differ, worst 242, first at (64, 20)——换斜率后按停播后约 0.3 s 时存下的 OUT 重建，
+             露出底边；读数框（换斜率时用画出来的那组值）要等 8 / 30 s 定时刷新才对上。
+  两轮：同一批 15 个变体跑过两遍（第 1 轮截图工具只差 S8 一段注释），频谱仪各行逐字相同；只有 V9 的 x1 包围盒残影帧数 12 / 15 不同——
+  包围盒口径取整个编辑器脏区的包围盒，含按墙钟下落的电平表，失败时帧数会浮动；通过时不受影响。
+  「撤 ② 应失败、放回应通过」：在 main 上成立（M1 败、M0 过）；在 T-058 上只撤 ② 照样过（V2），要连打开时的重建一起撤才败（V3）。
+
+四、S8 的「只重画一帧」还需不需要（probe_s8_advance_first.py，临时副本：T-058 撤 ① + 探针 + S8 改成换斜率后先推一帧）
+  T058PROBE first setSpectrum after tilt: nothing visible differs (changed 0)   ← S8 两个会话各 3 行（编辑器构造时 timerCallback 推的那一帧、
+                                                                                    设斜率 0 后首帧、换斜率 4.5 后那一帧）全是这一行
+  FAIL T-051 spectrum incremental repaint == full repaint (S8: ... x1 rect list 6 frame(s), worst 164 (first: B frame 0: 80 px, first at device (935, 60)); ...)
+  结论：T-051 时换斜率后第一次 setSpectrum 因 PEAK 关着也在比的峰值保持数据露出底边而判变（t051-evidence.txt：peak i 848 shown −94.97），
+  先推一帧就抓不到 ①；T-058 起这一帧什么都不判变，先推一帧也抓得到。S8 照留「只重画」（与 T-051 逐字相同，也是点击先到的那种顺序）。
+
+五、像素（--deterministic）与时长
+  改前 = 纯 218789a（临时副本，sha256 897d8f2bf12b64a1…），改后 = 本工作树：
+    zh-input ×1  be8e64175eefc2f7…（两边相同，与 T-051 证据相同）      zh-input ×2  7e7ae8652e44fabd…（两边相同，与 T-051 相同）
+    zh-default ×2  ac9dd3c8f9d0aaad…（两边相同）
+    zh-default ×1  改前第 1 遍 7bf527d14840cb16…、改后第 1 遍 acf2b0ee479d45d7…：不同的 360 个像素全在 x 32 ～ 39、y 110 ～ 246（左边电平表），
+      频谱仪里 0 个。各再跑两遍：改前 acf2b0… / acf2b0…，改后 acf2b0… / 7bf527…——同一个二进制两种都会出，是电平表按墙钟下落（T-051 已记），
+      不是这次改动。结论：两张状态 × 两种倍率，频谱仪逐字节相同；整张只差电平表的墙钟噪声。（30 种状态 × 两种倍率的完整比对留给验收代理。）
+  --only check 时长：这段时间本机被别的会话占满（编 celadon_tests、ASan 测试、多路 Python，负载 12 ～ 80），纯 main 一遍 8.5 s、改后 8.4 ～ 10.9 s，
+  不能直接比；交替绑核计时已排进全机锁队列（见 fullReport）。估算：S9 两遍 + 播放一遍 + S10 两遍，主要花在每帧整帧对照（S9 122 帧、播放 120 帧）。
+
+六、R-02 ② 的代价（probe_music_dirty.py：--only spectrum-peak-bench 换成「合成音乐 8 s」，帧数与像素不受负载影响）
+  PEAK 关放音乐，设备像素：T-058 73,200,112（60 帧 ×1）/ 145,097,450（120 帧 ×1）；T-058 撤 ② 65,845,634 / 129,892,486 → ② 多 11.2 % / 11.7 %
+  （×2 同比例：292,800,448 vs 263,382,536；580,389,800 vs 519,569,944）。main 与 T-058 在音乐下逐个相同（PEAK 开关两边的帧数、像素都相同：
+  放音乐时 OUT 每帧都在变，不比峰值线省不下重建）。重画 CPU 差约 3 ～ 5 %，与负载噪声同量级（负载约 20）。
+
+七、改前改后基准：见 bench-after.txt（改前改后交替跑；PEAK 关时只因峰值线的重建全部消失，曲线帧减少的数与 A 交叉核对的「只因峰值线」
+  次数逐个相等；PEAK 开的计数与像素与改前逐个相同）。
