@@ -6,8 +6,12 @@ v0.1.8.0 起插件同时支持 Apple Silicon Mac、Intel Mac 与 64 位 Windows�
 ## 目录与 Projucer
 
 - JUCE 9.0.2 放在仓库旁边的 `../JUCE`：`Celadon.jucer` 的模块路径与 CMake 的 `CELADON_JUCE_DIR` 默认值都是它。
-- `Builds/` 由 Projucer 生成，不进版本库。改了 `Celadon.jucer` 之后先重新生成：Projucer 9.0.2 里「Save Project」，
-  或命令行 `Projucer --resave Celadon.jucer`。重新生成后 `JuceLibraryCode/` 应与仓库里的逐字节相同（`git status` 干净）。
+- `Builds/` 由 Projucer 生成，不进版本库，**`git pull` 不会更新它**：拉了新提交（加 / 删源文件、改版本号）或改了 `Celadon.jucer` 之后都要重新生成，
+  否则 Xcode / VS 工程还是旧的——新源文件不进编译，链接报「找不到符号」（2026-10-05 踩过：旧工程不认 `SegmentLedger.cpp`）。
+  Projucer 9.0.2 里「Save Project」，或命令行（在仓库根目录跑；**Projucer 不在 PATH 里，要写全路径**）：
+  `../JUCE/Projucer.app/Contents/MacOS/Projucer --resave Celadon.jucer`（JUCE 下载包自带 `Projucer.app`；自己编的见下一条）。
+  重新生成后 `JuceLibraryCode/` 应与仓库里的逐字节相同（`git status` 干净）；核对：
+  `grep -o 'JucePlugin_Version=[0-9.]*' Builds/MacOSX/Celadon.xcodeproj/project.pbxproj | sort -u` 应与 `Celadon.jucer` 的 `version` 一致（对不上就是旧工程）。
 - Projucer 从 JUCE 源码编：
   `cmake -S ../JUCE -B ../JUCE/build -DJUCE_BUILD_EXTRAS=ON && cmake --build ../JUCE/build --target Projucer --config Release`，
   产物在 `../JUCE/build/extras/Projucer/Projucer_artefacts/Release/`。
@@ -105,7 +109,7 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 
 - 装一次：`ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh`（Wine、msitools、Xvfb、中文字体
   fonts-noto-cjk 要 sudo apt；下载 VS 工具即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
-- 日常：先在 Mac 上 `Projucer --resave Celadon.jucer`（`Builds/VisualStudio2022` 随源码同步过去），然后
+- 日常：先在 Mac 上重新生成工程（命令见上面「目录与 Projucer」；`Builds/VisualStudio2022` 随源码同步过去），然后
   - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
   - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
   - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装、逐字节核对、只选 VST3 重装
