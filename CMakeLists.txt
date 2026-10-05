@@ -194,6 +194,8 @@ add_executable(celadon_tests
     tests/GlazeBehaviourReport.cpp
     tests/MusicAnalyzerTests.cpp
     tests/GlazePlannerTests.cpp
+    tests/GlazeCalibrationTests.cpp
+    tests/Phase2OrchestratorTests.cpp
     tests/GlazeControllerTests.cpp
     tests/GlazeStatusTextTests.cpp
     tests/ClayTests.cpp

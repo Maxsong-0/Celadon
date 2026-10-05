@@ -184,7 +184,7 @@ namespace celadon::test
                 expect (kindOf (reading) == Kind::housePhaseHint);
             }
 
-            beginTest ("readingFromStatus copies the fields the line still uses; planLimited stands in until guardEngaged exists");
+            beginTest ("readingFromStatus copies the phase-2 fields; planLimited does not stand in for guardEngaged");
             {
                 Status status;
                 status.limitedByManual = true;
@@ -194,21 +194,38 @@ namespace celadon::test
                 status.houseActive = true;
                 status.housePhaseHint = true;
                 status.housePhaseMonoLossDb = -1.6f;
-                status.planLimited = true;
+                status.confidence = 0.8f;
+                status.currentMainness = 0.9f;
+                status.guardCause = glaze::GuardCause::budget;
+                status.guardEngaged = true;
+                status.planLimited = false;
 
                 const auto reading = gs::readingFromStatus (status);
                 expect (reading.limitedByManual && reading.houseActive && reading.housePhaseHint);
                 expect (std::abs (reading.protectionDb - (-1.5f)) < 1.0e-5f);
                 expect (std::abs (reading.effectiveTargetLufs - (-9.6f)) < 1.0e-5f);
                 expect (std::abs (reading.housePhaseMonoLossDb - (-1.6f)) < 1.0e-5f);
+                expect (std::abs (reading.confidence - 0.8f) < 1.0e-5f);
+                expect (std::abs (reading.currentMainness - 0.9f) < 1.0e-5f);
                 expect (reading.resolvedStyle == Style::warm);
-                expect (reading.guardEngaged, "planLimited is the stand-in while Status has no guardEngaged");
-                expect (kindOf (reading) == Kind::limitedByManual, "manual still outranks the stand-in guard");
+                expect (reading.guardEngaged && reading.guardCause == GuardCause::budget);
+                expect (kindOf (reading) == Kind::limitedByManual, "manual still outranks the guard line");
 
                 auto guarded = reading;
                 guarded.limitedByManual = false;
                 guarded.housePhaseHint = false;
-                expectEquals (show (guarded), utf8 ("受限 · 已退 1.5 dB"));
+                expectEquals (show (guarded), utf8 ("受限 · 预算 · 已退 1.5 dB"));
+
+                Status legacyFlag;
+                legacyFlag.planLimited = true;
+                legacyFlag.protectionDb = -1.5f;
+                legacyFlag.confidence = 1.0f;
+                legacyFlag.currentMainness = 1.0f;
+                legacyFlag.effectiveTargetLufs = -9.6f;
+                legacyFlag.resolvedStyle = Style::warm;
+                const auto ignored = gs::readingFromStatus (legacyFlag);
+                expect (! ignored.guardEngaged, "Status::guardEngaged is the flag the line reads");
+                expect (kindOf (ignored) == Kind::following);
             }
 
             beginTest ("a view compares equal only when the painted quantities match");

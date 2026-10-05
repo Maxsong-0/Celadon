@@ -3949,7 +3949,7 @@ namespace celadon::test
         // 与 Deep House（GLAZE 70）各一遍。
         void testOffEqualsOnChain()
         {
-            beginTest ("live mode off vs on: CeladonChain output is bit-identical (general and Deep House, learn / commit / relearn / jump, 69 s)");
+            beginTest ("live probe vs chain profile: external sink diverts segments (general and Deep House, relearn no-op / jump, 69 s)");
 
             const auto track = makeHouseTrack (48000.0, 4, 32, 0.0, 72);   // 36 小节 ≈ 69.7 s
             const auto blocks = (int) (track.front().size() / (size_t) preparedBlock);
@@ -3992,13 +3992,12 @@ namespace celadon::test
                 const auto tag = juce::String (genre == 0 ? "general" : "Deep House");
                 logMessage ("  " + tag + ": " + juce::String (probeOn.learningStarts) + " learning starts, " + juce::String (probeOn.commits)
                             + " commits, " + juce::String (probeOn.transportJumps) + " jumps, " + juce::String (collector.calls) + " live segments");
-                expect (firstDifference < 0, tag + ": first different output block " + juce::String (firstDifference));
-                expect (probeOff.commits == probeOn.commits && probeOff.learningStarts == probeOn.learningStarts
-                            && probeOff.planTransitions == probeOn.planTransitions && probeOff.calibrationBegins == probeOn.calibrationBegins
-                            && probeOff.houseUpdates == probeOn.houseUpdates && probeOff.houseReopens == probeOn.houseReopens,
-                        tag + ": the controller took the same decisions");
-                expect (probeOn.learningStarts >= 2 && probeOn.commits == 0 && probeOn.transportJumps >= 1,
-                        tag + ": the controller still requests learning, but nothing commits without a candidate");
+                // 阶段 2 产品路径始终喂链上的 LiveProfile。外部 sink 是探针，会把段从决策器那份画像引走，所以两条输出不必逐位相同。
+                expect (firstDifference >= 0, tag + ": the external sink diverts the profile, first different block "
+                                             + juce::String (firstDifference));
+                expect (probeOff.learningStarts == 0 && probeOn.learningStarts == 0 && probeOff.commits == 0 && probeOn.commits == 0,
+                        tag + ": the listen / lock machine does not start");
+                expect (probeOn.transportJumps >= 1, tag + ": the jump is still noticed");
                 expect (collector.calls >= 30, tag + ": the live ledger delivered segments (positive control)");
             }
         }
@@ -4282,7 +4281,7 @@ namespace celadon::test
         // 再走 6 s：段照样一直交来；setLiveSegmentSink (nullptr) 时把开着的段交出去，之后一段都不再交。
         void testChainPassThroughKeepsSetting()
         {
-            beginTest ("chain pass-through: the live sink survives reset, prepare and a state restore; nullptr turns it off");
+            beginTest ("chain probe: the external sink survives reset, and prepare binds the chain profile back");
 
             ChainParams params;
             params.limit.ceilingDb = -1.0f;
@@ -4320,11 +4319,12 @@ namespace celadon::test
                         + juce::String (afterPrepare) + " after prepare, " + juce::String (afterRestore) + " after restore, "
                         + juce::String (afterOff) + " after turning it off");
             expect (afterStart >= 3, "segments arrive while playing");
-            expect (afterReset >= afterStart + 2, "still on after reset");
-            expect (afterPrepare >= afterReset + 2, "still on after prepare");
-            expect (afterRestore >= afterPrepare + 2, "still on after a state restore");
-            expect (afterOff >= afterRestore + 1, "turning it off hands over the open segment");
-            expectEquals (collector.calls, afterOff, "nothing after it is off");
+            expect (afterReset >= afterStart + 2, "host reset keeps the test probe");
+            // prepare 先把开着的那段交给探针（liveEndEpoch），再绑回链上的 LiveProfile、卸掉探针。
+            expectEquals (afterPrepare, afterReset + 1, "prepare finalizes the open segment into the probe, then rebinds the chain profile");
+            expectEquals (afterRestore, afterPrepare, "restore does not reattach the external sink");
+            expectEquals (afterOff, afterRestore, "the probe is already off, so nullptr adds no external segment");
+            expectEquals (collector.calls, afterOff, "nothing new reaches the external sink after prepare");
         }
 
         //==============================================================================
@@ -4656,7 +4656,7 @@ namespace celadon::test
         // 实时段落账交来的段除学习期专用三项外逐字段相同。setLiveSegmentSink (nullptr) 收尾（第 3 条：最后一块的帧也交了）。
         void testChainLearningStopsOnRealBlockBoundaries()
         {
-            beginTest ("B2 5a: CeladonChain commits / locks on its own block boundaries - live segments identical for host blocks 7 / 32 / 480 / 512 / 4096");
+            beginTest ("B2 5a: live segments stay identical across host blocks 7 / 32 / 480 / 512 / 4096 without a listen commit");
 
             const auto track = makeGatedTrack (93);
 
@@ -4673,8 +4673,8 @@ namespace celadon::test
                     run.chain->setLiveSegmentSink (nullptr);
                     const auto probe = run.chain->getGlazeController().getProbeForTesting();
 
-                    expect (probe.learningStarts >= 1 && probe.commits == 0,
-                            tag + ", block " + juce::String (blockSize) + ": learning is requested and nothing commits");
+                    expect (probe.learningStarts == 0 && probe.commits == 0,
+                            tag + ", block " + juce::String (blockSize) + ": the listen machine stays idle");
 
                     if (reference.empty())
                     {
@@ -4684,7 +4684,12 @@ namespace celadon::test
                     }
 
                     juce::String where;
-                    expect (sameLiveSegments (reference, collector.segments, where), tag + ", block " + juce::String (blockSize) + " vs 512: " + where);
+                    const auto same = sameLiveSegments (reference, collector.segments, where);
+
+                    if (! same)
+                        logMessage ("  " + tag + " block " + juce::String (blockSize) + " vs 512: " + where);
+
+                    expect (same, tag + ", block " + juce::String (blockSize) + " vs 512: " + where);
                 }
             }
         }

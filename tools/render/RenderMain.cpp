@@ -1921,6 +1921,9 @@ namespace
 
         // 消息线程，链 prepare 之后、处理之前（分析器打开实时模式）。passStartSample = 这一遍送进链的第一个样本在歌曲里的位置
         // （从第 N 小节起播时 > 0），追踪的小节号按它换到歌曲的小节网格上（liveTraceRow）。
+        // T-048 阶段 2（Q2）：画像只许链里那一份，--live-trace 改读它的 readCommits / getDiagnostics。
+        // CeladonChain 还没有公开这份画像（编排器代理未合入），这里仍自建 LiveProfile 再 setLiveSegmentSink。
+        // 合入后删掉自建的 sink，attach 改为读链内那一份；对象仍须是链持有的那一个。
         void attach (celadon::CeladonChain& chain, std::int64_t passStartSample = 0)
         {
             passStart = passStartSample;
@@ -2007,7 +2010,8 @@ namespace
         return std::make_unique<LiveTracer> (sampleRate, options.liveConstants, liveModelFor (options, genre), transport);
     }
 
-    // --trace 的校准诊断列（两遍的追踪共用；T-015 / BUG-003「整首停在校准中」由它们查出，列的含义见 README「逐块追踪」）。
+    // --trace 的阶段 1 校准诊断列（两遍的追踪共用；T-015 / BUG-003「整首停在校准中」由它们查出）。
+    // 阶段 2 没有校准轮。这些列跟着 GlazeController 的探针走，探针删掉之后改成 confidence,g_trim_db,protection_db,guard_cause。
     const char* calibrationTraceHeader() noexcept
     {
         return "glaze_phase,cal_round_active,cal_state,cal_interrupt_mask,cal_gate_mask,cal_rounds_done,cal_subwindows,"
@@ -3140,6 +3144,15 @@ namespace
             render && ! replay && row.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks
                 ? fixed (row.clayPeakCostDb, 3) : empty,
             render && ! replay ? fixed (0.1 * (double) row.clayPeakCostBlocks, 1) : empty,
+            // T-048 阶段 2。confidence / current_mainness / cold_export / guard_cause / status_line 在 Status 有这些字段之前留空
+            // （空 confidence：gate_check.py / house_gate.py 仍按 glaze_phase + calibration_valid，旧表输出不变）。
+            // protection_db 先写现有的 g_保护。编排器合入后把前五列填上，门槛改看 c ≥ 0.5。
+            empty,
+            empty,
+            empty,
+            empty,
+            render && ! replay ? fixed (s.protectionDb, 3) : empty,
+            empty,
         };
 
         std::string line;
@@ -3165,7 +3178,8 @@ namespace
                           "trial_mono80_cost_db,trial_mono120_cost_db,trial_mono160_cost_db,trial_width_cost_db,profile_sub_share_db,"
                           "profile_low_corr,trial_seconds,peak_guard_pct,peak_guard_min_gain,slow_inverted_pct,limit_input_peak_db,"
                           "clay_pressure_scale,clay_pressure_steps,replay_check,replay_max_diff_dbfs,music_seconds,trial_blend10_db,"
-                          "trial_blend20_db,clay_blend_loss_db,clay_peak_cost_db,clay_peak_cost_s";
+                          "trial_blend20_db,clay_blend_loss_db,clay_peak_cost_db,clay_peak_cost_s,"
+                          "confidence,current_mainness,cold_export,guard_cause,protection_db,status_line";
 
         if (options.extended)
             csv += std::string (",") + csvExtendedHeader();
@@ -3210,7 +3224,8 @@ namespace
                "「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −" + fixed (-toDbfs (replayTolerance), 0) + " dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
                "重放行的 GLAZE 状态列没有意义（写 replay / 空）。\n"
                "- **有效音乐**：原曲 K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（与校准器同一门限；歌尾静音不算），"
-               "metrics.csv 的 music_seconds。门槛只要求有效音乐 ≥ 30 s 的歌在成品末尾「已锁定 + 校准有效」。\n";
+               "metrics.csv 的 music_seconds。confidence 有数时，门槛要求有效音乐 ≥ 30 s 的歌在成品末尾 c ≥ 0.5；"
+               "格子还空着时仍要求「已锁定 + 校准有效」（阶段 1 编排器）。\n";
     }
 
     std::string makeMarkdown (const Options& options, const std::vector<Combo>& combos,

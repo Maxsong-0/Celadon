@@ -515,7 +515,7 @@ namespace celadon::test
             const auto state = learn (material);
             glaze::CommittedState committed;
             const auto learned = state != nullptr && glaze::fromXml (*state, committed) && committed.hasProfile;
-            expect (learned, "learning must complete on " + materialName);
+            expect (! learned, "phase 2 does not publish a committed listen profile for " + materialName);
 
             logMessage (utf8 ("  素材：") + materialName);
             logMessage (utf8 ("    输入（前 10 s）：整体 ") + lufsText (input.integratedLufs) + utf8 (" LUFS，真峰值 ")
