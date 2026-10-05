@@ -84,6 +84,11 @@ namespace celadon::help
         int widthTenthsDb = 0;       // 高频加宽 × 10，带符号（负 = 收窄，只有手动给得出）
         bool phaseGuard = false;     // 低频反相提示中（只在收单选「自动」时；ADR-015 起不改声音）
         bool widthGuard = false;     // 宽度保护介入中（只算自动态的加宽）
+        // T-074（设计 R4-03）：峰值守护正在深度回收低切 / 收单（Status::clayPeakGuardActive：保留比 Σ(g·d)² / Σd² < 75 % 持续 ≥ 1 s）。
+        // 手动 / 自动都报（手动项恰恰没有别的反馈）；只在低切或收单此刻的实际值不为 0 时置，加宽不经守护、不受它影响。
+        // peakGuardKeptPercent = 保留比取整到 5 %（0 ～ 100；气泡写「实际只剩约 N %」；取整是为了读数不在每帧小幅抖动时让气泡文字白白重拼）。
+        bool peakGuard = false;
+        int peakGuardKeptPercent = 100;
         bool needsRelearn = false;   // 有自动态的项、但已提交画像缺立体声 / 超低频特征（旧工程）：气泡第 3 行提示「重新聆听」
         bool bypassed = false;       // Bypass 修坯：以上各项的值与低频反相提示、宽度保护全清零，第 2 行写「修坯已旁通」
         // ADR-012「先试后用」：该项（自动态）因本曲试过会抬高峰值而被决策器减量 / 否决（Status::clayCostLimitedMask）。

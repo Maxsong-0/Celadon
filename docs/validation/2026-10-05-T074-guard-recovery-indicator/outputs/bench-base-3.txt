@@ -1,0 +1,4 @@
+BENCH offset bass, low cut 20 Hz (guard pulls back most of the time): 21.0429 ns/frame
+BENCH offset bass, low cut 25 Hz + mono 120 Hz (manual-style, guard heavy): 20.9764 ns/frame
+BENCH programme, all stages (30 Hz / 150 Hz x 0.8 / +2 dB): 23.8463 ns/frame
+BENCH programme, all stages neutral (idle fast path): 14.8711 ns/frame

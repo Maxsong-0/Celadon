@@ -1,0 +1,42 @@
+==== 截图 --deterministic 与改前比、真歌渲染第一轮（3 首 × 4 产品，含 wav）progress6.txt ====
+new build (no-op expected) exit=0 08:15:23
+bench base exit=2 08:15:23
+bench new exit=2 08:15:23
+bench second round 08:15:23
+det base exit=0 pngs=30 08:16:02
+det new exit=0 pngs=34 08:16:47
+det compare: base vs new same=30 different=0
+det only in new: en-guard-recovering.png en-guard-tooltip.png zh-guard-recovering.png zh-guard-tooltip.png
+render start 08:16:47
+render done exit=0 08:18:55
+render deep: files base=13 new=13 identical=13 different=0 missing=0
+render tech: files base=13 new=13 identical=13 different=0 missing=0
+render melodic: files base=13 new=13 identical=13 different=0 missing=0
+render wav sha256 lines: base=12 new=12 08:18:57
+done
+
+==== 真歌渲染第二轮（Jamendo 45 首 metrics-only + trace；守护动作过的歌再出 wav）progress10.txt ====
+songs=45 08:19:52
+stage 1 rendered exit=0 08:23:59
+stage 1 compare: csv files identical=225 different=0 missing=0
+stage 1 activity: blocks 2443862, low cut on 138000, guard acted 118116; songs with guard action: 2
+  active track_0046047 blocks 61304 lowcut>0 61304 guard-blocks 51644 guard-samples 25372166
+  active track_0726856 blocks 76696 lowcut>0 76696 guard-blocks 66472 guard-samples 32862598
+stage 2 rendered exit=0 08:25:00
+stage 2 compare: wav files identical=4 different=0 missing=0
+stage 2 sha256 lists identical (4 wavs)
+done
+
+==== 最终候选（全新目录）progress14.txt ====
+build exit=0 steps=152 warnings=0 errors=0 08:45:14
+tests exit=1 ==== celadon_tests: 148470 passed, 5 failed ==== 08:47:59
+check exit=0 PASS=114 FAIL=0 08:48:12
+det exit=0 pngs=34 08:48:56
+det compare: base vs final same=30 different=0
+det: the 4 new pngs identical to the earlier run: 4 of 4
+done
+
+==== 官网构建 progress9.txt ====
+version=0.1.8.8 08:17:09
+build exit=0 08:17:10
+done

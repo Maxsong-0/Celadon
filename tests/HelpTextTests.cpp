@@ -318,6 +318,92 @@ namespace celadon::test
                 expect (lampFor (guarded, ClayStage::width,  bypassed) == ClayLamp::off);
             }
 
+            // 依据：T-074（设计 R4-03，核验 V4）：峰值守护深度回收低切 / 收单（Status::clayPeakGuardActive：保留比 < 50 % 持续 ≥ 1 s）→
+            // 低切、收单两盏灯琥珀；气泡第 2 行最后写「峰值守护回收中：低切 / 收单实际只剩约 N%」（N 取整到 5；只在做着的那几级里点名）；
+            // 手动 / 自动都报（不按三态筛，手动项恰恰没有别的反馈）；低切与收单实际值都为 0 时没有东西可回收、不亮；加宽不经守护、不受影响；旁通清零。
+            beginTest ("Clay peak guard recovery indicator (T-074): amber lamps, the live line says how much is left, any mode, bypass clears it");
+            {
+                const auto with = [] (glaze::Status snapshot, bool active, float kept)
+                {
+                    snapshot.clayPeakGuardActive = active;
+                    snapshot.clayPeakGuardKept = kept;
+                    return snapshot;
+                };
+
+                const auto working = clayStatus (25.0f, 120.0f, 0.8f, 0.8f);   // 低切、收单、加宽都在做
+                const auto plainLine = utf8 ("低切 25 Hz · 120 Hz 以下收单 80% · 高频加宽 +0.8 dB");
+
+                // 阳性对照：不亮时灯是 on、气泡没有这一段（即使保留比读数很低：灯由「回收中」决定，不由读数决定）。
+                expectEquals (liveLineFor (with (working, false, 0.2f)), plainLine);
+                expect (lampFor (with (working, false, 0.2f), ClayStage::lowCut) == ClayLamp::on);
+                expect (lampFor (with (working, false, 0.2f), ClayStage::mono)   == ClayLamp::on);
+
+                // 亮：低切、收单琥珀（加宽照旧）；写保留比（0.42 → 取整到 5 % = 40）。
+                const auto recovering = with (working, true, 0.42f);
+                expect (lampFor (recovering, ClayStage::lowCut) == ClayLamp::guard);
+                expect (lampFor (recovering, ClayStage::mono)   == ClayLamp::guard);
+                expect (lampFor (recovering, ClayStage::width)  == ClayLamp::on);
+                expectEquals (liveLineFor (recovering), plainLine + utf8 (" · 峰值守护回收中：低切 / 收单实际只剩约 40%"));
+                expectEquals (help::clayLiveLine (help::clayReadoutFor (recovering, {}), Language::english),
+                              utf8 ("Low cut 25 Hz \xc2\xb7 Mono 80% below 120 Hz \xc2\xb7 High width +0.8 dB \xc2\xb7 Peak guard pulling back low cut / mono: only about 40% left"));
+
+                // 只点名做着的那几级：只开低切 → 「低切」；只开收单 → 「收单」。
+                expectEquals (liveLineFor (with (clayStatus (25.0f, 80.0f, 0.0f, 0.0f), true, 0.5f)),
+                              utf8 ("低切 25 Hz · 未收单 · 未加宽 · 峰值守护回收中：低切实际只剩约 50%"));
+                expectEquals (liveLineFor (with (clayStatus (0.0f, 120.0f, 1.0f, 0.0f), true, 0.5f)),
+                              utf8 ("未低切 · 120 Hz 以下收单 100% · 未加宽 · 峰值守护回收中：收单实际只剩约 50%"));
+                expect (lampFor (with (clayStatus (25.0f, 80.0f, 0.0f, 0.0f), true, 0.5f), ClayStage::lowCut) == ClayLamp::guard);
+                expect (lampFor (with (clayStatus (25.0f, 80.0f, 0.0f, 0.0f), true, 0.5f), ClayStage::mono)   == ClayLamp::off);
+                expect (lampFor (with (clayStatus (0.0f, 120.0f, 1.0f, 0.0f), true, 0.5f), ClayStage::lowCut) == ClayLamp::off);
+                expect (lampFor (with (clayStatus (0.0f, 120.0f, 1.0f, 0.0f), true, 0.5f), ClayStage::mono)   == ClayLamp::guard);
+
+                // 低切与收单都没在做（只有加宽）：没有东西可回收，即使快照标着「回收中」也不亮、不写。
+                const auto widthOnly = with (clayStatus (0.0f, 80.0f, 0.0f, 0.8f), true, 0.3f);
+                expect (lampFor (widthOnly, ClayStage::width) == ClayLamp::on && lampFor (widthOnly, ClayStage::lowCut) == ClayLamp::off);
+                expectEquals (liveLineFor (widthOnly), utf8 ("未低切 · 未收单 · 高频加宽 +0.8 dB"));
+
+                // 手动 / 关 / 自动都报：三态一律不筛（对照：反相提示与宽度保护按三态筛，见下一条测试）。
+                help::ClayUserState manual;
+                manual.lowCutAuto = false;
+                manual.monoAuto = false;
+                manual.widthAuto = false;
+                expect (lampFor (recovering, ClayStage::lowCut, manual) == ClayLamp::guard);
+                expect (lampFor (recovering, ClayStage::mono, manual)   == ClayLamp::guard);
+                expectEquals (liveLineFor (recovering, manual), liveLineFor (recovering));
+
+                // 与反相提示、宽度保护同时出现：反相 → 宽度 → 峰值守护。
+                const auto all = with (clayStatus (25.0f, 120.0f, 1.0f, 0.0f, true, true), true, 0.25f);
+                expectEquals (liveLineFor (all),
+                              utf8 ("低切 25 Hz · 120 Hz 以下收单 100% · 未加宽 · 低频反相：单声道播放会丢低音 · 宽度保护中 · 峰值守护回收中：低切 / 收单实际只剩约 25%"));
+
+                // 旁通：同一份快照（阳性对照 = 上面的 guard），旁通后只写「修坯已旁通」、三灯全暗。
+                help::ClayUserState bypassed;
+                bypassed.bypassed = true;
+                expectEquals (liveLineFor (recovering, bypassed), utf8 ("修坯已旁通"));
+                expect (lampFor (recovering, ClayStage::lowCut, bypassed) == ClayLamp::off && lampFor (recovering, ClayStage::mono, bypassed) == ClayLamp::off);
+
+                // 保留比取整到 5 %、钳到 0 ～ 100；非有限按 100（不写「只剩 0」）；读数在亮着时才有意义，灭着时记 100。
+                const auto keptPercent = [&] (float kept) { return help::clayReadoutFor (with (working, true, kept), {}).peakGuardKeptPercent; };
+                expectEquals (keptPercent (0.47f), 45);
+                expectEquals (keptPercent (0.48f), 50);
+                expectEquals (keptPercent (0.0f), 0);
+                expectEquals (keptPercent (1.5f), 100);
+                expectEquals (keptPercent (-0.2f), 0);
+                expectEquals (keptPercent (std::numeric_limits<float>::quiet_NaN()), 100);
+                expectEquals (help::clayReadoutFor (with (working, false, 0.1f), {}).peakGuardKeptPercent, 100);
+
+                // 读数相等才不重画：保留比只在 5 % 的台阶上变；亮灭一变读数就不等。
+                expect (help::clayReadoutFor (with (working, true, 0.41f), {}) == help::clayReadoutFor (with (working, true, 0.42f), {}),
+                        "kept ratio within the same 5 % step: identical readout (no repaint)");
+                expect (help::clayReadoutFor (with (working, true, 0.42f), {}) != help::clayReadoutFor (with (working, true, 0.50f), {}));
+                expect (help::clayReadoutFor (with (working, true, 0.42f), {}) != help::clayReadoutFor (with (working, false, 0.42f), {}));
+
+                // 灯条目的第 3 行（界面上显示的那行）讲了新灯色。
+                expect (utf8Contains (thirdLineFor (recovering), "低切 / 收单灯琥珀 = 峰值守护"), "the lamp help explains the amber low cut / mono lamps");
+                expect (tooltipLine (help::clayIndicatorTooltip (help::clayReadoutFor (recovering, {}), Language::english), 2).contains ("amber low cut / mono = the peak guard"),
+                        "the English lamp help explains the amber low cut / mono lamps");
+            }
+
             // 依据：ADR-009 第 4 条、设计规格-Clay-分析决策与验收 第 3 节：宽度保护只管「自动」态的项，「手动」「关」态不受保护改动；
             // 反相提示只在收单「自动」时报（ADR-015；「手动」「关」= 用户接管）——即使快照里标着介入 / 提示，界面也不把它算到手动的项上。
             beginTest ("Clay guards only count for stages in automatic mode");

@@ -862,6 +862,7 @@ namespace celadon::glaze
         float feedbackMaxGainDb = unlimitedGainDb;
         float clayPressureScale = 1.0f;        // 修坯压力反馈（ADR-014）：自动 Clay 三项缩放的目标，随工程保存；新画像（提交）时回到 1
         ClayPressureMonitor clayPressure;      // 压力反馈的监测：峰值块的整段 P99 比（ADR-028）与混合损失（ADR-027）；运行状态，不存档
+        ClayGuardKeepMonitor clayGuardKeep;    // 守护回收指示（T-074）：保留比的平滑与滞回；只影响界面，运行状态，不存档
         float clayScaleRampStart = 1.0f;       // 降档时从此刻的实际缩放线性走到目标（方案过渡同长），不开方案过渡
         std::int64_t clayScaleRampElapsed = 0, clayScaleRampLength = 0;
         ClayPlan clayPlannedUnscaled;          // 上一块方案（含过渡混合）给的自动值，缩放之前（监测只在它有东西可缩时工作）
@@ -3182,6 +3183,10 @@ namespace celadon::glaze
             if (view.musicActive && ! paused && hostPlaying())
                 claySeconds += (double) n / sampleRate;
 
+            // 守护回收指示（T-074，设计 R4-03）：本切片①② 的改动量与守护收回之后剩下的量，平滑出保留比、滞回出「回收中」。手动 / 自动都报：
+            // 不按 GLAZE 活跃、方案源、压力反馈的门走——手动项恰恰没有别的反馈；旁通 / 三项为 0 时 y 与 x 逐位相同、能量为 0，自然不亮。
+            clayGuardKeep.update (stats.clayGuardChangeEnergy, stats.clayGuardKeptEnergy, (double) n / sampleRate, sampleRate);
+
             // 修坯压力反馈（ADR-014）：GLAZE 活跃、方案源支持自动 Clay、缩放还没降到 0 时，按有效音乐累计本切片走完的峰值块
             // （①② 不经守护的处理后与干路的 100 ms 块峰值，ADR-028）：整段的 P99 比——与「先试后用」同口径——持续超过照做的上限
             // → 降一档。旁通 / 三项为 0 时处理后逐位就是干路，代价 0。块与计时都在 ClayModule 从 reset 起的固定网格上（100 ms 块、
@@ -3340,6 +3345,8 @@ namespace celadon::glaze
             s.clayWidthDb = effective.clay.widthDb;
             s.clayPhaseGuardActive = active && manual.claySettings.monoMode == ClayMode::automatic && clayState.phaseActive;
             s.clayWidthGuardActive = active && manual.claySettings.widthMode == ClayMode::automatic && clayState.widthActive;
+            s.clayPeakGuardActive = clayGuardKeep.active();   // T-074：手动 / 自动都报（见 ClayGuardKeepMonitor）
+            s.clayPeakGuardKept = clayGuardKeep.keptFraction();
             s.clayNeedsRelearn = active && anyAutomaticClay (manual.claySettings) && committed.hasProfile
                               && committed.profile.formatVersion < clayProfileFormatVersion;
             // ADR-012「先试后用」：此刻生效方案（含过渡混合）里因代价被减量 / 否决的项，只报「自动」态的、只在 GLAZE > 0 时报
@@ -3564,6 +3571,8 @@ namespace celadon::glaze
 
         if (spec.sampleRate > 0.0 && std::isfinite (spec.sampleRate))
             s.sampleRate = spec.sampleRate;
+
+        s.clayGuardKeep.reset();   // T-074：链整体重建（采样率 / 块长 / 声道数变了），守护的统计从零起
 
         // 分析器只依赖采样率与声道数。两者都没变（处理器只因最大块长变了而整体重建链）：不重建它，当作一次宿主 reset
         // （丢弃跨越的窗口；两块表随链重建，它自己核对计数接上新时间轴），进行中的聆听与重新聆听的候选都保留（v0.6 验收 V2-05）。
@@ -3870,6 +3879,9 @@ namespace celadon::glaze
         p.clayPeakCostDb = s.clayPressure.costDb();
         p.clayPeakCostBlocks = s.clayPressure.blockCount;
         p.clayBlendLossSmoothedDb = s.clayPressure.blendLossDb();
+        p.clayGuardKeepChange = s.clayGuardKeep.change;
+        p.clayGuardKeepKept = s.clayGuardKeep.kept;
+        p.clayGuardKeepBelowSeconds = s.clayGuardKeep.belowSeconds;
         p.savedPlanMode = s.savedPlanMode;
         p.executionSnapshotActive = s.executionHeld;
         p.liveHeatReduction = s.liveHeatReduction;

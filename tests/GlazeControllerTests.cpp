@@ -469,6 +469,61 @@ namespace celadon::test
             return signal;
         }
 
+        // 守护回收指示用的低音素材（T-074；4 s）：M 与 S 各自独立的低频噪声（白噪声过两级 90 Hz 一阶低通），S 比 M 低 10 dB（幅度 0.316），
+        // L = M + S、R = M − S，峰值归一到 0.5（−6 dBFS，远在守护地板 −40 dBFS 之上）。手动收单 120 Hz 去掉 S 的低频：在每个局部峰值上
+        // 守护都没有余量（界 B = 干路自己的局部峰值），效果大半被收回——与 ClayTests 的夹具 B（T-032 R4-02）同一机理、这里不用粉噪声。
+        // 循环播放的接缝处噪声不连续，只有一个样本，不影响统计。
+        Signal makeBassNoiseMidSide (juce::int64 seed)
+        {
+            const auto numSamples = (int) (4.0 * defaultRate);
+            const auto pole = std::exp (-juce::MathConstants<double>::twoPi * 90.0 / defaultRate);
+            juce::Random midNoise (seed), sideNoise (seed + 1);
+            std::vector<double> mid ((size_t) numSamples), side ((size_t) numSamples);
+            double midState[2] {}, sideState[2] {};
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto m = 2.0 * (double) midNoise.nextFloat() - 1.0;
+                const auto s = 2.0 * (double) sideNoise.nextFloat() - 1.0;
+                midState[0] = (1.0 - pole) * m + pole * midState[0];
+                midState[1] = (1.0 - pole) * midState[0] + pole * midState[1];
+                sideState[0] = (1.0 - pole) * s + pole * sideState[0];
+                sideState[1] = (1.0 - pole) * sideState[0] + pole * sideState[1];
+                mid[(size_t) i] = midState[1];
+                side[(size_t) i] = sideState[1];
+            }
+
+            const auto rms = [numSamples] (const std::vector<double>& v)
+            {
+                auto sum = 0.0;
+
+                for (const auto x : v)
+                    sum += x * x;
+
+                return std::sqrt (sum / (double) numSamples);
+            };
+
+            const auto sideGain = 0.316 * rms (mid) / rms (side);
+            auto signal = makeSilence (numChannels, numSamples);
+            auto peak = 0.0;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto m = mid[(size_t) i], s = sideGain * side[(size_t) i];
+                signal[0][(size_t) i] = (float) (m + s);
+                signal[1][(size_t) i] = (float) (m - s);
+                peak = juce::jmax (peak, std::abs (m + s), std::abs (m - s));
+            }
+
+            const auto scale = (float) (0.5 / peak);
+
+            for (auto& channel : signal)
+                for (auto& sample : channel)
+                    sample *= scale;
+
+            return signal;
+        }
+
         // 守护不动作的低音素材（T-043）：单一 60 Hz 稳态正弦（0.3，两声道相同；4 s 里整数周期，循环播放没有接缝）。低切只转它的相位、
         // 不改幅度，峰值的前移（20 Hz 低切在 60 Hz 约 51°，约 2.4 ms）落在守护 ±8 ms 的局部峰值窗里，守护从不动作（ClayTests 稳态单音
         // 那条），混合损失为 0——用作「Clay 开着、守护与压力反馈都不该动」的播放素材。makeClayMaterial 的 60 + 110 Hz 谐波对经低切
@@ -922,6 +977,7 @@ namespace celadon::test
             testClayOldProfileStaysNeutral();
             testClayTransitionBlend();
             testClayGuardThroughController();
+            testClayPeakGuardIndicatorThroughController();
             testClayPressureFeedback();
             testClayPressurePeakCost();
             testClaySnapshotRoundTrip();
@@ -3623,6 +3679,93 @@ namespace celadon::test
                 expect (probe.clayPeakCostBlocks >= glaze::ClayPressureMonitor::minimumBlocks && probe.clayPeakCostDb < 0.0,
                         "the low cut lowers the top peaks: the first trigger's cost is negative");
                 expectEquals (probe.clayPressureSteps, 0, "no step: neither the peak cost nor the blend loss is above its threshold");
+            }
+        }
+
+        // T-074 守护回收指示经链与编排器生效（ClayModule 的保留比统计 → ModuleStats → ClayGuardKeepMonitor → Status::clayPeakGuardActive / Kept）：
+        //   a) 低音噪声（M / S 各自独立）+ GLAZE 0 + 手动收单 120 Hz：守护大半时间在拉（阳性对照：g < 1 的样本很多），保留比 < 75 % 持续 1 s 后状态亮
+        //      （0.5 s 时还没亮：要连续满 1 s）、保留比读数 < 0.75；GLAZE 0 也报——手动项恰恰没有别的反馈；
+        //   b) 同一素材、Clay 全「自动」（GLAZE 0 = 中性）：每一块都不亮、保留比 1（阳性对照：同样的素材与链，只差手动收单）；
+        //   c) 手动收单改回「关」：几秒内熄灭、保留比回到 1；
+        //   d) 稳态 60 Hz 正弦 + 手动低切 20 Hz（守护不动作，g = 1）：不亮、保留比 1——低切在做（实际值 20 Hz）、守护没收，没有东西可指示；
+        //   e) 链整体重建（prepare）：监测器的两份平滑能量与计时清零，不带着旧状态的「亮」继续。
+        // 依据：ClayGuard.h ClayGuardKeepMonitor（75 % / 1 s 亮、85 % / 1 s 熄；2 s 平滑）、设计稿 R4-03、V4（手动收单 78 % 样本被回收、界面全绿）。
+        void testClayPeakGuardIndicatorThroughController()
+        {
+            beginTest ("the peak guard recovery indicator through the chain (T-074): a manually mono-ed bass pulled back by the guard lights the status; neutral Clay and an unguarded tone do not");
+
+            const auto bass = makeBassNoiseMidSide (4407);
+
+            {
+                Rig rig (clayConstants(), bass, defaultParams (0.0f, 3));
+                auto& settings = rig.params.claySettings;
+                settings.monoMode = ClayMode::manual;
+                settings.monoHz = 120.0f;
+                std::int64_t guarded = 0;
+                rig.run (0.5, [&] (int) { guarded += rig.chain.getClayForTesting().getAndResetPeakGuardStats().guardedSamples; });
+                expect (! rig.status().clayPeakGuardActive, "not lit after 0.5 s: the ratio must stay below the line for a full second");
+                rig.run (5.5, [&] (int) { guarded += rig.chain.getClayForTesting().getAndResetPeakGuardStats().guardedSamples; });
+                const auto status = rig.status();
+                logMessage ("  manual mono 120 Hz on independent mid / side bass noise, GLAZE 0: guard g < 1 on " + juce::String (100.0 * (double) guarded / (6.0 * defaultRate), 1)
+                            + " % of samples, kept " + juce::String (status.clayPeakGuardKept, 3) + ", lit " + (status.clayPeakGuardActive ? "yes" : "no"));
+                expect (status.clayMonoAmount == 1.0f && status.clayMonoHz == 120.0f, "the manual mono is what Clay got");
+                expect (guarded > (std::int64_t) (0.3 * 6.0 * defaultRate), "positive control: the guard pulls the mono back on a large share of the samples");
+                expect (status.clayPeakGuardActive, "lit: the guard keeps well under 75 % of the manual mono (GLAZE 0 reports too)");
+                expect (status.clayPeakGuardKept < 0.75f, "the reported keep ratio is below the 75 % line");
+
+                // c) 收单改回「关」：几秒内熄灭、保留比回到 1。
+                settings.monoMode = ClayMode::off;
+                rig.run (6.0);   // 快门约 2 s 看到「没有改动」、再满 1 s 熄
+                const auto after = rig.status();
+                expect (! after.clayPeakGuardActive && after.clayPeakGuardKept > 0.99f, "mono off: the indicator clears and the keep ratio returns to 1");
+            }
+
+            {
+                // b) 阳性对照：同一素材与链，Clay 全「自动」（GLAZE 0：中性）。
+                Rig rig (clayConstants(), bass, defaultParams (0.0f, 3));
+                auto everLit = false;
+                float lowestKept = 1.0f;
+                rig.run (6.0, [&] (int)
+                {
+                    const auto status = rig.status();
+                    everLit = everLit || status.clayPeakGuardActive;
+                    lowestKept = juce::jmin (lowestKept, status.clayPeakGuardKept);
+                });
+                expect (! everLit && lowestKept == 1.0f, "neutral Clay (GLAZE 0, all automatic): never lit, keep ratio always 1");
+            }
+
+            {
+                // d) 守护不动作的稳态单音 + 手动低切：不亮。
+                Rig rig (clayConstants(), makeSine (numChannels, defaultRate, 60.0, 0.5f, 4.0), defaultParams (0.0f, 3));
+                auto& settings = rig.params.claySettings;
+                settings.lowCutMode = ClayMode::manual;
+                settings.lowCutHz = 20.0f;
+                std::int64_t guarded = 0;
+                auto everLit = false;
+                rig.run (6.0, [&] (int)
+                {
+                    guarded += rig.chain.getClayForTesting().getAndResetPeakGuardStats().guardedSamples;
+                    everLit = everLit || rig.status().clayPeakGuardActive;
+                });
+                expect (rig.status().clayLowCutHz == 20.0f, "the manual low cut is what Clay got");
+                expect (guarded < (std::int64_t) (0.01 * 6.0 * defaultRate), "positive control: the guard (almost) never engages on a steady tone");
+                expect (! everLit && rig.status().clayPeakGuardKept > 0.95f, "an unguarded low cut is not flagged");
+            }
+
+            {
+                // e) 链整体重建（prepare：采样率 / 块长 / 声道数变了）：保留比的统计从零起——两份平滑能量与计时清零，不带着旧状态的「亮」继续。
+                Rig rig (clayConstants(), bass, defaultParams (0.0f, 3));
+                auto& settings = rig.params.claySettings;
+                settings.monoMode = ClayMode::manual;
+                settings.monoHz = 120.0f;
+                rig.run (6.0);
+                const auto before = rig.probe();
+                expect (rig.status().clayPeakGuardActive && before.clayGuardKeepChange > 0.0 && before.clayGuardKeepKept > 0.0,
+                        "positive control: lit, with smoothed energy in the monitor");
+                rig.reprepare (defaultRate);
+                const auto after = rig.probe();
+                expect (after.clayGuardKeepChange == 0.0 && after.clayGuardKeepKept == 0.0 && after.clayGuardKeepBelowSeconds == 0.0,
+                        "a rebuilt chain (prepare) starts the guard statistics over");
             }
         }
 

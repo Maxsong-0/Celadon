@@ -40,6 +40,8 @@
 #include "../../Source/ParameterIds.h"
 #include "../../Source/PluginEditor.h"
 #include "../../Source/PluginProcessor.h"
+#include "../../Source/ui/HelpText.h"
+#include "../../Source/ui/ModuleCards.h"
 #include "../../Source/ui/Porcelain.h"
 #include "../../Source/ui/UiSettings.h"
 
@@ -354,6 +356,7 @@ namespace
     int runChecks (Session& session, const juce::File& outDir, float scale);
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
     void runSpectrumBench (int seconds);
     void runSpectrumPeakBench();
@@ -443,6 +446,43 @@ namespace
     {
         s.setParameter (celadon::param::glazeGenre, 1.0f);
         s.setParameter (celadon::param::glazeDelivery, 2.0f);
+    }
+
+    // T-074 修坯守护回收中：手动低切 25 Hz、手动收单 120 Hz 在做，峰值守护把它们的改动量大半收回（保留比 kept，0 ～ 1）。
+    // 界面只按字段渲染（低切 / 收单两盏灯琥珀、气泡第 2 行末尾写还剩多少），这里验的是渲染，不是守护（守护与编排器由 ClayTests / GlazeControllerTests 验）。
+    StatusEdit clayPeakGuard (float kept)
+    {
+        return [kept] (celadon::glaze::Status& status)
+        {
+            status.clayLowCutHz = 25.0f;
+            status.clayMonoHz = 120.0f;
+            status.clayMonoAmount = 1.0f;
+            status.clayPeakGuardActive = true;
+            status.clayPeakGuardKept = kept;
+        };
+    }
+
+    // 把 CLAY 灯的气泡（修坯 · 立体声像与超低频清理：第 2 行是此刻的实际值，守护回收中时末尾多一段）手动弹在 CLAY 卡片的右边缘旁（压在 COLOR
+    // 卡片上，不盖住 CLAY 的灯与数值；锚点在编辑器底部时气泡会翻到上方、盖住行里的字，英文版字多就是这样，所以不用卡片内的锚点）；
+    // 文字取 celadon::help::clayIndicatorTooltip（与界面同一个函数、同一份读数），截图存卡片与气泡。
+    void showClayIndicatorTooltip (Session& s, celadon::Language language, float kept)
+    {
+        using namespace celadon::ui;
+        auto* window = findFirst<juce::TooltipWindow> (*s.editor);
+        auto* card = findFirst<ClayCard> (*s.editor);
+
+        if (window == nullptr || card == nullptr || window->getParentComponent() == nullptr)
+        {
+            std::cout << "FAILED to find the CLAY card or the tooltip window" << std::endl;
+            return;
+        }
+
+        auto status = s.processor->getGlazeStatus();
+        clayPeakGuard (kept) (status);
+        const auto text = celadon::help::clayIndicatorTooltip (celadon::help::clayReadoutFor (status, {}), language);
+        const auto anchor = window->getParentComponent()->localPointToGlobal (card->getBounds().getTopRight() + juce::Point<int> (-16, 60));
+        window->displayTip (anchor, text);
+        s.crop = window->getBounds().getUnion (card->getBounds()).expanded (16).getIntersection (s.editor->getLocalBounds());
     }
 
     // 暂定期间的悬停气泡：取 GLAZE 标题此刻的气泡文字（编辑器定时器按 House 状态换好的那一版），在标题左下方手动弹出；
@@ -555,6 +595,7 @@ int main (int argc, char* argv[])
     // 卡片与位置无关、图小一半。气泡那两张的范围由 showGlazeTooltip 按气泡实际大小定。
     const juce::Rectangle<int> pillCrop { 300, 0, 600, 52 };
     const juce::Rectangle<int> upperCrop { 0, 0, 1200, 560 };
+    const juce::Rectangle<int> cardsCrop { 0, 540, 1200, 280 };   // T-074：下半部分四张模块卡片（CLAY 的灯色在这里）
 
     const State states[] =
     {
@@ -607,6 +648,14 @@ int main (int argc, char* argv[])
 
               s.play (1.5);
           } },
+
+        // ---- T-074 修坯守护回收中：手动低切 / 收单的灯琥珀、气泡写还剩多少（状态字段注入，见 clayPeakGuard）----
+        { "zh-guard-recovering", celadon::Language::chinese, none, [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); }, cardsCrop },
+        { "en-guard-recovering", celadon::Language::english, none, [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); }, cardsCrop },
+        { "zh-guard-tooltip", celadon::Language::chinese, none,
+          [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::chinese, 0.42f); } },
+        { "en-guard-tooltip", celadon::Language::english, none,
+          [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::english, 0.42f); } },
 
         // ---- T-038 曲风与交付 / House 档（曲风 Deep House、交付 俱乐部；House 的状态字段注入，见 injectStatus）----
         // 版面：两个选择在主旋钮左右（代码里的默认位置）与备选位置（挪到 GLAZE 标题行），整张。
@@ -1053,9 +1102,103 @@ namespace
 
         failures += runCacheChecks (session, check);
         runSpectrumChecks (check);   // T-051：失败由 check 计入
+        runClayGuardChecks (check);   // T-074：失败由 check 计入
 
         std::cout << (failures == 0 ? "all interaction checks passed" : juce::String (failures) + " interaction checks FAILED") << std::endl;
         return failures;
+    }
+
+    //==============================================================================
+    // T-074 修坯守护回收指示：CLAY 卡片在真编辑器里画出来的灯与数。
+    // 界面只按状态字段渲染（Status → clayReadoutFor → ClayCard::setReadout → paint）；HelpTextTests 验前两步的函数，这里验最后一步：
+    //   ① 标志开着，低切、收单两行的灯与数值是琥珀色，加宽行（不经峰值守护）不变；
+    //   ② 标志变了会重画——setReadout 靠 ClayReadout::operator== 判「没变就不画」，漏比较守护字段时低切 / 收单的值没变、灯就不会跟着变；
+    //   ③ 标志关掉后灯回到原样。
+    // 同一个编辑器、同一份「低切 25 Hz、收单 120 Hz 在做」的状态，守护标志 关 → 开 → 关 各把 CLAY 卡片画成图（1 倍），数灯那一列（x 10 ～ 26，圆点在
+    // 14 ～ 21）里灯色（palette::warning，各通道容差 8）的像素，与数值那一列（x 29 ～ 125）里偏橙（红减蓝 ≥ 60）的像素——数值字是小号抗锯齿字，
+    // 整个字色（palette::warningText）的像素寥寥无几，正常时的字色（紫 / 青 / 灰）红都小于蓝，所以用「偏橙」判；行带是 y = 46 + 47 i 起 42 px
+    //（ClayCard::rowBounds）。开着：低切行、收单行的灯各 ≥ 15 个（7 px 的实心圆约 38 个，抗锯齿后留一大半）、数值字各 ≥ 15 个，加宽行两样都是 0；
+    // 关着（开之前、开之后）：三行两样都是 0。
+    void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+
+        auto session = makeSession (0.0f);
+        auto& editor = *session->editor;
+        auto* card = findFirst<ClayCard> (editor);
+
+        if (card == nullptr || editor.getWidth() != CeladonAudioProcessorEditor::baseWidth)
+        {
+            check (false, "T-074 CLAY card: the card was not found, or the editor does not open at zoom 1 (needs to be 1200 px wide)");
+            return;
+        }
+
+        struct Counts
+        {
+            int lamp[3] {}, text[3] {};   // 每行（低切 / 收单 / 加宽）的灯色像素数、字色像素数
+        };
+
+        const auto isClose = [] (juce::Colour pixel, juce::Colour wanted)
+        {
+            return std::abs ((int) pixel.getRed() - (int) wanted.getRed()) <= 8
+                && std::abs ((int) pixel.getGreen() - (int) wanted.getGreen()) <= 8
+                && std::abs ((int) pixel.getBlue() - (int) wanted.getBlue()) <= 8;
+        };
+
+        const auto isOrangeish = [] (juce::Colour pixel)
+        {
+            return (int) pixel.getRed() - (int) pixel.getBlue() >= 60;
+        };
+
+        const auto area = editor.getLocalArea (card, card->getLocalBounds());
+
+        const auto draw = [&] (bool guardActive)
+        {
+            injectStatus (*session, [guardActive] (celadon::glaze::Status& status)
+            {
+                clayPeakGuard (0.42f) (status);
+                status.clayPeakGuardActive = guardActive;
+            });
+
+            const auto image = editor.createComponentSnapshot (area, true, 1.0f);
+            Counts counts;
+
+            for (int row = 0; row < 3; ++row)
+            {
+                for (int y = 46 + 47 * row; y < 46 + 47 * row + 42; ++y)
+                {
+                    for (int x = 10; x < 26; ++x)
+                        counts.lamp[row] += isClose (image.getPixelAt (x, y), palette::warning) ? 1 : 0;
+
+                    for (int x = 29; x < 125; ++x)
+                        counts.text[row] += isOrangeish (image.getPixelAt (x, y)) ? 1 : 0;
+                }
+            }
+
+            return counts;
+        };
+
+        const auto describe = [] (const Counts& c)
+        {
+            return "lamps " + juce::String (c.lamp[0]) + " / " + juce::String (c.lamp[1]) + " / " + juce::String (c.lamp[2])
+                 + ", value text " + juce::String (c.text[0]) + " / " + juce::String (c.text[1]) + " / " + juce::String (c.text[2]);
+        };
+
+        const auto allZero = [] (const Counts& c)
+        {
+            return c.lamp[0] + c.lamp[1] + c.lamp[2] + c.text[0] + c.text[1] + c.text[2] == 0;
+        };
+
+        const auto before = draw (false);
+        const auto during = draw (true);
+        const auto after = draw (false);
+        const auto lit = during.lamp[0] >= 15 && during.lamp[1] >= 15 && during.text[0] >= 15 && during.text[1] >= 15
+                      && during.lamp[2] == 0 && during.text[2] == 0;
+
+        check (allZero (before) && lit && allZero (after),
+               "T-074 CLAY card: with the peak guard pulling back, the low cut and mono lamps and values turn amber and the width row does not; "
+               "they go back when it stops (amber pixels per row, low cut / mono / width: guard off " + describe (before) + "; on " + describe (during)
+                   + "; off again " + describe (after) + ")");
     }
 
     //==============================================================================
