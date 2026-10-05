@@ -45,6 +45,9 @@ Playwright 全站运行时横扫（46 路由 × 13 屏宽 320 ～ 1920，598 页
 
 ## 没做 / 限制
 
-- 只在 Linux Chromium 量过；Safari / Firefox 没有这个取整问题（本来按未取整的步进排），`geometricPrecision` 对它们无影响，但没实测。
+- ~~只在 Linux Chromium 量过；Safari / Firefox 没有这个取整问题，`geometricPrecision` 对它们无影响，但没实测。~~ **更正（T-069，2026-10-04 夜）**：这句没有根据，当时没实测。T-069 在 Spark 上装了 Playwright 的 Firefox 153 与 WebKit 26.5，
+  按 `sweep.mjs --engine` 量了（屏宽 320 / 375 / 768 / 1440 × 46 路由）：Firefox 命中 0；**WebKit 有一处重叠**——CLAY 帧页眉的标题与说明重叠 17.3 个单位（改前改后的 main 都有）：
+  WebKit 的 `getComputedTextLength()` 不算 `letter-spacing`（标题字距 0.18em × 32 字，少算约 70 个单位），`Frame` 据此以为同一行放得下。T-069 改用 `getBBox().width`（`lib/svgMeasure.ts`），三个引擎一致。详见 `../2026-10-04-T069-site-svg-hardening/`。
 - **部署 112**：先问 Max；Spark 现在连不上 112。
-- 复现：`sweep.mjs` 里 Playwright 的路径写死成本机 `~/.npm/_npx/…`，源码对位读 `../base/site`；`shoot-*.mjs` 同。
+- 复现：`sweep.mjs` 里 Playwright 的路径默认是本机 `~/.npm/_npx/…`、源码对位默认读 `../base/site`，T-069 起可用环境变量 `PLAYWRIGHT_DIR`、`SWEEP_SITE` 改；`shoot-*.mjs` 仍写死。
+  T-069 起 `sweep.mjs` 另有 `--engine chromium|firefox|webkit`、`--half`（处理前 / 后各 50 % 同时可见）与「文字离图形太近」（`near-shape`）检查。

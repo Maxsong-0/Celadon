@@ -1,8 +1,11 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { Chapter } from './Eyebrow';
 import { WrappedText } from './SvgText';
+import { PROCESS_FRAME } from '@/lib/figureBudget';
+import { measureTextWidth } from '@/lib/svgMeasure';
 import { cn, prefersReducedMotion, seeded } from '@/lib/utils';
 
 // 文字（名称、动作、导语、要点）在 i18n 的 home 命名空间 process.stages.<key>；这里只留结构。
@@ -190,7 +193,7 @@ function StageText({ s }: { s: (typeof stages)[number] }) {
 
 /* ---------------- 四张示意图 ---------------- */
 
-const W = 640;
+const W = PROCESS_FRAME.viewBoxWidth;
 const H = 440;
 
 /** only：只画这一张并停在「处理后」（减少动效时的竖排）。 */
@@ -221,10 +224,11 @@ function StageVisuals({ only }: { only?: number }) {
 }
 
 // 每张图的页眉：标题左起 x = 40，说明右对齐到 x = 600，平时共用分隔线上方 y = 44 这一行。
-// 两段字有多宽事先不知道：说明随语言变，而且 Chromium 把 SVG 字宽按屏幕像素取整，同一段字随缩放比浮动约 ±8%。
+// 两段字有多宽事先不知道：说明随语言变（英文常比中文宽一倍以上）。index.css 给 svg text 开了 geometricPrecision，字宽不再随屏幕缩放比浮动，
 // 所以按实际渲染出来的宽度排：中间留得出 FRAME_GAP 就同一行；留不出就把标题上移一行，说明和分隔线原地不动（图的内容不受影响）。
-const FRAME_LEFT = 40;
-const FRAME_RIGHT = W - 40;
+// 说明自己比整条页眉（FRAME_RIGHT − FRAME_LEFT）还宽时这里兜不住：文案预算由 scripts/check-svg-text.mjs 在构建时守。
+const FRAME_LEFT = PROCESS_FRAME.margin;
+const FRAME_RIGHT = W - PROCESS_FRAME.margin;
 const FRAME_BASELINE = 44;
 const FRAME_LEAD = 18; // 标题上移一行时的行距
 const FRAME_GAP = 24; // 同一行时标题与说明之间至少留 2 em
@@ -234,7 +238,7 @@ function frameFitsOneRow(titleWidth: number, noteWidth: number) {
   return FRAME_LEFT + titleWidth + FRAME_GAP <= FRAME_RIGHT - noteWidth;
 }
 
-/** 量两段字实际渲染的宽度，返回能否同一行；字体加载完、SVG 尺寸变了（字宽跟着缩放比变）都重量。 */
+/** 量两段字实际渲染的宽度，返回能否同一行；字体加载完（字宽随字体变）、SVG 从 display: none 变成可见（之前量出来是 0）都重量。 */
 function useFitsOneRow(titleRef: RefObject<SVGTextElement | null>, noteRef: RefObject<SVGTextElement | null>, title: string, note: string) {
   const [oneRow, setOneRow] = useState(true);
   useLayoutEffect(() => {
@@ -242,14 +246,19 @@ function useFitsOneRow(titleRef: RefObject<SVGTextElement | null>, noteRef: RefO
     const noteEl = noteRef.current;
     const svg = titleEl?.ownerSVGElement;
     if (!titleEl || !noteEl || !svg) return;
-    const measure = () => setOneRow(frameFitsOneRow(titleEl.getComputedTextLength(), noteEl.getComputedTextLength()));
-    measure(); // 首次绘制前就排好，不闪
-    const resize = new ResizeObserver(measure);
+    const measure = (sync: boolean) => {
+      const fits = frameFitsOneRow(measureTextWidth(titleEl), measureTextWidth(noteEl));
+      if (sync) flushSync(() => setOneRow(fits)); // ResizeObserver / 字体回调不在提交阶段里：同步提交，赶在下一次绘制之前
+      else setOneRow(fits);
+    };
+    measure(false); // layout effect 里的更新在绘制前同步提交，首帧就是排好的，不闪
+    const onChange = () => measure(true);
+    const resize = new ResizeObserver(onChange);
     resize.observe(svg);
-    document.fonts.addEventListener('loadingdone', measure);
+    document.fonts.addEventListener('loadingdone', onChange);
     return () => {
       resize.disconnect();
-      document.fonts.removeEventListener('loadingdone', measure);
+      document.fonts.removeEventListener('loadingdone', onChange);
     };
   }, [titleRef, noteRef, title, note]);
   return oneRow;
@@ -334,8 +343,8 @@ function ClayVisual() {
       <g data-before>
         <path d={band(before)} fill="url(#pv-fill)" stroke="#33B3C4" strokeWidth="1" />
         <rect x="60" y={mid - 60} width="24" height="120" fill="#E8590C" opacity="0.18" />
-        {/* 标签放在频带左上角之上：原来压在频带下沿的描边上（中英都被穿过）。 */}
-        <text x="60" y={mid - 94} style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#C2410C' }}>{t('process.visual.infrasonic')}</text>
+        {/* 标签放在频带左上角之上：原来压在频带下沿的描边上（中英都被穿过）；x 在低切虚线（x = 70，处理后）右边，滚动停在半程、两态同时可见时也不被它穿过。 */}
+        <text x="76" y={mid - 94} style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#C2410C' }}>{t('process.visual.infrasonic')}</text>
       </g>
       <g data-after>
         <path d={band(after)} fill="url(#pv-fill)" stroke="#127F90" strokeWidth="1.2" />
