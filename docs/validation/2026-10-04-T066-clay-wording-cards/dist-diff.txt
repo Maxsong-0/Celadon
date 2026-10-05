@@ -1,0 +1,35 @@
+只在改前 17 行，只在改后 17 行
+  - - **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average
+  - - **频谱仪**：20 Hz ～ 20 kHz 对数横轴、−84 ～ −3 dB。OUT 填充（听原声时就是原声，按响度上色）、白线 = 平均、深青细线 = 峰值保持、虚线 = IN，三者可开关。显示斜率 0 / 3 / 4.5 dB/oct（绕 1 kHz，默认 4.5）。修坯在处理时画出低切与收单频率。悬停读数「dB | Hz | 
+  - - CLAY 三项在「自动」时由方案决定，GLAZE 0 时不处理；「手动」时 GLAZE 0 也生效；「关」永远不处理。
+  - - CLAY's three controls on Auto are decided by the plan and do nothing at GLAZE 0; on Manual they work even at GLAZE 0; Off never processes.
+  - - While CLAY is working, it draws the low-cut and mono frequencies; hovering shows “dB | Hz | note + cents”.
+  - - 修坯在处理时画出低切与收单频率；悬停显示「dB | Hz | 音名 + 音分」。
+  - Below the three rows is a 10 Hz – 1 kHz mini graph: the slope below the low cut, the mono region, and the stereo region above it.
+  - GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat, and LIMIT's Gain / Clip. CLAY's three controls and the automatic options under Advanced f
+  - GLAZE 联动 7 项：BALANCE 的回补 / 抑制、COLOR 的音调 / 粘合 / 热度、LIMIT 的增益 / 削波。CLAY 的三项与「高级」里的自动项也随它走（见下）。
+  - Three-mode semantics: Auto = decision-maker + real-time protection, doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GL
+  - | **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in
+  - | **收单频率** 40 ～ 300 Hz | 这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效，这里显示的是此刻的实际值。 | 80 ～ 150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。 |
+  - | Auto | Decision-maker + real-time protection: acts only when this song really has a problem and a trial run shows it won't raise the peaks; does nothing at GLAZE 0 |
+  - | Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection changes it. In Manual the value can be dragged |
+  - | 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改它。「手动」时数值可拖 |
+  - | 自动 | 决策器 + 实时保护：只在这首歌真有问题、且试过不会抬高峰值时才动；GLAZE 为 0 时不处理 |
+  - 三态语义：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改它。
+  + - **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average
+  + - **频谱仪**：20 Hz ～ 20 kHz 对数横轴、−84 ～ −3 dB。OUT 填充（听原声时就是原声，按响度上色）、白线 = 平均、深青细线 = 峰值保持、虚线 = IN，三者可开关。显示斜率 0 / 3 / 4.5 dB/oct（绕 1 kHz，默认 4.5）。修坯在处理时画出正在生效的低切频率与（手动）收单频率。悬停读数
+  + - CLAY 的低切与加宽在「自动」时由方案决定，GLAZE 0 时不处理；收单在「自动」下从不收，只在低频反相时亮琥珀灯提醒；「手动」时 GLAZE 0 也生效；「关」永远不处理。
+  + - CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out
+  + - While CLAY is working, it draws the low-cut frequency and, when Mono is on Manual, the mono frequency; hovering shows “dB | Hz | note + cents”.
+  + - 修坯在处理时画出正在生效的低切频率与（手动）收单频率；悬停显示「dB | Hz | 音名 + 音分」。
+  + Below the three rows is a 10 Hz – 1 kHz mini graph: the hatching below the low cut, the mono region, and the stereo region above it.
+  + GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat, and LIMIT's Gain / Clip. CLAY's three controls (Mono never folds the lows on Auto, it onl
+  + GLAZE 联动 7 项：BALANCE 的回补 / 抑制、COLOR 的音调 / 粘合 / 热度、LIMIT 的增益 / 削波。CLAY 的三项（收单在「自动」下从不收，只提醒）与「高级」里的自动项也随它走（见下）。
+  + Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never p
+  + | **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in
+  + | **收单频率** 40 ～ 300 Hz | 这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。 | 80 ～ 150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。 |
+  + | Auto | Decision-maker + real-time protection: acts only when this song really has a problem and a trial run shows it won't raise the peaks (Mono is the exception: on Au
+  + | Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono step aside at
+  + | 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变；加宽不经守护）。「手动」时数值可拖 |
+  + | 自动 | 决策器 + 实时保护：只在这首歌真有问题、且试过不会抬高峰值时才动（收单例外：自动态不收单，只在低频反相时亮琥珀灯提醒）；GLAZE 为 0 时不处理 |
+  + 三态语义：自动 = 决策器 + 实时保护（收单例外：自动态不收单，只提醒），GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变）。

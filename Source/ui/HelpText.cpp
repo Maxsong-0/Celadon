@@ -444,10 +444,10 @@ namespace celadon::help
 
             { param::clayMonoHz,
               "收单 · 低频收成单声道",
-              "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效，这里显示的是此刻的实际值。",
+              "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。",
               "80～150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。",
               "Mono · lows to mono",
-              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used and the display shows the actual value.",
+              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto does not mono, so no mono frequency is shown here).",
               "80–150 Hz is common; above 200 Hz guitars and keys get narrower too." },
 
             { param::clayWidthMode,
@@ -475,7 +475,7 @@ namespace celadon::help
               "Use it to compare with and without Clay." },
 
             // 三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯）：气泡第 2 行在界面上换成此刻的实际值（clayIndicatorTooltip），这里的第 2 行
-            // 是静态说明（无实时数据时的底稿）；第 3 行照常显示，所以灯色的含义写在第 3 行。
+            // 界面上从不显示（只作官网说明页首句的同源底稿，T-061）；第 3 行照常显示，所以灯色的含义写在第 3 行。
             { uiid::clayIndicator,
               "修坯 · 立体声像与超低频清理",
               "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",

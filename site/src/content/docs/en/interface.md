@@ -10,7 +10,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 
 - **IN / OUT meters**: true peak measured with 8× interpolation (dBTP); the number below is the peak hold — click it to reset. OUT shouldn't exceed the Ceiling; if it does, it turns orange.
 - **GR meter**: how many dB the limiter is pulling down right now. If it stays above 6 dB for long stretches, Gain is pushed too far.
-- **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average, thin dark cyan line = peak hold, dashed line = IN; each can be turned on or off. Display slope 0 / 3 / 4.5 dB/oct (pivoting at 1 kHz, 4.5 by default). While CLAY is working, it draws the low-cut and mono frequencies. Hovering reads out “dB | Hz | note + cents”.
+- **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average, thin dark cyan line = peak hold, dashed line = IN; each can be turned on or off. Display slope 0 / 3 / 4.5 dB/oct (pivoting at 1 kHz, 4.5 by default). While CLAY is working, it draws the low-cut frequency and, when Mono is on Manual, the mono frequency. Hovering reads out “dB | Hz | note + cents”.
 - **Loudness panel** (top right): integrated loudness, short-term (S), true-peak maximum (TP), peak-to-loudness ratio (PLR), the streaming normalisation amount (against −14) and the target loudness marker.
 
 ## Middle row

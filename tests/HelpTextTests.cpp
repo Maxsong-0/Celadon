@@ -587,6 +587,25 @@ namespace celadon::test
                             "indicator (English): same");
                 }
             }
+
+            // 依据：ADR-015（自动不收单）与 T-066：收单频率这一行在「自动」下不收单、不显示收单频率；原句「这里显示的是此刻的实际值」
+            // 读起来像自动也有一个收单频率。官网 clay.md 的收单频率行与它同源。
+            // 阳性对照：对改前的 HelpText.cpp（5620af1）这两条都不过。
+            beginTest ("Clay mono frequency (ADR-015): Auto does not mono, so no frequency is shown");
+            {
+                const auto* entry = help::find (param::clayMonoHz);
+                expect (entry != nullptr, "the mono frequency entry exists");
+
+                if (entry != nullptr)
+                {
+                    expect (utf8Contains (utf8 (entry->effect), "（自动不收单，这里不显示收单频率）")
+                              && ! utf8Contains (utf8 (entry->effect), "这里显示的是此刻的实际值"),
+                            "mono frequency: Auto shows no frequency");
+                    expect (juce::String (entry->effectEn).contains ("Auto does not mono, so no mono frequency is shown here")
+                              && ! juce::String (entry->effectEn).contains ("the display shows the actual value"),
+                            "mono frequency (English): same");
+                }
+            }
         }
     };
 

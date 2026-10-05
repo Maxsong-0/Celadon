@@ -72,7 +72,7 @@ namespace celadon::ui
         gain, ceiling, clip, release, lookahead, limitReduction, autoChip, auditioningDifference, auditionDifferenceNote,
 
         // ---- 高级面板 ----
-        advancedClay, advancedClayNote, comingSoon, subprojectLoudNotHarsh, subprojectTargetSpectrum, subprojectReleaseSafety,
+        comingSoon, subprojectLoudNotHarsh, subprojectTargetSpectrum, subprojectReleaseSafety,
         advancedSubtitle, harshNote, harshStrength, transientPreserve, harshReduction, harshAutoNote, harshOffNote, harshManualNote,
         targetNote, targetWarm, targetNeutral, targetBright, targetReference, targetStrength, targetCurveTitle,
         referenceLearn, referenceCancel, referenceClear, referenceIdle, referenceWaiting, referenceLearning, referenceReady, referenceRouting,
