@@ -2076,8 +2076,8 @@ namespace celadon::test
             p = resolveAuto (-3.0f, 120.0f, 0.5f, 1.0f, 50.0f);
             expectEquals (p.lowCutHz, 0.0f, "negative low cut = off");
 
-            // 收单比例为 0（方案本身为 0，或负值钳到 0）：分频点没有意义，交中性 80 Hz——决策器给的 120 Hz、旧快照缺字段时的
-            // 0 Hz（钳制本会给 40 Hz）都不会让模块的分频点动起来。−0 归成 +0。
+            // 收单比例为 0（方案本身为 0，或负值钳到 0）：分频点没有意义，交中性 80 Hz——方案里的 120 Hz、坏数据里无意义的 0 Hz
+            // （钳制本会给 40 Hz）都不会让模块的分频点动起来（ADR-015 起自动方案的分频点恒为默认 80 Hz）。−0 归成 +0。
             p = resolveAuto (22.0f, 120.0f, 0.0f, 1.0f, 50.0f);
             expectEquals (p.monoHz, 80.0f, "amount 0: crossover meaningless -> neutral 80 Hz");
             p = resolveAuto (22.0f, 0.0f, -0.2f, 1.0f, 50.0f);
