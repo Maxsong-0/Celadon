@@ -1,0 +1,25 @@
+en-advanced.png            3494 px differ outside the meter columns, bbox x 84..499 y 80..293
+en-default.png            19428 px differ outside the meter columns, bbox x 85..1115 y 80..297
+en-help.png                8226 px differ outside the meter columns, bbox x 84..839 y 80..297
+en-house-hint.png          9369 px differ outside the meter columns, bbox x 90..1115 y 80..297
+en-house-layout.png        9580 px differ outside the meter columns, bbox x 90..1115 y 80..297
+en-house-tip.png              6 px differ outside the meter columns, bbox x 14..256 y 1..8
+en-release.png             3954 px differ outside the meter columns, bbox x 84..499 y 80..297
+zh-advanced.png            3330 px differ outside the meter columns, bbox x 84..499 y 80..293
+zh-audition.png            4293 px differ outside the meter columns, bbox x 148..1115 y 80..297
+zh-default.png            33016 px differ outside the meter columns, bbox x 84..1115 y 80..297
+zh-glaze0.png             21636 px differ outside the meter columns, bbox x 95..1115 y 80..297
+zh-glaze90.png            44806 px differ outside the meter columns, bbox x 84..1115 y 80..297
+zh-house-hint.png          8318 px differ outside the meter columns, bbox x 90..1115 y 80..297
+zh-house-layout.png       10398 px differ outside the meter columns, bbox x 90..1115 y 80..297
+zh-house-tip.png            174 px differ outside the meter columns, bbox x 0..299 y 0..8
+zh-input.png              12401 px differ outside the meter columns, bbox x 84..1115 y 144..297
+zh-original.png           13522 px differ outside the meter columns, bbox x 84..1115 y 80..297
+zh-preview.png              635 px differ outside the meter columns, bbox x 154..313 y 80..90
+zh-reduced.png            10614 px differ outside the meter columns, bbox x 84..1115 y 80..297
+zh-settings.png            9902 px differ outside the meter columns, bbox x 84..855 y 80..297
+zh-target.png              2816 px differ outside the meter columns, bbox x 84..499 y 80..279
+zh-truepeak.png           20642 px differ outside the meter columns, bbox x 84..1115 y 80..297
+zh-zoom150.png            25074 px differ outside the meter columns, bbox x 126..1673 y 122..446
+zh-zoom70.png             10513 px differ outside the meter columns, bbox x 59..781 y 56..208
+6 images identical (meter columns masked on full-size ones), 24 differ

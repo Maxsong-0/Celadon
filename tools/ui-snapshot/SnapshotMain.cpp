@@ -28,7 +28,9 @@
       --only digest 打印逐位摘要（瓷面参照实现 renderGlaze 的 200 种组合、静态背景的 4 种像素比）：改动前后各跑一次逐行比，
       应当逐位不变的项一字不差。
       --deterministic：出图时播放不跑消息循环（编辑器 / 胶囊 / 旋钮的定时器不按墙钟插进来），两次运行逐像素相同（电平表除外），
-      用于改前改后逐像素对比；听原声那张图的瓷面因此还没换成去色版（换图靠主旋钮的定时器）。
+      用于改前改后逐像素对比；听原声那张图的瓷面因此还没换成去色版（换图靠主旋钮的定时器）。T-072 起编辑器定时器里的看门狗
+      （垂直同步 100 ms 没来就按墙钟补推频谱仪）在第一次 advanceForSnapshot 之后整个关掉：单帧耗时 ≥ 100 ms（慢机、Debug、机器被占满）
+      也不会让频谱仪按墙钟多走一步、出图随机器快慢变（--only check 里有一条守它，见 probeTimerPush）。
 
   ==============================================================================
 */
@@ -2912,6 +2914,34 @@ namespace
         return { std::abs (shown - expected) <= 0.011f, detail };
     }
 
+    // ---- T-072（T-070 评审 F9）：截图工具驱动的编辑器，定时器的看门狗不按墙钟补推频谱仪 ----
+    // 编辑器平时由垂直同步推频谱仪，垂直同步 100 ms 没来就由 30 Hz 定时器接着推；离屏没有垂直同步，截图工具用 advanceForSnapshot 自己按给定时长推。
+    // 改前只靠「把最近一次垂直同步记成现在」让看门狗以为垂直同步还活着：最后一次 advanceForSnapshot 之后过 100 ms，或那一帧自己耗时 ≥ 100 ms
+    // （慢机、Debug、机器被占满），看门狗就按墙钟再推一次，OUT / 峰值保持按墙钟落，出图随机器快慢变。这里：6 kHz −12 dBFS 正弦 0.5 s（每帧 1 / 60 s
+    // 音频 + advanceForSnapshot），最后一帧之后让消息循环跑 300 ms（定时器约触发 9 次，每次离最近一帧都 ≥ 100 ms）：频谱仪的路径重建次数不得再增加
+    // ——离屏没有对等体、没有垂直同步回调，能推频谱仪的只剩看门狗。改前（main 43d788b 的编辑器）这 300 ms 里看门狗按墙钟推、OUT 往下落，实测重建 2 次。
+    ProbeResult probeTimerPush()
+    {
+        SpectrumRig rig (0.0f);
+
+        if (! rig.isValid())
+            return { false, "spectrum view, its legend toggles or the slope control not found" };
+
+        rig.attach();   // 编辑器设成可见（挂记账缓存图）：定时器照常跑
+        SineSource sine (6000.0, -12.0);
+
+        for (int i = 0; i < 30; ++i)
+        {
+            rig.feed (rig.samplesForFrame (60), std::ref (sine));
+            rig.advance (1.0 / 60.0);
+        }
+
+        const auto before = rig.view->getCurveBuildCount();
+        dispatchEvents (300);
+        const auto rebuilds = rig.view->getCurveBuildCount() - before;
+        return { rebuilds == 0, juce::String ((int) rebuilds) + " path rebuilds in 300 ms of message loop after the last advanceForSnapshot, needs 0" };
+    }
+
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check)
     {
         using namespace celadon::ui;
@@ -3031,6 +3061,11 @@ namespace
         reportProbe (probeInput(), "S12 probe IN dashes");
         reportProbe (probeHoverReadout (0), "S12 probe hover readout, slope 0");
         reportProbe (probeHoverReadout (2), "S12 probe hover readout, slope 4.5");
+
+        // 截图模式下定时器的看门狗不补推（T-072，T-070 评审 F9，见 probeTimerPush）。
+        const auto timerPush = probeTimerPush();
+        check (timerPush.ok, "T-072 spectrum: an editor driven by advanceForSnapshot is not advanced by its own timer (6 kHz -12 dBFS sine 0.5 s, then 300 ms of message loop: "
+                                 + timerPush.detail + ")");
     }
 }
 

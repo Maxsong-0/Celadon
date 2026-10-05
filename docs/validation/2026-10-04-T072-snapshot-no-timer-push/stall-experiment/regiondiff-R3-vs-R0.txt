@@ -1,0 +1,1 @@
+22 full-size images compared (8 crops skipped): 0 differ in the spectrum panel
