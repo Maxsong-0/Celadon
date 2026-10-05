@@ -17,12 +17,11 @@
 namespace celadon::ui
 {
     // 「GLAZE 智能母带 [跟随]」：阶段标签跟状态行的那一条走（起步、保持、跟随、受限……）。
-    // T-078 的「待校准 / Awaiting」留在 Chip::awaiting，七条状态行不改用它。
     class GlazeTitle  : public juce::Component,
                         public juce::SettableTooltipClient
     {
     public:
-        enum class Chip { manual, manualLimit, phase, coldExport, limited, starting, holding, following, awaiting };
+        enum class Chip { manual, manualLimit, phase, coldExport, limited, starting, holding, following };
 
         GlazeTitle();
 

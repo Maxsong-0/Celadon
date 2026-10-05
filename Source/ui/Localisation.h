@@ -63,7 +63,6 @@ namespace celadon::ui
         hintDrag, hintClick, fine,
         legendManual, legendAuto, legendAttention,
         chipManual, chipManualLimit, chipPhase, chipExport, chipLimited, chipStarting, chipHolding, chipFollowing,
-        chipAwaiting,
 
         // ---- 模块卡片 ----
         describeClay, describeBalance, describeColor, describeLimit, bypassModule, bypassedModule,

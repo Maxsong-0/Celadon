@@ -258,8 +258,6 @@ namespace celadon::test
                 expectEquals (ui::tr (Text::legacyDiscarded, Language::chinese), utf8 ("旧的聆听结果已丢弃，声音会变"));
                 expectEquals (ui::tr (Text::legacyDiscarded, Language::english),
                               juce::String ("The old listening result was discarded, so the sound will change"));
-                expectEquals (ui::tr (Text::chipAwaiting, Language::chinese), utf8 ("待校准"));
-                expectEquals (ui::tr (Text::chipAwaiting, Language::english), juce::String ("Awaiting"));
             }
         }
     };
