@@ -1,0 +1,37 @@
+运行                引擎                      状态    页        SVG  <text>  命中  命中类型                                                                     贴近
+Chromium·改前       chromium 151.0.7922.34  —     598/598  468  3973    0   —                                                                        94
+Chromium·改后       chromium 151.0.7922.34  —     598/598  468  3973    0   —                                                                        90
+Chromium·改后·减少动效  chromium 151.0.7922.34  减少动效  26/26    312  1456    0   —                                                                        19
+Chromium·改前·半程    chromium 151.0.7922.34  半程    26/26    234  1456    12  overlap×2, text-over-shape/shape×6, text-over-shape/crosses-container×4  41
+Chromium·改后·半程    chromium 151.0.7922.34  半程    26/26    234  1456    10  overlap×2, text-over-shape/shape×4, text-over-shape/crosses-container×4  39
+Firefox·改前        firefox 153.0           —     184/184  144  1224    0   —                                                                        92
+Firefox·改后        firefox 153.0           —     184/184  144  1224    0   —                                                                        88
+WebKit·改前         webkit 26.5             —     184/184  144  1224    1   overlap×1                                                                92
+WebKit·改后·未修测量    webkit 26.5             —     184/184  144  1224    1   overlap×1                                                                91
+WebKit·改后         webkit 26.5             —     184/184  144  1224    0   —                                                                        89
+
+贴近（near-shape，文字离图形 < 6 个单位，最坏值）在「改前 → 改后」两次运行（覆盖范围相同）之间有变化的组（GlazeKnob 的读数在动画、每次不同，不列）：
+  [Chromium·改前 → Chromium·改后]
+    en AlgoTeaser 陆·公开算法 COLOR ｜Light = linked gain · dark = per-ban：4.18 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Infrasonic：5.52 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut：4.5 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut ：None → 4.5
+    zh ProcessSection 四道工序示意图 帧 CLAY｜次声：5.52 → None
+  [Chromium·改前·半程 → Chromium·改后·半程]
+    en AlgoTeaser 陆·公开算法 COLOR ｜Light = linked gain · dark = per-ban：4.18 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Infrasonic：5.52 → 5.5
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut：4.5 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut ：None → 4.5
+    zh ProcessSection 四道工序示意图 帧 CLAY｜次声：5.52 → 5.5
+  [Firefox·改前 → Firefox·改后]
+    en AlgoTeaser 陆·公开算法 COLOR ｜Light = linked gain · dark = per-ban：4.18 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Infrasonic：5.52 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut：4.5 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut ：None → 4.5
+    zh ProcessSection 四道工序示意图 帧 CLAY｜次声：5.52 → None
+  [WebKit·改前 → WebKit·改后]
+    en AlgoTeaser 陆·公开算法 COLOR ｜Light = linked gain · dark = per-ban：4.18 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Infrasonic：5.52 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut：4.5 → None
+    en ProcessSection 四道工序示意图 帧 CLAY｜Low cut ：None → 4.5
+    zh ProcessSection 四道工序示意图 帧 CLAY｜次声：5.52 → None

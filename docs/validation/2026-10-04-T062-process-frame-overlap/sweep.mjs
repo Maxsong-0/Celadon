@@ -1,5 +1,8 @@
 // 全站运行时实测 SVG 文字重叠 / 越界 / 压图形（Playwright，只读量，不改站点）。
-// 用法：node sweep.mjs [--base URL] [--concurrency 4] [--routes /,/zh] [--widths 375,1024] [--out result.json] [--reduced] [--dry-run]
+// 用法：node sweep.mjs [--base URL] [--concurrency 4] [--routes /,/zh] [--widths 375,1024] [--out result.json] [--reduced] [--half] [--engine chromium|firefox|webkit] [--dry-run]
+//   --engine：用哪个浏览器引擎量（默认 chromium；firefox / webkit 要先 `playwright install`，T-069 起）。
+//   --half：首页「四道工序」处理前 / 处理后两态各 50 % 不透明度同时可见（滚动停在半程的样子），两态里的字也互相查（T-069）。
+// 环境变量：PLAYWRIGHT_DIR（playwright 包目录，默认本机 ~/.npm/_npx/…）、SWEEP_SITE（源码对位用的 site 目录，默认 ../base/site）。
 //   --reduced：模拟系统「减少动效」（首页四帧改为竖排四张 SVG、图停在处理后）。
 //   --dry-run：只打印要量的「路由 × 屏宽」清单，不开浏览器（预演）。
 // 产物：<out>（汇总 + 去重命中）与 <out 去掉 .json>-raw.json（每页每个 SVG 的逐行量值）。
@@ -9,11 +12,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require('/home/maxsong/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
+const pw = require(process.env.PLAYWRIGHT_DIR || '/home/maxsong/.npm/_npx/e41f203b7505f1fb/node_modules/playwright');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 源码对位用构建基线站点的那份源码（main fbe91f3 的副本，与 dist 同源）；工作树里的文件可能正被别的会话改着，行号会漂。
-const SITE = path.resolve(HERE, '../base/site');
+const SITE = process.env.SWEEP_SITE ? path.resolve(process.env.SWEEP_SITE) : path.resolve(HERE, '../base/site');
 
 /* ---------------- 常量与配置（集中一处） ---------------- */
 
@@ -45,6 +48,7 @@ const CFG = {
   nearGap: 12, // 同一行水平间距 < 12 单位 = 贴近
   oobTol: 0.5, // 超出 viewBox 的容差
   shapeDepthMin: 1.5, // 图形压进字形盒的深度 ≥ 1.5 单位才算「明显遮挡」
+  nearShapeGap: 6, // 图形离字形盒（四边取最大偏离，比欧氏距离略严）< 6 单位 = 贴近（T-069；不到 1.5 的压入也算在内）
   fitTight: 6, // 框内文字离框边 < 6 单位 = 太挤
   fullVbRatio: 0.85, // 面积 ≥ 85 % viewBox 的矩形当底图（网格），不算图形也不当容器
   stepAlong: 0.75, // 沿描边取样步长（单位）
@@ -67,6 +71,8 @@ function parseArgs(argv) {
     else if (k === '--widths') (a.widths = v.split(',').map(Number)), i++;
     else if (k === '--out') (a.out = v), i++;
     else if (k === '--reduced') a.reduced = true;
+    else if (k === '--half') a.half = true;
+    else if (k === '--engine') (a.engine = v), i++;
   }
   return a;
 }
@@ -144,7 +150,7 @@ async function pageFontsReady({ id, zh, waitCjkMs }) {
 }
 
 function pageMeasureSvg(p) {
-  const { id, asc, desc, shapeDepthMin, stepAlong, stepGrid, fullVbRatio } = p;
+  const { id, asc, desc, shapeDepthMin, stepAlong, stepGrid, fullVbRatio, halfState, nearShapeGap } = p;
   const svg = document.querySelector(`svg[data-sweep-id="${id}"]`);
   if (!svg) return { error: 'svg-missing' };
   if (!svg.getClientRects().length) return { error: 'display-none-at-measure' };
@@ -177,7 +183,8 @@ function pageMeasureSvg(p) {
     return { visual: v ? v.getAttribute('data-visual') : null, phase: el.closest('[data-before]') ? 'before' : el.closest('[data-after]') ? 'after' : null };
   };
   // 互斥：不同 data-visual 的帧（GSAP 交替显隐），或一个在 data-before、一个在 data-after（渐变替换的两态）
-  const exclusive = (a, b) => (a.visual !== null && b.visual !== null && a.visual !== b.visual) || (a.phase !== null && b.phase !== null && a.phase !== b.phase);
+  // half：处理前 / 处理后两态同时可见（半程），不再互斥
+  const exclusive = (a, b) => (a.visual !== null && b.visual !== null && a.visual !== b.visual) || (!halfState && a.phase !== null && b.phase !== null && a.phase !== b.phase);
   const vbArea = vb ? vb.w * vb.h : Infinity;
   const tagOf = el => el.tagName.toLowerCase();
 
@@ -289,6 +296,7 @@ function pageMeasureSvg(p) {
   /* 每行：所在的框（Box 一类）与离框边的余量；压在别的图形上的深度 */
   const fits = [];
   const shapeHits = [];
+  const nearShapes = [];
   lines.forEach((L, idx) => {
     const G = L.glyph;
     const lg = { visual: L.visual, phase: L.phase };
@@ -314,12 +322,13 @@ function pageMeasureSvg(p) {
     }
     if (L.halo) return; // 带底色描边的标签是有意压在虚线框上的（把线断开），不查压图形
     const Gs = { x0: G.x0 + 0.5, y0: G.y0 + 0.5, x1: G.x1 - 0.5, y1: G.y1 - 0.5 };
+    const Gn = { x0: G.x0 - nearShapeGap, y0: G.y0 - nearShapeGap, x1: G.x1 + nearShapeGap, y1: G.y1 + nearShapeGap }; // 贴近判定的外扩盒
     for (const s of shapes) {
       if (s.background) continue;
       if (container && s === container.r) continue;
       if (exclusive(lg, s.grp)) continue;
       const b = s.box;
-      if (b.x1 < Gs.x0 || b.x0 > Gs.x1 || b.y1 < Gs.y0 || b.y0 > Gs.y1) continue;
+      if (b.x1 < Gn.x0 || b.x0 > Gn.x1 || b.y1 < Gn.y0 || b.y0 > Gn.y1) continue;
       let depth = -Infinity;
       let strokePts = 0;
       let fillArea = 0;
@@ -336,40 +345,39 @@ function pageMeasureSvg(p) {
           for (let k = 0; k <= n; k++) {
             const q = s.el.getPointAtLength((k * len) / n).matrixTransform(s.m);
             const d = Math.min(q.x - G.x0, G.x1 - q.x, q.y - G.y0, G.y1 - q.y) + half;
-            if (d > 0) {
-              strokePts++;
-              if (d > depth) depth = d;
-            }
+            if (d > 0) strokePts++;
+            if (d > depth) depth = d; // 负值 = 在盒子外面，绝对值是离得多远（四边取最大偏离）
           }
         }
       }
       if (s.hasFill) {
         const inv = s.m.inverse();
-        const ix0 = Math.max(b.x0, G.x0);
-        const ix1 = Math.min(b.x1, G.x1);
-        const iy0 = Math.max(b.y0, G.y0);
-        const iy1 = Math.min(b.y1, G.y1);
+        const ix0 = Math.max(b.x0, Gn.x0);
+        const ix1 = Math.min(b.x1, Gn.x1);
+        const iy0 = Math.max(b.y0, Gn.y0);
+        const iy1 = Math.min(b.y1, Gn.y1);
         for (let x = ix0 + stepGrid / 2; x < ix1; x += stepGrid) {
           for (let y = iy0 + stepGrid / 2; y < iy1; y += stepGrid) {
             const q = new DOMPoint(x, y).matrixTransform(inv);
             if (s.el.isPointInFill(q)) {
-              fillArea += stepGrid * stepGrid;
               const d = Math.min(x - G.x0, G.x1 - x, y - G.y0, G.y1 - y);
+              if (d > 0) fillArea += stepGrid * stepGrid;
               if (d > depth) depth = d;
             }
           }
         }
       }
       if (depth >= shapeDepthMin) shapeHits.push({ line: idx, shape: s.desc, paint: s.paint, shapeVisual: s.grp.visual, shapePhase: s.grp.phase, depth: r2(depth), strokePts, fillArea: r2(fillArea) });
+      else if (depth > -nearShapeGap) nearShapes.push({ line: idx, shape: s.desc, paint: s.paint, shapeVisual: s.grp.visual, shapePhase: s.grp.phase, gap: r2(Math.max(0, -depth)) });
     }
   });
 
-  return { scale: r2(scale * 1000) / 1000, vb, visible, overflow, lines, fits, shapeHits, nShapes: shapes.length };
+  return { scale: r2(scale * 1000) / 1000, vb, visible, overflow, lines, fits, shapeHits, nearShapes, nShapes: shapes.length };
 }
 
 /* ---------------- 纯逻辑：判定（不碰浏览器，可单独测） ---------------- */
 
-const isExclusive = (a, b) => (a.visual !== null && b.visual !== null && a.visual !== b.visual) || (a.phase !== null && b.phase !== null && a.phase !== b.phase);
+const isExclusive = (a, b, half = false) => (a.visual !== null && b.visual !== null && a.visual !== b.visual) || (!half && a.phase !== null && b.phase !== null && a.phase !== b.phase);
 const round2 = v => Math.round(v * 100) / 100;
 
 /** 一个 SVG 的量值 → 本页命中（重叠、贴近、越界、压图形、框内太挤）。 */
@@ -381,7 +389,7 @@ function judgeSvg(meas, cfg) {
       const a = L[i];
       const b = L[j];
       if (a.ti === b.ti) continue; // 同一段 <text> 的上下行
-      if (isExclusive(a, b)) continue;
+      if (isExclusive(a, b, cfg.half)) continue;
       const oy = Math.min(a.glyph.y1, b.glyph.y1) - Math.max(a.glyph.y0, b.glyph.y0);
       if (oy <= 0) continue;
       const ox = Math.min(a.glyph.x1, b.glyph.x1) - Math.max(a.glyph.x0, b.glyph.x0);
@@ -412,6 +420,9 @@ function judgeSvg(meas, cfg) {
     const mv = Math.min(f.margins.t, f.margins.b);
     if (mh < 0 || mv < 0) out.push({ kind: 'text-over-shape', sub: 'crosses-container', a, rect: f.rect, rectBox: f.rectBox, margins: f.margins, value: round2(-Math.min(mh, mv)) });
     else if (mh < cfg.fitTight) out.push({ kind: 'too-tight-in-box', a, rect: f.rect, rectBox: f.rectBox, margins: f.margins, value: round2(mh) });
+  }
+  for (const s of meas.nearShapes ?? []) {
+    out.push({ kind: 'near-shape', a: L[s.line], shape: s.shape, paint: s.paint, shapeVisual: s.shapeVisual, shapePhase: s.shapePhase, value: s.gap });
   }
   for (const s of meas.shapeHits) {
     out.push({ kind: 'text-over-shape', sub: 'shape', a: L[s.line], shape: s.shape, paint: s.paint, shapeVisual: s.shapeVisual, shapePhase: s.shapePhase, value: s.depth, strokePts: s.strokePts, fillArea: s.fillArea });
@@ -596,6 +607,8 @@ async function measurePage(browser, route, width, cfg) {
       await page.waitForSelector('.prose-celadon', { timeout: 15000 }).catch(() => errors.push('prose-celadon 未出现'));
     }
     await page.evaluate(() => document.fonts.ready);
+    // 半程：处理前 / 处理后各 50 % 同时可见（GSAP 的 scrub 在这两组上设的是内联 opacity，!important 压过它）
+    if (cfg.half) await page.addStyleTag({ content: '[data-before],[data-after]{opacity:.5 !important}' });
     const scroll = await page.evaluate(pageScrollPass, { stepRatio: cfg.scrollStepRatio, stepWaitMs: cfg.scrollStepWaitMs, endWaitMs: cfg.scrollEndWaitMs });
     const pageInfo = await page.evaluate(() => ({
       htmlLang: document.documentElement.lang,
@@ -613,7 +626,7 @@ async function measurePage(browser, route, width, cfg) {
       }
       await page.evaluate(pageScrollToSvg, { id: info.id, settleMs: cfg.settleMs });
       const fontState = await page.evaluate(pageFontsReady, { id: info.id, zh: lang === 'zh', waitCjkMs: cfg.waitCjkMs });
-      const args = { id: info.id, asc: cfg.glyphAscent, desc: cfg.glyphDescent, shapeDepthMin: cfg.shapeDepthMin, stepAlong: cfg.stepAlong, stepGrid: cfg.stepGrid, fullVbRatio: cfg.fullVbRatio };
+      const args = { id: info.id, asc: cfg.glyphAscent, desc: cfg.glyphDescent, shapeDepthMin: cfg.shapeDepthMin, stepAlong: cfg.stepAlong, stepGrid: cfg.stepGrid, fullVbRatio: cfg.fullVbRatio, halfState: !!cfg.half, nearShapeGap: cfg.nearShapeGap };
       let m1 = await page.evaluate(pageMeasureSvg, args);
       await page.waitForTimeout(cfg.restableMs);
       let m2 = await page.evaluate(pageMeasureSvg, args);
@@ -654,7 +667,7 @@ function pairKey(o, desc) {
   const base = `${desc.name}${fa ? ` ${fa}` : ''}`;
   if (o.kind === 'out-of-bounds') return `${base}|${o.kind}|${o.a.text}|${o.side}`;
   if (o.kind === 'too-tight-in-box' || (o.kind === 'text-over-shape' && o.sub === 'crosses-container')) return `${base}|${o.kind}|${o.a.text}|${o.rect}`;
-  if (o.kind === 'text-over-shape') return `${base}|${o.kind}|${o.a.text}|${o.shape}`;
+  if (o.kind === 'text-over-shape' || o.kind === 'near-shape') return `${base}|${o.kind}|${o.a.text}|${o.shape}`;
   return `${base}|${o.kind}|${o.a.text}|${o.b.text}`;
 }
 
@@ -679,22 +692,24 @@ function summarize(pages, idx) {
         g.widths.add(pg.width);
         const occ = { route: pg.route, width: pg.width, scale: s.m.scale, value: o.value, a: o.a.glyph, b: o.b?.glyph, overlapY: o.overlapY, margins: o.margins, clipped: o.clipped, clippedAmount: o.clippedAmount, strokePts: o.strokePts, fillArea: o.fillArea, aBBox: o.a.bbox };
         g.occurrences.push(occ);
-        const better = (v, w) => (o.kind === 'near-touch' || o.kind === 'too-tight-in-box' ? v < w : v > w);
+        const better = (v, w) => (NEAR_KINDS.has(o.kind) ? v < w : v > w);
         if (!g.worst || better(o.value, g.worst.value)) g.worst = { value: o.value, width: pg.width, route: pg.route, scale: s.m.scale };
       }
     }
   }
   const list = [...groups.values()].map(g => ({ ...g, routes: [...g.routes].sort(), widths: [...g.widths].sort((a, b) => a - b) }));
-  list.sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || (a.kind === 'near-touch' || a.kind === 'too-tight-in-box' ? a.worst.value - b.worst.value : b.worst.value - a.worst.value));
+  list.sort((a, b) => kindRank(a.kind) - kindRank(b.kind) || (NEAR_KINDS.has(a.kind) ? a.worst.value - b.worst.value : b.worst.value - a.worst.value));
   return list;
 }
 
-const kindRank = k => ({ overlap: 0, 'out-of-bounds': 1, 'text-over-shape': 2, 'too-tight-in-box': 3, 'near-touch': 4 })[k] ?? 9;
+// 贴近类：数值越小越严重（离得越近）
+const NEAR_KINDS = new Set(['near-touch', 'too-tight-in-box', 'near-shape']);
+const kindRank = k => ({ overlap: 0, 'out-of-bounds': 1, 'text-over-shape': 2, 'too-tight-in-box': 3, 'near-touch': 4, 'near-shape': 5 })[k] ?? 9;
 
 function textBOf(o) {
   if (o.kind === 'out-of-bounds') return o.edge;
   if (o.kind === 'too-tight-in-box' || o.sub === 'crosses-container') return `所在框 ${o.rect}`;
-  if (o.kind === 'text-over-shape') return `图形 ${o.shape}（${o.paint}）`;
+  if (o.kind === 'text-over-shape' || o.kind === 'near-shape') return `图形 ${o.shape}（${o.paint}）`;
   return o.b.text;
 }
 
@@ -807,7 +822,9 @@ async function runPool(jobs, n, worker) {
 
 async function main() {
   const args = parseArgs(process.argv);
-  Object.assign(CFG, Object.fromEntries(Object.entries({ base: args.base, concurrency: args.concurrency, reduced: args.reduced }).filter(([, v]) => v !== undefined)));
+  Object.assign(CFG, Object.fromEntries(Object.entries({ base: args.base, concurrency: args.concurrency, reduced: args.reduced, half: args.half }).filter(([, v]) => v !== undefined)));
+  const engine = args.engine ?? 'chromium';
+  if (!pw[engine]) throw new Error(`未知引擎 ${engine}（chromium / firefox / webkit）`);
   const routes = args.routes ?? ROUTES;
   const widths = args.widths ?? WIDTHS;
   const out = path.resolve(HERE, args.out ?? 'result.json');
@@ -817,7 +834,7 @@ async function main() {
     return;
   }
   const t0 = Date.now();
-  const browser = await chromium.launch();
+  const browser = await pw[engine].launch();
   const version = browser.version();
   let pages = await runPool(jobs, CFG.concurrency, job => measurePage(browser, job.route, job.width, CFG));
   // 失败的页再试一次（串行）
@@ -836,10 +853,10 @@ async function main() {
   const frames = processFrameTable(pages);
   const strip = g => ({ ...g, occurrences: g.occurrences.sort((a, b) => a.width - b.width || a.route.localeCompare(b.route)) });
   const result = {
-    meta: { base: CFG.base, generatedAt: new Date().toISOString(), chromium: version, playwright: '1.62.1', dpr: 1, height: CFG.height, reducedMotion: !!CFG.reduced, durationSec: Math.round((Date.now() - t0) / 1000), config: CFG },
+    meta: { base: CFG.base, generatedAt: new Date().toISOString(), engine, browserVersion: version, chromium: engine === 'chromium' ? version : undefined, half: !!CFG.half, playwright: '1.62.1', dpr: 1, height: CFG.height, reducedMotion: !!CFG.reduced, durationSec: Math.round((Date.now() - t0) / 1000), config: CFG },
     coverage,
     hits: groups.filter(g => ['overlap', 'out-of-bounds', 'text-over-shape'].includes(g.kind)).map(strip),
-    nearMisses: groups.filter(g => ['near-touch', 'too-tight-in-box'].includes(g.kind)).map(strip),
+    nearMisses: groups.filter(g => NEAR_KINDS.has(g.kind)).map(strip),
     processFrames: frames,
     perPage: pages.map(p => ({ route: p.route, width: p.width, lang: p.lang, ok: p.ok, ms: p.ms, error: p.error, retried: p.retried, nSvg: p.nSvg, nSvgWithText: p.nSvgWithText, svgs: (p.measured || []).map(s => ({ id: s.info.id, viewBox: s.info.viewBox, aria: s.info.aria, skipped: s.skipped, scale: s.m?.scale, nLines: s.m?.lines?.length, drift: s.drift })) }))
   };
