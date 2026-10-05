@@ -2203,7 +2203,7 @@ namespace celadon::test
         // 低频：粉噪经 150 Hz 24 dB/oct 低通，两声道反相（纯 S）；高频：另一路粉噪经 1.5 kHz 24 dB/oct 高通，两声道同相（纯 M）。
         // 两路在对方组里都低 80 dB 以上（约 3.6 oct × 24 dB/oct ≈ 86 dB），所以低频组 ρ ≤ −0.999、S/M ≥ +40 dB；高频组 ρ ≥ 0.999、
         // S/M ≤ −40 dB——同一段信号里两组读出相反的结论（互为阳性对照）；逐段同样。反相的低频在 M 里正好抵消，高通后的高频在
-        // 30 Hz 以下低 130 dB 以上：subShareDb ≤ −60 dB（反相的超低频不算超低频占比——它由收单处理，不由低切处理）。
+        // 30 Hz 以下低 130 dB 以上：subShareDb ≤ −60 dB（反相的超低频不算超低频占比。ADR-015 起自动收单恒为中性，不靠收单处理它）。
         void testClayAntiPhaseLowBand()
         {
             beginTest ("Clay stereo: anti-phase lows read rho = -1 while in-phase highs read +1; anti-phase subs are no sub share");
