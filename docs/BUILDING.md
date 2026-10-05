@@ -8,10 +8,12 @@ v0.1.8.0 起插件同时支持 Apple Silicon Mac、Intel Mac 与 64 位 Windows�
 - JUCE 9.0.2 放在仓库旁边的 `../JUCE`：`Celadon.jucer` 的模块路径与 CMake 的 `CELADON_JUCE_DIR` 默认值都是它。
 - `Builds/` 由 Projucer 生成，不进版本库，**`git pull` 不会更新它**：拉了新提交（加 / 删源文件、改版本号）或改了 `Celadon.jucer` 之后都要重新生成，
   否则 Xcode / VS 工程还是旧的——新源文件不进编译，链接报「找不到符号」（2026-10-05 踩过：旧工程不认 `SegmentLedger.cpp`）。
-  Projucer 9.0.2 里「Save Project」，或命令行（在仓库根目录跑；**Projucer 不在 PATH 里，要写全路径**）：
+  Projucer 9.0.2 里「Save Project」（先关掉开着的旧 Projucer 窗口、不保存，再重新打开 `Celadon.jucer`：它内存里是旧工程，一保存就会把刚拉下来的 `.jucer` 冲掉），或命令行（在仓库根目录跑；**Projucer 不在 PATH 里，要写全路径**）：
   `../JUCE/Projucer.app/Contents/MacOS/Projucer --resave Celadon.jucer`（JUCE 下载包自带 `Projucer.app`；自己编的见下一条）。
   重新生成后 `JuceLibraryCode/` 应与仓库里的逐字节相同（`git status` 干净）；核对：
   `grep -o 'JucePlugin_Version=[0-9.]*' Builds/MacOSX/Celadon.xcodeproj/project.pbxproj | sort -u` 应与 `Celadon.jucer` 的 `version` 一致（对不上就是旧工程）。
+  **版本号对上不代表工程是新的**：只加源文件、不改版本号的提交（例如 `SegmentLedger.cpp` 进 `.jucer` 那次）查不出来；再看一眼
+  `[ Celadon.jucer -nt Builds/MacOSX/Celadon.xcodeproj/project.pbxproj ] && echo 旧工程`（`.jucer` 比工程新就是旧工程；`scripts/windows-wine.sh` 对 VS 工程用的是同一种判断）。
 - Projucer 从 JUCE 源码编：
   `cmake -S ../JUCE -B ../JUCE/build -DJUCE_BUILD_EXTRAS=ON && cmake --build ../JUCE/build --target Projucer --config Release`，
   产物在 `../JUCE/build/extras/Projucer/Projucer_artefacts/Release/`。
@@ -102,7 +104,7 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 （简体中文文件见 `installer/Languages/README.md`）。在 Windows 上先编出 Release x64，再：
 
 ```bat
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.9.0 installer\Celadon.iss
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=<Celadon.jucer 里的 version> installer\Celadon.iss
 ```
 
 产物 `installer\Output\Celadon-<版本>-Windows-x64-Setup.exe`（不进版本库）。没有代码签名，第一次运行时 SmartScreen 会提示
