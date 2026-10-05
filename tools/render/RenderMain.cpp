@@ -44,7 +44,7 @@
       - <歌名>__g<GLAZE>_clay-<auto|off|replay-off>_<风格>.wav：32-bit float，整体响度只乘增益对齐到 --match-lufs（默认 −16 LUFS），
         允许超过 0 dBFS，不再限幅；
       - metrics.md / metrics.csv：每首每组的对齐前整体响度、真峰值、PLR、限幅 GR 平均 / 最大、输出低频（< 125 Hz）左右相关度、
-        真次声（< 16 Hz，8 阶）能量占比、Clay 四个实际值、保护介入比例、GLAZE 状态；每首另有一行「原始输入」作对照。
+        真次声（< 16 Hz，8 阶）能量占比、Clay 四个实际值、反相提示 / 宽度保护时长占比、GLAZE 状态；每首另有一行「原始输入」作对照。
         每做完一首歌就重写一次：中途中断也留下已完成的部分。
       - GLAZE 0 时修坯「自动」与「全关」按规格逐位相同（设计规格-Clay 第 4 节「逐位直通」）：两组都在网格里时按对齐前成品的
         哈希核对，结果写进 metrics.md 的备注——真歌上的阳性对照。
@@ -1406,7 +1406,7 @@ namespace
         int outputLength = 0;              // 成品长度 = 原曲 + 余振
         double grMeanDb = 0.0;             // 限幅 GR：各块读数按块长加权平均
         double grMaxDb = 0.0;
-        double phaseGuardPercent = 0.0;    // 反相保护介入的时长占比（%）
+        double phaseGuardPercent = 0.0;    // 反相提示亮着的时长占比（%；ADR-015 起只提示、不改声音；列名 phase_guard_pct 沿用旧名）
         double widthGuardPercent = 0.0;    // 宽度保护介入的时长占比（%）
         double peakGuardPercent = 0.0;     // 修坯峰值守护 g < 1 的样本占比（%，ADR-014）
         double peakGuardMinGain = 1.0;     // 全曲最小的 g
@@ -1435,7 +1435,7 @@ namespace
         std::vector<BlockReduction> reductions;   // --segments-csv：逐块限幅 GR（不分段时为空）
     };
 
-    // 成品 / 重放两种渲染逐块共用的统计：限幅 GR、保护介入、峰值守护、限幅入口峰值、慢路反相占比。
+    // 成品 / 重放两种渲染逐块共用的统计：限幅 GR、反相提示 / 宽度保护时长、峰值守护、限幅入口峰值、慢路反相占比。
     struct PassStats
     {
         double grWeighted = 0.0, grMax = 0.0;
@@ -2273,7 +2273,7 @@ namespace
 
         if (row.isInput)
         {
-            // 低切、收单 Hz、收单量、加宽、保护介入、GLAZE 状态、成品文件：原始输入没有这些。
+            // 低切、收单 Hz、收单量、加宽、反相提示 / 宽度保护、GLAZE 状态、成品文件：原始输入没有这些。
             for (int i = 0; i < 7; ++i)
                 cells.push_back ("—");
         }
@@ -2510,7 +2510,7 @@ namespace
                "与分析器 subShareDb 同一定义（ADR-012；这里整段计，不设有效音频门；静音段能量可忽略）。只看 M：侧声道里的次声不计入。\n"
                "- **低切 / 收单 Hz / 收单量 / 加宽**：成品末尾 `getGlazeStatus()` 的 clayLowCutHz / clayMonoHz / clayMonoAmount / "
                "clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义。\n"
-               "- **保护介入**：第二遍里反相保护 / 宽度保护介入的时长占比（每块读一次状态）。\n"
+               "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。\n"
                "- **GLAZE 状态**：成品末尾的阶段与「校准有效」；风格为「自动」且 GLAZE > 0 时附此刻偏向的风格。"
                "第一遍（聆听）结束时的阶段在 metrics.csv 的 listen_phase 列。\n"
                "- **成品文件**：`<歌名>__g<GLAZE>_clay-<auto|off|replay-off>_<风格>.wav`。metrics.csv 的 audio_hash 是对齐前成品"
@@ -2578,7 +2578,7 @@ namespace
 
                 md += "\n\n";
                 md += "| 组合 | LUFS（对齐前） | 对齐增益 dB | 真峰值 dBTP | PLR dB | 限幅 GR 平均 / 最大 dB | 低频相关度 < 125 Hz "
-                      "| 真次声 < 16 Hz dB | 低切 Hz | 收单 Hz | 收单量 | 加宽 dB | 保护介入 反相 / 宽度 | GLAZE 状态 | 成品文件 |\n";
+                      "| 真次声 < 16 Hz dB | 低切 Hz | 收单 Hz | 收单量 | 加宽 dB | 反相提示 / 宽度保护 | GLAZE 状态 | 成品文件 |\n";
                 md += "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|\n";
 
                 for (const auto& row : report.rows)
