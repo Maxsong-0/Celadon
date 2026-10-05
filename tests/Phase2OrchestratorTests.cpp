@@ -129,10 +129,15 @@ namespace celadon::test
             expect (floored.engaged && floored.cause == phase2::GuardCause::none);
             expectEquals (floored.reliefDb, 0.0f);
 
-            const auto tied = phase2::minGuard ({ { -0.4f, phase2::GuardCause::budget, false },
+            const auto tied = phase2::minGuard ({ { -0.4f, phase2::GuardCause::budget, true },
                                                    { -0.4f, phase2::GuardCause::contrast, true } });
             expect (tied.engaged && tied.cause == phase2::GuardCause::budget);
             expectWithinAbsoluteError (tied.reliefDb, -0.4f, 1.0e-5f);
+
+            const auto recovering = phase2::minGuard ({ { -2.0f, phase2::GuardCause::budget, false },
+                                                        { -0.4f, phase2::GuardCause::contrast, true } });
+            expect (recovering.engaged && recovering.cause == phase2::GuardCause::contrast);
+            expectWithinAbsoluteError (recovering.reliefDb, -0.4f, 1.0e-5f);
 
             const auto clamped = phase2::minGuard ({ { 1.5f, phase2::GuardCause::budget, false } });
             expectEquals (clamped.reliefDb, 0.0f, "relief is never positive");

@@ -105,6 +105,7 @@ namespace celadon::ui::glazestatus
 
         juce::String guardText (const View& view, Language language)
         {
+            // guardCause 与 yieldedTenthsDb 是同一扇 engaged 门的一对（见 publishStatus）。
             const auto english = language == Language::english;
             auto text = english ? juce::String ("Limited") : utf8 ("受限");
 

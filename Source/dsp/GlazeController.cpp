@@ -904,26 +904,32 @@ namespace celadon::glaze
             status.currentMainness = currentMainness;
             status.coldExport = offline && diagnostics.confidence < 0.5f;
 
-            auto relief = budgetOut.reliefDb;
-            auto cause = budgetOut.reliefDb < 0.0f ? budgetOut.cause : GuardCause::none;
-            auto engaged = budgetOut.engaged;
+            // 状态行的原因和「已退」必须是同一扇正在起作用的门。回程里更深的退让不算 engaged，不拿来当这一行的原因。
+            // 几扇都在退时，退得更多的胜出；退让相同则留下先看到的（预算、保对比、PSR）。音频上实际减去的仍是三扇里最深的那一份。
+            GuardOutput shown;
 
-            auto consider = [&] (const GuardOutput& guard)
+            auto considerShown = [&] (const GuardOutput& guard)
             {
-                engaged = engaged || guard.engaged;
+                if (! guard.engaged)
+                    return;
 
-                if (guard.reliefDb < relief)
+                const auto relief = std::isfinite (guard.reliefDb) ? std::min (guard.reliefDb, 0.0f) : 0.0f;
+
+                if (! shown.engaged || relief < shown.reliefDb)
                 {
-                    relief = guard.reliefDb;
-                    cause = guard.cause;
+                    shown.reliefDb = relief;
+                    shown.cause = relief < 0.0f ? guard.cause : GuardCause::none;
                 }
+
+                shown.engaged = true;
             };
 
-            consider (contrastOut);
-            consider (psrOut);
-            status.protectionDb = active ? relief : 0.0f;
-            status.guardCause = active ? cause : GuardCause::none;
-            status.guardEngaged = active && engaged;
+            considerShown (budgetOut);
+            considerShown (contrastOut);
+            considerShown (psrOut);
+            status.protectionDb = active && shown.engaged ? shown.reliefDb : 0.0f;
+            status.guardCause = active && shown.engaged ? shown.cause : GuardCause::none;
+            status.guardEngaged = active && shown.engaged;
             status.planLimited = active && budget.isPlanLimited();
             statusSnapshot.write (status);
         }

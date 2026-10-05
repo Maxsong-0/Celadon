@@ -419,25 +419,26 @@ namespace celadon::phase2
         }
     };
 
-    // 三者（再加 PSR）取更负的那份。退让相同则留下先出现的原因（预算、对比、PSR）。
-    // engaged 另外取或，不因此改原因。退让为 0 时原因记 none。与 GlazeController 发布 Status 的取法一致。
+    // 状态行用的那一对：只看 engaged 的门。更负的退让胜出；平局留下先到的原因（预算、对比、PSR）；退让为 0 则原因 none。
+    // 没在起作用的更深退让（例如正在回升）不改这一行。音频上三扇取最小是另一条路径。
     inline GuardOutput minGuard (std::initializer_list<GuardOutput> guards) noexcept
     {
         GuardOutput best;
-        auto have = false;
 
         for (const auto& guard : guards)
         {
+            if (! guard.engaged)
+                continue;
+
             const auto relief = std::isfinite (guard.reliefDb) ? std::min (guard.reliefDb, 0.0f) : 0.0f;
 
-            if (! have || relief < best.reliefDb)
+            if (! best.engaged || relief < best.reliefDb)
             {
                 best.reliefDb = relief;
                 best.cause = relief < 0.0f ? guard.cause : GuardCause::none;
-                have = true;
             }
 
-            best.engaged = best.engaged || guard.engaged;
+            best.engaged = true;
         }
 
         return best;
