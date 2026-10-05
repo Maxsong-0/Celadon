@@ -4022,6 +4022,7 @@ namespace celadon::test
             // 第「七」节 ⑥（Max 2026-10-03「持续偏轻就加快遗忘」）
             testQuietProgramReleasesGates();
             testQuietCountFallsBackAfterRelease();
+            testQuietProgramAfterLongLoudPrefix();
         }
 
     private:
@@ -5085,12 +5086,12 @@ namespace celadon::test
         //==============================================================================
         // 第「七」节 ⑥（Max 2026-10-03「持续偏轻就加快遗忘」）：合成 House 前 60 s 原样，之后整段压低 28 dB（像同一实例换成一首轻得多的歌，
         // 绝对门挡不住、相对门挡住）。实时段落账：换了之后头 20 s 的小节一个有效子块都没有（还没满 liveGateQuietSeconds；阳性对照：新素材
-        // 确实在相对门之下——用最稳的子块门判，帧门与起音门在底鼓上可能漏过几帧）；之后加快遗忘，换了 65 s 之后的整小节三道门都已放开：
-        // 帧、有效子块、有效起音样本都不少于前面响的 drop 小节的 90 %。没有 ⑥ 时按 180 s 遗忘，子块门要约 13 分钟才放开，这一项考得到。
-        // 块长 512 与 4096 交来的段逐字段相同（⑥ 也只看各路自己的数据）。
+        // 确实在相对门之下——用最稳的子块门判，帧门与起音门在底鼓上可能漏过几帧）；之后加快遗忘，换了 60 s 之后的整小节三道门都已放开：
+        // 帧、有效子块、有效起音样本都不少于前面响的 drop 小节的 90 %。放开的时刻本身也要落在 (18 s, 60 s]：一直关着会顶到歌尾，一上来就开是 0。
+        // 没有 ⑥ 时按 180 s 遗忘，子块门要约 13 分钟才放开，这一项考得到。块长 512 与 4096 交来的段逐字段相同（⑥ 也只看各路自己的数据）。
         void testQuietProgramReleasesGates()
         {
-            beginTest ("live gates: a program 28 dB quieter stays gated for the first 20 s, then forgetting speeds up and all three gates open within 65 s");
+            beginTest ("live gates: a program 28 dB quieter stays gated for the first 20 s, then forgetting speeds up and all three gates open within 60 s");
 
             auto track = makeHouseTrack (48000.0, 4, 80, 0.0, 98);   // 4 小节鼓前奏 + 80 小节 drop ≈ 162.6 s
             const auto switchAt = samplesAt (60.0);
@@ -5134,7 +5135,7 @@ namespace celadon::test
                         ++heldSegments;
                         heldOpen += s.effectiveSubBlocks > 0 ? 1 : 0;
                     }
-                    else if (whole (s) && s.start >= switchAt + samplesAt (65.0))
+                    else if (whole (s) && s.start >= switchAt + samplesAt (60.0))
                     {
                         ++laterSegments;
                         const auto open = s.frames * 10 >= loudFrames * 9 && s.onsetEffectiveSamples * 10 >= loudOnset * 9
@@ -5145,11 +5146,11 @@ namespace celadon::test
 
                 expect (heldSegments >= 6 && heldOpen == 0, tag + ": the first 20 s after the switch stay gated (" + juce::String (heldOpen) + " of "
                                                                 + juce::String (heldSegments) + " bars have effective sub-blocks)");
-                expect (laterSegments >= 15 && laterClosed == 0, tag + ": 65 s after the switch all three gates are open (" + juce::String (laterClosed)
+                expect (laterSegments >= 15 && laterClosed == 0, tag + ": 60 s after the switch all three gates are open (" + juce::String (laterClosed)
                                                                     + " of " + juce::String (laterSegments) + " bars pass less than 90 % of a loud bar)");
 
-                // 只记录、不断言：每道门实际从换了之后多少秒起一直放开（= 最后一个不到 90 % 的整小节的段尾），把 ⑥ 的「约 1 分钟」量出来。
-                // 断言只卡上面两头（头 18 s 挡住、65 s 之后全放开），中间放开得早一点晚一点都不算错。
+                // 每道门实际从换了之后多少秒起一直放开（= 最后一个不到 90 % 的整小节的段尾）。头 18 s 挡住、60 s 之后全放开是上面两头；
+                // 放开时刻本身 ≤ 60 s 且晚于 18 s（拍板 5.2：原来只记不卡，响 300 s 的场景在下一个用例）。
                 double framesOpenAt = 0.0, subBlocksOpenAt = 0.0, onsetOpenAt = 0.0;
 
                 for (const auto& s : segments)
@@ -5167,6 +5168,9 @@ namespace celadon::test
                 logMessage ("  " + tag + ": open for good (>= 90 % of a loud bar) from " + juce::String (framesOpenAt, 1) + " s (frames), "
                             + juce::String (subBlocksOpenAt, 1) + " s (effective sub-blocks), " + juce::String (onsetOpenAt, 1)
                             + " s (effective onset samples) after the switch");
+                expect (framesOpenAt > 18.0 && framesOpenAt <= 60.0 && subBlocksOpenAt > 18.0 && subBlocksOpenAt <= 60.0
+                            && onsetOpenAt > 18.0 && onsetOpenAt <= 60.0,
+                        tag + ": all three gates open for good within 60 s and not before the held window");
 
                 if (reference.empty())
                 {
@@ -5180,9 +5184,9 @@ namespace celadon::test
         }
 
         // 第「七」节 ⑥ 的另一半（P1F；VAL1：把「过门就减」改成「只增不减」，上一个用例照过）：净计在过门之后回落、回到平时的 180 s 遗忘。
-        // 合成 House：响 60 s → 轻 28 dB 75 s（同上一个用例：头 20 s 挡住，之后加快遗忘、各道门放开，放开后过门的项让净计回落）→ 响 60 s
+        // 合成 House：响 60 s → 轻 28 dB 75 s（同上一个用例：头 20 s 挡住，之后加快遗忘、各道门在 60 s 内放开，放开后过门的项让净计回落）→ 响 60 s
         // （全都过门）→ 再轻 28 dB 72 s。净计回落到 0 了，第二次轻下来照样先按 180 s 遗忘、头 20 s 挡住，再加快：各道门放开（之后一直放开）
-        // 的时刻与第一次相差不到 8 s（实测第二次略晚：帧 46.9 对 44.5 s、有效子块 52.7 对 52.3 s、有效起音 41.1 对 40.6 s）。只增不减时净计停在顶上，第二次一轻下来
+        // 的时刻与第一次相差不到 8 s，并且都落在 (18 s, 60 s]（实测第二次略晚：帧 46.9 对 44.5 s、有效子块 52.7 对 52.3 s、有效起音 41.1 对 40.6 s）。只增不减时净计停在顶上，第二次一轻下来
         // 就按 5 s 遗忘，各道门早十几秒以上放开。块长 512（⑥ 与块长无关，上一个用例已比过 512 / 4096）。
         void testQuietCountFallsBackAfterRelease()
         {
@@ -5273,12 +5277,81 @@ namespace celadon::test
                 const auto tag = juce::String (r == &first ? "first" : "second") + " quiet switch";
                 expect (r->heldSegments >= 6 && r->heldOpen == 0, tag + ": the first 20 s stay gated (" + juce::String (r->heldOpen) + " of "
                                                                       + juce::String (r->heldSegments) + " bars have effective sub-blocks)");
-                expect (r->frames < 65.0 && r->subBlocks < 65.0 && r->onset < 65.0, tag + ": all three gates open within 65 s");
+                expect (r->frames > 18.0 && r->frames <= 60.0 && r->subBlocks > 18.0 && r->subBlocks <= 60.0
+                            && r->onset > 18.0 && r->onset <= 60.0,
+                        tag + ": all three gates open for good within 60 s and not before the held window");
             }
 
             expect (std::abs (second.frames - first.frames) <= 8.0 && std::abs (second.subBlocks - first.subBlocks) <= 8.0
                         && std::abs (second.onset - first.onset) <= 8.0,
                     "the second switch releases like the first (within 8 s): the quiet count fell back to 0 after the release");
+        }
+
+        // 拍板 5.2：之前响了 300 s 再轻 28 dB，三道门仍要在 60 s 内一直放开（Spark 实测子块门约 58 s）。块长只跑 512
+        // （上一个用例已比过 512 / 4096）。头 18 s 仍挡住，放开时刻晚于 18 s——一上来就开（记成 0）过不了。
+        void testQuietProgramAfterLongLoudPrefix()
+        {
+            beginTest ("live gates: after 300 s of loud program, a 28 dB quieter program still opens all three gates within 60 s");
+
+            constexpr double switchAt = 300.0;
+            auto track = makeHouseTrack (48000.0, 4, 188, 0.0, 100);   // 192 小节 ≈ 371.6 s，换了之后还剩约 70 s
+            const auto quietGain = (float) juce::Decibels::decibelsToGain (-28.0);
+
+            for (auto& channel : track)
+                for (size_t i = (size_t) samplesAt (switchAt); i < channel.size(); ++i)
+                    channel[i] *= quietGain;
+
+            const auto collector = runLive (track, 512, glaze::Genre::general, 0, {});
+            const auto& segments = collector->segments;
+            const auto whole = [] (const SegmentLedger::Segment& s) { return s.end - s.start == s.nominalLength; };
+            const auto trackSamples = (std::int64_t) track.front().size();
+
+            std::int64_t loudFrames = std::numeric_limits<std::int64_t>::max(), loudOnset = loudFrames;
+            int loudSubBlocks = std::numeric_limits<int>::max(), loudSegments = 0;
+
+            for (const auto& s : segments)
+                if (whole (s) && s.start >= samplesAt (12.0) && s.end <= samplesAt (switchAt))
+                {
+                    ++loudSegments;
+                    loudFrames = juce::jmin (loudFrames, s.frames);
+                    loudOnset = juce::jmin (loudOnset, s.onsetEffectiveSamples);
+                    loudSubBlocks = juce::jmin (loudSubBlocks, s.effectiveSubBlocks);
+                }
+
+            expect (loudSegments >= 20 && loudFrames > 0 && loudOnset > 0 && loudSubBlocks > 0, "the loud bars pass all three gates");
+
+            int heldSegments = 0, heldOpen = 0;
+            double framesOpenAt = 0.0, subBlocksOpenAt = 0.0, onsetOpenAt = 0.0;
+
+            for (const auto& s : segments)
+            {
+                if (s.start < samplesAt (switchAt) || s.end > trackSamples)
+                    continue;
+
+                if (s.start >= samplesAt (switchAt + 2.0) && s.end <= samplesAt (switchAt + 18.0))
+                {
+                    ++heldSegments;
+                    heldOpen += s.effectiveSubBlocks > 0 ? 1 : 0;
+                }
+
+                if (! whole (s))
+                    continue;
+
+                const auto seconds = (double) (s.end - samplesAt (switchAt)) / 48000.0;
+
+                if (s.frames * 10 < loudFrames * 9)                    framesOpenAt = seconds;
+                if (s.effectiveSubBlocks * 10 < loudSubBlocks * 9)     subBlocksOpenAt = seconds;
+                if (s.onsetEffectiveSamples * 10 < loudOnset * 9)      onsetOpenAt = seconds;
+            }
+
+            logMessage ("  after 300 s loud: open for good from " + juce::String (framesOpenAt, 1) + " s (frames), "
+                        + juce::String (subBlocksOpenAt, 1) + " s (effective sub-blocks), " + juce::String (onsetOpenAt, 1)
+                        + " s (effective onset samples)");
+            expect (heldSegments >= 6 && heldOpen == 0, "the first 20 s stay gated (" + juce::String (heldOpen) + " of "
+                                                            + juce::String (heldSegments) + " bars have effective sub-blocks)");
+            expect (framesOpenAt > 18.0 && framesOpenAt <= 60.0 && subBlocksOpenAt > 18.0 && subBlocksOpenAt <= 60.0
+                        && onsetOpenAt > 18.0 && onsetOpenAt <= 60.0,
+                    "after 300 s loud, all three gates still open for good within 60 s");
         }
     };
 

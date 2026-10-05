@@ -592,7 +592,7 @@ LIVE_START_BAR = 16                    # 规格第 7 节第 1 条：第 16 小�
 LIVE_DROP_OFFSET_BARS = 4              # 第 3 条：第一个 drop 后 4 小节；M2 的另一口径同此
 LIVE_M2_LIMITS_LU = (0.3, 1.0)         # 第 1 条：汇总中位 ≤ 0.3、P90 ≤ 1.0 LU
 LIVE_DRIFT_LIMIT_LU = 0.5              # 第 2 条：breakdown 期间主段电平漂移 ≤ 0.5 LU
-LIVE_SETTLE_LIMIT_LU = 1.0             # 第 3 条：与最终值差 ≤ 1 LU
+LIVE_SETTLE_LIMIT_LU = 1.0             # 第 3 条：跟踪误差 |I_{d+3} − D4| ≤ 1 LU（Max 2026-10-04）。旧口径 |I_{d+3} − I_end| 仍作对照。
 T038_OFFLINE_LU = (0.15, 0.60, 0.92)   # T-038 离线门控画像代表性 |满编小节能量平均 − drop|：中位 / P90 / 最大（REPORT.md 第 2 节）
 T038_GATE_PERCENT = {'intro': ('挡', 60), 'drop': ('过', 85), 'breakdown': ('挡', 80)}   # T-038 出厂门控的逐小节挡住 / 通过率（REPORT.md 结论 2）
 MAIN_THRESHOLD = 0.5                   # LiveConstants::mainThreshold 出厂值：m ≥ 0.5 = 主段
@@ -773,9 +773,11 @@ def live_track_metrics(r, bars, kinds, trace, final, judgements=()):
       M2b 同上，从 j ≥ d + 4 起（第一个 drop 的 4 小节都已并入之后）；
       M3  每段 breakdown（连续标为 breakdown 的小节 a … b）：max_{k = a … b} |I_k − I_{a−1}|，即进入 breakdown 时手里的 I（held(a)）
           之后、到 breakdown 之后第一小节手里的 I（held(b + 1)）为止的最大漂移；第 2 条要 ≤ 0.5 LU；
-      M4  δ4 = held(d + 4) − I_end = I_{d+3} − I_end（第一个 drop 的 4 小节并入之后与最终值之差；第 3 条要 |δ4| ≤ 1 LU）；n = settle_bars
-          （达到并一直保持 ±1 LU 所需的 drop 小节数；n ≤ 4 ⟺ 第 3 条成立且一直保持到歌尾）；另给以「最后一个 drop 小节并入之后的 I」为
-          终值、窗口截到那之后一小节的同一对（_alt：不受尾奏影响）；
+      M4  第 3 条的验收是跟踪误差 I_{d+3} − D4。D4 = 第 d … d+3 小节里标为 drop、已听的输入段响度能量平均（同 D 的能量平均）；
+          I_{d+3} = held(d + 4)。跟不住的约 10 首是规格第 5 节的已知限制（前奏把参考锁住），门槛不为此放宽。
+          旧口径 δ4 = held(d + 4) − I_end = I_{d+3} − I_end 仍写出（歌后来自己变了多少混在里面）；n = settle_bars
+          （相对最终值达到并一直保持 ±1 LU 所需的 drop 小节数）；另给以「最后一个 drop 小节并入之后的 I」为
+          终值、窗口截到那之后一小节的同一对旧口径（_alt：不受尾奏影响），以及 D4 − I_end（歌自己变了）；
       另  各类段落已听小节里 m ≥ 0.5 的占比（交界不计）——两种口径：「首判」= 那一小节的画像第一次发布时对它的判断（追踪的 mainness），
           「终判」= 歌尾窗口里回看重判之后的判断（__judgements.csv 的 mainness_final；对照 T-038 离线门控的就是它）；换歌软遗忘触发的次数
           与所在小节、触发时那一串的段响度起伏；无主段时间衰减生效的段数与次数（从不生效到生效记一次）；c 第一次 ≥ 0.8 时累计并入的有效
@@ -847,6 +849,11 @@ def live_track_metrics(r, bars, kinds, trace, final, judgements=()):
 
     delta4, settle = m4(final_level, None) if usable else (math.nan, math.nan)
     alt_delta4, alt_settle = m4(level.get(last_drop, math.nan), last_drop + 1) if usable else (math.nan, math.nan)
+    d4 = energy_mean_lufs([b[1] for b in bars if kinds[b[0]] == 'drop' and b[4]
+                           and first_drop <= b[0] < first_drop + LIVE_DROP_OFFSET_BARS]) if usable else math.nan
+    i_d3 = held(first_drop + LIVE_DROP_OFFSET_BARS) if usable else math.nan
+    tracking = i_d3 - d4
+    evolution = d4 - final_level
     m2_stats, m2b_stats = live_summary(m2), live_summary(m2b)
     row = {
         'class': r['class'], 'track': track, 'bpm': r['bpm'], 'tempo_reliable': int(reliable_tempo(r)), 'excluded': int(excluded),
@@ -857,6 +864,7 @@ def live_track_metrics(r, bars, kinds, trace, final, judgements=()):
         'm2b_median': m2b_stats[0], 'm2b_p90': m2b_stats[1], 'm2b_max': m2b_stats[2], 'm2b_bars': m2b_stats[3],
         'm3_breakdowns': len(breakdowns), 'm3_max_drift': max((x['drift'] for x in breakdowns if math.isfinite(x['drift'])), default=math.nan),
         'm3_over': sum(1 for x in breakdowns if math.isfinite(x['drift']) and x['drift'] > LIVE_DRIFT_LIMIT_LU),
+        'm4_d4': d4, 'm4_tracking': tracking, 'm4_evolution': evolution,
         'm4_delta4': delta4, 'm4_settle_bars': settle, 'm4_alt_delta4': alt_delta4, 'm4_alt_settle_bars': alt_settle,
         'held_at_first_drop_minus_drop': held(first_drop) - drop if usable else math.nan,
         'new_program_count': len(new_program_bars), 'new_program_bars': ' '.join(new_program_bars),
@@ -937,6 +945,9 @@ def live_headline(result):
         'm2b': live_summary([x['m2b_median'] for x in scored]),
         'm3': live_summary([b['drift'] for b in breakdowns]),
         'm3_pass': sum(1 for b in breakdowns if b['drift'] <= LIVE_DRIFT_LIMIT_LU), 'm3_total': len(breakdowns),
+        'm4_tracking': live_summary([abs(x['m4_tracking']) for x in scored]),
+        'm4_tracking_pass': sum(1 for x in scored if math.isfinite(x['m4_tracking']) and abs(x['m4_tracking']) <= LIVE_SETTLE_LIMIT_LU),
+        'm4_evolution': live_summary([abs(x['m4_evolution']) for x in scored]),
         'm4': live_summary([abs(x['m4_delta4']) for x in scored]),
         'm4_pass': sum(1 for x in scored if math.isfinite(x['m4_delta4']) and abs(x['m4_delta4']) <= LIVE_SETTLE_LIMIT_LU),
         'm4_settle': live_summary([float(x['m4_settle_bars']) for x in scored]),
@@ -985,7 +996,9 @@ def live_tag_markdown(result):
            f"| M2b 第一个 drop + 4 小节起（逐首中位） | {stats_cells(h['m2b'])} | 同 M2 | {'达标' if m2b_ok else '不达标'} |",
            f"| M3 breakdown 内 I 的最大漂移（LU，逐段） | {stats_cells(h['m3'])} | 每段 ≤ {LIVE_DRIFT_LIMIT_LU} | "
            f"{h['m3_pass']} / {h['m3_total']} 段达标 |",
-           f"| M4 第一个 drop 4 小节后 \\|I − I_end\\|（LU） | {stats_cells(h['m4'])} | ≤ {LIVE_SETTLE_LIMIT_LU} | {h['m4_pass']} / {h['scored']} 首达标 |",
+           f"| M4 跟踪误差 \\|I_{{d+3}} − D4\\|（LU） | {stats_cells(h['m4_tracking'])} | ≤ {LIVE_SETTLE_LIMIT_LU} | {h['m4_tracking_pass']} / {h['scored']} 首达标 |",
+           f"| M4 旧口径 \\|I_{{d+3}} − I_end\\|（LU，对照） | {stats_cells(h['m4'])} | — | {h['m4_pass']} / {h['scored']} 首 |",
+           f"| M4 歌自己变了 \\|D4 − I_end\\|（LU，对照） | {stats_cells(h['m4_evolution'])} | — | — |",
            f"| M4 达到并保持 ±1 LU 所需的 drop 小节数 | {stats_cells(h['m4_settle'], 0)} | ≤ {LIVE_DROP_OFFSET_BARS} | "
            f"{h['m4_settle_pass']} / {h['scored']} 首 |",
            f"| M4（终值 = 最后一个 drop 小节之后的 I） | {stats_cells(h['m4_alt'])} | ≤ {LIVE_SETTLE_LIMIT_LU} | {h['m4_alt_pass']} / {h['scored']} 首 |",
@@ -1007,7 +1020,7 @@ def live_tag_markdown(result):
     out += ['', '## 换歌软遗忘、无主段时间衰减', '',
             f"- 换歌软遗忘：{h['new_program_tracks']} 首触发过，共 {h['new_program_total']} 次；无主段时间衰减：{h['decay_tracks']} 首生效过（逐首见下表）。", '',
             '## 逐首', '',
-            '| 子类 | 曲目 | 小节 | 首个 drop | D | I_end − D | M2 中位 / P90 | M2b 中位 | M3 最大（段数） | M4 δ4 / n | drop 开始时 I − D | '
+            '| 子类 | 曲目 | 小节 | 首个 drop | D | I_end − D | M2 中位 / P90 | M2b 中位 | M3 最大（段数） | M4 跟踪 / 旧δ4 / n | drop 开始时 I − D | '
             '前奏 m≥0.5 | drop m≥0.5 | 换歌（小节） | 时间衰减（次 / 段） | c≥0.8（s / 小节） |',
             '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for x in rows:
@@ -1016,7 +1029,7 @@ def live_tag_markdown(result):
             continue
         out.append(f"| {x['class']} | {x['track']}{'' if x['tempo_reliable'] else '（速度低置信）'} | {x['bars']} | {x['first_drop_bar'] or '—'} | "
                    f"{fmt(x['drop_lufs'])} | {fmt(x['m1_final_minus_drop'], 2, True)} | {fmt(x['m2_median'])} / {fmt(x['m2_p90'])} | "
-                   f"{fmt(x['m2b_median'])} | {fmt(x['m3_max_drift'])}（{x['m3_breakdowns']}） | {fmt(x['m4_delta4'], 2, True)} / "
+                   f"{fmt(x['m2b_median'])} | {fmt(x['m3_max_drift'])}（{x['m3_breakdowns']}） | {fmt(x['m4_tracking'], 2, True)} / {fmt(x['m4_delta4'], 2, True)} / "
                    f"{fmt(x['m4_settle_bars'], 0)} | {fmt(x['held_at_first_drop_minus_drop'], 2, True)} | "
                    f"{x['intro_main_bars']} / {x['intro_heard_bars']} | {x['drop_main_bars']} / {x['drop_heard_bars']} | "
                    f"{x['new_program_count']}{'（' + x['new_program_bars'] + '，起伏 ' + x['new_program_ranges_lu'] + ' LU）' if x['new_program_bars'] else ''} | "
@@ -1050,7 +1063,9 @@ def live_combined_markdown(results):
     line('M2 全部小节合在一起', triple('m2_pooled'))
     line('M2b 第一个 drop + 4 起', triple('m2b'))
     line(f'M3 breakdown 漂移（每段 ≤ {LIVE_DRIFT_LIMIT_LU}；达标段数）', lambda h: triple('m3')(h) + f"（{h['m3_pass']} / {h['m3_total']}）")
-    line(f'M4 \\|I_{{d+3}} − I_end\\|（≤ {LIVE_SETTLE_LIMIT_LU}；达标首数）', lambda h: triple('m4')(h) + f"（{h['m4_pass']} / {h['scored']}）")
+    line(f'M4 跟踪误差 \\|I_{{d+3}} − D4\\|（≤ {LIVE_SETTLE_LIMIT_LU}；达标首数）', lambda h: triple('m4_tracking')(h) + f"（{h['m4_tracking_pass']} / {h['scored']}）")
+    line('M4 旧口径 \\|I_{d+3} − I_end\\|（对照；达标首数）', lambda h: triple('m4')(h) + f"（{h['m4_pass']} / {h['scored']}）")
+    line('M4 歌自己变了 \\|D4 − I_end\\|', triple('m4_evolution'))
     line('M4 保持所需 drop 小节数（≤ 4 的首数）', lambda h: triple('m4_settle', 0)(h) + f"（{h['m4_settle_pass']} / {h['scored']}）")
     line('第一个 drop 开始时 I − D', triple('held'))
     line('c 到 0.8 的累计有效音频 s（到不了的首数）', lambda h: triple('c08', 1)(h) + f"（{h['c08_never']}）")

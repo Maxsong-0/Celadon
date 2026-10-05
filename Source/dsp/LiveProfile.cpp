@@ -49,9 +49,10 @@
       已发布那一份画像的事件时钟与计时（Counters）、窗口里的段与还没发布的段（逐段的原始量与印记，小端二进制 + base64），采样率。派生量
       （参考、画像、判断）读回后同步重算——与保存时逐位相同；还没发布的段按序进账、重算、立刻发布。读的时候严格：缺属性、位数不对、
       base64 坏、长度不对、非有限值、计数或格号越界、格式版本不认识 → 冷启动并返回 false。
-      量级（P1F，VAL1 F1 / F5）：有限但荒谬的量同样是坏数据——每段先按格式读，再查量级与各量之间的关系（entryWithinBounds：时长、样本数、
-      帧数、功率、dB、事件与试算块数各有物理上界，累计量 ≤ 个数 × 上界，按帧记的权重 ≤ 帧数，|交叉功率| ≤ 功率；上界的依据写在
-      stateSegmentSeconds 那组常数旁），计数器同样（countersWithinBounds），窗口里的印记不减、最新一段的印记等于时钟；全部过了才算派生量
+      量级（P1F，VAL1 F1 / F5；Max 2026-10-04 拍板 6.2）：有限但荒谬的量同样是坏数据——读档与实时入口用同一套 entryWithinBounds
+      （时长、样本数、帧数、功率、dB、事件与试算块数各有物理上界，累计量 ≤ 个数 × 上界，按帧记的权重 ≤ 帧数，|交叉功率| ≤ 功率；上界的依据写在
+      stateSegmentSeconds 那组常数旁）。实时入口越界的段整段当坏段（身份与范围内的段响度 / 低频占比留下，其余清空），与「不是有限值」的坏段同一条路。
+      计数器同样（countersWithinBounds），窗口里的印记不减、最新一段的印记等于时钟；读档全部过了才算派生量
       （deriveEntry：原来不管校验结果先算，坏的试算块数让整数乘法溢出）。发布端另有兜底（guardPublishedResult）：万一算出非有限值，
       对应的读数按 MusicProfile 的约定当「没有」发布（特征无效、逐段数组同「这一段没有统计」），已发布的画像里不出 ∞ / NaN。
 
@@ -201,8 +202,8 @@ namespace celadon::glaze
         // 读档的物理上界（文件头第六节「量级」；P1F，VAL1 F1：只查有限与非负时，有限但荒谬的量——例如 1e300——被收下，乘上权重、除以帧数、
         // double → float 之后画像里出 ∞）。每个上界都比分析器交得出的最大值宽（正常存档碰不到），又让后面的累计、比值、float 转换都留在有限范围里。
         //   - 采样率：宿主的 PCM 采样率 8 k ～ 768 k（同 ReferenceSpectrum::prepare 认的范围）。按样本计的上界都按存档时的采样率折算。
-        //   - 一段的时长：段落账的一段最长一小节 = maximumBarSeconds（6.4 s，= maxSubBlocks × 100 ms；拍点外的 2 秒段同样封顶 6.4 s；变速时
-        //     同一小节重新锚定，整段走完仍 ≤ 一小节；跳播 / 循环回绕由编排器在不连续点就地定稿）；留一倍余量给边界取整与读档换算采样率的取整。
+        //   - 一段的时长：段落账自己把一次实例封在两小节（SegmentLedger::anchor；拍点外是两段）。一小节 ≤ maximumBarSeconds（6.4 s），
+        //     两小节 ≤ 12.8 s，与这里的上界是同一个「坏段」。留的那一倍原来只是边界取整与读档换算采样率的余量，现在也是段落账的封顶。
         //     一段里的帧、门块、起音组、试算块都至少一个样本长、起点都在段里，个数按「这一段的样本数」封顶。
         //   - 功率：分析器读的是 float 样本（≤ 3.4e38，平方 1.2e77）；K 加权、低切 / 守护、段内按 bin 求和与两声道求和的增益留三个量级。
         //     每块 / 每帧 / 每样本的功率或能量都 ≤ 它；累计量 ≤ 个数 × 它（跨采样率换算之后每样本的能量最多放大 768 k ÷ 8 k = 96 倍，仍在余量里）。
@@ -613,7 +614,7 @@ namespace celadon::glaze
             case LiveConstantDomain::positiveFinite:    return std::isfinite (value) && value > 0.0;
             case LiveConstantDomain::percentile:        return value > 0.0 && value <= 1.0;
             case LiveConstantDomain::notNan:            return ! std::isnan (value);
-            case LiveConstantDomain::positive:          return value > 0.0;
+            case LiveConstantDomain::positive:          return value >= minimumLiveTimeConstantSeconds;
             case LiveConstantDomain::unit:              return value >= 0.0 && value <= 1.0;
             case LiveConstantDomain::nonNegative:       return value >= 0.0;
             case LiveConstantDomain::nonNegativeFinite: return std::isfinite (value) && value >= 0.0;
@@ -855,7 +856,8 @@ namespace celadon::glaze
 
         void configure (double newSampleRate) noexcept
         {
-            sampleRate = newSampleRate > 0.0 && std::isfinite (newSampleRate) ? newSampleRate : 48000.0;
+            sampleRate = std::isfinite (newSampleRate) && newSampleRate >= stateMinimumSampleRate && newSampleRate <= stateMaximumSampleRate
+                             ? newSampleRate : 48000.0;
 
             // 同 MusicAnalyzer.cpp configure：起音组长、试算块 = 整数个组、IN 表子块长。
             const auto groupLength = juce::jlimit (1, maximumGroupLength, juce::roundToInt (sampleRate * onsetGroupSeconds));
@@ -938,7 +940,7 @@ namespace celadon::glaze
             makeEntry (segment, e);
             e.pinned = pinned;
             e.pinnedMainness = pinnedMainness;
-            e.due = juce::jmax (saturatingAdd (segment.end, delaySamples), lastDue);
+            e.due = juce::jmax (saturatingAdd (e.end, delaySamples), lastDue);
             lastDue = e.due;
             ++arrived;
         }
@@ -1038,7 +1040,38 @@ namespace celadon::glaze
                 e.hopLength = length >= 1 && length <= (long long) std::numeric_limits<int>::max() ? (int) length : 0;
             }
 
+            // 与读档同一套物理上界（拍板 6.2）。越界整段当坏段：时间跨度还在上界里就留下起止（发布时刻与好段同一套），
+            // 跨度本身越界则收到起点，免得荒谬的 end 把之后每段的发布时刻顶到天上去。范围内的段响度 / 低频占比留下。
+            if (! entryWithinBounds (e, sampleRate))
+                rejectBeyondBounds (e);
+
             deriveEntry (e);
+        }
+
+        // makeEntry 在量级越界时把一段收成坏段。admitted 还是 false，entryWithinBounds 不查进账那一段。
+        void rejectBeyondBounds (Entry& e) const noexcept
+        {
+            const auto start = e.start;
+            const auto end = e.end;
+            const auto nominal = e.nominalLength;
+            const auto mode = e.mode;
+            const auto loudnessOk = e.loudnessValid && std::abs ((double) e.loudnessLufs) <= stateLoudnessLimitLufs;
+            const auto loudness = loudnessOk ? e.loudnessLufs : 0.0f;
+            const auto lowOk = e.lowShareValid && e.lowShare >= 0.0f && e.lowShare <= 1.0f;
+            const auto low = lowOk ? e.lowShare : 0.0f;
+            const auto limit = stateSegmentSeconds * sampleRate + 1.0;
+            const auto spanOk = end >= start && (double) end - (double) start <= limit;
+
+            e = Entry {};
+            e.start = start;
+            e.mode = mode;
+            e.usable = false;
+            e.loudnessValid = loudnessOk;
+            e.loudnessLufs = loudness;
+            e.lowShareValid = lowOk;
+            e.lowShare = low;
+            e.end = spanOk ? end : start;
+            e.nominalLength = spanOk && (double) nominal <= limit ? nominal : 0;
         }
 
         // 派生的格号与工作量估计（与常数无关；进队与读档后算）。前提：计数在定长数组的范围里、试算块数 ≥ 0、低频格的范围合法——进队时
@@ -2950,8 +2983,8 @@ namespace celadon::glaze
 
         // 读回的计数器的量级与关系（文件头第六节「量级」）：进账过的有效音频 ≤ 段数 × 一段的上界；距上次主段、这一串换歌的有效音频
         // 都是同一串加法里的一部分（舍入单调，逐位不超过它）；换歌每段至多触发一次；参考时钟只由换歌推进、每次 ≤ maximumLogKeep；
-        // 主段时钟 = 参考时钟再加无主段的衰减（舍入单调，不小于参考时钟）。主段时钟没有上界——衰减按 noMainDecaySeconds 折算，常数可以
-        // 很小——它只以「时钟 − 印记」进 exp，印记与时钟的关系读完段再查。没有进账过的段（冷启动）时全是 0。
+        // 主段时钟 = 参考时钟再加无主段的衰减（舍入单调，不小于参考时钟）。时间常数至少 1 ms（positive 域），合法常数下这一步加不进 ∞。
+        // 它只以「时钟 − 印记」进 exp，印记与时钟的关系读完段再查。没有进账过的段（冷启动）时全是 0。
         static bool countersWithinBounds (const Counters& c, std::uint64_t commits) noexcept
         {
             return c.activeSeconds <= (double) commits * stateSegmentSeconds && c.secondsSinceMain <= c.activeSeconds

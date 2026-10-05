@@ -132,14 +132,15 @@ namespace celadon::glaze
         float referencePercentile = 0.95f;   // S_ref = 全部段段响度（按有效时长加权）的这个分位；lowRef 同分位
         double memoryBars = 48.0;            // W_mem：按小节分段时 = 本项 × 小节秒数（≤ 0 = 不按小节，用 memorySeconds）
         double memorySeconds = 90.0;         // W_mem：2 秒段、或 memoryBars ≤ 0 时
-        double confidenceBars = 8.0;         // M0：按小节分段时 = 本项 × 小节秒数（≤ 0 = 用 confidenceSeconds）
+        double confidenceBars = 6.0;         // M0：按小节分段时 = 本项 × 小节秒数（≤ 0 = 用 confidenceSeconds）
         double confidenceSeconds = 16.0;     // M0：2 秒段、或 confidenceBars ≤ 0 时
     };
 
     struct LiveConstants
     {
-        // 4/4 型（House 三类；以后 Techno、EDM / Trance、DnB / Bass）：ΔG 3、低频门 0.6、P95、M0 8 小节 ①；斜坡宽、W_mem ③
-        LiveModelConstants fourOnFloor { 3.0f, 1.5f, 0.6f, 0.15f, 0.95f, 48.0, 90.0, 8.0, 16.0 };
+        // 4/4 型（House 三类；以后 Techno、EDM / Trance、DnB / Bass）：ΔG 3、低频门 0.6、P95 ①；斜坡宽、W_mem ③。
+        // M0：Max 2026-10-04 拍板只上常数 A，原 T-038 标定的 8 小节改为 6，只动 c（结构与其余常数不动）。
+        LiveModelConstants fourOnFloor { 3.0f, 1.5f, 0.6f, 0.15f, 0.95f, 48.0, 90.0, 6.0, 16.0 };
         // 响度型（通用；以后 Hip-Hop / Pop、Rock / Metal）：只用响度门 ③
         LiveModelConstants loudness { 6.0f, 3.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
         // 被动型（以后 Acoustic / Jazz、Classical、Ambient）：有效音频一律 m = 1，门与分位不用 ③

@@ -185,6 +185,7 @@ namespace celadon::test
             testReanchoring();
             testNoAllocation();
             testStartJustBeforeBarLine();   // T-048 阶段 1 修订（代理 B2）
+            testTwoBarCap();                // T-048 阶段 1 收口：段长封顶两段
         }
 
     private:
@@ -683,6 +684,65 @@ namespace celadon::test
                     expect (second.start == first.end && second.end == c.secondEnd && second.key == first.key + 64,
                             tag + ": the next bar follows on the grid");
                 }
+            }
+        }
+
+        // 段长封顶两段（拍板 6.1）。冻结的 PPQ / 位置让每块都重新锚定、同一键把开着的段一直拉长；段落账自己截到两段并另开。
+        // 120 BPM 一小节正好 2 s = 96000 样本，两小节 192000。正常走带仍是一段一小节。拍点外的 2 秒段同样封两段。
+        void testTwoBarCap()
+        {
+            beginTest ("a frozen playhead cannot grow one segment past two bars; steady playback stays one bar each");
+
+            constexpr double bpm = 120.0;
+            constexpr std::int64_t bar = 96000;
+            constexpr std::int64_t twoBars = 2 * bar;
+
+            const auto withinCap = [&] (const Feeder& f, std::int64_t limit, const char* tag)
+            {
+                expect (f.ledger.getNumStored() >= 2, juce::String (tag) + ": more than one segment was finalized");
+                auto capped = true, contiguous = f.ledger.getStored (0).start == 0, ordered = true;
+
+                for (int i = 0; i < f.ledger.getNumStored(); ++i)
+                {
+                    const auto& s = f.ledger.getStored (i);
+                    capped = capped && s.end > s.start && s.end - s.start <= limit + 1;
+
+                    if (i > 0)
+                        contiguous = contiguous && s.start == f.ledger.getStored (i - 1).end;
+
+                    ordered = ordered && s.end > s.start;
+                }
+
+                expect (capped && ordered, juce::String (tag) + ": every stored segment is at most two bars and not inverted");
+                expect (contiguous, juce::String (tag) + ": stored segments stay contiguous from sample 0");
+            };
+
+            {
+                Feeder f;
+                std::int64_t position = 0;
+                const auto frozen = barHost (0, bpm);
+                f.play (position, 12.0, 512, [&frozen] (std::int64_t) { return frozen; });
+                withinCap (f, twoBars, "frozen PPQ");
+            }
+
+            {
+                Feeder f;
+                std::int64_t position = 0;
+                f.play (position, 8.0, 512, [] (std::int64_t p) { return barHost (p, bpm); });
+                auto oneBar = f.ledger.getNumStored() >= 3;
+
+                for (int i = 0; i < f.ledger.getNumStored(); ++i)
+                    oneBar = oneBar && f.ledger.getStored (i).end - f.ledger.getStored (i).start == bar;
+
+                expect (oneBar, "steady 120 BPM playback keeps one bar per segment (" + juce::String (f.ledger.getNumStored()) + " stored)");
+            }
+
+            {
+                Feeder f;
+                std::int64_t position = 0;
+                const auto frozen = positionOnlyHost (0);
+                f.play (position, 12.0, 512, [&frozen] (std::int64_t) { return frozen; });
+                withinCap (f, twoBars, "frozen position, 2 s segments");
             }
         }
     };

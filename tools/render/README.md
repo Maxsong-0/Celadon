@@ -490,13 +490,13 @@ live/<标签>/<歌名>__passes.csv                          逐遍比较（有�
 | `<模型>.lowRampWidth` | > 0 的有限数 | 0.15 |
 | `<模型>.referencePercentile` | (0, 1] | 0.95 / 0.90 / 0.90 |
 | `<模型>.memoryBars`（≤ 0 = 不按小节） | 数，可 ±inf | 48 / 0 / 0 |
-| `<模型>.memorySeconds` | > 0，可 inf | 90 |
-| `<模型>.confidenceBars`（≤ 0 = 用秒） | 数，可 ±inf | 8 / 0 / 0 |
-| `<模型>.confidenceSeconds` | > 0，可 inf | 16 / 20 / 20 |
-| `referenceMemorySeconds` | > 0，可 inf | 180 |
+| `<模型>.memorySeconds` | ≥ 1 ms，可 inf | 90 |
+| `<模型>.confidenceBars`（≤ 0 = 用秒） | 数，可 ±inf | 6 / 0 / 0 |
+| `<模型>.confidenceSeconds` | ≥ 1 ms，可 inf | 16 / 20 / 20 |
+| `referenceMemorySeconds` | ≥ 1 ms，可 inf | 180 |
 | `mainThreshold` | [0, 1] | 0.5 |
-| `noMainSeconds` / `noMainDecaySeconds` | ≥ 0 可 inf / > 0 可 inf | 60 / 120 |
-| `newProgramLu` / `newProgramSeconds` / `newProgramKeep` | ≥ 0 可 inf / > 0 可 inf / [0, 1] | 6 / 20 / 0.2 |
+| `noMainSeconds` / `noMainDecaySeconds` | ≥ 0 可 inf / ≥ 1 ms 可 inf | 60 / 120 |
+| `newProgramLu` / `newProgramSeconds` / `newProgramKeep` | ≥ 0 可 inf / ≥ 1 ms 可 inf / [0, 1] | 6 / 20 / 0.2 |
 | `newProgramRangeLu`（「轻」的那一支要电平稳；inf = 不要求） | ≥ 0，可 inf | 2 |
 | `peakTailSeconds`（≤ 0 = 只取最大值） | 数，可 ±inf | 0.5 |
 | `publishDelaySeconds`（发布延迟） | ≥ 0 的有限数 | 0.5 |
@@ -527,7 +527,7 @@ $PY tools/render/calibrate_house.py prep-synthetic <合成曲工作目录>    # 
   `docs/validation/2026-10-02-T048-phase1/P1R/scripts/`（`p1r_live_extra.py`、`p1r_scan.py`，读 analyze-live 写好的 CSV）。
 - **指标**（精确定义在 `calibrate_house.py` 的 `live_track_metrics` 文档串与 REPORT-C 第 3 节）：M1 最终 I 与人工标的 drop 响度之差；M2 第 16 小节起逐小节
   |手里的 I − drop 响度| 的逐首中位（汇总中位 ≤ 0.3、P90 ≤ 1.0 LU），另给从第一个 drop + 4 小节起的同一指标；M3 每段 breakdown 里 I 的最大漂移（≤ 0.5 LU）；
-  M4 第一个 drop 4 小节后与最终值之差（≤ 1 LU）及达到并保持 ±1 LU 所需的小节数；另给各段落 m ≥ 0.5 的占比（首判 / 终判）、换歌软遗忘与无主段时间衰减
+  M4 验收是跟踪误差 \|I\_{d+3} − D4\| ≤ 1 LU（D4 = 第一个 drop 起 4 个已听 drop 小节的输入段响度能量平均；Max 2026-10-04）。旧口径 \|I\_{d+3} − I_end\| 仍写出作对照。另给达到并保持 ±1 LU 所需的小节数、各段落 m ≥ 0.5 的占比（首判 / 终判）、换歌软遗忘与无主段时间衰减
   的触发次数（换歌另给触发时的段响度起伏）、c 到 0.8 所需的有效时长、第一个 drop 之后 c 的最低值。「手里的 I」= 上一小节发布的那一份的 I（发布在
   这一小节开头 0.5 s 之后，不细分）。
 

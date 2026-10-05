@@ -561,7 +561,7 @@ namespace
             case LiveDomain::positiveFinite:    return "> 0 的有限数";
             case LiveDomain::percentile:        return "(0, 1] 之间的数";
             case LiveDomain::notNan:            return "数（可写 inf / -inf）";
-            case LiveDomain::positive:          return "> 0 的数（可写 inf）";
+            case LiveDomain::positive:          return "≥ 1 ms 的数（可写 inf）";
             case LiveDomain::unit:              return "[0, 1] 之间的数";
             case LiveDomain::nonNegative:       return "≥ 0 的数（可写 inf）";
             case LiveDomain::nonNegativeFinite: return "≥ 0 的有限数";
@@ -5011,7 +5011,7 @@ namespace
                       << "\n";
         }
 
-        // 对照有牙：通用档（响度型）的追踪必须与 Deep House（4/4 型）的不同（段数相同：分段与曲风无关）；常数穿到画像：M0 放大 8 倍，最终 c 更低。
+        // 对照有牙：通用档（响度型）的追踪必须与 Deep House（4/4 型）的不同（段数相同：分段与曲风无关）；常数穿到画像：M0 从出厂 6 小节放到 64，最终 c 更低。
         {
             auto general = deep;
             general.genre = static_cast<int> (celadon::glaze::Genre::general);
@@ -5026,7 +5026,7 @@ namespace
             const auto slowRun = liveSelfListen (track, deep, 512, tempo124, slow, true);
             test.check (parsed && slowRun.trace.finalDiagnostics.confidence < base.trace.finalDiagnostics.confidence,
                         "--live-constants 穿到画像", "fourOnFloor.confidenceBars=64 时最终 c " + fixed (slowRun.trace.finalDiagnostics.confidence, 3)
-                                                    + "（出厂 8 小节 " + fixed (base.trace.finalDiagnostics.confidence, 3) + "，期望更低）");
+                                                    + "（出厂 6 小节 " + fixed (base.trace.finalDiagnostics.confidence, 3) + "，期望更低）");
         }
 
         if (test.failed == 0)

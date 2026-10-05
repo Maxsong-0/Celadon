@@ -522,7 +522,7 @@ namespace celadon::test
                 model->memoryBars = 0.0;
                 model->memorySeconds = infinity;
                 model->confidenceBars = 0.0;
-                model->confidenceSeconds = 1.0e-9;
+                model->confidenceSeconds = glaze::minimumLiveTimeConstantSeconds;   // M0 取域内最小（1 ms）：c 在有质量时就是 1
             }
 
             c.referenceMemorySeconds = infinity;
@@ -726,6 +726,7 @@ namespace celadon::test
             testCorruptStateStaysFinite();
             testRestoreRateConversionOverflow();
             testPublishGuard();
+            testPrepareSampleRateRange();
             testDeterminismAndReset();
             testCallPatterns();
             testAnalyzerToProfileBlockSizes();
@@ -1635,6 +1636,19 @@ namespace celadon::test
             const auto fixed = glaze::sanitiseLiveConstants (illegal);
             expect (fixed.publishDelaySeconds == factory.publishDelaySeconds && fixed.fourOnFloor.gateWidthLu == factory.fourOnFloor.gateWidthLu,
                     "inf where it is not allowed goes back to the factory value");
+
+            // 时间常数至少 1 ms（拍板 6.3）：更小的正数换出厂值，1 ms 与 +∞ 留下。
+            auto tiny = factory;
+            tiny.noMainDecaySeconds = 1.0e-300;
+            tiny.fourOnFloor.memorySeconds = 5.0e-4;
+            tiny.newProgramSeconds = glaze::minimumLiveTimeConstantSeconds;
+            tiny.referenceMemorySeconds = infinity;
+            const auto tinyClean = glaze::sanitiseLiveConstants (tiny);
+            expect (tinyClean.noMainDecaySeconds == factory.noMainDecaySeconds
+                        && tinyClean.fourOnFloor.memorySeconds == factory.fourOnFloor.memorySeconds,
+                    "a positive time constant below 1 ms goes back to the factory value");
+            expect (tinyClean.newProgramSeconds == glaze::minimumLiveTimeConstantSeconds && std::isinf (tinyClean.referenceMemorySeconds),
+                    "1 ms and +inf stay inside the positive domain");
         }
 
         //==============================================================================
@@ -2075,25 +2089,24 @@ namespace celadon::test
                     "a rate conversion that would overflow the timestamps rejects the whole state and leaves the instance cold");
         }
 
-        // 发布端兜底（P1F，LiveProfile.cpp guardPublishedResult）：不经读档。实时入口只查有限与非负（分析器交来的量有物理上限），由它交来
-        // 有限但荒谬的段，让累计、比值与 double → float 真的算出非有限值——发布出去的每个读数仍是有限值，出事的几项按「没有」发布：
-        //   一、局部：第 15 段 Tame 和 1e300（比值转 float 溢出）、第 3 段交叉功率 −1e300（S/M 的比值溢出：段 3 与低频组）、两段 10 Hz 候选
-        //       的本该能量 1e308（相加溢出：混合损失）。出事的逐段数组按「这一段没有统计」、特征无效；其余读数与没出事的对照实例逐位相同。
-        //   二、整份：遗忘全关、两段有效时长 1e308（主段质量 M 相加溢出；这两段的段响度与低频占比也写成 1e30，格号换算不出未定义行为）
-        //       → 整份同冷启动的空画像；reset 之后一切照常。
-        // 这两种输入都要实时入口收下荒谬的量才到得了兜底；以后入口若也按读档的物理上界拒收，这里改成直接构造（兜底本身不变）。
+        // 实时入口与读档同一套物理上界（拍板 6.2，LiveProfile.cpp makeEntry / entryWithinBounds）。有限但荒谬的段整段当坏段，
+        // 与「有效时长不是有限值」那条路同一结果：不逐段把出事的频段清成「没有统计」。发布端兜底（guardPublishedResult）还在，这些输入到不了它。
+        //   一、量级越界（Tame / 交叉功率 / 混合能量）≡ 有效时长 NaN，段响度仍在范围内则留下。画像、诊断、提交记录逐位相同，读数有限。
+        //   二、有效时长 1e308、段响度与低频占比 1e30：读数也越界，不当成冷启动的空画像，而是前几段照常、越界的两段像 NaN 坏段。
+        //   三、段尾伸到 2^40：收到起点，不把之后每段的发布时刻顶走；紧接着的好段仍按自己的段尾发布。
         void testPublishGuard()
         {
-            beginTest ("publication guard: absurd but finite live segments never publish inf / NaN; the affected readings are published as missing");
+            beginTest ("live ingress: absurd finite segments are the same bad segments as a non-finite one; a huge end does not poison later publish times");
 
             LiveProfile live, reference;
             setUp (live);
             setUp (reference);
 
-            for (int i = 0; i < 12; ++i)   // 12 段：试算满 10 s，混合损失有效
+            for (int i = 0; i < 12; ++i)
             {
                 auto segment = makeSegment (dropSpec(), i);
-                feed (reference, segment);
+                auto unusable = segment;
+                unusable.effectiveSeconds = std::numeric_limits<double>::quiet_NaN();
 
                 if (i >= 10)
                     segment.liveBlendIntended[0] = 1.0e308;
@@ -2104,91 +2117,88 @@ namespace celadon::test
                     segment.stereoCrossSum[3] = -1.0e300;
                 }
 
+                const auto compare = i >= 10 ? unusable : segment;
+                feed (reference, compare);
                 feed (live, segment);
             }
 
-            const auto& p = live.getProfile();
-            const auto& q = reference.getProfile();
             const auto bad = firstBadReading (live);
             expect (bad.isEmpty(), "every published reading is finite " + bad);
-            expect (sameFloat (p.tameEvidenceDb[15], 0.0f) && sameFloat (p.recoverEvidenceDb[15], 0.0f) && sameFloat (p.bandConfidence[15], 0.0f),
-                    "band 15 (Tame ratio overflowed float) is published as having no evidence");
-            expect (sameFloat (p.bandSideToMidDb[3], 0.0f) && sameFloat (p.bandCorrelation[3], 0.0f) && sameFloat (p.bandStereoConfidence[3], 0.0f)
-                        && ! p.lowSideToMidDb.valid,
-                    "band 3 S/M (ratio overflowed) has no stereo statistics; the low-band S/M feature is invalid");
-            expect (! p.lowCutBlendLossDb[0].valid && p.lowCutBlendLossDb[1].valid, "the 10 Hz blend loss (energy sum overflowed) is invalid; 20 Hz is not");
+            expect (sameProfile (live.getProfile(), reference.getProfile())
+                        && sameDiagnostics (live.getDiagnostics(), reference.getDiagnostics()),
+                    "magnitude-rejected segments match a NaN-unusable reference, profile and diagnostics");
+            expect (sameRecord (lastRecord (live), lastRecord (reference)),
+                    "the commit record of a rejected segment matches the NaN reference");
 
-            // 没出事的读数与对照实例逐位相同（兜底只动出事的那几项）。
-            auto untouched = sameFeature (p.integratedLufs, q.integratedLufs) && sameFeature (p.loudnessRangeLu, q.loudnessRangeLu)
-                          && sameFeature (p.plrDb, q.plrDb) && sameFeature (p.truePeakDbtp, q.truePeakDbtp)
-                          && sameFeature (p.spectralSlopeDbPerOct, q.spectralSlopeDbPerOct) && sameFeature (p.lowShare, q.lowShare)
-                          && sameFeature (p.highShare, q.highShare) && sameFeature (p.lowBandRangeDb, q.lowBandRangeDb)
-                          && sameFeature (p.onsetDensityPerSecond, q.onsetDensityPerSecond) && sameFeature (p.onsetStrengthDb, q.onsetStrengthDb)
-                          && sameFeature (p.subShareDb, q.subShareDb) && sameFeature (p.highSideToMidDb, q.highSideToMidDb)
-                          && sameFeature (p.highCorrelation, q.highCorrelation) && sameFeature (p.lowCutPeakCostDb, q.lowCutPeakCostDb)
-                          && sameFeature (p.widthPeakCostDb, q.widthPeakCostDb) && sameFeature (p.lowCutBlendLossDb[1], q.lowCutBlendLossDb[1])
-                          && sameFloats (p.bandLongTermDb, q.bandLongTermDb) && sameDouble (p.effectiveSeconds, q.effectiveSeconds)
-                          && sameFloat (p.representativeness, q.representativeness);
-
-            for (size_t c = 0; c < p.monoPeakCostDb.size(); ++c)
-                untouched = untouched && sameFeature (p.monoPeakCostDb[c], q.monoPeakCostDb[c]);
-
-            for (size_t b = 0; b < (size_t) numBands; ++b)
-            {
-                if (b != 15)
-                    untouched = untouched && sameFloat (p.tameEvidenceDb[b], q.tameEvidenceDb[b]) && sameFloat (p.recoverEvidenceDb[b], q.recoverEvidenceDb[b])
-                             && sameFloat (p.bandConfidence[b], q.bandConfidence[b]);
-
-                if (b != 3)
-                    untouched = untouched && sameFloat (p.bandSideToMidDb[b], q.bandSideToMidDb[b]) && sameFloat (p.bandCorrelation[b], q.bandCorrelation[b])
-                             && sameFloat (p.bandStereoConfidence[b], q.bandStereoConfidence[b]);
-            }
-
-            expect (untouched, "every other reading equals the reference instance bit for bit");
-
-            // 二、整份不可信：主段质量 M 溢出 → 空画像（同冷启动），每一份发布都是有限值；reset 之后与全新实例逐位相同。
-            LiveProfile overflow;
+            LiveProfile overflow, nanReference, cold;
             setUp (overflow, noForgetting());
-            Recorder recorder (overflow, 16);
-            overflow.setPublicationListener (&recorder);
+            setUp (nanReference, noForgetting());
+            setUp (cold, noForgetting());
 
             for (int i = 0; i < 6; ++i)
             {
                 auto segment = makeSegment (dropSpec(), i);
+                auto nanSegment = segment;
 
                 if (i >= 4)
                 {
                     segment.effectiveSeconds = 1.0e308;
-                    segment.loudnessLufs = 1.0e30f;   // 荒谬的段响度 / 低频占比：格号换算先钳再转整数（clampedBin），不出未定义行为
+                    segment.loudnessLufs = 1.0e30f;
                     segment.lowShare = 1.0e30f;
+                    nanSegment.effectiveSeconds = std::numeric_limits<double>::quiet_NaN();
+                    nanSegment.loudnessLufs = std::numeric_limits<float>::quiet_NaN();
+                    nanSegment.lowShare = std::numeric_limits<float>::quiet_NaN();
                 }
 
                 feed (overflow, segment);
-                const auto reading = firstBadReading (overflow, false);   // 计数器 activeSeconds 照样相加溢出：兜底只管画像
+                feed (nanReference, i >= 4 ? nanSegment : segment);
+                const auto reading = firstBadReading (overflow);
                 expect (reading.isEmpty(), "publication " + juce::String (i) + " is finite " + reading);
             }
 
-            LiveProfile cold;
-            setUp (cold, noForgetting());
-            expect (sameProfile (overflow.getProfile(), cold.getProfile()) && overflow.getDiagnostics().mainMassSeconds == 0.0
-                        && overflow.getDiagnostics().confidence == 0.0f,
-                    "once M overflows the published profile is the empty (cold) one");
-            expect (! recorder.overflow && recorder.publications.size() == 6 && std::isfinite (recorder.publications.back().record.mainMassSeconds)
-                        && ! recorder.publications.back().record.mainLevelValid,
-                    "the commit record carries the guarded values too");
+            expect (sameProfile (overflow.getProfile(), nanReference.getProfile())
+                        && sameDiagnostics (overflow.getDiagnostics(), nanReference.getDiagnostics()),
+                    "an overflowing mass matches segments whose loudness was not finite; it is not dropped on the floor");
+            expect (! sameProfile (overflow.getProfile(), cold.getProfile()) && overflow.getDiagnostics().commits == 6,
+                    "the four good segments before the overflow are still in the profile");
 
-            overflow.reset();
-            LiveProfile fresh;
-            setUp (fresh, noForgetting());
+            LiveProfile timing;
+            setUp (timing);
+            auto huge = makeSegment (dropSpec(), 0);
+            huge.end = huge.start + (std::int64_t (1) << 40);
+            timing.segmentFinalized (huge);
+            const auto due = timing.getNextPublicationTime();
+            expect (due == huge.start + 24000, "a segment longer than two bars is collapsed to its start, so its publish time stays finite: "
+                                                    + juce::String ((juce::int64) due));
+            timing.advanceTo (due);
 
-            for (int i = 0; i < 6; ++i)
+            auto next = makeSegment (dropSpec(), 1);
+            feed (timing, next);
+            expect (timing.getDiagnostics().commits == 2 && timing.getDiagnostics().publishTime == next.end + 24000,
+                    "the next good segment still publishes at its own end");
+            expect (lastRecord (timing).end == next.end && lastRecord (timing).effectiveSeconds > 0.0 && lastRecord (timing).loudnessValid,
+                    "the good segment was usable");
+        }
+
+        // prepare 的采样率与读档同一范围（拍板 6.4）：8 kHz 与 768 kHz 留下，之外（含非有限）换成 48 kHz。采样率写在状态 XML 里。
+        void testPrepareSampleRateRange()
+        {
+            beginTest ("prepare keeps 8 kHz–768 kHz and substitutes 48 kHz outside that range");
+
+            const auto attributeOf = [] (double sampleRate)
             {
-                feed (overflow, makeSegment (dropSpec(), 10 + i));
-                feed (fresh, makeSegment (dropSpec(), 10 + i));
-            }
+                LiveProfile live;
+                live.prepare (sampleRate);
+                return live.createStateXml()->getStringAttribute ("sampleRate");
+            };
 
-            expect (sameProfile (overflow.getProfile(), fresh.getProfile()) && sameDiagnostics (overflow.getDiagnostics(), fresh.getDiagnostics(), false),
-                    "after reset nothing of the overflow is left");
+            const auto at48 = attributeOf (48000.0);
+            expect (attributeOf (8000.0) == hexOfDouble (8000.0) && attributeOf (768000.0) == hexOfDouble (768000.0),
+                    "8 kHz and 768 kHz are stored as given");
+            expect (attributeOf (8000.0) != at48 && attributeOf (768000.0) != at48, "the two ends are not the 48 kHz fallback");
+            expect (attributeOf (1000.0) == at48 && attributeOf (7999.0) == at48 && attributeOf (768001.0) == at48
+                        && attributeOf (1.0e6) == at48 && attributeOf (std::numeric_limits<double>::infinity()) == at48,
+                    "rates outside 8 kHz–768 kHz, and non-finite rates, prepare as 48 kHz");
         }
 
         // f. 队列满、已发布的窗口也满（512 段）：一直不调 advanceTo、连交 80 段，segmentFinalized 就地发布腾格（LiveProfile.cpp makeRoomInQueue）——

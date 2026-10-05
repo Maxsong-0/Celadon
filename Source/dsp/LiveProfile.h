@@ -90,11 +90,15 @@ namespace celadon::glaze
         positiveFinite,      // > 0 的有限数
         percentile,          // (0, 1]
         notNan,              // 任意数，含 ±∞（如 memoryBars ≤ 0 = 不按小节、peakTailSeconds ≤ 0 = 只取最大值）
-        positive,            // > 0，含 +∞
+        positive,            // ≥ minimumLiveTimeConstantSeconds，含 +∞
         unit,                // [0, 1]
         nonNegative,         // ≥ 0，含 +∞
         nonNegativeFinite    // ≥ 0 的有限数
     };
+
+    // 时间常数下限（Max 2026-10-04 拍板 6.3）：positive 域至少 1 ms。更小的正数会把主段时钟乘成 ∞
+    // （noMainDecaySeconds = 1e-300 → ∞ − ∞ = NaN）。+∞ 仍合法（IEEE：+∞ ≥ 1 ms）。0 与负数仍由 nonNegative / notNan 管。
+    constexpr double minimumLiveTimeConstantSeconds = 1.0e-3;
 
     bool isInLiveConstantDomain (double value, LiveConstantDomain domain) noexcept;
 
@@ -231,7 +235,8 @@ namespace celadon::glaze
         LiveProfile();
         ~LiveProfile() override;
 
-        // 消息线程：按采样率换算（网格、发布延迟、试算块长）并冷启动。不分配（容量在构造时已分配）。
+        // 消息线程：按采样率换算（网格、发布延迟、试算块长）并冷启动。采样率须为有限数且在 8 kHz～768 kHz，
+        // 否则按 48 kHz（与读档、ReferenceSpectrum::prepare 同一范围）。不分配（容量在构造时已分配）。
         void prepare (double sampleRate);
 
         // 冷启动：清空窗口、队列、事件与已发布的画像，时间轴回到「不知道」（下一次 advanceTo 重新起算）。不分配。提交序号跨 reset 单调。

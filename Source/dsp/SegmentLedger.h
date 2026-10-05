@@ -14,6 +14,8 @@
         恒定速度下与宿主怎么分块无关（逐位相同）；变速时每次重新锚定，允许偏差。
       - 段的身份 = (分段方式, 是否按位置, 位置键)。小节的键 = round(小节起点 PPQ × keyScale)（与拍号历史无关，换过拍号也不撞）；
         按位置的 2 秒段的键 = 宿主位置 ÷ 段长（向下取整）。
+      - 同一段重新锚定时，这一次实例最长两段（两小节，或拍点外的两段）：再长就截到这个长度、另开新段。冻结的播放头不会把一段无限拉长；
+        正常播放一段就是一小节（或一个 2 秒段），碰不到这条。两小节 ≤ 12.8 s，与实时画像读档的段长上界是同一个「坏段」。
       - 播放从段中间开始时，这一次实例从开始播放的那个样本起（start 晚于段的起点）；「听到一半」按整段的标称长度算。
 
     二、记账（openSegmentAt：分析器三路数据各按自己的时间戳找所在的段，跨段边界的按起点归属）
@@ -270,6 +272,7 @@ namespace celadon::glaze
         std::int64_t boundary (std::int64_t index) const noexcept;
         std::int64_t keyOf (std::int64_t index) const noexcept;
         std::int64_t indexAt (std::int64_t time) const noexcept;
+        std::int64_t maxInstanceSamples() const noexcept;
         void openSegment (std::int64_t index, std::int64_t start) noexcept;
         Segment& newest() noexcept               { return pool[(size_t) order[(size_t) ((openHead + openCount - 1) % maxOpenSegments)]]; }
         const Segment& newest() const noexcept   { return pool[(size_t) order[(size_t) ((openHead + openCount - 1) % maxOpenSegments)]]; }
