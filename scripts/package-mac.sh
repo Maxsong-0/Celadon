@@ -38,6 +38,8 @@ component_pkg() {  # component_pkg <架构> <bundle> <安装位置> <标识后�
   local exe="$root/$bundle/Contents/MacOS/Celadon"
   lipo -thin "$arch" "$exe" -output "$exe.thin"
   mv "$exe.thin" "$exe"
+  # AU 的注册版本改成 JucePlugin_VersionCode 的编码（原因见 scripts/au-version.sh）；Xcode 构建后已经改过的话这里不动。
+  if [ "$suffix" = au ]; then "$ROOT/scripts/au-version.sh" "$root/$bundle/Contents/Info.plist"; fi
   codesign --force --sign - --timestamp=none "$root/$bundle"
   codesign --verify --strict "$root/$bundle"
   [ "$(lipo -archs "$root/$bundle/Contents/MacOS/Celadon")" = "$arch" ] || { echo "$bundle 拆出的不是单一 $arch" >&2; exit 1; }
