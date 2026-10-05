@@ -17,7 +17,7 @@ At 48 kHz with 2 ms Lookahead, total latency is 1384 samples ≈ 28.8 ms.
 
 ## Design principles
 
-1. **Transparency**: with any module's parameters at zero or the module bypassed, the output nulls against the input (< −120 dBFS). With GLAZE held at 0, the whole chain is bit-identical to a reference chain without GLAZE.
+1. **Transparency**: with any module's parameters at zero or the module bypassed, the output nulls against the input (< −120 dBFS). With GLAZE held at 0, Genre on General and Delivery on Standard, the whole chain is bit-identical to a reference chain without GLAZE (Streaming still caps LIMIT's ceiling at −2 dBTP and a House genre still tightens Auto release to the tempo; neither depends on GLAZE).
 2. **Latency-compensated bypass**: a bypassed module still keeps its latency (the dry signal runs through an equal-length delay line), so switching never misaligns or clicks (20 ms fade).
 3. **The peak it limits is the peak it measures**: the limiter and both meters use the same 8× true-peak detector.
 4. **Zero allocations, zero locks on the audio thread**: all buffers are allocated in `prepare`; the tests replace the global `operator new` to count.

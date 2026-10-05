@@ -33,3 +33,5 @@ Under Advanced → Release safety. It attenuates monitoring to the selected LUFS
 2. Exit Normalisation preview and Listen to difference (click the hint in the main window if one is showing).
 3. Check that the OUT true-peak maximum ≤ Ceiling; set a codec margin if you need one.
 4. If you're responsible for the final bit-depth reduction, turn dither on; otherwise leave it off.
+5. With a House genre, wait for Locked before exporting (exporting while it is still listening switches the plan partway through the master; the status line warns you); see [How House genres listen](/docs/glaze#how-house-genres-listen).
+6. If you're exporting one song as both a Streaming and a Club version, play from the drop after each Delivery switch until the status is back to Locked, then export; see [Switching, and exporting two masters](/docs/glaze#switching-and-exporting-two-masters).

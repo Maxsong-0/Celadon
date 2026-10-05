@@ -127,7 +127,7 @@
     "autoIncrement": "Auto increment",
     "drivenBody": "Actual value = manual value + auto increment, capped at each module's limit. The auto increment only ever rises as GLAZE goes up, and never cancels out your changes.",
     "targetTitle": "Target loudness (illustrative)",
-    "targetBody": "Set by the style, the Delivery choice and GLAZE together, then narrowed by each module's limits; at the edge of dynamics protection it stops pushing and the status shows “Limited”.",
+    "targetBody": "Delivery sets the loudness tier first (Standard / Streaming / Club); style and GLAZE then adjust it, narrowed by each module's budget. Once that budget is used up it stops pushing, and the target loudness on the status line comes down; the status usually still reads Locked.",
     "styleTitle": "Style · blended per song",
     "styles": [
       "Warm",
