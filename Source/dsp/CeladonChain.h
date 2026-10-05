@@ -119,6 +119,7 @@ namespace celadon
         void setParams (const Params& requested, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
+        // 后几片的 positionSamples / ppqPosition 按片内偏移推进（ppqLastBarStart 仍是块起点那一小节），段落账才不会把大块重新锚定错。
         // 返回 true = 输出出现非有限值（内部溢出）：故障切片已清零、整链重启淡入，交给处理器计数。
         bool process (juce::AudioBuffer<float>& io);
 
@@ -205,6 +206,9 @@ namespace celadon
         void updateListenTarget();
         // T-038 限幅跟拍：House 档、Auto 释放、宿主在播且 BPM 在合理区间时 = 一拍 ÷ beatReleaseDivisor（ms），否则 0（不封顶）。
         float beatReleaseCapFor (glaze::Genre genre, bool autoRelease) const noexcept;
+        // 本块起点的宿主信息加上 sampleOffset。只改位置与 PPQ；小节起点保持块起点那一小节（SegmentLedger::anchor）。
+        glaze::HostInfo hostAtOffset (int sampleOffset) const noexcept;
+        bool hostAdvancesInSlices() const noexcept;
 
         // 试听差值：淡入中、试听中、淡出中都算「在用」——这时限幅器要写差值、宿主大块要切片。
         bool differenceInvolved() const noexcept   { return differenceMix.isSmoothing() || differenceMix.getCurrentValue() > 0.0f; }
@@ -230,6 +234,8 @@ namespace celadon
         // T-038 限幅跟拍：本块宿主的速度与走带（setHostInfo 记下，setParams 算慢段释放上限用；设计规格-曲风-House学习方式 第 8 节）。
         bool hostTempoValid = false, hostPlaying = true;
         double hostBpm = 0.0;
+        // 本块 setHostInfo 时的宿主信息。切片只在编排器上推进偏移；走完多片后改成块尾，下一块没再报位置时接着这里。
+        glaze::HostInfo blockHostInfo;
 
 
         Params effective;

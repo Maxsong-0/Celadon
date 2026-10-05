@@ -154,12 +154,43 @@ namespace celadon
 
     void CeladonChain::setHostInfo (const glaze::HostInfo& info) noexcept
     {
+        blockHostInfo = info;
         offline = info.offline;
         if (offline) previewRequested.store (false, std::memory_order_relaxed);
         hostTempoValid = info.hasTempo && std::isfinite (info.bpm) && info.bpm > 0.0;
         hostBpm = hostTempoValid ? info.bpm : 0.0;
         hostPlaying = offline || ! info.hasPlayState || info.isPlaying;   // 同编排器 hostPlaying()
         controller.setHostInfo (info);
+    }
+
+    glaze::HostInfo CeladonChain::hostAtOffset (int sampleOffset) const noexcept
+    {
+        auto sliceHost = blockHostInfo;
+
+        if (sampleOffset <= 0)
+            return sliceHost;
+
+        if (sliceHost.hasPosition)
+            sliceHost.positionSamples += (std::int64_t) sampleOffset;
+
+        // 与 tempo 宿主同一换算：ΔPPQ = 样本 × BPM / (采样率 × 60)。ppqLastBarStart 不动。
+        if (sliceHost.hasPpq && sliceHost.hasTempo && std::isfinite (sliceHost.bpm) && sliceHost.bpm > 0.0
+            && std::isfinite (sliceHost.ppqPosition) && listenSampleRate > 0.0)
+            sliceHost.ppqPosition += (double) sampleOffset * sliceHost.bpm / (listenSampleRate * 60.0);
+
+        return sliceHost;
+    }
+
+    bool CeladonChain::hostAdvancesInSlices() const noexcept
+    {
+        if (! hostPlaying)
+            return false;
+
+        if (blockHostInfo.hasPosition)
+            return true;
+
+        return blockHostInfo.hasPpq && blockHostInfo.hasTempo && std::isfinite (blockHostInfo.bpm)
+            && blockHostInfo.bpm > 0.0 && std::isfinite (blockHostInfo.ppqPosition) && listenSampleRate > 0.0;
     }
 
     void CeladonChain::setParams (const Params& requested, bool hostBypassed, bool compareOriginal, bool auditionDifference)
@@ -361,9 +392,18 @@ namespace celadon
         // This changes neither sample timing nor the reported audio latency.
         bool nonFinite = false;
         lastProcessSliceCount = 0;
+        const auto advanceHost = hostAdvancesInSlices();
+        auto movedHost = false;
         for (int offset = 0; offset < io.getNumSamples();)
         {
             ++lastProcessSliceCount;
+            // 第 0 片沿用本块开头的 setHostInfo。后几片直接交给编排器，不重走链上的离线 / 预听开关。
+            // 偏移与已处理样本数一致，跳播容差内差值为 0，不会被当成传输跳变。
+            if (offset > 0 && advanceHost)
+            {
+                controller.setHostInfo (hostAtOffset (offset));
+                movedHost = true;
+            }
             // Keep the host-block parameter contract: every slice uses the
             // same executed settings. Only statistics advance here; a newly
             // computed correction becomes audible at the next setParams.
@@ -374,6 +414,12 @@ namespace celadon
             juce::AudioBuffer<float> slice (io.getArrayOfWritePointers(), io.getNumChannels(), offset, length);
             nonFinite = processSlice (slice) || nonFinite;
             offset += length;
+        }
+        // 多片走完后宿主停在最后一片的起点，会比块尾短一片。补到块尾，下一块若没再 setHostInfo 就从这里接着走。
+        if (movedHost)
+        {
+            blockHostInfo = hostAtOffset (io.getNumSamples());
+            controller.setHostInfo (blockHostInfo);
         }
         if (nonFinite) io.clear();
         return nonFinite;
