@@ -5,7 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SITE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const ORIGIN = 'https://celadon.maxsong.me';
+// 站点的规范地址（canonical / hreflang / og:url / 站点地图都用它）。2026-10-02 起是 celadonaudio.com（Max 注册并迁移，旧域名 celadon.maxsong.me 301 过来）；
+// 写死在这里之外的几处（index.html、robots.txt、Nav.tsx、make-og.py）由 check-i18n 核对与它一致。
+export const ORIGIN = 'https://celadonaudio.com';
 export const LOCALES = ['en', 'zh'];
 /** 与 src/i18n/paths.ts 的 HTML_LANG 一致（ADR-024：英文在 /，中文在 /zh/） */
 export const HREFLANG = { en: 'en', zh: 'zh-CN' };
