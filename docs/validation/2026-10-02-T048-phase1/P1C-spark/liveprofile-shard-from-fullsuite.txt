@@ -1,0 +1,42 @@
+==== 107-x86-full LiveProfile timing ====
+2734------------------------------------------------------------------
+2735-Starting tests in: LiveProfile / g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression...
+2736:  [4/4, 2000 bars] enqueue (segmentFinalized): mean 1.52 us, median 1.49, P99 2.00, P99.9 7.06, max 7.8
+2737:  [4/4] slice (one per grid point while a pass is running, 19390 calls): mean 6.25 us, median 4.60, P99 13.29, P99.9 18.71, max 451.2
+2738:  [4/4] slices used by one pass: up to 11 (of 60 grid points before the due time); passes finished late: 0
+2739-  synchronous full pass (setConstants) by window size: 1 segments 4.1 us; 64 segments 12.8 us; 256 segments 39.6 us; 512 segments 74.7 us;
+2740-  state XML after the 2000 bars: 1520378 bytes
+2741-  per-segment cost of a 512-segment pass (us / segment): 4/4 non-main 0.0390; 4/4 main 0.2336; loudness non-main 0.1218; loudness main 0.2575;
+2742:  [loudness, 700 bars] enqueue (segmentFinalized): mean 1.71 us, median 1.51, P99 2.03, P99.9 5.06, max 134.7
+2743:  [loudness] slice (one per grid point while a pass is running, 8274 calls): mean 5.93 us, median 4.43, P99 15.76, P99.9 20.27, max 22.2
+2744:  [loudness] slices used by one pass: up to 18 (of 60 grid points before the due time); passes finished late: 0
+2745-Completed tests in LiveProfile / g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression
+2746------------------------------------------------------------------
+==== 107-x86-v3-full LiveProfile timing ====
+2734------------------------------------------------------------------
+2735-Starting tests in: LiveProfile / g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression...
+2736:  [4/4, 2000 bars] enqueue (segmentFinalized): mean 1.48 us, median 1.37, P99 1.87, P99.9 6.63, max 174.3
+2737:  [4/4] slice (one per grid point while a pass is running, 19390 calls): mean 5.82 us, median 3.98, P99 13.43, P99.9 18.73, max 401.5
+2738:  [4/4] slices used by one pass: up to 11 (of 60 grid points before the due time); passes finished late: 0
+2739-  synchronous full pass (setConstants) by window size: 1 segments 4.0 us; 64 segments 11.8 us; 256 segments 36.0 us; 512 segments 68.8 us;
+2740-  state XML after the 2000 bars: 1520378 bytes
+2741-  per-segment cost of a 512-segment pass (us / segment): 4/4 non-main 0.0403; 4/4 main 0.2086; loudness non-main 0.1218; loudness main 0.2286;
+2742:  [loudness, 700 bars] enqueue (segmentFinalized): mean 1.16 us, median 1.13, P99 1.51, P99.9 1.72, max 4.0
+2743:  [loudness] slice (one per grid point while a pass is running, 8274 calls): mean 5.50 us, median 3.81, P99 15.90, P99.9 20.03, max 25.9
+2744:  [loudness] slices used by one pass: up to 18 (of 60 grid points before the due time); passes finished late: 0
+2745-Completed tests in LiveProfile / g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression
+2746------------------------------------------------------------------
+==== 109-x86-full LiveProfile timing ====
+2733------------------------------------------------------------------
+2734-Starting tests in: LiveProfile / g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression...
+2735:  [4/4, 2000 bars] enqueue (segmentFinalized): mean 1.69 us, median 1.57, P99 2.39, P99.9 7.62, max 178.0
+2736:  [4/4] slice (one per grid point while a pass is running, 19390 calls): mean 6.25 us, median 4.63, P99 13.34, P99.9 18.16, max 32.3
+2737:  [4/4] slices used by one pass: up to 11 (of 60 grid points before the due time); passes finished late: 0
+2738-  synchronous full pass (setConstants) by window size: 1 segments 4.1 us; 64 segments 13.1 us; 256 segments 39.0 us; 512 segments 75.0 us;
+2739-  state XML after the 2000 bars: 1520378 bytes
+2740-  per-segment cost of a 512-segment pass (us / segment): 4/4 non-main 0.0387; 4/4 main 0.2338; loudness non-main 0.1225; loudness main 0.2572;
+2741:  [loudness, 700 bars] enqueue (segmentFinalized): mean 1.34 us, median 1.26, P99 1.99, P99.9 6.98, max 9.2
+2742:  [loudness] slice (one per grid point while a pass is running, 8274 calls): mean 5.93 us, median 4.42, P99 15.78, P99.9 20.32, max 21.4
+2743:  [loudness] slices used by one pass: up to 18 (of 60 grid points before the due time); passes finished late: 0
+2744-Completed tests in LiveProfile / g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression
+2745------------------------------------------------------------------

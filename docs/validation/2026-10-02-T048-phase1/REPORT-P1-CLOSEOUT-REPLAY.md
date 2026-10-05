@@ -15,7 +15,7 @@
 | ⑥ 默认网格 vs main `75a97ba`（live 关） | **20 / 20 首** `metrics.csv` 逐字节相同；合并表 sha256 `cc8352a28e8d6618` 相同。插件出声不变。 |
 | ⑥ 从第 N 小节起播（listen-from-bar 1,33）重定基线 | 20 首跑完。对 main：14 首相同、**6 首不同**（B2 半样本锚定留在共用 `SegmentLedger::anchor`，预期）。新基线 = 本分支 `out-closeout-H`（合并表 sha256 `77626bbcb226c943`）。Ansun / KINOSEI 原件仍缺 → 20 首。 |
 | ⑦ 全套 0 新增失败 / 0 新增警告 | Spark：**149099 过 / 5 败**；5 败与同机基线同类（ColorModule L=R×4、BalancePerformance×1）。相对 P1T 基线 `148803/5`：**新增失败 0**。独立源码副本全新构建 closeout / main 的 `warning:` 行均为 **0**（新增警告 0）。 |
-| 107 / 109 | **可达**。107 x86：**149357 / 0**，EXIT 0。109 MSVC（Wine）：**149357 / 0**，EXIT 0。109 x86 与 107 `-march=x86-64-v3` 在本报告落盘时仍在排队 / 跑（见 §5）。 |
+| 107 / 109 | **可达且四套全绿**（见 §8）：107 x86 / 107 x86-v3 / 109 x86 / 109 MSVC 均为 **149357 / 0**，EXIT 0。 |
 
 ## 1. 二进制与 M0=6（live-trace 摘要会变）
 
@@ -137,8 +137,8 @@ CLOSEOUT：B2 半样本锚定留在共用 `SegmentLedger::anchor`，故相对 ma
 |---|---|---|
 | 107 | 默认 x86 全套 | **149357 过 / 0 败**，EXIT 0；日志 `P1C-spark/107-x86-full.log` |
 | 109 | MSVC（Wine）全套 | **149357 过 / 0 败**，EXIT 0；日志 `P1C-spark/109-msvc-full.log` |
-| 109 | x86 全套（`CELADON_TEST_HOST=109`） | 落盘时仍在跑（与 107-v3 争本机 test-linux 锁）；原始日志 `~/.cache/celadon-t048-cal/closeout/logs/109-x86-full.log` |
-| 107 | `-march=x86-64-v3` 全套 | 等 109-x86 释锁后由排队脚本启动；日志 `…/107-x86-v3-full.log` |
+| 109 | x86 全套（`CELADON_TEST_HOST=109`） | **149357 / 0**，EXIT 0；`P1C-spark/109-x86-full.log` |
+| 107 | `-march=x86-64-v3` 全套 | **149357 / 0**，EXIT 0；`P1C-spark/107-x86-v3-full.log` |
 
 x86 分片耗时：107 全套已含 `MusicAnalyzerLive` 性能护栏用例；专门的 LiveProfile 分片 P99.9 对照需在 107 空闲后再跑定向（本收口批未另开计时会话）。Spark 上 P1T 已有 aarch64 分片数，**不能代替 107**。
 
@@ -150,7 +150,7 @@ x86 分片耗时：107 全套已含 `MusicAnalyzerLive` 性能护栏用例；专
 | ⑤ 因果重放 + 新跟踪口径报告 | **本报告**；4/4 型 M2/M3 达标；跟踪误差 28/38（已知限制） |
 | ⑥ 对 main 出声不变 + from-bar 重定基线 | **完成**（20 首） |
 | ⑦ Spark 0 新增失败 / 0 新增警告 | **完成** |
-| 107/109 全套 | 107 x86 + 109 MSVC **已绿**；109 x86 与 107 v3 **仍在飞**（不阻塞本报告数字，但关阶段 1 前建议等它们 EXIT） |
+| 107/109 全套 | **四套全绿**（§8） |
 
 ## 7. 复现要点
 
@@ -173,3 +173,40 @@ bash ~/.cache/celadon-t048-22songs/batch.sh "$CB/celadon_render" ~/.cache/celado
 (cd "$WT" && scripts/windows-wine.sh test)
 ```
 
+
+## 8. 107 / 109 终表（续跑收口，2026-10-05 14:51～14:58 PDT）
+
+先前落盘时 109 x86 与 107 `-march=x86-64-v3` 仍在飞。续跑等到两边 `EXIT`：
+
+| 主机 | 套件 | 结果 | EXIT | 日志 |
+|---|---|---|---|---|
+| 107 | 默认 x86 全套 | **149357 过 / 0 败** | 0 | `P1C-spark/107-x86-full.log` |
+| 107 | `-march=x86-64-v3` 全套 | **149357 过 / 0 败** | 0 | `P1C-spark/107-x86-v3-full.log` |
+| 109 | MSVC（Wine）全套 | **149357 过 / 0 败** | 0 | `P1C-spark/109-msvc-full.log` |
+| 109 | x86 全套 | **149357 过 / 0 败** | 0 | `P1C-spark/109-x86-full.log` |
+| Spark aarch64 | 全套（§4） | 149099 过 / 5 败（已知 aarch64；新增 0） | 1 | `~/.cache/celadon-t048-cal/closeout/logs/full-suite-closeout.log` |
+
+四套 x86 / MSVC 数字一致（149357 / 0）。本机 test-linux 锁：109-x86 结束后交给 107-v3；两者均已释锁。
+
+### LiveProfile 分片耗时（全套内嵌用例 g，未另开定向）
+
+用例：`LiveProfile / g. per-enqueue and per-slice time…`（宽护栏，防 100× 回退；已通过）。摘自全套日志（`P1C-spark/liveprofile-shard-from-fullsuite.txt`）：
+
+| 主机 | 4/4 slice P99.9 (µs) | loudness slice P99.9 (µs) | passes finished late |
+|---|---|---|---|
+| 107 x86 | 18.71 | 20.27 | 0 / 0 |
+| 107 x86-v3 | 18.73 | 20.03 | 0 / 0 |
+| 109 x86 | 18.16 | 20.32 | 0 / 0 |
+
+对照：P1T / REPORT-A2 曾问「分片 P99.9 是否 ≤ 15 µs」——x86 上测得约 **18～20 µs**，高于该软目标，但用例护栏通过且「发布前做完」为 0 次迟到。未再开空机专项（避免占 107）。若把 ≤ 15 µs 当硬门槛，记为**可选后续**，不挡阶段 1 验证矩阵收口。
+
+### 阶段 1 验证可否关上
+
+| 项 | 状态 |
+|---|---|
+| ⑤⑥⑦ Spark | 已在本报告正文 |
+| 107 / 109 四套全绿 | **是** |
+| 分片 P99.9 ≤ 15 µs 软目标 | x86 实测 ~18–20 µs；护栏通过。可选后续，**不挡关** |
+| 合并 PR #54 / deploy | **未做**（按指令） |
+
+**结论：阶段 1 验证矩阵可以关上。** 剩余仅可选的分片软目标收紧（若产品仍坚持 ≤ 15 µs）；规格已知的 M4 跟踪 28/38 不是代码缺口。
