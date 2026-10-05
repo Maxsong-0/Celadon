@@ -36,8 +36,9 @@
       7. 目标：requestedGain = 手动链的预计净增益 + GLAZE × G_full（风格与 GLAZE 想要的）；
                effectiveGain = 手动链的预计净增益 + s × G_full′（校准器用它作目标净提升，含手动部分，所以不会去抵消手动）。
       8. 修坯 Clay（v0.1.7.0，算法 7；设计规格-Clay-分析决策与验收第 2 节，ADR-012 / 设计规格-Clay-根治修订 3.3 修订）：与 1 ～ 7
-         完全独立的三项绝对值（低切、收单、加宽），只看画像的立体声 / 次声特征与「先试后用」量到的峰值代价、GLAZE 与风格权重
-         （见 planClay）。不进前向链模型、不受约束反馈与手动值影响，1 ～ 7 也不看 Clay 特征：画像多了 Clay 特征，方案的其余字段逐位不变。
+         完全独立的三项绝对值（低切、收单、加宽；收单自动态恒为中性，ADR-015），只看画像的立体声 / 次声特征与「先试后用」量到的
+         峰值代价、GLAZE 与风格权重（见 planClay）。不进前向链模型、不受约束反馈与手动值影响，1 ～ 7 也不看 Clay 特征：画像多了
+         Clay 特征，方案的其余字段逐位不变。
 
     模型都是「保守初值」（规格第 5 节）：数值来自真实模块在合成素材上的实测（GlazeConstants.h 的【实测】项），
     偏差由校准器（固定增益偏差）与保护层（实测约束）收口。
@@ -1174,7 +1175,8 @@ namespace celadon::glaze
 
         //==============================================================================
         // 先试后用（ADR-012，设计规格-Clay-根治修订 3.2 / 3.3）：分析器在学习区间里把三项的候选处理跑在原始输入上，量 100 ms
-        // 块峰值 P99 的变化（代价，dB，正 = 峰值变高），随画像保存；决策器按代价给每项乘一个系数 f ∈ [0, 1]。
+        // 块峰值 P99 的变化（代价，dB，正 = 峰值变高），随画像保存；决策器按代价给低切、加宽各乘一个系数 f ∈ [0, 1]
+        // （ADR-015 起收单的代价照测不用）。
 
         // 代价特征能用：有效且数值有限。置信度不参与——代价只回答「这首歌真做了峰值会不会变高」，分析器有效块满 10 s 才给
         // valid（GlazeTypes.h MusicProfile）；需要度那一侧的可信度 c 已按置信度收紧。
@@ -1276,7 +1278,7 @@ namespace celadon::glaze
             auto limited = std::uint8_t { 0 };   // costLimitedMask：因代价被减量 / 否决的项
             const auto markLimited = [&limited] (std::uint8_t bit) noexcept { limited = static_cast<std::uint8_t> (limited | bit); };
 
-            // 清理项（低切、收单）的 GLAZE 强度；clayGlazeFullAt ≤ 0 或非有限 = 不自动清理。
+            // 清理项（低切；ADR-015 前收单也用）的 GLAZE 强度；clayGlazeFullAt ≤ 0 或非有限 = 不自动低切。
             const auto fullAt = c.clayGlazeFullAt;
             const auto cleanupStrength = fullAt > 0.0f && isFinite (fullAt) ? juce::jmin (1.0f, glaze / fullAt) : 0.0f;
 
@@ -1948,7 +1950,8 @@ namespace celadon::glaze
         plan.manualBudgetMask = static_cast<std::uint8_t> (plan.manualBudgetMask | bound.manualBudgetMask);
 
         // 修坯 Clay：三项幅度逐项取小（低切 0 = 关，本来就是最小值；三项都随 GLAZE 单调、都不超上限，取小后照样成立）。
-        // 分频点只由画像的逐段统计与常数决定，两份方案相同，保留 plan 自己的；取小后收单为 0 时回到中性默认值（与 planClay 一致）。
+        // 分频点：ADR-015 起自动方案的收单恒为中性（比例 0、分频点 ClayPlan{} 默认值），两份方案的分频点逐位相同，保留 plan 自己的；
+        // 取小后收单为 0 时回到中性默认值（与 planClay 一致）。
         auto& clay = plan.clay;
         clay.lowCutHz = juce::jmin (clay.lowCutHz, bound.clay.lowCutHz);
         clay.monoAmount = juce::jmin (clay.monoAmount, bound.clay.monoAmount);
@@ -1957,7 +1960,7 @@ namespace celadon::glaze
         if (! (clay.monoAmount > 0.0f))
             clay.monoHz = ClayPlan {}.monoHz;
 
-        // 代价位取与：两份方案用同一份代价、同一个分频点（封顶画像只拉满 1 ～ 7 用的置信度，Clay 特征不动），同一项的 f 相同；
+        // 代价位取与：两份方案用同一份代价（封顶画像只拉满 1 ～ 7 用的置信度，Clay 特征不动），同一项的 f 相同（ADR-015 起收单不置位）；
         // 位不同只可能是某一份「代价之前就不动作」（权重不同时风格低切目标不高于地板、加宽系数为 0 这类坏快照），取小后那一项
         // 正是被它压成 0 的——原因不是代价，界面不该说「试过会抬高峰值」。
         clay.costLimitedMask = static_cast<std::uint8_t> (clay.costLimitedMask & bound.clay.costLimitedMask);
@@ -1976,8 +1979,8 @@ namespace celadon::glaze
         // 非线性让个别画像与手动组合反了过来（v0.6 验收 F-05：净增益最坏多 22 dB）。所以同一份画像把置信度拉满再算一次，
         // 逐项取小：两份都随 GLAZE 单调、都不超上限、GLAZE 0 时都为 0，取小后这三条照样成立；风格权重用同一份。
         //
-        // 修坯 Clay 的五个特征不在下面「拉满」之列（逐段的 bandStereoConfidence 更不拉：它只当「这一段有没有统计」用，拉满会把
-        // 没有统计、S/M 与 ρ 都记 0 的段当成宽段）：Clay 三项本来就随各自特征的可信度单调，拉满只会更大，取小时恒取这一份，
+        // 修坯 Clay 的五个特征不在下面「拉满」之列（逐段的 bandStereoConfidence 也不拉；ADR-015 起决策器只读其中的真次声占比与高频
+        // 侧中比，其余三项与逐段统计都不读）：Clay 的低切、加宽本来就随各自特征的可信度单调，拉满只会更大，取小时恒取这一份，
         // 白算；而把它们加进来会让「只有 Clay 特征不满」的画像也去算封顶方案，改动方案其余字段的逐位结果（Tone 的 −0 归 +0）。
         // ADR-012 的三类代价特征同样不拉：代价系数不看置信度（只看 valid），拉了也不变。
         // Clay 真正要封的只有下面第二次：「自动」且权重没锁时，置信度低 → 权重偏通透 → 通透的低切目标与加宽系数最大，

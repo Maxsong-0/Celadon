@@ -168,7 +168,8 @@ namespace celadon::glaze
         float clean = 1.0f;
     };
 
-    // 先试后用的收单候选分频点（Hz，递增；ADR-012）：分析器按它们各测一个代价，决策器按对数频率在相邻两点间插值。
+    // 先试后用的收单候选分频点（Hz，递增；ADR-012）：分析器按它们各测一个代价、随画像保存；ADR-015 起决策器不用
+    // （原先按对数频率在相邻两点间插值）。
     inline constexpr std::array<float, 4> clayMonoCandidateHz { 60.0f, 80.0f, 120.0f, 160.0f };
 
     // 守护混合损失的试用候选（T-043，ADR-027）：低切频率，升序。10 Hz = 出厂地板（clayLowCutFloorHz），20 Hz = 风格目标的上限
@@ -188,7 +189,7 @@ namespace celadon::glaze
     struct ClayPlan
     {
         float lowCutHz = 0.0f;     // 0 = 关；否则 10 ～ 60 Hz
-        float monoHz = 80.0f;      // 60 ～ 160 Hz（自动）；手动可 40 ～ 300
+        float monoHz = 80.0f;      // 自动方案恒为本默认值（ADR-015 起自动不收单；v0.1.7.0 时自动为 60 ～ 160 Hz）；手动可 40 ～ 300
         float monoAmount = 0.0f;   // 0 ～ 1
         float widthDb = 0.0f;      // 自动 0 ～ +1.5 dB（只加不减）
         std::uint8_t costLimitedMask = 0;   // ADR-012：哪几项因代价被减量 / 否决（clayCostLimited* 位）；只给界面解释用，不影响处理

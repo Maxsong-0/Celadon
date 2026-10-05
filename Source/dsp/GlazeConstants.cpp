@@ -25,13 +25,17 @@
     该电平真能削掉的份额（不到 Constants::heatUsefulCrestDb 就只留底量），出厂残差 Heat 表下自动 Heat 因此恒为底量 × 强度：
     温润 GLAZE 100 从 70 降到 12、默认 35 % 从 24.5 降到 4.2（可闻变化，待 Max 试听）。
 
-    修坯 Clay 的全局常数（阈值、地板频率、分频点范围、加宽上限、相关度下限、ClayGuard 时间常数、ADR-012 的代价系数与
-    收单收益斜坡）默认值就是出厂值，只写在 GlazeConstants.h；这里只写两项风格常数。快照读写时全部 clay* 字段都是「可缺省」的：
+    修坯 Clay 的全局常数（阈值、地板频率、加宽上限、相关度下限、ClayGuard 时间常数、ADR-012 的代价系数，以及 ADR-015 起决策器
+    不读的自动收单 7 项：逐段选点阈值两项、分频点钳制范围与默认值三项、收单需要度斜坡两项）默认值就是出厂值，只写在 GlazeConstants.h；
+    这里只写两项风格常数。快照读写时全部 clay* 字段都是「可缺省」的：
     旧快照（v0.1.6.2 及以前）没有它们 → 按 0 读 → 决策器的 Clay 三项全部中性（GlazePlanner.cpp planClay 的约定），
     旧工程打开声音不变。v0.1.7.0 开发期存的快照有 clay* 却没有 ADR-012 的代价常数 → 代价两端读成 0 / 0 →「判断不了」→
     同样三项中性（不会按旧口径的次声占比去低切）；重新聆听后换用出厂快照。
     ADR-012 删掉的 clayMonoSideRatioLowDb / HighDb、clayMonoCorrelationLow / High 不再写；开发期快照里留着的这几个属性
     读时直接忽略（读取只认字段表里的名字）。
+    ADR-015（0.1.7.1）起自动不收单：自动收单的 7 个常数（clayMonoBandSideRatioDb、clayMonoBandCorrelation、clayMonoMinHz / MaxHz /
+    DefaultHz、clayMonoLossLowDb / HighDb）决策器不读，但没有像 ADR-012 那样删字段——只为旧工程标定快照的字段兼容保留：照写照读，
+    存档内容不变（唯一还按它们出方案的是 v0.1.7.0：降级打开新存档、重算方案时）。退役与否待 Max 拍板（T-057）。
 
   ==============================================================================
 */
@@ -355,13 +359,15 @@ namespace celadon::glaze
 
             // v0.1.7.0 修坯 Clay（设计规格-Clay-分析决策与验收第 2～3 节）：与 minimumFullDriveDb 等同一做法——格式版本不变，
             // 旧快照没有这些字段 → 一律按 0 读（float 字段默认值写 0.0f、double 字段写 0.0，见 xmlio::Writer::optionalField）。
-            // 全 0 的 Clay 常数让决策器的三项全部中性（clayGlazeFullAt 0 → 不清理、clayWidthMaxDb 0 → 不加宽、风格低切目标 0 → 不低切），
-            // 旧工程按它保存时的快照生成方案，Clay 自动值因此为 0，打开声音不变。
+            // 全 0 的 Clay 常数让决策器的三项全部中性（clayGlazeFullAt 0 → 不清理、clayWidthMaxDb 0 → 不加宽、风格低切目标 0 → 不低切；
+            // 收单 ADR-015 起自动态本来就不做），旧工程按它保存时的快照生成方案，Clay 自动值因此为 0，打开声音不变。
             v.optionalField ("clayGlazeFullAt", c.clayGlazeFullAt, 0.0f);
             v.optionalField ("claySubShareLowDb", c.claySubShareLowDb, 0.0f);
             v.optionalField ("claySubShareHighDb", c.claySubShareHighDb, 0.0f);
             v.optionalField ("clayLowCutFloorHz", c.clayLowCutFloorHz, 0.0f);
             v.optionalField ("clayLowCutMinK", c.clayLowCutMinK, 0.0f);
+            // 自动收单的逐段选点阈值两项、分频点钳制范围与默认值三项（收单需要度斜坡两项在下面 ADR-012 段）：ADR-015 起决策器不读，
+            // 只为旧快照字段兼容照写照读。
             v.optionalField ("clayMonoBandSideRatioDb", c.clayMonoBandSideRatioDb, 0.0f);
             v.optionalField ("clayMonoBandCorrelation", c.clayMonoBandCorrelation, 0.0f);
             v.optionalField ("clayMonoMinHz", c.clayMonoMinHz, 0.0f);
@@ -379,8 +385,9 @@ namespace celadon::glaze
             v.optionalField ("clayGuardWidthReleaseSeconds", c.clayGuardWidthReleaseSeconds, 0.0);
 
             // ADR-012 修坯根治（设计规格-Clay-根治修订第 3 节）：同上，缺字段一律按 0 读。代价两端 0 / 0 不是合法的反向斜坡 →
-            // 决策器按「判断不了」让三项中性、不标代价位；收单损失两端 0 / 0 → 不需要收单。ClayGuard 的快路门与最短持续秒数
-            // 读成 0 时怎样解释归 ClayGuard（ClayGuard.cpp 的常数清洗）；开发期快照才会缺它们，正式发布的旧快照连 Clay 都是中性。
+            // 决策器按「判断不了」让三项中性、不标代价位；收单损失两端（clayMonoLossLowDb / HighDb）ADR-015 起决策器不读，照写照读
+            // 只为旧快照字段兼容（v0.1.7.0 时缺字段读成 0 / 0 → 不需要收单）。ClayGuard 的快路门与最短持续秒数读成 0 时怎样解释归
+            // ClayGuard（ClayGuard.cpp 的常数清洗）；开发期快照才会缺它们，正式发布的旧快照连 Clay 都是中性。
             v.optionalField ("clayCostFullDb", c.clayCostFullDb, 0.0f);
             v.optionalField ("clayCostZeroDb", c.clayCostZeroDb, 0.0f);
             v.optionalField ("clayMonoLossLowDb", c.clayMonoLossLowDb, 0.0f);
