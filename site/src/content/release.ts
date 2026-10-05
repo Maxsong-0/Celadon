@@ -27,26 +27,26 @@ export interface Release {
 }
 
 export const RELEASE: Release = {
-  version: '0.1.8.7',
-  date: '2026-10-01',
+  version: '0.1.8.8',
+  date: '2026-10-05',
   packages: [
     {
       id: 'mac-arm64',
-      file: 'Celadon-0.1.8.7-macOS-AppleSilicon.pkg',
-      bytes: 7189798,
-      sha256: '85601027349c157bb0bec1f38657beef491d49ce49fa87a06a9d5a79df45ac39'
+      file: 'Celadon-0.1.8.8-macOS-AppleSilicon.pkg',
+      bytes: 7355206,
+      sha256: '2018dc3fdb0099552c7f955b943d81ad6509d6401bc2c7f18861bfc1494e646c'
     },
     {
       id: 'mac-x64',
-      file: 'Celadon-0.1.8.7-macOS-Intel.pkg',
-      bytes: 8039668,
-      sha256: 'a1ef417e60502b50ea2532cb70505e8911db464f311e326be9ef6edfbe0f1b75'
+      file: 'Celadon-0.1.8.8-macOS-Intel.pkg',
+      bytes: 8215728,
+      sha256: 'b5d0cd9476efe27f2a2ee00e653c745b95d36012fd53218e560c51428fa4325b'
     },
     {
       id: 'win-x64',
-      file: 'Celadon-0.1.8.7-Windows-x64-Setup.exe',
-      bytes: 7464000,
-      sha256: '37dce2e7fe6794f60727c79fb33735b4c3c052ce13543e52a23ec4736160bbf7'
+      file: 'Celadon-0.1.8.8-Windows-x64-Setup.exe',
+      bytes: 7542830,
+      sha256: '721c8af76e8c0dd905a0734c0ba152e7e818c761cd89bd1518660bb46ae1df41'
     }
   ]
 };
