@@ -26,16 +26,18 @@
     温润 GLAZE 100 从 70 降到 12、默认 35 % 从 24.5 降到 4.2（可闻变化，待 Max 试听）。
 
     修坯 Clay 的全局常数（阈值、地板频率、加宽上限、相关度下限、ClayGuard 时间常数、ADR-012 的代价系数，以及 ADR-015 起决策器
-    不读的自动收单 7 项：逐段选点阈值两项、分频点钳制范围与默认值三项、收单需要度斜坡两项）默认值就是出厂值，只写在 GlazeConstants.h；
+    不读的自动收单 7 项已于 T-063 退役、不在此列）默认值就是出厂值，只写在 GlazeConstants.h；
     这里只写两项风格常数。快照读写时全部 clay* 字段都是「可缺省」的：
     旧快照（v0.1.6.2 及以前）没有它们 → 按 0 读 → 决策器的 Clay 三项全部中性（GlazePlanner.cpp planClay 的约定），
     旧工程打开声音不变。v0.1.7.0 开发期存的快照有 clay* 却没有 ADR-012 的代价常数 → 代价两端读成 0 / 0 →「判断不了」→
     同样三项中性（不会按旧口径的次声占比去低切）；重新聆听后换用出厂快照。
     ADR-012 删掉的 clayMonoSideRatioLowDb / HighDb、clayMonoCorrelationLow / High 不再写；开发期快照里留着的这几个属性
     读时直接忽略（读取只认字段表里的名字）。
-    ADR-015（0.1.7.1）起自动不收单：自动收单的 7 个常数（clayMonoBandSideRatioDb、clayMonoBandCorrelation、clayMonoMinHz / MaxHz /
-    DefaultHz、clayMonoLossLowDb / HighDb）决策器不读，但没有像 ADR-012 那样删字段——只为旧工程标定快照的字段兼容保留：照写照读，
-    存档内容不变（唯一还按它们出方案的是 v0.1.7.0：降级打开新存档、重算方案时）。退役与否待 Max 拍板（T-057）。
+    ADR-015（0.1.7.1）起自动不收单，自动收单的 7 个常数（clayMonoBandSideRatioDb、clayMonoBandCorrelation、clayMonoMinHz / MaxHz /
+    DefaultHz、clayMonoLossLowDb / HighDb）决策器不读；T-063（2026-10-04，Max 选「现在退役」）把它们连快照字段一起退役，同上：新快照
+    不再写、旧快照里残留的读时忽略，名字不得复用（复用会把旧值读进新字段）。快照 version 不升（9 尚未发布）、格式号不升：删字段不改
+    能读的存档。后果：v0.1.7.0 降级打开新存档时这 7 个读成 0，自动收单保持中性（方向就是 ADR-015）；这 7 个属性存在但损坏的存档以前
+    整份拒收，现在忽略（只出现在手改或损坏的存档上，同 ADR-012）。
 
   ==============================================================================
 */
@@ -61,6 +63,7 @@ namespace celadon::glaze
             // 撤回全部电平类自动、停校准（「受手动设置限制」）；只放宽峰值（+2 dB）实测只让 3 / 37 首多推 2 dB。代价：GLAZE 自己的自动方案也
             // 压得更多、更响（Max 2026-10-02 选定，要试听）。旧工程的已提交版本带着自己的快照（版本 8、旧预算），重新聆听后才用新值。
             // T-038 的曲风 / House / 交付字段（可缺省）同在这一版。算法版本不升（只改常数，决策方式不变）。
+            // T-063（2026-10-04）退役 7 个自动收单常数（不再写进快照、读时忽略）也并入这一版：删字段不改能读的存档，9 尚未发布，不另升。
             c.version = 9;
             c.algorithmVersion = currentAlgorithmVersion;
 
@@ -366,13 +369,6 @@ namespace celadon::glaze
             v.optionalField ("claySubShareHighDb", c.claySubShareHighDb, 0.0f);
             v.optionalField ("clayLowCutFloorHz", c.clayLowCutFloorHz, 0.0f);
             v.optionalField ("clayLowCutMinK", c.clayLowCutMinK, 0.0f);
-            // 自动收单的逐段选点阈值两项、分频点钳制范围与默认值三项（收单需要度斜坡两项在下面 ADR-012 段）：ADR-015 起决策器不读，
-            // 只为旧快照字段兼容照写照读。
-            v.optionalField ("clayMonoBandSideRatioDb", c.clayMonoBandSideRatioDb, 0.0f);
-            v.optionalField ("clayMonoBandCorrelation", c.clayMonoBandCorrelation, 0.0f);
-            v.optionalField ("clayMonoMinHz", c.clayMonoMinHz, 0.0f);
-            v.optionalField ("clayMonoMaxHz", c.clayMonoMaxHz, 0.0f);
-            v.optionalField ("clayMonoDefaultHz", c.clayMonoDefaultHz, 0.0f);
             v.optionalField ("clayWidthNarrowStartDb", c.clayWidthNarrowStartDb, 0.0f);
             v.optionalField ("clayWidthNarrowFullDb", c.clayWidthNarrowFullDb, 0.0f);
             v.optionalField ("clayWidthMaxDb", c.clayWidthMaxDb, 0.0f);
@@ -385,13 +381,11 @@ namespace celadon::glaze
             v.optionalField ("clayGuardWidthReleaseSeconds", c.clayGuardWidthReleaseSeconds, 0.0);
 
             // ADR-012 修坯根治（设计规格-Clay-根治修订第 3 节）：同上，缺字段一律按 0 读。代价两端 0 / 0 不是合法的反向斜坡 →
-            // 决策器按「判断不了」让三项中性、不标代价位；收单损失两端（clayMonoLossLowDb / HighDb）ADR-015 起决策器不读，照写照读
-            // 只为旧快照字段兼容（v0.1.7.0 时缺字段读成 0 / 0 → 不需要收单）。ClayGuard 的快路门与最短持续秒数读成 0 时怎样解释归
+            // 决策器按「判断不了」让三项中性、不标代价位。（ADR-012 的收单损失两端 clayMonoLossLowDb / HighDb 已随 ADR-015 的退役一起删，
+            // T-063，见文件头。）ClayGuard 的快路门与最短持续秒数读成 0 时怎样解释归
             // ClayGuard（ClayGuard.cpp 的常数清洗）；开发期快照才会缺它们，正式发布的旧快照连 Clay 都是中性。
             v.optionalField ("clayCostFullDb", c.clayCostFullDb, 0.0f);
             v.optionalField ("clayCostZeroDb", c.clayCostZeroDb, 0.0f);
-            v.optionalField ("clayMonoLossLowDb", c.clayMonoLossLowDb, 0.0f);
-            v.optionalField ("clayMonoLossHighDb", c.clayMonoLossHighDb, 0.0f);
             v.optionalField ("clayGuardPhaseFastGate", c.clayGuardPhaseFastGate, 0.0f);
             v.optionalField ("clayGuardPhaseMinSeconds", c.clayGuardPhaseMinSeconds, 0.0);
 
