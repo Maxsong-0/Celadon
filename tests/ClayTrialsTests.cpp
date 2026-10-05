@@ -205,12 +205,9 @@ namespace celadon::test
 
                 auto maximum = t.getGuardDelay();
 
+                // 阶段 2：四个收单候选停算，延迟记 0，不再占用「最长写者」。
                 for (int c = 0; c < ClayTrials::numMono; ++c)
-                {
-                    const auto length = LinearPhaseLowpass::lengthFor (rate, (double) glaze::clayMonoCandidateHz[(size_t) c]);
-                    expectEquals (t.getDelay (ClayTrials::firstMonoSlot + c), 2 * (length - 1), "mono D_c = 2 (L_c - 1): " + tag);
-                    maximum = juce::jmax (maximum, t.getDelay (ClayTrials::firstMonoSlot + c));
-                }
+                    expectEquals (t.getDelay (ClayTrials::firstMonoSlot + c), 0, "mono candidates are retired (delay 0): " + tag);
 
                 expectEquals (t.getMaximumDelay(), maximum, "the longest writer: " + tag);
                 expect (t.getMaximumDelay() < t.getBlockLength(), "every delay is shorter than a block: " + tag);
@@ -300,7 +297,7 @@ namespace celadon::test
         // 四个收单候选与加宽候选的块峰值逐位等于原始的块峰值（延迟补偿的块网格上同一段音频）；低切确实改了（阳性对照）。
         void testPureMonoIsExact()
         {
-            beginTest ("pure mono: the delay-compensated mono candidates and the width candidate equal the original bit for bit");
+            beginTest ("pure mono: width equals the original; the four mono candidates stay at 0 (retired)");
 
             const auto material = makeMaterial (48000.0, 3.0, 14);
             const Signal mono { material[0], material[0] };
@@ -315,13 +312,13 @@ namespace celadon::test
                     continue;
 
                 for (int c = ClayTrials::firstMonoSlot; c < ClayTrials::firstMonoSlot + ClayTrials::numMono; ++c)
-                    exact = exact && sameDouble (block.candidates[(size_t) c], block.original);
+                    exact = exact && sameDouble (block.candidates[(size_t) c], 0.0);
 
                 exact = exact && sameDouble (block.candidates[(size_t) ClayTrials::widthSlot], block.original);
                 lowCutDiffers = lowCutDiffers || ! sameDouble (block.candidates[(size_t) ClayTrials::lowCutSlot], block.original);
             }
 
-            expect (exact, "mono and width candidates == original in every valid block");
+            expect (exact, "retired mono candidates stay 0; width == original in every valid block");
             expect (lowCutDiffers, "the low-cut candidate does change the peaks (positive control)");
         }
 
@@ -488,7 +485,7 @@ namespace celadon::test
             expectWithinAbsoluteError (full.lowCutPeakCostDb.value, (float) (20.0 * std::log10 (0.5)), 1.0e-6f, "0.25 vs 0.5: -6.02 dB");
 
             for (const auto& mono : full.monoPeakCostDb)
-                expect (mono.valid && std::abs (mono.value - (float) (20.0 * std::log10 (0.5))) < 1.0e-6f);
+                expect (! mono.valid, "mono peak costs stay unknown (candidates retired)");
 
             expectWithinAbsoluteError (full.widthPeakCostDb.value, -120.0f, 1.0e-4f, "zero candidate: floored at -120 dB");
             expect (full.blendLossDb[0].valid, "blend loss with both energies");
