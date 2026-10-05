@@ -499,7 +499,7 @@ namespace celadon::test
         {
             return "low cut " + juce::String (s.clayLowCutHz, 2) + " Hz, mono " + juce::String (s.clayMonoAmount, 3)
                  + " below " + juce::String (s.clayMonoHz, 1) + " Hz, width " + juce::String (s.clayWidthDb, 3) + " dB"
-                 + ", phase guard " + juce::String (static_cast<int> (s.clayPhaseGuardActive))
+                 + ", phase warning " + juce::String (static_cast<int> (s.clayPhaseGuardActive))
                  + ", width guard " + juce::String (static_cast<int> (s.clayWidthGuardActive))
                  + ", needs relearn " + juce::String (static_cast<int> (s.clayNeedsRelearn));
         }
@@ -2257,7 +2257,7 @@ namespace celadon::test
             }
 
             logMessage ("  paths: automatic Clay engaged " + juce::String (automaticBlocks) + " blocks, manual " + juce::String (manualBlocks)
-                        + ", off " + juce::String (offBlocks) + ", bypass " + juce::String (bypassBlocks) + ", phase protection "
+                        + ", off " + juce::String (offBlocks) + ", bypass " + juce::String (bypassBlocks) + ", phase warning "
                         + juce::String (protectedBlocks));
             expect (finite, "output finite throughout");
             expect (automaticBlocks > 0 && manualBlocks > 0 && offBlocks > 0 && bypassBlocks > 0 && protectedBlocks > 0
@@ -2360,7 +2360,7 @@ namespace celadon::test
         // 依据：设计规格-Clay-根治修订 3.4、4(b)；审核 V1-01 建议「长期 ρ ≥ 0.8 的素材 30 s 内 0 次触发」进仓库测试当回归门。
         void testWideBassNeverTriggersPhaseGuard()
         {
-            beginTest ("wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase guard never triggers in 30 s");
+            beginTest ("wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase warning never lights in 30 s");
 
             struct Case
             {
@@ -2395,14 +2395,14 @@ namespace celadon::test
                 });
 
                 const auto label = juce::String (testCase.label);
-                logMessage ("  [" + label + "] phase-guard events " + juce::String (events) + ", lamp blocks " + juce::String (lampBlocks)
+                logMessage ("  [" + label + "] phase-warning events " + juce::String (events) + ", lamp blocks " + juce::String (lampBlocks)
                             + ", largest floor " + juce::String (largestFloor, 3) + ", long-term 40-125 Hz rho "
                             + juce::String (bandCorrelation (material, 40.0, 125.0, 4096), 3));
 
                 if (testCase.mustTrigger)
-                    expect (events >= 1 && largestFloor > 0.99f, label + ": the guard does trigger (the count is not vacuous)");
+                    expect (events >= 1 && largestFloor > 0.99f, label + ": the warning does light (the count is not vacuous)");
                 else
-                    expect (events == 0 && largestFloor == 0.0f, label + ": no phase-guard trigger in 30 s");
+                    expect (events == 0 && largestFloor == 0.0f, label + ": no phase warning in 30 s");
             }
         }
 

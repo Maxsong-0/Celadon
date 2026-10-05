@@ -475,7 +475,7 @@ namespace celadon::test
 
             // 依据：同上「优先级低于『点重新聆听』提示」；ADR-009 第 4 条（「关 / 手动」项不经决策器、宽度保护只管自动态）；
             // HelpText.h ClayReadout 代价标志的约定（加宽在宽度保护介入、收单在反相提示亮着时不写代价，旁通时全清零）。
-            beginTest ("Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while that item's guard acts, cleared by bypass");
+            beginTest ("Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while the mono warning is on or the width guard acts, cleared by bypass");
             {
                 const auto* entry = help::find (uiid::clayIndicator);
                 expect (entry != nullptr);
@@ -498,12 +498,12 @@ namespace celadon::test
 
                 // 反相提示亮着时不写收单的代价（旧快照里可能还带着收单的代价位；ADR-015 起决策器不再置它）：第 2 行已写「低频反相」。
                 const auto guardedMono = withCostMask (clayStatus (0.0f, 80.0f, 1.0f, 0.0f, true, false), monoBit);
-                expectEquals (thirdLineFor (guardedMono), advice, "mono guard acting: no cost line for mono");
+                expectEquals (thirdLineFor (guardedMono), advice, "mono warning on: no cost line for mono");
                 expect (utf8Contains (liveLineFor (guardedMono), "低频反相"), "line 2 says why instead");
                 auto guardOver = guardedMono;
                 guardOver.clayPhaseGuardActive = false;
                 guardOver.clayMonoAmount = 0.0f;
-                expectEquals (thirdLineFor (guardOver), utf8 ("本曲试过：收单会抬高峰值，已自动跳过。"), "positive control: guard released");
+                expectEquals (thirdLineFor (guardOver), utf8 ("本曲试过：收单会抬高峰值，已自动跳过。"), "positive control: warning off");
 
                 const auto guardedWidth = withCostMask (clayStatus (0.0f, 80.0f, 0.0f, 0.0f, false, true), widthBit);
                 expectEquals (thirdLineFor (guardedWidth), advice, "width guard acting: no cost line for width");

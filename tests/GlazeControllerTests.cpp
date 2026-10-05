@@ -3846,7 +3846,7 @@ namespace celadon::test
             expect (rejects (bad), "a crossover beyond 300 Hz");
             bad = execution;
             bad.clayGuard.phaseFloor = -0.5f;
-            expect (rejects (bad), "a negative guard floor");
+            expect (rejects (bad), "a negative phase warning level (phaseFloor)");
             bad = execution;
             bad.clayGuard.widthCapDb = std::numeric_limits<float>::infinity();
             expect (rejects (bad), "an infinite width cap");
@@ -3999,7 +3999,7 @@ namespace celadon::test
 
             expect (finite, "output finite throughout");
             expect (sawPhaseGuard && sawWidthGuard && sawRestoredBlock && sawTransition,
-                    "the run went through the phase guard, the width guard, a restored first block and a plan transition");
+                    "the run went through the phase warning, the width guard, a restored first block and a plan transition");
             expectEquals ((juce::int64) allocations, (juce::int64) 0, "the audio thread must not allocate on any Clay path");
         }
 
