@@ -414,6 +414,7 @@ namespace celadon
         stats.clayGuardKeptEnergy   = clayKeep.keptEnergy;
         stats.musicActive = false;   // 编排器按分析器的有效信号门限填
 
+        controller.noteOutput (io);
         controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true);
         processListen (io);
 

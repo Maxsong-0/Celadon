@@ -867,7 +867,6 @@ juce::AudioProcessorEditor* CeladonAudioProcessor::createEditor()
     // 状态是编排器的无锁快照，「重新聆听」只置原子标志，实际值是音频线程每块写的 7 个原子量。
     // 宿主保证编辑器先于处理器销毁，捕获 this 安全。
     editor->setGlazeStatusSource ([this] { return getGlazeStatus(); });
-    editor->setGlazeRelearnAction ([this] { requestGlazeRelearn(); });
     editor->setGlazeEffectiveParamsSource ([this] { return getGlazeEffectiveParamsForUi(); });
     return editor;
 }

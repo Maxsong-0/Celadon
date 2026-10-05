@@ -356,60 +356,48 @@ namespace celadon::glaze
         int timeSignatureDenominator = 4;
     };
 
+    // T-048 阶段 2 起不再当状态机。枚举留着，避免还引用类型名的翻译单元直接断掉；界面只看 Status 的七条字段。
     enum class Phase : int { unlearned = 0, listening = 1, planTransition = 2, calibrating = 3, locked = 4 };
 
-    // 给界面的状态快照（编排器每块写入原子副本，界面线程读）。
+    // 守门退让的原因（状态行第 4 条）。Q8：PSR 单独一项，不并进预算。
+    enum class GuardCause : std::uint8_t { none = 0, budget, deliveryPeak, contrast, psr };
+
+    // 一个守门在本块给出的退让。reliefDb ≤ 0。engaged = 正在退，或已经退到底仍超。
+    struct GuardOutput
+    {
+        float reliefDb = 0.0f;
+        GuardCause cause = GuardCause::none;
+        bool engaged = false;
+    };
+
+    // 给界面的状态快照（编排器每块写入，任何线程读，无锁）。
+    // T-048 阶段 2：没有聆听 / 锁定 / 校准阶段。七条状态行只看这里的字段（草图第 1、4 节）。
     struct Status
     {
-        Phase phase = Phase::unlearned;
-        bool profileReady = false;
-        bool planReady = false;
-        bool calibrationValid = false;
-        float listenedSeconds = 0.0f;
-        float requiredSeconds = 15.0f;
         float effectiveTargetLufs = 0.0f;
-        float protectionDb = 0.0f;           // g_保护，∈ [−3, 0]
-        bool planLimited = false;            // 「方案受限」
+        float protectionDb = 0.0f;           // 三个守门取更负的那个之后的退让，≤ 0
         bool limitedByManual = false;        // 「受手动设置限制」
-        bool calibrationPaused = false;      // 宿主旁通中
-        bool relearnInProgress = false;      // 候选版本在建
         Style resolvedStyle = Style::clean;  // 自动时此刻偏向哪种
-        bool unlearnedOfflineWarning = false;
 
-        // v0.6 A4 追加：已提交方案是旧算法版本存的，此刻照用保存的自动增量（时间线与保存第 5 节「界面提示一次」要用；
-        // 拧 GLAZE、换风格或重新聆听后按新算法重算，这一项回到 false）。
-        bool savedPlanFromOlderAlgorithm = false;
-        bool profileMismatch = false;        // 已提交画像与此刻的音乐严重不符（例如画像只听到安静前奏）：建议重新聆听
-        bool waitingForPlayback = false;     // 宿主报告已停止播放：聆听与校准都在等音乐（状态行写「校准暂停（未播放）」）
-        // ---- v0.1.7.0 修坯 Clay（ClayIndicator 与 CLAY 卡片每行的灯和数值读这些；都是上一块交给 ClayModule 的实际值）----
+        float confidence = 0.0f;             // c。第 3、5 条
+        float currentMainness = 1.0f;        // 正在播的这一段的 m。第 6 条。读不到时为 1，不假装「本段较轻」
+        bool coldExport = false;             // 离线且 c < 0.5。第 3 条
+        GuardCause guardCause = GuardCause::none;
+        bool guardEngaged = false;           // 正在退，或退到底仍超。第 4 条
+        bool legacyStateDiscarded = false;   // 旧工程读档后提示一次。不写入 LIVE，只活在本次打开
+
         float clayLowCutHz = 0.0f;           // 0 = 关
         float clayMonoHz = 80.0f;
         float clayMonoAmount = 0.0f;
         float clayWidthDb = 0.0f;
-        bool clayPhaseGuardActive = false;   // 低频反相提示中（指示灯「单」变琥珀；ADR-015 起只提示、不改声音）
-        bool clayWidthGuardActive = false;   // 宽度保护介入中（指示灯「宽」变琥珀）
-        // T-074（设计 R4-03）：峰值守护把低切 / 收单的改动量明显收回（保留比 Σ(g·d)² / Σd² < 75 % 持续 ≥ 1 s 才亮，≥ 85 % 持续 ≥ 1 s 才熄）。
-        // 手动 / 自动都报（手动项恰恰没有别的反馈）；只说①②（加宽不进守护）；灯与数值读界面的实际值，这里只给「回收中」与保留比。
+        bool clayPhaseGuardActive = false;
+        bool clayWidthGuardActive = false;
         bool clayPeakGuardActive = false;
-        float clayPeakGuardKept = 1.0f;      // 平滑后的保留比 0 ～ 1（没有改动时 1）；亮着时气泡写成「实际只剩约 N %」
-        bool clayNeedsRelearn = false;       // 有自动态的项，但已提交画像缺立体声 / 超低频特征（旧工程）：提示点「重新聆听」
-        std::uint8_t clayCostLimitedMask = 0;// ADR-012：自动态下哪几项因「试过会抬高峰值」被减量 / 否决（clayCostLimited* 位）
+        float clayPeakGuardKept = 1.0f;
+        std::uint8_t clayCostLimitedMask = 0;
 
-        // ---- T-038 House 档（设计规格-曲风-House学习方式 第 3、7、9 节；编排器填，界面状态行与 CLAY 卡片读）----
-        // houseActive = 此刻曲风是 House 子类；为 false 时下面各项保持默认，界面照通用档显示。
         bool houseActive = false;
-        SegmentMode houseSegmentMode = SegmentMode::none;
-        int houseHeardSegments = 0;          // 不重复的已听小节（分 2 秒段时为段数）
-        int houseTargetSegments = 64;        // 锁定所需（小节；分 2 秒段时界面改读下面两项秒数）
-        int houseFullSegments = 0;           // 满编段
-        int houseRequiredFullSegments = 8;
-        float houseHeardSeconds = 0.0f;
-        float houseTargetSeconds = 124.0f;
-        bool houseMainSectionHeard = false;  // 满编段已够（锁定条件第 2 条）
-        bool houseLockPending = false;       // 锁定条件还没满足：方案是暂定的
-        bool houseLedgerFull = false;        // 段落账满了（SegmentLedger::maxSegments），之后的新段不再计入（第 2.1 节「状态行写明」）
-        bool houseOfflineListening = false;  // House 档还在聆听时出现过离线导出（锁住到锁定为止）：成品中途换过方案（评审 F7，Max 2026-10-01「加状态提示」）
-        bool housePhaseHint = false;         // House 档反相提示（低频相关度 < 0.6 持续够久）
-        float housePhaseMonoLossDb = 0.0f;   // 提示里写的单声道低频损失（dB，≤ 0）
+        bool housePhaseHint = false;         // House 反相提示（只亮灯）
+        float housePhaseMonoLossDb = 0.0f;
     };
 }

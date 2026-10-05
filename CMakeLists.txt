@@ -121,7 +121,7 @@ set(CELADON_DSP_SOURCES
     Source/dsp/ClayGuard.cpp
     Source/dsp/ClayModule.cpp
     Source/dsp/ColorModule.cpp
-    Source/dsp/GlazeCalibrator.cpp
+    Source/dsp/ContrastGuard.cpp
     Source/dsp/GlazeConstants.cpp
     Source/dsp/GlazeController.cpp
     Source/dsp/GlazeGuard.cpp
@@ -132,6 +132,8 @@ set(CELADON_DSP_SOURCES
     Source/dsp/LimiterModule.cpp
     Source/dsp/LoudnessMeter.cpp
     Source/dsp/MusicAnalyzer.cpp
+    Source/dsp/OutputLevelTracker.cpp
+    Source/dsp/PsrGuard.cpp
     Source/dsp/Saturator.cpp
     Source/dsp/TruePeak.cpp)
 

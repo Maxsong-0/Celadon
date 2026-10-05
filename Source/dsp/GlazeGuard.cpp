@@ -29,6 +29,7 @@
 
 #include <climits>
 #include <cmath>
+#include <cstring>
 
 namespace celadon::glaze
 {
@@ -99,10 +100,10 @@ namespace celadon::glaze
             sampleRate = newSampleRate;
 
         updateTiming();
-        reset();
+        clear();
     }
 
-    void GlazeGuard::reset() noexcept
+    void GlazeGuard::clear() noexcept
     {
         protection = 0.0;
         protectionDb = 0.0f;
@@ -175,13 +176,21 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    float GlazeGuard::process (const ModuleStats& stats) noexcept
+    void GlazeGuard::releaseOutput() noexcept
+    {
+        protection = 0.0;
+        protectionDb = 0.0f;
+        retreating = recovering = changedThisBlock = false;
+        planLimited = false;
+    }
+
+    GuardOutput GlazeGuard::process (const ModuleStats& stats) noexcept
     {
         retreating = recovering = changedThisBlock = false;
 
         // 静音、停播（有效音乐门限以下）整块不计：窗口、计时、g_保护全都停住。
         if (! limitsSet || ! stats.musicActive || stats.numSamples <= 0)
-            return protectionDb;
+            return budgetOutput();
 
         const auto before = protection;
 
@@ -214,7 +223,17 @@ namespace celadon::glaze
         recovering = protection > before;
         changedThisBlock = protection != before;
         protectionDb = (float) protection;
-        return protectionDb;
+        return budgetOutput();
+    }
+
+    GuardOutput GlazeGuard::budgetOutput() const noexcept
+    {
+        GuardOutput out;
+        out.reliefDb = protectionDb;
+        const auto atFloor = planLimited;
+        out.engaged = retreating || atFloor;
+        out.cause = out.engaged || protectionDb < 0.0f ? GuardCause::budget : GuardCause::none;
+        return out;
     }
 
     void GlazeGuard::completeSlot() noexcept
@@ -436,6 +455,179 @@ namespace celadon::glaze
     }
 
     //==============================================================================
+    namespace
+    {
+        constexpr const char* budgetTag = "BUDGET_GUARD";
+
+        void writeU32 (juce::MemoryOutputStream& out, std::uint32_t value)
+        {
+            const unsigned char bytes[4] = {
+                (unsigned char) (value & 0xffu),
+                (unsigned char) ((value >> 8) & 0xffu),
+                (unsigned char) ((value >> 16) & 0xffu),
+                (unsigned char) ((value >> 24) & 0xffu)
+            };
+            out.write (bytes, 4);
+        }
+
+        void writeF32 (juce::MemoryOutputStream& out, float value)
+        {
+            std::uint32_t bits = 0;
+            std::memcpy (&bits, &value, sizeof (bits));
+            writeU32 (out, bits);
+        }
+
+        bool readU32 (const juce::MemoryBlock& block, int& cursor, std::uint32_t& value)
+        {
+            if (cursor < 0 || cursor + 4 > (int) block.getSize())
+                return false;
+
+            const auto* bytes = static_cast<const unsigned char*> (block.getData());
+            value = (std::uint32_t) bytes[cursor]
+                  | ((std::uint32_t) bytes[cursor + 1] << 8)
+                  | ((std::uint32_t) bytes[cursor + 2] << 16)
+                  | ((std::uint32_t) bytes[cursor + 3] << 24);
+            cursor += 4;
+            return true;
+        }
+
+        bool readF32 (const juce::MemoryBlock& block, int& cursor, float& value)
+        {
+            std::uint32_t bits = 0;
+
+            if (! readU32 (block, cursor, bits))
+                return false;
+
+            std::memcpy (&value, &bits, sizeof (value));
+            return true;
+        }
+    }
+
+    std::unique_ptr<juce::XmlElement> GlazeGuard::createStateXml() const
+    {
+        juce::MemoryOutputStream raw;
+        writeF32 (raw, (float) protection);
+        writeF32 (raw, protectionDb);
+        writeU32 (raw, (std::uint32_t) writeIndex);
+        writeU32 (raw, (std::uint32_t) historyCount);
+        writeU32 (raw, (std::uint32_t) statsCount);
+        writeU32 (raw, (std::uint32_t) safeSlots);
+        writeU32 (raw, (std::uint32_t) partSamples);
+        writeF32 (raw, (float) partGlueSum);
+        writeF32 (raw, (float) partLimitSum);
+        writeF32 (raw, (float) partClipSum);
+        writeF32 (raw, partLimitPeak);
+        writeF32 (raw, partClipDepth);
+
+        for (const auto& slot : slots)
+        {
+            writeF32 (raw, slot.glueMeanDb);
+            writeF32 (raw, slot.limitMeanDb);
+            writeF32 (raw, slot.clipFraction);
+            writeF32 (raw, slot.limitPeakDb);
+            writeF32 (raw, slot.clipDepthDb);
+            writeF32 (raw, slot.protectionDb);
+            writeU32 (raw, slot.over ? 1u : 0u);
+        }
+
+        auto xml = std::make_unique<juce::XmlElement> (budgetTag);
+        xmlio::Writer writer (*xml);
+        const auto protectionBits = protection;
+        writer.field ("protection", protectionBits);
+        writer.field ("retreating", retreating);
+        writer.field ("recovering", recovering);
+        writer.field ("planLimited", planLimited);
+        writer.field ("limitsSet", limitsSet);
+        xml->setAttribute ("slots", juce::Base64::toBase64 (raw.getData(), raw.getDataSize()));
+        return xml;
+    }
+
+    bool GlazeGuard::restoreStateXml (const juce::XmlElement& xml)
+    {
+        if (! xml.hasTagName (budgetTag))
+            return false;
+
+        juce::MemoryOutputStream decoded;
+
+        if (! juce::Base64::convertFromBase64 (decoded, xml.getStringAttribute ("slots")))
+            return false;
+
+        juce::MemoryBlock block (decoded.getData(), decoded.getDataSize());
+        auto cursor = 0;
+        float protectionFloat = 0.0f;
+        float savedProtectionDb = 0.0f;
+        std::uint32_t savedWrite = 0, savedHistory = 0, savedStats = 0, savedSafe = 0, savedPartSamples = 0;
+        float glue = 0.0f, limit = 0.0f, clip = 0.0f, peak = 0.0f, depth = 0.0f;
+
+        if (! readF32 (block, cursor, protectionFloat) || ! readF32 (block, cursor, savedProtectionDb)
+            || ! readU32 (block, cursor, savedWrite) || ! readU32 (block, cursor, savedHistory)
+            || ! readU32 (block, cursor, savedStats) || ! readU32 (block, cursor, savedSafe)
+            || ! readU32 (block, cursor, savedPartSamples)
+            || ! readF32 (block, cursor, glue) || ! readF32 (block, cursor, limit)
+            || ! readF32 (block, cursor, clip) || ! readF32 (block, cursor, peak)
+            || ! readF32 (block, cursor, depth))
+            return false;
+
+        if ((int) savedWrite < 0 || (int) savedWrite >= slotCapacity
+            || (int) savedHistory < 0 || (int) savedHistory > slotCapacity
+            || (int) savedStats < 0 || (int) savedStats > (int) savedHistory
+            || (int) savedPartSamples < 0)
+            return false;
+
+        std::array<Slot, (std::size_t) slotCapacity> loaded {};
+
+        for (auto& slot : loaded)
+        {
+            std::uint32_t over = 0;
+
+            if (! readF32 (block, cursor, slot.glueMeanDb) || ! readF32 (block, cursor, slot.limitMeanDb)
+                || ! readF32 (block, cursor, slot.clipFraction) || ! readF32 (block, cursor, slot.limitPeakDb)
+                || ! readF32 (block, cursor, slot.clipDepthDb) || ! readF32 (block, cursor, slot.protectionDb)
+                || ! readU32 (block, cursor, over))
+                return false;
+
+            slot.over = over != 0;
+        }
+
+        xmlio::Reader reader (xml);
+        double savedProtection = 0.0;
+        bool savedRetreating = false, savedRecovering = false, savedLimited = false, savedLimits = false;
+        reader.field ("protection", savedProtection);
+        reader.field ("retreating", savedRetreating);
+        reader.field ("recovering", savedRecovering);
+        reader.field ("planLimited", savedLimited);
+        reader.field ("limitsSet", savedLimits);
+
+        if (! reader.ok || ! std::isfinite (savedProtection))
+            return false;
+
+        protection = savedProtection;
+        protectionDb = (float) protection;
+        retreating = savedRetreating;
+        recovering = savedRecovering;
+        planLimited = savedLimited;
+        limitsSet = savedLimits;
+        writeIndex = (int) savedWrite;
+        historyCount = (int) savedHistory;
+        statsCount = (int) savedStats;
+        safeSlots = (int) savedSafe;
+        partSamples = (int) savedPartSamples;
+        partGlueSum = glue;
+        partLimitSum = limit;
+        partClipSum = clip;
+        partLimitPeak = peak;
+        partClipDepth = depth;
+        slots = loaded;
+        recomputeSums();
+        overSlotsInHistory = 0;
+
+        for (int age = 0; age < historyCount; ++age)
+            if (slots[(size_t) indexFromNewest (age)].over)
+                ++overSlotsInHistory;
+
+        return true;
+    }
+
     float GlazeGuard::getProtectionDb() const noexcept   { return protectionDb; }
     bool GlazeGuard::isRetreating() const noexcept       { return retreating; }
     bool GlazeGuard::isRecovering() const noexcept       { return recovering; }

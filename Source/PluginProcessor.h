@@ -109,7 +109,6 @@ public:
     // 本块交给模块的实际参数：只有受 GLAZE 叠加的 7 项是实际值（limit.gainDb 含校准偏差与保护偏移），其余字段是此刻的手动值
     // （clay 字段不是 Clay 的实际值——那在状态快照里）。
     celadon::glaze::Status getGlazeStatus() const noexcept         { return chain.getGlazeStatus(); }
-    void requestGlazeRelearn() noexcept                            { chain.requestGlazeRelearn(); }
     celadon::ChainParams getGlazeEffectiveParamsForUi() const noexcept;
 
     // ---- v0.1.8.0 界面改版：A / B 对比、等响读数、频谱仪（都在消息线程调、无锁）----

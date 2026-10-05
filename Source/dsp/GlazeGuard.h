@@ -34,8 +34,11 @@
 #include "GlazeConstants.h"
 #include "GlazeTypes.h"
 
+#include <juce_core/juce_core.h>
+
 #include <array>
 #include <cstddef>
+#include <memory>
 
 namespace celadon::glaze
 {
@@ -55,15 +58,21 @@ namespace celadon::glaze
             partSamples = 0;
         }
         void prepare (double sampleRate) noexcept;
-        void reset() noexcept;                         // g_保护回 0，窗口清空
+        void clear() noexcept;                         // 冷启动：g_保护回 0，窗口清空。宿主 reset 不调
+        void reset() noexcept { clear(); }             // 与 clear 相同。编排器的 hostReset 不调它
+        void releaseOutput() noexcept;                 // 只把已经给出的退让归零，统计窗留着（GLAZE ≤ 0 的这一块）
 
         // 本方案生效的约束（风格常数按权重混合后的上限）。可以每块调：上限没变时什么都不做；
         // 变了只重算窗口里的超限计数（历史保留，g_保护不变）。constants 里的保护层时长 / 速率 / 下限同时生效。
         // 调用之前保护层不做任何判定（g_保护保持 0）。
         void setLimits (const StyleConstants& blendedLimits, const Constants& constants) noexcept;
 
-        // 每块调用：stats 是本块模块统计；返回本块应执行的 g_保护（dB，已按速率平滑）。
-        float process (const ModuleStats& stats) noexcept;
+        // 每块调用：stats 是本块模块统计。退让在 reliefDb（≤ 0），原因是预算。
+        GuardOutput process (const ModuleStats& stats) noexcept;
+
+        // 消息线程，不与 process 同时。
+        std::unique_ptr<juce::XmlElement> createStateXml() const;
+        bool restoreStateXml (const juce::XmlElement&);
 
         float getProtectionDb() const noexcept;
         bool isRetreating() const noexcept;   // 本块在退让（校准据此作废子窗）
@@ -114,6 +123,7 @@ namespace celadon::glaze
 
         static constexpr int slotCapacity = 1024;   // ≥ 窗口时隙数 + 1（出厂 3 s = 300 格；可容纳 10 s 的窗）
 
+        GuardOutput budgetOutput() const noexcept;
         void updateTiming() noexcept;
         void clearWindows() noexcept;
         void completeSlot() noexcept;

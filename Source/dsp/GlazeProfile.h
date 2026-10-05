@@ -95,6 +95,11 @@ namespace celadon::glaze
                                                      // 3 = T-038 House 档门控结果（只有 House 档学出的画像写成格式 3；仍读 1 / 2）
     inline constexpr int stateFormatVersion = 1;
 
+    // T-048 阶段 2：编排器写出的 GLAZE_STATE。只认带 LIVE 的这一版；更高版本整份按冷启动。
+    // 上面的 stateFormatVersion 仍是旧「已提交版本」辅助函数 toXml(CommittedState) 的格式，编排器不再用它存档。
+    // 名字不叫 liveStateFormatVersion：LiveProfile.cpp 里匿名命名空间已经用了这个标识符。
+    inline constexpr int liveArchiveFormatVersion = 2;
+
     // ---- v0.1.7.0 修坯 Clay 追加（A6）----
 
     // 画像带 Clay 所需立体声 / 超低频特征（GlazeTypes.h MusicProfile「格式版本 2」那几项）的最低格式版本。与上面的

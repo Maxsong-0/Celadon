@@ -93,8 +93,9 @@ namespace celadon
         // 四个模块、两块表、编排器按同一份 spec 整体重建。编排器保留已提交的画像与方案（采样率变了校准标「待验证」）。
         void prepare (const juce::dsp::ProcessSpec& spec);
 
-        // 清空全部状态，立即出声（同规格 prepareToPlay 时用）。两块表不清（宿主重启不该把整体响度清掉，与 v0.5 相同）；
-        // 编排器按「宿主 reset」清运行状态、保留已提交版本。发行端只把抖动随机序列回到固定种子，归一化预听的增益保留（T-032）。
+        // 清空模块状态，立即出声（同规格 prepareToPlay 时用）。两块表不清（宿主重启不该把整体响度清掉，与 v0.5 相同）。
+        // 编排器的宿主 reset 只让分析器丢掉跨过不连续点的窗口，LIVE、守门累计和 G_trim 都留着。
+        // 发行端只把抖动随机序列回到固定种子，归一化预听的增益保留（T-032）。
         void reset();
 
         // 播放中途的重置（宿主 Reset、NaN 恢复）：清空全部模块，先静音「整条链的延迟」再 10 ms 淡入；编排器、发行端同上。
@@ -161,14 +162,11 @@ namespace celadon
 
         // ---- GLAZE（界面线程调用，无锁；存取在消息线程）----
         glaze::Status getGlazeStatus() const noexcept                    { return controller.getStatus(); }
-        void requestGlazeRelearn() noexcept                              { controller.requestRelearn(); }
         std::unique_ptr<juce::XmlElement> createGlazeStateXml() const    { return controller.createStateXml(); }
         void restoreGlazeStateXml (const juce::XmlElement* xml)          { controller.restoreStateXml (xml); }
 
-        // T-048 阶段 1 直通（插件不调；测试与渲染工具用，见 GlazeController::setLiveSegmentSink）：非空 = 分析器实时模式开、定稿的段交给它，
-        // nullptr = 关。消息线程，prepare 之后、处理之前调。链在下一块开头才把 Balance 的帧交给分析器（process 第一行），所以关的时候把
-        // balance 交过去：最后一块的帧先只进实时段落账再就地定稿（歌尾不用再补一个 0 样本的块）。
-        void setLiveSegmentSink (glaze::SegmentSink* sink)               { controller.setLiveSegmentSink (sink, &balance); }
+        // 链里那一份实时画像。渲染读它，不再从外面塞接收者。
+        const glaze::LiveProfile& getLiveProfile() const noexcept        { return controller.getLiveProfile(); }
 
         void processReference (const juce::AudioBuffer<float>& input, bool connected) noexcept { reference.process (input, connected); }
         void requestReferenceLearn() noexcept { reference.requestLearn(); }

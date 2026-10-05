@@ -79,7 +79,7 @@ namespace celadon::glaze
 {
     struct PlanInputs
     {
-        const MusicProfile* profile = nullptr;   // 可为空（未学习）：按低置信度保守方案
+        const MusicProfile* profile = nullptr;   // 已发布的实时画像。空 = 低置信度方案
         Style style = Style::automatic;
         // T-038（设计规格-曲风与交付 第 3、4 节）：方案源自己的曲风与交付（方案过渡时新旧两份方案各用各的，不读 manual 里的下标）。
         // 通用 + 标准 = 与 main 逐位相同的方案。
@@ -89,7 +89,7 @@ namespace celadon::glaze
         ChainParams manual;             // 用户在各模块旋钮上的值（手动基准）
         const Constants* constants = nullptr;    // 标定快照（为空时用出厂常数）
         float maxGainDb = 1.0e9f;                // 约束反馈给出的净提升上限（保护层 / 实测超限时降低）；默认不限
-        const StyleWeights* lockedWeights = nullptr;   // 画像锁定的风格权重（自动风格用它，不重新判断）
+        const StyleWeights* lockedWeights = nullptr;   // 自动风格的慢速权重（编排器随 LIVE 保存）。空 = 决策器自己判断
     };
 
     // 按画像算「自动」风格的混合权重（锁定画像时调一次，之后随画像保存）。置信不足时偏向通透（最保守）。

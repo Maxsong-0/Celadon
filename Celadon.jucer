@@ -94,10 +94,18 @@
               file="Source/dsp/MusicAnalyzer.cpp"/>
         <FILE id="Ma6Anh" name="MusicAnalyzer.h" compile="0" resource="0"
               file="Source/dsp/MusicAnalyzer.h"/>
-        <FILE id="Gz6Cac" name="GlazeCalibrator.cpp" compile="1" resource="0"
-              file="Source/dsp/GlazeCalibrator.cpp"/>
-        <FILE id="Gz6Cah" name="GlazeCalibrator.h" compile="0" resource="0"
-              file="Source/dsp/GlazeCalibrator.h"/>
+        <FILE id="Ct8Gdc" name="ContrastGuard.cpp" compile="1" resource="0"
+              file="Source/dsp/ContrastGuard.cpp"/>
+        <FILE id="Ct8Gdh" name="ContrastGuard.h" compile="0" resource="0"
+              file="Source/dsp/ContrastGuard.h"/>
+        <FILE id="Ps8Gdc" name="PsrGuard.cpp" compile="1" resource="0"
+              file="Source/dsp/PsrGuard.cpp"/>
+        <FILE id="Ps8Gdh" name="PsrGuard.h" compile="0" resource="0"
+              file="Source/dsp/PsrGuard.h"/>
+        <FILE id="Ol8Trc" name="OutputLevelTracker.cpp" compile="1" resource="0"
+              file="Source/dsp/OutputLevelTracker.cpp"/>
+        <FILE id="Ol8Trh" name="OutputLevelTracker.h" compile="0" resource="0"
+              file="Source/dsp/OutputLevelTracker.h"/>
         <FILE id="Gz6Gdc" name="GlazeGuard.cpp" compile="1" resource="0"
               file="Source/dsp/GlazeGuard.cpp"/>
         <FILE id="Gz6Gdh" name="GlazeGuard.h" compile="0" resource="0"
