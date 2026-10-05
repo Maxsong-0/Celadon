@@ -1,0 +1,8 @@
+513:!!! Test 1 failed: left vs mono, block 512 -- Expected value: 0, Actual value: 1
+514:!!! Test 2 failed: right vs mono, block 512 -- Expected value: 0, Actual value: 1
+515:!!! Test 3 failed: left vs mono, block 17 -- Expected value: 0, Actual value: 1
+516:!!! Test 4 failed: right vs mono, block 17 -- Expected value: 0, Actual value: 1
+518:FAILED!!  4 tests failed, out of a total of 4
+997:!!! Test 5 failed: stereo balance costs 1.74 x mono (limit 1.40): the packed two-channel path is not doing its job
+999:FAILED!!  1 test failed, out of a total of 5
+2843:==== celadon_tests: 149099 passed, 5 failed ====

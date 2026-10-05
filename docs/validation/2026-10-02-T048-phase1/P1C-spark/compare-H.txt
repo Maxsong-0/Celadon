@@ -1,0 +1,9 @@
+=== H-frombar-closeout-vs-main75 ===
+A=/home/maxsong/.cache/celadon-t048-22songs/out-closeout-H rows=340 file_sha=77626bbcb226c943
+B=/home/maxsong/.cache/celadon-t048-22songs/out-main75-H rows=340 file_sha=0c297250efa4c612
+songs common=20 only_a=[] only_b=[]
+per-song metrics.csv: same=14 diff=6 missing=0
+diff songs: WTF, Will We Be OKay (Extended Mix), emmmayiyu, l_kskdhjf, wildtom, will we be okay
+combined metrics.csv identical: False
+A status fails: none (20 lines)
+B status fails: none (20 lines)

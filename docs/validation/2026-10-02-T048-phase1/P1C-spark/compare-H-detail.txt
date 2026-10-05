@@ -1,0 +1,49 @@
+## WTF: rows 17 vs 17
+  row7 kind=render changed=['audio_hash']
+    audio_hash: f1bfdc77fbc6142f vs ea8e9aecc6877760
+  row8 kind=render changed=['audio_hash']
+    audio_hash: f1bfdc77fbc6142f vs ea8e9aecc6877760
+  row10 kind=render changed=['audio_hash']
+    audio_hash: f1bfdc77fbc6142f vs ea8e9aecc6877760
+  differing rows: 6/17; hash_col=audio_hash
+## Will We Be OKay (Extended Mix): rows 17 vs 17
+  row2 kind=render changed=['trial_lowcut_cost_db', 'trial_mono60_cost_db', 'trial_width_cost_db', 'trial_seconds', 'profile_slope_db_per_oct', 'house_heard_s', 'house_full_s']
+    audio_hash: 86cc3e7dab9d5939 vs 86cc3e7dab9d5939
+  row4 kind=render changed=['trial_lowcut_cost_db', 'trial_mono60_cost_db', 'trial_width_cost_db', 'trial_seconds', 'profile_slope_db_per_oct', 'house_heard_s', 'house_full_s']
+    audio_hash: 86cc3e7dab9d5939 vs 86cc3e7dab9d5939
+  row7 kind=render changed=['lufs', 'align_gain_db', 'plr_db', 'limit_gr_mean_db', 'limit_gr_max_db', 'low_corr_lt125hz', 'infra_share_lt16hz_db', 'audio_hash', 'trial_lowcut_cost_db', 'trial_mono60_cost_db', 'trial_width_cost_db', 'trial_seconds']
+    audio_hash: e062319925a5ce3f vs 7ad8bd15fa5c7639
+  differing rows: 8/17; hash_col=audio_hash
+## emmmayiyu: rows 17 vs 17
+  row7 kind=render changed=['lufs', 'align_gain_db', 'plr_db', 'limit_gr_max_db', 'infra_share_lt16hz_db', 'audio_hash', 'limit_input_peak_db']
+    audio_hash: 5b593e009dd447eb vs 354d26a0ca20d510
+  row8 kind=render changed=['lufs', 'align_gain_db', 'plr_db', 'limit_gr_max_db', 'audio_hash', 'limit_input_peak_db']
+    audio_hash: 3ba50b1765e15f9f vs 963a82606765a141
+  row10 kind=render changed=['lufs', 'align_gain_db', 'plr_db', 'limit_gr_max_db', 'audio_hash', 'limit_input_peak_db']
+    audio_hash: 3ba50b1765e15f9f vs 963a82606765a141
+  differing rows: 6/17; hash_col=audio_hash
+## l_kskdhjf: rows 17 vs 17
+  row2 kind=render changed=['profile_slope_db_per_oct', 'house_heard_s', 'house_full_s']
+    audio_hash: f8dc0a0156ae501f vs f8dc0a0156ae501f
+  row4 kind=render changed=['profile_slope_db_per_oct', 'house_heard_s', 'house_full_s']
+    audio_hash: f8dc0a0156ae501f vs f8dc0a0156ae501f
+  row7 kind=render changed=['audio_hash', 'profile_slope_db_per_oct', 'house_heard_s', 'house_full_s']
+    audio_hash: 403d86cbc516ddbe vs 628340d43025d919
+  differing rows: 8/17; hash_col=audio_hash
+## wildtom: rows 17 vs 17
+  row13 kind=render changed=['lufs', 'align_gain_db', 'plr_db', 'limit_gr_mean_db', 'low_corr_lt125hz', 'infra_share_lt16hz_db', 'audio_hash']
+    audio_hash: 06b19712633cf82c vs a0df4825393d845b
+  row14 kind=render changed=['lufs', 'align_gain_db', 'plr_db', 'limit_gr_mean_db', 'low_corr_lt125hz', 'infra_share_lt16hz_db', 'audio_hash']
+    audio_hash: 06b19712633cf82c vs a0df4825393d845b
+  row16 kind=render changed=['lufs', 'align_gain_db', 'plr_db', 'limit_gr_mean_db', 'low_corr_lt125hz', 'infra_share_lt16hz_db', 'audio_hash']
+    audio_hash: 06b19712633cf82c vs a0df4825393d845b
+  differing rows: 3/17; hash_col=audio_hash
+## will we be okay: rows 17 vs 17
+  row7 kind=render changed=['audio_hash']
+    audio_hash: 01c93fc96a3fa1fc vs e35e6acc994ec1ab
+  row8 kind=render changed=['audio_hash']
+    audio_hash: 01c93fc96a3fa1fc vs e35e6acc994ec1ab
+  row10 kind=render changed=['audio_hash']
+    audio_hash: 01c93fc96a3fa1fc vs e35e6acc994ec1ab
+  differing rows: 6/17; hash_col=audio_hash
+G sanity: WTF identical? True
