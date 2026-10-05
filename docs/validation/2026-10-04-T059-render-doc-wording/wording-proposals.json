@@ -1,0 +1,202 @@
+{
+ "summary": "T-059 汇总核实。全程只读：没改仓库文件，没编译、没渲染、没跑测试。基于 main fbe91f3（已含 T-056）。\n\n1. 事实分歧：我回代码复核后裁决如下（详见 facts）。\n   - 代价位来源：mono 代理对，先试后用、守护混合损失封顶、压力反馈三处都会置位。conflict 代理给 2513 的稿只写了先试后用，不全。\n   - 用户前提「反相段声音与重放全关相同」（也是 ADR-015 后果第 1 条）只在方案的低切 / 加宽为 0 时成立。反例：T-044 base-all.csv 的 deep-track g35。所以 374 不能写「相同」。\n   - mono 代理新节写 planned_*「不看三态设置」，不对：压力反馈只在有「自动」项时才降档。\n   - 行号：--clay 在 483-484，口径行在 2513，gate_check 的 notes 在 149。五个代理一致。\n2. 证据不足的地方：\n   - 「mono 与 off 逐位相同」的数据来自 c7b607f，HEAD 上靠代码推断。建议渲染时加 mono 组复核。\n   - T-048 在 Mac 上没推送的改动从这边看不到。\n   - 「旧工程读回后第一块会用旧的自动收单值」这一条，na 代理只按源码推断，没实测。\n3. 清单里每一行都有代理给了措辞，没有空缺。同一行有几种措辞时，我按「准、短、贴合文风、不碰 T-048」各选了一稿，理由写在各条 rationale 里。\n4. 漏掉的同类实例：\n   - README:73、RenderMain.cpp:148、:484 仍把 mono 当成能「改变成品」的拆分项，已并入确定清单。\n   - 第 6 项新节补了各稿都漏的两点：rho 列是块末读数，ClayGuard 下一块才用；读回存档后的第一块 guard_seconds 也是 0。\n5. 最终清单共 16 条：11 条确定要改，5 条标了【第 6 项，Max 同意才改】。\n6. 合并冲突：\n   - 我把最终措辞套到三份文件上，在 scratchpad 的隔离对象库里与 T-048（38ee761）双向跑了 git merge-tree。\n   - 三种集合都返回 0：只有确定项；加上第 6 项；再加上全部可选项。两种合并顺序得到同一棵树。\n   - 17:42 PDT 时远端仍是 38ee761。临时文件已删，仓库没写。\n7. 给主进程的验证要点：\n   - gate_check：沿用 T-056 的 compare_gate_check.py，TEXT_CHANGES 换成 (('（自动收单比例在 0、1 之间），修坯门槛', '（原因见 metrics.md 该曲备注），修坯门槛'),)。\n   - n/a 合成表：把 trial-3songs-metrics.csv 里 GLAZE > 0 的 auto 行 replay_check 改成 n/a。\n   - 渲染合成曲用 --clay auto,off,mono。期望：metrics.csv 逐字节相同；metrics.md 只差生成时间、两处 0.35 s 和 2513 追加的一句；mono 行与 off 行 audio_hash 相同。\n   - --help 只多 484 后的一行；做第 6 项时 489-490 也会变。\n   - 推送前先 fetch，对 origin/claude/t048-realtime-glaze 重跑一次 merge-tree。",
+ "proposals": [
+  {
+   "file": "tools/render/gate_check.py",
+   "line": "9",
+   "current": "#      n/a（自动收单比例在 0、1 之间，「手动」态表达不了）只列说明。",
+   "proposed": "#      n/a（有块的实际值重放链照搬不了，原因写在 metrics.md 该曲备注；ADR-015 起不再因自动收单出现）只列说明。",
+   "rationale": "选 na 代理稿：一行，准确。\n- n/a 有两种原因（RenderMain.cpp:2782-2783）。gate_check 只读 CSV，分不出是哪一种，所以指向 metrics.md 的备注（RenderMain.cpp:2594-2600）。两种原因的细节留在 README:219-220。\n- 不选 sweep / conflict 的两行稿：它们把「参考」写成了现行原因，而渲染工具走不到这种情况（facts 第 2 条）。\n- 只改注释，输出不变。"
+  },
+  {
+   "file": "tools/render/gate_check.py",
+   "line": "149",
+   "current": "                notes.append(f\"{tag}: 同决策重放的阳性对照不适用（自动收单比例在 0、1 之间），修坯门槛照常用重放全关判定\")",
+   "proposed": "                notes.append(f\"{tag}: 同决策重放的阳性对照不适用（原因见 metrics.md 该曲备注），修坯门槛照常用重放全关判定\")",
+   "rationale": "取 conflict 稿，加上 na 稿的「该曲」两字：最短，又准。\n- 旧表（快照 B 有 25 组 n/a 是收单原因）和新表都适用。\n- 后半句描述的是脚本行为，判定不变。\n- 验证：compare_gate_check.py 的 TEXT_CHANGES = (('（自动收单比例在 0、1 之间），修坯门槛', '（原因见 metrics.md 该曲备注），修坯门槛'),)，新文字不在任何改前输出里。\n- 另造 n/a 合成表：把 trial-3songs-metrics.csv 里 GLAZE > 0 的 auto 行 replay_check 改成 n/a、replay_max_diff_dbfs 置空。期望两版返回码相同，stdout 只差这一句。"
+  },
+  {
+   "file": "tools/render/README.md",
+   "line": "220（219 不动；220 一行换成两行）",
+   "current": "   0、1 之间的块「手动」态表达不了（手动收单固定是 1），目标频谱用了「参考」形状的块重放链没有侧链参考，都记 `n/a`；",
+   "proposed": "   0、1 之间的块「手动」态表达不了（手动收单固定是 1），目标频谱用了「参考」形状的块重放链没有侧链参考，都记 `n/a`，原因写进\n   metrics.md 该曲备注。ADR-015 起自动不收单，前一种已不再出现；本工具的目标频谱固定是出厂「自动」（不会落到「参考」），后一种眼下也走不到；",
+   "rationale": "用户第 2 项，另补一句「参考」原因的现状。\n- 现状已按源码核实：ParameterDefaults.h:70，CeladonChain.cpp:184-186 / 220。工具没有改目标频谱的选项，T-048 分支也没有。\n- 读者看了就知道：新表里不该再出现 n/a。\n- 末尾保留「；」，因为这是列表第 2 项。\n- 离 T-048 最近的改动块 101 行以上。\n- 嫌长的话，可以只留「ADR-015 起自动不收单，前一种已不再出现；」。"
+  },
+  {
+   "file": "tools/render/README.md",
+   "line": "374（一行换成两行）",
+   "current": "   低音很宽 / 有反相内容的那首重点听低频是否更紧、单声道回放（DAW 里把总线切成单声道）是否更稳。",
+   "proposed": "   低音很宽 / 有反相内容的那首：ADR-015 起「自动」不收单，反相段只亮收单灯（琥珀）、不改声音，与「重放全关」的差别和其余段落一样\n   只来自低切与加宽，所以不再专门比低频是否更紧、单声道回放（DAW 里把总线切成单声道）是否更稳。",
+   "rationale": "以 phase 代理的候选 B 为底，只写代码能证明的事实。\n- 不写「与重放全关相同」，有反例（facts 第 3 条）。\n- 删两条旧听点，是 ADR-015 已定的后果：它修订了 ADR-009 的「低频更紧、单声道兼容更稳」。\n- 不新立听点。sweep / mono 稿新加的听点属完成标准，见待拍板。\n- T-048 只替换第 347 行，374 原样后移，实测 0 冲突。"
+  },
+  {
+   "file": "tools/render/README.md",
+   "line": "138",
+   "current": "| 代价限 | `clay_cost_limited` | 先试后用（ADR-012）：成品末尾哪几项因「试过会抬高峰值」被减量 / 否决（lowcut / mono / width，空 = 没有） |",
+   "proposed": "| 反相提示 / 宽度保护（格末） | `clay_cost_limited` | 先试后用（ADR-012）：成品末尾哪几项因「试过会抬高峰值」被减量 / 否决（`lowcut` / `width`，两项都有写 `lowcut+width`，空 = 没有；ADR-015 起自动不收单，不再出现 `mono`）。metrics.md 没有单独一列：有值时接在「反相提示 / 宽度保护」那一格末尾（「，代价限：lowcut」），空时不写 |",
+   "rationale": "用户第 4 项，加上同一行里的 ADR-015 实例：mono 不再出现（facts 第 5 条）。\n- md 列用 mono 代理的写法「反相提示 / 宽度保护（格末）」。conflict 代理写「—」，不准：它确实在 metrics.md 里，只是不单列。\n- 原位改，不挪行，只动 1 行。\n- 「试过会抬高峰值」来源不全，是 T-043 / T-044 造成的另一回事，原文保留；要不要顺手改见待拍板。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "2500",
+   "current": "               \"（已去掉链延迟、含 0.3 s 余振）。\\n\"",
+   "proposed": "               \"（已去掉链延迟、含 \" + fixed (ringOutSeconds, 2) + \" s 余振）。\\n\"",
+   "rationale": "用户第 5 项。选 sweep 稿（由常数生成），不写死。\n- 根因：V3-02 修复时只改了常数和 README，漏了这两处手写字面量（:100-101 的注释自己记着）。由 ringOutSeconds 生成就不会再漂，符合全局准则 8「常量集中一处」。\n- 输出不变：fixed (0.35, 2) 输出「0.35」，metrics.md 与写死时逐字节相同。\n- 能编过：相邻字面量在编译期先拼成一个，再与 std::string 相加；返回类型本来就是 std::string。\n- 这算不算「只改字符串」，见待拍板；退路是写死「含 0.35 s 余振」。\n- T-048 最近的改动块在 2562 之后。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "2537",
+   "current": "              \"后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.3 s 余振，成品与原曲逐样本对齐\\n\";",
+   "proposed": "              \"后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 \" + fixed (ringOutSeconds, 2) + \" s 余振，成品与原曲逐样本对齐\\n\";",
+   "rationale": "同上一条：2536 的字面量与本行相邻，编译期拼接后再与 std::string 相加，md += 照旧。\n- 退路是写死「末尾多冲 0.35 s 余振」。\n- 改后 metrics.md 应只差三样：生成时间、这两处、2513 追加的一句。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "2513（去掉这一行字面量末尾的 \\n，后面加一行字面量）",
+   "current": "               \"- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。\\n\"",
+   "proposed": "               \"- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。\"\n               \"格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）。\\n\"",
+   "rationale": "用户第 4 项的后半：口径一节没提代价限。\n- 原因写成中性的「因代价」，不写「先试后用」。代价位实际有三处来源（facts 第 4 条）：写全要 Max 同意（见待拍板），只写一半又会新造一处不准。\n- 只改写进 metrics.md 的字符串，metrics.csv 不变。\n- T-048 在 makeMarkdown 里的插入点在 2562 之后，隔 49 行。"
+  },
+  {
+   "file": "tools/render/README.md",
+   "line": "73（同类漏网，行内追加一句）",
+   "current": "| `--clay` | `auto,off` | `auto` = 三项都「自动」，`off` = 三项都「关」；`lowcut` / `mono` / `width` = 只留这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品） |",
+   "proposed": "| `--clay` | `auto,off` | `auto` = 三项都「自动」，`off` = 三项都「关」；`lowcut` / `mono` / `width` = 只留这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品。ADR-015 起自动收单恒为 0，`mono` 这一组的成品与 `off` 逐位相同，只多记反相提示时长 `phase_guard_pct`） |",
+   "rationale": "与第 374 行同根：说明没跟上 ADR-015。按「同类修全」并入（facts 第 6 条）。\n- 只追加一句；lowcut / width 的拆分诊断仍有效。\n- 建议主进程渲染合成曲时用 --clay auto,off,mono，改前 / 改后同参数。核对两点：mono 行与 off 行 audio_hash 相同；mono 行 phase_guard_pct 与 auto 行相同。\n- 如果不成立，改成「`mono` 这一组不收单，只看得到反相提示时长」。\n- T-048 在 65 / 85 后插入，与 73 之间都隔着没改的行，实测 0 冲突。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "148 之后插一行（同类漏网，只加注释）",
+   "current": "    // lowcut / mono / width = 只有这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品）。",
+   "proposed": "    // lowcut / mono / width = 只有这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品）。\n    // ADR-015 起自动收单恒为 0：mono 这一组的成品与全关逐位相同，只多记反相提示时长（phase_guard_pct 只在收单「自动」时计）。",
+   "rationale": "这是 README:73 那句话的代码注释，同一句话一起改。T-048 在 143 后插入，中间隔着 144-147，实测 0 冲突。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "484 之后插一行（同类漏网，--help）",
+   "current": "                     \"                      lowcut / mono / width = 只留这一项「自动」（拆分诊断）；默认 auto,off\\n\"",
+   "proposed": "                     \"                      lowcut / mono / width = 只留这一项「自动」（拆分诊断）；默认 auto,off\\n\"\n                     \"                      （ADR-015 起自动收单恒为 0：mono 这一组的成品与 off 逐位相同，只多记反相提示时长）\\n\"",
+   "rationale": "选 mono 代理的写法：另起一行。sweep 稿写进 484 行内，会宽到约 160 列，而 --help 现在最宽约 124 列。\n- 缩进照 484 行，用 22 个空格。\n- --help 输出改前 / 改后只差这一行；做第 6 项时再加 489-490。\n- T-048 在 500 后插入，隔 15 行。"
+  },
+  {
+   "file": "tools/render/README.md",
+   "line": "【第 6 项，Max 同意才改】14",
+   "current": "- **修坯「自动」**= 高级抽屉的默认（低切 / 收单 / 加宽三项都「自动」，由 GLAZE 决策 + 实时保护给值）；",
+   "proposed": "- **修坯「自动」**= 高级抽屉的默认（低切 / 收单 / 加宽三项都「自动」：低切与加宽由 GLAZE 决策 + 实时保护给值；收单 ADR-015 起恒为 0，低频反相时只亮提示、不改声音）；",
+   "rationale": "选 sweep 稿，更短。\n- 原句对收单不成立：GlazePlanner.cpp:1324-1327，ClayGuard.cpp:292-294。\n- 「实时保护」这个说法仍成立：对低切指压力反馈与峰值守护，对加宽指宽度保护。\n- mono 代理稿逐项写了 ADR-012 / ADR-014，准确但长一倍，这些细节 README 后文已有。"
+  },
+  {
+   "file": "tools/render/README.md",
+   "line": "【第 6 项，Max 同意才改】78（同一格里两处行内替换）",
+   "current": "①「…实际 Limit Gain / Tone / Glue / Heat、修坯方案与保护状态、分析器慢路 / 快路低频相关度、…」②「（诊断用；列见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB）」",
+   "proposed": "①「修坯方案与保护状态」→「修坯方案值 / 宽度保护后的值 / 实际值与反相提示状态」；②「（诊断用；列见下「逐块追踪的校准列」；」→「（诊断用；列见下「逐块追踪的修坯列」「逐块追踪的校准列」；」。这一格其余逐字不动。",
+   "rationale": "追踪里真正改值的「保护」只有宽度保护（看 planned → live 的加宽差）；反相一路只是提示（guard_phase_* 三列）。三层值依次是 planned_* / live_* / clay_*（facts 第 8 条）。\n- 第 ② 处指向下面新增的一节。\n- T-048 在 65 / 85 / 87 后插入，78 只做行内改，实测 0 冲突。"
+  },
+  {
+   "file": "tools/render/README.md",
+   "line": "【第 6 项，Max 同意才改】158 之后、159「### 逐块追踪的校准列（`--trace`）」之前插入一节",
+   "current": "（没有：guard_phase_* 等修坯追踪列没有说明）",
+   "proposed": "### 逐块追踪的修坯列（`--trace`）\n\n只在第二遍那份（`trace/<成品名>.csv`）里，一行 = 一块：\n\n| 列 | 含义 |\n|---|---|\n| `planned_lowcut_hz` / `planned_mono_amount` / `planned_mono_hz` / `planned_width_db` | 决策器给「自动」态的值（含方案过渡混合与压力反馈缩放，ClayGuard 之前） |\n| `live_mono_amount` / `live_width_db` | ClayGuard 之后、三态合成之前的自动值：宽度保护只会把加宽往小里改，收单原样透传 |\n| `guard_phase_floor` / `guard_phase_hold_s` / `guard_phase_active` | 反相提示的强度（0～1，含攻击 / 释放）、条件消失后剩下的保持秒数、是否亮着（= 强度 > 0）。列名沿用旧名，ADR-015 起只提示、不改声音；触发条件与时间常数见 `Source/dsp/ClayGuard.h` 文件头。这是 ClayGuard 自己的状态、不看三态：收单不在「自动」的组（`off` / `lowcut` / `width`）也可能是 1，收单灯与 `phase_guard_pct` 只算收单「自动」的组 |\n| `guard_seconds` | 这一块交给 ClayGuard 推进的有效音乐秒数（= 上一块的有效音乐时长）；为 0 时（静音、宿主旁通、停播，以及读回存档后的第一块）反相提示与宽度保护都停在原处 |\n| `rho_slow` / `rho_fast` | 分析器慢路 / 快路低频相关度（反相提示的判据；无效时空）。这是本块处理后的读数，ClayGuard 下一块才用它 |\n| `clay_lowcut_hz` / `clay_mono_amount` / `clay_mono_hz` / `clay_width_db` | 三态合成后交给 ClayModule 的实际值（同指标表的 Clay 四列） |\n\nADR-015 起「自动」不收单：本工具各组的 `planned_mono_amount`、`live_mono_amount`、`clay_mono_amount` 恒为 0，`planned_mono_hz` 恒为 80。\n",
+   "rationale": "合并三稿：\n- 标题和列范围用 mono / sweep 的「修坯列」，覆盖追踪里全部修坯列，比 phase 的「反相提示列」完整。\n- guard_phase_* 的「不看三态、收单关着的组也可能是 1」取自 phase / mono。\n- 补上各稿漏的两点（facts 第 9 条）：rho 列晚一块生效；读回存档后的第一块 guard_seconds 为 0。\n- 删掉 mono 稿里 planned_* 的「不看三态设置」（facts 第 7 条）。\n- 时间常数和门限不写数字，指向 ClayGuard.h 文件头，免得再出 0.3 s 那类漂移。\n- T-048 在 117～346 之间没有改动，实测 0 冲突。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "【第 6 项，Max 同意才改】162-163",
+   "current": "        bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案 / 保护 / 实时相关度、校准状态）\n                                    // 与 trace/<成品名>__listen.csv（第一遍逐块的校准状态），诊断用",
+   "proposed": "        bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案值 / 宽度保护后 / 实际值、\n                                    // 反相提示、实时相关度、校准状态）与 trace/<成品名>__listen.csv（第一遍逐块的校准状态），诊断用",
+   "rationale": "与 README:78 用同一说法。两行的 // 仍从第 36 列起。只改注释。T-048 在 173 后插入，隔 10 行，实测 0 冲突。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "【第 6 项，Max 同意才改】489-490",
+   "current": "                     \"  --trace             另写 trace/<成品名>.csv：第二遍逐块的限幅 GR、修坯方案 / 保护 / 实时低频相关度、校准状态；\\n\"\n                     \"                      trace/<成品名>__listen.csv：第一遍逐块的校准状态（诊断用）\\n\"",
+   "proposed": "                     \"  --trace             另写 trace/<成品名>.csv：第二遍逐块的限幅 GR、修坯方案值 / 宽度保护后 / 实际值、反相提示、\\n\"\n                     \"                      实时低频相关度、校准状态；trace/<成品名>__listen.csv：第一遍逐块的校准状态（诊断用）\\n\"",
+   "rationale": "--help 与 README:78 同步。仍是两行，第二行以 22 个空格起。T-048 在 500 后插入，隔 10 行，实测 0 冲突。"
+  }
+ ],
+ "pending_for_max": [
+  "第 6 项做不做（Max 原话是「可选，先问 Max」）。涉及 5 处：README:14；README:78；在 README 第 159 行前新增「逐块追踪的修坯列」一节；RenderMain.cpp:162-163 的注释；:489-490 的 --help。最终措辞见 proposals 里标【第 6 项】的 5 条，已与 T-048 模拟合并，0 冲突。不做也不影响其余各条。",
+  "0.35 s 怎么写：推荐用 fixed (ringOutSeconds, 2) 由常数生成，能根除 V3-02 那种漏改，输出与写死逐字节相同。但它改的是拼字符串的表达式，算不算「RenderMain.cpp 只改字符串」请 Max 定。不同意就写死「0.35」。",
+  "README:374 的盲听指引：最终稿只删掉 ADR-015 已推翻的两条旧听点（低频更紧、单声道回放更稳），没有新立听点。这首「低音很宽 / 有反相内容」的歌要不要换新听点，属于完成标准。候选写法如「听低切 / 加宽在宽低音上有没有让低频变薄」，或「单声道丢低音是反相本身造成的，不作判据」。连带一问：README:9 的选歌要求「至少一首低音很宽 / 有反相内容」还留不留？它仍可用来核对反相提示误亮和门槛第 3 条的豁免。",
+  "代价位来源写得不全，这是 T-043 / T-044 留下的，与 ADR-015 无关。要不要并进 T-059？如果并：README:138 把「先试后用（ADR-012）：成品末尾哪几项因「试过会抬高峰值」被减量 / 否决」换成「成品末尾哪几项「自动」修坯因代价被减量 / 否决：先试后用试出会抬高峰值（ADR-012），低切还按守护混合损失封顶（ADR-027），或压力反馈降过档（ADR-014 / ADR-028）」；RenderMain.cpp:2248 的注释照此改。已模拟，0 冲突。",
+  "几处可选的低优先级补充。它们不是错，只是把 ADR-015 之后的常值写明：① README:139 与 RenderMain.cpp:2512 要成对改（后者会多一处 metrics.md 文字）：收单量恒为 0，收单 Hz 停在 80。② README:140：两项各只在 GLAZE > 0、收单 / 加宽为「自动」的行计。③ README:145：trial_mono* 照测照存，决策不用。做不做？",
+  "ADR-016「逐位」口径的 4 处要不要并进 T-059（与 ADR-015 无关）：RenderMain.cpp:53、:55 的注释，:492 的 --help，:2521 写进 metrics.md 的那句。实际判据是最大样本差 ≤ −180 dBFS（:1673-1677；README:218 写的是「不要求逐位」）。其中 :492 和 :2521 用本任务同一套比对就能覆盖。",
+  "n/a 的判定口径。这属于判定逻辑变更，不在 T-059 范围内，要 Max 定两件事：① 如果出现「参考」原因的 n/a：重放全关同样没有参考曲线，CeladonChain.cpp:195 会把目标频谱强度置 0，于是「自动 vs 重放全关」里混进了目标频谱的差别，而 gate_check 仍照常判修坯门槛。这类 n/a 要不要跳过或标注？② 以后如果又出现 n/a（例如给工具加了侧链 / 目标频谱选项，或者出了回归），是继续「只列说明」，还是改判失败？",
+  "RenderMain.cpp:3245 自检失败时写「有块的修坯值「手动」表达不了」。T-032 起，「表达不了」也可能是因为目标频谱用了「参考」，这与 1670 / 2782 是同一类问题。它写到 stderr，不在本任务允许改的字符串里，实际也走不到。是否按「不动」处理？",
+  "`--clay mono` 这个选项还留不留？ADR-015 起它的成品与 off 逐位相同，phase_guard_pct 也与同组 auto 相同，已经没有诊断意义。删掉或改语义属于行为改动，要另开任务。",
+  "出错时谁负责：T-048 主进程在 Mac 上，可能还有没推送的提交。如果这些提交改到 T-059 已合入行的相邻行、导致合并冲突，由谁解决？建议：T-059 合入后，在 TASKS 的 T-048 行和会话消息里写清改了哪些行；冲突由后合 main 的一方解决。",
+  "vault 档案要不要补记（原文不改）？① ADR-015「后果」第 1 条「反相段在「自动」下的声音与「修坯关」相同」只在方案的低切 / 加宽为 0 时成立，反例是 T-044 base-all.csv 里 deep-track_0155328 的 g35。② ADR-016 决定 2 只写了收单一种 n/a 原因：T-032 加了「参考」这一种，ADR-015 起收单这一种又不再出现。"
+ ],
+ "out_of_scope": [
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "53、55、492、2521",
+   "issue": "同决策重放的阳性对照被写成「逐位」：\n- :53「应逐位相同」\n- :55「同决策重放逐位复现」\n- :492 --help「并做逐位阳性对照」\n- :2521 metrics.md「应与「自动」逐位相同」\n实际判据是最大样本差 ≤ 1e-9（−180 dBFS，:1673-1677、:2768）；README:218 和 ADR-016 决定 2 都写「不要求逐位」。这是 ADR-016 的口径问题，与 ADR-015 无关（待拍板第 6 条）。"
+  },
+  {
+   "file": "tools/render/README.md、tools/render/RenderMain.cpp",
+   "line": "README 138（原因描述）；RenderMain 2248",
+   "issue": "代价位的来源只写了「先试后用 / 试过会抬高峰值」。T-043 / T-044 起还有两处来源：低切按守护混合损失封顶（GlazePlanner.cpp:1310-1316），压力反馈降档（ClayGuard.cpp:668-699）。界面已经写成「会抬高峰值或削弱低音」（HelpText.cpp:792）。见待拍板第 4 条。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "501",
+   "issue": "--help 的 --selftest 只列「指标算法、文件名、延迟对齐、GLAZE 0 逐位直通」，漏了同决策重放复现和高级母带覆盖两项（:3198-3277；文件头 :20 与 README:194-195 都写了）。:501 夹在 T-048 的两处插入（500 后、502 后）之间，现在改一定冲突，要等 T-048 合入后再改。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "3244-3247",
+   "issue": "自检失败时写「有块的修坯值「手动」表达不了」，但 :3224-3227 的 expressible 还包含 masteringReplayable（T-032 加的）。这是写到 stderr 的字符串，不在本任务允许改的范围里（待拍板第 8 条）。"
+  },
+  {
+   "file": "tools/render/RenderMain.cpp",
+   "line": "1481",
+   "issue": "slow_inverted_pct 的门限写死成 −0.2f（注释写「= 出厂 clayGuardPhaseCorrelation」），与 GlazeConstants.h 里的常数成了两份。这和 0.3 s 余振是同一类问题：抄了一份真源常数。眼下两边一致，以后改标定会悄悄分叉。改它是代码改动，不在 T-059。"
+  },
+  {
+   "file": "tools/render/README.md、tools/render/RenderMain.cpp",
+   "line": "README 113；RenderMain 44、432、2516",
+   "issue": "成品文件名的模式写成 clay-<auto|off|replay-off>（432 行只写了 auto|off），漏了 --clay lowcut / mono / width 生成的 clay-lowcut / clay-mono / clay-width（见 clayId，:309-322）。与 ADR-015 无关。"
+  },
+  {
+   "file": "Source/dsp/GlazeTypes.h、Source/ui/HelpText.h",
+   "line": "GlazeTypes.h:389；HelpText.h:89",
+   "issue": "代价位的注释仍写「试过会抬高峰值」，来源不全，同第 2 条。不在 T-060 / T-057 已认领的行单里。"
+  },
+  {
+   "file": "Source/dsp/GlazeController.h",
+   "line": "217",
+   "issue": "探针 liveLowCorrelation 的注释写「上一块交给 ClayGuard 的那一份」，实际差一块：探针返回的是此刻的视图，而链里的视图在 process 开头才更新（CeladonChain.cpp:321），所以块末读到的是 ClayGuard 下一块才用的那一份。只影响逐行对读 trace 时的口径。"
+  },
+  {
+   "file": "Source/dsp/GlazeController.cpp",
+   "line": "345-365",
+   "issue": "emitConditions 把收单的「自动 / 关」并进了校准参考条件的哈希（:356）。ADR-015 起这两态声音相同，但在插件里来回切收单，仍会让已提交的校准不适用、重开一轮。渲染工具每组设置固定，不受影响。改不改牵涉存档兼容的口径（ADR-018），属于行为问题。"
+  },
+  {
+   "file": "Source/dsp/GlazeController.cpp",
+   "line": "1827、2865-2872",
+   "issue": "na 代理报的问题；我核对过代码路径成立，但没实测。读回 v0.1.7.0（ADR-015 之前）存的工程时，执行快照里 liveClay 的收单值照读（GlazeProfile.cpp:692）。恢复后第一块 liveClay = restoredClay，收单为「自动」时会用一块旧的自动收单值，第二块起回到 0。影响约一个宿主块；渲染工具不读外部存档。"
+  },
+  {
+   "file": "vault 项目/Celadon/03-记忆/ADR-015-修坯去掉自动收单与反相收单.md、ADR-016-修坯门槛改为同决策重放对照.md",
+   "line": "ADR-015「后果」第 1 条；ADR-016 决定 2",
+   "issue": "ADR-015 那句「反相段在「自动」下的声音与「修坯关」相同」只在方案的低切 / 加宽为 0 时成立。ADR-016 只写了收单一种 n/a 原因。见待拍板第 11 条。"
+  },
+  {
+   "file": "vault 项目/Celadon/04-协调/TASKS.md",
+   "line": "T-048 行「涉及文件」",
+   "issue": "列了阶段 1 的新文件 tools/render/live_replay.py，但 38ee761 里没有这个文件（git ls-tree 核对）。因果重放的脚本实际放在 docs/validation/2026-10-02-T048-phase1/P1R/scripts/，38ee761 的 README:508 也是这么写的。登记与实际不符，提醒 T-048 负责人。"
+  },
+  {
+   "file": "Source/dsp/GlazeTypes.h、Source/dsp/GlazeController.cpp、Source/dsp/GlazeConstants.h",
+   "line": "GlazeTypes.h:386 / 191；GlazeController.cpp:51 / 101 / 3334；GlazeConstants.h:337 与 clayMono* 常数",
+   "issue": "各代理报的这些 ADR-015 后过时的注释已经有人认领（TASKS.md 第 11、15 行）：T-060 管 386、51 / 101 / 3334；T-057 管 191、337 和 clayMono*。这里不另报，T-059 也不碰。"
+  },
+  {
+   "file": "git 工作树登记",
+   "line": "—",
+   "issue": "conflict 代理发现，我复核了前两项。git worktree list 里 /Users/maxsong/.codex/worktrees/cce1/Celadon 是 prunable 的过期登记；.claude/worktrees/infallible-newton-a055d5（739e0e0，已合入 main）是干净的，可以清。与 T-059 无关，只报不改。"
+  }
+ ]
+}
