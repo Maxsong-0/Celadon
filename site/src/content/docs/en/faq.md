@@ -1,10 +1,11 @@
 ## I switched songs — why didn't the sound change with it?
 
-There's one profile per song, and it doesn't relearn on its own. Click Relearn, then click Reset meters to clear the integrated loudness.
+There's one profile per song, and switching songs doesn't start a new listening round on its own. Click Relearn, then click Reset meters to clear the integrated loudness.
 
 ## It stays on Listening / Calibrating forever?
 
 - Listening needs roughly **30 seconds or more of real music**; material that's too short or has long stretches of silence can't gather enough evidence.
+- With Deep, Tech or Melodic (a House genre), listening has to collect 64 different bars and hear the main section, which usually takes around two minutes; the status line shows its progress, see [How House genres listen](/docs/glaze#how-house-genres-listen). For short material under 64 bars, choose General.
 - Looping a short section in FL Studio's Pattern mode used to keep it calibrating; that was fixed back in the internal builds. Staying on Calibrating until the end of the song (calibration restarting from scratch after absorbing constraint feedback) was fixed in 0.1.7.1. If you still run into it, please send the project and the song to Max.
 
 ## The calibration was lost when I reopened the project?
@@ -21,7 +22,7 @@ The host has the old binary cached. Save your project, then restart the host or 
 
 ## Turning GLAZE up doesn't make it any louder?
 
-The status says Limited: the dynamics-protection limit has been reached (the protection layer backs off by up to 3 dB). Either accept it, lower GLAZE to keep more movement, or add Gain / Clip by hand — manual values are the floor, but they're still subject to each module's constraints.
+Look at the “Target … LUFS” on the status line first: dynamics protection comes before loudness, so once each module's budget is used up GLAZE stops pushing and the target comes down; the status usually still reads Locked. A status of Limited means one of two other things: “Limited by manual settings” means your manual values have already used up a module's budget, so that module's automatic increment is withdrawn; “Plan limited” means the protection layer has backed off to its floor (−3 dB) during playback and a constraint is still exceeded. Either accept it, lower GLAZE to keep more movement, or add Gain / Clip by hand — manual values are the floor, but they're still subject to each module's constraints.
 
 ## OUT true peak occasionally reads 0.0x dB above the Ceiling?
 
@@ -30,6 +31,10 @@ The plugin promises ≤ Ceiling + 0.01 dB as measured by its own 8× meter, plus
 ## The export is louder / quieter than what I heard?
 
 Check whether Match is still on (it's saved with the project) and whether Normalisation preview is off. Offline exports turn the preview off automatically; real-time exports don't.
+
+## How do I get both a Streaming and a Club version of one song?
+
+Set Delivery to Streaming, then to Club. After each switch, play from the drop until the status is back to Locked, then export; that gives you two masters. The steps and the reasons are in [Switching, and exporting two masters](/docs/glaze#switching-and-exporting-two-masters).
 
 ## Windows warns about an unknown publisher?
 

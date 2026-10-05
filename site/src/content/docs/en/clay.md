@@ -26,6 +26,8 @@ Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of
 
 > Auto **never** applies Mono automatically (removed after listening tests on 2026-09-27: mono-ing only reduces stereo bass and leaves mono playback unchanged, and it sounded unnatural). Out-of-phase lows only trigger a warning; to apply Mono, switch to Manual.
 
+> **With Genre set to Deep / Tech / Melodic (a House genre)**: automatic Low cut aims at 25 Hz and Auto never widens; everything else stays as above. There is also a more sensitive out-of-phase hint (it has to persist for 4 bars of main section), and while it is lit the mini graph slot shows two amber lines instead. See [Genre and Delivery](/docs/glaze#genre-and-delivery).
+
 ## Mini graph
 
 Below the three rows is a 10 Hz – 1 kHz mini graph: the hatching below the low cut, the mono region, and the stereo region above it.
