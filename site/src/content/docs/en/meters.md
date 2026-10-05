@@ -19,6 +19,8 @@
 
 The meters read the master **before** any listening attenuation: Match and normalisation preview don't change them.
 
+With a House genre, the target loudness (the “Target” on the status line, and the target marker here) is the loudness of the main section (the drop). The intro and breakdown pull the integrated loudness down, so reading lower than the target is normal; to compare with the target, watch the short-term loudness S during the drop. See [Genre and Delivery](/docs/glaze#genre-and-delivery).
+
 ## Spectrum analyser
 
 - 20 Hz – 20 kHz on a log axis, −84 to −3 dB.
