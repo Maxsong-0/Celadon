@@ -870,6 +870,14 @@ namespace celadon::test
                 }
 
                 Feature reference;
+
+                if (total == 0)
+                {
+                    // 阶段 2 退役了 House 门控账。账是空的时 energy/total 与 (gated - 1) 会走出有限范围，参照循环不能跑。
+                    expect (false, "the ledger delivered segments for the loudness-model LRA reference");
+                }
+                else
+                {
                 const auto seconds = (double) total * (double) subBlockSamples / rate;
                 const auto first = firstBinAtOrAbove (lufsOf (energy / (double) total) - 20.0);
                 std::uint64_t gated = 0;
@@ -914,6 +922,7 @@ namespace celadon::test
                             && sameDouble (loudnessModel.effectiveSeconds, reference.effectiveSeconds),
                         "loudness-model LRA over all segments bitwise (House formula)");
                 expect (sameProfile (before, live.getProfile()), "switching the model back gives the same profile bitwise");
+                }
             }
 
             // 频谱、立体声、起音、次声：逐位。
