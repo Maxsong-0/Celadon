@@ -80,7 +80,7 @@ namespace celadon::help
             { param::limitListen,
               "等响 · 等响度试听",
               "测量整条处理链的响度差，把较响的一边衰减到另一边的响度（听处理后时衰减处理结果，听原声时衰减原声），A / B 对比不受音量差影响；输出表显示试听衰减前的母带。",
-              "播放数秒后再比较；只衰减不加大音量，自动处理与校准照常进行。导出前关闭。",
+              "播放数秒后再比较；只衰减不加大音量，自动处理照常进行。导出前关闭。",
               "Match · loudness-matched listening",
               "Measures the loudness difference across the whole chain and turns the louder side down to the other (the processed signal in A, the original in B), so A / B is not biased by level; the meters show the master before this attenuation.",
               "Compare after a few seconds of playback; it only attenuates, never boosts, and automatic processing keeps running. Turn it off before exporting." },
@@ -219,11 +219,11 @@ namespace celadon::help
             // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 标题行左右两侧的两个选择，位置见 PluginEditor layoutGlazeChoices）。
             // 选择器上 House 只写 Deep / Tech / Melodic，全名写在这里。
             { param::glazeGenre,
-              "曲风 · 音色目标与学法",
-              "通用照原来的方式；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，自动释放跟着宿主速度收紧。House 档跟随主段时，状态行在前面加 House。",
+              "曲风 · 音色目标",
+              "通用按风格定音色目标；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，自动释放跟着宿主速度收紧。House 档跟随主段时，状态行在前面加 House。",
               "写的是哪种 House 就选哪种，拿不准选最接近的；不是 House 用通用。换曲风后目标按新的主段模型慢慢跟上。",
               "Genre · tonal target",
-              "General works as before; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, and Auto release tightens to the host tempo. While following in House mode the status line starts with House.",
+              "General sets the tonal target by style; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, and Auto release tightens to the host tempo. While following in House mode the status line starts with House.",
               "Pick the House type you wrote, or the closest one; use General for anything else. After a switch the target eases toward the new main-section model." },
 
             { param::glazeDelivery,

@@ -702,7 +702,13 @@ namespace celadon::test
                 if (genre != nullptr && delivery != nullptr)
                 {
                     expect (utf8StartsWith (utf8 (genre->title), "曲风") && utf8StartsWith (utf8 (delivery->title), "交付"));
+                    expect (! utf8Contains (utf8 (genre->title), "学法"), "Chinese genre title matches the English tonal-target title");
                     expect (juce::String (genre->titleEn).startsWith ("Genre") && juce::String (delivery->titleEn).startsWith ("Delivery"));
+                    expect (utf8Contains (utf8 (genre->effect), "按风格定音色目标") && juce::String (genre->effectEn).contains ("sets the tonal target by style"));
+                    expect (! utf8Contains (utf8 (genre->effect), "照原来") && ! juce::String (genre->effectEn).contains ("as before"));
+
+                    const auto* listen = help::find (param::limitListen);
+                    expect (listen != nullptr && ! utf8Contains (utf8 (listen->advice), "校准"), "matched listening no longer says calibration continues");
 
                     for (const auto* word : { "Deep House", "Tech House", "Melodic-Progressive", "25 Hz" })
                         expect (utf8Contains (utf8 (genre->effect), word) && utf8Contains (utf8 (genre->effectEn), word),
