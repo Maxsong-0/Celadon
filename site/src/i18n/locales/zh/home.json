@@ -99,7 +99,7 @@
       "balanceNote": "虚线 = 这首歌自己的平滑轮廓",
       "clayNote": "中线 = 单声道（M），带宽 = 侧声道（S）",
       "infrasonic": "次声",
-      "mono": "收单 120 Hz",
+      "mono": "收单 120 Hz · 手动",
       "lowCut": "低切 25 Hz",
       "width": "加宽 +0.8 dB",
       "colorNote": "尖峰削圆、包络收紧；150 Hz 以上添 2、3 次谐波",
