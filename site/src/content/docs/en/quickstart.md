@@ -4,7 +4,7 @@ Day to day, Celadon takes three steps: insert it on the master bus, press play, 
 
 1. **Insert it last on the master (stereo) bus.** If you also use dither or loudness-meter plug-ins, put Celadon before them. Your host compensates the latency automatically (about 28.8 ms at 48 kHz).
 2. **Play the song.** New instances default to GLAZE 35% and the Auto style. Once playback starts, the status at the top changes from Not learned to Listening, then after 15–30 seconds goes through Calibrating to Locked — by then it has measured the song's loudness, dynamics, spectrum and attacks and settled on a plan.
-3. **Turn GLAZE.** The knob sets how far to push toward this song's ideal master: 0 means nothing moves (fully manual, apart from two Genre and Delivery effects that don't depend on GLAZE; see [Genre and Delivery](/docs/glaze#genre-and-delivery)); higher means louder, more correction and more colour. Once it reaches the dynamics-protection limit it stops pushing, and the status reads Limited.
+3. **Turn GLAZE.** The knob sets how far to push toward this song's ideal master: 0 means nothing moves (fully manual, apart from two Genre and Delivery effects that don't depend on GLAZE; see [Genre and Delivery](/docs/glaze#genre-and-delivery)); higher means louder, more correction and more colour. Dynamics protection comes before loudness: once each module's budget is used up it stops pushing, and the “Target … LUFS” on the status line comes down.
 
 > While it listens, the previous plan stays in effect, so there's never a stretch of unprocessed audio. The first 15–30 seconds build a profile of the whole song; the spectral balance itself follows the music in real time all along.
 

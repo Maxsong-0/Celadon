@@ -36,8 +36,8 @@
 ## The planner's targets and constraints
 
 - requestedTarget: the loudness that Delivery, the style and GLAZE want; effectiveTarget: the loudness currently allowed after module constraints — calibration only uses this one.
-- **One-knob baseline** (a full-strength request, then scaled by GLAZE, confidence, style limits and module budget): a minimum loudness-increase request of 3 dB (kept even for songs already at the preferred loudness), automatic Recover 8, automatic Tame 24, automatic Heat 12.
-- Material that's already loud enough gets a requested gain of 0; when a limit is exceeded, **the target is lowered rather than forcing harder compression**.
+- **One-knob baseline** (a full-strength request, then scaled by GLAZE, confidence, style limits and module budget): a minimum loudness-increase request of 3 dB (on all three Delivery settings, kept even for songs already at the preferred loudness), automatic Recover 8, automatic Tame 24, automatic Heat 12.
+- Material that's already loud enough still keeps that minimum push (GLAZE only pushes up, it never turns down); for Streaming and Club the target has a hard upper limit (−8 / −5 LUFS), and the requested gain is 0 only when the input is already at or above that limit; when a limit is exceeded, **the target is lowered rather than forcing harder compression**.
 - Automatic Tone can brighten (positive) or soften (negative): it's compared with the profile at equal weight, with a 0.35 dB/oct dead zone, an effective bandwidth, 0.15 dB/s following at full strength, and a style limit of ±0.75 dB × GLAZE (0.4 dB towards brighter with a House genre; see “Genre and Delivery” below). The style and loudness target aren't re-chosen because of short-term brightness.
 - Auto style is no longer pushed wholesale toward Clean by a 60 s LRA confidence that hasn't filled up yet; LRA still constrains the dynamics features on its own.
 - The parallel Heat's share of peak reduction is an optional contribution: when it falls short, it doesn't lock up a limiter that still has headroom.
@@ -128,7 +128,7 @@ The protection layer's timing follows music time only: while the host is stopped
 
 1. With GLAZE held at 0 from initialisation, Genre on General and Delivery on Standard: the whole chain's output is bit-identical to the reference chain (90 scenarios).
 2. The planner is a pure function: identical input gives bit-identical output; monotonic in GLAZE; never exceeds any module's limit; all increments are 0 at GLAZE 0.
-3. Material that's already loud enough gets a requested gain of 0; when a limit is exceeded, the target is lowered.
+3. Material that's already loud enough keeps the minimum push (a Standard request is never below it); for Streaming and Club the requested gain is 0 when the input is at or above the limit; when a limit is exceeded, the target is lowered.
 4. Final output true peak ≤ Ceiling + 0.01 dB (as measured by the 8× meter).
 5. Reopening a project: no relearning, and re-rendering from the same starting point is bit-for-bit reproducible.
 6. Performance: with GLAZE on, the whole plugin at 48k / 512 costs ≤ 0.15% more, with the worst block ≤ 0.5 percentage points more; zero allocations and zero locks on the audio thread.
