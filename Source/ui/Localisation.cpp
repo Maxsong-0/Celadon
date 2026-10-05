@@ -156,9 +156,6 @@ namespace celadon::ui
             { Text::auditionDifferenceNote, "只听被削掉的部分",     "only what is removed" },
 
             // ---- 高级面板 ----
-            { Text::advancedClay,       "修坯 CLAY",                "CLAY" },
-            { Text::advancedClayNote,   "低切、收单、加宽各自可选「自动 / 关 / 手动」，\n三态与手动值都在下方 CLAY 卡片上。",
-                                        "Auto / Off / Manual and the manual values for low cut, mono and width are on the CLAY card below." },
             { Text::comingSoon,         "即将推出",                 "Coming soon" },
             { Text::subprojectLoudNotHarsh,   "推响不刺",           "Loud, not harsh" },
             { Text::subprojectTargetSpectrum, "目标频谱",           "Target spectrum" },

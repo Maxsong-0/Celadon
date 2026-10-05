@@ -43,7 +43,7 @@ After being rewritten to work in 64-sample segments, the output is bit-identical
 | Mono | **No mono-ing** (removed after listening tests on 2026-09-27); it only lights an amber warning when the lows are out of phase — mono-ing only reduces stereo bass and leaves mono playback unchanged, and it sounded unnatural |
 | Width | Widens a narrow top end moderately (at most +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow |
 
-Three-mode semantics: Auto = decision-maker + real-time protection, doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection changes it.
+Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono step aside at moments that would raise peaks, without changing your value).
 
 ## Thresholds (how we prove it doesn't make things worse)
 
