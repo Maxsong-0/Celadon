@@ -40,6 +40,19 @@
       - 曲线每个逻辑像素一个点（SpectrumAnalyser::numPoints = 1033）；OUT 填充与轮廓各自直接建路径（不拷贝）；平均线本身已沿
         频率平滑，路径隔一个点取一个、斜角接头；峰值线每两个点取较高的那个（尖峰不丢、线段少一半）；渐隐裁到 y ≥ 40 再填。
 
+    T-058（2026-10-04，峰值线关着时不再每帧重建、重画）：
+      - 只比看得见的曲线：PEAK 关着时峰值线不参与「屏上变没变」的判断（没有 IN 的曲线时 IN 也不比）。原来峰值保持往下落的
+        那几秒（停播 1.5 s 后按 12 dB/s 落过整块面板，约 6 ～ 7 s；起音溅出的保持值也一样）每帧判「变了」、重建四条路径、
+        重画曲线区，屏上什么都没变；
+      - 计算器此刻的值每帧拷一份（latest*，只拷不比），任何一次重建（setSpectrum 判变了、换斜率或打开 PEAK 后在 paint 里）都先
+        换成它再建：画出来的总是此刻的曲线。原来「画出来的那组值」既是比较基准、又是重建用的数据，只在看得出变化时刷新——
+        曲线静止时换斜率，paint 里按它重建，压在底边下的旧值被斜率抬出来画一帧（T-051 证据里露出来的旧峰值保持数据就是这个）；
+        只做「PEAK 关时不比」而不这样改的话，PEAK 关着停播后 OUT 与平均线停在约 0.3 s 时的样子，换斜率时同样露出来（截图工具
+        S10b 抓得到）。读数（换斜率、悬停、定时刷新）也用此刻的值；
+      - 打开 PEAK 的那一刻在 paint 里按此刻的值整组重建（setPeakShown），画出的区域并进旧区域（评审 R-02 ①）。curveRegion 不论
+        开关都算峰值线（R-02 ②）照留，成了第二道保险。截图工具 --only check 的 S9（残影、PEAK 关时 0 次重建）与 S10（打开 PEAK、
+        换斜率那一刻画的是此刻的数据）守这几条。
+
   ==============================================================================
 */
 
@@ -117,9 +130,9 @@ namespace celadon::ui
 
         void setLanguage (Language newLanguage);
 
-        // 每帧调（计算器 update() 之后），elapsedSeconds = 距上一帧的秒数：从计算器拷出几条曲线，有看得出的变化才重画
-        // （只重画新旧曲线的包围盒）。顺带把 IN 虚线开没开告诉计算器——关着时它跳过 IN 那路的加窗 + FFT（T-032 R7-05）；
-        // 刚打开时计算器下一次 update 才有 IN 的曲线，这之前不画 IN。
+        // 每帧调（计算器 update() 之后），elapsedSeconds = 距上一帧的秒数：从计算器拷出几条曲线，看得见的曲线有看得出的变化
+        // 才重建、重画（只重画新旧曲线的包围盒；PEAK 关着时不看峰值线，T-058）。顺带把 IN 虚线开没开告诉计算器——关着时它跳过
+        // IN 那路的加窗 + FFT（T-032 R7-05）；刚打开时计算器下一次 update 才有 IN 的曲线，这之前不画 IN。
         void setSpectrum (SpectrumAnalyser& analyser, double elapsedSeconds);
 
         // CLAY 此刻的实际频率（0 = 没在处理）；active = 修坯没被旁通。
@@ -200,6 +213,7 @@ namespace celadon::ui
 
         float tiltAt (float frequency) const noexcept;
         void updateTilt();
+        void setPeakShown (bool shouldShow);
         void updateMarkerLabels();
         void layoutControls();
         juce::String readoutTextFor (float frequency, float db) const;
@@ -226,7 +240,10 @@ namespace celadon::ui
         void drawLayer (juce::Graphics&, Layer which);
 
         Language language = Language::chinese;
-        std::vector<float> output, input, average, peak;   // 未加斜率的 dB（SpectrumAnalyser 的 numPoints 个点）
+        // 曲线的值都是未加斜率的 dB（SpectrumAnalyser 的 numPoints 个点）。画出来的那组：路径按它建，也是 setSpectrum 判「屏上
+        // 变没变」的基准，只在重建时更新；latest* = 计算器此刻的值，每帧拷（只拷不比），重建时先换进画出来的那组（T-058）。
+        std::vector<float> output, input, average, peak;
+        std::vector<float> latestOutput, latestInput, latestAverage, latestPeak;
         std::array<float, SpectrumAnalyser::numPoints> pointX {}, pointFrequency {}, tilt {};   // 每点的横坐标、频率、斜率（dB）
         std::optional<float> hoverFrequency;
         float peakFrequency = 1000.0f, peakDb = SpectrumAnalyser::floorDb;
@@ -259,6 +276,7 @@ namespace celadon::ui
         float stripeRowScale = 0.0f;
         juce::Colour stripeRowColour;
 
+        // PEAK 一律经 setPeakShown 开关（打开那一刻要按此刻的值重建峰值线，T-058），别直接 peakToggle.setOn。
         LegendToggle outputToggle { LegendToggle::Swatch::gradient },
                      inputToggle { LegendToggle::Swatch::input },
                      peakToggle { LegendToggle::Swatch::peak };
