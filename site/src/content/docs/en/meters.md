@@ -2,7 +2,7 @@
 
 | Reading | What it shows | What to aim for |
 |---|---|---|
-| **IN / OUT true peak** | True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold. | Click the number to clear it. OUT should not exceed the Ceiling. |
+| **IN / OUT true peak** | True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold. | Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does. |
 | **GR · Limit gain reduction** | How many dB the limiter is reducing right now. | Staying above 6 dB for long means Gain is pushed too far. |
 | **GLUE GR** | How many dB Color's Glue is compressing right now. | 1–3 dB is most natural. |
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | **Integrated loudness (LUFS)** | Average loudness since the last reset; streaming services normalise playback by it. | Pop −9 to −7; to keep dynamics, −14 to −11. |
 | **Short-term loudness S** | Loudness of the last 3 seconds, following the sections of the song. | 2–4 LU between verse and chorus sounds natural. |
-| **True-peak maximum TP** | The highest true peak since the last reset. | Should stay below the Ceiling. |
+| **True-peak maximum TP** | The highest true peak since the last reset. | Should stay below the ceiling in effect (at or below −2 dBTP with Delivery on Streaming). |
 | **Peak-to-loudness ratio PLR** | The difference between the true-peak maximum and integrated loudness — how much dynamics are left. | The smaller it is, the fuller it sounds. |
 | **Norm · streaming −14** | How much a platform normalising to −14 LUFS would turn your master up or down. | A strongly negative number means you've pushed it far louder than the platform will play it. |
 | **Reset meters** | Clears the integrated loudness and every peak hold. | Click it before a new song or before playing from the top. |

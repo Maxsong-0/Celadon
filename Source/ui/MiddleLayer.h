@@ -16,12 +16,13 @@
 
 namespace celadon::ui
 {
-    // 「GLAZE 智能母带 [跟随]」：阶段标签跟状态行的那一条走（起步、保持、跟随、受限……），不再另说一套聆听 / 锁定。
+    // 「GLAZE 智能母带 [跟随]」：阶段标签跟状态行的那一条走（起步、保持、跟随、受限……）。
+    // T-078 的「待校准 / Awaiting」留在 Chip::awaiting，七条状态行不改用它。
     class GlazeTitle  : public juce::Component,
                         public juce::SettableTooltipClient
     {
     public:
-        enum class Chip { manual, manualLimit, phase, coldExport, limited, starting, holding, following };
+        enum class Chip { manual, manualLimit, phase, coldExport, limited, starting, holding, following, awaiting };
 
         GlazeTitle();
 
@@ -60,7 +61,7 @@ namespace celadon::ui
         juce::String text;
     };
 
-    // 左下角两行小字：平时说明 GLAZE 在做什么（「联动 7 项参数 / 已聆听 15 秒」），悬停或拖动控件时换成操作提示。
+    // 左下角两行小字：平时说明 GLAZE 在做什么（「联动 7 项参数 / 跟着主段慢慢调整」），悬停或拖动控件时换成操作提示。
     class CornerNote  : public juce::Component
     {
     public:

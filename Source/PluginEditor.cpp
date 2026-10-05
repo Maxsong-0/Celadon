@@ -228,8 +228,8 @@ public:
         addAndMakeVisible (styleSelector);
         styleAttachment = std::make_unique<SegmentedAttachment> (styleSelector, *state.getParameter (param::glazeStyle));
 
-        // T-038 曲风与交付：与风格同一种选择器（带灰字说明格），分放 GLAZE 主旋钮左右——声音从左边流进 GLAZE、从右边流出，
-        // 曲风说的是进来的音乐，交付说的是出去的母带（位置待 Max 看截图定，设计规格-曲风与交付 第 5 节）。选项文字在 setLanguage 里填。
+        // T-038 曲风与交付：与风格同一种选择器（带灰字说明格），分放 GLAZE 标题行左右（曲风在左、交付在右；Max 2026-10-01 选定，坐标见 layoutGlazeChoices）——
+        // 声音从左边流进 GLAZE、从右边流出，曲风说的是进来的音乐，交付说的是出去的母带。选项文字在 setLanguage 里填。
         genreSelector.setOptions ({ "", "", "", "" });
         deliverySelector.setOptions ({ "", "", "" });
 
@@ -1236,7 +1236,8 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto listenOn = rawValue (state, param::limitListen) >= 0.5f;
     const auto comparing = processor.isComparingOriginal();
     const auto mastering = processor.getMasteringStatus();
-    const auto ceiling = rawValue (state, param::limitCeiling) - mastering.codecMarginDb;
+    // T-078：橙色、响度小窗与顶部胶囊用链发布的实际上限（流媒体封顶与编码余量已算进；旁通 / 干路是用户 Ceiling）。
+    const auto ceiling = mastering.effectiveCeilingDb;
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
 

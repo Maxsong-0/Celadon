@@ -40,10 +40,10 @@ namespace celadon::help
             { param::limitCeiling,
               "Ceiling · 输出上限",
               "限幅器按真峰值检测控制输出上限（dBTP）；不同测量器会有微小读数差异。",
-              "上流媒体用 −1.0；想更保险用 −1.5。",
+              "交付选「流媒体」时，交给限幅器的上限不高于 −2 dBTP，不用再往下拉；选「标准」或「俱乐部」时照你设的，常用 −1.0，想更保险用 −1.5。",
               "Ceiling · output limit",
               "The limiter keeps the output below this true-peak level (dBTP); other meters may read slightly differently.",
-              "Use −1.0 for streaming; −1.5 to be extra safe." },
+              "With Delivery on Streaming, the ceiling handed to the limiter is kept at or below −2 dBTP, so there's no need to lower it; on Standard or Club it follows your setting: −1.0 is common, −1.5 to be extra safe." },
 
             { param::limitRelease,
               "Release · 释放时间",
@@ -202,10 +202,10 @@ namespace celadon::help
             // ---- 总览区 ----
             { param::glazeAmount,
               "Glaze · 施釉（总旋钮）",
-              "按歌曲自动推响度、修正持续共振、调整明暗并加入温和染色；达到动态保护上限后停止加压。",
+              "按歌曲自动推响度、修正持续共振、调整明暗并加入温和染色；动态保护排在响度前面，推到各模块的预算上限就不再加压，状态行里的「目标 … LUFS」随之降低。",
               "新实例默认 35% 和自动风格，播放时跟着主段走；按需要增加力度，0% 只用手动设置。",
               "Glaze · the master knob",
-              "Adapts to the song: pushes loudness, corrects sustained resonances, adjusts brightness and adds gentle colour; it stops pushing at the dynamics protection limit.",
+              "Adapts to the song: pushes loudness, corrects sustained resonances, adjusts brightness and adds gentle colour. Dynamics protection comes before loudness: once each module's budget is used up it stops pushing, and the “Target … LUFS” on the status line comes down.",
               "New instances start at 35% with Auto style and follow the main section during playback; raise it as needed, 0% uses manual settings only." },
 
             { param::glazeStyle,
@@ -216,22 +216,22 @@ namespace celadon::help
               "Auto picks per song; Warm: thick, round, never harsh; Punchy: strong drums, louder; Clean: clear, less compression, more dynamics.",
               "When unsure, use Auto; the status at the top shows which way it is leaning." },
 
-            // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 主旋钮左右两侧的两个选择）。
+            // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 标题行左右两侧的两个选择，位置见 PluginEditor layoutGlazeChoices）。
             // 选择器上 House 只写 Deep / Tech / Melodic，全名写在这里。
             { param::glazeGenre,
               "曲风 · 音色目标与学法",
-              "通用照原来的方式；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽。House 档跟随主段时，状态行在前面加 House。",
+              "通用照原来的方式；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，自动释放跟着宿主速度收紧。House 档跟随主段时，状态行在前面加 House。",
               "写的是哪种 House 就选哪种，拿不准选最接近的；不是 House 用通用。换曲风后目标按新的主段模型慢慢跟上。",
               "Genre · tonal target",
-              "General works as before; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically. While following in House mode the status line starts with House.",
+              "General works as before; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, and Auto release tightens to the host tempo. While following in House mode the status line starts with House.",
               "Pick the House type you wrote, or the closest one; use General for anything else. After a switch the target eases toward the new main-section model." },
 
             { param::glazeDelivery,
               "交付 · 响度与真峰值",
-              "标准：按风格定响度（同原来）；流媒体：约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部：约 −7 LUFS，给 DJ 和下载店，上限照你设的不变。House 档按 drop 的响度算。",
+              "标准：按风格定响度，上限照你设的；流媒体：约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部：约 −7 LUFS，给 DJ 和下载店，上限照你设的不变。House 档按 drop 的响度算。",
               "同一首歌每档各导出一次，就得到两版母带；切换后如果主段统计还没热，先完整播放一遍 drop 再导出。",
               "Delivery · loudness and true peak",
-              "Standard sets loudness by style (as before); Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores and keeps your Ceiling. In House mode the target is the loudness of the drop.",
+              "Standard sets loudness by style and keeps your Ceiling; Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores and keeps your Ceiling. In House mode the target is the loudness of the drop.",
               "Export once per setting to get both masters from one song; if the main section is still cold after switching, play the drop through once before exporting." },
 
             { uiid::glazeStatus,
@@ -353,18 +353,18 @@ namespace celadon::help
             { uiid::meterIn,
               "输入 / 输出真峰值",
               "8 倍插值测出的真实峰值（dBTP），比采样点峰值更准；下面数字是峰值保持。",
-              "点数字清零。OUT 不应超过 Ceiling。",
+              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量；交付选「流媒体」时不高于 −2 dBTP），超了会变橙。",
               "Input / output true peak",
               "True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold.",
-              "Click the number to clear it. OUT should not exceed the Ceiling." },
+              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does." },
 
             { uiid::meterOut,
               "输入 / 输出真峰值",
               "8 倍插值测出的真实峰值（dBTP），比采样点峰值更准；下面数字是峰值保持。",
-              "点数字清零。OUT 不应超过 Ceiling。",
+              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量；交付选「流媒体」时不高于 −2 dBTP），超了会变橙。",
               "Input / output true peak",
               "True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold.",
-              "Click the number to clear it. OUT should not exceed the Ceiling." },
+              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does." },
 
             { uiid::meterGr,
               "Limit 压缩量",

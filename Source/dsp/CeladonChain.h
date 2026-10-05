@@ -214,6 +214,8 @@ namespace celadon
         ReleaseSafety releaseSafety;
         std::atomic<bool> previewRequested { false };
         std::atomic<float> publishedPreviewGain { 0.0f }, publishedCodecMargin { 0.0f };
+        // T-078：界面用的实际上限。默认 −1.0 = 参数默认 Ceiling；setParams 里按旁通 / 干路改写。
+        std::atomic<float> publishedEffectiveCeiling { -1.0f };
         std::atomic<int> publishedDither { 0 };
         bool offline = false, releaseAllowed = true, previewActive = false;
         // T-038 限幅跟拍：本块宿主的速度与走带（setHostInfo 记下，setParams 算慢段释放上限用；设计规格-曲风-House学习方式 第 8 节）。

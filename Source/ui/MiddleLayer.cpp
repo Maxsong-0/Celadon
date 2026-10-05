@@ -58,6 +58,7 @@ namespace celadon::ui
             case Chip::starting:    chipLabel = tr (Text::chipStarting, language);    break;
             case Chip::holding:     chipLabel = tr (Text::chipHolding, language);     break;
             case Chip::following:   chipLabel = tr (Text::chipFollowing, language);   break;
+            case Chip::awaiting:    chipLabel = tr (Text::chipAwaiting, language);    chipBackground = palette::groove; chipForeground = palette::ink3; break;
         }
 
         const auto chipWidth = chipLabel.isEmpty() ? 0.0f : 7.0f + textWidth (chipFont, chipLabel) + 7.0f;

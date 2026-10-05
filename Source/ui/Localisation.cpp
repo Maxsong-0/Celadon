@@ -113,6 +113,7 @@ namespace celadon::ui
             { Text::chipStarting,       "起步",                     "Starting" },
             { Text::chipHolding,        "保持",                     "Holding" },
             { Text::chipFollowing,      "跟随",                     "Following" },
+            { Text::chipAwaiting,       "待校准",                   "Awaiting" },
 
             // ---- 模块卡片 ----
             { Text::describeClay,       "声像",                     "Stereo" },
