@@ -30,7 +30,7 @@ At 48 kHz / 64 that's about 16.8 µs per block on average. With the VST3 actuall
 
 ## Automated tests
 
-The full `juce::UnitTest` suite, run natively on a Linux server (GCC 15) and with real MSVC 19.44 + Wine for Windows: before the 0.1.8.7 release, **134,597 assertions passed / 0 failures / 0 warnings** (identical on both; Linux also ran an extra pass with `-march=x86-64-v3`, all passing). Coverage: per-module spec acceptance, block-size independence, Lookahead changes, true peak, null, zero allocations, stereo, silence, automation smoothing, learning and save / restore, old-state compatibility, GLAZE 0 bit-exactness, CLAY thresholds, reference learning, preview and dither, hover-text coverage, and valid UTF-8 in both languages.
+The full `juce::UnitTest` suite, run natively on a Linux server (GCC 15) and with real MSVC 19.44 + Wine for Windows: before the 0.1.8.8 release, **148,728 assertions passed / 0 failures / 0 warnings** (identical on both; Linux also ran an extra pass with `-march=x86-64-v3`, all passing). Coverage: per-module spec acceptance, block-size independence, Lookahead changes, true peak, null, zero allocations, stereo, silence, automation smoothing, learning and save / restore, old-state compatibility, GLAZE 0 bit-exactness, CLAY thresholds, reference learning, preview and dither, hover-text coverage, and valid UTF-8 in both languages.
 
 The interface is rendered off-screen from the real components (Linux Xvfb / Wine) to check Chinese and English, 70% scaling and the three Advanced tabs, then mouse events are sent to the controls to verify parameters and state: all 58 interaction checks pass on Windows.
 

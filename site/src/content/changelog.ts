@@ -35,6 +35,49 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    id: 'v0.1.8.8',
+    version: '0.1.8.8',
+    date: '2026-10-05',
+    title: { zh: '曲风与交付，修坯更谨慎', en: 'Genre and Delivery, and a more careful CLAY' },
+    items: [
+      {
+        kind: 'new',
+        text: {
+          zh: 'GLAZE 左边新增「曲风」：选 Deep / Tech / Melodic（House 的三个子类）时，按子类定音色，低切到 25 Hz、不自动加宽，GLAZE 按小节聆听、听到主段落（drop）才锁定；选「通用」沿用原来的方式。',
+          en: 'A new Genre choice sits to the left of GLAZE. Pick Deep, Tech or Melodic (the three House sub-genres) and the tone is set per sub-genre, the low cut sits at 25 Hz, widening is never automatic, and GLAZE learns bar by bar and locks only after it has heard the main section (the drop). General works as before.'
+        }
+      },
+      {
+        kind: 'new',
+        text: {
+          zh: 'GLAZE 右边新增「交付」：「标准」沿用原来的响度；「流媒体」约 −10 LUFS、真峰值不高于 −2 dBTP；「俱乐部」约 −7 LUFS，给 DJ 和下载店。同一首歌每档各导出一次，就得到各档的母带。',
+          en: 'A new Delivery choice sits to the right of GLAZE. Standard works as before; Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores. Export once per setting to get a master for each.'
+        }
+      },
+      {
+        kind: 'sound',
+        text: {
+          zh: 'CLAY 的自动低切更谨慎：聆听时会连「低音被抵消变薄」一起试，会让低音变薄或抬高整首峰值的歌，低切自动减量甚至不用；播放中出现同样的问题，也会逐档退让。',
+          en: "CLAY's automatic Low cut is more careful: it now also checks whether the cut would thin your bass. Where it would thin the low end or push the whole song's peak up, the cut is reduced or skipped, and it backs off step by step if that shows up during playback."
+        }
+      },
+      {
+        kind: 'ui',
+        text: {
+          zh: 'CLAY 的灯更可信：低切或收单被峰值守护明显收回时，灯和数值变琥珀，悬停气泡写实际还剩约几成；低频只剩上方分音漏进来的段落，不再误亮反相提醒。',
+          en: 'The CLAY lamps say more: when the peak guard clearly pulls back Low cut or Mono, the lamp and its value turn amber and the tooltip says roughly how much is left. Sections whose low end is only upper partials leaking down no longer light a false out-of-phase warning.'
+        }
+      },
+      {
+        kind: 'perf',
+        text: {
+          zh: '频谱仪更省 CPU：PEAK 关着时不再每帧重画；界面缩放不是整数倍时，也只重画变了的部分。',
+          en: 'The spectrum analyser uses less CPU: with PEAK off it no longer redraws every frame, and at non-integer UI scales it redraws only what changed.'
+        }
+      }
+    ]
+  },
+  {
     id: 'v0.1.8.7',
     version: '0.1.8.7',
     date: '2026-10-01',
