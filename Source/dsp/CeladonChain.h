@@ -165,6 +165,11 @@ namespace celadon
         std::unique_ptr<juce::XmlElement> createGlazeStateXml() const    { return controller.createStateXml(); }
         void restoreGlazeStateXml (const juce::XmlElement* xml)          { controller.restoreStateXml (xml); }
 
+        // T-048 阶段 1 直通（插件不调；测试与渲染工具用，见 GlazeController::setLiveSegmentSink）：非空 = 分析器实时模式开、定稿的段交给它，
+        // nullptr = 关。消息线程，prepare 之后、处理之前调。链在下一块开头才把 Balance 的帧交给分析器（process 第一行），所以关的时候把
+        // balance 交过去：最后一块的帧先只进实时段落账再就地定稿（歌尾不用再补一个 0 样本的块）。
+        void setLiveSegmentSink (glaze::SegmentSink* sink)               { controller.setLiveSegmentSink (sink, &balance); }
+
         void processReference (const juce::AudioBuffer<float>& input, bool connected) noexcept { reference.process (input, connected); }
         void requestReferenceLearn() noexcept { reference.requestLearn(); }
         void cancelReferenceLearn() noexcept { reference.cancelLearn(); }

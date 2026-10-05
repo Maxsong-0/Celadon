@@ -1,0 +1,17 @@
+class,track,bar,c_before,c_after,label_first_drop_bar,cause
+deep,track_0728914,8,0.6664,0.2400,17,S_ref +2.9
+deep,track_0873861,8,0.6681,0.4061,9,S_ref +2.5
+deep,track_1096811,23,0.5918,0.3638,21,S_ref +1.2；lowRef 0.41→0.50
+tech,track_0107869,8,0.4968,0.1553,7,S_ref +4.8
+tech,track_0120725,16,0.8710,0.1521,17,S_ref +4.3；lowRef 0.28→0.62
+tech,track_0200569,4,0.3835,0.1520,59,S_ref +3.3；lowRef 0.04→0.29
+tech,track_0244162,24,0.8943,0.6292,49,S_ref +2.5
+tech,track_0268597,69,0.9895,0.7159,64,S_ref +0.8；lowRef 0.30→0.23
+tech,track_0331159,16,0.5602,0.2347,33,S_ref +2.5；lowRef 0.35→0.49
+tech,track_0343381,13,0.7272,0.2279,32,lowRef 0.01→0.02
+tech,track_0343381,19,0.3654,0.1500,32,S_ref +2.4；lowRef 0.24→0.58
+melodic,track_0560109,25,0.8272,0.3691,24,S_ref +3.0；lowRef 0.79→0.65
+melodic,track_1033705,16,0.8769,0.1554,34,S_ref +4.4；lowRef 0.68→0.83
+melodic,track_1033705,119,0.9966,0.4035,34,S_ref +1.5；lowRef 0.78→0.60
+melodic,track_1033705,137,0.9060,0.4250,34,lowRef 0.31→0.51
+melodic,track_1122111,16,0.6912,0.4106,27,S_ref +2.4

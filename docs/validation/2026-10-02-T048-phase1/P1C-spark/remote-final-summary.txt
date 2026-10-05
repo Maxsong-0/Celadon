@@ -1,0 +1,4 @@
+/home/maxsong/.cache/celadon-t048-cal/closeout/logs/107-x86-v3-full.log:2918:==== celadon_tests: 149357 passed, 0 failed ====
+/home/maxsong/.cache/celadon-t048-cal/closeout/logs/107-x86-v3-full.log:2919:EXIT:0
+/home/maxsong/.cache/celadon-t048-cal/closeout/logs/109-x86-full.log:2917:==== celadon_tests: 149357 passed, 0 failed ====
+/home/maxsong/.cache/celadon-t048-cal/closeout/logs/109-x86-full.log:2918:EXIT:0

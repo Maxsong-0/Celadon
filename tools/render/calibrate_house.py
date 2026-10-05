@@ -7,6 +7,15 @@
 #   label   <工作目录> <图目录>                     用与门控无关的三个读数（底鼓起伏、低音底、中高频密度）给每小节标段落，出图供人工核对
 #   analyze <工作目录> [--labels 改标.tsv]          Tone 参考斜率中位数；ΔG × 低频门系数扫描；64 / 8 小节与锁定后重开核对
 #
+# T-048 实时画像的因果重放（设计规格-实时GLAZE-主段与增益 第 7 节；渲染工具 celadon_render --live-trace，见 README「T-048 实时画像追踪」）：
+#   prep-synthetic <工作目录>                      合成 House 两首（make_synthetic_house.py）摆成与上面同样的布局（<类>/<曲>/<曲>.wav、manifest.tsv），
+#                                                 段落边界取自标注 JSON 写成 labels-auto.tsv（边界是精确的：没有交界小节）
+#   render-live <工作目录> <celadon_render> [-j 12] [--tag default] [--genre auto|general|deep|tech|melodic] [--live-constants …] [--live-model …]
+#                                                 逐首按各自的子类（auto）与速度跑最快的追踪（--live-only、GLAZE 0），输出 <工作目录>/live/<标签>/
+#   analyze-live <工作目录> [--labels 改标.tsv] [--auto-labels 自动标签.tsv] [--tags t1,t2] [--out 汇总.md] [--figures 图目录]
+#                                                 逐首 + 汇总的因果重放指标（M1 ～ M4 与另给的几项，定义见 live_track_metrics），写 live/<标签>/ 下的
+#                                                 analysis.md、tracks.csv、bars.csv、breakdowns.csv
+#
 # 段落标签：intro（第一段 drop 之前）、drop（满编：底鼓、低音、密度都在）、breakdown（两段 drop 之间）、outro（最后一段 drop 之后）；
 # 段落交界前后各 1 小节标 transition，不进统计（估出的小节线可能差几拍）。自动标签按 8 小节一组取多数，再由人看图改（--labels）。
 # 门控口径同 SegmentLedger：已听（有效音频 ≥ 半小节）的小节里，段响度的第 95 百分位（按有效时长加权）= S_ref；过响度门的小节里
@@ -15,11 +24,16 @@
 import argparse
 import concurrent.futures
 import csv
+import datetime
+import hashlib
+import json
 import math
 import os
+import shutil
 import statistics
 import subprocess
 import sys
+import wave
 
 import numpy as np
 
@@ -27,6 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from house_gate import fmt, num, weighted_percentile  # noqa: E402
 
 CLASSES = ('deep', 'tech', 'melodic')
+SECTION_KINDS = ('intro', 'drop', 'breakdown', 'outro')   # 四类段落；transition（交界 ±1 小节）与 exclude（人工不计）不进任何统计
 # GlazeConstants.cpp genre 表的出厂 Tone 参考斜率（2026-10-01 标定后三类都 −2.25；标定时比的是起点值 −3.5 / −2.5 / −3.0，见报告）
 FACTORY_SLOPE = {'deep': -2.25, 'tech': -2.25, 'melodic': -2.25}
 FACTORY_WIDTH_LU, FACTORY_LOW_FACTOR = 3.0, 0.6
@@ -162,14 +177,18 @@ def cmd_render(args):
             print(cls, track, '完成' if code == 0 else f'失败（退出码 {code}）', flush=True)
 
 
+def read_segments(path):
+    """celadon_render --segments-csv 的输入端逐段统计（segments/<曲>__input.csv）：每小节一行。"""
+    with open(path, encoding='utf-8') as f:
+        return [s for s in csv.DictReader(f)]
+
+
 def load_render(work, r):
     out = os.path.join(work, r['class'], r['track'], 'out')
     with open(os.path.join(out, 'metrics.csv'), encoding='utf-8') as f:
         metrics = list(csv.DictReader(f))
     render = next(m for m in metrics if m['kind'] == 'render')
-    path = os.path.join(out, 'segments', r['track'] + '__input.csv')
-    with open(path, encoding='utf-8') as f:
-        segments = [s for s in csv.DictReader(f)]
+    segments = read_segments(os.path.join(out, 'segments', r['track'] + '__input.csv'))
     return render, segments
 
 
@@ -330,9 +349,10 @@ def cmd_label(args):
 # ---------------------------------------------------------------------------------------------------------------------
 # analyze
 
-def load_labels(work, overrides):
+def load_labels(work, overrides, auto_path=None):
+    """(曲, 小节) → 段落标签。自动标签默认读 <工作目录>/labels-auto.tsv（auto_path 可另给，例如仓库里 T-038 那一份），再叠改标。"""
     labels = {}
-    with open(os.path.join(work, 'labels-auto.tsv'), encoding='utf-8') as f:
+    with open(auto_path or os.path.join(work, 'labels-auto.tsv'), encoding='utf-8') as f:
         for r in csv.DictReader(f, delimiter='\t'):
             labels[(r['track'], int(r['bar']))] = r['label']
     if overrides:
@@ -345,14 +365,24 @@ def load_labels(work, overrides):
                     if (r['track'], bar) in labels:
                         labels[(r['track'], bar)] = r['label']
                         changed.add(r['track'])
-        kinds = ('intro', 'drop', 'breakdown', 'outro')
         for track in changed:
             bars = sorted(b for t, b in labels if t == track)
             original = {b: labels[(track, b)] for b in bars}
             for prev, cur in zip(bars, bars[1:]):
-                if original[prev] in kinds and original[cur] in kinds and original[prev] != original[cur]:
+                if original[prev] in SECTION_KINDS and original[cur] in SECTION_KINDS and original[prev] != original[cur]:
                     labels[(track, prev)] = labels[(track, cur)] = 'transition'
     return labels
+
+
+def bar_kinds(labels, track, bars):
+    """每小节的段落类别：标签里没有的小节当 exclude（同 T-038 analyze）。bars 见 track_bars。"""
+    return {b[0]: labels.get((track, b[0]), 'exclude') for b in bars}
+
+
+def drop_loudness(bars, kinds):
+    """人工标为 drop、已听的小节的段响度能量平均（LUFS）：T-038 analyze「画像代表性」（2b）与逐首表的 drop 响度口径，
+    实时画像的因果重放（analyze-live）按同一口径比。没有这样的小节 → nan。"""
+    return energy_mean_lufs([b[1] for b in bars if kinds[b[0]] == 'drop' and b[4]])
 
 
 def reliable_tempo(r):
@@ -419,7 +449,7 @@ def cmd_analyze(args):
     for r in rows:
         render, segments = load_render(args.work, r)
         bars = track_bars(segments, float(r['bpm']))
-        kinds = {b[0]: labels.get((r['track'], b[0]), 'exclude') for b in bars}
+        kinds = bar_kinds(labels, r['track'], bars)
         per_track.append((r, render, bars, kinds))
 
     # 1 Tone 参考斜率
@@ -474,7 +504,7 @@ def cmd_analyze(args):
         for w in widths:
             cells = []
             for fac in factors:
-                counts = {k: [0, 0] for k in ('intro', 'drop', 'breakdown', 'outro')}
+                counts = {k: [0, 0] for k in SECTION_KINDS}
                 for r, render, bars, kinds in per_track:
                     if scope in CLASSES and r['class'] != scope:
                         continue
@@ -502,7 +532,7 @@ def cmd_analyze(args):
                       if any(kinds[b[0]] == 'drop' for b in bars) and (scope == '全部' or reliable_tempo(r))]
         plain = []
         for r, bars, kinds in candidates:
-            drop_lufs = energy_mean_lufs([b[1] for b in bars if kinds[b[0]] == 'drop' and b[4]])
+            drop_lufs = drop_loudness(bars, kinds)
             plain.append(abs(energy_mean_lufs([b[1] for b in bars if b[4]]) - drop_lufs))
         for w in widths:
             cells = []
@@ -510,7 +540,7 @@ def cmd_analyze(args):
                 errors, counts = [], []
                 for r, bars, kinds in candidates:
                     full, _, _ = gate(bars, w, fac)
-                    drop_lufs = energy_mean_lufs([b[1] for b in bars if kinds[b[0]] == 'drop' and b[4]])
+                    drop_lufs = drop_loudness(bars, kinds)
                     errors.append(abs(energy_mean_lufs([b[1] for b in bars if b[0] in full]) - drop_lufs))
                     counts.append(len(full))
                 errors = [e for e in errors if math.isfinite(e)]
@@ -532,7 +562,7 @@ def cmd_analyze(args):
         intro_blocked = sum(1 for b in intro if b[0] not in full)
         drop_passed = sum(1 for b in drop if b[0] in full)
         first_drop = min((b[0] for b in bars if kinds[b[0]] == 'drop'), default=None)
-        drop_lufs = energy_mean_lufs([b[1] for b in drop])
+        drop_lufs = drop_loudness(bars, kinds)
         profile_delta = num(render.get('profile_lufs')) - drop_lufs
         lock_bar, lock_lufs = progressive_lock(bars, FACTORY_WIDTH_LU, FACTORY_LOW_FACTOR)
         reopen = reopen_events(bars, lock_bar, lock_lufs, FACTORY_WIDTH_LU, FACTORY_LOW_FACTOR)
@@ -554,6 +584,583 @@ def cmd_analyze(args):
             f.write(text)
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# T-048 实时画像的因果重放（设计规格-实时GLAZE-主段与增益 第 7 节；追踪的文件格式见 tools/render/README.md「T-048 实时画像追踪」）
+
+LIVE_DIR = 'live'                      # <工作目录>/live/<标签>/：traces/、segments/、logs/、run.tsv 与分析结果
+LIVE_START_BAR = 16                    # 规格第 7 节第 1 条：第 16 小节起
+LIVE_DROP_OFFSET_BARS = 4              # 第 3 条：第一个 drop 后 4 小节；M2 的另一口径同此
+LIVE_M2_LIMITS_LU = (0.3, 1.0)         # 第 1 条：汇总中位 ≤ 0.3、P90 ≤ 1.0 LU
+LIVE_DRIFT_LIMIT_LU = 0.5              # 第 2 条：breakdown 期间主段电平漂移 ≤ 0.5 LU
+LIVE_SETTLE_LIMIT_LU = 1.0             # 第 3 条：跟踪误差 |I_{d+3} − D4| ≤ 1 LU（Max 2026-10-04）。旧口径 |I_{d+3} − I_end| 仍作对照。
+T038_OFFLINE_LU = (0.15, 0.60, 0.92)   # T-038 离线门控画像代表性 |满编小节能量平均 − drop|：中位 / P90 / 最大（REPORT.md 第 2 节）
+T038_GATE_PERCENT = {'intro': ('挡', 60), 'drop': ('过', 85), 'breakdown': ('挡', 80)}   # T-038 出厂门控的逐小节挡住 / 通过率（REPORT.md 结论 2）
+MAIN_THRESHOLD = 0.5                   # LiveConstants::mainThreshold 出厂值：m ≥ 0.5 = 主段
+CONFIDENCE_FULL = 0.8                  # 决策器 fullConfidence 出厂值：c 到 0.8 时 κ 到 1（REPORT-A 2.6）
+SYNTHETIC_CLASS = {'house': 'deep', 'tech': 'tech'}   # make_synthetic_house.py 的两种编排 → 子类（--genre）
+
+
+def live_dir(work, tag):
+    return os.path.join(work, LIVE_DIR, tag)
+
+
+def sha256_of(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def cmd_prep_synthetic(args):
+    """合成 House 两首 → <工作目录>/<类>/<曲>/<曲>.wav、manifest.tsv（速度精确：fold_peak 记 99）、labels-auto.tsv（标注 JSON 的段落，
+    小节从 1 起、两端都含；边界精确，不标交界）。之后 render-live / analyze-live 照 Jamendo 的同一套跑。"""
+    import make_synthetic_house as synthetic
+    staging = os.path.join(args.work, '.synthetic')
+    shutil.rmtree(staging, ignore_errors=True)
+    if synthetic.main([staging]) != 0:
+        raise SystemExit('prep-synthetic：make_synthetic_house.py 失败')
+    manifest, labels = [], []
+    for name in sorted(f for f in os.listdir(staging) if f.endswith('.json')):
+        with open(os.path.join(staging, name), encoding='utf-8') as f:
+            annotation = json.load(f)
+        song = annotation['song']
+        cls = SYNTHETIC_CLASS['tech' if song.startswith('synthetic-tech') else 'house']
+        target = os.path.join(args.work, cls, song)
+        os.makedirs(target, exist_ok=True)
+        shutil.move(os.path.join(staging, annotation['file']), os.path.join(target, song + '.wav'))
+        shutil.copy(os.path.join(staging, name), os.path.join(target, name))
+        with wave.open(os.path.join(target, song + '.wav'), 'rb') as w:
+            duration = w.getnframes() / w.getframerate()
+        manifest.append([cls, song, f"{float(annotation['bpm']):.3f}", '0.0000', '99.00', str(annotation['sample_rate']), f'{duration:.2f}'])
+        for s in annotation['sections']:
+            labels.extend([cls, song, str(bar), s['kind']] for bar in range(int(s['start_bar']), int(s['end_bar']) + 1))
+        print(cls, song, f"{annotation['bpm']} BPM", f'{duration:.2f} s', flush=True)
+    shutil.rmtree(staging)
+    with open(os.path.join(args.work, 'manifest.tsv'), 'w', encoding='utf-8') as f:
+        f.write('class\ttrack\tbpm\ttrim_s\tfold_peak\tsample_rate\tduration_s\n')
+        f.writelines('\t'.join(m) + '\n' for m in manifest)
+    with open(os.path.join(args.work, 'labels-auto.tsv'), 'w', encoding='utf-8') as f:
+        f.write('class\ttrack\tbar\tlabel\n')
+        f.writelines('\t'.join(row) + '\n' for row in labels)
+
+
+def live_genre(r, genre):
+    """auto = 各首自己的子类（deep / tech / melodic，= celadon_render --genre 的名字）；其余照给的。"""
+    return r['class'] if genre == 'auto' else genre
+
+
+def render_live_one(args, out, r):
+    """一首：celadon_render 最快的追踪跑法（--live-only、GLAZE 0，README「T-048」），另出输入端逐小节统计（--segments-csv，T-038 的 drop 响度
+    口径要它）。成功后把追踪、汇总、逐段统计挪进 live/<标签>/ 的 traces/、segments/，删掉这一首的临时输出目录。返回退出码。"""
+    genre = live_genre(r, args.genre)
+    run = os.path.join(out, '.run', r['track'])
+    command = [args.render, '--in', os.path.join(args.work, r['class'], r['track']), '--out', run, '--glaze', '0', '--clay', 'auto',
+               '--style', 'auto', '--genre', genre, '--delivery', 'standard', '--bpm', r['bpm'], '--block', str(args.block),
+               '--segments-csv', '--metrics-only', '--no-replay', '--live-trace', '--live-only', '--live-tag', args.tag]
+    if args.live_constants:
+        command += ['--live-constants', args.live_constants]
+    if args.live_model:
+        command += ['--live-model', args.live_model]
+    with open(os.path.join(out, 'logs', r['track'] + '.log'), 'w', encoding='utf-8') as log:
+        log.write(' '.join(command) + '\n')
+        log.flush()
+        code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
+    if code != 0:
+        return code
+    base = f"{r['track']}__{genre}"
+    for name in (base + '.csv', base + '__final.csv', base + '__judgements.csv'):
+        shutil.move(os.path.join(run, LIVE_DIR, args.tag, name), os.path.join(out, 'traces', name))
+    shutil.move(os.path.join(run, 'segments', r['track'] + '__input.csv'), os.path.join(out, 'segments', r['track'] + '__input.csv'))
+    shutil.rmtree(run)
+    return 0
+
+
+def cmd_render_live(args):
+    rows = load_manifest(args.work)
+    out = live_dir(args.work, args.tag)
+    for sub in ('traces', 'segments', 'logs', '.run'):   # 同一标签重跑：先清掉上一次的，免得两组常数的追踪混在一起
+        shutil.rmtree(os.path.join(out, sub), ignore_errors=True)
+        os.makedirs(os.path.join(out, sub))
+    with open(os.path.join(out, 'run.tsv'), 'w', encoding='utf-8') as f:
+        for key, value in (('date', datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')),
+                           ('render', os.path.abspath(args.render)), ('render_sha256', sha256_of(args.render)),
+                           ('genre', args.genre), ('live_constants', args.live_constants or ''), ('live_model', args.live_model or ''),
+                           ('block', str(args.block)), ('tracks', str(len(rows)))):
+            f.write(f'{key}\t{value}\n')
+    failed = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        futures = [(r, pool.submit(render_live_one, args, out, r)) for r in rows]
+        for r, future in futures:
+            code = future.result()
+            failed += code != 0
+            print(r['class'], r['track'], live_genre(r, args.genre), '完成' if code == 0 else
+                  f"失败（退出码 {code}，见 {os.path.join(out, 'logs', r['track'] + '.log')}，输出留在 {os.path.join(out, '.run', r['track'])}）",
+                  flush=True)
+    if not os.listdir(os.path.join(out, '.run')):
+        os.rmdir(os.path.join(out, '.run'))
+    print(f'render-live：{len(rows) - failed} / {len(rows)} 首完成，追踪在 {out}', flush=True)
+    return 1 if failed else 0
+
+
+def load_live_trace(base, track):
+    """live/<标签>/traces/<曲>__<曲风>.csv（追踪，每发布一份画像一行）、__final.csv（键,值）与 __judgements.csv（歌尾窗口里每段的最终判断，
+    T-048 阶段 1 修订起才有；没有 → 空表）。找不到追踪 → (None, None, None)。"""
+    folder = os.path.join(base, 'traces')
+    names = sorted(n for n in os.listdir(folder) if n.startswith(track + '__') and n.endswith('.csv')
+                   and not n.endswith('__final.csv') and not n.endswith('__judgements.csv'))
+    if not names:
+        return None, None, None
+    with open(os.path.join(folder, names[0]), encoding='utf-8') as f:
+        trace = list(csv.DictReader(f))
+    with open(os.path.join(folder, names[0][:-4] + '__final.csv'), encoding='utf-8') as f:
+        final = {r['key']: r['value'] for r in csv.DictReader(f)}
+    judgements = []
+    judgements_path = os.path.join(folder, names[0][:-4] + '__judgements.csv')
+    if os.path.isfile(judgements_path):
+        with open(judgements_path, encoding='utf-8') as f:
+            judgements = list(csv.DictReader(f))
+    return trace, final, judgements
+
+
+def live_summary(values):
+    """中位 / P90 / 最大 / 个数（同 T-038 analyze：statistics.median、np.percentile 线性插值）。空 → nan。"""
+    values = [v for v in values if math.isfinite(v)]
+    if not values:
+        return math.nan, math.nan, math.nan, 0
+    return statistics.median(values), float(np.percentile(values, 90)), max(values), len(values)
+
+
+def section_runs(kinds, kind):
+    """连续标为 kind 的小节段 [[a, …, b], …]（按小节号；中间隔了别的标签就断开）。"""
+    runs, run = [], []
+    for bar in sorted(kinds):
+        if kinds[bar] == kind and run and bar == run[-1] + 1:
+            run.append(bar)
+            continue
+        if run:
+            runs.append(run)
+            run = []
+        if kinds[bar] == kind:
+            run = [bar]
+    if run:
+        runs.append(run)
+    return runs
+
+
+def settle_bars(held, counted, first_drop, reference, last_bar=None):
+    """M4 的 n：最小的 n ≥ 1，使计入的小节 j ≥ first_drop + n（截到 last_bar）手里的 I（held(j) = I_{j−1}）都在 reference ± 1 LU 内——
+    第一个 drop 的前 n 小节并入之后达到并一直保持。没有计入的小节或 reference 不知道 → nan。"""
+    js = [j for j in counted if j > first_drop and (last_bar is None or j <= last_bar) and math.isfinite(held(j))]
+    if not js or not math.isfinite(reference):
+        return math.nan
+    outside = [j for j in js if abs(held(j) - reference) > LIVE_SETTLE_LIMIT_LU]
+    return 1 if not outside else outside[-1] - first_drop + 1
+
+
+def live_track_metrics(r, bars, kinds, trace, final, judgements=()):
+    """一首歌的因果重放指标。
+    记号：I_k = 第 k 小节那一段的画像发布之后的 I（追踪的 main_level_lufs；同一小节有几段时取最后一段）；第 j 小节播放时决策器手里的 I 记作
+    held(j) = I_{j−1}（第 j − 1 小节的画像在它的段尾 + 发布延迟 0.5 s 时发布，也就是第 j 小节开头 0.5 s 之后；之前的 0.5 s 里手里还是
+    I_{j−2}——这里不细分，与改前同一口径）；D = 人工标为 drop 的
+    已听小节的段响度能量平均（drop_loudness，T-038 analyze 的同一口径；段响度来自同一次运行 --segments-csv 的输入端统计）；I_end = 最后一次
+    提交（歌尾不满一小节的那一截）之后的 I；d = 第一个标为 drop 的小节（T-038 的交界小节不算，所以真正的第一个 drop 小节多半是 d − 1）；
+    已听 = 有效音频 ≥ 半小节（T-038 口径）。计入的小节 = 已听、且标为四类段落之一（SECTION_KINDS）的小节：transition（交界 ±1）、exclude
+    与没有标签的小节一律不计；整首 exclude 的歌不算任何指标；没有 drop 标签（D 不知道）的歌不算 M1 / M2 / M4。
+      M1  I_end − D（汇总取 |·|）：与 T-038 离线门控的 |满编小节能量平均 − D|（0.15 / 0.60 / 0.92 LU）对照；
+      M2  计入的小节 j ≥ 16 上 |held(j) − D| 的逐首中位（另给逐首 P90、最大）；汇总 = 各首中位的中位 / P90 / 最大，对规格第 7 节第 1 条
+          「中位 ≤ 0.3、P90 ≤ 1.0 LU」；另给全部小节合在一起的分布（参考）；
+      M2b 同上，从 j ≥ d + 4 起（第一个 drop 的 4 小节都已并入之后）；
+      M3  每段 breakdown（连续标为 breakdown 的小节 a … b）：max_{k = a … b} |I_k − I_{a−1}|，即进入 breakdown 时手里的 I（held(a)）
+          之后、到 breakdown 之后第一小节手里的 I（held(b + 1)）为止的最大漂移；第 2 条要 ≤ 0.5 LU；
+      M4  第 3 条的验收是跟踪误差 I_{d+3} − D4。D4 = 第 d … d+3 小节里标为 drop、已听的输入段响度能量平均（同 D 的能量平均）；
+          I_{d+3} = held(d + 4)。跟不住的约 10 首是规格第 5 节的已知限制（前奏把参考锁住），门槛不为此放宽。
+          旧口径 δ4 = held(d + 4) − I_end = I_{d+3} − I_end 仍写出（歌后来自己变了多少混在里面）；n = settle_bars
+          （相对最终值达到并一直保持 ±1 LU 所需的 drop 小节数）；另给以「最后一个 drop 小节并入之后的 I」为
+          终值、窗口截到那之后一小节的同一对旧口径（_alt：不受尾奏影响），以及 D4 − I_end（歌自己变了）；
+      另  各类段落已听小节里 m ≥ 0.5 的占比（交界不计）——两种口径：「首判」= 那一小节的画像第一次发布时对它的判断（追踪的 mainness），
+          「终判」= 歌尾窗口里回看重判之后的判断（__judgements.csv 的 mainness_final；对照 T-038 离线门控的就是它）；换歌软遗忘触发的次数
+          与所在小节、触发时那一串的段响度起伏；无主段时间衰减生效的段数与次数（从不生效到生效记一次）；c 第一次 ≥ 0.8 时累计并入的有效
+          音频（active_s）与小节、之后跌回 0.8 以下的次数、第一个 drop 之后 c 的最低值（前奏被重判出主段时 M 掉下来）；held(d) − D
+          （第一个 drop 开始时手里的 I；前奏被当成主段、又比 drop 轻时为负）。"""
+    track = r['track']
+    excluded = bool(bars) and all(kinds[b[0]] == 'exclude' for b in bars)
+    heard = {b[0]: b[4] for b in bars}
+    counted = sorted(j for j in kinds if heard.get(j) and kinds[j] in SECTION_KINDS) if not excluded else []
+    rows_by_bar = {int(row['bar']): row for row in trace if row['bar']}
+    level = {bar: num(row['main_level_lufs']) for bar, row in rows_by_bar.items()}
+    final_level = num(trace[-1]['main_level_lufs']) if trace else math.nan
+    drop = drop_loudness(bars, kinds)
+    drop_bars = [b[0] for b in bars if kinds[b[0]] == 'drop']
+    first_drop = min(drop_bars) if drop_bars else None
+    last_drop = max(drop_bars) if drop_bars else None
+
+    def held(bar):
+        return level.get(bar - 1, math.nan)
+
+    def errors_from(start):
+        return [abs(held(j) - drop) for j in counted if j >= start and math.isfinite(held(j))]
+
+    usable = not excluded and math.isfinite(drop)
+    m2 = errors_from(LIVE_START_BAR) if usable else []
+    m2b = errors_from(first_drop + LIVE_DROP_OFFSET_BARS) if usable else []
+
+    breakdowns = []
+    for run in section_runs(kinds, 'breakdown') if not excluded else []:
+        a, b = run[0], run[-1]
+        before = [k for k in level if k < a]
+        entry = level[max(before)] if before else math.nan
+        inside = [level[k] for k in range(a, b + 1) if k in level and math.isfinite(level[k])]
+        span = [rows_by_bar[k] for k in range(a, b + 1) if k in rows_by_bar]
+        breakdowns.append({'class': r['class'], 'track': track, 'first_bar': a, 'last_bar': b, 'bars': b - a + 1,
+                           'entry_i': entry, 'drift': max((abs(x - entry) for x in inside), default=math.nan),
+                           'new_program': sum(row['new_program'] == '1' for row in span),
+                           'time_decay': sum(row['time_decay'] == '1' for row in span)})
+
+    main_counts = {kind: [0, 0] for kind in SECTION_KINDS}   # [m ≥ 0.5 的计入小节, 计入小节]（首判）
+    for bar in counted:
+        if bar in rows_by_bar:
+            main_counts[kinds[bar]][1] += 1
+            main_counts[kinds[bar]][0] += num(rows_by_bar[bar]['mainness']) >= MAIN_THRESHOLD
+
+    final_by_bar = {int(j['bar']): num(j['mainness_final']) for j in judgements if j.get('bar')}
+    final_counts = {kind: [0, 0] for kind in SECTION_KINDS}   # 同上（终判：回看重判到歌尾）
+    for bar in counted:
+        if bar in final_by_bar and math.isfinite(final_by_bar[bar]):
+            final_counts[kinds[bar]][1] += 1
+            final_counts[kinds[bar]][0] += final_by_bar[bar] >= MAIN_THRESHOLD
+
+    new_program_bars = [row['bar'] for row in trace if row['new_program'] == '1']
+    new_program_ranges = [row.get('np_range_lu', '') or '?' for row in trace if row['new_program'] == '1']
+    decay_flags = [row['time_decay'] == '1' for row in trace]
+    decay_episodes = sum(1 for i, on in enumerate(decay_flags) if on and (i == 0 or not decay_flags[i - 1]))
+    first_decay = next((row['bar'] for row in trace if row['time_decay'] == '1'), '')
+    confidences = [num(row['confidence']) for row in trace]
+    reach = next((i for i, c in enumerate(confidences) if c >= CONFIDENCE_FULL), None)
+    after_first_drop = [num(row['confidence']) for row in trace if row['bar'] and first_drop and int(row['bar']) >= first_drop]
+    min_c_after_drop = min((c for c in after_first_drop if math.isfinite(c)), default=math.nan)
+    dips = sum(1 for i in range(1, len(confidences)) if reach is not None and i > reach
+               and confidences[i - 1] >= CONFIDENCE_FULL > confidences[i])
+    misaligned = sum(1 for row in trace[:-1] if row['bar_offset'] not in ('', '0'))
+
+    def m4(reference, window_end):
+        delta = held(first_drop + LIVE_DROP_OFFSET_BARS) - reference
+        return delta, settle_bars(held, counted, first_drop, reference, window_end)
+
+    delta4, settle = m4(final_level, None) if usable else (math.nan, math.nan)
+    alt_delta4, alt_settle = m4(level.get(last_drop, math.nan), last_drop + 1) if usable else (math.nan, math.nan)
+    d4 = energy_mean_lufs([b[1] for b in bars if kinds[b[0]] == 'drop' and b[4]
+                           and first_drop <= b[0] < first_drop + LIVE_DROP_OFFSET_BARS]) if usable else math.nan
+    i_d3 = held(first_drop + LIVE_DROP_OFFSET_BARS) if usable else math.nan
+    tracking = i_d3 - d4
+    evolution = d4 - final_level
+    m2_stats, m2b_stats = live_summary(m2), live_summary(m2b)
+    row = {
+        'class': r['class'], 'track': track, 'bpm': r['bpm'], 'tempo_reliable': int(reliable_tempo(r)), 'excluded': int(excluded),
+        'genre': final.get('genre', ''), 'model': final.get('model', ''), 'bars': len(bars), 'commits': len(trace),
+        'misaligned_segments': misaligned, 'first_drop_bar': first_drop or '', 'last_drop_bar': last_drop or '',
+        'drop_lufs': drop, 'final_i_lufs': final_level, 'm1_final_minus_drop': final_level - drop if usable else math.nan,
+        'm2_median': m2_stats[0], 'm2_p90': m2_stats[1], 'm2_max': m2_stats[2], 'm2_bars': m2_stats[3],
+        'm2b_median': m2b_stats[0], 'm2b_p90': m2b_stats[1], 'm2b_max': m2b_stats[2], 'm2b_bars': m2b_stats[3],
+        'm3_breakdowns': len(breakdowns), 'm3_max_drift': max((x['drift'] for x in breakdowns if math.isfinite(x['drift'])), default=math.nan),
+        'm3_over': sum(1 for x in breakdowns if math.isfinite(x['drift']) and x['drift'] > LIVE_DRIFT_LIMIT_LU),
+        'm4_d4': d4, 'm4_tracking': tracking, 'm4_evolution': evolution,
+        'm4_delta4': delta4, 'm4_settle_bars': settle, 'm4_alt_delta4': alt_delta4, 'm4_alt_settle_bars': alt_settle,
+        'held_at_first_drop_minus_drop': held(first_drop) - drop if usable else math.nan,
+        'new_program_count': len(new_program_bars), 'new_program_bars': ' '.join(new_program_bars),
+        'new_program_ranges_lu': ' '.join(new_program_ranges),
+        'time_decay_segments': sum(decay_flags), 'time_decay_episodes': decay_episodes, 'time_decay_first_bar': first_decay,
+        'c08_active_s': num(trace[reach]['active_s']) if reach is not None else math.nan,
+        'c08_bar': trace[reach]['bar'] if reach is not None else '', 'c08_dips': dips, 'min_c_after_first_drop': min_c_after_drop,
+        'final_confidence': num(final.get('diag.confidence')), 'final_main_mass_s': num(final.get('diag.main_mass_s')),
+        'final_lra_lu': num(final.get('profile.loudness_range_lu')), 'final_slope': num(final.get('profile.slope_db_per_oct')),
+        'final_low_share': num(final.get('profile.low_share')),
+        'anomalies': ' '.join(k for k in ('anomaly_overrun', 'anomaly_mismatch') if final.get(k) == '1'),
+    }
+    for kind in SECTION_KINDS:
+        row[f'{kind}_main_bars'], row[f'{kind}_heard_bars'] = main_counts[kind]
+        row[f'{kind}_final_main_bars'], row[f'{kind}_final_bars'] = final_counts[kind]
+    counted_set = set(counted)
+    per_bar = [{'class': r['class'], 'track': track, 'bar': bar, 'label': kinds[bar], 'heard': int(bool(heard.get(bar))),
+                'counted': int(bar in counted_set),
+                'segment_lufs': next((b[1] for b in bars if b[0] == bar), math.nan), 'drop_lufs': drop, 'i_after': level.get(bar, math.nan),
+                'i_held': held(bar), 'abs_error_held': abs(held(bar) - drop) if math.isfinite(drop) else math.nan,
+                'mainness': num(rows_by_bar[bar]['mainness']) if bar in rows_by_bar else math.nan,
+                'mainness_final': final_by_bar.get(bar, math.nan),
+                'confidence': num(rows_by_bar[bar]['confidence']) if bar in rows_by_bar else math.nan,
+                'time_decay': rows_by_bar[bar]['time_decay'] if bar in rows_by_bar else '',
+                'new_program': rows_by_bar[bar]['new_program'] if bar in rows_by_bar else ''} for bar in sorted(kinds)]
+    return {'row': row, 'bars': per_bar, 'breakdowns': breakdowns}
+
+
+def analyze_live_tag(work, tag, rows, labels):
+    """一个标签下 45 首（或合成两首）的指标；缺追踪的曲目记进 missing。"""
+    base = live_dir(work, tag)
+    tracks, missing = [], []
+    for r in rows:
+        trace, final, judgements = load_live_trace(base, r['track'])
+        segments_path = os.path.join(base, 'segments', r['track'] + '__input.csv')
+        if trace is None or not os.path.isfile(segments_path):
+            missing.append(r['track'])
+            continue
+        bars = track_bars(read_segments(segments_path), float(r['bpm']))
+        tracks.append(live_track_metrics(r, bars, bar_kinds(labels, r['track'], bars), trace, final, judgements))
+    meta = {}
+    if os.path.isfile(os.path.join(base, 'run.tsv')):
+        with open(os.path.join(base, 'run.tsv'), encoding='utf-8') as f:
+            meta = dict(line.rstrip('\n').split('\t', 1) for line in f if '\t' in line)
+    return {'tag': tag, 'meta': meta, 'tracks': tracks, 'missing': missing}
+
+
+def csv_value(value):
+    if isinstance(value, float):
+        return '' if not math.isfinite(value) else f'{value:.4f}'
+    return str(value)
+
+
+def write_live_csv(path, records):
+    if not records:
+        return
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(list(records[0].keys()))
+        writer.writerows([csv_value(v) for v in record.values()] for record in records)
+
+
+def live_headline(result):
+    """汇总的数（markdown 表与几个标签的对照共用）。逐首指标只取有 drop 标签、不是整首 exclude 的曲目。"""
+    rows = [t['row'] for t in result['tracks'] if not t['row']['excluded']]
+    scored = [x for x in rows if math.isfinite(x['drop_lufs'])]
+    breakdowns = [b for t in result['tracks'] if not t['row']['excluded'] for b in t['breakdowns'] if math.isfinite(b['drift'])]
+    pooled_m2 = [t2['abs_error_held'] for t in result['tracks'] if not t['row']['excluded'] and math.isfinite(t['row']['drop_lufs'])
+                 for t2 in t['bars'] if t2['bar'] >= LIVE_START_BAR and t2['counted'] and math.isfinite(t2['abs_error_held'])]
+    main = {kind: [sum(x[f'{kind}_main_bars'] for x in rows), sum(x[f'{kind}_heard_bars'] for x in rows)] for kind in SECTION_KINDS}
+    final_main = {kind: [sum(x.get(f'{kind}_final_main_bars', 0) for x in rows), sum(x.get(f'{kind}_final_bars', 0) for x in rows)]
+                  for kind in SECTION_KINDS}
+    return {
+        'tracks': len(rows), 'scored': len(scored),
+        'm1': live_summary([abs(x['m1_final_minus_drop']) for x in scored]),
+        'm2': live_summary([x['m2_median'] for x in scored]),
+        'm2_pooled': live_summary(pooled_m2),
+        'm2b': live_summary([x['m2b_median'] for x in scored]),
+        'm3': live_summary([b['drift'] for b in breakdowns]),
+        'm3_pass': sum(1 for b in breakdowns if b['drift'] <= LIVE_DRIFT_LIMIT_LU), 'm3_total': len(breakdowns),
+        'm4_tracking': live_summary([abs(x['m4_tracking']) for x in scored]),
+        'm4_tracking_pass': sum(1 for x in scored if math.isfinite(x['m4_tracking']) and abs(x['m4_tracking']) <= LIVE_SETTLE_LIMIT_LU),
+        'm4_evolution': live_summary([abs(x['m4_evolution']) for x in scored]),
+        'm4': live_summary([abs(x['m4_delta4']) for x in scored]),
+        'm4_pass': sum(1 for x in scored if math.isfinite(x['m4_delta4']) and abs(x['m4_delta4']) <= LIVE_SETTLE_LIMIT_LU),
+        'm4_settle': live_summary([float(x['m4_settle_bars']) for x in scored]),
+        'm4_settle_pass': sum(1 for x in scored if math.isfinite(x['m4_settle_bars']) and x['m4_settle_bars'] <= LIVE_DROP_OFFSET_BARS),
+        'm4_alt': live_summary([abs(x['m4_alt_delta4']) for x in scored]),
+        'm4_alt_pass': sum(1 for x in scored if math.isfinite(x['m4_alt_delta4']) and abs(x['m4_alt_delta4']) <= LIVE_SETTLE_LIMIT_LU),
+        'held': live_summary([x['held_at_first_drop_minus_drop'] for x in scored]),
+        'c08': live_summary([x['c08_active_s'] for x in rows]),
+        'c08_never': sum(1 for x in rows if not math.isfinite(x['c08_active_s'])),
+        'main': main, 'final_main': final_main,
+        'min_c_after_drop': live_summary([x.get('min_c_after_first_drop', math.nan) for x in scored]),
+        'new_program_tracks': sum(1 for x in rows if x['new_program_count'] > 0),
+        'new_program_total': sum(x['new_program_count'] for x in rows),
+        'decay_tracks': sum(1 for x in rows if x['time_decay_episodes'] > 0),
+        'misaligned': sum(x['misaligned_segments'] for x in rows),
+        'anomalies': [x['track'] for x in rows if x['anomalies']],
+    }
+
+
+def stats_cells(stats, digits=2):
+    median, p90, worst, n = stats
+    return f'{fmt(median, digits)} | {fmt(p90, digits)} | {fmt(worst, digits)} | {n}'
+
+
+def live_tag_markdown(result):
+    """一个标签的分析（analysis.md）：汇总表（与规格第 7 节门槛对照）、段落的 m 分布（对照 T-038）、触发与置信度、逐首表、超限的 breakdown。"""
+    h = live_headline(result)
+    meta = result['meta']
+    rows = [t['row'] for t in result['tracks']]
+    m2_ok = h['m2'][0] <= LIVE_M2_LIMITS_LU[0] and h['m2'][1] <= LIVE_M2_LIMITS_LU[1]
+    m2b_ok = h['m2b'][0] <= LIVE_M2_LIMITS_LU[0] and h['m2b'][1] <= LIVE_M2_LIMITS_LU[1]
+    out = [f"# 因果重放：标签 {result['tag']}\n",
+           f"- 曲风：{meta.get('genre', '?')}（auto = 各首的 House 子类）；主段模型：{', '.join(sorted({x['model'] for x in rows})) or '?'}；"
+           f"常数覆盖：{meta.get('live_constants') or '无（出厂）'}；--live-model：{meta.get('live_model') or '无'}；块长 {meta.get('block', '?')}",
+           f"- 渲染工具 {meta.get('render', '?')}（sha256 {meta.get('render_sha256', '?')[:12]}…），{meta.get('date', '?')}",
+           f"- 曲目 {len(result['tracks'])} 首（整首 exclude {sum(1 for x in rows if x['excluded'])} 首不计）；有 drop 标签可算 M1 / M2 / M4 的 {h['scored']} 首"
+           + (f"；缺追踪：{', '.join(result['missing'])}" if result['missing'] else '')
+           + (f"；追踪异常：{', '.join(h['anomalies'])}" if h['anomalies'] else '')
+           + (f"；不在小节线上的段 {h['misaligned']} 个（不该有）" if h['misaligned'] else ''),
+           '', '## 汇总（与设计规格-实时GLAZE-主段与增益 第 7 节对照；定义见 calibrate_house.py live_track_metrics）', '',
+           '| 指标 | 中位 | P90 | 最大 | 个数 | 门槛 | 结论 |', '|---|---|---|---|---|---|---|',
+           f"| M1 \\|I_end − D\\|（LU，逐首） | {stats_cells(h['m1'])} | 对照 T-038 离线 {' / '.join(fmt(v) for v in T038_OFFLINE_LU)} | 只对照 |",
+           f"| M2 第 16 小节起 \\|I − D\\| 的逐首中位（LU） | {stats_cells(h['m2'])} | 中位 ≤ {LIVE_M2_LIMITS_LU[0]}、P90 ≤ {LIVE_M2_LIMITS_LU[1]} | "
+           f"{'达标' if m2_ok else '不达标'} |",
+           f"| M2（全部小节合在一起，参考） | {stats_cells(h['m2_pooled'])} | — | — |",
+           f"| M2b 第一个 drop + 4 小节起（逐首中位） | {stats_cells(h['m2b'])} | 同 M2 | {'达标' if m2b_ok else '不达标'} |",
+           f"| M3 breakdown 内 I 的最大漂移（LU，逐段） | {stats_cells(h['m3'])} | 每段 ≤ {LIVE_DRIFT_LIMIT_LU} | "
+           f"{h['m3_pass']} / {h['m3_total']} 段达标 |",
+           f"| M4 跟踪误差 \\|I_{{d+3}} − D4\\|（LU） | {stats_cells(h['m4_tracking'])} | ≤ {LIVE_SETTLE_LIMIT_LU} | {h['m4_tracking_pass']} / {h['scored']} 首达标 |",
+           f"| M4 旧口径 \\|I_{{d+3}} − I_end\\|（LU，对照） | {stats_cells(h['m4'])} | — | {h['m4_pass']} / {h['scored']} 首 |",
+           f"| M4 歌自己变了 \\|D4 − I_end\\|（LU，对照） | {stats_cells(h['m4_evolution'])} | — | — |",
+           f"| M4 达到并保持 ±1 LU 所需的 drop 小节数 | {stats_cells(h['m4_settle'], 0)} | ≤ {LIVE_DROP_OFFSET_BARS} | "
+           f"{h['m4_settle_pass']} / {h['scored']} 首 |",
+           f"| M4（终值 = 最后一个 drop 小节之后的 I） | {stats_cells(h['m4_alt'])} | ≤ {LIVE_SETTLE_LIMIT_LU} | {h['m4_alt_pass']} / {h['scored']} 首 |",
+           f"| 第一个 drop 开始时手里的 I − D（LU，带符号） | {stats_cells(h['held'])} | — | 负 = 前奏当了主段、比 drop 轻 |",
+           f"| c 第一次到 {CONFIDENCE_FULL} 时的累计有效音频（s） | {stats_cells(h['c08'], 1)} | — | 到不了的 {h['c08_never']} 首 |",
+           f"| 第一个 drop 之后 c 的最低值 | {stats_cells(h['min_c_after_drop'])} | — | 前奏被重判出主段时 M 掉下来 |",
+           '', '## 各类段落的主段度（已听小节里 m ≥ 0.5 的占比；对照 T-038 出厂离线门控）', '',
+           '首判 = 那一小节的画像第一次发布时对它的判断；终判 = 歌尾窗口里回看重判之后的判断（离线门控的对照）。', '',
+           '| 段落 | 首判 m ≥ 0.5 | 已听小节 | 首判占比 | 终判占比 | 换成 T-038 的说法（终判） | T-038 出厂 |', '|---|---|---|---|---|---|---|']
+    for kind in SECTION_KINDS:
+        main, heard_bars = h['main'][kind]
+        share = 100.0 * main / heard_bars if heard_bars else math.nan
+        final_main, final_bars = h['final_main'][kind]
+        final_share = 100.0 * final_main / final_bars if final_bars else math.nan
+        word, reference = T038_GATE_PERCENT.get(kind, ('', None))
+        said = (f'{word} {fmt(final_share if word == "过" else 100.0 - final_share, 0)} %' if word and math.isfinite(final_share) else '—')
+        out.append(f"| {kind} | {main} | {heard_bars} | {fmt(share, 0)} % | {fmt(final_share, 0)} % | {said} | "
+                   f"{f'{word} {reference} %' if reference else '—'} |")
+    out += ['', '## 换歌软遗忘、无主段时间衰减', '',
+            f"- 换歌软遗忘：{h['new_program_tracks']} 首触发过，共 {h['new_program_total']} 次；无主段时间衰减：{h['decay_tracks']} 首生效过（逐首见下表）。", '',
+            '## 逐首', '',
+            '| 子类 | 曲目 | 小节 | 首个 drop | D | I_end − D | M2 中位 / P90 | M2b 中位 | M3 最大（段数） | M4 跟踪 / 旧δ4 / n | drop 开始时 I − D | '
+            '前奏 m≥0.5 | drop m≥0.5 | 换歌（小节） | 时间衰减（次 / 段） | c≥0.8（s / 小节） |',
+            '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
+    for x in rows:
+        if x['excluded']:
+            out.append(f"| {x['class']} | {x['track']} | {x['bars']} | 整首 exclude | | | | | | | | | | | | |")
+            continue
+        out.append(f"| {x['class']} | {x['track']}{'' if x['tempo_reliable'] else '（速度低置信）'} | {x['bars']} | {x['first_drop_bar'] or '—'} | "
+                   f"{fmt(x['drop_lufs'])} | {fmt(x['m1_final_minus_drop'], 2, True)} | {fmt(x['m2_median'])} / {fmt(x['m2_p90'])} | "
+                   f"{fmt(x['m2b_median'])} | {fmt(x['m3_max_drift'])}（{x['m3_breakdowns']}） | {fmt(x['m4_tracking'], 2, True)} / {fmt(x['m4_delta4'], 2, True)} / "
+                   f"{fmt(x['m4_settle_bars'], 0)} | {fmt(x['held_at_first_drop_minus_drop'], 2, True)} | "
+                   f"{x['intro_main_bars']} / {x['intro_heard_bars']} | {x['drop_main_bars']} / {x['drop_heard_bars']} | "
+                   f"{x['new_program_count']}{'（' + x['new_program_bars'] + '，起伏 ' + x['new_program_ranges_lu'] + ' LU）' if x['new_program_bars'] else ''} | "
+                   f"{x['time_decay_episodes']} / {x['time_decay_segments']} | {fmt(x['c08_active_s'], 1)} / {x['c08_bar'] or '—'} |")
+    over = [b for t in result['tracks'] for b in t['breakdowns'] if math.isfinite(b['drift']) and b['drift'] > LIVE_DRIFT_LIMIT_LU]
+    out += ['', f'## 漂移超过 {LIVE_DRIFT_LIMIT_LU} LU 的 breakdown', '']
+    if over:
+        out += ['| 子类 | 曲目 | 小节 | 长度 | 进入时 I | 最大漂移 | 其间换歌 / 时间衰减的段 |', '|---|---|---|---|---|---|---|']
+        out += [f"| {b['class']} | {b['track']} | {b['first_bar']} ～ {b['last_bar']} | {b['bars']} | {fmt(b['entry_i'])} | {fmt(b['drift'])} | "
+                f"{b['new_program']} / {b['time_decay']} |" for b in over]
+    else:
+        out.append('（没有）')
+    return '\n'.join(out) + '\n'
+
+
+def live_combined_markdown(results):
+    """几个标签并排（--out）：每个标签一列，行 = 汇总的数。"""
+    heads = [(r['tag'], live_headline(r)) for r in results]
+    out = ['# 因果重放汇总（各标签并排；中位 / P90 / 最大，LU）', '', '| 指标 | ' + ' | '.join(tag for tag, _ in heads) + ' |',
+           '|---|' + '---|' * len(heads)]
+
+    def line(name, cell):
+        out.append(f'| {name} | ' + ' | '.join(cell(h) for _, h in heads) + ' |')
+
+    def triple(key, digits=2):
+        return lambda h: ' / '.join(fmt(v, digits) for v in h[key][:3])
+
+    line('可算的曲目（有 drop 标签）', lambda h: str(h['scored']))
+    line('M1 \\|I_end − D\\|（对照 T-038 离线 0.15 / 0.60 / 0.92）', triple('m1'))
+    line(f'M2 第 16 小节起逐首中位（门槛 中位 ≤ {LIVE_M2_LIMITS_LU[0]}、P90 ≤ {LIVE_M2_LIMITS_LU[1]}）', triple('m2'))
+    line('M2 全部小节合在一起', triple('m2_pooled'))
+    line('M2b 第一个 drop + 4 起', triple('m2b'))
+    line(f'M3 breakdown 漂移（每段 ≤ {LIVE_DRIFT_LIMIT_LU}；达标段数）', lambda h: triple('m3')(h) + f"（{h['m3_pass']} / {h['m3_total']}）")
+    line(f'M4 跟踪误差 \\|I_{{d+3}} − D4\\|（≤ {LIVE_SETTLE_LIMIT_LU}；达标首数）', lambda h: triple('m4_tracking')(h) + f"（{h['m4_tracking_pass']} / {h['scored']}）")
+    line('M4 旧口径 \\|I_{d+3} − I_end\\|（对照；达标首数）', lambda h: triple('m4')(h) + f"（{h['m4_pass']} / {h['scored']}）")
+    line('M4 歌自己变了 \\|D4 − I_end\\|', triple('m4_evolution'))
+    line('M4 保持所需 drop 小节数（≤ 4 的首数）', lambda h: triple('m4_settle', 0)(h) + f"（{h['m4_settle_pass']} / {h['scored']}）")
+    line('第一个 drop 开始时 I − D', triple('held'))
+    line('c 到 0.8 的累计有效音频 s（到不了的首数）', lambda h: triple('c08', 1)(h) + f"（{h['c08_never']}）")
+    line('第一个 drop 之后 c 的最低值', triple('min_c_after_drop'))
+    for kind in SECTION_KINDS:
+        line(f'{kind} 已听小节 m ≥ 0.5 占比（首判 / 终判）',
+             lambda h, k=kind: f"{fmt(100.0 * h['main'][k][0] / h['main'][k][1], 0) if h['main'][k][1] else '—'} % / "
+                               f"{fmt(100.0 * h['final_main'][k][0] / h['final_main'][k][1], 0) if h['final_main'][k][1] else '—'} %")
+    line('换歌软遗忘：触发的首数 / 次数', lambda h: f"{h['new_program_tracks']} / {h['new_program_total']}")
+    line('无主段时间衰减生效的首数', lambda h: str(h['decay_tracks']))
+    return '\n'.join(out) + '\n'
+
+
+def plot_live(rows, results, figures):
+    """每页 3 首：上 = 输入逐小节段响度（灰）、D（虚线）、各标签第 j 小节播放时手里的 I（I_{j−1}）；下 = 各标签的 m 与 c。顶上一条是段落标签。"""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    plt.rcParams['font.sans-serif'] = ['Noto Sans CJK SC', 'Noto Sans CJK JP', 'DejaVu Sans']
+    plt.rcParams['axes.unicode_minus'] = False
+    os.makedirs(figures, exist_ok=True)
+    colours = {'intro': '#4e79a7', 'drop': '#e15759', 'breakdown': '#59a14f', 'outro': '#9c755f', 'transition': '#bab0ac', 'exclude': '#ffffff'}
+    lines = ['#f28e2b', '#76b7b2', '#b07aa1', '#edc948']
+    by_tag = {res['tag']: {t['row']['track']: t for t in res['tracks']} for res in results}
+    shown = [r for r in rows if any(r['track'] in tracks for tracks in by_tag.values())]
+    pages = [shown[i:i + 3] for i in range(0, len(shown), 3)]
+    for page_index, page in enumerate(pages):
+        fig, axes = plt.subplots(len(page) * 2, 1, figsize=(16, 4.4 * len(page)), gridspec_kw={'height_ratios': [1.6, 0.8] * len(page)})
+        for i, r in enumerate(page):
+            top, bottom = axes[2 * i], axes[2 * i + 1]
+            first = next(tracks[r['track']] for tracks in by_tag.values() if r['track'] in tracks)
+            bars = [b['bar'] for b in first['bars']]
+            top.plot(bars, [b['segment_lufs'] for b in first['bars']], color='#999999', lw=0.8, drawstyle='steps-mid', label='段响度（输入）')
+            top.axhline(first['row']['drop_lufs'], color='#e15759', lw=1, ls='--', label='D（drop 响度）')
+            for j, (tag, tracks) in enumerate(by_tag.items()):
+                if r['track'] not in tracks:
+                    continue
+                t = tracks[r['track']]
+                colour = lines[j % len(lines)]
+                top.plot(bars, [b['i_held'] for b in t['bars']], color=colour, lw=1.4, drawstyle='steps-post', label=f'I（{tag}）')
+                bottom.plot(bars, [b['mainness'] for b in t['bars']], color=colour, lw=0.9, drawstyle='steps-mid', label=f'm 首判（{tag}）')
+                if any(math.isfinite(b.get('mainness_final', math.nan)) for b in t['bars']):
+                    bottom.plot(bars, [b.get('mainness_final', math.nan) for b in t['bars']], color=colour, lw=0.7, ls='--', drawstyle='steps-mid',
+                                label=f'm 终判（{tag}）')
+                bottom.plot(bars, [b['confidence'] for b in t['bars']], color=colour, lw=0.9, ls=':', label=f'c（{tag}）')
+            for b in first['bars']:
+                top.axvspan(b['bar'] - 0.5, b['bar'] + 0.5, ymin=0.95, ymax=1.0, color=colours.get(b['label'], '#ffffff'))
+            finite = [v for v in [b['segment_lufs'] for b in first['bars']] if math.isfinite(v)]
+            if finite:
+                top.set_ylim(max(min(finite), first['row']['drop_lufs'] - 14.0 if math.isfinite(first['row']['drop_lufs']) else min(finite)) - 1.0,
+                             max(finite) + 2.0)
+            top.set_xlim(0.5, len(bars) + 0.5)
+            bottom.set_xlim(0.5, len(bars) + 0.5)
+            bottom.set_ylim(-0.05, 1.05)
+            row = first['row']
+            top.set_title(f"{r['class']} {r['track']}  {float(r['bpm']):.2f} BPM{'' if reliable_tempo(r) else '【速度低置信】'}  首个 drop {row['first_drop_bar'] or '—'}  "
+                          f"D {fmt(row['drop_lufs'])}  I_end − D {fmt(row['m1_final_minus_drop'], 2, True)}  M2 中位 {fmt(row['m2_median'])}", fontsize=9, loc='left')
+            top.grid(axis='x', alpha=0.3)
+            bottom.grid(axis='x', alpha=0.3)
+            bottom.set_xticks(range(1, len(bars) + 1, 8))
+            if i == 0:
+                top.legend(fontsize=7, ncol=6, loc='lower left')
+                bottom.legend(fontsize=7, ncol=6, loc='lower left')
+        fig.tight_layout()
+        fig.savefig(os.path.join(figures, f'live-{page_index + 1:02d}.png'), dpi=60)
+        plt.close(fig)
+    return len(pages)
+
+
+def cmd_analyze_live(args):
+    rows = load_manifest(args.work)
+    labels = load_labels(args.work, args.labels, args.auto_labels)
+    root = os.path.join(args.work, LIVE_DIR)
+    tags = args.tags.split(',') if args.tags else sorted(t for t in os.listdir(root) if os.path.isdir(os.path.join(root, t, 'traces')))
+    results = []
+    for tag in tags:
+        result = analyze_live_tag(args.work, tag, rows, labels)
+        base = live_dir(args.work, tag)
+        with open(os.path.join(base, 'analysis.md'), 'w', encoding='utf-8') as f:
+            f.write(live_tag_markdown(result))
+        write_live_csv(os.path.join(base, 'tracks.csv'), [t['row'] for t in result['tracks']])
+        write_live_csv(os.path.join(base, 'bars.csv'), [b for t in result['tracks'] for b in t['bars']])
+        write_live_csv(os.path.join(base, 'breakdowns.csv'), [b for t in result['tracks'] for b in t['breakdowns']])
+        print(f'analyze-live：{tag} {len(result["tracks"])} 首 → {base}/analysis.md、tracks.csv、bars.csv、breakdowns.csv', flush=True)
+        results.append(result)
+    text = live_combined_markdown(results)
+    print(text)
+    if args.out:
+        with open(args.out, 'w', encoding='utf-8') as f:
+            f.write(text)
+    if args.figures:
+        pages = plot_live(rows, results, args.figures)
+        print(f'analyze-live：图 {pages} 页 → {args.figures}', flush=True)
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description='T-038 第 5 步标定（Jamendo 45 首）')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -572,9 +1179,29 @@ def main(argv):
     p.add_argument('work')
     p.add_argument('--labels')
     p.add_argument('--out')
+    p = sub.add_parser('prep-synthetic', help='T-048：合成 House 两首摆成工作目录（manifest.tsv、labels-auto.tsv）')
+    p.add_argument('work')
+    p = sub.add_parser('render-live', help='T-048：逐首跑实时画像追踪（celadon_render --live-trace --live-only）')
+    p.add_argument('work')
+    p.add_argument('render')
+    p.add_argument('-j', '--jobs', type=int, default=12)
+    p.add_argument('--tag', default='default', help='输出分组 live/<标签>/（一组常数一个标签）')
+    p.add_argument('--genre', default='auto', choices=('auto', 'general') + CLASSES, help='auto = 各首的 House 子类；general = 通用档（响度型）')
+    p.add_argument('--live-constants', help='原样交给 celadon_render --live-constants')
+    p.add_argument('--live-model', choices=('fourOnFloor', 'loudness', 'passive'), help='原样交给 celadon_render --live-model')
+    p.add_argument('--block', type=int, default=512, help='宿主块长（默认同渲染工具；块长 512 / 4096 的对照见 T-048 REPORT-C 2.4 节）')
+    p = sub.add_parser('analyze-live', help='T-048：因果重放指标（M1 ～ M4 等），写 live/<标签>/ 下的 analysis.md 与 CSV')
+    p.add_argument('work')
+    p.add_argument('--labels', help='改标（同 analyze）')
+    p.add_argument('--auto-labels', help='自动标签 labels-auto.tsv（默认 <工作目录>/labels-auto.tsv）')
+    p.add_argument('--tags', help='逗号分隔；默认 live/ 下全部有 traces/ 的标签')
+    p.add_argument('--out', help='几个标签并排的汇总 markdown')
+    p.add_argument('--figures', help='出图目录（每页 3 首：I、m、c 的轨迹）')
     args = parser.parse_args(argv)
-    {'prep': cmd_prep, 'render': cmd_render, 'label': cmd_label, 'analyze': cmd_analyze}[args.command](args)
+    commands = {'prep': cmd_prep, 'render': cmd_render, 'label': cmd_label, 'analyze': cmd_analyze, 'prep-synthetic': cmd_prep_synthetic,
+                'render-live': cmd_render_live, 'analyze-live': cmd_analyze_live}
+    return commands[args.command](args) or 0
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))

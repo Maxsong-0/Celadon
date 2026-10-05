@@ -1,0 +1,73 @@
+# 2026-10-04 00:08:14 PDT  src=/home/maxsong/.cache/celadon-spark/tmp/P1T/rev-q6  args=--only MusicAnalyzerLive
+# uptime:  00:08:14 up  4:37,  3 users,  load average: 5.45, 5.12, 3.78
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+Random seed: 0x311da9
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode off vs on: everything the controller reads from the analyzer is bit-identical, block by block (65 s, three scripts)...
+  House: learn, stop, recompute, relearn, stop, clear: 33 live segments, House ledger 2 stored, 32 finalized
+  general: learn, stop, relearn: 33 live segments, House ledger 0 stored, 0 finalized
+  mixed: genre switches, learning, a jump and a loop wrap: 36 live segments, House ledger 21 stored, 22 finalized
+Completed tests in MusicAnalyzerLive / live mode off vs on: everything the controller reads from the analyzer is bit-identical, block by block (65 s, three scripts)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode off vs on: CeladonChain output is bit-identical (general and Deep House, learn / commit / relearn / jump, 69 s)...
+  general: 2 learning starts, 2 commits, 1 jumps, 36 live segments
+  Deep House: 2 learning starts, 2 commits, 1 jumps, 36 live segments
+Completed tests in MusicAnalyzerLive / live mode off vs on: CeladonChain output is bit-identical (general and Deep House, learn / commit / relearn / jump, 69 s)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode: segments arrive in time order, once each, end-to-end contiguous across learning, genre switches, jumps and loops...
+  bars: 28 segments over 48 s
+  2-second cells: 25 segments over 48 s
+Completed tests in MusicAnalyzerLive / live mode: segments arrive in time order, once each, end-to-end contiguous across learning, genre switches, jumps and loops
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode: the delivered segments are bit-identical for host blocks of 7, 32, 480, 512 and 4096 samples...
+Completed tests in MusicAnalyzerLive / live mode: the delivered segments are bit-identical for host blocks of 7, 32, 480, 512 and 4096 samples
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live trial data: every valid block lands in its segment when not learning; live* == trial* while learning (on and off)...
+  live on: 9 idle bars, 9 learning bars, 4 bars after the stop
+Completed tests in MusicAnalyzerLive / live trial data: every valid block lands in its segment when not learning; live* == trial* while learning (on and off)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live mode: the audio-thread API does not allocate (both ledgers, sink delivery, genre switches, discontinuities)...
+Completed tests in MusicAnalyzerLive / live mode: the audio-thread API does not allocate (both ledgers, sink delivery, genre switches, discontinuities)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / chain pass-through: the live sink survives reset, prepare and a state restore; nullptr turns it off...
+  segments: 4 after 8 s, 8 after reset, 12 after prepare, 16 after restore, 17 after turning it off
+Completed tests in MusicAnalyzerLive / chain pass-through: the live sink survives reset, prepare and a state restore; nullptr turns it off
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (general / House learning)...
+  analyzer @48k block 512 - live off, learning: mean 38.00 us, worst 42.00 us; live off, not learning: mean 3.17 us, worst 4.00 us; live on, general, not learning: mean 37.50 us, worst 42.00 us; live on, House, learning: mean 38.28 us, worst 44.00 us (guard 75 us)
+Completed tests in MusicAnalyzerLive / performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (general / House learning)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5a: learning stopped on real block boundaries - live segments identical for blocks 7 / 32 / 480 / 512 / 4096 (all but learning-period fields)...
+Completed tests in MusicAnalyzerLive / B2 5a: learning stopped on real block boundaries - live segments identical for blocks 7 / 32 / 480 / 512 / 4096 (all but learning-period fields)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5a: CeladonChain commits / locks on its own block boundaries - live segments identical for host blocks 7 / 32 / 480 / 512 / 4096...
+Completed tests in MusicAnalyzerLive / B2 5a: CeladonChain commits / locks on its own block boundaries - live segments identical for host blocks 7 / 32 / 480 / 512 / 4096
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5b: the same audio gives identical live segments learning from the start and not learning after a state load...
+Completed tests in MusicAnalyzerLive / B2 5b: the same audio gives identical live segments learning from the start and not learning after a state load
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5b: CeladonChain - the second pass (state restored, not learning) delivers the same live segments as the first (learning)...
+Completed tests in MusicAnalyzerLive / B2 5b: CeladonChain - the second pass (state restored, not learning) delivers the same live segments as the first (learning)
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5c: advanceTo is called every processInput / processSpectrum, never goes back, and means 'every segment ending by T has been delivered'...
+  24 segments, 1708 reports over 849 blocks; last report 1728777
+Completed tests in MusicAnalyzerLive / B2 5c: advanceTo is called every processInput / processSpectrum, never goes back, and means 'every segment ending by T has been delivered'
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5d: turning live mode off hands the last host block's Balance frames to the last segment...
+  last segment frames: 84 with the fix, 77 without
+Completed tests in MusicAnalyzerLive / B2 5d: turning live mode off hands the last host block's Balance frames to the last segment
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / B2 5f: playback from bar N (start = the bar line rounded to a sample): the first live segment is bar N from sample 0, no 1-sample piece...
+Completed tests in MusicAnalyzerLive / B2 5f: playback from bar N (start = the bar line rounded to a sample): the first live segment is bar N from sample 0, no 1-sample piece
+-----------------------------------------------------------------
+Starting tests in: MusicAnalyzerLive / live gates: a program 28 dB quieter stays gated for the first 20 s, then forgetting speeds up and all three gates open within 65 s...
+!!! Test 3 failed: block 512: 65 s after the switch all three gates are open (19 of 19 bars pass less than 90 % of a loud bar)
+!!! Test 6 failed: block 4096: 65 s after the switch all three gates are open (19 of 19 bars pass less than 90 % of a loud bar)
+
+FAILED!!  2 tests failed, out of a total of 7
+
+
+==== celadon_tests: 131 passed, 2 failed ====
+TEST_EXIT=1  elapsed=36s
+# uptime after:  00:08:50 up  4:37,  3 users,  load average: 4.08, 4.80, 3.73

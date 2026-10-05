@@ -114,6 +114,8 @@ set(CELADON_DSP_SOURCES
     Source/dsp/ReferenceSpectrum.cpp
     Source/dsp/ReleaseSafety.cpp
     Source/dsp/SegmentLedger.cpp
+    Source/dsp/LiveProfile.cpp
+    Source/dsp/ClayTrials.cpp
     Source/dsp/BalanceModule.cpp
     Source/dsp/CeladonChain.cpp
     Source/dsp/ClayGuard.cpp
@@ -200,6 +202,8 @@ add_executable(celadon_tests
     tests/AnalyzerTapTests.cpp
     tests/LocalisationTests.cpp
     tests/SegmentLedgerTests.cpp
+    tests/LiveProfileTests.cpp
+    tests/ClayTrialsTests.cpp
     tests/SpectrumAnalyserTests.cpp)
 
 # 只对我们自己的代码开严格警告，JUCE 模块按 JUCE 自己的标准编。

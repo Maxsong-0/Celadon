@@ -1,0 +1,64 @@
+        // P1T 诊断（只在源码副本里编，不进仓库）：前 60 s 或 300 s 原样、之后整段压低 28 dB（曲长约 1207 s），量三道门各自从换了之后多少秒起
+        // 「第一次」与「一直」放过 ≥ 响小节 90 % 的量（帧 / 有效子块 / 有效起音样本）。对照 9e8575a 提交说明「轻 28 dB 约 1 分钟内过门
+        // （原来 5～13 分钟）」：1200248（没有 ⑥）与 HEAD 各跑一遍。
+        void testP1TQuietLong()   // 加进 MusicAnalyzerLiveTests：runTest 里 testStartFromBarN() 之后调；块长 4096、通用档
+        {
+            beginTest ("P1T diag: a program 28 dB quieter for 15 minutes - when does each live gate open?");
+
+          for (const auto loudSeconds : { 60.0, 300.0 })
+          {
+            auto track = makeHouseTrack (48000.0, 4, 620, 0.0, 98);   // 4 + 620 小节 ≈ 1207 s
+            const auto switchAt = samplesAt (loudSeconds);
+
+            for (auto& channel : track)
+                for (size_t i = (size_t) switchAt; i < channel.size(); ++i)
+                    channel[i] *= (float) juce::Decibels::decibelsToGain (-28.0);
+
+            const auto collector = runLive (track, 4096, glaze::Genre::general, 0, {});
+            const auto& segments = collector->segments;
+            const auto whole = [] (const SegmentLedger::Segment& s) { return s.end - s.start == s.nominalLength; };
+
+            std::int64_t loudFrames = std::numeric_limits<std::int64_t>::max(), loudOnset = loudFrames;
+            int loudSubBlocks = std::numeric_limits<int>::max();
+
+            for (const auto& s : segments)
+            {
+                if (whole (s) && s.start >= samplesAt (12.0) && s.end <= switchAt)
+                {
+                    loudFrames = juce::jmin (loudFrames, s.frames);
+                    loudOnset = juce::jmin (loudOnset, s.onsetEffectiveSamples);
+                    loudSubBlocks = juce::jmin (loudSubBlocks, s.effectiveSubBlocks);
+                }
+            }
+
+            double firstOpen[3] = { -1.0, -1.0, -1.0 }, forGood[3] = { 0.0, 0.0, 0.0 };
+            double lastEnd = 0.0;
+
+            for (const auto& s : segments)
+            {
+                if (! whole (s) || s.start < switchAt)
+                    continue;
+
+                const auto startAfter = (double) (s.start - switchAt) / 48000.0;
+                const auto endAfter = (double) (s.end - switchAt) / 48000.0;
+                lastEnd = endAfter;
+                const bool open[3] = { s.frames * 10 >= loudFrames * 9, s.effectiveSubBlocks * 10 >= loudSubBlocks * 9,
+                                       s.onsetEffectiveSamples * 10 >= loudOnset * 9 };
+
+                for (int g = 0; g < 3; ++g)
+                {
+                    if (open[g] && firstOpen[g] < 0.0)
+                        firstOpen[g] = startAfter;
+
+                    if (! open[g])
+                        forGood[g] = endAfter;
+                }
+            }
+
+            logMessage ("  P1T diag (loud " + juce::String (loudSeconds, 0) + " s, " + juce::String ((double) (track.front().size() - (size_t) switchAt) / 48000.0, 0) + " s after the switch, last whole bar ends "
+                        + juce::String (lastEnd, 1) + " s): first open / open for good - frames " + juce::String (firstOpen[0], 1) + " / "
+                        + juce::String (forGood[0], 1) + " s, effective sub-blocks " + juce::String (firstOpen[1], 1) + " / " + juce::String (forGood[1], 1)
+                        + " s, effective onset samples " + juce::String (firstOpen[2], 1) + " / " + juce::String (forGood[2], 1) + " s");
+            expect (true);
+          }
+        }

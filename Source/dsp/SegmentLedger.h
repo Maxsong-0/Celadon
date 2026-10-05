@@ -14,6 +14,8 @@
         恒定速度下与宿主怎么分块无关（逐位相同）；变速时每次重新锚定，允许偏差。
       - 段的身份 = (分段方式, 是否按位置, 位置键)。小节的键 = round(小节起点 PPQ × keyScale)（与拍号历史无关，换过拍号也不撞）；
         按位置的 2 秒段的键 = 宿主位置 ÷ 段长（向下取整）。
+      - 同一段重新锚定时，这一次实例最长两段（两小节，或拍点外的两段）：再长就截到这个长度、另开新段。冻结的播放头不会把一段无限拉长；
+        正常播放一段就是一小节（或一个 2 秒段），碰不到这条。两小节 ≤ 12.8 s，与实时画像读档的段长上界是同一个「坏段」。
       - 播放从段中间开始时，这一次实例从开始播放的那个样本起（start 晚于段的起点）；「听到一半」按整段的标称长度算。
 
     二、记账（openSegmentAt：分析器三路数据各按自己的时间戳找所在的段，跨段边界的按起点归属）
@@ -66,6 +68,8 @@
 
 namespace celadon::glaze
 {
+    class SegmentSink;   // T-048：段定稿的接收者，定义在本文件末尾
+
     class SegmentLedger
     {
     public:
@@ -143,6 +147,17 @@ namespace celadon::glaze
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> trialTop {};   // 每一路最大的 8 个（降序）
             std::array<double, (size_t) blendSeries> blendIntended {}, blendOutput {};   // 混合损失候选：各有效块两份 K 加权能量之和
 
+            // ---- T-048 实时试算（口径同上面三项，只差「什么时候记」；只给实时画像 LiveProfile 读）----
+            // 分析器有两份账（MusicAnalyzer.cpp 第「七」节）：
+            //   - House 门控那一份：上面三项与下面三项都只在学习期间记、数值相同（House 门控画像只用学习区间的试算；实时模式开不开都一样，
+            //     所以 House 方案逐位不变）；
+            //   - 实时段落账（实时模式开着才有）：下面三项在候选真跑的每一块都记（候选在实时模式下一直跑），上面三项仍只在学习期间记。
+            //     它的三道相对门（帧门、子块有效门、起音组有效门）参考它自己的长期参考，不参考学习区间（同一节 ①～⑥），所以除上面三项外，
+            //     段与学不学习、宿主块长无关。
+            int liveTrialBlocks = 0;
+            std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> liveTrialTop {};
+            std::array<double, (size_t) blendSeries> liveBlendIntended {}, liveBlendOutput {};
+
             // ---- 定稿时算出 ----
             double effectiveSeconds = 0.0;
             bool heard = false;
@@ -179,6 +194,10 @@ namespace celadon::glaze
         // 门控与分段用的常数（编排器经分析器交来；只拷贝、清洗几个数）。
         void setConstants (const HouseConstants& constants) noexcept;
 
+        // T-048：段定稿的接收者（nullptr = 不交）。只存指针，不拥有；在开始处理音频之前设，处理中不换。
+        void setSink (SegmentSink* newSink) noexcept   { sink = newSink; }
+        SegmentSink* getSink() const noexcept          { return sink; }
+
         // 清空段落账（「重新聆听」、宿主复位、读取工程）。acceptFrom = 门块 / 短期响度窗口最早的样本不早于它才收（同分析器学习区间）。
         // 不分配、不清零账本的内容（只把计数归零）。事件序号与新响段计数跨 reset 单调。
         void reset (std::int64_t acceptFrom = 0) noexcept;
@@ -188,6 +207,10 @@ namespace celadon::glaze
 
         // 不连续点 / 换曲风：没定稿的段就地定稿，下一块重新锚定。acceptFrom 同 reset。
         void endEpoch (std::int64_t acceptFrom) noexcept;
+
+        // T-048：同 endEpoch，但先把开着的段截到 dataEnd（数据只送到这里；之后的样本属于下一条时间轴的新段）再就地定稿——
+        // 交出去的段 [start, end) 首尾相接（分析器实时模式用；House 门控那一份照旧用 endEpoch，不截）。start 晚于 dataEnd 的段截成空段。
+        void endEpochAt (std::int64_t dataEnd, std::int64_t acceptFrom) noexcept;
 
         // ---- 记账（音频线程）----
         // time 所在的、还没定稿的段；没有就是 nullptr。hint = 调用方自己的缓存（每路一个，初值 −1），连续查同一段时不扫池。
@@ -249,6 +272,7 @@ namespace celadon::glaze
         std::int64_t boundary (std::int64_t index) const noexcept;
         std::int64_t keyOf (std::int64_t index) const noexcept;
         std::int64_t indexAt (std::int64_t time) const noexcept;
+        std::int64_t maxInstanceSamples() const noexcept;
         void openSegment (std::int64_t index, std::int64_t start) noexcept;
         Segment& newest() noexcept               { return pool[(size_t) order[(size_t) ((openHead + openCount - 1) % maxOpenSegments)]]; }
         const Segment& newest() const noexcept   { return pool[(size_t) order[(size_t) ((openHead + openCount - 1) % maxOpenSegments)]]; }
@@ -308,5 +332,25 @@ namespace celadon::glaze
         std::uint32_t surgeCount = 0;
         std::uint32_t finalizedCount = 0;
         std::uint32_t storedRevision = 0;
+
+        SegmentSink* sink = nullptr;              // T-048：见 setSink
+    };
+
+    // T-048 段定稿的接收者（实时画像 LiveProfile 实现它；设计规格-实时GLAZE-主段与增益 第 1 节）。
+    // SegmentLedger 每定稿一段调一次 segmentFinalized：不论这一段存没存进账本（没有有效音频、账本满了、重放不如旧值都照样交），
+    // 交的是 deriveSegment 之后的段（effectiveSeconds / loudnessLufs / lowShare / heard 已算好；full 是账本自己的门控结果，接收者不用）。
+    // 不连续点（endEpoch）就地定稿的段同样交。音频线程调用：实现必须 0 分配、0 锁、不抛异常。
+    class SegmentSink
+    {
+    public:
+        virtual ~SegmentSink() = default;
+        virtual void segmentFinalized (const SegmentLedger::Segment& segment) noexcept = 0;
+
+        // T-048 阶段 1 修订（Max 2026-10-02 选「回看重判」）：分析器每处理完一块（processInput、processSpectrum 末尾各一次）报告实时段落账
+        // **交齐的位置** T（样本，与 Segment 的 start / end 同一条实时时间轴；分析器 / 表 reset、prepare 之后接着往后数，单调不减）：
+        // 报 T 时 end ≤ T 的段都已交出，之后交来的段 end > T。T 比此刻的输入位置晚（段要等四路数据都越过段尾才定稿，约 0.1～0.3 s 再加一块）；
+        // 正因为报交齐位置而不是此刻，接收者在 ≤ T 的**绝对样本网格**上安排的工作（实时画像的回看重算分片、按时刻发布）只取决于段序列与 T，
+        // 不取决于被调了几次、宿主块多长（MusicAnalyzer.h「时间轴与 advanceTo」）。默认什么都不做。音频线程：0 分配、0 锁、不抛异常。
+        virtual void advanceTo (std::int64_t analyzerTime) noexcept   { (void) analyzerTime; }
     };
 }
