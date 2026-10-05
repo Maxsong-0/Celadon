@@ -106,6 +106,11 @@ T-070（夜间评审 `wf_3e784f42-2fa` 指出的覆盖缺口）再加：
   或那一帧自己耗时 ≥ 100 ms（慢机、Debug、机器被占满），看门狗就按墙钟再推一次，`--deterministic` 的出图随机器快慢变。现在 `advanceForSnapshot`
   给编辑器打上 `snapshotDriven`，看门狗整个关掉。检查：6 kHz 正弦 0.5 s（每帧 `advanceForSnapshot`）后让消息循环跑 300 ms（定时器约触发 9 次），
   频谱仪的路径重建次数（`getCurveBuildCount`）不得增加；改前（main `43d788b` 的编辑器 + 这一条检查）实测重建 2 次、败。注入停顿的红绿证据见 `docs/validation/2026-10-04-T072-snapshot-no-timer-push/`。
+- **T-073：PEAK 关着时看不见的峰值线不进脏区**（T-070 评审 SV-2，Max 10-05 拍板「按你的建议来」，`probeRegionWithoutPeak`）。`SpectrumView::curveRegion`
+  （增量重画按它标脏）原来不论 PEAK 开关都算峰值线（R-02 ②，T-058 起是第二道保险）；T-073 去掉：只在 PEAK 开着时算。检查：两个时间轴（PEAK 开 / 关）喂同一段声音
+  （6 kHz −12 dBFS 正弦 1 s → 静音 0.2 s：OUT 与平均线已落下去，峰值保持仍在顶上），PEAK 开的区域顶必须比关的高出 20 px 以上；改回「不论开关都算」
+  或改成「永远不算」，两个方向差都是 0、都败。PEAK 关 → 开、开 → 关时的重画（残影、此刻的数据）仍由 S9 / S9b / S10 / S12 守着。
+  红绿证据见 `docs/validation/2026-10-05-T073-peak-off-dirty-region/`。下面 T-058 的红绿表与 S9 说明里的「② 第二道保险」是当时的口径（② 已去掉）。
 
 红绿验证（临时副本里用 `variants_t058.py` / `variants_t070.py` 换 `SpectrumView.cpp` 的变体、增量编译、跑 `--only check`；做法与输出见
 `docs/validation/2026-10-04-T058-spectrum-peak-off/`，**T-070 把变体扩到 26 个（T-058 的 11 个 + 14 个新的）、检查扩到 25 条，红绿表见

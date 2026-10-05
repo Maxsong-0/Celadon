@@ -1,0 +1,114 @@
+PASS checks run at zoom 1 (editor 1200 x 820; needs 1200 x 820 and a virtual screen of at least 1240 x 900)
+PASS drag GLAZE +50 px -> 65 % (65.00)
+PASS value bubble visible while dragging
+PASS corner note shows the interaction hint while dragging
+PASS value bubble hidden after release
+PASS fine drag +50 px -> 67.5 % (67.50)
+PASS double-click -> default 35 %
+PASS Alt-click opens the value entry with the current value (35)
+PASS key-ups are consumed while the value entry is open
+PASS typed value 60 + Return is applied
+PASS key-ups pass through again once the entry is closed
+PASS full-width IME digits (55.5) are applied (55.50)
+PASS wheel steps (coarse 1.40, fine 0.20)
+PASS slider click at the middle -> Mix 50 % (50.0)
+PASS style segment 3 -> Punchy
+PASS Clay low cut -> Manual
+PASS manual low cut value drags (25.0 -> 35.8 Hz)
+PASS genre: last segment -> Melodic-Progressive
+PASS genre: the caption cell is not a choice
+PASS delivery: last segment -> Club
+PASS genre / delivery sit either side of the knob (233 302 237 26, 730 302 173 26)
+PASS host changes show up on both selectors
+PASS COLOR power button bypasses
+PASS AUTO chip turns auto release off
+PASS Match turns loudness-matched listening on
+PASS A / B -> B listens to the original
+PASS A / B -> back to A
+PASS LIMIT headphones -> listening to the difference
+PASS B turns the difference audition off
+PASS headphones while in B -> back to A and auditioning
+PASS bypassing LIMIT ends the audition and disables the headphones
+PASS disabled headphones cannot start an audition
+PASS headphones are enabled again with LIMIT on
+PASS Advanced opens its panel
+PASS the close button hides the Advanced panel
+PASS reference learning waits for an actual sidechain
+PASS reference learning can be cancelled
+PASS release preview widget enables monitoring
+PASS original audition disables release preview
+PASS release preview restores processed audio
+PASS difference audition disables release preview
+PASS preview disables difference audition
+PASS offline export disables release preview
+PASS input_meter visible readout resets peak hold
+PASS output_meter visible readout resets peak hold
+PASS Release difference stays exactly zero at 44100 Hz / 1 ms
+PASS Release difference stays exactly zero at 44100 Hz / 2 ms
+PASS Release difference stays exactly zero at 44100 Hz / 10 ms
+PASS Release difference stays exactly zero at 48000 Hz / 1 ms
+PASS Release difference stays exactly zero at 48000 Hz / 2 ms
+PASS Release difference stays exactly zero at 48000 Hz / 10 ms
+PASS Release difference stays exactly zero at 96000 Hz / 1 ms
+PASS Release difference stays exactly zero at 96000 Hz / 2 ms
+PASS Release difference stays exactly zero at 96000 Hz / 10 ms
+PASS loading an old session neutralises all new processing in a used instance
+PASS Processor accepts stereo reference sidechain
+PASS reference routing test uses audio distinct from the main input
+PASS connected reference audio never leaks into main output at GLAZE 0
+PASS Processor learns a real sidechain through the host bus
+PASS Processor state restores learned reference
+PASS same-spec reprepare preserves learned reference
+PASS language selector -> English
+PASS corner note follows the language (Drives 7 parameters)
+PASS T-032 layered porcelain within 2 LSB of renderGlaze (worst 2 at scale 0.625 t 0 px (88, 13) #aa999d99 vs #aa9b9e9a reference vs layered; of 31376720 px: off by 1 2510011, by 2 3405, by more 0)
+PASS T-032 porcelain layers rebuilt only when the image size changes (10 builds for 10 scales)
+PASS T-032 GLAZE knob: 5 band repaints only blit its cached face (5 paints, 0 face renders)
+PASS T-032 GLAZE knob: a value change re-composes the face once (1)
+PASS T-032 GLAZE knob: listening to the original re-composes the face once (1)
+PASS T-032 the 10 text widgets in the particle band have aligned image caches
+PASS T-032 band repaints read the GLAZE title from its cache (5 reads, 0 re-renders of 5)
+PASS T-032 particle glow and streamlines stay cached across frames (1 / 1 renders so far)
+PASS T-032 particle frame pacing locks to whole VBlanks at 30 fps [60.000 Hz: every 2 (strict >= 1/30 s: up to 3); 60.001 Hz: every 2 (strict >= 1/30 s: up to 3); 59.940 Hz: every 2 (strict >= 1/30 s: up to 2); 60.000 Hz +/-1.5 ms: every 2 (strict >= 1/30 s: up to 3); 90.000 Hz: every 3 (strict >= 1/30 s: up to 4); 120.000 Hz: every 4 (strict >= 1/30 s: up to 5); 120.000 Hz +/-1.0 ms: every 4 (strict >= 1/30 s: up to 5); 144.000 Hz: every 5 (strict >= 1/30 s: up to 5)]
+PASS T-032 bottom row re-laid out after the Match text changed (等响 关)
+PASS T-032 bottom row re-laid out for English (Relearn)
+PASS T-032 latency label follows the language at once (LAT 28.8 ms)
+PASS T-032 bottom row and latency label back to Chinese
+PASS T-036 the spectrum's legend toggles, slope control and loudness HUD have aligned image caches (5 of 5)
+PASS T-032 Advanced panel refreshes the stored status when it opens (开启归一化预听 -> 退出预听)
+PASS T-032 status pill has an aligned image cache and pulses by invalidating only its dot (77 7 14 14 of 0 0 350 28)
+PASS T-032 a content change re-renders the whole pill into its cache (3 text item(s))
+PASS T-032 repaints from elsewhere only blit the cached pill (1 read, 0 re-render, 0 text)
+PASS T-032 a pulse frame re-renders only the dot into the cache and lays out no text (pill 0, top bar 0)
+PASS T-041 at fractional pixel ratios a pulse frame re-renders only the dot, lays out no text at >= 1x (at most the first segment below 1x) and matches a full re-render (1.00000: pill 0, bar 0, writes 1 of 1, vs full 0; 1.03293: pill 0, bar 0, writes 1 of 1, vs full 0; 1.25000: pill 0, bar 0, writes 1 of 1, vs full 0; 1.50000: pill 0, bar 0, writes 1 of 1, vs full 0; 1.75000: pill 0, bar 0, writes 1 of 1, vs full 0; 2.50000: pill 0, bar 0, writes 1 of 1, vs full 0; 0.70000: pill 0, bar 0, writes 1 of 1, vs full 0; 0.80000: pill 0, bar 0, writes 1 of 1, vs full 0; 0.90000: pill 0, bar 0, writes 1 of 1, vs full 0)
+PASS T-041 aligned cache re-renders only the invalidated area at ratios 0.7 - 2.5 and matches a full re-render (20 cases x 2)
+PASS T-051 IN dashes: createDashedStrokeReusing matches juce::PathStrokeType::createDashedStroke bit for bit (84 / 84 polylines)
+PASS T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; 0 ghosts over 1562 frames; spectrum marked dirty in 0 / 0 of the last 60 steady frames, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; 0 ghosts over 124 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, slope 0, silence 5.5 - 6 s: 0 / 0 of 30 frames reach the curve area, 0 / 0 path rebuilds, needs 0)
+PASS T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 4.5, 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; 0 ghosts over 124 frames)
+PASS T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, slope 4.5, silence 5.5 - 6 s: 0 / 0 of 30 frames reach the curve area, 0 / 0 path rebuilds, needs 0)
+PASS T-070 spectrum incremental repaint == full repaint (S9b: GLAZE 0, slope 0, 6 kHz -12 dBFS sine 2 s, silence to 5.5 s, 30 frames, peak off, 30 frames; 0 ghosts over 122 frames)
+PASS T-070 spectrum incremental repaint == full repaint (S9b: GLAZE 0, slope 4.5, 6 kHz -12 dBFS sine 2 s, silence to 5.5 s, 30 frames, peak off, 30 frames; 0 ghosts over 122 frames)
+PASS T-070 spectrum incremental repaint == full repaint (S11: GLAZE 0, music, peak off, IN on, slope 0 -> 3, IN off, IN on; 0 ghosts over 153 frames)
+PASS T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5, hover at 3 kHz; 0 ghosts over 121 frames)
+PASS T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at that moment, 0 of 30 later frames differ)
+PASS T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at that moment, 0 of 30 later frames differ)
+PASS T-058 spectrum: the hover readout shows this moment's value (S10c: peak off, slope 0, mouse to 6 kHz, readout area only at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: identical at that moment, 0 of 30 later frames differ)
+PASS T-070 spectrum: a long-running view draws what a view built from scratch draws (S12a: 6 kHz -12 dBFS sine 2 s, silence, peak off, slope 0 -> 4.5, hover: 15 / 15 moments identical)
+PASS T-070 spectrum: a long-running view draws what a view built from scratch draws (S12a: 6 kHz -12 dBFS sine 2 s, silence, peak on, slope 0 -> 4.5, hover: 15 / 15 moments identical)
+PASS T-070 spectrum: a long-running view draws what a view built from scratch draws (S12b: IN on, peak off, 6 kHz -12 dBFS sine 10 s steady, slope 0 -> 3 -> 4.5: 12 / 12 moments identical)
+PASS T-070 spectrum: a long-running view draws what a view built from scratch draws (S12b: IN on, peak on, 6 kHz -12 dBFS sine 10 s steady, slope 0 -> 3 -> 4.5: 12 / 12 moments identical)
+PASS T-070 spectrum: a long-running view draws what a view built from scratch draws (S12c: white noise 2 s, silence, peak off, slope 4.5, tolerance 24 levels: 8 / 8 moments identical)
+PASS T-070 spectrum: a long-running view draws what a view built from scratch draws (S12d: 6 kHz -12 dBFS sine steady, peak off, slope 0, tolerance 24 levels: 4 / 4 moments identical)
+PASS T-070 spectrum: a long-running view draws what a view built from scratch draws (S12d: 6 kHz -12 dBFS sine steady, peak off, slope 4.5, tolerance 24 levels: 4 / 4 moments identical)
+PASS T-070 spectrum draws the data: S12 probe OUT fill (187 of 550 px under the OUT peak (x 852, y 26) differ from an empty view, needs >= 100)
+PASS T-070 spectrum draws the data: S12 probe average line (11 of 91 px at the average line's peak (x 1032, y 159, -57.0 dB, 14 frames after the sound stopped, OUT already below the panel) differ from an empty view, needs >= 5)
+PASS T-070 spectrum draws the data: S12 probe peak hold line (8 of 91 px at the peak hold line's peak (x 852, y 43, -17.8 dB) differ from an empty view, needs >= 5)
+PASS T-070 spectrum draws the data: S12 probe IN dashes (10 of 91 px at the IN curve's peak (x 852, y 26) differ from the same view with IN off, needs >= 3)
+PASS T-070 spectrum draws the data: S12 probe hover readout, slope 0 (readout "−22.79dB | 6.00kHz | F#8 + 23 音分" vs OUT -22.79 dB (the average line would read -98.90, the peak hold -12.00))
+PASS T-070 spectrum draws the data: S12 probe hover readout, slope 4.5 (readout "−11.16dB | 6.00kHz | F#8 + 23 音分" vs OUT -11.16 dB (the average line would read -87.26, the peak hold -0.37))
+PASS T-072 spectrum: an editor driven by advanceForSnapshot is not advanced by its own timer (6 kHz -12 dBFS sine 0.5 s, then 300 ms of message loop: 0 path rebuilds in 300 ms of message loop after the last advanceForSnapshot, needs 0)
+FAIL T-073 spectrum: the dirty curve region leaves out the peak line while PEAK is off and includes it while on (6 kHz -12 dBFS sine 1 s, silence 0.2 s: curve region top y = 23.4 with the peak line off, 23.4 with it on: the peak hold sits 0.0 px above the other curves, needs >= 20 px)
+1 interaction checks FAILED
+PASS editor close clears release preview

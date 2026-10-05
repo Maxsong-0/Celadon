@@ -1,0 +1,93 @@
+==== spectrum peak-off bench (T-058): GLAZE 0, 6 kHz -12 dBFS sine; each frame = 1 / fps s of audio, advanceForSnapshot, rect-list repaint of the dirty part of the spectrum (software renderer)
+     fr = frames; dirty = frames with the spectrum marked dirty; curves = of those, frames whose dirty region reaches the spectrum's bottom edge (setSpectrum rebuilt the curves, or a whole-spectrum repaint); dev px = device pixels repainted;
+     advance = advanceForSnapshot (analyser update + setSpectrum + the editor's other readouts); paint = the incremental repaint; ms, wall and thread CPU; cpu/fr = per frame on curve frames vs the others
+---- music | PEAK off | 60 fps | x1
+  music 0-1 s      | fr   60 dirty   59 curves   58 | dev px   7956114 | advance wall    9.247 cpu    9.235 (cpu/fr curve 0.145 other 0.401) | paint wall   57.355 cpu   57.367 (cpu/fr curve 0.955 other 1.967) | cpu   66.602
+  music 1-2 s      | fr   60 dirty   60 curves   60 | dev px   8349368 | advance wall    8.828 cpu    8.794 (cpu/fr curve 0.147 other -) | paint wall   59.003 cpu   59.013 (cpu/fr curve 0.984 other -) | cpu   67.807
+  music 2-3 s      | fr   60 dirty   60 curves   60 | dev px   8273428 | advance wall    8.628 cpu    8.630 (cpu/fr curve 0.144 other -) | paint wall   59.789 cpu   59.781 (cpu/fr curve 0.996 other -) | cpu   68.410
+  music 3-4 s      | fr   60 dirty   60 curves   60 | dev px   8157898 | advance wall    8.828 cpu    8.805 (cpu/fr curve 0.147 other -) | paint wall   45.701 cpu   45.713 (cpu/fr curve 0.762 other -) | cpu   54.518
+  music 4-5 s      | fr   60 dirty   60 curves   60 | dev px   8301154 | advance wall    8.788 cpu    8.762 (cpu/fr curve 0.146 other -) | paint wall   51.017 cpu   51.013 (cpu/fr curve 0.850 other -) | cpu   59.775
+  music 5-6 s      | fr   60 dirty   60 curves   60 | dev px   8327700 | advance wall    8.636 cpu    8.638 (cpu/fr curve 0.144 other -) | paint wall   51.585 cpu   51.588 (cpu/fr curve 0.860 other -) | cpu   60.227
+  music 6-7 s      | fr   60 dirty   60 curves   60 | dev px   8253060 | advance wall    8.659 cpu    8.657 (cpu/fr curve 0.144 other -) | paint wall   47.604 cpu   47.615 (cpu/fr curve 0.794 other -) | cpu   56.271
+  music 7-8 s      | fr   60 dirty   60 curves   60 | dev px   8226912 | advance wall    8.642 cpu    8.641 (cpu/fr curve 0.144 other -) | paint wall   49.137 cpu   49.149 (cpu/fr curve 0.819 other -) | cpu   57.790
+  = total          | fr  480 dirty  479 curves  478 | dev px  65845634 | advance wall   70.256 cpu   70.163 (cpu/fr curve 0.145 other 0.401) | paint wall  421.191 cpu  421.238 (cpu/fr curve 0.877 other 1.967) | cpu  491.402
+---- music | PEAK on  | 60 fps | x1
+  music 0-1 s      | fr   60 dirty   59 curves   58 | dev px   8738908 | advance wall    9.152 cpu    9.148 (cpu/fr curve 0.144 other 0.384) | paint wall   64.571 cpu   64.573 (cpu/fr curve 1.080 other 1.908) | cpu   73.721
+  music 1-2 s      | fr   60 dirty   60 curves   60 | dev px   9257952 | advance wall    8.693 cpu    8.694 (cpu/fr curve 0.145 other -) | paint wall   66.730 cpu   66.702 (cpu/fr curve 1.112 other -) | cpu   75.396
+  music 2-3 s      | fr   60 dirty   60 curves   60 | dev px   9206642 | advance wall    8.690 cpu    8.687 (cpu/fr curve 0.145 other -) | paint wall   67.732 cpu   67.749 (cpu/fr curve 1.129 other -) | cpu   76.436
+  music 3-4 s      | fr   60 dirty   60 curves   60 | dev px   9144728 | advance wall    8.796 cpu    8.790 (cpu/fr curve 0.147 other -) | paint wall   53.555 cpu   53.561 (cpu/fr curve 0.893 other -) | cpu   62.352
+  music 4-5 s      | fr   60 dirty   60 curves   60 | dev px   9225660 | advance wall    8.732 cpu    8.726 (cpu/fr curve 0.145 other -) | paint wall   59.246 cpu   59.223 (cpu/fr curve 0.987 other -) | cpu   67.948
+  music 5-6 s      | fr   60 dirty   60 curves   60 | dev px   9149686 | advance wall    8.717 cpu    8.716 (cpu/fr curve 0.145 other -) | paint wall   60.364 cpu   60.351 (cpu/fr curve 1.006 other -) | cpu   69.067
+  music 6-7 s      | fr   60 dirty   60 curves   60 | dev px   9138754 | advance wall    8.742 cpu    8.742 (cpu/fr curve 0.146 other -) | paint wall   56.130 cpu   56.141 (cpu/fr curve 0.936 other -) | cpu   64.883
+  music 7-8 s      | fr   60 dirty   60 curves   60 | dev px   9337782 | advance wall    8.824 cpu    8.824 (cpu/fr curve 0.147 other -) | paint wall   57.933 cpu   57.798 (cpu/fr curve 0.963 other -) | cpu   66.622
+  = total          | fr  480 dirty  479 curves  478 | dev px  73200112 | advance wall   70.346 cpu   70.327 (cpu/fr curve 0.146 other 0.384) | paint wall  486.261 cpu  486.098 (cpu/fr curve 1.013 other 1.908) | cpu  556.425
+---- music | PEAK off | 60 fps | x2
+  music 0-1 s      | fr   60 dirty   59 curves   58 | dev px  31824456 | advance wall   10.056 cpu   10.038 (cpu/fr curve 0.161 other 0.345) | paint wall  124.556 cpu  124.578 (cpu/fr curve 2.082 other 3.826) | cpu  134.616
+  music 1-2 s      | fr   60 dirty   60 curves   60 | dev px  33397472 | advance wall    9.678 cpu    9.647 (cpu/fr curve 0.161 other -) | paint wall  128.204 cpu  128.220 (cpu/fr curve 2.137 other -) | cpu  137.867
+  music 2-3 s      | fr   60 dirty   60 curves   60 | dev px  33093712 | advance wall    9.701 cpu    9.685 (cpu/fr curve 0.161 other -) | paint wall  129.769 cpu  129.763 (cpu/fr curve 2.163 other -) | cpu  139.448
+  music 3-4 s      | fr   60 dirty   60 curves   60 | dev px  32631592 | advance wall    9.687 cpu    9.651 (cpu/fr curve 0.161 other -) | paint wall  112.549 cpu  112.573 (cpu/fr curve 1.876 other -) | cpu  122.224
+  music 4-5 s      | fr   60 dirty   60 curves   60 | dev px  33204616 | advance wall    9.568 cpu    9.547 (cpu/fr curve 0.159 other -) | paint wall  119.618 cpu  119.651 (cpu/fr curve 1.994 other -) | cpu  129.198
+  music 5-6 s      | fr   60 dirty   60 curves   60 | dev px  33310800 | advance wall    9.663 cpu    9.646 (cpu/fr curve 0.161 other -) | paint wall  121.383 cpu  121.399 (cpu/fr curve 2.023 other -) | cpu  131.044
+  music 6-7 s      | fr   60 dirty   60 curves   60 | dev px  33012240 | advance wall    9.648 cpu    9.636 (cpu/fr curve 0.161 other -) | paint wall  115.658 cpu  115.664 (cpu/fr curve 1.928 other -) | cpu  125.300
+  music 7-8 s      | fr   60 dirty   60 curves   60 | dev px  32907648 | advance wall    9.712 cpu    9.695 (cpu/fr curve 0.162 other -) | paint wall  118.069 cpu  118.093 (cpu/fr curve 1.968 other -) | cpu  127.789
+  = total          | fr  480 dirty  479 curves  478 | dev px 263382536 | advance wall   77.713 cpu   77.545 (cpu/fr curve 0.161 other 0.345) | paint wall  969.806 cpu  969.941 (cpu/fr curve 2.021 other 3.826) | cpu 1047.486
+---- music | PEAK on  | 60 fps | x2
+  music 0-1 s      | fr   60 dirty   59 curves   58 | dev px  34955632 | advance wall   10.073 cpu   10.065 (cpu/fr curve 0.162 other 0.347) | paint wall  139.052 cpu  138.989 (cpu/fr curve 2.330 other 3.877) | cpu  149.054
+  music 1-2 s      | fr   60 dirty   60 curves   60 | dev px  37031808 | advance wall    9.869 cpu    9.855 (cpu/fr curve 0.164 other -) | paint wall  143.710 cpu  143.723 (cpu/fr curve 2.395 other -) | cpu  153.578
+  music 2-3 s      | fr   60 dirty   60 curves   60 | dev px  36826568 | advance wall    9.717 cpu    9.698 (cpu/fr curve 0.162 other -) | paint wall  145.954 cpu  145.978 (cpu/fr curve 2.433 other -) | cpu  155.676
+  music 3-4 s      | fr   60 dirty   60 curves   60 | dev px  36578912 | advance wall    9.689 cpu    9.667 (cpu/fr curve 0.161 other -) | paint wall  128.151 cpu  128.201 (cpu/fr curve 2.137 other -) | cpu  137.869
+  music 4-5 s      | fr   60 dirty   60 curves   60 | dev px  36902640 | advance wall    9.740 cpu    9.725 (cpu/fr curve 0.162 other -) | paint wall  135.907 cpu  135.927 (cpu/fr curve 2.265 other -) | cpu  145.652
+  music 5-6 s      | fr   60 dirty   60 curves   60 | dev px  36598744 | advance wall    9.788 cpu    9.772 (cpu/fr curve 0.163 other -) | paint wall  136.852 cpu  136.848 (cpu/fr curve 2.281 other -) | cpu  146.620
+  music 6-7 s      | fr   60 dirty   60 curves   60 | dev px  36555016 | advance wall    9.652 cpu    9.628 (cpu/fr curve 0.160 other -) | paint wall  129.473 cpu  129.500 (cpu/fr curve 2.158 other -) | cpu  139.128
+  music 7-8 s      | fr   60 dirty   60 curves   60 | dev px  37351128 | advance wall    9.684 cpu    9.667 (cpu/fr curve 0.161 other -) | paint wall  132.062 cpu  132.057 (cpu/fr curve 2.201 other -) | cpu  141.724
+  = total          | fr  480 dirty  479 curves  478 | dev px 292800448 | advance wall   78.212 cpu   78.078 (cpu/fr curve 0.162 other 0.347) | paint wall 1091.161 cpu 1091.223 (cpu/fr curve 2.275 other 3.877) | cpu 1169.300
+---- music | PEAK off | 120 fps | x1
+  music 0-1 s      | fr  120 dirty  116 curves  115 | dev px  15500676 | advance wall   16.887 cpu   16.851 (cpu/fr curve 0.138 other 0.194) | paint wall   91.056 cpu   91.070 (cpu/fr curve 0.775 other 1.895) | cpu  107.921
+  music 1-2 s      | fr  120 dirty  120 curves  120 | dev px  16410144 | advance wall   16.534 cpu   16.538 (cpu/fr curve 0.138 other -) | paint wall   97.114 cpu   97.095 (cpu/fr curve 0.809 other -) | cpu  113.633
+  music 2-3 s      | fr  120 dirty  120 curves  120 | dev px  16258654 | advance wall   16.739 cpu   16.692 (cpu/fr curve 0.139 other -) | paint wall   98.740 cpu   98.740 (cpu/fr curve 0.823 other -) | cpu  115.433
+  music 3-4 s      | fr  120 dirty  120 curves  120 | dev px  16190168 | advance wall   16.741 cpu   16.735 (cpu/fr curve 0.139 other -) | paint wall   83.921 cpu   83.906 (cpu/fr curve 0.699 other -) | cpu  100.641
+  music 4-5 s      | fr  120 dirty  120 curves  120 | dev px  16429186 | advance wall   16.768 cpu   16.761 (cpu/fr curve 0.140 other -) | paint wall   90.630 cpu   90.531 (cpu/fr curve 0.754 other -) | cpu  107.291
+  music 5-6 s      | fr  120 dirty  120 curves  120 | dev px  16483810 | advance wall   16.742 cpu   16.738 (cpu/fr curve 0.139 other -) | paint wall   91.136 cpu   91.115 (cpu/fr curve 0.759 other -) | cpu  107.853
+  music 6-7 s      | fr  120 dirty  120 curves  120 | dev px  16345186 | advance wall   16.642 cpu   16.637 (cpu/fr curve 0.139 other -) | paint wall   86.344 cpu   86.352 (cpu/fr curve 0.720 other -) | cpu  102.989
+  music 7-8 s      | fr  120 dirty  120 curves  120 | dev px  16274662 | advance wall   16.779 cpu   16.780 (cpu/fr curve 0.140 other -) | paint wall   88.016 cpu   88.002 (cpu/fr curve 0.733 other -) | cpu  104.781
+  = total          | fr  960 dirty  956 curves  955 | dev px 129892486 | advance wall  133.832 cpu  133.731 (cpu/fr curve 0.139 other 0.194) | paint wall  726.957 cpu  726.812 (cpu/fr curve 0.759 other 1.895) | cpu  860.543
+---- music | PEAK on  | 120 fps | x1
+  music 0-1 s      | fr  120 dirty  116 curves  115 | dev px  17174224 | advance wall   17.107 cpu   17.101 (cpu/fr curve 0.139 other 0.221) | paint wall  105.549 cpu  105.535 (cpu/fr curve 0.900 other 2.034) | cpu  122.636
+  music 1-2 s      | fr  120 dirty  120 curves  120 | dev px  18298272 | advance wall   16.641 cpu   16.626 (cpu/fr curve 0.139 other -) | paint wall  111.702 cpu  111.713 (cpu/fr curve 0.931 other -) | cpu  128.339
+  music 2-3 s      | fr  120 dirty  120 curves  120 | dev px  18188352 | advance wall   16.909 cpu   16.909 (cpu/fr curve 0.141 other -) | paint wall  115.945 cpu  115.920 (cpu/fr curve 0.966 other -) | cpu  132.829
+  music 3-4 s      | fr  120 dirty  120 curves  120 | dev px  18207752 | advance wall   16.912 cpu   16.904 (cpu/fr curve 0.141 other -) | paint wall  100.016 cpu  100.015 (cpu/fr curve 0.833 other -) | cpu  116.919
+  music 4-5 s      | fr  120 dirty  120 curves  120 | dev px  18327900 | advance wall   16.909 cpu   16.906 (cpu/fr curve 0.141 other -) | paint wall  106.634 cpu  106.623 (cpu/fr curve 0.889 other -) | cpu  123.529
+  music 5-6 s      | fr  120 dirty  120 curves  120 | dev px  18163174 | advance wall   16.719 cpu   16.707 (cpu/fr curve 0.139 other -) | paint wall  107.506 cpu  107.520 (cpu/fr curve 0.896 other -) | cpu  124.227
+  music 6-7 s      | fr  120 dirty  120 curves  120 | dev px  18173914 | advance wall   16.769 cpu   16.745 (cpu/fr curve 0.140 other -) | paint wall  102.458 cpu  102.452 (cpu/fr curve 0.854 other -) | cpu  119.198
+  music 7-8 s      | fr  120 dirty  120 curves  120 | dev px  18563862 | advance wall   16.836 cpu   16.826 (cpu/fr curve 0.140 other -) | paint wall  104.106 cpu  104.112 (cpu/fr curve 0.868 other -) | cpu  120.938
+  = total          | fr  960 dirty  956 curves  955 | dev px 145097450 | advance wall  134.802 cpu  134.725 (cpu/fr curve 0.140 other 0.221) | paint wall  853.916 cpu  853.890 (cpu/fr curve 0.892 other 2.034) | cpu  988.616
+---- music | PEAK off | 120 fps | x2
+  music 0-1 s      | fr  120 dirty  116 curves  115 | dev px  62002704 | advance wall   18.427 cpu   18.397 (cpu/fr curve 0.152 other 0.193) | paint wall  216.546 cpu  216.592 (cpu/fr curve 1.850 other 3.851) | cpu  234.989
+  music 1-2 s      | fr  120 dirty  120 curves  120 | dev px  65640576 | advance wall   18.164 cpu   18.140 (cpu/fr curve 0.151 other -) | paint wall  228.529 cpu  228.527 (cpu/fr curve 1.904 other -) | cpu  246.667
+  music 2-3 s      | fr  120 dirty  120 curves  120 | dev px  65034616 | advance wall   18.274 cpu   18.255 (cpu/fr curve 0.152 other -) | paint wall  232.354 cpu  232.379 (cpu/fr curve 1.936 other -) | cpu  250.634
+  music 3-4 s      | fr  120 dirty  120 curves  120 | dev px  64760672 | advance wall   18.159 cpu   18.137 (cpu/fr curve 0.151 other -) | paint wall  214.043 cpu  214.039 (cpu/fr curve 1.784 other -) | cpu  232.176
+  music 4-5 s      | fr  120 dirty  120 curves  120 | dev px  65716744 | advance wall   18.179 cpu   18.155 (cpu/fr curve 0.151 other -) | paint wall  221.386 cpu  221.420 (cpu/fr curve 1.845 other -) | cpu  239.575
+  music 5-6 s      | fr  120 dirty  120 curves  120 | dev px  65935240 | advance wall   18.233 cpu   18.212 (cpu/fr curve 0.152 other -) | paint wall  224.104 cpu  224.104 (cpu/fr curve 1.868 other -) | cpu  242.316
+  music 6-7 s      | fr  120 dirty  120 curves  120 | dev px  65380744 | advance wall   18.270 cpu   18.243 (cpu/fr curve 0.152 other -) | paint wall  217.447 cpu  217.323 (cpu/fr curve 1.811 other -) | cpu  235.566
+  music 7-8 s      | fr  120 dirty  120 curves  120 | dev px  65098648 | advance wall   18.349 cpu   18.329 (cpu/fr curve 0.153 other -) | paint wall  219.385 cpu  219.428 (cpu/fr curve 1.829 other -) | cpu  237.757
+  = total          | fr  960 dirty  956 curves  955 | dev px 519569944 | advance wall  146.055 cpu  145.869 (cpu/fr curve 0.152 other 0.193) | paint wall 1773.794 cpu 1773.812 (cpu/fr curve 1.853 other 3.851) | cpu 1919.680
+---- music | PEAK on  | 120 fps | x2
+  music 0-1 s      | fr  120 dirty  116 curves  115 | dev px  68696896 | advance wall   18.566 cpu   18.543 (cpu/fr curve 0.153 other 0.193) | paint wall  241.454 cpu  241.484 (cpu/fr curve 2.067 other 3.828) | cpu  260.026
+  music 1-2 s      | fr  120 dirty  120 curves  120 | dev px  73193088 | advance wall   18.298 cpu   18.283 (cpu/fr curve 0.152 other -) | paint wall  255.054 cpu  255.097 (cpu/fr curve 2.126 other -) | cpu  273.380
+  music 2-3 s      | fr  120 dirty  120 curves  120 | dev px  72753408 | advance wall   18.333 cpu   18.314 (cpu/fr curve 0.153 other -) | paint wall  259.860 cpu  259.900 (cpu/fr curve 2.166 other -) | cpu  278.214
+  music 3-4 s      | fr  120 dirty  120 curves  120 | dev px  72831008 | advance wall   18.445 cpu   18.392 (cpu/fr curve 0.153 other -) | paint wall  242.673 cpu  242.724 (cpu/fr curve 2.023 other -) | cpu  261.116
+  music 4-5 s      | fr  120 dirty  120 curves  120 | dev px  73311600 | advance wall   18.393 cpu   18.365 (cpu/fr curve 0.153 other -) | paint wall  251.230 cpu  251.267 (cpu/fr curve 2.094 other -) | cpu  269.633
+  music 5-6 s      | fr  120 dirty  120 curves  120 | dev px  72652696 | advance wall   18.459 cpu   18.436 (cpu/fr curve 0.154 other -) | paint wall  253.051 cpu  253.077 (cpu/fr curve 2.109 other -) | cpu  271.513
+  music 6-7 s      | fr  120 dirty  120 curves  120 | dev px  72695656 | advance wall   18.357 cpu   18.326 (cpu/fr curve 0.153 other -) | paint wall  245.529 cpu  245.565 (cpu/fr curve 2.046 other -) | cpu  263.891
+  music 7-8 s      | fr  120 dirty  120 curves  120 | dev px  74255448 | advance wall   18.638 cpu   18.607 (cpu/fr curve 0.155 other -) | paint wall  249.052 cpu  249.080 (cpu/fr curve 2.076 other -) | cpu  267.686
+  = total          | fr  960 dirty  956 curves  955 | dev px 580389800 | advance wall  147.489 cpu  147.266 (cpu/fr curve 0.153 other 0.193) | paint wall 1997.903 cpu 1998.193 (cpu/fr curve 2.088 other 3.828) | cpu 2145.459
+==== summary (whole case per row)
+  music | PEAK off | 60 fps | x1       | fr  480 dirty  479 curves  478 | dev px  65845634 | advance wall   70.256 cpu   70.163 (cpu/fr curve 0.145 other 0.401) | paint wall  421.191 cpu  421.238 (cpu/fr curve 0.877 other 1.967) | cpu  491.402
+  music | PEAK on  | 60 fps | x1       | fr  480 dirty  479 curves  478 | dev px  73200112 | advance wall   70.346 cpu   70.327 (cpu/fr curve 0.146 other 0.384) | paint wall  486.261 cpu  486.098 (cpu/fr curve 1.013 other 1.908) | cpu  556.425
+  music | PEAK off | 60 fps | x2       | fr  480 dirty  479 curves  478 | dev px 263382536 | advance wall   77.713 cpu   77.545 (cpu/fr curve 0.161 other 0.345) | paint wall  969.806 cpu  969.941 (cpu/fr curve 2.021 other 3.826) | cpu 1047.486
+  music | PEAK on  | 60 fps | x2       | fr  480 dirty  479 curves  478 | dev px 292800448 | advance wall   78.212 cpu   78.078 (cpu/fr curve 0.162 other 0.347) | paint wall 1091.161 cpu 1091.223 (cpu/fr curve 2.275 other 3.877) | cpu 1169.300
+  music | PEAK off | 120 fps | x1      | fr  960 dirty  956 curves  955 | dev px 129892486 | advance wall  133.832 cpu  133.731 (cpu/fr curve 0.139 other 0.194) | paint wall  726.957 cpu  726.812 (cpu/fr curve 0.759 other 1.895) | cpu  860.543
+  music | PEAK on  | 120 fps | x1      | fr  960 dirty  956 curves  955 | dev px 145097450 | advance wall  134.802 cpu  134.725 (cpu/fr curve 0.140 other 0.221) | paint wall  853.916 cpu  853.890 (cpu/fr curve 0.892 other 2.034) | cpu  988.616
+  music | PEAK off | 120 fps | x2      | fr  960 dirty  956 curves  955 | dev px 519569944 | advance wall  146.055 cpu  145.869 (cpu/fr curve 0.152 other 0.193) | paint wall 1773.794 cpu 1773.812 (cpu/fr curve 1.853 other 3.851) | cpu 1919.680
+  music | PEAK on  | 120 fps | x2      | fr  960 dirty  956 curves  955 | dev px 580389800 | advance wall  147.489 cpu  147.266 (cpu/fr curve 0.153 other 0.193) | paint wall 1997.903 cpu 1998.193 (cpu/fr curve 2.088 other 3.828) | cpu 2145.459
+==== spectrum peak-off bench done
