@@ -286,7 +286,7 @@ namespace celadon::ui
             const auto lamp = help::clayLampFor (readout, rows[i].stage);
             const auto mode = modeOf (rows[i]);
 
-            // 灯：暗 = 灰圈；在处理 = 紫圈（自动）/ 青色实心（手动）；保护介入 = 橙色实心。
+            // 灯：暗 = 灰圈；在处理 = 紫圈（自动）/ 青色实心（手动）；宽度保护介入（加宽）/ 低频反相提示（收单）= 橙色实心。
             juce::Colour fill = palette::panel, ring = palette::lampIdle;
 
             if (lamp == help::ClayLamp::guard)

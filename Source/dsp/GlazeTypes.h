@@ -384,7 +384,7 @@ namespace celadon::glaze
         float clayMonoHz = 80.0f;
         float clayMonoAmount = 0.0f;
         float clayWidthDb = 0.0f;
-        bool clayPhaseGuardActive = false;   // 反相保护介入中（指示灯「单」变琥珀）
+        bool clayPhaseGuardActive = false;   // 低频反相提示中（指示灯「单」变琥珀；ADR-015 起只提示、不改声音）
         bool clayWidthGuardActive = false;   // 宽度保护介入中（指示灯「宽」变琥珀）
         bool clayNeedsRelearn = false;       // 有自动态的项，但已提交画像缺立体声 / 超低频特征（旧工程）：提示点「重新聆听」
         std::uint8_t clayCostLimitedMask = 0;// ADR-012：自动态下哪几项因「试过会抬高峰值」被减量 / 否决（clayCostLimited* 位）

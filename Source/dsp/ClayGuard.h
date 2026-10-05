@@ -21,7 +21,7 @@
       - active = false（GLAZE ≤ 0）：状态直接回中性（ClayGuardState{}，资格期计时清零），输出 = 输入。
     时间一律按有效音频秒数（与 GlazeGuard 同口径）。状态可存进执行快照（getState / setState）；「条件已连续成立多久」的
     资格期计时不在 ClayGuardState 里（该结构随执行快照保存、格式已定），不存档：setState / reset 后从 0 起算（只会让恢复后
-    正在进行的反相晚最多 0.15 s 重新计保持期，下限与保持期本身照快照接着走，听感不变）。
+    正在进行的反相晚最多 0.15 s 重新计保持期，提示强度与保持期本身照快照接着走，听感不变）。
 
     resolveClayParams（纯函数）：把用户三态设置与自动值合成交给 ClayModule 的实际参数——
       自动 → 自动值（glazePercent ≤ 0 时取中性：lowCutHz 0、monoAmount 0、widthDb 0）；关 → 中性；
@@ -60,11 +60,11 @@ namespace celadon::glaze
         void setState (const ClayGuardState& restored) noexcept;   // 执行快照恢复（钳到合法范围；资格期计时从 0 起算）
 
         // ---- T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节）----
-        // 只提示、不改声音；与上面的反相保护分开，不进 ClayGuardState、不存档。
+        // 只提示、不改声音；与上面 update 的反相提示分开，不进 ClayGuardState、不存档。
         //   view = 分析器此刻的实时视图（读慢路 liveLowCorrelation）；seconds = 有效音频秒数（同 update）；
         //   eligible = 编排器判定此刻在 House 档的满编段里；requiredSeconds = 条件须连续成立多久才提示（编排器按 4 小节换成秒，
         //   拿不到拍点时传 Constants::house.phaseHintFallbackSeconds）。不 eligible 时提示熄灭、计时清零；条件消失后先保持
-        //   clayGuardPhaseHoldSeconds（出厂 2 s，同反相保护）再熄灭。
+        //   clayGuardPhaseHoldSeconds（出厂 2 s，同 update 的反相提示）再熄灭。
         struct HouseHint
         {
             bool active = false;
@@ -106,7 +106,7 @@ namespace celadon::glaze
         enum class PhaseInput { unknown, clear, inverted };
         PhaseInput phaseInputOf (const ShortTermView& view) const noexcept;
 
-        // 反相保护推进 seconds 秒：conditionHolds = 本块反相触发条件成立（还要连续成立满 phaseMinSeconds 才算触发）。
+        // 反相提示推进 seconds 秒：conditionHolds = 本块反相触发条件成立（还要连续成立满 phaseMinSeconds 才算触发）。
         void advancePhase (bool conditionHolds, double seconds) noexcept;
         // 宽度保护推进 seconds 秒：allowedDb = 此刻允许的最大加宽（0 ～ clayWidthUncappedDb）；plannedWidthDb = 方案值（已清洗）。
         void advanceWidth (float allowedDb, float plannedWidthDb, double seconds) noexcept;

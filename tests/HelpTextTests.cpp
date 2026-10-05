@@ -6,8 +6,8 @@
     都必须在 HelpText 里有三行非空文案；气泡恰好三行；条目无重复、无多余。
 
     v0.1.7.0 追加 HelpTextClayTests（文件末尾）：修坯 7 个参数与两个界面 ID 的文案、三灯指示的颜色类别、
-    气泡第 2 行的实时值（规格示例逐字对照、为 0 / 收窄 / 保护 / 旁通、显示精度、非有限值、第 3 行的重新聆听提示）。
-    T-012 阶段 4（ADR-012）追加：第 3 行的「先试后用」代价说明（跳过 / 减量、多项、优先级、只算自动态、保护介入时不写、旁通清零）。
+    气泡第 2 行的实时值（规格示例逐字对照、为 0 / 收窄 / 反相提示与宽度保护 / 旁通、显示精度、非有限值、第 3 行的重新聆听提示）。
+    T-012 阶段 4（ADR-012）追加：第 3 行的「先试后用」代价说明（跳过 / 减量、多项、优先级、只算自动态、保护介入或反相提示时不写、旁通清零）。
     T-038 追加 HelpTextHouseTests（文件末尾）：曲风 / 交付文案、House 反相提示的文字与读数（不按三态与旁通筛）、House 暂定期间的悬停气泡。
 
     被测代码只依赖 juce_core（HelpText.cpp 进无头测试编译；HelpText.h 另带 dsp/GlazeTypes.h 的纯数据类型）。测试本身借
@@ -287,8 +287,8 @@ namespace celadon::test
                 expectEquals (liveLineFor (guarded, bypassed), utf8 ("修坯已旁通"));
             }
 
-            // 依据：设计规格-Clay 第 5 节：实际值非 0 → 梅子青（on）；该项保护介入 → 琥珀（guard：反相保护对「单」、宽度保护对「宽」）；
-            // 否则 35% 暗（off）。低切没有保护。
+            // 依据：设计规格-Clay 第 5 节：实际值非 0 → 梅子青（on）；该项保护介入或反相提示亮着 → 琥珀（guard：反相提示对「单」、
+            // 宽度保护对「宽」；ADR-015 起反相一路只提示、不改声音）；否则 35% 暗（off）。低切没有保护。
             beginTest ("Clay lamps follow actual values and guard flags");
             {
                 const auto idle = clayStatus (0.0f, 80.0f, 0.0f, 0.0f);
@@ -301,7 +301,7 @@ namespace celadon::test
                 expect (lampFor (working, ClayStage::mono)   == ClayLamp::on);
                 expect (lampFor (working, ClayStage::width)  == ClayLamp::on);
 
-                // 保护压过「亮」：宽度保护把加宽收到 0 dB 时灯仍是琥珀（「想加宽、被保护拦住」）。
+                // 保护 / 反相提示压过「亮」：宽度保护把加宽收到 0 dB 时灯仍是琥珀（「想加宽、被保护拦住」）。
                 const auto guarded = clayStatus (25.0f, 120.0f, 1.0f, 0.0f, true, true);
                 expect (lampFor (guarded, ClayStage::lowCut) == ClayLamp::on);
                 expect (lampFor (guarded, ClayStage::mono)   == ClayLamp::guard);
@@ -318,13 +318,13 @@ namespace celadon::test
                 expect (lampFor (guarded, ClayStage::width,  bypassed) == ClayLamp::off);
             }
 
-            // 依据：ADR-009 第 4 条、设计规格-Clay-分析决策与验收 第 3 节：保护只管「自动」态的项，「手动」「关」态不受保护改动——
-            // 即使快照里保护单元标着介入，界面也不把它算到手动的项上。
+            // 依据：ADR-009 第 4 条、设计规格-Clay-分析决策与验收 第 3 节：宽度保护只管「自动」态的项，「手动」「关」态不受保护改动；
+            // 反相提示只在收单「自动」时报（ADR-015；「手动」「关」= 用户接管）——即使快照里标着介入 / 提示，界面也不把它算到手动的项上。
             beginTest ("Clay guards only count for stages in automatic mode");
             {
                 const auto guarded = clayStatus (25.0f, 120.0f, 1.0f, 0.8f, true, true);
 
-                // 阳性对照：同一快照、三项都「自动」→ 琥珀、写保护。
+                // 阳性对照：同一快照、三项都「自动」→ 琥珀、写反相提示与宽度保护。
                 expect (lampFor (guarded, ClayStage::mono)  == ClayLamp::guard);
                 expect (lampFor (guarded, ClayStage::width) == ClayLamp::guard);
 
@@ -332,7 +332,7 @@ namespace celadon::test
                 manual.monoAuto  = false;
                 manual.widthAuto = false;
 
-                // 收单与加宽改成非自动：实际值仍非 0 → 亮（梅子青），不是琥珀；第 2 行不写保护。
+                // 收单与加宽改成非自动：实际值仍非 0 → 亮（梅子青），不是琥珀；第 2 行不写反相提示与宽度保护。
                 expect (lampFor (guarded, ClayStage::mono,  manual) == ClayLamp::on);
                 expect (lampFor (guarded, ClayStage::width, manual) == ClayLamp::on);
                 expectEquals (liveLineFor (guarded, manual), utf8 ("低切 25 Hz · 120 Hz 以下收单 100% · 高频加宽 +0.8 dB"));
@@ -473,8 +473,8 @@ namespace celadon::test
                 expect (utf8StartsWith (tooltipLine (tip, 2), "本曲试过："), "line 3 starts with the cost explanation");
             }
 
-            // 依据：同上「优先级低于『点重新聆听』提示」；ADR-009 第 4 条（「关 / 手动」项不经决策器、保护只管自动态）；
-            // HelpText.h ClayReadout 代价标志的约定（该项保护介入时不写代价、旁通时全清零）。
+            // 依据：同上「优先级低于『点重新聆听』提示」；ADR-009 第 4 条（「关 / 手动」项不经决策器、宽度保护只管自动态）；
+            // HelpText.h ClayReadout 代价标志的约定（加宽在宽度保护介入、收单在反相提示亮着时不写代价，旁通时全清零）。
             beginTest ("Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while that item's guard acts, cleared by bypass");
             {
                 const auto* entry = help::find (uiid::clayIndicator);
