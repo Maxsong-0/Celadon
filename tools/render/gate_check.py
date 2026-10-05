@@ -28,6 +28,8 @@ import sys
 from collections import defaultdict
 
 CEILING_DBTP = -1.0
+# 同决策重放阳性对照的容差（dBFS）：与 RenderMain.cpp 的 replayTolerance（1e-9 = −180 dBFS）同值，改一处要同步改另一处
+REPLAY_TOLERANCE_DBFS = -180
 MIN_LOCK_MUSIC_SECONDS = 30.0
 
 # T-038 网格的另三维（celadon_render 只在用了新选项时把它们追加在 metrics.csv 末尾）。渲染工具自己也按这三维配对
@@ -149,7 +151,7 @@ def main(path):
                 notes.append(f"{tag}: 同决策重放的阳性对照不适用（原因见 metrics.md 该曲备注），修坯门槛照常用重放全关判定")
             elif check != 'ok':
                 diff = a.get('replay_max_diff_dbfs') or '?'
-                fails.append(f"{tag}: 同决策重放的阳性对照 {check or '缺失'}（应为 ok；最大样本差 {diff} dBFS，允许 ≤ −180），修坯门槛对照不可信")
+                fails.append(f"{tag}: 同决策重放的阳性对照 {check or '缺失'}（应为 ok；最大样本差 {diff} dBFS，允许 ≤ −{abs(REPLAY_TOLERANCE_DBFS)}），修坯门槛对照不可信")
 
         # 参考：跨链
         o = pair.get('off')

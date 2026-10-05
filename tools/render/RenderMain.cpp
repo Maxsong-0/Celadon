@@ -1670,7 +1670,9 @@ namespace
     // 也不按保护层时隙切片），逐块喂「自动」链那一块实际交给模块的全部参数，只把修坯换掉：
     //   - off：三项都「关」→ 修坯中性（门槛拿它对比「自动」）；
     //   - copy：三项用「手动」填自动链那一块的实际修坯值 → 应复现自动链（最大样本差 ≤ −180 dBFS，见下；阳性对照：证明重放本身不走样，
-    //     包括 GLAZE 0 不切片这一点）。手动收单固定是「比例 1」，自动收单比例在 0、1 之间的块表达不了，对照记「不适用」。
+    //     包括 GLAZE 0 不切片这一点）。手动收单固定是「比例 1」，收单比例在 0、1 之间的块「手动」态表达不了（ADR-015 起自动收单恒为 0，
+    //     这一种已不出现）；另一种原因是目标频谱用了「参考」形状、重放链没有侧链参考（本工具的目标频谱固定是出厂「自动」，也走不到）。
+    //     两种都记「不适用」。
     enum class ReplayClay { off, copy };
 
     // 同决策重放阳性对照的容差：最大样本差 ≤ 1e-9（−180 dBFS）算复现。不要求逐位相同：GLAZE > 0 的链按保护层 10 ms 时隙把宿主块
@@ -2501,7 +2503,7 @@ namespace
         return "## 口径\n\n"
                "- **原始输入**：读入后立体声化（单声道复制成双声道、多声道取前两个）的原曲，用同一套量法，作对照。\n"
                "- **LUFS（对齐前）**：插件自己的 BS.1770-4 表（`celadon::LoudnessMeter`，与界面 OUT 表同一算法）量整段成品"
-               "（已去掉链延迟、含 0.35 s 余振）。\n"
+               "（已去掉链延迟、含 " + fixed (ringOutSeconds, 2) + " s 余振）。\n"
                "- **对齐增益**：`--match-lufs` − 对齐前 LUFS；成品只乘这一个增益，不再限幅。\n"
                "- **真峰值**：插件的 8× 真峰值检测器（与限幅器、表同一算法），对齐前；默认 Ceiling 下应 ≤ -1.0 dBTP"
                "（验收口径容差 +0.01 dB）。\n"
@@ -2513,8 +2515,9 @@ namespace
                "- **真次声 < 16 Hz**：M = (L + R) / 2 过 8 阶 Butterworth 16 Hz 低通后的能量 ÷ M 全频能量（dB），"
                "与分析器 subShareDb 同一定义（ADR-012；这里整段计，不设有效音频门；静音段能量可忽略）。只看 M：侧声道里的次声不计入。\n"
                "- **低切 / 收单 Hz / 收单量 / 加宽**：成品末尾 `getGlazeStatus()` 的 clayLowCutHz / clayMonoHz / clayMonoAmount / "
-               "clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义。\n"
-               "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。"
+               "clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义（本工具不用手动收单，ADR-015 起收单 Hz 恒为 80、收单量恒为 0）。\n"
+               "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音；只在收单为「自动」的组计：auto、mono 组，其余组与重放行恒为 0）/ "
+               "宽度保护介入的时长占比（只在加宽为「自动」的组计；每块读一次状态）。"
                "格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）：先试后用试出会抬高峰值、低切按守护混合损失封顶、压力反馈降过档，三处任一都会置位。\n"
                "- **GLAZE 状态**：成品末尾的阶段与「校准有效」；风格为「自动」且 GLAZE > 0 时附此刻偏向的风格。"
                "第一遍（聆听）结束时的阶段在 metrics.csv 的 listen_phase 列。\n"
@@ -2523,7 +2526,7 @@ namespace
                "- **同决策重放（clay-replay-off，ADR-016）**：每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链，逐块照搬"
                "「自动」链那一块实际交给模块的全部参数（含自动增量、校准偏差、保护退让），只把修坯换成「关」。两条链的决策一模一样，"
                "差别只剩修坯本身——修坯门槛比的是「自动 vs 重放全关」，不再比两条各自跑 GLAZE、方案会分岔的链。阳性对照：修坯用"
-               "「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −180 dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
+               "「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −" + fixed (-toDbfs (replayTolerance), 0) + " dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
                "重放行的 GLAZE 状态列没有意义（写 replay / 空）。\n"
                "- **有效音乐**：原曲 K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（与校准器同一门限；歌尾静音不算），"
                "metrics.csv 的 music_seconds。门槛只要求有效音乐 ≥ 30 s 的歌在成品末尾「已锁定 + 校准有效」。\n";
@@ -2539,7 +2542,7 @@ namespace
         md += "- 对齐：成品按整体响度只乘增益对齐到 " + fixed (options.matchLufs, 1)
             + " LUFS；32-bit float，允许超过 0 dBFS，不再限幅\n";
         md += "- 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）"
-              "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.35 s 余振，成品与原曲逐样本对齐\n";
+              "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 " + fixed (ringOutSeconds, 2) + " s 余振，成品与原曲逐样本对齐\n";
         md += "- 其余参数全是新实例默认（Ceiling -1.0 dBTP、Lookahead 2 ms、Limit Gain 0 等，见 Source/ParameterDefaults.h，"
               "插件参数表同一处真源）\n";
         md += "- 高级母带（新实例默认）：" + masteringText (makeFactoryParams().mastering)
@@ -2784,7 +2787,7 @@ namespace
         {
             automatic.replayCheck = "n/a";
             report.notes.push_back (notePrefix + "同决策重放的阳性对照不适用："
-                                    + std::string (! clayExpressible ? "自动收单比例在 0、1 之间，「手动」态表达不了（手动收单固定是 1）"
+                                    + std::string (! clayExpressible ? "有块的修坯实际值「手动」态表达不了（收单比例不是 0 或 1，或低切 / 加宽越界；手动收单固定是 1）"
                                                                      : "目标频谱用了「参考」形状，重放链没有侧链参考"));
         }
 
@@ -3249,7 +3252,7 @@ namespace
             test.check (same, "同决策重放复现自动链",
                         std::string (! expressible ? "有块的修坯值「手动」表达不了"
                                      : (identical ? "修坯手动照填重放与自动链成品逐位相同"
-                                                  : "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −180 dBFS）"))
+                                                  : "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −" + fixed (-toDbfs (replayTolerance), 0) + " dBFS）"))
                             + "（" + std::to_string (logged.size()) + " 块；Limit Gain 被 GLAZE 改过的块 "
                             + std::to_string (automatedBlocks) + "，自动低切开着的块 " + std::to_string (lowCutBlocks)
                             + "，推响不刺与目标频谱都在起作用的块 " + std::to_string (masteringBlocks) + "）");

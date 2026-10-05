@@ -416,7 +416,7 @@ namespace celadon::help
 
             // ---- 修坯 CLAY（v0.1.7.0，设计规格-Clay 第 5、6 节；ADR-009）----
             // v0.1.8.0 起在 CLAY 卡片上：每行 = 灯 + 名字 + 数值 + 三态（*_mode）。数值在「手动」时可拖动（*_hz / *_db 的手动值），
-            // 「自动」时显示此刻的实际值、手动值不生效。三态语义（ADR-009 第 4 条）：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；
+            // 「自动」时低切 / 加宽显示此刻的实际值（为 0 显示「未启用」）、收单一行恒显示「未启用」（自动不收单），手动值都不生效。三态语义（ADR-009 第 4 条）：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；
             // 关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改它。
             { param::clayLowCutMode,
               "低切 · 自动 / 关 / 手动",
@@ -447,7 +447,7 @@ namespace celadon::help
               "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。",
               "80～150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。",
               "Mono · lows to mono",
-              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto does not mono, so no mono frequency is shown here).",
+              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto never folds the lows to mono, so no mono frequency is shown here).",
               "80–150 Hz is common; above 200 Hz guitars and keys get narrower too." },
 
             { param::clayWidthMode,
@@ -475,13 +475,13 @@ namespace celadon::help
               "Use it to compare with and without Clay." },
 
             // 三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯）：气泡第 2 行在界面上换成此刻的实际值（clayIndicatorTooltip），这里的第 2 行
-            // 界面上从不显示（只作官网说明页首句的同源底稿，T-061）；第 3 行照常显示，所以灯色的含义写在第 3 行。
+            // 界面上从不显示（官网说明页首句手工与它保持一致，T-061，没有自动核对）；第 3 行照常显示，所以灯色的含义写在第 3 行。
             { uiid::clayIndicator,
               "修坯 · 立体声像与超低频清理",
-              "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",
+              "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经峰值守护，自动加宽由先试后用把关，运行中还有宽度保护盯着相关度。",
               "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查），加宽灯琥珀 = 宽度保护介入。想手动覆盖，把该行切到「手动」。",
               "Clay · stereo image and sub-bass cleanup",
-              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not guarded, and automatic width is kept in check by the trial.",
+              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not run through the peak guard; automatic width is kept in check by the trial and, while playing, by a width guard that watches correlation.",
               "Lit = processing (violet = auto, cyan = manual); amber mono = out-of-phase lows warning (check the mix), amber width = width guard engaged. To override, switch a row to Manual." },
         };
 

@@ -70,7 +70,7 @@
         "lead": "Trim before you glaze. Cut inaudible infrasonics and DC, fold the lows to mono when you ask for it, and widen narrow mixes a little — automatic moves are tried on this song first, and Low cut and Mono step aside whenever they would raise a peak.",
         "facts": [
           "4th-order low cut, 10–60 Hz; linear-phase mono",
-          "Side channel only: mono playback is untouched",
+          "Mono and Width touch only the side channel: mono playback is unchanged (Low cut removes only sub-bass)",
           "Peak guard: Low cut and Mono never raise the peaks"
         ]
       },
