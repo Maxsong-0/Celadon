@@ -701,4 +701,65 @@ namespace celadon::glaze
         out.costLimitedMask = mask;
         return out;
     }
+
+    //==============================================================================
+    // 守护回收指示（T-074；口径与理由见 ClayGuard.h ClayGuardKeepMonitor）。
+    void ClayGuardKeepMonitor::update (double changeEnergy, double keptEnergy, double seconds, double sampleRate) noexcept
+    {
+        if (! (seconds > 0.0 && std::isfinite (seconds) && sampleRate > 0.0 && std::isfinite (sampleRate)))
+            return;
+
+        // 非有限 / 负的能量这一切片按 0 计（模块自己已丢弃非有限段，这里只防污染平滑量）。
+        if (! (std::isfinite (changeEnergy) && std::isfinite (keptEnergy) && changeEnergy >= 0.0 && keptEnergy >= 0.0))
+            changeEnergy = keptEnergy = 0.0;
+
+        // 一片内能量均匀摊开时对「时间常数 τ 的指数平均」的贡献 = E · τ(1 − decay) / seconds：片长无关（每样本均方恒定时，平滑后的量
+        // 对任何片长都恰是 均方 × fs × τ × (1 − e^(−t/τ))），不像「S·decay + E」那样稳态值随片长偏大 seconds / 2τ。
+        const auto gateDecay = std::exp (-seconds / gateSeconds);
+        gateChange = gateChange * gateDecay + changeEnergy * (gateSeconds * (1.0 - gateDecay) / seconds);
+
+        // 快门：包络在稳态里 = 每样本均方 × gateSeconds × fs，低于地板的改动当没有——慢的两份能量清零、κ = 1。
+        if (! (gateChange > floorMeanSquare * gateSeconds * sampleRate))
+        {
+            change = kept = 0.0;
+            fraction = 1.0;
+        }
+        else
+        {
+            const auto decay = std::exp (-seconds / smoothingSeconds);
+            const auto share = smoothingSeconds * (1.0 - decay) / seconds;
+            change = change * decay + changeEnergy * share;
+            kept = kept * decay + keptEnergy * share;
+
+            // g ≤ 1 所以 kept ≤ change，浮点上钳一下；change 刚从 0 起、这一片没有能量时 fraction 不动（沿用上一片）。
+            if (change > 0.0)
+                fraction = juce::jlimit (0.0, 1.0, kept / change);
+        }
+
+        if (! on)
+        {
+            belowSeconds = fraction < onBelow ? belowSeconds + seconds : 0.0;
+
+            if (belowSeconds >= onSeconds)
+            {
+                on = true;
+                aboveSeconds = 0.0;
+            }
+        }
+        else
+        {
+            aboveSeconds = fraction >= offAbove ? aboveSeconds + seconds : 0.0;
+
+            if (aboveSeconds >= offSeconds)
+            {
+                on = false;
+                belowSeconds = 0.0;
+            }
+        }
+    }
+
+    void ClayGuardKeepMonitor::reset() noexcept
+    {
+        *this = ClayGuardKeepMonitor {};
+    }
 }

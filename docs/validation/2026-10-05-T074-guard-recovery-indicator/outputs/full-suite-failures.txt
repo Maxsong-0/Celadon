@@ -1,0 +1,5 @@
+!!! Test 1 failed: left vs mono, block 512 -- Expected value: 0, Actual value: 1
+!!! Test 2 failed: right vs mono, block 512 -- Expected value: 0, Actual value: 1
+!!! Test 3 failed: left vs mono, block 17 -- Expected value: 0, Actual value: 1
+!!! Test 4 failed: right vs mono, block 17 -- Expected value: 0, Actual value: 1
+!!! Test 5 failed: stereo balance costs 1.74 x mono (limit 1.40): the packed two-channel path is not doing its job

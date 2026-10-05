@@ -29,6 +29,8 @@
 | `zh-house-status-bars.png` … `en-house-status-seconds.png` | 状态行三种文字（还没听到主段落 / 主段落已听 8 小节 / 宿主没给拍点），只截顶栏胶囊 |
 | `zh-house-tip.png` / `en-house-tip.png` | House 暂定期间 GLAZE 状态的悬停气泡（第 3 行「从 drop 开始播放能学得更快」） |
 | `zh-house-hint.png` / `en-house-hint.png` | House 反相提示：状态胶囊琥珀 + CLAY 卡片两行提示 |
+| `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯琥珀（只存下半部分的四张卡片） |
+| `zh-guard-tooltip.png` / `en-guard-tooltip.png` | 同上状态下 CLAY 灯的悬停气泡：第 2 行末尾「峰值守护回收中：低切 / 收单实际只剩约 40%」（取 `help::clayIndicatorTooltip`，与界面同一个函数） |
 
 T-038 那几张的 House 状态（`Status` 的 `house*` 字段）由编排器填；截图工具把处理器的状态快照改一改再交给编辑器
 （`setGlazeStatusSource`，见 `injectStatus`），验的是界面怎么按字段画，不是编排器什么时候置这些字段。
@@ -111,6 +113,11 @@ T-070（夜间评审 `wf_3e784f42-2fa` 指出的覆盖缺口）再加：
   （6 kHz −12 dBFS 正弦 1 s → 静音 0.2 s：OUT 与平均线已落下去，峰值保持仍在顶上），PEAK 开的区域顶必须比关的高出 20 px 以上；改回「不论开关都算」
   或改成「永远不算」，两个方向差都是 0、都败。PEAK 关 → 开、开 → 关时的重画（残影、此刻的数据）仍由 S9 / S9b / S10 / S12 守着。
   红绿证据见 `docs/validation/2026-10-05-T073-peak-off-dirty-region/`。下面 T-058 的红绿表与 S9 说明里的「② 第二道保险」是当时的口径（② 已去掉）。
+- **T-074：修坯守护回收指示**（`runClayGuardChecks`；出图状态 `zh / en-guard-recovering`、`zh / en-guard-tooltip`）。峰值守护把手动低切 / 收单的改动量收回去时，CLAY 卡片
+  低切、收单两盏灯与数值变琥珀，灯的气泡末尾写「实际只剩约 N%」（取舍见 vault 的 ADR-032，证据见 `docs/validation/2026-10-05-T074-guard-recovery-indicator/`）。
+  检查：同一个编辑器、同一份「低切 25 Hz、收单 120 Hz 在做」的状态，守护标志 关 → 开 → 关 各把 CLAY 卡片画成图，数灯那一列的灯色与数值那一列的字色（琥珀）像素——
+  开着：低切 / 收单两行都有、加宽行没有（它不经峰值守护）；关着：三行都没有。同时守「标志变了会重画」：`ClayReadout::operator==` 漏比较守护字段时，低切 / 收单的值没变，
+  `setReadout` 就当没变化、灯不跟着变。灯的气泡文字不在这里比（卡片的气泡要鼠标位置才出），由 `HelpTextTests` 比函数的输出、`zh / en-guard-tooltip` 的图看渲染。
 
 红绿验证（临时副本里用 `variants_t058.py` / `variants_t070.py` 换 `SpectrumView.cpp` 的变体、增量编译、跑 `--only check`；做法与输出见
 `docs/validation/2026-10-04-T058-spectrum-peak-off/`，**T-070 把变体扩到 26 个（T-058 的 11 个 + 14 个新的）、检查扩到 25 条，红绿表见

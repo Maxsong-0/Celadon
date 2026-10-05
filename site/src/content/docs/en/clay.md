@@ -8,9 +8,9 @@ The card has three rows, top to bottom: Low cut, Mono, Width. Each row = a lamp 
 |---|---|
 | Auto | Decision-maker + real-time protection: acts only when this song really has a problem and a trial run shows it won't raise the peaks (Mono is the exception: on Auto it never folds the lows, it only lights an amber warning when they are out of phase); does nothing at GLAZE 0 |
 | Off | Never processes |
-| Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono are pulled back at moments that would raise peaks while your value stays as set — on dense material with wide, uncorrelated lows a lot of the effect can be pulled back, and the interface does not flag it; Width does not go through the peak guard). In Manual the value can be dragged |
+| Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono are pulled back at moments that would raise peaks while your value stays as set — on dense material with wide, uncorrelated lows a lot of the effect can be pulled back — when it is clearly being pulled back, the Low cut / Mono lamps turn amber and the tooltip says how much is left; Width does not go through the peak guard). In Manual the value can be dragged |
 
-Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of-phase lows warning (check the mix); amber Width lamp = width guard engaged. Hover a lamp and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: low cut would raise peaks or thin the low end, reduced automatically”.
+Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of-phase lows warning (check the mix); amber Width lamp = width guard engaged; amber Low cut / Mono lamp = the peak guard is clearly pulling your setting back (Manual and Auto alike). Hover a lamp and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: low cut would raise peaks or thin the low end, reduced automatically”.
 
 ## Controls
 

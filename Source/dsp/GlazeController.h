@@ -220,6 +220,9 @@ namespace celadon::glaze
             double clayPeakCostDb = 0.0;         // 压力反馈第一触发量此刻的代价（dB，与先试同口径，ADR-028；有效块未满 10 s 为 0）
             int clayPeakCostBlocks = 0;          // 自上次清零起攒下的有效峰值块数（每块 0.1 s）
             double clayBlendLossSmoothedDb = 0.0;   // 守护混合损失的平滑值（dB，T-043：ClayPressureMonitor::blendLossDb）
+            double clayGuardKeepChange = 0.0;       // 守护回收指示（T-074，ClayGuardKeepMonitor）：平滑后的 Σd² 与 Σ(g·d)²、
+            double clayGuardKeepKept = 0.0;         // 灭着时保留比连续低于亮灯线的秒数（诊断）
+            double clayGuardKeepBelowSeconds = 0.0;
 
             // ---- T-015（BUG-003）校准诊断：渲染工具 --trace 的校准列用（tools/render/README.md）----
             bool roundActive = false;                 // 校准轮进行中（阶段「校准中」）

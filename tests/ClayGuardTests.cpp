@@ -45,6 +45,7 @@ namespace celadon::test
         using glaze::ClayGuard;
         using glaze::ClayGuardState;
         using glaze::ClayPressureMonitor;
+        using glaze::ClayGuardKeepMonitor;
         using glaze::ClayPlan;
         using glaze::ShortTermView;
 
@@ -317,6 +318,7 @@ namespace celadon::test
             testConstantsAndDefaults();
             testPressureMonitor();
             testPressureMonitorBlendLoss();
+            testGuardKeepMonitor();
             testScaleClayPlan();
 
             testResolveCombinations();
@@ -1791,6 +1793,130 @@ namespace celadon::test
             expectEquals (ClayPressureMonitor::nextScale (0.25f), 0.0f);
             expectEquals (ClayPressureMonitor::nextScale (0.0f), 0.0f);
             expectEquals (ClayPressureMonitor::nextScale (std::numeric_limits<float>::quiet_NaN()), 0.0f);
+        }
+
+        // T-074（设计 R4-03）守护回收指示的监测器（ClayGuard.h ClayGuardKeepMonitor；输入 = ClayModule 每切片的 Σd² 与 Σ(g·d)²）：
+        //   - 缺省：不亮、保留比 1；零能量 / 低于地板（改动量快速包络的每样本均方 < 1e-6，约 −60 dBFS）的改动：保留比记 1，永不亮；
+        //   - 恒定保留比 κ（每 10 ms 一片，每样本均方 1e-3）：κ = 0.4 连续满 1 s 才亮（98 片还没亮、102 片已亮）；亮着时 κ = 0.8
+        //     （在 75 % 与 85 % 之间）不熄（滞回，免闪）；κ = 0.95 持续满 1 s（加上 2 s 平滑的过渡）后熄；
+        //   - κ = 0.8 从灭着开始永不亮；κ = 0.7 只持续 0.6 s 就回到 0.95：不亮（要「连续」满 1 s），之后再来一整段才亮；
+        //   - 改动停了（零能量）：快门约 2 s 内把慢的两份能量清零、κ 回到 1，再满 1 s 熄——不会因为 2 s 的平滑拖很久；
+        //   - 非有限 / 负的能量这一片按 0（状态保持有限）；seconds / sampleRate 无效不动状态；
+        //   - 块长无关：同一段能量流按 10 ms 一片与按 1 ms 一片喂，平滑后的两份能量相对 1e-9 相同、亮灭一致；
+        //   - reset 清空一切。
+        void testGuardKeepMonitor()
+        {
+            beginTest ("guard keep monitor (T-074): 2 s-smoothed Σ(g·d)² / Σd² below 75 % for 1 s lights it, back above 85 % for 1 s clears it; floor gate, hysteresis, validity, block-size independence");
+
+            constexpr double rate = 48000.0;
+
+            // power = 每样本均方（两声道之和），默认 1e-3：远高于地板 1e-6。
+            const auto feed = [] (ClayGuardKeepMonitor& m, double kappa, double seconds, double sliceSeconds = 0.01, double power = 1.0e-3)
+            {
+                const auto slices = (int) std::lround (seconds / sliceSeconds);
+
+                for (int i = 0; i < slices; ++i)
+                {
+                    const auto change = power * sliceSeconds * rate;
+                    m.update (change, kappa * change, sliceSeconds, rate);
+                }
+            };
+
+            {
+                ClayGuardKeepMonitor m;
+                expect (! m.active() && m.keptFraction() == 1.0f, "default: off, keep ratio 1");
+                feed (m, 0.0, 5.0, 0.01, 0.0);
+                expect (! m.active() && m.keptFraction() == 1.0f, "no change at all: keep ratio 1, never lit");
+                feed (m, 0.0, 5.0, 0.01, 1.0e-8);
+                expect (! m.active() && m.keptFraction() == 1.0f, "a change far below the -60 dBFS floor counts as no change even if all of it is pulled back");
+            }
+
+            {
+                ClayGuardKeepMonitor m;
+                feed (m, 0.4, 0.98);
+                expect (! m.active(), "kappa 0.4 for 0.98 s: not lit yet");
+                expectWithinAbsoluteError (m.keptFraction(), 0.4f, 1.0e-4f, "constant ratio: the smoothed ratio is the ratio");
+                feed (m, 0.4, 0.04);
+                expect (m.active(), "kappa 0.4 for 1.02 s: lit");
+
+                feed (m, 0.8, 10.0);
+                expect (m.active(), "hysteresis: 80 % (between 75 % and 85 %) does not clear it");
+
+                feed (m, 0.95, 0.3);
+                expect (m.active(), "back above 85 % but not yet for 1 s: still lit");
+                feed (m, 0.95, 4.0);
+                expect (! m.active(), "kappa 0.95 sustained: cleared");
+            }
+
+            {
+                ClayGuardKeepMonitor m;
+                feed (m, 0.8, 10.0);
+                expect (! m.active(), "80 % from off: never lit (the lit threshold is 75 %)");
+            }
+
+            {
+                ClayGuardKeepMonitor m;
+                feed (m, 0.7, 0.6);
+                feed (m, 0.95, 1.0);
+                expect (! m.active(), "0.6 s below 75 % then recovered: not lit (needs 1 s continuously)");
+                feed (m, 0.7, 4.0);   // 2 s 平滑：过渡约 1.2 s 才落到 75 % 以下，再满 1 s
+                expect (m.active(), "then a full stretch below 75 %: lit");
+            }
+
+            {
+                ClayGuardKeepMonitor m;
+                feed (m, 0.4, 3.0);
+                const auto kept = m.kept, change = m.change;
+                m.update (std::numeric_limits<double>::quiet_NaN(), 1.0, 0.01, rate);
+                m.update (1.0, std::numeric_limits<double>::infinity(), 0.01, rate);
+                m.update (-1.0, -1.0, 0.01, rate);
+                expect (std::isfinite (m.kept) && std::isfinite (m.change) && std::isfinite (m.fraction), "non-finite / negative energies keep the state finite");
+                expect (m.kept <= kept && m.change <= change, "such a slice counts as zero energy (the smoothed values only decay)");
+
+                // 坏切片不能毒化快门：一个 NaN 进了 gateChange 就永远是 NaN（比较恒假 → 永远「没有可听的改动」→ 灯再也亮不起来）。
+                // 坏切片之后再喂 4 s 保留比 0.4 的正常切片，仍然要亮着。
+                feed (m, 0.4, 4.0);
+                expect (std::isfinite (m.gateChange) && m.active(), "a bad slice does not poison the gate: the monitor keeps working afterwards");
+
+                const auto before = m.change;
+                m.update (1.0, 0.5, 0.0, rate);
+                m.update (1.0, 0.5, -0.01, rate);
+                m.update (1.0, 0.5, std::numeric_limits<double>::quiet_NaN(), rate);
+                m.update (1.0, 0.5, 0.01, 0.0);
+                m.update (1.0, 0.5, 0.01, std::numeric_limits<double>::infinity());
+                expect (m.change == before, "invalid seconds / sampleRate leave the state alone");
+            }
+
+            {
+                // 改动停了（停播、低切 / 收单关掉、旁通）：快门约 2 s 内清零慢的两份能量，再满 1 s 熄——不会被 2 s 的平滑拖很久。
+                ClayGuardKeepMonitor m;
+                feed (m, 0.4, 4.0);
+                expect (m.active(), "positive control: lit while the change is on");
+                feed (m, 0.0, 1.5, 0.01, 0.0);
+                expect (m.active(), "1.5 s of silence: not yet (the gate needs about 2 s to see no change)");
+                feed (m, 0.0, 4.5, 0.01, 0.0);
+                expect (! m.active() && m.keptFraction() == 1.0f && m.change == 0.0, "after the change stops: cleared and the keep ratio is back to 1");
+            }
+
+            {
+                // 块长无关：10 ms 一片与 1 ms 一片（同样的每样本均方）。
+                ClayGuardKeepMonitor coarse, fine;
+                feed (coarse, 0.4, 2.0, 0.01);
+                feed (fine, 0.4, 2.0, 0.001);
+                expectWithinAbsoluteError (fine.change / coarse.change, 1.0, 1.0e-9, "smoothed change energy is the same for 1 ms and 10 ms slices");
+                expectWithinAbsoluteError (fine.kept / coarse.kept, 1.0, 1.0e-9, "smoothed kept energy is the same for 1 ms and 10 ms slices");
+                expect (coarse.active() == fine.active() && coarse.active(), "same lit state");
+            }
+
+            {
+                ClayGuardKeepMonitor m;
+                feed (m, 0.3, 3.0);
+                expect (m.active(), "positive control: lit before reset");
+                m.reset();
+                expect (! m.active() && m.keptFraction() == 1.0f && m.change == 0.0 && m.kept == 0.0 && m.gateChange == 0.0
+                            && m.belowSeconds == 0.0 && m.aboveSeconds == 0.0,
+                        "reset clears everything");
+            }
         }
 
         // T-043（ADR-027）压力反馈的第二个触发量：守护的混合损失（ClayGuard.h ClayPressureMonitor）。
