@@ -38,6 +38,12 @@ namespace celadon
         double referenceSeconds = 0.0;
         bool hasReference = false, sidechainConnected = false, previewEnabled = false;
         float harshReductionDb = 0.0f, previewGainDb = 0.0f, codecMarginDb = 0.0f;
+        // T-078：界面判断「超出上限」用的 Ceiling，由链在 setParams 里发布（CeladonChain）。
+        // 限幅器在干活时 = 扣过编码余量、做过 −4.5 ～ 0 钳位、流媒体档再封顶之后交给限幅器的值
+        // （与 getEffectiveParams().limit.ceilingDb 相同）。LIMIT 旁通或干路（宿主旁通 / 听原声）时 = 用户 Ceiling
+        // （不扣余量、不封顶），与 codecMarginDb 在旁通时发布 0、界面因此显示用户 Ceiling 的口径一致。
+        // 默认 −1.0 是参数默认值；第一次 setParams 之前界面读到的就是它。
+        float effectiveCeilingDb = -1.0f;
         std::array<float, 27> targetCorrectionDb {};
         DitherMode dither = DitherMode::off;
     };
