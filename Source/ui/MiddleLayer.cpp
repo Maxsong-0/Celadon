@@ -70,6 +70,7 @@ namespace celadon::ui
             case Chip::locked:      chipLabel = tr (Text::chipLocked, language);      break;
             case Chip::listening:   chipLabel = tr (Text::chipListening, language);   break;
             case Chip::calibrating: chipLabel = tr (Text::chipCalibrating, language); break;
+            case Chip::awaiting:    chipLabel = tr (Text::chipAwaiting, language);    chipBackground = palette::groove; chipForeground = palette::ink3; break;
             case Chip::unlearned:   chipLabel = tr (Text::chipUnlearned, language);   chipBackground = palette::groove; chipForeground = palette::ink3; break;
             case Chip::paused:      chipLabel = tr (Text::chipPaused, language);      chipBackground = palette::groove; chipForeground = palette::ink3; break;
             case Chip::limited:     chipLabel = tr (Text::chipLimited, language);     chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;

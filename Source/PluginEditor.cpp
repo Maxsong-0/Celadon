@@ -212,8 +212,8 @@ public:
         addAndMakeVisible (styleSelector);
         styleAttachment = std::make_unique<SegmentedAttachment> (styleSelector, *state.getParameter (param::glazeStyle));
 
-        // T-038 曲风与交付：与风格同一种选择器（带灰字说明格），分放 GLAZE 主旋钮左右——声音从左边流进 GLAZE、从右边流出，
-        // 曲风说的是进来的音乐，交付说的是出去的母带（位置待 Max 看截图定，设计规格-曲风与交付 第 5 节）。选项文字在 setLanguage 里填。
+        // T-038 曲风与交付：与风格同一种选择器（带灰字说明格），分放 GLAZE 标题行左右（曲风在左、交付在右；Max 2026-10-01 选定，坐标见 layoutGlazeChoices）——
+        // 声音从左边流进 GLAZE、从右边流出，曲风说的是进来的音乐，交付说的是出去的母带。选项文字在 setLanguage 里填。
         genreSelector.setOptions ({ "", "", "", "" });
         deliverySelector.setOptions ({ "", "", "" });
 
@@ -1206,7 +1206,8 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto listenOn = rawValue (state, param::limitListen) >= 0.5f;
     const auto comparing = processor.isComparingOriginal();
     const auto mastering = processor.getMasteringStatus();
-    const auto ceiling = rawValue (state, param::limitCeiling) - mastering.codecMarginDb;
+    // T-078：橙色、响度小窗与顶部胶囊用链发布的实际上限（流媒体封顶与编码余量已算进；旁通 / 干路是用户 Ceiling）。
+    const auto ceiling = mastering.effectiveCeilingDb;
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
 
@@ -1314,18 +1315,18 @@ void CeladonAudioProcessorEditor::timerCallback()
 
         auto chip = Chip::locked;
 
-        // House 反相提示（T-038）压住的是哪一行，阶段标签就照哪一行画：提示不改变「聆听中 / 已锁定」。
+        // House 反相提示（T-038）压住的是哪一行，阶段标签就照哪一行画：提示不改变「聆听中 / 待校准 / 已锁定」。
         switch (view.kind == Kind::housePhaseHint ? view.underlyingKind : view.kind)
         {
             case Kind::listening:
             case Kind::houseListening:      chip = Chip::listening;   break;
             case Kind::calibrating:         chip = Chip::calibrating; break;
             case Kind::calibrationPaused:   chip = Chip::paused;      break;
+            case Kind::awaitingCalibration: chip = Chip::awaiting;    break;
             case Kind::unlearned:
             case Kind::unlearnedExported:   chip = Chip::unlearned;   break;
             case Kind::planLimited:
             case Kind::limitedByManual:     chip = Chip::limited;     break;
-            case Kind::awaitingCalibration:
             case Kind::locked:
             case Kind::profileMismatch:
             case Kind::housePhaseHint:      chip = Chip::locked;      break;
@@ -1355,18 +1356,38 @@ void CeladonAudioProcessorEditor::timerCallback()
         else
         {
             juce::String second;
+            // T-078：不在聆听时 requiredSeconds 恒为 15，House 锁定后不能再写「已聆听 15 秒」。
+            // 琥珀行（受手动设置限制 / 方案受限）压住一轮进行中的聆听时，第二行仍写进度，不写「聆听已完成」。
+            const auto listeningNow = status.phase == glaze::Phase::listening || status.relearnInProgress;
+            const auto amberOverListen = (view.kind == Kind::planLimited || view.kind == Kind::limitedByManual) && listeningNow;
 
             if (! (glazePercent > 0.0f))
                 second = tr (Text::glazeManual, language);
-            else if (houseTip && (view.kind == Kind::houseListening || view.kind == Kind::housePhaseHint
+            else if (houseTip && (amberOverListen
+                                  || view.kind == Kind::houseListening || view.kind == Kind::housePhaseHint
                                   || view.kind == Kind::unlearned || view.kind == Kind::unlearnedExported))
                 second = tr (Text::cornerHouseTip, language);
-            else if (view.kind == Kind::listening)
-                second = trFormat (Text::cornerListening, language, { juce::String (view.listenedSeconds), juce::String (view.requiredSeconds) });
+            else if (view.kind == Kind::listening || amberOverListen)
+            {
+                auto listened = view.listenedSeconds;
+                auto required = view.requiredSeconds;
+
+                if (amberOverListen)
+                {
+                    auto underneath = status;
+                    underneath.limitedByManual = false;
+                    underneath.planLimited = false;
+                    const auto progress = glazestatus::classify (underneath, glazePercent, style, listenOn);
+                    listened = progress.listenedSeconds;
+                    required = progress.requiredSeconds;
+                }
+
+                second = trFormat (Text::cornerListening, language, { juce::String (listened), juce::String (required) });
+            }
             else if (view.kind == Kind::unlearned || view.kind == Kind::unlearnedExported)
                 second = tr (Text::cornerUnlearned, language);
             else
-                second = trFormat (Text::cornerListened, language, { juce::String (juce::roundToInt (status.requiredSeconds)) });
+                second = tr (Text::cornerListened, language);
 
             c.cornerNote.setLines (tr (Text::drivesParameters, language), second, false);
         }

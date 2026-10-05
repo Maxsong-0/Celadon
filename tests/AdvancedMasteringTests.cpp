@@ -802,6 +802,8 @@ namespace celadon::test
                     CeladonChain chain;
                     prepareMasteringChain (chain, params);
                     expectEquals (chain.getEffectiveParams().limit.ceilingDb, delivery == (int) glaze::Delivery::streaming ? -2.0f : -1.0f);
+                    // T-078：界面读到的就是交给限幅器的 Ceiling。
+                    expectEquals (chain.getMasteringStatus().effectiveCeilingDb, chain.getEffectiveParams().limit.ceilingDb);
                 }
 
                 ChainParams lower;
@@ -810,6 +812,7 @@ namespace celadon::test
                 CeladonChain chain;
                 prepareMasteringChain (chain, lower);
                 expectEquals (chain.getEffectiveParams().limit.ceilingDb, -3.0f);
+                expectEquals (chain.getMasteringStatus().effectiveCeilingDb, chain.getEffectiveParams().limit.ceilingDb);
 
                 ChainParams margin;   // 编码余量先扣，再与 -2 取小
                 margin.limit.ceilingDb = -0.5f;
@@ -818,6 +821,25 @@ namespace celadon::test
                 CeladonChain withMargin;
                 prepareMasteringChain (withMargin, margin);
                 expectEquals (withMargin.getEffectiveParams().limit.ceilingDb, -2.0f);
+                expectEquals (withMargin.getMasteringStatus().effectiveCeilingDb, withMargin.getEffectiveParams().limit.ceilingDb);
+
+                // LIMIT 旁通 / 干路：发布用户 Ceiling（不扣余量、不封顶）。交给模块的 ceilingDb 仍是封顶后的值。
+                ChainParams bypassed = margin;
+                bypassed.limit.bypass = true;
+                CeladonChain bypassedChain;
+                prepareMasteringChain (bypassedChain, bypassed);
+                expectEquals (bypassedChain.getEffectiveParams().limit.ceilingDb, -2.0f);
+                expectEquals (bypassedChain.getMasteringStatus().effectiveCeilingDb, -0.5f);
+
+                ChainParams dry = margin;
+                CeladonChain dryChain;
+                prepareMasteringChain (dryChain, dry);
+                dryChain.setParams (dry, true);
+                expectEquals (dryChain.getEffectiveParams().limit.ceilingDb, -2.0f);
+                expectEquals (dryChain.getMasteringStatus().effectiveCeilingDb, -0.5f);
+
+                dryChain.setParams (dry, false, true);
+                expectEquals (dryChain.getMasteringStatus().effectiveCeilingDb, -0.5f);
             }
 
             beginTest ("T-038: House automatic spectrum target uses the genre slope and feeds back losslessly at GLAZE 0");

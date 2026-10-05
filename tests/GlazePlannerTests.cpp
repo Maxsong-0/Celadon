@@ -2896,7 +2896,7 @@ namespace celadon::test
                 expect (club.effectiveGainDb >= standard.effectiveGainDb - 1.0e-3f && standard.effectiveGainDb >= streaming.effectiveGainDb - 1.0e-3f,
                         utf8 ("有效增益随交付目标单调"));
 
-                // 交付只换目标响度：Tone、Clay、Recover / Tame、风格权重与交付无关（两版母带的音色决策一致，规格第 4.3 节）。
+                // 交付换的是目标响度（流媒体另封有效上限）：Tone、Clay、Recover / Tame、风格权重与交付无关（两版母带的这几项决策一致，规格第 4.3 节）；Glue / Heat / Clip 随增益与上限重新分摊，不在这里断言。
                 auto voiced = clayProfile();
                 setFeature (voiced.spectralSlopeDbPerOct, -4.5f);
 
@@ -2912,7 +2912,7 @@ namespace celadon::test
                                     && sameBits (other.increments.balanceTame, reference.increments.balanceTame)
                                     && sameBits (other.weights.warm, reference.weights.warm) && sameBits (other.weights.punchy, reference.weights.punchy)
                                     && sameBits (other.weights.clean, reference.weights.clean),
-                                utf8 ("交付不改音色决策：曲风 ") + juce::String ((int) genre) + utf8 ("、交付 ") + juce::String ((int) delivery));
+                                utf8 ("交付不改 Tone / Clay / Recover / Tame / 风格权重：曲风 ") + juce::String ((int) genre) + utf8 ("、交付 ") + juce::String ((int) delivery));
                     }
 
                     expect (reference.increments.colorToneDb != 0.0f && ! isNeutral (reference.clay), utf8 ("阳性对照：这份画像会动 Tone 与 Clay"));

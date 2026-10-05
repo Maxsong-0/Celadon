@@ -658,7 +658,7 @@ int main (int argc, char* argv[])
           [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::english, 0.42f); } },
 
         // ---- T-038 曲风与交付 / House 档（曲风 Deep House、交付 俱乐部；House 的状态字段注入，见 injectStatus）----
-        // 版面：两个选择在主旋钮左右（代码里的默认位置）与备选位置（挪到 GLAZE 标题行），整张。
+        // 版面：两个选择在 GLAZE 标题行左右（Max 2026-10-01 选定），整张。
         { "zh-house-layout", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
         { "en-house-layout", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
         // 状态行三种文字（设计规格-曲风-House学习方式 第 7 节），只截顶栏胶囊。
@@ -837,7 +837,7 @@ namespace
         }
 
         // ⑦ 续（T-038）：曲风 / 交付两个选择——点最右一格选中最后一项（Melodic / 俱乐部），点左边的灰字说明格什么都不改；
-        //    两个都在主旋钮两侧、不与旋钮和左下说明重叠。查完放回通用 / 标准，后面的检查不受影响。
+        //    两个都在 GLAZE 标题行两侧、不与主旋钮和左下说明重叠。查完放回通用 / 标准，后面的检查不受影响。
         {
             auto& genre = find (celadon::param::glazeGenre);
             auto& delivery = find (celadon::param::glazeDelivery);
@@ -854,7 +854,7 @@ namespace
             const auto cornerArea = find ("corner_note").getBounds();
             check (! genre.getBounds().intersects (knobArea) && ! delivery.getBounds().intersects (knobArea)
                        && ! genre.getBounds().intersects (cornerArea) && genre.getRight() <= delivery.getX(),
-                   "genre / delivery sit either side of the knob (" + genre.getBounds().toString() + ", " + delivery.getBounds().toString() + ")");
+                   "genre / delivery sit either side of the GLAZE heading, clear of the knob (" + genre.getBounds().toString() + ", " + delivery.getBounds().toString() + ")");
 
             session.setParameter (celadon::param::glazeGenre, 0.0f);
             session.setParameter (celadon::param::glazeDelivery, 0.0f);

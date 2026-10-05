@@ -222,6 +222,9 @@ namespace celadon
         if (! std::isfinite (adjusted.limit.ceilingDb))
             adjusted.limit.ceilingDb = LimiterModule::Params {}.ceilingDb;
 
+        // T-078：旁通 / 干路时界面显示这份用户 Ceiling（不扣余量、不封顶）。有限值替换已经做过。
+        const auto userCeilingDb = adjusted.limit.ceilingDb;
+
         const auto margin = std::isfinite (mastering.codecMarginDb) ? juce::jlimit (0.0f, 1.5f, mastering.codecMarginDb) : 0.0f;
         if (margin > 0.0f) adjusted.limit.ceilingDb = juce::jlimit (-4.5f, 0.0f, adjusted.limit.ceilingDb - margin);
         // T-038 交付「流媒体」：有效 Ceiling 不高于 −2 dBTP（设计规格-曲风与交付 第 4.1 节；用户 Ceiling 更低时照用户的）。
@@ -295,7 +298,11 @@ namespace celadon
         previewActive = nextPreview;
         const auto bits = releaseAllowed ? (mastering.dither == DitherMode::bits16 ? 16 : (mastering.dither == DitherMode::bits24 ? 24 : 0)) : 0;
         releaseSafety.setParams (previewActive, finiteOr (mastering.previewTargetLufs, neutralMastering.previewTargetLufs), bits);
-        publishedCodecMargin.store (dryPath || adjusted.limit.bypass ? 0.0f : margin, std::memory_order_relaxed);
+        const auto limitIdle = dryPath || adjusted.limit.bypass;
+        publishedCodecMargin.store (limitIdle ? 0.0f : margin, std::memory_order_relaxed);
+        // 干活时发布交给限幅器的 Ceiling（余量、钳位、流媒体封顶都已算进，与 effective.limit.ceilingDb 相同）；
+        // 旁通 / 干路发布用户 Ceiling，界面因此不把没在用的封顶画成超限。
+        publishedEffectiveCeiling.store (limitIdle ? userCeilingDb : adjusted.limit.ceilingDb, std::memory_order_relaxed);
         publishedDither.store (bits == 16 ? 1 : (bits == 24 ? 2 : 0), std::memory_order_relaxed);
 
         // 宿主旁通不另走一条路，而是把每个模块都置为旁通：各模块自带等长延迟的干路与 20 ms 交叉淡化
@@ -462,6 +469,7 @@ namespace celadon
         result.harshReductionDb = balance.getHarshReductionDb();
         result.previewGainDb = publishedPreviewGain.load (std::memory_order_relaxed);
         result.codecMarginDb = publishedCodecMargin.load (std::memory_order_relaxed);
+        result.effectiveCeilingDb = publishedEffectiveCeiling.load (std::memory_order_relaxed);
         result.dither = static_cast<DitherMode> (publishedDither.load (std::memory_order_relaxed));
         balance.getTargetCorrectionDb (result.targetCorrectionDb);
         return result;

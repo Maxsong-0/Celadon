@@ -16,12 +16,12 @@
 
 namespace celadon::ui
 {
-    // 「GLAZE 智能母带 [🔒 已锁定]」：阶段标签随状态变（聆听中、校准中、未学习、受限……）。
+    // 「GLAZE 智能母带 [🔒 已锁定]」：阶段标签随状态变（聆听中、待校准、校准中、未学习、受限……）。
     class GlazeTitle  : public juce::Component,
                         public juce::SettableTooltipClient
     {
     public:
-        enum class Chip { locked, listening, calibrating, unlearned, paused, limited, off };
+        enum class Chip { locked, listening, calibrating, awaiting, unlearned, paused, limited, off };
 
         GlazeTitle();
 
@@ -62,7 +62,7 @@ namespace celadon::ui
         bool dot = false;
     };
 
-    // 左下角两行小字：平时说明 GLAZE 在做什么（「联动 7 项参数 / 已聆听 15 秒」），悬停或拖动控件时换成操作提示。
+    // 左下角两行小字：平时说明 GLAZE 在做什么（「联动 7 项参数 / 聆听已完成」），悬停或拖动控件时换成操作提示。
     class CornerNote  : public juce::Component
     {
     public:
