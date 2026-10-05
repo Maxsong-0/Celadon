@@ -525,10 +525,9 @@ namespace celadon::ui
         setMouseCursor (juce::MouseCursor::CrosshairCursor);
 
         const auto points = (size_t) SpectrumAnalyser::numPoints;
-        output.assign (points, SpectrumAnalyser::floorDb);
-        input.assign (points, SpectrumAnalyser::floorDb);
-        average.assign (points, SpectrumAnalyser::floorDb);
-        peak.assign (points, SpectrumAnalyser::floorDb);
+
+        for (auto* values : { &output, &input, &average, &peak, &latestOutput, &latestInput, &latestAverage, &latestPeak })
+            values->assign (points, SpectrumAnalyser::floorDb);
 
         // 每点的横坐标与频率只跟点号有关（T-032 R9-10）：算一次，与原来画图时逐点现算的是同一算式。
         for (int i = 0; i < SpectrumAnalyser::numPoints; ++i)
@@ -550,13 +549,15 @@ namespace celadon::ui
         }
 
         for (auto* toggle : { &outputToggle, &inputToggle, &peakToggle })
-        {
             addAndMakeVisible (*toggle);
-            toggle->onClick = [this, toggle] { toggle->setOn (! toggle->isOn()); repaint(); };
-        }
 
+        for (auto* toggle : { &outputToggle, &inputToggle })
+            toggle->onClick = [this, toggle] { toggle->setOn (! toggle->isOn()); repaint(); };
+
+        peakToggle.onClick = [this] { setPeakShown (! peakToggle.isOn()); };
         inputToggle.setOn (false);
-        slopeControl.onChange = [this] { updateTilt(); updatePeakReadout (output); refreshReadout(); repaint(); };
+        // 换斜率：读数（此刻最响的峰）按此刻的值重找（T-058：原来用画出来的那组值，曲线静止时是旧的）。
+        slopeControl.onChange = [this] { updateTilt(); updatePeakReadout (latestOutput); refreshReadout(); repaint(); };
         addAndMakeVisible (slopeControl);
 
         addAndMakeVisible (hud);
@@ -638,8 +639,24 @@ namespace celadon::ui
         for (size_t i = 0; i < tilt.size(); ++i)
             tilt[i] = slope * std::log2 (pointFrequency[i] / 1000.0f);
 
-        curvePathsValid = false;
-        inputDashesValid = false;
+        curvePathsValid = false;   // paint 里按此刻的值重建（IN 虚线随 buildCurvePaths 作废）
+    }
+
+    void SpectrumView::setPeakShown (bool shouldShow)
+    {
+        if (shouldShow == peakToggle.isOn())
+            return;
+
+        peakToggle.setOn (shouldShow);
+
+        // PEAK 关着时 setSpectrum 不比峰值线（T-058），路径停在上一次重建时。打开这一刻让 paint 按此刻的值整组重建
+        // （buildCurvePaths 先换成最新值），并按 R-02 ① 把画出的区域并进旧区域：点击引起的重画先于显示器的帧回调到达也画的是
+        // 此刻的峰值线，之后的「旧区域」也盖得住它——不靠 curveRegion 不论开关都算峰值线（R-02 ②）与描边外扩的 3 px 余量。
+        // 关掉不用重建：峰值线不再画，整面重画把它擦掉。
+        if (shouldShow)
+            curvePathsValid = false;
+
+        repaint();
     }
 
     void SpectrumView::setSpectrum (SpectrumAnalyser& analyser, double elapsedSeconds)
@@ -651,8 +668,18 @@ namespace celadon::ui
         if (std::isfinite (elapsedSeconds) && elapsedSeconds > 0.0)
             secondsSinceReadout += elapsedSeconds;
 
-        // 几条曲线在屏上都没有看得出的变化（没有音乐、曲线已经落到底、只在面板底边以下起伏）就不重建、不重画：
+        // 计算器此刻的值每帧拷一份，只拷不比（T-058）：之后不论在哪里重建路径（下面判变了，或换斜率 / 打开 PEAK 后在 paint 里）
+        // 都先换成它（buildCurvePaths），读数也按它算。同尺寸的 vector 赋值不分配。
+        latestOutput  = analyser.getDisplayDb (SpectrumAnalyser::Stream::output);
+        latestInput   = analyser.getDisplayDb (SpectrumAnalyser::Stream::input);
+        latestAverage = analyser.getAverageDb();
+        latestPeak    = analyser.getPeakDb();
+
+        // 看得见的几条曲线在屏上都没有看得出的变化（没有音乐、曲线已经落到底、只在面板底边以下起伏）就不重建、不重画：
         // 按加了斜率、钳到面板里的纵坐标比（0.1 个逻辑像素），比的是上一次画出来的那组值，慢慢漂也会在累计过门槛时重画。
+        // 看不见的曲线不比（T-058）：PEAK 关着时峰值线不画——原来照比，峰值保持往下落的那几秒每帧判「变了」、重建四条路径、
+        // 重画曲线区，屏上什么都没变；打开那一刻由 setPeakShown 按此刻的值重建。IN 没有曲线（关着或刚打开、计算器还没算出
+        // 第一帧）时计算器把它钉在底线，本来比不出变化，同样不比；IN 出现 / 消失由 nextInputReady != inputReady 判。
         const auto differs = [this] (const std::vector<float>& shown, const std::vector<float>& next)
         {
             if (shown.size() != next.size())
@@ -665,20 +692,14 @@ namespace celadon::ui
             return false;
         };
 
-        const auto& nextOutput = analyser.getDisplayDb (SpectrumAnalyser::Stream::output);
-        const auto& nextInput = analyser.getDisplayDb (SpectrumAnalyser::Stream::input);
         const auto changed = nextInputReady != inputReady
-                          || differs (output, nextOutput) || differs (input, nextInput)
-                          || differs (average, analyser.getAverageDb()) || differs (peak, analyser.getPeakDb());
+                          || differs (output, latestOutput) || (nextInputReady && differs (input, latestInput))
+                          || differs (average, latestAverage) || (peakToggle.isOn() && differs (peak, latestPeak));
 
         if (changed)
         {
+            // inputReady 只在这里更新：两次 setSpectrum 之间它总等于最近一次的 nextInputReady（不等就判变了），与 latest* 是同一刻的。
             inputReady = nextInputReady;
-            output  = nextOutput;
-            input   = nextInput;
-            average = analyser.getAverageDb();
-            peak    = analyser.getPeakDb();
-            inputDashesValid = false;
             buildCurvePaths();
             repaintCurves();
         }
@@ -687,10 +708,10 @@ namespace celadon::ui
         // 节奏，鼠标移动时立即）：两位小数一秒变几十次读不清，读数框也不必每帧重画。用计算器此刻的值，不受上面 0.1 像素门槛影响。
         if (secondsSinceReadout >= 8.0 / 30.0)
         {
-            updatePeakReadout (nextOutput);
+            updatePeakReadout (latestOutput);
 
             if (hoverFrequency.has_value())
-                hoverDb = curveDbAt (nextOutput, *hoverFrequency);
+                hoverDb = curveDbAt (latestOutput, *hoverFrequency);
 
             refreshReadout();
         }
@@ -701,7 +722,11 @@ namespace celadon::ui
         // 此刻几条曲线（含描边外伸）占的区域：OUT 的填充一直到底边，所以区域总是从最高的曲线顶到面板底。
         // 描边超出路径包围盒的上限同 paint：尖角接头最多伸出 2 × 线宽，再加 1 像素抗锯齿。
         const auto strokeArea = [] (const juce::Path& path, float thickness) { return path.getBounds().expanded (2.0f * thickness + 1.0f); };
-        // 峰值线与 IN 线不论开关都算进去：开关切换那一帧是整面重画，之后的「旧区域」也要盖住它们可能画过的地方。
+        // 峰值线与 IN 线不论开关都算进去（评审 R-02 ②）：开关切换那一帧是整面重画，之后的「旧区域」也要盖住它们可能画过的地方。
+        // T-058 起这是第二道保险：PEAK 打开那一刻 setPeakShown 让 paint 按此刻的值重建、按 ① 把画出的区域并进旧区域，峰值线已经
+        // 盖住（截图工具 S9：只撤这一条照样不留残影，main 上撤它会留）；IN 线只在 setSpectrum 判变了之后出现，那一次的区域本来就含它。
+        // 照留：将来改了打开时的重建或 ①，它还兜着。代价是 PEAK 关着放音乐时看不见的峰值线照样进脏区（峰值保持常比 OUT 顶高几 dB；
+        // T-058 实测合成音乐 PEAK 关时脏区设备像素多 11 ～ 12 %，与 main 相同）。
         auto area = outputFill.getBounds().getUnion (strokeArea (outputLine, 0.8f)).getUnion (strokeArea (averageLine, 1.4f))
                                           .getUnion (strokeArea (peakLine, 1.0f));
 
@@ -831,8 +856,10 @@ namespace celadon::ui
         hoverFrequency = frequency;
         repaint (cursorBounds());
 
+        // 读数用此刻的值（T-058；原来用画出来的那组值，曲线静止时是旧的，过 0.27 s 定时刷新才换成此刻的）。光标圆点照旧画在
+        // 画出来的曲线上（paint）。
         if (hoverFrequency.has_value())
-            hoverDb = curveDbAt (output, *hoverFrequency);
+            hoverDb = curveDbAt (latestOutput, *hoverFrequency);
 
         refreshReadout();
     }
@@ -862,8 +889,17 @@ namespace celadon::ui
 
     void SpectrumView::buildCurvePaths()
     {
-        // 数据或斜率变了才重建（悬停时只重画光标与读数，不再重建）。OUT 的填充与轮廓同一组点：填充接到右下角、左下角再闭合
-        // （T-032 R9-04 ④）。平均线本身已沿频率平滑过两遍（±13 点），隔一个点取一个看不出差别，描边少一半的段。
+        // 数据或斜率变了才重建（悬停时只重画光标与读数，不再重建）。先换成计算器此刻的值（T-058）：在 setSpectrum 里判变了、
+        // 还是换斜率 / 打开 PEAK 后在 paint 里重建，画出来的都是此刻的曲线；换进来的这组同时是之后判变化的基准。
+        // 同尺寸的 vector 赋值不分配。
+        output  = latestOutput;
+        input   = latestInput;
+        average = latestAverage;
+        peak    = latestPeak;
+        inputDashesValid = false;   // IN 虚线由 inputLine 展开：线一重建就作废（原来写在 setSpectrum 与 updateTilt 里）
+
+        // OUT 的填充与轮廓同一组点：填充接到右下角、左下角再闭合（T-032 R9-04 ④）。平均线本身已沿频率平滑过两遍（±13 点），
+        // 隔一个点取一个看不出差别，描边少一半的段。
         buildLine (output, outputLine);
         buildLine (output, outputFill);   // 直接建（clear 保留容量），不拷贝 outputLine：播放中每帧建一次，拷贝就是一次分配
         outputFill.lineTo ((float) width, (float) height);
@@ -1241,7 +1277,8 @@ namespace celadon::ui
 
         if (! curvePathsValid)
         {
-            // 在这里重建（换了斜率、曲线静止时）：这一帧画出的区域并进「旧区域」，下一次只重画新旧包围盒时不漏掉它（评审 R-02）。
+            // 在这里重建（换了斜率、打开了 PEAK，按此刻的值，T-058）：这一帧画出的区域并进「旧区域」，下一次只重画新旧包围盒时
+            // 不漏掉它（评审 R-02 ①）。
             buildCurvePaths();
             curveArea = curveArea.getUnion (curveRegion());
         }
