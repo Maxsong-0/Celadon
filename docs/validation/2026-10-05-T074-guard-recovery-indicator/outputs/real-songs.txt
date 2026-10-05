@@ -1,0 +1,13 @@
+song           product                       blocks  lowcut>0  guard acted   lit %  kept min  kept p50  kept max  switches  first lit s
+track_0046047  g35_clay-auto_auto             30652     30652        25264    99.7     0.120     0.375     1.000         1          1.0
+track_0046047  g35_clay-lowcut_auto           30652     30652        25264    99.7     0.120     0.375     1.000         1          1.0
+track_0046047  g70_clay-auto_auto             30652     30652        25822    99.7     0.095     0.331     1.000         1          1.0
+track_0046047  g70_clay-lowcut_auto           30652     30652        25822    99.7     0.095     0.331     1.000         1          1.0
+track_0155328  g35_clay-auto_auto             27691         0            0     0.0     1.000     1.000     1.000         0            -
+track_0155328  g35_clay-lowcut_auto           27691         0            0     0.0     1.000     1.000     1.000         0            -
+track_0155328  g70_clay-auto_auto             27691         0            0     0.0     1.000     1.000     1.000         0            -
+track_0155328  g70_clay-lowcut_auto           27691         0            0     0.0     1.000     1.000     1.000         0            -
+track_0726856  g35_clay-auto_auto             38348     38348        33265    99.8     0.007     0.311     1.000         1          1.0
+track_0726856  g35_clay-lowcut_auto           38348     38348        33265    99.8     0.007     0.311     1.000         1          1.0
+track_0726856  g70_clay-auto_auto             38348     38348        33236    99.8     0.007     0.307     1.000         1          1.0
+track_0726856  g70_clay-lowcut_auto           38348     38348        33236    99.8     0.007     0.307     1.000         1          1.0

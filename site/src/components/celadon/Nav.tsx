@@ -39,7 +39,7 @@ const SWITCH: Record<Locale, { text: string; label: string }> = {
   zh: { text: '中文', label: '切换到中文' }
 };
 
-const SITE_ORIGIN = 'https://celadon.maxsong.me';
+const SITE_ORIGIN = 'https://celadonaudio.com';   // 与 scripts/site-data.mjs 的 ORIGIN 一致（check-i18n 核对）
 
 /** Mac / iPad 上提示 ⌘K，其余（Windows / Linux）提示 Ctrl K；两种组合键在哪儿都认。 */
 const IS_MAC =

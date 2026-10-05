@@ -216,7 +216,7 @@ namespace celadon::glaze
             Plan targetPlan;                 // 目标方案（过渡终点）
 
             // ---- v0.1.7.0 修坯 Clay（A6 追加）----
-            ClayPlan clayPlanned;            // 上一块方案（含过渡混合）给的「自动」态值（保护之前；方案源不支持 Clay 时为中性）
+            ClayPlan clayPlanned;            // 上一块方案（含过渡混合与压力反馈缩放）给的「自动」态值（保护之前；方案源不支持 Clay 时为中性）
             ClayPlan liveClay;               // 上一块经 ClayGuard 之后、三态合成之前的自动值（执行快照存的就是它）
             ClayGuardState clayGuard;        // ClayGuard 此刻的状态
             float clayGuardSeconds = 0.0f;   // 上一块交给 ClayGuard 推进的有效音频秒数（静音 / 宿主旁通 / 停播块 = 0）
@@ -224,12 +224,15 @@ namespace celadon::glaze
             bool clayRestoredFirstBlock = false; // 上一块直接用了执行快照里的 Clay 值（保存重开 / 宿主 reset 后第一块）
             std::uint32_t manualParamsHash = 0;  // 按上一块手动参数算的校准参考条件哈希（含 Clay 三态设置；旧口径，见 setManualConditions）
             int legacyConditionsUpgrades = 0;    // 读取工程后旧存档参考升成新口径的份数（BUG-004，upgradeLegacyConditions）
-            Feature liveLowCorrelation;          // 分析器实时视图的低频相关度慢路 / 快路（上一块交给 ClayGuard 的那一份；诊断追踪用）
+            Feature liveLowCorrelation;          // 分析器实时视图的低频相关度慢路 / 快路（读取此刻的读数：处理完这一块之后，ClayGuard 下一块才用它；诊断追踪用）
             Feature liveLowCorrelationFast;
             float clayPressureScale = 1.0f;      // 修坯压力反馈给自动 Clay 的缩放（ADR-014；随工程保存）
             double clayPeakCostDb = 0.0;         // 压力反馈第一触发量此刻的代价（dB，与先试同口径，ADR-028；有效块未满 10 s 为 0）
             int clayPeakCostBlocks = 0;          // 自上次清零起攒下的有效峰值块数（每块 0.1 s）
             double clayBlendLossSmoothedDb = 0.0;   // 守护混合损失的平滑值（dB，T-043：ClayPressureMonitor::blendLossDb）
+            double clayGuardKeepChange = 0.0;       // 守护回收指示（T-074，ClayGuardKeepMonitor）：平滑后的 Σd² 与 Σ(g·d)²、
+            double clayGuardKeepKept = 0.0;         // 灭着时保留比连续低于亮灯线的秒数（诊断）
+            double clayGuardKeepBelowSeconds = 0.0;
 
             // ---- T-015（BUG-003）校准诊断：渲染工具 --trace 的校准列用（tools/render/README.md）----
             bool roundActive = false;                 // 校准轮进行中（阶段「校准中」）

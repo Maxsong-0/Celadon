@@ -6,8 +6,14 @@ v0.1.8.0 起插件同时支持 Apple Silicon Mac、Intel Mac 与 64 位 Windows�
 ## 目录与 Projucer
 
 - JUCE 9.0.2 放在仓库旁边的 `../JUCE`：`Celadon.jucer` 的模块路径与 CMake 的 `CELADON_JUCE_DIR` 默认值都是它。
-- `Builds/` 由 Projucer 生成，不进版本库。改了 `Celadon.jucer` 之后先重新生成：Projucer 9.0.2 里「Save Project」，
-  或命令行 `Projucer --resave Celadon.jucer`。重新生成后 `JuceLibraryCode/` 应与仓库里的逐字节相同（`git status` 干净）。
+- `Builds/` 由 Projucer 生成，不进版本库，**`git pull` 不会更新它**：拉了新提交（加 / 删源文件、改版本号）或改了 `Celadon.jucer` 之后都要重新生成，
+  否则 Xcode / VS 工程还是旧的——新源文件不进编译，链接报「找不到符号」（2026-10-05 踩过：旧工程不认 `SegmentLedger.cpp`）。
+  Projucer 9.0.2 里「Save Project」（先关掉开着的旧 Projucer 窗口、不保存，再重新打开 `Celadon.jucer`：它内存里是旧工程，一保存就会把刚拉下来的 `.jucer` 冲掉），或命令行（在仓库根目录跑；**Projucer 不在 PATH 里，要写全路径**）：
+  `../JUCE/Projucer.app/Contents/MacOS/Projucer --resave Celadon.jucer`（JUCE 下载包自带 `Projucer.app`；自己编的见下一条）。
+  重新生成后 `JuceLibraryCode/` 应与仓库里的逐字节相同（`git status` 干净）；核对：
+  `grep -o 'JucePlugin_Version=[0-9.]*' Builds/MacOSX/Celadon.xcodeproj/project.pbxproj | sort -u` 应与 `Celadon.jucer` 的 `version` 一致（对不上就是旧工程）。
+  **版本号对上不代表工程是新的**：只加源文件、不改版本号的提交（例如 `SegmentLedger.cpp` 进 `.jucer` 那次）查不出来；再看一眼
+  `[ Celadon.jucer -nt Builds/MacOSX/Celadon.xcodeproj/project.pbxproj ] && echo 旧工程`（`.jucer` 比工程新就是旧工程；`scripts/windows-wine.sh` 对 VS 工程用的是同一种判断）。
 - Projucer 从 JUCE 源码编：
   `cmake -S ../JUCE -B ../JUCE/build -DJUCE_BUILD_EXTRAS=ON && cmake --build ../JUCE/build --target Projucer --config Release`，
   产物在 `../JUCE/build/extras/Projucer/Projucer_artefacts/Release/`。
@@ -35,10 +41,16 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
 - 检查：`lipo -archs Builds/MacOSX/build/Release/Celadon.vst3/Contents/MacOS/Celadon` 应打印 `x86_64 arm64`
   （`Celadon.component`、`Celadon.app` 同样）；AU 两个架构都过一遍 `auval -v aufx Cldn Maxs` 与
   `arch -x86_64 auval -v aufx Cldn Maxs`（后者走 Rosetta）。
+- AU 版本：JUCE 写 AU 注册版本（`Info.plist` 的 `AudioComponents → version`）时只取版本号前三段，0.1.8.8 成了 0.1.8（0x108），
+  比 v0.6.1 的 0x601 还低；同一个 `aufx Cldn Maxs` 装了几份时系统只认版本最高的，宿主会一直加载旧 AU。所以 `Celadon.jucer` 的
+  构建后脚本（Post-Build Shell Script）跑 `scripts/au-version.sh`，在签名和拷贝之前把它改成 `JucePlugin_VersionCode` 的编码：
+  0.1.8.8 → 0x10808，宿主与 `auval` 里显示 1.8.8，以后四段号每升一次都跟着升。`auval -v` 输出开头的 Component Version
+  应是 `1.8.8 (0x10808)`。脚本也改 Projucer 生成的 `Builds/MacOSX/Info-AU.plist`（原因写在脚本开头），Projucer 重存会写回，下次构建再改。
 
 安装包（给别的 Mac 用）：编好 Release 通用版后跑 `scripts/package-mac.sh`，在 `installer/Output/` 出两个 .pkg——
 `Celadon-<版本>-macOS-AppleSilicon.pkg`（arm64）与 `Celadon-<版本>-macOS-Intel.pkg`（x86_64）。脚本用 `ditto --arch` 从通用二进制
-拆出单架构副本、重新 ad-hoc 签名，每个包三个可选组件：VST3 → `/Library/Audio/Plug-Ins/VST3`、AU → `/Library/Audio/Plug-Ins/Components`、
+拆出单架构副本、重新 ad-hoc 签名（AU 签名前再过一遍 `scripts/au-version.sh`，构建后已改过的不动），每个包三个可选组件：
+VST3 → `/Library/Audio/Plug-Ins/VST3`、AU → `/Library/Audio/Plug-Ins/Components`、
 独立版 → `/Applications`（系统级，要管理员密码）；组件关掉了「可搬移」，免得安装器把新版装到机器上已有的同 ID 副本那里。
 没有 Apple Developer ID：包不签名、不公证，别人第一次打开会被 Gatekeeper 拦，到「系统设置 → 隐私与安全性」点「仍要打开」。
 本机用 Xcode 装过的（`~/Library/Audio/Plug-Ins/`）不要再装 pkg，否则宿主里会有两份。
@@ -92,7 +104,7 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 （简体中文文件见 `installer/Languages/README.md`）。在 Windows 上先编出 Release x64，再：
 
 ```bat
-"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.9.0 installer\Celadon.iss
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=<Celadon.jucer 里的 version> installer\Celadon.iss
 ```
 
 产物 `installer\Output\Celadon-<版本>-Windows-x64-Setup.exe`（不进版本库）。没有代码签名，第一次运行时 SmartScreen 会提示
@@ -105,7 +117,7 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 
 - 装一次：`ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh`（Wine、msitools、Xvfb、中文字体
   fonts-noto-cjk 要 sudo apt；下载 VS 工具即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
-- 日常：先在 Mac 上 `Projucer --resave Celadon.jucer`（`Builds/VisualStudio2022` 随源码同步过去），然后
+- 日常：先在 Mac 上重新生成工程（命令见上面「目录与 Projucer」；`Builds/VisualStudio2022` 随源码同步过去），然后
   - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
   - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
   - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装、逐字节核对、只选 VST3 重装
@@ -127,3 +139,38 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 本来就不同：arm64 的 TruePeak / Balance 用融合乘加、x86 是分开的乘和加；Mac 的 FFT 是 vDSP、Windows / Linux 是 JUCE 自带的；
 Windows 的 UCRT 还按 CPU 是否支持 FMA3 换超越函数的实现。所以 `tools/render` 的 `audio_hash` 只在同一台机器的同一种构建
 之间可比，跨平台对照用 `gate_check.py` 的 dB / LU 门槛（见 `tools/render/README.md`）。
+
+## CI（GitHub Actions，Studiolo 的自托管 runner）
+
+`.github/workflows/ci.yml`：每个 PR、每次合进 main，都在 Studiolo 的自托管 CI 服务器上原生编 `celadon_tests`，跑两遍全套——基线
+（与不带参数的 `scripts/test-linux.sh` 相同）与 `-march=x86-64-v3`（有 FMA，即上面「测试与性能」里改了契约代码要补跑的那一套；CI 每次都跑）。
+JUCE 9.0.2 由工作流按提交钉死、取到 `Celadon/` 旁边；构建目录留在 runner 的工作区里（`~ghrunner/runners/celadon/_work/Celadon/Celadon/build/`，
+每遍约 30 MB），下一次只重编改过的文件。
+
+- runner：`githubci`（192.168.100.107）上只属于本仓库的实例 `celadon`（`actions-runner@celadon.service`，用户 `ghrunner`，
+  标签 `self-hosted,linux,x64,celadon`），与 Studiolo 的实例互不影响；个人账号下 runner 只能按仓库注册。机器本身的搭法见 Studiolo
+  仓库的 `deploy/ci-runner/README.md`。
+- 只走自托管：私有仓库的 GitHub 托管分钟数整个账号共用（Studiolo 2026-09 两天就烧光过）。runner 离线时作业排队等它（GitHub 最多等
+  24 小时），不会改去托管机器；确要临时用托管机器，把 `runs-on` 改成 `ubuntu-24.04`。
+- 仓库必须保持私有：公开仓库的外部 PR 能在这台机器上执行任意代码。
+- 一个实例一次只跑一个作业：两遍全套排着跑，所有会话的 PR 共用这一条队列。推送前照旧用 `scripts/test-linux.sh` 验（它不占 runner）。
+- 作业一直排队或 runner 离线：`gh api repos/Maxsong-0/Celadon/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'`
+  看状态并告诉 Max；确认没有作业在跑才重启：`ssh maxsong@192.168.100.107 'sudo /usr/local/sbin/ci-runner-service restart celadon'`。
+- 编译工具用机器上的系统包：`cmake`（≥ 3.22）、`ninja`、`g++`。作业的 PATH 由实例目录里的 `.path` 给出，不含 `/snap/bin`。
+
+装实例与注册（在 Mac 上执行；注册令牌只由 Max 本人经 stdin 送入，不回显、不落盘，1 小时有效；agent 不经手、不打印）。
+`V` / `SHA` 是 [actions/runner](https://github.com/actions/runner/releases) 最新发布的版本与发布说明里 linux-x64 包的 sha256，
+`install-runner.sh` 下载后按它核对，不符不解包。块里不写注释：macOS 的 zsh 默认不认交互式的 `#` 注释。
+
+```bash
+H=192.168.100.107
+V=$(gh release view -R actions/runner --json tagName -q .tagName | sed 's/^v//')
+SHA=$(gh release view -R actions/runner --json body -q .body | grep -F "linux-x64-$V.tar.gz" | grep -oE '[0-9a-f]{64}' | head -1)
+ssh ghrunner@$H "~/install-runner.sh celadon $V $SHA"
+gh api -X POST repos/Maxsong-0/Celadon/actions/runners/registration-token --jq .token \
+  | ssh ghrunner@$H '~/runners/celadon/register.sh Maxsong-0/Celadon'
+ssh maxsong@$H 'sudo /usr/local/sbin/ci-runner-service enable-now celadon'
+```
+
+再加一台机器进同一个池（比如 109 `github-2`）：把 `H` 换掉，整段再跑一遍。实例名仍叫 `celadon`、标签相同即同池，runner 名是
+`<主机名>-celadon`，不会撞名；池里的机器都要支持 x86-64-v3（AVX2 + FMA），否则那一遍全套会因非法指令崩掉。

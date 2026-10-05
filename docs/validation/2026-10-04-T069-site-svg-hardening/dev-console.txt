@@ -1,0 +1,16 @@
+chromium: 3 条不同的警告 / 错误
+    /@1440 warning: [.WebGL-0x2400151e00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+    /@375 warning: [.WebGL-0x24019d4000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+    /@375 warning: [.WebGL-0x24019d4000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+firefox: 8 条不同的警告 / 错误
+    /@1440 warning: [JavaScript Warning: "WebGL context was lost." {file: "http://127.0.0.1:8883/src/components/react-bits/Topography.tsx" line: 379}]
+    /@1440 warning: [JavaScript Warning: "This site appears to use a scroll-linked positioning effect. This may not work well with asynchronous panning; see https://firefox-source-docs.mozilla.org/performance/scroll-linked_effects.html for further details and 
+    /@375 warning: [JavaScript Warning: "WebGL context was lost." {file: "http://127.0.0.1:8883/src/components/react-bits/Topography.tsx" line: 379}]
+    /@375 warning: [JavaScript Warning: "This site appears to use a scroll-linked positioning effect. This may not work well with asynchronous panning; see https://firefox-source-docs.mozilla.org/performance/scroll-linked_effects.html for further details and 
+    /zh@1440 warning: [JavaScript Warning: "WebGL context was lost." {file: "http://127.0.0.1:8883/src/components/react-bits/Topography.tsx" line: 379}]
+    /zh@1440 warning: [JavaScript Warning: "This site appears to use a scroll-linked positioning effect. This may not work well with asynchronous panning; see https://firefox-source-docs.mozilla.org/performance/scroll-linked_effects.html for further details and 
+    /zh@375 warning: [JavaScript Warning: "WebGL context was lost." {file: "http://127.0.0.1:8883/src/components/react-bits/Topography.tsx" line: 379}]
+    /zh@375 warning: [JavaScript Warning: "This site appears to use a scroll-linked positioning effect. This may not work well with asynchronous panning; see https://firefox-source-docs.mozilla.org/performance/scroll-linked_effects.html for further details and 
+webkit: 0 条不同的警告 / 错误
+
+

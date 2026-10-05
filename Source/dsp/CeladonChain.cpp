@@ -66,6 +66,7 @@ namespace celadon
         // prepare 末尾自己 reset，所以这里不必再清一遍。各处都按信号顺序写，读起来与 process 一致。
         balance.prepare (spec);
         clay.prepare (spec);
+        clay.setGuardKeepReporting (true);   // T-074：守护保留比统计只由链里这一份报（分析器的先试候选不开，不多花 CPU）
         color.prepare (spec);
         limiter.prepare (spec);
 
@@ -408,6 +409,9 @@ namespace celadon
         stats.clayBlendIntendedEnergy = clayBlend.intendedEnergy;
         stats.clayBlendOutputEnergy   = clayBlend.outputEnergy;
         stats.clayBlendSeconds        = clayBlend.seconds;
+        const auto clayKeep       = clay.getLastProcessGuardKeep();  // T-074：守护保留比统计（界面的「守护在回收」指示）
+        stats.clayGuardChangeEnergy = clayKeep.changeEnergy;
+        stats.clayGuardKeptEnergy   = clayKeep.keptEnergy;
         stats.musicActive = false;   // 编排器按分析器的有效信号门限填
 
         controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true);

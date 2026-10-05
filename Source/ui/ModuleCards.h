@@ -84,7 +84,7 @@ namespace celadon::ui
 
         void setLanguage (Language newLanguage) override;
 
-        // 每帧调：编排器快照里的 Clay 实际值与保护状态（已按三态与旁通算好的读数）。
+        // 每帧调：编排器快照里的 Clay 实际值与低频反相提示、宽度保护的状态（已按三态与旁通算好的读数）。
         void setReadout (const help::ClayReadout& readout);
 
         void paint (juce::Graphics&) override;

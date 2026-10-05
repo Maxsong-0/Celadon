@@ -327,7 +327,7 @@ def render(out: Path, S: int, value: float, seed: int, lang: str) -> None:
             draw.text((x, 330 * S), 'Smart mastering plugin', font=kind, fill=INK3, anchor='ls')
             for text, fill, y in lines:
                 draw.text((x, y * S), text, font=slogan, fill=fill, anchor='ls')
-        draw_tracked(draw, x, 548 * S, 'celadon.maxsong.me', url, INK4, 0.06 * 15 * S)
+        draw_tracked(draw, x, 548 * S, 'celadonaudio.com', url, INK4, 0.06 * 15 * S)
 
     img = img.resize((W, H), Image.LANCZOS)
     out.parent.mkdir(parents=True, exist_ok=True)

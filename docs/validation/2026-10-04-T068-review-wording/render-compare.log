@@ -1,0 +1,40 @@
+曲目 9 首
+ln: failed to create symbolic link '/tmp/claude-1000/n/t068/render/in/track_0155328/track_0155328.wav': File exists
+ln: failed to create symbolic link '/tmp/claude-1000/n/t068/render/in/track_0003518/track_0003518.wav': File exists
+改后 general track_0012410 退出码 0
+改前 general track_0003518 退出码 0
+改后 general track_0155328 退出码 0
+改后 general track_0003518 退出码 0
+改后 general track_0241941 退出码 0
+改前 general track_0012410 退出码 0
+改后 general track_0046047 退出码 0
+改前 general track_0560109 退出码 0
+改前 general track_0155328 退出码 0
+改后 general track_0388822 退出码 0
+改后 general track_0155923 退出码 0
+改前 general track_0046047 退出码 0
+改前 general track_0155923 退出码 0
+改前 general track_0388822 退出码 0
+改前 general track_0647576 退出码 0
+改后 general track_0560109 退出码 0
+改前 general track_0241941 退出码 0
+改后 general track_0647576 退出码 0
+改后 house track_0155328 退出码 0
+改前 house track_0155328 退出码 0
+改后 house track_0388822 退出码 0
+改前 house track_0388822 退出码 0
+改后 house track_0155923 退出码 0
+改前 house track_0155923 退出码 0
+== metrics.csv 逐字节比较
+相同 12 份，不同 0 份；改后共 78 个 render 行（audio_hash 全在里面）
+全部完成 2026-10-04 22:11:08
+== metrics.md 对照（去掉生成时间行内的时间）
+metrics.md：12 份，完全相同 0，有差别 12
+-- 以 track_0003518 为例的差别（< 改前 / > 改后）：
+42,43c42,43
+< - **低切 / 收单 Hz / 收单量 / 加宽**：成品末尾 `getGlazeStatus()` 的 clayLowCutHz / clayMonoHz / clayMonoAmount / clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义。
+< - **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）：先试后用试出会抬高
+---
+> - **低切 / 收单 Hz / 收单量 / 加宽**：成品末尾 `getGlazeStatus()` 的 clayLowCutHz / clayMonoHz / clayMonoAmount / clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义（本工具不用手动收单，ADR-015 起收单 Hz 恒为 80、收单量恒为 0）。
+> - **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音；只在收单为「自动」的组计：auto、mono 组，其余组与重放行恒为 0）/ 宽度保护介入的时长占比（只在加宽为「自动」的组计；每块读一次状态）。格末若有「，代价限：…」，是成品末尾因代价被减量 / 否�
+全部完成 2026-10-04 22:11:08

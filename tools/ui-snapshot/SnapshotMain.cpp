@@ -13,18 +13,24 @@
       -house-status-bars / -main / -seconds（状态行三种文字，只截胶囊）、-house-tip（暂定期间的气泡）、-house-hint（反相提示）。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字），⑲ 续与 ⑳ 是 T-041 的：
-      小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；末尾两条是 T-051 的：
+      小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；其后两条是 T-051 的：
       频谱仪 IN 虚线自己切段与 JUCE createDashedStroke 逐位相同、频谱仪增量重画（×1 / ×2 矩形列表、×1 包围盒）与整帧重画逐字节相同
-      （评审 B1 的 S8 场景，见 runSpectrumDirtyScenario）；
+      （评审 B1 的 S8 场景）；末尾六条是 T-058 的：S9（峰值线关 → 停播 → 打开 → 切 B 的增量重画 vs 整帧；峰值线关、只剩峰值保持在落时
+      0 次重建）、播放（评审 B1 的第一个场景）、S10a / b / c（打开峰值线、换斜率、悬停那一刻画的是此刻的数据）。增量重画几个场景见 dirtyScenarios；
       --only bench 跑绘制性能基准（T-032）：瓷面参照与分层的生成耗时、静态背景生成耗时，GLAZE 45 % 播放中 1 / 2 / 4 倍下
       编辑器定时器一帧、整帧重画与只重画粒子带的毫秒（墙钟与本线程 CPU）、各部件累计 paint 与缓存读写、状态胶囊呼吸帧，
       拖动 GLAZE 时消息线程的 CPU 占比，听原声（B）时的粒子带重画；--frames N 改每段帧数。软件渲染口径，Mac 需 Max 实测；
       --only spectrum-bench 跑频谱仪专项基准（T-036）：30 / 60 / 120 帧 × 1 / 2 倍，音乐按帧率在放，每帧推一帧、只重画频谱仪那块，
       打印每帧与每秒的 CPU；--seconds N 改每种组合跑几秒（默认 3）。只用改前改后都有的接口，能在改前的树上量基线；
+      --only spectrum-peak-bench 量峰值线（PEAK）关着时频谱仪多做的重建 / 重画（T-058）：S8 与「停止」（正弦 4 s → 数字静音 10 s，
+      斜率 0 / 4.5）× PEAK 关 / 开 × 60 / 120 帧 × 1 / 2 倍，每帧推一帧、只按脏矩形重画频谱仪，按秒打印标脏帧、曲线帧、脏区像素与
+      advance / 重画的墙钟与 CPU（见 runSpectrumPeakBench）；同样只用改前改后都有的接口；
       --only digest 打印逐位摘要（瓷面参照实现 renderGlaze 的 200 种组合、静态背景的 4 种像素比）：改动前后各跑一次逐行比，
       应当逐位不变的项一字不差。
       --deterministic：出图时播放不跑消息循环（编辑器 / 胶囊 / 旋钮的定时器不按墙钟插进来），两次运行逐像素相同（电平表除外），
-      用于改前改后逐像素对比；听原声那张图的瓷面因此还没换成去色版（换图靠主旋钮的定时器）。
+      用于改前改后逐像素对比；听原声那张图的瓷面因此还没换成去色版（换图靠主旋钮的定时器）。T-072 起编辑器定时器里的看门狗
+      （垂直同步 100 ms 没来就按墙钟补推频谱仪）在第一次 advanceForSnapshot 之后整个关掉：单帧耗时 ≥ 100 ms（慢机、Debug、机器被占满）
+      也不会让频谱仪按墙钟多走一步、出图随机器快慢变（--only check 里有一条守它，见 probeTimerPush）。
 
   ==============================================================================
 */
@@ -34,6 +40,8 @@
 #include "../../Source/ParameterIds.h"
 #include "../../Source/PluginEditor.h"
 #include "../../Source/PluginProcessor.h"
+#include "../../Source/ui/HelpText.h"
+#include "../../Source/ui/ModuleCards.h"
 #include "../../Source/ui/Porcelain.h"
 #include "../../Source/ui/UiSettings.h"
 
@@ -41,6 +49,7 @@
  #include <CoreFoundation/CoreFoundation.h>
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -307,17 +316,25 @@ namespace
             editor.paintEntireComponent (g, true);
     }
 
-    // 频谱仪的三个图例开关（OUT / IN / PEAK，SpectrumView 构造时按这个顺序加的 ClickableComponent 子组件）；找不到返回空。
-    std::vector<celadon::ui::ClickableComponent*> spectrumToggles (juce::Component& editor)
+    // 一个频谱仪的三个图例开关（OUT / IN / PEAK，SpectrumView 构造时按这个顺序加的 ClickableComponent 子组件）；找不到返回空。
+    std::vector<celadon::ui::ClickableComponent*> legendToggles (celadon::ui::SpectrumView& view)
     {
         std::vector<celadon::ui::ClickableComponent*> toggles;
 
-        if (auto* view = findFirst<celadon::ui::SpectrumView> (editor))
-            for (auto* child : view->getChildren())
-                if (auto* toggle = dynamic_cast<celadon::ui::ClickableComponent*> (child))
-                    toggles.push_back (toggle);
+        for (auto* child : view.getChildren())
+            if (auto* toggle = dynamic_cast<celadon::ui::ClickableComponent*> (child))
+                toggles.push_back (toggle);
 
         return toggles.size() == 3 ? toggles : std::vector<celadon::ui::ClickableComponent*> {};
+    }
+
+    // 编辑器里频谱仪的三个图例开关；找不到返回空。
+    std::vector<celadon::ui::ClickableComponent*> spectrumToggles (juce::Component& editor)
+    {
+        if (auto* view = findFirst<celadon::ui::SpectrumView> (editor))
+            return legendToggles (*view);
+
+        return {};
     }
 
     juce::String ms (double value)
@@ -339,8 +356,10 @@ namespace
     int runChecks (Session& session, const juce::File& outDir, float scale);
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
     void runSpectrumBench (int seconds);
+    void runSpectrumPeakBench();
     void runDigest();
 
     // 用户设置文件跨进程保留（README「用法」末段）：上一次出图留下的值（zh-zoom70 / zh-zoom150 把默认大小写成 0.7 / 1.5，
@@ -429,6 +448,43 @@ namespace
         s.setParameter (celadon::param::glazeDelivery, 2.0f);
     }
 
+    // T-074 修坯守护回收中：手动低切 25 Hz、手动收单 120 Hz 在做，峰值守护把它们的改动量大半收回（保留比 kept，0 ～ 1）。
+    // 界面只按字段渲染（低切 / 收单两盏灯琥珀、气泡第 2 行末尾写还剩多少），这里验的是渲染，不是守护（守护与编排器由 ClayTests / GlazeControllerTests 验）。
+    StatusEdit clayPeakGuard (float kept)
+    {
+        return [kept] (celadon::glaze::Status& status)
+        {
+            status.clayLowCutHz = 25.0f;
+            status.clayMonoHz = 120.0f;
+            status.clayMonoAmount = 1.0f;
+            status.clayPeakGuardActive = true;
+            status.clayPeakGuardKept = kept;
+        };
+    }
+
+    // 把 CLAY 灯的气泡（修坯 · 立体声像与超低频清理：第 2 行是此刻的实际值，守护回收中时末尾多一段）手动弹在 CLAY 卡片的右边缘旁（压在 COLOR
+    // 卡片上，不盖住 CLAY 的灯与数值；锚点在编辑器底部时气泡会翻到上方、盖住行里的字，英文版字多就是这样，所以不用卡片内的锚点）；
+    // 文字取 celadon::help::clayIndicatorTooltip（与界面同一个函数、同一份读数），截图存卡片与气泡。
+    void showClayIndicatorTooltip (Session& s, celadon::Language language, float kept)
+    {
+        using namespace celadon::ui;
+        auto* window = findFirst<juce::TooltipWindow> (*s.editor);
+        auto* card = findFirst<ClayCard> (*s.editor);
+
+        if (window == nullptr || card == nullptr || window->getParentComponent() == nullptr)
+        {
+            std::cout << "FAILED to find the CLAY card or the tooltip window" << std::endl;
+            return;
+        }
+
+        auto status = s.processor->getGlazeStatus();
+        clayPeakGuard (kept) (status);
+        const auto text = celadon::help::clayIndicatorTooltip (celadon::help::clayReadoutFor (status, {}), language);
+        const auto anchor = window->getParentComponent()->localPointToGlobal (card->getBounds().getTopRight() + juce::Point<int> (-16, 60));
+        window->displayTip (anchor, text);
+        s.crop = window->getBounds().getUnion (card->getBounds()).expanded (16).getIntersection (s.editor->getLocalBounds());
+    }
+
     // 暂定期间的悬停气泡：取 GLAZE 标题此刻的气泡文字（编辑器定时器按 House 状态换好的那一版），在标题左下方手动弹出；
     // 截图只存标题与气泡那一块（编辑器 1 倍时画布坐标 = 编辑器坐标）。
     void showGlazeTooltip (Session& s)
@@ -490,6 +546,13 @@ int main (int argc, char* argv[])
         return 0;
     }
 
+    if (only.contains ("spectrum-peak-bench"))
+    {
+        resetUiSettings (*settings);
+        runSpectrumPeakBench();
+        return 0;
+    }
+
     if (only.contains ("digest"))
     {
         resetUiSettings (*settings);
@@ -532,6 +595,7 @@ int main (int argc, char* argv[])
     // 卡片与位置无关、图小一半。气泡那两张的范围由 showGlazeTooltip 按气泡实际大小定。
     const juce::Rectangle<int> pillCrop { 300, 0, 600, 52 };
     const juce::Rectangle<int> upperCrop { 0, 0, 1200, 560 };
+    const juce::Rectangle<int> cardsCrop { 0, 540, 1200, 280 };   // T-074：下半部分四张模块卡片（CLAY 的灯色在这里）
 
     const State states[] =
     {
@@ -584,6 +648,14 @@ int main (int argc, char* argv[])
 
               s.play (1.5);
           } },
+
+        // ---- T-074 修坯守护回收中：手动低切 / 收单的灯琥珀、气泡写还剩多少（状态字段注入，见 clayPeakGuard）----
+        { "zh-guard-recovering", celadon::Language::chinese, none, [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); }, cardsCrop },
+        { "en-guard-recovering", celadon::Language::english, none, [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); }, cardsCrop },
+        { "zh-guard-tooltip", celadon::Language::chinese, none,
+          [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::chinese, 0.42f); } },
+        { "en-guard-tooltip", celadon::Language::english, none,
+          [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::english, 0.42f); } },
 
         // ---- T-038 曲风与交付 / House 档（曲风 Deep House、交付 俱乐部；House 的状态字段注入，见 injectStatus）----
         // 版面：两个选择在主旋钮左右（代码里的默认位置）与备选位置（挪到 GLAZE 标题行），整张。
@@ -1030,9 +1102,103 @@ namespace
 
         failures += runCacheChecks (session, check);
         runSpectrumChecks (check);   // T-051：失败由 check 计入
+        runClayGuardChecks (check);   // T-074：失败由 check 计入
 
         std::cout << (failures == 0 ? "all interaction checks passed" : juce::String (failures) + " interaction checks FAILED") << std::endl;
         return failures;
+    }
+
+    //==============================================================================
+    // T-074 修坯守护回收指示：CLAY 卡片在真编辑器里画出来的灯与数。
+    // 界面只按状态字段渲染（Status → clayReadoutFor → ClayCard::setReadout → paint）；HelpTextTests 验前两步的函数，这里验最后一步：
+    //   ① 标志开着，低切、收单两行的灯与数值是琥珀色，加宽行（不经峰值守护）不变；
+    //   ② 标志变了会重画——setReadout 靠 ClayReadout::operator== 判「没变就不画」，漏比较守护字段时低切 / 收单的值没变、灯就不会跟着变；
+    //   ③ 标志关掉后灯回到原样。
+    // 同一个编辑器、同一份「低切 25 Hz、收单 120 Hz 在做」的状态，守护标志 关 → 开 → 关 各把 CLAY 卡片画成图（1 倍），数灯那一列（x 10 ～ 26，圆点在
+    // 14 ～ 21）里灯色（palette::warning，各通道容差 8）的像素，与数值那一列（x 29 ～ 125）里偏橙（红减蓝 ≥ 60）的像素——数值字是小号抗锯齿字，
+    // 整个字色（palette::warningText）的像素寥寥无几，正常时的字色（紫 / 青 / 灰）红都小于蓝，所以用「偏橙」判；行带是 y = 46 + 47 i 起 42 px
+    //（ClayCard::rowBounds）。开着：低切行、收单行的灯各 ≥ 15 个（7 px 的实心圆约 38 个，抗锯齿后留一大半）、数值字各 ≥ 15 个，加宽行两样都是 0；
+    // 关着（开之前、开之后）：三行两样都是 0。
+    void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+
+        auto session = makeSession (0.0f);
+        auto& editor = *session->editor;
+        auto* card = findFirst<ClayCard> (editor);
+
+        if (card == nullptr || editor.getWidth() != CeladonAudioProcessorEditor::baseWidth)
+        {
+            check (false, "T-074 CLAY card: the card was not found, or the editor does not open at zoom 1 (needs to be 1200 px wide)");
+            return;
+        }
+
+        struct Counts
+        {
+            int lamp[3] {}, text[3] {};   // 每行（低切 / 收单 / 加宽）的灯色像素数、字色像素数
+        };
+
+        const auto isClose = [] (juce::Colour pixel, juce::Colour wanted)
+        {
+            return std::abs ((int) pixel.getRed() - (int) wanted.getRed()) <= 8
+                && std::abs ((int) pixel.getGreen() - (int) wanted.getGreen()) <= 8
+                && std::abs ((int) pixel.getBlue() - (int) wanted.getBlue()) <= 8;
+        };
+
+        const auto isOrangeish = [] (juce::Colour pixel)
+        {
+            return (int) pixel.getRed() - (int) pixel.getBlue() >= 60;
+        };
+
+        const auto area = editor.getLocalArea (card, card->getLocalBounds());
+
+        const auto draw = [&] (bool guardActive)
+        {
+            injectStatus (*session, [guardActive] (celadon::glaze::Status& status)
+            {
+                clayPeakGuard (0.42f) (status);
+                status.clayPeakGuardActive = guardActive;
+            });
+
+            const auto image = editor.createComponentSnapshot (area, true, 1.0f);
+            Counts counts;
+
+            for (int row = 0; row < 3; ++row)
+            {
+                for (int y = 46 + 47 * row; y < 46 + 47 * row + 42; ++y)
+                {
+                    for (int x = 10; x < 26; ++x)
+                        counts.lamp[row] += isClose (image.getPixelAt (x, y), palette::warning) ? 1 : 0;
+
+                    for (int x = 29; x < 125; ++x)
+                        counts.text[row] += isOrangeish (image.getPixelAt (x, y)) ? 1 : 0;
+                }
+            }
+
+            return counts;
+        };
+
+        const auto describe = [] (const Counts& c)
+        {
+            return "lamps " + juce::String (c.lamp[0]) + " / " + juce::String (c.lamp[1]) + " / " + juce::String (c.lamp[2])
+                 + ", value text " + juce::String (c.text[0]) + " / " + juce::String (c.text[1]) + " / " + juce::String (c.text[2]);
+        };
+
+        const auto allZero = [] (const Counts& c)
+        {
+            return c.lamp[0] + c.lamp[1] + c.lamp[2] + c.text[0] + c.text[1] + c.text[2] == 0;
+        };
+
+        const auto before = draw (false);
+        const auto during = draw (true);
+        const auto after = draw (false);
+        const auto lit = during.lamp[0] >= 15 && during.lamp[1] >= 15 && during.text[0] >= 15 && during.text[1] >= 15
+                      && during.lamp[2] == 0 && during.text[2] == 0;
+
+        check (allZero (before) && lit && allZero (after),
+               "T-074 CLAY card: with the peak guard pulling back, the low cut and mono lamps and values turn amber and the width row does not; "
+               "they go back when it stops (amber pixels per row, low cut / mono / width: guard off " + describe (before) + "; on " + describe (during)
+                   + "; off again " + describe (after) + ")");
     }
 
     //==============================================================================
@@ -1587,9 +1753,16 @@ namespace
     }
 
     //==============================================================================
-    // T-051 的两条频谱仪检查（README「--only check」）：
-    //   IN 虚线：自己切段的 createDashedStrokeReusing 与 JUCE 的 createDashedStroke 逐字节相同（评审 R-07 的改法不改像素）；
-    //   增量重画 vs 整帧（评审 R-08 建议、B1 的 S8 场景，守 R-02 那一类「脏区漏标、旧画面留在屏上」）。
+    // 频谱仪检查（README「--only check」）：
+    //   IN 虚线（T-051）：自己切段的 createDashedStrokeReusing 与 JUCE 的 createDashedStroke 逐字节相同（评审 R-07 的改法不改像素）；
+    //   增量重画 vs 整帧（评审 R-08 建议，守 R-02 那一类「脏区漏标、旧画面留在屏上」）：T-051 的 S8（守 ①），T-058 的 S9（守打开 PEAK 时的重建；
+    //   R-02 ② 在 T-058 上成了第二道保险，单独撤它 S9 照样全过，要验 ② 只能在 main 上撤，见 T-058 证据的 M 变体（T-073 起 ② 已去掉，
+    //   probeRegionWithoutPeak 守它的去向）；另一行守「PEAK 关、只剩峰值
+    //   在落时不重建」）与播放（评审 B1 的第一个场景）——场景表 dirtyScenarios；
+    //   打开 PEAK、换斜率、悬停那一刻画的是此刻的数据（T-058 的 S10，runPeakFreshness）。
+    //   T-070（夜间评审补覆盖）：S9 斜率 0 与 4.5 各一份（零重建数真的重建，悬停也比）、S9b（PEAK 开 → 关）、S11（IN 开着：换斜率、IN 关 / 开）、
+    //   播放加悬停；S12 与「没有历史的全新视图」逐字节对照（停播后、稳态 IN 换斜率）+ 曲线 / 读数的绝对探针（OUT 填充、平均线、峰值线、IN 虚线、
+    //   悬停读数）——前面这些都是视图对它自己，两边一起错就全过，见 SpectrumTimeline 一带的说明。
 
     // 两条路径逐元素、逐位相同：元素类型、坐标的位模式（−0 与 +0 也分开）、绕数规则。
     bool samePathBits (const juce::Path& a, const juce::Path& b)
@@ -1645,8 +1818,8 @@ namespace
     };
 
     // 两张同尺寸、同格式的图在 area（设备像素）里比：返回不同的像素数；worst = 最大的通道差，at = 第一个不同的像素。
-    // 先按行逐字节比（相同的行不拆像素），对不上的行再逐像素量差多少。
-    int countDifferences (const juce::Image& a, const juce::Image& b, juce::Rectangle<int> area, int& worst, juce::Point<int>& at)
+    // 先按行逐字节比（相同的行不拆像素），对不上的行再逐像素量差多少；通道差不超过 tolerance 的像素不算不同（默认零）。
+    int countDifferences (const juce::Image& a, const juce::Image& b, juce::Rectangle<int> area, int& worst, juce::Point<int>& at, int tolerance = 0)
     {
         const juce::Image::BitmapData da (a, juce::Image::BitmapData::readOnly), db (b, juce::Image::BitmapData::readOnly);
         area = area.getIntersection ({ da.width, da.height });
@@ -1664,7 +1837,7 @@ namespace
                 const auto d = juce::jmax (std::abs ((int) p.getRed() - (int) q.getRed()), std::abs ((int) p.getGreen() - (int) q.getGreen()),
                                            std::abs ((int) p.getBlue() - (int) q.getBlue()), std::abs ((int) p.getAlpha() - (int) q.getAlpha()));
 
-                if (d == 0)
+                if (d <= tolerance)
                     continue;
 
                 if (different++ == 0)
@@ -1677,101 +1850,244 @@ namespace
         return different;
     }
 
-    // S8 跑一遍（一种像素比，几种口径共用同一串帧）。场景（评审 B1 的 S8）：GLAZE 0（链近乎直通）、峰值线关、斜率 0，
-    // 6 kHz −12 dBFS 稳态正弦 12 s（最后 1 s 频谱仪应 0 帧被标脏：曲线已静止）→ 斜率换 4.5（6 kHz 抬高约 11.6 dB；先只重画
-    // 一帧，路径在 paint 里重建，见下）→ 切到 B（OUT 清零重来，最高的曲线一下子没了）→ 再跑 1 s。每帧 = 1 / 60 s 音频 +
-    // advanceForSnapshot，每帧都与整帧重画比（不只比切 B 的那一帧）。返回带统计的各屏；steadyDirtyFrames = 静止那 1 s 里
-    // 频谱仪被标脏的帧数。
-    std::vector<DirtyScreen> runSpectrumDirtyScenario (float scale, std::vector<DirtyScreen> screens, int& framesCompared,
-                                                       int& steadyDirtyFrames, juce::String& error)
+    // 稳态正弦（两声道相同，dBFS 是峰值电平）：相位跨块、跨帧连续。频谱仪的检查与基准用（T-051 的 S8 起：6 kHz −12 dBFS）。
+    struct SineSource
     {
-        using namespace celadon::ui;
-        auto session = makeSession (0.0f);
-        auto& editor = *session->editor;
-        auto* view = findFirst<SpectrumView> (editor);
-        const auto toggles = spectrumToggles (editor);
-        auto* slope = view != nullptr ? findFirst<Segmented> (*view) : nullptr;   // 斜率选择是频谱仪里唯一的 Segmented
+        SineSource (double frequency, double dBFS)
+            : amplitude (juce::Decibels::decibelsToGain (dBFS)),
+              increment (juce::MathConstants<double>::twoPi * frequency / sampleRate) {}
 
-        if (view == nullptr || toggles.empty() || slope == nullptr)
+        void operator() (juce::AudioBuffer<float>& chunk)
         {
-            error = "spectrum view, its three legend toggles or the slope control not found";
-            return screens;
+            for (int i = 0; i < chunk.getNumSamples(); ++i)
+            {
+                const auto sample = (float) (amplitude * std::sin (phase));
+                phase = std::fmod (phase + increment, juce::MathConstants<double>::twoPi);
+                chunk.setSample (0, i, sample);
+                chunk.setSample (1, i, sample);
+            }
         }
 
-        // 峰值线关（开着时峰值保持把脏区一直撑到峰顶，盖住要找的漏标）、斜率 0。
-        click (*toggles[2], toggles[2]->getLocalBounds().getCentre().toFloat());
-        slope->setSelected (0, true);
+        double amplitude, increment, phase = 0.0;
+    };
+
+    // 频谱仪按帧推进的测试台（T-058 从 T-051 的 S8 检查里抽出来：增量重画检查（DirtyRun）与 --only spectrum-peak-bench 共用，
+    // 之后的频谱仪检查照这个走）。一个会话（GLAZE 百分比），找好频谱仪、三个图例开关与斜率选择；调用方先设好开关 / 斜率，
+    // attach() 把编辑器设成可见、挂上 DirtyRecorder。之后每帧照真实窗口的顺序：feed() 送 1 / fps 秒音频（processBlock，
+    // 每块 ≤ 512 个样本）→ advance() = advanceForSnapshot（取样口 → 计算器 → setSpectrum，外加编辑器其余读数）→ takeDirty()
+    // 取走这一帧记下的脏区。离屏没有窗口系统：按哪种口径重画、画进哪张「屏幕」图由调用方定（paintRegion）。
+    struct SpectrumRig
+    {
+        enum Toggle { outputToggle = 0, inputToggle = 1, peakToggle = 2 };   // spectrumToggles 的顺序
+        using AudioSource = std::function<void (juce::AudioBuffer<float>&)>;  // 往一块里写音频（块长 ≤ 512）
+
+        explicit SpectrumRig (float glazePercent)
+            : session (makeSession (glazePercent)), editor (*session->editor),
+              view (findFirst<celadon::ui::SpectrumView> (editor)), toggles (spectrumToggles (editor)),
+              slope (view != nullptr ? findFirst<celadon::ui::Segmented> (*view) : nullptr)   // 斜率选择是频谱仪里唯一的 Segmented
+        {
+            if (view != nullptr)
+                area = editor.getLocalArea (view, view->getLocalBounds());
+        }
+
+        ~SpectrumRig()
+        {
+            if (recorder != nullptr)
+                editor.setCachedComponentImage (nullptr);   // 编辑器接管着 recorder，这里删掉
+
+            session->editor.reset();
+            session->processor->releaseResources();
+        }
+
+        bool isValid() const noexcept   { return view != nullptr && ! toggles.empty() && slope != nullptr; }
+
+        // 点一下图例开关（只有按下 / 抬起，不进不出：开关没有悬停的样子）。
+        void clickToggle (Toggle which)
+        {
+            auto& toggle = *toggles[(size_t) which];
+            click (toggle, toggle.getLocalBounds().getCentre().toFloat());
+        }
 
         // 编辑器要「可见」：Component::internalRepaintUnchecked 对不可见的组件直接返回，repaint 传不到它的缓存图（真实窗口里
         // 宿主把编辑器设成可见；截图工具平时不设，离屏画不受影响）。没有对等体，设可见不会开窗口。
-        editor.setVisible (true);
-        auto* recorder = new DirtyRecorder (editor);
-        editor.setCachedComponentImage (recorder);   // 编辑器接管，下面 setCachedComponentImage (nullptr) 时删掉
-
-        const auto area = editor.getLocalArea (view, view->getLocalBounds());          // 频谱仪在编辑器里的区域（逻辑坐标）
-        const auto deviceArea = (area.toFloat() * scale).getSmallestIntegerContainer();
-        const auto width = (int) std::ceil ((float) editor.getWidth() * scale), height = (int) std::ceil ((float) editor.getHeight() * scale);
-        juce::Image reference (juce::Image::RGB, width, height, true);   // 窗口后备图是不透明的 RGB
-
-        for (auto& screen : screens)
+        void attach()
         {
-            screen.image = juce::Image (juce::Image::RGB, width, height, true);
-            paintRegion (editor, screen.image, scale, juce::RectangleList<int> (editor.getLocalBounds()));
+            editor.setVisible (true);
+            recorder = new DirtyRecorder (editor);
+            editor.setCachedComponentImage (recorder);
         }
 
-        recorder->dirty.clear();
-
-        constexpr int framesPerSecond = 60;
-        constexpr int samplesPerFrame = (int) sampleRate / framesPerSecond;
-        const auto amplitude = juce::Decibels::decibelsToGain (-12.0);
-        const auto increment = juce::MathConstants<double>::twoPi * 6000.0 / sampleRate;
-        double phase = 0.0;
-
-        // 一帧：送 1 / 60 s 正弦 → 编辑器推一帧（频谱仪 setSpectrum、编辑器其余读数）→ 各屏按口径重画记下的脏区（只画频谱仪那一块，
-        // 别处两边都照画、不比）→ 整帧重画频谱仪那一块作对照 → 逐字节比。advance = false：只重画、不推（窗口系统先送来别的
-        // 事件引起的重画，显示器的帧回调还没到）。返回这一帧频谱仪有没有被标脏。
-        const auto frame = [&] (const juce::String& stage, int index, bool advance)
+        // 这一帧该送的样本数：1 / fps 秒，除不尽的余数累到下一帧（48 kHz 下 60 / 120 帧正好 800 / 400 个）。
+        int samplesForFrame (int framesPerSecond)
         {
-            for (int done = 0; advance && done < samplesPerFrame;)
+            owedSamples += sampleRate / (double) framesPerSecond;
+            const auto due = (int) owedSamples;
+            owedSamples -= (double) due;
+            return due;
+        }
+
+        void feed (int numSamples, const AudioSource& source)
+        {
+            for (int done = 0; done < numSamples;)
             {
-                const auto n = juce::jmin (blockSize, samplesPerFrame - done);
+                const auto n = juce::jmin (blockSize, numSamples - done);
                 juce::AudioBuffer<float> chunk (session->buffer.getArrayOfWritePointers(), 2, n);
-
-                for (int i = 0; i < n; ++i)
-                {
-                    const auto sample = (float) (amplitude * std::sin (phase));
-                    phase = std::fmod (phase + increment, juce::MathConstants<double>::twoPi);
-                    chunk.setSample (0, i, sample);
-                    chunk.setSample (1, i, sample);
-                }
-
+                source (chunk);
                 session->processor->processBlock (chunk, session->midi);
                 done += n;
             }
+        }
 
-            if (advance)
-                editor.advanceForSnapshot (1.0 / framesPerSecond);
+        void advance (double seconds)   { editor.advanceForSnapshot (seconds); }
 
-            const auto region = recorder->dirty;
+        // 取走到此刻为止记下的脏区（编辑器逻辑坐标；包括编辑器别处的，调用方按需 clipTo (area)）。
+        juce::RectangleList<int> takeDirty()
+        {
+            auto region = recorder->dirty;
             recorder->dirty.clear();
+            return region;
+        }
+
+        // 画对照图（整帧重画）不是真实窗口里的那一次绘制：它引起的标脏不算；之前记下的（画屏幕图时又标脏的）留给下一帧。
+        void paintUnrecorded (const std::function<void()>& paint)
+        {
+            const auto kept = recorder->dirty;
+            paint();
+            recorder->dirty = kept;
+        }
+
+        // 窗口后备图：不透明的 RGB，编辑器大小 × 像素比；内容由调用方画（第一次通常整帧，见 paintRegion）。
+        juce::Image newBackingImage (float scale) const
+        {
+            return { juce::Image::RGB, (int) std::ceil ((float) editor.getWidth() * scale), (int) std::ceil ((float) editor.getHeight() * scale), true };
+        }
+
+        juce::Rectangle<int> deviceArea (float scale) const   { return (area.toFloat() * scale).getSmallestIntegerContainer(); }
+
+        std::unique_ptr<Session> session;
+        CeladonAudioProcessorEditor& editor;
+        celadon::ui::SpectrumView* view;
+        std::vector<celadon::ui::ClickableComponent*> toggles;   // OUT / IN / PEAK；找不到为空
+        celadon::ui::Segmented* slope;                           // 0 / 3 / 4.5 dB/oct = 下标 0 / 1 / 2
+        juce::Rectangle<int> area;                               // 频谱仪在编辑器里的区域（逻辑坐标）
+        DirtyRecorder* recorder = nullptr;                       // attach() 之后才有（编辑器持有）
+        double owedSamples = 0.0;
+    };
+
+    // 增量重画 vs 整帧的推进器（T-051 的 S8 起；T-058 把逐帧比较抽出来，S8、S9 与「播放」共用）：一个测试台（调用方已设好开关、
+    // 斜率并 attach）、一种像素比、几张不同口径的「屏幕」，外加同一时刻整帧重画频谱仪那一块的对照图。建的时候各屏整帧画一次
+    // （窗口第一次显示）。每帧 = 1 / 60 s 音频 + advanceForSnapshot；暖机的帧不画、不比，省掉逐帧整帧对照的时间。
+    struct DirtyRun
+    {
+        static constexpr int framesPerSecond = 60;
+
+        DirtyRun (SpectrumRig& rigToUse, float scaleToUse, std::vector<DirtyScreen> screensToUse)
+            : rig (rigToUse), scale (scaleToUse), screens (std::move (screensToUse)), reference (rig.newBackingImage (scale)),
+              deviceArea (rig.deviceArea (scale)), bottomCentre (rig.area.getCentreX(), rig.area.getBottom() - 1)
+        {
+            for (auto& screen : screens)
+                screen.image = rig.newBackingImage (scale);
+
+            sync();
+        }
+
+        // 各屏整帧重画（建的时候；暖机之后、开始比之前也要来一次）。画的时候又标脏的不算。
+        void sync()
+        {
+            for (auto& screen : screens)
+                paintRegion (rig.editor, screen.image, scale, juce::RectangleList<int> (rig.editor.getLocalBounds()));
+
+            rig.takeDirty();
+        }
+
+        // 暖机：推 count 帧，不画、不比，记下的脏区丢掉（曲线、峰值保持先走到要比的那一刻）。之后先 sync()。
+        void warmUp (int count, const SpectrumRig::AudioSource& source)
+        {
+            for (int i = 0; i < count; ++i)
+            {
+                rig.feed (rig.samplesForFrame (framesPerSecond), source);
+                rig.advance (1.0 / framesPerSecond);
+                rig.takeDirty();
+            }
+        }
+
+        // 一帧：送 1 / 60 s 音频 → 编辑器推一帧（频谱仪 setSpectrum、编辑器其余读数）→ 重画、比（repaintAndCompare）。
+        // 返回这一帧记下的脏区（编辑器逻辑坐标，没裁剪）。
+        juce::RectangleList<int> frame (const juce::String& stage, int index, const SpectrumRig::AudioSource& source)
+        {
+            rig.feed (rig.samplesForFrame (framesPerSecond), source);
+            rig.advance (1.0 / framesPerSecond);
+            return repaintAndCompare (stage, index);
+        }
+
+        // 连推 count 帧、每帧都比；返回其中的曲线帧数（isCurveFrame）。这一次调用里数到的第一个曲线帧记在 firstCurveFrame（每次调用先清空；失败时好定位）。
+        int frames (const juce::String& stage, int count, const SpectrumRig::AudioSource& source)
+        {
+            int curveFrames = 0;
+            firstCurveFrame.clear();
+
+            for (int i = 0; i < count; ++i)
+            {
+                const auto region = frame (stage, i, source);
+
+                if (! isCurveFrame (region))
+                    continue;
+
+                if (curveFrames++ == 0)
+                    firstCurveFrame = stage + " frame " + juce::String (i) + ", dirty " + region.getBounds().toString();
+            }
+
+            return curveFrames;
+        }
+
+        // 跑 body，返回这期间频谱仪重建路径的次数（SpectrumView::getCurveBuildCount 的差；T-070）。
+        int countBuilds (const std::function<void()>& body)
+        {
+            const auto before = rig.view->getCurveBuildCount();
+            body();
+            return (int) (rig.view->getCurveBuildCount() - before);
+        }
+
+        // 只重画、不推：窗口系统先送来别的事件（点击、换斜率）引起的重画，显示器的帧回调还没到（两者谁先到不固定）。
+        juce::RectangleList<int> repaintOnly (const juce::String& stage)   { return repaintAndCompare (stage, 0); }
+
+        // 曲线帧：脏区够到频谱仪底边正中——setSpectrum 判变了、重建路径后 repaintCurves 的区域总是从最高的曲线顶到底边、横跨整块，
+        // 读数框与响度小窗的重画够不到；整块重画也算（与 --only spectrum-peak-bench 同一判据）。
+        bool isCurveFrame (const juce::RectangleList<int>& region) const   { return region.containsPoint (bottomCentre); }
+
+        SpectrumRig& rig;
+        const float scale;
+        std::vector<DirtyScreen> screens;
+        juce::Image reference;
+        const juce::Rectangle<int> deviceArea;
+        const juce::Point<int> bottomCentre;
+        int framesCompared = 0;
+        int counted = 0;   // 场景自己数的帧（S8：静止最后 1 s 里频谱仪被标脏的帧；S9：PEAK 关、只剩峰值保持在落时的曲线帧）
+        int builds = 0;    // 场景自己数的路径重建次数（countBuilds；S9：PEAK 关、只剩峰值在落的 30 帧里应为 0）
+        juce::String firstCurveFrame;   // 最近一次 frames() 数到的第一个曲线帧：阶段、帧序号、脏区外框
+        int tolerance = 0;   // 逐像素比时允许的通道差（零 = 逐字节相同；只有悬停场景放 1 级，见 hoverTolerance）
+
+    private:
+        // 各屏按口径重画记下的脏区（只画频谱仪那一块，别处两边都照画、不比）→ 整帧重画频谱仪那一块作对照 → 逐字节比。
+        juce::RectangleList<int> repaintAndCompare (const juce::String& stage, int index)
+        {
+            const auto region = rig.takeDirty();
 
             for (auto& screen : screens)
             {
                 auto clip = screen.boundingBox && ! region.isEmpty() ? juce::RectangleList<int> (region.getBounds()) : region;
-                clip.clipTo (area);
-                paintRegion (editor, screen.image, scale, clip);
+                clip.clipTo (rig.area);
+                paintRegion (rig.editor, screen.image, scale, clip);   // 画的时候又标脏的留在 recorder 里：真实窗口里留到下一帧画
             }
 
-            const auto markedWhilePainting = recorder->dirty;   // 画的时候又标脏的：真实窗口里留到下一帧画
-            paintRegion (editor, reference, scale, juce::RectangleList<int> (area));
-            recorder->dirty = markedWhilePainting;               // 整帧对照不是真实的那一次绘制，它引起的标脏不算
+            rig.paintUnrecorded ([this] { paintRegion (rig.editor, reference, scale, juce::RectangleList<int> (rig.area)); });
             ++framesCompared;
 
             for (auto& screen : screens)
             {
                 int worst = 0;
                 juce::Point<int> at;
-                const auto different = countDifferences (screen.image, reference, deviceArea, worst, at);
+                const auto different = countDifferences (screen.image, reference, deviceArea, worst, at, tolerance);
 
                 if (different == 0)
                     continue;
@@ -1783,31 +2099,1016 @@ namespace
                 screen.worst = juce::jmax (screen.worst, worst);
             }
 
-            return region.intersects (area);
+            return region;
+        }
+    };
+
+    // 一个增量重画场景跑完（×1 与 ×2 合起来）的结果。
+    struct DirtyOutcome
+    {
+        std::vector<DirtyScreen> screens;   // 各口径的残影统计：×1 矩形列表、×1 包围盒（、×2 矩形列表）
+        int framesCompared = 0;             // 各像素比合计
+        std::vector<int> counted;           // DirtyRun::counted，每种像素比一个（×1、×2）
+        std::vector<int> builds;            // DirtyRun::builds，同上
+        juce::StringArray firstCurve;       // DirtyRun::firstCurveFrame，同上
+        juce::String error;
+
+        // 「0 ghosts over N frames」，或各屏的残影：「x1 rect list 6 frame(s), worst 164 (first: …)」。
+        juce::String ghostSummary() const
+        {
+            juce::StringArray ghosts;
+
+            for (const auto& screen : screens)
+                if (screen.ghostFrames > 0)
+                    ghosts.add (screen.name + " " + juce::String (screen.ghostFrames) + " frame(s), worst " + juce::String (screen.worst)
+                                + " (first: " + screen.firstGhost + ")");
+
+            return (ghosts.isEmpty() ? juce::String ("0 ghosts") : ghosts.joinIntoString ("; ")) + " over " + juce::String (framesCompared) + " frames";
+        }
+
+        bool noGhosts() const
+        {
+            for (const auto& screen : screens)
+                if (screen.ghostFrames > 0)
+                    return false;
+
+            return error.isEmpty();
+        }
+
+        // 「×1 / ×2」两次数到的帧
+        juce::String countedText() const
+        {
+            juce::StringArray parts;
+
+            for (const auto value : counted)
+                parts.add (juce::String (value));
+
+            return parts.joinIntoString (" / ");
+        }
+
+        bool countedAllZero() const
+        {
+            for (const auto value : counted)
+                if (value != 0)
+                    return false;
+
+            return error.isEmpty();
+        }
+
+        // 「×1 / ×2」两次数到的路径重建次数
+        juce::String buildsText() const
+        {
+            juce::StringArray parts;
+
+            for (const auto value : builds)
+                parts.add (juce::String (value));
+
+            return parts.joinIntoString (" / ");
+        }
+
+        bool buildsAllZero() const
+        {
+            for (const auto value : builds)
+                if (value != 0)
+                    return false;
+
+            return error.isEmpty();
+        }
+
+        // 数到曲线帧时，第一个曲线帧在哪（失败信息用；没有就是空串）。
+        juce::String firstCurveText() const
+        {
+            for (const auto& where : firstCurve)
+                if (where.isNotEmpty())
+                    return " (first: " + where + ")";
+
+            return {};
+        }
+    };
+
+    using CheckFunction = std::function<void (bool, const juce::String&)>;
+
+    // 增量重画检查的一个场景（场景表见 dirtyScenarios）。
+    struct DirtyScenario
+    {
+        std::function<void (SpectrumRig&)> setup;                                 // 挂记账缓存图之前：开关、斜率
+        std::function<void (SpectrumRig&, DirtyRun&)> script;                     // 之后一帧帧走
+        bool atTwiceScale;                                                        // 也跑 ×2（矩形列表）
+        std::function<void (const DirtyOutcome&, const CheckFunction&)> report;   // 拼检查行
+    };
+
+    // 跑一个场景：×1（矩形列表、包围盒两张屏共用同一串帧）一遍，atTwiceScale 时再起一个会话按 ×2（矩形列表）跑一遍。
+    DirtyOutcome runDirtyScenario (const DirtyScenario& scenario)
+    {
+        DirtyOutcome outcome;
+
+        const auto runAt = [&] (float scale, std::vector<DirtyScreen> screens)
+        {
+            SpectrumRig rig (0.0f);   // GLAZE 0：链近乎直通
+
+            if (! rig.isValid())
+            {
+                outcome.error = "spectrum view, its three legend toggles or the slope control not found";
+                outcome.counted.push_back (0);
+                outcome.builds.push_back (0);
+                outcome.firstCurve.add ({});
+                return;
+            }
+
+            scenario.setup (rig);
+            rig.attach();
+
+            DirtyRun run (rig, scale, std::move (screens));   // 先于测试台析构
+            scenario.script (rig, run);
+
+            outcome.framesCompared += run.framesCompared;
+            outcome.counted.push_back (run.counted);
+            outcome.builds.push_back (run.builds);
+            outcome.firstCurve.add (run.firstCurveFrame);
+
+            for (auto& screen : run.screens)
+                outcome.screens.push_back (std::move (screen));
         };
 
-        constexpr int steadyFrames = 12 * framesPerSecond;
+        runAt (1.0f, { { "x1 rect list", false }, { "x1 bounding box", true } });
 
-        for (int i = 0; i < steadyFrames; ++i)
-            if (frame ("steady sine", i, true) && i >= steadyFrames - framesPerSecond)
-                ++steadyDirtyFrames;
+        if (scenario.atTwiceScale)
+            runAt (2.0f, { { "x2 rect list", false } });
 
-        // 斜率 0 → 4.5：点击引起的整面重画先到、显示器的帧回调后到（两者谁先到不固定），路径在 paint 里重建——这一帧只重画、不推。
-        // 评审复现时（577ded0）setSpectrum 按未加斜率的 dB 判变化，曲线静止时换斜率后下一帧也不重画，等价于这里；T-036 修订
-        // （867b454，评审 R-07）改按加斜率后的纵坐标判之后，换到 4.5 时压在底边下、还在往下落的峰值保持数据露出来，先推一帧的话
-        // 旧区域当帧就跟上了，照原样走 S8 抓不到 R-02 那一类漏标。
-        slope->setSelected (2, true);
-        frame ("slope 4.5 repaint", 0, false);
+        return outcome;
+    }
 
-        editor.setListeningToOriginal (true);
+    // 悬停场景逐像素比时允许的通道差：悬停之后光标列的增量重画与整帧重画在面板最上、最下一行（光标列的左边缘，clip 边界上）各有一个像素差 1 级
+    // （8 位里的 1，肉眼不可见）——只出现在悬停之后、只在 clip 边界与面板边框相交的像素，是 JUCE 软件渲染器裁剪边界的取整，不是残影；
+    // 真正的残影（旧光标、旧曲线没擦掉）差的是几十级以上（S9 的 worst 是 106、S8 的 164），所以悬停场景放 1 级的容差，其余场景一律零容差。
+    constexpr int hoverTolerance = 1;
 
-        for (int i = 0; i < framesPerSecond; ++i)
-            frame ("B", i, true);
+    // 鼠标移到某个频率上（只有移动，不进不出：频谱仪的悬停只看 mouseMove）。
+    void hoverAt (celadon::ui::SpectrumView& view, float frequency)
+    {
+        const juce::Point<float> at (celadon::ui::SpectrumView::xOf (frequency), 120.0f);
+        view.mouseMove (mouseEvent (view, at, {}, at));
+    }
 
-        editor.setCachedComponentImage (nullptr);
-        session->editor.reset();
-        session->processor->releaseResources();
-        return screens;
+    // ---- S9（T-058；T-070 起斜率 0 与 4.5 各一份，4.5 是出厂默认；守打开 PEAK 时的重建（R-02 ② 在 T-058 上成了第二道保险，单独撤它 S9 照样全过，
+    // 要验 ② 只能在 main 上撤，见 T-058 证据的 M 变体；T-073 起 ② 已去掉）；外加「PEAK 关、只剩峰值在落时不重建」）----
+    // 峰值线关、斜率 slopeIndex：6 kHz −12 dBFS 正弦 2 s → 数字静音（暖机，不画）。停播后 OUT 约 0.3 s 落到底边以下、平均线约 1 s 内也落到
+    // 底边以下，峰值保持 1.5 s 后按 12 dB/s 落——5.5 ～ 6.0 s 这 30 帧只剩它在落：PEAK 关着时屏上什么都没变，曲线帧（重建 + 重画曲线区）
+    // 应为 0（main 218789a 每帧一次）。T-070：「不重建」数真的重建（SpectrumView::getCurveBuildCount 的差，评审 F5：原来拿脏区当代理，
+    // 每帧无条件重建、只在判变了时才重画的改法数不出来），脏区里的曲线帧一并数。6.0 s 时 6 kHz 的保持值约 −42 dB（斜率 0 时 y ≈ 114，在响度
+    // 小窗 y ≤ 100 之下），远高于底边上 OUT / 平均线的区域：这时点开 PEAK → 只重画一帧（点击的重画先到）→ 中间不推、紧接着切 B（峰值线清到
+    // 底线）→ 静音 30 帧，每帧都比。点开之后只要推过一帧（下一次判变了的区域含峰值线）、或在稳态正弦里点开（峰值线贴着 OUT 峰顶、被它的区域
+    // 盖住），撤掉 ② 也漏不出来。T-070：停播后鼠标悬停在 6 kHz，光标列与读数框的增量重画也与整帧比（评审 F6）。
+    DirtyScenario peakHoldScenario (int slopeIndex, const juce::String& slopeText)
+    {
+        const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };
+
+        return { [slopeIndex] (SpectrumRig& rig)
+                 {
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     rig.slope->setSelected (slopeIndex, true);
+                 },
+                 [silence] (SpectrumRig& rig, DirtyRun& run)
+                 {
+                     SineSource sine (6000.0, -12.0);
+                     run.warmUp (2 * DirtyRun::framesPerSecond, std::ref (sine));
+                     run.warmUp (210, silence);   // 2.0 ～ 5.5 s
+                     run.sync();
+                     run.tolerance = hoverTolerance;
+                     hoverAt (*rig.view, 6000.0f);
+                     run.repaintOnly ("hover repaint");
+                     juce::String window;   // 计数窗口里的第一个曲线帧（后面切 B 的帧不算）
+                     run.builds = run.countBuilds ([&]
+                                                  {
+                                                      run.counted = run.frames ("silence, peak off", 30, silence);   // 5.5 ～ 6.0 s
+                                                      window = run.firstCurveFrame;
+                                                  });
+
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     run.repaintOnly ("peak on repaint");
+                     rig.editor.setListeningToOriginal (true);
+                     run.frames ("B", 30, silence);
+                     run.firstCurveFrame = window;
+                 },
+                 true,
+                 [slopeText] (const DirtyOutcome& outcome, const CheckFunction& check)
+                 {
+                     check (outcome.noGhosts(),
+                            "T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope " + slopeText
+                                + ", 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; " + outcome.ghostSummary() + ")");
+                     check (outcome.countedAllZero() && outcome.buildsAllZero(),
+                            "T-058 spectrum with the peak line off rebuilds no curves while only the peak hold falls (S9, slope " + slopeText
+                                + ", silence 5.5 - 6 s: "
+                                + (outcome.error.isNotEmpty() ? outcome.error
+                                                              : outcome.countedText() + " of 30 frames reach the curve area, " + outcome.buildsText()
+                                                                    + " path rebuilds, needs 0" + outcome.firstCurveText())
+                                + ")");
+                 } };
+    }
+
+    // ---- S9b（T-070，评审 F1）：已显示过的视图上 PEAK 开 → 关 ----
+    // 关掉不重建：峰值线靠 setPeakShown(false) 里的整面重画擦掉。T-058 之前峰值保持往下落会每帧判变了、顺手把它擦掉，现在这条 repaint 是唯一的
+    // 手段，撤掉它其他检查都看不出（它们都在第一帧之前把 PEAK 关好，或只测 关 → 开）。PEAK 开着（默认）、斜率 slopeIndex，6 kHz −12 dBFS
+    // 正弦 2 s → 数字静音到 5.5 s（暖机，不画）；这时峰值保持线在 y ≈ 114 附近往下落：先比 30 帧（PEAK 开）→ 点关 → 只重画一帧（点击先到）
+    // → 再比 30 帧静音（PEAK 关）。
+    DirtyScenario peakOffScenario (int slopeIndex, const juce::String& slopeText)
+    {
+        const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };
+
+        return { [slopeIndex] (SpectrumRig& rig) { rig.slope->setSelected (slopeIndex, true); },
+                 [silence] (SpectrumRig& rig, DirtyRun& run)
+                 {
+                     SineSource sine (6000.0, -12.0);
+                     run.warmUp (2 * DirtyRun::framesPerSecond, std::ref (sine));
+                     run.warmUp (210, silence);   // 2.0 ～ 5.5 s
+                     run.sync();
+                     run.frames ("silence, peak on", 30, silence);
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     run.repaintOnly ("peak off repaint");
+                     run.frames ("silence, peak off", 30, silence);
+                 },
+                 true,
+                 [slopeText] (const DirtyOutcome& outcome, const CheckFunction& check)
+                 {
+                     check (outcome.noGhosts(),
+                            "T-070 spectrum incremental repaint == full repaint (S9b: GLAZE 0, slope " + slopeText
+                                + ", 6 kHz -12 dBFS sine 2 s, silence to 5.5 s, 30 frames, peak off, 30 frames; " + outcome.ghostSummary() + ")");
+                 } };
+    }
+
+    // ---- S11（T-070，评审 F4）：IN 虚线开着 ----
+    // T-058 动过 IN 的两处（路径一重建就作废展开好的虚线；比 IN 要先看计算器此刻有没有 IN 的曲线），之前没有任何检查进过 IN。PEAK 关、IN 开、
+    // 斜率 0，合成音乐：暖机 1 s，比 1 s → 斜率换 3 → IN 关 → IN 开，每一步先只重画一帧（点击的重画先到）再比 30 帧。与整帧重画对照；
+    // 「重建时没作废展开好的虚线」这类两边一起错的，由 S12（与全新视图对照）管。
+    DirtyScenario inputScenario()
+    {
+        return { [] (SpectrumRig& rig)
+                 {
+                     rig.clickToggle (SpectrumRig::peakToggle);
+                     rig.clickToggle (SpectrumRig::inputToggle);
+                     rig.slope->setSelected (0, true);
+                 },
+                 [] (SpectrumRig& rig, DirtyRun& run)
+                 {
+                     auto& music = rig.session->music;
+                     const SpectrumRig::AudioSource source = [&music] (juce::AudioBuffer<float>& chunk) { music.render (chunk, chunk.getNumSamples()); };
+                     run.warmUp (DirtyRun::framesPerSecond, source);
+                     run.sync();
+                     run.frames ("music, IN on", DirtyRun::framesPerSecond, source);
+                     rig.slope->setSelected (1, true);
+                     run.repaintOnly ("slope 3 repaint");
+                     run.frames ("music, IN on, slope 3", 30, source);
+                     rig.clickToggle (SpectrumRig::inputToggle);
+                     run.repaintOnly ("IN off repaint");
+                     run.frames ("music, IN off", 30, source);
+                     rig.clickToggle (SpectrumRig::inputToggle);
+                     run.repaintOnly ("IN on repaint");
+                     run.frames ("music, IN on again", 30, source);
+                 },
+                 false,
+                 [] (const DirtyOutcome& outcome, const CheckFunction& check)
+                 {
+                     check (outcome.noGhosts(),
+                            "T-070 spectrum incremental repaint == full repaint (S11: GLAZE 0, music, peak off, IN on, slope 0 -> 3, IN off, IN on; "
+                                + outcome.ghostSummary() + ")");
+                 } };
+    }
+
+    // 增量重画检查的场景表（每个场景各起会话；×1 两种口径 + ×2 矩形列表 = 评审 B1 的三种口径）。
+    std::vector<DirtyScenario> dirtyScenarios()
+    {
+        const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };
+
+        return {
+            // ---- S8（T-051；评审 B1 的 S8，守 R-02 ①：paint 里重建路径时把画出的区域并进旧区域）----
+            // 峰值线关（开着时峰值保持把脏区一直撑到峰顶，盖住要找的漏标）、斜率 0，6 kHz −12 dBFS 稳态正弦 12 s（最后 1 s 频谱仪应
+            // 0 帧被标脏：曲线已静止）→ 斜率换 4.5（6 kHz 抬高约 11.6 dB；先只重画一帧，路径在 paint 里重建，见下）→ 切到 B（OUT 清零
+            // 重来，最高的曲线一下子没了）→ 再跑 1 s。每帧都与整帧重画比（不只比切 B 的那一帧）。
+            { [] (SpectrumRig& rig)
+              {
+                  rig.clickToggle (SpectrumRig::peakToggle);
+                  rig.slope->setSelected (0, true);
+              },
+              [] (SpectrumRig& rig, DirtyRun& run)
+              {
+                  SineSource sine (6000.0, -12.0);
+                  const SpectrumRig::AudioSource source = std::ref (sine);
+                  constexpr int steadyFrames = 12 * DirtyRun::framesPerSecond;
+
+                  for (int i = 0; i < steadyFrames; ++i)
+                      if (run.frame ("steady sine", i, source).intersects (rig.area) && i >= steadyFrames - DirtyRun::framesPerSecond)
+                          ++run.counted;
+
+                  // 斜率 0 → 4.5：点击引起的整面重画先到、显示器的帧回调后到，路径在 paint 里重建——这一帧只重画、不推。评审复现时
+                  // （577ded0）setSpectrum 按未加斜率的 dB 判变化，曲线静止时换斜率后下一帧也不重画，等价于这里；T-036 修订（867b454，
+                  // 评审 R-07）改按加斜率后的纵坐标判之后，PEAK 关着也照比的峰值保持数据（压在底边下、还在往下落）换到 4.5 时露出来，
+                  // 先推一帧的话 setSpectrum 当帧就判变了、旧区域跟上了，照原样走 S8 抓不到 R-02 那一类漏标（T-051）。T-058 起 PEAK
+                  // 关着不比峰值线、重建都先换成此刻的值，这一帧的 setSpectrum 不再判变（临时副本里加打印核过），先推一帧也抓得到 ①；
+                  // 照留「只重画」：与 T-051 逐字相同，也正是点击先到的那种顺序。
+                  rig.slope->setSelected (2, true);
+                  run.repaintOnly ("slope 4.5 repaint");
+
+                  rig.editor.setListeningToOriginal (true);
+
+                  for (int i = 0; i < DirtyRun::framesPerSecond; ++i)
+                      run.frame ("B", i, source);
+              },
+              true,
+              [] (const DirtyOutcome& outcome, const CheckFunction& check)
+              {
+                  check (outcome.noGhosts() && outcome.countedAllZero(),
+                         "T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; "
+                             + (outcome.error.isNotEmpty() ? outcome.error
+                                                           : outcome.ghostSummary() + "; spectrum marked dirty in " + outcome.countedText()
+                                                                 + " of the last 60 steady frames, needs 0")
+                             + ")");
+              } },
+
+            peakHoldScenario (0, "0"),
+            peakHoldScenario (2, "4.5"),
+            peakOffScenario (0, "0"),
+            peakOffScenario (2, "4.5"),
+            inputScenario(),
+
+            // ---- 播放（T-058；评审 B1 的第一个场景）：最常见的路径，守 curveRegion 的描边外扩余量与各条线都进区域（峰值线常高出 OUT）----
+            // 峰值线开、斜率默认 4.5，合成音乐暖机 1 s，再比 2 s。只跑 ×1：音乐每帧整块在变，逐帧整帧对照在 ×2 下最贵；撤掉余量或峰值线
+            // 在 ×1 矩形列表下就失败（红绿验证）。repaintCurves 并旧区域它守不住：峰值线区域的顶总在最近的 OUT 之上、每帧只落约 0.6 px，
+            // 新区域本身就盖住了——那一条由 S8 / S9 守（切 B 时曲线一下子清到底）。T-070：鼠标悬停在 3 kHz（光标圆点跟着曲线走，
+            // repaintCurves 补光标那一列；评审 F6）。
+            { [] (SpectrumRig&) {},
+              [] (SpectrumRig& rig, DirtyRun& run)
+              {
+                  auto& music = rig.session->music;
+                  const SpectrumRig::AudioSource source = [&music] (juce::AudioBuffer<float>& chunk) { music.render (chunk, chunk.getNumSamples()); };
+                  run.warmUp (DirtyRun::framesPerSecond, source);
+                  run.sync();
+                  run.tolerance = hoverTolerance;
+                  hoverAt (*rig.view, 3000.0f);
+                  run.repaintOnly ("hover repaint");
+                  run.frames ("music", 2 * DirtyRun::framesPerSecond, source);
+              },
+              false,
+              [] (const DirtyOutcome& outcome, const CheckFunction& check)
+              {
+                  check (outcome.noGhosts(),
+                         "T-058 spectrum incremental repaint == full repaint (B1 playback: GLAZE 0, music, peak on, slope 4.5, hover at 3 kHz; "
+                             + outcome.ghostSummary() + ")");
+              } },
+        };
+    }
+
+    // 打开 PEAK、换斜率、悬停那一刻画的是此刻的数据（T-058 的 S10）。残影检查拿同一个视图的整帧重画作对照：路径是旧的时两边一样旧，
+    // 抓不到。这里要一个一直「新」的参照：不建编辑器，一个计算器（48 kHz）+ 两个不进窗口的频谱仪——test 的 PEAK 先关、到时点开；
+    // ref 的一直开着（峰值保持在落时每帧判变了、按此刻的值重建）。每帧：送 1 / 60 s 音频 → update → 两边 setSpectrum（两边 IN 都关，
+    // 告诉计算器的是同一个值）。6 kHz −12 dBFS 正弦 2 s → 数字静音 4 s，暖机不画：停播后 OUT 约 0.3 s 钳到底边、斜率 0 时平均线一直在
+    // 底边以下，两边画出来是同一条底线；峰值保持 1.5 s 后往下落，6.0 s 时 6 kHz 约 −42 dB。到 6.0 s：
+    //   a 点开 test 的 PEAK；b 两边先同时把斜率换成 4.5，再点开 test 的 PEAK——都是不推、两边各整帧画一张 ×1 图逐字节比；
+    //   c 不点 PEAK，两边鼠标都移到 6 kHz，只比读数框那一片（图例开关左边、上沿：test 的 PEAK 还关着，图例与峰值线两边本来就不同）。
+    // 之后再推 30 帧，每帧都比同一片。
+    enum class FreshnessCase { peakOn, slopeAndPeakOn, hoverReadout };
+
+    struct FreshnessResult
+    {
+        int switchDifferent = 0, laterFramesDifferent = 0, worst = 0;   // 那一刻不同的像素数；之后 30 帧里有不同的帧数
+        int firstLaterFrame = -1;                                       // 之后 30 帧里第一个有不同的帧（从 0 数；没有 = -1）
+        juce::Point<int> firstAt { -1, -1 };
+        juce::String error;
+    };
+
+    FreshnessResult runPeakFreshness (FreshnessCase which)
+    {
+        using namespace celadon::ui;
+        FreshnessResult result;
+        SpectrumAnalyser analyser;
+        SpectrumView test, ref;
+        const auto testToggles = legendToggles (test);
+        auto* testSlope = findFirst<Segmented> (test);   // 斜率选择是频谱仪里唯一的 Segmented
+        auto* refSlope = findFirst<Segmented> (ref);
+
+        if (testToggles.empty() || testSlope == nullptr || refSlope == nullptr)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        auto& testPeak = *testToggles[(size_t) SpectrumRig::peakToggle];
+        const auto clickPeak = [&testPeak] { click (testPeak, testPeak.getLocalBounds().getCentre().toFloat()); };   // 不进不出：没有悬停的样子
+
+        clickPeak();   // test 的 PEAK 关
+        testSlope->setSelected (0, true);
+        refSlope->setSelected (0, true);
+
+        constexpr int framesPerSecond = 60;
+        constexpr int samplesPerFrame = (int) sampleRate / framesPerSecond;
+        juce::AudioBuffer<float> chunk (2, samplesPerFrame);
+        SineSource sine (6000.0, -12.0);
+
+        const auto advance = [&] (bool sound)
+        {
+            if (sound)
+                sine (chunk);
+            else
+                chunk.clear();
+
+            analyser.push (SpectrumAnalyser::Stream::output, chunk.getReadPointer (0), samplesPerFrame);
+            analyser.update (1.0 / framesPerSecond);
+            test.setSpectrum (analyser, 1.0 / framesPerSecond);
+            ref.setSpectrum (analyser, 1.0 / framesPerSecond);
+        };
+
+        // 比哪一片：a / b 整个视图；c 读数框那一片（图例开关左边、开关底下再留 6 px）。
+        const auto area = which == FreshnessCase::hoverReadout
+                              ? juce::Rectangle<int> (0, 0, testToggles.front()->getX(), testToggles.front()->getBottom() + 6)
+                              : test.getLocalBounds();
+
+        // 两边各整帧画一张（不透明的 RGB，同一底色），返回 area 里不同的像素数。
+        const auto compare = [&] (int& worst, juce::Point<int>& at)
+        {
+            const auto snapshot = [] (SpectrumView& view)
+            {
+                juce::Image image (juce::Image::RGB, view.getWidth(), view.getHeight(), true);
+                juce::Graphics g (image);
+                view.paintEntireComponent (g, true);
+                return image;
+            };
+
+            const auto a = snapshot (test), b = snapshot (ref);
+            return countDifferences (a, b, area, worst, at);
+        };
+
+        for (int i = 0; i < 2 * framesPerSecond; ++i)
+            advance (true);
+
+        for (int i = 0; i < 4 * framesPerSecond; ++i)
+            advance (false);
+
+        if (which == FreshnessCase::hoverReadout)
+        {
+            // 鼠标移到 6 kHz（只有移动，不进不出）：读数立即换成光标处的值——test 画出来的那组还停在停播后约 0.3 s，ref 的是此刻的。
+            const juce::Point<float> at (SpectrumView::xOf (6000.0f), 120.0f);
+            test.mouseMove (mouseEvent (test, at, {}, at));
+            ref.mouseMove (mouseEvent (ref, at, {}, at));
+        }
+        else
+        {
+            if (which == FreshnessCase::slopeAndPeakOn)
+            {
+                testSlope->setSelected (2, true);
+                refSlope->setSelected (2, true);
+            }
+
+            clickPeak();   // test 的 PEAK 开：点击的重画先到，这一帧不推
+        }
+
+        result.switchDifferent = compare (result.worst, result.firstAt);
+
+        for (int i = 0; i < 30; ++i)
+        {
+            advance (false);
+            int worst = 0;
+            juce::Point<int> at;
+
+            if (compare (worst, at) == 0)
+                continue;
+
+            if (result.laterFramesDifferent++ == 0)
+            {
+                result.firstLaterFrame = i;
+
+                if (result.switchDifferent == 0)
+                    result.firstAt = at;
+            }
+
+            result.worst = juce::jmax (result.worst, worst);
+        }
+
+        return result;
+    }
+
+    //==============================================================================
+    // S12（T-070，评审 F2、F3、F4、F6、F7）：与「没有历史的视图」对照 + 曲线真的画出来了的绝对探针。
+    // 之前的检查都是「视图对它自己」：增量重画对整帧重画、开着的视图对一个一直开着 PEAK 的视图——两边跑同一份代码，数据通路上丢了一条曲线
+    // （拷贝漏了、建路径漏了）、「看没看变化」少比一条线、换斜率后虚线没作废，两边一起错、全过。这里要两种不靠历史的参照：
+    //   ① 每个时刻现起一个全新的视图（同开关、同斜率、同悬停），只 setSpectrum 一次、整帧画一张——它画的就是计算器此刻的数据；长期运行的
+    //      视图在曲线都静止的时刻（停播 4 s 之后；稳态正弦 10 s 之后换斜率）必须与它逐字节相同；
+    //   ② 绝对探针：曲线应该在的那个点（位置由计算器的值与 SpectrumView::xOf / yOf 算出）附近，必须有像素与「从没喂过数据的空视图」不同；
+    //      悬停的读数必须等于计算器此刻 OUT 的值（加斜率）。
+    // 不建编辑器：一个计算器（48 kHz）+ 长期运行的视图，每帧送 1 / 60 s 音频 → update → setSpectrum，与 S10 同一套。
+
+    // 斜率选择三档的值（dB / 倍频程，绕 1 kHz 转），下标与 Segmented 一致。
+    constexpr float spectrumSlopes[] = { 0.0f, 3.0f, 4.5f };
+
+    // 视图的开关与斜率（频谱仪默认：OUT 开、IN 关、PEAK 开、斜率 4.5）。找不到控件返回 false。
+    bool configureSpectrumView (celadon::ui::SpectrumView& view, bool peakOn, bool inputOn, int slopeIndex)
+    {
+        const auto toggles = legendToggles (view);
+        auto* slopeControl = findFirst<celadon::ui::Segmented> (view);
+
+        if (toggles.empty() || slopeControl == nullptr)
+            return false;
+
+        const auto press = [&toggles] (SpectrumRig::Toggle which)
+        {
+            auto& toggle = *toggles[(size_t) which];
+            click (toggle, toggle.getLocalBounds().getCentre().toFloat());   // 不进不出：没有悬停的样子
+        };
+
+        if (! peakOn)
+            press (SpectrumRig::peakToggle);
+
+        if (inputOn)
+            press (SpectrumRig::inputToggle);
+
+        slopeControl->setSelected (slopeIndex, true);
+        return true;
+    }
+
+    juce::Image snapshotOf (celadon::ui::SpectrumView& view)
+    {
+        juce::Image image (juce::Image::RGB, view.getWidth(), view.getHeight(), true);
+        juce::Graphics g (image);
+        view.paintEntireComponent (g, true);
+        return image;
+    }
+
+    // 一条时间线：一个计算器 + 一个长期运行的视图。step() = 一帧（1 / 60 s）：6 kHz −12 dBFS 正弦、白噪声（宽带：平均线要宽带内容才会高出面板底边）
+    // 或数字静音 → update → setSpectrum，OUT 与 IN 送同一份。freshView() / emptyView() 起对照用的视图。
+    struct SpectrumTimeline
+    {
+        static constexpr int framesPerSecond = 60;
+        static constexpr int samplesPerFrame = (int) sampleRate / framesPerSecond;
+
+        enum class Sound { silence, sine, noise };
+
+        // 构造时先整帧画一次：视图第一次 paint 时（curvePathsValid 为假）会用「此刻」的值建路径——不先画，第一次比较那一刻才建，
+        // 之前「看没看变化」少比的曲线从没更新过也不露馅。先画一次（此刻全是底线），之后的路径只能靠 setSpectrum 里的判变来更新，
+        // 与真实窗口里从头一帧帧画一样。
+        SpectrumTimeline (bool peakOn, bool inputOn, int slopeIndex)
+            : peak (peakOn), input (inputOn), slope (slopeIndex), valid (configureSpectrumView (view, peakOn, inputOn, slopeIndex))
+        {
+            if (valid)
+                snapshotOf (view);
+        }
+
+        void step (Sound sound)
+        {
+            if (sound == Sound::sine)
+            {
+                sine (chunk);
+            }
+            else if (sound == Sound::noise)
+            {
+                for (int i = 0; i < samplesPerFrame; ++i)
+                {
+                    const auto sample = 0.1f * (random.nextFloat() * 2.0f - 1.0f);   // 约 −25 dBFS RMS
+                    chunk.setSample (0, i, sample);
+                    chunk.setSample (1, i, sample);
+                }
+            }
+            else
+            {
+                chunk.clear();
+            }
+
+            analyser.push (celadon::ui::SpectrumAnalyser::Stream::output, chunk.getReadPointer (0), samplesPerFrame);
+            analyser.push (celadon::ui::SpectrumAnalyser::Stream::input, chunk.getReadPointer (0), samplesPerFrame);
+            analyser.update (1.0 / framesPerSecond);
+            view.setSpectrum (analyser, 1.0 / framesPerSecond);
+        }
+
+        void steps (int count, Sound sound)
+        {
+            for (int i = 0; i < count; ++i)
+                step (sound);
+        }
+
+        void changeSlope (int slopeIndex)
+        {
+            slope = slopeIndex;
+            findFirst<celadon::ui::Segmented> (view)->setSelected (slopeIndex, true);   // 点击引起的重画先到：不推帧
+        }
+
+        void hover (float frequency)
+        {
+            hoverFrequency = frequency;
+            hoverAt (view, frequency);
+        }
+
+        // 此刻现起一个全新视图：画的是计算器此刻的数据。读数框的文字约 0.27 s 才刷新一次，而选斜率（configureSpectrumView）会把这个计时清零，
+        // 所以数据不动、连着 setSpectrum 20 次（1 / 3 s）让它把读数刷新到此刻——长期运行的视图在曲线静止的时刻读数也早已是此刻的。
+        std::unique_ptr<celadon::ui::SpectrumView> freshView()
+        {
+            auto fresh = std::make_unique<celadon::ui::SpectrumView>();
+            configureSpectrumView (*fresh, peak, input, slope);
+
+            for (int i = 0; i < 20; ++i)
+                fresh->setSpectrum (analyser, 1.0 / framesPerSecond);
+
+            if (hoverFrequency.has_value())
+                hoverAt (*fresh, *hoverFrequency);
+
+            return fresh;
+        }
+
+        // 同开关、同斜率、从没喂过数据的视图：绝对探针的底。
+        std::unique_ptr<celadon::ui::SpectrumView> emptyView() const
+        {
+            auto empty = std::make_unique<celadon::ui::SpectrumView>();
+            configureSpectrumView (*empty, peak, input, slope);
+            return empty;
+        }
+
+        bool peak, input;
+        int slope;
+        std::optional<float> hoverFrequency;
+        celadon::ui::SpectrumAnalyser analyser;
+        celadon::ui::SpectrumView view;
+        bool valid;
+        SineSource sine { 6000.0, -12.0 };
+        juce::Random random { 20261004 };
+        juce::AudioBuffer<float> chunk { 2, samplesPerFrame };
+    };
+
+    // 长期运行的视图 == 全新视图：在若干时刻整个面板逐字节比（零容差），记下不同的。
+    struct FreshEquality
+    {
+        int moments = 0, differing = 0;
+        juce::String firstDifference, error;
+
+        // tolerance：通道差不超过它的像素不算不同（默认零）。曲线停在「差不到 0.1 px」的滞后里时（视图只在累计漂移超过 0.1 px 才重建），实线的 AA
+        // 会差十几级——S12c 放 24 级；少比一条线、判变化时不加斜率，曲线停在半空，差的是几十到两百多级。
+        // belowReadout：只比读数框（y < 40）以下：宽带噪声每帧都不同，读数框的「最响的峰」约 0.27 s 才刷新一次，与全新视图的读数合法地不同。
+        void compare (SpectrumTimeline& timeline, const juce::String& moment, int tolerance = 0, bool belowReadout = false)
+        {
+            ++moments;
+            const auto fresh = timeline.freshView();
+            int worst = 0;
+            juce::Point<int> at;
+            const auto bounds = timeline.view.getLocalBounds();
+            const auto area = belowReadout ? bounds.withTrimmedTop (40) : bounds;
+            const auto different = countDifferences (snapshotOf (timeline.view), snapshotOf (*fresh), area, worst, at, tolerance);
+
+            if (different > 0 && differing++ == 0)
+                firstDifference = moment + ": " + juce::String (different) + " px differ, worst " + juce::String (worst) + ", first at ("
+                                + juce::String (at.x) + ", " + juce::String (at.y) + ")";
+        }
+    };
+
+    // S12a：6 kHz −12 dBFS 正弦 2 s → 数字静音。停播后 2 s、3 s、4 s（曲线都静止；PEAK 开着时只有峰值保持在落，视图每帧重建）各比一次，
+    // 再把斜率换成 4.5（点击的重画先到、下一帧还没来：路径在 paint 里重建）立刻比，之后每帧比，共 10 帧；最后鼠标悬停在 6 kHz 再比一次。
+    FreshEquality runFreshAfterStop (bool peakOn)
+    {
+        FreshEquality result;
+        SpectrumTimeline timeline (peakOn, false, 0);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        const auto second = SpectrumTimeline::framesPerSecond;
+        using Sound = SpectrumTimeline::Sound;
+        timeline.steps (2 * second, Sound::sine);
+        timeline.steps (2 * second, Sound::silence);
+        result.compare (timeline, "4 s, slope 0");
+        timeline.steps (second, Sound::silence);
+        result.compare (timeline, "5 s, slope 0");
+        timeline.steps (second, Sound::silence);
+        result.compare (timeline, "6 s, slope 0");
+        timeline.changeSlope (2);
+        result.compare (timeline, "6 s, slope 0 -> 4.5 before the next frame");
+
+        for (int i = 1; i <= 10; ++i)
+        {
+            timeline.step (Sound::silence);
+            result.compare (timeline, "6 s + " + juce::String (i) + " frame(s), slope 4.5");
+        }
+
+        timeline.hover (6000.0f);
+        result.compare (timeline, "6 s + 10 frames, slope 4.5, hover at 6 kHz");
+        return result;
+    }
+
+    // S12b：IN 开着（评审 F4）：6 kHz −12 dBFS 稳态正弦 10 s（曲线静止）→ 斜率 0 → 3 → 4.5，每次立刻比、再推几帧比。
+    // 曲线静止时换斜率：虚线靠「重建时作废展开好的那份」才会按新斜率画，视图对它自己的整帧重画抓不到这个（两边一样旧）。
+    // 稳态那一刻本身不比：视图只在累计漂移超过 0.1 px 时才重建，画出来的与此刻的差不到 0.1 px（合法）；虚线的相位沿路径累计，
+    // 这点差到尖峰处会放大成半个像素的相位差（实测 134 个像素差 40 级以上），与全新视图逐字节比不得。换斜率时视图用此刻的值整组重建，
+    // 与全新视图逐位相同——要比的就是这些时刻。
+    FreshEquality runFreshSteadyInput (bool peakOn)
+    {
+        FreshEquality result;
+        SpectrumTimeline timeline (peakOn, true, 0);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        timeline.steps (10 * SpectrumTimeline::framesPerSecond, SpectrumTimeline::Sound::sine);
+
+        for (const auto slopeIndex : { 1, 2 })
+        {
+            timeline.changeSlope (slopeIndex);
+            result.compare (timeline, "slope -> " + juce::String (spectrumSlopes[slopeIndex]) + " before the next frame");
+
+            for (int i = 1; i <= 5; ++i)
+            {
+                timeline.step (SpectrumTimeline::Sound::sine);
+                result.compare (timeline, "slope " + juce::String (spectrumSlopes[slopeIndex]) + " + " + juce::String (i) + " frame(s)");
+            }
+        }
+
+        return result;
+    }
+
+    // S12c（评审 F3、F8）：白噪声 2 s → 数字静音，斜率 4.5，PEAK 关、IN 关。纯音的 OUT 停播后一两百毫秒就落到底边以下、平均线沿频率平滑后一直在面板外，
+    // 「看没看变化」少比 OUT 或平均线、不加斜率比，纯音全看不出来（停播后视图从没重建过，画的恰好也是底线）；宽带噪声 OUT 与平均线都在面板里，
+    // 斜率 4.5 把高频的曲线抬高，落到底边附近时还看得见。停播前后若干时刻与全新视图比（噪声每帧都不同，视图每帧重建；之后落得慢，滞后不到 0.1 px，
+    // 容差 24 级，理由见 FreshEquality::compare）。
+    FreshEquality runFreshDecay()
+    {
+        constexpr int tolerance = 24;
+        FreshEquality result;
+        SpectrumTimeline timeline (false, false, 2);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        using Sound = SpectrumTimeline::Sound;
+        const auto second = SpectrumTimeline::framesPerSecond;
+        timeline.steps (second, Sound::noise);
+        result.compare (timeline, "noise 1 s", tolerance, true);
+        timeline.steps (second, Sound::noise);
+        result.compare (timeline, "noise 2 s", tolerance, true);
+
+        double stopped = 0.0;   // 停播后的秒数
+
+        for (const auto until : { 0.2, 0.5, 1.0, 2.0, 3.0, 5.0 })
+        {
+            timeline.steps ((int) std::lround ((until - stopped) * second), Sound::silence);
+            stopped = until;
+            result.compare (timeline, juce::String (until, 1) + " s after the noise stopped", tolerance, true);
+        }
+
+        return result;
+    }
+
+    // S12d（评审 F3）：稳态正弦、PEAK 关、IN 关：OUT 在 6 kHz 有一根尖峰、平均线在面板外。「看没看变化」少比 OUT 时视图从没重建过、画的是底线，
+    // 与全新视图的尖峰差几百个像素；S12a / S12c 的比较点都在 OUT 已经落到底边（或每帧都因别的曲线在变而重建）之后，看不出。
+    // 容差与「只比读数框以下」同 S12c（实线的 0.1 px 滞后只差十几级）。
+    FreshEquality runFreshSteady (int slopeIndex)
+    {
+        constexpr int tolerance = 24;
+        FreshEquality result;
+        SpectrumTimeline timeline (false, false, slopeIndex);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        const auto second = SpectrumTimeline::framesPerSecond;
+        double elapsed = 0.0;
+
+        for (const auto until : { 0.5, 1.0, 2.0, 4.0 })
+        {
+            timeline.steps ((int) std::lround ((until - elapsed) * second), SpectrumTimeline::Sound::sine);
+            elapsed = until;
+            result.compare (timeline, juce::String (until, 1) + " s into the steady sine", tolerance, true);
+        }
+
+        return result;
+    }
+
+    struct ProbeResult
+    {
+        bool ok = false;
+        juce::String detail;
+    };
+
+    // 一条曲线上最响的点：下标、dB、在面板里的位置（斜率 0：纵坐标不加斜率）。
+    struct CurvePoint
+    {
+        int index = 0;
+        float db = 0.0f;
+        juce::Point<int> at;
+    };
+
+    CurvePoint loudestPoint (const std::vector<float>& values)
+    {
+        CurvePoint point;
+        point.index = (int) (std::max_element (values.begin(), values.end()) - values.begin());
+        point.db = values[(size_t) point.index];
+        point.at = { (int) std::lround (celadon::ui::SpectrumView::xOf (celadon::ui::SpectrumAnalyser::frequencyAt (point.index))),
+                     (int) std::lround (celadon::ui::SpectrumView::yOf (point.db)) };
+        return point;
+    }
+
+    // 视图与同开关的空视图（从没喂过数据）在 box 里不同的像素数。
+    int differingFromEmpty (SpectrumTimeline& timeline, juce::Rectangle<int> box)
+    {
+        const auto empty = timeline.emptyView();
+        int worst = 0;
+        juce::Point<int> at;
+        return countDifferences (snapshotOf (timeline.view), snapshotOf (*empty), box.getIntersection (timeline.view.getLocalBounds()), worst, at);
+    }
+
+    // OUT 的填充：1.5 s 稳态正弦，PEAK 关、IN 关、斜率 0；最响那个点正下方 11 × 50 个像素里至少 100 个与空视图不同（只有 OUT 画填充；
+    // 填充带竖纹与按响度的渐变，实测约 190 / 550，OUT 整条不画时只剩平均线的零星几个像素）。
+    ProbeResult probeOutputFill()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (false, false, 0);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (90, SpectrumTimeline::Sound::sine);
+        const auto top = loudestPoint (timeline.analyser.getDisplayDb (Stream::output));
+        const auto differing = differingFromEmpty (timeline, { top.at.x - 5, top.at.y + 10, 11, 50 });
+        return { differing >= 100, juce::String (differing) + " of 550 px under the OUT peak (x " + juce::String (top.at.x) + ", y "
+                                       + juce::String (top.at.y) + ") differ from an empty view, needs >= 100" };
+    }
+
+    // 平均线：白噪声 2 s → 静音（纯音的平均线沿频率平滑后只剩 −107 dB 的一个小包，在面板底边 −84 dB 之下，要宽带内容才看得见），找一个 OUT 已经落到
+    // 面板底边以下、平均线还在面板里（高出底边 15 dB 以上）的时刻；平均线最响那个点的 13 × 7 个像素里至少 5 个与空视图不同（PEAK 关、没有填充，
+    // 只有平均线能画在那里）。找不到这样的时刻 = 探针空转，也算失败。
+    ProbeResult probeAverage()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (false, false, 0);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (120, SpectrumTimeline::Sound::noise);
+
+        for (int i = 0; i < 240; ++i)
+        {
+            timeline.step (SpectrumTimeline::Sound::silence);
+            const auto& output = timeline.analyser.getDisplayDb (Stream::output);
+            const auto& average = timeline.analyser.getAverageDb();
+            const auto outputMax = *std::max_element (output.begin(), output.end());
+            const auto averageMax = *std::max_element (average.begin(), average.end());
+
+            if (outputMax > celadon::ui::SpectrumView::bottomDb - 3.0f || averageMax < celadon::ui::SpectrumView::bottomDb + 15.0f)
+                continue;
+
+            const auto top = loudestPoint (average);
+            const auto differing = differingFromEmpty (timeline, { top.at.x - 6, top.at.y - 3, 13, 7 });
+            return { differing >= 5, juce::String (differing) + " of 91 px at the average line's peak (x " + juce::String (top.at.x) + ", y "
+                                           + juce::String (top.at.y) + ", " + juce::String (averageMax, 1) + " dB, " + juce::String (i + 1)
+                                           + " frames after the sound stopped, OUT already below the panel) differ from an empty view, needs >= 5" };
+        }
+
+        return { false, "no moment found where the OUT curve is below the panel while the average line is still inside it" };
+    }
+
+    // 峰值线：6 kHz 正弦 2 s → 静音 2 s（PEAK 开）；OUT 与平均线都在面板底边以下、峰值线还在面板里时，峰值线最响那个点的 13 × 7 个
+    // 像素里至少 5 个与空视图不同。
+    ProbeResult probePeak()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (true, false, 0);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (120, SpectrumTimeline::Sound::sine);
+        timeline.steps (120, SpectrumTimeline::Sound::silence);
+        const auto& output = timeline.analyser.getDisplayDb (Stream::output);
+        const auto& average = timeline.analyser.getAverageDb();
+        const auto& peak = timeline.analyser.getPeakDb();
+        const auto peakMax = *std::max_element (peak.begin(), peak.end());
+
+        if (*std::max_element (output.begin(), output.end()) > celadon::ui::SpectrumView::bottomDb - 3.0f
+            || *std::max_element (average.begin(), average.end()) > peakMax - 10.0f || peakMax < celadon::ui::SpectrumView::bottomDb + 15.0f)
+            return { false, "the OUT curve and the average line are not both well below the peak hold line any more (probe is vacuous)" };
+
+        const auto top = loudestPoint (peak);
+        const auto differing = differingFromEmpty (timeline, { top.at.x - 6, top.at.y - 3, 13, 7 });
+        return { differing >= 5, juce::String (differing) + " of 91 px at the peak hold line's peak (x " + juce::String (top.at.x) + ", y "
+                                       + juce::String (top.at.y) + ", " + juce::String (peakMax, 1) + " dB) differ from an empty view, needs >= 5" };
+    }
+
+    // IN 虚线：两条同样的时间线（PEAK 关、斜率 0、1.5 s 稳态正弦），一个 IN 开、一个关；IN 最响那个点的 13 × 7 个像素里至少 3 个不同
+    // （OUT 与 IN 送的是同一份音频，OUT 线两边相同，差别只能是 IN 的虚线）。
+    ProbeResult probeInput()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline withInput (false, true, 0), withoutInput (false, false, 0);
+
+        if (! withInput.valid || ! withoutInput.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        withInput.steps (90, SpectrumTimeline::Sound::sine);
+        withoutInput.steps (90, SpectrumTimeline::Sound::sine);
+        const auto top = loudestPoint (withInput.analyser.getDisplayDb (Stream::input));
+        int worst = 0;
+        juce::Point<int> at;
+        const auto differing = countDifferences (snapshotOf (withInput.view), snapshotOf (withoutInput.view),
+                                                 juce::Rectangle<int> (top.at.x - 6, top.at.y - 3, 13, 7).getIntersection (withInput.view.getLocalBounds()),
+                                                 worst, at);
+        return { differing >= 3, juce::String (differing) + " of 91 px at the IN curve's peak (x " + juce::String (top.at.x) + ", y "
+                                     + juce::String (top.at.y) + ") differ from the same view with IN off, needs >= 3" };
+    }
+
+    // 两点之间按对数频率插值（与 SpectrumView::curveDbAt 同一算式，探针独立再算一份）。
+    float interpolatedDb (const std::vector<float>& values, float frequency)
+    {
+        const auto position = juce::jlimit (0.0f, 1.0f, celadon::ui::SpectrumAnalyser::positionOf (frequency))
+                            * (float) (celadon::ui::SpectrumAnalyser::numPoints - 1);
+        const auto below = juce::jlimit (0, celadon::ui::SpectrumAnalyser::numPoints - 1, (int) std::floor (position));
+        const auto above = juce::jmin (celadon::ui::SpectrumAnalyser::numPoints - 1, below + 1);
+        return values[(size_t) below] + (values[(size_t) above] - values[(size_t) below]) * (position - (float) below);
+    }
+
+    // 悬停的读数：6 kHz 正弦 2 s → 停播 0.15 s（OUT 在落、平均线与峰值线还高：三条线在 6 kHz 各是各的值，读错来源会差好几 dB），
+    // 鼠标移到 6 kHz；读数框第一个数必须是计算器此刻 OUT 在 6 kHz 的值（加斜率），误差在两位小数的舍入以内。
+    ProbeResult probeHoverReadout (int slopeIndex)
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (false, false, slopeIndex);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (120, SpectrumTimeline::Sound::sine);
+        timeline.steps (9, SpectrumTimeline::Sound::silence);
+        timeline.hover (6000.0f);
+
+        const auto tilt = spectrumSlopes[slopeIndex] * std::log2 (6000.0f / 1000.0f);
+        const auto expected = interpolatedDb (timeline.analyser.getDisplayDb (Stream::output), 6000.0f) + tilt;
+        const auto fromAverage = interpolatedDb (timeline.analyser.getAverageDb(), 6000.0f) + tilt;
+        const auto fromPeak = interpolatedDb (timeline.analyser.getPeakDb(), 6000.0f) + tilt;
+        const auto text = timeline.view.getReadoutText();
+        const auto shown = text.upToFirstOccurrenceOf ("dB", false, false).replace (juce::String::charToString ((juce::juce_wchar) 0x2212), "-").getFloatValue();
+        const auto detail = "readout \"" + text + "\" vs OUT " + juce::String (expected, 2) + " dB (the average line would read " + juce::String (fromAverage, 2)
+                          + ", the peak hold " + juce::String (fromPeak, 2) + ")";
+
+        if (std::abs (expected - fromAverage) < 0.5f || std::abs (expected - fromPeak) < 0.5f)
+            return { false, "probe is vacuous: OUT, average and peak read nearly the same at that moment (" + detail + ")" };
+
+        return { std::abs (shown - expected) <= 0.011f, detail };
+    }
+
+    // ---- T-072（T-070 评审 F9）：截图工具驱动的编辑器，定时器的看门狗不按墙钟补推频谱仪 ----
+    // 编辑器平时由垂直同步推频谱仪，垂直同步 100 ms 没来就由 30 Hz 定时器接着推；离屏没有垂直同步，截图工具用 advanceForSnapshot 自己按给定时长推。
+    // 改前只靠「把最近一次垂直同步记成现在」让看门狗以为垂直同步还活着：最后一次 advanceForSnapshot 之后过 100 ms，或那一帧自己耗时 ≥ 100 ms
+    // （慢机、Debug、机器被占满），看门狗就按墙钟再推一次，OUT / 峰值保持按墙钟落，出图随机器快慢变。这里：6 kHz −12 dBFS 正弦 0.5 s（每帧 1 / 60 s
+    // 音频 + advanceForSnapshot），最后一帧之后让消息循环跑 300 ms（定时器约触发 9 次，每次离最近一帧都 ≥ 100 ms）：频谱仪的路径重建次数不得再增加
+    // ——离屏没有对等体、没有垂直同步回调，能推频谱仪的只剩看门狗。改前（main 43d788b 的编辑器）这 300 ms 里看门狗按墙钟推、OUT 往下落，实测重建 2 次。
+    ProbeResult probeTimerPush()
+    {
+        SpectrumRig rig (0.0f);
+
+        if (! rig.isValid())
+            return { false, "spectrum view, its legend toggles or the slope control not found" };
+
+        rig.attach();   // 编辑器设成可见（挂记账缓存图）：定时器照常跑
+        SineSource sine (6000.0, -12.0);
+
+        for (int i = 0; i < 30; ++i)
+        {
+            rig.feed (rig.samplesForFrame (60), std::ref (sine));
+            rig.advance (1.0 / 60.0);
+        }
+
+        const auto before = rig.view->getCurveBuildCount();
+        dispatchEvents (300);
+        const auto rebuilds = rig.view->getCurveBuildCount() - before;
+        return { rebuilds == 0, juce::String ((int) rebuilds) + " path rebuilds in 300 ms of message loop after the last advanceForSnapshot, needs 0" };
+    }
+
+    // ---- T-073（T-070 评审 SV-2）：PEAK 关着时看不见的峰值线不进脏区 ----
+    // curveRegion（增量重画按它标脏）原来不论 PEAK 开关都算峰值线（R-02 ②）：峰值保持常比 OUT 顶高几 dB，PEAK 关着放音乐时脏区白白多 11 ～ 12 %。
+    // 现在只在 PEAK 开着时算。两个时间轴喂同一段声音（6 kHz −12 dBFS 正弦 1 s → 静音 0.2 s：OUT 与平均线已落下去，峰值保持 1.5 s 内还在
+    // 顶上），PEAK 开的区域顶必须比 PEAK 关的高出 20 px 以上。改回「不论开关都算」→ 两个区域一样高（差 0）；改成「永远不算」→ 开着时也不含
+    // 峰值线、同样差 0。两个方向都抓。
+    ProbeResult probeRegionWithoutPeak()
+    {
+        SpectrumTimeline withPeak (true, false, 0), withoutPeak (false, false, 0);
+
+        if (! withPeak.valid || ! withoutPeak.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        for (auto* timeline : { &withPeak, &withoutPeak })
+        {
+            timeline->steps (60, SpectrumTimeline::Sound::sine);
+            timeline->steps (12, SpectrumTimeline::Sound::silence);
+        }
+
+        const auto topWith = withPeak.view.getCurveRegion().getY();
+        const auto topWithout = withoutPeak.view.getCurveRegion().getY();
+        const auto gap = topWithout - topWith;
+        return { gap >= 20.0f, "curve region top y = " + juce::String (topWithout, 1) + " with the peak line off, " + juce::String (topWith, 1)
+                                   + " with it on: the peak hold sits " + juce::String (gap, 1) + " px above the other curves, needs >= 20 px" };
     }
 
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check)
@@ -1867,30 +3168,78 @@ namespace
                                         + juce::String (cases - mismatches) + " / " + juce::String (cases) + " polylines)");
         }
 
-        // 增量重画 vs 整帧：S8 跑两遍——×1 两种口径（矩形列表、包围盒）、×2 矩形列表（评审 B1 的三种口径）。
+        // 增量重画 vs 整帧（场景表见 dirtyScenarios）：S8（T-051）、S9 与播放（T-058）。
+        for (const auto& scenario : dirtyScenarios())
+            scenario.report (runDirtyScenario (scenario), check);
+
+        // 打开 PEAK、换斜率、悬停那一刻画的是此刻的数据（T-058 的 S10，见 runPeakFreshness）：a 只点开 PEAK（守打开时的重建与 PEAK 关时
+        // 每帧拷峰值），b 同时把斜率 0 换成 4.5（守任何重建都先换成此刻的值：曲线静止时换斜率，旧 OUT 不被抬出来；换斜率的读数），
+        // c 鼠标移到 6 kHz（守悬停的读数用此刻的值）。
+        for (const auto which : { FreshnessCase::peakOn, FreshnessCase::slopeAndPeakOn, FreshnessCase::hoverReadout })
         {
-            juce::String error;
-            int frames = 0, steady1 = 0, steady2 = 0;
-            auto screens = runSpectrumDirtyScenario (1.0f, { { "x1 rect list", false }, { "x1 bounding box", true } }, frames, steady1, error);
+            const auto result = runPeakFreshness (which);
+            juce::String detail;
 
-            for (auto& screen : runSpectrumDirtyScenario (2.0f, { { "x2 rect list", false } }, frames, steady2, error))
-                screens.push_back (std::move (screen));
+            if (result.error.isNotEmpty())
+                detail = result.error;
+            else
+                detail = (result.switchDifferent == 0 ? juce::String ("identical") : juce::String (result.switchDifferent) + " px differ")
+                       + " at that moment, " + juce::String (result.laterFramesDifferent) + " of 30 later frames differ"
+                       + (result.laterFramesDifferent > 0 ? ", first at frame " + juce::String (result.firstLaterFrame) : juce::String())
+                       + (result.worst > 0 ? ", worst " + juce::String (result.worst) + ", first at (" + juce::String (result.firstAt.x) + ", "
+                                                 + juce::String (result.firstAt.y) + ")"
+                                           : juce::String());
 
-            juce::StringArray ghosts;
-
-            for (const auto& screen : screens)
-                if (screen.ghostFrames > 0)
-                    ghosts.add (screen.name + " " + juce::String (screen.ghostFrames) + " frame(s), worst " + juce::String (screen.worst)
-                                + " (first: " + screen.firstGhost + ")");
-
-            check (error.isEmpty() && steady1 == 0 && steady2 == 0 && ghosts.isEmpty(),
-                   "T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; "
-                       + (error.isNotEmpty() ? error
-                                             : (ghosts.isEmpty() ? "0 ghosts" : ghosts.joinIntoString ("; ")) + " over " + juce::String (frames)
-                                                   + " frames; spectrum marked dirty in " + juce::String (steady1) + " / " + juce::String (steady2)
-                                                   + " of the last 60 steady frames, needs 0")
-                       + ")");
+            const auto setting = " at 6 s after 6 kHz -12 dBFS sine 2 s + silence 4 s, vs a view with the peak line always on: " + detail + ")";
+            check (result.error.isEmpty() && result.switchDifferent == 0 && result.laterFramesDifferent == 0,
+                   which == FreshnessCase::peakOn
+                       ? "T-058 spectrum: switching the peak line on draws this moment's data (S10a: slope 0, peak on" + setting
+                       : which == FreshnessCase::slopeAndPeakOn
+                             ? "T-058 spectrum: changing the slope while the curves are still draws this moment's data (S10b: slope 0 -> 4.5 and peak on" + setting
+                             : "T-058 spectrum: the hover readout shows this moment's value (S10c: peak off, slope 0, mouse to 6 kHz, readout area only" + setting);
         }
+
+        // S12（T-070）：长期运行的视图 == 没有历史的全新视图（停播后、稳态 IN 换斜率；PEAK 关 / 开各一遍）。
+        const auto reportFresh = [&check] (const FreshEquality& result, const juce::String& what)
+        {
+            check (result.error.isEmpty() && result.differing == 0,
+                   "T-070 spectrum: a long-running view draws what a view built from scratch draws (" + what + ": "
+                       + (result.error.isNotEmpty() ? result.error
+                                                    : juce::String (result.moments - result.differing) + " / " + juce::String (result.moments)
+                                                          + " moments identical" + (result.differing > 0 ? "; first: " + result.firstDifference : juce::String()))
+                       + ")");
+        };
+
+        reportFresh (runFreshAfterStop (false), "S12a: 6 kHz -12 dBFS sine 2 s, silence, peak off, slope 0 -> 4.5, hover");
+        reportFresh (runFreshAfterStop (true), "S12a: 6 kHz -12 dBFS sine 2 s, silence, peak on, slope 0 -> 4.5, hover");
+        reportFresh (runFreshSteadyInput (false), "S12b: IN on, peak off, 6 kHz -12 dBFS sine 10 s steady, slope 0 -> 3 -> 4.5");
+        reportFresh (runFreshSteadyInput (true), "S12b: IN on, peak on, 6 kHz -12 dBFS sine 10 s steady, slope 0 -> 3 -> 4.5");
+        reportFresh (runFreshDecay(), "S12c: white noise 2 s, silence, peak off, slope 4.5, tolerance 24 levels");
+        reportFresh (runFreshSteady (0), "S12d: 6 kHz -12 dBFS sine steady, peak off, slope 0, tolerance 24 levels");
+        reportFresh (runFreshSteady (2), "S12d: 6 kHz -12 dBFS sine steady, peak off, slope 4.5, tolerance 24 levels");
+
+        // 绝对探针（T-070）：曲线 / 读数真的画在计算器给的位置，不靠任何历史。
+        const auto reportProbe = [&check] (const ProbeResult& result, const juce::String& what)
+        {
+            check (result.ok, "T-070 spectrum draws the data: " + what + " (" + result.detail + ")");
+        };
+
+        reportProbe (probeOutputFill(), "S12 probe OUT fill");
+        reportProbe (probeAverage(), "S12 probe average line");
+        reportProbe (probePeak(), "S12 probe peak hold line");
+        reportProbe (probeInput(), "S12 probe IN dashes");
+        reportProbe (probeHoverReadout (0), "S12 probe hover readout, slope 0");
+        reportProbe (probeHoverReadout (2), "S12 probe hover readout, slope 4.5");
+
+        // 截图模式下定时器的看门狗不补推（T-072，T-070 评审 F9，见 probeTimerPush）。
+        const auto timerPush = probeTimerPush();
+        check (timerPush.ok, "T-072 spectrum: an editor driven by advanceForSnapshot is not advanced by its own timer (6 kHz -12 dBFS sine 0.5 s, then 300 ms of message loop: "
+                                 + timerPush.detail + ")");
+
+        // PEAK 关着时看不见的峰值线不进脏区、开着时进（T-073，T-070 评审 SV-2，见 probeRegionWithoutPeak）。
+        const auto regionWithoutPeak = probeRegionWithoutPeak();
+        check (regionWithoutPeak.ok, "T-073 spectrum: the dirty curve region leaves out the peak line while PEAK is off and includes it while on (6 kHz -12 dBFS sine 1 s, silence 0.2 s: "
+                                         + regionWithoutPeak.detail + ")");
     }
 }
 
@@ -2320,6 +3669,228 @@ namespace
         }
 
         std::cout << "==== spectrum bench done" << std::endl;
+    }
+
+    //==============================================================================
+    // PEAK（峰值线）关时频谱仪多做的重建 / 重画（--only spectrum-peak-bench，T-058）：每帧照真实窗口走（SpectrumRig）——
+    // 送 1 / fps 秒音频 → advanceForSnapshot (1 / fps) → 只按记下的脏矩形（矩形列表口径：Windows Direct2D、Linux）把频谱仪那一块
+    // 画进一直留着的「屏幕」图。只用改前改后都有的接口：同一份基准能在改前的树上量基线、改后再量一遍逐行对照。
+    //   S8：GLAZE 0、斜率 0，6 kHz −12 dBFS 正弦 12 s → 斜率换 4.5（先只重画一帧）→ 切 B → 1 s（同增量重画检查的 S8）；
+    //   停止：同样的正弦 4 s → 数字静音 10 s，斜率 0 与 4.5 各一遍——峰值保持 1.5 s 后按 12 dB/s 落过整块面板（6 kHz 的峰从约
+    //         −12 dB 落到底边 −84 dB 要 6 s，斜率 4.5 时从顶边落、再多约 1 s），之后全静（每帧的「什么都没变」作对照）。
+    // 各 × PEAK 关（被测）/ 开（对照）× 60 / 120 帧 × 1 / 2 倍。按秒打印：频谱仪被标脏的帧、其中「曲线帧」（脏区够到面板底边——
+    // setSpectrum 判变了、重建路径后 repaintCurves 的区域总是从最高的曲线顶到底边、横跨整块，读数框 / 响度小窗的重画够不到；
+    // 整块重画也算在内）、脏区设备像素、advance 与增量重画的墙钟与本线程 CPU（advance 曲线帧与其余帧分开平均：差值约是一次
+    // 比较之外的重建 + 标脏）。软件渲染器口径，绑单核跑更稳；Mac 的绝对值要 Max 实测。
+    struct PeakBenchStats
+    {
+        int frames = 0, dirtyFrames = 0, curveFrames = 0;
+        juce::int64 devicePixels = 0;
+        Clock advance, advanceOnCurveFrames, paint, paintOnCurveFrames;
+
+        void addFrame (Clock advanced, Clock painted, const juce::RectangleList<int>& clip, float scale, bool curves)
+        {
+            ++frames;
+            advance += advanced;
+            paint += painted;
+
+            if (clip.isEmpty())
+                return;
+
+            ++dirtyFrames;
+
+            for (const auto& r : clip)
+            {
+                const auto device = (r.toFloat() * scale).getSmallestIntegerContainer();
+                devicePixels += (juce::int64) device.getWidth() * (juce::int64) device.getHeight();
+            }
+
+            if (curves)
+            {
+                ++curveFrames;
+                advanceOnCurveFrames += advanced;
+                paintOnCurveFrames += painted;
+            }
+        }
+
+        PeakBenchStats& operator+= (const PeakBenchStats& other)
+        {
+            frames += other.frames;
+            dirtyFrames += other.dirtyFrames;
+            curveFrames += other.curveFrames;
+            devicePixels += other.devicePixels;
+            advance += other.advance;
+            advanceOnCurveFrames += other.advanceOnCurveFrames;
+            paint += other.paint;
+            paintOnCurveFrames += other.paintOnCurveFrames;
+            return *this;
+        }
+    };
+
+    juce::String perFrame (double totalMs, int count)
+    {
+        return count > 0 ? ms (totalMs / count) : juce::String ("-");
+    }
+
+    // 一行：帧数 | 设备像素 | advance 墙钟 / CPU 合计（曲线帧与其余帧的每帧 CPU）| 重画墙钟 / CPU 合计（曲线帧与其余脏帧的每帧 CPU）| CPU 合计。
+    void printPeakBenchLine (const juce::String& label, const PeakBenchStats& s, int labelWidth = 16)
+    {
+        const auto otherFrames = s.frames - s.curveFrames, otherDirtyFrames = s.dirtyFrames - s.curveFrames;
+        std::cout << "  " << label.paddedRight (' ', labelWidth)
+                  << " | fr " << juce::String (s.frames).paddedLeft (' ', 4) << " dirty " << juce::String (s.dirtyFrames).paddedLeft (' ', 4)
+                  << " curves " << juce::String (s.curveFrames).paddedLeft (' ', 4)
+                  << " | dev px " << juce::String (s.devicePixels).paddedLeft (' ', 9)
+                  << " | advance wall " << ms (s.advance.wall).paddedLeft (' ', 8) << " cpu " << ms (s.advance.cpu).paddedLeft (' ', 8)
+                  << " (cpu/fr curve " << perFrame (s.advanceOnCurveFrames.cpu, s.curveFrames)
+                  << " other " << perFrame (s.advance.cpu - s.advanceOnCurveFrames.cpu, otherFrames) << ")"
+                  << " | paint wall " << ms (s.paint.wall).paddedLeft (' ', 8) << " cpu " << ms (s.paint.cpu).paddedLeft (' ', 8)
+                  << " (cpu/fr curve " << perFrame (s.paintOnCurveFrames.cpu, s.curveFrames)
+                  << " other " << perFrame (s.paint.cpu - s.paintOnCurveFrames.cpu, otherDirtyFrames) << ")"
+                  << " | cpu " << ms (s.advance.cpu + s.paint.cpu).paddedLeft (' ', 8) << std::endl;
+    }
+
+    void runSpectrumPeakBench()
+    {
+        enum class Scenario { s8, stopSlope0, stopSlope45 };
+
+        struct Row
+        {
+            juce::String name;
+            PeakBenchStats total;
+        };
+
+        std::vector<Row> rows;
+        std::cout << "==== spectrum peak-off bench (T-058): GLAZE 0, 6 kHz -12 dBFS sine; each frame = 1 / fps s of audio, advanceForSnapshot, "
+                     "rect-list repaint of the dirty part of the spectrum (software renderer)" << std::endl
+                  << "     fr = frames; dirty = frames with the spectrum marked dirty; curves = of those, frames whose dirty region reaches the "
+                     "spectrum's bottom edge (setSpectrum rebuilt the curves, or a whole-spectrum repaint); dev px = device pixels repainted;" << std::endl
+                  << "     advance = advanceForSnapshot (analyser update + setSpectrum + the editor's other readouts); paint = the incremental "
+                     "repaint; ms, wall and thread CPU; cpu/fr = per frame on curve frames vs the others" << std::endl;
+
+        // 一种组合跑一遍：新会话（每遍从头开始，峰值保持、平均线不带上一遍的）。
+        const auto runCase = [&rows] (Scenario scenario, bool peakOn, int fps, float scale)
+        {
+            const auto title = juce::String (scenario == Scenario::s8 ? "S8" : scenario == Scenario::stopSlope0 ? "stop, slope 0" : "stop, slope 4.5")
+                             + " | PEAK " + (peakOn ? "on " : "off") + " | " + juce::String (fps) + " fps | x" + juce::String (scale, 0);
+            SpectrumRig rig (0.0f);
+
+            if (! rig.isValid())
+            {
+                std::cout << "spectrum view, its three legend toggles or the slope control not found" << std::endl;
+                return;
+            }
+
+            // 峰值线默认开：关 = 点一下 PEAK 图例。S8 与「停止，斜率 0」先把斜率从默认的 4.5 换成 0。
+            if (! peakOn)
+                rig.clickToggle (SpectrumRig::peakToggle);
+
+            rig.slope->setSelected (scenario == Scenario::stopSlope45 ? 2 : 0, true);
+            rig.attach();
+
+            auto& editor = rig.editor;
+            auto screen = rig.newBackingImage (scale);
+            paintRegion (editor, screen, scale, juce::RectangleList<int> (editor.getLocalBounds()));   // 窗口第一次显示：整帧
+            rig.takeDirty();
+
+            // 曲线帧的判据：频谱仪底边正中那个像素在脏区里（repaintCurves 的区域横跨整块、一直到底边；读数框与响度小窗在上沿）。
+            const juce::Point<int> bottomCentre (rig.area.getCentreX(), rig.area.getBottom() - 1);
+            SineSource sine (6000.0, -12.0);
+            const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };
+            PeakBenchStats segment, total;
+
+            const auto frame = [&] (bool advance, const SpectrumRig::AudioSource& source)
+            {
+                Clock advanced, painted;
+
+                if (advance)
+                {
+                    rig.feed (rig.samplesForFrame (fps), source);
+                    const auto started = Clock::now();
+                    rig.advance (1.0 / (double) fps);
+                    advanced = started.elapsed();
+                }
+
+                auto clip = rig.takeDirty();
+                clip.clipTo (rig.area);
+
+                if (! clip.isEmpty())
+                {
+                    const auto started = Clock::now();
+                    paintRegion (editor, screen, scale, clip);   // 画的时候又标脏的留在 recorder 里：下一帧画
+                    painted = started.elapsed();
+                }
+
+                segment.addFrame (advanced, painted, clip, scale, clip.containsPoint (bottomCentre));
+            };
+
+            const auto endSegment = [&] (const juce::String& label)
+            {
+                printPeakBenchLine (label, segment);
+                total += segment;
+                const auto finished = segment;
+                segment = {};
+                return finished;
+            };
+
+            // 放 seconds 秒，每秒一段、打印一行；返回逐秒的统计。
+            const auto play = [&] (const juce::String& label, int seconds, const SpectrumRig::AudioSource& source)
+            {
+                std::vector<PeakBenchStats> perSecond;
+
+                for (int second = 0; second < seconds; ++second)
+                {
+                    for (int i = 0; i < fps; ++i)
+                        frame (true, source);
+
+                    perSecond.push_back (endSegment (label + " " + juce::String (second) + "-" + juce::String (second + 1) + " s"));
+                }
+
+                return perSecond;
+            };
+
+            std::cout << "---- " << title << std::endl;
+
+            if (scenario == Scenario::s8)
+            {
+                const auto steady = play ("steady", 12, std::ref (sine));
+
+                // 稳态的中段 1 ～ 11 s 合起来再打一行（前 1 s、末 1 s 就是上面第一行、最后一行；这一行不进合计）。
+                PeakBenchStats middle;
+
+                for (size_t second = 1; second + 1 < steady.size(); ++second)
+                    middle += steady[second];
+
+                printPeakBenchLine ("~ steady 1-11 s", middle);
+
+                rig.slope->setSelected (2, true);   // 斜率 0 → 4.5：点击引起的整面重画先到，这一帧只重画、不推（同 S8 检查）
+                frame (false, std::ref (sine));
+                endSegment ("slope 0 -> 4.5");
+
+                editor.setListeningToOriginal (true);
+                play ("B", 1, std::ref (sine));
+            }
+            else
+            {
+                play ("sine", 4, std::ref (sine));
+                play ("silence", 10, silence);
+            }
+
+            printPeakBenchLine ("= total", total);
+            rows.push_back ({ title, total });
+        };
+
+        for (const auto scenario : { Scenario::s8, Scenario::stopSlope0, Scenario::stopSlope45 })
+            for (const auto fps : { 60, 120 })
+                for (const auto scale : { 1.0f, 2.0f })
+                    for (const auto peakOn : { false, true })
+                        runCase (scenario, peakOn, fps, scale);
+
+        std::cout << "==== summary (whole case per row)" << std::endl;
+
+        for (const auto& row : rows)
+            printPeakBenchLine (row.name, row.total, 36);
+
+        std::cout << "==== spectrum peak-off bench done" << std::endl;
     }
 
     //==============================================================================

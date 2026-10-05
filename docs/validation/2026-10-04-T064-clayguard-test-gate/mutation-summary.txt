@@ -1,0 +1,98 @@
+=== A-gate-boundary / 新测试：3287 过 / 2 败
+    !!! Test 9 failed: the gate itself is outside (strictly below)
+    !!! Test 21 failed: factory gate: 0.1 itself is outside (strictly below)
+
+=== A-gate-boundary / 旧测试：3268 过 / 1 败
+    !!! Test 6 failed: the gate itself is outside (strictly below)
+
+=== B-factory-gate-0.3 / 新测试：3284 过 / 5 败
+    !!! Test 2 failed: Expected value: 0.1, Actual value: 0.3
+    !!! Test 11 failed: specConstants: fast gate
+    !!! Test 21 failed: factory gate: 0.1 itself is outside (strictly below)
+    !!! Test 22 failed: factory gate: slow 0.15 is outside
+    !!! Test 23 failed: factory gate: slow 0.25 was inside the old gate 0.3 (spec 3.4), outside since ADR-014
+
+=== C-phase-reacts-to-wide-highs / 新测试：3279 过 / 10 败
+    !!! Test 16 failed: the phase warning stayed out of it (correlated bass): level 0 in every block -- Expected value: 0, Actual value: 1
+    !!! Test 17 failed: and the lamp never lit -- Expected value: 0, Actual value: 230
+    !!! Test 7 failed: segment 3: 1 s of hold left -- Expected value  within 0.0001 of: 1, Actual value: 2
+    !!! Test 8 failed: segment 4: released -- Expected value less or equal to: 0.001, Actual value: 0.500001
+    !!! Test 10 failed: segment 5: a 0.1 s inversion is a transient (no trigger)
+    !!! Test 11 failed: segment 6: still idle
+    !!! Test 12 failed: segment 7: triggered through the fast path inside the gate -- Expected value  within 0.0001 of: 0.5, Actual value: 0.825001
+    !!! Test 14 failed: segment 8: fast path outside the gate does not re-arm -- Expected value  within 0.0001 of: 0.5, Actual value: 2
+    !!! Test 15 failed: segment 8: level held -- Expected value  within 0.0001 of: 0.5, Actual value: 1
+    !!! Test 20 failed: segment 11: back to neutral
+
+=== C-phase-reacts-to-wide-highs / 旧测试：3261 过 / 8 败
+    !!! Test 7 failed: segment 3: 1 s of hold left -- Expected value  within 0.0001 of: 1, Actual value: 2
+    !!! Test 8 failed: segment 4: released -- Expected value less or equal to: 0.001, Actual value: 0.500001
+    !!! Test 10 failed: segment 5: a 0.1 s inversion is a transient (no trigger)
+    !!! Test 11 failed: segment 6: still idle
+    !!! Test 12 failed: segment 7: triggered through the fast path inside the gate -- Expected value  within 0.0001 of: 0.5, Actual value: 0.825001
+    !!! Test 14 failed: segment 8: fast path outside the gate does not re-arm -- Expected value  within 0.0001 of: 0.5, Actual value: 2
+    !!! Test 15 failed: segment 8: level held -- Expected value  within 0.0001 of: 0.5, Actual value: 1
+    !!! Test 20 failed: segment 11: back to neutral
+
+=== D-mono-depends-on-block-size / 新测试：3286 过 / 3 败
+    !!! Test 24 failed: grid, block 17: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 1190
+    !!! Test 34 failed: grid, random 1..4096: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 11
+    !!! Test 2 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.3001
+
+=== D-mono-depends-on-block-size / 旧测试：3268 过 / 1 败
+    !!! Test 2 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.3001
+
+=== D2-mono-off-plan-in-17-sample-blocks / 新测试：3288 过 / 1 败
+    !!! Test 34 failed: grid, random 1..4096: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 3
+
+=== D2-mono-off-plan-in-17-sample-blocks / 旧测试：3269 过 / 0 败
+
+=== E-mono-follows-phase / 新测试：3266 过 / 23 败
+    !!! Test 10 failed: ADR-015: the warning never changes the mono amount -- Expected value: 0.3, Actual value: 0.475
+    !!! Test 26 failed: Expected value: 0.3, Actual value: 0.65
+    !!! Test 1 failed: slow path below -0.2 triggers
+    !!! Test 4 failed: slow inside the gate (0.05 < 0.1) + fast below -0.2 triggers
+    !!! Test 5 failed: just below the gate is still inside
+    !!! Test 13 failed: the slow branch alone is enough (fast path irrelevant)
+    !!! Test 15 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 6 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 3 failed: ADR-015: the output is still the plan (mono 0, crossover 80 Hz)
+    !!! Test 1 failed: Expected value: 0, Actual value: 10516
+    !!! Test 4 failed: segment 2: ADR-015, the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 24 failed: grid, block 17: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 838
+    !!! Test 29 failed: grid, block 333: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 840
+    !!! Test 34 failed: grid, random 1..4096: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 840
+    !!! Test 39 failed: segment ends, block 2048: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 6
+    !!! Test 44 failed: segment ends, block 8192: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 6
+    !!! Test 49 failed: segment ends, random 1..8192 seed 0: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 6
+    !!! Test 54 failed: segment ends, random 1..8192 seed 1: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 7
+    !!! Test 59 failed: segment ends, random 1..8192 seed 2: ADR-015, the mono amount equals the plan in every output -- Expected value: 0, Actual value: 6
+    !!! Test 8 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 2 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 2 failed: ADR-015: the warning does not change the automatic mono amount -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 6 failed: automatic mono: the plan value, untouched by the phase warning -- Expected value: 0.3, Actual value: 0.65
+
+=== E-mono-follows-phase / 旧测试：3255 过 / 14 败
+    !!! Test 10 failed: ADR-015: the warning never changes the mono amount -- Expected value: 0.3, Actual value: 0.475
+    !!! Test 26 failed: Expected value: 0.3, Actual value: 0.65
+    !!! Test 1 failed: slow path below -0.2 triggers
+    !!! Test 4 failed: slow inside the gate (0.25 < 0.3) + fast below -0.2 triggers
+    !!! Test 10 failed: the slow branch alone is enough (fast path irrelevant)
+    !!! Test 15 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 6 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 3 failed: ADR-015: the output is still the plan (mono 0, crossover 80 Hz)
+    !!! Test 1 failed: Expected value: 0, Actual value: 10955
+    !!! Test 4 failed: segment 2: ADR-015, the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 8 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 2 failed: ADR-015: the mono amount stays at the plan -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 2 failed: ADR-015: the warning does not change the automatic mono amount -- Expected value: 0.3, Actual value: 0.65
+    !!! Test 6 failed: automatic mono: the plan value, untouched by the phase warning -- Expected value: 0.3, Actual value: 0.65
+
+=== F-test-gate-back-to-0.3 / 新测试：3282 过 / 7 败
+    !!! Test 7 failed: slow 0.25 was inside the old gate 0.3 (spec 3.4) but is outside the factory gate 0.1 (ADR-014)
+    !!! Test 8 failed: slow 0.15: outside the factory gate
+    !!! Test 9 failed: the gate itself is outside (strictly below)
+    !!! Test 14 failed: segment 8: fast path outside the gate does not re-arm -- Expected value  within 0.0001 of: 0.5, Actual value: 2
+    !!! Test 15 failed: segment 8: level held -- Expected value  within 0.0001 of: 0.5, Actual value: 1
+    !!! Test 20 failed: segment 11: back to neutral
+    !!! Test 11 failed: specConstants: fast gate

@@ -21,9 +21,9 @@
           ±0.5，宽立体声低音常被它判成反相（审核 V1-01：60 ms 快路与慢路取小时，长期 ρ 0.87 的底鼓 + 宽垫 30 s 触发 6 次；真歌
           kskdhjf 75 %、KINOSEI 57 % 的时间在保护）。慢路（300 ms）稳，但整体反相时过零慢；所以快路只在慢路已经明显离开同相
           （< 0.1；原 0.3 在慢路 0.1 ～ 0.3 的宽低音上仍会误触发，ADR-014）时才参与加速。阈值 −0.2 对应单声道回放低音损失
-          10·log10((1 + ρ) / 2) < −4 dB，是真破坏，保护不看代价。
+          10·log10((1 + ρ) / 2) < −4 dB，是真破坏，值得提示（ADR-012 时据此「保护不看代价」）。
           条件须连续成立 clayGuardPhaseMinSeconds（出厂 0.15 s）才算触发：底鼓与宽垫之间、音头之类的瞬态在快路上一闪而过，
-          不该让低频宽度来回跳（「低频呼吸」）。资格期里按「未触发」走（保持期照耗、释放照走），满资格的那一刻起按「已触发」走；
+          不该让提示误亮（ADR-012 时防的是「低频呼吸」）。资格期里按「未触发」走（保持期照耗、释放照走），满资格的那一刻起按「已触发」走；
           同一块里跨过满资格的时刻时，块内时间按先后拆开（与保持期末尾同一种块长无关的做法）；满资格的判断带 1 µs 容差、满资格即装
           保持期，消掉 double 累加在恰好满资格的块末翻转造成的 2 s 保持期差（阶段 4 服务器测试暴露）。条件一断（本块不成立）资格期清零；
           反相一路冻结（慢路无效、seconds ≤ 0）时资格期计时也冻结——「连续」按有效音频算，静音不算打断也不算成立。
@@ -55,23 +55,23 @@
             反相一路：慢路 liveLowCorrelation.valid = false 或数值非有限（门上没有低频内容、只有上方内容漏进 125 Hz 段（分析器的
             泄漏门，BUG-009）、静音——分析器在帧门限下把两路都置无效，审核 V1-03 的「视图冻结与保护时钟」由此对齐）；
             宽度一路：liveHighValid = false，或 P_M / P_S 非有限、为负。
-          理由：「不知道」时不改（GLAZE 通则）。例如间奏 / breakdown 里没有低频（只有 pad），反相保护停在原处；低频回来时若还是反相，
+          理由：「不知道」时不改（GLAZE 通则）。例如间奏 / breakdown 里没有低频（只有 pad），反相提示停在原处；低频回来时若还是反相，
           不必再经历一次攻击。
       - active = false（GLAZE ≤ 0）：状态直接回 ClayGuardState{}、资格期计时清零，输出 = 输入（原样返回 planned）。
         ⚠ 旧工程（画像格式 1 / 旧算法方案，没有立体声特征）保护也必须不工作（active = false，或 reset 且不调 update）——
         由编排器保证（GlazeController::updateClay 在方案源不支持 Clay 时 reset、自动值中性）。ADR-015 起反相一路不改声音，旧工程
         遇到反相低频时声音也不会变；宽度保护只会收回方案的加宽，旧方案加宽为 0，不受影响。
       - 资格期计时不存档（ClayGuardState 已定、随执行快照保存）：setState / reset 后从 0 起算。恢复后若反相还在继续，只是晚最多
-        phaseMinSeconds 才重新把保持期拉满；下限与剩余保持期照快照接着走，输出不变。
-      - T-038 House 档反相提示（updateHouseHint，设计规格-曲风-House学习方式 第 9 节）：与上面的反相保护分开的一条更严的提示，
+        phaseMinSeconds 才重新把保持期拉满；提示强度与剩余保持期照快照接着走，输出不变。
+      - T-038 House 档反相提示（updateHouseHint，设计规格-曲风-House学习方式 第 9 节）：与上面的反相提示分开的一条更严的提示，
           只提示、不改声音，不进 ClayGuardState、不存档。
           亮：eligible（编排器判定此刻在 House 档的满编段里）且慢路 ρ 有效、< houseHintCorrelation（出厂 0.6：左右等功率时单声道
           低频损失 10·log10((1 + ρ) / 2) 约 1 dB 起），连续满 requiredSeconds（编排器按 4 小节换成秒、拿不到拍点时 8 s）。只按有效音频
-          秒数累加、满资格的判断带与反相保护相同的 1 µs 容差，所以与块长无关（只差「在哪一块的末尾看到」）。
-          保持（照反相保护的写法）：亮着时条件不成立，先保持 phaseHoldSeconds（与反相保护同一个常数，出厂 2 s）再熄灭；保持期里条件
+          秒数累加、满资格的判断带与上面反相提示相同的 1 µs 容差，所以与块长无关（只差「在哪一块的末尾看到」）。
+          保持（照上面反相提示的写法）：亮着时条件不成立，先保持 phaseHoldSeconds（两者共用，出厂 2 s）再熄灭；保持期里条件
           回来就重新装满。慢路 ρ 在 0.6 上下抖动时提示不闪，熄灭后要重新连续满 requiredSeconds 才再亮。
           熄灭：保持期用完，或不 eligible（离开满编段、曲风不是 House）→ 立即熄灭、计时清零。
-          冻结：seconds ≤ 0 / 非有限（静音、旁通、停播）或慢路无效（门上没有低频内容）→ 状态不动（同反相保护：「不知道」时不改）。
+          冻结：seconds ≤ 0 / 非有限（静音、旁通、停播）或慢路无效（门上没有低频内容）→ 状态不动（同上面的反相提示：「不知道」时不改）。
           单声道损失 monoLossDb：亮起那一刻 = 10·log10((1 + ρ) / 2)；之后条件成立的块按 1 s 一阶平滑跟随当时的 ρ（界面显示到 0.1 dB，
           平滑后不随相关度的小抖动来回跳；按秒数指数衰减，块长无关到舍入）；保持期里不更新（那时 ρ 已在门限之上，不代表问题段）。
           ρ 先钳到 [−0.99, 1]，完全反相时写约 −23 dB 封顶、不出 −∞。
@@ -84,10 +84,10 @@
       - 合成后收单比例为 0（「自动」且 GLAZE ≤ 0（NaN 也算）、「关」，或自动方案的比例本身为 0）时，monoHz 一律取中性默认
         （ClayModule::Params{}.monoHz = 80 Hz，即 ClayPlan「monoAmount = 0 时 monoHz 保持默认 80」的约定），不取自动方案的
         monoHz：某一项不处理时，交给 ClayModule 的该项参数就是固定的中性常数——不会因为方案过渡里一个用不上的 monoHz 在变
-        （或旧标定快照缺字段时决策器给出的 0 Hz 被钳成 40 Hz）而让模块离开「逐位直通」的静止状态
-        （设计规格-Clay 第 4 节「逐位直通」、验收第 1 条：GLAZE 0 且抽屉默认 / 三项都关 / 旧工程未重新聆听）。
+        （或坏数据里无意义的分频点，比如 0 Hz 被钳成 40 Hz；ADR-015 起自动方案的分频点恒为默认 80 Hz）而让模块离开「逐位直通」的静止状态
+        （设计规格-Clay 第 4 节「逐位直通」、验收第 1 条：GLAZE 0 且三态默认 / 三项都关 / 旧工程未重新聆听）。
       - 钳制：非有限值按中性；低切 ≤ 0 = 关（保持 0），否则钳到 10 ～ 60 Hz；其余钳到 ClayModule 的 min / max
-        （模块自己也钳；这里钳是为了让 Status、执行快照与抽屉的实际值小圆点看到的就是模块真正用的值）。
+        （模块自己也钳；这里钳是为了让 Status、执行快照与 CLAY 卡片每行的灯和数值看到的就是模块真正用的值）。
 
   ==============================================================================
 */
@@ -103,7 +103,7 @@ namespace celadon::glaze
         // 时长常数与单块时长的防呆上限（约 11.6 天）：比任何真实设置都长，只防坏快照里的天文数字。
         constexpr double maxSeconds = 1.0e6;
 
-        // 满资格的判断容差（远小于 192 kHz 的一个样本 5.2 µs）：反相保护与 House 提示共用（理由见 advancePhase）。
+        // 满资格的判断容差（远小于 192 kHz 的一个样本 5.2 µs）：反相提示与 House 提示共用（理由见 advancePhase）。
         constexpr double qualificationToleranceSeconds = 1.0e-6;
 
         // T-038 House 反相提示里单声道损失的显示平滑（见文件头）。只影响提示里写的数，不影响亮灭、不影响声音。
@@ -135,7 +135,7 @@ namespace celadon::glaze
         // 时长 0 = 立即（攻击 / 释放一块到位、没有保持期），都不会产生非有限的输出。ρ_min 例外：它与决策器共用
         // clayWidthPowerScale（非有限 → 不许加宽，≤ −1 → 不限），不按 0 读。
         // ADR-012 新加的快路门与最短持续缺字段时同样读成 0 / 0（阶段 4 之前存的开发期快照；v0.1.7.0 未发布，已发布的 v0.1.6.2
-        // 存档的 Clay 本来就中性）：门 0 = 快路只在慢路已低于 0 时参与，最短持续 0 = 条件一成立就攻击——比出厂更敏感、但不失控，
+        // 存档的 Clay 本来就中性）：门 0 = 快路只在慢路已低于 0 时参与（比出厂 0.1 更不爱触发），最短持续 0 = 条件一成立就攻击（比出厂 0.15 s 更爱触发）——合起来不失控，
         // 重新聆听后换成出厂快照。
         Tuning result;
         result.phaseCorrelation    = juce::jlimit (-1.0f, 1.0f, finiteOr (constants.clayGuardPhaseCorrelation, 0.0f));
@@ -154,7 +154,7 @@ namespace celadon::glaze
 
     void ClayGuard::setConstants (const Constants& constants) noexcept
     {
-        // 只换常数、不动状态：剩余保持期、资格期计时、当前下限与上限照旧，按新的速率与门槛继续走
+        // 只换常数、不动状态：剩余保持期、资格期计时、当前提示强度与宽度上限照旧，按新的速率与门槛继续走
         //（新的最短持续时间比已累计的短 → 下一块就算满资格）。
         tuning = makeTuning (constants);
         houseHintCorrelation = std::isfinite (constants.house.phaseHintCorrelation)
@@ -243,8 +243,8 @@ namespace celadon::glaze
         clean.widthCapDb       = std::isnan (restored.widthCapDb) ? clayWidthUncappedDb
                                                                   : juce::jlimit (0.0f, clayWidthUncappedDb, restored.widthCapDb);
 
-        // 两个标志是推导量（下一块 update 按方案值重算）；这里只去掉与数值矛盾的：
-        // 没有下限 → 反相保护不可能在介入（ADR-014：标志 = 下限高于方案值）；上限不限 → 宽度保护不可能在介入。
+        // 两个标志是推导量（下一块 update 重算：反相看提示强度，宽度看上限与方案值）；这里只去掉与数值矛盾的：
+        // 提示强度为 0 → 反相提示不可能亮着（ADR-015：标志 = phaseFloor > 0）；上限不限 → 宽度保护不可能在介入。
         clean.phaseActive = restored.phaseActive && clean.phaseFloor > 0.0f;
         clean.widthActive = restored.widthActive && clean.widthCapDb < clayWidthUncappedDb;
         state = clean;
@@ -370,7 +370,7 @@ namespace celadon::glaze
 
         if (qualified)
         {
-            // 攻击从此刻的下限接着升（不从 0 重来）；保持期从条件最后一次成立的那一块末尾起算。满资格即装上保持期——
+            // 攻击从此刻的提示强度接着升（不从 0 重来）；保持期从条件最后一次成立的那一块末尾起算。满资格即装上保持期——
             // 「已连续成立满资格期」本身就是触发，不要求本块触发后的时间 > 0（否则满资格恰好落在块末时保持期晚一块才装上）。
             if (! (tuning.phaseAttackSeconds > 0.0))
                 level = 1.0;                                                        // 攻击时间 0 = 立即（旧快照缺字段按 0 读）
@@ -700,5 +700,66 @@ namespace celadon::glaze
 
         out.costLimitedMask = mask;
         return out;
+    }
+
+    //==============================================================================
+    // 守护回收指示（T-074；口径与理由见 ClayGuard.h ClayGuardKeepMonitor）。
+    void ClayGuardKeepMonitor::update (double changeEnergy, double keptEnergy, double seconds, double sampleRate) noexcept
+    {
+        if (! (seconds > 0.0 && std::isfinite (seconds) && sampleRate > 0.0 && std::isfinite (sampleRate)))
+            return;
+
+        // 非有限 / 负的能量这一切片按 0 计（模块自己已丢弃非有限段，这里只防污染平滑量）。
+        if (! (std::isfinite (changeEnergy) && std::isfinite (keptEnergy) && changeEnergy >= 0.0 && keptEnergy >= 0.0))
+            changeEnergy = keptEnergy = 0.0;
+
+        // 一片内能量均匀摊开时对「时间常数 τ 的指数平均」的贡献 = E · τ(1 − decay) / seconds：片长无关（每样本均方恒定时，平滑后的量
+        // 对任何片长都恰是 均方 × fs × τ × (1 − e^(−t/τ))），不像「S·decay + E」那样稳态值随片长偏大 seconds / 2τ。
+        const auto gateDecay = std::exp (-seconds / gateSeconds);
+        gateChange = gateChange * gateDecay + changeEnergy * (gateSeconds * (1.0 - gateDecay) / seconds);
+
+        // 快门：包络在稳态里 = 每样本均方 × gateSeconds × fs，低于地板的改动当没有——慢的两份能量清零、κ = 1。
+        if (! (gateChange > floorMeanSquare * gateSeconds * sampleRate))
+        {
+            change = kept = 0.0;
+            fraction = 1.0;
+        }
+        else
+        {
+            const auto decay = std::exp (-seconds / smoothingSeconds);
+            const auto share = smoothingSeconds * (1.0 - decay) / seconds;
+            change = change * decay + changeEnergy * share;
+            kept = kept * decay + keptEnergy * share;
+
+            // g ≤ 1 所以 kept ≤ change，浮点上钳一下；change 刚从 0 起、这一片没有能量时 fraction 不动（沿用上一片）。
+            if (change > 0.0)
+                fraction = juce::jlimit (0.0, 1.0, kept / change);
+        }
+
+        if (! on)
+        {
+            belowSeconds = fraction < onBelow ? belowSeconds + seconds : 0.0;
+
+            if (belowSeconds >= onSeconds)
+            {
+                on = true;
+                aboveSeconds = 0.0;
+            }
+        }
+        else
+        {
+            aboveSeconds = fraction >= offAbove ? aboveSeconds + seconds : 0.0;
+
+            if (aboveSeconds >= offSeconds)
+            {
+                on = false;
+                belowSeconds = 0.0;
+            }
+        }
+    }
+
+    void ClayGuardKeepMonitor::reset() noexcept
+    {
+        *this = ClayGuardKeepMonitor {};
     }
 }

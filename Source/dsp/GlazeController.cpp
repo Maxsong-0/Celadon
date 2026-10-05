@@ -48,7 +48,7 @@
       - 「先试后用」：决策器把因代价被减量 / 否决的项记在 ClayPlan::costLimitedMask。方案过渡中取目标方案的（blendClayPlans），
         收拾（sanitizeClay）时只保留三个有效位；Status::clayCostLimitedMask = 此刻生效方案（含过渡混合）的 mask，但只报告
         「自动」态的项、且只在 GLAZE > 0 时报告——「关 / 手动」项不经决策器，谈不上被代价减量。它只给界面解释，不影响处理。
-      - 反相保护的新触发规则（慢路 / 门内快路、须连续成立 0.15 s）在 ClayGuard 里；编排器照旧每块交视图与有效音乐秒数。
+      - 反相提示（原反相保护）的新触发规则（慢路 / 门内快路、须连续成立 0.15 s）在 ClayGuard 里；编排器照旧每块交视图与有效音乐秒数。
       - 恢复后第一块只在方案源支持自动 Clay 时才用快照值（审核 V2-03）：不支持（画像格式 1、旧算法方案，例如手工改出的存档）
         就走中性分支、作废快照值，与旧工程「Clay 逐位直通」同一口径。
 
@@ -98,7 +98,7 @@
         House 锁定过的（houseProfileLocked：格式 3 且门控结果有效）就开一轮 relearn 式聆听，旧画像照常生效（maybeStartHouseListen）；
         用户取消这一轮之后不再自动开，换曲风 / 提交 / 读档时才重新允许。读取工程：段落账清空（旧画像在新画像就绪前照常）。
       - 反相提示：updateClay 里在 ClayGuard 之后调 updateHouseHint（资格 = 段落账此刻这一段暂判满编，时长 = phaseHintSegments 小节，
-        拿不到拍点用 phaseHintFallbackSeconds），结果拷进状态。GLAZE ≤ 0、方案源不支持自动 Clay 时提示熄灭（同反相保护的指示灯）。
+        拿不到拍点用 phaseHintFallbackSeconds），结果拷进状态。GLAZE ≤ 0、方案源不支持自动 Clay 时提示熄灭（同反相提示的指示灯）。
 
   ==============================================================================
 */
@@ -862,6 +862,7 @@ namespace celadon::glaze
         float feedbackMaxGainDb = unlimitedGainDb;
         float clayPressureScale = 1.0f;        // 修坯压力反馈（ADR-014）：自动 Clay 三项缩放的目标，随工程保存；新画像（提交）时回到 1
         ClayPressureMonitor clayPressure;      // 压力反馈的监测：峰值块的整段 P99 比（ADR-028）与混合损失（ADR-027）；运行状态，不存档
+        ClayGuardKeepMonitor clayGuardKeep;    // 守护回收指示（T-074）：保留比的平滑与滞回；只影响界面，运行状态，不存档
         float clayScaleRampStart = 1.0f;       // 降档时从此刻的实际缩放线性走到目标（方案过渡同长），不开方案过渡
         std::int64_t clayScaleRampElapsed = 0, clayScaleRampLength = 0;
         ClayPlan clayPlannedUnscaled;          // 上一块方案（含过渡混合）给的自动值，缩放之前（监测只在它有东西可缩时工作）
@@ -3182,6 +3183,10 @@ namespace celadon::glaze
             if (view.musicActive && ! paused && hostPlaying())
                 claySeconds += (double) n / sampleRate;
 
+            // 守护回收指示（T-074，设计 R4-03）：本切片①② 的改动量与守护收回之后剩下的量，平滑出保留比、滞回出「回收中」。手动 / 自动都报：
+            // 不按 GLAZE 活跃、方案源、压力反馈的门走——手动项恰恰没有别的反馈；旁通 / 三项为 0 时 y 与 x 逐位相同、能量为 0，自然不亮。
+            clayGuardKeep.update (stats.clayGuardChangeEnergy, stats.clayGuardKeptEnergy, (double) n / sampleRate, sampleRate);
+
             // 修坯压力反馈（ADR-014）：GLAZE 活跃、方案源支持自动 Clay、缩放还没降到 0 时，按有效音乐累计本切片走完的峰值块
             // （①② 不经守护的处理后与干路的 100 ms 块峰值，ADR-028）：整段的 P99 比——与「先试后用」同口径——持续超过照做的上限
             // → 降一档。旁通 / 三项为 0 时处理后逐位就是干路，代价 0。块与计时都在 ClayModule 从 reset 起的固定网格上（100 ms 块、
@@ -3330,9 +3335,9 @@ namespace celadon::glaze
             s.waitingForPlayback = ! hostPlaying();
             s.savedPlanFromOlderAlgorithm = savedPlanMode;
 
-            // 修坯 Clay（ClayIndicator 与抽屉的实际值小圆点）：上一块交给 ClayModule 的实际值（旁通与否由界面自己读参数）；
-            // 保护灯只在该项为「自动」态时报告（「关 / 手动」不受保护改动）；「点重新聆听后启用自动修坯」：GLAZE > 0、至少一项
-            // 自动、已提交画像是格式 1（缺 Clay 所需特征，只有重新聆听能补上）。
+            // 修坯 Clay（ClayIndicator 与 CLAY 卡片每行的灯和数值）：上一块交给 ClayModule 的实际值（旁通与否由界面自己读参数）；
+            // 琥珀灯只在该项为「自动」态时报告（加宽：「关 / 手动」不受宽度保护改动；收单：反相只提示，「关 / 手动」= 用户接管、不提示）；
+            // 「点重新聆听后启用自动修坯」：GLAZE > 0、至少一项自动、已提交画像是格式 1（缺 Clay 所需特征，只有重新聆听能补上）。
             const auto& clayState = clayGuard.getState();
             s.clayLowCutHz = effective.clay.lowCutHz;
             s.clayMonoHz = effective.clay.monoHz;
@@ -3340,6 +3345,8 @@ namespace celadon::glaze
             s.clayWidthDb = effective.clay.widthDb;
             s.clayPhaseGuardActive = active && manual.claySettings.monoMode == ClayMode::automatic && clayState.phaseActive;
             s.clayWidthGuardActive = active && manual.claySettings.widthMode == ClayMode::automatic && clayState.widthActive;
+            s.clayPeakGuardActive = clayGuardKeep.active();   // T-074：手动 / 自动都报（见 ClayGuardKeepMonitor）
+            s.clayPeakGuardKept = clayGuardKeep.keptFraction();
             s.clayNeedsRelearn = active && anyAutomaticClay (manual.claySettings) && committed.hasProfile
                               && committed.profile.formatVersion < clayProfileFormatVersion;
             // ADR-012「先试后用」：此刻生效方案（含过渡混合）里因代价被减量 / 否决的项，只报「自动」态的、只在 GLAZE > 0 时报
@@ -3564,6 +3571,8 @@ namespace celadon::glaze
 
         if (spec.sampleRate > 0.0 && std::isfinite (spec.sampleRate))
             s.sampleRate = spec.sampleRate;
+
+        s.clayGuardKeep.reset();   // T-074：链整体重建（采样率 / 块长 / 声道数变了），守护的统计从零起
 
         // 分析器只依赖采样率与声道数。两者都没变（处理器只因最大块长变了而整体重建链）：不重建它，当作一次宿主 reset
         // （丢弃跨越的窗口；两块表随链重建，它自己核对计数接上新时间轴），进行中的聆听与重新聆听的候选都保留（v0.6 验收 V2-05）。
@@ -3887,6 +3896,9 @@ namespace celadon::glaze
         p.clayPeakCostDb = s.clayPressure.costDb();
         p.clayPeakCostBlocks = s.clayPressure.blockCount;
         p.clayBlendLossSmoothedDb = s.clayPressure.blendLossDb();
+        p.clayGuardKeepChange = s.clayGuardKeep.change;
+        p.clayGuardKeepKept = s.clayGuardKeep.kept;
+        p.clayGuardKeepBelowSeconds = s.clayGuardKeep.belowSeconds;
         p.savedPlanMode = s.savedPlanMode;
         p.executionSnapshotActive = s.executionHeld;
         p.liveHeatReduction = s.liveHeatReduction;

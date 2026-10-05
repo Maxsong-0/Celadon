@@ -73,7 +73,7 @@
     - 逐位纯延迟：三项实际值都为 0 且静止（低切的淡化也已走出延迟线）时，①～③ 的输出 = 输入逐位延迟 D——L、R 各走一条 float
       纯延迟线，不做 M/S 往返（(L + R)/2 + (L − R)/2 在 double 里不保证逐位还原 L）；④ 见到 y 与 x 逐位相同就原样取 y，再过 G 的
       float 环——整个模块输出 = 输入逐位延迟 D + G。某级不作用时它的频率怎么变都不算（例如 a = 0 时 monoHz 在变、低通在切换）。
-      GLAZE 0 且抽屉默认 → Clay 是 D + G 样本纯延迟：整链 = 旧链在 Clay 的位置插一段 D + G 样本纯延迟
+      GLAZE 0 且三态默认 → Clay 是 D + G 样本纯延迟：整链 = 旧链在 Clay 的位置插一段 D + G 样本纯延迟
       （设计规格-Clay-根治修订 第 2 节「GLAZE 0 且抽屉默认」、ADR-014）。
     - 单声道（1 声道）：只做 ①，再延迟 D，④ 按单声道守护；② ③ 跳过。
     - 旁通：干路 = 同一条纯延迟线（延迟补偿式旁通，与其他模块一致），与处理后信号 20 ms 交叉淡化；③ 的增量 δ 随之乘 (1 − bypass)
@@ -149,6 +149,8 @@ namespace celadon
             double blendIntendedEnergy = 0.0;
             double blendOutputEnergy = 0.0;
             std::int64_t blendSamples = 0;
+            double keepChangeEnergy = 0.0;   // T-074：守护保留比的两份能量累计（见 GuardKeepReport；setGuardKeepReporting 打开才累计）
+            double keepKeptEnergy = 0.0;
         };
 
         PeakGuardStats getAndResetPeakGuardStats() noexcept;
@@ -183,6 +185,24 @@ namespace celadon
         };
 
         BlendReport getLastProcessBlend() const noexcept;
+
+        // 上一次 process() 的守护保留比统计（T-074，设计 R4-03，核验 V4 改定的度量）：①② 的改动量 d = y − x（y = 低切 / 收单之后、x = 干路，
+        // ③ 的增量 δ 不进守护也不算在这里），守护把它收回一部分：输出 = x + g·d（+ δ）。两份能量逐输出样本、逐声道累计：
+        //   changeEnergy = Σ d²（守护没动它时的改动量），keptEnergy = Σ (g·d)²（守护之后还剩的）。保留比 κ = keptEnergy / changeEnergy ∈ [0, 1]，
+        //   κ = 1 守护没动，κ → 0 改动几乎全被收回——要指示的是「你拧的量剩多少」；不用 g < 1 的样本占比（改动量小、超出却很小时会夸大，
+        //   ADR-014 3a 弃用过），也不用压力格（max|y|/B 对「效果丢了多少」失明，收单那行压力只 0.032 dB、效果丢 78 %，V4）。
+        // 只在①② 作用的格里累计（与混合损失同一个 64 样本网格上的量不量决定：不作用的格里 y 与 x 逐位相同、d = 0），所以中性时不累计
+        //（只多每样本一个已定的判断：实测整个模块每帧 +0.4 ns，统计开着时 +0.5 ～ 0.6 ns，约 +3 %，见 docs/validation/2026-10-05-T074-guard-recovery-indicator）；
+        // 默认关（分析器的先试候选用同一份 PeakGuard，不多花 CPU），链里那一份由 CeladonChain 打开。只读 dry / io，输出逐位不受影响；
+        // 非有限的段整段不计。
+        struct GuardKeepReport
+        {
+            double changeEnergy = 0.0;
+            double keptEnergy = 0.0;
+        };
+
+        GuardKeepReport getLastProcessGuardKeep() const noexcept;
+        void setGuardKeepReporting (bool enabled) noexcept;
 
         // 只给分析器的「先试后用」候选（MusicAnalyzer，T-043）：之后每次 process() 把每个输出样本的两份 K 加权能量（各声道之和）
         // 写进 intendedPerSample / outputPerSample[0 .. 本次样本数)，没量的样本写 0。调用方按样本号把它们归到自己的块网格上，求和顺序
@@ -437,6 +457,12 @@ namespace celadon
             double blendIntendedEnergy = 0.0;  // 本次 process() 量到的两份能量与样本数（每次 process 开头清零）
             double blendOutputEnergy = 0.0;
             std::int64_t blendSamples = 0;
+
+            // 守护保留比统计（T-074，见 getLastProcessGuardKeep）：processBlock 在输出样本处（那里 y、x、g 都现成）按「这一格量不量」
+            // （blendMeasuring）顺手累计 d² 与 (g·d)²，段尾有限才并进下面两个本次 process() 的累计。reportKeep 默认关，只有链里那一份开。
+            bool reportKeep = false;
+            double keepChangeEnergy = 0.0;     // 本次 process() 累计的两份能量（每次 process 开头清零）
+            double keepKeptEnergy = 0.0;
         };
 
     private:

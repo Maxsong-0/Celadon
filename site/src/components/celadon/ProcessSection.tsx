@@ -1,7 +1,11 @@
-import { useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { gsap, useGSAP } from '@/lib/gsap';
 import { Chapter } from './Eyebrow';
+import { WrappedText } from './SvgText';
+import { PROCESS_FRAME } from '@/lib/figureBudget';
+import { measureTextWidth } from '@/lib/svgMeasure';
 import { cn, prefersReducedMotion, seeded } from '@/lib/utils';
 
 // 文字（名称、动作、导语、要点）在 i18n 的 home 命名空间 process.stages.<key>；这里只留结构。
@@ -65,7 +69,7 @@ export default function ProcessSection() {
         const at = i * STEP;
         tl.fromTo(`[data-visual="${i}"] [data-before]`, { opacity: 1 }, { opacity: 0, duration: 0.7 }, at + 0.15);
         tl.fromTo(`[data-visual="${i}"] [data-after]`, { opacity: 0 }, { opacity: 1, duration: 0.7 }, at + 0.15);
-        tl.fromTo(`[data-visual="${i}"] [data-progress]`, { attr: { width: 0 } }, { attr: { width: 560 }, duration: 0.9 }, at);
+        tl.fromTo(`[data-visual="${i}"] [data-progress]`, { attr: { width: 0 } }, { attr: { width: FRAME_RIGHT - FRAME_LEFT }, duration: 0.9 }, at);
         if (i < stages.length - 1) {
           tl.to(panels[i], { autoAlpha: 0, y: -32, duration: 0.25, ease: 'power2.in' }, at + 1.05);
           tl.to(visuals[i], { autoAlpha: 0, duration: 0.25 }, at + 1.05);
@@ -189,7 +193,7 @@ function StageText({ s }: { s: (typeof stages)[number] }) {
 
 /* ---------------- 四张示意图 ---------------- */
 
-const W = 640;
+const W = PROCESS_FRAME.viewBoxWidth;
 const H = 440;
 
 /** only：只画这一张并停在「处理后」（减少动效时的竖排）。 */
@@ -219,13 +223,57 @@ function StageVisuals({ only }: { only?: number }) {
   );
 }
 
+// 每张图的页眉：标题左起 x = 40，说明右对齐到 x = 600，平时共用分隔线上方 y = 44 这一行。
+// 两段字有多宽事先不知道：说明随语言变（英文常比中文宽一倍以上）。index.css 给 svg text 开了 geometricPrecision，字宽不再随屏幕缩放比浮动，
+// 所以按实际渲染出来的宽度排：中间留得出 FRAME_GAP 就同一行；留不出就把标题上移一行，说明和分隔线原地不动（图的内容不受影响）。
+// 说明自己比整条页眉（FRAME_RIGHT − FRAME_LEFT）还宽时这里兜不住：文案预算由 scripts/check-svg-text.mjs 在构建时守。
+const FRAME_LEFT = PROCESS_FRAME.margin;
+const FRAME_RIGHT = W - PROCESS_FRAME.margin;
+const FRAME_BASELINE = 44;
+const FRAME_LEAD = 18; // 标题上移一行时的行距
+const FRAME_GAP = 24; // 同一行时标题与说明之间至少留 2 em
+
+/** 标题与说明能否同一行（宽度为 SVG 用户单位）。 */
+function frameFitsOneRow(titleWidth: number, noteWidth: number) {
+  return FRAME_LEFT + titleWidth + FRAME_GAP <= FRAME_RIGHT - noteWidth;
+}
+
+/** 量两段字实际渲染的宽度，返回能否同一行；字体加载完（字宽随字体变）、SVG 从 display: none 变成可见（之前量出来是 0）都重量。 */
+function useFitsOneRow(titleRef: RefObject<SVGTextElement | null>, noteRef: RefObject<SVGTextElement | null>, title: string, note: string) {
+  const [oneRow, setOneRow] = useState(true);
+  useLayoutEffect(() => {
+    const titleEl = titleRef.current;
+    const noteEl = noteRef.current;
+    const svg = titleEl?.ownerSVGElement;
+    if (!titleEl || !noteEl || !svg) return;
+    const measure = (sync: boolean) => {
+      const fits = frameFitsOneRow(measureTextWidth(titleEl), measureTextWidth(noteEl));
+      if (sync) flushSync(() => setOneRow(fits)); // ResizeObserver / 字体回调不在提交阶段里：同步提交，赶在下一次绘制之前
+      else setOneRow(fits);
+    };
+    measure(false); // layout effect 里的更新在绘制前同步提交，首帧就是排好的，不闪
+    const onChange = () => measure(true);
+    const resize = new ResizeObserver(onChange);
+    resize.observe(svg);
+    document.fonts.addEventListener('loadingdone', onChange);
+    return () => {
+      resize.disconnect();
+      document.fonts.removeEventListener('loadingdone', onChange);
+    };
+  }, [titleRef, noteRef, title, note]);
+  return oneRow;
+}
+
 function Frame({ title, note }: { title: string; note: string }) {
+  const titleRef = useRef<SVGTextElement>(null);
+  const noteRef = useRef<SVGTextElement>(null);
+  const oneRow = useFitsOneRow(titleRef, noteRef, title, note);
   return (
     <>
-      <text x="40" y="44" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.18em', fill: '#586C74' }}>{title}</text>
-      <text x={W - 40} y="44" textAnchor="end" style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fill: '#6E8189' }}>{note}</text>
-      <rect x="40" y="56" width="560" height="2" fill="#E6EEF1" />
-      <rect data-progress x="40" y="56" width="0" height="2" fill="#1799AB" />
+      <text ref={titleRef} x={FRAME_LEFT} y={oneRow ? FRAME_BASELINE : FRAME_BASELINE - FRAME_LEAD} style={{ fontFamily: 'var(--font-mono)', fontSize: 12, letterSpacing: '0.18em', fill: '#586C74' }}>{title}</text>
+      <text ref={noteRef} x={FRAME_RIGHT} y={FRAME_BASELINE} textAnchor="end" style={{ fontFamily: 'var(--font-sans)', fontSize: 12, fill: '#6E8189' }}>{note}</text>
+      <rect x={FRAME_LEFT} y="56" width={FRAME_RIGHT - FRAME_LEFT} height="2" fill="#E6EEF1" />
+      <rect data-progress x={FRAME_LEFT} y="56" width="0" height="2" fill="#1799AB" />
     </>
   );
 }
@@ -268,7 +316,7 @@ function BalanceVisual() {
 
 function ClayVisual() {
   const { t } = useTranslation('home');
-  // 立体声宽度随频率：上下包络。处理前低频很宽、次声有能量；处理后 120 Hz 以下收成单声道、次声切掉、2 kHz 以上略宽。
+  // 立体声宽度随频率：上下包络。处理前低频很宽、次声有能量；处理后 120 Hz 以下收成单声道（画的是手动收单，ADR-015 起自动不收单，所以线与标签用手动的釉青、不用表示自动的紫）、次声切掉、2 kHz 以上略宽。
   const xs = Array.from({ length: 40 }, (_, i) => 60 + (i / 39) * 520);
   const mid = 236;
   const before = xs.map((x, i) => {
@@ -295,14 +343,16 @@ function ClayVisual() {
       <g data-before>
         <path d={band(before)} fill="url(#pv-fill)" stroke="#33B3C4" strokeWidth="1" />
         <rect x="60" y={mid - 60} width="24" height="120" fill="#E8590C" opacity="0.18" />
-        <text x="72" y={mid + 84} textAnchor="middle" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#C2410C' }}>{t('process.visual.infrasonic')}</text>
+        {/* 标签放在频带左上角之上：原来压在频带下沿的描边上（中英都被穿过）；x 在低切虚线（x = 70，处理后）右边，滚动停在半程、两态同时可见时也不被它穿过。 */}
+        <text x="76" y={mid - 94} style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#C2410C' }}>{t('process.visual.infrasonic')}</text>
       </g>
       <g data-after>
         <path d={band(after)} fill="url(#pv-fill)" stroke="#127F90" strokeWidth="1.2" />
-        <line x1="143" y1={mid - 110} x2="143" y2={mid + 110} stroke="#6A4DFF" strokeDasharray="3 4" strokeWidth="1" />
-        <text x="148" y={mid - 100} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6A4DFF' }}>{t('process.visual.mono')}</text>
+        <line x1="143" y1={mid - 110} x2="143" y2={mid + 110} stroke="#127F90" strokeDasharray="3 4" strokeWidth="1" />
+        <text x="148" y={mid - 100} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>{t('process.visual.mono')}</text>
         <line x1="70" y1={mid - 110} x2="70" y2={mid + 110} stroke="#0E6473" strokeDasharray="3 4" strokeWidth="1" />
-        <text x="75" y={mid + 105} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>{t('process.visual.lowCut')}</text>
+        {/* 夹在低切（x = 70）与收单（x = 143）两条虚线之间：英文「Low cut 25 Hz」一行放不下，折成两行，不被收单虚线穿过。 */}
+        <WrappedText text={t('process.visual.lowCut')} x={75} y={mid + 105} maxWidth={143 - 75 - 6} lineHeight={12} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }} />
         <text x="500" y={mid - 70} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#127F90' }}>{t('process.visual.width')}</text>
       </g>
       <text x="60" y="412" style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6E8189' }}>10 Hz</text>

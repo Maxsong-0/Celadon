@@ -1,0 +1,21 @@
+en-advanced.png                360 px  bbox x   32..  39  y  110.. 246  max 108
+en-default.png                1568 px  bbox x   32..1170  y  100.. 254  max 217
+en-help.png                    360 px  bbox x   32..  39  y  110.. 246  max 108
+en-house-layout.png           1424 px  bbox x   32..1144  y  105.. 246  max 216
+en-release.png                 928 px  bbox x   32..  39  y  111.. 252  max 215
+zh-advanced.png                360 px  bbox x   32..  39  y  110.. 246  max 108
+zh-audition.png                624 px  bbox x 1163..1170  y   94.. 172  max 218
+zh-default.png                 392 px  bbox x   32..1170  y  101.. 246  max 217
+zh-glaze0.png                 1568 px  bbox x   32..1144  y  109.. 256  max 215
+zh-glaze90.png                2082 px  bbox x   32..1170  y   94.. 254  max 219
+zh-house-hint.png             1832 px  bbox x   32..1144  y  105.. 256  max 216
+zh-house-layout.png           1424 px  bbox x   32..1144  y  105.. 246  max 216
+zh-input.png                  1192 px  bbox x 1137..1170  y  101.. 254  max 217
+zh-original.png               1216 px  bbox x 1137..1170  y  101.. 254  max 217
+zh-preview.png                  32 px  bbox x 1163..1170  y  101.. 104  max 217
+zh-reduced.png                 392 px  bbox x   32..1170  y  101.. 246  max 217
+zh-settings.png                360 px  bbox x   32..  39  y  110.. 246  max 108
+zh-target.png                  376 px  bbox x   32..  39  y  110.. 239  max 108
+zh-zoom150.png                  78 px  bbox x 1744..1756  y  152.. 157  max 217
+zh-zoom70.png                  203 px  bbox x   22.. 819  y   71.. 170  max 206
+20 differing images

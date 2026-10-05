@@ -168,7 +168,8 @@ namespace celadon::glaze
         float clean = 1.0f;
     };
 
-    // 先试后用的收单候选分频点（Hz，递增；ADR-012）：分析器按它们各测一个代价，决策器按对数频率在相邻两点间插值。
+    // 先试后用的收单候选分频点（Hz，递增；ADR-012）：分析器按它们各测一个代价、随画像保存；ADR-015 起决策器不用
+    // （原先按对数频率在相邻两点间插值）。
     inline constexpr std::array<float, 4> clayMonoCandidateHz { 60.0f, 80.0f, 120.0f, 160.0f };
 
     // 守护混合损失的试用候选（T-043，ADR-027）：低切频率，升序。10 Hz = 出厂地板（clayLowCutFloorHz），20 Hz = 风格目标的上限
@@ -188,7 +189,7 @@ namespace celadon::glaze
     struct ClayPlan
     {
         float lowCutHz = 0.0f;     // 0 = 关；否则 10 ～ 60 Hz
-        float monoHz = 80.0f;      // 60 ～ 160 Hz（自动）；手动可 40 ～ 300
+        float monoHz = 80.0f;      // 自动方案恒为本默认值（ADR-015 起自动不收单；v0.1.7.0 时自动为 60 ～ 160 Hz）；手动可 40 ～ 300
         float monoAmount = 0.0f;   // 0 ～ 1
         float widthDb = 0.0f;      // 自动 0 ～ +1.5 dB（只加不减）
         std::uint8_t costLimitedMask = 0;   // ADR-012：哪几项因代价被减量 / 否决（clayCostLimited* 位）；只给界面解释用，不影响处理
@@ -284,6 +285,8 @@ namespace celadon::glaze
         double clayBlendIntendedEnergy = 0.0;   // 修坯守护的混合损失测量（T-043，ADR-027；ClayModule::getLastProcessBlend）：本块「本该输出」
         double clayBlendOutputEnergy = 0.0;     // 与实际输出的 K 加权能量；损失 dB = 10·log10(本该 / 实际)
         double clayBlendSeconds = 0.0;          // 量过的时长（①② 不作用的段不量，为 0）
+        double clayGuardChangeEnergy = 0.0;     // 修坯守护的保留比统计（T-074，设计 R4-03；ClayModule::getLastProcessGuardKeep）：本块①② 的改动量
+        double clayGuardKeptEnergy = 0.0;       // Σd² 与守护收回一部分之后剩下的 Σ(g·d)²（不作用的格不累计，为 0）；给界面的「守护在回收」指示
         bool musicActive = false;         // 本块输入在有效信号门限之上（给「有效音乐」统计用）
     };
 
@@ -378,13 +381,17 @@ namespace celadon::glaze
         bool savedPlanFromOlderAlgorithm = false;
         bool profileMismatch = false;        // 已提交画像与此刻的音乐严重不符（例如画像只听到安静前奏）：建议重新聆听
         bool waitingForPlayback = false;     // 宿主报告已停止播放：聆听与校准都在等音乐（状态行写「校准暂停（未播放）」）
-        // ---- v0.1.7.0 修坯 Clay（ClayIndicator 与抽屉的实际值小圆点读这些；都是上一块交给 ClayModule 的实际值）----
+        // ---- v0.1.7.0 修坯 Clay（ClayIndicator 与 CLAY 卡片每行的灯和数值读这些；都是上一块交给 ClayModule 的实际值）----
         float clayLowCutHz = 0.0f;           // 0 = 关
         float clayMonoHz = 80.0f;
         float clayMonoAmount = 0.0f;
         float clayWidthDb = 0.0f;
-        bool clayPhaseGuardActive = false;   // 反相保护介入中（指示灯「单」变琥珀）
+        bool clayPhaseGuardActive = false;   // 低频反相提示中（指示灯「单」变琥珀；ADR-015 起只提示、不改声音）
         bool clayWidthGuardActive = false;   // 宽度保护介入中（指示灯「宽」变琥珀）
+        // T-074（设计 R4-03）：峰值守护把低切 / 收单的改动量明显收回（保留比 Σ(g·d)² / Σd² < 75 % 持续 ≥ 1 s 才亮，≥ 85 % 持续 ≥ 1 s 才熄）。
+        // 手动 / 自动都报（手动项恰恰没有别的反馈）；只说①②（加宽不进守护）；灯与数值读界面的实际值，这里只给「回收中」与保留比。
+        bool clayPeakGuardActive = false;
+        float clayPeakGuardKept = 1.0f;      // 平滑后的保留比 0 ～ 1（没有改动时 1）；亮着时气泡写成「实际只剩约 N %」
         bool clayNeedsRelearn = false;       // 有自动态的项，但已提交画像缺立体声 / 超低频特征（旧工程）：提示点「重新聆听」
         std::uint8_t clayCostLimitedMask = 0;// ADR-012：自动态下哪几项因「试过会抬高峰值」被减量 / 否决（clayCostLimited* 位）
 

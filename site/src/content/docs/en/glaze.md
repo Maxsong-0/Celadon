@@ -11,7 +11,7 @@ GLAZE doesn't turn every knob up at once. It **listens to the song first and dec
 
 **Actual value = clamp(manual value + automatic increment).** The manual knobs are the floor and GLAZE adds on top; it never automatically cancels out your changes. On screen, cyan is your value and violet is the automatic increment.
 
-GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat, and LIMIT's Gain / Clip. CLAY's three controls and the automatic options under Advanced follow it too (see below).
+GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat, and LIMIT's Gain / Clip. CLAY's three controls (Mono never folds the lows on Auto, it only warns) and the automatic options under Advanced follow it too (see below).
 
 ## What it listens for
 
@@ -48,7 +48,7 @@ The style also sets the shape of the automatic Target spectrum under Advanced: W
 ## How it relates to Advanced and CLAY
 
 - With “Loud, not harsh” and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.
-- CLAY's three controls on Auto are decided by the plan and do nothing at GLAZE 0; on Manual they work even at GLAZE 0; Off never processes.
+- CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out of phase (at GLAZE 0 even the warning stays off); on Manual they work even at GLAZE 0; Off never processes.
 - Whenever an Advanced setting changes (or a manual parameter or the sample rate does), the calibration's reference conditions change and calibration realigns.
 
 ## Saving and reopening

@@ -1,0 +1,12 @@
+SAME  Source/PluginProcessor.h             178/178 行
+SAME  Source/dsp/ClayGuard.cpp             440/440 行
+SAME  Source/dsp/ClayGuard.h               98/98 行
+SAME  Source/dsp/GlazeController.cpp       2932/2932 行
+SAME  Source/dsp/GlazeTypes.h              251/251 行
+SAME  Source/ui/HelpText.h                 59/59 行
+SAME  Source/ui/ModuleCards.cpp            532/532 行
+SAME  tests/ClayGlazeTests.cpp             1995/1995 行
+SAME  tests/ClayGuardTests.cpp             1631/1631 行
+SAME  tests/GlazeControllerTests.cpp       4995/4995 行
+SAME  tests/HelpTextTests.cpp              515/515 行
+全部只改注释

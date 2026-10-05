@@ -1,0 +1,2 @@
+DIFF zh-glaze90.png
+逐字节相同 29 张，不同 1 张；final 共 30 张，base 共 30 张

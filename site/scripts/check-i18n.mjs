@@ -8,7 +8,7 @@
 //   7. 站内链接：正文与组件里的站内路径都在路由表里，带 #锚点 的锚点存在（正文按同语言目标页的标题算，与 Markdown.tsx 同一个 slugify）。
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { LOCALES, SITE, allPaths, read, readJson, readNav } from './site-data.mjs';
+import { LOCALES, ORIGIN, SITE, allPaths, read, readJson, readNav } from './site-data.mjs';
 
 const errors = [];
 const fail = msg => errors.push(msg);
@@ -111,6 +111,24 @@ for (const [k, v] of Object.entries(share.en ?? {})) if (CJK.test(v)) fail(`shar
 
 // ---- 5. index.html 的英文头部 ----
 const html = read('index.html');
+
+// ---- 5b. 写死的站点地址与 ORIGIN（site-data.mjs）一致：index.html 的 origin / og:url / og:image / twitter:image、robots.txt 的站点地图、
+//         Nav.tsx 的 SITE_ORIGIN、make-og.py 画在分享卡片上的域名。线上迁域名时只改了线上的文件、仓库没跟，下次部署就把域名改回去过——
+//         现在谁漏改一处，构建就败。
+{
+  const host = new URL(ORIGIN).host;
+  const expectOrigin = [
+    [html.match(/var origin = '([^']+)'/)?.[1], 'index.html 的 var origin'],
+    [html.match(/property="og:url" content="([^"]+?)\/?"/)?.[1], 'index.html 的 og:url'],
+    [html.match(/property="og:image" content="([^"]+?)\/og-en\.png"/)?.[1], 'index.html 的 og:image'],
+    [html.match(/name="twitter:image" content="([^"]+?)\/og-en\.png"/)?.[1], 'index.html 的 twitter:image'],
+    [read('public/robots.txt').match(/^Sitemap: (\S+?)\/sitemap\.xml/m)?.[1], 'public/robots.txt 的 Sitemap'],
+    [read('src/components/celadon/Nav.tsx').match(/const SITE_ORIGIN = '([^']+)'/)?.[1], 'Nav.tsx 的 SITE_ORIGIN'],
+  ];
+  for (const [got, label] of expectOrigin) if (got !== ORIGIN) fail(`${label} 是 ${got ?? '（找不到）'}，应与 site-data.mjs 的 ORIGIN 一致：${ORIGIN}`);
+  const og = read('scripts/make-og.py').match(/draw_tracked\(draw, x, 548 \* S, '([^']+)'/)?.[1];
+  if (og !== host) fail(`make-og.py 画在分享卡片上的域名是 ${og ?? '（找不到）'}，应为 ${host}（改完要重新生成 public/og.png 与 og-en.png）`);
+}
 const unescape = s => s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const attr = (re, label) => {
   const m = html.match(re);

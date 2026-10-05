@@ -4,13 +4,14 @@
     ClayGlazeTests.cpp
     v0.1.7.0 修坯 Clay 的整链端到端集成测试（设计规格-Clay-分析决策与验收 第 6 节第 1、4 ～ 8 条的整链部分；ADR-009）。
     T-012 阶段 4 按 ADR-012 / 设计规格-Clay-根治修订 改写（Clay 固定延迟 D、先试后用、反相保护新触发规则），并补第 4 节第 2 条的合成回归：
-      1. GLAZE 0：抽屉默认（三态都「自动」）、三项全「关」、Clay Bypass——整链输出逐位相同，并且与「改动前」自己串起来的
+      1. GLAZE 0：三态默认（都「自动」）、三项全「关」、Clay Bypass——整链输出逐位相同，并且与「改动前」自己串起来的
          Balance → Color → Limit 三模块链在 Clay 的位置插 D 样本纯延迟后逐位相同（D = Clay 上报的整个固定延迟：
          ADR-012 收单 D + ADR-014 峰值守护前瞻 G，48 kHz 574 + 528 = 1102；本文件下文的「D」都指它；整链延迟 = 旧值 + D）；
          Color / Limit 不动作时与原样三模块链平移 D 逐位相同；每块 effective.clay 中性。阳性对照：GLAZE 0 下手动低切，输出不同。
-      2. GLAZE 60、合成立体声素材（宽带音乐 + 约 10 Hz 真次声 + 宽低频 + 很窄的高频，三项都「值得做」：需要度 > 0、试过的代价
-         都 ≤ 0.2 dB）：学完后低切 / 收单 / 加宽三项自动值都 > 0 且在规格范围内、不报代价受限；同一素材三项全「关」时三项为 0；
-         输出 40 ～ 125 Hz 相关度高于全关；OUT 表真峰值 ≤ Ceiling + 0.01 dB。
+      2. GLAZE 60、合成立体声素材（宽带音乐 + 约 10 Hz 真次声 + 宽低频 + 很窄的高频，低切、加宽都「值得做」：需要度 > 0、试过的代价
+         都 ≤ 0.2 dB）：学完后低切、加宽自动值都 > 0 且在规格范围内、收单 = 0 且分频点为中性默认值（ADR-015：自动不收单）、
+         不报代价受限；同一素材三项全「关」时三项为 0；输出 40 ～ 125 Hz 相关度与全关相差 < 0.02（不收单，低频立体声不被改动）；
+         OUT 表真峰值 ≤ Ceiling + 0.01 dB。
       3. 旧工程（算法 6、画像格式 1、存档里没有任何 Clay 字段）：Clay 实际值中性、clayNeedsRelearn、校准照旧适用；
          拧 GLAZE 仍中性；与「Clay 全关」逐位相同；点「重新聆听」后自动 Clay 启用。
       4. 反相提示（ADR-015 起只提示、不改收单）：学完正常素材后插入 2 s 低频反相段 → 资格期 0.15 s + 分析帧与块的滞后内亮灯、
@@ -21,14 +22,14 @@
          64 与 1024 每个 3 s 窗的短期响度差 < 0.02 LU（Codex rendercheck 同口径）。
       7. 执行快照：学习 + 反相提示满强度时保存 → 新链读取 → 首块 effective.clay 与保存前相同；实时 / 离线续渲逐样本相同，
          读回的提示照样按时退回。
-      8. Clay 生效时整链音频路径 0 分配（三态轮换、手动扫值、Bypass、反相保护、宿主旁通、GLAZE 过 0、离线、reset、
+      8. Clay 生效时整链音频路径 0 分配（三态轮换、手动扫值、Bypass、反相提示、宿主旁通、GLAZE 过 0、离线、reset、
          重新聆听、读取存档都走到）。
       9. 根治修订 4(a) 已限幅（硬削顶）的底鼓素材：学完低切被「先试后用」否决（实际值 0、mask 置位、代价 ≥ 0.6 dB 而真次声
          需要度 > 0），四个收单候选代价 ≤ 0.3 dB；与修坯全关相比整链限幅 GR 最大增加 ≤ 0.3 dB。阳性对照：同一素材手动 20 Hz 低切
          让 GR 最大增加 > 1 dB（被拦下的确实是会抬高峰值的处理）。
-     10. 根治修订 4(b) 长期 ρ ≈ 0.8 的宽低音、单声道底鼓 + 两声道独立宽垫（审核 V1-01 用例）：30 s 内反相保护 0 次触发。
+     10. 根治修订 4(b) 长期 ρ ≈ 0.8 的宽低音、单声道底鼓 + 两声道独立宽垫（审核 V1-01 用例）：30 s 内反相提示 0 次触发。
          阳性对照：整体反相的低音在同一套计数下会触发。
-     11. 根治修订 4(c) 整体反相低频（右声道的底鼓与贝斯整体反相、等功率）：从反相音频出现起到 a = 1 在推导上限之内
+     11. 根治修订 4(c) 整体反相低频（右声道的底鼓与贝斯整体反相、等功率）：从反相音频出现起到提示强度为 1 在推导上限之内
          （资格期 0.15 s + 攻击 0.1 s + 分析窗 + 平滑过零 + 块粒度；规格写的「250 ms」与 3.4 自相矛盾，见用例注释与 P4 报告）。
      12. 根治修订 4(d) 约 10 Hz 次声 + 音乐：低切开启、试过的代价 ≤ 0、不报代价受限；整链限幅器入口峰值不升（GR 不增）。
 
@@ -68,7 +69,7 @@ namespace celadon::test
         constexpr double kRate = 48000.0;
         constexpr float kCeilingDb = -1.0f;
 
-        // 「到 1」的判定：保护按块线性爬升、末块钳到 1；留 0.1 % 给浮点累加的舍入。
+        // 「到 1」的判定：提示强度按块线性爬升、末块钳到 1；留 0.1 % 给浮点累加的舍入。
         constexpr float kAtOne = 0.999f;
 
         // 反相段：50 Hz 纯 S 正弦（左 +、右 −），功率 = 正常素材 40 ～ 125 Hz 功率的 25 倍（理由见用例 4 的时序推导），两端 5 ms 斜坡。
@@ -76,7 +77,7 @@ namespace celadon::test
         constexpr double kAntiPowerRatio = 25.0;
         constexpr double kRampSeconds = 0.005;
 
-        // 反相保护整链时序推导用的分析器口径（MusicAnalyzer：实时低频相关度慢路 300 ms、快路 120 ms 的一阶功率平滑）与
+        // 反相提示整链时序推导用的分析器口径（MusicAnalyzer：实时低频相关度慢路 300 ms、快路 120 ms 的一阶功率平滑）与
         // 分析滞后（Balance 分析窗 2048 样本 + 一个 hop 512 样本 + 帧在 hop 后第 64 样本发布）。
         constexpr double kLiveSlowSeconds = 0.3;
         constexpr double kLiveFastSeconds = 0.12;
@@ -148,15 +149,15 @@ namespace celadon::test
             bool lowRightInverted = false;   // true：右声道的底鼓、贝斯、超低频整体反相（等功率的「整体反相低频」，用例 11）
         };
 
-        // 用例 2、3、6、8 的素材：宽带音乐 + 约 10 Hz 真次声 + 宽低频 + 很窄的高频，按根治修订 3.3 三项都「值得做」（需要度 > 0、
+        // 用例 2、3、6、8 的素材：宽带音乐 + 约 10 Hz 真次声 + 宽低频 + 很窄的高频，按根治修订 3.3 低切、加宽都「值得做」（需要度 > 0、
         // 试过的代价 ≤ 0.2 dB）。测试服务器上用 numpy 按规格公式复算（种子 101 / 202 / 303 / 505 / 606 / 808，学习 12 s）：
         //   - 真次声：M 的 16 Hz 以下占比 ≈ −2.4 dB → need_sub = ramp(−2.4, −40, −28) = 1；IIR 20 Hz 低切的代价 −2.1 ～ −0.4 dB
         //     （去掉次声压低的峰值多于相位旋转抬高的）→ 照做。次声取 10.3 Hz：正好 10 Hz 时每拍（0.5 s = 5 个周期）落在同一相位，
         //     代价只由那一个相位决定、忽正忽负（实测 +0.04 ～ +0.48 dB）；10.3 Hz 的相位在各拍间漂移，代价稳定为负；
         //   - 低频：贝斯左右差 75°（贝斯自身 ρ = cos 75° ≈ 0.26，底鼓单声道）→ 40 ～ 125 Hz ρ ≈ 0.58 → 单声道回放低音损失
-        //     10·log10((1 + 0.58) / 2) ≈ −1.0 dB → need_mono = ramp(−1.0, −0.5, −3) ≈ 0.21；四个分频点的收单代价 −0.7 ～ −0.2 dB → 照做；
-        //     实时慢路最低约 0.44（> 快路门 0.3）、快路最低约 0.35：反相保护不会触发（60° 时收单需要度只有 0.06，太小看不出效果；
-        //     90° 时慢路最低 0.25、进了快路门）；
+        //     10·log10((1 + 0.58) / 2) ≈ −1.0 dB → need_mono = ramp(−1.0, −0.5, −3) ≈ 0.21；四个分频点的收单代价 −0.7 ～ −0.2 dB
+        //     （v0.1.7.0 时据此照做，ADR-015 起自动不收单、只剩记录）；实时慢路最低约 0.44（> 快路门 0.1）、快路最低约 0.35：反相提示不会亮
+        //     （当初选 75°：60° 时收单需要度只有 0.06，太小看不出效果；90° 时慢路最低 0.25、进了当时的快路门 0.3——都已不成立）；
         //   - 2 ～ 16 kHz：S/M ≈ −25 dB → need_w = ramp(−25, −10, −18) = 1；加宽代价 −0.01 ～ +0.02 dB → 照做；预测加宽后 ρ' 远高于 0.25。
         ClayRecipe stereoTestRecipe()
         {
@@ -498,7 +499,7 @@ namespace celadon::test
         {
             return "low cut " + juce::String (s.clayLowCutHz, 2) + " Hz, mono " + juce::String (s.clayMonoAmount, 3)
                  + " below " + juce::String (s.clayMonoHz, 1) + " Hz, width " + juce::String (s.clayWidthDb, 3) + " dB"
-                 + ", phase guard " + juce::String (static_cast<int> (s.clayPhaseGuardActive))
+                 + ", phase warning " + juce::String (static_cast<int> (s.clayPhaseGuardActive))
                  + ", width guard " + juce::String (static_cast<int> (s.clayWidthGuardActive))
                  + ", needs relearn " + juce::String (static_cast<int> (s.clayNeedsRelearn));
         }
@@ -531,7 +532,7 @@ namespace celadon::test
             return valid;
         }
 
-        // 五个代价里最大的（dB；都无效时 −∞）。
+        // 画像里各个代价里最大的（dB；都无效时 −∞）。
         float maxCost (const glaze::MusicProfile& p)
         {
             auto largest = -std::numeric_limits<float>::infinity();
@@ -680,7 +681,7 @@ namespace celadon::test
         //==============================================================================
         // 「改动前」的链：v0.1.6.2 的 CeladonChain 在 GLAZE 0 时把手动值原样交给三个模块、按 Balance → Color → Limit 处理
         // （两块表与编排器只测量；Listen 关着时不碰样本；交给限幅器的 listen 恒为 false）。用来直接对照
-        // 「GLAZE 0 且抽屉默认 → 整链与改动前逐位相同」（分析决策与验收第 6 节第 1 条）。
+        // 「GLAZE 0 且三态默认 → 整链与改动前逐位相同」（分析决策与验收第 6 节第 1 条）。
         struct PreClayChain
         {
             // claySlotDelaySamples > 0：在 Balance 与 Color 之间（Clay 的位置）插一段这么长的 float 纯延迟——ClayModule 三项为 0 时的
@@ -830,7 +831,7 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 反相保护用例（4、7）的素材：正常段 = 单声道低频（底鼓 + 贝斯两声道相同）、宽高频、无超低频——自动收单本来 ≈ 0；
+        // 反相提示用例（4、7）的素材：正常段 = 单声道低频（底鼓 + 贝斯两声道相同）、宽高频、无超低频——自动收单恒为 0（ADR-015）；
         // 反相段 = 同一段音乐 + 50 Hz 纯 S 正弦，功率按构造 = 正常段 40 ～ 125 Hz 功率的 25 倍（用例 4 的时序推导要这个比例）。
         struct AntiPhaseFixture
         {
@@ -839,7 +840,7 @@ namespace celadon::test
             float antiAmplitude = 0.0f;    // 反相正弦幅度：A² / 2 = 25 × normalLowPower
         };
 
-        // 反相保护用例的正常素材配方：单声道低频（底鼓 + 贝斯两声道相同）、宽高频、无超低频——自动收单本来 ≈ 0。
+        // 反相提示用例的正常素材配方：单声道低频（底鼓 + 贝斯两声道相同）、宽高频、无超低频——自动收单恒为 0（ADR-015）。
         ClayRecipe antiPhaseFixtureRecipe()
         {
             ClayRecipe recipe;
@@ -1316,7 +1317,7 @@ namespace celadon::test
         // 1. GLAZE 0 逐位不变（验收第 1 条；根治修订第 2 节）：同一段立体声素材（有约 10 Hz 次声、宽低频、窄高频——Clay 一旦动手就会
         //    改变输出）、同一组「各模块都在工作」的手动值（Balance 30 / 30 / Brighten 10、Tone +1、Glue 25、Heat 20、Limit Gain +6、
         //    Clip 20）、GLAZE 0：
-        //      a. 抽屉默认（三态都「自动」）；b. 三项全「关」；c. 三态默认 + Clay Bypass；
+        //      a. 三态默认（都「自动」）；b. 三项全「关」；c. 三态默认 + Clay Bypass；
         //      d. 「改动前」的链：自己按 Balance → Color → Limit 串三个模块、交同样的手动值（PreClayChain），并在 Clay 的位置
         //         （Balance 与 Color 之间）插一段 D 样本 float 纯延迟——三项为 0 时 ClayModule 就是这样一段纯延迟（真实契约）。
         //    a、b、c 整段输出逐位相同（按字节比，三者延迟相同），且与 d 逐位相同；整链延迟 = 三个模块的延迟 + D。
@@ -1442,12 +1443,12 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 2. GLAZE 60 自动修坯（验收第 4 条的整链部分 + 第 7 条真峰值）：stereoTestRecipe 的素材按根治修订 3.3 三项都「值得做」
+        // 2. GLAZE 60 自动修坯（验收第 4 条的整链部分 + 第 7 条真峰值）：stereoTestRecipe 的素材按根治修订 3.3 低切、加宽都「值得做」
         //    （见其注释：需要度 > 0、试过的代价都 ≤ 0.2 dB），聆听 12 s（立体声特征观测充分、代价有效块满 10 s）、学完并校准锁定后：
-        //      - 画像的五个代价都有效且 ≤ clayCostFullDb（0.2 dB）；Status 不报代价受限（mask 0）；
+        //      - 画像的各个代价都有效且 ≤ clayCostFullDb（0.2 dB）；Status 不报代价受限（mask 0）；
         //      - Status 低切、加宽 > 0，且落在规格范围：10 Hz < 低切 ≤ 风格低切目标的最大值（lowCutHz = 10·(f_t/10)^k，0 < k ≤ 1）、
         //        0 < 加宽 ≤ clayWidthMaxDb（自动只加不减、≤ +1.5 dB）；收单 = 0、分频点是中性默认值（ADR-015：自动不收单）；
-        //        不提示重新聆听（格式 2 画像）、两种保护都不介入（慢路 ρ 最低约 0.44，在快路门 0.3 之外；高频很窄，预测 ρ' 远高于 0.25）；
+        //        不提示重新聆听（格式 2 画像）、反相提示与宽度保护都不亮（慢路 ρ 最低约 0.44，在快路门 0.1 之外；高频很窄，预测 ρ' 远高于 0.25）；
         //        Status 的 clay* 与同一块交给 ClayModule 的实际值逐位相同（GlazeTypes.h Status「上一块交给 ClayModule 的实际值」）。
         //      - 同一素材、同一 GLAZE、三项全「关」：Status 与实际值三项都是 0。
         //      - 输出 40 ～ 125 Hz 的左右相关度（分析器 lowCorrelation 的同一频段）与全关时相差 < 0.02：自动不收单，低频的立体声不被改动
@@ -1544,13 +1545,14 @@ namespace celadon::test
 
         //==============================================================================
         // 3. 旧工程（验收第 1 条「旧工程未重新聆听」+ 第 6 条「旧快照缺字段按中性读」）：先在本版本学完同一首歌（阳性对照：格式 2
-        //    画像下三项自动值都 > 0），再把存档改造成 v0.1.6.2 的样子（makeLegacyState：画像格式 1、方案 / 标定算法 6、执行快照
-        //    降级，按旧字段表只留旧属性）。
-        //      a. 抽屉默认、GLAZE 60 读入：读成已学习的格式 1 画像、画像号按格式 1；clayNeedsRelearn；Clay 实际值与 Status 中性；
-        //         已存校准照旧适用（画像号不变、默认抽屉不改参考条件 → 打开后声音不变）；3 s 里每块中性、一直提示。
-        //         拧 GLAZE 到 70（按新算法重算，仍是旧画像）：仍中性、仍提示。点「重新聆听」→ 提交格式 2 画像后三项自动值都 > 0、不再提示。
+        //    画像下低切、加宽自动值都 > 0；收单自动态不做），再把存档改造成 v0.1.6.2 的样子（makeLegacyState：画像格式 1、
+        //    方案 / 标定算法 6、执行快照降级，按旧字段表只留旧属性）。
+        //      a. 三态默认、GLAZE 60 读入：读成已学习的格式 1 画像、画像号按格式 1；clayNeedsRelearn；Clay 实际值与 Status 中性；
+        //         已存校准照旧适用（画像号不变、三态默认不改参考条件 → 打开后声音不变）；3 s 里每块中性、一直提示。
+        //         拧 GLAZE 到 70（按新算法重算，仍是旧画像）：仍中性、仍提示。点「重新聆听」→ 提交格式 2 画像后低切、加宽自动值都 > 0、
+        //         收单 0、不再提示。
         //      b. 同一旧存档、三项全「关」：没有「自动」项 → 不提示重新聆听；实际值中性。
-        //      c. 逐位对照：不带校准与执行快照的旧存档（两条链都没有依赖手动参数哈希的已存状态），抽屉默认 vs 全关，锁步 4 s：
+        //      c. 逐位对照：不带校准与执行快照的旧存档（两条链都没有依赖手动参数哈希的已存状态），三态默认 vs 全关，锁步 4 s：
         //         输出逐位相同、交给三个老模块的参数逐位相同；阳性对照：同一旧存档 + 手动低切 30 Hz → 输出不同。
         // 依据：设计规格-Clay 第 7 节「旧画像 valid = false → Clay 自动增量为 0 → 打开后声音不变；点『重新聆听』后启用」；
         //    GlazeTypes.h Status::clayNeedsRelearn「有自动态的项，但已提交画像缺立体声 / 超低频特征」；实现计划「computeProfileId
@@ -1588,7 +1590,7 @@ namespace celadon::test
                 expect (profileXml != nullptr && profileXml->getIntAttribute ("formatVersion") == 1, "fixture: profile format 1");
             }
 
-            // ---- a. 抽屉默认读旧存档 ----
+            // ---- a. 三态默认读旧存档 ----
             ClayRig restored (constants, material, params);
             restored.chain.restoreGlazeStateXml (legacy.get());
             restored.step();
@@ -1646,7 +1648,7 @@ namespace celadon::test
             expect (offRig.status().profileReady && ! offRig.status().clayNeedsRelearn && isNeutral (offRig.clay()),
                     "all Off on the old state: no automatic item, so no relearn hint; neutral");
 
-            // ---- c. 逐位对照：抽屉默认 vs 全关（不带校准与执行快照的旧存档）----
+            // ---- c. 逐位对照：三态默认 vs 全关（不带校准与执行快照的旧存档）----
             auto manualParams = params;
             manualParams.claySettings.lowCutMode = ClayMode::manual;
             manualParams.claySettings.lowCutHz = 30.0f;
@@ -1695,7 +1697,7 @@ namespace celadon::test
         //      + 实时视图慢路 300 ms 功率平滑把 ρ 拉到阈值以下的时间：一阶平滑下 u = 1 − e^(−t/τ)，ρ̃ = (P_n − P_a·u) / (P_n + P_a·u)
         //        < θ（−0.2）⟺ u > (1 − θ) / (r·(1 + θ))（r = P_a / P_n）；只用慢路这一支就够（快路门内那一支只会更早），
         //        r 按一半（12.5 倍，照顾 1/3 倍频程段边界与测量滤波器的出入）从严折算 ≈ 38 ms
-        //      + 块粒度 4 块（帧在下一块开头才交给分析器、保护每块更新一次、资格期按整块推进、状态在块末发布）。
+        //      + 块粒度 4 块（帧在下一块开头才交给分析器、保护单元每块更新一次、资格期按整块推进、状态在块末发布）。
         //    段后退回的时限 7 s = 平滑回到阈值以上（反相段比正常段响 25 倍，一阶约 0.85 s，放宽到 3 s）+ 保持 2 s + 退回 2 s。
         //    「关」「手动」态（同一流程、段后 2.5 s）：关 → 每块实际收单与 Status 恒为 0；三项全手动（低切 30 Hz、收单 150 Hz、
         //    宽度 −1.5 dB）→ 每块实际值恒为手动值（收单比例 1）。阳性对照 = 本用例的自动态确实亮灯。
@@ -1802,7 +1804,7 @@ namespace celadon::test
             expect (monoUntouched, "ADR-015: the mono amount (Status and ClayModule) never changes, on every block");
             expect (after.clayMonoAmount == before.clayMonoAmount && ! after.clayPhaseGuardActive, "ends with the plan value and the warning off");
 
-            // 「关」「手动」态：同一流程，保护不改它们。
+            // 「关」「手动」态：同一流程，反相提示同样不改它们。
             for (int mode = 0; mode < 2; ++mode)
             {
                 auto p = glazeParams (60.0f);
@@ -1850,7 +1852,7 @@ namespace celadon::test
 
         //==============================================================================
         // 5. 手动态在 GLAZE 0 生效（验收第 1、2 条的整链部分）：素材 = 音乐 + 15 Hz 同相正弦，GLAZE 0、各模块中性（Limit Gain 0、
-        //    输入真峰值低于 −1 dBTP 的 Ceiling：整链只剩延迟与 Clay）。低切「手动 30 Hz」vs 抽屉默认，各 4 s，跳过前 1 s：
+        //    输入真峰值低于 −1 dBTP 的 Ceiling：整链只剩延迟与 Clay）。低切「手动 30 Hz」vs 三态默认，各 4 s，跳过前 1 s：
         //      - 每块实际值：lowCutHz 恰为 30（ClayModule 的范围内，不改值）、收单与宽度仍是自动态的 0；Status 同样是 30；
         //      - 输出 20 Hz 以下能量（4 阶 20 Hz 低通）比默认降 ≥ 18 dB：4 阶 Butterworth 30 Hz 高通在 15 Hz 的衰减
         //        = 10·log10(1 + 2⁸) ≈ 24.1 dB，留 6 dB 给音乐自身的 20 Hz 以下成分；
@@ -1915,7 +1917,7 @@ namespace celadon::test
         // 5b. T-032（研究 R4-01 / 核验 V4，2026-09-29）：手动加宽在正常电平下真的到了整链输出上——R4-01 在整链层面的阳性对照
         //    （用例 2 的自动加宽素材高频很窄，修订前的守护在那里也只回收一点，分不出新旧）。素材 = 两声道各自独立的粉噪（高频本来就宽，
         //    S/M ≈ 0 dB），峰值归一到 −12 dBFS（远在守护地板 −40 dBFS 之上；真峰值低于 Ceiling，GLAZE 0、各模块中性：整链只剩延迟与
-        //    Clay）。加宽「手动 +3 dB」vs 抽屉默认，各 4 s，跳过前 1 s：
+        //    Clay）。加宽「手动 +3 dB」vs 三态默认，各 4 s，跳过前 1 s：
         //      - 每块实际值：widthDb 恰为 3、低切与收单仍是自动态的 0；
         //      - 输出 4 kHz 以上的 S/M 比默认高 3 ± 0.3 dB（高架 16 kHz = widthDb、2 kHz = widthDb / 2，4 kHz 以上的粉噪按能量加权约
         //        0.99 widthDb，同 ClayTests 的 testWidthIsNotRecoveredByPeakGuard）；4 kHz 以上的 M 不变（< 0.05 dB）；
@@ -1983,14 +1985,15 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 6. 块长与离线（验收第 6 条 rendercheck 加 Clay 场景）：同一首歌学完并校准锁定（聆听 10 s，三项自动值都 > 0），存档；
+        // 6. 块长与离线（验收第 6 条 rendercheck 加 Clay 场景）：同一首歌学完并校准锁定（聆听 10 s，低切、加宽自动值都 > 0，
+        //    收单用手动 120 Hz，见下），存档；
         //    64 与 1024 样本块 × 实时（在播）与离线（HostInfo.offline、宿主报未播放）四条新链各读这份存档、从同一起点渲染 60 s：
         //      - 同块长的实时与离线：每块输出逐字节相同、每块交给四个模块的实际参数逐位相同（rendercheck「realtime/offline audio
         //        matches exactly」，规格「逐样本一致」）；
         //      - 64 与 1024：20 个 3 s 窗的短期响度逐窗差 < 0.02 LU、整体响度差 < 0.02 LU。口径同 tools/perf/bench.mm 的
         //        changedBlockRender（独立 LoudnessMeter、3 s 边界切开读短期）；那里的门限是窗 0.2 LU / 整体 0.1 LU，实测
         //        0.0137 / 0.0073 / 0 LU（docs/validation/2026-09-26-colour-render/rendercheck-final.log），这里按任务书收紧到 0.02 LU。
-        //        自适应控制按块量化是块长之间唯一的出入；Clay 自身的参数这里是常数（方案给定、无保护介入），与块长无关。
+        //        自适应控制按块量化是块长之间唯一的出入；Clay 自身的参数这里是常数（方案给定、无宽度保护介入），与块长无关。
         //    前提：读取后第一块 Clay 三项实际值都 > 0（「Clay 生效时」）。ADR-015 起自动不收单：收单改「手动 120 Hz」，线性相位收单
         //    这条路照样在跑（低切、加宽仍是自动）。
         void testBlockSizeAndOfflineRender()
@@ -2136,11 +2139,11 @@ namespace celadon::test
         // 8. 音频线程零分配（设计规格-总体「音频线程零分配、零锁」；验收第 2 条「音频线程 0 分配」的整链部分）：一条链跑 60 s，
         //    setHostInfo / setParams / process / getGlazeStatus 都不经 operator new（计数见 TestMain.cpp）。块长在 512 / 1 / 17 /
         //    256 / 64 / 333 之间轮换（块缓冲在计数区外按最大块建好，setSize 不重新分配），途中：
-        //      0 ～ 14 s 三态全「自动」（聆听 10 s 后三项自动值生效），12 ～ 14 s 反相段（反相保护介入）；
+        //      0 ～ 14 s 三态全「自动」（聆听 10 s 后低切、加宽的自动值生效），12 ～ 14 s 反相段（反相提示亮起）；
         //      14 ～ 46 s 三项各自在「自动 / 关 / 手动」间轮换、手动值扫满范围、Clay Bypass 来回切；
         //      26 s restartWithFadeIn；30 ～ 31 s 宿主旁通；32 ～ 34 s GLAZE 0（「手动」照样生效的那条路）；36 ～ 38 s 离线；
         //      42 s 请求重新聆听；46 s 起回到全「自动」；50 s 读取存档（解析在计数区外，下一块接到它在计数区内）。
-        //    最后核对这些路径确实走到了（自动 Clay 非中性、手动、关、Bypass、反相保护都出现过）。
+        //    最后核对这些路径确实走到了（自动 Clay 非中性、手动、关、Bypass、反相提示都出现过）。
         void testAudioPathDoesNotAllocate()
         {
             beginTest ("setHostInfo / setParams / process / getGlazeStatus never allocate while Clay works: modes, sweeps, bypass, protection, reset, restore");
@@ -2254,7 +2257,7 @@ namespace celadon::test
             }
 
             logMessage ("  paths: automatic Clay engaged " + juce::String (automaticBlocks) + " blocks, manual " + juce::String (manualBlocks)
-                        + ", off " + juce::String (offBlocks) + ", bypass " + juce::String (bypassBlocks) + ", phase protection "
+                        + ", off " + juce::String (offBlocks) + ", bypass " + juce::String (bypassBlocks) + ", phase warning "
                         + juce::String (protectedBlocks));
             expect (finite, "output finite throughout");
             expect (automaticBlocks > 0 && manualBlocks > 0 && offBlocks > 0 && bypassBlocks > 0 && protectedBlocks > 0
@@ -2345,19 +2348,19 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 10. 根治修订 4(b) 宽立体声低音不触发反相保护（审核 V1-01 的回归门）。makeWideBassMaterial 的两种素材各 30 s（不循环），
-        //     GLAZE 60、抽屉默认，从第一块起数（聆听 2 ～ 3 s 期间方案源是候选画像，保护同样在工作）：
+        // 10. 根治修订 4(b) 宽立体声低音不触发反相提示（审核 V1-01 的回归门）。makeWideBassMaterial 的两种素材各 30 s（不循环），
+        //     GLAZE 60、三态默认，从第一块起数（聆听 2 ～ 3 s 期间方案源是候选画像，反相提示同样在工作）：
         //       a. 长期 ρ ≈ 0.8 的宽低音（音调低音 + 两声道独立的低频噪声）；
         //       b. 单声道底鼓（120 BPM，−12 dBFS）+ 两声道独立的 60 ～ 150 Hz 宽垫（各 −20 dBFS）：鼓与鼓之间只剩不相关的垫。
-        //     断言：Status「反相保护中」从未亮过、保护单元的下限始终为 0（一次攻击都没开始）。两种素材的收单需要度都是 0
-        //     （单声道回放低音损失只有约 −0.46 / −0.3 dB，不到 −0.5 dB），方案不收单，能动收单的只有保护。
+        //     断言：Status 的反相提示灯从未亮过、保护单元的提示强度始终为 0（一次攻击都没开始）。两种素材的单声道回放低音损失只有
+        //     约 −0.46 / −0.3 dB（v0.1.7.0 的收单需要度因此为 0）；ADR-015 起方案不收单、提示也不改收单，这里只数提示。
         //     V1 实测（旧规则：60 ms 快路与慢路取小、阈值 0）：b 在 30 s 里触发 6 次、38 % 的时间收单 ≥ 0.5。新规则下慢路最低约
-        //     0.70 ～ 0.72（numpy 按同一分析口径复算），远在快路门 0.3 之外，快路怎么散布都进不了判定。
-        //     阳性对照：整体反相的低音（右声道 = −左声道的低音）用同一套计数，5 s 内触发、下限到 1。
+        //     0.70 ～ 0.72（numpy 按同一分析口径复算），远在快路门 0.1 之外，快路怎么散布都进不了判定。
+        //     阳性对照：整体反相的低音（右声道 = −左声道的低音）用同一套计数，5 s 内触发、提示强度到 1。
         // 依据：设计规格-Clay-根治修订 3.4、4(b)；审核 V1-01 建议「长期 ρ ≥ 0.8 的素材 30 s 内 0 次触发」进仓库测试当回归门。
         void testWideBassNeverTriggersPhaseGuard()
         {
-            beginTest ("wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase guard never triggers in 30 s");
+            beginTest ("wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase warning never lights in 30 s");
 
             struct Case
             {
@@ -2392,14 +2395,14 @@ namespace celadon::test
                 });
 
                 const auto label = juce::String (testCase.label);
-                logMessage ("  [" + label + "] phase-guard events " + juce::String (events) + ", lamp blocks " + juce::String (lampBlocks)
+                logMessage ("  [" + label + "] phase-warning events " + juce::String (events) + ", lamp blocks " + juce::String (lampBlocks)
                             + ", largest floor " + juce::String (largestFloor, 3) + ", long-term 40-125 Hz rho "
                             + juce::String (bandCorrelation (material, 40.0, 125.0, 4096), 3));
 
                 if (testCase.mustTrigger)
-                    expect (events >= 1 && largestFloor > 0.99f, label + ": the guard does trigger (the count is not vacuous)");
+                    expect (events >= 1 && largestFloor > 0.99f, label + ": the warning does light (the count is not vacuous)");
                 else
-                    expect (events == 0 && largestFloor == 0.0f, label + ": no phase-guard trigger in 30 s");
+                    expect (events == 0 && largestFloor == 0.0f, label + ": no phase warning in 30 s");
             }
         }
 
@@ -2408,11 +2411,11 @@ namespace celadon::test
         //     右声道的底鼓、贝斯整体反相（lowRightInverted：等功率，40 ～ 125 Hz 的 ρ 从约 +0.9 翻到约 −0.9；右声道 5 ms 升余弦过渡），
         //     量从反相音频出现到提示强度到 1 且 Status 灯亮的那一块结束（ADR-015：只提示，收单全程不变）。上限 =
         //       资格期 clayGuardPhaseMinSeconds（0.15 s）+ 攻击 clayGuardPhaseAttackSeconds（0.1 s）+ 分析滞后（2048 + 512 + 64 样本）
-        //     + 5 ms 过渡 + 条件成立前的平滑时间：稳态估计下（ρ 从 +1 翻到 −1）慢路 ρ̃ = 2e^(−t/τ) − 1 降到快路门 0.3 要
-        //       τ·ln(2 / 1.3) ≈ 129 ms（300 ms 慢路），快路降到 −0.2 要 τ_f·ln(2 / 0.8) ≈ 110 ms（120 ms 快路），门内那一支要两者都满足、
+        //     + 5 ms 过渡 + 条件成立前的平滑时间：稳态估计下（ρ 从 +1 翻到 −1）慢路 ρ̃ = 2e^(−t/τ) − 1 降到快路门 0.1 要
+        //       τ·ln(2 / 1.1) ≈ 179 ms（300 ms 慢路），快路降到 −0.2 要 τ_f·ln(2 / 0.8) ≈ 110 ms（120 ms 快路），门内那一支要两者都满足、
         //       取较大的；只靠慢路降到 −0.2 要 275 ms；两支取较小的
-        //     + 块粒度 4 块；合计约 0.48 s。从拍点起反相：新的一拍底鼓一出来就以反相为主，实际比稳态估计快（numpy 按同一分析口径
-        //     复算约 0.29 s；反相落在两拍之间、底鼓已衰减时约 0.55 s——那时条件要等下一拍才成立，不是保护慢）。
+        //     + 块粒度 4 块；合计约 0.53 s。从拍点起反相：新的一拍底鼓一出来就以反相为主，实际比稳态估计快（numpy 按同一分析口径
+        //     在门 0.3 时（ADR-014 前）复算约 0.29 s；反相落在两拍之间、底鼓已衰减时约 0.55 s——那时条件要等下一拍才成立，不是提示判定慢）。
         //     规格 4(c) 写「从音频起 250 ms 内 a = 1」，但 3.4 规定资格期 0.15 s + 攻击 0.1 s，从条件成立起就已经用满 0.25 s，再加
         //     分析窗与平滑做不到——两条自相矛盾。这里按 3.4 的机理推导上限、记下实测值，冲突写进 P4 报告交主进程裁决；「从判定起
         //     0.25 s 到 1」由 ClayGuardTests（资格期 d）直接量。另断言不早于 0.25 s（资格期确实在起作用）。
@@ -2421,7 +2424,7 @@ namespace celadon::test
             beginTest ("whole low band inverted (equal power): the warning reaches full level within qualification + attack + analysis and smoothing lag");
 
             auto constants = fastConstants();
-            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同用例 4：只看 Clay 的保护
+            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同用例 4：只看 Clay 的反相提示
             auto recipe = antiPhaseFixtureRecipe();
             const auto normal = makeClayMusic (8.0, 404, recipe);
             recipe.lowRightInverted = true;
@@ -2497,7 +2500,7 @@ namespace celadon::test
         // 13. BUG-009（T-042）只有失谐 pad 的 breakdown 不亮反相提示。素材照合成 House 曲（tools/render/make_synthetic_house.py）连成一首
         //     52 s 的歌：drop 0 ～ 20 s = 单声道底鼓（120 BPM，RMS −12 dBFS）+ 单声道 55 Hz 音调低音（8 次谐波 1/h，−14 dBFS）+ 失谐 pad
         //     （makeDetunedPad，基音幅度 0.05，和弦每 2 s 一换，整首连续）；breakdown 20 ～ 44 s = 只有 pad；44 ～ 52 s 再回 drop。鼓与低音
-        //     在两个段界各用 20 ms 升余弦收放。GLAZE 60、抽屉默认，只在 drop 段上循环学完并锁定，再从当前位置无缝接着放这首歌到结尾，
+        //     在两个段界各用 20 ms 升余弦收放。GLAZE 60、三态默认，只在 drop 段上循环学完并锁定，再从当前位置无缝接着放这首歌到结尾，
         //     逐块数 Status 的反相灯与保护单元的提示强度。画像失配关掉（同用例 4：breakdown 的响度与频谱都和 drop 差很多，这里只看 Clay）。
         //     断言：breakdown 与回到 drop 的整段里灯从未亮过、提示强度始终为 0；breakdown 开头 5 s 之后慢路低频相关度（探针）一直无效
         //     （低音停下后平滑功率约 3.5 s 落到段门下，之前停在 drop 的 +1 上；之后泄漏帧不计）。
@@ -2511,7 +2514,7 @@ namespace celadon::test
             beginTest ("bass-less detuned pad breakdown between two drops (BUG-009): the phase warning never lights; an anti-phase bass in the breakdown does");
 
             auto constants = fastConstants();
-            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同用例 4：只看 Clay 的保护
+            constants.mismatchThresholdLu = constants.mismatchReleaseLu = 1.0e9f;   // 同用例 4：只看 Clay 的反相提示
 
             constexpr double dropSeconds = 20.0, breakdownSeconds = 24.0, returnSeconds = 8.0;
             constexpr double edgeSeconds = 0.02;

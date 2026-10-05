@@ -24,7 +24,7 @@ Auto isn't “decide, then do”: **it's tried on this song first, and reduced o
 
 ## Peak guard
 
-**Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before these two stages, and steps aside as needed at moments that would raise a peak (taking a fast path while the g path sits at all-ones). The guard also applies to manual Low cut / Mono (the manual value isn't rewritten; it just yields a little at the peaks).
+**Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before these two stages, and steps aside as needed at moments that would raise a peak (taking a fast path while the g path sits at all-ones). The guard also applies to manual Low cut / Mono (the manual value isn't rewritten; the guard pulls its effect back at moments that would raise a peak — on dense material with wide, uncorrelated lows that can be a lot, so the interface flags it: the guard's keep ratio Σ(g·d)² / Σd² (d = the change made by ①②, g = the guard gain) is smoothed over 2 s; below 75 % for 1 s the Low cut / Mono lamps turn amber and the tooltip says “only about N % left”, and they clear again after 1 s above 85 %; Manual and Auto alike).
 
 Pressure feedback extends “try before applying” to the whole song: when either of the two checks below holds for 1 s, the orchestrator steps automatic CLAY down one level (1 → 0.5 → 0.25 → 0), then waits out a 4 s cooldown and starts counting again from scratch at the new level. Manual values aren't affected.
 
@@ -43,7 +43,7 @@ After being rewritten to work in 64-sample segments, the output is bit-identical
 | Mono | **No mono-ing** (removed after listening tests on 2026-09-27); it only lights an amber warning when the lows are out of phase — mono-ing only reduces stereo bass and leaves mono playback unchanged, and it sounded unnatural |
 | Width | Widens a narrow top end moderately (at most +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow |
 
-Three-mode semantics: Auto = decision-maker + real-time protection, doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection changes it.
+Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono are pulled back at moments that would raise peaks while your value stays as set; on dense material that can be a lot).
 
 ## Thresholds (how we prove it doesn't make things worse)
 

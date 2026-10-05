@@ -40,6 +40,25 @@
       - 曲线每个逻辑像素一个点（SpectrumAnalyser::numPoints = 1033）；OUT 填充与轮廓各自直接建路径（不拷贝）；平均线本身已沿
         频率平滑，路径隔一个点取一个、斜角接头；峰值线每两个点取较高的那个（尖峰不丢、线段少一半）；渐隐裁到 y ≥ 40 再填。
 
+    T-058（2026-10-04，峰值线关着时不再每帧重建、重画）：
+      - 只比看得见的曲线：PEAK 关着时峰值线不参与「屏上变没变」的判断（没有 IN 的曲线时 IN 也不比）。原来峰值保持往下落的
+        那几秒（停播 1.5 s 后按 12 dB/s 落过整块面板，约 6 ～ 7 s；起音溅出的保持值也一样）每帧判「变了」、重建四条路径、
+        重画曲线区，屏上什么都没变；
+      - 计算器此刻的值每帧拷一份（latest*，只拷不比），任何一次重建（setSpectrum 判变了、换斜率或打开 PEAK 后在 paint 里）都先
+        换成它再建：画出来的总是此刻的曲线。原来「画出来的那组值」既是比较基准、又是重建用的数据，只在看得出变化时刷新——
+        曲线静止时换斜率，paint 里按它重建，压在底边下的旧值被斜率抬出来画一帧（T-051 证据里露出来的旧峰值保持数据就是这个）；
+        只做「PEAK 关时不比」而不这样改的话，PEAK 关着停播后 OUT 与平均线停在约 0.3 s 时的样子，换斜率时同样露出来（截图工具
+        S10b 抓得到）。读数（换斜率、悬停、定时刷新）也用此刻的值；
+      - 打开 PEAK 的那一刻在 paint 里按此刻的值整组重建（setPeakShown），画出的区域并进旧区域（评审 R-02 ①）。截图工具 --only check
+        的 S9（残影、PEAK 关时 0 次重建）与 S10（打开 PEAK、换斜率那一刻画的是此刻的数据）守这几条。
+
+    T-073（2026-10-05，Max 拍板「按你的建议来」，T-070 评审 SV-2）：curveRegion 只在 PEAK 开着时才把峰值线算进脏区。原来
+      R-02 ② 让它不论开关都算（开关切换那一帧是整面重画，之后的「旧区域」要盖住可能画过的地方）；T-058 起打开 PEAK 时的重建与 ①
+      已经盖住了，② 成了第二道保险，代价是 PEAK 关着放音乐时看不见的峰值线照样进脏区（峰值保持常比 OUT 顶高几 dB）、脏区设备像素
+      多 11 ～ 12 %。T-070 的红绿矩阵证明现有检查守得住打开 / 关闭 PEAK 时的重画，所以收紧；--only check 另有一条守它（PEAK 关时
+      区域不含峰值线、开着时含）。buildEnvelope 仍无条件建峰值线路径：只省 517 个点（一次重建要走 3 千多个点），不值得多一条
+      「峰值线路径可能是旧的」的不变量。
+
   ==============================================================================
 */
 
@@ -117,15 +136,23 @@ namespace celadon::ui
 
         void setLanguage (Language newLanguage);
 
-        // 每帧调（计算器 update() 之后），elapsedSeconds = 距上一帧的秒数：从计算器拷出几条曲线，有看得出的变化才重画
-        // （只重画新旧曲线的包围盒）。顺带把 IN 虚线开没开告诉计算器——关着时它跳过 IN 那路的加窗 + FFT（T-032 R7-05）；
-        // 刚打开时计算器下一次 update 才有 IN 的曲线，这之前不画 IN。
+        // 每帧调（计算器 update() 之后），elapsedSeconds = 距上一帧的秒数：从计算器拷出几条曲线，看得见的曲线有看得出的变化
+        // 才重建、重画（只重画新旧曲线的包围盒；PEAK 关着时不看峰值线，T-058）。顺带把 IN 虚线开没开告诉计算器——关着时它跳过
+        // IN 那路的加窗 + FFT（T-032 R7-05）；刚打开时计算器下一次 update 才有 IN 的曲线，这之前不画 IN。
         void setSpectrum (SpectrumAnalyser& analyser, double elapsedSeconds);
 
         // CLAY 此刻的实际频率（0 = 没在处理）；active = 修坯没被旁通。
         void setClayMarkers (float lowCutHz, float monoHz, bool active);
 
         LoudnessHud& getLoudnessHud() noexcept   { return hud; }
+
+        // 只读，给截图工具的检查用（T-070）：路径重建过多少次（buildCurvePaths 每次 +1）——「PEAK 关、只剩峰值在落时不重建」
+        // 要数真的重建，不能拿脏区当代理；此刻读数框里的文字——悬停时读数必须是光标处此刻的值，工具按计算器的值独立算一份对。
+        std::uint32_t getCurveBuildCount() const noexcept   { return curveBuilds; }
+        const juce::String& getReadoutText() const noexcept   { return readoutString; }
+
+        // 此刻几条曲线（含描边外伸）占的区域，增量重画按它标脏（T-073：PEAK 关着时不含峰值线）。
+        juce::Rectangle<float> getCurveRegion() const   { return curveRegion(); }
 
         void paint (juce::Graphics&) override;
         void resized() override;
@@ -200,6 +227,7 @@ namespace celadon::ui
 
         float tiltAt (float frequency) const noexcept;
         void updateTilt();
+        void setPeakShown (bool shouldShow);
         void updateMarkerLabels();
         void layoutControls();
         juce::String readoutTextFor (float frequency, float db) const;
@@ -226,7 +254,10 @@ namespace celadon::ui
         void drawLayer (juce::Graphics&, Layer which);
 
         Language language = Language::chinese;
-        std::vector<float> output, input, average, peak;   // 未加斜率的 dB（SpectrumAnalyser 的 numPoints 个点）
+        // 曲线的值都是未加斜率的 dB（SpectrumAnalyser 的 numPoints 个点）。画出来的那组：路径按它建，也是 setSpectrum 判「屏上
+        // 变没变」的基准，只在重建时更新；latest* = 计算器此刻的值，每帧拷（只拷不比），重建时先换进画出来的那组（T-058）。
+        std::vector<float> output, input, average, peak;
+        std::vector<float> latestOutput, latestInput, latestAverage, latestPeak;
         std::array<float, SpectrumAnalyser::numPoints> pointX {}, pointFrequency {}, tilt {};   // 每点的横坐标、频率、斜率（dB）
         std::optional<float> hoverFrequency;
         float peakFrequency = 1000.0f, peakDb = SpectrumAnalyser::floorDb;
@@ -252,6 +283,7 @@ namespace celadon::ui
         bool outputRowValid = false;
         juce::Rectangle<float> curveArea;                            // 上一次重画时曲线占的区域（下一帧与新区域合起来标脏）
         bool curvePathsValid = false, inputDashesValid = false;
+        std::uint32_t curveBuilds = 0;                               // 路径重建次数（只读访问器 getCurveBuildCount，给截图工具的检查用）
 
         std::array<CachedLayer, (size_t) Layer::count> layers;
         juce::Image stripeRow;                                       // 竖纹瓦片：一行，宽 = 面板宽 × 像素比（T-036 起只用来量覆盖率）
@@ -259,6 +291,7 @@ namespace celadon::ui
         float stripeRowScale = 0.0f;
         juce::Colour stripeRowColour;
 
+        // PEAK 一律经 setPeakShown 开关（打开那一刻要按此刻的值重建峰值线，T-058），别直接 peakToggle.setOn。
         LegendToggle outputToggle { LegendToggle::Swatch::gradient },
                      inputToggle { LegendToggle::Swatch::input },
                      peakToggle { LegendToggle::Swatch::peak };

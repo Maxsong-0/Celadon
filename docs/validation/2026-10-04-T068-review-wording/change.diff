@@ -1,0 +1,437 @@
+diff --git a/Source/dsp/GlazeController.h b/Source/dsp/GlazeController.h
+index 19f56a5..2a9c24d 100644
+--- a/Source/dsp/GlazeController.h
++++ b/Source/dsp/GlazeController.h
+@@ -206,7 +206,7 @@ namespace celadon::glaze
+             Plan targetPlan;                 // 目标方案（过渡终点）
+ 
+             // ---- v0.1.7.0 修坯 Clay（A6 追加）----
+-            ClayPlan clayPlanned;            // 上一块方案（含过渡混合）给的「自动」态值（保护之前；方案源不支持 Clay 时为中性）
++            ClayPlan clayPlanned;            // 上一块方案（含过渡混合与压力反馈缩放）给的「自动」态值（保护之前；方案源不支持 Clay 时为中性）
+             ClayPlan liveClay;               // 上一块经 ClayGuard 之后、三态合成之前的自动值（执行快照存的就是它）
+             ClayGuardState clayGuard;        // ClayGuard 此刻的状态
+             float clayGuardSeconds = 0.0f;   // 上一块交给 ClayGuard 推进的有效音频秒数（静音 / 宿主旁通 / 停播块 = 0）
+@@ -214,7 +214,7 @@ namespace celadon::glaze
+             bool clayRestoredFirstBlock = false; // 上一块直接用了执行快照里的 Clay 值（保存重开 / 宿主 reset 后第一块）
+             std::uint32_t manualParamsHash = 0;  // 按上一块手动参数算的校准参考条件哈希（含 Clay 三态设置；旧口径，见 setManualConditions）
+             int legacyConditionsUpgrades = 0;    // 读取工程后旧存档参考升成新口径的份数（BUG-004，upgradeLegacyConditions）
+-            Feature liveLowCorrelation;          // 分析器实时视图的低频相关度慢路 / 快路（上一块交给 ClayGuard 的那一份；诊断追踪用）
++            Feature liveLowCorrelation;          // 分析器实时视图的低频相关度慢路 / 快路（读取此刻的读数：处理完这一块之后，ClayGuard 下一块才用它；诊断追踪用）
+             Feature liveLowCorrelationFast;
+             float clayPressureScale = 1.0f;      // 修坯压力反馈给自动 Clay 的缩放（ADR-014；随工程保存）
+             double clayPeakCostDb = 0.0;         // 压力反馈第一触发量此刻的代价（dB，与先试同口径，ADR-028；有效块未满 10 s 为 0）
+diff --git a/Source/ui/HelpText.cpp b/Source/ui/HelpText.cpp
+index 99641f7..6d14466 100644
+--- a/Source/ui/HelpText.cpp
++++ b/Source/ui/HelpText.cpp
+@@ -416,7 +416,7 @@ namespace celadon::help
+ 
+             // ---- 修坯 CLAY（v0.1.7.0，设计规格-Clay 第 5、6 节；ADR-009）----
+             // v0.1.8.0 起在 CLAY 卡片上：每行 = 灯 + 名字 + 数值 + 三态（*_mode）。数值在「手动」时可拖动（*_hz / *_db 的手动值），
+-            // 「自动」时显示此刻的实际值、手动值不生效。三态语义（ADR-009 第 4 条）：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；
++            // 「自动」时低切 / 加宽显示此刻的实际值（为 0 显示「未启用」）、收单一行恒显示「未启用」（自动不收单），手动值都不生效。三态语义（ADR-009 第 4 条）：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；
+             // 关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改它。
+             { param::clayLowCutMode,
+               "低切 · 自动 / 关 / 手动",
+@@ -447,7 +447,7 @@ namespace celadon::help
+               "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。",
+               "80～150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。",
+               "Mono · lows to mono",
+-              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto does not mono, so no mono frequency is shown here).",
++              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto never folds the lows to mono, so no mono frequency is shown here).",
+               "80–150 Hz is common; above 200 Hz guitars and keys get narrower too." },
+ 
+             { param::clayWidthMode,
+@@ -475,13 +475,13 @@ namespace celadon::help
+               "Use it to compare with and without Clay." },
+ 
+             // 三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯）：气泡第 2 行在界面上换成此刻的实际值（clayIndicatorTooltip），这里的第 2 行
+-            // 界面上从不显示（只作官网说明页首句的同源底稿，T-061）；第 3 行照常显示，所以灯色的含义写在第 3 行。
++            // 界面上从不显示（官网说明页首句手工与它保持一致，T-061，没有自动核对）；第 3 行照常显示，所以灯色的含义写在第 3 行。
+             { uiid::clayIndicator,
+               "修坯 · 立体声像与超低频清理",
+-              "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",
++              "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经峰值守护，自动加宽由先试后用把关，运行中还有宽度保护盯着相关度。",
+               "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查），加宽灯琥珀 = 宽度保护介入。想手动覆盖，把该行切到「手动」。",
+               "Clay · stereo image and sub-bass cleanup",
+-              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not guarded, and automatic width is kept in check by the trial.",
++              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not run through the peak guard; automatic width is kept in check by the trial and, while playing, by a width guard that watches correlation.",
+               "Lit = processing (violet = auto, cyan = manual); amber mono = out-of-phase lows warning (check the mix), amber width = width guard engaged. To override, switch a row to Manual." },
+         };
+ 
+diff --git a/Source/ui/HelpText.h b/Source/ui/HelpText.h
+index 2109b83..db1b6e7 100644
+--- a/Source/ui/HelpText.h
++++ b/Source/ui/HelpText.h
+@@ -60,8 +60,8 @@ namespace celadon::help
+     enum class ClayStage : int { lowCut = 0, mono = 1, width = 2 };
+     inline constexpr int numClayStages = 3;
+ 
+-    // 一盏灯的颜色类别：暗（35% 灰青，没在处理）/ 亮（梅子青，实际值非 0）/ 保护（琥珀，该级的宽度保护正在介入或低频反相提示亮着）。
+-    // 界面按 palette::textDim × comingSoonAlpha / accent / reduction 画（琥珀与 GR 表同色：「在压 / 保护中 / 提示中」都表示要留意）。
++    // 一盏灯的颜色类别：暗（灰圈，没在处理）/ 亮（实际值非 0：「自动」紫圈、「手动」青色实心）/ 保护（橙色实心，该级的宽度保护正在介入或低频反相提示亮着）。
++    // 界面按 palette::lampIdle / violet / c600 / warning 画（ModuleCards.cpp 的 paint）；橙色表示要留意：「保护中 / 提示中」。
+     enum class ClayLamp : int { off = 0, on = 1, guard = 2 };
+ 
+     // 界面从参数读到的用户设置里，只影响「显示什么」的那几项。
+diff --git a/site/src/content/algorithms/en/clay.md b/site/src/content/algorithms/en/clay.md
+index f1da23b..ce0486d 100644
+--- a/site/src/content/algorithms/en/clay.md
++++ b/site/src/content/algorithms/en/clay.md
+@@ -24,7 +24,7 @@ Auto isn't “decide, then do”: **it's tried on this song first, and reduced o
+ 
+ ## Peak guard
+ 
+-**Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before these two stages, and steps aside as needed at moments that would raise a peak (taking a fast path while the g path sits at all-ones). The guard also applies to manual Low cut / Mono (the manual value isn't rewritten; it just yields a little at the peaks).
++**Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before these two stages, and steps aside as needed at moments that would raise a peak (taking a fast path while the g path sits at all-ones). The guard also applies to manual Low cut / Mono (the manual value isn't rewritten; the guard pulls its effect back at moments that would raise a peak — on dense material with wide, uncorrelated lows that can be a lot, and the interface does not flag it).
+ 
+ Pressure feedback extends “try before applying” to the whole song: when either of the two checks below holds for 1 s, the orchestrator steps automatic CLAY down one level (1 → 0.5 → 0.25 → 0), then waits out a 4 s cooldown and starts counting again from scratch at the new level. Manual values aren't affected.
+ 
+@@ -43,7 +43,7 @@ After being rewritten to work in 64-sample segments, the output is bit-identical
+ | Mono | **No mono-ing** (removed after listening tests on 2026-09-27); it only lights an amber warning when the lows are out of phase — mono-ing only reduces stereo bass and leaves mono playback unchanged, and it sounded unnatural |
+ | Width | Widens a narrow top end moderately (at most +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow |
+ 
+-Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono step aside at moments that would raise peaks, without changing your value).
++Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono are pulled back at moments that would raise peaks while your value stays as set; on dense material that can be a lot).
+ 
+ ## Thresholds (how we prove it doesn't make things worse)
+ 
+diff --git a/site/src/content/algorithms/zh/clay.md b/site/src/content/algorithms/zh/clay.md
+index aefa77e..155bb42 100644
+--- a/site/src/content/algorithms/zh/clay.md
++++ b/site/src/content/algorithms/zh/clay.md
+@@ -24,7 +24,7 @@ M = (L + R) / 2，S = (L − R) / 2；输出 L' = M' + S'，R' = M' − S'。
+ 
+ ## 峰值守护
+ 
+-**低切与收单从不让峰值变高**。守护只管 ① 低切与 ② 收单：在 8 ms 前瞻里比较「这两级处理后」与「处理前」的相关峰值，会抬峰值的瞬间按需让开（g 路径静止在全 1 时走快路）。守护对手动的低切 / 收单也生效（手动值不被改写，只在峰值处让一点）。
++**低切与收单从不让峰值变高**。守护只管 ① 低切与 ② 收单：在 8 ms 前瞻里比较「这两级处理后」与「处理前」的相关峰值，会抬峰值的瞬间按需让开（g 路径静止在全 1 时走快路）。守护对手动的低切 / 收单也生效（手动值不被改写，只在会抬峰值处收回它的效果；峰值密集、低音宽而不相关的歌上收回的可能不少，界面不会另行提示）。
+ 
+ 压力反馈把「先试后用」延伸到整首歌：下面两项任一项持续 1 s 成立，编排器就把自动修坯的力度降一档（1 → 0.5 → 0.25 → 0），之后冷却 4 s、在新力度下从头累计；手动值不受影响。
+ 
+@@ -43,7 +43,7 @@ M = (L + R) / 2，S = (L − R) / 2；输出 L' = M' + S'，R' = M' − S'。
+ | 收单 | **不收单**（2026-09-27 试听后拿掉），只在低频反相时亮琥珀灯提醒——收单只减立体声低音、单声道回放不变，听感不自然 |
+ | 加宽 | 只在高频偏窄、且试过不会抬高峰值时适度加宽（最多 +1.5 dB），并盯住相关度防止发虚 |
+ 
+-三态语义：自动 = 决策器 + 实时保护（收单例外：自动态不收单，只提醒），GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变）。
++三态语义：自动 = 决策器 + 实时保护（收单例外：自动态不收单，只提醒），GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间会被收回，手动值本身不变；密集素材上收回的可能不少）。
+ 
+ ## 门槛（怎么证明它没帮倒忙）
+ 
+diff --git a/site/src/content/docs/en/clay.md b/site/src/content/docs/en/clay.md
+index 69ee4ba..95414fa 100644
+--- a/site/src/content/docs/en/clay.md
++++ b/site/src/content/docs/en/clay.md
+@@ -1,4 +1,4 @@
+-Before porcelain is glazed, the clay body is trimmed — cleaned up and evened out so the glaze (GLAZE) sits well. CLAY comes after BALANCE and before COLOR: it cuts inaudible infrasonics and DC, folds the lows to mono when you ask for it, and widens narrow mixes a little. **Low cut and Mono never make the peaks higher**: at moments that would, they step aside; Width doesn't go through the guard, and automatic Width is kept in check by the trial run.
++Before porcelain is glazed, the clay body is trimmed — cleaned up and evened out so the glaze (GLAZE) sits well. CLAY comes after BALANCE and before COLOR: it cuts inaudible infrasonics and DC, folds the lows to mono when you ask for it, and widens narrow mixes a little. **Low cut and Mono never make the peaks higher**: at moments that would, they step aside; Width doesn't go through the peak guard; automatic Width is kept in check by the trial run and, while playing, by a width guard that watches correlation.
+ 
+ ## Three rows · three modes
+ 
+@@ -8,7 +8,7 @@ The card has three rows, top to bottom: Low cut, Mono, Width. Each row = a lamp
+ |---|---|
+ | Auto | Decision-maker + real-time protection: acts only when this song really has a problem and a trial run shows it won't raise the peaks (Mono is the exception: on Auto it never folds the lows, it only lights an amber warning when they are out of phase); does nothing at GLAZE 0 |
+ | Off | Never processes |
+-| Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono step aside at moments that would raise peaks, without changing your value; Width is not guarded). In Manual the value can be dragged |
++| Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono are pulled back at moments that would raise peaks while your value stays as set — on dense material with wide, uncorrelated lows a lot of the effect can be pulled back, and the interface does not flag it; Width does not go through the peak guard). In Manual the value can be dragged |
+ 
+ Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of-phase lows warning (check the mix); amber Width lamp = width guard engaged. Hover a lamp and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: low cut would raise peaks or thin the low end, reduced automatically”.
+ 
+@@ -17,9 +17,9 @@ Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of
+ | Control | What it does | Where to start |
+ |---|---|---|
+ | **Low cut · Auto / Off / Manual** | Auto: cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks or thin the low end, and backs off during playback if it keeps doing either; Off: never cuts; Manual: cuts at your frequency, even at GLAZE 0. | Usually keep Auto; choose Off to keep deliberate sub-bass effects. |
+-| **Low cut frequency** 10–60 Hz | A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual value. | 16–25 Hz is enough; it rotates the low-end phase, and whenever that would raise a peak the peak guard yields the low cut so the limiter does not work harder. |
++| **Low cut frequency** 10–60 Hz | A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual value. | 16–25 Hz is enough; it rotates the low-end phase, and whenever that would raise a peak the peak guard yields the low cut so the limiter does not work harder; yielding too often thins the low end, so Auto lowers the frequency or skips the cut. |
+ | **Mono · Auto / Off / Manual** | Auto: no mono-ing, only an amber warning when the lows are out of phase (bass lost on mono playback); Off: no mono-ing, no warning; Manual: everything below your frequency becomes mono. | Mono-ing only focuses stereo bass and cannot change mono playback; for tighter lows use Manual, starting at 100–150 Hz. |
+-| **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto does not mono, so no mono frequency is shown here). | 80–150 Hz is common; above 200 Hz guitars and keys get narrower too. |
++| **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto never folds the lows to mono, so no mono frequency is shown here). | 80–150 Hz is common; above 200 Hz guitars and keys get narrower too. |
+ | **Width · Auto / Off / Manual** | Auto: widens a narrow top end moderately (up to +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow; Off: no widening; Manual: your value, negative narrows. Width is not run through the peak guard: what you set is what you get. | Songs that are already wide are left alone; to go wider, try Manual at +0.5 to +1 dB. |
+ | **Width amount** −3 to +3 dB | Raises the side signal above about 2 kHz for a wider image, mono playback unchanged; negative narrows; in Auto your value is not used and the display shows the actual value. | Within ±1 dB is clearly audible; above +2 dB it easily sounds hollow and phasey. |
+ | **Power button** | Turns off only Clay (low cut, mono, width); latency stays the same and switching is click-free. | Use it to compare with and without Clay. |
+diff --git a/site/src/content/docs/en/glaze.md b/site/src/content/docs/en/glaze.md
+index a518494..e05e6c3 100644
+--- a/site/src/content/docs/en/glaze.md
++++ b/site/src/content/docs/en/glaze.md
+@@ -48,7 +48,7 @@ The style also sets the shape of the automatic Target spectrum under Advanced: W
+ ## How it relates to Advanced and CLAY
+ 
+ - With “Loud, not harsh” and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.
+-- CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out of phase; on Manual they work even at GLAZE 0; Off never processes.
++- CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out of phase (at GLAZE 0 even the warning stays off); on Manual they work even at GLAZE 0; Off never processes.
+ - Whenever an Advanced setting changes (or a manual parameter or the sample rate does), the calibration's reference conditions change and calibration realigns.
+ 
+ ## Saving and reopening
+diff --git a/site/src/content/docs/zh/clay.md b/site/src/content/docs/zh/clay.md
+index 0eb633e..256cca6 100644
+--- a/site/src/content/docs/zh/clay.md
++++ b/site/src/content/docs/zh/clay.md
+@@ -1,4 +1,4 @@
+-瓷器上釉之前要先「修坯」——把坯体修干净、修匀，釉（GLAZE）才挂得好。CLAY 在 BALANCE 之后、COLOR 之前：切掉听不见的次声与直流，按你的需要把低频收成单声道，窄的歌适度加宽。**低切与收单从不让峰值变高**：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。
++瓷器上釉之前要先「修坯」——把坯体修干净、修匀，釉（GLAZE）才挂得好。CLAY 在 BALANCE 之后、COLOR 之前：切掉听不见的次声与直流，按你的需要把低频收成单声道，窄的歌适度加宽。**低切与收单从不让峰值变高**：会抬峰值的瞬间自动让开；加宽不经峰值守护，自动加宽由先试后用把关，运行中还有宽度保护盯着相关度。
+ 
+ ## 三行 · 三态
+ 
+@@ -8,7 +8,7 @@
+ |---|---|
+ | 自动 | 决策器 + 实时保护：只在这首歌真有问题、且试过不会抬高峰值时才动（收单例外：自动态不收单，只在低频反相时亮琥珀灯提醒）；GLAZE 为 0 时不处理 |
+ | 关 | 永远不处理 |
+-| 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变；加宽不经守护）。「手动」时数值可拖 |
++| 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间会被收回，手动值本身不变；低音宽而不相关、峰值密集的歌上收回的可能不少，界面不会另行提示；加宽不经峰值守护）。「手动」时数值可拖 |
+ 
+ 灯：亮 = 在处理（紫 = 自动，青 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查）；加宽灯琥珀 = 宽度保护介入。悬停灯的气泡第 2 行是实时值，第 3 行会写「本曲试过：低切会抬高峰值或削弱低音，已自动减量」这类代价说明。
+ 
+@@ -17,7 +17,7 @@
+ | 控件 | 作用 | 建议 |
+ |---|---|---|
+ | **低切 · 自动 / 关 / 手动** | 自动：只在这首歌真有听不见的次声（16 Hz 以下）、且试过不会抬高峰值或削弱低音才切，播放中若一直抬峰值或削弱低音会自动减量；关：永远不切；手动：按手动频率切，GLAZE 为 0 也生效。 | 一般保持自动；想留住刻意的超低频效果时选「关」。 |
+-| **低切频率** 10 ～ 60 Hz | 4 阶高通切掉这个频率以下的次声与直流；「自动」时手动值不生效，这里显示的是此刻的实际值。 | 16 ～ 25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压。 |
++| **低切频率** 10 ～ 60 Hz | 4 阶高通切掉这个频率以下的次声与直流；「自动」时手动值不生效，这里显示的是此刻的实际值。 | 16 ～ 25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压；让得太频繁会削弱低音，所以自动会把频率压低或不切。 |
+ | **收单 · 自动 / 关 / 手动** | 自动：不收单，只在低频反相（单声道播放会丢低音）时亮琥珀灯提醒；关：不收单、不提醒；手动：手动频率以下全部收单。 | 收单只让立体声的低音更集中，改变不了单声道播放；想要更紧的低音时用手动，从 100 ～ 150 Hz 起。 |
+ | **收单频率** 40 ～ 300 Hz | 这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。 | 80 ～ 150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。 |
+ | **加宽 · 自动 / 关 / 手动** | 自动：只在高频偏窄、且试过不会抬高峰值时适度加宽（最多 +1.5 dB），并盯住相关度防止发虚；关：不加宽；手动：按手动值，负值收窄。加宽不经峰值守护：设多少就是多少。 | 本来就宽的歌自动不会动；想更宽先试手动 +0.5 ～ +1 dB。 |
+diff --git a/site/src/content/docs/zh/glaze.md b/site/src/content/docs/zh/glaze.md
+index 35fdff8..1a803a1 100644
+--- a/site/src/content/docs/zh/glaze.md
++++ b/site/src/content/docs/zh/glaze.md
+@@ -48,7 +48,7 @@ GLAZE 联动 7 项：BALANCE 的回补 / 抑制、COLOR 的音调 / 粘合 / 热
+ ## 与「高级」和 CLAY 的关系
+ 
+ - 推响不刺、目标频谱在「自动」时：强度 = 你设的力度 × GLAZE / 100。GLAZE 0 时为零。
+-- CLAY 的低切与加宽在「自动」时由方案决定，GLAZE 0 时不处理；收单在「自动」下从不收，只在低频反相时亮琥珀灯提醒；「手动」时 GLAZE 0 也生效；「关」永远不处理。
++- CLAY 的低切与加宽在「自动」时由方案决定，GLAZE 0 时不处理；收单在「自动」下从不收，只在低频反相时亮琥珀灯提醒（GLAZE 为 0 时连提醒也不亮）；「手动」时 GLAZE 0 也生效；「关」永远不处理。
+ - 高级设置一变（或手动参数、采样率变），校准的参考条件就变了，校准会重新对齐。
+ 
+ ## 保存与重开
+diff --git a/site/src/i18n/locales/en/home.json b/site/src/i18n/locales/en/home.json
+index 96c12bd..9898d45 100644
+--- a/site/src/i18n/locales/en/home.json
++++ b/site/src/i18n/locales/en/home.json
+@@ -70,7 +70,7 @@
+         "lead": "Trim before you glaze. Cut inaudible infrasonics and DC, fold the lows to mono when you ask for it, and widen narrow mixes a little — automatic moves are tried on this song first, and Low cut and Mono step aside whenever they would raise a peak.",
+         "facts": [
+           "4th-order low cut, 10–60 Hz; linear-phase mono",
+-          "Side channel only: mono playback is untouched",
++          "Mono and Width touch only the side channel: mono playback is unchanged (Low cut removes only sub-bass)",
+           "Peak guard: Low cut and Mono never raise the peaks"
+         ]
+       },
+diff --git a/site/src/i18n/locales/zh/home.json b/site/src/i18n/locales/zh/home.json
+index 5320a19..6d54287 100644
+--- a/site/src/i18n/locales/zh/home.json
++++ b/site/src/i18n/locales/zh/home.json
+@@ -67,10 +67,10 @@
+       "clay": {
+         "name": "修坯",
+         "verb": "把坯体修干净",
+-        "lead": "施釉之前先修坯。切掉听不见的次声与直流，按你的需要把低频收成单声道，窄的歌适度加宽；自动的改动先在这首歌上试一遍，低切与收单会抬峰值就自动让开。",
++        "lead": "施釉之前先修坯。切掉听不见的次声与直流，按你的需要把低频收成单声道，窄的歌适度加宽；自动的改动先在这首歌上试一遍；低切与收单一旦会抬高峰值，会自动让开。",
+         "facts": [
+           "4 阶低切 10 ～ 60 Hz，线性相位收单",
+-          "只动 S：单声道回放完全不变",
++          "收单与加宽只动 S：单声道回放不变（低切只删次声）",
+           "峰值守护：低切与收单从不让峰值变高"
+         ]
+       },
+diff --git a/tests/HelpTextTests.cpp b/tests/HelpTextTests.cpp
+index 02136a0..97a492c 100644
+--- a/tests/HelpTextTests.cpp
++++ b/tests/HelpTextTests.cpp
+@@ -531,7 +531,7 @@ namespace celadon::test
+ 
+             // 依据：ADR-014 T-032 修订（2026-09-29，研究 R4-01 / 核验 V4）——峰值守护只管低切与收单，加宽的增量不经守护（ClayModule.h
+             // 文件头④）。三处文案不能再说「任何状态下峰值处都会自动让一点」「修坯从不让峰值变高」（旧文案：加宽在正常电平下其实被
+-            // 守护回收约 95 %、界面却说只让一点）；中英文都要讲到「加宽不经守护」「低切 / 收单在会抬峰值的瞬间让开」。指示灯管自动与手动
++            // 守护回收约 95 %、界面却说只让一点）；中英文都要讲到「加宽不经峰值守护」「低切 / 收单在会抬峰值的瞬间让开」。指示灯管自动与手动
+             // 两种状态，「由先试后用把关」只对自动加宽成立（手动加宽只有末级限幅器兜），所以要写明是「自动加宽」。
+             // 阳性对照：同一组断言对改前的 HelpText.cpp（e6b445b）全部不过（T-032 报告记录）。
+             beginTest ("Clay texts (T-032): the peak guard covers low cut and mono only; width is not guarded");
+@@ -550,16 +550,20 @@ namespace celadon::test
+                             "width mode (English): says width is not guarded, no longer claims it yields a little");
+ 
+                     expect (utf8Contains (utf8 (indicator->effect), "低切与收单从不让峰值变高")
+-                              && utf8Contains (utf8 (indicator->effect), "加宽不经守护"),
+-                            "indicator: the guard covers low cut and mono, width is not guarded");
++                              && utf8Contains (utf8 (indicator->effect), "加宽不经峰值守护"),
++                            "indicator: the guard covers low cut and mono, width is not run through the peak guard");
+                     expect (! utf8Contains (utf8 (indicator->effect), "修坯从不让峰值变高"), "indicator: no longer claims Clay as a whole never raises peaks");
+                     expect (juce::String (indicator->effectEn).contains ("Low cut and mono never make peaks higher")
+-                              && juce::String (indicator->effectEn).contains ("width is not guarded")
++                              && juce::String (indicator->effectEn).contains ("width is not run through the peak guard")
+                               && ! juce::String (indicator->effectEn).contains ("Clay never makes peaks higher"),
+                             "indicator (English): same scope");
+                     expect (utf8Contains (utf8 (indicator->effect), "自动加宽由先试后用把关")
+                               && juce::String (indicator->effectEn).contains ("automatic width is kept in check by the trial"),
+                             "indicator: only the automatic width goes through the trial (a manual width is what you set)");
++                    // T-068（评审 F2）：自动加宽运行中还有宽度保护（盯相关度，真会改声音、会点亮琥珀加宽灯），首句不能只提先试后用。
++                    expect (utf8Contains (utf8 (indicator->effect), "运行中还有宽度保护盯着相关度")
++                              && juce::String (indicator->effectEn).contains ("while playing, by a width guard that watches correlation"),
++                            "indicator: automatic width also has the live width guard");
+ 
+                     expect (utf8Contains (utf8 (lowCut->advice), "峰值守护会把低切让回去") && ! utf8Contains (utf8 (lowCut->advice), "让一点"),
+                             "low cut advice: the guard yields the low cut at peaks it would raise");
+@@ -601,7 +605,7 @@ namespace celadon::test
+                     expect (utf8Contains (utf8 (entry->effect), "（自动不收单，这里不显示收单频率）")
+                               && ! utf8Contains (utf8 (entry->effect), "这里显示的是此刻的实际值"),
+                             "mono frequency: Auto shows no frequency");
+-                    expect (juce::String (entry->effectEn).contains ("Auto does not mono, so no mono frequency is shown here")
++                    expect (juce::String (entry->effectEn).contains ("Auto never folds the lows to mono, so no mono frequency is shown here")
+                               && ! juce::String (entry->effectEn).contains ("the display shows the actual value"),
+                             "mono frequency (English): same");
+                 }
+diff --git a/tools/render/README.md b/tools/render/README.md
+index 658666c..e7cff5c 100644
+--- a/tools/render/README.md
++++ b/tools/render/README.md
+@@ -6,12 +6,12 @@
+ 
+ ## 用途
+ 
+-合成信号证明不了「好听」。把 3～5 首风格各异的真歌（至少一首低音很宽 / 有反相内容）按设置网格过整条链离线渲染，
++合成信号证明不了「好听」。把 3～5 首风格各异的真歌（至少一首低频有反相段，用来核对反相提示误亮与门槛里的豁免；最好再有一首低音很宽的，用来看低切与加宽）按设置网格过整条链离线渲染，
+ 所有成品对齐到同一整体响度供盲听，另出一张指标表，把听感结论和数字放在一起看。听感结论写进版本档。
+ 
+ 默认网格：GLAZE 0 / 35 / 70 × 修坯 自动 / 全关 × 风格 自动 = 每首歌 6 组，另加每个 GLAZE > 0 一组「同决策重放 · 修坯关」，共 8 个成品。
+ 
+-- **修坯「自动」**= 高级抽屉的默认（低切 / 收单 / 加宽三项都「自动」：低切与加宽由 GLAZE 决策 + 实时保护给值；收单 ADR-015 起恒为 0，低频反相时只亮提示、不改声音）；
++- **修坯「自动」**= 高级抽屉的默认（低切 / 收单 / 加宽三项都「自动」：低切由 GLAZE 决策给值（含代价封顶与压力反馈缩放），加宽由决策 + 宽度保护给值；收单 ADR-015 起恒为 0，低频反相时只亮提示、不改声音）；
+ - **修坯「全关」**= 三项都选「关」（永远 0，GLAZE 多大都不处理）。这条链自己跑 GLAZE，是「用户关掉修坯」的真实效果；
+ - **同决策重放 · 修坯关**（`clay-replay-off`，ADR-016）= 照搬「自动」那条链逐块实际交给模块的参数、只把修坯换成「关」。两条链决策
+   一模一样，差别只剩修坯本身：**修坯门槛和「修坯到底改了什么」的盲听都用它对比**（见下「同决策重放」）。T-044 起连 prepare 之前那次
+@@ -75,7 +75,7 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
+ | `--block` | `512` | 宿主块长（样本，1～65536），两遍都用它 |
+ | `--match-lufs` | `-16` | 成品按整体响度只乘增益对齐到这个值（-60～0 LUFS） |
+ | `--metrics-only` | 关 | 照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用：几十首 × 8 组的 float wav 有好几 GB） |
+-| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案值 / 宽度保护后的值 / 实际值与反相提示状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、守护混合损失的两份 K 加权能量（`blend_intended_energy` / `blend_output_energy`，T-043）、压力反馈此刻的缩放、第一触发量的代价与攒下的块数、平滑后的混合损失（`clay_pressure_scale` / `clay_peak_cost_db` / `clay_peak_cost_blocks` / `clay_blend_loss_db`，T-044；代价攒满 100 块才有）、校准状态；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；列见下「逐块追踪的修坯列」「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
++| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案值 / 宽度保护后的值 / 实际值与反相提示状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、守护混合损失的两份 K 加权能量（`blend_intended_energy` / `blend_output_energy`，T-043）、压力反馈此刻的缩放、第一触发量的代价与攒下的块数、平滑后的混合损失（`clay_pressure_scale` / `clay_peak_cost_db` / `clay_peak_cost_blocks` / `clay_blend_loss_db`，T-044；代价攒满 100 块才有）、校准状态（列见下「逐块追踪的修坯列」「逐块追踪的校准列」）；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；只有 `t_sec`、`limit_gain_db` 和校准列，见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
+ | `--no-replay` | 关 | 不做同决策重放（默认每组 GLAZE > 0 的修坯「自动」之后多一组 `clay-replay-off` 与阳性对照，见下） |
+ | `--genre` | `general` | T-038 曲风 `general` / `deep` / `tech` / `melodic`（= 参数 `glaze_genre` 的下标 0～3），可逗号分隔多个（网格的一维） |
+ | `--delivery` | `standard` | T-038 交付 `standard` / `streaming` / `club`（= `glaze_delivery` 的下标 0～2），可逗号分隔多个（网格的一维） |
+@@ -136,13 +136,13 @@ T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`
+ | 低频相关度 < 125 Hz | `low_corr_lt125hz` | 左右各过 4 阶 Butterworth 125 Hz 低通后 ρ = 2ΣLR / (ΣL² + ΣR²) = (P_M − P_S) / (P_M + P_S)，与分析器 lowCorrelation 同一口径：1 单声道、0 不相关、−1 反相 |
+ | 真次声 < 16 Hz dB | `infra_share_lt16hz_db` | M = (L + R) / 2 过 8 阶 Butterworth 16 Hz 低通后的能量 ÷ M 全频能量，与分析器 subShareDb 同一定义（ADR-012；整段计，不设有效音频门；侧声道里的次声不计入） |
+ | 反相提示 / 宽度保护（格末） | `clay_cost_limited` | 成品末尾哪几项「自动」修坯因代价被减量 / 否决（`lowcut` / `width`，两项都有写 `lowcut+width`，空 = 没有；ADR-015 起自动不收单，不再出现 `mono`）。三处会置位：先试后用试出会抬高峰值（ADR-012）、低切按守护混合损失封顶（ADR-027）、压力反馈降过档（ADR-014 / ADR-028）。metrics.md 没有单独一列：有值时接在「反相提示 / 宽度保护」那一格末尾（「，代价限：lowcut」），空时不写 |
+-| 低切 Hz / 收单 Hz / 收单量 / 加宽 dB | `clay_lowcut_hz` / `clay_mono_hz` / `clay_mono_amount` / `clay_width_db` | 成品末尾 `getGlazeStatus()` 的 Clay 四个实际值（上一块交给 ClayModule 的值）；低切 0 =「关」；收单量 0 时收单 Hz 无意义 |
+-| 反相提示 / 宽度保护 | `phase_guard_pct` / `width_guard_pct` | 第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比；`phase_guard_pct` 沿用旧列名（改名会断旧指标表） |
++| 低切 Hz / 收单 Hz / 收单量 / 加宽 dB | `clay_lowcut_hz` / `clay_mono_hz` / `clay_mono_amount` / `clay_width_db` | 成品末尾 `getGlazeStatus()` 的 Clay 四个实际值（上一块交给 ClayModule 的值）；低切 0 =「关」；收单量 0 时收单 Hz 无意义（本工具不用手动收单，ADR-015 起收单 Hz 恒为 80、收单量恒为 0） |
++| 反相提示 / 宽度保护 | `phase_guard_pct` / `width_guard_pct` | 第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音；只在收单为「自动」的组计：`auto`、`mono` 组，其余组与重放行恒为 0）/ 宽度保护介入的时长占比（只在加宽为「自动」的组计）；`phase_guard_pct` 沿用旧列名（改名会断旧指标表） |
+ | GLAZE 状态 | `glaze_phase` / `calibration_valid` / `resolved_style` | 成品末尾的阶段（unlearned / listening / planTransition / calibrating / locked）、校准是否有效、「自动」风格此刻偏向哪种 |
+ | — | `listen_phase` | 第一遍（聆听）结束时的阶段 |
+ | — | `audio_hash` | 对齐前成品（输入行是立体声化的输入）的 FNV-1a 哈希：同一首歌同一组设置跨版本哈希相同 = 逐位不变 |
+ | 成品文件 | `file` | 成品文件名；写失败为空 |
+-| — | `trial_lowcut_cost_db` / `trial_mono60_cost_db` … `trial_mono160_cost_db` / `trial_width_cost_db` / `trial_seconds` | 成品末尾已提交画像里「先试后用」量到的代价（dB）与试用的有效时长（诊断：试用只看聆听的前 15 ～ 30 s） |
++| — | `trial_lowcut_cost_db` / `trial_mono60_cost_db` … `trial_mono160_cost_db` / `trial_width_cost_db` / `trial_seconds` | 成品末尾已提交画像里「先试后用」量到的代价（dB）与试用的有效时长（诊断：试用只看聆听的前 15 ～ 30 s；`trial_mono*` 四列 ADR-015 起照测照存、决策不用，仅作诊断） |
+ | — | `profile_sub_share_db` / `profile_low_corr` | 同一份画像的真次声占比与低频相关度（聆听窗口里的值，可能与整首的 `infra_share_lt16hz_db` / `low_corr_lt125hz` 不同） |
+ | — | `peak_guard_pct` / `peak_guard_min_gain` | 修坯峰值守护（ADR-014）第二遍里 g < 1 的样本占比与全曲最小 g |
+ | — | `slow_inverted_pct` | 分析器慢路低频相关度有效的块里 ρ < −0.2 的占比：歌里有没有真反相段（门槛「反相提示时长占比 ≤ 5 %」只管这一列为 0 的歌） |
+@@ -165,12 +165,15 @@ T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`
+ | `planned_lowcut_hz` / `planned_mono_amount` / `planned_mono_hz` / `planned_width_db` | 决策器给「自动」态的值（含方案过渡混合与压力反馈缩放，ClayGuard 之前） |
+ | `live_mono_amount` / `live_width_db` | ClayGuard 之后、三态合成之前的自动值：宽度保护只会把加宽往小里改，收单原样透传 |
+ | `guard_phase_floor` / `guard_phase_hold_s` / `guard_phase_active` | 反相提示的强度（0～1，含攻击 / 释放）、条件消失后剩下的保持秒数、是否亮着（= 强度 > 0）。列名沿用旧名，ADR-015 起只提示、不改声音；触发条件与时间常数见 `Source/dsp/ClayGuard.h` 文件头。这是 ClayGuard 自己的状态、不看三态：收单不在「自动」的组（`off` / `lowcut` / `width`）也可能是 1，收单灯与 `phase_guard_pct` 只算收单「自动」的组 |
+-| `guard_seconds` | 这一块交给 ClayGuard 推进的有效音乐秒数（= 上一块的有效音乐时长）；为 0 时（静音、宿主旁通、停播，以及读回存档后的第一块）反相提示与宽度保护都停在原处 |
++| `guard_seconds` | 这一块交给 ClayGuard 推进的有效音乐秒数（= 上一块的有效音乐时长）。为 0 时：静音、宿主旁通、停播，以及读回存档后的第一块——反相提示与宽度保护的状态停在原处；GLAZE 0 的组、或方案源不支持自动 Clay（旧画像 / 没有画像）每块都是 0，且 ClayGuard 不是停住而是回到中性（`guard_*` 与 `planned_*` / `live_*` 全是中性值，哪怕 `rho_slow` 明明 < −0.2） |
+ | `rho_slow` / `rho_fast` | 分析器慢路 / 快路低频相关度（反相提示的判据；无效时空）。这是本块处理后的读数，ClayGuard 下一块才用它 |
+ | `clay_lowcut_hz` / `clay_mono_amount` / `clay_mono_hz` / `clay_width_db` | 三态合成后交给 ClayModule 的实际值（同指标表的 Clay 四列） |
+ 
+ ADR-015 起「自动」不收单：本工具各组的 `planned_mono_amount`、`live_mono_amount`、`clay_mono_amount` 恒为 0，`planned_mono_hz` 恒为 80。
+ 
++低切不经 ClayGuard 改动，所以没有 `live_lowcut_hz` 列：`planned_lowcut_hz` 就是交给三态合成的自动低切。`guard_phase_hold_s` 在反相条件成立期间保持为整段保持期（出厂 2 s），条件消失后才开始倒数。
++峰值守护与压力反馈的列（`peak_guard_samples`、`peak_guard_min_gain`、`blend_intended_energy`、`blend_output_energy`、`clay_pressure_scale`、`clay_peak_cost_db`、`clay_peak_cost_blocks`、`clay_blend_loss_db`）不在这一节，口径见上面 `--trace` 一行与指标表里的同名列。
++
+ ### 逐块追踪的校准列（`--trace`）
+ 
+ 两份追踪末尾都有同一组校准列（第一遍那份只有 `t_sec`、`limit_gain_db` 加这组列）。T-015 / BUG-003「整首停在校准中」就是靠它们查出来的：
+diff --git a/tools/render/RenderMain.cpp b/tools/render/RenderMain.cpp
+index 504d163..cf10999 100644
+--- a/tools/render/RenderMain.cpp
++++ b/tools/render/RenderMain.cpp
+@@ -1670,7 +1670,9 @@ namespace
+     // 也不按保护层时隙切片），逐块喂「自动」链那一块实际交给模块的全部参数，只把修坯换掉：
+     //   - off：三项都「关」→ 修坯中性（门槛拿它对比「自动」）；
+     //   - copy：三项用「手动」填自动链那一块的实际修坯值 → 应复现自动链（最大样本差 ≤ −180 dBFS，见下；阳性对照：证明重放本身不走样，
+-    //     包括 GLAZE 0 不切片这一点）。手动收单固定是「比例 1」，自动收单比例在 0、1 之间的块表达不了，对照记「不适用」。
++    //     包括 GLAZE 0 不切片这一点）。手动收单固定是「比例 1」，收单比例在 0、1 之间的块「手动」态表达不了（ADR-015 起自动收单恒为 0，
++    //     这一种已不出现）；另一种原因是目标频谱用了「参考」形状、重放链没有侧链参考（本工具的目标频谱固定是出厂「自动」，也走不到）。
++    //     两种都记「不适用」。
+     enum class ReplayClay { off, copy };
+ 
+     // 同决策重放阳性对照的容差：最大样本差 ≤ 1e-9（−180 dBFS）算复现。不要求逐位相同：GLAZE > 0 的链按保护层 10 ms 时隙把宿主块
+@@ -2501,7 +2503,7 @@ namespace
+         return "## 口径\n\n"
+                "- **原始输入**：读入后立体声化（单声道复制成双声道、多声道取前两个）的原曲，用同一套量法，作对照。\n"
+                "- **LUFS（对齐前）**：插件自己的 BS.1770-4 表（`celadon::LoudnessMeter`，与界面 OUT 表同一算法）量整段成品"
+-               "（已去掉链延迟、含 0.35 s 余振）。\n"
++               "（已去掉链延迟、含 " + fixed (ringOutSeconds, 2) + " s 余振）。\n"
+                "- **对齐增益**：`--match-lufs` − 对齐前 LUFS；成品只乘这一个增益，不再限幅。\n"
+                "- **真峰值**：插件的 8× 真峰值检测器（与限幅器、表同一算法），对齐前；默认 Ceiling 下应 ≤ -1.0 dBTP"
+                "（验收口径容差 +0.01 dB）。\n"
+@@ -2513,8 +2515,9 @@ namespace
+                "- **真次声 < 16 Hz**：M = (L + R) / 2 过 8 阶 Butterworth 16 Hz 低通后的能量 ÷ M 全频能量（dB），"
+                "与分析器 subShareDb 同一定义（ADR-012；这里整段计，不设有效音频门；静音段能量可忽略）。只看 M：侧声道里的次声不计入。\n"
+                "- **低切 / 收单 Hz / 收单量 / 加宽**：成品末尾 `getGlazeStatus()` 的 clayLowCutHz / clayMonoHz / clayMonoAmount / "
+-               "clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义。\n"
+-               "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。"
++               "clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义（本工具不用手动收单，ADR-015 起收单 Hz 恒为 80、收单量恒为 0）。\n"
++               "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音；只在收单为「自动」的组计：auto、mono 组，其余组与重放行恒为 0）/ "
++               "宽度保护介入的时长占比（只在加宽为「自动」的组计；每块读一次状态）。"
+                "格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）：先试后用试出会抬高峰值、低切按守护混合损失封顶、压力反馈降过档，三处任一都会置位。\n"
+                "- **GLAZE 状态**：成品末尾的阶段与「校准有效」；风格为「自动」且 GLAZE > 0 时附此刻偏向的风格。"
+                "第一遍（聆听）结束时的阶段在 metrics.csv 的 listen_phase 列。\n"
+@@ -2523,7 +2526,7 @@ namespace
+                "- **同决策重放（clay-replay-off，ADR-016）**：每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链，逐块照搬"
+                "「自动」链那一块实际交给模块的全部参数（含自动增量、校准偏差、保护退让），只把修坯换成「关」。两条链的决策一模一样，"
+                "差别只剩修坯本身——修坯门槛比的是「自动 vs 重放全关」，不再比两条各自跑 GLAZE、方案会分岔的链。阳性对照：修坯用"
+-               "「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −180 dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
++               "「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −" + fixed (-toDbfs (replayTolerance), 0) + " dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
+                "重放行的 GLAZE 状态列没有意义（写 replay / 空）。\n"
+                "- **有效音乐**：原曲 K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（与校准器同一门限；歌尾静音不算），"
+                "metrics.csv 的 music_seconds。门槛只要求有效音乐 ≥ 30 s 的歌在成品末尾「已锁定 + 校准有效」。\n";
+@@ -2539,7 +2542,7 @@ namespace
+         md += "- 对齐：成品按整体响度只乘增益对齐到 " + fixed (options.matchLufs, 1)
+             + " LUFS；32-bit float，允许超过 0 dBFS，不再限幅\n";
+         md += "- 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）"
+-              "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.35 s 余振，成品与原曲逐样本对齐\n";
++              "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 " + fixed (ringOutSeconds, 2) + " s 余振，成品与原曲逐样本对齐\n";
+         md += "- 其余参数全是新实例默认（Ceiling -1.0 dBTP、Lookahead 2 ms、Limit Gain 0 等，见 Source/ParameterDefaults.h，"
+               "插件参数表同一处真源）\n";
+         md += "- 高级母带（新实例默认）：" + masteringText (makeFactoryParams().mastering)
+@@ -2784,7 +2787,7 @@ namespace
+         {
+             automatic.replayCheck = "n/a";
+             report.notes.push_back (notePrefix + "同决策重放的阳性对照不适用："
+-                                    + std::string (! clayExpressible ? "自动收单比例在 0、1 之间，「手动」态表达不了（手动收单固定是 1）"
++                                    + std::string (! clayExpressible ? "有块的修坯实际值「手动」态表达不了（收单比例不是 0 或 1，或低切 / 加宽越界；手动收单固定是 1）"
+                                                                      : "目标频谱用了「参考」形状，重放链没有侧链参考"));
+         }
+ 
+@@ -3249,7 +3252,7 @@ namespace
+             test.check (same, "同决策重放复现自动链",
+                         std::string (! expressible ? "有块的修坯值「手动」表达不了"
+                                      : (identical ? "修坯手动照填重放与自动链成品逐位相同"
+-                                                  : "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −180 dBFS）"))
++                                                  : "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −" + fixed (-toDbfs (replayTolerance), 0) + " dBFS）"))
+                             + "（" + std::to_string (logged.size()) + " 块；Limit Gain 被 GLAZE 改过的块 "
+                             + std::to_string (automatedBlocks) + "，自动低切开着的块 " + std::to_string (lowCutBlocks)
+                             + "，推响不刺与目标频谱都在起作用的块 " + std::to_string (masteringBlocks) + "）");
+diff --git a/tools/render/gate_check.py b/tools/render/gate_check.py
+index ad2ebc0..4f1a108 100644
+--- a/tools/render/gate_check.py
++++ b/tools/render/gate_check.py
+@@ -28,6 +28,8 @@ import sys
+ from collections import defaultdict
+ 
+ CEILING_DBTP = -1.0
++# 同决策重放阳性对照的容差（dBFS）：与 RenderMain.cpp 的 replayTolerance（1e-9 = −180 dBFS）同值，改一处要同步改另一处
++REPLAY_TOLERANCE_DBFS = -180
+ MIN_LOCK_MUSIC_SECONDS = 30.0
+ 
+ # T-038 网格的另三维（celadon_render 只在用了新选项时把它们追加在 metrics.csv 末尾）。渲染工具自己也按这三维配对
+@@ -149,7 +151,7 @@ def main(path):
+                 notes.append(f"{tag}: 同决策重放的阳性对照不适用（原因见 metrics.md 该曲备注），修坯门槛照常用重放全关判定")
+             elif check != 'ok':
+                 diff = a.get('replay_max_diff_dbfs') or '?'
+-                fails.append(f"{tag}: 同决策重放的阳性对照 {check or '缺失'}（应为 ok；最大样本差 {diff} dBFS，允许 ≤ −180），修坯门槛对照不可信")
++                fails.append(f"{tag}: 同决策重放的阳性对照 {check or '缺失'}（应为 ok；最大样本差 {diff} dBFS，允许 ≤ −{abs(REPLAY_TOLERANCE_DBFS)}），修坯门槛对照不可信")
+ 
+         # 参考：跨链
+         o = pair.get('off')

@@ -869,6 +869,7 @@ namespace celadon::test
                 testOutputDigestsForGuardComparison();
                 testBlendLossMeasurement();
                 testBlendTapIsBlockSizeIndependent();
+                testGuardKeepMeasurement();
             }
 
         private:
@@ -2690,6 +2691,245 @@ namespace celadon::test
 
                     expect (sameTap, "block size " + juce::String (blockSize) + ": the tap is bit-identical");
                     expectEquals (countDifferentBits (other.audio, reference.audio), 0, "block size " + juce::String (blockSize) + ": the output is bit-identical");
+                }
+            }
+
+            // T-074（设计 R4-03）守护保留比的两份能量（ClayModule::getLastProcessGuardKeep / PeakGuardStats::keep*；setGuardKeepReporting）：
+            // changeEnergy = Σd²（d = y − x，①② 的改动量）、keptEnergy = Σ(g·d)²（守护收回之后剩下的）。
+            //  - 默认关：统计恒为 0（分析器的先试候选不多花 CPU）；
+            //  - 中性（三项 0）开着：改动量恒为 0；
+            //  - 稳态 60 Hz 正弦过 20 Hz 低切（守护不动作，g = 1）：改动量 > 0、两份能量逐位相等（保留比恰为 1）；
+            //  - 偏置低音（makeOffsetBass）过 20 Hz 低切：守护大半时间在拉；
+            //      改动量 = 本文件独立算的 Σ(y − x)²（y = 同一素材 × 2^−8 的输出乘回 2^8——低于守护地板守护不动作、低切线性，它逐位就是「g 当 1」的
+            //      输出；x = 输入，输出比输入晚 D + G），保留量 = 独立算的 Σ(实际输出 − x)²；两份都与模块的累计相对 1e-5 相等；保留比 ∈ (0, 0.9)；
+            //  - 每次 process() 的报告之和 = 统计里的累计；任何块长下总量相同（相对 1e-9）；
+            //  - 单声道模块同样量；
+            //  - 开关统计不改变输出（逐位）。
+            void testGuardKeepMeasurement()
+            {
+                beginTest ("guard keep ratio (T-074): off by default, idle modules report 0, steady tones keep exactly 1, guarded offset bass matches an independent replay, block-size independent, outputs unchanged");
+
+                constexpr double sampleRate = 48000.0;
+                const auto numSamples = (int) (4.0 * sampleRate);
+                const auto lowCut = makeParams (20.0f, 120.0f, 0.0f, 0.0f);
+                const auto loud = makeOffsetBass (sampleRate, numSamples);
+
+                {
+                    // 默认关：偏置低音让守护大半时间在拉，统计照样是 0。
+                    ClayModule clay;
+                    prepareClay (clay, sampleRate, 2, lowCut);
+                    runClay (clay, loud, 512);
+                    const auto stats = clay.getAndResetPeakGuardStats();
+                    expect (stats.guardedSamples > numSamples / 4, "positive control: the guard pulls back a lot");
+                    expectEquals (stats.keepChangeEnergy, 0.0, "reporting is off by default: no change energy");
+                    expectEquals (stats.keepKeptEnergy, 0.0, "reporting is off by default: no kept energy");
+                    expectEquals (clay.getLastProcessGuardKeep().changeEnergy, 0.0);
+                }
+
+                {
+                    // 中性开着：从不累计。
+                    ClayModule clay;
+                    prepareClay (clay, sampleRate, 2, neutralParams());
+                    clay.setGuardKeepReporting (true);
+                    auto input = makeProgramme (512 * 40, sampleRate, -12.0f, 7);
+                    runClay (clay, input, 512);
+                    const auto stats = clay.getAndResetPeakGuardStats();
+                    expectEquals (stats.keepChangeEnergy, 0.0, "neutral module: nothing changes, nothing to keep");
+                    expectEquals (stats.keepKeptEnergy, 0.0);
+                }
+
+                {
+                    // 稳态单音：先过 1 s 起振（同混合损失那条），再量 3 s；守护从不动作，两份能量逐位相等。
+                    ClayModule clay;
+                    prepareClay (clay, sampleRate, 2, lowCut);
+                    clay.setGuardKeepReporting (true);
+                    const auto tone = makeSineOfLength (2, sampleRate, 60.0, 0.5f, numSamples);
+                    const auto settle = (int) sampleRate;
+                    runClay (clay, sliceOf (tone, 0, settle), 512);
+                    clay.getAndResetPeakGuardStats();
+                    runClay (clay, sliceOf (tone, settle, numSamples), 512);
+                    const auto stats = clay.getAndResetPeakGuardStats();
+                    expectEquals ((int) stats.guardedSamples, 0, "positive control: the guard never engages on a steady tone");
+                    expect (stats.keepChangeEnergy > 0.0, "a low cut that is on changes the signal");
+                    expect (stats.keepChangeEnergy == stats.keepKeptEnergy, "g = 1 throughout: the two energies are bit-identical (keep ratio exactly 1)");
+                }
+
+                // 偏置低音：被测模块（统计开）与它的参照（同素材 × 2^−8、守护不动作）。
+                auto quiet = loud;
+
+                for (auto& channel : quiet)
+                    for (auto& sample : channel)
+                        sample = std::ldexp (sample, -8);
+
+                ClayModule clay, reference;
+                prepareClay (clay, sampleRate, 2, lowCut);
+                prepareClay (reference, sampleRate, 2, lowCut);
+                clay.setGuardKeepReporting (true);
+                const auto out = runClay (clay, loud, 512);
+                auto intended = runClay (reference, quiet, 512);
+                const auto stats = clay.getAndResetPeakGuardStats();
+                expectEquals ((int) reference.getAndResetPeakGuardStats().guardedSamples, 0, "positive control: below the floor the guard never acts");
+
+                for (auto& channel : intended)
+                    for (auto& sample : channel)
+                        sample = std::ldexp (sample, 8);
+
+                const auto latency = clay.getLatencySamples();
+                auto changeReference = 0.0, keptReference = 0.0;
+
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int n = latency; n < numSamples; ++n)
+                    {
+                        const auto x = (double) loud[(size_t) ch][(size_t) (n - latency)];
+                        const auto change = (double) intended[(size_t) ch][(size_t) n] - x;
+                        const auto kept = (double) out[(size_t) ch][(size_t) n] - x;
+                        changeReference += change * change;
+                        keptReference += kept * kept;
+                    }
+
+                const auto ratio = stats.keepKeptEnergy / stats.keepChangeEnergy;
+                logMessage ("  offset bass through 20 Hz: guarded " + juce::String (100.0 * (double) stats.guardedSamples / numSamples, 1)
+                            + " % of samples, keep ratio " + juce::String (ratio, 4) + " (independent " + juce::String (keptReference / changeReference, 4) + ")");
+                expectWithinAbsoluteError (stats.keepChangeEnergy / changeReference, 1.0, 1.0e-5, "change energy = independent sum of (y - x)^2");
+                expectWithinAbsoluteError (stats.keepKeptEnergy / keptReference, 1.0, 1.0e-5, "kept energy = independent sum of (output - x)^2");
+                expect (stats.guardedSamples > numSamples / 4, "positive control: the guard pulls back a lot");
+                expect (ratio > 0.0 && ratio < 0.99, "the guard keeps only part of the low cut on offset bass");
+                expect (std::abs (ratio - keptReference / changeReference) < 1.0e-5, "keep ratio = independent keep ratio");
+
+                // 每次 process() 的报告之和 = 统计里的累计；总量与块长无关。开关统计不改输出。
+                struct Totals
+                {
+                    double change = 0.0, kept = 0.0;
+                };
+
+                const auto totalsFor = [&] (int blockSize, bool reporting, Signal& audio)
+                {
+                    ClayModule module;
+                    prepareClay (module, sampleRate, 2, lowCut);
+                    module.setGuardKeepReporting (reporting);
+                    audio = loud;
+                    juce::AudioBuffer<float> block (2, blockSize);
+                    auto change = 0.0, kept = 0.0;
+
+                    for (int start = 0; start < numSamples; start += blockSize)
+                    {
+                        const auto length = juce::jmin (blockSize, numSamples - start);
+                        block.setSize (2, length, false, false, true);
+
+                        for (int ch = 0; ch < 2; ++ch)
+                            block.copyFrom (ch, 0, loud[(size_t) ch].data() + start, length);
+
+                        module.process (block);
+                        const auto report = module.getLastProcessGuardKeep();
+                        change += report.changeEnergy;
+                        kept += report.keptEnergy;
+
+                        for (int ch = 0; ch < 2; ++ch)
+                            std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + length, audio[(size_t) ch].begin() + start);
+                    }
+
+                    const auto totals = module.getAndResetPeakGuardStats();
+
+                    if (reporting)
+                    {
+                        expect (totals.keepChangeEnergy > 0.0, "block " + juce::String (blockSize) + ": positive control: something is measured");
+                        expectWithinAbsoluteError (change / totals.keepChangeEnergy, 1.0, 1.0e-9,
+                                                   "block " + juce::String (blockSize) + ": per-process reports sum to the accumulated change energy");
+                        expectWithinAbsoluteError (kept / totals.keepKeptEnergy, 1.0, 1.0e-9,
+                                                   "block " + juce::String (blockSize) + ": per-process reports sum to the accumulated kept energy");
+                    }
+                    else
+                    {
+                        expect (change == 0.0 && kept == 0.0 && totals.keepChangeEnergy == 0.0, "reporting off: nothing is reported or accumulated");
+                    }
+
+                    return Totals { change, kept };
+                };
+
+                Signal audioOn, audioOff, audioOther;
+                const auto reference512 = totalsFor (512, true, audioOn);
+                totalsFor (512, false, audioOff);
+                expectEquals (countDifferentBits (audioOn, audioOff), 0, "turning the statistics on does not change a single output bit");
+
+                for (auto blockSize : { 1, 37, 4096 })
+                {
+                    const auto other = totalsFor (blockSize, true, audioOther);
+                    expectWithinAbsoluteError (other.change / reference512.change, 1.0, 1.0e-9, "block " + juce::String (blockSize) + ": same total change energy");
+                    expectWithinAbsoluteError (other.kept / reference512.kept, 1.0, 1.0e-9, "block " + juce::String (blockSize) + ": same total kept energy");
+                }
+
+                {
+                    ClayModule mono;
+                    prepareClay (mono, sampleRate, 1, lowCut);
+                    mono.setGuardKeepReporting (true);
+                    runClay (mono, Signal { loud[0] }, 512);
+                    const auto monoStats = mono.getAndResetPeakGuardStats();
+                    expect (monoStats.keepChangeEnergy > monoStats.keepKeptEnergy && monoStats.keepKeptEnergy > 0.0,
+                            "a mono module measures the same way (one channel)");
+                }
+
+                {
+                    // 指示要亮的情形：T-032 R4-02 夹具 B（M 与 S 各自独立的粉噪、S/M −10 dB，峰值归一到 −12 dBFS）上的手动收单 120 Hz、a = 1——
+                    // 守护在局部峰值样本上零余量，效果大半被收回（记录值：g < 1 约 73 %，S 的 100 Hz 以下 −22.6 → −5.8 dB）。保留比实测 0.55，低于灯的 75 % 线
+                    // （设计稿 R4-03 原写 50 %，会漏掉这个最该提示的例子，所以 T-074 把亮灯线定在 75 %；见 ClayGuard.h ClayGuardKeepMonitor）。
+                    const auto fixtureSamples = static_cast<int> (10.0 * sampleRate);
+                    const auto mid  = makePinkNoise (1, fixtureSamples, -18.0f, 621);
+                    const auto side = makePinkNoise (1, fixtureSamples, -28.0f, 631);
+                    auto material = makeSilence (2, fixtureSamples);
+
+                    for (int i = 0; i < fixtureSamples; ++i)
+                    {
+                        const auto index = static_cast<size_t> (i);
+                        material[0][index] = mid[0][index] + side[0][index];
+                        material[1][index] = mid[0][index] - side[0][index];
+                    }
+
+                    material = normalisedToPeak (material, -12.0f);
+                    ClayModule mono;
+                    prepareClay (mono, sampleRate, 2, makeParams (0.0f, 120.0f, 1.0f, 0.0f));
+                    mono.setGuardKeepReporting (true);
+                    runClay (mono, material, 512);
+                    const auto fixtureStats = mono.getAndResetPeakGuardStats();
+                    const auto fixtureRatio = fixtureStats.keepKeptEnergy / fixtureStats.keepChangeEnergy;
+                    logMessage ("  manual mono 120 Hz on independent mid / side pink (S/M -10 dB): guarded " + juce::String (100.0 * (double) fixtureStats.guardedSamples / fixtureSamples, 1)
+                                + " % of samples, keep ratio " + juce::String (fixtureRatio, 4));
+                    expect (fixtureStats.guardedSamples > fixtureSamples / 2, "positive control: the guard acts on most samples of this fixture");
+                    expect (fixtureRatio > 0.0 && fixtureRatio < 0.7, "the guard pulls the manual mono back below the lamp's 75 % line (the case the lamp is for)");
+                }
+
+                {
+                    // 对照（不该亮的情形）：夹具 A（T-032 R4-02：两声道独立粉噪 + 15 Hz 次声，峰值 −12 dBFS）上的手动低切 25 Hz——低切几乎照预期生效
+                    // （记录值：g < 1 约 3 %，标称 −17.8、实际 −16.6 dB），保留比接近 1。
+                    const auto fixtureSamples = static_cast<int> (10.0 * sampleRate);
+                    auto material = makePinkNoise (2, fixtureSamples, -18.0f, 611);
+
+                    for (auto& channel : material)
+                        addSine (channel, sampleRate, 15.0, 0.25f);
+
+                    material = normalisedToPeak (material, -12.0f);
+                    ClayModule cut;
+                    prepareClay (cut, sampleRate, 2, makeParams (25.0f, 120.0f, 0.0f, 0.0f));
+                    cut.setGuardKeepReporting (true);
+                    runClay (cut, material, 512);
+                    const auto cutStats = cut.getAndResetPeakGuardStats();
+                    const auto cutRatio = cutStats.keepKeptEnergy / cutStats.keepChangeEnergy;
+                    logMessage ("  manual low cut 25 Hz on dense pink + 15 Hz infrasound: guarded " + juce::String (100.0 * (double) cutStats.guardedSamples / fixtureSamples, 1)
+                                + " % of samples, keep ratio " + juce::String (cutRatio, 4));
+                    expect (cutRatio > 0.9, "a low cut the guard barely touches keeps almost everything (the lamp stays out)");
+                }
+
+                {
+                    // 对照：合成音乐（makeProgramme，-12 dBFS）上手动低切 30 Hz + 收单 120 Hz 同时开。只记录、不钉数（素材相关）。
+                    const auto fixtureSamples = static_cast<int> (10.0 * sampleRate);
+                    const auto material = makeProgramme (fixtureSamples, sampleRate, -12.0f, 17);
+                    ClayModule both;
+                    prepareClay (both, sampleRate, 2, makeParams (30.0f, 120.0f, 1.0f, 0.0f));
+                    both.setGuardKeepReporting (true);
+                    runClay (both, material, 512);
+                    const auto bothStats = both.getAndResetPeakGuardStats();
+                    logMessage ("  manual low cut 30 Hz + mono 120 Hz on the synthetic programme: guarded " + juce::String (100.0 * (double) bothStats.guardedSamples / fixtureSamples, 1)
+                                + " % of samples, keep ratio " + juce::String (bothStats.keepKeptEnergy / bothStats.keepChangeEnergy, 4));
+                    expect (bothStats.keepChangeEnergy > 0.0 && bothStats.keepKeptEnergy <= bothStats.keepChangeEnergy, "kept energy never exceeds the change energy");
                 }
             }
         };

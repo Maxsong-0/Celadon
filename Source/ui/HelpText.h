@@ -60,8 +60,8 @@ namespace celadon::help
     enum class ClayStage : int { lowCut = 0, mono = 1, width = 2 };
     inline constexpr int numClayStages = 3;
 
-    // 一盏灯的颜色类别：暗（35% 灰青，没在处理）/ 亮（梅子青，实际值非 0）/ 保护（琥珀，该级的实时保护正在介入）。
-    // 界面按 palette::textDim × comingSoonAlpha / accent / reduction 画（琥珀与 GR 表同色：「在压 / 保护中」同一种语义）。
+    // 一盏灯的颜色类别：暗（灰圈，没在处理）/ 亮（实际值非 0：「自动」紫圈、「手动」青色实心）/ 保护（橙色实心，该级的宽度保护正在介入或低频反相提示亮着）。
+    // 界面按 palette::lampIdle / violet / c600 / warning 画（ModuleCards.cpp 的 paint）；橙色表示要留意：「保护中 / 提示中」。
     enum class ClayLamp : int { off = 0, on = 1, guard = 2 };
 
     // 界面从参数读到的用户设置里，只影响「显示什么」的那几项。
@@ -84,10 +84,16 @@ namespace celadon::help
         int widthTenthsDb = 0;       // 高频加宽 × 10，带符号（负 = 收窄，只有手动给得出）
         bool phaseGuard = false;     // 低频反相提示中（只在收单选「自动」时；ADR-015 起不改声音）
         bool widthGuard = false;     // 宽度保护介入中（只算自动态的加宽）
+        // T-074（设计 R4-03）：峰值守护正在深度回收低切 / 收单（Status::clayPeakGuardActive：保留比 Σ(g·d)² / Σd² < 75 % 持续 ≥ 1 s）。
+        // 手动 / 自动都报（手动项恰恰没有别的反馈）；只在低切或收单此刻的实际值不为 0 时置，加宽不经守护、不受它影响。
+        // peakGuardKeptPercent = 保留比取整到 5 %（0 ～ 100；气泡写「实际只剩约 N %」；取整是为了读数不在每帧小幅抖动时让气泡文字白白重拼）。
+        bool peakGuard = false;
+        int peakGuardKeptPercent = 100;
         bool needsRelearn = false;   // 有自动态的项、但已提交画像缺立体声 / 超低频特征（旧工程）：气泡第 3 行提示「重新聆听」
-        bool bypassed = false;       // Bypass 修坯：以上各项的值与保护全清零，第 2 行写「修坯已旁通」
+        bool bypassed = false;       // Bypass 修坯：以上各项的值与低频反相提示、宽度保护全清零，第 2 行写「修坯已旁通」
         // ADR-012「先试后用」：该项（自动态）因本曲试过会抬高峰值而被决策器减量 / 否决（Status::clayCostLimitedMask）。
-        // 该项的保护正在介入时不算（第 2 行已写「…保护中」，此刻的实际值由保护定，不是代价的结果）；旁通时全清零。
+        // 加宽在宽度保护介入时不算（第 2 行已写「宽度保护中」，此刻的实际值由保护定，不是代价的结果）；收单在低频反相提示亮着时
+        // 不算（第 2 行已写「低频反相」，ADR-015 起决策器不再置收单的代价位，留着只为读旧快照时口径一致）；旁通时全清零。
         bool lowCutCostLimited = false;
         bool monoCostLimited = false;
         bool widthCostLimited = false;
@@ -100,21 +106,22 @@ namespace celadon::help
         bool operator!= (const ClayReadout& other) const noexcept   { return ! operator== (other); }
     };
 
-    // status = 编排器的状态快照（clay* 字段是上一块交给 ClayModule 的实际值与保护状态）；user = 三态与旁通。
+    // status = 编排器的状态快照（clay* 字段是上一块交给 ClayModule 的实际值，与低频反相提示、宽度保护的状态）；user = 三态与旁通。
     // 非有限的实际值按 0（不亮）处理。
     ClayReadout clayReadoutFor (const glaze::Status& status, const ClayUserState& user) noexcept;
 
-    // 某一盏灯的颜色类别：保护介入 → 琥珀（压过「亮」：宽度保护把加宽收到 0 时灯仍是琥珀，说明「想加宽、被保护拦住」）；
-    // 否则实际值非 0 → 梅子青；否则暗。旁通时 readout 里全是 0 → 全暗。
+    // 某一盏灯的颜色类别：宽度保护介入或低频反相提示 → 琥珀（压过「亮」：宽度保护把加宽收到 0 时灯仍是琥珀，说明「想加宽、被保护拦住」）；
+    // 否则实际值非 0 → 亮（「自动」紫圈、「手动」青色实心，画法见 ModuleCards.cpp）；否则暗。旁通时 readout 里全是 0 → 全暗。
     ClayLamp clayLampFor (const ClayReadout& readout, ClayStage stage) noexcept;
 
-    // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接保护状态；旁通时写「修坯已旁通」。
+    // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接低频反相提示与宽度保护状态；旁通时写「修坯已旁通」。
     juce::String clayLiveLine (const ClayReadout& readout, Language language = Language::chinese);
 
     // 旧工程提示（气泡第 3 行与 CLAY 卡片的提示共用）：「点「重新聆听」后启用自动修坯」。
     juce::String clayRelearnHint (Language language = Language::chinese);
 
-    // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」，
+    // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」（含低切时写
+    // 「会抬高峰值或削弱低音」：T-043 / ADR-027，守护的混合损失把低切封顶），
     // 跳过 = 该项此刻实际值为 0（量化读数口径），否则是减量；多项按处理顺序用「、」连接，两种都有时写
     // 「……已自动跳过低切，减量收单」。没有被代价减量 / 否决的项时返回空串。不含句末「。」（与 clayRelearnHint 一样由气泡补）。
     juce::String clayCostLine (const ClayReadout& readout, Language language = Language::chinese);

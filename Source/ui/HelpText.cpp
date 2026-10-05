@@ -416,7 +416,7 @@ namespace celadon::help
 
             // ---- 修坯 CLAY（v0.1.7.0，设计规格-Clay 第 5、6 节；ADR-009）----
             // v0.1.8.0 起在 CLAY 卡片上：每行 = 灯 + 名字 + 数值 + 三态（*_mode）。数值在「手动」时可拖动（*_hz / *_db 的手动值），
-            // 「自动」时显示此刻的实际值、手动值不生效。三态语义（ADR-009 第 4 条）：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；
+            // 「自动」时低切 / 加宽显示此刻的实际值（为 0 显示「未启用」）、收单一行恒显示「未启用」（自动不收单），手动值都不生效。三态语义（ADR-009 第 4 条）：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；
             // 关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改它。
             { param::clayLowCutMode,
               "低切 · 自动 / 关 / 手动",
@@ -444,10 +444,10 @@ namespace celadon::help
 
             { param::clayMonoHz,
               "收单 · 低频收成单声道",
-              "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效，这里显示的是此刻的实际值。",
+              "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。",
               "80～150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。",
               "Mono · lows to mono",
-              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used and the display shows the actual value.",
+              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto never folds the lows to mono, so no mono frequency is shown here).",
               "80–150 Hz is common; above 200 Hz guitars and keys get narrower too." },
 
             { param::clayWidthMode,
@@ -475,14 +475,14 @@ namespace celadon::help
               "Use it to compare with and without Clay." },
 
             // 三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯）：气泡第 2 行在界面上换成此刻的实际值（clayIndicatorTooltip），这里的第 2 行
-            // 是静态说明（无实时数据时的底稿）；第 3 行照常显示，所以灯色的含义写在第 3 行。
+            // 界面上从不显示（官网说明页首句手工与它保持一致，T-061，没有自动核对）；第 3 行照常显示，所以灯色的含义写在第 3 行。
             { uiid::clayIndicator,
               "修坯 · 立体声像与超低频清理",
-              "三盏灯自上而下：低切（清超低频）、收单（低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",
-              "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查），加宽灯琥珀 = 宽度保护介入。想手动覆盖，把该行切到「手动」。",
+              "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经峰值守护，自动加宽由先试后用把关，运行中还有宽度保护盯着相关度。",
+              "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查），加宽灯琥珀 = 宽度保护介入；低切 / 收单灯琥珀 = 峰值守护把你设的量明显收回去了（气泡里写还剩约多少）。想手动覆盖，把该行切到「手动」。",
               "Clay · stereo image and sub-bass cleanup",
-              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not guarded, and automatic width is kept in check by the trial.",
-              "Lit = processing (violet = auto, cyan = manual); amber mono = out-of-phase lows warning (check the mix), amber width = width guard engaged. To override, switch a row to Manual." },
+              "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not run through the peak guard; automatic width is kept in check by the trial and, while playing, by a width guard that watches correlation.",
+              "Lit = processing (violet = auto, cyan = manual); amber mono = out-of-phase lows warning (check the mix), amber width = width guard engaged; amber low cut / mono = the peak guard is clearly pulling your setting back (the tooltip says roughly how much is left). To override, switch a row to Manual." },
         };
 
         //==============================================================================
@@ -523,6 +523,33 @@ namespace celadon::help
         {
             const auto magnitude = std::abs (tenths);
             return juce::String (magnitude / 10) + "." + juce::String (magnitude % 10);
+        }
+
+        // 守护保留比（T-074，0 ～ 1）→ 气泡里写的百分数，取整到 5 %：读数每帧小幅抖动时不让气泡文字白白重拼。非有限 → 100（不写「只剩 0」）。
+        int keptPercentFor (float kept) noexcept
+        {
+            if (! std::isfinite (kept))
+                return 100;
+
+            return 5 * juce::roundToInt (juce::jlimit (0.0f, 1.0f, kept) * 20.0f);
+        }
+
+        // 峰值守护回收的是哪几级（T-074）：实际值非 0 的低切 / 收单；两个都在做时写「低切 / 收单」（守护是把①② 合在一起的改动量收回，
+        // 分不出各自剩多少）。readout.peakGuard 只在二者之一非 0 时才置，所以至少有一个。
+        juce::String peakGuardStagesZh (const ClayReadout& readout)
+        {
+            if (readout.lowCutHz > 0 && readout.monoPercent > 0)
+                return utf8 ("低切 / 收单");
+
+            return readout.lowCutHz > 0 ? utf8 ("低切") : utf8 ("收单");
+        }
+
+        juce::String peakGuardStagesEn (const ClayReadout& readout)
+        {
+            if (readout.lowCutHz > 0 && readout.monoPercent > 0)
+                return "low cut / mono";
+
+            return readout.lowCutHz > 0 ? "low cut" : "mono";
         }
     }
 
@@ -587,6 +614,8 @@ namespace celadon::help
             && widthTenthsDb == other.widthTenthsDb
             && phaseGuard == other.phaseGuard
             && widthGuard == other.widthGuard
+            && peakGuard == other.peakGuard
+            && peakGuardKeptPercent == other.peakGuardKeptPercent
             && needsRelearn == other.needsRelearn
             && bypassed == other.bypassed
             && lowCutCostLimited == other.lowCutCostLimited
@@ -630,6 +659,11 @@ namespace celadon::help
         readout.phaseGuard = user.monoAuto && status.clayPhaseGuardActive;
         readout.widthGuard = user.widthAuto && status.clayWidthGuardActive;
 
+        // 峰值守护回收（T-074，设计 R4-03）：手动 / 自动都报（不按三态筛）；低切与收单此刻都没在做（实际值 0）就没有东西可回收，不亮。
+        // 加宽不经峰值守护，不受它影响。
+        readout.peakGuard = status.clayPeakGuardActive && (readout.lowCutHz > 0 || readout.monoPercent > 0);
+        readout.peakGuardKeptPercent = readout.peakGuard ? keptPercentFor (status.clayPeakGuardKept) : 100;
+
         // 代价说明（ADR-012）：同样只算「自动」态的项（编排器已按三态筛过，这里按界面此刻读到的三态再筛一遍，两边口径一致）。
         // 宽度保护正在介入时不写加宽的代价：此刻的实际值是保护定的，第 2 行的「宽度保护中」已经说明了它。收单自动态不做（ADR-015），
         // 决策器不会再置收单的代价位；这里保留判断只为读旧快照时的口径一致。
@@ -645,10 +679,14 @@ namespace celadon::help
         switch (stage)
         {
             case ClayStage::lowCut:
+                // 峰值守护把低切 / 收单的改动量大半收回（T-074）：灯琥珀（低切在做时；收单在做时同理）。readout.peakGuard 只在二者之一非 0 时才置。
+                if (readout.peakGuard && readout.lowCutHz > 0)
+                    return ClayLamp::guard;
+
                 return readout.lowCutHz > 0 ? ClayLamp::on : ClayLamp::off;
 
             case ClayStage::mono:
-                if (readout.phaseGuard)
+                if (readout.phaseGuard || (readout.peakGuard && readout.monoPercent > 0))
                     return ClayLamp::guard;
 
                 return readout.monoPercent > 0 ? ClayLamp::on : ClayLamp::off;
@@ -670,7 +708,7 @@ namespace celadon::help
         if (readout.bypassed)
             return english ? juce::String ("Clay bypassed") : utf8 ("修坯已旁通");
 
-        // 三级按处理顺序（= 三盏灯自上而下）各写一段，再接保护状态；段间「 · 」（规格示例的写法）。
+        // 三级按处理顺序（= 三盏灯自上而下）各写一段，再接低频反相提示与宽度保护两段（亮着才写）；段间「 · 」（规格示例的写法）。
         juce::StringArray parts;
 
         if (english)
@@ -697,6 +735,10 @@ namespace celadon::help
             if (readout.widthGuard)
                 parts.add ("Width guard engaged");
 
+            if (readout.peakGuard)
+                parts.add (juce::String ("Peak guard pulling back ") + peakGuardStagesEn (readout) + ": only about "
+                           + juce::String (readout.peakGuardKeptPercent) + "% left");
+
             return parts.joinIntoString (utf8 (" \xc2\xb7 "));
         }
 
@@ -722,6 +764,9 @@ namespace celadon::help
 
         if (readout.widthGuard)
             parts.add (utf8 ("宽度保护中"));
+
+        if (readout.peakGuard)
+            parts.add (utf8 ("峰值守护回收中：") + peakGuardStagesZh (readout) + utf8 ("实际只剩约 ") + juce::String (readout.peakGuardKeptPercent) + "%");
 
         return parts.joinIntoString (utf8 (" · "));
     }

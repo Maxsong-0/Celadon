@@ -1,0 +1,103 @@
+# Celadon 的 CI：在 Studiolo 的自托管 CI 服务器上原生编 celadon_tests，跑基线与 x86-64-v3 两遍全套。
+# runner 是只属于本仓库的实例 celadon；机器、搭法与排队 / 离线时怎么查见 docs/BUILDING.md「CI」。
+# 第三方 action 按 commit SHA 钉死、注释写对应 tag（与 Studiolo 的 ci.yml 同一版本）；升级时 SHA 与注释一起改。
+name: CI
+
+# push 只对 main 触发：PR 走 pull_request，合并后的 main 走 push，各一遍（照 Studiolo T-080）。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 同一个 PR 上被新推送顶替的旧运行自动取消；main 上每个合并点都要有结论：push 每次自成一组，不取消，排队时也不会被后来的顶掉
+# （按 github.ref 分组的话，同组里排队等着的那次会被更新的一次替换）。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tests:
+    name: celadon_tests · ${{ matrix.label }}
+    # 只走自托管：私有仓库的 GitHub 托管分钟数与 Studiolo 共用一个账号的额度。runner 离线时作业排队等它（GitHub 最多等 24 小时），
+    # 不会改去托管机器；确要临时用托管机器，把这一行改成 ubuntu-24.04（消耗分钟数）。
+    runs-on: [self-hosted, linux, x64, celadon]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 与不带参数的 scripts/test-linux.sh 相同：Release，默认 x86-64（SSE2，没有 FMA）。
+          - key: base
+            label: 基线（x86-64）
+            cxx_flags: ""
+          # ADR-013 后果第 3 条：有 FMA 的目标上再跑一遍，GCC 的 -ffp-contract=off 与三个文件的编译期守卫才真被考验
+          # （即 CELADON_CXX_FLAGS=-march=x86-64-v3 scripts/test-linux.sh）。CI 每次都跑，不靠人记得改了哪些文件。
+          - key: x86-64-v3
+            label: x86-64-v3（FMA）
+            cxx_flags: -march=x86-64-v3
+    env:
+      BUILD: build/${{ matrix.key }}
+    steps:
+      # Celadon 与 JUCE 同级摆放（CMake 的 CELADON_JUCE_DIR 默认 ../JUCE），与 test-linux.sh 在服务器上的布局相同。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: Celadon
+          persist-credentials: false
+
+      # JUCE 9.0.2 按提交钉死。自托管 runner 的工作区常驻，第二次起不再下载整个仓库。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: juce-framework/JUCE
+          ref: 72782788ce18c2d4d760b28e0921d6ffc6431102 # 9.0.2
+          path: JUCE
+          persist-credentials: false
+
+      - name: 工具链
+        # runner 用机器上的系统包；缺了要在机器上 apt 装（docs/BUILDING.md「CI」）。
+        run: |
+          for tool in cmake ninja c++; do
+            command -v "$tool" >/dev/null || { echo "::error::CI 机器上没有 $tool（sudo apt-get install cmake ninja-build g++）"; exit 1; }
+          done
+          cmake --version
+          echo "ninja $(ninja --version)"
+          c++ --version
+          echo "$(nproc) 核"
+
+      - name: 配置
+        run: cmake -S Celadon -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="${{ matrix.cxx_flags }}"
+
+      # 构建目录在工作区里、两次 checkout 的目录之外，不随 checkout 清掉：下一次只重编改过的文件。
+      # 机器与 Studiolo 的 CI 共用，编译降一档优先级；跑全套不降（BalancePerformanceTests 有计时门槛）。
+      - name: 编译
+        run: nice -n 10 cmake --build "$BUILD" --target celadon_tests
+
+      - name: 全套
+        run: |
+          "$BUILD/celadon_tests" 2>&1 | tee "$RUNNER_TEMP/celadon_tests.log"
+
+      - name: 结果摘要
+        if: ${{ !cancelled() }}
+        run: |
+          log="$RUNNER_TEMP/celadon_tests.log"
+          {
+            echo "### celadon_tests · ${{ matrix.label }}"
+            if [ ! -f "$log" ]; then
+              echo '没有跑到全套：看「配置」「编译」两步的日志。'
+            else
+              result="$(sed -n 's/^==== \(celadon_tests: .*\) ====$/\1/p' "$log")"
+              echo "${result:-全套没有跑完：看「全套」一步的日志。}"
+              # 失败的检查连同所在的用例，最多列 100 条（JUCE 的 UnitTestRunner 记失败的行以「!!! Test」开头）。
+              failures="$(awk '/^Starting tests in: /{c=$0;s=0} /^!!! Test / && n<100 {if(!s){print c;s=1} print "    " $0; n++}' "$log")"
+              if [ -n "$failures" ]; then
+                printf '~~~\n%s\n~~~\n' "$failures"
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

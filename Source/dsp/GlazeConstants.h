@@ -357,30 +357,31 @@ namespace celadon::glaze
         // 待 Max 真歌试听标定。旧快照缺这些字段按 0 读（Clay 自动项因此为 0；重新聆听后换用出厂快照）。
         // ramp(x, x0, x1) = clamp((x − x0) / (x1 − x0), 0, 1)（x1 < x0 即反向斜坡）；g = GLAZE / 100。
         // 决策器对取值的约定（GlazePlanner.cpp planClay；旧快照全按 0 读时三项因此全部中性）：
-        //   clayGlazeFullAt ≤ 0 或非有限 → 不自动清理（低切、收单为 0）；clayWidthMaxDb ≤ 0 → 不自动加宽；
+        //   clayGlazeFullAt ≤ 0 或非有限 → 不自动低切（ADR-015 起收单本来就恒为 0，不看它）；clayWidthMaxDb ≤ 0 → 不自动加宽；
         //   clayLowCutFloorHz ≤ 0 或风格低切目标 ≤ 它 → 不低切；斜坡两端重合（例如都是 0）→ 该项「不需要」（不当阶跃）；
         //   clayMinCorrelationAfterWidth ≥ 1 或非有限 → 一点都不加宽，≤ −1 → 不设相关度上限；
         //   代价系数（ADR-012）只认真正的反向斜坡 clayCostZeroDb > clayCostFullDb（都有限）：否则（旧快照读成 0 / 0、两端颠倒）
         //   按「判断不了」处理——三项都中性、也不标 costLimitedMask（与画像的代价特征无效同一处理，见 planClay）。
         // 三项结果最后都钳进 ClayModule 的参数范围（低切 0 或 10 ～ 60 Hz、分频点 40 ～ 300 Hz、宽度 ≤ +3 dB）。
-        float clayGlazeFullAt = 0.5f;                 // 低切与收单：强度 = min(1, g / 本项)（清理不是口味项，GLAZE 50 起给满）
+        float clayGlazeFullAt = 0.5f;                 // 低切：强度 = min(1, g / 本项)（清理不是口味项，GLAZE 50 起给满；ADR-015 前收单也用它）
         float claySubShareLowDb = -40.0f;             // 真次声占比（< 16 Hz）need = ramp(subShareDb, 本项, High)（ADR-012）
         float claySubShareHighDb = -28.0f;
         float clayLowCutFloorHz = 10.0f;              // lowCutHz = 本项 · (f_t / 本项)^k，k = need · c · 强度 · 代价系数；k ≤ clayLowCutMinK → 关
         float clayLowCutMinK = 0.001f;
-        // 收单的需要度改由收益定（ADR-012，见下面 clayMonoLossLowDb / HighDb）：原先的「低频 S/M 或 ρ 两支取大」
-        // （clayMonoSideRatio* / clayMonoCorrelation*）已删——宽低音（ρ ≈ 0.8）单声道回放只少约 0.46 dB 低音，不值得收。
-        float clayMonoBandSideRatioDb = -15.0f;       // 分频点：40 ～ 160 Hz 里「S/M > 本项 或 ρ < BandCorrelation」的最高一段的上沿
-        float clayMonoBandCorrelation = 0.3f;
-        float clayMonoMinHz = 60.0f;                  // 自动分频点钳制范围与找不到时的默认值
-        float clayMonoMaxHz = 160.0f;
-        float clayMonoDefaultHz = 80.0f;
+        // 已退役的 7 个自动收单常数（T-063，2026-10-04）：clayMonoBandSideRatioDb、clayMonoBandCorrelation、clayMonoMinHz、clayMonoMaxHz、
+        // clayMonoDefaultHz、clayMonoLossLowDb、clayMonoLossHighDb。ADR-015（0.1.7.1）起自动态不收单，决策器不再读它们；现在连成员带
+        // 快照字段一起删了：新存档不再写这 7 个属性，旧存档里残留的读时忽略（读取只认字段表里的名字）。名字不得复用——旧存档里带着它们，
+        // 复用会把旧值读进新字段（GlazePlannerTests 的「旧存档带着 7 个自动收单属性」用例守着）。现行自动方案收单比例恒为 0、分频点恒为
+        // ClayPlan{} 的 80 Hz。更早（ADR-012）删掉的 clayMonoSideRatioLowDb / HighDb、clayMonoCorrelationLow / High 同理：收单需要度改由收益
+        // 定后，宽低音（ρ ≈ 0.8）单声道回放只少约 0.46 dB 低音，不值得收。
         float clayWidthNarrowStartDb = -10.0f;        // need_w = ramp(highSideToMidDb, 本项, Full)（越窄越需要）
         float clayWidthNarrowFullDb = -18.0f;
         float clayWidthMaxDb = 1.5f;                  // widthDb = 本项 · need_w · c · g · 风格系数（随 g 线性），再 × 代价系数
         float clayMinCorrelationAfterWidth = 0.25f;   // 加宽后预测高频相关度下限（决策器按画像、ClayGuard 按实时视图）
         // ClayGuard
-        float clayGuardPhaseCorrelation = -0.2f;      // 慢路低频相关度低于本项 → 反相保护（ADR-012：−0.2，单声道回放低音损失 > 4 dB）
+        // 慢路低频相关度低于本项 → 反相提示（修坯「收单」灯那条；House 档的 housePhaseHint 另看 house.phaseHintCorrelation）。
+        // ADR-012 定 −0.2：单声道回放低音损失 > 4 dB；ADR-015 起只提示、不改声音。
+        float clayGuardPhaseCorrelation = -0.2f;
         double clayGuardPhaseAttackSeconds = 0.1;
         double clayGuardPhaseHoldSeconds = 2.0;
         double clayGuardPhaseReleaseSeconds = 2.0;
@@ -388,12 +389,12 @@ namespace celadon::glaze
         double clayGuardWidthReleaseSeconds = 2.0;
         // ---- ADR-012 修坯根治（设计规格-Clay-根治修订 第 3 节）：默认值就是出厂值；【设计】，待真歌标定 ----
         // 代价 = 画像里「候选处理跑在原始输入上」量到的 100 ms 块峰值 P99 变化（dB，GlazeTypes.h MusicProfile 的 *PeakCostDb）；
-        // 代价系数 f = ramp(代价, clayCostZeroDb, clayCostFullDb)（反向斜坡），乘在三项的需要度之后。快照读写同其他 clay*：
-        // 缺字段按 0 读——代价两端 0 / 0 → 判断不了 → 三项中性；收单损失两端 0 / 0 → 斜坡两端重合 → 不需要收单。
+        // 代价系数 f = ramp(代价, clayCostZeroDb, clayCostFullDb)（反向斜坡），乘在低切、加宽的需要度之后（ADR-015 起收单自动态不做，
+        // 收单代价照测不用）。快照读写同其他 clay*：缺字段按 0 读——代价两端 0 / 0 → 判断不了 → 三项中性。（ADR-012 的收单损失两端
+        // clayMonoLossLowDb / HighDb 已随 ADR-015 的退役一起删，见上；决策器算 monoLossDb 的代码已在 T-018 删除。ClayGuard 的 House 反相提示
+        // （ClayGuard.cpp houseMonoLossDb）用的是同一个公式，但亮起的门限只读 house.phaseHintCorrelation，与这两项无关。）
         float clayCostFullDb = 0.2f;                  // 先试后用：代价 ≤ 本项 → 照做（系数 1）
         float clayCostZeroDb = 0.6f;                  // 代价 ≥ 本项 → 不做（系数 0）；两者之间线性
-        float clayMonoLossLowDb = -0.5f;              // 收单需要度 = ramp(monoLossDb, 本项, High)，monoLossDb = 10·log10((1 + ρ_low) / 2)
-        float clayMonoLossHighDb = -3.0f;
         // 慢路 < 本项时，快路 < clayGuardPhaseCorrelation 也算触发。ADR-014（2026-09-26 真歌门槛）：0.3 → 0.1——慢路在 0.1 ～ 0.3
         // 徘徊的宽低音（ST、Sometimes：慢路从未 < −0.2）会被 120 ms 快路的估计散布各误触发一次；0.1 把它们压到 0 次，真反相的歌
         // 保护时长不变，整体反相的判定只晚约 0.05 s（慢路过 0.1 约 0.18 s，仍在验收 4(c) 的 0.5 s 之内）。

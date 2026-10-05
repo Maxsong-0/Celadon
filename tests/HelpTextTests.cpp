@@ -6,8 +6,8 @@
     都必须在 HelpText 里有三行非空文案；气泡恰好三行；条目无重复、无多余。
 
     v0.1.7.0 追加 HelpTextClayTests（文件末尾）：修坯 7 个参数与两个界面 ID 的文案、三灯指示的颜色类别、
-    气泡第 2 行的实时值（规格示例逐字对照、为 0 / 收窄 / 保护 / 旁通、显示精度、非有限值、第 3 行的重新聆听提示）。
-    T-012 阶段 4（ADR-012）追加：第 3 行的「先试后用」代价说明（跳过 / 减量、多项、优先级、只算自动态、保护介入时不写、旁通清零）。
+    气泡第 2 行的实时值（规格示例逐字对照、为 0 / 收窄 / 反相提示与宽度保护 / 旁通、显示精度、非有限值、第 3 行的重新聆听提示）。
+    T-012 阶段 4（ADR-012）追加：第 3 行的「先试后用」代价说明（跳过 / 减量、多项、优先级、只算自动态、保护介入或反相提示时不写、旁通清零）。
     T-038 追加 HelpTextHouseTests（文件末尾）：曲风 / 交付文案、House 反相提示的文字与读数（不按三态与旁通筛）、House 暂定期间的悬停气泡。
 
     被测代码只依赖 juce_core（HelpText.cpp 进无头测试编译；HelpText.h 另带 dsp/GlazeTypes.h 的纯数据类型）。测试本身借
@@ -203,7 +203,7 @@ namespace celadon::test
             using help::ClayLamp;
             using help::ClayStage;
 
-            // 依据：设计规格-Clay 第 5 节（抽屉每行的名字 低切 / 收单 / 加宽、三态 自动 / 关 / 手动、「Bypass 修坯」；
+            // 依据：设计规格-Clay 第 5 节（CLAY 卡片每行的名字 低切 / 收单 / 加宽、三态 自动 / 关 / 手动、「Bypass 修坯」；
             // 指示灯气泡第 1 行「修坯 · 立体声像与超低频清理」）与第 6 节（7 个参数 + ui_clay_indicator 各有三行；v0.1.8.0 起
             // 修坯都在 CLAY 卡片上，顶栏「高级」ui_advanced 改为打开「高级」面板）。
             // 覆盖与三行格式由上面 HelpTextTests 的 allParameterIds / allUiIds 循环检查；这里查的是「文案说的是对的那个控件」。
@@ -269,7 +269,7 @@ namespace celadon::test
 
             beginTest ("Clay live line: stages at zero, narrowing, both guards, bypass");
             {
-                // 三项实际值都为 0（GLAZE 0 且抽屉默认、旧工程）：规格「各项为 0 时写「未低切」等简洁说法」。收单比例为 0 时
+                // 三项实际值都为 0（GLAZE 0 且三态默认、旧工程）：规格「各项为 0 时写「未低切」等简洁说法」。收单比例为 0 时
                 // 分频点无意义，不写（快照里的 80 Hz 是默认值）。
                 expectEquals (liveLineFor (clayStatus (0.0f, 80.0f, 0.0f, 0.0f)), utf8 ("未低切 · 未收单 · 未加宽"));
 
@@ -287,8 +287,8 @@ namespace celadon::test
                 expectEquals (liveLineFor (guarded, bypassed), utf8 ("修坯已旁通"));
             }
 
-            // 依据：设计规格-Clay 第 5 节：实际值非 0 → 梅子青（on）；该项保护介入 → 琥珀（guard：反相保护对「单」、宽度保护对「宽」）；
-            // 否则 35% 暗（off）。低切没有保护。
+            // 依据：设计规格-Clay 第 5 节：实际值非 0 → 亮（on，「自动」紫圈、「手动」青色实心）；该项保护介入或反相提示亮着 → 琥珀（guard：反相提示对「单」、
+            // 宽度保护对「宽」；ADR-015 起反相一路只提示、不改声音）；否则 35% 暗（off）。低切没有保护。
             beginTest ("Clay lamps follow actual values and guard flags");
             {
                 const auto idle = clayStatus (0.0f, 80.0f, 0.0f, 0.0f);
@@ -301,7 +301,7 @@ namespace celadon::test
                 expect (lampFor (working, ClayStage::mono)   == ClayLamp::on);
                 expect (lampFor (working, ClayStage::width)  == ClayLamp::on);
 
-                // 保护压过「亮」：宽度保护把加宽收到 0 dB 时灯仍是琥珀（「想加宽、被保护拦住」）。
+                // 保护 / 反相提示压过「亮」：宽度保护把加宽收到 0 dB 时灯仍是琥珀（「想加宽、被保护拦住」）。
                 const auto guarded = clayStatus (25.0f, 120.0f, 1.0f, 0.0f, true, true);
                 expect (lampFor (guarded, ClayStage::lowCut) == ClayLamp::on);
                 expect (lampFor (guarded, ClayStage::mono)   == ClayLamp::guard);
@@ -318,13 +318,99 @@ namespace celadon::test
                 expect (lampFor (guarded, ClayStage::width,  bypassed) == ClayLamp::off);
             }
 
-            // 依据：ADR-009 第 4 条、设计规格-Clay-分析决策与验收 第 3 节：保护只管「自动」态的项，「手动」「关」态不受保护改动——
-            // 即使快照里保护单元标着介入，界面也不把它算到手动的项上。
+            // 依据：T-074（设计 R4-03，核验 V4）：峰值守护深度回收低切 / 收单（Status::clayPeakGuardActive：保留比 < 50 % 持续 ≥ 1 s）→
+            // 低切、收单两盏灯琥珀；气泡第 2 行最后写「峰值守护回收中：低切 / 收单实际只剩约 N%」（N 取整到 5；只在做着的那几级里点名）；
+            // 手动 / 自动都报（不按三态筛，手动项恰恰没有别的反馈）；低切与收单实际值都为 0 时没有东西可回收、不亮；加宽不经守护、不受影响；旁通清零。
+            beginTest ("Clay peak guard recovery indicator (T-074): amber lamps, the live line says how much is left, any mode, bypass clears it");
+            {
+                const auto with = [] (glaze::Status snapshot, bool active, float kept)
+                {
+                    snapshot.clayPeakGuardActive = active;
+                    snapshot.clayPeakGuardKept = kept;
+                    return snapshot;
+                };
+
+                const auto working = clayStatus (25.0f, 120.0f, 0.8f, 0.8f);   // 低切、收单、加宽都在做
+                const auto plainLine = utf8 ("低切 25 Hz · 120 Hz 以下收单 80% · 高频加宽 +0.8 dB");
+
+                // 阳性对照：不亮时灯是 on、气泡没有这一段（即使保留比读数很低：灯由「回收中」决定，不由读数决定）。
+                expectEquals (liveLineFor (with (working, false, 0.2f)), plainLine);
+                expect (lampFor (with (working, false, 0.2f), ClayStage::lowCut) == ClayLamp::on);
+                expect (lampFor (with (working, false, 0.2f), ClayStage::mono)   == ClayLamp::on);
+
+                // 亮：低切、收单琥珀（加宽照旧）；写保留比（0.42 → 取整到 5 % = 40）。
+                const auto recovering = with (working, true, 0.42f);
+                expect (lampFor (recovering, ClayStage::lowCut) == ClayLamp::guard);
+                expect (lampFor (recovering, ClayStage::mono)   == ClayLamp::guard);
+                expect (lampFor (recovering, ClayStage::width)  == ClayLamp::on);
+                expectEquals (liveLineFor (recovering), plainLine + utf8 (" · 峰值守护回收中：低切 / 收单实际只剩约 40%"));
+                expectEquals (help::clayLiveLine (help::clayReadoutFor (recovering, {}), Language::english),
+                              utf8 ("Low cut 25 Hz \xc2\xb7 Mono 80% below 120 Hz \xc2\xb7 High width +0.8 dB \xc2\xb7 Peak guard pulling back low cut / mono: only about 40% left"));
+
+                // 只点名做着的那几级：只开低切 → 「低切」；只开收单 → 「收单」。
+                expectEquals (liveLineFor (with (clayStatus (25.0f, 80.0f, 0.0f, 0.0f), true, 0.5f)),
+                              utf8 ("低切 25 Hz · 未收单 · 未加宽 · 峰值守护回收中：低切实际只剩约 50%"));
+                expectEquals (liveLineFor (with (clayStatus (0.0f, 120.0f, 1.0f, 0.0f), true, 0.5f)),
+                              utf8 ("未低切 · 120 Hz 以下收单 100% · 未加宽 · 峰值守护回收中：收单实际只剩约 50%"));
+                expect (lampFor (with (clayStatus (25.0f, 80.0f, 0.0f, 0.0f), true, 0.5f), ClayStage::lowCut) == ClayLamp::guard);
+                expect (lampFor (with (clayStatus (25.0f, 80.0f, 0.0f, 0.0f), true, 0.5f), ClayStage::mono)   == ClayLamp::off);
+                expect (lampFor (with (clayStatus (0.0f, 120.0f, 1.0f, 0.0f), true, 0.5f), ClayStage::lowCut) == ClayLamp::off);
+                expect (lampFor (with (clayStatus (0.0f, 120.0f, 1.0f, 0.0f), true, 0.5f), ClayStage::mono)   == ClayLamp::guard);
+
+                // 低切与收单都没在做（只有加宽）：没有东西可回收，即使快照标着「回收中」也不亮、不写。
+                const auto widthOnly = with (clayStatus (0.0f, 80.0f, 0.0f, 0.8f), true, 0.3f);
+                expect (lampFor (widthOnly, ClayStage::width) == ClayLamp::on && lampFor (widthOnly, ClayStage::lowCut) == ClayLamp::off);
+                expectEquals (liveLineFor (widthOnly), utf8 ("未低切 · 未收单 · 高频加宽 +0.8 dB"));
+
+                // 手动 / 关 / 自动都报：三态一律不筛（对照：反相提示与宽度保护按三态筛，见下一条测试）。
+                help::ClayUserState manual;
+                manual.lowCutAuto = false;
+                manual.monoAuto = false;
+                manual.widthAuto = false;
+                expect (lampFor (recovering, ClayStage::lowCut, manual) == ClayLamp::guard);
+                expect (lampFor (recovering, ClayStage::mono, manual)   == ClayLamp::guard);
+                expectEquals (liveLineFor (recovering, manual), liveLineFor (recovering));
+
+                // 与反相提示、宽度保护同时出现：反相 → 宽度 → 峰值守护。
+                const auto all = with (clayStatus (25.0f, 120.0f, 1.0f, 0.0f, true, true), true, 0.25f);
+                expectEquals (liveLineFor (all),
+                              utf8 ("低切 25 Hz · 120 Hz 以下收单 100% · 未加宽 · 低频反相：单声道播放会丢低音 · 宽度保护中 · 峰值守护回收中：低切 / 收单实际只剩约 25%"));
+
+                // 旁通：同一份快照（阳性对照 = 上面的 guard），旁通后只写「修坯已旁通」、三灯全暗。
+                help::ClayUserState bypassed;
+                bypassed.bypassed = true;
+                expectEquals (liveLineFor (recovering, bypassed), utf8 ("修坯已旁通"));
+                expect (lampFor (recovering, ClayStage::lowCut, bypassed) == ClayLamp::off && lampFor (recovering, ClayStage::mono, bypassed) == ClayLamp::off);
+
+                // 保留比取整到 5 %、钳到 0 ～ 100；非有限按 100（不写「只剩 0」）；读数在亮着时才有意义，灭着时记 100。
+                const auto keptPercent = [&] (float kept) { return help::clayReadoutFor (with (working, true, kept), {}).peakGuardKeptPercent; };
+                expectEquals (keptPercent (0.47f), 45);
+                expectEquals (keptPercent (0.48f), 50);
+                expectEquals (keptPercent (0.0f), 0);
+                expectEquals (keptPercent (1.5f), 100);
+                expectEquals (keptPercent (-0.2f), 0);
+                expectEquals (keptPercent (std::numeric_limits<float>::quiet_NaN()), 100);
+                expectEquals (help::clayReadoutFor (with (working, false, 0.1f), {}).peakGuardKeptPercent, 100);
+
+                // 读数相等才不重画：保留比只在 5 % 的台阶上变；亮灭一变读数就不等。
+                expect (help::clayReadoutFor (with (working, true, 0.41f), {}) == help::clayReadoutFor (with (working, true, 0.42f), {}),
+                        "kept ratio within the same 5 % step: identical readout (no repaint)");
+                expect (help::clayReadoutFor (with (working, true, 0.42f), {}) != help::clayReadoutFor (with (working, true, 0.50f), {}));
+                expect (help::clayReadoutFor (with (working, true, 0.42f), {}) != help::clayReadoutFor (with (working, false, 0.42f), {}));
+
+                // 灯条目的第 3 行（界面上显示的那行）讲了新灯色。
+                expect (utf8Contains (thirdLineFor (recovering), "低切 / 收单灯琥珀 = 峰值守护"), "the lamp help explains the amber low cut / mono lamps");
+                expect (tooltipLine (help::clayIndicatorTooltip (help::clayReadoutFor (recovering, {}), Language::english), 2).contains ("amber low cut / mono = the peak guard"),
+                        "the English lamp help explains the amber low cut / mono lamps");
+            }
+
+            // 依据：ADR-009 第 4 条、设计规格-Clay-分析决策与验收 第 3 节：宽度保护只管「自动」态的项，「手动」「关」态不受保护改动；
+            // 反相提示只在收单「自动」时报（ADR-015；「手动」「关」= 用户接管）——即使快照里标着介入 / 提示，界面也不把它算到手动的项上。
             beginTest ("Clay guards only count for stages in automatic mode");
             {
                 const auto guarded = clayStatus (25.0f, 120.0f, 1.0f, 0.8f, true, true);
 
-                // 阳性对照：同一快照、三项都「自动」→ 琥珀、写保护。
+                // 阳性对照：同一快照、三项都「自动」→ 琥珀、写反相提示与宽度保护。
                 expect (lampFor (guarded, ClayStage::mono)  == ClayLamp::guard);
                 expect (lampFor (guarded, ClayStage::width) == ClayLamp::guard);
 
@@ -332,7 +418,7 @@ namespace celadon::test
                 manual.monoAuto  = false;
                 manual.widthAuto = false;
 
-                // 收单与加宽改成非自动：实际值仍非 0 → 亮（梅子青），不是琥珀；第 2 行不写保护。
+                // 收单与加宽改成非自动：实际值仍非 0 → 亮（「手动」是青色实心），不是琥珀；第 2 行不写反相提示与宽度保护。
                 expect (lampFor (guarded, ClayStage::mono,  manual) == ClayLamp::on);
                 expect (lampFor (guarded, ClayStage::width, manual) == ClayLamp::on);
                 expectEquals (liveLineFor (guarded, manual), utf8 ("低切 25 Hz · 120 Hz 以下收单 100% · 高频加宽 +0.8 dB"));
@@ -473,9 +559,9 @@ namespace celadon::test
                 expect (utf8StartsWith (tooltipLine (tip, 2), "本曲试过："), "line 3 starts with the cost explanation");
             }
 
-            // 依据：同上「优先级低于『点重新聆听』提示」；ADR-009 第 4 条（「关 / 手动」项不经决策器、保护只管自动态）；
-            // HelpText.h ClayReadout 代价标志的约定（该项保护介入时不写代价、旁通时全清零）。
-            beginTest ("Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while that item's guard acts, cleared by bypass");
+            // 依据：同上「优先级低于『点重新聆听』提示」；ADR-009 第 4 条（「关 / 手动」项不经决策器、宽度保护只管自动态）；
+            // HelpText.h ClayReadout 代价标志的约定（加宽在宽度保护介入、收单在反相提示亮着时不写代价，旁通时全清零）。
+            beginTest ("Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while the mono warning is on or the width guard acts, cleared by bypass");
             {
                 const auto* entry = help::find (uiid::clayIndicator);
                 expect (entry != nullptr);
@@ -498,12 +584,12 @@ namespace celadon::test
 
                 // 反相提示亮着时不写收单的代价（旧快照里可能还带着收单的代价位；ADR-015 起决策器不再置它）：第 2 行已写「低频反相」。
                 const auto guardedMono = withCostMask (clayStatus (0.0f, 80.0f, 1.0f, 0.0f, true, false), monoBit);
-                expectEquals (thirdLineFor (guardedMono), advice, "mono guard acting: no cost line for mono");
+                expectEquals (thirdLineFor (guardedMono), advice, "mono warning on: no cost line for mono");
                 expect (utf8Contains (liveLineFor (guardedMono), "低频反相"), "line 2 says why instead");
                 auto guardOver = guardedMono;
                 guardOver.clayPhaseGuardActive = false;
                 guardOver.clayMonoAmount = 0.0f;
-                expectEquals (thirdLineFor (guardOver), utf8 ("本曲试过：收单会抬高峰值，已自动跳过。"), "positive control: guard released");
+                expectEquals (thirdLineFor (guardOver), utf8 ("本曲试过：收单会抬高峰值，已自动跳过。"), "positive control: warning off");
 
                 const auto guardedWidth = withCostMask (clayStatus (0.0f, 80.0f, 0.0f, 0.0f, false, true), widthBit);
                 expectEquals (thirdLineFor (guardedWidth), advice, "width guard acting: no cost line for width");
@@ -531,7 +617,7 @@ namespace celadon::test
 
             // 依据：ADR-014 T-032 修订（2026-09-29，研究 R4-01 / 核验 V4）——峰值守护只管低切与收单，加宽的增量不经守护（ClayModule.h
             // 文件头④）。三处文案不能再说「任何状态下峰值处都会自动让一点」「修坯从不让峰值变高」（旧文案：加宽在正常电平下其实被
-            // 守护回收约 95 %、界面却说只让一点）；中英文都要讲到「加宽不经守护」「低切 / 收单在会抬峰值的瞬间让开」。指示灯管自动与手动
+            // 守护回收约 95 %、界面却说只让一点）；中英文都要讲到「加宽不经峰值守护」「低切 / 收单在会抬峰值的瞬间让开」。指示灯管自动与手动
             // 两种状态，「由先试后用把关」只对自动加宽成立（手动加宽只有末级限幅器兜），所以要写明是「自动加宽」。
             // 阳性对照：同一组断言对改前的 HelpText.cpp（e6b445b）全部不过（T-032 报告记录）。
             beginTest ("Clay texts (T-032): the peak guard covers low cut and mono only; width is not guarded");
@@ -550,22 +636,64 @@ namespace celadon::test
                             "width mode (English): says width is not guarded, no longer claims it yields a little");
 
                     expect (utf8Contains (utf8 (indicator->effect), "低切与收单从不让峰值变高")
-                              && utf8Contains (utf8 (indicator->effect), "加宽不经守护"),
-                            "indicator: the guard covers low cut and mono, width is not guarded");
+                              && utf8Contains (utf8 (indicator->effect), "加宽不经峰值守护"),
+                            "indicator: the guard covers low cut and mono, width is not run through the peak guard");
                     expect (! utf8Contains (utf8 (indicator->effect), "修坯从不让峰值变高"), "indicator: no longer claims Clay as a whole never raises peaks");
                     expect (juce::String (indicator->effectEn).contains ("Low cut and mono never make peaks higher")
-                              && juce::String (indicator->effectEn).contains ("width is not guarded")
+                              && juce::String (indicator->effectEn).contains ("width is not run through the peak guard")
                               && ! juce::String (indicator->effectEn).contains ("Clay never makes peaks higher"),
                             "indicator (English): same scope");
                     expect (utf8Contains (utf8 (indicator->effect), "自动加宽由先试后用把关")
                               && juce::String (indicator->effectEn).contains ("automatic width is kept in check by the trial"),
                             "indicator: only the automatic width goes through the trial (a manual width is what you set)");
+                    // T-068（评审 F2）：自动加宽运行中还有宽度保护（盯相关度，真会改声音、会点亮琥珀加宽灯），首句不能只提先试后用。
+                    expect (utf8Contains (utf8 (indicator->effect), "运行中还有宽度保护盯着相关度")
+                              && juce::String (indicator->effectEn).contains ("while playing, by a width guard that watches correlation"),
+                            "indicator: automatic width also has the live width guard");
 
                     expect (utf8Contains (utf8 (lowCut->advice), "峰值守护会把低切让回去") && ! utf8Contains (utf8 (lowCut->advice), "让一点"),
                             "low cut advice: the guard yields the low cut at peaks it would raise");
                     expect (juce::String (lowCut->adviceEn).contains ("the peak guard yields the low cut")
                               && ! juce::String (lowCut->adviceEn).contains ("yields a little"),
                             "low cut advice (English): same");
+                }
+            }
+
+            // 依据：ADR-015（自动不收单）与 T-061：灯的底稿第 2 行把三项并列时，收单要写明「按你的需要」，不然读起来像与低切、加宽一样
+            // 默认会做；措辞与官网首页（home.json「按你的需要 / when you ask for it」）和说明页首句一致。
+            // 阳性对照：对改前的 HelpText.cpp（fbe91f3）这两条都不过（旧句「收单（低频收成单声道）」「mono (lows to mono)」）。
+            beginTest ("Clay indicator (ADR-015): mono is described as on request, not as an automatic move");
+            {
+                const auto* indicator = help::find (uiid::clayIndicator);
+                expect (indicator != nullptr, "the Clay indicator entry exists");
+
+                if (indicator != nullptr)
+                {
+                    expect (utf8Contains (utf8 (indicator->effect), "收单（按你的需要把低频收成单声道）")
+                              && ! utf8Contains (utf8 (indicator->effect), "收单（低频收成单声道）"),
+                            "indicator: mono only on request");
+                    expect (juce::String (indicator->effectEn).contains ("mono (lows to mono when you ask for it)")
+                              && ! juce::String (indicator->effectEn).contains ("mono (lows to mono)"),
+                            "indicator (English): same");
+                }
+            }
+
+            // 依据：ADR-015（自动不收单）与 T-066：收单频率这一行在「自动」下不收单、不显示收单频率；原句「这里显示的是此刻的实际值」
+            // 读起来像自动也有一个收单频率。官网 clay.md 的收单频率行与它同源。
+            // 阳性对照：对改前的 HelpText.cpp（5620af1）这两条都不过。
+            beginTest ("Clay mono frequency (ADR-015): Auto does not mono, so no frequency is shown");
+            {
+                const auto* entry = help::find (param::clayMonoHz);
+                expect (entry != nullptr, "the mono frequency entry exists");
+
+                if (entry != nullptr)
+                {
+                    expect (utf8Contains (utf8 (entry->effect), "（自动不收单，这里不显示收单频率）")
+                              && ! utf8Contains (utf8 (entry->effect), "这里显示的是此刻的实际值"),
+                            "mono frequency: Auto shows no frequency");
+                    expect (juce::String (entry->effectEn).contains ("Auto never folds the lows to mono, so no mono frequency is shown here")
+                              && ! juce::String (entry->effectEn).contains ("the display shows the actual value"),
+                            "mono frequency (English): same");
                 }
             }
         }

@@ -1,0 +1,11 @@
+song                             g   dInPk   dLUFS ref:dInPk ref:dLUFS guard%  inv% music_s   lock(auto/off) replay
+WTF                             70  +0.000  +0.000    +0.747    +0.348  15.84  0.00   184.6              L/L     ok
+l_kskdhjf                       70  +0.000  +0.000    +0.000    +0.000  42.81  0.00   195.6              L/L     ok
+ooaa                            70  +0.000  +0.000    +0.000    +0.000   0.00  0.00    18.6      calib/calib     ok
+
+FAILS: 2
+  - WTF g70: 反相保护介入 15.8 % > 5 %，而插件慢路 ρ 从未 < −0.2（误触发）
+  - l_kskdhjf g70: 反相保护介入 42.8 % > 5 %，而插件慢路 ρ 从未 < −0.2（误触发）
+NOTES: 2
+  - ooaa g70 clay-auto: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）
+  - ooaa g70 clay-off: calibrating / 校准无效——有效音乐 18.6 s，时长不够锁定（不算失败）

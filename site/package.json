@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "vite",
     "typecheck": "tsc --noEmit",
-    "build": "node scripts/check-i18n.mjs && tsc --noEmit && vite build && node scripts/gen-sitemap.mjs && node scripts/gen-zh-html.mjs",
+    "build": "node scripts/check-i18n.mjs && node scripts/check-svg-text.mjs && tsc --noEmit && vite build && node scripts/gen-sitemap.mjs && node scripts/gen-zh-html.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:svg-text": "node scripts/check-svg-text.mjs",
     "preview": "vite preview --host"
   },
   "dependencies": {

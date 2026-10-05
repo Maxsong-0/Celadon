@@ -1,7 +1,7 @@
 # 用户态 systemd 单元：~/.config/systemd/user/cloudflared-celadon.service
 # 隧道 token 在 ~/.config/cloudflared/celadon.env（TUNNEL_TOKEN=...，chmod 600），由 deploy/push-tunnel-token.sh 经管道写入。
 [Unit]
-Description=Cloudflare Tunnel 连接器（隧道 celadon → celadon.maxsong.me）
+Description=Cloudflare Tunnel 连接器（隧道 celadon → celadonaudio.com；旧域名 celadon.maxsong.me 在 Cloudflare 上 301 到它）
 # linger 已开 → 引导时拉起 user@1000 → default.target → 本单元。去掉「10 秒内重启 5 次就放弃」：开机瞬间网络没好很正常。
 StartLimitIntervalSec=0
 StartLimitBurst=0

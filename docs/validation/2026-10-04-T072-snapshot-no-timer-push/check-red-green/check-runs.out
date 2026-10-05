@@ -1,0 +1,4 @@
+new 退出码 0 PASS=112 FAIL=0
+old 退出码 1 PASS=111 FAIL=1
+FAIL T-072 spectrum: an editor driven by advanceForSnapshot is not advanced by its own timer (6 kHz -12 dBFS sine 0.5 s, then 300 ms of message loop: 2 path rebuilds in 300 ms of message loop after the last advanceForSnapshot, needs 0)
+完成 23:47:49

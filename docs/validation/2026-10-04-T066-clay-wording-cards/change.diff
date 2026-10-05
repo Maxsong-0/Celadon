@@ -1,0 +1,264 @@
+diff --git a/Source/ui/HelpText.cpp b/Source/ui/HelpText.cpp
+index 3db8b29..99641f7 100644
+--- a/Source/ui/HelpText.cpp
++++ b/Source/ui/HelpText.cpp
+@@ -444,10 +444,10 @@ namespace celadon::help
+ 
+             { param::clayMonoHz,
+               "收单 · 低频收成单声道",
+-              "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效，这里显示的是此刻的实际值。",
++              "这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。",
+               "80～150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。",
+               "Mono · lows to mono",
+-              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used and the display shows the actual value.",
++              "The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto does not mono, so no mono frequency is shown here).",
+               "80–150 Hz is common; above 200 Hz guitars and keys get narrower too." },
+ 
+             { param::clayWidthMode,
+@@ -475,7 +475,7 @@ namespace celadon::help
+               "Use it to compare with and without Clay." },
+ 
+             // 三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯）：气泡第 2 行在界面上换成此刻的实际值（clayIndicatorTooltip），这里的第 2 行
+-            // 是静态说明（无实时数据时的底稿）；第 3 行照常显示，所以灯色的含义写在第 3 行。
++            // 界面上从不显示（只作官网说明页首句的同源底稿，T-061）；第 3 行照常显示，所以灯色的含义写在第 3 行。
+             { uiid::clayIndicator,
+               "修坯 · 立体声像与超低频清理",
+               "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",
+diff --git a/Source/ui/Localisation.cpp b/Source/ui/Localisation.cpp
+index f3b82cb..2ba7d12 100644
+--- a/Source/ui/Localisation.cpp
++++ b/Source/ui/Localisation.cpp
+@@ -156,9 +156,6 @@ namespace celadon::ui
+             { Text::auditionDifferenceNote, "只听被削掉的部分",     "only what is removed" },
+ 
+             // ---- 高级面板 ----
+-            { Text::advancedClay,       "修坯 CLAY",                "CLAY" },
+-            { Text::advancedClayNote,   "低切、收单、加宽各自可选「自动 / 关 / 手动」，\n三态与手动值都在下方 CLAY 卡片上。",
+-                                        "Auto / Off / Manual and the manual values for low cut, mono and width are on the CLAY card below." },
+             { Text::comingSoon,         "即将推出",                 "Coming soon" },
+             { Text::subprojectLoudNotHarsh,   "推响不刺",           "Loud, not harsh" },
+             { Text::subprojectTargetSpectrum, "目标频谱",           "Target spectrum" },
+diff --git a/Source/ui/Localisation.h b/Source/ui/Localisation.h
+index 94e9b5c..4ceff8c 100644
+--- a/Source/ui/Localisation.h
++++ b/Source/ui/Localisation.h
+@@ -72,7 +72,7 @@ namespace celadon::ui
+         gain, ceiling, clip, release, lookahead, limitReduction, autoChip, auditioningDifference, auditionDifferenceNote,
+ 
+         // ---- 高级面板 ----
+-        advancedClay, advancedClayNote, comingSoon, subprojectLoudNotHarsh, subprojectTargetSpectrum, subprojectReleaseSafety,
++        comingSoon, subprojectLoudNotHarsh, subprojectTargetSpectrum, subprojectReleaseSafety,
+         advancedSubtitle, harshNote, harshStrength, transientPreserve, harshReduction, harshAutoNote, harshOffNote, harshManualNote,
+         targetNote, targetWarm, targetNeutral, targetBright, targetReference, targetStrength, targetCurveTitle,
+         referenceLearn, referenceCancel, referenceClear, referenceIdle, referenceWaiting, referenceLearning, referenceReady, referenceRouting,
+diff --git a/site/src/content/algorithms/en/clay.md b/site/src/content/algorithms/en/clay.md
+index 2321253..f1da23b 100644
+--- a/site/src/content/algorithms/en/clay.md
++++ b/site/src/content/algorithms/en/clay.md
+@@ -43,7 +43,7 @@ After being rewritten to work in 64-sample segments, the output is bit-identical
+ | Mono | **No mono-ing** (removed after listening tests on 2026-09-27); it only lights an amber warning when the lows are out of phase — mono-ing only reduces stereo bass and leaves mono playback unchanged, and it sounded unnatural |
+ | Width | Widens a narrow top end moderately (at most +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow |
+ 
+-Three-mode semantics: Auto = decision-maker + real-time protection, doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection changes it.
++Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono step aside at moments that would raise peaks, without changing your value).
+ 
+ ## Thresholds (how we prove it doesn't make things worse)
+ 
+diff --git a/site/src/content/algorithms/zh/clay.md b/site/src/content/algorithms/zh/clay.md
+index d5a767b..aefa77e 100644
+--- a/site/src/content/algorithms/zh/clay.md
++++ b/site/src/content/algorithms/zh/clay.md
+@@ -43,7 +43,7 @@ M = (L + R) / 2，S = (L − R) / 2；输出 L' = M' + S'，R' = M' − S'。
+ | 收单 | **不收单**（2026-09-27 试听后拿掉），只在低频反相时亮琥珀灯提醒——收单只减立体声低音、单声道回放不变，听感不自然 |
+ | 加宽 | 只在高频偏窄、且试过不会抬高峰值时适度加宽（最多 +1.5 dB），并盯住相关度防止发虚 |
+ 
+-三态语义：自动 = 决策器 + 实时保护，GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改它。
++三态语义：自动 = 决策器 + 实时保护（收单例外：自动态不收单，只提醒），GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变）。
+ 
+ ## 门槛（怎么证明它没帮倒忙）
+ 
+diff --git a/site/src/content/docs/en/clay.md b/site/src/content/docs/en/clay.md
+index 46ac0ea..69ee4ba 100644
+--- a/site/src/content/docs/en/clay.md
++++ b/site/src/content/docs/en/clay.md
+@@ -6,9 +6,9 @@ The card has three rows, top to bottom: Low cut, Mono, Width. Each row = a lamp
+ 
+ | Mode | Meaning |
+ |---|---|
+-| Auto | Decision-maker + real-time protection: acts only when this song really has a problem and a trial run shows it won't raise the peaks; does nothing at GLAZE 0 |
++| Auto | Decision-maker + real-time protection: acts only when this song really has a problem and a trial run shows it won't raise the peaks (Mono is the exception: on Auto it never folds the lows, it only lights an amber warning when they are out of phase); does nothing at GLAZE 0 |
+ | Off | Never processes |
+-| Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection changes it. In Manual the value can be dragged |
++| Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono step aside at moments that would raise peaks, without changing your value; Width is not guarded). In Manual the value can be dragged |
+ 
+ Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of-phase lows warning (check the mix); amber Width lamp = width guard engaged. Hover a lamp and the second line of the tooltip shows the live value, while the third line gives cost notes such as “Tried on this song: low cut would raise peaks or thin the low end, reduced automatically”.
+ 
+@@ -19,7 +19,7 @@ Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of
+ | **Low cut · Auto / Off / Manual** | Auto: cuts only when the song really has inaudible infrasound (below 16 Hz) and a trial shows it won't raise peaks or thin the low end, and backs off during playback if it keeps doing either; Off: never cuts; Manual: cuts at your frequency, even at GLAZE 0. | Usually keep Auto; choose Off to keep deliberate sub-bass effects. |
+ | **Low cut frequency** 10–60 Hz | A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual value. | 16–25 Hz is enough; it rotates the low-end phase, and whenever that would raise a peak the peak guard yields the low cut so the limiter does not work harder. |
+ | **Mono · Auto / Off / Manual** | Auto: no mono-ing, only an amber warning when the lows are out of phase (bass lost on mono playback); Off: no mono-ing, no warning; Manual: everything below your frequency becomes mono. | Mono-ing only focuses stereo bass and cannot change mono playback; for tighter lows use Manual, starting at 100–150 Hz. |
+-| **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used and the display shows the actual value. | 80–150 Hz is common; above 200 Hz guitars and keys get narrower too. |
++| **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto does not mono, so no mono frequency is shown here). | 80–150 Hz is common; above 200 Hz guitars and keys get narrower too. |
+ | **Width · Auto / Off / Manual** | Auto: widens a narrow top end moderately (up to +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow; Off: no widening; Manual: your value, negative narrows. Width is not run through the peak guard: what you set is what you get. | Songs that are already wide are left alone; to go wider, try Manual at +0.5 to +1 dB. |
+ | **Width amount** −3 to +3 dB | Raises the side signal above about 2 kHz for a wider image, mono playback unchanged; negative narrows; in Auto your value is not used and the display shows the actual value. | Within ±1 dB is clearly audible; above +2 dB it easily sounds hollow and phasey. |
+ | **Power button** | Turns off only Clay (low cut, mono, width); latency stays the same and switching is click-free. | Use it to compare with and without Clay. |
+@@ -28,7 +28,7 @@ Lamps: lit = processing (violet = Auto, cyan = Manual); amber Mono lamp = out-of
+ 
+ ## Mini graph
+ 
+-Below the three rows is a 10 Hz – 1 kHz mini graph: the slope below the low cut, the mono region, and the stereo region above it.
++Below the three rows is a 10 Hz – 1 kHz mini graph: the hatching below the low cut, the mono region, and the stereo region above it.
+ 
+ ## Old projects
+ 
+diff --git a/site/src/content/docs/en/glaze.md b/site/src/content/docs/en/glaze.md
+index ed57607..a518494 100644
+--- a/site/src/content/docs/en/glaze.md
++++ b/site/src/content/docs/en/glaze.md
+@@ -11,7 +11,7 @@ GLAZE doesn't turn every knob up at once. It **listens to the song first and dec
+ 
+ **Actual value = clamp(manual value + automatic increment).** The manual knobs are the floor and GLAZE adds on top; it never automatically cancels out your changes. On screen, cyan is your value and violet is the automatic increment.
+ 
+-GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat, and LIMIT's Gain / Clip. CLAY's three controls and the automatic options under Advanced follow it too (see below).
++GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat, and LIMIT's Gain / Clip. CLAY's three controls (Mono never folds the lows on Auto, it only warns) and the automatic options under Advanced follow it too (see below).
+ 
+ ## What it listens for
+ 
+@@ -48,7 +48,7 @@ The style also sets the shape of the automatic Target spectrum under Advanced: W
+ ## How it relates to Advanced and CLAY
+ 
+ - With “Loud, not harsh” and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.
+-- CLAY's three controls on Auto are decided by the plan and do nothing at GLAZE 0; on Manual they work even at GLAZE 0; Off never processes.
++- CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out of phase; on Manual they work even at GLAZE 0; Off never processes.
+ - Whenever an Advanced setting changes (or a manual parameter or the sample rate does), the calibration's reference conditions change and calibration realigns.
+ 
+ ## Saving and reopening
+diff --git a/site/src/content/docs/en/interface.md b/site/src/content/docs/en/interface.md
+index 4af3069..53b7b51 100644
+--- a/site/src/content/docs/en/interface.md
++++ b/site/src/content/docs/en/interface.md
+@@ -10,7 +10,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
+ 
+ - **IN / OUT meters**: true peak measured with 8× interpolation (dBTP); the number below is the peak hold — click it to reset. OUT shouldn't exceed the Ceiling; if it does, it turns orange.
+ - **GR meter**: how many dB the limiter is pulling down right now. If it stays above 6 dB for long stretches, Gain is pushed too far.
+-- **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average, thin dark cyan line = peak hold, dashed line = IN; each can be turned on or off. Display slope 0 / 3 / 4.5 dB/oct (pivoting at 1 kHz, 4.5 by default). While CLAY is working, it draws the low-cut and mono frequencies. Hovering reads out “dB | Hz | note + cents”.
++- **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average, thin dark cyan line = peak hold, dashed line = IN; each can be turned on or off. Display slope 0 / 3 / 4.5 dB/oct (pivoting at 1 kHz, 4.5 by default). While CLAY is working, it draws the low-cut frequency and, when Mono is on Manual, the mono frequency. Hovering reads out “dB | Hz | note + cents”.
+ - **Loudness panel** (top right): integrated loudness, short-term (S), true-peak maximum (TP), peak-to-loudness ratio (PLR), the streaming normalisation amount (against −14) and the target loudness marker.
+ 
+ ## Middle row
+diff --git a/site/src/content/docs/en/meters.md b/site/src/content/docs/en/meters.md
+index 7ed45b0..8915525 100644
+--- a/site/src/content/docs/en/meters.md
++++ b/site/src/content/docs/en/meters.md
+@@ -24,7 +24,7 @@ The meters read the master **before** any listening attenuation: Match and norma
+ - 20 Hz – 20 kHz on a log axis, −84 to −3 dB.
+ - OUT fill (the original, while you're listening to it), coloured by loudness: the louder a region, the brighter it gets (grey-cyan → bright mint); white line = average; thin dark cyan line = peak hold; dashed line = IN; each can be turned on or off.
+ - Display slope 0 / 3 / 4.5 dB/oct, pivoting at 1 kHz, 4.5 by default — pink noise is flat at 3 dB/oct, and most masters look most comfortable at around 4.5.
+-- While CLAY is working, it draws the low-cut and mono frequencies; hovering shows “dB | Hz | note + cents”.
++- While CLAY is working, it draws the low-cut frequency and, when Mono is on Manual, the mono frequency; hovering shows “dB | Hz | note + cents”.
+ - It taps the signal at the end of the chain. The spectrum follows your screen's refresh rate (60 frames a second on a 60 Hz display, 120 on a 120 Hz one, at most 120); attacks land in about one frame and the fall-off takes about 0.1 s, with an 8192-point window (low-frequency resolution unchanged). The readout — at the mouse, or the loudest peak when the mouse is off the panel — updates about every 0.27 s. The meters and loudness readings still refresh at 30 Hz.
+ 
+ ## Correction curve (BALANCE card)
+diff --git a/site/src/content/docs/zh/clay.md b/site/src/content/docs/zh/clay.md
+index 24c3efb..0eb633e 100644
+--- a/site/src/content/docs/zh/clay.md
++++ b/site/src/content/docs/zh/clay.md
+@@ -6,9 +6,9 @@
+ 
+ | 三态 | 含义 |
+ |---|---|
+-| 自动 | 决策器 + 实时保护：只在这首歌真有问题、且试过不会抬高峰值时才动；GLAZE 为 0 时不处理 |
++| 自动 | 决策器 + 实时保护：只在这首歌真有问题、且试过不会抬高峰值时才动（收单例外：自动态不收单，只在低频反相时亮琥珀灯提醒）；GLAZE 为 0 时不处理 |
+ | 关 | 永远不处理 |
+-| 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改它。「手动」时数值可拖 |
++| 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变；加宽不经守护）。「手动」时数值可拖 |
+ 
+ 灯：亮 = 在处理（紫 = 自动，青 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查）；加宽灯琥珀 = 宽度保护介入。悬停灯的气泡第 2 行是实时值，第 3 行会写「本曲试过：低切会抬高峰值或削弱低音，已自动减量」这类代价说明。
+ 
+@@ -19,7 +19,7 @@
+ | **低切 · 自动 / 关 / 手动** | 自动：只在这首歌真有听不见的次声（16 Hz 以下）、且试过不会抬高峰值或削弱低音才切，播放中若一直抬峰值或削弱低音会自动减量；关：永远不切；手动：按手动频率切，GLAZE 为 0 也生效。 | 一般保持自动；想留住刻意的超低频效果时选「关」。 |
+ | **低切频率** 10 ～ 60 Hz | 4 阶高通切掉这个频率以下的次声与直流；「自动」时手动值不生效，这里显示的是此刻的实际值。 | 16 ～ 25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压。 |
+ | **收单 · 自动 / 关 / 手动** | 自动：不收单，只在低频反相（单声道播放会丢低音）时亮琥珀灯提醒；关：不收单、不提醒；手动：手动频率以下全部收单。 | 收单只让立体声的低音更集中，改变不了单声道播放；想要更紧的低音时用手动，从 100 ～ 150 Hz 起。 |
+-| **收单频率** 40 ～ 300 Hz | 这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效，这里显示的是此刻的实际值。 | 80 ～ 150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。 |
++| **收单频率** 40 ～ 300 Hz | 这个频率以下的侧声道收成单声道（线性相位，不转动相位）：低频更紧，单声道回放完全不变；「自动」时手动值不生效（自动不收单，这里不显示收单频率）。 | 80 ～ 150 Hz 常用；超过 200 Hz 会把吉他、键盘的声像一起收窄。 |
+ | **加宽 · 自动 / 关 / 手动** | 自动：只在高频偏窄、且试过不会抬高峰值时适度加宽（最多 +1.5 dB），并盯住相关度防止发虚；关：不加宽；手动：按手动值，负值收窄。加宽不经峰值守护：设多少就是多少。 | 本来就宽的歌自动不会动；想更宽先试手动 +0.5 ～ +1 dB。 |
+ | **加宽量** −3 ～ +3 dB | 抬高约 2 kHz 以上的侧声道，声像更开阔，单声道回放不变；负值收窄；「自动」时手动值不生效，这里显示的是此刻的实际值。 | ±1 dB 以内就很明显；超过 +2 dB 容易发虚、相位感变重。 |
+ | **电源键** | 只关掉修坯（低切、收单、加宽）；延迟不变，切换没有咔哒。 | 对比修坯前后时用。 |
+diff --git a/site/src/content/docs/zh/glaze.md b/site/src/content/docs/zh/glaze.md
+index f8e7ef8..35fdff8 100644
+--- a/site/src/content/docs/zh/glaze.md
++++ b/site/src/content/docs/zh/glaze.md
+@@ -11,7 +11,7 @@ GLAZE 不是把所有旋钮同时调大。它**先听这首歌，按它的响度
+ 
+ **实际值 = clamp(手动值 + 自动增量)**。手动旋钮是底，GLAZE 在上面叠加；它绝不自动抵消你的修改。界面上青色是你的值、紫色是自动加量。
+ 
+-GLAZE 联动 7 项：BALANCE 的回补 / 抑制、COLOR 的音调 / 粘合 / 热度、LIMIT 的增益 / 削波。CLAY 的三项与「高级」里的自动项也随它走（见下）。
++GLAZE 联动 7 项：BALANCE 的回补 / 抑制、COLOR 的音调 / 粘合 / 热度、LIMIT 的增益 / 削波。CLAY 的三项（收单在「自动」下从不收，只提醒）与「高级」里的自动项也随它走（见下）。
+ 
+ ## 它在听什么
+ 
+@@ -48,7 +48,7 @@ GLAZE 联动 7 项：BALANCE 的回补 / 抑制、COLOR 的音调 / 粘合 / 热
+ ## 与「高级」和 CLAY 的关系
+ 
+ - 推响不刺、目标频谱在「自动」时：强度 = 你设的力度 × GLAZE / 100。GLAZE 0 时为零。
+-- CLAY 三项在「自动」时由方案决定，GLAZE 0 时不处理；「手动」时 GLAZE 0 也生效；「关」永远不处理。
++- CLAY 的低切与加宽在「自动」时由方案决定，GLAZE 0 时不处理；收单在「自动」下从不收，只在低频反相时亮琥珀灯提醒；「手动」时 GLAZE 0 也生效；「关」永远不处理。
+ - 高级设置一变（或手动参数、采样率变），校准的参考条件就变了，校准会重新对齐。
+ 
+ ## 保存与重开
+diff --git a/site/src/content/docs/zh/interface.md b/site/src/content/docs/zh/interface.md
+index 4d582c2..52f9f88 100644
+--- a/site/src/content/docs/zh/interface.md
++++ b/site/src/content/docs/zh/interface.md
+@@ -10,7 +10,7 @@
+ 
+ - **IN 表 / OUT 表**：8 倍插值测出的真峰值（dBTP），下面的数字是峰值保持，点数字清零。OUT 不应超过 Ceiling；超了会变橙。
+ - **GR 表**：限幅器此刻压了多少 dB。长时间超过 6 dB 说明 Gain 推太多。
+-- **频谱仪**：20 Hz ～ 20 kHz 对数横轴、−84 ～ −3 dB。OUT 填充（听原声时就是原声，按响度上色）、白线 = 平均、深青细线 = 峰值保持、虚线 = IN，三者可开关。显示斜率 0 / 3 / 4.5 dB/oct（绕 1 kHz，默认 4.5）。修坯在处理时画出低切与收单频率。悬停读数「dB | Hz | 音名 + 音分」。
++- **频谱仪**：20 Hz ～ 20 kHz 对数横轴、−84 ～ −3 dB。OUT 填充（听原声时就是原声，按响度上色）、白线 = 平均、深青细线 = 峰值保持、虚线 = IN，三者可开关。显示斜率 0 / 3 / 4.5 dB/oct（绕 1 kHz，默认 4.5）。修坯在处理时画出正在生效的低切频率与（手动）收单频率。悬停读数「dB | Hz | 音名 + 音分」。
+ - **响度小窗**（右上）：整体响度、短期（S）、真峰值最大值（TP）、峰响比（PLR）、流媒体归一量（对 −14）、目标响度标记。
+ 
+ ## 中层
+diff --git a/site/src/content/docs/zh/meters.md b/site/src/content/docs/zh/meters.md
+index 5d0169b..cbcfd3c 100644
+--- a/site/src/content/docs/zh/meters.md
++++ b/site/src/content/docs/zh/meters.md
+@@ -24,7 +24,7 @@
+ - 20 Hz ～ 20 kHz 对数横轴，−84 ～ −3 dB。
+ - OUT 填充（听原声时就是原声）按响度上色：越响的地方颜色越亮（灰青 → 亮薄荷青）；白线 = 平均；深青细线 = 峰值保持；虚线 = IN；三者可开关。
+ - 显示斜率 0 / 3 / 4.5 dB/oct，绕 1 kHz，默认 4.5——粉噪在 3 dB/oct 下是平的，多数母带在 4.5 左右看着最舒服。
+-- 修坯在处理时画出低切与收单频率；悬停显示「dB | Hz | 音名 + 音分」。
++- 修坯在处理时画出正在生效的低切频率与（手动）收单频率；悬停显示「dB | Hz | 音名 + 音分」。
+ - 采样口在链的出口。频谱跟着屏幕刷新走（60 Hz 屏每秒 60 帧、120 Hz 屏 120 帧，最多 120 帧）；起音几乎一帧到位、回落约 0.1 秒，窗口 8192 点（低频分辨率不变）。悬停与「最响的峰」读数约 0.27 秒换一次。表与响度读数仍是 30 Hz。
+ 
+ ## 修正曲线（BALANCE 卡片）
+diff --git a/tests/HelpTextTests.cpp b/tests/HelpTextTests.cpp
+index 677e293..2ccdf6d 100644
+--- a/tests/HelpTextTests.cpp
++++ b/tests/HelpTextTests.cpp
+@@ -587,6 +587,25 @@ namespace celadon::test
+                             "indicator (English): same");
+                 }
+             }
++
++            // 依据：ADR-015（自动不收单）与 T-066：收单频率这一行在「自动」下不收单、不显示收单频率；原句「这里显示的是此刻的实际值」
++            // 读起来像自动也有一个收单频率。官网 clay.md 的收单频率行与它同源。
++            // 阳性对照：对改前的 HelpText.cpp（5620af1）这两条都不过。
++            beginTest ("Clay mono frequency (ADR-015): Auto does not mono, so no frequency is shown");
++            {
++                const auto* entry = help::find (param::clayMonoHz);
++                expect (entry != nullptr, "the mono frequency entry exists");
++
++                if (entry != nullptr)
++                {
++                    expect (utf8Contains (utf8 (entry->effect), "（自动不收单，这里不显示收单频率）")
++                              && ! utf8Contains (utf8 (entry->effect), "这里显示的是此刻的实际值"),
++                            "mono frequency: Auto shows no frequency");
++                    expect (juce::String (entry->effectEn).contains ("Auto does not mono, so no mono frequency is shown here")
++                              && ! juce::String (entry->effectEn).contains ("the display shows the actual value"),
++                            "mono frequency (English): same");
++                }
++            }
+         }
+     };
+ 

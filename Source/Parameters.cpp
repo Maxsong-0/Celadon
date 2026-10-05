@@ -67,7 +67,7 @@ namespace celadon::param
         }
 
         // Clay 的三态（ADR-009）：选项顺序 = celadon::ClayMode 的下标（0 自动 / 1 关 / 2 手动），默认 0 = 自动。
-        // 选项名用英文（宿主自动化列表里显示，与 Balance Speed、Glaze Style 一致）；抽屉里的三态胶囊显示中文「自动 / 关 / 手动」
+        // 选项名用英文（宿主自动化列表里显示，与 Balance Speed、Glaze Style 一致）；CLAY 卡片上的三态胶囊显示中文「自动 / 关 / 手动」
         //（胶囊按下标绑定，只核对选项个数）。处理器 Debug 版构造时核对选项数与 ClayMode 一致。
         std::unique_ptr<juce::RangedAudioParameter> makeClayMode (const char* id, const juce::String& name, int defaultIndex)
         {
@@ -168,7 +168,7 @@ namespace celadon::param
                                                                   juce::StringArray { "Auto", "Warm", "Punchy", "Clean" }, defaults::glazeStyleIndex));
 
         // ---- Clay 修坯（设计规格-Clay 第 6 节、ADR-009；v0.1.7.0 引入，ParameterID 版本 kParamVersionClay = 7）----
-        // 全部在「高级」抽屉里、都可自动化，追加在参数表末尾（已发布参数的下标不动）。顺序与 ParameterIds.h 的 allParameterIds 一致。
+        // 全部在 CLAY 卡片上（v0.1.7.0 时在「高级」抽屉里）、都可自动化，追加在参数表末尾（已发布参数的下标不动）。顺序与 ParameterIds.h 的 allParameterIds 一致。
         // 每项「三态 + 手动值」：三态默认「自动」——GLAZE 为 0 时自动值为 0（不处理）；「手动」严格按旋钮值，GLAZE 0 也生效；
         // 「关」永远不处理。三态合成在 GLAZE 编排器里（glaze::resolveClayParams），这里只定范围、默认值与显示。
         // 旧工程缺这些参数时回到默认（addMissingParameterNodes 补只带 id 的节点）：三态「自动」而旧画像没有立体声 / 超低频特征，

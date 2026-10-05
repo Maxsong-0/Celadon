@@ -21,7 +21,7 @@
       - active = false（GLAZE ≤ 0）：状态直接回中性（ClayGuardState{}，资格期计时清零），输出 = 输入。
     时间一律按有效音频秒数（与 GlazeGuard 同口径）。状态可存进执行快照（getState / setState）；「条件已连续成立多久」的
     资格期计时不在 ClayGuardState 里（该结构随执行快照保存、格式已定），不存档：setState / reset 后从 0 起算（只会让恢复后
-    正在进行的反相晚最多 0.15 s 重新计保持期，下限与保持期本身照快照接着走，听感不变）。
+    正在进行的反相晚最多 0.15 s 重新计保持期，提示强度与保持期本身照快照接着走，听感不变）。
 
     resolveClayParams（纯函数）：把用户三态设置与自动值合成交给 ClayModule 的实际参数——
       自动 → 自动值（glazePercent ≤ 0 时取中性：lowCutHz 0、monoAmount 0、widthDb 0）；关 → 中性；
@@ -60,11 +60,11 @@ namespace celadon::glaze
         void setState (const ClayGuardState& restored) noexcept;   // 执行快照恢复（钳到合法范围；资格期计时从 0 起算）
 
         // ---- T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节）----
-        // 只提示、不改声音；与上面的反相保护分开，不进 ClayGuardState、不存档。
+        // 只提示、不改声音；与上面 update 的反相提示分开，不进 ClayGuardState、不存档。
         //   view = 分析器此刻的实时视图（读慢路 liveLowCorrelation）；seconds = 有效音频秒数（同 update）；
         //   eligible = 编排器判定此刻在 House 档的满编段里；requiredSeconds = 条件须连续成立多久才提示（编排器按 4 小节换成秒，
         //   拿不到拍点时传 Constants::house.phaseHintFallbackSeconds）。不 eligible 时提示熄灭、计时清零；条件消失后先保持
-        //   clayGuardPhaseHoldSeconds（出厂 2 s，同反相保护）再熄灭。
+        //   clayGuardPhaseHoldSeconds（出厂 2 s，同 update 的反相提示）再熄灭。
         struct HouseHint
         {
             bool active = false;
@@ -106,7 +106,7 @@ namespace celadon::glaze
         enum class PhaseInput { unknown, clear, inverted };
         PhaseInput phaseInputOf (const ShortTermView& view) const noexcept;
 
-        // 反相保护推进 seconds 秒：conditionHolds = 本块反相触发条件成立（还要连续成立满 phaseMinSeconds 才算触发）。
+        // 反相提示推进 seconds 秒：conditionHolds = 本块反相触发条件成立（还要连续成立满 phaseMinSeconds 才算触发）。
         void advancePhase (bool conditionHolds, double seconds) noexcept;
         // 宽度保护推进 seconds 秒：allowedDb = 此刻允许的最大加宽（0 ～ clayWidthUncappedDb）；plannedWidthDb = 方案值（已清洗）。
         void advanceWidth (float allowedDb, float plannedWidthDb, double seconds) noexcept;
@@ -230,4 +230,48 @@ namespace celadon::glaze
     //   代价位：原本不为 0、被 scale < 1 缩小的项置「因代价减量 / 否决」的位（界面说「本曲试过：…会抬高峰值，已自动减量 / 跳过」，
     //   这里的「试」是整首歌里守护的实测）；原有的位保留。
     ClayPlan scaleClayPlan (const ClayPlan& plan, float scale, float lowCutFloorHz) noexcept;
+
+    //==============================================================================
+    // 守护回收指示（T-074，设计 R4-03，核验 V4 改定的度量）。ClayModule 的峰值守护把①② 的改动量 d = y − x（低切 / 收单）收回一部分
+    // （输出 = x + g·d），手动低切 / 收单被深度回收时界面原来毫无提示（V4 实测手动收单 120 Hz 在低音侧声道与中声道不相关的素材上 78 % 的
+    // 样本 g < 1、效果 −22.6 → −4.9 dB；手动低切 25 Hz 在宽密素材上 59 %、−17.4 → −8.6 dB；灯全绿）。要指示的是「你拧的量剩多少」：
+    // 保留比 κ = Σ(g·d)² / Σd²（ClayModule::getLastProcessGuardKeep 逐输出样本累计的两份能量）。不用 g < 1 的样本占比（改动量小、超出却
+    // 很小时会夸大，ADR-014 3a 弃用过），也不用压力格（max|y|/B 对「效果丢了多少」失明）。
+    //   两份能量按 smoothingSeconds（2 s）指数平滑（对「每片内能量均匀」的贡献按片长折算，结果与块怎么切无关）：κ = 平滑后的 kept / change。
+    //   为什么 2 s：保留比随素材起伏很大（T-074 实测噪声素材上 300 ms 平滑的 κ 在 0.54 ～ 0.98 之间来回，「连续 1 s 低于线」几乎凑不齐），
+    //   「最近两秒守护留下了你设定的多少」才是用户关心的、也才稳。「有没有可听的改动」另走一个快门（gateSeconds = 0.3 s 的改动量包络）：
+    //   包络的每样本均方（两声道之和）低于 floorMeanSquare（约 −60 dBFS）就算没有可听的改动——慢的两份能量清零、κ 记 1，所以低切 / 收单
+    //   关掉、停播、旁通淡出之后几秒内就熄，不会因为 2 s 的平滑拖很久。
+    //   亮：κ < onBelow（75 %）连续 onSeconds（1 s）；熄：κ ≥ offAbove（85 %）连续 offSeconds（1 s）——滞回，免得在 75 % 附近闪。
+    //   阈值按实测定（设计稿 R4-03 原写 50 %，T-074 改）：V4 的典型坏例子（夹具 B：M / S 各自独立的粉噪、S/M −10 dB，手动收单 120 Hz，
+    //   g < 1 的样本 66 %，S 的 100 Hz 以下 −22.6 → −5.8 dB）保留比是 0.554——50 % 会漏掉它；不该亮的情形：低切 25 Hz 的夹具 A 0.978、
+    //   偏置低音过 20 Hz 低切 0.917、合成音乐上低切 30 Hz + 收单 120 Hz 0.974（ClayTests）。75 % / 85 % 夹在坏例子与这些之间。
+    //   手动 / 自动都报（不按 GLAZE 活跃、不按三态筛：手动项恰恰没有别的反馈，ADR-014 3a 的压力监测有意只管自动项）；只说①②（加宽不进守护）。
+    //   纯算术、不分配；只影响界面，不影响声音，也不进标定快照（不放 Constants）。
+    struct ClayGuardKeepMonitor
+    {
+        static constexpr double smoothingSeconds = 2.0;     // 两份能量（比值）的平滑时间常数
+        static constexpr double gateSeconds = 0.3;          // 「有没有可听的改动」的快速包络的时间常数
+        static constexpr double onBelow = 0.75;             // 保留比低于它……
+        static constexpr double onSeconds = 1.0;            // ……连续这么久才亮
+        static constexpr double offAbove = 0.85;            // 保留比回到它以上……
+        static constexpr double offSeconds = 1.0;           // ……连续这么久才熄
+        static constexpr double floorMeanSquare = 1.0e-6;   // 每样本改动量均方（两声道之和）的地板，约 −60 dBFS
+
+        // 本切片：changeEnergy = Σd²、keptEnergy = Σ(g·d)²（ModuleStats::clayGuardChangeEnergy / clayGuardKeptEnergy），seconds = 切片时长，
+        // sampleRate = 采样率（算地板用）。非有限 / 负的能量这一切片按 0 计；seconds 或 sampleRate 无效时不动。
+        void update (double changeEnergy, double keptEnergy, double seconds, double sampleRate) noexcept;
+        void reset() noexcept;
+
+        bool active() const noexcept            { return on; }
+        float keptFraction() const noexcept     { return static_cast<float> (fraction); }   // 平滑后的保留比 0 ～ 1（没有可听的改动时 1）
+
+        double gateChange = 0.0;   // 改动量的快速包络（gateSeconds）：只用来判有没有可听的改动
+        double change = 0.0;       // 平滑后（smoothingSeconds）的 Σd²
+        double kept = 0.0;         // 平滑后的 Σ(g·d)²
+        double fraction = 1.0;
+        double belowSeconds = 0.0; // 灭着时 κ 连续低于 onBelow 的秒数
+        double aboveSeconds = 0.0; // 亮着时 κ 连续不低于 offAbove 的秒数
+        bool on = false;
+    };
 }

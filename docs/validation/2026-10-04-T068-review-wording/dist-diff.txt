@@ -1,0 +1,31 @@
+只在改前 15 行，只在改后 15 行
+  - **Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before t
+  - **低切与收单从不让峰值变高**。守护只管 ① 低切与 ② 收单：在 8 ms 前瞻里比较「这两级处理后」与「处理前」的相关峰值，会抬峰值的瞬间按需让开（g 路径静止在全 1 时走快路）。守护对手动的低切 / 收单也生效（手动值不被改写，只在峰值处让一点）。
+  - - CLAY 的低切与加宽在「自动」时由方案决定，GLAZE 0 时不处理；收单在「自动」下从不收，只在低频反相时亮琥珀灯提醒；「手动」时 GLAZE 0 也生效；「关」永远不处理。
+  - - CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out
+  - Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never p
+  - var e=`Before porcelain is glazed, the clay body is trimmed — cleaned up and evened out so the glaze (GLAZE) sits well. CLAY comes after BALANCE and before COLOR: it cuts
+  - var e=`瓷器上釉之前要先「修坯」——把坯体修干净、修匀，釉（GLAZE）才挂得好。CLAY 在 BALANCE 之后、COLOR 之前：切掉听不见的次声与直流，按你的需要把低频收成单声道，窄的歌适度加宽。**低切与收单从不让峰值变高**：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。
+  - var e={process:{label:`The four steps`,en:``},glaze:{label:`One knob`,en:``},showcase:{label:`The instrument`,en:``},listen:{label:`Listen`,en:``},judgement:{label:`Judge
+  - var e={process:{label:`四道工序`,en:`The four steps`},glaze:{label:`施釉`,en:`One knob`},showcase:{label:`真界面`,en:`The instrument`},listen:{label:`试听`,en:`Listen`},judgement:{l
+  - | **Low cut frequency** 10–60 Hz | A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual v
+  - | **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in
+  - | **低切频率** 10 ～ 60 Hz | 4 阶高通切掉这个频率以下的次声与直流；「自动」时手动值不生效，这里显示的是此刻的实际值。 | 16 ～ 25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压。 |
+  - | Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono step aside at
+  - | 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变；加宽不经守护）。「手动」时数值可拖 |
+  - 三态语义：自动 = 决策器 + 实时保护（收单例外：自动态不收单，只提醒），GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间让开一点，手动值本身不变）。
+  + **Low cut and Mono never make the peaks higher.** The guard covers only ① Low cut and ② Mono: within an 8 ms lookahead it compares the correlated peaks after and before t
+  + **低切与收单从不让峰值变高**。守护只管 ① 低切与 ② 收单：在 8 ms 前瞻里比较「这两级处理后」与「处理前」的相关峰值，会抬峰值的瞬间按需让开（g 路径静止在全 1 时走快路）。守护对手动的低切 / 收单也生效（手动值不被改写，只在会抬峰值处收回它的效果；峰值密集、低音宽而不相关的歌上收回的可能不少，界面不会另行提示）。
+  + - CLAY 的低切与加宽在「自动」时由方案决定，GLAZE 0 时不处理；收单在「自动」下从不收，只在低频反相时亮琥珀灯提醒（GLAZE 为 0 时连提醒也不亮）；「手动」时 GLAZE 0 也生效；「关」永远不处理。
+  + - CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out
+  + Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never p
+  + var e=`Before porcelain is glazed, the clay body is trimmed — cleaned up and evened out so the glaze (GLAZE) sits well. CLAY comes after BALANCE and before COLOR: it cuts
+  + var e=`瓷器上釉之前要先「修坯」——把坯体修干净、修匀，釉（GLAZE）才挂得好。CLAY 在 BALANCE 之后、COLOR 之前：切掉听不见的次声与直流，按你的需要把低频收成单声道，窄的歌适度加宽。**低切与收单从不让峰值变高**：会抬峰值的瞬间自动让开；加宽不经峰值守护，自动加宽由先试后用把关，运行中还有宽度保护盯着相关度。
+  + var e={process:{label:`The four steps`,en:``},glaze:{label:`One knob`,en:``},showcase:{label:`The instrument`,en:``},listen:{label:`Listen`,en:``},judgement:{label:`Judge
+  + var e={process:{label:`四道工序`,en:`The four steps`},glaze:{label:`施釉`,en:`One knob`},showcase:{label:`真界面`,en:`The instrument`},listen:{label:`试听`,en:`Listen`},judgement:{l
+  + | **Low cut frequency** 10–60 Hz | A 4th-order high-pass removes infrasound and DC below this frequency; in Auto your value is not used and the display shows the actual v
+  + | **Mono frequency** 40–300 Hz | The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in
+  + | **低切频率** 10 ～ 60 Hz | 4 阶高通切掉这个频率以下的次声与直流；「自动」时手动值不生效，这里显示的是此刻的实际值。 | 16 ～ 25 Hz 足够；它会转动低频相位，抬高峰值的瞬间峰值守护会把低切让回去，不让限幅器多压；让得太频繁会削弱低音，所以自动会把频率压低或不切。 |
+  + | Manual | Follows your value exactly, even at GLAZE 0; neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono are pulled ba
+  + | 手动 | 严格按手动值，GLAZE 为 0 也生效；自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间会被收回，手动值本身不变；低音宽而不相关、峰值密集的歌上收回的可能不少，界面不会另行提示；加宽不经峰值守护）。「手动」时数值可拖 |
+  + 三态语义：自动 = 决策器 + 实时保护（收单例外：自动态不收单，只提醒），GLAZE 为 0 时不处理；关 = 永远不处理；手动 = 严格按手动值，GLAZE 为 0 也生效、自动与保护都不改写它（峰值守护照常：手动的低切 / 收单在会抬峰值的瞬间会被收回，手动值本身不变；密集素材上收回的可能不少）。

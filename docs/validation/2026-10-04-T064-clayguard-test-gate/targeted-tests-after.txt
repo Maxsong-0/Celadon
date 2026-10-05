@@ -1,0 +1,473 @@
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+Random seed: 0x51f97ac
+-----------------------------------------------------------------
+Starting tests in: HelpText / every parameter and UI element has a three-line entry...
+Completed tests in HelpText / every parameter and UI element has a three-line entry
+-----------------------------------------------------------------
+Starting tests in: HelpText / entry ids are unique...
+Completed tests in HelpText / entry ids are unique
+-----------------------------------------------------------------
+Starting tests in: HelpText / entry count equals the two id lists combined (no stray entries)...
+Completed tests in HelpText / entry count equals the two id lists combined (no stray entries)
+-----------------------------------------------------------------
+Starting tests in: HelpText / unknown id finds nothing and yields an empty tooltip...
+Completed tests in HelpText / unknown id finds nothing and yields an empty tooltip
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay entries name their control...
+Completed tests in HelpTextClay / Clay entries name their control
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay live line reproduces the spec example word for word...
+Completed tests in HelpTextClay / Clay live line reproduces the spec example word for word
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay live line: stages at zero, narrowing, both guards, bypass...
+Completed tests in HelpTextClay / Clay live line: stages at zero, narrowing, both guards, bypass
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay lamps follow actual values and guard flags...
+Completed tests in HelpTextClay / Clay lamps follow actual values and guard flags
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay guards only count for stages in automatic mode...
+Completed tests in HelpTextClay / Clay guards only count for stages in automatic mode
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay display precision: non-zero never shows as zero, jitter below precision is ignored...
+Completed tests in HelpTextClay / Clay display precision: non-zero never shows as zero, jitter below precision is ignored
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay non-finite actual values count as off...
+Completed tests in HelpTextClay / Clay non-finite actual values count as off
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay tooltip: three lines, table title and advice, relearn hint on old projects...
+Completed tests in HelpTextClay / Clay tooltip: three lines, table title and advice, relearn hint on old projects
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay tooltip line 3 (ADR-012): tried-and-limited items explain themselves, skipped vs reduced, several joined...
+Completed tests in HelpTextClay / Clay tooltip line 3 (ADR-012): tried-and-limited items explain themselves, skipped vs reduced, several joined
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while the mono warning is on or the width guard acts, cleared by bypass...
+Completed tests in HelpTextClay / Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while the mono warning is on or the width guard acts, cleared by bypass
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay texts (T-032): the peak guard covers low cut and mono only; width is not guarded...
+Completed tests in HelpTextClay / Clay texts (T-032): the peak guard covers low cut and mono only; width is not guarded
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay indicator (ADR-015): mono is described as on request, not as an automatic move...
+Completed tests in HelpTextClay / Clay indicator (ADR-015): mono is described as on request, not as an automatic move
+-----------------------------------------------------------------
+Starting tests in: HelpTextClay / Clay mono frequency (ADR-015): Auto does not mono, so no frequency is shown...
+Completed tests in HelpTextClay / Clay mono frequency (ADR-015): Auto does not mono, so no frequency is shown
+-----------------------------------------------------------------
+Starting tests in: HelpTextHouse / genre and delivery entries name the House sub-genres and the delivery targets in both languages...
+Completed tests in HelpTextHouse / genre and delivery entries name the House sub-genres and the delivery targets in both languages
+-----------------------------------------------------------------
+Starting tests in: HelpTextHouse / House phase hint: the spec sentence in both languages, a two-line card version, no number when the loss is unknown...
+Completed tests in HelpTextHouse / House phase hint: the spec sentence in both languages, a two-line card version, no number when the loss is unknown
+-----------------------------------------------------------------
+Starting tests in: HelpTextHouse / Clay readout: the House hint shows whatever the Clay modes or bypass (it is about the mix); houseActive false hides it...
+Completed tests in HelpTextHouse / Clay readout: the House hint shows whatever the Clay modes or bypass (it is about the mix); houseActive false hides it
+-----------------------------------------------------------------
+Starting tests in: HelpTextHouse / House listening tooltip: three lines, the GLAZE status title, the spec tip as line 3, English without CJK...
+Completed tests in HelpTextHouse / House listening tooltip: three lines, the GLAZE status title, the spec tip as line 3, English without CJK
+-----------------------------------------------------------------
+Starting tests in: GlazeController / phases: unlearned until playback, listening, plan transition, calibrating, locked; ready flags follow...
+  phase sequence: unlearned listening planTransition calibrating locked | probe: learning starts 1, commits 1, calibration rounds begun 1
+Completed tests in GlazeController / phases: unlearned until playback, listening, plan transition, calibrating, locked; ready flags follow
+-----------------------------------------------------------------
+Starting tests in: GlazeController / GLAZE 0 learns but never calibrates or touches the manual values; turning it up calibrates; back to 0 is bit-exact...
+Completed tests in GlazeController / GLAZE 0 learns but never calibrates or touches the manual values; turning it up calibrates; back to 0 is bit-exact
+-----------------------------------------------------------------
+Starting tests in: GlazeController / first listen: the button restarts the round from zero, visible in the status before the next block...
+Completed tests in GlazeController / first listen: the button restarts the round from zero, visible in the status before the next block
+-----------------------------------------------------------------
+Starting tests in: GlazeController / relearn builds a candidate while the committed version plays on; cancel, mid-listen save, swap with a transition...
+  relearn swap: worst per-block step 0.0006 dB (Limit Gain; Glue / 10)
+Completed tests in GlazeController / relearn builds a candidate while the committed version plays on; cancel, mid-listen save, swap with a transition
+-----------------------------------------------------------------
+Starting tests in: GlazeController / transport jump, loop wrap and host reset each clear their own runtime state...
+Completed tests in GlazeController / transport jump, loop wrap and host reset each clear their own runtime state
+-----------------------------------------------------------------
+Starting tests in: GlazeController / internal input slices retain host-position coverage, looping and missing-position semantics...
+Completed tests in GlazeController / internal input slices retain host-position coverage, looping and missing-position semantics
+-----------------------------------------------------------------
+Starting tests in: GlazeController / realtime and offline use the same learning, calibration and loud-section safety state machine...
+Completed tests in GlazeController / realtime and offline use the same learning, calibration and loud-section safety state machine
+-----------------------------------------------------------------
+Starting tests in: GlazeController / execution snapshot preserves unfinished learning, applied calibration and deterministic replay...
+Completed tests in GlazeController / execution snapshot preserves unfinished learning, applied calibration and deterministic replay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a completed calibration cannot replace the saved executed bias before its slew has finished...
+Completed tests in GlazeController / a completed calibration cannot replace the saved executed bias before its slew has finished
+-----------------------------------------------------------------
+Starting tests in: GlazeController / malformed execution increments cannot override manual controls...
+Completed tests in GlazeController / malformed execution increments cannot override manual controls
+-----------------------------------------------------------------
+Starting tests in: GlazeController / save / restore: takes effect at once, re-renders bit-exactly from the same start; empty or broken data = unlearned...
+  reset/restore trajectory: first parameter block=-1, first audio block=-1
+Completed tests in GlazeController / save / restore: takes effect at once, re-renders bit-exactly from the same start; empty or broken data = unlearned
+-----------------------------------------------------------------
+Starting tests in: GlazeController / sample-rate change keeps profile and style weights, marks calibration pending, recalibrates when stable...
+Completed tests in GlazeController / sample-rate change keeps profile and style weights, marks calibration pending, recalibrates when stable
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a block-size-only rebuild retains actual Guard retreat, not the unprotected plan...
+Completed tests in GlazeController / a block-size-only rebuild retains actual Guard retreat, not the unprotected plan
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a block-size-only rebuild resumes a completed correction from the last heard bias, then finishes its slew...
+Completed tests in GlazeController / a block-size-only rebuild resumes a completed correction from the last heard bias, then finishes its slew
+-----------------------------------------------------------------
+Starting tests in: GlazeController / GLAZE automation: no relearn, no transition, no new calibration; increments follow the deterministic mapping...
+  automated 282 blocks; applied bias now 0.000 dB
+Completed tests in GlazeController / GLAZE automation: no relearn, no transition, no new calibration; increments follow the deterministic mapping
+-----------------------------------------------------------------
+Starting tests in: GlazeController / switching style is one plan transition, then calibration for the new conditions...
+Completed tests in GlazeController / switching style is one plan transition, then calibration for the new conditions
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a plan saved by an older algorithm keeps its saved increments until GLAZE is turned...
+Completed tests in GlazeController / a plan saved by an older algorithm keeps its saved increments until GLAZE is turned
+-----------------------------------------------------------------
+Starting tests in: GlazeController / an algorithm-6 (v0.1.6.2) project is adopted as current: no saved-plan mode, Clay neutral...
+Completed tests in GlazeController / an algorithm-6 (v0.1.6.2) project is adopted as current: no saved-plan mode, Clay neutral
+-----------------------------------------------------------------
+Starting tests in: GlazeController / old Heat model snapshots are replanned with current compensation, preserving the profile and manual controls...
+Completed tests in GlazeController / old Heat model snapshots are replanned with current compensation, preserving the profile and manual controls
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority...
+  realtime: baseline Tame 6.150, highest 11.531 (margin over +2.0: 3.381), profile kappa 0.512
+  offline: baseline Tame 6.150, highest 11.531 (margin over +2.0: 3.381), profile kappa 0.512
+Completed tests in GlazeController / locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone...
+Completed tests in GlazeController / locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone
+-----------------------------------------------------------------
+Starting tests in: GlazeController / dense bright sections gently reduce only planned automatic Heat/Glue and sparse sections recover...
+Completed tests in GlazeController / dense bright sections gently reduce only planned automatic Heat/Glue and sparse sections recover
+-----------------------------------------------------------------
+Starting tests in: GlazeController / live coloration survives save/reset and old missing execution fields default to neutral...
+Completed tests in GlazeController / live coloration survives save/reset and old missing execution fields default to neutral
+-----------------------------------------------------------------
+Starting tests in: GlazeController / dynamic color remains compatible with calibration and unfinished execution replay...
+  adaptive/fixed color net gain: dense 2.6834/2.9994 dB, recovered sparse 3.5836/3.4136 dB; target 3.0000 dB; applied bias -1.1661/-1.3370 dB
+Completed tests in GlazeController / dynamic color remains compatible with calibration and unfinished execution replay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection...
+Completed tests in GlazeController / Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection
+-----------------------------------------------------------------
+Starting tests in: GlazeController / constraint feedback lowers the plan step by step, converges and does not oscillate...
+  feedback steps 2 (budget 0, guard limited 0, upstream 0, stuck guard 0); max gain now 2.64 dB; last change at 3.1 s; guard 0.00 dB; tail direction changes 0; output true peak -1.350 dBTP
+Completed tests in GlazeController / constraint feedback lowers the plan step by step, converges and does not oscillate
+-----------------------------------------------------------------
+Starting tests in: GlazeController / locked with an applicable calibration: a guard stuck on a partial retreat is absorbed into the plan...
+  source x2.0: feedback steps 0 (stuck 0, budget 0, guard limited 0, upstream 0); lowest guard 0.00 dB; now guard 0.00 / executed 0.00 dB; output true peak -3.368 dBTP
+  source x5.0: feedback steps 1 (stuck 1, budget 0, guard limited 0, upstream 0); lowest guard -1.03 dB; now guard 0.00 / executed 0.00 dB; output true peak -1.350 dBTP
+Completed tests in GlazeController / locked with an applicable calibration: a guard stuck on a partial retreat is absorbed into the plan
+-----------------------------------------------------------------
+Starting tests in: GlazeController / absorbing feedback (budget limited / stuck guard) keeps the calibration and does not restart it (BUG-003)...
+  budget limited during a round: absorbing feedback 1 (budget 1, stuck 0), lowering 0, rounds 1, restarts after absorbing 0, calibrating after absorbing 0.00 s; ends locked / valid
+  stuck guard while locked: absorbing feedback 1 (budget 0, stuck 1), lowering 0, rounds 1, restarts after absorbing 0, calibrating after absorbing 0.00 s; ends locked / valid
+Completed tests in GlazeController / absorbing feedback (budget limited / stuck guard) keeps the calibration and does not restart it (BUG-003)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a profile learned on a quiet intro is capped by the loud section at once, with a relearn hint...
+  learned I -45.0 LUFS; mismatch steps 3 (first at +1.59 s into the loud part); feedback cap 2.81 dB; limiter GR peak after 5 s 3.27 dB; status mismatch 1
+Completed tests in GlazeController / a profile learned on a quiet intro is capped by the loud section at once, with a relearn hint
+-----------------------------------------------------------------
+Starting tests in: GlazeController / pattern loops without loop info, a jittery playhead and stale positions still learn, calibrate and lock...
+  pattern loop 4 s: locked 1, jumps 11, commits 1, calibration rounds 1
+  jitter +-64 samples: locked 1, jumps 0, commits 1, calibration rounds 1
+  stale position every 4th block: locked 1, jumps 0, commits 1, calibration rounds 1
+Completed tests in GlazeController / pattern loops without loop info, a jittery playhead and stale positions still learn, calibrate and lock
+-----------------------------------------------------------------
+Starting tests in: GlazeController / manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic...
+  deepest executed protection offset -1.21 dB with manual gain 3 dB
+Completed tests in GlazeController / manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic
+-----------------------------------------------------------------
+Starting tests in: GlazeController / non-finite output: cleared, restarted, reported; the IN meter measures loudness...
+  non-finite reached the output after 2 more block(s) (latency 1384 samples)
+Completed tests in GlazeController / non-finite output: cleared, restarted, reported; the IN meter measures loudness
+-----------------------------------------------------------------
+Starting tests in: GlazeController / setHostInfo / setParams / process / getStatus never allocate through every GLAZE path...
+  paths exercised: learning starts 2, commits 2, plan transitions 7, calibration rounds 10, feedback steps 4, resets 1, jumps 1, wraps 1
+Completed tests in GlazeController / setHostInfo / setParams / process / getStatus never allocate through every GLAZE path
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Clay three states: automatic is neutral at GLAZE 0, manual applies at GLAZE 0, off is always neutral...
+Completed tests in GlazeController / Clay three states: automatic is neutral at GLAZE 0, manual applies at GLAZE 0, off is always neutral
+-----------------------------------------------------------------
+Starting tests in: GlazeController / profile format 2 carries the Clay features; format 1 keeps its v0.1.6.2 id and reads them as unknown...
+Completed tests in GlazeController / profile format 2 carries the Clay features; format 1 keeps its v0.1.6.2 id and reads them as unknown
+-----------------------------------------------------------------
+Starting tests in: GlazeController / old format-1 profiles keep automatic Clay neutral (no guard either) and ask for a relearn...
+Completed tests in GlazeController / old format-1 profiles keep automatic Clay neutral (no guard either) and ask for a relearn
+-----------------------------------------------------------------
+Starting tests in: GlazeController / plan transitions blend Clay with the increments' progress: log-domain frequencies, an off end joins at the floor...
+Completed tests in GlazeController / plan transitions blend Clay with the increments' progress: log-domain frequencies, an off end joins at the floor
+-----------------------------------------------------------------
+Starting tests in: GlazeController / the Clay guard acts through the controller: anti-phase bass lights the warning (mono untouched), wide highs cap automatic widening...
+Completed tests in GlazeController / the Clay guard acts through the controller: anti-phase bass lights the warning (mono untouched), wide highs cap automatic widening
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Clay pressure feedback (ADR-014): a guard that keeps pulling the low cut back steps the automatic Clay scale down, and it is saved...
+  60 + 110 Hz material: blend loss up to 0.416 dB, steps 1, peak cost 0.0000
+  square wave: peak cost up to 0.000 dB; pressure steps 2, scale 0.25, planned low cut 11.8921 Hz (was 20)
+Completed tests in GlazeController / Clay pressure feedback (ADR-014): a guard that keeps pulling the low cut back steps the automatic Clay scale down, and it is saved
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Clay pressure feedback, first trigger (T-044 / ADR-028): the trial's P99 peak-block cost steps a low cut that lifts the top peaks of a limited master...
+  limited bass + infrasound: step yes, peak cost before it 0.295 dB over 52.1 s, blend loss max 0.041 dB
+  planned low cut 14.14 Hz (was 20.00), scale 0.50
+  unlimited bass + infrasound: peak cost -1.364 dB over 29.9 s, steps 0, guard g < 1 on 24.1 % of samples
+Completed tests in GlazeController / Clay pressure feedback, first trigger (T-044 / ADR-028): the trial's P99 peak-block cost steps a low cut that lifts the top peaks of a limited master
+-----------------------------------------------------------------
+Starting tests in: GlazeController / execution snapshot keeps the executed Clay values and guard state; the first restored block uses them...
+Completed tests in GlazeController / execution snapshot keeps the executed Clay values and guard state; the first restored block uses them
+-----------------------------------------------------------------
+Starting tests in: GlazeController / malformed Clay values in an execution snapshot are rejected...
+Completed tests in GlazeController / malformed Clay values in an execution snapshot are rejected
+-----------------------------------------------------------------
+Starting tests in: GlazeController / Clay settings join the calibration reference; the default settings keep the v0.1.6.2 hash...
+Completed tests in GlazeController / Clay settings join the calibration reference; the default settings keep the v0.1.6.2 hash
+-----------------------------------------------------------------
+Starting tests in: GlazeController / every Clay path through the controller is allocation-free on the audio thread...
+Completed tests in GlazeController / every Clay path through the controller is allocation-free on the audio thread
+-----------------------------------------------------------------
+Starting tests in: GlazeController / the try-before-use cost mask reaches the status: automatic items only, GLAZE > 0 only, the target plan's mask in transitions...
+Completed tests in GlazeController / the try-before-use cost mask reaches the status: automatic items only, GLAZE > 0 only, the target plan's mask in transitions
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a restored first block uses the snapshot's Clay values only when the plan source supports automatic Clay...
+Completed tests in GlazeController / a restored first block uses the snapshot's Clay values only when the plan source supports automatic Clay
+-----------------------------------------------------------------
+Starting tests in: GlazeController / reference conditions survive the host's normalised round trip through the real parameter ranges; a real change never does...
+  round trip: 60000 positions x 8 trips, old exact hash flipped 55394 times; legacy upgrades checked 15000, real changes checked 60000
+Completed tests in GlazeController / reference conditions survive the host's normalised round trip through the real parameter ranges; a real change never does
+-----------------------------------------------------------------
+Starting tests in: GlazeController / reopen: drifted log-scale knobs keep the calibration and the execution snapshot, for new and v0.1.8.0 saves (BUG-004)...
+  release 18.458652496 -> 18.458648682 ms, mono 66.527961731 -> 66.527946472 Hz
+Completed tests in GlazeController / reopen: drifted log-scale knobs keep the calibration and the execution snapshot, for new and v0.1.8.0 saves (BUG-004)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / a slow log-scale knob sweep is not "stable conditions", even slower than the tolerance; stopping it is...
+Completed tests in GlazeController / a slow log-scale knob sweep is not "stable conditions", even slower than the tolerance; stopping it is
+-----------------------------------------------------------------
+Starting tests in: GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)...
+  182 blocks checked through the probe, 182 through the published execution snapshot
+Completed tests in GlazeController / the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / an abandoned or dropped calibration round is not a failed attempt: GLAZE 0, Limit bypass and style round trips calibrate again...
+  GLAZE 0 for 4 s: begins 2 (0 during the detour), finishes 1, gate mask now 128, ends locked / valid
+  Limit bypass for 4 s: begins 2 (0 during the detour), finishes 1, gate mask now 128, ends locked / valid
+  style warm and back: begins 2 (0 during the detour), finishes 1, gate mask now 128, ends locked / valid
+  Color bypass for 4 s (control): begins 3 (1 during the detour), finishes 1, gate mask now 128, ends locked / valid
+Completed tests in GlazeController / an abandoned or dropped calibration round is not a failed attempt: GLAZE 0, Limit bypass and style round trips calibrate again
+-----------------------------------------------------------------
+Starting tests in: GlazeController / guard and upstream-monitor limits follow the target plan on commit, on every style change and on a relearn (global evaluation counter)...
+  stale guard limit sets: 0 of 10 checks
+Completed tests in GlazeController / guard and upstream-monitor limits follow the target plan on commit, on every style change and on a relearn (global evaluation counter)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / silence, host bypass and Color bypass neither make a retreated guard 'stuck' nor run the feedback observation (guard time, not host time)...
+  silence: guard -0.310 dB when frozen; after 8 s frozen: steady 0.00 s (stuck threshold 6.00 s), guard -0.730 dB, feedback steps 0, cap 1000000000.00 dB
+  silence: after the freeze: stuck absorptions 1, feedback steps 1, cap 3.45 dB
+  M2: observation 1.01 s before the silence, 1.44 s after 8 s of silence
+  host bypass: guard -0.310 dB when frozen; after 8 s frozen: steady 0.00 s (stuck threshold 6.00 s), guard -0.310 dB, feedback steps 0, cap 1000000000.00 dB
+  host bypass: after the freeze: stuck absorptions 1, feedback steps 1, cap 3.45 dB
+  Color bypass: guard -0.310 dB when frozen; after 8 s frozen: steady 0.00 s (stuck threshold 6.00 s), guard -0.310 dB, feedback steps 0, cap 1000000000.00 dB
+  Color bypass: after the freeze: stuck absorptions 1, feedback steps 1, cap 3.45 dB
+Completed tests in GlazeController / silence, host bypass and Color bypass neither make a retreated guard 'stuck' nor run the feedback observation (guard time, not host time)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / releasing a frozen execution (reopen / host reset, then GLAZE or style) carries its absorbed guard retreat out over a transition...
+  reopen, GLAZE 100 -> 99: absorbed -0.5100 dB; first released block: gain step -0.04484 dB (mapping 0.04484), executed guard -0.5100 dB
+  reopen, GLAZE 100 -> 99: largest block step while the carry fades 0.01088 dB (bound 0.03221); carry now 0.00000 dB, executed guard 0.0000 dB, gain 4.437 dB
+  reopen, style punchy -> warm: absorbed -0.5100 dB; first released block: gain step 0.00000 dB (mapping 0.00000), executed guard -0.5100 dB
+  reopen, style punchy -> warm: largest block step while the carry fades 0.01635 dB (bound 0.03768); carry now 0.00000 dB, executed guard 0.0000 dB, gain 4.738 dB
+  host reset, GLAZE 100 -> 99: absorbed -0.5100 dB; first released block: gain step -0.04484 dB (mapping 0.04484), executed guard -0.5100 dB
+  host reset, GLAZE 100 -> 99: largest block step while the carry fades 0.01088 dB (bound 0.03221); carry now 0.00000 dB, executed guard 0.0000 dB, gain 4.437 dB
+  fade gate: 1.5 s after the release carry -0.2525 dB, gate mask 32, rounds begun 0
+Completed tests in GlazeController / releasing a frozen execution (reopen / host reset, then GLAZE or style) carries its absorbed guard retreat out over a transition
+-----------------------------------------------------------------
+Starting tests in: GlazeController / restore clears the profile-mismatch accumulation and hint; commit re-derives the guard / monitor timing from the new snapshot...
+  10 LU below: accumulated 2.52 s, steps 0
+  15 LU mismatch recognised 1.48 s after the restore
+Completed tests in GlazeController / restore clears the profile-mismatch accumulation and hint; commit re-derives the guard / monitor timing from the new snapshot
+-----------------------------------------------------------------
+Starting tests in: GlazeController / live Tame authority needs a committed profile and scales with the profile's confidence (kappa)...
+  unlearned: largest automatic Tame 14.885, largest amount beyond the plan 0.00000 (clean tameCap 45.0)
+  kappa 0.675: baseline automatic Tame 8.100, highest 15.187, cap 15.187
+  kappa 1.000: baseline automatic Tame 12.000, highest 22.500, cap 22.500
+Completed tests in GlazeController / live Tame authority needs a committed profile and scales with the profile's confidence (kappa)
+-----------------------------------------------------------------
+Starting tests in: GlazeController / T-032 digests: live Tame / Tone / Color, calibration bias and GLAZE 0 hashed block by block (bit-exact comparison across builds)...
+  locked, representativeness 1.00 (kappa 1.000): calibration finishes 1, executed bias now -0.9920 dB
+  locked, representativeness 1.00 (kappa 1.000): calibration finishes 1, executed bias now -0.9920 dB
+  locked, representativeness 0.40 (kappa 0.675): calibration finishes 1, executed bias now -1.0125 dB
+  T-032 digest kappa-1 locked:     0x43c5d31ade7c6485
+  T-032 digest kappa-0.675 locked: 0x91f56ce442d3e705
+  T-032 digest live Color:         0xcd63072b2d03f505
+  T-032 digest GLAZE 0:            0xaa8f458c4d75b314
+Completed tests in GlazeController / T-032 digests: live Tame / Tone / Color, calibration bias and GLAZE 0 hashed block by block (bit-exact comparison across builds)
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase warning: inverted bass must persist 0.15 s, then reaches 1 within 100 ms, holds 2 s, fades over 2 s; mono never changes...
+Completed tests in ClayGuard / phase warning: inverted bass must persist 0.15 s, then reaches 1 within 100 ms, holds 2 s, fades over 2 s; mono never changes
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase trigger: slow < -0.2, or slow < 0.1 (factory gate) with fast < -0.2; a negative fast path above the gate never triggers...
+Completed tests in ClayGuard / phase trigger: slow < -0.2, or slow < 0.1 (factory gate) with fast < -0.2; a negative fast path above the gate never triggers
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase qualification: 0.15 s continuous, broken by a clear block, kept through freezes, restarted by setState / reset / inactive...
+Completed tests in ClayGuard / phase qualification: 0.15 s continuous, broken by a clear block, kept through freezes, restarted by setState / reset / inactive
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase warning: re-triggering also needs 0.15 s; it re-arms the full hold and resumes the attack from the current level...
+Completed tests in ClayGuard / phase warning: re-triggering also needs 0.15 s; it re-arms the full hold and resumes the attack from the current level
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / phase warning with the automatic plan (no mono): the lamp lights, the output stays the plan bit for bit...
+Completed tests in ClayGuard / phase warning with the automatic plan (no mono): the lamp lights, the output stays the plan bit for bit
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / width guard: retracts widening to the allowed amount within 200 ms, never below 0, releases over 2 s...
+Completed tests in ClayGuard / width guard: retracts widening to the allowed amount within 200 ms, never below 0, releases over 2 s
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / width guard never narrows: zero or negative planned width passes through; P_M = 0 allows 0...
+Completed tests in ClayGuard / width guard never narrows: zero or negative planned width passes through; P_M = 0 allows 0
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / freeze: seconds <= 0 / non-finite freezes everything; an invalid view half freezes only that half...
+Completed tests in ClayGuard / freeze: seconds <= 0 / non-finite freezes everything; an invalid view half freezes only that half
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / inactive (GLAZE <= 0) resets the state to neutral and returns the plan untouched; reset() does the same...
+Completed tests in ClayGuard / inactive (GLAZE <= 0) resets the state to neutral and returns the plan untouched; reset() does the same
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / random scan: mono passes through (ADR-015), only lowers widthDb, passes lowCutHz / monoHz, state stays legal...
+  phase warning in 10516 blocks, lowered width in 6940
+Completed tests in ClayGuard / random scan: mono passes through (ADR-015), only lowers widthDb, passes lowCutHz / monoHz, state stays legal
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / trajectory is block-size independent within float rounding (17 .. 8192-sample and random blocks)...
+  grid, block 17: max |d floor| 0.00002185, |d hold| 0.00002213 s, mono != plan in 0 outputs, |d width| 0.00005507 dB
+  grid, block 333: max |d floor| 0.00000024, |d hold| 0.00000000 s, mono != plan in 0 outputs, |d width| 0.00000095 dB
+  grid, random 1..4096: max |d floor| 0.00000031, |d hold| 0.00000036 s, mono != plan in 0 outputs, |d width| 0.00000012 dB
+  segment ends, block 2048: max |d floor| 0.00000158, |d hold| 0.00000167 s, mono != plan in 0 outputs, |d width| 0.00000072 dB
+  segment ends, block 8192: max |d floor| 0.00000158, |d hold| 0.00000167 s, mono != plan in 0 outputs, |d width| 0.00000054 dB
+  segment ends, random 1..8192 seed 0: max |d floor| 0.00000158, |d hold| 0.00000158 s, mono != plan in 0 outputs, |d width| 0.00000054 dB
+  segment ends, random 1..8192 seed 1: max |d floor| 0.00000148, |d hold| 0.00000158 s, mono != plan in 0 outputs, |d width| 0.00000060 dB
+  segment ends, random 1..8192 seed 2: max |d floor| 0.00000158, |d hold| 0.00000125 s, mono != plan in 0 outputs, |d width| 0.00000054 dB
+Completed tests in ClayGuard / trajectory is block-size independent within float rounding (17 .. 8192-sample and random blocks)
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / setState clamps to the legal range, drops contradictory flags, restores legal values exactly and resumes bit-exactly...
+Completed tests in ClayGuard / setState clamps to the legal range, drops contradictory flags, restores legal values exactly and resumes bit-exactly
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / custom constants: threshold, fast gate, minimum duration, attack / hold / release and the correlation floor all take effect...
+Completed tests in ClayGuard / custom constants: threshold, fast gate, minimum duration, attack / hold / release and the correlation floor all take effect
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / legacy (all-zero) and non-finite constants: instant response, identical trajectories, always finite...
+Completed tests in ClayGuard / legacy (all-zero) and non-finite constants: instant response, identical trajectories, always finite
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / a default-constructed guard uses the factory constants, which are the spec's numbers...
+Completed tests in ClayGuard / a default-constructed guard uses the factory constants, which are the spec's numbers
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / Clay pressure monitor (ADR-014 / ADR-028): the P99 peak-block cost, same formula as the trial, above 0.2 dB for 1 s steps the scale down...
+  0.8 dB peak cost: first step after 11.10 s
+  second step after another 15.10 s
+  0.3 dB peak cost: first step after 52.30 s
+Completed tests in ClayGuard / Clay pressure monitor (ADR-014 / ADR-028): the P99 peak-block cost, same formula as the trial, above 0.2 dB for 1 s steps the scale down
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / Clay pressure monitor, second trigger (T-043): smoothed guard blend loss above 0.15 dB for 1 s steps down, sharing the cooldown...
+  0.2 dB blend loss: first step after 1.000 s
+Completed tests in ClayGuard / Clay pressure monitor, second trigger (T-043): smoothed guard blend loss above 0.15 dB for 1 s steps down, sharing the cooldown
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / scaleClayPlan (ADR-014): scales mono / width linearly and the low cut in the k domain, marking the cost bits...
+Completed tests in ClayGuard / scaleClayPlan (ADR-014): scales mono / width linearly and the low cut in the k domain, marking the cost bits
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / resolveClayParams: 27 tri-state combinations x GLAZE 0 / 50 x bypass; manual works at GLAZE 0, off is always neutral...
+Completed tests in ClayGuard / resolveClayParams: 27 tri-state combinations x GLAZE 0 / 50 x bypass; manual works at GLAZE 0, off is always neutral
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / resolveClayParams clamps to ClayModule ranges, keeps low cut 0 = off, maps non-finite to neutral and is pure...
+Completed tests in ClayGuard / resolveClayParams clamps to ClayModule ranges, keeps low cut 0 = off, maps non-finite to neutral and is pure
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / the guard only changes automatic items: manual and off modes ignore an engaged guard...
+Completed tests in ClayGuard / the guard only changes automatic items: manual and off modes ignore an engaged guard
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / House phase hint: slow correlation strictly below 0.6 for 8 s of continuous audio, block-size independent, any break restarts it...
+Completed tests in ClayGuard / House phase hint: slow correlation strictly below 0.6 for 8 s of continuous audio, block-size independent, any break restarts it
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / House phase hint: holds 2 s after the condition clears (re-armed while it returns), goes out at once when not eligible, freezes on silence...
+Completed tests in ClayGuard / House phase hint: holds 2 s after the condition clears (re-armed while it returns), goes out at once when not eligible, freezes on silence
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / House phase hint: loss = 10 log10((1 + rho) / 2), smoothed over 1 s; never touches update(), the guard state or allocation; reset clears it...
+Completed tests in ClayGuard / House phase hint: loss = 10 log10((1 + rho) / 2), smoothed over 1 s; never touches update(), the guard state or allocation; reset clears it
+-----------------------------------------------------------------
+Starting tests in: ClayGuard / construction, update, setConstants, setState, reset and resolveClayParams do not allocate...
+Completed tests in ClayGuard / construction, update, setConstants, setState, reset and resolveClayParams do not allocate
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / GLAZE 0: default drawer, all Off and Clay Bypass render bit-identically = the pre-Clay chain with a D-sample delay in Clay's slot...
+  Clay delay D = 1102 samples; chain latency 1384 = pre-Clay 282 + D
+  positive control (manual 30 Hz low cut at GLAZE 0): max sample difference 1.09578
+  default drawer at GLAZE 0: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase warning 0, width guard 0, needs relearn 0
+Completed tests in ClayGlaze / GLAZE 0: default drawer, all Off and Clay Bypass render bit-identically = the pre-Clay chain with a D-sample delay in Clay's slot
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / GLAZE 60 on stereo music with ~10 Hz infrasound, wide bass and narrow highs: low cut and width engaged, no automatic mono; all Off stays at zero...
+  profile: subShareDb -2.43 (valid 1, c 0.80), lowSideToMidDb -5.73 (valid 1, c 0.80), lowCorrelation 0.58 (valid 1, c 0.80), highSideToMidDb -24.99 (valid 1, c 0.80), highCorrelation 0.99 (valid 1, c 0.80), format 2
+  costs: lowCut -2.08 (valid 1, c 0.80), mono -0.52 (valid 1, c 0.80) @ 60 Hz, mono -0.63 (valid 1, c 0.80) @ 80 Hz, mono -0.63 (valid 1, c 0.80) @ 120 Hz, mono -0.64 (valid 1, c 0.80) @ 160 Hz, width 0.01 (valid 1, c 0.80)
+  automatic: low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.454 dB, phase warning 0, width guard 0, needs relearn 0 | handed to ClayModule: low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.454 dB
+  all Off: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase warning 0, width guard 0, needs relearn 0
+  40-125 Hz correlation: input 0.568, all Off 0.581, automatic 0.580
+  side / mid above 4 kHz: all Off -25.526 dB, automatic -25.055 dB (+0.470 dB for a width of 0.454 dB)
+  OUT true peak over the whole run: automatic -1.350 dBTP, all Off -1.350 dBTP (ceiling -1.0)
+Completed tests in ClayGlaze / GLAZE 60 on stereo music with ~10 Hz infrasound, wide bass and narrow highs: low cut and width engaged, no automatic mono; all Off stays at zero
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / v0.1.6.2 project (algorithm 6, profile format 1, no Clay fields): neutral Clay, relearn hint, calibration kept, equal to all Off...
+  donor (format-2 profile): low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.454 dB, phase warning 0, width guard 0, needs relearn 0
+  legacy restore, default drawer: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase warning 0, width guard 0, needs relearn 1 | low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB
+  after relearning: low cut 14.90 Hz, mono 0.000 below 80.0 Hz, width 0.530 dB, phase warning 0, width guard 0, needs relearn 0, profile format 2
+  old state, default drawer vs all Off: identical 1; manual 30 Hz control differs by 1.06397
+Completed tests in ClayGlaze / v0.1.6.2 project (algorithm 6, profile format 1, no Clay fields): neutral Clay, relearn hint, calibration kept, equal to all Off
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / anti-phase bass after learning: the warning lights within qualification + analysis lag, holds 2 s, fades over 2 s; mono never changes...
+  normal 40-125 Hz power 0.004167, anti-phase amplitude 0.4565 (power x25)
+  before the section: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase warning 0, width guard 0, needs relearn 0
+  warning lit after 213.3 ms (bound 290.7 ms), full level after 309.3 ms (bound 390.7 ms); off again at 6.78 s after the section start (section 2 s, bound 9.0 s); largest release step 0.00533 per block (bound 0.00543)
+  mono Off at the end: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB
+  all manual at the end: low cut 30.00 Hz, mono 1.000 below 150.0 Hz, width -1.500 dB
+Completed tests in ClayGlaze / anti-phase bass after learning: the warning lights within qualification + analysis lag, holds 2 s, fades over 2 s; mono never changes
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / manual 30 Hz low cut at GLAZE 0: exactly 30 Hz, the 15 Hz content drops ~24 dB, content above 200 Hz untouched...
+  below 20 Hz: manual cut vs default -22.54 dB (analytic 15 Hz: -24.1 dB); default vs input 0.000 dB; above 200 Hz: -0.0053 dB
+Completed tests in ClayGlaze / manual 30 Hz low cut at GLAZE 0: exactly 30 Hz, the 15 Hz content drops ~24 dB, content above 200 Hz untouched
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / manual +3 dB width at GLAZE 0 on -12 dBFS wide noise (T-032): the side above 4 kHz gains the full 3 dB at the chain output...
+  side / mid above 4 kHz: manual +3 dB vs default 2.968 dB (mid above 4 kHz -0.0000 dB); default vs input 0.0069 dB
+Completed tests in ClayGlaze / manual +3 dB width at GLAZE 0 on -12 dBFS wide noise (T-032): the side above 4 kHz gains the full 3 dB at the chain output
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / Clay engaged: 64 / 1024 sample blocks x realtime / offline, 60 s each: identical per block size, 3 s windows within 0.02 LU...
+  60 s 64-vs-1024: max 3 s window delta 0.00005 LU, integrated delta 0.00003 LU (-15.63 LUFS); last Clay 64: low cut 14.84 Hz, mono 1.000 below 120.0 Hz, width 0.454 dB / 1024: low cut 14.84 Hz, mono 1.000 below 120.0 Hz, width 0.454 dB
+Completed tests in ClayGlaze / Clay engaged: 64 / 1024 sample blocks x realtime / offline, 60 s each: identical per block size, 3 s windows within 0.02 LU
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / execution snapshot during an active phase warning: first restored block hands ClayModule the same values; replay identical and the warning still fades...
+  saved while warning: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB at 0.416 s into the section
+  first restored block: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB
+  after the replay: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase warning 0, width guard 0, needs relearn 0 (plan value before the section 0.0000)
+Completed tests in ClayGlaze / execution snapshot during an active phase warning: first restored block hands ClayModule the same values; replay identical and the warning still fades
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / setHostInfo / setParams / process / getGlazeStatus never allocate while Clay works: modes, sweeps, bypass, protection, reset, restore...
+  paths: automatic Clay engaged 1894 blocks, manual 5442, off 5379, bypass 3889, phase warning 837
+Completed tests in ClayGlaze / setHostInfo / setParams / process / getGlazeStatus never allocate while Clay works: modes, sweeps, bypass, protection, reset, restore
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / clipped kick material: the tried low cut is vetoed by its peak cost; the chain's limiter GR stays within 0.3 dB of Clay off...
+  profile: subShareDb -24.73 (valid 1, c 0.80); costs: lowCut 4.67 (valid 1, c 0.80), mono -0.06 (valid 1, c 0.80) @ 60 Hz, mono -0.08 (valid 1, c 0.80) @ 80 Hz, mono -0.14 (valid 1, c 0.80) @ 120 Hz, mono -0.16 (valid 1, c 0.80) @ 160 Hz, width 0.00 (valid 1, c 0.80)
+  automatic: low cut 0.00 Hz, mono 0.000 below 80.0 Hz, width 0.750 dB, phase warning 0, width guard 0, needs relearn 0, cost mask 1
+  limiter GR max over 6 s: automatic 4.319 dB, all Off 4.319 dB (input peak - ceiling: 1.918 / 1.918 dB)
+  GLAZE 0 / Limit Gain +2 dB: GR max off 3.416 dB, manual 20 Hz low cut 3.421 dB; peak guard engaged on 230242 samples, min g 0.000
+Completed tests in ClayGlaze / clipped kick material: the tried low cut is vetoed by its peak cost; the chain's limiter GR stays within 0.3 dB of Clay off
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase warning never lights in 30 s...
+  [tonal bass + independent low noise, long-term rho 0.8] phase-warning events 0, lamp blocks 0, largest floor 0.000, long-term 40-125 Hz rho 0.819
+  [mono kick (120 BPM, -12 dBFS) + independent wide pad 60-150 Hz (-20 dBFS)] phase-warning events 0, lamp blocks 0, largest floor 0.000, long-term 40-125 Hz rho 0.889
+  [positive control: anti-phase bass] phase-warning events 1, lamp blocks 421, largest floor 1.000, long-term 40-125 Hz rho -1.000
+Completed tests in ClayGlaze / wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase warning never lights in 30 s
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / whole low band inverted (equal power): the warning reaches full level within qualification + attack + analysis and smoothing lag...
+  whole low band inverted at a beat: warning at full level after 329.3 ms (bound 531.7 ms; spec 4(c) says 250 ms from the audio, which the 0.15 s + 0.1 s of 3.4 already use up from the moment the condition holds)
+Completed tests in ClayGlaze / whole low band inverted (equal power): the warning reaches full level within qualification + attack + analysis and smoothing lag
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / ~10 Hz infrasound under music: the tried low cut is cheap (cost <= 0), engaged, and does not raise the limiter's input peaks...
+  profile: subShareDb -1.88 (valid 1, c 0.80); costs: lowCut -0.96 (valid 1, c 0.80), mono -0.01 (valid 1, c 0.80) @ 60 Hz, mono -0.02 (valid 1, c 0.80) @ 80 Hz, mono -0.01 (valid 1, c 0.80) @ 120 Hz, mono 0.03 (valid 1, c 0.80) @ 160 Hz, width 0.15 (valid 1, c 0.80)
+  automatic: low cut 16.78 Hz, mono 0.000 below 80.0 Hz, width 0.000 dB, phase warning 0, width guard 0, needs relearn 0, cost mask 0
+  over 6 s: limiter input peak - ceiling -1.276 dB with Clay, -0.002 dB all Off; raw GR max 0.951 / 2.224 dB
+Completed tests in ClayGlaze / ~10 Hz infrasound under music: the tried low cut is cheap (cost <= 0), engaged, and does not raise the limiter's input peaks
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / offset bass (T-043): the trial's guard blend loss caps the automatic low cut, and the chain's guard then loses <= 0.12 dB...
+  profile: subShareDb -13.37 (valid 1, c 0.80); costs: lowCut -0.77 (valid 1, c 0.80), mono 0.00 (valid 1, c 0.80) @ 60 Hz, mono 0.00 (valid 1, c 0.80) @ 80 Hz, mono 0.00 (valid 1, c 0.80) @ 120 Hz, mono 0.00 (valid 1, c 0.80) @ 160 Hz, width 0.00 (valid 1, c 0.80); blend loss 10 Hz 0.0832, 20 Hz 0.1066 dB
+  automatic: low cut 12.45 Hz, mono 0.000 below 80.0 Hz, width 0.900 dB, phase warning 0, width guard 0, needs relearn 0, predicted crossing 12.450 Hz
+  chain over 6 s: guard blend loss 0.1050 dB, guarded 37.8 % of samples
+Completed tests in ClayGlaze / offset bass (T-043): the trial's guard blend loss caps the automatic low cut, and the chain's guard then loses <= 0.12 dB
+-----------------------------------------------------------------
+Starting tests in: ClayGlaze / bass-less detuned pad breakdown between two drops (BUG-009): the phase warning never lights; an anti-phase bass in the breakdown does...
+  [pad-only breakdown] lamp blocks 0 / 3862, largest floor 0.000; breakdown blocks (after 5 s) with a valid slow low correlation 0
+  [positive control (anti-phase bass in the breakdown)] lamp blocks 2585 / 3862, largest floor 1.000; breakdown blocks (after 5 s) with a valid slow low correlation 1781
+Completed tests in ClayGlaze / bass-less detuned pad breakdown between two drops (BUG-009): the phase warning never lights; an anti-phase bass in the breakdown does
+
+==== celadon_tests: 10082 passed, 0 failed ====
+exit 0

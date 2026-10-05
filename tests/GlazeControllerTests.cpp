@@ -387,9 +387,9 @@ namespace celadon::test
         // 修坯用的合成素材（4 s；60 / 110 Hz 在 4 s 里都是整数周期，Rig 循环播放没有接缝）：
         //   低频 = 60 Hz（0.25）+ 110 Hz（0.15）两个正弦：落在 40 ～ 125 Hz 的统计段里，远在静音门之上；
         //   高频 = 白噪声 ±0.05：能量大半在 2 kHz 以上，2 ～ 16 kHz 十段都在静音门之上。
-        //   lowAntiPhase：右声道低频反相（低频相关度 ≈ −1 < 0：反相保护的触发条件，Clay 子文档第 3 节）；
+        //   lowAntiPhase：右声道低频反相（低频相关度 ≈ −1 < −0.2：反相提示的触发条件，Clay 子文档第 3 节、根治修订 3.4）；
         //   highWide：左右噪声不相关（高频 P_S ≈ P_M：预测加宽后相关度 (1 − γ²) / (1 + γ²) < 0.25，宽度保护的触发条件）。
-        //   两项都为假 = 单声道素材（S = 0：两种保护都不该动）。
+        //   两项都为假 = 单声道素材（S = 0：反相提示不该亮、宽度保护不该动）。
         Signal makeClayMaterial (bool lowAntiPhase, bool highWide, juce::int64 seed)
         {
             const auto numSamples = (int) (4.0 * defaultRate);
@@ -469,6 +469,61 @@ namespace celadon::test
             return signal;
         }
 
+        // 守护回收指示用的低音素材（T-074；4 s）：M 与 S 各自独立的低频噪声（白噪声过两级 90 Hz 一阶低通），S 比 M 低 10 dB（幅度 0.316），
+        // L = M + S、R = M − S，峰值归一到 0.5（−6 dBFS，远在守护地板 −40 dBFS 之上）。手动收单 120 Hz 去掉 S 的低频：在每个局部峰值上
+        // 守护都没有余量（界 B = 干路自己的局部峰值），效果大半被收回——与 ClayTests 的夹具 B（T-032 R4-02）同一机理、这里不用粉噪声。
+        // 循环播放的接缝处噪声不连续，只有一个样本，不影响统计。
+        Signal makeBassNoiseMidSide (juce::int64 seed)
+        {
+            const auto numSamples = (int) (4.0 * defaultRate);
+            const auto pole = std::exp (-juce::MathConstants<double>::twoPi * 90.0 / defaultRate);
+            juce::Random midNoise (seed), sideNoise (seed + 1);
+            std::vector<double> mid ((size_t) numSamples), side ((size_t) numSamples);
+            double midState[2] {}, sideState[2] {};
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto m = 2.0 * (double) midNoise.nextFloat() - 1.0;
+                const auto s = 2.0 * (double) sideNoise.nextFloat() - 1.0;
+                midState[0] = (1.0 - pole) * m + pole * midState[0];
+                midState[1] = (1.0 - pole) * midState[0] + pole * midState[1];
+                sideState[0] = (1.0 - pole) * s + pole * sideState[0];
+                sideState[1] = (1.0 - pole) * sideState[0] + pole * sideState[1];
+                mid[(size_t) i] = midState[1];
+                side[(size_t) i] = sideState[1];
+            }
+
+            const auto rms = [numSamples] (const std::vector<double>& v)
+            {
+                auto sum = 0.0;
+
+                for (const auto x : v)
+                    sum += x * x;
+
+                return std::sqrt (sum / (double) numSamples);
+            };
+
+            const auto sideGain = 0.316 * rms (mid) / rms (side);
+            auto signal = makeSilence (numChannels, numSamples);
+            auto peak = 0.0;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto m = mid[(size_t) i], s = sideGain * side[(size_t) i];
+                signal[0][(size_t) i] = (float) (m + s);
+                signal[1][(size_t) i] = (float) (m - s);
+                peak = juce::jmax (peak, std::abs (m + s), std::abs (m - s));
+            }
+
+            const auto scale = (float) (0.5 / peak);
+
+            for (auto& channel : signal)
+                for (auto& sample : channel)
+                    sample *= scale;
+
+            return signal;
+        }
+
         // 守护不动作的低音素材（T-043）：单一 60 Hz 稳态正弦（0.3，两声道相同；4 s 里整数周期，循环播放没有接缝）。低切只转它的相位、
         // 不改幅度，峰值的前移（20 Hz 低切在 60 Hz 约 51°，约 2.4 ms）落在守护 ±8 ms 的局部峰值窗里，守护从不动作（ClayTests 稳态单音
         // 那条），混合损失为 0——用作「Clay 开着、守护与压力反馈都不该动」的播放素材。makeClayMaterial 的 60 + 110 Hz 谐波对经低切
@@ -487,13 +542,12 @@ namespace celadon::test
 
         // 按 Clay 规格「最需要处理」造的画像（格式 2，特征全部有效、置信度 1；数字按 Clay 子文档第 2 节与根治修订 3.3 算）：
         //   真次声占比 −10 dB → need_sub = ramp(−10, −40, −28) = 1 → 低切给满（通透 20 Hz、温润 16 Hz）；
-        //   低频 S/M −30 dB、ρ 0.98 → 单声道回放低音损失 10·log10((1 + 0.98) / 2) = −0.04 dB → need_mono = ramp(−0.04, −0.5, −3) = 0
-        //   → 收单 0；
+        //   低频 S/M −30 dB、ρ 0.98 → 收单 0（ADR-015 起自动不收单；按 v0.1.7.0 的公式单声道回放低音损失 −0.04 dB，need_mono 也是 0）；
         //   高频 S/M −16 dB → need_w = ramp(−16, −10, −18) = 0.75 → GLAZE 60 通透加宽 1.5 × 0.75 × 0.6 × 1.0 = 0.675 dB
         //   （上限 γ² ≤ 0.6 × 10^1.6 ≈ 23.9，不受限）；
-        //   「先试后用」的代价（ADR-012）全部有效且 ≤ 0.2 dB → 代价系数 1（照做）：低切 −0.5、收单 −0.3、加宽 0 dB。代价无效的
-        //   画像三项都中性（旧画像同理），所以这里必须给。
-        // 用例拿它当阳性对照（「自动」确实给出非中性值）；反相保护把收单从 0 拉到 1，一眼可辨。
+        //   「先试后用」的代价（ADR-012）全部有效且 ≤ 0.2 dB → 低切 −0.5、加宽 0 dB 的代价系数 1（照做）；收单 −0.3 dB 照给，
+        //   决策器不用（ADR-015）。代价无效的画像三项都中性（旧画像同理），所以这里必须给。
+        // 用例拿它当阳性对照（「自动」确实给出非中性值：低切、加宽）；反相素材上只亮提示、收单仍是 0（ADR-015）。
         glaze::MusicProfile withClayNeeds (glaze::MusicProfile p)
         {
             p.formatVersion = glaze::clayProfileFormatVersion;
@@ -521,7 +575,7 @@ namespace celadon::test
 
         // 同上，但「试过」的代价让两项受限（ADR-012 设计规格-Clay-根治修订 3.3，代价系数 f = ramp(代价, 0.6, 0.2)）：
         //   低切代价 0.4 dB → f = 0.5（减量：低切仍开，频率低于给满时）；加宽代价 0.8 dB → f = 0（否决：加宽 0）；
-        //   收单代价 −0.3 dB → f = 1（本来也不需要：need_mono = 0）。决策器应把低切、加宽记进 costLimitedMask。
+        //   收单代价 −0.3 dB 决策器不用（ADR-015：自动不收单）。决策器应把低切、加宽记进 costLimitedMask。
         glaze::MusicProfile withCostLimitedClay (glaze::MusicProfile p)
         {
             p = withClayNeeds (p);
@@ -923,6 +977,7 @@ namespace celadon::test
             testClayOldProfileStaysNeutral();
             testClayTransitionBlend();
             testClayGuardThroughController();
+            testClayPeakGuardIndicatorThroughController();
             testClayPressureFeedback();
             testClayPressurePeakCost();
             testClaySnapshotRoundTrip();
@@ -3225,11 +3280,11 @@ namespace celadon::test
             expect (! glaze::fromXml (*olderPlanXml, olderPlan), "a present but corrupted Clay attribute is rejected");
         }
 
-        // Clay 3. 旧工程（画像格式 1）：Clay 自动值恒为中性、保护不动（就算素材低频反相）——旧工程重新聆听之前 Clay 逐位直通、
+        // Clay 3. 旧工程（画像格式 1）：Clay 自动值恒为中性、保护与反相提示都不动（就算素材低频反相）——旧工程重新聆听之前 Clay 逐位直通、
         //    声音不变；状态提示「点重新聆听」（GLAZE > 0 且至少一项自动时）。两种旧存档都试：旧算法方案（照用保存的增量，还特意
         //    存了一份非中性的 Clay 值，确认它不被采用；拧 GLAZE 按新算法重算后仍中性）与当前算法方案（拧过 GLAZE 后再存的）。
-        //    点「重新聆听」提交格式 2 的新画像后自动 Clay 启用（同一段反相低频，反相保护把收单拉到 1）、提示消失。
-        //    阳性对照也见 Clay 5：同样的反相素材配格式 2 画像时保护会介入。
+        //    点「重新聆听」提交格式 2 的新画像后自动 Clay 启用、上述提示消失（同一段反相低频：反相提示亮起，收单不动——ADR-015）。
+        //    阳性对照也见 Clay 5：同样的反相素材配格式 2 画像时反相提示会亮（收单不动）。
         // 依据：Clay 第 7 节「旧画像没有立体声特征 → Clay 自动增量为 0 → 打开后声音不变；点重新聆听后启用」、第 5 节悬停气泡第 3 行；
         //    时间线第 5 节旧算法方案；任务书「clayNeedsRelearn = GLAZE > 0 且至少一项为自动 且 已提交画像缺 Clay 所需特征」。
         void testClayOldProfileStaysNeutral()
@@ -3325,7 +3380,7 @@ namespace celadon::test
         //    与 currentIncrements 同一个式子；过渡 0.5 s = 24000 样本、块 512）：
         //      a) 旧算法方案（Clay 中性）→ 拧 GLAZE 按新算法重算：低切从「关」经 floor 起步；
         //      b) 换风格（通透 → 温润）：两端都开，低切 20 → 16 Hz（根治修订 3.3 的风格目标）、加宽按风格系数 1.0 → 0.4 线性。
-        //    单声道素材下两种保护都不动：保护之后 = 方案值，实际参数 = 三态合成。
+        //    单声道素材下反相提示不亮、宽度保护不动：保护之后 = 方案值，实际参数 = 三态合成。
         void testClayTransitionBlend()
         {
             beginTest ("plan transitions blend Clay with the increments' progress: log-domain frequencies, an off end joins at the floor");
@@ -3455,14 +3510,6 @@ namespace celadon::test
             checkTransition (from, warm, "style clean -> warm");
         }
 
-        // Clay 5. 实时保护经编排器生效（分析器看真实素材 → ClayGuard → 三态合成）：
-        //    a) 反相：格式 2 画像的方案收单为 0；素材切到低频反相后「自动」的收单比例被拉到 1（状态「反相保护中」），切回正常素材后
-        //       先保持再退回方案值；「关」态完全不受影响，也不报保护灯（保护照样在算，只是不作用）；
-        //    b) 宽度：方案要加宽（画像很窄），素材的高频却很宽（预测加宽后相关度 < 0.25）→ 自动加宽被收到 0（状态「宽度保护中」），
-        //       方案本身不变；换回窄素材后放开、回到方案值。
-        // 依据：Clay 子文档第 3 节保护表、第 6 节第 5 条（「手动」「关」态不受保护改动）；ClayGuard.h。时间只放宽上限（分析器
-        //    300 ms 平滑 + 资格期 0.15 s + 攻击；保持 2 s、释放 2 s），核对「会介入、会保持、会退回、只动自动态」，精确时序由
-        //    ClayGuard / ClayGlaze 测试核对。
         // Clay 6. 修坯压力反馈（ADR-014）：方案要低切（clayStateFrom 的画像：need_sub = 1，通透 20 Hz；代价 −0.5 dB → 照做），
         //    素材却是 40 Hz 方波（±0.5，单声道）——4 阶高通让方波平顶倾斜、每个边沿都冲过 ±0.5，ClayModule 的峰值守护每半个周期
         //    都要把低切的改动量拉回来，回收时与干路相位不同处互相抵消（混合损失）。压力反馈（两个触发量共用档位与冷却）把自动 Clay
@@ -3635,6 +3682,101 @@ namespace celadon::test
             }
         }
 
+        // T-074 守护回收指示经链与编排器生效（ClayModule 的保留比统计 → ModuleStats → ClayGuardKeepMonitor → Status::clayPeakGuardActive / Kept）：
+        //   a) 低音噪声（M / S 各自独立）+ GLAZE 0 + 手动收单 120 Hz：守护大半时间在拉（阳性对照：g < 1 的样本很多），保留比 < 75 % 持续 1 s 后状态亮
+        //      （0.5 s 时还没亮：要连续满 1 s）、保留比读数 < 0.75；GLAZE 0 也报——手动项恰恰没有别的反馈；
+        //   b) 同一素材、Clay 全「自动」（GLAZE 0 = 中性）：每一块都不亮、保留比 1（阳性对照：同样的素材与链，只差手动收单）；
+        //   c) 手动收单改回「关」：几秒内熄灭、保留比回到 1；
+        //   d) 稳态 60 Hz 正弦 + 手动低切 20 Hz（守护不动作，g = 1）：不亮、保留比 1——低切在做（实际值 20 Hz）、守护没收，没有东西可指示；
+        //   e) 链整体重建（prepare）：监测器的两份平滑能量与计时清零，不带着旧状态的「亮」继续。
+        // 依据：ClayGuard.h ClayGuardKeepMonitor（75 % / 1 s 亮、85 % / 1 s 熄；2 s 平滑）、设计稿 R4-03、V4（手动收单 78 % 样本被回收、界面全绿）。
+        void testClayPeakGuardIndicatorThroughController()
+        {
+            beginTest ("the peak guard recovery indicator through the chain (T-074): a manually mono-ed bass pulled back by the guard lights the status; neutral Clay and an unguarded tone do not");
+
+            const auto bass = makeBassNoiseMidSide (4407);
+
+            {
+                Rig rig (clayConstants(), bass, defaultParams (0.0f, 3));
+                auto& settings = rig.params.claySettings;
+                settings.monoMode = ClayMode::manual;
+                settings.monoHz = 120.0f;
+                std::int64_t guarded = 0;
+                rig.run (0.5, [&] (int) { guarded += rig.chain.getClayForTesting().getAndResetPeakGuardStats().guardedSamples; });
+                expect (! rig.status().clayPeakGuardActive, "not lit after 0.5 s: the ratio must stay below the line for a full second");
+                rig.run (5.5, [&] (int) { guarded += rig.chain.getClayForTesting().getAndResetPeakGuardStats().guardedSamples; });
+                const auto status = rig.status();
+                logMessage ("  manual mono 120 Hz on independent mid / side bass noise, GLAZE 0: guard g < 1 on " + juce::String (100.0 * (double) guarded / (6.0 * defaultRate), 1)
+                            + " % of samples, kept " + juce::String (status.clayPeakGuardKept, 3) + ", lit " + (status.clayPeakGuardActive ? "yes" : "no"));
+                expect (status.clayMonoAmount == 1.0f && status.clayMonoHz == 120.0f, "the manual mono is what Clay got");
+                expect (guarded > (std::int64_t) (0.3 * 6.0 * defaultRate), "positive control: the guard pulls the mono back on a large share of the samples");
+                expect (status.clayPeakGuardActive, "lit: the guard keeps well under 75 % of the manual mono (GLAZE 0 reports too)");
+                expect (status.clayPeakGuardKept < 0.75f, "the reported keep ratio is below the 75 % line");
+
+                // c) 收单改回「关」：几秒内熄灭、保留比回到 1。
+                settings.monoMode = ClayMode::off;
+                rig.run (6.0);   // 快门约 2 s 看到「没有改动」、再满 1 s 熄
+                const auto after = rig.status();
+                expect (! after.clayPeakGuardActive && after.clayPeakGuardKept > 0.99f, "mono off: the indicator clears and the keep ratio returns to 1");
+            }
+
+            {
+                // b) 阳性对照：同一素材与链，Clay 全「自动」（GLAZE 0：中性）。
+                Rig rig (clayConstants(), bass, defaultParams (0.0f, 3));
+                auto everLit = false;
+                float lowestKept = 1.0f;
+                rig.run (6.0, [&] (int)
+                {
+                    const auto status = rig.status();
+                    everLit = everLit || status.clayPeakGuardActive;
+                    lowestKept = juce::jmin (lowestKept, status.clayPeakGuardKept);
+                });
+                expect (! everLit && lowestKept == 1.0f, "neutral Clay (GLAZE 0, all automatic): never lit, keep ratio always 1");
+            }
+
+            {
+                // d) 守护不动作的稳态单音 + 手动低切：不亮。
+                Rig rig (clayConstants(), makeSine (numChannels, defaultRate, 60.0, 0.5f, 4.0), defaultParams (0.0f, 3));
+                auto& settings = rig.params.claySettings;
+                settings.lowCutMode = ClayMode::manual;
+                settings.lowCutHz = 20.0f;
+                std::int64_t guarded = 0;
+                auto everLit = false;
+                rig.run (6.0, [&] (int)
+                {
+                    guarded += rig.chain.getClayForTesting().getAndResetPeakGuardStats().guardedSamples;
+                    everLit = everLit || rig.status().clayPeakGuardActive;
+                });
+                expect (rig.status().clayLowCutHz == 20.0f, "the manual low cut is what Clay got");
+                expect (guarded < (std::int64_t) (0.01 * 6.0 * defaultRate), "positive control: the guard (almost) never engages on a steady tone");
+                expect (! everLit && rig.status().clayPeakGuardKept > 0.95f, "an unguarded low cut is not flagged");
+            }
+
+            {
+                // e) 链整体重建（prepare：采样率 / 块长 / 声道数变了）：保留比的统计从零起——两份平滑能量与计时清零，不带着旧状态的「亮」继续。
+                Rig rig (clayConstants(), bass, defaultParams (0.0f, 3));
+                auto& settings = rig.params.claySettings;
+                settings.monoMode = ClayMode::manual;
+                settings.monoHz = 120.0f;
+                rig.run (6.0);
+                const auto before = rig.probe();
+                expect (rig.status().clayPeakGuardActive && before.clayGuardKeepChange > 0.0 && before.clayGuardKeepKept > 0.0,
+                        "positive control: lit, with smoothed energy in the monitor");
+                rig.reprepare (defaultRate);
+                const auto after = rig.probe();
+                expect (after.clayGuardKeepChange == 0.0 && after.clayGuardKeepKept == 0.0 && after.clayGuardKeepBelowSeconds == 0.0,
+                        "a rebuilt chain (prepare) starts the guard statistics over");
+            }
+        }
+
+        // Clay 5. 实时反相提示与宽度保护经编排器生效（分析器看真实素材 → ClayGuard → 三态合成）：
+        //    a) 反相：格式 2 画像的方案收单为 0；素材切到低频反相后只亮提示（提示强度升到 1，状态「低频反相：单声道播放会丢低音」），
+        //       收单每块仍是 0（ADR-015）；切回正常素材后提示先保持再熄灭；「关」态收单同样不动，也不报提示灯（提示照样在算）；
+        //    b) 宽度：方案要加宽（画像很窄），素材的高频却很宽（预测加宽后相关度 < 0.25）→ 自动加宽被收到 0（状态「宽度保护中」），
+        //       方案本身不变；换回窄素材后放开、回到方案值。
+        // 依据：Clay 子文档第 3 节保护表、第 6 节第 5 条（「手动」「关」态不受保护改动）；ADR-015（反相只提示）；ClayGuard.h。
+        //    时间只放宽上限（分析器 300 ms 平滑 + 资格期 0.15 s + 攻击；保持 2 s、释放 2 s），核对反相提示「会亮、会保持、会熄灭、
+        //    收单不动、灯只报自动态」与宽度保护「会介入、会退回」，精确时序由 ClayGuard / ClayGlaze 测试核对。
         void testClayGuardThroughController()
         {
             beginTest ("the Clay guard acts through the controller: anti-phase bass lights the warning (mono untouched), wide highs cap automatic widening");
@@ -3720,7 +3862,7 @@ namespace celadon::test
             }
         }
 
-        // Clay 6. 执行快照：保存 liveClay（保护之后实际执行的自动值）、方案里过渡混合后的 plan.clay 与 ClayGuard 状态；读回（实时 /
+        // Clay 7. 执行快照：保存 liveClay（保护之后实际执行的自动值）、方案里过渡混合后的 plan.clay 与 ClayGuard 状态；读回（实时 /
         //    离线各一条）后第一块逐位用快照值（反相提示灯照样亮），之后提示从快照的保持期接着走（不是从中性重来），两条完全一致；
         //    ADR-015：提示不改收单，快照里与读回后的收单都是方案值 0；
         //    宿主 reset 也从同一执行量冷启动；旧快照缺字段 = 中性、照样能用；坏值整份拒收。
@@ -3847,7 +3989,7 @@ namespace celadon::test
             expect (rejects (bad), "a crossover beyond 300 Hz");
             bad = execution;
             bad.clayGuard.phaseFloor = -0.5f;
-            expect (rejects (bad), "a negative guard floor");
+            expect (rejects (bad), "a negative phase warning level (phaseFloor)");
             bad = execution;
             bad.clayGuard.widthCapDb = std::numeric_limits<float>::infinity();
             expect (rejects (bad), "an infinite width cap");
@@ -3918,7 +4060,7 @@ namespace celadon::test
             expectEquals (rig.probe().calibrationBegins, begins, "no calibration round was started by any of this");
         }
 
-        // Clay 8. 音频线程零分配：Clay 的各条路径——自动 + 反相保护 + 宽度保护、三态切换（手动 / 关 / 自动）、GLAZE 0 下的手动项、
+        // Clay 8. 音频线程零分配：Clay 的各条路径——自动 + 反相提示 + 宽度保护、三态切换（手动 / 关 / 自动）、GLAZE 0 下的手动项、
         //    换风格过渡、宿主旁通、宿主 reset、读取存档后的首块（执行快照）、读取旧格式画像——setHostInfo / setParams / process /
         //    getStatus 都不经 operator new（存档的生成与解析在计数区外：那是消息线程的事）。
         // 依据：设计规格-总体「音频线程零分配、零锁」；Clay 子文档第 4 节硬规则。
@@ -4000,7 +4142,7 @@ namespace celadon::test
 
             expect (finite, "output finite throughout");
             expect (sawPhaseGuard && sawWidthGuard && sawRestoredBlock && sawTransition,
-                    "the run went through the phase guard, the width guard, a restored first block and a plan transition");
+                    "the run went through the phase warning, the width guard, a restored first block and a plan transition");
             expectEquals ((juce::int64) allocations, (juce::int64) 0, "the audio thread must not allocate on any Clay path");
         }
 

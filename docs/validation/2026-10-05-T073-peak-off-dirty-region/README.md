@@ -1,0 +1,38 @@
+# T-073 · PEAK 关着时看不见的峰值线不再进脏区（T-070 评审 SV-2，Max 2026-10-05 拍板「按你的建议来」，DGX Spark 本机）
+
+夜间评审（`wf_3e784f42-2fa`）对 `SpectrumView` 的 SV-2：`curveRegion`（增量重画按它标脏）不论 PEAK 开关都把峰值线算进去（评审 R-02 ②）。T-058 起打开 PEAK 时的重建与 ① 已经盖住了它，② 成了第二道保险，
+代价是 PEAK 关着放音乐时看不见的峰值线照样进脏区（峰值保持常比 OUT 顶高几 dB），脏区设备像素白白多 11 ～ 12 %。T-070 做完红绿矩阵后（V2 = 撤 ② 对 25 条检查全绿）我把它记成「要 Max 拍板」，
+Max 10-05 答「按你的建议来」，本任务收紧并补一条守着它的检查（T-070 README 说的「改的人要自己补一条守着它的检查」）。
+
+## 结论
+
+- 改动：`Source/ui/SpectrumView.cpp` 一处条件——`curveRegion` 只在 `peakToggle.isOn()` 时才把 `peakLine` 并进区域；`SpectrumView.h` 加一个只读访问器 `getCurveRegion()`、改写头注释。
+  `buildEnvelope` 仍无条件建峰值线路径（只省 517 个点、一次重建要走 3 千多个点，不值得多一条「峰值线路径可能是旧的」的不变量）。
+- **像素一个没变**：`--deterministic` 30 张出图改前 / 改后逐字节相同（30 / 30）。
+- **PEAK 关着放音乐的脏区设备像素 −10.0 %（60 帧）/ −10.5 %（120 帧）**（×1、×2 都是），与 T-058 当时「多 11 ～ 12 %」的实测相符；PEAK 开着的 8 组改前改后**完全相同**（标脏帧、曲线帧、设备像素）。
+  标准基准的「停止」场景（正弦停播后峰值保持在落、OUT 早已落到底边下）PEAK 关设备像素 −13 ～ −17 %（S8 正弦里峰值线贴着 OUT 峰顶，不变）。
+- 新检查 `probeRegionWithoutPeak`（`--only check` 112 → **113**）：两个时间轴（PEAK 开 / 关）喂同一段声音（6 kHz −12 dBFS 正弦 1 s → 静音 0.2 s），PEAK 开的区域顶必须比关的高出 ≥ 20 px
+  （实测 121.8 px：关 145.2、开 23.4）。**两个方向都抓**：改回「不论开关都算」→ 差 0；改成「永远不算」→ 差 0。
+
+## 红绿（`variants_t073.py`、`run_t073.sh`；输出在 `outputs/`）
+
+| 二进制 | `--only check` |
+|---|---|
+| 改后 | **113 过 / 0 败**（`check-new.txt`） |
+| 改后 + 峰值线不论开关都算（= T-073 之前，`always-peak`） | 112 过 / 1 败（`check-always.txt`）：**恰是新检查**——PEAK 关着时区域顶从 145.2 变成 23.4（与开着的相同），差 0.0 px |
+| 改后 + 峰值线永远不算（收过头，`never-peak`） | 107 过 / 6 败（`check-never.txt`）：新检查 + 原有的 **S9 ×2、S9b ×2、播放**（PEAK 开着时峰值线高出 OUT 的那段留残影）——**过头方向原有检查本来就抓得到**，新检查是为了抓「收紧没收」这一边 |
+
+## 验证
+
+| 项 | 结果 |
+|---|---|
+| 编译 | 改后、改前（main）、两个改坏变体、两个音乐探针副本，各 0 警告（`outputs/build-warnings.txt`） |
+| `--deterministic` 出图 | 改前（main `9a74878`）vs 改后：**30 / 30 逐字节相同**（`outputs/runs.out`） |
+| 标准基准（`--only spectrum-peak-bench`，绑 CPU 5） | PEAK 开 12 / 12 个组合改前改后完全相同；PEAK 关：重建曲线数不变，「停止」场景设备像素 −13 ～ −17 %（`outputs/bench-{base,new}.txt`、`outputs/runs.out`） |
+| 音乐基准（T-058 的 `probe_music_dirty.py`：合成音乐 8 s） | PEAK 关：设备像素 **−10.0 %（60 帧 × 1 / 2 倍）/ −10.5 %（120 帧）**，标脏帧 479 / 956、曲线帧 478 / 955 不变；PEAK 开：不变（`outputs/music-{base,new}.txt`）；paint CPU 在噪声内（±2 %，没有可测的差） |
+| 全套测试 | 没碰 DSP / 数值，只动界面绘制与截图工具；随最终集成统一在 Spark 上跑一遍 |
+
+## 没做 / 限制
+
+- Mac（CoreGraphics ×1 包围盒口径）/ Windows（Direct2D 矩形列表）没实跑：用同一套检查按各自的脏区口径覆盖（本任务的检查看的是 `curveRegion` 这个矩形本身，与口径无关）。
+- x86 / MSVC 后来补跑了（2026-10-05，Max 授权 Spark 的新密钥后，见 `../2026-10-05-T074-guard-recovery-indicator/README.md` 的「验证」表）：109 MSVC 19.44（Wine）的界面检查 114 / 0，含本任务的 `probeRegionWithoutPeak`；107 全套 148728 / 0。本任务不涉及数值。Mac / Windows 原生的脏区口径仍没实跑（上一条）。

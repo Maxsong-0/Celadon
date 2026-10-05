@@ -6,12 +6,12 @@
 
 ## 用途
 
-合成信号证明不了「好听」。把 3～5 首风格各异的真歌（至少一首低音很宽 / 有反相内容）按设置网格过整条链离线渲染，
+合成信号证明不了「好听」。把 3～5 首风格各异的真歌（至少一首低频有反相段，用来核对反相提示误亮与门槛里的豁免；最好再有一首低音很宽的，用来看低切与加宽）按设置网格过整条链离线渲染，
 所有成品对齐到同一整体响度供盲听，另出一张指标表，把听感结论和数字放在一起看。听感结论写进版本档。
 
 默认网格：GLAZE 0 / 35 / 70 × 修坯 自动 / 全关 × 风格 自动 = 每首歌 6 组，另加每个 GLAZE > 0 一组「同决策重放 · 修坯关」，共 8 个成品。
 
-- **修坯「自动」**= 高级抽屉的默认（低切 / 收单 / 加宽三项都「自动」，由 GLAZE 决策 + 实时保护给值）；
+- **修坯「自动」**= 三态默认（低切 / 收单 / 加宽三项都「自动」：低切由 GLAZE 决策给值（含代价封顶与压力反馈缩放），加宽由决策 + 宽度保护给值；收单 ADR-015 起恒为 0，低频反相时只亮提示、不改声音）；
 - **修坯「全关」**= 三项都选「关」（永远 0，GLAZE 多大都不处理）。这条链自己跑 GLAZE，是「用户关掉修坯」的真实效果；
 - **同决策重放 · 修坯关**（`clay-replay-off`，ADR-016）= 照搬「自动」那条链逐块实际交给模块的参数、只把修坯换成「关」。两条链决策
   一模一样，差别只剩修坯本身：**修坯门槛和「修坯到底改了什么」的盲听都用它对比**（见下「同决策重放」）。T-044 起连 prepare 之前那次
@@ -71,12 +71,12 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--in` | 必填 | 歌曲目录：只读第一层的 wav / wave / bwf / aif / aiff / aifc / flac（按扩展名交给对应格式；.wave / .aifc 按内容认），跳过隐藏文件 |
 | `--out` | 必填 | 输出目录（不存在就建；不能与 `--in` 相同） |
 | `--glaze` | `0,35,70` | GLAZE 取值 0～100，逗号分隔 |
-| `--clay` | `auto,off` | `auto` = 三项都「自动」，`off` = 三项都「关」；`lowcut` / `mono` / `width` = 只留这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品） |
+| `--clay` | `auto,off` | `auto` = 三项都「自动」，`off` = 三项都「关」；`lowcut` / `mono` / `width` = 只留这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品。ADR-015 起自动收单恒为 0，`mono` 这一组的成品与 `off` 逐位相同，只多记反相提示时长 `phase_guard_pct`） |
 | `--style` | `auto` | GLAZE 风格 `auto` / `warm` / `punchy` / `clean`，可逗号分隔多个（也是网格的一维） |
 | `--block` | `512` | 宿主块长（样本，1～65536），两遍都用它 |
 | `--match-lufs` | `-16` | 成品按整体响度只乘增益对齐到这个值（-60～0 LUFS） |
 | `--metrics-only` | 关 | 照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用：几十首 × 8 组的 float wav 有好几 GB） |
-| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案与保护状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、守护混合损失的两份 K 加权能量（`blend_intended_energy` / `blend_output_energy`，T-043）、压力反馈此刻的缩放、第一触发量的代价与攒下的块数、平滑后的混合损失（`clay_pressure_scale` / `clay_peak_cost_db` / `clay_peak_cost_blocks` / `clay_blend_loss_db`，T-044；代价攒满 100 块才有）、校准状态；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；列见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
+| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案值 / 宽度保护后的值 / 实际值与反相提示状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、守护混合损失的两份 K 加权能量（`blend_intended_energy` / `blend_output_energy`，T-043）、压力反馈此刻的缩放、第一触发量的代价与攒下的块数、平滑后的混合损失（`clay_pressure_scale` / `clay_peak_cost_db` / `clay_peak_cost_blocks` / `clay_blend_loss_db`，T-044；代价攒满 100 块才有）、校准状态（列见下「逐块追踪的修坯列」「逐块追踪的校准列」）；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；只有 `t_sec`、`limit_gain_db` 和校准列，见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
 | `--no-replay` | 关 | 不做同决策重放（默认每组 GLAZE > 0 的修坯「自动」之后多一组 `clay-replay-off` 与阳性对照，见下） |
 | `--genre` | `general` | T-038 曲风 `general` / `deep` / `tech` / `melodic`（= 参数 `glaze_genre` 的下标 0～3），可逗号分隔多个（网格的一维） |
 | `--delivery` | `standard` | T-038 交付 `standard` / `streaming` / `club`（= `glaze_delivery` 的下标 0～2），可逗号分隔多个（网格的一维） |
@@ -143,17 +143,17 @@ T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`�
 | 限幅 GR 平均 / 最大 | `limit_gr_mean_db` / `limit_gr_max_db` | 第二遍每块读一次 `getAndResetLimitGainReductionDb()`（块内最大压缩量）：平均按块长加权（「块峰值」的平均，比逐样本平均偏高；静音段计 0），最大 = 全曲最大 |
 | 低频相关度 < 125 Hz | `low_corr_lt125hz` | 左右各过 4 阶 Butterworth 125 Hz 低通后 ρ = 2ΣLR / (ΣL² + ΣR²) = (P_M − P_S) / (P_M + P_S)，与分析器 lowCorrelation 同一口径：1 单声道、0 不相关、−1 反相 |
 | 真次声 < 16 Hz dB | `infra_share_lt16hz_db` | M = (L + R) / 2 过 8 阶 Butterworth 16 Hz 低通后的能量 ÷ M 全频能量，与分析器 subShareDb 同一定义（ADR-012；整段计，不设有效音频门；侧声道里的次声不计入） |
-| 代价限 | `clay_cost_limited` | 先试后用（ADR-012）：成品末尾哪几项因「试过会抬高峰值」被减量 / 否决（lowcut / mono / width，空 = 没有） |
-| 低切 Hz / 收单 Hz / 收单量 / 加宽 dB | `clay_lowcut_hz` / `clay_mono_hz` / `clay_mono_amount` / `clay_width_db` | 成品末尾 `getGlazeStatus()` 的 Clay 四个实际值（上一块交给 ClayModule 的值）；低切 0 =「关」；收单量 0 时收单 Hz 无意义 |
-| 保护介入 反相 / 宽度 | `phase_guard_pct` / `width_guard_pct` | 第二遍里反相保护 / 宽度保护介入的时长占比 |
+| 反相提示 / 宽度保护（格末） | `clay_cost_limited` | 成品末尾哪几项「自动」修坯因代价被减量 / 否决（`lowcut` / `width`，两项都有写 `lowcut+width`，空 = 没有；ADR-015 起自动不收单，不再出现 `mono`）。三处会置位：先试后用试出会抬高峰值（ADR-012）、低切按守护混合损失封顶（ADR-027）、压力反馈降过档（ADR-014 / ADR-028）。metrics.md 没有单独一列：有值时接在「反相提示 / 宽度保护」那一格末尾（「，代价限：lowcut」），空时不写 |
+| 低切 Hz / 收单 Hz / 收单量 / 加宽 dB | `clay_lowcut_hz` / `clay_mono_hz` / `clay_mono_amount` / `clay_width_db` | 成品末尾 `getGlazeStatus()` 的 Clay 四个实际值（上一块交给 ClayModule 的值）；低切 0 =「关」；收单量 0 时收单 Hz 无意义（本工具不用手动收单，ADR-015 起收单 Hz 恒为 80、收单量恒为 0） |
+| 反相提示 / 宽度保护 | `phase_guard_pct` / `width_guard_pct` | 第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音；只在收单为「自动」的组计：`auto`、`mono` 组，其余组与重放行恒为 0）/ 宽度保护介入的时长占比（只在加宽为「自动」的组计）；`phase_guard_pct` 沿用旧列名（改名会断旧指标表） |
 | GLAZE 状态 | `glaze_phase` / `calibration_valid` / `resolved_style` | 成品末尾的阶段（unlearned / listening / planTransition / calibrating / locked）、校准是否有效、「自动」风格此刻偏向哪种 |
 | — | `listen_phase` | 第一遍（聆听）结束时的阶段 |
 | — | `audio_hash` | 对齐前成品（输入行是立体声化的输入）的 FNV-1a 哈希：同一首歌同一组设置跨版本哈希相同 = 逐位不变 |
 | 成品文件 | `file` | 成品文件名；写失败为空 |
-| — | `trial_lowcut_cost_db` / `trial_mono60_cost_db` … `trial_mono160_cost_db` / `trial_width_cost_db` / `trial_seconds` | 成品末尾已提交画像里「先试后用」量到的代价（dB）与试用的有效时长（诊断：试用只看聆听的前 15 ～ 30 s） |
+| — | `trial_lowcut_cost_db` / `trial_mono60_cost_db` … `trial_mono160_cost_db` / `trial_width_cost_db` / `trial_seconds` | 成品末尾已提交画像里「先试后用」量到的代价（dB）与试用的有效时长（诊断：试用只看聆听的前 15 ～ 30 s；`trial_mono*` 四列 ADR-015 起照测照存、决策不用，仅作诊断） |
 | — | `profile_sub_share_db` / `profile_low_corr` | 同一份画像的真次声占比与低频相关度（聆听窗口里的值，可能与整首的 `infra_share_lt16hz_db` / `low_corr_lt125hz` 不同） |
 | — | `peak_guard_pct` / `peak_guard_min_gain` | 修坯峰值守护（ADR-014）第二遍里 g < 1 的样本占比与全曲最小 g |
-| — | `slow_inverted_pct` | 分析器慢路低频相关度有效的块里 ρ < −0.2 的占比：歌里有没有真反相段（门槛「反相保护 ≤ 5 %」只管这一列为 0 的歌） |
+| — | `slow_inverted_pct` | 分析器慢路低频相关度有效的块里 ρ < −0.2 的占比：歌里有没有真反相段（门槛「反相提示时长占比 ≤ 5 %」只管这一列为 0 的歌） |
 | — | `limit_input_peak_db` | 限幅器入口峰值：max(GR − 本块实际 Limit Gain)，只计 GR > 0 的块。扣掉两条链各自校准出的增益差，修坯门槛比的是它（ADR-014） |
 | — | `clay_pressure_scale` / `clay_pressure_steps` | 成品末尾修坯压力反馈的缩放（1 = 不限）与降档次数（ADR-014） |
 | — | `clay_peak_cost_db` / `clay_peak_cost_s` | T-044（ADR-028）：成品末尾压力反馈第一触发量的代价——自上次清零（降档 / 新画像）起按有效音乐攒下的 100 ms 块峰值，20·log10(P99 ①② 处理后 / P99 干路)，与「先试后用」的 `trial_lowcut_cost_db` 同一口径（不经守护）；攒满 10 s 才有（不满时为空），持续 1 s 高于 0.2 dB 就降一档。`clay_peak_cost_s` = 攒下的时长 |
@@ -163,6 +163,24 @@ T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`�
 | — | `clay_blend_loss_db` | T-043：第二遍链里修坯峰值守护的混合损失（全曲两份 K 加权能量之比，dB；低切 / 收单都没作用过时为空）。正 = 守护把低切拉回干路时与干路相位不同、互相抵消，成品比修坯本该给的更轻；与同决策重放的响度差几乎一一对应（woqu：0.215 dB ↔ −0.199 LU） |
 
 `clay-replay-off` 行是 GLAZE 0 的链，GLAZE 状态列没有意义：`glaze_phase` 写 `replay`，`calibration_valid` / `resolved_style` / `listen_phase` 空。
+
+### 逐块追踪的修坯列（`--trace`）
+
+只在第二遍那份（`trace/<成品名>.csv`）里，一行 = 一块：
+
+| 列 | 含义 |
+|---|---|
+| `planned_lowcut_hz` / `planned_mono_amount` / `planned_mono_hz` / `planned_width_db` | 决策器给「自动」态的值（含方案过渡混合与压力反馈缩放，ClayGuard 之前） |
+| `live_mono_amount` / `live_width_db` | ClayGuard 之后、三态合成之前的自动值：宽度保护只会把加宽往小里改，收单原样透传 |
+| `guard_phase_floor` / `guard_phase_hold_s` / `guard_phase_active` | 反相提示的强度（0～1，含攻击 / 释放）、条件消失后剩下的保持秒数、是否亮着（= 强度 > 0）。列名沿用旧名，ADR-015 起只提示、不改声音；触发条件与时间常数见 `Source/dsp/ClayGuard.h` 文件头。这是 ClayGuard 自己的状态、不看三态：收单不在「自动」的组（`off` / `lowcut` / `width`）也可能是 1，收单灯与 `phase_guard_pct` 只算收单「自动」的组 |
+| `guard_seconds` | 这一块交给 ClayGuard 推进的有效音乐秒数（= 上一块的有效音乐时长）。为 0 时：静音、宿主旁通、停播，以及读回存档后的第一块——反相提示与宽度保护的状态停在原处；GLAZE 0 的组、或方案源不支持自动 Clay（旧画像 / 没有画像）每块都是 0，且 ClayGuard 不是停住而是回到中性（`guard_*` 与 `planned_*` / `live_*` 全是中性值，哪怕 `rho_slow` 明明 < −0.2） |
+| `rho_slow` / `rho_fast` | 分析器慢路 / 快路低频相关度（反相提示的判据；无效时空）。这是本块处理后的读数，ClayGuard 下一块才用它 |
+| `clay_lowcut_hz` / `clay_mono_amount` / `clay_mono_hz` / `clay_width_db` | 三态合成后交给 ClayModule 的实际值（同指标表的 Clay 四列） |
+
+ADR-015 起「自动」不收单：本工具各组的 `planned_mono_amount`、`live_mono_amount`、`clay_mono_amount` 恒为 0，`planned_mono_hz` 恒为 80。
+
+低切不经 ClayGuard 改动，所以没有 `live_lowcut_hz` 列：`planned_lowcut_hz` 就是交给三态合成的自动低切。`guard_phase_hold_s` 在反相条件成立期间保持为整段保持期（出厂 2 s），条件消失后才开始倒数。
+峰值守护与压力反馈的列（`peak_guard_samples`、`peak_guard_min_gain`、`blend_intended_energy`、`blend_output_energy`、`clay_pressure_scale`、`clay_peak_cost_db`、`clay_peak_cost_blocks`、`clay_blend_loss_db`）不在这一节，口径见上面 `--trace` 一行与指标表里的同名列。
 
 ### 逐块追踪的校准列（`--trace`）
 
@@ -225,7 +243,8 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 2. **阳性对照**：另起一条 GLAZE 0 的链（编排器不做决策，实际参数逐位等于喂进去的值），逐块喂这些参数，修坯三项用「手动」照填
    自动链那一块的实际值——输出应复现自动链（最大样本差 ≤ −180 dBFS）。不要求逐位：GLAZE > 0 的链按保护层 10 ms 时隙切片处理，
    GLAZE 0 整块处理，歌尾余振衰减到 −600 dBFS 量级时会差一点（2026-09-28 实测 l_kskdhjf、ooaa 差 1e-31）。自动收单比例在
-   0、1 之间的块「手动」态表达不了（手动收单固定是 1），目标频谱用了「参考」形状的块重放链没有侧链参考，都记 `n/a`；
+   0、1 之间的块「手动」态表达不了（手动收单固定是 1），目标频谱用了「参考」形状的块重放链没有侧链参考，都记 `n/a`，原因写进
+   metrics.md 该曲备注。ADR-015 起自动不收单，前一种已不再出现；本工具的目标频谱固定是出厂「自动」（不会落到「参考」），后一种眼下也走不到；
 3. **重放全关**：同样的逐块参数、修坯三项都「关」，出一组 `clay-replay-off`（写成品、量指标）。
 
 门槛检查：`python3 tools/render/gate_check.py <metrics.csv>`（多首歌分开跑时先把各自的 metrics.csv 合并成一份）。判定（失败返回 1）：
@@ -234,7 +253,7 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 |---|---|
 | GLAZE 0 逐位直通 | 修坯「自动」与「全关」`audio_hash` 相同 |
 | 阳性对照 | GLAZE > 0 的「自动」`replay_check` = ok（n/a 只列说明） |
-| 修坯门槛（阈值同 ADR-014） | 「自动」对「重放全关」：限幅入口峰值增加 ≤ 0.3 dB；响度下降 ≤ 0.1 LU（入口峰值同降的列说明）；反相保护介入 ≤ 5 %（有真反相段的歌豁免） |
+| 修坯门槛（阈值同 ADR-014） | 「自动」对「重放全关」：限幅入口峰值增加 ≤ 0.3 dB；响度下降 ≤ 0.1 LU（入口峰值同降的列说明）；反相提示时长占比 ≤ 5 %（「自动」行自己的收单灯琥珀时长，不含 House 档反相提示；ADR-015 起只提示、不改声音，这条查提示误亮；有真反相段的歌豁免） |
 | 锁定 | 原曲有效音乐 ≥ 30 s 的歌，GLAZE > 0 的成品末尾「已锁定 + 校准有效」；更短的列「时长不够」说明 |
 | 真峰值 | 所有成品 ≤ −1.0 + 0.01 dBTP |
 
@@ -555,7 +574,8 @@ Deep House、GLAZE 0、块长 512、出厂常数，走真歌同一套第一遍�
    结论与版本号一起写进版本档。
 6. 每首至少对比：同一 GLAZE 下修坯「自动」vs「重放全关」（修坯本身的效果，两者 GLAZE 决策相同；「全关」那组还混着方案分岔，
    听的是「用户关掉修坯」的整体结果），以及 GLAZE 0 vs 35 vs 70（整体推力）。
-   低音很宽 / 有反相内容的那首重点听低频是否更紧、单声道回放（DAW 里把总线切成单声道）是否更稳。
+   低音很宽 / 有反相内容的那首：ADR-015 起「自动」不收单，反相段只亮收单灯（琥珀）、不改声音，与「重放全关」的差别和其余段落一样
+   只来自低切与加宽，所以不再专门比低频是否更紧、单声道回放（DAW 里把总线切成单声道）是否更稳。
 
 ## 注意
 

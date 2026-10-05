@@ -124,6 +124,7 @@ private:
     double lastVBlankMs = -1.0e9;                  // 最近一次垂直同步回调的时刻（墙钟，毫秒）
     double lastVBlankSeconds = 0.0;                // ……它带来的帧时间戳（秒）
     bool lastAdvanceWasVBlank = false;             // 上一次推频谱的是垂直同步（下一帧的时长按两次时间戳之差算）
+    bool snapshotDriven = false;                   // 截图工具调过 advanceForSnapshot：频谱仪只由它按给定时长推，定时器的看门狗不再按墙钟补推（T-072）
 
     std::unique_ptr<juce::MouseListener> cornerListener;   // 右下角缩放把手的按下 / 松开（显示大小提示）
 

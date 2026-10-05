@@ -337,6 +337,19 @@ namespace celadon
         return report;
     }
 
+    ClayModule::GuardKeepReport ClayModule::getLastProcessGuardKeep() const noexcept
+    {
+        GuardKeepReport report;
+        report.changeEnergy = peakGuard.keepChangeEnergy;
+        report.keptEnergy = peakGuard.keepKeptEnergy;
+        return report;
+    }
+
+    void ClayModule::setGuardKeepReporting (bool enabled) noexcept
+    {
+        peakGuard.reportKeep = enabled;
+    }
+
     void ClayModule::setBlendTap (double* intendedPerSample, double* outputPerSample) noexcept
     {
         blendTapIntended = intendedPerSample;
@@ -579,6 +592,8 @@ namespace celadon
         peakGuard.blendIntendedEnergy = 0.0;
         peakGuard.blendOutputEnergy = 0.0;
         peakGuard.blendSamples = 0;
+        peakGuard.keepChangeEnergy = 0.0;
+        peakGuard.keepKeptEnergy = 0.0;
 
         if (sampleRate <= 0.0 || coreDelay <= 0 || numSamples <= 0 || channelsToUse <= 0)
             return;
@@ -1122,6 +1137,8 @@ namespace celadon
         blendIntendedEnergy = 0.0;
         blendOutputEnergy = 0.0;
         blendSamples = 0;
+        keepChangeEnergy = 0.0;
+        keepKeptEnergy = 0.0;
     }
 
     void ClayModule::PeakGuard::clearBlendFilters() noexcept
@@ -1387,6 +1404,11 @@ namespace celadon
         auto guardedSamples = stats.guardedSamples;
         auto minGain = stats.minGain;
         float* const intendedOut[] { intended[0].data(), intended[1].data() };   // 混合损失测量（T-043）：g 当 1 时的输出
+        // 守护保留比统计（T-074）：这一格量不量与混合损失同一个决定（blendMeasuring：不作用的格里 y 与 x 逐位相同、d = 0，不用算），
+        // 且 reportKeep 开着才算——只读 y、x、g，输出不受影响；段尾两个累计有限才并进成员。
+        const auto keepMeasuring = reportKeep && blendMeasuring;
+        auto keepChange = 0.0;
+        auto keepKept = 0.0;
 
         for (int i = 0; i < numSamples; ++i, ++m)
         {
@@ -1528,6 +1550,16 @@ namespace celadon
                         io[c][i] = atJ.wet[static_cast<std::size_t> (c)];
 
                     intendedOut[c][i] = io[c][i];
+
+                    // 守护保留比统计（T-074）：快路里 g = 1，改动量原样保留，两份能量同加。
+                    if (keepMeasuring)
+                    {
+                        const auto change = static_cast<double> (atJ.wet[static_cast<std::size_t> (c)])
+                                          - static_cast<double> (atJ.dry[static_cast<std::size_t> (c)]);
+                        const auto energy = change * change;
+                        keepChange += energy;
+                        keepKept += energy;
+                    }
                 }
             }
             else
@@ -1579,6 +1611,14 @@ namespace celadon
                 for (int c = 0; c < numChannels; ++c)
                 {
                     const auto y = atJ.wet[static_cast<std::size_t> (c)];
+
+                    if (keepMeasuring)
+                    {
+                        const auto change = static_cast<double> (y) - static_cast<double> (atJ.dry[static_cast<std::size_t> (c)]);
+                        const auto energy = change * change;
+                        keepChange += energy;
+                        keepKept += gain < 1.0 ? energy * gain * gain : energy;
+                    }
 
                     if constexpr (withIncrement)
                     {
@@ -1644,5 +1684,13 @@ namespace celadon
         released = previous;
         stats.guardedSamples = guardedSamples;
         stats.minGain = minGain;
+
+        if (keepMeasuring && std::isfinite (keepChange) && std::isfinite (keepKept))
+        {
+            keepChangeEnergy += keepChange;
+            keepKeptEnergy += keepKept;
+            stats.keepChangeEnergy += keepChange;
+            stats.keepKeptEnergy += keepKept;
+        }
     }
 }

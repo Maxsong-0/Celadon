@@ -18,6 +18,11 @@
     代价无效 → 该项中性）、costLimitedMask 的位；删掉的四个旧常数不再进快照；画像格式 2 的代价字段与方案 / 执行快照的
     costLimitedMask 存取、画像号（格式 1 不变）。
 
+    ADR-015（T-018，0.1.7.1）改写：自动态不收单——上面的「收单需要度」「分频点选择」「收单代价的对数频率插值」改成核对自动方案的
+    收单恒为中性、不置收单代价位（testClayAutoMonoAlwaysNeutral 等）；自动收单的 7 个常数决策器已不读，T-063（2026-10-04）连快照字段
+    一起退役：testClayConstants 删了它们的出厂值与字段表项、加了「旧存档带着这 7 个属性读时忽略、再存不写」；testClayNeutralCases、
+    testClayMonotonicAndBounded 里原来拿它们当期望值的地方改成 ClayPlan{} 的默认分频点 / 收单恒为 0。
+
     T-038 曲风与交付（设计规格-曲风与交付 第 3.1、4.1、4.2 节；ADR-026）追加：阶段 1 的存档口径（画像格式 3、参考条件、快照常数），
     阶段 2 的决策器——House 子类在风格混合之后覆盖 Tone 参考 / 低切目标 / 加宽系数、Tone 往亮封顶 +0.4、动态预算与通用档逐位相同、
     流媒体 / 俱乐部的目标（风格偏移、LRA 修正、该档钳位）、通用 + 标准不读任何新常数、新档位下的单调 / 范围 / 0 分配。
@@ -2623,9 +2628,9 @@ namespace celadon::test
                 expectWithinAbsoluteError (planWithGenre (&darkMix, Style::punchy, 100.0f, Genre::deepHouse, Delivery::standard).increments.colorToneDb,
                                            inside, 1.0e-6f, utf8 ("Deep + 冲击按子类参考"));
 
-                // 修坯：clayProfile（三项需要度都是 0.5、代价 0）。House 低切 = 10 · (25 / 10)^0.5 = 15.8114 Hz、不加宽、不收单，四种风格相同；
-                // 真次声 −28 dB（need 1，k = 1）→ 低切正好是目标 25 Hz。通用档照旧按风格（testClayFormulas：12.6491 / 13.4164 / 14.1421 Hz，
-                // 加宽 0.3 / 0.45 / 0.75 dB）。
+                // 修坯：clayProfile（低切、加宽的需要度都是 0.5、代价 0）。House 低切 = 10 · (25 / 10)^0.5 = 15.8114 Hz、不加宽、
+                // 不收单（ADR-015），四种风格相同；真次声 −28 dB（need 1，k = 1）→ 低切正好是目标 25 Hz。通用档照旧按风格
+                // （testClayFormulas：12.6491 / 13.4164 / 14.1421 Hz，加宽 0.3 / 0.45 / 0.75 dB）。
                 const auto clay = clayProfile();
                 auto subsonic = clayProfile();
                 subsonic.subShareDb.value = -28.0f;
@@ -3571,10 +3576,11 @@ namespace celadon::test
         // 依据：设计规格-Clay-分析决策与验收第 2 节（公式）、第 6 节第 4 条（决策的验收）；ADR-009；ADR-012 / 设计规格-Clay-根治修订
         // 3.1 / 3.3（真次声阈值、收单按单声道回放损失、代价系数、costLimitedMask、风格低切目标）。画像的立体声 / 次声特征与峰值代价
         // 由测试直接给值（分析器的测量归 MusicAnalyzerTests）；期望值按规格公式手算，注释写出算式。出厂常数（GlazeConstants.h / .cpp）：
-        //   清理强度 min(1, g / 0.5)；真次声占比 −40 → −28 dB；地板 10 Hz、门槛 k 0.001；收单需要度 ramp(10·log10((1 + ρ) / 2), −0.5, −3)；
-        //   逐段「S/M > −15 dB 或 ρ < 0.3」；分频点 60 ～ 160 Hz、默认 80 Hz；高频 S/M −10 → −18 dB；加宽上限 1.5 dB；
+        //   清理强度 min(1, g / 0.5)；真次声占比 −40 → −28 dB；地板 10 Hz、门槛 k 0.001；高频 S/M −10 → −18 dB；加宽上限 1.5 dB；
         //   加宽后相关度下限 0.25；代价系数 ramp(代价, 0.6, 0.2)；风格（温润 / 冲击 / 通透）低切目标 16 / 18 / 20 Hz、加宽系数 0.4 / 0.6 / 1.0。
         //   特征置信度按 trustOf 口径（÷ 满置信 0.8，钳到 1）：置信度 1 → c = 1。
+        //   收单：ADR-015 起自动态恒为中性。原先的需要度 ramp(10·log10((1 + ρ) / 2), −0.5, −3)、逐段「S/M > −15 dB 或 ρ < 0.3」、
+        //   分频点 60 ～ 160 Hz / 默认 80 Hz——这 7 个自动收单常数已于 T-063 连快照字段一起退役，不在出厂值与字段表里了。
 
         static bool sameClay (const ClayPlan& a, const ClayPlan& b) noexcept
         {
@@ -3589,7 +3595,7 @@ namespace celadon::test
             return sameClay (clay, ClayPlan {});
         }
 
-        // 三项的值都是中性（不看 costLimitedMask：代价把三项都否决时值是中性、位却全置）。
+        // 三项的值都是中性（不看 costLimitedMask：代价把低切、加宽都否决时值是中性、代价位却置上；ADR-015 起收单不置位）。
         static bool hasNeutralValues (const ClayPlan& clay) noexcept
         {
             auto values = clay;
@@ -3625,8 +3631,9 @@ namespace celadon::test
         }
 
         // 给画像填修坯用的五个特征（同一置信度）与全 0 dB 的峰值代价（代价系数 1：公式测试不受代价影响，代价另测）；逐段立体声
-        // 统计全「窄」且有统计（S/M −30 dB、ρ 0.95、可信度 1）：没有段满足「S/M > −15 dB 或 ρ < 0.3」，收单分频点落在默认 80 Hz。
-        // 低频 S/M 与高频 ρ 现在决策器都不用（ADR-012 后收单只看低频 ρ），照样给值，测「给了也不影响」。
+        // 统计全「窄」且有统计（S/M −30 dB、ρ 0.95、可信度 1；v0.1.7.0 时这让收单分频点落在默认 80 Hz）。
+        // 低频 S/M、低频 ρ、高频 ρ 与逐段统计现在决策器都不用（ADR-012 去掉低频 S/M，ADR-015 起自动不收单、低频 ρ 也不读），照样给值，
+        // 测「给了也不影响」。
         static void setClayFeatures (MusicProfile& profile, float subShareDb, float lowSideToMidDb, float lowCorrelation,
                                      float highSideToMidDb, float highCorrelation, float confidence = 1.0f)
         {
@@ -3645,12 +3652,14 @@ namespace celadon::test
             }
         }
 
-        // 收单需要度正好 0.5 的低频相关度：单声道回放损失 10·log10((1 + ρ) / 2) = −0.5 − 2.5 · 0.5 = −1.75 dB
+        // 收单需要度正好 0.5 的低频相关度（v0.1.7.0 的公式；ADR-015 起自动不收单，这个值只是 clayProfile 和 testClayFormulas 里
+        // 两份置信度画像照样给的低频 ρ，不影响方案）：单声道回放损失 10·log10((1 + ρ) / 2) = −0.5 − 2.5 · 0.5 = −1.75 dB
         // → ρ = 2 · 10^(−0.175) − 1 = 0.33668783（float；double 里算出的损失回到 float 正好是 −1.75，需要度 (−1.75 + 0.5) / −2.5 = 0.5）。
         static constexpr float monoNeedHalfCorrelation = 0.33668783f;
 
-        // 三项都要动一半的画像：真次声占比 −34 dB（need (−34 + 40) / (−28 + 40) = 0.5）；低频 ρ 0.33668783（need 0.5，见上）；
-        // 高频 S/M −14 dB（need (−14 + 10) / (−18 + 10) = 0.5）；代价全 0 dB（系数 1）。其余特征同 makeProfile（全可信）。
+        // 低切、加宽都要动一半的画像：真次声占比 −34 dB（need (−34 + 40) / (−28 + 40) = 0.5）；低频 ρ 0.33668783（原收单 need 0.5，
+        // 见上；ADR-015 起不影响方案）；高频 S/M −14 dB（need (−14 + 10) / (−18 + 10) = 0.5）；代价全 0 dB（系数 1）。
+        // 其余特征同 makeProfile（全可信）。
         static MusicProfile clayProfile()
         {
             auto profile = makeProfile (-18.0f, -5.0f);
@@ -3695,7 +3704,7 @@ namespace celadon::test
 
             randomFeature (profile.subShareDb, -46.0f, -22.0f);    // 真次声斜坡 −40 → −28 dB 两侧
             randomFeature (profile.lowSideToMidDb, -30.0f, 0.0f);
-            randomFeature (profile.lowCorrelation, -1.05f, 1.0f);  // 收单需要度 ρ 0.78 → 0 两侧，含 ρ ≤ −1（−∞ 一支）
+            randomFeature (profile.lowCorrelation, -1.05f, 1.0f);  // 原收单需要度 ρ 0.78 → 0 两侧，含 ρ ≤ −1（ADR-015 起决策器不读，留着测「不影响」）
             randomFeature (profile.highSideToMidDb, -25.0f, 0.0f);
             randomFeature (profile.highCorrelation, -0.2f, 1.0f);
 
@@ -3720,13 +3729,14 @@ namespace celadon::test
         {
             beginTest ("Clay auto values follow the spec formulas");
 
-            // 画像见 clayProfile：三项的 need 都是 0.5，特征可信度 1（c = 1），代价全 0 dB（代价系数 1、不置代价位）。
+            // 画像见 clayProfile：低切、加宽的 need 都是 0.5，特征可信度 1（c = 1），代价全 0 dB（代价系数 1、不置代价位）。
             // ① k = 0.5 · 1 · min(1, g / 0.5) · 1：GLAZE 100 → k = 0.5 → lowCutHz = 10 · (f_t / 10)^0.5 = 12.6491 / 13.4164 / 14.1421 Hz
             //    （温润 16 / 冲击 18 / 通透 20 Hz，ADR-012）；GLAZE 25 → 强度 0.5、k = 0.25 → 10 · (f_t / 10)^0.25 = 11.2468 / 11.5829 / 11.8921 Hz。
             // ② ADR-015：自动态不收单——monoAmount 恒 0、分频点恒为默认 80 Hz（收单只改立体声，单声道回放不变）。
             // ③ widthDb = 1.5 · (−14 + 10) / (−18 + 10) · 1 · s_w · g · 1 = 0.75 · s_w · g：GLAZE 100 → 0.3 / 0.45 / 0.75 dB，GLAZE 25 → 四分之一；
             //    相关度上限 10·log10(0.6) + 14 = 11.78 dB 不起作用。
-            // GLAZE 50 起清理项强度已满（min(1, 0.5 / 0.5) = 1）：低切与收单与 GLAZE 100 逐位相同，加宽只到一半（口味项随 g 线性）。
+            // GLAZE 50 起清理项（低切）强度已满（min(1, 0.5 / 0.5) = 1）：低切与 GLAZE 100 逐位相同（收单两边都是 0），加宽只到一半
+            // （口味项随 g 线性）。
             const auto profile = clayProfile();
 
             const struct { Style style; float widthFactor, lowCutFull, lowCutQuarter; } expectations[] =
@@ -3858,9 +3868,9 @@ namespace celadon::test
             beginTest ("Clay try-before-use: the peak cost scales or vetoes each item and marks costLimitedMask");
 
             // 依据：ADR-012、设计规格-Clay-根治修订 3.3：代价系数 f(代价) = ramp(代价, 0.6, 0.2)——≤ 0.2 dB 照做（1）、0.2 ～ 0.6 dB
-            //       线性减量、≥ 0.6 dB 不做（0）；低切 k、收单比例、加宽的原公式各乘自己的 f；某项「按需要度本应 > 0、但 f < 1 使它减小
-            //       或为 0」→ 置位（bit0 低切、bit1 收单、bit2 加宽）；代价无效 → 该项中性（不置位）。
-            // 画像：三项需要度都给满（真次声 −28 dB、ρ 0、高频 S/M −18 dB），通透、GLAZE 100、c = 1：
+            //       线性减量、≥ 0.6 dB 不做（0）；低切 k、加宽的原公式各乘自己的 f（ADR-015 起收单不乘）；某项「按需要度本应 > 0、但 f < 1
+            //       使它减小或为 0」→ 置位（bit0 低切、bit2 加宽；bit1 收单 ADR-015 起决策器不置）；代价无效 → 该项中性（不置位）。
+            // 画像：低切、加宽的需要度都给满（真次声 −28 dB、高频 S/M −18 dB；低频 ρ 0 原为收单而设，ADR-015 起不影响），通透、GLAZE 100、c = 1：
             //   低切 k = f → lowCutHz = 10 · 2^f；加宽 = 1.5 · f（相关度上限 10·log10(0.6) + 18 = 15.8 dB 不起作用）；
             //   收单自动态不做（ADR-015），它的代价测了也不用、不置位。三档：
             //   代价 0.1 dB → f = 1 → 20 Hz / 1.5 dB，不置位；
@@ -3981,7 +3991,7 @@ namespace celadon::test
                         utf8 ("低切代价无效：只有低切中性、不置位，方式 ") + juce::String (how));
             }
 
-            // 代价常数判断不了（旧快照读成 0 / 0、两端颠倒、非有限）→ 三项都中性、不置位；阳性对照：出厂常数三项都动。
+            // 代价常数判断不了（旧快照读成 0 / 0、两端颠倒、非有限）→ 三项都中性、不置位；阳性对照：出厂常数下低切、加宽都动。
             auto zeroZero = factoryConstants();
             zeroZero.clayCostFullDb = 0.0f;
             zeroZero.clayCostZeroDb = 0.0f;
@@ -4065,7 +4075,7 @@ namespace celadon::test
             //       GlazeTypes.h ClayPlan 的中性值（收单为 0 时分频点保持默认 80 Hz：中性 = 与 ClayPlan{} 逐位相同）。
             const auto profile = clayProfile();
 
-            // 阳性对照：同一份画像 GLAZE 100 各风格三项都动。
+            // 阳性对照：同一份画像 GLAZE 100 各风格低切、加宽都动（收单自动态不做，ADR-015）。
             for (auto style : { Style::automatic, Style::warm, Style::punchy, Style::clean })
             {
                 const auto active = planFor (&profile, style, 100.0f).clay;
@@ -4086,8 +4096,8 @@ namespace celadon::test
                 expect (isNeutral (planFor (&legacy, style, 100.0f).clay), utf8 ("旧画像的 Clay 自动值应为 0"));
 
             // 逐个特征失效（0 = 无效、1 = 置信度 0、2 = 有效但数值 NaN）：只让用到它的那一项回中性，另两项逐位不变。
-            // 低切只用真次声占比；收单只用低频 ρ（ADR-012：需要度改按单声道回放损失，低频 S/M 不再用）；加宽只用高频 S/M（上限也由它
-            // 反推）；低频 S/M、高频 ρ 不是所需特征。
+            // 低切只用真次声占比；加宽只用高频 S/M（上限也由它反推）；收单自动态不做（ADR-015），低频 ρ 失效时收单照样是中性；
+            // 低频 S/M、高频 ρ 不是所需特征。
             const auto reference = planFor (&profile, Style::clean, 100.0f).clay;
             const auto spoiled = [] (Feature MusicProfile::* member, int how)
             {
@@ -4129,7 +4139,8 @@ namespace celadon::test
             }
 
             // 峰值代价失效（ADR-012「代价无效 → 该项中性」）：0 = 无效、1 = 置信度 0（代价不看置信度：不影响）、2 = 数值 NaN。
-            // 低切只看低切代价、加宽只看加宽代价；收单只看分频点用到的候选（逐段全窄 → 默认 80 Hz = 第 2 个候选点，只用它）。
+            // 低切只看低切代价、加宽只看加宽代价；四个收单候选的代价 ADR-015 起决策器都不用（原先只看分频点用到的候选：逐段全窄 → 默认
+            // 80 Hz = 第 2 个候选点）。
             const auto spoiledCost = [] (int which, int how)
             {
                 auto p = clayProfile();
@@ -4167,12 +4178,12 @@ namespace celadon::test
                             && sameBits (noWidthCost.monoAmount, reference.monoAmount),
                         utf8 ("加宽代价失效：只有加宽中性、不置位") + what);
 
-                const auto noMonoCost = spoiledCost (2 + 1, how);   // 80 Hz 候选
+                const auto noMonoCost = spoiledCost (2 + 1, how);   // 80 Hz 候选（v0.1.7.0 时分频点用的那个；ADR-015 起不用）
                 expect (noMonoCost.monoAmount == 0.0f && sameBits (noMonoCost.monoHz, ClayPlan {}.monoHz) && maskOf (noMonoCost) == 0
                             && sameBits (noMonoCost.lowCutHz, reference.lowCutHz) && sameBits (noMonoCost.widthDb, reference.widthDb),
                         utf8 ("分频点所用的收单代价失效：只有收单中性、不置位") + what);
 
-                for (int unused : { 2 + 0, 2 + 2, 2 + 3 })   // 60 / 120 / 160 Hz 候选：80 Hz 的分频点用不到
+                for (int unused : { 2 + 0, 2 + 2, 2 + 3 })   // 60 / 120 / 160 Hz 候选（v0.1.7.0 时 80 Hz 的分频点用不到；ADR-015 起四个都不用）
                     expect (sameClay (spoiledCost (unused, how), reference), utf8 ("用不到的收单候选失效：不影响") + what);
             }
 
@@ -4185,15 +4196,15 @@ namespace celadon::test
             for (auto style : { Style::automatic, Style::warm, Style::punchy, Style::clean })
                 expect (isNeutral (planFor (&untried, style, 100.0f).clay), utf8 ("没试过（代价全无效）：三项中性、不置位"));
 
-            // 逐段统计全没有（bandStereoConfidence 0；没有统计的段 S/M、ρ 都记 0，看起来很「宽」但不许当宽段）：
-            // 收单照样按标量特征给，分频点取默认值。
+            // 逐段统计全没有（bandStereoConfidence 0；没有统计的段 S/M、ρ 都记 0，看起来很「宽」）：ADR-015 起决策器不读逐段统计，
+            // 收单照样是中性（比例 0、分频点 ClayPlan{} 默认值）。
             auto noBands = clayProfile();
             noBands.bandStereoConfidence.fill (0.0f);
             noBands.bandSideToMidDb.fill (0.0f);
             noBands.bandCorrelation.fill (0.0f);
             const auto noBandPlan = planFor (&noBands, Style::clean, 100.0f).clay;
-            expect (sameBits (noBandPlan.monoAmount, reference.monoAmount) && sameBits (noBandPlan.monoHz, factoryConstants().clayMonoDefaultHz),
-                    utf8 ("没有逐段统计：照样收单，分频点取默认值"));
+            expect (sameBits (noBandPlan.monoAmount, reference.monoAmount) && sameBits (noBandPlan.monoHz, ClayPlan {}.monoHz),
+                    utf8 ("没有逐段统计：收单照样中性，分频点取 ClayPlan{} 的默认值"));
         }
 
         //==============================================================================
@@ -4201,8 +4212,8 @@ namespace celadon::test
         {
             beginTest ("Clay values never decrease as GLAZE rises and stay inside their caps");
 
-            // 依据：第 6 节第 4 条「对 g 单调；各项不超上限；加宽后预测 ρ' ≥ 0.25」、第 2 节（分频点只由逐段统计定，收单开着时不随
-            //       GLAZE 挪）；ClayModule 的参数范围。随机场景复用 randomScenario（画像 / 风格 / 手动值 / 约束反馈都随机）并补上随机 Clay
+            // 依据：第 6 节第 4 条「对 g 单调；各项不超上限；加宽后预测 ρ' ≥ 0.25」、第 2 节（分频点不随 GLAZE 挪；ADR-015 起自动不收单，
+            //       分频点恒为默认值）；ClayModule 的参数范围。随机场景复用 randomScenario（画像 / 风格 / 手动值 / 约束反馈都随机）并补上随机 Clay
             //       特征；每三个场景有一个换用「加宽上限会起作用」的快照（相关度下限 0.94、窄的起点 0 dB），上限的定量核对见 testClayWidthCap。
             auto tight = factoryConstants();
             tight.clayMinCorrelationAfterWidth = 0.94f;
@@ -4221,7 +4232,6 @@ namespace celadon::test
                 auto cheapProfile = scenario.profile;
                 setClayCosts (cheapProfile, 0.0f, 0.0f, 0.0f);
                 ClayPlan previous;
-                auto crossover = 0.0f;   // 这一轮第一次开收单时的分频点（之后必须逐位不变）
 
                 for (int step = 0; step <= 200; ++step)
                 {
@@ -4256,19 +4266,10 @@ namespace celadon::test
                         ok = ok && predictedCorrelation (clay.widthDb, scenario.profile.highSideToMidDb.value)
                                        >= (double) constants.clayMinCorrelationAfterWidth - 1.0e-4;
 
-                    // 分频点：收单开着时在 [60, 160] Hz 且整轮逐位不变；收单为 0 时保持默认值（中性）。
-                    if (clay.monoAmount > 0.0f)
-                    {
-                        if (crossover == 0.0f)
-                            crossover = clay.monoHz;
-
-                        ok = ok && sameBits (clay.monoHz, crossover)
-                                && clay.monoHz >= constants.clayMonoMinHz && clay.monoHz <= constants.clayMonoMaxHz;
-                    }
-                    else
-                    {
-                        ok = ok && sameBits (clay.monoHz, ClayPlan {}.monoHz);
-                    }
+                    // 收单与分频点：ADR-015 起自动不收单，收单恒为 0、分频点恒为 ClayPlan{} 的默认值（中性）。
+                    // （原先「收单开着」那一支核对分频点落在 [clayMonoMinHz, clayMonoMaxHz] 且整轮逐位不变——v0.1.7.0 的口径，走不到，
+                    // T-063 随常数一起删。）
+                    ok = ok && clay.monoAmount == 0.0f && sameBits (clay.monoHz, ClayPlan {}.monoHz);
 
                     // GLAZE 0 或没有画像：全中性（含代价位为 0）。
                     if (step == 0 || ! scenario.hasProfile)
@@ -4391,7 +4392,7 @@ namespace celadon::test
             expectWithinAbsoluteError (halfHalf.clayLowCutTargetHz, 18.0f, 1.0e-5f);
             expectWithinAbsoluteError (halfHalf.clayWidthStyleFactor, 0.7f, 1.0e-6f);
 
-            // 方案：锁定 {0.5, 0, 0.5} → 低切 10 · (18 / 10)^0.5 = 13.4164 Hz、加宽 1.5 · 0.5 · 0.7 = 0.525 dB、收单 0.5（与风格无关）；
+            // 方案：锁定 {0.5, 0, 0.5} → 低切 10 · (18 / 10)^0.5 = 13.4164 Hz、加宽 1.5 · 0.5 · 0.7 = 0.525 dB、收单 0（ADR-015，与风格无关）；
             // 锁定独热 {0, 1, 0} = 冲击（Clay 逐位相同）。
             const auto profile = clayProfile();
             const StyleWeights warmClean { 0.5f, 0.0f, 0.5f }, allPunchy { 0.0f, 1.0f, 0.0f };
@@ -4423,7 +4424,7 @@ namespace celadon::test
             beginTest ("Clay ignores manual settings and loudness feedback, and never changes the level plan");
 
             // 依据：第 2 节「响度与峰值模型不改：Clay 对 K 加权响度影响 < 0.2 LU，由现有校准器吸收」；ADR-009（Clay 的自动值是绝对值，
-            //       三态在编排器里合成，决策器不看抽屉设置）。所以：① 手动值、抽屉设置、约束反馈 maxGainDb 都不改变 Clay；
+            //       三态在编排器里合成，决策器不看三态设置）。所以：① 手动值、三态设置、约束反馈 maxGainDb 都不改变 Clay；
             //       ② 画像多了 Clay 特征，方案其余字段（增量、目标、权重、受限标志、版本）与没有时逐位相同。
             const auto profile = clayProfile();
             const auto reference = planFor (&profile, Style::warm, 70.0f);
@@ -4505,7 +4506,7 @@ namespace celadon::test
 
                 const auto sub = -44.0f + 20.0f * rng.nextFloat();       // 真次声斜坡 −40 → −28 dB 两侧
                 const auto lowSide = -26.0f + 20.0f * rng.nextFloat();
-                const auto lowRho = -0.2f + 1.2f * rng.nextFloat();      // 收单需要度 ρ 0.78 → 0 两侧
+                const auto lowRho = -0.2f + 1.2f * rng.nextFloat();      // 原收单需要度 ρ 0.78 → 0 两侧（ADR-015 起决策器不读）
                 const auto highSide = -22.0f + 16.0f * rng.nextFloat();
                 const auto clayConfidence = rng.nextFloat();
                 setClayFeatures (unsure, sub, lowSide, lowRho, highSide, 0.5f, clayConfidence);
@@ -4514,7 +4515,7 @@ namespace celadon::test
                 const auto monoCost = -0.3f + rng.nextFloat();
                 const auto widthCost = -0.3f + rng.nextFloat();
                 setClayCosts (unsure, lowCutCost, monoCost, widthCost, clayConfidence);
-                const auto wideBand = rng.nextInt (7);   // 某一个低频段偏宽：分频点不是默认值
+                const auto wideBand = rng.nextInt (7);   // 某一个低频段偏宽（v0.1.7.0 时分频点因此不是默认值；ADR-015 起不影响方案）
                 unsure.bandSideToMidDb[(size_t) wideBand] = -5.0f;
 
                 auto sure = unsure;
@@ -4579,11 +4580,6 @@ namespace celadon::test
             expectEquals (factory.claySubShareHighDb, -28.0f);
             expectEquals (factory.clayLowCutFloorHz, 10.0f);
             expectEquals (factory.clayLowCutMinK, 0.001f);
-            expectEquals (factory.clayMonoBandSideRatioDb, -15.0f);
-            expectEquals (factory.clayMonoBandCorrelation, 0.3f);
-            expectEquals (factory.clayMonoMinHz, 60.0f);
-            expectEquals (factory.clayMonoMaxHz, 160.0f);
-            expectEquals (factory.clayMonoDefaultHz, 80.0f);
             expectEquals (factory.clayWidthNarrowStartDb, -10.0f);
             expectEquals (factory.clayWidthNarrowFullDb, -18.0f);
             expectEquals (factory.clayWidthMaxDb, 1.5f);
@@ -4594,28 +4590,26 @@ namespace celadon::test
             expectEquals (factory.clayGuardPhaseReleaseSeconds, 2.0);
             expectEquals (factory.clayGuardWidthAttackSeconds, 0.2);
             expectEquals (factory.clayGuardWidthReleaseSeconds, 2.0);
-            // ADR-012 新常数（根治修订 3.3 / 3.4）：代价系数 ramp(代价, 0.6, 0.2)、收单需要度 ramp(损失, −0.5, −3)、反相快路门 0.1（ADR-014 由 0.3 改）、
-            // 最短持续 0.15 s。
+            // ADR-012 新常数（根治修订 3.3 / 3.4）：代价系数 ramp(代价, 0.6, 0.2)（ADR-012 的收单需要度斜坡 ramp(损失, −0.5, −3) 两端
+            // 随 ADR-015 的退役一起删了，T-063）、反相快路门 0.1（ADR-014 由 0.3 改）、最短持续 0.15 s。
             expectEquals (factory.clayCostFullDb, 0.2f);
             expectEquals (factory.clayCostZeroDb, 0.6f);
-            expectEquals (factory.clayMonoLossLowDb, -0.5f);
-            expectEquals (factory.clayMonoLossHighDb, -3.0f);
             expectEquals (factory.clayGuardPhaseFastGate, 0.1f);   // ADR-014：0.3 → 0.1
             expectEquals (factory.clayGuardPhaseMinSeconds, 0.15);
             expectEquals (factory.clayBlendLossLimitDb, 0.09f, "T-043 (ADR-027): guard blend-loss cap");
 
             // ---- 快照读写 ----
-            // 字段表独立于 GlazeConstants.cpp 的访问器：逐项核对「全部 33 个 clay* 字段都进了快照、都能按位读回、缺了都按 0 读」。
+            // 字段表独立于 GlazeConstants.cpp 的访问器：逐项核对「全部 26 个 clay* 字段都进了快照、都能按位读回、缺了都按 0 读」。
             // ADR-012 删掉了 clayMonoSideRatioLowDb / HighDb、clayMonoCorrelationLow / High（4 个），加了代价系数两端、收单损失两端、
-            // 反相快路门（float 5 个）与最短持续秒数（double 1 个）：30 − 4 + 6 = 32；T-043 加混合损失封顶门槛（float 1 个）= 33。
+            // 反相快路门（float 5 个）与最短持续秒数（double 1 个）：30 − 4 + 6 = 32；T-043 加混合损失封顶门槛（float 1 个）= 33；
+            // T-063 退役 7 个自动收单常数（ADR-015 起决策器不读）：33 − 7 = 26。
             float Constants::* const floatFields[] =
             {
                 &Constants::clayGlazeFullAt, &Constants::claySubShareLowDb, &Constants::claySubShareHighDb, &Constants::clayLowCutFloorHz,
-                &Constants::clayLowCutMinK, &Constants::clayMonoBandSideRatioDb,
-                &Constants::clayMonoBandCorrelation, &Constants::clayMonoMinHz, &Constants::clayMonoMaxHz, &Constants::clayMonoDefaultHz,
+                &Constants::clayLowCutMinK,
                 &Constants::clayWidthNarrowStartDb, &Constants::clayWidthNarrowFullDb, &Constants::clayWidthMaxDb,
                 &Constants::clayMinCorrelationAfterWidth, &Constants::clayGuardPhaseCorrelation,
-                &Constants::clayCostFullDb, &Constants::clayCostZeroDb, &Constants::clayMonoLossLowDb, &Constants::clayMonoLossHighDb,
+                &Constants::clayCostFullDb, &Constants::clayCostZeroDb,
                 &Constants::clayGuardPhaseFastGate, &Constants::clayBlendLossLimitDb
             };
             double Constants::* const doubleFields[] =
@@ -4625,7 +4619,7 @@ namespace celadon::test
             };
             float StyleConstants::* const styleFields[] = { &StyleConstants::clayLowCutTargetHz, &StyleConstants::clayWidthStyleFactor };
             StyleConstants Constants::* const styleSlots[] = { &Constants::warm, &Constants::punchy, &Constants::clean };
-            constexpr int clayFieldCount = 21 + 6 + 3 * 2;
+            constexpr int clayFieldCount = 14 + 6 + 3 * 2;
 
             // 每个 clay* 字段各给一个与出厂值、结构体默认值都不同的值（1000 / 500 起步）。
             const auto distinct = [&] (Constants snapshot)
@@ -4695,7 +4689,7 @@ namespace celadon::test
 
             // 特殊位模式（NaN、−0、非规格化数、±Inf）同样逐位往返。
             auto odd = original;
-            odd.clayMonoBandCorrelation = std::numeric_limits<float>::quiet_NaN();
+            odd.clayWidthNarrowFullDb = std::numeric_limits<float>::quiet_NaN();
             odd.clayMinCorrelationAfterWidth = -0.0f;
             odd.clayLowCutMinK = 1.0e-40f;
             odd.clean.clayWidthStyleFactor = std::numeric_limits<float>::infinity();
@@ -4703,14 +4697,14 @@ namespace celadon::test
             odd.clayGuardWidthReleaseSeconds = std::numeric_limits<double>::quiet_NaN();
             odd.clayGuardPhaseAttackSeconds = -std::numeric_limits<double>::infinity();
             odd.clayCostZeroDb = -0.0f;
-            odd.clayMonoLossHighDb = std::numeric_limits<float>::quiet_NaN();
+            odd.clayWidthMaxDb = std::numeric_limits<float>::quiet_NaN();
             odd.clayGuardPhaseMinSeconds = std::numeric_limits<double>::denorm_min();
             Constants oddBack;
             expect (fromXml (*toXml (odd), oddBack) && sameClayFields (oddBack, odd) && bitwiseEqual (oddBack, odd), utf8 ("特殊位模式应逐位往返"));
 
-            // 差 1 ulp 也判为不同（float、double、风格字段各一例，另加 ADR-012 的两个新字段）：bitwiseEqual 覆盖了新字段。
+            // 差 1 ulp 也判为不同（float、double、风格字段各一例，另加 ADR-012 的新字段）：bitwiseEqual 覆盖了新字段。
             auto oneUlp = factory;
-            oneUlp.clayMonoMaxHz = std::nextafter (oneUlp.clayMonoMaxHz, 1000.0f);
+            oneUlp.clayWidthMaxDb = std::nextafter (oneUlp.clayWidthMaxDb, 1000.0f);
             expect (! bitwiseEqual (oneUlp, factory));
             oneUlp = factory;
             oneUlp.clayGuardPhaseHoldSeconds = std::nextafter (oneUlp.clayGuardPhaseHoldSeconds, 10.0);
@@ -4725,9 +4719,13 @@ namespace celadon::test
             oneUlp.clayGuardPhaseMinSeconds = std::nextafter (oneUlp.clayGuardPhaseMinSeconds, 1.0);
             expect (! bitwiseEqual (oneUlp, factory));
 
-            // ADR-012 删掉的四个常数不再写；开发期快照里残留的这几个属性读时忽略（与没有它们的快照读出来逐位相同）。
+            // ADR-012 删掉的四个常数、ADR-015 起决策器不读而 T-063 一起退役的 7 个自动收单常数都不再写；旧存档 / 开发期快照里残留的这些
+            // 属性读时忽略（与没有它们的快照读出来逐位相同）。名字不得复用：残留属性的值（−20 的位模式，与 11 个出厂值都不同）读进来
+            // 若影响了任何字段，下面的逐位比较就败。
             const char* const removedFields[] = { "clayMonoSideRatioLowDb", "clayMonoSideRatioHighDb", "clayMonoCorrelationLow",
-                                                  "clayMonoCorrelationHigh" };
+                                                  "clayMonoCorrelationHigh",
+                                                  "clayMonoBandSideRatioDb", "clayMonoBandCorrelation", "clayMonoMinHz", "clayMonoMaxHz",
+                                                  "clayMonoDefaultHz", "clayMonoLossLowDb", "clayMonoLossHighDb" };
             const auto factoryXml = toXml (factory);
 
             for (const auto* removed : removedFields)
@@ -4740,6 +4738,48 @@ namespace celadon::test
 
             Constants stray;
             expect (fromXml (*strayXml, stray) && bitwiseEqual (stray, factory), utf8 ("残留的旧常数属性读时忽略"));
+
+            // T-063：T-063 之前存的工程，标定快照里带着这 7 个属性、值是它们的真实出厂位模式（−15 / 0.3 / 60 / 160 / 80 / −0.5 / −3 的
+            // IEEE 单精度十六进制）。新版读它们：忽略，与没有它们的快照逐位相同；再存不写它们；属性存在但损坏（不是 8 位十六进制）
+            // 也忽略（以前整份拒收，T-063 起接受，同 ADR-012；只出现在手改或损坏的存档上）。
+            {
+                const char* const retiredAutoMono[][2] = { { "clayMonoBandSideRatioDb", "c1700000" }, { "clayMonoBandCorrelation", "3e99999a" },
+                                                           { "clayMonoMinHz", "42700000" },           { "clayMonoMaxHz", "43200000" },
+                                                           { "clayMonoDefaultHz", "42a00000" },       { "clayMonoLossLowDb", "bf000000" },
+                                                           { "clayMonoLossHighDb", "c0400000" } };
+
+                auto oldArchive = toXml (factory);
+
+                for (const auto& attribute : retiredAutoMono)
+                    oldArchive->setAttribute (attribute[0], attribute[1]);
+
+                Constants fromOld;
+                expect (fromXml (*oldArchive, fromOld) && bitwiseEqual (fromOld, factory),
+                        utf8 ("T-063 之前存的快照带着 7 个自动收单属性（真实出厂位模式）：读时忽略，与出厂快照逐位相同"));
+
+                const auto resaved = toXml (fromOld);
+
+                for (const auto& attribute : retiredAutoMono)
+                    expect (! resaved->hasAttribute (attribute[0]), utf8 ("再存不写：") + attribute[0]);
+
+                // 与出厂快照的 XML 逐属性相同（读旧存档再存 = 没有那 7 个属性的快照）。
+                auto sameAttributes = resaved->getNumAttributes() == factoryXml->getNumAttributes();
+
+                for (int i = 0; sameAttributes && i < factoryXml->getNumAttributes(); ++i)
+                    sameAttributes = factoryXml->getAttributeName (i) == resaved->getAttributeName (i)
+                                  && factoryXml->getAttributeValue (i) == resaved->getAttributeValue (i);
+
+                expect (sameAttributes, utf8 ("读旧存档再存 = 出厂快照的 XML，一个属性都不多不少"));
+
+                // 损坏的残留属性也忽略（不是整份拒收）。
+                auto corrupt = toXml (factory);
+
+                for (const auto& attribute : retiredAutoMono)
+                    corrupt->setAttribute (attribute[0], "zz");
+
+                Constants fromCorrupt;
+                expect (fromXml (*corrupt, fromCorrupt) && bitwiseEqual (fromCorrupt, factory), utf8 ("损坏的残留属性也忽略（以前整份拒收）"));
+            }
 
             // ---- 旧快照：去掉全部 clay* 属性（v0.1.6.2 及以前存的快照就是这样）----
             auto legacyXml = toXml (factory);
@@ -4778,7 +4818,7 @@ namespace celadon::test
             expect (fromXml (*toXml (legacy), legacyRoundTrip) && bitwiseEqual (legacyRoundTrip, legacy), utf8 ("旧快照读入后再存再读逐位稳定"));
 
             // 旧快照 + 带全部 Clay 特征的新画像：GLAZE 100 各风格三项全中性（旧工程按保存时的快照出方案，Clay 自动值为 0）。
-            // 阳性对照：出厂快照、同一份画像三项都动。
+            // 阳性对照：出厂快照、同一份画像低切、加宽都动（收单自动态不做）。
             const auto profile = clayProfile();
 
             for (auto style : { Style::automatic, Style::warm, Style::punchy, Style::clean })
@@ -4788,18 +4828,17 @@ namespace celadon::test
                 expect (fresh.lowCutHz > 0.0f && fresh.widthDb > 0.0f, utf8 ("阳性对照：出厂快照会修坯（低切、加宽；收单自动态不做）"));
             }
 
-            // v0.1.7.0 开发期的快照：有 clay* 却没有 ADR-012 的 6 个字段 → 那 6 个按 0 读（代价两端 0 / 0 判断不了、收单损失两端
-            // 0 / 0 不需要）→ 三项都中性、不置代价位（不会按旧口径去低切），其余 clay* 照读。
+            // v0.1.7.0 开发期的快照：有 clay* 却没有 ADR-012 的 4 个字段（收单损失两端 ADR-015 起不读、T-063 起不写，不在其列）→ 那 4 个按 0
+            // 读（代价两端 0 / 0 判断不了）→ 三项都中性、不置代价位（不会按旧口径去低切），其余 clay* 照读。
             auto devXml = toXml (factory);
-            const char* const adr012Fields[] = { "clayCostFullDb", "clayCostZeroDb", "clayMonoLossLowDb", "clayMonoLossHighDb",
-                                                 "clayGuardPhaseFastGate", "clayGuardPhaseMinSeconds" };
+            const char* const adr012Fields[] = { "clayCostFullDb", "clayCostZeroDb", "clayGuardPhaseFastGate", "clayGuardPhaseMinSeconds" };
 
             for (const auto* field : adr012Fields)
                 devXml->removeAttribute (field);
 
             auto dev = distinct (factory);
             expect (fromXml (*devXml, dev), utf8 ("缺 ADR-012 字段的开发期快照应能读入"));
-            expect (dev.clayCostFullDb == 0.0f && dev.clayCostZeroDb == 0.0f && dev.clayMonoLossLowDb == 0.0f && dev.clayMonoLossHighDb == 0.0f
+            expect (dev.clayCostFullDb == 0.0f && dev.clayCostZeroDb == 0.0f
                         && dev.clayGuardPhaseFastGate == 0.0f && dev.clayGuardPhaseMinSeconds == 0.0,
                     utf8 ("缺的 ADR-012 字段按 0 读"));
             expect (sameBits (dev.clayGlazeFullAt, factory.clayGlazeFullAt) && sameBits (dev.clean.clayLowCutTargetHz, factory.clean.clayLowCutTargetHz),
@@ -5135,7 +5174,7 @@ namespace celadon::test
 
             // ---- 4. 方案的 costLimitedMask：已提交版本往返逐位；缺属性 → 0；属性在但不是 0 ～ 255 的整数 → 拒收 ----
             auto limitedProfile = clayProfile();
-            setClayCosts (limitedProfile, 0.4f, 0.4f, 0.4f);   // 三项都减量：位 = 7
+            setClayCosts (limitedProfile, 0.4f, 0.4f, 0.4f);   // 低切、加宽都减量：位 = 5（ADR-015 起收单不置位）
             const auto limitedPlan = planFor (&limitedProfile, Style::clean, 100.0f);
             expectEquals (maskOf (limitedPlan.clay), autoCostBits, utf8 ("阳性对照：这份方案低切、加宽都有代价位"));
 
