@@ -1990,8 +1990,9 @@ namespace celadon::glaze
             r.profile.lowCutPeakCostDb = trialCost[(size_t) trialLowCut];
             r.profile.widthPeakCostDb = trialCost[(size_t) trialWidth];
 
-            for (size_t c = 0; c < (size_t) numMonoTrials; ++c)
-                r.profile.monoPeakCostDb[c] = trialCost[(size_t) trialFirstMono + c];
+            // 阶段 2（Q6）：四个收单候选停算。布局留着，发布时保持 valid = false，不把 0 峰值写成 −120 dB。
+            for (auto& cost : r.profile.monoPeakCostDb)
+                invalidate (cost);
 
             r.profile.lowCutBlendLossDb = blendLoss;
             measured.trial = work.size > 0 ? trialMeasured : 0.0f;

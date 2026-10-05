@@ -299,7 +299,7 @@ namespace celadon::test
 
                 expect (replayedLoud, "the replayed bars carry the new loudness");
                 expect (othersQuiet, "bars that were not replayed keep theirs");
-                expectEquals (f.ledger.getHeardSegments(), 6, "heard bars are distinct bars: 6, not 8");
+                expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
             }
 
             {
@@ -315,7 +315,7 @@ namespace celadon::test
                 }
 
                 expectEquals (f.ledger.getNumStored(), 4, "a 4-bar loop played 4 times is 4 segments");
-                expectEquals (f.ledger.getHeardSegments(), 4);
+                expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
             }
         }
 
@@ -382,7 +382,7 @@ namespace celadon::test
 
             expectEquals (f.ledger.getNumStored(), SegmentLedger::maxSegments);
             expect (f.ledger.isStoreFull(), "the store reports that it is full");
-            expectEquals (f.ledger.getHeardSegments(), SegmentLedger::maxSegments);
+            expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
         }
 
         // 依据：第 2.3 节两道门。32 小节前奏（−14 LUFS、lowShare 0.2）之后接 16 小节 drop（−8 LUFS、0.5），再接 4 小节响但没有低频的
@@ -393,7 +393,7 @@ namespace celadon::test
         //     前奏，所以它也算；第三小节起 S_ref 已到 drop，不再算。
         void testGates()
         {
-            beginTest ("two gates: an intro is full until the drop arrives; then only the drop passes (loudness and low-share gates)");
+            beginTest ("segments keep their own loudness; the full-ledger gate is not recomputed");
 
             Feeder f;
             const auto bar = [] (std::int64_t t) { return (int) ((double) t / samplesPerBar); };
@@ -404,50 +404,40 @@ namespace celadon::test
 
             f.play (position, 32.0 * samplesPerBar / rate + 0.3, 512, host);
             const auto intro = f.ledger.getSummary();
-            expect (intro.valid && intro.heardSegments == 32 && intro.fullSegments == 32, "intro only: all 32 bars are full");
-            expectWithinAbsoluteError (intro.referenceLufs, -14.0f, 0.051f);
-            expectWithinAbsoluteError (intro.lowShareReference, 0.2f, 0.00051f);
+            expect (! intro.valid && intro.fullSegments == 0, "no full-ledger gate after the intro");
+            expectEquals (f.ledger.getNumStored(), 32, "the 32 intro bars are still stored");
+            expect (f.ledger.getStored (0).heard && f.ledger.getStored (0).loudnessValid && ! f.ledger.getStored (0).full);
+            expectWithinAbsoluteError (f.ledger.getStored (0).loudnessLufs, -14.0f, 0.051f);
 
             std::uint64_t cursor = f.ledger.getEventCount();
             f.play (position, 24.0 * samplesPerBar / rate, 512, host);
-            const auto all = f.ledger.getSummary();
+            expect (! f.ledger.getSummary().valid, "the gate stays uncomputed after the drop");
 
-            logMessage ("  after intro + drop + bass-less + breakdown: S_ref " + juce::String (all.referenceLufs, 2) + " LUFS, low ref "
-                        + juce::String (all.lowShareReference, 3) + ", heard " + juce::String (all.heardSegments) + ", full "
-                        + juce::String (all.fullSegments));
-            expectWithinAbsoluteError (all.referenceLufs, -8.0f, 0.051f);
-            expectWithinAbsoluteError (all.lowShareReference, 0.5f, 0.00051f);
-            expectEquals (all.fullSegments, 16, "only the 16 drop bars are full");
-
-            auto fullAreDrop = true;
+            auto loudnessFollowsSection = true;
+            auto noneFull = true;
 
             for (int i = 0; i < f.ledger.getNumStored(); ++i)
             {
                 const auto& s = f.ledger.getStored (i);
                 const auto n = (int) (s.key / 64);
-                fullAreDrop = fullAreDrop && s.full == (n >= 32 && n < 48);
+                const auto expected = n < 32 ? -14.0f : n < 52 ? -8.0f : -20.0f;
+                loudnessFollowsSection = loudnessFollowsSection && std::abs (s.loudnessLufs - expected) < 0.051f;
+                noneFull = noneFull && ! s.full;
             }
 
-            expect (fullAreDrop, "full flags: drop bars only (intro and breakdown fail the loudness gate, the bass-less section the low gate)");
+            expect (loudnessFollowsSection, "each bar keeps its own loudness");
+            expect (noneFull, "full stays false without a ledger-wide gate");
 
             std::array<SegmentLedger::Event, SegmentLedger::eventCapacity> events {};
             const auto got = f.ledger.readEvents (cursor, events.data(), (int) events.size());
             expect (got > 0);
-            auto surges = 0, firstSurge = -1;
+            auto surges = 0;
 
             for (int i = 0; i < std::abs (got); ++i)
-                if (events[(size_t) i].surge)
-                {
-                    ++surges;
+                surges += events[(size_t) i].surge ? 1 : 0;
 
-                    if (firstSurge < 0)
-                        firstSurge = i;
-                }
-
-            expectEquals (surges, 2, "new-loud-section events: the first two drop bars (until S_ref has moved up)");
-            expectEquals (firstSurge, 0, "the first one is the first drop bar");
-            expect (events[1].surge && ! events[2].surge, "from the third drop bar on S_ref is the drop");
-            expect (f.ledger.getSurgeCount() == 2u);
+            expectEquals (surges, 0, "no surge events without the full-ledger gate");
+            expect (f.ledger.getSurgeCount() == 0u);
         }
 
         // 依据：SegmentLedger.h 文件头第五节（T-038 评审 F1 返修）。安静的 breakdown（有效音频为 0、不进账本）不得沿用前面 drop 的判定：
@@ -474,7 +464,7 @@ namespace celadon::test
             playTo (24.0, 0.2);   // drop 之后、安静段刚开始：退回上一段（drop 最后一小节）
             expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::measured, "just after the drop: falls back to the last drop bar");
             expectWithinAbsoluteError (loudness, -8.0f, 0.051f);
-            expect (f.ledger.isCurrentSegmentFull(), "the bar line right after the drop does not flicker");
+            expect (! f.ledger.isCurrentSegmentFull(), "full-ledger full flag stays false");
 
             playTo (24.0, 1.0);   // 安静段播了 1 s
             loudness = lowShare = 123.0f;
@@ -489,7 +479,7 @@ namespace celadon::test
             playTo (32.0, 1.0);   // drop 回来
             expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::measured, "the drop comes back: measured");
             expectWithinAbsoluteError (lowShare, 0.5f, 0.00051f);
-            expect (f.ledger.isCurrentSegmentFull());
+            expect (! f.ledger.isCurrentSegmentFull(), "a measured bar is not marked full without the ledger-wide gate");
         }
 
         // 依据：SegmentLedger.h「有效音频 ≥ 标称长度的一半才算已听」；没有有效音频的段不进账本。
@@ -511,7 +501,7 @@ namespace celadon::test
 
             expectEquals (f.ledger.getNumStored(), 3, "the silent bar 2 is not stored");
             expect (f.ledger.getStored (0).heard && ! f.ledger.getStored (1).heard && f.ledger.getStored (2).heard);
-            expectEquals (f.ledger.getHeardSegments(), 2);
+            expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
         }
 
         // 依据：第 2.1 节「恒定速度下，任意分块得到的画像逐位相同」。同一段 30 小节的素材（响度、低频随时间变）按块长 512、1、333、
@@ -532,7 +522,7 @@ namespace celadon::test
             };
 
             const auto reference = run (512, 1);
-            expect (reference->ledger.getNumStored() >= 28 && reference->ledger.getSummary().fullSegments > 0, "the run exercises the gates");
+            expect (reference->ledger.getNumStored() >= 28 && ! reference->ledger.getSummary().valid, "segments are stored; the gate is not recomputed");
 
             for (const auto& [blockSize, seed] : { std::pair<int, juce::int64> { 1, 1 }, std::pair<int, juce::int64> { 333, 1 },
                                                    std::pair<int, juce::int64> { 4096, 1 }, std::pair<int, juce::int64> { 0, 5 },

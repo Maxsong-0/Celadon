@@ -35,13 +35,12 @@ namespace celadon::glaze
         shelfCoefficients = ClayBiquad::highShelf (sampleRate, widthShelfHz, widthDb);
         delays.fill (0);
 
+        // 阶段 2（Q6）：四个收单候选停算。槽位还在（写者个数与画像 monoPeakCostDb[4] 的布局不变），
+        // 延迟记 0，不再按分频点分配线性相位低通。块峰值保持 0，costsOf 把这四路标成不知道。
         for (size_t c = 0; c < monoLength.size(); ++c)
         {
-            monoLength[c] = LinearPhaseLowpass::lengthFor (sampleRate, (double) clayMonoCandidateHz[c]);
-            delays[(size_t) firstMonoSlot + c] = LinearPhaseLowpass::groupDelayFor (monoLength[c]);
-
-            // 记录槽按块号奇偶轮用的前提：候选的延迟短于一块（60 Hz 的 D_c ≈ 0.008·fs，一块 ≈ 0.1·fs，任何采样率都成立）。
-            jassert (delays[(size_t) firstMonoSlot + c] < blockLength);
+            monoLength[c] = 1;
+            delays[(size_t) firstMonoSlot + c] = 0;
         }
 
         // 混合损失候选：低切系数与守护前瞻 G（约 11 ms，同样短于一块）。
@@ -172,15 +171,7 @@ namespace celadon::glaze
             sideScratch[(size_t) k] = 0.5 * (l - r);
         }
 
-        // 2. 收单候选的线性相位低通。函数调用单独成环：调用会冲掉寄存器，第 3 步的 IIR 状态这样才能整段留在寄存器里。
-        for (size_t c = 0; c < monoLowpass.size(); ++c)
-        {
-            auto& lowpass = monoLowpass[c];
-            auto& lowSide = lowScratch[c];
-
-            for (int k = 0; k < count; ++k)
-                lowSide[(size_t) k] = lowpass.process (sideScratch[(size_t) k]);
-        }
+        // 2. 收单候选停算（阶段 2）：不再跑线性相位低通。
 
         // 3. 逐样本：原始的块峰值累计；六个候选各自此刻的输出峰值先写暂存（第 4 步按各自的块边界累计）。
         const auto cutFirst = cutCoefficients[0];
@@ -192,10 +183,6 @@ namespace celadon::glaze
         auto rightSecond = cutState[1][1];
         auto shelfRun = shelfState;
         auto originalRun = originalMax;
-        auto write = historyWrite;
-        const auto mask = historyMask;
-        auto* midRing = midHistory.data();
-        auto* sideRing = sideHistory.data();
 
         for (int k = 0; k < count; ++k)
         {
@@ -227,17 +214,9 @@ namespace celadon::glaze
             // 5 加宽：S'' = 高架(S)，峰值 |M| + |S''|。
             peakScratch[(size_t) widthSlot][i] = std::abs (mid) + std::abs (ClayBiquad::run (side, shelf, shelfRun));
 
-            // 1 ～ 4 收单：S' = S 延迟 D_c − LP(S)、M 延迟 D_c，峰值 |M_d| + |S'|。先写延迟环再读（D_c ≥ 2，读不到刚写的这一格）。
-            midRing[write] = mid;
-            sideRing[write] = side;
-
+            // 1 ～ 4 收单停算：块峰值记 0（不写延迟环、不跑低通）。写者仍要交齐，所以槽位留着。
             for (size_t c = 0; c < (size_t) numMono; ++c)
-            {
-                const auto delayed = (write + mask + 1 - delays[(size_t) firstMonoSlot + c]) & mask;
-                peakScratch[(size_t) firstMonoSlot + c][i] = std::abs (midRing[delayed]) + std::abs (sideRing[delayed] - lowScratch[c][i]);
-            }
-
-            write = (write + 1) & mask;
+                peakScratch[(size_t) firstMonoSlot + c][i] = 0.0;
         }
 
         cutState[0][0] = leftFirst;
@@ -246,7 +225,6 @@ namespace celadon::glaze
         cutState[1][1] = rightSecond;
         shelfState = shelfRun;
         originalMax = originalRun;
-        historyWrite = write;
         runSamples = juce::jmin (runSamples + (std::int64_t) count, warmUpSamples);
 
         // 4. 各候选按自己（延迟补偿后）的块边界累计块峰值；交齐一块就写进这一块的记录。
@@ -516,9 +494,11 @@ namespace celadon::glaze
 
         for (int slot = 0; slot < numCandidates; ++slot)
         {
-            auto& cost = slot == lowCutSlot ? costs.lowCutPeakCostDb
-                       : slot == widthSlot ? costs.widthPeakCostDb
-                                           : costs.monoPeakCostDb[(size_t) (slot - firstMonoSlot)];
+            // 四个收单槽停算：monoPeakCostDb 保持默认（valid = false），不把 0 峰值写成 −120 dB。
+            if (slot >= firstMonoSlot && slot < widthSlot)
+                continue;
+
+            auto& cost = slot == lowCutSlot ? costs.lowCutPeakCostDb : costs.widthPeakCostDb;
             const auto candidate = percentileOfTop (top[(size_t) slot + 1], count);
             set (cost, 20.0 * std::log10 (juce::jmax (candidate, peakFloorRatio * original) / original));
         }

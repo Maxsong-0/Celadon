@@ -48,6 +48,7 @@
         <FILE id="adv02x" name="ReferenceSpectrum.cpp" compile="1" resource="0" file="Source/dsp/ReferenceSpectrum.cpp"/>
         <FILE id="adv03x" name="ReleaseSafety.h" compile="0" resource="0" file="Source/dsp/ReleaseSafety.h"/>
         <FILE id="adv04x" name="ReleaseSafety.cpp" compile="1" resource="0" file="Source/dsp/ReleaseSafety.cpp"/>
+        <FILE id="T48pmh" name="ProfileMath.h" compile="0" resource="0" file="Source/dsp/ProfileMath.h"/>
         <FILE id="T38slh" name="SegmentLedger.h" compile="0" resource="0" file="Source/dsp/SegmentLedger.h"/>
         <FILE id="T38slc" name="SegmentLedger.cpp" compile="1" resource="0" file="Source/dsp/SegmentLedger.cpp"/>
         <FILE id="T48lph" name="LiveProfile.h" compile="0" resource="0" file="Source/dsp/LiveProfile.h"/>

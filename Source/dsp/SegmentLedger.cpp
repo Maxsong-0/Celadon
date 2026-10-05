@@ -42,31 +42,6 @@ namespace celadon::glaze
             return -0.691 + 10.0 * std::log10 (meanSquare);   // 调用方保证 meanSquare > 0（同分析器的 energyToLufs）
         }
 
-        // 加权直方图的第 fraction 百分位：累计权重第一次达到 fraction × 总权重的那一格（相对 1e-9 的容差，免得等权时
-        // 「恰好达到」被求和的舍入挡在下一格）。total ≤ 0 时返回 −1。
-        template <size_t N>
-        int weightedPercentileBin (const std::array<double, N>& weights, double total, double fraction) noexcept
-        {
-            if (! (total > 0.0))
-                return -1;
-
-            const auto target = fraction * total - 1.0e-9 * total;
-            double cumulative = 0.0;
-
-            for (size_t bin = 0; bin < N; ++bin)
-            {
-                cumulative += weights[bin];
-
-                if (weights[bin] > 0.0 && cumulative >= target)
-                    return (int) bin;
-            }
-
-            for (size_t bin = N; bin > 0; --bin)   // 舍入让最后也没达到：取有权重的最高一格
-                if (weights[bin - 1] > 0.0)
-                    return (int) (bin - 1);
-
-            return -1;
-        }
     }
 
     //==============================================================================
@@ -550,7 +525,7 @@ namespace celadon::glaze
         {
             lastStoredSlot = stored;
             ++storedRevision;
-            recomputeGate();
+            // 阶段 2：不再对整本账做门控重算（S_ref / 满编）。段自身的响度、低频占比、已听仍在 deriveSegment 里算。
         }
 
         if (surge)
@@ -572,89 +547,8 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    // 四、门控
-    //==============================================================================
-    void SegmentLedger::recomputeGate() noexcept
-    {
-        auto& s = summary;
-        s = HouseGateSummary {};
-        s.mode = getMode();
-        s.gateWidthLu = gateWidthLu;
-        s.lowGateFactor = lowGateFactor;
-        lowReferenceValid = false;
-
-        // S_ref：已听各段段响度的第 95 百分位，按有效时长加权。
-        loudnessWeights.fill (0.0);
-        double loudnessTotal = 0.0;
-
-        for (int i = 0; i < numStored; ++i)
-        {
-            auto& segment = store[(size_t) i];
-            segment.full = false;
-
-            if (! segment.heard)
-                continue;
-
-            ++s.heardSegments;
-            s.heardSeconds += segment.effectiveSeconds;
-
-            if (! segment.loudnessValid)
-                continue;
-
-            const auto bin = juce::jlimit (0, loudnessBins - 1,
-                                           (int) std::floor (((double) segment.loudnessLufs - loudnessHistogramMinLufs) * (double) loudnessBinsPerLu));
-            loudnessWeights[(size_t) bin] += segment.effectiveSeconds;
-            loudnessTotal += segment.effectiveSeconds;
-        }
-
-        const auto loudnessBin = weightedPercentileBin (loudnessWeights, loudnessTotal, gatePercentile);
-
-        if (loudnessBin < 0)
-            return;   // 还没有已听的段：门控没有结果（valid = false）
-
-        s.valid = true;
-        s.referenceLufs = (float) (loudnessHistogramMinLufs + ((double) loudnessBin + 0.5) / (double) loudnessBinsPerLu);
-        const auto loudnessGate = s.referenceLufs - gateWidthLu;
-
-        // 低频参考：已过响度门各段 lowShare 的第 95 百分位（同样按有效时长加权）。
-        lowShareWeights.fill (0.0);
-        double lowTotal = 0.0;
-
-        for (int i = 0; i < numStored; ++i)
-        {
-            const auto& segment = store[(size_t) i];
-
-            if (! (segment.heard && segment.loudnessValid && segment.lowShareValid && segment.loudnessLufs >= loudnessGate))
-                continue;
-
-            const auto bin = juce::jlimit (0, lowShareBins - 1, (int) std::floor ((double) segment.lowShare * (double) lowShareBins));
-            lowShareWeights[(size_t) bin] += segment.effectiveSeconds;
-            lowTotal += segment.effectiveSeconds;
-        }
-
-        const auto lowBin = weightedPercentileBin (lowShareWeights, lowTotal, gatePercentile);
-
-        if (lowBin < 0)
-            return;   // 过了响度门的段都没有可信的低频占比：没有满编段
-
-        lowReferenceValid = true;
-        s.lowShareReference = (float) (((double) lowBin + 0.5) / (double) lowShareBins);
-
-        for (int i = 0; i < numStored; ++i)
-        {
-            auto& segment = store[(size_t) i];
-            segment.full = passesGate (segment.heard, segment.loudnessValid, segment.loudnessLufs, segment.lowShareValid, segment.lowShare);
-
-            if (segment.full)
-            {
-                ++s.fullSegments;
-                s.fullSeconds += segment.effectiveSeconds;
-            }
-        }
-    }
-
-    //==============================================================================
-    // 五、读数
+    // 读数。阶段 2 不再重算整本账的门控：summary.valid 保持 false，segment.full 保持 false，
+    // isCurrentSegmentFull 因此为 false。正在播的这一段的暂判（getCurrentReading）照旧。
     //==============================================================================
     SegmentMode SegmentLedger::getMode() const noexcept
     {

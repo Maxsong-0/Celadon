@@ -30,7 +30,8 @@
         它对门控与画像都没有贡献，宿主停着时插件照常收的静音也就不会把账本塞满）。同一位置再听一遍：新实例「已听」
         或有效音频不比旧的少就覆盖旧值，不重复计入（与「代表性」按 100 ms 格记听过的位置是同一思路）；不按位置的段从不去重。
       - 不连续点（endEpoch）：账本没定稿的段全部就地定稿（分析器在不连续点丢掉跨越它的窗口，之后不会再有这些段的数据），下一块重新锚定。
-      - 每定稿一段就重算一次门控（按段的先后，一段一算：同一时刻定稿几段与分几次定稿结果相同，所以与宿主分块无关）。
+      - 阶段 2 起不再每定稿一段就重算整本账的门控（S_ref、满编、新响段）。段自身的有效时长、段响度、低频占比、已听
+        仍在定稿时算；summary.valid 与 Segment::full 保持 false。正在播的这一段的暂判读数（getCurrentReading）保留。
 
     四、门控（设计规格第 2.3 节）
       - 段响度 = 段内过了现有「有效音频」门的 100 ms 子块的 K 加权能量平均（LUFS，与 IN 表同一测点、同一口径）；
@@ -142,18 +143,13 @@ namespace celadon::glaze
             int strengthCount = 0;
             std::array<std::uint8_t, (size_t) maxEvents> strengthBin {};
 
-            // ---- 先试后用（100 ms 块，按块起点归属）----
+            // ---- 先试后用的学习期副本（阶段 2 起分析器不再写；留着是为了段的布局与还在读它们的测试能编过）----
             int trialBlocks = 0;
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> trialTop {};   // 每一路最大的 8 个（降序）
             std::array<double, (size_t) blendSeries> blendIntended {}, blendOutput {};   // 混合损失候选：各有效块两份 K 加权能量之和
 
-            // ---- T-048 实时试算（口径同上面三项，只差「什么时候记」；只给实时画像 LiveProfile 读）----
-            // 分析器有两份账（MusicAnalyzer.cpp 第「七」节）：
-            //   - House 门控那一份：上面三项与下面三项都只在学习期间记、数值相同（House 门控画像只用学习区间的试算；实时模式开不开都一样，
-            //     所以 House 方案逐位不变）；
-            //   - 实时段落账（实时模式开着才有）：下面三项在候选真跑的每一块都记（候选在实时模式下一直跑），上面三项仍只在学习期间记。
-            //     它的三道相对门（帧门、子块有效门、起音组有效门）参考它自己的长期参考，不参考学习区间（同一节 ①～⑥），所以除上面三项外，
-            //     段与学不学习、宿主块长无关。
+            // ---- 唯一还在记的试算（原 live*；学习期的 trial* / blend* 并进这一组。实时画像只读这里）----
+            // 四个收单槽停算：对应的块峰值保持 0，画像里 monoPeakCostDb 保持 valid = false。低切、加宽、两路混合损失照记。
             int liveTrialBlocks = 0;
             std::array<std::array<double, (size_t) trialTopCount>, (size_t) trialSeries> liveTrialTop {};
             std::array<double, (size_t) blendSeries> liveBlendIntended {}, liveBlendOutput {};
@@ -279,7 +275,6 @@ namespace celadon::glaze
         void finalizeOldest() noexcept;
         void deriveSegment (Segment& segment) const noexcept;
         int commit (const Segment& segment) noexcept;   // 返回存进的格（−1 = 没存）
-        void recomputeGate() noexcept;
         bool passesGate (bool heard, bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept;
         Reading readOpen (const Segment& open, float& loudnessLufs, float& lowShare) const noexcept;
         Reading readLastFinal (float& loudnessLufs, float& lowShare) const noexcept;
@@ -323,9 +318,7 @@ namespace celadon::glaze
         LastFinal lastFinal;
 
         HouseGateSummary summary;
-        bool lowReferenceValid = false;
-        std::array<double, (size_t) loudnessBins> loudnessWeights {};
-        std::array<double, (size_t) lowShareBins> lowShareWeights {};
+        bool lowReferenceValid = false;               // 阶段 2 起保持 false：不再做整本账的门控重算
 
         std::array<Event, (size_t) eventCapacity> events {};
         std::uint64_t eventTotal = 0;

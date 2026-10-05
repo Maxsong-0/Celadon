@@ -387,6 +387,33 @@ namespace celadon::test
             const MusicProfile& profile() const   { return analyzer.getCandidateProfile(); }
         };
 
+        // 阶段 2：候选画像退役。任何素材喂完，各特征都停在默认（valid = false，证据与置信度为 0）。
+        bool candidateRetired (const MusicProfile& profile)
+        {
+            if (profile.integratedLufs.valid || profile.loudnessRangeLu.valid || profile.truePeakDbtp.valid || profile.plrDb.valid
+                || profile.spectralSlopeDbPerOct.valid || profile.lowShare.valid || profile.highShare.valid
+                || profile.onsetDensityPerSecond.valid || profile.onsetStrengthDb.valid || profile.subShareDb.valid
+                || profile.lowCorrelation.valid || profile.highCorrelation.valid || profile.lowSideToMidDb.valid
+                || profile.highSideToMidDb.valid || profile.lowCutPeakCostDb.valid || profile.widthPeakCostDb.valid
+                || profile.houseGate.valid || profile.representativeness != 0.0f || profile.effectiveSeconds != 0.0)
+                return false;
+
+            for (const auto& cost : profile.monoPeakCostDb)
+                if (cost.valid)
+                    return false;
+
+            for (const auto& loss : profile.lowCutBlendLossDb)
+                if (loss.valid)
+                    return false;
+
+            for (int b = 0; b < numBands; ++b)
+                if (profile.tameEvidenceDb[(size_t) b] != 0.0f || profile.recoverEvidenceDb[(size_t) b] != 0.0f
+                    || profile.bandConfidence[(size_t) b] != 0.0f || profile.bandStereoConfidence[(size_t) b] != 0.0f)
+                    return false;
+
+            return true;
+        }
+
         HostInfo playingAt (std::int64_t position)
         {
             HostInfo info;
@@ -913,8 +940,7 @@ namespace celadon::test
                     expect (view.momentaryLufs.valid && view.shortTermLufs.valid, tag);
                     expectWithinAbsoluteError (view.momentaryLufs.value, (float) lufs, tolerance, "M " + tag);
                     expectWithinAbsoluteError (view.shortTermLufs.value, (float) lufs, tolerance, "S " + tag);
-                    expect (rig.profile().integratedLufs.valid, tag);
-                    expectWithinAbsoluteError (rig.profile().integratedLufs.value, (float) lufs, 2.0f * tolerance, "I " + tag);
+                    expect (candidateRetired (rig.profile()), "candidate I is retired " + tag);
                     expect (view.musicActive, "a steady sine is music " + tag);
                 }
         }
@@ -949,18 +975,15 @@ namespace celadon::test
                 rig.analyzer.startLearning();
                 rig.feed (makeSteppedSine (48000.0, c.segments), 512);
 
-                const auto& integrated = rig.profile().integratedLufs;
-                expect (integrated.valid, c.name);
-                expectWithinAbsoluteError (integrated.value, (float) referenceIntegrated (ideal), 0.02f, juce::String ("ideal: ") + c.name);
-                expectWithinAbsoluteError (integrated.value, (float) referenceIntegrated (meanSquaresOf (rig.subBlocks)), 0.02f,
-                                           juce::String ("reference from sub-blocks: ") + c.name);
+                (void) ideal;
+                expect (candidateRetired (rig.profile()), juce::String ("candidate I is retired: ") + c.name);
             }
 
             // Tech 3341 的标称值与容差。
             Rig rig (48000.0);
             rig.analyzer.startLearning();
             rig.feed (makeSteppedSine (48000.0, { { -36.0, 10.0 }, { -23.0, 60.0 }, { -36.0, 10.0 } }), 512);
-            expectWithinAbsoluteError (rig.profile().integratedLufs.value, -23.0f, 0.1f, "Tech 3341 nominal");
+            expect (candidateRetired (rig.profile()), "candidate I stays retired (Tech 3341 case)");
         }
 
         // 依据：分析器第 2 节（LRA = 门限后 S 分布的 P95 − P10，S 10 Hz 取样，绝对门 −70、相对门 −20）；EBU Tech 3342 的
@@ -984,11 +1007,8 @@ namespace celadon::test
                 rig.analyzer.startLearning();
                 rig.feed (makeSteppedSine (48000.0, c.segments), 512);
 
-                const auto& range = rig.profile().loudnessRangeLu;
-                expect (range.valid, c.name);
-                expectWithinAbsoluteError (range.value, c.nominal, 1.0f, juce::String ("Tech 3342 nominal: ") + c.name);
-                expectWithinAbsoluteError (range.value, (float) referenceLoudnessRange (meanSquaresOf (rig.subBlocks)), 0.1f,
-                                           juce::String ("reference from sub-blocks: ") + c.name);
+                (void) c.nominal;
+                expect (candidateRetired (rig.profile()), juce::String ("candidate LRA is retired: ") + c.name);
             }
         }
 
@@ -1028,11 +1048,8 @@ namespace celadon::test
             const auto sinePsr = (float) (0.691 - 10.0 * std::log10 (kWeightingPowerGain48k (1000.0)));
             expectWithinAbsoluteError (view.psr3sDb.value, sinePsr, 0.02f, "PSR of the sine once the spike left the window");
 
-            const auto& profile = rig.profile();
-            expect (profile.truePeakDbtp.valid && profile.plrDb.valid);
-            expectWithinAbsoluteError (profile.truePeakDbtp.value, meterPeakDb, 1.0e-4f, "interval true peak equals the meter's");
-            expectWithinAbsoluteError (profile.plrDb.value, profile.truePeakDbtp.value - profile.integratedLufs.value, 1.0e-4f, "PLR = TP - I");
-            expect (profile.plrDb.value > 10.0f, "the spike dominates the peak-to-loudness ratio");
+            expect (candidateRetired (rig.profile()), "candidate true peak and PLR are retired; PSR stays on the short-term view");
+            (void) meterPeakDb;
         }
 
         //==============================================================================
@@ -1064,10 +1081,8 @@ namespace celadon::test
                     logMessage ("  pink " + tag + ": worst tame " + juce::String (worstTame, 4) + " dB, worst recover "
                                 + juce::String (worstRecover, 4) + " dB, slope " + juce::String (p.spectralSlopeDbPerOct.value, 3)
                                 + " dB/oct, low " + juce::String (p.lowShare.value, 3) + ", high " + juce::String (p.highShare.value, 3));
-                    expect (worstTame < 0.05f && worstRecover < 0.05f, "pink noise must not produce evidence " + tag);
-                    expect (p.spectralSlopeDbPerOct.valid && std::abs (p.spectralSlopeDbPerOct.value) < 0.2f, "pink slope " + tag);
-                    expectWithinAbsoluteError (p.lowShare.value, 5.0f / 27.0f, 0.02f, "pink low share " + tag);
-                    expectWithinAbsoluteError (p.highShare.value, 5.0f / 27.0f, 0.02f, "pink high share " + tag);
+                    expect (worstTame < 0.05f && worstRecover < 0.05f, "retired candidate evidence stays at 0 " + tag);
+                    expect (candidateRetired (p), "candidate spectrum is retired " + tag);
                 }
 
                 {
@@ -1085,10 +1100,8 @@ namespace celadon::test
                         high += b >= 22 ? width : 0.0;
                     }
 
-                    expect (p.spectralSlopeDbPerOct.valid);
-                    expectWithinAbsoluteError (p.spectralSlopeDbPerOct.value, 3.0103f, 0.1f, "white slope " + tag);
-                    expectWithinAbsoluteError (p.lowShare.value, (float) (low / total), 0.005f, "white low share " + tag);
-                    expectWithinAbsoluteError (p.highShare.value, (float) (high / total), 0.005f, "white high share " + tag);
+                    (void) low; (void) high; (void) total;
+                    expect (candidateRetired (p), "candidate spectrum is retired " + tag);
 
                     float worst = 0.0f;
                     for (int b = 0; b < numBands; ++b)
@@ -1191,7 +1204,7 @@ namespace celadon::test
                 const auto& other = gainDb < 0.0 ? p.tameEvidenceDb : p.recoverEvidenceDb;
 
                 logMessage ("  " + tag + ": evidence " + juce::String (target[(size_t) band], 2) + " dB");
-                expect (target[(size_t) band] >= 3.0f, tag);
+                expect (target[(size_t) band] == 0.0f, "candidate evidence stays 0: " + tag);
 
                 float strayTarget = 0.0f, strayOther = 0.0f;
                 for (int b = 0; b < numBands; ++b)
@@ -1204,7 +1217,7 @@ namespace celadon::test
 
                 expect (strayTarget < 0.2f, "no evidence of the same kind in other bands: " + tag + " (" + juce::String (strayTarget, 3) + ")");
                 expect (strayOther < 0.2f, "no evidence of the opposite kind anywhere: " + tag + " (" + juce::String (strayOther, 3) + ")");
-                expect (p.bandConfidence[(size_t) band] > 0.5f, tag);
+                expect (p.bandConfidence[(size_t) band] == 0.0f, "candidate band confidence stays 0: " + tag);
             }
         }
 
@@ -1263,7 +1276,7 @@ namespace celadon::test
 
                 const auto rig = run (input);
                 expectEquals (rig->profile().recoverEvidenceDb[13], 0.0f, "a gap present 30 % of the time is not filled");
-                expect (rig->profile().tameEvidenceDb[19] > 1.0f, "a peak present 30 % of the time still counts for Tame");
+                expect (rig->profile().tameEvidenceDb[19] == 0.0f, "candidate Tame evidence is retired");
             }
         }
 
@@ -1294,7 +1307,8 @@ namespace celadon::test
             m.feed (source, 512);
 
             expect (sameProfile (a.profile(), b.profile()), "R = -L must measure like R = L");
-            expect (a.profile().integratedLufs.valid && a.profile().onsetDensityPerSecond.value > 0.0f);
+            expect (candidateRetired (a.profile()) && candidateRetired (b.profile()) && candidateRetired (m.profile()),
+                    "the candidate profile stays empty for stereo and mono");
 
             const auto& s = a.profile();
             const auto& mono = m.profile();
@@ -1329,10 +1343,9 @@ namespace celadon::test
                 const auto& density = rig.profile().onsetDensityPerSecond;
                 const auto tag = juce::String (rate, 0) + " per second";
 
-                expect (density.valid, tag);
-                expectEquals (onsetCountOf (rig.profile()), clicks, "every click is one event: " + tag);
-                expectWithinAbsoluteError (density.value, (float) rate, (float) (0.03 * rate), "density: " + tag);
-                expect (rig.profile().onsetStrengthDb.valid && rig.profile().onsetStrengthDb.value >= 6.0f, tag);
+                (void) clicks;
+                (void) density;
+                expect (candidateRetired (rig.profile()), "candidate onsets are retired: " + tag);
             }
         }
 
@@ -1368,13 +1381,8 @@ namespace celadon::test
                 const auto& p = rig.profile();
                 const auto& lowRange = rig.analyzer.getAuxiliaryFeatures().lowBandRangeDb;
 
-                expect (p.onsetDensityPerSecond.valid, caseName);
-                expectEquals (p.onsetDensityPerSecond.value, 0.0f, caseName);
-                expect (! p.onsetStrengthDb.valid, "no events: strength is unknown, not 0 (" + caseName + ")");
-
-                if (! caseName.contains ("tremolo"))
-                    expect (lowRange.valid && lowRange.value <= 8.0f, "sustained bass keeps a narrow low-band range: " + caseName
-                                                                        + " (" + juce::String (lowRange.value, 1) + " dB)");
+                expect (candidateRetired (p), caseName);
+                expect (! lowRange.valid, "auxiliary low-band range is retired with the candidate: " + caseName);
             }
         }
 
@@ -1395,12 +1403,9 @@ namespace celadon::test
                         + juce::String (p.onsetStrengthDb.value, 2) + " dB, flux onsets " + juce::String (aux.highBandFluxOnsetsPerSecond.value, 2)
                         + " /s, agreement " + juce::String (aux.onsetAgreement, 2) + ", low-band range "
                         + juce::String (aux.lowBandRangeDb.value, 1) + " dB");
-            expect (p.onsetDensityPerSecond.valid && p.onsetDensityPerSecond.value >= 1.8f && p.onsetDensityPerSecond.value <= 2.2f);
-            expect (p.onsetStrengthDb.valid && p.onsetStrengthDb.value >= 6.0f);
-            expect (aux.highBandFluxOnsetsPerSecond.valid && aux.highBandFluxOnsetsPerSecond.value >= p.onsetDensityPerSecond.value);
+            expect (candidateRetired (p), "candidate onset profile is retired");
+            expect (! aux.highBandFluxOnsetsPerSecond.valid && ! aux.lowBandRangeDb.valid, "auxiliary onset features are retired");
             expectEquals (aux.onsetAgreement, 1.0f);
-            expect (aux.lowBandRangeDb.valid && aux.lowBandRangeDb.value >= 15.0f,
-                    "intermittent kicks give a wide low-band range (" + juce::String (aux.lowBandRangeDb.value, 1) + " dB)");
             expect (sameFeature (p.lowBandRangeDb, aux.lowBandRangeDb), "the profile carries the low-band range for the planner (Glue risk)");
         }
 
@@ -1422,7 +1427,7 @@ namespace celadon::test
                 Rig rig (sampleRate);
                 rig.analyzer.startLearning();
                 rig.feed (input, 512);
-                expectWithinAbsoluteError (rig.profile().effectiveSeconds, 10.0, 0.4, "silence does not count");
+                expect (candidateRetired (rig.profile()), "candidate effective time is retired");
             }
 
             {
@@ -1433,7 +1438,7 @@ namespace celadon::test
                 Rig rig (sampleRate);
                 rig.analyzer.startLearning();
                 rig.feed (input, 512);
-                expectWithinAbsoluteError (rig.profile().effectiveSeconds, 5.0, 0.4, "a passage 30 dB down does not count");
+                expect (candidateRetired (rig.profile()), "candidate effective time is retired");
             }
         }
 
@@ -1451,10 +1456,11 @@ namespace celadon::test
             expectWithinAbsoluteError (rig.analyzer.getShortTermView().shortTermLufs.value, -30.0f, 0.005f, "the view updates while not learning");
 
             rig.analyzer.startLearning();
-            expect (rig.analyzer.isLearning());
+            expect (! rig.analyzer.isLearning(), "startLearning is a no-op");
             rig.feed (makeLoudnessSine (sampleRate, -20.0, 10.0), 512);
-            expectWithinAbsoluteError (rig.profile().integratedLufs.value, -20.0f, 0.01f, "I covers the learning interval only");
-            expectWithinAbsoluteError (rig.profile().effectiveSeconds, 10.0, 0.001);
+            expect (candidateRetired (rig.profile()), "there is no learning window to fill");
+            expectWithinAbsoluteError (rig.analyzer.getShortTermView().shortTermLufs.value, -20.0f, 0.01f,
+                                       "the short-term view follows without a learning window");
 
             rig.analyzer.stopLearning();
             expect (! rig.analyzer.isLearning());
@@ -1490,11 +1496,8 @@ namespace celadon::test
 
             auto host = [] (std::int64_t fed, int) { return playingAt (fed); };
             rig.feed (makeLoudnessSine (sampleRate, -20.0, 2.0), 512, 1, host);
-            expect (rig.profile().integratedLufs.valid);
-            expect (! rig.profile().spectralSlopeDbPerOct.valid, "a pure sine does not define a spectral slope");
-            expect (rig.profile().onsetDensityPerSecond.valid && rig.profile().onsetDensityPerSecond.value == 0.0f);
-            expect (! rig.profile().onsetStrengthDb.valid, "no events: strength unknown");
-            expect (! rig.profile().loudnessRangeLu.valid, "LRA needs at least 1 s of 3 s short-term values");
+            expect (candidateRetired (rig.profile()), "a sine does not fill the retired candidate");
+            expect (rig.analyzer.getShortTermView().momentaryLufs.valid, "the short-term view still measures");
 
             Rig music (sampleRate);
             music.analyzer.startLearning();
@@ -1508,13 +1511,8 @@ namespace celadon::test
             }
 
             music.feed (first, 512, 1, host);
-            expectWithinAbsoluteError (music.profile().representativeness, 1.0f, 1.0e-6f);
-            expectWithinAbsoluteError (music.profile().integratedLufs.confidence, 1.0f, 1.0e-6f);
-            expect (music.profile().loudnessRangeLu.valid && music.profile().loudnessRangeLu.confidence < 0.35f,
-                    "LRA is not stable after 20 s");
-
-            music.feed (rest, 512, 1, host);
-            expectWithinAbsoluteError (music.profile().loudnessRangeLu.confidence, 1.0f, 1.0e-6f, "LRA is stable after 60 s of values");
+            expect (candidateRetired (music.profile()), "20 s of noise still leaves the candidate empty");
+            (void) rest;
         }
 
         //==============================================================================
@@ -1532,7 +1530,7 @@ namespace celadon::test
             rig.analyzer.startLearning();
             rig.feed (makePinkNoise (numChannels, seconds (10.0), -20.0f, 51), 480);
             const auto before = rig.profile().effectiveSeconds;
-            expect (before > 9.9);
+            expect (before == 0.0 && candidateRetired (rig.profile()), "candidate accumulation is retired");
 
             rig.analyzer.handleDiscontinuity (Discontinuity::transportJump);
             const auto& view = rig.analyzer.getShortTermView();
@@ -1561,7 +1559,7 @@ namespace celadon::test
             expect (! view.shortTermLufs.valid, "S needs 30 clean sub-blocks after the jump");
             feedUntil (3.3);
             expect (view.shortTermLufs.valid, "S is back after 3.1 s");
-            expect (rig.profile().effectiveSeconds > before + 2.5, "the effective time keeps what was learned and continues");
+            expect (rig.profile().effectiveSeconds == before, "the candidate does not accumulate across the jump");
 
             for (int announce = 1; announce >= 0; --announce)
             {
@@ -1574,8 +1572,8 @@ namespace celadon::test
                     splice.analyzer.handleDiscontinuity (Discontinuity::loopWrap);
 
                 splice.feed (makePinkNoise (numChannels, seconds (5.0), -10.0f, 54), 512);
-                expectEquals (onsetCountOf (splice.profile()), announce == 1 ? 0 : 1,
-                              announce == 1 ? "an announced splice is not an onset" : "an unannounced level step is one onset");
+                expectEquals (onsetCountOf (splice.profile()), 0, "candidate onsets stay empty");
+                (void) announce;
             }
         }
 
@@ -1614,9 +1612,8 @@ namespace celadon::test
                 const auto& p = rig.profile();
                 const auto tag = juce::String (variant == 0 ? "chain reset, announced" : variant == 1 ? "chain reset, not announced" : "balance only");
 
-                expectWithinAbsoluteError (p.effectiveSeconds, 16.0, 0.5, "effective time continues: " + tag);
-                expectWithinAbsoluteError (p.integratedLufs.value, (float) referenceIntegrated (meanSquaresOf (rig.subBlocks)), 0.3f, tag);
-                expect (p.lowShare.effectiveSeconds > spectrumSecondsBefore + 6.5, "spectral statistics continue: " + tag);
+                (void) spectrumSecondsBefore;
+                expect (candidateRetired (p), "the candidate stays empty across the reset: " + tag);
                 expect (rig.analyzer.getShortTermView().shortTermLufs.valid, "the view refills: " + tag);
 
                 float worst = 0.0f;
@@ -1717,7 +1714,7 @@ namespace celadon::test
                 Rig rig (sampleRate);
                 rig.analyzer.startLearning();
                 rig.feed (input, 512, 1, [] (std::int64_t fed, int) { return playingAt (fed); });
-                expectWithinAbsoluteError (rig.profile().representativeness, 1.0f, 1.0e-6f, "linear playback");
+                expect (candidateRetired (rig.profile()), "linear playback does not fill a candidate");
             }
 
             {
@@ -1731,9 +1728,7 @@ namespace celadon::test
                 const auto& p = rig.profile();
                 logMessage ("  4 s loop x 5: representativeness " + juce::String (p.representativeness, 3) + ", effective "
                             + juce::String (p.effectiveSeconds, 2) + " s");
-                expect (p.representativeness > 0.2f && p.representativeness <= 4.0f / 15.0f + 1.0e-6f, "a loop covers only 4 s");
-                expect (p.effectiveSeconds > 19.0, "the loop still counts as effective (listened) time");
-                expect (p.integratedLufs.valid && p.integratedLufs.confidence <= p.representativeness + 1.0e-6f);
+                expect (candidateRetired (p), "a loop does not fill a candidate");
 
                 for (int b = 0; b < numBands; ++b)
                     expect (p.bandConfidence[(size_t) b] <= p.representativeness + 1.0e-6f);
@@ -1750,9 +1745,7 @@ namespace celadon::test
                     rig.feed (input, 512);
 
                 const auto& p = rig.profile();
-                expectWithinAbsoluteError (p.representativeness, 0.75f, 1.0e-6f, stopped == 1 ? "transport stopped" : "no position");
-                expect (p.integratedLufs.valid && p.lowShare.valid, "learning is not blocked without a position");
-                expectWithinAbsoluteError (p.integratedLufs.confidence, 0.75f, 1.0e-6f);
+                expect (candidateRetired (p), stopped == 1 ? "transport stopped" : "no position");
             }
         }
 
@@ -1772,8 +1765,7 @@ namespace celadon::test
             Rig reference (sampleRate);
             reference.analyzer.startLearning();
             reference.feed (input, 512);
-            expect (reference.profile().integratedLufs.valid && reference.profile().onsetDensityPerSecond.value > 0.0f
-                    && reference.profile().recoverEvidenceDb[13] > 1.0f, "the material must exercise all three streams");
+            expect (candidateRetired (reference.profile()), "the candidate stays empty for every block size");
 
             for (auto [blockSize, seed] : { std::pair<int, juce::int64> { 1, 0 }, std::pair<int, juce::int64> { 333, 0 },
                                             std::pair<int, juce::int64> { 4096, 0 }, std::pair<int, juce::int64> { 0, 5 },
@@ -2116,8 +2108,7 @@ namespace celadon::test
 
                 rig.feed (makePinkNoise (numChannels, (int) (3.0 * sampleRate), -20.0f, 1001), 512);
                 expectEquals (p.formatVersion, 2, "the analyzer produces format-2 profiles");
-                expect (p.subShareDb.valid && p.lowSideToMidDb.valid && p.lowCorrelation.valid && p.highSideToMidDb.valid
-                            && p.highCorrelation.valid, "3 s of stereo noise define every Clay feature (positive control)");
+                expect (candidateRetired (p), "3 s of stereo noise no longer fills a candidate profile");
                 expect (view.liveLowCorrelation.valid && view.liveLowCorrelationFast.valid && view.liveHighValid,
                         "the live stereo view is valid after 3 s");
                 expect (! p.lowCutPeakCostDb.valid && ! p.monoPeakCostDb[0].valid && ! p.widthPeakCostDb.valid
@@ -2132,8 +2123,10 @@ namespace celadon::test
                 rig.feed (midSide (makeSilence (1, length), makePinkNoise (1, length, -20.0f, 1002)), 512);
                 const auto& p = rig.profile();
 
-                expect (! p.subShareDb.valid && p.subShareDb.confidence == 0.0f, "M = 0 (R = -L): the sub share is unknown, not -inf or 0");
-                expect (p.lowCorrelation.valid && p.lowCorrelation.value <= -0.999f, "the stereo statistics still see R = -L");
+                expect (candidateRetired (p), "candidate stereo and sub share stay empty");
+                expect (rig.analyzer.getShortTermView().liveLowCorrelation.valid
+                            && rig.analyzer.getShortTermView().liveLowCorrelation.value <= -0.999f,
+                        "the live view still sees R = -L");
             }
         }
 
@@ -2161,29 +2154,7 @@ namespace celadon::test
                 const auto& view = rig->analyzer.getShortTermView();
                 const juce::String tag (rig == &mono ? "true mono" : "identical stereo");
 
-                expect (p.lowCorrelation.valid && p.highCorrelation.valid && p.lowSideToMidDb.valid && p.highSideToMidDb.valid, tag);
-                expect (p.lowCorrelation.value >= 0.999999f && p.highCorrelation.value >= 0.999999f,
-                        "rho = 1 (" + tag + "): low " + juce::String (p.lowCorrelation.value, 7) + ", high "
-                            + juce::String (p.highCorrelation.value, 7));
-                expect (p.lowSideToMidDb.value <= -100.0f && p.highSideToMidDb.value <= -100.0f,
-                        "S/M <= -100 dB (" + tag + "): low " + juce::String (p.lowSideToMidDb.value, 1) + " dB, high "
-                            + juce::String (p.highSideToMidDb.value, 1) + " dB");
-
-                int measuredBands = 0, wrongBands = 0;
-
-                for (int b = 0; b < numBands; ++b)
-                {
-                    const auto i = (size_t) b;
-
-                    if (p.bandStereoConfidence[i] <= 0.0f)
-                        continue;
-
-                    ++measuredBands;
-                    wrongBands += (p.bandCorrelation[i] >= 0.999999f && p.bandSideToMidDb[i] <= -100.0f) ? 0 : 1;
-                }
-
-                expectEquals (measuredBands, numBands, "pink noise puts every band above the silence gate (" + tag + ")");
-                expectEquals (wrongBands, 0, "every band: rho = 1 and S/M <= -100 dB (" + tag + ")");
+                expect (candidateRetired (p), "candidate stereo is retired (" + tag + ")");
 
                 expect (view.liveLowCorrelation.valid && view.liveLowCorrelation.value >= 0.999999f, "live rho = 1 (" + tag + ")");
                 expect (view.liveLowCorrelationFast.valid && view.liveLowCorrelationFast.value >= 0.999999f,
@@ -2194,8 +2165,7 @@ namespace celadon::test
 
             const auto& s = stereo.profile().subShareDb;
             const auto& m = mono.profile().subShareDb;
-            expect (s.valid && m.valid && sameFloat (s.value, m.value) && sameDouble (s.effectiveSeconds, m.effectiveSeconds),
-                    "true mono and identical stereo measure the same sub share (M = x)");
+            expect (! s.valid && ! m.valid, "candidate sub share stays unknown for mono and stereo");
         }
 
         //==============================================================================
@@ -2203,7 +2173,8 @@ namespace celadon::test
         // 低频：粉噪经 150 Hz 24 dB/oct 低通，两声道反相（纯 S）；高频：另一路粉噪经 1.5 kHz 24 dB/oct 高通，两声道同相（纯 M）。
         // 两路在对方组里都低 80 dB 以上（约 3.6 oct × 24 dB/oct ≈ 86 dB），所以低频组 ρ ≤ −0.999、S/M ≥ +40 dB；高频组 ρ ≥ 0.999、
         // S/M ≤ −40 dB——同一段信号里两组读出相反的结论（互为阳性对照）；逐段同样。反相的低频在 M 里正好抵消，高通后的高频在
-        // 30 Hz 以下低 130 dB 以上：subShareDb ≤ −60 dB（反相的超低频不算超低频占比——它由收单处理，不由低切处理）。
+        // 30 Hz 以下低 130 dB 以上：subShareDb ≤ −60 dB（反相成分不进 M，所以不进低切要看的次声占比。
+        // ADR-015 起自动收单恒为中性，不再由收单把这段反相超低频收掉）。
         void testClayAntiPhaseLowBand()
         {
             beginTest ("Clay stereo: anti-phase lows read rho = -1 while in-phase highs read +1; anti-phase subs are no sub share");
@@ -2226,26 +2197,12 @@ namespace celadon::test
                         + ", S/M " + juce::String (p.highSideToMidDb.value, 1) + " dB; sub share " + juce::String (p.subShareDb.value, 1)
                         + " dB");
 
-            expect (p.lowCorrelation.valid && p.lowCorrelation.value <= -0.999f, "40 - 125 Hz: rho = -1");
-            expect (p.lowSideToMidDb.valid && p.lowSideToMidDb.value >= 40.0f, "40 - 125 Hz: all side");
-            expect (p.highCorrelation.valid && p.highCorrelation.value >= 0.999f, "2 - 16 kHz: rho = +1 in the same signal");
-            expect (p.highSideToMidDb.valid && p.highSideToMidDb.value <= -40.0f, "2 - 16 kHz: all mid");
-
-            int wrongLow = 0, wrongHigh = 0;
-
-            for (int b = 0; b <= 5; ++b)
-                wrongLow += (p.bandStereoConfidence[(size_t) b] > 0.0f && p.bandCorrelation[(size_t) b] <= -0.99f) ? 0 : 1;
-
-            for (int b = 17; b < numBands; ++b)
-                wrongHigh += (p.bandStereoConfidence[(size_t) b] > 0.0f && p.bandCorrelation[(size_t) b] >= 0.99f) ? 0 : 1;
-
-            expectEquals (wrongLow, 0, "each 40 - 125 Hz band is anti-phase");
-            expectEquals (wrongHigh, 0, "each 2 - 16 kHz band is in phase");
+            expect (candidateRetired (p), "candidate stereo bands are retired");
 
             expect (view.liveLowCorrelation.valid && view.liveLowCorrelation.value <= -0.99f, "live low rho = -1");
             expect (view.liveLowCorrelationFast.valid && view.liveLowCorrelationFast.value <= -0.99f, "live low rho (fast path) = -1");
             expect (view.liveHighValid && view.liveHighSidePower <= view.liveHighMidPower * 1.0e-4f, "live highs are mid");
-            expect (p.subShareDb.valid && p.subShareDb.value <= -60.0f, "anti-phase sub-bass cancels in M: no sub share");
+            expect (! p.subShareDb.valid, "candidate sub share is retired; ADR-015 automatic mono stays neutral");
         }
 
         //==============================================================================
@@ -2289,15 +2246,9 @@ namespace celadon::test
                         + juce::String (view.liveLowCorrelationFast.value, 3) + "), live high S/M "
                         + juce::String (liveHighSideToMidDb, 3) + " dB");
 
-            expect (p.lowCorrelation.valid && std::abs (p.lowCorrelation.value) <= 0.06f, "low-band rho ~ 0");
-            expect (p.lowSideToMidDb.valid && std::abs (p.lowSideToMidDb.value) <= 0.6f, "low-band S/M ~ 0 dB");
-            expect (p.highCorrelation.valid && std::abs (p.highCorrelation.value) <= 0.01f, "high-band rho ~ 0");
-            expect (p.highSideToMidDb.valid && std::abs (p.highSideToMidDb.value) <= 0.1f, "high-band S/M ~ 0 dB");
-            expect (worstBand <= 0.2f, "every band rho ~ 0");
-
-            expectWithinAbsoluteError (p.lowCorrelation.confidence, 1.0f, 1.0e-6f, "group confidence = min(observation / 10 s, representativeness)");
-            expectWithinAbsoluteError (p.highSideToMidDb.confidence, 1.0f, 1.0e-6f, "group confidence (high)");
-            expectEquals (unsureBands, 0, "per-band stereo confidence reaches 1 like bandConfidence");
+            (void) worstBand;
+            (void) unsureBands;
+            expect (candidateRetired (p), "candidate stereo confidence is retired");
 
             expect (view.liveLowCorrelation.valid && std::abs (view.liveLowCorrelation.value) < 0.4f, "live low rho ~ 0");
             expect (view.liveLowCorrelationFast.valid && std::abs (view.liveLowCorrelationFast.value) < 0.5f, "live low rho (fast path) ~ 0");
@@ -2365,17 +2316,15 @@ namespace celadon::test
                 logMessage ("  10 Hz sine at amplitude " + juce::String (amplitude, 4) + ": sub share " + juce::String (share.value, 3)
                             + " dB, analytic " + juce::String (expected, 3) + " dB, effective " + juce::String (share.effectiveSeconds, 3)
                             + " s");
-                expect (share.valid, "the sub share is measured");
-                expectWithinAbsoluteError (share.value, (float) expected, 0.5f, "10 Hz sub share vs analytic value");
-                expectWithinAbsoluteError (share.effectiveSeconds, seconds - 0.25, 0.01, "effective audio after the 250 ms warm-up");
+                (void) expected;
+                expect (! share.valid && share.effectiveSeconds == 0.0, "candidate sub share is retired");
             }
 
             {
                 Rig rig (sampleRate);
                 rig.analyzer.startLearning();
                 rig.feed (broadband, 512);
-                expect (rig.profile().subShareDb.valid && rig.profile().subShareDb.value <= -60.0f,
-                        "broadband content above 100 Hz has no sub share (" + juce::String (rig.profile().subShareDb.value, 1) + " dB)");
+                expect (! rig.profile().subShareDb.valid, "candidate sub share stays unknown");
             }
 
             // b) 45 Hz 底鼓为主。
@@ -2425,9 +2374,8 @@ namespace celadon::test
             logMessage ("  45 Hz kick: sub share " + juce::String (kickShare.value, 2) + " dB, line-spectrum value "
                         + juce::String (expectedKick, 2) + " dB (the former 4th-order 30 Hz lowpass would read "
                         + juce::String (oldFilterReading, 2) + " dB)");
-            expect (kickShare.valid, "the kick material's sub share is measured");
-            expectWithinAbsoluteError (kickShare.value, (float) expectedKick, 1.0f, "45 Hz kick sub share vs line-spectrum value");
-            expect (kickShare.value <= -40.0f, "a 45 Hz kick is not infrasound: no automatic low-cut need");
+            (void) expectedKick;
+            expect (! kickShare.valid, "candidate sub share is retired");
             expect (oldFilterReading >= -20.0, "positive control: the former 30 Hz lowpass read the kick fundamental as sub-bass");
         }
 
@@ -2455,7 +2403,8 @@ namespace celadon::test
             };
 
             const auto steady = learn (makeSine (numChannels, sampleRate, 60.0, 0.5f, 12.0), 512);
-            expect (steady.lowCutBlendLossDb[0].valid && steady.lowCutBlendLossDb[1].valid, "12 s of learning define both points");
+            expect (! steady.lowCutBlendLossDb[0].valid && ! steady.lowCutBlendLossDb[1].valid,
+                    "candidate blend loss is retired");
             expect (std::abs (steady.lowCutBlendLossDb[0].value) < 0.002f && std::abs (steady.lowCutBlendLossDb[1].value) < 0.002f,
                     "steady tone: the guard does not blend, the loss is ~0 ("
                         + juce::String (steady.lowCutBlendLossDb[0].value, 6) + " / " + juce::String (steady.lowCutBlendLossDb[1].value, 6) + ")");
@@ -2492,9 +2441,8 @@ namespace celadon::test
             const auto moduleLoss = 10.0 * std::log10 (stats.blendIntendedEnergy / stats.blendOutputEnergy);
             logMessage ("  offset bass: trial blend loss 10 Hz " + juce::String (l10.value, 4) + " dB, 20 Hz " + juce::String (l20.value, 4)
                         + " dB; ClayModule at 20 Hz " + juce::String (moduleLoss, 4) + " dB");
-            expect (l10.valid && l20.valid && l20.value > l10.value && l10.value > 0.0f && l20.value > 0.1f,
-                    "offset bass: the loss grows with the cutoff and exceeds 0.1 dB at 20 Hz");
-            expectWithinAbsoluteError ((double) l20.value, moduleLoss, 0.02, "the 20 Hz point agrees with the chain's ClayModule on the same material");
+            (void) moduleLoss;
+            expect (! l10.valid && ! l20.valid, "offset bass does not publish a candidate blend loss");
 
             const auto shortSpan = learn (sliceOf (offset, 0, (int) (6.0 * sampleRate)), 512);
             expect (! shortSpan.lowCutBlendLossDb[0].valid && ! shortSpan.lowCutBlendLossDb[1].valid && ! shortSpan.lowCutPeakCostDb.valid,
@@ -2540,9 +2488,7 @@ namespace celadon::test
             const auto& p = rig.profile();
             logMessage ("  learned after an anti-phase lead-in: low rho " + juce::String (p.lowCorrelation.value, 5) + ", sub share "
                         + juce::String (p.subShareDb.value, 1) + " dB");
-            expect (p.lowCorrelation.valid && p.lowCorrelation.value >= 0.999f, "anti-phase lows before startLearning are excluded");
-            expect (p.subShareDb.valid && p.subShareDb.value <= -40.0f, "the 10 Hz sine before startLearning is excluded");
-            expect (p.lowCutPeakCostDb.valid && p.widthPeakCostDb.valid, "12 s of learning define the peak costs (the freeze check covers them)");
+            expect (candidateRetired (p), "startLearning does not open a candidate window");
 
             rig.analyzer.stopLearning();
             const auto frozen = rig.profile();
@@ -2890,14 +2836,9 @@ namespace celadon::test
                         + juce::String (p.monoPeakCostDb[0].value, 3) + " / " + juce::String (p.monoPeakCostDb[3].value, 3)
                         + " dB, width " + juce::String (p.widthPeakCostDb.value, 3) + " dB over " + juce::String (trialBase.effectiveSeconds, 2)
                         + " s of blocks");
-            expect (p.subShareDb.valid && p.lowSideToMidDb.valid && p.lowCorrelation.valid && p.highSideToMidDb.valid
-                        && p.highCorrelation.valid && view.liveLowCorrelation.valid && view.liveLowCorrelationFast.valid
-                        && view.liveHighValid,
-                    "the material must exercise every Clay path");
-            expect (p.lowCutPeakCostDb.valid && p.monoPeakCostDb[0].valid && p.monoPeakCostDb[3].valid && p.widthPeakCostDb.valid
-                        && trialBase.valid && p.monoPeakCostDb[3].value != 0.0f,
-                    "the trial must run and measure something (12 s of learning = 11.6 s of valid blocks)");
-            expect (p.lowCorrelation.value > 0.3f && p.lowCorrelation.value < 0.98f, "the lows are partially correlated");
+            expect (candidateRetired (p) && ! trialBase.valid, "candidate Clay fields and trial costs stay empty");
+            expect (view.liveLowCorrelation.valid && view.liveLowCorrelationFast.valid && view.liveHighValid,
+                    "the live stereo view still runs");
 
             for (auto [blockSize, seed] : { std::pair<int, juce::int64> { 1, 0 }, std::pair<int, juce::int64> { 333, 0 },
                                             std::pair<int, juce::int64> { 4096, 0 }, std::pair<int, juce::int64> { 0, 5 },
@@ -2986,8 +2927,7 @@ namespace celadon::test
 
             const auto& learned = rig.profile();
             expect (std::isfinite (sink));
-            expect (learned.subShareDb.valid && learned.lowCorrelation.valid && learned.highCorrelation.valid && sawLiveView,
-                    "the run went through every Clay path");
+            expect (candidateRetired (learned) && sawLiveView, "the live stereo view ran; the candidate stayed empty");
             expectEquals ((int) allocations, 0);
         }
 
@@ -3051,59 +2991,12 @@ namespace celadon::test
                         + " dB, width cost " + juce::String (c.widthPeakCostDb.value, 6) + " dB, base P99 "
                         + juce::String (clipped.second.trialPeakP99Db.value, 3) + " dBFS");
 
-            expect (c.lowCutPeakCostDb.valid && c.lowCutPeakCostDb.value > 1.0f,
-                    "a) hard-clipped kick: the 20 Hz low-cut raises the P99 block peak by more than 1 dB");
-            expect (unclipped.first.lowCutPeakCostDb.valid && unclipped.first.lowCutPeakCostDb.value < 0.5f,
-                    "a) the same kick unclipped: the cost comes from the clipped (already limited) peaks");
-
-            for (size_t i = 0; i < c.monoPeakCostDb.size(); ++i)
-            {
-                const auto& mono = c.monoPeakCostDb[i];
-                const auto tag = juce::String (glaze::clayMonoCandidateHz[i]) + " Hz";
-                expect (mono.valid && std::abs (mono.value) <= 0.05f, "a) pure mono: the linear-phase mono costs nothing at " + tag);
-                expect (std::abs (mono.value) <= 1.0e-6f, "a) pure mono, delay-compensated grid: exactly nothing at " + tag);
-            }
-
-            expect (c.widthPeakCostDb.valid && c.widthPeakCostDb.value == 0.0f, "a) pure mono: widening the side changes no sample");
-
-            // 基准：每 5 块里有一块含底鼓、削在 0.5，116 块的 P99 落在第 3 大与第 2 大之间——两者都是 0.5 → 精确的 −6.0206 dBFS。
-            expectWithinAbsoluteError (clipped.second.trialPeakP99Db.value, (float) (20.0 * std::log10 (0.5)), 1.0e-4f,
-                                       "a) the trial base of material clipped at 0.5 is 0.5");
-
-            // b) 两声道独立的粉噪。
-            const auto wide = learnedFrom (makePinkNoise (numChannels, length, -20.0f, 2201));
-            const auto& w = wide.first;
-
-            logMessage ("  independent pink noise: width cost " + juce::String (w.widthPeakCostDb.value, 4) + " dB, mono costs "
-                        + juce::String (w.monoPeakCostDb[0].value, 4) + " / " + juce::String (w.monoPeakCostDb[1].value, 4) + " / "
-                        + juce::String (w.monoPeakCostDb[2].value, 4) + " / " + juce::String (w.monoPeakCostDb[3].value, 4)
-                        + " dB, low-cut cost " + juce::String (w.lowCutPeakCostDb.value, 4) + " dB, over "
-                        + juce::String (w.widthPeakCostDb.effectiveSeconds, 2) + " s, confidence "
-                        + juce::String (w.widthPeakCostDb.confidence, 3));
-
-            expect (w.widthPeakCostDb.valid && w.widthPeakCostDb.value > 0.05f, "b) broadband stereo: widening raises the peaks");
-
-            for (size_t i = 0; i < w.monoPeakCostDb.size(); ++i)
-                expect (w.monoPeakCostDb[i].valid && w.monoPeakCostDb[i].value < -0.3f,
-                        "b) collapsing the independent lows lowers the peaks (the mono path measures something) at "
-                            + juce::String (glaze::clayMonoCandidateHz[i]) + " Hz");
-
-            expectWithinAbsoluteError (w.widthPeakCostDb.effectiveSeconds, 11.6, 1.0e-9, "b) 116 valid blocks of 100 ms");
-            expectWithinAbsoluteError (w.widthPeakCostDb.confidence, 0.75f, 1.0e-6f,
-                                       "b) confidence = min(observation 1, representativeness 0.75 without a host position)");
-            expect (wide.second.trialPeakP99Db.valid && wide.second.trialPeakP99Db.value < -6.5f,
-                    "b) the trial base follows the material (numpy: -7.54 dBFS)");
+            expect (candidateRetired (c) && candidateRetired (unclipped.first),
+                    "candidate peak costs, including the four mono slots, stay invalid");
+            expect (! clipped.second.trialPeakP99Db.valid && ! unclipped.second.trialPeakP99Db.valid,
+                    "the auxiliary trial base is retired with the candidate");
         }
 
-        //==============================================================================
-        // 依据：同上（候选输出晚 D_c 个样本，它的第 k 块取延迟补偿后的同一段音频）。P99 只看最大的两三个块峰值，普通素材上块网格
-        // 错开几个样本也未必看得出来；这里把峰值故意放在块边界两侧：纯单声道、−40 dBFS 的粉噪（块峰值 < 0.05）上，在第 20、40、60、
-        // 80、100 块的最后一个样本与下一块的第一个样本各放一个单样本脉冲（0.9 / 0.85、0.8 / 0.75、0.7 / 0.65、0.6 / 0.55、0.5 / 0.45）。
-        //   - 原始：每个脉冲各占一块。116 个有效块，P99 的位置 0.99 × 115 = 113.85，落在第 3 大（0.8）与第 2 大（0.85）之间：
-        //     0.8 + 0.85 × 0.05 = 0.8425 → −1.4886 dBFS（基准 trialPeakP99Db，断言 ±0.001 dB）。块网格从重启起算、前 3 块预热、最后
-        //     一块未交齐这几条都对，块数才是 116、插值位置才对；有效时长 11.6 s。
-        //   - 收单候选若没做延迟补偿（或差 1 个样本），边界两侧的一对脉冲会落进同一个候选块，第 2、3 大的块峰值变成 0.8 / 0.7，
-        //     P99 变成 0.785、代价约 −0.61 dB（numpy）；对齐时四个收单代价与加宽代价都是 0（断言 ≤ 1e-6 dB / == 0）。
         void testClayTrialAlignment()
         {
             beginTest ("Clay trial: the delayed mono candidates are measured on the same block grid (delay-compensated)");
@@ -3132,15 +3025,8 @@ namespace celadon::test
                         + juce::String (expectedBase, 5) + ") over " + juce::String (base.effectiveSeconds, 2) + " s; mono costs "
                         + juce::String (p.monoPeakCostDb[0].value, 7) + " / " + juce::String (p.monoPeakCostDb[3].value, 7) + " dB");
 
-            expect (base.valid, "the trial base is valid");
-            expectWithinAbsoluteError (base.value, (float) expectedBase, 1.0e-3f, "each pulse in its own block: P99 between the 3rd and 2nd largest");
-            expectWithinAbsoluteError (base.effectiveSeconds, 11.6, 1.0e-9, "116 valid blocks");
-
-            for (size_t i = 0; i < p.monoPeakCostDb.size(); ++i)
-                expect (p.monoPeakCostDb[i].valid && std::abs (p.monoPeakCostDb[i].value) <= 1.0e-6f,
-                        "the " + juce::String (glaze::clayMonoCandidateHz[i]) + " Hz mono candidate sees each pulse in the same block");
-
-            expect (p.widthPeakCostDb.valid && p.widthPeakCostDb.value == 0.0f, "the width candidate (no delay) too");
+            (void) expectedBase;
+            expect (! base.valid && candidateRetired (p), "mono alignment costs are not published on the retired candidate");
         }
 
         //==============================================================================
@@ -3181,8 +3067,8 @@ namespace celadon::test
             logMessage ("  learning interval: low-cut cost " + juce::String (learned.lowCutPeakCostDb.value, 4) + " dB (learned only), "
                         + juce::String (withLeadIn.profile().lowCutPeakCostDb.value, 4) + " dB (after a clipped-kick lead-in)");
 
-            expect (learned.lowCutPeakCostDb.valid && learned.widthPeakCostDb.valid && learnedBase.valid,
-                    "12 s of learning define the costs (positive control)");
+            expect (! learned.lowCutPeakCostDb.valid && ! learned.widthPeakCostDb.valid && ! learnedBase.valid,
+                    "candidate trial costs stay invalid");
             expect (sameTrialCosts (learned, withLeadIn.profile())
                         && sameFeature (learnedBase, withLeadIn.analyzer.getAuxiliaryFeatures().trialPeakP99Db),
                     "audio before startLearning never reaches the candidates or the block records (bit-identical costs)");
@@ -3265,7 +3151,7 @@ namespace celadon::test
             }
 
             expect (std::isfinite (sink));
-            expect (sawCosts && stopped && restarted, "the run reached valid peak costs and went through stop / restart");
+            expect (! sawCosts && stopped && restarted, "peak costs stay invalid; stop and restart allocate nothing");
             expectEquals ((int) allocations, 0);
         }
     };
@@ -3412,46 +3298,12 @@ namespace celadon::test
                         + "); S_ref " + juce::String (gate.referenceLufs, 2) + ", heard " + juce::String (gate.heardSegments)
                         + ", full " + juce::String (gate.fullSegments) + ", representativeness " + juce::String (houseProfile.representativeness, 3));
 
-            expect (houseProfile.formatVersion == glaze::houseProfileFormatVersion && gate.valid && gate.mode == glaze::SegmentMode::bars,
-                    "House profile: format 3 with a valid bar-mode gate");
-            expect (generalProfile.formatVersion == glaze::clayProfileFormatVersion && ! generalProfile.houseGate.valid,
-                    "the general profile stays format 2");
-            expectEquals (gate.heardSegments, 48);
-            expectEquals (gate.fullSegments, 16, "the full segments are the 16 drop bars");
-            expect (houseProfile.integratedLufs.valid && std::abs (houseProfile.integratedLufs.value - drop.integratedLufs.value) <= 0.5f,
-                    "House I is the drop's I");
-            expect (houseProfile.integratedLufs.value - generalProfile.integratedLufs.value > 1.5f,
-                    "the general I is pulled down by the intro");
-            expect (std::abs (houseProfile.lowShare.value - drop.lowShare.value) <= 0.03f, "House lowShare is the drop's");
-            expect (std::abs (houseProfile.truePeakDbtp.value - drop.truePeakDbtp.value) <= 0.3f, "House true peak is the drop's");
-            // 阶段 3 集成改：LRA 也只用满编段（起播位置无关），所以等于 drop 自己的 LRA，不再被前奏撑大。
-            expect (houseProfile.loudnessRangeLu.valid && std::abs (houseProfile.loudnessRangeLu.value - drop.loudnessRangeLu.value) <= 1.0f,
-                    "LRA is taken over the full segments only, so it is the drop's LRA, not stretched by the intro");
-            expectWithinAbsoluteError (houseProfile.representativeness, 48.0f / 64.0f, 1.0e-6f);
-            expect (houseProfile.integratedLufs.confidence <= houseProfile.representativeness + 1.0e-6f);
-            expect (houseProfile.lowCutPeakCostDb.valid && houseProfile.monoPeakCostDb[1].valid && houseProfile.widthPeakCostDb.valid,
-                    "the try-before-use costs come from the full segments' blocks");
-
-            // 换底到 main fd486ba（T-043 守护混合损失）：House 画像的混合损失同样按满编段的块合并，与只听 drop 的通用画像相近。合并前
-            // House 画像从空画像算起、没有这一项，决策器在 House 档就一直「判断不了」、不按混合损失封顶低切。
-            for (size_t c = 0; c < houseProfile.lowCutBlendLossDb.size(); ++c)
-            {
-                const auto& h = houseProfile.lowCutBlendLossDb[c];
-                const auto& d = drop.lowCutBlendLossDb[c];
-                logMessage ("  blend loss candidate " + juce::String ((int) c) + ": House " + juce::String (h.value, 4) + " dB (valid "
-                            + juce::String ((int) h.valid) + ", confidence " + juce::String (h.confidence, 4) + "), drop alone "
-                            + juce::String (d.value, 4) + ", general " + juce::String (generalProfile.lowCutBlendLossDb[c].value, 4));
-                expect (h.valid && d.valid, "the blend loss comes from the full segments' blocks, candidate " + juce::String ((int) c));
-                expect (std::abs (h.value - d.value) <= 0.1f, "House blend loss is the drop's, candidate " + juce::String ((int) c));
-
-                // T-049：置信度与低切代价同一口径（同一批块，min(代表性, 试算观测充分度)），两种画像都一样。原来 houseConfidences
-                // 漏了这两项，House 画像里恒为 0。
-                const auto& g = generalProfile.lowCutBlendLossDb[c];
-                expect (h.confidence > 0.0f && sameFloat (h.confidence, houseProfile.lowCutPeakCostDb.confidence),
-                        "House blend loss confidence = the low-cut cost's (same blocks, same rule), candidate " + juce::String ((int) c));
-                expect (g.valid && sameFloat (g.confidence, generalProfile.lowCutPeakCostDb.confidence),
-                        "general blend loss confidence = the low-cut cost's, candidate " + juce::String ((int) c));
-            }
+            (void) gate;
+            expect (candidateRetired (houseProfile) && candidateRetired (generalProfile) && candidateRetired (drop),
+                    "House recompute and the candidate profile are retired");
+            expect (house.analyzer.getHouseProfileGeneration() == 0, "house profile generation stays at 0");
+            expectEquals (house.analyzer.getSegmentLedger().getNumStored(), 0, "live mode off: the only ledger stays empty");
+            expect (! house.analyzer.isLearning());
         }
 
         // 依据：任务书「通用档完全不走这些代码（逐位不变）」。通用档下交宿主拍点、显式 setGenre(通用)：画像与辅助量与不交拍点、
@@ -3481,7 +3333,7 @@ namespace celadon::test
             house.analyzer.setGenre (glaze::Genre::techHouse);
             house.analyzer.startLearning();
             house.feed (track, 512, 1, [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); });
-            expect (house.analyzer.getSegmentLedger().getNumStored() > 0);
+            expectEquals (house.analyzer.getSegmentLedger().getNumStored(), 0, "live mode off: genre does not open a second ledger");
             house.analyzer.setGenre (glaze::Genre::general);
 
             expect (sameProfile (plain.profile(), house.profile()) && sameClayProfile (plain.profile(), house.profile()),
@@ -3503,8 +3355,8 @@ namespace celadon::test
             reference.analyzer.setGenre (glaze::Genre::melodicProgressive);
             reference.analyzer.startLearning();
             reference.feed (track, 512, 1, host);
-            expect (reference.profile().houseGate.fullSegments > 0 && reference.profile().integratedLufs.valid
-                    && reference.profile().onsetDensityPerSecond.valid, "the material exercises the gate and all three streams");
+            expect (candidateRetired (reference.profile()) && reference.analyzer.getHouseProfileGeneration() == 0,
+                    "house profile recompute is retired");
 
             for (const auto& [blockSize, seed] : { std::pair<int, juce::int64> { 1, 0 }, std::pair<int, juce::int64> { 333, 0 },
                                                    std::pair<int, juce::int64> { 4096, 0 }, std::pair<int, juce::int64> { 0, 5 },
@@ -3542,14 +3394,14 @@ namespace celadon::test
             rig.feed (sliceOf (track, 8 * barSamples, (int) track.front().size() - 8 * barSamples), 512, 1, host);
             expect (sameHouseProfile (introProfile, rig.profile()), "not learning: the House profile is frozen");
             expect (rig.analyzer.getHouseProfileGeneration() == generation);
-            expect (rig.analyzer.getSegmentLedger().getHeardSegments() >= 15, "but the ledger kept recording the drop");
+            expectEquals (rig.analyzer.getSegmentLedger().getHeardSegments(), 0, "there is no separate house ledger");
+            expectEquals (rig.analyzer.getSegmentLedger().getNumStored(), 0, "live mode off records nothing");
 
             rig.analyzer.recomputeHouseProfile();
             const auto& regated = rig.profile();
             logMessage ("  intro-only House I " + juce::String (introProfile.integratedLufs.value, 2) + " -> regated "
                         + juce::String (regated.integratedLufs.value, 2) + " LUFS, full " + juce::String (regated.houseGate.fullSegments));
-            expect (regated.integratedLufs.value > introProfile.integratedLufs.value + 4.0f, "regating picks the drop");
-            expect (regated.houseGate.fullSegments >= 7 && regated.houseGate.fullSegments <= 8);
+            expect (candidateRetired (regated), "recomputeHouseProfile does not rebuild a profile");
 
             rig.analyzer.startLearning();
             expectEquals (rig.analyzer.getSegmentLedger().getNumStored(), 0, "a relearn clears the ledger");
@@ -3680,8 +3532,7 @@ namespace celadon::test
             full.analyzer.startLearning();
             const auto loop = makeHouseTrack (sampleRate, 0, 8, 0.0, 62);
 
-            for (int guard = 0; guard < 200 && full.analyzer.getSegmentLedger().getNumStored() < glaze::SegmentLedger::maxSegments; ++guard)
-                full.feed (loop, 4096, 1, [] (std::int64_t fed, int) { return playingAt (fed); });
+            (void) loop;
 
             juce::int64 bestRecompute = std::numeric_limits<juce::int64>::max();
 
@@ -3700,7 +3551,7 @@ namespace celadon::test
                         + " full, " + juce::String ((double) full.fed / sampleRate, 0) + " s fed): one recompute "
                         + juce::String (recomputeMicroseconds, 1) + " us");
             expect (mean < learningGuardMicroseconds, "House analyzer too slow while learning: " + juce::String (mean, 2) + " us per block");
-            expect (gate.fullSegments > 400, "the full ledger is mostly full segments");
+            expect (gate.fullSegments == 0 && full.analyzer.getHouseProfileGeneration() == 0, "recompute does not fill a house gate");
             expect (recomputeMicroseconds < 1000.0, "one recompute with a full ledger: " + juce::String (recomputeMicroseconds, 1) + " us");
         }
     };
@@ -3853,9 +3704,6 @@ namespace celadon::test
 
             if (! sameShortTermView (a.getShortTermView(), b.getShortTermView()))
                 return "short-term view";
-
-            if (! sameLedgerState (a.getSegmentLedger(), b.getSegmentLedger()))
-                return "House ledger";
 
             if (a.getHouseProfileGeneration() != b.getHouseProfileGeneration() || a.isLearning() != b.isLearning() || a.getGenre() != b.getGenre())
                 return "generation / learning / genre";
@@ -4087,6 +3935,8 @@ namespace celadon::test
                             + juce::String (on.analyzer.getSegmentLedger().getNumStored()) + " stored, "
                             + juce::String (on.analyzer.getSegmentLedger().getFinalizedCount()) + " finalized");
                 expect (firstDifference < 0, juce::String (script.name) + ": first difference at block " + juce::String (firstDifference) + " (" + what + ")");
+                expectEquals (off.analyzer.getSegmentLedger().getNumStored(), 0, juce::String (script.name) + ": live mode off records nothing");
+                expect (on.analyzer.getSegmentLedger().getNumStored() > 0, juce::String (script.name) + ": the live ledger is the only one");
                 expectEquals (offCollector.calls, 0, juce::String (script.name) + ": live mode off never calls the sink");
                 expect (onCollector.calls >= 25, juce::String (script.name) + ": live mode on delivered the bars (positive control)");
             }
@@ -4147,8 +3997,8 @@ namespace celadon::test
                             && probeOff.planTransitions == probeOn.planTransitions && probeOff.calibrationBegins == probeOn.calibrationBegins
                             && probeOff.houseUpdates == probeOn.houseUpdates && probeOff.houseReopens == probeOn.houseReopens,
                         tag + ": the controller took the same decisions");
-                expect (probeOn.learningStarts >= 2 && probeOn.commits >= 2 && probeOn.transportJumps >= 1,
-                        tag + ": first listen, relearn and the jump all happened (positive control)");
+                expect (probeOn.learningStarts >= 2 && probeOn.commits == 0 && probeOn.transportJumps >= 1,
+                        tag + ": the controller still requests learning, but nothing commits without a candidate");
                 expect (collector.calls >= 30, tag + ": the live ledger delivered segments (positive control)");
             }
         }
@@ -4260,9 +4110,9 @@ namespace celadon::test
             auto withTrials = 0;
 
             for (const auto& segment : reference->segments)
-                withTrials += segment.liveTrialBlocks > 0 && segment.trialBlocks > 0 ? 1 : 0;
+                withTrials += segment.liveTrialBlocks > 0 && segment.trialBlocks == 0 ? 1 : 0;
 
-            expect (reference->segments.size() >= 25 && withTrials >= 5, "the run delivers bars, some with learning-period trial blocks");
+            expect (reference->segments.size() >= 25 && withTrials >= 5, "the run delivers bars with live trial blocks and no learning-period blocks");
 
             for (const auto blockSize : { 7, 32, 480, 4096 })
             {
@@ -4312,7 +4162,7 @@ namespace celadon::test
                     }
                     else if (s.start >= learnAt && s.end <= stopAt - 6000)
                     {
-                        learningSame = learningSame && liveEqualsTrial (s) && s.trialBlocks > 0;
+                        learningSame = learningSame && s.trialBlocks == 0 && s.liveTrialBlocks > 0;
                         ++learningSegments;
                     }
                     else if (s.start >= stopAt + 6000)
@@ -4325,7 +4175,7 @@ namespace celadon::test
                 logMessage ("  live on: " + juce::String (idleSegments) + " idle bars, " + juce::String (learningSegments) + " learning bars, "
                             + juce::String (afterSegments) + " bars after the stop");
                 expect (idleSegments >= 8 && idleExact, "not learning: liveTrialBlocks = the valid blocks starting in the bar; trialBlocks = 0");
-                expect (learningSegments >= 8 && learningSame, "learning: live* == trial* bit for bit");
+                expect (learningSegments >= 8 && learningSame, "startLearning does not open a second trial record");
                 expect (afterSegments >= 3 && afterStop, "after stopLearning the live trial keeps recording, the learning one does not");
             }
 
@@ -4344,7 +4194,9 @@ namespace celadon::test
                     someBlocks = someBlocks || ledger.getStored (i).liveTrialBlocks > 0;
                 }
 
-                expect (same && someBlocks, "live mode off, House learning: live* == trial* in every stored segment, with blocks");
+                expect (ledger.getNumStored() == 0, "live mode off: the ledger is not recording");
+                (void) same;
+                (void) someBlocks;
             }
         }
 
@@ -4821,8 +4673,8 @@ namespace celadon::test
                     run.chain->setLiveSegmentSink (nullptr);
                     const auto probe = run.chain->getGlazeController().getProbeForTesting();
 
-                    expect (probe.learningStarts >= 1 && probe.commits >= 1,
-                            tag + ", block " + juce::String (blockSize) + ": the controller learned and committed (positive control)");
+                    expect (probe.learningStarts >= 1 && probe.commits == 0,
+                            tag + ", block " + juce::String (blockSize) + ": learning is requested and nothing commits");
 
                     if (reference.empty())
                     {
@@ -4870,7 +4722,7 @@ namespace celadon::test
                 juce::String where;
                 expect (learningRun->segments.size() >= 20, tag + ": the run delivers the bars");
                 expect (sameLiveSegments (learningRun->segments, idleRun->segments, where), tag + ": learning vs not learning: " + where);
-                expect (learningTrials && ! idleTrials, tag + ": learning-period trial blocks only while learning");
+                expect (! learningTrials && ! idleTrials, tag + ": trial* stays empty; live* is the only trial record");
                 expect (quietSectionGated (idleRun->segments), tag + ": not learning, the live relative gate still holds off the quiet section");
 
                 if (genre == glaze::Genre::deepHouse)
@@ -4880,7 +4732,7 @@ namespace celadon::test
                     for (size_t i = 0; houseSame && i < houseLearning.size(); ++i)
                         houseSame = sameSegmentAll (withoutLearningTrial (houseLearning[i]), withoutLearningTrial (houseIdle[i]));
 
-                    expect (! houseSame, tag + ": the House ledger (learning-referenced gates) does differ between the two states (positive control)");
+                    expect (houseSame, tag + ": there is no second house ledger; both captures are the live one");
                 }
             }
         }
@@ -4906,7 +4758,7 @@ namespace celadon::test
                     run.play (track, 512);
                     run.chain->setLiveSegmentSink (nullptr);
                     state = run.chain->createGlazeStateXml();
-                    expect (run.chain->getGlazeController().getProbeForTesting().commits >= 1, tag + ": the first pass committed (positive control)");
+                    expect (run.chain->getGlazeController().getProbeForTesting().commits == 0, tag + ": nothing commits without a candidate");
                 }
 
                 {
@@ -4918,7 +4770,7 @@ namespace celadon::test
                 }
 
                 juce::String where;
-                expect (secondLearningStarts == 0, tag + ": the second pass did not learn");
+                (void) secondLearningStarts;
                 expect (first.segments.size() >= 20, tag + ": the first pass delivers the bars");
                 expect (sameLiveSegments (first.segments, second.segments, where), tag + ": first vs second pass: " + where);
             }
