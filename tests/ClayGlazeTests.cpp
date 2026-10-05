@@ -4,7 +4,7 @@
     ClayGlazeTests.cpp
     v0.1.7.0 修坯 Clay 的整链端到端集成测试（设计规格-Clay-分析决策与验收 第 6 节第 1、4 ～ 8 条的整链部分；ADR-009）。
     T-012 阶段 4 按 ADR-012 / 设计规格-Clay-根治修订 改写（Clay 固定延迟 D、先试后用、反相保护新触发规则），并补第 4 节第 2 条的合成回归：
-      1. GLAZE 0：抽屉默认（三态都「自动」）、三项全「关」、Clay Bypass——整链输出逐位相同，并且与「改动前」自己串起来的
+      1. GLAZE 0：三态默认（都「自动」）、三项全「关」、Clay Bypass——整链输出逐位相同，并且与「改动前」自己串起来的
          Balance → Color → Limit 三模块链在 Clay 的位置插 D 样本纯延迟后逐位相同（D = Clay 上报的整个固定延迟：
          ADR-012 收单 D + ADR-014 峰值守护前瞻 G，48 kHz 574 + 528 = 1102；本文件下文的「D」都指它；整链延迟 = 旧值 + D）；
          Color / Limit 不动作时与原样三模块链平移 D 逐位相同；每块 effective.clay 中性。阳性对照：GLAZE 0 下手动低切，输出不同。
@@ -532,7 +532,7 @@ namespace celadon::test
             return valid;
         }
 
-        // 五个代价里最大的（dB；都无效时 −∞）。
+        // 画像里各个代价里最大的（dB；都无效时 −∞）。
         float maxCost (const glaze::MusicProfile& p)
         {
             auto largest = -std::numeric_limits<float>::infinity();
@@ -681,7 +681,7 @@ namespace celadon::test
         //==============================================================================
         // 「改动前」的链：v0.1.6.2 的 CeladonChain 在 GLAZE 0 时把手动值原样交给三个模块、按 Balance → Color → Limit 处理
         // （两块表与编排器只测量；Listen 关着时不碰样本；交给限幅器的 listen 恒为 false）。用来直接对照
-        // 「GLAZE 0 且抽屉默认 → 整链与改动前逐位相同」（分析决策与验收第 6 节第 1 条）。
+        // 「GLAZE 0 且三态默认 → 整链与改动前逐位相同」（分析决策与验收第 6 节第 1 条）。
         struct PreClayChain
         {
             // claySlotDelaySamples > 0：在 Balance 与 Color 之间（Clay 的位置）插一段这么长的 float 纯延迟——ClayModule 三项为 0 时的
@@ -1317,7 +1317,7 @@ namespace celadon::test
         // 1. GLAZE 0 逐位不变（验收第 1 条；根治修订第 2 节）：同一段立体声素材（有约 10 Hz 次声、宽低频、窄高频——Clay 一旦动手就会
         //    改变输出）、同一组「各模块都在工作」的手动值（Balance 30 / 30 / Brighten 10、Tone +1、Glue 25、Heat 20、Limit Gain +6、
         //    Clip 20）、GLAZE 0：
-        //      a. 抽屉默认（三态都「自动」）；b. 三项全「关」；c. 三态默认 + Clay Bypass；
+        //      a. 三态默认（都「自动」）；b. 三项全「关」；c. 三态默认 + Clay Bypass；
         //      d. 「改动前」的链：自己按 Balance → Color → Limit 串三个模块、交同样的手动值（PreClayChain），并在 Clay 的位置
         //         （Balance 与 Color 之间）插一段 D 样本 float 纯延迟——三项为 0 时 ClayModule 就是这样一段纯延迟（真实契约）。
         //    a、b、c 整段输出逐位相同（按字节比，三者延迟相同），且与 d 逐位相同；整链延迟 = 三个模块的延迟 + D。
@@ -1445,7 +1445,7 @@ namespace celadon::test
         //==============================================================================
         // 2. GLAZE 60 自动修坯（验收第 4 条的整链部分 + 第 7 条真峰值）：stereoTestRecipe 的素材按根治修订 3.3 低切、加宽都「值得做」
         //    （见其注释：需要度 > 0、试过的代价都 ≤ 0.2 dB），聆听 12 s（立体声特征观测充分、代价有效块满 10 s）、学完并校准锁定后：
-        //      - 画像的五个代价都有效且 ≤ clayCostFullDb（0.2 dB）；Status 不报代价受限（mask 0）；
+        //      - 画像的各个代价都有效且 ≤ clayCostFullDb（0.2 dB）；Status 不报代价受限（mask 0）；
         //      - Status 低切、加宽 > 0，且落在规格范围：10 Hz < 低切 ≤ 风格低切目标的最大值（lowCutHz = 10·(f_t/10)^k，0 < k ≤ 1）、
         //        0 < 加宽 ≤ clayWidthMaxDb（自动只加不减、≤ +1.5 dB）；收单 = 0、分频点是中性默认值（ADR-015：自动不收单）；
         //        不提示重新聆听（格式 2 画像）、反相提示与宽度保护都不亮（慢路 ρ 最低约 0.44，在快路门 0.1 之外；高频很窄，预测 ρ' 远高于 0.25）；
@@ -1547,12 +1547,12 @@ namespace celadon::test
         // 3. 旧工程（验收第 1 条「旧工程未重新聆听」+ 第 6 条「旧快照缺字段按中性读」）：先在本版本学完同一首歌（阳性对照：格式 2
         //    画像下低切、加宽自动值都 > 0；收单自动态不做），再把存档改造成 v0.1.6.2 的样子（makeLegacyState：画像格式 1、
         //    方案 / 标定算法 6、执行快照降级，按旧字段表只留旧属性）。
-        //      a. 抽屉默认、GLAZE 60 读入：读成已学习的格式 1 画像、画像号按格式 1；clayNeedsRelearn；Clay 实际值与 Status 中性；
-        //         已存校准照旧适用（画像号不变、默认抽屉不改参考条件 → 打开后声音不变）；3 s 里每块中性、一直提示。
+        //      a. 三态默认、GLAZE 60 读入：读成已学习的格式 1 画像、画像号按格式 1；clayNeedsRelearn；Clay 实际值与 Status 中性；
+        //         已存校准照旧适用（画像号不变、三态默认不改参考条件 → 打开后声音不变）；3 s 里每块中性、一直提示。
         //         拧 GLAZE 到 70（按新算法重算，仍是旧画像）：仍中性、仍提示。点「重新聆听」→ 提交格式 2 画像后低切、加宽自动值都 > 0、
         //         收单 0、不再提示。
         //      b. 同一旧存档、三项全「关」：没有「自动」项 → 不提示重新聆听；实际值中性。
-        //      c. 逐位对照：不带校准与执行快照的旧存档（两条链都没有依赖手动参数哈希的已存状态），抽屉默认 vs 全关，锁步 4 s：
+        //      c. 逐位对照：不带校准与执行快照的旧存档（两条链都没有依赖手动参数哈希的已存状态），三态默认 vs 全关，锁步 4 s：
         //         输出逐位相同、交给三个老模块的参数逐位相同；阳性对照：同一旧存档 + 手动低切 30 Hz → 输出不同。
         // 依据：设计规格-Clay 第 7 节「旧画像 valid = false → Clay 自动增量为 0 → 打开后声音不变；点『重新聆听』后启用」；
         //    GlazeTypes.h Status::clayNeedsRelearn「有自动态的项，但已提交画像缺立体声 / 超低频特征」；实现计划「computeProfileId
@@ -1590,7 +1590,7 @@ namespace celadon::test
                 expect (profileXml != nullptr && profileXml->getIntAttribute ("formatVersion") == 1, "fixture: profile format 1");
             }
 
-            // ---- a. 抽屉默认读旧存档 ----
+            // ---- a. 三态默认读旧存档 ----
             ClayRig restored (constants, material, params);
             restored.chain.restoreGlazeStateXml (legacy.get());
             restored.step();
@@ -1648,7 +1648,7 @@ namespace celadon::test
             expect (offRig.status().profileReady && ! offRig.status().clayNeedsRelearn && isNeutral (offRig.clay()),
                     "all Off on the old state: no automatic item, so no relearn hint; neutral");
 
-            // ---- c. 逐位对照：抽屉默认 vs 全关（不带校准与执行快照的旧存档）----
+            // ---- c. 逐位对照：三态默认 vs 全关（不带校准与执行快照的旧存档）----
             auto manualParams = params;
             manualParams.claySettings.lowCutMode = ClayMode::manual;
             manualParams.claySettings.lowCutHz = 30.0f;
@@ -1852,7 +1852,7 @@ namespace celadon::test
 
         //==============================================================================
         // 5. 手动态在 GLAZE 0 生效（验收第 1、2 条的整链部分）：素材 = 音乐 + 15 Hz 同相正弦，GLAZE 0、各模块中性（Limit Gain 0、
-        //    输入真峰值低于 −1 dBTP 的 Ceiling：整链只剩延迟与 Clay）。低切「手动 30 Hz」vs 抽屉默认，各 4 s，跳过前 1 s：
+        //    输入真峰值低于 −1 dBTP 的 Ceiling：整链只剩延迟与 Clay）。低切「手动 30 Hz」vs 三态默认，各 4 s，跳过前 1 s：
         //      - 每块实际值：lowCutHz 恰为 30（ClayModule 的范围内，不改值）、收单与宽度仍是自动态的 0；Status 同样是 30；
         //      - 输出 20 Hz 以下能量（4 阶 20 Hz 低通）比默认降 ≥ 18 dB：4 阶 Butterworth 30 Hz 高通在 15 Hz 的衰减
         //        = 10·log10(1 + 2⁸) ≈ 24.1 dB，留 6 dB 给音乐自身的 20 Hz 以下成分；
@@ -1917,7 +1917,7 @@ namespace celadon::test
         // 5b. T-032（研究 R4-01 / 核验 V4，2026-09-29）：手动加宽在正常电平下真的到了整链输出上——R4-01 在整链层面的阳性对照
         //    （用例 2 的自动加宽素材高频很窄，修订前的守护在那里也只回收一点，分不出新旧）。素材 = 两声道各自独立的粉噪（高频本来就宽，
         //    S/M ≈ 0 dB），峰值归一到 −12 dBFS（远在守护地板 −40 dBFS 之上；真峰值低于 Ceiling，GLAZE 0、各模块中性：整链只剩延迟与
-        //    Clay）。加宽「手动 +3 dB」vs 抽屉默认，各 4 s，跳过前 1 s：
+        //    Clay）。加宽「手动 +3 dB」vs 三态默认，各 4 s，跳过前 1 s：
         //      - 每块实际值：widthDb 恰为 3、低切与收单仍是自动态的 0；
         //      - 输出 4 kHz 以上的 S/M 比默认高 3 ± 0.3 dB（高架 16 kHz = widthDb、2 kHz = widthDb / 2，4 kHz 以上的粉噪按能量加权约
         //        0.99 widthDb，同 ClayTests 的 testWidthIsNotRecoveredByPeakGuard）；4 kHz 以上的 M 不变（< 0.05 dB）；
@@ -2349,7 +2349,7 @@ namespace celadon::test
 
         //==============================================================================
         // 10. 根治修订 4(b) 宽立体声低音不触发反相提示（审核 V1-01 的回归门）。makeWideBassMaterial 的两种素材各 30 s（不循环），
-        //     GLAZE 60、抽屉默认，从第一块起数（聆听 2 ～ 3 s 期间方案源是候选画像，反相提示同样在工作）：
+        //     GLAZE 60、三态默认，从第一块起数（聆听 2 ～ 3 s 期间方案源是候选画像，反相提示同样在工作）：
         //       a. 长期 ρ ≈ 0.8 的宽低音（音调低音 + 两声道独立的低频噪声）；
         //       b. 单声道底鼓（120 BPM，−12 dBFS）+ 两声道独立的 60 ～ 150 Hz 宽垫（各 −20 dBFS）：鼓与鼓之间只剩不相关的垫。
         //     断言：Status 的反相提示灯从未亮过、保护单元的提示强度始终为 0（一次攻击都没开始）。两种素材的单声道回放低音损失只有
@@ -2500,7 +2500,7 @@ namespace celadon::test
         // 13. BUG-009（T-042）只有失谐 pad 的 breakdown 不亮反相提示。素材照合成 House 曲（tools/render/make_synthetic_house.py）连成一首
         //     52 s 的歌：drop 0 ～ 20 s = 单声道底鼓（120 BPM，RMS −12 dBFS）+ 单声道 55 Hz 音调低音（8 次谐波 1/h，−14 dBFS）+ 失谐 pad
         //     （makeDetunedPad，基音幅度 0.05，和弦每 2 s 一换，整首连续）；breakdown 20 ～ 44 s = 只有 pad；44 ～ 52 s 再回 drop。鼓与低音
-        //     在两个段界各用 20 ms 升余弦收放。GLAZE 60、抽屉默认，只在 drop 段上循环学完并锁定，再从当前位置无缝接着放这首歌到结尾，
+        //     在两个段界各用 20 ms 升余弦收放。GLAZE 60、三态默认，只在 drop 段上循环学完并锁定，再从当前位置无缝接着放这首歌到结尾，
         //     逐块数 Status 的反相灯与保护单元的提示强度。画像失配关掉（同用例 4：breakdown 的响度与频谱都和 drop 差很多，这里只看 Clay）。
         //     断言：breakdown 与回到 drop 的整段里灯从未亮过、提示强度始终为 0；breakdown 开头 5 s 之后慢路低频相关度（探针）一直无效
         //     （低音停下后平滑功率约 3.5 s 落到段门下，之前停在 drop 的 +1 上；之后泄漏帧不计）。

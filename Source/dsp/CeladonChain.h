@@ -26,7 +26,7 @@
     44.1 / 48 / 96 / 192 kHz 为 1013 / 1102 / 2206 / 4414 样本（其中 D 为 528 / 574 / 1150 / 2302），与参数、旁通无关。
     总延迟仍是各模块之和：48 kHz / Lookahead 2 ms 为 282 + 1102 = 1384 样本（约 28.8 ms），96 kHz 为 378 + 2206 = 2584，
     192 kHz 为 4984（T-016 逐级基准实测）；Listen 的配对、校准器的对齐、restartWithFadeIn 的静音段都按 getLatencySamples() 自动跟上。
-    GLAZE 0 且抽屉默认（三态都「自动」）时 Clay 三项实际值都是 0、模块是逐位的 D + G 样本纯延迟：整链输出 = 加 Clay 之前的链在
+    GLAZE 0 且三态默认（都「自动」）时 Clay 三项实际值都是 0、模块是逐位的 D + G 样本纯延迟：整链输出 = 加 Clay 之前的链在
     Clay 的位置插一段 D + G 样本纯延迟（Color / Limit 也是纯延迟时就是旧输出平移 D + G 个样本，DAW 延迟补偿后对齐不变）。
 
     v0.1.8.0 试听差值（界面 LIMIT 卡片的耳机）：限幅器顺带写出「本级削掉的部分」（按推响前的电平，见 LimiterModule.h 文件头），
@@ -76,7 +76,7 @@ namespace celadon
     public:
         // 用户参数（v0.6 拆到 ChainParams.h，GLAZE 各单元也要用；这里保留原名）。balance / color / limit 是用户在
         // 各模块旋钮上的值；setParams 交给 GLAZE 编排器算出实际值再交给模块，GLAZE ≤ 0 时实际值逐位等于用户值（ADR-008）。
-        // v0.1.7.0：claySettings 是「高级」抽屉里的三态设置与手动值；传进来的 clay（实际参数）不读——由编排器按三态合成。
+        // v0.1.7.0：claySettings 是 CLAY 卡片上的三态设置与手动值；传进来的 clay（实际参数）不读——由编排器按三态合成。
         using Params = ChainParams;
 
         // 宿主旁通时 OUT 表的整体响度是否也暂停积分（T-032 R8-03 的另一半）。听原声时一定暂停（规格已定）；宿主旁通「建议冻结」，

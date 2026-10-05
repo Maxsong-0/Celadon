@@ -106,7 +106,7 @@ namespace celadon::help
     ClayReadout clayReadoutFor (const glaze::Status& status, const ClayUserState& user) noexcept;
 
     // 某一盏灯的颜色类别：宽度保护介入或低频反相提示 → 琥珀（压过「亮」：宽度保护把加宽收到 0 时灯仍是琥珀，说明「想加宽、被保护拦住」）；
-    // 否则实际值非 0 → 梅子青；否则暗。旁通时 readout 里全是 0 → 全暗。
+    // 否则实际值非 0 → 亮（「自动」紫圈、「手动」青色实心，画法见 ModuleCards.cpp）；否则暗。旁通时 readout 里全是 0 → 全暗。
     ClayLamp clayLampFor (const ClayReadout& readout, ClayStage stage) noexcept;
 
     // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接低频反相提示与宽度保护状态；旁通时写「修坯已旁通」。
@@ -115,7 +115,8 @@ namespace celadon::help
     // 旧工程提示（气泡第 3 行与 CLAY 卡片的提示共用）：「点「重新聆听」后启用自动修坯」。
     juce::String clayRelearnHint (Language language = Language::chinese);
 
-    // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」，
+    // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」（含低切时写
+    // 「会抬高峰值或削弱低音」：T-043 / ADR-027，守护的混合损失把低切封顶），
     // 跳过 = 该项此刻实际值为 0（量化读数口径），否则是减量；多项按处理顺序用「、」连接，两种都有时写
     // 「……已自动跳过低切，减量收单」。没有被代价减量 / 否决的项时返回空串。不含句末「。」（与 clayRelearnHint 一样由气泡补）。
     juce::String clayCostLine (const ClayReadout& readout, Language language = Language::chinese);

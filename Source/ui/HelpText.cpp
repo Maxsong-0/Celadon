@@ -670,7 +670,7 @@ namespace celadon::help
         if (readout.bypassed)
             return english ? juce::String ("Clay bypassed") : utf8 ("修坯已旁通");
 
-        // 三级按处理顺序（= 三盏灯自上而下）各写一段，再接保护状态；段间「 · 」（规格示例的写法）。
+        // 三级按处理顺序（= 三盏灯自上而下）各写一段，再接低频反相提示与宽度保护两段（亮着才写）；段间「 · 」（规格示例的写法）。
         juce::StringArray parts;
 
         if (english)
