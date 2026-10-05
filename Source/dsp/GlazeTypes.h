@@ -379,7 +379,7 @@ namespace celadon::glaze
         bool savedPlanFromOlderAlgorithm = false;
         bool profileMismatch = false;        // 已提交画像与此刻的音乐严重不符（例如画像只听到安静前奏）：建议重新聆听
         bool waitingForPlayback = false;     // 宿主报告已停止播放：聆听与校准都在等音乐（状态行写「校准暂停（未播放）」）
-        // ---- v0.1.7.0 修坯 Clay（ClayIndicator 与抽屉的实际值小圆点读这些；都是上一块交给 ClayModule 的实际值）----
+        // ---- v0.1.7.0 修坯 Clay（ClayIndicator 与 CLAY 卡片每行的灯和数值读这些；都是上一块交给 ClayModule 的实际值）----
         float clayLowCutHz = 0.0f;           // 0 = 关
         float clayMonoHz = 80.0f;
         float clayMonoAmount = 0.0f;

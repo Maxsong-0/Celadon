@@ -203,7 +203,7 @@ namespace celadon::test
             using help::ClayLamp;
             using help::ClayStage;
 
-            // 依据：设计规格-Clay 第 5 节（抽屉每行的名字 低切 / 收单 / 加宽、三态 自动 / 关 / 手动、「Bypass 修坯」；
+            // 依据：设计规格-Clay 第 5 节（CLAY 卡片每行的名字 低切 / 收单 / 加宽、三态 自动 / 关 / 手动、「Bypass 修坯」；
             // 指示灯气泡第 1 行「修坯 · 立体声像与超低频清理」）与第 6 节（7 个参数 + ui_clay_indicator 各有三行；v0.1.8.0 起
             // 修坯都在 CLAY 卡片上，顶栏「高级」ui_advanced 改为打开「高级」面板）。
             // 覆盖与三行格式由上面 HelpTextTests 的 allParameterIds / allUiIds 循环检查；这里查的是「文案说的是对的那个控件」。
@@ -269,7 +269,7 @@ namespace celadon::test
 
             beginTest ("Clay live line: stages at zero, narrowing, both guards, bypass");
             {
-                // 三项实际值都为 0（GLAZE 0 且抽屉默认、旧工程）：规格「各项为 0 时写「未低切」等简洁说法」。收单比例为 0 时
+                // 三项实际值都为 0（GLAZE 0 且三态默认、旧工程）：规格「各项为 0 时写「未低切」等简洁说法」。收单比例为 0 时
                 // 分频点无意义，不写（快照里的 80 Hz 是默认值）。
                 expectEquals (liveLineFor (clayStatus (0.0f, 80.0f, 0.0f, 0.0f)), utf8 ("未低切 · 未收单 · 未加宽"));
 
@@ -287,7 +287,7 @@ namespace celadon::test
                 expectEquals (liveLineFor (guarded, bypassed), utf8 ("修坯已旁通"));
             }
 
-            // 依据：设计规格-Clay 第 5 节：实际值非 0 → 梅子青（on）；该项保护介入或反相提示亮着 → 琥珀（guard：反相提示对「单」、
+            // 依据：设计规格-Clay 第 5 节：实际值非 0 → 亮（on，「自动」紫圈、「手动」青色实心）；该项保护介入或反相提示亮着 → 琥珀（guard：反相提示对「单」、
             // 宽度保护对「宽」；ADR-015 起反相一路只提示、不改声音）；否则 35% 暗（off）。低切没有保护。
             beginTest ("Clay lamps follow actual values and guard flags");
             {
@@ -332,7 +332,7 @@ namespace celadon::test
                 manual.monoAuto  = false;
                 manual.widthAuto = false;
 
-                // 收单与加宽改成非自动：实际值仍非 0 → 亮（梅子青），不是琥珀；第 2 行不写反相提示与宽度保护。
+                // 收单与加宽改成非自动：实际值仍非 0 → 亮（「手动」是青色实心），不是琥珀；第 2 行不写反相提示与宽度保护。
                 expect (lampFor (guarded, ClayStage::mono,  manual) == ClayLamp::on);
                 expect (lampFor (guarded, ClayStage::width, manual) == ClayLamp::on);
                 expectEquals (liveLineFor (guarded, manual), utf8 ("低切 25 Hz · 120 Hz 以下收单 100% · 高频加宽 +0.8 dB"));

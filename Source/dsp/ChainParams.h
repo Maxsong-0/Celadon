@@ -6,7 +6,7 @@
     放在链的头文件里会与「链持有 GLAZE 编排器」形成循环包含。CeladonChain 里以 using Params = ChainParams 保留原名。
 
     v0.1.7.0 修坯 Clay（设计规格-Clay、ADR-009）：
-      - claySettings = 用户在「高级」抽屉里的三态设置与手动值（处理器从 APVTS 读）；
+      - claySettings = 用户在 CLAY 卡片上的三态设置与手动值（处理器从 APVTS 读）；
       - clay = 交给 ClayModule 的实际参数。作为 GlazeController::beginBlock 的输入（manual）时忽略，
         由编排器用 glaze::resolveClayParams(claySettings, 自动值, glazePercent) 算出后写进返回的实际参数（GLAZE 为 0 也要算：
         「手动」态在 GLAZE 0 时同样生效）。

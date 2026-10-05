@@ -2075,7 +2075,7 @@ namespace celadon::test
             expectEquals (checked, 108);
             expectEquals (failures, 0);
 
-            // 最要紧的两条单独再写一遍：抽屉默认 + GLAZE 0 → 全中性（整链逐位不变的前提）；全手动 + GLAZE 0 → 严格等于旋钮值。
+            // 最要紧的两条单独再写一遍：三态默认 + GLAZE 0 → 全中性（整链逐位不变的前提）；全手动 + GLAZE 0 → 严格等于旋钮值。
             const ClaySettings drawerDefault {};
             expect (sameParams (glaze::resolveClayParams (drawerDefault, autoValues, 0.0f), neutral), "default drawer at GLAZE 0 is neutral");
 

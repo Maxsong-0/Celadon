@@ -4424,7 +4424,7 @@ namespace celadon::test
             beginTest ("Clay ignores manual settings and loudness feedback, and never changes the level plan");
 
             // 依据：第 2 节「响度与峰值模型不改：Clay 对 K 加权响度影响 < 0.2 LU，由现有校准器吸收」；ADR-009（Clay 的自动值是绝对值，
-            //       三态在编排器里合成，决策器不看抽屉设置）。所以：① 手动值、抽屉设置、约束反馈 maxGainDb 都不改变 Clay；
+            //       三态在编排器里合成，决策器不看三态设置）。所以：① 手动值、三态设置、约束反馈 maxGainDb 都不改变 Clay；
             //       ② 画像多了 Clay 特征，方案其余字段（增量、目标、权重、受限标志、版本）与没有时逐位相同。
             const auto profile = clayProfile();
             const auto reference = planFor (&profile, Style::warm, 70.0f);

@@ -1177,7 +1177,7 @@ namespace celadon::test
                      toneAmplitude (signal[0], start, length, 1000.0, sampleRate) };
         }
 
-        // 三项都「手动」的抽屉设置（Clay Bypass 关）。
+        // 三项都「手动」的设置（Clay Bypass 关）。
         ClaySettings makeManualClay (float lowCutHz, float monoHz, float widthDb)
         {
             ClaySettings settings;
@@ -1360,7 +1360,7 @@ namespace celadon::test
         //    抽屉默认」：Clay 中性 = 输入逐位延迟 D）。
         //    GLAZE 0，其余三个模块都在工作（Balance 60 / 60、Tone +1.5、Glue 40、Heat 40、Gain +6、Clip 20），宽立体声 + 超低频素材。
         //    以下设置下整链输出都必须与「加 Clay 之前的 Balance → Color → Limit，在 Clay 的位置插一段 D 样本纯延迟」（独立模块按同样
-        //    分块拼，ClayPosition::delayOnly）逐位相同（memcmp，连 ±0）：抽屉默认（三态都「自动」）；三态「自动」但手动旋钮拧到头；
+        //    分块拼，ClayPosition::delayOnly）逐位相同（memcmp，连 ±0）：三态默认（都「自动」）；三态「自动」但手动旋钮拧到头；
         //    三态都「关」且旋钮拧到头；只开 Clay Bypass（延迟补偿式旁通，干路同样延迟 D）；以及「自动」「关」两态下每块拖动三个手动旋钮
         //    （设计规格-Clay 第 5 节「旋钮可拖但不生效」——手动值在动也不许让 Clay 离开逐位纯延迟）。三种采样率，48 kHz 另跑块长 17。
         //    为什么参考链是「插一段纯延迟」而不是「旧链输出整体平移 D」：Glue 的释放时间与限幅器的自动释放每 32 样本（从 reset 起的
@@ -1751,7 +1751,7 @@ namespace celadon::test
 
         // 5. 延迟 = 旧值 + Clay 的固定延迟（设计规格-Clay-根治修订 第 2 节、第 4 节第 4 条「整链上报 = 旧值 + D」；ADR-014 起 Clay 的
         //    固定延迟 = D + 峰值守护前瞻 G；旧值 282 / 378 = v0.1.6.2 实测，设计规格-Clay-分析决策与验收 第 5 节）。
-        //    ClayModule 自己报 D + G（48 / 96 kHz 为 1102 / 2206）；抽屉默认与三项「手动」全开两种设置下，链的延迟都等于 1384 / 2584，也等于
+        //    ClayModule 自己报 D + G（48 / 96 kHz 为 1102 / 2206）；三态默认与三项「手动」全开两种设置下，链的延迟都等于 1384 / 2584，也等于
         //    独立 Balance + Clay + Color + Limit 之和（旧的三项之和再加 D）——延迟与 Clay 的参数无关；脉冲实测：−6 dBFS 单样本脉冲、
         //    两声道相同（纯 M：收单、加宽只动 S，不碰它；30 Hz 低切的冲激响应首样本约 0.995、其后只有很小的负尾巴，限幅器不动作），
         //    峰值落在 position + 延迟。
@@ -1763,7 +1763,7 @@ namespace celadon::test
             const Case cases[] = { { 48000.0, 1384, 1102 }, { 96000.0, 2584, 2206 } };   // ADR-014：Clay = D + 峰值守护前瞻 G
 
             for (const auto& c : cases)
-             for (int variant = 0; variant < 2; ++variant)   // 0 = 抽屉默认；1 = 三项「手动」全开
+             for (int variant = 0; variant < 2; ++variant)   // 0 = 三态默认；1 = 三项「手动」全开
             {
                 auto params = makeNeutralParams (2.0f);
                 params.glazePercent = 0.0f;

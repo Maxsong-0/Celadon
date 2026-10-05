@@ -415,7 +415,7 @@ celadon::CeladonChain::Params CeladonAudioProcessor::readParams() const noexcept
         p.balance.bypass   = finiteOr (balanceParams.bypass, asRaw (defaults::balanceBypass)) >= 0.5f;
     }
 
-    // Clay 修坯（v0.1.7.0，设计规格-Clay 第 5、6 节；ADR-009 三态）。这里只读用户在「高级」抽屉里的设置：三个三态按下标转枚举
+    // Clay 修坯（v0.1.7.0，设计规格-Clay 第 5、6 节；ADR-009 三态）。这里只读用户在 CLAY 卡片上的设置：三个三态按下标转枚举
     //（clayModeFromRawValue：取整同 Balance Speed、钳到 自动 ～ 手动），三个手动值与 Bypass 原样交出（范围已由参数钳过）。
     // 交给 ClayModule 的实际参数 p.clay 不在这里填：链里的 GLAZE 编排器每块按三态合成——自动 = 决策器方案 + 实时保护
     //（GLAZE 0 时为中性）、关 = 中性、手动 = 这里的手动值（GLAZE 0 也生效）。
@@ -958,7 +958,7 @@ void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState,
     // 其余缺席参数补只带 id 的节点，由 setNewState 使用参数默认值（JUCE 9.0.2 setNewState：tree.getProperty (value, 默认值)）。
     // Clay 的 7 个参数（v0.1.7.0）正是走「只带 id → 默认值」这一支，有意不特判：三态默认「自动」、Bypass 关，
     // 旧画像（格式 1）没有立体声 / 超低频特征，决策器给的自动值为 0 → 旧工程打开声音不变，点「重新聆听」后才启用（设计规格-Clay 第 7 节）；
-    // 已经在用的实例读旧预设时也回到「自动」，不沿用读之前抽屉里的「手动 / 关」（与其余参数回默认一致）。
+    // 已经在用的实例读旧预设时也回到「自动」，不沿用读之前 CLAY 卡片上的「手动 / 关」（与其余参数回默认一致）。
     // GLAZE 的特判只认 glaze_amount 这一个 ID，不会碰到 clay_*。
     // 节点类型与属性名是 APVTS 的状态格式（每个参数一个 PARAM 子节点，属性 id / value），与 copyState 存出来的一致。
     static const juce::Identifier parameterNodeType { "PARAM" }, parameterIdProperty { "id" };

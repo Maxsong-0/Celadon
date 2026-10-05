@@ -3330,7 +3330,7 @@ namespace celadon::glaze
             s.waitingForPlayback = ! hostPlaying();
             s.savedPlanFromOlderAlgorithm = savedPlanMode;
 
-            // 修坯 Clay（ClayIndicator 与抽屉的实际值小圆点）：上一块交给 ClayModule 的实际值（旁通与否由界面自己读参数）；
+            // 修坯 Clay（ClayIndicator 与 CLAY 卡片每行的灯和数值）：上一块交给 ClayModule 的实际值（旁通与否由界面自己读参数）；
             // 琥珀灯只在该项为「自动」态时报告（加宽：「关 / 手动」不受宽度保护改动；收单：反相只提示，「关 / 手动」= 用户接管、不提示）；
             // 「点重新聆听后启用自动修坯」：GLAZE > 0、至少一项自动、已提交画像是格式 1（缺 Clay 所需特征，只有重新聆听能补上）。
             const auto& clayState = clayGuard.getState();

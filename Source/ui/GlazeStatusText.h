@@ -66,7 +66,8 @@ namespace celadon::ui::glazestatus
         housePhaseHint          // T-038：俱乐部单声道会丢低频（约 1.6 dB），请回混音修
     };
 
-    // 颜色类别：灰青 / 梅子青 / 琥珀（界面按 palette::textDim / accent / reduction 画）。
+    // 颜色类别：灰青（稳态说明）/ 梅子青（进行中）/ 琥珀（要用户动手）。编辑器按类别用：琥珀 → 状态胶囊的警告样式（PluginEditor：toneFor (kind) == amber）；
+    // 梅子青那三种（聆听中 / 校准中 / House 聆听中）→ 圆点呼吸（pill.pulse，按 Kind 判）；灰青 = 胶囊的常规样式。
     enum class Tone : int { dim = 0, accent, amber };
 
     // 状态行此刻要显示的内容：只含决定文字与颜色的量，已量化到显示精度（整秒、0.1 dB / 0.1 LU），
