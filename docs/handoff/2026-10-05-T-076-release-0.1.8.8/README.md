@@ -104,7 +104,7 @@ memory（`/home/maxsong/.claude/projects/-home-maxsong-All-Project-Celadon/memor
 4. 公开文字（更新日志、首页、下载页）Max 没点头不合并 #52；点头之后再改字要重新点头。
 5. 不强推、不删远端分支、不改 `.github/` 与 runner。
 6. 不重启 107 上的任何共享服务，不 kill 别人的进程。
-7. 开 Workflow 前先报 Max 同意。
+7. 开 Workflow：卡片带 `ultracode`，可以开，模型和 effort 不用问（Opus 5.5 + max）；但按 memory `workflow-needs-user-approval.md`，范围与代理数先报 Max、点头再开，做得完的活主进程自己做。
 8. 真实密钥不写进任何文件、日志、提交；`site/dist`、`artifacts/` 不入 git。
 9. 命令写法：`rm -rf "$VAR/.."` 会被拦，用字面绝对路径；Bash 里带 git 的复合命令容易被拒，拆平（memory `worktree-session-harness-limits.md`）。
 
