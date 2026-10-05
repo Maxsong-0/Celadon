@@ -1,0 +1,27 @@
+用法：celadon_render --in <歌曲目录> --out <输出目录> [选项]
+  --glaze 0,35,70     GLAZE 取值（0 ~ 100，逗号分隔），默认 0,35,70
+  --clay auto,off     修坯：auto = 抽屉默认（三项都「自动」），off = 三项都「关」；
+                      lowcut / mono / width = 只留这一项「自动」（拆分诊断）；默认 auto,off
+                      （ADR-015 起自动收单恒为 0：mono 这一组的成品与 off 逐位相同，只多记反相提示时长）
+  --style auto        GLAZE 风格 auto / warm / punchy / clean（可逗号分隔多个），默认 auto
+  --block 512         宿主块长（样本，1 ~ 65536），默认 512
+  --match-lufs -16    成品按整体响度只乘增益对齐到这个值（-60 ~ 0 LUFS），默认 -16
+  --metrics-only      照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用）
+  --trace             另写 trace/<成品名>.csv：第二遍逐块的限幅 GR、修坯方案值 / 宽度保护后 / 实际值、反相提示、
+                      实时低频相关度、校准状态；trace/<成品名>__listen.csv：第一遍逐块的校准状态（诊断用）
+  --no-replay         不做「同决策重放」（默认每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链逐块照搬
+                      它实际交给模块的参数、修坯换成「关」，出一行 clay-replay-off，并做阳性对照；ADR-016）
+                      （阳性对照的判据：重放与自动链最大样本差 ≤ −180 dBFS，不要求逐位）
+  --genre general     曲风 general / deep / tech / melodic（可逗号分隔多个，网格的一维），默认 general（T-038）
+  --delivery standard 交付 standard / streaming / club（可逗号分隔多个，网格的一维），默认 standard（T-038）
+  --bpm 124           模拟宿主走带：每块给速度、PPQ（从 0 起按样本推进）、上一小节起点与拍号；不给就不给拍点（同改动前）
+  --meter 4/4         拍号（要与 --bpm 一起用），默认 4/4
+  --listen-from-bar 1 第一遍（聆听）从第几小节起播（1 = 从头；可逗号分隔多个，网格的一维；要 --bpm）：
+                      House 门槛「从第 1 小节播 vs 从 drop 播」用，第二遍（成品）照旧从头渲染
+  --segments-csv      逐段写统计到 segments/：<歌名>__input.csv（输入端：段响度、低频占比）与 <成品名>.csv
+                      （成品同一套 + 逐段限幅 GR）；有 --bpm 时一段 = 一小节，否则每 2 秒一段（T-038 门控标定与 House 门槛）
+  --selftest          只跑自检（指标算法、文件名、延迟对齐、GLAZE 0 逐位直通的阳性对照），不读歌
+  --selftest-house    只跑 T-038 新选项的自检（模拟走带、分段统计、曲风 / 交付穿到链上的阳性对照），不读歌
+读 --in 目录第一层的 wav / aiff / flac，每首歌 × 每组设置写一个 32-bit float wav，另写 metrics.md 与
+metrics.csv。进度与错误写 stderr；返回 0 成功、1 有文件读写失败（或自检失败）、2 参数错误。
+详见 tools/render/README.md。

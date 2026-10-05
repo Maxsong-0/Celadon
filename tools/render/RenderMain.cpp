@@ -50,9 +50,9 @@
         哈希核对，结果写进 metrics.md 的备注——真歌上的阳性对照。
       - 同决策重放（ADR-016，--no-replay 关掉）：每组 GLAZE > 0 的修坯「自动」之后，另起 GLAZE 0 的链逐块照搬它实际交给模块的
         参数、修坯换成「关」，多出一行 / 一个成品 clay-replay-off（修坯门槛拿它与「自动」比：两条链决策相同，差别只剩修坯）；
-        同时做阳性对照（修坯「手动」照填自动链实际值重放，应逐位相同），结论在 metrics.csv 的 replay_check。
+        同时做阳性对照（修坯「手动」照填自动链实际值重放，应复现自动链：最大样本差 ≤ −180 dBFS，不要求逐位），结论在 metrics.csv 的 replay_check。
     --selftest：合成信号上的阳性对照（相关度 / 真次声 / 响度 / 真峰值的解析值、文件名、链延迟（282 + Clay 的 D + G）与逐样本对齐、
-    GLAZE 0 逐位直通、同决策重放逐位复现），不读歌；这个工具不在 celadon_tests 里，render-linux.sh 渲染真歌前先跑它。
+    GLAZE 0 逐位直通、同决策重放复现（最大样本差 ≤ −180 dBFS）），不读歌；这个工具不在 celadon_tests 里，render-linux.sh 渲染真歌前先跑它。
     进度、警告与错误都写 stderr；返回 0 = 全部成功，1 = 有文件读 / 写失败（或自检失败），2 = 参数错误。
     单线程：一次只跑一条链。DSP 代码没有按「多条链并发」验证过，测试服务器也是共用的，不宜一次占满多核。
 
@@ -160,8 +160,8 @@ namespace
         double matchLufs = -16.0;
         bool metricsOnly = false;   // --metrics-only：照常渲染、量指标，但不写成品 wav（大批歌做门槛验收时用，省几 GB 磁盘与传输）
         bool replay = true;         // 每组 GLAZE > 0 的「自动」之后加「同决策重放 · 修坯关」一行与阳性对照（ADR-016）；--no-replay 关掉
-        bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案 / 保护 / 实时相关度、校准状态）
-                                    // 与 trace/<成品名>__listen.csv（第一遍逐块的校准状态），诊断用
+        bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案值 / 宽度保护后 / 实际值、
+                                    // 反相提示、实时相关度、校准状态）与 trace/<成品名>__listen.csv（第一遍逐块的校准状态），诊断用
 
         // ---- T-038 曲风与交付（设计规格-曲风与交付、设计规格-曲风-House学习方式）----
         std::vector<int> genres { static_cast<int> (celadon::glaze::Genre::general) };          // --genre：网格的一维（glaze::Genre 下标）
@@ -488,10 +488,11 @@ namespace
                      "  --block 512         宿主块长（样本，1 ~ 65536），默认 512\n"
                      "  --match-lufs -16    成品按整体响度只乘增益对齐到这个值（-60 ~ 0 LUFS），默认 -16\n"
                      "  --metrics-only      照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用）\n"
-                     "  --trace             另写 trace/<成品名>.csv：第二遍逐块的限幅 GR、修坯方案 / 保护 / 实时低频相关度、校准状态；\n"
-                     "                      trace/<成品名>__listen.csv：第一遍逐块的校准状态（诊断用）\n"
+                     "  --trace             另写 trace/<成品名>.csv：第二遍逐块的限幅 GR、修坯方案值 / 宽度保护后 / 实际值、反相提示、\n"
+                     "                      实时低频相关度、校准状态；trace/<成品名>__listen.csv：第一遍逐块的校准状态（诊断用）\n"
                      "  --no-replay         不做「同决策重放」（默认每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链逐块照搬\n"
-                     "                      它实际交给模块的参数、修坯换成「关」，出一行 clay-replay-off，并做逐位阳性对照；ADR-016）\n"
+                     "                      它实际交给模块的参数、修坯换成「关」，出一行 clay-replay-off，并做阳性对照；ADR-016）\n"
+                     "                      （阳性对照的判据：重放与自动链最大样本差 ≤ −180 dBFS，不要求逐位）\n"
                      "  --genre general     曲风 general / deep / tech / melodic（可逗号分隔多个，网格的一维），默认 general（T-038）\n"
                      "  --delivery standard 交付 standard / streaming / club（可逗号分隔多个，网格的一维），默认 standard（T-038）\n"
                      "  --bpm 124           模拟宿主走带：每块给速度、PPQ（从 0 起按样本推进）、上一小节起点与拍号；不给就不给拍点（同改动前）\n"
@@ -1668,7 +1669,7 @@ namespace
     // WTF g70 两条链上限 1.145 / 0.274 dB）。所以另起一条链：GLAZE 0（编排器不做任何决策，实际参数逐位等于喂进去的值，
     // 也不按保护层时隙切片），逐块喂「自动」链那一块实际交给模块的全部参数，只把修坯换掉：
     //   - off：三项都「关」→ 修坯中性（门槛拿它对比「自动」）；
-    //   - copy：三项用「手动」填自动链那一块的实际修坯值 → 应与自动链逐位相同（阳性对照：证明重放本身不走样，
+    //   - copy：三项用「手动」填自动链那一块的实际修坯值 → 应复现自动链（最大样本差 ≤ −180 dBFS，见下；阳性对照：证明重放本身不走样，
     //     包括 GLAZE 0 不切片这一点）。手动收单固定是「比例 1」，自动收单比例在 0、1 之间的块表达不了，对照记「不适用」。
     enum class ReplayClay { off, copy };
 
@@ -2247,7 +2248,8 @@ namespace
         return text;
     }
 
-    // 先试后用（ADR-012）：成品末尾哪几项因「试过会抬高峰值」被减量 / 否决（Status::clayCostLimitedMask）。空 = 没有。
+    // 成品末尾哪几项「自动」修坯因代价被减量 / 否决（Status::clayCostLimitedMask）。空 = 没有。三处会置位：先试后用试出会抬高峰值
+    // （ADR-012）、低切按守护混合损失封顶（ADR-027）、压力反馈降过档（ADR-014 / ADR-028）。
     std::string costLimitedText (std::uint8_t mask)
     {
         std::string text;
@@ -2513,7 +2515,7 @@ namespace
                "- **低切 / 收单 Hz / 收单量 / 加宽**：成品末尾 `getGlazeStatus()` 的 clayLowCutHz / clayMonoHz / clayMonoAmount / "
                "clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义。\n"
                "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。"
-               "格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）。\n"
+               "格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）：先试后用试出会抬高峰值、低切按守护混合损失封顶、压力反馈降过档，三处任一都会置位。\n"
                "- **GLAZE 状态**：成品末尾的阶段与「校准有效」；风格为「自动」且 GLAZE > 0 时附此刻偏向的风格。"
                "第一遍（聆听）结束时的阶段在 metrics.csv 的 listen_phase 列。\n"
                "- **成品文件**：`<歌名>__g<GLAZE>_clay-<auto|off|replay-off>_<风格>.wav`。metrics.csv 的 audio_hash 是对齐前成品"
@@ -2521,7 +2523,7 @@ namespace
                "- **同决策重放（clay-replay-off，ADR-016）**：每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链，逐块照搬"
                "「自动」链那一块实际交给模块的全部参数（含自动增量、校准偏差、保护退让），只把修坯换成「关」。两条链的决策一模一样，"
                "差别只剩修坯本身——修坯门槛比的是「自动 vs 重放全关」，不再比两条各自跑 GLAZE、方案会分岔的链。阳性对照：修坯用"
-               "「手动」照填自动链的实际值再重放一遍，应与「自动」逐位相同（metrics.csv 的 replay_check：ok / mismatch / n/a）。"
+               "「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −180 dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
                "重放行的 GLAZE 状态列没有意义（写 replay / 空）。\n"
                "- **有效音乐**：原曲 K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（与校准器同一门限；歌尾静音不算），"
                "metrics.csv 的 music_seconds。门槛只要求有效音乐 ≥ 30 s 的歌在成品末尾「已锁定 + 校准有效」。\n";
