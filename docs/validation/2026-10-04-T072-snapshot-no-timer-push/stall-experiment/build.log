@@ -1,0 +1,18 @@
+base-inj 编好（源码 base-43d788b.tar，注入 1，警告 0）
+fix-inj 编好（源码 fix-c6c144b.tar，注入 1，警告 0）
+fix-clean 编好（源码 fix-c6c144b.tar，注入 0，警告 0）
+r5-base-clean 退出码 0 用时 39 s，图 30 张
+r6-fix-clean 退出码 0 用时 39 s，图 30 张
+r0-base-inj-nostall 退出码 0 用时 40 s，图 30 张
+r2-fix-inj-nostall 退出码 0 用时 39 s，图 30 张
+r1-base-inj-stall 退出码 0 用时 110 s，图 30 张
+r3-fix-inj-stall 退出码 0 用时 109 s，图 30 张
+================ 逐字节对比 ================
+R6 改后原样 vs R5 改前原样（正常行为不变）：相同 30 张，不同 0 张
+R0 改前注入不设停顿 vs R5 改前原样（注入本身无副作用）：相同 30 张，不同 0 张
+R2 改后注入不设停顿 vs R0：相同 30 张，不同 0 张
+R1 改前 + 停顿 130 ms（每 40 次一回）vs R0（预期：不同）：相同 6 张，不同 24 张： en-advanced.png en-default.png en-help.png en-house-hint.png en-house-layout.png en-house-tip.png en-release.png zh-advanced.png zh-audition.png zh-default.png zh-glaze0.png zh-glaze90.png zh-house-hint.png zh-house-layout.png zh-house-tip.png zh-input.png zh-original.png zh-preview.png zh-reduced.png zh-settings.png zh-target.png zh-truepeak.png zh-zoom150.png zh-zoom70.png
+R3 改后 + 停顿 130 ms（每 40 次一回）vs R0（预期：相同）：相同 10 张，不同 20 张： en-advanced.png en-default.png en-help.png en-house-layout.png en-release.png zh-advanced.png zh-audition.png zh-default.png zh-glaze0.png zh-glaze90.png zh-house-hint.png zh-house-layout.png zh-input.png zh-original.png zh-preview.png zh-reduced.png zh-settings.png zh-target.png zh-zoom150.png zh-zoom70.png
+================ 改后原样 --only check ================
+check 退出码 0 PASS=111 FAIL=0
+完成 23:54:27

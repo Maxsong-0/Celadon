@@ -1,0 +1,25 @@
+en-advanced.png               3854 px  bbox x   32.. 499  y   80.. 293  max 242
+en-default.png               20996 px  bbox x   32..1170  y   80.. 297  max 242
+en-help.png                   8586 px  bbox x   32.. 839  y   80.. 297  max 242
+en-house-hint.png            10793 px  bbox x   32..1144  y   80.. 297  max 242
+en-house-layout.png          11004 px  bbox x   32..1144  y   80.. 297  max 242
+en-house-tip.png                 6 px  bbox x   14.. 256  y    1..   8  max   1
+en-release.png                4882 px  bbox x   32.. 499  y   80.. 297  max 242
+zh-advanced.png               3690 px  bbox x   32.. 499  y   80.. 293  max 242
+zh-audition.png               6101 px  bbox x  148..1170  y   80.. 297  max 242
+zh-default.png               34584 px  bbox x   32..1170  y   80.. 297  max 242
+zh-glaze0.png                23404 px  bbox x   32..1144  y   80.. 297  max 242
+zh-glaze90.png               46888 px  bbox x   32..1170  y   80.. 297  max 242
+zh-house-hint.png             9742 px  bbox x   32..1144  y   80.. 297  max 242
+zh-house-layout.png          11822 px  bbox x   32..1144  y   80.. 297  max 242
+zh-house-tip.png               174 px  bbox x    0.. 299  y    0..   8  max  46
+zh-input.png                 13273 px  bbox x   84..1170  y  101.. 297  max 217
+zh-original.png              14778 px  bbox x   84..1170  y   80.. 297  max 242
+zh-preview.png                 667 px  bbox x  154..1170  y   80.. 104  max 242
+zh-reduced.png               11006 px  bbox x   32..1170  y   80.. 297  max 242
+zh-settings.png              10262 px  bbox x   32.. 855  y   80.. 297  max 242
+zh-target.png                 3192 px  bbox x   32.. 499  y   80.. 279  max 242
+zh-truepeak.png              22228 px  bbox x   32..1144  y   80.. 297  max 242
+zh-zoom150.png               28877 px  bbox x   48..1756  y  122.. 446  max 242
+zh-zoom70.png                11400 px  bbox x   22.. 819  y   56.. 208  max 242
+24 differing images

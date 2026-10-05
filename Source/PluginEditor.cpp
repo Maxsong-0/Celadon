@@ -1173,11 +1173,13 @@ void CeladonAudioProcessorEditor::handleAsyncUpdate()
 //==============================================================================
 void CeladonAudioProcessorEditor::advanceForSnapshot (double seconds)
 {
-    // 离屏没有垂直同步：频谱仪按给定的时长推一帧（不按墙钟，两次运行逐像素相同）。随后的 timerCallback 不再推：把「最近一次
-    // 垂直同步」记成现在，看门狗认为垂直同步还活着（不依赖这一帧算得快不快——慢机、Debug 下也不多推，评审 R-06）。
+    // 离屏没有垂直同步：频谱仪按给定的时长推一帧（不按墙钟，两次运行逐像素相同）。随后的 timerCallback 不再推：打上 snapshotDriven，
+    // 定时器的看门狗整个关掉。原来靠「把最近一次垂直同步记成现在」让看门狗以为垂直同步还活着，但 timerCallback 里的 now 是之后才取的——
+    // 这一帧（或 timerCallback 的前半段、或机器被占满时线程被切走）耗时 ≥ spectrumVBlankTimeoutMs，看门狗照样按墙钟再推一次，
+    // 出图随机器快慢变（评审 R-06 想堵的就是这个；T-070 评审 F9 / T-072 查出没堵住）。
+    snapshotDriven = true;
     lastAdvanceWasVBlank = false;
-    lastVBlankMs = juce::Time::getMillisecondCounterHiRes();
-    advanceSpectrum (seconds, lastVBlankMs);
+    advanceSpectrum (seconds, juce::Time::getMillisecondCounterHiRes());
     timerCallback();
     canvas->particles.advance (seconds);
 }
@@ -1265,8 +1267,9 @@ void CeladonAudioProcessorEditor::timerCallback()
     loudness.targetLufs = (float) targetView.targetTenthsLufs / 10.0f;
     c.spectrum.getLoudnessHud().setValues (loudness);
 
-    // ---- 频谱仪：平时由垂直同步推（spectrumFrame，T-036）；垂直同步 100 ms 没来（离屏、宿主 / 系统不给）就由这里按 30 Hz 推 ----
-    if (now - lastVBlankMs >= spectrumVBlankTimeoutMs && now - lastSpectrumAdvanceMs >= spectrumMinStepMs)
+    // ---- 频谱仪：平时由垂直同步推（spectrumFrame，T-036）；垂直同步 100 ms 没来（离屏、宿主 / 系统不给）就由这里按 30 Hz 推；
+    //      截图工具驱动的编辑器（snapshotDriven）每一帧都自己给时长，这里不补推 ----
+    if (! snapshotDriven && now - lastVBlankMs >= spectrumVBlankTimeoutMs && now - lastSpectrumAdvanceMs >= spectrumMinStepMs)
     {
         lastAdvanceWasVBlank = false;
         advanceSpectrum ((now - lastSpectrumAdvanceMs) / 1000.0, now);

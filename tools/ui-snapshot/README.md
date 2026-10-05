@@ -101,6 +101,11 @@ T-070（夜间评审 `wf_3e784f42-2fa` 指出的覆盖缺口）再加：
   **绝对探针**（不靠历史）：曲线应该在的那个点（位置由计算器的值与 `SpectrumView::xOf / yOf` 算出）附近必须有像素与「从没喂过数据的空视图」不同——
   OUT 填充、平均线（白噪声停播后 OUT 已落出面板、平均线还在）、峰值线、IN 虚线（对同一视图 IN 关）；悬停读数必须等于计算器此刻 OUT 在 6 kHz 的值（加斜率），
   探针先核对平均线与峰值线此刻读成别的值（读错来源会差好几 dB），否则算空转。
+- **T-072：截图模式下定时器的看门狗不补推频谱仪**（T-070 评审 F9，`probeTimerPush`）。编辑器平时由垂直同步推频谱仪，垂直同步 100 ms 没来就由 30 Hz 定时器按墙钟接着推；
+  离屏没有垂直同步，`advanceForSnapshot` 自己按给定时长推。原来只靠「把最近一次垂直同步记成现在」让看门狗以为垂直同步还活着——最后一帧之后过 100 ms、
+  或那一帧自己耗时 ≥ 100 ms（慢机、Debug、机器被占满），看门狗就按墙钟再推一次，`--deterministic` 的出图随机器快慢变。现在 `advanceForSnapshot`
+  给编辑器打上 `snapshotDriven`，看门狗整个关掉。检查：6 kHz 正弦 0.5 s（每帧 `advanceForSnapshot`）后让消息循环跑 300 ms（定时器约触发 9 次），
+  频谱仪的路径重建次数（`getCurveBuildCount`）不得增加；改前（main `43d788b` 的编辑器 + 这一条检查）实测重建 2 次、败。注入停顿的红绿证据见 `docs/validation/2026-10-04-T072-snapshot-no-timer-push/`。
 
 红绿验证（临时副本里用 `variants_t058.py` / `variants_t070.py` 换 `SpectrumView.cpp` 的变体、增量编译、跑 `--only check`；做法与输出见
 `docs/validation/2026-10-04-T058-spectrum-peak-off/`，**T-070 把变体扩到 26 个（T-058 的 11 个 + 14 个新的）、检查扩到 25 条，红绿表见
