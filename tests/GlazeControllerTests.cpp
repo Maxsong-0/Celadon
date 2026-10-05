@@ -387,9 +387,9 @@ namespace celadon::test
         // 修坯用的合成素材（4 s；60 / 110 Hz 在 4 s 里都是整数周期，Rig 循环播放没有接缝）：
         //   低频 = 60 Hz（0.25）+ 110 Hz（0.15）两个正弦：落在 40 ～ 125 Hz 的统计段里，远在静音门之上；
         //   高频 = 白噪声 ±0.05：能量大半在 2 kHz 以上，2 ～ 16 kHz 十段都在静音门之上。
-        //   lowAntiPhase：右声道低频反相（低频相关度 ≈ −1 < 0：反相保护的触发条件，Clay 子文档第 3 节）；
+        //   lowAntiPhase：右声道低频反相（低频相关度 ≈ −1 < −0.2：反相提示的触发条件，Clay 子文档第 3 节、根治修订 3.4）；
         //   highWide：左右噪声不相关（高频 P_S ≈ P_M：预测加宽后相关度 (1 − γ²) / (1 + γ²) < 0.25，宽度保护的触发条件）。
-        //   两项都为假 = 单声道素材（S = 0：两种保护都不该动）。
+        //   两项都为假 = 单声道素材（S = 0：反相提示不该亮、宽度保护不该动）。
         Signal makeClayMaterial (bool lowAntiPhase, bool highWide, juce::int64 seed)
         {
             const auto numSamples = (int) (4.0 * defaultRate);
@@ -492,7 +492,7 @@ namespace celadon::test
         //   （上限 γ² ≤ 0.6 × 10^1.6 ≈ 23.9，不受限）；
         //   「先试后用」的代价（ADR-012）全部有效且 ≤ 0.2 dB → 低切 −0.5、加宽 0 dB 的代价系数 1（照做）；收单 −0.3 dB 照给，
         //   决策器不用（ADR-015）。代价无效的画像三项都中性（旧画像同理），所以这里必须给。
-        // 用例拿它当阳性对照（「自动」确实给出非中性值）；反相保护把收单从 0 拉到 1，一眼可辨。
+        // 用例拿它当阳性对照（「自动」确实给出非中性值：低切、加宽）；反相素材上只亮提示、收单仍是 0（ADR-015）。
         glaze::MusicProfile withClayNeeds (glaze::MusicProfile p)
         {
             p.formatVersion = glaze::clayProfileFormatVersion;
@@ -3224,11 +3224,11 @@ namespace celadon::test
             expect (! glaze::fromXml (*olderPlanXml, olderPlan), "a present but corrupted Clay attribute is rejected");
         }
 
-        // Clay 3. 旧工程（画像格式 1）：Clay 自动值恒为中性、保护不动（就算素材低频反相）——旧工程重新聆听之前 Clay 逐位直通、
+        // Clay 3. 旧工程（画像格式 1）：Clay 自动值恒为中性、保护与反相提示都不动（就算素材低频反相）——旧工程重新聆听之前 Clay 逐位直通、
         //    声音不变；状态提示「点重新聆听」（GLAZE > 0 且至少一项自动时）。两种旧存档都试：旧算法方案（照用保存的增量，还特意
         //    存了一份非中性的 Clay 值，确认它不被采用；拧 GLAZE 按新算法重算后仍中性）与当前算法方案（拧过 GLAZE 后再存的）。
-        //    点「重新聆听」提交格式 2 的新画像后自动 Clay 启用（同一段反相低频，反相保护把收单拉到 1）、提示消失。
-        //    阳性对照也见 Clay 5：同样的反相素材配格式 2 画像时保护会介入。
+        //    点「重新聆听」提交格式 2 的新画像后自动 Clay 启用、上述提示消失（同一段反相低频：反相提示亮起，收单不动——ADR-015）。
+        //    阳性对照也见 Clay 5：同样的反相素材配格式 2 画像时反相提示会亮（收单不动）。
         // 依据：Clay 第 7 节「旧画像没有立体声特征 → Clay 自动增量为 0 → 打开后声音不变；点重新聆听后启用」、第 5 节悬停气泡第 3 行；
         //    时间线第 5 节旧算法方案；任务书「clayNeedsRelearn = GLAZE > 0 且至少一项为自动 且 已提交画像缺 Clay 所需特征」。
         void testClayOldProfileStaysNeutral()
@@ -3324,7 +3324,7 @@ namespace celadon::test
         //    与 currentIncrements 同一个式子；过渡 0.5 s = 24000 样本、块 512）：
         //      a) 旧算法方案（Clay 中性）→ 拧 GLAZE 按新算法重算：低切从「关」经 floor 起步；
         //      b) 换风格（通透 → 温润）：两端都开，低切 20 → 16 Hz（根治修订 3.3 的风格目标）、加宽按风格系数 1.0 → 0.4 线性。
-        //    单声道素材下两种保护都不动：保护之后 = 方案值，实际参数 = 三态合成。
+        //    单声道素材下反相提示不亮、宽度保护不动：保护之后 = 方案值，实际参数 = 三态合成。
         void testClayTransitionBlend()
         {
             beginTest ("plan transitions blend Clay with the increments' progress: log-domain frequencies, an off end joins at the floor");
@@ -3454,14 +3454,14 @@ namespace celadon::test
             checkTransition (from, warm, "style clean -> warm");
         }
 
-        // Clay 5. 实时保护经编排器生效（分析器看真实素材 → ClayGuard → 三态合成）：
-        //    a) 反相：格式 2 画像的方案收单为 0；素材切到低频反相后「自动」的收单比例被拉到 1（状态「反相保护中」），切回正常素材后
-        //       先保持再退回方案值；「关」态完全不受影响，也不报保护灯（保护照样在算，只是不作用）；
+        // Clay 5. 实时反相提示与宽度保护经编排器生效（分析器看真实素材 → ClayGuard → 三态合成）：
+        //    a) 反相：格式 2 画像的方案收单为 0；素材切到低频反相后只亮提示（提示强度升到 1，状态「低频反相：单声道播放会丢低音」），
+        //       收单每块仍是 0（ADR-015）；切回正常素材后提示先保持再熄灭；「关」态收单同样不动，也不报提示灯（提示照样在算）；
         //    b) 宽度：方案要加宽（画像很窄），素材的高频却很宽（预测加宽后相关度 < 0.25）→ 自动加宽被收到 0（状态「宽度保护中」），
         //       方案本身不变；换回窄素材后放开、回到方案值。
-        // 依据：Clay 子文档第 3 节保护表、第 6 节第 5 条（「手动」「关」态不受保护改动）；ClayGuard.h。时间只放宽上限（分析器
-        //    300 ms 平滑 + 资格期 0.15 s + 攻击；保持 2 s、释放 2 s），核对「会介入、会保持、会退回、只动自动态」，精确时序由
-        //    ClayGuard / ClayGlaze 测试核对。
+        // 依据：Clay 子文档第 3 节保护表、第 6 节第 5 条（「手动」「关」态不受保护改动）；ADR-015（反相只提示）；ClayGuard.h。
+        //    时间只放宽上限（分析器 300 ms 平滑 + 资格期 0.15 s + 攻击；保持 2 s、释放 2 s），核对反相提示「会亮、会保持、会熄灭、
+        //    收单不动、灯只报自动态」与宽度保护「会介入、会退回」，精确时序由 ClayGuard / ClayGlaze 测试核对。
         // Clay 6. 修坯压力反馈（ADR-014）：方案要低切（clayStateFrom 的画像：need_sub = 1，通透 20 Hz；代价 −0.5 dB → 照做），
         //    素材却是 40 Hz 方波（±0.5，单声道）——4 阶高通让方波平顶倾斜、每个边沿都冲过 ±0.5，ClayModule 的峰值守护每半个周期
         //    都要把低切的改动量拉回来，回收时与干路相位不同处互相抵消（混合损失）。压力反馈（两个触发量共用档位与冷却）把自动 Clay
@@ -3917,7 +3917,7 @@ namespace celadon::test
             expectEquals (rig.probe().calibrationBegins, begins, "no calibration round was started by any of this");
         }
 
-        // Clay 8. 音频线程零分配：Clay 的各条路径——自动 + 反相保护 + 宽度保护、三态切换（手动 / 关 / 自动）、GLAZE 0 下的手动项、
+        // Clay 8. 音频线程零分配：Clay 的各条路径——自动 + 反相提示 + 宽度保护、三态切换（手动 / 关 / 自动）、GLAZE 0 下的手动项、
         //    换风格过渡、宿主旁通、宿主 reset、读取存档后的首块（执行快照）、读取旧格式画像——setHostInfo / setParams / process /
         //    getStatus 都不经 operator new（存档的生成与解析在计数区外：那是消息线程的事）。
         // 依据：设计规格-总体「音频线程零分配、零锁」；Clay 子文档第 4 节硬规则。

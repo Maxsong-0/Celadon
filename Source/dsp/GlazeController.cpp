@@ -48,7 +48,7 @@
       - 「先试后用」：决策器把因代价被减量 / 否决的项记在 ClayPlan::costLimitedMask。方案过渡中取目标方案的（blendClayPlans），
         收拾（sanitizeClay）时只保留三个有效位；Status::clayCostLimitedMask = 此刻生效方案（含过渡混合）的 mask，但只报告
         「自动」态的项、且只在 GLAZE > 0 时报告——「关 / 手动」项不经决策器，谈不上被代价减量。它只给界面解释，不影响处理。
-      - 反相保护的新触发规则（慢路 / 门内快路、须连续成立 0.15 s）在 ClayGuard 里；编排器照旧每块交视图与有效音乐秒数。
+      - 反相提示（原反相保护）的新触发规则（慢路 / 门内快路、须连续成立 0.15 s）在 ClayGuard 里；编排器照旧每块交视图与有效音乐秒数。
       - 恢复后第一块只在方案源支持自动 Clay 时才用快照值（审核 V2-03）：不支持（画像格式 1、旧算法方案，例如手工改出的存档）
         就走中性分支、作废快照值，与旧工程「Clay 逐位直通」同一口径。
 
@@ -98,7 +98,7 @@
         House 锁定过的（houseProfileLocked：格式 3 且门控结果有效）就开一轮 relearn 式聆听，旧画像照常生效（maybeStartHouseListen）；
         用户取消这一轮之后不再自动开，换曲风 / 提交 / 读档时才重新允许。读取工程：段落账清空（旧画像在新画像就绪前照常）。
       - 反相提示：updateClay 里在 ClayGuard 之后调 updateHouseHint（资格 = 段落账此刻这一段暂判满编，时长 = phaseHintSegments 小节，
-        拿不到拍点用 phaseHintFallbackSeconds），结果拷进状态。GLAZE ≤ 0、方案源不支持自动 Clay 时提示熄灭（同反相保护的指示灯）。
+        拿不到拍点用 phaseHintFallbackSeconds），结果拷进状态。GLAZE ≤ 0、方案源不支持自动 Clay 时提示熄灭（同反相提示的指示灯）。
 
   ==============================================================================
 */
@@ -3331,8 +3331,8 @@ namespace celadon::glaze
             s.savedPlanFromOlderAlgorithm = savedPlanMode;
 
             // 修坯 Clay（ClayIndicator 与抽屉的实际值小圆点）：上一块交给 ClayModule 的实际值（旁通与否由界面自己读参数）；
-            // 保护灯只在该项为「自动」态时报告（「关 / 手动」不受保护改动）；「点重新聆听后启用自动修坯」：GLAZE > 0、至少一项
-            // 自动、已提交画像是格式 1（缺 Clay 所需特征，只有重新聆听能补上）。
+            // 琥珀灯只在该项为「自动」态时报告（加宽：「关 / 手动」不受宽度保护改动；收单：反相只提示，「关 / 手动」= 用户接管、不提示）；
+            // 「点重新聆听后启用自动修坯」：GLAZE > 0、至少一项自动、已提交画像是格式 1（缺 Clay 所需特征，只有重新聆听能补上）。
             const auto& clayState = clayGuard.getState();
             s.clayLowCutHz = effective.clay.lowCutHz;
             s.clayMonoHz = effective.clay.monoHz;

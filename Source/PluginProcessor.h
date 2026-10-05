@@ -8,7 +8,7 @@
     由 dsp/CeladonChain 负责；这里只读参数、做 NaN 保护、喂表、上报延迟。
 
     v0.1.7.0（修坯 Clay，设计规格-Clay 第 5 ～ 7 节）：多读 7 个 clay_* 参数（三态 + 手动值 + Bypass）交给链的 claySettings；
-    三态合成、自动值与实时保护都在链里的 GLAZE 编排器，这里不算。界面要的 Clay 实际值与保护状态走 getGlazeStatus()，
+    三态合成、自动值与实时保护都在链里的 GLAZE 编排器，这里不算。界面要的 Clay 实际值与反相提示、宽度保护状态走 getGlazeStatus()，
     不另加原子量。旧工程缺 clay_* 参数时回到默认「自动」（旧画像没有立体声特征，自动值为 0，声音不变）。
 
     v0.6（GLAZE，ADR-008）：两块表与 GLAZE 编排器挪进链里（dsp/CeladonChain）；这里每块从 AudioPlayHead 读播放位置、
@@ -104,7 +104,7 @@ public:
     double getLatencyMilliseconds() const noexcept;
 
     // ---- GLAZE（v0.6）：给界面的三个数据源（createEditor 里注入编辑器）。都在消息线程调、无锁、不等音频线程 ----
-    // 状态快照（状态行与「重新聆听」按钮；v0.1.7.0 起还带 Clay 四个实际值与两项保护状态，修坯指示灯与抽屉的小圆点读它）；
+    // 状态快照（状态行与「重新聆听」按钮；v0.1.7.0 起还带 Clay 四个实际值与反相提示、宽度保护状态，修坯指示灯与抽屉的小圆点读它）；
     // 「重新聆听」动作（只置原子标志）；
     // 本块交给模块的实际参数：只有受 GLAZE 叠加的 7 项是实际值（limit.gainDb 含校准偏差与保护偏移），其余字段是此刻的手动值
     // （clay 字段不是 Clay 的实际值——那在状态快照里）。

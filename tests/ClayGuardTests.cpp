@@ -51,9 +51,10 @@ namespace celadon::test
         constexpr double clayRate = 48000.0;
         constexpr int gridSamples = 480;   // 10 ms 一格（48 kHz）
 
-        // 规格的保护时长与阈值（设计规格-Clay-根治修订 3.4 / ADR-012：慢路 < −0.2，或慢路 < 0.3 且快路 < −0.2；连续成立 0.15 s；
-        // 攻击 100 ms、保持 2 s、释放 2 s；宽度攻击 200 ms、释放 2 s；ρ_min 0.25）。与 GlazeConstants.h 的出厂默认值相同
-        //（testConstantsAndDefaults 核对）；这里显式写出，下面的时间断言以它们为依据。
+        // 规格的反相提示 / 宽度保护时长与阈值（设计规格-Clay-根治修订 3.4 / ADR-012：慢路 < −0.2，或慢路 < 0.3 且快路 < −0.2；连续成立 0.15 s；
+        // 攻击 100 ms、保持 2 s、释放 2 s；宽度攻击 200 ms、释放 2 s；ρ_min 0.25）。除快路门外与 GlazeConstants.h 的出厂默认值相同
+        //（testConstantsAndDefaults 核对）。快路门仍是根治修订 3.4 的 0.3，ADR-014 起出厂为 0.1；门内的用例（1b、blockScript 第 7 段）
+        // 按 0.3 设计。这里显式写出，下面的时间断言以它们为依据。
         glaze::Constants specConstants()
         {
             glaze::Constants c;
@@ -141,7 +142,7 @@ namespace celadon::test
                 && a.costLimitedMask == b.costLimitedMask;
         }
 
-        // 反相一路什么都没做（下限 0、没有保持期、不介入）；宽度一路不管。
+        // 反相一路什么都没做（提示强度 0、没有保持期、提示不亮）；宽度一路不管。
         bool phaseIdle (const ClayGuardState& s)
         {
             return s.phaseFloor == 0.0f && s.phaseHoldSeconds == 0.0f && ! s.phaseActive;
@@ -268,15 +269,16 @@ namespace celadon::test
 
             const auto lowInvalidNarrow = makeView (0.8f, false, 1.0f, 0.01f, true);
             const auto bothInvalid = makeView (-0.9f, false, 1.0f, 1.0f, false);
+            // 第 7 段的慢路 0.1 只在 specConstants 的门 0.3 之内；ADR-014 起出厂门是 0.1（严格小于），出厂常数下这一段不触发。
             const auto fastInvertedNarrow = withFast (makeView (0.1f, true, 1.0f, 0.01f, true), -0.5f);   // 慢路在门内（0.1 < 0.3）、快路反相
             const auto gatedFastWide = withFast (makeView (0.5f, true, midPowerForAllowedDb (0.4), 1.0f, true), -0.9f);   // 慢路在门外
 
             return {
-                { samplesFor (0.50), correlatedNarrow(),   first  },   // 1 静止：下限 0，上限 = 允许值 17.8 dB
+                { samplesFor (0.50), correlatedNarrow(),   first  },   // 1 静止：提示强度 0，上限 = 允许值 17.8 dB
                 { samplesFor (0.30), invertedWide(),       first  },   // 2 反相：资格期 0.15 s，再攻击 0.1 s 到 1；宽度 0.133 s 收到 0.4 dB
                 { samplesFor (1.00), correlatedVeryWide(), first  },   // 3 保持 2 → 1 s；宽度 0.4 → 0（6 dB/s）
                 { samplesFor (3.00), correlatedNarrow(),   first  },   // 4 保持用完 1 s + 释放 2 s → 0；宽度 2 s 放回 1.2 → 静止
-                { samplesFor (0.10), invertedNarrow(),     first  },   // 5 瞬态：0.1 s < 0.15 s，不触发（下限 0、没有保持期）
+                { samplesFor (0.10), invertedNarrow(),     first  },   // 5 瞬态：0.1 s < 0.15 s，不触发（提示强度 0、没有保持期）
                 { samplesFor (0.10), correlatedNarrow(),   first  },   // 6 条件断开：资格期清零
                 { samplesFor (0.20), fastInvertedNarrow,   first  },   // 7 快路在门内触发：资格期 0.15 s 后攻击 0.05 s → 0.5，保持 2 s
                 { samplesFor (1.50), gatedFastWide,        second },   // 8 慢路在门外，快路再负也不触发：保持 2 → 0.5 s；方案 0.8 dB：0.1 s 收到 0.4
@@ -327,7 +329,7 @@ namespace celadon::test
     private:
         //==============================================================================
         // T-038 House 档反相提示（设计规格-曲风-House学习方式 第 9 节；ClayGuard.cpp 文件头）：慢路 ρ < 0.6 在满编段里连续满
-        // requiredSeconds（4 小节或 8 s）才亮；条件消失后保持 2 s（同反相保护的保持期）；不 eligible 立即熄灭、计时清零；
+        // requiredSeconds（4 小节或 8 s）才亮；条件消失后保持 2 s（同收单灯反相提示的保持期）；不 eligible 立即熄灭、计时清零；
         // 冻结时不动；只提示、不改声音、不进 ClayGuardState。下面用 8 s（拿不到拍点时编排器给的值）。
         static constexpr double houseRequiredSeconds = 8.0;
 
@@ -436,7 +438,7 @@ namespace celadon::test
             }
         }
 
-        // 保持（2 s，与反相保护同一常数）、eligible（不 eligible 立即熄灭并清零）、冻结（seconds ≤ 0 / 慢路无效时不动）。
+        // 保持（2 s，与收单灯反相提示同一常数）、eligible（不 eligible 立即熄灭并清零）、冻结（seconds ≤ 0 / 慢路无效时不动）。
         void testHouseHintHoldEligibilityAndFreeze()
         {
             beginTest ("House phase hint: holds 2 s after the condition clears (re-armed while it returns), goes out at once when not eligible, freezes on silence");
@@ -656,10 +658,11 @@ namespace celadon::test
         //==============================================================================
         // 1b. 触发条件（每种视图从新的保护单元跑 0.5 s = 资格期 0.15 s + 攻击 0.1 s 之后还有余量）：
         //     慢路 −0.25 触发；慢路 −0.15（没到 −0.2，阳性对照的反面）不触发；慢路 0.25（门内）+ 快路 −0.3 触发；
-        //     慢路 0.35（门外）+ 快路 −0.9 不触发——宽低音上快路的估计散布再大也拉不动保护（审核 V1-01 的根治）；
+        //     慢路 0.35（门外）+ 快路 −0.9 不触发——宽低音上快路的估计散布再大也触发不了提示（审核 V1-01 的根治）；
         //     门内但快路 −0.15、快路无效、快路 NaN 都不触发（没有加速证据，按慢路那一支判定）；边界值不算（严格小于）；
         //     慢路无效时即使快路 −0.9 也不动（这一路冻结）。
         // 依据：设计规格-Clay-根治修订 3.4「慢路 ρ < −0.2，或（慢路 ρ < 0.3 且快路 ρ < −0.2）」；ClayGuard.cpp 文件头。
+        //    门按 specConstants 的 0.3（即根治修订 3.4 的值）；ADR-014 起出厂门是 0.1，上面「门内」的慢路 0.25 在出厂门外。
         void testPhaseTriggerCondition()
         {
             beginTest ("phase trigger: slow < -0.2, or slow < 0.3 with fast < -0.2; a negative fast path above the gate never triggers");
@@ -703,7 +706,7 @@ namespace celadon::test
         //        阳性对照：中间换成一块同相 → 清零 → 最后仍是 0；
         //     c) setState / reset / 不活跃后从 0 起算：A 反相 0.1 s 后 B.setState (A)，两者再反相 0.1 s → A 0.5、B 0（资格期没存档）；
         //        B 再 0.1 s → 0.5（B 比 A 晚 0.1 s 满资格）；reset / active = false 同理；
-        //     d) 从判定（条件开始成立）起 a = 1 恰好 0.15 + 0.1 = 0.25 s：0.24 s 时 0.9、0.25 s 时 1（设计规格-Clay-根治修订 4(c) 在保护
+        //     d) 从判定（条件开始成立）起提示强度到 1 恰好 0.15 + 0.1 = 0.25 s：0.24 s 时 0.9、0.25 s 时 1（设计规格-Clay-根治修订 4(c) 在保护
         //        单元这一层的口径；整链从反相音频出现起还要加分析窗与平滑，见 ClayGlazeTests）；最短持续 0 = 旧行为（0.1 s 到 1）；
         //     e) 满资格的时刻落在块中间：一整块 0.2 s 与 7 样本的小块结果相同（0.5）；在保持期里一整块 0.2 s 反相（先耗保持、
         //        释放 0.05 s、再攻击 0.05 s）与 10 ms 块相同。
@@ -838,7 +841,7 @@ namespace celadon::test
         }
 
         // 2. 再触发（也要连续成立 0.15 s）：保持期里的 0.1 s 瞬态不重新拉满保持期；连续 0.2 s 的反相重新拉满（1.5 s 后仍是 1）；
-        //    释放到 0.5 时再反相 0.17 s → 前 0.15 s 照常释放到 0.425，满资格后从此刻的下限按攻击速率升 0.02 s → 0.625（不从 0 重来）。
+        //    释放到 0.5 时再反相 0.17 s → 前 0.15 s 照常释放到 0.425，满资格后从此刻的提示强度按攻击速率升 0.02 s → 0.625（不从 0 重来）。
         // 依据：设计规格-Clay-根治修订 3.4（条件须连续成立 0.15 s 才开始攻击）；「条件消失后保持 2 s」从最后一次成立起算；攻击是
         //    phaseFloor 的线性上升。
         void testPhaseGuardRetrigger()
@@ -982,7 +985,7 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 6. 冻结：先让两路都介入（反相 + 宽，0.2 s：资格期 0.15 s + 攻击 0.05 s → 下限 0.5；宽度已收到 0.4）。seconds = 0 / 负 /
+        // 6. 冻结：先让反相提示亮、宽度保护介入（0.2 s：资格期 0.15 s + 攻击 0.05 s → 提示强度 0.5；宽度已收到 0.4）。seconds = 0 / 负 /
         //    NaN / ±∞ → 状态逐位不动，输出按当前状态改方案；低频相关度无效（或 NaN）→ 反相一路不动（保持期不走）、宽度一路照走
         //   （很宽的高频：0.4 → 0）；高频无效（或功率 NaN / 负 / ∞）→ 宽度一路不动、反相一路照走；两路都无效 → 整体不动。
         //    冻结期间资格期计时同样不动（testPhaseQualification b）。
@@ -1011,7 +1014,7 @@ namespace celadon::test
                 expect (samePlan (out, engaged), "output from the current state for seconds = " + juce::String (frozen));
             }
 
-            // 低频无效：反相一路冻结（下限停在 0.5、保持期不走），宽度一路照走（很宽的高频，允许 0：0.4 → 0）。
+            // 低频无效：反相一路冻结（提示强度停在 0.5、保持期不走），宽度一路照走（很宽的高频，允许 0：0.4 → 0）。
             const auto lowInvalid = makeView (-0.9f, false, 0.5f, 1.0f, true);
             auto out = feed (guard, planned, lowInvalid, 0.1);
             expectEquals (guard.getState().phaseFloor, before.phaseFloor, "phase floor frozen");
@@ -1079,11 +1082,11 @@ namespace celadon::test
 
         //==============================================================================
         // 8. 随机扫描（2 万块）：方案（含越界 / 负值、代价 mask）、视图（慢路 / 快路各自有效 / 无效、ρ ∈ [−1, 1]、P_M / P_S 含 0）、
-        //    块长（含 0 / 负）、active 都随机：每块 monoAmount ≥ 方案、widthDb ≤ 方案、lowCutHz / monoHz / costLimitedMask 原样、
-        //    输出有限；active 时 monoAmount ≤ max(方案, 1)、widthDb ≥ min(方案, 0)（从不收窄）、状态在合法范围、两个标志与数值一致；
-        //    inactive 时输出逐位 = 输入、状态中性。阳性对照：保护确实抬过 mono、收过 width 各数百次（扫描不是空转——视图每块都换，
-        //    反相要连着几块才满 0.15 s 资格期，满了以后保持 2 s，所以仍有大量介入的块）。
-        // 依据：ClayGuard 任务书「只可能增加 monoAmount、减小 widthDb（测试断言）」；ClayGuardState 各字段的注释。
+        //    块长（含 0 / 负）、active 都随机：每块 monoAmount 逐位 = 方案、widthDb ≤ 方案、lowCutHz / monoHz / costLimitedMask 原样、
+        //    输出有限；active 时 widthDb ≥ min(方案, 0)（从不收窄）、状态在合法范围、两个标志与数值一致；
+        //    inactive 时输出逐位 = 输入、状态中性。阳性对照：反相提示亮过、宽度保护收过 width 各超过 300 块（扫描不是空转——视图每块都换，
+        //    反相要连着几块才满 0.15 s 资格期，满了以后保持 2 s，所以仍有大量提示亮着的块）。
+        // 依据：ClayGuard 任务书「只可能增加 monoAmount、减小 widthDb（测试断言）」（ADR-015 起 monoAmount 原样）；ClayGuardState 各字段的注释。
         void testMonotonicPropertyScan()
         {
             beginTest ("random scan: mono passes through (ADR-015), only lowers widthDb, passes lowCutHz / monoHz, state stays legal");
@@ -1162,10 +1165,10 @@ namespace celadon::test
 
         //==============================================================================
         // 9. 块长一致：blockScript（11.9 s）按 10 ms 一块跑出参考轨迹；
-        //    (a) 17 / 333 / 随机 1 ～ 4096 样本的块（在 10 ms 格点处也切开）→ 1190 个格点的下限、保持期、输出逐格比较；
+        //    (a) 17 / 333 / 随机 1 ～ 4096 样本的块（在 10 ms 格点处也切开）→ 1190 个格点的提示强度、保持期、输出逐格比较；
         //    (b) 2048 / 8192 / 随机 1 ～ 8192 样本的块（只在段边界切开，块可跨过满资格的时刻、保持期末尾、攻击与释放的终点）
         //        → 11 个段末比较。
-        //    容差 2e-3（下限 / monoAmount / widthDb dB）与 4e-3 s（保持期）：状态每块取回 float（≤ 半个 ulp），最坏的 17 样本块
+        //    容差 2e-3（提示强度 / monoAmount / widthDb dB）与 4e-3 s（保持期）：状态每块取回 float（≤ 半个 ulp），最坏的 17 样本块
         //    约 3.4 万次更新里在动的部分累计 < 7e-4；而「保持期末尾 / 满资格那一块不拆分」之类的块长相关错误在 8192 样本块上
         //    会差到 0.08 以上（8192 样本 = 0.17 s，比资格期还长）。
         //    参考轨迹自身的阳性对照：段末值与脚本注释（手算）一致，冻结段前后逐位相同，最后回到中性。
@@ -1277,7 +1280,7 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 10. setState：越界 / 非有限的值钳到合法范围（下限 0 ～ 1、保持期 ≥ 0 且有限、上限 0 ～ 不限；NaN 回中性），与数值矛盾的标志去掉；
+        // 10. setState：越界 / 非有限的值钳到合法范围（提示强度 0 ～ 1、保持期 ≥ 0 且有限、上限 0 ～ 不限；NaN 回中性），与数值矛盾的标志去掉；
         //     合法值逐位原样。恢复后接续：A 跑到脚本一半，B（新建、同常数）setState(A 的状态)，两者接着跑 → 每块输出与状态逐位相同。
         // 依据：ClayGuard 任务书「setState 钳到合法范围（phaseFloor 0～1、hold ≥ 0、widthCapDb ≤ uncapped 且 ≥ 0）」；
         //       设计规格-Clay §7「执行快照……保证保存重开的可复现口径」。
@@ -1373,9 +1376,10 @@ namespace celadon::test
         // 11. 自定义常数（阈值 −0.4、快路门 0.5、最短持续 0.05 s、攻击 50 ms、保持 1 s、释放 0.5 s、ρ_min 0.5、宽度攻击 0.1 s /
         //     释放 1 s），5 ms 一块：
         //       - 阈值：慢路 −0.3 不触发（阳性对照：出厂阈值 −0.2 会触发）；
-        //       - 快路门：慢路 0.4、快路 −0.5 触发（0.4 < 门 0.5 且 −0.5 < −0.4）；阳性对照：出厂门 0.3 下同一视图不触发；
+        //       - 快路门：慢路 0.4、快路 −0.5 触发（0.4 < 门 0.5 且 −0.5 < −0.4）；阳性对照：specConstants 的门 0.3 下同一视图
+        //         不触发（ADR-014 起出厂门是 0.1，0.4 同样在门外）；
         //       - 时序：慢路 −0.5 在 0.045 s 时仍在资格期；满 0.05 s 后攻击 50 ms：0.075 s 时 0.5、0.1 s 时 1；保持 1 s 后 0.25 s
-        //         释放到 0.5、0.5 s 到方案值；
+        //         释放到 0.5、0.5 s 到 0；
         //       - 宽度 k = (1 − 0.5)/(1 + 0.5) = 1/3：P_M = 3·10^0.05、P_S = 1 → 允许 0.5 dB，1.2 dB / 0.1 s 收回，50 ms 时 0.6、
         //         60 ms 起停在 0.5（阳性对照：出厂 k = 0.6 下同一视图允许 3.05 dB，不收）。
         // 依据：ClayGuard.h「k 由 clayMinCorrelationAfterWidth 解出」；setConstants 只拷贝规定的 9 个数（ADR-012 加快路门与最短持续）。
@@ -1451,7 +1455,7 @@ namespace celadon::test
             expectWithinAbsoluteError (out.widthDb, 0.5f + 0.6f, 1.0e-3f, "1 s release: 1.2 dB per second");
         }
 
-        // 12. 旧快照缺字段（9 个数全 0）：阈值 0、快路门 0、最短持续 0、时长 0 = 立即——反相一块就到 1、同相一块就回方案（保持 0、
+        // 12. 旧快照缺字段（9 个数全 0）：阈值 0、快路门 0、最短持续 0、时长 0 = 立即——提示强度反相一块就到 1、同相一块就回 0（保持 0、
         //     释放立即）；ρ_min 0 → k = 1，宽度一块就到允许值 10·log10(P_M / P_S)。非有限常数（NaN / ±∞）与负时长按 0 读：轨迹与
         //     全 0 逐位相同，且全程有限。
         // 依据：GlazeConstants.h「旧快照缺这些字段按 0 读」；ClayGuard.cpp makeTuning「非有限的值一律按 0 读」。
@@ -1559,7 +1563,7 @@ namespace celadon::test
         }
 
         // 13. 缺省构造 = 出厂常数：不调 setConstants 的 ClayGuard 与 setConstants(factoryConstants()) 的轨迹逐位相同；
-        //     出厂的 9 个数就是规格的数字（改标定时同步改 specConstants 与本条）。
+        //     出厂的 9 个数就是规格的数字（改标定时同步改 specConstants 与本条；快路门例外：specConstants 仍是 3.4 的 0.3，见其注释）。
         // 依据：ClayGuard.h「缺省 = 出厂值：Constants 的 clay* 字段默认值就是出厂值」；设计规格-Clay-分析决策与验收 §3 表、
         //    设计规格-Clay-根治修订 3.4（−0.2、0.15 s）与 ADR-014（快路门 0.1）。
         // ADR-014 / ADR-028 修坯压力反馈的第一触发量（ClayGuard.h ClayPressureMonitor；输入 = ClayModule 报的 100 ms 峰值块，T-044 起
@@ -2130,8 +2134,8 @@ namespace celadon::test
             expect (first.bypass);
         }
 
-        // 16. 「手动」「关」态不受保护改动：先让两路保护都到位（自动 monoAmount 被拉到 1、自动加宽被收到 0），再按三态合成——
-        //     自动项用保护后的值；手动项严格等于旋钮值（收单 200 Hz × 1、加宽 +2.5 dB）；关的项永远中性。
+        // 16. 「手动」「关」态不受保护改动：先让反相提示亮、宽度保护到位（自动 monoAmount 仍是方案 0.3、自动加宽被收到 0），再按三态合成——
+        //     自动项用保护后的值（收单仍是方案值，ADR-015）；手动项严格等于旋钮值（收单 200 Hz × 1、加宽 +2.5 dB）；关的项永远中性。
         // 依据：设计规格-Clay-分析决策与验收 §6 第 5 条「『手动』『关』态不受保护改动」；ADR-009 第 4 条。
         void testManualAndOffIgnoreGuard()
         {
