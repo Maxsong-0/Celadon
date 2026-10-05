@@ -778,4 +778,79 @@ namespace celadon::glaze
     {
         return toXml (a)->isEquivalentTo (toXml (b).get(), false);
     }
+
+    std::unique_ptr<juce::XmlElement> compressLiveBody (const juce::XmlElement& body, int constantsVersion)
+    {
+        const auto text = body.toString();
+        juce::MemoryOutputStream compressed;
+
+        {
+            // windowBits 0 → zlib MAX_WBITS（zlib 包装，不是 gzip 头）。
+            juce::GZIPCompressorOutputStream gzip (compressed, 9, 0);
+            gzip.write (text.toRawUTF8(), text.getNumBytesAsUTF8());
+            gzip.flush();
+        }
+
+        auto live = std::make_unique<juce::XmlElement> (liveTag);
+        live->setAttribute ("formatVersion", 1);
+        live->setAttribute ("compressed", 1);
+        live->setAttribute ("constantsVersion", constantsVersion);
+        live->addTextElement (juce::Base64::toBase64 (compressed.getData(), compressed.getDataSize()));
+        return live;
+    }
+
+    std::unique_ptr<juce::XmlElement> decompressLiveBody (const juce::XmlElement& liveNode)
+    {
+        if (liveNode.getTagName() != liveTag)
+            return {};
+
+        juce::MemoryOutputStream decoded;
+
+        if (! juce::Base64::convertFromBase64 (decoded, liveNode.getAllSubText().trim()))
+            return {};
+
+        juce::MemoryInputStream input (decoded.getData(), decoded.getDataSize(), false);
+        juce::GZIPDecompressorInputStream gzip (&input, false, juce::GZIPDecompressorInputStream::zlibFormat);
+        juce::MemoryOutputStream plain;
+        plain.writeFromInputStream (gzip, -1);
+        auto xml = juce::parseXML (plain.toString());
+
+        if (xml == nullptr || xml->getTagName() != liveBodyTag)
+            return {};
+
+        return xml;
+    }
+
+    bool referenceMatches (const CalibrationReference& a, const CalibrationReference& b) noexcept
+    {
+        auto close = [] (float x, float y) { return std::abs (x - y) <= 1.0e-4f; };
+
+        auto closeRelative = [] (float x, float y)
+        {
+            if (! std::isfinite (x) || ! std::isfinite (y))
+                return ! std::isfinite (x) && ! std::isfinite (y);
+
+            return std::abs (x - y) <= 1.0e-4f * juce::jmax (std::abs (x), std::abs (y));
+        };
+
+        const auto continuous = a.conditionsFormat == continuousConditionsFormat && b.conditionsFormat == continuousConditionsFormat;
+        const auto manualMatches = continuous
+            ? a.discreteParamsHash == b.discreteParamsHash
+                  && closeRelative (a.limitReleaseMs, b.limitReleaseMs)
+                  && closeRelative (a.clayLowCutHz, b.clayLowCutHz)
+                  && closeRelative (a.clayMonoHz, b.clayMonoHz)
+            : a.manualParamsHash == b.manualParamsHash;
+
+        const auto rateTolerance = 1.0e-9 * juce::jmax (std::abs (a.sampleRate), std::abs (b.sampleRate));
+
+        return a.profileId == b.profileId
+            && a.style == b.style
+            && a.genre == b.genre
+            && a.delivery == b.delivery
+            && close (a.glazePercent, b.glazePercent)
+            && manualMatches
+            && close (a.ceilingDb, b.ceilingDb)
+            && close (a.lookaheadMs, b.lookaheadMs)
+            && std::abs (a.sampleRate - b.sampleRate) <= rateTolerance;
+    }
 }

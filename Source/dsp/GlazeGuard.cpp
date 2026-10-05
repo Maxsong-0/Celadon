@@ -29,6 +29,8 @@
 
 #include <climits>
 #include <cmath>
+#include <cstring>
+#include <type_traits>
 
 namespace celadon::glaze
 {
@@ -175,13 +177,33 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    float GlazeGuard::process (const ModuleStats& stats) noexcept
+    void GlazeGuard::snapRelief() noexcept
+    {
+        protection = 0.0;
+        protectionDb = 0.0f;
+        retreating = recovering = changedThisBlock = false;
+        planLimited = false;
+        lastOver = false;
+        lastCause = GuardCause::none;
+        lastOvershootDb = 0.0f;
+    }
+
+    GuardOutput GlazeGuard::process (const ModuleStats& stats) noexcept
     {
         retreating = recovering = changedThisBlock = false;
 
+        auto output = [this]() noexcept
+        {
+            GuardOutput out;
+            out.reliefDb = protectionDb;
+            out.cause = (protectionDb < 0.0f || retreating || (planLimited && lastOver)) ? lastCause : GuardCause::none;
+            out.engaged = retreating || (planLimited && lastOver);
+            return out;
+        };
+
         // 静音、停播（有效音乐门限以下）整块不计：窗口、计时、g_保护全都停住。
         if (! limitsSet || ! stats.musicActive || stats.numSamples <= 0)
-            return protectionDb;
+            return output();
 
         const auto before = protection;
 
@@ -214,7 +236,7 @@ namespace celadon::glaze
         recovering = protection > before;
         changedThisBlock = protection != before;
         protectionDb = (float) protection;
-        return protectionDb;
+        return output();
     }
 
     void GlazeGuard::completeSlot() noexcept
@@ -278,18 +300,30 @@ namespace celadon::glaze
         }
 
         const auto verdict = evaluate();
+        lastOver = verdict.over;
+        lastOvershootDb = juce::jmax (verdict.limitOvershootDb, verdict.otherOvershootDb);
+        lastCause = (verdict.limitOver && verdict.limitOvershootDb >= verdict.otherOvershootDb)
+                        ? GuardCause::deliveryPeak : GuardCause::budget;
 
         slots[(size_t) indexFromNewest (0)].over = verdict.over;
         overSlotsInHistory += verdict.over ? 1 : 0;
+
+        const auto slotDuration = (double) slotLength / sampleRate;
+        const auto span = minimumDb < 0.0f ? -minimumDb : 3.0f;
+        const auto overshootT = juce::jlimit (0.0f, 1.0f, lastOvershootDb / 3.0f);
+        const auto depthT = juce::jlimit (0.0f, 1.0f, (float) (-protection) / span);
+        // T-047：超限 0→3 dB 映射退让 0.3→6 dB/s；退让深度 0→下限映射回程 0.15→0.3 dB/s。
+        const auto retreatThisSlot = (0.3 + (double) overshootT * (6.0 - 0.3)) * slotDuration;
+        const auto recoverThisSlot = (0.15 + (double) depthT * (0.3 - 0.15)) * slotDuration;
 
         if (verdict.over)
         {
             safeSlots = 0;
 
-            // 本时隙开始时已满足「3 s 内累计超出 ≥ 1 s」且此刻仍超出：按 1 dB/s 退让这一格。
+            // 本时隙开始时已满足「3 s 内累计超出 ≥ 1 s」且此刻仍超出：按上面的变速率退让这一格。
             if (overBefore >= triggerSlots)
             {
-                protection = juce::jmax ((double) minimumDb, protection - retreatStepDb);
+                protection = juce::jmax ((double) minimumDb, protection - retreatThisSlot);
 
                 if (protection <= (double) minimumDb)
                     planLimited = true;   // 退到下限仍超约束
@@ -301,10 +335,10 @@ namespace celadon::glaze
         }
         else
         {
-            // 本时隙开始时已有连续 ≥ 5 s 安全音乐：按 0.3 dB/s 恢复这一格（只回到 0，不去找更高响度）。
+            // 本时隙开始时已有连续 ≥ 5 s 安全音乐：按变速率恢复这一格（只回到 0，不去找更高响度）。
             if (safeSlots >= recoverSlots && protection < 0.0)
             {
-                protection = juce::jmin (0.0, protection + recoverStepDb);
+                protection = juce::jmin (0.0, protection + recoverThisSlot);
 
                 if (protection > (double) minimumDb)
                     planLimited = false;
@@ -312,6 +346,9 @@ namespace celadon::glaze
 
             safeSlots = juce::jmin (safeSlots + 1, INT_MAX / 2);
         }
+
+        if (! (protectionDb < 0.0f) && ! verdict.over)
+            lastCause = GuardCause::none;
     }
 
     //==============================================================================
@@ -377,10 +414,35 @@ namespace celadon::glaze
     {
         Verdict verdict;
 
-        auto check = [&verdict] (double value, float cap, float nearLine)
+        auto note = [&verdict] (float excess, bool limitConstraint)
         {
-            if (value > (double) cap)       verdict.over = true;
+            if (! (excess > 0.0f))
+                return;
+
+            verdict.over = true;
+
+            if (limitConstraint)
+            {
+                verdict.limitOver = true;
+                verdict.limitOvershootDb = juce::jmax (verdict.limitOvershootDb, excess);
+            }
+            else
+            {
+                verdict.otherOvershootDb = juce::jmax (verdict.otherOvershootDb, excess);
+            }
+        };
+
+        auto check = [&verdict, &note] (double value, float cap, float nearLine, bool limitConstraint, bool fraction)
+        {
             if (value > (double) nearLine)  verdict.near = true;
+
+            if (value > (double) cap)
+            {
+                // 占比类没有 dB：超出的份额按 10 倍折成 dB 当量，好落进 0～3 dB 的速率曲线。
+                const auto excess = fraction ? (float) ((value - (double) cap) * 10.0)
+                                             : (float) (value - (double) cap);
+                note (excess, limitConstraint);
+            }
         };
 
         if (statsCount > 0)
@@ -388,27 +450,31 @@ namespace celadon::glaze
             const auto count = (double) statsCount;
 
             if (enforced (limits.glueGrMeanCapDb))
-                check (sumGlue / count, limits.glueGrMeanCapDb, nearLineDb (limits.glueGrMeanCapDb));
+                check (sumGlue / count, limits.glueGrMeanCapDb, nearLineDb (limits.glueGrMeanCapDb), false, false);
 
             if (enforced (limits.limitGrMeanCapDb))
-                check (sumLimit / count, limits.limitGrMeanCapDb, nearLineDb (limits.limitGrMeanCapDb));
+                check (sumLimit / count, limits.limitGrMeanCapDb, nearLineDb (limits.limitGrMeanCapDb), true, false);
 
             if (enforced (limits.clipActivityCap))
-                check (sumClip / count, limits.clipActivityCap, nearLineFraction (limits.clipActivityCap));
+                check (sumClip / count, limits.clipActivityCap, nearLineFraction (limits.clipActivityCap), false, true);
 
-            // p95 > 上限 ⟺ 超过上限的时隙 > 5 %（回差线同理）。
+            // p95 > 上限 ⟺ 超过上限的时隙 > 5 %（回差线同理）。超出的格数占比折成 0～3 dB。
             const auto allowed = p95ExceedFraction * count;
 
             if (enforced (limits.glueGrP95CapDb))
             {
-                verdict.over = verdict.over || (double) glueAboveCap > allowed;
                 verdict.near = verdict.near || (double) glueAboveNear > allowed;
+
+                if ((double) glueAboveCap > allowed)
+                    note ((float) ((((double) glueAboveCap - allowed) / count) * 3.0), false);
             }
 
             if (enforced (limits.limitGrP95CapDb))
             {
-                verdict.over = verdict.over || (double) limitAboveCap > allowed;
                 verdict.near = verdict.near || (double) limitAboveNear > allowed;
+
+                if ((double) limitAboveCap > allowed)
+                    note ((float) ((((double) limitAboveCap - allowed) / count) * 3.0), true);
             }
         }
 
@@ -426,10 +492,10 @@ namespace celadon::glaze
             }
 
             if (enforced (limits.limitGrPeakCapDb))
-                check (limitPeak, limits.limitGrPeakCapDb, nearLineDb (limits.limitGrPeakCapDb));
+                check ((double) limitPeak, limits.limitGrPeakCapDb, nearLineDb (limits.limitGrPeakCapDb), true, false);
 
             if (enforced (limits.clipDepthCapDb))
-                check (clipDepth, limits.clipDepthCapDb, nearLineDb (limits.clipDepthCapDb));
+                check ((double) clipDepth, limits.clipDepthCapDb, nearLineDb (limits.clipDepthCapDb), false, false);
         }
 
         return verdict;
@@ -440,5 +506,133 @@ namespace celadon::glaze
     bool GlazeGuard::isRetreating() const noexcept       { return retreating; }
     bool GlazeGuard::isRecovering() const noexcept       { return recovering; }
     bool GlazeGuard::isPlanLimited() const noexcept      { return planLimited; }
-    bool GlazeGuard::isEngaged() const noexcept          { return protectionDb != 0.0f || changedThisBlock; }
+    bool GlazeGuard::isEngaged() const noexcept          { return retreating || (planLimited && lastOver); }
+
+    namespace
+    {
+        struct StoredSlot
+        {
+            float glueMeanDb = 0.0f, limitMeanDb = 0.0f, clipFraction = 0.0f;
+            float limitPeakDb = 0.0f, clipDepthDb = 0.0f, protectionDb = 0.0f;
+            std::uint8_t over = 0;
+            std::uint8_t pad[3] {};
+        };
+
+        static_assert (std::is_trivially_copyable_v<StoredSlot>, "guard slots pack by memcpy");
+    }
+
+    std::unique_ptr<juce::XmlElement> GlazeGuard::createStateXml() const
+    {
+        auto xml = std::make_unique<juce::XmlElement> ("BUDGET_GUARD");
+        xmlio::Writer writer (*xml);
+        writer.field ("protection", protection);
+        writer.field ("protectionDb", protectionDb);
+        writer.field ("minimumDb", minimumDb);
+        writer.field ("planLimited", planLimited);
+        writer.field ("lastOver", lastOver);
+        writer.field ("lastOvershootDb", lastOvershootDb);
+        writer.field ("safeSlots", safeSlots);
+        writer.field ("writeIndex", writeIndex);
+        writer.field ("historyCount", historyCount);
+        writer.field ("statsCount", statsCount);
+        writer.field ("overSlotsInHistory", overSlotsInHistory);
+        writer.field ("partGlueSum", partGlueSum);
+        writer.field ("partLimitSum", partLimitSum);
+        writer.field ("partClipSum", partClipSum);
+        writer.field ("partLimitPeak", partLimitPeak);
+        writer.field ("partClipDepth", partClipDepth);
+        writer.field ("partSamples", partSamples);
+        writer.field ("sumGlue", sumGlue);
+        writer.field ("sumLimit", sumLimit);
+        writer.field ("sumClip", sumClip);
+        writer.field ("glueAboveCap", glueAboveCap);
+        writer.field ("glueAboveNear", glueAboveNear);
+        writer.field ("limitAboveCap", limitAboveCap);
+        writer.field ("limitAboveNear", limitAboveNear);
+        const auto cause = (int) lastCause;
+        writer.field ("lastCause", cause);
+
+        std::array<StoredSlot, (std::size_t) slotCapacity> packed {};
+
+        for (int i = 0; i < slotCapacity; ++i)
+        {
+            const auto& slot = slots[(std::size_t) i];
+            auto& stored = packed[(std::size_t) i];
+            stored.glueMeanDb = slot.glueMeanDb;
+            stored.limitMeanDb = slot.limitMeanDb;
+            stored.clipFraction = slot.clipFraction;
+            stored.limitPeakDb = slot.limitPeakDb;
+            stored.clipDepthDb = slot.clipDepthDb;
+            stored.protectionDb = slot.protectionDb;
+            stored.over = slot.over ? 1 : 0;
+        }
+
+        xml->setAttribute ("slots", juce::Base64::toBase64 (packed.data(), sizeof (packed)));
+        return xml;
+    }
+
+    bool GlazeGuard::restoreStateXml (const juce::XmlElement& xml)
+    {
+        if (xml.getTagName() != "BUDGET_GUARD")
+            return false;
+
+        auto copy = *this;
+        auto cause = (int) copy.lastCause;
+        xmlio::Reader reader (xml);
+        reader.field ("protection", copy.protection);
+        reader.field ("protectionDb", copy.protectionDb);
+        reader.field ("minimumDb", copy.minimumDb);
+        reader.field ("planLimited", copy.planLimited);
+        reader.field ("lastOver", copy.lastOver);
+        reader.field ("lastOvershootDb", copy.lastOvershootDb);
+        reader.field ("safeSlots", copy.safeSlots);
+        reader.field ("writeIndex", copy.writeIndex);
+        reader.field ("historyCount", copy.historyCount);
+        reader.field ("statsCount", copy.statsCount);
+        reader.field ("overSlotsInHistory", copy.overSlotsInHistory);
+        reader.field ("partGlueSum", copy.partGlueSum);
+        reader.field ("partLimitSum", copy.partLimitSum);
+        reader.field ("partClipSum", copy.partClipSum);
+        reader.field ("partLimitPeak", copy.partLimitPeak);
+        reader.field ("partClipDepth", copy.partClipDepth);
+        reader.field ("partSamples", copy.partSamples);
+        reader.field ("sumGlue", copy.sumGlue);
+        reader.field ("sumLimit", copy.sumLimit);
+        reader.field ("sumClip", copy.sumClip);
+        reader.field ("glueAboveCap", copy.glueAboveCap);
+        reader.field ("glueAboveNear", copy.glueAboveNear);
+        reader.field ("limitAboveCap", copy.limitAboveCap);
+        reader.field ("limitAboveNear", copy.limitAboveNear);
+        reader.field ("lastCause", cause);
+
+        juce::MemoryOutputStream packed;
+        if (! reader.ok || cause < 0 || cause > (int) GuardCause::psr
+            || copy.writeIndex < 0 || copy.writeIndex >= slotCapacity
+            || copy.historyCount < 0 || copy.historyCount > slotCapacity
+            || copy.statsCount < 0 || copy.statsCount > copy.historyCount
+            || ! juce::Base64::convertFromBase64 (packed, xml.getStringAttribute ("slots"))
+            || packed.getDataSize() != sizeof (std::array<StoredSlot, (std::size_t) slotCapacity>))
+            return false;
+
+        std::array<StoredSlot, (std::size_t) slotCapacity> stored {};
+        std::memcpy (stored.data(), packed.getData(), packed.getDataSize());
+
+        for (int i = 0; i < slotCapacity; ++i)
+        {
+            auto& slot = copy.slots[(std::size_t) i];
+            const auto& item = stored[(std::size_t) i];
+            slot.glueMeanDb = item.glueMeanDb;
+            slot.limitMeanDb = item.limitMeanDb;
+            slot.clipFraction = item.clipFraction;
+            slot.limitPeakDb = item.limitPeakDb;
+            slot.clipDepthDb = item.clipDepthDb;
+            slot.protectionDb = item.protectionDb;
+            slot.over = item.over != 0;
+        }
+
+        copy.lastCause = static_cast<GuardCause> (cause);
+        copy.retreating = copy.recovering = copy.changedThisBlock = false;
+        *this = copy;
+        return true;
+    }
 }

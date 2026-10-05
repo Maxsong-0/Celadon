@@ -508,6 +508,8 @@ void CeladonAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
         chain.reset();
     }
 
+    chain.syncGlazeLiveModel (celadon::glaze::genreFromIndex (params.glazeGenre));
+
     // prepareToPlay 不在音频线程，可以直接上报；同时写 pendingLatency，免得定时器又报一次旧值。
     hostResetPending.store (false);
     lastBlockHostBypassed = false;

@@ -60,8 +60,24 @@ namespace celadon
         return std::isfinite (capMs) && capMs > 0.0 ? (float) capMs : 0.0f;
     }
 
+    CeladonChain::CeladonChain()
+    {
+        controller.attachLiveProfile (&liveProfile);
+    }
+
+    void CeladonChain::syncGlazeLiveModel (glaze::Genre genre) noexcept
+    {
+        controller.notePendingModel (genre);
+        controller.syncLiveModel();
+    }
+
     void CeladonChain::prepare (const juce::dsp::ProcessSpec& spec)
     {
+        // 换采样率时音频已停：先把 LIVE 留在内存里，两边 prepare（会冷启动）之后立刻读回。
+        std::unique_ptr<juce::XmlElement> savedLive;
+        if (controller.hasPrepared())
+            savedLive = controller.createStateXml();
+
         // 四个模块用同一份 spec 整体重建（采样率 / 块大小 / 声道数）。模块统一接口（设计规格-总体）约定
         // prepare 末尾自己 reset，所以这里不必再清一遍。各处都按信号顺序写，读起来与 process 一致。
         balance.prepare (spec);
@@ -74,7 +90,13 @@ namespace celadon
         // IN 表开着 LUFS（v0.5 为省 CPU 关掉过）：GLAZE 的分析器与校准器都要读它的 100 ms 子块，关着就永远听不完。
         inputMeter.prepare (spec);
         outputMeter.prepare (spec);
+        liveProfile.prepare (spec.sampleRate);
         controller.prepare (spec);
+
+        if (savedLive != nullptr)
+            controller.restoreStateXml (savedLive.get());
+
+        controller.syncLiveModel();
         reference.prepare ({ spec.sampleRate, spec.maximumBlockSize, 2 });
         releaseSafety.prepare (spec.sampleRate);
         listenSampleRate = spec.sampleRate;
@@ -414,7 +436,7 @@ namespace celadon
         stats.clayGuardKeptEnergy   = clayKeep.keptEnergy;
         stats.musicActive = false;   // 编排器按分析器的有效信号门限填
 
-        controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true);
+        controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true, &io);
         processListen (io);
 
         if (withDifference)

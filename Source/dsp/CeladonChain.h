@@ -60,6 +60,7 @@
 #include "ClayModule.h"
 #include "ColorModule.h"
 #include "GlazeController.h"
+#include "LiveProfile.h"
 #include "LimiterModule.h"
 #include "LoudnessMeter.h"
 #include "ReferenceSpectrum.h"
@@ -88,7 +89,7 @@ namespace celadon
         // 0.35 s 的推导：Clay 10 Hz 4 阶低切衰 60 dB 约 0.29 s，留余量（A7，v0.1.7.0）。
         static constexpr double filterRingOutSeconds = 0.35;
 
-        CeladonChain() = default;
+        CeladonChain();
 
         // 四个模块、两块表、编排器按同一份 spec 整体重建。编排器保留已提交的画像与方案（采样率变了校准标「待验证」）。
         void prepare (const juce::dsp::ProcessSpec& spec);
@@ -170,6 +171,13 @@ namespace celadon
         // balance 交过去：最后一块的帧先只进实时段落账再就地定稿（歌尾不用再补一个 0 样本的块）。
         void setLiveSegmentSink (glaze::SegmentSink* sink)               { controller.setLiveSegmentSink (sink, &balance); }
 
+        // 链持有的那一份实时画像。插件路径的唯一画像来源；渲染 --live-trace 读这一份。
+        glaze::LiveProfile& getLiveProfile() noexcept                     { return liveProfile; }
+        const glaze::LiveProfile& getLiveProfile() const noexcept         { return liveProfile; }
+
+        // 消息线程、音频已停（prepareToPlay）：把曲风对应的主段模型交给 LiveProfile。
+        void syncGlazeLiveModel (glaze::Genre genre) noexcept;
+
         void processReference (const juce::AudioBuffer<float>& input, bool connected) noexcept { reference.process (input, connected); }
         void requestReferenceLearn() noexcept { reference.requestLearn(); }
         void cancelReferenceLearn() noexcept { reference.cancelLearn(); }
@@ -209,6 +217,7 @@ namespace celadon
         LimiterModule limiter;
 
         LoudnessMeter inputMeter, outputMeter;
+        glaze::LiveProfile liveProfile;
         glaze::GlazeController controller;
         ReferenceSpectrum reference;
         ReleaseSafety releaseSafety;

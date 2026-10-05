@@ -114,4 +114,17 @@ namespace celadon::glaze
     // 测试与编排器（消息线程）用；会分配，别在音频线程调。
     bool bitwiseEqual (const MusicProfile& a, const MusicProfile& b);
     bool bitwiseEqual (const CommittedState& a, const CommittedState& b);
+
+    // T-048 阶段 2：GLAZE_STATE 的容器版本。画像自己的 stateFormatVersion 仍是 1（toXml(CommittedState)），
+    // 插件路径的新树另写 2，避免和已提交版本的格式号撞车。
+    inline constexpr int liveContainerFormatVersion = 2;
+    inline constexpr const char* liveTag = "LIVE";
+    inline constexpr const char* liveBodyTag = "LIVE_BODY";
+
+    // LIVE 外层：zlib（JUCE windowBits 0 = MAX_WBITS）+ base64。内部子树不降精度。消息线程。
+    std::unique_ptr<juce::XmlElement> compressLiveBody (const juce::XmlElement& body, int constantsVersion);
+    std::unique_ptr<juce::XmlElement> decompressLiveBody (const juce::XmlElement& liveNode);
+
+    // 校准参考条件是否同一条件（原 GlazeCalibrator::referenceMatches）。产品路径不再校准，测试仍用这个比较。
+    bool referenceMatches (const CalibrationReference& a, const CalibrationReference& b) noexcept;
 }

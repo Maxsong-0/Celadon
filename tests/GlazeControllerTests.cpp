@@ -31,7 +31,6 @@
 
 #include "../Source/dsp/CeladonChain.h"
 #include "../Source/dsp/ClayGuard.h"
-#include "../Source/dsp/GlazeCalibrator.h"
 #include "../Source/dsp/GlazePlanner.h"
 #include "../Source/dsp/GlazeProfile.h"
 #include "../Source/ParameterRanges.h"
@@ -4386,7 +4385,7 @@ namespace celadon::test
 
                     const auto now = referenceFor (reopened, cap);
 
-                    if (! glaze::GlazeCalibrator::referenceMatches (saved, now) || ! glaze::GlazeCalibrator::referenceMatches (now, saved))
+                    if (! glaze::referenceMatches (saved, now) || ! glaze::referenceMatches (now, saved))
                     {
                         ++roundTripMismatches;
                         noteFailure (firstRoundTrip, "round trip " + juce::String (trip) + ": release " + juce::String (p.limit.releaseMs, 9)
@@ -4412,7 +4411,7 @@ namespace celadon::test
 
                         if (glaze::upgradeLegacyConditions ({ &legacy }, reopened, cap) != 1
                             || legacy.conditionsFormat != glaze::continuousConditionsFormat
-                            || ! glaze::GlazeCalibrator::referenceMatches (legacy, now))
+                            || ! glaze::referenceMatches (legacy, now))
                         {
                             ++upgradeFailures;
                             noteFailure (firstUpgrade, "legacy upgrade after " + juce::String (trip) + " trips failed");
@@ -4432,7 +4431,7 @@ namespace celadon::test
                     parameter.field (changed) = oneDisplayStep (parameter, parameter.field (p));
                     ++changeChecks;
 
-                    if (glaze::GlazeCalibrator::referenceMatches (saved, referenceFor (changed, cap)))
+                    if (glaze::referenceMatches (saved, referenceFor (changed, cap)))
                     {
                         ++changesMissed;
                         noteFailure (firstChange, juce::String (parameter.name) + " moved one display step from " + juce::String (parameter.field (p), 9)

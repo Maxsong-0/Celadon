@@ -34,7 +34,6 @@
 
 #include "../Source/dsp/BalanceModule.h"
 #include "../Source/dsp/ColorModule.h"
-#include "../Source/dsp/GlazeCalibrator.h"
 #include "../Source/dsp/GlazeConstants.h"
 #include "../Source/dsp/GlazePlanner.h"
 #include "../Source/dsp/GlazeProfile.h"
@@ -2400,12 +2399,12 @@ namespace celadon::test
                                                 back, utf8 ("交付越界"));
 
                 auto a = state.calibration.reference, b = a;
-                expect (GlazeCalibrator::referenceMatches (a, b));
+                expect (referenceMatches (a, b));
                 b.delivery = Delivery::streaming;
-                expect (! GlazeCalibrator::referenceMatches (a, b), utf8 ("换交付 → 参考条件不再适用"));
+                expect (! referenceMatches (a, b), utf8 ("换交付 → 参考条件不再适用"));
                 b = a;
                 b.genre = Genre::deepHouse;
-                expect (! GlazeCalibrator::referenceMatches (a, b), utf8 ("换曲风 → 参考条件不再适用"));
+                expect (! referenceMatches (a, b), utf8 ("换曲风 → 参考条件不再适用"));
             }
 
             beginTest ("T-038: constants without genre / house / delivery fields read the factory values; present but broken is rejected");
