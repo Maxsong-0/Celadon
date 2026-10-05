@@ -5,14 +5,15 @@
     v0.1.8.0 界面改版（V4 设计稿「融合版」）：1200 × 820 的浅色画布，整体按 70 % ～ 200 % 等比缩放。
 
       上层：左 IN 表 · 正中频谱仪（带响度小窗）· 右 OUT / GR 表；
-      中层：GLAZE 主旋钮在正中，两侧粒子流；下面一排 风格 · 重新聆听 | A / B · 等响；
+      中层：GLAZE 主旋钮在正中，两侧粒子流；下面一排 风格 | A / B · 等响；
             旋钮左边「曲风」、右边「交付」两个选择（T-038，位置待 Max 看截图定）；
       下层：按处理顺序的四张卡片 BALANCE → CLAY → COLOR → LIMIT。
 
     画布（Canvas）是一个固定 1200 × 820 的子组件，编辑器按窗口大小给它一个缩放变换——所有文字与矢量在任何比例下都清晰，
     位图（背景、瓷面、流线）按当次绘制的物理像素比生成。窗口大小随工程存一份（uiZoom），另记为新窗口的默认大小（UiSettings）。
 
-    GLAZE 的三个数据源由处理器在 createEditor 里注入（v0.6 起的接口不变）：状态快照、「重新聆听」动作、本块交给模块的实际参数。
+    GLAZE 的数据源由处理器在 createEditor 里注入：状态快照、本块交给模块的实际参数。
+    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。旧工程读档后处理器应调 noteDiscardedLegacyGlaze。
 
   ==============================================================================
 */
@@ -60,8 +61,17 @@ public:
     using GlazeEffectiveParamsSource = std::function<celadon::ChainParams()>;
 
     void setGlazeStatusSource (GlazeStatusSource source);
+    // 阶段 2 没有重新聆听。处理器 createEditor 仍会注入：留着空实现，编排器删掉那一行之前这里什么都不做。
     void setGlazeRelearnAction (GlazeRelearnAction action);
     void setGlazeEffectiveParamsSource (GlazeEffectiveParamsSource source);
+
+    // T-048 Q1。旧工程（v1，或只有 GLAZE_PROFILE / PLAN / CALIBRATION / EXECUTION）读档后，处理器在消息线程调一次。
+    // 不写入 LIVE。编辑器还没打开时由处理器记住，createEditor 里再调。本次打开左下角提示「旧的聆听结果已丢弃，声音会变」。
+    void noteDiscardedLegacyGlaze();
+
+    // 截图工具用：直接给状态行一份读数（c、m、冷导出、守护原因）。不进工程。clear 之后回到编排器快照。
+    void setStatusLinePreview (const celadon::ui::glazestatus::Reading& reading);
+    void clearStatusLinePreview();
 
     static constexpr int baseWidth = 1200;
     static constexpr int baseHeight = 820;
@@ -109,8 +119,10 @@ private:
     celadon::ui::CeladonLookAndFeel lookAndFeel;
 
     GlazeStatusSource glazeStatusSource;
-    GlazeRelearnAction glazeRelearnAction;
     GlazeEffectiveParamsSource glazeEffectiveParamsSource;
+    bool legacyGlazeDiscarded = false;
+    bool statusLinePreviewOn = false;
+    celadon::ui::glazestatus::Reading statusLinePreview;
 
     std::unique_ptr<Canvas> canvas;
 
@@ -141,8 +153,7 @@ private:
     juce::StringArray glazeSegments;
     bool glazeSegmentsValid = false;
 
-    // GLAZE 状态的悬停气泡（标题与状态胶囊）此刻是哪一版：House 档暂定期间换成 House 版（T-038），只在变了时重设。
-    bool glazeTooltipHouse = false;
+    // GLAZE 状态的悬停气泡：只在语言变了时重设。
     celadon::Language glazeTooltipLanguage = celadon::Language::chinese;
     bool glazeTooltipValid = false;
 

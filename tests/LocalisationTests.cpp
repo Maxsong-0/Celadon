@@ -179,30 +179,25 @@ namespace celadon::test
 
                 std::vector<View> views;
 
-                // T-038 起末尾多了 House 的两种（houseListening、housePhaseHint）：第二、三个变体顺带给出 House 的读数
-                //（按小节 23 / 64、主段落 8、损失 1.6 dB；第三个按秒）。
-                for (int kind = 0; kind <= (int) Kind::housePhaseHint; ++kind)
+                for (int kind = 0; kind <= (int) Kind::following; ++kind)
                 {
                     View view;
                     view.kind = (Kind) kind;
                     views.push_back (view);
 
-                    view.glazeActive = true;
-                    view.listenedSeconds = 9;
-                    view.requiredSeconds = 15;
                     view.hasTarget = true;
                     view.targetTenthsLufs = -96;
                     view.yieldedTenthsDb = 15;
+                    view.guardCause = GuardCause::budget;
                     view.resolvedStyle = glaze::Style::warm;
-                    view.pausedByTransport = kind % 2 == 0;
-                    view.houseHeard = 23;
-                    view.houseTarget = 64;
-                    view.houseFullBars = 8;
+                    view.chosenStyle = glaze::Style::automatic;
+                    view.housePrefix = true;
                     view.houseLossTenthsDb = 16;
+                    view.styleSegment = 2;
                     views.push_back (view);
 
-                    view.olderPlan = true;
-                    view.houseBySeconds = true;
+                    view.guardCause = GuardCause::psr;
+                    view.housePrefix = false;
                     views.push_back (view);
                 }
 
@@ -221,14 +216,14 @@ namespace celadon::test
                         expectEquals (segmentsFor (view, language).joinIntoString (dot), textFor (view, language), label);
                 }
 
-                View locked;
-                locked.kind = Kind::locked;
-                locked.glazeActive = true;
-                locked.resolvedStyle = glaze::Style::warm;
-                locked.hasTarget = true;
-                locked.targetTenthsLufs = -96;
-                expectEquals (textFor (locked, Language::english), utf8 ("Locked \xc2\xb7 Auto\xe2\x86\x92Warm \xc2\xb7 Target \xe2\x88\x92" "9.6 LUFS"));
-                expectEquals (segmentsFor (locked, Language::chinese).size(), 3);
+                View following;
+                following.kind = Kind::following;
+                following.resolvedStyle = glaze::Style::warm;
+                following.hasTarget = true;
+                following.targetTenthsLufs = -96;
+                following.styleSegment = 1;
+                expectEquals (textFor (following, Language::english), utf8 ("Following \xc2\xb7 Auto\xe2\x86\x92Warm \xc2\xb7 Target \xe2\x88\x92" "9.6 LUFS"));
+                expectEquals (segmentsFor (following, Language::chinese).size(), 3);
                 expectEquals (styleName (glaze::Style::punchy, Language::english), juce::String ("Punchy"));
                 expectEquals (styleName (glaze::Style::punchy), utf8 ("冲击"));
             }
@@ -260,8 +255,11 @@ namespace celadon::test
                     expectEquals (seen.size(), (int) (std::size (genre) + std::size (delivery)), "labels must be distinct within a language");
                 }
 
-                expectEquals (ui::tr (Text::cornerHouseTip, Language::chinese), utf8 ("从 drop 开始播放能学得更快"));
-                expectEquals (ui::tr (Text::cornerHouseTip, Language::english), juce::String ("Start playback at the drop to learn faster"));
+                expectEquals (ui::tr (Text::legacyDiscarded, Language::chinese), utf8 ("旧的聆听结果已丢弃，声音会变"));
+                expectEquals (ui::tr (Text::legacyDiscarded, Language::english),
+                              juce::String ("The old listening result was discarded, so the sound will change"));
+                expectEquals (ui::tr (Text::chipAwaiting, Language::chinese), utf8 ("待校准"));
+                expectEquals (ui::tr (Text::chipAwaiting, Language::english), juce::String ("Awaiting"));
             }
         }
     };

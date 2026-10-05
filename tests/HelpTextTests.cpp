@@ -472,9 +472,9 @@ namespace celadon::test
                 expect (lampFor (broken, ClayStage::width)  == ClayLamp::off);
             }
 
-            // 依据：设计规格-Clay 第 5 节：悬停气泡沿用三行格式，第 2 行是实时值；旧画像没有立体声特征时第 3 行写
-            // 「点『重新聆听』后启用自动修坯」（单独成行时引号按本文件的写法用「」）。
-            beginTest ("Clay tooltip: three lines, table title and advice, relearn hint on old projects");
+            // 依据：设计规格-Clay 第 5 节：悬停气泡沿用三行格式，第 2 行是实时值。
+            // T-048：旧画像不再在气泡里写「点重新聆听」（那一句改由编辑器提示一次）。
+            beginTest ("Clay tooltip: three lines, table title and advice; old projects do not ask to relearn");
             {
                 const auto* entry = help::find (uiid::clayIndicator);
                 expect (entry != nullptr);
@@ -489,28 +489,13 @@ namespace celadon::test
                     expectEquals (tooltipLine (tip, 1), liveLineFor (working));
                     expectEquals (tooltipLine (tip, 2), utf8 (entry->advice));
 
-                    // 旧工程（已提交画像缺立体声 / 超低频特征）且有「自动」态的项：第 3 行换成重新聆听的提示。
                     const auto oldProject = clayStatus (0.0f, 80.0f, 0.0f, 0.0f, false, false, true);
                     const auto oldTip = help::clayIndicatorTooltip (help::clayReadoutFor (oldProject, {}));
 
                     expectEquals (juce::StringArray::fromLines (oldTip).size(), 3);
                     expectEquals (tooltipLine (oldTip, 1), utf8 ("未低切 · 未收单 · 未加宽"));
-                    expectEquals (tooltipLine (oldTip, 2), utf8 ("点「重新聆听」后启用自动修坯。"));
-                    expect (utf8StartsWith (tooltipLine (oldTip, 2), help::clayRelearnHint()));
-
-                    // 三项都不是「自动」：重新聆听也不改变声音，不提示（阳性对照 = 上一条有自动态时的提示）。
-                    help::ClayUserState noneAutomatic;
-                    noneAutomatic.lowCutAuto = false;
-                    noneAutomatic.monoAuto   = false;
-                    noneAutomatic.widthAuto  = false;
-                    expectEquals (tooltipLine (help::clayIndicatorTooltip (help::clayReadoutFor (oldProject, noneAutomatic)), 2),
-                                  utf8 (entry->advice));
-
-                    // 正在重新聆听：已提交的仍是旧画像，但「点重新聆听」已经没有意义，不提示（T-012 阶段 2，A6 报告备注）。
-                    auto relearning = oldProject;
-                    relearning.relearnInProgress = true;
-                    expectEquals (tooltipLine (help::clayIndicatorTooltip (help::clayReadoutFor (relearning, {})), 2),
-                                  utf8 (entry->advice));
+                    expectEquals (tooltipLine (oldTip, 2), utf8 (entry->advice));
+                    expect (! utf8Contains (oldTip, "重新聆听"), oldTip);
                 }
             }
 
@@ -559,20 +544,17 @@ namespace celadon::test
                 expect (utf8StartsWith (tooltipLine (tip, 2), "本曲试过："), "line 3 starts with the cost explanation");
             }
 
-            // 依据：同上「优先级低于『点重新聆听』提示」；ADR-009 第 4 条（「关 / 手动」项不经决策器、宽度保护只管自动态）；
+            // 依据：ADR-009 第 4 条（「关 / 手动」项不经决策器、宽度保护只管自动态）；
             // HelpText.h ClayReadout 代价标志的约定（加宽在宽度保护介入、收单在反相提示亮着时不写代价，旁通时全清零）。
-            beginTest ("Clay tooltip line 3 (ADR-012): relearn hint first, only automatic items, not while the mono warning is on or the width guard acts, cleared by bypass");
+            beginTest ("Clay tooltip line 3 (ADR-012): only automatic items, not while the mono warning is on or the width guard acts, cleared by bypass");
             {
                 const auto* entry = help::find (uiid::clayIndicator);
                 expect (entry != nullptr);
                 const auto advice = entry != nullptr ? utf8 (entry->advice) : juce::String();
 
-                // 旧工程提示压过代价说明（阳性对照：同一 mask、不提示重新聆听时写代价）。
-                const auto withRelearn = withCostMask (clayStatus (0.0f, 80.0f, 0.0f, 0.0f, false, false, true), lowCutBit);
-                expectEquals (thirdLineFor (withRelearn), utf8 ("点「重新聆听」后启用自动修坯。"));
-                auto noRelearn = withRelearn;
-                noRelearn.clayNeedsRelearn = false;
-                expectEquals (thirdLineFor (noRelearn), utf8 ("本曲试过：低切会抬高峰值或削弱低音，已自动跳过。"));
+                // 旧的 clayNeedsRelearn 不再压过代价说明。
+                const auto withOldFlag = withCostMask (clayStatus (0.0f, 80.0f, 0.0f, 0.0f, false, false, true), lowCutBit);
+                expectEquals (thirdLineFor (withOldFlag), utf8 ("本曲试过：低切会抬高峰值或削弱低音，已自动跳过。"));
 
                 // 只算「自动」态的项：低切改成「手动」→ 不再写它；还有自动态的加宽被减量 → 只写加宽。
                 const auto both = withCostMask (clayStatus (30.0f, 120.0f, 0.4f, 0.5f), lowCutBit | widthBit);
@@ -794,7 +776,7 @@ namespace celadon::test
                 expect (help::clayLampFor (plain, help::ClayStage::mono) == help::clayLampFor (withHint, help::ClayStage::mono),
                         "the mono lamp keeps its own meaning (the ADR-015 phase warning), the hint has its own box");
 
-                // 气泡第 3 行：说为什么要回混音；旧工程的「点重新聆听」仍然在前。
+                // 气泡第 3 行：说为什么要回混音。旧的 clayNeedsRelearn 不再插到它前面。
                 const auto* entry = help::find (uiid::clayIndicator);
                 const auto third = juce::StringArray::fromLines (help::clayIndicatorTooltip (withHint))[2];
                 const auto thirdEn = juce::StringArray::fromLines (help::clayIndicatorTooltip (withHint, Language::english))[2];
@@ -807,36 +789,24 @@ namespace celadon::test
 
                 auto oldProject = hinted;
                 oldProject.clayNeedsRelearn = true;
-                expectEquals (juce::StringArray::fromLines (help::clayIndicatorTooltip (help::clayReadoutFor (oldProject, {})))[2],
-                              utf8 ("点「重新聆听」后启用自动修坯。"), "the relearn hint still comes first");
+                expect (utf8StartsWith (juce::StringArray::fromLines (help::clayIndicatorTooltip (help::clayReadoutFor (oldProject, {})))[2],
+                                        "俱乐部单声道会丢低频（约 1.6 dB）"),
+                        "the phase hint stays ahead of the retired relearn flag");
             }
 
-            beginTest ("House listening tooltip: three lines, the GLAZE status title, the spec tip as line 3, English without CJK");
+            beginTest ("GLAZE status tooltip describes the live line and the one-time old-project note, without relearn or calibration");
             {
-                const auto* status = help::find (uiid::glazeStatus);
-                expect (status != nullptr);
+                const auto zh = help::tooltipFor (uiid::glazeStatus, Language::chinese);
+                const auto en = help::tooltipFor (uiid::glazeStatus, Language::english);
+                expect (utf8Contains (zh, "旧的聆听结果已丢弃") && ! utf8Contains (zh, "重新聆听") && ! utf8Contains (zh, "校准"), zh);
+                expect (en.contains ("old listening result was discarded") && ! en.containsIgnoreCase ("relearn") && ! en.containsIgnoreCase ("calibrat"), en);
 
-                const auto zh = juce::StringArray::fromLines (help::houseListeningTooltip (Language::chinese));
-                const auto en = juce::StringArray::fromLines (help::houseListeningTooltip (Language::english));
-                expectEquals (zh.size(), 3);
-                expectEquals (en.size(), 3);
+                auto cjk = false;
 
-                if (status != nullptr && zh.size() == 3 && en.size() == 3)
-                {
-                    expectEquals (zh[0], utf8 (status->title));
-                    expectEquals (en[0], utf8 (status->titleEn));
-                    expect (utf8StartsWith (zh[1], "House 档按小节聆听"), zh[1]);
-                    expectEquals (zh[2], utf8 ("从 drop 开始播放能学得更快。"));
-                    expectEquals (en[2], juce::String ("Start playback at the drop to learn faster."));
+                for (auto p = en.getCharPointer(); ! p.isEmpty(); ++p)
+                    cjk = cjk || (juce::uint32) *p >= 0x3000;
 
-                    const auto english = en.joinIntoString ("\n");
-                    auto cjk = false;
-
-                    for (auto p = english.getCharPointer(); ! p.isEmpty(); ++p)
-                        cjk = cjk || (juce::uint32) *p >= 0x3000;
-
-                    expect (! cjk, "English tooltip contains CJK: " + english);
-                }
+                expect (! cjk, "English tooltip contains CJK: " + en);
             }
         }
     };

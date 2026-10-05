@@ -105,8 +105,7 @@ namespace celadon::uiid
     inline constexpr const char* resetMeters  = "ui_reset";
     inline constexpr const char* glueGr       = "ui_glue_gr";
     inline constexpr const char* balanceCurve = "ui_balance_curve";   // Balance 面板的 27 段修正曲线
-    inline constexpr const char* glazeRelearn = "ui_glaze_relearn";   // v0.6：「重新聆听」按钮（界面动作，不是参数）
-    inline constexpr const char* glazeStatus  = "ui_glaze_status";    // v0.6：GLAZE 大旋钮下方的状态行
+    inline constexpr const char* glazeStatus  = "ui_glaze_status";    // v0.6：GLAZE 大旋钮下方的状态行（T-048 起是七条里最要紧的一条）
     inline constexpr const char* clayIndicator = "ui_clay_indicator"; // v0.1.7.0：修坯三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯；悬停第 2 行是实时值）
     // 顶栏「高级」（v0.1.7.0 起；不是参数）：v0.1.7.0 开合抽屉，v0.1.8.0 起打开「高级」面板——修坯的三态与手动值已在 CLAY 卡片上，
     // 面板写明这一点，并列出还在设计中的三个子项目（推响不刺 / 目标频谱 / 发行安全，ADR-005 只写「即将推出」）。
@@ -128,7 +127,7 @@ namespace celadon::uiid
 
     inline constexpr const char* allUiIds[] =
     {
-        meterIn, meterOut, meterGr, integrated, shortTerm, resetMeters, glueGr, balanceCurve, glazeRelearn, glazeStatus,
+        meterIn, meterOut, meterGr, integrated, shortTerm, resetMeters, glueGr, balanceCurve, glazeStatus,
         clayIndicator, advanced, limitAudition,
         masterTabs, masterPreview, masterLearn, masterCancel, masterClear, masterCurve
     };

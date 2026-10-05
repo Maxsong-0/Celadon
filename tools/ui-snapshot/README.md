@@ -25,9 +25,9 @@
 | `zh-zoom70.png` / `zh-zoom150.png` | 界面大小 70 % / 150 %（含缩放提示） |
 | `zh-reduced.png` | 减少动效（没有粒子与波纹） |
 | `zh-input.png` | 频谱仪 IN 虚线开着（默认关）。T-051 改 IN 虚线的建法时用 `--deterministic` 改前改后逐字节比过 |
-| `zh-house-layout.png` / `en-house-layout.png` | T-038：曲风 Deep House、交付 俱乐部，两个选择在 GLAZE 标题行左右（Max 2026-10-01 选定）；House 暂定、23 / 64 小节（只存上半，y < 560） |
-| `zh-house-status-bars.png` … `en-house-status-seconds.png` | 状态行三种文字（还没听到主段落 / 主段落已听 8 小节 / 宿主没给拍点），只截顶栏胶囊 |
-| `zh-house-tip.png` / `en-house-tip.png` | House 暂定期间 GLAZE 状态的悬停气泡（第 3 行「从 drop 开始播放能学得更快」） |
+| `zh-house-layout.png` / `en-house-layout.png` | T-038：曲风 Deep House、交付 俱乐部，两个选择在 GLAZE 标题行左右；状态行是「House · 跟随…」（只存上半，y < 560） |
+| `zh-status-follow.png` / `en-status-guard.png` / `zh-status-export.png` | T-048 状态行：跟随（自动→温润 · 目标 −9.6）、受限 · 预算 · 已退 1.5 dB、导出冷启动。只截顶栏胶囊 |
+| `zh-legacy-notice.png` / `en-legacy-notice.png` | 旧工程打开一次：左下角「旧的聆听结果已丢弃，声音会变」（不进状态行、不写入工程） |
 | `zh-house-hint.png` / `en-house-hint.png` | House 反相提示：状态胶囊琥珀 + CLAY 卡片两行提示 |
 | `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯琥珀（只存下半部分的四张卡片） |
 | `zh-guard-tooltip.png` / `en-guard-tooltip.png` | 同上状态下 CLAY 灯的悬停气泡：第 2 行末尾「峰值守护回收中：低切 / 收单实际只剩约 40%」（取 `help::clayIndicatorTooltip`，与界面同一个函数） |
