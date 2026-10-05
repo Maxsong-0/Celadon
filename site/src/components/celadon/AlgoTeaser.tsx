@@ -2,10 +2,16 @@ import { useRef, type ReactNode } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { LocaleLink } from '@/i18n/locale';
 import { ArrowUpRight, Em, LinkArrow, SectionHead } from './Eyebrow';
+import { WrappedText } from './SvgText';
 import { useReveal } from '@/lib/reveal';
 
 // 标题、正文、图注在 home 命名空间 algorithms.items（同一顺序）；这里是链接、标签与示意图。
 type Item = { to: string; tag: string; art: (caption: string) => ReactNode };
+
+// 图注：9px 等宽、贴着图底。viewBox 宽 280、右边留 16；英文常常一行放不下，向上折行（WrappedText）。
+const CAPTION_STYLE = { fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#586C74' } as const;
+const CAPTION_LINE = 12;
+const captionWidth = (x: number) => 280 - 16 - x;
 
 const items: Item[] = [
   {
@@ -19,7 +25,7 @@ const items: Item[] = [
         })}
         <path d="M67 30 C 90 8, 120 12, 128 44" fill="none" stroke="#127F90" strokeWidth="1.3" strokeDasharray="3 3" />
         <path d="M67 30 C 100 -6, 160 0, 164 66" fill="none" stroke="#127F90" strokeWidth="1.1" strokeDasharray="3 3" opacity="0.6" />
-        <text x="20" y="116" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#586C74' }}>{caption}</text>
+        <WrappedText text={caption} x={20} y={116} maxWidth={captionWidth(20)} lineHeight={CAPTION_LINE} grow="up" style={CAPTION_STYLE} />
       </svg>
     )
   },
@@ -31,7 +37,7 @@ const items: Item[] = [
         <line x1="16" y1="24" x2="264" y2="24" stroke="#DCE6E9" />
         <path d="M16 24 L80 24 L120 78 L160 78 L200 30 L264 24" fill="none" stroke="#A3E0E8" strokeWidth="1.6" />
         <path d="M16 24 L76 24 C 96 28, 104 74, 122 78 L160 78 C 176 76, 186 40, 204 28 L264 24" fill="none" stroke="#127F90" strokeWidth="1.8" />
-        <text x="16" y="108" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#586C74' }}>{caption}</text>
+        <WrappedText text={caption} x={16} y={108} maxWidth={captionWidth(16)} lineHeight={CAPTION_LINE} grow="up" style={CAPTION_STYLE} />
       </svg>
     )
   },
@@ -45,7 +51,7 @@ const items: Item[] = [
         <path d="M16 60 C 40 60, 56 70, 80 70 C 110 70, 130 84, 160 84 C 200 84, 220 62, 264 62" fill="none" stroke="#127F90" strokeWidth="1.8" />
         <text x="20" y="46" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#0E6473' }}>LOW ≤ 180 Hz</text>
         <text x="200" y="46" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#0E6473' }}>HIGH ≥ 5 kHz</text>
-        <text x="16" y="108" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: '#586C74' }}>{caption}</text>
+        <WrappedText text={caption} x={16} y={108} maxWidth={captionWidth(16)} lineHeight={CAPTION_LINE} grow="up" style={CAPTION_STYLE} />
       </svg>
     )
   }

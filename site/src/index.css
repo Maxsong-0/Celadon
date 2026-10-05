@@ -70,6 +70,14 @@ html:lang(en) {
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
   }
+  /*
+    SVG 里的字：Chromium 默认把每个字形的步进按屏幕像素取整，同一段字在 SVG 用户单位下的宽度随缩放比浮动
+    （±8 %，小屏最多 +18 %），图里按设计宽度排的页眉 / 图注就会在某些屏宽撞上或被裁。geometricPrecision 关掉取整，
+    宽度在所有屏宽下恒等于设计值（Playwright 量过：320 ～ 1440 宽，14 段字宽度逐位恒定）。
+  */
+  svg text {
+    text-rendering: geometricPrecision;
+  }
   body {
     @apply bg-paper text-ink font-sans antialiased;
     font-feature-settings: "palt" 1, "kern" 1;
