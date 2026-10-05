@@ -14,23 +14,6 @@
 
 namespace celadon::ui
 {
-    namespace
-    {
-        void drawLockIcon (juce::Graphics& g, juce::Rectangle<float> area, juce::Colour colour)
-        {
-            // 设计稿 8 × 9：锁身 7 × 4.5（圆角 1）+ 锁梁半圆。
-            g.setColour (colour);
-            g.fillRoundedRectangle (area.getX() + 0.5f, area.getY() + 4.0f, 7.0f, 4.5f, 1.0f);
-            juce::Path shackle;
-            shackle.startNewSubPath (area.getX() + 2.0f, area.getY() + 4.0f);
-            shackle.lineTo (area.getX() + 2.0f, area.getY() + 2.6f);
-            shackle.addCentredArc (area.getX() + 4.0f, area.getY() + 2.6f, 2.0f, 2.0f, 0.0f,
-                                   -juce::MathConstants<float>::halfPi, juce::MathConstants<float>::halfPi, false);
-            shackle.lineTo (area.getX() + 6.0f, area.getY() + 4.0f);
-            g.strokePath (shackle, juce::PathStrokeType (1.1f));
-        }
-    }
-
     //==============================================================================
     GlazeTitle::GlazeTitle()
     {
@@ -61,23 +44,23 @@ namespace celadon::ui
         const juce::String title ("GLAZE");
         const auto subtitle = tr (Text::glazeSubtitle, language);
 
-        // 阶段标签：文字与颜色
+        // 阶段标签：文字与颜色。琥珀（要动手）用警告色；起步用青；稳态用浅青；GLAZE 0 用灰。
         juce::String chipLabel;
         auto chipBackground = palette::c100, chipForeground = palette::c700;
 
         switch (chip)
         {
-            case Chip::locked:      chipLabel = tr (Text::chipLocked, language);      break;
-            case Chip::listening:   chipLabel = tr (Text::chipListening, language);   break;
-            case Chip::calibrating: chipLabel = tr (Text::chipCalibrating, language); break;
-            case Chip::unlearned:   chipLabel = tr (Text::chipUnlearned, language);   chipBackground = palette::groove; chipForeground = palette::ink3; break;
-            case Chip::paused:      chipLabel = tr (Text::chipPaused, language);      chipBackground = palette::groove; chipForeground = palette::ink3; break;
+            case Chip::manual:      chipLabel = tr (Text::chipManual, language);      chipBackground = palette::groove; chipForeground = palette::ink3; break;
+            case Chip::manualLimit: chipLabel = tr (Text::chipManualLimit, language); chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
+            case Chip::phase:       chipLabel = tr (Text::chipPhase, language);       chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
+            case Chip::coldExport:  chipLabel = tr (Text::chipExport, language);      chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
             case Chip::limited:     chipLabel = tr (Text::chipLimited, language);     chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
-            case Chip::off:         break;
+            case Chip::starting:    chipLabel = tr (Text::chipStarting, language);    break;
+            case Chip::holding:     chipLabel = tr (Text::chipHolding, language);     break;
+            case Chip::following:   chipLabel = tr (Text::chipFollowing, language);   break;
         }
 
-        const auto hasIcon = chip == Chip::locked;
-        const auto chipWidth = chipLabel.isEmpty() ? 0.0f : 7.0f + (hasIcon ? 8.0f + 4.0f : 0.0f) + textWidth (chipFont, chipLabel) + 7.0f;
+        const auto chipWidth = chipLabel.isEmpty() ? 0.0f : 7.0f + textWidth (chipFont, chipLabel) + 7.0f;
         const auto titleWidth = textWidth (titleFont, title);
         const auto subtitleWidth = textWidth (subtitleFont, subtitle);
         const auto total = titleWidth + 9.0f + subtitleWidth + (chipWidth > 0.0f ? 9.0f + chipWidth : 0.0f);
@@ -100,13 +83,7 @@ namespace celadon::ui
         g.setColour (chipBackground);
         g.fillRoundedRectangle (chipArea, 5.0f);
 
-        auto chipX = chipArea.getX() + 7.0f;
-
-        if (hasIcon)
-        {
-            drawLockIcon (g, { chipX, chipArea.getCentreY() - 4.5f, 8.0f, 9.0f }, chipForeground);
-            chipX += 8.0f + 4.0f;
-        }
+        const auto chipX = chipArea.getX() + 7.0f;
 
         g.setFont (chipFont);
         g.setColour (chipForeground);
@@ -139,20 +116,10 @@ namespace celadon::ui
         repaint();
     }
 
-    bool PillButton::setDot (bool shouldShowDot)
-    {
-        if (dot == shouldShowDot)
-            return false;
-
-        dot = shouldShowDot;
-        repaint();
-        return true;
-    }
-
     int PillButton::getNaturalWidth() const
     {
         const auto font = uiFont (icon == Icon::relearn ? 12.0f : 11.5f, Weight::medium);
-        return (int) std::ceil (12.0f + 12.0f + 6.0f + textWidth (font, text) + (dot ? 12.0f : 0.0f) + 12.0f);
+        return (int) std::ceil (12.0f + 12.0f + 6.0f + textWidth (font, text) + 12.0f);
     }
 
     void PillButton::paint (juce::Graphics& g)
@@ -177,7 +144,7 @@ namespace celadon::ui
         g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
 
         const auto font = uiFont (icon == Icon::relearn ? 12.0f : 11.5f, Weight::medium);
-        const auto contentWidth = 12.0f + 6.0f + textWidth (font, text) + (dot ? 12.0f : 0.0f);
+        const auto contentWidth = 12.0f + 6.0f + textWidth (font, text);
         auto x = bounds.getCentreX() - contentWidth * 0.5f;
         const auto centreY = bounds.getCentreY();
 
@@ -206,13 +173,6 @@ namespace celadon::ui
         x += 12.0f + 6.0f;
         g.setFont (font);
         g.drawText (text, juce::Rectangle<float> (x, 0.0f, textWidth (font, text) + 2.0f, (float) getHeight()), juce::Justification::centredLeft, false);
-
-        if (dot)
-        {
-            x += textWidth (font, text) + 6.0f;
-            g.setColour (palette::warning);
-            g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ x + 3.0f, centreY }));
-        }
     }
 
     //==============================================================================
@@ -221,14 +181,15 @@ namespace celadon::ui
         setInterceptsMouseClicks (false, false);
     }
 
-    void CornerNote::setLines (const juce::String& first, const juce::String& second, bool isHint)
+    void CornerNote::setLines (const juce::String& first, const juce::String& second, bool isHint, bool isWarning)
     {
-        if (first == line1 && second == line2 && isHint == hint)
+        if (first == line1 && second == line2 && isHint == hint && isWarning == warning)
             return;
 
         line1 = first;
         line2 = second;
         hint = isHint;
+        warning = isWarning;
         repaint();
     }
 
@@ -237,6 +198,7 @@ namespace celadon::ui
         g.setFont (uiFont (11.0f));
         g.setColour (hint ? palette::c700 : palette::ink3);
         g.drawText (line1, juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), 16.0f), juce::Justification::centredLeft, false);
+        g.setColour (hint ? palette::c700 : (warning ? palette::warningText : palette::ink3));
         g.drawText (line2, juce::Rectangle<float> (0.0f, 16.0f, (float) getWidth(), 16.0f), juce::Justification::centredLeft, false);
     }
 

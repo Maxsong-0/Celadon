@@ -80,8 +80,6 @@ namespace celadon::ui
 
             // ---- GLAZE 中层 ----
             { Text::glazeSubtitle,      "智能母带",                 "Smart mastering" },
-            { Text::relearn,            "重新聆听",                 "Relearn" },
-            { Text::relearnCancel,      "取消聆听",                 "Cancel" },
             { Text::processed,          "处理后",                   "Processed" },
             { Text::original,           "原声",                     "Original" },
             { Text::match,              "等响",                     "Match" },
@@ -92,10 +90,9 @@ namespace celadon::ui
             { Text::notMatched,         "未等响（响度差 {0} dB）",  "not matched ({0} dB apart)" },
             { Text::differenceUnknown,  "播放几秒后测出响度差",     "play a few seconds to measure" },
             { Text::drivesParameters,   "联动 7 项参数",            "Drives 7 parameters" },
-            { Text::glazeManual,        "GLAZE 为 0：全部手动",     "GLAZE at 0: fully manual" },
-            { Text::cornerUnlearned,    "播放后自动开始聆听",       "Starts listening on playback" },
-            { Text::cornerListening,    "正在聆听 {0} / {1} 秒",    "Listening {0} / {1} s" },
-            { Text::cornerListened,     "已聆听 {0} 秒",            "Listened {0} s" },
+            { Text::glazeManual,        "只用手动设置",             "Manual settings only" },
+            { Text::cornerFollowing,    "跟着主段慢慢调整",         "Follows the main section" },
+            { Text::legacyDiscarded,    "旧的聆听结果已丢弃，声音会变", "The old listening result was discarded, so the sound will change" },
             // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
            #if JUCE_MAC
             { Text::hintDrag,           "拖动调节 · \xe2\x8c\x98 精调",  "Drag \xc2\xb7 \xe2\x8c\x98 for fine" },
@@ -108,12 +105,14 @@ namespace celadon::ui
             { Text::legendManual,       "手动设置",                 "Manual" },
             { Text::legendAuto,         "GLAZE 自动调整",           "GLAZE auto" },
             { Text::legendAttention,    "需要注意",                 "Attention" },
-            { Text::chipLocked,         "已锁定",                   "Locked" },
-            { Text::chipListening,      "聆听中",                   "Listening" },
-            { Text::chipCalibrating,    "校准中",                   "Calibrating" },
-            { Text::chipUnlearned,      "未学习",                   "Not learned" },
-            { Text::chipPaused,         "已暂停",                   "Paused" },
+            { Text::chipManual,         "全手动",                   "Manual" },
+            { Text::chipManualLimit,    "受手动",                   "Manual limit" },
+            { Text::chipPhase,          "反相",                     "Phase" },
+            { Text::chipExport,         "导出",                     "Export" },
             { Text::chipLimited,        "受限",                     "Limited" },
+            { Text::chipStarting,       "起步",                     "Starting" },
+            { Text::chipHolding,        "保持",                     "Holding" },
+            { Text::chipFollowing,      "跟随",                     "Following" },
 
             // ---- 模块卡片 ----
             { Text::describeClay,       "声像",                     "Stereo" },
@@ -253,8 +252,6 @@ namespace celadon::ui
             { Text::deliveryStandard,   "标准",                     "Standard" },
             { Text::deliveryStreaming,  "流媒体",                   "Streaming" },
             { Text::deliveryClub,       "俱乐部",                   "Club" },
-            // House 档暂定方案期间左下角的第二行（设计规格-曲风-House学习方式 第 7 节「气泡提示」；悬停气泡里也写）。
-            { Text::cornerHouseTip,     "从 drop 开始播放能学得更快", "Start playback at the drop to learn faster" },
         };
 
         static_assert (std::size (table) == (size_t) Text::numTexts, "Localisation 表的行数与 Text 的键数不一致：两边一起改");
