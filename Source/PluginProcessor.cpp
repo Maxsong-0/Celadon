@@ -871,7 +871,25 @@ juce::AudioProcessorEditor* CeladonAudioProcessor::createEditor()
     editor->setGlazeStatusSource ([this] { return getGlazeStatus(); });
     editor->setGlazeRelearnAction ([this] { requestGlazeRelearn(); });
     editor->setGlazeEffectiveParamsSource ([this] { return getGlazeEffectiveParamsForUi(); });
+
+    // 读档发生在编辑器创建之前：本次打开补一次提示。编辑器已经开着时由 setStateInformation 通知。
+    if (getGlazeStatus().legacySessionDiscarded)
+        editor->noteDiscardedLegacyGlaze();
+
     return editor;
+}
+
+void CeladonAudioProcessor::notifyLegacyDiscardIfEditorOpen()
+{
+    if (! getGlazeStatus().legacySessionDiscarded)
+        return;
+
+    if (auto* messages = juce::MessageManager::getInstanceWithoutCreating())
+        if (! messages->isThisTheMessageThread())
+            return;
+
+    if (auto* editor = dynamic_cast<CeladonAudioProcessorEditor*> (getActiveEditor()))
+        editor->noteDiscardedLegacyGlaze();
 }
 
 //==============================================================================
@@ -942,6 +960,7 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
 
             chain.restoreGlazeStateXml (glaze.get());
             chain.restoreReferenceStateXml (reference.get());
+            notifyLegacyDiscardIfEditorOpen();
         }
     }
 }

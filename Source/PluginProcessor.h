@@ -177,6 +177,9 @@ private:
     // 读入的状态树里缺哪个参数（旧版本存的状态），就补一个只带 id 的节点，让它回到默认值（少数参数特判成旧版的值）。
     // stateFormat = 存档根元素的 celadonStateFormat（没有 = 0，≤ 0.1.8.5；T-032 R10-02 起写 1），按存档区分回退规则的锚点。
     void addMissingParameterNodes (juce::ValueTree& newState, int stateFormat) const;
+
+    // Q1：旧聆听结果被丢掉时通知已经打开的编辑器。不写入 LIVE。不在消息线程就不碰界面，编辑器定时器会读同一份快照。
+    void notifyLegacyDiscardIfEditorOpen();
     void processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed);
     void processBuses (juce::AudioBuffer<float>& buffer, bool hostBypassed);
 

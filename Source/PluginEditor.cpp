@@ -1241,6 +1241,10 @@ void CeladonAudioProcessorEditor::timerCallback()
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
 
+    // 编辑器已经开着时读档：消息线程这一帧把「旧的聆听结果已丢弃」点亮。不进 LIVE，本次打开只提示一次。
+    if (status.legacySessionDiscarded)
+        noteDiscardedLegacyGlaze();
+
     // 试听差值：LIMIT 被旁通（界面、宿主自动化都算）就退出；耳机跟着处理器的状态。
     if (processor.isAuditioningDifference() && rawValue (state, param::limitBypass) >= 0.5f)
         setAuditioningDifference (false);
