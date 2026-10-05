@@ -1,0 +1,20 @@
+!!! Test 32 failed: 全部 clay* 字段都应写进快照 -- Expected value: 26, Actual value: 33
+!!! Test 45 failed: 删掉的常数不再写进快照：clayMonoBandSideRatioDb
+!!! Test 46 failed: 删掉的常数不再写进快照：clayMonoBandCorrelation
+!!! Test 47 failed: 删掉的常数不再写进快照：clayMonoMinHz
+!!! Test 48 failed: 删掉的常数不再写进快照：clayMonoMaxHz
+!!! Test 49 failed: 删掉的常数不再写进快照：clayMonoDefaultHz
+!!! Test 50 failed: 删掉的常数不再写进快照：clayMonoLossLowDb
+!!! Test 51 failed: 删掉的常数不再写进快照：clayMonoLossHighDb
+!!! Test 52 failed: 残留的旧常数属性读时忽略
+!!! Test 53 failed: T-063 之前存的快照带着 7 个自动收单属性（真实出厂位模式）：读时忽略，与出厂快照逐位相同
+!!! Test 54 failed: 再存不写：clayMonoBandSideRatioDb
+!!! Test 55 failed: 再存不写：clayMonoBandCorrelation
+!!! Test 56 failed: 再存不写：clayMonoMinHz
+!!! Test 57 failed: 再存不写：clayMonoMaxHz
+!!! Test 58 failed: 再存不写：clayMonoDefaultHz
+!!! Test 59 failed: 再存不写：clayMonoLossLowDb
+!!! Test 60 failed: 再存不写：clayMonoLossHighDb
+!!! Test 61 failed: 读旧存档再存 = 出厂快照的 XML，一个属性都不多不少
+!!! Test 62 failed: 损坏的残留属性也忽略（以前整份拒收）
+!!! Test 63 failed: Expected value: 26, Actual value: 33
