@@ -294,7 +294,7 @@ namespace celadon::glaze
     inline constexpr std::uint8_t legacyConditionsFormat = 1;       // 只有 manualParamsHash：v0.1.8.0 及以前的存档
     inline constexpr std::uint8_t continuousConditionsFormat = 2;   // 另有离散哈希与三个对数刻度值，比较按新口径
 
-    // 校准的参考条件：任一改变即失效（设计规格-GLAZE-决策与校准 第 6 节）。比较见 GlazeCalibrator::referenceMatches，
+    // 校准的参考条件：任一改变即失效（设计规格-GLAZE-决策与校准 第 6 节）。比较见 referenceMatches（GlazeProfile.h），
     // 手动参数这一部分由 setManualConditions（GlazeController.h）填。
     struct CalibrationReference
     {
@@ -358,7 +358,23 @@ namespace celadon::glaze
 
     enum class Phase : int { unlearned = 0, listening = 1, planTransition = 2, calibrating = 3, locked = 4 };
 
+    // T-048 阶段 2（Q8：PSR 单独一项）。三个守门各出一份 ≤ 0 dB 的退让，编排器取最小的那一份。
+    enum class GuardCause : std::uint8_t { none = 0, budget = 1, deliveryPeak = 2, contrast = 3, psr = 4 };
+
+    struct GuardOutput
+    {
+        float reliefDb = 0.0f;                 // ≤ 0
+        GuardCause cause = GuardCause::none;
+        bool engaged = false;                  // 正在退，或退到底仍超
+
+        // 既有调用把退让当 float 用（轨迹、累加）。新代码读 cause / engaged。
+        operator float() const noexcept { return reliefDb; }
+    };
+
     // 给界面的状态快照（编排器每块写入原子副本，界面线程读）。
+    // 阶段 2 不再跑聆听 / 锁定 / 校准状态机。下面 phase 起、到 House 锁定进度为止的旧字段仍留着，
+    // 好让正在改状态行的界面先编过：它们不再被状态机驱动（phase 停在 unlearned，聆听计数为 0）。
+    // 界面七条以本结构末尾的新字段为准。
     struct Status
     {
         Phase phase = Phase::unlearned;
@@ -411,5 +427,14 @@ namespace celadon::glaze
         bool houseOfflineListening = false;  // House 档还在聆听时出现过离线导出（锁住到锁定为止）：成品中途换过方案（评审 F7，Max 2026-10-01「加状态提示」）
         bool housePhaseHint = false;         // House 档反相提示（低频相关度 < 0.6 持续够久）
         float housePhaseMonoLossDb = 0.0f;   // 提示里写的单声道低频损失（dB，≤ 0）
+
+        // ---- T-048 阶段 2 连续调度（草图第 4 节；界面七条只读这些，不再另做一套 Phase）----
+        float confidence = 0.0f;             // c。第 3、5 条
+        float currentMainness = 1.0f;        // 正在播的这一段的 m。第 6 条
+        bool coldExport = false;             // 离线且 c < 0.5。第 3 条
+        GuardCause guardCause = GuardCause::none;
+        bool guardEngaged = false;           // 正在退，或已经退到底仍超。第 4 条
+        // 旧工程读档后提示一次（Q1）。不写入 LIVE，只活在本次打开里；成功读回 v2 后清掉。
+        bool legacySessionDiscarded = false;
     };
 }

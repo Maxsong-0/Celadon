@@ -103,6 +103,7 @@
 namespace celadon::glaze
 {
     class SegmentSink;   // T-048：段定稿的接收者（SegmentLedger.h）
+    class LiveProfile;   // 链持有的实时画像。编排器只存指针，不另分配一份
 
     class GlazeController
     {
@@ -138,8 +139,10 @@ namespace celadon::glaze
         // stats = 本块模块统计；chainLatencySamples = 本块整条链的延迟（校准对齐输入输出用）。
         // 这一块若没调 analyzeSpectrum（不经链、直接驱动编排器的调用方），频谱证据在这里处理。
         // 链只在宿主块开头交频谱帧；其内部统计切片传 spectrumDeferred=true，避免切片边界影响证据交付。
+        // output：出口母带（Listen 之前）。空指针时输出电平跟踪器本块不吃样本（不经链的测试）。
         void endBlock (const BalanceModule& balance, const LoudnessMeter& inputMeter, const LoudnessMeter& outputMeter,
-                       const ModuleStats& stats, int chainLatencySamples, bool spectrumDeferred = false) noexcept;
+                       const ModuleStats& stats, int chainLatencySamples, bool spectrumDeferred = false,
+                       const juce::AudioBuffer<float>* output = nullptr) noexcept;
 
         // v0.6 A4 追加。块开头、IN 表处理本块之前调：把上一块 Balance 新发布的帧交给分析器（频谱证据、斜率、占比）。
         // 为什么不在上一块的 endBlock 里做：Balance 每 hop 最后一片分析与帧的发布在同一块，分析器的逐帧统计若也挤进这一块，
@@ -167,6 +170,14 @@ namespace celadon::glaze
         // 它那里，分析器先把这些帧只交给实时段落账再就地定稿（别的一律不碰，下一块开头照常交）。CeladonChain 交它自己的 Balance；
         // 不经链、每块 endBlock 里就交了帧的调用方给 nullptr。
         void setLiveSegmentSink (SegmentSink* sink, const BalanceModule* pendingFrames = nullptr);
+
+        // 链在构造时交来它持有的 LiveProfile。prepare 把它绑成分析器的段接收者并打开实时模式。
+        void attachLiveProfile (LiveProfile* profile) noexcept;
+
+        // 音频线程只记下曲风。syncLiveModel 在消息线程、音频已停时调 LiveProfile::setConstants。
+        void notePendingModel (Genre genre) noexcept;
+        void syncLiveModel() noexcept;
+        bool hasPrepared() const noexcept;
 
         // ---- 任何线程 ----
 

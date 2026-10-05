@@ -34,8 +34,11 @@
 #include "GlazeConstants.h"
 #include "GlazeTypes.h"
 
+#include <juce_core/juce_core.h>
+
 #include <array>
 #include <cstddef>
+#include <memory>
 
 namespace celadon::glaze
 {
@@ -55,15 +58,22 @@ namespace celadon::glaze
             partSamples = 0;
         }
         void prepare (double sampleRate) noexcept;
-        void reset() noexcept;                         // g_保护回 0，窗口清空
+        void reset() noexcept;                         // 冷启动：g_保护回 0，窗口清空
+        void clear() noexcept { reset(); }             // 冷启动的别名。宿主 reset 不调
+        void snapRelief() noexcept;                    // GLAZE ≤ 0：退让落到 0，统计窗保留
+
+        // 消息线程。时隙环按 POD 打包成 base64，保护量按十六进制浮点。
+        std::unique_ptr<juce::XmlElement> createStateXml() const;
+        bool restoreStateXml (const juce::XmlElement&);
 
         // 本方案生效的约束（风格常数按权重混合后的上限）。可以每块调：上限没变时什么都不做；
         // 变了只重算窗口里的超限计数（历史保留，g_保护不变）。constants 里的保护层时长 / 速率 / 下限同时生效。
         // 调用之前保护层不做任何判定（g_保护保持 0）。
         void setLimits (const StyleConstants& blendedLimits, const Constants& constants) noexcept;
 
-        // 每块调用：stats 是本块模块统计；返回本块应执行的 g_保护（dB，已按速率平滑）。
-        float process (const ModuleStats& stats) noexcept;
+        // 每块调用：stats 是本块模块统计。退让按超限深度在 0.3～6 dB/s，回程按退让深度在 0.15～0.3 dB/s
+        //（T-047，Q8；不再用 Constants 里的 1 / 0.3）。cause：限幅 GR 是超限来源时 deliveryPeak，否则 budget。
+        GuardOutput process (const ModuleStats& stats) noexcept;
 
         float getProtectionDb() const noexcept;
         bool isRetreating() const noexcept;   // 本块在退让（校准据此作废子窗）
@@ -106,10 +116,14 @@ namespace celadon::glaze
         };
 
         // 当前所有约束的判定：over = 有一项超出上限；near = 有一项进入回差区（恢复要停）。
+        // 超出量（dB）按限幅 GR 与其余约束分开记，cause 取更大的那一边。
         struct Verdict
         {
             bool over = false;
             bool near = false;
+            bool limitOver = false;
+            float limitOvershootDb = 0.0f;
+            float otherOvershootDb = 0.0f;
         };
 
         static constexpr int slotCapacity = 1024;   // ≥ 窗口时隙数 + 1（出厂 3 s = 300 格；可容纳 10 s 的窗）
@@ -136,6 +150,9 @@ namespace celadon::glaze
         bool recovering = false;
         bool changedThisBlock = false;
         bool planLimited = false;
+        bool lastOver = false;
+        GuardCause lastCause = GuardCause::none;
+        float lastOvershootDb = 0.0f;
 
         // 时长折算（updateTiming）
         int slotLength = 480;         // 10 ms 的样本数
