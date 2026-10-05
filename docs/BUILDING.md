@@ -127,3 +127,38 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 本来就不同：arm64 的 TruePeak / Balance 用融合乘加、x86 是分开的乘和加；Mac 的 FFT 是 vDSP、Windows / Linux 是 JUCE 自带的；
 Windows 的 UCRT 还按 CPU 是否支持 FMA3 换超越函数的实现。所以 `tools/render` 的 `audio_hash` 只在同一台机器的同一种构建
 之间可比，跨平台对照用 `gate_check.py` 的 dB / LU 门槛（见 `tools/render/README.md`）。
+
+## CI（GitHub Actions，Studiolo 的自托管 runner）
+
+`.github/workflows/ci.yml`：每个 PR、每次合进 main，都在 Studiolo 的自托管 CI 服务器上原生编 `celadon_tests`，跑两遍全套——基线
+（与不带参数的 `scripts/test-linux.sh` 相同）与 `-march=x86-64-v3`（有 FMA，即上面「测试与性能」里改了契约代码要补跑的那一套；CI 每次都跑）。
+JUCE 9.0.2 由工作流按提交钉死、取到 `Celadon/` 旁边；构建目录留在 runner 的工作区里（`~ghrunner/runners/celadon/_work/Celadon/Celadon/build/`，
+每遍约 30 MB），下一次只重编改过的文件。
+
+- runner：`githubci`（192.168.100.107）上只属于本仓库的实例 `celadon`（`actions-runner@celadon.service`，用户 `ghrunner`，
+  标签 `self-hosted,linux,x64,celadon`），与 Studiolo 的实例互不影响；个人账号下 runner 只能按仓库注册。机器本身的搭法见 Studiolo
+  仓库的 `deploy/ci-runner/README.md`。
+- 只走自托管：私有仓库的 GitHub 托管分钟数整个账号共用（Studiolo 2026-09 两天就烧光过）。runner 离线时作业排队等它（GitHub 最多等
+  24 小时），不会改去托管机器；确要临时用托管机器，把 `runs-on` 改成 `ubuntu-24.04`。
+- 仓库必须保持私有：公开仓库的外部 PR 能在这台机器上执行任意代码。
+- 一个实例一次只跑一个作业：两遍全套排着跑，所有会话的 PR 共用这一条队列。推送前照旧用 `scripts/test-linux.sh` 验（它不占 runner）。
+- 作业一直排队或 runner 离线：`gh api repos/Maxsong-0/Celadon/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'`
+  看状态并告诉 Max；确认没有作业在跑才重启：`ssh maxsong@192.168.100.107 'sudo /usr/local/sbin/ci-runner-service restart celadon'`。
+- 编译工具用机器上的系统包：`cmake`（≥ 3.22）、`ninja`、`g++`。作业的 PATH 由实例目录里的 `.path` 给出，不含 `/snap/bin`。
+
+装实例与注册（在 Mac 上执行；注册令牌只由 Max 本人经 stdin 送入，不回显、不落盘，1 小时有效；agent 不经手、不打印）。
+`V` / `SHA` 是 [actions/runner](https://github.com/actions/runner/releases) 最新发布的版本与发布说明里 linux-x64 包的 sha256，
+`install-runner.sh` 下载后按它核对，不符不解包。块里不写注释：macOS 的 zsh 默认不认交互式的 `#` 注释。
+
+```bash
+H=192.168.100.107
+V=$(gh release view -R actions/runner --json tagName -q .tagName | sed 's/^v//')
+SHA=$(gh release view -R actions/runner --json body -q .body | grep -F "linux-x64-$V.tar.gz" | grep -oE '[0-9a-f]{64}' | head -1)
+ssh ghrunner@$H "~/install-runner.sh celadon $V $SHA"
+gh api -X POST repos/Maxsong-0/Celadon/actions/runners/registration-token --jq .token \
+  | ssh ghrunner@$H '~/runners/celadon/register.sh Maxsong-0/Celadon'
+ssh maxsong@$H 'sudo /usr/local/sbin/ci-runner-service enable-now celadon'
+```
+
+再加一台机器进同一个池（比如 109 `github-2`）：把 `H` 换掉，整段再跑一遍。实例名仍叫 `celadon`、标签相同即同池，runner 名是
+`<主机名>-celadon`，不会撞名；池里的机器都要支持 x86-64-v3（AVX2 + FMA），否则那一遍全套会因非法指令崩掉。
