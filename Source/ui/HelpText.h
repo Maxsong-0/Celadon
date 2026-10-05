@@ -60,8 +60,8 @@ namespace celadon::help
     enum class ClayStage : int { lowCut = 0, mono = 1, width = 2 };
     inline constexpr int numClayStages = 3;
 
-    // 一盏灯的颜色类别：暗（35% 灰青，没在处理）/ 亮（梅子青，实际值非 0）/ 保护（琥珀，该级的宽度保护正在介入或低频反相提示亮着）。
-    // 界面按 palette::textDim × comingSoonAlpha / accent / reduction 画（琥珀与 GR 表同色：「在压 / 保护中 / 提示中」都表示要留意）。
+    // 一盏灯的颜色类别：暗（灰圈，没在处理）/ 亮（实际值非 0：「自动」紫圈、「手动」青色实心）/ 保护（橙色实心，该级的宽度保护正在介入或低频反相提示亮着）。
+    // 界面按 palette::lampIdle / violet / c600 / warning 画（ModuleCards.cpp 的 paint）；橙色表示要留意：「保护中 / 提示中」。
     enum class ClayLamp : int { off = 0, on = 1, guard = 2 };
 
     // 界面从参数读到的用户设置里，只影响「显示什么」的那几项。

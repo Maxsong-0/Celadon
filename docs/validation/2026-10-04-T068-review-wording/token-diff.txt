@@ -1,0 +1,48 @@
+##### Source/ui/HelpText.cpp（去注释后 713 → 713 行；预处理器 stderr：无）
+@@ -380 +380 @@
+-"The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto does not mono, so no mono frequency is shown here).",
++"The side signal below this frequency becomes mono (linear phase, no phase rotation): tighter lows, mono playback completely unchanged; in Auto your value is not used (Auto never folds the lows to mono, so no mono frequency is shown here).",
+@@ -405 +405 @@
+-"三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经守护，自动加宽由先试后用把关。",
++"三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经峰值守护，自动加宽由先试后用把关，运行中还有宽度保护盯着相关度。",
+@@ -408 +408 @@
+-"Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not guarded, and automatic width is kept in check by the trial.",
++"Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not run through the peak guard; automatic width is kept in check by the trial and, while playing, by a width guard that watches correlation.",
+##### tools/render/RenderMain.cpp（去注释后 2733 → 2734 行；预处理器 stderr：无）
+@@ -1844 +1844 @@
+-"（已去掉链延迟、含 0.35 s 余振）。\n"
++"（已去掉链延迟、含 " + fixed (ringOutSeconds, 2) + " s 余振）。\n"
+@@ -1856,2 +1856,3 @@
+-"clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义。\n"
+-"- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。"
++"clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义（本工具不用手动收单，ADR-015 起收单 Hz 恒为 80、收单量恒为 0）。\n"
++"- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音；只在收单为「自动」的组计：auto、mono 组，其余组与重放行恒为 0）/ "
++"宽度保护介入的时长占比（只在加宽为「自动」的组计；每块读一次状态）。"
+@@ -1866 +1867 @@
+-"「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −180 dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
++"「手动」照填自动链的实际值再重放一遍，应复现「自动」（最大样本差 ≤ −" + fixed (-toDbfs (replayTolerance), 0) + " dBFS，不要求逐位；metrics.csv 的 replay_check：ok / mismatch / n/a）。"
+@@ -1881 +1882 @@
+-"后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.35 s 余振，成品与原曲逐样本对齐\n";
++"后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 " + fixed (ringOutSeconds, 2) + " s 余振，成品与原曲逐样本对齐\n";
+@@ -2072 +2073 @@
+-+ std::string (! clayExpressible ? "自动收单比例在 0、1 之间，「手动」态表达不了（手动收单固定是 1）"
+++ std::string (! clayExpressible ? "有块的修坯实际值「手动」态表达不了（收单比例不是 0 或 1，或低切 / 加宽越界；手动收单固定是 1）"
+@@ -2409 +2410 @@
+-: "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −180 dBFS）"))
++: "最大样本差 " + fixed (toDbfs (difference), 1) + " dBFS（允许 ≤ −" + fixed (-toDbfs (replayTolerance), 0) + " dBFS）"))
+##### tests/HelpTextTests.cpp（去注释后 529 → 532 行；预处理器 stderr：无）
+@@ -367,2 +367,2 @@
+-&& utf8Contains (utf8 (indicator->effect), "加宽不经守护"),
+-"indicator: the guard covers low cut and mono, width is not guarded");
++&& utf8Contains (utf8 (indicator->effect), "加宽不经峰值守护"),
++"indicator: the guard covers low cut and mono, width is not run through the peak guard");
+@@ -371 +371 @@
+-&& juce::String (indicator->effectEn).contains ("width is not guarded")
++&& juce::String (indicator->effectEn).contains ("width is not run through the peak guard")
+@@ -376,0 +377,3 @@
++expect (utf8Contains (utf8 (indicator->effect), "运行中还有宽度保护盯着相关度")
++&& juce::String (indicator->effectEn).contains ("while playing, by a width guard that watches correlation"),
++"indicator: automatic width also has the live width guard");
+@@ -407 +410 @@
+-expect (juce::String (entry->effectEn).contains ("Auto does not mono, so no mono frequency is shown here")
++expect (juce::String (entry->effectEn).contains ("Auto never folds the lows to mono, so no mono frequency is shown here")
