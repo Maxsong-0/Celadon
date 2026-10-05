@@ -651,8 +651,8 @@ namespace celadon::ui
 
         // PEAK 关着时 setSpectrum 不比峰值线（T-058），路径停在上一次重建时。打开这一刻让 paint 按此刻的值整组重建
         // （buildCurvePaths 先换成最新值），并按 R-02 ① 把画出的区域并进旧区域：点击引起的重画先于显示器的帧回调到达也画的是
-        // 此刻的峰值线，之后的「旧区域」也盖得住它——不靠 curveRegion 不论开关都算峰值线（R-02 ②）与描边外扩的 3 px 余量。
-        // 关掉不用重建：峰值线不再画，整面重画把它擦掉。
+        // 此刻的峰值线，之后的「旧区域」也盖得住它（此刻 peakToggle 已开，curveRegion 含峰值线；T-073 起 PEAK 关着时 curveRegion 不含它，
+        // 开 PEAK 靠的就是这里的重建与 ①，不再有「不论开关都算」兜底）。关掉不用重建：峰值线不再画，整面重画把它擦掉。
         if (shouldShow)
             curvePathsValid = false;
 
@@ -722,13 +722,15 @@ namespace celadon::ui
         // 此刻几条曲线（含描边外伸）占的区域：OUT 的填充一直到底边，所以区域总是从最高的曲线顶到面板底。
         // 描边超出路径包围盒的上限同 paint：尖角接头最多伸出 2 × 线宽，再加 1 像素抗锯齿。
         const auto strokeArea = [] (const juce::Path& path, float thickness) { return path.getBounds().expanded (2.0f * thickness + 1.0f); };
-        // 峰值线与 IN 线不论开关都算进去（评审 R-02 ②）：开关切换那一帧是整面重画，之后的「旧区域」也要盖住它们可能画过的地方。
-        // T-058 起这是第二道保险：PEAK 打开那一刻 setPeakShown 让 paint 按此刻的值重建、按 ① 把画出的区域并进旧区域，峰值线已经
-        // 盖住（截图工具 S9：只撤这一条照样不留残影，main 上撤它会留）；IN 线只在 setSpectrum 判变了之后出现，那一次的区域本来就含它。
-        // 照留：将来改了打开时的重建或 ①，它还兜着。代价是 PEAK 关着放音乐时看不见的峰值线照样进脏区（峰值保持常比 OUT 顶高几 dB；
-        // T-058 实测合成音乐 PEAK 关时脏区设备像素多 11 ～ 12 %，与 main 相同）。
-        auto area = outputFill.getBounds().getUnion (strokeArea (outputLine, 0.8f)).getUnion (strokeArea (averageLine, 1.4f))
-                                          .getUnion (strokeArea (peakLine, 1.0f));
+        // 峰值线只在 PEAK 开着时才算进去（T-073，评审 SV-2）。原来（R-02 ②）不论开关都算：开关切换那一帧是整面重画，之后的「旧区域」
+        // 也要盖住它可能画过的地方。T-058 起打开 PEAK 时 setPeakShown 让 paint 按此刻的值重建、按 ① 把画出的区域并进旧区域，关掉时整面
+        // 重画把它擦掉，② 成了第二道保险（截图工具 S9 / S9b：只撤它照样不留残影），代价是 PEAK 关着放音乐时看不见的峰值线照样进脏区
+        // （峰值保持常比 OUT 顶高几 dB；T-058 实测合成音乐脏区设备像素多 11 ～ 12 %）——现在去掉，--only check 有一条守它。
+        // IN 线只在 setSpectrum 判变了之后才有（关着时 inputLine 是空的），那一次的区域本来就含它。
+        auto area = outputFill.getBounds().getUnion (strokeArea (outputLine, 0.8f)).getUnion (strokeArea (averageLine, 1.4f));
+
+        if (peakToggle.isOn())
+            area = area.getUnion (strokeArea (peakLine, 1.0f));
 
         if (! inputLine.isEmpty())
             area = area.getUnion (strokeArea (inputLine, 1.1f));

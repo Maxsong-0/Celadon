@@ -1613,7 +1613,8 @@ namespace
     // 频谱仪检查（README「--only check」）：
     //   IN 虚线（T-051）：自己切段的 createDashedStrokeReusing 与 JUCE 的 createDashedStroke 逐字节相同（评审 R-07 的改法不改像素）；
     //   增量重画 vs 整帧（评审 R-08 建议，守 R-02 那一类「脏区漏标、旧画面留在屏上」）：T-051 的 S8（守 ①），T-058 的 S9（守打开 PEAK 时的重建；
-    //   R-02 ② 在 T-058 上成了第二道保险，单独撤它 S9 照样全过，要验 ② 只能在 main 上撤，见 T-058 证据的 M 变体；另一行守「PEAK 关、只剩峰值
+    //   R-02 ② 在 T-058 上成了第二道保险，单独撤它 S9 照样全过，要验 ② 只能在 main 上撤，见 T-058 证据的 M 变体（T-073 起 ② 已去掉，
+    //   probeRegionWithoutPeak 守它的去向）；另一行守「PEAK 关、只剩峰值
     //   在落时不重建」）与播放（评审 B1 的第一个场景）——场景表 dirtyScenarios；
     //   打开 PEAK、换斜率、悬停那一刻画的是此刻的数据（T-058 的 S10，runPeakFreshness）。
     //   T-070（夜间评审补覆盖）：S9 斜率 0 与 4.5 各一份（零重建数真的重建，悬停也比）、S9b（PEAK 开 → 关）、S11（IN 开着：换斜率、IN 关 / 开）、
@@ -2107,7 +2108,7 @@ namespace
     }
 
     // ---- S9（T-058；T-070 起斜率 0 与 4.5 各一份，4.5 是出厂默认；守打开 PEAK 时的重建（R-02 ② 在 T-058 上成了第二道保险，单独撤它 S9 照样全过，
-    // 要验 ② 只能在 main 上撤，见 T-058 证据的 M 变体）；外加「PEAK 关、只剩峰值在落时不重建」）----
+    // 要验 ② 只能在 main 上撤，见 T-058 证据的 M 变体；T-073 起 ② 已去掉）；外加「PEAK 关、只剩峰值在落时不重建」）----
     // 峰值线关、斜率 slopeIndex：6 kHz −12 dBFS 正弦 2 s → 数字静音（暖机，不画）。停播后 OUT 约 0.3 s 落到底边以下、平均线约 1 s 内也落到
     // 底边以下，峰值保持 1.5 s 后按 12 dB/s 落——5.5 ～ 6.0 s 这 30 帧只剩它在落：PEAK 关着时屏上什么都没变，曲线帧（重建 + 重画曲线区）
     // 应为 0（main 218789a 每帧一次）。T-070：「不重建」数真的重建（SpectrumView::getCurveBuildCount 的差，评审 F5：原来拿脏区当代理，
@@ -2942,6 +2943,31 @@ namespace
         return { rebuilds == 0, juce::String ((int) rebuilds) + " path rebuilds in 300 ms of message loop after the last advanceForSnapshot, needs 0" };
     }
 
+    // ---- T-073（T-070 评审 SV-2）：PEAK 关着时看不见的峰值线不进脏区 ----
+    // curveRegion（增量重画按它标脏）原来不论 PEAK 开关都算峰值线（R-02 ②）：峰值保持常比 OUT 顶高几 dB，PEAK 关着放音乐时脏区白白多 11 ～ 12 %。
+    // 现在只在 PEAK 开着时算。两个时间轴喂同一段声音（6 kHz −12 dBFS 正弦 1 s → 静音 0.2 s：OUT 与平均线已落下去，峰值保持 1.5 s 内还在
+    // 顶上），PEAK 开的区域顶必须比 PEAK 关的高出 20 px 以上。改回「不论开关都算」→ 两个区域一样高（差 0）；改成「永远不算」→ 开着时也不含
+    // 峰值线、同样差 0。两个方向都抓。
+    ProbeResult probeRegionWithoutPeak()
+    {
+        SpectrumTimeline withPeak (true, false, 0), withoutPeak (false, false, 0);
+
+        if (! withPeak.valid || ! withoutPeak.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        for (auto* timeline : { &withPeak, &withoutPeak })
+        {
+            timeline->steps (60, SpectrumTimeline::Sound::sine);
+            timeline->steps (12, SpectrumTimeline::Sound::silence);
+        }
+
+        const auto topWith = withPeak.view.getCurveRegion().getY();
+        const auto topWithout = withoutPeak.view.getCurveRegion().getY();
+        const auto gap = topWithout - topWith;
+        return { gap >= 20.0f, "curve region top y = " + juce::String (topWithout, 1) + " with the peak line off, " + juce::String (topWith, 1)
+                                   + " with it on: the peak hold sits " + juce::String (gap, 1) + " px above the other curves, needs >= 20 px" };
+    }
+
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check)
     {
         using namespace celadon::ui;
@@ -3066,6 +3092,11 @@ namespace
         const auto timerPush = probeTimerPush();
         check (timerPush.ok, "T-072 spectrum: an editor driven by advanceForSnapshot is not advanced by its own timer (6 kHz -12 dBFS sine 0.5 s, then 300 ms of message loop: "
                                  + timerPush.detail + ")");
+
+        // PEAK 关着时看不见的峰值线不进脏区、开着时进（T-073，T-070 评审 SV-2，见 probeRegionWithoutPeak）。
+        const auto regionWithoutPeak = probeRegionWithoutPeak();
+        check (regionWithoutPeak.ok, "T-073 spectrum: the dirty curve region leaves out the peak line while PEAK is off and includes it while on (6 kHz -12 dBFS sine 1 s, silence 0.2 s: "
+                                         + regionWithoutPeak.detail + ")");
     }
 }
 

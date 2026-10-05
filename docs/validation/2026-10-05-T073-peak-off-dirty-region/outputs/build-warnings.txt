@@ -1,0 +1,6 @@
+new: warnings=0
+base: warnings=0
+always: warnings=0
+never: warnings=0
+new-music: warnings=0
+base-music: warnings=0
