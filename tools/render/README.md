@@ -70,7 +70,7 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--in` | 必填 | 歌曲目录：只读第一层的 wav / wave / bwf / aif / aiff / aifc / flac（按扩展名交给对应格式；.wave / .aifc 按内容认），跳过隐藏文件 |
 | `--out` | 必填 | 输出目录（不存在就建；不能与 `--in` 相同） |
 | `--glaze` | `0,35,70` | GLAZE 取值 0～100，逗号分隔 |
-| `--clay` | `auto,off` | `auto` = 三项都「自动」，`off` = 三项都「关」；`lowcut` / `mono` / `width` = 只留这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品） |
+| `--clay` | `auto,off` | `auto` = 三项都「自动」，`off` = 三项都「关」；`lowcut` / `mono` / `width` = 只留这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品。ADR-015 起自动收单恒为 0，`mono` 这一组的成品与 `off` 逐位相同，只多记反相提示时长 `phase_guard_pct`） |
 | `--style` | `auto` | GLAZE 风格 `auto` / `warm` / `punchy` / `clean`，可逗号分隔多个（也是网格的一维） |
 | `--block` | `512` | 宿主块长（样本，1～65536），两遍都用它 |
 | `--match-lufs` | `-16` | 成品按整体响度只乘增益对齐到这个值（-60～0 LUFS） |
@@ -135,7 +135,7 @@ T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`�
 | 限幅 GR 平均 / 最大 | `limit_gr_mean_db` / `limit_gr_max_db` | 第二遍每块读一次 `getAndResetLimitGainReductionDb()`（块内最大压缩量）：平均按块长加权（「块峰值」的平均，比逐样本平均偏高；静音段计 0），最大 = 全曲最大 |
 | 低频相关度 < 125 Hz | `low_corr_lt125hz` | 左右各过 4 阶 Butterworth 125 Hz 低通后 ρ = 2ΣLR / (ΣL² + ΣR²) = (P_M − P_S) / (P_M + P_S)，与分析器 lowCorrelation 同一口径：1 单声道、0 不相关、−1 反相 |
 | 真次声 < 16 Hz dB | `infra_share_lt16hz_db` | M = (L + R) / 2 过 8 阶 Butterworth 16 Hz 低通后的能量 ÷ M 全频能量，与分析器 subShareDb 同一定义（ADR-012；整段计，不设有效音频门；侧声道里的次声不计入） |
-| 代价限 | `clay_cost_limited` | 先试后用（ADR-012）：成品末尾哪几项因「试过会抬高峰值」被减量 / 否决（lowcut / mono / width，空 = 没有） |
+| 反相提示 / 宽度保护（格末） | `clay_cost_limited` | 先试后用（ADR-012）：成品末尾哪几项因「试过会抬高峰值」被减量 / 否决（`lowcut` / `width`，两项都有写 `lowcut+width`，空 = 没有；ADR-015 起自动不收单，不再出现 `mono`）。metrics.md 没有单独一列：有值时接在「反相提示 / 宽度保护」那一格末尾（「，代价限：lowcut」），空时不写 |
 | 低切 Hz / 收单 Hz / 收单量 / 加宽 dB | `clay_lowcut_hz` / `clay_mono_hz` / `clay_mono_amount` / `clay_width_db` | 成品末尾 `getGlazeStatus()` 的 Clay 四个实际值（上一块交给 ClayModule 的值）；低切 0 =「关」；收单量 0 时收单 Hz 无意义 |
 | 反相提示 / 宽度保护 | `phase_guard_pct` / `width_guard_pct` | 第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比；`phase_guard_pct` 沿用旧列名（改名会断旧指标表） |
 | GLAZE 状态 | `glaze_phase` / `calibration_valid` / `resolved_style` | 成品末尾的阶段（unlearned / listening / planTransition / calibrating / locked）、校准是否有效、「自动」风格此刻偏向哪种 |
@@ -217,7 +217,8 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 2. **阳性对照**：另起一条 GLAZE 0 的链（编排器不做决策，实际参数逐位等于喂进去的值），逐块喂这些参数，修坯三项用「手动」照填
    自动链那一块的实际值——输出应复现自动链（最大样本差 ≤ −180 dBFS）。不要求逐位：GLAZE > 0 的链按保护层 10 ms 时隙切片处理，
    GLAZE 0 整块处理，歌尾余振衰减到 −600 dBFS 量级时会差一点（2026-09-28 实测 l_kskdhjf、ooaa 差 1e-31）。自动收单比例在
-   0、1 之间的块「手动」态表达不了（手动收单固定是 1），目标频谱用了「参考」形状的块重放链没有侧链参考，都记 `n/a`；
+   0、1 之间的块「手动」态表达不了（手动收单固定是 1），目标频谱用了「参考」形状的块重放链没有侧链参考，都记 `n/a`，原因写进
+   metrics.md 该曲备注。ADR-015 起自动不收单，前一种已不再出现；本工具的目标频谱固定是出厂「自动」（不会落到「参考」），后一种眼下也走不到；
 3. **重放全关**：同样的逐块参数、修坯三项都「关」，出一组 `clay-replay-off`（写成品、量指标）。
 
 门槛检查：`python3 tools/render/gate_check.py <metrics.csv>`（多首歌分开跑时先把各自的 metrics.csv 合并成一份）。判定（失败返回 1）：
@@ -371,7 +372,8 @@ House 档的行若画像没有门控结果（`house_gate_valid` ≠ 1），说�
    结论与版本号一起写进版本档。
 6. 每首至少对比：同一 GLAZE 下修坯「自动」vs「重放全关」（修坯本身的效果，两者 GLAZE 决策相同；「全关」那组还混着方案分岔，
    听的是「用户关掉修坯」的整体结果），以及 GLAZE 0 vs 35 vs 70（整体推力）。
-   低音很宽 / 有反相内容的那首重点听低频是否更紧、单声道回放（DAW 里把总线切成单声道）是否更稳。
+   低音很宽 / 有反相内容的那首：ADR-015 起「自动」不收单，反相段只亮收单灯（琥珀）、不改声音，与「重放全关」的差别和其余段落一样
+   只来自低切与加宽，所以不再专门比低频是否更紧、单声道回放（DAW 里把总线切成单声道）是否更稳。
 
 ## 注意
 

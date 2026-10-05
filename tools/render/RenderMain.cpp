@@ -146,6 +146,7 @@ namespace
 
     // 修坯的对照：自动 = 抽屉默认（三项都「自动」）；全关 = 三项都「关」（ADR-009 三态）；
     // lowcut / mono / width = 只有这一项「自动」、另两项「关」（拆分诊断：是哪一项改变了成品）。
+    // ADR-015 起自动收单恒为 0：mono 这一组的成品与全关逐位相同，只多记反相提示时长（phase_guard_pct 只在收单「自动」时计）。
     // replayOff 不是网格选项：每组 GLAZE > 0 的「自动」之后自动加一行「同决策重放 · 修坯关」（ADR-016，见 replayPass）。
     enum class ClayChoice { automatic, off, lowCutOnly, monoOnly, widthOnly, replayOff };
 
@@ -482,6 +483,7 @@ namespace
                      "  --glaze 0,35,70     GLAZE 取值（0 ~ 100，逗号分隔），默认 0,35,70\n"
                      "  --clay auto,off     修坯：auto = 抽屉默认（三项都「自动」），off = 三项都「关」；\n"
                      "                      lowcut / mono / width = 只留这一项「自动」（拆分诊断）；默认 auto,off\n"
+                     "                      （ADR-015 起自动收单恒为 0：mono 这一组的成品与 off 逐位相同，只多记反相提示时长）\n"
                      "  --style auto        GLAZE 风格 auto / warm / punchy / clean（可逗号分隔多个），默认 auto\n"
                      "  --block 512         宿主块长（样本，1 ~ 65536），默认 512\n"
                      "  --match-lufs -16    成品按整体响度只乘增益对齐到这个值（-60 ~ 0 LUFS），默认 -16\n"
@@ -2497,7 +2499,7 @@ namespace
         return "## 口径\n\n"
                "- **原始输入**：读入后立体声化（单声道复制成双声道、多声道取前两个）的原曲，用同一套量法，作对照。\n"
                "- **LUFS（对齐前）**：插件自己的 BS.1770-4 表（`celadon::LoudnessMeter`，与界面 OUT 表同一算法）量整段成品"
-               "（已去掉链延迟、含 0.3 s 余振）。\n"
+               "（已去掉链延迟、含 0.35 s 余振）。\n"
                "- **对齐增益**：`--match-lufs` − 对齐前 LUFS；成品只乘这一个增益，不再限幅。\n"
                "- **真峰值**：插件的 8× 真峰值检测器（与限幅器、表同一算法），对齐前；默认 Ceiling 下应 ≤ -1.0 dBTP"
                "（验收口径容差 +0.01 dB）。\n"
@@ -2510,7 +2512,8 @@ namespace
                "与分析器 subShareDb 同一定义（ADR-012；这里整段计，不设有效音频门；静音段能量可忽略）。只看 M：侧声道里的次声不计入。\n"
                "- **低切 / 收单 Hz / 收单量 / 加宽**：成品末尾 `getGlazeStatus()` 的 clayLowCutHz / clayMonoHz / clayMonoAmount / "
                "clayWidthDb（上一块交给 ClayModule 的实际值）；低切「关」= 0；收单量为 0 时收单 Hz 无意义。\n"
-               "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。\n"
+               "- **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。"
+               "格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）。\n"
                "- **GLAZE 状态**：成品末尾的阶段与「校准有效」；风格为「自动」且 GLAZE > 0 时附此刻偏向的风格。"
                "第一遍（聆听）结束时的阶段在 metrics.csv 的 listen_phase 列。\n"
                "- **成品文件**：`<歌名>__g<GLAZE>_clay-<auto|off|replay-off>_<风格>.wav`。metrics.csv 的 audio_hash 是对齐前成品"
@@ -2534,7 +2537,7 @@ namespace
         md += "- 对齐：成品按整体响度只乘增益对齐到 " + fixed (options.matchLufs, 1)
             + " LUFS；32-bit float，允许超过 0 dBFS，不再限幅\n";
         md += "- 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）"
-              "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.3 s 余振，成品与原曲逐样本对齐\n";
+              "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.35 s 余振，成品与原曲逐样本对齐\n";
         md += "- 其余参数全是新实例默认（Ceiling -1.0 dBTP、Lookahead 2 ms、Limit Gain 0 等，见 Source/ParameterDefaults.h，"
               "插件参数表同一处真源）\n";
         md += "- 高级母带（新实例默认）：" + masteringText (makeFactoryParams().mastering)
