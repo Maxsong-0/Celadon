@@ -92,10 +92,10 @@ namespace celadon::ui
             { Text::notMatched,         "未等响（响度差 {0} dB）",  "not matched ({0} dB apart)" },
             { Text::differenceUnknown,  "播放几秒后测出响度差",     "play a few seconds to measure" },
             { Text::drivesParameters,   "联动 7 项参数",            "Drives 7 parameters" },
-            { Text::glazeManual,        "GLAZE 为 0：全部手动",     "GLAZE at 0: fully manual" },
+            { Text::glazeManual,        "GLAZE 为 0：7 项都用手动值", "GLAZE at 0: all 7 at manual values" },
             { Text::cornerUnlearned,    "播放后自动开始聆听",       "Starts listening on playback" },
             { Text::cornerListening,    "正在聆听 {0} / {1} 秒",    "Listening {0} / {1} s" },
-            { Text::cornerListened,     "已聆听 {0} 秒",            "Listened {0} s" },
+            { Text::cornerListened,     "聆听已完成",               "Listening complete" },
             // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
            #if JUCE_MAC
             { Text::hintDrag,           "拖动调节 · \xe2\x8c\x98 精调",  "Drag \xc2\xb7 \xe2\x8c\x98 for fine" },
@@ -111,6 +111,7 @@ namespace celadon::ui
             { Text::chipLocked,         "已锁定",                   "Locked" },
             { Text::chipListening,      "聆听中",                   "Listening" },
             { Text::chipCalibrating,    "校准中",                   "Calibrating" },
+            { Text::chipAwaiting,       "待校准",                   "Awaiting" },
             { Text::chipUnlearned,      "未学习",                   "Not learned" },
             { Text::chipPaused,         "已暂停",                   "Paused" },
             { Text::chipLimited,        "受限",                     "Limited" },

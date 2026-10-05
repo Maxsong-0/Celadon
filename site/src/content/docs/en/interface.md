@@ -8,18 +8,18 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 
 ## Meters and spectrum (top half)
 
-- **IN / OUT meters**: true peak measured with 8× interpolation (dBTP); the number below is the peak hold — click it to reset. OUT shouldn't exceed the Ceiling; if it does, it turns orange.
+- **IN / OUT meters**: true peak measured with 8× interpolation (dBTP); the number below is the peak hold — click it to reset. OUT shouldn't exceed the ceiling in effect (at or below −2 dBTP with Delivery on Streaming); if it does, it turns orange.
 - **GR meter**: how many dB the limiter is pulling down right now. If it stays above 6 dB for long stretches, Gain is pushed too far.
 - **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average, thin dark cyan line = peak hold, dashed line = IN; each can be turned on or off. Display slope 0 / 3 / 4.5 dB/oct (pivoting at 1 kHz, 4.5 by default). While CLAY is working, it draws the low-cut frequency and, when Mono is on Manual, the mono frequency. Hovering reads out “dB | Hz | note + cents”.
 - **Loudness panel** (top right): integrated loudness, short-term (S), true-peak maximum (TP), peak-to-loudness ratio (PLR), the streaming normalisation amount (against −14) and the target loudness marker.
 
 ## Middle row
 
-- The GLAZE heading and status label: Locked / Listening / Calibrating / Not learned / Paused / Limited / Off. A choice sits on each side of the heading: **Genre** on the left (General / Deep / Tech / Melodic) and **Delivery** on the right (Standard / Streaming / Club); see [Genre and Delivery](/docs/glaze#genre-and-delivery) for what they mean and how to use them.
+- The GLAZE heading and status label: Locked / Listening / Awaiting / Calibrating / Not learned / Paused / Limited / Off. A choice sits on each side of the heading: **Genre** on the left (General / Deep / Tech / Melodic) and **Delivery** on the right (Standard / Streaming / Club); see [Genre and Delivery](/docs/glaze#genre-and-delivery) for what they mean and how to use them.
 - The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now.
 - Particles on both sides: streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
 - A row of buttons: style (Auto / Warm / Punchy / Clean) · Relearn | A / B · Match.
-- Two lines of description at bottom left (replaced by control hints while you hover or drag): the first says how many parameters GLAZE drives, the second how listening is going (“GLAZE at 0: fully manual” at GLAZE 0); with a House genre and GLAZE above 0, while it is still listening (Relearn included), the second line reads “Start playback at the drop to learn faster”. A colour legend at bottom right.
+- Two lines of description at bottom left (replaced by control hints while you hover or drag): the first says how many parameters GLAZE drives, the second how listening is going (“GLAZE at 0: all 7 at manual values” at GLAZE 0); with a House genre and GLAZE above 0, while it is still listening (Relearn included), the second line reads “Start playback at the drop to learn faster”. A colour legend at bottom right.
 - Exit hints for temporary monitoring: listening to the original, listening to the difference and normalisation preview are mutually exclusive; while one is on, a clickable hint to leave it stays here. Closing the window exits all of them.
 
 ## The four cards (bottom half, in real processing order)
