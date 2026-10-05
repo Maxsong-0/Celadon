@@ -1,0 +1,8 @@
+=== G-default-closeout-vs-main75 ===
+A=/home/maxsong/.cache/celadon-t048-22songs/out-closeout-G rows=180 file_sha=cc8352a28e8d6618
+B=/home/maxsong/.cache/celadon-t048-22songs/out-main75-G rows=180 file_sha=cc8352a28e8d6618
+songs common=20 only_a=[] only_b=[]
+per-song metrics.csv: same=20 diff=0 missing=0
+combined metrics.csv identical: True
+A status fails: none (20 lines)
+B status fails: none (20 lines)

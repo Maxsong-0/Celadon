@@ -9,7 +9,7 @@
 #       scripts/windows-wine.sh ui                   # cl.exe 编界面截图工具，在 Wine + Xvfb 里跑交互检查（tools/ui-snapshot --only check）
 #       scripts/windows-wine.sh fetch <本机目录>      # 把服务器上的 Celadon.vst3、Celadon.exe、安装包取回本机
 #       scripts/windows-wine.sh all                  # test + installer
-# 前置：① 改过 Celadon.jucer 就先在本机用 Projucer 9.0.2 重新生成（Projucer --resave Celadon.jucer）：Builds/VisualStudio2022
+# 前置：① 拉了新提交或改过 Celadon.jucer 就先在 Mac 上用 Projucer 9.0.2 重新生成（命令见 docs/BUILDING.md「目录与 Projucer」，Projucer 要写全路径）：Builds/VisualStudio2022
 #          随源码同步过去；② 服务器上按 scripts/setup-windows-wine.sh 装好 Wine、msvc-wine（VS2022 / v143）、Wine Mono、Inno Setup。
 # 环境：CELADON_WIN_HOST 覆盖目标主机（默认 maxsong@192.168.100.109，需在家里网络或 VPN 下）。
 set -euo pipefail
@@ -37,10 +37,13 @@ REMOTE=".cache/celadon-win/$(basename "$ROOT")-$KEY"
 if [ "$MODE" = "fetch" ]; then
   DEST="$2"
   mkdir -p "$DEST"
-  # 远端路径经远端 shell 再拆一次词：「Standalone Plugin」的空格要转义（macOS 的 openrsync 没有 --protect-args）。
+  # 「Standalone Plugin」目录名里有空格，远端路径的写法要两种 rsync 都认：openrsync / 旧版 rsync 把远端路径原样交给远端 shell（空格要自己转义）；
+  # rsync ≥ 3.2.4 默认自己转义空格等 shell 字符，我们写的反斜杠被再转义一次，成了路径里的字面字符，找不到目录、退出码 23
+  # （2026-10-05 Mac 上踩过，Spark 上同样复现）。所以用 ? 通配这个空格：两种写法下 ? 都不被转义，都由远端 shell 展开成带空格的那一个目录名
+  # （展开结果不会再被拆开）。不用 --secluded-args（-s，那样才由远端 rsync 自己展开通配）：macOS 的 openrsync 不认这个参数。
   rsync -a -e "${SSH[*]}" \
     "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/VST3/Celadon.vst3" \
-    "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/Standalone\\ Plugin/Celadon.exe" \
+    "$HOST:$REMOTE/Celadon/Builds/VisualStudio2022/x64/Release/Standalone?Plugin/Celadon.exe" \
     "$DEST/"
   # 只取当前版本（Celadon.jucer 的 version）的安装包：服务器上的输出目录里可能还留着旧版本的。
   VERSION="$(sed -n 's/^ *version="\([0-9.]*\)".*/\1/p' "$ROOT/Celadon.jucer" | head -1)"
@@ -53,11 +56,11 @@ fi
 if [ "$MODE" != "test" ] && [ "$MODE" != "ui" ]; then
   VCXPROJ="$ROOT/Builds/VisualStudio2022/Celadon_SharedCode.vcxproj"
   if [ ! -f "$VCXPROJ" ]; then
-    echo "没有 Builds/VisualStudio2022：先用 Projucer 9.0.2 重新生成（Projucer --resave Celadon.jucer）" >&2
+    echo "没有 Builds/VisualStudio2022：先在 Mac 上用 Projucer 9.0.2 重新生成并同步过来（命令见 docs/BUILDING.md「目录与 Projucer」；Projucer 不在 PATH 里，要写全路径）" >&2
     exit 1
   fi
   if [ "$ROOT/Celadon.jucer" -nt "$VCXPROJ" ]; then
-    echo "Celadon.jucer 比 Builds/VisualStudio2022 新：先用 Projucer 9.0.2 重新生成（Projucer --resave Celadon.jucer）" >&2
+    echo "Celadon.jucer 比 Builds/VisualStudio2022 新：先在 Mac 上用 Projucer 9.0.2 重新生成并同步过来（命令见 docs/BUILDING.md「目录与 Projucer」；Projucer 不在 PATH 里，要写全路径）" >&2
     exit 1
   fi
 fi

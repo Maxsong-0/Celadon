@@ -184,6 +184,8 @@ namespace celadon::test
             testBlockSizeIndependence();
             testReanchoring();
             testNoAllocation();
+            testStartJustBeforeBarLine();   // T-048 阶段 1 修订（代理 B2）
+            testTwoBarCap();                // T-048 阶段 1 收口：段长封顶两段
         }
 
     private:
@@ -633,6 +635,134 @@ namespace celadon::test
             // 先读出计数再断言：断言的消息字符串本身会分配，实参求值的先后不定。
             const auto allocations = (int) (allocationCountOnThisThread() - before);
             expectEquals (allocations, 0, "no operator new on the audio thread");
+        }
+
+        //==============================================================================
+        // T-048 阶段 1 修订（代理 B2，任务书第 4 条；REPORT-C 5.7）：从第 N 小节起播、起点 = round(小节线)。124 BPM 一小节 92903.2258 样本
+        // （每小节的小数部分 7/31）：第 33 小节线在起点之后 0.23 个样本、第 3 小节在 0.45 个样本之后——原来锚定把偏移钳在「每小节样本 − 1」
+        // 再取整，原点晚一个样本，第一段成了 [0, 1) 的碎段（上一小节的键），这一小节从样本 1 起；现在这条小节线就近取整落在起点上，第一段就是
+        // 这一小节、从 0 起，之后的小节线在 0 + round(k × 每小节样本数)。第 4 小节线在起点之前 0.32 个样本：原来就对，照旧。
+        // 对照（照旧）：起点在小节线前半个样本及以上（第 33 小节线前 1.23 个样本、第 4 小节线前 0.68 个样本）——那几个样本就近取整属于上一小节，
+        // 第一段是上一小节的 [0, 1)，这一小节从样本 1 起。块长 512 / 4096 / 随机都一样。
+        void testStartJustBeforeBarLine()
+        {
+            beginTest ("start just before a bar line (less than half a sample): the first segment is that bar from the start sample, no 1-sample piece");
+
+            struct Case
+            {
+                std::int64_t position;   // 起播的宿主位置
+                int firstBar;            // 第一段是第几小节（从 1 起）
+                std::int64_t firstEnd;   // 第一段的 end（分析器时间 = 起播之后的样本数）
+                std::int64_t secondEnd;  // 第二段的 end
+            };
+
+            const auto line = [] (int bar) { return (double) (bar - 1) * samplesPerBar; };
+            const auto bar = (std::int64_t) std::llround (samplesPerBar);
+            const std::vector<Case> cases {
+                { (std::int64_t) std::llround (line (33)), 33, bar, (std::int64_t) std::llround (2.0 * samplesPerBar) },   // 0.23 个样本之后
+                { (std::int64_t) std::llround (line (3)), 3, bar, (std::int64_t) std::llround (2.0 * samplesPerBar) },     // 0.45 个样本之后
+                { (std::int64_t) std::llround (line (4)), 4, bar, (std::int64_t) std::llround (2.0 * samplesPerBar) },     // 0.32 个样本之前
+                { (std::int64_t) std::llround (line (33)) - 1, 32, 1, 1 + (std::int64_t) std::llround (line (34)) - (std::int64_t) std::llround (line (33)) },
+                { (std::int64_t) std::floor (line (4)), 3, 1, 1 + (std::int64_t) std::llround (line (5)) - (std::int64_t) std::llround (line (4)) },
+            };
+
+            for (const auto& c : cases)
+            {
+                for (const auto blockSize : { 512, 4096, 0 })
+                {
+                    Feeder f;
+                    auto position = c.position;
+                    f.play (position, 7.0, blockSize, [] (std::int64_t p) { return barHost (p, houseBpm); }, 5);
+
+                    const auto tag = "start " + juce::String (c.position) + ", block " + juce::String (blockSize);
+                    const auto& first = f.ledger.getStored (0);
+                    const auto& second = f.ledger.getStored (1);
+                    expect (f.ledger.getNumStored() >= 3, tag + ": bars stored");
+                    expect (first.start == 0 && first.end == c.firstEnd && first.key == 64 * (std::int64_t) (c.firstBar - 1),
+                            tag + ": first segment = bar " + juce::String (c.firstBar) + " [0, " + juce::String (c.firstEnd) + "), got ["
+                                + juce::String (first.start) + ", " + juce::String (first.end) + ") key " + juce::String (first.key));
+                    expect (second.start == first.end && second.end == c.secondEnd && second.key == first.key + 64,
+                            tag + ": the next bar follows on the grid");
+                }
+            }
+        }
+
+        // 段长封顶两段（拍板 6.1）。冻结的 PPQ / 位置让每块都重新锚定、同一键把开着的段一直拉长；段落账自己截到两段并另开。
+        // 120 BPM 一小节正好 2 s = 96000 样本，两小节 192000。正常走带仍是一段一小节。拍点外的 2 秒段同样封两段。
+        // 冻结时每一段的位置键都是 0，账本按「同一位置再听」覆盖，所以数的是定稿时交给接收者的实例，不是账本里剩下的格。
+        void testTwoBarCap()
+        {
+            beginTest ("a frozen playhead cannot grow one segment past two bars; steady playback stays one bar each");
+
+            constexpr double bpm = 120.0;
+            constexpr std::int64_t bar = 96000;
+            constexpr std::int64_t twoBars = 2 * bar;
+
+            struct Capture : glaze::SegmentSink
+            {
+                std::vector<SegmentLedger::Segment> segments;
+                void segmentFinalized (const SegmentLedger::Segment& segment) noexcept override
+                {
+                    if (segment.end > segment.start)
+                        segments.push_back (segment);
+                }
+            };
+
+            const auto withinCap = [&] (const Capture& captured, std::int64_t limit, const char* tag)
+            {
+                const auto& segments = captured.segments;
+                expect (segments.size() >= 2, juce::String (tag) + ": finalized " + juce::String ((int) segments.size()) + " segments");
+                auto capped = true;
+                auto contiguous = ! segments.empty() && segments.front().start == 0;
+
+                for (size_t i = 0; i < segments.size(); ++i)
+                {
+                    const auto& s = segments[i];
+                    capped = capped && s.end > s.start && s.end - s.start <= limit + 1;
+
+                    if (i > 0)
+                        contiguous = contiguous && s.start == segments[i - 1].end;
+                }
+
+                expect (capped, juce::String (tag) + ": every finalized segment is at most two bars and not inverted");
+                expect (contiguous, juce::String (tag) + ": finalized segments stay contiguous from sample 0");
+            };
+
+            {
+                Feeder f;
+                Capture captured;
+                captured.segments.reserve (32);
+                f.ledger.setSink (&captured);
+                std::int64_t position = 0;
+                const auto frozen = barHost (0, bpm);
+                f.play (position, 12.0, 512, [&frozen] (std::int64_t) { return frozen; });
+                f.ledger.endEpoch (f.now);
+                withinCap (captured, twoBars, "frozen PPQ");
+            }
+
+            {
+                Feeder f;
+                std::int64_t position = 0;
+                f.play (position, 8.0, 512, [] (std::int64_t p) { return barHost (p, bpm); });
+                auto oneBar = f.ledger.getNumStored() >= 3;
+
+                for (int i = 0; i < f.ledger.getNumStored(); ++i)
+                    oneBar = oneBar && f.ledger.getStored (i).end - f.ledger.getStored (i).start == bar;
+
+                expect (oneBar, "steady 120 BPM playback keeps one bar per segment (" + juce::String (f.ledger.getNumStored()) + " stored)");
+            }
+
+            {
+                Feeder f;
+                Capture captured;
+                captured.segments.reserve (32);
+                f.ledger.setSink (&captured);
+                std::int64_t position = 0;
+                const auto frozen = positionOnlyHost (0);
+                f.play (position, 12.0, 512, [&frozen] (std::int64_t) { return frozen; });
+                f.ledger.endEpoch (f.now);
+                withinCap (captured, twoBars, "frozen position, 2 s segments");
+            }
         }
     };
 

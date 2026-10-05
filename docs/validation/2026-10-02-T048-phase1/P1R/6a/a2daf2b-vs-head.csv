@@ -1,0 +1,13 @@
+variant,track,files_same,wav_differ,wav_max_diff_dbfs,metrics_rows_changed,genres_changed,changed_columns_max_abs
+from1-bpm,synthetic-house-124,43/43,0/12,,0,,
+from1-bpm,synthetic-tech-124,43/43,0/12,,0,,
+from1-bpm,track_0268597,43/43,0/12,,0,,
+from1-bpm,track_1062232,43/43,0/12,,0,,
+from1-nobpm,synthetic-house-124,43/43,0/12,,0,,
+from1-nobpm,synthetic-tech-124,43/43,0/12,,0,,
+from1-nobpm,track_0268597,43/43,0/12,,0,,
+from1-nobpm,track_1062232,43/43,0/12,,0,,
+from33,synthetic-house-124,38/43,0/12,,4,deep,house_full_s 0.1；house_heard_s 0.1；profile_low_share 0.0001；profile_slope_db_per_oct 0.001
+from33,synthetic-tech-124,29/43,3/12,-66.7,5,deep,align_gain_db 0.007；audio_hash（文字）；calibration_bias_db 0.423；house_full_s 0.1；house_heard_s 0.1；limit_gr_max_db 0.007；listen_calibration_valid 1；listen_phase（文字）；lufs 0.007；plr_db 0.007
+from33,track_0268597,21/43,6/12,-58.2,6,deep,align_gain_db 0.016；audio_hash（文字）；calibration_bias_db 0.017；house_heard_s 0.1；infra_share_lt16hz_db 0.01；limit_gr_max_db 0.017；limit_gr_mean_db 0.001；limit_input_peak_db 0.002；lufs 0.016；plr_db 0.016
+from33,track_1062232,21/43,6/12,-36.1,6,deep,align_gain_db 0.006；audio_hash（文字）；calibration_bias_db 0.049；house_full_s 0.1；house_heard_s 0.1；infra_share_lt16hz_db 0.01；limit_gr_max_db 0.023；limit_gr_mean_db 0.002；limit_input_peak_db 0.026；lufs 0.006；plan_effective_target_lufs 0.003；plan_gain_db 0.004；plr_db 0.006；profile_low_share 0.0001

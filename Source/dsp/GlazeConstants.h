@@ -121,6 +121,53 @@ namespace celadon::glaze
         double phaseHintFallbackSeconds = 8.0;      //   宿主没给拍点时改为持续这么多秒
     };
 
+    // T-048 实时画像的常数（设计规格-实时GLAZE-主段与增益 第 2、3、6 节）。阶段 1 插件不读，只给 LiveProfile、测试与渲染工具用。
+    // 注释里 ① = 库内已标定（T-038），③ = 起点值，阶段 1 在 109 上做因果重放标定后改。不进 Constants（不进标定快照与存档）。
+    struct LiveModelConstants
+    {
+        float gateWidthLu = 3.0f;            // 响度门 ΔG：段响度在 S_ref − ΔG 处 m 的响度因子 = 0.5
+        float loudnessRampLu = 1.5f;         // 响度门斜坡宽：因子 = clamp(0.5 + (L_seg − (S_ref − ΔG)) ÷ 本项, 0, 1)
+        float lowGateFactor = 0.6f;          // 低频门系数（只 4/4 型用；≤ 0 = 不用低频门）
+        float lowRampWidth = 0.15f;          // 低频门斜坡宽（lowShare ÷ lowRef 的单位）
+        float referencePercentile = 0.95f;   // S_ref = 全部段段响度（按有效时长加权）的这个分位；lowRef 同分位
+        double memoryBars = 48.0;            // W_mem：按小节分段时 = 本项 × 小节秒数（≤ 0 = 不按小节，用 memorySeconds）
+        double memorySeconds = 90.0;         // W_mem：2 秒段、或 memoryBars ≤ 0 时
+        double confidenceBars = 6.0;         // M0：按小节分段时 = 本项 × 小节秒数（≤ 0 = 用 confidenceSeconds）
+        double confidenceSeconds = 16.0;     // M0：2 秒段、或 confidenceBars ≤ 0 时
+    };
+
+    struct LiveConstants
+    {
+        // 4/4 型（House 三类；以后 Techno、EDM / Trance、DnB / Bass）：ΔG 3、低频门 0.6、P95 ①；斜坡宽、W_mem ③。
+        // M0：Max 2026-10-04 拍板只上常数 A，原 T-038 标定的 8 小节改为 6，只动 c（结构与其余常数不动）。
+        LiveModelConstants fourOnFloor { 3.0f, 1.5f, 0.6f, 0.15f, 0.95f, 48.0, 90.0, 6.0, 16.0 };
+        // 响度型（通用；以后 Hip-Hop / Pop、Rock / Metal）：只用响度门 ③
+        LiveModelConstants loudness { 6.0f, 3.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
+        // 被动型（以后 Acoustic / Jazz、Classical、Ambient）：有效音频一律 m = 1，门与分位不用 ③
+        LiveModelConstants passive { 0.0f, 1.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
+
+        double referenceMemorySeconds = 180.0;   // S_ref / lowRef / LRA 的直方图按有效音频时长遗忘的时间常数 ③
+        float mainThreshold = 0.5f;              // 「主段」的 m 门：无主段判定、以后的棘轮都用它
+        double noMainSeconds = 60.0;             // 连续这么多有效音频没有 m ≥ mainThreshold 的段 → 主段累计改按有效音频时长衰减 ③
+        double noMainDecaySeconds = 120.0;       //   衰减的时间常数 ③
+        float newProgramLu = 6.0f;               // 换歌软遗忘：段响度与主段电平差超过本项的段 ③
+        double newProgramSeconds = 20.0;         //   连续累计这么多有效音频 ③
+        float newProgramKeep = 0.2f;             //   全部累计质量 × 本项 ③
+        // T-048 阶段 1 代理 A 加（LiveProfile.cpp 文件头第四节「真峰值」）：实时画像的真峰值 =「其上至少有这么多主段质量（秒，即 m × 有效时长、
+        // 按进账遗忘）」的最高一格里记下的段最大值。为什么要它：House 画像取满编段的最大值，最大值本身不会遗忘，一个孤立的热峰值会永远
+        // 定住真峰值；按质量设门，旧峰值随遗忘淡出，m 很小的段（breakdown 里的冲击音）也不能单独定主段的真峰值。为什么 0.5 s：不大于一个
+        // 「已听」的满编段的 w（至少半小节有效音频，124 BPM 约 1 s），遗忘关掉时与 House 逐位相同；一个满主段小节（w ≈ 1.94 s）的峰值约
+        // ln(1.94 ÷ 0.5) ≈ 1.4 个 W_mem 的新主段之后退出读数；m < 0.26 的单个小节不够单独定真峰值。≤ 0 = 只取最大值（不随遗忘退出）。③
+        double peakTailSeconds = 0.5;
+        // T-048 阶段 1 修订（Max 2026-10-02「轻的那一支要电平稳」）：换歌软遗忘「比 I 轻 newProgramLu 以上且低频因子 ≥ 0.5」那一支，只有
+        // 最近累计满 newProgramSeconds 的那一串段的段响度起伏（最大 − 最小）≤ 本项才算——带低音的淡出一路往下掉，不算换歌（REPORT-C
+        // 第 5 节第 4 条：deep 0944904、tech 0244162 的歌尾）。「响 newProgramLu 以上」那一支不看它。+∞ = 不要求电平稳（回到改前）。③
+        float newProgramRangeLu = 2.0f;
+        // T-048 阶段 1 修订（回看重判）：第 k 段的实时画像在「段尾 + 本项」这一刻发布（分析器时间轴，LiveProfile.h 文件头第二节）。
+        // 要盖住段定稿的延迟（先试后用的块交齐约 0.1 s + 候选延迟 + Balance 帧晚一块）与一遍回看重算的分片；越长决策器拿到新段越晚。③
+        double publishDelaySeconds = 0.5;
+    };
+
     // 交付三档（设计规格-曲风与交付 第 4.1 节）。「标准」不用这里的任何一项：仍按风格 preferredLufs 与 min / maxPreferredLufs。
     struct DeliveryConstants
     {

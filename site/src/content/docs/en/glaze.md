@@ -7,7 +7,7 @@ GLAZE doesn't turn every knob up at once. It **listens to the song first and dec
 | 0 | Nothing moves: the manual values on the four cards are all there is, and the output is bit-identical to having no GLAZE at all (with two exceptions, neither of which depends on GLAZE: with Delivery set to Streaming, LIMIT's ceiling is still capped at −2 dBTP; with a House genre (Deep / Tech / Melodic) and Release on Auto, LIMIT's slow release is still tightened to the host tempo. To work fully by hand, also set Genre and Delivery back to General and Standard; see [Genre and Delivery](#genre-and-delivery)) |
 | 35 (default) | Gentle: new instances start here |
 | Higher | Louder, more correction, more colour; every automatic increment only ever rises as GLAZE goes up and never exceeds each module's limit |
-| Limited | The dynamics-protection limit has been reached; turning it further won't get louder. Lower it to keep more movement |
+| No louder when turned further | Dynamics protection comes before loudness: once each module's budget is used up GLAZE stops pushing, and the “Target … LUFS” on the status line comes down. Lower it to keep more movement |
 
 **Actual value = clamp(manual value + automatic increment).** The manual knobs are the floor and GLAZE adds on top; it never automatically cancels out your changes. On screen, cyan is your value and violet is the automatic increment.
 
@@ -25,7 +25,7 @@ Status labels:
 | Listening | Gathering evidence (the corner shows “Listening x / 30 s”); the previous plan (or a gentle one) stays in effect |
 | Calibrating | The plan is set and the measured loudness is being brought to the target |
 | Locked | Done; only bounded protection from here on |
-| Limited | A constraint keeps being exceeded, so the protection layer slowly backs off (by up to −3 dB); shown in orange |
+| Limited | Orange, in two cases: the status line reads “Limited by manual settings” — your manual settings alone already exceed a module's budget (or LIMIT is bypassed), so the matching automatic increment is withdrawn; or it reads “Plan limited · backed off x dB” — during playback a constraint keeps being exceeded and the protection layer, backing off slowly, has reached its floor (−3 dB) and it is still exceeded. Neither shows at GLAZE 0 |
 | Paused | The host has stopped playback |
 
 > The first profile captures the character of the passage it heard. Very quiet or very loud sections are still handled by calibration and protective back-off; for a different song, click Relearn to update the whole-song profile.

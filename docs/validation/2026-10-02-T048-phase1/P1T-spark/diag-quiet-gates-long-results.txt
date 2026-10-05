@@ -1,0 +1,8 @@
+# P1T 长时诊断（本机 DGX Spark，2026-10-04 PDT；块长 4096、通用档、轻 28 dB）。
+# first open = 第一次放过 ≥ 响小节 90 % 的整小节的起点；open for good = 之后一直放开（最后一个没放开的整小节的段尾）；都按换了之后的秒数。
+# HEAD（9e8575a + 1431d47，有 ⑥）
+  P1T diag (loud 60 s, 1147.74 s after the switch, last whole bar ends 1147.7 s): first open / open for good - frames 44.5 / 44.5 s, effective sub-blocks 52.3 / 52.3 s, effective onset samples 0.0 / 40.6 s
+  P1T diag (loud 300 s, 907.742 s after the switch, last whole bar ends 907.7 s): first open / open for good - frames 50.3 / 50.3 s, effective sub-blocks 58.1 / 58.1 s, effective onset samples 0.0 / 48.4 s
+# 1200248（没有 ⑥）
+  P1T diag (loud 60 s, 1147.74 s after the switch, last whole bar ends 1147.7 s): first open / open for good - frames 224.5 / 241.9 s, effective sub-blocks 495.5 / 495.5 s, effective onset samples 0.0 / 168.4 s
+  P1T diag (loud 300 s, 907.742 s after the switch, last whole bar ends 907.7 s): first open / open for good - frames 391.0 / 418.1 s, effective sub-blocks 692.9 / 692.9 s, effective onset samples 0.0 / 323.2 s

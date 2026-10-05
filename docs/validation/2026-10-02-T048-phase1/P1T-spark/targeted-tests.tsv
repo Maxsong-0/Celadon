@@ -1,0 +1,207 @@
+类	用例（beginTest）	HEAD 9e8575a	基线 a2daf2b
+MusicAnalyzer	sub-blocks: 100 ms K-weighted mean squares with sample timestamps; S and true peak agree with the meter	过	过
+MusicAnalyzer	sub-block ring: overflow reports a negative count; requestReset keeps the sequence; loudness off produces none	过	过
+MusicAnalyzer	frame snapshots: timestamps, both units, identical with and without slicing, bypass and settings	过	过
+MusicAnalyzer	M / S / I of a stereo 1 kHz sine match the BS.1770-4 formula	过	过
+MusicAnalyzer	integrated loudness applies the absolute and relative gates (EBU R128 / Tech 3341)	过	过
+MusicAnalyzer	loudness range follows EBU Tech 3342 (P95 - P10 of gated short-term values)	过	过
+MusicAnalyzer	PLR and PSR come from the same true-peak detector as the meter	过	过
+MusicAnalyzer	spectrum: pink noise has no evidence, a flat slope and 5/27 shares; white noise tilts +3 dB/oct	过	过
+MusicAnalyzer	spectrum: a notch yields Recover evidence in its band only, a peak Tame evidence in its band only	过	过
+MusicAnalyzer	live Tame evidence follows a new narrow peak after learning, settles and releases without changing the profile	过	过
+MusicAnalyzer	live broad-band slope follows stopped learning, and rejects narrow tones and silence	过	过
+MusicAnalyzer	Recover stays conservative: roll-offs, edge bands and intermittent gaps are not filled	过	过
+MusicAnalyzer	channels combine by power: R = -L equals R = L (bit-exact), mono equals identical stereo	过	过
+MusicAnalyzer	onsets: click trains are counted exactly (2, 4, 8 and 16 per second)	过	过
+MusicAnalyzer	onsets: sustained low sines and sustained bass (beating, tremolo) never trigger	过	过
+MusicAnalyzer	onsets: a dense drum pattern gives a plausible density, corroborated by the high-band flux	过	过
+MusicAnalyzer	effective time counts only new, audible samples (silence and passages 20 LU below I do not count)	过	过
+MusicAnalyzer	learning interval: data before startLearning is excluded, stopLearning freezes the profile	过	过
+MusicAnalyzer	unknown is not zero: invalid until measured; LRA confidence stays below 1 for the first 60 s	过	过
+MusicAnalyzer	discontinuities: windows refill (M 0.4 s, S 3 s), accumulations are kept, splices are not onsets	过	过
+MusicAnalyzer	host resets and module-only resets: learning continues on the new time axis	过	过
+MusicAnalyzer	one spectral delivery per host block is independent of input statistics slices; resets and missing Balance remain detectable	过	过
+MusicAnalyzer	representativeness: repeated loops add nothing; without a host position it is capped at 0.75	过	过
+MusicAnalyzer	the profile is bit-identical for any host block size (1 ... 4096, random)	过	过
+MusicAnalyzer	the audio-thread API does not allocate	过	过
+MusicAnalyzer	performance guard: analyzer per 512-sample block at 48 kHz (learning with the Clay trial; steady state)	过	过
+MusicAnalyzerClay	Clay fields: unknown until measured, format version 2; M = 0 leaves the sub share unknown	过	过
+MusicAnalyzerClay	Clay stereo: identical channels and true mono give rho = 1 and S/M <= -100 dB (profile and live view)	过	过
+MusicAnalyzerClay	Clay stereo: anti-phase lows read rho = -1 while in-phase highs read +1; anti-phase subs are no sub share	过	过
+MusicAnalyzerClay	Clay stereo: two independent noises read rho ~ 0 and S/M ~ 0 dB; the confidence reaches 1	过	过
+MusicAnalyzerClay	Clay sub share: true infrasound (8th-order 16 Hz) - a 10 Hz sine reads its analytic share, a 45 Hz kick reads almost none	过	过
+MusicAnalyzerClay	Clay fields cover the learning interval only and freeze at stopLearning; the live view keeps following	过	过
+MusicAnalyzerClay	trial guard blend loss (T-043): 0 on a steady tone, > 0.1 dB at 20 Hz on offset bass matching ClayModule, valid with the peak costs, block-size independent	过	过
+MusicAnalyzerClay	Clay live view: 300 ms slow path and 120 ms fast path, gated bands do not count, silence invalidates both and keeps the smoothing	过	过
+MusicAnalyzerClay	Clay live view: a bass-less detuned pad above 140 Hz only leaks into the 125 Hz band - the low correlation stays unknown; a real anti-phase sub under it still reads	过	过
+MusicAnalyzerClay	Clay fields (including the trial peak costs) and the live stereo view are bit-identical for any host block size	过	过
+MusicAnalyzerClay	Clay analysis paths do not allocate on the audio thread	过	过
+MusicAnalyzerClay	Clay trial: peak costs of the candidate processings (hard-clipped kick, pure mono, broadband stereo)	过	过
+MusicAnalyzerClay	Clay trial: the delayed mono candidates are measured on the same block grid (delay-compensated)	过	过
+MusicAnalyzerClay	Clay trial: the candidates run only inside the learning interval	过	过
+MusicAnalyzerClay	Clay trial paths do not allocate on the audio thread	过	过
+MusicAnalyzerHouse	House: a 32-bar drums-only intro, then the drop - the House profile is the drop's, the general one is pulled down	过	过
+MusicAnalyzerHouse	general mode is bit-identical with or without tempo info; the House run leaves the general accumulation untouched	过	过
+MusicAnalyzerHouse	House profile and gate are bit-identical for any host block size at a constant tempo (1 ... 4096, random)	过	过
+MusicAnalyzerHouse	after stopLearning the ledger keeps recording and the profile stays frozen until recomputeHouseProfile	过	过
+MusicAnalyzerHouse	House: the audio-thread API does not allocate (ledger, gating, profile, genre switches)	过	过
+MusicAnalyzerHouse	performance guard: House mode per block (learning) and one recompute with a full 512-segment ledger	过	过
+MusicAnalyzerLive	live mode off vs on: everything the controller reads from the analyzer is bit-identical, block by block (65 s, three scripts)	过	过
+MusicAnalyzerLive	live mode off vs on: CeladonChain output is bit-identical (general and Deep House, learn / commit / relearn / jump, 69 s)	过	过
+MusicAnalyzerLive	live mode: segments arrive in time order, once each, end-to-end contiguous across learning, genre switches, jumps and loops	过	过
+MusicAnalyzerLive	live mode: the delivered segments are bit-identical for host blocks of 7, 32, 480, 512 and 4096 samples	过	过
+MusicAnalyzerLive	live trial data: every valid block lands in its segment when not learning; live* == trial* while learning (on and off)	过	过
+MusicAnalyzerLive	live mode: the audio-thread API does not allocate (both ledgers, sink delivery, genre switches, discontinuities)	过	过
+MusicAnalyzerLive	chain pass-through: the live sink survives reset, prepare and a state restore; nullptr turns it off	过	过
+MusicAnalyzerLive	performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (general / House learning)	过	过
+MusicAnalyzerLive	B2 5a: learning stopped on real block boundaries - live segments identical for blocks 7 / 32 / 480 / 512 / 4096 (all but learning-period fields)	过	（无此用例）
+MusicAnalyzerLive	B2 5a: CeladonChain commits / locks on its own block boundaries - live segments identical for host blocks 7 / 32 / 480 / 512 / 4096	过	（无此用例）
+MusicAnalyzerLive	B2 5b: the same audio gives identical live segments learning from the start and not learning after a state load	过	（无此用例）
+MusicAnalyzerLive	B2 5b: CeladonChain - the second pass (state restored, not learning) delivers the same live segments as the first (learning)	过	（无此用例）
+MusicAnalyzerLive	B2 5c: advanceTo is called every processInput / processSpectrum, never goes back, and means 'every segment ending by T has been delivered'	过	（无此用例）
+MusicAnalyzerLive	B2 5d: turning live mode off hands the last host block's Balance frames to the last segment	过	（无此用例）
+MusicAnalyzerLive	B2 5f: playback from bar N (start = the bar line rounded to a sample): the first live segment is bar N from sample 0, no 1-sample piece	过	（无此用例）
+MusicAnalyzerLive	live gates: a program 28 dB quieter stays gated for the first 20 s, then forgetting speeds up and all three gates open within 65 s	过	（无此用例）
+GlazeController	phases: unlearned until playback, listening, plan transition, calibrating, locked; ready flags follow	过	过
+GlazeController	GLAZE 0 learns but never calibrates or touches the manual values; turning it up calibrates; back to 0 is bit-exact	过	过
+GlazeController	first listen: the button restarts the round from zero, visible in the status before the next block	过	过
+GlazeController	relearn builds a candidate while the committed version plays on; cancel, mid-listen save, swap with a transition	过	过
+GlazeController	transport jump, loop wrap and host reset each clear their own runtime state	过	过
+GlazeController	internal input slices retain host-position coverage, looping and missing-position semantics	过	过
+GlazeController	realtime and offline use the same learning, calibration and loud-section safety state machine	过	过
+GlazeController	execution snapshot preserves unfinished learning, applied calibration and deterministic replay	过	过
+GlazeController	a completed calibration cannot replace the saved executed bias before its slew has finished	过	过
+GlazeController	malformed execution increments cannot override manual controls	过	过
+GlazeController	save / restore: takes effect at once, re-renders bit-exactly from the same start; empty or broken data = unlearned	过	过
+GlazeController	sample-rate change keeps profile and style weights, marks calibration pending, recalibrates when stable	过	过
+GlazeController	a block-size-only rebuild retains actual Guard retreat, not the unprotected plan	过	过
+GlazeController	a block-size-only rebuild resumes a completed correction from the last heard bias, then finishes its slew	过	过
+GlazeController	GLAZE automation: no relearn, no transition, no new calibration; increments follow the deterministic mapping	过	过
+GlazeController	switching style is one plan transition, then calibration for the new conditions	过	过
+GlazeController	a plan saved by an older algorithm keeps its saved increments until GLAZE is turned	过	过
+GlazeController	an algorithm-6 (v0.1.6.2) project is adopted as current: no saved-plan mode, Clay neutral	过	过
+GlazeController	old Heat model snapshots are replanned with current compensation, preserving the profile and manual controls	过	过
+GlazeController	locked profile: equal-loudness spectral change increases live Tame within two seconds, with identical realtime/offline authority	过	过
+GlazeController	locked style follows broad tonal changes slowly, freezes in silence, and preserves legacy Tone	过	过
+GlazeController	dense bright sections gently reduce only planned automatic Heat/Glue and sparse sections recover	过	过
+GlazeController	live coloration survives save/reset and old missing execution fields default to neutral	过	过
+GlazeController	dynamic color remains compatible with calibration and unfinished execution replay	过	过
+GlazeController	Listen keeps calibrating, while host bypass plus Listen still pauses calibration and protection	过	过
+GlazeController	constraint feedback lowers the plan step by step, converges and does not oscillate	过	过
+GlazeController	locked with an applicable calibration: a guard stuck on a partial retreat is absorbed into the plan	过	过
+GlazeController	absorbing feedback (budget limited / stuck guard) keeps the calibration and does not restart it (BUG-003)	过	过
+GlazeController	a profile learned on a quiet intro is capped by the loud section at once, with a relearn hint	过	过
+GlazeController	pattern loops without loop info, a jittery playhead and stale positions still learn, calibrate and lock	过	过
+GlazeController	manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic	过	过
+GlazeController	non-finite output: cleared, restarted, reported; the IN meter measures loudness	过	过
+GlazeController	setHostInfo / setParams / process / getStatus never allocate through every GLAZE path	过	过
+GlazeController	Clay three states: automatic is neutral at GLAZE 0, manual applies at GLAZE 0, off is always neutral	过	过
+GlazeController	profile format 2 carries the Clay features; format 1 keeps its v0.1.6.2 id and reads them as unknown	过	过
+GlazeController	old format-1 profiles keep automatic Clay neutral (no guard either) and ask for a relearn	过	过
+GlazeController	plan transitions blend Clay with the increments' progress: log-domain frequencies, an off end joins at the floor	过	过
+GlazeController	the Clay guard acts through the controller: anti-phase bass lights the warning (mono untouched), wide highs cap automatic widening	过	过
+GlazeController	Clay pressure feedback (ADR-014): a guard that keeps pulling the low cut back steps the automatic Clay scale down, and it is saved	过	过
+GlazeController	Clay pressure feedback, first trigger (T-044 / ADR-028): the trial's P99 peak-block cost steps a low cut that lifts the top peaks of a limited master	过	过
+GlazeController	execution snapshot keeps the executed Clay values and guard state; the first restored block uses them	过	过
+GlazeController	malformed Clay values in an execution snapshot are rejected	过	过
+GlazeController	Clay settings join the calibration reference; the default settings keep the v0.1.6.2 hash	过	过
+GlazeController	every Clay path through the controller is allocation-free on the audio thread	过	过
+GlazeController	the try-before-use cost mask reaches the status: automatic items only, GLAZE > 0 only, the target plan's mask in transitions	过	过
+GlazeController	a restored first block uses the snapshot's Clay values only when the plan source supports automatic Clay	过	过
+GlazeController	reference conditions survive the host's normalised round trip through the real parameter ranges; a real change never does	过	过
+GlazeController	reopen: drifted log-scale knobs keep the calibration and the execution snapshot, for new and v0.1.8.0 saves (BUG-004)	过	过
+GlazeController	a slow log-scale knob sweep is not "stable conditions", even slower than the tolerance; stopping it is	过	过
+GlazeController	the cached manual part of the reference conditions is bit-identical to recomputing it, block by block (T-027)	过	过
+GlazeController	an abandoned or dropped calibration round is not a failed attempt: GLAZE 0, Limit bypass and style round trips calibrate again	过	过
+GlazeController	guard and upstream-monitor limits follow the target plan on commit, on every style change and on a relearn (global evaluation counter)	过	过
+GlazeController	silence, host bypass and Color bypass neither make a retreated guard 'stuck' nor run the feedback observation (guard time, not host time)	过	过
+GlazeController	releasing a frozen execution (reopen / host reset, then GLAZE or style) carries its absorbed guard retreat out over a transition	过	过
+GlazeController	restore clears the profile-mismatch accumulation and hint; commit re-derives the guard / monitor timing from the new snapshot	过	过
+GlazeController	live Tame authority needs a committed profile and scales with the profile's confidence (kappa)	过	过
+GlazeController	T-032 digests: live Tame / Tone / Color, calibration bias and GLAZE 0 hashed block by block (bit-exact comparison across builds)	过	过
+GlazeControllerHouse	House: commits only when heard >= lockSegments bars and full >= requiredFullSegments; provisional updates, no calibration before	过	过
+GlazeControllerHouse	House: a new loud section brings a 0.5 s plan transition (the running one hurried along), ordinary updates take 3 s	过	过
+GlazeControllerHouse	House: after the lock, four louder and fuller bars reopen the profile (fast transition, recalibration), at most twice	过	过
+GlazeControllerHouse	House: quieter (or equally loud) sections after the lock never reopen	过	过
+GlazeControllerHouse	genre switches: general -> House listens with the old profile in effect; back to general cancels the House listen	过	过
+GlazeControllerHouse	House, locked and calibrated: a delivery or sub-genre change is one plan transition and a new calibration, no relearn	过	过
+GlazeControllerHouse	general genre: tempo info from the host changes nothing (parameters and output bit-exact, house status fields default)	过	过
+GlazeControllerHouse	House status: bars and targets with tempo, seconds without; main section heard once enough bars are full	过	过
+GlazeControllerHouse	House: setHostInfo / setParams / process / getStatus never allocate through every House path	过	过
+GlazeControllerHouse	House phase hint end to end: a wide (90-degree) bass in the main section lights it; an in-phase bass or the General genre never does	过	过
+GlazeControllerHouse	House: calibration samples only the main section; a lock landing in a breakdown waits for the next drop	过	过
+GlazeControllerHouse	House: an offline export while still listening is flagged and the flag stays until the lock; General never flags	过	过
+GlazeControllerHouse	House: a reopen after reloading the project carries the blend losses over together with the try-before-use costs	过	过
+ClayGlaze	GLAZE 0: default drawer, all Off and Clay Bypass render bit-identically = the pre-Clay chain with a D-sample delay in Clay's slot	过	过
+ClayGlaze	GLAZE 60 on stereo music with ~10 Hz infrasound, wide bass and narrow highs: low cut and width engaged, no automatic mono; all Off stays at zero	过	过
+ClayGlaze	v0.1.6.2 project (algorithm 6, profile format 1, no Clay fields): neutral Clay, relearn hint, calibration kept, equal to all Off	过	过
+ClayGlaze	anti-phase bass after learning: the warning lights within qualification + analysis lag, holds 2 s, fades over 2 s; mono never changes	过	过
+ClayGlaze	manual 30 Hz low cut at GLAZE 0: exactly 30 Hz, the 15 Hz content drops ~24 dB, content above 200 Hz untouched	过	过
+ClayGlaze	manual +3 dB width at GLAZE 0 on -12 dBFS wide noise (T-032): the side above 4 kHz gains the full 3 dB at the chain output	过	过
+ClayGlaze	Clay engaged: 64 / 1024 sample blocks x realtime / offline, 60 s each: identical per block size, 3 s windows within 0.02 LU	过	过
+ClayGlaze	execution snapshot during an active phase warning: first restored block hands ClayModule the same values; replay identical and the warning still fades	过	过
+ClayGlaze	setHostInfo / setParams / process / getGlazeStatus never allocate while Clay works: modes, sweeps, bypass, protection, reset, restore	过	过
+ClayGlaze	clipped kick material: the tried low cut is vetoed by its peak cost; the chain's limiter GR stays within 0.3 dB of Clay off	过	过
+ClayGlaze	wide stereo bass (long-term rho ~0.8) and mono kick + independent wide pad: the phase guard never triggers in 30 s	过	过
+ClayGlaze	whole low band inverted (equal power): the warning reaches full level within qualification + attack + analysis and smoothing lag	过	过
+ClayGlaze	~10 Hz infrasound under music: the tried low cut is cheap (cost <= 0), engaged, and does not raise the limiter's input peaks	过	过
+ClayGlaze	offset bass (T-043): the trial's guard blend loss caps the automatic low cut, and the chain's guard then loses <= 0.12 dB	过	过
+ClayGlaze	bass-less detuned pad breakdown between two drops (BUG-009): the phase warning never lights; an anti-phase bass in the breakdown does	过	过
+SegmentLedger	empty after prepare and reset; mode none, no gate result	过	过
+SegmentLedger	bars: one segment per bar at anchor + round(n x samples per bar), keyed by the bar's PPQ	过	过
+SegmentLedger	bars: playback from mid-bar - the first instance starts at the play position, the bar line stays on the grid	过	过
+SegmentLedger	replaying a bar overwrites it by position; a loop counts once	过	过
+SegmentLedger	no tempo: 2-second segments - keyed by the host position when there is one, sequential otherwise	过	过
+SegmentLedger	capacity: 512 segments; further segments are not stored and the ledger says so	过	过
+SegmentLedger	two gates: an intro is full until the drop arrives; then only the drop passes (loudness and low-share gates)	过	过
+SegmentLedger	a bar counts as heard with effective audio for at least half its length; silent bars are not stored	过	过
+SegmentLedger	a quiet segment (no effective audio) reads quiet and is not full; only a just-started segment falls back to the last finalized one	过	过
+SegmentLedger	segments and gate results are bit-identical for any host block size at a constant tempo	过	过
+SegmentLedger	a jittery playhead keeps the anchor; a tempo change re-anchors from that block on	过	过
+SegmentLedger	the audio-thread API does not allocate (segmenting, lookups, finalizing, gating, events, resets)	过	过
+SegmentLedger	start just before a bar line (less than half a sample): the first segment is that bar from the start sample, no 1-sample piece	过	（无此用例）
+LiveProfile	a. equivalence anchor: forgetting off, references frozen to the ledger's, hard gates -> the analyzer's House profile	过	（无此用例）
+LiveProfile	b. a breakdown (m' = 0) leaves the published profile, M, c and the references bit-identical; a new drop moves it	过	（无此用例）
+LiveProfile	c. mainness: two soft gates, ramp end points, cold start, passive / loudness models; admission = previous mainnessFor	过	（无此用例）
+LiveProfile	r. rejudge: a bass-heavy intro no longer pins lowRef; the drop passes the low gate within 4 bars	过	（无此用例）
+LiveProfile	r. rejudge: a cold start on a fade-in bar does not stick; the next bars take over the references	过	（无此用例）
+LiveProfile	r. rejudge: the intro taken as main at cold start drops out when the drop comes; I is within 1 LU after 4 drop bars	过	（无此用例）
+LiveProfile	W_mem and M0 follow the segment mode: bars x the bar length, or the seconds constants for 2-second segments	过	过
+LiveProfile	d. no main section for 60 s: main mass decays by effective time (tau 120 s) from the 60 s mark on, until a main bar	过	过
+LiveProfile	d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every older mass by 0.2	过	（无此用例）
+LiveProfile	d. new program, quieter branch: only a level-stable run counts (range 1.9 LU triggers, 2.1 LU does not, a fade-out never)	过	（无此用例）
+LiveProfile	models: 4/4 I is main-weighted, the loudness model's I is every segment's BS.1770 integral; format 2; pinned mainness	过	（无此用例）
+LiveProfile	constants table: 37 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf	过	（无此用例）
+LiveProfile	e. state XML round trip is bit-exact (events, a full window, pending segments); the restored copy evolves identically	过	（无此用例）
+LiveProfile	e. bad state data (version, attributes, scalars, counts, base64, truncated / extra / corrupt segment bytes) -> cold start, false	过	（无此用例）
+LiveProfile	f. the same segment sequence gives bit-identical results: another instance, after a reset, with reads in between	过	过
+LiveProfile	f. publications are bit-identical whatever advanceTo is called with: at due times, every 7 samples, twice, in jumps, never (flush)	过	（无此用例）
+LiveProfile	analyzer live mode -> live ledger -> sink -> LiveProfile: every publication is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7	过	（无此用例）
+LiveProfile	old segments beyond the 512-segment window are dropped; with events off the profile depends only on the window	过	（无此用例）
+LiveProfile	f. segmentFinalized / advanceTo / flush / reads / reset do not allocate (slices, publications, catch-up, a full queue)	过	（无此用例）
+LiveProfile	commit records: a 64-entry ring read by cursor; a lagging reader skips to the oldest and gets a negative count	过	过
+LiveProfile	a segment with non-finite data is recorded with m = 0 and leaves the profile unchanged	过	（无此用例）
+LiveProfile	g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression	过	（无此用例）
+ClayTrials	block grid of whole groups (exactly 100 ms at 44.1 / 48 / 96 / 192 kHz) and the writers' delays	过	过
+ClayTrials	completed blocks arrive in block order, each exactly once, up to the first pending block	过	过
+ClayTrials	blocks starting within 250 ms of the start are invalid under both definitions	过	过
+ClayTrials	the learning and live validity flags are tracked independently	过	过
+ClayTrials	pure mono: the delay-compensated mono candidates and the width candidate equal the original bit for bit	过	过
+ClayTrials	the mono path equals the stereo path with identical channels, bit for bit	过	过
+ClayTrials	any segmentation inside the groups gives bit-identical blocks	过	过
+ClayTrials	a restart forgets everything before it: the blocks afterwards do not depend on the history	过	过
+ClayTrials	a NaN sample restarts the candidates; every block stays finite and the blocks around it are invalid	过	过
+ClayTrials	P99 from the top 8 equals P99 from all values, bit for bit, for every n up to 512	过	过
+ClayTrials	costs: valid from 10 s of blocks, the -120 dB floor, the blend loss needs both energies	过	过
+ClayTrials	the audio-thread API does not allocate (segments, groups, restarts, bad samples)	过	过
+LiveProfile	a. equivalence: forgetting off, the ledger's stored segments with m = full give the analyzer's House profile	（无此用例）	过
+LiveProfile	b. a breakdown (m = 0) leaves the main profile, main mass and confidence bit-identical; a new drop moves it	（无此用例）	过
+LiveProfile	c. mainness: two soft gates, ramp end points, cold start, passive / loudness models; mainnessFor = segmentFinalized	（无此用例）	过
+LiveProfile	d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every mass by 0.2; breakdowns never do	（无此用例）	过
+LiveProfile	models: 4/4 I is main-weighted, the loudness model's I is every segment's BS.1770 integral; format 2; mainness clamped	（无此用例）	过
+LiveProfile	e. state XML round trip is bit-exact (forgetting scale != 1, renormalised, empty); the restored copy evolves identically	（无此用例）	过
+LiveProfile	e. bad state data (version, missing / short / non-finite / negative / garbage values, scale) -> cold start, false	（无此用例）	过
+LiveProfile	analyzer live mode -> live ledger -> sink -> LiveProfile: the live profile is bit-identical for host blocks 4096 / 512 / 480 / 32 / 7	（无此用例）	过
+LiveProfile	f. segmentFinalized / commitWithMainness / reads / reset do not allocate (including renormalisation)	（无此用例）	过
+LiveProfile	a segment with non-finite data is recorded with m = 0 and touches no accumulation	（无此用例）	过
+LiveProfile	g. per-commit time (mean / max, us) with a wide guard against a 100x regression	（无此用例）	过

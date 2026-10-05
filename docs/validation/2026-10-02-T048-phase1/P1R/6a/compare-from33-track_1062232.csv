@@ -1,0 +1,44 @@
+file,status,detail
+metrics.csv,不同,render track_1062232 70 auto auto deep standard 33｜lufs: -8.578 → -8.584；align_gain_db: -7.422 → -7.416；plr_db: 7.228 → 7.234；limit_gr_mean_db: 1.537 → 1.538；limit_gr_max_db: 4.721 → 4.698；infra_share_lt16hz_db: -22.20 → -22.19；audio_hash: 50f04d628f4fead9 → e0cb768ea2ebc5bb；limit_input_peak_db: 1.921 → 1.947；calibration_bias_db: 1.838 → 1.789；profile_low_share: 0.6211 → 0.6210；house_heard_s: 120.0 → 120.1；house_full_s: 71.2 → 71.3 ‖ render track_1062232 70 replay-off auto deep standard 33｜lufs: -8.578 → -8.584；align_gain_db: -7.422 → -7.416；plr_db: 7.228 → 7.234；limit_gr_mean_db: 1.537 → 1.538；limit_gr_max_db: 4.721 → 4.698；infra_share_lt16hz_db: -22.20 → -22.19；audio_hash: 50f04d628f4fead9 → e0cb768ea2ebc5bb；limit_input_peak_db: 1.921 → 1.947 ‖ render track_1062232 70 off auto deep standard 33｜lufs: -8.578 → -8.584；align_gain_db: -7.422 → -7.416；plr_db: 7.228 → 7.234；limit_gr_mean_db: 1.537 → 1.538；limit_gr_max_db: 4.721 → 4.698；infra_share_lt16hz_db: -22.20 → -22.19；audio_hash: 50f04d628f4fead9 → e0cb768ea2ebc5bb；limit_input_peak_db: 1.921 → 1.947；calibration_bias_db: 1.838 → 1.789；profile_low_share: 0.6211 → 0.6210；house_heard_s: 120.0 → 120.1；house_full_s: 71.2 → 71.3 ‖ render track_1062232 100 auto auto deep standard 33｜lufs: -9.076 → -9.077；align_gain_db: -6.924 → -6.923；plr_db: 7.726 → 7.727；limit_gr_mean_db: 0.947 → 0.949；limit_gr_max_db: 3.252 → 3.254；audio_hash: 04c3dd1afa5bacd9 → 809ee2042fef2e50；plan_gain_db: 1.601 → 1.605；plan_effective_target_lufs: -6.508 → -6.505；profile_low_share: 0.6211 → 0.6210；house_heard_s: 120.0 → 120.1；house_full_s: 71.2 → 71.3 ‖ render track_1062232 100 replay-off auto deep standard 33｜lufs: -9.076 → -9.077；align_gain_db: -6.924 → -6.923；plr_db: 7.726 → 7.727；limit_gr_mean_db: 0.947 → 0.949；limit_gr_max_db: 3.252 → 3.254；audio_hash: 04c3dd1afa5bacd9 → 809ee2042fef2e50 ‖ render track_1062232 100 off auto deep standard 33｜lufs: -9.076 → -9.077；align_gain_db: -6.924 → -6.923；plr_db: 7.726 → 7.727；limit_gr_mean_db: 0.947 → 0.949；limit_gr_max_db: 3.252 → 3.254；audio_hash: 04c3dd1afa5bacd9 → 809ee2042fef2e50；plan_gain_db: 1.601 → 1.605；plan_effective_target_lufs: -6.508 → -6.505；profile_low_share: 0.6211 → 0.6210；house_heard_s: 120.0 → 120.1；house_full_s: 71.2 → 71.3
+metrics.md,不同,
+segments/track_1062232__g100_clay-auto_auto_deep_from-b33.csv,不同,119 行不同，第一处数据行 0：lufs;gr_mean_db;gr_max_db；最大差 gr_max_db 0.005；gr_mean_db 0.008；low_share 0.0001；lufs 0.008；short_term_lufs 0.005
+segments/track_1062232__g100_clay-auto_auto_from-b33.csv,相同,
+segments/track_1062232__g100_clay-off_auto_deep_from-b33.csv,不同,119 行不同，第一处数据行 0：lufs;gr_mean_db;gr_max_db；最大差 gr_max_db 0.005；gr_mean_db 0.008；low_share 0.0001；lufs 0.008；short_term_lufs 0.005
+segments/track_1062232__g100_clay-off_auto_from-b33.csv,相同,
+segments/track_1062232__g100_clay-replay-off_auto_deep_from-b33.csv,不同,119 行不同，第一处数据行 0：lufs;gr_mean_db;gr_max_db；最大差 gr_max_db 0.005；gr_mean_db 0.008；low_share 0.0001；lufs 0.008；short_term_lufs 0.005
+segments/track_1062232__g100_clay-replay-off_auto_from-b33.csv,相同,
+segments/track_1062232__g70_clay-auto_auto_deep_from-b33.csv,不同,119 行不同，第一处数据行 0：lufs;gr_mean_db;gr_max_db；最大差 frames 2；gr_max_db 0.082；gr_mean_db 0.074；low_share 0.0056；lufs 0.05；short_term_lufs 0.049
+segments/track_1062232__g70_clay-auto_auto_from-b33.csv,相同,
+segments/track_1062232__g70_clay-off_auto_deep_from-b33.csv,不同,119 行不同，第一处数据行 0：lufs;gr_mean_db;gr_max_db；最大差 frames 2；gr_max_db 0.082；gr_mean_db 0.074；low_share 0.0056；lufs 0.05；short_term_lufs 0.049
+segments/track_1062232__g70_clay-off_auto_from-b33.csv,相同,
+segments/track_1062232__g70_clay-replay-off_auto_deep_from-b33.csv,不同,119 行不同，第一处数据行 0：lufs;gr_mean_db;gr_max_db；最大差 frames 2；gr_max_db 0.082；gr_mean_db 0.074；low_share 0.0056；lufs 0.05；short_term_lufs 0.049
+segments/track_1062232__g70_clay-replay-off_auto_from-b33.csv,相同,
+segments/track_1062232__input.csv,相同,
+trace/track_1062232__g100_clay-auto_auto_deep_from-b33.csv,不同,19256 行不同，第一处数据行 0：limit_gain_db;glue;heat;cal_target_db;feedback_max_db；最大差 cal_target_db 0.004；feedback_max_db 0.004；glue 0.05；heat 0.02；limit_gain_db 0.002；limit_gr_db 0.127；tone_db 0.01
+trace/track_1062232__g100_clay-auto_auto_deep_from-b33__listen.csv,不同,13860 行不同，第一处数据行 86：cal_gate_mask;plan_transition；最大差 cal_applicable 1；cal_begins 1；cal_finishes 1；cal_gate_mask 168；cal_guard_s 0.9；cal_interrupt_mask 32；cal_round_active 1；cal_state 2；cal_target_db 1.354；feedback_max_db 97.399；feedback_steps 1；glaze_phase 2
+trace/track_1062232__g100_clay-auto_auto_from-b33.csv,相同,
+trace/track_1062232__g100_clay-auto_auto_from-b33__listen.csv,相同,
+trace/track_1062232__g100_clay-off_auto_deep_from-b33.csv,不同,19256 行不同，第一处数据行 0：limit_gain_db;glue;heat;cal_target_db;feedback_max_db；最大差 cal_target_db 0.004；feedback_max_db 0.004；glue 0.05；heat 0.02；limit_gain_db 0.002；limit_gr_db 0.127；tone_db 0.01
+trace/track_1062232__g100_clay-off_auto_deep_from-b33__listen.csv,不同,13860 行不同，第一处数据行 86：cal_gate_mask;plan_transition；最大差 cal_applicable 1；cal_begins 1；cal_finishes 1；cal_gate_mask 168；cal_guard_s 0.9；cal_interrupt_mask 32；cal_round_active 1；cal_state 2；cal_target_db 1.354；feedback_max_db 97.399；feedback_steps 1；glaze_phase 2
+trace/track_1062232__g100_clay-off_auto_from-b33.csv,相同,
+trace/track_1062232__g100_clay-off_auto_from-b33__listen.csv,相同,
+trace/track_1062232__g70_clay-auto_auto_deep_from-b33.csv,不同,19256 行不同，第一处数据行 0：limit_gain_db;applied_bias_db;executed_bias_db；最大差 applied_bias_db 0.0492；cal_gate_mask 40；cal_target_db 2.055；executed_bias_db 0.0492；feedback_max_db 97.445；feedback_steps 1；glaze_phase 2；glue 1.77；guard_db 0.5；heat 0.51；limit_gain_db 0.123；limit_gr_db 0.489
+trace/track_1062232__g70_clay-auto_auto_deep_from-b33__listen.csv,不同,11695 行不同，第一处数据行 86：cal_gate_mask;plan_transition；最大差 applied_bias_db 0.0492；cal_applicable 1；cal_begins 1；cal_finishes 1；cal_gate_mask 128；cal_last_error_db 0.772；cal_round_active 1；cal_rounds_done 1；cal_state 1；cal_subwindow_s 2.4；cal_subwindows 3；cal_suggested_db 0.049
+trace/track_1062232__g70_clay-auto_auto_from-b33.csv,相同,
+trace/track_1062232__g70_clay-auto_auto_from-b33__listen.csv,相同,
+trace/track_1062232__g70_clay-off_auto_deep_from-b33.csv,不同,19256 行不同，第一处数据行 0：limit_gain_db;applied_bias_db;executed_bias_db；最大差 applied_bias_db 0.0492；cal_gate_mask 40；cal_target_db 2.055；executed_bias_db 0.0492；feedback_max_db 97.445；feedback_steps 1；glaze_phase 2；glue 1.77；guard_db 0.5；heat 0.51；limit_gain_db 0.123；limit_gr_db 0.489
+trace/track_1062232__g70_clay-off_auto_deep_from-b33__listen.csv,不同,11695 行不同，第一处数据行 86：cal_gate_mask;plan_transition；最大差 applied_bias_db 0.0492；cal_applicable 1；cal_begins 1；cal_finishes 1；cal_gate_mask 128；cal_last_error_db 0.772；cal_round_active 1；cal_rounds_done 1；cal_state 1；cal_subwindow_s 2.4；cal_subwindows 3；cal_suggested_db 0.049
+trace/track_1062232__g70_clay-off_auto_from-b33.csv,相同,
+trace/track_1062232__g70_clay-off_auto_from-b33__listen.csv,相同,
+track_1062232__g100_clay-auto_auto_deep_from-b33.wav,不同,最大样本差 -46.2 dBFS，第一个不同的样本 0（0.000 s）
+track_1062232__g100_clay-auto_auto_from-b33.wav,相同,
+track_1062232__g100_clay-off_auto_deep_from-b33.wav,不同,最大样本差 -46.2 dBFS，第一个不同的样本 0（0.000 s）
+track_1062232__g100_clay-off_auto_from-b33.wav,相同,
+track_1062232__g100_clay-replay-off_auto_deep_from-b33.wav,不同,最大样本差 -46.2 dBFS，第一个不同的样本 0（0.000 s）
+track_1062232__g100_clay-replay-off_auto_from-b33.wav,相同,
+track_1062232__g70_clay-auto_auto_deep_from-b33.wav,不同,最大样本差 -36.1 dBFS，第一个不同的样本 0（0.000 s）
+track_1062232__g70_clay-auto_auto_from-b33.wav,相同,
+track_1062232__g70_clay-off_auto_deep_from-b33.wav,不同,最大样本差 -36.1 dBFS，第一个不同的样本 0（0.000 s）
+track_1062232__g70_clay-off_auto_from-b33.wav,相同,
+track_1062232__g70_clay-replay-off_auto_deep_from-b33.wav,不同,最大样本差 -36.1 dBFS，第一个不同的样本 0（0.000 s）
+track_1062232__g70_clay-replay-off_auto_from-b33.wav,相同,

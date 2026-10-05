@@ -38,7 +38,7 @@
     "line1": "One insert on the master bus.",
     "line2": "It just sounds right.",
     "tagline": "Mastering, glazed — four steps, one knob.",
-    "lead": "Balance, stereo clean-up, colour and limiting run in a fixed order. <b>GLAZE</b> listens to the song for 15–30 seconds, then decides how far to push it toward its ideal master — every knob you set is the floor, and it only ever adds on top.",
+    "lead": "Balance, stereo clean-up, colour and limiting run in a fixed order. <b>GLAZE</b> listens to the song first (usually 15–30 seconds, longer with a House genre), then decides how far to push it toward its ideal master — every knob you set is the floor, and it only ever adds on top.",
     "listenLink": "Have a listen",
     "format": "Format",
     "formatValue": "VST3 · AU · Standalone",
@@ -113,7 +113,7 @@
   },
   "glaze": {
     "title": "It listens to the song first,<br/>then decides <em>how far to push</em>.",
-    "lead": "GLAZE doesn't just turn every knob up at once. Once playback starts it listens for 15–30 seconds, measuring the song's loudness, dynamics, spectrum and attacks to build a profile and a plan; the knob only sets how far to push toward this song's ideal master. At 0 nothing moves, and your manual settings are always the floor.",
+    "lead": "GLAZE doesn't just turn every knob up at once. Once playback starts it listens first (usually 15–30 seconds; with a House genre, until it has heard the main section), measuring the song's loudness, dynamics, spectrum and attacks to build a profile and a plan; the knob only sets how far to push toward this song's ideal master. At 0 nothing moves, and your manual settings are always the floor.",
     "phases": [
       "Not learned",
       "Listening",
@@ -127,7 +127,7 @@
     "autoIncrement": "Auto increment",
     "drivenBody": "Actual value = manual value + auto increment, capped at each module's limit. The auto increment only ever rises as GLAZE goes up, and never cancels out your changes.",
     "targetTitle": "Target loudness (illustrative)",
-    "targetBody": "Set by the style and GLAZE together, then narrowed by each module's limits; at the edge of dynamics protection it stops pushing and the status shows “Limited”.",
+    "targetBody": "Delivery sets the loudness tier first (Standard / Streaming / Club); style and GLAZE then adjust it, narrowed by each module's budget. Once that budget is used up it stops pushing, and the target loudness on the status line comes down; the status usually still reads Locked.",
     "styleTitle": "Style · blended per song",
     "styles": [
       "Warm",
@@ -147,7 +147,7 @@
       },
       {
         "title": "GLAZE",
-        "body": "One knob. It listens for 15–30 seconds to settle on a plan, then pushes toward this song's ideal master; the denser the crackle, the further it's pushing."
+        "body": "One knob. It listens for a while (usually 15–30 seconds) to settle on a plan, then pushes toward this song's ideal master; the denser the crackle, the further it's pushing."
       },
       {
         "title": "A / B and Match",
@@ -214,7 +214,7 @@
     "link": "Full guide to monitoring",
     "bitsEn": "",
     "bitsTitle": "Bit-exact contract",
-    "bitsBody": "With GLAZE at 0, the chain is bit-identical to the same chain without GLAZE; with a module at zero or bypassed, it passes the input through unchanged — at any block size, SIMD or scalar, idle-skipping or always running, identical bit for bit.",
+    "bitsBody": "With GLAZE at 0, Genre on General and Delivery on Standard, the chain is bit-identical to the same chain without GLAZE; with a module at zero or bypassed, it passes the input through unchanged — at any block size, SIMD or scalar, idle-skipping or always running, identical bit for bit.",
     "bitsRows": [
       "GLAZE 0 vs reference chain",
       "SIMD vs scalar",
@@ -252,7 +252,7 @@
     ]
   },
   "numbers": {
-    "intro": "All taken from verification records. Percentages are a single audio thread's processing time divided by the block's playback time — not total CPU. The test count is the full suite on Linux and Windows before the 0.1.8.7 release.",
+    "intro": "All taken from verification records. Percentages are a single audio thread's processing time divided by the block's playback time — not total CPU. The test count is the full suite on Linux and Windows before the 0.1.8.8 release.",
     "stats": [
       {
         "unit": "bands",

@@ -1,0 +1,4 @@
+track,rows,different_rows,first_sequence,first_bar,columns,max_d_i_lu,max_d_mainness,max_d_confidence,final_other_lines
+track_0388822__deep,210,1,205,206,low_share,0.0000,0.00000,0.00000,0
+track_0966855__deep,167,8,145,146,low_factor;low_share;main_mass_s;mainness;profile_low_share;weight_s,0.0000,0.00027,0.00000,0
+# 逐字节相同（追踪与去掉 tag 的汇总）：43 / 45

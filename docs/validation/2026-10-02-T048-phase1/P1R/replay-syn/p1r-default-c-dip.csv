@@ -1,0 +1,3 @@
+class,track,bpm,first_drop_bar_d,drop_start_bar,first_drop_run_end,c_pre,kappa_pre,c_min_first_drop,c_min_bar,c_min_drop_bar_index,kappa_min,kappa_ratio_min_over_pre,c_drop_over_pre,below_08,first_below_bar,recover_bar,recover_drop_bars,recover_s,recover_from_drop_s,note
+deep,synthetic-house-124,124.000,33,32,64,0.9441,1.0000,0.4517,35,4,0.7170,0.7170,0.4924,1,34,47,16,25.1613,30.9677,
+tech,synthetic-tech-124,124.000,33,32,64,0.9441,1.0000,0.9478,32,1,1.0000,1.0000,-0.0037,0,,,0,0.0000,,drop 之后 c 一直 ≥ 0.8

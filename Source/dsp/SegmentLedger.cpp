@@ -2,7 +2,9 @@
   ==============================================================================
 
     SegmentLedger.cpp
-    T-038 House 档按小节记账（口径见 SegmentLedger.h）。
+    T-038 House 档按小节记账（口径见 SegmentLedger.h）。T-048：每定稿一段交给 SegmentSink（finalizeOldest，含 endEpoch 就地定稿的段）；
+    阶段 1 修订：锚定时块起点离下一条小节线不到半个样本就从那条小节线算起（anchor，不再开 1 个样本的碎段）。
+    阶段 1 收口：同一段重新锚定时，这一次实例最长两段，超了就截断另开（anchor）。
 
   ==============================================================================
 */
@@ -234,6 +236,18 @@ namespace celadon::glaze
         return juce::jmax ((std::int64_t) 0, (time - regime.originSample) / regime.segmentSamples);
     }
 
+    // 一次实例的样本上界：两小节，或拍点外的两段。一小节已 ≤ maximumBarSeconds，所以两小节 ≤ 12.8 s。
+    std::int64_t SegmentLedger::maxInstanceSamples() const noexcept
+    {
+        if (regime.mode == SegmentMode::bars)
+            return juce::jmax ((std::int64_t) 1, (std::int64_t) std::llround (2.0 * regime.samplesPerSegment));
+
+        if (regime.segmentSamples > 0)
+            return juce::jmax ((std::int64_t) 1, 2 * regime.segmentSamples);
+
+        return juce::jmax ((std::int64_t) 1, (std::int64_t) std::llround (maximumBarSeconds * sampleRate));
+    }
+
     void SegmentLedger::anchor (const Regime& wanted, std::int64_t blockStart, const HostInfo& host) noexcept
     {
         regime = wanted;
@@ -255,7 +269,19 @@ namespace celadon::glaze
                     barStart = host.ppqLastBarStart + std::floor (since / quarters + 1.0e-9) * quarters;
             }
 
-            const auto offset = juce::jlimit (0.0, regime.samplesPerSegment - 1.0, (ppq - barStart) * regime.samplesPerQuarter);
+            // 块起点离下一条小节线不到半个样本（宿主把小节线取整到了它前面那个样本，例如从第 N 小节起播、起点 = round(小节线)）：这条
+            // 小节线按就近取整就落在块起点上，从它算起。否则下面把偏移钳在「每小节样本 − 1」再取整，原点被拉晚一个样本，小节线落到块起点
+            // 之后一个样本，开出一个只有 1 个样本的碎段，下一小节的第一个子块、帧、起音组都按起点归进它（T-048 REPORT-C 5.7）。
+            // 离小节线半个样本及以上的块起点照旧：那几个样本就近取整确实属于上一小节。
+            auto exactOffset = (ppq - barStart) * regime.samplesPerQuarter;
+
+            if (exactOffset > regime.samplesPerSegment - 0.5)
+            {
+                barStart += quarters;
+                exactOffset -= regime.samplesPerSegment;
+            }
+
+            const auto offset = juce::jlimit (0.0, regime.samplesPerSegment - 1.0, exactOffset);
             regime.anchorPpq = ppq;
             regime.originPpq = barStart;
             regime.originSample = blockStart - (std::int64_t) std::llround (offset);
@@ -285,10 +311,22 @@ namespace celadon::glaze
                 && open.mode == regime.mode && open.key == key)
             {
                 // 同一段（例如小节中途换了速度）：接着记，段尾与标称长度按新锚点。
-                open.end = boundary (index + 1);
-                open.nominalLength = boundary (index + 1) - boundary (index);
-                newestIndex = index;
-                return;
+                // 段长封顶两段（拍板 6.1）：冻结的 PPQ / 位置让每块都重新锚定，同一键会把 open.end 一直往后推。
+                // 超了就截到 open.start + 两段；这一块的起点已经落在截断点上或之后，就不再接着记，落到下面另开新段。
+                const auto naturalEnd = boundary (index + 1);
+                const auto cap = open.start + maxInstanceSamples();
+                const auto newEnd = naturalEnd > cap ? cap : naturalEnd;
+
+                if (blockStart < newEnd)
+                {
+                    open.end = newEnd;
+                    open.nominalLength = naturalEnd <= cap ? naturalEnd - boundary (index) : newEnd - open.start;
+                    newestIndex = index;
+                    return;
+                }
+
+                open.end = newEnd;
+                open.nominalLength = newEnd - open.start;
             }
 
             if (open.end > blockStart)
@@ -351,6 +389,19 @@ namespace celadon::glaze
         anchored = false;
         acceptFrom = newAcceptFrom;
         ++epoch;
+    }
+
+    void SegmentLedger::endEpochAt (std::int64_t dataEnd, std::int64_t newAcceptFrom) noexcept
+    {
+        for (int i = 0; i < openCount; ++i)
+        {
+            auto& open = pool[(size_t) order[(size_t) ((openHead + i) % maxOpenSegments)]];
+
+            if (open.end > dataEnd)
+                open.end = std::max (open.start, dataEnd);
+        }
+
+        endEpoch (newAcceptFrom);
     }
 
     //==============================================================================
@@ -471,6 +522,12 @@ namespace celadon::glaze
         --openCount;
 
         deriveSegment (segment);
+
+        // T-048：每定稿一段交一次给接收者（SegmentSink，文件头见 SegmentLedger.h 末尾）——存不存进账本都交（没有有效音频、账本满了、
+        // 重放不如旧值的段同样交），交的是算好有效时长 / 段响度 / 低频占比之后、门控之前的段（full 是账本自己的结果，接收者不用）。
+        // 只读这一段，账本的状态一个不改：没设接收者时与 T-048 之前逐位相同。
+        if (sink != nullptr)
+            sink->segmentFinalized (segment);
 
         // 新响段：比「这一段并入之前」的 S_ref 高 ΔG 以上、且过了那时的低频门（设计规格第 3.2 节）。
         const auto surge = summary.valid && lowReferenceValid && segment.heard && segment.loudnessValid && segment.lowShareValid

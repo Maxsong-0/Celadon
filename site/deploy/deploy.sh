@@ -80,7 +80,8 @@ done
 
 echo "✔ 本机检查通过：版本 ${VERSION}，发布目录 $(basename "$REL")，${#FILES[@]} 个安装包 + SHA256SUMS，与下载页一致"
 for i in "${!FILES[@]}"; do
-  printf '    %-44s %9s 字节  %s…\n' "${FILES[$i]}" "$(stat -f%z "$REL/${FILES[$i]}")" "${SUMS[$i]:0:12}"
+  # 字节数：GNU stat（Linux，Spark / 服务器）用 -c%s，BSD stat（macOS）用 -f%z；两种写法互不认，先试前一种。
+  printf '    %-44s %9s 字节  %s…\n' "${FILES[$i]}" "$(stat -c%s "$REL/${FILES[$i]}" 2>/dev/null || stat -f%z "$REL/${FILES[$i]}")" "${SUMS[$i]:0:12}"
 done
 [ "$MODE" = check ] && exit 0
 

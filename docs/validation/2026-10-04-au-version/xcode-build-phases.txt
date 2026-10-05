@@ -1,0 +1,18 @@
+Projucer 9.0.2（JUCE tag 9.0.2 源码在 Linux 上编出）--resave 后，Builds/MacOSX/Celadon.xcodeproj 各目标的构建阶段（按执行顺序）
+
+== main 9c18ff9
+  Celadon - Standalone Plugin: Resources → Sources → Frameworks → Sign Target
+  Celadon - AU: Resources → Sources → Frameworks → Sign Target → Install Target
+  Celadon - Shared Code: Sources
+  Celadon - VST3: Resources → Sources → Frameworks → Create VST3 Manifest → Sign Target → Install Target
+  Celadon - VST3 Manifest Helper: Sources → Frameworks → Sign Target
+  Info-AU.plist：CFBundleShortVersionString = 0.1.8.8，AudioComponents → version = 264（0x108）
+
+== 本分支
+  Celadon - Standalone Plugin: Resources → Sources → Frameworks → Run Post-Build Script → Sign Target
+  Celadon - AU: Resources → Sources → Frameworks → Run Post-Build Script → Sign Target → Install Target
+  Celadon - Shared Code: Sources → Run Post-Build Script
+  Celadon - VST3: Resources → Sources → Frameworks → Create VST3 Manifest → Run Post-Build Script → Sign Target → Install Target
+  Celadon - VST3 Manifest Helper: Sources → Frameworks → Sign Target
+  Run Post-Build Script 的内容："\"${PROJECT_DIR}/../../scripts/au-version.sh\""
+  Info-AU.plist：CFBundleShortVersionString = 0.1.8.8，AudioComponents → version = 264（0x108）

@@ -35,4 +35,4 @@ Max 10-05 答「按你的建议来」，本任务收紧并补一条守着它的�
 ## 没做 / 限制
 
 - Mac（CoreGraphics ×1 包围盒口径）/ Windows（Direct2D 矩形列表）没实跑：用同一套检查按各自的脏区口径覆盖（本任务的检查看的是 `curveRegion` 这个矩形本身，与口径无关）。
-- 107 / 109 连不上（网络通了、Spark 没有授权的密钥），x86 / MSVC 没跑；本任务不涉及数值。
+- x86 / MSVC 后来补跑了（2026-10-05，Max 授权 Spark 的新密钥后，见 `../2026-10-05-T074-guard-recovery-indicator/README.md` 的「验证」表）：109 MSVC 19.44（Wine）的界面检查 114 / 0，含本任务的 `probeRegionWithoutPeak`；107 全套 148728 / 0。本任务不涉及数值。Mac / Windows 原生的脏区口径仍没实跑（上一条）。

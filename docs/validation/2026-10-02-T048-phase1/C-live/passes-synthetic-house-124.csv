@@ -1,0 +1,49 @@
+pass,combo,genre,start_bar,commits,digest,written,compared,matching_rows,reference_rows,first_difference_sample,first_difference_columns,digest_differs,overrun,mismatch
+listen,g70 · clay-auto · auto · deep,deep,1,113,e10dd46931dcb173,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto · deep,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · auto · deep,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · auto · deep,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-auto · auto · deep · from-b33,deep,33,82,f05595ca0837800b,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto · deep · from-b33,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · auto · deep · from-b33,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · auto · deep · from-b33,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-auto · auto,general,1,113,1edd76f1bc01cd5e,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · auto,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · auto,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-auto · auto · from-b33,general,33,82,56206f4da0093954,1,0,,,,,0,0,0
+render,g70 · clay-auto · auto · from-b33,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · auto · from-b33,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · auto · from-b33,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-auto · warm · deep,deep,1,113,e10dd46931dcb173,0,1,113,113,,,0,0,0
+render,g70 · clay-auto · warm · deep,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · warm · deep,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · warm · deep,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-auto · warm · deep · from-b33,deep,33,82,f05595ca0837800b,0,1,82,82,,,0,0,0
+render,g70 · clay-auto · warm · deep · from-b33,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · warm · deep · from-b33,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · warm · deep · from-b33,deep,1,113,c1328d864887cb6c,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-auto · warm,general,1,113,1edd76f1bc01cd5e,0,1,113,113,,,0,0,0
+render,g70 · clay-auto · warm,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · warm,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · warm,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-auto · warm · from-b33,general,33,82,56206f4da0093954,0,1,82,82,,,0,0,0
+render,g70 · clay-auto · warm · from-b33,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+replay-copy,g70 · clay-auto · warm · from-b33,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+replay-off,g70 · clay-replay-off · warm · from-b33,general,1,113,2ed9713752dc9edd,0,1,112,113,10405161,end_sample;end_s;live_trial_blocks,0,0,0
+listen,g70 · clay-off · auto · deep,deep,1,113,e10dd46931dcb173,0,1,113,113,,,0,0,0
+render,g70 · clay-off · auto · deep,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+listen,g70 · clay-off · auto · deep · from-b33,deep,33,82,f05595ca0837800b,0,1,82,82,,,0,0,0
+render,g70 · clay-off · auto · deep · from-b33,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+listen,g70 · clay-off · auto,general,1,113,1edd76f1bc01cd5e,0,1,113,113,,,0,0,0
+render,g70 · clay-off · auto,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+listen,g70 · clay-off · auto · from-b33,general,33,82,56206f4da0093954,0,1,82,82,,,0,0,0
+render,g70 · clay-off · auto · from-b33,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+listen,g70 · clay-off · warm · deep,deep,1,113,e10dd46931dcb173,0,1,113,113,,,0,0,0
+render,g70 · clay-off · warm · deep,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+listen,g70 · clay-off · warm · deep · from-b33,deep,33,82,f05595ca0837800b,0,1,82,82,,,0,0,0
+render,g70 · clay-off · warm · deep · from-b33,deep,1,113,2aa9f6c75390d644,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+listen,g70 · clay-off · warm,general,1,113,1edd76f1bc01cd5e,0,1,113,113,,,0,0,0
+render,g70 · clay-off · warm,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
+listen,g70 · clay-off · warm · from-b33,general,33,82,56206f4da0093954,0,1,82,82,,,0,0,0
+render,g70 · clay-off · warm · from-b33,general,1,113,88726f528fa51ccd,0,1,0,113,0,low_share;slope_db_per_oct;profile_low_share,0,0,0
