@@ -1,0 +1,39 @@
+before 退出码 0
+after 退出码 0
+== metrics.csv 逐字节比较
+metrics.csv 逐字节相同 (4132 字节)
+== metrics.md 差别
+diff 退出码 1（1 = 有差别，预期）
+3c3
+< - 生成时间：2026-10-04 19:16:39（每做完一首歌重写一次本表）
+---
+> - 生成时间：2026-10-04 19:16:47（每做完一首歌重写一次本表）
+6c6
+< - 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.3 s 余振，成品与原曲逐样本对齐
+---
+> - 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 0.35 s 余振，成品与原曲逐样本对齐
+44c44
+< - **LUFS（对齐前）**：插件自己的 BS.1770-4 表（`celadon::LoudnessMeter`，与界面 OUT 表同一算法）量整段成品（已去掉链延迟、含 0.3 s 余振）。
+---
+> - **LUFS（对齐前）**：插件自己的 BS.1770-4 表（`celadon::LoudnessMeter`，与界面 OUT 表同一算法）量整段成品（已去掉链延迟、含 0.35 s 余振）。
+52c52
+< - **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。
+---
+> - **反相提示 / 宽度保护**：第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音）/ 宽度保护介入的时长占比（每块读一次状态）。格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）。
+== mono 行与 off 行 audio_hash、与 auto 行 phase_guard_pct
+glaze  0 clay auto  audio_hash 5c2d3d71a3d2f6a6  phase_guard_pct   0.00  width_guard_pct   0.00  clay_cost_limited -
+glaze  0 clay off   audio_hash 5c2d3d71a3d2f6a6  phase_guard_pct   0.00  width_guard_pct   0.00  clay_cost_limited -
+glaze  0 clay mono  audio_hash 5c2d3d71a3d2f6a6  phase_guard_pct   0.00  width_guard_pct   0.00  clay_cost_limited -
+glaze 35 clay auto  audio_hash a5004667119cebc7  phase_guard_pct  48.43  width_guard_pct   0.00  clay_cost_limited lowcut
+glaze 35 clay off   audio_hash a5004667119cebc7  phase_guard_pct   0.00  width_guard_pct   0.00  clay_cost_limited -
+glaze 35 clay mono  audio_hash a5004667119cebc7  phase_guard_pct  48.43  width_guard_pct   0.00  clay_cost_limited -
+glaze 70 clay auto  audio_hash 9c5a4852208a255e  phase_guard_pct  48.43  width_guard_pct   0.00  clay_cost_limited lowcut
+glaze 70 clay off   audio_hash 9c5a4852208a255e  phase_guard_pct   0.00  width_guard_pct   0.00  clay_cost_limited -
+glaze 70 clay mono  audio_hash 9c5a4852208a255e  phase_guard_pct  48.43  width_guard_pct   0.00  clay_cost_limited -
+mono 行 audio_hash 与 off 行相同： True ；mono 行 phase_guard_pct 与 auto 行相同（GLAZE 35 / 70）： True
+stderr 差别（输出目录路径除外）：
+17c17
+< 完成：0 个成品，0 处失败，用时 7.7 s；指标表 OUT/metrics.md、metrics.csv
+---
+> 完成：0 个成品，0 处失败，用时 7.6 s；指标表 OUT/metrics.md、metrics.csv
+全部完成 2026-10-04 19:16:54

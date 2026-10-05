@@ -6,7 +6,7 @@
 #   1. GLAZE 0：修坯「自动」与「全关」两组成品逐位相同（audio_hash；设计规格-Clay 第 4 节「逐位直通」）。
 #   2. 同决策重放的阳性对照：每组 GLAZE > 0 的「自动」replay_check 必须是 ok（重放与自动链最大样本差 ≤ −180 dBFS；
 #      mismatch = 重放走样，门槛对照不可信）；
-#      n/a（自动收单比例在 0、1 之间，「手动」态表达不了）只列说明。
+#      n/a（有块的实际值重放链照搬不了，原因写在 metrics.md 该曲备注；ADR-015 起不再因自动收单出现）只列说明。
 #   3. 修坯门槛（ADR-014 的阈值，ADR-016 的口径）：每首歌、每个 GLAZE > 0，「自动」对「重放全关」（同一份逐块参数、只差修坯）——
 #        - 限幅器入口峰值（max(GR − 本块实际 Limit Gain)）增加 ≤ 0.3 dB；
 #        - 整体响度下降 ≤ 0.1 LU；响度下降但入口峰值同降（差不超过 0.05 dB）= 切掉的是超低频能量、限幅器少压，列说明不算失败；
@@ -146,7 +146,7 @@ def main(path):
         check = a.get('replay_check') or ''
         if has_replay:
             if check == 'n/a':
-                notes.append(f"{tag}: 同决策重放的阳性对照不适用（自动收单比例在 0、1 之间），修坯门槛照常用重放全关判定")
+                notes.append(f"{tag}: 同决策重放的阳性对照不适用（原因见 metrics.md 该曲备注），修坯门槛照常用重放全关判定")
             elif check != 'ok':
                 diff = a.get('replay_max_diff_dbfs') or '?'
                 fails.append(f"{tag}: 同决策重放的阳性对照 {check or '缺失'}（应为 ok；最大样本差 {diff} dBFS，允许 ≤ −180），修坯门槛对照不可信")
