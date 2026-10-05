@@ -3,7 +3,7 @@
 > 写于 2026-10-05 13:2x（PDT）· 会话「插件文字跟上曲风交付」（DGX Spark，Sonnet 5.5 主进程）。
 > 放在 GitHub 是 Max 2026-10-05 的要求：**把任务交给别人，交接文档要推送给 GitHub**——DGX 上的 vault（Obsidian）没有同步到别的机器，接棒方读不到；vault 里的 TASKS / 日志只留指向本文的指引。
 > 本文随提案进展更新（同一路径、同一分支再推）。路径照 T-079 会话先定的约定 `docs/handoff/YYYY-MM-DD-T-xxx-*.md`；附件（核对 workflow 脚本、将来的提案材料）放 `docs/validation/2026-10-05-T078-plugin-text-genre-delivery/`。
-> **当前状态：提案阶段，一个插件字符串都没改。**
+> **当前状态：Max 已拍板，插件与官网对应页已按提案改完（见文末「13. 实现回执」）。未开 PR。**
 > **main 在 13:07（PDT）前进了**：Max 合了 PR #51（T-076 发布 0.1.8.8）与 PR #28（AU 版本号），main 现为 `8bcf8da`。对本任务的影响见第 4、8 节：插件源码 / 测试 / 工具没动（只有 `Celadon.jucer` 的 AU 版本两行），也没碰 T-077 改的 33 个官网文件，所以 T-077 / T-078 之后 rebase 到 main 不会冲突。
 
 ## 1. 目标
@@ -64,7 +64,7 @@
 
 ## 8. 当前状态与验证矩阵
 
-状态：**没开始**改字符串；提案列表还没写。已做：认领 T-078（TASKS ①）、开分支、与 T-079 划界、启动只读核对 workflow、跑了基线。
+状态：**代码已按拍板改完，本机定向测试已过；DGX 全套与官网构建未跑。** 提案阶段的基线记录仍留在下表。
 
 | 项 | 结果 |
 |---|---|
@@ -111,3 +111,11 @@ site/scripts/build-linux.sh
 ## 12. 回执（接棒方交回来时填）
 
 状态（completed / failed / stopped / abandoned）｜产物路径｜和别的认领撞了什么｜没做完的（每条带原因）｜待用户拍板（碰到三件事没自己定的，逐条列）。
+
+## 13. 实现回执（2026-10-05，按 Max 拍板施工）
+
+拍板：1 / 3 / 8 / 10 用建议文；2 甲；2b、6b、7b、8c、10b、11 并入；4 甲（含琥珀行守卫）；5 乙；6 改注释；7 甲（旁通 / 干路发布用户 Ceiling）；9 乙（阶段标签「待校准 / Awaiting」）。未把官网行名「再拧也不变响」写进插件。
+
+未改（不在本卡）：`home.json`、`release.ts` / `changelog.ts`、`Stats.tsx`、`verification.md`；`quickstart.md` 第 7 步的「受限 / fully manual」属 T-079 A1，本卡只改插件主旋钮气泡（10b）。`PluginEditor.cpp:482` 仍保留「原默认的主旋钮左右作废」这句历史说明。
+
+本机已编过 `celadon_tests` 与 `celadon_ui_snapshot`（GCC 13，`-Wall -Wextra -Wshadow -Wconversion`，0 警告）。定向测试 `HelpText` / `HelpTextClay` / `HelpTextHouse` / `Localisation` / `AdvancedMasteringChain` / `GlazeStatusText` 全过。`site/scripts/check-i18n.mjs` 通过。未跑 DGX `spark-test.sh` 全套，也未跑 `site/scripts/build-linux.sh`，截图基线未重出。

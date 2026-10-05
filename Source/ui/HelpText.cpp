@@ -40,10 +40,10 @@ namespace celadon::help
             { param::limitCeiling,
               "Ceiling · 输出上限",
               "限幅器按真峰值检测控制输出上限（dBTP）；不同测量器会有微小读数差异。",
-              "上流媒体用 −1.0；想更保险用 −1.5。",
+              "交付选「流媒体」时，交给限幅器的上限不高于 −2 dBTP，不用再往下拉；选「标准」或「俱乐部」时照你设的，常用 −1.0，想更保险用 −1.5。",
               "Ceiling · output limit",
               "The limiter keeps the output below this true-peak level (dBTP); other meters may read slightly differently.",
-              "Use −1.0 for streaming; −1.5 to be extra safe." },
+              "With Delivery on Streaming, the ceiling handed to the limiter is kept at or below −2 dBTP, so there's no need to lower it; on Standard or Club it follows your setting: −1.0 is common, −1.5 to be extra safe." },
 
             { param::limitRelease,
               "Release · 释放时间",
@@ -202,11 +202,11 @@ namespace celadon::help
             // ---- 总览区 ----
             { param::glazeAmount,
               "Glaze · 施釉（总旋钮）",
-              "按歌曲自动推响度、修正持续共振、调整明暗并加入温和染色；达到动态保护上限后停止加压。",
-              "新实例默认 35% 和自动风格，播放时持续聆听；按需要增加力度，0% 回到手动。",
+              "按歌曲自动推响度、修正持续共振、调整明暗并加入温和染色；动态保护排在响度前面，推到各模块的预算上限就不再加压，状态行里的「目标 … LUFS」随之降低。",
+              "新实例默认 35% 和自动风格，播放时持续聆听；按需要增加力度，0% 时联动的 7 项都用手动值。",
               "Glaze · the master knob",
-              "Adapts to the song: pushes loudness, corrects sustained resonances, adjusts brightness and adds gentle colour; it stops pushing at the dynamics protection limit.",
-              "New instances start at 35% with Auto style and keep listening during playback; raise it as needed, 0% is fully manual." },
+              "Adapts to the song: pushes loudness, corrects sustained resonances, adjusts brightness and adds gentle colour. Dynamics protection comes before loudness: once each module's budget is used up it stops pushing, and the “Target … LUFS” on the status line comes down.",
+              "New instances start at 35% with Auto style and keep listening during playback; raise it as needed. At 0% the 7 linked parameters use your manual values." },
 
             { param::glazeStyle,
               "风格 · 母带取向",
@@ -216,39 +216,39 @@ namespace celadon::help
               "Auto picks per song; Warm: thick, round, never harsh; Punchy: strong drums, louder; Clean: clear, less compression, more dynamics.",
               "When unsure, use Auto; the status at the top shows which way it is leaning." },
 
-            // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 主旋钮左右两侧的两个选择）。
+            // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 标题行左右两侧的两个选择，位置见 PluginEditor layoutGlazeChoices）。
             // 选择器上 House 只写 Deep / Tech / Melodic，全名写在这里。
             { param::glazeGenre,
               "曲风 · 音色目标与学法",
-              "通用照原来的方式；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，GLAZE 按小节聆听、听到主段落（drop）才锁定，自动释放跟着宿主速度收紧。",
+              "通用：开播后聆听 15～30 秒定方案，音色目标按风格定；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，GLAZE 按小节聆听、听到主段落（drop）才锁定，自动释放跟着宿主速度收紧。",
               "写的是哪种 House 就选哪种，拿不准选最接近的；不是 House 用通用。换曲风不用重新聆听，约 3 秒平滑换过去。",
               "Genre · tonal target and learning",
-              "General works as before; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, while GLAZE learns bar by bar, locks only after hearing the main section (the drop) and tightens Auto release to the host tempo.",
+              "General listens for 15–30 s from the start of playback and sets the tonal target by style; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, while GLAZE learns bar by bar, locks only after hearing the main section (the drop) and tightens Auto release to the host tempo.",
               "Pick the House type you wrote, or the closest one; use General for anything else. Switching needs no relearn and fades over in about 3 s." },
 
             { param::glazeDelivery,
               "交付 · 响度与真峰值",
-              "标准：按风格定响度（同原来）；流媒体：约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部：约 −7 LUFS，给 DJ 和下载店，上限照你设的不变。House 档按 drop 的响度算。",
+              "标准：按风格定响度，上限照你设的；流媒体：约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部：约 −7 LUFS，给 DJ 和下载店，上限照你设的不变。House 档按 drop 的响度算。",
               "同一首歌每档各导出一次，就得到两版母带；切换后先播一遍 drop 再导出，让校准在新目标上走完。",
               "Delivery · loudness and true peak",
-              "Standard sets loudness by style (as before); Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores and keeps your Ceiling. In House mode the target is the loudness of the drop.",
+              "Standard sets loudness by style and keeps your Ceiling; Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores and keeps your Ceiling. In House mode the target is the loudness of the drop.",
               "Export once per setting to get both masters from one song; after switching, play the drop once before exporting so calibration settles on the new target." },
 
             { uiid::glazeRelearn,
               "重新聆听",
-              "再听 15～30 秒重新定方案；听的时候旧方案照常生效，听完约 3 秒平滑换过去。",
+              "重新听一轮再定方案：通用曲风约 15～30 秒；House 类曲风要重新凑够 64 小节并听到主段落，通常两分钟上下。听的时候旧方案照常生效，听完约 3 秒平滑换过去。",
               "换歌或改了混音后点；聆听中再点一次取消。",
               "Relearn",
-              "Listens for another 15–30 s to build a new plan; the old plan keeps working meanwhile, then fades over in about 3 s.",
+              "Listens again to build a new plan: about 15–30 s in General; with a House genre it has to collect 64 bars again and hear the main section, usually around two minutes. The old plan keeps working meanwhile, then fades over in about 3 s.",
               "Use it after switching songs or changing the mix; click again while listening to cancel." },
 
             { uiid::glazeStatus,
               "GLAZE 状态",
               "显示聆听、校准、目标响度与受限状态；频谱持续跟随，自动染色随段落密度和明亮度缓慢收敛。",
-              "受约束表示已自动保护动态；想保留更多起伏就调低 GLAZE。换歌后可重新聆听，更新整首歌的取向。",
+              "推到各模块的预算上限就不再加压，「目标 … LUFS」随之降低，状态通常仍是「已锁定」；状态写「受限」是另外两种情形：受手动设置限制，或方案受限、已退让。想保留更多起伏就调低 GLAZE；换歌后可重新聆听，更新整首歌的取向。",
               "GLAZE status",
               "Shows listening, calibration, target loudness and limits; the spectrum keeps following, and the automatic colouring settles slowly with the density and brightness of each section.",
-              "“Limited” means the dynamics are being protected; lower GLAZE to keep more movement. Relearn after switching songs to update the plan." },
+              "Once each module's budget is used up GLAZE stops pushing and the “Target … LUFS” comes down; the status usually still reads Locked. A status of Limited means one of two other things: limited by manual settings, or the plan is limited and has backed off. Lower GLAZE to keep more movement; relearn after switching songs to update the plan." },
 
             { uiid::advanced,
               "高级 · 母带微调",
@@ -361,18 +361,18 @@ namespace celadon::help
             { uiid::meterIn,
               "输入 / 输出真峰值",
               "8 倍插值测出的真实峰值（dBTP），比采样点峰值更准；下面数字是峰值保持。",
-              "点数字清零。OUT 不应超过 Ceiling。",
+              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量；交付选「流媒体」时不高于 −2 dBTP），超了会变橙。",
               "Input / output true peak",
               "True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold.",
-              "Click the number to clear it. OUT should not exceed the Ceiling." },
+              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does." },
 
             { uiid::meterOut,
               "输入 / 输出真峰值",
               "8 倍插值测出的真实峰值（dBTP），比采样点峰值更准；下面数字是峰值保持。",
-              "点数字清零。OUT 不应超过 Ceiling。",
+              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量；交付选「流媒体」时不高于 −2 dBTP），超了会变橙。",
               "Input / output true peak",
               "True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold.",
-              "Click the number to clear it. OUT should not exceed the Ceiling." },
+              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does." },
 
             { uiid::meterGr,
               "Limit 压缩量",
@@ -950,9 +950,10 @@ namespace celadon::help
         const auto title = entry != nullptr ? utf8 (english ? entry->titleEn : entry->title) : juce::String();
         const auto how = english
             ? utf8 ("In House mode GLAZE listens bar by bar and plans from the main section only (full sections such as the drop); "
-                    "it locks once enough bars and enough of the main section have been heard, and until then the plan is provisional and conservative.")
-            : utf8 ("House 档按小节聆听，只用主段落（drop 这类满编的段落）定方案；听够小节数、又听到足够的主段落才锁定，"
-                    "在那之前方案是暂定的、推得保守。");
+                    "it locks once enough bars and enough of the main section have been heard. On a first listen the plan is provisional and conservative until then; "
+                    "during Relearn, or when louder bars turn up after the lock, the old plan keeps working.")
+            : utf8 ("House 档按小节聆听，只用主段落（drop 这类满编的段落）定方案；听够小节数、又听到足够的主段落才锁定。"
+                    "首次聆听时，在那之前方案是暂定的、推得保守；重新聆听、或锁定后又听到更响的段落时，旧方案照常生效。");
 
         // 第 3 行与左下角的提示同一句（Localisation 表 cornerHouseTip），补句末标点。
         return title + "\n" + how + "\n" + ui::tr (ui::Text::cornerHouseTip, language) + (english ? juce::String (".") : utf8 ("。"));

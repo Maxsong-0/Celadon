@@ -87,7 +87,7 @@ CLAY's general out-of-phase lamp lights when the slow-path low-frequency correla
 
 ### Delivery
 
-What follows gives the full-strength target at GLAZE 100; how far it actually pushes is further multiplied by GLAZE and by a confidence factor (0.35 + 0.65 × confidence, so 1 at full confidence), and the target is lowered if a module budget runs out. For Streaming and Club, target loudness = the setting's own loudness + the style offset − the loudness-range (LRA) correction, clamped into the setting's allowed range; Standard works as before — the blended style preference minus the LRA correction, clamped to −14 to −7 LUFS, with no style offset added (the preference already depends on the style):
+What follows gives the full-strength target at GLAZE 100; how far it actually pushes is further multiplied by GLAZE and by a confidence factor (0.35 + 0.65 × confidence, so 1 at full confidence), and the target is lowered if a module budget runs out. For Streaming and Club, target loudness = the setting's own loudness + the style offset − the loudness-range (LRA) correction, clamped into the setting's allowed range; Standard uses the blended style preference minus the LRA correction, clamped to −14 to −7 LUFS, with no style offset added (the preference already depends on the style):
 
 | Delivery | Setting loudness | Allowed range | Effective Ceiling handed to the limiter |
 |---|---|---|---|
@@ -98,7 +98,7 @@ What follows gives the full-strength target at GLAZE 100; how far it actually pu
 - **Style offset** (Streaming and Club only) = the blended style preference − Punchy's preference (−9): Warm +0.5, Punchy 0, Clean −1, with Auto blending by weight. The **LRA correction** is unchanged (for each LU of loudness range above 6 LU, the target drops by 1/3 dB) and is subtracted before the clamp.
 - **All three settings have a “minimum push” (3 dB at full strength)**: material that is already close to or above the setting's loudness still gets a gentle extra push. **For Streaming and Club, the top of the allowed range is a hard limit**: even this minimum push won't take the target past it (−8 LUFS for Streaming, −5 for Club), and material that is already louder than the limit isn't pushed at all; Standard has no such hard limit.
 - **Streaming's −2 dBTP leaves margin for lossy transcoding**: the effective Ceiling handed to LIMIT is capped by it from the start, wherever the GLAZE knob is. For Club, the Ceiling is entirely yours and never raised automatically — there is no reliable basis for saying that club playback should use a higher ceiling than you set.
-- **The target aims at the loud part**: the planner works out gain from “target − profile loudness”. In General the profile loudness is that of the stretch listened to after playback starts, as before; with a House genre it is that of the main section, so Club's −7 LUFS refers to the drop, not to the whole-song integral — which the intro and breakdown pull down, and which only appears, as a result, in OUT's integrated loudness after the song has been played through.
+- **The target aims at the loud part**: the planner works out gain from “target − profile loudness”. In General the profile loudness is that of the stretch listened to after playback starts; with a House genre it is that of the main section, so Club's −7 LUFS refers to the drop, not to the whole-song integral — which the intro and breakdown pull down, and which only appears, as a result, in OUT's integrated loudness after the song has been played through.
 
 ### Switching
 
