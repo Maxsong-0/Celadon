@@ -99,7 +99,7 @@
       "balanceNote": "Dashed = the song's own smoothed contour",
       "clayNote": "Centre line = mono (M), band thickness = side (S)",
       "infrasonic": "Infrasonic",
-      "mono": "Mono 120 Hz",
+      "mono": "Mono 120 Hz · Manual",
       "lowCut": "Low cut 25 Hz",
       "width": "Width +0.8 dB",
       "colorNote": "Peaks rounded, envelope tightened; 2nd and 3rd harmonics added above 150 Hz",

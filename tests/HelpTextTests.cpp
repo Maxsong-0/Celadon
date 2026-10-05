@@ -568,6 +568,25 @@ namespace celadon::test
                             "low cut advice (English): same");
                 }
             }
+
+            // 依据：ADR-015（自动不收单）与 T-061：灯的底稿第 2 行把三项并列时，收单要写明「按你的需要」，不然读起来像与低切、加宽一样
+            // 默认会做；措辞与官网首页（home.json「按你的需要 / when you ask for it」）和说明页首句一致。
+            // 阳性对照：对改前的 HelpText.cpp（fbe91f3）这两条都不过（旧句「收单（低频收成单声道）」「mono (lows to mono)」）。
+            beginTest ("Clay indicator (ADR-015): mono is described as on request, not as an automatic move");
+            {
+                const auto* indicator = help::find (uiid::clayIndicator);
+                expect (indicator != nullptr, "the Clay indicator entry exists");
+
+                if (indicator != nullptr)
+                {
+                    expect (utf8Contains (utf8 (indicator->effect), "收单（按你的需要把低频收成单声道）")
+                              && ! utf8Contains (utf8 (indicator->effect), "收单（低频收成单声道）"),
+                            "indicator: mono only on request");
+                    expect (juce::String (indicator->effectEn).contains ("mono (lows to mono when you ask for it)")
+                              && ! juce::String (indicator->effectEn).contains ("mono (lows to mono)"),
+                            "indicator (English): same");
+                }
+            }
         }
     };
 

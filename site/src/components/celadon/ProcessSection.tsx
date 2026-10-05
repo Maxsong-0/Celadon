@@ -268,7 +268,7 @@ function BalanceVisual() {
 
 function ClayVisual() {
   const { t } = useTranslation('home');
-  // 立体声宽度随频率：上下包络。处理前低频很宽、次声有能量；处理后 120 Hz 以下收成单声道、次声切掉、2 kHz 以上略宽。
+  // 立体声宽度随频率：上下包络。处理前低频很宽、次声有能量；处理后 120 Hz 以下收成单声道（画的是手动收单，ADR-015 起自动不收单，所以线与标签用手动的釉青、不用表示自动的紫）、次声切掉、2 kHz 以上略宽。
   const xs = Array.from({ length: 40 }, (_, i) => 60 + (i / 39) * 520);
   const mid = 236;
   const before = xs.map((x, i) => {
@@ -299,8 +299,8 @@ function ClayVisual() {
       </g>
       <g data-after>
         <path d={band(after)} fill="url(#pv-fill)" stroke="#127F90" strokeWidth="1.2" />
-        <line x1="143" y1={mid - 110} x2="143" y2={mid + 110} stroke="#6A4DFF" strokeDasharray="3 4" strokeWidth="1" />
-        <text x="148" y={mid - 100} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#6A4DFF' }}>{t('process.visual.mono')}</text>
+        <line x1="143" y1={mid - 110} x2="143" y2={mid + 110} stroke="#127F90" strokeDasharray="3 4" strokeWidth="1" />
+        <text x="148" y={mid - 100} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>{t('process.visual.mono')}</text>
         <line x1="70" y1={mid - 110} x2="70" y2={mid + 110} stroke="#0E6473" strokeDasharray="3 4" strokeWidth="1" />
         <text x="75" y={mid + 105} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#0E6473' }}>{t('process.visual.lowCut')}</text>
         <text x="500" y={mid - 70} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fill: '#127F90' }}>{t('process.visual.width')}</text>

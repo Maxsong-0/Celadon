@@ -1,4 +1,4 @@
-Before porcelain is glazed, the clay body is trimmed — cleaned up and evened out so the glaze (GLAZE) sits well. CLAY comes after BALANCE and before COLOR: it cuts inaudible infrasonics and DC, folds the lows to mono, and widens narrow mixes a little. **Low cut and Mono never make the peaks higher**: at moments that would, they step aside; Width doesn't go through the guard, and automatic Width is kept in check by the trial run.
+Before porcelain is glazed, the clay body is trimmed — cleaned up and evened out so the glaze (GLAZE) sits well. CLAY comes after BALANCE and before COLOR: it cuts inaudible infrasonics and DC, folds the lows to mono when you ask for it, and widens narrow mixes a little. **Low cut and Mono never make the peaks higher**: at moments that would, they step aside; Width doesn't go through the guard, and automatic Width is kept in check by the trial run.
 
 ## Three rows · three modes
 
