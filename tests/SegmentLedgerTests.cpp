@@ -689,6 +689,7 @@ namespace celadon::test
 
         // 段长封顶两段（拍板 6.1）。冻结的 PPQ / 位置让每块都重新锚定、同一键把开着的段一直拉长；段落账自己截到两段并另开。
         // 120 BPM 一小节正好 2 s = 96000 样本，两小节 192000。正常走带仍是一段一小节。拍点外的 2 秒段同样封两段。
+        // 冻结时每一段的位置键都是 0，账本按「同一位置再听」覆盖，所以数的是定稿时交给接收者的实例，不是账本里剩下的格。
         void testTwoBarCap()
         {
             beginTest ("a frozen playhead cannot grow one segment past two bars; steady playback stays one bar each");
@@ -697,32 +698,46 @@ namespace celadon::test
             constexpr std::int64_t bar = 96000;
             constexpr std::int64_t twoBars = 2 * bar;
 
-            const auto withinCap = [&] (const Feeder& f, std::int64_t limit, const char* tag)
+            struct Capture : glaze::SegmentSink
             {
-                expect (f.ledger.getNumStored() >= 2, juce::String (tag) + ": more than one segment was finalized");
-                auto capped = true, contiguous = f.ledger.getStored (0).start == 0, ordered = true;
-
-                for (int i = 0; i < f.ledger.getNumStored(); ++i)
+                std::vector<SegmentLedger::Segment> segments;
+                void segmentFinalized (const SegmentLedger::Segment& segment) noexcept override
                 {
-                    const auto& s = f.ledger.getStored (i);
+                    if (segment.end > segment.start)
+                        segments.push_back (segment);
+                }
+            };
+
+            const auto withinCap = [&] (const Capture& captured, std::int64_t limit, const char* tag)
+            {
+                const auto& segments = captured.segments;
+                expect (segments.size() >= 2, juce::String (tag) + ": finalized " + juce::String ((int) segments.size()) + " segments");
+                auto capped = true;
+                auto contiguous = ! segments.empty() && segments.front().start == 0;
+
+                for (size_t i = 0; i < segments.size(); ++i)
+                {
+                    const auto& s = segments[i];
                     capped = capped && s.end > s.start && s.end - s.start <= limit + 1;
 
                     if (i > 0)
-                        contiguous = contiguous && s.start == f.ledger.getStored (i - 1).end;
-
-                    ordered = ordered && s.end > s.start;
+                        contiguous = contiguous && s.start == segments[i - 1].end;
                 }
 
-                expect (capped && ordered, juce::String (tag) + ": every stored segment is at most two bars and not inverted");
-                expect (contiguous, juce::String (tag) + ": stored segments stay contiguous from sample 0");
+                expect (capped, juce::String (tag) + ": every finalized segment is at most two bars and not inverted");
+                expect (contiguous, juce::String (tag) + ": finalized segments stay contiguous from sample 0");
             };
 
             {
                 Feeder f;
+                Capture captured;
+                captured.segments.reserve (32);
+                f.ledger.setSink (&captured);
                 std::int64_t position = 0;
                 const auto frozen = barHost (0, bpm);
                 f.play (position, 12.0, 512, [&frozen] (std::int64_t) { return frozen; });
-                withinCap (f, twoBars, "frozen PPQ");
+                f.ledger.endEpoch (f.now);
+                withinCap (captured, twoBars, "frozen PPQ");
             }
 
             {
@@ -739,10 +754,14 @@ namespace celadon::test
 
             {
                 Feeder f;
+                Capture captured;
+                captured.segments.reserve (32);
+                f.ledger.setSink (&captured);
                 std::int64_t position = 0;
                 const auto frozen = positionOnlyHost (0);
                 f.play (position, 12.0, 512, [&frozen] (std::int64_t) { return frozen; });
-                withinCap (f, twoBars, "frozen position, 2 s segments");
+                f.ledger.endEpoch (f.now);
+                withinCap (captured, twoBars, "frozen position, 2 s segments");
             }
         }
     };
