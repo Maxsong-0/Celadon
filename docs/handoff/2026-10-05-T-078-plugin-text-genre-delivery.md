@@ -2,7 +2,9 @@
 
 > 写于 2026-10-05 13:2x（PDT）· 会话「插件文字跟上曲风交付」（DGX Spark，Sonnet 5.5 主进程）。
 > 放在 GitHub 是 Max 2026-10-05 的要求：**把任务交给别人，交接文档要推送给 GitHub**——DGX 上的 vault（Obsidian）没有同步到别的机器，接棒方读不到；vault 里的 TASKS / 日志只留指向本文的指引。
-> 本文随提案进展更新（同一路径、同一分支再推）。**当前状态：提案阶段，一个插件字符串都没改。**
+> 本文随提案进展更新（同一路径、同一分支再推）。路径照 T-079 会话先定的约定 `docs/handoff/YYYY-MM-DD-T-xxx-*.md`；附件（核对 workflow 脚本、将来的提案材料）放 `docs/validation/2026-10-05-T078-plugin-text-genre-delivery/`。
+> **当前状态：提案阶段，一个插件字符串都没改。**
+> **main 在 13:07（PDT）前进了**：Max 合了 PR #51（T-076 发布 0.1.8.8）与 PR #28（AU 版本号），main 现为 `8bcf8da`。对本任务的影响见第 4、8 节：插件源码 / 测试 / 工具没动（只有 `Celadon.jucer` 的 AU 版本两行），也没碰 T-077 改的 33 个官网文件，所以 T-077 / T-078 之后 rebase 到 main 不会冲突。
 
 ## 1. 目标
 
@@ -31,11 +33,11 @@
 3. 范围外的两条候选要不要并入 T-078（范围变大归 Max 定）：
    - 第 10 条：「受限」气泡 `HelpText.cpp:247-251`「受约束表示已自动保护动态；想保留更多起伏就调低 GLAZE」。顶栏阶段标签「受限」有两个来源（`PluginEditor.cpp:1326-1327` 把 `planLimited` 与 `limitedByManual` 画成同一个标签），气泡只对前一个成立，且与状态行用词不一致（「受约束」对「受限」）。T-079 会话提出，措辞要与它的提案 A 组定稿对齐。
    - 第 11 条：`tests/GlazePlannerTests.cpp:2900` 注释「两版母带的音色决策一致，规格第 4.3 节」——该测试只断言 Tone / Clay / Recover / Tame / 风格权重相同，没断言 Glue / Heat / Clip（T-077 台账：Glue / Heat / Clip 随增益与上限重新分摊）；2916 行断言消息「交付不改音色决策」同句。插件侧同根因只此一处（本会话 grep 过 `Source/ tests/ tools/ docs/`）。
-4. 合并方式与顺序：T-077（分支 `claude/t077-site-genre-delivery-docs`，`f47b996`，未合 main、未部署）→ T-078 / T-079 串行 merge，后合方 rebase；文档写「0.1.8.8 起」而 main 的 `release.ts` 仍是 0.1.8.7，页面先于安装包上线的问题归 Max（T-077 台账「交 Max 的清单」第 1 项）。
+4. 合并方式与顺序：T-077（分支 `claude/t077-site-genre-delivery-docs`，`f47b996`，未合 main、未部署）→ T-078 / T-079 串行 merge，后合方 rebase。T-077 台账「交 Max 的清单」第 1 项（文档写「0.1.8.8 起」而 main 的 `release.ts` 还是 0.1.8.7）**在 main 一侧已经解开**：PR #51 已把 `release.ts` / `changelog.ts` 写成 0.1.8.8；剩下的只是官网要等 Max 部署 112，部署顺序归他。
 
 ## 4. 必读文件（路径 + 版本）
 
-**仓库**（分支 `claude/t078-plugin-text-genre-delivery` = main `a32a3db` + T-077 的 33 个官网文件 `f47b996` + 本交接提交；插件源码与 main 相同）：
+**仓库**（分支 `claude/t078-plugin-text-genre-delivery` = main `a32a3db` + T-077 的 33 个官网文件 `f47b996` + 本交接提交；插件源码与 `a32a3db` 相同，也与现在的 main `8bcf8da` 相同——main 自 `a32a3db` 起只多了 T-076 的发布文件、AU 版本脚本和 `Celadon.jucer` 两行）：
 
 - 插件：`Source/ui/HelpText.cpp`（40-46、219、221-235、237-243、245-251、944-959）、`Source/ui/Localisation.cpp:95`、`Source/PluginEditor.cpp`（215-216、482-493、1209、1243、1254、1317-1332、1359-1371、1412-1426）、`Source/ui/GlazeStatusText.cpp`（324-342、488-491）、`Source/dsp/CeladonChain.cpp`（197-212、236-239）、`Source/dsp/GlazeController.cpp`（1394-1404、1531-1539、3300-3330）、`Source/dsp/GlazeTypes.h`（399-413 的 `house*` 状态字段）。
 - 钉着这些字符串的测试：`tests/HelpTextTests.cpp`（`HelpText` / `HelpTextClay` / `HelpTextHouse`）、`tests/LocalisationTests.cpp`（236-264 曲风 / 交付与 `cornerHouseTip`）、`tests/GlazeStatusTextTests.cpp`；截图检查 `tools/ui-snapshot/SnapshotMain.cpp`。
@@ -52,7 +54,7 @@
 
 ## 6. 禁区
 
-- 不碰 T-076 拥有的文件：`site/src/content/{release,changelog}.ts`、`site/src/components/celadon/Stats.tsx`、`site/src/content/algorithms/*/verification.md`、`site/src/i18n/locales/*/home.json`（只报告）。
+- 不碰 T-076 拥有的文件：`site/src/content/{release,changelog}.ts`、`site/src/components/celadon/Stats.tsx`、`site/src/content/algorithms/*/verification.md`、`site/src/i18n/locales/*/home.json`（只报告）。它们已随 PR #51 合入 main，但发布收尾（部署 112、更新日志文字）仍在 T-076 手里，以 TASKS ① 的 T-076 行为准；其中与第 8 条同根因的位置（0.1.8.8 更新日志里的「as before」等）由 T-079 的 D 组一并出提案。
 - 与 T-079（官网旧表述订正，另一会话）已划界：它在 `glaze.md` 只动旋钮表 / 状态表的「受限」行与「交付」节「目标是方向，不是保证」一条；与气泡同文的表格、`limit.md`、`interface.md`、左下角提示、重新聆听 / 导出相关句、曲风 / 交付表里「照原来」两行都归 T-078。两线都基于 `f47b996`，后合方 rebase。
 - 不在 Mac 编译；不合 main；不部署官网（部署 112 只有 Max 能跑）；开 PR 前先问 Max（CI 每个 PR 与每次 main push 各跑两遍全套，约 12 分钟 × 2，纯文字别单开）；推送自己的分支不触发 CI；不改 T-077 分支本身（T-078 只是叠在它上面）。
 
@@ -70,7 +72,8 @@
 | 基线定向测试 `--only HelpText,HelpTextClay,HelpTextHouse,Localisation,GlazeStatusText` | **16970 过 / 0 败** |
 | 九条的现行行号 | 已在 `f47b996` 上读过，与卡片一致；事实沿用 T-077 的证实，**没有重新核** |
 | 核对 workflow `wf_b6e0f78c-737` | 13:11 起在 DGX 后台跑，13:25 时 4 个起草代理还没交出；**没有结果** |
-| 提案文字 | 还没写；写好后放 `PROPOSALS.md`（同目录）再推一次 |
+| main 前进的影响 | `git diff a32a3db origin/main -- Source tests tools` 只有 `Celadon.jucer` 2 增 1 删（AU 版本）；main 改的 8 个官网文件与 T-077 的 33 个**无重叠**；基线测试不受影响 |
+| 提案文字 | 还没写；写好后放 `docs/handoff/2026-10-05-T-078-插件文字提案待Max拍板.md`（GitHub 快照，权威在 vault `04-协调/` 同名档案）再推一次 |
 | 全套测试 / 官网构建 / 截图检查 | **没跑**（改完统一跑） |
 
 ## 9. 占用资源
@@ -78,7 +81,7 @@
 - 任务编号 T-078（TASKS ① 已登记；最后心跳 2026-10-05 13:2x，租约到 2026-10-07）；T-079 是另一会话的号。
 - 分支 `claude/t078-plugin-text-genre-delivery`：推送前只在 DGX 本地；推送后在 `origin`。
 - 工作树 `/home/maxsong/All-Project/Celadon/.claude/worktrees/heuristic-lewin-8f3e56`（DGX Spark，**只在那台**）；Spark 构建目录 `~/.cache/celadon-spark/build/heuristic-lewin-8f3e56-*`（`celadon_tests` 已编）。
-- 后台：只读 workflow `wf_b6e0f78c-737`（9 个 Opus 5.5 · max 代理：4 簇起草 → 4 个对抗核实 → 1 个仲裁查漏；脚本存在本目录 `proposal-workflow.js`，可用 `Workflow({scriptPath})` 重跑）。结果在 DGX 会话目录 `~/.claude/projects/-home-maxsong-All-Project-Celadon--claude-worktrees-heuristic-lewin-8f3e56/7bed7d5e-efeb-4283-8c38-f12a966125b2/subagents/workflows/wf_b6e0f78c-737/journal.jsonl`，不在 GitHub；原会话会在结果回来后写进 `PROPOSALS.md` 再推。
+- 后台：只读 workflow `wf_b6e0f78c-737`（9 个 Opus 5.5 · max 代理：4 簇起草 → 4 个对抗核实 → 1 个仲裁查漏；脚本存在本目录 `proposal-workflow.js`，可用 `Workflow({scriptPath})` 重跑）。结果在 DGX 会话目录 `~/.claude/projects/-home-maxsong-All-Project-Celadon--claude-worktrees-heuristic-lewin-8f3e56/7bed7d5e-efeb-4283-8c38-f12a966125b2/subagents/workflows/wf_b6e0f78c-737/journal.jsonl`，不在 GitHub；原会话会在结果回来后写成提案档（见第 8 节）再推。
 - 没占 107 / 109；官网构建要用 107（`site/scripts/build-linux.sh` 经 ssh）时先在 TASKS ② 登记。
 
 ## 10. 接续命令
@@ -95,14 +98,14 @@ git worktree add -b claude/t078-plugin-text-genre-delivery ../t078 origin/claude
 site/scripts/build-linux.sh
 ```
 
-接续顺序：① 读 `PROPOSALS.md`（若已存在）；没有就读 journal 或重跑 workflow；② 把「待 Max 拍板」逐题问 Max（先 7、9 两条）；③ 点头后按条改插件字符串与测试，同步官网表格；④ DGX 跑定向测试，107 构建官网；⑤ 让只读代理逐句对代码再核一遍；⑥ 完成报告。
+接续顺序：① 读提案档 `docs/handoff/2026-10-05-T-078-插件文字提案待Max拍板.md`（若已存在）；没有就读 journal 或重跑 workflow；② 把「待 Max 拍板」逐题问 Max（先 7、9 两条）；③ 点头后按条改插件字符串与测试，同步官网表格；④ DGX 跑定向测试，107 构建官网；⑤ 让只读代理逐句对代码再核一遍；⑥ 完成报告。
 
 ## 11. 接续提示词（可直接粘进新会话）
 
 ```
 【开卡规矩】本会话开着 Ultracode，用开卡时选的模型直接开工，不自查模型、不停下来问。要派多个代理一律用 Workflow，直接开，模型和 effort 用 Opus 5.5 + max，不每次问用户。
 
-【任务】接手 T-078：让 Celadon 插件里写给使用者看的文字与代码注释跟上 0.1.8.8 的「曲风 / 交付」，改完在官网对应处同步。先读仓库分支 claude/t078-plugin-text-genre-delivery 里的 docs/validation/2026-10-05-T078-plugin-text-genre-delivery/HANDOFF.md（目标、九条已定事项、待 Max 拍板、禁区、验收标准、接续命令都在里面），再读同目录 PROPOSALS.md（若已存在）。九条已定事项不重开；每条改成什么措辞、第 7、9 条要不要改界面行为、第 10、11 条候选要不要并入，都等 Max 点头，不要自己定。不碰 T-076 的文件；不在 Mac 编译；不合 main、不部署官网；测试在 DGX 用 spark-test.sh，官网构建用 site/scripts/build-linux.sh。开工先读 vault 项目/Celadon/04-协调/TASKS.md 查重（vault 在别的机器读不到时以本文为准），再把自己的认领写进去。
+【任务】接手 T-078：让 Celadon 插件里写给使用者看的文字与代码注释跟上 0.1.8.8 的「曲风 / 交付」，改完在官网对应处同步。先读仓库分支 claude/t078-plugin-text-genre-delivery 里的 docs/handoff/2026-10-05-T-078-plugin-text-genre-delivery.md（目标、九条已定事项、待 Max 拍板、禁区、验收标准、接续命令都在里面），再读同目录的提案档 2026-10-05-T-078-插件文字提案待Max拍板.md（若已存在）。九条已定事项不重开；每条改成什么措辞、第 7、9 条要不要改界面行为、第 10、11 条候选要不要并入，都等 Max 点头，不要自己定。不碰 T-076 的文件；不在 Mac 编译；不合 main、不部署官网；测试在 DGX 用 spark-test.sh，官网构建用 site/scripts/build-linux.sh。开工先读 vault 项目/Celadon/04-协调/TASKS.md 查重（vault 在别的机器读不到时以本文为准），再把自己的认领写进去。
 ```
 
 ## 12. 回执（接棒方交回来时填）
