@@ -24,7 +24,7 @@ Gently moves the **shape** of the 27 bands toward a target: it doesn't copy the 
 | **Amount** 0–100% | Sets how strongly the 27 bands move toward the target; the graph shows the current target correction. Inactive with Target off. | Start gently and keep the mix's character; every band need not match exactly. |
 | **Current target correction · 27 bands** | Low to high frequencies run left to right; up is boost, down is cut, on a ±6 dB scale. This is not the reference's raw spectrum. | Judge the overall sound first; a flat curve is normal without an active target or usable input. |
 
-Preset shapes: Warm −1.5, Neutral −0.75, Bright 0 dB / octave (pivoting at 1 kHz). Auto picks the shape from the GLAZE style: Warm → Warm, Clean → Bright, Auto / Punchy → Neutral.
+Preset shapes: Warm −1.5, Neutral −0.75, Bright 0 dB / octave (pivoting at 1 kHz). Auto picks the shape from the GLAZE style: Warm → Warm, Clean → Bright, Auto / Punchy → Neutral. With a House genre it follows the genre instead: Deep −1.5 (the same as Warm), Tech −0.75 (the same as Neutral), Melodic −1.25 (between the two); see [Genre and Delivery](/docs/glaze#genre-and-delivery).
 
 ### Learn reference
 

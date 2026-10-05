@@ -26,7 +26,11 @@
 ## 风格、状态、表
 
 风格：自动 Auto · 温润 Warm · 冲击 Punchy · 通透 Clean
+曲风 Genre：通用 General · Deep / Tech / Melodic（选择器上只写这三个简称；正文提到选项时照写简称，悬停气泡与专门介绍子类时写全名 Deep House / Tech House / Melodic-Progressive；三者合称 House genres）
+交付 Delivery：标准 Standard · 流媒体 Streaming · 俱乐部 Club
+House 聆听：小节 bar · 主段落 main section（drop = drop，breakdown = breakdown，不译）· 暂定方案 provisional plan · 锁定 lock（状态标签仍是 Locked）· 逐小节的记录 = tally（正文统一写 tally；状态行原句「段落账已满」= segment memory full）· 反相提示 = out-of-phase hint（插件里的原句是 Club mono loses low end / Fix it in the mix）
 状态：已锁定 Locked · 聆听中 Listening · 校准中 Calibrating · 未学习 Not learned · 已暂停 Paused · 受限 Limited · 已旁通 Bypassed
+状态行原句（照 GlazeStatusText.cpp 的英文）：方案受限 Plan limited · 已锁定 · 待校准（条件已变，稳定后自动校准）= Locked · awaiting calibration (conditions changed) · 校准暂停（未播放 / 旁通）= Calibration paused (stopped / bypassed)；House 门控：门控 gating · 门 gate（正文 the gates）
 监听：处理后 Processed · 原声 Original · 等响 Match（level-matched）· 试听差值 Listen to difference · 旁通 Bypass
 表：输入 / 输出 / 衰减 = IN / OUT / GR · 响度 Loudness · 真峰值 True peak（dBTP）· 短期 Short-term · 峰响比 PLR · 重新计量 Reset meters · 频谱仪 spectrum analyser
 

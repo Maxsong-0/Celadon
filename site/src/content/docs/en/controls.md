@@ -29,4 +29,4 @@ Cyan = your settings; violet = GLAZE's automatic increment right now; orange = n
 
 ## Hover help
 
-Appears after a 600 ms hover, in three lines: name · what it does / what you'll hear · where to start. For CLAY's three lamps, the second line is the live value (“Low cut 22 Hz · No mono · High width +0.8 dB”) and the third is this song's cost note or an old-project hint.
+Appears after a 600 ms hover, in three lines: name · what it does / what you'll hear · where to start. For CLAY's three lamps, the second line is the live value (“Low cut 22 Hz · No mono · High width +0.8 dB”) and the third is this song's cost note or an old-project hint — or, while a House genre's out-of-phase hint is lit, advice to narrow the lows or align their phase in the mix.
