@@ -1,0 +1,5 @@
+base round1 exit=0 wall=7.8s PASS=93 FAIL=0
+base round2 exit=0 wall=7.9s PASS=93 FAIL=0
+final round1 exit=0 wall=12.1s PASS=111 FAIL=0
+final round2 exit=0 wall=12.1s PASS=111 FAIL=0
+done

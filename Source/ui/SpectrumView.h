@@ -140,6 +140,11 @@ namespace celadon::ui
 
         LoudnessHud& getLoudnessHud() noexcept   { return hud; }
 
+        // 只读，给截图工具的检查用（T-070）：路径重建过多少次（buildCurvePaths 每次 +1）——「PEAK 关、只剩峰值在落时不重建」
+        // 要数真的重建，不能拿脏区当代理；此刻读数框里的文字——悬停时读数必须是光标处此刻的值，工具按计算器的值独立算一份对。
+        std::uint32_t getCurveBuildCount() const noexcept   { return curveBuilds; }
+        const juce::String& getReadoutText() const noexcept   { return readoutString; }
+
         void paint (juce::Graphics&) override;
         void resized() override;
         void mouseMove (const juce::MouseEvent&) override;
@@ -269,6 +274,7 @@ namespace celadon::ui
         bool outputRowValid = false;
         juce::Rectangle<float> curveArea;                            // 上一次重画时曲线占的区域（下一帧与新区域合起来标脏）
         bool curvePathsValid = false, inputDashesValid = false;
+        std::uint32_t curveBuilds = 0;                               // 路径重建次数（只读访问器 getCurveBuildCount，给截图工具的检查用）
 
         std::array<CachedLayer, (size_t) Layer::count> layers;
         juce::Image stripeRow;                                       // 竖纹瓦片：一行，宽 = 面板宽 × 像素比（T-036 起只用来量覆盖率）

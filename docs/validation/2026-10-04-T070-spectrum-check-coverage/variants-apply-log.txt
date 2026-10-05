@@ -1,0 +1,26 @@
+N1: 已改成变体：no-repaint-on-off
+N2: 已改成变体：no-copy-output
+N3: 已改成变体：no-copy-average
+N4: 已改成变体：no-copy-peak
+N5: 已改成变体：no-copy-input
+N6: 已改成变体：no-build-peak
+N7: 已改成变体：no-compare-average
+N8: 已改成变体：no-compare-output
+N9: 已改成变体：no-dashes-invalidate
+N10: 已改成变体：no-tilt-invalidate
+N11: 已改成变体：differs-no-tilt
+N12: 已改成变体：hover-peak
+N13: 已改成变体：hover-average
+N14: 已改成变体：rebuild-every-frame
+V1: 已改成变体：paint-only
+V2: 已改成变体：region-only
+V3: 已改成变体：region-only + no-force-rebuild
+V4: 已改成变体：no-force-rebuild
+V5: 已改成变体：no-peak-copy
+V6: 已改成变体：compare-peak-always
+V7: 已改成变体：no-latest
+V8: 已改成变体：no-old-area
+V9: 已改成变体：no-peak-region
+V10: 已改成变体：no-stroke-margin
+V11: 已改成变体：hover-drawn
+N15: 已改成变体：dot-latest

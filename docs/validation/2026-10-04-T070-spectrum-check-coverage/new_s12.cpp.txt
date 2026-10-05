@@ -1,0 +1,473 @@
+    //==============================================================================
+    // S12（T-070，评审 F2、F3、F4、F6、F7）：与「没有历史的视图」对照 + 曲线真的画出来了的绝对探针。
+    // 之前的检查都是「视图对它自己」：增量重画对整帧重画、开着的视图对一个一直开着 PEAK 的视图——两边跑同一份代码，数据通路上丢了一条曲线
+    // （拷贝漏了、建路径漏了）、「看没看变化」少比一条线、换斜率后虚线没作废，两边一起错、全过。这里要两种不靠历史的参照：
+    //   ① 每个时刻现起一个全新的视图（同开关、同斜率、同悬停），只 setSpectrum 一次、整帧画一张——它画的就是计算器此刻的数据；长期运行的
+    //      视图在曲线都静止的时刻（停播 4 s 之后；稳态正弦 10 s 之后换斜率）必须与它逐字节相同；
+    //   ② 绝对探针：曲线应该在的那个点（位置由计算器的值与 SpectrumView::xOf / yOf 算出）附近，必须有像素与「从没喂过数据的空视图」不同；
+    //      悬停的读数必须等于计算器此刻 OUT 的值（加斜率）。
+    // 不建编辑器：一个计算器（48 kHz）+ 长期运行的视图，每帧送 1 / 60 s 音频 → update → setSpectrum，与 S10 同一套。
+
+    // 斜率选择三档的值（dB / 倍频程，绕 1 kHz 转），下标与 Segmented 一致。
+    constexpr float spectrumSlopes[] = { 0.0f, 3.0f, 4.5f };
+
+    // 视图的开关与斜率（频谱仪默认：OUT 开、IN 关、PEAK 开、斜率 4.5）。找不到控件返回 false。
+    bool configureSpectrumView (celadon::ui::SpectrumView& view, bool peakOn, bool inputOn, int slopeIndex)
+    {
+        const auto toggles = legendToggles (view);
+        auto* slopeControl = findFirst<celadon::ui::Segmented> (view);
+
+        if (toggles.empty() || slopeControl == nullptr)
+            return false;
+
+        const auto press = [&toggles] (SpectrumRig::Toggle which)
+        {
+            auto& toggle = *toggles[(size_t) which];
+            click (toggle, toggle.getLocalBounds().getCentre().toFloat());   // 不进不出：没有悬停的样子
+        };
+
+        if (! peakOn)
+            press (SpectrumRig::peakToggle);
+
+        if (inputOn)
+            press (SpectrumRig::inputToggle);
+
+        slopeControl->setSelected (slopeIndex, true);
+        return true;
+    }
+
+    juce::Image snapshotOf (celadon::ui::SpectrumView& view)
+    {
+        juce::Image image (juce::Image::RGB, view.getWidth(), view.getHeight(), true);
+        juce::Graphics g (image);
+        view.paintEntireComponent (g, true);
+        return image;
+    }
+
+    // 一条时间线：一个计算器 + 一个长期运行的视图。step() = 一帧（1 / 60 s）：6 kHz −12 dBFS 正弦、白噪声（宽带：平均线要宽带内容才会高出面板底边）
+    // 或数字静音 → update → setSpectrum，OUT 与 IN 送同一份。freshView() / emptyView() 起对照用的视图。
+    struct SpectrumTimeline
+    {
+        static constexpr int framesPerSecond = 60;
+        static constexpr int samplesPerFrame = (int) sampleRate / framesPerSecond;
+
+        enum class Sound { silence, sine, noise };
+
+        // 构造时先整帧画一次：视图第一次 paint 时（curvePathsValid 为假）会用「此刻」的值建路径——不先画，第一次比较那一刻才建，
+        // 之前「看没看变化」少比的曲线从没更新过也不露馅。先画一次（此刻全是底线），之后的路径只能靠 setSpectrum 里的判变来更新，
+        // 与真实窗口里从头一帧帧画一样。
+        SpectrumTimeline (bool peakOn, bool inputOn, int slopeIndex)
+            : peak (peakOn), input (inputOn), slope (slopeIndex), valid (configureSpectrumView (view, peakOn, inputOn, slopeIndex))
+        {
+            if (valid)
+                snapshotOf (view);
+        }
+
+        void step (Sound sound)
+        {
+            if (sound == Sound::sine)
+            {
+                sine (chunk);
+            }
+            else if (sound == Sound::noise)
+            {
+                for (int i = 0; i < samplesPerFrame; ++i)
+                {
+                    const auto sample = 0.1f * (random.nextFloat() * 2.0f - 1.0f);   // 约 −25 dBFS RMS
+                    chunk.setSample (0, i, sample);
+                    chunk.setSample (1, i, sample);
+                }
+            }
+            else
+            {
+                chunk.clear();
+            }
+
+            analyser.push (celadon::ui::SpectrumAnalyser::Stream::output, chunk.getReadPointer (0), samplesPerFrame);
+            analyser.push (celadon::ui::SpectrumAnalyser::Stream::input, chunk.getReadPointer (0), samplesPerFrame);
+            analyser.update (1.0 / framesPerSecond);
+            view.setSpectrum (analyser, 1.0 / framesPerSecond);
+        }
+
+        void steps (int count, Sound sound)
+        {
+            for (int i = 0; i < count; ++i)
+                step (sound);
+        }
+
+        void changeSlope (int slopeIndex)
+        {
+            slope = slopeIndex;
+            findFirst<celadon::ui::Segmented> (view)->setSelected (slopeIndex, true);   // 点击引起的重画先到：不推帧
+        }
+
+        void hover (float frequency)
+        {
+            hoverFrequency = frequency;
+            hoverAt (view, frequency);
+        }
+
+        // 此刻现起一个全新视图：画的是计算器此刻的数据。读数框的文字约 0.27 s 才刷新一次，而选斜率（configureSpectrumView）会把这个计时清零，
+        // 所以数据不动、连着 setSpectrum 20 次（1 / 3 s）让它把读数刷新到此刻——长期运行的视图在曲线静止的时刻读数也早已是此刻的。
+        std::unique_ptr<celadon::ui::SpectrumView> freshView()
+        {
+            auto fresh = std::make_unique<celadon::ui::SpectrumView>();
+            configureSpectrumView (*fresh, peak, input, slope);
+
+            for (int i = 0; i < 20; ++i)
+                fresh->setSpectrum (analyser, 1.0 / framesPerSecond);
+
+            if (hoverFrequency.has_value())
+                hoverAt (*fresh, *hoverFrequency);
+
+            return fresh;
+        }
+
+        // 同开关、同斜率、从没喂过数据的视图：绝对探针的底。
+        std::unique_ptr<celadon::ui::SpectrumView> emptyView() const
+        {
+            auto empty = std::make_unique<celadon::ui::SpectrumView>();
+            configureSpectrumView (*empty, peak, input, slope);
+            return empty;
+        }
+
+        bool peak, input;
+        int slope;
+        std::optional<float> hoverFrequency;
+        celadon::ui::SpectrumAnalyser analyser;
+        celadon::ui::SpectrumView view;
+        bool valid;
+        SineSource sine { 6000.0, -12.0 };
+        juce::Random random { 20261004 };
+        juce::AudioBuffer<float> chunk { 2, samplesPerFrame };
+    };
+
+    // 长期运行的视图 == 全新视图：在若干时刻整个面板逐字节比（零容差），记下不同的。
+    struct FreshEquality
+    {
+        int moments = 0, differing = 0;
+        juce::String firstDifference, error;
+
+        // tolerance：通道差不超过它的像素不算不同（默认零）。曲线停在「差不到 0.1 px」的滞后里时（视图只在累计漂移超过 0.1 px 才重建），实线的 AA
+        // 会差十几级——S12c 放 24 级；少比一条线、判变化时不加斜率，曲线停在半空，差的是几十到两百多级。
+        // belowReadout：只比读数框（y < 40）以下：宽带噪声每帧都不同，读数框的「最响的峰」约 0.27 s 才刷新一次，与全新视图的读数合法地不同。
+        void compare (SpectrumTimeline& timeline, const juce::String& moment, int tolerance = 0, bool belowReadout = false)
+        {
+            ++moments;
+            const auto fresh = timeline.freshView();
+            int worst = 0;
+            juce::Point<int> at;
+            const auto bounds = timeline.view.getLocalBounds();
+            const auto area = belowReadout ? bounds.withTrimmedTop (40) : bounds;
+            const auto different = countDifferences (snapshotOf (timeline.view), snapshotOf (*fresh), area, worst, at, tolerance);
+
+            if (different > 0 && differing++ == 0)
+                firstDifference = moment + ": " + juce::String (different) + " px differ, worst " + juce::String (worst) + ", first at ("
+                                + juce::String (at.x) + ", " + juce::String (at.y) + ")";
+        }
+    };
+
+    // S12a：6 kHz −12 dBFS 正弦 2 s → 数字静音。停播后 2 s、3 s、4 s（曲线都静止；PEAK 开着时只有峰值保持在落，视图每帧重建）各比一次，
+    // 再把斜率换成 4.5（点击的重画先到、下一帧还没来：路径在 paint 里重建）立刻比，之后每帧比，共 10 帧；最后鼠标悬停在 6 kHz 再比一次。
+    FreshEquality runFreshAfterStop (bool peakOn)
+    {
+        FreshEquality result;
+        SpectrumTimeline timeline (peakOn, false, 0);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        const auto second = SpectrumTimeline::framesPerSecond;
+        using Sound = SpectrumTimeline::Sound;
+        timeline.steps (2 * second, Sound::sine);
+        timeline.steps (2 * second, Sound::silence);
+        result.compare (timeline, "4 s, slope 0");
+        timeline.steps (second, Sound::silence);
+        result.compare (timeline, "5 s, slope 0");
+        timeline.steps (second, Sound::silence);
+        result.compare (timeline, "6 s, slope 0");
+        timeline.changeSlope (2);
+        result.compare (timeline, "6 s, slope 0 -> 4.5 before the next frame");
+
+        for (int i = 1; i <= 10; ++i)
+        {
+            timeline.step (Sound::silence);
+            result.compare (timeline, "6 s + " + juce::String (i) + " frame(s), slope 4.5");
+        }
+
+        timeline.hover (6000.0f);
+        result.compare (timeline, "6 s + 10 frames, slope 4.5, hover at 6 kHz");
+        return result;
+    }
+
+    // S12b：IN 开着（评审 F4）：6 kHz −12 dBFS 稳态正弦 10 s（曲线静止）→ 斜率 0 → 3 → 4.5，每次立刻比、再推几帧比。
+    // 曲线静止时换斜率：虚线靠「重建时作废展开好的那份」才会按新斜率画，视图对它自己的整帧重画抓不到这个（两边一样旧）。
+    // 稳态那一刻本身不比：视图只在累计漂移超过 0.1 px 时才重建，画出来的与此刻的差不到 0.1 px（合法）；虚线的相位沿路径累计，
+    // 这点差到尖峰处会放大成半个像素的相位差（实测 134 个像素差 40 级以上），与全新视图逐字节比不得。换斜率时视图用此刻的值整组重建，
+    // 与全新视图逐位相同——要比的就是这些时刻。
+    FreshEquality runFreshSteadyInput (bool peakOn)
+    {
+        FreshEquality result;
+        SpectrumTimeline timeline (peakOn, true, 0);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        timeline.steps (10 * SpectrumTimeline::framesPerSecond, SpectrumTimeline::Sound::sine);
+
+        for (const auto slopeIndex : { 1, 2 })
+        {
+            timeline.changeSlope (slopeIndex);
+            result.compare (timeline, "slope -> " + juce::String (spectrumSlopes[slopeIndex]) + " before the next frame");
+
+            for (int i = 1; i <= 5; ++i)
+            {
+                timeline.step (SpectrumTimeline::Sound::sine);
+                result.compare (timeline, "slope " + juce::String (spectrumSlopes[slopeIndex]) + " + " + juce::String (i) + " frame(s)");
+            }
+        }
+
+        return result;
+    }
+
+    // S12c（评审 F3、F8）：白噪声 2 s → 数字静音，斜率 4.5，PEAK 关、IN 关。纯音的 OUT 停播后一两百毫秒就落到底边以下、平均线沿频率平滑后一直在面板外，
+    // 「看没看变化」少比 OUT 或平均线、不加斜率比，纯音全看不出来（停播后视图从没重建过，画的恰好也是底线）；宽带噪声 OUT 与平均线都在面板里，
+    // 斜率 4.5 把高频的曲线抬高，落到底边附近时还看得见。停播前后若干时刻与全新视图比（噪声每帧都不同，视图每帧重建；之后落得慢，滞后不到 0.1 px，
+    // 容差 24 级，理由见 FreshEquality::compare）。
+    FreshEquality runFreshDecay()
+    {
+        constexpr int tolerance = 24;
+        FreshEquality result;
+        SpectrumTimeline timeline (false, false, 2);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        using Sound = SpectrumTimeline::Sound;
+        const auto second = SpectrumTimeline::framesPerSecond;
+        timeline.steps (second, Sound::noise);
+        result.compare (timeline, "noise 1 s", tolerance, true);
+        timeline.steps (second, Sound::noise);
+        result.compare (timeline, "noise 2 s", tolerance, true);
+
+        double stopped = 0.0;   // 停播后的秒数
+
+        for (const auto until : { 0.2, 0.5, 1.0, 2.0, 3.0, 5.0 })
+        {
+            timeline.steps ((int) std::lround ((until - stopped) * second), Sound::silence);
+            stopped = until;
+            result.compare (timeline, juce::String (until, 1) + " s after the noise stopped", tolerance, true);
+        }
+
+        return result;
+    }
+
+    // S12d（评审 F3）：稳态正弦、PEAK 关、IN 关：OUT 在 6 kHz 有一根尖峰、平均线在面板外。「看没看变化」少比 OUT 时视图从没重建过、画的是底线，
+    // 与全新视图的尖峰差几百个像素；S12a / S12c 的比较点都在 OUT 已经落到底边（或每帧都因别的曲线在变而重建）之后，看不出。
+    // 容差与「只比读数框以下」同 S12c（实线的 0.1 px 滞后只差十几级）。
+    FreshEquality runFreshSteady (int slopeIndex)
+    {
+        constexpr int tolerance = 24;
+        FreshEquality result;
+        SpectrumTimeline timeline (false, false, slopeIndex);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        const auto second = SpectrumTimeline::framesPerSecond;
+        double elapsed = 0.0;
+
+        for (const auto until : { 0.5, 1.0, 2.0, 4.0 })
+        {
+            timeline.steps ((int) std::lround ((until - elapsed) * second), SpectrumTimeline::Sound::sine);
+            elapsed = until;
+            result.compare (timeline, juce::String (until, 1) + " s into the steady sine", tolerance, true);
+        }
+
+        return result;
+    }
+
+    struct ProbeResult
+    {
+        bool ok = false;
+        juce::String detail;
+    };
+
+    // 一条曲线上最响的点：下标、dB、在面板里的位置（斜率 0：纵坐标不加斜率）。
+    struct CurvePoint
+    {
+        int index = 0;
+        float db = 0.0f;
+        juce::Point<int> at;
+    };
+
+    CurvePoint loudestPoint (const std::vector<float>& values)
+    {
+        CurvePoint point;
+        point.index = (int) (std::max_element (values.begin(), values.end()) - values.begin());
+        point.db = values[(size_t) point.index];
+        point.at = { (int) std::lround (celadon::ui::SpectrumView::xOf (celadon::ui::SpectrumAnalyser::frequencyAt (point.index))),
+                     (int) std::lround (celadon::ui::SpectrumView::yOf (point.db)) };
+        return point;
+    }
+
+    // 视图与同开关的空视图（从没喂过数据）在 box 里不同的像素数。
+    int differingFromEmpty (SpectrumTimeline& timeline, juce::Rectangle<int> box)
+    {
+        const auto empty = timeline.emptyView();
+        int worst = 0;
+        juce::Point<int> at;
+        return countDifferences (snapshotOf (timeline.view), snapshotOf (*empty), box.getIntersection (timeline.view.getLocalBounds()), worst, at);
+    }
+
+    // OUT 的填充：1.5 s 稳态正弦，PEAK 关、IN 关、斜率 0；最响那个点正下方 11 × 50 个像素里至少 100 个与空视图不同（只有 OUT 画填充；
+    // 填充带竖纹与按响度的渐变，实测约 190 / 550，OUT 整条不画时只剩平均线的零星几个像素）。
+    ProbeResult probeOutputFill()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (false, false, 0);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (90, SpectrumTimeline::Sound::sine);
+        const auto top = loudestPoint (timeline.analyser.getDisplayDb (Stream::output));
+        const auto differing = differingFromEmpty (timeline, { top.at.x - 5, top.at.y + 10, 11, 50 });
+        return { differing >= 100, juce::String (differing) + " of 550 px under the OUT peak (x " + juce::String (top.at.x) + ", y "
+                                       + juce::String (top.at.y) + ") differ from an empty view, needs >= 100" };
+    }
+
+    // 平均线：白噪声 2 s → 静音（纯音的平均线沿频率平滑后只剩 −107 dB 的一个小包，在面板底边 −84 dB 之下，要宽带内容才看得见），找一个 OUT 已经落到
+    // 面板底边以下、平均线还在面板里（高出底边 15 dB 以上）的时刻；平均线最响那个点的 13 × 7 个像素里至少 5 个与空视图不同（PEAK 关、没有填充，
+    // 只有平均线能画在那里）。找不到这样的时刻 = 探针空转，也算失败。
+    ProbeResult probeAverage()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (false, false, 0);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (120, SpectrumTimeline::Sound::noise);
+
+        for (int i = 0; i < 240; ++i)
+        {
+            timeline.step (SpectrumTimeline::Sound::silence);
+            const auto& output = timeline.analyser.getDisplayDb (Stream::output);
+            const auto& average = timeline.analyser.getAverageDb();
+            const auto outputMax = *std::max_element (output.begin(), output.end());
+            const auto averageMax = *std::max_element (average.begin(), average.end());
+
+            if (outputMax > celadon::ui::SpectrumView::bottomDb - 3.0f || averageMax < celadon::ui::SpectrumView::bottomDb + 15.0f)
+                continue;
+
+            const auto top = loudestPoint (average);
+            const auto differing = differingFromEmpty (timeline, { top.at.x - 6, top.at.y - 3, 13, 7 });
+            return { differing >= 5, juce::String (differing) + " of 91 px at the average line's peak (x " + juce::String (top.at.x) + ", y "
+                                           + juce::String (top.at.y) + ", " + juce::String (averageMax, 1) + " dB, " + juce::String (i + 1)
+                                           + " frames after the sound stopped, OUT already below the panel) differ from an empty view, needs >= 5" };
+        }
+
+        return { false, "no moment found where the OUT curve is below the panel while the average line is still inside it" };
+    }
+
+    // 峰值线：6 kHz 正弦 2 s → 静音 2 s（PEAK 开）；OUT 与平均线都在面板底边以下、峰值线还在面板里时，峰值线最响那个点的 13 × 7 个
+    // 像素里至少 5 个与空视图不同。
+    ProbeResult probePeak()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (true, false, 0);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (120, SpectrumTimeline::Sound::sine);
+        timeline.steps (120, SpectrumTimeline::Sound::silence);
+        const auto& output = timeline.analyser.getDisplayDb (Stream::output);
+        const auto& average = timeline.analyser.getAverageDb();
+        const auto& peak = timeline.analyser.getPeakDb();
+        const auto peakMax = *std::max_element (peak.begin(), peak.end());
+
+        if (*std::max_element (output.begin(), output.end()) > celadon::ui::SpectrumView::bottomDb - 3.0f
+            || *std::max_element (average.begin(), average.end()) > peakMax - 10.0f || peakMax < celadon::ui::SpectrumView::bottomDb + 15.0f)
+            return { false, "the OUT curve and the average line are not both well below the peak hold line any more (probe is vacuous)" };
+
+        const auto top = loudestPoint (peak);
+        const auto differing = differingFromEmpty (timeline, { top.at.x - 6, top.at.y - 3, 13, 7 });
+        return { differing >= 5, juce::String (differing) + " of 91 px at the peak hold line's peak (x " + juce::String (top.at.x) + ", y "
+                                       + juce::String (top.at.y) + ", " + juce::String (peakMax, 1) + " dB) differ from an empty view, needs >= 5" };
+    }
+
+    // IN 虚线：两条同样的时间线（PEAK 关、斜率 0、1.5 s 稳态正弦），一个 IN 开、一个关；IN 最响那个点的 13 × 7 个像素里至少 3 个不同
+    // （OUT 与 IN 送的是同一份音频，OUT 线两边相同，差别只能是 IN 的虚线）。
+    ProbeResult probeInput()
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline withInput (false, true, 0), withoutInput (false, false, 0);
+
+        if (! withInput.valid || ! withoutInput.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        withInput.steps (90, SpectrumTimeline::Sound::sine);
+        withoutInput.steps (90, SpectrumTimeline::Sound::sine);
+        const auto top = loudestPoint (withInput.analyser.getDisplayDb (Stream::input));
+        int worst = 0;
+        juce::Point<int> at;
+        const auto differing = countDifferences (snapshotOf (withInput.view), snapshotOf (withoutInput.view),
+                                                 juce::Rectangle<int> (top.at.x - 6, top.at.y - 3, 13, 7).getIntersection (withInput.view.getLocalBounds()),
+                                                 worst, at);
+        return { differing >= 3, juce::String (differing) + " of 91 px at the IN curve's peak (x " + juce::String (top.at.x) + ", y "
+                                     + juce::String (top.at.y) + ") differ from the same view with IN off, needs >= 3" };
+    }
+
+    // 两点之间按对数频率插值（与 SpectrumView::curveDbAt 同一算式，探针独立再算一份）。
+    float interpolatedDb (const std::vector<float>& values, float frequency)
+    {
+        const auto position = juce::jlimit (0.0f, 1.0f, celadon::ui::SpectrumAnalyser::positionOf (frequency))
+                            * (float) (celadon::ui::SpectrumAnalyser::numPoints - 1);
+        const auto below = juce::jlimit (0, celadon::ui::SpectrumAnalyser::numPoints - 1, (int) std::floor (position));
+        const auto above = juce::jmin (celadon::ui::SpectrumAnalyser::numPoints - 1, below + 1);
+        return values[(size_t) below] + (values[(size_t) above] - values[(size_t) below]) * (position - (float) below);
+    }
+
+    // 悬停的读数：6 kHz 正弦 2 s → 停播 0.15 s（OUT 在落、平均线与峰值线还高：三条线在 6 kHz 各是各的值，读错来源会差好几 dB），
+    // 鼠标移到 6 kHz；读数框第一个数必须是计算器此刻 OUT 在 6 kHz 的值（加斜率），误差在两位小数的舍入以内。
+    ProbeResult probeHoverReadout (int slopeIndex)
+    {
+        using Stream = celadon::ui::SpectrumAnalyser::Stream;
+        SpectrumTimeline timeline (false, false, slopeIndex);
+
+        if (! timeline.valid)
+            return { false, "legend toggles or the slope control not found" };
+
+        timeline.steps (120, SpectrumTimeline::Sound::sine);
+        timeline.steps (9, SpectrumTimeline::Sound::silence);
+        timeline.hover (6000.0f);
+
+        const auto tilt = spectrumSlopes[slopeIndex] * std::log2 (6000.0f / 1000.0f);
+        const auto expected = interpolatedDb (timeline.analyser.getDisplayDb (Stream::output), 6000.0f) + tilt;
+        const auto fromAverage = interpolatedDb (timeline.analyser.getAverageDb(), 6000.0f) + tilt;
+        const auto fromPeak = interpolatedDb (timeline.analyser.getPeakDb(), 6000.0f) + tilt;
+        const auto text = timeline.view.getReadoutText();
+        const auto shown = text.upToFirstOccurrenceOf ("dB", false, false).replace (juce::String::charToString ((juce::juce_wchar) 0x2212), "-").getFloatValue();
+        const auto detail = "readout \"" + text + "\" vs OUT " + juce::String (expected, 2) + " dB (the average line would read " + juce::String (fromAverage, 2)
+                          + ", the peak hold " + juce::String (fromPeak, 2) + ")";
+
+        if (std::abs (expected - fromAverage) < 0.5f || std::abs (expected - fromPeak) < 0.5f)
+            return { false, "probe is vacuous: OUT, average and peak read nearly the same at that moment (" + detail + ")" };
+
+        return { std::abs (shown - expected) <= 0.011f, detail };
+    }
+
