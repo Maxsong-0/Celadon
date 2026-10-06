@@ -20,7 +20,15 @@ Celadon is a personal plugin, shared privately and not sold. Once you have the i
 ## Windows
 
 - System: Windows 10 / 11, 64-bit.
-- The installer `Celadon-<version>-Windows-x64-Setup.exe` puts the VST3 at `C:\Program Files\Common Files\VST3\Celadon.vst3` (fixed) and the standalone app (optional, installed by default) in `C:\Program Files\Celadon\`, with a Start menu shortcut; uninstall it from Settings → Apps. The wizard appears in Chinese or English depending on your Windows display language.
+- The installer `Celadon-<version>-Windows-x64-Setup.exe` has a Components page. Both are ticked by default; clear either one:
+
+| What | Installed to |
+|---|---|
+| VST3 `Celadon.vst3` | `C:\Program Files\Common Files\VST3\` |
+| Standalone `Celadon.exe` | `C:\Program Files\Celadon\` (Start menu shortcut: Celadon) |
+
+- Windows has no AU. Leave at least one ticked. If both are cleared, the wizard stops and asks you to pick one. A silent install with nothing selected fails and installs nothing; a silent install that doesn't name components still installs both.
+- Uninstall from Settings → Apps. The wizard appears in Chinese or English depending on your Windows display language.
 - Static runtime: no separate VC++ redistributable is needed.
 
 > ⚠ The installer isn't code-signed. The first time you run it, SmartScreen warns about an unknown publisher: click More info → Run anyway.

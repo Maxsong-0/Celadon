@@ -63,7 +63,7 @@
   "winSteps": [
     "Double-click the .exe and you'll see <ui>Windows protected your PC</ui>.",
     "Click <ui>More info</ui>, then <ui>Run anyway</ui>.",
-    "On the wizard's <ui>Components</ui> page you can tick VST3 only; the standalone app is installed by default and appears as Celadon in the Start menu."
+    "On the wizard's <ui>Components</ui> page, VST3 and the standalone app are both ticked by default. Clear either one; clearing both stops the wizard. The standalone app appears as Celadon in the Start menu."
   ],
   "after": {
     "kicker": "After installing",

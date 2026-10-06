@@ -20,7 +20,15 @@ Celadon 是自用插件，私人分发、不商用。拿到对应平台的包后
 ## Windows
 
 - 系统：Windows 10 / 11，64 位。
-- 安装包 `Celadon-<版本>-Windows-x64-Setup.exe`：VST3 装到 `C:\Program Files\Common Files\VST3\Celadon.vst3`（固定），独立运行版（可选，默认装）到 `C:\Program Files\Celadon\`，开始菜单一个快捷方式；「设置 → 应用」里能卸载。向导按 Windows 界面语言出中文或英文。
+- 安装包 `Celadon-<版本>-Windows-x64-Setup.exe` 有「组件」页。默认两项都勾上，可以取消任意一项：
+
+| 装什么 | 装到 |
+|---|---|
+| VST3 `Celadon.vst3` | `C:\Program Files\Common Files\VST3\` |
+| 独立运行版 `Celadon.exe` | `C:\Program Files\Celadon\`（开始菜单快捷方式叫 Celadon） |
+
+- Windows 上没有 AU。至少留一项。两项都取消时，向导会停住并请你选一项。静默安装若一项都不选，会失败、什么都不装；不指定组件的静默安装仍是两项都装。
+- 「设置 → 应用」里能卸载。向导按 Windows 界面语言出中文或英文。
 - 静态运行库：不需要另装 VC++ 运行库。
 
 > ⚠ 安装包没有代码签名。第一次运行 SmartScreen 会提示「未知发布者」：点「更多信息 → 仍要运行」。
