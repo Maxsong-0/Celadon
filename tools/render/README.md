@@ -254,7 +254,7 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 | GLAZE 0 逐位直通 | 修坯「自动」与「全关」`audio_hash` 相同 |
 | 阳性对照 | GLAZE > 0 的「自动」`replay_check` = ok（n/a 只列说明） |
 | 修坯门槛（阈值同 ADR-014） | 「自动」对「重放全关」：限幅入口峰值增加 ≤ 0.3 dB；响度下降 ≤ 0.1 LU（入口峰值同降的列说明）；反相提示时长占比 ≤ 5 %（「自动」行自己的收单灯琥珀时长，不含 House 档反相提示；ADR-015 起只提示、不改声音，这条查提示误亮；有真反相段的歌豁免） |
-| 锁定 | 原曲有效音乐 ≥ 30 s 的歌，GLAZE > 0 的成品末尾「已锁定 + 校准有效」；更短的列「时长不够」说明 |
+| 热起 / 锁定 | 行里 `confidence` 非空：有效音乐 ≥ 30 s 的歌，GLAZE > 0 的成品末尾 c ≥ 0.5。格子空着或没有这列：仍要求「已锁定 + 校准有效」（阶段 1 表的输出一字不差）。更短的列「时长不够」说明 |
 | 真峰值 | 所有成品 ≤ −1.0 + 0.01 dBTP |
 
 「自动」对「全关」的跨链差只打印作参考（`ref:` 列），不判定。旧的跨链门槛脚本 `docs/validation/2026-09-26-clay/render/gate_check.py`
@@ -270,6 +270,10 @@ HostInfo、网格、文件名、metrics.md 头部与 metrics.csv 一字不差。
 （`--glaze 0,35,70 --style auto`，修坯 auto / off、带同决策重放）：176 个成品 wav 逐字节相同、metrics.csv 22 / 22 逐字节相同、metrics.md
 去掉生成时间后 22 / 22 相同；另给 `--bpm 124`（通用 + 标准）跑一遍，176 行 `audio_hash` 与 main 不给拍点的也全部相同。
 只要给了任一新选项，metrics.csv 末尾就追加下面的列、metrics.md 头部多一行。
+T-048 阶段 2 另外在每张表末尾固定加上 `confidence,current_mainness,cold_export,guard_cause,protection_db,status_line`
+（接在 `clay_peak_cost_s` 之后、T-038 列之前）。前四列和 `status_line` 在编排器写出新 Status 之前是空的，`protection_db` 先写现有的 g_保护。
+因此默认 metrics.csv 不再与阶段 1 的表逐字节相同；两遍渲染和成品 wav 仍是阶段 1 编排器的路径，`--live-trace` 仍自建一份 LiveProfile
+（链内那一份要等编排器公开 `readCommits` / `getDiagnostics`）。空的 `confidence` 不改变 `gate_check.py` / `house_gate.py` 的旧判定。
 
 ### 模拟宿主走带（`--bpm` / `--meter`）
 

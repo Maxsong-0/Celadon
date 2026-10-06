@@ -2,6 +2,11 @@
   ==============================================================================
 
     GlazeControllerTests.cpp
+    T-048 阶段 2：聆听 / 锁定 / 校准的产品契约在 tests/Phase2OrchestratorTests.cpp 与 GlazeStatusTextTests.cpp
+    （七条状态行、速率、棘轮、旧工程丢弃、Q12 死字段）。本文件仍驱动阶段 1 的 GlazeController——
+    代理 A 未合入，requestRelearn / Phase / calibrationValid 还在。合入时按 Phase2Contract.h 改这些驱动，
+    不要把锁定断言加回去。校准器单测已从 GlazeCalibrationTests 删除。
+
     v0.6 GLAZE 编排器（A4）的自动测试：状态转移全覆盖与三个就绪标志、首次聆听与重新聆听（候选 / 已提交、取消、中途保存）、
     跳播 / 回绕 / 宿主 reset 各清什么、离线导出（不学习不校准、未学习全程固定保守方案）、保存再读取（立即生效、同起点逐位重渲染）、
     采样率改变、GLAZE 连续控制（不重学不重做过渡不重启校准、回 0 偏差归零）、换风格、旧算法方案、约束反馈闭环收敛不振荡、
@@ -31,7 +36,6 @@
 
 #include "../Source/dsp/CeladonChain.h"
 #include "../Source/dsp/ClayGuard.h"
-#include "../Source/dsp/GlazeCalibrator.h"
 #include "../Source/dsp/GlazePlanner.h"
 #include "../Source/dsp/GlazeProfile.h"
 #include "../Source/ParameterRanges.h"
@@ -4386,7 +4390,7 @@ namespace celadon::test
 
                     const auto now = referenceFor (reopened, cap);
 
-                    if (! glaze::GlazeCalibrator::referenceMatches (saved, now) || ! glaze::GlazeCalibrator::referenceMatches (now, saved))
+                    if (! glaze::referenceMatches (saved, now) || ! glaze::referenceMatches (now, saved))
                     {
                         ++roundTripMismatches;
                         noteFailure (firstRoundTrip, "round trip " + juce::String (trip) + ": release " + juce::String (p.limit.releaseMs, 9)
@@ -4412,7 +4416,7 @@ namespace celadon::test
 
                         if (glaze::upgradeLegacyConditions ({ &legacy }, reopened, cap) != 1
                             || legacy.conditionsFormat != glaze::continuousConditionsFormat
-                            || ! glaze::GlazeCalibrator::referenceMatches (legacy, now))
+                            || ! glaze::referenceMatches (legacy, now))
                         {
                             ++upgradeFailures;
                             noteFailure (firstUpgrade, "legacy upgrade after " + juce::String (trip) + " trips failed");
@@ -4432,7 +4436,7 @@ namespace celadon::test
                     parameter.field (changed) = oneDisplayStep (parameter, parameter.field (p));
                     ++changeChecks;
 
-                    if (glaze::GlazeCalibrator::referenceMatches (saved, referenceFor (changed, cap)))
+                    if (glaze::referenceMatches (saved, referenceFor (changed, cap)))
                     {
                         ++changesMissed;
                         noteFailure (firstChange, juce::String (parameter.name) + " moved one display step from " + juce::String (parameter.field (p), 9)

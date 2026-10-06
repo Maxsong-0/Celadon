@@ -58,11 +58,11 @@ namespace celadon::ui
         loudness, truePeakShort, shortTermShort, peakToLoudness, normalisation, streamingReference, resetMeters,
 
         // ---- GLAZE 中层 ----
-        glazeSubtitle, relearn, relearnCancel, processed, original, match, matchWithDifference, matchOff, listeningOriginal,
-        matchedBy, notMatched, differenceUnknown, drivesParameters, glazeManual, cornerUnlearned, cornerListening, cornerListened,
+        glazeSubtitle, processed, original, match, matchWithDifference, matchOff, listeningOriginal,
+        matchedBy, notMatched, differenceUnknown, drivesParameters, glazeManual, cornerFollowing, legacyDiscarded,
         hintDrag, hintClick, fine,
         legendManual, legendAuto, legendAttention,
-        chipLocked, chipListening, chipCalibrating, chipAwaiting, chipUnlearned, chipPaused, chipLimited,
+        chipManual, chipManualLimit, chipPhase, chipExport, chipLimited, chipStarting, chipHolding, chipFollowing,
 
         // ---- 模块卡片 ----
         describeClay, describeBalance, describeColor, describeLimit, bypassModule, bypassedModule,
@@ -91,7 +91,6 @@ namespace celadon::ui
         // ---- 曲风与交付（T-038，GLAZE 标题行左右的两个选择；设计规格-曲风与交付 第 5 节）----
         genreCaption, genreGeneral, genreDeep, genreTech, genreMelodic,
         deliveryCaption, deliveryStandard, deliveryStreaming, deliveryClub,
-        cornerHouseTip,
 
         numTexts
     };

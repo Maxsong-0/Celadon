@@ -11,12 +11,14 @@
     按 IEEE 位记下来（下面 expectedBits）。现源码读同一份存档、喂同样的素材，这 7 个参数必须逐块逐位相同——即
     「v0.1.6.2 工程打开后，约束反馈触发之前逐位不变」（isCompatibleAlgorithm；审核 V2-01 的限定口径）。
 
-    T-038（2026-10-01，曲风与交付，设计规格-曲风与交付 第 5、6 节）：同一份夹具读回来参考条件是通用 / 标准，再存出去（已提交版本、
-    执行快照、整条链跑过之后的整棵 GLAZE 状态）都不写 genre / delivery 两个属性；换成 Deep House 或俱乐部，存档里的校准不再适用。
+    T-038（2026-10-01，曲风与交付）：夹具本身仍是通用 / 标准，历史 fromXml 不写 genre / delivery。
+    T-048 阶段 2（Q1）：这份 v1 聆听结果在读档时整份丢弃，冷启动，界面提示一次，提示不写入 LIVE。
+    下面「打开工程前 20 块逐位相同」是阶段 1 编排器还在采用旧方案时的行为；阶段 2 的读档契约以 phase2::interpretState 为准。
 
   ==============================================================================
 */
 
+#include "Phase2Contract.h"
 #include "TestHelpers.h"
 
 #include "../Source/dsp/CeladonChain.h"
@@ -156,6 +158,24 @@ namespace celadon::test
             if (xml == nullptr)
                 return;
 
+            beginTest ("phase 2 opens the v0.1.6.2 fixture as a cold start and does not write the session notice into LIVE");
+            {
+                const auto opened = phase2::interpretState (*xml);
+                expect (opened.coldStart, "format 1 has no LIVE tree");
+                expect (opened.sessionNotice, "the discarded listen result is announced once");
+                expect (opened.planUsesFactoryConstants);
+                expect (phase2::isDiscardedListenTag ("GLAZE_PROFILE"));
+                expect (phase2::isDiscardedListenTag ("PLAN"));
+                expect (phase2::isDiscardedListenTag ("CALIBRATION"));
+                expect (phase2::isDiscardedListenTag ("EXECUTION"));
+                expect (! phase2::isDiscardedListenTag ("LIVE"));
+                expect (! phase2::isDiscardedListenTag ("GLAZE_CONSTANTS"), "constants are ignored, not a listen node");
+
+                const auto saved = phase2::saveLiveTree (glaze::currentAlgorithmVersion);
+                expect (saved != nullptr && ! phase2::treeWritesLegacyNotice (*saved));
+                expect (! saved->toString().contains (juce::String::fromUTF8 (phase2::legacySessionNoticeZh)));
+            }
+
             beginTest ("the v0.1.6.2 fixture reads back with the same profile id (format 1 hash unchanged)");
             {
                 glaze::CommittedState state;
@@ -168,7 +188,7 @@ namespace celadon::test
                 expect (state.calibration.valid, "saved with a valid calibration");
             }
 
-            beginTest ("opening the v0.1.6.2 project: the 7 effective params are bit-exact for the first 20 blocks, Clay neutral");
+            beginTest ("opening the v0.1.6.2 project cold-starts: the saved plan is not replayed, Clay stays neutral");
             {
                 const double fs = 48000.0;
                 const int blockSize = 512;
@@ -206,13 +226,14 @@ namespace celadon::test
                     clayActiveBlocks += (e.clay.lowCutHz != 0.0f || e.clay.monoAmount != 0.0f || e.clay.widthDb != 0.0f) ? 1 : 0;
                 }
 
-                expectEquals (mismatchBlocks, 0, "every block hands the modules exactly what v0.1.6.2 did");
-                expectEquals (clayActiveBlocks, 0, "a format-1 profile gives neutral Clay");
+                expectEquals (mismatchBlocks, 20, "the saved listen plan is dropped; none of the 20 blocks replays v0.1.6.2");
+                expectEquals (clayActiveBlocks, 0, "cold start keeps Clay neutral");
 
                 const auto status = chain.getGlazeStatus();
-                expect (status.calibrationValid, "the saved calibration still applies");
-                expect (! status.savedPlanFromOlderAlgorithm, "algorithm 6 is compatible, not an older saved plan");
-                expect (status.clayNeedsRelearn, "Clay is automatic and GLAZE > 0: the relearn hint is shown");
+                expect (status.legacySessionDiscarded, "the discarded listen result is announced for this open");
+                expect (! status.calibrationValid, "the saved calibration is not applied");
+                expect (status.phase == glaze::Phase::unlearned);
+                expect (! status.clayNeedsRelearn, "there is no relearn hint");
             }
 
             // T-038（设计规格-曲风与交付 第 5、6 节；ADR-026）：旧存档没有曲风 / 交付——读成通用 / 标准；再存出去也不写这两个属性
@@ -260,13 +281,14 @@ namespace celadon::test
             // 整条链：读回旧存档、按通用 / 标准（旧工程读进来的参数）喂 20 块，再存出去的整棵 GLAZE 状态里没有 genre / delivery；
             // 存档里的校准照样适用、不是 House 档。换成 Deep House 或俱乐部（参数变了、存档没变）：参考条件对不上，存档里的校准不再适用
             // （规格第 4.3 节「换交付或曲风 → 方案重算、重新校准」）——同时证明读进来的参考条件确实按通用 / 标准参与了比较。
-            beginTest ("opening the v0.1.6.2 project as General / Standard re-saves without genre / delivery; switching either drops the old calibration");
+            beginTest ("opening the v0.1.6.2 project re-saves without genre / delivery and does not keep the old calibration");
             {
                 const auto general = runFixture (*xml, fixtureParams(), 20);
                 expect (general.saved != nullptr && ! hasAttributeAnywhere (*general.saved, "genre")
                             && ! hasAttributeAnywhere (*general.saved, "delivery"),
                         "the re-saved GLAZE state of the old project has no genre / delivery attribute");
-                expect (general.status.calibrationValid, "General / Standard: the saved calibration still applies");
+                expect (general.status.legacySessionDiscarded, "General / Standard: the listen result is discarded");
+                expect (! general.status.calibrationValid, "General / Standard: the saved calibration is not applied");
                 expect (! general.status.houseActive, "General: no House status");
 
                 auto deepParams = fixtureParams();

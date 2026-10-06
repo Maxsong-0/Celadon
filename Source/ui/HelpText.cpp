@@ -80,7 +80,7 @@ namespace celadon::help
             { param::limitListen,
               "等响 · 等响度试听",
               "测量整条处理链的响度差，把较响的一边衰减到另一边的响度（听处理后时衰减处理结果，听原声时衰减原声），A / B 对比不受音量差影响；输出表显示试听衰减前的母带。",
-              "播放数秒后再比较；只衰减不加大音量，自动处理与校准照常进行。导出前关闭。",
+              "播放数秒后再比较；只衰减不加大音量，自动处理照常进行。导出前关闭。",
               "Match · loudness-matched listening",
               "Measures the loudness difference across the whole chain and turns the louder side down to the other (the processed signal in A, the original in B), so A / B is not biased by level; the meters show the master before this attenuation.",
               "Compare after a few seconds of playback; it only attenuates, never boosts, and automatic processing keeps running. Turn it off before exporting." },
@@ -203,10 +203,10 @@ namespace celadon::help
             { param::glazeAmount,
               "Glaze · 施釉（总旋钮）",
               "按歌曲自动推响度、修正持续共振、调整明暗并加入温和染色；动态保护排在响度前面，推到各模块的预算上限就不再加压，状态行里的「目标 … LUFS」随之降低。",
-              "新实例默认 35% 和自动风格，播放时持续聆听；按需要增加力度，0% 时联动的 7 项都用手动值。",
+              "新实例默认 35% 和自动风格，播放时跟着主段走；按需要增加力度，0% 只用手动设置。",
               "Glaze · the master knob",
               "Adapts to the song: pushes loudness, corrects sustained resonances, adjusts brightness and adds gentle colour. Dynamics protection comes before loudness: once each module's budget is used up it stops pushing, and the “Target … LUFS” on the status line comes down.",
-              "New instances start at 35% with Auto style and keep listening during playback; raise it as needed. At 0% the 7 linked parameters use your manual values." },
+              "New instances start at 35% with Auto style and follow the main section during playback; raise it as needed, 0% uses manual settings only." },
 
             { param::glazeStyle,
               "风格 · 母带取向",
@@ -219,36 +219,28 @@ namespace celadon::help
             // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 标题行左右两侧的两个选择，位置见 PluginEditor layoutGlazeChoices）。
             // 选择器上 House 只写 Deep / Tech / Melodic，全名写在这里。
             { param::glazeGenre,
-              "曲风 · 音色目标与学法",
-              "通用：开播后聆听 15～30 秒定方案，音色目标按风格定；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，GLAZE 按小节聆听、听到主段落（drop）才锁定，自动释放跟着宿主速度收紧。",
-              "写的是哪种 House 就选哪种，拿不准选最接近的；不是 House 用通用。换曲风不用重新聆听，约 3 秒平滑换过去。",
-              "Genre · tonal target and learning",
-              "General listens for 15–30 s from the start of playback and sets the tonal target by style; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, while GLAZE learns bar by bar, locks only after hearing the main section (the drop) and tightens Auto release to the host tempo.",
-              "Pick the House type you wrote, or the closest one; use General for anything else. Switching needs no relearn and fades over in about 3 s." },
+              "曲风 · 音色目标",
+              "通用按风格定音色目标；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，自动释放跟着宿主速度收紧。House 档跟随主段时，状态行在前面加 House。",
+              "写的是哪种 House 就选哪种，拿不准选最接近的；不是 House 用通用。换曲风后目标按新的主段模型慢慢跟上。",
+              "Genre · tonal target",
+              "General sets the tonal target by style; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, and Auto release tightens to the host tempo. While following in House mode the status line starts with House.",
+              "Pick the House type you wrote, or the closest one; use General for anything else. After a switch the target eases toward the new main-section model." },
 
             { param::glazeDelivery,
               "交付 · 响度与真峰值",
               "标准：按风格定响度，上限照你设的；流媒体：约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部：约 −7 LUFS，给 DJ 和下载店，上限照你设的不变。House 档按 drop 的响度算。",
-              "同一首歌每档各导出一次，就得到两版母带；切换后先播一遍 drop 再导出，让校准在新目标上走完。",
+              "同一首歌每档各导出一次，就得到两版母带；切换后如果主段统计还没热，先完整播放一遍 drop 再导出。",
               "Delivery · loudness and true peak",
               "Standard sets loudness by style and keeps your Ceiling; Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores and keeps your Ceiling. In House mode the target is the loudness of the drop.",
-              "Export once per setting to get both masters from one song; after switching, play the drop once before exporting so calibration settles on the new target." },
-
-            { uiid::glazeRelearn,
-              "重新聆听",
-              "重新听一轮再定方案：通用曲风约 15～30 秒；House 类曲风要重新凑够 64 小节并听到主段落，通常两分钟上下。听的时候旧方案照常生效，听完约 3 秒平滑换过去。",
-              "换歌或改了混音后点；聆听中再点一次取消。",
-              "Relearn",
-              "Listens again to build a new plan: about 15–30 s in General; with a House genre it has to collect 64 bars again and hear the main section, usually around two minutes. The old plan keeps working meanwhile, then fades over in about 3 s.",
-              "Use it after switching songs or changing the mix; click again while listening to cancel." },
+              "Export once per setting to get both masters from one song; if the main section is still cold after switching, play the drop through once before exporting." },
 
             { uiid::glazeStatus,
               "GLAZE 状态",
-              "显示聆听、校准、目标响度与受限状态；频谱持续跟随，自动染色随段落密度和明亮度缓慢收敛。",
-              "推到各模块的预算上限就不再加压，「目标 … LUFS」随之降低，状态通常仍是「已锁定」；状态写「受限」是另外两种情形：受手动设置限制，或方案受限、已退让。想保留更多起伏就调低 GLAZE；换歌后可重新聆听，更新整首歌的取向。",
+              "显示起步、保持、跟随、导出冷启动与守护退让；频谱持续跟随，自动染色随段落慢慢收敛。",
+              "受手动设置限制或守护退让时先看这里。旧工程打开会提示一次：旧的聆听结果已丢弃，声音会变。",
               "GLAZE status",
-              "Shows listening, calibration, target loudness and limits; the spectrum keeps following, and the automatic colouring settles slowly with the density and brightness of each section.",
-              "Once each module's budget is used up GLAZE stops pushing and the “Target … LUFS” comes down; the status usually still reads Locked. A status of Limited means one of two other things: limited by manual settings, or the plan is limited and has backed off. Lower GLAZE to keep more movement; relearn after switching songs to update the plan." },
+              "Shows starting, holding, following, a cold export and guard relief; the spectrum keeps following, and the automatic colouring settles slowly with each section.",
+              "Look here first when manual settings or the guards are limiting the sound. Opening an old project shows once that the old listening result was discarded and the sound will change." },
 
             { uiid::advanced,
               "高级 · 母带微调",
@@ -616,7 +608,6 @@ namespace celadon::help
             && widthGuard == other.widthGuard
             && peakGuard == other.peakGuard
             && peakGuardKeptPercent == other.peakGuardKeptPercent
-            && needsRelearn == other.needsRelearn
             && bypassed == other.bypassed
             && lowCutCostLimited == other.lowCutCostLimited
             && monoCostLimited == other.monoCostLimited
@@ -628,10 +619,6 @@ namespace celadon::help
     ClayReadout clayReadoutFor (const glaze::Status& status, const ClayUserState& user) noexcept
     {
         ClayReadout readout;
-
-        // 旧工程提示与旁通无关（说的是画像），但只在有自动态的项时才有意义：三项都选了「关」或「手动」，重新聆听也不改变声音。
-        // 正在重新聆听时已提交的仍是旧画像（clayNeedsRelearn 仍为真），但「点重新聆听」的提示已经没有意义（A6 报告备注）。
-        readout.needsRelearn = status.clayNeedsRelearn && ! status.relearnInProgress && (user.lowCutAuto || user.monoAuto || user.widthAuto);
 
         // T-038 House 档反相提示：说的是混音本身（俱乐部单声道回放会丢低频），修坯怎么设、旁通与否都改变不了它，所以不按三态与旁通筛；
         // 曲风不是 House 时编排器不置这一项（houseActive = false 时一律不显示）。
@@ -771,14 +758,6 @@ namespace celadon::help
         return parts.joinIntoString (utf8 (" · "));
     }
 
-    juce::String clayRelearnHint (Language language)
-    {
-        if (language == Language::english)
-            return utf8 ("Click \xe2\x80\x9cRelearn\xe2\x80\x9d to enable automatic Clay");
-
-        return utf8 ("点「重新聆听」后启用自动修坯");
-    }
-
     juce::String clayCostLine (const ClayReadout& readout, Language language)
     {
         const auto english = language == Language::english;
@@ -856,15 +835,10 @@ namespace celadon::help
         const auto title = entry != nullptr ? utf8 (english ? entry->titleEn : entry->title) : juce::String();
         const auto fullStop = english ? juce::String (".") : utf8 ("。");
 
-        // 第 3 行的优先级（设计规格-Clay-根治修订 3.5）：旧工程的「点重新聆听」> 本曲的代价说明 > 文案表的建议。
-        // 旧工程时没有画像特征，也就不会有代价说明；两者同时出现只可能在「重新聆听」提交之前的一瞬，先让人去点。
+        // 第 3 行的优先级：House 反相提示 > 本曲的代价说明 > 文案表的建议。旧工程不再在这里写「重新聆听」。
         juce::String advice;
 
-        if (readout.needsRelearn)
-        {
-            advice = clayRelearnHint (language) + fullStop;
-        }
-        else if (readout.housePhaseHint)
+        if (readout.housePhaseHint)
         {
             // T-038 House 档反相提示（卡片上已写两行）：气泡里说为什么要回混音——收单只去掉侧声道，单声道回放听的是中声道，救不回来（ADR-015）。
             advice = housePhaseHintLines (readout.housePhaseLossTenthsDb, language)[0]
@@ -939,23 +913,5 @@ namespace celadon::help
             return lines[0] + ", " + lines[1].substring (0, 1).toLowerCase() + lines[1].substring (1);
 
         return lines[0] + utf8 ("，") + lines[1];
-    }
-
-    juce::String houseListeningTooltip (Language language)
-    {
-        const auto english = language == Language::english;
-        const auto* entry = find (uiid::glazeStatus);
-        jassert (entry != nullptr);   // 文案表里必须有 ui_glaze_status（HelpTextTests 也查）
-
-        const auto title = entry != nullptr ? utf8 (english ? entry->titleEn : entry->title) : juce::String();
-        const auto how = english
-            ? utf8 ("In House mode GLAZE listens bar by bar and plans from the main section only (full sections such as the drop); "
-                    "it locks once enough bars and enough of the main section have been heard. On a first listen the plan is provisional and conservative until then; "
-                    "during Relearn, or when louder bars turn up after the lock, the old plan keeps working.")
-            : utf8 ("House 档按小节聆听，只用主段落（drop 这类满编的段落）定方案；听够小节数、又听到足够的主段落才锁定。"
-                    "首次聆听时，在那之前方案是暂定的、推得保守；重新聆听、或锁定后又听到更响的段落时，旧方案照常生效。");
-
-        // 第 3 行与左下角的提示同一句（Localisation 表 cornerHouseTip），补句末标点。
-        return title + "\n" + how + "\n" + ui::tr (ui::Text::cornerHouseTip, language) + (english ? juce::String (".") : utf8 ("。"));
     }
 }

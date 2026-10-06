@@ -13,6 +13,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <type_traits>
 
 namespace
 {
@@ -31,6 +32,21 @@ namespace
     constexpr double resizeHudHoldMs = 700.0;
     constexpr double nonFiniteWarningMs = 10000.0;  // 屏蔽了异常音频块：之后 10 s 内顶部提示
     constexpr double soundHangMs = 500.0;           // 电平掉到静音以下多久才算「停止播放」
+
+    // waitingForPlayback 随聆听 / 校准删掉。字段还在时照旧读（停播时粒子别跟着响）；删掉之后只看电平。
+    template <typename T, typename = void>
+    struct HasWaitingForPlayback : std::false_type {};
+    template <typename T>
+    struct HasWaitingForPlayback<T, std::void_t<decltype (std::declval<const T&>().waitingForPlayback)>> : std::true_type {};
+
+    template <typename T>
+    bool hostWaitingForPlayback (const T& status) noexcept
+    {
+        if constexpr (HasWaitingForPlayback<T>::value)
+            return status.waitingForPlayback;
+        else
+            return false;
+    }
 
     // 受 GLAZE 影响的 7 个参数（= glaze::AutoIncrements 的 7 个字段）：卡片按它们画紫色的自动加量。
     static_assert (sizeof (glaze::AutoIncrements) == 7 * sizeof (float), "glaze::AutoIncrements 的项数变了：同步改各卡片的 setEffective");
@@ -199,7 +215,7 @@ public:
         particles.setBounds (0, ParticleField::top, baseWidth, ParticleField::bandHeight);
         addAndMakeVisible (glazeTitle);
         // T-038：标题收窄到曲风 / 交付两个选择之间（x 470 ～ 730，Max 2026-10-01 选「放在 GLAZE 标题行」）：三者的区域不重叠，
-        // 点选择时不会被标题吃掉。标题内容按宽度居中（中心仍是 600），英文最长一版（GLAZE · smart mastering · 校准中）约 242 px，放得下。
+        // 点选择时不会被标题吃掉。标题内容按宽度居中（中心仍是 600），英文最长一版（GLAZE · Smart mastering · Manual limit）放得下。
         glazeTitle.setBounds (470, 305, 260, 20);
         addAndMakeVisible (glazeKnob);
         // Keep the knob's interaction coordinates while giving more canvas space to the cards.
@@ -226,8 +242,6 @@ public:
 
         genreAttachment = std::make_unique<SegmentedAttachment> (genreSelector, *state.getParameter (param::glazeGenre));
         deliveryAttachment = std::make_unique<SegmentedAttachment> (deliverySelector, *state.getParameter (param::glazeDelivery));
-
-        addAndMakeVisible (relearnButton);
 
         abSelector.setOptions ({ "", "" });
         abSelector.setEqualWidths (false);
@@ -306,7 +320,6 @@ public:
         deliverySelector.setComponentID (param::glazeDelivery);
         abSelector.setComponentID ("ab");
         matchButton.setComponentID ("match");
-        relearnButton.setComponentID ("relearn");
         cornerNote.setComponentID ("corner_note");
         glazeTitle.setComponentID ("glaze_title");
         legend.setComponentID ("legend");
@@ -320,7 +333,7 @@ public:
         // 粒子带（画布 y 300 ～ 560）里的文字小部件（T-032 R9-01）：粒子最多 30 帧 / s 地重画这条带，macOS 只拿脏矩形的
         // 包围盒，带里的组件每帧都被拖进来重画、重新排版文字。各自缓存成按物理像素的图、整数对齐贴；它们的状态一改就
         // repaint，缓存随之作废重画。主旋钮自管整颗缓存（GlazeKnob），粒子的柔光与流线也是缓存图（ParticleField）。
-        for (auto* widget : std::initializer_list<juce::Component*> { &glazeTitle, &styleSelector, &relearnButton, &abSelector,
+        for (auto* widget : std::initializer_list<juce::Component*> { &glazeTitle, &styleSelector, &abSelector,
                                                                       &matchButton, &monitoringButton, &cornerNote, &legend,
                                                                       &genreSelector, &deliverySelector })
             setBufferedToAlignedImage (*widget);
@@ -429,7 +442,6 @@ public:
                                        tr (Text::deliveryClub, language) });
         deliverySelector.setTooltip (help::tooltipFor (param::glazeDelivery, language));
         layoutGlazeChoices();
-        relearnButton.setTooltip (help::tooltipFor (uiid::glazeRelearn, language));
         abSelector.setOptions ({ tr (Text::processed, language), tr (Text::original, language) });
         matchButton.setTooltip (help::tooltipFor (param::limitListen, language));
         legend.setLanguage (language);
@@ -446,29 +458,25 @@ public:
         repaint();
     }
 
-    // 风格 · 重新聆听 | A / B · 等响：一排、整体居中在 x = 600（设计稿 200 ～ 1000，间隔 8）。宽度都没变时什么都不做。
-    // 量宽度要排版文字：只在自然宽度可能变了时调——语言切换（setLanguage）、重新聆听 / 等响的文字或小橙点变了（编辑器定时器
-    // 看 PillButton::setText / setDot 的返回值），不每帧调（T-032 R9-12）。
+    // 风格 | A / B · 等响：一排、整体居中在 x = 600（间隔 8）。宽度都没变时什么都不做。
+    // 量宽度要排版文字：只在自然宽度可能变了时调——语言切换（setLanguage）、等响的文字变了（编辑器定时器看
+    // PillButton::setText 的返回值），不每帧调（T-032 R9-12）。
     void layoutBottomRow()
     {
         constexpr int y = 524, h = 30, gap = 8, dividerWidth = 1 + 2 * 6;
         const auto styleWidth = 232;
-        const auto relearnWidth = relearnButton.getNaturalWidth();
         const auto abWidth = abSelector.getNaturalWidth();
         const auto matchWidth = matchButton.getNaturalWidth();
         const auto legendWidth = legend.getNaturalWidth();
 
-        if (relearnWidth == relearnButton.getWidth() && abWidth == abSelector.getWidth() && matchWidth == matchButton.getWidth()
-             && legendWidth == legend.getWidth())
+        if (abWidth == abSelector.getWidth() && matchWidth == matchButton.getWidth() && legendWidth == legend.getWidth())
             return;
 
-        const auto total = styleWidth + gap + relearnWidth + gap + dividerWidth + gap + abWidth + gap + matchWidth;
+        const auto total = styleWidth + gap + dividerWidth + gap + abWidth + gap + matchWidth;
         auto x = 600 - total / 2;
 
         styleSelector.setBounds (x, y, styleWidth, h);
         x += styleWidth + gap;
-        relearnButton.setBounds (x, y, relearnWidth, h);
-        x += relearnWidth + gap;
         dividerX = x + 6;
         x += dividerWidth + gap;
         abSelector.setBounds (x, y, abWidth, h);
@@ -531,7 +539,7 @@ public:
         g.drawImageTransformed (staticLayer, juce::AffineTransform::scale ((float) baseWidth / (float) staticLayer.getWidth(),
                                                                            (float) baseHeight / (float) staticLayer.getHeight()), false);
 
-        // 风格 / 重新聆听 与 A / B 之间的细分隔线
+        // 风格与 A / B 之间的细分隔线
         g.setColour (palette::divider);
         g.fillRect ((float) dividerX, 530.0f, 1.0f, 18.0f);
     }
@@ -550,7 +558,6 @@ public:
     std::unique_ptr<SegmentedAttachment> styleAttachment;
     Segmented genreSelector { Segmented::Look::bordered }, deliverySelector { Segmented::Look::bordered };   // T-038
     std::unique_ptr<SegmentedAttachment> genreAttachment, deliveryAttachment;
-    PillButton relearnButton { PillButton::Icon::relearn };
     Segmented abSelector { Segmented::Look::bordered };
     PillButton matchButton { PillButton::Icon::match };
     PillButton monitoringButton { PillButton::Icon::match };
@@ -745,7 +752,6 @@ CeladonAudioProcessorEditor::CeladonAudioProcessorEditor (CeladonAudioProcessor&
     canvas->advancedPanel.onCancelReference = [this] { processor.cancelReferenceLearn(); };
     canvas->advancedPanel.onClearReference = [this] { processor.clearReference(); };
     canvas->advancedPanel.onPreviewChange = [this] (bool enabled) { setReleasePreviewEnabled (enabled); };
-    canvas->relearnButton.onClick = [this] { if (glazeRelearnAction != nullptr) glazeRelearnAction(); };
     canvas->abSelector.onSelect = [this] (int index) { setListeningToOriginal (index == 1); };
     canvas->spectrum.getLoudnessHud().onReset = [this] { resetMeters(); };
     canvas->inputMeter.onResetClicked = [this] { resetMeters(); };
@@ -833,9 +839,33 @@ void CeladonAudioProcessorEditor::setGlazeStatusSource (GlazeStatusSource source
     timerCallback();
 }
 
-void CeladonAudioProcessorEditor::setGlazeRelearnAction (GlazeRelearnAction action)
+void CeladonAudioProcessorEditor::setGlazeRelearnAction (GlazeRelearnAction)
 {
-    glazeRelearnAction = std::move (action);
+}
+
+void CeladonAudioProcessorEditor::noteDiscardedLegacyGlaze()
+{
+    if (legacyGlazeDiscarded)
+        return;
+
+    legacyGlazeDiscarded = true;
+    timerCallback();
+}
+
+void CeladonAudioProcessorEditor::setStatusLinePreview (const celadon::ui::glazestatus::Reading& reading)
+{
+    statusLinePreview = reading;
+    statusLinePreviewOn = true;
+    timerCallback();
+}
+
+void CeladonAudioProcessorEditor::clearStatusLinePreview()
+{
+    if (! statusLinePreviewOn)
+        return;
+
+    statusLinePreviewOn = false;
+    timerCallback();
 }
 
 void CeladonAudioProcessorEditor::setGlazeEffectiveParamsSource (GlazeEffectiveParamsSource source)
@@ -848,7 +878,7 @@ void CeladonAudioProcessorEditor::setGlazeEffectiveParamsSource (GlazeEffectiveP
 void CeladonAudioProcessorEditor::applyLanguage()
 {
     canvas->setLanguage (settings->getLanguage());
-    glazeTooltipValid = false;   // 上一行把 GLAZE 状态的两处气泡写回了通用版：House 档暂定期间要随即重设（T-038）
+    glazeTooltipValid = false;   // 上一行把 GLAZE 状态的两处气泡写回了当前语言的通用版，定时器随后重设
     timerCallback();
 }
 
@@ -1211,6 +1241,10 @@ void CeladonAudioProcessorEditor::timerCallback()
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
 
+    // 编辑器已经开着时读档：消息线程这一帧把「旧的聆听结果已丢弃」点亮。不进 LIVE，本次打开只提示一次。
+    if (status.legacySessionDiscarded)
+        noteDiscardedLegacyGlaze();
+
     // 试听差值：LIMIT 被旁通（界面、宿主自动化都算）就退出；耳机跟着处理器的状态。
     if (processor.isAuditioningDifference() && rawValue (state, param::limitBypass) >= 0.5f)
         setAuditioningDifference (false);
@@ -1227,8 +1261,9 @@ void CeladonAudioProcessorEditor::timerCallback()
     if (c.limitCard.isAuditioning() != auditioning)
         c.limitCard.setAuditioning (auditioning);
 
-    const auto view = glazestatus::classify (status, glazePercent, style, listenOn);
-    const auto planLimited = view.kind == glazestatus::Kind::planLimited;
+    const auto reading = statusLinePreviewOn ? statusLinePreview : glazestatus::readingFromStatus (status);
+    const auto view = glazestatus::classify (reading, glazePercent, style);
+    const auto guardLimited = view.kind == glazestatus::Kind::guardLimited;
 
     if (c.abSelector.getSelected() != (comparing ? 1 : 0))
         setListeningToOriginal (comparing);
@@ -1241,9 +1276,9 @@ void CeladonAudioProcessorEditor::timerCallback()
 
     // 听原声时 OUT 是原声：它超过 Ceiling 不算问题（不亮橙灯、不进响度小窗的最大值）。
     c.inputMeter.pushReadings (inputPeak, 0.0f, std::numeric_limits<float>::infinity(), false, elapsed);
-    c.outputMeter.pushReadings (outputPeak, limitGr, comparing ? std::numeric_limits<float>::infinity() : ceiling, planLimited, elapsed);
+    c.outputMeter.pushReadings (outputPeak, limitGr, comparing ? std::numeric_limits<float>::infinity() : ceiling, guardLimited, elapsed);
     c.colorCard.setGlueReduction (glueGr);
-    c.limitCard.setLimitReduction (limitGr, planLimited);
+    c.limitCard.setLimitReduction (limitGr, guardLimited);
 
     if (! comparing && std::isfinite (outputPeak))
         truePeakMaxDb = juce::jmax (truePeakMaxDb, outputPeak);
@@ -1254,18 +1289,9 @@ void CeladonAudioProcessorEditor::timerCallback()
     loudness.truePeakMaxDb = truePeakMaxDb;
     loudness.ceilingDb = ceiling;
 
-    // 目标标记照「已锁定」那一行：House 反相提示（T-038）压住状态行时照常显示（提示说的是混音，不改目标）。
-    auto targetView = view;
-
-    if (view.kind == glazestatus::Kind::housePhaseHint)
-    {
-        auto unhinted = status;
-        unhinted.housePhaseHint = false;
-        targetView = glazestatus::classify (unhinted, glazePercent, style, listenOn);
-    }
-
-    loudness.hasTarget = targetView.kind == glazestatus::Kind::locked && targetView.hasTarget;
-    loudness.targetLufs = (float) targetView.targetTenthsLufs / 10.0f;
+    // 目标标记：GLAZE > 0 且编排器给出了有限目标就画，不因状态行被琥珀条压住而藏起来（反相提示说的是混音，不改目标）。
+    loudness.hasTarget = glazePercent > 0.0f && std::isfinite (reading.effectiveTargetLufs);
+    loudness.targetLufs = reading.effectiveTargetLufs;
     c.spectrum.getLoudnessHud().setValues (loudness);
 
     // ---- 频谱仪：平时由垂直同步推（spectrumFrame，T-036）；垂直同步 100 ms 没来（离屏、宿主 / 系统不给）就由这里按 30 Hz 推；
@@ -1282,7 +1308,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     if (rms > -70.0f)
         lastSoundMs = now;
 
-    const auto playing = now - lastSoundMs < soundHangMs && ! status.waitingForPlayback;
+    const auto playing = now - lastSoundMs < soundHangMs && ! hostWaitingForPlayback (status);
     c.particles.setGlaze (glazePercent / 100.0f);
     c.particles.setAudio (rms, playing);
 
@@ -1308,43 +1334,33 @@ void CeladonAudioProcessorEditor::timerCallback()
         c.balanceCard.setBandGains (gains);
     }
 
-    // ---- 中层：阶段标签、左下角、重新聆听、等响 ----
+    // ---- 中层：阶段标签、左下角、等响 ----
     {
         using Kind = glazestatus::Kind;
         using Chip = GlazeTitle::Chip;
 
-        auto chip = Chip::locked;
+        auto chip = Chip::following;
 
-        // House 反相提示（T-038）压住的是哪一行，阶段标签就照哪一行画：提示不改变「聆听中 / 待校准 / 已锁定」。
-        switch (view.kind == Kind::housePhaseHint ? view.underlyingKind : view.kind)
+        switch (view.kind)
         {
-            case Kind::listening:
-            case Kind::houseListening:      chip = Chip::listening;   break;
-            case Kind::calibrating:         chip = Chip::calibrating; break;
-            case Kind::calibrationPaused:   chip = Chip::paused;      break;
-            case Kind::awaitingCalibration: chip = Chip::awaiting;    break;
-            case Kind::unlearned:
-            case Kind::unlearnedExported:   chip = Chip::unlearned;   break;
-            case Kind::planLimited:
-            case Kind::limitedByManual:     chip = Chip::limited;     break;
-            case Kind::locked:
-            case Kind::profileMismatch:
-            case Kind::housePhaseHint:      chip = Chip::locked;      break;
+            case Kind::manualOnly:      chip = Chip::manual;       break;
+            case Kind::limitedByManual: chip = Chip::manualLimit;  break;
+            case Kind::housePhaseHint:  chip = Chip::phase;        break;
+            case Kind::coldExport:      chip = Chip::coldExport;   break;
+            case Kind::guardLimited:    chip = Chip::limited;      break;
+            case Kind::starting:        chip = Chip::starting;     break;
+            case Kind::holding:         chip = Chip::holding;      break;
+            case Kind::following:       chip = Chip::following;    break;
         }
 
         c.glazeTitle.setChip (chip);
 
-        // T-038：House 档锁定条件还没满足（含还没开始播放）时，GLAZE 状态的悬停气泡换成 House 版、左下第二行写
-        //「从 drop 开始播放能学得更快」（设计规格-曲风-House学习方式 第 7 节）。气泡只在 House 与否或语言变了时重设
-        //（标题与顶栏状态胶囊两处；Canvas::setLanguage / TopBar::setLanguage 会写回通用版，applyLanguage 让这里随后重设）。
-        const auto houseTip = glazestatus::houseLearningTipApplies (status);
-
-        if (! glazeTooltipValid || houseTip != glazeTooltipHouse || language != glazeTooltipLanguage)
+        // 气泡只在语言变了时重设（Canvas::setLanguage 会写回通用版，applyLanguage 让这里随后重设）。
+        if (! glazeTooltipValid || language != glazeTooltipLanguage)
         {
-            const auto tooltip = houseTip ? help::houseListeningTooltip (language) : help::tooltipFor (uiid::glazeStatus, language);
+            const auto tooltip = help::tooltipFor (uiid::glazeStatus, language);
             c.glazeTitle.setTooltip (tooltip);
             c.topBar.getStatusPill().setTooltip (tooltip);
-            glazeTooltipHouse = houseTip;
             glazeTooltipLanguage = language;
             glazeTooltipValid = true;
         }
@@ -1353,58 +1369,23 @@ void CeladonAudioProcessorEditor::timerCallback()
         {
             c.cornerNote.setLines (tr (Text::hintDrag, language), tr (Text::hintClick, language), true);
         }
+        else if (legacyGlazeDiscarded)
+        {
+            // 旧工程提示一次，只活在本次打开的界面里，不进状态行的七条，也不写入 LIVE。
+            c.cornerNote.setLines (tr (Text::drivesParameters, language), tr (Text::legacyDiscarded, language), false, true);
+        }
         else
         {
-            juce::String second;
-            // T-078：不在聆听时 requiredSeconds 恒为 15，House 锁定后不能再写「已聆听 15 秒」。
-            // 琥珀行（受手动设置限制 / 方案受限）压住一轮进行中的聆听时，第二行仍写进度，不写「聆听已完成」。
-            const auto listeningNow = status.phase == glaze::Phase::listening || status.relearnInProgress;
-            const auto amberOverListen = (view.kind == Kind::planLimited || view.kind == Kind::limitedByManual) && listeningNow;
-
-            if (! (glazePercent > 0.0f))
-                second = tr (Text::glazeManual, language);
-            else if (houseTip && (amberOverListen
-                                  || view.kind == Kind::houseListening || view.kind == Kind::housePhaseHint
-                                  || view.kind == Kind::unlearned || view.kind == Kind::unlearnedExported))
-                second = tr (Text::cornerHouseTip, language);
-            else if (view.kind == Kind::listening || amberOverListen)
-            {
-                auto listened = view.listenedSeconds;
-                auto required = view.requiredSeconds;
-
-                if (amberOverListen)
-                {
-                    auto underneath = status;
-                    underneath.limitedByManual = false;
-                    underneath.planLimited = false;
-                    const auto progress = glazestatus::classify (underneath, glazePercent, style, listenOn);
-                    listened = progress.listenedSeconds;
-                    required = progress.requiredSeconds;
-                }
-
-                second = trFormat (Text::cornerListening, language, { juce::String (listened), juce::String (required) });
-            }
-            else if (view.kind == Kind::unlearned || view.kind == Kind::unlearnedExported)
-                second = tr (Text::cornerUnlearned, language);
-            else
-                second = tr (Text::cornerListened, language);
-
+            const auto second = glazePercent > 0.0f ? tr (Text::cornerFollowing, language) : tr (Text::glazeManual, language);
             c.cornerNote.setLines (tr (Text::drivesParameters, language), second, false);
         }
 
-        // 底排按文字宽度摆放：重新聆听 / 等响的文字与小橙点都改自然宽度，只在它们变了时重排（语言切换由 Canvas::setLanguage 重排），
-        // 不每帧量字（T-032 R9-12）。
-        const auto mismatch = view.kind == Kind::profileMismatch;
-        auto bottomRowChanged = c.relearnButton.setText (status.relearnInProgress ? tr (Text::relearnCancel, language) : tr (Text::relearn, language));
-        c.relearnButton.setLook (mismatch ? PillButton::Look::attention : PillButton::Look::normal);
-        bottomRowChanged = c.relearnButton.setDot (mismatch) || bottomRowChanged;
-
+        // 底排按文字宽度摆放：等响的文字改自然宽度，只在变了时重排（语言切换由 Canvas::setLanguage 重排），不每帧量字（T-032 R9-12）。
         const auto hasDifference = processor.hasListenDifference();
         const auto difference = processor.getListenDifferenceDb();   // 处理结果 − 原声
-        bottomRowChanged = c.matchButton.setText (c.matchOn ? (hasDifference ? trFormat (Text::matchWithDifference, language, { juce::String (std::abs (difference), 1) })
-                                                                             : tr (Text::match, language))
-                                                            : tr (Text::matchOff, language))
-                        || bottomRowChanged;
+        const auto bottomRowChanged = c.matchButton.setText (c.matchOn ? (hasDifference ? trFormat (Text::matchWithDifference, language, { juce::String (std::abs (difference), 1) })
+                                                                                         : tr (Text::match, language))
+                                                                        : tr (Text::matchOff, language));
         c.matchButton.setLook (c.matchOn ? PillButton::Look::normal : PillButton::Look::off);
 
         if (bottomRowChanged)
@@ -1480,10 +1461,10 @@ void CeladonAudioProcessorEditor::timerCallback()
         else
         {
             pill.segments = glazeSegments;
-            pill.accentSegment = pill.segments.size() > 1 ? 1 : -1;
-            pill.accentColour = view.kind == Kind::locked && style == glaze::Style::automatic ? palette::violet : palette::c800;
+            pill.accentSegment = view.styleSegment >= 0 ? view.styleSegment : (pill.segments.size() > 1 ? 1 : -1);
+            pill.accentColour = view.kind == Kind::following && style == glaze::Style::automatic ? palette::violet : palette::c800;
             pill.dotColour = palette::c500;
-            pill.pulse = view.kind == Kind::listening || view.kind == Kind::calibrating || view.kind == Kind::houseListening;
+            pill.pulse = view.kind == Kind::starting;
         }
 
        #if JUCE_DEBUG

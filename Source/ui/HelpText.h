@@ -13,14 +13,14 @@
     进无头测试编译的文件之一（CMakeLists 的 CELADON_HEADLESS_UI_SOURCES），判定与文字才能有自动测试——与 GlazeStatusText
     把状态行的判定与颜色类别放在无头文件里是同一种做法。
     ADR-012「先试后用」（设计规格-Clay-根治修订 3.5）：某项因「本曲试过会抬高峰值」被减量 / 否决时，气泡第 3 行写
-    「本曲试过：低切会抬高峰值，已自动跳过」之类（clayCostLine）；优先级低于「点「重新聆听」后启用自动修坯」。
+    「本曲试过：低切会抬高峰值，已自动跳过」之类（clayCostLine）。T-048 起没有「重新聆听」：旧工程的那一句改由编辑器提示一次。
 
     v0.1.8.0 界面改版（中英双语）：每条文案另有英文三行（titleEn / effectEn / adviceEn），带 Language 参数的重载按语言取；
     不带语言参数的旧接口仍返回中文，逐字不变（测试按中文原文核对）。三灯指示改在 CLAY 卡片上逐行显示（每行一盏灯），
     判定与文字仍在这里。
 
-    T-038 曲风与交付：两个参数的文案定稿；House 档反相提示的读数（ClayReadout::housePhaseHint）与文字、House 暂定方案期间
-    GLAZE 状态的悬停气泡也在这里（文件末尾），同样进无头测试。
+    T-038 曲风与交付：两个参数的文案定稿；House 档反相提示的读数（ClayReadout::housePhaseHint）与文字也在这里（文件末尾），
+    同样进无头测试。T-048 起不再有 House 暂定方案的悬停气泡。
 
   ==============================================================================
 */
@@ -89,7 +89,6 @@ namespace celadon::help
         // peakGuardKeptPercent = 保留比取整到 5 %（0 ～ 100；气泡写「实际只剩约 N %」；取整是为了读数不在每帧小幅抖动时让气泡文字白白重拼）。
         bool peakGuard = false;
         int peakGuardKeptPercent = 100;
-        bool needsRelearn = false;   // 有自动态的项、但已提交画像缺立体声 / 超低频特征（旧工程）：气泡第 3 行提示「重新聆听」
         bool bypassed = false;       // Bypass 修坯：以上各项的值与低频反相提示、宽度保护全清零，第 2 行写「修坯已旁通」
         // ADR-012「先试后用」：该项（自动态）因本曲试过会抬高峰值而被决策器减量 / 否决（Status::clayCostLimitedMask）。
         // 加宽在宽度保护介入时不算（第 2 行已写「宽度保护中」，此刻的实际值由保护定，不是代价的结果）；收单在低频反相提示亮着时
@@ -117,18 +116,15 @@ namespace celadon::help
     // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接低频反相提示与宽度保护状态；旁通时写「修坯已旁通」。
     juce::String clayLiveLine (const ClayReadout& readout, Language language = Language::chinese);
 
-    // 旧工程提示（气泡第 3 行与 CLAY 卡片的提示共用）：「点「重新聆听」后启用自动修坯」。
-    juce::String clayRelearnHint (Language language = Language::chinese);
-
     // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」（含低切时写
     // 「会抬高峰值或削弱低音」：T-043 / ADR-027，守护的混合损失把低切封顶），
     // 跳过 = 该项此刻实际值为 0（量化读数口径），否则是减量；多项按处理顺序用「、」连接，两种都有时写
-    // 「……已自动跳过低切，减量收单」。没有被代价减量 / 否决的项时返回空串。不含句末「。」（与 clayRelearnHint 一样由气泡补）。
+    // 「……已自动跳过低切，减量收单」。没有被代价减量 / 否决的项时返回空串。不含句末「。」（由气泡补）。
     juce::String clayCostLine (const ClayReadout& readout, Language language = Language::chinese);
 
     // 完整气泡：第 1 行 = 文案表 ui_clay_indicator 的第 1 行；第 2 行 = clayLiveLine；
-    // 第 3 行按优先级：needsRelearn → clayRelearnHint + 「。」；否则 House 反相提示（T-038）→ 提示第 1 行 + 为什么要回混音；
-    // 否则有代价说明 → clayCostLine + 「。」；否则文案表的第 3 行。
+    // 第 3 行按优先级：House 反相提示（T-038）→ 提示第 1 行 + 为什么要回混音；
+    // 否则有代价说明 → clayCostLine + 「。」；否则文案表的第 3 行。旧工程不再在这里写「重新聆听」。
     juce::String clayIndicatorTooltip (const ClayReadout& readout, Language language = Language::chinese);
 
     // CLAY 卡片每行右边的数值（v0.1.8.0）：「25 Hz」「120 Hz」「120 Hz · 80%」「+0.8 dB」「−0.5 dB」；该级没在处理时返回空串
@@ -146,8 +142,4 @@ namespace celadon::help
     // Status::housePhaseMonoLossDb（dB，≤ 0）→ 上面两个函数要的 lossTenthsDb：|x| × 10 四舍五入，至少 1、最多 999；非有限 → 0。
     // CLAY 卡片（clayReadoutFor）与 GLAZE 状态行（GlazeStatusText）共用，两处写的数一定相同。
     int houseLossTenthsFor (float lossDb) noexcept;
-
-    // House 档暂定方案期间（锁定条件还没满足）GLAZE 状态的悬停气泡：第 1 行同 ui_glaze_status，第 2 行说 House 怎么学，
-    // 第 3 行「从 drop 开始播放能学得更快。」（与左下角提示同一句，Localisation 表 cornerHouseTip）。
-    juce::String houseListeningTooltip (Language language);
 }

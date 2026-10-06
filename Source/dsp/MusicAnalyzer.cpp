@@ -29,6 +29,7 @@
 
 #include "ClayTrials.h"
 #include "GlazeProfile.h"
+#include "ProfileMath.h"
 #include "TruePeak.h"
 
 #include <algorithm>
@@ -52,18 +53,12 @@ namespace celadon::glaze
         constexpr int shortTermSubBlocks = 30;     // S：3 s 滑动窗，不门限（也是 PSR 的真峰值窗）
         constexpr int gatingSubBlocks    = 4;      // I 的门块：400 ms、75 % 重叠（每个子块出一个）
         constexpr double absoluteGateLufs         = -70.0;
-        constexpr double integratedRelativeGateLu = -10.0;
-        constexpr double lraRelativeGateLu        = -20.0;
-        constexpr double lraLowFraction  = 0.10;   // P10
-        constexpr double lraHighFraction = 0.95;   // P95
-        constexpr int minimumLraValues = 10;       // 至少 1 s 的 S 取样（10 Hz）才给 LRA 数值；更少时「不知道」
+        // integratedRelativeGateLu / lra* / minimumLraValues：ProfileMath.h
 
         // I 与 LRA 的固定容量直方图：−70 … +10 LUFS，0.1 LU 一格。门块能量逐块精确累加，只有「在不在相对门之上」
         // 按格中心判断（误差 ≤ 0.05 LU）；LRA 的百分位取格中心（误差 ≤ 0.05 LU）。内存与耗时不随时长增长，
         // 相对门变了，历史门块自动重新参与判定。
-        constexpr double histogramMinLufs = -70.0;
-        constexpr int histogramBinsPerLu = 10;
-        constexpr int histogramBins = 80 * histogramBinsPerLu;
+        // histogramMinLufs / histogramBins*：ProfileMath.h
 
         // 「有效音频」门限：400 ms 响度 ≥ −70 LUFS，且不低于学习区间 I 以下 20 LU（与 LRA 同一相对门）。
         // 有效时长、代表性、musicActive 都用它；淡出、段间静音、底噪不算学习时间。
@@ -74,13 +69,8 @@ namespace celadon::glaze
 
         //==============================================================================
         // 置信度：各特征「观测充分」所需的有效时长（秒）。置信度 = min(观测充分度, 代表性)。
-        constexpr double loudnessFullSeconds = 10.0;    // I、真峰值、PLR
-        constexpr double lraFullSeconds      = 60.0;    // LRA：规格「前 60 s 标未稳定」
-        constexpr double spectrumFullSeconds = 10.0;    // 频谱证据、斜率、占比、每段可信度
-        constexpr double onsetFullSeconds    = 10.0;    // 起音密度 / 强度
-        constexpr double minimumSpectrumSeconds = 1.0;  // 斜率 / 占比 / 通量至少 1 s 有效帧才给数值
-        constexpr double minimumOnsetSeconds    = 1.0;  // 起音密度至少 1 s 有效时长才给数值
-        constexpr int minimumOnsetEvents = 3;           // 起音强度至少 3 个事件才给数值（取中位数）
+        // loudnessFullSeconds / lraFullSeconds / spectrumFullSeconds / onsetFullSeconds /
+        // minimumSpectrumSeconds / minimumOnsetSeconds / minimumOnsetEvents：ProfileMath.h
 
         // 代表性：不重复的有效素材达到 15 s（规格「15～30 s 快速片段画像」的下限）即为 1。拿不到宿主位置时无法识别重复，
         // 按有效时长计但封顶 0.75——低于出厂满置信度 0.8（GlazeConstants::fullConfidence）：保守降级，不阻止学习。
@@ -107,7 +97,7 @@ namespace celadon::glaze
         constexpr double liveTamePersistenceSeconds = 0.15;
         constexpr double liveTamePresentRatio     = 0.25;  // 原始帧至少仍有平滑功率的四分之一，防已结束的单个尖峰拖着权限走。
         constexpr double toleranceDb   = 2.0;
-        constexpr double bandGateDb    = -60.0;    // 段静音门（与 Balance 相同）
+        // bandGateDb：ProfileMath.h（段静音门，与 Balance 相同）
         constexpr double bandGateFadeDb = 6.0;     // 门上 6 dB 内权重线性淡入
         constexpr double contourKernel[] = { 0.0, 3.0, 2.0, 1.0 };   // 下标 = 与本段的距离（本段自己不参与）
         constexpr int contourRadius = 3;
@@ -117,16 +107,9 @@ namespace celadon::glaze
         // Recover 比 Tame 保守：只对持续缺失（缺失帧占比 50 % 起算、80 % 满额）、且在有效带宽内的中间段。
         // 有效带宽：两端各自往里数，逐段比里侧邻段低 3 dB 以上的连续段是滚降区（歌本身的高频滚降、低频下潜），不填；
         // 两端的 40 Hz 与 16 kHz 段本身没有外侧邻段，分不清「缺口」还是「滚降」，一律不给 Recover。
-        constexpr double recoverPersistenceStart = 0.5;
-        constexpr double recoverPersistenceFull  = 0.8;
-        constexpr double rollOffStepDb = 3.0;
-
-        // 低频 / 高频占比的段边界（第 4 节）：低频 = 100 Hz 段及以下（段 0 ～ 4，上边界 112 Hz），
-        // 高频 = 6.3 kHz 段及以上（段 22 ～ 26，下边界 5.6 kHz），总能量取全部 27 段；未加权线性功率。
-        constexpr int lowShareLastBand   = 4;
-        constexpr int highShareFirstBand = 22;
-        constexpr int minimumSlopeBands  = 6;
-        constexpr double noDataDb = -150.0;         // 长期电平没有数据 / 数字静音时写的值（有限数，存档可用）
+        // recoverPersistence* / rollOffStepDb / lowShareLastBand / highShareFirstBand /
+        // minimumSlopeBands / noDataDb：ProfileMath.h
+        // 低频 = 100 Hz 段及以下（段 0 ～ 4），高频 = 6.3 kHz 段及以上（段 22 ～ 26）。
 
         // 长时间静音里一阶平滑的状态会一路衰减进非规格化数（x86 没开 FTZ 时慢几十倍）：低于 −300 dB 就归零
         // （与各模块的 snapToZero 同一门槛；这么小的值对任何读数都没有影响）。
@@ -142,10 +125,7 @@ namespace celadon::glaze
         // 不走同一策略」）：有效帧上低频（段 0 ～ 4）总功率的逐帧电平，0.5 dB 一格的直方图，取 P90 − P10。
         // 持续低音几 dB（单帧估计本身的起伏），间歇重底鼓十几 dB 以上（鼓与鼓之间低频是空的）。
         constexpr double lowRangeMinDb = -120.0;
-        constexpr double lowRangeBinDb = 0.5;
-        constexpr int lowRangeBins = 280;           // −120 … +20 dB
-        constexpr double lowRangeLowFraction = 0.10;
-        constexpr double lowRangeHighFraction = 0.90;
+        // lowRangeBinDb / lowRangeBins / lowRangeLowFraction / lowRangeHighFraction：ProfileMath.h
 
         //==============================================================================
         // 三、起音活动（第 5 节）。输出事件密度（次 / 秒）与事件强度（dB）。
@@ -160,8 +140,7 @@ namespace celadon::glaze
         //   - 有效信号门限：快包络低于 −60 dBFS 不触发；慢包络按 −70 dBFS 封底（静音后第一击的突起按它算，强度封顶 30 dB）。
         //     计入密度的时长与事件只取「慢包络 ≥ −70 dBFS 且不低于学习区间平均功率 20 dB 以上」的部分。
         //   - 重启（reset、不连续点）后 250 ms 只跑包络、不判事件。
-        constexpr double onsetGroupSeconds      = 1.0 / 3000.0;
-        constexpr int maximumGroupLength        = 128;          // 384 kHz 以下都是整 0.33 ms；再高就缩短组长（只会更细）
+        // onsetGroupSeconds / maximumGroupLength：ProfileMath.h（384 kHz 以下都是整 0.33 ms；再高就缩短组长）
         constexpr double onsetFastSeconds       = 0.010;
         constexpr double onsetSlowSeconds       = 0.400;
         constexpr double onsetTriggerDb         = 6.0;
@@ -171,9 +150,7 @@ namespace celadon::glaze
         constexpr double onsetTriggerFloorPower = 1.0e-6;      // −60 dBFS
         constexpr double onsetSlowFloorPower    = 1.0e-7;      // −70 dBFS
         constexpr double onsetEffectiveRelativeRatio = 0.01;   // −20 dB
-        constexpr double onsetStrengthCapDb     = 30.0;
-        constexpr double strengthBinDb          = 0.25;
-        constexpr int strengthBins              = (int) (onsetStrengthCapDb / strengthBinDb) + 1;
+        // onsetStrengthCapDb / strengthBinDb / strengthBins：ProfileMath.h
 
         // 辅助量：250 Hz 以上段（段 8 ～ 26）的每帧正向谱通量，功率域：F = 10·log10(1 + Σ max(0, P本帧 − R) / Σ R)，
         // R = 该段前 3 帧（约 32 ms）功率的最大值——「这一帧 250 Hz 以上比刚才涨了多少 dB（只算涨的段）」。
@@ -192,7 +169,7 @@ namespace celadon::glaze
         constexpr double fluxThresholdRatio = 3.0;
         constexpr double fluxMinimumDb = 3.0;
         constexpr double fluxRefractorySeconds = 0.050;
-        constexpr double minimumOnsetAgreement = 0.5;
+        // minimumOnsetAgreement：ProfileMath.h
 
         //==============================================================================
         // 四、修坯 Clay 的立体声与超低频（v0.1.7.0；设计规格-Clay-分析决策与验收 1.2 ～ 1.4、设计规格-Clay-根治修订 3.1，
@@ -240,16 +217,9 @@ namespace celadon::glaze
         constexpr double subCutoffHz = 16.0;
         constexpr std::array<double, 4> subStageQ { 0.5097955791041592, 0.6013448869350453,    // 8 阶 Butterworth 四对极点的 Q
                                                     0.8999762231364156, 2.5629154477415055 };  // = 1 / (2·cos((2k − 1)·π/16))
-        constexpr double subShareFloor = 1.0e-15;       // E_sub 按 E_全 的 1e-15 封底：subShareDb ≥ −150 dB（= noDataDb），防 −∞
-        constexpr double minimumSubSeconds = 1.0;       // 至少 1 s 有效音频才给数值（同起音密度）
-        constexpr double subFullSeconds = 10.0;         // 观测充分所需时长（同起音、频谱）
-        constexpr int lowStereoFirstBand = 0;           // 低频组：段 0 ～ 5（40 ～ 125 Hz）
-        constexpr int lowStereoLastBand = 5;
-        constexpr int highStereoFirstBand = 17;         // 高频组：段 17 ～ 26（2 ～ 16 kHz）
-        constexpr int highStereoLastBand = 26;
-        constexpr double stereoRatioFloor = 1.0e-12;    // P_S、P_M 各按总功率的 1e-12 封底：S/M 限在 ±120 dB（纯单声道读 −120 dB，防 −∞）
-        constexpr double minimumStereoSeconds = 1.0;    // 组特征至少 1 s 门上观测才给数值（同斜率 / 占比）
-        constexpr double stereoFullSeconds = 10.0;      // 观测充分所需时长（同 bandConfidence）
+        // subShareFloor / minimumSubSeconds / subFullSeconds / 立体声组段号 / stereoRatioFloor /
+        // minimumStereoSeconds / stereoFullSeconds：ProfileMath.h
+        // 低频组：段 0 ～ 5（40 ～ 125 Hz）；高频组：段 17 ～ 26（2 ～ 16 kHz）。
         constexpr double liveStereoSeconds = 0.3;       // 实时视图的平滑时间常数；重启后平滑满这么久才标有效
         // 低频相关度快路（ADR-012，设计规格-Clay-根治修订 3.1 / 3.4；审核 V1-01）：120 ms，重启后平滑满 120 ms 才标有效。
         // 阶段 2 的 60 ms 快路与慢路取小：40 ～ 125 Hz 在 2048 点 FFT 里只有 4 ～ 5 个 bin，60 ms 平滑的估计散布约 ±0.5，宽立体声
@@ -376,75 +346,11 @@ namespace celadon::glaze
         constexpr double liveGateQuietSeconds = 20.0;     // 有声却没过相对门比过了门净多出这么久，就加快遗忘（见上 ⑥；同实时画像换歌判定的 20 s）
         constexpr double liveGateFastMemorySeconds = 5.0;    // 加快之后的遗忘时间常数（见上 ⑥：轻 28 dB 的新素材约 1 分钟内过门）
 
-        //==============================================================================
-        double energyToLufs (double meanSquare) noexcept
-        {
-            return meanSquare > 0.0 ? -0.691 + 10.0 * std::log10 (meanSquare)
-                                    : -std::numeric_limits<double>::infinity();
-        }
-
+        // 响度 / 直方图 / 立体声比值在 ProfileMath.h（与 LiveProfile 将要共用的那一份）。
         float toReading (double lufsOrDb) noexcept
         {
             // 数字静音的 −∞ 写成表的「没有读数」下限（有限数，存档与相减都安全）。
             return (float) juce::jmax ((double) LoudnessMeter::noReading, lufsOrDb);
-        }
-
-        int histogramBinOf (double lufs) noexcept
-        {
-            return juce::jlimit (0, histogramBins - 1, (int) std::floor ((lufs - histogramMinLufs) * (double) histogramBinsPerLu));
-        }
-
-        // 格中心 ≥ gate 的第一格（可能等于 histogramBins：没有一格在门之上）。
-        int firstBinAtOrAbove (double gate) noexcept
-        {
-            const auto position = (gate - histogramMinLufs) * (double) histogramBinsPerLu - 0.5;
-
-            if (position <= 0.0)
-                return 0;
-
-            if (position >= (double) histogramBins)
-                return histogramBins;
-
-            return (int) std::ceil (position);
-        }
-
-        double binCentreLufs (int bin) noexcept
-        {
-            return histogramMinLufs + ((double) bin + 0.5) / (double) histogramBinsPerLu;
-        }
-
-        float fraction (double numerator, double fullScale) noexcept
-        {
-            return fullScale > 0.0 ? (float) juce::jlimit (0.0, 1.0, numerator / fullScale) : 0.0f;
-        }
-
-        void invalidate (Feature& feature) noexcept
-        {
-            feature = Feature {};
-        }
-
-        void setFeature (Feature& feature, double value, double effectiveSeconds) noexcept
-        {
-            feature.value = (float) value;
-            feature.valid = true;
-            feature.effectiveSeconds = effectiveSeconds;
-        }
-
-        // 修坯 Clay 的立体声比值（第「四」节）。power = 段内（或组内）功率和 ΣP > 0，cross = 交叉功率和 ΣX（逐帧已钳在 [−P, P]）。
-        // S/M：P_M = (P + X) / 2、P_S = (P − X) / 2，两者各按 P 的 1e-12 封底——纯单声道（X = P）读 −120 dB、纯侧声道读 +120 dB，
-        // 不出 ±∞；多帧求和的舍入让 X 略越出 [−P, P] 时也不会取负数的对数。
-        double sideToMidDbOf (double power, double cross) noexcept
-        {
-            const auto floorPower = stereoRatioFloor * power;
-            const auto mid = juce::jmax (floorPower, 0.5 * (power + cross));
-            const auto side = juce::jmax (floorPower, 0.5 * (power - cross));
-            return 10.0 * std::log10 (side / mid);
-        }
-
-        // ρ = ΣX / ΣP，钳在 [−1, 1]（同上，只挡舍入）。
-        double correlationOf (double power, double cross) noexcept
-        {
-            return juce::jlimit (-1.0, 1.0, cross / power);
         }
 
         //==============================================================================
@@ -935,9 +841,7 @@ namespace celadon::glaze
         {
             trials.prepare (sampleRate, groupLength);
 
-            // T-038 House 档的段落账（第「六」节）：按采样率分配，之后音频线程只拷贝、清零（先交常数：prepare 按新采样率折算段长）。
-            ledger.setConstants (houseConstants);
-            ledger.prepare (sampleRate, subBlockLength);
+            // 阶段 2：House 门控那一份段落账退役，不再分配（约 1.8 MB）。分段只剩实时段落账。
 
             // T-048 实时段落账（第「七」节）：账本（512 段 × 约 4 KB ≈ 2 MB）只在实时模式开着时分配；关着时只有 SegmentLedger 自身的
             // 定长成员（8 个开着的段、门控直方图，约 50 KB，在 Impl 里）。
@@ -1575,7 +1479,8 @@ namespace celadon::glaze
         }
 
         // 先试后用的候选此刻跑不跑（第「五」节）：学习期间，或实时模式开着。
-        bool trialsRun() const noexcept   { return learning || liveMode; }
+        // 阶段 2：没有学习期。先试后用只在实时模式里跑，结果只进实时段落账的 live*。
+        bool trialsRun() const noexcept   { return liveMode; }
 
         // 修坯 Clay 的样本流工具（第「四」节；双二阶的设计与运行在 ClayBiquad，ClayTrials.h）。
         // M = (L + R) / 2。单声道 M = 该声道：与「单声道按左右相同的双声道」一致（(x + x) / 2 与 x 逐位相同）。
@@ -1744,24 +1649,9 @@ namespace celadon::glaze
         // ClayTrials 每交齐一块调一次（按块号先后；第「五」节「交齐的块进哪里」）。
         void trialBlockCompleted (const ClayTrials::Block& block) noexcept override
         {
-            // 学习口径：块按学习区间有效、且交齐时还在学习。实时模式关着时候选只在学习期间跑，后一条恒成立（= 原来的「有效就记」）。
-            const auto learningBlock = learning && block.valid;
-
-            // House 档：交齐的有效块按块起点归段（每段每一路留最大的 8 个，第「六」节）。live* 与 trial* 同口径（实时模式关着时两者同时记、
-            // 数值相同；开着时 House 那一份照样只记学习口径的块，与关着时逐位相同）。
-            if (houseActive && learningBlock)
-                noteLedgerTrial (ledger, houseFeed, block, true, true);
-
-            // 实时段落账（第「七」节）：实时口径有效的块进 live*，学习口径的块同时进 trial*。
-            if (liveMode && (learningBlock || block.liveValid))
-                noteLedgerTrial (liveLedger, liveFeed, block, learningBlock, block.liveValid);
-
-            if (learningBlock && trialCount < ClayTrials::capacity)
-            {
-                ClayTrials::accumulate (trialTop, trialBlendIntendedTotal, trialBlendOutputTotal, trialCount, block);
-                ++trialCount;
-                trialDirty = true;
-            }
+            // 阶段 2：学习累计与 House 账都退役。实时口径有效的块只进实时段落账的 live*（trial* / blend* 不再另记）。
+            if (liveMode && block.liveValid)
+                noteLedgerTrial (liveLedger, liveFeed, block);
         }
 
         //==============================================================================
@@ -2722,7 +2612,7 @@ namespace celadon::glaze
                 else
                 {
                     // 没有有效统计：数值 0、可信度 0（GlazeTypes.h 的约定）。0 dB / ρ = 0 看上去像「很宽」，读的人必须先看
-                    // bandStereoConfidence（决策器选收单分频点时尤其要跳过可信度 0 的段）。
+                    // bandStereoConfidence。ADR-015 起自动收单恒为中性，决策器不再用逐段相关度选分频点；可信度 0 的段仍然不能当成「很宽」。
                     profile.bandSideToMidDb[b] = 0.0f;
                     profile.bandCorrelation[b] = 0.0f;
                     measuredStereoBand[b] = 0.0f;
@@ -3092,11 +2982,8 @@ namespace celadon::glaze
             ++segment->onsetEvents;
         }
 
-        // 先试后用交齐的块（trialBlockCompleted）：按块起点归段，每一路插进段里最大的 8 个（ClayTrials::accumulate）。
-        // learningSeries → trialBlocks / trialTop / blend*（学习期专用；T-043 混合损失两份能量按段求和，House 画像按满编段合并），
-        // liveSeries → live* 四项（实时画像读）。
-        void noteLedgerTrial (SegmentLedger& target, LedgerFeed& feed, const ClayTrials::Block& block, bool learningSeries,
-                              bool liveSeries) noexcept
+        // 先试后用交齐的块：按块起点归进实时段落账，只记 live*（阶段 2 把 trial* / blend* / live* 并成这一组）。
+        void noteLedgerTrial (SegmentLedger& target, LedgerFeed& feed, const ClayTrials::Block& block) noexcept
         {
             const auto time = onsetGridOrigin + block.index * (std::int64_t) trials.getBlockLength();
             auto* segment = target.openSegmentAt (time, feed.trialHint);
@@ -3104,18 +2991,9 @@ namespace celadon::glaze
             if (segment == nullptr)
                 return;
 
-            if (learningSeries)
-            {
-                ClayTrials::accumulate (segment->trialTop, segment->blendIntended, segment->blendOutput, segment->trialBlocks, block);
-                ++segment->trialBlocks;
-            }
-
-            if (liveSeries)
-            {
-                ClayTrials::accumulate (segment->liveTrialTop, segment->liveBlendIntended, segment->liveBlendOutput,
-                                        segment->liveTrialBlocks, block);
-                ++segment->liveTrialBlocks;
-            }
+            ClayTrials::accumulate (segment->liveTrialTop, segment->liveBlendIntended, segment->liveBlendOutput,
+                                    segment->liveTrialBlocks, block);
+            ++segment->liveTrialBlocks;
         }
 
         // ---- 画像（只由段落账按纯函数算出；每个字段的公式与通用画像的同名函数逐项相同，只是累计量换成满编段 / 全部段的和）----
@@ -3917,62 +3795,31 @@ namespace celadon::glaze
 
     void MusicAnalyzer::startLearning() noexcept
     {
-        // 候选累计全部清空；学习区间从此刻（上一块末尾）起。窗口不断开：之后到达的窗口只要最早的样本不早于此刻就计入。
-        // 先试后用的候选从下一个样本起从零状态重新起跑（clearLearning 置位，runTrial 在音频线程上清零，不分配）。
-        impl->clearLearning();
-        impl->learning = true;
-        impl->learnStart = impl->now;
-
-        // House 档：「重新聆听」时段落账清空、从头再来（设计规格-曲风-House学习方式 第 4 节）；起点与学习区间相同。
-        // 实时段落账不清、不断开（第「七」节）。
-        if (impl->houseActive)
-            impl->clearHouse (impl->now);
+        // 阶段 2：聆听 / 候选画像退役。保留空函数，编排器（代理 A）删掉调用之前这里什么都不做，
+        // 也不再让先试后用重新起跑（阶段 1 遗留 6 的 250 ms 空档随之消失）。
     }
 
     void MusicAnalyzer::stopLearning() noexcept
     {
-        impl->learning = false;   // 画像每次有新数据都已重算，停下即固定
     }
 
     bool MusicAnalyzer::isLearning() const noexcept
     {
-        return impl->learning;
+        return false;
     }
 
-    // House 档换成段落账门控算出的那一份（文件头第「六」节）；通用档逐位同改前。
-    const MusicProfile& MusicAnalyzer::getCandidateProfile() const noexcept     { return impl->houseActive ? impl->houseProfile : impl->profile; }
+    // 候选画像不再存在。返回的是一份保持默认（各特征 valid = false）的画像，给还没改完的调用方。
+    const MusicProfile& MusicAnalyzer::getCandidateProfile() const noexcept     { return impl->profile; }
     const ShortTermView& MusicAnalyzer::getShortTermView() const noexcept       { return impl->view; }
-    const AuxiliaryFeatures& MusicAnalyzer::getAuxiliaryFeatures() const noexcept { return impl->houseActive ? impl->houseAux : impl->aux; }
+    const AuxiliaryFeatures& MusicAnalyzer::getAuxiliaryFeatures() const noexcept { return impl->aux; }
 
     //==============================================================================
     // T-038 House 档
     void MusicAnalyzer::setGenre (Genre genre) noexcept
     {
-        auto& s = *impl;
-
-        if (genre == s.genre)
-            return;
-
-        s.genre = genre;
-        const auto house = isHouse (genre);
-
-        if (house == s.houseActive)
-            return;   // 子类之间换（学习方式相同）：段落账照记
-
-        if (s.houseActive)
-        {
-            // 出 House：没定稿的段就地定稿，账留着（换回 House 时接着用）；之后三路数据不再归段。
-            s.houseEndEpoch (s.now);
-            s.houseActive = false;
-            return;
-        }
-
-        // 进 House：从此刻起分段（此刻之前的窗口不收）；画像按段落账重算（学习中下一次定稿时）。
-        s.houseActive = true;
-        s.ledger.setSubBlockLength (s.subBlockLength);
-        s.houseEndEpoch (s.now);
-        s.houseFeed.gridKnown = false;
-        s.houseDirty = true;
+        // 阶段 2：曲风只存下来给调用方读。不再另挂 House 门控账，也不因换档重算画像。
+        impl->genre = genre;
+        impl->houseActive = false;
     }
 
     Genre MusicAnalyzer::getGenre() const noexcept   { return impl->genre; }
@@ -3980,23 +3827,21 @@ namespace celadon::glaze
     void MusicAnalyzer::setHouseConstants (const HouseConstants& constants) noexcept
     {
         impl->houseConstants = constants;
-        impl->ledger.setConstants (constants);
-        impl->liveLedger.setConstants (constants);   // 实时段落账的分段常数同一份（门控常数它不用）
+        impl->liveLedger.setConstants (constants);   // 实时段落账的分段常数（门控常数它不再用来重算全账）
     }
 
     void MusicAnalyzer::recomputeHouseProfile() noexcept
     {
-        if (impl->houseActive)
-            impl->refreshHouseProfile();
+        // 阶段 2：House 画像重算退役。
     }
 
     void MusicAnalyzer::clearHouseLedger() noexcept
     {
-        impl->clearHouse (impl->now);
+        // 阶段 2：没有 House 门控账。实时段落账不在这里清（宿主 reset / 重新聆听都不断开它）。
     }
 
-    const SegmentLedger& MusicAnalyzer::getSegmentLedger() const noexcept   { return impl->ledger; }
-    std::uint32_t MusicAnalyzer::getHouseProfileGeneration() const noexcept  { return impl->houseGeneration; }
+    const SegmentLedger& MusicAnalyzer::getSegmentLedger() const noexcept   { return impl->liveLedger; }
+    std::uint32_t MusicAnalyzer::getHouseProfileGeneration() const noexcept  { return 0; }
 
     //==============================================================================
     // T-048 实时模式（文件头第「七」节）

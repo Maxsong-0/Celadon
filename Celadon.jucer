@@ -48,6 +48,7 @@
         <FILE id="adv02x" name="ReferenceSpectrum.cpp" compile="1" resource="0" file="Source/dsp/ReferenceSpectrum.cpp"/>
         <FILE id="adv03x" name="ReleaseSafety.h" compile="0" resource="0" file="Source/dsp/ReleaseSafety.h"/>
         <FILE id="adv04x" name="ReleaseSafety.cpp" compile="1" resource="0" file="Source/dsp/ReleaseSafety.cpp"/>
+        <FILE id="T48pmh" name="ProfileMath.h" compile="0" resource="0" file="Source/dsp/ProfileMath.h"/>
         <FILE id="T38slh" name="SegmentLedger.h" compile="0" resource="0" file="Source/dsp/SegmentLedger.h"/>
         <FILE id="T38slc" name="SegmentLedger.cpp" compile="1" resource="0" file="Source/dsp/SegmentLedger.cpp"/>
         <FILE id="T48lph" name="LiveProfile.h" compile="0" resource="0" file="Source/dsp/LiveProfile.h"/>
@@ -94,10 +95,18 @@
               file="Source/dsp/MusicAnalyzer.cpp"/>
         <FILE id="Ma6Anh" name="MusicAnalyzer.h" compile="0" resource="0"
               file="Source/dsp/MusicAnalyzer.h"/>
-        <FILE id="Gz6Cac" name="GlazeCalibrator.cpp" compile="1" resource="0"
-              file="Source/dsp/GlazeCalibrator.cpp"/>
-        <FILE id="Gz6Cah" name="GlazeCalibrator.h" compile="0" resource="0"
-              file="Source/dsp/GlazeCalibrator.h"/>
+        <FILE id="Ct8Cgc" name="ContrastGuard.cpp" compile="1" resource="0"
+              file="Source/dsp/ContrastGuard.cpp"/>
+        <FILE id="Ct8Cgh" name="ContrastGuard.h" compile="0" resource="0"
+              file="Source/dsp/ContrastGuard.h"/>
+        <FILE id="Ps8Pgc" name="PsrGuard.cpp" compile="1" resource="0"
+              file="Source/dsp/PsrGuard.cpp"/>
+        <FILE id="Ps8Pgh" name="PsrGuard.h" compile="0" resource="0"
+              file="Source/dsp/PsrGuard.h"/>
+        <FILE id="Ol8Olc" name="OutputLevelTracker.cpp" compile="1" resource="0"
+              file="Source/dsp/OutputLevelTracker.cpp"/>
+        <FILE id="Ol8Olh" name="OutputLevelTracker.h" compile="0" resource="0"
+              file="Source/dsp/OutputLevelTracker.h"/>
         <FILE id="Gz6Gdc" name="GlazeGuard.cpp" compile="1" resource="0"
               file="Source/dsp/GlazeGuard.cpp"/>
         <FILE id="Gz6Gdh" name="GlazeGuard.h" compile="0" resource="0"

@@ -16,12 +16,12 @@
 
 namespace celadon::ui
 {
-    // 「GLAZE 智能母带 [🔒 已锁定]」：阶段标签随状态变（聆听中、待校准、校准中、未学习、受限……）。
+    // 「GLAZE 智能母带 [跟随]」：阶段标签跟状态行的那一条走（起步、保持、跟随、受限……）。
     class GlazeTitle  : public juce::Component,
                         public juce::SettableTooltipClient
     {
     public:
-        enum class Chip { locked, listening, calibrating, awaiting, unlearned, paused, limited, off };
+        enum class Chip { manual, manualLimit, phase, coldExport, limited, starting, holding, following };
 
         GlazeTitle();
 
@@ -32,12 +32,12 @@ namespace celadon::ui
 
     private:
         Language language = Language::chinese;
-        Chip chip = Chip::unlearned;
+        Chip chip = Chip::starting;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlazeTitle)
     };
 
-    // 带图标的胶囊按钮：重新聆听（圆箭头）、等响（两道横线）。
+    // 带图标的胶囊按钮：圆箭头（参考学习的学 / 取消 / 清除）、等响（两道横线）。GLAZE 没有「重新聆听」。
     class PillButton  : public ClickableComponent
     {
     public:
@@ -46,10 +46,9 @@ namespace celadon::ui
 
         explicit PillButton (Icon icon);
 
-        // setText / setDot 返回这次有没有改变（两者都改自然宽度：编辑器只在变了时重排底排，T-032 R9-12）。
+        // setText 返回这次有没有改变（改自然宽度：编辑器只在变了时重排底排，T-032 R9-12）。
         bool setText (const juce::String& newText);
         void setLook (Look newLook);
-        bool setDot (bool shouldShowDot);   // 右边的小橙点（建议重新聆听）
         const juce::String& getText() const noexcept   { return text; }
         int getNaturalWidth() const;
 
@@ -59,16 +58,15 @@ namespace celadon::ui
         Icon icon;
         Look look = Look::normal;
         juce::String text;
-        bool dot = false;
     };
 
-    // 左下角两行小字：平时说明 GLAZE 在做什么（「联动 7 项参数 / 聆听已完成」），悬停或拖动控件时换成操作提示。
+    // 左下角两行小字：平时说明 GLAZE 在做什么（「联动 7 项参数 / 跟着主段慢慢调整」），悬停或拖动控件时换成操作提示。
     class CornerNote  : public juce::Component
     {
     public:
         CornerNote();
 
-        void setLines (const juce::String& first, const juce::String& second, bool isHint);
+        void setLines (const juce::String& first, const juce::String& second, bool isHint, bool isWarning = false);
         const juce::String& getFirstLine() const noexcept   { return line1; }
         bool isShowingHint() const noexcept                 { return hint; }
         void paint (juce::Graphics&) override;
@@ -76,6 +74,7 @@ namespace celadon::ui
     private:
         juce::String line1, line2;
         bool hint = false;
+        bool warning = false;   // 第二行用琥珀色：本次打开的旧工程提示
     };
 
     // 右下角的颜色图例：手动设置（青色渐变）· GLAZE 自动调整（紫）· 需要注意（橙）。

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # T-038 House 门槛检查（设计规格-曲风与交付 第 7 节第 4 条；学习方式见设计规格-曲风-House学习方式）。
 # 读 celadon_render 的输出（metrics.csv 末尾的 T-038 追加列 + --segments-csv 的 segments/）与段落标注，逐首、逐组设置判五条：
-#   ① 从第 1 小节播与从 drop 播，锁定后实际施加的增益（方案增益 + 校准偏差，评审 F2）相差 ≤ 0.5 dB（同一组设置要有 listen_from_bar = 1 与 > 1 两行：
-#      celadon_render 加 --listen-from-bar 1,<drop 起始小节>；比第一遍结束时已提交方案的 plan_gain_db，两行都得「已锁定」）；
+#   ① 从第 1 小节播与从 drop 播，实际施加的增益相差 ≤ 0.5 dB（同一组设置要有 listen_from_bar = 1 与 > 1 两行）。
+#      行里有非空 confidence 时按连续编排器：两边都要 c ≥ 0.5，增益只比 plan_gain_db（没有校准偏差）。
+#      否则仍是阶段 1：两边 listen_phase 都得 locked，增益 = plan_gain_db + 校准偏差（评审 F2）。
 #   ② drop 段限幅 GR 不超风格预算：drop 各小节的块 GR（块内最大，比插件保护层按 10 ms 时隙的均值偏严）——均值 ≤ limitGrMeanCapDb、
 #      高于 limitGrP95CapDb 的块 ≤ 5 %（即 P95 ≤ 上限）、最大 ≤ limitGrPeakCapDb；预算取成品末尾保护层生效的上限（budget_* 列）；
 #   ③ breakdown → drop 的响度落差：处理后比处理前最多少 1.2 LU（Max 2026-10-02，T-045 后由 1 LU 改；俱乐部档 1.5 LU，Max 2026-10-01）（段落响度 = 段内各小节有效子块的 K 加权能量平均，输入 / 成品各一份）；
@@ -183,6 +184,16 @@ def segments_are_bars(segments):
 # ---------------------------------------------------------------------------------------------------------------------
 # 五条门槛（每条返回 (结论, 说明)；结论 ∈ PASS / FAIL / N/A）
 
+def phase2_confidence(row):
+    """非空 confidence 才走连续编排器。缺列或空串返回 None。"""
+    if 'confidence' not in row:
+        return None
+    raw = (row.get('confidence') or '').strip()
+    if raw == '':
+        return None
+    return num(raw)
+
+
 def gate_plan_gain(row, partners):
     if row['listen_from_bar'] != '1':
         return 'N/A', '这一行本身是从 drop 起播的一组（结论记在从第 1 小节播的那一行）'
@@ -190,22 +201,37 @@ def gate_plan_gain(row, partners):
         return 'N/A', '缺从 drop 起播的一组：celadon_render 加 --listen-from-bar 1,<drop 起始小节> 再跑'
     verdicts, notes = [], []
     for partner in partners:
-        locked = row.get('listen_phase') == 'locked' and partner.get('listen_phase') == 'locked'
         # 评审 F2（T-038 集成）：比「方案增益 + 校准偏差」= 实际施加的增益（只比方案增益会漏掉锁定后在 breakdown 里校准出的偏差）。
         # 旧输出没有 calibration_bias_db 列（或校准无效）时偏差按 0。
-        def applied(r):
-            bias = num(r.get('calibration_bias_db'), 0.0) if r.get('listen_calibration_valid') in ('1', 'true', 'True') else 0.0
-            return num(r['plan_gain_db']) + (bias if math.isfinite(bias) else 0.0)
-        a, b = applied(row), applied(partner)
+        # T-048 阶段 2：有 confidence 就不再加校准偏差，两边都要 c ≥ 0.5。
+        def applied(r, use_bias):
+            bias = 0.0
+            if use_bias:
+                bias = num(r.get('calibration_bias_db'), 0.0) if r.get('listen_calibration_valid') in ('1', 'true', 'True') else 0.0
+                if not math.isfinite(bias):
+                    bias = 0.0
+            return num(r['plan_gain_db']) + bias
+
+        row_c, partner_c = phase2_confidence(row), phase2_confidence(partner)
+        continuous = row_c is not None or partner_c is not None
+        if continuous:
+            ready = (row_c is not None and row_c >= 0.5) and (partner_c is not None and partner_c >= 0.5)
+            a, b = applied(row, False), applied(partner, False)
+            ready_text = '' if ready else f"（主段还没热：{row.get('confidence')} / {partner.get('confidence')}）"
+            gain_text = '方案增益'
+        else:
+            ready = row.get('listen_phase') == 'locked' and partner.get('listen_phase') == 'locked'
+            a, b = applied(row, True), applied(partner, True)
+            ready_text = '' if ready else f"（没都锁定：{row.get('listen_phase')} / {partner.get('listen_phase')}）"
+            gain_text = '实际增益（方案 + 校准）'
         if not (math.isfinite(a) and math.isfinite(b)):
             verdicts.append('FAIL')
             notes.append(f"从第 {partner['listen_from_bar']} 小节：有一边第一遍结束时还没有已提交方案")
             continue
         delta = b - a
-        ok = locked and abs(delta) <= PLAN_GAIN_TOLERANCE_DB + 1e-9
+        ok = ready and abs(delta) <= PLAN_GAIN_TOLERANCE_DB + 1e-9
         verdicts.append('PASS' if ok else 'FAIL')
-        lock_text = '' if locked else f"（没都锁定：{row.get('listen_phase')} / {partner.get('listen_phase')}）"
-        notes.append(f"实际增益（方案 + 校准）从第 1 小节 {fmt(a)} dB、从第 {partner['listen_from_bar']} 小节 {fmt(b)} dB，差 {fmt(delta, 2, True)} dB{lock_text}")
+        notes.append(f"{gain_text}从第 1 小节 {fmt(a)} dB、从第 {partner['listen_from_bar']} 小节 {fmt(b)} dB，差 {fmt(delta, 2, True)} dB{ready_text}")
     return ('FAIL' if 'FAIL' in verdicts else 'PASS'), '；'.join(notes)
 
 

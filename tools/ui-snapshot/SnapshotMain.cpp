@@ -9,8 +9,8 @@
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced、zh-input（T-051：频谱仪 IN 虚线开着）；
-      T-038（曲风 Deep House、交付 俱乐部，House 状态字段注入）：zh / en-house-layout（两个选择在 GLAZE 标题行左右；Max 2026-10-01 选定，备选图已去掉）、
-      -house-status-bars / -main / -seconds（状态行三种文字，只截胶囊）、-house-tip（暂定期间的气泡）、-house-hint（反相提示）。
+      T-038（曲风 Deep House、交付 俱乐部）：zh / en-house-layout（两个选择在 GLAZE 标题行左右）、-house-hint（反相提示）。
+      T-048 状态行：-status-follow / -guard / -export（跟随、守护退让、导出冷启动，只截胶囊）、-legacy-notice（旧工程提示，左下角）。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字），⑲ 续与 ⑳ 是 T-041 的：
       小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；其后两条是 T-051 的：
@@ -397,36 +397,42 @@ namespace
         s.editor->advanceForSnapshot (0.05);
     }
 
-    // 锁定条件还没满足：按小节（宿主给了拍点）。
-    StatusEdit housePendingBars (int heard, int full)
+    // T-048：状态行读数直接交给编辑器（c / m / 冷导出 / 守护还没全部进 Status 时，注入快照画不出这几条）。
+    void previewLine (Session& s, celadon::ui::glazestatus::Reading reading)
     {
-        return [heard, full] (celadon::glaze::Status& status)
-        {
-            status.houseActive = true;
-            status.houseLockPending = true;
-            status.houseSegmentMode = celadon::glaze::SegmentMode::bars;
-            status.houseHeardSegments = heard;
-            status.houseTargetSegments = 64;
-            status.houseFullSegments = full;
-            status.houseRequiredFullSegments = 8;
-            status.houseMainSectionHeard = full >= 8;
-        };
+        s.editor->setStatusLinePreview (reading);
+        s.editor->advanceForSnapshot (0.05);
     }
 
-    // 同上，宿主没给拍点：按秒。
-    StatusEdit housePendingSeconds (float heard)
+    celadon::ui::glazestatus::Reading followReading (bool house)
     {
-        return [heard] (celadon::glaze::Status& status)
-        {
-            status.houseActive = true;
-            status.houseLockPending = true;
-            status.houseSegmentMode = celadon::glaze::SegmentMode::seconds;
-            status.houseHeardSeconds = heard;
-            status.houseTargetSeconds = 124.0f;
-        };
+        celadon::ui::glazestatus::Reading reading;
+        reading.confidence = 1.0f;
+        reading.currentMainness = 1.0f;
+        reading.effectiveTargetLufs = -9.6f;
+        reading.resolvedStyle = celadon::glaze::Style::warm;
+        reading.houseActive = house;
+        return reading;
     }
 
-    // 已锁定、House 反相提示亮着（单声道低频损失 lossDb）。
+    celadon::ui::glazestatus::Reading guardReading()
+    {
+        auto reading = followReading (false);
+        reading.guardEngaged = true;
+        reading.guardCause = celadon::ui::glazestatus::GuardCause::budget;
+        reading.protectionDb = -1.5f;
+        return reading;
+    }
+
+    celadon::ui::glazestatus::Reading exportReading()
+    {
+        auto reading = followReading (false);
+        reading.coldExport = true;
+        reading.confidence = 0.2f;
+        return reading;
+    }
+
+    // House 反相提示亮着（单声道低频损失 lossDb）。
     StatusEdit housePhaseHint (float lossDb)
     {
         return [lossDb] (celadon::glaze::Status& status)
@@ -659,20 +665,18 @@ int main (int argc, char* argv[])
 
         // ---- T-038 曲风与交付 / House 档（曲风 Deep House、交付 俱乐部；House 的状态字段注入，见 injectStatus）----
         // 版面：两个选择在 GLAZE 标题行左右（Max 2026-10-01 选定），整张。
-        { "zh-house-layout", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
-        { "en-house-layout", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, upperCrop },
-        // 状态行三种文字（设计规格-曲风-House学习方式 第 7 节），只截顶栏胶囊。
-        { "zh-house-status-bars", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, pillCrop },
-        { "en-house-status-bars", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); }, pillCrop },
-        { "zh-house-status-main", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (41, 8)); }, pillCrop },
-        { "en-house-status-main", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingBars (41, 8)); }, pillCrop },
-        { "zh-house-status-seconds", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePendingSeconds (52.0f)); }, pillCrop },
-        { "en-house-status-seconds", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePendingSeconds (52.0f)); }, pillCrop },
-        // 暂定期间的悬停气泡（第 3 行「从 drop 开始播放能学得更快」），截标题与气泡一块。
-        { "zh-house-tip", celadon::Language::chinese, houseParameters,
-          [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); showGlazeTooltip (s); } },
-        { "en-house-tip", celadon::Language::english, houseParameters,
-          [] (Session& s) { injectStatus (s, housePendingBars (23, 0)); showGlazeTooltip (s); } },
+        { "zh-house-layout", celadon::Language::chinese, houseParameters, [] (Session& s) { previewLine (s, followReading (true)); }, upperCrop },
+        { "en-house-layout", celadon::Language::english, houseParameters, [] (Session& s) { previewLine (s, followReading (true)); }, upperCrop },
+        // T-048 七条里截图工具单独摆出来的三句（起步是默认图；反相提示仍是 -house-hint）。只截顶栏胶囊。
+        { "zh-status-follow", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, followReading (false)); }, pillCrop },
+        { "en-status-follow", celadon::Language::english, none, [] (Session& s) { previewLine (s, followReading (false)); }, pillCrop },
+        { "zh-status-guard", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, guardReading()); }, pillCrop },
+        { "en-status-guard", celadon::Language::english, none, [] (Session& s) { previewLine (s, guardReading()); }, pillCrop },
+        { "zh-status-export", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
+        { "en-status-export", celadon::Language::english, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
+        // 旧工程提示一次：左下角琥珀色第二行，不进状态行。
+        { "zh-legacy-notice", celadon::Language::chinese, none, [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); }, juce::Rectangle<int> (0, 470, 520, 90) },
+        { "en-legacy-notice", celadon::Language::english, none, [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); }, juce::Rectangle<int> (0, 470, 560, 90) },
         // House 反相提示：状态胶囊（琥珀）+ CLAY 卡片两行提示，整张。
         { "zh-house-hint", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePhaseHint (-1.62f)); } },
         { "en-house-hint", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePhaseHint (-1.62f)); } },
@@ -1403,7 +1407,7 @@ namespace
             int cached = 0;
             juce::StringArray missing;
 
-            for (const auto* id : { "glaze_title", "glaze_style", "relearn", "ab", "match", "monitoring", "corner_note", "legend",
+            for (const auto* id : { "glaze_title", "glaze_style", "ab", "match", "monitoring", "corner_note", "legend",
                                     "glaze_genre", "glaze_delivery" })
             {
                 if (dynamic_cast<AlignedComponentCache*> (find (id).getCachedComponentImage()) != nullptr)
@@ -1412,7 +1416,7 @@ namespace
                     missing.add (id);
             }
 
-            check (cached == 10, "T-032 the 10 text widgets in the particle band have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
+            check (cached == 9, "T-032 the 9 text widgets in the particle band have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
 
             PaintProbe probe;
             auto& title = find ("glaze_title");
@@ -1503,10 +1507,8 @@ namespace
         // ⑰ R9-12：底排不再每帧重排——等响的文字变了（开 ↔ 关）才按新宽度重排；语言切换也重排。
         {
             auto& match = static_cast<PillButton&> (find ("match"));
-            auto& relearn = static_cast<PillButton&> (find ("relearn"));
             auto& ab = static_cast<Segmented&> (find ("ab"));
-            const auto laidOut = [&] { return match.getWidth() == match.getNaturalWidth() && relearn.getWidth() == relearn.getNaturalWidth()
-                                              && ab.getWidth() == ab.getNaturalWidth(); };
+            const auto laidOut = [&] { return match.getWidth() == match.getNaturalWidth() && ab.getWidth() == ab.getNaturalWidth(); };
 
             const auto before = match.getText();
             click (match, { 20.0f, 14.0f });
@@ -1519,8 +1521,8 @@ namespace
             dispatchEvents (50);
             editor.advanceForSnapshot (0.05);
             auto& topBar = static_cast<TopBar&> (*find ("language").getParentComponent());
-            check (laidOut() && relearn.getText() == tr (Text::relearn, celadon::Language::english),
-                   "T-032 bottom row re-laid out for English (" + relearn.getText() + ")");
+            check (laidOut() && match.getText().startsWith ("Match"),
+                   "T-032 bottom row re-laid out for English (" + match.getText() + ")");
             check (topBar.getLatencyText().startsWith (tr (Text::latency, celadon::Language::english) + " "),
                    "T-032 latency label follows the language at once (" + topBar.getLatencyText() + ")");
 
@@ -3428,7 +3430,7 @@ namespace
             else if (dynamic_cast<celadon::ui::CornerNote*> (component) != nullptr)      probe (component, "CornerNote");
             else if (dynamic_cast<celadon::ui::ColourLegend*> (component) != nullptr)    probe (component, "ColourLegend");
             else if (dynamic_cast<celadon::ui::StatusPill*> (component) != nullptr)      probe (component, "StatusPill");
-            else if (component->getComponentID() == "relearn" || component->getComponentID() == "match"
+            else if (component->getComponentID() == "match"
                      || component->getComponentID() == celadon::param::glazeStyle || component->getComponentID() == "ab"
                      || component->getComponentID() == "monitoring"
                      || component->getComponentID() == celadon::param::glazeGenre || component->getComponentID() == celadon::param::glazeDelivery)

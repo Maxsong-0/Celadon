@@ -2510,7 +2510,7 @@ namespace celadon::test
                         "integrated loudness keeps integrating after a NaN sample (not frozen at the old value)");
             }
 
-            beginTest ("a NaN input block no longer stalls the chain's IN meter and GLAZE listening");
+            beginTest ("a NaN input block no longer stalls the chain's IN meter; phase 2 does not accumulate listen time");
             {
                 auto p = makeNeutralParams();
                 p.glazePercent = 35.0f;
@@ -2561,7 +2561,8 @@ namespace celadon::test
                 expect (std::isfinite (inShortTerm) && inShortTerm > -70.0f, "the IN meter's short-term reading is back within 1 s");
                 expect (std::isfinite (inIntegratedAtEnd) && inIntegratedAtEnd > inIntegratedBefore + 2.0f,
                         "the IN meter's integrated reading keeps integrating after the NaN block (+6 dB pulls it up)");
-                expect (listenedAtEnd > listenedAfterOne + 2.0f, "GLAZE keeps listening after the NaN block");
+                expect (listenedAfterOne == 0.0f && listenedAtEnd == 0.0f,
+                        "phase 2 keeps listenedSeconds at 0; the meter above is what recovers");
             }
         }
 

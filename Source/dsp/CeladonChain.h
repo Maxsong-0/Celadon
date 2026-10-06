@@ -60,6 +60,7 @@
 #include "ClayModule.h"
 #include "ColorModule.h"
 #include "GlazeController.h"
+#include "LiveProfile.h"
 #include "LimiterModule.h"
 #include "LoudnessMeter.h"
 #include "ReferenceSpectrum.h"
@@ -88,7 +89,7 @@ namespace celadon
         // 0.35 s 的推导：Clay 10 Hz 4 阶低切衰 60 dB 约 0.29 s，留余量（A7，v0.1.7.0）。
         static constexpr double filterRingOutSeconds = 0.35;
 
-        CeladonChain() = default;
+        CeladonChain();
 
         // 四个模块、两块表、编排器按同一份 spec 整体重建。编排器保留已提交的画像与方案（采样率变了校准标「待验证」）。
         void prepare (const juce::dsp::ProcessSpec& spec);
@@ -118,6 +119,7 @@ namespace celadon
         void setParams (const Params& requested, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
+        // 后几片的 positionSamples / ppqPosition 按片内偏移推进（ppqLastBarStart 仍是块起点那一小节），段落账才不会把大块重新锚定错。
         // 返回 true = 输出出现非有限值（内部溢出）：故障切片已清零、整链重启淡入，交给处理器计数。
         bool process (juce::AudioBuffer<float>& io);
 
@@ -170,6 +172,13 @@ namespace celadon
         // balance 交过去：最后一块的帧先只进实时段落账再就地定稿（歌尾不用再补一个 0 样本的块）。
         void setLiveSegmentSink (glaze::SegmentSink* sink)               { controller.setLiveSegmentSink (sink, &balance); }
 
+        // 链持有的那一份实时画像。插件路径的唯一画像来源；渲染 --live-trace 读这一份。
+        glaze::LiveProfile& getLiveProfile() noexcept                     { return liveProfile; }
+        const glaze::LiveProfile& getLiveProfile() const noexcept         { return liveProfile; }
+
+        // 消息线程、音频已停（prepareToPlay）：把曲风对应的主段模型交给 LiveProfile。
+        void syncGlazeLiveModel (glaze::Genre genre) noexcept;
+
         void processReference (const juce::AudioBuffer<float>& input, bool connected) noexcept { reference.process (input, connected); }
         void requestReferenceLearn() noexcept { reference.requestLearn(); }
         void cancelReferenceLearn() noexcept { reference.cancelLearn(); }
@@ -197,6 +206,9 @@ namespace celadon
         void updateListenTarget();
         // T-038 限幅跟拍：House 档、Auto 释放、宿主在播且 BPM 在合理区间时 = 一拍 ÷ beatReleaseDivisor（ms），否则 0（不封顶）。
         float beatReleaseCapFor (glaze::Genre genre, bool autoRelease) const noexcept;
+        // 本块起点的宿主信息加上 sampleOffset。只改位置与 PPQ；小节起点保持块起点那一小节（SegmentLedger::anchor）。
+        glaze::HostInfo hostAtOffset (int sampleOffset) const noexcept;
+        bool hostAdvancesInSlices() const noexcept;
 
         // 试听差值：淡入中、试听中、淡出中都算「在用」——这时限幅器要写差值、宿主大块要切片。
         bool differenceInvolved() const noexcept   { return differenceMix.isSmoothing() || differenceMix.getCurrentValue() > 0.0f; }
@@ -209,6 +221,7 @@ namespace celadon
         LimiterModule limiter;
 
         LoudnessMeter inputMeter, outputMeter;
+        glaze::LiveProfile liveProfile;
         glaze::GlazeController controller;
         ReferenceSpectrum reference;
         ReleaseSafety releaseSafety;
@@ -221,6 +234,8 @@ namespace celadon
         // T-038 限幅跟拍：本块宿主的速度与走带（setHostInfo 记下，setParams 算慢段释放上限用；设计规格-曲风-House学习方式 第 8 节）。
         bool hostTempoValid = false, hostPlaying = true;
         double hostBpm = 0.0;
+        // 本块 setHostInfo 时的宿主信息。切片只在编排器上推进偏移；走完多片后改成块尾，下一块没再报位置时接着这里。
+        glaze::HostInfo blockHostInfo;
 
 
         Params effective;

@@ -13,8 +13,9 @@
 #        - 反相提示时长占比（phase_guard_pct，列名沿用旧名；收单灯琥珀那条，不含 House 档反相提示）≤ 5 %：看「自动」行
 #          自己的值（重放全关是 GLAZE 0 的链，这一列恒为 0，不比差）。ADR-015 起反相只提示、不改声音，这条查的是提示误亮；
 #          只判插件慢路 ρ 从未 < −0.2 的歌，有真反相段的歌豁免、列出。
-#   4. 锁定：有效音乐（原曲 music_seconds）≥ 30 s 的歌，GLAZE > 0 的成品（自动 / 全关 / 单项，不含重放行）末尾必须「已锁定 + 校准有效」；
-#      更短的列「时长不够」说明（聆听要 15 s 有效音频，一轮校准约 13 s、误差 > 0.25 dB 还要第二轮；BUG-003「另外两类」）。
+#   4. 连续编排器（T-048 阶段 2）：行里有非空 confidence 时，有效音乐 ≥ 30 s、GLAZE > 0 的成品（不含重放行）
+#      末尾必须 c ≥ 0.5（主段统计已热，不再停在「起步」）。没有这列、或格子是空的，仍按阶段 1「已锁定 + 校准有效」
+#      （编排器还没把 c 写进指标表时，旧表的输出一字不差）。更短的列「时长不够」说明。
 #   5. 真峰值：所有成品 ≤ Ceiling + 0.01 dB（渲染工具一律用出厂 Ceiling −1.0 dBTP）。
 # 参考（只打印，不判定）：「自动」对「全关」的跨链差——两条链各自跑 GLAZE，约束反馈发生的时刻不同就会走到不同的方案，
 # 差别里混着方案分岔（T-015：WTF g70 两条链反馈上限 1.145 / 0.274 dB），所以不再拿它判定。
@@ -31,6 +32,17 @@ CEILING_DBTP = -1.0
 # 同决策重放阳性对照的容差（dBFS）：与 RenderMain.cpp 的 replayTolerance（1e-9 = −180 dBFS）同值，改一处要同步改另一处
 REPLAY_TOLERANCE_DBFS = -180
 MIN_LOCK_MUSIC_SECONDS = 30.0
+CONFIDENCE_READY = 0.5
+
+
+def phase2_confidence(row):
+    """非空 confidence 才算阶段 2 的格子。缺列或空串返回 None，调用方退回阶段 1 的锁定判定。"""
+    if 'confidence' not in row:
+        return None
+    raw = (row.get('confidence') or '').strip()
+    if raw == '':
+        return None
+    return num(raw)
 
 # T-038 网格的另三维（celadon_render 只在用了新选项时把它们追加在 metrics.csv 末尾）。渲染工具自己也按这三维配对
 # （RenderMain.cpp 的 checkGlazeZeroPairs；重放全关行沿用「自动」行的组合），这里与它一致。
@@ -124,10 +136,24 @@ def main(path):
 
         a = pair.get('auto')
 
-        # 4. 锁定（不含重放行：重放链是 GLAZE 0，没有 GLAZE 状态）
+        # 4. 连续编排器，或阶段 1 的锁定（不含重放行：重放链是 GLAZE 0，没有 GLAZE 状态）
         locks = []
         for clay, r in sorted(pair.items()):
             if clay == 'replay-off':
+                continue
+            confidence = phase2_confidence(r)
+            if confidence is not None:
+                settled = confidence >= CONFIDENCE_READY
+                locks.append('C' if settled else 'cold')
+                if settled:
+                    continue
+                state = f"confidence {confidence:.3f} < {CONFIDENCE_READY:.1f}"
+                if math.isnan(music):
+                    notes.append(f"{tag} clay-{clay}: {state}——指标表没有有效音乐时长，热度无法按时长判定")
+                elif music >= MIN_LOCK_MUSIC_SECONDS:
+                    fails.append(f"{tag} clay-{clay}: 有效音乐 {music:.1f} s ≥ {MIN_LOCK_MUSIC_SECONDS:.0f} s，成品末尾 {state}")
+                else:
+                    notes.append(f"{tag} clay-{clay}: {state}——有效音乐 {music:.1f} s，时长不够热起（不算失败）")
                 continue
             locked = r.get('glaze_phase') == 'locked' and r.get('calibration_valid') == '1'
             locks.append('L' if locked else r.get('glaze_phase', '?')[:5])

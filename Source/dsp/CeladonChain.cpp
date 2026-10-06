@@ -60,8 +60,24 @@ namespace celadon
         return std::isfinite (capMs) && capMs > 0.0 ? (float) capMs : 0.0f;
     }
 
+    CeladonChain::CeladonChain()
+    {
+        controller.attachLiveProfile (&liveProfile);
+    }
+
+    void CeladonChain::syncGlazeLiveModel (glaze::Genre genre) noexcept
+    {
+        controller.notePendingModel (genre);
+        controller.syncLiveModel();
+    }
+
     void CeladonChain::prepare (const juce::dsp::ProcessSpec& spec)
     {
+        // 换采样率时音频已停：先把 LIVE 留在内存里，两边 prepare（会冷启动）之后立刻读回。
+        std::unique_ptr<juce::XmlElement> savedLive;
+        if (controller.hasPrepared())
+            savedLive = controller.createStateXml();
+
         // 四个模块用同一份 spec 整体重建（采样率 / 块大小 / 声道数）。模块统一接口（设计规格-总体）约定
         // prepare 末尾自己 reset，所以这里不必再清一遍。各处都按信号顺序写，读起来与 process 一致。
         balance.prepare (spec);
@@ -74,7 +90,13 @@ namespace celadon
         // IN 表开着 LUFS（v0.5 为省 CPU 关掉过）：GLAZE 的分析器与校准器都要读它的 100 ms 子块，关着就永远听不完。
         inputMeter.prepare (spec);
         outputMeter.prepare (spec);
+        liveProfile.prepare (spec.sampleRate);
         controller.prepare (spec);
+
+        if (savedLive != nullptr)
+            controller.restoreStateXml (savedLive.get());
+
+        controller.syncLiveModel();
         reference.prepare ({ spec.sampleRate, spec.maximumBlockSize, 2 });
         releaseSafety.prepare (spec.sampleRate);
         listenSampleRate = spec.sampleRate;
@@ -132,12 +154,43 @@ namespace celadon
 
     void CeladonChain::setHostInfo (const glaze::HostInfo& info) noexcept
     {
+        blockHostInfo = info;
         offline = info.offline;
         if (offline) previewRequested.store (false, std::memory_order_relaxed);
         hostTempoValid = info.hasTempo && std::isfinite (info.bpm) && info.bpm > 0.0;
         hostBpm = hostTempoValid ? info.bpm : 0.0;
         hostPlaying = offline || ! info.hasPlayState || info.isPlaying;   // 同编排器 hostPlaying()
         controller.setHostInfo (info);
+    }
+
+    glaze::HostInfo CeladonChain::hostAtOffset (int sampleOffset) const noexcept
+    {
+        auto sliceHost = blockHostInfo;
+
+        if (sampleOffset <= 0)
+            return sliceHost;
+
+        if (sliceHost.hasPosition)
+            sliceHost.positionSamples += (std::int64_t) sampleOffset;
+
+        // 与 tempo 宿主同一换算：ΔPPQ = 样本 × BPM / (采样率 × 60)。ppqLastBarStart 不动。
+        if (sliceHost.hasPpq && sliceHost.hasTempo && std::isfinite (sliceHost.bpm) && sliceHost.bpm > 0.0
+            && std::isfinite (sliceHost.ppqPosition) && listenSampleRate > 0.0)
+            sliceHost.ppqPosition += (double) sampleOffset * sliceHost.bpm / (listenSampleRate * 60.0);
+
+        return sliceHost;
+    }
+
+    bool CeladonChain::hostAdvancesInSlices() const noexcept
+    {
+        if (! hostPlaying)
+            return false;
+
+        if (blockHostInfo.hasPosition)
+            return true;
+
+        return blockHostInfo.hasPpq && blockHostInfo.hasTempo && std::isfinite (blockHostInfo.bpm)
+            && blockHostInfo.bpm > 0.0 && std::isfinite (blockHostInfo.ppqPosition) && listenSampleRate > 0.0;
     }
 
     void CeladonChain::setParams (const Params& requested, bool hostBypassed, bool compareOriginal, bool auditionDifference)
@@ -339,9 +392,18 @@ namespace celadon
         // This changes neither sample timing nor the reported audio latency.
         bool nonFinite = false;
         lastProcessSliceCount = 0;
+        const auto advanceHost = hostAdvancesInSlices();
+        auto movedHost = false;
         for (int offset = 0; offset < io.getNumSamples();)
         {
             ++lastProcessSliceCount;
+            // 第 0 片沿用本块开头的 setHostInfo。后几片直接交给编排器，不重走链上的离线 / 预听开关。
+            // 偏移与已处理样本数一致，跳播容差内差值为 0，不会被当成传输跳变。
+            if (offset > 0 && advanceHost)
+            {
+                controller.setHostInfo (hostAtOffset (offset));
+                movedHost = true;
+            }
             // Keep the host-block parameter contract: every slice uses the
             // same executed settings. Only statistics advance here; a newly
             // computed correction becomes audible at the next setParams.
@@ -352,6 +414,12 @@ namespace celadon
             juce::AudioBuffer<float> slice (io.getArrayOfWritePointers(), io.getNumChannels(), offset, length);
             nonFinite = processSlice (slice) || nonFinite;
             offset += length;
+        }
+        // 多片走完后宿主停在最后一片的起点，会比块尾短一片。补到块尾，下一块若没再 setHostInfo 就从这里接着走。
+        if (movedHost)
+        {
+            blockHostInfo = hostAtOffset (io.getNumSamples());
+            controller.setHostInfo (blockHostInfo);
         }
         if (nonFinite) io.clear();
         return nonFinite;
@@ -421,7 +489,7 @@ namespace celadon
         stats.clayGuardKeptEnergy   = clayKeep.keptEnergy;
         stats.musicActive = false;   // 编排器按分析器的有效信号门限填
 
-        controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true);
+        controller.endBlock (balance, inputMeter, outputMeter, stats, getLatencySamples(), true, &io);
         processListen (io);
 
         if (withDifference)

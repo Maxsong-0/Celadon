@@ -12,8 +12,8 @@
          都 ≤ 0.2 dB）：学完后低切、加宽自动值都 > 0 且在规格范围内、收单 = 0 且分频点为中性默认值（ADR-015：自动不收单）、
          不报代价受限；同一素材三项全「关」时三项为 0；输出 40 ～ 125 Hz 相关度与全关相差 < 0.02（不收单，低频立体声不被改动）；
          OUT 表真峰值 ≤ Ceiling + 0.01 dB。
-      3. 旧工程（算法 6、画像格式 1、存档里没有任何 Clay 字段）：Clay 实际值中性、clayNeedsRelearn、校准照旧适用；
-         拧 GLAZE 仍中性；与「Clay 全关」逐位相同；点「重新聆听」后自动 Clay 启用。
+      3. 旧工程（算法 6、画像格式 1、存档里没有任何 Clay 字段）：这条链仍是阶段 1 编排器，Clay 实际值中性。
+         阶段 2 不再提示重新聆听、也不再沿用校准（见 Phase2OrchestratorTests）。合入后本条改成冷启动。
       4. 反相提示（ADR-015 起只提示、不改收单）：学完正常素材后插入 2 s 低频反相段 → 资格期 0.15 s + 分析帧与块的滞后内亮灯、
          再 0.1 s 提示强度到 1；段后至少保持 2 s、再按 2 s 线性退回 0；每一块的收单都不变；「关」「手动」态同样不变。
       5. 手动态：GLAZE 0 时手动低切 30 Hz 生效（实际值恰为 30、15 Hz 分量降约 24 dB、200 Hz 以上不变）；T-032 起另有手动加宽
@@ -1559,7 +1559,7 @@ namespace celadon::test
         //    对格式 1 画像结果不变（校准不失效）」。
         void testLegacyProject()
         {
-            beginTest ("v0.1.6.2 project (algorithm 6, profile format 1, no Clay fields): neutral Clay, relearn hint, calibration kept, equal to all Off");
+            beginTest ("v0.1.6.2 project (algorithm 6, profile format 1, no Clay fields): neutral Clay on the phase-1 controller");
 
             const auto constants = confidentConstants();
             const auto material = makeClayMusic (8.0, 303, stereoTestRecipe());
