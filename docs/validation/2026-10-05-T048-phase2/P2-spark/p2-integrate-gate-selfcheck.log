@@ -1,0 +1,17 @@
+START 2026-10-06T07:24:08-07:00
+ok  legacy locked passes
+ok  legacy output still says lock
+ok  legacy unlocked fails
+ok  blank confidence uses the lock rule
+ok  confidence 0.8 passes without a lock
+ok  confidence 0.2 fails a long song
+ok  short song with low confidence is a note
+ok  legacy plan gain adds calibration bias
+ok  legacy plan gain still requires locked
+ok  continuous plan gain ignores calibration bias
+ok  continuous plan gain requires both sides warm
+ok  gate_check confidence helper treats blank as absent
+
+phase2 gate self-check passed
+SELFCHECK_EXIT=0
+END 2026-10-06T07:24:08-07:00

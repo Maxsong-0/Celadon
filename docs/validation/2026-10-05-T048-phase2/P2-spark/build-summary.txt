@@ -1,0 +1,9 @@
+START 2026-10-06T07:23:04-07:00
+TIP 0d102c7f6e3769945846083fee7b899a4043f65c
+/home/maxsong/All-Project/Celadon/.claude/worktrees/t048-phase2-integrate-spark/tests/MusicAnalyzerTests.cpp:3653:14: warning: ‘bool celadon::test::{anonymous}::sameLedgerState(const celadon::glaze::SegmentLedger&, const celadon::glaze::SegmentLedger&)’ defined but not used [-Wunused-function]
+/home/maxsong/All-Project/Celadon/.claude/worktrees/t048-phase2-integrate-spark/tests/MusicAnalyzerTests.cpp:498:29: warning: ‘std::vector<double> celadon::test::{anonymous}::meanSquaresOf(const std::vector<celadon::LoudnessMeter::SubBlock>&)’ defined but not used [-Wunused-function]
+/home/maxsong/All-Project/Celadon/.claude/worktrees/t048-phase2-integrate-spark/tests/MusicAnalyzerTests.cpp:464:16: warning: ‘double celadon::test::{anonymous}::referenceLoudnessRange(const std::vector<double>&)’ defined but not used [-Wunused-function]
+/home/maxsong/All-Project/Celadon/.claude/worktrees/t048-phase2-integrate-spark/tests/MusicAnalyzerTests.cpp:434:16: warning: ‘double celadon::test::{anonymous}::referenceIntegrated(const std::vector<double>&)’ defined but not used [-Wunused-function]
+/home/maxsong/All-Project/Celadon/.claude/worktrees/t048-phase2-integrate-spark/tools/ui-snapshot/SnapshotMain.cpp:496:10: warning: ‘void {anonymous}::showGlazeTooltip(Session&)’ defined but not used [-Wunused-function]
+BUILD_EXIT=0
+END 2026-10-06T07:24:01-07:00
