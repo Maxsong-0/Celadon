@@ -1,4 +1,4 @@
-The interface is a fixed 1200 × 820 canvas that scales with the window (70%–200%). Light background, a single cyan hue; **cyan = your settings, violet = GLAZE's automatic increment right now, orange = needs attention** (true peak over the ceiling, plan limited, NaN… shown in only one place at a time).
+The interface is a fixed 1200 × 820 canvas that scales with the window (70%–200%). Light background, a single cyan hue; **cyan = your settings, violet = GLAZE's automatic increment right now, orange = needs attention** (true peak over the ceiling, guard relief “Limited · …”, NaN… shown in only one place at a time).
 
 ## Top bar
 
@@ -18,8 +18,8 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 - The GLAZE heading and status label: Locked / Listening / Awaiting / Calibrating / Not learned / Paused / Limited / Off. A choice sits on each side of the heading: **Genre** on the left (General / Deep / Tech / Melodic) and **Delivery** on the right (Standard / Streaming / Club); see [Genre and Delivery](/docs/glaze#genre-and-delivery) for what they mean and how to use them.
 - The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now.
 - Particles on both sides: streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
-- A row of buttons: style (Auto / Warm / Punchy / Clean) · Relearn | A / B · Match.
-- Two lines of description at bottom left (replaced by control hints while you hover or drag): the first says how many parameters GLAZE drives, the second how listening is going (“GLAZE at 0: all 7 at manual values” at GLAZE 0); with a House genre and GLAZE above 0, while it is still listening (Relearn included), the second line reads “Start playback at the drop to learn faster”. A colour legend at bottom right.
+- A row of buttons: style (Auto / Warm / Punchy / Clean) | A / B · Match.
+- Two lines of description at bottom left (replaced by control hints while you hover or drag): the first reads “Drives 7 parameters”; the second reads “Follows the main section” with GLAZE above 0 and “Manual settings only” at GLAZE 0. When you open an old project the second line turns amber and reads “The old listening result was discarded, so the sound will change”, for that session only. A colour legend at bottom right.
 - Exit hints for temporary monitoring: listening to the original, listening to the difference and normalisation preview are mutually exclusive; while one is on, a clickable hint to leave it stays here. Closing the window exits all of them.
 
 ## The four cards (bottom half, in real processing order)
