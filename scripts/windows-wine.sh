@@ -187,7 +187,9 @@ build_installer() {
 }
 
 smoke_test_installer() {
-  # 在单独的 Wine 前缀里（不碰编译用的 ~/.wine）静默安装 → 文件与构建产物逐字节相同 → 静默卸载 → 两处都删干净。
+  # 在单独的 Wine 前缀里（不碰编译用的 ~/.wine）静默安装 → 文件与构建产物逐字节相同 →
+  # 只选独立版重装（VST3 被清掉）→ 只选 VST3 重装（独立版被清掉）→ 静默卸载 → 两处都删干净。
+  # 第一轮不带 /TYPE、/COMPONENTS：就是发布用的默认，两项都装。VST3 不再是 fixed，所以只选独立版必须把上次的 VST3 清掉。
   # 前缀留着下次复用；null 图形驱动：安装向导即使静默也要建窗口。mscoree / mshtml 置空：不装 Wine Mono / Gecko；
   # 禁掉 winemenubuilder：不然装一次就在服务器的 Linux 菜单里留一个 Celadon.desktop。
   local setup="$PWD/$1"
@@ -211,10 +213,21 @@ smoke_test_installer() {
     cmp "$out/Standalone Plugin/Celadon.exe" "$app/Celadon.exe"
     echo "安装：VST3 与独立运行版都在，与构建产物逐字节相同"
 
+    # 重装、这次只选独立版（/TYPE=standalone）：VST3 要被清掉，独立版照旧在。
+    wine64 "$setup" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TYPE=standalone
+    /usr/lib/x86_64-linux-gnu/wine/wineserver -w
+    if [ -e "$vst3" ]; then
+      echo "只装独立运行版重装后，上次的 Celadon.vst3 还在" >&2
+      exit 1
+    fi
+    cmp "$out/Standalone Plugin/Celadon.exe" "$app/Celadon.exe"
+    echo "重装（只选独立运行版）：VST3 已清掉，独立版仍在"
+
     # 重装、这次只选 VST3（/TYPE=vst3）：独立版要被清掉，VST3 照旧在。
     wine64 "$setup" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /TYPE=vst3
     /usr/lib/x86_64-linux-gnu/wine/wineserver -w
     cmp "$out/VST3/Celadon.vst3/Contents/x86_64-win/Celadon.vst3" "$vst3/Contents/x86_64-win/Celadon.vst3"
+    cmp "$out/VST3/Celadon.vst3/Contents/Resources/moduleinfo.json" "$vst3/Contents/Resources/moduleinfo.json"
     if [ -e "$app/Celadon.exe" ]; then
       echo "只装 VST3 重装后，上次的 Celadon.exe 还在" >&2
       exit 1
