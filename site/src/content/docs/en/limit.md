@@ -10,7 +10,7 @@ LIMIT is a transparent lookahead true-peak limiter: 8× interpolation sees the p
 | **Release** 10–1000 ms | How fast the gain comes back after limiting: short is louder but can distort, long is smoother but can pump. Ignored while Auto is on. | Keep Auto; when setting it manually, start at 100 ms. |
 | **AUTO release** | Two-stage fast / slow release that also follows the period of sustained bass: drums recover quickly, lows stay smooth. With a House genre, the slow stage is also kept to no more than a third of a beat at the host tempo; see [Genre and Delivery](/docs/glaze#genre-and-delivery). | Leave it on most of the time. |
 | **Lookahead** 1–10 ms | How early the limiter sees peaks coming: longer is more transparent but adds latency. | 2 ms; songs with dense drums can try 3–5 ms. |
-| **LIMIT GR** | How many dB the limiter is reducing right now. Turns orange when the plan is limited. | Staying above 6 dB for long means Gain is pushed too far. |
+| **LIMIT GR** | How many dB the limiter is reducing right now. Turns orange while the guards are backing off (“Limited · …” on the status line). | Staying above 6 dB for long means Gain is pushed too far. |
 | **Power button** | Turns off only the limiter; latency stays the same and switching is click-free. | Use it to compare before and after limiting. |
 
 ## Headphones · Listen to difference

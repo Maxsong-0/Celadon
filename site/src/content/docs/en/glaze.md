@@ -1,4 +1,4 @@
-GLAZE doesn't turn every knob up at once. It **listens to the song first and decides how to process it and how much loudness to push based on its loudness, dynamics, spectrum and attacks**; the knob only sets how far to push toward this song's ideal master.
+GLAZE doesn't turn every knob up at once. It **listens to the song as it plays and keeps deciding how to process it and how much loudness to push, based on its loudness, dynamics, spectrum and attacks**; the knob only sets how far to push toward this song's ideal master.
 
 ## What the knob means
 
@@ -15,25 +15,22 @@ GLAZE drives 7 parameters: BALANCE's Recover / Tame, COLOR's Tone / Glue / Heat,
 
 ## What it listens for
 
-Once playback starts it listens automatically for 15–30 seconds: loudness (M / S / I / LRA), peak-to-loudness ratio, positive and negative spectral evidence, attack density… and builds a **profile** (with a confidence value; one per song, saved with the project). Profile + style + Genre + Delivery + GLAZE + manual values → a **plan**. The plan is first applied gently at low confidence, then the **calibrator** matches the input-to-output loudness difference and finishes once it hits the target; after locking, only bounded protective adjustments around that baseline remain. With a House genre (Deep / Tech / Melodic) it counts bars and locks only after hearing the main section (the drop and other full-arrangement parts), which usually takes around two minutes, and after locking it can still update the profile when a clearly louder run of bars turns up; see [How House genres listen](#how-house-genres-listen).
+GLAZE listens all the time while the song plays: loudness (M / S / I / LRA), peak-to-loudness ratio, positive and negative spectral evidence, attack density… weighted towards the **main section** (the loudest, fullest parts) to build a **profile** (saved with the project). Profile + style + Genre + Delivery + GLAZE + manual values → a **plan**, recomputed every second from the latest profile; the automatic increments rise slowly and fall faster as they move toward the new plan, and in lighter sections such as an intro or breakdown the gain can only fall, never rise. Until it has heard enough of the main section the plan stays cautious, and it relaxes as it hears more. A very slow trim at the output brings the measured loudness to the target, and a set of guards takes gain back when a constraint is exceeded. There is no listening phase and nothing locks. With a House genre (Deep / Tech / Melodic) the main section is recognised the four-on-the-floor way; see [How House genres follow](#how-house-genres-follow).
 
-Status labels:
+The stage label beside the GLAZE heading matches the status line at the top; only one shows at a time, the first of these that applies:
 
 | Label | Meaning |
 |---|---|
-| Not learned | Nothing has played yet; listening starts automatically on playback |
-| Listening | Gathering evidence (the corner shows “Listening x / 30 s”); the previous plan (or a gentle one) stays in effect |
-| Calibrating | The plan is set and the measured loudness is being brought to the target |
-| Locked | Done; only bounded protection from here on |
 | Manual limit | Orange; the status line reads “Limited by manual settings”: your manual settings alone already exceed a module's budget (or LIMIT is bypassed), so the matching automatic increment is withdrawn. Not shown at GLAZE 0 |
+| Phase | Amber. The status line reads “Club mono loses low end (about x dB), fix it in the mix”. House genres only; see [Genre](#genre) |
+| Export | Amber. The status line reads “Main-section stats are still cold at export, so the first drop may come out quiet: play through once, then export”. An offline export started before enough of the main section had been heard |
 | Limited | Orange; the status line reads “Limited · cause · backed off x dB”: during playback a guard is pulling GLAZE's automatic gain back, or has reached its floor (−3 dB) and the problem persists. The cause is one of Budget (glue / limiting / clipping over the style's budget), Delivery peak (the limiter working too hard), Contrast (the master's loudness movement has narrowed too much compared with the mix) or PSR (peak-to-loudness ratio below the delivery's floor). Once the condition clears it eases back and the status returns to Following. Not shown at GLAZE 0 |
-| Paused | The host has stopped playback |
+| Starting | The status line reads “Starting · main section not heard yet (staying conservative)”. Not enough of the main section heard yet (just started, or still in the intro): the plan stays cautious and relaxes as it hears more |
+| Holding | The status line reads “Holding · this section is quieter”. A lighter section is playing: gain can only fall, never rise, until the main section returns |
+| Following | The status line reads “Following · Auto→Warm · Target −9.6 LUFS”. The usual state: following the profile built so far; with a House genre it starts with “House ·” |
+| Manual | The status line reads “GLAZE 0 · manual settings only”. GLAZE is at 0; none of the lines above appear |
 
-> The first profile captures the character of the passage it heard. Very quiet or very loud sections are still handled by calibration and protective back-off; for a different song, click Relearn to update the whole-song profile.
-
-## Relearn
-
-Listens again to build a new plan (about 15–30 seconds in General; for House genres see the end of this paragraph); the old plan keeps working meanwhile, then fades over in about 3 seconds. Use it after switching songs or changing the mix; click again while it's listening to cancel. It never relearns on its own — only when you click it. The exceptions are with a House genre only: when the current profile wasn't learned with a House genre (for example it was learned in General), GLAZE starts a House-style listening round by itself, and after locking, a run of clearly louder bars is folded into the profile automatically. See [Genre and Delivery](#genre-and-delivery). With a House genre, Relearn also listens bar by bar: it clears the bars heard so far and starts counting again from zero, and it has to collect 64 bars and hear the main section again before the plan changes (usually around two minutes); the old plan keeps working meanwhile.
+> The profile builds up over the whole song: it stays cautious through the intro, relaxes once the main section arrives, and lighter sections never pull the gain up. Moving on to another song needs no button; the old song's statistics fade out as the new one plays.
 
 ## Styles
 
@@ -52,17 +49,17 @@ From 0.1.8.8, two choices sit on either side of the GLAZE heading: **Genre on th
 
 | Choice | The question it answers | Options |
 |---|---|---|
-| **Genre** | What kind of music is this? Sets the tonal target, and how GLAZE listens to the song | General (default) / Deep / Tech / Melodic |
+| **Genre** | What kind of music is this? Sets the tonal target, and how GLAZE recognises the main section | General (default) / Deep / Tech / Melodic |
 | **Delivery** | Where is this version going? Sets the target loudness and the true-peak ceiling | Standard (default) / Streaming / Club |
 | **Style** | Where should the loudness be spent? Sets how much goes to limiting, glue and colour | Auto (default) / Warm / Punchy / Clean |
 
-The default is General + Standard: from the start of playback GLAZE listens for 15–30 seconds, sets the tonal target by style, sets loudness by style and keeps your Ceiling. Old projects have no such settings; they load as General + Standard, and their saved plan and calibration stay in effect. Genre and Delivery are saved with the project but can't be automated in the host — they are decisions about how this song gets mastered, not moves that change over time.
+The default is General + Standard: the main section is recognised by loudness, the tonal target and the loudness are both set by style, and your Ceiling is kept. Old projects have no such settings and load as General + Standard; the listening result, plan and calibration saved in an old project are discarded on load, so GLAZE starts following from scratch and the sound will change. Genre and Delivery are saved with the project but can't be automated in the host — they are decisions about how this song gets mastered, not moves that change over time.
 
 ### Genre
 
 | Genre | When to pick it |
 |---|---|
-| **General** (default) | Not House, or you're not sure: listens for 15–30 seconds from the start of playback and sets the tonal target by style |
+| **General** (default) | Not House, or you're not sure: recognises the main section by loudness and sets the tonal target by style |
 | **Deep** | Deep House |
 | **Tech** | Tech House |
 | **Melodic** | Melodic-Progressive (Melodic House and Progressive House both fit) |
@@ -74,9 +71,9 @@ With Deep, Tech or Melodic (called “House genres” below), six things change:
 - **Tonal target**: automatic Tone (on COLOR) aims at a House reference and has less room to brighten than in General. With Target spectrum under Advanced on Auto, the target shape follows the genre instead of the Style: Deep leans warm, Tech is neutral and Melodic sits between the two. Every other setting is shared by the three sub-genres, so this target shape is the only difference between them — with Target spectrum Off (old projects load with it Off) or on a fixed shape, Deep, Tech and Melodic behave identically.
 - **Low cut**: CLAY's automatic Low cut aims at 25 Hz (General uses 16–20 Hz, depending on the style). Whether it cuts at all is still decided by whether the song has infrasound, and it has to pass a trial first: if the cut would raise peaks or thin the low end, it is reduced or skipped.
 - **Width**: CLAY's Auto never widens, so the master isn't pulled wider. Manual Width still works.
-- **Listening**: bar by bar, using only the main section (the drop and other full-arrangement parts), and it locks only after hearing the main section; the details and the status line are at the end of this section, under [How House genres listen](#how-house-genres-listen).
+- **Main section**: recognised the four-on-the-floor way (full-arrangement parts with both kick and bass, such as the drop), and the profile and target loudness are taken mainly from those parts; the status line puts “House ·” in front of Following. Details are at the end of this section, under [How House genres follow](#how-house-genres-follow).
 - **Limiter release**: LIMIT's Auto release is tightened to the host tempo: the slow stage of the release is kept to no more than a third of a beat (about 160 ms at 124 BPM). This applies only when Release is on Auto, the host is playing and its tempo is between 100 and 140 BPM, wherever the GLAZE knob is (including 0); a manual Release is unaffected.
-- **Out-of-phase hint**: when the lows in the main section are out of phase and mono playback would lose bass, you're told with a more sensitive test than in General (a mono loss from about 1 dB counts, but it has to persist for 4 bars of main section, or 8 seconds when the host gives no tempo). The GLAZE status line in the status pill at the top switches to this warning in amber, “Club mono loses low end (about x dB), fix it in the mix”, and while it's lit it takes over the status line; the stage label beside the GLAZE heading shows where calibration has got to (Awaiting → Calibrating → Locked), and the CLAY card's mini graph is replaced by two lines, “Club mono loses low end (about x dB)” and “Fix it in the mix”. It only tells you — it doesn't touch the audio — and it stays off at GLAZE 0. Applying Mono can't help mono playback; narrow the lows or align their phase in the mix.
+- **Out-of-phase hint**: when the lows in the main section are out of phase and mono playback would lose bass, you're told with a more sensitive test than in General (a mono loss from about 1 dB counts, but it has to persist for 4 bars of main section, or 8 seconds when the host gives no tempo). The GLAZE status line in the status pill at the top switches to this warning in amber, “Club mono loses low end (about x dB), fix it in the mix”, and while it's lit it takes over the status line and the stage label beside the GLAZE heading reads Phase (only “Limited by manual settings” ranks above it); and the CLAY card's mini graph is replaced by two lines, “Club mono loses low end (about x dB)” and “Fix it in the mix”. It only tells you — it doesn't touch the audio — and it stays off at GLAZE 0. Applying Mono can't help mono playback; narrow the lows or align their phase in the mix.
 
 ### Delivery
 
@@ -93,52 +90,41 @@ Delivery decides how loud this version should be and how much true-peak margin i
 - **GLAZE only pushes up; it never turns down a mix that is already loud enough.** If the mix is already louder than the target, the master isn't pulled back to it. All three settings keep a “minimum push”: when a mix is already close to or above the table's loudness, GLAZE still pushes a little more, so with the knob at 100 the target can end up louder than the table's number. Streaming and Club also have a hard upper limit (about −8 and −5 LUFS) that even this minimum push won't take them past, and a mix that is already louder than that limit isn't pushed at all; Standard has no such hard limit.
 - **The target is a direction, not a guarantee.** Dynamics protection comes before loudness: once each module's budget is used up GLAZE stops pushing and the target comes down, so the “Target” on the status line reads lower than it would without that limit.
 - **Streaming's −2 dBTP is the effective ceiling handed to LIMIT**, wherever the GLAZE knob is (including 0). It leaves extra true-peak margin for lossy transcoding, so with Streaming selected there's no need to pull the Ceiling down yourself. The other two settings leave the ceiling alone.
-- **With a House genre, the target loudness is that of the main section (the drop)**, not the integrated loudness of the whole song. The intro and breakdown pull the latter down, and you only see it in OUT's integrated reading after playing the song through (see [Meters and spectrum analyser](/docs/meters)). With General it still refers to the stretch heard after playback starts.
+- **With a House genre, the target loudness is that of the main section (the drop)**, not the integrated loudness of the whole song. The intro and breakdown pull the latter down, and you only see it in OUT's integrated reading after playing the song through (see [Meters and spectrum analyser](/docs/meters)). With General it refers to the loudness of the main section recognised by loudness (the loudest parts).
 
 ### Switching, and exporting two masters
 
-- **Switching doesn't need Relearn.** Changing Delivery or Genre recomputes the plan on the profile it has already learned: the new plan fades in over about 3 seconds, then calibrates again (the status line reads Calibrating). Two versions that differ only in Delivery share one profile and make the same Tone, BALANCE and stereo clean-up decisions (switching Genre does change the tonal target, Low cut and Width); they differ in how much gain is pushed and how much true-peak margin is left, and the Glue, Heat and Clip amounts are shared out again for that gain and ceiling.
-- **With a House genre, calibration only starts inside the main section** (when the committed profile was learned with House gating): if you switch while the song is playing an intro or breakdown, then after the 3-second transition the status line reads “Locked · awaiting calibration (conditions changed)”, and calibration starts when the drop plays; a round already under way just pauses outside the main section and the status line stays on Calibrating; if you switch while stopped, the status line first reads “Calibration paused (stopped)”.
-- **Going from General to a House genre**: the plan is recomputed for the new genre straight away. If the current profile wasn't learned with a House genre (it was learned in General, or comes from an old project), GLAZE also starts a House-style listening round by itself: the old profile stays in use until the new one is ready, and bars are counted from when that round starts (if you switch while stopped, from the next time you play). A profile already learned with a House genre is kept, so switching between House genres, or going from a House genre to General and back, doesn't relearn.
+- **Switching needs nothing from you.** After a change of Delivery or Genre, GLAZE recomputes the target on the current profile straight away and moves toward it by rising slowly and falling faster. After a Genre switch the target is recomputed for the new genre and eases toward it. If you switch Genre during playback, the way the main section is recognised changes only from the next time playback starts. Two versions that differ only in Delivery share one profile and make the same Tone, BALANCE and stereo clean-up decisions (switching Genre does change the tonal target, Low cut and Width); they differ in how much gain is pushed and how much true-peak margin is left, and the Glue, Heat and Clip amounts are shared out again for that gain and ceiling.
+- **Going from General to a House genre**: the plan is recomputed for the new genre straight away; the statistics gathered so far are kept, and no separate listening round starts. If you switch Genre during playback, the way the main section is recognised changes only from the next time playback starts.
 - **To get two masters of one song**:
-  1. Pick the Genre, play the song through once and wait for Locked (a House genre needs to hear the main section; watch the status line, and see [How House genres listen](#how-house-genres-listen) at the end of this section). Turn GLAZE to the amount you want.
-  2. Set Delivery to Streaming, play from the drop and keep playing until the status is back to “Locked · … · Target … LUFS” (not Calibrating, Calibration paused or awaiting calibration), then export this version. If it reads Limited along the way, keep playing: the guard pulls the automatic gain back by itself (at most 3 dB) and eases back once the condition clears. With a House genre's out-of-phase hint lit, the status line is taken over by the hint; wait for the stage label to read Locked.
-  3. Set Delivery to Club, play from the drop again until the status is back to Locked, then export the second version.
+  1. Pick the Genre and play the song through once so the status line reaches “Following · … · Target … LUFS”. Turn GLAZE to the amount you want.
+  2. Set Delivery to Streaming, play from the drop and keep playing until the “Target … LUFS” reading settles and the status line is back on Following, then export this version. If it reads Limited along the way, keep playing: the guard pulls the automatic gain back by itself (at most 3 dB) and eases back once the condition clears. With a House genre's out-of-phase hint lit, the status line is taken over by the hint; wait for the stage label to read Following.
+  3. Set Delivery to Club, play from the drop again until the “Target … LUFS” reading settles and the status line is back on Following, then export the second version.
 
-If you export offline straight after switching, the start of the export may not be calibrated yet — hence playing until the status is back to “Locked · … · Target … LUFS” first. With a House genre the status must also already read Locked before you export, otherwise the plan changes partway through the master (the status line warns you). Before exporting, turn off Match and Normalisation preview as usual; see [Monitoring](/docs/listening#before-you-export).
+If you export offline straight after switching, the gain may still be moving toward the new target, so play until the “Target … LUFS” reading settles first. If you export offline before enough of the main section has been heard, the status line reads “Main-section stats are still cold at export, so the first drop may come out quiet: play through once, then export”. Every export keeps updating the statistics, so two exports of the same project in a row aren't guaranteed to be bit-identical. Before exporting, turn off Match and Normalisation preview; see [Monitoring](/docs/listening#before-you-export).
+
+### How House genres follow
+
+A House intro often has 16–32 bars of drums only, with no bass or pads. GLAZE doesn't listen to a stretch first and then decide; it keeps a tally bar by bar and weights each part by how much it sounds like the main section: full-arrangement parts with both kick and bass (such as the drop) count heavily, intros and breakdowns lightly. So:
+
+- Just after you press play, while the intro is still running, the status line reads “Starting · main section not heard yet (staying conservative)” and the plan stays cautious; it relaxes once the drop arrives and enough of the main section has been heard.
+- In lighter parts such as an intro or breakdown it reads “Holding · this section is quieter”: the gain can only fall, never rise, so light parts aren't pushed up.
+- The usual state reads “House · Following · Auto→Warm · Target −9.6 LUFS”.
+- Jumping around is fine: replaying a bar only overwrites it rather than counting it twice. When the host gives no tempo, it counts in seconds instead.
+- To make it relax sooner, play through from the drop once.
 
 ### How House genres listen
 
-In General, GLAZE decides its plan after listening for 15–30 seconds from the start of playback. A House intro often has 16–32 bars of drums only, with no bass or pads, so listening to the start alone would take the intro for the whole song. With a House genre, GLAZE listens like this instead:
-
-1. **It keeps a tally bar by bar.** It follows the position and time signature the host gives it and notes one bar at a time. Replaying a bar only overwrites it rather than counting it twice, so jumping around the song gradually fills in all of it. When the host gives no tempo, it falls back to one entry every 2 seconds.
-2. **It plans from the main section only.** A bar counts as main section when it is both loud enough and full enough in the low end (the drop and similar full-arrangement parts). The gates are relative: until the drop arrives, the loudest, fullest part so far — often the intro — counts as main section; once the drop is in, the gates rise with it and most intro and breakdown bars stop counting as main section (an intro with kick and bass that is only a little lighter than the drop can stay inside). They still count as bars heard. The profile, loudness and spectrum are all taken from the main section alone.
-3. **It locks only after listening enough.** Three conditions must all be met before it calibrates and locks: at least 64 different bars heard (about 2 minutes at 124 BPM; 124 seconds when counting in seconds), at least 8 bars of main section (one phrase; 16 seconds when counting in seconds), and the same confidence conditions as in General.
-4. **On a first listen, the plan is provisional until it locks.** It is a more cautious plan built from the main section heard so far, and it relaxes as more is heard; there is no calibration in the meantime. The plan is recomputed whenever something new turns up — normally fading in over about 3 seconds, but over about 0.5 seconds when a bar arrives that is at least 3 LU louder than the loud parts heard so far and full in the low end (usually the drop), so the drop isn't held back by a plan built from the intro. During Relearn, or the round started by switching from General, there is no provisional plan: the old plan keeps working instead.
-5. **After it locks, it keeps watching.** If a run of 4 bars turns up later that is at least 3 LU louder than the profile and has a low-frequency share of at least 60% of the profile's (usually a late drop), GLAZE folds them into the profile, switches plan over about 0.5 seconds and calibrates again. Each profile can be updated this way at most twice, and only towards louder material.
-
-> With material shorter than 64 different bars (a short loop or a clip), a House genre can't meet the lock conditions: the status line keeps showing progress, and on a first listen the plan stays in its cautious, uncalibrated provisional state. Choose General for that kind of material.
-
-While it listens, the GLAZE status line in the status pill at the top reports progress (the tooltips of the GLAZE heading and of the pill switch to a House version too):
-
-| Status line | What it means |
-|---|---|
-| House · 0 / 64 bars · main section not heard yet | Just started; no bar counts as main section yet |
-| House · 41 / 64 bars · 8 bars of main section | A phrase of main section is in, but the bar count hasn't reached 64, so it hasn't locked yet |
-| House · 52 / 124 s (no tempo from host) | The host gives no tempo, so it counts in seconds: 124 are needed |
-
-The gates are relative: after a bar or two the intro already counts as main section, so “x bars of main section” appears; once the drop arrives the figure can first shrink and then climb again, so it doesn't tell you whether the drop has arrived.
-
-Two more notes may follow at the end of the line: “segment memory full” (it keeps at most 512 bars, about 16 minutes) and “exported before learning finished: play it through once, then export again”. With GLAZE above 0, the second line at bottom left says “Start playback at the drop to learn faster” at the same time (at GLAZE 0 it reads “GLAZE at 0: all 7 at manual values”). Once the conditions are met it calibrates (the status line reads Calibrating) and then shows “Locked · … · Target … LUFS”; after the lock, calibration rounds only start inside the main section, so while the song is in an intro or breakdown and no round has started, the status line reads “Locked · awaiting calibration (conditions changed)” until the drop plays.
+See [How House genres follow](#how-house-genres-follow).
 
 ## How it relates to Advanced and CLAY
 
 - With “Loud, not harsh” and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.
 - CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out of phase (at GLAZE 0 even the warning stays off); on Manual they work even at GLAZE 0; Off never processes.
-- Whenever an Advanced setting changes (or a manual parameter, the sample rate, the style, the genre or the delivery does), the calibration's reference conditions change and calibration realigns.
+- Whenever an Advanced setting changes (or a manual parameter, the style, the genre or the delivery does), GLAZE recomputes the target straight away and moves toward it by rising slowly and falling faster.
 
 ## Saving and reopening
 
-The profile, plan, calibration, constants snapshot and execution snapshot are all saved with the project. Reopening doesn't relearn, and re-rendering from the same starting point is bit-for-bit reproducible. Offline export and real-time playback learn and calibrate on the same sample timeline, so switching to offline neither stops learning nor undoes calibration. Genre and Delivery are saved with the project too; with a House genre the bar tally is not — after reopening, the locked profile stays in effect and bars are counted again from zero (the watch after locking only starts to work once 64 bars have been heard again).
+What GLAZE has gathered (the bar tally, the profile, the automatic increments being applied, the output trim, each guard's relief and CLAY's automatic values) is saved with the project, and after reopening it carries on from where it was saved instead of starting over. Offline export and real-time playback run through the same processing path and the statistics keep updating during an export, so two exports of the same project in a row aren't guaranteed to be bit-identical. Genre and Delivery are saved with the project too. Projects saved by earlier versions: the old listening result, plan and calibration are discarded on load, so GLAZE starts following from scratch and the sound will change; the bottom-left corner says so once when the project opens: “The old listening result was discarded, so the sound will change”.
 
-For the algorithm details: [GLAZE · decisions and calibration](/algorithms/glaze).
+For the algorithm details: [GLAZE · decisions and following](/algorithms/glaze).
