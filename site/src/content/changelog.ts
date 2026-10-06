@@ -35,6 +35,42 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    id: 'v0.1.8.9',
+    version: '0.1.8.9',
+    date: '2026-10-06',
+    title: { zh: 'GLAZE 边放边跟', en: 'GLAZE follows while you play' },
+    items: [
+      {
+        kind: 'sound',
+        text: {
+          zh: '播放时 GLAZE 一直跟着这首歌调整，不再先听完一段再定下来，也没有「重新聆听」。主段落还没听到时处理偏保守；听到之后就一直跟随。换了曲风或交付，目标也会慢慢跟上。',
+          en: 'While you play, GLAZE keeps adjusting with the song. It no longer listens through a passage and then settles, and there is no Relearn. Before the main section has been heard, the processing stays conservative; after that it keeps following. Change Genre or Delivery and the target eases toward the new setting.'
+        }
+      },
+      {
+        kind: 'ui',
+        text: {
+          zh: '状态行和 GLAZE 标题旁的标签改成「起步」「保持」「跟随」，不再写聆听中、已锁定或校准中。起步是还没听到主段落；保持是这一段较轻，响度先不往上推；跟随会写出此刻的风格和目标响度。选了 House 曲风并在跟随时，状态行前面加上 House。',
+          en: 'The status line and the label beside the GLAZE heading now say Starting, Holding or Following, instead of Listening, Locked or Calibrating. Starting means the main section has not been heard yet. Holding means this section is quieter, so loudness is not pushed up. Following names the current style and the loudness target. With a House genre, while it is following, the status line starts with House.'
+        }
+      },
+      {
+        kind: 'sound',
+        text: {
+          zh: '响度往上走得慢、往下落得快：需要抬上去时慢慢来，需要收回来时更快。',
+          en: 'Loudness rises slowly and falls faster: it eases up when it needs to come up, and comes back down more quickly.'
+        }
+      },
+      {
+        kind: 'compat',
+        text: {
+          zh: '打开旧工程会提示一次：旧的聆听结果已丢弃，声音会变。导出时若主段落还没热，状态会请你先播放一遍再导出，否则第一个 drop 可能偏轻。',
+          en: 'Opening an old project shows once that the old listening result was discarded, so the sound will change. If the main section is still cold at export, the status asks you to play through once before exporting, or the first drop may come out quiet.'
+        }
+      }
+    ]
+  },
+  {
     id: 'v0.1.8.8',
     version: '0.1.8.8',
     date: '2026-10-05',
