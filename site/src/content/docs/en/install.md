@@ -1,4 +1,4 @@
-Celadon is a personal plugin, shared privately and not sold. Once you have the installer for your platform, install it as described below, then **rescan plug-ins** in your host.
+Celadon is a personal plugin, free to use during the early bird, with no price shown. Once you have the installer for your platform, install it as described below, then **rescan plug-ins** in your host.
 
 ## macOS
 

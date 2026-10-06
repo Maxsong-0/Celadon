@@ -49,6 +49,36 @@ export function LocaleSync() {
   return null;
 }
 
+/**
+ * 切语言前记下的滚动比例。整页会按语言重挂（App.tsx 的 LocaleRoutes），
+ * 钉住段落的占位先拆掉再量出来，只记绝对像素会落到别的章节，所以记「可滚高度里的比例」。
+ */
+type LocaleSwitchScroll = { ratio: number; id: number; targetPath: string };
+
+let localeSwitchScroll: LocaleSwitchScroll | null = null;
+let localeSwitchScrollSeq = 0;
+
+export function captureLocaleSwitchScroll(targetPath: string): void {
+  const root = document.scrollingElement ?? document.documentElement;
+  const max = Math.max(0, root.scrollHeight - root.clientHeight);
+  localeSwitchScroll = {
+    ratio: max > 0 ? root.scrollTop / max : 0,
+    id: ++localeSwitchScrollSeq,
+    targetPath
+  };
+}
+
+/** 这次换到 `pathname` 时要还原的滚动比例；不是这次语言开关的目标页则为 null。 */
+export function localeSwitchScrollFor(pathname: string): LocaleSwitchScroll | null {
+  const pending = localeSwitchScroll;
+  if (!pending || pending.targetPath !== pathname) return null;
+  return pending;
+}
+
+export function clearLocaleSwitchScroll(id?: number): void {
+  if (id === undefined || localeSwitchScroll?.id === id) localeSwitchScroll = null;
+}
+
 /** 导航里的语言开关：记住选择，先把另一种语言的文案拉好再换到同一页（去掉锚点与查询串，两种语言的标题锚点不同）。 */
 export function useSwitchLocale(): () => void {
   const { pathname } = useLocation();
@@ -56,11 +86,12 @@ export function useSwitchLocale(): () => void {
   const locale = localeFromPath(pathname);
   return useCallback(() => {
     const target: Locale = locale === 'zh' ? 'en' : 'zh';
+    const targetPath = localizePath(stripLocale(pathname), target);
+    // 先记下位置再去拉文案：拉的过程中页面可能先换成占位，滚动会被钉住段落的拆掉拽走
+    captureLocaleSwitchScroll(targetPath);
     saveLocale(target);
     if (target === 'zh') void loadCjkFonts();
-    void i18n.changeLanguage(target).then(
-      () => navigate(localizePath(stripLocale(pathname), target)),
-      () => navigate(localizePath(stripLocale(pathname), target))
-    );
+    const go = () => navigate(targetPath);
+    void i18n.changeLanguage(target).then(go, go);
   }, [locale, pathname, navigate]);
 }
