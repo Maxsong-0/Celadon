@@ -15,7 +15,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 
 ## Middle row
 
-- The GLAZE heading and status label: Locked / Listening / Awaiting / Calibrating / Not learned / Paused / Limited / Off. A choice sits on each side of the heading: **Genre** on the left (General / Deep / Tech / Melodic) and **Delivery** on the right (Standard / Streaming / Club); see [Genre and Delivery](/docs/glaze#genre-and-delivery) for what they mean and how to use them.
+- The GLAZE heading and status label: Manual / Manual limit / Phase / Export / Limited / Starting / Holding / Following. A choice sits on each side of the heading: **Genre** on the left (General / Deep / Tech / Melodic) and **Delivery** on the right (Standard / Streaming / Club); see [Genre and Delivery](/docs/glaze#genre-and-delivery) for what they mean and how to use them.
 - The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now.
 - Particles on both sides: streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
 - A row of buttons: style (Auto / Warm / Punchy / Clean) | A / B · Match.

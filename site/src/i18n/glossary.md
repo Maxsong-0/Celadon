@@ -30,7 +30,7 @@
 交付 Delivery：标准 Standard · 流媒体 Streaming · 俱乐部 Club
 House：小节 bar · 主段落 main section（drop = drop，breakdown = breakdown，不译）· 逐小节的记录 = tally · 状态行前缀「House ·」· 反相提示 = out-of-phase hint（插件里的原句是 Club mono loses low end / Fix it in the mix）· 门控 / 门 gating / the gates
 状态（GLAZE 标题旁的阶段标签）：全手动 Manual · 受手动 Manual limit · 反相 Phase · 导出 Export · 受限 Limited · 起步 Starting · 保持 Holding · 跟随 Following；卡片旁通 已旁通 Bypassed
-状态行原句（照 GlazeStatusText.cpp 的英文）：方案受限 Plan limited · 已锁定 · 待校准（条件已变，稳定后自动校准）= Locked · awaiting calibration (conditions changed) · 校准暂停（未播放 / 旁通）= Calibration paused (stopped / bypassed)；House 门控：门控 gating · 门 gate（正文 the gates）
+状态行原句（照 GlazeStatusText.cpp 的英文）：受限 · 预算 / 交付峰值 / 保对比 / PSR · 已退 x dB = Limited · Budget / Delivery peak / Contrast / PSR · backed off x dB · 受手动设置限制 = Limited by manual settings（标签 受手动 = Manual limit）· 起步 Starting · 保持 Holding · 跟随 Following；House 门控：门控 gating · 门 gate（正文 the gates）
 监听：处理后 Processed · 原声 Original · 等响 Match（level-matched）· 试听差值 Listen to difference · 旁通 Bypass
 表：输入 / 输出 / 衰减 = IN / OUT / GR · 响度 Loudness · 真峰值 True peak（dBTP）· 短期 Short-term · 峰响比 PLR · 重新计量 Reset meters · 频谱仪 spectrum analyser
 

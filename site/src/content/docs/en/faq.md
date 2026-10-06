@@ -22,7 +22,7 @@ The host has the old binary cached. Save your project, then restart the host or 
 
 ## Turning GLAZE up doesn't make it any louder?
 
-Look at the “Target … LUFS” on the status line first: dynamics protection comes before loudness, so once each module's budget is used up GLAZE stops pushing and the target comes down; the status usually still reads Locked. A status of Limited means one of two other things: “Limited by manual settings” means your manual values have already used up a module's budget, so that module's automatic increment is withdrawn; “Plan limited” means the protection layer has backed off to its floor (−3 dB) during playback and a constraint is still exceeded. Either accept it, lower GLAZE to keep more movement, or add Gain / Clip by hand — manual values are the floor, but they're still subject to each module's constraints.
+Look at the “Target … LUFS” on the status line first: dynamics protection comes before loudness, so once each module's budget is used up GLAZE stops pushing and the target comes down; the status usually still reads “Following · … · Target … LUFS”. Two other cases: “Limited by manual settings” (label Manual limit) means your manual values have already used up a module's budget, so that module's automatic increment is withdrawn; “Limited · cause · backed off x dB” (label Limited) means a guard is pulling the automatic gain back during playback (cause: Budget / Delivery peak / Contrast / PSR; at most 3 dB) and it eases back once the condition clears. Either accept it, lower GLAZE to keep more movement, or add Gain / Clip by hand — manual values are the floor, but they're still subject to each module's constraints.
 
 ## OUT true peak occasionally reads 0.0x dB above the Ceiling?
 
