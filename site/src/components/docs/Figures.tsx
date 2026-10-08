@@ -304,11 +304,11 @@ function ChainWide({ v }: { v: V }) {
   return (
     <>
       {/* GLAZE：读入口特征与模块统计，经一条总线把实际参数交给四个模块 */}
-      <Wire v={v} tone="v" dashed pts={[[50, 132], [50, 46], [240, 46]]} />
+      <Wire v={v} tone="v" dashed pts={[[50, 132], [50, 46], [198, 46]]} />
       <Label v={v} x={60} y={38} color={VIOLET_TEXT}>
         {t('chain.features')}
       </Label>
-      <Wire v={v} tone="mute" dashed pts={[[670, 132], [670, 46], [480, 46]]} />
+      <Wire v={v} tone="mute" dashed pts={[[670, 132], [670, 46], [522, 46]]} />
       <Label v={v} x={660} y={38} anchor="end">
         {t('chain.stats')}
       </Label>
@@ -321,7 +321,7 @@ function ChainWide({ v }: { v: V }) {
       <Label v={v} x={368} y={92} color={VIOLET_TEXT}>
         {t('chain.actual')}
       </Label>
-      <Box v={v} b={{ x: 242, y: 20, w: 236, h: 52, title: t('chain.glaze'), sub: t('chain.glazeSub'), tone: 'v' }} />
+      <Box v={v} b={{ x: 200, y: 20, w: 320, h: 52, title: t('chain.glaze'), sub: t('chain.glazeSub'), tone: 'v' }} />
 
       {/* 主信号：顺序固定 */}
       <Box v={v} b={{ x: 18, y, w: 64, h, title: t('chain.input'), tone: 'g' }} />
