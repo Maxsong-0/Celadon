@@ -45,8 +45,8 @@ export const RELEASE: Release = {
     {
       id: 'win-x64',
       file: 'Celadon-0.1.8.9-Windows-x64-Setup.exe',
-      bytes: 7537541,
-      sha256: '6e6898b904b82a3dab1ab933da81af831d91bfe3c1a50e07e884cf218f2d6118'
+      bytes: 7538098,
+      sha256: 'd40956f5f56591de834553bd6d2df183f95b78ceb4914623f7bfd5f7fdaa7264'
     }
   ]
 };
