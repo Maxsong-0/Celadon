@@ -2,15 +2,15 @@
   "en": {
     "siteName": "Celadon",
     "title": "Celadon · Smart mastering plugin",
-    "description": "A personal mastering plugin: BALANCE → CLAY → COLOR → LIMIT in a fixed order, with one GLAZE knob that listens to the song before deciding how far to push. VST3 / AU on macOS, VST3 on Windows.",
-    "twitterDescription": "Four stages in a fixed order, and one GLAZE knob that listens to the song before deciding how far to push.",
+    "description": "A personal mastering plugin: BALANCE → CLAY → COLOR → LIMIT in a fixed order, with one GLAZE knob that keeps listening to the song and decides how far to push as it goes. VST3 / AU on macOS, VST3 on Windows.",
+    "twitterDescription": "Four stages in a fixed order, and one GLAZE knob that keeps listening and decides how far to push as it goes.",
     "imageAlt": "Celadon: a crackle-glazed celadon knob on a paper-coloured ground, next to the line “One insert on the master bus. It just sounds right.”"
   },
   "zh": {
     "siteName": "Celadon 青瓷",
     "title": "Celadon 青瓷 · 一挂总轨，就好听。",
-    "description": "自用母带插件：BALANCE → CLAY → COLOR → LIMIT 四道工序按固定顺序走，一个 GLAZE 旋钮先听这首歌，再决定推多远。macOS 上 VST3 / AU，Windows 上 VST3。",
-    "twitterDescription": "自用母带插件：四道工序按固定顺序走，一个 GLAZE 旋钮先听这首歌，再决定推多远。",
+    "description": "自用母带插件：BALANCE → CLAY → COLOR → LIMIT 四道工序按固定顺序走，一个 GLAZE 旋钮边播边听，一路决定推多远。macOS 上 VST3 / AU，Windows 上 VST3。",
+    "twitterDescription": "自用母带插件：四道工序按固定顺序走，一个 GLAZE 旋钮边播边听，一路决定推多远。",
     "imageAlt": "Celadon 青瓷：纸色底上一枚带开片的豆青瓷旋钮，旁边写着「一挂总轨，就好听。」"
   }
 }

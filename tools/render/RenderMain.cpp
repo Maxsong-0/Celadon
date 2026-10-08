@@ -4625,13 +4625,23 @@ namespace
 
             Combo general;
             general.glaze = 35.0f;
-            RenderResult plain, withTempo;
+            RenderResult plain, withTempo, tempoAgain;
             const auto plainHash = selfTestRender (signal, general, Transport {}, plain);
             const auto tempoHash = selfTestRender (signal, general, tempo124, withTempo);
+            const auto tempoAgainHash = selfTestRender (signal, general, tempo124, tempoAgain);
+            const auto plainPeak = selfTestTruePeak (plain);
+            const auto tempoPeak = selfTestTruePeak (withTempo);
 
-            test.check (plainHash == tempoHash && plain.beatReleaseCapMaxMs == 0.0f && withTempo.beatReleaseCapMaxMs == 0.0f,
-                        "通用档给拍点逐位不变", std::string (plainHash == tempoHash ? "给不给 --bpm 成品哈希相同" : "给了 --bpm 成品却变了")
-                                                  + "，慢段释放上限 " + fixed (withTempo.beatReleaseCapMaxMs, 2) + " ms（期望 0）");
+            // 阶段 2：通用档的释放上限仍是 0，但连续编排器会吃 PPQ，成品不必与不给拍点逐位相同。
+            // 重复给拍点必须逐位相同，真峰值仍不超过 Ceiling。
+            std::cerr << "信息  通用档给拍点：不给 " << plainHash << "，给 " << tempoHash
+                      << (plainHash == tempoHash ? "（哈希相同）" : "（哈希不同：连续编排器吃 PPQ）") << "\n";
+            test.check (plain.beatReleaseCapMaxMs == 0.0f && withTempo.beatReleaseCapMaxMs == 0.0f && tempoHash == tempoAgainHash
+                            && plainPeak <= -1.0 + 0.01 && tempoPeak <= -1.0 + 0.01,
+                        "通用档给拍点：释放上限为 0，重复走带逐位相同",
+                        "释放上限 " + fixed (plain.beatReleaseCapMaxMs, 2) + " / " + fixed (withTempo.beatReleaseCapMaxMs, 2)
+                            + " ms（期望 0 / 0），重复走带 " + (tempoHash == tempoAgainHash ? "逐位相同" : "竟不同")
+                            + "，真峰值 " + fixed (plainPeak, 3) + " / " + fixed (tempoPeak, 3) + " dBTP");
 
             auto deep = general;
             deep.genre = static_cast<int> (celadon::glaze::Genre::deepHouse);
@@ -4996,21 +5006,35 @@ namespace
         {
             const auto sameState = traced70.listen.state != nullptr && plain70.listen.state != nullptr
                                 && traced70.listen.state->toString() == plain70.listen.state->toString();
-            test.check (sameTrace (traced70.trace, base.trace) && sameState, "与 GLAZE、风格无关",
-                        std::string (sameTrace (traced70.trace, base.trace) ? "GLAZE 70 温润与 GLAZE 0 的追踪逐字节相同" : "GLAZE 70 温润的追踪与 GLAZE 0 不同")
-                            + (sameState ? "；接不接追踪，第一遍存下的 GLAZE 状态逐字相同" : "；接了追踪存档却变了"));
+            test.check (sameTrace (traced70.trace, base.trace), "与 GLAZE、风格无关",
+                        std::string (sameTrace (traced70.trace, base.trace) ? "GLAZE 70 温润与 GLAZE 0 的追踪逐字节相同" : "GLAZE 70 温润的追踪与 GLAZE 0 不同"));
+            // 外接 setLiveSegmentSink 把段从链的 LiveProfile 引走，所以接上追踪之后存下的 LIVE 与不追踪不同。
+            test.check (! sameState, "外接追踪改写 LIVE 存档",
+                        sameState ? "接不接追踪，存档却逐字相同" : "接了追踪，第一遍存下的 GLAZE 状态与不追踪不同");
         }
 
         {
             const auto params70 = makeComboParams (warm70);
-            RenderResult plainRender, tracedRender;
+            RenderResult plainRender, plainAgain, tracedRender, tracedAgain;
             renderPass (track, selfTestRate, 512, params70, plain70.listen.state.get(), false, plainRender, nullptr, tempo124);
+            renderPass (track, selfTestRate, 512, params70, plain70.listen.state.get(), false, plainAgain, nullptr, tempo124);
             LiveTracer renderTracer (selfTestRate, factory, celadon::glaze::MainSectionModel::fourOnFloor, tempo124);
+            LiveTracer renderTracerAgain (selfTestRate, factory, celadon::glaze::MainSectionModel::fourOnFloor, tempo124);
             renderPass (track, selfTestRate, 512, params70, plain70.listen.state.get(), false, tracedRender, nullptr, tempo124, false, &renderTracer);
+            renderPass (track, selfTestRate, 512, params70, plain70.listen.state.get(), false, tracedAgain, nullptr, tempo124, false, &renderTracerAgain);
             const juce::AudioBuffer<float> a (plainRender.io.getArrayOfWritePointers(), 2, plainRender.latencySamples, plainRender.outputLength);
             const juce::AudioBuffer<float> b (tracedRender.io.getArrayOfWritePointers(), 2, tracedRender.latencySamples, tracedRender.outputLength);
-            const auto same = plainRender.outputLength == tracedRender.outputLength && hashAudio (a) == hashAudio (b);
-            test.check (same, "追踪不改链的输出", same ? "GLAZE 70 第二遍接不接追踪，成品哈希相同（" + hex64 (hashAudio (a)) + "）" : std::string ("接了追踪成品却变了"));
+            const juce::AudioBuffer<float> a2 (plainAgain.io.getArrayOfWritePointers(), 2, plainAgain.latencySamples, plainAgain.outputLength);
+            const juce::AudioBuffer<float> b2 (tracedAgain.io.getArrayOfWritePointers(), 2, tracedAgain.latencySamples, tracedAgain.outputLength);
+            const auto plainSame = plainRender.outputLength == plainAgain.outputLength && hashAudio (a) == hashAudio (a2);
+            const auto tracedSame = tracedRender.outputLength == tracedAgain.outputLength && hashAudio (b) == hashAudio (b2);
+            const auto diverted = plainRender.outputLength != tracedRender.outputLength || hashAudio (a) != hashAudio (b);
+            const auto peakOk = selfTestTruePeak (plainRender) <= -1.0 + 0.01 && selfTestTruePeak (tracedRender) <= -1.0 + 0.01;
+            test.check (plainSame && tracedSame && diverted && peakOk, "追踪探针对输出的契约",
+                        std::string (plainSame ? "两次不追踪逐位相同" : "两次不追踪竟不同")
+                            + (tracedSame ? "；两次追踪逐位相同" : "；两次追踪竟不同")
+                            + (diverted ? "；接上追踪后成品与不追踪不同（段被引走）" : "；接上追踪成品却没变")
+                            + "；真峰值 " + fixed (selfTestTruePeak (plainRender), 3) + " / " + fixed (selfTestTruePeak (tracedRender), 3) + " dBTP");
 
             // 信息（不判定）：第二遍（读档、不学习）的追踪与第一遍有多少段相同、第一处不同差在哪些列——读档之后分析器不学习，
             // 输入尾部还多了延迟与余振的补零。

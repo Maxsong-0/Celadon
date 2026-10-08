@@ -31,7 +31,7 @@
       },
       "glaze": {
         "title": "GLAZE and styles",
-        "summary": "What the big knob means, the four styles, Genre and Delivery, listening and relearning."
+        "summary": "What the big knob means, the four styles, Genre and Delivery, the status line, saving and reopening."
       },
       "balance": {
         "title": "The BALANCE card",
@@ -67,7 +67,7 @@
       },
       "faq": {
         "title": "FAQ",
-        "summary": "No change in sound, lost calibration, the host not seeing the new version…"
+        "summary": "Switching songs, old projects sounding different, the host not seeing the new version…"
       }
     },
     "algorithms": {
@@ -92,8 +92,8 @@
         "summary": "8× detection, 1× application, dual envelopes, triangular attack, period-aware release."
       },
       "glaze": {
-        "title": "GLAZE · decisions and calibration",
-        "summary": "Profile → plan → calibration → protection; Genre and Delivery; saving and reopening."
+        "title": "GLAZE · decisions and following",
+        "summary": "Live profile → plan → output trim → protection; Genre and Delivery; saving."
       },
       "verification": {
         "title": "Performance and verification",
@@ -133,7 +133,7 @@
     "suggestions": [
       "Match",
       "true peak",
-      "Relearn",
+      "Main section",
       "latency",
       "mono"
     ],

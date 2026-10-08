@@ -57,9 +57,9 @@ When you change Lookahead, the new lookahead takes effect — and the new latenc
 
 ## Old projects
 
-- “Loud, not harsh”, Target spectrum, codec margin and dither, added in 0.1.8.5, all load as off in old projects, so they sound exactly as before; only new instances default to Auto.
+- “Loud, not harsh”, Target spectrum, codec margin and dither, added in 0.1.8.5, all load as off in old projects; only new instances default to Auto.
 - If an old project has no saved GLAZE value, it restores to 0 (strictly manual); an explicitly saved 0 stays 0.
-- Genre and Delivery, added in 0.1.8.8, load as General and Standard in old projects, and the saved plan and calibration stay in effect.
+- Genre and Delivery, added in 0.1.8.8, load as General and Standard in old projects. From this version the listening result, plan and calibration saved in an old project are discarded on load, so GLAZE starts following from scratch and the sound changes; you're told once when the project opens. See [An old project sounds different when I open it?](/docs/faq#an-old-project-sounds-different-when-i-open-it).
 - Window scale: `uiScale` from v0.1.7 and earlier is no longer read; old projects open at the default size set in Settings.
 
 ## Settings file (follows you, not the project)

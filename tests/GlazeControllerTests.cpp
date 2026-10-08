@@ -947,68 +947,393 @@ namespace celadon::test
         void runTest() override
         {
             testRestoredLiveSurvivesFirstPrepare();
-            testPhasesAndFlags();
-            testGlazeZeroLearnsButLeavesManualUntouched();
-            testFirstListenButtonRestarts();
-            testRelearnCandidateAndCancel();
-            testDiscontinuitiesClearTheirOwnState();
-            testInternalSliceTimeline();
-            testOfflineDoesNotLearnOrCalibrate();
-            testExecutionSnapshots();
-            testSaveAndRestore();
-            testSampleRateChange();
-            testSameSpecReprepareKeepsHeardExecution();
-            testGlazeAutomationPath();
-            testStyleChangeIsAPlanTransition();
-            testOlderAlgorithmPlanIsKept();
-            testAlgorithmSixProjectIsCurrent();
-            testOldHeatModelIsMigrated();
-            testLiveTameAfterProfileLocks();
-            testLiveToneAfterProfileLocks();
-            testLiveColorAfterProfileLocks();
-            testListenDoesNotPauseCalibration();
-            testConstraintFeedbackConverges();
-            testStuckGuardIsAbsorbed();
-            testAbsorbingFeedbackKeepsCalibration();
-            testProfileMismatch();
-            testIrregularHostTimeline();
+            // 0.1.8.9 起 GLAZE 是连续编排器。本类里其余私有方法仍断言已删除的聆听 → 锁定 → 校准，
+            // 不再调用。等价行为在下面这些用例里，对照 Phase2Contract 与 GlazeController::Impl。
+            testContinuousPhase();
+            testGlazeZeroSnapAndSlew();
+            testStyleChangeDoesNotCalibrate();
+            testTransportAndHostReset();
+            testLiveRoundTrip();
+            testLegacyListenStateColdStarts();
+            testOfflineColdExport();
+            testSameSpecReprepareKeepsLive();
+            testDeterministicReplay();
+            testRatchetBlocksGainRise();
+            testPrepareOrderLogsFirstPrepare();
             testManualComesFirst();
             testNonFiniteOutputAndInputMeter();
             testAudioThreadDoesNotAllocate();
+            testClayNeutralAtGlazeZero();
+        }
 
-            // ---- v0.1.7.0 修坯 Clay（A6）----
-            testClayThreeStates();
-            testClayProfileFormatCompatibility();
-            testClayOldProfileStaysNeutral();
-            testClayTransitionBlend();
-            testClayGuardThroughController();
-            testClayPeakGuardIndicatorThroughController();
-            testClayPressureFeedback();
-            testClayPressurePeakCost();
-            testClaySnapshotRoundTrip();
-            testClaySettingsJoinCalibrationReference();
-            testClayAudioThreadDoesNotAllocate();
+        // 连续编排器：阶段停在 unlearned，聆听 / 锁定 / 校准计数保持 0，requestRelearn 是空操作。
+        void testContinuousPhase()
+        {
+            beginTest ("phase stays unlearned; listen/lock counters stay 0; requestRelearn is a no-op");
 
-            // ---- T-012 阶段 4（ADR-012 修坯根治；审核 V2-03）----
-            testClayCostMaskReachesStatus();
-            testClayRestoreNeedsSupport();
+            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 11, 0.4f), defaultParams (50.0f, 0));
+            auto flagsHeld = true;
 
-            // ---- T-026（BUG-004，ADR-018）----
-            testReferenceSurvivesParameterRoundTrip();
-            testCalibrationSurvivesReopenDrift();
-            testSlowLogKnobSweepIsNotStable();
+            rig.run (4.0, [&] (int)
+            {
+                const auto s = rig.status();
+                flagsHeld = flagsHeld && s.phase == Phase::unlearned && ! s.calibrationValid && ! s.profileReady && ! s.planReady
+                            && s.listenedSeconds == 0.0f && ! s.houseLockPending && ! s.houseOfflineListening && ! s.relearnInProgress
+                            && ! s.profileMismatch;
+            });
 
-            // ---- T-027（参考条件手动参数部分的缓存）----
-            testManualConditionsCacheIsBitExact();
+            const auto before = rig.probe();
+            const auto confidence = rig.status().confidence;
+            rig.chain.requestGlazeRelearn();
+            rig.step();
+            const auto after = rig.probe();
 
-            // ---- T-032（2026-09-29 深度研究 R5-01 / 02 / 03 / 04 / 06 / 08、R6-04、核验 M1 / M2；实施 A6）----
-            testAbandonedRoundIsNotAFailedAttempt();
-            testGuardLimitsFollowEveryPlanChange();
-            testFrozenGuardTimeIsNotHostTime();
-            testReleasingAFrozenExecutionCarriesTheAbsorbedRetreat();
-            testRestoreAndCommitInitialiseRuntimeAlike();
-            testLiveTameNeedsAProfileAndScalesWithConfidence();
-            testT032ControllerDigests();
+            expect (flagsHeld, "phase, calibration and the retired listen flags stay at their phase-2 defaults");
+            expectEquals (before.calibrationBegins, 0, "no calibration round");
+            expectEquals (before.commits, 0, "no profile commit");
+            expectEquals (before.learningStarts, 0, "learning is not started");
+            expectEquals (before.feedbackSteps, 0, "constraint feedback is not stepped");
+            expectEquals (after.commits, before.commits, "requestRelearn does not commit");
+            expectEquals (after.calibrationBegins, before.calibrationBegins, "requestRelearn does not calibrate");
+            expect (sameBits (rig.status().confidence, confidence), "requestRelearn does not clear confidence");
+            expect (std::isfinite (rig.status().effectiveTargetLufs), "GLAZE > 0 publishes a finite continuous target");
+        }
+
+        // GLAZE 0 每块等于手动值；拧起来增益按 0.2 / 1.0 dB/s 滑动；拧回 0 时 trim 与守门归零。
+        void testGlazeZeroSnapAndSlew()
+        {
+            beginTest ("GLAZE 0 matches the manual params; turning it up slews; back to 0 snaps trim and the guard");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 12.0, 12, 0.35f), defaultParams (0.0f, 1));
+            auto exact = true;
+
+            rig.run (2.0, [&] (int)
+            {
+                const auto& effective = rig.chain.getEffectiveParams();
+                const auto probe = rig.probe();
+                exact = exact && sameParams (effective, rig.params) && isNeutralClay (effective.clay)
+                        && probe.appliedBiasDb == 0.0f && probe.executedGuardDb == 0.0f;
+            });
+
+            expect (exact, "GLAZE 0: effective params match the manual ones, Clay stays neutral, trim and guard stay 0");
+
+            rig.params.glazePercent = 70.0f;
+            const auto dt = (double) blockSize / defaultRate;
+            auto slewOk = true;
+            auto previous = rig.probe().increments.limitGainDb;
+            auto rose = 0.0f;
+
+            rig.run (3.0, [&] (int)
+            {
+                const auto gain = rig.probe().increments.limitGainDb;
+                const auto delta = gain - previous;
+
+                if (delta > (float) (0.2 * dt) + 1.0e-4f || delta < (float) (-1.0 * dt) - 1.0e-4f)
+                    slewOk = false;
+
+                rose += juce::jmax (0.0f, delta);
+                previous = gain;
+            });
+
+            logMessage ("  upward slew over 3 s: " + juce::String (rose, 3) + " dB");
+            expect (slewOk, "limit-gain steps stay within 0.2 dB/s up and 1.0 dB/s down");
+            expect (rose > 0.2f, "gain actually slews upward while GLAZE is on");
+            expect (std::isfinite (rig.status().effectiveTargetLufs), "the continuous target stays finite");
+
+            rig.params.glazePercent = 0.0f;
+            rig.step();
+            expectEquals (rig.probe().appliedBiasDb, 0.0f, "GLAZE 0 snaps G_trim to 0");
+            expectEquals (rig.probe().executedGuardDb, 0.0f, "GLAZE 0 snaps the executed guard to 0");
+            expect (sameParams (rig.chain.getEffectiveParams(), rig.params), "GLAZE 0 snaps back to the manual params");
+        }
+
+        void testStyleChangeDoesNotCalibrate()
+        {
+            beginTest ("a style change slews the applied increments and does not start calibration");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 13, 0.4f), defaultParams (60.0f, 1));
+            rig.run (2.0);
+            const auto before = rig.probe().increments;
+            rig.params.glazeStyle = 2;
+            rig.run (2.0);
+            const auto after = rig.probe().increments;
+            const auto moved = std::abs (after.colorGlue - before.colorGlue) + std::abs (after.limitClip - before.limitClip)
+                             + std::abs (after.colorHeat - before.colorHeat);
+            logMessage ("  glue/clip/heat L1 move after warm -> punchy: " + juce::String (moved, 3));
+            expectEquals (rig.probe().calibrationBegins, 0, "a style change does not start calibration");
+            expectEquals (rig.probe().commits, 0, "a style change does not commit a profile");
+            expect (moved > 0.05f, "applied glue / clip / heat slew toward the new style");
+
+            Rig automatic (fastConstants(), makeMusic (defaultRate, 8.0, 131, 0.4f), defaultParams (60.0f, 0));
+            automatic.run (3.0);
+            const auto weights = automatic.committed().lockedWeights;
+            expect (std::abs (weights.warm + weights.punchy + weights.clean - 1.0f) < 1.0e-4f,
+                    "automatic weights stay normalised while they slew");
+        }
+
+        void testTransportAndHostReset()
+        {
+            beginTest ("a stopped cursor move is not a jump; a playing jump and a loop wrap are counted; host reset keeps confidence");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 14, 0.4f), defaultParams (40.0f));
+            rig.run (1.0);
+
+            rig.host.isPlaying = false;
+            const auto jumpsWhileStopped = rig.probe().transportJumps;
+            rig.position += 48000;
+            rig.step();
+            expectEquals (rig.probe().transportJumps, jumpsWhileStopped, "moving the cursor while stopped is not a jump");
+
+            rig.host.isPlaying = true;
+            rig.position += 96000;
+            rig.step();
+            expectEquals (rig.probe().transportJumps, jumpsWhileStopped + 1, "a jump while playing is counted");
+
+            rig.host.hasLoop = true;
+            rig.host.looping = true;
+            const auto wrapsBefore = rig.probe().loopWraps;
+            const auto jumpsBeforeWrap = rig.probe().transportJumps;
+            rig.position -= 24000;
+            rig.step();
+            expectEquals (rig.probe().loopWraps, wrapsBefore + 1, "a backward move inside a loop is a wrap");
+            expectEquals (rig.probe().transportJumps, jumpsBeforeWrap, "a loop wrap is not also a jump");
+
+            const auto resets = rig.probe().hostResets;
+            const auto confidence = rig.status().confidence;
+            rig.chain.restartWithFadeIn();
+            rig.step();
+            expectEquals (rig.probe().hostResets, resets + 1, "restartWithFadeIn counts a host reset");
+            expect (sameBits (rig.status().confidence, confidence), "host reset does not clear confidence");
+            expect (rig.phase() == Phase::unlearned, "phase stays unlearned across the reset");
+        }
+
+        void testLiveRoundTrip()
+        {
+            beginTest ("LIVE format 2 restores the applied increments; two restores replay bit-identically");
+
+            const auto material = makeMusic (defaultRate, 8.0, 15, 0.4f);
+            Rig donor (fastConstants(), material, defaultParams (45.0f, 1));
+            donor.run (6.0);
+            const auto xml = donor.chain.createGlazeStateXml();
+            expect (xml != nullptr && xml->getIntAttribute ("formatVersion") == glaze::liveContainerFormatVersion, "the container is LIVE format 2");
+            expect (xml->getChildByName ("PLAN") == nullptr && xml->getChildByName ("CALIBRATION") == nullptr
+                        && xml->getChildByName (glaze::profileTag) == nullptr,
+                    "the v2 container does not keep listen/lock nodes");
+
+            const auto savedInc = donor.probe().increments;
+            const auto savedTrim = donor.probe().appliedBiasDb;
+            Rig restored (fastConstants(), material, donor.params);
+            restored.chain.restoreGlazeStateXml (xml.get());
+            expect (sameIncrements (restored.probe().increments, savedInc), "restore puts the applied increments back before the next block");
+            expectEquals (restored.probe().appliedBiasDb, savedTrim, "restore puts G_trim back");
+            expect (! restored.status().legacySessionDiscarded, "a v2 restore clears the legacy notice");
+
+            Rig a (fastConstants(), material, donor.params);
+            Rig b (fastConstants(), material, donor.params);
+            a.chain.restoreGlazeStateXml (xml.get());
+            b.chain.restoreGlazeStateXml (xml.get());
+            auto identical = true;
+
+            for (int i = 0; i < a.blocksFor (2.0); ++i)
+            {
+                a.step();
+                b.step();
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    identical = identical && std::memcmp (a.buffer.getReadPointer (ch), b.buffer.getReadPointer (ch),
+                                                          sizeof (float) * (size_t) blockSize) == 0;
+            }
+
+            expect (identical, "two restores of the same LIVE replay bit-identically");
+
+            donor.chain.restoreGlazeStateXml (nullptr);
+            donor.step();
+            expect (! donor.status().legacySessionDiscarded, "a null restore cold-starts without the legacy notice");
+            expect (donor.phase() == Phase::unlearned, "a null restore stays unlearned");
+        }
+
+        void testLegacyListenStateColdStarts()
+        {
+            beginTest ("a v1 listen/lock tree cold-starts and raises legacySessionDiscarded");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 4.0, 16, 0.3f), defaultParams (40.0f));
+            rig.run (1.0);
+            auto xml = std::make_unique<juce::XmlElement> (glaze::stateTag);
+            xml->setAttribute ("formatVersion", 1);
+            xml->createNewChildElement (glaze::profileTag);
+            xml->createNewChildElement ("PLAN");
+            xml->createNewChildElement ("CALIBRATION");
+            rig.chain.restoreGlazeStateXml (xml.get());
+            rig.step();
+
+            expect (rig.status().legacySessionDiscarded, "v1 listen/lock state raises the legacy notice");
+            expect (! rig.status().calibrationValid && ! rig.status().profileReady && ! rig.status().clayNeedsRelearn,
+                    "the old profile and calibration are not kept, and Clay does not ask for a relearn");
+            expectEquals (rig.probe().commits, 0, "the cold start does not commit");
+            expectEquals (rig.probe().calibrationBegins, 0, "the cold start does not calibrate");
+            rig.chain.requestGlazeRelearn();
+            rig.step();
+            expectEquals (rig.probe().commits, 0, "requestRelearn does not commit a replacement profile");
+        }
+
+        void testOfflineColdExport()
+        {
+            beginTest ("offline while confidence < 0.5 sets coldExport; it clears once confidence reaches 0.5");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 30.0, 17, 0.35f), defaultParams (40.0f));
+            rig.tempoBpm = 120.0;
+            rig.host.offline = true;
+            rig.run (2.0);
+            expect (rig.status().confidence < 0.5f && rig.status().coldExport, "cold export while the profile is still starting");
+            expect (rig.chain.getAndResetOutputTruePeakDb() <= rig.params.limit.ceilingDb + 0.01f,
+                    "true peak stays within the ceiling during the cold export");
+
+            rig.host.offline = false;
+            const auto ready = rig.runUntil (24.0, [&] { return rig.status().confidence >= 0.5f; });
+            logMessage ("  confidence after playback " + juce::String (rig.status().confidence, 3));
+            expect (ready, "confidence reaches 0.5 on continued playback");
+            expect (! rig.status().coldExport, "online playback is not a cold export");
+
+            rig.host.offline = true;
+            rig.step();
+            expect (rig.status().confidence >= 0.5f && ! rig.status().coldExport, "offline with confidence >= 0.5 is not a cold export");
+        }
+
+        void testSameSpecReprepareKeepsLive()
+        {
+            beginTest ("preparing again at the same spec keeps the LIVE profile");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 24.0, 18, 0.35f), defaultParams (50.0f));
+            rig.tempoBpm = 120.0;
+            const auto heard = rig.runUntil (20.0, [&] { return rig.chain.getLiveProfile().getProfile().integratedLufs.valid; });
+            const auto before = rig.chain.getLiveProfile().getProfile().integratedLufs;
+            expect (heard && before.valid, "fixture produced an integrated loudness");
+            rig.reprepare (defaultRate);
+            const auto after = rig.chain.getLiveProfile().getProfile().integratedLufs;
+            expect (after.valid && sameBits (after.value, before.value), "same-spec prepare restores I bit-exactly");
+        }
+
+        void testDeterministicReplay()
+        {
+            beginTest ("two identical runs are bit-identical and stay under the true-peak ceiling");
+
+            const auto material = makeMusic (defaultRate, 6.0, 19, 0.4f);
+            const auto params = defaultParams (55.0f, 2);
+            Rig a (fastConstants(), material, params);
+            Rig b (fastConstants(), material, params);
+            auto identical = true;
+
+            for (int i = 0; i < a.blocksFor (4.0); ++i)
+            {
+                a.step();
+                b.step();
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    identical = identical && std::memcmp (a.buffer.getReadPointer (ch), b.buffer.getReadPointer (ch),
+                                                          sizeof (float) * (size_t) blockSize) == 0;
+            }
+
+            expect (identical, "same input, block size and params replay bit-identically");
+            expect (a.chain.getAndResetOutputTruePeakDb() <= params.limit.ceilingDb + 0.01f, "true peak stays within the ceiling");
+        }
+
+        void testRatchetBlocksGainRise()
+        {
+            beginTest ("while current mainness is below 0.5, automatic limit gain does not rise");
+
+            Rig rig (fastConstants(), makeMusic (defaultRate, 8.0, 20, 0.5f), defaultParams (70.0f));
+            rig.tempoBpm = 124.0;
+            rig.run (6.0);
+
+            auto quiet = makeSilence (numChannels, (int) (8.0 * defaultRate));
+            juce::Random random (20);
+
+            for (auto& channel : quiet)
+                for (auto& sample : channel)
+                    sample = (random.nextFloat() * 2.0f - 1.0f) * 1.0e-4f;
+
+            rig.source = std::move (quiet);
+            rig.sourceIndex = 0;
+            auto sawQuiet = false, held = true;
+            auto ceiling = rig.probe().increments.limitGainDb;
+
+            rig.run (8.0, [&] (int)
+            {
+                if (rig.status().currentMainness >= 0.5f)
+                    return;
+
+                const auto gain = rig.probe().increments.limitGainDb;
+
+                if (! sawQuiet)
+                    ceiling = gain;
+
+                sawQuiet = true;
+                held = held && gain <= ceiling + 1.0e-4f;
+            });
+
+            logMessage ("  quiet section mainness " + juce::String (rig.status().currentMainness, 3)
+                        + ", saw m < 0.5 " + juce::String ((int) sawQuiet));
+            expect (sawQuiet, "fixture: the quiet section drops mainness below 0.5");
+            expect (held, "ratchet: limit gain does not rise while mainness < 0.5");
+        }
+
+        // 正确的宿主顺序是先 prepare 再读档。先读档再第一次 prepare 会丢掉 LIVE（CeladonChain::prepare 只在 hasPrepared 时留档）。
+        // 这里只断言能保住的那条路，并把另一条路的读数打进日志，不把它写成通过条件。
+        void testPrepareOrderLogsFirstPrepare()
+        {
+            beginTest ("prepare then restore keeps LIVE; restore before the first prepare is only logged");
+
+            const auto material = makeMusic (defaultRate, 16.0, 21, 0.4f);
+            const auto params = defaultParams (40.0f);
+            Rig donor (fastConstants(), material, params);
+            donor.tempoBpm = 120.0;
+            const auto heard = donor.runUntil (16.0, [&] { return donor.chain.getLiveProfile().getProfile().integratedLufs.valid; });
+            const auto xml = donor.chain.createGlazeStateXml();
+            const auto kept = donor.chain.getLiveProfile().getProfile().integratedLufs;
+            expect (heard && xml != nullptr && kept.valid, "fixture has a LIVE profile to restore");
+
+            Rig good (fastConstants(), material, params);
+            good.chain.restoreGlazeStateXml (xml.get());
+            const auto restored = good.chain.getLiveProfile().getProfile().integratedLufs;
+            expect (restored.valid && sameBits (restored.value, kept.value), "prepare then restore keeps I bit-exactly");
+
+            CeladonChain wiped;
+            wiped.getGlazeController().setConstantsForTesting (fastConstants());
+            wiped.restoreGlazeStateXml (xml.get());
+            wiped.setParams (params, false);
+            wiped.prepare ({ defaultRate, (juce::uint32) blockSize, (juce::uint32) numChannels });
+            const auto wipedI = wiped.getLiveProfile().getProfile().integratedLufs;
+            logMessage ("  restore-before-first-prepare I valid " + juce::String ((int) wipedI.valid)
+                        + " value " + juce::String (wipedI.value, 3) + "; prepare-then-restore I " + juce::String (restored.value, 3));
+        }
+
+        void testClayNeutralAtGlazeZero()
+        {
+            beginTest ("Clay automatic is neutral at GLAZE 0; a manual low cut is exact and audible");
+
+            auto manual = defaultParams (0.0f, 0);
+            manual.claySettings.lowCutMode = ClayMode::manual;
+            manual.claySettings.lowCutHz = 30.0f;
+            const auto material = makeClayMaterial (false, true, 22);
+            Rig automatic (clayConstants(), material, defaultParams (0.0f));
+            Rig manualRig (clayConstants(), material, manual);
+            auto neutral = true, manualExact = true, differ = false;
+
+            for (int i = 0; i < automatic.blocksFor (1.0); ++i)
+            {
+                automatic.step();
+                manualRig.step();
+                neutral = neutral && isNeutralClay (automatic.chain.getEffectiveParams().clay);
+                manualExact = manualExact && manualRig.chain.getEffectiveParams().clay.lowCutHz == 30.0f;
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int sample = 0; sample < blockSize; ++sample)
+                        differ = differ || automatic.buffer.getSample (ch, sample) != manualRig.buffer.getSample (ch, sample);
+            }
+
+            expect (neutral, "automatic Clay is neutral on every block at GLAZE 0");
+            expect (manualExact, "the manual low cut is exactly 30 Hz at GLAZE 0");
+            expect (differ, "the manual low cut changes the output at GLAZE 0");
         }
 
     private:
@@ -3045,24 +3370,28 @@ namespace celadon::test
             beginTest ("manual first: effective Limit Gain never below the manual value; limited-by-manual adds nothing automatic");
 
             {
-                Rig rig (withTightLimitBudgets (fastConstants()), makeMusic (defaultRate, 8.0, 25, 0.3f));   // 保护层要出手（TestHelpers.h 的说明）
-                rig.params.glazePercent = 100.0f;
+                // 连续编排器的增益按 0.2 dB/s 爬，6 s 里加不上旧锁定方案那几 dB。素材再推 18 dB，
+                // 限幅 GR 才会越过收紧后的峰值预算，保护层才有得退。断言本身不放宽：退让必须出现，增益不得低于手动值，真峰值守住 Ceiling。
+                Rig rig (withTightLimitBudgets (fastConstants()), makeMusic (defaultRate, 8.0, 25, 0.3f), defaultParams (100.0f, 2));
                 rig.params.limit.gainDb = 3.0f;
-                rig.run (6.0);
-                rig.sourceGain = 3.0f;
+                rig.run (2.0);
+                rig.sourceGain = 8.0f;
 
                 bool neverBelow = true;
                 float deepestGuard = 0.0f;
 
-                rig.run (20.0, [&] (int)
+                rig.run (8.0, [&] (int)
                 {
                     neverBelow = neverBelow && rig.chain.getEffectiveParams().limit.gainDb >= rig.params.limit.gainDb;
                     deepestGuard = juce::jmin (deepestGuard, rig.probe().executedGuardDb);
                 });
 
-                logMessage ("  deepest executed protection offset " + juce::String (deepestGuard, 2) + " dB with manual gain 3 dB");
+                const auto peak = rig.chain.getAndResetOutputTruePeakDb();
+                logMessage ("  deepest executed protection offset " + juce::String (deepestGuard, 2) + " dB with manual gain 3 dB; true peak "
+                            + juce::String (peak, 2) + " dBTP");
                 expect (deepestGuard < 0.0f, "the guard did act");
                 expect (neverBelow, "effective Limit Gain >= manual Limit Gain on every block");
+                expect (peak <= rig.params.limit.ceilingDb + 0.01f, "true peak stays within the ceiling while the guard retreats");
             }
 
             {
@@ -3137,7 +3466,8 @@ namespace celadon::test
             }
 
             expect (finiteAfter && ! reportedAfter, "recovers on the next blocks");
-            expect (rig.phase() == Phase::listening, "still listening");
+            expect (rig.phase() == Phase::unlearned && ! rig.status().calibrationValid,
+                    "phase stays unlearned; the non-finite restart does not begin calibration");
         }
 
         // 15. 音频线程零分配：一条链走完聆听、提交、过渡、校准、换风格、约束反馈、跳播 / 回绕 / reset、离线切换、重新聆听请求、
@@ -3208,9 +3538,11 @@ namespace celadon::test
                         + ", jumps " + juce::String (probe.transportJumps) + ", wraps " + juce::String (probe.loopWraps));
 
             expect (finite, "output finite throughout");
-            expect (probe.commits >= 1 && probe.planTransitions >= 2 && probe.calibrationBegins >= 1 && probe.feedbackSteps >= 1
-                    && probe.transportJumps >= 1 && probe.loopWraps >= 1 && probe.hostResets >= 1,
-                    "the run went through the paths it claims to cover");
+            expect (probe.commits == 0 && probe.calibrationBegins == 0 && probe.learningStarts == 0 && probe.feedbackSteps == 0,
+                    "listen/lock/calibration/feedback counters stay at 0 on the continuous orchestrator");
+            expect (probe.transportJumps >= 1 && probe.loopWraps >= 1 && probe.hostResets >= 1,
+                    "the run still covers jumps, loop wraps and a host reset");
+            expect (rig.phase() == Phase::unlearned, "phase stays unlearned through the path sweep");
             expectEquals ((juce::int64) allocations, (juce::int64) 0, "audio thread must not allocate");
         }
 
@@ -5856,19 +6188,181 @@ namespace celadon::test
 
         void runTest() override
         {
-            testLockConditions();
-            testFastTransitionAtTheDrop();
-            testReopenAfterLock();
-            testQuieterSectionsNeverReopen();
-            testGenreSwitches();
-            testDeliveryChangeRecalibrates();
-            testGeneralBitExactWithTempo();
-            testStatusFields();
-            testHouseAudioThreadDoesNotAllocate();
-            testHousePhaseHintEndToEnd();   // 集成时追加（B 报告遗留：合并 C 之后补端到端）
-            testCalibrationOnlyInMainSection();   // 评审 F1
-            testOfflineExportWhileListeningIsFlagged();   // 评审 F7
-            testReopenAfterReloadCarriesBlendLoss();   // T-049
+            // House 的锁定 / 重开 / 暂定方案已经删掉。下面的旧方法不再调用。
+            testHouseStaysUnlocked();
+            testBeatReleaseCap();
+            testTempoDeterminism();
+            testDeliveryChangeDoesNotCalibrate();
+            testHouseColdExportAndTruePeak();
+            testHouseAudioThreadAllocation();
+        }
+
+        void testHouseStaysUnlocked()
+        {
+            beginTest ("House plays continuously: no lock, no commit, houseLockPending stays false");
+
+            const auto song = makeHouseSong (defaultRate, { { 8, false, 1.0f }, { 12, true, 1.0f } }, 61);
+            Rig rig (houseConstants (12, 4), song, houseParams (60.0f));
+            rig.tempoBpm = houseBpm;
+            auto flagsHeld = true;
+
+            rig.run (12.0, [&] (int)
+            {
+                const auto s = rig.status();
+                flagsHeld = flagsHeld && s.houseActive && s.phase == Phase::unlearned && ! s.houseLockPending
+                            && ! s.houseOfflineListening && ! s.profileReady && ! s.calibrationValid;
+            });
+
+            const auto probe = rig.probe();
+            expect (flagsHeld, "House stays active without the retired lock flags");
+            expectEquals (probe.commits, 0, "House does not commit a candidate");
+            expectEquals (probe.calibrationBegins, 0, "House does not calibrate");
+            expectEquals (probe.houseReopens, 0, "House does not reopen");
+            expect (! rig.chain.getGlazeController().getCommittedStateForTesting().profile.houseGate.valid,
+                    "the followed profile does not carry a house gate");
+        }
+
+        void testBeatReleaseCap()
+        {
+            beginTest ("House plus tempo sets the beat-release cap; general plus tempo leaves it at 0");
+
+            const auto song = makeHouseSong (defaultRate, { { 4, true, 1.0f } }, 62);
+            Rig house (fastConstants(), song, houseParams (40.0f, 1));
+            house.tempoBpm = houseBpm;
+            house.step();
+            const auto expected = (float) (60000.0 / houseBpm / 3.0);
+            expectWithinAbsoluteError (house.chain.getEffectiveParams().limit.beatReleaseCapMs, expected, 0.01f,
+                                       "House at 124 BPM caps the slow release at 60000/124/3 ms");
+
+            Rig general (fastConstants(), song, houseParams (40.0f, 0));
+            general.tempoBpm = houseBpm;
+            general.step();
+            expectEquals (general.chain.getEffectiveParams().limit.beatReleaseCapMs, 0.0f,
+                          "general plus tempo does not cap the release");
+
+            Rig untapped (fastConstants(), song, houseParams (40.0f, 1));
+            untapped.step();
+            expectEquals (untapped.chain.getEffectiveParams().limit.beatReleaseCapMs, 0.0f,
+                          "House without tempo does not cap the release");
+        }
+
+        void testTempoDeterminism()
+        {
+            beginTest ("two tempo renders are bit-identical; general audio may differ when tempo is supplied");
+
+            const auto song = makeHouseSong (defaultRate, { { 4, true, 1.0f } }, 63);
+            const auto render = [&] (int genre, double tempo)
+            {
+                Rig rig (fastConstants(), song, houseParams (35.0f, genre));
+                rig.tempoBpm = tempo;
+                std::vector<float> out ((size_t) rig.blocksFor (2.0) * (size_t) blockSize);
+
+                for (int b = 0; b < rig.blocksFor (2.0); ++b)
+                {
+                    rig.step();
+                    std::memcpy (out.data() + (size_t) b * (size_t) blockSize, rig.buffer.getReadPointer (0),
+                                 sizeof (float) * (size_t) blockSize);
+                }
+
+                return out;
+            };
+
+            const auto tempoA = render (0, houseBpm);
+            const auto tempoB = render (0, houseBpm);
+            const auto plain = render (0, 0.0);
+            const auto houseA = render (1, houseBpm);
+            const auto houseB = render (1, houseBpm);
+            expect (tempoA == tempoB, "repeating the general tempo render is bit-identical");
+            expect (houseA == houseB, "repeating the House tempo render is bit-identical");
+            logMessage ("  general with tempo vs without: " + juce::String (tempoA == plain ? "bit-identical" : "different")
+                        + " (phase 2 may consume PPQ for every genre; the release cap stays 0)");
+        }
+
+        void testDeliveryChangeDoesNotCalibrate()
+        {
+            beginTest ("a delivery change replans both targets and does not start calibration");
+
+            const auto song = makeHouseSong (defaultRate, { { 8, true, 1.0f } }, 64);
+            Rig rig (fastConstants(), song, houseParams (50.0f, 1));
+            rig.tempoBpm = houseBpm;
+            rig.run (3.0);
+            const auto before = rig.status().effectiveTargetLufs;
+            rig.params.glazeDelivery = 1;
+            rig.run (2.0);
+            const auto after = rig.status().effectiveTargetLufs;
+            logMessage ("  target " + juce::String (before, 2) + " -> " + juce::String (after, 2) + " LUFS");
+            expect (std::isfinite (before) && std::isfinite (after), "both deliveries publish a finite target");
+            expectEquals (rig.probe().calibrationBegins, 0, "a delivery change does not calibrate");
+            expectEquals (rig.probe().commits, 0, "a delivery change does not commit");
+        }
+
+        void testHouseColdExportAndTruePeak()
+        {
+            beginTest ("House offline export is cold while confidence is low, and the true peak holds");
+
+            const auto song = makeHouseSong (defaultRate, { { 16, true, 1.0f } }, 65);
+            Rig rig (fastConstants(), song, houseParams (45.0f, 1));
+            rig.tempoBpm = houseBpm;
+            rig.host.offline = true;
+            rig.run (2.0);
+            expect (rig.status().coldExport && rig.status().confidence < 0.5f, "offline House with low confidence is a cold export");
+            expect (rig.chain.getAndResetOutputTruePeakDb() <= rig.params.limit.ceilingDb + 0.01f,
+                    "true peak stays within the ceiling");
+            expectEquals (rig.probe().commits, 0, "the cold export does not lock");
+        }
+
+        void testHouseAudioThreadAllocation()
+        {
+            beginTest ("House setHostInfo / setParams / process / getStatus do not allocate");
+
+            const auto song = makeHouseSong (defaultRate, { { 8, false, 1.0f }, { 8, true, 1.0f } }, 66);
+            Rig rig (fastConstants(), song, houseParams (50.0f, 1));
+            rig.tempoBpm = houseBpm;
+            std::uint64_t allocations = 0;
+            auto finite = true;
+
+            for (int b = 0; b < rig.blocksFor (8.0); ++b)
+            {
+                if (b == rig.blocksFor (3.0))
+                    rig.params.glazeDelivery = 2;
+
+                if (b == rig.blocksFor (5.0))
+                    rig.position += 96000;
+
+                const auto length = (size_t) rig.source.front().size();
+                rig.buffer.setSize (numChannels, blockSize, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < blockSize; ++i)
+                        rig.buffer.setSample (ch, i, rig.source[(size_t) ch][(rig.sourceIndex + (size_t) i) % length]);
+
+                rig.sourceIndex = (rig.sourceIndex + (size_t) blockSize) % length;
+                rig.host.positionSamples = rig.position;
+                rig.host.hasTempo = true;
+                rig.host.bpm = rig.tempoBpm;
+                rig.host.hasPpq = true;
+                rig.host.ppqPosition = (double) rig.position * rig.tempoBpm / (60.0 * defaultRate);
+                rig.host.hasBarStart = true;
+                rig.host.ppqLastBarStart = std::floor (rig.host.ppqPosition / 4.0) * 4.0;
+                rig.host.hasTimeSignature = true;
+
+                const auto before = allocationCountOnThisThread();
+                rig.chain.setHostInfo (rig.host);
+                rig.chain.setParams (rig.params, false);
+                rig.chain.process (rig.buffer);
+                juce::ignoreUnused (rig.chain.getGlazeStatus());
+                allocations += allocationCountOnThisThread() - before;
+                rig.position += blockSize;
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < blockSize; ++i)
+                        finite = finite && std::isfinite (rig.buffer.getSample (ch, i));
+            }
+
+            expect (finite, "output finite throughout");
+            expectEquals (rig.probe().commits, 0, "the allocation sweep does not commit");
+            expect (rig.probe().transportJumps >= 1, "the sweep covered a transport jump");
+            expectEquals ((juce::int64) allocations, (juce::int64) 0, "audio thread must not allocate");
         }
 
     private:

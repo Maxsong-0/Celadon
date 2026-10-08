@@ -48,4 +48,4 @@ Preset shapes: Warm −1.5, Neutral −0.75, Bright 0 dB / octave (pivoting at 1
 
 ## Old projects and defaults
 
-When you load an old project that doesn't contain these parameters, “Loud, not harsh”, Target spectrum, codec margin and dither are all off, so it sounds exactly as before. New instances default to “Loud, not harsh” on Auto (Amount 50, Transients 50) and Target spectrum on Auto (Amount 35): at GLAZE 35% that's at most about 0.53 dB of harshness reduction per band and about ±0.31 dB of target correction; at GLAZE 0 both are zero.
+When you load an old project that doesn't contain these parameters, “Loud, not harsh”, Target spectrum, codec margin and dither are all off. New instances default to “Loud, not harsh” on Auto (Amount 50, Transients 50) and Target spectrum on Auto (Amount 35): at GLAZE 35% that's at most about 0.53 dB of harshness reduction per band and about ±0.31 dB of target correction; at GLAZE 0 both are zero. For why an old project's GLAZE sound changes, see [An old project sounds different when I open it?](/docs/faq#an-old-project-sounds-different-when-i-open-it).

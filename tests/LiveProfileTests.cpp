@@ -158,19 +158,6 @@ namespace celadon::test
         // 口径同 MusicAnalyzer.cpp 的几个小函数（测试里的参照计算用）。
         double lufsOf (double meanSquare)   { return -0.691 + 10.0 * std::log10 (meanSquare); }
 
-        int firstBinAtOrAbove (double gate)
-        {
-            const auto position = (gate + 70.0) * 10.0 - 0.5;
-            return position <= 0.0 ? 0 : position >= 800.0 ? 800 : (int) std::ceil (position);
-        }
-
-        double binCentre (int bin)   { return -70.0 + ((double) bin + 0.5) / 10.0; }
-
-        float fractionOf (double numerator, double fullScale)
-        {
-            return fullScale > 0.0 ? (float) juce::jlimit (0.0, 1.0, numerator / fullScale) : 0.0f;
-        }
-
         //==============================================================================
         // 合成段：一小节的读数，各字段按 SegmentLedger::deriveSegment 与分析器的记账口径自洽地造。
         struct Spec
@@ -673,17 +660,6 @@ namespace celadon::test
             return signal;
         }
 
-        // 存下的段拷一份、把学习期的试算拷进实时那几项（House 门控那一份账本的 live* 只在学习期间记，与 trial* 同值；BRIEF 等价性用例的做法）。
-        Segment withLiveTrials (const Segment& stored)
-        {
-            auto segment = stored;
-            segment.liveTrialBlocks = stored.trialBlocks;
-            segment.liveTrialTop = stored.trialTop;
-            segment.liveBlendIntended = stored.blendIntended;
-            segment.liveBlendOutput = stored.blendOutput;
-            return segment;
-        }
-
         // 一串段（交来的顺序、时刻都按 makeSegment 的小节网格）。
         std::vector<Segment> mixedSequence (int count, std::uint32_t seedBase = 100)
         {
@@ -740,244 +716,71 @@ namespace celadon::test
 
     private:
         //==============================================================================
-        // a. 等价性锚点（LiveProfile.h 文件头第四节）。分析器 House 档 16 小节前奏 + 16 小节 drop，学习中（试算跑着）；lockSegments = 1
-        // 让 House 的代表性只看不重复素材（= 1），实时画像的 M0 取极小（c = 1）——两边的置信度都只剩各特征的观测充分度，可以逐位比。
-        // 实时画像：遗忘与事件全关、斜坡宽 1e-6（硬门）、参考冻结为账本最终的 S_ref / lowRef，每段的 m′ 就是账本的 full（逐段核对）。
-        // 容差（其余逐位）：
-        //   - I / PLR ≤ 1e-4（两遍门限都逐块做，同 House 的公式与求和顺序，实测逐位）；
-        //   - 试算代价 ≤ 0.01 dB：每路 P99 由 0.01 dB 一格的直方图按格中心插值，每个 P99 ≤ 半格 0.005 dB；
-        //   - LRA：4/4 型主段加权，与 House（只用满编段）逐位；响度型用全部段，对照是测试里按 House 同一公式在全部存下的段上算的参照，逐位；
-        //   - 按设计不同、单独核对的字段：effectiveSeconds（= M = 满编段有效时长之和）、formatVersion（2 / 3）、houseGate（不填）。
+        // a. 阶段 2 锚点。House 候选画像与 House 门控账已退役（startLearning / getCandidateProfile 不再产出画像）。
+        // 复现：AnalyzerRig，Deep House，setLiveMode(true) 之后再喂 makeIntroDrop(16, 16, 1.0)、块长 512、夹具自带的 124 BPM 宿主，
+        // 然后 setLiveMode(false) 让开口的段定稿。两份遗忘关掉的 LiveProfile 吃同一份实时账，画像与诊断必须逐位相同。
+        // 不跟已退役的候选画像比，也不抄 trial* 去填 live*。
         void testHouseEquivalence()
         {
-            beginTest ("a. equivalence anchor: forgetting off, references frozen to the ledger's, hard gates -> the analyzer's House profile");
+            beginTest ("a. live-ledger anchor: the House candidate stays invalid; two LiveProfiles fed the live ledger are bit-identical");
 
             AnalyzerRig rig;
-            glaze::HouseConstants house;
-            house.lockSegments = 1;
-            rig.analyzer.setHouseConstants (house);
             rig.analyzer.setGenre (glaze::Genre::deepHouse);
-            rig.analyzer.startLearning();
+            rig.analyzer.setLiveMode (true);
             rig.feed (makeIntroDrop (16, 16, 1.0), 512);
+            rig.analyzer.setLiveMode (false);
 
             const auto& ledger = rig.analyzer.getSegmentLedger();
-            const auto& expected = rig.analyzer.getCandidateProfile();
-            const auto& gate = expected.houseGate;
+            const auto& candidate = rig.analyzer.getCandidateProfile();
+            auto trialBlocks = 0;
 
-            auto hard = noForgetting();
-            hard.fourOnFloor.loudnessRampLu = 1.0e-6f;
-            hard.fourOnFloor.lowRampWidth = 1.0e-6f;
+            for (int i = 0; i < ledger.getNumStored(); ++i)
+                trialBlocks += ledger.getStored (i).liveTrialBlocks;
 
-            LiveProfile live;
-            setUp (live, hard);
-            live.setFrozenReferencesForTesting (true, gate.referenceLufs, gate.lowShareReference);
-            LiveProfile computed;   // 同样的常数，参考不冻结（自己按窗口算）
-            setUp (computed, hard);
-            int fullSegments = 0, fullTrialBlocks = 0;
-            auto allHeard = true;
-            auto nearestGate = 1.0e9;
+            logMessage ("  stored " + juce::String (ledger.getNumStored()) + ", live trial blocks " + juce::String (trialBlocks)
+                        + "; candidate I valid " + juce::String ((int) candidate.integratedLufs.valid)
+                        + ", houseGate valid " + juce::String ((int) candidate.houseGate.valid));
+
+            expect (! candidate.integratedLufs.valid && ! candidate.houseGate.valid, "the retired House candidate profile stays invalid");
+            expect (ledger.getNumStored() >= 14, "live mode stored the bars");
+            expect (trialBlocks > 0, "live trials were recorded on the stored segments");
+
+            const auto hard = noForgetting();
+            LiveProfile first, second;
+            setUp (first, hard);
+            setUp (second, hard);
 
             for (int i = 0; i < ledger.getNumStored(); ++i)
             {
                 const auto& stored = ledger.getStored (i);
-                live.segmentFinalized (withLiveTrials (stored));
-                computed.segmentFinalized (withLiveTrials (stored));
-                live.flush();
-                computed.flush();
-                allHeard = allHeard && stored.heard;
-
-                if (stored.loudnessValid)
-                    nearestGate = juce::jmin (nearestGate, std::abs ((double) stored.loudnessLufs - ((double) gate.referenceLufs - 3.0)));
-
-                if (stored.lowShareValid)
-                    nearestGate = juce::jmin (nearestGate, std::abs ((double) stored.lowShare / (double) gate.lowShareReference - 0.6));
-
-                if (stored.full)
-                {
-                    ++fullSegments;
-                    fullTrialBlocks += stored.trialBlocks;
-                }
+                first.segmentFinalized (stored);
+                second.segmentFinalized (stored);
+                first.flush();
+                second.flush();
             }
 
-            const auto& p = live.getProfile();
-            logMessage ("  stored " + juce::String (ledger.getNumStored()) + ", full " + juce::String (fullSegments) + " (trial blocks "
-                        + juce::String (fullTrialBlocks) + "); House I " + juce::String (expected.integratedLufs.value, 4) + ", live I "
-                        + juce::String (p.integratedLufs.value, 4) + "; S_ref ledger " + juce::String (gate.referenceLufs, 2) + ", computed "
-                        + juce::String (computed.getDiagnostics().referenceLufs, 2) + "; lowRef ledger " + juce::String (gate.lowShareReference, 4)
-                        + ", computed " + juce::String (computed.getDiagnostics().lowReference, 4) + "; nearest reading to a gate "
-                        + juce::String (nearestGate, 4));
+            expect (sameProfile (first.getProfile(), second.getProfile()), "two profiles fed the same live ledger are bit-identical");
+            expect (sameDiagnostics (first.getDiagnostics(), second.getDiagnostics()), "diagnostics are bit-identical");
 
-            // 用例的前提：drop 都是满编段；试算块在 10 s ～ 512 块之间（House 不走「不够 10 s 改用全部段」与 512 块截断）；代表性 = 1；
-            // 没有一段的读数贴着门（硬门的斜坡宽 1e-6：贴着门的段 m′ 会是 0.5，House 是 1）。
-            expect (gate.valid && fullSegments >= 14 && fullSegments <= 17, "the full segments are the drop bars");
-            expect (fullTrialBlocks >= 100 && fullTrialBlocks <= 512, "full-segment trial blocks within 10 s ... 512 blocks");
-            expect (sameFloat (expected.representativeness, 1.0f) && sameFloat (p.representativeness, 1.0f), "both representativeness 1");
-            expect (nearestGate >= 1.0e-3, "no reading within 1e-3 of either gate");
+            const auto& profile = first.getProfile();
+            expect (profile.integratedLufs.valid && std::isfinite (profile.integratedLufs.value), "I is finite");
+            expect (profile.formatVersion == glaze::clayProfileFormatVersion, "format is the live clay profile");
+            expect (! profile.houseGate.valid, "houseGate is not filled");
+            expect (profile.representativeness > 0.0f && profile.representativeness <= 1.0f, "representativeness is in (0, 1]");
+            expect (first.getDiagnostics().confidence > 0.5f, "confidence is high after 16 drop bars: "
+                        + juce::String (first.getDiagnostics().confidence, 3));
 
-            // 每段的 m′ = 账本的 full（硬门、冻结参考）。
-            {
-                const auto judgements = judgementsOf (live);
-                auto same = judgements.size() == (size_t) ledger.getNumStored();
+            const auto judgements = judgementsOf (first);
+            expect (judgements.size() == (size_t) ledger.getNumStored(), "one judgement per stored segment");
 
-                for (size_t i = 0; same && i < judgements.size(); ++i)
-                    same = sameFloat (judgements[i].mainness, ledger.getStored ((int) i).full ? 1.0f : 0.0f);
+            for (const auto& judgement : judgements)
+                expect (std::isfinite (judgement.mainness) && judgement.mainness >= 0.0f && judgement.mainness <= 1.0f,
+                        "every m' is finite and inside [0, 1]");
 
-                expect (same, "every segment's m' is the ledger's full (1 / 0)");
-            }
-
-            // 不冻结时算出的参考 = 账本的（全部段都已听时，同一口径：S_ref = 各段段响度按有效时长加权的 P95 格中心；lowRef = 过响度门的段的
-            // lowShare 的 P95），画像也就与冻结的逐位相同。
-            if (allHeard)
-            {
-                const auto d = computed.getDiagnostics();
-                expect (d.referenceValid && sameFloat (d.referenceLufs, gate.referenceLufs), "computed S_ref = the ledger's");
-                expect (d.lowReferenceValid && sameFloat (d.lowReference, gate.lowShareReference), "computed lowRef = the ledger's");
-                expect (sameProfile (computed.getProfile(), p), "the computed-reference profile = the frozen-reference profile");
-            }
-
-            const auto iDiff = std::abs (p.integratedLufs.value - expected.integratedLufs.value);
-            expect (p.integratedLufs.valid && expected.integratedLufs.valid && iDiff <= 1.0e-4f, "I within 1e-4 LU: " + juce::String (iDiff, 7));
-            logMessage ("  I: House " + juce::String (expected.integratedLufs.value, 7) + ", live " + juce::String (p.integratedLufs.value, 7)
-                        + (sameFloat (p.integratedLufs.value, expected.integratedLufs.value) ? " (bitwise)" : " (not bitwise)"));
-            expect (sameDouble (p.integratedLufs.effectiveSeconds, expected.integratedLufs.effectiveSeconds)
-                        && sameFloat (p.integratedLufs.confidence, expected.integratedLufs.confidence),
-                    "I effective seconds (M = full seconds) and confidence bitwise");
-            const auto plrDiff = std::abs (p.plrDb.value - expected.plrDb.value);
-            expect (p.plrDb.valid && plrDiff <= 1.0e-4f && sameDouble (p.plrDb.effectiveSeconds, expected.plrDb.effectiveSeconds)
-                        && sameFloat (p.plrDb.confidence, expected.plrDb.confidence),
-                    "PLR within 1e-4 dB (= true peak - I): " + juce::String (plrDiff, 7));
-            expect (sameFeature (p.truePeakDbtp, expected.truePeakDbtp), "true peak bitwise (largest full segment)");
-
-            // LRA，4/4 型（Max 2026-10-02「按曲风分口径」）：主段加权 = House 只用满编段，逐位。
-            expect (sameFeature (p.loudnessRangeLu, expected.loudnessRangeLu) && expected.loudnessRangeLu.valid,
-                    "4/4 LRA bitwise (main-weighted = House, full segments only)");
-
-            // LRA，响度型：全部段上的参照（House 同一公式，测试里在全部存下的段上算）。换模型只改读数口径、不动窗口，所以同一实例换过去就能比。
-            {
-                std::array<std::uint64_t, 800> counts {};
-                double energy = 0.0;
-                std::uint64_t total = 0;
-
-                for (int i = 0; i < ledger.getNumStored(); ++i)
-                {
-                    const auto& stored = ledger.getStored (i);
-
-                    for (int k = 0; k < stored.rangeCount; ++k)
-                        ++counts[(size_t) stored.rangeBin[(size_t) k]];
-
-                    energy += stored.rangeEnergy;
-                    total += (std::uint64_t) stored.rangeCount;
-                }
-
-                Feature reference;
-
-                if (total == 0)
-                {
-                    // 阶段 2 退役了 House 门控账。账是空的时 energy/total 与 (gated - 1) 会走出有限范围，参照循环不能跑。
-                    expect (false, "the ledger delivered segments for the loudness-model LRA reference");
-                }
-                else
-                {
-                const auto seconds = (double) total * (double) subBlockSamples / rate;
-                const auto first = firstBinAtOrAbove (lufsOf (energy / (double) total) - 20.0);
-                std::uint64_t gated = 0;
-
-                for (int bin = first; bin < 800; ++bin)
-                    gated += counts[(size_t) bin];
-
-                const auto lowIndex = (std::uint64_t) ((double) (gated - 1) * 0.10 + 0.5);
-                const auto highIndex = (std::uint64_t) ((double) (gated - 1) * 0.95 + 0.5);
-                std::uint64_t cumulative = 0;
-                double low = 0.0, high = 0.0;
-                auto haveLow = false;
-
-                for (int bin = first; bin < 800; ++bin)
-                {
-                    cumulative += counts[(size_t) bin];
-
-                    if (! haveLow && cumulative > lowIndex)
-                    {
-                        low = binCentre (bin);
-                        haveLow = true;
-                    }
-
-                    if (cumulative > highIndex)
-                    {
-                        high = binCentre (bin);
-                        break;
-                    }
-                }
-
-                reference.value = (float) (high - low);
-                reference.valid = gated >= 10;
-                reference.effectiveSeconds = seconds;
-
-                const auto before = live.getProfile();
-                live.setConstants (hard, MainSectionModel::loudness);
-                const auto loudnessModel = live.getProfile().loudnessRangeLu;
-                live.setConstants (hard, MainSectionModel::fourOnFloor);
-                logMessage ("  LRA: 4/4 (full segments) " + juce::String (before.loudnessRangeLu.value, 2) + " LU, loudness model (all segments) "
-                            + juce::String (loudnessModel.value, 2) + " LU");
-                expect (loudnessModel.valid == reference.valid && sameFloat (loudnessModel.value, reference.value)
-                            && sameDouble (loudnessModel.effectiveSeconds, reference.effectiveSeconds),
-                        "loudness-model LRA over all segments bitwise (House formula)");
-                expect (sameProfile (before, live.getProfile()), "switching the model back gives the same profile bitwise");
-                }
-            }
-
-            // 频谱、立体声、起音、次声：逐位。
-            const Feature MusicProfile::* const bitwise[] = {
-                &MusicProfile::spectralSlopeDbPerOct, &MusicProfile::lowShare, &MusicProfile::highShare, &MusicProfile::lowBandRangeDb,
-                &MusicProfile::onsetDensityPerSecond, &MusicProfile::onsetStrengthDb, &MusicProfile::subShareDb, &MusicProfile::lowSideToMidDb,
-                &MusicProfile::lowCorrelation, &MusicProfile::highSideToMidDb, &MusicProfile::highCorrelation };
-            const char* const names[] = { "slope", "lowShare", "highShare", "lowBandRange", "onset density", "onset strength", "sub share",
-                                          "low S/M", "low correlation", "high S/M", "high correlation" };
-
-            for (size_t i = 0; i < std::size (bitwise); ++i)
-                expect (sameFeature (p.*bitwise[i], expected.*bitwise[i]) && (expected.*bitwise[i]).valid, juce::String (names[i]) + " bitwise");
-
-            expect (sameFloats (p.bandLongTermDb, expected.bandLongTermDb) && sameFloats (p.tameEvidenceDb, expected.tameEvidenceDb)
-                        && sameFloats (p.recoverEvidenceDb, expected.recoverEvidenceDb) && sameFloats (p.bandConfidence, expected.bandConfidence),
-                    "27-band levels, Tame / Recover evidence, band confidence bitwise");
-            expect (sameFloats (p.bandSideToMidDb, expected.bandSideToMidDb) && sameFloats (p.bandCorrelation, expected.bandCorrelation)
-                        && sameFloats (p.bandStereoConfidence, expected.bandStereoConfidence),
-                    "per-band stereo bitwise");
-
-            // 试算：代价 ≤ 0.01 dB，有效性 / 有效时长 / 置信度逐位；混合损失整项逐位。
-            auto worstCost = 0.0f;
-            const auto checkCost = [&] (const Feature& a, const Feature& b, const juce::String& label)
-            {
-                const auto diff = std::abs (a.value - b.value);
-                worstCost = juce::jmax (worstCost, diff);
-                logMessage ("  " + label + ": House " + juce::String (b.value, 4) + " dB, live " + juce::String (a.value, 4) + " (diff "
-                            + juce::String (diff, 5) + ")");
-                expect (a.valid && b.valid && diff <= 0.01f && sameDouble (a.effectiveSeconds, b.effectiveSeconds)
-                            && sameFloat (a.confidence, b.confidence),
-                        label + " within 0.01 dB");
-            };
-
-            checkCost (p.lowCutPeakCostDb, expected.lowCutPeakCostDb, "low-cut cost");
-            checkCost (p.widthPeakCostDb, expected.widthPeakCostDb, "width cost");
-
-            for (size_t i = 0; i < p.monoPeakCostDb.size(); ++i)
-                checkCost (p.monoPeakCostDb[i], expected.monoPeakCostDb[i], "mono cost " + juce::String ((int) i));
-
-            logMessage ("  worst trial-cost difference " + juce::String (worstCost, 5) + " dB");
-
-            for (size_t c = 0; c < p.lowCutBlendLossDb.size(); ++c)
-            {
-                const auto& a = p.lowCutBlendLossDb[c];
-                const auto& b = expected.lowCutBlendLossDb[c];
-                // T-049（main 9c18ff9）起 House 也给混合损失置信度 = min(代表性, 试算观测充分度)，与实时画像同一口径：整项逐位。
-                expect (a.valid && b.valid && sameFeature (a, b), "blend loss " + juce::String ((int) c) + " bitwise (confidence included)");
-                expect (sameFloat (a.confidence, fractionOf (a.effectiveSeconds, 10.0)),
-                        "blend loss confidence = min(c, observation) like the general profile");
-            }
-
-            // 按设计不同的几项。
-            expect (sameDouble (p.effectiveSeconds, gate.fullSeconds), "effectiveSeconds = main mass M = the full segments' effective seconds");
-            expect (p.formatVersion == glaze::clayProfileFormatVersion && ! p.houseGate.valid, "format 2, no houseGate");
-            expect (expected.formatVersion == glaze::houseProfileFormatVersion);
+            const auto before = first.getProfile();
+            first.setConstants (hard, MainSectionModel::loudness);
+            first.setConstants (hard, MainSectionModel::fourOnFloor);
+            expect (sameProfile (before, first.getProfile()), "switching the model back gives the same profile bitwise");
         }
 
         //==============================================================================
