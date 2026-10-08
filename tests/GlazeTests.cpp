@@ -1189,14 +1189,15 @@ namespace celadon::test
 
         // 7. 学好的 LIVE 画像留着时，响度跟着 GLAZE 走，但 Limit Gain 上行只有 0.2 dB/s、G_trim 只有 0.05 dB/s
         //    （INTERFACE-SKETCH / GlazeController::Impl）。10 s 里 50 / 75 / 100 的已施加增益都停在 2.5 dB
-        //    （2.0 + 0.5），积分响度贴在一起；目标净增益仍随档位上升。守门为 0，G_trim 停在这 10 s 的速率积分 0.5，
+        //    （2.0 + 0.5），这三档积分响度贴在一起；25 的目标还在这 10 s 的预算里，已施加增益没到 2.5，所以比它们轻。
+        //    目标净增益仍随档位上升。守门为 0，G_trim 停在这 10 s 的速率积分 0.5，
         //    不是 ±3 dB 钳位；真峰值离 Ceiling −1 还远。40 s 后各档拉开，逐级 > 0.1 LU，GLAZE 100 的已施加增益
         //    停在 10 dB（8 + 2），仍是同一条滑移，不是响度顶。
         //    先读档再 prepare 与先 prepare 再读档必须是同一条曲线。画像被第一次 prepare 清掉时，10 s 会走出另一条
         //    低置信曲线（50 档还能比 25 响约 0.5 LU），那不是这份合同。
         void testLoudnessRisesWithGlaze()
         {
-            beginTest ("after learning, loudness follows the 0.2 dB/s slew: 10 s plateaus after GLAZE 25, 40 s steps rise, either restore order");
+            beginTest ("after learning, loudness follows the 0.2 dB/s slew: 10 s GLAZE 50/75/100 share the cap, 40 s steps rise, either restore order");
 
             constexpr double sampleRate = 48000.0;
             constexpr int numChannels = 2;
@@ -1293,11 +1294,14 @@ namespace celadon::test
                 expect (early10[i].lufs >= early10[0].lufs - 0.02f,
                         "GLAZE " + juce::String (steps10[i], 1) + " must not be quieter than GLAZE 0");
 
-            // 10 s：50/75/100 贴在 25 附近（滑移还没走到更高的目标），目标净增益仍逐档上升。
+            // 10 s：50/75/100 都顶在 2.5 dB 滑移上，响度彼此贴住。25 的目标更小，这 10 s 还没走到那一档，所以更轻。
+            expect (early10[4].applied < 2.3f, "10 s GLAZE 25 has not reached the 2.5 dB slew cap");
+            expect (early10[5].lufs > early10[4].lufs + 0.15f, "10 s GLAZE 25 is still quieter than the capped steps");
+
             for (int i = 5; i <= 7; ++i)
             {
-                expect (std::abs (early10[i].lufs - early10[4].lufs) < 0.1f,
-                        "10 s GLAZE " + juce::String (steps10[i], 0) + " stays with GLAZE 25 while the slew catches up");
+                expect (std::abs (early10[i].lufs - early10[5].lufs) < 0.05f,
+                        "10 s GLAZE " + juce::String (steps10[i], 0) + " shares the slew-capped loudness");
                 expect (std::abs (early10[i].applied - 2.5f) < 0.05f,
                         "10 s applied gain is the 0.2 dB/s + 0.05 dB/s budget (2.5 dB)");
                 expect (std::abs (early10[i].trim - 0.5f) < 0.02f,
