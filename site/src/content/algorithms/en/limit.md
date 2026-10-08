@@ -17,7 +17,7 @@ The original design — “do everything in the 4× oversampled domain, then dow
 5. **Lookahead sliding minimum**: a sliding minimum of `r` over length = Lookahead + 63 (the two-buffer van Herk algorithm, O(1) per sample; since 0.1.8.6 it replaces the earlier monotonic queue, with bit-identical output), giving `rMin[n]`. The extra 63 is a hold segment so that the 64 samples the interpolator sees around a peak all get the same gain.
 6. **Release envelopes** (instant downward tracking, exponential recovery upward):
    - Manual: single stage, time constant = Release (10–1000 ms, log scale).
-   - Auto (dual stage): the **fast stage** follows `rMin` directly with a 30 ms release; the **slow stage** follows `rMin` smoothed over 50 ms, with an adaptive 100–800 ms release — the deeper the average reduction over the last 500 ms (capped at 12 dB), the slower the release; with a House genre, the slow stage also has an upper limit of one beat ÷ 3, see [GLAZE · decisions and calibration](/algorithms/glaze#genre-and-delivery). `env = min(fast, slow)`.
+   - Auto (dual stage): the **fast stage** follows `rMin` directly with a 30 ms release; the **slow stage** follows `rMin` smoothed over 50 ms, with an adaptive 100–800 ms release — the deeper the average reduction over the last 500 ms (capped at 12 dB), the slower the release; with a House genre, the slow stage also has an upper limit of one beat ÷ 3, see [GLAZE · decisions and following](/algorithms/glaze#genre-and-delivery). `env = min(fast, slow)`.
 7. **Attack shaping**: originally a rectangular moving average of length = Lookahead over `env`; since 0.1.7.2 it's a **two-stage moving average** (a triangular attack) — the attack still completes within the lookahead, the gain still arrives exactly at the peak, the corners are smooth, and constant gain still returns precisely to 1.
 8. **Apply** (1× domain): the audio goes through a `Lookahead + 62`-sample delay line and is multiplied by the gain. The release envelopes are computed in double, so gain returns exactly to 1.0 after limiting.
 9. **Hard-clamp safety**: `clamp(±ceiling)` (with the Ceiling aligned to the audio); in theory it never triggers, it's only there so that no sample ever exceeds the limit.
@@ -33,7 +33,7 @@ The added detector works only on the 1× control path and watches the lows of le
 
 ## Codec margin (0.1.8.5)
 
-Limiter Ceiling = clamp(Ceiling − margin, −4.5, 0) dBTP, with a margin of 0–1.5 dB; with Delivery set to Streaming it is then capped at −2 dBTP, whatever the GLAZE amount (see [GLAZE · decisions and calibration](/algorithms/glaze#genre-and-delivery)). With LIMIT bypassed the margin readout is 0. No post-encode AAC / MP3 peak measurement is done.
+Limiter Ceiling = clamp(Ceiling − margin, −4.5, 0) dBTP, with a margin of 0–1.5 dB; with Delivery set to Streaming it is then capped at −2 dBTP, whatever the GLAZE amount (see [GLAZE · decisions and following](/algorithms/glaze#genre-and-delivery)). With LIMIT bypassed the margin readout is 0. No post-encode AAC / MP3 peak measurement is done.
 
 ## Latency and Lookahead debouncing
 
@@ -41,7 +41,7 @@ Limiter Ceiling = clamp(Ceiling − margin, −4.5, 0) dBTP, with a margin of 0�
 
 ## Match (Listen)
 
-It isn't “divide the Gain back out”: it uses the K-weighted energy already measured at the input and output to compensate the overall loudness increase from Balance, Color, Gain and limiting — a 1-second continuous energy window, with silence included in the accumulation; it holds off updating when transients at the edges make up too much of the window. It only attenuates; the output meter and the calibrator read the master before attenuation. On steady material the loudness difference between the final monitored audio and the input is 0.000–0.002 LU; after a sudden 6 dB change in Color Output, the 1-second difference at the end of the third second is −0.0241 LU.
+It isn't “divide the Gain back out”: it uses the K-weighted energy already measured at the input and output to compensate the overall loudness increase from Balance, Color, Gain and limiting — a 1-second continuous energy window, with silence included in the accumulation; it holds off updating when transients at the edges make up too much of the window. It only attenuates; the output meter and GLAZE's output statistics read the master before this attenuation. On steady material the loudness difference between the final monitored audio and the input is 0.000–0.002 LU; after a sudden 6 dB change in Color Output, the 1-second difference at the end of the third second is −0.0241 LU.
 
 ## Acceptance
 

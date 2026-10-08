@@ -304,11 +304,11 @@ function ChainWide({ v }: { v: V }) {
   return (
     <>
       {/* GLAZE：读入口特征与模块统计，经一条总线把实际参数交给四个模块 */}
-      <Wire v={v} tone="v" dashed pts={[[50, 132], [50, 46], [240, 46]]} />
+      <Wire v={v} tone="v" dashed pts={[[50, 132], [50, 46], [198, 46]]} />
       <Label v={v} x={60} y={38} color={VIOLET_TEXT}>
         {t('chain.features')}
       </Label>
-      <Wire v={v} tone="mute" dashed pts={[[670, 132], [670, 46], [480, 46]]} />
+      <Wire v={v} tone="mute" dashed pts={[[670, 132], [670, 46], [522, 46]]} />
       <Label v={v} x={660} y={38} anchor="end">
         {t('chain.stats')}
       </Label>
@@ -321,7 +321,7 @@ function ChainWide({ v }: { v: V }) {
       <Label v={v} x={368} y={92} color={VIOLET_TEXT}>
         {t('chain.actual')}
       </Label>
-      <Box v={v} b={{ x: 242, y: 20, w: 236, h: 52, title: t('chain.glaze'), sub: t('chain.glazeSub'), tone: 'v' }} />
+      <Box v={v} b={{ x: 200, y: 20, w: 320, h: 52, title: t('chain.glaze'), sub: t('chain.glazeSub'), tone: 'v' }} />
 
       {/* 主信号：顺序固定 */}
       <Box v={v} b={{ x: 18, y, w: 64, h, title: t('chain.input'), tone: 'g' }} />
@@ -730,58 +730,60 @@ function ClayNarrow({ v }: { v: V }) {
   );
 }
 
-/* ---------------- GLAZE 状态机 ---------------- */
+/* ---------------- GLAZE 连续调度 ---------------- */
 
 function GlazeWide({ v }: { v: V }) {
   const { t } = v;
+  const boxes = [
+    { x: 12, w: 160, title: t('glaze.profile'), sub: t('glaze.profileSub') },
+    { x: 180, w: 156, title: t('glaze.planner'), sub: t('glaze.plannerSub') },
+    { x: 344, w: 176, title: t('glaze.rate'), sub: t('glaze.rateSub') },
+    { x: 528, w: 180, title: t('glaze.trim'), sub: t('glaze.trimSub') }
+  ];
+  const y = 18;
+  const h = 78;
+  const mid = y + h / 2;
   return (
     <>
-      <Wire v={v} pts={[[144, 50], [178, 50]]} />
-      <Wire v={v} pts={[[324, 50], [358, 50]]} />
-      <Wire v={v} pts={[[516, 50], [550, 50]]} />
-      <Wire v={v} dashed pts={[[622, 76], [622, 170]]} />
-      <Wire v={v} dashed pts={[[660, 172], [660, 78]]} />
-      {/* 重新聆听：建候选版本，旧方案照常生效，听完再平滑换过去 */}
-      <Wire v={v} tone="v" dashed pts={[[566, 76], [566, 132], [252, 132], [252, 78]]} />
-      <Label v={v} x={409} y={152} anchor="middle" color={VIOLET_TEXT} weight={600}>
-        {t('glaze.relearn')}
-      </Label>
-      <Label v={v} x={409} y={170} anchor="middle">
-        {t('glaze.relearnNote')}
-      </Label>
-      <Box v={v} b={{ x: 16, y: 24, w: 128, h: 52, title: t('glaze.notLearned'), sub: t('glaze.notLearnedSub'), tone: 'g' }} />
-      <Box v={v} b={{ x: 180, y: 24, w: 144, h: 52, title: t('glaze.listening'), sub: t('glaze.listeningSub'), tone: 'v' }} />
-      <Box v={v} b={{ x: 360, y: 24, w: 156, h: 52, title: t('glaze.calibrating'), sub: t('glaze.calibratingSub'), tone: 'v' }} />
-      <Box v={v} b={{ x: 552, y: 24, w: 152, h: 52, title: t('glaze.locked'), sub: t('glaze.lockedSub') }} />
-      {/* 框高 64：英文的小字两行 */}
-      <Box v={v} b={{ x: 568, y: 172, w: 136, h: 64, title: t('glaze.limited'), sub: t('glaze.limitedSub'), tone: 'g' }} />
-      <Box v={v} b={{ x: 16, y: 248, w: 688, h: 52, title: t('glaze.saved'), sub: t('glaze.savedSub'), tone: 'g' }} />
+      {boxes.slice(0, -1).map((b, i) => (
+        <Wire key={b.x} v={v} pts={[[b.x + b.w, mid], [boxes[i + 1].x, mid]]} />
+      ))}
+      {boxes.map(b => (
+        <Box key={b.x} v={v} b={{ x: b.x, y, w: b.w, h, title: b.title, sub: b.sub, tone: 'v' }} />
+      ))}
+      <Box v={v} b={{ x: 12, y: 116, w: 696, h: 58, title: t('glaze.saved'), sub: t('glaze.savedSub'), tone: 'g' }} />
     </>
   );
 }
 
 function GlazeNarrow({ v }: { v: V }) {
   const { t } = v;
+  const boxes = [
+    { title: t('glaze.profile'), sub: t('glaze.profileSub') },
+    { title: t('glaze.planner'), sub: t('glaze.plannerSub') },
+    { title: t('glaze.rate'), sub: t('glaze.rateSub') },
+    { title: t('glaze.trim'), sub: t('glaze.trimSub') }
+  ];
+  const x = 20;
+  const w = 300;
+  const h = 72;
+  const gap = 16;
+  const top = 12;
+  const midX = x + w / 2;
   return (
     <>
-      <Wire v={v} pts={[[126, 60], [126, 82]]} />
-      <Wire v={v} pts={[[126, 132], [126, 154]]} />
-      <Wire v={v} pts={[[126, 204], [126, 226]]} />
-      <Wire v={v} dashed pts={[[110, 276], [110, 322]]} />
-      <Wire v={v} dashed pts={[[142, 324], [142, 278]]} />
-      <Wire v={v} tone="v" dashed pts={[[232, 252], [264, 252], [264, 108], [234, 108]]} />
-      <Label v={v} x={272} y={174} color={VIOLET_TEXT} weight={600}>
-        {t('glaze.relearnNarrow')}
-      </Label>
-      <Label v={v} x={272} y={191} color={VIOLET_TEXT}>
-        {t('glaze.candidateNarrow')}
-      </Label>
-      <Box v={v} b={{ x: 20, y: 12, w: 212, h: 48, title: t('glaze.notLearned'), sub: t('glaze.notLearnedSub'), tone: 'g' }} />
-      <Box v={v} b={{ x: 20, y: 84, w: 212, h: 48, title: t('glaze.listening'), sub: t('glaze.listeningSub'), tone: 'v' }} />
-      <Box v={v} b={{ x: 20, y: 156, w: 212, h: 48, title: t('glaze.calibrating'), sub: t('glaze.calibratingSub'), tone: 'v' }} />
-      <Box v={v} b={{ x: 20, y: 228, w: 212, h: 48, title: t('glaze.locked'), sub: t('glaze.lockedSub') }} />
-      <Box v={v} b={{ x: 20, y: 324, w: 212, h: 64, title: t('glaze.limited'), sub: t('glaze.limitedSub'), tone: 'g' }} />
-      <Box v={v} b={{ x: 20, y: 400, w: 300, h: 84, title: t('glaze.savedNarrow'), sub: t('glaze.savedSubNarrow'), tone: 'g' }} />
+      {boxes.slice(0, -1).map((_, i) => {
+        const y1 = top + i * (h + gap) + h;
+        const y2 = top + (i + 1) * (h + gap);
+        return <Wire key={i} v={v} pts={[[midX, y1], [midX, y2]]} />;
+      })}
+      {boxes.map((b, i) => (
+        <Box key={b.title} v={v} b={{ x, y: top + i * (h + gap), w, h, title: b.title, sub: b.sub, tone: 'v' }} />
+      ))}
+      <Box
+        v={v}
+        b={{ x, y: top + boxes.length * (h + gap) + 8, w, h: 96, title: t('glaze.savedNarrow'), sub: t('glaze.savedSubNarrow'), tone: 'g' }}
+      />
     </>
   );
 }
@@ -918,7 +920,7 @@ export const figures: Record<string, () => JSX.Element> = {
 
   clay: () => <Figure id="clay" wideH={268} narrowH={430} draw={v => (v.narrow ? <ClayNarrow v={v} /> : <ClayWide v={v} />)} />,
 
-  glaze: () => <Figure id="glaze" wideH={316} narrowH={498} draw={v => (v.narrow ? <GlazeNarrow v={v} /> : <GlazeWide v={v} />)} />,
+  glaze: () => <Figure id="glaze" wideH={188} narrowH={480} draw={v => (v.narrow ? <GlazeNarrow v={v} /> : <GlazeWide v={v} />)} />,
 
   latency: () => <Figure id="latency" wideH={192} narrowH={250} draw={v => <LatencyPlot v={v} />} />
 };

@@ -1,20 +1,19 @@
-## I switched songs — why didn't the sound change with it?
+## I switched songs — what should I do?
 
-There's one profile per song, and switching songs doesn't start a new listening round on its own. Click Relearn, then click Reset meters to clear the integrated loudness.
+Nothing to click. GLAZE follows whatever is playing, the old song's statistics fade out as the new one plays, and the plan moves over gradually; until it has heard enough of the new song's main section, the status line reads Starting. Click Reset meters to clear the integrated loudness and the peak holds.
 
-## It stays on Listening / Calibrating forever?
+## It stays on Starting?
 
-- Listening needs roughly **30 seconds or more of real music**; material that's too short or has long stretches of silence can't gather enough evidence.
-- With Deep, Tech or Melodic (a House genre), listening has to collect 64 different bars and hear the main section, which usually takes around two minutes; the status line shows its progress, see [How House genres listen](/docs/glaze#how-house-genres-listen). For short material under 64 bars, choose General.
-- Looping a short section in FL Studio's Pattern mode used to keep it calibrating; that was fixed back in the internal builds. Staying on Calibrating until the end of the song (calibration restarting from scratch after absorbing constraint feedback) was fixed in 0.1.7.1. If you still run into it, please send the project and the song to Max.
+- Starting means it hasn't heard enough of the main section yet, so the plan stays cautious. A long intro, or looping a short stretch of intro, keeps it there longer; play through from the drop (or the chorus) once and it relaxes. A House genre recognises the main section the four-on-the-floor way; see [How House genres follow](/docs/glaze#how-house-genres-follow).
+- Material that's too short or mostly silent can't gather enough of the main section and stays on Starting. If you still run into it, please send the project and the song to Max.
 
-## The calibration was lost when I reopened the project?
+## An old project sounds different when I open it?
 
-Fixed in 0.1.8.5: the values of three knobs — Release, Low cut and Mono — came back from the host with a tiny rounding error, so older versions thought the settings had changed and dropped the calibration. They're now compared within a tolerance, and old projects automatically pick their original calibration back up when loaded.
+From this version GLAZE no longer listens through a passage and then settles on a plan; it follows the music all the time. The listening result, plan and calibration saved in an old project are discarded on load and GLAZE starts following from scratch, so the sound changes; the bottom-left corner says so once: “The old listening result was discarded, so the sound will change”. Play through the main section once and it settles. New projects save the statistics gathered so far and carry on from them when reopened.
 
 ## Why is everything under Advanced off in my old projects?
 
-Compatibility: “Loud, not harsh”, Target spectrum, codec margin and dither, added in 0.1.8.5, all load as off in old projects, so they sound exactly as before; only new instances default to Auto. Turn them on by hand if you want them.
+Compatibility: “Loud, not harsh”, Target spectrum, codec margin and dither, added in 0.1.8.5, all load as off in old projects; only new instances default to Auto. Turn them on by hand if you want them. (For why an old project's GLAZE sound changes, see the question above.)
 
 ## My host doesn't see the new version?
 
@@ -34,7 +33,7 @@ Check whether Match is still on (it's saved with the project) and whether Normal
 
 ## How do I get both a Streaming and a Club version of one song?
 
-Set Delivery to Streaming, then to Club. After each switch, play from the drop until the status is back to Locked, then export; that gives you two masters. The steps and the reasons are in [Switching, and exporting two masters](/docs/glaze#switching-and-exporting-two-masters).
+Set Delivery to Streaming, then to Club. After each switch, play from the drop until the “Target … LUFS” reading settles, then export; that gives you two masters. The steps and the reasons are in [Switching, and exporting two masters](/docs/glaze#switching-and-exporting-two-masters).
 
 ## Windows warns about an unknown publisher?
 

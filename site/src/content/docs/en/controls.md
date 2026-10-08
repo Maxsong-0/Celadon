@@ -14,7 +14,7 @@ While you drag, a dark value bubble appears above the control (with a small “F
 
 ## Colours
 
-Cyan = your settings; violet = GLAZE's automatic increment right now; orange = needs attention (true peak over the ceiling, plan limited, invalid (NaN / Inf) audio blocks caught…).
+Cyan = your settings; violet = GLAZE's automatic increment right now; orange = needs attention (true peak over the ceiling, guard relief “Limited · …”, invalid (NaN / Inf) audio blocks caught…).
 
 ## Window
 

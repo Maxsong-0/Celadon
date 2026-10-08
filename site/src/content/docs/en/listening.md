@@ -2,7 +2,7 @@ The hardest part of mastering isn't the processing — it's the judgement. Celad
 
 ## A / B
 
-Processed / Original in the middle row. B = listening to the original, through the same dry path as host bypass: latency-compensated, a 20 ms crossfade, calibration paused, Match measurement frozen. When you're listening to A (the default), the output is bit-identical to having no such feature at all.
+Processed / Original in the middle row. B = listening to the original, through the same dry path as host bypass: latency-compensated, a 20 ms crossfade, Match measurement frozen. When you're listening to A (the default), the output is bit-identical to having no such feature at all.
 
 The status pill reads “B · Listening to original · level-matched 4.8 dB” or “not matched (x dB apart)”.
 
@@ -33,5 +33,5 @@ Under Advanced → Release safety. It attenuates monitoring to the selected LUFS
 2. Exit Normalisation preview and Listen to difference (click the hint in the main window if one is showing).
 3. Check that the OUT true-peak maximum ≤ Ceiling; set a codec margin if you need one.
 4. If you're responsible for the final bit-depth reduction, turn dither on; otherwise leave it off.
-5. With a House genre, wait for Locked before exporting (exporting while it is still listening switches the plan partway through the master; the status line warns you); see [How House genres listen](/docs/glaze#how-house-genres-listen).
-6. If you're exporting one song as both a Streaming and a Club version, play from the drop after each Delivery switch until the status is back to Locked, then export; see [Switching, and exporting two masters](/docs/glaze#switching-and-exporting-two-masters).
+5. Play through the main section once before an offline export: if it hasn't heard enough of the main section yet, the status line reads “Main-section stats are still cold at export, so the first drop may come out quiet: play through once, then export”. In General the main section is the loudest parts; a House genre recognises it the four-on-the-floor way. See [How House genres follow](/docs/glaze#how-house-genres-follow).
+6. If you're exporting one song as both a Streaming and a Club version, play from the drop after each Delivery switch until the “Target … LUFS” reading settles, then export; see [Switching, and exporting two masters](/docs/glaze#switching-and-exporting-two-masters).

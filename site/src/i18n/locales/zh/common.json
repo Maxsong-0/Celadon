@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "Celadon · 青瓷 · 一挂总轨就好听的智能母带",
-    "description": "Celadon（青瓷）是一款自用母带插件：BALANCE 动态频谱平衡 → CLAY 修坯 → COLOR 染色 → LIMIT 真峰值限幅，一个 GLAZE 旋钮按这首歌决定推多远。macOS（Apple Silicon / Intel）上 VST3 / AU，Windows x64 上 VST3。"
+    "description": "Celadon（青瓷）是一款自用母带插件：BALANCE 动态频谱平衡 → CLAY 修坯 → COLOR 染色 → LIMIT 真峰值限幅，一个 GLAZE 旋钮边播边听，一路决定推多远。macOS（Apple Silicon / Intel）上 VST3 / AU，Windows x64 上 VST3。"
   },
   "nav": {
     "label": "主导航",
@@ -30,7 +30,7 @@
     "srVersion": "（{{version}}）"
   },
   "footer": {
-    "blurb": "自用母带插件，早鸟期间免费，不标价格。四道工序按固定顺序走：平衡 → 修坯 → 染色 → 限幅；GLAZE 先听这首歌，再决定推多远。",
+    "blurb": "自用母带插件，早鸟期间免费，不标价格。四道工序按固定顺序走：平衡 → 修坯 → 染色 → 限幅；GLAZE 边播边听这首歌，一路决定推多远。",
     "docs": "使用说明",
     "quickstart": "快速上手",
     "glaze": "GLAZE 与风格",
@@ -38,7 +38,7 @@
     "faq": "常见问题",
     "algorithms": "公开算法",
     "overview": "信号链总览",
-    "glazeAlgo": "GLAZE 决策与校准",
+    "glazeAlgo": "GLAZE 决策与跟随",
     "limitAlgo": "LIMIT 真峰值限幅",
     "verification": "性能与验证",
     "get": "获取",

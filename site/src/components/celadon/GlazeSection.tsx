@@ -19,46 +19,37 @@ const driven: { name: string; unit: string; manual: number; full: number; max: n
   { name: 'Clip', unit: '', manual: 0, full: 18, max: 100 }
 ];
 
-/** 互动段：拧 GLAZE，看开片生长、七项参数的紫色加量、以及「先听后决策」的状态走一遍。 */
+/** 互动段：拧 GLAZE，看开片生长、七项参数的紫色加量，以及起步 → 保持 → 跟随。 */
 export default function GlazeSection() {
   const root = useRef<HTMLElement>(null);
   const [value, setValue] = useState(35);
   const [phase, setPhase] = useState(0);
-  const [seconds, setSeconds] = useState(0);
   const v01 = clamp(value / 100, 0, 1);
-  const { t } = useTranslation('home');
-  // 四个状态：未学习 → 聆听中 → 校准中 → 已锁定（文字在 home 命名空间 glaze.phases）
-  const phases = t('glaze.phases', { returnObjects: true });
+  const { t, i18n } = useTranslation('home');
+  // 阶段名跟插件状态行走。home.json 的 glaze.phases 仍是旧的四步，这一节不读它。
+  const phaseLabels = (i18n.resolvedLanguage ?? i18n.language).startsWith('zh')
+    ? (['起步', '保持', '跟随'] as const)
+    : (['Starting', 'Holding', 'Following'] as const);
   const styles = t('glaze.styles', { returnObjects: true });
   useReveal(root);
 
   useGSAP(
     () => {
       if (!root.current) return;
-      // 进入视口后模拟一次「播放」：0 → 聆听 22 s → 校准 → 锁定，循环。
-      const state = { t: 0 };
+      // 进入视口后走一遍：起步（加量偏小）→ 保持（较轻段，加量回落）→ 跟随。
+      const hold = prefersReducedMotion() ? 0.01 : 1;
       const tl = gsap.timeline({
         repeat: -1,
         repeatDelay: 2.2,
         paused: true,
-        onRepeat: () => {
-          setPhase(0);
-          setSeconds(0);
-        }
+        onRepeat: () => setPhase(0)
       });
       tl.call(() => setPhase(0));
-      tl.to({}, { duration: 0.9 });
+      tl.to({}, { duration: 0.9 * hold });
       tl.call(() => setPhase(1));
-      tl.to(state, {
-        t: 22,
-        duration: prefersReducedMotion() ? 0.01 : 4.4,
-        ease: 'none',
-        onUpdate: () => setSeconds(Math.floor(state.t))
-      });
+      tl.to({}, { duration: 1.6 * hold });
       tl.call(() => setPhase(2));
-      tl.to({}, { duration: 2.4 });
-      tl.call(() => setPhase(3));
-      tl.to({}, { duration: 3.2 });
+      tl.to({}, { duration: 3.2 * hold });
 
       gsap.timeline({
         scrollTrigger: {
@@ -76,7 +67,8 @@ export default function GlazeSection() {
     { scope: root }
   );
 
-  const locked = phase === 3;
+  // 起步偏保守，保持时加量回落，跟随才到满刻度。示意比例，不是插件里的速率。
+  const follow = phase === 2 ? 1 : phase === 1 ? 0.2 : 0.35;
   const targetLufs = -14 + v01 * 6.2; // 示意：风格与 GLAZE 想要的响度
   const styleWeights = [0.28 + 0.1 * Math.sin(v01 * 3), 0.42 - 0.12 * v01, 0.3 + 0.02 * v01];
   const wSum = styleWeights.reduce((a, b) => a + b, 0);
@@ -96,17 +88,14 @@ export default function GlazeSection() {
               <div className="slab-core relative overflow-hidden px-4 pt-8 pb-7 sm:px-8">
                 <div className="relative mx-auto max-w-[440px] aspect-[1/1.1]">
                   <ParticleField value={value} maxPerSide={90} className="absolute inset-0 h-full w-full" />
-                  <GlazeKnob value={value} onChange={setValue} autoIncrement={locked ? value * 0.22 : 0} size={440} className="relative h-full w-full" />
+                  <GlazeKnob value={value} onChange={setValue} autoIncrement={value * 0.22 * follow} size={440} className="relative h-full w-full" />
                 </div>
                 {/* 状态：细字步进条，不用彩色胶囊 */}
                 <ol className="mx-auto mt-4 flex max-w-[440px] items-center justify-between gap-2 text-[12.5px]" aria-label={t('glaze.statusLabel')}>
-                  {phases.map((p, i) => (
+                  {phaseLabels.map((p, i) => (
                     <li key={p} className="flex items-center gap-2">
-                      <span className={cn('size-1.5 rounded-full transition-colors duration-500', i === phase ? (i === 1 ? 'bg-violet' : 'bg-c600') : i < phase ? 'bg-ink/30' : 'bg-ink/12')} />
-                      <span className={cn('transition-colors duration-500', i === phase ? 'text-ink' : i < phase ? 'text-ink-3' : 'text-ink-4')}>
-                        {p}
-                        {i === 1 && phase === 1 ? <span className="ml-1 font-mono text-[11px] text-violet tabular-nums">{seconds}/30s</span> : null}
-                      </span>
+                      <span className={cn('size-1.5 rounded-full transition-colors duration-500', i === phase ? 'bg-c600' : i < phase ? 'bg-ink/30' : 'bg-ink/12')} />
+                      <span className={cn('transition-colors duration-500', i === phase ? 'text-ink' : i < phase ? 'text-ink-3' : 'text-ink-4')}>{p}</span>
                     </li>
                   ))}
                 </ol>
@@ -126,7 +115,7 @@ export default function GlazeSection() {
               <p className="mt-2 text-[14px] leading-relaxed text-ink-3">{t('glaze.drivenBody')}</p>
               <ul className="mt-6 space-y-3.5">
                 {driven.map(d => {
-                  const inc = locked ? d.full * v01 : d.full * v01 * 0.35;
+                  const inc = d.full * v01 * follow;
                   const m = d.manual / d.max;
                   const a = inc / d.max;
                   return (

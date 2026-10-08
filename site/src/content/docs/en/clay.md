@@ -34,6 +34,6 @@ Below the three rows is a 10 Hz – 1 kHz mini graph: the hatching below the low
 
 ## Old projects
 
-Old projects have no CLAY profile: the three lamps stay dark and the third line says to click Relearn to enable automatic CLAY. If all three rows are set to Off or Manual, no relearn is needed.
+The CLAY profile saved in an old project is discarded on load; automatic Low cut and Width start again from the live statistics, with nothing for you to do.
 
 Algorithm details: [CLAY · stereo clean-up](/algorithms/clay).
