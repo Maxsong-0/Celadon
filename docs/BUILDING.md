@@ -51,7 +51,8 @@ xcodebuild -project Builds/MacOSX/Celadon.xcodeproj -scheme "Celadon - All" -con
 `Celadon-<版本>-macOS-AppleSilicon.pkg`（arm64）与 `Celadon-<版本>-macOS-Intel.pkg`（x86_64）。脚本用 `ditto --arch` 从通用二进制
 拆出单架构副本、重新 ad-hoc 签名（AU 签名前再过一遍 `scripts/au-version.sh`，构建后已改过的不动），每个包三个可选组件：
 VST3 → `/Library/Audio/Plug-Ins/VST3`、AU → `/Library/Audio/Plug-Ins/Components`、
-独立版 → `/Applications`（系统级，要管理员密码）；组件关掉了「可搬移」，免得安装器把新版装到机器上已有的同 ID 副本那里。
+独立版 → `/Applications`（系统级，要管理员密码）。安装器「自定」里这三项默认都勾上，可以取消任意一项（没有 VST2）。
+组件关掉了「可搬移」，免得安装器把新版装到机器上已有的同 ID 副本那里。
 没有 Apple Developer ID：包不签名、不公证，别人第一次打开会被 Gatekeeper 拦，到「系统设置 → 隐私与安全性」点「仍要打开」。
 本机用 Xcode 装过的（`~/Library/Audio/Plug-Ins/`）不要再装 pkg，否则宿主里会有两份。
 
@@ -99,9 +100,11 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 
 ### 安装包（Inno Setup）
 
-`installer/Celadon.iss`：VST3 装进 `C:\Program Files\Common Files\VST3\Celadon.vst3`（固定），独立运行版（可选，默认装）进
-`C:\Program Files\Celadon\`，开始菜单一个快捷方式；「设置 → 应用」里能卸载；向导按 Windows 界面语言出中文或英文
-（简体中文文件见 `installer/Languages/README.md`）。在 Windows 上先编出 Release x64，再：
+`installer/Celadon.iss`：组件页可以多选，默认两项都装。VST3 进
+`C:\Program Files\Common Files\VST3\Celadon.vst3`，独立运行版进 `C:\Program Files\Celadon\`，开始菜单一个快捷方式。
+两项都能取消；一项都不选时向导会拦住。没有 AU，也没有 VST2。「设置 → 应用」里能卸载；向导按 Windows 界面语言出中文或英文
+（简体中文文件见 `installer/Languages/README.md`）。静默安装不带 `/TYPE` 或 `/COMPONENTS` 时两项都装
+（`/TYPE=vst3` 只装插件，`/TYPE=standalone` 只装独立版）。在 Windows 上先编出 Release x64，再：
 
 ```bat
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=<Celadon.jucer 里的 version> installer\Celadon.iss
@@ -120,8 +123,8 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 - 日常：先在 Mac 上重新生成工程（命令见上面「目录与 Projucer」；`Builds/VisualStudio2022` 随源码同步过去），然后
   - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
   - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
-  - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装、逐字节核对、只选 VST3 重装
-    （独立版要被清掉）、静默卸载；
+  - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装（默认两项都装）、逐字节核对、
+    只选独立版重装（VST3 要被清掉）、只选 VST3 重装（独立版要被清掉）、静默卸载；
   - `scripts/windows-wine.sh ui`：cl.exe 编界面截图工具，在单独的 Wine 前缀里借 Xvfb 跑交互检查（`--only check`）。服务器上
     必须有中文字体：JUCE 的字体回退给 `IDWriteFontFallback::MapCharacters` 传 `nullptr`，Wine 的 DWrite 在「没有任何字体含这个字」
     时解引用它、界面直接崩（Windows 上这样传是正常用法，系统也自带中文字体）；
