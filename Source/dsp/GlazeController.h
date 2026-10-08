@@ -163,6 +163,11 @@ namespace celadon::glaze
         // 临时画像仍未正式学习完成，重新积累证据期间保持已听到的执行方案；不序列化滤波器/检测器音频历史。
         void restoreStateXml (const juce::XmlElement* xml);
 
+        // 第一次 prepare 之前读进的原始存档（宿主打开工程：setStateInformation 先于 prepareToPlay）。
+        // 链在第一次 prepare 冷启动之后把它读回。已经 prepare 过再读档不进这里（换采样率时链自己先 createStateXml）。
+        // 取出后清空。没有读过档、或读的是空指针，返回空。
+        std::unique_ptr<juce::XmlElement> takeStateRestoredBeforePrepare();
+
         // T-048 阶段 1 直通（插件不调；测试与渲染工具用）：非空 = 分析器打开实时模式、定稿的段交给 sink；nullptr = 关（开着的段先交给
         // 原来的 sink）。prepare 之后、处理之前调；设定在分析器里，prepare / 宿主 reset / 读档之后保持。编排器其余行为一律不变
         // （它不读实时段落账，输出与不开时逐位相同，见 MusicAnalyzer.h「T-048」一节）。

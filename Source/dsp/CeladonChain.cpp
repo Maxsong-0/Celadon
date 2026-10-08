@@ -73,10 +73,17 @@ namespace celadon
 
     void CeladonChain::prepare (const juce::dsp::ProcessSpec& spec)
     {
-        // 换采样率时音频已停：先把 LIVE 留在内存里，两边 prepare（会冷启动）之后立刻读回。
+        // prepare 会冷启动（分析器、K 加权、守护时隙、画像网格都按这份规格重算），然后立刻把 LIVE 读回。
+        // 已经 prepare 过（换采样率 / 块长 / 声道）：先把内存里的 LIVE 存下来。采样率相关的缓存不在这份存档里，
+        // 冷启动会重算，读回只恢复画像、增量、守护统计和出口电平这些持久量（设计草图：prepare 冷启动之后立刻读回 LIVE）。
+        // 还没 prepare 过、但宿主已经读过档（打开工程几乎总是 setStateInformation 先于第一次 prepareToPlay）：
+        // 留的是读进来的那份原始存档。不能用此刻的 createStateXml——画像还停在默认 48 kHz，提前折算再读回会和
+        // 「先 prepare 再读档」差一趟舍入。没读过档则不读回，第一次 prepare 仍是冷启动。
         std::unique_ptr<juce::XmlElement> savedLive;
         if (controller.hasPrepared())
             savedLive = controller.createStateXml();
+        else
+            savedLive = controller.takeStateRestoredBeforePrepare();
 
         // 四个模块用同一份 spec 整体重建（采样率 / 块大小 / 声道数）。模块统一接口（设计规格-总体）约定
         // prepare 末尾自己 reset，所以这里不必再清一遍。各处都按信号顺序写，读起来与 process 一致。
