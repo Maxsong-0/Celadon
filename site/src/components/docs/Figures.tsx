@@ -737,8 +737,8 @@ function GlazeWide({ v }: { v: V }) {
   const boxes = [
     { x: 12, w: 160, title: t('glaze.profile'), sub: t('glaze.profileSub') },
     { x: 180, w: 156, title: t('glaze.planner'), sub: t('glaze.plannerSub') },
-    { x: 344, w: 200, title: t('glaze.rate'), sub: t('glaze.rateSub') },
-    { x: 552, w: 156, title: t('glaze.trim'), sub: t('glaze.trimSub') }
+    { x: 344, w: 176, title: t('glaze.rate'), sub: t('glaze.rateSub') },
+    { x: 528, w: 180, title: t('glaze.trim'), sub: t('glaze.trimSub') }
   ];
   const y = 18;
   const h = 78;
