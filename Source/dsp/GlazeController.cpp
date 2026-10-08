@@ -479,6 +479,8 @@ namespace celadon::glaze
 
         double sampleRate = 48000.0;
         bool prepared = false;
+        // 还没 prepare 时读进的原始 XML。prepare 会冷启动，链取出这份再读回，采样率按 prepare 之后的折算。
+        std::unique_ptr<juce::XmlElement> stateRestoredBeforePrepare;
         std::int64_t timelineSamples = 0;
         std::int64_t nextGridSample = 48000;
         std::int64_t positionTolerance = 2400;
@@ -1392,6 +1394,11 @@ namespace celadon::glaze
 
         void restoreStateXml (const juce::XmlElement* xml)
         {
+            // 第一次 prepare 之前留住调用方交来的那一份。此时 LiveProfile 还停在默认采样率，
+            // 就地读档会按 48 kHz 折算；等 prepare 设好采样率再读同一份，才和「先 prepare 再读档」同一条路。
+            if (! prepared)
+                stateRestoredBeforePrepare = xml != nullptr ? std::make_unique<juce::XmlElement> (*xml) : nullptr;
+
             if (xml == nullptr)
             {
                 coldStart (false);
@@ -1499,6 +1506,10 @@ namespace celadon::glaze
     void GlazeController::requestRelearn() noexcept {}
     std::unique_ptr<juce::XmlElement> GlazeController::createStateXml() const                   { return impl->createStateXml(); }
     void GlazeController::restoreStateXml (const juce::XmlElement* xml)                         { impl->restoreStateXml (xml); }
+    std::unique_ptr<juce::XmlElement> GlazeController::takeStateRestoredBeforePrepare()
+    {
+        return std::move (impl->stateRestoredBeforePrepare);
+    }
     void GlazeController::setLiveSegmentSink (SegmentSink* sink, const BalanceModule* pendingFrames)
     {
         impl->sinkProbe = true;

@@ -946,6 +946,7 @@ namespace celadon::test
 
         void runTest() override
         {
+            testRestoredLiveSurvivesFirstPrepare();
             testPhasesAndFlags();
             testGlazeZeroLearnsButLeavesManualUntouched();
             testFirstListenButtonRestarts();
@@ -1011,6 +1012,122 @@ namespace celadon::test
         }
 
     private:
+        // 打开工程的宿主顺序是 setStateInformation 再第一次 prepareToPlay。0.1.8.9（以及阶段 2 合入后、
+        // 版本号还印着 0.1.8.8 的构建）写出的是 LIVE format 2，两种顺序必须留下同一个 I。
+        // 发行的 0.1.8.8 仍是 format 1 聆听树：两种顺序都冷启动，I 同样无效，旧聆听提示还在。
+        // 第二次 prepare 换采样率和块长：采样率缓存重算，画像按存档折算，两种顺序仍然一致。
+        void testRestoredLiveSurvivesFirstPrepare()
+        {
+            beginTest ("restore before the first prepare keeps LIVE; a later rate and block change keeps it too");
+
+            const auto material = makeMusic (defaultRate, 20.0, 21, 0.4f);
+            const auto params = defaultParams (40.0f);
+            Rig donor (fastConstants(), material, params);
+            donor.tempoBpm = 120.0;
+            const auto heard = donor.runUntil (18.0, [&]
+            {
+                return donor.chain.getLiveProfile().getProfile().integratedLufs.valid;
+            });
+            const auto xml = donor.chain.createGlazeStateXml();
+            const auto kept = donor.chain.getLiveProfile().getProfile().integratedLufs;
+            const auto keptTrim = donor.probe().appliedBiasDb;
+            const auto keptInc = donor.probe().increments;
+            expect (heard && xml != nullptr && xml->getIntAttribute ("formatVersion") == glaze::liveContainerFormatVersion && kept.valid,
+                    "0.1.8.9 fixture has a LIVE profile to restore");
+
+            Rig preparedFirst (fastConstants(), material, params);
+            preparedFirst.chain.restoreGlazeStateXml (xml.get());
+            const auto afterPrepare = preparedFirst.chain.getLiveProfile().getProfile().integratedLufs;
+            const auto preparedProfile = preparedFirst.chain.getLiveProfile().createStateXml();
+
+            CeladonChain restoredFirst;
+            restoredFirst.getGlazeController().setConstantsForTesting (fastConstants());
+            restoredFirst.restoreGlazeStateXml (xml.get());
+            restoredFirst.setParams (params, false);
+            restoredFirst.prepare ({ defaultRate, (juce::uint32) blockSize, (juce::uint32) numChannels });
+            const auto afterRestore = restoredFirst.getLiveProfile().getProfile().integratedLufs;
+            const auto restoredProfile = restoredFirst.getLiveProfile().createStateXml();
+            const auto restoredProbe = restoredFirst.getGlazeController().getProbeForTesting();
+
+            logMessage ("  restore-before-first-prepare I valid " + juce::String ((int) afterRestore.valid)
+                        + " value " + juce::String (afterRestore.value, 3)
+                        + "; prepare-then-restore I " + juce::String (afterPrepare.value, 3));
+
+            expect (afterPrepare.valid && sameBits (afterPrepare.value, kept.value), "prepare then restore keeps I bit-exactly");
+            expect (afterRestore.valid && sameBits (afterRestore.value, afterPrepare.value),
+                    "restore before the first prepare keeps the same I");
+            expect (preparedProfile != nullptr && restoredProfile != nullptr
+                        && preparedProfile->isEquivalentTo (restoredProfile.get(), false),
+                    "the restored LIVE_PROFILE matches either order");
+            expect (sameIncrements (restoredProbe.increments, keptInc), "persisted increments survive the first prepare");
+            expect (sameBits (restoredProbe.appliedBiasDb, keptTrim), "persisted G_trim survives the first prepare");
+            expect (sameIncrements (preparedFirst.probe().increments, restoredProbe.increments)
+                        && sameBits (preparedFirst.probe().appliedBiasDb, restoredProbe.appliedBiasDb),
+                    "increments and G_trim match the prepare-then-restore chain");
+
+            constexpr double secondRate = 44100.0;
+            constexpr int secondBlock = 128;
+            preparedFirst.chain.setParams (params, false);
+            preparedFirst.chain.prepare ({ secondRate, (juce::uint32) secondBlock, (juce::uint32) numChannels });
+            restoredFirst.setParams (params, false);
+            restoredFirst.prepare ({ secondRate, (juce::uint32) secondBlock, (juce::uint32) numChannels });
+
+            const auto preparedAgain = preparedFirst.chain.getLiveProfile().getProfile().integratedLufs;
+            const auto restoredAgain = restoredFirst.getLiveProfile().getProfile().integratedLufs;
+            const auto preparedAgainProfile = preparedFirst.chain.getLiveProfile().createStateXml();
+            const auto restoredAgainProfile = restoredFirst.getLiveProfile().createStateXml();
+            logMessage ("  second prepare @" + juce::String (secondRate, 0) + " / " + juce::String (secondBlock)
+                        + " I " + juce::String (restoredAgain.value, 3));
+            expect (preparedAgain.valid && restoredAgain.valid && sameBits (preparedAgain.value, restoredAgain.value),
+                    "a second prepare at another rate and block size keeps the same I either order");
+            expect (sameBits (restoredAgain.value, kept.value), "rescaling the profile does not change I");
+            expect (preparedAgainProfile != nullptr && restoredAgainProfile != nullptr
+                        && preparedAgainProfile->isEquivalentTo (restoredAgainProfile.get(), false),
+                    "LIVE_PROFILE still matches after the rate and block change");
+
+            CeladonChain cold;
+            cold.prepare ({ defaultRate, (juce::uint32) blockSize, (juce::uint32) numChannels });
+            expect (! cold.getLiveProfile().getProfile().integratedLufs.valid,
+                    "a first prepare with nothing restored is still a cold start");
+
+            beginTest ("0.1.8.8 listen state and 0.1.8.9 LIVE load the same value either order");
+
+            auto listenState = std::make_unique<juce::XmlElement> (glaze::stateTag);
+            listenState->setAttribute ("formatVersion", 1);
+            listenState->createNewChildElement (glaze::profileTag);
+            listenState->createNewChildElement ("PLAN");
+            listenState->createNewChildElement ("CALIBRATION");
+            listenState->createNewChildElement (glaze::executionTag);
+
+            auto openListen = [&] (bool restoreBeforePrepare)
+            {
+                auto chain = std::make_unique<CeladonChain>();
+                chain->setParams (params, false);
+
+                if (restoreBeforePrepare)
+                    chain->restoreGlazeStateXml (listenState.get());
+
+                chain->prepare ({ defaultRate, (juce::uint32) blockSize, (juce::uint32) numChannels });
+
+                if (! restoreBeforePrepare)
+                    chain->restoreGlazeStateXml (listenState.get());
+
+                return chain;
+            };
+
+            const auto listenEarly = openListen (true);
+            const auto listenLate = openListen (false);
+            const auto listenEarlyI = listenEarly->getLiveProfile().getProfile().integratedLufs;
+            const auto listenLateI = listenLate->getLiveProfile().getProfile().integratedLufs;
+            expect (! listenEarlyI.valid && ! listenLateI.valid && sameBits (listenEarlyI.value, listenLateI.value),
+                    "a 0.1.8.8 listen/lock project cold-starts to the same LIVE either order");
+            expect (listenEarly->getGlazeStatus().legacySessionDiscarded && listenLate->getGlazeStatus().legacySessionDiscarded,
+                    "the discarded-listen notice survives a restore that happens before the first prepare");
+
+            expect (afterRestore.valid && sameBits (afterRestore.value, afterPrepare.value),
+                    "a 0.1.8.9 LIVE project (same container the phase-2 0.1.8.8 builds wrote) keeps I either order");
+        }
+
         //==============================================================================
         // 1. 状态转移：宿主停着 → 未学习（不聆听）；开始播放 → 聆听中（有效时长往上走，要求秒数满 min 后换成 max）；
         //    聆听结束 → 生成方案（3 s 过渡，此处 0.5 s）→ 校准中 → 已锁定；三个就绪标志依次置位；阶段严格按顺序出现、不跳。
