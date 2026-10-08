@@ -1,7 +1,7 @@
 {
   "site": {
     "title": "Celadon · Smart mastering plugin",
-    "description": "Celadon is a mastering plugin that runs four stages in a fixed order — BALANCE dynamic EQ, CLAY stereo clean-up, COLOR tone and glue, LIMIT true-peak limiting — while one GLAZE knob listens to the song and decides how far to push it. VST3 / AU on macOS (Apple silicon / Intel), VST3 on Windows x64."
+    "description": "Celadon is a mastering plugin that runs four stages in a fixed order — BALANCE dynamic EQ, CLAY stereo clean-up, COLOR tone and glue, LIMIT true-peak limiting — while one GLAZE knob keeps listening to the song and decides how far to push as it goes. VST3 / AU on macOS (Apple silicon / Intel), VST3 on Windows x64."
   },
   "nav": {
     "label": "Main",
@@ -30,7 +30,7 @@
     "srVersion": " ({{version}})"
   },
   "footer": {
-    "blurb": "A personal mastering plugin — free during the early bird, with no price shown. Four stages run in a fixed order: balance → stereo clean-up → colour → limit. GLAZE listens to the song first, then decides how far to push.",
+    "blurb": "A personal mastering plugin — free during the early bird, with no price shown. Four stages run in a fixed order: balance → stereo clean-up → colour → limit. GLAZE keeps listening to the song and decides how far to push as it goes.",
     "docs": "Docs",
     "quickstart": "Quick start",
     "glaze": "GLAZE and styles",
@@ -38,7 +38,7 @@
     "faq": "FAQ",
     "algorithms": "Algorithms",
     "overview": "Signal chain overview",
-    "glazeAlgo": "GLAZE decisions and calibration",
+    "glazeAlgo": "GLAZE decisions and following",
     "limitAlgo": "LIMIT true-peak limiting",
     "verification": "Performance and verification",
     "get": "Get it",
