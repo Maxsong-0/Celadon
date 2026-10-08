@@ -1,0 +1,71 @@
+{
+  "masters": 39,
+  "codec_conditions": 234,
+  "max_pre_tp8_dbtp": -2.291512422058796,
+  "pre_sample_clips": 0,
+  "post_sample_clips": 590,
+  "post_intersample_clip8_count": 4250,
+  "max_tp4_vs_tp8_difference_db": 0.21761123201524107,
+  "per_codec": [
+    {
+      "encoder": "aac",
+      "bitrate_kbps": 256,
+      "worst_overshoot8_db": 6.573399390840141,
+      "max_post_tp8_dbtp": 4.227171648107458,
+      "passes_post_minus1": 21,
+      "above_zero": 13,
+      "sample_clip_count": 36,
+      "intersample_clip8_count": 258
+    },
+    {
+      "encoder": "aac",
+      "bitrate_kbps": 128,
+      "worst_overshoot8_db": 7.3750120831530985,
+      "max_post_tp8_dbtp": 5.028784340420415,
+      "passes_post_minus1": 10,
+      "above_zero": 21,
+      "sample_clip_count": 453,
+      "intersample_clip8_count": 3296
+    },
+    {
+      "encoder": "libopus",
+      "bitrate_kbps": 160,
+      "worst_overshoot8_db": 2.2246925437953493,
+      "max_post_tp8_dbtp": -0.12530361338469884,
+      "passes_post_minus1": 28,
+      "above_zero": 0,
+      "sample_clip_count": 0,
+      "intersample_clip8_count": 0
+    },
+    {
+      "encoder": "libopus",
+      "bitrate_kbps": 96,
+      "worst_overshoot8_db": 4.559715031116908,
+      "max_post_tp8_dbtp": 2.209718135153632,
+      "passes_post_minus1": 13,
+      "above_zero": 13,
+      "sample_clip_count": 83,
+      "intersample_clip8_count": 589
+    },
+    {
+      "encoder": "libmp3lame",
+      "bitrate_kbps": 320,
+      "worst_overshoot8_db": 1.1533405797236986,
+      "max_post_tp8_dbtp": -1.195600893837424,
+      "passes_post_minus1": 39,
+      "above_zero": 0,
+      "sample_clip_count": 0,
+      "intersample_clip8_count": 0
+    },
+    {
+      "encoder": "libmp3lame",
+      "bitrate_kbps": 128,
+      "worst_overshoot8_db": 3.1478912664905128,
+      "max_post_tp8_dbtp": 0.79894979292939,
+      "passes_post_minus1": 22,
+      "above_zero": 8,
+      "sample_clip_count": 18,
+      "intersample_clip8_count": 107
+    }
+  ]
+}

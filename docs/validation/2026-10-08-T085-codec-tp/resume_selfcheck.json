@@ -1,0 +1,19 @@
+{
+  "command": [
+    ".t085/venv/bin/python",
+    "tools/render/codec_tp_check.py",
+    "--render",
+    "build/celadon_render",
+    "--input",
+    "artifacts/t085/input",
+    "--work",
+    "artifacts/t085/run",
+    "--out",
+    "artifacts/t085/resume_check",
+    "--resume-measurements",
+    "--reuse-renders"
+  ],
+  "completed_conditions_skipped": 234,
+  "measurement_csv_byte_identical": true,
+  "stdout": ""
+}

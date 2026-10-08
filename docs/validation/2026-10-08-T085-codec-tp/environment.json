@@ -1,0 +1,174 @@
+{
+  "ffmpeg_version": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers\nbuilt with gcc 14 (Debian 14.2.0-19)\nconfiguration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared\nlibavutil      59. 39.100 / 59. 39.100\nlibavcodec     61. 19.101 / 61. 19.101\nlibavformat    61.  7.103 / 61.  7.103\nlibavdevice    61.  3.100 / 61.  3.100\nlibavfilter    10.  5.100 / 10.  5.100\nlibswscale      8.  3.100 /  8.  3.100\nlibswresample   5.  3.100 /  5.  3.100\nlibpostproc    58.  3.100 / 58.  3.100\n",
+  "encoders": [
+    [
+      "aac",
+      256,
+      "m4a"
+    ],
+    [
+      "aac",
+      128,
+      "m4a"
+    ],
+    [
+      "libopus",
+      160,
+      "opus"
+    ],
+    [
+      "libopus",
+      96,
+      "opus"
+    ],
+    [
+      "libmp3lame",
+      320,
+      "mp3"
+    ],
+    [
+      "libmp3lame",
+      128,
+      "mp3"
+    ]
+  ],
+  "encode_options": "ffmpeg -i MASTER -map 0:a:0 -c:a ENCODER -b:a Nk; Opus: -application audio -vbr on",
+  "decode_options": "ffmpeg -i ENCODED -c:a pcm_f32le DECODED.wav (no gain or limiter)",
+  "render_sha256": "75608cbdb61b01e89146fb32417d1dcc759c4f39f96eb4a05e7a0cae35da4549",
+  "command": [
+    "tools/render/codec_tp_check.py",
+    "--render",
+    "build/celadon_render",
+    "--input",
+    "artifacts/t085/input",
+    "--work",
+    "artifacts/t085/run",
+    "--out",
+    "docs/validation/2026-10-08-T085-codec-tp",
+    "--targets=-10",
+    "--reuse-renders"
+  ],
+  "render_commands": [
+    [
+      "/workspace/t085/build/celadon_render",
+      "--in",
+      "/workspace/t085/artifacts/t085/input",
+      "--out",
+      "/workspace/t085/artifacts/t085/run/render_-10",
+      "--glaze",
+      "100",
+      "--style",
+      "auto",
+      "--clay",
+      "auto",
+      "--genre",
+      "general",
+      "--delivery",
+      "streaming",
+      "--streaming-target-lufs",
+      "-10.0",
+      "--no-align",
+      "--no-replay"
+    ],
+    [
+      "/workspace/t085/build/celadon_render",
+      "--in",
+      "/workspace/t085/artifacts/t085/input",
+      "--out",
+      "/workspace/t085/artifacts/t085/run/render_-12",
+      "--glaze",
+      "100",
+      "--style",
+      "auto",
+      "--clay",
+      "auto",
+      "--genre",
+      "general",
+      "--delivery",
+      "streaming",
+      "--streaming-target-lufs",
+      "-12.0",
+      "--no-align",
+      "--no-replay"
+    ],
+    [
+      "/workspace/t085/build/celadon_render",
+      "--in",
+      "/workspace/t085/artifacts/t085/input",
+      "--out",
+      "/workspace/t085/artifacts/t085/run/render_-14",
+      "--glaze",
+      "100",
+      "--style",
+      "auto",
+      "--clay",
+      "auto",
+      "--genre",
+      "general",
+      "--delivery",
+      "streaming",
+      "--streaming-target-lufs",
+      "-14.0",
+      "--no-align",
+      "--no-replay"
+    ]
+  ],
+  "packages": {
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "soundfile": "0.14.0"
+  },
+  "pyloudnorm_version": "0.2.0",
+  "measurement_commands": [
+    [
+      "tools/render/codec_tp_check.py",
+      "--render",
+      "build/celadon_render",
+      "--input",
+      "artifacts/t085/input",
+      "--work",
+      "artifacts/t085/run",
+      "--out",
+      "docs/validation/2026-10-08-T085-codec-tp",
+      "--targets=-10",
+      "--reuse-renders"
+    ],
+    [
+      "tools/render/codec_tp_check.py",
+      "--render",
+      "build/celadon_render",
+      "--input",
+      "artifacts/t085/input",
+      "--work",
+      "artifacts/t085/run",
+      "--out",
+      "artifacts/t085/evidence_-12",
+      "--targets=-12",
+      "--reuse-renders"
+    ],
+    [
+      "tools/render/codec_tp_check.py",
+      "--render",
+      "build/celadon_render",
+      "--input",
+      "artifacts/t085/input",
+      "--work",
+      "artifacts/t085/run",
+      "--out",
+      "artifacts/t085/evidence_-14",
+      "--targets=-14",
+      "--reuse-renders"
+    ]
+  ],
+  "script_sha256": "ab63a18ecfcae43e44c3724bc559cf1d007ed2821bfe3eacd92d7d01e86bc4f3",
+  "source_commit": "5a2142572df76ef30bcd66786d68011cba1ffd7e",
+  "linked_packages": {
+    "libopus0": "1.5.2-2",
+    "libmp3lame0": "3.100-6+b3"
+  },
+  "python_version": "3.13.5 (main, Aug 10 2026, 12:06:59) [GCC 14.2.0]",
+  "platform": "Linux-6.12.94+-x86_64-with-glibc2.41",
+  "juce_version": "9.0.2",
+  "juce_commit": "72782788ce18c2d4d760b28e0921d6ffc6431102",
+  "cxx_compiler": "GNU g++ 14.2.0-19; Release; -ffp-contract=off"
+}

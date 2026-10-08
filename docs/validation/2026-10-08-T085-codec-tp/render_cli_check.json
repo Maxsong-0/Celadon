@@ -1,0 +1,42 @@
+{
+  "baseline": {
+    "sha256": "c2858dfdd239d37e54f2923b6387ef9beab9f01619df58c6d8777922a7016e05",
+    "lufs": "-17.376",
+    "align_gain_db": "1.376",
+    "effective_ceiling_dbtp": "-2.000",
+    "plan_requested_target_lufs": "-11.134",
+    "plan_effective_target_lufs": "-14.826"
+  },
+  "default": {
+    "sha256": "c2858dfdd239d37e54f2923b6387ef9beab9f01619df58c6d8777922a7016e05",
+    "lufs": "-17.376",
+    "align_gain_db": "1.376",
+    "effective_ceiling_dbtp": "-2.000",
+    "plan_requested_target_lufs": "-11.134",
+    "plan_effective_target_lufs": "-14.826"
+  },
+  "unaligned": {
+    "sha256": "46b02072b950b2c5fbea5962109020b495fb81d986e37607d2a559b6bbc5d3bb",
+    "lufs": "-17.376",
+    "align_gain_db": "",
+    "effective_ceiling_dbtp": "-2.000",
+    "plan_requested_target_lufs": "-11.134",
+    "plan_effective_target_lufs": "-14.826"
+  },
+  "override10": {
+    "sha256": "46b02072b950b2c5fbea5962109020b495fb81d986e37607d2a559b6bbc5d3bb",
+    "lufs": "-17.376",
+    "align_gain_db": "",
+    "effective_ceiling_dbtp": "-2.000",
+    "plan_requested_target_lufs": "-11.134",
+    "plan_effective_target_lufs": "-14.826"
+  },
+  "override14": {
+    "sha256": "9d0095d691e4893c30b179f4b62be2d1cba45dab7b55acf8ed354e1e826fa767",
+    "lufs": "-17.476",
+    "align_gain_db": "",
+    "effective_ceiling_dbtp": "-2.000",
+    "plan_requested_target_lufs": "-15.134",
+    "plan_effective_target_lufs": "-15.157"
+  }
+}

@@ -109,6 +109,25 @@ namespace
     // Clay 10 Hz 4 阶低切衰 60 dB 约 0.29 s 加余量；审核 V3-02：这里原来写死 0.3）。各组成品一样长，仍逐样本对齐。
     constexpr double ringOutSeconds = celadon::CeladonChain::filterRingOutSeconds;
 
+    // T-085：仅命令行测量覆盖；未给选项时不接触链的出厂常数。
+    double measurementStreamingTarget = std::numeric_limits<double>::quiet_NaN();
+
+    std::unique_ptr<celadon::CeladonChain> makeRenderChain()
+    {
+        auto chain = std::make_unique<celadon::CeladonChain>();
+        if (std::isfinite (measurementStreamingTarget))
+        {
+            auto constants = celadon::glaze::factoryConstants();
+            auto& delivery = constants.delivery;
+            const auto delta = static_cast<float> (measurementStreamingTarget + 10.0);
+            delivery.streamingTargetLufs += delta;
+            delivery.streamingMinLufs += delta;
+            delivery.streamingMaxLufs += delta;
+            chain->getGlazeController().setConstantsForTesting (constants);
+        }
+        return chain;
+    }
+
     // 两个指标的分频点（设计规格-Clay-分析决策与验收 第 7 节「低频相关度、超低频能量」；次声口径按 ADR-012 改）。
     constexpr double lowCorrelationCutoffHz = 125.0;
     constexpr double infrasonicCutoffHz = 16.0;   // 真次声（ADR-012：与分析器 subShareDb 同一定义，8 阶 Butterworth 16 Hz）
@@ -178,6 +197,8 @@ namespace
         std::vector<int> styles { static_cast<int> (celadon::glaze::Style::automatic) };
         int blockSize = 512;
         double matchLufs = -16.0;
+        bool noAlign = false;
+        double streamingTargetLufs = std::numeric_limits<double>::quiet_NaN();
         bool metricsOnly = false;   // --metrics-only：照常渲染、量指标，但不写成品 wav（大批歌做门槛验收时用，省几 GB 磁盘与传输）
         bool replay = true;         // 每组 GLAZE > 0 的「自动」之后加「同决策重放 · 修坯关」一行与阳性对照（ADR-016）；--no-replay 关掉
         bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案值 / 宽度保护后 / 实际值、
@@ -534,6 +555,8 @@ namespace
                      "                      live/<标签>/<歌名>__<曲风>.csv，另写 __final.csv 与 __judgements.csv（歌尾窗口里每段的最终判断；\n"
                      "                      同一首歌、曲风、聆听起点、常数只写一份；链的输出逐位不变）\n"
                      "  --live-only         只跑第一遍（聆听）出追踪：每首歌 × 每个曲风 × 每个聆听起点一遍，不出成品、不做重放（最快的跑法）\n"
+                     "  --no-align         测量用：写未经整体等响的成品，默认仍等响\n"
+                     "  --streaming-target-lufs n  测量用：覆盖流媒体基准目标（-20 ~ -8），上下界同移，Ceiling 不变\n"
                      "  --live-constants k=v,...  覆盖实时画像常数 LiveConstants 的任意字段（如 fourOnFloor.gateWidthLu=3.5,newProgramLu=8,\n"
                      "                      referenceMemorySeconds=240；键名同 GlazeConstants.h，主段模型的字段带 fourOnFloor. / loudness. /\n"
                      "                      passive. 前缀；取值范围是 LiveProfile.h 的公开表）；不认识的键、取值不合法都报错\n"
@@ -752,6 +775,12 @@ namespace
                 continue;
             }
 
+            if (name == "--no-align")
+            {
+                options.noAlign = true;
+                continue;
+            }
+
             if (name == "--metrics-only")   // 不带取值的运行选项（另外三个是 --trace、--no-replay、--segments-csv）
             {
                 options.metricsOnly = true;
@@ -862,6 +891,16 @@ namespace
                 }
 
                 options.blockSize = static_cast<int> (parsed);
+            }
+            else if (name == "--streaming-target-lufs")
+            {
+                double parsed = 0.0;
+                if (! parseNumber (value, parsed) || parsed < -20.0 || parsed > -8.0)
+                {
+                    error = "--streaming-target-lufs 要 -20 ~ -8 之间的数";
+                    return ParseResult::invalid;
+                }
+                options.streamingTargetLufs = parsed;
             }
             else if (name == "--match-lufs")
             {
@@ -2051,7 +2090,7 @@ namespace
                              int startSample = 0, LiveTracer* live = nullptr)
     {
         ListenResult result;
-        auto chain = std::make_unique<celadon::CeladonChain>();
+        auto chain = makeRenderChain();
 
         // 顺序照 PluginProcessor::prepareToPlay：先交参数再 prepare，各模块的平滑器直接落在这份参数上、不从默认值滑过来。
         chain->setParams (params, false);
@@ -2247,7 +2286,7 @@ namespace
                      EffectiveLog* effectiveLog = nullptr, const Transport& transport = Transport {},
                      bool recordReductions = false, LiveTracer* live = nullptr)
     {
-        auto chain = std::make_unique<celadon::CeladonChain>();
+        auto chain = makeRenderChain();
 
         // 顺序照宿主「重开工程 → 导出」：先读回存档（setStateInformation），再 prepareToPlay（先交参数再 prepare）。
         // rendercheck 验过「读回在 prepare 之前 / 之后」两种顺序结果逐样本相同。
@@ -2480,7 +2519,7 @@ namespace
                      const EffectiveLog& effectiveLog, ReplayClay mode, RenderResult& result,
                      const Transport& transport = Transport {}, bool recordReductions = false, LiveTracer* live = nullptr)
     {
-        auto chain = std::make_unique<celadon::CeladonChain>();
+        auto chain = makeRenderChain();
         const auto& blocks = effectiveLog.blocks;
         chain->setParams (replayParams (effectiveLog.prepared, mode), false);
         chain->prepare (makeSpec (sampleRate, blockSize));
@@ -3235,7 +3274,10 @@ namespace
         md += "- 生成时间：" + generatedAt + "（每做完一首歌重写一次本表）\n";
         md += "- 网格：" + gridText (options) + "，共 " + std::to_string (combos.size()) + " 组；宿主块长 "
             + std::to_string (options.blockSize) + " 样本；各文件按自己的采样率渲染\n";
-        md += "- 对齐：成品按整体响度只乘增益对齐到 " + fixed (options.matchLufs, 1)
+        if (options.noAlign)
+            md += "- 对齐：关闭（--no-align），写未经整体等响的 32-bit float 成品\n";
+        else
+            md += "- 对齐：成品按整体响度只乘增益对齐到 " + fixed (options.matchLufs, 1)
             + " LUFS；32-bit float，允许超过 0 dBFS，不再限幅\n";
         md += "- 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）"
               "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 " + fixed (ringOutSeconds, 2) + " s 余振，成品与原曲逐样本对齐\n";
@@ -3243,6 +3285,10 @@ namespace
               "插件参数表同一处真源）\n";
         md += "- 高级母带（新实例默认）：" + masteringText (makeFactoryParams().mastering)
             + "；两项「自动」的实际强度随 GLAZE 联动，GLAZE 0 时为 0\n";
+
+        if (std::isfinite (options.streamingTargetLufs))
+            md += "- 测量覆盖：流媒体基准目标 " + fixed (options.streamingTargetLufs, 1)
+                + " LUFS，上下界同移；未改出厂值\n";
 
         // T-038：用了新选项才写这一行（默认运行的表头与改动前相同）。
         if (options.extended)
@@ -3790,13 +3836,13 @@ namespace
         juce::AudioBuffer<float> finished (render.io.getArrayOfWritePointers(), 2, render.latencySamples, render.outputLength);
         row.measurement = measure (finished, song.sampleRate);
 
-        if (row.measurement.hasLoudness)
+        if (row.measurement.hasLoudness && ! options.noAlign)
         {
             row.aligned = true;
             row.alignGainDb = options.matchLufs - row.measurement.integratedLufs;
             finished.applyGain (static_cast<float> (std::pow (10.0, row.alignGainDb / 20.0)));
         }
-        else
+        else if (! row.measurement.hasLoudness)
         {
             report.notes.push_back (notePrefix + "整体响度没有读数（静音或低于 -70 LUFS），没有对齐");
         }
@@ -5087,6 +5133,8 @@ int main (int argc, char* argv[])
             break;
     }
 
+    measurementStreamingTarget = options.streamingTargetLufs;
+
     if (! options.inputDir.isDirectory())
     {
         std::cerr << "celadon_render：--in 不是目录：" << options.inputDir.getFullPathName().toStdString() << "\n";
@@ -5115,7 +5163,8 @@ int main (int argc, char* argv[])
     const auto metricsCsv = options.outputDir.getChildFile ("metrics.csv");
 
     std::cerr << "celadon_render：" << songs.size() << " 首歌 × " << combos.size() << " 组（" << gridText (options)
-              << "），宿主块长 " << options.blockSize << "，对齐到 " << fixed (options.matchLufs, 1) << " LUFS\n"
+              << "），宿主块长 " << options.blockSize
+              << (options.noAlign ? "，不对齐\n" : "，对齐到 " + fixed (options.matchLufs, 1) + " LUFS\n")
               << "输出目录：" << options.outputDir.getFullPathName().toStdString() << "\n";
 
     if (options.liveTrace)

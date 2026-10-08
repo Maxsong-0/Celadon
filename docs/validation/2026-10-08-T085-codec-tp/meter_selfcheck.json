@@ -1,0 +1,46 @@
+{
+  "fixtures": [
+    {
+      "case": "tone1k",
+      "analytic_tp_dbtp": -20.0,
+      "ffmpeg_ebur128": "Summary:\n\n  Integrated loudness:\n    I:         -20.0 LUFS\n    Threshold: -30.0 LUFS\n\n  Loudness range:\n    LRA:         0.0 LU\n    Threshold: -40.0 LUFS\n    LRA low:   -20.0 LUFS\n    LRA high:  -20.0 LUFS\n\n  True peak:\n    Peak:      -20.0 dBFS\n[out#0/null @ 0x5592abbe9780] video:0KiB audio:2062KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown\nsize=N/A time=00:00:11.00 bitrate=N/A speed= 213x    \n",
+      "measurement": {
+        "duration_s": 11.0,
+        "sample_rate": 48000,
+        "lufs_i": -20.006846088518227,
+        "sample_peak_dbfs": -19.99999987057016,
+        "sample_clip_count": 0,
+        "crest_db": 3.0632634663992384,
+        "tp4_dbtp": -19.99999785468987,
+        "intersample_clip4_count": 0,
+        "tp8_dbtp": -19.999997742516303,
+        "intersample_clip8_count": 0,
+        "psr_median_db": -0.006702155918276276,
+        "plr_db": 0.006848346001923744
+      }
+    },
+    {
+      "case": "intersample",
+      "analytic_tp_dbtp": 0.42378598139876184,
+      "ffmpeg_ebur128": "Summary:\n\n  Integrated loudness:\n    I:           3.8 LUFS\n    Threshold:  -6.2 LUFS\n\n  Loudness range:\n    LRA:         0.0 LU\n    Threshold: -16.2 LUFS\n    LRA low:     3.8 LUFS\n    LRA high:    3.8 LUFS\n\n  True peak:\n    Peak:        0.4 dBFS\n[out#0/null @ 0x55b2a2bf3780] video:0KiB audio:2062KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown\nsize=N/A time=00:00:11.00 bitrate=N/A speed= 221x    \n",
+      "measurement": {
+        "duration_s": 11.0,
+        "sample_rate": 48000,
+        "lufs_i": 3.7618991368098396,
+        "sample_peak_dbfs": -2.5865142284888303,
+        "sample_clip_count": 0,
+        "crest_db": 0.052963395964518156,
+        "tp4_dbtp": 0.42392139243210536,
+        "intersample_clip4_count": 518858,
+        "tp8_dbtp": 0.42392150460566946,
+        "intersample_clip8_count": 1556214,
+        "psr_median_db": -3.35166286562335,
+        "plr_db": -3.3379776322041703
+      }
+    }
+  ],
+  "fft_vs_resample_poly_max_abs_error": {
+    "4": 4.440892098500626e-15,
+    "8": 4.884981308350689e-15
+  }
+}

@@ -591,3 +591,30 @@ Deep House、GLAZE 0、块长 512、出厂常数，走真歌同一套第一遍�
   `Source/ParameterDefaults.h`（插件参数表同一处真源，改默认值只改那里）。
 - **数值环境**：整个进程在 FTZ / DAZ 下跑（`main` 开头一次 `juce::ScopedNoDenormals`，T-032 R10-06），与插件的音频线程一致；
   只影响 < 1.2e-38（约 −758 dBFS）的非规格化数。
+
+## T-085：编码后真峰值与流媒体目标对比（只测量）
+
+`codec_tp_check.py` 依赖 Python 的 numpy / scipy / soundfile / pyloudnorm、ffmpeg，以及本地 Release `celadon_render`。
+它对未经等响的 Celadon 成品分别做 AAC 256/128 k、Opus 160/96 k、MP3 320/128 k 编解码；解码使用浮点 PCM，
+测 4×/8× 真峰值、LUFS-I、PSR/PLR、峰值因数与超过满刻度的采样计数，输出逐曲逐条件 CSV 和环境记录。
+音频只留在工作目录，不进 git。真实歌曲优先；`--jamendo-per-class 3` 按 T-038 清单每类下载前 3 首完整公开曲目，
+仅按该数据集条款用于非商业研究，不分发音频。`--synthetic` 另加 4 个固定种子的压力案例。
+
+```bash
+python tools/render/codec_tp_check.py --render build/celadon_render \
+  --input artifacts/t085/input --work artifacts/t085/run \
+  --out docs/validation/2026-10-08-T085-codec-tp --jamendo-per-class 3 --synthetic
+```
+
+测量工具新增两个显式选项，**不给时原行为不变**：
+
+| 选项 | 作用 |
+|---|---|
+| `--no-align` | 写未经整体等响的成品；默认仍按 `--match-lufs` 等响 |
+| `--streaming-target-lufs -12` | 只在这次进程覆盖流媒体基准目标；原目标的上下界同移（−12 时 −14～−10，−14 时 −16～−12），保留风格偏移、LRA 修正、预算与守护；有效 Ceiling 仍 ≤ −2 dBTP |
+
+`--targets=-10,-12,-14` 是脚本默认对比网格。目标是规划基准，不能当成整首实测 LUFS-I。
+渲染工具仍使用原有「聆听 → 新链读档 → 第二遍导出」流程；连续 GLAZE 的第二遍会继续跟随。
+`--reuse-renders` 仅供同一输入和参数下重测编码，不自动验证缓存是否匹配；普通复现请重新渲染。
+`--resume-measurements` 校验输入哈希、渲染二进制和 ffmpeg 版本，跳过 CSV 中已完整测完六种编码的条件；可与 `--reuse-renders` 合用。
+计量定义、适用范围和结果见 [T-085 报告](../../docs/validation/2026-10-08-T085-codec-tp/REPORT.md)。
