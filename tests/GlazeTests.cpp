@@ -1178,58 +1178,154 @@ namespace celadon::test
             }
         }
 
-        // 7. 学习后响度随 GLAZE 单调：在一段 −21 LUFS 左右的类音乐上学好画像（出厂常数），从同一份存档起步、离线纯前馈渲染 10 s，
-        //    GLAZE 0 / 25 / 50 / 75 / 100 的整体响度严格递增、逐级 > 0.1 LU；小档位 0.1 / 1 / 5 不比 GLAZE 0 轻（容差 0.02 LU）。
-        // 依据：设计规格-GLAZE 验收总表第 2 条「随 GLAZE 单调」、第 2 节「请求增益 G_request = GLAZE × max(0, L_pref − I_in)」。
+        // 7. 学好的 LIVE 画像留着时，响度跟着 GLAZE 走，但 Limit Gain 上行只有 0.2 dB/s、G_trim 只有 0.05 dB/s
+        //    （INTERFACE-SKETCH / GlazeController::Impl）。10 s 里 50 / 75 / 100 的已施加增益都停在 2.5 dB
+        //    （2.0 + 0.5），积分响度贴在一起；目标净增益仍随档位上升。守门为 0，G_trim 停在这 10 s 的速率积分 0.5，
+        //    不是 ±3 dB 钳位；真峰值离 Ceiling −1 还远。40 s 后各档拉开，逐级 > 0.1 LU，GLAZE 100 的已施加增益
+        //    停在 10 dB（8 + 2），仍是同一条滑移，不是响度顶。
+        //    先读档再 prepare 与先 prepare 再读档必须是同一条曲线。画像被第一次 prepare 清掉时，10 s 会走出另一条
+        //    低置信曲线（50 档还能比 25 响约 0.5 LU），那不是这份合同。
         void testLoudnessRisesWithGlaze()
         {
-            beginTest ("after learning, integrated loudness rises with GLAZE (0 / 25 / 50 / 75 / 100), and never dips at small values");
+            beginTest ("after learning, loudness follows the 0.2 dB/s slew: 10 s plateaus after GLAZE 25, 40 s steps rise, either restore order");
 
             constexpr double sampleRate = 48000.0;
             constexpr int numChannels = 2;
+            constexpr float ceilingDb = -1.0f;
             const auto learn = makeMusicLikeSignal (numChannels, sampleRate, 32.0, 2026, 0.35f);
-            const auto input = makeMusicLikeSignal (numChannels, sampleRate, 10.0, 2027, 0.35f);
+            const auto input10 = makeMusicLikeSignal (numChannels, sampleRate, 10.0, 2027, 0.35f);
+            const auto input40 = makeMusicLikeSignal (numChannels, sampleRate, 40.0, 2027, 0.35f);
             const auto state = learnState (learn, sampleRate);
+            expect (state != nullptr && state->getIntAttribute ("formatVersion") == glaze::liveContainerFormatVersion,
+                    "learned a LIVE format-2 state");
 
-            glaze::CommittedState committed;
-            expect (state != nullptr && glaze::fromXml (*state, committed) && committed.hasProfile, "learned a profile");
-            logMessage ("  learned: I " + juce::String (committed.profile.integratedLufs.value, 2) + " LUFS (confidence "
-                        + juce::String (committed.profile.integratedLufs.confidence, 2) + "), true peak "
-                        + juce::String (committed.profile.truePeakDbtp.value, 2) + " dBTP");
-
-            Params neutral;
-            neutral.limit.ceilingDb = -1.0f;
-
-            auto loudnessAt = [&] (float glaze)
+            struct Reading
             {
-                auto p = neutral;
-                p.glazePercent = glaze;
-                RestoredChain chain (*state, sampleRate, numChannels, p);
-                const auto output = chain.render (input, maxBlock);
-                expect (allFinite (output));
-                return integratedLoudnessOf (output, sampleRate, (int) (0.5 * sampleRate));
+                float lufs = 0.0f, target = 0.0f, effectiveGain = 0.0f, applied = 0.0f, trim = 0.0f, guard = 0.0f, truePeak = 0.0f;
             };
 
-            const auto zero = loudnessAt (0.0f);
-            juce::String summary = "  GLAZE 0 -> " + juce::String (zero, 2) + " LUFS;";
-
-            for (auto small : { 0.1f, 1.0f, 5.0f })
+            auto measure = [&] (bool restoreFirst, float glaze, const Signal& input) -> Reading
             {
-                const auto lufs = loudnessAt (small);
-                summary << " " << juce::String (small, 1) << " -> " << juce::String (lufs, 3) << ";";
-                expect (lufs >= zero - 0.02f, "GLAZE " + juce::String (small, 1) + " must not be quieter than GLAZE 0");
+                CeladonChain chain;
+                Params p;
+                p.limit.ceilingDb = ceilingDb;
+                p.glazePercent = glaze;
+                chain.setParams (p, false);
+
+                if (restoreFirst)
+                    chain.restoreGlazeStateXml (state.get());
+
+                chain.prepare (makeSpec (sampleRate, numChannels));
+
+                if (! restoreFirst)
+                    chain.restoreGlazeStateXml (state.get());
+
+                glaze::HostInfo host;
+                host.offline = true;
+                host.hasPlayState = host.isPlaying = true;
+                const auto numSamples = (int) input.front().size();
+                juce::AudioBuffer<float> block (numChannels, maxBlock);
+                auto output = input;
+
+                for (int start = 0; start < numSamples; start += maxBlock)
+                {
+                    const auto length = juce::jmin (maxBlock, numSamples - start);
+                    block.setSize (numChannels, length, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
+
+                    host.positionSamples = start;
+                    chain.setHostInfo (host);
+                    chain.setParams (p, false);
+                    chain.process (block);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        std::copy (block.getReadPointer (ch), block.getReadPointer (ch) + length,
+                                   output[(size_t) ch].begin() + start);
+                }
+
+                expect (allFinite (output));
+                const auto status = chain.getGlazeStatus();
+                const auto probe = chain.getGlazeController().getProbeForTesting();
+                Reading reading;
+                reading.lufs = integratedLoudnessOf (output, sampleRate, (int) (0.5 * sampleRate));
+                reading.target = status.effectiveTargetLufs;
+                reading.effectiveGain = probe.targetPlan.effectiveGainDb;
+                reading.applied = chain.getEffectiveParams().limit.gainDb;
+                reading.trim = probe.appliedBiasDb;
+                reading.guard = status.protectionDb;
+                reading.truePeak = chain.getAndResetOutputTruePeakDb();
+                return reading;
+            };
+
+            auto expectSame = [&] (const Reading& early, const Reading& late, const juce::String& what)
+            {
+                expect (std::abs (early.lufs - late.lufs) < 0.001f, what + ": loudness matches either order");
+                expect (std::abs (early.applied - late.applied) < 0.001f, what + ": applied gain matches either order");
+                expect (std::abs (early.effectiveGain - late.effectiveGain) < 0.001f, what + ": target gain matches either order");
+            };
+
+            juce::String summary = "  10 s";
+            Reading early10[8], late10[8];
+            const float steps10[] = { 0.0f, 0.1f, 1.0f, 5.0f, 25.0f, 50.0f, 75.0f, 100.0f };
+
+            for (int i = 0; i < 8; ++i)
+            {
+                early10[i] = measure (true, steps10[i], input10);
+                late10[i] = measure (false, steps10[i], input10);
+                expectSame (early10[i], late10[i], "10 s GLAZE " + juce::String (steps10[i], 1));
+                summary << " " << juce::String (steps10[i], 1) << " -> " << juce::String (early10[i].lufs, 3)
+                        << " (eff " << juce::String (early10[i].effectiveGain, 2)
+                        << ", applied " << juce::String (early10[i].applied, 2) << ");";
             }
 
-            auto previous = zero;
+            for (int i = 1; i <= 3; ++i)
+                expect (early10[i].lufs >= early10[0].lufs - 0.02f,
+                        "GLAZE " + juce::String (steps10[i], 1) + " must not be quieter than GLAZE 0");
 
-            for (auto amount : { 25.0f, 50.0f, 75.0f, 100.0f })
+            // 10 s：50/75/100 贴在 25 附近（滑移还没走到更高的目标），目标净增益仍逐档上升。
+            for (int i = 5; i <= 7; ++i)
             {
-                const auto lufs = loudnessAt (amount);
-                summary << " " << juce::String (amount, 0) << " -> " << juce::String (lufs, 2) << " (+" << juce::String (lufs - previous, 2) << ");";
-                expect (lufs - previous > 0.1f, "GLAZE " + juce::String (amount, 0) + " must be > 0.1 LU louder than the previous step");
-                previous = lufs;
+                expect (std::abs (early10[i].lufs - early10[4].lufs) < 0.1f,
+                        "10 s GLAZE " + juce::String (steps10[i], 0) + " stays with GLAZE 25 while the slew catches up");
+                expect (std::abs (early10[i].applied - 2.5f) < 0.05f,
+                        "10 s applied gain is the 0.2 dB/s + 0.05 dB/s budget (2.5 dB)");
+                expect (std::abs (early10[i].trim - 0.5f) < 0.02f,
+                        "10 s G_trim is the 0.05 dB/s integral, inside the +/-3 dB clamp");
+                expect (std::abs (early10[i].guard) < 0.001f, "10 s guard relief is zero");
+                expect (early10[i].truePeak <= ceilingDb + 0.01f, "10 s true peak stays at or under the ceiling");
+                expect (early10[i].truePeak < ceilingDb - 2.0f, "10 s true peak is not what flattens the curve");
+                expect (early10[i].effectiveGain > early10[i - 1].effectiveGain + 1.0f,
+                        "10 s target gain still steps up at GLAZE " + juce::String (steps10[i], 0));
             }
 
+            summary << " | 40 s";
+            Reading early40[5], late40[5];
+            const float steps40[] = { 0.0f, 25.0f, 50.0f, 75.0f, 100.0f };
+            auto previous = 0.0f;
+
+            for (int i = 0; i < 5; ++i)
+            {
+                early40[i] = measure (true, steps40[i], input40);
+                late40[i] = measure (false, steps40[i], input40);
+                expectSame (early40[i], late40[i], "40 s GLAZE " + juce::String (steps40[i], 0));
+                summary << " " << juce::String (steps40[i], 0) << " -> " << juce::String (early40[i].lufs, 2)
+                        << " (applied " << juce::String (early40[i].applied, 2) << ");";
+
+                if (i > 0)
+                    expect (early40[i].lufs - previous > 0.1f,
+                            "40 s GLAZE " + juce::String (steps40[i], 0) + " is > 0.1 LU louder than the previous step");
+
+                previous = early40[i].lufs;
+                expect (early40[i].truePeak <= ceilingDb + 0.01f, "40 s true peak stays at or under the ceiling");
+                expect (std::abs (early40[i].guard) < 0.001f, "40 s guard relief is zero");
+            }
+
+            expect (std::abs (early40[4].applied - 10.0f) < 0.05f,
+                    "40 s GLAZE 100 applied gain is the 0.2 dB/s + 0.05 dB/s budget (10 dB)");
+            expect (std::abs (early40[4].trim - 2.0f) < 0.05f,
+                    "40 s G_trim is the 0.05 dB/s integral, still inside +/-3 dB");
             logMessage (summary);
         }
 
