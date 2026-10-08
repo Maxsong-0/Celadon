@@ -113,10 +113,6 @@ A House intro often has 16–32 bars of drums only, with no bass or pads. GLAZE 
 - Jumping around is fine: replaying a bar only overwrites it rather than counting it twice. When the host gives no tempo, it counts in seconds instead.
 - To make it relax sooner, play through from the drop once.
 
-### How House genres listen
-
-See [How House genres follow](#how-house-genres-follow).
-
 ## How it relates to Advanced and CLAY
 
 - With “Loud, not harsh” and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.

@@ -43,7 +43,7 @@ After being rewritten to work in 64-sample segments, the output is bit-identical
 | Mono | **No mono-ing** (removed after listening tests on 2026-09-27); it only lights an amber warning when the lows are out of phase — mono-ing only reduces stereo bass and leaves mono playback unchanged, and it sounded unnatural |
 | Width | Widens a narrow top end moderately (at most +1.5 dB) only when a trial shows it won't raise peaks, watching the correlation so it never sounds hollow |
 
-With a House genre, Low cut aims at 25 Hz (its trigger and the trial run are unchanged) and the style factor for Width is 0 (no automatic widening); there is also a more sensitive out-of-phase hint. See [GLAZE · decisions and calibration](/algorithms/glaze#genre-and-delivery).
+With a House genre, Low cut aims at 25 Hz (its trigger and the trial run are unchanged) and the style factor for Width is 0 (no automatic widening); there is also a more sensitive out-of-phase hint. See [GLAZE · decisions and following](/algorithms/glaze#genre-and-delivery).
 
 Three-mode semantics: Auto = decision-maker + real-time protection (Mono is the exception: on Auto it never folds, it only warns), doing nothing at GLAZE 0; Off = never processes; Manual = follows your value exactly, works even at GLAZE 0, and neither automation nor protection rewrites it (the peak guard still applies: manual Low cut and Mono are pulled back at moments that would raise peaks while your value stays as set; on dense material that can be a lot).
 
