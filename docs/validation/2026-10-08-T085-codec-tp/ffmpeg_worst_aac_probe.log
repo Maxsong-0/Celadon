@@ -1,0 +1,18 @@
+ffmpeg -hide_banner -nostdin -i artifacts/t085/run/deep_155923__g100_clay-auto_auto_streaming_-10_aac_128.m4a -af ebur128=peak=true -f null -
+
+Summary:
+
+  Integrated loudness:
+    I:          -9.5 LUFS
+    Threshold: -19.5 LUFS
+
+  Loudness range:
+    LRA:         2.9 LU
+    Threshold: -29.5 LUFS
+    LRA low:   -11.5 LUFS
+    LRA high:   -8.6 LUFS
+
+  True peak:
+    Peak:        1.8 dBFS
+[out#0/null @ 0x560b91555fc0] video:0KiB audio:92112KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+size=N/A time=00:08:11.26 bitrate=N/A speed= 215x
