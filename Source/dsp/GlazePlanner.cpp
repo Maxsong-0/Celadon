@@ -1641,9 +1641,10 @@ namespace celadon::glaze
     //   - 流媒体 / 俱乐部：clamp(L_交付 + 风格偏移 − f(LRA), 该档下限, 该档上限)，风格偏移 = L_style − styleOffsetReferenceLufs
     //     （出厂参考 −9 = 冲击：温润 +0.5、冲击 0、通透 −1；自动风格的 L_style 已按权重混合，偏移随之按权重混合）。LRA 修正照旧在钳位之前减；
     //     钳位只用该档的范围，不再叠 minPreferred / maxPreferred（俱乐部 −7 正是标准档的上限，温润 −6.5 要越过它）。
-    //   常数是随工程读回来的快照，坏值与标准档遇到坏的 preferredLufs 走同一条路：L_pref 为 NaN → 请求只剩最小推响量（nonNegative 吞掉
-    //   NaN）；范围为 NaN → 不钳；±∞ 让请求或净增益非有限 → makePlanAtConfidence 末尾的兜底（增量归零、净增益退回手动链），都不会流进
-    //   模块参数。House 档的画像 I 是满编段（drop）的响度，所以这里的 L_pref 对准的是响段（第 4.2 节），决策器不必区分。
+    //   常数是随工程读回来的快照，坏值与标准档遇到坏的 preferredLufs 走同一条路：L_pref 为 NaN → nonNegative 吞掉 NaN。标准档因此只剩
+    //   最小推响量；流媒体 / 俱乐部还要被「目标 − 输入」封顶（T-089），NaN 目标同样收成 0，不再推这 3 dB。范围为 NaN → 不钳；
+    //   ±∞ 让请求或净增益非有限 → makePlanAtConfidence 末尾的兜底（增量归零、净增益退回手动链），都不会流进模块参数。
+    //   House 档的画像 I 是满编段（drop）的响度，所以这里的 L_pref 对准的是响段（第 4.2 节），决策器不必区分。
     static float preferredLufsFor (Delivery delivery, const StyleConstants& sc, const Constants& c, float lraCorrection) noexcept
     {
         const auto& d = c.delivery;
@@ -1705,6 +1706,10 @@ namespace celadon::glaze
             const auto upper = inputs.delivery == Delivery::streaming ? c.delivery.streamingMaxLufs : c.delivery.clubMaxLufs;
             if (isFinite (upper) && isFinite (ctx.inputLufs))
                 requestFull = juce::jmin (requestFull, nonNegative (upper - ctx.inputLufs));
+
+            // T-089（2026-10-09，T-085 的后续）：交付目标再封一次。离目标不足 3 LU 时请求等于缺口，
+            // 不再被 minimumFullDriveDb 推过目标。比目标更响的歌不衰减——没有 cut 路径，nonNegative 把负缺口收成 0。
+            requestFull = juce::jmin (requestFull, nonNegative (preferred - ctx.inputLufs));
         }
 
         // ---- 手动值：只有它时的链（手动链的预计净增益、手动本身是否已超约束）----
