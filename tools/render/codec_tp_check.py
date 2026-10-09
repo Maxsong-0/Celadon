@@ -166,7 +166,17 @@ def main():
     parser.add_argument('--synthetic', action='store_true', help='add fixed supplementary stress WAVs to input')
     parser.add_argument('--resume-measurements', action='store_true', help='resume complete CSV conditions after validating inputs/binary')
     parser.add_argument('--reuse-renders', action='store_true', help='reuse existing WAVs; only if settings/source unchanged')
+    parser.add_argument('--aac-pns', choices=('default', 'on', 'off'), default='default',
+                        help='native AAC PNS override; default leaves ffmpeg options unchanged')
+    parser.add_argument('--codecs', choices=('all', 'aac'), default='all',
+                        help='select AAC only for supplementary measurements')
+    parser.add_argument('--aac-encoder', choices=('aac', 'libfdk_aac', 'aac_at'), default='aac')
     args = parser.parse_args()
+    if args.aac_encoder != 'aac' and args.aac_pns != 'default':
+        parser.error('--aac-pns only applies to the native aac encoder')
+    selected_codecs = tuple((args.aac_encoder if enc == 'aac' else enc, rate, ext)
+                            for enc, rate, ext in CODECS if args.codecs == 'all' or enc == 'aac')
+    encoder_options = {'aac_pns': args.aac_pns, 'aac_encoder': args.aac_encoder}
     args.input = args.input.resolve()
     args.work = args.work.resolve()
     args.out.mkdir(parents=True, exist_ok=True)
@@ -187,18 +197,23 @@ def main():
             previous = list(csv.DictReader(stream))
         assert [{k: str(v) for k, v in r.items()} for r in manifest] == previous, 'input cache mismatch'
     write_csv(args.out / 'input_manifest.csv', manifest)
-    metadata = {'ffmpeg_version': run([args.ffmpeg, '-version']), 'encoders': CODECS,
+    metadata = {'ffmpeg_version': run([args.ffmpeg, '-version']), 'encoders': selected_codecs, 'encoder_options': encoder_options,
                 'encode_options': 'ffmpeg -i MASTER -map 0:a:0 -c:a ENCODER -b:a Nk; Opus: -application audio -vbr on',
                 'decode_options': 'ffmpeg -i ENCODED -c:a pcm_f32le DECODED.wav (no gain or limiter)',
                 'render_sha256': hashlib.sha256(args.render.read_bytes()).hexdigest(),
                 'command': sys.argv, 'render_commands': [],
                 'packages': {name: __import__(name).__version__ for name in ('numpy', 'scipy', 'soundfile')},
                 'pyloudnorm_version': __import__('importlib.metadata', fromlist=['version']).version('pyloudnorm')}
+    metadata['reuse_renders'] = args.reuse_renders
+    if args.aac_pns != 'default':
+        metadata['encode_options'] += f'; native AAC: -aac_pns {0 if args.aac_pns == "off" else 1}'
     masters, codecs = [], []
     if args.resume_measurements and (args.out / 'environment.json').exists():
         previous = json.loads((args.out / 'environment.json').read_text())
         assert previous['render_sha256'] == metadata['render_sha256'], 'renderer cache mismatch'
         assert previous['ffmpeg_version'] == metadata['ffmpeg_version'], 'ffmpeg cache mismatch'
+        assert previous['encoders'] == [list(c) for c in selected_codecs], 'codec cache mismatch'
+        assert previous.get('encoder_options', {'aac_pns': 'default', 'aac_encoder': 'aac'}) == encoder_options, 'encoder options cache mismatch'
         metadata['render_commands'] = previous['render_commands']
         for name, records in (('masters.csv', masters), ('codec_roundtrips.csv', codecs)):
             if (args.out / name).exists():
@@ -219,7 +234,7 @@ def main():
             raise ValueError(f'{output}: expected {len(sources)} masters, got {len(files)}')
         for path in files:
             existing = [r for r in codecs if r['file'] == path.name and r['target_lufs'] == target]
-            if args.resume_measurements and len(existing) == len(CODECS):
+            if args.resume_measurements and len(existing) == len(selected_codecs):
                 continue
             # Replace any incomplete condition checkpoint.
             masters = [r for r in masters if not (r['file'] == path.name and r['target_lufs'] == target)]
@@ -228,11 +243,14 @@ def main():
             pre = measure(path)
             key = {'file': path.name, 'target_lufs': target}
             masters.append({**key, **pre})
-            for encoder, bitrate, extension in CODECS:
-                encoded = args.work / f'{path.stem}_{target:g}_{encoder}_{bitrate}.{extension}'
+            for encoder, bitrate, extension in selected_codecs:
+                suffix = f'_pns_{args.aac_pns}' if encoder == 'aac' and args.aac_pns != 'default' else ''
+                encoded = args.work / f'{path.stem}_{target:g}_{encoder}_{bitrate}{suffix}.{extension}'
                 decoded = args.work / (encoded.name + '.wav')
                 command = [args.ffmpeg, '-v', 'error', '-nostdin', '-y', '-i', path,
                            '-map', '0:a:0', '-c:a', encoder, '-b:a', f'{bitrate}k']
+                if encoder == 'aac' and args.aac_pns != 'default':
+                    command += ['-aac_pns', '0' if args.aac_pns == 'off' else '1']
                 if encoder == 'libopus':
                     command += ['-application', 'audio', '-vbr', 'on']
                 run(command + [encoded])
