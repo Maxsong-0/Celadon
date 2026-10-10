@@ -35,6 +35,28 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    id: 'v0.1.8.10',
+    version: '0.1.8.10',
+    date: '2026-10-10',
+    title: { zh: '打开工程留住结果，交付停在目标上', en: 'Projects keep their result, and Delivery stops on target' },
+    items: [
+      {
+        kind: 'fix',
+        text: {
+          zh: '再次打开已保存的工程，GLAZE 已经跟着这首歌调整的结果会留下来。以前宿主若在插件准备好之前就读入工程，这份结果会被清掉，状态回到「起步」。',
+          en: 'Opening a saved project again keeps what GLAZE has already adjusted for that song. If the host restored the project before Celadon was ready, that result used to be wiped and the status fell back to Starting.'
+        }
+      },
+      {
+        kind: 'sound',
+        text: {
+          zh: '「流媒体」和「俱乐部」不再把已经接近目标的歌再推过交付目标。差不足 3 dB 时只补上这个缺口；已经比目标更响的歌不会被压轻，也不会再被推响。「标准」不变，接近或超过目标时仍会温和地再推一点。',
+          en: 'Streaming and Club no longer push a song past its delivery target once it is already close. A gap under 3 dB is filled only up to the target. A song already louder than the target is not turned down and is not pushed further. Standard is unchanged, and still gives a gentle extra push when the song is already near or above the target.'
+        }
+      }
+    ]
+  },
+  {
     id: 'v0.1.8.9',
     version: '0.1.8.9',
     date: '2026-10-06',
