@@ -85,9 +85,34 @@
 
 | 编码器 | kbps | 最坏过冲（4/8× 最大） | 推导 PCM TP 上限 | 向下取 0.5 dB 起点 |
 | --- | --- | --- | --- | --- |
-| aac | 256 | 6.57 | -7.77 | -8.00 |
-| aac | 128 | 7.38 | -8.58 | -9.00 |
+| aac（PNS 关闭） | 256 | 2.40 | -3.60 | -4.00 |
+| aac（PNS 关闭） | 128 | 4.37 | -5.57 | -6.00 |
 | libopus | 160 | 2.22 | -3.42 | -3.50 |
 | libopus | 96 | 4.56 | -5.76 | -6.00 |
 | libmp3lame | 320 | 1.15 | -2.35 | -2.50 |
 | libmp3lame | 128 | 3.15 | -4.35 | -4.50 |
+
+## AAC 补测（PNS 关闭）
+
+2026-10-09；本地分支 `chatgpt/t085-aac-pns`，仅本地提交、不 push。复用 `artifacts/t085/run/render_-10/-12/-14/` 的全部 39 个既有浮点成品，不重渲、不改增益、默认值、DSP 或现有测试。仅原生 AAC 256k / 128k 加 `-aac_pns 0`，随后解码为 `pcm_f32le`，沿用原 4×/8× 计量。原始编码表及 Opus / MP3 结果保留。ffmpeg 原生 AAC 的 PNS 默认为 true（见 [原编码器选项](aac_encoder_options.log)）；本机没有 `libfdk_aac` 或 `aac_at`，因此未做替代编码器实测，见 [编码器清单](aac_pns_encoder_availability.log)。
+
+| AAC kbps | PNS | 4× 最坏过冲 dB | 8× 最坏过冲 dB | 最高编码 TP8 dBTP | ≤−1 dBTP 通过数 | 8× 最坏曲 / 目标 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 256 | 开启（原默认） | 6.54 | 6.57 | 4.23 | 21/39 | melodic_647576 / -10 |
+| 256 | 关闭 | 2.40 | 2.40 | 0.05 | 25/39 | melodic_241941 / -14 |
+| 128 | 开启（原默认） | 7.35 | 7.38 | 5.03 | 10/39 | melodic_647576 / -10 |
+| 128 | 关闭 | 4.37 | 4.37 | 2.02 | 16/39 | melodic_241941 / -12 |
+
+本批最坏过冲仍为 256k **+2.40 dB**、128k **+4.37 dB**，不支持“两档均只剩 +1～+2 dB”的概括。关闭 PNS 后，原 AAC 稀疏高峰值显著降低，支持 PNS 是本机原生 AAC 原高过冲的重要来源；但关闭 PNS 仍有条件未满足编码后 ≤−1 dBTP，不能据此给出统一编码安全保证，也不能外推到其他 AAC 编码器或平台。以下余量表的 AAC 两行改用 PNS 关闭实测；原 PNS 开启仍需原来的 −8.0 / −9.0 dBTP 推导起点。
+
+[补测逐条件 CSV](aac_pns_off_roundtrips.csv)、[新旧对比 CSV](aac_pns_comparison.csv)、[运行环境及成品 SHA-256](aac_pns_off_environment.json)。78 个 AAC 条件完整；与原 CSV 配对的所有编码前指标误差 < 10⁻⁹，39 个成品哈希保持不变。验证了默认六种编码命令不变、AAC 选择/PNS 参数、续测参数隔离；完整 78 条续测全部跳过，补测 CSV 字节不变。最坏新峰值经独立 ffmpeg EBU 复核分别为 0.0 / +2.0 dB，与脚本 +0.05 / +2.02 dBTP 相符，见 [256k 复核](ffmpeg_aac_pns_off_256_probe.log)、[128k 复核](ffmpeg_aac_pns_off_128_probe.log)。没有更改现有测试。
+
+复现（依赖同原报告；可按目标拆分运行）：
+
+```bash
+.t085/venv/bin/python tools/render/codec_tp_check.py --render build/celadon_render \
+  --input artifacts/t085/input --work artifacts/t085/run \
+  --out artifacts/t085/aac_pns_off_all --reuse-renders --codecs aac --aac-pns off
+```
+
+`--aac-pns` 默认 `default` 不传 ffmpeg 覆盖参数；`on` / `off` 显式指定 PNS。`--aac-encoder libfdk_aac` 或 `aac_at` 可选择已安装的替代编码器，不能与原生专用 `--aac-pns on/off` 合用。关闭 PNS 的缓存独立命名，续测检查编码器与 PNS 参数，避免混用原结果。

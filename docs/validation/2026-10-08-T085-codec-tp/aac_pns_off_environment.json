@@ -1,0 +1,387 @@
+{
+  "date": "2026-10-09",
+  "reuse_renders": true,
+  "script_sha256": "cbdfa4f7b3de7d8536117861e0a79a8532a6a6025073fd0d69edf21ba82a8374",
+  "render_manifest": [
+    {
+      "path": "artifacts/t085/run/render_-10/deep_155328__g100_clay-auto_auto_streaming.wav",
+      "sha256": "3d674bece9e2253022f24762b6f8f7247e840b93d8e918d8ec5f01fed1cf9f5f"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/deep_155923__g100_clay-auto_auto_streaming.wav",
+      "sha256": "7699c5a48b8ac0a774e1566968cc334ea7a192572485c9946df209b09dac87d1"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/deep_388822__g100_clay-auto_auto_streaming.wav",
+      "sha256": "faacab6138bfbd625cb5d0a26cdb7fb13f82155e9bd3e73c76c6bf4307e0d73e"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/melodic_241941__g100_clay-auto_auto_streaming.wav",
+      "sha256": "f16b036872de735719357c5ff13849b3f7bbc30b17488bf8efd0141b585507b7"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/melodic_560109__g100_clay-auto_auto_streaming.wav",
+      "sha256": "2da2d7cc9d5ed835716a2fc8b040159babba277730e476e3e3c5f93d252ddb12"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/melodic_647576__g100_clay-auto_auto_streaming.wav",
+      "sha256": "87505e8e5cc2550fd2fff588840b364127611fe03fcae2f34b34f04898a7f4f5"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/stress_dense_hats__g100_clay-auto_auto_streaming.wav",
+      "sha256": "46b02072b950b2c5fbea5962109020b495fb81d986e37607d2a559b6bbc5d3bb"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/stress_hot_mix__g100_clay-auto_auto_streaming.wav",
+      "sha256": "a250c66aa49a52b6fdf1b944d67a6858cada15f55efa48147b6d7b219a8ab9d0"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/stress_side_bass__g100_clay-auto_auto_streaming.wav",
+      "sha256": "01ad898e5f15ad17fcfb19eca653d285af7c10d5a4bca31518cc4ae1778b3351"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/stress_sweep__g100_clay-auto_auto_streaming.wav",
+      "sha256": "9d2513ace602e4f7364f9d7e8a02adc745a568dbee7dfc87915dad53971a28f5"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/tech_12410__g100_clay-auto_auto_streaming.wav",
+      "sha256": "236339fcf108d3c11d42b2dc878943e5ae8c4275f88e2029bf4231619e3a560f"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/tech_3518__g100_clay-auto_auto_streaming.wav",
+      "sha256": "bc67d1f922b64044ef74ed8ec51475567ae889c825a708bd99f4a6db6baf6e4b"
+    },
+    {
+      "path": "artifacts/t085/run/render_-10/tech_46047__g100_clay-auto_auto_streaming.wav",
+      "sha256": "bdd3d570ed6b0b69ddb20c24b2c67224e246eca1213e12797db28089beb82c37"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/deep_155328__g100_clay-auto_auto_streaming.wav",
+      "sha256": "a44861f36bddbaeecc44c8af41c68def76e0bba63e8bfdf9539dd494102ce3ba"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/deep_155923__g100_clay-auto_auto_streaming.wav",
+      "sha256": "18f3e15ed5d0967abffb35a3647e3ddb9622310c2bdc37aaf159c35b79524675"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/deep_388822__g100_clay-auto_auto_streaming.wav",
+      "sha256": "91655c95626419efc8b8d9d4693266f625081f2339911ed51e6749195ab6e290"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/melodic_241941__g100_clay-auto_auto_streaming.wav",
+      "sha256": "9e2f6a5904d38312459519c295b3a6dacd6b12d9acbec7165a5b1ccb828033af"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/melodic_560109__g100_clay-auto_auto_streaming.wav",
+      "sha256": "853e7fe8a184b1ac6d199bfea2bbc0ce9678b32c354826fe92b416957b73f088"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/melodic_647576__g100_clay-auto_auto_streaming.wav",
+      "sha256": "225ed10e4037787bfd4831b289de9693153a82ae3c8166746fd2902891408f94"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/stress_dense_hats__g100_clay-auto_auto_streaming.wav",
+      "sha256": "106bfcca2ce598fbdb15b1489e0deb1ee6804ef5df7c3ff85a994042c14d3fc5"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/stress_hot_mix__g100_clay-auto_auto_streaming.wav",
+      "sha256": "66477a975256cca4f9c2a3e35852fdb1af4abf22fd5dbc42a483e0caf766b466"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/stress_side_bass__g100_clay-auto_auto_streaming.wav",
+      "sha256": "15d238b20d6d08da0d55d6a75e6cd73aadb77ef1b2fc020cc35dc95d469a7dd5"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/stress_sweep__g100_clay-auto_auto_streaming.wav",
+      "sha256": "44cf14fdb8dbf24c2adc4e14616f38cba30289ebf130e5b0fd3c3ddcf3e19015"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/tech_12410__g100_clay-auto_auto_streaming.wav",
+      "sha256": "609ec60b16950735b232e39c3774e4543169cda7a4dbfb5d8f9f3c357ae5adc0"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/tech_3518__g100_clay-auto_auto_streaming.wav",
+      "sha256": "73f7945ff328c8ea7c7ffd199d2d83daefe8be51e04d909c15f9ef9a2795eb43"
+    },
+    {
+      "path": "artifacts/t085/run/render_-12/tech_46047__g100_clay-auto_auto_streaming.wav",
+      "sha256": "7e8d3ee2a0108dfe3bccb88e6f42261a6ce73e8a9c44db8981805070ad9d363a"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/deep_155328__g100_clay-auto_auto_streaming.wav",
+      "sha256": "050a41457e2de804192359123f50fb0aed1d43ea635da5db0bf04621c64855df"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/deep_155923__g100_clay-auto_auto_streaming.wav",
+      "sha256": "a27768504d48e64438e4886db2080febdf6c2b3d253fba27208d668132a19d28"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/deep_388822__g100_clay-auto_auto_streaming.wav",
+      "sha256": "2723e0b18a5ac153e202f6a7423e9f58d71fe979266a8f915000a5c96c689795"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/melodic_241941__g100_clay-auto_auto_streaming.wav",
+      "sha256": "5a7291e8e5efb6556a062ff60c1f8363c17b47e45cf69cac7f75662bc308d2ea"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/melodic_560109__g100_clay-auto_auto_streaming.wav",
+      "sha256": "f68d65cb3485c08b1ac828cdd569bec221b6da99720291221be2fc06b28b7178"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/melodic_647576__g100_clay-auto_auto_streaming.wav",
+      "sha256": "910bb9fd5daaff338f8d85945103c79999d5788b03dbe7f4765dbb5997cba105"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/stress_dense_hats__g100_clay-auto_auto_streaming.wav",
+      "sha256": "9d0095d691e4893c30b179f4b62be2d1cba45dab7b55acf8ed354e1e826fa767"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/stress_hot_mix__g100_clay-auto_auto_streaming.wav",
+      "sha256": "66477a975256cca4f9c2a3e35852fdb1af4abf22fd5dbc42a483e0caf766b466"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/stress_side_bass__g100_clay-auto_auto_streaming.wav",
+      "sha256": "d8c4833ecfb21ea8f43d9fe0f68ed5844ad5f3ff1888736067204110f586c8fb"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/stress_sweep__g100_clay-auto_auto_streaming.wav",
+      "sha256": "10c53d35e7c98d1b724fcf6936df16b39691a311723e4db6d41fdc6e2f2fa943"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/tech_12410__g100_clay-auto_auto_streaming.wav",
+      "sha256": "08ab3b2a190352f2b5b053a87cc63f85127d72a40063ded146b8e0492b6e3385"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/tech_3518__g100_clay-auto_auto_streaming.wav",
+      "sha256": "ebfb6b5a257f8cfdaccdbd097603d02c445e5c3414bb192d54be47ac835efe5f"
+    },
+    {
+      "path": "artifacts/t085/run/render_-14/tech_46047__g100_clay-auto_auto_streaming.wav",
+      "sha256": "2a45dca4c83a4c0fa2518bfebd170373837ce062d155c36ff3f1060f14003a5d"
+    }
+  ],
+  "runs": [
+    {
+      "ffmpeg_version": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers\nbuilt with gcc 14 (Debian 14.2.0-19)\nconfiguration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared\nlibavutil      59. 39.100 / 59. 39.100\nlibavcodec     61. 19.101 / 61. 19.101\nlibavformat    61.  7.103 / 61.  7.103\nlibavdevice    61.  3.100 / 61.  3.100\nlibavfilter    10.  5.100 / 10.  5.100\nlibswscale      8.  3.100 /  8.  3.100\nlibswresample   5.  3.100 /  5.  3.100\nlibpostproc    58.  3.100 / 58.  3.100\n",
+      "encoders": [
+        [
+          "aac",
+          256,
+          "m4a"
+        ],
+        [
+          "aac",
+          128,
+          "m4a"
+        ]
+      ],
+      "encoder_options": {
+        "aac_pns": "off",
+        "aac_encoder": "aac"
+      },
+      "encode_options": "ffmpeg -i MASTER -map 0:a:0 -c:a ENCODER -b:a Nk; Opus: -application audio -vbr on",
+      "decode_options": "ffmpeg -i ENCODED -c:a pcm_f32le DECODED.wav (no gain or limiter)",
+      "render_sha256": "75608cbdb61b01e89146fb32417d1dcc759c4f39f96eb4a05e7a0cae35da4549",
+      "command": [
+        "tools/render/codec_tp_check.py",
+        "--render",
+        "build/celadon_render",
+        "--input",
+        "artifacts/t085/input",
+        "--work",
+        "artifacts/t085/run",
+        "--out",
+        "artifacts/t085/aac_pns_off",
+        "--targets=-10",
+        "--reuse-renders",
+        "--resume-measurements",
+        "--codecs",
+        "aac",
+        "--aac-pns",
+        "off"
+      ],
+      "render_commands": [
+        [
+          "/workspace/t085/build/celadon_render",
+          "--in",
+          "/workspace/t085/artifacts/t085/input",
+          "--out",
+          "/workspace/t085/artifacts/t085/run/render_-10",
+          "--glaze",
+          "100",
+          "--style",
+          "auto",
+          "--clay",
+          "auto",
+          "--genre",
+          "general",
+          "--delivery",
+          "streaming",
+          "--streaming-target-lufs",
+          "-10.0",
+          "--no-align",
+          "--no-replay"
+        ]
+      ],
+      "packages": {
+        "numpy": "2.5.3",
+        "scipy": "1.18.1",
+        "soundfile": "0.14.0"
+      },
+      "pyloudnorm_version": "0.2.0"
+    },
+    {
+      "ffmpeg_version": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers\nbuilt with gcc 14 (Debian 14.2.0-19)\nconfiguration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared\nlibavutil      59. 39.100 / 59. 39.100\nlibavcodec     61. 19.101 / 61. 19.101\nlibavformat    61.  7.103 / 61.  7.103\nlibavdevice    61.  3.100 / 61.  3.100\nlibavfilter    10.  5.100 / 10.  5.100\nlibswscale      8.  3.100 /  8.  3.100\nlibswresample   5.  3.100 /  5.  3.100\nlibpostproc    58.  3.100 / 58.  3.100\n",
+      "encoders": [
+        [
+          "aac",
+          256,
+          "m4a"
+        ],
+        [
+          "aac",
+          128,
+          "m4a"
+        ]
+      ],
+      "encoder_options": {
+        "aac_pns": "off",
+        "aac_encoder": "aac"
+      },
+      "encode_options": "ffmpeg -i MASTER -map 0:a:0 -c:a ENCODER -b:a Nk; Opus: -application audio -vbr on",
+      "decode_options": "ffmpeg -i ENCODED -c:a pcm_f32le DECODED.wav (no gain or limiter)",
+      "render_sha256": "75608cbdb61b01e89146fb32417d1dcc759c4f39f96eb4a05e7a0cae35da4549",
+      "command": [
+        "tools/render/codec_tp_check.py",
+        "--render",
+        "build/celadon_render",
+        "--input",
+        "artifacts/t085/input",
+        "--work",
+        "artifacts/t085/run",
+        "--out",
+        "artifacts/t085/aac_pns_off_-12",
+        "--targets=-12",
+        "--reuse-renders",
+        "--codecs",
+        "aac",
+        "--aac-pns",
+        "off"
+      ],
+      "render_commands": [
+        [
+          "/workspace/t085/build/celadon_render",
+          "--in",
+          "/workspace/t085/artifacts/t085/input",
+          "--out",
+          "/workspace/t085/artifacts/t085/run/render_-12",
+          "--glaze",
+          "100",
+          "--style",
+          "auto",
+          "--clay",
+          "auto",
+          "--genre",
+          "general",
+          "--delivery",
+          "streaming",
+          "--streaming-target-lufs",
+          "-12.0",
+          "--no-align",
+          "--no-replay"
+        ]
+      ],
+      "packages": {
+        "numpy": "2.5.3",
+        "scipy": "1.18.1",
+        "soundfile": "0.14.0"
+      },
+      "pyloudnorm_version": "0.2.0"
+    },
+    {
+      "ffmpeg_version": "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers\nbuilt with gcc 14 (Debian 14.2.0-19)\nconfiguration: --prefix=/usr --extra-version=0+deb13u1 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-libmfx --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libcaca --enable-libdvdnav --enable-libdvdread --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared\nlibavutil      59. 39.100 / 59. 39.100\nlibavcodec     61. 19.101 / 61. 19.101\nlibavformat    61.  7.103 / 61.  7.103\nlibavdevice    61.  3.100 / 61.  3.100\nlibavfilter    10.  5.100 / 10.  5.100\nlibswscale      8.  3.100 /  8.  3.100\nlibswresample   5.  3.100 /  5.  3.100\nlibpostproc    58.  3.100 / 58.  3.100\n",
+      "encoders": [
+        [
+          "aac",
+          256,
+          "m4a"
+        ],
+        [
+          "aac",
+          128,
+          "m4a"
+        ]
+      ],
+      "encoder_options": {
+        "aac_pns": "off",
+        "aac_encoder": "aac"
+      },
+      "encode_options": "ffmpeg -i MASTER -map 0:a:0 -c:a ENCODER -b:a Nk; Opus: -application audio -vbr on",
+      "decode_options": "ffmpeg -i ENCODED -c:a pcm_f32le DECODED.wav (no gain or limiter)",
+      "render_sha256": "75608cbdb61b01e89146fb32417d1dcc759c4f39f96eb4a05e7a0cae35da4549",
+      "command": [
+        "tools/render/codec_tp_check.py",
+        "--render",
+        "build/celadon_render",
+        "--input",
+        "artifacts/t085/input",
+        "--work",
+        "artifacts/t085/run",
+        "--out",
+        "artifacts/t085/aac_pns_off_-14",
+        "--targets=-14",
+        "--reuse-renders",
+        "--codecs",
+        "aac",
+        "--aac-pns",
+        "off"
+      ],
+      "render_commands": [
+        [
+          "/workspace/t085/build/celadon_render",
+          "--in",
+          "/workspace/t085/artifacts/t085/input",
+          "--out",
+          "/workspace/t085/artifacts/t085/run/render_-14",
+          "--glaze",
+          "100",
+          "--style",
+          "auto",
+          "--clay",
+          "auto",
+          "--genre",
+          "general",
+          "--delivery",
+          "streaming",
+          "--streaming-target-lufs",
+          "-14.0",
+          "--no-align",
+          "--no-replay"
+        ]
+      ],
+      "packages": {
+        "numpy": "2.5.3",
+        "scipy": "1.18.1",
+        "soundfile": "0.14.0"
+      },
+      "pyloudnorm_version": "0.2.0"
+    }
+  ],
+  "unavailable_encoders": [
+    "libfdk_aac",
+    "aac_at"
+  ],
+  "validation": {
+    "conditions": 78,
+    "paired_pre_metrics_match": true,
+    "render_sha256_unchanged": true,
+    "default_encode_commands_unchanged": true,
+    "resume_csv_byte_identical": true,
+    "resume_conditions_skipped": 78,
+    "pns_mismatch_rejected": true,
+    "ffmpeg_ebu_peak_dbtp": {
+      "256": 0.0,
+      "128": 2.0
+    }
+  }
+}

@@ -1,0 +1,44 @@
+Command: ffmpeg -hide_banner -nostdin -i artifacts/t085/run/melodic_241941__g100_clay-auto_auto_streaming_-12_aac_128_pns_off.m4a -af ebur128=peak=true -f null -
+
+Header and final summary excerpts (per-frame progress omitted):
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'artifacts/t085/run/melodic_241941__g100_clay-auto_auto_streaming_-12_aac_128_pns_off.m4a':
+  Metadata:
+    major_brand     : M4A
+    minor_version   : 512
+    compatible_brands: M4A isomiso2
+    encoder         : Lavf61.7.103
+  Duration: 00:06:31.74, start: 0.000000, bitrate: 133 kb/s
+  Stream #0:0[0x1](und): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo, fltp, 131 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+Stream mapping:
+  Stream #0:0 -> #0:0 (aac (native) -> pcm_s16le (native))
+[Parsed_ebur128_0 @ 0x7f55e4002f00] t: 0.0999792  TARGET:-23 LUFS    M:-120.7 S:-120.7     I: -70.0 LUFS       LRA:   0.0 LU  FTPK:  -8.5  -9.6 dBFS  TPK:  -8.5  -9.6 dBFS
+Output #0, null, to 'pipe:':
+  Metadata:
+    major_brand     : M4A
+    minor_version   : 512
+[...]
+[Parsed_ebur128_0 @ 0x7f55e4002f00] t: 391.199979 TARGET:-23 LUFS    M: -72.2 S: -54.4     I:  -9.7 LUFS       LRA:   9.7 LU  FTPK: -68.1 -64.6 dBFS  TPK:   2.0   1.0 dBFS
+[Parsed_ebur128_0 @ 0x7f55e4002f00] t: 391.299979 TARGET:-23 LUFS    M: -74.2 S: -54.8     I:  -9.7 LUFS       LRA:   9.7 LU  FTPK: -74.9 -69.0 dBFS  TPK:   2.0   1.0 dBFS
+[Parsed_ebur128_0 @ 0x7f55e4002f00] t: 391.399979 TARGET:-23 LUFS    M: -78.1 S: -55.5     I:  -9.7 LUFS       LRA:   9.7 LU  FTPK: -80.1 -78.4 dBFS  TPK:   2.0   1.0 dBFS
+[Parsed_ebur128_0 @ 0x7f55e4002f00] t: 391.499979 TARGET:-23 LUFS    M: -80.4 S: -56.1     I:  -9.7 LUFS       LRA:   9.7 LU  FTPK: -118.9 -115.6 dBFS  TPK:   2.0   1.0 dBFS
+[Parsed_ebur128_0 @ 0x7f55e4002f00] t: 391.599979 TARGET:-23 LUFS    M: -87.4 S: -56.6     I:  -9.7 LUFS       LRA:   9.7 LU  FTPK:  -inf  -inf dBFS  TPK:   2.0   1.0 dBFS
+[Parsed_ebur128_0 @ 0x7f55e4002f00] t: 391.699979 TARGET:-23 LUFS    M: -93.8 S: -57.4     I:  -9.7 LUFS       LRA:   9.7 LU  FTPK:  -inf  -inf dBFS  TPK:   2.0   1.0 dBFS
+[Parsed_ebur128_0 @ 0x7f55e4002f00] Summary:
+
+  Integrated loudness:
+    I:          -9.7 LUFS
+    Threshold: -20.2 LUFS
+
+  Loudness range:
+    LRA:         9.7 LU
+    Threshold: -30.1 LUFS
+    LRA low:   -18.2 LUFS
+    LRA high:   -8.5 LUFS
+
+  True peak:
+    Peak:        2.0 dBFS
+[out#0/null @ 0x55b852e7b180] video:0KiB audio:73452KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+size=N/A time=00:06:31.74 bitrate=N/A speed= 226x
