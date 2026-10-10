@@ -10,7 +10,7 @@
 
 cmake_minimum_required(VERSION 3.22)
 
-project(Celadon VERSION 0.1.8.9 LANGUAGES C CXX)
+project(Celadon VERSION 0.1.8.10 LANGUAGES C CXX)
 
 # 目标是 Windows 时对象文件全路径最长 250 字符（BUG-007）。CMake 按「主机」取这个上限：Linux 主机 1000、Windows 主机 250。
 # 在 109 上用 msvc-wine 交叉编（Linux 主机，scripts/windows-wine.sh）时就是 1000、从不缩短，而 Wine 里的 cl.exe 受 Windows 的
@@ -326,7 +326,7 @@ if(CELADON_CAN_BUILD_GUI)
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
-namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char* const versionString = \"0.1.8.9\"; const int versionNumber = 0x10809; }
+namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char* const versionString = \"0.1.8.10\"; const int versionNumber = 0x1080A; }
 ")
 
     file(GLOB CELADON_UI_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/*.cpp)
