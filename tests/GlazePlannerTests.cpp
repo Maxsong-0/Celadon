@@ -27,6 +27,9 @@
     阶段 2 的决策器——House 子类在风格混合之后覆盖 Tone 参考 / 低切目标 / 加宽系数、Tone 往亮封顶 +0.4、动态预算与通用档逐位相同、
     流媒体 / 俱乐部的目标（风格偏移、LRA 修正、该档钳位）、通用 + 标准不读任何新常数、新档位下的单调 / 范围 / 0 分配。
 
+    T-089（2026-10-09，T-085 的后续）：流媒体 / 俱乐部的最少推响量被交付目标封顶（离目标不足 3 LU 时请求等于缺口，比目标响则为 0，
+    不衰减）。标准档的 3 dB 下限与 testAlreadyLoudStillRequestsDrive 的锚点不变。
+
   ==============================================================================
 */
 
@@ -447,6 +450,7 @@ namespace celadon::test
             testNoAllocation();
             testGenreDeliveryStorage();               // T-038 阶段 1（存档口径）
             testGenreAndDeliveryPlanning();           // T-038 阶段 2（决策器：曲风覆盖、Tone 往亮上限、交付目标）
+            testDeliveryTargetCapsMinimumDrive();    // T-089：流媒体 / 俱乐部的 3 dB 下限封到交付目标
 
             // v0.1.7.0 修坯 Clay（A5；ADR-012 根治修订 P3 改写 / 追加）
             testClayFormulas();
@@ -2921,17 +2925,24 @@ namespace celadon::test
 
             // 集成时追加（A 报告「需 Max 定」一条，主进程按规格「允许范围」定为硬上限）：最少推响量不许把流媒体 / 俱乐部的目标推过该档上限；
             // 输入已经比上限响时不推。标准档照旧保留最少推响量（已够响仍温和推响）。
+            // T-089 收紧中间两档：冲击、LRA 5 时流媒体目标 −10、俱乐部 −7。输入 −9 / −6 已经比目标响、但仍低于档上限
+            // （−8 / −5）。改前 3 dB 下限被上限收成 +1 dB，请求目标是 −8 / −5；改后没有 cut，请求为 0，目标停在输入本身。
+            // 输入已经比上限响（−7 / −4）仍是 0。标准档 −9 仍是 +3 dB，锚点不动。
             beginTest ("T-038: the minimum drive never pushes a streaming / club target past the delivery maximum");
             {
                 const auto target = [] (float inputLufs, Delivery delivery)
                 {
-                    const auto p = makeProfile (inputLufs, inputLufs + 6.0f, 5.0f);
+                    // 峰值停在 Ceiling −1 之下。输入 −6 若按 +6 dB 取峰值会到 0 dBTP，中性链自己就有一点负净增益，
+                    // 和「请求是不是 0」混在一起。
+                    const auto p = makeProfile (inputLufs, juce::jmin (inputLufs + 6.0f, -3.0f), 5.0f);
                     return planWithGenre (&p, Style::punchy, 100.0f, Genre::general, delivery, nullptr, nullptr).requestedTargetLufs;
                 };
 
-                expect (target (-9.0f, Delivery::streaming) <= -8.0f + 1.0e-4f, utf8 ("流媒体：输入 −9，目标不超过 −8"));
+                expectWithinAbsoluteError (target (-9.0f, Delivery::streaming), -9.0f, 1.0e-4f,
+                                           utf8 ("流媒体：输入 −9 已高于目标 −10，不再推（T-089；改前被收到上限 −8）"));
                 expect (target (-7.0f, Delivery::streaming) <= -7.0f + 1.0e-4f, utf8 ("流媒体：输入已比上限响，不再推"));
-                expect (target (-6.0f, Delivery::club) <= -5.0f + 1.0e-4f, utf8 ("俱乐部：输入 −6，目标不超过 −5"));
+                expectWithinAbsoluteError (target (-6.0f, Delivery::club), -6.0f, 1.0e-4f,
+                                           utf8 ("俱乐部：输入 −6 已高于目标 −7，不再推（T-089；改前被收到上限 −5）"));
                 expect (target (-4.0f, Delivery::club) <= -4.0f + 1.0e-4f, utf8 ("俱乐部：输入已比上限响，不再推"));
                 expect (target (-9.0f, Delivery::standard) > -9.0f + 1.0f, utf8 ("标准档照旧保留最少推响量"));
             }
@@ -3138,6 +3149,73 @@ namespace celadon::test
                 expectEquals ((int) (allocationsInPath), 0, utf8 ("曲风与交付的决策路径不应分配内存"));
                 expect (std::isfinite (sink));
             }
+        }
+
+        // T-089（2026-10-09，T-085 的后续）。冲击、LRA 5：风格偏移 0、没有 LRA 修正，流媒体目标就是 −10、俱乐部就是 −7、
+        // 标准就是冲击的 −9。真峰值比输入高 6 dB，在 Ceiling −1 之下，手动中性时请求增益就是 requestFull。
+        void testDeliveryTargetCapsMinimumDrive()
+        {
+            beginTest ("T-089: streaming / club minimum drive is capped at the gap to the delivery target; standard keeps the 3 dB floor");
+
+            const auto planAt = [] (float inputLufs, Delivery delivery, float glaze = 100.0f)
+            {
+                // 峰值停在 Ceiling −1 之下，请求增益才等于 requestFull（见上一个用例的注释）。
+                const auto p = makeProfile (inputLufs, juce::jmin (inputLufs + 6.0f, -3.0f), 5.0f);
+                return planWithGenre (&p, Style::punchy, glaze, Genre::general, delivery, nullptr, nullptr);
+            };
+
+            const struct
+            {
+                const char* name;
+                Delivery delivery;
+                float inputLufs;
+                float expectedRequest;
+                float previousRequest;
+            } rows[] =
+            {
+                { "streaming 0.5 LU below", Delivery::streaming, -10.5f, 0.5f, 2.5f },
+                { "streaming 2 LU below",   Delivery::streaming, -12.0f, 2.0f, 3.0f },
+                { "streaming 3 LU below",   Delivery::streaming, -13.0f, 3.0f, 3.0f },
+                { "streaming 4 LU below",   Delivery::streaming, -14.0f, 4.0f, 4.0f },
+                { "streaming above target", Delivery::streaming,  -9.5f, 0.0f, 1.5f },
+                { "club 0.5 LU below",      Delivery::club,       -7.5f, 0.5f, 2.5f },
+                { "club 2 LU below",        Delivery::club,       -9.0f, 2.0f, 3.0f },
+                { "club above target",      Delivery::club,       -6.5f, 0.0f, 1.5f },
+                { "standard 0.5 LU below",  Delivery::standard,   -9.5f, 3.0f, 3.0f },
+                { "standard 2 LU below",    Delivery::standard,  -11.0f, 3.0f, 3.0f },
+                { "standard above target",  Delivery::standard,   -8.0f, 3.0f, 3.0f }
+            };
+
+            for (const auto& row : rows)
+            {
+                const auto plan = planAt (row.inputLufs, row.delivery);
+                logMessage ("  " + juce::String (row.name) + " input " + juce::String (row.inputLufs, 1)
+                            + " requested " + juce::String (plan.requestedGainDb, 4)
+                            + " effective " + juce::String (plan.effectiveGainDb, 4)
+                            + " (before T-089 request " + juce::String (row.previousRequest, 1) + ")");
+                expectWithinAbsoluteError (plan.requestedGainDb, row.expectedRequest, 1.0e-4f,
+                                           juce::String (row.name) + utf8 ("：请求"));
+                expect (plan.requestedGainDb >= 0.0f, juce::String (row.name) + utf8 ("：不衰减"));
+            }
+
+            expect (std::abs (planAt (-10.5f, Delivery::streaming).requestedGainDb - 3.0f) > 1.0f,
+                    utf8 ("流媒体：离目标 0.5 LU 时请求不是 3 dB"));
+            expect (std::abs (planAt (-12.0f, Delivery::streaming).requestedGainDb - 3.0f) > 0.5f,
+                    utf8 ("流媒体：离目标 2 LU 时请求不是 3 dB"));
+            expectWithinAbsoluteError (planAt (-9.5f, Delivery::streaming).requestedGainDb, 0.0f, 1.0e-4f,
+                                       utf8 ("流媒体：输入高于目标 → 0"));
+            expectWithinAbsoluteError (planAt (-7.5f, Delivery::club).requestedGainDb, 0.5f, 1.0e-4f,
+                                       utf8 ("俱乐部与流媒体同一条封顶"));
+            expectWithinAbsoluteError (planAt (-9.0f, Delivery::club).requestedGainDb, 2.0f, 1.0e-4f);
+            expectWithinAbsoluteError (planAt (-6.5f, Delivery::club).requestedGainDb, 0.0f, 1.0e-4f,
+                                       utf8 ("俱乐部：输入高于目标 → 0"));
+            expectWithinAbsoluteError (planAt (-9.5f, Delivery::standard).requestedGainDb, 3.0f, 1.0e-4f,
+                                       utf8 ("标准档仍是 3 dB 下限"));
+            expectWithinAbsoluteError (planAt (-11.0f, Delivery::standard).requestedGainDb, 3.0f, 1.0e-4f);
+            expectWithinAbsoluteError (planAt (-8.0f, Delivery::standard).requestedGainDb, 3.0f, 1.0e-4f,
+                                       utf8 ("标准档：已高于偏好仍推 3 dB"));
+            expectWithinAbsoluteError (planAt (-12.0f, Delivery::streaming, 50.0f).requestedGainDb, 1.0f, 1.0e-4f,
+                                       utf8 ("封顶发生在按 GLAZE 缩放之前"));
         }
 
         //==============================================================================
