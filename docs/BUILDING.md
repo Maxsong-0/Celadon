@@ -155,16 +155,17 @@ Ubuntu 24.04，GCC 13.3，Release + Ninja，没有 LTO），Mac 上不编不测�
   选项放在子命令前面）。它只碰「本机 + 本工作树」自己建的远端目录：目录里的 `.celadon-spark-owner` 记着主人，主人不是自己或没有标记就拒绝，
   别的会话的源码目录不会被 `rsync --delete` 抹掉；`build` / `test` / `run` 同样只对自己的目录，同名操作在本机排队。`ssh` / `run` 的参数逐个
   转义，远端不展开 `~` 和通配符、不认管道，要用就包一层 `bash -c '…'`，路径从远端家目录起；Ctrl-C 只停本机的 ssh，远端已开始的测试会跑完并占着锁。
-- **远端脚本**：`~/.cache/celadon-spark/bin/spark-test.sh <源码目录> build|test|run|dir`（参考副本 `scripts/dgx/spark-test.sh`，DGX 可达后入库，以 DGX 上那份为准）。
-  源码放 `~/.cache/celadon-spark/src/<名>/`，构建目录 `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令打印）。
+- **远端脚本**：`~/.cache/celadon-spark/bin/spark-test.sh <源码目录> build|test|run|dir`（参考副本 `scripts/dgx/spark-test.sh`，2026-10-11 原样拷入，以 DGX 上那份为准）。
+  源码放 `~/.cache/celadon-spark/src/<名>/`，构建目录 `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令打印）；JUCE 用 DGX 上的
+  `/home/maxsong/All-Project/JUCE`（`-DCELADON_JUCE_DIR`，`spark.sh` 不同步 JUCE）；它把 venv 放进 PATH。
   `build` 默认目标 `celadon_tests celadon_render`；`test` 编 `celadon_tests` 后运行（可带 `--only 类名,…`）；`run <命令…>` 在锁里跑任意命令，
   命令里可用 `$BUILD`（单引号留给远端展开）。`SPARK_JOBS` 并行编译数（默认 8，几个会话同时编给 4）；`CELADON_CXX_FLAGS` 同 `test-linux.sh`。
 - **锁**：同一构建目录的编译互斥；`test` / `run` 走**全机串行锁** `~/.cache/celadon-spark/locks/run.lock`（别的会话的测试也排这把锁，计时护栏
   不被干扰）；**编译不进全机锁**——跑 CPU 基准前要在 vault TASKS ② 登记独占、给在跑的会话发消息、另起进程观察编译活动，日志为空才算干净。
 - **环境**：Python 用 venv 的全路径 `~/.cache/celadon-spark/venv/bin/python`。截至 2026-10-11 装了 numpy 2.5.3 / scipy 1.18.1 / soundfile 0.14.0 /
   matplotlib 3.11.2，**pyloudnorm 还没装**（`venv/bin/pip install pyloudnorm==0.2.0`，装好改这句）；完整清单以 (c) 线入库的 `tools/render/requirements.txt`
-  为准。`/usr/bin/ffmpeg` 6.1.1（aac / libopus / libmp3lame / ebur128，无 libfdk_aac）；截图工具要的 freetype / fontconfig / x11 开发头 2026-10-04 起由
-  系统包提供（`~/.cache/celadon-spark/guidev/` 是 10-03 的旧绕法）；`taskset`、`curl` 有。
+  为准。`/usr/bin/ffmpeg` 6.1.1（aac / libopus / libmp3lame / ebur128，无 libfdk_aac）；截图工具要的 freetype / fontconfig / x11 开发头：`spark-test.sh` 仍把
+  10-03 解出来的 `~/.cache/celadon-spark/guidev/root` 加进 PKG_CONFIG_PATH（TASKS ② 留言说 10-04 系统包已装、可撤，尚未撤）；`taskset`、`curl` 有。
 - **语料**（都在 `~/.cache/`，不进 git、不出 DGX）：`celadon-t048-22songs/`（Max 的门槛曲：`wav/` 目前 20 首，缺的 2 首见 TASKS ②；`batch.sh` + `manifest.tsv`）、
   `celadon-t048-cal/<deep|tech|melodic>/<track>/<track>.wav`（Jamendo 45 首，44.1 kHz 24 bit，已裁到小节线；标签见
   `docs/validation/2026-10-01-T038-calibration/`）、`celadon-t048-cal-syn/`（合成 House）。谁占着哪个目录看 vault TASKS ②。
