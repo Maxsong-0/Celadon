@@ -49,6 +49,11 @@ namespace celadon::glaze
         void setFloorDb (float floorDb) noexcept;
         void snapRelief() noexcept;
 
+        // T-097 Q15 A（Max 2026-10-11）：再往下退的界 = −自动加上去的全部（规格总钳位 g_守护 ≥ −max(0, 增量.gain + G_trim)），
+        // 编排器每个子块交进来。退让只在比界浅时往下退、退到界为止；已比界更深（自动部分变小）时保持、不往回弹。
+        // 默认不设界（−∞）；floorDb 只剩绝对安全下限（编排器设成 guardSafetyFloorDb，不再是 −3 dB）。
+        void setRetreatBoundDb (float boundDb) noexcept   { retreatBoundDb = std::isfinite (boundDb) ? juce::jmin (0.0f, boundDb) : unboundedDb; }
+
         // 一个出口子块。musicActive = 这一块是有效音乐；enabled = 此刻的曲风开着 PSR 守门。
         GuardOutput process (const LoudnessMeter::SubBlock& output, bool musicActive, bool enabled, Delivery delivery) noexcept;
 
@@ -79,6 +84,8 @@ namespace celadon::glaze
         ShortTermWindow window;
         double stepSeconds = 0.1;
         float floorDb = -3.0f;
+        static constexpr float unboundedDb = -1.0e30f;
+        float retreatBoundDb = unboundedDb;
         float reliefDb = 0.0f;
         double belowSeconds = 0.0;
         double aboveSeconds = 0.0;

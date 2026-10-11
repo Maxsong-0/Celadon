@@ -462,6 +462,9 @@ namespace celadon::glaze
         // GLAZE / 规划相关手动值与上一块不同（beginBlock 的 changed 去掉「第一块」那一项：插件刚开不是用户改了参数）。按处理过的时长计
         // （宿主旁通、听原声期间也走）：GLAZE 0 时不计，但 GLAZE 从 0 拧上去本身就算改参数、会重新起算。
         static constexpr double changeFreezeSeconds = 1.0;
+        // T-097 Q15 A：落差 / PSR 守门不再有 −3 dB 底（规格只给预算环写了 −3 封底），界由 retreatBoundDb() 每个子块给；
+        // 这里只留一个绝对安全下限（= Limit Gain 的钳位范围，正常永远碰不到）。
+        static constexpr float guardSafetyFloorDb = -24.0f;
         static constexpr float weightPerSecond = 0.05f;
 
         MusicAnalyzer analyzer;
@@ -849,6 +852,22 @@ namespace celadon::glaze
             }
         }
 
+        // T-097 Q15 A：两个守门再往下退的界 = −max(0, 增量.gain + G_trim)（同 applyLimitExtras 的 automaticTotal 算式，不含退让）。
+        float retreatBoundDb() const noexcept
+        {
+            // effective 此时已含上一次的执行退让，所以从已施加增量重算（同 applyIncrements：manual + 增量钳在 0 ～ 24）。
+            const auto manualGain = manual.limit.gainDb;
+            const auto afterIncrement = juce::jlimit (0.0f, 24.0f, manualGain + applied.limitGainDb);
+
+            if (! active || ! isFinite (manualGain) || ! isFinite (afterIncrement))
+                return 0.0f;
+
+            const auto autoPart = juce::jmax (0.0f, afterIncrement - manualGain);
+            const auto trim = gTrim > 0.0f ? gTrim : juce::jmax (gTrim, -autoPart);
+            const auto withTrim = juce::jlimit (0.0f, 24.0f, afterIncrement + trim);
+            return -juce::jmax (0.0f, withTrim - manualGain);
+        }
+
         void applyLimitExtras() noexcept
         {
             if (! active || targetPlan.automaticLevelWithdrawn)
@@ -1057,6 +1076,10 @@ namespace celadon::glaze
                 || ! psr.restoreStateXml (*psrXml) || ! outputLevel.restoreStateXml (*levelXml))
                 return false;
 
+            // T-097 Q15 A：旧档存的 floorDb（−3）不再用；放深不会把退让往上夹。
+            contrast.setFloorDb (guardSafetyFloorDb);
+            psr.setFloorDb (guardSafetyFloorDb);
+
             applied = restoredApplied;
             automaticWeights = restoredWeights;
             gTrim = restoredTrim;
@@ -1148,6 +1171,8 @@ namespace celadon::glaze
             subBlockSeconds = (double) subBlockSamples / sampleRate;
             contrast.prepare (subBlockSeconds);
             psr.prepare (subBlockSeconds);
+            contrast.setFloorDb (guardSafetyFloorDb);
+            psr.setFloorDb (guardSafetyFloorDb);
             guardInputCursor = guardOutputCursor = 0;
             guardTaintedThrough = 0;
             guardLastSubBlockEnd = 0;
@@ -1307,6 +1332,9 @@ namespace celadon::glaze
 
             const auto& switches = guardSwitchesFor (activeConstants(), currentGenre);
             const auto club = currentDelivery == Delivery::club;
+            const auto bound = retreatBoundDb();
+            contrast.setRetreatBoundDb (bound);
+            psr.setRetreatBoundDb (bound);
 
             for (int i = 0; i < outputs; ++i)
             {

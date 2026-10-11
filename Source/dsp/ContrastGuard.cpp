@@ -156,8 +156,8 @@ namespace celadon::glaze
                 underSeconds = 0.0;
                 sustainedOver = reached (overSeconds, triggerSeconds);
 
-                if (sustainedOver)
-                    reliefDb = juce::jmax (floorDb, reliefDb - retreatDbPerSecond * dt);
+                if (sustainedOver && reliefDb > retreatBoundDb)   // Q15 A：已比界深就保持，不回弹
+                    reliefDb = juce::jmax (juce::jmax (floorDb, retreatBoundDb), reliefDb - retreatDbPerSecond * dt);
             }
             else if (! lastReading.judged || lastReading.lossLu < threshold - releaseMarginLu)
             {

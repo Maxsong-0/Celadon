@@ -81,8 +81,8 @@ namespace celadon::glaze
                 aboveSeconds = 0.0;
                 sustainedBelow = reached (belowSeconds, sustainSeconds);
 
-                if (sustainedBelow)
-                    reliefDb = juce::jmax (floorDb, reliefDb - retreatDbPerSecond * dt);
+                if (sustainedBelow && reliefDb > retreatBoundDb)   // Q15 A：已比界深就保持，不回弹
+                    reliefDb = juce::jmax (juce::jmax (floorDb, retreatBoundDb), reliefDb - retreatDbPerSecond * dt);
             }
             else if (psr >= trip + (double) releaseHysteresisDb)
             {
