@@ -26,7 +26,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 
 | No. | Card | In one line | Main controls |
 |---|---|---|---|
-| 01 | **BALANCE** Dynamic EQ | Bring back what's buried, pull down what sticks out | 27-band correction bars · Recover / Tame / Brighten · Speed |
+| 01 | **BALANCE** Dynamic EQ | Bring back what's buried, pull down what sticks out | 27-band correction curve (over a faint output spectrum) · Recover / Tame / Brighten · Speed |
 | 02 | **CLAY** Stereo | Clean-up: Low cut · Mono · Width | Three rows = lamp + name + current value + Auto / Off / Manual; a 10 Hz – 1 kHz mini graph (with a House genre, this slot becomes a two-line hint while the out-of-phase hint is lit) |
 | 03 | **COLOR** Tone | A little denser, a little warmer | Tone / Glue / Heat · Mix · Output · Glue GR meter |
 | 04 | **LIMIT** Limiter | Loud, without breaking up | Gain / Ceiling / Clip · Release (AUTO) · Lookahead · Limit GR meter · the headphones for Listen to difference |

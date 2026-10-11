@@ -12,7 +12,7 @@ BALANCE is dynamic spectral balance: 27 third-octave bands watch the spectrum in
 
 ## Correction curve
 
-The 27 small bars on the card show how many dB each band is being lifted (up) or pulled down (down) right now. Mostly close to the centre line, with only a few bands moving, is most natural. The display range is ±8 dB.
+The curve on the card shows how many dB each band is being lifted (up) or pulled down (down) right now. The 27 small dots are the band centres, joined by a smooth line. Small corrections are drawn to scale; larger ones bend toward the top or bottom edge instead of being cut off. Mostly close to the centre line, with only a few bands moving, is most natural. Behind the curve is a faint average spectrum of the output, with gridlines at 100 Hz, 1 kHz and 10 kHz (darker) and 50, 200, 500 Hz, 2 and 5 kHz (lighter).
 
 The violet part is GLAZE's automatic share: automatic Recover only lifts sustained gaps that have energy on both sides, fading in after 150 ms and reaching full permission at 500 ms; automatic Tame needs evidence that a band keeps sticking out locally, holds off for 60 ms when an attack is detected, and adds at most 2.5 dB per band; peaks with reliable 1:2:3 harmonic support are pulled down less.
 
