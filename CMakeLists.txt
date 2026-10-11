@@ -353,3 +353,39 @@ namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char*
         target_link_options(celadon_ui_snapshot PRIVATE /STACK:16777216)
     endif()
 endif()
+
+# ---- 可移植 CPU 基准（T-096f）开始：celadon_bench_portable（EXCLUDE_FROM_ALL，不进 CI）----
+# DGX（aarch64、GCC 13、无 LTO）上的「同机不退步」基线：只比同一台机器上基线二进制与当前二进制的差（计划 §13 Q10）。
+# Mac 的绝对数仍由 Max 用 tools/perf/bench.mm（scripts/perf-local.sh）跑；本段不改其他任何目标。用法与口径见
+# docs/validation/2026-10-11-T096f-cpu-baseline/README.md。同一个目标名、两种构建（看机器有没有界面库）：
+#   - 能编界面库（Linux 有 freetype2 / fontconfig / x11 开发包，即上面的 CELADON_CAN_BUILD_GUI）且没开 CELADON_BENCH_PORTABLE_CHAIN_ONLY：
+#     处理器层 + 链层。整个插件（处理器 + 编辑器——处理器的 createEditor 要它）链 celadon_juce_gui，写法照 celadon_ui_snapshot；
+#   - 否则（含 macOS：上面只在 Linux / Windows 打开 CELADON_CAN_BUILD_GUI）：只有链层，只链 celadon_juce（无头，零额外依赖）。
+# Windows 不建：基准用 clock_gettime / getrusage（POSIX）。
+# 基线树（如 3a7a367）里还没有这个目标：把本段从「开始」到「结束」两行原样追加进基线树的 CMakeLists.txt（README 有命令）。
+option(CELADON_BENCH_PORTABLE_CHAIN_ONLY "celadon_bench_portable 只编链层（只链 celadon_juce），即使能编界面库" OFF)
+
+if(NOT WIN32)
+    if(CELADON_CAN_BUILD_GUI AND NOT CELADON_BENCH_PORTABLE_CHAIN_ONLY)
+        add_executable(celadon_bench_portable EXCLUDE_FROM_ALL
+            ${CELADON_DSP_SOURCES}
+            ${CELADON_UI_SOURCES}
+            Source/Parameters.cpp
+            Source/PluginProcessor.cpp
+            Source/PluginEditor.cpp
+            tools/perf/bench_portable.cpp)
+        target_include_directories(celadon_bench_portable PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ui-snapshot-include)
+        target_compile_definitions(celadon_bench_portable PRIVATE CELADON_BENCH_PROCESSOR_LAYER=1)
+        target_compile_options(celadon_bench_portable PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/JuceLibraryCode/JucePluginDefines.h
+                                                              ${CELADON_WARNING_FLAGS})
+        target_link_libraries(celadon_bench_portable PRIVATE celadon_juce_gui)
+    else()
+        add_executable(celadon_bench_portable EXCLUDE_FROM_ALL
+            ${CELADON_DSP_SOURCES}
+            tools/perf/bench_portable.cpp)
+        target_compile_definitions(celadon_bench_portable PRIVATE CELADON_BENCH_PROCESSOR_LAYER=0)
+        target_compile_options(celadon_bench_portable PRIVATE ${CELADON_WARNING_FLAGS})
+        target_link_libraries(celadon_bench_portable PRIVATE celadon_juce)
+    endif()
+endif()
+# ---- 可移植 CPU 基准（T-096f）结束 ----

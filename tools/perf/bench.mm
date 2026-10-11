@@ -1,11 +1,16 @@
 // 整插件性能基准（v0.5 起的性能验收工具，ADR-007；源自 v0.5 研究 P1）：无界面直接跑 CeladonAudioProcessor::processBlock（含两块表、参数读取、GLAZE 编排器、整链），
 // 另有按模块拆分计时、界面绘制计时。单线程、固定种子素材、先空跑再测、取多遍最短。
+// 只能在 Mac 编（Obj-C++、mach 计时、QoS）。DGX 上的「同机不退步」基线用可移植的 tools/perf/bench_portable.cpp（T-096f，
+// 处理器层 + 直接调 CeladonChain 的链层，入口 scripts/perf-dgx.sh）；Mac 的绝对数仍由本文件 grid 模式出。
 //
 // 用法：
 //   celadon_bench grid    <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>
 //   celadon_bench bassgrid <scenario|all> <srs> <bss> <warmSec> <passSec> <passes> （持续低频侧声道压力素材）
 //   celadon_bench modules <scenario|all> <srs> <bss> <warmSec> <passSec> <passes>
 //                 （场景 auto50xover 只在这个模式里有：GLAZE 50 + 每 50 ms 强制切一次收单分频点，量切换预热的最坏块）
+//                 已漂移、待退役（T-096f 调研）：手抄的链不接 LiveProfile（分析器实时模式关、主段度恒 1）、缺 T-074 守护保留统计、
+//                 endBlock 不传出口；量不到实时控制层，读数不能当整链。分级计时改由 CeladonChain 探针做（子项 f2，排 T-095 之后），
+//                 那之后本模式退役。
 //   celadon_bench gui
 //   celadon_bench rendercheck  （真实处理器实时/离线及执行快照恢复验收）
 //   celadon_bench statecheck   （真实处理器默认启动、旧工程缺参、显式零值、状态往返与存档格式号验收）
@@ -48,8 +53,8 @@ namespace
         const char* name;
         std::vector<std::pair<const char*, float>> values;
         // 只给 modules 模式（审核 V4-02）：在编排器算出的实际 Clay 参数上强制切换收单分频点（见 crossoverSweepHzAt）。
-        // 整插件模式做不到同样的事：处理器只能走参数「clay_mono_mode = 手动 + 自动化 clay_mono_hz」，而手动旋钮值计入
-        // 校准参考条件（manualParamsHash），每拧一次校准就作废重来，量到的就不再是 auto 场景本身。
+        // 整插件模式做不到同样的事：处理器只能走参数「clay_mono_mode = 手动 + 自动化 clay_mono_hz」，那样量到的是手动收单场景，
+        // 不再是 auto 场景本身。（阶段 2 起没有校准了；旧注释里「手动值计入校准参考条件、每拧一次校准就作废」的理由随校准一起退役。）
         bool crossoverSweep = false;
     };
 
@@ -350,10 +355,12 @@ namespace
                         samplePos += bs;
                     }
 
+                    // 阶段 2 口径（T-048）：phase 恒为 unlearned、calibrationValid / profileReady 恒为 false，不再打印；
+                    // 改报实时画像的把握度 c、此刻的主段度与守护是否在退（GlazeTypes.h Status 的阶段 2 字段）。
                     const auto warmStatus = proc->getGlazeStatus();
-                    std::printf ("WARM,%s,%g,%d,seconds=%.1f,profileReady=%d,calibrationValid=%d,phase=%d\n",
-                                 sc->name, sr, bs, warmSec, (int) warmStatus.profileReady,
-                                 (int) warmStatus.calibrationValid, (int) warmStatus.phase);
+                    std::printf ("WARM,%s,%g,%d,seconds=%.1f,confidence=%.3f,mainness=%.3f,guardEngaged=%d\n",
+                                 sc->name, sr, bs, warmSec, (double) warmStatus.confidence,
+                                 (double) warmStatus.currentMainness, (int) warmStatus.guardEngaged);
 
                     const auto blocks = juce::jmax (8, (int) std::ceil (passSec * sr / bs));
                     std::vector<double> times ((size_t) blocks);
@@ -422,6 +429,11 @@ namespace
         return false;
     }
 
+    // 【已漂移、待 f2 退役】（T-096f 调研，2026-10-11）：下面是照 CeladonChain 手抄的一份链，已与真链不同——不接 LiveProfile
+    // （没有 attachLiveProfile：分析器实时模式关着、主段度恒为 1）、不 setHostInfo、ModuleStats 缺 T-074 的 clayGuardChange / KeptEnergy、
+    // endBlock 不传出口（输出电平跟踪器不吃样本）、不走推响不刺 / 目标频谱 / 编码余量 / 发行端。实时控制层的成本这里量不到，读数不能当整链。
+    // 整链请用 tools/perf/bench_portable.cpp 的 chain 层（直接调 CeladonChain）；分级计时等 CeladonChain 探针（子项 f2，排 T-095 之后），
+    // 那之后本模式退役、XOVER 场景迁过去。在那之前本函数逻辑不动。
     // 与 PluginProcessor::processChain 同样的工作，按阶段计时：表 → 参数 / GLAZE → Balance → Clay → Color → Limit → 表 → GLAZE 块末。
     // v0.6：GLAZE 映射换成编排器（与 CeladonChain 同样的接线与顺序）：「params+glaze」= beginBlock + 各模块 setParams +
     // 接上一块的 Balance 帧（analyzeSpectrum，必须在 IN 表处理本块之前）+ 入口分析（analyzeInput，在 IN 表之后，故计时里 IN 表夹在中间，
@@ -1062,7 +1074,9 @@ namespace
         realtime.prepareToPlay (sr, bs); alwaysOffline.prepareToPlay (sr, bs); switchOffline.prepareToPlay (sr, bs);
         juce::AudioBuffer<float> a (2, bs), b (2, bs), c (2, bs);
         double fromStartError = 0.0, switchedError = 0.0;
-        bool savedLearning = false, savedCalibration = false, savedChorus = false;
+        // 阶段 2 口径：phase 恒为 unlearned，原来等 Phase::calibrating 的恢复点永远等不到（这条检查恒失败）。
+        // 换成阶段 2 的对应时刻：实时画像发布了第一份有把握的画像（Status.confidence > 0），在这时存档、恢复、对照。
+        bool savedLearning = false, savedLiveProfile = false, savedChorus = false;
         for (int offset = 0; offset < (int) (55.0 * sr); offset += bs)
         {
             if (offset >= (int) (5.0 * sr)) switchOffline.setNonRealtime (true);
@@ -1073,15 +1087,15 @@ namespace
             const auto status = realtime.getGlazeStatus();
             if (! savedLearning && offset >= (int) (5.0 * sr))
             { restorePair (realtime, offset + bs, "learning at 5s"); savedLearning = true; }
-            if (! savedCalibration && status.phase == celadon::glaze::Phase::calibrating)
-            { restorePair (realtime, offset + bs, "calibration running"); savedCalibration = true; }
+            if (! savedLiveProfile && status.confidence > 0.0f)
+            { restorePair (realtime, offset + bs, "live profile published"); savedLiveProfile = true; }
             if (! savedChorus && offset >= (int) (44.0 * sr))
             { restorePair (realtime, offset + bs, "loud chorus"); savedChorus = true; }
         }
         std::printf ("RENDER,INFO,fromStartDifference=%.9g switchedDifference=%.9g\n", fromStartError, switchedError);
         check (fromStartError == 0.0, "fresh realtime/offline whole render matches exactly");
         check (switchedError == 0.0, "switching to offline at 5s leaves audio unchanged");
-        check (savedCalibration, "fixture actually reaches a running calibration");
+        check (savedLiveProfile, "fixture actually publishes a live profile (confidence > 0)");
         realtime.releaseResources(); alwaysOffline.releaseResources(); switchOffline.releaseResources();
         return failures == 0 ? 0 : 1;
     }
