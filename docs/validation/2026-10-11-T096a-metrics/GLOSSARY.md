@@ -85,9 +85,11 @@ ADR-034 决定 6 要求「低频冲击、泵感、PSR 下限、起音保留各�
 
 - **定义**：trace 逐块 `current_mainness`（= 插件 `Status.currentMainness`，分析器给正在播的这一段的主段度 m）≥ 0.5 的块。
   一块覆盖的输入样本 = [块在链里的起点, 起点 + 块长)；trace 的 `t_sec` 是成品时间轴（= 链里起点 − 链延迟），所以起点 = `t_sec` × 采样率 + 链延迟，
-  链延迟 = −首行 `t_sec` × 采样率。第一段读数出来之前插件给 m = 1.0，这一小段照插件原样算主段。
+  链延迟 = −首行 `t_sec` × 采样率。`t_sec` 只留 4 位小数（48 k 下每行差最多 2.4 个样本），所以实现里块长与链延迟用整张表拟合
+  （块长 = 首末行跨度 / 行数，链延迟 = 各行「序号 × 块长 − `t_sec` × 采样率」的平均），拟合不上 = 基础设施错。
+  第一段读数出来之前插件给 m = 1.0，这一小段照插件原样算主段。
 - **Jamendo 交叉核对**（只报）：有逐小节标签（`labels-auto.tsv` 叠 `labels-override.tsv`）且指标表有 `bpm` 列时，
-  `main_in_drop_pct` = 主段时长里落在 drop 小节的占比，`drop_in_main_pct` = drop 小节时长里被判成主段的占比（小节 = 4 拍，缓存已裁到第一个小节线）。
+  `main_in_drop_pct` = 主段时长里落在 drop 小节的占比，`drop_in_main_pct` = drop 小节时长里被判成主段的占比（10 ms 帧；只算标签表里有的小节；小节 = 4 拍，缓存已裁到第一个小节线）。
 - **出处**：vault `01-框架/设计规格-实时GLAZE-主段与增益.md:35`（第 2 节主段度 m）、`:53`（m ≥ 0.5 的提交）、`:75`（棘轮：主段度 < 0.5 时只降不升）；
   `Source/dsp/GlazeController.cpp:1226-1234`（currentMainness 的三种取值）；`Source/dsp/GlazeTypes.h:432-433`（Status 字段）；Q6「主段 m ≥ 0.5」。
 - **放弃**：R1 的「`--segments-csv` 段响度 ≥ 本曲 P95 − 3 LU」（研究目录 `R1-mastering-engineer.md:95`；插件不按它决策）；只用人工标签（22 首没有标签）；
