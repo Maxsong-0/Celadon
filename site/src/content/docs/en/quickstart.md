@@ -24,7 +24,7 @@ Give it a few seconds of playback before comparing; Match needs time to measure 
 | Master a House track, or export one song as both a Streaming and a Club version | Pick Genre (left) and Delivery (right) on either side of the GLAZE heading. House genres recognise the main section the four-on-the-floor way, staying cautious through the intro and relaxing once the drop arrives. After each Delivery switch, play from the drop until the “Target … LUFS” reading settles before you export. See [Genre and Delivery](/docs/glaze#genre-and-delivery) |
 | Work fully by hand | Turn GLAZE to 0 and set Genre and Delivery back to General and Standard; the knobs on the four cards are then all there is |
 | Stop one part from working automatically | Switch that row on the CLAY card to Off or Manual; “Loud, not harsh” and Target spectrum under Advanced each have their own Off |
-| Get ready to export | Turn off Match and Normalisation preview, and exit Listen to difference; stop the preview before a real-time export in particular (offline exports turn it off automatically) |
+| Get ready to export | An offline export bypasses Match, Normalisation preview, Original and Listen to difference automatically; before a real-time export, turn them off by hand. See [Before you export](/docs/listening#before-you-export) |
 | Make the interface bigger or smaller | Pick a size under Settings in the top bar, or drag the bottom-right corner; 70%–200%, saved with the project |
 
 ## Defaults

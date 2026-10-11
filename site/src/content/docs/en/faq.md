@@ -29,7 +29,7 @@ The plugin promises ≤ Ceiling + 0.01 dB as measured by its own 8× meter, plus
 
 ## The export is louder / quieter than what I heard?
 
-Check whether Match is still on (it's saved with the project) and whether Normalisation preview is off. Offline exports turn the preview off automatically; real-time exports don't.
+Match (saved with the project) and Normalisation preview only turn the monitoring down; they never change the master. An offline export bypasses both automatically, so if you were listening with them on, the offline export comes out louder than what you heard, and that's expected. The plugin can't tell a real-time export (recording while playing) from playback, so nothing is bypassed there: turn Match off and exit the preview first, or the export comes out quieter too.
 
 ## How do I get both a Streaming and a Club version of one song?
 
