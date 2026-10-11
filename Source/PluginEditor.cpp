@@ -1332,6 +1332,7 @@ void CeladonAudioProcessorEditor::timerCallback()
         BalanceModule::BandGains gains {};
         processor.getBalanceBandGainsDb (gains);
         c.balanceCard.setBandGains (gains);
+        c.balanceCard.setBackdropSpectrum (analyser.getAverageDb());
     }
 
     // ---- 中层：阶段标签、左下角、等响 ----
