@@ -10,7 +10,7 @@ namespace celadon
 {
     namespace
     {
-        constexpr double silencePower = 1.0e-8; // -80 dBFS stereo mean-square
+        constexpr double silencePower = 1.0e-8; // 立体声均方 -80 dBFS
         constexpr float relativeFloorDb = -120.0f;
         constexpr int snapshotReadAttempts = 8;
 
@@ -40,8 +40,8 @@ namespace celadon
     {
         std::array<std::uint32_t, wordCount> raw {};
         std::memcpy (raw.data(), &payload, sizeof (payload));
-        // Sequential consistency also orders the per-word reads against the
-        // sequence markers; the reader never relies on racing ordinary memory.
+        // 顺序一致性（各原子操作都用默认的 seq_cst）同样给逐字读取与序号标记排定先后；
+        // 读者从不依赖与写者竞争的普通内存访问。
         const auto before = sequence.load();
         sequence.store (before + 1);
         for (size_t i = 0; i < wordCount; ++i)
@@ -65,7 +65,7 @@ namespace celadon
                 return true;
             }
         }
-        // No unbounded spin on audio and no mixed-generation curve is exposed.
+        // 音频线程上不会无限自旋，也绝不交出新旧两代混在一起的曲线。
         return false;
     }
 
@@ -187,8 +187,8 @@ namespace celadon
         const auto halfBand = std::pow (2.0, 1.0 / 6.0);
         for (int b = 0; b < numBands; ++b)
         {
-            // Same exact third-octave edges as BalanceModule (whose public
-            // centre getter returns the conventional rounded display labels).
+            // 段边界与 BalanceModule 完全相同，都是精确的 1/3 倍频程（它对外的中心频率接口
+            // getBandCentreHz 返回的是惯用的取整显示标签，即 IEC 61260 标称值）。
             const auto centre = 1000.0 * std::pow (2.0, (double) (b - 14) / 3.0);
             const auto low = centre / halfBand, high = centre * halfBand;
             auto& band = bands[(size_t) b];
@@ -200,8 +200,8 @@ namespace celadon
                 weights.push_back (std::max (0.0, std::min (high, ((double) k + 0.5) * binHz)
                                                    - std::max (low, ((double) k - 0.5) * binHz)) / binHz);
         }
-        // End an already-running learning session, but retain a new Learn that
-        // has not reached process yet (e.g. the host prepares just after a click).
+        // 结束已经在跑的学习，但保留还没到达 process 的新「学习参考」请求
+        // （例如刚点完按钮，宿主紧接着就 prepare）。
         applyCommands();
         learning = learning && current.controlTicket > lastAudioControlTicket;
         resetLearning();
@@ -216,15 +216,15 @@ namespace celadon
         if (needed <= 0) return;
         if (frameFill < needed)
         {
-            // A disconnected interval must not splice two separated pieces into
-            // one FFT window. A complete terminal prefix, however, is retained.
+            // 中间断开过时，不能把断开前后的两截拼进同一个 FFT 窗。
+            // 不过已经采齐的结尾前缀（缓冲开头、够本帧所需样本数的那一段）照样保留。
             if (captureInterrupted) { frameFill = 0; captureInterrupted = false; }
             return;
         }
-        input.swap (analysisInput); // vector swaps only: no allocation, copies or locks.
+        input.swap (analysisInput); // 只交换 vector：不分配、不拷贝、不加锁。
         analysisLength = needed;
         analysisSuffix = frameFill - needed;
-        frameFill = analysisSuffix; // Reserve the suffix; window-stage work copies it incrementally below.
+        frameFill = analysisSuffix; // 先预留后缀的位置；后缀由下文加窗阶段的工作逐步拷回。
         captureInterrupted = false;
         analysisPending = true;
         analysisStage = AnalysisStage::window;
@@ -237,10 +237,10 @@ namespace celadon
     {
         if (valid) validSamples += analysisLength;
         else if (analysisLength < fftSize)
-            // A rejected tiny terminal prefix must not repeatedly schedule a
-            // whole FFT faster than it can run. Preserve its captured suffix and
-            // resume full windows; this may add at most one valid analysis window
-            // beyond the ten-second minimum, without dropping reference samples.
+            // 被拒的极短结尾前缀不能反复排出整份 FFT，排得比算得还快。
+            // 保留它后面已采到的后缀，回到按整窗分析；
+            // 这样最多比 10 秒下限多出一个有效分析窗，
+            // 而且不丢参考样本。
             requireFullFinalFrame = true;
         analysisPending = false;
         if (validSamples >= targetSamples) finishLearning();
@@ -248,8 +248,8 @@ namespace celadon
 
     void ReferenceSpectrum::advanceAnalysis (int workUnits) noexcept
     {
-        // Work is distributed by AUDIO SAMPLES, not callback boundaries. Numeric
-        // operation order and committed shape therefore do not depend on block size.
+        // 工作量一律按「音频样本」分摊，不按回调边界。因此数值运算顺序
+        // 与已学参考曲线（committed）的形状都与块长无关。
         while (analysisPending && workUnits-- > 0)
         {
             switch (analysisStage)
@@ -402,9 +402,9 @@ namespace celadon
         for (int i = 0; i < sidechain.getNumSamples() && learning; ++i)
         {
             startAnalysisIfReady();
-            // Two-window capacity also preserves oversampled suffixes when a
-            // terminal short prefix is rejected. Transfers run in the same fixed
-            // work budget; future samples append after the reserved suffix.
+            // 两窗容量（2 × fftSize）还有一个作用：结尾的短前缀被拒时，多采出来的
+            // 后缀也留得住。后缀的搬运同样在那份固定工作预算（每样本 16 个单元）里完成；
+            // 之后的新样本接在预留的后缀后面。
             if (left != nullptr && ! captureInterrupted && frameFill < 2 * fftSize)
             {
                 const auto sanitize = [] (float value) noexcept
@@ -433,10 +433,10 @@ namespace celadon
     {
         Payload result {}, restore {};
         if (! published.read (result))
-            return false; // A coherent safe fallback, never a torn committed curve.
-        // A concurrent XML writer may still be publishing the next reference.
-        // Keep the coherent committed curve from published until that restore
-        // is readable; a transient empty snapshot would turn target EQ off.
+            return false; // 自洽、安全的退路：绝不交出读撕裂的已学参考曲线。
+        // 并发的 XML 写者可能还在发布下一份参考。在那份恢复数据读得到之前，
+        // 先沿用 published 里自洽的已学参考曲线；哪怕只是一瞬间的空快照，
+        // 也会把目标频谱修正（target EQ）关掉。
         const auto restoreAt = restored.read (restore) ? restore.referenceTicket : std::uint64_t { 0 };
         const auto clearAt = clearTicket.load(), learnAt = learnTicket.load(), cancelAt = cancelTicket.load();
         if (restoreAt > result.referenceTicket && restoreAt > clearAt)
@@ -465,9 +465,9 @@ namespace celadon
 
     std::unique_ptr<juce::XmlElement> ReferenceSpectrum::createStateXml() const
     {
-        // Saving already allocates XML and is a non-audio operation. Unlike the
-        // bounded realtime getter, retry contention rather than persist its
-        // deliberately conservative no-reference fallback into the project.
+        // 保存本来就要分配 XML，是非音频线程的操作。与尝试次数有上限的实时读取
+        // getSnapshot 不同，这里遇到争用就一直重试，而不是把那个故意保守的
+        // 「无参考」退路存进工程。
         Snapshot snapshot {};
         while (! readSnapshot (snapshot))
             std::this_thread::yield();
@@ -509,8 +509,8 @@ namespace celadon
                 payload.snapshot.relativeDb[(size_t) index] = (float) db;
                 relativePower += std::pow (10.0, db / 10.0);
             }
-        // The non-overlapping bands cannot contain more than total RMS power.
-        // Allow float/XML rounding, but reject an all-floor invented reference.
+        // 各段互不重叠，加起来不可能超过总 RMS 功率。
+        // 允许 float / XML 的舍入误差，但拒收全部贴在下限、凭空捏造的参考。
         valid = valid && relativePower >= 1.0e-6 && relativePower <= 1.0001;
         if (valid)
         {
