@@ -35,6 +35,9 @@
       不会比输入响；再按此刻的 Ceiling 硬钳位兜底。旁通、淡入保持段里差值跟着交叉淡化 / 淡入归零。
       只多一条 Gain 延迟线（一直在跑，打开时不必预热）；不传差值缓冲时输出、状态、统计与原来逐位相同。
 
+    渲染计数（T-096 (a)，插件不调用）：BlockStats 末三项与 getAndResetRenderCountersForTesting——硬钳位改了值的样本数（一直在数）、
+      限幅差值能量与入口能量（只在渲染工具打开时累计）。都只读已有的量：输出、状态与原有统计逐位不变。
+
     只依赖 juce_dsp，可在 Linux 上无头编译做自动测试。
 
   ==============================================================================
@@ -118,9 +121,30 @@ namespace celadon
             float clipActiveFraction = 0.0f;   // Clip 级 4× 域里被削样本的占比（0 ～ 1）：|x| > 削波阈值 T 的样本数（各声道合计）/ 本块 4× 样本总数；
                                                // T = 软削波曲线的封顶阈值（0.7·T 起软拐、渐近封顶在 T）；湿路被整段丢弃（Clip 0 淡出走完）时不计
             float clipDepthMaxDb = 0.0f;       // 本块最大削波深度：超出削波门限的量 max 20·log10(|x| / T)（dB，正数；没有超出时为 0）
+
+            // ---- T-096 (a) 渲染工具的只读计数（ADR-034 A2 / B6；插件不读）----
+            juce::int64 hardClipSamples = 0;   // 输出硬钳位真的改了值的样本数（各声道合计）：|延迟后 × 增益| > 此刻的 Ceiling。一直在数，理论上恒为 0
+            double limitDiffEnergy = 0.0;      // Σ(加了 Gain 的输入 − 本级湿路输出)²（各声道合计）：与试听差值同一个差，只是按推响后的电平、
+                                               // 不除以 Gain、不钳位。只在 setRenderCountersEnabledForTesting (true) 时累计，否则为 0
+            double limitInputEnergy = 0.0;     // Σ(加了 Gain 的输入)²（各声道合计；同上，只在打开时累计）
         };
 
         const BlockStats& getBlockStats() const noexcept   { return blockStats; }
+
+        // T-096 (a)：自上次读取以来各次 process 的上面三项之和，读完清零。为什么另给一份：链在 GLAZE 活跃时把宿主块按 10 ms 时隙切片，
+        // getBlockStats() 只剩最后一片；渲染工具（celadon_render --trace）要按宿主块读整块的量。只在调用 process 的线程上读；插件不调用。
+        struct RenderCounters
+        {
+            juce::int64 hardClipSamples = 0;
+            double limitDiffEnergy = 0.0;
+            double limitInputEnergy = 0.0;
+        };
+
+        RenderCounters getAndResetRenderCountersForTesting() noexcept;
+
+        // true = 每段顺带累计两份能量（limitDiffEnergy / limitInputEnergy）。默认 false、插件从不打开：插件的音频线程不多做这份运算。
+        // 硬钳位计数不受它管（一次比较，一直在数）。只读已有的量，不改输出、状态与其余统计；音频线程上调（与 process 同一线程）。
+        void setRenderCountersEnabledForTesting (bool shouldCount) noexcept   { renderCountersEnabled = shouldCount; }
 
         // 只给测试用：false = 关掉 Clip 级空闲跳过，过采样器永远照常跑——当作逐位对照的参照实现。
         // 音频线程上调（与 process 同一线程）；插件本身从不调用。
@@ -187,6 +211,7 @@ namespace celadon
         // collectStats = true 时顺带统计 4× 域的削波活动（只读削波前的样本，不改处理）；预滚与湿路被丢弃时不统计。
         void runClipOversampled (juce::dsp::AudioBlock<float>& block, bool followSmoothedThreshold, bool collectStats) noexcept;
         void accumulateClipStats (const juce::dsp::AudioBlock<float>& upsampled, float threshold) noexcept;
+        void accumulateRenderEnergies (const juce::AudioBuffer<float>& io, int startSample, int numSamples, int numChannelsToUse) noexcept;
         void finishBlockStats (int numSamples) noexcept;
         void recordClipIdleHistory (const float* const* channels, int startSample, int numSamples) noexcept;
         void prerollClipOversampler() noexcept;
@@ -300,10 +325,17 @@ namespace celadon
             juce::int64 clipCount = 0;       // 4× 域 |x| > T 的样本数（各声道合计）
             juce::int64 clipTotal = 0;       // 4× 域样本总数（各声道合计，含空闲跳过、湿路被丢弃的部分）
             float clipPeakRatio = 0.0f;      // 4× 域 max |x| / T
+            juce::int64 hardClipSamples = 0; // T-096 (a)：硬钳位改了值的样本数
+            double diffEnergy = 0.0;         // T-096 (a)：Σ(加了 Gain 的输入 − 湿路输出)²（只在 renderCountersEnabled 时累计）
+            double inputEnergy = 0.0;        // T-096 (a)：Σ(加了 Gain 的输入)²（同上）
         };
 
         StatsAccumulator stats;
         BlockStats blockStats;
+
+        // T-096 (a) 渲染计数：开关与「自上次读取以来」的累计（见 getAndResetRenderCountersForTesting）。
+        bool renderCountersEnabled = false;
+        RenderCounters renderCounters;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LimiterModule)
     };
