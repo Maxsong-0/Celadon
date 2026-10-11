@@ -1,6 +1,6 @@
 /*
-    A sidechain-only, level-independent reference spectrum. The owner must pass
-    the actual sidechain bus, never a main-input/output or display-analyser tap.
+    只从侧链学、与电平无关的参考频谱。持有者必须传入真正的侧链总线，
+    绝不能拿主输入 / 主输出或界面显示用分析器的抽头来顶替。
 */
 #pragma once
 
@@ -29,15 +29,15 @@ namespace celadon
             State state = State::idle;
             double seconds = 0.0;
             bool hasReference = false, sidechainConnected = false;
-            // 10 log10 (one-third-octave power / total stereo power), [-120, 0].
-            // Silence/unsupported bands stay at the floor; callers must gate
-            // correction on evidence instead of boosting an absent band.
+            // 10 log10（1/3 倍频程段功率 / 立体声总功率），取值 [-120, 0] dB。
+            // 静音段与不支持的段停在下限；调用方必须按证据门控修正，
+            // 不能去提升一个本来就不存在的段。
             std::array<float, numBands> relativeDb {};
         };
 
-        // Like other DSP prepare methods, call only while process is stopped.
-        // Preserves a committed reference, but does not resume partial learning.
-        // A new Learn request not yet consumed by process survives preparation.
+        // 与其他 DSP 模块的 prepare 一样，只许在 process 停下时调用。
+        // 保留已学参考曲线（代码里叫 committed），但学到一半的进度不续接。
+        // 还没被 process 取走的新「学习参考」请求，prepare 之后依然有效。
         void prepare (const juce::dsp::ProcessSpec&);
         void process (const juce::AudioBuffer<float>& sidechain, bool connected) noexcept;
         void requestLearn() noexcept;
@@ -45,8 +45,8 @@ namespace celadon
         void clear() noexcept;
         Snapshot getSnapshot() const noexcept;
         std::unique_ptr<juce::XmlElement> createStateXml() const;
-        // Non-audio thread only; parsing may allocate. Concurrent state readers,
-        // UI commands and process are safe, including save before the next block.
+        // 只许在非音频线程调用：解析可能分配内存。与之并发的状态读取、界面命令和
+        // process 都是安全的，包括恢复之后、下一块到来之前就保存。
         void restoreStateXml (const juce::XmlElement*);
 
     private:
@@ -56,8 +56,8 @@ namespace celadon
             std::uint64_t referenceTicket = 0, controlTicket = 0;
         };
 
-        // Single-writer publications. ALL payload words are atomic; an ordinary
-        // seqlock around a non-atomic struct would still be a C++ data race.
+        // 单写者发布。Payload 的全部 32 位字一律是原子量：若只用普通 seqlock 包住一个
+        // 非原子结构体，在 C++ 里照样是数据竞争。
         class Publication
         {
         public:
@@ -80,12 +80,12 @@ namespace celadon
         void finishAnalysis (bool valid) noexcept;
         void finishLearning() noexcept;
 
-        // UI controls are independent monotonic tickets: collapsing learn/cancel
-        // must never swallow an earlier clear or restore of the committed curve.
+        // 界面的各个控制各用一张独立、单调递增的票号（ticket）：学习 / 取消合并成只看最新一次时，
+        // 绝不能吞掉更早发出的、对已学参考曲线的清除或恢复。
         std::atomic<std::uint64_t> nextTicket { 0 }, learnTicket { 0 },
                                    cancelTicket { 0 }, clearTicket { 0 };
         Publication published, restored;
-        // Serializes only non-audio XML writers. The audio thread never locks it.
+        // 只串行化非音频线程上的 XML 写者（restoreStateXml）。音频线程从不锁它。
         std::mutex restoreMutex;
         Payload current {};
         std::uint64_t lastAudioControlTicket = 0;
@@ -94,9 +94,9 @@ namespace celadon
         std::int64_t validSamples = 0, targetSamples = 480000;
         int fftSize = 0, frameFill = 0;
         std::array<std::vector<float>, 2> input, analysisInput, transform;
-        // Two capture banks let a completed frame be transformed while collecting
-        // the next one. One work unit is a constant-sized operation; 16 units per
-        // input sample complete the largest supported FFT before its successor.
+        // 两组采集缓冲：一帧采齐后，可以一边变换这一帧、一边采下一帧。
+        // 一个工作单元是一次固定大小的操作；每个输入样本推进 16 个单元，
+        // 保证所支持的最大 FFT（2^17 点）也能在下一帧采齐之前算完。
         enum class AnalysisStage { window, fft, power, bands, accumulate };
         bool analysisPending = false, captureInterrupted = false, requireFullFinalFrame = false;
         AnalysisStage analysisStage = AnalysisStage::window;

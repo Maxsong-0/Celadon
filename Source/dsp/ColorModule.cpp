@@ -105,7 +105,7 @@ namespace celadon
         // 滤波器状态低于此值就归零：静音里的指数衰减不会一路掉进 denormal（double 下要几秒才自然到 0）。
         constexpr double stateSnapThreshold = 1.0e-30;
 
-        // 时间常数 → 一阶系数：每样本 y = target + (y − target) · coeff。
+        // 时间常数 → 一阶系数：每样本 y = target + (y − target) · coeff。毫秒数是 τ，不是 10 %→90 % 时间（= τ·ln 9 ≈ 2.2 τ）。
         double timeConstantCoeff (double fs, double milliseconds)
         {
             return std::exp (-1.0 / (milliseconds * 0.001 * fs));
@@ -1224,7 +1224,7 @@ namespace celadon
 
             const auto target = glue > 0.0f ? reductionTargetFor (peak) : 0.0;
 
-            // 压缩量在 dB 域平滑：攻击 20 ms、释放按最近 500 ms 平均压缩量自适应。
+            // 压缩量在 dB 域平滑：攻击 20 ms、释放按最近 500 ms 平均压缩量自适应（都是一阶 τ，见 timeConstantCoeff）。
             const auto reductionDb = nextGainReductionDb (target);
 
             auto advanceBand = [&] (double current, double bandTarget, double bandAttack) noexcept
@@ -1545,8 +1545,8 @@ namespace celadon
             for (int ch = 0; ch < numChannelsToUse; ++ch)
                 channels[ch][startSample + i] = (float) dcBlock ((double) heatWorkScratch.getReadPointer (ch)[i],
                                                                 dcBlockerStates[(size_t) ch]) * heatCompensationFor (0.0f);
-            // Keep the same detector and filter history as the non-skipping
-            // Heat0 path. Neither detector state is audible while mix is zero.
+            // 与不跳过时 Heat 0 的路径推进同一份检测器与低通历史（protectHeatResidual 的状态逐位一致）；
+            // 湿路比例为 0 时这些检测状态都不影响输出（随后这个样本直接换成干路）。
             protectHeatResidual (channels, startSample + i, i, numChannelsToUse, 0.0f);
             for (int ch = 0; ch < numChannelsToUse; ++ch)
                 channels[ch][startSample + i] = heatDryScratch.getReadPointer (ch)[i];
@@ -1720,9 +1720,9 @@ namespace celadon
     void ColorModule::protectHeatResidual (float* const* channels, int index, int dryIndex,
                                            int channelCount, float mix) noexcept
     {
-        // A complementary one-pole split of ONLY the generated M/S residual.
-        // The linked detector budgets high residual RMS against dry RMS; it
-        // neither EQs the original mix nor independently moves the stereo image.
+        // 只拆新生成的 M/S 残差：一阶低通（约 4 kHz）与「残差 − 低通」互补，原声不经过这里。
+        // M / S 联动的检测器按「高频残差 RMS 对干路 RMS」做预算（3.5 %，常数与口径见 ColorModule.h 文件头）；
+        // 只缩残差的高频部分，既不对原混音做 EQ，也不单独移动立体声像。
         double dryPower = 0.0, highPower = 0.0;
         for (int ch = 0; ch < channelCount; ++ch)
         {
