@@ -48,6 +48,7 @@ namespace celadon::test
         {
             testRatesRatchetAndTrim();
             testGuardTakesTheMostNegative();
+            testTrimFreezesWhenAnyGuardHolds();
             testOutputLevelGateIgnoresHostReset();
             testOneSecondGridAndModelSwitch();
             testLegacyStateDropsListenNodes();
@@ -318,6 +319,129 @@ namespace celadon::test
             expectWithinAbsoluteError (live.newProgramKeep, 0.2f, 1.0e-6f);
             expectWithinAbsoluteError (live.newProgramRangeLu, 2.0f, 1.0e-6f);
             expectWithinAbsoluteError (live.mainThreshold, 0.5f, 1.0e-6f);
+        }
+
+        void testTrimFreezesWhenAnyGuardHolds()
+        {
+            beginTest ("T-097/Q11: G_trim holds while any guard has relief < 0, a relief just changed, or params changed within 1 s");
+
+            // 推导：dt = 1 s、误差 +10 dB 时，误差被限幅到 trimMaxDbPerSecond × dt = 0.05 dB/s × 1 s = 0.05 dB，所以积分一步最多 +0.05 dB。
+            constexpr float dt = 1.0f;
+            constexpr float bigError = 10.0f;
+            constexpr float startTrimDb = 1.0f;      // 起点放在 1 dB：冻结时必须原样不动（保持，不是清零）
+            const float oneStep = phase2::trimMaxDbPerSecond * dt;
+
+            const auto trimAfterOneStep = [&] (const phase2::TrimFreezeInputs& inputs)
+            {
+                phase2::TrimIntegrator trim;
+                trim.trimDb = startTrimDb;
+                phase2::stepTrimUnderGuards (trim, bigError, dt, inputs);
+                return trim.trimDb;
+            };
+
+            // 三个守门「停住不动」的状态：before == after，只看 after 是否 < 0。
+            const auto holding = [] (float budgetDb, float contrastDb, float psrDb)
+            {
+                phase2::TrimFreezeInputs inputs;
+                inputs.budget = { budgetDb, budgetDb };
+                inputs.contrast = { contrastDb, contrastDb };
+                inputs.psr = { psrDb, psrDb };
+                return inputs;
+            };
+
+            // 对照：什么都不成立时照常积分一步。
+            expectWithinAbsoluteError (trimAfterOneStep (phase2::TrimFreezeInputs {}), startTrimDb + oneStep, 1.0e-6f,
+                                       "nothing holds: one 0.05 dB step");
+            expectWithinAbsoluteError (trimAfterOneStep (holding (0.0f, 0.0f, 0.0f)), startTrimDb + oneStep, 1.0e-6f,
+                                       "all reliefs exactly 0 and unchanged: integrates");
+
+            // 规则 2：任一退让量 < 0，哪怕停住不动（预算环不在退）也冻结。
+            expectEquals (trimAfterOneStep (holding (-0.1f, 0.0f, 0.0f)), startTrimDb, "budget relief < 0, standing still: frozen");
+            expectEquals (trimAfterOneStep (holding (0.0f, -0.3f, 0.0f)), startTrimDb, "contrast relief < 0, standing still: frozen");
+            expectEquals (trimAfterOneStep (holding (0.0f, 0.0f, -0.2f)), startTrimDb, "PSR relief < 0, standing still: frozen");
+
+            // 旧口径只看「预算环本块在退」这一个布尔：上面三种停住的状态它都会积分，这正是要换口径的原因。
+            phase2::TrimIntegrator legacy;
+            legacy.trimDb = startTrimDb;
+            legacy.step (bigError, dt, false);
+            expectWithinAbsoluteError (legacy.trimDb, startTrimDb + oneStep, 1.0e-6f, "old rule integrates while a guard is held");
+
+            // 规则 1：预算环本块在退（各退让量都是 0 也冻结）。
+            phase2::TrimFreezeInputs retreating;
+            retreating.budgetRetreatingThisBlock = true;
+            expectEquals (trimAfterOneStep (retreating), startTrimDb, "budget loop retreating this block: frozen");
+
+            // 规则 3：这一块刚改过退让量。「回到 0 的那一步」after == 0 也算（before 与 after 不同）。
+            auto contrastJustReturned = holding (0.0f, 0.0f, 0.0f);
+            contrastJustReturned.contrast = { -0.05f, 0.0f };
+            expectEquals (trimAfterOneStep (contrastJustReturned), startTrimDb, "contrast relief returned to 0 this block: frozen");
+
+            auto budgetJustReturned = holding (0.0f, 0.0f, 0.0f);
+            budgetJustReturned.budget = { -0.2f, 0.0f };
+            expectEquals (trimAfterOneStep (budgetJustReturned), startTrimDb, "budget relief returned to 0 this block: frozen");
+
+            auto psrJustReturned = holding (0.0f, 0.0f, 0.0f);
+            psrJustReturned.psr = { -0.15f, 0.0f };
+            expectEquals (trimAfterOneStep (psrJustReturned), startTrimDb, "PSR relief returned to 0 this block: frozen");
+
+            // 规则 4：1 s 内改过参数。边界与生产 secondsSinceChange < 1.0 一致：0.999 s 冻结，满 1.0 s 解冻。
+            for (const double seconds : { 0.0, 0.5, 0.999 })
+            {
+                auto inputs = holding (0.0f, 0.0f, 0.0f);
+                inputs.secondsSinceParamChange = seconds;
+                expectEquals (trimAfterOneStep (inputs), startTrimDb, "params changed under 1 s ago: frozen");
+            }
+
+            for (const double seconds : { 1.0, 5.0 })
+            {
+                auto inputs = holding (0.0f, 0.0f, 0.0f);
+                inputs.secondsSinceParamChange = seconds;
+                expectWithinAbsoluteError (trimAfterOneStep (inputs), startTrimDb + oneStep, 1.0e-6f,
+                                           "params changed 1 s or more ago: integrates");
+            }
+
+            // 整段时序（抗饱和的原因）：落差守门以 0.1 dB/s 退到 −3 dB 地板（30 s），停 30 s，再以 0.05 dB/s 回到 0（60 s），共 120 步，dt = 1 s。
+            // 这段时间预算环一直不在退，误差恒为 +10 dB。旧口径每步都积分：120 × 0.05 = 6 dB，60 步就顶到 +3 dB 夹限。
+            // 新口径整段都冻结，直到回到 0 之后再过一步才积分。
+            constexpr float contrastRetreatDbPerSecond = 0.1f;     // 规格第 4 节：落差守门退让速率
+            constexpr float contrastReleaseDbPerSecond = 0.05f;    // 规格第 4 节：落差守门回程速率
+            constexpr float contrastFloorDb = -3.0f;               // 规格第 4 节：floorDb
+            constexpr int retreatSeconds = 30;                     // 3 dB ÷ 0.1 dB/s
+            constexpr int holdSeconds = 30;
+            constexpr int releaseSeconds = 60;                     // 3 dB ÷ 0.05 dB/s
+
+            phase2::TrimIntegrator guarded;
+            phase2::TrimIntegrator oldRule;
+            auto previousReliefDb = 0.0f;
+
+            for (int second = 1; second <= retreatSeconds + holdSeconds + releaseSeconds; ++second)
+            {
+                float reliefDb = 0.0f;
+
+                if (second <= retreatSeconds)
+                    reliefDb = juce::jmax (contrastFloorDb, -contrastRetreatDbPerSecond * (float) second);
+                else if (second <= retreatSeconds + holdSeconds)
+                    reliefDb = contrastFloorDb;
+                else if (second < retreatSeconds + holdSeconds + releaseSeconds)
+                    reliefDb = contrastFloorDb + contrastReleaseDbPerSecond * (float) (second - retreatSeconds - holdSeconds);
+                else
+                    reliefDb = 0.0f;                               // 最后一步精确落到 0（回程到顶后贴 0，不留浮点残差）
+
+                phase2::TrimFreezeInputs inputs;
+                inputs.contrast = { previousReliefDb, reliefDb };
+                phase2::stepTrimUnderGuards (guarded, bigError, dt, inputs);
+                oldRule.step (bigError, dt, false);
+                previousReliefDb = reliefDb;
+            }
+
+            expectEquals (guarded.trimDb, 0.0f, "contrast guard retreat / hold / release: G_trim never moved");
+            expectWithinAbsoluteError (oldRule.trimDb, phase2::trimClampDb, 1.0e-3f, "old rule winds up to the +3 dB clamp");
+
+            // 回到 0 的那一步（第 120 步）已冻结；再过一步，退让量没变、参数也早过 1 s，恢复积分 0.05 dB。
+            phase2::TrimFreezeInputs afterRelease;
+            afterRelease.contrast = { previousReliefDb, previousReliefDb };
+            phase2::stepTrimUnderGuards (guarded, bigError, dt, afterRelease);
+            expectWithinAbsoluteError (guarded.trimDb, oneStep, 1.0e-6f, "one step after the relief is back at 0: integrates again");
         }
     };
 

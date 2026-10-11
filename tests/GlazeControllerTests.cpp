@@ -7028,3 +7028,1741 @@ namespace celadon::test
 
     static GlazeControllerHouseTests glazeControllerHouseTests;
 }
+
+//==============================================================================
+// ---- T-097 守护族真链机制（A2 追加）----
+// 落差守门（ContrastGuard）与 PSR 守门（PsrGuard）按 100 ms 子块推进、G_trim 抗积分饱和的冻结口径。都经 CeladonChain 驱动（与插件同一
+// 接线）。依据：设计规格-实时GLAZE-主段与增益 第 4 节（下称「规格 4」）、第 5 节（窗口状态不存）；Max 2026-10-10 Q11「有退让量就冻结」。
+// 只在文件末尾追加：上面的用例与工具一个不改，另起一个测试类（GLAZE controller guard family (T-097)）。
+//   1a. G_trim 冻结（规格 4 + Q11）：任一守门退让量 < 0、或本块改过退让量、或 1 s 内改过参数 → 本块 G_trim 不积分（appliedBiasDb 逐位
+//       不变）；trimFrozen 与这三条原因逐块一致。块长 480（= 预算环 10 ms 时隙；100 ms 子块 = 10 块）：链从不在块内切片，探针即那一次 endBlock。
+//   1b. 改参数冻结（规格 4「参数在 1 s 内变化过时冻结 G_trim」）：GLAZE 100 → 90 之后 100 块（1 s）内冻结、逐位不变、距改参数 < 1 s；
+//       之后三个守门都为 0 时 G_trim 恢复积分。
+//   2.  通用档（规格 4 曲风开关：通用两个守门都关，GlazeConstants generalGuards 出厂 {false, false}）：GLAZE 100、三种交付、推热到预算环
+//       退让，落差 / PSR 退让每一块都是 +0（位模式）。
+//   3.  子块网格（规格 4「两个守门每个 100 ms 子块走一步」，与宿主块长、切片方式无关）：块长 1 ～ 4096，推进次数 = ⌊总样本 / 4800⌋、
+//       最后一个推进的子块终点 = 其 × 4800、不丢；每块最多推进一个（块长 ≤ 4096 < 4800）；终点永远在 4800 的整数倍上。
+//   4.  冻结与不连续（规格 4「冻结：三个守门与 G_trim 都不推进」「GLAZE ≤ 0：自动部分逐位归零，守门不推进」；GlazeController.cpp
+//       stepSubBlockGuards）：宿主旁通期间不推进、退让保持；恢复后跨过冻结段的子块丢掉（+1）；跳播后出口 3 s 窗重攒（≥ 29 个推进的子块
+//       读数无效）；GLAZE 0 不推进、退让全 +0。
+//   5.  旧档兼容（ContrastGuard.h / PsrGuard.h 文件头的存档说明；规格第 5 节）：main 3a7a367 形状的 LIVE（CONTRAST_GUARD 只有 128 笔环，
+//       PSR_GUARD 没有 aboveSeconds，CONTROL 没有 secondsSinceParamChange）读回不冷启动、退让照旧、直方图从空开始、缺的
+//       secondsSinceParamChange 按 1 s；新档 create → restore → create 时 T-097 的三个节点（CONTROL / CONTRAST_GUARD / PSR_GUARD）
+//       逐位相同（GlazeController.h「restoreStateXml 之后、第一块之前 createStateXml 返回刚恢复的内容」）。
+//   6.  音频线程零分配（设计规格-总体「音频线程零分配、零锁」）：House 俱乐部 GLAZE 100、通用 GLAZE 100 两种设置走过冻结、跳播、回绕、
+//       宿主 reset、GLAZE 0、换交付与曲风、读档。
+// 【待上机核】的数（素材电平、推热倍数、时长）都集中在各用例开头的具名常量里，注释写明为什么预期够用。
+namespace celadon::test
+{
+    namespace
+    {
+        // 子块长度：IN / OUT 表与两个守门都是 round(0.1 × 采样率) 个样本一个子块（LoudnessMeter::getSubBlockLength，GlazeController 的
+        // prepare 同一算式）；48 kHz → 4800。prepare 之后两只表的时间轴从 0 起，第 n 个子块的终点是 n × 4800。
+        constexpr std::int64_t t097SubBlockSamples = 4800;
+
+        // 块长 480 = 预算环一个 10 ms 时隙（48 kHz）；100 ms 子块 = 10 个这样的块。时隙只按有效音乐计数、冻结时丢掉半格，但每片都是整
+        // 480 个样本，所以每块开头时隙进度总是 0：链从不在块内再切（getLastProcessSliceCountForTesting = 1），每块正好一次 endBlock——
+        // 「上一块 endBlock 之后」的探针就是 G_trim 这一步的判定结果。块长 512 时几乎每块都切成两片，片内的判定从块外看不到。
+        constexpr int t097TrimBlock = 480;
+
+        // 规格 4：参数在 1 s 内变化过时冻结 G_trim（GlazeController.cpp changeFreezeSeconds）。
+        constexpr double t097ParamFreezeSeconds = 1.0;
+
+        // 规格 4：出口 3 s 窗 = 30 个 100 ms 子块（ProfileMath ShortTermWindow::subBlocks），满 30 个才有 S / PSR 读数。
+        constexpr int t097WindowSubBlocks = 30;
+
+        // 「放宽预算让守门不动」：预算环核对的七项上限（Glue 均值 / P95、Clip 深度 / 活动、限幅均值 / P95 / 峰值）在三种风格里都置 0。
+        // GlazeGuard 与 GlazePlanner 的 enforced(cap) = 有限且 > 0，0 = 不设约束（编排器 replan 放开手动超预算的项也是置 0）；
+        // 俱乐部档只给 > 0 的限幅上限加量，0 仍是 0。
+        glaze::Constants t097WithoutBudgetCaps (glaze::Constants c) noexcept
+        {
+            for (auto* style : { &c.warm, &c.punchy, &c.clean })
+            {
+                style->glueGrMeanCapDb = style->glueGrP95CapDb = 0.0f;
+                style->clipDepthCapDb = style->clipActivityCap = 0.0f;
+                style->limitGrMeanCapDb = style->limitGrP95CapDb = style->limitGrPeakCapDb = 0.0f;
+            }
+
+            return c;
+        }
+
+        // 三个守门任一有退让量（预算 guardDb、落差、PSR；在退、停住、回程中都 < 0）。
+        bool t097AnyRelief (const Probe& p) noexcept
+        {
+            return p.guardDb < 0.0f || p.contrastReliefDb < 0.0f || p.psrReliefDb < 0.0f;
+        }
+
+        // 三个退让量任一与上一块不同（位比较）。
+        bool t097ReliefMoved (const Probe& now, const Probe& before) noexcept
+        {
+            return ! sameBits (now.guardDb, before.guardDb) || ! sameBits (now.contrastReliefDb, before.contrastReliefDb)
+                || ! sameBits (now.psrReliefDb, before.psrReliefDb);
+        }
+
+        // 三个退让量都是 +0（位模式；−0 也算不一致）。
+        bool t097AllReliefsZero (const Probe& p) noexcept
+        {
+            return sameBits (p.guardDb, 0.0f) && sameBits (p.contrastReliefDb, 0.0f) && sameBits (p.psrReliefDb, 0.0f);
+        }
+
+        // GLAZE_STATE（容器格式 2）里压缩的 LIVE 解开成 LIVE_BODY；没有或解不开返回空。
+        std::unique_ptr<juce::XmlElement> t097LiveBody (const juce::XmlElement& state)
+        {
+            const auto* live = state.getChildByName (glaze::liveTag);
+            return live != nullptr ? glaze::decompressLiveBody (*live) : std::unique_ptr<juce::XmlElement> {};
+        }
+
+        // 两份 LIVE_BODY 的同名子节点逐属性相等（属性顺序也要相同：写出顺序是固定的）。
+        bool t097SameChild (const juce::XmlElement* a, const juce::XmlElement* b, juce::StringRef tag)
+        {
+            const auto* x = a != nullptr ? a->getChildByName (tag) : nullptr;
+            const auto* y = b != nullptr ? b->getChildByName (tag) : nullptr;
+            return x != nullptr && y != nullptr && x->isEquivalentTo (y, false);
+        }
+    }
+
+    class GlazeControllerGuardFamilyTests  : public juce::UnitTest
+    {
+    public:
+        GlazeControllerGuardFamilyTests() : juce::UnitTest ("GLAZE controller guard family (T-097)", "Celadon") {}
+
+        void runTest() override
+        {
+            testTrimFreezesWhileAnyGuardHolds();
+            testTrimFreezesForOneSecondAfterAParamChange();
+            testGeneralGenreKeepsNewGuardsAtZero();
+            testSubBlockGridIndependentOfBlockSize();
+            testFreezeAndDiscontinuities();
+            testLegacyGuardNodesAndRoundTrip();
+            testGuardFamilyNeverAllocates();
+        }
+
+        // 1a. 依据：规格 4「任一守门退让量 < 0（预算 / 落差 / PSR，在退、停住、回程中都算）、或这一块刚改过某个退让量、或 1 s 内改过
+        //     参数 → 不积分」；Max 2026-10-10 Q11「有退让量就冻结」。GlazeController.cpp endBlock：trimFrozen = guardHolding || recentlyChanged；
+        //     guardHolding = 预算环本块在退 || 三个退让量任一 < 0 || 三个任一本块变了；只有 trimFrozen 为假时 gTrim 才积分；appliedBiasDb = gTrim。
+        //     断言（每块；块长 480，一块一片）：
+        //       - 有退让量 ⇒ trimFrozen（「trimFrozen 与有退让量一致」）；
+        //       - trimFrozen ⇔ 有退让量 || 退让量与上一块不同 || 上一块之后 secondsSinceParamChange < 1 s（本段不改参数，beginBlock 不清零，
+        //         这一块判定时的「距改参数」就是上一块之后的值）；预算环「本块在退」= g_保护本块变小，已含在「退让量变了」里；
+        //       - 有退让量或 trimFrozen ⇒ appliedBiasDb 与上一块逐位相同。
+        void testTrimFreezesWhileAnyGuardHolds()
+        {
+            beginTest ("G_trim holds bit-exactly on every block that ends with any guard relief below 0 (Q11); trimFrozen matches its reasons");
+
+            // 【待上机核】推热配方同主类 testManualComesFirst（紧预算、冲击风格、makeMusic 种子 25 峰值 0.3、×8；那里另加手动 Gain 3 dB，
+            // 8 s 内保护层必退）。这里不加手动 Gain，限幅器入口少 3 dB：峰值 0.3 × 8 = 2.4（+7.6 dBFS）对 −1 dBTP 的 Ceiling 仍有约 8.6 dB
+            // 峰值 GR，远超冲击风格紧预算的峰值 3 dB / P95 2 dB，预期 1 ～ 2 s 内预算环开始退、之后一直有退让量。
+            constexpr float hotGain = 8.0f;
+            constexpr double warmSeconds = 2.0;
+            constexpr double hotSeconds = 12.0;
+
+            Rig rig (withTightLimitBudgets (fastConstants()), makeMusic (defaultRate, 8.0, 25, 0.3f), defaultParams (100.0f, 2),
+                     defaultRate, t097TrimBlock);
+            rig.run (warmSeconds);
+            rig.sourceGain = hotGain;
+
+            auto previous = rig.probe();
+            const auto trimAtStart = previous.appliedBiasDb;
+            auto singleSlice = true, reliefFreezes = true, reasonsMatch = true, heldBitExact = true;
+            int reliefBlocks = 0, frozenBlocks = 0, firstFailure = -1;
+            auto lowestBudget = 0.0f;
+
+            rig.run (hotSeconds, [&] (int b)
+            {
+                const auto p = rig.probe();
+                const auto oneSlice = rig.chain.getLastProcessSliceCountForTesting() == 1;
+                singleSlice = singleSlice && oneSlice;
+
+                if (oneSlice)
+                {
+                    const auto relief = t097AnyRelief (p);
+                    const auto expectedFrozen = relief || t097ReliefMoved (p, previous)
+                                             || previous.secondsSinceParamChange < t097ParamFreezeSeconds;
+                    const auto freezesOk = ! relief || p.trimFrozen;
+                    const auto reasonOk = p.trimFrozen == expectedFrozen;
+                    const auto heldOk = ! (relief || p.trimFrozen) || sameBits (p.appliedBiasDb, previous.appliedBiasDb);
+                    reliefFreezes = reliefFreezes && freezesOk;
+                    reasonsMatch = reasonsMatch && reasonOk;
+                    heldBitExact = heldBitExact && heldOk;
+
+                    if (! (freezesOk && reasonOk && heldOk) && firstFailure < 0)
+                        firstFailure = b;
+
+                    reliefBlocks += relief ? 1 : 0;
+                    frozenBlocks += p.trimFrozen ? 1 : 0;
+                }
+
+                lowestBudget = juce::jmin (lowestBudget, p.guardDb);
+                previous = p;
+            });
+
+            logMessage ("  hot material x" + juce::String (hotGain, 1) + ": blocks with a relief " + juce::String (reliefBlocks) + " / frozen "
+                        + juce::String (frozenBlocks) + " of " + juce::String (rig.blocksFor (hotSeconds)) + "; lowest budget relief "
+                        + juce::String (lowestBudget, 3) + " dB; G_trim " + juce::String (trimAtStart, 5) + " -> "
+                        + juce::String (previous.appliedBiasDb, 5) + " dB; first failing block " + juce::String (firstFailure));
+            expect (singleSlice, "fixture: with 480-sample blocks every host block is exactly one slice (one endBlock per probe)");
+            expect (reliefBlocks > rig.blocksFor (1.0), "fixture: the hot material keeps the budget guard retreated for more than a second");
+            expect (reliefFreezes, "any relief below 0 after a block means trimFrozen on that block");
+            expect (reasonsMatch, "trimFrozen == relief below 0 || a relief changed this block || a parameter changed within 1 s");
+            expect (heldBitExact, "a block that ends with a relief below 0 (or trimFrozen) leaves appliedBiasDb bit-identical");
+        }
+
+        // 1b. 依据：规格 4「参数在 1 s 内变化过时冻结 G_trim」（beginBlock 的 changed：风格 / 曲风 / 交付 / GLAZE / 规划相关手动值）；
+        //     GlazeController.cpp：changed 时 secondsSinceChange = 0；endBlock 判定 recentlyChanged = secondsSinceChange < 1 之后才 += dt。
+        //     推导（块长 480、一块一片，dt = 480 / 48000 = 0.01 s）：改参数那一块记为第 1 块，第 k 块判定时距改参数 = (k − 1) × 0.01：
+        //       - k = 1 ～ 100：≤ 0.99 < 1 → 冻结，appliedBiasDb 与改之前逐位相同；
+        //       - 第 k 块之后探针 secondsSinceParamChange = min(1, k × 0.01)：k ≤ 99 时 ≤ 0.99 < 1；第 1 块之后正好是 dt（同一个算式）；
+        //       - k = 101：判定时是 100 个 0.01 的累加，舍入可能差一个 ulp 落在 1 的任一边，不断言；k ≥ 102 一定不再因改参数冻结。
+        //     对照：放宽预算（预算环不设约束）、通用档（两个新守门出厂关），三个退让量都是 +0，冻结只能来自改参数。
+        void testTrimFreezesForOneSecondAfterAParamChange()
+        {
+            beginTest ("a planning parameter change freezes G_trim for 1 s; afterwards, with every guard at 0, G_trim integrates again");
+
+            // 【待上机核】素材峰值 0.2：输出远低于 GLAZE 100 的目标响度，G_trim 的误差一直为正、按 0.05 dB/s 往上积（十几秒远到不了 +3 dB
+            // 上限）。热身 6 s：开头 1 s 是 prepare 后第一块的「改参数」冻结，目标响度要等方案有了画像才有限（主类 testContinuousPhase 在
+            // 4 s 时断言有限），之后 2 s 里应能看到不冻结且 G_trim 在动的块。
+            constexpr double warmSeconds = 6.0;
+            constexpr double movingWindowSeconds = 2.0;
+            constexpr double resumeWithinSeconds = 3.0;
+
+            const auto constants = t097WithoutBudgetCaps (fastConstants());
+            const auto& switches = glaze::guardSwitchesFor (constants, glaze::Genre::general);
+            expect (! switches.contrast && ! switches.psr, "fixture: both new guards are off for the general genre (factory switches)");
+
+            Rig rig (constants, makeMusic (defaultRate, 8.0, 33, 0.2f), defaultParams (100.0f, 0), defaultRate, t097TrimBlock);
+            const auto blockSeconds = (double) t097TrimBlock / defaultRate;                                  // 0.01 s，同 endBlock 的 dt
+            const auto freezeBlocks = (int) (t097ParamFreezeSeconds * defaultRate) / t097TrimBlock;           // 48000 / 480 = 100
+            const auto warmBlocks = rig.blocksFor (warmSeconds);
+            const auto movingFrom = warmBlocks - rig.blocksFor (movingWindowSeconds);
+
+            auto previous = rig.probe();
+            auto guardsQuiet = true;
+            int movingBlocks = 0;
+
+            for (int b = 0; b < warmBlocks; ++b)
+            {
+                rig.step();
+                const auto p = rig.probe();
+                guardsQuiet = guardsQuiet && t097AllReliefsZero (p);
+
+                if (b >= movingFrom && ! p.trimFrozen && ! sameBits (p.appliedBiasDb, previous.appliedBiasDb))
+                    ++movingBlocks;
+
+                previous = p;
+            }
+
+            expect (guardsQuiet, "fixture: with no budget caps and the general genre all three reliefs stay +0");
+            expect (movingBlocks > 0, "fixture: before the change G_trim does integrate on unfrozen blocks (moving blocks "
+                                      + juce::String (movingBlocks) + ")");
+
+            // ---- 改一个规划相关参数：GLAZE 100 → 90 ----
+            const auto atChange = rig.probe();
+            rig.params.glazePercent = 90.0f;
+            auto frozenHeld = true, sinceBelowOne = true;
+            double sinceAfterFirst = -1.0;
+
+            for (int k = 1; k <= freezeBlocks; ++k)
+            {
+                rig.step();
+                const auto p = rig.probe();
+                frozenHeld = frozenHeld && p.trimFrozen && sameBits (p.appliedBiasDb, atChange.appliedBiasDb) && t097AllReliefsZero (p);
+
+                if (k == 1)
+                    sinceAfterFirst = p.secondsSinceParamChange;
+
+                if (k < freezeBlocks)
+                    sinceBelowOne = sinceBelowOne && p.secondsSinceParamChange < t097ParamFreezeSeconds;
+            }
+
+            expectEquals (sinceAfterFirst, blockSeconds, "the change block resets the clock to 0, its endBlock adds one block (0.01 s)");
+            expect (frozenHeld, "for " + juce::String (freezeBlocks) + " blocks (1 s) after the change: trimFrozen and appliedBiasDb bit-identical");
+            expect (sinceBelowOne, "secondsSinceParamChange stays below 1 s for the first " + juce::String (freezeBlocks - 1) + " blocks");
+
+            // 第 101 块正好落在 1 s 边界上（见上面的推导），跳过不断言。
+            rig.step();
+            previous = rig.probe();
+            auto resumed = false;
+            const auto searchBlocks = rig.blocksFor (resumeWithinSeconds);
+
+            for (int b = 0; b < searchBlocks && ! resumed; ++b)
+            {
+                rig.step();
+                const auto p = rig.probe();
+                resumed = ! p.trimFrozen && t097AllReliefsZero (p) && ! sameBits (p.appliedBiasDb, previous.appliedBiasDb);
+                previous = p;
+            }
+
+            logMessage ("  G_trim at the change " + juce::String (atChange.appliedBiasDb, 5) + " dB, now " + juce::String (previous.appliedBiasDb, 5)
+                        + " dB; secondsSinceParamChange " + juce::String (previous.secondsSinceParamChange, 3));
+            expect (resumed, "after the 1 s freeze, with every guard at 0, G_trim integrates again within "
+                             + juce::String (resumeWithinSeconds, 0) + " s");
+        }
+
+        // 2. 依据：规格 4 曲风开关——落差守门「4/4 型开、其余先关」、PSR 守门「House / 通用关」；GlazeConstants generalGuards 出厂
+        //    {false, false}；关着的守门照常量测，已有退让按回程速率放回 0（从 0 起：min(0, 0 + 步长) = +0，位模式不变）。
+        //    断言：通用档、GLAZE 100、三种交付各跑一段（含推热、预算环会退的素材），每一块之后 contrastReliefDb、psrReliefDb 的位模式都是 +0；
+        //    两个守门确实在推进（guardSubBlocks > 0：+0 是它们算出来的，不是没走）。
+        void testGeneralGenreKeepsNewGuardsAtZero()
+        {
+            beginTest ("general genre at GLAZE 100: contrast and PSR reliefs are +0 on every block for all three deliveries, even on hot material");
+
+            // 【待上机核】同用例 1a 的推热配方。俱乐部档的限幅上限另加 DeliveryConstants::clubLimitGr*ExtraDb，约 8.6 dB 的峰值 GR 预期仍超出。
+            constexpr float hotGain = 8.0f;
+            constexpr double warmSeconds = 2.0;
+            constexpr double hotSeconds = 12.0;
+            const char* const deliveryNames[] = { "standard", "streaming", "club" };
+
+            for (int delivery = 0; delivery < glaze::numDeliveries; ++delivery)
+            {
+                const juce::String tag (deliveryNames[delivery]);
+                auto params = defaultParams (100.0f, 2);
+                params.glazeDelivery = delivery;
+                Rig rig (withTightLimitBudgets (fastConstants()), makeMusic (defaultRate, 8.0, 25, 0.3f), params);
+
+                auto positiveZero = true;
+                auto lowestBudget = 0.0f;
+                auto lowestPsr = std::numeric_limits<float>::max();
+
+                const auto check = [&] (int)
+                {
+                    const auto p = rig.probe();
+                    positiveZero = positiveZero && sameBits (p.contrastReliefDb, 0.0f) && sameBits (p.psrReliefDb, 0.0f);
+                    lowestBudget = juce::jmin (lowestBudget, p.guardDb);
+
+                    if (p.outputPsrValid)
+                        lowestPsr = juce::jmin (lowestPsr, p.outputPsrDb);
+                };
+
+                rig.run (warmSeconds, check);
+                rig.sourceGain = hotGain;
+                rig.run (hotSeconds, check);
+
+                const auto p = rig.probe();
+                logMessage ("  " + tag + ": lowest budget relief " + juce::String (lowestBudget, 3) + " dB; lowest output 3 s PSR "
+                            + (lowestPsr < std::numeric_limits<float>::max() ? juce::String (lowestPsr, 2) + " dB" : juce::String ("(never valid)"))
+                            + "; sub-blocks stepped " + juce::String ((juce::int64) p.guardSubBlocks));
+                expect (positiveZero, tag + ": contrastReliefDb and psrReliefDb are +0 (bit pattern) after every block");
+                expect (lowestBudget < 0.0f, tag + ": fixture: the hot material makes the budget guard retreat");
+                expect (p.guardSubBlocks > 0, tag + ": the sub-block guards were stepped (the zeros are their output, not a skipped step)");
+            }
+        }
+
+        // 3. 依据：规格 4「两个守门每个 100 ms 子块走一步」；GlazeController.cpp stepSubBlockGuards：每片 endBlock 读两只表新完成的子块，
+        //    链按 getGuardSamplesUntilBoundary 切片，每个子块都在某一片的末尾完成、在那一片里推进一次。
+        //    推导：prepare 之后两只表从 0 计，跑了 N = 块数 × 块长 个样本，完成的子块 = ⌊N / 4800⌋ 个、最后一个的终点 = ⌊N / 4800⌋ × 4800；
+        //    全程 GLAZE 100、不冻结、无跳播 → 一个都不丢；块长 ≤ 4096 < 4800 → 一块里最多完成一个子块；推进的子块终点都在 4800 的整数倍上。
+        void testSubBlockGridIndependentOfBlockSize()
+        {
+            beginTest ("the sub-block guards step exactly once per 100 ms OUT sub-block, whatever the host block size");
+
+            constexpr double runSeconds = 12.0;
+            // 块长 1：每个样本一次整链 process，12 s 就是 57.6 万次调用，太慢；只跑 3 s（30 个子块）——网格断言与时长无关。
+            constexpr double singleSampleSeconds = 3.0;
+            const auto material = makeMusic (defaultRate, runSeconds, 35, 0.35f);
+
+            for (const auto block : { 1, 7, 32, 64, 480, 512, 4096 })
+            {
+                const auto tag = "block " + juce::String (block);
+                Rig rig (fastConstants(), material, defaultParams (100.0f), defaultRate, block);
+                auto previous = rig.probe();
+                auto atMostOne = true, onGrid = true;
+                std::int64_t largestStep = 0;
+
+                rig.run (block == 1 ? singleSampleSeconds : runSeconds, [&] (int)
+                {
+                    const auto p = rig.probe();
+                    const auto delta = p.guardSubBlocks - previous.guardSubBlocks;
+                    largestStep = juce::jmax (largestStep, delta);
+                    atMostOne = atMostOne && delta >= 0 && delta <= 1;
+                    onGrid = onGrid && p.lastGuardSubBlockEnd % t097SubBlockSamples == 0;
+                    previous = p;
+                });
+
+                const auto p = rig.probe();
+                const auto totalSamples = (std::int64_t) rig.blocksRun * block;
+                const auto expectedSubBlocks = totalSamples / t097SubBlockSamples;
+                logMessage ("  " + tag + ": " + juce::String ((juce::int64) totalSamples) + " samples -> stepped "
+                            + juce::String ((juce::int64) p.guardSubBlocks) + " sub-blocks (last end " + juce::String ((juce::int64) p.lastGuardSubBlockEnd)
+                            + "), dropped " + juce::String ((juce::int64) p.guardSubBlocksDropped) + ", largest step per block "
+                            + juce::String ((juce::int64) largestStep));
+                expectEquals ((juce::int64) p.guardSubBlocks, (juce::int64) expectedSubBlocks,
+                              tag + ": stepped sub-blocks == floor(total samples / 4800)");
+                expectEquals ((juce::int64) p.lastGuardSubBlockEnd, (juce::int64) (expectedSubBlocks * t097SubBlockSamples),
+                              tag + ": the last stepped sub-block ends at floor(total / 4800) x 4800");
+                expectEquals ((juce::int64) p.guardSubBlocksDropped, (juce::int64) 0, tag + ": no sub-block is dropped");
+                expect (atMostOne, tag + ": at most one sub-block is stepped per host block");
+                expect (onGrid, tag + ": lastGuardSubBlockEnd is always a multiple of 4800");
+            }
+        }
+
+        // 4. 依据：规格 4「冻结（宿主旁通、听原声、Color / Limit 旁通）：三个守门与 G_trim 都不推进」「GLAZE ≤ 0：所有自动部分逐位归零，
+        //    守门不推进」；GlazeController.cpp stepSubBlockGuards：不推进的片把 guardTaintedThrough 推到片尾、断开两个守门的 3 s 窗（计时与
+        //    退让保持）；之后起点早于它的子块断开窗口并丢掉（guardSubBlocksDropped +1）；跳播置 guardWindowBreakPending，窗口同样断开重攒。
+        //    素材与开关：通用档的 PSR 守门出厂关着，这里打开它（只改测试常数），冻结前要有一份非零的 PSR 退让可「保持」。素材是均匀白噪声：
+        //    幅度 a 时峰值 a、每声道均方 a²/3；K 加权的高架（约 1.5 kHz 以上 +4 dB）罩住白噪声绝大部分能量，均方约 ×2.5；两声道相加
+        //    → S ≈ −0.691 + 10·log10(2 × 2.5 × a²/3)，a = 0.3 时约 −8.9 LUFS；采样峰值 −10.5 dBFS，样本间过冲按 +3 dB 算真峰值也只有约 −7.5 dBTP：PSR 至多约 1.5 dB，
+        //    远低于标准档门槛 8 − 0.5 = 7.5 dB；限幅只会把它压得更低。时间：窗满 3 s + 持续 3 s 后以 0.5 dB/s 退，约 6.4 s 退过 −0.2 dB。
+        void testFreezeAndDiscontinuities()
+        {
+            beginTest ("host bypass freezes the sub-block guards; the straddling sub-block is dropped; a jump refills the 3 s window; GLAZE 0 keeps them at 0");
+
+            constexpr double psrRetreatWithinSeconds = 15.0;
+            constexpr double freezeSeconds = 2.0;
+            constexpr double refillSeconds = 4.0;           // > 3 s 窗
+            constexpr double jumpSeconds = 10.0;            // 跳播距离（远大于 50 ms 容差）
+            constexpr double revalidateWithinSeconds = 6.0;
+            constexpr double glazeZeroSeconds = 2.0;
+
+            auto constants = fastConstants();
+            constants.generalGuards.psr = true;
+            Rig rig (constants, makeNoise (numChannels, (int) (8.0 * defaultRate), 0.3f, 51), defaultParams (100.0f));
+
+            const auto retreated = rig.runUntil (psrRetreatWithinSeconds, [&] { return rig.probe().psrReliefDb < -0.2f; });
+            expect (retreated && rig.probe().outputPsrValid, "fixture: on white noise the output PSR is valid and the PSR guard retreats below -0.2 dB");
+
+            // ---- 宿主旁通：不推进、不丢、退让保持 ----
+            const auto before = rig.probe();
+            rig.hostBypassed = true;
+            auto held = true;
+
+            const auto checkHeld = [&]
+            {
+                const auto p = rig.probe();
+                held = held && p.guardSubBlocks == before.guardSubBlocks && p.guardSubBlocksDropped == before.guardSubBlocksDropped
+                       && sameBits (p.contrastReliefDb, before.contrastReliefDb) && sameBits (p.psrReliefDb, before.psrReliefDb);
+            };
+
+            rig.run (freezeSeconds, [&] (int) { checkHeld(); });
+
+            // 冻结段终点正好落在子块边界上就没有「跨过冻结段」的子块：再冻一块（512 < 4800，相邻两个块尾不会都在边界上）。
+            if (((std::int64_t) rig.blocksRun * blockSize) % t097SubBlockSamples == 0)
+            {
+                rig.step();
+                checkHeld();
+            }
+
+            const auto freezeEnd = (std::int64_t) rig.blocksRun * blockSize;
+            expect (held, "host bypass: no sub-block is stepped or dropped, both reliefs are held bit-exactly");
+            expect (before.psrReliefDb < 0.0f, "fixture: the held PSR relief is non-zero");
+
+            // ---- 恢复：跨过冻结段的子块丢掉，下一个子块是恢复后第一个推进的 ----
+            // 推导：freezeEnd 不在子块边界上 → 子块 [⌊freezeEnd / 4800⌋ × 4800, +4800) 起点在冻结段里，丢掉（+1）；下一个子块终点
+            // (⌊freezeEnd / 4800⌋ + 2) × 4800 推进守门（+1）。两者相隔 4800 样本，不在同一个 512 的块里。窗口被断开过，这一步的读数无效。
+            rig.hostBypassed = false;
+            const auto frozen = rig.probe();
+            const auto resumed = rig.runUntil (1.0, [&] { return rig.probe().guardSubBlocks > frozen.guardSubBlocks; });
+            const auto after = rig.probe();
+            expect (resumed, "after the bypass the guards step again within a second");
+            expectEquals ((juce::int64) (after.guardSubBlocksDropped - frozen.guardSubBlocksDropped), (juce::int64) 1,
+                          "the sub-block straddling the end of the freeze is dropped");
+            expectEquals ((juce::int64) (after.guardSubBlocks - frozen.guardSubBlocks), (juce::int64) 1, "then exactly one sub-block is stepped");
+            expectEquals ((juce::int64) after.lastGuardSubBlockEnd,
+                          (juce::int64) ((freezeEnd / t097SubBlockSamples + 2) * t097SubBlockSamples),
+                          "the first stepped sub-block is the one after the straddling one");
+            expect (! after.outputPsrValid, "the 3 s window was broken by the freeze: the first reading after it is invalid");
+
+            // ---- 跳播：出口 3 s 窗重攒 ----
+            // 推导：窗 30 个子块（规格 4），清空后第 1 ～ 29 个推进的子块读数无效、第 30 个起有效（白噪声 S ≫ −70 LUFS）；跨过跳点的那个子块
+            // 被丢、不算推进。所以跳播后至少 29 个推进的子块 outputPsrValid 为假，之后恢复有效。
+            rig.run (refillSeconds);
+            const auto beforeJump = rig.probe();
+            expect (beforeJump.outputPsrValid, "fixture: the window is full again before the jump");
+
+            rig.position += (std::int64_t) (jumpSeconds * defaultRate);
+            auto last = beforeJump;
+            int invalidSteps = 0;
+            auto validAgain = false;
+            const auto jumpBlocks = rig.blocksFor (revalidateWithinSeconds);
+
+            for (int b = 0; b < jumpBlocks && ! validAgain; ++b)
+            {
+                rig.step();
+                const auto p = rig.probe();
+
+                if (p.guardSubBlocks > last.guardSubBlocks)
+                {
+                    if (p.outputPsrValid)
+                        validAgain = true;
+                    else
+                        invalidSteps += (int) (p.guardSubBlocks - last.guardSubBlocks);
+                }
+
+                last = p;
+            }
+
+            logMessage ("  freeze end " + juce::String ((juce::int64) freezeEnd) + "; after the jump " + juce::String (invalidSteps)
+                        + " stepped sub-blocks read an invalid PSR before it turned valid again");
+            expectEquals (rig.probe().transportJumps, beforeJump.transportJumps + 1, "the playhead move is counted as one jump");
+            expect (invalidSteps >= t097WindowSubBlocks - 1, "after a jump at least 29 stepped sub-blocks read an invalid output PSR (window refills)");
+            expect (validAgain, "the output PSR turns valid again once the window is full");
+
+            // ---- GLAZE 0：不推进，三个退让量与 G_trim 都是 +0 ----
+            const auto beforeZero = rig.probe();
+            expect (beforeZero.psrReliefDb < 0.0f, "fixture: a PSR relief is in place before GLAZE goes to 0");
+            rig.params.glazePercent = 0.0f;
+            auto zeroHeld = true;
+
+            rig.run (glazeZeroSeconds, [&] (int)
+            {
+                const auto p = rig.probe();
+                zeroHeld = zeroHeld && p.guardSubBlocks == beforeZero.guardSubBlocks && t097AllReliefsZero (p) && sameBits (p.appliedBiasDb, 0.0f);
+            });
+
+            expect (zeroHeld, "GLAZE 0: no sub-block is stepped; budget / contrast / PSR reliefs and G_trim are +0 on every block");
+        }
+
+        // 5. 依据：ContrastGuard.h「读到没有直方图的旧节点：退让照旧，计时与直方图从空开始（不冷启动整份 LIVE）」；PsrGuard.h「aboveSeconds
+        //    旧档缺这个属性按 0 读」；GlazeController.cpp restoreBody「旧存档没有 secondsSinceParamChange → 按很久以前改的读（1 s，不冻结）」；
+        //    规格第 5 节「窗口状态不存」；GlazeController.h「restoreStateXml 之后、第一块音频之前调 createStateXml，返回的是刚恢复的内容」。
+        //    main 3a7a367 的存档形状（git show 3a7a367 核对过）：CONTRAST_GUARD = reliefDb / floorDb / engaged / ringCount / ringWrite /
+        //    samplesUntilPush / inputRing / outputRing；PSR_GUARD = reliefDb / floorDb / belowSeconds / engaged；CONTROL 没有
+        //    secondsSinceParamChange；其余节点（LIVE_PROFILE、BUDGET_GUARD、OUTPUT_LEVEL、CLAY）与本分支同形。新写法把这些旧属性原样留着
+        //    （128 笔环写 0），所以从新档里删掉 T-097 新增的属性，得到的就是 main 形状（环里的数旧版本身也不读）。
+        //    「不冷启动」的判据同主类 testLiveRoundTrip：增量与 G_trim 回到存档值、LIVE 画像 I 仍有效、没有旧工程提示；外加两个退让量回到
+        //    写进去的非零值（冷启动会清成 0）。
+        void testLegacyGuardNodesAndRoundTrip()
+        {
+            beginTest ("a LIVE in the main 3a7a367 shape restores without a cold start; the T-097 nodes of a new LIVE round-trip bit-exactly");
+
+            // 读档后再跑的时长。直方图推导：两侧 3 s 窗满之后每个有效子块「先按 e^(−0.1/180) 遗忘、再进账 0.1 s」，从空开始跑 t 秒至多
+            // 积到 t（留一个子块的余量）；供体跑 24 s 约 180 × (1 − e^(−21/180)) ≈ 19.8 s，带直方图读回的一份再跑 t 秒至少还剩
+            // 19.8 × e^(−t/180)，t = 6 时 ≈ 19.1 s > t。
+            constexpr double afterSeconds = 6.0;
+            constexpr double donorSeconds = 24.0;
+            const auto material = makeMusic (defaultRate, 20.0, 43, 0.4f);
+            const auto params = defaultParams (40.0f);
+
+            Rig donor (fastConstants(), material, params);
+            donor.tempoBpm = 120.0;
+            donor.run (donorSeconds);
+            const auto saved = donor.chain.createGlazeStateXml();
+            const auto donorProbe = donor.probe();
+            const auto donorI = donor.chain.getLiveProfile().getProfile().integratedLufs;
+            std::unique_ptr<juce::XmlElement> savedBody;
+
+            if (saved != nullptr)
+                savedBody = t097LiveBody (*saved);
+
+            logMessage ("  donor: I valid " + juce::String ((int) donorI.valid) + ", contrast histogram "
+                        + juce::String (donorProbe.contrastHistogramSeconds, 2) + " s, G_trim " + juce::String (donorProbe.appliedBiasDb, 5) + " dB");
+            expect (saved != nullptr && savedBody != nullptr && donorI.valid && donorProbe.contrastHistogramSeconds > 2.0 * afterSeconds,
+                    "fixture: the donor has a LIVE profile and more than " + juce::String (2.0 * afterSeconds, 0) + " s of contrast histogram");
+
+            if (saved == nullptr || savedBody == nullptr)
+                return;
+
+            // ---- 新档：create → restore → create，T-097 的三个节点逐位相同 ----
+            {
+                Rig fresh (fastConstants(), material, params);
+                fresh.chain.restoreGlazeStateXml (saved.get());
+                const auto again = fresh.chain.createGlazeStateXml();
+                std::unique_ptr<juce::XmlElement> againBody;
+
+                if (again != nullptr)
+                    againBody = t097LiveBody (*again);
+
+                juce::String differing;
+
+                for (auto* child : savedBody->getChildIterator())
+                    if (! t097SameChild (savedBody.get(), againBody.get(), child->getTagName()))
+                        differing << " " << child->getTagName();
+
+                // 整份 LIVE 逐位相同只记日志、不断言：LIVE_PROFILE 读档时把存档里还没发布的段并进画像（LiveProfileTests「e」：
+                // 「读回的副本已经并进来了」），再存时 pending 不同，那不是 T-097 的事（见返回的「待用户拍板」）。T-097 的三个节点逐位断言。
+                logMessage ("  new LIVE round trip: whole container identical " + juce::String ((int) (again != nullptr && again->isEquivalentTo (saved.get(), false)))
+                            + "; differing nodes:" + (differing.isEmpty() ? juce::String (" none") : differing));
+
+                for (const char* tag : { "CONTROL", "CONTRAST_GUARD", "PSR_GUARD" })
+                    expect (t097SameChild (savedBody.get(), againBody.get(), tag), "new LIVE: " + juce::String (tag) + " round-trips bit-identically");
+            }
+
+            // ---- 改成 main 3a7a367 形状 ----
+            auto body = t097LiveBody (*saved);
+            auto* controlNode = body != nullptr ? body->getChildByName ("CONTROL") : nullptr;
+            auto* contrastNode = body != nullptr ? body->getChildByName ("CONTRAST_GUARD") : nullptr;
+            auto* psrNode = body != nullptr ? body->getChildByName ("PSR_GUARD") : nullptr;
+            expect (controlNode != nullptr && contrastNode != nullptr && psrNode != nullptr, "fixture: the LIVE body has CONTROL / CONTRAST_GUARD / PSR_GUARD");
+
+            if (controlNode == nullptr || contrastNode == nullptr || psrNode == nullptr)
+                return;
+
+            controlNode->removeAttribute ("secondsSinceParamChange");
+
+            for (const char* attribute : { "overSeconds", "underSeconds", "histogramSeconds", "inputHistogram", "outputHistogram" })
+                contrastNode->removeAttribute (attribute);
+
+            psrNode->removeAttribute ("aboveSeconds");
+
+            // 退让写成可辨认的非零值（xmlio：float 写 IEEE 位的 8 位小写十六进制）：
+            //   −1.25 = −1.01b × 2⁰：符号 1、指数 127（0x7f）、尾数 .01b → 0x200000 → 0x80000000 | 0x3f800000 | 0x00200000 = 0xbfa00000；
+            //   −0.75 = −1.1b × 2⁻¹：符号 1、指数 126（0x7e）、尾数 .1b → 0x400000 → 0x80000000 | 0x3f000000 | 0x00400000 = 0xbf400000。
+            //   都在两个守门的下限 −3 dB 之上。
+            constexpr float legacyContrastRelief = -1.25f;
+            constexpr float legacyPsrRelief = -0.75f;
+            contrastNode->setAttribute ("reliefDb", "bfa00000");
+            psrNode->setAttribute ("reliefDb", "bf400000");
+
+            auto oldShape = contrastNode->getNumAttributes() == 8 && psrNode->getNumAttributes() == 4
+                         && ! controlNode->hasAttribute ("secondsSinceParamChange");
+
+            for (const char* attribute : { "reliefDb", "floorDb", "engaged", "ringCount", "ringWrite", "samplesUntilPush", "inputRing", "outputRing" })
+                oldShape = oldShape && contrastNode->hasAttribute (attribute);
+
+            for (const char* attribute : { "reliefDb", "floorDb", "belowSeconds", "engaged" })
+                oldShape = oldShape && psrNode->hasAttribute (attribute);
+
+            expect (oldShape, "fixture: CONTRAST_GUARD / PSR_GUARD / CONTROL now have exactly the main 3a7a367 attributes");
+
+            auto legacy = std::make_unique<juce::XmlElement> (*saved);
+            legacy->removeChildElement (legacy->getChildByName (glaze::liveTag), true);
+            legacy->addChildElement (glaze::compressLiveBody (*body, glaze::factoryConstants().version).release());
+
+            // 先走一块：prepare 后第一块总算「改过参数」，secondsSinceParamChange 停在一块的时长；读档后看它是不是换成了旧档的默认 1 s。
+            Rig target (fastConstants(), material, params);
+            target.tempoBpm = 120.0;
+            target.step();
+            const auto beforeRestore = target.probe();
+            target.chain.restoreGlazeStateXml (legacy.get());
+            const auto restored = target.probe();
+            const auto restoredI = target.chain.getLiveProfile().getProfile().integratedLufs;
+
+            expect (beforeRestore.secondsSinceParamChange < t097ParamFreezeSeconds, "fixture: the target's change clock is below 1 s before the restore");
+            expect (sameIncrements (restored.increments, donorProbe.increments) && sameBits (restored.appliedBiasDb, donorProbe.appliedBiasDb),
+                    "old shape: the applied increments and G_trim are restored (no cold start)");
+            // I 只断言有效（冷启动会清成无效）；是否逐位等于供体只记日志——读档时并进未发布的段可能让 I 动一点（同上）。
+            logMessage ("  old shape restored: I " + juce::String (restoredI.value, 4) + " LUFS (donor " + juce::String (donorI.value, 4)
+                        + "), bit-identical " + juce::String ((int) sameBits (restoredI.value, donorI.value)));
+            expect (restoredI.valid, "old shape: the LIVE profile is kept (I still valid: no cold start)");
+            expect (! target.status().legacySessionDiscarded, "old shape: no legacy-session notice");
+            expect (sameBits (restored.contrastReliefDb, legacyContrastRelief), "old shape: the contrast relief is the saved -1.25 dB");
+            expect (sameBits (restored.psrReliefDb, legacyPsrRelief), "old shape: the PSR relief is the saved -0.75 dB");
+            expectEquals (restored.contrastHistogramSeconds, 0.0, "old shape: the contrast histograms start empty");
+            expectEquals (restored.secondsSinceParamChange, t097ParamFreezeSeconds,
+                          "old shape: the missing secondsSinceParamChange reads as 1 s (long ago, not frozen)");
+
+            // 读完旧档马上存：已经是新形状，退让照旧，计时与直方图是空的。
+            // 十六进制：double 0 = 16 个 0；double 1.0 = 0x3ff0000000000000。
+            {
+                const auto upgraded = target.chain.createGlazeStateXml();
+                std::unique_ptr<juce::XmlElement> upgradedBody;
+
+                if (upgraded != nullptr)
+                    upgradedBody = t097LiveBody (*upgraded);
+
+                const auto* upContrast = upgradedBody != nullptr ? upgradedBody->getChildByName ("CONTRAST_GUARD") : nullptr;
+                const auto* upPsr = upgradedBody != nullptr ? upgradedBody->getChildByName ("PSR_GUARD") : nullptr;
+                const auto* upControl = upgradedBody != nullptr ? upgradedBody->getChildByName ("CONTROL") : nullptr;
+                expect (upContrast != nullptr && upContrast->getStringAttribute ("reliefDb") == "bfa00000"
+                            && upContrast->getStringAttribute ("histogramSeconds") == "0000000000000000"
+                            && upContrast->getStringAttribute ("overSeconds") == "0000000000000000"
+                            && upContrast->hasAttribute ("inputHistogram") && upContrast->hasAttribute ("outputHistogram"),
+                        "old shape saved again: CONTRAST_GUARD is upgraded (relief kept, empty timers and histograms)");
+                expect (upPsr != nullptr && upPsr->getStringAttribute ("reliefDb") == "bf400000"
+                            && upPsr->getStringAttribute ("aboveSeconds") == "0000000000000000",
+                        "old shape saved again: PSR_GUARD keeps the relief and writes aboveSeconds = 0");
+                expect (upControl != nullptr && upControl->getStringAttribute ("secondsSinceParamChange") == "3ff0000000000000",
+                        "old shape saved again: CONTROL writes secondsSinceParamChange = 1 s");
+            }
+
+            // 对照：同一份供体存档原样（带直方图）读回、再跑同样长。
+            Rig carried (fastConstants(), material, params);
+            carried.tempoBpm = 120.0;
+            carried.chain.restoreGlazeStateXml (saved.get());
+
+            target.run (afterSeconds);
+            carried.run (afterSeconds);
+            const auto legacyHistogram = target.probe().contrastHistogramSeconds;
+            const auto carriedHistogram = carried.probe().contrastHistogramSeconds;
+            logMessage ("  " + juce::String (afterSeconds, 0) + " s after the restore: contrast histogram " + juce::String (legacyHistogram, 2)
+                        + " s (old shape) vs " + juce::String (carriedHistogram, 2) + " s (new shape)");
+            expect (legacyHistogram <= afterSeconds + 0.1, "old shape: the histograms really started empty (at most the time run since)");
+            expect (carriedHistogram > afterSeconds + 0.1, "new shape: the saved histograms are carried over (control for the line above)");
+        }
+
+        // 6. 依据：设计规格-总体「音频线程零分配、零锁」；任务书「现有零分配检查覆盖新代码」。两种设置各走一遍：子块推进（落差守门的
+        //    直方图与分位、PSR 的 3 s 窗）、预算环退让、宿主旁通冻结、跳播、循环回绕、GLAZE 0 再拧起、宿主 reset、换交付与曲风（守门开关
+        //    在开 / 关之间切换）、读档（解析在计数区外）。计数区只夹 setHostInfo / setParams / process / getStatus（同主类与 House 的写法）。
+        void testGuardFamilyNeverAllocates()
+        {
+            beginTest ("guard family: setHostInfo / setParams / process / getStatus never allocate (House club and general, GLAZE 100)");
+
+            {
+                // House（Deep House）、俱乐部交付：落差守门开（出厂 house.guards = {true, false}）。破段只有鼓（增益 0.6）、drop 满编：
+                // 直方图满 60 s（遗忘后 180 × (1 − e^(−t/180)) = 60 → 约 73 s 有效音乐）之后才判定，95 s 里能走到判定与退 / 回的分支。
+                auto params = houseParams (100.0f, 1);
+                params.glazeDelivery = 2;
+                const auto song = makeHouseSong (defaultRate, { { 8, false, 0.6f }, { 16, true, 1.0f } }, 97);
+
+                Rig donor (fastConstants(), song, params);
+                donor.tempoBpm = houseBpm;
+                donor.run (16.0);
+                const auto saved = donor.chain.createGlazeStateXml();
+                expect (saved != nullptr, "fixture: House donor state");
+
+                if (saved != nullptr)
+                {
+                    Rig rig (fastConstants(), song, params);
+                    rig.tempoBpm = houseBpm;
+                    const auto result = sweepAllocations (rig, *saved, 1.0f);
+                    reportSweep ("House club", rig, result, false);
+                }
+            }
+
+            {
+                // 通用、标准交付：两个新守门出厂都关（照常量测，退让 +0）；紧预算 + 8 s 起推热 ×8（同用例 1a），预算环退让路径也走到。
+                const auto constants = withTightLimitBudgets (fastConstants());
+                const auto material = makeMusic (defaultRate, 8.0, 25, 0.3f);
+                const auto params = defaultParams (100.0f, 2);
+
+                Rig donor (constants, material, params);
+                donor.run (6.0);
+                const auto saved = donor.chain.createGlazeStateXml();
+                expect (saved != nullptr, "fixture: general donor state");
+
+                if (saved != nullptr)
+                {
+                    Rig rig (constants, material, params);
+                    const auto result = sweepAllocations (rig, *saved, 8.0f);
+                    reportSweep ("general", rig, result, true);
+                }
+            }
+        }
+
+    private:
+        struct SweepResult
+        {
+            std::uint64_t allocations = 0;
+            bool finite = true;
+            bool budgetRetreated = false;
+            bool contrastJudged = false;
+            bool psrValid = false;
+        };
+
+        // 95 s 的路径扫描（时间表见下）。计数区外：素材、宿主信息、事件与读档；计数区：setHostInfo / setParams / process / getStatus。
+        SweepResult sweepAllocations (Rig& rig, const juce::XmlElement& saved, float hotGain)
+        {
+            SweepResult result;
+            const auto total = rig.blocksFor (95.0);
+
+            for (int b = 0; b < total; ++b)
+            {
+                // ---- 计数区外：准备这一块 ----
+                if (b == rig.blocksFor (8.0))  rig.sourceGain = hotGain;                                   // 推热：预算环退让
+                if (b == rig.blocksFor (80.0)) rig.position += 96000;                                     // 跳播
+                if (b == rig.blocksFor (82.0)) { rig.host.hasLoop = rig.host.looping = true; rig.position -= 48000; }   // 循环回绕
+                if (b == rig.blocksFor (84.0)) rig.host.hasLoop = rig.host.looping = false;
+                if (b == rig.blocksFor (85.0)) rig.hostBypassed = true;                                   // 冻结
+                if (b == rig.blocksFor (86.0)) rig.hostBypassed = false;
+                if (b == rig.blocksFor (87.0)) rig.params.glazePercent = 0.0f;                            // GLAZE 0
+                if (b == rig.blocksFor (88.0)) rig.params.glazePercent = 100.0f;
+                if (b == rig.blocksFor (90.0)) rig.params.glazeDelivery = (rig.params.glazeDelivery + 1) % glaze::numDeliveries;
+                if (b == rig.blocksFor (91.0)) rig.params.glazeGenre = rig.params.glazeGenre == 0 ? 1 : 0;   // 守门开关开 ↔ 关
+                if (b == rig.blocksFor (92.0)) rig.chain.restoreGlazeStateXml (&saved);                  // 读档（解析在计数区外）
+
+                const auto length = (size_t) rig.source.front().size();
+                rig.buffer.setSize (numChannels, blockSize, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < blockSize; ++i)
+                        rig.buffer.setSample (ch, i, rig.sourceGain * rig.source[(size_t) ch][(rig.sourceIndex + (size_t) i) % length]);
+
+                rig.sourceIndex = (rig.sourceIndex + (size_t) blockSize) % length;
+                rig.host.positionSamples = rig.position;
+                rig.host.hasTempo = rig.host.hasPpq = rig.host.hasBarStart = rig.host.hasTimeSignature = rig.tempoBpm > 0.0;
+
+                if (rig.tempoBpm > 0.0)
+                {
+                    rig.host.bpm = rig.tempoBpm;
+                    rig.host.ppqPosition = (double) rig.position * rig.tempoBpm / (60.0 * defaultRate);
+                    rig.host.ppqLastBarStart = std::floor (rig.host.ppqPosition / 4.0) * 4.0;
+                }
+
+                // ---- 计数区：只夹住音频线程的入口与界面线程的 getStatus ----
+                const auto before = allocationCountOnThisThread();
+
+                if (b == rig.blocksFor (89.0))
+                    rig.chain.restartWithFadeIn();                                                        // 宿主 reset
+
+                rig.chain.setHostInfo (rig.host);
+                rig.chain.setParams (rig.params, rig.hostBypassed);
+                rig.chain.process (rig.buffer);
+                juce::ignoreUnused (rig.chain.getGlazeStatus());
+                result.allocations += allocationCountOnThisThread() - before;
+
+                rig.position += blockSize;
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < blockSize; ++i)
+                        result.finite = result.finite && std::isfinite (rig.buffer.getSample (ch, i));
+
+                const auto p = rig.probe();
+                result.budgetRetreated = result.budgetRetreated || p.guardDb < 0.0f;
+                result.contrastJudged = result.contrastJudged || p.contrastJudged;
+                result.psrValid = result.psrValid || p.outputPsrValid;
+            }
+
+            return result;
+        }
+
+        void reportSweep (const juce::String& tag, const Rig& rig, const SweepResult& result, bool expectBudgetRetreat)
+        {
+            const auto p = rig.probe();
+            logMessage ("  " + tag + ": sub-blocks stepped " + juce::String ((juce::int64) p.guardSubBlocks) + ", dropped "
+                        + juce::String ((juce::int64) p.guardSubBlocksDropped) + "; budget retreated " + juce::String ((int) result.budgetRetreated)
+                        + ", contrast judged " + juce::String ((int) result.contrastJudged) + ", output PSR valid " + juce::String ((int) result.psrValid)
+                        + "; jumps " + juce::String (p.transportJumps) + ", wraps " + juce::String (p.loopWraps) + ", resets " + juce::String (p.hostResets));
+            expect (result.finite, tag + ": output finite throughout");
+            expect (p.guardSubBlocks > 0 && p.guardSubBlocksDropped > 0 && result.psrValid && p.transportJumps >= 1 && p.loopWraps >= 1
+                        && p.hostResets >= 1,
+                    tag + ": the run went through sub-block steps, dropped sub-blocks, PSR readings, a jump, a loop wrap and a host reset");
+
+            if (expectBudgetRetreat)
+                expect (result.budgetRetreated, tag + ": fixture: the budget guard retreated on the hot material");
+
+            expectEquals ((juce::int64) result.allocations, (juce::int64) 0, tag + ": audio thread must not allocate");
+        }
+    };
+
+    static GlazeControllerGuardFamilyTests glazeControllerGuardFamilyTests;
+}
+
+
+//==============================================================================
+// ---- T-097 守门闭环验收场景（A3 追加：Max Q9 PSR 闭环、Q10 落差守门）----
+// 依据：设计规格-实时GLAZE-主段与增益 第 4 节（下称「规格 4」）；Max 10-10 Q9（PSR 闭环判据）、Q10（落差守门判据）、Q11（有退让量就冻结 G_trim）；
+// tools/render/house_gate.py ③（breakdown → drop 落差的量法与俱乐部门槛 1.5 LU）。
+//
+// 用法：原样追加到 tests/GlazeControllerTests.cpp 末尾（文件最后那个「}」之后）。本段自带 namespace celadon::test，重开同一个翻译单元
+// 里的匿名命名空间，直接用上面的 Rig、defaultParams、numChannels、blockSize、defaultRate 与 TestHelpers.h 的 Signal 工具（makeSilence、
+// makeDetunedPad、scale）。本段自己的工具都放在嵌套命名空间 t097scenario 里，不与上面的名字相撞。
+//
+// 两份文件：closed-loop-tests.cpp（新版，追加进 T-097 分支）与 closed-loop-tests-main.cpp（main 3a7a367 版，只用来在 main 上证明改前
+// 失败，不提交）。两份除「版本差异块」外逐字相同——场景构造、量法、判据数值都共用；差异块里只有三样：
+//   guardsBySpec           判据方向：新版按「改后应通过」判；main 版按「改前失败」反过来判（同一段量法、同一组阈值）；
+//   applyScenarioSwitches  T-097 的曲风守门开关（GuardSwitches，main 上没有这个结构）；
+//   readGuards             守门读数：新版读 T-097 新探针（逐子块的退让量）；main 只有状态行，近似。
+//
+// 量法只依赖链的输入素材与输出音频：入口、出口各接一只独立的 LoudnessMeter（与链里 IN / OUT 表同一个类、同一套 K 加权与 100 ms 子块），
+// 逐块喂、读子块，按子块算 3 s（30 子块）窗的 S 与 PSR、段落响度——main 上同样能量，判据不读新探针（新探针只进日志）。
+//
+// 场景 1（Q9）：8 s 一循环的持续型素材（入口 S −20 LUFS、3 s PSR 约 10 dB），通用、流媒体、GLAZE 100、冲击，有效 Ceiling −4 dBTP，
+//   PSR 守门用常数强开，三种风格的限幅预算放到 30 / 40 / 60 dB（预算环不退）。判据：从 PSR 守门第一次退让 20 s 之后起，输出 3 s PSR
+//   ≥ F − 0.5（F = 7，流媒体下限）的时间占比 ≥ 95 %，且最低不低于 F − 1。main：守门不动作（它读入口，入口 PSR 健康），输出 PSR 在同一段
+//   里一直低于 F − 0.5。
+// 场景 2（Q10）：124 BPM breakdown / drop 交替 6 段（16 小节一段，约 3 分 6 秒），Tech House、俱乐部、GLAZE 100、冲击。最后一对
+//   breakdown → drop 的落差损失（入口落差 − 出口落差，段落响度 = 段内子块 K 加权能量平均，出口按链延迟对齐）两轮都 ≤ 1.5 LU：① 出厂常数；
+//   ② 限幅预算放宽（落差守门成为唯一起作用的守门）。main：第②轮损失 > 1.5 LU（G_trim 抵消了落差守门的退让），第①轮只记录。
+//   新版另查：第②轮之后换成通用档（落差守门出厂关），退让量每个推进的子块回 0.005 dB（或在非有效音乐时保持），中间不跳变。
+// 每 5 s 打一行轨迹（时间、退让量、输出 PSR / 3 s 响度、G_trim、预算环），给 DGX 上调参用。拿不准的数都在用例开头的具名常量里，标【待上机核】。
+
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <vector>
+
+namespace celadon::test
+{
+    namespace
+    {
+        namespace t097scenario
+        {
+            using SubBlock = LoudnessMeter::SubBlock;
+
+            constexpr double absoluteGateLufs = -70.0;   // BS.1770 绝对门：有效子块与 3 s 窗读数的下限（同 ShortTermWindow::absoluteGateLufs）
+            constexpr int shortTermSubBlocks = 30;       // 3 s 窗 = 30 个 100 ms 子块（规格 4；ShortTermWindow::subBlocks）
+            constexpr double logEverySeconds = 5.0;      // 轨迹日志间隔
+
+            double lufsOf (double meanSquare) noexcept
+            {
+                // LoudnessMeter::SubBlock 的口径：LUFS = −0.691 + 10·log10(K 加权均方，各声道之和)。
+                return meanSquare > 0.0 && std::isfinite (meanSquare) ? -0.691 + 10.0 * std::log10 (meanSquare)
+                                                                      : -std::numeric_limits<double>::infinity();
+            }
+
+            // 子块长度：与 LoudnessMeter::prepare 同一个式子（48 kHz → 4800）。
+            int subBlockLengthFor (double sampleRate) noexcept
+            {
+                return juce::jmax (1, juce::roundToInt (sampleRate * 0.1));
+            }
+
+            juce::String num (double value, int decimals = 2)
+            {
+                return std::isfinite (value) ? juce::String (value, decimals) : juce::String ("n/a");
+            }
+
+            //==============================================================================
+            // 一只独立的响度表：只读喂给它的音频，攒下全部完成的 100 ms 子块。每块喂完就读，环（128 个）永远不会追不上。
+            struct SubBlockTap
+            {
+                explicit SubBlockTap (double sampleRate)
+                {
+                    meter.prepare ({ sampleRate, (juce::uint32) blockSize, (juce::uint32) numChannels });
+                }
+
+                void feed (const juce::AudioBuffer<float>& audio)
+                {
+                    meter.process (audio);
+
+                    for (;;)
+                    {
+                        const auto count = meter.readSubBlocksSince (cursor, scratch.data(), (int) scratch.size());
+
+                        if (count < 0)
+                            dropped = true;
+
+                        const auto got = std::abs (count);
+
+                        for (int i = 0; i < got; ++i)
+                            blocks.push_back (scratch[(size_t) i]);
+
+                        if (got < (int) scratch.size())
+                            break;
+                    }
+                }
+
+                LoudnessMeter meter;
+                std::int64_t cursor = 0;
+                std::array<SubBlock, (size_t) LoudnessMeter::subBlockRingCapacity> scratch {};
+                std::vector<SubBlock> blocks;
+                bool dropped = false;   // 读者落后过（不该发生：每块都读）
+            };
+
+            // 3 s 窗的读数。口径同 T-097 的 ShortTermWindow（ProfileMath.h）与分析器的 psr3sDb，这里独立写一份（main 上没有 ShortTermWindow）：
+            // S = 30 个子块均方的平均 → LUFS（不门限、不平滑）；PSR = 20·log10(窗内子块真峰值最大) − S；S < −70 LUFS 或峰值为 0 → 无效。
+            struct ShortTerm
+            {
+                bool valid = false;
+                double lufs = 0.0;
+                double peakDbtp = 0.0;
+                double psrDb = 0.0;
+            };
+
+            ShortTerm shortTermEndingAt (const std::vector<SubBlock>& blocks, size_t last)
+            {
+                ShortTerm reading;
+                const auto window = (size_t) shortTermSubBlocks;
+
+                if (last >= blocks.size() || last + 1 < window)
+                    return reading;
+
+                double sum = 0.0;
+                float peak = 0.0f;
+
+                for (size_t j = last + 1 - window; j <= last; ++j)
+                {
+                    sum += blocks[j].meanSquare;
+                    peak = juce::jmax (peak, blocks[j].truePeakLinear);
+                }
+
+                const auto loudness = lufsOf (sum / (double) window);
+
+                if (! (loudness >= absoluteGateLufs) || ! (peak > 0.0f))
+                    return reading;
+
+                reading.valid = true;
+                reading.lufs = loudness;
+                reading.peakDbtp = 20.0 * std::log10 ((double) peak);
+                reading.psrDb = reading.peakDbtp - loudness;
+                return reading;
+            }
+
+            ShortTerm latestShortTerm (const SubBlockTap& tap)
+            {
+                return tap.blocks.empty() ? ShortTerm {} : shortTermEndingAt (tap.blocks, tap.blocks.size() - 1);
+            }
+
+            // 段落响度（house_gate.py section_loudness 的口径：段内有效子块的 K 加权能量平均，按时长加权——子块等长，即算术平均）：
+            // 完全落在 [begin, end)（样本）里、且 ≥ −70 LUFS 的子块。子块覆盖 [endSample − length, endSample)。没有有效子块 → NaN。
+            double sectionLoudness (const std::vector<SubBlock>& blocks, int length, std::int64_t begin, std::int64_t end)
+            {
+                double energy = 0.0;
+                int count = 0;
+
+                for (const auto& block : blocks)
+                {
+                    if (block.endSample - length < begin || block.endSample > end || ! (lufsOf (block.meanSquare) >= absoluteGateLufs))
+                        continue;
+
+                    energy += block.meanSquare;
+                    ++count;
+                }
+
+                return count > 0 ? lufsOf (energy / (double) count) : std::numeric_limits<double>::quiet_NaN();
+            }
+
+            // 跑一块：先按 Rig::step 同一个式子取出这块的入口样本喂给 in，再跑链，把出口（rig.buffer，链处理后的整块）喂给 out。
+            void stepMeasured (Rig& rig, SubBlockTap& in, SubBlockTap& out, juce::AudioBuffer<float>& inputBlock)
+            {
+                const auto length = rig.source.front().size();
+                inputBlock.setSize (numChannels, rig.blockLength, false, false, true);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                    for (int i = 0; i < rig.blockLength; ++i)
+                        inputBlock.setSample (ch, i, rig.sourceGain * rig.source[(size_t) ch][(rig.sourceIndex + (size_t) i) % length]);
+
+                in.feed (inputBlock);
+                rig.step();
+                out.feed (rig.buffer);
+            }
+
+            // 整段离线量一遍（另起一只表，块长同 Rig），返回子块序列；repeats 遍首尾相接（循环素材：第二遍起 K 加权状态已是循环稳态）。
+            std::vector<SubBlock> subBlocksOf (const Signal& signal, double sampleRate, int repeats)
+            {
+                SubBlockTap tap (sampleRate);
+                const auto length = (std::int64_t) signal.front().size();
+                const auto total = length * repeats;
+                juce::AudioBuffer<float> block (numChannels, blockSize);
+
+                for (std::int64_t start = 0; start < total; start += blockSize)
+                {
+                    const auto count = (int) juce::jmin ((std::int64_t) blockSize, total - start);
+                    block.setSize (numChannels, count, false, false, true);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        for (int i = 0; i < count; ++i)
+                            block.setSample (ch, i, signal[(size_t) ch][(size_t) ((start + i) % length)]);
+
+                    tap.feed (block);
+                }
+
+                return std::move (tap.blocks);
+            }
+
+            // 预算环放宽（任务书：三种风格的限幅预算均值 / P95 / 峰值都放到 30 / 40 / 60 dB）：实际 GR 远到不了，决策器不按限幅预算封顶，
+            // 预算环也不会因限幅退让。Glue / Clip 两类预算不动（只放宽任务点名的三项）。
+            glaze::Constants withRelaxedLimitBudgets (glaze::Constants c) noexcept
+            {
+                for (auto* style : { &c.warm, &c.punchy, &c.clean })
+                {
+                    style->limitGrMeanCapDb = 30.0f;
+                    style->limitGrP95CapDb = 40.0f;
+                    style->limitGrPeakCapDb = 60.0f;
+                }
+
+                return c;
+            }
+
+            //==============================================================================
+            // 场景 1 的素材：8 s 一循环（120 BPM 4 小节），持续型——和声垫一直在，底鼓 / 贝斯 / 踩镲每拍一样，任何 3 s 窗的 S 与 PSR 都几乎相同。
+            // 元件同 makeMusic（去掉军鼓），底鼓乘 kickGain、和声垫乘 padGain；循环点无缝：pad 频率都取 1/8 Hz 的整数倍（8 s 内整周期），
+            // 底鼓 / 贝斯 / 踩镲按拍内位置（16 拍整），贝斯在拍尾 10 ms 收到 0，噪声就是这同一段 8 s 循环。响度另按实测归一（见场景 1）。
+            Signal makeSteadyLoop (double sampleRate, double loopSeconds, float kickGain, float padGain, juce::int64 seed)
+            {
+                constexpr double beatSeconds = 0.5;
+                constexpr double bassNotesHz[] = { 55.0, 73.5, 82.5, 61.75 };
+                constexpr double padNotesHz[]  = { 220.0, 277.125, 329.625, 440.0 };
+
+                const auto numSamples = (int) std::lround (loopSeconds * sampleRate);
+                auto signal = makeSilence (numChannels, numSamples);
+                const auto twoPi = juce::MathConstants<double>::twoPi;
+                const auto hatCoeff = std::exp (-twoPi * 6000.0 / sampleRate);
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    juce::Random random (seed + (juce::int64) ch * 7919);
+                    auto& channel = signal[(size_t) ch];
+                    double hat = 0.0;
+
+                    for (int i = 0; i < numSamples; ++i)
+                    {
+                        const auto t = (double) i / sampleRate;
+                        const auto beat = (int) (t / beatSeconds);
+                        const auto beatPos = t - beat * beatSeconds;
+                        const auto white = (double) random.nextFloat() * 2.0 - 1.0;
+                        hat = hatCoeff * hat + (1.0 - hatCoeff) * white;
+
+                        const auto kick = 0.55 * std::sin (twoPi * 55.0 * beatPos) * std::exp (-beatPos / 0.09)
+                                        + 0.15 * white * std::exp (-beatPos / 0.003);
+                        const auto bassHz = bassNotesHz[(size_t) (beat % 4)];
+                        const auto bassEnvelope = juce::jmin (1.0, beatPos / 0.01) * juce::jmin (1.0, (beatSeconds - beatPos) / 0.01)
+                                                * std::exp (-beatPos / 0.6);
+                        const auto bass = bassEnvelope * (0.28 * std::sin (twoPi * bassHz * beatPos) + 0.10 * std::sin (twoPi * 2.0 * bassHz * beatPos));
+
+                        double pad = 0.0;
+
+                        for (auto hz : padNotesHz)
+                            pad += 0.05 * std::sin (twoPi * hz * t + 0.7 * ch);
+
+                        const auto hatHit = 0.08 * (white - hat) * std::exp (-std::fmod (t, beatSeconds * 0.5) / 0.03);
+                        channel[(size_t) i] = (float) ((double) kickGain * kick + bass + (double) padGain * pad + hatHit);
+                    }
+                }
+
+                return signal;
+            }
+
+            //==============================================================================
+            // 场景 2 的曲子：124 BPM、4/4，16 小节一段 × 6 段（偶数段 breakdown、奇数段 drop：breakdown, drop, breakdown, drop, breakdown, drop），
+            // 约 3 分 6 秒。元件照 tools/render/make_synthetic_house.py（T-045 实测「合成 House 曲」的配方）：drop = 扫频底鼓（158 → 48 Hz、
+            // 110 ms 衰减）+ offbeat bass（八分音符长、Am–F–C–G 根音、基音 + 两个泛音）+ 2、4 拍的拍手（一阶差分噪声、30 ms 衰减）+ offbeat
+            // 踩镲（7 kHz 一阶高通噪声、12 ms 衰减）+ 失谐 pad（makeDetunedPad，同脚本 pad_bar）；breakdown = pad + 轻踩镲。两类段落分别按实测
+            // 归一（normaliseContrastSong）：drop 的段落响度 = dropLufs，breakdown 再轻 breakdownDepthLu。
+            // 离线估算（Python 照同一公式：K 加权同 LoudnessMeter、8× 真峰值，噪声换成 numpy 的均匀白噪声）：单位增益下 drop 段落响度
+            // −10.2 LUFS、3 s PSR 中位 10.6 dB（10.1 ～ 12.0），breakdown −18.6 LUFS、PSR 7.9 dB（本来就轻 8.4 LU）。【待上机核】
+            struct ContrastSongDesign
+            {
+                double bpm = 124.0;
+                int barsPerSection = 16;
+                int sections = 6;
+                double kick = 1.0;             // × 0.8 的扫频底鼓（脚本 kick()）
+                double bass = 0.7;             // offbeat bass（脚本 bass_note gain 0.7）
+                double clap = 0.10;            // 拍手（均匀噪声的一阶差分，峰值 ≤ 2 × 本项）【待上机核：drop 的 PSR 主要靠它与底鼓】
+                double dropHat = 0.06;         // offbeat 踩镲（脚本 hats 0.06）
+                double breakdownHat = 0.02;    // 「轻踩镲」= drop 的 1/3
+                double pad = 0.06;             // makeDetunedPad 的幅度（脚本 pad_bar gain 0.06）
+                double dropLufs = -14.0;       // drop 的段落响度（按实测归一）【待上机核】：只决定要推多少，不进判据
+                double breakdownDepthLu = 9.0; // breakdown 比 drop 轻（任务书：8 ～ 10 LU）
+
+                double beatSeconds() const noexcept      { return 60.0 / bpm; }
+                double barSeconds() const noexcept       { return 4.0 * beatSeconds(); }
+                double sectionSeconds() const noexcept   { return barSeconds() * barsPerSection; }
+                double songSeconds() const noexcept      { return sectionSeconds() * sections; }
+                static bool isDrop (int section) noexcept { return section % 2 == 1; }
+
+                // 第几段（生成与归一、量法都用这一个式子，段落边界逐样本一致）。
+                int sectionAt (double seconds) const noexcept
+                {
+                    const auto bar = (int) (seconds / barSeconds());
+                    return juce::jmin (sections - 1, bar / barsPerSection);
+                }
+
+                // 第 k 段的第一个样本（k = sections → 整首的样本数）：先按 floor 估，再前后挪到 sectionAt 的边界上。
+                std::int64_t sectionStart (int k, double sampleRate, std::int64_t songSamples) const noexcept
+                {
+                    if (k <= 0)
+                        return 0;
+
+                    if (k >= sections)
+                        return songSamples;
+
+                    auto start = (std::int64_t) std::floor ((double) k * sectionSeconds() * sampleRate);
+
+                    while (start < songSamples && sectionAt ((double) start / sampleRate) < k)
+                        ++start;
+
+                    while (start > 0 && sectionAt ((double) (start - 1) / sampleRate) >= k)
+                        --start;
+
+                    return start;
+                }
+            };
+
+            Signal makeContrastSong (double sampleRate, const ContrastSongDesign& d, juce::int64 seed)
+            {
+                constexpr double bassRootsHz[] = { 55.0, 43.654, 65.406, 48.999 };   // 同脚本 BASS_ROOTS（Am – F – C – G）
+                const auto beat = d.beatSeconds();
+                const auto bar = d.barSeconds();
+                const auto noteSeconds = 0.45 * beat;
+                const auto twoPi = juce::MathConstants<double>::twoPi;
+                const auto hatCoeff = std::exp (-twoPi * 7000.0 / sampleRate);
+
+                // pad 打底（和弦每小节换一个，换和弦处 60 ms 交叉淡化）；鼓、贝斯按段加在上面。样本数 = (int) (整首秒数 × 采样率)。
+                auto signal = makeDetunedPad (sampleRate, d.songSeconds(), bar, d.pad);
+                const auto numSamples = (int) signal.front().size();
+
+                for (int ch = 0; ch < numChannels; ++ch)
+                {
+                    juce::Random random (seed + (juce::int64) ch * 7919);
+                    auto& channel = signal[(size_t) ch];
+                    double hatLowpass = 0.0, previousWhite = 0.0;
+
+                    for (int i = 0; i < numSamples; ++i)
+                    {
+                        const auto t = (double) i / sampleRate;
+                        const auto beatIndex = (int) (t / beat);
+                        const auto beatPos = t - beatIndex * beat;
+                        const auto offPos = std::fmod (t + 0.5 * beat, beat);   // 从 offbeat 起算的拍内位置
+                        const auto barIndex = (int) (t / bar);
+                        const auto white = (double) random.nextFloat() * 2.0 - 1.0;
+                        hatLowpass = hatCoeff * hatLowpass + (1.0 - hatCoeff) * white;
+                        const auto difference = white - previousWhite;
+                        previousWhite = white;
+                        const auto hat = (white - hatLowpass) * std::exp (-offPos / 0.012);
+                        double value = 0.0;
+
+                        if (ContrastSongDesign::isDrop (d.sectionAt (t)))
+                        {
+                            const auto kick = 0.8 * std::sin (twoPi * (48.0 * beatPos + 110.0 * 0.035 * (1.0 - std::exp (-beatPos / 0.035))))
+                                            * std::exp (-beatPos / 0.11) * juce::jmin (1.0, beatPos / 0.002);
+                            const auto clap = beatIndex % 2 == 1 ? difference * std::exp (-beatPos / 0.03) * juce::jmin (1.0, beatPos / 0.0005) : 0.0;
+                            double bass = 0.0;
+
+                            if (offPos < noteSeconds)
+                            {
+                                const auto hz = bassRootsHz[(size_t) (barIndex % 4)];
+                                const auto envelope = juce::jmin (1.0, offPos / 0.004) * std::exp (-offPos / (1.2 * noteSeconds))
+                                                    * juce::jmin (1.0, (noteSeconds - offPos) / 0.005);
+                                bass = envelope * (std::sin (twoPi * hz * offPos) + 0.25 * std::sin (2.0 * twoPi * hz * offPos)
+                                                   + 0.1 * std::sin (3.0 * twoPi * hz * offPos));
+                            }
+
+                            value = d.kick * kick + d.bass * bass + d.clap * clap + d.dropHat * hat;
+                        }
+                        else
+                        {
+                            value = d.breakdownHat * hat;
+                        }
+
+                        channel[(size_t) i] += (float) value;
+                    }
+                }
+
+                return signal;
+            }
+
+            struct SongLevels
+            {
+                double dropUnitLufs = 0.0, breakdownUnitLufs = 0.0;   // 单位增益下两类段落的段落响度
+            };
+
+            // 两类段落分别归一：离线量单位增益的曲子，按类取完全落在段内的有效子块的能量平均，再按段乘增益（段落边界同 sectionAt）。
+            SongLevels normaliseContrastSong (Signal& song, const ContrastSongDesign& d, double sampleRate)
+            {
+                const auto songSamples = (std::int64_t) song.front().size();
+                const auto blocks = subBlocksOf (song, sampleRate, 1);
+                const auto length = subBlockLengthFor (sampleRate);
+                double energy[2] = { 0.0, 0.0 };   // [0] breakdown、[1] drop
+                int count[2] = { 0, 0 };
+
+                for (int k = 0; k < d.sections; ++k)
+                {
+                    const auto begin = d.sectionStart (k, sampleRate, songSamples);
+                    const auto end = d.sectionStart (k + 1, sampleRate, songSamples);
+                    const auto kind = ContrastSongDesign::isDrop (k) ? 1 : 0;
+
+                    for (const auto& block : blocks)
+                    {
+                        if (block.endSample - length < begin || block.endSample > end || ! (lufsOf (block.meanSquare) >= absoluteGateLufs))
+                            continue;
+
+                        energy[kind] += block.meanSquare;
+                        ++count[kind];
+                    }
+                }
+
+                SongLevels levels;
+                levels.breakdownUnitLufs = lufsOf (energy[0] / juce::jmax (1, count[0]));
+                levels.dropUnitLufs = lufsOf (energy[1] / juce::jmax (1, count[1]));
+                const auto dropGain = (float) juce::Decibels::decibelsToGain (d.dropLufs - levels.dropUnitLufs);
+                const auto breakdownGain = (float) juce::Decibels::decibelsToGain (d.dropLufs - d.breakdownDepthLu - levels.breakdownUnitLufs);
+
+                for (auto& channel : song)
+                    for (size_t i = 0; i < channel.size(); ++i)
+                        channel[i] *= ContrastSongDesign::isDrop (d.sectionAt ((double) i / sampleRate)) ? dropGain : breakdownGain;
+
+                return levels;
+            }
+
+            //==============================================================================
+            // 守门读数（readGuards 填；main 上只有 exact = false 的近似）。
+            struct GuardReadout
+            {
+                bool exact = false;                  // true：T-097 探针的逐子块退让量；false：状态行近似（只看得到正在退的那一扇）
+                float psrReliefDb = 0.0f;
+                float contrastReliefDb = 0.0f;
+                std::int64_t guardSubBlocks = -1;    // 推进守门的子块数（新版探针）；main 没有 → −1
+                bool trimFrozen = false;             // 以下只进日志
+                bool guardPsrValid = false;
+                float guardPsrDb = 0.0f;             // PSR 守门自己读到的出口 3 s PSR（与本段的量法对照）
+                bool contrastJudged = false;
+                float contrastLossLu = 0.0f;         // 落差守门的直方图损失读数
+            };
+
+            // 换通用档之后的一块：这一块推进守门的子块数与前后的落差退让量（判据在用例里按常数核对）。
+            struct ReleaseSample
+            {
+                std::int64_t stepped = 0;
+                float beforeDb = 0.0f;
+                float afterDb = 0.0f;
+            };
+
+            struct ContrastRound
+            {
+                std::vector<double> inputLufs, outputLufs;   // 各段段落响度（出口按链延迟对齐）
+                double inputDepthLu = std::numeric_limits<double>::quiet_NaN();    // 最后一对：drop − breakdown（入口）
+                double outputDepthLu = std::numeric_limits<double>::quiet_NaN();   //           drop − breakdown（出口）
+                double lossLu = std::numeric_limits<double>::quiet_NaN();          //           入口落差 − 出口落差
+                int latencySamples = 0;
+                bool budgetActed = false, psrActed = false, dropped = false;
+                float deepestContrastReliefDb = 0.0f, endContrastReliefDb = 0.0f;
+                bool releaseObserved = false;                // 换通用档之后的回程读得到（新版探针）
+                float reliefAtSwitchDb = 0.0f;
+                std::vector<ReleaseSample> release;
+            };
+
+            //==============================================================================
+            // ==== 版本差异块（开始）：新版（T-097 分支）。main 3a7a367 版只换这一块，其余逐字相同 ====
+
+            // 判据方向：新版按规格「改后应通过」判。
+            constexpr bool guardsBySpec = true;
+
+            // 场景 1：通用档的 PSR 守门出厂关（generalGuards {false, false}，规格 4「House / 通用关，留给以后的曲风」），用常数强开。
+            // 场景 2：House 三类的出厂开关（house.guards {true, false}：落差开、PSR 关），不动。
+            void applyScenarioSwitches (glaze::Constants& constants, bool psrScenario)
+            {
+                if (psrScenario)
+                    constants.generalGuards.psr = true;
+            }
+
+            // T-097 新探针：两个守门的退让量、推进的子块数（GlazeController.h TestProbe 末尾）。
+            GuardReadout readGuards (const Rig& rig)
+            {
+                const auto p = rig.probe();
+                GuardReadout r;
+                r.exact = true;
+                r.psrReliefDb = p.psrReliefDb;
+                r.contrastReliefDb = p.contrastReliefDb;
+                r.guardSubBlocks = p.guardSubBlocks;
+                r.trimFrozen = p.trimFrozen;
+                r.guardPsrValid = p.outputPsrValid;
+                r.guardPsrDb = p.outputPsrDb;
+                r.contrastJudged = p.contrastJudged;
+                r.contrastLossLu = p.contrastLossLu;
+                return r;
+            }
+
+            // ==== 版本差异块（结束）====
+        }
+    }
+
+    class GlazeControllerGuardScenarioTests  : public juce::UnitTest
+    {
+    public:
+        GlazeControllerGuardScenarioTests() : juce::UnitTest ("GLAZE guard closed-loop scenarios (T-097)", "Celadon") {}
+
+        void runTest() override
+        {
+            testPsrClosedLoop();
+            testBreakdownDropContrast();
+        }
+
+    private:
+        //==============================================================================
+        // 场景 1（Max Q9）：PSR 闭环。
+        void testPsrClosedLoop()
+        {
+            using namespace t097scenario;
+            beginTest (juce::String ("PSR closed loop (Q9): quiet input, healthy input PSR, streaming push; output 3 s PSR held at the floor")
+                       + (guardsBySpec ? "" : " [main: expected to fail]"));
+
+            // ---- 素材 ----
+            constexpr double loopSeconds = 8.0;
+            constexpr juce::int64 loopSeed = 20261011;
+            // 配比：离线估算（Python 照 makeSteadyLoop 同一公式，K 加权同 LoudnessMeter、8× 真峰值）单位增益下整段 S −12.2 LUFS、
+            // 3 s PSR 10.2 ～ 10.5 dB（中位 10.3）；底鼓 0.5 时峰值由底鼓 + pad 叠加定。【待上机核：入口 PSR 不在 9 ～ 11.5 就调这两个】
+            constexpr float kickGain = 0.5f, padGain = 2.0f;
+            constexpr double inputLufs = -20.0;                       // 入口 3 s S：按实测归一（「偏轻」）
+            constexpr double inputLufsToleranceLu = 0.5;              // 前提：各 3 s 窗的 S 都在 −20 ± 0.5（持续型素材，离线估算起伏 ±0.03）
+            constexpr double inputPsrLow = 9.0, inputPsrHigh = 11.5;  // 前提：入口 PSR 约 10 dB，「健康」（远高于流媒体门槛 6.5）【待上机核】
+
+            // ---- 设置 ----
+            // 有效 Ceiling = 用户 Ceiling − 编码余量 = −3 − 1 = −4 dBTP（参数下限 −3；比流媒体封顶 −2 低，封顶不起作用）。
+            // 为什么要压低：流媒体目标 −10 LUFS（冲击，风格偏移 0；持续型素材 LRA ≈ 0、不修正），出厂 −2 dBTP 封顶下限幅器从 Ceiling − 0.35 dB
+            // 起限（LimiterModule.h 真峰值重建余量），输出 PSR 最多 −2.35 − (−10) = 7.65 dB，到不了门槛 6.5——守门无事可做。压到 −4 后：
+            // 不受守门时输出 PSR ≈ −4.35 − (−10) = 5.65 dB（比门槛低 0.85 dB），这才是「推响把 PSR 压塌」的场景。
+            constexpr float userCeilingDb = -3.0f;
+            constexpr float codecMarginDb = 1.0f;
+
+            // ---- 判据（规格 4、Max Q9）----
+            constexpr double floorDb = 7.0;                  // F：规格 floorFor(流媒体) = 7 dB
+            constexpr double tripDb = floorDb - 0.5;         // 6.5：守门门槛，也是判据线
+            constexpr double worstDb = floorDb - 1.0;        // 6.0：判据窗内最低
+            constexpr double minFractionAbove = 0.95;
+            constexpr double evalDelaySeconds = 20.0;        // 从第一次退让 20 s 之后起算
+            // 预计轨迹（新版）：通用档响度型 M0 = 20 s、满置信 0.8 → 方案满强度要 −20·ln(1 − 0.8) ≈ 32 s 有效音频；PSR 在增益离满强度约 0.85 dB
+            // 时跌破 6.5（≈ 25 s），再持续 3 s → 第一次退让 ≈ 25 ～ 30 s【待上机核】；此后 0.5 dB/s 退到 PSR ≥ 6.5，3 s 窗滞后让读数冲到约 7.2，
+            // 满 5 s ≥ 7.0 后 0.15 dB/s 回到 7.0 以下停住——稳态 PSR 在 6.5 ～ 7.2，退让约 −1.1 dB（加上冻结前 G_trim 多推的 ≤ 1 dB，离下限 −3 还远）。
+            // 判据窗 ≈ [45 ～ 50 s, 150 s]，≥ 100 s：95 % 允许约 5 s 低于门槛（多于一次 3 s 持续判定）。
+            constexpr double runSeconds = 150.0;
+            constexpr double minEvalSeconds = 60.0;          // 判据窗短于这个不算数（第一次退让来得太晚）
+            // main：守门读入口 PSR（≈ 10.3，健康）始终不退；G_trim 把 S 推到目标 −10 → 输出 PSR ≈ 5.65 dB。没有「第一次退让」，判据窗从这里起：
+            // 方案满强度 ≈ 32 s，G_trim（0.05 dB/s）补限幅掉的响度要再十几到二十几秒。【待上机核】
+            constexpr double evalFallbackFromSeconds = 60.0;
+
+            auto constants = withRelaxedLimitBudgets (glaze::factoryConstants());
+            applyScenarioSwitches (constants, true);
+
+            auto loop = makeSteadyLoop (defaultRate, loopSeconds, kickGain, padGain, loopSeed);
+            const auto loopSubBlocks = (size_t) std::lround (loopSeconds / 0.1);
+            const auto unitBlocks = subBlocksOf (loop, defaultRate, 2);
+
+            expect (unitBlocks.size() >= loopSubBlocks, "the offline loudness pass covers a whole loop");
+
+            if (unitBlocks.size() < loopSubBlocks)
+                return;
+
+            double unitEnergy = 0.0;
+
+            for (size_t j = unitBlocks.size() - loopSubBlocks; j < unitBlocks.size(); ++j)   // 第二遍：K 加权状态已是循环稳态
+                unitEnergy += unitBlocks[j].meanSquare;
+
+            const auto unitLufs = lufsOf (unitEnergy / (double) loopSubBlocks);
+            scale (loop, (float) juce::Decibels::decibelsToGain (inputLufs - unitLufs));
+            logMessage ("  loop at unit gain " + num (unitLufs) + " LUFS -> scaled by " + num (inputLufs - unitLufs) + " dB");
+
+            auto params = defaultParams (100.0f, 2);   // GLAZE 100、冲击（风格偏移 0 → 流媒体目标 −10 LUFS）
+            params.glazeGenre = 0;                     // 通用
+            params.glazeDelivery = 1;                  // 流媒体
+            params.limit.ceilingDb = userCeilingDb;
+            params.mastering.codecMarginDb = codecMarginDb;
+            Rig rig (constants, loop, params);
+
+            SubBlockTap inputTap (rig.sampleRate), outputTap (rig.sampleRate);
+            juce::AudioBuffer<float> inputBlock (numChannels, rig.blockLength);
+            const auto noValue = std::numeric_limits<double>::quiet_NaN();
+            auto firstRetreatSeconds = -1.0;
+            auto psrActed = false, budgetActed = false;
+            auto deepestReliefDb = 0.0f;
+            auto nextLog = logEverySeconds;
+            const auto blocks = rig.blocksFor (runSeconds);
+
+            for (int b = 0; b < blocks; ++b)
+            {
+                stepMeasured (rig, inputTap, outputTap, inputBlock);
+                const auto now = (double) (b + 1) * (double) rig.blockLength / rig.sampleRate;
+                const auto guards = readGuards (rig);
+                const auto probe = rig.probe();
+                budgetActed = budgetActed || probe.guardDb < 0.0f;
+                deepestReliefDb = juce::jmin (deepestReliefDb, guards.psrReliefDb);
+
+                if (guards.psrReliefDb < 0.0f)
+                {
+                    psrActed = true;
+
+                    if (firstRetreatSeconds < 0.0)
+                        firstRetreatSeconds = now;
+                }
+
+                if (now >= nextLog)
+                {
+                    nextLog += logEverySeconds;
+                    const auto out = latestShortTerm (outputTap);
+                    logMessage ("  t " + num (now, 1) + " s | PSR relief " + num (guards.psrReliefDb) + " dB"
+                                + " | out S " + num (out.valid ? out.lufs : noValue) + " LUFS, PSR " + num (out.valid ? out.psrDb : noValue) + " dB"
+                                + (guards.exact ? " (guard reads " + (guards.guardPsrValid ? num (guards.guardPsrDb) : juce::String ("n/a"))
+                                                      + ", trim " + (guards.trimFrozen ? "frozen" : "free") + ")"
+                                                : juce::String())
+                                + " | G_trim " + num (probe.appliedBiasDb) + " dB | budget " + num (probe.guardDb) + " dB"
+                                + " | target " + num (rig.status().effectiveTargetLufs) + " LUFS | limit gain "
+                                + num (rig.chain.getEffectiveParams().limit.gainDb) + " dB");
+                }
+            }
+
+            // ---- 入口（前提）：跳过前 3 s，之后每个 3 s 窗 ----
+            auto inputPsrMin = std::numeric_limits<double>::infinity(), inputPsrMax = -std::numeric_limits<double>::infinity();
+            auto inputSMin = inputPsrMin, inputSMax = inputPsrMax;
+
+            for (size_t j = (size_t) shortTermSubBlocks - 1; j < inputTap.blocks.size(); ++j)
+            {
+                const auto reading = shortTermEndingAt (inputTap.blocks, j);
+
+                if (! reading.valid)
+                    continue;
+
+                inputPsrMin = juce::jmin (inputPsrMin, reading.psrDb);
+                inputPsrMax = juce::jmax (inputPsrMax, reading.psrDb);
+                inputSMin = juce::jmin (inputSMin, reading.lufs);
+                inputSMax = juce::jmax (inputSMax, reading.lufs);
+            }
+
+            // ---- 出口：判据窗里每个子块一个 3 s 读数 ----
+            const auto evalFromSeconds = firstRetreatSeconds >= 0.0 ? firstRetreatSeconds + evalDelaySeconds : evalFallbackFromSeconds;
+            auto evalCount = 0, aboveCount = 0, invalidCount = 0;
+            auto minPsr = std::numeric_limits<double>::infinity(), maxPsr = -std::numeric_limits<double>::infinity(), sumPsr = 0.0;
+
+            for (size_t j = (size_t) shortTermSubBlocks - 1; j < outputTap.blocks.size(); ++j)
+            {
+                if ((double) outputTap.blocks[j].endSample / rig.sampleRate < evalFromSeconds)
+                    continue;
+
+                const auto reading = shortTermEndingAt (outputTap.blocks, j);
+
+                if (! reading.valid)
+                {
+                    ++invalidCount;
+                    continue;
+                }
+
+                ++evalCount;
+                aboveCount += reading.psrDb >= tripDb ? 1 : 0;
+                minPsr = juce::jmin (minPsr, reading.psrDb);
+                maxPsr = juce::jmax (maxPsr, reading.psrDb);
+                sumPsr += reading.psrDb;
+            }
+
+            const auto fractionAbove = evalCount > 0 ? (double) aboveCount / (double) evalCount : 0.0;
+            logMessage ("  input: S " + num (inputSMin) + " .. " + num (inputSMax) + " LUFS, 3 s PSR " + num (inputPsrMin) + " .. " + num (inputPsrMax)
+                        + " dB | effective ceiling " + num (rig.chain.getEffectiveParams().limit.ceilingDb) + " dBTP");
+            logMessage ("  PSR guard " + juce::String (psrActed ? "acted" : "never acted") + ", first retreat "
+                        + (firstRetreatSeconds >= 0.0 ? num (firstRetreatSeconds, 1) + " s" : juce::String ("never"))
+                        + ", deepest relief " + num (deepestReliefDb) + " dB; budget ring " + (budgetActed ? "retreated" : "never retreated")
+                        + " | window from " + num (evalFromSeconds, 1) + " s: "
+                        + juce::String (evalCount) + " readings, " + num (100.0 * fractionAbove, 1) + " % >= " + num (tripDb, 1)
+                        + " dB, min " + num (minPsr) + ", mean " + num (evalCount > 0 ? sumPsr / evalCount : noValue) + ", max " + num (maxPsr) + " dB");
+
+            // ---- 前提（两版同）----
+            expect (! inputTap.dropped && ! outputTap.dropped, "both taps read every sub-block");
+            expectWithinAbsoluteError (rig.chain.getEffectiveParams().limit.ceilingDb, userCeilingDb - codecMarginDb, 1.0e-4f,
+                                       "premise: effective ceiling = user ceiling - codec margin = -4 dBTP (the streaming cap -2 does not bind)");
+            expect (inputSMin >= inputLufs - inputLufsToleranceLu && inputSMax <= inputLufs + inputLufsToleranceLu,
+                    "premise: input 3 s loudness stays at -20 LUFS: " + num (inputSMin) + " .. " + num (inputSMax));
+            expect (inputPsrMin >= inputPsrLow && inputPsrMax <= inputPsrHigh,
+                    "premise: input 3 s PSR is healthy, about 10 dB: " + num (inputPsrMin) + " .. " + num (inputPsrMax));
+            expect (! budgetActed, "premise: the budget ring never retreats (limit budgets relaxed to 30 / 40 / 60 dB)");
+            expectEquals (invalidCount, 0, "every output 3 s reading in the window is valid");
+            expect (evalCount >= (int) (minEvalSeconds * 10.0), "the judged window is long enough: " + juce::String (evalCount) + " readings");
+
+            if constexpr (guardsBySpec)
+            {
+                expect (firstRetreatSeconds >= 0.0, "the PSR guard (reading the output) retreats");
+                expect (fractionAbove >= minFractionAbove, "from first retreat + 20 s, output 3 s PSR >= F - 0.5 = 6.5 dB at least 95 % of the time: "
+                                                           + num (100.0 * fractionAbove, 1) + " %");
+                expect (minPsr >= worstDb, "... and never below F - 1 = 6.0 dB: min " + num (minPsr));
+            }
+            else
+            {
+                expect (! psrActed, "main: the PSR guard reads the healthy input PSR and never acts");
+                expect (maxPsr < tripDb, "main: output 3 s PSR stays below F - 0.5 = 6.5 dB over the same window: max " + num (maxPsr));
+            }
+        }
+
+        //==============================================================================
+        // 场景 2（Max Q10）：落差守门。
+        void testBreakdownDropContrast()
+        {
+            using namespace t097scenario;
+            beginTest (juce::String ("Contrast guard (Q10): House club GLAZE 100 keeps the last breakdown -> drop loss within 1.5 LU")
+                       + (guardsBySpec ? "" : " [main: expected to fail]"));
+
+            // ---- 素材（配比与推导见 ContrastSongDesign）----
+            const ContrastSongDesign design {};
+            constexpr juce::int64 songSeed = 20261011;
+            constexpr double depthToleranceLu = 0.5;   // 前提：最后一对的入口落差 = 9 ± 0.5（两类段落按实测归一，应几乎正好 9）
+
+            // ---- 判据 ----
+            constexpr double clubLossLimitLu = 1.5;    // house_gate ③ 俱乐部档（Max 2026-10-01）；同 ContrastGuard 的 clubLossLu
+            constexpr double compareEpsilon = 1.0e-9;  // 同 house_gate 的比较余量
+            // 预计（【待上机核】）：
+            //   目标：俱乐部 −7 LUFS（冲击偏移 0）再减 LRA 修正（画像 LRA 若按 breakdown / drop 约 9 LU 算，(9 − 6) ÷ 3 = 1 → −8）；轨迹日志打实际目标。
+            //   ① 出厂：限幅预算（冲击 1.8 / 4 / 6 dB）让决策器封顶，T-045 实测同配方的合成 House 曲俱乐部档少 1.34 ～ 1.39 LU（阶段 1 编排器）→ ≤ 1.5。
+            //   ② 放宽：不封顶推到目标，T-045 记录「预算再放宽一档」已少 2.2 LU → 不受守门约 2.2 LU 以上（main 第②轮应 > 1.5）。新版：两份直方图
+            //      攒满 60 s（按 180 s 遗忘，要 180·ln(1.5) ≈ 73 s 有效音乐，加 3 s 窗）≈ 76 s 开始判定，超门槛满 10 s → 约 86 s 起以 0.1 dB/s 退，
+            //      约 116 s 退到下限 −3 dB，早于最后一个 breakdown（124 s）；G_trim 冻结，最后一对按 −3 dB 演奏：限幅少压，损失约降 0.4 ～ 0.5 LU/dB
+            //      × 3 dB → 约 1.0 LU。第一个 breakdown 开头被当主段推响，会让输出直方图低端变宽、损失读数偏小，退让可能晚一些。
+            //   换通用：落差守门出厂关 → 每个推进的子块回 0.05 dB/s × 0.1 s = 0.005 dB；20 s = 200 个子块 → 从约 −3 回到约 −2 dB，不会碰到 0。
+            constexpr double switchSeconds = 20.0;
+            constexpr float releaseStepDb = 0.005f;            // 规格 4：0.05 dB/s × 0.1 s
+            constexpr float releaseToleranceDb = 1.0e-5f;      // float 累加：|退让| ≤ 3 dB 时一步的舍入 ≤ 2.4e-7 dB
+            constexpr double minReleaseFraction = 0.9;         // 推进的子块里至少九成真的回了一步（其余只许是非有效音乐时的保持）
+            constexpr float minReliefToObserveDb = -0.5f;      // 换档时退让至少这么深，回程才看得清
+
+            auto song = makeContrastSong (defaultRate, design, songSeed);
+            const auto levels = normaliseContrastSong (song, design, defaultRate);
+            logMessage ("  song " + num (design.songSeconds(), 1) + " s; unit-gain drop " + num (levels.dropUnitLufs) + " LUFS, breakdown "
+                        + num (levels.breakdownUnitLufs) + " LUFS -> drop " + num (design.dropLufs, 1) + ", breakdown "
+                        + num (design.dropLufs - design.breakdownDepthLu, 1) + " LUFS");
+
+            auto factory = glaze::factoryConstants();
+            applyScenarioSwitches (factory, false);
+            auto relaxed = withRelaxedLimitBudgets (glaze::factoryConstants());
+            applyScenarioSwitches (relaxed, false);
+
+            const auto factoryRound = runContrastRound (factory, song, design, "1 factory", false, 0.0);
+            const auto relaxedRound = runContrastRound (relaxed, song, design, "2 relaxed", guardsBySpec, switchSeconds);
+
+            // ---- 前提（两版同）----
+            expect (std::abs (relaxedRound.inputDepthLu - design.breakdownDepthLu) <= depthToleranceLu,
+                    "premise: the last breakdown is " + num (design.breakdownDepthLu, 1) + " LU below the drop at the input: "
+                    + num (relaxedRound.inputDepthLu));
+            expect (! factoryRound.dropped && ! relaxedRound.dropped, "all taps read every sub-block");
+            expect (! relaxedRound.budgetActed, "premise: round 2 budget ring never retreats (limit budgets relaxed)");
+            expect (! relaxedRound.psrActed, "premise: round 2 PSR guard never acts");
+
+            if constexpr (guardsBySpec)
+            {
+                expect (factoryRound.lossLu <= clubLossLimitLu + compareEpsilon,
+                        "round 1 (factory): last breakdown -> drop loses <= 1.5 LU: " + num (factoryRound.lossLu));
+                expect (relaxedRound.deepestContrastReliefDb < 0.0f,
+                        "round 2: the contrast guard actually retreats (otherwise the round proves nothing - retune the song)");
+                expect (relaxedRound.lossLu <= clubLossLimitLu + compareEpsilon,
+                        "round 2 (relaxed budgets, contrast guard alone): loses <= 1.5 LU: " + num (relaxedRound.lossLu));
+
+                // ---- 换通用档之后的回程 ----
+                int releaseSteps = 0, heldSteps = 0, badSteps = 0, steppedWhileRetreated = 0;
+                auto largestMoveDb = 0.0f;
+
+                for (const auto& s : relaxedRound.release)
+                {
+                    const auto delta = s.afterDb - s.beforeDb;
+                    largestMoveDb = juce::jmax (largestMoveDb, std::abs (delta));
+
+                    if (s.stepped <= 0)
+                    {
+                        if (delta != 0.0f)   // 这一块没推进守门：退让量不该动
+                            ++badSteps;
+                    }
+                    else if (s.beforeDb < -(float) s.stepped * releaseStepDb)
+                    {
+                        // 离 0 还远：每个推进的子块要么回一步（有效音乐），要么保持（非有效音乐），别的都不对。
+                        const auto steps = (int) std::lround (delta / releaseStepDb);
+                        steppedWhileRetreated += (int) s.stepped;
+
+                        if (steps >= 0 && steps <= (int) s.stepped && std::abs (delta - (float) steps * releaseStepDb) <= (float) s.stepped * releaseToleranceDb)
+                        {
+                            releaseSteps += steps;
+                            heldSteps += (int) s.stepped - steps;
+                        }
+                        else
+                        {
+                            ++badSteps;
+                        }
+                    }
+                    else if (! (delta >= 0.0f && delta <= (float) s.stepped * releaseStepDb + releaseToleranceDb && s.afterDb <= 0.0f))
+                    {
+                        ++badSteps;   // 最后一步收到 0：只许往 0 走、不越过 0
+                    }
+                }
+
+                const auto reliefAtEndDb = relaxedRound.release.empty() ? relaxedRound.reliefAtSwitchDb : relaxedRound.release.back().afterDb;
+                const auto expectedSteps = std::floor (juce::jmin (switchSeconds * 10.0, (double) -relaxedRound.reliefAtSwitchDb / (double) releaseStepDb));
+                logMessage ("  general after round 2: relief " + num (relaxedRound.reliefAtSwitchDb, 3) + " -> " + num (reliefAtEndDb, 3) + " dB over "
+                            + num (switchSeconds, 1) + " s; " + juce::String (releaseSteps) + " release steps, " + juce::String (heldSteps) + " held, "
+                            + juce::String (badSteps) + " bad, largest move " + num (largestMoveDb, 6) + " dB");
+
+                expect (relaxedRound.releaseObserved, "the release after switching to general is observable (T-097 probe)");
+                expect (relaxedRound.reliefAtSwitchDb <= minReliefToObserveDb,
+                        "premise: round 2 ends with a contrast relief to release: " + num (relaxedRound.reliefAtSwitchDb, 3) + " dB");
+                expectEquals (badSteps, 0, "general (contrast guard off): every guard sub-block releases 0.005 dB or holds; no other move");
+                expect (largestMoveDb <= releaseStepDb + releaseToleranceDb, "no jump: the largest per-block move is one step");
+                expect ((double) releaseSteps >= minReleaseFraction * expectedSteps && releaseSteps >= (int) (minReleaseFraction * steppedWhileRetreated),
+                        "the relief keeps releasing: " + juce::String (releaseSteps) + " of " + juce::String (steppedWhileRetreated)
+                        + " guard sub-blocks (expected about " + juce::String ((int) expectedSteps) + ")");
+
+                if (reliefAtEndDb < -releaseStepDb)
+                    expectWithinAbsoluteError (reliefAtEndDb, relaxedRound.reliefAtSwitchDb + (float) releaseSteps * releaseStepDb,
+                                               (float) (releaseSteps + 1) * releaseToleranceDb, "relief moved by exactly the counted steps");
+            }
+            else
+            {
+                logMessage ("  main: round 1 (factory) loss " + num (factoryRound.lossLu) + " LU (recorded only)");
+                expect (relaxedRound.lossLu > clubLossLimitLu,
+                        "main: round 2 loses more than 1.5 LU (G_trim cancels the contrast guard's retreat): " + num (relaxedRound.lossLu));
+            }
+        }
+
+        // 一轮：Tech House、俱乐部、GLAZE 100、冲击，124 BPM 报拍点，从第一个样本放到整首结束（多 0.2 s 让最后一段的出口按链延迟完整出来），
+        // 入口 / 出口各一只表。thenSwitchToGeneral：放完后换成通用档再跑 switchSeconds，逐块记下落差退让量（新版探针）。
+        t097scenario::ContrastRound runContrastRound (const glaze::Constants& constants, const Signal& song,
+                                                      const t097scenario::ContrastSongDesign& design, const juce::String& label,
+                                                      bool thenSwitchToGeneral, double switchSeconds)
+        {
+            using namespace t097scenario;
+            ContrastRound result;
+            const auto noValue = std::numeric_limits<double>::quiet_NaN();
+
+            auto params = defaultParams (100.0f, 2);   // GLAZE 100、冲击（风格偏移 0）
+            params.glazeGenre = 2;                     // Tech House（House 三类共用 house.guards）
+            params.glazeDelivery = 2;                  // 俱乐部
+            Rig rig (constants, song, params);
+            rig.tempoBpm = design.bpm;
+
+            SubBlockTap inputTap (rig.sampleRate), outputTap (rig.sampleRate);
+            juce::AudioBuffer<float> inputBlock (numChannels, rig.blockLength);
+            const auto songSamples = (std::int64_t) song.front().size();
+            const auto songSeconds = (double) songSamples / rig.sampleRate;
+            const auto blocks = rig.blocksFor (songSeconds + 0.2);
+            auto nextLog = logEverySeconds;
+
+            for (int b = 0; b < blocks; ++b)
+            {
+                stepMeasured (rig, inputTap, outputTap, inputBlock);
+                const auto now = (double) (b + 1) * (double) rig.blockLength / rig.sampleRate;
+                const auto guards = readGuards (rig);
+                const auto probe = rig.probe();
+                result.budgetActed = result.budgetActed || probe.guardDb < 0.0f;
+                result.psrActed = result.psrActed || guards.psrReliefDb < 0.0f;
+                result.deepestContrastReliefDb = juce::jmin (result.deepestContrastReliefDb, guards.contrastReliefDb);
+
+                if (now >= nextLog)
+                {
+                    nextLog += logEverySeconds;
+                    const auto section = design.sectionAt (juce::jmin (now, songSeconds - 1.0e-3));
+                    const auto in = latestShortTerm (inputTap);
+                    const auto out = latestShortTerm (outputTap);
+                    logMessage ("  [" + label + "] t " + num (now, 1) + " s " + (ContrastSongDesign::isDrop (section) ? "drop     " : "breakdown")
+                                + " | contrast relief " + num (guards.contrastReliefDb) + " dB"
+                                + (guards.exact ? " (judged " + juce::String (guards.contrastJudged ? "yes" : "no") + ", loss reading "
+                                                      + num (guards.contrastLossLu) + " LU, trim " + (guards.trimFrozen ? "frozen" : "free") + ")"
+                                                : juce::String())
+                                + " | in S " + num (in.valid ? in.lufs : noValue) + " / out S " + num (out.valid ? out.lufs : noValue) + " LUFS"
+                                + " | G_trim " + num (probe.appliedBiasDb) + " dB | budget " + num (probe.guardDb) + " dB | PSR relief "
+                                + num (guards.psrReliefDb) + " dB | target " + num (rig.status().effectiveTargetLufs) + " LUFS | limit gain "
+                                + num (rig.chain.getEffectiveParams().limit.gainDb) + " dB");
+                }
+            }
+
+            // ---- 段落响度（house_gate ③）：入口按段，出口按链延迟往后挪 ----
+            result.latencySamples = rig.chain.getLatencySamples();
+            result.dropped = inputTap.dropped || outputTap.dropped;
+            result.endContrastReliefDb = readGuards (rig).contrastReliefDb;
+            const auto length = subBlockLengthFor (rig.sampleRate);
+            const auto latency = (std::int64_t) result.latencySamples;
+            result.inputLufs.assign ((size_t) design.sections, noValue);
+            result.outputLufs.assign ((size_t) design.sections, noValue);
+
+            for (int k = 0; k < design.sections; ++k)
+            {
+                const auto begin = design.sectionStart (k, rig.sampleRate, songSamples);
+                const auto end = design.sectionStart (k + 1, rig.sampleRate, songSamples);
+                result.inputLufs[(size_t) k] = sectionLoudness (inputTap.blocks, length, begin, end);
+                result.outputLufs[(size_t) k] = sectionLoudness (outputTap.blocks, length, begin + latency, end + latency);
+            }
+
+            for (int k = 0; k + 1 < design.sections; k += 2)
+            {
+                const auto inputDepth = result.inputLufs[(size_t) k + 1] - result.inputLufs[(size_t) k];
+                const auto outputDepth = result.outputLufs[(size_t) k + 1] - result.outputLufs[(size_t) k];
+                logMessage ("  [" + label + "] breakdown " + juce::String (k / 2 + 1) + " -> drop: in " + num (result.inputLufs[(size_t) k]) + " -> "
+                            + num (result.inputLufs[(size_t) k + 1]) + " LUFS (" + num (inputDepth) + " LU), out " + num (result.outputLufs[(size_t) k])
+                            + " -> " + num (result.outputLufs[(size_t) k + 1]) + " LUFS (" + num (outputDepth) + " LU), loss " + num (inputDepth - outputDepth)
+                            + " LU");
+            }
+
+            const auto lastDrop = (size_t) design.sections - 1;
+            result.inputDepthLu = result.inputLufs[lastDrop] - result.inputLufs[lastDrop - 1];
+            result.outputDepthLu = result.outputLufs[lastDrop] - result.outputLufs[lastDrop - 1];
+            result.lossLu = result.inputDepthLu - result.outputDepthLu;
+            logMessage ("  [" + label + "] latency " + juce::String (result.latencySamples) + " samples; deepest contrast relief "
+                        + num (result.deepestContrastReliefDb) + " dB, at the end " + num (result.endContrastReliefDb) + " dB; budget ring "
+                        + (result.budgetActed ? "retreated" : "never retreated") + "; PSR guard " + (result.psrActed ? "acted" : "never acted"));
+
+            // ---- 换通用档之后的回程（新版）----
+            if (thenSwitchToGeneral)
+            {
+                rig.params.glazeGenre = 0;   // 通用：generalGuards 出厂 {false, false}，落差守门关 → 已有退让按 0.05 dB/s 放回 0
+                auto before = readGuards (rig);
+                result.releaseObserved = before.exact;
+                result.reliefAtSwitchDb = before.contrastReliefDb;
+                const auto switchBlocks = rig.blocksFor (switchSeconds);
+                result.release.reserve ((size_t) switchBlocks);
+
+                for (int b = 0; b < switchBlocks; ++b)
+                {
+                    rig.step();
+                    const auto after = readGuards (rig);
+                    ReleaseSample sample;
+                    sample.stepped = after.guardSubBlocks - before.guardSubBlocks;
+                    sample.beforeDb = before.contrastReliefDb;
+                    sample.afterDb = after.contrastReliefDb;
+                    result.release.push_back (sample);
+                    before = after;
+                }
+            }
+
+            return result;
+        }
+    };
+
+    static GlazeControllerGuardScenarioTests glazeControllerGuardScenarioTests;
+}

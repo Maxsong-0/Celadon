@@ -293,6 +293,21 @@ namespace celadon::glaze
             int houseReopenRun = 0;                   // 锁定后连续「更响更满」的段数
             bool houseReopenArmed = false;            // 已满足重开条件，等段落账够锁定条件
             std::int64_t transitionLengthSamples = 0; // 正在进行的方案过渡的长度（样本；没在过渡为 0）
+
+            // ---- T-097 守护族（上一块 endBlock 之后的值；落差 / PSR 两个守门每个 100 ms 子块走一步）----
+            float contrastReliefDb = 0.0f;            // 落差守门的退让量（≤ 0）
+            float psrReliefDb = 0.0f;                 // PSR 守门的退让量（≤ 0）
+            bool outputPsrValid = false;              // PSR 守门最近一步读到的出口 3 s PSR 有效
+            float outputPsrDb = 0.0f;                 //   该读数（dB）
+            bool contrastJudged = false;              // 落差守门最近一步判定前提成立（两份直方图满 60 s、入口 P90 − P25 ≥ 3 LU）
+            float contrastLossLu = 0.0f;              //   落差损失 = 入口 − 出口的 P90 − P25（LU）
+            float contrastInputSpreadLu = 0.0f, contrastOutputSpreadLu = 0.0f;
+            double contrastHistogramSeconds = 0.0;    //   两份直方图遗忘后的累计时长（秒）
+            bool trimFrozen = false;                  // 上一块 G_trim 因守门有退让量 / 刚改过退让、或 1 s 内改过参数而没积分
+            double secondsSinceParamChange = 0.0;     // 距上次改参数的秒数（封顶 1 s）
+            std::int64_t guardSubBlocks = 0;          // 交给两个守门推进的子块数（每个子块只推进一次）
+            std::int64_t guardSubBlocksDropped = 0;   // 因冻结 / 不连续 / 两表对不上而断开窗口、没推进的子块（或读取批次）数
+            std::int64_t lastGuardSubBlockEnd = 0;    // 最近一个推进守门的子块的 endSample（OUT 表时间轴）
         };
 
         TestProbe getProbeForTesting() const noexcept;

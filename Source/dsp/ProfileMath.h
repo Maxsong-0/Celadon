@@ -25,6 +25,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -154,4 +155,86 @@ namespace celadon::glaze
     {
         return juce::jlimit (-1.0, 1.0, cross / power);
     }
+
+    //==============================================================================
+    // 3 s 短期窗（T-097）：最近 30 个 100 ms 子块（LoudnessMeter::SubBlock）的 K 加权均方与真峰值。
+    // 口径同 MusicAnalyzer 的短期视图：S = 30 个子块均方的平均（EBU Tech 3341，不门限、不平滑）；
+    // PSR₃ₛ = 3 s 内真峰值最大值 − S；S 在绝对门 −70 LUFS 之下（近乎静音）时两者都无效。
+    // 守护族（落差守门、PSR 守门）在入口 / 出口各持一份，按子块推进——同一串子块不论宿主怎么切块，读数都逐位相同。
+    // 定长、不分配、不加锁。
+    class ShortTermWindow
+    {
+    public:
+        static constexpr int subBlocks = 30;
+        static constexpr double absoluteGateLufs = -70.0;
+
+        void clear() noexcept
+        {
+            count = 0;
+            write = 0;
+        }
+
+        // 非有限或为负的子块（链里出过 NaN 的那一块）断开窗口：之前的子块不再与之后的拼成 3 s。
+        void push (double meanSquare, float truePeakLinear) noexcept
+        {
+            if (! std::isfinite (meanSquare) || meanSquare < 0.0 || ! std::isfinite (truePeakLinear))
+            {
+                clear();
+                return;
+            }
+
+            energy[(size_t) write] = meanSquare;
+            peak[(size_t) write] = truePeakLinear;
+            write = (write + 1) % subBlocks;
+            count = juce::jmin (subBlocks, count + 1);
+        }
+
+        bool isFull() const noexcept   { return count >= subBlocks; }
+
+        // S（LUFS）。窗不满 3 s，或低于绝对门：false，lufs 不动。
+        bool shortTermLufs (double& lufs) const noexcept
+        {
+            if (count < subBlocks)
+                return false;
+
+            double sum = 0.0;
+
+            for (int back = 1; back <= subBlocks; ++back)   // 从新到旧，求和顺序固定（同分析器的 windowSum）
+                sum += energy[(size_t) ((write - back + subBlocks) % subBlocks)];
+
+            const auto loudness = energyToLufs (sum / (double) subBlocks);
+
+            if (! (loudness >= absoluteGateLufs))
+                return false;
+
+            lufs = loudness;
+            return true;
+        }
+
+        // PSR₃ₛ（dB）。S 无效，或 3 s 内真峰值为 0：false，psrDb 不动。
+        bool psrDb (double& psr) const noexcept
+        {
+            double loudness = 0.0;
+
+            if (! shortTermLufs (loudness))
+                return false;
+
+            float maxPeak = 0.0f;
+
+            for (const auto value : peak)
+                maxPeak = juce::jmax (maxPeak, value);
+
+            if (! (maxPeak > 0.0f))
+                return false;
+
+            psr = 20.0 * std::log10 ((double) maxPeak) - loudness;
+            return true;
+        }
+
+    private:
+        std::array<double, (size_t) subBlocks> energy {};
+        std::array<float, (size_t) subBlocks> peak {};
+        int count = 0;
+        int write = 0;
+    };
 }

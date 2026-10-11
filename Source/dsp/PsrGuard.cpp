@@ -15,10 +15,10 @@ namespace celadon::glaze
         }
     }
 
-    void PsrGuard::prepare (double newSampleRate) noexcept
+    void PsrGuard::prepare (double newStepSeconds) noexcept
     {
-        if (newSampleRate > 0.0 && std::isfinite (newSampleRate))
-            sampleRate = newSampleRate;
+        if (newStepSeconds > 0.0 && std::isfinite (newStepSeconds))
+            stepSeconds = newStepSeconds;
 
         clear();
     }
@@ -27,7 +27,16 @@ namespace celadon::glaze
     {
         reliefDb = 0.0f;
         belowSeconds = 0.0;
+        aboveSeconds = 0.0;
         engaged = false;
+        clearWindow();
+    }
+
+    void PsrGuard::clearWindow() noexcept
+    {
+        window.clear();
+        lastPsrValid = false;
+        lastPsrDb = 0.0f;
     }
 
     void PsrGuard::setFloorDb (float newFloorDb) noexcept
@@ -41,33 +50,76 @@ namespace celadon::glaze
         reliefDb = 0.0f;
         engaged = false;
         belowSeconds = 0.0;
+        aboveSeconds = 0.0;
     }
 
-    GuardOutput PsrGuard::process (float psrDb, bool psrValid, bool musicActive, int numSamples, Delivery delivery) noexcept
+    GuardOutput PsrGuard::process (const LoudnessMeter::SubBlock& output, bool musicActive, bool enabled, Delivery delivery) noexcept
     {
-        const auto dt = musicActive && numSamples > 0 ? (double) numSamples / sampleRate : 0.0;
-        const auto trip = floorFor (delivery) - marginDb;
-        const auto below = psrValid && std::isfinite (psrDb) && psrDb < trip;
+        window.push (output.meanSquare, output.truePeakLinear);
 
-        if (musicActive)
-            belowSeconds = below ? belowSeconds + dt : 0.0;
+        double psr = 0.0;
+        lastPsrValid = window.psrDb (psr);
+        lastPsrDb = lastPsrValid ? (float) psr : 0.0f;
 
         const auto before = reliefDb;
-        const auto sustained = below && belowSeconds >= sustainSeconds;
+        const auto dt = (float) stepSeconds;
+        auto sustainedBelow = false;
 
-        if (sustained)
-            reliefDb = juce::jmax (floorDb, reliefDb - retreatDbPerSecond * (float) dt);
-        else if (! below)
-            reliefDb = juce::jmin (0.0f, reliefDb + releaseDbPerSecond * (float) dt);
+        if (musicActive && ! enabled)
+        {
+            belowSeconds = 0.0;
+            aboveSeconds = 0.0;
+            reliefDb = juce::jmin (0.0f, reliefDb + releaseDbPerSecond * dt);
+        }
+        else if (musicActive && lastPsrValid)
+        {
+            const auto trip = (double) tripFor (delivery);
 
-        const auto atFloor = reliefDb <= floorDb;
-        engaged = reliefDb < before || (atFloor && sustained);
+            if (psr < trip)
+            {
+                belowSeconds += stepSeconds;
+                aboveSeconds = 0.0;
+                sustainedBelow = reached (belowSeconds, sustainSeconds);
 
+                if (sustainedBelow)
+                    reliefDb = juce::jmax (floorDb, reliefDb - retreatDbPerSecond * dt);
+            }
+            else if (psr >= trip + (double) releaseHysteresisDb)
+            {
+                aboveSeconds += stepSeconds;
+                belowSeconds = 0.0;
+
+                if (reached (aboveSeconds, releaseAfterSeconds))
+                    reliefDb = juce::jmin (0.0f, reliefDb + releaseDbPerSecond * dt);
+            }
+            else
+            {
+                belowSeconds = 0.0;
+                aboveSeconds = 0.0;
+            }
+        }
+        // 其余（非有效音乐，或读数无效）：计时与退让都保持。
+
+        engaged = reliefDb < before || (reliefDb <= floorDb && sustainedBelow);
+        return current();
+    }
+
+    GuardOutput PsrGuard::current() const noexcept
+    {
         GuardOutput out;
         out.reliefDb = reliefDb;
         out.cause = reliefDb < 0.0f ? GuardCause::psr : GuardCause::none;
         out.engaged = engaged;
         return out;
+    }
+
+    bool PsrGuard::getLastPsrDb (float& psrDb) const noexcept
+    {
+        if (! lastPsrValid)
+            return false;
+
+        psrDb = lastPsrDb;
+        return true;
     }
 
     std::unique_ptr<juce::XmlElement> PsrGuard::createStateXml() const
@@ -78,6 +130,7 @@ namespace celadon::glaze
         writer.field ("floorDb", floorDb);
         writer.field ("belowSeconds", belowSeconds);
         writer.field ("engaged", engaged);
+        writer.optionalField ("aboveSeconds", aboveSeconds, 0.0);
         return xml;
     }
 
@@ -89,20 +142,25 @@ namespace celadon::glaze
         auto relief = reliefDb;
         auto floor = floorDb;
         auto below = belowSeconds;
+        auto above = aboveSeconds;
         auto wasEngaged = engaged;
         xmlio::Reader reader (xml);
         reader.field ("reliefDb", relief);
         reader.field ("floorDb", floor);
         reader.field ("belowSeconds", below);
         reader.field ("engaged", wasEngaged);
+        reader.optionalField ("aboveSeconds", above, 0.0);   // T-097 之前的存档没有：按 0 读
 
-        if (! reader.ok || ! std::isfinite (relief) || ! std::isfinite (below))
+        if (! reader.ok || ! std::isfinite (relief) || ! std::isfinite (floor) || ! std::isfinite (below) || ! std::isfinite (above)
+            || below < 0.0 || above < 0.0)
             return false;
 
         reliefDb = relief;
         floorDb = floor;
         belowSeconds = below;
+        aboveSeconds = above;
         engaged = wasEngaged;
+        clearWindow();
         return true;
     }
 }

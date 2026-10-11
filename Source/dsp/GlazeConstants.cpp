@@ -226,6 +226,9 @@ namespace celadon::glaze
             v.optionalField ("house_phaseHintCorrelation", h.phaseHintCorrelation, f.phaseHintCorrelation);
             v.optionalField ("house_phaseHintSegments", h.phaseHintSegments, f.phaseHintSegments);
             v.optionalField ("house_phaseHintFallbackSeconds", h.phaseHintFallbackSeconds, f.phaseHintFallbackSeconds);
+            // T-097：守门开关。T-097 之前的快照没有这两项 → 取出厂值（House 落差开、PSR 关；ADR-035：GLAZE > 0 允许变声音）。
+            v.optionalField ("house_contrastGuardOn", h.guards.contrast, f.guards.contrast);
+            v.optionalField ("house_psrGuardOn", h.guards.psr, f.guards.psr);
         }
 
         template <typename Visitor, typename DeliveryT>
@@ -403,6 +406,9 @@ namespace celadon::glaze
             visitGenre (v, "melodicProgressive", c.melodicProgressive, factory.melodicProgressive);
             visitHouse (v, c.house, factory.house);
             visitDelivery (v, c.delivery, factory.delivery);
+            // T-097：通用档守门开关（同 visitHouse 末尾两项，缺字段取出厂值：两个都关）。
+            v.optionalField ("general_contrastGuardOn", c.generalGuards.contrast, factory.generalGuards.contrast);
+            v.optionalField ("general_psrGuardOn", c.generalGuards.psr, factory.generalGuards.psr);
         }
 
         //==============================================================================
