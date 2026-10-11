@@ -230,8 +230,8 @@ namespace celadon::ui
             { Text::helpWheel,          "滚轮：微调",               "Mouse wheel: small steps" },
             { Text::helpColours,        "青色 = 你的设置；紫色 = GLAZE 此刻的自动加量；橙色 = 需要注意",
                                         "Cyan = your setting; violet = GLAZE's current automatic amount; orange = needs attention" },
-            { Text::helpAb,             "A / B：在处理后与原声之间切换；打开「等响」后两边按实测响度对齐，只衰减、不抬高",
-                                        "A / B switches between processed and original; with Match on both play at the measured loudness, attenuation only" },
+            { Text::helpAb,             "A / B：在处理后与原声之间切换；打开「等响」后两边按实测响度对齐，只衰减、不抬高；离线导出时一律出处理后",
+                                        "A / B switches between processed and original; with Match on both play at the measured loudness, attenuation only; an offline export always renders the processed master" },
             { Text::helpAudition,       "LIMIT 卡片的耳机：试听差值，只听限幅削掉的部分；再点一次回到正常输出",
                                         "Headphones on the LIMIT card: listen to the difference, only what the limiter removes; click again to go back" },
 

@@ -80,10 +80,10 @@ namespace celadon::help
             { param::limitListen,
               "等响 · 等响度试听",
               "测量整条处理链的响度差，把较响的一边衰减到另一边的响度（听处理后时衰减处理结果，听原声时衰减原声），A / B 对比不受音量差影响；输出表显示试听衰减前的母带。",
-              "播放数秒后再比较；只衰减不加大音量，自动处理照常进行。导出前关闭。",
+              "播放数秒后再比较；只衰减不加大音量，自动处理照常进行。离线导出自动旁通（成品不会被衰减）；实时导出前请关闭。",
               "Match · loudness-matched listening",
               "Measures the loudness difference across the whole chain and turns the louder side down to the other (the processed signal in A, the original in B), so A / B is not biased by level; the meters show the master before this attenuation.",
-              "Compare after a few seconds of playback; it only attenuates, never boosts, and automatic processing keeps running. Turn it off before exporting." },
+              "Compare after a few seconds of playback; it only attenuates, never boosts, and automatic processing keeps running. Bypassed automatically for offline export (the master is never attenuated); turn it off before a real-time export." },
 
             { param::limitBypass,
               "Bypass · 旁通 Limit",
@@ -96,10 +96,10 @@ namespace celadon::help
             { uiid::limitAudition,
               "试听差值 · 只听限幅削掉的部分",
               "送出去的信号换成 LIMIT 削掉的那部分（增益、削波、限幅一起算，按推响前的电平，不会比原声响）；表、响度与 GLAZE 照常按母带算。",
-              "用来听有没有削到不该削的（鼓点变扁、低音发闷）；听原声、旁通 LIMIT 或关掉窗口时自动退出。",
+              "用来听有没有削到不该削的（鼓点变扁、低音发闷）；听原声、旁通 LIMIT 或关掉窗口时自动退出；离线导出时不生效，成品永远是母带。",
               "Listen to difference · hear only what the limiter removes",
               "Replaces the output with what LIMIT takes away (gain, clip and limiting together, at the level before the gain push, never louder than the original); meters, loudness and GLAZE keep measuring the master.",
-              "Use it to hear whether anything important is being shaved off (flattened drums, dull bass); it turns off when you switch to the original, bypass LIMIT or close the window." },
+              "Use it to hear whether anything important is being shaved off (flattened drums, dull bass); it turns off when you switch to the original, bypass LIMIT or close the window, and has no effect on an offline export, which always renders the master." },
 
             // ---- COLOR ----
             { param::colorTone,

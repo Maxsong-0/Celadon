@@ -2106,6 +2106,18 @@ namespace celadon::test
             }
         }
 
+        // 同 processSpan，但每块先 setHostInfo（离线导出用例，T-095）：把这段按块拆开、逐块交给 processSpan，不复制它的循环；
+        // 一块里 setHostInfo → setParams → process 的顺序与处理器相同。
+        void processSpanWithHost (CeladonChain& chain, const CeladonChain::Params& p, const Signal& input, Signal& output,
+                                  int start, int length, int blockSize, Monitor monitor, const glaze::HostInfo& host)
+        {
+            for (int offset = start; offset < start + length; offset += blockSize)
+            {
+                chain.setHostInfo (host);
+                processSpan (chain, p, input, output, offset, juce::jmin (blockSize, start + length - offset), blockSize, monitor);
+            }
+        }
+
         // 受测链对参照链的逐样本增益比（左声道；参照 |x| ≤ 0.03 的样本不相除，记 NaN——正弦过零处不相除，同上面「Listen switch must ramp」）。
         struct GainTrace
         {
@@ -2179,6 +2191,7 @@ namespace celadon::test
         void runTest() override
         {
             testPreviewExitNeverSteps();
+            testOfflineBypassesTemporaryMonitoring();
             testOriginalFreezesIntegrated();
             testMeterResetKeepsPreview();
             testResetKeepsPreviewGain();
@@ -2424,6 +2437,120 @@ namespace celadon::test
                 expect (steadyGainDb < -3.0f, "the preview really attenuated");
                 expect (highest <= steadyGainDb + 0.1f, "the preview attenuation survives: highest " + juce::String (highest, 3) + " dB");
                 expect (chain.isReleasePreviewEnabled(), "the preview is still on");
+            }
+        }
+
+        // T-095（2026-10-10，R6-04a；Max 拍板：接受「离线 + 等响开」的导出结果改变，原声 / 差值同根因一并旁通）：离线导出
+        // （HostInfo.offline）时三种临时监听一律旁通——等响是存进工程的参数，忘关就会把成品衰减掉「处理后比原声响的那部分」；
+        // 原声 / 差值是界面状态，窗口开着导出同样中招。归一化预听早已如此（testPreviewExitNeverSteps 的离线行）。
+        //   - 每种监听各比两条新链（同参数、只差监听开关）离线下的整段输出：逐位相同；同一组参数在实时下作阳性对照：真的不同
+        //     （用例抓得住缺陷——改前离线与实时一样被衰减 / 换成原声 / 换成差值）。等响的测量离线照常跑（界面读数还在）。
+        //   - 实时路径不变：显式报「实时」的链与从不调 setHostInfo 的链逐位相同（新加的 ! offline 分支不碰实时）。
+        //   - 实时 → 离线 → 实时（等响开）：离线那段从第一个样本起与等响关着的链逐位相同（立即归一，同预听口径，不留 20 ms 斜坡
+        //     尾巴）；回到实时后等响按 20 ms 平滑器回到衰减值，没有单样本跳变（沿用「Listen switch must ramp」的判据 < 0.01 / 样本）。
+        void testOfflineBypassesTemporaryMonitoring()
+        {
+            // 母带 +6 dB（Color Output）+ Limit Gain 6 dB：等响把处理结果衰减到原声的响度、原声比母带轻、差值 = 限幅器真的削掉的
+            // 部分（不为 0）。素材用 makeListenMaterial（三音叠加，等响的 1 s 窗与瞬态门都过），3 s 足够出估计。
+            const auto input = makeListenMaterial (t032Rate, 3.0);
+            const auto length = (int) input[0].size();
+            auto master = makeNeutralParams();
+            master.color.outputDb = 6.0f;
+            master.limit.gainDb = 6.0f;
+
+            glaze::HostInfo offline;
+            offline.offline = true;
+            offline.hasPlayState = true;
+            offline.isPlaying = false;   // 真实宿主导出时常报「未播放」（同 ClayGlazeTests / GlazeControllerTests 的离线用例）
+            const glaze::HostInfo realtime;   // 默认 = 不知道位置、当作在播、实时：与从不调 setHostInfo 的链同一份状态
+
+            const auto render = [&] (const CeladonChain::Params& p, Monitor monitor, const glaze::HostInfo& host, bool& hasEstimate)
+            {
+                CeladonChain chain;
+                prepareChain (chain, t032Rate, p);
+                auto output = input;
+                processSpanWithHost (chain, p, input, output, 0, length, maxBlock, monitor, host);
+                hasEstimate = chain.hasListenDifference();
+                return output;
+            };
+
+            struct Case { const char* name; bool listen; Monitor monitor; };
+            const Case cases[] =
+            {
+                { "Match on",                    true,  {} },
+                { "listening to the original",   false, { false, true,  false } },
+                { "listening to the difference", false, { false, false, true  } },
+            };
+
+            for (const auto& c : cases)
+            {
+                beginTest (juce::String ("an offline export bypasses temporary monitoring: ") + c.name);
+                auto monitored = master;
+                monitored.limit.listen = c.listen;
+                bool estimateOffline = false, unused = false;
+                const auto monitoredOffline = render (monitored, c.monitor, offline, estimateOffline);
+                const auto masterOffline = render (master, {}, offline, unused);
+                const auto monitoredRealtime = render (monitored, c.monitor, realtime, unused);
+                const auto masterRealtime = render (master, {}, realtime, unused);
+                const auto realtimeDifference = maxAbsDifference (monitoredRealtime, masterRealtime, 0, length);
+                logMessage ("  " + juce::String (c.name) + ": the realtime control differs from the master by up to "
+                            + juce::String (realtimeDifference, 4));
+                expectEquals (maxAbsDifference (monitoredOffline, masterOffline, 0, length), 0.0f,
+                              "offline: the monitored chain renders the master bit-exactly");
+                expect (realtimeDifference > 0.01f, "realtime control: the same monitoring really changes what is sent to the host");
+
+                if (c.listen)
+                    expect (estimateOffline, "offline: Match keeps measuring for the UI readout");
+            }
+
+            beginTest ("the realtime path is unchanged: an explicit realtime host report renders bit-exactly like no report at all");
+            {
+                auto monitored = master;
+                monitored.limit.listen = true;
+                CeladonChain reported, silent;
+                prepareChain (reported, t032Rate, monitored);
+                prepareChain (silent, t032Rate, monitored);
+                auto a = input, b = input;
+                processSpanWithHost (reported, monitored, input, a, 0, length, maxBlock, {}, realtime);
+                processSpan (silent, monitored, input, b, 0, length, maxBlock, {});
+                expectEquals (maxAbsDifference (a, b, 0, length), 0.0f, "Match attenuates identically with and without a realtime host report");
+                bool unused = false;
+                expect (maxAbsDifference (a, render (master, {}, realtime, unused), 0, length) > 0.01f, "positive control: Match really attenuated");
+            }
+
+            beginTest ("realtime -> offline -> realtime with Match on: the offline span is the master from its first sample, the return ramps");
+            {
+                const auto longInput = makeListenMaterial (t032Rate, 5.0);
+                const auto total = (int) longInput[0].size();
+                const auto offlineFrom = (int) (2.0 * t032Rate), offlineTo = (int) (3.0 * t032Rate);
+                auto monitored = master;
+                monitored.limit.listen = true;
+                CeladonChain chain, reference;   // reference：等响一直关着、一直实时
+                prepareChain (chain, t032Rate, monitored);
+                prepareChain (reference, t032Rate, master);
+                auto a = longInput, b = longInput;
+                processSpanWithHost (chain, monitored, longInput, a, 0, offlineFrom, maxBlock, {}, realtime);
+                processSpanWithHost (chain, monitored, longInput, a, offlineFrom, offlineTo - offlineFrom, maxBlock, {}, offline);
+                processSpanWithHost (chain, monitored, longInput, a, offlineTo, total - offlineTo, maxBlock, {}, realtime);
+                processSpan (reference, master, longInput, b, 0, total, maxBlock, {});
+
+                const auto trace = gainTrace (a, b);
+                const auto second = (int) t032Rate;
+                const auto before = trace.mean (offlineFrom - second, offlineFrom);
+                const auto after = trace.mean (offlineTo + second, offlineTo + 2 * second);
+                float offlineDifference = 0.0f;
+
+                for (size_t ch = 0; ch < a.size(); ++ch)
+                    for (int i = offlineFrom; i < offlineTo; ++i)
+                        offlineDifference = juce::jmax (offlineDifference, std::abs (a[ch][(size_t) i] - b[ch][(size_t) i]));
+
+                const auto returnSlope = trace.maxSlope (offlineTo, offlineTo + second / 2);
+                logMessage ("  gain ratio before " + juce::String (before, 3) + ", after " + juce::String (after, 3)
+                            + "; max slope on return " + juce::String (returnSlope, 5) + " / sample");
+                expect (before < 0.7f, "Match was really attenuating before the offline span: ratio " + juce::String (before, 3));
+                expectEquals (offlineDifference, 0.0f, "the offline span equals the master from its first sample (no ramp tail)");
+                expect (returnSlope < 0.01f, "returning to realtime ramps the monitor gain: max slope " + juce::String (returnSlope, 5));
+                expect (std::abs (after - before) < 0.05f, "a second after returning, Match is back at its attenuation: " + juce::String (after, 3));
             }
         }
 

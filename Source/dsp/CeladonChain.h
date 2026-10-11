@@ -116,6 +116,10 @@ namespace celadon
         //
         // auditionDifference = 界面 LIMIT 卡片的「试听差值」（v0.1.8.0，见文件头）：送出去的信号换成限幅器削掉的部分，
         // 测点与处理都不变；听原声、宿主旁通或 LIMIT 旁通时不生效。默认 false 时逐位不变。
+        //
+        // 离线导出（setHostInfo 的 offline，T-095 / R6-04a）：compareOriginal、auditionDifference 与 limit.listen 三种临时监听一律
+        // 不生效，监听增益与差值交叉淡化立即落回母带（同归一化预听的「离线立即归一」）——成品永远是母带本身，等响忘关也不会把
+        // 导出衰减掉。实时播放逐位不变。
         void setParams (const Params& requested, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
