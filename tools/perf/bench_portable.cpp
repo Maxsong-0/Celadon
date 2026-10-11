@@ -4,7 +4,7 @@
     bench_portable.cpp
     celadon_bench_portable：可移植的 CPU 基准（T-096f；计划 §13 Q2 / Q10 / Q12 / Q16）。
 
-    只用 JUCE 与 Source/**，没有 Apple 框架。为 DGX（aarch64、GCC 13、无 LTO）上的「同机不退步」基线而写：只比同一台机器上
+    只用 JUCE 与 Source/ 下的源码，没有 Apple 框架。为 DGX（aarch64、GCC 13、无 LTO）上的「同机不退步」基线而写：只比同一台机器上
     基线二进制与当前二进制的差。Mac 也能编，但不是目标——Mac 的绝对数仍由 Max 用 tools/perf/bench.mm（scripts/perf-local.sh）跑。
     不进 CI；根 CMakeLists.txt 里是 EXCLUDE_FROM_ALL 目标；DGX 入口 scripts/perf-dgx.sh；对比 tools/perf/compare_perf.py；
     方法与口径见 docs/validation/2026-10-11-T096f-cpu-baseline/README.md。
