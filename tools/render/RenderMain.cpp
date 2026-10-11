@@ -77,6 +77,7 @@
 #include "../../Source/dsp/GlazeTypes.h"
 #include "../../Source/dsp/ClayGuard.h"
 #include "../../Source/dsp/ClayModule.h"
+#include "../../Source/dsp/LimiterModule.h"
 #include "../../Source/dsp/LiveProfile.h"
 #include "../../Source/dsp/LoudnessMeter.h"
 #include "../../Source/dsp/TruePeak.h"
@@ -432,6 +433,21 @@ namespace
             case Phase::planTransition: return "planTransition";
             case Phase::calibrating:    return "calibrating";
             case Phase::locked:         return "locked";
+        }
+
+        return "unknown";
+    }
+
+    // T-096 (a)：守门原因（Status.guardCause）在 metrics.csv / --trace 里的写法，与枚举名相同。
+    const char* guardCauseId (celadon::glaze::GuardCause cause) noexcept
+    {
+        switch (cause)
+        {
+            case celadon::glaze::GuardCause::none:         return "none";
+            case celadon::glaze::GuardCause::budget:       return "budget";
+            case celadon::glaze::GuardCause::deliveryPeak: return "deliveryPeak";
+            case celadon::glaze::GuardCause::contrast:     return "contrast";
+            case celadon::glaze::GuardCause::psr:          return "psr";
         }
 
         return "unknown";
@@ -2446,6 +2462,25 @@ namespace
         std::vector<celadon::ChainParams> blocks;
     };
 
+    // T-096 (a)：--trace 末尾三列（硬钳位样本数、限幅差值能量、限幅器入口能量）读 LimiterModule 的渲染计数，要经链拿到限幅器。
+    // 链得有与 getClayForTesting 同类的只读入口 getLimiterForTesting()；CeladonChain.h 归 T-095 的写域，本线不改它。
+    // 所以编译期看链有没有这个入口：有就返回限幅器，没有就返回 nullptr、这三列留空（quality_metrics.py 记「计数未接通」）。
+    // 入口加上以后这里不用再改。int / long 两个重载：有入口时第一个更匹配，没有时它被 SFINAE 去掉、落到第二个。
+    template <typename Chain>
+    auto limiterForTrace (Chain& chain, int) -> decltype (&chain.getLimiterForTesting())
+    {
+        return &chain.getLimiterForTesting();
+    }
+
+    template <typename Chain>
+    celadon::LimiterModule* limiterForTrace (Chain&, long)
+    {
+        return nullptr;
+    }
+
+    // T-096 (a)：--trace 逐块表（trace/<成品名>.csv）末尾追加的列；旧列名与顺序不动，tools/render/quality_metrics.py 按这些列名读。
+    constexpr const char* qualityTraceHeader = "current_mainness,protection_db,guard_cause,hard_clip_samples,limit_diff_energy,limit_in_energy";
+
     // 第二遍：新链读回第一遍的存档，从头渲染整首歌 + 延迟与余振的补零，作为成品。
     // effectiveLog ≠ nullptr 时记下链实际交给模块的参数（prepare 前一份 + 逐块，getEffectiveParams），给「同决策重放」用（ADR-016）。
     // T-038：transport 给模拟走带的拍点（与第一遍同一条时间线）；recordReductions = 逐块记限幅 GR（--segments-csv）。
@@ -2476,6 +2511,15 @@ namespace
 
         chain->getAndResetLimitGainReductionDb();                 // 清掉可能的残值（刚 prepare 完本应为 0）
         chain->getClayForTesting().getAndResetPeakGuardStats();   // 清掉 prepare 之后的残值
+
+        // T-096 (a)：--trace 时打开限幅器的渲染计数（只读已有的量，输出逐位不变）；链还没有限幅器入口时为 nullptr，三列留空。
+        auto* const traceLimiter = trace ? limiterForTrace (*chain, 0) : nullptr;
+
+        if (traceLimiter != nullptr)
+        {
+            traceLimiter->setRenderCountersEnabledForTesting (true);
+            traceLimiter->getAndResetRenderCountersForTesting();   // 清掉 prepare 之后的残值
+        }
 
         if (effectiveLog != nullptr)
         {
@@ -2536,7 +2580,7 @@ namespace
                                    "peak_guard_samples,peak_guard_min_gain,blend_intended_energy,blend_output_energy,"
                                    "limit_gain_db,tone_db,glue,heat,clay_pressure_scale,clay_peak_cost_db,clay_peak_cost_blocks,"
                                    "clay_blend_loss_db,"
-                                 + std::string (calibrationTraceHeader()) + "\n";
+                                 + std::string (calibrationTraceHeader()) + "," + qualityTraceHeader + "\n";
 
                 const auto feature = [] (const celadon::glaze::Feature& f)
                 {
@@ -2550,6 +2594,16 @@ namespace
                     std::snprintf (text, sizeof (text), "%.9e", value);
                     return std::string (text);
                 };
+
+                // T-096 (a) 末尾三列：限幅器这一块的渲染计数（读完清零，按宿主块）；限幅器入口没接通时留空。
+                std::string limiterColumns = ",,";
+
+                if (traceLimiter != nullptr)
+                {
+                    const auto counters = traceLimiter->getAndResetRenderCountersForTesting();
+                    limiterColumns = std::to_string (counters.hardClipSamples) + "," + energy (counters.limitDiffEnergy) + ","
+                                   + energy (counters.limitInputEnergy);
+                }
 
                 result.trace += fixed (static_cast<double> (position - latency) / sampleRate, 4) + ","
                               + fixed (stats.reduction, 3) + ","
@@ -2568,7 +2622,10 @@ namespace
                               + fixed (probe.clayPressureScale, 4) + ","
                               + (probe.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks ? fixed (probe.clayPeakCostDb, 3) : std::string())
                               + "," + std::to_string (probe.clayPeakCostBlocks) + "," + fixed (probe.clayBlendLossSmoothedDb, 3) + ","
-                              + calibrationTraceColumns (chain->getGlazeController()) + "\n";
+                              + calibrationTraceColumns (chain->getGlazeController()) + ","
+                              // T-096 (a) 末尾追加：这一块的主段度、保护退让与守门原因（Status，同 metrics.csv 末尾那几列的口径），再接限幅器计数。
+                              + fixed (blockStatus.currentMainness, 3) + "," + fixed (blockStatus.protectionDb, 3) + ","
+                              + guardCauseId (blockStatus.guardCause) + "," + limiterColumns + "\n";
             }
         }
 
@@ -3442,13 +3499,12 @@ namespace
             render && ! replay && row.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks
                 ? fixed (row.clayPeakCostDb, 3) : empty,
             render && ! replay ? fixed (0.1 * (double) row.clayPeakCostBlocks, 1) : empty,
-            // T-048 阶段 2。confidence / current_mainness / cold_export / guard_cause / status_line 在 Status 有这些字段之前留空
-            // （空 confidence：gate_check.py / house_gate.py 仍按 glaze_phase + calibration_valid，旧表输出不变）。
-            // protection_db 先写现有的 g_保护。编排器合入后把前五列填上，门槛改看 c ≥ 0.5。
-            empty,
-            empty,
-            empty,
-            empty,
+            // T-048 阶段 2 / T-096 (a)（Q1）：成品末尾 Status 的阶段 2 字段（GlazeTypes.h），重放行与其余 GLAZE 状态列一样留空。
+            // confidence 有数后 gate_check.py / house_gate.py 改看 c ≥ 0.5（空 confidence 才退回阶段 1 的锁定判定）。status_line 仍留空。
+            render && ! replay ? fixed (s.confidence, 3) : empty,
+            render && ! replay ? fixed (s.currentMainness, 3) : empty,
+            render && ! replay ? std::string (s.coldExport ? "1" : "0") : empty,
+            render && ! replay ? std::string (guardCauseId (s.guardCause)) : empty,
             render && ! replay ? fixed (s.protectionDb, 3) : empty,
             empty,
         };
@@ -5989,6 +6045,105 @@ namespace
                         "重放全关的延迟与长度",
                         std::to_string (off.latencySamples) + " / " + std::to_string (off.outputLength) + " 样本（自动链 "
                             + std::to_string (render.latencySamples) + " / " + std::to_string (render.outputLength) + "）");
+
+            // T-096 (a)：同一组设置再跑一遍带 --trace 的第二遍——成品必须与不追踪时逐位相同（追踪与限幅器渲染计数只读）；
+            // 逐块表的表头以追加的六列收尾、每行字段数与表头相同。限幅器入口没接通时三列留空，细节里写明（不判定）。
+            RenderResult traced;
+            renderPass (signal, selfTestRate, 512, params, listen.state.get(), true, traced);
+            const juce::AudioBuffer<float> tracedFinished (traced.io.getArrayOfWritePointers(), 2, traced.latencySamples, traced.outputLength);
+            const auto traceHeaderEnd = traced.trace.find ('\n');
+            const auto traceHeader = traceHeaderEnd == std::string::npos ? std::string() : traced.trace.substr (0, traceHeaderEnd);
+            const auto headerFields = std::count (traceHeader.begin(), traceHeader.end(), ',') + 1;
+            const auto suffix = std::string (",") + qualityTraceHeader;
+            const auto endsWithQualityColumns = traceHeader.size() >= suffix.size()
+                                             && traceHeader.compare (traceHeader.size() - suffix.size(), suffix.size(), suffix) == 0;
+            std::size_t traceRows = 0, ragged = 0;
+
+            for (auto start = traceHeaderEnd; start != std::string::npos && start + 1 < traced.trace.size();)
+            {
+                const auto end = traced.trace.find ('\n', start + 1);
+                const auto line = traced.trace.substr (start + 1, (end == std::string::npos ? traced.trace.size() : end) - start - 1);
+                ++traceRows;
+                ragged += std::count (line.begin(), line.end(), ',') + 1 == headerFields ? 0 : 1;
+                start = end;
+            }
+
+            const auto limiterWired = limiterForTrace (*makeRenderChain(), 0) != nullptr;
+            test.check (hashAudio (tracedFinished) == autoHash && endsWithQualityColumns && traceRows > 0 && ragged == 0,
+                        "--trace 不改成品、末尾追加列",
+                        std::string (hashAudio (tracedFinished) == autoHash ? "带追踪的成品与不追踪时逐位相同" : "带追踪的成品变了")
+                            + "；表头" + (endsWithQualityColumns ? "以 " + std::string (qualityTraceHeader) + " 收尾" : "末尾不是追加的六列")
+                            + "；" + std::to_string (traceRows) + " 行、字段数不齐 " + std::to_string (ragged) + " 行"
+                            + (limiterWired ? "；限幅器计数已接通" : "；链还没有 getLimiterForTesting()，限幅器三列留空"));
+        }
+
+        // ---- T-096 (a) 限幅器渲染计数（LimiterModule 的只读统计，插件不调用）。同一段白噪声、同一组参数跑两个限幅器，一个开计数一个不开：
+        //   - 输出逐位相同、每块 GR / Clip 统计与硬钳位计数相同（计数只读已有的量）；不开计数的那个两份能量恒为 0；
+        //   - Gain 0、信号远低于 Ceiling（峰值 −26 dBFS）：本级什么都没削，差值能量恰为 0（与 LimiterTests「试听差值 ①」同一个差），入口能量 > 0；
+        //   - 峰值 −10.5 dBFS 的噪声 + Gain +18 dB（推到 +7.5 dBFS，重限幅）：差值能量 > 0 且小于入口能量。
+        //   硬钳位计数只写进细节（理论上为 0，ADR-034 A2 在真歌上判）。
+        {
+            const auto quietNoise = testNoise (static_cast<int> (2.0 * selfTestRate), 0.05f);
+            const auto loudNoise = testNoise (static_cast<int> (2.0 * selfTestRate), 0.3f);
+
+            struct LimiterRun
+            {
+                juce::AudioBuffer<float> output;
+                celadon::LimiterModule::RenderCounters counters;
+                std::vector<float> blockStats;   // 每块 grMeanDb、grMaxDb、clipActiveFraction、clipDepthMaxDb 依次排开
+                juce::int64 blockHardClips = 0;  // 每块 BlockStats::hardClipSamples 之和（应等于累计计数）
+            };
+
+            const auto runLimiter = [] (const juce::AudioBuffer<float>& signal, float gainDb, bool count)
+            {
+                LimiterRun run;
+                celadon::LimiterModule limiter;
+                limiter.prepare (makeSpec (selfTestRate, 512));
+                celadon::LimiterModule::Params p;
+                p.gainDb = gainDb;
+                limiter.setParams (p);
+                limiter.reset();   // 平滑器直接落到 Gain 上：两次运行从同一状态起，Gain 0 时增益恰为 1
+                limiter.setRenderCountersEnabledForTesting (count);
+                run.output.makeCopyOf (signal);
+
+                for (int start = 0; start < run.output.getNumSamples(); start += 512)
+                {
+                    const auto length = std::min (512, run.output.getNumSamples() - start);
+                    juce::AudioBuffer<float> block (run.output.getArrayOfWritePointers(), 2, start, length);
+                    limiter.process (block);
+                    const auto& s = limiter.getBlockStats();
+                    run.blockStats.insert (run.blockStats.end(), { s.grMeanDb, s.grMaxDb, s.clipActiveFraction, s.clipDepthMaxDb });
+                    run.blockHardClips += s.hardClipSamples;
+                }
+
+                run.counters = limiter.getAndResetRenderCountersForTesting();
+                return run;
+            };
+
+            const auto quietPlain = runLimiter (quietNoise, 0.0f, false), quietCounted = runLimiter (quietNoise, 0.0f, true);
+            const auto loudPlain = runLimiter (loudNoise, 18.0f, false), loudCounted = runLimiter (loudNoise, 18.0f, true);
+
+            const auto sameRun = [] (const LimiterRun& a, const LimiterRun& b)
+            {
+                return hashAudio (a.output) == hashAudio (b.output) && a.blockStats == b.blockStats
+                    && a.counters.hardClipSamples == b.counters.hardClipSamples;
+            };
+
+            test.check (sameRun (quietPlain, quietCounted) && sameRun (loudPlain, loudCounted)
+                            && loudPlain.counters.limitDiffEnergy == 0.0 && loudPlain.counters.limitInputEnergy == 0.0
+                            && loudCounted.blockHardClips == loudCounted.counters.hardClipSamples,
+                        "限幅器渲染计数不改输出",
+                        std::string (sameRun (loudPlain, loudCounted) ? "开 / 不开计数输出与每块统计逐位相同" : "开计数后输出或统计变了")
+                            + "；不开计数时能量 " + (loudPlain.counters.limitInputEnergy == 0.0 ? "为 0" : "不为 0")
+                            + "；硬钳位 " + std::to_string (loudCounted.counters.hardClipSamples) + " 个样本（逐块之和 "
+                            + std::to_string (loudCounted.blockHardClips) + "）");
+            test.check (quietCounted.counters.limitDiffEnergy == 0.0 && quietCounted.counters.limitInputEnergy > 0.0
+                            && loudCounted.counters.limitDiffEnergy > 0.0
+                            && loudCounted.counters.limitDiffEnergy < loudCounted.counters.limitInputEnergy,
+                        "限幅器渲染计数的能量",
+                        "Gain 0 差值 " + fixed (quietCounted.counters.limitDiffEnergy, 9) + " / 入口 " + fixed (quietCounted.counters.limitInputEnergy, 3)
+                            + "（期望差值恰为 0）；Gain +18 dB 差值 / 入口 " + fixed (loudCounted.counters.limitDiffEnergy, 3) + " / "
+                            + fixed (loudCounted.counters.limitInputEnergy, 3) + "（期望 0 < 差值 < 入口）");
         }
 
         runReplayOverrideSelfTest (test);   // T-096d

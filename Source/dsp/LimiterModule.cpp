@@ -319,6 +319,7 @@ namespace celadon
 
         stats = {};
         blockStats = {};
+        renderCounters = {};
     }
 
     void LimiterModule::resetClipIdleState() noexcept
@@ -487,6 +488,18 @@ namespace celadon
             processChunk (io, start, juce::jmin (maxBlockSize, io.getNumSamples() - start), difference);
 
         finishBlockStats (io.getNumSamples());
+
+        // T-096 (a)：累计到下一次 getAndResetRenderCountersForTesting（链切片时每一片都走到这里，宿主块的量一个不漏）。
+        renderCounters.hardClipSamples  += blockStats.hardClipSamples;
+        renderCounters.limitDiffEnergy  += blockStats.limitDiffEnergy;
+        renderCounters.limitInputEnergy += blockStats.limitInputEnergy;
+    }
+
+    LimiterModule::RenderCounters LimiterModule::getAndResetRenderCountersForTesting() noexcept
+    {
+        const auto counters = renderCounters;
+        renderCounters = {};
+        return counters;
     }
 
     void LimiterModule::finishBlockStats (int numSamples) noexcept
@@ -500,6 +513,10 @@ namespace celadon
 
         blockStats.clipActiveFraction = stats.clipTotal > 0 ? (float) ((double) stats.clipCount / (double) stats.clipTotal) : 0.0f;
         blockStats.clipDepthMaxDb     = stats.clipPeakRatio > 1.0f ? (float) (20.0 * std::log10 ((double) stats.clipPeakRatio)) : 0.0f;
+
+        blockStats.hardClipSamples  = stats.hardClipSamples;
+        blockStats.limitDiffEnergy  = stats.diffEnergy;
+        blockStats.limitInputEnergy = stats.inputEnergy;
     }
 
     void LimiterModule::processChunk (juce::AudioBuffer<float>& io, int startSample, int numSamples, juce::AudioBuffer<float>* difference)
@@ -533,6 +550,10 @@ namespace celadon
 
         // 4. 前瞻限幅 + 硬钳位。
         processLimiterCore (io, startSample, numSamples, numChannelsToUse);
+
+        // 4b. 渲染工具的只读统计（T-096 (a)，插件从不打开）：此刻 io 是本级湿路输出，干路与逐样本 Gain 都已就位、下一步才改写 io。
+        if (renderCountersEnabled)
+            accumulateRenderEnergies (io, startSample, numSamples, numChannelsToUse);
 
         // 5. Listen、Lookahead 变动后的淡入、旁通交叉淡化；要试听差值时同一个循环里顺带写出差值（不改输出）。
         auto* const* differenceChannels = difference != nullptr ? difference->getArrayOfWritePointers() : nullptr;
@@ -582,6 +603,30 @@ namespace celadon
 
                 out = mixed * fade;
             }
+        }
+    }
+
+    void LimiterModule::accumulateRenderEnergies (const juce::AudioBuffer<float>& io, int startSample, int numSamples,
+                                                  int numChannelsToUse) noexcept
+    {
+        // 「加了 Gain 的输入」照试听差值的重建法：等长干路 × 同样延迟过的逐样本 Gain，float 乘一次（与送进 Clip 级的样本逐位相同，见文件头）。
+        // 差 = 它 − 本级湿路输出 = Clip、前瞻限幅、硬钳位一起削掉的部分，按推响后的电平（不除以 Gain、不钳位）。只读，不写任何缓冲。
+        for (int ch = 0; ch < numChannelsToUse; ++ch)
+        {
+            const auto* wet = io.getReadPointer (ch, startSample);
+            const auto* dry = bypassDryScratch.getReadPointer (ch);
+            double diffSum = 0.0, inputSum = 0.0;
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float gainedDry = dry[i] * delayedGainScratch[(size_t) i];
+                const auto removed = (double) gainedDry - (double) wet[i];
+                diffSum  += removed * removed;
+                inputSum += (double) gainedDry * (double) gainedDry;
+            }
+
+            stats.diffEnergy  += diffSum;
+            stats.inputEnergy += inputSum;
         }
     }
 
@@ -875,6 +920,7 @@ namespace celadon
 
         const auto* const* peaks = detectorPeaks.getArrayOfReadPointers();
         float minGain = 1.0f;
+        juce::int64 hardClipped = 0;   // T-096 (a)：本段硬钳位改了值的样本数（只读计数）
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -920,7 +966,13 @@ namespace celadon
             {
                 auto& sample = channels[ch][startSample + i];
                 const auto delayed = coreDelays[(size_t) ch].pushPop (sample);
-                sample = juce::jlimit (-ceilingAtOutput, ceilingAtOutput, delayed * gain);
+                const auto limited = delayed * gain;
+
+                // T-096 (a) 只读计数（ADR-034 A2 要它在全部语料上为 0）：钳位真的改了值才数；只比较，不改 limited，输出逐位不变。
+                if (limited > ceilingAtOutput || limited < -ceilingAtOutput)
+                    ++hardClipped;
+
+                sample = juce::jlimit (-ceilingAtOutput, ceilingAtOutput, limited);
             }
         }
 
@@ -929,6 +981,7 @@ namespace celadon
             atomicMax (maxGainReductionDb, -juce::Decibels::gainToDecibels (minGain, -120.0f));
 
         stats.minGain = juce::jmin (stats.minGain, minGain);   // 统计照报内部处理量（旁通与否，见 BlockStats）
+        stats.hardClipSamples += hardClipped;
     }
 
     void LimiterModule::resetLowFrequencyRelease() noexcept
