@@ -25,8 +25,11 @@
 #include "../dsp/ChainParams.h"
 #include "Controls.h"
 #include "HelpText.h"
+#include "SpectrumAnalyser.h"
 
+#include <array>
 #include <memory>
+#include <vector>
 
 namespace celadon::ui
 {
@@ -146,6 +149,11 @@ namespace celadon::ui
         void setEffective (const ChainParams& effective, bool glazeActive) override;
         void setBandGains (const BalanceModule::BandGains& gains);
 
+        // T-091：曲线背后的淡色频谱（取频谱仪 OUT 平均线，SpectrumAnalyser::numPoints 个点、20 Hz ～ 20 kHz 对数刻度）。
+        // 只在消息线程调；按 1 dB 量化，变了才重画。
+        void setBackdropSpectrum (const std::vector<float>& averageDb);
+        static constexpr int curvePoints = 120;   // 曲线 / 背景频谱在图里的采样点数（约每 2 px 一个）
+
         void paint (juce::Graphics&) override;
         juce::String getTooltip() override;
 
@@ -159,6 +167,7 @@ namespace celadon::ui
         juce::Rectangle<float> graphBounds() const   { return { 14.0f, 44.0f, 246.0f, 36.0f }; }
 
         BalanceModule::BandGains shownGains {};
+        std::array<float, (size_t) curvePoints> shownBackdrop {};   // 0 ～ 1（图高比例）；0 = 不画
         Segmented speed { Segmented::Look::groove };
         std::unique_ptr<SegmentedAttachment> speedAttachment;
 

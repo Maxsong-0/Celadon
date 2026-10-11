@@ -507,6 +507,60 @@ namespace celadon::ui
         return ModuleCard::getTooltip();
     }
 
+    namespace
+    {
+        // Balance 的 27 段是 1/3 倍频程，中心 40 Hz × 2^(i/3)（40 Hz ～ 约 16 kHz），图的横轴按这个对数刻度：两端各留半段。
+        constexpr float balanceMinOctave = -0.5f / 3.0f;                                    // 相对 40 Hz 的倍频程
+        constexpr float balanceMaxOctave = (float) (BalanceModule::numBands - 1) / 3.0f + 0.5f / 3.0f;
+
+        float balancePositionOfHz (float hz) noexcept
+        {
+            return (std::log2 (hz / 40.0f) - balanceMinOctave) / (balanceMaxOctave - balanceMinOctave);
+        }
+
+        // 段增益沿对数频率的 Catmull-Rom 插值（段在横轴上等距），position ∈ [0, 1]。
+        float balanceGainAt (const BalanceModule::BandGains& gains, float position) noexcept
+        {
+            const auto n = (int) gains.size();
+            const auto t = juce::jlimit (0.0f, (float) (n - 1), (position * (balanceMaxOctave - balanceMinOctave) + balanceMinOctave) * 3.0f);
+            const auto i = juce::jmin ((int) t, n - 2);
+            const auto f = t - (float) i;
+            const auto p0 = gains[(size_t) juce::jmax (0, i - 1)], p1 = gains[(size_t) i];
+            const auto p2 = gains[(size_t) (i + 1)], p3 = gains[(size_t) juce::jmin (n - 1, i + 2)];
+            return 0.5f * ((2.0f * p1) + (-p0 + p2) * f + (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * f * f
+                           + (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * f * f * f);
+        }
+    }
+
+    void BalanceCard::setBackdropSpectrum (const std::vector<float>& averageDb)
+    {
+        if (averageDb.size() != (size_t) SpectrumAnalyser::numPoints)
+            return;
+
+        auto changed = false;
+        const auto top = 1.0f / (float) (curvePoints - 1);
+
+        for (int i = 0; i < curvePoints; ++i)
+        {
+            const auto octave = balanceMinOctave + (float) i * top * (balanceMaxOctave - balanceMinOctave);
+            const auto hz = 40.0f * std::exp2 (octave);
+            const auto index = juce::jlimit (0, SpectrumAnalyser::numPoints - 1,
+                                             juce::roundToInt (SpectrumAnalyser::positionOf (hz) * (float) (SpectrumAnalyser::numPoints - 1)));
+            const auto db = averageDb[(size_t) index];
+            // −84 ～ −12 dBFS 映到 0 ～ 1；按 1 dB 量化（1/72）。
+            const auto level = std::isfinite (db) ? juce::jlimit (0.0f, 1.0f, std::round (db + 84.0f) / 72.0f) : 0.0f;
+
+            if (! juce::approximatelyEqual (level, shownBackdrop[(size_t) i]))
+            {
+                shownBackdrop[(size_t) i] = level;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            repaint (graphBounds().toNearestInt().expanded (2));
+    }
+
     void BalanceCard::paint (juce::Graphics& g)
     {
         KnobCard::paint (g);
@@ -517,22 +571,87 @@ namespace celadon::ui
         g.setColour (palette::spectrumFloor.withMultipliedAlpha (alpha));
         g.fillRoundedRectangle (graph, 6.0f);
 
-        const float dashes[] = { 2.0f, 2.0f };
-        g.setColour (juce::Colour (0xff0d3b45).withAlpha (0.18f * alpha));
-        g.drawDashedLine (juce::Line<float> (graph.getX() + 4.0f, graph.getCentreY() + 0.5f, graph.getRight() - 4.0f, graph.getCentreY() + 0.5f), dashes, 2, 1.0f);
+        const auto inner = graph.reduced (4.0f, 2.0f);
+        const auto centreY = graph.getCentreY() + 0.5f;
+        const auto xAt = [&] (float position) { return inner.getX() + position * inner.getWidth(); };
 
-        // 27 段：提起向上、压下向下；越多颜色越深。
-        for (size_t i = 0; i < shownGains.size(); ++i)
+        g.saveState();
+        g.reduceClipRegion (juce::Path ([&] { juce::Path p; p.addRoundedRectangle (graph, 6.0f); return p; }()));
+
+        // 背景：OUT 平均频谱（淡），先画，曲线压在上面。
         {
-            const auto gain = shownGains[i];
-            const auto h = juce::jlimit (1.2f, 16.0f, std::abs (gain) * 5.0f);
-            const auto x = graph.getX() + 6.0f + (float) i * 8.7f;
-            const auto bar = gain >= 0.0f ? juce::Rectangle<float> (x, graph.getCentreY() - h, 5.0f, h)
-                                          : juce::Rectangle<float> (x, graph.getCentreY() + 1.0f, 5.0f, h);
-            const auto colour = gain >= 0.0f ? cyanAt (0.3f + std::abs (gain) / 3.0f) : cyanAt (0.72f + std::abs (gain) / 10.0f);
-            g.setColour (colour.withMultipliedAlpha (alpha));
-            g.fillRoundedRectangle (bar, 1.2f);
+            juce::Path backdrop;
+            auto any = false;
+            backdrop.startNewSubPath (xAt (0.0f), graph.getBottom());
+
+            for (int i = 0; i < curvePoints; ++i)
+            {
+                const auto level = shownBackdrop[(size_t) i];
+                any = any || level > 0.0f;
+                backdrop.lineTo (xAt ((float) i / (float) (curvePoints - 1)), graph.getBottom() - level * graph.getHeight());
+            }
+
+            backdrop.lineTo (xAt (1.0f), graph.getBottom());
+            backdrop.closeSubPath();
+
+            if (any)
+            {
+                g.setColour (cyanAt (0.35f).withAlpha (0.16f * alpha));
+                g.fillPath (backdrop);
+            }
         }
+
+        // 频率网格：100 Hz、1 kHz、10 kHz 实线，其余十进位刻度（50、200、500、2k、5k）更淡。
+        for (const auto hz : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
+        {
+            const auto major = hz == 100.0f || hz == 1000.0f || hz == 10000.0f;
+            g.setColour (juce::Colour (0xff0d3b45).withAlpha ((major ? 0.07f : 0.03f) * alpha));
+            g.fillRect (juce::Rectangle<float> (std::round (xAt (balancePositionOfHz (hz))), graph.getY(), 1.0f, graph.getHeight()));
+        }
+
+        g.setColour (juce::Colour (0xff0d3b45).withAlpha (0.14f * alpha));
+        g.fillRect (juce::Rectangle<float> (inner.getX(), centreY - 0.5f, inner.getWidth(), 1.0f));
+
+        // 修正曲线：27 段沿对数频率平滑插值、约每 2 px 一个点；提起在上、压下在下，5 px / dB，±16 px 软限。
+        {
+            juce::Path curve, fill;
+            const auto yOf = [&] (float gain)
+            {
+                const auto px = 16.0f * std::tanh (gain * 5.0f / 16.0f);
+                return centreY - px;
+            };
+
+            fill.startNewSubPath (xAt (0.0f), centreY);
+
+            for (int i = 0; i < curvePoints; ++i)
+            {
+                const auto position = (float) i / (float) (curvePoints - 1);
+                const auto point = juce::Point<float> (xAt (position), yOf (balanceGainAt (shownGains, position)));
+
+                if (i == 0) curve.startNewSubPath (point); else curve.lineTo (point);
+                fill.lineTo (point);
+            }
+
+            fill.lineTo (xAt (1.0f), centreY);
+            fill.closeSubPath();
+
+            g.setGradientFill (juce::ColourGradient::vertical (cyanAt (0.55f).withAlpha (0.30f * alpha), graph.getY(),
+                                                                cyanAt (0.75f).withAlpha (0.30f * alpha), graph.getBottom()));
+            g.fillPath (fill);
+            g.setColour (cyanAt (0.7f).withMultipliedAlpha (alpha));
+            g.strokePath (curve, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            // 27 个段中心的小点：仍看得出是 27 段。
+            g.setColour (cyanAt (0.8f).withMultipliedAlpha (0.55f * alpha));
+
+            for (size_t b = 0; b < shownGains.size(); ++b)
+            {
+                const auto position = balancePositionOfHz (40.0f * std::exp2 ((float) b / 3.0f));
+                g.fillEllipse (juce::Rectangle<float> (2.0f, 2.0f).withCentre ({ xAt (position), yOf (shownGains[b]) }));
+            }
+        }
+
+        g.restoreState();
 
         g.setFont (uiFont (12.0f));
         g.setColour (palette::ink3.withMultipliedAlpha (alpha));
