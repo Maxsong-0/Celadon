@@ -96,10 +96,10 @@ namespace celadon::help
             { uiid::limitAudition,
               "试听差值 · 只听限幅削掉的部分",
               "送出去的信号换成 LIMIT 削掉的那部分（增益、削波、限幅一起算，按推响前的电平，不会比原声响）；表、响度与 GLAZE 照常按母带算。",
-              "用来听有没有削到不该削的（鼓点变扁、低音发闷）；听原声、旁通 LIMIT 或关掉窗口时自动退出；离线导出时不生效，成品永远是母带。",
+              "用来听有没有削到不该削的（鼓点变扁、低音发闷）；听原声、旁通 LIMIT 或关掉窗口时自动退出；离线导出时不生效（导出的是母带），实时导出前请退出。",
               "Listen to difference · hear only what the limiter removes",
               "Replaces the output with what LIMIT takes away (gain, clip and limiting together, at the level before the gain push, never louder than the original); meters, loudness and GLAZE keep measuring the master.",
-              "Use it to hear whether anything important is being shaved off (flattened drums, dull bass); it turns off when you switch to the original, bypass LIMIT or close the window, and has no effect on an offline export, which always renders the master." },
+              "Use it to hear whether anything important is being shaved off (flattened drums, dull bass); it turns off when you switch to the original, bypass LIMIT or close the window, and has no effect on an offline export (which renders the master); exit it before a real-time export." },
 
             // ---- COLOR ----
             { param::colorTone,

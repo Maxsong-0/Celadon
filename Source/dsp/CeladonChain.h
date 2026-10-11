@@ -117,9 +117,11 @@ namespace celadon
         // auditionDifference = 界面 LIMIT 卡片的「试听差值」（v0.1.8.0，见文件头）：送出去的信号换成限幅器削掉的部分，
         // 测点与处理都不变；听原声、宿主旁通或 LIMIT 旁通时不生效。默认 false 时逐位不变。
         //
-        // 离线导出（setHostInfo 的 offline，T-095 / R6-04a）：compareOriginal、auditionDifference 与 limit.listen 三种临时监听一律
+        // 离线导出（setHostInfo 的 offline，T-095 / R6-04a）：limit.listen（等响）、compareOriginal、auditionDifference 三种监听一律
         // 不生效，监听增益与差值交叉淡化立即落回母带（同归一化预听的「离线立即归一」）——成品永远是母带本身，等响忘关也不会把
-        // 导出衰减掉。实时播放逐位不变。
+        // 导出衰减掉。听原声回母带走各模块自己的 20 ms 旁通交叉淡化：宿主切离线前调了 reset（处理器下一块先按离线的参数
+        // setParams、再 restartWithFadeIn，模块旁通直接落位）或 prepareToPlay 时，离线段与同样重启过的母带链逐位相同（开头照常是
+        // 重启的静音与淡入）；实时听 B 时宿主不停处理就直接切离线，离线开头 20 ms 是原声淡到母带。实时播放逐位不变。
         void setParams (const Params& requested, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
@@ -144,8 +146,8 @@ namespace celadon
         float getAndResetInputTruePeakDb() noexcept          { return inputMeter.getAndResetTruePeakDb(); }
         float getAndResetOutputTruePeakDb() noexcept         { return outputMeter.getAndResetTruePeakDb(); }
 
-        // OUT 的短期 / 整体响度（界面右侧读数）：Listen 监听补偿之前的母带输出。听原声期间整体响度暂停积分、停在母带的值
-        //（T-032 R8-03；宿主旁通见 pauseIntegrationOnHostBypass），短期响度照常显示此刻出口的信号。
+        // OUT 的短期 / 整体响度（界面右侧读数）：Listen 监听补偿之前的母带输出。实时听原声期间整体响度暂停积分、停在母带的值
+        //（T-032 R8-03；宿主旁通见 pauseIntegrationOnHostBypass；离线导出时听原声不生效、照常积分，T-095），短期响度照常显示此刻出口的信号。
         float getOutputShortTermLufs() const noexcept        { return outputMeter.getShortTermLufs(); }
         float getOutputIntegratedLufs() const noexcept       { return outputMeter.getIntegratedLufs(); }
 
@@ -161,7 +163,7 @@ namespace celadon
 
         // Listen 测到的「处理结果 − 原声」响度差（dB，正 = 处理后更响；±24 封顶），界面的等响按钮与 A / B 状态显示用；
         // 还没测出第一份估计（prepare 之后要先攒满 1 s 窗口）时 hasListenDifference() 为 false。Listen 关着也照常测（与监听增益同一份估计）；
-        // 宿主旁通、听原声时冻结在最后一份。任何线程可读（两个原子量）。
+        // 宿主旁通、实时听原声时冻结在最后一份（离线导出时听原声不生效、照常测，T-095）。任何线程可读（两个原子量）。
         bool hasListenDifference() const noexcept           { return listenDifferenceValid.load (std::memory_order_relaxed); }
         float getListenDifferenceDb() const noexcept         { return listenDifferenceDb.load (std::memory_order_relaxed); }
 
@@ -247,9 +249,9 @@ namespace celadon
         int lastProcessSliceCount = 0;
 
         double listenSampleRate = 0.0;
-        // hostIsBypassed = 此刻走干路（宿主旁通，或 v0.1.8.0 起听原声）：Listen 的测量冻结、不补偿处理结果。
+        // hostIsBypassed = 此刻走干路（宿主旁通，或 v0.1.8.0 起实时听原声；离线时听原声不走干路，T-095）：Listen 的测量冻结、不补偿处理结果。
         bool listenRequested = false, hostIsBypassed = false, listenHasEstimate = false;
-        bool listenComparing = false;   // 听原声（A / B 的 B）且宿主没有旁通：Listen 的监听增益改用 listenOriginalDb
+        bool listenComparing = false;   // 实时听原声（A / B 的 B）且宿主没有旁通：Listen 的监听增益改用 listenOriginalDb
         int listenLatency = 0;
         std::int64_t listenInputCursor = 0, listenOutputCursor = 0, listenIgnoreThrough = 0;
         std::array<LoudnessMeter::SubBlock, LoudnessMeter::subBlockRingCapacity> listenInputHistory {};

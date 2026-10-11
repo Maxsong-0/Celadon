@@ -211,9 +211,11 @@ namespace celadon
 
         manual = newParams;
 
-        // 离线导出（宿主渲染，setHostInfo 的 offline）时三种临时监听一律不生效（T-095，R6-04a）：听原声、试听差值、等响都只是
+        // 离线导出（宿主渲染，setHostInfo 的 offline）时等响、听原声、试听差值三种监听一律不生效（T-095，R6-04a）：它们都只是
         // 监听用的，成品必须是母带本身——等响是存进工程的参数，忘关就会把成品衰减掉「处理后比原声响的那部分」（最多 24 dB）；
         // 原声 / 差值是界面状态，窗口开着导出同样会中招。归一化预听早已如此（下面的 previewRequested）。实时播放逐位不变。
+        // 「离线旁通哪几种」只在这三行定：后面一律用这三个量，不再直接读 limit.listen / compareOriginal / auditionDifference。
+        const auto monitorListen = newParams.limit.listen && ! offline;
         const auto monitorOriginal = compareOriginal && ! offline;
         const auto monitorDifference = auditionDifference && ! offline;
 
@@ -329,7 +331,7 @@ namespace celadon
             //     监听增益）：先把此刻的衰减交给 Listen 的平滑器，再归一，随后 updateListenTarget 在 20 ms 内平滑到 Listen 的目标
             //     （Listen 关或干路 = 1），applyListenGain 在所有路径上都执行，斜坡落得了地。乘法平滑器的起点不能是 0，下限 1e-6。
             // 宿主旁通 / 听原声 / 试听差值期间每块都归一（与改动前相同：抖动随机序列也每块回到固定种子）。
-            const auto rampsItself = releaseAllowed && ! offline && ! newParams.limit.listen;
+            const auto rampsItself = releaseAllowed && ! offline && ! monitorListen;   // 离线时本就是 false：与读 limit.listen 等价
 
             if (! releaseAllowed || ((leaving || previewGainPending) && ! rampsItself))
             {
@@ -372,13 +374,13 @@ namespace celadon
         limiter.setParams (limitParams);
         // 离线时等响不生效，监听增益立即归一（不走 20 ms 斜坡，同预听的「离线立即归一」）：导出从第一个样本起就是母带。
         // 等响的测量（processListen）照常跑，只供界面读数。
-        listenRequested = newParams.limit.listen && ! previewActive && ! offline;
+        listenRequested = monitorListen && ! previewActive;
         if (offline)
             listenGain.setCurrentAndTargetValue (1.0f);
         const auto bypassChanged = hostIsBypassed != dryPath;
         hostIsBypassed = dryPath;
 
-        // 听原声期间 OUT 表的整体响度暂停积分（T-032 R8-03；设计规格-总体 2026-09-28 修订「三种临时监听……表与 GLAZE 照常按母带算」）：
+        // 实时听原声期间 OUT 表的整体响度暂停积分（离线时听原声不生效、照常积分，T-095；T-032 R8-03；设计规格-总体 2026-09-28 修订「三种临时监听……表与 GLAZE 照常按母带算」）：
         // 出口此刻是原声，积进去就会把原声混进母带的整体读数，预听归一化也跟着偏。短期响度、真峰值、子块环照常（校准与 Listen 的配对不经直方图）。
         // 宿主旁通接在同一个开关上，但要等 Max 确认口径（pauseIntegrationOnHostBypass，见 CeladonChain.h）：现在宿主旁通时照旧积分。
         outputMeter.setIntegrationPaused (monitorOriginal || (hostBypassed && pauseIntegrationOnHostBypass));
