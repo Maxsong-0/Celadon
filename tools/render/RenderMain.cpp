@@ -5342,6 +5342,19 @@ namespace
         return xx > 0.0 && yy > 0.0 ? xy / std::sqrt (xx * yy) : 0.0;
     }
 
+    // 同决策重放自检用的信号（--selftest 的重放阳性对照与 T-096d 覆盖对照共用）：两路不相关白噪声（峰值 −26 dBFS）加两声道同相的
+    // 8 Hz 正弦（0.1），让自动低切有东西可切；20 s，够聆听（15 s）学完、方案过渡走到校准。
+    juce::AudioBuffer<float> replaySelfTestSignal()
+    {
+        auto signal = testNoise (static_cast<int> (20.0 * selfTestRate), 0.05f);
+
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < signal.getNumSamples(); ++i)
+                signal.setSample (ch, i, signal.getSample (ch, i) + testSine (8.0, i, 0.1));
+
+        return signal;
+    }
+
     struct SelfTest
     {
         int failed = 0;
@@ -5354,6 +5367,401 @@ namespace
                 ++failed;
         }
     };
+
+    // 自检用：照命令行解析一遍（argv[0] 自动补上），只要结果与错误文字。
+    ParseResult parseForSelfTest (std::vector<std::string> args, std::string& error)
+    {
+        args.insert (args.begin(), "celadon_render");
+        std::vector<char*> argv;
+
+        for (auto& arg : args)
+            argv.push_back (arg.data());
+
+        Options options;
+        return parseArguments (static_cast<int> (argv.size()), argv.data(), options, error);
+    }
+
+    // T-096d 重放覆盖（--replay-override）的自检。正反两向都要有牙（踩坑：对照要先确认被测路径真被走到）：
+    //   ① 解析：合法写法、九种非法写法；行标签与文件名；GLAZE 0 无重放行（replaysAfter 与命令行两层）；
+    //   ② 参数核对器：覆盖 ChainParams 全部字段（按偏移核对）、白名单的键各对上一个 float 字段、抓得住单个字段（含数组元素）的改动；
+    //   ③ 差信号指标的已知答案（合成信号，期望值与容差逐项写依据）；
+    //   ④ 整条链（GLAZE 35「自动」，真歌同一套两遍流程）：自动 Heat > 0（负向对照有东西可比）→ 覆盖成 0 差信号非 0、两层参数核对为真、
+    //      核对抓得住改动；覆盖值 = 记录值 → 与 replay-copy 逐位相同；prepare 前那份与每一块都被覆盖（BUG-012），且这一项有牙。
+    void runReplayOverrideSelfTest (SelfTest& test)
+    {
+        const auto heatKey = static_cast<std::size_t> (std::find_if (replayOverrideKeys.begin(), replayOverrideKeys.end(),
+                                                                    [] (const ReplayOverrideKey& k) { return std::string (k.key) == "color.heat"; })
+                                                       - replayOverrideKeys.begin());
+        const auto view = [] (RenderResult& r) { return juce::AudioBuffer<float> (r.io.getArrayOfWritePointers(), 2, r.latencySamples, r.outputLength); };
+
+        // ---- ① 解析、标识、GLAZE 0 无重放行 ----
+        {
+            ReplayOverrides parsed, half;
+            std::string error;
+            const auto ok = parseReplayOverrides ("color.heat=0", parsed, error);
+            const auto okHalf = parseReplayOverrides (" color.heat = 12.5 ", half, error);
+
+            test.check (heatKey < replayOverrideKeys.size() && ok && parsed.size() == 1 && parsed[0].key == heatKey && parsed[0].value == 0.0f
+                            && replayOverrideId (parsed) == "replay-heat0" && replayOverrideText (parsed) == "color.heat=0"
+                            && okHalf && half.size() == 1 && half[0].value == 12.5f && replayOverrideId (half) == "replay-heat12.5",
+                        "重放覆盖 解析与标识", "color.heat=0 → " + replayOverrideId (parsed) + " / " + replayOverrideText (parsed)
+                                               + "；color.heat = 12.5 → " + replayOverrideId (half));
+
+            const std::array<const char*, 9> bad { { "color.heat", "color.glue=0", "color.heat=101", "color.heat=-1", "color.heat=abc",
+                                                     "color.heat=0,color.heat=1", "", "color.heat=nan", "color.heat=inf" } };
+            std::string accepted;
+
+            for (const auto* text : bad)
+            {
+                ReplayOverrides o;
+                std::string e;
+
+                if (parseReplayOverrides (text, o, e) || e.empty())
+                    accepted += (accepted.empty() ? "「" : "、「") + std::string (text) + "」";
+            }
+
+            test.check (accepted.empty(), "重放覆盖 非法写法都报错",
+                        accepted.empty() ? "缺「=」、不在白名单、越界（101 / −1）、不是数（abc / nan / inf）、重复的键、空值 九种都报错"
+                                         : "竟然收下了 " + accepted);
+
+            const auto saved = replayOverrideNames;
+            replayOverrideNames = { replayOverrideId (parsed), replayOverrideText (parsed) };
+            Combo combo;
+            combo.glaze = 35.0f;
+            combo.clay = ClayChoice::replayOverride;
+            const auto file = outputFileName ("Song A", combo);
+            const auto label = comboLabel (combo, " · ");
+            replayOverrideNames = saved;
+
+            test.check (file == "Song A__g35_clay-replay-heat0_auto.wav" && label == "g35 · clay-replay-heat0 · auto",
+                        "重放覆盖 行标签与文件名", file + "、" + label);
+
+            Options options;
+            options.replayOverrides = parsed;
+            Combo zero;
+            zero.glaze = 0.0f;
+            zero.clay = ClayChoice::automatic;
+            auto on = zero;
+            on.glaze = 35.0f;
+            auto offCombo = on;
+            offCombo.clay = ClayChoice::off;
+            auto noReplay = options;
+            noReplay.replay = false;
+
+            std::string e1, e2, e3, e4, e5;
+            const auto glazeZeroOnly = parseForSelfTest ({ "--in", "a", "--out", "b", "--glaze", "0", "--replay-override", "color.heat=0" }, e1);
+            const auto withNoReplay = parseForSelfTest ({ "--in", "a", "--out", "b", "--glaze", "35", "--no-replay", "--replay-override", "color.heat=0" }, e2);
+            const auto clayOffOnly = parseForSelfTest ({ "--in", "a", "--out", "b", "--glaze", "35", "--clay", "off", "--replay-override", "color.heat=0" }, e3);
+            const auto twice = parseForSelfTest ({ "--in", "a", "--out", "b", "--glaze", "35", "--replay-override", "color.heat=0",
+                                                   "--replay-override", "color.heat=0" }, e4);
+            const auto mixed = parseForSelfTest ({ "--in", "a", "--out", "b", "--glaze", "0,35", "--replay-override", "color.heat=0" }, e5);
+
+            test.check (! replaysAfter (options, zero) && replaysAfter (options, on) && ! replaysAfter (options, offCombo) && ! replaysAfter (noReplay, on)
+                            && glazeZeroOnly == ParseResult::invalid && withNoReplay == ParseResult::invalid && clayOffOnly == ParseResult::invalid
+                            && twice == ParseResult::invalid && mixed == ParseResult::run,
+                        "GLAZE 0 无重放行",
+                        "给了覆盖时 GLAZE 0 的自动组也不重放、GLAZE 35 自动组重放、修坯全关组与 --no-replay 不重放；命令行只有 GLAZE 0 / --no-replay / "
+                        "只有修坯全关 / 给两次都报错，--glaze 0,35 收下（只在 35 那组之后加行）");
+        }
+
+        // ---- ② 参数核对器 ----
+        // 覆盖全字段：按偏移排好各字段，相邻两字段之间的空隙只能是对齐填充（< 后一个字段的对齐），末尾空隙 < 整个结构的对齐；
+        // 否则就是有字段没列进 visitChainParamFields（或列重了）。
+        {
+            const auto probe = makeFactoryParams();
+            struct Span { std::size_t offset, size, align; std::string name; };
+            std::vector<Span> spans;
+            const auto* base = reinterpret_cast<const unsigned char*> (&probe);
+
+            visitChainParamFields (probe, probe, [&] (const char* name, int index, const auto& x, const auto&)
+            {
+                using Field = std::decay_t<decltype (x)>;
+                spans.push_back ({ static_cast<std::size_t> (reinterpret_cast<const unsigned char*> (&x) - base), sizeof (Field), alignof (Field),
+                                   fieldName (name, index) });
+            });
+
+            std::sort (spans.begin(), spans.end(), [] (const Span& a, const Span& b) { return a.offset < b.offset; });
+            std::size_t end = 0;
+            std::string problem;
+
+            for (const auto& s : spans)
+            {
+                if (problem.empty() && s.offset < end)
+                    problem = s.name + " 与前一个字段重叠（列重了？）";
+                else if (problem.empty() && s.offset - end >= s.align)
+                    problem = s.name + " 前面空出 " + std::to_string (s.offset - end) + " 字节，比它的对齐 " + std::to_string (s.align)
+                            + " 还大：有字段没列进 visitChainParamFields";
+
+                end = std::max (end, s.offset + s.size);
+            }
+
+            if (problem.empty() && sizeof (celadon::ChainParams) - end >= alignof (celadon::ChainParams))
+                problem = "结构末尾空出 " + std::to_string (sizeof (celadon::ChainParams) - end) + " 字节：有字段没列进 visitChainParamFields";
+
+            test.check (problem.empty(), "参数核对覆盖 ChainParams 全部字段",
+                        problem.empty() ? std::to_string (spans.size()) + " 个字段，共 " + std::to_string (sizeof (celadon::ChainParams))
+                                            + " 字节，相邻空隙都只是对齐填充"
+                                        : problem);
+
+            // 白名单的每个键都对得上恰好一个 float 字段，get / set 读写的正是它（只改它：核对说「只差覆盖的键」，不带覆盖时说就是它不同）。
+            std::string keyProblem;
+
+            for (std::size_t k = 0; k < replayOverrideKeys.size(); ++k)
+            {
+                const auto& key = replayOverrideKeys[k];
+                auto matches = 0;
+                auto isFloat = false;
+
+                visitChainParamFields (probe, probe, [&] (const char* name, int index, const auto& x, const auto&)
+                {
+                    if (index < 0 && std::strcmp (name, key.key) == 0)
+                    {
+                        ++matches;
+                        isFloat = std::is_same_v<std::decay_t<decltype (x)>, float>;
+                    }
+                });
+
+                const auto value = key.get (probe) == static_cast<float> (key.maxValue) ? static_cast<float> (key.minValue)
+                                                                                     : static_cast<float> (key.maxValue);
+                auto changed = probe;
+                key.set (changed, value);
+                std::string whereWith, whereWithout;
+                const ReplayOverrides one { { k, value } };
+                const auto onlyThat = sameExceptOverrides (probe, changed, one, whereWith);
+                const auto seen = ! sameExceptOverrides (probe, changed, {}, whereWithout) && whereWithout == key.key;
+
+                if (matches != 1 || ! isFloat || ! onlyThat || ! seen || key.get (changed) != value)
+                    keyProblem += std::string (keyProblem.empty() ? "" : "；") + key.key + "（对上 " + std::to_string (matches) + " 个字段"
+                                + (isFloat ? "" : "、不是 float") + (onlyThat ? "" : "、set 改了别的字段：" + whereWith)
+                                + (seen ? "" : "、不带覆盖时报的是「" + whereWithout + "」") + "）";
+            }
+
+            test.check (keyProblem.empty(), "白名单的键都对得上 ChainParams 的一个字段",
+                        keyProblem.empty() ? std::to_string (replayOverrideKeys.size()) + " 个键（" + knownReplayOverrideKeys() + "）各对上一个 float 字段，set 只改它"
+                                           : keyProblem);
+
+            // 抓得住别的字段（标量、数组元素）的改动；覆盖的键不等于覆盖值也抓得住；只改了覆盖的键时说相同。
+            const ReplayOverrides heat0 { { heatKey, 0.0f } };
+            auto gain = probe;
+            gain.limit.gainDb = probe.limit.gainDb + 0.5f;
+            auto reference = probe;
+            reference.balance.targetReferenceDb[26] = probe.balance.targetReferenceDb[26] + 1.0f;
+            auto cleared = probe;
+            cleared.color.heat = 0.0f;
+            auto clearedAndClip = cleared;
+            clearedAndClip.limit.clip = probe.limit.clip + 3.0f;
+            auto notCleared = probe;
+            notCleared.color.heat = 5.0f;
+            std::string whereGain, whereReference, whereClip, whereHeat, whereSame;
+            const auto caught = ! sameExceptOverrides (probe, gain, {}, whereGain) && whereGain == "limit.gainDb"
+                             && ! sameExceptOverrides (probe, reference, {}, whereReference) && whereReference == "balance.targetReferenceDb[26]"
+                             && ! sameExceptOverrides (probe, clearedAndClip, heat0, whereClip) && whereClip == "limit.clip"
+                             && ! sameExceptOverrides (probe, notCleared, heat0, whereHeat) && whereHeat == "color.heat（不等于覆盖值）"
+                             && sameExceptOverrides (probe, cleared, heat0, whereSame);
+
+            test.check (caught, "参数核对抓得住单个字段的改动",
+                        "改 Limit Gain → " + whereGain + "；改参考曲线第 27 段 → " + whereReference + "；覆盖 Heat 时另改 Clip → " + whereClip
+                            + "；Heat 不等于覆盖值 → " + whereHeat + "；只改 Heat 为覆盖值 → 相同");
+        }
+
+        // ---- ③ 差信号指标的已知答案 ----
+        // 母带 = 两声道 1 kHz 正弦（0.5），48 kHz。覆盖版 = 母带 × (1 + g) 时差 = g × 母带：K 加权、1/3 倍频程都是线性时不变，所以
+        // 不加权 RMS、K 加权（整体与任何一个 3 s 窗）、1 kHz 段的「差 ÷ 母带」都 = 20·log10(g)；g = 10^(−60/20) → −60 dB。
+        // 覆盖版存成 float 的舍入（≤ 3e-8）相对差（5e-4 量级）只差 0.001 dB 级，容差 0.01 dB。
+        {
+            const auto samples = [] (double seconds) { return static_cast<int> (seconds * selfTestRate); };
+            const auto tone = [] (int i) { return testSine (1000.0, i, 0.5); };
+            const auto master = testSignal (samples (10.0), tone, tone);
+            const auto scaledBy = [] (const juce::AudioBuffer<float>& source, const auto& factor)
+            {
+                juce::AudioBuffer<float> scaled (2, source.getNumSamples());
+
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < source.getNumSamples(); ++i)
+                        scaled.setSample (ch, i, static_cast<float> (static_cast<double> (source.getSample (ch, i)) * (1.0 + factor (i))));
+
+                return scaled;
+            };
+            const auto within = [] (double value, double expected, double tolerance) { return std::abs (value - expected) <= tolerance; };
+
+            const auto constant = measureDifference (master, scaledBy (master, [] (int) { return 0.001; }), selfTestRate);
+            const auto band1k = static_cast<std::size_t> (14);   // 第 14 段 = 1 kHz（BalanceModule：referenceBand）
+            test.check (constant.hasRms && within (constant.rmsReMasterDb, -60.0, 0.01) && constant.hasLoudness && within (constant.kReMasterLu, -60.0, 0.01)
+                            && constant.hasWorstWindow && within (constant.worstWindowLu, -60.0, 0.01) && constant.hasBand[band1k]
+                            && within (constant.bandReMasterDb[band1k], -60.0, 0.01) && within (toDbfs (constant.maxAbsDiff), 20.0 * std::log10 (0.5e-3), 0.01)
+                            && constant.hasHighBand && constant.highBandRmsDbfs < -120.0
+                            && constant.hasMasterLufs && std::abs (constant.gatedMasterLufs - constant.masterLufs) <= 0.1,
+                        "差信号 恒定比例 −60 dB",
+                        "RMS " + fixed (constant.rmsReMasterDb, 4) + " / K 加权 " + fixed (constant.kReMasterLu, 4) + " / 最坏 3 s 窗 "
+                            + fixed (constant.worstWindowLu, 4) + " / 1 kHz 段 " + fixed (constant.bandReMasterDb[band1k], 4) + " dB（期望都是 −60 ± 0.01）；"
+                            + "最大样本差 " + fixed (toDbfs (constant.maxAbsDiff), 3) + " dBFS（期望 −66.021）；17.8 kHz 以上 "
+                            + decibelText (constant.highBandRmsDbfs, 1) + " dBFS（期望 < −120：1 kHz 的差过 8 阶高通约 −260 dB，剩下的是 float 舍入）；"
+                            + "门控母带 " + fixed (constant.gatedMasterLufs, 3) + " / 表 " + fixed (constant.masterLufs, 3) + " LUFS（差 ≤ 0.1）");
+
+            // 17.8 kHz 以上：覆盖版 = 母带 + 1e-3·sin(20 kHz)。差只有 20 kHz 这一个正弦：每声道均方 0.5e-6 × |H(20 kHz)|²，
+            // |H|² = 1 / (1 + (tan(π·fc/fs) / tan(π·f/fs))^16)（8 阶 Butterworth 经双线性变换、在 fc 预畸变）≈ 0.99939；
+            // 期望 RMS = 10·log10(0.5e-6 · |H|²) ≈ −63.013 dBFS，相对母带全频（均方 0.125）≈ −53.982 dB。10 s 正好整数个周期，高通起振可忽略，容差 0.05 dB。
+            const auto high = [] (int i) { return static_cast<float> (1.0e-3 * std::sin (juce::MathConstants<double>::twoPi * 20000.0 * i / selfTestRate)); };
+            juce::AudioBuffer<float> withHigh (2, master.getNumSamples());
+
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < master.getNumSamples(); ++i)
+                    withHigh.setSample (ch, i, master.getSample (ch, i) + high (i));
+
+            const auto highBand = measureDifference (master, withHigh, selfTestRate);
+            const auto ratio = std::tan (juce::MathConstants<double>::pi * heatAbHighBandHz / selfTestRate)
+                             / std::tan (juce::MathConstants<double>::pi * 20000.0 / selfTestRate);
+            const auto passPower = 1.0 / (1.0 + std::pow (ratio, 16.0));
+            const auto expectedHigh = 10.0 * std::log10 (0.5e-6 * passPower);
+            const auto expectedHighReMaster = 10.0 * std::log10 (0.5e-6 * passPower / 0.125);
+            test.check (highBand.hasHighBand && within (highBand.highBandRmsDbfs, expectedHigh, 0.05) && within (highBand.highBandReMasterDb, expectedHighReMaster, 0.05),
+                        "差信号 17.8 kHz 以上",
+                        fixed (highBand.highBandRmsDbfs, 3) + " dBFS（期望 " + fixed (expectedHigh, 3) + " ± 0.05）、相对母带 "
+                            + fixed (highBand.highBandReMasterDb, 3) + " dB（期望 " + fixed (expectedHighReMaster, 3) + " ± 0.05）");
+
+            // 最坏 3 s 窗与静音门：16 s，前 4 s 两份都静音（这些窗母带短期响度 −∞，过不了门、不能拿 0 / 0 当数），之后母带 1 kHz 正弦；
+            // 差 = 1e-3 × 母带，只有 [8 s, 13 s) 是 1e-2 × 母带（−40 dB）。完全落在这 5 s 里的窗起点在 8.0 ～ 10.0 s，比值都是 −40；
+            // 别的窗是 −40 与 −60 的混合，低于 −40。期望最坏窗 −40 ± 0.01 LU、起点在 [8.0, 10.0] s（子块网格 0.1 s）；整首在 −60 与 −40 之间。
+            const auto gated = [&tone] (int i) { return i < static_cast<int> (4.0 * selfTestRate) ? 0.0f : tone (i); };
+            const auto withSilence = testSignal (samples (16.0), gated, gated);
+            const auto louder = scaledBy (withSilence, [] (int i)
+            {
+                return i >= static_cast<int> (8.0 * selfTestRate) && i < static_cast<int> (13.0 * selfTestRate) ? 0.01 : 0.001;
+            });
+            const auto worst = measureDifference (withSilence, louder, selfTestRate);
+            test.check (worst.hasWorstWindow && within (worst.worstWindowLu, -40.0, 0.01) && worst.worstWindowStartSeconds >= 7.95
+                            && worst.worstWindowStartSeconds <= 10.05 && worst.hasLoudness && worst.kReMasterLu > -60.0 && worst.kReMasterLu < -40.0,
+                        "差信号 最坏 3 s 窗与静音门",
+                        "最坏窗 " + fixed (worst.worstWindowLu, 4) + " LU（期望 −40 ± 0.01），起点 " + fixed (worst.worstWindowStartSeconds, 1)
+                            + " s（期望 8.0 ～ 10.0），整首 " + fixed (worst.kReMasterLu, 3) + " LU（期望在 −60 与 −40 之间）");
+
+            // 门控与插件的表一致：6 s 正弦 0.5 之后 6 s 正弦 0.05（低 20 dB，过不了 −10 LU 相对门）。自己按 BS.1770-4 门控算的母带整体响度
+            // 应与 LoudnessMeter 的读数差 ≤ 0.1 LU（那张表按 0.1 LU 直方图积分）；差 = 1e-3 × 母带，K 加权响度差仍是 −60。
+            const auto twoLevels = [] (int i) { return testSine (1000.0, i, i < static_cast<int> (6.0 * selfTestRate) ? 0.5 : 0.05); };
+            const auto stepped = testSignal (samples (12.0), twoLevels, twoLevels);
+            const auto gatedLevels = measureDifference (stepped, scaledBy (stepped, [] (int) { return 0.001; }), selfTestRate);
+            test.check (gatedLevels.hasLoudness && gatedLevels.hasMasterLufs && std::abs (gatedLevels.gatedMasterLufs - gatedLevels.masterLufs) <= 0.1
+                            && within (gatedLevels.kReMasterLu, -60.0, 0.01),
+                        "差信号 门控与 LoudnessMeter 一致",
+                        "门控母带 " + fixed (gatedLevels.gatedMasterLufs, 3) + " / 表 " + fixed (gatedLevels.masterLufs, 3) + " LUFS（差 ≤ 0.1）；K 加权 "
+                            + fixed (gatedLevels.kReMasterLu, 4) + " LU（期望 −60 ± 0.01）");
+
+            // 差为 0（覆盖什么都没改时就是这样）：各项是 −inf（文字 -inf），不是 0、不是空。
+            const auto none = measureDifference (master, master, selfTestRate);
+            test.check (none.maxAbsDiff == 0.0 && none.hasRms && std::isinf (none.rmsReMasterDb) && none.hasLoudness && std::isinf (none.kReMasterLu)
+                            && none.kReMasterLu < 0.0 && none.hasWorstWindow && std::isinf (none.worstWindowLu) && decibelText (none.kReMasterLu, 3) == "-inf",
+                        "差信号 恰好为 0", "RMS / K 加权 / 最坏窗都是 " + decibelText (none.kReMasterLu, 3));
+
+            // 素材原因算不出：2 s 的歌没有 3 s 窗；32 kHz 的歌没有 17.8 kHz 以上——留空并写原因，其余照算。
+            const auto shortMaster = testSignal (samples (2.0), tone, tone);
+            const auto tooShort = measureDifference (shortMaster, scaledBy (shortMaster, [] (int) { return 0.001; }), selfTestRate);
+            constexpr double lowRate = 32000.0;
+            const auto lowTone = [] (int i) { return static_cast<float> (0.5 * std::sin (juce::MathConstants<double>::twoPi * 1000.0 * i / lowRate)); };
+            const auto lowMaster = testSignal (static_cast<int> (5.0 * lowRate), lowTone, lowTone);
+            const auto lowRateDifference = measureDifference (lowMaster, scaledBy (lowMaster, [] (int) { return 0.001; }), lowRate);
+            test.check (! tooShort.hasWorstWindow && tooShort.naReason.find ("不够 3 s") != std::string::npos && tooShort.hasLoudness
+                            && ! lowRateDifference.hasHighBand && lowRateDifference.naReason.find ("17.8 kHz") != std::string::npos
+                            && within (lowRateDifference.kReMasterLu, -60.0, 0.01),
+                        "差信号 算不出的项留空写原因",
+                        "2 s：" + tooShort.naReason + "；32 kHz：" + lowRateDifference.naReason);
+        }
+
+        // ---- ④ 整条链 ----
+        {
+            const auto signal = replaySelfTestSignal();
+            Combo combo;
+            combo.glaze = 35.0f;
+            combo.clay = ClayChoice::automatic;
+            const auto params = makeComboParams (combo);
+            const auto listen = listenPass (signal, selfTestRate, 512, params);
+            RenderResult render;
+            EffectiveLog effectiveLog;
+            renderPass (signal, selfTestRate, 512, params, listen.state.get(), false, render, &effectiveLog);
+
+            HeatAbRecord stats;
+            heatStats (effectiveLog, stats);
+            const auto autoHeat = stats.heatMax > 0.0;
+            test.check (autoHeat, "覆盖对照有东西可比（自动 Heat > 0）",
+                        "GLAZE 35 自动链 " + std::to_string (stats.blocks) + " 块，Heat 均值 " + fixed (stats.heatMean, 3) + " / 最大 "
+                            + fixed (stats.heatMax, 3) + "，为 0 的块 " + fixed (stats.heatZeroPercent, 1) + " %（最大要 > 0，否则下面的负向对照没有牙）");
+
+            // 负向：覆盖成 0 → 成品变了、差信号量得出数；两层参数核对为真。
+            const ReplayOverrides zero { { heatKey, 0.0f } };
+            const ReplayVariant heat0 (ReplayClay::copy, &zero);
+            RenderResult copy, cleared;
+            EffectiveLog copyUsed, clearedUsed;
+            replayPass (signal, selfTestRate, 512, effectiveLog, ReplayClay::copy, copy, Transport {}, false, nullptr, &copyUsed);
+            replayPass (signal, selfTestRate, 512, effectiveLog, heat0, cleared, Transport {}, false, nullptr, &clearedUsed);
+            const auto copyAudio = view (copy);
+            const auto clearedAudio = view (cleared);
+            const auto lengthsMatch = copy.latencySamples == cleared.latencySamples && copy.outputLength == cleared.outputLength;
+            const auto difference = lengthsMatch ? maxAbsDifference (copyAudio, clearedAudio) : 1.0;
+            const auto metrics = measureDifference (copyAudio, clearedAudio, selfTestRate);
+            test.check (autoHeat && lengthsMatch && difference > 0.0 && hashAudio (copyAudio) != hashAudio (clearedAudio) && metrics.hasLoudness
+                            && std::isfinite (metrics.kReMasterLu) && metrics.kReMasterLu < 0.0 && metrics.hasWorstWindow && std::isfinite (metrics.worstWindowLu),
+                        "覆盖 color.heat=0 让差信号非 0",
+                        "最大样本差 " + decibelText (toDbfs (difference), 1) + " dBFS；差信号 K 加权比母带 " + decibelText (metrics.kReMasterLu, 2)
+                            + " LU、最坏 3 s 窗 " + decibelText (metrics.worstWindowLu, 2) + " LU、RMS " + decibelText (metrics.rmsReMasterDb, 2) + " dB");
+
+            HeatAbRecord record;
+            checkReplayParams (effectiveLog, copyUsed, clearedUsed, heat0, record);
+            test.check (record.fedParamsEqual && record.chainParamsEqual, "两条重放链除 color.heat 外逐位相同",
+                        record.firstMismatch.empty() ? "交给链的与链实际交给模块的参数，prepare 前 + " + std::to_string (copyUsed.blocks.size())
+                                                           + " 块都只差 color.heat（覆盖的那份逐位是 0）"
+                                                     : record.firstMismatch);
+
+            auto tampered = clearedUsed;
+
+            if (! tampered.blocks.empty())
+                tampered.blocks[tampered.blocks.size() / 2].limit.gainDb += 0.5f;
+
+            HeatAbRecord tamperedRecord;
+            checkReplayParams (effectiveLog, copyUsed, tampered, heat0, tamperedRecord);
+            test.check (! tamperedRecord.chainParamsEqual && tamperedRecord.firstMismatch.find ("limit.gainDb") != std::string::npos,
+                        "参数核对抓得住链里别的字段变了", "把覆盖链中间一块的 Limit Gain 改 0.5 dB → " + tamperedRecord.firstMismatch);
+
+            // 正向（覆盖值 = 记录值 → 与 replay-copy 逐位相同）：每份记录的 Heat 都是 v（v = 自动链的最大 Heat），覆盖成 v。
+            const auto v = static_cast<float> (stats.heatMax);
+            auto flat = effectiveLog;
+            flat.prepared.color.heat = v;
+
+            for (auto& p : flat.blocks)
+                p.color.heat = v;
+
+            const ReplayOverrides toV { { heatKey, v } };
+            const ReplayVariant keepV (ReplayClay::copy, &toV);
+            RenderResult flatCopy, flatKept;
+            replayPass (signal, selfTestRate, 512, flat, ReplayClay::copy, flatCopy);
+            replayPass (signal, selfTestRate, 512, flat, keepV, flatKept);
+            const auto flatHash = hashAudio (view (flatCopy));
+            const auto keptSame = flatKept.latencySamples == flatCopy.latencySamples && flatKept.outputLength == flatCopy.outputLength
+                               && hashAudio (view (flatKept)) == flatHash;
+            test.check (autoHeat && keptSame, "覆盖值 = 记录值时与 replay-copy 逐位相同",
+                        std::string (keptSame ? "逐位相同" : "不同") + "（记录与覆盖的 Heat 都是 " + fixed (v, 3) + "）");
+
+            // BUG-012：记录里 Heat 全是 0（prepare 前那份也是），覆盖成 v → 必须与「每份都是 v」的 replay-copy 逐位相同。
+            // 这一项有牙：只把 prepare 前那份改成 0、逐块仍是 v 的 replay-copy 与它不同（模块 prepare 时落在 0 上，开头有一段 Heat 平滑）——
+            // 漏覆盖 prepare 前那份就会被上一句抓到。
+            auto zeroLog = flat;
+            zeroLog.prepared.color.heat = 0.0f;
+
+            for (auto& p : zeroLog.blocks)
+                p.color.heat = 0.0f;
+
+            auto preparedOnly = flat;
+            preparedOnly.prepared.color.heat = 0.0f;
+            RenderResult lifted, preparedCopy;
+            replayPass (signal, selfTestRate, 512, zeroLog, keepV, lifted);
+            replayPass (signal, selfTestRate, 512, preparedOnly, ReplayClay::copy, preparedCopy);
+            const auto liftedSame = lifted.latencySamples == flatCopy.latencySamples && lifted.outputLength == flatCopy.outputLength
+                                 && hashAudio (view (lifted)) == flatHash;
+            const auto preparedMatters = hashAudio (view (preparedCopy)) != flatHash;
+            test.check (autoHeat && liftedSame && preparedMatters, "prepare 前那份与每一块都被覆盖（BUG-012）",
+                        std::string (liftedSame ? "记录全是 0、覆盖成 v：与每份都是 v 的 replay-copy 逐位相同" : "记录全是 0、覆盖成 v：与每份都是 v 的不同")
+                            + (preparedMatters ? "；只有 prepare 前是 0 的 replay-copy 确实不同（这一项有牙）"
+                                               : "；只有 prepare 前是 0 的 replay-copy 竟然也相同（这一项没牙，查 Heat 的 prepare 落点）"));
+        }
+    }
 
     int runSelfTest()
     {
@@ -5513,11 +5921,7 @@ namespace
         // 信号：两路不相关白噪声（峰值 −26 dBFS）加两声道同相的 8 Hz 正弦（0.1），让自动低切有东西可切；20 s，够聆听（15 s）
         // 学完、方案过渡走到校准，自动增量、校准偏差都在变。细节里报 GLAZE 是否真的动了、低切是否开过（只作说明，不判定）。
         {
-            auto signal = testNoise (static_cast<int> (20.0 * selfTestRate), 0.05f);
-
-            for (int ch = 0; ch < 2; ++ch)
-                for (int i = 0; i < signal.getNumSamples(); ++i)
-                    signal.setSample (ch, i, signal.getSample (ch, i) + testSine (8.0, i, 0.1));
+            const auto signal = replaySelfTestSignal();
 
             Combo combo;
             combo.glaze = 35.0f;
@@ -5586,6 +5990,8 @@ namespace
                         std::to_string (off.latencySamples) + " / " + std::to_string (off.outputLength) + " 样本（自动链 "
                             + std::to_string (render.latencySamples) + " / " + std::to_string (render.outputLength) + "）");
         }
+
+        runReplayOverrideSelfTest (test);   // T-096d
 
         if (test.failed == 0)
             std::cerr << "自检全部通过\n";
