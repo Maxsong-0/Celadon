@@ -31,7 +31,7 @@ The target loudness (the “Target” on the status line, and the target marker 
 
 ## Correction curve (BALANCE card)
 
-How many dB each of the 27 bands is being lifted (up) or pulled down (down) right now, over a ±8 dB range. Mostly close to the centre line, with only a few bands moving, is most natural. Violet = GLAZE's automatic share.
+How many dB each of the 27 bands is being lifted (up) or pulled down (down) right now, drawn as a smooth curve with a small dot at each band centre; larger corrections bend toward the edges instead of being cut off. Mostly close to the centre line, with only a few bands moving, is most natural. Behind the curve is a faint average spectrum of the output.
 
 ## Current target correction (Advanced → Target spectrum)
 
