@@ -143,6 +143,31 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 Windows 的 UCRT 还按 CPU 是否支持 FMA3 换超越函数的实现。所以 `tools/render` 的 `audio_hash` 只在同一台机器的同一种构建
 之间可比，跨平台对照用 `gate_check.py` 的 dB / LU 门槛（见 `tools/render/README.md`）。
 
+## DGX Spark（max-spark）：Mac 会话的编译、测试、渲染与基准都在这里跑
+
+Max 2026-10-04 定：Celadon 的编译、测试、渲染一律去 DGX（NVIDIA DGX Spark，aarch64 Cortex-X925 × 10 + A725 × 10，20 核 / 121 GB，
+Ubuntu 24.04，GCC 13.3，Release + Ninja，没有 LTO），Mac 上不编不测；107 / 109 只在家里网络或 VPN 下可达，CI 仍在 107。
+
+- **连法**：`ssh max-spark`（`~/.ssh/config` 的别名，HostKeyAlias 同名）。别名写的 `max-spark.local` 跨网段解析不到，Mac 在别的网段时
+  用 `ssh -o Hostname=192.168.109.100 max-spark`（保留别名才复用 known_hosts；直接 `maxsong@192.168.109.100` 会报 Host key verification failed）。
+  Tailscale 里它叫 `max-spark`（100.x 地址），但 Tailscale SSH 的 22 端口每次都要先在网页上授权。Mac 这边 ssh / rsync 在 Claude 的沙箱里会被拦，要绕过沙箱。
+- **一个入口**：`scripts/spark.sh`（`sync` 同步工作树、`archive <提交>` 放干净树、`build|test|run|dir` 转给远端、`ssh` 直跑；都有 `--dry-run`）。
+  它只写自己建的远端目录（标记文件 `.celadon-spark-owner`），别的会话的源码目录不会被 `rsync --delete` 抹掉。
+- **远端脚本**：`~/.cache/celadon-spark/bin/spark-test.sh <源码目录> build|test|run|dir`（参考副本 `scripts/dgx/spark-test.sh`，以 DGX 上那份为准）。
+  源码放 `~/.cache/celadon-spark/src/<名>/`，构建目录 `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令打印）。
+  `build` 默认目标 `celadon_tests celadon_render`；`test` 编 `celadon_tests` 后运行（可带 `--only 类名,…`）；`run <命令…>` 在锁里跑任意命令，
+  命令里可用 `$BUILD`（单引号留给远端展开）。`SPARK_JOBS` 并行编译数（默认 8，几个会话同时编给 4）；`CELADON_CXX_FLAGS` 同 `test-linux.sh`。
+- **锁**：同一构建目录的编译互斥；`test` / `run` 走**全机串行锁** `~/.cache/celadon-spark/locks/run.lock`（别的会话的测试也排这把锁，计时护栏
+  不被干扰）；**编译不进全机锁**——跑 CPU 基准前要在 vault TASKS ② 登记独占、给在跑的会话发消息、另起进程观察编译活动，日志为空才算干净。
+- **环境**：`~/.cache/celadon-spark/venv/bin/python`，按 `tools/render/requirements.txt` 装（numpy / scipy / soundfile / pyloudnorm / matplotlib；
+  少了就 `venv/bin/pip install -r tools/render/requirements.txt`；`spark-test.sh` 把它放进 PATH）；`/usr/bin/ffmpeg` 6.1.1（aac / libopus /
+  libmp3lame / ebur128，无 libfdk_aac）；截图工具要的 freetype / fontconfig / x11 头在 `~/.cache/celadon-spark/guidev/`；`taskset`、`curl` 有。
+- **语料**（都在 `~/.cache/`，不进 git、不出 DGX）：`celadon-t048-22songs/`（Max 的门槛曲：`wav/` + `batch.sh` + `manifest.tsv`）、
+  `celadon-t048-cal/<deep|tech|melodic>/<track>/<track>.wav`（Jamendo 45 首，44.1 kHz 24 bit，已裁到小节线；标签见
+  `docs/validation/2026-10-01-T038-calibration/`）、`celadon-t048-cal-syn/`（合成 House）。谁占着哪个目录看 vault TASKS ②。
+- **口径**：aarch64 上 Color 的 NEON 快路径与标量逐位对不上（Linux ARM 不是目标平台），已知固定失败 5 条（ColorModule 4 + BalancePerformance 1），
+  过 / 败一律对照同机基线只算新增；`audio_hash` 只在同机同构建内可比（见上一节）；x86-64-v3 与 MSVC 仍分别在 CI（107）与 109 上跑。
+
 ## CI（GitHub Actions，Studiolo 的自托管 runner）
 
 `.github/workflows/ci.yml`：每个 PR、每次合进 main，都在 Studiolo 的自托管 CI 服务器上原生编 `celadon_tests`，跑两遍全套——基线
