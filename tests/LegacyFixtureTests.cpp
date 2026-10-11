@@ -320,6 +320,7 @@ namespace celadon::test
 // 只作提示、不判失败：摘要取决于编译器、libm 与架构（读数摘要里有 float 的 dB 换算，换一版 libm 的 log10f 就会变；音频与整体响度
 // 摘要只经 double 运算），别的分支合进来有意改声时它本来就该变。判失败的只有「输出全部有限」与各场景的阳性对照（场景真的走到了
 // 它要覆盖的路径）。monitor-toggles 的整体响度摘要按 R8-03 有意改变（听原声期间 OUT 表暂停积分），它的音频与读数摘要仍与改前相同。
+// preview-listen-exit 的音频摘要按 T-095 有意改变。
 #include <cstddef>
 #include <cstdio>
 #include <functional>

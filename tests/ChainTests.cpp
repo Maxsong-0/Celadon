@@ -6,6 +6,7 @@
     A / B 听原声与试听差值（v0.1.8.0）、
     restartWithFadeIn 的静音 / 淡入 / 回到逐位、整条链的真峰值仍不超 Ceiling、表的转发、
     音频路径（setParams / process / restartWithFadeIn / 表读取）不经 operator new 分配。
+    T-095 离线旁通（等响、听原声、试听差值）。
 
     只按设计规格-总体与 CeladonChain.h 的公开接口写，不依赖实现细节。
 
@@ -2192,6 +2193,7 @@ namespace celadon::test
         {
             testPreviewExitNeverSteps();
             testOfflineBypassesTemporaryMonitoring();
+            testOfflineMonitoringCoverage();
             testOriginalFreezesIntegrated();
             testMeterResetKeepsPreview();
             testResetKeepsPreviewGain();
@@ -2440,9 +2442,19 @@ namespace celadon::test
             }
         }
 
+        // 同一时间范围 [from, to) 的差值；TestHelpers::maxAbsDifference 的第三参数是 B 的延迟偏移，不能用于段比较。
+        static float monitoringSpanDifference (const Signal& a, const Signal& b, int from, int to)
+        {
+            float worst = 0.0f;
+            for (size_t ch = 0; ch < a.size(); ++ch)
+                for (int i = from; i < to; ++i)
+                    worst = juce::jmax (worst, std::abs (a[ch][(size_t) i] - b[ch][(size_t) i]));
+            return worst;
+        }
+
         // T-095（2026-10-10，R6-04a；Max 拍板：接受「离线 + 等响开」的导出结果改变，原声 / 差值同根因一并旁通）：离线导出
-        // （HostInfo.offline）时三种临时监听一律旁通——等响是存进工程的参数，忘关就会把成品衰减掉「处理后比原声响的那部分」；
-        // 原声 / 差值是界面状态，窗口开着导出同样中招。归一化预听早已如此（testPreviewExitNeverSteps 的离线行）。
+        // （HostInfo.offline）时三种监听（等响、听原声、试听差值）一律旁通——等响是存进工程的参数，忘关就会把成品衰减掉「处理后比原声响的那部分」；
+        // 原声 / 差值是界面状态，窗口开着导出同样中招。归一化预听早已如此（AdvancedMasteringTests.cpp:1323 的 "offline transition removes preview from its first sample…" 用例）。
         //   - 每种监听各比两条新链（同参数、只差监听开关）离线下的整段输出：逐位相同；同一组参数在实时下作阳性对照：真的不同
         //     （用例抓得住缺陷——改前离线与实时一样被衰减 / 换成原声 / 换成差值）。等响的测量离线照常跑（界面读数还在）。
         //   - 实时路径不变：显式报「实时」的链与从不调 setHostInfo 的链逐位相同（新加的 ! offline 分支不碰实时）。
@@ -2503,7 +2515,7 @@ namespace celadon::test
                     expect (estimateOffline, "offline: Match keeps measuring for the UI readout");
             }
 
-            beginTest ("the realtime path is unchanged: an explicit realtime host report renders bit-exactly like no report at all");
+            beginTest ("an explicit realtime host report renders bit-exactly like no report");
             {
                 auto monitored = master;
                 monitored.limit.listen = true;
@@ -2525,14 +2537,20 @@ namespace celadon::test
                 const auto offlineFrom = (int) (2.0 * t032Rate), offlineTo = (int) (3.0 * t032Rate);
                 auto monitored = master;
                 monitored.limit.listen = true;
-                CeladonChain chain, reference;   // reference：等响一直关着、一直实时
+                CeladonChain chain, reference, alwaysRealtime;   // reference：等响一直关；alwaysRealtime：等响一直开、一直实时
                 prepareChain (chain, t032Rate, monitored);
                 prepareChain (reference, t032Rate, master);
-                auto a = longInput, b = longInput;
+                prepareChain (alwaysRealtime, t032Rate, monitored);
+                auto a = longInput, b = longInput, c = longInput;
                 processSpanWithHost (chain, monitored, longInput, a, 0, offlineFrom, maxBlock, {}, realtime);
                 processSpanWithHost (chain, monitored, longInput, a, offlineFrom, offlineTo - offlineFrom, maxBlock, {}, offline);
                 processSpanWithHost (chain, monitored, longInput, a, offlineTo, total - offlineTo, maxBlock, {}, realtime);
                 processSpan (reference, master, longInput, b, 0, total, maxBlock, {});
+
+                // 对照链也在相同位置分块，避免监听估计的更新时机因块边界不同而错位。
+                processSpan (alwaysRealtime, monitored, longInput, c, 0, offlineFrom, maxBlock, {});
+                processSpan (alwaysRealtime, monitored, longInput, c, offlineFrom, offlineTo - offlineFrom, maxBlock, {});
+                processSpan (alwaysRealtime, monitored, longInput, c, offlineTo, total - offlineTo, maxBlock, {});
 
                 const auto trace = gainTrace (a, b);
                 const auto second = (int) t032Rate;
@@ -2544,13 +2562,165 @@ namespace celadon::test
                     for (int i = offlineFrom; i < offlineTo; ++i)
                         offlineDifference = juce::jmax (offlineDifference, std::abs (a[ch][(size_t) i] - b[ch][(size_t) i]));
 
-                const auto returnSlope = trace.maxSlope (offlineTo, offlineTo + second / 2);
+                const auto returnSlope = trace.maxSlope (offlineTo - (int) (0.05 * t032Rate), offlineTo + second / 2);
                 logMessage ("  gain ratio before " + juce::String (before, 3) + ", after " + juce::String (after, 3)
                             + "; max slope on return " + juce::String (returnSlope, 5) + " / sample");
                 expect (before < 0.7f, "Match was really attenuating before the offline span: ratio " + juce::String (before, 3));
                 expectEquals (offlineDifference, 0.0f, "the offline span equals the master from its first sample (no ramp tail)");
                 expect (returnSlope < 0.01f, "returning to realtime ramps the monitor gain: max slope " + juce::String (returnSlope, 5));
-                expect (std::abs (after - before) < 0.05f, "a second after returning, Match is back at its attenuation: " + juce::String (after, 3));
+                const auto settled = offlineTo + (int) (0.1 * t032Rate);
+                expectEquals (monitoringSpanDifference (a, c, settled, total), 0.0f,
+                              "0.1 s after returning, Match equals the always-realtime Match control bit-exactly");
+                expect (monitoringSpanDifference (c, b, settled, total) > 0.01f,
+                        "positive control: the always-realtime Match chain really attenuates");
+            }
+        }
+
+        // T-095 补齐离线表 / 抖动 / 重启与两种监听转换；只用公开接口，不改变已有其它用例。
+        void testOfflineMonitoringCoverage()
+        {
+            const auto input = makeListenMaterial (t032Rate, 4.0);
+            const auto total = (int) input[0].size();
+            const auto split = (int) (2.0 * t032Rate);
+            auto master = makeNeutralParams();
+            master.color.outputDb = 6.0f;
+            master.limit.gainDb = 6.0f;
+            glaze::HostInfo offline;
+            offline.offline = true;
+            offline.hasPlayState = true;
+            offline.isPlaying = false;
+            const glaze::HostInfo realtime;
+            const Monitor original { false, true, false }, difference { false, false, true };
+
+            beginTest ("offline original: OUT integrated loudness and Listen measurement follow the master");
+            {
+                CeladonChain chain, reference;
+                prepareChain (chain, t032Rate, master);
+                prepareChain (reference, t032Rate, master);
+                auto a = input, b = input;
+                processSpanWithHost (chain, master, input, a, 0, total, maxBlock, original, offline);
+                processSpanWithHost (reference, master, input, b, 0, total, maxBlock, {}, offline);
+                expect (reference.getOutputIntegratedLufs() > -70.0f, "positive control: the master has integrated audio");
+                expectEquals (chain.getOutputIntegratedLufs(), reference.getOutputIntegratedLufs(),
+                              "offline original integrates the master bit-exactly");
+                expect (chain.hasListenDifference(), "offline original keeps measuring the Listen difference");
+            }
+
+            for (const auto monitor : { original, difference })
+            {
+                const auto name = monitor.compareOriginal ? juce::String ("original") : juce::String ("difference");
+                beginTest ("offline " + name + " with 24-bit dither renders the dithered master bit-exactly");
+                auto dithered = master;
+                dithered.mastering.dither = DitherMode::bits24;
+                CeladonChain chain, reference, undithered;
+                prepareChain (chain, t032Rate, dithered);
+                prepareChain (reference, t032Rate, dithered);
+                prepareChain (undithered, t032Rate, master);
+                auto a = input, b = input, c = input;
+                processSpanWithHost (chain, dithered, input, a, 0, total, maxBlock, monitor, offline);
+                processSpanWithHost (reference, dithered, input, b, 0, total, maxBlock, {}, offline);
+                processSpanWithHost (undithered, master, input, c, 0, total, maxBlock, {}, offline);
+                expect (bitIdentical (a, b), "monitoring does not change the dithered master or its random sequence");
+                expect (! bitIdentical (b, c), "positive control: 24-bit dither really changes the output");
+
+                beginTest ("explicit realtime report equals no report while listening to the " + name);
+                CeladonChain reported, silent, wet;
+                prepareChain (reported, t032Rate, master);
+                prepareChain (silent, t032Rate, master);
+                prepareChain (wet, t032Rate, master);
+                processSpanWithHost (reported, master, input, a, 0, total, maxBlock, monitor, realtime);
+                processSpan (silent, master, input, b, 0, total, maxBlock, monitor);
+                processSpan (wet, master, input, c, 0, total, maxBlock, {});
+                expect (bitIdentical (a, b), "explicit realtime and default host state render bit-exactly");
+                expect (maxAbsDifference (a, c, 0, total) > 0.01f, "positive control: realtime monitoring changes the output");
+            }
+
+            struct Case { const char* name; Monitor monitor; bool listen; };
+            const Case cases[] = { { "Match", {}, true }, { "original", original, false }, { "difference", difference, false } };
+            for (const auto& test : cases)
+                for (const bool fade : { false, true })
+                {
+                    beginTest (juce::String ("offline ") + test.name + (fade ? " survives restartWithFadeIn" : " survives setParams then reset"));
+                    auto monitored = master;
+                    monitored.limit.listen = test.listen;
+                    monitored.mastering.dither = DitherMode::bits24;
+                    auto referenceParams = monitored;
+                    referenceParams.limit.listen = false;
+                    CeladonChain chain, reference;
+                    prepareChain (chain, t032Rate, monitored);
+                    prepareChain (reference, t032Rate, referenceParams);
+                    auto a = input, b = input;
+                    processSpanWithHost (chain, monitored, input, a, 0, split, maxBlock, test.monitor, offline);
+                    processSpanWithHost (reference, referenceParams, input, b, 0, split, maxBlock, {}, offline);
+                    chain.setParams (monitored, false, test.monitor.compareOriginal, test.monitor.auditionDifference);
+                    reference.setParams (referenceParams, false);
+                    if (fade) { chain.restartWithFadeIn(); reference.restartWithFadeIn(); }
+                    else      { chain.reset(); reference.reset(); }
+                    processSpanWithHost (chain, monitored, input, a, split, total - split, maxBlock, test.monitor, offline);
+                    processSpanWithHost (reference, referenceParams, input, b, split, total - split, maxBlock, {}, offline);
+                    expect (bitIdentical (a, b), "the same offline restart renders the same dithered master bit-exactly");
+                    expect (monitoringSpanDifference (b, Signal (numChannels, std::vector<float> ((size_t) total, 0.0f)), split, total) > 0.01f,
+                            "positive control: the restarted master produces audio");
+                }
+
+            beginTest ("realtime difference -> offline equals the master from the first offline sample");
+            {
+                CeladonChain chain, reference;
+                prepareChain (chain, t032Rate, master);
+                prepareChain (reference, t032Rate, master);
+                auto a = input, b = input;
+                processSpanWithHost (chain, master, input, a, 0, split, maxBlock, difference, realtime);
+                processSpanWithHost (reference, master, input, b, 0, split, maxBlock, {}, realtime);
+                expect (monitoringSpanDifference (a, b, split / 2, split) > 0.01f, "positive control: realtime difference is active");
+                processSpanWithHost (chain, master, input, a, split, total - split, maxBlock, difference, offline);
+                processSpanWithHost (reference, master, input, b, split, total - split, maxBlock, {}, offline);
+                expectEquals (monitoringSpanDifference (a, b, split, total), 0.0f, "no difference crossfade tail in the offline span");
+            }
+
+            beginTest ("realtime original -> offline with setParams then reset renders the restarted master bit-exactly");
+            {
+                CeladonChain chain, reference;
+                prepareChain (chain, t032Rate, master);
+                prepareChain (reference, t032Rate, master);
+                auto a = input, b = input;
+                processSpanWithHost (chain, master, input, a, 0, split, maxBlock, original, realtime);
+                processSpanWithHost (reference, master, input, b, 0, split, maxBlock, {}, realtime);
+                expect (monitoringSpanDifference (a, b, split / 2, split) > 0.01f, "positive control: B really plays the original");
+                chain.setHostInfo (offline);
+                reference.setHostInfo (offline);
+                chain.setParams (master, false, true, false);
+                reference.setParams (master, false);
+                chain.reset();
+                reference.reset();
+                processSpanWithHost (chain, master, input, a, split, total - split, maxBlock, original, offline);
+                processSpanWithHost (reference, master, input, b, split, total - split, maxBlock, {}, offline);
+                expectEquals (monitoringSpanDifference (a, b, split, total), 0.0f, "reset after offline params removes B from the first sample");
+            }
+
+            // Max 2026-10-11 15:09 选 A：不经 reset 时保留模块的 20 ms 淡化。
+            // 与同样 B 历史、实时退出 B 的链逐位对照；用中性限幅、稳态音隔离模块状态余振。
+            beginTest ("realtime original -> offline without reset retains the 20 ms module crossfade");
+            {
+                auto p = makeNeutralParams();
+                p.color.outputDb = 6.0f;
+                const auto tone = makeSteadyTone (4.0);
+                CeladonChain chain, exitB, wet;
+                prepareChain (chain, t032Rate, p);
+                prepareChain (exitB, t032Rate, p);
+                prepareChain (wet, t032Rate, p);
+                auto a = tone, b = tone, c = tone;
+                processSpanWithHost (chain, p, tone, a, 0, split, maxBlock, original, realtime);
+                processSpanWithHost (exitB, p, tone, b, 0, split, maxBlock, original, realtime);
+                processSpanWithHost (wet, p, tone, c, 0, split, maxBlock, {}, realtime);
+                expect (monitoringSpanDifference (a, c, split / 2, split) > 0.01f, "positive control: B is active before switching");
+                processSpanWithHost (chain, p, tone, a, split, total - split, maxBlock, original, offline);
+                processSpanWithHost (exitB, p, tone, b, split, total - split, maxBlock, {}, realtime);
+                processSpanWithHost (wet, p, tone, c, split, total - split, maxBlock, {}, offline);
+                expectEquals (monitoringSpanDifference (a, b, split, total), 0.0f, "offline exits B with the same 20 ms crossfade as realtime");
+                expect (monitoringSpanDifference (a, c, split, split + (int) (0.01 * t032Rate)) > 0.01f,
+                        "the first 10 ms still contain the accepted original-to-master fade");
+                expect (monitoringSpanDifference (a, c, split + (int) (0.1 * t032Rate), total) < 1.0e-6f,
+                        "after the fade and chain latency, the neutral steady-state output is the master");
             }
         }
 
