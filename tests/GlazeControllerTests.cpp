@@ -7617,9 +7617,14 @@ namespace celadon::test
             legacy->removeChildElement (legacy->getChildByName (glaze::liveTag), true);
             legacy->addChildElement (glaze::compressLiveBody (*body, glaze::factoryConstants().version).release());
 
-            // 先走一块：prepare 后第一块总算「改过参数」，secondsSinceParamChange 停在一块的时长；读档后看它是不是换成了旧档的默认 1 s。
+            // 先走一块，再把 GLAZE 拧下 10 再拧回（各一块）：插件刚开的第一块不算改参数（复查 F1），要真改一次参数，
+            // secondsSinceParamChange 才停在一块的时长；读档后看它是不是换成了旧档的默认 1 s。参数是 GLAZE 40。
             Rig target (fastConstants(), material, params);
             target.tempoBpm = 120.0;
+            target.step();
+            target.params.glazePercent -= 10.0f;
+            target.step();
+            target.params.glazePercent = params.glazePercent;
             target.step();
             const auto beforeRestore = target.probe();
             target.chain.restoreGlazeStateXml (legacy.get());
@@ -8029,15 +8034,23 @@ namespace celadon::test
                 return std::move (tap.blocks);
             }
 
-            // 预算环放宽（任务书：三种风格的限幅预算均值 / P95 / 峰值都放到 30 / 40 / 60 dB）：实际 GR 远到不了，决策器不按限幅预算封顶，
-            // 预算环也不会因限幅退让。Glue / Clip 两类预算不动（只放宽任务点名的三项）。
+            // 预算环放宽（T-097 Q16）：预算环核对的七项上限（Glue 均值 / P95、Clip 深度 / 活动、限幅均值 / P95 / 峰值）在三种风格里各 × 4，
+            // Clip 活动占比封到 1。仍是约束（> 0，决策器照样按它规划），但实际 GR 到不了，预算环不退。
+            // 只放宽限幅三项时 Glue / Clip 预算照样触发预算环；七项全置 0 = 不设约束，方案整个变轻、没有落差可保（DGX 14:4x 实测）。
+            // 出厂为 0（不约束）的项 × 4 仍是 0。
             glaze::Constants withRelaxedLimitBudgets (glaze::Constants c) noexcept
             {
+                constexpr float relax = 4.0f;
+
                 for (auto* style : { &c.warm, &c.punchy, &c.clean })
                 {
-                    style->limitGrMeanCapDb = 30.0f;
-                    style->limitGrP95CapDb = 40.0f;
-                    style->limitGrPeakCapDb = 60.0f;
+                    style->glueGrMeanCapDb *= relax;
+                    style->glueGrP95CapDb *= relax;
+                    style->clipDepthCapDb *= relax;
+                    style->clipActivityCap = juce::jmin (1.0f, style->clipActivityCap * relax);
+                    style->limitGrMeanCapDb *= relax;
+                    style->limitGrP95CapDb *= relax;
+                    style->limitGrPeakCapDb *= relax;
                 }
 
                 return c;
@@ -8104,7 +8117,7 @@ namespace celadon::test
             {
                 double bpm = 124.0;
                 int barsPerSection = 16;
-                int sections = 6;
+                int sections = 12;            // T-097 Q16：6 段（3 分钟）时守门约 76 s 才判、歌就放完了；12 段约 6 分钟
                 double kick = 1.0;             // × 0.8 的扫频底鼓（脚本 kick()）
                 double bass = 0.7;             // offbeat bass（脚本 bass_note gain 0.7）
                 double clap = 0.10;            // 拍手（均匀噪声的一阶差分，峰值 ≤ 2 × 本项）【待上机核：drop 的 PSR 主要靠它与底鼓】
@@ -8509,7 +8522,7 @@ namespace celadon::test
                     "premise: input 3 s loudness stays at -20 LUFS: " + num (inputSMin) + " .. " + num (inputSMax));
             expect (inputPsrMin >= inputPsrLow && inputPsrMax <= inputPsrHigh,
                     "premise: input 3 s PSR is healthy, about 10 dB: " + num (inputPsrMin) + " .. " + num (inputPsrMax));
-            expect (! budgetActed, "premise: the budget ring never retreats (limit budgets relaxed to 30 / 40 / 60 dB)");
+            expect (! budgetActed, "premise: the budget ring never retreats (all seven budget caps relaxed x 4)");
             expectEquals (invalidCount, 0, "every output 3 s reading in the window is valid");
             expect (evalCount >= (int) (minEvalSeconds * 10.0), "the judged window is long enough: " + juce::String (evalCount) + " readings");
 

@@ -145,7 +145,8 @@ namespace celadon::test
         //     重档 + 10·log10((29 + 10^(−Δ/10)) / 30)（Δ = 10 时 −0.13，Δ = 7 时 −0.12），离轻档最近的是
         //     轻档 + 10·log10((29 + 10^(Δ/10)) / 30) ≥ 轻档 + 0.5（Δ ≥ 7）。所以轻档格、重档格里只有稳态值，
         //     轻档格之下、重档格之上没有值；
-        //   - 每 30 s 稳态各 121 个（150 − 29），各占约 40 %（遗忘下随相位约 35 ～ 45 %）：P25 在轻档格、P90 在重档格；
+        //   - 每 30 s 稳态各 121 个（150 − 29）。按 τ 180 s 遗忘逐步算：刚能判定时轻档约 50 %、重档约 33 %，稳态各 38 ～ 43 %，
+        //     过渡值合计 17 ～ 20 %：P25 在轻档格、P90 在重档格；
         //   - 入口、出口同一时刻进账、同样遗忘：两侧轻档格权重逐位相同，重档格之下的累计也相同（只差浮点求和顺序）
         //     → 格内插值位置相同，P25 之差 = 轻档格号之差 / 10，P90 相同 → loss = 出口轻档 − 入口轻档（误差 ~1e−6）。
         //   每侧 spread = 两档之差 + 格内插值零头（−0.1 ～ +0.1）。
@@ -235,7 +236,7 @@ namespace celadon::test
     class GuardFamilyTests  : public juce::UnitTest
     {
     public:
-        GuardFamilyTests() : juce::UnitTest ("GLAZE guard family (T-097, pure logic)", "Celadon") {}
+        GuardFamilyTests() : juce::UnitTest ("GLAZE guard family (T-097 pure logic)", "Celadon") {}
 
         void runTest() override
         {
@@ -259,6 +260,7 @@ namespace celadon::test
             testContrastPercentiles();
             testContrastDeterminism();
             testContrastState();
+            testRetreatBound();
 
             testGuardsDoNotAllocate();
             testGuardSwitchConstants();
@@ -1534,6 +1536,74 @@ namespace celadon::test
                 expect (! target.guard.restoreStateXml (corrupt), label + " rejected");
                 const auto after = target.guard.createStateXml();
                 expect (before->isEquivalentTo (after.get(), false), label + " leaves the guard untouched");
+            }
+        }
+
+        //==============================================================================
+        // T-097 Q15 A：两个守门的「再往下退的界」= −自动加上去的全部（规格总钳位 g_守护 ≥ −max(0, 增量.gain + G_trim)），
+        // 编排器每个子块用 setRetreatBoundDb 交进来。界内照常退、退到界为止；界变浅（自动部分变小）时退让保持、不往回弹
+        // （回弹会把刚退掉的推回去，守门与界互相顶）；界再变深就接着退。floorDb 仍是绝对下限（这里的界都在 −3 之上，不碰它）。
+        void testRetreatBound()
+        {
+            beginTest ("guards (Q15 A): retreat stops at the bound -automaticTotal; a shallower bound holds (no rebound); a deeper bound resumes");
+
+            {
+                // 落差：loss 3，第 857 个起每步退 0.01 dB。
+                const auto firstRetreat = windowFillSubBlocks + measuredStepsToFull() + stepsToReach (ContrastGuard::triggerSeconds) - 1;   // 857
+                ContrastFeeder f (3.0);
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.nextIndex < firstRetreat + 150)
+                    f.feed();
+
+                expectEquals (f.relief(), -1.0f, "contrast: inside the bound it retreats normally and stops exactly at -1.0");
+
+                f.guard.setRetreatBoundDb (-0.5f);
+                auto firstBad = 0;
+
+                for (int k = 0; k < 300; ++k)
+                    if (f.feed().reliefDb != -1.0f && firstBad == 0)
+                        firstBad = f.nextIndex;
+
+                expectEquals (firstBad, 0, "contrast: bound shallower than the relief -> the relief holds at -1.0 (no rebound) while still over");
+
+                f.guard.setRetreatBoundDb (-2.0f);
+                const auto before = f.relief();
+                const auto out = f.feed();
+                expectWithinAbsoluteError (out.reliefDb, before - 0.01f, 1.0e-6f, "contrast: deeper bound -> retreats again, 0.01 dB per sub-block");
+
+                while (f.nextIndex < firstRetreat + 150 + 300 + 1 + 120)
+                    f.feed();
+
+                expectEquals (f.relief(), -2.0f, "contrast: stops exactly at the new bound -2.0");
+            }
+
+            {
+                // PSR：一直喂 6（< 7.5），第 59 个起每步退 0.05 dB。
+                const auto firstRetreat = windowFillSubBlocks + stepsToReach (PsrGuard::sustainSeconds);   // 59
+                PsrFeeder f;
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.calls < firstRetreat + 40)
+                    f.feed (6.0);
+
+                expectEquals (f.relief(), -1.0f, "psr: inside the bound it retreats normally and stops exactly at -1.0");
+
+                f.guard.setRetreatBoundDb (-0.25f);
+                auto firstBad = 0;
+
+                for (int k = 0; k < 100; ++k)
+                    if (f.feed (6.0).reliefDb != -1.0f && firstBad == 0)
+                        firstBad = f.calls;
+
+                expectEquals (firstBad, 0, "psr: bound shallower than the relief -> holds at -1.0 (no rebound)");
+
+                f.guard.setRetreatBoundDb (-2.0f);
+
+                while (f.calls < firstRetreat + 40 + 100 + 30)
+                    f.feed (6.0);
+
+                expectEquals (f.relief(), -2.0f, "psr: deeper bound -> retreats again and stops exactly at -2.0");
             }
         }
 
