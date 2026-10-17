@@ -12,8 +12,8 @@ import * as dial from './dialMotion';
  *     读数按 60 ms 追手；松手前 80 ms 内还在动就按速度多滑一段，再用弹簧停稳。拖动中按下 ⌘ / Ctrl：从那一刻起改相对转动、
  *     慢 8 倍，到松手都保持相对。
  *   - 其余（中间、下方的读数和名字）：上下拖（左右也算），逐事件累加，⌘ / Ctrl 慢 8 倍、中途按下松开不跳。
- * 读数怎么动：拖动时追手；点外圈、父组件改值（首屏的「呼吸」）、双击回默认从当前位置起弹簧；滚轮和键盘直接落下、不出彗尾；
- * 「减少动效」时一律直接落下、没有彗尾、快甩不多滑。动画挂在 gsap.ticker 上，停稳（读数到位——拖动中就是追上了手——且
+ * 读数怎么动：拖动时追手；点外圈、父组件改值（首屏的「呼吸」）、双击回默认从当前位置起弹簧；滚轮和键盘直接落下、不出彗尾（拖动中不收）；
+ * 「减少动效」时一律直接落下、没有彗尾、快甩不多滑（中途打开也当场收尾）。动画挂在 gsap.ticker 上，停稳（读数到位——拖动中就是追上了手——且
  * 彗尾速度落到阈值下）就摘掉。静止时读数精确等于参数值，画出来与没有动画时逐像素相同。
  *
  * 和插件不一样的地方只有宿主相关的：网站没有宿主手势，参数就是父组件的受控 value；
@@ -106,8 +106,18 @@ class DialController {
     return this.reduceQuery?.matches ?? false;
   }
 
-  dispose() {
-    this.stopMotion();
+  /** 挂上后跟着系统的「减少动效」走（插件 setReduceMotion）：打开的那一刻收尾——读数落到参数值、彗尾清零。
+   *  按住不动时动画已经自己停了，不在这里收尾的话，松手后读数停在未吸附的连续位置上，差参数值半格。返回解绑（也停掉动画）。 */
+  attach() {
+    const query = this.reduceQuery;
+    const onChange = () => {
+      if (query?.matches) this.finishMotion();
+    };
+    query?.addEventListener('change', onChange);
+    return () => {
+      query?.removeEventListener('change', onChange);
+      this.stopMotion();
+    };
   }
 
   // ---- 参数 ----
@@ -132,8 +142,10 @@ class DialController {
     this.parameterValueChanged();
   }
 
-  /** 滚轮、键盘：直接落到新值（插件 mouseWheelMove 的 jumpNextChange）。 */
+  /** 滚轮、键盘：直接落到新值（插件 mouseWheelMove 的 jumpNextChange）。拖动中不收（插件按住鼠标键时不收滚轮）：
+   *  不然参数跳了、读数还追着手，下一次移动又把值拖回去。 */
   jumpTo(proportion: number) {
+    if (this.dragging) return;
     this.jumpNextChange = true;
     try {
       this.setParam(proportion);
@@ -412,6 +424,9 @@ class DialController {
 
 /**
  * 把 DialController 接到组件上。value：参数比例（受控）；commit：设参数（交给父组件），返回吸附后实际设下的比例。
+ * commit 要让父组件在同一批更新里给回新的 value（普通 setState 即可）：放进 transition 之类延后的更新，
+ * 中间那次渲染拿到的还是旧 value，会被当成父组件没接受、读数先弹回去再弹过来。
+ * geometry 只在第一次渲染时读（网站传的是模块常量）。
  * 返回这一帧要画的东西、指针事件、滚轮 / 键盘 / 双击用的 jumpTo / resetTo，以及「减少动效」。
  */
 export function useDialControl({
@@ -454,7 +469,7 @@ export function useDialControl({
   // 自己 commit 的值和父组件的更新在同一批里渲染，到这里已经相等，不会多起一次弹簧。
   useLayoutEffect(() => controller.syncFromProps(value));
 
-  useEffect(() => () => controller.dispose(), [controller]);
+  useEffect(() => controller.attach(), [controller]);
 
   // 这些函数跟着 controller 走、不随每帧重建：滚轮监听器挂一次就够，不在动画的每一帧重挂。
   const api = useMemo(
