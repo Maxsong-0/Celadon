@@ -53,6 +53,13 @@ export const CHANGELOG: ReleaseNote[] = [
           zh: '「流媒体」和「俱乐部」不再把已经接近目标的歌再推过交付目标。差不足 3 dB 时只补上这个缺口；已经比目标更响的歌不会被压轻，也不会再被推响。「标准」不变，接近或超过目标时仍会温和地再推一点。',
           en: 'Streaming and Club no longer push a song past its delivery target once it is already close. A gap under 3 dB is filled only up to the target. A song already louder than the target is not turned down and is not pushed further. Standard is unchanged, and still gives a gentle extra push when the song is already near or above the target.'
         }
+      },
+      {
+        kind: 'ui',
+        text: {
+          zh: '旋钮可以抓着外圈转：沿外圈拖动就跟着转，点一下外圈直接转到那里，快甩松手还会多滑一段再停稳；转动时指示点后面拖一道渐淡的尾巴，转得越快越长。自动化回放或切换预设时，旋钮也会顺滑地转到新位置。按住旋钮中间上下拖、精调、双击复位都和以前一样；开着「减少动效」时没有尾巴，也不回弹。',
+          en: 'You can now turn a knob by its ring: drag along the ring and it follows, click the ring to turn straight there, or flick it and it glides on a little before settling. While it turns, a fading tail trails the indicator, longer the faster you go. Automation playback and preset changes also turn the knob smoothly to its new position. Dragging the centre up and down, fine adjustment and double-click reset work as before; with Reduce motion on there is no tail and no bounce.'
+        }
       }
     ]
   },
