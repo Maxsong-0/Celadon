@@ -24,6 +24,7 @@
 #include "../dsp/BalanceModule.h"
 #include "../dsp/ChainParams.h"
 #include "Controls.h"
+#include "Dial.h"
 #include "HelpText.h"
 #include "SpectrumAnalyser.h"
 
@@ -130,6 +131,9 @@ namespace celadon::ui
 
         // 每帧调：GLAZE 叠加后的实际值；glazeActive = GLAZE > 0（否则不画紫色）。
         virtual void setEffective (const ChainParams& effective, bool glazeActive) = 0;
+
+        // 「减少动效」：旋钮不出彗尾、不回弹（T-100）。
+        void setReduceMotion (bool shouldReduceMotion);
 
     protected:
         ParamKnob& addKnob (const char* parameterId, ParamKnob::Options options);

@@ -17,7 +17,6 @@ namespace celadon::ui
 {
     namespace
     {
-        constexpr float knobFullDragPixels   = 180.0f;   // 小旋钮：拖满量程要拖的像素（设计稿 knobH (k, 180)）
         // 滚轮：JUCE 换算出的滚轮量各平台不同——Windows 一格是 0.5 × 120 / 256 ≈ 0.234（juce_Windowing_windows.cpp），macOS 触控板是
         // 连续的小量（像素 × 0.5 / 256）。Windows 按「一格 ≈ 1.4 %」定；macOS 沿用在 Mac 上调好的手感。
        #if JUCE_WINDOWS
@@ -25,18 +24,21 @@ namespace celadon::ui
        #else
         constexpr double wheelProportionStep = 0.03;
        #endif
+    }
 
-        const juce::String& unicodeMinus()
-        {
-            static const juce::String sign = juce::String::charToString ((juce::juce_wchar) 0x2212);
-            return sign;
-        }
-
-        // 实际值比例比上次画的相差不超过这个数就不重画（0.001 × 270° ≈ 0.27°，46 px 旋钮上不到 0.1 px）。
-        constexpr float effectiveRepaintThreshold = 0.001f;
+    const juce::String& unicodeMinus()
+    {
+        static const juce::String sign = juce::String::charToString ((juce::juce_wchar) 0x2212);
+        return sign;
     }
 
     //==============================================================================
+    juce::Colour valueArcColour (float position, bool bipolar, float saturation)
+    {
+        const auto colour = cyanAt (bipolar ? 0.2f + 0.8f * std::abs (position - 0.5f) * 2.0f : 0.12f + 0.88f * position);
+        return saturation < 1.0f ? colour.withSaturation (colour.getSaturation() * juce::jmax (0.0f, saturation)) : colour;
+    }
+
     void drawValueArc (juce::Graphics& g, juce::Point<float> centre, float radius, float width,
                        float from, float to, int segmentsPerRange, bool bipolar, float saturation)
     {
@@ -49,11 +51,7 @@ namespace celadon::ui
         const auto count = juce::jmax (1, (int) std::ceil ((hi - lo) * (float) segmentsPerRange));
         const juce::PathStrokeType stroke (width, juce::PathStrokeType::curved, juce::PathStrokeType::butt);
 
-        const auto colourAt = [bipolar, saturation] (float position)
-        {
-            const auto colour = cyanAt (bipolar ? 0.2f + 0.8f * std::abs (position - 0.5f) * 2.0f : 0.12f + 0.88f * position);
-            return saturation < 1.0f ? colour.withSaturation (colour.getSaturation() * juce::jmax (0.0f, saturation)) : colour;
-        };
+        const auto colourAt = [bipolar, saturation] (float position) { return valueArcColour (position, bipolar, saturation); };
 
         for (int i = 0; i < count; ++i)
         {
@@ -400,185 +398,6 @@ namespace celadon::ui
 
         if (! juce::exactlyEqual (newValue, value))
             setValueAsCompleteGesture (newValue);
-    }
-
-    //==============================================================================
-    ParamKnob::ParamKnob (juce::RangedAudioParameter& p, InteractionHost& h, Options o)
-        : ParameterControl (p, h), options (o)
-    {
-        setSize (width, height);
-        setRepaintsOnMouseActivity (false);
-    }
-
-    void ParamKnob::setLabel (const juce::String& newName)
-    {
-        if (name == newName)
-            return;
-
-        name = newName;
-        repaint();
-    }
-
-    void ParamKnob::setEffectiveValue (std::optional<float> effective)
-    {
-        if (effective.has_value() && ! std::isfinite (*effective))
-            effective.reset();
-
-        // 编辑器每帧都来（T-032 R9-12）：加量文字与实际值比例只由实际值与用户值决定，两者都与上次相同就什么都不会变，
-        // 不必再拼一次字符串来比。
-        if (effective == effectiveValue && juce::exactlyEqual (getValue(), effectiveBaseValue))
-            return;
-
-        effectiveValue = effective;
-        effectiveBaseValue = getValue();
-
-        // 与上次画出来的比：比例挪动超过阈值、或加量文字变了才重画。
-        const auto text = autoAmountText();
-        const auto proportion = effective.has_value() ? getParameter().convertTo0to1 (*effective) : -1.0f;
-
-        if (text == shownAutoText && std::abs (proportion - shownEffectiveProportion) <= effectiveRepaintThreshold)
-            return;
-
-        shownAutoText = text;
-        shownEffectiveProportion = proportion;
-        repaint();
-    }
-
-    juce::String ParamKnob::autoAmountText() const
-    {
-        if (! effectiveValue.has_value())
-            return {};
-
-        const auto amount = *effectiveValue - getValue();
-        const auto threshold = options.autoDecimals == 0 ? 0.5f : 0.05f;
-
-        if (std::abs (amount) < threshold)
-            return {};
-
-        const auto magnitude = options.autoDecimals == 0 ? juce::String (juce::roundToInt (std::abs (amount)))
-                                                         : juce::String (std::abs (amount), options.autoDecimals);
-        return (amount > 0.0f ? juce::String ("+") : unicodeMinus()) + magnitude;
-    }
-
-    juce::Point<float> ParamKnob::getBubbleAnchor() const
-    {
-        return { (float) width * 0.5f, 18.0f };   // 旋钮上沿再往上约 4 px
-    }
-
-    juce::Rectangle<int> ParamKnob::getTextEntryArea() const
-    {
-        return { 4, 78, width - 8, 22 };
-    }
-
-    void ParamKnob::paint (juce::Graphics& g)
-    {
-        const auto proportion = getProportion();
-        const juce::Point<float> centre ((float) width * 0.5f, 48.0f);
-        constexpr float arcRadius = 23.0f, arcWidth = 4.0f;
-
-        // 更大的名字与旋钮在小比例窗口下仍可辨认。
-        g.setFont (uiFont (12.5f, Weight::medium));
-        g.setColour (palette::ink2);
-        g.drawText (name, juce::Rectangle<float> (0.0f, 0.0f, (float) width, 18.0f), juce::Justification::centred, false);
-
-        // 轨道
-        {
-            juce::Path track;
-            track.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, knob::startAngle, knob::endAngle, true);
-            g.setColour (palette::knobTrack);
-            g.strokePath (track, juce::PathStrokeType (arcWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-
-        // 数值弧（单色青，越大越深；双极从正中长）
-        drawValueArc (g, centre, arcRadius, arcWidth, options.bipolar ? 0.5f : 0.0f, proportion, 16, options.bipolar);
-
-        // GLAZE 的实际值：从用户值到实际值的紫色弧 + 紫色小圆点
-        const auto hasEffective = effectiveValue.has_value() && autoAmountText().isNotEmpty();
-        const auto effectiveProportion = hasEffective ? getParameter().convertTo0to1 (*effectiveValue) : proportion;
-
-        if (hasEffective)
-        {
-            juce::Path bridge;
-            bridge.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                                  knob::angleFor (proportion), knob::angleFor (effectiveProportion), true);
-            g.setColour (palette::violet);
-            g.strokePath (bridge, juce::PathStrokeType (arcWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-
-        drawKnobCap (g, centre, 17.0f);
-
-        if (hasEffective)
-        {
-            const auto dot = knob::pointAt (centre, arcRadius, knob::angleFor (effectiveProportion));
-            g.setColour (palette::panel);
-            g.fillEllipse (juce::Rectangle<float> (8.0f, 8.0f).withCentre (dot));
-            g.setColour (palette::violet);
-            g.fillEllipse (juce::Rectangle<float> (5.6f, 5.6f).withCentre (dot));
-        }
-
-        // 白色指针：r 6 → r 14
-        {
-            const auto angle = knob::angleFor (proportion);
-            juce::Path pointer;
-            pointer.startNewSubPath (knob::pointAt (centre, 6.0f, angle));
-            pointer.lineTo (knob::pointAt (centre, 14.0f, angle));
-            g.setColour (juce::Colours::white);
-            g.strokePath (pointer, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        }
-
-        // 数值 + 紫色的自动加量（等宽字，居中）
-        const auto valueFont = monoFont (13.0f, Weight::medium);
-        const auto autoFont  = monoFont (12.0f);
-        const auto valueText = getValueText (false);
-        const auto autoText  = hasEffective ? autoAmountText() : juce::String();
-        const auto valueWidth = textWidth (valueFont, valueText);
-        const auto autoWidth  = autoText.isEmpty() ? 0.0f : textWidth (autoFont, autoText) + 4.0f;
-        auto x = ((float) width - valueWidth - autoWidth) * 0.5f;
-        const juce::Rectangle<float> row (0.0f, 78.0f, (float) width, 22.0f);
-
-        g.setFont (valueFont);
-        g.setColour (palette::ink);
-        g.drawText (valueText, juce::Rectangle<float> (x, row.getY(), valueWidth + 2.0f, row.getHeight()), juce::Justification::centredLeft, false);
-
-        if (autoText.isNotEmpty())
-        {
-            x += valueWidth + 4.0f;
-            g.setFont (autoFont);
-            g.setColour (palette::violet);
-            g.drawText (autoText, juce::Rectangle<float> (x, row.getY() + 0.5f, autoWidth + 2.0f, row.getHeight()), juce::Justification::centredLeft, false);
-        }
-    }
-
-    void ParamKnob::mouseDown (const juce::MouseEvent& e)
-    {
-        if (handleTextEntryClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
-            return;
-
-        lastDragPosition = e.position;
-        beginDrag (e.mods.isCommandDown());
-    }
-
-    void ParamKnob::mouseDrag (const juce::MouseEvent& e)
-    {
-        if (! isDragging())
-            return;
-
-        // 逐事件累加增量（不按「相对按下点的总位移」）：拖到一半按下 / 松开 ⌘ 不会跳。上下拖为主，左右也算（右 / 上为增）。
-        const auto delta = (e.position.x - lastDragPosition.x) + (lastDragPosition.y - e.position.y);
-        lastDragPosition = e.position;
-
-        const auto fineNow = e.mods.isCommandDown();
-        const auto pixels = (double) knobFullDragPixels / (fineNow ? fineFactor : 1.0);
-
-        if (juce::exactlyEqual (delta, 0.0f))
-            return;
-
-        dragTo (getDragProportion() + (double) delta / pixels, fineNow);
-    }
-
-    void ParamKnob::mouseUp (const juce::MouseEvent&)
-    {
-        endDrag();
     }
 
     //==============================================================================
