@@ -19,3 +19,4 @@ site/scripts/build-linux.sh stop     # 停掉静态服务
 - 控件文案：`Source/ui/HelpText.cpp`（三行：名字 · 作用 · 建议）、`Source/ui/Localisation.cpp`。
 - 算法：仓库 `docs/*.md`、`docs/design/`、档案 `01-框架/设计规格-*`。数字只引已有验证记录。
 - 调色：`Source/ui/CeladonLookAndFeel.h`（c100 ～ c900、紫 = GLAZE 自动、橙 = 需要注意）。
+- 旋钮手感：`Source/ui/DialMotion.h`（常数）与 `Source/ui/Dial.cpp`（外圈 / 中间的拖法）。网站复刻在 `src/components/celadon/dialMotion.ts`、`useDialControl.ts`，逐条对应；插件改了手感常数，同步 `dialMotion.ts` 后跑 `pnpm run check:dial`（复现插件 `tests/DialMotionTests.cpp`，也随 build 跑）。

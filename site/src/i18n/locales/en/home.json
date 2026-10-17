@@ -121,7 +121,7 @@
       "Locked"
     ],
     "statusLabel": "GLAZE status",
-    "hint": "Drag up / down · ⌘ / Ctrl for fine · scroll for small steps · double-click resets to 35",
+    "hint": "Spin the ring · drag the centre · ⌘ / Ctrl for fine · scroll for small steps · double-click resets to 35",
     "drivenTitle": "Drives 7 parameters",
     "manual": "Manual",
     "autoIncrement": "Auto increment",
