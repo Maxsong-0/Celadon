@@ -2,10 +2,11 @@
   ==============================================================================
 
     Controls.h
-    v0.1.8.0 界面改版的通用控件：旋钮、行滑条、可拖数值、分段选择、电源键（旁通）、耳机键（试听差值）、小胶囊开关、只读的衰减条。
+    v0.1.8.0 界面改版的通用控件：行滑条、可拖数值、分段选择、电源键（旁通）、耳机键（试听差值）、小胶囊开关、只读的衰减条；
+    旋钮（主旋钮与卡片小旋钮的公共部分、小旋钮本身）在 Dial.h。
 
-    统一手感（V4 设计稿第 7 条）：
-      - 拖动调节（旋钮上下拖、滑条左右拖；旋钮左右拖也算）；按住 ⌘ / Ctrl 慢 8 倍精调；
+    统一手感（V4 设计稿第 7 条；旋钮的外圈 T-100 起改成 CometDial 的手感，见 Dial.h 与 ADR-037）：
+      - 拖动调节（滑条左右拖；旋钮中间上下拖、左右也算，外圈绕圈拖）；按住 ⌘ / Ctrl 慢 8 倍精调；
       - 双击回默认值；按住 Alt / Option 单击直接输入数值（回车确认、Esc 取消、点别处也算确认）；滚轮微调；
       - 拖动时在控件上方出数值气泡（精调时带「精调」小标签）；悬停 / 拖动时中层左下角换成操作提示。
     数值气泡、输入框、操作提示由编辑器画布实现（InteractionHost），控件只负责手感与自己的样子。
@@ -20,6 +21,7 @@
 
 #include <JuceHeader.h>
 
+#include "DialMotion.h"
 #include "Localisation.h"
 
 #include <cmath>
@@ -51,11 +53,11 @@ namespace celadon::ui
 
     //==============================================================================
     // 旋钮几何：270° 轨道从 7 点半（−135°）顺时针到 4 点半（+135°），正上方是正中；角度 0 = 12 点方向、顺时针为正
-    //（与 juce::Path::addCentredArc 同一约定）。
+    //（与 juce::Path::addCentredArc 同一约定）。端点常数与外圈手感共用一处（DialMotion.h）。
     namespace knob
     {
-        inline constexpr float startAngle = -0.75f * juce::MathConstants<float>::pi;
-        inline constexpr float endAngle   =  0.75f * juce::MathConstants<float>::pi;
+        inline constexpr float startAngle = dial::startAngle;
+        inline constexpr float endAngle   = dial::endAngle;
 
         inline float angleFor (float proportion) noexcept
         {
@@ -74,6 +76,9 @@ namespace celadon::ui
     // saturation < 1 时整段去色（听原声时的主旋钮）。
     void drawValueArc (juce::Graphics& g, juce::Point<float> centre, float radius, float width,
                        float from, float to, int segmentsPerRange, bool bipolar, float saturation = 1.0f);
+
+    // 数值弧在 position（0 ～ 1）处的颜色：单极越大越深，双极按离中点的距离加深；saturation < 1 时去色。数值弧与彗尾共用。
+    juce::Colour valueArcColour (float position, bool bipolar, float saturation = 1.0f);
 
     // 深色旋钮帽：径向渐变（左上亮）+ 下方一圈柔和的影子。
     void drawKnobCap (juce::Graphics& g, juce::Point<float> centre, float radius);
@@ -139,6 +144,12 @@ namespace celadon::ui
     // 参数值的显示文字：参数自己的格式（「+3.0」「25」），ASCII 连字符换成 U+2212 减号；withUnit 时接单位（「+3.0 dB」）。
     juce::String formatParameterValue (const juce::RangedAudioParameter& parameter, float value, bool withUnit);
 
+    // 显示用的减号 U+2212。
+    const juce::String& unicodeMinus();
+
+    // 小旋钮（中间上下拖）与可拖数值：拖满量程要拖的像素（设计稿 knobH (k, 180)）。
+    inline constexpr float knobFullDragPixels = 180.0f;
+
     // 把用户输入的文字解析成参数值：认 U+2212、忽略单位与空格；解析不出返回空。结果按参数范围钳制并吸附到步进。
     std::optional<float> parseParameterValue (const juce::RangedAudioParameter& parameter, const juce::String& text);
 
@@ -152,6 +163,7 @@ namespace celadon::ui
         ~ParameterControl() override;
 
         juce::RangedAudioParameter& getParameter() noexcept        { return parameter; }
+        const juce::RangedAudioParameter& getParameter() const noexcept   { return parameter; }
         float getValue() const noexcept                            { return value; }
         float getProportion() const noexcept;
         juce::String getValueText (bool withUnit) const            { return formatParameterValue (parameter, value, withUnit); }
@@ -211,49 +223,7 @@ namespace celadon::ui
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParameterControl)
     };
 
-    //==============================================================================
-    // 模块卡片里的小旋钮（72 × 100）：名字（上）+ 54 px 旋钮 + 数值（下，GLAZE 的自动加量紫色接在后面）。
-    class ParamKnob  : public ParameterControl
-    {
-    public:
-        struct Options
-        {
-            bool bipolar = false;        // 从正中往两边长（Tone、Brighten、Output……）
-            int autoDecimals = 0;        // 自动加量显示几位小数（整数量 0，dB 量 1）
-        };
-
-        ParamKnob (juce::RangedAudioParameter& parameter, InteractionHost& host, Options options);
-
-        void setLabel (const juce::String& newName);
-
-        // GLAZE 叠加后的实际值（参数单位）；空 = 不显示（GLAZE 0）。只在看得出变化时重画。
-        void setEffectiveValue (std::optional<float> effective);
-
-        void paint (juce::Graphics&) override;
-        void mouseDown (const juce::MouseEvent&) override;
-        void mouseDrag (const juce::MouseEvent&) override;
-        void mouseUp (const juce::MouseEvent&) override;
-
-        static constexpr int width = 72;
-        static constexpr int height = 100;
-
-    protected:
-        juce::Point<float> getBubbleAnchor() const override;
-        juce::Rectangle<int> getTextEntryArea() const override;
-
-    private:
-        juce::String autoAmountText() const;
-
-        Options options;
-        juce::String name;
-        std::optional<float> effectiveValue;
-        float effectiveBaseValue = 0.0f;          // 上次 setEffectiveValue 时的用户值（加量文字只由它与 effectiveValue 决定）
-        juce::String shownAutoText;               // 上次重画时的自动加量文字与实际值比例（-1 = 不显示）
-        float shownEffectiveProportion = -1.0f;
-        juce::Point<float> lastDragPosition;
-
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParamKnob)
-    };
+    // 模块卡片里的小旋钮（ParamKnob）与主旋钮的公共部分（DialControl）在 Dial.h。
 
     //==============================================================================
     // 卡片下半部分的行滑条（246 × 24）：名字 70 px + 轨道 + 数值 60 px（+ 可选的小胶囊，如释放的 AUTO）。

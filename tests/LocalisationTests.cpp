@@ -79,7 +79,8 @@ namespace celadon::test
 
                 for (const auto language : { Language::chinese, Language::english })
                 {
-                    const auto fine = ui::tr (Text::hintDrag, language) + " " + ui::tr (Text::helpFine, language);
+                    const auto fine = ui::tr (Text::hintDrag, language) + " " + ui::tr (Text::hintDial, language) + " "
+                                    + ui::tr (Text::helpFine, language);
                     const auto type = ui::tr (Text::hintClick, language) + " " + ui::tr (Text::helpType, language);
                     const auto label = juce::String (language == Language::english ? "en" : "zh") + ": " + fine + " | " + type;
 

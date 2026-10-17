@@ -405,10 +405,12 @@ public:
             return;
 
         hintActive = control != nullptr;
+        hintOnDial = dynamic_cast<DialControl*> (control) != nullptr;   // 旋钮有外圈手感，提示单独一条（T-100）
         editor.timerCallback();   // 立刻换左下角的文字，不等下一帧
     }
 
     bool isHintActive() const noexcept   { return hintActive; }
+    bool isHintOnDial() const noexcept   { return hintOnDial; }
     double getStaticLayerRenderMs() const noexcept   { return lastStaticLayerMs; }
 
     // Windows：Alt 单击打开输入框后松开 Alt，这个 WM_SYSKEYUP 没人要的话 JUCE 会转给宿主窗口，系统随即激活宿主的菜单栏，
@@ -725,6 +727,7 @@ private:
     double hideHudAtMs = 0.0;
     bool draggingSize = false;
     bool hintActive = false;
+    bool hintOnDial = false;
     bool destroying = false;
     int dividerX = 600;
     juce::Component* bubbleOwner = nullptr;
@@ -887,6 +890,9 @@ void CeladonAudioProcessorEditor::applyReduceMotion()
     const auto reduce = settings->getReduceMotion();
     canvas->particles.setReduceMotion (reduce);
     canvas->glazeKnob.setReduceMotion (reduce);
+    canvas->balanceCard.setReduceMotion (reduce);
+    canvas->colorCard.setReduceMotion (reduce);
+    canvas->limitCard.setReduceMotion (reduce);
     canvas->topBar.setReduceMotion (reduce);
     canvas->settingsPanel.setReduceMotion (reduce);
 }
@@ -1368,7 +1374,7 @@ void CeladonAudioProcessorEditor::timerCallback()
 
         if (c.isHintActive())
         {
-            c.cornerNote.setLines (tr (Text::hintDrag, language), tr (Text::hintClick, language), true);
+            c.cornerNote.setLines (tr (c.isHintOnDial() ? Text::hintDial : Text::hintDrag, language), tr (Text::hintClick, language), true);
         }
         else if (legacyGlazeDiscarded)
         {

@@ -416,6 +416,12 @@ namespace celadon::ui
         return *slider;
     }
 
+    void KnobCard::setReduceMotion (bool shouldReduceMotion)
+    {
+        for (auto* knob : knobs)
+            knob->setReduceMotion (shouldReduceMotion);
+    }
+
     void KnobCard::layoutKnobs (int y)
     {
         // 三个 72 px 宽的旋钮在 246 px 里 space-around（设计稿）：两边各留 5 px、之间 10 px。

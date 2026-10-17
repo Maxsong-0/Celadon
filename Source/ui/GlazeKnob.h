@@ -8,11 +8,12 @@
       - 瓷面由 porcelain::GlazeRenderer 分层生成、按物理像素缓存；GLAZE 变了在定时器里重新生成（拖动时最多约 16 次 / s），
         新旧两张交叉淡化约 0.26 s（「减少动效」时直接换）——新长出来的裂纹是淡入的；
       - 听原声（A / B 的 B）时整颗旋钮变淡、去色（饱和度 30 %），表示此刻听到的不是 GLAZE 的结果；
-      - 手感与所有旋钮一致：上下拖（250 px 满量程）、⌘ / Ctrl 精调、双击回 35 %、Alt 单击在帽子上直接输入、滚轮。
+      - 手感与所有旋钮一致（DialControl，T-100）：外圈绕圈拖、点外圈跳过去、快甩有惯性，中间上下拖（250 px 满量程）；
+        ⌘ / Ctrl 精调、双击回 35 %、Alt 单击在帽子上直接输入、滚轮。数值弧、指针、把手、数字都画读数（带弹簧），转动时拖彗尾。
 
     整颗旋钮（影子、轨道、数值弧、瓷面、指针、把手、数字）合成一张按物理像素的缓存图（T-032 R9-01 / 07 / 14）：
     旋钮在粒子带里，粒子每帧重画都会把它拖进来（macOS 只拿脏矩形的包围盒），GLAZE 不动时每次 paint 只是整数对齐贴一次图。
-    缓存的键 = 值 × 听原声 × 像素比 × 瓷面版本 × 交叉淡化进度，任何一项变了下次 paint 重新合成（paint 里逐项比，
+    缓存的键 = 读数 × 彗尾 × 听原声 × 像素比 × 瓷面版本 × 交叉淡化进度，任何一项变了下次 paint 重新合成（paint 里逐项比，
     不靠各处记得作废）。听原声时缓存图按 55 % 贴，与原来整颗旋钮画进 55 % 的透明图层等价，只是不再每次 paint 都开层。
     JUCE 的 setBufferedToImage 贴图带小数平移、每次双线性重采样，这里不用它。
 
@@ -23,12 +24,12 @@
 
 #include <JuceHeader.h>
 
-#include "Controls.h"
+#include "Dial.h"
 #include "Porcelain.h"
 
 namespace celadon::ui
 {
-    class GlazeKnob  : public ParameterControl,
+    class GlazeKnob  : public DialControl,
                        private juce::Timer
     {
     public:
@@ -38,19 +39,17 @@ namespace celadon::ui
         static constexpr int size = 224;
 
         void setComparing (bool listeningToOriginal);
-        void setReduceMotion (bool shouldReduceMotion)      { reduceMotion = shouldReduceMotion; }
 
         void paint (juce::Graphics&) override;
         bool hitTest (int x, int y) override;
-        void mouseDown (const juce::MouseEvent&) override;
-        void mouseDrag (const juce::MouseEvent&) override;
-        void mouseUp (const juce::MouseEvent&) override;
 
-        // 截图工具的检查与基准读它：paint 次数、整颗旋钮缓存图重新合成的次数、瓷面生成次数与分层重建次数、上次生成瓷面的毫秒数。
+        // 截图工具的检查与基准读它：paint 次数、整颗旋钮缓存图重新合成的次数、瓷面生成次数与分层重建次数、上次生成瓷面的毫秒数、
+        // 此刻瓷面按哪个比例生成（还没生成过 −1）。
         struct PaintStats
         {
             int paints = 0, faceRenders = 0, porcelainRenders = 0, porcelainLayerBuilds = 0;
             double lastPorcelainMs = 0.0;
+            float porcelainProportion = -1.0f;
         };
 
         PaintStats getPaintStats() const noexcept;
@@ -58,7 +57,8 @@ namespace celadon::ui
     protected:
         juce::Point<float> getBubbleAnchor() const override;
         juce::Rectangle<int> getTextEntryArea() const override;
-        void parameterValueChanged() override;
+        Geometry getDialGeometry() const override;
+        void dialMotionChanged() override;
 
     private:
         struct Rendered
@@ -74,7 +74,9 @@ namespace celadon::ui
         // 整颗旋钮缓存图的键：画出来的样子只由这几项决定。
         struct FaceKey
         {
-            float value = 0.0f;
+            float reading = 0.0f;              // 读数（比例）
+            float cometStrength = 0.0f;
+            int cometDirection = 1;
             bool comparing = false;
             int currentSerial = 0, previousSerial = 0;
             float fade = 1.0f;
@@ -99,8 +101,6 @@ namespace celadon::ui
         float wantedPixelScale = 0.0f;
         double pixelScaleChangedMs = 0.0;
         bool comparing = false;
-        bool reduceMotion = false;
-        juce::Point<float> lastDragPosition;
 
         AlignedImage face;                 // 整颗旋钮（覆盖 224 × 224，按此刻物理像素比）
         FaceKey faceKey;

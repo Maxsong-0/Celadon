@@ -19,9 +19,12 @@ namespace celadon::ui
         constexpr float centreXY          = (float) GlazeKnob::size * 0.5f;
         constexpr float ringRadius        = 102.0f;   // 数值弧
         constexpr float ringWidth         = 4.0f;
-        constexpr float fullDragPixels    = 250.0f;   // 设计稿 knobH ('glaze', 250)
+        constexpr float ringHitMargin     = 8.0f;     // 轨道外侧这么宽还算点在旋钮上（也是外圈手感的外沿）
+        constexpr float cometExtraWidth   = 10.0f;    // 彗尾头部多出的线宽（原版 12 配 6 px 粗的轨道）
+        constexpr float fullDragPixels    = 250.0f;   // 设计稿 knobH ('glaze', 250)：中间上下拖
         constexpr double crossfadeMs      = 260.0;
         constexpr double minRenderGapMs   = 60.0;     // 拖动时两次生成瓷面至少隔这么久
+        constexpr float porcelainTolerance = 0.004f;  // 读数在动时，比例差这么多以内不重新生成瓷面（裂纹条数变了照样生成）
         constexpr double scaleSettleMs    = 150.0;    // 缩放窗口时等像素比稳定下来再重新生成
         constexpr float comparingOpacity  = 0.55f;
         constexpr float comparingSaturation = 0.3f;
@@ -35,10 +38,11 @@ namespace celadon::ui
     }
 
     GlazeKnob::GlazeKnob (juce::RangedAudioParameter& glazeParameter, InteractionHost& h)
-        : ParameterControl (glazeParameter, h)
+        : DialControl (glazeParameter, h)
     {
         setSize (size, size);
-        setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+        centreCursor = juce::MouseCursor::UpDownResizeCursor;
+        setMouseCursor (centreCursor);
     }
 
     GlazeKnob::~GlazeKnob()
@@ -56,17 +60,23 @@ namespace celadon::ui
         repaint();
     }
 
-    void GlazeKnob::parameterValueChanged()
+    void GlazeKnob::dialMotionChanged()
     {
         repaint();
 
+        // 瓷面按读数生成：读数在动就让定时器看要不要重新生成（照旧限频，见 timerCallback）。
         if (! isTimerRunning())
             startTimerHz (60);
     }
 
+    DialControl::Geometry GlazeKnob::getDialGeometry() const
+    {
+        return { { centreXY, centreXY }, ringRadius, dial::deadZoneRatio * ringRadius, ringRadius + ringHitMargin, fullDragPixels };
+    }
+
     bool GlazeKnob::hitTest (int x, int y)
     {
-        return juce::Point<float> ((float) x, (float) y).getDistanceFrom ({ centreXY, centreXY }) <= ringRadius + 8.0f;
+        return juce::Point<float> ((float) x, (float) y).getDistanceFrom ({ centreXY, centreXY }) <= ringRadius + ringHitMargin;
     }
 
     juce::Point<float> GlazeKnob::getBubbleAnchor() const
@@ -86,6 +96,7 @@ namespace celadon::ui
         auto result = stats;
         result.porcelainLayerBuilds = renderer.getLayerBuilds();
         result.lastPorcelainMs = lastRenderCostMs;
+        result.porcelainProportion = current.image.isValid() ? current.proportion : -1.0f;
         return result;
     }
 
@@ -98,8 +109,11 @@ namespace celadon::ui
         if (wantedPixelScale > 0.0f && std::abs (current.pixelScale - wantedPixelScale) > 1.0e-3f)
             return true;
 
-        const auto proportion = getProportion();
-        return porcelain::visibleCrackCount (proportion) != current.cracks || std::abs (proportion - current.proportion) > 0.004f;
+        // 读数在动时比例差 porcelainTolerance 以内不重新生成（限频）；动画停下之后要精确落在读数上：弹簧途中生成的瓷面
+        // 可能离终值不到 0.004，停稳后补生成一次，静止画面只由数值决定、不随动画的快慢变。「减少动效」时没有动画，照旧按容差。
+        const auto proportion = juce::jlimit (0.0f, 1.0f, getReadingProportion());
+        const auto tolerance = isMotionRunning() || getReduceMotion() ? porcelainTolerance : 0.0f;
+        return porcelain::visibleCrackCount (proportion) != current.cracks || std::abs (proportion - current.proportion) > tolerance;
     }
 
     void GlazeKnob::render (bool crossfade)
@@ -107,7 +121,7 @@ namespace celadon::ui
         const auto started = nowMs();
 
         Rendered next;
-        next.proportion  = getProportion();
+        next.proportion  = juce::jlimit (0.0f, 1.0f, getReadingProportion());
         next.pixelScale  = wantedPixelScale > 0.0f ? wantedPixelScale : 1.0f;
         next.desaturated = comparing;
         next.cracks      = porcelain::visibleCrackCount (next.proportion);
@@ -116,7 +130,7 @@ namespace celadon::ui
 
         const auto finished = nowMs();
 
-        if (crossfade && current.image.isValid() && ! reduceMotion)
+        if (crossfade && current.image.isValid() && ! getReduceMotion())
         {
             previous = std::move (current);
             fade = 0.0f;
@@ -168,14 +182,17 @@ namespace celadon::ui
     //==============================================================================
     bool GlazeKnob::FaceKey::operator== (const FaceKey& other) const noexcept
     {
-        return juce::exactlyEqual (value, other.value) && comparing == other.comparing && currentSerial == other.currentSerial
+        return juce::exactlyEqual (reading, other.reading) && juce::exactlyEqual (cometStrength, other.cometStrength)
+            && cometDirection == other.cometDirection && comparing == other.comparing && currentSerial == other.currentSerial
             && previousSerial == other.previousSerial && juce::exactlyEqual (fade, other.fade);
     }
 
     GlazeKnob::FaceKey GlazeKnob::currentFaceKey() const noexcept
     {
         FaceKey key;
-        key.value = getValue();
+        key.reading = getReadingProportion();
+        key.cometStrength = getCometStrength();
+        key.cometDirection = key.cometStrength > 0.0f ? getCometDirection() : 0;   // 没有尾巴时方向不影响画面
         key.comparing = comparing;
         key.currentSerial = current.image.isValid() ? current.serial : 0;
         key.previousSerial = isCrossfading() ? previous.serial : 0;
@@ -247,7 +264,8 @@ namespace celadon::ui
 
     void GlazeKnob::paintFace (juce::Graphics& g, float pixelScale) const
     {
-        const auto proportion = getProportion();
+        // 数值弧、指针、把手、数字都画读数（停稳时就是参数值）。
+        const auto proportion = juce::jlimit (0.0f, 1.0f, getReadingProportion());
         const juce::Point<float> centre (centreXY, centreXY);
         const auto angle = knob::angleFor (proportion);
 
@@ -264,13 +282,14 @@ namespace celadon::ui
             g.fillEllipse (juce::Rectangle<float> (2.0f * outer, 2.0f * outer).withCentre (shadowCentre));
         }
 
-        // 外圈：灰色 270° 轨道 + 分段青色数值弧（越往右越深）。
+        // 外圈：灰色 270° 轨道 + 分段青色数值弧（越往右越深）+ 转动时的彗尾。
         {
             juce::Path track;
             track.addCentredArc (centre.x, centre.y, ringRadius, ringRadius, 0.0f, knob::startAngle, knob::endAngle, true);
             g.setColour (palette::knobTrack);
             g.strokePath (track, juce::PathStrokeType (ringWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             drawValueArc (g, centre, ringRadius, ringWidth, 0.0f, proportion, 48, false, comparing ? comparingSaturation : 1.0f);
+            drawComet (g, centre, ringRadius, ringWidth, cometExtraWidth, false, comparing ? comparingSaturation : 1.0f);
         }
 
         // 瓷面（交叉淡化中两张叠画）。
@@ -312,7 +331,7 @@ namespace celadon::ui
         {
             const auto numberFont = uiFont (30.0f, Weight::light);
             const auto percentFont = uiFont (11.0f);
-            const auto number = juce::String (juce::roundToInt (getValue()));
+            const auto number = juce::String (juce::roundToInt (getReadingValue()));
             const auto numberWidth = textWidth (withLetterSpacing (numberFont, -1.0f), number);
             const auto percentWidth = textWidth (percentFont, "%");
             const auto x = centreXY - (numberWidth + 1.0f + percentWidth) * 0.5f;
@@ -326,36 +345,5 @@ namespace celadon::ui
             g.setFont (percentFont);
             g.drawSingleLineText ("%", juce::roundToInt (x + numberWidth + 1.0f), juce::roundToInt (baseline));
         }
-    }
-
-    //==============================================================================
-    void GlazeKnob::mouseDown (const juce::MouseEvent& e)
-    {
-        if (handleTextEntryClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
-            return;
-
-        lastDragPosition = e.position;
-        beginDrag (e.mods.isCommandDown());
-    }
-
-    void GlazeKnob::mouseDrag (const juce::MouseEvent& e)
-    {
-        if (! isDragging())
-            return;
-
-        const auto delta = (e.position.x - lastDragPosition.x) + (lastDragPosition.y - e.position.y);
-        lastDragPosition = e.position;
-
-        if (juce::exactlyEqual (delta, 0.0f))
-            return;
-
-        const auto fineNow = e.mods.isCommandDown();
-        const auto pixels = (double) fullDragPixels / (fineNow ? fineFactor : 1.0);
-        dragTo (getDragProportion() + (double) delta / pixels, fineNow);
-    }
-
-    void GlazeKnob::mouseUp (const juce::MouseEvent&)
-    {
-        endDrag();
     }
 }

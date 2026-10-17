@@ -145,6 +145,14 @@
               file="Source/ui/Controls.cpp"/>
         <FILE id="w1CN8G" name="Controls.h" compile="0" resource="0"
               file="Source/ui/Controls.h"/>
+        <FILE id="Dm7Mtc" name="DialMotion.cpp" compile="1" resource="0"
+              file="Source/ui/DialMotion.cpp"/>
+        <FILE id="Dm7Mth" name="DialMotion.h" compile="0" resource="0"
+              file="Source/ui/DialMotion.h"/>
+        <FILE id="Dl4Ctc" name="Dial.cpp" compile="1" resource="0"
+              file="Source/ui/Dial.cpp"/>
+        <FILE id="Dl4Cth" name="Dial.h" compile="0" resource="0"
+              file="Source/ui/Dial.h"/>
         <FILE id="yc9W6n" name="GlazeKnob.cpp" compile="1" resource="0"
               file="Source/ui/GlazeKnob.cpp"/>
         <FILE id="MtVg0C" name="GlazeKnob.h" compile="0" resource="0"
