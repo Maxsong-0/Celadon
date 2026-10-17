@@ -16,7 +16,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 ## Middle row
 
 - The GLAZE heading and status label: Manual / Manual limit / Phase / Export / Limited / Starting / Holding / Following. A choice sits on each side of the heading: **Genre** on the left (General / Deep / Tech / Melodic) and **Delivery** on the right (Standard / Streaming / Club); see [Genre and Delivery](/docs/glaze#genre-and-delivery) for what they mean and how to use them.
-- The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now.
+- The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now; as it turns, a cyan comet tail trails behind the pointer. See [Controls and shortcuts](/docs/controls) for how to turn it.
 - Particles on both sides: streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
 - A row of buttons: style (Auto / Warm / Punchy / Clean) | A / B · Match.
 - Two lines of description at bottom left (replaced by control hints while you hover or drag): the first reads “Drives 7 parameters”; the second reads “Follows the main section” with GLAZE above 0 and “Manual settings only” at GLAZE 0. When you open an old project the second line turns amber and reads “The old listening result was discarded, so the sound will change”, for that session only. A colour legend at bottom right.
@@ -35,7 +35,7 @@ Each card header shows the number, name, a one-line description and a power butt
 
 ## Panels
 
-- **Settings**: window size (five common sizes + a slider + a preview in proportion to your screen), Reduce motion (turns off particles, ripples and crack fade-ins) and language.
+- **Settings**: window size (five common sizes + a slider + a preview in proportion to your screen), Reduce motion (turns off particles, ripples and crack fade-ins, and the knobs' comet tail and spring) and language.
 - **Help**: control hints.
 - **Advanced**: three tabs — Loud, not harsh / Target spectrum / Release safety; see [The Advanced panel](/docs/advanced).
 

@@ -121,7 +121,7 @@
       "已锁定"
     ],
     "statusLabel": "GLAZE 状态",
-    "hint": "上下拖动旋钮 · ⌘ / Ctrl 精调 · 滚轮微调 · 双击回 35",
+    "hint": "转外圈 · 中间上下拖 · ⌘ / Ctrl 精调 · 滚轮微调 · 双击回 35",
     "drivenTitle": "联动 7 项参数",
     "manual": "手动",
     "autoIncrement": "自动加量",
