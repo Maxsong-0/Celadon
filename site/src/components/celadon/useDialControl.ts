@@ -59,6 +59,7 @@ interface PointerLike {
   ctrlKey: boolean;
   timeStamp: number;
   pointerId: number;
+  buttons: number;
 }
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
@@ -298,7 +299,12 @@ class DialController {
   }
 
   pointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (!this.interactive || e.button !== 0 || this.dragging) return;
+    if (!this.interactive || e.button !== 0) return;
+    if (this.dragging) {
+      // 别的手指 / 笔：不收。同一个指针又按下了：上一次的松手没收到（没拿到捕获、在元素外松开），当那次已松手、不甩。
+      if (e.pointerId !== this.pointerId) return;
+      this.pointerUp(e, true);
+    }
 
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -347,6 +353,12 @@ class DialController {
       return;
     }
     if (e.pointerId !== this.pointerId) return;
+
+    // 键已经松了还在拖：松手没收到（同上），当已松手，不然光标划过就改值。
+    if (e.buttons === 0) {
+      this.pointerUp(e, true);
+      return;
+    }
 
     const fineNow = e.metaKey || e.ctrlKey;
 
