@@ -57,6 +57,13 @@ export const CHANGELOG: ReleaseNote[] = [
       {
         kind: 'ui',
         text: {
+          zh: 'BALANCE 卡片看得更细：27 根小柱换成一条平滑的修正曲线，27 个小点标出各段中心；修正大时曲线弯向上下边，不再被截断。曲线后面淡淡一层是输出的平均频谱，并在 100 Hz、1 kHz、10 kHz 画了竖线，一眼看出改的是哪一段。只改显示，声音不变。',
+          en: 'The BALANCE card shows more detail: the 27 small bars are now one smooth correction curve, with 27 small dots marking the band centres, and larger corrections bend toward the top or bottom edge instead of being cut off. Behind the curve is a faint average spectrum of the output, with lines at 100 Hz, 1 kHz and 10 kHz, so you can see at a glance which part of the range is being changed. Display only; the sound is unchanged.'
+        }
+      },
+      {
+        kind: 'ui',
+        text: {
           zh: '旋钮可以抓着外圈转：沿外圈拖动就跟着转，点一下外圈直接转到那里，快甩松手还会多滑一段再停稳；转动时指示点后面拖一道渐淡的尾巴，转得越快越长。自动化回放或切换预设时，旋钮也会顺滑地转到新位置。按住旋钮中间上下拖、精调、双击复位都和以前一样；开着「减少动效」时没有尾巴，也不回弹。',
           en: 'You can now turn a knob by its ring: drag along the ring and it follows, click the ring to turn straight there, or flick it and it glides on a little before settling. While it turns, a fading tail trails the indicator, longer the faster you go. Automation playback and preset changes also turn the knob smoothly to its new position. Dragging the centre up and down, fine adjustment and double-click reset work as before; with Reduce motion on there is no tail and no bounce.'
         }
