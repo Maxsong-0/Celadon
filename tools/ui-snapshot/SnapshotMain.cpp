@@ -1390,9 +1390,10 @@ namespace
         }
 
         // ⑪b T-102：设置面板「减少动效」下面那行说明（单行画、放不下截成省略号）中英都放得下。按画它的字体与宽度、用 drawText
-        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同；字体随平台变
-        // （这里是 Linux 的 Noto Sans CJK），Mac 苹方与 Windows 微软雅黑 UI 的宽度另按字体文件算过：
-        // docs/validation/2026-10-18-T102-reduce-motion-note/。
+        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同。字体随平台变：
+        // JUCE 在 Linux 上只扫 .ttf / .otf，DGX 的 Noto Sans CJK 是 .ttc、不在字体列表里，界面字体落到 system-ui（DejaVu Sans，
+        // 拉丁字母比苹方、雅黑 UI 都宽），汉字回退到 Noto Sans CJK JP（比雅黑 UI 窄）。所以英文这里过了 Mac / Windows 也放得下，中文还要看雅黑 UI——
+        // 两者都按字体文件另算过：docs/validation/2026-10-18-T102-reduce-motion-note/。
         for (const auto language : { celadon::Language::chinese, celadon::Language::english })
         {
             using celadon::ui::SettingsPanel;

@@ -209,7 +209,7 @@ namespace celadon::ui
             { Text::reduceMotion,       "减少动效",                 "Reduce motion" },
             // 单行画在开关左边（SettingsPanel::reduceMotionNoteWidth），写长了会被截成省略号；截图工具的检查按真字体量中英两句。
             { Text::reduceMotionNote,   "关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹",
-                                        "No particles, ripples, crack fade-ins, knob tails or spring" },
+                                        "No particle, ripple, crack or knob animation" },
             { Text::language,           "语言",                     "Language" },
 
             // ---- 帮助面板 ----
