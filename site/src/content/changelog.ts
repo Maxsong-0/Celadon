@@ -37,7 +37,7 @@ export const CHANGELOG: ReleaseNote[] = [
   {
     id: 'v0.1.8.10',
     version: '0.1.8.10',
-    date: '2026-10-10',
+    date: '2026-10-18',
     title: { zh: '打开工程留住结果，交付停在目标上', en: 'Projects keep their result, and Delivery stops on target' },
     items: [
       {
