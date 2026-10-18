@@ -1391,7 +1391,8 @@ namespace
 
         // ⑪b T-102：设置面板「减少动效」下面那行说明（单行画、放不下截成省略号）中英都放得下。按画它的字体与宽度、用 drawText
         // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同；字体随平台变
-        // （这里是 Linux 的 Noto Sans CJK），Mac 苹方与 Windows 微软雅黑 UI 的宽度另按字体文件算过，见 T-102 的 PR。
+        // （这里是 Linux 的 Noto Sans CJK），Mac 苹方与 Windows 微软雅黑 UI 的宽度另按字体文件算过：
+        // docs/validation/2026-10-18-T102-reduce-motion-note/。
         for (const auto language : { celadon::Language::chinese, celadon::Language::english })
         {
             using celadon::ui::SettingsPanel;
@@ -1411,7 +1412,8 @@ namespace
             const auto measured = juce::GlyphArrangement::getStringWidth (font, text);
             check (same && measured <= width,
                    juce::String ("T-102 settings: the Reduce motion note fits on one line (") + (language == celadon::Language::chinese ? "zh " : "en ")
-                       + juce::String (measured, 1) + " / " + juce::String (juce::roundToInt (width)) + " px)");
+                       + juce::String (measured, 1) + " / " + juce::String (juce::roundToInt (width)) + " px"
+                       + (same ? "" : ", drawText cuts it short") + ")");
         }
 
         failures += runCacheChecks (session, check);

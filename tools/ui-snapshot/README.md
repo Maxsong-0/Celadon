@@ -53,7 +53,7 @@ T-100（ADR-037）起旋钮外圈换成 CometDial 的手感、读数带弹簧和
 T-102 在语言那条（⑪）之后加了 ⑪b：设置面板「减少动效」下面那行说明是单行画的（放不下截成省略号），中英两句按画它的字体与宽度
 （`SettingsPanel::reduceMotionNoteFont / reduceMotionNoteWidth`，242 px）用 `drawText` 同一个排版函数排一遍，与不限宽时逐字相同才过，
 并打印量出的宽度。界面缩放是整体变换，逻辑宽度各档位相同；这里量的是本机字体（Linux 上 Noto Sans CJK），Mac 苹方与 Windows
-微软雅黑 UI 那两种按字体文件另算（T-102 的 PR 里有数）。
+微软雅黑 UI 那两种按字体文件另算（`docs/validation/2026-10-18-T102-reduce-motion-note/`）。
 
 **存图之前一律停稳**：工具不跑消息循环，弹簧会停在半路，所以 `save` 先对所有旋钮调 `finishMotion()`（读数落到参数值、彗尾清零），
 存下的是真机静止时的样子，与没有动画时逐像素相同（`check-drag.png` 也是：拖动中途的读数在真机上本来就只落后约 60 ms）。
