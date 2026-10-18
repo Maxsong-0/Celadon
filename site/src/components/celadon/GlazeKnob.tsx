@@ -112,7 +112,7 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
     },
     [onChange]
   );
-  const knob = useDialControl({ value: v01, commit, geometry: GEOMETRY, interactive, svgRef: ref });
+  const knob = useDialControl({ value: v01, defaultValue: DEFAULT_VALUE / 100, commit, geometry: GEOMETRY, interactive, svgRef: ref });
   const { frame, reduceMotion, jumpTo, param } = knob;
 
   // 数值弧、刻度、指针、紫弧、读数文字都画读数（插件 paintFace：读数钳到 0 ～ 1）。
@@ -191,7 +191,6 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
       aria-valuetext={`${Math.round(value)} %`}
       tabIndex={interactive ? 0 : -1}
       {...knob.handlers}
-      onDoubleClick={() => interactive && knob.resetTo(DEFAULT_VALUE / 100)}
       onKeyDown={onKey}
     >
       <defs>
