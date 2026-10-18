@@ -7,7 +7,8 @@
 
     用法：celadon_ui_snapshot --out <目录> [--scale 2] [--only 名字,名字] [--frames N] [--deterministic]
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
-      zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-help、zh-advanced、en-advanced（「高级」面板）、
+      zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-settings、zh / en-settings-zoom70（T-102：设置面板，70 % 界面大小）、
+      en-help、zh-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced、zh-input（T-051：频谱仪 IN 虚线开着）；
       T-038（曲风 Deep House、交付 俱乐部）：zh / en-house-layout（两个选择在 GLAZE 标题行左右）、-house-hint（反相提示）。
       T-048 状态行：-status-follow / -guard / -export（跟随、守护退让、导出冷启动，只截胶囊）、-legacy-notice（旧工程提示，左下角）。
@@ -33,6 +34,7 @@
       也不会让频谱仪按墙钟多走一步、出图随机器快慢变（--only check 里有一条守它，见 probeTimerPush）。
       T-100（ADR-037）：旋钮的读数带弹簧与彗尾。--only check 在滚轮那条之后多一组外圈手感检查（⑤b），⑬ 按读数走弹簧改写；
       每次存图前所有旋钮先停稳（save 里调 finishMotion），存下的是静止时的样子。
+      T-102：--only check 在语言那条（⑪）之后多一条 ⑪b：设置面板「减少动效」下面那行说明中英都单行放得下、不出省略号。
 
   ==============================================================================
 */
@@ -632,6 +634,10 @@ int main (int argc, char* argv[])
         { "zh-truepeak", celadon::Language::chinese,
           [] (Session& s) { s.setParameter (celadon::param::limitBypass, 1.0f); s.setParameter (celadon::param::colorOutput, 6.0f); }, none },
         { "zh-settings", celadon::Language::chinese, none, [] (Session& s) { s.editor->showSettings (true); } },
+        // T-102：「减少动效」说明补上旋钮后变长，英文也要看；最小档位（70 %）下中英各一张。
+        { "en-settings", celadon::Language::english, none, [] (Session& s) { s.editor->showSettings (true); } },
+        { "zh-settings-zoom70", celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); s.editor->showSettings (true); } },
+        { "en-settings-zoom70", celadon::Language::english, none, [] (Session& s) { s.editor->setZoom (0.7); s.editor->showSettings (true); } },
         { "en-help",     celadon::Language::english, none, [] (Session& s) { s.editor->showHelp (true); } },
         { "zh-help",     celadon::Language::chinese, none, [] (Session& s) { s.editor->showHelp (true); } },   // T-100：旋钮那条变长，中文也要看
         { "zh-advanced", celadon::Language::chinese, none, [] (Session& s) { s.editor->showAdvanced (true); } },
@@ -1381,6 +1387,31 @@ namespace
                    "corner note follows the language (" + static_cast<celadon::ui::CornerNote&> (corner).getFirstLine() + ")");
             save (editor, scale, outDir.getChildFile ("check-english.png"));
             settings->setLanguage (celadon::Language::chinese);
+        }
+
+        // ⑪b T-102：设置面板「减少动效」下面那行说明（单行画、放不下截成省略号）中英都放得下。按画它的字体与宽度、用 drawText
+        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同；字体随平台变
+        // （这里是 Linux 的 Noto Sans CJK），Mac 苹方与 Windows 微软雅黑 UI 的宽度另按字体文件算过，见 T-102 的 PR。
+        for (const auto language : { celadon::Language::chinese, celadon::Language::english })
+        {
+            using celadon::ui::SettingsPanel;
+            const auto text = celadon::ui::tr (celadon::ui::Text::reduceMotionNote, language);
+            const auto font = SettingsPanel::reduceMotionNoteFont();
+            const auto width = SettingsPanel::reduceMotionNoteWidth();
+
+            juce::GlyphArrangement whole, fitted;
+            whole.addLineOfText (font, text, 0.0f, 0.0f);
+            fitted.addCurtailedLineOfText (font, text, 0.0f, 0.0f, width, true);
+
+            auto same = whole.getNumGlyphs() == fitted.getNumGlyphs();
+
+            for (int i = 0; same && i < whole.getNumGlyphs(); ++i)
+                same = whole.getGlyph (i).getCharacter() == fitted.getGlyph (i).getCharacter();
+
+            const auto measured = juce::GlyphArrangement::getStringWidth (font, text);
+            check (same && measured <= width,
+                   juce::String ("T-102 settings: the Reduce motion note fits on one line (") + (language == celadon::Language::chinese ? "zh " : "en ")
+                       + juce::String (measured, 1) + " / " + juce::String (juce::roundToInt (width)) + " px)");
         }
 
         failures += runCacheChecks (session, check);
