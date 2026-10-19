@@ -35,7 +35,7 @@ Each card header shows the number, name, a one-line description and a power butt
 
 ## Panels
 
-- **Settings**: window size (five common sizes + a slider + a preview in proportion to your screen), Reduce motion (turns off particles, ripples and crack fade-ins, and the knobs' comet tail and spring) and language.
+- **Settings**: window size (five common sizes + a slider + a preview in proportion to your screen), Reduce motion (turns off particles, ripples and crack fade-ins, and the knobs' comet tail and spring; the dot in the top bar's status pill doesn't pulse either) and language.
 - **Help**: control hints.
 - **Advanced**: three tabs — Loud, not harsh / Target spectrum / Release safety; see [The Advanced panel](/docs/advanced).
 
