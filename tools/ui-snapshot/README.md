@@ -18,6 +18,7 @@
 | `zh-audition.png` | Gain +8 dB 时 LIMIT 的耳机「试听差值」（只听限幅削掉的部分） |
 | `zh-truepeak.png` | 限幅器旁通 + Color 输出 +6 dB → 真峰值超限的橙色提示 |
 | `zh-settings.png` / `en-help.png` / `zh-help.png` | 设置面板 / 帮助面板（英文、中文；中文那张 T-100 加：旋钮的操作提示变长了） |
+| `en-settings.png` / `zh-settings-zoom70.png` / `en-settings-zoom70.png` | T-102：设置面板英文版，以及最小界面大小（70 %）下的中英两张（「减少动效」的说明补上旋钮后变长了） |
 | `zh-advanced.png` / `en-advanced.png` | 「高级」的推响不刺页（真实参数控制） |
 | `zh-target.png` | 目标频谱页，学习参考缺侧链时的等待状态 |
 | `en-release.png` / `zh-preview.png` | 发行安全页 / 主窗口的归一化预听提示 |
@@ -48,6 +49,13 @@ T-100（ADR-037）起旋钮外圈换成 CometDial 的手感、读数带弹簧和
 时间戳（甩动按事件时间算速度），弹簧用 `DialControl::advanceMotion (1 / 60)` 手动推，不靠墙钟；每条都核对停稳后读数精确等于参数值、
 彗尾为 0、动画定时器已停。缓存检查 ⑬ 也随之改写：减少动效时改一次值只合成 1 次；正常动效时读数在路上每帧合成、停稳后 5 次重画 0 次合成；
 末尾一条改 0.1 %（在动时瓷面的容差 0.004 以内，往裂纹条数不变的方向改），动画停下后瓷面要按读数逐位精确地补生成一次。
+
+T-102 在语言那条（⑪）之后加了 ⑪b：设置面板「减少动效」下面那行说明是单行画的（放不下截成省略号），中英两句按画它的字体与宽度
+（`SettingsPanel::reduceMotionNoteFont / reduceMotionNoteWidth`，242 px）用 `drawText` 同一个排版函数排一遍，与不限宽时逐字相同才过，
+并打印量出的宽度。界面缩放是整体变换，逻辑宽度各档位相同。这里量的是本机实际用的字体：JUCE 在 Linux 上扫字体只认 `.ttf` / `.otf`
+（`juce_Fonts_freetype.cpp`），DGX 的 Noto Sans CJK 只有 `.ttc` 合集，JUCE 的字体列表里没有它，界面字体落到 `system-ui` = DejaVu Sans，
+汉字由系统回退到 Noto Sans CJK JP。DejaVu 的拉丁字母比苹方、微软雅黑 UI 都宽，所以英文这里过了 Mac / Windows 也放得下；
+中文是微软雅黑 UI 最宽，那两种按字体文件另算（`docs/validation/2026-10-18-T102-reduce-motion-note/`）。
 
 **存图之前一律停稳**：工具不跑消息循环，弹簧会停在半路，所以 `save` 先对所有旋钮调 `finishMotion()`（读数落到参数值、彗尾清零），
 存下的是真机静止时的样子，与没有动画时逐像素相同（`check-drag.png` 也是：拖动中途的读数在真机上本来就只落后约 60 ms）。

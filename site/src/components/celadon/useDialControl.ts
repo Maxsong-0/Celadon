@@ -12,12 +12,14 @@ import * as dial from './dialMotion';
  *     读数按 60 ms 追手；松手前 80 ms 内还在动就按速度多滑一段，再用弹簧停稳。拖动中按下 ⌘ / Ctrl：从那一刻起改相对转动、
  *     慢 8 倍，到松手都保持相对。
  *   - 其余（中间、下方的读数和名字）：上下拖（左右也算），逐事件累加，⌘ / Ctrl 慢 8 倍、中途按下松开不跳。
+ * 双击回默认：第二次按下时就认（isSecondClick），当场回默认值；这次按下剩下的拖动不改值、松手也不甩，外圈也不先跳到所按角度。
  * 读数怎么动：拖动时追手；点外圈、父组件改值（首屏的「呼吸」）、双击回默认从当前位置起弹簧；滚轮和键盘直接落下、不出彗尾（拖动中不收）；
  * 「减少动效」时一律直接落下、没有彗尾、快甩不多滑（中途打开也当场收尾）。动画挂在 gsap.ticker 上，停稳（读数到位——拖动中就是追上了手——且
  * 彗尾速度落到阈值下）就摘掉。静止时读数精确等于参数值，画出来与没有动画时逐像素相同。
  *
- * 和插件不一样的地方只有宿主相关的：网站没有宿主手势，参数就是父组件的受控 value；
- * 网站多了键盘（同滚轮）；pointercancel（手势被系统打断）当松手但不甩。
+ * 和插件不一样的地方：网站没有宿主手势，参数就是父组件的受控 value；网站多了键盘（同滚轮）；pointercancel（手势被系统打断）
+ * 当松手但不甩；双击在第二次按下时认（怎么认见 doubleClickMs）——这是插件注释写的本意，而 JUCE 9.0.2 的 mouseDoubleClick
+ * 要等第二次松手、在 mouseUp 之后才来（juce_Component.cpp internalMouseUp）。
  */
 
 /** 旋钮的几何。坐标、半径用 SVG 用户坐标（viewBox）；fullDragPixels 用屏幕像素（CSS px）。 */
@@ -49,6 +51,18 @@ export interface DialFrame {
 
 /** 精调慢几倍（插件 ParameterControl::fineFactor 0.125）。 */
 const fineFactor = 0.125;
+
+/**
+ * 双击怎么认（数取插件所用 JUCE 9.0.2 的 MouseInputSource）：两次按下相隔不到 400 ms（MouseEvent::getDoubleClickTimeout），
+ * 横竖各差不到 8 px、触屏 25 px（RecentMouseDown::getPositionToleranceForInputType）。另加一条：上一下得是点按，按住时移动到
+ * 4 px 就不算——JUCE 用这个门槛（registerMouseDrag 的 movedSignificantly）判的是第二下本身，可第二下动不动要到松手才知道；
+ * 改判上一下，拖完松手马上再按（接着拖）不会被当成双击冲回默认。触屏放宽到 8 px：手指点一下也会晃，JUCE 不分输入一律 4 px，
+ * 这里取 Android ViewConfiguration 的 DOUBLE_TAP_TOUCH_SLOP（8 dp）。只看 pointerdown 的时间和位置，不看事件的点击次数：
+ * pointerdown 的 detail 按 Pointer Events 规范应为 0；触屏上的 mousedown 浏览器可以等手指离开后才补发（规范允许）；dblclick 要等第二次松手。
+ */
+const doubleClickMs = 400;
+const doubleClickTolerance = (pointerType: string) => (pointerType === 'touch' ? 25 : 8);
+const clickSlop = (pointerType: string) => (pointerType === 'touch' ? 8 : 4);
 
 type Grab = 'none' | 'ring' | 'centre';
 
@@ -90,9 +104,14 @@ class DialController {
   private last = { x: 0, y: 0 };
   private lastPointerAngle = 0;
   private screenTrackRadius = 0;
+  /** 上一次按下（认双击用）：时间、位置、指针类型，以及按住时移动过没有（移动过就不是点按，下一次按下不算双击）；
+   *  那一下被打断或漏收了松手就清掉。 */
+  private lastPress: { time: number; x: number; y: number; pointerType: string; moved: boolean } | null = null;
 
   constructor(
     initial: number,
+    /** 默认值（比例，插件 ParameterControl::defaultValue）：双击回到这里。 */
+    private readonly defaultParam: number,
     private readonly geometry: DialGeometry,
     private readonly svg: RefObject<SVGSVGElement | null>,
     private readonly commitParam: (proportion: number) => number,
@@ -155,12 +174,13 @@ class DialController {
     }
   }
 
-  /** 双击回默认：一次「外部」改值，读数起弹簧（插件 mouseDoubleClick）。 */
-  resetTo(proportion: number) {
+  /** 双击回默认（插件 DialControl::mouseDoubleClick → ParameterControl::mouseDoubleClick）：一次「外部」改值，读数从当前位置起弹簧。
+   *  这次按下剩下的拖动不再改值、松手也不甩（grab = 'none'，插件里是收掉 dragActive）；手还按着，照旧不收滚轮和键盘。 */
+  private resetToDefault() {
     this.grab = 'none';
     this.ringMoved = false;
-    this.dragProportion = clamp01(proportion);
-    this.setParam(proportion);
+    this.dragProportion = this.defaultParam;
+    this.setParam(this.defaultParam);
   }
 
   // ---- 读数与动画（插件 parameterValueChanged / startMotion / tick / advanceMotion / finishMotion）----
@@ -298,8 +318,26 @@ class DialController {
     if (el && el.style.cursor !== cursor) el.style.cursor = cursor;
   }
 
+  /** 按住时离按下处到了 clickSlop 就不算点按：下一次按下不和这一下凑成双击（门槛同 JUCE registerMouseDrag）。 */
+  private notePressMovement(e: PointerLike) {
+    const press = this.lastPress;
+    if (press && !press.moved && Math.hypot(e.clientX - press.x, e.clientY - press.y) >= clickSlop(press.pointerType)) press.moved = true;
+  }
+
+  /** 这次按下和上一次凑成双击（JUCE RecentMouseDown::canBePartOfMultipleClickWith），外加上一下得是点按。 */
+  private isSecondClick(e: ReactPointerEvent<SVGSVGElement>) {
+    const previous = this.lastPress;
+    if (!previous || previous.moved || previous.pointerType !== e.pointerType) return false;
+    const tolerance = doubleClickTolerance(e.pointerType);
+    return e.timeStamp - previous.time < doubleClickMs && Math.abs(e.clientX - previous.x) < tolerance && Math.abs(e.clientY - previous.y) < tolerance;
+  }
+
   pointerDown(e: ReactPointerEvent<SVGSVGElement>) {
-    if (!this.interactive || e.button !== 0) return;
+    if (!this.interactive) return;
+    if (e.button !== 0) {
+      this.lastPress = null; // 按过别的键：下一次左键不和之前那一下凑成双击（JUCE 要两次按的是同一个键）
+      return;
+    }
     if (this.dragging) {
       // 别的手指 / 笔：不收。同一个指针又按下了：上一次的松手没收到（没拿到捕获、在元素外松开），当那次已松手、不甩。
       if (e.pointerId !== this.pointerId) return;
@@ -312,12 +350,21 @@ class DialController {
       /* 拿不到捕获也照样拖，只是移出元素后收不到移动 */
     }
 
+    const secondClick = this.isSecondClick(e);
+    this.lastPress = { time: e.timeStamp, x: e.clientX, y: e.clientY, pointerType: e.pointerType, moved: false };
+
     const fineAtStart = e.metaKey || e.ctrlKey;
     this.down = this.last = { x: e.clientX, y: e.clientY };
     this.ringMoved = false;
     this.dragging = true;
     this.pointerId = e.pointerId;
     this.dragProportion = this.param; // 插件 beginDrag
+
+    // 双击：第二次按下就回默认，外圈也不先跳到所按角度（插件 mouseDoubleClick）。
+    if (secondClick) {
+      this.resetToDefault();
+      return;
+    }
 
     const local = this.toLocal(e);
 
@@ -345,8 +392,8 @@ class DialController {
   }
 
   pointerMove(e: PointerLike) {
-    if (!this.dragging || this.grab === 'none') {
-      if (this.interactive && !this.dragging) {
+    if (!this.dragging) {
+      if (this.interactive) {
         const local = this.toLocal(e);
         this.setCursor(local && this.isInRing(local) ? 'grab' : '');
       }
@@ -359,6 +406,11 @@ class DialController {
       this.pointerUp(e, true);
       return;
     }
+
+    this.notePressMovement(e);
+
+    // 双击回默认之后：这次按下剩下的拖动不再改值。
+    if (this.grab === 'none') return;
 
     const fineNow = e.metaKey || e.ctrlKey;
 
@@ -403,6 +455,10 @@ class DialController {
   pointerUp(e: PointerLike, cancelled: boolean) {
     if (!this.dragging || e.pointerId !== this.pointerId) return;
 
+    // 认双击用：被打断、漏收的松手说不准是不是点按，不和下一次按下凑成双击；正常松手再看一次松开处（中间的移动可能没送到）。
+    if (cancelled) this.lastPress = null;
+    else this.notePressMovement(e);
+
     const released = this.grab;
     const moved = this.ringMoved;
     this.grab = 'none'; // 先放开：下面设落点时 parameterValueChanged 不再当成在追手
@@ -435,20 +491,23 @@ class DialController {
 }
 
 /**
- * 把 DialController 接到组件上。value：参数比例（受控）；commit：设参数（交给父组件），返回吸附后实际设下的比例。
+ * 把 DialController 接到组件上。value：参数比例（受控）；defaultValue：默认值的比例（双击回到这里）；
+ * commit：设参数（交给父组件），返回吸附后实际设下的比例。
  * commit 要让父组件在同一批更新里给回新的 value（普通 setState 即可）：放进 transition 之类延后的更新，
  * 中间那次渲染拿到的还是旧 value，会被当成父组件没接受、读数先弹回去再弹过来。
- * geometry 只在第一次渲染时读（网站传的是模块常量）。
- * 返回这一帧要画的东西、指针事件、滚轮 / 键盘 / 双击用的 jumpTo / resetTo，以及「减少动效」。
+ * defaultValue、geometry 只在第一次渲染时读（网站传的是模块常量）。
+ * 返回这一帧要画的东西、指针事件（双击回默认也在里面）、滚轮 / 键盘用的 jumpTo，以及「减少动效」。
  */
 export function useDialControl({
   value,
+  defaultValue,
   commit,
   geometry,
   interactive,
   svgRef
 }: {
   value: number;
+  defaultValue: number;
   commit: (proportion: number) => number;
   geometry: DialGeometry;
   interactive: boolean;
@@ -458,7 +517,7 @@ export function useDialControl({
   const [frame, setFrame] = useState<DialFrame>(() => ({ reading: value, strength: 0, direction: 1, settled: true, running: false }));
   const controllerRef = useRef<DialController | null>(null);
   if (controllerRef.current === null) {
-    controllerRef.current = new DialController(value, geometry, svgRef, p => commitRef.current(p), next =>
+    controllerRef.current = new DialController(value, clamp01(defaultValue), geometry, svgRef, p => commitRef.current(p), next =>
       setFrame(prev =>
         prev.reading === next.reading &&
         prev.strength === next.strength &&
@@ -489,7 +548,6 @@ export function useDialControl({
       /** 参数此刻的比例（滚轮、键盘按它加减） */
       param: () => controller.param,
       jumpTo: (p: number) => controller.jumpTo(p),
-      resetTo: (p: number) => controller.resetTo(p),
       handlers: {
         onPointerDown: (e: ReactPointerEvent<SVGSVGElement>) => controller.pointerDown(e),
         onPointerMove: (e: ReactPointerEvent<SVGSVGElement>) => controller.pointerMove(e),

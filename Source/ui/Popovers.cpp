@@ -131,6 +131,9 @@ namespace celadon::ui
         return { card.getRight() - padding - 38.0f, card.getY() + 352.0f, 38.0f, 22.0f };
     }
 
+    juce::Font SettingsPanel::reduceMotionNoteFont()   { return uiFont (11.0f); }
+    float SettingsPanel::reduceMotionNoteWidth()       { return (float) cardWidth - 2.0f * padding - 50.0f; }   // 内容宽减去开关那 50
+
     double SettingsPanel::zoomAt (float x) const
     {
         const auto slider = sliderBounds();
@@ -265,9 +268,9 @@ namespace celadon::ui
             g.setFont (uiFont (12.0f, Weight::medium));
             g.setColour (palette::ink);
             g.drawText (tr (Text::reduceMotion, language), juce::Rectangle<float> (left, y, 220.0f, 16.0f), juce::Justification::centredLeft, false);
-            g.setFont (uiFont (11.0f));
+            g.setFont (reduceMotionNoteFont());
             g.setColour (palette::ink3);
-            g.drawText (tr (Text::reduceMotionNote, language), juce::Rectangle<float> (left, y + 16.0f, innerWidth - 50.0f, 14.0f),
+            g.drawText (tr (Text::reduceMotionNote, language), juce::Rectangle<float> (left, y + 16.0f, reduceMotionNoteWidth(), 14.0f),
                         juce::Justification::centredLeft, true);
 
             const auto area = switchBounds();
