@@ -27,7 +27,7 @@ Cyan = your settings; violet = GLAZE's automatic increment right now; orange = n
 ## Settings and Help
 
 - **Language**: switch between `中` and `EN` in one click; every instance switches at once.
-- **Reduce motion**: turns off particles, ripples and crack fade-ins; knobs show no comet tail and no spring, and a flick doesn't glide.
+- **Reduce motion**: turns off particles, ripples and crack fade-ins; knobs show no comet tail and no spring, and a flick doesn't glide; the dot in the top bar's status pill doesn't pulse either.
 - **Help**: the original text of the control hints above.
 
 ## Hover help
