@@ -1,0 +1,19 @@
+# 框宽 242 px（SettingsPanel::reduceMotionNoteWidth），字体高 11（reduceMotionNoteFont）。
+# 顺序：改前中文、改前英文、改后中文、改后英文、第一稿英文（DGX 上放不下，弃用）、官网英文原句。
+# 苹方（macOS 系统字体文件）
+PingFang SC Regular: JUCE 高度 11.0 → em 7.86 px
+  110.0 px   14 字  关闭粒子、波纹和裂纹生长动画
+  162.7 px   45 字  Turns off particles, ripples and crack growth
+  188.6 px   24 字  关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹
+  158.5 px   44 字  No particle, ripple, crack or knob animation
+  207.0 px   59 字  No particles, ripples, crack fade-ins, knob tails or spring
+  305.5 px   85 字  turns off particles, ripples and crack fade-ins, and the knobs' comet tail and spring
+
+# 微软雅黑 UI（Office for Mac 自带的 msyh.ttc）
+Microsoft YaHei UI Regular: JUCE 高度 11.0 → em 8.66 px
+  121.3 px   14 字  关闭粒子、波纹和裂纹生长动画
+  181.5 px   45 字  Turns off particles, ripples and crack growth
+  207.9 px   24 字  关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹
+  179.8 px   44 字  No particle, ripple, crack or knob animation
+  229.6 px   59 字  No particles, ripples, crack fade-ins, knob tails or spring
+  340.5 px   85 字  turns off particles, ripples and crack fade-ins, and the knobs' comet tail and spring

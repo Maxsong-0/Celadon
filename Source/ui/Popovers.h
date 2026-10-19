@@ -6,7 +6,7 @@
     缩放窗口时的大小提示。
 
     设置面板（V4 设计稿）：界面大小 70 % ～ 200 %（五个常用档位 + 滑条 + 按屏幕比例画的预览，超出屏幕时提醒），
-    也可以拖窗口右下角自由缩放（宽高比不变）；「减少动效」关掉粒子、波纹与裂纹淡入。两项都记在用户设置里。
+    也可以拖窗口右下角自由缩放（宽高比不变）；「减少动效」关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹（T-100）。两项都记在用户设置里。
 
   ==============================================================================
 */
@@ -65,6 +65,11 @@ namespace celadon::ui
         void mouseUp (const juce::MouseEvent&) override;
 
         static constexpr double presets[] = { 0.8, 1.0, 1.25, 1.5, 2.0 };
+
+        // 「减少动效」下面那行说明：单行画到开关左边，放不下会被截成省略号。界面缩放是整体变换，各档位逻辑宽度相同；
+        // 截图工具的检查按这两个量中英两句（T-102）。
+        static juce::Font reduceMotionNoteFont();
+        static float reduceMotionNoteWidth();
 
     private:
         juce::Rectangle<float> presetBounds (int index) const;
