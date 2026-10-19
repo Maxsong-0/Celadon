@@ -28,25 +28,25 @@ export interface Release {
 
 export const RELEASE: Release = {
   version: '0.1.8.10',
-  date: '2026-10-18',
+  date: '2026-10-19',
   packages: [
     {
       id: 'mac-arm64',
       file: 'Celadon-0.1.8.10-macOS-AppleSilicon.pkg',
-      bytes: 7161476,
-      sha256: 'dcdf36366ecd9c2d63ae52355fa7f284cf13c75daa0dc81eef219e9b6f484251'
+      bytes: 7161370,
+      sha256: '2495600d865ddb80c1ba11ab33630afc5bc3257cf12d4ed21450b1644cb2c621'
     },
     {
       id: 'mac-x64',
       file: 'Celadon-0.1.8.10-macOS-Intel.pkg',
-      bytes: 8042774,
-      sha256: '79e3880c521a19e09ec04f69962e675bcde52e4afb808e08593186fced18b2f3'
+      bytes: 8042844,
+      sha256: 'e0584ad3784168bcd4cad0766c60b23ff6374e76233f04d421eb14d8c818212a'
     },
     {
       id: 'win-x64',
       file: 'Celadon-0.1.8.10-Windows-x64-Setup.exe',
-      bytes: 7552309,
-      sha256: '8057fcbf2fbad84b813c810ca76c0cc64d3d4f8082d659f45ad5ab4b8b9623f6'
+      bytes: 7552713,
+      sha256: '97f2c4fc5b75f7a19bbd554537407163951ef357154b32681d7f94ad0478fba8'
     }
   ]
 };
