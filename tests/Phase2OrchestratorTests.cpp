@@ -400,12 +400,12 @@ namespace celadon::test
                                            "params changed 1 s or more ago: integrates");
             }
 
-            // 整段时序（抗饱和的原因）：落差守门以 0.1 dB/s 退到 −3 dB 地板（30 s），停 30 s，再以 0.05 dB/s 回到 0（60 s），共 120 步，dt = 1 s。
+            // 整段时序（抗饱和的原因）：假设落差守门以 0.1 dB/s 退到 −3 dB（30 s；Q15 A 起实际的界随自动部分走，这里只取一个整数），停 30 s，再以 0.05 dB/s 回到 0（60 s），共 120 步，dt = 1 s。
             // 这段时间预算环一直不在退，误差恒为 +10 dB。旧口径每步都积分：120 × 0.05 = 6 dB，60 步就顶到 +3 dB 夹限。
             // 新口径整段都冻结，直到回到 0 之后再过一步才积分。
             constexpr float contrastRetreatDbPerSecond = 0.1f;     // 规格第 4 节：落差守门退让速率
             constexpr float contrastReleaseDbPerSecond = 0.05f;    // 规格第 4 节：落差守门回程速率
-            constexpr float contrastFloorDb = -3.0f;               // 规格第 4 节：floorDb
+            constexpr float contrastFloorDb = -3.0f;               // 假设退到的深度（不是规格常数）
             constexpr int retreatSeconds = 30;                     // 3 dB ÷ 0.1 dB/s
             constexpr int holdSeconds = 30;
             constexpr int releaseSeconds = 60;                     // 3 dB ÷ 0.05 dB/s

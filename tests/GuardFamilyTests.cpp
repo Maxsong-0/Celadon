@@ -19,7 +19,8 @@
         非有效音乐 / 一侧窗断开时直方图、计时、退让全保持；格内线性插值的分位；同一串子块逐位确定；
         存读（新节点往返逐位、0.1.8.10 要的占位、旧环节点、损坏拒收）；
       - Q15 A 的界（setRetreatBoundDb）：界内照常退、到界停住且 engaged、界变浅保持不回弹、界变深接着退、界为 0 不退不报；
-        到底后 engaged 看本步读数（换交付档清掉持续计时后仍超就立即报）；
+        到底后 engaged 看本步读数（换交付档清掉持续计时后仍超就立即报），没有读数时保持（断窗重攒、非有效音乐）；
+        存档的 floorDb 写 min(−3, 退让)（给 0.1.8.10 当底）；
       - 两个守门的音频线程路径不分配；
       - 常数：守门开关出厂值、按曲风查询、快照四个字段、旧快照缺字段取出厂值、改开关 bitwiseEqual 判不同。
 
@@ -238,7 +239,7 @@ namespace celadon::test
     class GuardFamilyTests  : public juce::UnitTest
     {
     public:
-        GuardFamilyTests() : juce::UnitTest ("GLAZE guard family (T-097 pure logic)", "Celadon") {}
+        GuardFamilyTests() : juce::UnitTest ("GuardFamily", "Celadon") {}
 
         void runTest() override
         {
@@ -1466,7 +1467,7 @@ namespace celadon::test
 
                 const auto now = c.guard.current();
                 expect (now.reliefDb == -1.0f && now.cause == GuardCause::contrast, "legacy node: relief kept");
-                expect (c.reading().histogramSeconds == 0.0 && ! c.reading().judged, "legacy node: empty reading");
+                expect (c.reading().histogramSeconds == 0.0 && ! c.reading().judged, "legacy node: the last reading is reset (the histograms are checked below)");
 
                 const auto cXml = c.guard.createStateXml();
                 const auto freshXml = fresh.guard.createStateXml();
@@ -1550,8 +1551,8 @@ namespace celadon::test
         void testRetreatBound()
         {
             beginTest ("guards (Q15 A): retreat stops at the bound -automaticTotal; a shallower bound holds (no rebound); a deeper bound resumes; "
-                       "held at the bound while still over is engaged (this step's reading, not the sustain timer); a bound of 0 never retreats and is never engaged, "
-                       "even with a held relief");
+                       "held at the bound while still over is engaged (this step's reading, not the sustain timer; held while there is no reading); "
+                       "a bound of 0 never retreats and is never engaged, even with a held relief; the saved floorDb is min(-3, relief) for 0.1.8.10");
 
             {
                 // 落差：loss 3，第 857 个起每步退 0.01 dB。
@@ -1750,6 +1751,139 @@ namespace celadon::test
                 }
 
                 expectEquals (firstBad, 0, "psr: back to standard -> engaged from the first step (the 3 s sustain only gates retreating)");
+            }
+
+            {
+                // 没有读数时 engaged 保持（复查 F22）：落差到界 −1 停住且仍超 → 断窗（跳播 / 回绕 / 冻结结束都走 clearWindows）→
+                // 两侧 3 s 窗重攒的 29 个子块里没有读数，退让与 engaged 都保持（状态行不掉回「跟随」），第 30 个起有读数、仍超、仍报；
+                // 非有效音乐同样保持；没有读数时界回到 0 → engaged 清掉，退让照样保持。
+                const auto firstRetreat = windowFillSubBlocks + measuredStepsToFull() + stepsToReach (ContrastGuard::triggerSeconds) - 1;   // 857
+                ContrastFeeder f (3.0);
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.nextIndex < firstRetreat + 150)
+                    f.feed();
+
+                expect (f.relief() == -1.0f && f.guard.current().engaged, "contrast: at the bound -1 and still over: engaged");
+
+                f.guard.clearWindows();
+                auto firstBad = 0;
+
+                for (int k = 0; k < windowFillSubBlocks + 5; ++k)
+                {
+                    const auto step = f.feed();
+
+                    if ((step.reliefDb != -1.0f || ! step.engaged || step.cause != GuardCause::contrast) && firstBad == 0)
+                        firstBad = f.nextIndex;
+                }
+
+                expectEquals (firstBad, 0, "contrast: windows broken and refilling (29 sub-blocks without a reading), then read again: relief and engaged held");
+
+                for (int k = 0; k < 20; ++k)
+                {
+                    const auto step = f.feed (false);
+
+                    if ((step.reliefDb != -1.0f || ! step.engaged) && firstBad == 0)
+                        firstBad = f.nextIndex;
+                }
+
+                expectEquals (firstBad, 0, "contrast: non-music holds engaged with the relief");
+
+                f.guard.setRetreatBoundDb (0.0f);
+                f.guard.clearWindows();
+                const auto unbound = f.feed();
+                expect (unbound.reliefDb == -1.0f && ! unbound.engaged && unbound.cause == GuardCause::contrast,
+                        "contrast: bound back to 0 while there is no reading -> engaged cleared, relief still held");
+            }
+
+            {
+                // PSR 同理：一直喂 6，到界 −1 停住 → clearWindow → 29 个子块窗不满（读数无效）、非有效音乐，engaged 都保持；界回到 0 → 清掉。
+                const auto firstRetreat = windowFillSubBlocks + stepsToReach (PsrGuard::sustainSeconds);   // 59
+                PsrFeeder f;
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.calls < firstRetreat + 40)
+                    f.feed (6.0);
+
+                expect (f.relief() == -1.0f && f.guard.current().engaged, "psr: at the bound -1 and still below: engaged");
+
+                f.guard.clearWindow();
+                auto firstBad = 0;
+
+                for (int k = 0; k < windowFillSubBlocks + 5; ++k)
+                {
+                    const auto step = f.feed (6.0);
+
+                    if ((step.reliefDb != -1.0f || ! step.engaged || step.cause != GuardCause::psr) && firstBad == 0)
+                        firstBad = f.calls;
+                }
+
+                for (int k = 0; k < 20; ++k)
+                {
+                    const auto step = f.feed (6.0, false);
+
+                    if ((step.reliefDb != -1.0f || ! step.engaged) && firstBad == 0)
+                        firstBad = f.calls;
+                }
+
+                expectEquals (firstBad, 0, "psr: window refilling (invalid readings) and non-music hold engaged with the relief");
+
+                f.guard.setRetreatBoundDb (0.0f);
+                f.guard.clearWindow();
+                const auto unbound = f.feed (6.0);
+                expect (unbound.reliefDb == -1.0f && ! unbound.engaged && unbound.cause == GuardCause::psr,
+                        "psr: bound back to 0 while there is no reading -> engaged cleared, relief still held");
+            }
+
+            {
+                // 存档里的 floorDb 写给 0.1.8.10（复查 F11）：它读档直接拿这个数当底、从不另设。编排器给的底是 −24，照写会让降级打开的
+                // 工程退过 −3，所以写 min(−3, 退让)：退让 −2 时写 −3；已退到 −5 时写 −5（旧版读回不会把退让往上夹）。
+                const auto firstRetreat = windowFillSubBlocks + stepsToReach (PsrGuard::sustainSeconds);   // 59
+                PsrFeeder f;
+                f.guard.setFloorDb (-24.0f);
+                f.guard.setRetreatBoundDb (-2.0f);
+
+                while (f.calls < firstRetreat + 60)   // 每步 0.05：40 步退到 −2，之后停在界上
+                    f.feed (6.0);
+
+                expectEquals (f.relief(), -2.0f, "psr (floor -24): stops at the bound -2");
+                expectEquals (f.guard.createStateXml()->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex),
+                              "psr: relief -2 -> floorDb saved as -3 for 0.1.8.10, not the -24 safety floor");
+
+                f.guard.setRetreatBoundDb (-5.0f);
+
+                while (f.calls < firstRetreat + 60 + 80)   // 再 60 步退到 −5
+                    f.feed (6.0);
+
+                expectEquals (f.relief(), -5.0f, "psr (floor -24): a deeper bound resumes down to -5");
+                const auto deep = f.guard.createStateXml();
+                expectEquals (deep->getStringAttribute ("floorDb"), deep->getStringAttribute ("reliefDb"),
+                              "psr: relief -5 (deeper than -3) -> floorDb saved as the relief itself");
+            }
+
+            {
+                // 落差同理：loss 3，底 −24、界 −4，每步 0.01：857 起 400 步退到 −4。
+                const auto firstRetreat = windowFillSubBlocks + measuredStepsToFull() + stepsToReach (ContrastGuard::triggerSeconds) - 1;   // 857
+                ContrastFeeder f (3.0);
+                f.guard.setFloorDb (-24.0f);
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.nextIndex < firstRetreat + 150)
+                    f.feed();
+
+                expectEquals (f.relief(), -1.0f, "contrast (floor -24): stops at the bound -1");
+                expectEquals (f.guard.createStateXml()->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex),
+                              "contrast: relief -1 -> floorDb saved as -3 for 0.1.8.10, not the -24 safety floor");
+
+                f.guard.setRetreatBoundDb (-4.0f);
+
+                while (f.nextIndex < firstRetreat + 150 + 350)   // 再 300 步退到 −4
+                    f.feed();
+
+                expectEquals (f.relief(), -4.0f, "contrast (floor -24): a deeper bound resumes down to -4");
+                const auto deep = f.guard.createStateXml();
+                expectEquals (deep->getStringAttribute ("floorDb"), deep->getStringAttribute ("reliefDb"),
+                              "contrast: relief -4 (deeper than -3) -> floorDb saved as the relief itself");
             }
         }
 

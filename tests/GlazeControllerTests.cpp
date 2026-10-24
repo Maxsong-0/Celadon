@@ -7033,7 +7033,7 @@ namespace celadon::test
 // ---- T-097 守护族真链机制（A2 追加）----
 // 落差守门（ContrastGuard）与 PSR 守门（PsrGuard）按 100 ms 子块推进、G_trim 抗积分饱和的冻结口径。都经 CeladonChain 驱动（与插件同一
 // 接线）。依据：设计规格-实时GLAZE-主段与增益 第 4 节（下称「规格 4」）、第 5 节（窗口状态不存）；Max 2026-10-10 Q11「有退让量就冻结」。
-// 只在文件末尾追加：上面的用例与工具一个不改，另起一个测试类（GLAZE controller guard family (T-097)）。
+// 只在文件末尾追加：上面的用例与工具一个不改，另起一个测试类（GlazeControllerGuardFamily）。
 //   1a. G_trim 冻结（规格 4 + Q11）：任一守门退让量 < 0、或本块改过退让量、或 1 s 内改过参数 → 本块 G_trim 不积分（appliedBiasDb 逐位
 //       不变）；trimFrozen 与这三条原因逐块一致。块长 480（= 预算环 10 ms 时隙；100 ms 子块 = 10 块）：链从不在块内切片，探针即那一次 endBlock。
 //   1b. 改参数冻结（规格 4「参数在 1 s 内变化过时冻结 G_trim」）：GLAZE 100 → 90 之后 100 块（1 s）内冻结、逐位不变、距改参数 < 1 s；
@@ -7045,13 +7045,13 @@ namespace celadon::test
 //   4.  冻结与不连续（规格 4「冻结：三个守门与 G_trim 都不推进」「GLAZE ≤ 0：自动部分逐位归零，守门不推进」；GlazeController.cpp
 //       stepSubBlockGuards）：宿主旁通期间不推进、退让保持；恢复后跨过冻结段的子块丢掉（+1）；跳播后出口 3 s 窗重攒（≥ 29 个推进的子块
 //       读数无效）；GLAZE 0 不推进、退让全 +0。
-//   5.  旧档兼容（ContrastGuard.h / PsrGuard.h 文件头的存档说明；规格第 5 节）：main 3a7a367 形状的 LIVE（CONTRAST_GUARD 只有 128 笔环，
+//   5.  旧档兼容（ContrastGuard.h / PsrGuard.h 文件头的存档说明；规格第 5 节）：main 3a7a367 形状（4be946b / 0.1.8.10 相同）的 LIVE（CONTRAST_GUARD 只有 128 笔环，
 //       PSR_GUARD 没有 aboveSeconds，CONTROL 没有 secondsSinceParamChange）读回不冷启动、退让照旧、直方图从空开始、缺的
 //       secondsSinceParamChange 按 1 s；新档 create → restore → create 时 T-097 的三个节点（CONTROL / CONTRAST_GUARD / PSR_GUARD）
 //       逐位相同（GlazeController.h「restoreStateXml 之后、第一块之前 createStateXml 返回刚恢复的内容」）。
 //   6.  音频线程零分配（设计规格-总体「音频线程零分配、零锁」）：House 俱乐部 GLAZE 100、通用 GLAZE 100 两种设置走过冻结、跳播、回绕、
 //       宿主 reset、GLAZE 0、换交付与曲风、读档。
-// 【待上机核】的数（素材电平、推热倍数、时长）都集中在各用例开头的具名常量里，注释写明为什么预期够用。
+// 场景的数（素材电平、推热倍数、时长）都集中在各用例开头的具名常量里，注释写明为什么够用、DGX 2026-10-23 的实测值。
 namespace celadon::test
 {
     namespace
@@ -7124,7 +7124,7 @@ namespace celadon::test
     class GlazeControllerGuardFamilyTests  : public juce::UnitTest
     {
     public:
-        GlazeControllerGuardFamilyTests() : juce::UnitTest ("GLAZE controller guard family (T-097)", "Celadon") {}
+        GlazeControllerGuardFamilyTests() : juce::UnitTest ("GlazeControllerGuardFamily", "Celadon") {}
 
         void runTest() override
         {
@@ -7149,9 +7149,10 @@ namespace celadon::test
         {
             beginTest ("G_trim holds bit-exactly on every block that ends with any guard relief below 0 (Q11); trimFrozen matches its reasons");
 
-            // 【待上机核】推热配方同主类 testManualComesFirst（紧预算、冲击风格、makeMusic 种子 25 峰值 0.3、×8；那里另加手动 Gain 3 dB，
+            // 推热配方同主类 testManualComesFirst（紧预算、冲击风格、makeMusic 种子 25 峰值 0.3、×8；那里另加手动 Gain 3 dB，
             // 8 s 内保护层必退）。这里不加手动 Gain，限幅器入口少 3 dB：峰值 0.3 × 8 = 2.4（+7.6 dBFS）对 −1 dBTP 的 Ceiling 仍有约 8.6 dB
             // 峰值 GR，远超冲击风格紧预算的峰值 3 dB / P95 2 dB，预期 1 ～ 2 s 内预算环开始退、之后一直有退让量。
+            // DGX 2026-10-23 实测：1200 块里 1067 块有退让、全部冻结；预算环最深 −3.000 dB。
             constexpr float hotGain = 8.0f;
             constexpr double warmSeconds = 2.0;
             constexpr double hotSeconds = 12.0;
@@ -7218,9 +7219,10 @@ namespace celadon::test
         {
             beginTest ("a planning parameter change freezes G_trim for 1 s; afterwards, with every guard at 0, G_trim integrates again");
 
-            // 【待上机核】素材峰值 0.2：输出远低于 GLAZE 100 的目标响度，G_trim 的误差一直为正、按 0.05 dB/s 往上积（十几秒远到不了 +3 dB
+            // 素材峰值 0.2：输出远低于 GLAZE 100 的目标响度，G_trim 的误差一直为正、按 0.05 dB/s 往上积（十几秒远到不了 +3 dB
             // 上限）。热身 6 s：开头 1 s 是 prepare 后第一块的「改参数」冻结，目标响度要等方案有了画像才有限（主类 testContinuousPhase 在
-            // 4 s 时断言有限），之后 2 s 里应能看到不冻结且 G_trim 在动的块。
+            // 4 s 时断言有限），之后 2 s 里应能看到不冻结且 G_trim 在动的块。DGX 2026-10-23 实测：改参数时 G_trim 0.30000 dB，
+            // 冻结满 1 s 后第一次恢复积分读到 0.30100 dB（距改参数 1.000 s）。
             constexpr double warmSeconds = 6.0;
             constexpr double movingWindowSeconds = 2.0;
             constexpr double resumeWithinSeconds = 3.0;
@@ -7306,7 +7308,8 @@ namespace celadon::test
         {
             beginTest ("general genre at GLAZE 100: contrast and PSR reliefs are +0 on every block for all three deliveries, even on hot material");
 
-            // 【待上机核】同用例 1a 的推热配方。俱乐部档的限幅上限另加 DeliveryConstants::clubLimitGr*ExtraDb，约 8.6 dB 的峰值 GR 预期仍超出。
+            // 同用例 1a 的推热配方。俱乐部档的限幅上限另加 DeliveryConstants::clubLimitGr*ExtraDb，约 8.6 dB 的峰值 GR 预期仍超出
+            // （DGX 2026-10-23 实测：三种交付预算环最深都到 −3.000 dB）。
             constexpr float hotGain = 8.0f;
             constexpr double warmSeconds = 2.0;
             constexpr double hotSeconds = 12.0;
@@ -7593,6 +7596,14 @@ namespace celadon::test
 
             psrNode->removeAttribute ("aboveSeconds");
 
+            // 新档给 0.1.8.10 写的底：min(−3, 退让)（复查 F11：旧版读档直接拿它当底；写 −24 会让降级打开的工程退过 −3）。
+            // 供体两个退让都比 −3 浅，所以两项都是 −3 = 0xc0400000（符号 1、指数 128、尾数 .1b）。这也正是 0.1.8.10 自己写的值，
+            // 夹具因此和真的旧档同形。
+            expect (contrastNode->getStringAttribute ("floorDb") == "c0400000" && psrNode->getStringAttribute ("floorDb") == "c0400000",
+                    "new LIVE: CONTRAST_GUARD / PSR_GUARD write floorDb -3 (the value 0.1.8.10 reads as its floor), not the -24 safety floor");
+            contrastNode->setAttribute ("floorDb", "c0400000");
+            psrNode->setAttribute ("floorDb", "c0400000");
+
             // 退让写成可辨认的非零值（xmlio：float 写 IEEE 位的 8 位小写十六进制）：
             //   −1.25 = −1.01b × 2⁰：符号 1、指数 127（0x7f）、尾数 .01b → 0x200000 → 0x80000000 | 0x3f800000 | 0x00200000 = 0xbfa00000；
             //   −0.75 = −1.1b × 2⁻¹：符号 1、指数 126（0x7e）、尾数 .1b → 0x400000 → 0x80000000 | 0x3f000000 | 0x00400000 = 0xbf400000。
@@ -7641,7 +7652,11 @@ namespace celadon::test
             expect (! target.status().legacySessionDiscarded, "old shape: no legacy-session notice");
             expect (sameBits (restored.contrastReliefDb, legacyContrastRelief), "old shape: the contrast relief is the saved -1.25 dB");
             expect (sameBits (restored.psrReliefDb, legacyPsrRelief), "old shape: the PSR relief is the saved -0.75 dB");
-            expectEquals (restored.contrastHistogramSeconds, 0.0, "old shape: the contrast histograms start empty");
+            expectEquals (restored.contrastHistogramSeconds, 0.0, "old shape: the last contrast reading is reset by the restore (the histograms "
+                                                                  "themselves are checked in the node saved again below and by the run after)");
+            // 旧档的底是 −3：读档后编排器要把两个守门的底重设成 −24 安全下限（Q15 A），不然老工程一直停在 −3 的底上（复查 F13）。
+            expectEquals (restored.contrastFloorDb, -24.0f, "old shape: the contrast guard's floor is reset to the -24 dB safety floor after the restore");
+            expectEquals (restored.psrFloorDb, -24.0f, "old shape: the PSR guard's floor is reset to the -24 dB safety floor after the restore");
             expectEquals (restored.secondsSinceParamChange, t097ParamFreezeSeconds,
                           "old shape: the missing secondsSinceParamChange reads as 1 s (long ago, not frozen)");
 
@@ -7833,32 +7848,32 @@ namespace celadon::test
 
 
 //==============================================================================
-// ---- T-097 守门闭环验收场景（A3 追加：Max Q9 PSR 闭环、Q10 落差守门）----
+// ---- T-097 守门闭环验收场景（Max Q9 PSR 闭环、Q10 落差守门；Q16 起 12 段、第②轮七项预算 × 4）----
 // 依据：设计规格-实时GLAZE-主段与增益 第 4 节（下称「规格 4」）；Max 10-10 Q9（PSR 闭环判据）、Q10（落差守门判据）、Q11（有退让量就冻结 G_trim）；
+// 10-11 Q15 A（两个子块守门没有 −3 dB 底，最多退回全部自动部分）、Q16（12 段、判最后一对、第②轮七项预算 × 4）；
 // tools/render/house_gate.py ③（breakdown → drop 落差的量法与俱乐部门槛 1.5 LU）。
 //
-// 用法：原样追加到 tests/GlazeControllerTests.cpp 末尾（文件最后那个「}」之后）。本段自带 namespace celadon::test，重开同一个翻译单元
-// 里的匿名命名空间，直接用上面的 Rig、defaultParams、numChannels、blockSize、defaultRate 与 TestHelpers.h 的 Signal 工具（makeSilence、
-// makeDetunedPad、scale）。本段自己的工具都放在嵌套命名空间 t097scenario 里，不与上面的名字相撞。
+// 本段重开 namespace celadon::test 与同一个翻译单元里的匿名命名空间，直接用上面的 Rig、defaultParams、numChannels、blockSize、defaultRate
+// 与 TestHelpers.h 的 Signal 工具（makeSilence、makeDetunedPad、scale）。本段自己的工具都放在嵌套命名空间 t097scenario 里，不与上面的名字相撞。
 //
-// 两份文件：closed-loop-tests.cpp（新版，追加进 T-097 分支）与 closed-loop-tests-main.cpp（main 3a7a367 版，只用来在 main 上证明改前
-// 失败，不提交）。两份除「版本差异块」外逐字相同——场景构造、量法、判据数值都共用；差异块里只有三样：
-//   guardsBySpec           判据方向：新版按「改后应通过」判；main 版按「改前失败」反过来判（同一段量法、同一组阈值）；
+// 改前失败的证据：在 DGX 的临时副本里给 main 源码配上本段，只换下面的「版本差异块」，不提交（结果记在 REPORT）。差异块里只有三样：
+//   guardsBySpec           判据方向：本分支按「改后应通过」判；main 版按「改前失败」反过来判（同一段量法、同一组阈值）；
 //   applyScenarioSwitches  T-097 的曲风守门开关（GuardSwitches，main 上没有这个结构）；
-//   readGuards             守门读数：新版读 T-097 新探针（逐子块的退让量）；main 只有状态行，近似。
+//   readGuards             守门读数：本分支读 T-097 新探针（逐子块的退让量）；main 只有状态行，近似。
 //
 // 量法只依赖链的输入素材与输出音频：入口、出口各接一只独立的 LoudnessMeter（与链里 IN / OUT 表同一个类、同一套 K 加权与 100 ms 子块），
-// 逐块喂、读子块，按子块算 3 s（30 子块）窗的 S 与 PSR、段落响度——main 上同样能量，判据不读新探针（新探针只进日志）。
+// 逐块喂、读子块，按子块算 3 s（30 子块）窗的 S 与 PSR、段落响度——main 上同样能量，判据不读新探针（新探针只进日志与冻结检查）。
 //
 // 场景 1（Q9）：8 s 一循环的持续型素材（入口 S −20 LUFS、3 s PSR 约 10 dB），通用、流媒体、GLAZE 100、冲击，有效 Ceiling −4 dBTP，
-//   PSR 守门用常数强开，三种风格的限幅预算放到 30 / 40 / 60 dB（预算环不退）。判据：从 PSR 守门第一次退让 20 s 之后起，输出 3 s PSR
+//   PSR 守门用常数强开，预算环核对的七项上限 × 4（withRelaxedLimitBudgets，预算环不退）。判据：从 PSR 守门第一次退让 20 s 之后起，输出 3 s PSR
 //   ≥ F − 0.5（F = 7，流媒体下限）的时间占比 ≥ 95 %，且最低不低于 F − 1。main：守门不动作（它读入口，入口 PSR 健康），输出 PSR 在同一段
 //   里一直低于 F − 0.5。
-// 场景 2（Q10）：124 BPM breakdown / drop 交替 6 段（16 小节一段，约 3 分 6 秒），Tech House、俱乐部、GLAZE 100、冲击。最后一对
+// 场景 2（Q10 / Q16）：124 BPM breakdown / drop 交替 12 段（16 小节一段，约 6 分 12 秒），Tech House、俱乐部、GLAZE 100、冲击。最后一对
 //   breakdown → drop 的落差损失（入口落差 − 出口落差，段落响度 = 段内子块 K 加权能量平均，出口按链延迟对齐）两轮都 ≤ 1.5 LU：① 出厂常数；
-//   ② 限幅预算放宽（落差守门成为唯一起作用的守门）。main：第②轮损失 > 1.5 LU（G_trim 抵消了落差守门的退让），第①轮只记录。
-//   新版另查：第②轮之后换成通用档（落差守门出厂关），退让量每个推进的子块回 0.005 dB（或在非有效音乐时保持），中间不跳变。
-// 每 5 s 打一行轨迹（时间、退让量、输出 PSR / 3 s 响度、G_trim、预算环），给 DGX 上调参用。拿不准的数都在用例开头的具名常量里，标【待上机核】。
+//   ② 七项预算上限 × 4（预算环不退，落差守门成为唯一起作用的守门）。main：第②轮损失 > 1.5 LU（G_trim 抵消了落差守门的退让），第①轮只记录。
+//   本分支另查：第②轮之后换成通用档（落差守门出厂关），退让量每个推进的子块回 0.005 dB（或在非有效音乐时保持），中间不跳变。
+//   两个场景里，任一守门退让量 < 0 的块都要 trimFrozen、G_trim 逐位不变（Q11，TrimFreezeCheck）。
+// 每 5 s 打一行轨迹（时间、退让量、输出 PSR / 3 s 响度、G_trim、预算环），给 DGX 上调参与核对用。场景的数都在用例开头的具名常量里，旁边写 DGX 实测值。
 
 #include <array>
 #include <cmath>
@@ -8106,13 +8121,14 @@ namespace celadon::test
             }
 
             //==============================================================================
-            // 场景 2 的曲子：124 BPM、4/4，16 小节一段 × 6 段（偶数段 breakdown、奇数段 drop：breakdown, drop, breakdown, drop, breakdown, drop），
-            // 约 3 分 6 秒。元件照 tools/render/make_synthetic_house.py（T-045 实测「合成 House 曲」的配方）：drop = 扫频底鼓（158 → 48 Hz、
+            // 场景 2 的曲子：124 BPM、4/4，16 小节一段 × 12 段（Q16；偶数段 breakdown、奇数段 drop：breakdown, drop, breakdown, drop, …），
+            // 每段约 31 s。元件照 tools/render/make_synthetic_house.py（T-045 实测「合成 House 曲」的配方）：drop = 扫频底鼓（158 → 48 Hz、
             // 110 ms 衰减）+ offbeat bass（八分音符长、Am–F–C–G 根音、基音 + 两个泛音）+ 2、4 拍的拍手（一阶差分噪声、30 ms 衰减）+ offbeat
             // 踩镲（7 kHz 一阶高通噪声、12 ms 衰减）+ 失谐 pad（makeDetunedPad，同脚本 pad_bar）；breakdown = pad + 轻踩镲。两类段落分别按实测
             // 归一（normaliseContrastSong）：drop 的段落响度 = dropLufs，breakdown 再轻 breakdownDepthLu。
             // 离线估算（Python 照同一公式：K 加权同 LoudnessMeter、8× 真峰值，噪声换成 numpy 的均匀白噪声）：单位增益下 drop 段落响度
-            // −10.2 LUFS、3 s PSR 中位 10.6 dB（10.1 ～ 12.0），breakdown −18.6 LUFS、PSR 7.9 dB（本来就轻 8.4 LU）。【待上机核】
+            // −10.2 LUFS、3 s PSR 中位 10.6 dB（10.1 ～ 12.0），breakdown −18.6 LUFS、PSR 7.9 dB（本来就轻 8.4 LU）。DGX 2026-10-23 实测单位增益
+            // drop −10.17、breakdown −18.55 LUFS，与估算一致。
             struct ContrastSongDesign
             {
                 double bpm = 124.0;
@@ -8120,11 +8136,11 @@ namespace celadon::test
                 int sections = 12;            // T-097 Q16：6 段（3 分钟）时守门约 76 s 才判、歌就放完了；12 段约 6 分钟
                 double kick = 1.0;             // × 0.8 的扫频底鼓（脚本 kick()）
                 double bass = 0.7;             // offbeat bass（脚本 bass_note gain 0.7）
-                double clap = 0.10;            // 拍手（均匀噪声的一阶差分，峰值 ≤ 2 × 本项）【待上机核：drop 的 PSR 主要靠它与底鼓】
+                double clap = 0.10;            // 拍手（均匀噪声的一阶差分，峰值 ≤ 2 × 本项；drop 的 PSR 主要靠它与底鼓）
                 double dropHat = 0.06;         // offbeat 踩镲（脚本 hats 0.06）
                 double breakdownHat = 0.02;    // 「轻踩镲」= drop 的 1/3
                 double pad = 0.06;             // makeDetunedPad 的幅度（脚本 pad_bar gain 0.06）
-                double dropLufs = -14.0;       // drop 的段落响度（按实测归一）【待上机核】：只决定要推多少，不进判据
+                double dropLufs = -14.0;       // drop 的段落响度（按实测归一）：只决定要推多少，不进判据
                 double breakdownDepthLu = 9.0; // breakdown 比 drop 轻（任务书：8 ～ 10 LU）
 
                 double beatSeconds() const noexcept      { return 60.0 / bpm; }
@@ -8275,11 +8291,39 @@ namespace celadon::test
                 float psrReliefDb = 0.0f;
                 float contrastReliefDb = 0.0f;
                 std::int64_t guardSubBlocks = -1;    // 推进守门的子块数（新版探针）；main 没有 → −1
-                bool trimFrozen = false;             // 以下只进日志
+                bool trimFrozen = false;             // 本块 G_trim 没积分（TrimFreezeCheck 逐块核对，其余只进日志）
                 bool guardPsrValid = false;
                 float guardPsrDb = 0.0f;             // PSR 守门自己读到的出口 3 s PSR（与本段的量法对照）
                 bool contrastJudged = false;
                 float contrastLossLu = 0.0f;         // 落差守门的直方图损失读数
+            };
+
+            // G_trim 冻结的真链逐块核对（完成标准第 1 条「任一守门退让量 < 0 时 G_trim 位模式一块都不变」，复查 F4；只用新版探针）：
+            //   - 这一块结束时有落差 / PSR 退让 < 0 → trimFrozen；
+            //   - 上一块结束时也有 → 整块每一片都有退让量（退让在一块之内不会回到 0 再退下去：退要持续 10 s / 3 s 超标），
+            //     G_trim 一片也不积分，appliedBiasDb 与上一块逐位相同。
+            struct TrimFreezeCheck
+            {
+                int reliefBlocks = 0;      // 结束时有落差 / PSR 退让的块
+                int notFrozen = 0;         // 其中 trimFrozen 为假的块
+                int moved = 0;             // 上一块也有退让、G_trim 却变了的块
+                bool reliefBefore = false;
+                float trimBefore = 0.0f;
+
+                void note (const GuardReadout& guards, float appliedBiasDb) noexcept
+                {
+                    const auto relief = guards.exact && (guards.contrastReliefDb < 0.0f || guards.psrReliefDb < 0.0f);
+
+                    if (relief)
+                    {
+                        ++reliefBlocks;
+                        notFrozen += guards.trimFrozen ? 0 : 1;
+                        moved += reliefBefore && ! sameBits (appliedBiasDb, trimBefore) ? 1 : 0;
+                    }
+
+                    reliefBefore = relief;
+                    trimBefore = appliedBiasDb;
+                }
             };
 
             // 换通用档之后的一块：这一块推进守门的子块数与前后的落差退让量（判据在用例里按常数核对）。
@@ -8302,10 +8346,11 @@ namespace celadon::test
                 bool releaseObserved = false;                // 换通用档之后的回程读得到（新版探针）
                 float reliefAtSwitchDb = 0.0f;
                 std::vector<ReleaseSample> release;
+                TrimFreezeCheck trim;
             };
 
             //==============================================================================
-            // ==== 版本差异块（开始）：新版（T-097 分支）。main 3a7a367 版只换这一块，其余逐字相同 ====
+            // ==== 版本差异块（开始）：本分支版。改前失败证据的 main 版（DGX 临时副本，不提交）只换这一块，其余逐字相同 ====
 
             // 判据方向：新版按规格「改后应通过」判。
             constexpr bool guardsBySpec = true;
@@ -8342,7 +8387,7 @@ namespace celadon::test
     class GlazeControllerGuardScenarioTests  : public juce::UnitTest
     {
     public:
-        GlazeControllerGuardScenarioTests() : juce::UnitTest ("GLAZE guard closed-loop scenarios (T-097)", "Celadon") {}
+        GlazeControllerGuardScenarioTests() : juce::UnitTest ("GlazeControllerGuardScenarios", "Celadon") {}
 
         void runTest() override
         {
@@ -8363,11 +8408,12 @@ namespace celadon::test
             constexpr double loopSeconds = 8.0;
             constexpr juce::int64 loopSeed = 20261011;
             // 配比：离线估算（Python 照 makeSteadyLoop 同一公式，K 加权同 LoudnessMeter、8× 真峰值）单位增益下整段 S −12.2 LUFS、
-            // 3 s PSR 10.2 ～ 10.5 dB（中位 10.3）；底鼓 0.5 时峰值由底鼓 + pad 叠加定。【待上机核：入口 PSR 不在 9 ～ 11.5 就调这两个】
+            // 3 s PSR 10.2 ～ 10.5 dB（中位 10.3）；底鼓 0.5 时峰值由底鼓 + pad 叠加定；入口 PSR 不在 9 ～ 11.5 就调这两个。DGX 2026-10-23 实测：单位增益 −12.24 LUFS，
+            // 归一后入口 S −20.03 ～ −19.97 LUFS、3 s PSR 10.06 ～ 10.48 dB。
             constexpr float kickGain = 0.5f, padGain = 2.0f;
             constexpr double inputLufs = -20.0;                       // 入口 3 s S：按实测归一（「偏轻」）
             constexpr double inputLufsToleranceLu = 0.5;              // 前提：各 3 s 窗的 S 都在 −20 ± 0.5（持续型素材，离线估算起伏 ±0.03）
-            constexpr double inputPsrLow = 9.0, inputPsrHigh = 11.5;  // 前提：入口 PSR 约 10 dB，「健康」（远高于流媒体门槛 6.5）【待上机核】
+            constexpr double inputPsrLow = 9.0, inputPsrHigh = 11.5;  // 前提：入口 PSR 约 10 dB，「健康」（远高于流媒体门槛 6.5）
 
             // ---- 设置 ----
             // 有效 Ceiling = 用户 Ceiling − 编码余量 = −3 − 1 = −4 dBTP（参数下限 −3；比流媒体封顶 −2 低，封顶不起作用）。
@@ -8384,13 +8430,13 @@ namespace celadon::test
             constexpr double minFractionAbove = 0.95;
             constexpr double evalDelaySeconds = 20.0;        // 从第一次退让 20 s 之后起算
             // 预计轨迹（新版）：通用档响度型 M0 = 20 s、满置信 0.8 → 方案满强度要 −20·ln(1 − 0.8) ≈ 32 s 有效音频；PSR 在增益离满强度约 0.85 dB
-            // 时跌破 6.5（≈ 25 s），再持续 3 s → 第一次退让 ≈ 25 ～ 30 s【待上机核】；此后 0.5 dB/s 退到 PSR ≥ 6.5，3 s 窗滞后让读数冲到约 7.2，
-            // 满 5 s ≥ 7.0 后 0.15 dB/s 回到 7.0 以下停住——稳态 PSR 在 6.5 ～ 7.2，退让约 −1.1 dB（加上冻结前 G_trim 多推的 ≤ 1 dB；Q15 A 起没有 −3 dB 底，界 = 自动加上去的全部，碰不到。DGX 2026-10-23 实测最深 −2.25 dB）。
+            // 时跌破 6.5（≈ 25 s），再持续 3 s → 第一次退让 ≈ 25 ～ 30 s（DGX 2026-10-23 实测 39.8 s：输出 PSR 约 36.8 s 才跌破 6.5，比估算晚）；此后 0.5 dB/s 退到 PSR ≥ 6.5，3 s 窗滞后让读数冲到约 7.2，
+            // 满 5 s ≥ 7.0 后 0.15 dB/s 回到 7.0 以下停住——稳态 PSR 在 6.5 ～ 7.2（实测判据窗 6.49 ～ 6.71、均值 6.59），退让约 −1.1 dB（加上冻结前 G_trim 多推的 ≤ 1 dB；Q15 A 起没有 −3 dB 底，界 = 自动加上去的全部，碰不到。DGX 2026-10-23 实测最深 −2.25 dB）。
             // 判据窗 ≈ [45 ～ 50 s, 150 s]，≥ 100 s：95 % 允许约 5 s 低于门槛（多于一次 3 s 持续判定）。
             constexpr double runSeconds = 150.0;
             constexpr double minEvalSeconds = 60.0;          // 判据窗短于这个不算数（第一次退让来得太晚）
             // main：守门读入口 PSR（≈ 10.3，健康）始终不退；G_trim 把 S 推到目标 −10 → 输出 PSR ≈ 5.65 dB。没有「第一次退让」，判据窗从这里起：
-            // 方案满强度 ≈ 32 s，G_trim（0.05 dB/s）补限幅掉的响度要再十几到二十几秒。【待上机核】
+            // 方案满强度 ≈ 32 s，G_trim（0.05 dB/s）补限幅掉的响度要再十几到二十几秒。main 版实测见 REPORT §7。
             constexpr double evalFallbackFromSeconds = 60.0;
 
             auto constants = withRelaxedLimitBudgets (glaze::factoryConstants());
@@ -8429,6 +8475,8 @@ namespace celadon::test
             auto deepestReliefDb = 0.0f;
             auto nextLog = logEverySeconds;
             const auto blocks = rig.blocksFor (runSeconds);
+            TrimFreezeCheck trimCheck;
+            trimCheck.trimBefore = rig.probe().appliedBiasDb;
 
             for (int b = 0; b < blocks; ++b)
             {
@@ -8436,6 +8484,7 @@ namespace celadon::test
                 const auto now = (double) (b + 1) * (double) rig.blockLength / rig.sampleRate;
                 const auto guards = readGuards (rig);
                 const auto probe = rig.probe();
+                trimCheck.note (guards, probe.appliedBiasDb);
                 budgetActed = budgetActed || probe.guardDb < 0.0f;
                 deepestReliefDb = juce::jmin (deepestReliefDb, guards.psrReliefDb);
 
@@ -8532,6 +8581,10 @@ namespace celadon::test
                 expect (fractionAbove >= minFractionAbove, "from first retreat + 20 s, output 3 s PSR >= F - 0.5 = 6.5 dB at least 95 % of the time: "
                                                            + num (100.0 * fractionAbove, 1) + " %");
                 expect (minPsr >= worstDb, "... and never below F - 1 = 6.0 dB: min " + num (minPsr));
+                logMessage ("  G_trim freeze: " + juce::String (trimCheck.reliefBlocks) + " blocks end with a PSR relief, " + juce::String (trimCheck.notFrozen)
+                            + " not frozen, " + juce::String (trimCheck.moved) + " moved");
+                expect (trimCheck.reliefBlocks > 0 && trimCheck.notFrozen == 0 && trimCheck.moved == 0,
+                        "real chain: every block that ends with a PSR relief below 0 is trimFrozen, and G_trim holds bit-exactly while the relief stays");
             }
             else
             {
@@ -8556,7 +8609,7 @@ namespace celadon::test
             // ---- 判据 ----
             constexpr double clubLossLimitLu = 1.5;    // house_gate ③ 俱乐部档（Max 2026-10-01）；同 ContrastGuard 的 clubLossLu
             constexpr double compareEpsilon = 1.0e-9;  // 同 house_gate 的比较余量
-            // 预计（【待上机核】）：
+            // 预计与实测：
             //   目标：俱乐部 −7 LUFS（冲击偏移 0）再减 LRA 修正（画像 LRA 若按 breakdown / drop 约 9 LU 算，(9 − 6) ÷ 3 = 1 → −8）；轨迹日志打实际目标。
             //   ① 出厂：限幅预算（冲击 1.8 / 4 / 6 dB）让决策器封顶，T-045 实测同配方的合成 House 曲俱乐部档少 1.34 ～ 1.39 LU（阶段 1 编排器）→ ≤ 1.5。
             //   ② 放宽：不封顶推到目标，T-045 记录「预算再放宽一档」已少 2.2 LU → 不受守门约 2.2 LU 以上（main 第②轮应 > 1.5）。新版：两份直方图
@@ -8602,6 +8655,16 @@ namespace celadon::test
                         "round 2: the contrast guard actually retreats (otherwise the round proves nothing - retune the song)");
                 expect (relaxedRound.lossLu <= clubLossLimitLu + compareEpsilon,
                         "round 2 (relaxed budgets, contrast guard alone): loses <= 1.5 LU: " + num (relaxedRound.lossLu));
+
+                for (const auto* round : { &factoryRound, &relaxedRound })
+                {
+                    const auto label = juce::String (round == &factoryRound ? "round 1" : "round 2");
+                    logMessage ("  " + label + " G_trim freeze: " + juce::String (round->trim.reliefBlocks) + " blocks end with a contrast relief, "
+                                + juce::String (round->trim.notFrozen) + " not frozen, " + juce::String (round->trim.moved) + " moved");
+                    expect (round->trim.reliefBlocks > 0 && round->trim.notFrozen == 0 && round->trim.moved == 0,
+                            label + " (real chain): every block that ends with a contrast relief below 0 is trimFrozen, and G_trim holds bit-exactly "
+                                   "while the relief stays");
+                }
 
                 // ---- 换通用档之后的回程 ----
                 int releaseSteps = 0, heldSteps = 0, badSteps = 0, steppedWhileRetreated = 0;
@@ -8688,6 +8751,7 @@ namespace celadon::test
             const auto songSeconds = (double) songSamples / rig.sampleRate;
             const auto blocks = rig.blocksFor (songSeconds + 0.2);
             auto nextLog = logEverySeconds;
+            result.trim.trimBefore = rig.probe().appliedBiasDb;
 
             for (int b = 0; b < blocks; ++b)
             {
@@ -8695,6 +8759,7 @@ namespace celadon::test
                 const auto now = (double) (b + 1) * (double) rig.blockLength / rig.sampleRate;
                 const auto guards = readGuards (rig);
                 const auto probe = rig.probe();
+                result.trim.note (guards, probe.appliedBiasDb);
                 result.budgetActed = result.budgetActed || probe.guardDb < 0.0f;
                 result.psrActed = result.psrActed || guards.psrReliefDb < 0.0f;
                 result.deepestContrastReliefDb = juce::jmin (result.deepestContrastReliefDb, guards.contrastReliefDb);

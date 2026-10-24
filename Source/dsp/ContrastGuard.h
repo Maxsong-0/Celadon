@@ -12,7 +12,8 @@
 
     每对子块一步（步长 = 子块时长 stepSeconds；有效音乐、两侧 S 都有效才推进，否则计时与退让都保持）：
       - 判定前提：两份直方图都满 60 s（遗忘后的累计时长），且入口 P90 − P25 ≥ 3 LU（有对比可保）；
-      - loss > 门槛（标准 / 流媒体 1.2 LU，俱乐部 1.5 LU，Max 2026-10-01 / 10-02 ①）持续满 10 s → 以 0.1 dB/s 退，退到 floorDb 为止；
+      - loss > 门槛（标准 / 流媒体 1.2 LU，俱乐部 1.5 LU，Max 2026-10-01 / 10-02 ①）持续满 10 s → 以 0.1 dB/s 退，退到 max(floorDb, 界) 为止
+        （界 = −自动加上去的全部，编排器每个子块用 setRetreatBoundDb 交进来；编排器给的 floorDb 只是 −24 的安全下限，Q15 A）；
       - loss < 门槛 − 0.3 LU 持续满 30 s → 以 0.05 dB/s 回到 0；两者之间两边计时都清零、退让保持（回差）；
       - 前提不成立按「低于门槛」计回程（T-097 默认：没有对比可保，留着退让只会卡住）；
       - 本曲风关着落差守门（GlazeConstants guardSwitchesFor(…).contrast：House 三类开、通用关）：直方图照攒，计时清零，
@@ -21,7 +22,8 @@
 
     clear() 只用于冷启动；snapRelief() 给 GLAZE ≤ 0；clearWindows() 给冻结（旁通、听原声）期间，以及跳播、循环回绕、宿主 reset：
     断开两侧 3 s 窗，直方图、计时与退让不动。
-    存档（CONTRAST_GUARD）：reliefDb / floorDb / engaged 同 T-048；overSeconds / underSeconds / histogramSeconds 与两份直方图是 T-097 的。
+    存档（CONTRAST_GUARD）：reliefDb / floorDb / engaged 同 T-048（floorDb 写 min(−3, 退让)：0.1.8.10 读档直接拿它当底、从不另设，
+    写 −24 会让降级打开的工程退过 −3；新代码读档后由编排器重设安全下限）；overSeconds / underSeconds / histogramSeconds 与两份直方图是 T-097 的。
     读到没有直方图的旧节点：退让照旧，计时与直方图从空开始（不冷启动整份 LIVE）。写出时另附旧版本要的 128 笔环字段（全 0），
     0.1.8.10 降级打开新工程也能读回、退让照旧。3 s 窗不存（规格第 5 节）。
 
@@ -75,6 +77,7 @@ namespace celadon::glaze
         };
 
         Reading getLastReading() const noexcept   { return lastReading; }
+        float getFloorDb() const noexcept   { return floorDb; }
 
         std::unique_ptr<juce::XmlElement> createStateXml() const;
         bool restoreStateXml (const juce::XmlElement&);
@@ -89,6 +92,7 @@ namespace celadon::glaze
         static constexpr double releaseAfterSeconds = 30.0;   // 低于门槛 − 0.3 持续这么久才回 ③
         static constexpr float retreatDbPerSecond = 0.1f;
         static constexpr float releaseDbPerSecond = 0.05f;
+        static constexpr float legacyFloorDb = -3.0f;        // T-097 之前的底（0.1.8.10 存档与读档用它）；默认值也是它
         static constexpr double lowPercentile = 0.25;
         static constexpr double highPercentile = 0.90;
 
@@ -106,7 +110,7 @@ namespace celadon::glaze
         double stepSeconds = 0.1;
         double decay = 1.0;              // exp(−stepSeconds ÷ forgetSeconds)
         double histogramSeconds = 0.0;   // 遗忘后的累计有效时长（两份直方图同步进账）
-        float floorDb = -3.0f;
+        float floorDb = legacyFloorDb;
         static constexpr float unboundedDb = -1.0e30f;
         float retreatBoundDb = unboundedDb;
         float reliefDb = 0.0f;

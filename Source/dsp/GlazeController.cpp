@@ -1631,6 +1631,8 @@ namespace celadon::glaze
             copy.contrastOutputSpreadLu = contrastReading.outputSpreadLu;
             copy.contrastHistogramSeconds = contrastReading.histogramSeconds;
             copy.secondsSinceParamChange = secondsSinceChange;
+            copy.contrastFloorDb = contrast.getFloorDb();
+            copy.psrFloorDb = psr.getFloorDb();
             return copy;
         }
     };

@@ -41,7 +41,7 @@ namespace celadon::glaze
 
     void PsrGuard::setFloorDb (float newFloorDb) noexcept
     {
-        floorDb = std::isfinite (newFloorDb) ? juce::jmin (0.0f, newFloorDb) : -3.0f;
+        floorDb = std::isfinite (newFloorDb) ? juce::jmin (0.0f, newFloorDb) : legacyFloorDb;
         reliefDb = juce::jmax (floorDb, reliefDb);
     }
 
@@ -104,8 +104,14 @@ namespace celadon::glaze
         // 状态行「已经退到底仍超」靠它（同预算环 planLimited && lastOver，看此刻超没超、不等持续）。不看 3 s 持续：持续计时被换交付档、
         // 或一步落进两线之间清零后，守门还在底上、读数也仍低，状态行不该空 3 s 显示「跟随」。底为 0（界为 0 = 没有自动部分，
         // applyLimitExtras 一点也退不了）时不算，哪怕早先退下的量还保持着。
+        // 本步没有读数（非有效音乐，或窗不满 3 s、近乎静音）时，计时与退让都保持，engaged 也保持上一步的：跳播、循环回绕、
+        // 冻结结束、读档之后约 3 s 状态行不该从「受限」掉回「跟随」再跳回来（退让一直在执行）。界回到 0 时照样清掉。
         const auto bottom = juce::jmax (floorDb, retreatBoundDb);
-        engaged = reliefDb < before || (belowNow && bottom < 0.0f && reliefDb <= bottom);
+
+        if (musicActive && (! enabled || lastPsrValid))
+            engaged = reliefDb < before || (belowNow && bottom < 0.0f && reliefDb <= bottom);
+        else
+            engaged = engaged && bottom < 0.0f;
         return current();
     }
 
@@ -132,7 +138,9 @@ namespace celadon::glaze
         auto xml = std::make_unique<juce::XmlElement> ("PSR_GUARD");
         xmlio::Writer writer (*xml);
         writer.field ("reliefDb", reliefDb);
-        writer.field ("floorDb", floorDb);
+        // 写给 0.1.8.10：它读档直接拿这个数当底。写 −3（已退得更深时写当前退让，旧版读回不跳）；新代码读档后由编排器重设。
+        const auto savedFloorDb = juce::jmin (legacyFloorDb, reliefDb);
+        writer.field ("floorDb", savedFloorDb);
         writer.field ("belowSeconds", belowSeconds);
         writer.field ("engaged", engaged);
         writer.optionalField ("aboveSeconds", aboveSeconds, 0.0);

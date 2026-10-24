@@ -99,7 +99,6 @@ namespace celadon::glaze
         float clayWidthStyleFactor = 0.0f;          // 覆盖 StyleConstants::clayWidthStyleFactor：House 档不自动加宽
     };
 
-    // 三个 House 子类共用的学习方式、锁定条件、限幅跟拍、反相提示常数（设计规格-曲风-House学习方式）。
     // T-097：两个守门按曲风开关（设计规格-实时GLAZE-主段与增益 第 4 节第 4、5 条）。落差守门「4/4 型开、其余先关」；PSR 守门
     // 「House / 通用关，留给以后的曲风」。关着的守门照常量测，已有的退让按它的回程速率放回 0（不跳变）。
     struct GuardSwitches
@@ -108,6 +107,7 @@ namespace celadon::glaze
         bool psr = false;        // PSR 守门（PsrGuard）
     };
 
+    // 三个 House 子类共用的学习方式、锁定条件、限幅跟拍、反相提示常数（设计规格-曲风-House学习方式）。
     struct HouseConstants
     {
         float gateWidthLu = 3.0f;                   // 响度门 ΔG：段响度 ≥ S_ref − 本项（第 2.3 节）

@@ -8,19 +8,19 @@
 
 - 代码按规格与 Max 的拍板（Q2～Q16）写完，定向测试、20 首、CPU、闭环用例都过。
 - **有一项不满足完成标准，等 Max 定**：House 合成曲「从第 33 小节起播、再从头导出」的 6 行里新增 5 处失败（③ 落差 4 处、② GR 预算 1 处）。根因是规格内的 G_trim 慢积分（长记忆主段电平 + ±3 dB 钳位）在这个场景里横跨整首慢滑约 6 dB；main 在同场景也滑约 3 dB，只是方向相反，③ 碰巧过。T-097 的实现没有偏离规格（见第 4 节），所以没有绕过去改，等 Max 拍板。
-- 状态：代码改完·未验证完（全量测试、独立复查第 1 轮还在跑；House 那一项待定）。
+- 状态：代码改完·未验证完（第 1 轮复查的发现已改完，第 2 轮增量复查与全量测试待跑；House 那一项待定）。
 
 ## 1. 完成标准对照
 
 | 完成标准（计划第 2 节） | 结果 | 依据 |
 |---|---|---|
-| G_trim 冻结（任一守门退让 < 0 / 本步刚改退让 / 1 s 内改参数，位模式不变；全部放回且 1 s 没动后恢复） | 过 | `GlazeControllerTests` 末尾 T-097 组；DGX 定向 1702 / 0 |
-| PSR 闭环（Q9：首次退让 20 s 后输出 3 s PSR ≥ F − 0.5 的占比 ≥ 95 %、最低 ≥ F − 1.0） | 过：96.3 %，最低 6.49 dB（流媒体 F = 7） | 第 7 节；改前 main 0.0 %、最低 4.98 dB |
+| G_trim 冻结（任一守门退让 < 0 / 本步刚改退让 / 1 s 内改参数，位模式不变；全部放回且 1 s 没动后恢复） | 过 | `GlazeControllerGuardFamily`（预算环推热、改参数 1 s）；`GlazeControllerGuardScenarios` 两个闭环场景里落差 / PSR 退让 < 0 的每一块逐位不变（复查 F4 后改成断言） |
+| PSR 闭环（Q9：首次退让 20 s 后输出 3 s PSR ≥ F − 0.5 的占比 ≥ 95 %、最低 ≥ F − 1.0） | 过：96.3 %，最低 6.49 dB（流媒体 F = 7） | 第 7 节；改前（`4be946b` + 同一场景）守门不动、0.0 %、最低 4.98 dB |
 | PSR 回程回差（≥ 门槛 + 0.5 满 5 s 才以 0.15 dB/s 回） | 过 | `GuardFamilyTests`「between the trip and trip + 0.5」「at or above trip + 0.5 for 5 s」 |
-| 落差守门两轮（Q10 / Q16：12 段、最后一对 breakdown → drop ≤ 1.5 LU；② 预算放宽 ×4） | 过：① 1.35 LU、② 0.81 LU | 第 7 节；改前 main ① 3.63 LU |
+| 落差守门两轮（Q10 / Q16：12 段、最后一对 breakdown → drop ≤ 1.5 LU；② 预算放宽 ×4） | 过：① 1.35 LU、② 0.81 LU | 第 7 节；改前（`4be946b` + 同一场景）① 3.68 LU、② 3.36 LU，② 预算环没退 |
 | 按曲风开关（通用两守门恒 0；House 会动；House → 通用以 0.05 dB/s 放回、不跳变） | 过 | 落差用例末尾：−4.155 → −3.155 dB / 20 s，200 步、最大一步 0.005 dB |
 | 块长无关（Q12 两层） | 过 | 纯逻辑同一串子块逐位；真链块长 {1, 7, 32, 64, 480, 512, 4096} 子块数与终点一致、每子块只推进一次 |
-| 旧档兼容（读 0.1.8.10 的 LIVE 不冷启动；新档往返逐位；新档写占位给 0.1.8.10） | 过 | `GuardFamilyTests` 存读三组；`GlazeControllerTests` 旧 LIVE 读回 |
+| 旧档兼容（读 0.1.8.10 的 LIVE 不冷启动；新档往返逐位；新档写占位给 0.1.8.10） | 过 | `GuardFamily` 存读三组；`GlazeControllerGuardFamily` 旧 LIVE 读回（读档后下限 −24）；新档 floorDb 写 min(−3, 退让)，0.1.8.10 降级打开仍停在 −3 的底上（复查 F11） |
 | ADR-034 A 组：GLAZE 0 逐位、真峰值 ≤ Ceiling + 0.01、0 分配 0 锁 | 过 | 20 首 GLAZE 0 的 40 行音频哈希逐字相同；真峰值最高 −1.35 dBTP；never-allocate 用例过 |
 | ADR-034 A 组：22 首 gate_check + house_gate 对 main 同机不新增失败 | **20 首过；House 新增 5 处，待 Max 定** | 第 3、4 节 |
 | CPU：只报 DGX 48 k / 32 最慢块对 main 的变化 | 报了：快 0.11～0.14 个百分点 | 第 6 节 |
@@ -28,7 +28,7 @@
 | DGX 全量测试只算新增失败 | 待跑（最终代码定了再跑） | main `4be946b` 基线 134719 过 / 5 败（aarch64 已知） |
 | 更新日志草稿（ADR-035，进 0.1.8.11） | 草稿在第 9 节 | — |
 | 档案（规格修订注、接口草图、ADR-036、TASKS / 日志 / INDEX） | 规格与 ADR 已改；收尾项待合并后做 | vault |
-| 独立复查通过后才说「代码改完」 | 第 1 轮在跑 | 第 8 节 |
+| 独立复查通过后才说「代码改完」 | 第 1 轮已处理，第 2 轮待跑 | 第 8 节 |
 
 ## 2. 单元测试
 
@@ -36,6 +36,7 @@
 |---|---|---|
 | main 基线全量 | `4be946b` | 134719 过 / 5 败（4 条 ColorModule NEON 融合乘加 + 1 条 BalancePerformance 计时，aarch64 已知，同 `3a7a367`） |
 | 定向（T-097 三组 + Phase2Orchestrator、GlazeController、GlazeChain、CeladonChain、CeladonChainGuards、LegacyFixture、ChainDigest、GlazeStatusText、GlazeControllerHouse） | `31c6083` | 1702 过 / 0 败 |
+| 定向，复查第 1 轮改完后（同上 12 组，T-097 三组改名 `GuardFamily`、`GlazeControllerGuardFamily`、`GlazeControllerGuardScenarios`）：`spark-test.sh t097-merged test --only GuardFamily,GlazeControllerGuardFamily,GlazeControllerGuardScenarios,Phase2Orchestrator,GlazeController,GlazeChain,CeladonChain,CeladonChainGuards,LegacyFixture,ChainDigest,GlazeStatusText,GlazeControllerHouse` | 第 1 轮修正 | 1723 过 / 0 败；闭环场景冻结断言：PSR 10332 块、落差 ① 24696 块 / ② 24734 块有退让，0 块没冻结、0 块 G_trim 动过 |
 | 全量 | 最终代码 | 待跑 |
 
 ## 3. 20 首（通用 / 标准，GLAZE 0 / 35 / 70 / 100 × CLAY auto / off）
@@ -64,6 +65,8 @@
 | tech-124 | streaming | 33 | PASS（0.38 / 0.93）→ PASS（0.95 / 0.09） | +1.59 FAIL → +2.06 FAIL | +0.10 / +1.22 → +1.30 / −1.96 |
 
 ① 方案增益、④ 真峰值、⑤ 目标响度两边的通过与否完全相同（① 六行 FAIL 是「没锁定」的工具口径，⑤ 是方案受预算限制，都在 main 上就有）。从第 1 小节起播的 6 行没有任何新增。
+
+两边的 `house_gate.txt` 都对两首提示「画像没有 House 门控结果（house_gate_valid ≠ 1）——House 学习方式没有生效」（渲染日志里聆听遍末都是「未学习」）。main 与 T-097 是同条件比；落差守门按曲风开关（Deep 开），不看 House 学习有没有生效。
 
 ### 4.1 机制（诊断副本追踪，不提交）
 
@@ -121,10 +124,13 @@ breakdown → drop2 的增益在 T-097 下差 −2.1 dB，正好是 ③ 少掉�
 
 GLAZE 100 变快约 0.1 个百分点（去掉了落差守门每块两次 `std::sort`），GLAZE 0 不变。处理器层没测（DGX 上编界面库要关 `CHAIN_ONLY`，本任务只报链层）。一分钟负载 5.1～6.3（只记录，阈值未定）。
 
-## 7. 闭环用例实测（`GLAZE guard closed-loop scenarios (T-097)`）
+## 7. 闭环用例实测（`GlazeControllerGuardScenarios`）
 
-- **PSR（Q9）**：输入 S −20 LUFS、3 s PSR 10.1～10.5 dB，流媒体、GLAZE 100，PSR 守门强开。首次退让 39.8 s，最深 −2.25 dB，预算环一次没退；59.8 s 起 902 个读数 96.3 % ≥ 6.5 dB，最低 6.49、平均 6.59 dB。main 同场景：守门不动，0.0 % ≥ 6.5 dB，最低 4.98 dB。
-- **落差（Q10 / Q16，12 段，House 俱乐部 GLAZE 100）**：最后一对 breakdown → drop 损失 ① 出厂 1.35 LU、② 预算放宽 ×4 0.81 LU；最深退让 −4.49 / −5.04 dB。main（改前 6 段版）① 3.63 LU、② 3.38 LU。
+- **PSR（Q9）**：输入 S −20 LUFS、3 s PSR 10.1～10.5 dB，流媒体、GLAZE 100，PSR 守门强开。首次退让 39.8 s，最深 −2.25 dB，预算环一次没退；59.8 s 起 902 个读数 96.3 % ≥ 6.5 dB，最低 6.49、平均 6.59 dB。
+- **落差（Q10 / Q16，12 段，House 俱乐部 GLAZE 100）**：最后一对 breakdown → drop 损失 ① 出厂 1.35 LU、② 预算放宽 ×4 0.81 LU；最深退让 −4.49 / −5.04 dB。
+- **改前（复查 F2）**：DGX 临时副本 = `git archive 4be946b` + 本分支最终的场景段，只换版本差异块（不提交，`~/.cache/celadon-spark/src/t097-before2`，日志 `before2-scenarios.log`），15 过 / 0 败：
+  - PSR：守门一次没退（它读入口，入口 PSR 健康），预算环没退；60 s 起 901 个读数 0.0 % ≥ 6.5 dB，最低 4.98、平均 5.12、最高 5.28 dB。
+  - 落差：① 出厂最后一对 3.68 LU（只记录）；② 七项 × 4 时预算环没退（前提成立），六对损失 3.36～3.39 LU，最后一对 3.36 LU > 1.5。轨迹里 main 的落差守门最深只到 −0.85 dB、多数时刻为 0（main 没有退让探针，只能从状态行近似），G_trim 从约 90 s 起一直钳在 +3 dB。
 - **House → 通用**：退让 −4.155 → −3.155 dB / 20 s，200 步回程、0 步停、最大一步 0.005 dB。
 
 ## 8. 复查与外部代理
@@ -135,7 +141,16 @@ GLAZE 100 变快约 0.1 个百分点（去掉了落差守门每块两次 `std::s
   2. 换交付档清掉持续计时后，守门还在底上、读数也仍超，engaged 却空 10 s → 采纳（`31c6083`）：到底以后 engaged 看本步读数，持续只管要不要再退（同预算环 `planLimited && lastOver`）。
   3. 停播时跳播不触发断窗 → 范围外：跳播检测 `setHostInfo` 停播时不看位置，从首个提交（2026-09-28）就这样，分析器同样漏；对守门的影响是恢复播放后至多 3 s 的窗口混着跳播前的素材。上报 Max，不在本任务改。
 - agy：DGX 上未登录、版本 1.4.7 与实测的 1.4.0 不同（脚本会拒），没派。
-- 独立复查（Workflow `max-core:independent-review`，规格 / 质量 / 边界三轴 + 核实投票）：第 1 轮在跑，结论待补。
+- 独立复查第 1 轮（Workflow `max-core:independent-review`，规格 / 质量 / 边界三轴 + 核实投票，对 `0ef5308`）：要改 6 条、小毛病 10 条、改动前就有 1 条，没有待用户拍板的。处理：
+  1. 「到底仍超」engaged 用错了量（中）→ 已在 `31c6083` 改（复查时在工作区）。
+  2. 改前证据没在最终场景上跑（中）→ 补跑，见第 7 节「改前」：前提都成立、判据反向都过。
+  3. 新档 floorDb 写 −24，0.1.8.10 降级打开会退到自动部分全没（中）→ 存档写 min(−3, 退让)，纯逻辑与真链用例断言。
+  4. 真链只验了预算环的 G_trim 冻结（低）→ 两个闭环场景里落差 / PSR 退让 < 0 的每块断言冻结、逐位不变。
+  5. 提交 `50add76` 的信息是英文（低）→ 不改已推送的历史；合并用 squash，提交信息写中文。
+  6. 这一步没有读数时 engaged 被清成 false（低）→ 没有读数时沿用上一步、界回到 0 照样清；补纯逻辑用例。
+  - 小毛病 10 条都改了：头文件「退到 floorDb」、测试 Q16 口径与【待上机核】、施工说明、站点算法页（落差读 IN + OUT）与 FAQ（PSR 一句）、BASELINE 补 `4be946b`、计划第 2 节旁注、三个测试类改驼峰名、旧档夹具 floorDb 用 −3 并断言读档后 −24、工具里四处切片说明、渲染说明读档一句、`GuardSwitches` 挪到 House 注释之前、两条名不副实的直方图断言说明。
+  - 改动前就有：状态行「已退 x dB」显示的是守门请求的量，不是 `applyLimitExtras` 实际减掉的量（不超过自动部分）。Q15 A 允许比界深而保持，这个差会更常见。不在本任务范围，上报 Max，挂了卡片。
+- 第 2 轮（只看增量）：待补。
 
 ## 9. 0.1.8.11 更新日志草稿（ADR-035：GLAZE > 0 的旧工程会变声，须写明）
 
@@ -155,4 +170,5 @@ GLAZE 100 变快约 0.1 个百分点（去掉了落差守门每块两次 `std::s
 - PSR 下限表（代码 8 / 7 / 6 对规格 8.5 / 8 / 6.5）按 ADR-034 第 6 条另议；PSR 守门出厂四个曲风都关。
 - 规格第 4 节第 3 条写「GLAZE ≤ 0 时冻结 G_trim」，代码（T-048 起）在 GLAZE ≤ 0 时把 G_trim 清 0：改动前就有，本任务没动，上报。
 - 停播时跳播不断窗（第 8 节 Codex 第 3 条）：改动前就有，上报。
+- 状态行「已退 x dB」是守门请求的量、不是实际执行的量（第 8 节复查「改动前就有」）：上报。
 - G_trim 的长记忆积分在「先听中段再从头导出」时慢滑数 dB（第 4 节）：规格内行为，归 R5-03b「条件积分」。

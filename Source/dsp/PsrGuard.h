@@ -10,7 +10,8 @@
     T-097 之前读的是链入口的 PSR：退增益改变不了被测量（开环），输入一密就一路退到底，输入松而出口被压扁时又看不见。
 
     每个子块一步（步长 = 子块时长 stepSeconds）：
-      - 3 s PSR < 门槛（该档下限 − 0.5 dB）持续满 3 s → 以 0.5 dB/s 退，退到 floorDb 为止；
+      - 3 s PSR < 门槛（该档下限 − 0.5 dB）持续满 3 s → 以 0.5 dB/s 退，退到 max(floorDb, 界) 为止
+        （界 = −自动加上去的全部，编排器每个子块用 setRetreatBoundDb 交进来；编排器给的 floorDb 只是 −24 的安全下限，Q15 A）；
       - 回程（规格没写，T-097 Max 2026-10-10 定，起点值）：PSR ≥ 门槛 + 0.5 dB 持续满 5 s → 以 0.15 dB/s 回到 0；
         门槛与门槛 + 0.5 dB 之间两边计时都清零、退让保持——闭环之后没有这道回差会在门槛附近来回摆；
       - 读数无效（窗不满 3 s、近乎静音）或非有效音乐：计时与退让都保持；
@@ -20,7 +21,8 @@
 
     clear() 只用于冷启动；snapRelief() 给 GLAZE ≤ 0；clearWindow() 给冻结（旁通、听原声）期间（出口不是方案在听的信号），
     以及跳播、循环回绕、宿主 reset（同分析器的窗口一起断开）：3 s 窗断开重攒，计时与退让不动。
-    存档：reliefDb / floorDb / belowSeconds / engaged 同 T-048；aboveSeconds 是 T-097 追加（旧档缺这个属性按 0 读）。3 s 窗不存
+    存档：reliefDb / floorDb / belowSeconds / engaged 同 T-048（floorDb 写 min(−3, 退让)：0.1.8.10 读档直接拿它当底、从不另设，
+    写 −24 会让降级打开的工程退过 −3；新代码读档后由编排器重设安全下限）；aboveSeconds 是 T-097 追加（旧档缺这个属性按 0 读）。3 s 窗不存
     （设计规格-实时GLAZE-主段与增益 第 5 节：窗口状态不存），读档后 3 s 内读数无效、守门保持不动。
 
   ==============================================================================
@@ -62,6 +64,7 @@ namespace celadon::glaze
 
         // 上一步的出口 3 s PSR（诊断与测试）；窗不满或近乎静音时 false。
         bool getLastPsrDb (float& psrDb) const noexcept;
+        float getFloorDb() const noexcept   { return floorDb; }
 
         std::unique_ptr<juce::XmlElement> createStateXml() const;
         bool restoreStateXml (const juce::XmlElement&);
@@ -76,6 +79,7 @@ namespace celadon::glaze
         static constexpr float releaseHysteresisDb = 0.5f;     // T-097：回程要 PSR ≥ 门槛 + 本项
         static constexpr double releaseAfterSeconds = 5.0;     // T-097：并持续这么久（同预算环「安全 5 s 后回」）
         static constexpr float releaseDbPerSecond = 0.15f;
+        static constexpr float legacyFloorDb = -3.0f;         // T-097 之前的底（0.1.8.10 存档与读档用它）；默认值也是它
 
     private:
         // 计时用秒累加，比较时留半步余量：0.1 累加 30 次不一定正好是 3.0。
@@ -83,7 +87,7 @@ namespace celadon::glaze
 
         ShortTermWindow window;
         double stepSeconds = 0.1;
-        float floorDb = -3.0f;
+        float floorDb = legacyFloorDb;
         static constexpr float unboundedDb = -1.0e30f;
         float retreatBoundDb = unboundedDb;
         float reliefDb = 0.0f;

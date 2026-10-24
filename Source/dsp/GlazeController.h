@@ -390,6 +390,7 @@ namespace celadon::glaze
             std::int64_t guardSubBlocks = 0;          // 交给两个守门推进的子块数（每个子块只推进一次）
             std::int64_t guardSubBlocksDropped = 0;   // 因冻结 / 不连续 / 两表对不上而断开窗口、没推进的子块（或读取批次）数
             std::int64_t lastGuardSubBlockEnd = 0;    // 最近一个推进守门的子块的 endSample（OUT 表时间轴）
+            float contrastFloorDb = 0.0f, psrFloorDb = 0.0f;   // 两个子块守门此刻的 floorDb（prepare、读档之后都是 −24 安全下限）
         };
 
         TestProbe getProbeForTesting() const noexcept;
