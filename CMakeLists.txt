@@ -199,6 +199,7 @@ add_executable(celadon_tests
     tests/GlazeCalibrationTests.cpp
     tests/Phase2OrchestratorTests.cpp
     tests/GlazeControllerTests.cpp
+    tests/GuardFamilyTests.cpp
     tests/GlazeStatusTextTests.cpp
     tests/ClayTests.cpp
     tests/ClayGuardTests.cpp

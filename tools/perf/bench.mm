@@ -429,7 +429,8 @@ namespace
     // v0.1.7.0（审核 V4-02）：补上 Balance 与 Color 之间的修坯 Clay 一级，接线照 CeladonChain::setParams / processSlice——
     // setParams (eff.clay)、按信号顺序 prepare、计时列「clay」、模块统计带修坯压力（ADR-014 压力反馈的输入）、交给 endBlock 的
     // 延迟是四个模块之和（校准器按它配对入口 / 出口子块，少了 Clay 的延迟编排器就与真插件不同步）。
-    // T-019：切片也照 CeladonChain::process——Balance 帧每个宿主块交一次；GLAZE > 0 时按 Guard 的 10 ms 时隙边界把宿主块切开，
+    // T-019：切片也照 CeladonChain::process——Balance 帧每个宿主块交一次；GLAZE > 0 时按 getGuardSamplesUntilBoundary 把宿主块切开
+    // （T-097 起取预算环 10 ms 时隙与 OUT 表 100 ms 子块中较近的边界），
     // 每片走一遍 IN 表 → 入口分析 → 四个模块 → OUT 表 → endBlock（spectrumDeferred = true），各级耗时按片累加进本块。
     // 与真链仍有的差别：输出出现非有限值时只清零本片，不做整链重启淡入（基准素材不会触发）。
     // 每行多报「total_worst%」= 整块（各级之和）最坏，取各遍最坏里最小的一遍（与各级 worst 同口径），与「total_structWorst%」=
@@ -567,7 +568,8 @@ namespace
                             controller->analyzeSpectrum (*balance);   // 每个宿主块一次，在切片之前（同 CeladonChain::process）
                             lap (stParams);
 
-                            // 切片照 CeladonChain::process：GLAZE > 0 时按 Guard 当前的 10 ms 时隙边界切开，统计不跨时隙；
+                            // 切片照 CeladonChain::process：GLAZE > 0 时按 getGuardSamplesUntilBoundary 切开（T-097 起取预算环 10 ms 时隙
+                            // 与 OUT 表 100 ms 子块中较近的边界），统计不跨时隙、子块在切片末尾完成；
                             // 每片同一份参数，只有统计往前走。GLAZE ≤ 0 时整块一片。
                             const auto sliced = user.glazePercent > 0.0f;
                             for (int offset = 0; offset < bs;)

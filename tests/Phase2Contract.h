@@ -600,3 +600,55 @@ namespace celadon::phase2
             || xml.getChildByName ("CALIBRATION") != nullptr;
     }
 }
+
+// ------------------------------------------------------------------------------
+// T-097（规格「设计规格-实时GLAZE-主段与增益」第 4 节；Max 2026-10-10 Q11「有退让量就冻结」）：G_trim 抗积分饱和的新口径。
+//
+// 上面 TrimIntegrator::step 的口径是 T-048：只看一个布尔「预算环本块在退」。那会让落差 / PSR 守门退下去之后，
+// G_trim 把这段差当偏差、按 0.05 dB/s 约 60 s 推满 +3 dB 抵消掉退让。新口径把「该不该积分」单独成一个纯函数：
+// 任一条成立就不积分（G_trim 保持原值，不清零）——
+//   1. 预算环本块在退（isRetreating）；
+//   2. 预算 / 落差 / PSR 任一退让量 < 0（在退、停住、回程中都算，只要还没回到 0）；
+//   3. 这一块刚改过某个退让量（回到 0 的那一步也算：before 与 after 不同）；
+//   4. 距上次改参数不满 1 s（风格 / 曲风 / 交付 / GLAZE / 规划相关手动值，对应 CONTROL 的 secondsSinceParamChange）。
+// 与 Source/dsp/GlazeController.cpp 的 guardHolding / recentlyChanged 逐条对应；旧函数不动，积分本身直接复用旧 step。
+namespace celadon::phase2
+{
+    inline constexpr double trimParamChangeFreezeSeconds = 1.0;
+
+    struct GuardReliefStep
+    {
+        float beforeDb = 0.0f;    // 这一块开始前的退让量（≤ 0）
+        float afterDb = 0.0f;     // 这一块结束后的退让量（≤ 0）
+    };
+
+    struct TrimFreezeInputs
+    {
+        bool budgetRetreatingThisBlock = false;
+        GuardReliefStep budget;
+        GuardReliefStep contrast;
+        GuardReliefStep psr;
+        double secondsSinceParamChange = trimParamChangeFreezeSeconds;   // 默认「很久以前改的」，不冻结
+    };
+
+    // 按位比较（对应生产的 sameBits）：+0 与 −0 算不同，NaN 算不同——都偏向「冻结」，是安全的一侧。
+    inline bool reliefChanged (const GuardReliefStep& step) noexcept
+    {
+        return step.beforeDb != step.afterDb || std::signbit (step.beforeDb) != std::signbit (step.afterDb);
+    }
+
+    inline bool trimFrozenByGuards (const TrimFreezeInputs& inputs) noexcept
+    {
+        const auto holding = inputs.budgetRetreatingThisBlock
+                          || inputs.budget.afterDb < 0.0f || inputs.contrast.afterDb < 0.0f || inputs.psr.afterDb < 0.0f
+                          || reliefChanged (inputs.budget) || reliefChanged (inputs.contrast) || reliefChanged (inputs.psr);
+        const auto recentlyChanged = inputs.secondsSinceParamChange < trimParamChangeFreezeSeconds;
+        return holding || recentlyChanged;
+    }
+
+    // 复用 TrimIntegrator::step：它的第三个参数在旧口径里叫 budgetRetreating，这里传「按新口径是否冻结」。
+    inline void stepTrimUnderGuards (TrimIntegrator& trim, float errorDb, float dtSeconds, const TrimFreezeInputs& inputs) noexcept
+    {
+        trim.step (errorDb, dtSeconds, trimFrozenByGuards (inputs));
+    }
+}
