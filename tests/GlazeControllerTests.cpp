@@ -7684,6 +7684,32 @@ namespace celadon::test
                         "old shape saved again: CONTROL writes secondsSinceParamChange = 1 s");
             }
 
+            // 读档中途失败（复查第 2 轮）：PSR_GUARD 的 reliefDb 写成 NaN（0x7fc00000）→ restoreBody 里落差守门已读成功、PSR 守门拒收 →
+            // 整份冷启动。守门读档不采纳存档里的 floorDb（只写给 0.1.8.10 的 −3），冷启动后两个下限仍是 −24（采纳的话落差守门会停在 −3 上，
+            // coldStart 只 clear、不重设下限，Q15 A 要到下一次 prepare 才回来）。
+            {
+                juce::XmlElement brokenBody (*body);
+                auto* brokenPsr = brokenBody.getChildByName ("PSR_GUARD");
+                expect (brokenPsr != nullptr, "fixture: the broken LIVE body has PSR_GUARD");
+
+                if (brokenPsr != nullptr)
+                {
+                    brokenPsr->setAttribute ("reliefDb", "7fc00000");
+                    auto broken = std::make_unique<juce::XmlElement> (*saved);
+                    broken->removeChildElement (broken->getChildByName (glaze::liveTag), true);
+                    broken->addChildElement (glaze::compressLiveBody (brokenBody, glaze::factoryConstants().version).release());
+
+                    Rig coldTarget (fastConstants(), material, params);
+                    coldTarget.step();
+                    coldTarget.chain.restoreGlazeStateXml (broken.get());
+                    const auto cold = coldTarget.probe();
+                    expect (sameBits (cold.contrastReliefDb, 0.0f) && sameBits (cold.psrReliefDb, 0.0f),
+                            "broken PSR_GUARD: the whole LIVE cold-starts (the contrast relief read before it is cleared too)");
+                    expectEquals (cold.contrastFloorDb, -24.0f, "broken PSR_GUARD: after the cold start the contrast floor is still -24, not the saved -3");
+                    expectEquals (cold.psrFloorDb, -24.0f, "broken PSR_GUARD: after the cold start the PSR floor is still -24");
+                }
+            }
+
             // 对照：同一份供体存档原样（带直方图）读回、再跑同样长。
             Rig carried (fastConstants(), material, params);
             carried.tempoBpm = 120.0;

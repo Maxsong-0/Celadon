@@ -138,7 +138,7 @@ namespace celadon::glaze
         auto xml = std::make_unique<juce::XmlElement> ("PSR_GUARD");
         xmlio::Writer writer (*xml);
         writer.field ("reliefDb", reliefDb);
-        // 写给 0.1.8.10：它读档直接拿这个数当底。写 −3（已退得更深时写当前退让，旧版读回不跳）；新代码读档后由编排器重设。
+        // 写给 0.1.8.10：它读档直接拿这个数当底。写 −3（已退得更深时写当前退让，旧版读回不跳）；新代码读档只校验、不采纳。
         const auto savedFloorDb = juce::jmin (legacyFloorDb, reliefDb);
         writer.field ("floorDb", savedFloorDb);
         writer.field ("belowSeconds", belowSeconds);
@@ -168,8 +168,7 @@ namespace celadon::glaze
             || below < 0.0 || above < 0.0)
             return false;
 
-        reliefDb = relief;
-        floorDb = floor;
+        reliefDb = relief;   // floorDb 不动：存档里那份只写给 0.1.8.10（见 createStateXml），下限由编排器设
         belowSeconds = below;
         aboveSeconds = above;
         engaged = wasEngaged;

@@ -20,7 +20,7 @@
         存读（新节点往返逐位、0.1.8.10 要的占位、旧环节点、损坏拒收）；
       - Q15 A 的界（setRetreatBoundDb）：界内照常退、到界停住且 engaged、界变浅保持不回弹、界变深接着退、界为 0 不退不报；
         到底后 engaged 看本步读数（换交付档清掉持续计时后仍超就立即报），没有读数时保持（断窗重攒、非有效音乐）；
-        存档的 floorDb 写 min(−3, 退让)（给 0.1.8.10 当底）；
+        存档的 floorDb 写 min(−3, 退让)（给 0.1.8.10 当底），读档只校验、不采纳（下限是编排器的配置）；
       - 两个守门的音频线程路径不分配；
       - 常数：守门开关出厂值、按曲风查询、快照四个字段、旧快照缺字段取出厂值、改开关 bitwiseEqual 判不同。
 
@@ -1476,7 +1476,7 @@ namespace celadon::test
                     expect (cXml->getStringAttribute (attribute) == freshXml->getStringAttribute (attribute),
                             juce::String ("legacy node: empty ") + attribute);
 
-                expectEquals (cXml->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex), "legacy node: floor kept");
+                expectEquals (cXml->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex), "legacy node: floorDb saved again as min(-3, relief) = -3");
             }
 
             {
@@ -1859,6 +1859,14 @@ namespace celadon::test
                 const auto deep = f.guard.createStateXml();
                 expectEquals (deep->getStringAttribute ("floorDb"), deep->getStringAttribute ("reliefDb"),
                               "psr: relief -5 (deeper than -3) -> floorDb saved as the relief itself");
+
+                // 读档不采纳存档里的 floorDb（复查第 2 轮）：那份只写给 0.1.8.10，下限是编排器 setFloorDb 的配置。采纳的话，编排器读档中途
+                // 失败冷启动时（coldStart 只 clear、不重设下限），守门会停在存档的 −3 上。下限 −24 的守门读这份 −5 的档：下限仍 −24，退让 −5。
+                PsrFeeder g;
+                g.guard.setFloorDb (-24.0f);
+                expect (g.guard.restoreStateXml (*deep), "psr: the deep node restores");
+                expect (g.guard.getFloorDb() == -24.0f && g.relief() == -5.0f,
+                        "psr: restore keeps the configured floor -24 (the saved floorDb is only for 0.1.8.10) and restores the relief -5");
             }
 
             {
@@ -1884,6 +1892,12 @@ namespace celadon::test
                 const auto deep = f.guard.createStateXml();
                 expectEquals (deep->getStringAttribute ("floorDb"), deep->getStringAttribute ("reliefDb"),
                               "contrast: relief -4 (deeper than -3) -> floorDb saved as the relief itself");
+
+                ContrastFeeder g (3.0);
+                g.guard.setFloorDb (-24.0f);
+                expect (g.guard.restoreStateXml (*deep), "contrast: the deep node restores");
+                expect (g.guard.getFloorDb() == -24.0f && g.relief() == -4.0f,
+                        "contrast: restore keeps the configured floor -24 (the saved floorDb is only for 0.1.8.10) and restores the relief -4");
             }
         }
 

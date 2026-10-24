@@ -1076,7 +1076,8 @@ namespace celadon::glaze
                 || ! psr.restoreStateXml (*psrXml) || ! outputLevel.restoreStateXml (*levelXml))
                 return false;
 
-            // T-097 Q15 A：旧档存的 floorDb（−3）不再用；放深不会把退让往上夹。
+            // T-097 Q15 A：守门读档不采纳存档里的 floorDb（只写给 0.1.8.10）；这里再设一次安全下限，读回的退让也按它夹一次
+            // （正常的存档碰不到 −24）。读档在第一次 prepare 之前时，下限也就此从默认的 −3 换成安全下限。
             contrast.setFloorDb (guardSafetyFloorDb);
             psr.setFloorDb (guardSafetyFloorDb);
 

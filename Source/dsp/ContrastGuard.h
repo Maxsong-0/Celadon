@@ -23,7 +23,7 @@
     clear() 只用于冷启动；snapRelief() 给 GLAZE ≤ 0；clearWindows() 给冻结（旁通、听原声）期间，以及跳播、循环回绕、宿主 reset：
     断开两侧 3 s 窗，直方图、计时与退让不动。
     存档（CONTRAST_GUARD）：reliefDb / floorDb / engaged 同 T-048（floorDb 写 min(−3, 退让)：0.1.8.10 读档直接拿它当底、从不另设，
-    写 −24 会让降级打开的工程退过 −3；新代码读档后由编排器重设安全下限）；overSeconds / underSeconds / histogramSeconds 与两份直方图是 T-097 的。
+    写 −24 会让降级打开的工程退过 −3；新代码读档只校验它、不采纳：下限是编排器 setFloorDb 的配置，读档中途失败冷启动时也不会停在 −3 上）；overSeconds / underSeconds / histogramSeconds 与两份直方图是 T-097 的。
     读到没有直方图的旧节点：退让照旧，计时与直方图从空开始（不冷启动整份 LIVE）。写出时另附旧版本要的 128 笔环字段（全 0），
     0.1.8.10 降级打开新工程也能读回、退让照旧。3 s 窗不存（规格第 5 节）。
 
