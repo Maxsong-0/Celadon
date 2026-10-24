@@ -21,8 +21,10 @@
 
     clear() 只用于冷启动；snapRelief() 给 GLAZE ≤ 0；clearWindow() 给冻结（旁通、听原声）期间（出口不是方案在听的信号），
     以及跳播、循环回绕、宿主 reset（同分析器的窗口一起断开）：3 s 窗断开重攒，计时与退让不动。
-    存档：reliefDb / floorDb / belowSeconds / engaged 同 T-048（floorDb 写 min(−3, 退让)：0.1.8.10 读档直接拿它当底、从不另设，
-    写 −24 会让降级打开的工程退过 −3；新代码读档只校验它、不采纳：下限是编排器 setFloorDb 的配置，读档中途失败冷启动时也不会停在 −3 上）；aboveSeconds 是 T-097 追加（旧档缺这个属性按 0 读）。3 s 窗不存
+    存档：reliefDb / floorDb / belowSeconds / engaged 同 T-048，前两项按 0.1.8.10 的不变量写（floorDb 恒 −3、reliefDb 写
+    max(−3, 退让)，见 ProfileMath.h legacyGuardSavedReliefDb：0.1.8.10 读档直接拿 floorDb 当底、从不另设，再存又原样写回）；
+    floorDb 只校验、不采纳（下限是编排器 setFloorDb 的配置，读档中途失败冷启动时也不会停在 −3 上）。T-097 追加两个可选属性：
+    aboveSeconds（旧档缺按 0 读）、reliefDbExact（真实退让，缺了按 reliefDb 读）；两项退让任一 > 0 当损坏拒收。3 s 窗不存
     （设计规格-实时GLAZE-主段与增益 第 5 节：窗口状态不存），读档后 3 s 内读数无效、守门保持不动。
 
   ==============================================================================
@@ -79,7 +81,6 @@ namespace celadon::glaze
         static constexpr float releaseHysteresisDb = 0.5f;     // T-097：回程要 PSR ≥ 门槛 + 本项
         static constexpr double releaseAfterSeconds = 5.0;     // T-097：并持续这么久（同预算环「安全 5 s 后回」）
         static constexpr float releaseDbPerSecond = 0.15f;
-        static constexpr float legacyFloorDb = -3.0f;         // T-097 之前的底（0.1.8.10 存档与读档用它）；默认值也是它
 
     private:
         // 计时用秒累加，比较时留半步余量：0.1 累加 30 次不一定正好是 3.0。
@@ -87,7 +88,7 @@ namespace celadon::glaze
 
         ShortTermWindow window;
         double stepSeconds = 0.1;
-        float floorDb = legacyFloorDb;
+        float floorDb = legacyGuardFloorDb;   // 没设过下限时的默认值（编排器 prepare / 读档时设成 guardSafetyFloorDb）
         static constexpr float unboundedDb = -1.0e30f;
         float retreatBoundDb = unboundedDb;
         float reliefDb = 0.0f;

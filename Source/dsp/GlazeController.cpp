@@ -462,9 +462,7 @@ namespace celadon::glaze
         // GLAZE / 规划相关手动值与上一块不同（beginBlock 的 changed 去掉「第一块」那一项：插件刚开不是用户改了参数）。按处理过的时长计
         // （宿主旁通、听原声期间也走）：GLAZE 0 时不计，但 GLAZE 从 0 拧上去本身就算改参数、会重新起算。
         static constexpr double changeFreezeSeconds = 1.0;
-        // T-097 Q15 A：落差 / PSR 守门不再有 −3 dB 底（规格只给预算环写了 −3 封底），界由 retreatBoundDb() 每个子块给；
-        // 这里只留一个绝对安全下限（= Limit Gain 的钳位范围，正常永远碰不到）。
-        static constexpr float guardSafetyFloorDb = -24.0f;
+        // T-097 Q15 A：落差 / PSR 守门的界由 retreatBoundDb() 每个子块给，floorDb 只设 GlazeConstants.h 的 guardSafetyFloorDb。
         static constexpr float weightPerSecond = 0.05f;
 
         MusicAnalyzer analyzer;

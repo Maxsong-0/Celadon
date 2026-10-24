@@ -237,4 +237,34 @@ namespace celadon::glaze
         int count = 0;
         int write = 0;
     };
+
+    //==============================================================================
+    // 子块守门（落差守门、PSR 守门）共用的口径（T-097）。两个守门各写一份时，改一处就得记得改另一处（复查第 2 轮 R2-F14）。
+
+    // T-097 之前（0.1.8.10）两个守门的底，也是守门对象没设过下限时的默认值。
+    inline constexpr float legacyGuardFloorDb = -3.0f;
+
+    // 存档里写给 0.1.8.10 的退让（reliefDb 属性）。0.1.8.10 读档直接拿 floorDb 当底、从不另设，退让也恒 ≥ 底；在它那里再存，
+    // 两项原样写回。所以 floorDb 恒写 −3、reliefDb 写 max(−3, 退让)：降级打开时退让最多 3 dB（比 −3 深的在载入那一刻变浅，
+    // 播放中不跳），底也一直是 −3。比 −3 深的真实退让另写 T-097 的可选属性 reliefDbExact，新代码读档优先读它（复查第 2 轮 R2-F1）。
+    inline float legacyGuardSavedReliefDb (float reliefDb) noexcept
+    {
+        return juce::jmax (legacyGuardFloorDb, reliefDb);
+    }
+
+    // 子块守门这一步之后的 engaged：本步在退，或已退到底（bottomDb = floorDb 与界中较浅的那个）且本步读数仍超门槛
+    // （hasReading 时的 stillOver）。到界停住、或比界深而保持时也算在起作用：状态行「已经退到底仍超」靠它（同预算环
+    // planLimited && lastOver，看此刻超没超、不等持续）。底为 0（界为 0 = 没有自动部分，applyLimitExtras 一点也退不了）时不算，
+    // 哪怕早先退下的量还保持着。
+    // 本步没有读数（非有效音乐，或断窗后 3 s 窗还在重攒、近乎静音）时保持上一步的：跳播、循环回绕、冻结结束、读档之后约 3 s，
+    // 状态行不该从「受限」掉回「跟随」再跳回来（退让一直在执行）。底回到 0、或这个守门此刻关着（本曲风不开）时清掉：关着的守门
+    // 不做判定，不会「到底仍超」（复查第 2 轮 R2-F3：停播时换到关着的曲风，状态行不该一直显示受限）。
+    inline bool guardEngagedAfterStep (bool hasReading, bool enabled, bool wasEngaged, float reliefBeforeDb, float reliefDb,
+                                       bool stillOver, float bottomDb) noexcept
+    {
+        if (! hasReading)
+            return wasEngaged && enabled && bottomDb < 0.0f;
+
+        return reliefDb < reliefBeforeDb || (stillOver && bottomDb < 0.0f && reliefDb <= bottomDb);
+    }
 }

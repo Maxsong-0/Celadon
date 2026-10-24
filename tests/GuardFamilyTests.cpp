@@ -19,8 +19,9 @@
         非有效音乐 / 一侧窗断开时直方图、计时、退让全保持；格内线性插值的分位；同一串子块逐位确定；
         存读（新节点往返逐位、0.1.8.10 要的占位、旧环节点、损坏拒收）；
       - Q15 A 的界（setRetreatBoundDb）：界内照常退、到界停住且 engaged、界变浅保持不回弹、界变深接着退、界为 0 不退不报；
-        到底后 engaged 看本步读数（换交付档清掉持续计时后仍超就立即报），没有读数时保持（断窗重攒、非有效音乐）；
-        存档的 floorDb 写 min(−3, 退让)（给 0.1.8.10 当底），读档只校验、不采纳（下限是编排器的配置）；
+        到底后 engaged 看本步读数（换交付档清掉持续计时后仍超就立即报），没有读数时保持（断窗重攒、非有效音乐），守门关着时不报；
+        存档里写给 0.1.8.10 的两项按它的不变量写（floorDb 恒 −3、reliefDb 写 max(−3, 退让)），真实退让另写 reliefDbExact，
+        往返逐位、没有 reliefDbExact 的节点按 reliefDb 读；读档只校验 floorDb、不采纳（下限是编排器的配置）；
       - 两个守门的音频线程路径不分配；
       - 常数：守门开关出厂值、按曲风查询、快照四个字段、旧快照缺字段取出厂值、改开关 bitwiseEqual 判不同。
 
@@ -62,8 +63,12 @@ namespace celadon::test
         constexpr int windowFillSubBlocks = ShortTermWindow::subBlocks - 1;   // 29：从空窗起，第 30 个子块 3 s 窗才满
 
         // IEEE 754 位模式（GlazeConstants 的 xmlio：float 8 位、double 16 位十六进制，高位在前）。
+        constexpr const char* floatPlusOneHex = "3f800000";           // +1.0f（退让不会是正的：拒收用例用）
         constexpr const char* floatMinusOneHex = "bf800000";          // −1.0f
+        constexpr const char* floatMinusTwoHex = "c0000000";          // −2.0f = −1.0 × 2^1
         constexpr const char* floatMinusThreeHex = "c0400000";        // −3.0f
+        constexpr const char* floatMinusFourHex = "c0800000";         // −4.0f = −1.0 × 2^2
+        constexpr const char* floatMinusFiveHex = "c0a00000";         // −5.0f = −1.25 × 2^2
         constexpr const char* floatMinusFourteenHex = "c1600000";     // −14.0f（旧版 128 笔环里的一个 S 值）
         constexpr const char* floatNanHex = "7fc00000";               // float NaN
         constexpr const char* doubleZeroHex = "0000000000000000";     // 0.0
@@ -846,8 +851,10 @@ namespace celadon::test
                 expect (c.feed (9.0).reliefDb > kept, "legacy node: first release at sub-block 79");
             }
 
-            // 4. 损坏拒收、对象不动：reliefDb NaN、belowSeconds NaN、aboveSeconds NaN、aboveSeconds 不是十六进制、缺 belowSeconds、标签不对。
-            for (int which = 0; which < 6; ++which)
+            // 4. 损坏拒收、对象不动：reliefDb NaN、belowSeconds NaN、aboveSeconds NaN、aboveSeconds 不是十六进制、缺 belowSeconds、标签不对、
+            //    reliefDbExact NaN、reliefDbExact 不是十六进制、reliefDbExact 为正、旧形状（没有 reliefDbExact）的 reliefDb 为正。
+            //    下限不在存档里比得出来（存档的 floorDb 恒写 −3），另比 getFloorDb：目标的下限设成编排器的 −24，拒收前后都得是 −24（复查第 2 轮 R2-F8）。
+            for (int which = 0; which < 10; ++which)
             {
                 juce::XmlElement corrupt (*saved);
 
@@ -858,7 +865,11 @@ namespace celadon::test
                     case 2:  corrupt.setAttribute ("aboveSeconds", doubleNanHex); break;
                     case 3:  corrupt.setAttribute ("aboveSeconds", "not-hex"); break;
                     case 4:  corrupt.removeAttribute ("belowSeconds"); break;
-                    default: corrupt.setTagName ("CONTRAST_GUARD"); break;
+                    case 5:  corrupt.setTagName ("CONTRAST_GUARD"); break;
+                    case 6:  corrupt.setAttribute ("reliefDbExact", floatNanHex); break;
+                    case 7:  corrupt.setAttribute ("reliefDbExact", "not-hex"); break;
+                    case 8:  corrupt.setAttribute ("reliefDbExact", floatPlusOneHex); break;
+                    default: corrupt.removeAttribute ("reliefDbExact"); corrupt.setAttribute ("reliefDb", floatPlusOneHex); break;
                 }
 
                 PsrFeeder target;
@@ -866,11 +877,20 @@ namespace celadon::test
                 while (target.calls < 80)
                     target.feed (6.0);
 
+                target.guard.setFloorDb (glaze::guardSafetyFloorDb);
                 const auto before = target.guard.createStateXml();
+                auto psrBefore = 0.0f, psrAfter = 0.0f;
+                const auto hadReading = target.guard.getLastPsrDb (psrBefore);
                 const auto label = "corrupt PSR node " + juce::String (which);
                 expect (! target.guard.restoreStateXml (corrupt), label + " rejected");
                 const auto after = target.guard.createStateXml();
-                expect (before->isEquivalentTo (after.get(), false), label + " leaves the guard untouched");
+                expect (before->isEquivalentTo (after.get(), false), label + " leaves the guard's saved state untouched");
+                expectEquals (target.guard.getFloorDb(), glaze::guardSafetyFloorDb, label + " leaves the configured floor untouched");
+                // 不存档的部分也不动（muse 2026-10-24 第二意见）：上一读数还在，3 s 窗没清——下一个子块照样有读数
+                // （读档成功才清窗，之后 29 个子块没有读数）。
+                expect (hadReading && target.guard.getLastPsrDb (psrAfter) && psrAfter == psrBefore, label + " keeps the last reading");
+                target.feed (6.0);
+                expect (target.guard.getLastPsrDb (psrAfter), label + " keeps the 3 s window (the next sub-block has a reading)");
             }
         }
 
@@ -1051,7 +1071,8 @@ namespace celadon::test
         {
             beginTest ("contrast guard: loss between threshold - 0.3 and the threshold holds and clears both timers; below threshold - 0.3 for 30 s releases 0.005 dB per sub-block");
 
-            // 都从「新守门跑到图样第 800 个」的存档出发（第 758 个已判定），改 reliefDb = −1 与计时再读进 B，B 接着图样第 800 个喂：
+            // 都从「新守门跑到图样第 800 个」的存档出发（第 758 个已判定），把退让改成 −1（reliefDb 与 reliefDbExact 两项：读档优先读
+            // reliefDbExact，reliefDb 是写给 0.1.8.10 的）、改计时，再读进 B，B 接着图样第 800 个喂：
             //   B 的 3 s 窗是空的 → 第 801 ～ 829 个不进账、保持；第 830 个第一次进账（histogramSeconds = 存档值·d + 0.1）。
             //   1. loss 1.0（标准档，带 0.9 ～ 1.2 内），存档里 overSeconds 9.0、underSeconds 29.0：第 830 个两边计时清零（存档写回 0），
             //      relief 逐位保持 −1（再喂 1500 个）；
@@ -1068,6 +1089,7 @@ namespace celadon::test
                 expect (at800.judged && std::abs (at800.lossLu - 1.0f) < 1.0e-3f, "loss 1.0 judged at sub-block 800");
 
                 node->setAttribute ("reliefDb", floatMinusOneHex);
+                node->setAttribute ("reliefDbExact", floatMinusOneHex);
                 node->setAttribute ("overSeconds", doubleNineHex);
                 node->setAttribute ("underSeconds", doubleTwentyNineHex);
 
@@ -1111,6 +1133,7 @@ namespace celadon::test
                 expect (at800.judged && std::abs (at800.lossLu - 0.5f) < 1.0e-3f, "loss 0.5 judged at sub-block 800");
 
                 node->setAttribute ("reliefDb", floatMinusOneHex);
+                node->setAttribute ("reliefDbExact", floatMinusOneHex);
                 node->setAttribute ("underSeconds", restoredUnder == 0.0 ? doubleZeroHex : doubleTwentyNineHex);
 
                 ContrastFeeder b (0.5, false, resumeIndex);
@@ -1462,11 +1485,15 @@ namespace celadon::test
             legacy.setAttribute ("outputRing", juce::String::repeatedString (floatMinusFourteenHex, 128));
 
             {
+                // 读档前把下限设成编排器的 −24：读档不采纳旧节点里的 floorDb −3，读完下限仍是 −24（复查第 2 轮 R2-F8：守门默认的底也是 −3，
+                // 不先换掉就测不出采没采纳）。
                 ContrastFeeder c (3.0), fresh (3.0);
+                c.guard.setFloorDb (glaze::guardSafetyFloorDb);
                 expect (c.guard.restoreStateXml (legacy), "legacy ring node restores");
+                expectEquals (c.guard.getFloorDb(), glaze::guardSafetyFloorDb, "legacy node: the configured floor is kept (the saved -3 is not adopted)");
 
                 const auto now = c.guard.current();
-                expect (now.reliefDb == -1.0f && now.cause == GuardCause::contrast, "legacy node: relief kept");
+                expect (now.reliefDb == -1.0f && now.cause == GuardCause::contrast, "legacy node: relief kept (no reliefDbExact: read from reliefDb)");
                 expect (c.reading().histogramSeconds == 0.0 && ! c.reading().judged, "legacy node: the last reading is reset (the histograms are checked below)");
 
                 const auto cXml = c.guard.createStateXml();
@@ -1476,7 +1503,9 @@ namespace celadon::test
                     expect (cXml->getStringAttribute (attribute) == freshXml->getStringAttribute (attribute),
                             juce::String ("legacy node: empty ") + attribute);
 
-                expectEquals (cXml->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex), "legacy node: floorDb saved again as min(-3, relief) = -3");
+                expectEquals (cXml->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex), "legacy node: saved again with floorDb -3 for 0.1.8.10");
+                expect (cXml->getStringAttribute ("reliefDb") == floatMinusOneHex && cXml->getStringAttribute ("reliefDbExact") == floatMinusOneHex,
+                        "legacy node: saved again with reliefDb = reliefDbExact = -1 (shallower than -3)");
             }
 
             {
@@ -1512,11 +1541,12 @@ namespace celadon::test
                 expectEquals (guard.getLastReading().histogramSeconds, 0.0, "nothing measured yet");
             }
 
-            // 4. 损坏拒收、对象不动：直方图里有负数 / NaN、histogramSeconds NaN、overSeconds 为负、直方图少一格、标签不对；
-            //    旧节点里 reliefDb 是 NaN 也拒收。
-            for (int which = 0; which < 7; ++which)
+            // 4. 损坏拒收、对象不动：直方图里有负数 / NaN、histogramSeconds NaN、overSeconds 为负、直方图少一格、标签不对、
+            //    reliefDbExact NaN、reliefDbExact 不是十六进制、reliefDbExact 为正、新节点 reliefDb 是 NaN（reliefDbExact 好的）；
+            //    旧节点里 reliefDb 为正、是 NaN 也拒收。下限另比 getFloorDb（同 PSR，R2-F8）。
+            for (int which = 0; which < 12; ++which)
             {
-                juce::XmlElement corrupt (which == 6 ? legacy : *saved);
+                juce::XmlElement corrupt (which >= 10 ? legacy : *saved);
 
                 switch (which)
                 {
@@ -1526,6 +1556,11 @@ namespace celadon::test
                     case 3:  corrupt.setAttribute ("overSeconds", doubleMinusOneHex); break;
                     case 4:  corrupt.setAttribute ("inputHistogram", saved->getStringAttribute ("inputHistogram").substring (8)); break;
                     case 5:  corrupt.setTagName ("PSR_GUARD"); break;
+                    case 6:  corrupt.setAttribute ("reliefDbExact", floatNanHex); break;
+                    case 7:  corrupt.setAttribute ("reliefDbExact", "not-hex"); break;
+                    case 8:  corrupt.setAttribute ("reliefDbExact", floatPlusOneHex); break;
+                    case 9:  corrupt.setAttribute ("reliefDb", floatNanHex); break;
+                    case 10: corrupt.setAttribute ("reliefDb", floatPlusOneHex); break;
                     default: corrupt.setAttribute ("reliefDb", floatNanHex); break;
                 }
 
@@ -1534,11 +1569,20 @@ namespace celadon::test
                 while (target.nextIndex < 100)
                     target.feed();
 
+                target.guard.setFloorDb (glaze::guardSafetyFloorDb);
                 const auto before = target.guard.createStateXml();
+                const auto readingBefore = target.reading();
                 const auto label = "corrupt contrast node " + juce::String (which);
                 expect (! target.guard.restoreStateXml (corrupt), label + " rejected");
                 const auto after = target.guard.createStateXml();
-                expect (before->isEquivalentTo (after.get(), false), label + " leaves the guard untouched");
+                expect (before->isEquivalentTo (after.get(), false), label + " leaves the guard's saved state untouched");
+                expectEquals (target.guard.getFloorDb(), glaze::guardSafetyFloorDb, label + " leaves the configured floor untouched");
+                // 不存档的部分也不动（同 PSR，muse 第二意见）：上一读数还在，3 s 窗没清——下一个子块照样进账。
+                expect (target.reading().histogramSeconds == readingBefore.histogramSeconds && readingBefore.histogramSeconds > 0.0,
+                        label + " keeps the last reading");
+                target.feed();
+                expect (target.reading().histogramSeconds > readingBefore.histogramSeconds,
+                        label + " keeps the 3 s windows (the next sub-block is measured)");
             }
         }
 
@@ -1551,8 +1595,9 @@ namespace celadon::test
         void testRetreatBound()
         {
             beginTest ("guards (Q15 A): retreat stops at the bound -automaticTotal; a shallower bound holds (no rebound); a deeper bound resumes; "
-                       "held at the bound while still over is engaged (this step's reading, not the sustain timer; held while there is no reading); "
-                       "a bound of 0 never retreats and is never engaged, even with a held relief; the saved floorDb is min(-3, relief) for 0.1.8.10");
+                       "held at the bound while still over is engaged (this step's reading, not the sustain timer; held while there is no reading, "
+                       "cleared while switched off); a bound of 0 never retreats and is never engaged, even with a held relief; "
+                       "the 0.1.8.10 fields keep its invariant (floorDb -3, reliefDb max(-3, relief)) and reliefDbExact carries the relief");
 
             {
                 // 落差：loss 3，第 857 个起每步退 0.01 dB。
@@ -1766,17 +1811,25 @@ namespace celadon::test
 
                 expect (f.relief() == -1.0f && f.guard.current().engaged, "contrast: at the bound -1 and still over: engaged");
 
+                // 前提（复查第 2 轮 R2-F19）：断窗后前 29 步确实没有读数（直方图没进账，读数的 histogramSeconds 逐位不变），第 30 步起才有。
+                // 守门停在界上、读数一直超，有读数时重算的 engaged 也是 true；不核这一条，就分不出走的是不是「保持」那一支。
                 f.guard.clearWindows();
-                auto firstBad = 0;
+                const auto secondsBeforeBreak = f.reading().histogramSeconds;
+                auto firstBad = 0, firstPremiseBad = 0;
 
-                for (int k = 0; k < windowFillSubBlocks + 5; ++k)
+                for (int k = 1; k <= windowFillSubBlocks + 5; ++k)
                 {
                     const auto step = f.feed();
+                    const auto unchanged = f.reading().histogramSeconds == secondsBeforeBreak;
+
+                    if (unchanged != (k <= windowFillSubBlocks) && firstPremiseBad == 0)
+                        firstPremiseBad = k;
 
                     if ((step.reliefDb != -1.0f || ! step.engaged || step.cause != GuardCause::contrast) && firstBad == 0)
                         firstBad = f.nextIndex;
                 }
 
+                expectEquals (firstPremiseBad, 0, "contrast: (premise) no reading for the 29 sub-blocks after the break, a reading from the 30th");
                 expectEquals (firstBad, 0, "contrast: windows broken and refilling (29 sub-blocks without a reading), then read again: relief and engaged held");
 
                 for (int k = 0; k < 20; ++k)
@@ -1791,7 +1844,9 @@ namespace celadon::test
 
                 f.guard.setRetreatBoundDb (0.0f);
                 f.guard.clearWindows();
+                const auto secondsBeforeUnbound = f.reading().histogramSeconds;
                 const auto unbound = f.feed();
+                expect (f.reading().histogramSeconds == secondsBeforeUnbound, "contrast: (premise) no reading on the step with the bound back at 0");
                 expect (unbound.reliefDb == -1.0f && ! unbound.engaged && unbound.cause == GuardCause::contrast,
                         "contrast: bound back to 0 while there is no reading -> engaged cleared, relief still held");
             }
@@ -1807,16 +1862,23 @@ namespace celadon::test
 
                 expect (f.relief() == -1.0f && f.guard.current().engaged, "psr: at the bound -1 and still below: engaged");
 
+                // 前提（R2-F19，同落差）：断窗后前 29 步读数无效，第 30 步起有效。
                 f.guard.clearWindow();
-                auto firstBad = 0;
+                auto firstBad = 0, firstPremiseBad = 0;
+                auto psrNow = 0.0f;
 
-                for (int k = 0; k < windowFillSubBlocks + 5; ++k)
+                for (int k = 1; k <= windowFillSubBlocks + 5; ++k)
                 {
                     const auto step = f.feed (6.0);
+
+                    if (f.guard.getLastPsrDb (psrNow) != (k > windowFillSubBlocks) && firstPremiseBad == 0)
+                        firstPremiseBad = k;
 
                     if ((step.reliefDb != -1.0f || ! step.engaged || step.cause != GuardCause::psr) && firstBad == 0)
                         firstBad = f.calls;
                 }
+
+                expectEquals (firstPremiseBad, 0, "psr: (premise) no valid reading for the 29 sub-blocks after the break, a valid one from the 30th");
 
                 for (int k = 0; k < 20; ++k)
                 {
@@ -1831,24 +1893,84 @@ namespace celadon::test
                 f.guard.setRetreatBoundDb (0.0f);
                 f.guard.clearWindow();
                 const auto unbound = f.feed (6.0);
+                expect (! f.guard.getLastPsrDb (psrNow), "psr: (premise) no valid reading on the step with the bound back at 0");
                 expect (unbound.reliefDb == -1.0f && ! unbound.engaged && unbound.cause == GuardCause::psr,
                         "psr: bound back to 0 while there is no reading -> engaged cleared, relief still held");
             }
 
             {
-                // 存档里的 floorDb 写给 0.1.8.10（复查 F11）：它读档直接拿这个数当底、从不另设。编排器给的底是 −24，照写会让降级打开的
-                // 工程退过 −3，所以写 min(−3, 退让)：退让 −2 时写 −3；已退到 −5 时写 −5（旧版读回不会把退让往上夹）。
+                // 守门关着时不报 engaged（复查第 2 轮 R2-F3）：到界 −1 且仍超、engaged → 停播（非有效音乐）时把曲风换到关着这个守门的 →
+                // 没有读数，退让与 cause 保持，engaged 清掉（关着的守门不做判定，不会「到底仍超」；改前一直保持 true，状态行在通用档显示
+                // 「受限 · 保对比」）。再开回来、恢复播放：有读数、仍超、仍在界上 → 立即再报。
+                const auto firstRetreat = windowFillSubBlocks + measuredStepsToFull() + stepsToReach (ContrastGuard::triggerSeconds) - 1;   // 857
+                ContrastFeeder f (3.0);
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.nextIndex < firstRetreat + 150)
+                    f.feed();
+
+                expect (f.relief() == -1.0f && f.guard.current().engaged, "contrast: at the bound -1 and still over: engaged");
+
+                auto firstBad = 0;
+
+                for (int k = 0; k < 20; ++k)
+                {
+                    const auto step = f.feed (false, false);
+
+                    if ((step.reliefDb != -1.0f || step.engaged || step.cause != GuardCause::contrast) && firstBad == 0)
+                        firstBad = f.nextIndex;
+                }
+
+                expectEquals (firstBad, 0, "contrast: stopped and switched off -> relief and cause held, engaged cleared from the first step");
+
+                const auto back = f.feed();
+                expect (back.reliefDb == -1.0f && back.engaged, "contrast: switched on again with music, still over at the bound -> engaged again");
+            }
+
+            {
                 const auto firstRetreat = windowFillSubBlocks + stepsToReach (PsrGuard::sustainSeconds);   // 59
                 PsrFeeder f;
-                f.guard.setFloorDb (-24.0f);
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.calls < firstRetreat + 40)
+                    f.feed (6.0);
+
+                expect (f.relief() == -1.0f && f.guard.current().engaged, "psr: at the bound -1 and still below: engaged");
+
+                auto firstBad = 0;
+
+                for (int k = 0; k < 20; ++k)
+                {
+                    const auto step = f.feed (6.0, false, false);
+
+                    if ((step.reliefDb != -1.0f || step.engaged || step.cause != GuardCause::psr) && firstBad == 0)
+                        firstBad = f.calls;
+                }
+
+                expectEquals (firstBad, 0, "psr: stopped and switched off -> relief and cause held, engaged cleared from the first step");
+
+                const auto back = f.feed (6.0);
+                expect (back.reliefDb == -1.0f && back.engaged, "psr: switched on again with music, still below at the bound -> engaged again");
+            }
+
+            {
+                // 存档里写给 0.1.8.10 的两项（复查 F11、第 2 轮 R2-F1）：0.1.8.10 读档直接拿 floorDb 当底、从不另设，退让恒 ≥ 底，再存又原样写回。
+                // 所以按它的不变量写：floorDb 恒 −3（不是编排器的 −24），reliefDb 写 max(−3, 退让)；真实退让另写 reliefDbExact。
+                // 退让 −2：reliefDb = reliefDbExact = −2、floorDb −3。退让 −5：reliefDb −3（降级打开时最多退 3 dB，载入那一刻变浅）、
+                // floorDb −3、reliefDbExact −5。
+                const auto firstRetreat = windowFillSubBlocks + stepsToReach (PsrGuard::sustainSeconds);   // 59
+                PsrFeeder f;
+                f.guard.setFloorDb (glaze::guardSafetyFloorDb);
                 f.guard.setRetreatBoundDb (-2.0f);
 
                 while (f.calls < firstRetreat + 60)   // 每步 0.05：40 步退到 −2，之后停在界上
                     f.feed (6.0);
 
                 expectEquals (f.relief(), -2.0f, "psr (floor -24): stops at the bound -2");
-                expectEquals (f.guard.createStateXml()->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex),
-                              "psr: relief -2 -> floorDb saved as -3 for 0.1.8.10, not the -24 safety floor");
+                const auto shallow = f.guard.createStateXml();
+                expect (shallow->getStringAttribute ("floorDb") == floatMinusThreeHex && shallow->getStringAttribute ("reliefDb") == floatMinusTwoHex
+                            && shallow->getStringAttribute ("reliefDbExact") == floatMinusTwoHex,
+                        "psr: relief -2 -> floorDb -3 (not the -24 safety floor), reliefDb -2, reliefDbExact -2");
 
                 f.guard.setRetreatBoundDb (-5.0f);
 
@@ -1857,31 +1979,44 @@ namespace celadon::test
 
                 expectEquals (f.relief(), -5.0f, "psr (floor -24): a deeper bound resumes down to -5");
                 const auto deep = f.guard.createStateXml();
-                expectEquals (deep->getStringAttribute ("floorDb"), deep->getStringAttribute ("reliefDb"),
-                              "psr: relief -5 (deeper than -3) -> floorDb saved as the relief itself");
+                expect (deep->getStringAttribute ("floorDb") == floatMinusThreeHex && deep->getStringAttribute ("reliefDb") == floatMinusThreeHex
+                            && deep->getStringAttribute ("reliefDbExact") == floatMinusFiveHex,
+                        "psr: relief -5 (deeper than -3) -> the 0.1.8.10 fields stay at -3 / -3, reliefDbExact -5");
 
-                // 读档不采纳存档里的 floorDb（复查第 2 轮）：那份只写给 0.1.8.10，下限是编排器 setFloorDb 的配置。采纳的话，编排器读档中途
-                // 失败冷启动时（coldStart 只 clear、不重设下限），守门会停在存档的 −3 上。下限 −24 的守门读这份 −5 的档：下限仍 −24，退让 −5。
+                // 读档：读 reliefDbExact、不采纳 floorDb（复查第 2 轮 R2-F2：那份只写给 0.1.8.10，下限是编排器 setFloorDb 的配置；采纳的话，
+                // 编排器读档中途失败冷启动时守门会停在存档的 −3 上）。下限 −24 的守门读这份档：下限仍 −24，退让 −5，再存逐位相同。
                 PsrFeeder g;
-                g.guard.setFloorDb (-24.0f);
+                g.guard.setFloorDb (glaze::guardSafetyFloorDb);
                 expect (g.guard.restoreStateXml (*deep), "psr: the deep node restores");
-                expect (g.guard.getFloorDb() == -24.0f && g.relief() == -5.0f,
-                        "psr: restore keeps the configured floor -24 (the saved floorDb is only for 0.1.8.10) and restores the relief -5");
+                expect (g.guard.getFloorDb() == glaze::guardSafetyFloorDb && g.relief() == -5.0f,
+                        "psr: restore keeps the configured floor -24 and restores the relief -5 from reliefDbExact");
+                expect (deep->isEquivalentTo (g.guard.createStateXml().get(), false), "psr: deep node round trip is bit for bit");
+
+                // 没有 reliefDbExact 的节点（0.1.8.10 写的、或在 0.1.8.10 里再存过的）：按 reliefDb 读，−3。
+                juce::XmlElement resaved (*deep);
+                resaved.removeAttribute ("reliefDbExact");
+                PsrFeeder h;
+                h.guard.setFloorDb (glaze::guardSafetyFloorDb);
+                expect (h.guard.restoreStateXml (resaved), "psr: a node without reliefDbExact restores");
+                expect (h.guard.getFloorDb() == glaze::guardSafetyFloorDb && h.relief() == glaze::legacyGuardFloorDb,
+                        "psr: without reliefDbExact the relief is read from reliefDb (-3)");
             }
 
             {
-                // 落差同理：loss 3，底 −24、界 −4，每步 0.01：857 起 400 步退到 −4。
+                // 落差同理：loss 3，底 −24，界 −1 → 停在 −1；界 −4，每步 0.01：再 300 步退到 −4。
                 const auto firstRetreat = windowFillSubBlocks + measuredStepsToFull() + stepsToReach (ContrastGuard::triggerSeconds) - 1;   // 857
                 ContrastFeeder f (3.0);
-                f.guard.setFloorDb (-24.0f);
+                f.guard.setFloorDb (glaze::guardSafetyFloorDb);
                 f.guard.setRetreatBoundDb (-1.0f);
 
                 while (f.nextIndex < firstRetreat + 150)
                     f.feed();
 
                 expectEquals (f.relief(), -1.0f, "contrast (floor -24): stops at the bound -1");
-                expectEquals (f.guard.createStateXml()->getStringAttribute ("floorDb"), juce::String (floatMinusThreeHex),
-                              "contrast: relief -1 -> floorDb saved as -3 for 0.1.8.10, not the -24 safety floor");
+                const auto shallow = f.guard.createStateXml();
+                expect (shallow->getStringAttribute ("floorDb") == floatMinusThreeHex && shallow->getStringAttribute ("reliefDb") == floatMinusOneHex
+                            && shallow->getStringAttribute ("reliefDbExact") == floatMinusOneHex,
+                        "contrast: relief -1 -> floorDb -3 (not the -24 safety floor), reliefDb -1, reliefDbExact -1");
 
                 f.guard.setRetreatBoundDb (-4.0f);
 
@@ -1890,14 +2025,24 @@ namespace celadon::test
 
                 expectEquals (f.relief(), -4.0f, "contrast (floor -24): a deeper bound resumes down to -4");
                 const auto deep = f.guard.createStateXml();
-                expectEquals (deep->getStringAttribute ("floorDb"), deep->getStringAttribute ("reliefDb"),
-                              "contrast: relief -4 (deeper than -3) -> floorDb saved as the relief itself");
+                expect (deep->getStringAttribute ("floorDb") == floatMinusThreeHex && deep->getStringAttribute ("reliefDb") == floatMinusThreeHex
+                            && deep->getStringAttribute ("reliefDbExact") == floatMinusFourHex,
+                        "contrast: relief -4 (deeper than -3) -> the 0.1.8.10 fields stay at -3 / -3, reliefDbExact -4");
 
                 ContrastFeeder g (3.0);
-                g.guard.setFloorDb (-24.0f);
+                g.guard.setFloorDb (glaze::guardSafetyFloorDb);
                 expect (g.guard.restoreStateXml (*deep), "contrast: the deep node restores");
-                expect (g.guard.getFloorDb() == -24.0f && g.relief() == -4.0f,
-                        "contrast: restore keeps the configured floor -24 (the saved floorDb is only for 0.1.8.10) and restores the relief -4");
+                expect (g.guard.getFloorDb() == glaze::guardSafetyFloorDb && g.relief() == -4.0f,
+                        "contrast: restore keeps the configured floor -24 and restores the relief -4 from reliefDbExact");
+                expect (deep->isEquivalentTo (g.guard.createStateXml().get(), false), "contrast: deep node round trip is bit for bit");
+
+                juce::XmlElement resaved (*deep);
+                resaved.removeAttribute ("reliefDbExact");
+                ContrastFeeder h (3.0);
+                h.guard.setFloorDb (glaze::guardSafetyFloorDb);
+                expect (h.guard.restoreStateXml (resaved), "contrast: a node without reliefDbExact restores");
+                expect (h.guard.getFloorDb() == glaze::guardSafetyFloorDb && h.relief() == glaze::legacyGuardFloorDb,
+                        "contrast: without reliefDbExact the relief is read from reliefDb (-3)");
             }
         }
 

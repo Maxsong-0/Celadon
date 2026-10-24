@@ -451,6 +451,11 @@ namespace celadon::glaze
         return isHouse (genre) ? constants.house.guards : constants.generalGuards;
     }
 
+    // T-097 Q15 A：落差 / PSR 守门不再有 −3 dB 底（规格只给预算环写了 −3 封底），实际的底是编排器每个子块交进去的界（−自动部分）。
+    // 编排器给两个守门设的 floorDb 只剩这个绝对安全下限：Limit Gain 的范围是 0 ～ 24 dB（ParameterRanges::limitGain），
+    // 自动部分不会超过它，所以正常永远碰不到。
+    inline constexpr float guardSafetyFloorDb = -24.0f;
+
     // 保存 / 读取（读取失败返回 false，out 不变）。
     std::unique_ptr<juce::XmlElement> toXml (const Constants&);
     bool fromXml (const juce::XmlElement&, Constants& out);

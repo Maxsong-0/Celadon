@@ -22,10 +22,12 @@
 
     clear() 只用于冷启动；snapRelief() 给 GLAZE ≤ 0；clearWindows() 给冻结（旁通、听原声）期间，以及跳播、循环回绕、宿主 reset：
     断开两侧 3 s 窗，直方图、计时与退让不动。
-    存档（CONTRAST_GUARD）：reliefDb / floorDb / engaged 同 T-048（floorDb 写 min(−3, 退让)：0.1.8.10 读档直接拿它当底、从不另设，
-    写 −24 会让降级打开的工程退过 −3；新代码读档只校验它、不采纳：下限是编排器 setFloorDb 的配置，读档中途失败冷启动时也不会停在 −3 上）；overSeconds / underSeconds / histogramSeconds 与两份直方图是 T-097 的。
-    读到没有直方图的旧节点：退让照旧，计时与直方图从空开始（不冷启动整份 LIVE）。写出时另附旧版本要的 128 笔环字段（全 0），
-    0.1.8.10 降级打开新工程也能读回、退让照旧。3 s 窗不存（规格第 5 节）。
+    存档（CONTRAST_GUARD）：reliefDb / floorDb / engaged 同 T-048，前两项按 0.1.8.10 的不变量写（floorDb 恒 −3、reliefDb 写
+    max(−3, 退让)，见 ProfileMath.h legacyGuardSavedReliefDb：0.1.8.10 读档直接拿 floorDb 当底、从不另设，再存又原样写回）；
+    真实退让写 reliefDbExact（T-097），新代码读档优先读它、缺了按 reliefDb 读；floorDb 只校验、不采纳（下限是编排器 setFloorDb
+    的配置，读档中途失败冷启动时也不会停在 −3 上）；两项退让任一 > 0 当损坏拒收。overSeconds / underSeconds / histogramSeconds
+    与两份直方图也是 T-097 的。读到没有直方图的旧节点：退让照旧，计时与直方图从空开始（不冷启动整份 LIVE）。写出时另附旧版本要的
+    128 笔环字段（全 0），0.1.8.10 降级打开新工程也能读回，退让照旧（比 −3 深的读成 −3）。3 s 窗不存（规格第 5 节）。
 
   ==============================================================================
 */
@@ -92,7 +94,6 @@ namespace celadon::glaze
         static constexpr double releaseAfterSeconds = 30.0;   // 低于门槛 − 0.3 持续这么久才回 ③
         static constexpr float retreatDbPerSecond = 0.1f;
         static constexpr float releaseDbPerSecond = 0.05f;
-        static constexpr float legacyFloorDb = -3.0f;        // T-097 之前的底（0.1.8.10 存档与读档用它）；默认值也是它
         static constexpr double lowPercentile = 0.25;
         static constexpr double highPercentile = 0.90;
 
@@ -110,7 +111,7 @@ namespace celadon::glaze
         double stepSeconds = 0.1;
         double decay = 1.0;              // exp(−stepSeconds ÷ forgetSeconds)
         double histogramSeconds = 0.0;   // 遗忘后的累计有效时长（两份直方图同步进账）
-        float floorDb = legacyFloorDb;
+        float floorDb = legacyGuardFloorDb;   // 没设过下限时的默认值（编排器 prepare / 读档时设成 guardSafetyFloorDb）
         static constexpr float unboundedDb = -1.0e30f;
         float retreatBoundDb = unboundedDb;
         float reliefDb = 0.0f;

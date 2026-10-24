@@ -44,7 +44,7 @@ namespace celadon::glaze
 
     void ContrastGuard::setFloorDb (float newFloorDb) noexcept
     {
-        floorDb = std::isfinite (newFloorDb) ? juce::jmin (0.0f, newFloorDb) : legacyFloorDb;
+        floorDb = std::isfinite (newFloorDb) ? juce::jmin (0.0f, newFloorDb) : legacyGuardFloorDb;
         reliefDb = juce::jmax (floorDb, reliefDb);
     }
 
@@ -175,18 +175,9 @@ namespace celadon::glaze
         }
         // 其余（非有效音乐，或两侧 S 还不全有效）：计时与退让都保持。
 
-        // engaged = 本步在退，或已退到底（floorDb 与 Q15 A 的界中较浅的那个）且本步读数仍超门槛。到界停住、或比界深而保持时也算在起作用：
-        // 状态行「已经退到底仍超」靠它（同预算环 planLimited && lastOver，看此刻超没超、不等持续）。不看 10 s 持续：持续计时被换交付档、
-        // 或一步落进两线之间清零后，守门还在底上、读数也仍超，状态行不该空 10 s 显示「跟随」。底为 0（界为 0 = 没有自动部分，
-        // applyLimitExtras 一点也退不了）时不算，哪怕早先退下的量还保持着。
-        // 本步没有读数（非有效音乐，或断窗后两侧 3 s 窗还在重攒）时，计时与退让都保持，engaged 也保持上一步的：跳播、循环回绕、
-        // 冻结结束、读档之后约 3 s 状态行不该从「受限」掉回「跟随」再跳回来（退让一直在执行）。界回到 0 时照样清掉。
-        const auto bottom = juce::jmax (floorDb, retreatBoundDb);
-
-        if (measured || (musicActive && ! enabled))
-            engaged = reliefDb < before || (overNow && bottom < 0.0f && reliefDb <= bottom);
-        else
-            engaged = engaged && bottom < 0.0f;
+        // engaged 的口径见 guardEngagedAfterStep（两个子块守门共用）。「仍超」看本步读数、不看 10 s 持续：持续计时被换交付档、
+        // 或一步落进两线之间清零后，守门还在底上、读数也仍超，状态行不该空 10 s 显示「跟随」。
+        engaged = guardEngagedAfterStep (measured, enabled, engaged, before, reliefDb, overNow, juce::jmax (floorDb, retreatBoundDb));
         return current();
     }
 
@@ -203,11 +194,12 @@ namespace celadon::glaze
     {
         auto xml = std::make_unique<juce::XmlElement> ("CONTRAST_GUARD");
         xmlio::Writer writer (*xml);
-        writer.field ("reliefDb", reliefDb);
-        // 写给 0.1.8.10：它读档直接拿这个数当底。写 −3（已退得更深时写当前退让，旧版读回不跳）；新代码读档只校验、不采纳。
-        const auto savedFloorDb = juce::jmin (legacyFloorDb, reliefDb);
-        writer.field ("floorDb", savedFloorDb);
+        // reliefDb / floorDb 两项按 0.1.8.10 的不变量写（见 legacyGuardSavedReliefDb）；新代码读档读 reliefDbExact、不采纳 floorDb。
+        const auto savedReliefDb = legacyGuardSavedReliefDb (reliefDb);
+        writer.field ("reliefDb", savedReliefDb);
+        writer.field ("floorDb", legacyGuardFloorDb);
         writer.field ("engaged", engaged);
+        writer.optionalField ("reliefDbExact", reliefDb, savedReliefDb);
         writer.field ("overSeconds", overSeconds);
         writer.field ("underSeconds", underSeconds);
         writer.field ("histogramSeconds", histogramSeconds);
@@ -230,13 +222,16 @@ namespace celadon::glaze
         if (xml.getTagName() != "CONTRAST_GUARD")
             return false;
 
-        auto relief = reliefDb;
+        auto legacyRelief = reliefDb;
         auto floor = floorDb;
         auto wasEngaged = engaged;
         xmlio::Reader reader (xml);
-        reader.field ("reliefDb", relief);
+        reader.field ("reliefDb", legacyRelief);
         reader.field ("floorDb", floor);
         reader.field ("engaged", wasEngaged);
+        // 真实退让（T-097 起写）。0.1.8.10 写的节点、或在 0.1.8.10 里再存过的节点没有这一项：按 reliefDb 读。
+        auto relief = legacyRelief;
+        reader.optionalField ("reliefDbExact", relief, legacyRelief);
 
         // T-097 之前的节点（128 笔环）没有直方图：退让照旧，计时与直方图从空开始。
         const auto hasHistograms = xml.hasAttribute ("inputHistogram");
@@ -252,8 +247,10 @@ namespace celadon::glaze
             reader.field ("outputHistogram", restoredOutput);
         }
 
-        if (! reader.ok || ! std::isfinite (relief) || ! std::isfinite (floor) || ! std::isfinite (over) || ! std::isfinite (under)
-            || ! std::isfinite (seconds) || over < 0.0 || under < 0.0 || seconds < 0.0)
+        // 退让 > 0 哪一版都写不出来（只往下退、回程夹在 0）：当损坏拒收，免得它挡住之后的退（退让停在正数上，往下退要先走回 0）。
+        if (! reader.ok || ! std::isfinite (relief) || ! std::isfinite (legacyRelief) || relief > 0.0f || legacyRelief > 0.0f
+            || ! std::isfinite (floor) || ! std::isfinite (over) || ! std::isfinite (under) || ! std::isfinite (seconds)
+            || over < 0.0 || under < 0.0 || seconds < 0.0)
             return false;
 
         for (const auto* histogram : { &restoredInput, &restoredOutput })

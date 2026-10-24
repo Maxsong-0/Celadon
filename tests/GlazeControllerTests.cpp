@@ -7071,6 +7071,10 @@ namespace celadon::test
         // 规格 4：出口 3 s 窗 = 30 个 100 ms 子块（ProfileMath ShortTermWindow::subBlocks），满 30 个才有 S / PSR 读数。
         constexpr int t097WindowSubBlocks = 30;
 
+        // −3.0f 在存档里的写法（xmlio：float 写 IEEE 位的 8 位小写十六进制）：符号 1、指数 128（0x80）、尾数 .1b → 0xc0400000。
+        // 这是 0.1.8.10 两个守门的底（ProfileMath legacyGuardFloorDb），新档给它写的 floorDb 恒是这个值。
+        constexpr const char* t097LegacyFloorHex = "c0400000";
+
         // 「放宽预算让守门不动」：预算环核对的七项上限（Glue 均值 / P95、Clip 深度 / 活动、限幅均值 / P95 / 峰值）在三种风格里都置 0。
         // GlazeGuard 与 GlazePlanner 的 enforced(cap) = 有限且 > 0，0 = 不设约束（编排器 replan 放开手动超预算的项也是置 0）；
         // 俱乐部档只给 > 0 的限幅上限加量，0 仍是 0。
@@ -7206,6 +7210,50 @@ namespace celadon::test
             expect (reliefFreezes, "any relief below 0 after a block means trimFrozen on that block");
             expect (reasonsMatch, "trimFrozen == relief below 0 || a relief changed this block || a parameter changed within 1 s");
             expect (heldBitExact, "a block that ends with a relief below 0 (or trimFrozen) leaves appliedBiasDb bit-identical");
+
+            // ---- 放回 0 之后恢复积分（复查第 2 轮 R2-F4：完成标准第 1 条「守门全部放回 0 且参数 1 s 没动后恢复积分」）----
+            // 素材回到原增益：限幅 GR 回到预算以内，预算环安全满 5 s 后以 0.3 dB/s 回（GlazeGuard），约 −3 dB 要 15 s 左右回到 +0。
+            // 断言：回到 0 的那一块（上一块还有退让量、这一块三个都是 +0）退让量变了 → 仍 trimFrozen、appliedBiasDb 逐位不变；
+            // 之后第一个「三个退让量都是 +0、上一块也是、不冻结」的块（这一段不改参数，secondsSinceParamChange 一直封顶在 1 s）
+            // appliedBiasDb 变了：G_trim 恢复积分。
+            constexpr double releaseWithinSeconds = 40.0;
+            rig.sourceGain = 1.0f;
+            previous = rig.probe();
+            auto zeroAt = -1, resumeAt = -1;
+            auto frozenAtZero = false, heldAtZero = false, movedOnResume = false;
+            const auto releaseBlocks = rig.blocksFor (releaseWithinSeconds);
+
+            for (int b = 0; b < releaseBlocks && resumeAt < 0; ++b)
+            {
+                rig.step();
+                const auto p = rig.probe();
+
+                if (zeroAt < 0)
+                {
+                    if (t097AnyRelief (previous) && t097AllReliefsZero (p))
+                    {
+                        zeroAt = b;
+                        frozenAtZero = p.trimFrozen;
+                        heldAtZero = sameBits (p.appliedBiasDb, previous.appliedBiasDb);
+                    }
+                }
+                else if (t097AllReliefsZero (previous) && t097AllReliefsZero (p) && ! p.trimFrozen)
+                {
+                    resumeAt = b;
+                    movedOnResume = ! sameBits (p.appliedBiasDb, previous.appliedBiasDb);
+                }
+
+                previous = p;
+            }
+
+            logMessage ("  back at x1: all reliefs back to +0 at " + juce::String ((double) (zeroAt + 1) * t097TrimBlock / defaultRate, 2)
+                        + " s (frozen " + juce::String ((int) frozenAtZero) + "), first unfrozen block "
+                        + juce::String (resumeAt < 0 ? -1.0 : (double) (resumeAt - zeroAt) * t097TrimBlock / defaultRate, 2) + " s later, G_trim "
+                        + juce::String (previous.appliedBiasDb, 5) + " dB");
+            expect (zeroAt >= 0, "fixture: back at the original gain the budget ring releases to +0 within " + juce::String (releaseWithinSeconds, 0) + " s");
+            expect (frozenAtZero && heldAtZero, "the block whose relief returns to 0 is still trimFrozen and leaves appliedBiasDb bit-identical");
+            expect (resumeAt == zeroAt + 1, "the very next block (every relief +0 on both, no parameter change) is not frozen");
+            expect (movedOnResume, "... and G_trim integrates on it (appliedBiasDb changes)");
         }
 
         // 1b. 依据：规格 4「参数在 1 s 内变化过时冻结 G_trim」（beginBlock 的 changed：风格 / 曲风 / 交付 / GLAZE / 规划相关手动值）；
@@ -7220,9 +7268,9 @@ namespace celadon::test
             beginTest ("a planning parameter change freezes G_trim for 1 s; afterwards, with every guard at 0, G_trim integrates again");
 
             // 素材峰值 0.2：输出远低于 GLAZE 100 的目标响度，G_trim 的误差一直为正、按 0.05 dB/s 往上积（十几秒远到不了 +3 dB
-            // 上限）。热身 6 s：开头 1 s 是 prepare 后第一块的「改参数」冻结，目标响度要等方案有了画像才有限（主类 testContinuousPhase 在
-            // 4 s 时断言有限），之后 2 s 里应能看到不冻结且 G_trim 在动的块。DGX 2026-10-23 实测：改参数时 G_trim 0.30000 dB，
-            // 冻结满 1 s 后第一次恢复积分读到 0.30100 dB（距改参数 1.000 s）。
+            // 上限）。热身 6 s：首块不算改参数（复查 F1），第一块起就积分，最后 2 s 里应能看到不冻结且 G_trim 在动的块。DGX 2026-10-23 实测：
+            // 改参数时 G_trim 0.30000 dB（= 600 块 × 每块 0.0005 dB，一块不落地按速率上限积）；冻结满 1 s 后从第 101 块起恢复积分，
+            // 下面的搜索循环（从第 102 块起）读到 0.30100 dB。日志里的 secondsSinceParamChange 是探针封顶后的 1 s（复查第 2 轮 R2-F6）。
             constexpr double warmSeconds = 6.0;
             constexpr double movingWindowSeconds = 2.0;
             constexpr double resumeWithinSeconds = 3.0;
@@ -7596,13 +7644,15 @@ namespace celadon::test
 
             psrNode->removeAttribute ("aboveSeconds");
 
-            // 新档给 0.1.8.10 写的底：min(−3, 退让)（复查 F11：旧版读档直接拿它当底；写 −24 会让降级打开的工程退过 −3）。
-            // 供体两个退让都比 −3 浅，所以两项都是 −3 = 0xc0400000（符号 1、指数 128、尾数 .1b）。这也正是 0.1.8.10 自己写的值，
-            // 夹具因此和真的旧档同形。
-            expect (contrastNode->getStringAttribute ("floorDb") == "c0400000" && psrNode->getStringAttribute ("floorDb") == "c0400000",
+            // 新档给 0.1.8.10 写的两项按它的不变量写（复查 F11、第 2 轮 R2-F1）：floorDb 恒 −3（它读档直接拿这个数当底、从不另设；写 −24
+            // 会让降级打开的工程退过 −3），reliefDb 写 max(−3, 退让)；真实退让在 T-097 的 reliefDbExact 里，旧形状没有，去掉。
+            // floorDb 正是 0.1.8.10 自己写的值，夹具因此和真的旧档同形。
+            expect (contrastNode->hasAttribute ("reliefDbExact") && psrNode->hasAttribute ("reliefDbExact"),
+                    "new LIVE: CONTRAST_GUARD / PSR_GUARD carry the exact relief in reliefDbExact");
+            contrastNode->removeAttribute ("reliefDbExact");
+            psrNode->removeAttribute ("reliefDbExact");
+            expect (contrastNode->getStringAttribute ("floorDb") == t097LegacyFloorHex && psrNode->getStringAttribute ("floorDb") == t097LegacyFloorHex,
                     "new LIVE: CONTRAST_GUARD / PSR_GUARD write floorDb -3 (the value 0.1.8.10 reads as its floor), not the -24 safety floor");
-            contrastNode->setAttribute ("floorDb", "c0400000");
-            psrNode->setAttribute ("floorDb", "c0400000");
 
             // 退让写成可辨认的非零值（xmlio：float 写 IEEE 位的 8 位小写十六进制）：
             //   −1.25 = −1.01b × 2⁰：符号 1、指数 127（0x7f）、尾数 .01b → 0x200000 → 0x80000000 | 0x3f800000 | 0x00200000 = 0xbfa00000；
@@ -7655,8 +7705,8 @@ namespace celadon::test
             expectEquals (restored.contrastHistogramSeconds, 0.0, "old shape: the last contrast reading is reset by the restore (the histograms "
                                                                   "themselves are checked in the node saved again below and by the run after)");
             // 旧档的底是 −3：读档后编排器要把两个守门的底重设成 −24 安全下限（Q15 A），不然老工程一直停在 −3 的底上（复查 F13）。
-            expectEquals (restored.contrastFloorDb, -24.0f, "old shape: the contrast guard's floor is reset to the -24 dB safety floor after the restore");
-            expectEquals (restored.psrFloorDb, -24.0f, "old shape: the PSR guard's floor is reset to the -24 dB safety floor after the restore");
+            expectEquals (restored.contrastFloorDb, glaze::guardSafetyFloorDb, "old shape: the contrast guard's floor is reset to the -24 dB safety floor after the restore");
+            expectEquals (restored.psrFloorDb, glaze::guardSafetyFloorDb, "old shape: the PSR guard's floor is reset to the -24 dB safety floor after the restore");
             expectEquals (restored.secondsSinceParamChange, t097ParamFreezeSeconds,
                           "old shape: the missing secondsSinceParamChange reads as 1 s (long ago, not frozen)");
 
@@ -7705,8 +7755,8 @@ namespace celadon::test
                     const auto cold = coldTarget.probe();
                     expect (sameBits (cold.contrastReliefDb, 0.0f) && sameBits (cold.psrReliefDb, 0.0f),
                             "broken PSR_GUARD: the whole LIVE cold-starts (the contrast relief read before it is cleared too)");
-                    expectEquals (cold.contrastFloorDb, -24.0f, "broken PSR_GUARD: after the cold start the contrast floor is still -24, not the saved -3");
-                    expectEquals (cold.psrFloorDb, -24.0f, "broken PSR_GUARD: after the cold start the PSR floor is still -24");
+                    expectEquals (cold.contrastFloorDb, glaze::guardSafetyFloorDb, "broken PSR_GUARD: after the cold start the contrast floor is still -24, not the saved -3");
+                    expectEquals (cold.psrFloorDb, glaze::guardSafetyFloorDb, "broken PSR_GUARD: after the cold start the PSR floor is still -24");
                 }
             }
 
@@ -7898,8 +7948,9 @@ namespace celadon::test
 //   breakdown → drop 的落差损失（入口落差 − 出口落差，段落响度 = 段内子块 K 加权能量平均，出口按链延迟对齐）两轮都 ≤ 1.5 LU：① 出厂常数；
 //   ② 七项预算上限 × 4（预算环不退，落差守门成为唯一起作用的守门）。main：第②轮损失 > 1.5 LU（G_trim 抵消了落差守门的退让），第①轮只记录。
 //   本分支另查：第②轮之后换成通用档（落差守门出厂关），退让量每个推进的子块回 0.005 dB（或在非有效音乐时保持），中间不跳变。
-//   两个场景里，任一守门退让量 < 0 的块都要 trimFrozen、G_trim 逐位不变（Q11，TrimFreezeCheck）；场景 1 另用块长 480（一块一片）再跑一遍，
-//   连 PSR 守门起退的那一块也核逐位。
+//   两个场景里，落差 / PSR 退让 < 0 的块都要 trimFrozen、G_trim 逐位不变（Q11，TrimFreezeCheck；预算环那一扇在 GlazeControllerGuardFamily 1a）；
+//   场景 1 另用块长 480（一块一片）再跑一遍，连 PSR 守门起退的那一块也核逐位。场景 2 两轮的 G_trim 在第一次退让之前就顶到 +3 钳位，逐位不变
+//   证明不了冻结，所以第②轮放完后把 G_trim 改成 +0 读回、在 House 接着跑 10 s 再核一遍（TrimFreezeCheck::movable 要求 G_trim 离钳位远）。
 // 每 5 s 打一行轨迹（时间、退让量、输出 PSR / 3 s 响度、G_trim、预算环），给 DGX 上调参与核对用。场景的数都在用例开头的具名常量里，旁边写 DGX 实测值。
 
 #include <array>
@@ -8333,12 +8384,20 @@ namespace celadon::test
             //   - 起退那一块（上一块没有、这一块有）：块长 512 时块内还按 10 ms 时隙切片，守门退下去之前的几片照规格可以积分，不核逐位；
             //     checkOnset（块长 alignedBlock、一块一片）时这一块也核：子块边界落在块边界上，起退那一步就在这一块的 endBlock 里、
             //     先于 G_trim 判定（GlazeController.cpp endBlock：stepSubBlockGuards 在 guardHolding 之前）。
+            //   - 前提 movable（复查第 2 轮 R2-F10）：该核的块里 G_trim 离 ±3 dB 钳位两端都超过 trimMoveMarginDb 的块数。G_trim 顶在钳位上时，
+            //     冻结坏了它也只会被钳住、位模式照样不变，那样的块证明不了冻结。离两端都远还不够：积分门（主段电平有效、有目标、没撤回）
+            //     要开着、误差不为 0，不冻结才会动——PSR 场景靠起退前 G_trim 积分过（movedBeforeOnset），落差的归零读回段靠对照
+            //     （同一份档再把退让清 0，G_trim 动了，见 runContrastRound）。用例要求 movable > 0，「moved == 0」才算实证。
             struct TrimFreezeCheck
             {
+                static constexpr float trimLimitDb = 3.0f;         // 规格 4：G_trim 钳在 ±3 dB（GlazeController.cpp trimLimitDb）
+                static constexpr float trimMoveMarginDb = 0.05f;   // 0.05 dB/s 积 1 s 的量：比任何块长的一步（块长 512 时约 0.0005 dB）都大得多
+
                 bool checkOnset = false;   // 起退那一块也核逐位（只在一块一片时成立）
                 int reliefBlocks = 0;      // 结束时有落差 / PSR 退让的块
                 int notFrozen = 0;         // 其中 trimFrozen 为假的块
                 int moved = 0;             // 该核的块里 G_trim 却变了的块（上一块也有退让；checkOnset 时含起退那一块）
+                int movable = 0;           // 该核的块里 G_trim 离钳位两端都远的块（见上）
                 int onsetBlocks = 0;       // 起退那一块（上一块没有退让量、这一块有）
                 int movedBeforeOnset = 0;  // 第一次有退让量之前 G_trim 真的积分了的块：起退那一块逐位不变才不是碰巧
                 bool reliefBefore = false, seenRelief = false;
@@ -8351,10 +8410,12 @@ namespace celadon::test
 
                     if (relief)
                     {
+                        const auto checked = reliefBefore || checkOnset;
                         ++reliefBlocks;
                         notFrozen += guards.trimFrozen ? 0 : 1;
                         onsetBlocks += reliefBefore ? 0 : 1;
-                        moved += (reliefBefore || checkOnset) && trimMoved ? 1 : 0;
+                        moved += checked && trimMoved ? 1 : 0;
+                        movable += checked && std::abs (trimBefore) < trimLimitDb - trimMoveMarginDb ? 1 : 0;
                     }
                     else if (guards.exact && ! seenRelief && ! guards.trimFrozen && trimMoved)
                     {
@@ -8388,7 +8449,52 @@ namespace celadon::test
                 float reliefAtSwitchDb = 0.0f;
                 std::vector<ReleaseSample> release;
                 TrimFreezeCheck trim;
+                // 放完之后 G_trim 改成 +0 读回、接着在 House 跑的那一段（新版，见 runContrastRound「G_trim 从钳位上拿下来」）。
+                bool trimResetApplied = false;               // 存档里找得到 CONTROL 的 gTrim、改好读回了
+                float trimAfterResetDb = 0.0f;               // 读回后的 G_trim（应为 +0）
+                float reliefAtResetDb = 0.0f;                // 读回后的落差退让（应 < 0）
+                int trimResetBlocks = 0;
+                TrimFreezeCheck trimReset;
+                // 对照：同一份档、G_trim +0，再把两个子块守门的退让清成 0 读回，跑同样长（muse 2026-10-24 第二意见）。
+                float twinTrimAfterDb = 0.0f;                // 对照跑完时的 G_trim（应已离开 +0）
+                int twinMovedBlocks = 0;                     // 对照里 G_trim 动了的块
+                int twinReliefBlocks = 0;                    // 对照里结束时仍有落差 / PSR 退让的块（应为 0）
             };
+
+            // 一份 GLAZE_STATE 的副本，LIVE 里 CONTROL 的 gTrim 改成 +0（xmlio 的 float 写法是 IEEE 位的 8 位十六进制，+0.0f 全 0）；
+            // clearSubBlockReliefs 时 CONTRAST_GUARD / PSR_GUARD 的 reliefDb、reliefDbExact 也写 +0。其余逐字不动（LIVE 外层的
+            // constantsVersion 照抄）。解不开、缺 CONTROL / gTrim、要清退让却缺守门节点或这两项时返回空。
+            std::unique_ptr<juce::XmlElement> stateWithTrimAtZero (const juce::XmlElement& state, bool clearSubBlockReliefs)
+            {
+                constexpr const char* floatPlusZeroHex = "00000000";
+                const auto* live = state.getChildByName (glaze::liveTag);
+                auto body = live != nullptr ? glaze::decompressLiveBody (*live) : std::unique_ptr<juce::XmlElement> {};
+                auto* control = body != nullptr ? body->getChildByName ("CONTROL") : nullptr;
+
+                if (control == nullptr || ! control->hasAttribute ("gTrim"))
+                    return {};
+
+                control->setAttribute ("gTrim", floatPlusZeroHex);
+
+                if (clearSubBlockReliefs)
+                {
+                    for (const auto* tag : { "CONTRAST_GUARD", "PSR_GUARD" })
+                    {
+                        auto* guard = body->getChildByName (tag);
+
+                        if (guard == nullptr || ! guard->hasAttribute ("reliefDb") || ! guard->hasAttribute ("reliefDbExact"))
+                            return {};
+
+                        guard->setAttribute ("reliefDb", floatPlusZeroHex);
+                        guard->setAttribute ("reliefDbExact", floatPlusZeroHex);
+                    }
+                }
+
+                auto edited = std::make_unique<juce::XmlElement> (state);
+                edited->removeChildElement (edited->getChildByName (glaze::liveTag), true);
+                edited->addChildElement (glaze::compressLiveBody (*body, live->getIntAttribute ("constantsVersion")).release());
+                return edited;
+            }
 
             //==============================================================================
             // ==== 版本差异块（开始）：本分支版。改前失败证据的 main 版（DGX 临时副本，不提交）只换这一块，其余逐字相同 ====
@@ -8623,7 +8729,8 @@ namespace celadon::test
                                                            + num (100.0 * fractionAbove, 1) + " %");
                 expect (minPsr >= worstDb, "... and never below F - 1 = 6.0 dB: min " + num (minPsr));
                 logMessage ("  G_trim freeze: " + juce::String (trimCheck.reliefBlocks) + " blocks end with a PSR relief, " + juce::String (trimCheck.notFrozen)
-                            + " not frozen, " + juce::String (trimCheck.moved) + " moved");
+                            + " not frozen, " + juce::String (trimCheck.moved) + " moved, " + juce::String (trimCheck.movable) + " away from the clamp");
+                expect (trimCheck.movable > 0, "premise: G_trim sits away from its +-3 dB clamp on checked relief blocks (otherwise holding proves nothing)");
                 expect (trimCheck.reliefBlocks > 0 && trimCheck.notFrozen == 0 && trimCheck.moved == 0,
                         "real chain: every block that ends with a PSR relief below 0 is trimFrozen, and G_trim holds bit-exactly while the relief stays");
 
@@ -8654,10 +8761,12 @@ namespace celadon::test
 
                 logMessage ("  aligned " + juce::String (alignedBlock) + "-sample blocks: first onset " + (onsetSeconds >= 0.0 ? num (onsetSeconds, 2) + " s" : juce::String ("never"))
                             + ", G_trim moved on " + juce::String (alignedCheck.movedBeforeOnset) + " blocks before it; " + juce::String (alignedCheck.reliefBlocks)
-                            + " blocks with a PSR relief, " + juce::String (alignedCheck.notFrozen) + " not frozen, " + juce::String (alignedCheck.moved) + " moved");
+                            + " blocks with a PSR relief, " + juce::String (alignedCheck.notFrozen) + " not frozen, " + juce::String (alignedCheck.moved) + " moved, "
+                            + juce::String (alignedCheck.movable) + " away from the clamp");
                 expect (singleSlice, "aligned: with " + juce::String (alignedBlock) + "-sample blocks every host block is exactly one slice");
                 expect (alignedCheck.onsetBlocks > 0, "aligned: the PSR guard starts to retreat");
                 expect (alignedCheck.movedBeforeOnset > 0, "aligned: G_trim integrates before the first onset (so holding it is not a coincidence)");
+                expect (alignedCheck.movable > 0, "aligned: (premise) G_trim sits away from its +-3 dB clamp on checked relief blocks");
                 expect (alignedCheck.notFrozen == 0 && alignedCheck.moved == 0,
                         "aligned (one slice per block): from the very block the PSR guard starts to retreat, trimFrozen and G_trim bit-identical");
             }
@@ -8693,7 +8802,12 @@ namespace celadon::test
             //      Q16：6 段（3 分钟）时守门判定后没几段歌就完了，加长到 12 段（约 6 分钟），判最后一对。第一个 breakdown 开头被当主段推响，
             //      会让输出直方图低端变宽、损失读数偏小，退让可能晚一些。DGX 实测（2026-10-11、10-23 两次相同）：最深 ① −4.49 / ② −5.04 dB；
             //      逐对损失在 0.8 ～ 2.2 LU 之间摆（守门按自己的直方图读数控在门槛附近，段落量法跟着滞后摆），最后一对 ① 1.35、② 0.81 LU。
-            //   换通用：落差守门出厂关 → 每个推进的子块回 0.05 dB/s × 0.1 s = 0.005 dB；20 s = 200 个子块 → 从约 −4 回到约 −3 dB，不会碰到 0。
+            //   换通用：落差守门出厂关 → 每个推进的子块回 0.05 dB/s × 0.1 s = 0.005 dB；20 s = 200 个子块 → 从约 −3.8 回到约 −2.8 dB，不会碰到 0。
+            //   G_trim 归零读回（第②轮放完之后，复查第 2 轮 R2-F10）：两轮的 G_trim 全程顶在 +3 钳位，逐位不变证明不了冻结；改成 +0 读回后
+            //   跑 10 s（938 块），落差退让一直 < 0（读回时已在回程），G_trim 离钳位两端都远，冻结坏了一块就会动 0.05 dB/s × 块长。
+            //   108 实测（2026-10-24）：读回时退让 −4.15 dB、10 s 后 −3.80 dB；938 块都有退让、都冻结、G_trim 逐位停在 +0。
+            //   之后换通用档的回程从 −3.80 dB 起（以前从 −4.15）：20 s 回 200 步到 −2.80 dB。
+            constexpr double trimResetSeconds = 10.0;
             constexpr double switchSeconds = 20.0;
             constexpr float releaseStepDb = 0.005f;            // 规格 4：0.05 dB/s × 0.1 s
             constexpr float releaseToleranceDb = 1.0e-5f;      // float 累加：|退让| ≤ 8 dB 时一步的舍入 ≤ 4.8e-7 dB
@@ -8711,8 +8825,8 @@ namespace celadon::test
             auto relaxed = withRelaxedLimitBudgets (glaze::factoryConstants());
             applyScenarioSwitches (relaxed, false);
 
-            const auto factoryRound = runContrastRound (factory, song, design, "1 factory", false, 0.0);
-            const auto relaxedRound = runContrastRound (relaxed, song, design, "2 relaxed", guardsBySpec, switchSeconds);
+            const auto factoryRound = runContrastRound (factory, song, design, "1 factory", 0.0, false, 0.0);
+            const auto relaxedRound = runContrastRound (relaxed, song, design, "2 relaxed", guardsBySpec ? trimResetSeconds : 0.0, guardsBySpec, switchSeconds);
 
             // ---- 前提（两版同）----
             expect (std::abs (relaxedRound.inputDepthLu - design.breakdownDepthLu) <= depthToleranceLu,
@@ -8733,13 +8847,29 @@ namespace celadon::test
 
                 for (const auto* round : { &factoryRound, &relaxedRound })
                 {
+                    // 两轮里 G_trim 在第一次退让之前就顶到 +3 钳位（movable 只记日志）：这里核的是 trimFrozen 标志；逐位实证在下面的归零读回段。
                     const auto label = juce::String (round == &factoryRound ? "round 1" : "round 2");
                     logMessage ("  " + label + " G_trim freeze: " + juce::String (round->trim.reliefBlocks) + " blocks end with a contrast relief, "
-                                + juce::String (round->trim.notFrozen) + " not frozen, " + juce::String (round->trim.moved) + " moved");
+                                + juce::String (round->trim.notFrozen) + " not frozen, " + juce::String (round->trim.moved) + " moved, "
+                                + juce::String (round->trim.movable) + " away from the clamp");
                     expect (round->trim.reliefBlocks > 0 && round->trim.notFrozen == 0 && round->trim.moved == 0,
-                            label + " (real chain): every block that ends with a contrast relief below 0 is trimFrozen, and G_trim holds bit-exactly "
+                            label + " (real chain): every block that ends with a contrast relief below 0 is trimFrozen, and G_trim does not move "
                                    "while the relief stays");
                 }
+
+                // ---- G_trim 归零读回之后（R2-F10）----
+                expect (relaxedRound.trimResetApplied, "fixture: the saved state has CONTROL gTrim and both sub-block guard reliefs, edited and restored");
+                expect (relaxedRound.twinReliefBlocks == 0 && relaxedRound.twinMovedBlocks > 0,
+                        "control: the same state with the reliefs cleared lets G_trim integrate (" + juce::String (relaxedRound.twinMovedBlocks)
+                        + " blocks moved, " + juce::String (relaxedRound.twinReliefBlocks) + " with a relief)");
+                expect (sameBits (relaxedRound.trimAfterResetDb, 0.0f) && relaxedRound.reliefAtResetDb < 0.0f,
+                        "premise: after the restore G_trim is +0 and the contrast relief is still below 0: " + num (relaxedRound.reliefAtResetDb));
+                expect (relaxedRound.trimReset.reliefBlocks == relaxedRound.trimResetBlocks,
+                        "premise: every block after the restore ends with a contrast relief below 0 (the guard holds)");
+                expect (relaxedRound.trimReset.movable == relaxedRound.trimResetBlocks,
+                        "premise: G_trim sits away from its +-3 dB clamp on every one of those blocks");
+                expect (relaxedRound.trimReset.notFrozen == 0 && relaxedRound.trimReset.moved == 0,
+                        "real chain, G_trim away from the clamp: every block with a contrast relief is trimFrozen and G_trim holds bit-exactly");
 
                 // ---- 换通用档之后的回程 ----
                 int releaseSteps = 0, heldSteps = 0, badSteps = 0, steppedWhileRetreated = 0;
@@ -8805,10 +8935,11 @@ namespace celadon::test
         }
 
         // 一轮：Tech House、俱乐部、GLAZE 100、冲击，124 BPM 报拍点，从第一个样本放到整首结束（多 0.2 s 让最后一段的出口按链延迟完整出来），
-        // 入口 / 出口各一只表。thenSwitchToGeneral：放完后换成通用档再跑 switchSeconds，逐块记下落差退让量（新版探针）。
+        // 入口 / 出口各一只表。trimResetSeconds > 0：放完后把 G_trim 改成 +0 读回、在 House 接着跑这么久，逐块核冻结（新版探针）。
+        // thenSwitchToGeneral：之后换成通用档再跑 switchSeconds，逐块记下落差退让量（新版探针）。
         t097scenario::ContrastRound runContrastRound (const glaze::Constants& constants, const Signal& song,
                                                       const t097scenario::ContrastSongDesign& design, const juce::String& label,
-                                                      bool thenSwitchToGeneral, double switchSeconds)
+                                                      double trimResetSeconds, bool thenSwitchToGeneral, double switchSeconds)
         {
             using namespace t097scenario;
             ContrastRound result;
@@ -8891,6 +9022,57 @@ namespace celadon::test
             logMessage ("  [" + label + "] latency " + juce::String (result.latencySamples) + " samples; deepest contrast relief "
                         + num (result.deepestContrastReliefDb) + " dB, at the end " + num (result.endContrastReliefDb) + " dB; budget ring "
                         + (result.budgetActed ? "retreated" : "never retreated") + "; PSR guard " + (result.psrActed ? "acted" : "never acted"));
+
+            // ---- G_trim 从钳位上拿下来再核冻结（新版；复查第 2 轮 R2-F10）----
+            // 两轮的 G_trim 约 90 s 就积到 +3 dB 钳位、比第一次退让还早，之后全程 +3：冻结坏了它也只会被钳住，上面的逐位核对证明不了冻结
+            // （TrimFreezeCheck::movable 为 0）。这里存一份档、把 CONTROL 的 gTrim 改成 +0、读回同一个链（宿主读档的路径；素材接着循环），
+            // 在 House 接着跑：落差守门的退让照存档读回（界随 G_trim 变浅，比界深的部分保持、不回弹）；第②轮放完时它已在回程，接着以
+            // 0.05 dB/s 回，10 s 至多回 0.5 dB（读档清掉 3 s 窗，头约 3 s 没有读数、保持），一直 < 0。出口比读档前再轻 3 dB、误差为正，
+            // G_trim 若不冻结就会以 0.05 dB/s 往上积。用例要求每一块都有退让、都 trimFrozen、appliedBiasDb 逐位不变（一块 512 个样本，
+            // 十块里约九块退让量没变，只靠「退让 < 0」冻结）。
+            // 先跑对照：同一份档再把两个子块守门的退让清 0 读回、跑同样长，G_trim 要动——证明读回后积分门开着（主段电平有效、有目标、
+            // 没撤回、误差不为 0），上面「不动」才归功于冻结。之后读回带退让的那份，它盖掉对照留下的全部状态（素材接着循环）。
+            if (trimResetSeconds > 0.0)
+            {
+                const auto saved = rig.chain.createGlazeStateXml();
+                const auto twin = saved != nullptr ? stateWithTrimAtZero (*saved, true) : std::unique_ptr<juce::XmlElement> {};
+                const auto edited = saved != nullptr ? stateWithTrimAtZero (*saved, false) : std::unique_ptr<juce::XmlElement> {};
+                result.trimResetApplied = twin != nullptr && edited != nullptr;
+
+                if (result.trimResetApplied)
+                {
+                    rig.chain.restoreGlazeStateXml (twin.get());
+                    auto twinTrimDb = rig.probe().appliedBiasDb;
+                    rig.run (trimResetSeconds, [&] (int)
+                    {
+                        const auto guards = readGuards (rig);
+                        const auto trimDb = rig.probe().appliedBiasDb;
+                        result.twinMovedBlocks += sameBits (trimDb, twinTrimDb) ? 0 : 1;
+                        result.twinReliefBlocks += guards.contrastReliefDb < 0.0f || guards.psrReliefDb < 0.0f ? 1 : 0;
+                        twinTrimDb = trimDb;
+                    });
+                    result.twinTrimAfterDb = twinTrimDb;
+                    logMessage ("  [" + label + "] twin with the reliefs cleared: G_trim 0.00 -> " + num (result.twinTrimAfterDb) + " dB over "
+                                + num (trimResetSeconds, 1) + " s, moved on " + juce::String (result.twinMovedBlocks) + " blocks; "
+                                + juce::String (result.twinReliefBlocks) + " blocks with a relief");
+
+                    rig.chain.restoreGlazeStateXml (edited.get());
+                    const auto atReset = readGuards (rig);
+                    result.trimAfterResetDb = rig.probe().appliedBiasDb;   // 探针的 G_trim 是读档后的现值，不用等一块
+                    result.reliefAtResetDb = atReset.contrastReliefDb;
+                    result.trimReset.trimBefore = result.trimAfterResetDb;
+                    result.trimReset.reliefBefore = atReset.exact && (atReset.contrastReliefDb < 0.0f || atReset.psrReliefDb < 0.0f);
+                    result.trimReset.seenRelief = result.trimReset.reliefBefore;
+                    result.trimResetBlocks = rig.blocksFor (trimResetSeconds);
+                    rig.run (trimResetSeconds, [&] (int) { result.trimReset.note (readGuards (rig), rig.probe().appliedBiasDb); });
+                    logMessage ("  [" + label + "] G_trim set to +0 and restored: relief " + num (result.reliefAtResetDb) + " -> "
+                                + num (readGuards (rig).contrastReliefDb) + " dB, G_trim " + num (result.trimAfterResetDb) + " -> "
+                                + num (rig.probe().appliedBiasDb) + " dB over " + num (trimResetSeconds, 1) + " s; "
+                                + juce::String (result.trimReset.reliefBlocks) + " of " + juce::String (result.trimResetBlocks) + " blocks with a relief, "
+                                + juce::String (result.trimReset.notFrozen) + " not frozen, " + juce::String (result.trimReset.moved) + " moved, "
+                                + juce::String (result.trimReset.movable) + " away from the clamp");
+                }
+            }
 
             // ---- 换通用档之后的回程（新版）----
             if (thenSwitchToGeneral)

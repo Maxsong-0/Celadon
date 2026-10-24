@@ -1,43 +1,46 @@
 # T-097 守护族按规格最小修 · 验收报告
 
 > 分支 `claude/t097-guards-by-spec`，对照 main `4be946b`（2026-10-23 并入 main 后的同机基线；开工基线 `3a7a367` 见 [BASELINE.md](BASELINE.md)）。
-> 机器：DGX max-spark（aarch64、GCC 13、Release），全部测试与渲染在全机锁里跑（`~/.cache/celadon-spark/bin/spark-test.sh`）。
+> 机器：2026-10-24 起单元测试先交 108（x86_64、GCC 15.2、Release，经 testbox 的节点 x86-1；JUCE 在仓库外，打包时和源码拼进同一个临时 git 仓库带进沙盒，只带 `LICENSE.md` 与 `modules/`），再在 DGX max-spark（aarch64、GCC 13、Release，全机锁 `~/.cache/celadon-spark/bin/spark-test.sh`）跑全量。在这之前的测试，以及 20 首、House、CPU，都在 DGX。
 > 规格：vault《设计规格-实时GLAZE-主段与增益》第 4 节与修订注 (a)～(e)、(a′)；决定：ADR-036；计划：vault `04-协调/2026-10-11-T-097-守护族按规格修计划.md`。
 
 ## 0. 结论
 
 - 代码按规格与 Max 的拍板（Q2～Q16）写完，定向测试、20 首、CPU、闭环用例都过。
 - **有一项不满足完成标准，等 Max 定**：House 合成曲「从第 33 小节起播、再从头导出」的 6 行里新增 5 处失败（③ 落差 4 处、② GR 预算 1 处）。根因是规格内的 G_trim 慢积分（长记忆主段电平 + ±3 dB 钳位）在这个场景里横跨整首慢滑约 6 dB；main 在同场景也滑约 3 dB，只是方向相反，③ 碰巧过。T-097 的实现没有偏离规格（见第 4 节），所以没有绕过去改，等 Max 拍板。
-- 状态：代码改完·未验证完（第 1 轮复查的发现已改完，第 2 轮增量复查与全量测试待跑；House 那一项待定）。
+- 状态：代码改完·未验证完（第 1、2 轮复查的发现与外部代理第二意见已改完，108 定向 1850 过 / 0 败；第 3 轮增量复查与全量测试待跑；House 那一项待定）。
 
 ## 1. 完成标准对照
 
 | 完成标准（计划第 2 节） | 结果 | 依据 |
 |---|---|---|
-| G_trim 冻结（任一守门退让 < 0 / 本步刚改退让 / 1 s 内改参数，位模式不变；全部放回且 1 s 没动后恢复） | 过 | `GlazeControllerGuardFamily`（预算环推热、改参数 1 s）；`GlazeControllerGuardScenarios` 两个闭环场景里落差 / PSR 退让 < 0 的每一块逐位不变（复查 F4 后改成断言） |
+| G_trim 冻结（任一守门退让 < 0 / 本步刚改退让 / 1 s 内改参数，位模式不变；全部放回且 1 s 没动后恢复） | 过 | `GlazeControllerGuardFamily`（预算环推热、改参数 1 s；预算环放回 +0 的那一块仍冻结、下一块恢复积分，复查 R2-F4）；`GlazeControllerGuardScenarios` 两个闭环场景里上一块结束时已有落差 / PSR 退让的块（块长 480 那遍连起退那一块）逐位不变（复查 F4 后改成断言）。前提是 G_trim 离 ±3 dB 钳位远（R2-F10）：PSR 10331 / 10332 块；落差两轮 G_trim 在第一次退让前就顶到 +3，另把它改成 +0 读回再跑 10 s，938 / 938 块 |
 | PSR 闭环（Q9：首次退让 20 s 后输出 3 s PSR ≥ F − 0.5 的占比 ≥ 95 %、最低 ≥ F − 1.0） | 过：96.3 %，最低 6.49 dB（流媒体 F = 7） | 第 7 节；改前（`4be946b` + 同一场景）守门不动、0.0 %、最低 4.98 dB |
 | PSR 回程回差（≥ 门槛 + 0.5 满 5 s 才以 0.15 dB/s 回） | 过 | `GuardFamilyTests`「between the trip and trip + 0.5」「at or above trip + 0.5 for 5 s」 |
 | 落差守门两轮（Q10 / Q16：12 段、最后一对 breakdown → drop ≤ 1.5 LU；② 预算放宽 ×4） | 过：① 1.35 LU、② 0.81 LU | 第 7 节；改前（`4be946b` + 同一场景）① 3.68 LU、② 3.36 LU，② 预算环没退 |
-| 按曲风开关（通用两守门恒 0；House 会动；House → 通用以 0.05 dB/s 放回、不跳变） | 过 | 落差用例末尾：−4.155 → −3.155 dB / 20 s，200 步、最大一步 0.005 dB |
+| 按曲风开关（通用两守门恒 0；House 会动；House → 通用以 0.05 dB/s 放回、不跳变） | 过 | 落差用例末尾（G_trim 归零读回那 10 s 之后）：−3.800 → −2.800 dB / 20 s，200 步、最大一步 0.005 dB |
 | 块长无关（Q12 两层） | 过 | 纯逻辑同一串子块逐位；真链块长 {1, 7, 32, 64, 480, 512, 4096} 子块数与终点一致、每子块只推进一次 |
-| 旧档兼容（读 0.1.8.10 的 LIVE 不冷启动；新档往返逐位；新档写占位给 0.1.8.10） | 过 | `GuardFamily` 存读三组；`GlazeControllerGuardFamily` 旧 LIVE 读回（读档后下限 −24）；新档 floorDb 写 min(−3, 退让)，0.1.8.10 降级打开仍停在 −3 的底上（复查 F11） |
+| 旧档兼容（读 0.1.8.10 的 LIVE 不冷启动；新档往返逐位；新档写占位给 0.1.8.10） | 过 | `GuardFamily` 存读三组与界那一组的存档段；`GlazeControllerGuardFamily` 旧 LIVE 读回（读档后下限 −24）；新档写给 0.1.8.10 的两项按它的不变量写：floorDb 恒 −3、reliefDb 写 max(−3, 退让)，真实退让写 reliefDbExact（复查 F11、第 2 轮 R2-F1）。0.1.8.10 降级打开时底一直是 −3，退让最多 3 dB（比 −3 深的在载入那一刻变浅）；退让 −5 / −4 时旧字段 −3 / −3、reliefDbExact −5 / −4、往返逐位，去掉 reliefDbExact 按 reliefDb 读成 −3 |
 | ADR-034 A 组：GLAZE 0 逐位、真峰值 ≤ Ceiling + 0.01、0 分配 0 锁 | 过 | 20 首 GLAZE 0 的 40 行音频哈希逐字相同；真峰值最高 −1.35 dBTP；never-allocate 用例过 |
 | ADR-034 A 组：22 首 gate_check + house_gate 对 main 同机不新增失败 | **20 首过；House 新增 5 处，待 Max 定** | 第 3、4 节 |
 | CPU：只报 DGX 48 k / 32 最慢块对 main 的变化 | 报了：快 0.11～0.14 个百分点 | 第 6 节 |
 | ADR-034 B 组对照表 | 填了 B1、B2；其余「工具未建（R5-01 未立项）」 | 第 5 节 |
-| DGX 全量测试只算新增失败 | 待跑（最终代码定了再跑） | main `4be946b` 基线 134719 过 / 5 败（aarch64 已知） |
+| 全量测试只算新增失败（2026-10-24 起先 108、再 DGX） | 待跑（最终代码定了再跑） | main `4be946b` 基线：108 134977 过 / 0 败；DGX 134719 过 / 5 败（aarch64 已知） |
 | 更新日志草稿（ADR-035，进 0.1.8.11） | 草稿在第 9 节 | — |
 | 档案（规格修订注、接口草图、ADR-036、TASKS / 日志 / INDEX） | 规格与 ADR 已改；收尾项待合并后做 | vault |
-| 独立复查通过后才说「代码改完」 | 第 1 轮已处理，第 2 轮待跑 | 第 8 节 |
+| 独立复查通过后才说「代码改完」 | 第 1、2 轮已处理；第 3 轮（最后一轮）开 Workflow 前在等 Max 同意 | 第 8 节 |
 
 ## 2. 单元测试
 
 | 跑什么 | 代码 | 结果 |
 |---|---|---|
-| main 基线全量 | `4be946b` | 134719 过 / 5 败（4 条 ColorModule NEON 融合乘加 + 1 条 BalancePerformance 计时，aarch64 已知，同 `3a7a367`） |
+| DGX main 基线全量 | `4be946b` | 134719 过 / 5 败（4 条 ColorModule NEON 融合乘加 + 1 条 BalancePerformance 计时，aarch64 已知，同 `3a7a367`） |
 | 定向（T-097 三组 + Phase2Orchestrator、GlazeController、GlazeChain、CeladonChain、CeladonChainGuards、LegacyFixture、ChainDigest、GlazeStatusText、GlazeControllerHouse） | `31c6083` | 1702 过 / 0 败 |
 | 定向，复查第 1 轮改完后（同上 12 组，T-097 三组改名 `GuardFamily`、`GlazeControllerGuardFamily`、`GlazeControllerGuardScenarios`）：`spark-test.sh t097-merged test --only GuardFamily,GlazeControllerGuardFamily,GlazeControllerGuardScenarios,Phase2Orchestrator,GlazeController,GlazeChain,CeladonChain,CeladonChainGuards,LegacyFixture,ChainDigest,GlazeStatusText,GlazeControllerHouse` | 第 1 轮修正 | 1723 过 / 0 败；闭环场景冻结断言：PSR 10332 块、落差 ① 24696 块 / ② 24734 块有退让，0 块没冻结、0 块 G_trim 动过 |
-| 全量 | 最终代码 | 待跑 |
+| 108 main 基线全量（x86_64，testbox） | `4be946b` | 134977 过 / 0 败（没有 aarch64 那 5 条）；编译警告只有 `MusicAnalyzerTests.cpp` 4 条未用函数 |
+| 108 定向，第 2 轮改完后（同上 12 组） | 第 2 轮处理 | 第 1 次 1779 过 / 11 败，全在落差回差带用例：夹具只改了 reliefDb 去注入退让，读档改读 reliefDbExact 后夹具没跟上（夹具两处补 reliefDbExact，代码不动）；外部审查后又改两次，第 4 次 1850 过 / 0 败，编译 0 新警告 |
+| 108 改前证据（`4be946b` + 第 2 轮改后的场景段，只换差异块；副本 3、4 不提交） | — | 两次都 15 过 / 0 败，数字与 DGX 那次相同 |
+| 全量 | 最终代码 | 待跑（先 108 对 108 基线，再 DGX 对 134719 / 5，只算新增） |
 
 ## 3. 20 首（通用 / 标准，GLAZE 0 / 35 / 70 / 100 × CLAY auto / off）
 
@@ -128,10 +131,11 @@ GLAZE 100 变快约 0.1 个百分点（去掉了落差守门每块两次 `std::s
 
 - **PSR（Q9）**：输入 S −20 LUFS、3 s PSR 10.1～10.5 dB，流媒体、GLAZE 100，PSR 守门强开。首次退让 39.8 s，最深 −2.25 dB，预算环一次没退；59.8 s 起 902 个读数 96.3 % ≥ 6.5 dB，最低 6.49、平均 6.59 dB。
 - **落差（Q10 / Q16，12 段，House 俱乐部 GLAZE 100）**：最后一对 breakdown → drop 损失 ① 出厂 1.35 LU、② 预算放宽 ×4 0.81 LU；最深退让 −4.49 / −5.04 dB。
-- **改前（复查 F2）**：DGX 临时副本 = `git archive 4be946b` + 本分支最终的场景段，只换版本差异块（不提交，`~/.cache/celadon-spark/src/t097-before2`，日志 `before2-scenarios.log`），15 过 / 0 败：
+- **改前（复查 F2）**：DGX 临时副本 = `git archive 4be946b` + 本分支最终的场景段，只换版本差异块（不提交，`~/.cache/celadon-spark/src/t097-before2`，日志 `before2-scenarios.log`），15 过 / 0 败；第 2 轮改完后按新的场景段重建、在 108 上跑两次（副本 3、4），都 15 过 / 0 败、下面的数字一位不差：
   - PSR：守门一次没退（它读入口，入口 PSR 健康），预算环没退；60 s 起 901 个读数 0.0 % ≥ 6.5 dB，最低 4.98、平均 5.12、最高 5.28 dB。
   - 落差：① 出厂最后一对 3.68 LU（只记录）；② 七项 × 4 时预算环没退（前提成立），六对损失 3.36～3.39 LU，最后一对 3.36 LU > 1.5。轨迹里 main 的落差守门最深只到 −0.85 dB、多数时刻为 0（main 没有退让探针，只能从状态行近似），G_trim 从约 90 s 起一直钳在 +3 dB。
-- **House → 通用**：退让 −4.155 → −3.155 dB / 20 s，200 步回程、0 步停、最大一步 0.005 dB。
+- **落差那半的冻结实证（复查 R2-F10）**：两轮里 G_trim 在第一次退让之前就顶到 +3 dB 钳位（`movable` 为 0），「逐位不变」在那里证明不了冻结。第②轮放完后存一份档、把 CONTROL 的 gTrim 改成 +0、读回同一个链，在 House 接着跑 10 s：938 块全都有落差退让（读回时已在回程，−4.15 → −3.80 dB），938 块离钳位都远，0 块没冻结、0 块 G_trim 动过。对照（muse 第二意见）：同一份档再把两个子块守门的退让清 0 读回、先跑同样 10 s，没有一块有退让，G_trim 938 块都动了（0 → +0.50 dB，0.05 dB/s 的上限），证明读回后积分门开着、上面的「不动」是冻结挡住的。PSR 场景的前提另断言 > 0（10331 / 10332 块；块长 480 那遍 501 / 501）。
+- **House → 通用**（接在上一条那 10 s 之后）：退让 −3.800 → −2.800 dB / 20 s，200 步回程、0 步停、最大一步 0.005 dB。
 
 ## 8. 复查与外部代理
 
@@ -152,16 +156,25 @@ GLAZE 100 变快约 0.1 个百分点（去掉了落差守门每块两次 `std::s
   - 改动前就有：状态行「已退 x dB」显示的是守门请求的量，不是 `applyLimitExtras` 实际减掉的量（不超过自动部分）。Q15 A 允许比界深而保持，这个差会更常见。不在本任务范围，上报 Max，挂了卡片。
 - 第 2 轮前自查（`3f77588` 之后）：F11 的改法带进一处窄回归——守门读档时把存档里的 floorDb（现在写 −3）当成自己的下限；`restoreBody` 里落差守门先读成功、后面的节点读失败时整份冷启动，`coldStart` 只 `clear()`、不重设下限，落差守门会停在 −3 的底上直到下一次 `prepare`。根因是读档采纳了只写给旧版的值，而下限是编排器的配置：改成守门读档只校验 floorDb、不采纳；编排器读档后照旧再设一次 −24（顺带按它夹一次读回的退让）。补两条用例：守门层读 −5 / −4 的档后下限仍 −24；真链里 PSR_GUARD 的 reliefDb 写成 NaN、整份冷启动后两个下限仍 −24。
 - Codex 第 2 轮（`gpt-6.1-sol` · `ultra`，只读，308 s，对 `0ef5308..3f77588`）：两条。① 读档失败后兼容下限漏进运行时 → 与上一条自查是同一个问题，`1d04372` 已修（它派活期间原目录有变化，是本会话自己在改、提交这几处文件）。② `TrimFreezeCheck` 在退让从 0 变负的那一块不核逐位 → 采纳：块长 512 时块内还按 10 ms 时隙切片，起退那一块在守门退下去之前的几片照规格可以积分，所以那里核不了；`TrimFreezeCheck` 加 `checkOnset`，PSR 闭环场景用同一份素材与设置再跑一遍块长 480（一块一片）：39.80 s 起退，起退前 G_trim 在 3979 块里积分过，之后 501 块有退让、0 块没冻结、0 块 G_trim 动过。main 版副本换上新场景段重跑，结果不变（15 过 / 0 败）。
-- 第 2 轮独立复查（深档，对 `0ef5308..3f77588`）：要改 6 条（中 1、低 5）、小毛病 5 条、核实否掉 0。R2-F2 即 `1d04372` 已修的那处；其余 10 条的裁决与做法见 [`docs/handoff/2026-10-24-T097-review-round2.md`](../../handoff/2026-10-24-T097-review-round2.md)，处理中。最重要的一条（R2-F1，中）：退让比 −3 深时存档的 floorDb 也写成那个更深的值，0.1.8.10 降级打开会一直停在更深的底上——上面第 1 节「0.1.8.10 降级打开仍停在 −3」只在退让不比 −3 深时成立，改法定为旧字段按 0.1.8.10 的不变量写、真实退让另存。
+- 第 2 轮独立复查（深档，对 `0ef5308..3f77588`）：要改 6 条（中 1、低 5）、小毛病 5 条、核实否掉 0。R2-F2 即 `1d04372` 已修的那处；其余 10 条全部采纳（裁决见 [`docs/handoff/2026-10-24-T097-review-round2.md`](../../handoff/2026-10-24-T097-review-round2.md)），2026-10-24 由接手会话改完：
+  1. R2-F1（中）：退让比 −3 深时存档的 floorDb 也写成那个更深的值，0.1.8.10 降级打开会一直停在更深的底上。改成给 0.1.8.10 的两项按它的不变量写：floorDb 恒 −3、reliefDb 写 max(−3, 退让)；真实退让另写可选属性 `reliefDbExact`，读档有它读它、没有读 reliefDb；它坏了（NaN、不是十六进制）整个节点拒收、对象不动。用例：PSR 退让 −2 → 旧字段 −3 / −2、reliefDbExact −2；退让 −5 → −3 / −3 / −5，读回 −5、往返逐位，去掉 reliefDbExact 读成 −3；落差 −1 / −4 同形。
+  2. R2-F3（低）：守门关着、又没有读数时 engaged 一直亮着。没有读数时只在「上一步 engaged、守门开着、底 < 0」时保持；用例：两个守门到界 −1 且 engaged → 关掉、无音乐 20 步 → 退让 −1、原因不变、engaged 灭；再开、有音乐 → engaged 又亮。
+  3. R2-F4（低）：用例 1a 接一段 sourceGain 回 1：预算环 20.96 s 放回 +0，那一块仍冻结，下一块（0.01 s 后）解冻、G_trim 动了（0.13200 dB）。
+  4. R2-F5（低）：TASKS 的 T-097 行补登记别线登记过的几处文件（只改注释与散文、核过不重叠），T-095、T-096 交接档末尾留言（两条线都被 Max 叫停在交接状态，不唤醒会话）。
+  5. R2-F10（低）：`TrimFreezeCheck` 加前提 `movable`（该核的块里 G_trim 离 ±3 dB 钳位超过 0.05 dB 的块数），PSR 场景断言 > 0；落差两轮另加「G_trim 改成 +0 读回再跑 10 s」，见第 7 节。
+  6. 小毛病 5 条：R2-F6 用例 1b 注释、场景头改「落差 / PSR 退让 < 0 的块」、本报告第 1 节改「上一块结束时已有退让的块」；R2-F7 规格 (a′) 与 ADR-036「后果」补「没有读数时 engaged 保持、界回到 0 或守门关掉时清」，更新日志草稿改「看最近几分钟」；R2-F8 底不被采纳的断言改成读档前先设 −24、读档后比 `getFloorDb()`，两组拒收用例同比；R2-F14 engaged 判定、旧字段写法、−3 / −24 两个下限改成共用（`ProfileMath.h` 的 `guardEngagedAfterStep`、`legacyGuardSavedReliefDb`、`legacyGuardFloorDb`，`GlazeConstants.h` 的 `guardSafetyFloorDb`），测试引用具名常量；R2-F19 断窗后先断言前提：落差直方图秒数 29 步不变、第 30 步变，PSR 29 步没有读数、第 30 步有，「界回到 0」两条先断言那一步没读数。
+  - Codex 第 3 次（`gpt-6.1-sol` · `ultra`，只读，对第 2 轮处理的增量；Codex 已自动升到 0.164.0，脚本按 0.162.1 实测，照常派）：三条。① 读档时正的退让被收下（中）→ 采纳：`reliefDbExact` 写成 +FLT_MAX 会盖过合法的 reliefDb −3，退让停在正数上、之后往下退要先走回 0（FLT_MAX 减一步还是 FLT_MAX，等于再也退不了）。main 读 reliefDb 也只查是不是有限数，同一个口子；哪一版都写不出正的退让，所以两个守门读档时两项退让任一 > 0 都当损坏拒收，拒收用例 PSR 补「reliefDbExact 为正」「旧形状 reliefDb 为正」、落差补「reliefDbExact 为正」「旧节点 reliefDb 为正」。执行侧本来就只用 min(0, 退让)，正数不会变成加增益。② 落差守门起退那一块没有在 G_trim 能动时核过 → 不采纳：冻结条件是三个守门同一个式子（`GlazeController.cpp:1435-1437`，退让 < 0 或这一块退让的位模式变了），起退那一块的路径由 PSR 块长 480 那遍核过；要落差单独出错，得有代码把三个守门分开对待，现在没有。③ `ContrastGuard.h` 写「0.1.8.10 降级打开退让照旧」没限定 → 采纳，补「比 −3 深的读成 −3」。
+  - muse 第 3 次（Wonder Full，只读，同一份增量；muse 已自动升到 1.4.12，脚本按 1.4.10 实测，照常派）：六条。① 正的 `reliefDbExact` 被收下、再存会写进旧字段 reliefDb（中）→ 与 Codex ① 同一处，已改。② 归零读回段只证明 G_trim 离钳位远，没证明这时它本来会积分（中，测试）：积分门还要主段电平有效、有目标、没撤回、误差不为 0，门关着时「不动」什么也证明不了 → 采纳：同一份档再把两个子块守门的退让清 0 读回、跑同样 10 s 当对照，断言对照里没有退让、G_trim 动过，再读回带退让的那份核冻结；`TrimFreezeCheck` 的注释改掉「只要误差不为 0 就一定会动」。③ 拒收用例只比存档与下限，没核不存档的 3 s 窗和上一读数（低，测试）→ 采纳：两组拒收后断言上一读数还在、下一个子块照样有读数 / 进账。④ 落差拒收组缺「新节点 reliefDb 是 NaN、reliefDbExact 好的」（低，测试）→ 采纳，补上。⑤ 头文件「退让照旧」→ 与 Codex ③ 同一处，已改。⑥ 读回段注释「10 s 只回 0.5 dB」没算读档后约 3 s 没有读数（小）→ 采纳，改成「至多 0.5 dB」并写明原因。engaged 等价性两家都没找到问题。
+  - 第 2 轮处理里替你定的：属性名 `reliefDbExact`；共用函数放 `ProfileMath.h`（两个守门都已包含它，不新加头文件）；落差那半的逐位实证用「存档改 G_trim 再读回」，不换素材（换素材会动 Q16 定下的 12 段和阈值）；给暂停的 T-095 / T-096 写交接档留言，不发会话消息；正的退让当损坏、整个节点拒收（不夹成 0：这种值只会来自坏档，和别的损坏一样走冷启动）。
 
 ## 9. 0.1.8.11 更新日志草稿（ADR-035：GLAZE > 0 的旧工程会变声，须写明）
 
 | 类别 | 中文 | English |
 |---|---|---|
-| sound | House 曲风（Deep / Tech / Melodic）的「保对比」改为看整首的响度分布：听满约 70 秒音乐才开始判断，对比被压掉超过门槛 10 秒才退增益，退下的量不再被慢速电平修正抵消，drop 的冲击能留住。通用曲风不再启用「保对比」。 | In the House genres (Deep / Tech / Melodic), Keep contrast now judges the loudness spread of the whole track: it starts after about 70 seconds of music, backs off gain only after the contrast has been squeezed past its threshold for 10 seconds, and the slow level trim no longer cancels what it backed off, so drops keep their impact. Keep contrast is no longer active in the General genre. |
+| sound | House 曲风（Deep / Tech / Melodic）的「保对比」改为看最近几分钟的响度分布：听满约 70 秒音乐才开始判断，对比被压掉超过门槛 10 秒才退增益，退下的量不再被慢速电平修正抵消，drop 的冲击能留住。通用曲风不再启用「保对比」。 | In the House genres (Deep / Tech / Melodic), Keep contrast now judges the loudness spread over the last few minutes: it starts after about 70 seconds of music, backs off gain only after the contrast has been squeezed past its threshold for 10 seconds, and the slow level trim no longer cancels what it backed off, so drops keep their impact. Keep contrast is no longer active in the General genre. |
 | sound | PSR 保护出厂关闭（它以前看输入，对很密的素材会误退增益）。很响、很密的输入在 GLAZE > 0 时可能比 0.1.8.10 响，最多约 3 dB。 | The PSR guard is now off by default (it used to read the input and could back off gain on dense material by mistake). Very loud, dense inputs may come out up to about 3 dB louder than in 0.1.8.10 when GLAZE is above 0. |
 | sound | 任何保护在退增益时，慢速电平修正暂停；改参数后的 1 秒内也暂停。 | The slow level trim now pauses whenever a guard is backing off gain, and for 1 second after you change a setting. |
-| compat | 0.1.8.10 的工程照常打开、保护量照旧；用 0.1.8.11 存的工程在 0.1.8.10 里也能打开。 | Projects from 0.1.8.10 open as before with their protection intact, and projects saved in 0.1.8.11 still open in 0.1.8.10. |
+| compat | 0.1.8.10 的工程照常打开、保护量照旧；用 0.1.8.11 存的工程在 0.1.8.10 里也能打开（在 0.1.8.10 里「保对比」最多退 3 dB：存档时退得更深的，打开那一刻变浅）。 | Projects from 0.1.8.10 open as before with their protection intact, and projects saved in 0.1.8.11 still open in 0.1.8.10 (there, Keep contrast backs off at most 3 dB: a deeper back-off saved by 0.1.8.11 is made shallower when the project loads). |
 | ui | 状态行「受限 · 保对比」最多退回全部自动增益（以前封在 3 dB）；保护退到底仍超标时照常显示「受限」。 | The status line's Limited · Keep contrast can now take back all of the automatic gain (it used to stop at 3 dB), and still shows Limited while a guard sits at its limit and is still over. |
 
 （第 4 节的问题如何处理定了以后，这份草稿可能要补一条。）
