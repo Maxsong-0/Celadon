@@ -15,7 +15,8 @@
 - **修坯「全关」**= 三项都选「关」（永远 0，GLAZE 多大都不处理）。这条链自己跑 GLAZE，是「用户关掉修坯」的真实效果；
 - **同决策重放 · 修坯关**（`clay-replay-off`，ADR-016）= 照搬「自动」那条链逐块实际交给模块的参数、只把修坯换成「关」。两条链决策
   一模一样，差别只剩修坯本身：**修坯门槛和「修坯到底改了什么」的盲听都用它对比**（见下「同决策重放」）。T-044 起连 prepare 之前那次
-  交给模块的参数也照搬（读回存档后执行快照的修坯首块值在那一次就用掉；之前只记逐块、第一遍末尾正在降档的歌阳性对照会判 mismatch）；
+  交给模块的参数也照搬（阶段 1 时读回存档后执行快照的修坯首块值在那一次就用掉；之前只记逐块、第一遍末尾正在降档的歌阳性对照会判 mismatch。
+  T-048 阶段 2 起没有执行快照，编排器 prepare 之前不套用存档，那一次交的是手动参数；照搬的做法不变）；
 - 其余参数全是新实例默认（Limit Ceiling -1.0 dBTP、Lookahead 2 ms、Gain 0、Color / Balance 手动值 0 等），取自
   `Source/ParameterDefaults.h` 的 `factoryChainParams()`——插件参数表读的同一处真源，处理器 Debug 版构造时逐项核对两边一致
   （T-032 R10-01，2026-09-29；此前在 `makeFactoryParams` 里照参数表手写，0.1.9.0 的高级母带 8 项没跟上，成品是两项关着的链）。
@@ -76,16 +77,16 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--block` | `512` | 宿主块长（样本，1～65536），两遍都用它 |
 | `--match-lufs` | `-16` | 成品按整体响度只乘增益对齐到这个值（-60～0 LUFS） |
 | `--metrics-only` | 关 | 照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用：几十首 × 8 组的 float wav 有好几 GB） |
-| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案值 / 宽度保护后的值 / 实际值与反相提示状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、守护混合损失的两份 K 加权能量（`blend_intended_energy` / `blend_output_energy`，T-043）、压力反馈此刻的缩放、第一触发量的代价与攒下的块数、平滑后的混合损失（`clay_pressure_scale` / `clay_peak_cost_db` / `clay_peak_cost_blocks` / `clay_blend_loss_db`，T-044；代价攒满 100 块才有）、校准状态（列见下「逐块追踪的修坯列」「逐块追踪的校准列」）；另写 `trace/<成品名>__listen.csv`：第一遍逐块的校准状态（诊断用；只有 `t_sec`、`limit_gain_db` 和校准列，见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
+| `--trace` | 关 | 每组另写 `trace/<成品名>.csv`：第二遍逐块的限幅 GR、实际 Limit Gain / Tone / Glue / Heat、修坯方案值 / 宽度保护后的值 / 实际值与反相提示状态、分析器慢路 / 快路低频相关度、峰值守护动作的样本数与最小 g、守护混合损失的两份 K 加权能量（`blend_intended_energy` / `blend_output_energy`，T-043）、压力反馈此刻的缩放、第一触发量的代价与攒下的块数、平滑后的混合损失（`clay_pressure_scale` / `clay_peak_cost_db` / `clay_peak_cost_blocks` / `clay_blend_loss_db`，T-044；代价攒满 100 块才有）、校准列（T-048 阶段 2 起多为占位；列见下「逐块追踪的修坯列」「逐块追踪的校准列」）；另写 `trace/<成品名>__listen.csv`：第一遍（预热——旧称「聆听」的那一遍，见下「渲染流程」）逐块的 Limit Gain 与同一组校准列（诊断用；只有 `t_sec`、`limit_gain_db` 和校准列，见下「逐块追踪的校准列」；一首 3 分钟的歌两份合计约 4 MB） |
 | `--no-replay` | 关 | 不做同决策重放（默认每组 GLAZE > 0 的修坯「自动」之后多一组 `clay-replay-off` 与阳性对照，见下） |
 | `--genre` | `general` | T-038 曲风 `general` / `deep` / `tech` / `melodic`（= 参数 `glaze_genre` 的下标 0～3），可逗号分隔多个（网格的一维） |
 | `--delivery` | `standard` | T-038 交付 `standard` / `streaming` / `club`（= `glaze_delivery` 的下标 0～2），可逗号分隔多个（网格的一维） |
 | `--bpm` | 不给 | 模拟宿主走带（20～999 BPM）：每块给速度、PPQ、上一小节起点与拍号（见下「T-038」）。不给时与改动前一样不给拍点 |
 | `--meter` | `4/4` | 拍号（分子 1～32，分母 1 / 2 / 4 / 8 / 16 / 32）；要与 `--bpm` 一起用 |
-| `--listen-from-bar` | `1` | 第一遍（聆听）从第几小节起播到歌尾（1 = 从头），可逗号分隔多个（网格的一维）；要 `--bpm`。第二遍（成品）照旧从头渲染 |
+| `--listen-from-bar` | `1` | 第一遍（预热；参数名沿用旧称 listen，见下「渲染流程」）从第几小节起播到歌尾（1 = 从头），可逗号分隔多个（网格的一维）；要 `--bpm`。第二遍（成品）照旧从头渲染 |
 | `--segments-csv` | 关 | 逐段写统计到 `segments/`（有 `--bpm` 时一段 = 一小节，否则每 2 秒）：输入端每首一份、成品每组一份（见下「T-038」） |
-| `--live-trace` | 关 | T-048：每一遍的链接上实时画像，每发布一份画像写一行追踪到 `live/<标签>/`（见下「T-048」）；链的输出逐位不变 |
-| `--live-only` | 关 | T-048：只跑第一遍（聆听）出追踪，不出成品、不做重放——最快的追踪跑法；要 `--live-trace` |
+| `--live-trace` | 关 | T-048：每一遍的链接上实时画像，每发布一份画像写一行追踪到 `live/<标签>/`（见下「T-048」）。阶段 1 时链的输出逐位不变；T-048 阶段 2 起这是外部探针，会把段从链自己的实时画像引走，存档会变、GLAZE > 0 时成品也会变 |
+| `--live-only` | 关 | T-048：只跑第一遍（预热）出追踪，不出成品、不做重放——最快的追踪跑法；要 `--live-trace` |
 | `--live-constants` | 不给 | T-048：覆盖实时画像常数 `LiveConstants` 的任意字段，`键=值` 逗号分隔（键表见下「T-048」）；不认识的键、不合法的值报错；要 `--live-trace` 与 `--live-tag` |
 | `--live-model` | 按曲风 | T-048：主段模型一律用 `fourOnFloor` / `loudness` / `passive`（默认 House 三类 4/4 型、通用响度型）；要 `--live-trace` 与 `--live-tag` |
 | `--live-tag` | `default` | T-048：追踪的输出分组 `live/<标签>/`（字母、数字、`.` `_` `-`，不以 `.` 开头，≤ 64 个字符）；扫参时一组常数一个标签 |
@@ -99,19 +100,30 @@ stderr 也报一次；插件是在处理器层把含非有限值的整块清零�
 
 ## 渲染流程（每首歌 × 每组设置）
 
-1. **第一遍（聆听）**：新链 → `setParams` → `prepare`（与 `PluginProcessor::prepareToPlay` 同一顺序），按离线宿主口径
-   （`HostInfo.offline = true`、在播、位置从 0 起随块推进）把整首歌送进链，输出丢弃。GLAZE 在这一遍里学画像（15～30 s 有效音频）、
-   走 3 s 方案过渡、校准（条件稳定 1 s + 3 s settle + 10 s 采样）——歌至少要一分钟左右，第一遍才走得到「已锁定」。
-2. **存档**：`createGlazeStateXml()`，即宿主存工程时 GLAZE 那一节（已提交版本 + 执行快照 EXECUTION，含 Clay 四个实际值与保护状态）。
+1. **第一遍（预热）**：新链 → `setParams` → `prepare`（与 `PluginProcessor::prepareToPlay` 同一顺序），按离线宿主口径
+   （`HostInfo.offline = true`、在播、位置从 0 起随块推进）把整首歌送进链，输出丢弃。这一遍以前叫「聆听」：命令行参数、文件名、列名与
+   工具打印的文字仍沿用旧称（`--listen-from-bar`、`trace/<成品名>__listen.csv`、`listen_phase` 等）。T-048 阶段 2（ADR-030）起 GLAZE
+   没有聆听、锁定与校准：这一遍里编排器按链上的实时画像连续调度（每 1 s 重算方案，自动增量按速率限制推向目标，Limit Gain 另加输出侧
+   慢修正 G_trim 与预算环 / 落差 / PSR 三个守门里最深的那份退让），让主段统计、自动增量、G_trim 与守门状态随整首歌热起来——即 ADR-030 决定 6 的
+   「先播一遍再导出，导出从头就到位」。（阶段 1 时 GLAZE 在这一遍里学画像（15～30 s 有效音频）、走 3 s 方案过渡、校准（条件稳定 1 s +
+   3 s settle + 10 s 采样），歌至少要一分钟左右，第一遍才走得到「已锁定」。）
+2. **存档**：`createGlazeStateXml()`，即宿主存工程时 GLAZE 那一节。T-048 阶段 2 起只存 LIVE（GLAZE_STATE formatVersion 2）：实时画像
+   （主段统计）、已施加的自动增量与 G_trim、风格权重、三个守门与出口电平的状态、修坯的自动值（ClayGuard 之后、三态合成之前）、
+   压力缩放与 ClayGuard（反相提示 / 宽度保护）的状态。阶段 1 存的是已提交版本 + 执行快照 EXECUTION，这两样已随 ADR-030 取消
+   （旧存档读进来按冷启动处理）。
 3. **第二遍（成品）**：另起一条新链 → `restoreGlazeStateXml()` → `setParams` → `prepare`（= 重开工程后离线导出），从头渲染整首歌，
    末尾补「链延迟 + 0.35 s 余振」个零把尾巴冲出来（余振与插件报给宿主的尾巴同一常量 CeladonChain::filterRingOutSeconds），丢掉开头「链延迟」个样本
    （48 kHz / Lookahead 2 ms 时 282 + Clay 的 1102（线性相位收单 574 + 峰值守护前瞻 528）= 1384 个，ADR-012 / ADR-014）。
    成品 = 原曲长度 + 0.35 s，与原曲、各组成品之间**逐样本对齐**（DAW 里并排放轨、solo 切换即可无缝对比）。
+   读回的 LIVE 在 `prepare` 冷启动之后套上（CeladonChain::prepare），所以成品第一块起就接着用读回的已施加增量、G_trim、Heat / Glue 跟随量与预算环退让；自动 Clay、Tone / Tame 实时跟随与落差 / PSR 退让要到第一块 endBlock 之后（第二块起）才接上；GLAZE 在这一遍里继续实时跟随
+   （链上的实时画像接着收这一遍的段，方案每 1 s 重算）。
 4. **量、对齐、写**：量对齐前成品的指标 → 只乘一个增益把整体响度对齐到 `--match-lufs` → 写 32-bit float wav。
 
 为什么第二遍用「存档 → 新链读回」而不是同一条链跳回位置 0：新链的模块、表、分析器都是干净的（同一条链跳回 0，限幅器延迟线与各滤波器里
-还留着歌尾，成品开头会先吐出一段歌尾）；而且这正是用户真实的「听一遍 → 存工程 → 重开 → 离线导出」流程，也是 rendercheck 验过的路径。
-成品从第一个样本起就是学好之后的处理。第一遍没走到「已锁定」时（歌太短等），备注里会写明。
+还留着歌尾，成品开头会先吐出一段歌尾）；而且这正是用户真实的「听一遍 → 存工程 → 重开 → 离线导出」流程，也是 rendercheck 验过的路径
+（阶段 1 时验的。tools/perf/bench.mm 第 978 行的 rendercheck 至今仍核对存档里有 EXECUTION 节点，阶段 2 的存档已没有它，这一条会判失败、尚未改，归 T-096 (f)）。
+成品从第一块起就接着第一遍末的 LIVE 处理（自动 Clay、Tone / Tame 实时跟随与落差 / PSR 退让晚一块；阶段 1 的说法是「学好之后的处理」）。阶段 1 时第一遍没走到「已锁定」（歌太短等）会在备注里写明；
+T-048 阶段 2 起状态里的阶段恒为 unlearned，这条备注（「第一遍结束时 GLAZE 还没学完……」）对 GLAZE > 0 的每组都会出现——工具还没改，不代表第一遍出了问题。
 
 ## 输出
 
@@ -146,20 +158,20 @@ T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`�
 | 反相提示 / 宽度保护（格末） | `clay_cost_limited` | 成品末尾哪几项「自动」修坯因代价被减量 / 否决（`lowcut` / `width`，两项都有写 `lowcut+width`，空 = 没有；ADR-015 起自动不收单，不再出现 `mono`）。三处会置位：先试后用试出会抬高峰值（ADR-012）、低切按守护混合损失封顶（ADR-027）、压力反馈降过档（ADR-014 / ADR-028）。metrics.md 没有单独一列：有值时接在「反相提示 / 宽度保护」那一格末尾（「，代价限：lowcut」），空时不写 |
 | 低切 Hz / 收单 Hz / 收单量 / 加宽 dB | `clay_lowcut_hz` / `clay_mono_hz` / `clay_mono_amount` / `clay_width_db` | 成品末尾 `getGlazeStatus()` 的 Clay 四个实际值（上一块交给 ClayModule 的值）；低切 0 =「关」；收单量 0 时收单 Hz 无意义（本工具不用手动收单，ADR-015 起收单 Hz 恒为 80、收单量恒为 0） |
 | 反相提示 / 宽度保护 | `phase_guard_pct` / `width_guard_pct` | 第二遍里反相提示亮着（收单灯琥珀；ADR-015 起只提示、不改声音；只在收单为「自动」的组计：`auto`、`mono` 组，其余组与重放行恒为 0）/ 宽度保护介入的时长占比（只在加宽为「自动」的组计）；`phase_guard_pct` 沿用旧列名（改名会断旧指标表） |
-| GLAZE 状态 | `glaze_phase` / `calibration_valid` / `resolved_style` | 成品末尾的阶段（unlearned / listening / planTransition / calibrating / locked）、校准是否有效、「自动」风格此刻偏向哪种 |
-| — | `listen_phase` | 第一遍（聆听）结束时的阶段 |
+| GLAZE 状态 | `glaze_phase` / `calibration_valid` / `resolved_style` | 成品末尾的阶段、校准是否有效、「自动」风格此刻偏向哪种。阶段 1 的阶段取值是 unlearned / listening / planTransition / calibrating / locked；T-048 阶段 2（ADR-030）起没有聆听 / 锁定 / 校准状态机，`glaze_phase` 恒为 unlearned、`calibration_valid` 恒为 0（成品行在 metrics.md 那一格恒以「未学习 · 校准无效」开头；同决策重放行例外：glaze_phase 写 replay，calibration_valid、resolved_style 与 listen_phase 为空，metrics.md 那一格写「同决策重放（…）」），列只为不改表格式而留；`resolved_style` 照常有意义 |
+| — | `listen_phase` | 第一遍（预热）结束时的阶段（T-048 阶段 2 起恒为 unlearned；同决策重放行为空） |
 | — | `audio_hash` | 对齐前成品（输入行是立体声化的输入）的 FNV-1a 哈希：同一首歌同一组设置跨版本哈希相同 = 逐位不变 |
 | 成品文件 | `file` | 成品文件名；写失败为空 |
-| — | `trial_lowcut_cost_db` / `trial_mono60_cost_db` … `trial_mono160_cost_db` / `trial_width_cost_db` / `trial_seconds` | 成品末尾已提交画像里「先试后用」量到的代价（dB）与试用的有效时长（诊断：试用只看聆听的前 15 ～ 30 s；`trial_mono*` 四列 ADR-015 起照测照存、决策不用，仅作诊断） |
-| — | `profile_sub_share_db` / `profile_low_corr` | 同一份画像的真次声占比与低频相关度（聆听窗口里的值，可能与整首的 `infra_share_lt16hz_db` / `low_corr_lt125hz` 不同） |
+| — | `trial_lowcut_cost_db` / `trial_mono60_cost_db` … `trial_mono160_cost_db` / `trial_width_cost_db` / `trial_seconds` | 成品末尾画像里「先试后用」量到的代价（dB）与试用的有效时长（诊断）。阶段 1 是已提交画像，试用只看聆听的前 15 ～ 30 s；T-048 阶段 2 起是编排器最近读到的那份实时画像：代价是窗口里按主段权重（含遗忘）累计的实时试算，`trial_seconds` 是同一权重下的有效试算时长。`trial_mono*` 四列 ADR-015 起决策不用，T-048 阶段 2 起停算、恒为空 |
+| — | `profile_sub_share_db` / `profile_low_corr` | 同一份画像的真次声占比与低频相关度（阶段 1 是聆听窗口里的值，阶段 2 是实时画像窗口里的加权值；可能与整首的 `infra_share_lt16hz_db` / `low_corr_lt125hz` 不同） |
 | — | `peak_guard_pct` / `peak_guard_min_gain` | 修坯峰值守护（ADR-014）第二遍里 g < 1 的样本占比与全曲最小 g |
-| — | `slow_inverted_pct` | 分析器慢路低频相关度有效的块里 ρ < −0.2 的占比：歌里有没有真反相段（门槛「反相提示时长占比 ≤ 5 %」只管这一列为 0 的歌） |
-| — | `limit_input_peak_db` | 限幅器入口峰值：max(GR − 本块实际 Limit Gain)，只计 GR > 0 的块。扣掉两条链各自校准出的增益差，修坯门槛比的是它（ADR-014） |
+| — | `slow_inverted_pct` | 分析器慢路低频相关度有效的块里 ρ < −0.2 的占比：歌里有没有真反相段（门槛「反相提示时长占比 ≤ 5 %」只管这一列为 0 的歌）（T-048 阶段 2 起编排器探针不抄此字段，本列恒为 0 / 空，上面的说明是阶段 1 的口径；恢复抄写还是标成死列待 Max 定）（于是 gate_check.py 的反相豁免实际失效） |
+| — | `limit_input_peak_db` | 限幅器入口峰值：max(GR − 本块实际 Limit Gain)，只计 GR > 0 的块。扣掉两条链各自施加的 Limit Gain 之差（阶段 1 是校准出的增益差，阶段 2 是自动增量、G_trim 与守门退让的差），修坯门槛比的是它（ADR-014） |
 | — | `clay_pressure_scale` / `clay_pressure_steps` | 成品末尾修坯压力反馈的缩放（1 = 不限）与降档次数（ADR-014） |
-| — | `clay_peak_cost_db` / `clay_peak_cost_s` | T-044（ADR-028）：成品末尾压力反馈第一触发量的代价——自上次清零（降档 / 新画像）起按有效音乐攒下的 100 ms 块峰值，20·log10(P99 ①② 处理后 / P99 干路)，与「先试后用」的 `trial_lowcut_cost_db` 同一口径（不经守护）；攒满 10 s 才有（不满时为空），持续 1 s 高于 0.2 dB 就降一档。`clay_peak_cost_s` = 攒下的时长 |
+| — | `clay_peak_cost_db` / `clay_peak_cost_s` | T-044（ADR-028）：成品末尾压力反馈第一触发量的代价——自上次清零（降档 / 新画像）起按有效音乐攒下的 100 ms 块峰值，20·log10(P99 ①② 处理后 / P99 干路)，与「先试后用」的 `trial_lowcut_cost_db` 同一口径（不经守护）；攒满 10 s 才有（不满时为空），持续 1 s 高于 0.2 dB 就降一档。`clay_peak_cost_s` = 攒下的时长（T-048 阶段 2 起编排器探针不抄此字段，本列恒为 0 / 空，上面的说明是阶段 1 的口径；恢复抄写还是标成死列待 Max 定） |
 | — | `replay_check` / `replay_max_diff_dbfs` | 只在 GLAZE > 0 的「自动」行：同决策重放的阳性对照 ok / mismatch / n/a 与重放对自动链的最大样本差（`-inf` = 逐位相同；允许 ≤ −180 dBFS） |
-| 有效音乐（表头） | `music_seconds` | 这段音频 K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（与校准器同一门限；歌尾静音不算）。门槛看原始输入行的值 |
-| — | `trial_blend10_db` / `trial_blend20_db` | T-043（ADR-027）：成品末尾已提交画像里「先试后用」量到的峰值守护混合损失（10 / 20 Hz 低切候选，K 加权「本该 / 实际」，dB）。决策器按两点幂律把低切频率封顶在预测 0.09 dB 处 |
+| 有效音乐（表头） | `music_seconds` | 这段音频 K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（原与校准器同一门限，校准器 T-048 阶段 2 已删、口径照旧；歌尾静音不算）。门槛看原始输入行的值 |
+| — | `trial_blend10_db` / `trial_blend20_db` | T-043（ADR-027）：成品末尾画像（阶段 1 是已提交画像，阶段 2 是实时画像）里「先试后用」量到的峰值守护混合损失（10 / 20 Hz 低切候选，K 加权「本该 / 实际」，dB）。决策器按两点幂律把低切频率封顶在预测 0.09 dB 处 |
 | — | `clay_blend_loss_db` | T-043：第二遍链里修坯峰值守护的混合损失（全曲两份 K 加权能量之比，dB；低切 / 收单都没作用过时为空）。正 = 守护把低切拉回干路时与干路相位不同、互相抵消，成品比修坯本该给的更轻；与同决策重放的响度差几乎一一对应（woqu：0.215 dB ↔ −0.199 LU） |
 
 `clay-replay-off` 行是 GLAZE 0 的链，GLAZE 状态列没有意义：`glaze_phase` 写 `replay`，`calibration_valid` / `resolved_style` / `listen_phase` 空。
@@ -170,11 +182,11 @@ T-038 的三维不是默认值时依次接在后面：`_<曲风>`、`_<交付>`�
 
 | 列 | 含义 |
 |---|---|
-| `planned_lowcut_hz` / `planned_mono_amount` / `planned_mono_hz` / `planned_width_db` | 决策器给「自动」态的值（含方案过渡混合与压力反馈缩放，ClayGuard 之前） |
+| `planned_lowcut_hz` / `planned_mono_amount` / `planned_mono_hz` / `planned_width_db` | 决策器给「自动」态的值（含压力反馈缩放，ClayGuard 之前；阶段 1 还含方案过渡混合，T-048 阶段 2 起没有方案过渡，直接取此刻目标方案的值） |
 | `live_mono_amount` / `live_width_db` | ClayGuard 之后、三态合成之前的自动值：宽度保护只会把加宽往小里改，收单原样透传 |
 | `guard_phase_floor` / `guard_phase_hold_s` / `guard_phase_active` | 反相提示的强度（0～1，含攻击 / 释放）、条件消失后剩下的保持秒数、是否亮着（= 强度 > 0）。列名沿用旧名，ADR-015 起只提示、不改声音；触发条件与时间常数见 `Source/dsp/ClayGuard.h` 文件头。这是 ClayGuard 自己的状态、不看三态：收单不在「自动」的组（`off` / `lowcut` / `width`）也可能是 1，收单灯与 `phase_guard_pct` 只算收单「自动」的组 |
-| `guard_seconds` | 这一块交给 ClayGuard 推进的有效音乐秒数（= 上一块的有效音乐时长）。为 0 时：静音、宿主旁通、停播，以及读回存档后的第一块——反相提示与宽度保护的状态停在原处；GLAZE 0 的组、或方案源不支持自动 Clay（旧画像 / 没有画像）每块都是 0，且 ClayGuard 不是停住而是回到中性（`guard_*` 与 `planned_*` / `live_*` 全是中性值，哪怕 `rho_slow` 明明 < −0.2） |
-| `rho_slow` / `rho_fast` | 分析器慢路 / 快路低频相关度（反相提示的判据；无效时空）。这是本块处理后的读数，ClayGuard 下一块才用它 |
+| `guard_seconds` | 这一块交给 ClayGuard 推进的有效音乐秒数（= 上一块的有效音乐时长）。为 0 时：静音、宿主旁通、停播，以及读回存档后的第一块——反相提示与宽度保护的状态停在原处；GLAZE 0 的组、或方案源不支持自动 Clay（旧画像 / 没有画像）每块都是 0，且 ClayGuard 不是停住而是回到中性（`guard_*` 与 `planned_*` / `live_*` 全是中性值，哪怕 `rho_slow` 明明 < −0.2）（T-048 阶段 2 起编排器探针不抄此字段，本列恒为 0 / 空，上面的说明是阶段 1 的口径；恢复抄写还是标成死列待 Max 定） |
+| `rho_slow` / `rho_fast` | 分析器慢路 / 快路低频相关度（反相提示的判据；无效时空）。这是本块处理后的读数，ClayGuard 下一块才用它（T-048 阶段 2 起编排器探针不抄此字段，本列恒为 0 / 空，上面的说明是阶段 1 的口径；恢复抄写还是标成死列待 Max 定） |
 | `clay_lowcut_hz` / `clay_mono_amount` / `clay_mono_hz` / `clay_width_db` | 三态合成后交给 ClayModule 的实际值（同指标表的 Clay 四列） |
 
 ADR-015 起「自动」不收单：本工具各组的 `planned_mono_amount`、`live_mono_amount`、`clay_mono_amount` 恒为 0，`planned_mono_hz` 恒为 80。
@@ -184,25 +196,30 @@ ADR-015 起「自动」不收单：本工具各组的 `planned_mono_amount`、`l
 
 ### 逐块追踪的校准列（`--trace`）
 
-两份追踪末尾都有同一组校准列（第一遍那份只有 `t_sec`、`limit_gain_db` 加这组列）。T-015 / BUG-003「整首停在校准中」就是靠它们查出来的：
+两份追踪末尾都有同一组校准列（第一遍那份只有 `t_sec`、`limit_gain_db` 加这组列）。阶段 1 时 T-015 / BUG-003「整首停在校准中」就是靠它们查出来的：
 先看 `cal_begins` / `cal_finishes` / `feedback_steps` 怎么涨，再看卡住的那段 `cal_interrupt_mask` / `cal_gate_mask` 是哪一位。
 
-| 列 | 含义 |
-|---|---|
-| `glaze_phase` | 阶段：0 未学习、1 聆听中、2 方案过渡、3 校准中、4 已锁定 |
-| `cal_round_active` / `cal_state` | 校准轮进行中；校准器状态 0 空闲、1 等待（settle / 屏障）、2 采集、3 结束 |
-| `cal_interrupt_mask` | 轮中本块作废当前子窗的原因（位或）：1 宿主旁通 / 暂停、2 GLAZE ≤ 0、4 方案过渡中、8 条件与本轮参考不一致、16 受手动设置限制、32 保护层介入。偏差变了由校准器自己当作中断（看 `executed_bias_db`） |
-| `cal_gate_mask` | 不在轮中时没开新一轮的原因（位或）：1 没有已提交画像、2 GLAZE ≤ 0、4 旁通 / 暂停、8 方案过渡中、16 受手动限制、32 保护层在退让或恢复、64 参考条件未知、128 已提交的校准适用（不需要）、256 用户条件稳定不足 1 s、512 刚对同一条件试过 |
-| `cal_rounds_done` / `cal_subwindows` / `cal_subwindow_s` | 本次校准已完成的轮数、本轮已完成的子窗数（每轮 4 个）、当前子窗已采到的有效时长（静音不推进） |
-| `cal_guard_s` | 本次校准里保护层介入期间累计的有效音乐；到校准窗长（出厂 10 s）即结束为「预算受限」 |
-| `cal_last_error_db` / `cal_suggested_db` / `cal_target_db` | 最近一轮的修正量 e（目标净提升 − 实测净提升）、校准器此刻的建议偏差、方案的目标净提升 |
-| `cal_applicable` | 已提交的校准对此刻适用（= 状态行的 calibrationValid） |
-| `applied_bias_db` / `executed_bias_db` / `guard_db` | 平滑中的校准偏差、上一块实际执行的偏差、保护层自己的退让 |
-| `plan_transition` / `plan_transitions` | 方案过渡中；方案过渡累计次数 |
-| `cal_begins` / `cal_finishes` / `feedback_steps` / `feedback_max_db` | 校准轮开始 / 结束累计次数；约束反馈累计次数与当前上限（不限时写 99） |
+**ADR-030 / T-048 阶段 2 起这组列是占位**：没有校准器、方案过渡与约束反馈，编排器不再写探针里的这些字段，列保留只为不改 CSV 格式（列名与次序照旧）。
+还有读数的只剩 `cal_target_db`、`applied_bias_db` / `executed_bias_db`、`guard_db`（见下表「阶段 2」一栏）；第一遍那份另有 `limit_gain_db`（本块实际交给限幅器的 Limit Gain）。
+原定探针删掉之后把这组列换成 confidence、g_trim_db、protection_db、guard_cause；那要改列名、改 CSV 格式，须另立任务（先问 Max）。读阶段 1 的旧追踪时看「阶段 1 的含义」一栏。
 
-注意：音乐不足约 15 s 的歌学不完画像；有画像之后一轮校准约 13 s（1 s 条件稳定 + settle + 10 s 采样），偏差 > 0.25 dB 还要第二轮（再约 13 s）。
+| 列 | 阶段 1 的含义 | 阶段 2（现行）写的值 |
+|---|---|---|
+| `glaze_phase` | 阶段：0 未学习、1 聆听中、2 方案过渡、3 校准中、4 已锁定 | 恒为 0 |
+| `cal_round_active` / `cal_state` | 校准轮进行中；校准器状态 0 空闲、1 等待（settle / 屏障）、2 采集、3 结束 | 恒为 0 / 0 |
+| `cal_interrupt_mask` | 轮中本块作废当前子窗的原因（位或）：1 宿主旁通 / 暂停、2 GLAZE ≤ 0、4 方案过渡中、8 条件与本轮参考不一致、16 受手动设置限制、32 保护层介入。偏差变了由校准器自己当作中断（看 `executed_bias_db`） | 恒为 0 |
+| `cal_gate_mask` | 不在轮中时没开新一轮的原因（位或）：1 没有已提交画像、2 GLAZE ≤ 0、4 旁通 / 暂停、8 方案过渡中、16 受手动限制、32 保护层在退让或恢复、64 参考条件未知、128 已提交的校准适用（不需要）、256 用户条件稳定不足 1 s、512 刚对同一条件试过 | 恒为 0 |
+| `cal_rounds_done` / `cal_subwindows` / `cal_subwindow_s` | 本次校准已完成的轮数、本轮已完成的子窗数（每轮 4 个）、当前子窗已采到的有效时长（静音不推进） | 恒为 0 / 0 / 0.00 |
+| `cal_guard_s` | 本次校准里保护层介入期间累计的有效音乐；到校准窗长（出厂 10 s）即结束为「预算受限」 | 恒为 0.00 |
+| `cal_last_error_db` / `cal_suggested_db` / `cal_target_db` | 最近一轮的修正量 e（目标净提升 − 实测净提升）、校准器此刻的建议偏差、方案的目标净提升 | 前两列恒为 0.000；`cal_target_db` 照常是此刻目标方案的约束后净提升（`effectiveGainDb`） |
+| `cal_applicable` | 已提交的校准对此刻适用（= 状态行的 calibrationValid） | 恒为 0 |
+| `applied_bias_db` / `executed_bias_db` / `guard_db` | 平滑中的校准偏差、上一块实际执行的偏差、保护层自己的退让 | 前两列都是 G_trim（输出侧慢修正，取代校准偏差；两列同值）；`guard_db` 是预算环此刻的退让（落差 / PSR 守门的退让不在这一列） |
+| `plan_transition` / `plan_transitions` | 方案过渡中；方案过渡累计次数 | 恒为 0 / 0 |
+| `cal_begins` / `cal_finishes` / `feedback_steps` / `feedback_max_db` | 校准轮开始 / 结束累计次数；约束反馈累计次数与当前上限（不限时写 99） | 恒为 0 / 0 / 0 / 99.000 |
+
+注意（阶段 1 的口径，读旧追踪时用）：音乐不足约 15 s 的歌学不完画像；有画像之后一轮校准约 13 s（1 s 条件稳定 + settle + 10 s 采样），偏差 > 0.25 dB 还要第二轮（再约 13 s）。
 所以音乐不到 30 s 左右的歌，成品末尾停在「校准中」多半是时长不够，不是故障——先看原曲有效音乐多长（歌尾长静音不算）。
+阶段 2 没有学习期与校准轮，「时长够不够」改看置信度 c（门槛：有效音乐 ≥ 30 s 的歌成品末尾 c ≥ 0.5，见下「同决策重放（ADR-016）与门槛检查」）；c 眼下不在 `--trace` 的追踪里，也还没写进指标表（`confidence` 列空着，见下「T-038」一节开头）。`--live-trace` 追踪里的 `confidence` 是追踪器自建那份实时画像的 c，不是链上那一份的。
 
 ### 自检（`--selftest`）
 
@@ -236,9 +253,10 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 
 两条各自跑 GLAZE 的链（修坯自动 / 全关）会因为约束反馈、保护层出手的时刻不同，走到不同的方案——反馈上限、Glue / Heat 份额、
 校准偏差都可能不同（T-015 之后 WTF g70 两条链上限 1.145 / 0.274 dB，限幅入口峰值差 0.747 dB，而修坯在出峰那一刻是中性的）。
-跨链比较量到的多半是方案分岔，不是修坯本身。所以工具在每组 GLAZE > 0 的「自动」之后：
+以上是阶段 1 的情形；T-048 阶段 2 起没有约束反馈与校准偏差，但 G_trim、预算环与落差守门看的是修坯之后的量（出口响度、模块统计），
+修坯开关一改，两条链照样会分岔。跨链比较量到的多半是方案分岔，不是修坯本身。所以工具在每组 GLAZE > 0 的「自动」之后：
 
-1. 第二遍渲染时逐块记下链实际交给模块的参数（`getEffectiveParams()`：自动增量、校准偏差、保护退让都已算进去；T-032 起
+1. 第二遍渲染时逐块记下链实际交给模块的参数（`getEffectiveParams()`：自动增量、G_trim（阶段 1 是校准偏差）、守门退让都已算进去；T-032 起
    `mastering` 也是实际值——推响不刺 / 目标频谱的强度在 `harshResolved` / `targetResolved`、编码余量已扣进 Ceiling，原样回喂逐位复现）；
 2. **阳性对照**：另起一条 GLAZE 0 的链（编排器不做决策，实际参数逐位等于喂进去的值），逐块喂这些参数，修坯三项用「手动」照填
    自动链那一块的实际值——输出应复现自动链（最大样本差 ≤ −180 dBFS）。不要求逐位：GLAZE > 0 的链按保护层 10 ms 时隙切片处理，
@@ -254,7 +272,7 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 | GLAZE 0 逐位直通 | 修坯「自动」与「全关」`audio_hash` 相同 |
 | 阳性对照 | GLAZE > 0 的「自动」`replay_check` = ok（n/a 只列说明） |
 | 修坯门槛（阈值同 ADR-014） | 「自动」对「重放全关」：限幅入口峰值增加 ≤ 0.3 dB；响度下降 ≤ 0.1 LU（入口峰值同降的列说明）；反相提示时长占比 ≤ 5 %（「自动」行自己的收单灯琥珀时长，不含 House 档反相提示；ADR-015 起只提示、不改声音，这条查提示误亮；有真反相段的歌豁免） |
-| 热起 / 锁定 | 行里 `confidence` 非空：有效音乐 ≥ 30 s 的歌，GLAZE > 0 的成品末尾 c ≥ 0.5。格子空着或没有这列：仍要求「已锁定 + 校准有效」（阶段 1 表的输出一字不差）。更短的列「时长不够」说明 |
+| 热起 / 锁定 | 行里 `confidence` 非空：有效音乐 ≥ 30 s 的歌，GLAZE > 0 的成品末尾 c ≥ 0.5。格子空着或没有这列：仍要求「已锁定 + 校准有效」（阶段 1 表的输出一字不差）。更短的列「时长不够」说明。注意现行渲染工具的 `confidence` 还写空、`glaze_phase` 恒为 unlearned，眼下这一条会对有效音乐 ≥ 30 s、GLAZE > 0 的格子判失败，见「T-038」一节开头 |
 | 真峰值 | 所有成品 ≤ −1.0 + 0.01 dBTP |
 
 「自动」对「全关」的跨链差只打印作参考（`ref:` 列），不判定。旧的跨链门槛脚本 `docs/validation/2026-09-26-clay/render/gate_check.py`
@@ -268,19 +286,25 @@ x86 是分开的乘和加）；Windows 的 UCRT 还按 CPU 是否支持 FMA3 换
 规格：设计规格-曲风与交付（第 7 节验收）、设计规格-曲风-House学习方式（第 2、6 节）；决策 ADR-026。**都不给新选项时与改动前逐位相同**：
 HostInfo、网格、文件名、metrics.md 头部与 metrics.csv 一字不差。2026-10-01 在 109 上用 T-022 的 22 首门槛歌对照 main `88199cb`
 （`--glaze 0,35,70 --style auto`，修坯 auto / off、带同决策重放）：176 个成品 wav 逐字节相同、metrics.csv 22 / 22 逐字节相同、metrics.md
-去掉生成时间后 22 / 22 相同；另给 `--bpm 124`（通用 + 标准）跑一遍，176 行 `audio_hash` 与 main 不给拍点的也全部相同。
+去掉生成时间后 22 / 22 相同；另给 `--bpm 124`（通用 + 标准）跑一遍，176 行 `audio_hash` 与 main 不给拍点的也全部相同（这是阶段 1 的复核；
+T-048 阶段 2 起连续编排器也读 PPQ，通用档给拍点的成品可以与不给时不同，见下「自检（`--selftest-house`）」）。
 只要给了任一新选项，metrics.csv 末尾就追加下面的列、metrics.md 头部多一行。
 T-048 阶段 2 另外在每张表末尾固定加上 `confidence,current_mainness,cold_export,guard_cause,protection_db,status_line`
-（接在 `clay_peak_cost_s` 之后、T-038 列之前）。前四列和 `status_line` 在编排器写出新 Status 之前是空的，`protection_db` 先写现有的 g_保护。
-因此默认 metrics.csv 不再与阶段 1 的表逐字节相同；两遍渲染和成品 wav 仍是阶段 1 编排器的路径，`--live-trace` 仍自建一份 LiveProfile
-（链内那一份要等编排器公开 `readCommits` / `getDiagnostics`）。空的 `confidence` 不改变 `gate_check.py` / `house_gate.py` 的旧判定。
+（接在 `clay_peak_cost_s` 之后、T-038 列之前），因此默认 metrics.csv 不再与阶段 1 的表逐字节相同。编排器已合入 main（PR #63），状态（Status）
+里也有了 confidence、currentMainness、coldExport、guardCause，但渲染工具还没改成读它们：前四列和 `status_line` 仍写空，`protection_db` 写状态行
+显示的那扇守门的退让（GLAZE 0 或没有守门在起作用时为 0）。两遍渲染和成品 wav 走的已是阶段 2 的连续编排器；`--live-trace` 仍自建一份 LiveProfile
+接在外部探针上（改成读链内那一份的 `readCommits` / `getDiagnostics` 要另改工具，见下「T-048」）。
+空的 `confidence` 让 `gate_check.py` / `house_gate.py` 退回阶段 1 的判定（`glaze_phase` = locked 且 `calibration_valid` = 1；House 门槛 ① 看
+`listen_phase` = locked），而阶段 2 的 `glaze_phase` / `listen_phase` 恒为 unlearned、`calibration_valid` 恒为 0：`confidence` 等列填上之前
+按现在的表跑门槛，有效音乐 ≥ 30 s、GLAZE > 0 的格子会判失败（`gate_check.py`「成品末尾却是 unlearned / 校准无效」），House 门槛 ① 有成对的
+两行时判 FAIL（「没都锁定」）。
 
 ### 模拟宿主走带（`--bpm` / `--meter`）
 
 离线导出从工程开头起播的口径：恒定速度，样本 0 = PPQ 0。每块按块起点给（同 `PluginProcessor::readHostInfo` 的各项）：
 `hasTempo` / `bpm`；`hasPpq`，`ppqPosition = 位置样本 × BPM ÷ (60 × 采样率)`（四分音符计）；`hasBarStart`，
 `ppqLastBarStart = floor(PPQ ÷ 每小节拍数) × 每小节拍数`（每小节拍数 = 分子 × 4 ÷ 分母，6/8 = 3）；`hasTimeSignature` 与分子 / 分母；
-在播（`isPlaying`）、离线、位置照旧。PPQ 只由样本位置决定，任何块长下同一位置逐位相同。三遍（聆听、成品、重放）用同一条时间线。
+在播（`isPlaying`）、离线、位置照旧。PPQ 只由样本位置决定，任何块长下同一位置逐位相同。三遍（预热、成品、重放）用同一条时间线。
 `--listen-from-bar N`：第一遍从第 N 小节的起点样本 `round((N − 1) × 每小节样本数)` 起播到歌尾，宿主位置照实际样本给（门槛 ①「从 drop 播」）。
 
 ### 逐段统计（`--segments-csv`）
@@ -291,14 +315,16 @@ T-048 阶段 2 另外在每张表末尾固定加上 `confidence,current_mainness
   `HouseConstants::fallbackSegmentSeconds`（出厂 2 s）一段，**按样本墙钟**分（插件分 2 秒段时按有效音频样本推进，这里不同）。
 - **段响度 `lufs`**：段内过了「有效音频」门的 100 ms 子块的 K 加权能量平均，换算成 LUFS（规格 2.3 节；子块来自插件自己的
   `LoudnessMeter`，与 IN 表、分析器同一测点同一算法；子块按起点归段）。门 = 以本子块结尾的 400 ms 门块（前 3 个子块用已有的）≥ −70 LUFS，
-  且不低于参考 I − 20 LU——判据同 `MusicAnalyzer` 的 `effective`，**参考 I 换成整段音频的 BS.1770 整体响度**（插件用学习区间的 I）。
+  且不低于参考 I − 20 LU——判据同 `MusicAnalyzer` 的 `effective`，**参考 I 换成整段音频的 BS.1770 整体响度**（插件阶段 1 用学习区间的 I；
+  T-048 阶段 2 起唯一的段落账是实时段落账，参考它自己按门块遗忘的「实时 I」，`MusicAnalyzer.cpp` 第「七」节）。
   紧接响段的静音段，前 3 个子块的门块还带着响段，按这个口径算有效，读数是 K 加权滤波器的余振（比前一段低 20 LU 以上）。
 - **短期响度 `short_term_lufs`**（参考列）：EBU 短期响度 S（3 s 窗、不门限，同 S 表 / 分析器的 `shortTermLufs`）在本段最后一个子块结尾处的读数；
   124 BPM 一小节约 1.94 s，窗会带进上一小节的约 1 s。**门控与 House 门槛用的是 `lufs`（段响度），不是它。**
 - **低频占比 `low_share`**：与画像 `lowShare` 同一口径——一个独立的 `BalanceModule`（参数全 0，只用它的分析；处理的是拷贝）逐帧给 27 段
   1/3 倍频程功率（两声道功率平均，段边界 35.6 Hz～17.8 kHz 连续铺满、bin 按重叠宽度计权），低频 = **100 Hz 段及以下（段 0～4，上边界
   112 Hz）的功率 ÷ 全部 27 段的功率**，未加权线性功率，过帧门的帧上分别累加再相除；帧按分析窗起点（`endSample − 窗长`）归段，窗还没装满的帧不用。
-  帧门 = 总功率 ≥ −70 dBFS（`frameAbsoluteGatePower`），且不低于全曲过绝对门各帧平均 20 dB（插件按学习区间的均值）。
+  帧门 = 总功率 ≥ −70 dBFS（`frameAbsoluteGatePower`），且不低于全曲过绝对门各帧平均 20 dB（插件阶段 1 按学习区间的均值；T-048 阶段 2 起
+  实时段落账按自己的「实时帧均值」，按进来的帧遗忘，同上）。
   三个门限常数照抄 `MusicAnalyzer.cpp`（那边在匿名命名空间里），改那边要同步改 `RenderMain.cpp` 的 `lowShareLastBand` 等。
 - **限幅 GR**（只有成品）：第二遍（或重放）逐块读 `getAndResetLimitGainReductionDb()`（块内最大），块按成品时间轴的起点归段
   （开头延迟段归第 1 段，原曲之后的余振不计）。`gr_over_p95_cap_blocks` = 块 GR 高于这组风格预算 `limitGrP95CapDb` 的块数
@@ -316,20 +342,21 @@ T-048 阶段 2 另外在每张表末尾固定加上 `confidence,current_mainness
 
 ### T-038 追加列（metrics.csv 末尾）
 
-方案、画像、House 各列取**第一遍（聆听）结束时已提交的版本**（门槛 ①「锁定后的方案增益」比的就是它）；有效 Ceiling、跟拍上限、风格预算取成品那一遍。
+方案、画像、House 各列取**第一遍（预热）结束时编排器的状态**：阶段 1 是「已提交的版本」，门槛 ①「锁定后的方案增益」比的就是它；T-048 阶段 2 起
+没有提交与锁定，取的是此刻的目标方案、自动风格权重与链上的实时画像（校准两列恒为 0；House 门控结果不再填，`house_gate_valid` 为 0、其余门控列空，见下表）。有效 Ceiling、跟拍上限、风格预算取成品那一遍。
 重放行（GLAZE 0 的链）不填方案各列；输入行只填 `bpm` / `meter` / `segments_file`。
 
 | 列 | 含义 |
 |---|---|
 | `genre` / `delivery` / `bpm` / `meter` / `listen_from_bar` / `listen_start_s` | 这一组的曲风、交付、模拟走带、第一遍起播小节与秒数 |
-| `listen_has_profile` / `plan_gain_db` / `plan_requested_gain_db` | 第一遍末有没有已提交画像；方案的约束后净提升（`effectiveGainDb`）/ 想要的净提升 |
+| `listen_has_profile` / `plan_gain_db` / `plan_requested_gain_db` | 第一遍末有没有画像（阶段 1 是已提交画像；阶段 2 是编排器读过链上的实时画像就为 1，不代表已热起）；方案的约束后净提升（`effectiveGainDb`）/ 想要的净提升 |
 | `plan_requested_target_lufs` / `plan_effective_target_lufs` | 方案想要 / 约束后的目标响度 |
-| `listen_calibration_valid` / `calibration_bias_db` | 已提交的校准有效 / 校准偏差 |
-| `weight_warm` / `weight_punchy` / `weight_clean` | 方案的风格权重（「自动」风格锁定的那份） |
+| `listen_calibration_valid` / `calibration_bias_db` | 已提交的校准有效 / 校准偏差（阶段 1）；T-048 阶段 2 起没有校准，恒为 0 / 0.000 |
+| `weight_warm` / `weight_punchy` / `weight_clean` | 方案的风格权重（阶段 1 是「自动」风格锁定的那份；阶段 2 不再锁定，是第一遍末那份方案的） |
 | `profile_lufs` / `profile_lra_lu` / `profile_low_share` | 画像 I、LRA、低频占比 |
-| `profile_slope_db_per_oct` | 画像谱斜率（dB / 倍频程，Balance 段内总功率口径，粉噪 = 0；House 档是门控画像的，只算满编段）。T-038 第 5 步标定 Tone 参考斜率用：每个子类取参考曲的中位数 |
-| `house_gate_valid` / `house_segment_mode` / `house_heard_segments` / `house_full_segments` / `house_heard_s` / `house_full_s` / `house_reopens` | 画像格式 3 的 House 门控结果（`MusicProfile::houseGate`；没有时空） |
-| `house_lock_pending` | 第一遍末状态行的「锁定条件还没满足」 |
+| `profile_slope_db_per_oct` | 画像谱斜率（dB / 倍频程，Balance 段内总功率口径，粉噪 = 0；阶段 1 House 档是门控画像的，只算满编段；T-048 阶段 2 起是实时画像的，各曲风都按主段权重（含遗忘）累计）。T-038 第 5 步标定 Tone 参考斜率用：每个子类取参考曲的中位数 |
+| `house_gate_valid` / `house_segment_mode` / `house_heard_segments` / `house_full_segments` / `house_heard_s` / `house_full_s` / `house_reopens` | 画像格式 3 的 House 门控结果（`MusicProfile::houseGate`；没有时空）。T-048 阶段 2 起实时画像是格式 2、不填门控结果，`house_gate_valid` 为 0（第一遍末没有画像时为空）、其余各列为空 |
+| `house_lock_pending` | 第一遍末状态行的「锁定条件还没满足」（T-048 阶段 2 起没有锁定，恒为 0） |
 | `effective_ceiling_dbtp` | 成品最后一块交给限幅器的有效 Ceiling（编码余量、流媒体 −2 dBTP 都已算进去） |
 | `beat_release_cap_ms` | 成品各块慢段释放上限的最大值（House 限幅跟拍；0 = 没封顶） |
 | `budget_limit_gr_mean_db` / `budget_limit_gr_p95_db` / `budget_limit_gr_peak_db` | 成品末尾保护层生效的约束上限 = 风格预算（GLAZE 0 等没设时空） |
@@ -354,14 +381,15 @@ python3 tools/render/house_gate.py <输出> [<输出> …] --annotations <目录
 
 | 门槛 | 判法 |
 |---|---|
-| ① 方案增益 | 同一组设置 `listen_from_bar = 1` 与 `> 1`（drop 起点）两行的 `plan_gain_db` 差 ≤ 0.5 dB，两行第一遍末都「已锁定」；缺从 drop 起播的一行 → N/A |
+| ① 方案增益 | 同一组设置 `listen_from_bar = 1` 与 `> 1`（drop 起点）两行的 `plan_gain_db` 差 ≤ 0.5 dB（阶段 1 表另加校准偏差），两行第一遍末都「已锁定」；行里有 `confidence` 时改为两行都 c ≥ 0.5、只比 `plan_gain_db`（现行工具这一列还空着，见「T-038」一节开头）；缺从 drop 起播的一行 → N/A |
 | ② GR 预算 | 每个 drop 段：块 GR 均值 ≤ `limitGrMeanCapDb`、高于 `limitGrP95CapDb` 的块 ≤ 5 %（= P95 ≤ 上限）、最大 ≤ `limitGrPeakCapDb`（+0.01 dB）；块内最大口径偏严 |
 | ③ 落差 | 每个 breakdown → 下一个 drop：成品的段落响度落差 ≥ 输入的落差 − 1 LU（段落响度 = 段内各小节有效子块的 K 加权能量平均） |
 | ④ 真峰值 | 成品真峰值 ≤ 有效 Ceiling + 0.01 dB；流媒体另查有效 Ceiling ≤ −2.0 dBTP |
 | ⑤ 目标响度 | 只有流媒体 / 俱乐部：目标 = clamp(−10 / −7 + 风格偏移 − LRA 修正, −12～−8 / −9～−5)（规格 4.1 节，按方案权重与画像 LRA 算；规格常数写在脚本里），GLAZE < 100 按决策器同一关系折算 `drop 输入 + GLAZE × (目标 − drop 输入)`；每个 drop 段的成品段落响度在 ±1 LU 内 |
 
 另打印「门控对照」：输入端逐小节按规格 2.3 节离线门控一遍（整首都听过；`--gate-width` / `--low-factor` 可改），列出各段落过门的小节数——标定用，不判定。
-House 档的行若画像没有门控结果（`house_gate_valid` ≠ 1），说明里写明「House 学习方式没有生效」。
+House 档的行若画像没有门控结果（`house_gate_valid` ≠ 1），说明里写明「House 学习方式没有生效」。T-048 阶段 2 起实时画像不填门控结果
+（学习与锁定已取消），这条说明对每个 House 档的行都会出现，不代表异常。
 
 ### 自检（`--selftest-house`）
 
@@ -371,7 +399,7 @@ House 档的行若画像没有门控结果（`house_gate_valid` ≠ 1），说�
 | 不给 `--bpm` | 四类拍点字段都没有，其余同改动前 |
 | 分段网格 | 124 BPM 下 600 个段起点各归本段、前一样本归上一段；不给 `--bpm` 时每段 2 s |
 | 逐段响度 / 短期响度 / 低频占比 | 120 BPM 五小节（静音 / 1 kHz / 1 kHz / 60 Hz + 1 kHz / 静音，−20 dBFS）：响段 −20.0 ± 0.1 LUFS、各 20 个有效子块；段末 S：第 2 小节 −20 + 10·log10(2/3) = −21.76、第 3 小节 −20.0（± 0.1），第 1 小节没有；只有 1 kHz 的段 < 0.005，60 Hz + 1 kHz 等幅约 0.497 ± 0.02（Hann 窗下 60 Hz 约 1.3 % 漏到 35.2 Hz 以下） |
-| 通用档给拍点逐位不变 | GLAZE 35 两遍流程，给不给 `--bpm` 成品哈希相同（新行为都在 House 之后） |
+| 通用档给拍点 | GLAZE 35 两遍流程：给不给 `--bpm` 慢段释放上限都是 0、两次给拍点的成品逐位相同、真峰值不超 Ceiling（+0.01）；给不给 `--bpm` 的成品哈希只打印「信息」。阶段 1 要求给不给 `--bpm` 成品哈希相同（新行为都在 House 之后），T-048 阶段 2 起连续编排器也读 PPQ，不再要求 |
 | House 档限幅跟拍 | Deep House + 124 BPM：慢段释放上限 60000 / 124 / 3 = 161.29 ms；不给拍点为 0 |
 | 交付流媒体 −2 dBTP | 白噪声 0.9：有效 Ceiling 标准 −1 / 流媒体 −2，成品真峰值各自不超（+0.01） |
 | 第一遍从第 N 小节起播 | 第 3 小节 = 第 192000 样本，逐块追踪第一行 4.0000 s |
@@ -380,9 +408,12 @@ House 档的行若画像没有门控结果（`house_gate_valid` ≠ 1），说�
 ## T-048：实时画像追踪与因果重放
 
 规格：设计规格-实时GLAZE-主段与增益（第 1～3 节实时画像、第 7 节因果重放验收）；T-048 阶段 1（`docs/validation/2026-10-02-T048-phase1/`，
-BRIEF 第 3 节、REPORT-A / B / C；阶段 1 修订「回看重判」见 REPORT-A2）。**不给 `--live-trace` 时一切输出与改动前逐字节相同**；给了也只多写
-`live/` 下的追踪、metrics.md 头部一行与每首歌的备注——成品 wav、metrics.csv、`--trace` / `--segments-csv` 的文件都与不给时逐字节相同（追踪不改链的输出，
-验证记录见 REPORT-C）。
+BRIEF 第 3 节、REPORT-A / B / C；阶段 1 修订「回看重判」见 REPORT-A2）。**不给 `--live-trace` 时一切输出与改动前逐字节相同**；给了会多写
+`live/` 下的追踪、metrics.md 头部一行与每首歌的备注。阶段 1 时成品 wav、metrics.csv、`--trace` / `--segments-csv` 的文件都与不给时逐字节相同（追踪不改链的输出，
+验证记录见 REPORT-C）；**T-048 阶段 2 起不再如此**：链自己持有一份实时画像、GLAZE 只读它，而追踪用的 `CeladonChain::setLiveSegmentSink` 是外部探针，
+接上之后段改交给追踪器、不再交给链的那一份，所以存档会变、GLAZE > 0 时成品也会变（`--selftest-live` 改成核对这一契约，见下「自检」；阶段 2 集成说明
+INTEGRATION-NOTES.md，在 docs/validation/2026-10-05-T048-phase2/）。带 `--live-trace` 渲染的成品与指标不等于不带时的；metrics.md 头部那一行
+仍写着「追踪不改链的输出」，是工具里还没改的旧文字。
 
 实时画像现在是**回看重判**（`Source/dsp/LiveProfile.h` 文件头）：最近 512 段放在窗口里，每来一段按此刻的参考（S_ref、lowRef）把窗口里每一段的
 主段度重算一遍、重新合并出画像（= 带遗忘的离线门控）；每一段的画像在「段尾 + 发布延迟（`publishDelaySeconds`，出厂 0.5 s）」这一刻**发布**，
@@ -390,9 +421,10 @@ BRIEF 第 3 节、REPORT-A / B / C；阶段 1 修订「回看重判」见 REPORT
 
 ### 做法
 
-- 每一遍新建的链（第一遍聆听、第二遍成品、两遍重放）`prepare` 之后调 `CeladonChain::setLiveSegmentSink`，接上工具自己的接收者：里面一个
+- 每一遍新建的链（第一遍预热、第二遍成品、两遍重放）`prepare` 之后调 `CeladonChain::setLiveSegmentSink`，接上工具自己的接收者：里面一个
   `LiveProfile`（`prepare (采样率)`、`setConstants (常数, 主段模型)`；主段模型默认 `mainSectionModelFor (这一遍的曲风)`）。分析器随之打开实时
-  模式，实时段落账每定稿一段（有拍点一小节、否则 2 s）就交给接收者，接收者入队交给 `LiveProfile`。
+  模式，实时段落账每定稿一段（有拍点一小节、否则 2 s）就交给接收者，接收者入队交给 `LiveProfile`。T-048 阶段 2 起这一接，段就不再交给链自己的
+  那份实时画像（见本节开头）；改成直接读链内那一份要另改工具。
 - 分析器在每块 `processInput` / `processSpectrum` 末尾把实时段落账**交齐的位置**报给接收者（`advanceTo`：end 不晚于它的段都已交出），接收者转给
   `LiveProfile`：在到期的网格点上做重算的分片、到了发布时刻就发布那一段的画像。追踪器自己不报时间——报「送进链的样本数」会走在交齐位置前面，
   段就可能晚于自己的发布时刻才到（`MusicAnalyzer.h`「时间轴与 advanceTo」）。
@@ -404,7 +436,7 @@ BRIEF 第 3 节、REPORT-A / B / C；阶段 1 修订「回看重判」见 REPORT
   （链在「下一块」开头才交上一块的帧，离线流没有下一块；不交的话歌尾一两段少了最后一块的帧、随块长变），分析器再把开着的段（歌尾不满一小节的
   那一截）就地定稿交出来——最后 `flush`：还没到发布时刻的段按序发布完（各行仍记各自的发布时刻），并读出窗口里每一段的**最终判断**
   （`readJudgements`，写 `__judgements.csv`）。T-048 阶段 1 修订 B2 之前这里要先补一个 0 样本的块，现在不用（`MusicAnalyzerLive` 用例 5d：两种做法交来的段逐字段相同）。
-- **只写一份**：实时画像只看输入（与 GLAZE、风格、修坯、交付无关），同一首歌 × 曲风 × 聆听起点在一次运行里（一次运行只有一组常数、一个模型
+- **只写一份**：实时画像只看输入（与 GLAZE、风格、修坯、交付无关），同一首歌 × 曲风 × 预热起点在一次运行里（一次运行只有一组常数、一个模型
   覆盖，用标签分开）只写第一次跑到的那一遍**第一遍**；其余各遍照样追踪，只与写下的那份逐行比较（`__passes.csv`）。第二遍与重放从不当写下的
   那份：输入尾部多了延迟与余振的补零，歌尾一两段不同。REPORT-C 2.5 节「读档之后分析器不学习，第二遍从第一段起就不同」在 B2（实时段落账与学习
   脱钩）之后不再出现：`9e8575a` 上合成 House（两个曲风；网格里起播 1 / 33 的各组）的第二遍与重放（都从第 1 小节起）与从第 1 小节起的第一遍前
@@ -417,12 +449,13 @@ celadon_render --in <歌曲目录> --out <输出> --glaze 0 --genre deep --bpm 1
                [--live-constants fourOnFloor.gateWidthLu=3.5,newProgramLu=8 --live-tag dg35-np8]
 ```
 
-- `--live-only`：每首歌 × 每个曲风 × 每个聆听起点只跑一遍第一遍（取网格里第一个这样的组合的参数），不出成品、不做重放，指标表只有原始输入行；
+- `--live-only`：每首歌 × 每个曲风 × 每个预热起点只跑一遍第一遍（取网格里第一个这样的组合的参数），不出成品、不做重放，指标表只有原始输入行；
   GLAZE 0 最快（链不按保护层时隙切片）。一首 3～4 分钟的歌约 5 s（回看重判每段约 70 µs 的重算，一首几十毫秒，可以不计）。
 - 与完整跑法（`--glaze 70,100 --style auto,warm --clay auto,off …`、带重放）写出的追踪与 `__final.csv` **逐字节相同**（同一块长；REPORT-C 2.4 节，
   `--selftest-live`「与 GLAZE、风格无关」）。`9e8575a` 上复核（DGX Spark 本机，`REPORT-P1-SPARK-REPLAY.md` 第 2 节）：合成 House（deep / 通用 ×
   起播 1 / 33）与 melodic 1062232（melodic / 通用）的追踪、`__final.csv`、`__judgements.csv` 逐字节相同；带不带 `--live-trace`，成品 wav、metrics.csv、
-  `trace/`、`segments/` 逐字节相同（162 / 162、82 / 82 个文件）。
+  `trace/`、`segments/` 逐字节相同（162 / 162、82 / 82 个文件）。这是阶段 1 的复核：T-048 阶段 2 起接追踪会改链的输出（见本节开头），
+  这后半句不再成立；追踪本身仍与 GLAZE、风格无关（`--selftest-live`「与 GLAZE、风格无关」照旧要求）。
 - 块长：自检合成曲在 512 / 4096 / 480 下逐字节相同（`--selftest-live`）。REPORT-C 2.4 节的真歌块长差别（帧门等三道相对门参考学习区间、学习在宿主
   块边界上停）B2 已去掉：实时段落账的三道门改参考它自己的长期参考（`MusicAnalyzer.cpp` 第「七」节）。复跑（`9e8575a`，DGX Spark 本机，
   `REPORT-P1-SPARK-REPLAY.md` 第 4 节）：Jamendo 45 首 × 4/4 型 / 响度型、合成两首 × 两型，块长 512 与 4096 的追踪、`__final.csv`、`__judgements.csv`、
@@ -549,8 +582,9 @@ Deep House、GLAZE 0、块长 512、出厂常数，走真歌同一套第一遍�
 | 从第 N 小节起播的小节号 | 从第 9 小节起播：小节号按歌曲数（第一段整段在第 9 小节、最后一段在第 37 小节），段起点离网格 ≤ 1 样本 |
 | I 有效、段落门 | 每份画像 I 都有效；breakdown 里首判 m ≥ 0.5 的 0 小节、第二段 drop 里首判 m < 0.5 的 0 小节 |
 | 块长 512 / 4096 / 480 | 追踪逐字节相同、位级摘要相同 |
-| 与 GLAZE、风格无关 | GLAZE 70 温润与 GLAZE 0 的追踪逐字节相同；接不接追踪，第一遍存下的 GLAZE 状态逐字相同 |
-| 追踪不改链的输出 | GLAZE 70 第二遍接不接追踪，成品哈希相同（另打印「信息」：第二遍追踪与第一遍有多少段相同、第一处差在哪些列） |
+| 与 GLAZE、风格无关 | GLAZE 70 温润与 GLAZE 0 的追踪逐字节相同 |
+| 外接追踪改写 LIVE 存档 | 接了追踪，第一遍存下的 GLAZE 状态与不追踪不同（T-048 阶段 2 起探针把段从链的实时画像引走；阶段 1 要求两者逐字相同） |
+| 追踪探针对输出的契约 | GLAZE 70 第二遍：两次不追踪逐位相同、两次追踪逐位相同、接上追踪后成品与不追踪不同（段被引走）、真峰值不超 Ceiling（+0.01）。阶段 1 这一项是「追踪不改链的输出」（接不接追踪成品哈希相同）。另打印「信息」：第二遍追踪与第一遍有多少段相同、第一处差在哪些列 |
 | 主段模型 / 常数穿到画像 | 通用档（响度型）段数相同、摘要不同；`fourOnFloor.confidenceBars=64` 时最终 c 比出厂更低 |
 
 ## 盲听
@@ -614,7 +648,7 @@ python tools/render/codec_tp_check.py --render build/celadon_render \
 | `--streaming-target-lufs -12` | 只在这次进程覆盖流媒体基准目标；原目标的上下界同移（−12 时 −14～−10，−14 时 −16～−12），保留风格偏移、LRA 修正、预算与守护；有效 Ceiling 仍 ≤ −2 dBTP |
 
 `--targets=-10,-12,-14` 是脚本默认对比网格。目标是规划基准，不能当成整首实测 LUFS-I。
-渲染工具仍使用原有「聆听 → 新链读档 → 第二遍导出」流程；连续 GLAZE 的第二遍会继续跟随。
+渲染工具仍使用原有「预热（旧称聆听）→ 新链读档 → 第二遍导出」流程；连续 GLAZE 的第二遍会继续跟随。
 `--reuse-renders` 仅供同一输入和参数下重测编码，不自动验证缓存是否匹配；普通复现请重新渲染。
 `--resume-measurements` 校验输入哈希、渲染二进制和 ffmpeg 版本，跳过 CSV 中已完整测完六种编码的条件；可与 `--reuse-renders` 合用。
 计量定义、适用范围和结果见 [T-085 报告](../../docs/validation/2026-10-08-T085-codec-tp/REPORT.md)。

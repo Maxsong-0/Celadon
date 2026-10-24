@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useId, useRef, type PointerEvent as ReactPointerEvent, type KeyboardEvent } from 'react';
-import Crackle from './Crackle';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, type KeyboardEvent } from 'react';
+import Crackle, { visibleCrackCount } from './Crackle';
+import { angleFor, cometSegments, deadZoneRatio, startAngle as START_RAD, sweep as SWEEP_RAD } from './dialMotion';
+import { useDialControl, type DialGeometry } from './useDialControl';
 import { clamp, cn } from '@/lib/utils';
 
 export interface GlazeKnobProps {
@@ -65,77 +67,111 @@ const PERCENT_W = 20 * 0.63; // 20 px 的「%」字宽，只用来让整串居�
 const R_TRACK = 176;
 const R_DISC = 150;
 const R_DIMPLE = 44;
+const TRACK_WIDTH = 5;
+/** 刻度点所在的圈（插件主旋钮没有刻度点）。 */
+const R_TICKS = R_TRACK + 16;
+/** 外圈的外沿：插件是轨道外 8 px（GlazeKnob.cpp ringHitMargin）；网站轨道外还有一圈刻度点，点上去也该算外圈，外沿放到刻度点外 8（R 200，正好到画布左右边）。 */
+const R_GRAB = R_TICKS + 8;
+/** 彗尾头部满强度时多出的线宽：插件主旋钮 10 px 配轨道半径 102（GlazeKnob.cpp cometExtraWidth），按半径比例换到这里的 176。 */
+const COMET_EXTRA_WIDTH = (10 * R_TRACK) / 102;
+/** 读数在动时，瓷面（开片、釉色、积釉）比例差这么多以内且开片条数没变就不跟（插件 GlazeKnob.cpp porcelainTolerance）。 */
+const PORCELAIN_TOLERANCE = 0.004;
+const DEFAULT_VALUE = 35;
+/**
+ * 外圈 / 中间的分区与拖法（↔ 插件 GlazeKnob::getDialGeometry）：中间半径 = 0.55 × 轨道半径（dialMotion.deadZoneRatio）；
+ * 中间上下拖满量程 250 px（插件 GlazeKnob.cpp fullDragPixels）。
+ */
+const GEOMETRY: DialGeometry = {
+  cx: CX,
+  cy: CY,
+  trackRadius: R_TRACK,
+  deadRadius: deadZoneRatio * R_TRACK,
+  grabRadius: R_GRAB,
+  fullDragPixels: 250
+};
+const toDegrees = (radians: number) => (radians * 180) / Math.PI;
 
 /**
  * 青瓷主旋钮（设计规格-官网 第 5 节）：豆青釉面（与插件同色） + 随 GLAZE 生长的开片 + 边缘积釉 + 底部透光。
  * 中心是同釉的浅凹窝和一圈刻线，指针是釉面边缘刻出的短槽——不再有深色旋钮帽（那样像眼球）。
- * 交互照插件：上下拖动调节，⌘ / Ctrl 精调，滚轮微调，双击回 35，键盘 ↑↓ / PageUp / Home / End。
+ * 交互照插件（T-100 / ADR-037，网站版 T-101，行为在 useDialControl.ts）：外圈点一下跳过去、沿外圈转、快甩松手多滑一段，
+ * 转动时指示点身后拖一条青色彗尾；中间上下拖；⌘ / Ctrl 精调；滚轮微调，双击回 35，键盘 ↑↓ / PageUp / Home / End。
+ * 画的都是「读数」（带弹簧的位置），停稳时就是参数值本身，静止画面与没有动画时一样。
  */
 export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 320, interactive = true, className, label = 'GLAZE' }: GlazeKnobProps) {
   const id = useId().replace(/:/g, '');
-  const drag = useRef<{ startY: number; startV: number; fine: boolean } | null>(null);
   const ref = useRef<SVGSVGElement>(null);
-  // 滚轮处理读最新值用 ref，监听器只挂一次（不随每次数值变化重挂）。
-  const valueRef = useRef(value);
-  valueRef.current = value;
-
   const v01 = clamp(value / 100, 0, 1);
-  const angle = START + SWEEP * v01;
+
+  // 设参数：按 0.1 吸附后交给父组件，返回实际设下的比例（插件里是参数自己的步进吸附）。
+  const commit = useCallback(
+    (p: number) => {
+      const v = clamp(Math.round(p * 100 * 10) / 10, 0, 100);
+      onChange?.(v);
+      return v / 100;
+    },
+    [onChange]
+  );
+  const knob = useDialControl({ value: v01, defaultValue: DEFAULT_VALUE / 100, commit, geometry: GEOMETRY, interactive, svgRef: ref });
+  const { frame, reduceMotion, jumpTo, param } = knob;
+
+  // 数值弧、刻度、指针、紫弧、读数文字都画读数（插件 paintFace：读数钳到 0 ～ 1）。
+  const shown = clamp(frame.reading, 0, 1);
+  const angle = START + SWEEP * shown;
   const autoEnd = clamp(angle + (SWEEP * autoIncrement) / 100, START, START + SWEEP);
-  // 读数一格一个数字：数值变化时整串不左右晃（首屏旋钮一直在慢慢「呼吸」，拖动时也一样）
-  const digits = [...String(Math.round(value))];
+  // 读数一格一个数字：数值变化时整串不左右晃（首屏旋钮一直在慢慢「呼吸」，拖动时也一样）。停稳时直接用参数值（与改前逐字相同）。
+  const digits = [...String(Math.round(frame.settled ? value : shown * 100))];
   const readoutX0 = CX - (digits.length * READOUT_CELL + PERCENT_GAP + PERCENT_W) / 2;
 
-  const set = useCallback((v: number) => onChange?.(clamp(Math.round(v * 10) / 10, 0, 100)), [onChange]);
+  // 彗尾（插件 DialControl::drawComet）：12 段沿轨道画在读数身后，颜色与插件数值弧同一函数（valueArcColour = cyanAt(0.12 + 0.88 x)）。
+  const comet = !reduceMotion && frame.strength > 0 ? cometSegments(angleFor(frame.reading), frame.strength, frame.direction) : [];
 
-  const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (!interactive) return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { startY: e.clientY, startV: value, fine: e.metaKey || e.ctrlKey };
-  };
-  const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (!drag.current) return;
-    const dy = drag.current.startY - e.clientY;
-    const perPixel = (drag.current.fine ? 100 / 8 : 100) / 220; // 拖 220 px 走满刻度；精调慢 8 倍
-    set(drag.current.startV + dy * perPixel);
-  };
-  const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
-    drag.current = null;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      /* 指针已经释放 */
-    }
-  };
+  // 瓷面跟读数（插件 GlazeKnob::needsRender）：动画在跑时差 PORCELAIN_TOLERANCE 以内、开片条数也没变就沿用上一次；
+  // 动画停了就精确落在读数上。插件「减少动效」时也按容差，那是为了省 CPU 栅格化；网站瓷面只是 SVG 属性，停着时一律精确，
+  // 静止画面只由数值决定。插件的 60 ms 限频（minRenderGapMs）同理不搬。
+  const porcelainRef = useRef(shown);
+  const previousPorcelain = porcelainRef.current;
+  const porcelain =
+    frame.running && visibleCrackCount(shown) === visibleCrackCount(previousPorcelain) && Math.abs(shown - previousPorcelain) <= PORCELAIN_TOLERANCE
+      ? previousPorcelain
+      : shown;
+  useLayoutEffect(() => {
+    porcelainRef.current = porcelain;
+  });
+
   const onKey = (e: KeyboardEvent<SVGSVGElement>) => {
     if (!interactive) return;
+    // 网站独有的键盘（无障碍）：同滚轮，直接落到新值、不出彗尾（原版 CometDial 的键盘微调就是这样）。
+    const current = param() * 100;
     const step = e.shiftKey ? 10 : 1;
-    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') set(value + step);
-    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') set(value - step);
-    else if (e.key === 'PageUp') set(value + 10);
-    else if (e.key === 'PageDown') set(value - 10);
-    else if (e.key === 'Home') set(0);
-    else if (e.key === 'End') set(100);
+    let next: number;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') next = current + step;
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') next = current - step;
+    else if (e.key === 'PageUp') next = current + 10;
+    else if (e.key === 'PageDown') next = current - 10;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = 100;
     else return;
+    jumpTo(next / 100);
     e.preventDefault();
   };
 
   useEffect(() => {
-    // 滚轮要 passive: false 才能 preventDefault；React 的 onWheel 是 passive 的，这里手动挂。
+    // 滚轮要 passive: false 才能 preventDefault；React 的 onWheel 是 passive 的，这里手动挂（jumpTo / param 不随渲染变，只挂一次）。
     const el = ref.current;
     if (!el || !interactive) return;
     const handler = (e: globalThis.WheelEvent) => {
       e.preventDefault();
-      set(valueRef.current - Math.sign(e.deltaY) * (e.metaKey || e.ctrlKey ? 0.5 : 2));
+      jumpTo((param() * 100 - Math.sign(e.deltaY) * (e.metaKey || e.ctrlKey ? 0.5 : 2)) / 100);
     };
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
-  }, [interactive, set]);
+  }, [interactive, jumpTo, param]);
 
   // 釉越厚（GLAZE 越大）边缘积釉越深、开片越密越清楚
-  const pool = 0.45 + v01 * 0.55;
+  const pool = 0.45 + porcelain * 0.55;
   // 釉色随 GLAZE 从浅灰青走到较深的豆青：与插件 renderGlaze 同一组端点色、同一条 t^0.75 曲线
-  const depth = Math.pow(v01, 0.75);
+  const depth = Math.pow(porcelain, 0.75);
   const g0 = mixHex('#EFF3ED', '#BFD4C8', depth);
   const g1 = mixHex('#DCE8E1', '#95B5A9', depth);
   const g2 = mixHex('#BCD1C7', '#71978D', depth);
@@ -154,11 +190,7 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
       aria-valuenow={Math.round(value)}
       aria-valuetext={`${Math.round(value)} %`}
       tabIndex={interactive ? 0 : -1}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onDoubleClick={() => interactive && set(35)}
+      {...knob.handlers}
       onKeyDown={onKey}
     >
       <defs>
@@ -208,9 +240,27 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
       </defs>
 
       {/* 270° 轨道 */}
-      <path d={arcPath(CX, CY, R_TRACK, START, START + SWEEP)} stroke="#DCE6E9" strokeWidth="5" fill="none" strokeLinecap="round" />
+      <path d={arcPath(CX, CY, R_TRACK, START, START + SWEEP)} stroke="#DCE6E9" strokeWidth={TRACK_WIDTH} fill="none" strokeLinecap="round" />
       {/* 数值弧：值越大越深 */}
-      {v01 > 0.002 ? <path d={arcPath(CX, CY, R_TRACK, START, angle)} stroke={`url(#${id}-arc)`} strokeWidth="5" fill="none" strokeLinecap="round" /> : null}
+      {shown > 0.002 ? <path d={arcPath(CX, CY, R_TRACK, START, angle)} stroke={`url(#${id}-arc)`} strokeWidth={TRACK_WIDTH} fill="none" strokeLinecap="round" /> : null}
+      {/* 转动时的彗尾：压在数值弧上，头部最宽最实，往后渐细渐隐（线宽 = 轨道宽 + 额外宽 × 权重 × 强度，不透明度 = 权重 × 强度） */}
+      {comet.length ? (
+        <g fill="none" strokeLinecap="round">
+          {comet.map((s, j) => {
+            const amount = s.weight * frame.strength;
+            const middle = ((s.fromAngle + s.toAngle) / 2 - START_RAD) / SWEEP_RAD;
+            return (
+              <path
+                key={j}
+                d={arcPath(CX, CY, R_TRACK, toDegrees(s.fromAngle), toDegrees(s.toAngle))}
+                stroke={cyanAt(0.12 + 0.88 * middle)}
+                strokeOpacity={amount.toFixed(3)}
+                strokeWidth={(TRACK_WIDTH + COMET_EXTRA_WIDTH * amount).toFixed(2)}
+              />
+            );
+          })}
+        </g>
+      ) : null}
       {/* 紫色 = GLAZE 此刻的自动加量 */}
       {autoIncrement > 0.5 && autoEnd > angle + 0.5 ? (
         <path d={arcPath(CX, CY, R_TRACK + 9, angle, autoEnd)} stroke="#6A4DFF" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.85" />
@@ -218,8 +268,7 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
       {/* 刻度点 */}
       {Array.from({ length: 11 }, (_, i) => {
         const a = ((START + (SWEEP * i) / 10 - 90) * Math.PI) / 180;
-        const r0 = R_TRACK + 16;
-        return <circle key={i} cx={CX + r0 * Math.cos(a)} cy={CY + r0 * Math.sin(a)} r={i % 5 === 0 ? 1.8 : 1.1} fill={i / 10 <= v01 + 1e-6 ? '#127F90' : '#C7D3D6'} />;
+        return <circle key={i} cx={CX + R_TICKS * Math.cos(a)} cy={CY + R_TICKS * Math.sin(a)} r={i % 5 === 0 ? 1.8 : 1.1} fill={i / 10 <= shown + 1e-6 ? '#127F90' : '#C7D3D6'} />;
       })}
 
       {/* 落在纸上的接触影 */}
@@ -231,16 +280,16 @@ export default function GlazeKnob({ value, onChange, autoIncrement = 0, size = 3
       </g>
       <g clipPath={`url(#${id}-clip)`}>
         {/* 釉色的起伏：几团极淡的深浅 */}
-        <ellipse cx={CX - 44} cy={CY + 58} rx="92" ry="48" fill="#5C8579" opacity={0.08 + v01 * 0.08} filter={`url(#${id}-soft)`} />
+        <ellipse cx={CX - 44} cy={CY + 58} rx="92" ry="48" fill="#5C8579" opacity={0.08 + porcelain * 0.08} filter={`url(#${id}-soft)`} />
         <ellipse cx={CX + 64} cy={CY - 26} rx="66" ry="40" fill="#FFFFFF" opacity="0.28" filter={`url(#${id}-soft)`} />
         {/* 开片：与插件同一张网（大裂 → 中裂 → 细裂依次露出）；0 % 时没有 */}
         <g transform={`translate(${CX} ${CY})`}>
-          <Crackle radius={R_DISC} value={v01} />
+          <Crackle radius={R_DISC} value={porcelain} />
         </g>
       </g>
       <circle cx={CX} cy={CY} r={R_DISC} fill={`url(#${id}-pool)`} opacity={pool} />
       <circle cx={CX} cy={CY} r={R_DISC - 3} fill="none" stroke={`url(#${id}-rim)`} strokeWidth="6" filter={`url(#${id}-hair)`} />
-      <circle cx={CX} cy={CY} r={R_DISC - 0.75} fill="none" stroke="#3D6258" strokeOpacity={0.3 + v01 * 0.2} strokeWidth="1.5" />
+      <circle cx={CX} cy={CY} r={R_DISC - 0.75} fill="none" stroke="#3D6258" strokeOpacity={0.3 + porcelain * 0.2} strokeWidth="1.5" />
 
       {/* 中心：同釉浅凹窝 + 一圈刻线（上沿暗、下沿亮，像刻出来的） */}
       <circle cx={CX} cy={CY} r={R_DIMPLE} fill={`url(#${id}-dimple)`} />

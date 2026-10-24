@@ -60,7 +60,7 @@ namespace celadon::ui
         // ---- GLAZE 中层 ----
         glazeSubtitle, processed, original, match, matchWithDifference, matchOff, listeningOriginal,
         matchedBy, notMatched, differenceUnknown, drivesParameters, glazeManual, cornerFollowing, legacyDiscarded,
-        hintDrag, hintClick, fine,
+        hintDrag, hintDial, hintClick, fine,
         legendManual, legendAuto, legendAttention,
         chipManual, chipManualLimit, chipPhase, chipExport, chipLimited, chipStarting, chipHolding, chipFollowing,
 

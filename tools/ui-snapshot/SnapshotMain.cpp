@@ -7,7 +7,8 @@
 
     用法：celadon_ui_snapshot --out <目录> [--scale 2] [--only 名字,名字] [--frames N] [--deterministic]
       每种状态一张图：zh-default、en-default、zh-original（A / B 听原声 + 等响）、zh-audition（Gain +8 dB 时 LIMIT 试听差值）、
-      zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-help、zh-advanced、en-advanced（「高级」面板）、
+      zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-settings、zh / en-settings-zoom70（T-102：设置面板，70 % 界面大小）、
+      en-help、zh-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced、zh-input（T-051：频谱仪 IN 虚线开着）；
       T-038（曲风 Deep House、交付 俱乐部）：zh / en-house-layout（两个选择在 GLAZE 标题行左右）、-house-hint（反相提示）。
       T-048 状态行：-status-follow / -guard / -export（跟随、守护退让、导出冷启动，只截胶囊）、-legacy-notice（旧工程提示，左下角）。
@@ -31,6 +32,9 @@
       用于改前改后逐像素对比；听原声那张图的瓷面因此还没换成去色版（换图靠主旋钮的定时器）。T-072 起编辑器定时器里的看门狗
       （垂直同步 100 ms 没来就按墙钟补推频谱仪）在第一次 advanceForSnapshot 之后整个关掉：单帧耗时 ≥ 100 ms（慢机、Debug、机器被占满）
       也不会让频谱仪按墙钟多走一步、出图随机器快慢变（--only check 里有一条守它，见 probeTimerPush）。
+      T-100（ADR-037）：旋钮的读数带弹簧与彗尾。--only check 在滚轮那条之后多一组外圈手感检查（⑤b），⑬ 按读数走弹簧改写；
+      每次存图前所有旋钮先停稳（save 里调 finishMotion），存下的是静止时的样子。
+      T-102：--only check 在语言那条（⑪）之后多一条 ⑪b：设置面板「减少动效」下面那行说明中英都单行放得下、不出省略号。
 
   ==============================================================================
 */
@@ -371,8 +375,22 @@ namespace
         settings.setDefaultZoom (1.0);
     }
 
+    // T-100：旋钮的读数带弹簧，这里不跑消息循环、弹簧停在半路；存图之前一律停稳（读数落到参数值、彗尾清零），
+    // 存下的就是真机静止时的样子，与没有动画时逐像素相同。
+    void settleDials (juce::Component& root)
+    {
+        std::vector<juce::Component*> all { &root };
+        collectDescendants (root, all);
+
+        for (auto* component : all)
+            if (auto* dial = dynamic_cast<celadon::ui::DialControl*> (component))
+                dial->finishMotion();
+    }
+
     bool save (juce::Component& component, float scale, const juce::File& file, juce::Rectangle<int> area = {})
     {
+        settleDials (component);
+
         // area 为空 = 整个组件；否则只存这一块（T-038 的状态行 / 气泡截图只要局部，图小）。
         const auto image = component.createComponentSnapshot (area.isEmpty() ? component.getLocalBounds() : area, true, scale);
         file.deleteFile();
@@ -616,7 +634,12 @@ int main (int argc, char* argv[])
         { "zh-truepeak", celadon::Language::chinese,
           [] (Session& s) { s.setParameter (celadon::param::limitBypass, 1.0f); s.setParameter (celadon::param::colorOutput, 6.0f); }, none },
         { "zh-settings", celadon::Language::chinese, none, [] (Session& s) { s.editor->showSettings (true); } },
+        // T-102：「减少动效」说明补上旋钮后变长，英文也要看；最小档位（70 %）下中英各一张。
+        { "en-settings", celadon::Language::english, none, [] (Session& s) { s.editor->showSettings (true); } },
+        { "zh-settings-zoom70", celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); s.editor->showSettings (true); } },
+        { "en-settings-zoom70", celadon::Language::english, none, [] (Session& s) { s.editor->setZoom (0.7); s.editor->showSettings (true); } },
         { "en-help",     celadon::Language::english, none, [] (Session& s) { s.editor->showHelp (true); } },
+        { "zh-help",     celadon::Language::chinese, none, [] (Session& s) { s.editor->showHelp (true); } },   // T-100：旋钮那条变长，中文也要看
         { "zh-advanced", celadon::Language::chinese, none, [] (Session& s) { s.editor->showAdvanced (true); } },
         { "en-advanced", celadon::Language::english, none, [] (Session& s) { s.editor->showAdvanced (true); } },
         { "zh-target", celadon::Language::chinese, none, [] (Session& s)
@@ -812,6 +835,268 @@ namespace
             knob.mouseWheelMove (mouseEvent (knob, centre, juce::ModifierKeys (juce::ModifierKeys::commandModifier), centre), wheel);
             const auto fine = value (celadon::param::glazeAmount) - before - coarse;
             check (coarse > 0.5f && coarse < 3.0f && fine > 0.0f && fine < coarse, "wheel steps (coarse " + juce::String (coarse, 2) + ", fine " + juce::String (fine, 2) + ")");
+        }
+
+        // ⑤b T-100（ADR-037）：旋钮外圈照 CometDial 的手感——点外圈跳过去、沿外圈拖、快甩多滑一段、拖进底部缺口锁在来的那一端、
+        // ⌘ 相对精调且松开 ⌘ 不跳、外圈双击回默认、小旋钮同样；读数走弹簧、停稳时精确落在参数值上、彗尾熄灭、定时器停；
+        // 减少动效时直接落下。鼠标事件带确定的时间（甩动按事件时间算速度），动画用 advanceMotion 按 1 / 60 s 推，不靠墙钟。
+        {
+            using celadon::ui::DialControl;
+            namespace knobGeometry = celadon::ui::knob;
+
+            auto& glazeDial = static_cast<DialControl&> (knob);
+            const auto glazeBefore = value (celadon::param::glazeAmount);
+            const auto start = juce::Time::getCurrentTime();
+            double clockMs = 0.0;
+
+            const auto event = [&] (juce::Component& target, juce::Point<float> position, juce::ModifierKeys mods, juce::Point<float> down, bool dragged)
+            {
+                const auto time = start + juce::RelativeTime::milliseconds ((juce::int64) clockMs);
+                return juce::MouseEvent { juce::Desktop::getInstance().getMainMouseSource(), position, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                          &target, &target, time, down, time, 1, dragged };
+            };
+            const auto ringPoint = [] (juce::Point<float> dialCentre, float radius, float proportion)
+            {
+                return knobGeometry::pointAt (dialCentre, radius, knobGeometry::angleFor (proportion));
+            };
+            const auto settle = [] (DialControl& dial)
+            {
+                for (int i = 0; i < 600 && dial.isMotionRunning(); ++i)
+                    dial.advanceMotion (1.0 / 60.0);
+            };
+            const auto settledCleanly = [] (const DialControl& dial)
+            {
+                return ! dial.isMotionRunning() && dial.isReadingSettled() && juce::exactlyEqual (dial.getCometStrength(), 0.0f);
+            };
+            const auto tap = [&] (DialControl& dial, juce::Point<float> point)
+            {
+                dial.mouseDown (event (dial, point, leftButton, point, false));
+                dial.mouseUp (event (dial, point, {}, point, false));
+                clockMs += 500.0;
+            };
+            // 沿外圈从 from 拖到 to：steps 步、每步 stepMs，最后一步之后停 pauseMs 再松手。
+            const auto ringDrag = [&] (DialControl& dial, juce::Point<float> dialCentre, float radius, float from, float to, int steps,
+                                       double stepMs, double pauseMs)
+            {
+                const auto down = ringPoint (dialCentre, radius, from);
+                dial.mouseDown (event (dial, down, leftButton, down, false));
+
+                for (int i = 1; i <= steps; ++i)
+                {
+                    clockMs += stepMs;
+                    dial.mouseDrag (event (dial, ringPoint (dialCentre, radius, from + (to - from) * (float) i / (float) steps), leftButton, down, true));
+                }
+
+                clockMs += pauseMs;
+                dial.mouseUp (event (dial, ringPoint (dialCentre, radius, to), {}, down, true));
+                clockMs += 1000.0;
+            };
+
+            const juce::Point<float> glazeCentre (112.0f, 112.0f);
+            constexpr float onRing = 100.0f;
+            const auto glazeAt = [&] { return value (celadon::param::glazeAmount); };
+            const auto percent = [] (float v) { return juce::String (v, 2) + " %"; };
+
+            check (glazeDial.isInRing (ringPoint (glazeCentre, onRing, 0.5f)) && ! glazeDial.isInRing (glazeCentre)
+                       && ! glazeDial.isInRing (glazeCentre.translated (0.0f, -50.0f)) && ! glazeDial.isInRing (glazeCentre.translated (0.0f, -111.0f)),
+                   "T-100 GLAZE: the ring is 56..110 px from the centre; inside stays up / down drag");
+
+            // ① 点外圈：参数直接到所点的角度，读数从原处起弹簧（还在路上），停稳后精确落在参数值上、彗尾熄灭。
+            glazeDial.finishMotion();
+            {
+                const auto point = ringPoint (glazeCentre, onRing, 0.8f);
+                glazeDial.mouseDown (event (glazeDial, point, leftButton, point, false));
+                glazeDial.mouseUp (event (glazeDial, point, {}, point, false));
+                check (std::abs (glazeAt() - 80.0f) < 0.3f, "T-100 click on the ring jumps to that angle (80 %, got " + percent (glazeAt()) + ")");
+                check (glazeDial.isMotionRunning() && ! glazeDial.isReadingSettled(), "T-100 the reading springs there instead of jumping");
+                settle (glazeDial);
+                check (settledCleanly (glazeDial), "T-100 the spring settles exactly on the value; comet out, timer stopped");
+                clockMs += 1000.0;
+            }
+
+            // ② 沿外圈拖、停 120 ms 再松手：值 = 指针所在的角度，不多滑。
+            ringDrag (glazeDial, glazeCentre, onRing, 0.3f, 0.6f, 15, 16.0, 120.0);
+            check (std::abs (glazeAt() - 60.0f) < 0.3f, "T-100 dragging round the ring follows the angle; a pause before release does not glide (60 %, got "
+                                                            + percent (glazeAt()) + ")");
+            settle (glazeDial);
+
+            // ③ 快甩：0.3 → 0.5，每 10 ms 一步，松手前只停 5 ms。头一步离按下点不到 10 px 不算拖，最后 4 个点的速度 2 量程 / 秒，
+            //    落点 0.5 + 2 × 0.099 ≈ 0.698；读数带着松手速度起弹簧，停稳后落在落点上。
+            {
+                ringDrag (glazeDial, glazeCentre, onRing, 0.3f, 0.5f, 10, 10.0, 5.0);
+                check (std::abs (glazeAt() - 69.8f) < 0.5f, "T-100 a quick flick keeps gliding past the release point (released at 50 %, landed "
+                                                                + percent (glazeAt()) + ", expected 69.8 %)");
+                const auto running = glazeDial.isMotionRunning();
+                settle (glazeDial);
+                check (running && settledCleanly (glazeDial), "T-100 after a flick the reading springs to the landing and settles there");
+            }
+
+            // ④ 从 0.9 拖过终点进底部缺口，一直拖到偏左（离起点更近）的地方：锁在最大，不绕回 0。
+            {
+                const auto down = ringPoint (glazeCentre, onRing, 0.9f);
+                glazeDial.mouseDown (event (glazeDial, down, leftButton, down, false));
+
+                for (const auto angle : { knobGeometry::angleFor (0.95f), knobGeometry::endAngle, 0.9f * juce::MathConstants<float>::pi,
+                                          1.08f * juce::MathConstants<float>::pi })
+                {
+                    clockMs += 16.0;
+                    glazeDial.mouseDrag (event (glazeDial, knobGeometry::pointAt (glazeCentre, onRing, angle), leftButton, down, true));
+                }
+
+                clockMs += 120.0;
+                glazeDial.mouseUp (event (glazeDial, knobGeometry::pointAt (glazeCentre, onRing, 1.08f * juce::MathConstants<float>::pi), {}, down, true));
+                clockMs += 1000.0;
+                check (glazeAt() > 99.95f, "T-100 dragging past the end into the bottom gap stays at the maximum (got " + percent (glazeAt()) + ")");
+                settle (glazeDial);
+            }
+
+            // ⑤ ⌘ 在外圈按下：不跳；相对转动、慢 8 倍（转过 0.4 圈的角度只走 +5 %）；拖到一半松开 ⌘：不跳到指针所在的角度，按原速接着转。
+            {
+                session.setParameter (celadon::param::glazeAmount, 40.0f);
+                glazeDial.finishMotion();
+                const auto fineMods = juce::ModifierKeys (leftButton.getRawFlags() | juce::ModifierKeys::commandModifier);
+                const auto down = ringPoint (glazeCentre, onRing, 0.2f);
+                glazeDial.mouseDown (event (glazeDial, down, fineMods, down, false));
+                check (std::abs (glazeAt() - 40.0f) < 0.05f, "T-100 a command-press on the ring does not jump (got " + percent (glazeAt()) + ")");
+
+                for (int i = 1; i <= 20; ++i)
+                {
+                    clockMs += 16.0;
+                    glazeDial.mouseDrag (event (glazeDial, ringPoint (glazeCentre, onRing, 0.2f + 0.4f * (float) i / 20.0f), fineMods, down, true));
+                }
+
+                const auto afterFine = glazeAt();
+                check (std::abs (afterFine - 45.0f) < 0.3f, "T-100 command on the ring turns relative and 8x slower (0.4 of the track -> 45 %, got "
+                                                                + percent (afterFine) + ")");
+
+                for (int i = 1; i <= 5; ++i)
+                {
+                    clockMs += 16.0;
+                    glazeDial.mouseDrag (event (glazeDial, ringPoint (glazeCentre, onRing, 0.6f + 0.1f * (float) i / 5.0f), leftButton, down, true));
+                }
+
+                check (std::abs (glazeAt() - afterFine - 10.0f) < 0.3f, "T-100 letting go of command mid-drag does not jump (+10 % from "
+                                                                            + percent (afterFine) + " to " + percent (glazeAt()) + "; pointer at 70 %)");
+                clockMs += 120.0;
+                glazeDial.mouseUp (event (glazeDial, ringPoint (glazeCentre, onRing, 0.7f), {}, down, true));
+                clockMs += 1000.0;
+                settle (glazeDial);
+            }
+
+            // ⑥ 外圈双击回默认 35 %（第一下点按先跳到所点角度）。
+            {
+                const auto point = ringPoint (glazeCentre, onRing, 0.7f);
+                tap (glazeDial, point);
+                glazeDial.mouseDown (event (glazeDial, point, leftButton, point, false));
+                glazeDial.mouseDoubleClick (event (glazeDial, point, leftButton, point, false));
+                glazeDial.mouseUp (event (glazeDial, point, {}, point, false));
+                check (std::abs (glazeAt() - 35.0f) < 0.05f, "T-100 double-click on the ring -> default 35 % (got " + percent (glazeAt()) + ")");
+                settle (glazeDial);
+            }
+
+            // ⑦ 小旋钮（COLOR 粘合，0 ～ 100）：外圈点按、外圈拖同样生效；帽子上照旧上下拖（180 px 满量程）。
+            {
+                auto& glue = static_cast<DialControl&> (find (celadon::param::colorGlue));
+                const auto glueBefore = value (celadon::param::colorGlue);
+                const juce::Point<float> c (36.0f, 48.0f);
+                constexpr float r = 23.0f;
+                const auto glueAt = [&] { return value (celadon::param::colorGlue); };
+
+                check (glue.isInRing (ringPoint (c, r, 0.5f)) && ! glue.isInRing (c) && ! glue.isInRing (c.translated (0.0f, 16.0f))
+                           && ! glue.isInRing ({ 36.0f, 89.0f }),
+                       "T-100 small knob: the ring is 17..31 px from the centre; the cap and the value row stay up / down drag");
+
+                tap (glue, ringPoint (c, r, 0.75f));
+                check (std::abs (glueAt() - 75.0f) < 0.3f, "T-100 small knob: click on the ring jumps there (75, got " + juce::String (glueAt(), 2) + ")");
+                ringDrag (glue, c, r, 0.75f, 0.25f, 12, 16.0, 120.0);
+                check (std::abs (glueAt() - 25.0f) < 0.3f, "T-100 small knob: dragging round the ring follows the angle (25, got " + juce::String (glueAt(), 2) + ")");
+                drag (glue, c, c.translated (0.0f, -45.0f));
+                check (std::abs (glueAt() - 50.0f) < 0.3f, "T-100 small knob: the cap still drags up / down, 45 px = +25 (got " + juce::String (glueAt(), 2) + ")");
+                settle (glue);
+                check (settledCleanly (glue), "T-100 small knob settles exactly on its value");
+
+                // 外圈拖动的门槛按轨道半径换算（小旋钮 4 px）：沿外圈挪约 5.4 px（0.5 → 0.55）就开始跟着走，不再等转过约 25°。
+                {
+                    const auto down = ringPoint (c, r, 0.5f);
+                    glue.mouseDown (event (glue, down, leftButton, down, false));
+                    clockMs += 16.0;
+                    glue.mouseDrag (event (glue, ringPoint (c, r, 0.55f), leftButton, down, true));
+                    const auto followed = glueAt();
+                    clockMs += 120.0;
+                    glue.mouseUp (event (glue, ringPoint (c, r, 0.55f), {}, down, true));
+                    clockMs += 1000.0;
+                    check (std::abs (followed - 55.0f) < 0.3f, "T-100 small knob: a 5 px move along the ring already counts as a drag (55, got "
+                                                                   + juce::String (followed, 2) + ")");
+                    settle (glue);
+                }
+                session.setParameter (celadon::param::colorGlue, glueBefore);
+                glue.finishMotion();
+            }
+
+            // ⑧ 减少动效：读数直接落下，没有彗尾，也不起定时器。
+            {
+                const auto reducedBefore = glazeDial.getReduceMotion();
+                glazeDial.setReduceMotion (true);
+                tap (glazeDial, ringPoint (glazeCentre, onRing, 0.25f));
+                check (std::abs (glazeAt() - 25.0f) < 0.3f && settledCleanly (glazeDial),
+                       "T-100 reduce motion: the reading lands at once, no comet, no timer");
+
+                // 同 ③ 的快甩：减少动效时不多滑（与改前一样没有惯性），停在松手处 50 %。
+                ringDrag (glazeDial, glazeCentre, onRing, 0.3f, 0.5f, 10, 10.0, 5.0);
+                check (std::abs (glazeAt() - 50.0f) < 0.3f && settledCleanly (glazeDial),
+                       "T-100 reduce motion: a quick flick does not glide (released at 50 %, got " + percent (glazeAt()) + ")");
+                glazeDial.setReduceMotion (reducedBefore);
+            }
+
+            // ⑨ 中间拖到一半按住不动：读数追上手、彗尾熄了，动画就停（按钮还按着也停，不再每帧重画）；松手后照常停稳。
+            {
+                const auto down = glazeCentre;
+                glazeDial.mouseDown (event (glazeDial, down, leftButton, down, false));
+
+                for (int i = 1; i <= 6; ++i)
+                {
+                    clockMs += 16.0;
+                    glazeDial.mouseDrag (event (glazeDial, down.translated (0.0f, -5.0f * (float) i), leftButton, down, true));
+                    glazeDial.advanceMotion (1.0 / 60.0);
+                }
+
+                int frames = 0;
+
+                for (; frames < 600 && glazeDial.isMotionRunning(); ++frames)
+                    glazeDial.advanceMotion (1.0 / 60.0);
+
+                check (frames < 600 && ! glazeDial.isMotionRunning() && juce::exactlyEqual (glazeDial.getCometStrength(), 0.0f),
+                       "T-100 holding still mid-drag: the reading catches up, the comet fades and the timer stops with the button still down (after "
+                           + juce::String (frames) + " frames)");
+
+                clockMs += 200.0;
+                glazeDial.mouseUp (event (glazeDial, down.translated (0.0f, -30.0f), {}, down, true));
+                clockMs += 1000.0;
+                settle (glazeDial);
+                check (settledCleanly (glazeDial), "T-100 releasing after holding still settles exactly on the value");
+            }
+
+            // ⑩ 弹簧正在跑时滚一下滚轮：读数直接跳过去，这一跳不算成速度——下一帧彗尾不猛闪，只按原来的速度慢慢熄。
+            {
+                session.setParameter (celadon::param::glazeAmount, 60.0f);
+                glazeDial.finishMotion();
+                tap (glazeDial, ringPoint (glazeCentre, onRing, 0.3f));   // 弹簧从 60 % 往 30 % 走
+                glazeDial.advanceMotion (1.0 / 60.0);
+                glazeDial.advanceMotion (1.0 / 60.0);
+                const auto before = glazeDial.getCometStrength();
+
+                const juce::MouseWheelDetails wheelDown { 0.0f, -0.47f, false, false, false };
+                glazeDial.mouseWheelMove (event (glazeDial, glazeCentre, {}, glazeCentre, false), wheelDown);
+                glazeDial.advanceMotion (1.0 / 60.0);
+                const auto after = glazeDial.getCometStrength();
+                check (before > 0.0f && after < before, "T-100 a wheel step while the spring runs does not flash the comet (strength "
+                                                            + juce::String (before, 3) + " -> " + juce::String (after, 3) + ")");
+                settle (glazeDial);
+                check (settledCleanly (glazeDial), "T-100 after a wheel step the dial settles exactly on the value");
+            }
+
+            session.setParameter (celadon::param::glazeAmount, glazeBefore);
+            glazeDial.finishMotion();
         }
 
         // ⑥ 行滑条：点在轨道正中 → 50 %。
@@ -1104,6 +1389,34 @@ namespace
             settings->setLanguage (celadon::Language::chinese);
         }
 
+        // ⑪b T-102：设置面板「减少动效」下面那行说明（单行画、放不下截成省略号）中英都放得下。按画它的字体与宽度、用 drawText
+        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同。字体随平台变：
+        // JUCE 在 Linux 上只扫 .ttf / .otf，DGX 的 Noto Sans CJK 是 .ttc、不在字体列表里，界面字体落到 system-ui（DejaVu Sans，
+        // 拉丁字母比苹方、雅黑 UI 都宽），汉字回退到 Noto Sans CJK JP（比雅黑 UI 窄）。所以英文这里过了 Mac / Windows 也放得下，中文还要看雅黑 UI——
+        // 两者都按字体文件另算过：docs/validation/2026-10-18-T102-reduce-motion-note/。
+        for (const auto language : { celadon::Language::chinese, celadon::Language::english })
+        {
+            using celadon::ui::SettingsPanel;
+            const auto text = celadon::ui::tr (celadon::ui::Text::reduceMotionNote, language);
+            const auto font = SettingsPanel::reduceMotionNoteFont();
+            const auto width = SettingsPanel::reduceMotionNoteWidth();
+
+            juce::GlyphArrangement whole, fitted;
+            whole.addLineOfText (font, text, 0.0f, 0.0f);
+            fitted.addCurtailedLineOfText (font, text, 0.0f, 0.0f, width, true);
+
+            auto same = whole.getNumGlyphs() == fitted.getNumGlyphs();
+
+            for (int i = 0; same && i < whole.getNumGlyphs(); ++i)
+                same = whole.getGlyph (i).getCharacter() == fitted.getGlyph (i).getCharacter();
+
+            const auto measured = juce::GlyphArrangement::getStringWidth (font, text);
+            check (same && measured <= width,
+                   juce::String ("T-102 settings: the Reduce motion note fits on one line (") + (language == celadon::Language::chinese ? "zh " : "en ")
+                       + juce::String (measured, 1) + " / " + juce::String (juce::roundToInt (width)) + " px"
+                       + (same ? "" : ", drawText cuts it short") + ")");
+        }
+
         failures += runCacheChecks (session, check);
         runSpectrumChecks (check);   // T-051：失败由 check 计入
         runClayGuardChecks (check);   // T-074：失败由 check 计入
@@ -1371,8 +1684,12 @@ namespace
         }
 
         // ⑬ R9-01 / 07 / 14：整颗主旋钮的缓存图——GLAZE 不动时重画粒子带只贴图；值、听原声一变就重新合成一次。
+        //    T-100：值变了读数走弹簧——减少动效时直接落下、合成一次；正常动效时读数在路上每帧合成一次，停稳（精确落在参数值上、
+        //    彗尾熄、定时器停）之后又只贴图。弹簧按 1 / 60 s 一帧手动推（advanceMotion），不跑消息循环。
         {
             auto& glazeKnob = static_cast<GlazeKnob&> (find (celadon::param::glazeAmount));
+            const auto reducedBefore = glazeKnob.getReduceMotion();
+            glazeKnob.finishMotion();
             paintFrame (editor, target, 1.0f, band);
             const auto before = glazeKnob.getPaintStats();
 
@@ -1385,20 +1702,76 @@ namespace
                        + juce::String (steady.faceRenders - before.faceRenders) + " face renders)");
 
             auto* glaze = session.processor->getParameters().getParameter (celadon::param::glazeAmount);
-            glaze->setValueNotifyingHost (glaze->convertTo0to1 (glaze->convertFrom0to1 (glaze->getValue()) + 1.0f));
+            const auto bump = [glaze] { glaze->setValueNotifyingHost (glaze->convertTo0to1 (glaze->convertFrom0to1 (glaze->getValue()) + 1.0f)); };
+
+            glazeKnob.setReduceMotion (true);
+            bump();
             paintFrame (editor, target, 1.0f, band);
             paintFrame (editor, target, 1.0f, band);
             const auto moved = glazeKnob.getPaintStats();
-            check (moved.faceRenders == steady.faceRenders + 1, "T-032 GLAZE knob: a value change re-composes the face once ("
+            check (moved.faceRenders == steady.faceRenders + 1, "T-032 GLAZE knob (reduce motion): a value change re-composes the face once ("
                                                                     + juce::String (moved.faceRenders - steady.faceRenders) + ")");
+
+            glazeKnob.setReduceMotion (false);
+            bump();
+            int frames = 0;
+
+            while (glazeKnob.isMotionRunning() && frames < 600)
+            {
+                glazeKnob.advanceMotion (1.0 / 60.0);
+                paintFrame (editor, target, 1.0f, band);
+                ++frames;
+            }
+
+            const auto sprung = glazeKnob.getPaintStats();
+            const auto springRenders = sprung.faceRenders - moved.faceRenders;
+            check (frames > 1 && frames < 600 && springRenders > 1 && springRenders <= frames + 1 && glazeKnob.isReadingSettled()
+                       && juce::exactlyEqual (glazeKnob.getCometStrength(), 0.0f),
+                   "T-100 GLAZE knob: the reading springs to a new value, re-composing per moving frame, then settles exactly ("
+                       + juce::String (springRenders) + " face renders over " + juce::String (frames) + " frames)");
+
+            for (int i = 0; i < 5; ++i)
+                paintFrame (editor, target, 1.0f, band);
+
+            const auto settled = glazeKnob.getPaintStats();
+            check (settled.paints == sprung.paints + 5 && settled.faceRenders == sprung.faceRenders,
+                   "T-100 GLAZE knob: once the spring settles, 5 band repaints only blit its cached face ("
+                       + juce::String (settled.faceRenders - sprung.faceRenders) + " face renders)");
 
             glazeKnob.setComparing (true);
             paintFrame (editor, target, 1.0f, band);
             paintFrame (editor, target, 1.0f, band);
             const auto comparing = glazeKnob.getPaintStats();
-            check (comparing.faceRenders == moved.faceRenders + 1, "T-032 GLAZE knob: listening to the original re-composes the face once ("
-                                                                       + juce::String (comparing.faceRenders - moved.faceRenders) + ")");
+            check (comparing.faceRenders == settled.faceRenders + 1, "T-032 GLAZE knob: listening to the original re-composes the face once ("
+                                                                         + juce::String (comparing.faceRenders - settled.faceRenders) + ")");
             glazeKnob.setComparing (session.processor->isComparingOriginal());
+            dispatchEvents (400);
+
+            // 瓷面在动画停下后精确落在读数上：改 0.1 %（比例差 0.001，在动时的容差 0.004 以内），弹簧停稳后让瓷面的定时器跑一会儿，
+            // 瓷面按的比例应当与读数逐位相同（不然静止画面会随动画途中哪一帧生成过瓷面而变）。往裂纹条数不变的方向改：条数一变
+            // 瓷面本来就会重新生成，测不到容差这条路（反向验证时改 0.3 % 正好跨过一条裂纹，撤掉修复也照样过）。
+            {
+                const auto p0 = juce::jlimit (0.0f, 1.0f, glazeKnob.getReadingProportion());
+                const auto porcelainBefore = glazeKnob.getPaintStats();
+                const auto nudge = porcelain::visibleCrackCount (p0 + 0.001f) == porcelain::visibleCrackCount (p0) ? 0.1f : -0.1f;
+                glaze->setValueNotifyingHost (glaze->convertTo0to1 (glaze->convertFrom0to1 (glaze->getValue()) + nudge));
+
+                for (int i = 0; i < 600 && glazeKnob.isMotionRunning(); ++i)
+                    glazeKnob.advanceMotion (1.0 / 60.0);
+
+                dispatchEvents (400);
+                const auto exact = glazeKnob.getPaintStats();
+                const auto reading = juce::jlimit (0.0f, 1.0f, glazeKnob.getReadingProportion());
+                check (juce::exactlyEqual (porcelainBefore.porcelainProportion, p0) && ! juce::exactlyEqual (reading, p0)
+                           && porcelain::visibleCrackCount (reading) == porcelain::visibleCrackCount (p0) && ! glazeKnob.isMotionRunning()
+                           && juce::exactlyEqual (exact.porcelainProportion, reading),
+                       "T-100 GLAZE knob: once the motion stops the porcelain is regenerated exactly at the reading, even within the 0.004 tolerance "
+                       "(porcelain " + juce::String (porcelainBefore.porcelainProportion, 5) + " -> " + juce::String (exact.porcelainProportion, 5)
+                           + ", reading " + juce::String (p0, 5) + " -> " + juce::String (reading, 5) + ", cracks "
+                           + juce::String (porcelain::visibleCrackCount (reading)) + ")");
+            }
+
+            glazeKnob.setReduceMotion (reducedBefore);
             dispatchEvents (400);
         }
 

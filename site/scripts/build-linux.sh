@@ -40,7 +40,7 @@ if [ -f pnpm-lock.yaml ]; then
 else
   pnpm install --prefer-offline 2>&1 | tail -n 5
 fi
-# 构建步骤只在 package.json 的 build 里定义一处：check-i18n → tsc → vite build → 站点地图 → 中文首屏 HTML（ADR-024）
+# 构建步骤只在 package.json 的 build 里定义一处：check-i18n → check-svg-text → check-dial-motion → tsc → vite build → 站点地图 → 中文首屏 HTML（ADR-024）
 echo "--- build（插件版本 ${CELADON_VERSION}）---"
 pnpm run build 2>&1 | grep -vE '^dist/assets/' | tail -n 40
 echo "--- dist ---"

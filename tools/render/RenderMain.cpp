@@ -20,31 +20,44 @@
                          [--live-trace [--live-only] [--live-constants 键=值,…] [--live-model fourOnFloor|loudness|passive] [--live-tag 名字]]
           celadon_render --selftest   （指标算法、文件名、延迟对齐、GLAZE 0 逐位直通、同决策重放的阳性对照；render-linux.sh 渲染前先跑）
           celadon_render --selftest-house   （T-038：模拟走带、分段统计、曲风 / 交付 / 走带穿到链上的阳性对照）
-          celadon_render --selftest-live    （T-048：实时画像追踪的阳性对照——段首尾相接、块长无关、与 GLAZE 无关、不改链的输出）
+          celadon_render --selftest-live    （T-048：实时画像追踪的阳性对照——段首尾相接、块长无关、与 GLAZE 无关、外接追踪探针对存档与成品的契约）
 
-    T-038（曲风与交付，设计规格-曲风与交付、设计规格-曲风-House学习方式）：曲风 / 交付 / 聆听起点是网格的另三维；--bpm 模拟宿主走带
+    T-038（曲风与交付，设计规格-曲风与交付、设计规格-曲风-House学习方式）：曲风 / 交付 / 预热起点（--listen-from-bar；「预热」= 第一遍，
+    旧称「聆听」，见下「每首歌、每组设置分两遍」）是网格的另三维；--bpm 模拟宿主走带
     （每块给速度、PPQ、上一小节起点、拍号）；--segments-csv 逐段（一小节或 2 秒）写输入端与成品的段响度、低频占比、限幅 GR（门控标定、
     House 门槛 tools/render/house_gate.py）。都不给时与改动前逐位相同：HostInfo、网格、文件名、metrics.csv 一字不差。
 
     T-048（实时 GLAZE 阶段 1，设计规格-实时GLAZE-主段与增益 第 7 节「因果重放」）：--live-trace 给每一遍新建的链接上实时画像 LiveProfile
     （分析器实时模式 → 实时段落账 → LiveProfile），逐段写追踪 live/<标签>/（见「T-048 实时画像追踪」一节与 README）；--live-only 只跑第一遍
-    （最快的追踪跑法）。不给这些选项时一切输出与改动前逐字节相同；给了也只多写追踪文件与 metrics.md 的说明（链的输出逐位不变）。
+    （最快的追踪跑法）。不给这些选项时一切输出与改动前逐字节相同；给了会多写追踪文件与 metrics.md 的说明。阶段 1 时链的输出逐位不变；
+    T-048 阶段 2 起链自己持有一份 LiveProfile（GLAZE 只读它），追踪接的 setLiveSegmentSink 是外部探针，会把段从链的那一份引走：
+    存档里的 LIVE 随之改变，GLAZE > 0 时成品也会变（--selftest-live「外接追踪改写 LIVE 存档」「追踪探针对输出的契约」）。
 
-    每首歌、每组设置分两遍（「先完整聆听再出成品」）：
-      1. 聆听：新链 → setParams → prepare（与 PluginProcessor::prepareToPlay 同一顺序），按离线宿主口径（offline、在播、
-         位置随块推进）把整首歌送进链，输出丢弃。GLAZE 在这一遍里学画像、走方案过渡、校准；
-      2. 存档：createGlazeStateXml——即宿主存工程时 GLAZE 那一节（已提交版本 + 执行快照 EXECUTION，含 Clay 实际值与保护状态）；
+    每首歌、每组设置分两遍（「先完整播一遍再出成品」；ADR-030 决定 6：先播一遍再导出，导出从头就到位）：
+      1. 预热（第一遍；命令行、代码里的名字、文件名、CSV 列名与工具打印的文字仍沿用旧称 listen / 聆听）：新链 → setParams → prepare
+         （与 PluginProcessor::prepareToPlay 同一顺序），按离线宿主口径（offline、在播、位置随块推进）把整首歌送进链，输出丢弃。
+         T-048 阶段 2（ADR-030）起没有聆听 / 锁定 / 校准：GLAZE 在这一遍里按链上的实时画像连续调度（每 1 s 重算方案，增量按速率限制
+         推向目标，Limit Gain 另加 G_trim 与三个守门里最深的那份退让；GlazeController.cpp 文件头与 applyLimitExtras），主段统计、
+         自动增量、G_trim 与守门状态随整首歌热起来；
+      2. 存档：createGlazeStateXml——即宿主存工程时 GLAZE 那一节（阶段 2 只存 LIVE：实时画像、已施加的自动增量与 G_trim、风格权重、
+         三个守门与出口电平的状态、修坯的自动值（ClayGuard 之后、三态合成之前）、压力缩放与 ClayGuard 的状态；
+         GlazeController.cpp createStateXml）；
       3. 成品：另起一条新链 → restoreGlazeStateXml → setParams → prepare（= 重开工程后离线导出），从头渲染整首歌，
          末尾补「链延迟 + 余振」个零把尾巴冲出来，丢掉开头「链延迟」个样本：成品与原曲、各组成品之间逐样本对齐。
 
     为什么第二遍用「存档 → 新链读回」，而不是在同一条链上跳回位置 0（handleDiscontinuity）：
       - 新链的各模块、两块表、分析器短期视图都是干净的。同一条链跳回 0 时，限幅器前瞻延迟线、Balance / Clay 滤波器、
-        Glue 包络里还留着歌曲末尾，成品开头会先吐出一小段歌尾；要清就得整链 reset，而编排器的 reset 与「保存重开」本来就走
-        同一个执行快照入口（GlazeController::onHostReset → adoptExecution）——GLAZE 这边两种做法得到的量一样，模块却只有
+        Glue 包络里还留着歌曲末尾，成品开头会先吐出一小段歌尾；要清就得整链 reset。阶段 1 时编排器的 reset 与「保存重开」走同一个
+        执行快照入口（GlazeController::onHostReset → adoptExecution，阶段 2 已删）；阶段 2 起宿主 reset 不清 LIVE，只断开分析器短窗口
+        （开着的实时段截到此刻定稿）、丢掉未完成的保护时隙、清出口电平滤波器与 Clay 压力反馈 / 守护回收监视（GlazeController.h
+        hostReset 注释）；「保存重开」读回存档那一刻的 LIVE——两种做法 GLAZE 接着用的基本是同一份 LIVE（只差开着的那一段），模块却只有
         新链是干净的；
       - 这正是用户真实的流程「听一遍 → 存工程 → 重开 → 离线导出」，也是 Codex rendercheck（tools/perf/bench.mm）验过的路径：
-        实时 / 离线逐样本一致、读回后第一块就保持已执行的控制量。
-    所以成品从第一个样本起就是学好之后（已提交画像、方案、校准、执行快照）的处理。
+        实时 / 离线逐样本一致、读回后第一块就保持已执行的控制量。那是阶段 1 的验收（tools/perf/bench.mm:978 的 rendercheck 至今仍核对
+        存档里有 EXECUTION 节点，阶段 2 的存档已没有它，这一条会判失败、尚未改——归 T-096 (f)）。
+    所以成品从第一块起就接着第一遍末的 LIVE 处理（自动 Clay、Tone / Tame 实时跟随与落差 / PSR 退让要到第一块 endBlock 之后才接上；
+    阶段 1 的说法是「学好之后」）；之后 GLAZE 在成品里继续实时跟随：链上的实时画像
+    接着收这一遍的段，方案每 1 s 重算。
 
     输出（--out 目录）：
       - <歌名>__g<GLAZE>_clay-<auto|off|replay-off>_<风格>.wav：32-bit float，整体响度只乘增益对齐到 --match-lufs（默认 −16 LUFS），
@@ -202,7 +215,9 @@ namespace
         bool metricsOnly = false;   // --metrics-only：照常渲染、量指标，但不写成品 wav（大批歌做门槛验收时用，省几 GB 磁盘与传输）
         bool replay = true;         // 每组 GLAZE > 0 的「自动」之后加「同决策重放 · 修坯关」一行与阳性对照（ADR-016）；--no-replay 关掉
         bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案值 / 宽度保护后 / 实际值、
-                                    // 反相提示、实时相关度、校准状态）与 trace/<成品名>__listen.csv（第一遍逐块的校准状态），诊断用
+                                    // 反相提示、实时相关度、校准列）与 trace/<成品名>__listen.csv（第一遍逐块的 Limit Gain 与校准列），诊断用；
+                                    // T-048 阶段 2 起校准列多为占位（见 calibrationTraceHeader 上方的说明）；实时相关度、guard_seconds 与 Clay 代价 /
+                                    // 混合损失列探针也不再抄写、恒为 0 / 空（GlazeController.cpp probeForTesting；恢复抄写还是标成死列待 Max 定）
 
         // ---- T-038 曲风与交付（设计规格-曲风与交付、设计规格-曲风-House学习方式）----
         std::vector<int> genres { static_cast<int> (celadon::glaze::Genre::general) };          // --genre：网格的一维（glaze::Genre 下标）
@@ -210,13 +225,13 @@ namespace
         double bpm = 0.0;           // --bpm：模拟宿主走带的速度；0 = 不给拍点（HostInfo 与改动前逐位相同）
         int meterNumerator = 4;     // --meter：拍号（只在给了 --bpm 时有意义）
         int meterDenominator = 4;
-        std::vector<int> listenFromBars { 1 };   // --listen-from-bar：第一遍（聆听）从第几小节起播（1 = 从头；网格的一维，要 --bpm）
+        std::vector<int> listenFromBars { 1 };   // --listen-from-bar：第一遍（预热）从第几小节起播（1 = 从头；网格的一维，要 --bpm）
         bool segmentsCsv = false;   // --segments-csv：逐段（有 --bpm 时一段 = 一小节，否则每 2 秒）写输入端 / 成品的统计，见 writeSegments
         bool extended = false;      // 用了上面任一新选项：metrics.csv 末尾追加 T-038 的列、metrics.md 头部多写一行（默认运行的两份表与改动前相同）
 
         // ---- T-048 实时画像追踪（见「T-048 实时画像追踪」一节；不设 extended：metrics.csv 不因追踪多列）----
         bool liveTrace = false;                        // --live-trace：每一遍的链接上实时画像，逐段写 live/<标签>/
-        bool liveOnly = false;                         // --live-only：只跑第一遍（聆听）出追踪，不出成品、不做重放（最快的追踪跑法）
+        bool liveOnly = false;                         // --live-only：只跑第一遍（预热）出追踪，不出成品、不做重放（最快的追踪跑法）
         celadon::glaze::LiveConstants liveConstants;   // --live-constants 覆盖之后的常数（不给 = 出厂值，即 LiveConstants 的默认值）
         std::string liveConstantsText;                 // --live-constants 原文（记进汇总）
         bool liveModelOverride = false;                // --live-model：主段模型不按曲风取（mainSectionModelFor），一律用 liveModel
@@ -372,7 +387,9 @@ namespace
         return "auto";
     }
 
-    // 阶段：CSV 用英文标识（= glaze::Phase 的枚举名），表里用界面状态行的中文说法。
+    // 阶段：CSV 用英文标识（= glaze::Phase 的枚举名），表里用阶段 1 界面状态行的中文说法。T-048 阶段 2 起编排器不再驱动 Phase，
+    // 状态里恒为 unlearned（GlazeTypes.h Status 的注释、GlazeController.cpp publishStatus），这两个函数只为不改指标表与 stderr 进度行的
+    // 格式而留。
     const char* phaseId (Phase phase) noexcept
     {
         switch (phase)
@@ -456,7 +473,7 @@ namespace
         return text;
     }
 
-    // T-038：曲风 / 交付 / 聆听起点不是默认值时接在组合名后面（默认组合的标签与文件名与改动前逐字相同）。
+    // T-038：曲风 / 交付 / 预热起点不是默认值时接在组合名后面（默认组合的标签与文件名与改动前逐字相同）。
     std::string comboSuffix (const Combo& combo, const char* separator)
     {
         std::string text;
@@ -473,7 +490,7 @@ namespace
         return text;
     }
 
-    // 「g35 clay-auto auto」（separator 分隔三段；T-038 非默认的曲风 / 交付 / 聆听起点接在后面，如「g35 · clay-auto · auto · deep · club」）。
+    // 「g35 clay-auto auto」（separator 分隔三段；T-038 非默认的曲风 / 交付 / 预热起点接在后面，如「g35 · clay-auto · auto · deep · club」）。
     std::string comboLabel (const Combo& combo, const char* separator)
     {
         return "g" + formatGlaze (combo.glaze) + separator + "clay-" + clayId (combo.clay) + separator
@@ -1070,7 +1087,7 @@ namespace
     }
 
     // 网格顺序：GLAZE 在外、修坯居中、风格在内——同一 GLAZE 的「自动 / 全关」两组相邻，表里好对比。
-    // T-038 的曲风、交付、聆听起点排在风格之后（默认各只有一个取值：网格与改动前相同）。
+    // T-038 的曲风、交付、预热起点排在风格之后（默认各只有一个取值：网格与改动前相同）。
     std::vector<Combo> makeCombos (const Options& options)
     {
         std::vector<Combo> combos;
@@ -1234,7 +1251,8 @@ namespace
         bool hasSubShare = false;
         double subShareDb = 0.0;           // 真次声（< 16 Hz，8 阶）能量占比（dB）
         double musicSeconds = 0.0;         // 有效音乐时长：K 加权 100 ms 子块在 −70 LUFS 绝对门以上的总时长（与校准器同一门限、同一子块，
-                                           // 静音不算；门槛据此区分「时长不够锁定」，ADR-016）
+                                           // 静音不算；校准器已在 T-048 阶段 2 删掉，这里只是沿用它的门限）。门槛据此区分「时长不够」：
+                                           // 阶段 1 是「不够锁定」，阶段 2 是「不够热起」（ADR-016；gate_check.py 的 MIN_LOCK_MUSIC_SECONDS）
         std::uint64_t hash = 0;            // 逐位核对用（FNV-1a）
     };
 
@@ -1351,7 +1369,8 @@ namespace
         }
 
         // 有效音乐时长：另一块表按 10 s 一段送（子块环形缓冲只存 12.8 s，整段一次送完会丢掉前面的子块），每段读出新完成的子块，
-        // 数 K 加权均方在 −70 LUFS 绝对门以上的（LUFS = −0.691 + 10·log10(均方)，与 GlazeCalibrator 的块选择同口径）。
+        // 数 K 加权均方在 −70 LUFS 绝对门以上的（LUFS = −0.691 + 10·log10(均方)，与阶段 1 GlazeCalibrator 的块选择同口径；
+        // 校准器 T-048 阶段 2 已删，口径照旧）。
         {
             celadon::LoudnessMeter meter;
             const auto chunk = static_cast<int> (std::llround (10.0 * sampleRate));
@@ -1622,7 +1641,7 @@ namespace
     // T-048 实时画像追踪（--live-trace / --live-only / --live-constants / --live-model / --live-tag；设计规格-实时GLAZE-主段与增益
     // 第 7 节「因果重放验收」，T-048 阶段 1 BRIEF 第 3 节）。不给这些选项时下面的东西一样都不跑：链、表、文件名与改动前逐字节相同。
     //
-    // 每一遍新建的链（聆听 / 成品 / 重放）prepare 之后接一个 LiveTraceSink：分析器打开实时模式，实时段落账每定稿一段就交给它，它入队交给
+    // 每一遍新建的链（预热 / 成品 / 重放）prepare 之后接一个 LiveTraceSink：分析器打开实时模式，实时段落账每定稿一段就交给它，它入队交给
     // 实时画像 LiveProfile（T-048 阶段 1 修订「回看重判」：每来一段按此刻的参考把窗口里的段全部重判一遍）。分析器每块报实时段落账交齐的
     // 位置（advanceTo，MusicAnalyzer.h「时间轴与 advanceTo」），接收者转给 LiveProfile；追踪器自己不报时间。
     // LiveProfile 在「段尾 + 发布延迟」这一刻发布那一段的画像，并回调接收者（PublicationListener）：接收者把这一份画像与诊断整份拷进定长
@@ -1630,11 +1649,16 @@ namespace
     // 一行（LiveTracer）。一次 advanceTo 可能发布好几份（大块、补完欠的片），每一份都有自己的快照，所以追踪与宿主块长无关。一遍结束时关实时
     // 模式（链把最后一块还在 Balance 里的帧补交给实时段落账，再交出歌尾，见 LiveTracer::finish），最后 flush（还没到发布时刻的段按序发布完，
     // 各行仍记各自的发布时刻）。
+    // T-048 阶段 2 起链自己持有一份 LiveProfile，GLAZE 只读它；setLiveSegmentSink 是外部探针：接上之后段改交给 LiveTraceSink、不再交给
+    // 链的那一份，所以接了追踪的存档与（GLAZE > 0 时的）成品都与不追踪不同（--selftest-live「外接追踪改写 LIVE 存档」「追踪探针对输出的
+    // 契约」；docs/validation/2026-10-05-T048-phase2/INTEGRATION-NOTES.md）。改成读链内那一份见 LiveTracer::attach 的注释。
     //
-    // 实时画像只看输入（与 GLAZE、风格、修坯、交付无关），所以同一首歌、同一曲风、同一聆听起点、同一组常数只写一份：第一次跑到的那一遍
-    // 聆听（第一遍）写成 live/<标签>/<歌名>__<曲风>[_from-b<N>].csv 与 __final.csv；之后的各遍照样追踪、只与写下的那份逐行比较，结论写进
-    // live/<标签>/<歌名>__passes.csv、metrics.md 的备注与 stderr。第二遍与重放从不当写下的那份：读档之后分析器不学习，实时段落账交来的段
-    // 可能从第一段起就与第一遍不同（差在哪些列见 __passes.csv 的 first_difference_columns），输入尾部还多了延迟与余振的补零。
+    // 实时画像只看输入（与 GLAZE、风格、修坯、交付无关），所以同一首歌、同一曲风、同一预热起点、同一组常数只写一份：第一次跑到的那一遍
+    // 预热（第一遍）写成 live/<标签>/<歌名>__<曲风>[_from-b<N>].csv 与 __final.csv；之后的各遍照样追踪、只与写下的那份逐行比较，结论写进
+    // live/<标签>/<歌名>__passes.csv、metrics.md 的备注与 stderr。第二遍与重放从不当写下的那份：输入尾部多了延迟与余振的补零，歌尾一两段
+    // 不同（差在哪些列见 __passes.csv 的 first_difference_columns）。「读档之后分析器不学习、交来的段从第一段起就不同」是 T-048 阶段 1
+    // 修订 B2 之前的情形，B2 之后只差歌尾（REPORT-P1-SPARK-REPLAY.md 第 2 节；阶段 2 集成时 --selftest-live 的信息行同样只差歌尾段，
+    // REPORT-P2-INTEGRATE-SPARK.md 第 4 节）。
 
     const char* segmentModeId (celadon::glaze::SegmentMode mode) noexcept
     {
@@ -1671,7 +1695,9 @@ namespace
             std::uint64_t sequence = 0;     // 第几份发布（从 0 起，= LiveCommitRecord::sequence = 段的到达序号）
             std::uint32_t epoch = 0;        // 段所属的连续时间段（跳播 / 回绕 / 宿主 reset 之后 + 1）
             bool heard = false;             // 段的「已听」（有效音频 ≥ 半段）
-            int liveTrialBlocks = 0;        // 段里实时试算的有效块数（开始学习后的预热空档在这里看得出来）
+            int liveTrialBlocks = 0;        // 段里实时试算的有效块数（阶段 1 每次开始学习后先试后用从零重新起跑、250 ms 的块不算，
+                                            // 那段空档在这里看得出来；T-048 阶段 2 起 startLearning 是空操作、不再因开始学习而重启，但打开
+                                            // 实时模式时和每个跳播 / 回绕 / 宿主 reset 之后候选仍从零起跑，250 ms 内的块照样不算）
             celadon::glaze::MusicProfile profile;
             celadon::glaze::LiveDiagnostics diagnostics;
         };
@@ -1960,9 +1986,10 @@ namespace
 
         // 消息线程，链 prepare 之后、处理之前（分析器打开实时模式）。passStartSample = 这一遍送进链的第一个样本在歌曲里的位置
         // （从第 N 小节起播时 > 0），追踪的小节号按它换到歌曲的小节网格上（liveTraceRow）。
-        // T-048 阶段 2（Q2）：画像只许链里那一份，--live-trace 改读它的 readCommits / getDiagnostics。
-        // CeladonChain 还没有公开这份画像（编排器代理未合入），这里仍自建 LiveProfile 再 setLiveSegmentSink。
-        // 合入后删掉自建的 sink，attach 改为读链内那一份；对象仍须是链持有的那一个。
+        // T-048 阶段 2（Q2）：画像只许链里那一份，--live-trace 应改读它的 readCommits / getDiagnostics。编排器已合入（PR #63），
+        // CeladonChain 也已公开这份画像（getLiveProfile），但这里还没改：仍自建 LiveProfile 再 setLiveSegmentSink，而这个探针会把段从
+        // 链的那一份引走（接追踪的存档与 GLAZE > 0 时的成品因此会变，见上「T-048 实时画像追踪」一节）。
+        // 待办：删掉自建的 sink，attach 改为读链内那一份；对象仍须是链持有的那一个。
         void attach (celadon::CeladonChain& chain, std::int64_t passStartSample = 0)
         {
             passStart = passStartSample;
@@ -2049,8 +2076,12 @@ namespace
         return std::make_unique<LiveTracer> (sampleRate, options.liveConstants, liveModelFor (options, genre), transport);
     }
 
-    // --trace 的阶段 1 校准诊断列（两遍的追踪共用；T-015 / BUG-003「整首停在校准中」由它们查出）。
-    // 阶段 2 没有校准轮。这些列跟着 GlazeController 的探针走，探针删掉之后改成 confidence,g_trim_db,protection_db,guard_cause。
+    // --trace 的校准列（两遍的追踪共用；列名与次序照旧，CSV 格式不变）。阶段 1 时是校准诊断：T-015 / BUG-003「整首停在校准中」由它们查出。
+    // ADR-030 / T-048 阶段 2 起没有校准器、方案过渡与约束反馈，这些列只是占位：探针（getProbeForTesting）里对应的字段不再被写入，
+    // glaze_phase 取 getPhaseForTesting() 恒为 0（unlearned），其余计数、掩码与校准量恒为 0，plan_transition 读的时候已被 endBlock
+    // 清掉、也恒为 0，feedback_max_db 恒为 99（探针给的是 1e9）。还有读数的只剩 cal_target_db（此刻目标方案的约束后净提升）、
+    // applied_bias_db / executed_bias_db（两列都是 G_trim）与 guard_db（预算环此刻的退让）。原定探针删掉之后把这组列换成
+    // confidence,g_trim_db,protection_db,guard_cause；那要改列名、改 CSV 格式，须另立任务（先问 Max）。
     const char* calibrationTraceHeader() noexcept
     {
         return "glaze_phase,cal_round_active,cal_state,cal_interrupt_mask,cal_gate_mask,cal_rounds_done,cal_subwindows,"
@@ -2078,11 +2109,14 @@ namespace
         std::unique_ptr<juce::XmlElement> state;   // createGlazeStateXml：宿主存工程时 GLAZE 那一节
         Status status;                             // 第一遍结束时的状态
         int nonFiniteBlocks = 0;
-        std::string trace;                         // --trace：第一遍逐块的校准列（不追踪时为空）
-        celadon::glaze::CommittedState committed;  // T-038：第一遍结束时已提交的版本（方案增益、目标、权重、画像；House 门槛 ① / ⑤ 用）
+        std::string trace;                         // --trace：第一遍逐块的 Limit Gain 与校准列（不追踪时为空；校准列阶段 2 起多为占位）
+        celadon::glaze::CommittedState committed;  // T-038：第一遍结束时的 getCommittedStateForTesting（方案增益、目标、权重、画像；
+                                                   // House 门槛 ① / ⑤ 用）。阶段 1 是已提交的版本；T-048 阶段 2 起是此刻的目标方案、
+                                                   // 自动风格权重与编排器最近读到的实时画像（见 csvExtendedFields 上方）
     };
 
-    // 第一遍：整首歌送进一条新链，输出丢弃（GLAZE 学习、方案过渡、校准都在这一遍走完），最后把 GLAZE 状态存下来。
+    // 第一遍（预热）：整首歌送进一条新链，输出丢弃（阶段 1 时 GLAZE 的学习、方案过渡、校准都在这一遍走完；T-048 阶段 2 起是让实时画像、
+    // 自动增量、G_trim 与守门状态随整首歌热起来），最后把 GLAZE 状态（LIVE）存下来。
     // T-038：transport 给模拟走带的拍点；startSample > 0 = 从这个位置起播到歌尾（House 门槛「从 drop 播」；宿主位置照实际样本给）。
     // T-048：live ≠ nullptr 时这一遍接实时画像追踪（见「T-048 实时画像追踪」）。
     ListenResult listenPass (const juce::AudioBuffer<float>& input, double sampleRate, int blockSize,
@@ -2122,7 +2156,8 @@ namespace
 
             if (trace)
             {
-                // 一行 = 一块；t 按输入时间轴（块起点）。聆听、方案过渡、校准、约束反馈都在这一遍走完，校准卡住先看这份。
+                // 一行 = 一块；t 按输入时间轴（块起点）。阶段 1 时聆听、方案过渡、校准、约束反馈都在这一遍走完，校准卡住先看这份；
+                // T-048 阶段 2 起校准列多为占位（见 calibrationTraceHeader 上方），还有读数的是 limit_gain_db 与那里列出的几列。
                 if (result.trace.empty())
                     result.trace = std::string ("t_sec,limit_gain_db,") + calibrationTraceHeader() + "\n";
 
@@ -2167,22 +2202,27 @@ namespace
         std::int64_t blendSamples = 0;
         double slowInvertedPercent = 0.0;  // 分析器慢路低频相关度有效的块里 ρ < −0.2 的占比（%）：歌里有没有真反相段（门槛用）
         double limitInputPeakDb = -1000.0; // 限幅器入口峰值相对 Ceiling 的最大值（dB）= max(GR − 本块实际 Limit Gain)，只计 GR > 0 的块：
-                                           // 扣掉两条链各自校准出的增益差，只剩入口峰值（与 ClayGlazeTests 的 readLimiter 同口径）
+                                           // 扣掉两条链各自施加的 Limit Gain 之差（阶段 1 是校准出的增益差，阶段 2 是自动增量、G_trim
+                                           // 与守门退让的差），只剩入口峰值（与 ClayGlazeTests 的 readLimiter 同口径）
         int nonFiniteBlocks = 0;
         bool latencyChanged = false;
         Status status;                     // 成品末尾的状态
         std::string trace;                 // --trace：逐块 CSV（不追踪时为空）
-        bool hasProfile = false;           // 成品末尾已提交的画像（先试后用的代价等；诊断列）
+        bool hasProfile = false;           // 成品末尾的画像（先试后用的代价等；诊断列）：阶段 1 是已提交画像，T-048 阶段 2 起是
+                                           // 编排器最近读到的实时画像（getCommittedStateForTesting）
         celadon::glaze::MusicProfile profile;
         float clayPressureScale = 1.0f;    // 成品末尾修坯压力反馈的缩放与降档次数（ADR-014）
         int clayPressureSteps = 0;
-        double clayPeakCostDb = 0.0;       // 成品末尾压力反馈第一触发量的代价（与先试同口径，ADR-028）与攒下的有效块数（每块 0.1 s）
+        double clayPeakCostDb = 0.0;       // 成品末尾压力反馈第一触发量的代价（与先试同口径，ADR-028）与攒下的有效块数（每块 0.1 s）；
+                                           // T-048 阶段 2 起编排器探针不抄这两项（GlazeController.cpp probeForTesting），恒为 0 / 空——
+                                           // 恢复抄写还是标成死列待 Max 定
         int clayPeakCostBlocks = 0;
 
         // ---- T-038（metrics.csv 的追加列，见 csvExtendedFields）----
         float effectiveCeilingDb = 0.0f;   // 最后一块交给限幅器的有效 Ceiling（编码余量、流媒体 −2 dBTP 上限都已算进去）
         float beatReleaseCapMaxMs = 0.0f;  // 各块交给限幅器的慢段释放上限的最大值（0 = 一直没封顶；House 限幅跟拍）
-        bool hasGuardLimits = false;       // 成品末尾保护层生效的约束上限（= 风格预算：blendConstants(方案源常数, 方案权重)）
+        bool hasGuardLimits = false;       // 成品末尾保护层生效的约束上限（= 风格预算：blendConstants(常数表, 目标方案权重, 曲风, 交付)，
+                                           // 再把 manualBudgetMask 的项置 0；阶段 1 的「方案源常数」说法已不用）
         celadon::glaze::StyleConstants guardLimits;
         std::vector<BlockReduction> reductions;   // --segments-csv：逐块限幅 GR（不分段时为空）
     };
@@ -2271,6 +2311,9 @@ namespace
     // 之后逐块用 blocks。T-044 之前只记逐块、prepare 前拿第一块顶：第一遍末尾正在降档的歌（存档的压力缩放是目标档，快照里的修坯值
     // 还是降档前的）自动链开头有一段修坯 20 ms 的参数斜坡、重放链没有，阳性对照最大差 −40 ～ −80 dBFS、判 mismatch（改前 Jamendo
     // tech g70 一行，T-044 后降档变多的 emotapes / somggggg / tech 六行）。
+    // 以上「执行快照」是阶段 1 的机制。T-048 阶段 2 起没有执行快照：编排器 prepare 之前不套用存档（GlazeController::restoreStateXml 先暂存，
+    // CeladonChain::prepare 冷启动之后再读回 LIVE），prepare 之前那次 setParams 交的是手动参数（自动增量与自动 Clay 都还是中性，
+    // GlazeController::beginBlock 未 prepare 的分支）；照记照喂的做法不变。
     struct EffectiveLog
     {
         celadon::ChainParams prepared = makeFactoryParams();
@@ -2424,9 +2467,10 @@ namespace
 
     //==============================================================================
     // 同决策重放（ADR-016）：修坯门槛要回答「同样的决策下，修坯开着有没有帮倒忙」。两条各自跑 GLAZE 的链会因为约束反馈、
-    // 保护层发生的时刻不同而走到不同的方案（上限、Glue / Heat 份额、校准偏差都不同），跨链比较量到的多半是方案分岔（T-015 后
-    // WTF g70 两条链上限 1.145 / 0.274 dB）。所以另起一条链：GLAZE 0（编排器不做任何决策，实际参数逐位等于喂进去的值，
-    // 也不按保护层时隙切片），逐块喂「自动」链那一块实际交给模块的全部参数，只把修坯换掉：
+    // 保护层发生的时刻不同而走到不同的方案（上限、Glue / Heat 份额、校准偏差都不同；这是阶段 1 的情形。T-048 阶段 2 起没有约束反馈
+    // 与校准偏差，但 G_trim、预算环与落差守门看的是修坯之后的量（出口响度、模块统计），修坯开关一改，两条链照样分岔），
+    // 跨链比较量到的多半是方案分岔（T-015 后 WTF g70 两条链上限 1.145 / 0.274 dB）。所以另起一条链：GLAZE 0（编排器不做任何决策，
+    // 实际参数逐位等于喂进去的值，也不按保护层时隙切片），逐块喂「自动」链那一块实际交给模块的全部参数，只把修坯换掉：
     //   - off：三项都「关」→ 修坯中性（门槛拿它对比「自动」）；
     //   - copy：三项用「手动」填自动链那一块的实际修坯值 → 应复现自动链（最大样本差 ≤ −180 dBFS，见下；阳性对照：证明重放本身不走样，
     //     包括 GLAZE 0 不切片这一点）。手动收单固定是「比例 1」，收单比例在 0、1 之间的块「手动」态表达不了（ADR-015 起自动收单恒为 0，
@@ -2606,7 +2650,8 @@ namespace
     {
         SegmentGrid grid;
         double subBlockSeconds = 0.1;
-        double referenceLufs = 0.0;                 // 有效音频门的参考 I：整段音频的 BS.1770 整体响度（插件用学习区间的 I，这里用整首）
+        double referenceLufs = 0.0;                 // 有效音频门的参考 I：整段音频的 BS.1770 整体响度（这里用整首；插件阶段 1 用学习区间
+                                                    // 的 I，T-048 阶段 2 起唯一的实时段落账用自己按门块遗忘的「实时 I」，MusicAnalyzer.cpp 第「七」节）
         bool hasReference = false;
         bool droppedFrames = false;                 // 读 Balance 帧时丢过帧（不该发生：每段只送 4096 个样本）
         std::vector<SegmentStat> segments;
@@ -2616,7 +2661,8 @@ namespace
     //   - 段响度（规格第 2.3 节）：段内过了「有效音频」门的 100 ms 子块的 K 加权能量平均，换算成 LUFS。门 = 以本子块结尾的 400 ms 门块
     //     （前 3 个子块用已有的）≥ −70 LUFS，且不低于参考 I − 20 LU——与 MusicAnalyzer 的 effective 同一套判据，参考 I 换成整首的；
     //   - 低频占比（与画像 lowShare 同一口径）：一个独立的 BalanceModule（参数全 0，只用它的分析）逐帧给 27 段功率，过帧门
-    //     （总功率 ≥ −70 dBFS，且不低于全曲过绝对门各帧的平均 20 dB）的帧上 Σ段 0～4 ÷ Σ全部 27 段；插件的相对门按学习区间的均值。
+    //     （总功率 ≥ −70 dBFS，且不低于全曲过绝对门各帧的平均 20 dB）的帧上 Σ段 0～4 ÷ Σ全部 27 段；插件的相对门阶段 1 按学习区间的
+    //     均值，T-048 阶段 2 起实时段落账按自己的「实时帧均值」（按进来的帧遗忘，MusicAnalyzer.cpp 第「七」节）。
     SegmentReport measureSegments (const juce::AudioBuffer<float>& audio, int numSamples, double sampleRate, const SegmentGrid& grid)
     {
         SegmentReport report;
@@ -2933,9 +2979,10 @@ namespace
         double blendIntendedEnergy = 0.0, blendOutputEnergy = 0.0;   // 守护混合损失（T-043）：全曲两份 K 加权能量
         std::int64_t blendSamples = 0;
         Status status;                         // 成品末尾（getGlazeStatus）
-        Phase listenPhase = Phase::unlearned;  // 第一遍（聆听）结束时
+        Phase listenPhase = Phase::unlearned;  // 第一遍（预热）结束时（T-048 阶段 2 起恒为 unlearned）
         std::string fileName;                  // 写成功的成品文件名；失败为空
-        bool hasProfile = false;               // 成品末尾已提交的画像（诊断列：先试后用的代价、真次声、低频相关度）
+        bool hasProfile = false;               // 成品末尾的画像（诊断列：先试后用的代价、真次声、低频相关度）：阶段 1 是已提交画像，
+                                               // T-048 阶段 2 起是编排器最近读到的实时画像
         celadon::glaze::MusicProfile profile;
         float clayPressureScale = 1.0f;
         int clayPressureSteps = 0;
@@ -2945,8 +2992,10 @@ namespace
         double replayMaxDifference = -1.0;     // 阳性对照的最大样本差（线性；< 0 = 没做）
 
         // ---- T-038 追加列（用了新选项时写在 metrics.csv 末尾，见 csvExtendedFields）----
-        celadon::glaze::CommittedState listenCommitted;   // 第一遍（聆听）结束时已提交的版本：方案增益、目标、权重、画像、House 门控结果
-        Status listenStatus;                               // 第一遍结束时的状态（House 锁定进度）
+        celadon::glaze::CommittedState listenCommitted;   // 第一遍（预热）结束时的 getCommittedStateForTesting：方案增益、目标、权重、
+                                                          // 画像。阶段 1 是已提交的版本（含 House 门控结果）；T-048 阶段 2 起是目标方案
+                                                          // 与实时画像，实时画像不填 House 门控结果
+        Status listenStatus;                               // 第一遍结束时的状态（阶段 1 读 House 锁定进度；T-048 阶段 2 起 houseLockPending 恒为 false）
         int listenStartSample = 0;                         // 第一遍从哪个样本起播（--listen-from-bar）
         float effectiveCeilingDb = 0.0f;                   // 成品最后一块交给限幅器的有效 Ceiling
         float beatReleaseCapMaxMs = 0.0f;                  // 成品各块慢段释放上限的最大值（0 = 没封顶）
@@ -3040,7 +3089,8 @@ namespace
         return line;
     }
 
-    // 诊断列：成品末尾已提交画像的某个特征；没有画像、特征无效时为空。
+    // 诊断列：成品末尾画像的某个特征；没有画像、特征无效时为空。阶段 1 是已提交画像；T-048 阶段 2 起 getCommittedStateForTesting 返回
+    // 编排器最近读到的那份实时画像（GlazeController.cpp committedForTesting），四个收单代价停算、trial_mono* 恒为空（LiveProfile.cpp finalizeProfile）。
     std::string profileFeature (const Row& row, const celadon::glaze::Feature& feature, int decimals)
     {
         return ! row.isInput && row.hasProfile && feature.valid ? fixed (feature.value, decimals) : std::string();
@@ -3058,8 +3108,10 @@ namespace
                "segments_file";
     }
 
-    // T-038 追加列的值（含义见 README「T-038 追加列」）。方案 / 画像 / House 门控各列取第一遍（聆听）结束时已提交的版本——
-    // 门槛 ①「锁定后的方案增益」比的就是它；有效 Ceiling、跟拍上限、风格预算取成品那一遍。重放行（GLAZE 0 的链）不填方案各列。
+    // T-038 追加列的值（含义见 README「T-038 追加列」）。方案 / 画像 / House 门控各列取第一遍（预热）结束时的 getCommittedStateForTesting——
+    // 阶段 1 是已提交的版本，门槛 ①「锁定后的方案增益」比的就是它；T-048 阶段 2 起没有提交与锁定，它给的是此刻的目标方案、自动风格权重与
+    // 实时画像，校准两列恒为 0 / 0.000，House 门控结果不再填（实时画像是格式 2，LiveProfile.cpp finalizeProfile）。有效 Ceiling、跟拍上限、
+    // 风格预算取成品那一遍。重放行（GLAZE 0 的链）不填方案各列。
     std::vector<std::string> csvExtendedFields (const SongReport& report, const Row& row, const Options& options)
     {
         const auto empty = std::string();
@@ -3183,9 +3235,13 @@ namespace
             render && ! replay && row.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks
                 ? fixed (row.clayPeakCostDb, 3) : empty,
             render && ! replay ? fixed (0.1 * (double) row.clayPeakCostBlocks, 1) : empty,
-            // T-048 阶段 2。confidence / current_mainness / cold_export / guard_cause / status_line 在 Status 有这些字段之前留空
-            // （空 confidence：gate_check.py / house_gate.py 仍按 glaze_phase + calibration_valid，旧表输出不变）。
-            // protection_db 先写现有的 g_保护。编排器合入后把前五列填上，门槛改看 c ≥ 0.5。
+            // T-048 阶段 2。confidence / current_mainness / cold_export / guard_cause / status_line 五列仍留空：编排器已合入，Status 也有了
+            // confidence、currentMainness、coldExport、guardCause（GlazeTypes.h Status 末尾），但这里还没改成读它们。空 confidence 让
+            // gate_check.py / house_gate.py 退回阶段 1 的判定（glaze_phase = locked 且 calibration_valid = 1；House 门槛 ① 看 listen_phase），
+            // 而阶段 2 的 Phase 恒为 unlearned、calibrationValid 恒为 false（GlazeController.cpp publishStatus）：confidence 等列填上之前按现在的表跑门槛，
+            // 有效音乐 ≥ 30 s、GLAZE > 0 的格子会判失败（gate_check.py「成品末尾却是 unlearned / 校准无效」，house_gate.py 门槛 ①「没都锁定」）。
+            // 填上之后门槛改看 c ≥ 0.5。protection_db 写 Status::protectionDb：阶段 2 是状态行显示的那扇守门的退让（GLAZE 0 或没有守门
+            // 在起作用时为 0）。
             empty,
             empty,
             empty,
@@ -3367,7 +3423,8 @@ namespace
         return md;
     }
 
-    // 第一遍结束时还没到「已锁定」的说明（只对 GLAZE > 0 有意义：GLAZE 0 不校准，也不影响声音）。
+    // 第一遍结束时还没到「已锁定」的说明（只对 GLAZE > 0 有意义：GLAZE 0 不校准，也不影响声音）。这是阶段 1 的备注：T-048 阶段 2 起
+    // Phase 恒为 unlearned，GLAZE > 0 的每组都会走到第一条，这句备注不再说明第一遍有什么问题（改文字或去掉这条备注要另改代码）。
     std::string listenNote (Phase phase)
     {
         switch (phase)
@@ -3401,7 +3458,7 @@ namespace
 
             for (const auto& off : report.rows)
             {
-                // T-038：同一曲风 / 交付 / 聆听起点的两组才成对（默认各只有一个取值，配对与改动前相同）。
+                // T-038：同一曲风 / 交付 / 预热起点的两组才成对（默认各只有一个取值，配对与改动前相同）。
                 if (off.isInput || off.combo.glaze > 0.0f || off.combo.clay != ClayChoice::off
                     || off.combo.style != automatic.combo.style || off.combo.genre != automatic.combo.genre
                     || off.combo.delivery != automatic.combo.delivery || off.combo.listenFromBar != automatic.combo.listenFromBar)
@@ -3628,7 +3685,8 @@ namespace
     };
 
     // 一遍追踪交账：第一遍（pass = listen）且这个（曲风、起点）还没写过 → 写成 <基>.csv 与 <基>__final.csv；否则与写下的那份逐行比较。
-    // 第二遍与重放从不当「写下的那份」：输入尾部多了延迟与余振的补零，读档之后分析器也不学习（交来的段可能从第一段起就不同）。
+    // 第二遍与重放从不当「写下的那份」：输入尾部多了延迟与余振的补零，歌尾一两段不同（「读档之后分析器不学习、交来的段从第一段起就不同」
+    // 是 T-048 阶段 1 修订 B2 之前的情形，见上「T-048 实时画像追踪」一节）。
     void offerLiveTrace (const Options& options, SongReport& report, LiveTraceBook& book, const LiveTracer& tracer, const std::string& pass,
                          const Combo& combo, int startBar, std::int64_t startSample, int& failures)
     {
@@ -3986,7 +4044,7 @@ namespace
         return listenStart > 0 ? combo.listenFromBar : 1;
     }
 
-    // --live-only（T-048 最快的追踪跑法）：每个（曲风、聆听起点）只跑一遍第一遍——取网格里第一个这样的组合的参数（实时画像与 GLAZE、风格、
+    // --live-only（T-048 最快的追踪跑法）：每个（曲风、预热起点）只跑一遍第一遍——取网格里第一个这样的组合的参数（实时画像与 GLAZE、风格、
     // 修坯、交付无关，跑哪一个都一样；GLAZE 0 最快：链不按保护层时隙切片）——出追踪；不出成品、不做重放，指标表只有原始输入行。
     void processSongLiveOnly (const Options& options, const std::vector<Combo>& combos, const Song& song, SongReport& report,
                               const Transport& transport, LiveTraceBook& liveBook, int& failures)
@@ -4017,7 +4075,7 @@ namespace
         }
     }
 
-    // 一首歌：原始输入对照行 + 网格里的每组设置（聆听 → 读回 → 成品 → 量 → 对齐 → 写）。
+    // 一首歌：原始输入对照行 + 网格里的每组设置（预热 → 读回 → 成品 → 量 → 对齐 → 写）。
     void processSong (const Options& options, const std::vector<Combo>& combos, const Song& song,
                       SongReport& report, int& failures, int& written)
     {
@@ -4058,7 +4116,8 @@ namespace
 
             std::cerr << "  [" << (c + 1) << "/" << combos.size() << "] " << label << "：聆听 " << std::flush;
 
-            // ① 第一遍：完整聆听，输出丢弃，最后存 GLAZE 状态。--listen-from-bar N（N > 1）从第 N 小节起播到歌尾（宿主位置照实际样本给）。
+            // ① 第一遍（预热）：整首送进链，输出丢弃，最后存 GLAZE 状态（LIVE）。--listen-from-bar N（N > 1）从第 N 小节起播到歌尾
+            // （宿主位置照实际样本给）。
             const auto listenStart = listenStartFor (combo, transport, numInput);
 
             if (listenStart >= numInput && combo.listenFromBar > 1)
@@ -4142,7 +4201,7 @@ namespace
                     ++failures;
                 }
 
-                // 第一遍（聆听）的校准追踪：trace/<成品名去掉 .wav>__listen.csv。
+                // 第一遍（预热）的逐块追踪（t_sec、limit_gain_db 与校准列）：trace/<成品名去掉 .wav>__listen.csv。
                 const auto listenName = traceName.upToLastOccurrenceOf (".csv", false, false) + "__listen.csv";
 
                 if (! listen.trace.empty()
@@ -4153,7 +4212,8 @@ namespace
                 }
             }
 
-            // 备注：第一遍没走到「已锁定」、链输出出现非有限值、链延迟变化。
+            // 备注：第一遍没走到「已锁定」（T-048 阶段 2 起 Phase 恒为 unlearned，GLAZE > 0 的每组都会记这条，见 listenNote）、
+            // 链输出出现非有限值、链延迟变化。
             if (combo.glaze > 0.0f && listen.status.phase != Phase::locked)
                 report.notes.push_back (notePrefix + listenNote (listen.status.phase));
 
@@ -4413,8 +4473,9 @@ namespace
         //   - 修坯用「手动」照填自动链的实际值 → 成品应复现自动链：最大样本差 ≤ replayTolerance（与真歌同一判据；这段信号上
         //     实测逐位相同，细节里写明是否逐位）；
         //   - 修坯「关」→ 延迟、成品长度与自动链相同。
-        // 信号：两路不相关白噪声（峰值 −26 dBFS）加两声道同相的 8 Hz 正弦（0.1），让自动低切有东西可切；20 s，够聆听（15 s）
-        // 学完、方案过渡走到校准，自动增量、校准偏差都在变。细节里报 GLAZE 是否真的动了、低切是否开过（只作说明，不判定）。
+        // 信号：两路不相关白噪声（峰值 −26 dBFS）加两声道同相的 8 Hz 正弦（0.1），让自动低切有东西可切；20 s。阶段 1 时这够聆听（15 s）
+        // 学完、方案过渡走到校准，自动增量、校准偏差都在变；T-048 阶段 2 起没有学习与校准，编排器连续调度（每 1 s 按实时画像重算方案、
+        // 增量按速率限制推向目标、G_trim 慢修）。细节里报 GLAZE 是否真的动了、低切是否开过（只作说明，不判定）。
         {
             auto signal = testNoise (static_cast<int> (20.0 * selfTestRate), 0.05f);
 
@@ -4656,7 +4717,8 @@ namespace
         }
 
         // ---- 曲风 / 交付 / 走带穿到链上（真歌同一套两遍流程）：信号同 --selftest 的同决策重放（白噪声 −26 dBFS 峰值 + 8 Hz 正弦 0.1，20 s）----
-        //   - 通用档给不给拍点逐位相同（设计规格-曲风与交付 第 1 节：新行为都在 isHouse 之后；通用档不看拍点）；
+        //   - 通用档给拍点：阶段 1 时给不给拍点逐位相同（设计规格-曲风与交付 第 1 节：新行为都在 isHouse 之后；通用档不看拍点）；
+        //     T-048 阶段 2 起连续编排器也读 PPQ，只要求释放上限为 0、重复走带逐位相同、真峰值不超 Ceiling（见下面的用例）；
         //   - House 档 + 124 BPM：交给限幅器的慢段释放上限 = 60000 / 124 / 3 = 161.29 ms（设计规格-曲风-House学习方式 第 8 节；出厂
         //     beatReleaseDivisor 3，出厂自动释放）；House 档不给拍点、通用档给拍点都是 0（不封顶）——证明模拟走带真的送到了链上。
         {
@@ -4777,7 +4839,8 @@ namespace
 
     //==============================================================================
     // T-048 实时画像追踪的自检（--selftest-live）：合成 House 曲走真歌同一套第一遍 / 第二遍，核对追踪管线本身（段首尾相接、按小节对齐、
-    // 块长与 GLAZE 无关、模型与常数真的穿到画像、不改链的输出）与几个命令行约定。与 --selftest / --selftest-house 分开（那两份的项目与
+    // 块长与 GLAZE 无关、模型与常数真的穿到画像、外接追踪探针对存档与成品的契约——阶段 1 查的是「不改链的输出」，T-048 阶段 2 起接追踪
+    // 会把段从链的 LiveProfile 引走，改查「改了」）与几个命令行约定。与 --selftest / --selftest-house 分开（那两份的项目与
     // 输出保持原样）；改了追踪相关的代码在服务器上手动跑（几十秒）。
 
     // 自检用的合成 House 曲（transport 的速度与采样率、4/4）：前奏 introBars 小节只有鼓（底鼓 + 反拍踩镲）→ drop（底鼓更响 + 55 Hz 持续低音
@@ -5043,7 +5106,8 @@ namespace
         }
 
         // 与 GLAZE、风格无关（最快的追踪跑法 = GLAZE 0 的依据）：GLAZE 70、温润的第一遍追踪与 GLAZE 0 的逐字节相同；
-        // 存档与不追踪时逐字相同（追踪不改编排器）；第二遍成品与不追踪时逐位相同（追踪不改链的输出）。
+        // 阶段 1 还要求存档与成品都与不追踪时相同；T-048 阶段 2 起外接追踪把段从链的 LiveProfile 引走，改成核对「存档变了」与下面
+        // 「追踪探针对输出的契约」（两次不追踪、两次追踪各自逐位相同，接上追踪后成品与不追踪不同，真峰值不超 Ceiling）。
         Combo warm70 = deep;
         warm70.glaze = 70.0f;
         warm70.style = static_cast<int> (celadon::glaze::Style::warm);
@@ -5082,8 +5146,9 @@ namespace
                             + (diverted ? "；接上追踪后成品与不追踪不同（段被引走）" : "；接上追踪成品却没变")
                             + "；真峰值 " + fixed (selfTestTruePeak (plainRender), 3) + " / " + fixed (selfTestTruePeak (tracedRender), 3) + " dBTP");
 
-            // 信息（不判定）：第二遍（读档、不学习）的追踪与第一遍有多少段相同、第一处不同差在哪些列——读档之后分析器不学习，
-            // 输入尾部还多了延迟与余振的补零。
+            // 信息（不判定）：第二遍（读档后从第 1 小节起）的追踪与第一遍有多少段相同、第一处不同差在哪些列——输入尾部多了延迟与余振的
+            // 补零（阶段 1 修订 B2 之后与阶段 2 集成时都只差歌尾段。阶段 1 时读档之后分析器不学习，B2 让实时段落账与学习脱钩后
+            // 它不再引起差别；ADR-030 起分析器已没有学习）。
             const auto& second = renderTracer.getResult().rows;
             std::size_t k = 0;
 
@@ -5126,7 +5191,7 @@ namespace
 int main (int argc, char* argv[])
 {
     // FTZ / DAZ（T-032 R10-06）：插件的音频线程在 ScopedNoDenormals 下跑整条链（PluginProcessor::processBuses），这里对整个进程
-    // 设一次——聆听、成品、重放三遍，自检，以及用插件自己的表做的测量都在同一数值环境里（单线程，一次就够）。只影响 < 1.2e-38
+    // 设一次——预热、成品、重放三遍，自检，以及用插件自己的表做的测量都在同一数值环境里（单线程，一次就够）。只影响 < 1.2e-38
     //（约 −758 dBFS）的非规格化数：成品只在歌尾那个量级可能与改动前不同，指标不变。
     juce::ScopedNoDenormals noDenormals;
 

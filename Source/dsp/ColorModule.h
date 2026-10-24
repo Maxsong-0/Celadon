@@ -8,22 +8,43 @@
 
       输入 ─┬─ Tone（100 Hz 低搁架 −Tone / 8 kHz 高搁架 +Tone，double 精度）
       │   → Glue（前馈总线压缩：侧链 100 Hz 高通、左右联动峰值、2:1、6 dB 软拐点、
-      │           攻击 20 ms、释放 50 ～ 500 ms 按近 500 ms 平均压缩量自适应、自动补偿；Glue = 0 彻底关闭。
+      │           攻击 20 ms（一阶时间常数 τ，10 %→90 % 约 44 ms，口径见下「时间口径」；ColorModule.cpp:61、474、1300-1301）、
+      │           释放 50 ～ 500 ms 按近 500 ms 平均压缩量自适应、自动补偿；Glue = 0 彻底关闭。
       │           联动包络仍决定压缩量和表读数。低 / 高两侧若自己更轻，增益最多比联动增益高 3.2 dB，
       │           响的一侧保持原来的压缩；中频直接用联动增益、没有自己的检测器（2026-09-29 T-032 R3-01）。
       │           低 / 高两路的差都为 0 时退回整段同一个增益。
       │           分频只在 Glue 开着时跑；关掉后只留侧链高通，重开时分频从 0 起、由开关淡入。）
             │   → Heat（原声延迟 64 样本 + 非线性残差：M/S → 150 Hz 高通 → 同一 8× Tube(x)−x
-            │           → 5 Hz 去直流 → M/S 解码；Heat = 0 时 20 ms 淡出到等长延迟原声）
+            │           → 5 Hz 去直流 → 高频残差预算（见下）→ M/S 解码；Heat = 0 时 20 ms 淡出到等长延迟原声）
             │   → Mix（干路 = 本模块输入经等长延迟）→ Output
             │                                                         │
             └──────── 等长延迟的干路 ─────────── Bypass 交叉淡化 ←──────┘
 
     Heat 的 h = Heat / 100：Mid 驱动 1+h、不对称 0.04h、残差比例 0.25h；Side 驱动 1+0.5h、
     严格奇对称，残差比例再乘 0.75。原声不经过支路高通；纯 Side 不生成 Mid、mono 不生成 Side。
-    旧 −18 dB 曲线标定表仅作轻微残差 makeup，不补偿或改变低频原声的电平。
+    旧 −18 dB 曲线标定表仅作轻微残差 makeup，不补偿或改变低频原声的电平。表值 = −18 dBFS 正弦的 RMS(输入) /
+    交流 RMS(Tube 输出)，只乘残差（ColorModule.cpp:389-445、1683、1698）。
     延迟固定 = Heat 过采样延迟（整数 64 样本，与采样率、参数都无关）。
     只依赖 juce_dsp，可无头编译做自动测试。
+
+    Heat 高频残差预算（2026-10-10 T-094 补注；protectHeatResidual，ColorModule.cpp:1720-1761，常数在 :509-512、:1740-1750；
+    设计规格-Color 2026-09-26 修订称「高频残差保护」）：
+      - 位置：5 Hz 去直流与残差 makeup 之后、M/S 解码之前，只作用于 M/S 残差；原声不经过它，不对原混音做 EQ。
+      - 拆分：每声道一阶低通（系数 exp(−2π·4000 / fs)，约 4 kHz），高频部分 = 残差 − 低通。
+      - 检测：高频部分按 Side × 0.75、再乘湿路比例，折成实际加进输出的量，M、S 功率相加（= 解码后 L / R 的平均功率）；
+        干路取 Heat 自己的干路（Glue 之后、延迟 64 样本的原声），按声道平均功率。两者各做 τ = 30 ms 一阶平滑。
+      - 目标：每 32 个样本重算一次（计数跨块延续，与块长无关）。高频残差 RMS 超过干路 RMS 的 3.5 %（budget = 0.035²，
+        约 −29.1 dB；允许功率下限 1e-10）时，目标 = √(允许功率 / 高频功率)，最低 0.35（约 −9.1 dB）；没超就是 1。
+      - 施加：增益朝更小走用 τ = 15 ms、回升用 τ = 250 ms，目标为 1 且差 < 1e-9 时精确落到 1。M / S 共用这一个增益，
+        只乘残差的高频部分（低通部分不动），不单独改立体声像。增益为 1 时不施加，输出与关掉预算逐位相同。
+      - Heat 湿路空闲跳过时照样推进检测与低通状态（湿路比例按 0 记），与不跳过逐位相同。
+      - setHeatHighFrequencyProtectionEnabled (false) 只给测试当基线：目标恒为 1、不施加，即没有预算的原拓扑。
+
+    时间口径（2026-10-10 T-094 补注）：Glue 与 Heat 高频预算里的攻击 / 释放 / 平均时间都是一阶时间常数 τ
+    （timeConstantCoeff，coeff = exp(−1 / (τ·fs))，ColorModule.cpp:108-112），不是 10 %→90 % 时间。目标阶跃时
+    10 %→90 % = τ·ln 9 ≈ 2.2 τ：Glue 联动攻击 20 ms 约 44 ms，低 / 高两路攻击 36 / 8 ms 约 79 / 18 ms。按 10 %→90 %
+    定义攻击时间的口径（如 MathWorks 的 compressor）和这里的数字不能直接对照。释放 50 ～ 500 ms、500 ms 平均、
+    高频预算的 30 / 15 / 250 ms 同为 τ。参数平滑与开关淡化的 20 ms 是到点即止的斜坡（juce::SmoothedValue），不是 τ。
 
     沿用 v0.5 性能优化（研究 P3 R1 ～ R4），已适配当前残差拓扑：
       - Heat 的 8× 过采样换成块式 SIMD 半带 FIR（HalfBandOversampler：同系数、同线性相位、同延迟 64）；
@@ -110,7 +131,8 @@ namespace celadon
         // 测试用。默认开着：Heat 与湿路淡化都落到 0 时，5 Hz 直流阻断改吃「近似残差」（见 .cpp processHeat）。
         // 关掉 = 直流阻断永远吃真实8×残差，这时 Heat 湿路不能空闲跳过；只用来量代理近似的差别。
         void setHeatDcProxyEnabled (bool shouldUseProxy) noexcept;
-        // Test baseline: leaves the original dry + nonlinear residual topology.
+        // 测试用。默认开着：Heat 高频残差预算（见文件头）。关掉 = 目标恒为 1、不施加，保留没有预算的「原声 + 非线性残差」
+        // 原拓扑，只当测试基线。getHeatHighFrequencyGainForTesting 读预算当前的增益（0.35 ～ 1，1 = 没收；非原子，与 process 同一线程读）。
         void setHeatHighFrequencyProtectionEnabled (bool enabled) noexcept { heatGuardEnabled = enabled; }
         float getHeatHighFrequencyGainForTesting() const noexcept { return (float) heatGuardGain; }
 
@@ -239,6 +261,8 @@ namespace celadon
         Saturator tube, sideTube;
         BiquadCoefficients heatHighpass;
         std::vector<BiquadState> heatHighpassStates; // 1×，包括 Heat0 时也推进，不能靠有限历史重建 IIR
+        // Heat 高频残差预算的状态与系数（protectHeatResidual，口径见文件头）：每声道约 4 kHz 一阶低通状态、平滑后的干路 /
+        // 高频功率、目标与当前增益、每 32 样本重算的计数、测试开关。
         std::vector<double> heatGuardLow;
         double heatGuardLowCoeff = 0.0, heatGuardPowerCoeff = 0.0;
         double heatGuardAttackCoeff = 0.0, heatGuardReleaseCoeff = 0.0;

@@ -96,9 +96,11 @@ namespace celadon::ui
             // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
            #if JUCE_MAC
             { Text::hintDrag,           "拖动调节 · \xe2\x8c\x98 精调",  "Drag \xc2\xb7 \xe2\x8c\x98 for fine" },
+            { Text::hintDial,           "转外圈 · 中间上下拖 · \xe2\x8c\x98 精调", "Spin the ring \xc2\xb7 drag the centre \xc2\xb7 \xe2\x8c\x98 for fine" },
             { Text::hintClick,          "双击复位 · Option 点击输入", "Double-click reset \xc2\xb7 Option-click to type" },
            #else
             { Text::hintDrag,           "拖动调节 · Ctrl 精调",     "Drag \xc2\xb7 Ctrl for fine" },
+            { Text::hintDial,           "转外圈 · 中间上下拖 · Ctrl 精调", "Spin the ring \xc2\xb7 drag the centre \xc2\xb7 Ctrl for fine" },
             { Text::hintClick,          "双击复位 · Alt 点击输入",  "Double-click reset \xc2\xb7 Alt-click to type" },
            #endif
             { Text::fine,               "精调",                     "Fine" },
@@ -205,13 +207,15 @@ namespace celadon::ui
             { Text::sizeNote,           "也可以拖动窗口右下角自由缩放，比例保持不变；下次打开时沿用这个大小。",
                                         "You can also drag the bottom-right corner; the aspect ratio is kept and the size is remembered." },
             { Text::reduceMotion,       "减少动效",                 "Reduce motion" },
-            { Text::reduceMotionNote,   "关闭粒子、波纹和裂纹生长动画", "Turns off particles, ripples and crack growth" },
+            // 单行画在开关左边（SettingsPanel::reduceMotionNoteWidth），写长了会被截成省略号；截图工具的检查按真字体量中英两句。
+            { Text::reduceMotionNote,   "关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹",
+                                        "No particle, ripple, crack or knob animation" },
             { Text::language,           "语言",                     "Language" },
 
             // ---- 帮助面板 ----
             { Text::helpTitle,          "操作提示",                 "Quick tips" },
-            { Text::helpDrag,           "上下拖动旋钮、左右拖动滑条调节数值",
-                                        "Drag knobs up and down, sliders left and right" },
+            { Text::helpDrag,           "旋钮：沿外圈转动，点外圈直接跳过去，快甩松手还会多滑一段；按住中间上下拖。滑条：左右拖",
+                                        "Knobs: spin the ring, click it to jump there, flick it to keep it gliding; or drag the centre up and down. Sliders: drag left and right" },
            #if JUCE_MAC
             { Text::helpFine,           "按住 \xe2\x8c\x98 拖动或滚动：精调（慢 8 倍）",
                                         "Hold \xe2\x8c\x98 while dragging or scrolling for fine steps (8\xc3\x97 slower)" },

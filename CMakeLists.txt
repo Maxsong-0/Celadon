@@ -137,8 +137,10 @@ set(CELADON_DSP_SOURCES
     Source/dsp/Saturator.cpp
     Source/dsp/TruePeak.cpp)
 
-# 界面里只依赖 juce_core / juce_dsp 的文件：提示文案（测试检查覆盖所有参数）、GLAZE 状态行、界面语言表与频谱仪计算（v0.1.9.0）。
+# 界面里只依赖 juce_core / juce_dsp 的文件：提示文案（测试检查覆盖所有参数）、GLAZE 状态行、界面语言表与频谱仪计算（v0.1.9.0）、
+# 旋钮的彗尾 / 弹簧 / 外圈手感计算（T-100）。
 set(CELADON_HEADLESS_UI_SOURCES
+    Source/ui/DialMotion.cpp
     Source/ui/GlazeStatusText.cpp
     Source/ui/HelpText.cpp
     Source/ui/Localisation.cpp
@@ -208,7 +210,8 @@ add_executable(celadon_tests
     tests/SegmentLedgerTests.cpp
     tests/LiveProfileTests.cpp
     tests/ClayTrialsTests.cpp
-    tests/SpectrumAnalyserTests.cpp)
+    tests/SpectrumAnalyserTests.cpp
+    tests/DialMotionTests.cpp)
 
 # 只对我们自己的代码开严格警告，JUCE 模块按 JUCE 自己的标准编。
 target_compile_options(celadon_tests PRIVATE ${CELADON_WARNING_FLAGS})

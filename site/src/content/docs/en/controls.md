@@ -1,16 +1,19 @@
-Every knob and slider behaves the same way; this text comes from the same source as the plugin's Help panel.
+Every knob behaves the same way, and so does every slider; this text comes from the same source as the plugin's Help panel. A knob has two parts: spin, click or flick the ring, or drag the centre up and down.
 
 ## Adjusting
 
 | Action | macOS | Windows |
 |---|---|---|
-| Adjust | Drag a knob up or down (left / right works too), drag a slider left or right | Same |
-| Fine adjustment (8× slower) | Hold ⌘ while dragging or scrolling | Hold Ctrl while dragging or scrolling |
+| Spin the ring | Turn around the knob's outer ring and the value follows the angle; drag into the gap at the bottom and it stays at the end you came from instead of wrapping from maximum to 0 | Same |
+| Click the ring | Jumps straight to where you clicked | Same |
+| Flick | Flick the ring and let go, and it keeps gliding a little before it settles; pause before letting go and it doesn't | Same |
+| Drag the centre | Hold the centre of a knob and drag up or down (left / right works too); drag a slider left or right | Same |
+| Fine adjustment (8× slower) | Hold ⌘ while dragging or scrolling; on the ring, holding ⌘ switches to relative turning: pressing doesn't jump, the value moves slowly from where it is, and pressing ⌘ halfway through a drag doesn't jump either | Hold Ctrl while dragging or scrolling; on the ring, holding Ctrl switches to relative turning in the same way |
 | Back to the default | Double-click | Double-click |
 | Type a value | Option-click: Return confirms, Esc cancels, clicking elsewhere also confirms; full-width digits from a Chinese input method are accepted | Alt-click (releasing Alt won't activate the host's menu bar) |
 | Small steps | Mouse wheel | Mouse wheel |
 
-While you drag, a dark value bubble appears above the control (with a small “Fine” tag during fine adjustment). Every parameter goes through the host's parameter attachment: one drag = one gesture, and automation and undo are recorded per gesture.
+As a knob turns, a cyan comet tail trails behind its pointer, longer and thicker the faster it moves. When the value changes from a click on the ring, a double-click back to the default, host automation, a preset or undo, the pointer springs over to it and settles exactly on the parameter value. While you drag, a dark value bubble appears above the control (with a small “Fine” tag during fine adjustment). Every parameter goes through the host's parameter attachment: one drag = one gesture (the extra glide after a flick is part of it), and automation and undo are recorded per gesture.
 
 ## Colours
 
@@ -24,7 +27,7 @@ Cyan = your settings; violet = GLAZE's automatic increment right now; orange = n
 ## Settings and Help
 
 - **Language**: switch between `中` and `EN` in one click; every instance switches at once.
-- **Reduce motion**: turns off particles, ripples and crack fade-ins.
+- **Reduce motion**: turns off particles, ripples and crack fade-ins; knobs show no comet tail and no spring, and a flick doesn't glide; the dot in the top bar's status pill doesn't pulse either.
 - **Help**: the original text of the control hints above.
 
 ## Hover help

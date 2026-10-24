@@ -1,0 +1,19 @@
+# DGX（Ubuntu aarch64）上 JUCE 实际用的两种字体：拉丁字母 DejaVu Sans（system-ui），汉字回退 Noto Sans CJK JP。
+# 同一行混排时各字按自己的字体算，中文行全是汉字与全角标点、英文行全是拉丁字母，所以各看一种即可。
+# DejaVu Sans：/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+DejaVu Sans Book: JUCE 高度 11.0 → em 9.45 px
+    0.0 px   14 字  关闭粒子、波纹和裂纹生长动画  缺字 ['关', '闭', '粒', '子', '、', '波', '纹', '和', '裂', '纹', '生', '长', '动', '画']
+  208.9 px   45 字  Turns off particles, ripples and crack growth
+    0.0 px   24 字  关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹  缺字 ['关', '掉', '粒', '子', '、', '波', '纹', '与', '裂', '纹', '淡', '入', '，', '旋', '钮', '也', '不', '拖', '彗', '尾', '、', '不', '回', '弹']
+  205.4 px   44 字  No particle, ripple, crack or knob animation
+  263.7 px   59 字  No particles, ripples, crack fade-ins, knob tails or spring
+  391.3 px   85 字  turns off particles, ripples and crack fade-ins, and the knobs' comet tail and spring
+
+# Noto Sans CJK JP：/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+Noto Sans CJK JP Regular: JUCE 高度 11.0 → em 7.60 px
+  106.4 px   14 字  关闭粒子、波纹和裂纹生长动画
+  155.4 px   45 字  Turns off particles, ripples and crack growth
+  182.3 px   24 字  关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹
+  153.8 px   44 字  No particle, ripple, crack or knob animation
+  195.7 px   59 字  No particles, ripples, crack fade-ins, knob tails or spring
+  289.8 px   85 字  turns off particles, ripples and crack fade-ins, and the knobs' comet tail and spring
