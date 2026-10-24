@@ -63,7 +63,7 @@ namespace celadon::glaze
 
         const auto before = reliefDb;
         const auto dt = (float) stepSeconds;
-        auto sustainedBelow = false;
+        auto belowNow = false;   // 本步读数低于门槛：engaged 的「仍低」看它；持续满 3 s 只决定要不要再退
 
         if (musicActive && ! enabled)
         {
@@ -77,11 +77,11 @@ namespace celadon::glaze
 
             if (psr < trip)
             {
+                belowNow = true;
                 belowSeconds += stepSeconds;
                 aboveSeconds = 0.0;
-                sustainedBelow = reached (belowSeconds, sustainSeconds);
 
-                if (sustainedBelow && reliefDb > retreatBoundDb)   // Q15 A：已比界深就保持，不回弹
+                if (reached (belowSeconds, sustainSeconds) && reliefDb > retreatBoundDb)   // Q15 A：已比界深就保持，不回弹
                     reliefDb = juce::jmax (juce::jmax (floorDb, retreatBoundDb), reliefDb - retreatDbPerSecond * dt);
             }
             else if (psr >= trip + (double) releaseHysteresisDb)
@@ -100,9 +100,12 @@ namespace celadon::glaze
         }
         // 其余（非有效音乐，或读数无效）：计时与退让都保持。
 
-        // engaged = 本步在退，或已退到底（floorDb 与 Q15 A 的界中较浅的那个）仍低于门槛。到界停住时也算在起作用：
-        // 状态行「已经退到底仍超」靠它（同预算环 planLimited）；界为 0（没有自动部分）时没有退让可报，不算。
-        engaged = reliefDb < before || (sustainedBelow && reliefDb < 0.0f && reliefDb <= juce::jmax (floorDb, retreatBoundDb));
+        // engaged = 本步在退，或已退到底（floorDb 与 Q15 A 的界中较浅的那个）且本步读数仍低于门槛。到界停住、或比界深而保持时也算在起作用：
+        // 状态行「已经退到底仍超」靠它（同预算环 planLimited && lastOver，看此刻超没超、不等持续）。不看 3 s 持续：持续计时被换交付档、
+        // 或一步落进两线之间清零后，守门还在底上、读数也仍低，状态行不该空 3 s 显示「跟随」。底为 0（界为 0 = 没有自动部分，
+        // applyLimitExtras 一点也退不了）时不算，哪怕早先退下的量还保持着。
+        const auto bottom = juce::jmax (floorDb, retreatBoundDb);
+        engaged = reliefDb < before || (belowNow && bottom < 0.0f && reliefDb <= bottom);
         return current();
     }
 

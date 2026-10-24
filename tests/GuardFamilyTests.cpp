@@ -19,6 +19,7 @@
         非有效音乐 / 一侧窗断开时直方图、计时、退让全保持；格内线性插值的分位；同一串子块逐位确定；
         存读（新节点往返逐位、0.1.8.10 要的占位、旧环节点、损坏拒收）；
       - Q15 A 的界（setRetreatBoundDb）：界内照常退、到界停住且 engaged、界变浅保持不回弹、界变深接着退、界为 0 不退不报；
+        到底后 engaged 看本步读数（换交付档清掉持续计时后仍超就立即报）；
       - 两个守门的音频线程路径不分配；
       - 常数：守门开关出厂值、按曲风查询、快照四个字段、旧快照缺字段取出厂值、改开关 bitwiseEqual 判不同。
 
@@ -1544,11 +1545,13 @@ namespace celadon::test
         // T-097 Q15 A：两个守门的「再往下退的界」= −自动加上去的全部（规格总钳位 g_守护 ≥ −max(0, 增量.gain + G_trim)），
         // 编排器每个子块用 setRetreatBoundDb 交进来。界内照常退、退到界为止；界变浅（自动部分变小）时退让保持、不往回弹
         // （回弹会把刚退掉的推回去，守门与界互相顶）；界再变深就接着退。floorDb 仍是绝对下限（这里的界都在 −3 之上，不碰它）。
-        // 到界停住（或比界深而保持）且仍超时 engaged：状态行「已经退到底仍超」靠它；界为 0（没有自动部分）时不退、不算 engaged。
+        // 到界停住（或比界深而保持）且仍超时 engaged：状态行「已经退到底仍超」靠它；界为 0（没有自动部分）时不退、不算 engaged，
+        // 早先退下的量还保持着也不算（muse 2026-10-23 第二意见）。
         void testRetreatBound()
         {
             beginTest ("guards (Q15 A): retreat stops at the bound -automaticTotal; a shallower bound holds (no rebound); a deeper bound resumes; "
-                       "held at the bound while still over is engaged; a bound of 0 never retreats and is never engaged");
+                       "held at the bound while still over is engaged (this step's reading, not the sustain timer); a bound of 0 never retreats and is never engaged, "
+                       "even with a held relief");
 
             {
                 // 落差：loss 3，第 857 个起每步退 0.01 dB。
@@ -1586,6 +1589,20 @@ namespace celadon::test
 
                 expectEquals (f.relief(), -2.0f, "contrast: stops exactly at the new bound -2.0");
                 expect (f.guard.current().engaged, "contrast: held at the new bound, still over: engaged");
+
+                // 自动部分没了（界回到 0）：−2 照样保持（不回弹），但没有可退的了，不报 engaged；cause 仍跟着保持的退让。
+                f.guard.setRetreatBoundDb (0.0f);
+                auto badAtZero = 0;
+
+                for (int k = 0; k < 50; ++k)
+                {
+                    const auto step = f.feed();
+
+                    if ((step.reliefDb != -2.0f || step.engaged || step.cause != GuardCause::contrast) && badAtZero == 0)
+                        badAtZero = f.nextIndex;
+                }
+
+                expectEquals (badAtZero, 0, "contrast: bound back to 0 with -2 held -> holds, not engaged, cause contrast");
             }
 
             {
@@ -1640,6 +1657,19 @@ namespace celadon::test
 
                 expectEquals (f.relief(), -2.0f, "psr: deeper bound -> retreats again and stops exactly at -2.0");
                 expect (f.guard.current().engaged, "psr: held at the new bound, still below: engaged");
+
+                f.guard.setRetreatBoundDb (0.0f);
+                auto badAtZero = 0;
+
+                for (int k = 0; k < 50; ++k)
+                {
+                    const auto step = f.feed (6.0);
+
+                    if ((step.reliefDb != -2.0f || step.engaged || step.cause != GuardCause::psr) && badAtZero == 0)
+                        badAtZero = f.calls;
+                }
+
+                expectEquals (badAtZero, 0, "psr: bound back to 0 with -2 held -> holds, not engaged, cause psr");
             }
 
             {
@@ -1657,6 +1687,69 @@ namespace celadon::test
                 }
 
                 expectEquals (firstBad, 0, "psr: bound 0 -> relief stays +0, never engaged, cause none");
+            }
+
+            {
+                // 到底以后 engaged 看本步读数、不等持续（2026-10-23 Codex 审查）：loss 1.3 在标准档门槛 1.2 之上、俱乐部档（1.5）的两线之间。
+                // 标准档退到界 −1 停住 → 切俱乐部一步（两线之间：计时清零、不报）→ 切回标准档，第一步起就报 engaged（不空 10 s 显示「跟随」）。
+                const auto firstRetreat = windowFillSubBlocks + measuredStepsToFull() + stepsToReach (ContrastGuard::triggerSeconds) - 1;   // 857
+                ContrastFeeder f (1.3);
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.nextIndex < firstRetreat + 150)
+                    f.feed();
+
+                expectEquals (f.relief(), -1.0f, "contrast (loss 1.3): standard delivery retreats to the bound -1.0");
+                expect (f.guard.current().engaged, "contrast (loss 1.3): held at the bound, over the standard threshold: engaged");
+                expect (f.reading().judged && std::abs (f.reading().lossLu - 1.3f) < 1.0e-3f, "contrast: (premise) loss 1.3 judged");
+
+                f.club = true;
+                const auto between = f.feed();
+                expect (between.reliefDb == -1.0f && ! between.engaged && between.cause == GuardCause::contrast,
+                        "contrast: one club step (loss 1.3 between the lines) -> holds, not engaged");
+
+                f.club = false;
+                auto firstBad = 0;
+
+                for (int k = 0; k < 120; ++k)
+                {
+                    const auto step = f.feed();
+
+                    if ((step.reliefDb != -1.0f || ! step.engaged || step.cause != GuardCause::contrast) && firstBad == 0)
+                        firstBad = f.nextIndex;
+                }
+
+                expectEquals (firstBad, 0, "contrast: back to standard -> engaged from the first step (the 10 s sustain only gates retreating)");
+            }
+
+            {
+                // PSR 同理：一直喂 6（标准档门槛 7.5 之下），退到界 −1 停住 → 切俱乐部一步（门槛 5.5，6 不在门槛之下：计时清零、不报）
+                // → 切回标准档，第一步起就报 engaged（不空 3 s）。
+                const auto firstRetreat = windowFillSubBlocks + stepsToReach (PsrGuard::sustainSeconds);   // 59
+                PsrFeeder f;
+                f.guard.setRetreatBoundDb (-1.0f);
+
+                while (f.calls < firstRetreat + 40)
+                    f.feed (6.0);
+
+                expectEquals (f.relief(), -1.0f, "psr: standard delivery retreats to the bound -1.0");
+                expect (f.guard.current().engaged, "psr: held at the bound, below the standard trip: engaged");
+
+                const auto club = f.feed (6.0, true, true, Delivery::club);
+                expect (club.reliefDb == -1.0f && ! club.engaged && club.cause == GuardCause::psr,
+                        "psr: one club step (6 is not below the club trip 5.5) -> holds, not engaged");
+
+                auto firstBad = 0;
+
+                for (int k = 0; k < 50; ++k)
+                {
+                    const auto step = f.feed (6.0);
+
+                    if ((step.reliefDb != -1.0f || ! step.engaged || step.cause != GuardCause::psr) && firstBad == 0)
+                        firstBad = f.calls;
+                }
+
+                expectEquals (firstBad, 0, "psr: back to standard -> engaged from the first step (the 3 s sustain only gates retreating)");
             }
         }
 
