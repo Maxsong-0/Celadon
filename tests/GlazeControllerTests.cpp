@@ -7898,7 +7898,8 @@ namespace celadon::test
 //   breakdown → drop 的落差损失（入口落差 − 出口落差，段落响度 = 段内子块 K 加权能量平均，出口按链延迟对齐）两轮都 ≤ 1.5 LU：① 出厂常数；
 //   ② 七项预算上限 × 4（预算环不退，落差守门成为唯一起作用的守门）。main：第②轮损失 > 1.5 LU（G_trim 抵消了落差守门的退让），第①轮只记录。
 //   本分支另查：第②轮之后换成通用档（落差守门出厂关），退让量每个推进的子块回 0.005 dB（或在非有效音乐时保持），中间不跳变。
-//   两个场景里，任一守门退让量 < 0 的块都要 trimFrozen、G_trim 逐位不变（Q11，TrimFreezeCheck）。
+//   两个场景里，任一守门退让量 < 0 的块都要 trimFrozen、G_trim 逐位不变（Q11，TrimFreezeCheck）；场景 1 另用块长 480（一块一片）再跑一遍，
+//   连 PSR 守门起退的那一块也核逐位。
 // 每 5 s 打一行轨迹（时间、退让量、输出 PSR / 3 s 响度、G_trim、预算环），给 DGX 上调参与核对用。场景的数都在用例开头的具名常量里，旁边写 DGX 实测值。
 
 #include <array>
@@ -7918,6 +7919,7 @@ namespace celadon::test
             constexpr double absoluteGateLufs = -70.0;   // BS.1770 绝对门：有效子块与 3 s 窗读数的下限（同 ShortTermWindow::absoluteGateLufs）
             constexpr int shortTermSubBlocks = 30;       // 3 s 窗 = 30 个 100 ms 子块（规格 4；ShortTermWindow::subBlocks）
             constexpr double logEverySeconds = 5.0;      // 轨迹日志间隔
+            constexpr int alignedBlock = 480;            // 48 kHz 下一个 10 ms 预算时隙：一块一片，100 ms 子块 = 10 块（同 GlazeControllerGuardFamily）
 
             double lufsOf (double meanSquare) noexcept
             {
@@ -8328,25 +8330,38 @@ namespace celadon::test
             //   - 这一块结束时有落差 / PSR 退让 < 0 → trimFrozen；
             //   - 上一块结束时也有 → 整块每一片都有退让量（退让在一块之内不会回到 0 再退下去：退要持续 10 s / 3 s 超标），
             //     G_trim 一片也不积分，appliedBiasDb 与上一块逐位相同。
+            //   - 起退那一块（上一块没有、这一块有）：块长 512 时块内还按 10 ms 时隙切片，守门退下去之前的几片照规格可以积分，不核逐位；
+            //     checkOnset（块长 alignedBlock、一块一片）时这一块也核：子块边界落在块边界上，起退那一步就在这一块的 endBlock 里、
+            //     先于 G_trim 判定（GlazeController.cpp endBlock：stepSubBlockGuards 在 guardHolding 之前）。
             struct TrimFreezeCheck
             {
+                bool checkOnset = false;   // 起退那一块也核逐位（只在一块一片时成立）
                 int reliefBlocks = 0;      // 结束时有落差 / PSR 退让的块
                 int notFrozen = 0;         // 其中 trimFrozen 为假的块
-                int moved = 0;             // 上一块也有退让、G_trim 却变了的块
-                bool reliefBefore = false;
+                int moved = 0;             // 该核的块里 G_trim 却变了的块（上一块也有退让；checkOnset 时含起退那一块）
+                int onsetBlocks = 0;       // 起退那一块（上一块没有退让量、这一块有）
+                int movedBeforeOnset = 0;  // 第一次有退让量之前 G_trim 真的积分了的块：起退那一块逐位不变才不是碰巧
+                bool reliefBefore = false, seenRelief = false;
                 float trimBefore = 0.0f;
 
                 void note (const GuardReadout& guards, float appliedBiasDb) noexcept
                 {
                     const auto relief = guards.exact && (guards.contrastReliefDb < 0.0f || guards.psrReliefDb < 0.0f);
+                    const auto trimMoved = ! sameBits (appliedBiasDb, trimBefore);
 
                     if (relief)
                     {
                         ++reliefBlocks;
                         notFrozen += guards.trimFrozen ? 0 : 1;
-                        moved += reliefBefore && ! sameBits (appliedBiasDb, trimBefore) ? 1 : 0;
+                        onsetBlocks += reliefBefore ? 0 : 1;
+                        moved += (reliefBefore || checkOnset) && trimMoved ? 1 : 0;
+                    }
+                    else if (guards.exact && ! seenRelief && ! guards.trimFrozen && trimMoved)
+                    {
+                        ++movedBeforeOnset;
                     }
 
+                    seenRelief = seenRelief || relief;
                     reliefBefore = relief;
                     trimBefore = appliedBiasDb;
                 }
@@ -8611,6 +8626,40 @@ namespace celadon::test
                             + " not frozen, " + juce::String (trimCheck.moved) + " moved");
                 expect (trimCheck.reliefBlocks > 0 && trimCheck.notFrozen == 0 && trimCheck.moved == 0,
                         "real chain: every block that ends with a PSR relief below 0 is trimFrozen, and G_trim holds bit-exactly while the relief stays");
+
+                // 起退那一块（复查第 2 轮，Codex）：上面块长 512，起退那一块不核逐位（见 TrimFreezeCheck）。同一份素材与设置换块长 alignedBlock
+                // 再跑：一块一片，起退那一块起 appliedBiasDb 就要与上一块逐位相同。跑到第一次起退之后 alignedTailSeconds 秒（覆盖往下退的那几十步）。
+                constexpr double alignedTailSeconds = 5.0;
+                Rig aligned (constants, loop, params, defaultRate, alignedBlock);
+                TrimFreezeCheck alignedCheck;
+                alignedCheck.checkOnset = true;
+                alignedCheck.trimBefore = aligned.probe().appliedBiasDb;
+                auto singleSlice = true;
+                auto onsetSeconds = -1.0;
+                const auto alignedBlocks = aligned.blocksFor (runSeconds);
+
+                for (int b = 0; b < alignedBlocks; ++b)
+                {
+                    aligned.step();
+                    singleSlice = singleSlice && aligned.chain.getLastProcessSliceCountForTesting() == 1;
+                    alignedCheck.note (readGuards (aligned), aligned.probe().appliedBiasDb);
+                    const auto now = (double) (b + 1) * (double) aligned.blockLength / aligned.sampleRate;
+
+                    if (onsetSeconds < 0.0 && alignedCheck.onsetBlocks > 0)
+                        onsetSeconds = now;
+
+                    if (onsetSeconds >= 0.0 && now >= onsetSeconds + alignedTailSeconds)
+                        break;
+                }
+
+                logMessage ("  aligned " + juce::String (alignedBlock) + "-sample blocks: first onset " + (onsetSeconds >= 0.0 ? num (onsetSeconds, 2) + " s" : juce::String ("never"))
+                            + ", G_trim moved on " + juce::String (alignedCheck.movedBeforeOnset) + " blocks before it; " + juce::String (alignedCheck.reliefBlocks)
+                            + " blocks with a PSR relief, " + juce::String (alignedCheck.notFrozen) + " not frozen, " + juce::String (alignedCheck.moved) + " moved");
+                expect (singleSlice, "aligned: with " + juce::String (alignedBlock) + "-sample blocks every host block is exactly one slice");
+                expect (alignedCheck.onsetBlocks > 0, "aligned: the PSR guard starts to retreat");
+                expect (alignedCheck.movedBeforeOnset > 0, "aligned: G_trim integrates before the first onset (so holding it is not a coincidence)");
+                expect (alignedCheck.notFrozen == 0 && alignedCheck.moved == 0,
+                        "aligned (one slice per block): from the very block the PSR guard starts to retreat, trimFrozen and G_trim bit-identical");
             }
             else
             {
