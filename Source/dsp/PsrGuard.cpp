@@ -100,7 +100,9 @@ namespace celadon::glaze
         }
         // 其余（非有效音乐，或读数无效）：计时与退让都保持。
 
-        engaged = reliefDb < before || (reliefDb <= floorDb && sustainedBelow);
+        // engaged = 本步在退，或已退到底（floorDb 与 Q15 A 的界中较浅的那个）仍低于门槛。到界停住时也算在起作用：
+        // 状态行「已经退到底仍超」靠它（同预算环 planLimited）；界为 0（没有自动部分）时没有退让可报，不算。
+        engaged = reliefDb < before || (sustainedBelow && reliefDb < 0.0f && reliefDb <= juce::jmax (floorDb, retreatBoundDb));
         return current();
     }
 

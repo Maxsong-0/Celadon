@@ -1543,9 +1543,11 @@ namespace celadon::test
         // T-097 Q15 A：两个守门的「再往下退的界」= −自动加上去的全部（规格总钳位 g_守护 ≥ −max(0, 增量.gain + G_trim)），
         // 编排器每个子块用 setRetreatBoundDb 交进来。界内照常退、退到界为止；界变浅（自动部分变小）时退让保持、不往回弹
         // （回弹会把刚退掉的推回去，守门与界互相顶）；界再变深就接着退。floorDb 仍是绝对下限（这里的界都在 −3 之上，不碰它）。
+        // 到界停住（或比界深而保持）且仍超时 engaged：状态行「已经退到底仍超」靠它；界为 0（没有自动部分）时不退、不算 engaged。
         void testRetreatBound()
         {
-            beginTest ("guards (Q15 A): retreat stops at the bound -automaticTotal; a shallower bound holds (no rebound); a deeper bound resumes");
+            beginTest ("guards (Q15 A): retreat stops at the bound -automaticTotal; a shallower bound holds (no rebound); a deeper bound resumes; "
+                       "held at the bound while still over is engaged; a bound of 0 never retreats and is never engaged");
 
             {
                 // 落差：loss 3，第 857 个起每步退 0.01 dB。
@@ -1557,15 +1559,21 @@ namespace celadon::test
                     f.feed();
 
                 expectEquals (f.relief(), -1.0f, "contrast: inside the bound it retreats normally and stops exactly at -1.0");
+                expect (f.guard.current().engaged && f.guard.current().cause == GuardCause::contrast,
+                        "contrast: held at the bound with the loss still over: engaged, cause contrast");
 
                 f.guard.setRetreatBoundDb (-0.5f);
                 auto firstBad = 0;
 
                 for (int k = 0; k < 300; ++k)
-                    if (f.feed().reliefDb != -1.0f && firstBad == 0)
-                        firstBad = f.nextIndex;
+                {
+                    const auto step = f.feed();
 
-                expectEquals (firstBad, 0, "contrast: bound shallower than the relief -> the relief holds at -1.0 (no rebound) while still over");
+                    if ((step.reliefDb != -1.0f || ! step.engaged) && firstBad == 0)
+                        firstBad = f.nextIndex;
+                }
+
+                expectEquals (firstBad, 0, "contrast: bound shallower than the relief -> the relief holds at -1.0 (no rebound) and stays engaged while still over");
 
                 f.guard.setRetreatBoundDb (-2.0f);
                 const auto before = f.relief();
@@ -1576,6 +1584,26 @@ namespace celadon::test
                     f.feed();
 
                 expectEquals (f.relief(), -2.0f, "contrast: stops exactly at the new bound -2.0");
+                expect (f.guard.current().engaged, "contrast: held at the new bound, still over: engaged");
+            }
+
+            {
+                // 落差，界 0（没有自动部分）：超门槛照样计时，但一步也不退，也不报 engaged。
+                ContrastFeeder f (3.0);
+                f.guard.setRetreatBoundDb (0.0f);
+                auto firstBad = 0;
+
+                for (int k = 0; k < 1100; ++k)
+                {
+                    const auto step = f.feed();
+
+                    if ((step.reliefDb != 0.0f || step.engaged || step.cause != GuardCause::none) && firstBad == 0)
+                        firstBad = f.nextIndex;
+                }
+
+                expectEquals (firstBad, 0, "contrast: bound 0 -> relief stays +0, never engaged, cause none");
+                expect (f.guard.getLastReading().judged && f.guard.getLastReading().lossLu > ContrastGuard::standardLossLu,
+                        "contrast: (premise) the loss was judged over the threshold all along");
             }
 
             {
@@ -1588,15 +1616,21 @@ namespace celadon::test
                     f.feed (6.0);
 
                 expectEquals (f.relief(), -1.0f, "psr: inside the bound it retreats normally and stops exactly at -1.0");
+                expect (f.guard.current().engaged && f.guard.current().cause == GuardCause::psr,
+                        "psr: held at the bound while still below the trip: engaged, cause psr");
 
                 f.guard.setRetreatBoundDb (-0.25f);
                 auto firstBad = 0;
 
                 for (int k = 0; k < 100; ++k)
-                    if (f.feed (6.0).reliefDb != -1.0f && firstBad == 0)
-                        firstBad = f.calls;
+                {
+                    const auto step = f.feed (6.0);
 
-                expectEquals (firstBad, 0, "psr: bound shallower than the relief -> holds at -1.0 (no rebound)");
+                    if ((step.reliefDb != -1.0f || ! step.engaged) && firstBad == 0)
+                        firstBad = f.calls;
+                }
+
+                expectEquals (firstBad, 0, "psr: bound shallower than the relief -> holds at -1.0 (no rebound) and stays engaged");
 
                 f.guard.setRetreatBoundDb (-2.0f);
 
@@ -1604,6 +1638,24 @@ namespace celadon::test
                     f.feed (6.0);
 
                 expectEquals (f.relief(), -2.0f, "psr: deeper bound -> retreats again and stops exactly at -2.0");
+                expect (f.guard.current().engaged, "psr: held at the new bound, still below: engaged");
+            }
+
+            {
+                // PSR，界 0：一步也不退，也不报 engaged。
+                PsrFeeder f;
+                f.guard.setRetreatBoundDb (0.0f);
+                auto firstBad = 0;
+
+                for (int k = 0; k < 200; ++k)
+                {
+                    const auto step = f.feed (6.0);
+
+                    if ((step.reliefDb != 0.0f || step.engaged || step.cause != GuardCause::none) && firstBad == 0)
+                        firstBad = f.calls;
+                }
+
+                expectEquals (firstBad, 0, "psr: bound 0 -> relief stays +0, never engaged, cause none");
             }
         }
 
