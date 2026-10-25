@@ -7950,7 +7950,8 @@ namespace celadon::test
 //   本分支另查：第②轮之后换成通用档（落差守门出厂关），退让量每个推进的子块回 0.005 dB（或在非有效音乐时保持），中间不跳变。
 //   两个场景里，落差 / PSR 退让 < 0 的块都要 trimFrozen、G_trim 逐位不变（Q11，TrimFreezeCheck；预算环那一扇在 GlazeControllerGuardFamily 1a）；
 //   场景 1 另用块长 480（一块一片）再跑一遍，连 PSR 守门起退的那一块也核逐位。场景 2 两轮的 G_trim 在第一次退让之前就顶到 +3 钳位，逐位不变
-//   证明不了冻结，所以第②轮放完后把 G_trim 改成 +0 读回、在 House 接着跑 10 s 再核一遍（TrimFreezeCheck::movable 要求 G_trim 离钳位远）。
+//   证明不了冻结，所以第②轮放完后把 G_trim 改成 +0 读回、在 House 接着跑 10 s 再核一遍（TrimFreezeCheck::movable 要求 G_trim 离钳位远）；
+//   之前先跑一遍对照：同一份档再把退让清 0 读回，G_trim 要动（证明这时积分门开着，「不动」才归功于冻结）。
 // 每 5 s 打一行轨迹（时间、退让量、输出 PSR / 3 s 响度、G_trim、预算环），给 DGX 上调参与核对用。场景的数都在用例开头的具名常量里，旁边写 DGX 实测值。
 
 #include <array>
