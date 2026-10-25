@@ -12,9 +12,9 @@
         CeladonChain::setParams     → p = controller.beginBlock (manual, dryPath);  // dryPath = 宿主旁通或听原声。再把 p 交给四个模块
                                                                                       //  （与 v0.5 同一时机，getLatencySamples 照样立即反映 Lookahead）
         CeladonChain::process       → controller.analyzeSpectrum (balance);        // 每个宿主块开头一次：上一块 Balance 新发布的帧（见该函数注释）
-                                      GLAZE > 0 时宿主块在预算环 10 ms 时隙的边界切片（getGuardSamplesUntilBoundary；宿主在播、
-                                      给了位置或拍点与速度时，后几片先 setHostInfo 到片起点，走完再补到块尾；试听差值时另按
-                                      差值缓冲长度切，与 GLAZE 无关），每片：
+                                      GLAZE > 0 时宿主块在预算环 10 ms 时隙边界与 OUT 表 100 ms 子块边界中较近的一个处切片
+                                      （getGuardSamplesUntilBoundary，T-097；宿主在播、给了位置或拍点与速度时，后几片先
+                                      setHostInfo 到片起点，走完再补到块尾；试听差值时另按差值缓冲长度切，与 GLAZE 无关），每片：
                                       inputMeter.process (io);
                                       controller.analyzeInput (io, inputMeter);     // 入口特征（模块处理前）
                                       balance / clay / color / limiter 处理 io；输出非有限值 → 清零 + 重启淡入（其中调 hostReset）；
@@ -76,10 +76,17 @@
 
     Limit Gain 附加项（applyLimitExtras，beginBlock 末尾）：
       - G_trim：输出侧慢修正，取代校准器。endBlock 按「方案目标响度 − 出口主段电平」积分，≤ 0.05 dB/s，钳在 ±3 dB；施加时负的
-        G_trim 最多撤掉自动加上去的那部分。宿主旁通 / 听原声、Color 或 Limit 旁通、电平类自动全部撤回、预算环正在退让、
-        还没有目标方案或出口主段电平时不积分。
+        G_trim 最多撤掉自动加上去的那部分。宿主旁通 / 听原声、Color 或 Limit 旁通、电平类自动全部撤回、还没有目标方案或出口主段
+        电平时不积分；T-097 起（抗积分饱和，ADR-036 决定 3）另有两类冻结：任一守门自己的退让量 < 0（在退、停住、回程中都算）
+        或这一块刚改过某个退让量；1 s 内改过参数（风格 / 曲风 / 交付 / GLAZE / 规划相关手动值与上一块不同，插件刚开的第一块不算；
+        按处理过的时长计，存进 CONTROL 的 secondsSinceParamChange）。
       - 三个守门各出一份 ≤ 0 的退让：预算环 GlazeGuard、落差守门 ContrastGuard、PSR 守门 PsrGuard；取最小的一份，只退 G_trim 之后
-        高出手动 Gain 的那部分。宿主旁通 / 听原声、Color 或 Limit 旁通时守门冻结、退让保持（预算环丢掉未完成的时隙）。
+        高出手动 Gain 的那部分。预算环按 10 ms 时隙走、−3 dB 封底；落差守门（入口 + 出口各一份 3 s 窗与 τ 180 s 直方图）与 PSR
+        守门（出口 3 s PSR，闭环）每个 OUT 表 100 ms 子块走一步（stepSubBlockGuards 按 endSample 配对两只表的子块，每个子块只推进
+        一次），没有固定的底，最多退到自动加上去的全部（界 −max(0, 增量.gain + G_trim) 每个子块交给守门；已比界更深时保持、不往回弹；
+        ADR-036 决定 1、2）。两个子块守门按曲风开关（guardSwitchesFor：落差守门 House 三类开、通用关；PSR 守门出厂全关），关着时
+        有效音乐里退让按该守门的回程速率放回 0。宿主旁通 / 听原声、Color 或 Limit 旁通时守门冻结、退让保持（预算环丢掉未完成的
+        时隙，两个子块守门断开 3 s 窗、不推进）。
       - 电平类自动全部撤回（Plan::automaticLevelWithdrawn）时守门不跑、G_trim 与退让都不加（Limit Gain 就是 applyIncrements 的结果）。
       - 加 G_trim、再加退让，两步各钳在 0 ～ 24 dB。
 
@@ -98,7 +105,8 @@
 
     宿主 reset / 跳播 / 回绕：分析器在此刻断开短窗口，实时段落账开着的段截到此刻、就地定稿交给段接收者（插件里是
     LiveProfile；MusicAnalyzer handleDiscontinuity）；hostReset 另让预算环丢掉未完成的时隙、出口电平跟踪器清 K 加权滤波器、
-    Clay 压力反馈的累计与守护回收指示清零。LIVE 里的统计不清（ADR-030 决定 6），已施加增量、G_trim、目标方案与守门的退让也都不动。
+    Clay 压力反馈的累计与守护回收指示清零；三种都让落差 / PSR 守门断开 3 s 窗（跨过这一刻的子块不进窗，T-097）。LIVE 里的统计
+    不清（ADR-030 决定 6），已施加增量、G_trim、目标方案与守门的退让、计时、落差直方图也都不动。
 
     离线导出：与实时同一条路径，分析器把离线当作在播；c < 0.5 时 Status::coldExport 提示。先播一遍再导出才从头到位，重复导出
     不保证逐位相同（ADR-030 决定 6）。
@@ -367,6 +375,22 @@ namespace celadon::glaze
             int houseReopenRun = 0;                   // 停用（恒 0）。原为锁定后连续「更响更满」的段数
             bool houseReopenArmed = false;            // 停用（恒 false）。原为已满足重开条件，等段落账够锁定条件
             std::int64_t transitionLengthSamples = 0; // 停用（恒 0）。原为正在进行的方案过渡的长度（样本；没在过渡为 0）
+
+            // ---- T-097 守护族（上一块 endBlock 之后的值；落差 / PSR 两个守门每个 100 ms 子块走一步）----
+            float contrastReliefDb = 0.0f;            // 落差守门的退让量（≤ 0）
+            float psrReliefDb = 0.0f;                 // PSR 守门的退让量（≤ 0）
+            bool outputPsrValid = false;              // PSR 守门最近一步读到的出口 3 s PSR 有效
+            float outputPsrDb = 0.0f;                 //   该读数（dB）
+            bool contrastJudged = false;              // 落差守门最近一步判定前提成立（两份直方图满 60 s、入口 P90 − P25 ≥ 3 LU）
+            float contrastLossLu = 0.0f;              //   落差损失 = 入口 − 出口的 P90 − P25（LU）
+            float contrastInputSpreadLu = 0.0f, contrastOutputSpreadLu = 0.0f;
+            double contrastHistogramSeconds = 0.0;    //   两份直方图遗忘后的累计时长（秒）
+            bool trimFrozen = false;                  // 上一块 G_trim 因守门有退让量 / 刚改过退让、或 1 s 内改过参数而没积分
+            double secondsSinceParamChange = 0.0;     // 距上次改参数的秒数（封顶 1 s）
+            std::int64_t guardSubBlocks = 0;          // 交给两个守门推进的子块数（每个子块只推进一次）
+            std::int64_t guardSubBlocksDropped = 0;   // 因冻结 / 不连续 / 两表对不上而断开窗口、没推进的子块（或读取批次）数
+            std::int64_t lastGuardSubBlockEnd = 0;    // 最近一个推进守门的子块的 endSample（OUT 表时间轴）
+            float contrastFloorDb = 0.0f, psrFloorDb = 0.0f;   // 两个子块守门此刻的 floorDb（prepare、读档之后都是 −24 安全下限）
         };
 
         TestProbe getProbeForTesting() const noexcept;

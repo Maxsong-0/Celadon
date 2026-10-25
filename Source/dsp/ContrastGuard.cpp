@@ -1,28 +1,25 @@
 #include "ContrastGuard.h"
 
-#include <algorithm>
 #include <cmath>
 
 namespace celadon::glaze
 {
     namespace
     {
-        float percentile (const float* sorted, int count, float p) noexcept
-        {
-            const auto pos = p * (float) (count - 1);
-            const auto i0 = (int) pos;
-            const auto i1 = juce::jmin (count - 1, i0 + 1);
-            const auto fraction = pos - (float) i0;
-            return sorted[i0] + (sorted[i1] - sorted[i0]) * fraction;
-        }
+        // T-048 存档里的 128 笔环。只为 0.1.8.10 能读回 T-097 写的存档：写空值、读时不看。
+        constexpr int legacyRingCapacity = 128;
+        const std::array<float, (size_t) legacyRingCapacity> legacyEmptyRing {};
+
+        // 遗忘后小到这里的格直接归零：只是不让一格无限地缩下去（浮点精度上它对分位早就没有影响）。
+        constexpr float negligibleWeight = 1.0e-9f;
     }
 
-    void ContrastGuard::prepare (double newSampleRate) noexcept
+    void ContrastGuard::prepare (double newStepSeconds) noexcept
     {
-        if (newSampleRate > 0.0 && std::isfinite (newSampleRate))
-            sampleRate = newSampleRate;
+        if (newStepSeconds > 0.0 && std::isfinite (newStepSeconds))
+            stepSeconds = newStepSeconds;
 
-        pushLength = juce::jmax (1, (int) std::lround (sampleRate * 0.1));
+        decay = std::exp (-stepSeconds / forgetSeconds);
         clear();
     }
 
@@ -30,16 +27,24 @@ namespace celadon::glaze
     {
         reliefDb = 0.0f;
         engaged = false;
-        ringCount = 0;
-        ringWrite = 0;
-        samplesUntilPush = pushLength;
-        inputRing.fill (0.0f);
-        outputRing.fill (0.0f);
+        overSeconds = 0.0;
+        underSeconds = 0.0;
+        histogramSeconds = 0.0;
+        inputHistogram.fill (0.0f);
+        outputHistogram.fill (0.0f);
+        lastReading = {};
+        clearWindows();
+    }
+
+    void ContrastGuard::clearWindows() noexcept
+    {
+        inputWindow.clear();
+        outputWindow.clear();
     }
 
     void ContrastGuard::setFloorDb (float newFloorDb) noexcept
     {
-        floorDb = std::isfinite (newFloorDb) ? juce::jmin (0.0f, newFloorDb) : -3.0f;
+        floorDb = std::isfinite (newFloorDb) ? juce::jmin (0.0f, newFloorDb) : legacyGuardFloorDb;
         reliefDb = juce::jmax (floorDb, reliefDb);
     }
 
@@ -47,92 +52,141 @@ namespace celadon::glaze
     {
         reliefDb = 0.0f;
         engaged = false;
+        overSeconds = 0.0;
+        underSeconds = 0.0;
     }
 
-    void ContrastGuard::push (float inputLufs, float outputLufs) noexcept
+    double ContrastGuard::percentileLufs (const Histogram& histogram, double total, double fraction) noexcept
     {
-        if (! std::isfinite (inputLufs) || ! std::isfinite (outputLufs))
-            return;
+        // 累计到 fraction × 总量的那一格，格内按线性插值（不落在格中心：0.1 LU 的格差会让门槛比较在边界上翻来翻去）。
+        const auto target = fraction * total;
+        double cumulative = 0.0;
 
-        inputRing[(std::size_t) ringWrite] = inputLufs;
-        outputRing[(std::size_t) ringWrite] = outputLufs;
-        ringWrite = (ringWrite + 1) % ringCapacity;
-        ringCount = juce::jmin (ringCapacity, ringCount + 1);
-    }
-
-    bool ContrastGuard::spreads (float& inputSpread, float& outputSpread) const noexcept
-    {
-        if (ringCount < 8)
-            return false;
-
-        std::array<float, (std::size_t) ringCapacity> inputSorted {}, outputSorted {};
-
-        for (int i = 0; i < ringCount; ++i)
+        for (int bin = 0; bin < histogramBins; ++bin)
         {
-            const auto index = (ringWrite - ringCount + i + ringCapacity * 2) % ringCapacity;
-            inputSorted[(std::size_t) i] = inputRing[(std::size_t) index];
-            outputSorted[(std::size_t) i] = outputRing[(std::size_t) index];
+            const auto weight = (double) histogram[(size_t) bin];
+
+            if (weight <= 0.0)
+                continue;
+
+            if (cumulative + weight >= target)
+            {
+                const auto within = juce::jlimit (0.0, 1.0, (target - cumulative) / weight);
+                return histogramMinLufs + ((double) bin + within) / (double) histogramBinsPerLu;
+            }
+
+            cumulative += weight;
         }
 
-        std::sort (inputSorted.begin(), inputSorted.begin() + ringCount);
-        std::sort (outputSorted.begin(), outputSorted.begin() + ringCount);
-
-        inputSpread = percentile (inputSorted.data(), ringCount, 0.90f) - percentile (inputSorted.data(), ringCount, 0.25f);
-        outputSpread = percentile (outputSorted.data(), ringCount, 0.90f) - percentile (outputSorted.data(), ringCount, 0.25f);
-        return std::isfinite (inputSpread) && std::isfinite (outputSpread);
+        return histogramMinLufs + (double) histogramBins / (double) histogramBinsPerLu;
     }
 
-    GuardOutput ContrastGuard::process (float inputShortTermLufs, float outputShortTermLufs,
-                                         bool musicActive, int numSamples, bool clubDelivery) noexcept
+    double ContrastGuard::spreadLu (const Histogram& histogram) noexcept
+    {
+        double total = 0.0;
+
+        for (const auto weight : histogram)
+            total += (double) weight;
+
+        if (! (total > 0.0))
+            return 0.0;
+
+        return percentileLufs (histogram, total, highPercentile) - percentileLufs (histogram, total, lowPercentile);
+    }
+
+    void ContrastGuard::addToHistograms (double inputLufs, double outputLufs) noexcept
+    {
+        const auto shrink = (float) decay;
+
+        for (auto* histogram : { &inputHistogram, &outputHistogram })
+            for (auto& weight : *histogram)
+            {
+                const auto shrunk = weight * shrink;
+                weight = shrunk < negligibleWeight ? 0.0f : shrunk;
+            }
+
+        const auto add = (float) stepSeconds;
+        inputHistogram[(size_t) histogramBinOf (inputLufs)] += add;
+        outputHistogram[(size_t) histogramBinOf (outputLufs)] += add;
+        histogramSeconds = histogramSeconds * decay + stepSeconds;
+    }
+
+    ContrastGuard::Reading ContrastGuard::judge() const noexcept
+    {
+        Reading reading;
+        reading.histogramSeconds = histogramSeconds;
+        reading.inputSpreadLu = (float) spreadLu (inputHistogram);
+        reading.outputSpreadLu = (float) spreadLu (outputHistogram);
+        reading.lossLu = reading.inputSpreadLu - reading.outputSpreadLu;
+        reading.judged = reached (histogramSeconds, fullSeconds) && reading.inputSpreadLu >= minimumInputSpreadLu;
+        return reading;
+    }
+
+    GuardOutput ContrastGuard::process (const LoudnessMeter::SubBlock& input, const LoudnessMeter::SubBlock& output,
+                                        bool musicActive, bool enabled, bool clubDelivery) noexcept
+    {
+        inputWindow.push (input.meanSquare, input.truePeakLinear);
+        outputWindow.push (output.meanSquare, output.truePeakLinear);
+
+        const auto before = reliefDb;
+        const auto dt = (float) stepSeconds;
+        auto overNow = false;   // 本步读数超门槛：engaged 的「仍超」看它；持续满 10 s 只决定要不要再退
+        double inputLufs = 0.0, outputLufs = 0.0;
+        const auto measured = musicActive && inputWindow.shortTermLufs (inputLufs) && outputWindow.shortTermLufs (outputLufs);
+
+        if (measured)
+        {
+            addToHistograms (inputLufs, outputLufs);
+            lastReading = judge();
+        }
+
+        if (musicActive && ! enabled)
+        {
+            overSeconds = 0.0;
+            underSeconds = 0.0;
+            reliefDb = juce::jmin (0.0f, reliefDb + releaseDbPerSecond * dt);
+        }
+        else if (measured)
+        {
+            const auto threshold = clubDelivery ? clubLossLu : standardLossLu;
+
+            if (lastReading.judged && lastReading.lossLu > threshold)
+            {
+                overNow = true;
+                overSeconds += stepSeconds;
+                underSeconds = 0.0;
+
+                if (reached (overSeconds, triggerSeconds) && reliefDb > retreatBoundDb)   // Q15 A：已比界深就保持，不回弹
+                    reliefDb = juce::jmax (juce::jmax (floorDb, retreatBoundDb), reliefDb - retreatDbPerSecond * dt);
+            }
+            else if (! lastReading.judged || lastReading.lossLu < threshold - releaseMarginLu)
+            {
+                underSeconds += stepSeconds;
+                overSeconds = 0.0;
+
+                if (reached (underSeconds, releaseAfterSeconds))
+                    reliefDb = juce::jmin (0.0f, reliefDb + releaseDbPerSecond * dt);
+            }
+            else
+            {
+                overSeconds = 0.0;
+                underSeconds = 0.0;
+            }
+        }
+        // 其余（非有效音乐，或两侧 S 还不全有效）：计时与退让都保持。
+
+        // engaged 的口径见 guardEngagedAfterStep（两个子块守门共用）。「仍超」看本步读数、不看 10 s 持续：持续计时被换交付档、
+        // 或一步落进两线之间清零后，守门还在底上、读数也仍超，状态行不该空 10 s 显示「跟随」。
+        engaged = guardEngagedAfterStep (measured, enabled, engaged, before, reliefDb, overNow, juce::jmax (floorDb, retreatBoundDb));
+        return current();
+    }
+
+    GuardOutput ContrastGuard::current() const noexcept
     {
         GuardOutput out;
-        out.cause = GuardCause::contrast;
-
-        if (musicActive && numSamples > 0
-            && std::isfinite (inputShortTermLufs) && std::isfinite (outputShortTermLufs)
-            && inputShortTermLufs > -70.0f && outputShortTermLufs > -70.0f)
-        {
-            samplesUntilPush -= numSamples;
-            auto pushes = 0;
-
-            while (samplesUntilPush <= 0 && pushes < 64)
-            {
-                push (inputShortTermLufs, outputShortTermLufs);
-                samplesUntilPush += pushLength;
-                ++pushes;
-            }
-
-            if (samplesUntilPush <= 0)
-                samplesUntilPush = pushLength;
-
-            float inputSpread = 0.0f, outputSpread = 0.0f;
-
-            if (spreads (inputSpread, outputSpread))
-            {
-                const auto excess = inputSpread - outputSpread;
-                const auto threshold = clubDelivery ? clubSpreadLu : standardSpreadLu;
-                const auto dt = (float) ((double) numSamples / sampleRate);
-                const auto step = retreatDbPerSecond * dt;
-                const auto before = reliefDb;
-
-                if (excess > threshold)
-                    reliefDb = juce::jmax (floorDb, reliefDb - step);
-                else
-                    reliefDb = juce::jmin (0.0f, reliefDb + step);
-
-                const auto atFloor = reliefDb <= floorDb;
-                engaged = reliefDb < before || (atFloor && excess > threshold);
-                out.engaged = engaged;
-                out.reliefDb = reliefDb;
-                out.cause = reliefDb < 0.0f ? GuardCause::contrast : GuardCause::none;
-                return out;
-            }
-        }
-
-        engaged = false;
-        out.engaged = false;
         out.reliefDb = reliefDb;
         out.cause = reliefDb < 0.0f ? GuardCause::contrast : GuardCause::none;
+        out.engaged = engaged;
         return out;
     }
 
@@ -140,14 +194,26 @@ namespace celadon::glaze
     {
         auto xml = std::make_unique<juce::XmlElement> ("CONTRAST_GUARD");
         xmlio::Writer writer (*xml);
-        writer.field ("reliefDb", reliefDb);
-        writer.field ("floorDb", floorDb);
+        // reliefDb / floorDb 两项按 0.1.8.10 的不变量写（见 legacyGuardSavedReliefDb）；新代码读档读 reliefDbExact、不采纳 floorDb。
+        const auto savedReliefDb = legacyGuardSavedReliefDb (reliefDb);
+        writer.field ("reliefDb", savedReliefDb);
+        writer.field ("floorDb", legacyGuardFloorDb);
         writer.field ("engaged", engaged);
-        writer.field ("ringCount", ringCount);
-        writer.field ("ringWrite", ringWrite);
-        writer.field ("samplesUntilPush", samplesUntilPush);
-        writer.field ("inputRing", inputRing);
-        writer.field ("outputRing", outputRing);
+        writer.optionalField ("reliefDbExact", reliefDb, savedReliefDb);
+        writer.field ("overSeconds", overSeconds);
+        writer.field ("underSeconds", underSeconds);
+        writer.field ("histogramSeconds", histogramSeconds);
+        writer.field ("inputHistogram", inputHistogram);
+        writer.field ("outputHistogram", outputHistogram);
+
+        // 0.1.8.10 的读法要这几项（严格读、缺一项就整份 LIVE 冷启动）。空环 = 它从头攒，退让照旧。
+        const int legacyZero = 0;
+        const int legacyPushLength = 4800;
+        writer.field ("ringCount", legacyZero);
+        writer.field ("ringWrite", legacyZero);
+        writer.field ("samplesUntilPush", legacyPushLength);
+        writer.field ("inputRing", legacyEmptyRing);
+        writer.field ("outputRing", legacyEmptyRing);
         return xml;
     }
 
@@ -156,29 +222,51 @@ namespace celadon::glaze
         if (xml.getTagName() != "CONTRAST_GUARD")
             return false;
 
-        auto restored = *this;
+        auto legacyRelief = reliefDb;
+        auto floor = floorDb;
+        auto wasEngaged = engaged;
         xmlio::Reader reader (xml);
-        reader.field ("reliefDb", restored.reliefDb);
-        reader.field ("floorDb", restored.floorDb);
-        reader.field ("engaged", restored.engaged);
-        reader.field ("ringCount", restored.ringCount);
-        reader.field ("ringWrite", restored.ringWrite);
-        reader.field ("samplesUntilPush", restored.samplesUntilPush);
-        reader.field ("inputRing", restored.inputRing);
-        reader.field ("outputRing", restored.outputRing);
+        reader.field ("reliefDb", legacyRelief);
+        reader.field ("floorDb", floor);
+        reader.field ("engaged", wasEngaged);
+        // 真实退让（T-097 起写）。0.1.8.10 写的节点、或在 0.1.8.10 里再存过的节点没有这一项：按 reliefDb 读。
+        auto relief = legacyRelief;
+        reader.optionalField ("reliefDbExact", relief, legacyRelief);
 
-        if (! reader.ok || restored.ringCount < 0 || restored.ringCount > ringCapacity
-            || restored.ringWrite < 0 || restored.ringWrite >= ringCapacity)
+        // T-097 之前的节点（128 笔环）没有直方图：退让照旧，计时与直方图从空开始。
+        const auto hasHistograms = xml.hasAttribute ("inputHistogram");
+        auto over = 0.0, under = 0.0, seconds = 0.0;
+        Histogram restoredInput {}, restoredOutput {};
+
+        if (hasHistograms)
+        {
+            reader.field ("overSeconds", over);
+            reader.field ("underSeconds", under);
+            reader.field ("histogramSeconds", seconds);
+            reader.field ("inputHistogram", restoredInput);
+            reader.field ("outputHistogram", restoredOutput);
+        }
+
+        // 退让 > 0 哪一版都写不出来（只往下退、回程夹在 0）：当损坏拒收，免得它挡住之后的退（退让停在正数上，往下退要先走回 0）。
+        if (! reader.ok || ! std::isfinite (relief) || ! std::isfinite (legacyRelief) || relief > 0.0f || legacyRelief > 0.0f
+            || ! std::isfinite (floor) || ! std::isfinite (over) || ! std::isfinite (under) || ! std::isfinite (seconds)
+            || over < 0.0 || under < 0.0 || seconds < 0.0)
             return false;
 
-        reliefDb = restored.reliefDb;
-        floorDb = restored.floorDb;
-        engaged = restored.engaged;
-        ringCount = restored.ringCount;
-        ringWrite = restored.ringWrite;
-        samplesUntilPush = restored.samplesUntilPush;
-        inputRing = restored.inputRing;
-        outputRing = restored.outputRing;
+        for (const auto* histogram : { &restoredInput, &restoredOutput })
+            for (const auto weight : *histogram)
+                if (! std::isfinite (weight) || weight < 0.0f)
+                    return false;
+
+        reliefDb = relief;   // floorDb 不动：存档里那份只写给 0.1.8.10（见 createStateXml），下限由编排器设
+        engaged = wasEngaged;
+        overSeconds = over;
+        underSeconds = under;
+        histogramSeconds = seconds;
+        inputHistogram = restoredInput;
+        outputHistogram = restoredOutput;
+        lastReading = {};
+        clearWindows();
         return true;
     }
 }

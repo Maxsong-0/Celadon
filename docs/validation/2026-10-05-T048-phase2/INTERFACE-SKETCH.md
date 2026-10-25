@@ -66,7 +66,8 @@ makePlan(PlanInputs)            （纯函数，约 1 µs，不分配）
 速率限制 + 棘轮 → 自动增量
         │
 OUT 表 / 出口短时能量 → G_trim（≤ 0.05 dB/s，取代校准器）
-模块统计 → min(预算环, 落差守门, PSR 守门) → 加在 Limit Gain 上
+模块统计 → 预算环（10 ms 时隙）；IN / OUT 表 100 ms 子块 → 落差守门；OUT 表 100 ms 子块 → PSR 守门（T-097）
+三者取 min → 加在 Limit Gain 上；任一退让量 < 0 → 冻结 G_trim
 ```
 
 接线约定（按阶段 1 公开接口，不新造发布规则）：
@@ -114,11 +115,11 @@ OUT 表 / 出口短时能量 → G_trim（≤ 0.05 dB/s，取代校准器）
 2. 分析（实时账 → `LiveProfile`）。这一步在 `analyzeInput` / `analyzeSpectrum`，与今天的调用顺序相同。
 3. 若分析器时间跨过 1 s 格：用新发布的画像重算目标。同一块里若第 1 步已经因旋钮重算过，以 **本块最新的画像 + 本块旋钮** 再算一次，仍只这一次 `makePlan`。
 4. 速率限制把已施加增量推向目标。棘轮：此刻 `m < 0.5` 时，净增益只许下降、不许上升。草图把棘轮限在增益上，不含 Glue / Heat / Clip / Tone。**【待 Max Q7】**
-5. `G_trim` 按出口主段电平与目标的差积分。预算环正在退让时冻结积分（抗饱和）。
-6. 三个守门各出一份 ≤ 0 dB 的退让，取最小，加到 Limit Gain。真峰值仍由限幅器与 Ceiling 硬保证。
+5. `G_trim` 按出口主段电平与目标的差积分（≤ 0.05 dB/s，钳 ±3 dB）。任一守门（预算环、落差守门、PSR 守门）的退让量 < 0（在退、停住、回程中都算）、这一块刚改过某个退让量、或 1 s 内改过参数（风格 / 曲风 / 交付 / GLAZE / 规划相关手动值；插件刚开的第一块不算）时冻结积分（抗饱和）。（T-097 按规格第 4 节第 3 条修订，ADR-036；原文「预算环正在退让时冻结」）
+6. 三个守门各出一份 ≤ 0 dB 的退让，取最小，加到 Limit Gain。预算环按 10 ms 时隙走；落差守门与 PSR 守门每个 100 ms 子块走一步（读 IN / OUT 表的子块），按曲风开关（落差：House 三类开、通用关；PSR：全关）。真峰值仍由限幅器与 Ceiling 硬保证。
 7. 写 `Status` 快照。
 
-速率数字摘录没写。T-047 汇总的起点（尚未在本规格摘录里复述）：增益上行 0.2 dB/s、下行 1 dB/s，死区进 0.3 / 出 0.1 dB；`G_trim` ≤ 0.05 dB/s，钳 ±3 dB。守护族起点：预算环退 0.3～6 dB/s、回 0.15～0.3 dB/s；落差 `(P90−P25)` 输入减输出超过 1.2 LU（俱乐部 1.5）时以 ≤ 0.1 dB/s 把退让收回；3 s PSR 低于下限 −0.5 且持续 3 s 时以 0.5 dB/s 退。**【待 Max Q8】**
+速率数字摘录没写。T-047 汇总的起点（尚未在本规格摘录里复述）：增益上行 0.2 dB/s、下行 1 dB/s，死区进 0.3 / 出 0.1 dB；`G_trim` ≤ 0.05 dB/s，钳 ±3 dB。守护族起点：预算环退 0.3～6 dB/s、回 0.15～0.3 dB/s；落差 `(P90−P25)` 输入减输出超过 1.2 LU（俱乐部 1.5）并持续满 10 s 时以 0.1 dB/s 退，低于门槛 0.3 LU 并持续满 30 s 后以 0.05 dB/s 回；出口 3 s PSR 低于下限 −0.5 dB 并持续满 3 s 时以 0.5 dB/s 退，回到门槛 + 0.5 dB 以上并持续满 5 s 后以 0.15 dB/s 回。**【待 Max Q8】**（T-097：数字按规格第 4 节与 ADR-036；原文落差一句把「退」写成了「收回」、PSR 没写回程）
 
 `G_trim` 要的「输出侧主段电平」不用第二份 `LiveProfile`（回看窗口约 1.7 MB，试算直方图约 0.58 MB）。草图用一个定长的 `OutputLevelTracker`：门用输入侧已发布的 `m′`，能量用出口 K 加权、按同一段累计。**【待 Max Q9】**
 
@@ -165,19 +166,21 @@ struct GuardOutput
     bool engaged = false;     // 正在退，或退到底仍超
 };
 
-class ContrastGuard   // 落差守门。输入、输出各一份短期响度直方图
+class ContrastGuard   // 落差守门。入口、出口各一份短期响度直方图（0.1 LU 一格，τ 180 s；T-097 改成按子块推进）
 {
 public:
-    void prepare (double sampleRate) noexcept;
-    void clear() noexcept;                 // 只用于冷启动。宿主 reset 不调
-    GuardOutput process (float inputShortTermLufs, float outputShortTermLufs,
-                         bool musicActive, int numSamples, bool clubDelivery) noexcept;
+    void prepare (double stepSeconds) noexcept;   // 一个 100 ms 子块的时长
+    void clear() noexcept;                 // 只用于冷启动
+    void clearWindows() noexcept;          // 冻结 / 跳播 / 回绕 / 宿主 reset：断开 3 s 窗，直方图、计时、退让不动
+    GuardOutput process (const LoudnessMeter::SubBlock& input, const LoudnessMeter::SubBlock& output,
+                         bool musicActive, bool enabled, bool clubDelivery) noexcept;
     // 消息线程，不与 process 同时：
     std::unique_ptr<juce::XmlElement> createStateXml() const;
     bool restoreStateXml (const juce::XmlElement&);
 };
 
-class PsrGuard;       // 同形状。process 改读 3 s PSR 与该档下限
+class PsrGuard;       // 同形状，自带 30 子块窗：process (const SubBlock& output, bool musicActive, bool enabled, Delivery)，
+                      // 读出口 3 s PSR 与该档下限（T-097）
 ```
 
 `GlazeGuard` 保留类名，补 `createStateXml` / `restoreStateXml`，`reset()` 改名或分成「冷启动清空」与「宿主 reset 不清」。今天的 `reset()` 会把 `g_保护` 清零，阶段 2 不能在 `hostReset` 上调它。速率是否改成 T-047 的变速率，等 Q8；接口先按「每块 `process` 返回 `GuardOutput`」留出。

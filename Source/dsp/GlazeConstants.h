@@ -99,6 +99,14 @@ namespace celadon::glaze
         float clayWidthStyleFactor = 0.0f;          // 覆盖 StyleConstants::clayWidthStyleFactor：House 档不自动加宽
     };
 
+    // T-097：两个守门按曲风开关（设计规格-实时GLAZE-主段与增益 第 4 节第 4、5 条）。落差守门「4/4 型开、其余先关」；PSR 守门
+    // 「House / 通用关，留给以后的曲风」。关着的守门照常量测，已有的退让按它的回程速率放回 0（不跳变）。
+    struct GuardSwitches
+    {
+        bool contrast = false;   // 落差守门（ContrastGuard）
+        bool psr = false;        // PSR 守门（PsrGuard）
+    };
+
     // 三个 House 子类共用的学习方式、锁定条件、限幅跟拍、反相提示常数（设计规格-曲风-House学习方式）。
     struct HouseConstants
     {
@@ -119,6 +127,7 @@ namespace celadon::glaze
         float phaseHintCorrelation = 0.6f;          // 反相提示：慢路低频相关度 < 本项（第 9 节）
         int phaseHintSegments = 4;                  //   持续这么多小节
         double phaseHintFallbackSeconds = 8.0;      //   宿主没给拍点时改为持续这么多秒
+        GuardSwitches guards { true, false };       // T-097：House 三类落差守门开、PSR 守门关
     };
 
     // T-048 实时画像的常数（设计规格-实时GLAZE-主段与增益 第 2、3、6 节）。阶段 1 插件不读，只给 LiveProfile、测试与渲染工具用。
@@ -199,6 +208,7 @@ namespace celadon::glaze
         GenreConstants deepHouse, techHouse, melodicProgressive;
         HouseConstants house;
         DeliveryConstants delivery;
+        GuardSwitches generalGuards;   // T-097：通用档两个守门都关（House 三类的在 house.guards）
 
         // 目标：L_pref = clamp(L_style − lraSlope × max(0, LRA − lraReferenceLu), minPreferred, maxPreferred)
         float lraReferenceLu = 6.0f;
@@ -434,6 +444,17 @@ namespace celadon::glaze
 
     // T-038：某曲风覆盖的音色字段；通用档返回 nullptr（不覆盖）。
     const GenreConstants* genreConstantsFor (const Constants&, Genre) noexcept;
+
+    // T-097：此曲风的守门开关（House 三类共用 house.guards，通用用 generalGuards）。
+    inline const GuardSwitches& guardSwitchesFor (const Constants& constants, Genre genre) noexcept
+    {
+        return isHouse (genre) ? constants.house.guards : constants.generalGuards;
+    }
+
+    // T-097 Q15 A：落差 / PSR 守门不再有 −3 dB 底（规格只给预算环写了 −3 封底），实际的底是编排器每个子块交进去的界（−自动部分）。
+    // 编排器给两个守门设的 floorDb 只剩这个绝对安全下限：Limit Gain 的范围是 0 ～ 24 dB（ParameterRanges::limitGain），
+    // 自动部分不会超过它，所以正常永远碰不到。
+    inline constexpr float guardSafetyFloorDb = -24.0f;
 
     // 保存 / 读取（读取失败返回 false，out 不变）。
     std::unique_ptr<juce::XmlElement> toXml (const Constants&);
