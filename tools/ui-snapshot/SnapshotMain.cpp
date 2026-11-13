@@ -1492,13 +1492,14 @@ namespace
                 session->processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
                 session->processor->prepareToPlay (sampleRate, blockSize);
 
+                // 走宿主开窗口那条路（createEditorIfNeeded 登记成活动编辑器）：编辑器开着时读档，处理器才找得到它来提示。
                 if (editorFirst)
-                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditor()));
+                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorIfNeeded()));
 
                 session->processor->setStateInformation (blob.getData(), (int) blob.getSize());
 
                 if (! editorFirst)
-                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditor()));
+                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorIfNeeded()));
 
                 session->editor->advanceForSnapshot (0.05);
                 auto* corner = dynamic_cast<CornerNote*> (findById (*session->editor, "corner_note"));
