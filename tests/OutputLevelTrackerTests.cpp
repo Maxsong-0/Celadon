@@ -14,7 +14,7 @@
          正开着的段不归它管。
       5. 存读档：存 → 读 → 再存逐属性相同、读数逐位相同；0.1.8.10 就有的八个属性还在、closed 仍是 32 × 24 字节，全部的段在
          history / historyExtra 里。
-      6. 旧存档（没有 T-106 的十个属性）读成空历史并打上标记；新格式里属性不全、三个样本数不是严格的十进制、historyCount 越界或
+      6. 旧存档（没有 T-106 的十个属性）读成空历史并打上标记；新格式里属性不全（含空历史时缺 history / historyExtra）、三个样本数不是严格的十进制、historyCount 越界或
          和 history 的长度对不上、段本身或每段另记的量有一项不合规矩的整节拒收，拒收时状态不动；正好在界上的收下。新格式里
          closed 的内容不用（只验长度）；closedCount / closedWrite 新旧两种形状都照 0.1.8.10 的规矩验（0 ～ 32、0 ～ 31）。
       7. 主段门：只有 m′ ≥ 0.5 的段进账；主段 → 非主段 → 主段，中间那一截两侧都不留痕迹，新开的段从零记起。
@@ -750,6 +750,32 @@ namespace celadon::test
                     juce::XmlElement partial (*saved);
                     partial.removeAttribute (attribute);
                     expectRejected (partial, "T-106 attributes present but " + juce::String (attribute) + " missing");
+                }
+
+                // 空历史（historyCount 0）：history / historyExtra 是空串，缺了它们读出来也是 0 字节、正好等于 0 × 24 / 0 × 48，
+                // 只有「十个新属性要齐」那一道拦得住（上面的夹具有 3 段，缺了长度就不对，碰不到这一道）。完整的收下，缺一个拒收。
+                {
+                    Tracker empty;
+                    empty.prepare (rate);
+                    const auto emptySaved = empty.createStateXml();
+                    expect (emptySaved != nullptr && emptySaved->getStringAttribute ("historyCount") == "0"
+                                && emptySaved->hasAttribute ("history") && emptySaved->getStringAttribute ("history").isEmpty(),
+                            "fixture: an empty history saves historyCount 0 and an empty history attribute");
+
+                    if (emptySaved != nullptr)
+                    {
+                        Tracker accepting;
+                        makeTarget (accepting);
+                        expect (accepting.restoreStateXml (*emptySaved) && ! accepting.restoredLegacyState() && accepting.mainSamples() == 0,
+                                "an empty history in the new shape: accepted, not legacy, nothing booked");
+
+                        for (const auto* attribute : { "history", "historyExtra" })
+                        {
+                            juce::XmlElement partial (*emptySaved);
+                            partial.removeAttribute (attribute);
+                            expectRejected (partial, "empty history but " + juce::String (attribute) + " missing");
+                        }
+                    }
                 }
 
                 {
