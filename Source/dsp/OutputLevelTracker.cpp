@@ -14,7 +14,8 @@ namespace celadon::glaze
         constexpr std::int64_t stateMaximumSegmentSamples = 8 * 768000;
 
         // 十进制非负整数，严格：至少一位、只有数字、不超过 maximum。juce::String::getLargeIntValue 把读不懂的文本当 0，
-        // 坏档会被当成合法的 0 收下。规矩同 LiveProfile.cpp 的 parseUnsigned（那一个在它的匿名命名空间里，没有共用的头）。
+        // 坏档会被当成合法的 0 收下。规矩同 LiveProfile.cpp 的 parseUnsigned，但没有并成一个：那一个按无符号 64 位读、上界可以
+        // 到 UINT64_MAX（LiveProfile 的计数器）；这里的数字要按有符号相减（见下），并过去要么改它认的范围，要么丢掉下面那条理由。
         bool parseCount (const juce::String& text, std::int64_t maximum, std::int64_t& out) noexcept
         {
             auto p = text.getCharPointer();
@@ -44,6 +45,19 @@ namespace celadon::glaze
 
             out = value;
             return true;
+        }
+
+        // 一个样本过两级 K 加权（同 LoudnessMeter）。入口、出口两路共用。样本或结果不是有限值时返回 false：调用方复位这一路的
+        // 滤波器，这个样本不算能量。
+        bool kWeightSample (double x, const LoudnessMeter::Biquad& shelf, const LoudnessMeter::Biquad& highpass, double& shelfS1,
+                            double& shelfS2, double& highpassS1, double& highpassS2, double& y) noexcept
+        {
+            if (! std::isfinite (x))
+                return false;
+
+            y = LoudnessMeter::kWeight (x, shelf, shelfS1, shelfS2);
+            y = LoudnessMeter::kWeight (y, highpass, highpassS1, highpassS2);
+            return std::isfinite (y);
         }
     }
 
@@ -193,19 +207,9 @@ namespace celadon::glaze
 
             for (int i = 0; i < numSamples; ++i)
             {
-                const auto x = (double) samples[i];
+                auto y = 0.0;
 
-                if (! std::isfinite (x))
-                {
-                    resetInputChannel (channel);
-                    allFinite = false;
-                    continue;
-                }
-
-                auto y = LoudnessMeter::kWeight (x, shelf, s1, s2);
-                y = LoudnessMeter::kWeight (y, highpass, h1, h2);
-
-                if (! std::isfinite (y))
+                if (! kWeightSample ((double) samples[i], shelf, highpass, s1, s2, h1, h2, y))
                 {
                     resetInputChannel (channel);
                     allFinite = false;
@@ -256,19 +260,11 @@ namespace celadon::glaze
 
             for (int channel = 0; channel < channels; ++channel)
             {
-                const auto x = (double) output.getReadPointer (channel)[i];
+                const auto c = (std::size_t) channel;
+                auto y = 0.0;
 
-                if (! std::isfinite (x))
-                {
-                    resetChannel (channel);
-                    sampleFinite = false;
-                    continue;
-                }
-
-                auto y = LoudnessMeter::kWeight (x, shelf, shelfS1[(std::size_t) channel], shelfS2[(std::size_t) channel]);
-                y = LoudnessMeter::kWeight (y, highpass, highpassS1[(std::size_t) channel], highpassS2[(std::size_t) channel]);
-
-                if (! std::isfinite (y))
+                if (! kWeightSample ((double) output.getReadPointer (channel)[i], shelf, highpass, shelfS1[c], shelfS2[c], highpassS1[c],
+                                     highpassS2[c], y))
                 {
                     resetChannel (channel);
                     sampleFinite = false;

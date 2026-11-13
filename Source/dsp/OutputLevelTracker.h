@@ -26,8 +26,15 @@
           + 方案净增益」，可 I 是画像自己那套窗口算的：4/4 型是 512 段、按主段时长指数遗忘的主段加权平均，其余曲风是
           全部有效音频的门控积分（规格第 1 节表）——和这里「最近 32 段里 m′ ≥ 0.5 的」不是同一批段。差出来的不是链的偏差，
           G_trim 却照着去追：通用曲风里前奏轻、后面响，I 还带着前奏、这里已经只剩响段，G_trim 被拉下去 1 ～ 2 dB 再慢慢回来。
-          两侧都用这里的段，差值就只剩链实际做了什么。入口比出口早一个链延迟（几十毫秒），按段算能量时不对齐：
-          8 s 一段、电平跳 10 dB 的边界上最多差 0.05 dB。
+          两侧都用这里的段，差值就只剩链实际做了什么。入口比出口早一个链延迟 L（实测 218 ～ 1384 个样本 @ 48 kHz，约 5 ～ 29 ms），
+          按段算能量时不对齐。连着的主段之间，错开的那一截前后抵掉；只在一串主段的开头（前面是非主段）差一截：出口那 L 是前一段
+          的电平。读数是整个历史的和，差的是「L ÷ 历史里的主段时长」那么一份电平差：一分钟的历史、跳 10 dB 约差 0.002 dB。单看
+          一段（2 s）最多差约 0.5 dB，但读数从不只看一段。
+      四、历史多长。已收的主段放在 32 格的环里，满了挤掉最旧的（非主段不进账、不占格）。编排器在输入侧段落账换段时收段（F1），
+          一格约是一个输入段——4/4 型一小节，没有速度时 2 s——环里装得下约一分钟的主段（124 BPM 约 62 s）；F1 之前一段最长
+          8 s，最长约 256 s。主段 → 非主段的翻转（含方案还没到位的块）也收一段、占一格。DGX 2026-11-13 探查（落差场景那首
+          6 分钟的合成曲，起播 2 分钟以后的主段里）：House 平均 57 s、最少 37 s（F1 之前平均 101 s），通用曲风平均 40 s、
+          最少 16 s（F1 之前 69 s），都没有证据不足 3 s 的块。容量钉在 32：closed 属性按 32 × 24 字节存，0.1.8.10 按这个读。
       当证据的段要三样齐全（evidenceAt）：入口配齐（每个样本都有入口能量，两侧的样本都是有限值）、有出口能量（量得出录制
       增益）、此刻仍算主段。缺一样就不算，也不占证据时长。
 
@@ -133,6 +140,18 @@ namespace celadon::glaze
         bool restoreStateXml (const juce::XmlElement&);
         bool restoredLegacyState() const noexcept { return legacyState; }
 
+        // 限幅器对交来的 Limit Gain 实际执行的值：照抄 LimiterModule.cpp sanitised() 里 gainDb 那一行（finiteInRange (raw.gainDb,
+        // 0, 24, 默认 0)）——有限值钳进 0 ～ 24 dB，非有限值回默认 0 dB。processOutput 按它折算；那一行改了这里要跟着改
+        // （OutputLevelTrackerTests 第 9 条按这个规矩逐位核对）。
+        static constexpr float minimumLimitGainDb = 0.0f;
+        static constexpr float maximumLimitGainDb = 24.0f;
+        static constexpr float defaultLimitGainDb = 0.0f;
+
+        static float executedLimitGainDb (float limitGainDb) noexcept
+        {
+            return std::isfinite (limitGainDb) ? juce::jlimit (minimumLimitGainDb, maximumLimitGainDb, limitGainDb) : defaultLimitGainDb;
+        }
+
     private:
         // 布局不能动：closed 数组整块 memcpy 进存档的 closed 属性，0.1.8.10 按这个大小读。T-106 的量另放 Extra。
         struct Segment
@@ -174,21 +193,6 @@ namespace celadon::glaze
 
         static constexpr int closedCapacity = 32;
         static constexpr float mainnessGate = 0.5f;
-
-    public:
-        // 限幅器对交来的 Limit Gain 实际执行的值：照抄 LimiterModule.cpp sanitised() 里 gainDb 那一行（finiteInRange (raw.gainDb,
-        // 0, 24, 默认 0)）——有限值钳进 0 ～ 24 dB，非有限值回默认 0 dB。processOutput 按它折算；那一行改了这里要跟着改
-        // （OutputLevelTrackerTests 第 9 条按这个规矩逐位核对）。
-        static constexpr float minimumLimitGainDb = 0.0f;
-        static constexpr float maximumLimitGainDb = 24.0f;
-        static constexpr float defaultLimitGainDb = 0.0f;
-
-        static float executedLimitGainDb (float limitGainDb) noexcept
-        {
-            return std::isfinite (limitGainDb) ? juce::jlimit (minimumLimitGainDb, maximumLimitGainDb, limitGainDb) : defaultLimitGainDb;
-        }
-
-    private:
 
         double sampleRate = 48000.0;
         std::int64_t maxOpenSamples = 384000;

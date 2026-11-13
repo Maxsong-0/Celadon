@@ -20,6 +20,8 @@
       9. 折算用限幅器实际执行的 Limit Gain（钳进 0 ～ 24 dB、非有限值按 0 dB），拿真的 LimiterModule 逐位核对这条规矩。
      10. 存档带采样率：读回时采样率和此刻不同，段历史清空（不打旧存档标记）；采样率不是有限的正数整节拒收。
      11. 折回 0 dB 的出口电平本身 ≤ −100 LUFS 不算读数（不让「−100 + 增益」冒充有效值）；两个加权门槛的防护（全算门槛钳到 ≥ 0）。
+     12. 环回绕：已收的主段超过 32 段时只留最近的 32 段，每段另记的量、重判都跟着自己的段；回绕之后存读档逐位一致，读回的环接着
+         从对的格子写。
     跟踪器接进编排器之后的行为（G_trim 环路、读 0.1.8.10 存的整份 LIVE）见 GlazeControllerTests.cpp 的 GlazeControllerTrimLoop
     与 GlazeControllerGuardFamily 第 5 条。
 
@@ -68,6 +70,7 @@ namespace celadon::test
                 testExecutedLimitGainMirrorsTheLimiter();
                 testSampleRateInState();
                 testReadingFloorAtUnity();
+                testRingWrapsAround();
             }
 
         private:
@@ -1178,6 +1181,100 @@ namespace celadon::test
                         expectWithinAbsoluteError (e.levelLufs, atUnity + gainDb, 0.01f, tag + "the output level is that plus 20 dB");
                     }
                 }
+            }
+
+            // 12. 依据：OutputLevelTracker.h「已收的主段放在 32 格的环里，满了挤掉最旧的」「每段另记的量与 Segment 同下标」。F1 之后出口
+            //     每个输入段（一小节、没有速度时 2 s）收一格，一分钟左右环就满，回绕是日常路径；之前的用例最多收 3 段（独立复查第 1 轮
+            //     F9）。closed、closedExtra、closedNow 三组数组并排，下标要一起走；回绕后读回的环要接着从对的格子写。
+            //     40 段、每段 1 s，段与段之间收段、清滤波器（每段的能量只看自己的样本，几个跟踪器之间逐位可比）：偶数段录在 4 dB、
+            //     奇数段录在 12 dB（差 8 dB：按其中一类读，另一类全不算），入口幅度、输入侧读数逐段不同。对照跟踪器只喂其中几段、不回绕。
+            //     断言：
+            //       (a) 主段 32 s；按 4 / 5 / 6 / 11 / 12 dB 读，证据与只喂第 8 ～ 39 段的对照逐位相同；4 dB 只有 16 个偶数段（16 s），
+            //           6 dB 偶数段半算（8 s）。夹具有分辨力：只喂第 0 ～ 31 段的对照，4 dB 的入口电平差 1 dB 以上。
+            //       (b) 回绕之后存 → 读 → 再存逐属性相同、读数逐位相同；两边再各收一段（第 40 段，挤掉第 8 段），仍逐位相同，且与只喂
+            //           第 9 ～ 40 段的对照相同。
+            //       (c) 重判（输入侧读数 ≥ −27.6 LUFS 才算主段，即第 0 ～ 30 段）：回绕的、读回的、对照三个同样重判后逐位相同，主段只剩
+            //           第 9 ～ 30 段（22 s）——每段的判定读的是它自己的输入侧读数。
+            void testRingWrapsAround()
+            {
+                beginTest ("the closed ring keeps the newest 32 segments when it wraps; extras stay with their segments; state round-trips after the wrap");
+
+                constexpr int segments = 40;
+                constexpr int capacity = 32;
+
+                const auto bookSegment = [] (Tracker& tracker, int k)
+                {
+                    auto f = linearChain (k % 2 == 0 ? 4.0f : 12.0f);
+                    f.inputScale = 0.5f + 0.03f * (float) k;
+                    f.inputLufs = -20.0f - 0.25f * (float) k;
+                    tracker.resetFilters();
+                    feed (tracker, blocksPerSecond, 20000 + 100 * k, f);
+                    tracker.closeSegment();
+                };
+                const auto bookRange = [&bookSegment] (Tracker& tracker, int first, int last)
+                {
+                    for (int k = first; k <= last; ++k)
+                        bookSegment (tracker, k);
+                };
+                const auto sameAt = [] (const Tracker& a, const Tracker& b)
+                {
+                    auto same = a.mainSamples() == b.mainSamples();
+
+                    for (const auto reference : { 4.0f, 5.0f, 6.0f, 11.0f, 12.0f })
+                        same = same && sameEvidence (a.evidenceAt (reference, fullDb, zeroDb), b.evidenceAt (reference, fullDb, zeroDb));
+
+                    return same;
+                };
+
+                Tracker wrapped, newest, oldest;
+
+                for (auto* tracker : { &wrapped, &newest, &oldest })
+                    tracker->prepare (rate);
+
+                bookRange (wrapped, 0, segments - 1);
+                bookRange (newest, segments - capacity, segments - 1);
+                bookRange (oldest, 0, capacity - 1);
+
+                // ---- (a) ----
+                const auto at4 = wrapped.evidenceAt (4.0f, fullDb, zeroDb);
+                const auto at6 = wrapped.evidenceAt (6.0f, fullDb, zeroDb);
+                const auto oldestAt4 = oldest.evidenceAt (4.0f, fullDb, zeroDb);
+                logMessage ("  (a) wrapped: main " + juce::String ((double) wrapped.mainSamples() / rate, 3) + " s; at 4 dB input "
+                            + juce::String (at4.inputLufs, 4) + " LUFS over " + juce::String (at4.seconds, 3) + " s (the oldest 32 would read "
+                            + juce::String (oldestAt4.inputLufs, 4) + "), at 6 dB " + juce::String (at6.seconds, 3) + " s");
+                expect (wrapped.mainSamples() == samplesFor (capacity), "(a) forty one-second segments booked, the newest thirty-two kept");
+                expectWithinAbsoluteError (at4.seconds, 16.0, secondsTolerance, "(a) at 4 dB only the sixteen even segments count");
+                expectWithinAbsoluteError (at6.seconds, 8.0, secondsTolerance, "(a) at 6 dB the even segments count half");
+                expect (std::abs (oldestAt4.inputLufs - at4.inputLufs) > 1.0f, "(a) fixture: the oldest thirty-two read differently from the newest");
+                expect (sameAt (wrapped, newest), "(a) after the wrap the readings are bit-identical to a tracker fed only segments 8..39");
+
+                // ---- (b) ----
+                const auto saved = wrapped.createStateXml();
+                Tracker restored;
+                restored.prepare (rate);
+                expect (saved != nullptr && restored.restoreStateXml (*saved), "(b) the wrapped state restores");
+                const auto again = restored.createStateXml();
+                expect (saved != nullptr && again != nullptr && again->isEquivalentTo (saved.get(), false),
+                        "(b) create -> restore -> create is attribute-identical after the wrap");
+                expect (sameAt (wrapped, restored), "(b) readings are bit-identical after the restore");
+
+                Tracker shifted;
+                shifted.prepare (rate);
+                bookRange (shifted, segments - capacity + 1, segments);
+                bookSegment (wrapped, segments);
+                bookSegment (restored, segments);
+                expect (sameAt (wrapped, restored), "(b) one more segment on both: still bit-identical");
+                expect (sameAt (restored, shifted), "(b) ... and segment 8 is the one evicted: equal to a tracker fed segments 9..40");
+
+                // ---- (c) ----
+                const auto judge = [] (float lufs, float) noexcept { return lufs >= -27.6f ? 1.0f : 0.0f; };
+
+                for (auto* tracker : { &wrapped, &restored, &shifted })
+                    tracker->rejudge (judge);
+
+                logMessage ("  (c) after the rejudge: main " + juce::String ((double) wrapped.mainSamples() / rate, 3) + " s");
+                expect (wrapped.mainSamples() == samplesFor (22), "(c) only segments 9..30 still count (each judged on its own input reading)");
+                expect (sameAt (wrapped, restored) && sameAt (wrapped, shifted), "(c) the three trackers agree bit for bit after the same rejudge");
             }
         };
 

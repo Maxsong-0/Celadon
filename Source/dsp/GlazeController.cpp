@@ -460,15 +460,20 @@ namespace celadon::glaze
         static constexpr float trimLimitDb = 3.0f;
         // T-106：G_trim 的读数只把「录的时候 Limit Gain 离参考增益不远」的段当证据（OutputLevelTracker::evidenceAt）。折算按
         // 1 dB 增益 = 1 dB 电平，只在录制增益附近成立：限幅器越压越不到 1 : 1；冷启动、改参数时别的模块的自动量和 Limit Gain 一起
-        // 在变，那段时间录的段折算不回来。差 ≤ 1 dB 全算，≥ 3 dB 不算，中间线性；加权后不足 3 s（一个短期响度窗）不积分。③
+        // 在变，那段时间录的段折算不回来。差 ≤ 1 dB 全算，≥ 3 dB 不算，中间线性；加权后不足 3 s（一个短期响度窗）不积分。
+        // 三个数是 T-106 定的（验证报告 docs/validation/2026-11-12-T106-gtrim-error-basis 第 9 节第 3 条）。
         static constexpr float trimEvidenceFullDb = 1.0f;
         static constexpr float trimEvidenceZeroDb = 3.0f;
         static constexpr double trimEvidenceMinimumSeconds = 3.0;
         // T-106：方案「到位」的容差（planInPlace）。自动增量还在往目标方案走的块，实测净增益里缺的是还没施加的那部分方案，不是链的
         // 偏差：这些块不当证据、也不积分。Recover / Tame / Glue / Heat / Clip 差 ≤ 1 个单位（上行 2 / s，即到位前半秒以内）、
-        // Tone 差 ≤ 0.1 dB 算到位；Limit Gain 用它自己的死区状态（进了死区 = 到位，差 ≤ 0.3 dB）。④
+        // Tone 差 ≤ 0.1 dB 算到位；Limit Gain 用它自己的死区状态（进了死区 = 到位，差 ≤ 0.3 dB）。容差是 T-106 定的（同上，
+        // 第 9 节第 4 条）。
         static constexpr float trimPlanUnitTolerance = 1.0f;
         static constexpr float trimPlanToneToleranceDb = 0.1f;
+        // Limit Gain 的范围，同限幅器（LimiterModule.cpp sanitised）与宿主参数（ParameterRanges.h limitGain()）。
+        static constexpr float limitGainLowDb = 0.0f;
+        static constexpr float limitGainHighDb = 24.0f;
         // T-097：改过参数之后 G_trim 冻结这么久（规格第 4 节「参数在 1 s 内变化过时冻结 G_trim」）。「改过」= 风格 / 曲风 / 交付 /
         // GLAZE / 规划相关手动值与上一块不同（beginBlock 的 changed 去掉「第一块」那一项：插件刚开不是用户改了参数）。按处理过的时长计
         // （宿主旁通、听原声期间也走）：GLAZE 0 时不计，但 GLAZE 从 0 拧上去本身就算改参数、会重新起算。
@@ -872,20 +877,38 @@ namespace celadon::glaze
             }
         }
 
+        // 手动 Limit Gain 加上自动增量，钳进 0 ～ 24 dB（同 applyIncrements）。
+        static float gainAfterIncrementDb (float manualGainDb, float incrementDb) noexcept
+        {
+            return juce::jlimit (limitGainLowDb, limitGainHighDb, manualGainDb + incrementDb);
+        }
+
+        // 自动加上去的那一截：钳过之后高出手动值的部分（不会是负的）。
+        static float automaticPartDb (float manualGainDb, float afterIncrementDb) noexcept
+        {
+            return juce::jmax (0.0f, afterIncrementDb - manualGainDb);
+        }
+
+        // 再叠上 G_trim：正的照加；负的最多撤掉自动加上去的那一截，不往手动值以下压（T-097 Q15 A）；结果钳进 0 ～ 24 dB。
+        // 执行（applyLimitExtras）、读数折算（trimReferenceGainDb）、守门的界（retreatBoundDb）都用这一条：三处对不上的话，
+        // 读数折算的就不是限幅器真正执行的增益，G_trim 会照一个并不存在的偏差去积。
+        static float gainWithTrimDb (float manualGainDb, float afterIncrementDb, float trimDb) noexcept
+        {
+            const auto trim = trimDb > 0.0f ? trimDb : juce::jmax (trimDb, -automaticPartDb (manualGainDb, afterIncrementDb));
+            return juce::jlimit (limitGainLowDb, limitGainHighDb, afterIncrementDb + trim);
+        }
+
         // T-097 Q15 A：两个守门再往下退的界 = −max(0, 增量.gain + G_trim)（同 applyLimitExtras 的 automaticTotal 算式，不含退让）。
         float retreatBoundDb() const noexcept
         {
-            // effective 此时已含上一次的执行退让，所以从已施加增量重算（同 applyIncrements：manual + 增量钳在 0 ～ 24）。
+            // effective 此时已含上一次的执行退让，所以从已施加增量重算。
             const auto manualGain = manual.limit.gainDb;
-            const auto afterIncrement = juce::jlimit (0.0f, 24.0f, manualGain + applied.limitGainDb);
+            const auto afterIncrement = gainAfterIncrementDb (manualGain, applied.limitGainDb);
 
             if (! active || ! isFinite (manualGain) || ! isFinite (afterIncrement))
                 return 0.0f;
 
-            const auto autoPart = juce::jmax (0.0f, afterIncrement - manualGain);
-            const auto trim = gTrim > 0.0f ? gTrim : juce::jmax (gTrim, -autoPart);
-            const auto withTrim = juce::jlimit (0.0f, 24.0f, afterIncrement + trim);
-            return -juce::jmax (0.0f, withTrim - manualGain);
+            return -juce::jmax (0.0f, gainWithTrimDb (manualGain, afterIncrement, gTrim) - manualGain);
         }
 
         // T-106：此刻已施加的自动增量是不是都已经到了目标方案（容差见常数）。只在 beginBlock 里调（noteExecutedPlan）：那一刻的
@@ -942,27 +965,25 @@ namespace celadon::glaze
         {
             const auto manualGain = manual.limit.gainDb;
             const auto increment = isFinite (executedIncrementGainDb) ? executedIncrementGainDb : applied.limitGainDb;
-            const auto afterIncrement = juce::jlimit (0.0f, 24.0f, manualGain + increment);
+            const auto afterIncrement = gainAfterIncrementDb (manualGain, increment);
 
             if (! isFinite (manualGain) || ! isFinite (afterIncrement))
                 return std::numeric_limits<float>::quiet_NaN();
 
-            const auto autoPart = juce::jmax (0.0f, afterIncrement - manualGain);
-            const auto trim = gTrim > 0.0f ? gTrim : juce::jmax (gTrim, -autoPart);
-            return juce::jlimit (0.0f, 24.0f, afterIncrement + trim);
+            return gainWithTrimDb (manualGain, afterIncrement, gTrim);
         }
 
         // T-106：G_trim 实际用得上的范围（下界 ≤ 0 ≤ 上界）。负的最多撤掉自动加上去的部分，正的不把 Limit Gain 顶过 24 dB。
         juce::Range<float> usableTrimRange() const noexcept
         {
             const auto manualGain = manual.limit.gainDb;
-            const auto afterIncrement = juce::jlimit (0.0f, 24.0f, manualGain + applied.limitGainDb);
+            const auto afterIncrement = gainAfterIncrementDb (manualGain, applied.limitGainDb);
 
             if (! isFinite (manualGain) || ! isFinite (afterIncrement))
                 return { -trimLimitDb, trimLimitDb };
 
-            const auto autoPart = juce::jmax (0.0f, afterIncrement - manualGain);
-            return { juce::jmax (-trimLimitDb, -autoPart), juce::jmin (trimLimitDb, 24.0f - afterIncrement) };
+            return { juce::jmax (-trimLimitDb, -automaticPartDb (manualGain, afterIncrement)),
+                     juce::jmin (trimLimitDb, limitGainHighDb - afterIncrement) };
         }
 
         void applyLimitExtras() noexcept
@@ -976,9 +997,7 @@ namespace celadon::glaze
             if (! isFinite (manualGain) || ! isFinite (afterIncrement))
                 return;
 
-            const auto autoPart = juce::jmax (0.0f, afterIncrement - manualGain);
-            const auto trim = gTrim > 0.0f ? gTrim : juce::jmax (gTrim, -autoPart);
-            const auto withTrim = juce::jlimit (0.0f, 24.0f, afterIncrement + trim);
+            const auto withTrim = gainWithTrimDb (manualGain, afterIncrement, gTrim);
             auto relief = budgetOut.reliefDb;
             GuardCause cause = budgetOut.reliefDb < 0.0f ? budgetOut.cause : GuardCause::none;
 
@@ -996,7 +1015,7 @@ namespace celadon::glaze
             juce::ignoreUnused (cause);
             const auto automaticTotal = juce::jmax (0.0f, withTrim - manualGain);
             const auto reliefExecuted = juce::jmin (0.0f, juce::jmax (relief, -automaticTotal));
-            effective.limit.gainDb = juce::jlimit (0.0f, 24.0f, withTrim + reliefExecuted);
+            effective.limit.gainDb = juce::jlimit (limitGainLowDb, limitGainHighDb, withTrim + reliefExecuted);
         }
 
         void publishStatus() noexcept
