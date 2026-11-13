@@ -3,11 +3,11 @@
 
     GlazeController.cpp
     T-048 阶段 2 编排器（代理 A）：去掉聆听 / 锁定 / 校准状态机。
-    插件路径只用链持有的 LiveProfile。每 1 s（以及旋钮 / 风格 / 曲风 / 交付变化）用已发布画像 makePlan，
-    速率限制和增益棘轮把已施加增量推向目标。Limit Gain 另加 G_trim 与三个守门的最小退让。
+    插件路径只用链持有的 LiveProfile。每 1 s（以及旋钮 / 风格变化）用已发布画像 makePlan，
+    速率限制和增益棘轮把已施加增量推向目标。Limit Gain 另加 G_trim 与预算环的退让。
     工程只存 LIVE（GLAZE_STATE formatVersion 2，外层 zlib + base64）。
 
-    音频线程不分配、不加锁。setConstants 只在消息线程、音频已停时由 syncLiveModel 调用。
+    音频线程不分配、不加锁。LiveProfile::setConstants 只在消息线程、音频已停时由 syncLiveConstants 调用。
     宿主 reset 只清滤波器和未完成的保护时隙，不清 LIVE。
 
   ==============================================================================
@@ -17,13 +17,11 @@
 
 #include "ClayGuard.h"
 #include "ClayModule.h"
-#include "ContrastGuard.h"
 #include "GlazeGuard.h"
 #include "GlazePlanner.h"
 #include "LiveProfile.h"
 #include "MusicAnalyzer.h"
 #include "OutputLevelTracker.h"
-#include "PsrGuard.h"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +37,47 @@ namespace celadon::glaze
     namespace
     {
         constexpr int statusReadAttempts = 64;
+
+        // T-108：落差守门、PSR 守门删掉之后，LIVE 里仍给 0.1.8.10 写两份「没有退让」的节点。0.1.8.10 的读法（a768b8a 之前的
+        // ContrastGuard / PsrGuard::restoreStateXml）严格读下面这几项，缺一项就整份 LIVE 冷启动；字段名与类型照它（T-097 写给它的
+        // 同一套）。退让 0、底 −3（0.1.8.10 两个守门的底）、没在起作用、128 笔的空环。新版本读档时不看这两个节点。
+        constexpr float legacyGuardFloorDb = -3.0f;
+
+        std::unique_ptr<juce::XmlElement> legacyContrastGuardStub()
+        {
+            static const std::array<float, 128> emptyRing {};
+            auto xml = std::make_unique<juce::XmlElement> ("CONTRAST_GUARD");
+            xmlio::Writer writer (*xml);
+            const auto noRelief = 0.0f;
+            const auto floorDb = legacyGuardFloorDb;
+            const auto engaged = false;
+            const int zero = 0;
+            const int pushLength = 4800;
+            writer.field ("reliefDb", noRelief);
+            writer.field ("floorDb", floorDb);
+            writer.field ("engaged", engaged);
+            writer.field ("ringCount", zero);
+            writer.field ("ringWrite", zero);
+            writer.field ("samplesUntilPush", pushLength);
+            writer.field ("inputRing", emptyRing);
+            writer.field ("outputRing", emptyRing);
+            return xml;
+        }
+
+        std::unique_ptr<juce::XmlElement> legacyPsrGuardStub()
+        {
+            auto xml = std::make_unique<juce::XmlElement> ("PSR_GUARD");
+            xmlio::Writer writer (*xml);
+            const auto noRelief = 0.0f;
+            const auto floorDb = legacyGuardFloorDb;
+            const auto belowSeconds = 0.0;
+            const auto engaged = false;
+            writer.field ("reliefDb", noRelief);
+            writer.field ("floorDb", floorDb);
+            writer.field ("belowSeconds", belowSeconds);
+            writer.field ("engaged", engaged);
+            return xml;
+        }
 
         bool isFinite (float x) noexcept   { return std::isfinite (x); }
 
@@ -474,11 +513,10 @@ namespace celadon::glaze
         // Limit Gain 的范围，同限幅器（LimiterModule.cpp sanitised）与宿主参数（ParameterRanges.h limitGain()）。
         static constexpr float limitGainLowDb = 0.0f;
         static constexpr float limitGainHighDb = 24.0f;
-        // T-097：改过参数之后 G_trim 冻结这么久（规格第 4 节「参数在 1 s 内变化过时冻结 G_trim」）。「改过」= 风格 / 曲风 / 交付 /
+        // T-097：改过参数之后 G_trim 冻结这么久（规格第 4 节「参数在 1 s 内变化过时冻结 G_trim」）。「改过」= 风格 /
         // GLAZE / 规划相关手动值与上一块不同（beginBlock 的 changed 去掉「第一块」那一项：插件刚开不是用户改了参数）。按处理过的时长计
         // （宿主旁通、听原声期间也走）：GLAZE 0 时不计，但 GLAZE 从 0 拧上去本身就算改参数、会重新起算。
         static constexpr double changeFreezeSeconds = 1.0;
-        // T-097 Q15 A：落差 / PSR 守门的界由 retreatBoundDb() 每个子块给，floorDb 只设 GlazeConstants.h 的 guardSafetyFloorDb。
         static constexpr float weightPerSecond = 0.05f;
 
         MusicAnalyzer analyzer;
@@ -488,8 +526,6 @@ namespace celadon::glaze
         const BalanceModule* pendingFrames = nullptr;
 
         GlazeGuard budget;
-        ContrastGuard contrast;
-        PsrGuard psr;
         OutputLevelTracker outputLevel;
         ClayGuard clayGuard;
         ClayPressureMonitor clayPressure;
@@ -513,9 +549,6 @@ namespace celadon::glaze
         bool paused = false;
         bool active = false;
         Style currentStyle = Style::automatic;
-        Genre currentGenre = Genre::general;
-        Delivery currentDelivery = Delivery::standard;
-        Genre pendingModel = Genre::general;
         float lastGlaze = 0.0f;
 
         MusicProfile followed {};
@@ -537,20 +570,9 @@ namespace celadon::glaze
         // T-106（外部第二意见 F1，验证报告第 9 节第 18 条）：上一片看到的输入侧当前段的起点（SegmentLedger::getCurrentSegmentStart），变了就让出口跟踪器收段。
         static constexpr std::int64_t notSeenSegmentStart = -2;
         std::int64_t lastInputSegmentStart = notSeenSegmentStart;
-        GuardOutput budgetOut {}, contrastOut {}, psrOut {};
+        GuardOutput budgetOut {};
         float currentMainness = 1.0f;
 
-        // T-097：落差守门与 PSR 守门按 100 ms 子块推进（设计规格-实时GLAZE-主段与增益 第 4 节）。endBlock 用两个游标读两只表这一片里
-        // 新完成的子块，按 endSample 配对后交给两个守门：每个子块只推进一次，与宿主块长、切片方式无关。guardTaintedThrough（出口表
-        // 时间轴的样本数）之前开始的子块——GLAZE 0、冻结、电平类自动撤回期间，或跳播 / 循环回绕 / 宿主 reset 之前的样本——不进守门的
-        // 3 s 窗：遇到就断开窗口、丢掉这个子块（计时与退让保持）。
-        std::array<LoudnessMeter::SubBlock, (size_t) LoudnessMeter::subBlockRingCapacity> guardInputRead {}, guardOutputRead {};
-        std::int64_t guardInputCursor = 0, guardOutputCursor = 0;
-        std::int64_t guardTaintedThrough = 0;
-        std::int64_t guardLastSubBlockEnd = 0;   // 最近读到的出口子块 endSample（推算下一个子块边界）
-        int guardSamplesUntilSubBlock = 4800;    // 链按它与预算环时隙边界中较近的一个切片（getGuardSamplesUntilBoundary）
-        bool guardWindowBreakPending = false;    // 跳播 / 循环回绕 / 宿主 reset：下一片里「此前的样本」一律断开
-        double subBlockSeconds = 0.1;
         double secondsSinceChange = changeFreezeSeconds;   // 距上次改参数的秒数（封顶 changeFreezeSeconds；随工程保存）
 
         float liveToneOffsetDb = 0.0f;
@@ -623,11 +645,7 @@ namespace celadon::glaze
             gainInDeadband = false;
             liveToneOffsetDb = liveHeatReduction = liveGlueReduction = 0.0f;
             budget.snapRelief();
-            contrast.snapRelief();
-            psr.snapRelief();
             budgetOut = {};
-            contrastOut = {};
-            psrOut = {};
         }
 
         static void slew (float& current, float target, float upPerSecond, float downPerSecond, double dt, bool downwardOnly) noexcept
@@ -697,8 +715,6 @@ namespace celadon::glaze
             PlanInputs inputs;
             inputs.profile = profile;
             inputs.style = currentStyle;
-            inputs.genre = currentGenre;
-            inputs.delivery = currentDelivery;
             inputs.glazePercent = manual.glazePercent;
             inputs.manual = manual;
             inputs.constants = &constants;
@@ -707,7 +723,7 @@ namespace celadon::glaze
             targetPlan = makePlan (inputs);
             haveTarget = true;
 
-            auto caps = blendConstants (constants, targetPlan.weights, currentGenre, currentDelivery);
+            auto caps = blendConstants (constants, targetPlan.weights);
             const auto mask = static_cast<std::uint8_t> (targetPlan.manualBudgetMask & manualBudgetAll);
 
             if ((mask & manualBudgetHeat) != 0)
@@ -793,7 +809,7 @@ namespace celadon::glaze
                 && ! (followed.integratedLufs.valid && view.momentaryLufs.value < followed.integratedLufs.value - 15.0f)
                 && isFinite (constants.toneDbPerSlopeDb))
             {
-                const auto caps = blendConstants (constants, targetPlan.weights, currentGenre, currentDelivery);
+                const auto caps = blendConstants (constants, targetPlan.weights);
                 const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * confidenceScale (&followed, constants);
 
                 if (strength > 0.0f && isFinite (caps.toneMaxDb) && caps.toneMaxDb > 0.0f)
@@ -801,8 +817,7 @@ namespace celadon::glaze
                     const auto difference = referenceSlope - currentSlope;
                     const auto outside = std::copysign (juce::jmax (0.0f, std::abs (difference) - automaticToneSlopeDeadbandDbPerOct), difference);
                     const auto base = strength > 0.0f ? targetPlan.increments.colorToneDb / strength : 0.0f;
-                    const auto brightCap = toneBrightCapDb (caps, constants, currentGenre);
-                    const auto target = juce::jlimit (-caps.toneMaxDb, brightCap, base + outside * juce::jmax (0.0f, constants.toneDbPerSlopeDb)) - base;
+                    const auto target = juce::jlimit (-caps.toneMaxDb, caps.toneMaxDb, base + outside * juce::jmax (0.0f, constants.toneDbPerSlopeDb)) - base;
                     const auto step = 0.15f * (float) dt;
                     liveToneOffsetDb += juce::jlimit (-step, step, target - liveToneOffsetDb);
                 }
@@ -865,16 +880,6 @@ namespace celadon::glaze
                 liveClay = sanitizeClay (clayGuard.update (ClayPlan {}, view, seconds, active));
 
             effective.clay = resolveClayParams (manual.claySettings, liveClay, manual.glazePercent);
-
-            if (isHouse (currentGenre) && claySupported)
-            {
-                const auto& ledger = analyzer.getSegmentLedger();
-                const auto& house = constants.house;
-                const auto barSeconds = ledger.getMode() == SegmentMode::bars ? ledger.getCurrentSegmentSeconds() : 0.0;
-                const auto required = barSeconds > 0.0 ? (double) juce::jmax (1, house.phaseHintSegments) * barSeconds
-                                                       : house.phaseHintFallbackSeconds;
-                clayGuard.updateHouseHint (view, seconds, ledger.isCurrentSegmentFull(), required);
-            }
         }
 
         // 手动 Limit Gain 加上自动增量，钳进 0 ～ 24 dB（同 applyIncrements）。
@@ -890,25 +895,12 @@ namespace celadon::glaze
         }
 
         // 再叠上 G_trim：正的照加；负的最多撤掉自动加上去的那一截，不往手动值以下压（T-097 Q15 A）；结果钳进 0 ～ 24 dB。
-        // 执行（applyLimitExtras）、读数折算（trimReferenceGainDb）、守门的界（retreatBoundDb）都用这一条：三处对不上的话，
+        // 执行（applyLimitExtras）与读数折算（trimReferenceGainDb）都用这一条：两处对不上的话，
         // 读数折算的就不是限幅器真正执行的增益，G_trim 会照一个并不存在的偏差去积。
         static float gainWithTrimDb (float manualGainDb, float afterIncrementDb, float trimDb) noexcept
         {
             const auto trim = trimDb > 0.0f ? trimDb : juce::jmax (trimDb, -automaticPartDb (manualGainDb, afterIncrementDb));
             return juce::jlimit (limitGainLowDb, limitGainHighDb, afterIncrementDb + trim);
-        }
-
-        // T-097 Q15 A：两个守门再往下退的界 = −max(0, 增量.gain + G_trim)（同 applyLimitExtras 的 automaticTotal 算式，不含退让）。
-        float retreatBoundDb() const noexcept
-        {
-            // effective 此时已含上一次的执行退让，所以从已施加增量重算。
-            const auto manualGain = manual.limit.gainDb;
-            const auto afterIncrement = gainAfterIncrementDb (manualGain, applied.limitGainDb);
-
-            if (! active || ! isFinite (manualGain) || ! isFinite (afterIncrement))
-                return 0.0f;
-
-            return -juce::jmax (0.0f, gainWithTrimDb (manualGain, afterIncrement, gTrim) - manualGain);
         }
 
         // T-106：此刻已施加的自动增量是不是都已经到了目标方案（容差见常数）。只在 beginBlock 里调（noteExecutedPlan）：那一刻的
@@ -998,21 +990,7 @@ namespace celadon::glaze
                 return;
 
             const auto withTrim = gainWithTrimDb (manualGain, afterIncrement, gTrim);
-            auto relief = budgetOut.reliefDb;
-            GuardCause cause = budgetOut.reliefDb < 0.0f ? budgetOut.cause : GuardCause::none;
-
-            auto consider = [&] (const GuardOutput& guard)
-            {
-                if (guard.reliefDb < relief)
-                {
-                    relief = guard.reliefDb;
-                    cause = guard.cause;
-                }
-            };
-
-            consider (contrastOut);
-            consider (psrOut);
-            juce::ignoreUnused (cause);
+            const auto relief = budgetOut.reliefDb;
             const auto automaticTotal = juce::jmax (0.0f, withTrim - manualGain);
             const auto reliefExecuted = juce::jmin (0.0f, juce::jmax (relief, -automaticTotal));
             effective.limit.gainDb = juce::jlimit (limitGainLowDb, limitGainHighDb, withTrim + reliefExecuted);
@@ -1024,9 +1002,6 @@ namespace celadon::glaze
             status.phase = Phase::unlearned;
             status.calibrationValid = false;
             status.requiredSeconds = 0.0f;
-            status.houseTargetSegments = 0;
-            status.houseRequiredFullSegments = 0;
-            status.houseTargetSeconds = 0.0f;
             status.limitedByManual = haveTarget && targetPlan.limitedByManual;
             status.resolvedStyle = currentStyle == Style::automatic ? dominantStyle (haveTarget ? targetPlan.weights : automaticWeights) : currentStyle;
             status.effectiveTargetLufs = active && haveTarget ? targetPlan.effectiveTargetLufs : std::numeric_limits<float>::quiet_NaN();
@@ -1040,14 +1015,6 @@ namespace celadon::glaze
             status.clayPeakGuardActive = clayKeep.active();
             status.clayPeakGuardKept = clayKeep.keptFraction();
             status.clayCostLimitedMask = active ? reportedCostLimitedMask (plannedClay.costLimitedMask, manual.claySettings) : 0;
-            status.houseActive = isHouse (currentGenre);
-
-            if (status.houseActive)
-            {
-                const auto hint = clayGuard.getHouseHint();
-                status.housePhaseHint = hint.active;
-                status.housePhaseMonoLossDb = hint.monoLossDb;
-            }
 
             LiveDiagnostics diagnostics;
 
@@ -1058,8 +1025,7 @@ namespace celadon::glaze
             status.currentMainness = currentMainness;
             status.coldExport = offline && diagnostics.confidence < 0.5f;
 
-            // 状态行的原因和「已退」必须是同一扇正在起作用的门。回程里更深的退让不算 engaged，不拿来当这一行的原因。
-            // 几扇都在退时，退得更多的胜出；退让相同则留下先看到的（预算、保对比、PSR）。音频上实际减去的仍是三扇里最深的那一份。
+            // 状态行的原因和「已退」读预算环（T-108 起唯一的守门）。回程里的退让不算 engaged，不拿来当这一行的原因。
             GuardOutput shown;
 
             auto considerShown = [&] (const GuardOutput& guard)
@@ -1079,8 +1045,6 @@ namespace celadon::glaze
             };
 
             considerShown (budgetOut);
-            considerShown (contrastOut);
-            considerShown (psrOut);
             status.protectionDb = active && shown.engaged ? shown.reliefDb : 0.0f;
             status.guardCause = active && shown.engaged ? shown.cause : GuardCause::none;
             status.guardEngaged = active && shown.engaged;
@@ -1103,8 +1067,6 @@ namespace celadon::glaze
             haveFollowed = false;
             followed = {};
             budget.clear();
-            contrast.clear();
-            psr.clear();
             secondsSinceChange = changeFreezeSeconds;   // T-097：同旧档缺这一项时的读法（很久以前改的）
             outputLevel.clear();
             clayGuard.reset();
@@ -1130,13 +1092,12 @@ namespace celadon::glaze
 
             const auto* control = body.getChildByName ("CONTROL");
             const auto* budgetXml = body.getChildByName ("BUDGET_GUARD");
-            const auto* contrastXml = body.getChildByName ("CONTRAST_GUARD");
-            const auto* psrXml = body.getChildByName ("PSR_GUARD");
+            // T-108：T-097 存档里的 CONTRAST_GUARD / PSR_GUARD（落差守门、PSR 守门）不再读：有没有都照常恢复，里面的退让丢掉
+            // （ADR-039：Q5 = A，两个守门连代码一起删）。
             const auto* levelXml = body.getChildByName ("OUTPUT_LEVEL");
             const auto* clayXml = body.getChildByName ("CLAY");
 
-            if (control == nullptr || budgetXml == nullptr || contrastXml == nullptr || psrXml == nullptr
-                || levelXml == nullptr || clayXml == nullptr)
+            if (control == nullptr || budgetXml == nullptr || levelXml == nullptr || clayXml == nullptr)
                 return false;
 
             auto restoredApplied = applied;
@@ -1200,19 +1161,14 @@ namespace celadon::glaze
             clayReader.field ("phaseActive", restoredGuard.phaseActive);
             clayReader.field ("widthActive", restoredGuard.widthActive);
 
-            if (! clayReader.ok || ! std::isfinite (restoredScale) || ! budget.restoreStateXml (*budgetXml) || ! contrast.restoreStateXml (*contrastXml)
-                || ! psr.restoreStateXml (*psrXml) || ! outputLevel.restoreStateXml (*levelXml))
+            if (! clayReader.ok || ! std::isfinite (restoredScale) || ! budget.restoreStateXml (*budgetXml)
+                || ! outputLevel.restoreStateXml (*levelXml))
                 return false;
 
             // T-106：旧存档（OUTPUT_LEVEL 没有折算字段）里的 G_trim 是旧口径积出来的，多半已经停在钳位上；出口电平历史也折算
             // 不了（OutputLevelTracker 已清空）。两样一起从 0 重新收敛（ADR-035：GLAZE > 0 的旧工程允许变声）。
             if (outputLevel.restoredLegacyState())
                 restoredTrim = 0.0f;
-
-            // T-097 Q15 A：守门读档不采纳存档里的 floorDb（只写给 0.1.8.10）；这里再设一次安全下限，读回的退让也按它夹一次
-            // （正常的存档碰不到 −24）。读档在第一次 prepare 之前时，下限也就此从默认的 −3 换成安全下限。
-            contrast.setFloorDb (guardSafetyFloorDb);
-            psr.setFloorDb (guardSafetyFloorDb);
 
             applied = restoredApplied;
             automaticWeights = restoredWeights;
@@ -1230,8 +1186,6 @@ namespace celadon::glaze
             budgetOut.reliefDb = budget.getProtectionDb();
             budgetOut.cause = budget.getProtectionDb() < 0.0f ? GuardCause::budget : GuardCause::none;
             budgetOut.engaged = budget.isEngaged();
-            contrastOut = contrast.current();
-            psrOut = psr.current();
             haveTarget = false;
             clearExecutedPlan();
             legacyDiscarded.store (false, std::memory_order_relaxed);
@@ -1267,8 +1221,10 @@ namespace celadon::glaze
             control->setAttribute ("nextGridSample", juce::String (nextGridSample));
             body->addChildElement (control.release());
             body->addChildElement (budget.createStateXml().release());
-            body->addChildElement (contrast.createStateXml().release());
-            body->addChildElement (psr.createStateXml().release());
+            // T-108：0.1.8.10 读 LIVE 时 CONTRAST_GUARD / PSR_GUARD 缺一个就整份冷启动，这里照它的严格读法写两份「没有退让」的
+            // 空节点（字段与 T-097 写给它的同一套），新版本读档时不看。
+            body->addChildElement (legacyContrastGuardStub().release());
+            body->addChildElement (legacyPsrGuardStub().release());
             body->addChildElement (outputLevel.createStateXml().release());
 
             auto clay = std::make_unique<juce::XmlElement> ("CLAY");
@@ -1301,18 +1257,6 @@ namespace celadon::glaze
             positionTolerance = std::max<std::int64_t> (2, (std::int64_t) std::llround (sampleRate * 0.05));
             analyzer.prepare (spec);
             budget.prepare (sampleRate);
-            // T-097：两个守门每个 OUT 表子块走一步。子块长度与 LoudnessMeter::prepare 同一个算式（链在同一处 prepare 两只表与编排器）。
-            const auto subBlockSamples = juce::jmax (1, juce::roundToInt (sampleRate * 0.1));
-            subBlockSeconds = (double) subBlockSamples / sampleRate;
-            contrast.prepare (subBlockSeconds);
-            psr.prepare (subBlockSeconds);
-            contrast.setFloorDb (guardSafetyFloorDb);
-            psr.setFloorDb (guardSafetyFloorDb);
-            guardInputCursor = guardOutputCursor = 0;
-            guardTaintedThrough = 0;
-            guardLastSubBlockEnd = 0;
-            guardSamplesUntilSubBlock = subBlockSamples;
-            guardWindowBreakPending = false;
             outputLevel.prepare (sampleRate);
             clayGuard.reset();
             clayGuard.setConstants (activeConstants());
@@ -1335,7 +1279,6 @@ namespace celadon::glaze
             manual = newManual;
             paused = hostBypassed;
             active = manual.glazePercent > 0.0f;
-            pendingModel = genreFromIndex (manual.glazeGenre);
 
             if (! prepared)
             {
@@ -1345,15 +1288,10 @@ namespace celadon::glaze
             }
 
             const auto style = styleFromIndex (manual.glazeStyle);
-            const auto genre = genreFromIndex (manual.glazeGenre);
-            const auto delivery = deliveryFromIndex (manual.glazeDelivery);
             const auto paramsChanged = planningKnown
-                                    && (style != currentStyle || genre != currentGenre || delivery != currentDelivery
-                                        || ! sameBits (lastGlaze, manual.glazePercent) || ! samePlanningManual (manual, lastManual));
+                                    && (style != currentStyle || ! sameBits (lastGlaze, manual.glazePercent) || ! samePlanningManual (manual, lastManual));
             const auto changed = ! planningKnown || paramsChanged;
             currentStyle = style;
-            currentGenre = genre;
-            currentDelivery = delivery;
             lastGlaze = manual.glazePercent;
             lastManual = manual;
             planningKnown = true;
@@ -1361,7 +1299,6 @@ namespace celadon::glaze
 
             if (paramsChanged)
                 secondsSinceChange = 0.0;
-            analyzer.setGenre (currentGenre);
 
             if (! active)
                 snapAutomatic();
@@ -1372,15 +1309,14 @@ namespace celadon::glaze
             if (active && haveFollowed && ! manual.color.bypass && manual.color.mixPercent > 0.0f)
             {
                 const auto& constants = activeConstants();
-                const auto caps = blendConstants (constants, haveTarget ? targetPlan.weights : automaticWeights, currentGenre, currentDelivery);
+                const auto caps = blendConstants (constants, haveTarget ? targetPlan.weights : automaticWeights);
                 const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * confidenceScale (&followed, constants);
                 const auto cap = caps.toneMaxDb;
 
                 if (isFinite (cap) && cap > 0.0f && strength > 0.0f)
                 {
-                    const auto bright = toneBrightCapDb (caps, constants, currentGenre);
                     const auto offset = std::round (liveToneOffsetDb * 100.0f) * 0.01f;
-                    increments.colorToneDb = juce::jlimit (-cap * strength, bright * strength, applied.colorToneDb + offset * strength);
+                    increments.colorToneDb = juce::jlimit (-cap * strength, cap * strength, applied.colorToneDb + offset * strength);
                 }
             }
 
@@ -1413,85 +1349,6 @@ namespace celadon::glaze
             // T-106：effective 是照此刻的 applied 拼出来的，这一个宿主块的各片都执行它。到没到位在这里定一次，各片的 endBlock 沿用。
             noteExecutedPlan();
             return effective;
-        }
-
-        // T-097：读两只表这一片里新完成的 100 ms 子块，按 endSample 配对后推进落差守门（入口 + 出口）与 PSR 守门（出口）。
-        // step = false（GLAZE 0、冻结、电平类自动撤回）时只推进游标，这一片的样本记为不进窗口。同时更新下一个子块边界，链按它切片，
-        // 每个子块都在某一片的末尾完成、在这一片的 endBlock 里被读到——守门的推进点只落在子块网格上。
-        void stepSubBlockGuards (const LoudnessMeter& inputMeter, const LoudnessMeter& outputMeter, int numSamples, bool music,
-                                 bool step) noexcept
-        {
-            constexpr int capacity = LoudnessMeter::subBlockRingCapacity;
-            const auto inputs = inputMeter.readSubBlocksSince (guardInputCursor, guardInputRead.data(), capacity);
-            const auto outputs = outputMeter.readSubBlocksSince (guardOutputCursor, guardOutputRead.data(), capacity);
-            const auto processed = outputMeter.getProcessedSamples();
-            const auto length = (std::int64_t) juce::jmax (1, outputMeter.getSubBlockLength());
-
-            if (outputs != 0)
-                guardLastSubBlockEnd = guardOutputRead[(size_t) (std::abs (outputs) - 1)].endSample;
-
-            if (guardLastSubBlockEnd > processed || guardTaintedThrough > processed)
-            {
-                // 表被 reset 过（时间轴从 0 重起）：旧的时间戳都作废。
-                guardLastSubBlockEnd = 0;
-                guardTaintedThrough = 0;
-                guardWindowBreakPending = true;
-            }
-
-            guardSamplesUntilSubBlock = (int) (length - (processed - guardLastSubBlockEnd) % length);
-
-            if (guardWindowBreakPending)
-            {
-                // 不连续点在这一片开头：这一片之前的样本与之后的不能进同一个 3 s 窗。
-                guardTaintedThrough = juce::jmax (guardTaintedThrough, processed - (std::int64_t) numSamples);
-                guardWindowBreakPending = false;
-                contrast.clearWindows();
-                psr.clearWindow();
-            }
-
-            if (! step)
-            {
-                guardTaintedThrough = processed;
-                contrast.clearWindows();
-                psr.clearWindow();
-                return;
-            }
-
-            // 两只表同一条时间轴、同一个子块网格：正常时读到的个数相同、endSample 逐个相等。丢过（读者落后超过环容量）或对不上时
-            // 断开两个守门的窗口，这一片读到的子块都不推进守门。
-            if (inputs < 0 || outputs < 0 || inputs != outputs)
-            {
-                guardTaintedThrough = processed;
-                contrast.clearWindows();
-                psr.clearWindow();
-                ++probe.guardSubBlocksDropped;
-                return;
-            }
-
-            const auto& switches = guardSwitchesFor (activeConstants(), currentGenre);
-            const auto club = currentDelivery == Delivery::club;
-            const auto bound = retreatBoundDb();
-            contrast.setRetreatBoundDb (bound);
-            psr.setRetreatBoundDb (bound);
-
-            for (int i = 0; i < outputs; ++i)
-            {
-                const auto& input = guardInputRead[(size_t) i];
-                const auto& output = guardOutputRead[(size_t) i];
-
-                if (input.endSample != output.endSample || output.endSample - length < guardTaintedThrough)
-                {
-                    contrast.clearWindows();
-                    psr.clearWindow();
-                    ++probe.guardSubBlocksDropped;
-                    continue;
-                }
-
-                contrastOut = contrast.process (input, output, music, switches.contrast, club);
-                psrOut = psr.process (output, music, switches.psr, currentDelivery);
-                ++probe.guardSubBlocks;
-                probe.lastGuardSubBlockEnd = output.endSample;
-            }
         }
 
         void endBlock (const ModuleStats& stats, const juce::AudioBuffer<float>* output, const LoudnessMeter& inputMeter,
@@ -1577,7 +1434,6 @@ namespace celadon::glaze
             if (! active)
             {
                 snapAutomatic();
-                stepSubBlockGuards (inputMeter, outputMeter, numSamples, music, false);
                 probe.trimFrozen = false;
             }
             else
@@ -1588,23 +1444,18 @@ namespace celadon::glaze
                 auto guardStats = stats;
                 guardStats.musicActive = music;
                 const auto budgetBefore = budgetOut.reliefDb;
-                const auto contrastBefore = contrastOut.reliefDb;
-                const auto psrBefore = psrOut.reliefDb;
 
                 if (guardFrozen)
                     budget.discardPartialSlot();
                 else if (! targetPlan.automaticLevelWithdrawn)
                     budgetOut = budget.process (guardStats);
 
-                stepSubBlockGuards (inputMeter, outputMeter, numSamples, music, ! guardFrozen && ! targetPlan.automaticLevelWithdrawn);
                 slewApplied (currentMainness, dt);
 
-                // T-097 抗积分饱和（规格第 4 节；Max 10-10 Q11「有退让量就冻结」）：任一守门退让量 < 0（在退、停住、回程中都算）
-                // 或这一块刚改过退让量（回到 0 的那一步），或 1 s 内改过参数，G_trim 都不积分。改前只在预算环「本块在退」时冻结：
-                // 落差守门退下去之后 G_trim 把这段差当偏差、约 60 s 推满 +3 dB 抵消掉退让（drop 的冲击回不来）。
-                const auto guardHolding = budget.isRetreating() || budgetOut.reliefDb < 0.0f || contrastOut.reliefDb < 0.0f
-                                       || psrOut.reliefDb < 0.0f || ! sameBits (budgetBefore, budgetOut.reliefDb)
-                                       || ! sameBits (contrastBefore, contrastOut.reliefDb) || ! sameBits (psrBefore, psrOut.reliefDb);
+                // T-097 抗积分饱和（规格第 4 节；Max 10-10 Q11「有退让量就冻结」）：预算环退让量 < 0（在退、停住、回程中都算）
+                // 或这一块刚改过退让量（回到 0 的那一步），或 1 s 内改过参数，G_trim 都不积分。T-108 删掉落差 / PSR 两个守门后
+                // 只剩预算环这一份（那两个守门在通用档本来就关着，退让恒 0，删掉不改通用档的判定）。
+                const auto guardHolding = budget.isRetreating() || budgetOut.reliefDb < 0.0f || ! sameBits (budgetBefore, budgetOut.reliefDb);
                 const auto recentlyChanged = secondsSinceChange < changeFreezeSeconds;
                 secondsSinceChange = juce::jmin (changeFreezeSeconds, secondsSinceChange + dt);
                 probe.trimFrozen = guardHolding || recentlyChanged;
@@ -1616,7 +1467,7 @@ namespace celadon::glaze
                 //       钳位，等新段替换旧段读数反过来、再往另一头滑（T-097 报告第 4.1 节：+3.00 → −3.00）。折算后 G_trim 走 δ、
                 //       读数当块就变 δ。
                 //   二、方案目标响度 = 画像的输入响度 I + 方案净增益，I 是画像自己那套窗口算的，和出口历史不是同一批段
-                //       （其余曲风的 I 还是全部有效音频的门控积分，不是主段）。两边的差不是链的偏差，G_trim 不该去追。
+                //       （I 是全部有效音频的门控积分，不是主段）。两边的差不是链的偏差，G_trim 不该去追。
                 //       同一批段上「目标 − 出口」就是「方案净增益 − (出口 − 入口)」，规格第 4 节第 3 条的式子在两侧对齐时的写法。
                 // 另五条：读数只收回看重判后此刻仍算主段的段（本函数开头的 rejudge）；只收方案到位时录的片，没到位的也不积
                 // （executedPlanInPlace：还没施加的那部分方案不是偏差）；录制增益离参考增益远的段降权、加权后不足 3 s 不积
@@ -1692,16 +1543,12 @@ namespace celadon::glaze
                 if (prepared)
                     analyzer.handleDiscontinuity (Discontinuity::loopWrap);
 
-                guardWindowBreakPending = true;
-
                 ++probe.loopWraps;
             }
             else
             {
                 if (prepared)
                     analyzer.handleDiscontinuity (Discontinuity::transportJump);
-
-                guardWindowBreakPending = true;
 
                 ++probe.transportJumps;
             }
@@ -1735,7 +1582,6 @@ namespace celadon::glaze
                 analyzer.handleDiscontinuity (Discontinuity::hostReset);
 
             budget.discardPartialSlot();
-            guardWindowBreakPending = true;   // T-097：守门的 3 s 窗同分析器一起断开
             outputLevel.resetFilters();
             clayPressure.reset();
             clayKeep.reset();
@@ -1816,18 +1662,7 @@ namespace celadon::glaze
             copy.guardLimitsSet = budget.hasLimits();
             copy.guardLimits = budget.getLimits();
             copy.feedbackMaxGainDb = 1.0e9f;
-            copy.contrastReliefDb = contrast.current().reliefDb;
-            copy.psrReliefDb = psr.current().reliefDb;
-            copy.outputPsrValid = psr.getLastPsrDb (copy.outputPsrDb);
-            const auto contrastReading = contrast.getLastReading();
-            copy.contrastJudged = contrastReading.judged;
-            copy.contrastLossLu = contrastReading.lossLu;
-            copy.contrastInputSpreadLu = contrastReading.inputSpreadLu;
-            copy.contrastOutputSpreadLu = contrastReading.outputSpreadLu;
-            copy.contrastHistogramSeconds = contrastReading.histogramSeconds;
             copy.secondsSinceParamChange = secondsSinceChange;
-            copy.contrastFloorDb = contrast.getFloorDb();
-            copy.psrFloorDb = psr.getFloorDb();
             // T-106：G_trim 此刻会读到的量（读探针时现算，音频线程上不多做事）。
             const auto evidence = outputLevel.evidenceAt (trimReferenceGainDb(), trimEvidenceFullDb, trimEvidenceZeroDb);
             copy.trimLevelLufs = evidence.levelLufs;
@@ -1851,8 +1686,9 @@ namespace celadon::glaze
     void GlazeController::hostReset() noexcept                                                  { impl->hostReset(); }
     int GlazeController::getGuardSamplesUntilBoundary() const noexcept
     {
-        // T-097：预算环 10 ms 时隙边界与 OUT 表 100 ms 子块边界取较近的一个（链在 GLAZE > 0 时按它切片）。
-        return juce::jmin (impl->budget.getSamplesUntilSlotBoundary(), impl->guardSamplesUntilSubBlock);
+        // 预算环 10 ms 时隙边界（链在 GLAZE > 0 时按它切片）。T-097 另按 OUT 表 100 ms 子块边界切，给落差 / PSR 守门用；
+        // 两个守门随 T-108 删掉，子块切片一起去掉。
+        return impl->budget.getSamplesUntilSlotBoundary();
     }
     void GlazeController::handleDiscontinuity (Discontinuity kind) noexcept
     {
@@ -1864,8 +1700,6 @@ namespace celadon::glaze
         {
             if (impl->prepared)
                 impl->analyzer.handleDiscontinuity (kind);
-
-            impl->guardWindowBreakPending = true;   // T-097：守门的 3 s 窗同分析器一起断开
         }
     }
     const ChainParams& GlazeController::beginBlock (const ChainParams& manual, bool hostBypassed) noexcept
@@ -1906,11 +1740,10 @@ namespace celadon::glaze
         impl->bindLive();
     }
     void GlazeController::attachLiveProfile (LiveProfile* profile) noexcept                     { impl->live = profile; }
-    void GlazeController::notePendingModel (Genre genre) noexcept                               { impl->pendingModel = genre; }
-    void GlazeController::syncLiveModel() noexcept
+    void GlazeController::syncLiveConstants() noexcept
     {
         if (impl->live != nullptr)
-            impl->live->setConstants (LiveConstants {}, mainSectionModelFor (impl->pendingModel));
+            impl->live->setConstants (LiveConstants {});
     }
     bool GlazeController::hasPrepared() const noexcept                                           { return impl->prepared; }
     Status GlazeController::getStatus() const noexcept

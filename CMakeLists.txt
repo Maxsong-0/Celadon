@@ -121,9 +121,7 @@ set(CELADON_DSP_SOURCES
     Source/dsp/ClayGuard.cpp
     Source/dsp/ClayModule.cpp
     Source/dsp/ColorModule.cpp
-    Source/dsp/ContrastGuard.cpp
     Source/dsp/OutputLevelTracker.cpp
-    Source/dsp/PsrGuard.cpp
     Source/dsp/GlazeConstants.cpp
     Source/dsp/GlazeController.cpp
     Source/dsp/GlazeGuard.cpp

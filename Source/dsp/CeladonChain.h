@@ -176,9 +176,6 @@ namespace celadon
         glaze::LiveProfile& getLiveProfile() noexcept                     { return liveProfile; }
         const glaze::LiveProfile& getLiveProfile() const noexcept         { return liveProfile; }
 
-        // 消息线程、音频已停（prepareToPlay）：把曲风对应的主段模型交给 LiveProfile。
-        void syncGlazeLiveModel (glaze::Genre genre) noexcept;
-
         void processReference (const juce::AudioBuffer<float>& input, bool connected) noexcept { reference.process (input, connected); }
         void requestReferenceLearn() noexcept { reference.requestLearn(); }
         void cancelReferenceLearn() noexcept { reference.cancelLearn(); }
@@ -204,8 +201,6 @@ namespace celadon
         void processListen (juce::AudioBuffer<float>& io);
         void applyListenGain (juce::AudioBuffer<float>& io, int start, int length);
         void updateListenTarget();
-        // T-038 限幅跟拍：House 档、Auto 释放、宿主在播且 BPM 在合理区间时 = 一拍 ÷ beatReleaseDivisor（ms），否则 0（不封顶）。
-        float beatReleaseCapFor (glaze::Genre genre, bool autoRelease) const noexcept;
         // 本块起点的宿主信息加上 sampleOffset。只改位置与 PPQ；小节起点保持块起点那一小节（SegmentLedger::anchor）。
         glaze::HostInfo hostAtOffset (int sampleOffset) const noexcept;
         bool hostAdvancesInSlices() const noexcept;
@@ -231,9 +226,8 @@ namespace celadon
         std::atomic<float> publishedEffectiveCeiling { -1.0f };
         std::atomic<int> publishedDither { 0 };
         bool offline = false, releaseAllowed = true, previewActive = false;
-        // T-038 限幅跟拍：本块宿主的速度与走带（setHostInfo 记下，setParams 算慢段释放上限用；设计规格-曲风-House学习方式 第 8 节）。
-        bool hostTempoValid = false, hostPlaying = true;
-        double hostBpm = 0.0;
+        // 本块宿主在不在走带（setHostInfo 记下，切片时推进宿主位置用：hostAdvancesInSlices）。
+        bool hostPlaying = true;
         // 本块 setHostInfo 时的宿主信息。切片只在编排器上推进偏移；走完多片后改成块尾，下一块没再报位置时接着这里。
         glaze::HostInfo blockHostInfo;
 

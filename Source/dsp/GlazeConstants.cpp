@@ -62,7 +62,7 @@ namespace celadon::glaze
             // 俱乐部档照旧在此之上再加）。起因：手动推 Gain 约 4 dB（House 素材，Jamendo 37 首中位）三项预算就都超，决策器判「手动已超约束」
             // 撤回全部电平类自动、停校准（「受手动设置限制」）；只放宽峰值（+2 dB）实测只让 3 / 37 首多推 2 dB。代价：GLAZE 自己的自动方案也
             // 压得更多、更响（Max 2026-10-02 选定，要试听）。旧工程的已提交版本带着自己的快照（版本 8、旧预算），重新聆听后才用新值。
-            // T-038 的曲风 / House / 交付字段（可缺省）同在这一版。算法版本不升（只改常数，决策方式不变）。
+            // T-038 的曲风 / House / 交付字段（可缺省，T-108 已删）同在这一版。算法版本不升（只改常数，决策方式不变）。
             // T-063（2026-10-04）退役 7 个自动收单常数（不再写进快照、读时忽略）也并入这一版：删字段不改能读的存档，9 尚未发布，不另升。
             c.version = 9;
             c.algorithmVersion = currentAlgorithmVersion;
@@ -136,14 +136,6 @@ namespace celadon::glaze
             clean.clayWidthStyleFactor = 1.0f;
             clean.automaticHeatFloor = 12.0f;
 
-            // T-038 三个 House 子类（设计规格-曲风与交付 第 3.1 节）：Tone 参考斜率 2026-10-01 按 Jamendo 45 首标定（每类 15 首的 House 门控
-            // 画像谱斜率中位数 −2.21 / −2.19 / −2.24，取到 0.25 → 三类都 −2.25；Max 选定。起点值 −3.5 / −2.5 / −3.0 让几乎每首 Deep /
-            // Melodic 都被往暗推，报告 docs/validation/2026-10-01-T038-calibration/REPORT.md）。Tone 往亮 +0.4 dB、低切 25 Hz、不自动加宽
-            // 三类相同。四项都取 GenreConstants 的结构体默认值；House 共用常数与交付三档的出厂值同样就是结构体默认值。
-            c.deepHouse = GenreConstants {};
-            c.techHouse = GenreConstants {};
-            c.melodicProgressive = GenreConstants {};
-
             // 阶段 0 的全局字段按结构体默认值即为出厂值：
             //   - 目标：L_pref 钳在 −14 ～ −7（规格原文）；LRA 修正 f(LRA) = (LRA − 6 LU) × 1/3 dB（6 LU 以下不修正：动态不大的歌
             //     不因此提高目标；每多 3 LU 目标降 1 dB）——【设计】待 Max 试听标定；
@@ -192,61 +184,6 @@ namespace celadon::glaze
         //   - 读：先读全局字段（v0.1.6.2 ～ v0.1.8.5 的快照有它；更早的没有 → 0），再读三个风格字段，缺失时都取全局值——旧快照
         //     三种风格的底量逐位等于原来的全局值（blendConstants 对三者逐位相同的底量直接取原值，混合权重下也逐位不变）。
         //     存在但损坏照样拒收（xmlio 的约定）。
-        // T-038：三个 House 子类、House 共用常数、交付三档。旧快照（T-038 之前）没有这些字段 → 按出厂值读（factory 参数）：
-        // 通用 + 标准用不到它们，旧工程逐位不变；旧工程切到 House 时用此刻的出厂值。写的一方忽略 factory。
-        template <typename Visitor, typename GenreT>
-        void visitGenre (Visitor& v, const juce::String& prefix, GenreT& g, const GenreConstants& factory)
-        {
-            auto name = [&prefix] (const char* fieldName) { return prefix + "_" + fieldName; };
-
-            v.optionalField (name ("toneReferenceSlopeDbPerOct").toRawUTF8(), g.toneReferenceSlopeDbPerOct, factory.toneReferenceSlopeDbPerOct);
-            v.optionalField (name ("toneMaxBrightDb").toRawUTF8(), g.toneMaxBrightDb, factory.toneMaxBrightDb);
-            // 属性名不带「clay」：tests/GlazePlannerTests 的修坯快照测试按属性名里的 clay 数 32 个修坯字段，曲风覆盖的两项不算在内。
-            v.optionalField (name ("lowCutTargetHz").toRawUTF8(), g.clayLowCutTargetHz, factory.clayLowCutTargetHz);
-            v.optionalField (name ("widthStyleFactor").toRawUTF8(), g.clayWidthStyleFactor, factory.clayWidthStyleFactor);
-        }
-
-        template <typename Visitor, typename HouseT>
-        void visitHouse (Visitor& v, HouseT& h, const HouseConstants& f)
-        {
-            v.optionalField ("house_gateWidthLu", h.gateWidthLu, f.gateWidthLu);
-            v.optionalField ("house_lowGateFactor", h.lowGateFactor, f.lowGateFactor);
-            v.optionalField ("house_lockSegments", h.lockSegments, f.lockSegments);
-            v.optionalField ("house_requiredFullSegments", h.requiredFullSegments, f.requiredFullSegments);
-            v.optionalField ("house_fallbackSegmentSeconds", h.fallbackSegmentSeconds, f.fallbackSegmentSeconds);
-            v.optionalField ("house_fallbackLockSeconds", h.fallbackLockSeconds, f.fallbackLockSeconds);
-            v.optionalField ("house_fallbackFullSeconds", h.fallbackFullSeconds, f.fallbackFullSeconds);
-            v.optionalField ("house_fastTransitionSeconds", h.fastTransitionSeconds, f.fastTransitionSeconds);
-            v.optionalField ("house_reopenAboveProfileLu", h.reopenAboveProfileLu, f.reopenAboveProfileLu);
-            v.optionalField ("house_reopenSegments", h.reopenSegments, f.reopenSegments);
-            v.optionalField ("house_maxReopens", h.maxReopens, f.maxReopens);
-            v.optionalField ("house_beatReleaseDivisor", h.beatReleaseDivisor, f.beatReleaseDivisor);
-            v.optionalField ("house_beatMinBpm", h.beatMinBpm, f.beatMinBpm);
-            v.optionalField ("house_beatMaxBpm", h.beatMaxBpm, f.beatMaxBpm);
-            v.optionalField ("house_phaseHintCorrelation", h.phaseHintCorrelation, f.phaseHintCorrelation);
-            v.optionalField ("house_phaseHintSegments", h.phaseHintSegments, f.phaseHintSegments);
-            v.optionalField ("house_phaseHintFallbackSeconds", h.phaseHintFallbackSeconds, f.phaseHintFallbackSeconds);
-            // T-097：守门开关。T-097 之前的快照没有这两项 → 取出厂值（House 落差开、PSR 关；ADR-035：GLAZE > 0 允许变声音）。
-            v.optionalField ("house_contrastGuardOn", h.guards.contrast, f.guards.contrast);
-            v.optionalField ("house_psrGuardOn", h.guards.psr, f.guards.psr);
-        }
-
-        template <typename Visitor, typename DeliveryT>
-        void visitDelivery (Visitor& v, DeliveryT& d, const DeliveryConstants& f)
-        {
-            v.optionalField ("delivery_streamingTargetLufs", d.streamingTargetLufs, f.streamingTargetLufs);
-            v.optionalField ("delivery_streamingMinLufs", d.streamingMinLufs, f.streamingMinLufs);
-            v.optionalField ("delivery_streamingMaxLufs", d.streamingMaxLufs, f.streamingMaxLufs);
-            v.optionalField ("delivery_streamingTruePeakCapDbtp", d.streamingTruePeakCapDbtp, f.streamingTruePeakCapDbtp);
-            v.optionalField ("delivery_clubTargetLufs", d.clubTargetLufs, f.clubTargetLufs);
-            v.optionalField ("delivery_clubMinLufs", d.clubMinLufs, f.clubMinLufs);
-            v.optionalField ("delivery_clubMaxLufs", d.clubMaxLufs, f.clubMaxLufs);
-            v.optionalField ("delivery_styleOffsetReferenceLufs", d.styleOffsetReferenceLufs, f.styleOffsetReferenceLufs);
-            v.optionalField ("delivery_clubLimitGrMeanExtraDb", d.clubLimitGrMeanExtraDb, f.clubLimitGrMeanExtraDb);
-            v.optionalField ("delivery_clubLimitGrP95ExtraDb", d.clubLimitGrP95ExtraDb, f.clubLimitGrP95ExtraDb);
-            v.optionalField ("delivery_clubLimitGrPeakExtraDb", d.clubLimitGrPeakExtraDb, f.clubLimitGrPeakExtraDb);
-        }
-
         float legacyHeatFloorOf (const Constants& c) noexcept
         {
             return juce::jmin (juce::jmin (c.warm.automaticHeatFloor, c.punchy.automaticHeatFloor), c.clean.automaticHeatFloor);
@@ -399,16 +336,8 @@ namespace celadon::glaze
             // T-043（ADR-027）：守护混合损失的封顶门槛。缺字段按 0 读 → 决策器「判断不了」→ 不封顶（旧快照不变）。
             v.optionalField ("clayBlendLossLimitDb", c.clayBlendLossLimitDb, 0.0f);
 
-            // T-038 曲风与交付（见 visitGenre 上方说明）。出厂值取一份局部副本，避免读快照时与 factoryConstants() 的静态初始化互相依赖。
-            const auto factory = makeFactoryConstants();
-            visitGenre (v, "deepHouse", c.deepHouse, factory.deepHouse);
-            visitGenre (v, "techHouse", c.techHouse, factory.techHouse);
-            visitGenre (v, "melodicProgressive", c.melodicProgressive, factory.melodicProgressive);
-            visitHouse (v, c.house, factory.house);
-            visitDelivery (v, c.delivery, factory.delivery);
-            // T-097：通用档守门开关（同 visitHouse 末尾两项，缺字段取出厂值：两个都关）。
-            v.optionalField ("general_contrastGuardOn", c.generalGuards.contrast, factory.generalGuards.contrast);
-            v.optionalField ("general_psrGuardOn", c.generalGuards.psr, factory.generalGuards.psr);
+            // T-108：T-038 / T-097 的曲风、House、交付与守门开关字段已删。旧快照里的这些属性读的时候不认（读取只按名字取字段，
+            // 多出来的属性一律忽略），新快照不再写。
         }
 
         //==============================================================================
@@ -699,18 +628,6 @@ namespace celadon::glaze
             case Style::clean:
             case Style::automatic:
             default:            return constants.clean;   // 自动不对应单一常数（决策器按权重混合）；这里只作兜底
-        }
-    }
-
-    const GenreConstants* genreConstantsFor (const Constants& constants, Genre genre) noexcept
-    {
-        switch (genre)
-        {
-            case Genre::deepHouse:          return &constants.deepHouse;
-            case Genre::techHouse:          return &constants.techHouse;
-            case Genre::melodicProgressive: return &constants.melodicProgressive;
-            case Genre::general:
-            default:                        return nullptr;
         }
     }
 
