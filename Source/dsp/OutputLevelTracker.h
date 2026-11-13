@@ -58,7 +58,8 @@ namespace celadon::glaze
         void clear() noexcept;
         void resetFilters() noexcept;
 
-        // 本段暂判的 m′。跨过 0.5，或调用方 closeSegment()，就把上一段收进主段账。
+        // 本段暂判的 m′。跨过 0.5，或调用方 closeSegment()，就把上一段收进主段账。编排器在输入侧段落账换段时调 closeSegment()
+        // （外部第二意见 F1：段边界跟输入侧对齐；回绕、跳播、宿主 reset 处段落账都会换段）；此外一段满 8 s 自己切。
         // measured = 这一块的 m′ 是拿输入侧读数（inputLufs 段响度、lowShare 低频占比）算的：读数按样本数计入本段的平均，
         // 留给 rejudge()。静段、读不出、没有实时画像时为假，这一块不计入平均。
         void noteMainness (float mainness, bool measured = false, float inputLufs = 0.0f, float lowShare = 0.0f) noexcept;
@@ -72,7 +73,8 @@ namespace celadon::glaze
         // 没交入口，这份能量也配不到它头上——「一片的入口只配这一片的出口」不靠调用方每片都先交入口来保证。
         void discardInput() noexcept;
 
-        // limitGainDb = 这一片交给限幅器的 Limit Gain（手动 + 自动增量 + G_trim + 守门退让）；非有限值按 0 dB 记。
+        // limitGainDb = 这一片交给限幅器的 Limit Gain（手动 + 自动增量 + G_trim + 守门退让）；按限幅器实际执行的值折算
+        // （executedLimitGainDb：钳进 0 ～ 24 dB，非有限值按 0 dB）。
         // 待入账的入口能量按样本均摊进本段（片中间满 8 s 切段时两边各拿各的份）；样本数和这一片对不上就不入账，
         // 所在的段入口没配齐、不进 evidenceAt()。非有限的出口样本照旧计入段样本数、不计能量，也不算配上了入口。
         void processOutput (const juce::AudioBuffer<float>& output, float limitGainDb) noexcept;
@@ -124,9 +126,10 @@ namespace celadon::glaze
         std::unique_ptr<juce::XmlElement> createStateXml() const;
         // 没有 T-106 字段的旧存档（0.1.8.10 及更早）：校验同 0.1.8.10（标签、六个标量属性、closed 的长度、closedCount /
         // closedWrite 的范围；段的内容不看），然后段累计清空、restoredLegacyState() 置 true（旧历史不知道是在什么增益下录的，
-        // 折算不了）。带 T-106 字段的新格式：七个属性要齐，用到的每一个量都验——三个样本数是严格的十进制非负整数，
-        // 开着的一段与已收的 32 段各自的能量有限且非负、样本数在 0 ～ 8 s × 768 kHz、主段度有限，每段另记的量见 validExtra；
-        // 有一项不合规矩就整节拒收、状态不动，同别的节点。读回后各段先按当时的判定，下一次 rejudge() 起按此刻的参考。
+        // 折算不了）。带 T-106 字段的新格式：八个属性要齐，用到的每一个量都验——三个样本数是严格的十进制非负整数，
+        // 开着的一段与已收的 32 段各自的能量有限且非负、样本数在 0 ～ 8 s × 768 kHz、主段度有限，每段另记的量见 validExtra，
+        // 存档时的采样率有限且为正；有一项不合规矩就整节拒收、状态不动，同别的节点。读回后各段先按当时的判定，下一次 rejudge()
+        // 起按此刻的参考。存档时的采样率和此刻（最近一次 prepare）的不同：段里的样本数对不上此刻的时长，段累计清空（不打旧存档标记）。
         bool restoreStateXml (const juce::XmlElement&);
         bool restoredLegacyState() const noexcept { return legacyState; }
 
@@ -171,6 +174,21 @@ namespace celadon::glaze
 
         static constexpr int closedCapacity = 32;
         static constexpr float mainnessGate = 0.5f;
+
+    public:
+        // 限幅器对交来的 Limit Gain 实际执行的值：照抄 LimiterModule.cpp sanitised() 里 gainDb 那一行（finiteInRange (raw.gainDb,
+        // 0, 24, 默认 0)）——有限值钳进 0 ～ 24 dB，非有限值回默认 0 dB。processOutput 按它折算；那一行改了这里要跟着改
+        // （OutputLevelTrackerTests 第 9 条按这个规矩逐位核对）。
+        static constexpr float minimumLimitGainDb = 0.0f;
+        static constexpr float maximumLimitGainDb = 24.0f;
+        static constexpr float defaultLimitGainDb = 0.0f;
+
+        static float executedLimitGainDb (float limitGainDb) noexcept
+        {
+            return std::isfinite (limitGainDb) ? juce::jlimit (minimumLimitGainDb, maximumLimitGainDb, limitGainDb) : defaultLimitGainDb;
+        }
+
+    private:
 
         double sampleRate = 48000.0;
         std::int64_t maxOpenSamples = 384000;

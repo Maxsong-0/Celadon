@@ -241,11 +241,14 @@ namespace celadon::glaze
         if (channels <= 0 || numSamples <= 0)
             return;
 
+        // T-106：这一块的能量按当块执行的 Limit Gain 折回 0 dB。一块一个系数（增益是逐块给模块的）。
+        // 「执行的」按限幅器自己的规矩算（外部第二意见 F4）：有限值钳进 0 ～ 24 dB，非有限值回它的默认 0 dB。直接拿交来的值折算的话，
+        // 范围外的有限值记的增益和执行的对不上，极端的负值还会让系数上溢成 ∞、折回 0 dB 的能量变 ∞，存档时自己拒收自己。
+        const auto executedGainDb = executedLimitGainDb (limitGainDb);
+        const auto unityFactor = std::pow (10.0, -0.1 * (double) executedGainDb);
         const auto paired = inputSamples == numSamples;
         const auto inputPerSample = paired ? inputEnergy / (double) numSamples : 0.0;
         const auto weight = channels == 1 ? 2.0 : 1.0;
-        // T-106：这一块的能量按当块执行的 Limit Gain 折回 0 dB。一块一个系数（增益是逐块给模块的）。
-        const auto unityFactor = std::isfinite (limitGainDb) ? std::pow (10.0, -0.1 * (double) limitGainDb) : 1.0;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -429,11 +432,12 @@ namespace celadon::glaze
         std::memcpy (packed.getData(), closed.data(), packed.getSize());
         xml->setAttribute ("closed", juce::Base64::toBase64 (packed.getData(), packed.getSize()));
 
-        // T-106：每段另记的量另写七个属性。上面那些原样不动，0.1.8.10 不认识新属性、照旧读得了这一节。
+        // T-106：每段另记的量与存档时的采样率另写八个属性。上面那些原样不动，0.1.8.10 不认识新属性、照旧读得了这一节。
         writer.field ("openUnityEnergy", openExtra.unityEnergy);
         writer.field ("openInputEnergy", openExtra.inputEnergy);
         writer.field ("openInputLufsSum", openExtra.inputLufsSum);
         writer.field ("openLowShareSum", openExtra.lowShareSum);
+        writer.field ("sampleRate", sampleRate);   // 段里的样本数按它记；读回时采样率不同就不用这批段（见 restoreStateXml）
         xml->setAttribute ("openInputSamples", juce::String (openExtra.inputSamples));
         xml->setAttribute ("openPairedSamples", juce::String (openExtra.pairedSamples));
 
@@ -468,7 +472,7 @@ namespace celadon::glaze
             return false;
 
         static constexpr const char* extraAttributes[] = { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum",
-                                                           "openInputSamples", "openPairedSamples", "closedExtra" };
+                                                           "openInputSamples", "openPairedSamples", "closedExtra", "sampleRate" };
         int present = 0;
 
         for (const auto* name : extraAttributes)
@@ -494,12 +498,14 @@ namespace celadon::glaze
         extraReader.field ("openInputEnergy", restoredOpenExtra.inputEnergy);
         extraReader.field ("openInputLufsSum", restoredOpenExtra.inputLufsSum);
         extraReader.field ("openLowShareSum", restoredOpenExtra.lowShareSum);
+        auto savedRate = 0.0;
+        extraReader.field ("sampleRate", savedRate);
 
         juce::MemoryOutputStream extraPacked;
         std::array<Segment, (std::size_t) closedCapacity> restoredClosed {};
         std::array<Extra, (std::size_t) closedCapacity> restoredExtra {};
 
-        if (! extraReader.ok
+        if (! extraReader.ok || ! std::isfinite (savedRate) || savedRate <= 0.0
             || ! parseCount (xml.getStringAttribute ("openSamples"), stateMaximumSegmentSamples, restoredOpen.samples)
             || ! parseCount (xml.getStringAttribute ("openInputSamples"), stateMaximumSegmentSamples, restoredOpenExtra.inputSamples)
             || ! parseCount (xml.getStringAttribute ("openPairedSamples"), stateMaximumSegmentSamples, restoredOpenExtra.pairedSamples)
@@ -529,6 +535,13 @@ namespace celadon::glaze
         openWasMain = wasMain;
         legacyState = false;
         discardInput();
+
+        // T-106（外部第二意见 F5）：存档时的采样率和此刻不同，段里的样本数是按存档时的采样率记的——时长（「至少 3 s 证据」那道门）
+        // 和各段的权重都对不上。这批段不用：段历史清空、从头攒，其余照旧（不打旧存档标记，G_trim 不归零：它和采样率无关）。
+        // 只在读档晚于 prepare 时有用：prepare 本来就清段历史。
+        if (std::abs (savedRate - sampleRate) > 1.0e-6 * sampleRate)
+            clearSegments();
+
         return true;
     }
 }

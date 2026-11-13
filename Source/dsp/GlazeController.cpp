@@ -529,6 +529,9 @@ namespace celadon::glaze
         bool executedPlanInPlace = false;
         float executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
         float executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
+        // T-106（F1）：上一片看到的输入侧当前段的起点（SegmentLedger::getCurrentSegmentStart），变了就让出口跟踪器收段。
+        static constexpr std::int64_t notSeenSegmentStart = -2;
+        std::int64_t lastInputSegmentStart = notSeenSegmentStart;
         GuardOutput budgetOut {}, contrastOut {}, psrOut {};
         float currentMainness = 1.0f;
 
@@ -922,6 +925,9 @@ namespace celadon::glaze
             executedPlanInPlace = false;
             executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
             executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
+            // 输入侧的段边界也从头看：下一次看到的段起点和读档前、prepare 前的不是一回事，见到第一个就让出口收一次段
+            // （读档读回的那个开着的段属于存档时的时间轴）。
+            lastInputSegmentStart = notSeenSegmentStart;
         }
 
         // T-106：G_trim 的读数折算到的 Limit Gain = 手动 + 这一个宿主块执行的自动增量 + G_trim（钳法同 applyLimitExtras），不含
@@ -1144,8 +1150,19 @@ namespace celadon::glaze
             const auto timeline = control->getStringAttribute ("timelineSamples").getLargeIntValue();
             const auto nextGrid = control->getStringAttribute ("nextGridSample").getLargeIntValue();
 
+            // T-106（外部第二意见 F3，Max 2026-11-13 定在 T-106 里修）：CONTROL 里的浮点逐项查有限值，G_trim 另查 ±trimLimitDb。
+            // xmlio 按位模式读，NaN / ∞ 也算读到了：改前坏档能让 G_trim 停在 NaN（之后不再积分），或越过 ±3 dB 直接加到限幅器上。
+            // 其余几项只查有限值：它们的范围由下游再夹，0.1.8.10 存的正常值都在里面，查范围反而可能把好档拒掉。
+            const auto controlFinite = std::isfinite (restoredApplied.balanceRecover) && std::isfinite (restoredApplied.balanceTame)
+                                    && std::isfinite (restoredApplied.colorToneDb) && std::isfinite (restoredApplied.colorGlue)
+                                    && std::isfinite (restoredApplied.colorHeat) && std::isfinite (restoredApplied.limitGainDb)
+                                    && std::isfinite (restoredApplied.limitClip) && std::isfinite (restoredWeights.warm)
+                                    && std::isfinite (restoredWeights.punchy) && std::isfinite (restoredWeights.clean)
+                                    && std::isfinite (restoredTone) && std::isfinite (restoredHeat) && std::isfinite (restoredGlue)
+                                    && std::isfinite (restoredTrim) && std::abs (restoredTrim) <= trimLimitDb;
+
             if (! reader.ok || ! control->hasAttribute ("timelineSamples") || ! control->hasAttribute ("nextGridSample")
-                || ! std::isfinite (restoredChange) || restoredChange < 0.0)
+                || ! std::isfinite (restoredChange) || restoredChange < 0.0 || ! controlFinite)
                 return false;
 
             auto restoredScale = pressureScale;
@@ -1164,7 +1181,7 @@ namespace celadon::glaze
             clayReader.field ("phaseActive", restoredGuard.phaseActive);
             clayReader.field ("widthActive", restoredGuard.widthActive);
 
-            if (! clayReader.ok || ! budget.restoreStateXml (*budgetXml) || ! contrast.restoreStateXml (*contrastXml)
+            if (! clayReader.ok || ! std::isfinite (restoredScale) || ! budget.restoreStateXml (*budgetXml) || ! contrast.restoreStateXml (*contrastXml)
                 || ! psr.restoreStateXml (*psrXml) || ! outputLevel.restoreStateXml (*levelXml))
                 return false;
 
@@ -1472,6 +1489,21 @@ namespace celadon::glaze
             const auto reading = analyzer.getSegmentLedger().getCurrentReading (loudness, lowShare);
 
             const auto measured = reading == SegmentLedger::Reading::measured && live != nullptr;
+
+            // T-106（外部第二意见 F1）：输入侧开了新的一段，出口这边也收段——两侧用同一组段边界（规格第 4 节第 3 条）。不收的话，
+            // 连着两段都算主段时它们被并进出口的同一段，段里记的输入读数是两段的平均，回看重判时分不开。
+            // 不连续点（循环回绕、跳播、宿主 reset）也只靠这一处：分析器在那里断开实时段落账，下一块从新的表时刻开段
+            // （MusicAnalyzer.cpp beginDiscontinuity → liveEndEpoch；链的 reset 不清表，表时刻只往前走），段起点必变。
+            // 起点从「没有开着的段」（−1，实时模式关着时）变过来也收：那段空档里的出口样本不并进输入侧的新段。
+            // notSeenSegmentStart = 读档、prepare、冷启动之后还没看过（和任何起点都不等，头一块必收：空段收了不留痕迹，
+            // 读回来的那一段收进账，最多把一段在读档处切成两截）。
+            const auto inputSegmentStart = analyzer.getSegmentLedger().getCurrentSegmentStart();
+
+            if (inputSegmentStart != lastInputSegmentStart)
+            {
+                outputLevel.closeSegment();
+                lastInputSegmentStart = inputSegmentStart;
+            }
 
             if (reading == SegmentLedger::Reading::quiet)
                 currentMainness = 0.0f;

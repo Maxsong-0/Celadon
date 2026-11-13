@@ -8,15 +8,18 @@
     不经链，直接喂两路样本（入口是白噪声，出口 = 入口 × 一个倍数），每条断言都能按算式手算。覆盖：
       1. 读数：实测净增益 = 出口主段电平 − 入口主段电平（同一批段）；参考增益动多少 dB，出口读数当下就动多少 dB。
       2. 证据加权：每段按录制增益离参考增益的远近计权（≤ 1 dB 全算、≥ 3 dB 不算、中间线性）；两侧的能量和、时长用同一个权重。
-      3. 入口配对：入口没配齐的段不当证据；一片的入口能量不会算到别的片上（没有出口、样本数对不上、明说作废、已经用过）；
-         哪一侧有非有限样本的片不配对。
+      3. 入口配对：入口没配齐的段不当证据；一片的入口能量不会算到别的片上（没有出口、样本数对不上、明说作废、已经用过、
+         中间宿主 reset 了）；哪一侧有非有限样本的片不配对。
       4. 回看重判：只有此刻仍算主段的段进读数；没有读数（或读数不能用）的段保持当时的判定；可逆；判定函数收到的是段内平均；
          正开着的段不归它管。
       5. 存读档：存 → 读 → 再存逐属性相同、读数逐位相同；0.1.8.10 就有的八个属性原样还在、整块数组的字节数不变。
-      6. 旧存档（没有 T-106 的七个属性）读成空历史并打上标记；新格式里属性不全、三个样本数不是严格的十进制、段本身或每段另记的
+      6. 旧存档（没有 T-106 的八个属性）读成空历史并打上标记；新格式里属性不全、三个样本数不是严格的十进制、段本身或每段另记的
          量有一项不合规矩的整节拒收，拒收时状态不动；正好在界上的收下。
       7. 主段门：只有 m′ ≥ 0.5 的段进账；主段 → 非主段 → 主段，中间那一截两侧都不留痕迹，新开的段从零记起。
       8. 没有出口能量的段（数字静音）不当证据，也不占证据时长。
+      9. 折算用限幅器实际执行的 Limit Gain（钳进 0 ～ 24 dB、非有限值按 0 dB），拿真的 LimiterModule 逐位核对这条规矩。
+     10. 存档带采样率：读回时采样率和此刻不同，段历史清空（不打旧存档标记）；采样率不是有限的正数整节拒收。
+     11. 折回 0 dB 的出口电平本身 ≤ −100 LUFS 不算读数（不让「−100 + 增益」冒充有效值）；两个加权门槛的防护（全算门槛钳到 ≥ 0）。
     跟踪器接进编排器之后的行为（G_trim 环路、读 0.1.8.10 存的整份 LIVE）见 GlazeControllerTests.cpp 的 GlazeControllerTrimLoop
     与 GlazeControllerGuardFamily 第 5 条。
 
@@ -26,6 +29,7 @@
 #include "TestHelpers.h"
 
 #include "../Source/dsp/GlazeConstants.h"
+#include "../Source/dsp/LimiterModule.h"
 #include "../Source/dsp/OutputLevelTracker.h"
 
 #include <cmath>
@@ -61,6 +65,9 @@ namespace celadon::test
                 testLegacyAndBrokenState();
                 testMainnessFlips();
                 testSegmentsWithoutOutputEnergyAreNotEvidence();
+                testExecutedLimitGainMirrorsTheLimiter();
+                testSampleRateInState();
+                testReadingFloorAtUnity();
             }
 
         private:
@@ -75,9 +82,9 @@ namespace celadon::test
             static constexpr double secondsTolerance = 1.0e-6;
             static constexpr float levelToleranceDb = 2.0e-3f;
 
-            // T-106 的七个属性与 0.1.8.10 就有的八个（OutputLevelTracker.cpp createStateXml）。
+            // T-106 的八个属性（每段另记的量七个 + 存档时的采样率）与 0.1.8.10 就有的八个（OutputLevelTracker.cpp createStateXml）。
             static constexpr const char* extraAttributes[] = { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum",
-                                                               "openInputSamples", "openPairedSamples", "closedExtra" };
+                                                               "openInputSamples", "openPairedSamples", "closedExtra", "sampleRate" };
             static constexpr const char* legacyAttributes[] = { "openEnergy", "openMainness", "closedCount", "closedWrite", "haveOpenMainness",
                                                                 "openWasMain", "openSamples", "closed" };
             // 存档里两个整块数组的字节数：32 段 ×（Segment 24 字节 = double + int64 + float 补齐到 8；Extra 48 字节 = 4 个 double + 2 个 int64）。
@@ -237,6 +244,24 @@ namespace celadon::test
                 expect (noEvidence (tracker.evidenceAt (4.0f, fullDb, fullDb)), "full = zero = 1 dB: 2 dB away is past the edge - no evidence (and no division by zero)");
                 expectWithinAbsoluteError (tracker.evidenceAt (4.0f, 2.0f, zeroDb).seconds, 10.0, secondsTolerance, "full within 2 dB: both segments count in full");
                 expect (tracker.mainSamples() == samplesFor (10), "weighting does not change what counts as main: ten seconds");
+
+                // 两个门槛的防护（OutputLevelTracker.cpp evidenceAt：全算门槛不是有限值按 0、负的钳到 0；不算门槛不是有限值、或比全算
+                // 门槛还小时等于全算门槛——这时权重是台阶）。
+                //   全算 −1 dB 按 0 算：参考 2.5 → A 差 0.5，权重 (3 − 0.5) ÷ (3 − 0) = 5/6；B 差 3.5，0 → 4 × 5/6 = 3.333 s。
+                //   不钳的话按 −1 算：(3 − 0.5) ÷ (3 + 1) = 0.625 → 2.5 s。全算 NaN 同 0。
+                //   不算门槛 NaN → 台阶在全算门槛 1 dB 上：参考 2.8 → A 差 0.8 全算、B 差 3.2 不算 → 4 s；参考 3.5 → 两段都差 1.5 以上，没有证据。
+                {
+                    const auto nan = std::numeric_limits<float>::quiet_NaN();
+                    const auto clamped = tracker.evidenceAt (2.5f, -1.0f, zeroDb);
+                    expectWithinAbsoluteError (clamped.seconds, 4.0 * 5.0 / 6.0, secondsTolerance, "a negative full-weight width counts as 0: 3.333 s at 2.5 dB");
+                    expect (sameEvidence (clamped, tracker.evidenceAt (2.5f, 0.0f, zeroDb)), "... bit-identical to a full-weight width of 0");
+                    expect (sameEvidence (tracker.evidenceAt (2.5f, nan, zeroDb), tracker.evidenceAt (2.5f, 0.0f, zeroDb)), "a NaN full-weight width counts as 0");
+                    expectWithinAbsoluteError (tracker.evidenceAt (2.8f, fullDb, nan).seconds, 4.0, secondsTolerance,
+                                               "a NaN zero-weight edge falls back to the full-weight width (a step): 2.8 dB reads segment A in full");
+                    expect (noEvidence (tracker.evidenceAt (3.5f, fullDb, nan)), "... and 3.5 dB, more than 1 dB from both, reads nothing");
+                    expect (sameEvidence (tracker.evidenceAt (2.8f, fullDb, 0.5f), tracker.evidenceAt (2.8f, fullDb, fullDb)),
+                            "a zero-weight edge inside the full-weight width is the same step");
+                }
             }
 
             // 3. 依据：OutputLevelTracker.h「待入账的入口能量…样本数和这一片对不上就不入账，所在的段入口没配齐、不进 evidenceAt()」
@@ -403,6 +428,35 @@ namespace celadon::test
                             expect (noEvidence (e), what + " leaves the slice unpaired: its segment is no longer evidence");
                     }
                 }
+
+                // (h) 依据：OutputLevelTracker.cpp resetFilters 末尾的 discardInput（「复位前那一片的入口能量与复位后的出口不是一回事」；
+                //     编排器在宿主 reset 时调它）。一片交了入口，接着宿主 reset，再来同样长的一片出口：不配对，不当证据。
+                //     对照：不 reset，同样的两步配上了，是证据。不作废的话两片样本数相同，reset 前的入口就会配到 reset 后的出口上。
+                for (const auto reset : { false, true })
+                {
+                    Tracker tracker;
+                    tracker.prepare (rate);
+                    const auto noise = makeNoise (numChannels, block, 0.1f, 3500);
+                    juce::AudioBuffer<float> buffer (numChannels, block);
+
+                    for (int ch = 0; ch < numChannels; ++ch)
+                        buffer.copyFrom (ch, 0, noise[(size_t) ch].data(), block);
+
+                    tracker.processInput (buffer);
+
+                    if (reset)
+                        tracker.resetFilters();
+
+                    tracker.noteMainness (1.0f, true, -20.0f, 0.3f);
+                    tracker.processOutput (buffer, 0.0f);
+                    const auto e = tracker.evidenceAt (0.0f, fullDb, zeroDb);
+                    expect (tracker.mainSamples() == (std::int64_t) block, juce::String (reset ? "(h)" : "(h, control)") + " the output slice is booked");
+
+                    if (reset)
+                        expect (noEvidence (e), "(h) an input slice handed in before a host reset is not paired with the output after it");
+                    else
+                        expectWithinAbsoluteError (e.seconds, 0.01, secondsTolerance, "(h, control) without the reset the slice is paired: 0.01 s of evidence");
+                }
             }
 
             // 4. 依据：OutputLevelTracker.h「rejudge() 按此刻的参考把每一段重判一遍，只有此刻仍算主段的段才计入电平」「没有读数的段
@@ -527,10 +581,10 @@ namespace celadon::test
                 return same;
             }
 
-            // 5. 依据：OutputLevelTracker.h「段累计进 LIVE」「T-106 的量另写七个属性，上面那些原样不动，0.1.8.10 照旧读得了这一节」
+            // 5. 依据：OutputLevelTracker.h「段累计进 LIVE」「T-106 的量另写八个属性，上面那些原样不动，0.1.8.10 照旧读得了这一节」
             //    「读回后各段先按当时的判定，下一次 rejudge() 起按此刻的参考」。
             //    断言：存 → 读进另一个跟踪器 → 再存，两份 XML 逐属性相同；读数（五个参考增益下的证据、主段样本数）逐位相同；
-            //    十五个属性都在，两个整块数组的字节数是 768 / 1536；供体重判掉一段之后存的档，读回先按当时的判定（那一段还在），
+            //    十六个属性都在，两个整块数组的字节数是 768 / 1536；供体重判掉一段之后存的档，读回先按当时的判定（那一段还在），
             //    做同样的重判后与供体一致。读回后接着喂，两边仍逐位一致（滤波器状态不存：两边都先清滤波器）。
             void testStateRoundTrip()
             {
@@ -549,7 +603,7 @@ namespace celadon::test
                 if (saved == nullptr)
                     return;
 
-                auto allPresent = saved->getNumAttributes() == 15;
+                auto allPresent = saved->getNumAttributes() == 16;
 
                 for (const auto* attribute : legacyAttributes)
                     allPresent = allPresent && saved->hasAttribute (attribute);
@@ -557,7 +611,7 @@ namespace celadon::test
                 for (const auto* attribute : extraAttributes)
                     allPresent = allPresent && saved->hasAttribute (attribute);
 
-                expect (allPresent, "the node has the eight 0.1.8.10 attributes and the seven T-106 attributes, nothing else");
+                expect (allPresent, "the node has the eight 0.1.8.10 attributes and the eight T-106 attributes, nothing else");
 
                 juce::MemoryOutputStream closedData, extraData;
                 const auto closedDecoded = juce::Base64::convertFromBase64 (closedData, saved->getStringAttribute ("closed"));
@@ -623,7 +677,7 @@ namespace celadon::test
                     feed (target, 5 * blocksPerSecond, 7000, linearChain (3.0f));
                 };
 
-                // ---- 旧形状：七个属性都没有 ----
+                // ---- 旧形状：八个属性都没有 ----
                 {
                     juce::XmlElement legacy (*saved);
 
@@ -644,7 +698,7 @@ namespace celadon::test
                     const auto upgraded = target.createStateXml();
                     Tracker next;
                     next.prepare (rate);
-                    expect (upgraded != nullptr && upgraded->getNumAttributes() == 15 && next.restoreStateXml (*upgraded) && ! next.restoredLegacyState(),
+                    expect (upgraded != nullptr && upgraded->getNumAttributes() == 16 && next.restoreStateXml (*upgraded) && ! next.restoredLegacyState(),
                             "legacy node: saved again it is in the new shape and no longer legacy");
 
                     // 旧字段坏了的旧档照旧拒收（closedCount 写成 99：环只有 32 段；整数字段是十进制）。
@@ -761,6 +815,14 @@ namespace celadon::test
                     expectRejected (openNode, juce::String (bad.what) + " " + bad.attribute);
                     expectRejected (withClosedExtra (bad.closedOffset, &bad.closedValue, sizeof (bad.closedValue)),
                                     juce::String (bad.what) + " count at byte " + juce::String ((int) bad.closedOffset) + " of closedExtra");
+                }
+
+                // 存档时的采样率（外部第二意见 F5）：不是有限的正数整节拒收。合法、但和此刻不同的见第 10 条。
+                for (const auto badRate : { notANumber, infinity, 0.0, -rate })
+                {
+                    juce::XmlElement node (*saved);
+                    glaze::xmlio::Writer (node).field ("sampleRate", badRate);
+                    expectRejected (node, "sampleRate " + juce::String (badRate));
                 }
 
                 // ---- 新格式里段本身也验（OutputLevelTracker.cpp validSegment）、三个样本数严格按十进制读（parseCount）----
@@ -934,6 +996,187 @@ namespace celadon::test
                     expectWithinAbsoluteError (e.seconds, 2.0, secondsTolerance, "(b) only those two seconds count");
                     // 入口那一路滤波器连续跑过了前 4 s、出口那一路吃的是静音，新段开头几毫秒两路略有出入：容差 0.01 dB。
                     expectWithinAbsoluteError (e.netGainDb(), 0.0f, 0.01f, "(b) the muted segment's input energy is not in the reading (it would read -4.77 dB)");
+                }
+            }
+
+            // 9. 依据：OutputLevelTracker.h processOutput「按限幅器实际执行的值折算（executedLimitGainDb：钳进 0 ～ 24 dB，非有限值按 0 dB）」
+            //    （外部第二意见 F4）。改前直接拿交来的值折算：范围外的有限值记的增益和执行的对不上；−4000 dB 时系数 10^400 上溢成 ∞，
+            //    折回 0 dB 的能量变 ∞，存档时自己拒收自己。
+            //    (a) executedLimitGainDb 逐个值。再拿真的限幅器核对这条规矩照抄得对：同一段噪声分别以「交来的值」和「它执行的值」交给
+            //        LimiterModule，输出逐位相同（LimiterModule.cpp sanitised 改了 gainDb 的规矩，这里就红）。对照：23 与 24 dB 的输出不同。
+            //    (b) 跟踪器：交 30 dB（出口照 24 dB 放大）与交 24 dB 的读数、存档逐位相同；交 −4000、−5 dB 与交 0 dB 逐位相同，存档读得回；
+            //        交 NaN 与交 0 dB 逐位相同。
+            void testExecutedLimitGainMirrorsTheLimiter()
+            {
+                beginTest ("processOutput refers a slice to the Limit Gain the limiter executes (0..24 dB, non-finite as 0 dB), checked against LimiterModule");
+
+                const auto nan = std::numeric_limits<float>::quiet_NaN();
+                const auto inf = std::numeric_limits<float>::infinity();
+
+                struct Case { float given; float executed; };
+                const Case cases[] = { { -5.0f, 0.0f }, { -4000.0f, 0.0f }, { 0.0f, 0.0f }, { 12.5f, 12.5f }, { 24.0f, 24.0f }, { 30.0f, 24.0f },
+                                       { nan, 0.0f }, { inf, 0.0f }, { -inf, 0.0f } };
+
+                for (const auto& c : cases)
+                    expect (sameBits (Tracker::executedLimitGainDb (c.given), c.executed),
+                            "executedLimitGainDb (" + juce::String (c.given) + ") = " + juce::String (c.executed));
+
+                // ---- (a) 真的限幅器 ----
+                const auto limiterOutput = [] (float gainDb)
+                {
+                    LimiterModule limiter;
+                    LimiterModule::Params p;
+                    p.gainDb = gainDb;
+                    limiter.setParams (p);
+                    limiter.prepare ({ rate, (juce::uint32) block, (juce::uint32) numChannels });
+                    std::vector<float> out;
+
+                    for (int b = 0; b < 20; ++b)
+                    {
+                        const auto noise = makeNoise (numChannels, block, 0.05f, 12000 + b);
+                        juce::AudioBuffer<float> buffer (numChannels, block);
+
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            buffer.copyFrom (ch, 0, noise[(size_t) ch].data(), block);
+
+                        limiter.process (buffer);
+
+                        for (int ch = 0; ch < numChannels; ++ch)
+                            out.insert (out.end(), buffer.getReadPointer (ch), buffer.getReadPointer (ch) + block);
+                    }
+
+                    return out;
+                };
+
+                const auto sameOutput = [] (const std::vector<float>& a, const std::vector<float>& b)
+                {
+                    return a.size() == b.size() && std::memcmp (a.data(), b.data(), a.size() * sizeof (float)) == 0;
+                };
+
+                expect (! sameOutput (limiterOutput (23.0f), limiterOutput (24.0f)), "fixture: the limiter's output depends on the gain (23 vs 24 dB differ)");
+
+                for (const auto& c : cases)
+                    expect (sameOutput (limiterOutput (c.given), limiterOutput (Tracker::executedLimitGainDb (c.given))),
+                            "LimiterModule handed " + juce::String (c.given) + " dB executes " + juce::String (c.executed) + " dB, as executedLimitGainDb says");
+
+                // ---- (b) 跟踪器按执行的值折算 ----
+                const auto fed = [] (float given, float executedDb)
+                {
+                    Tracker tracker;
+                    tracker.prepare (rate);
+                    Feed f;
+                    f.limitGainDb = given;
+                    f.outputGain = juce::Decibels::decibelsToGain (executedDb);
+                    feed (tracker, 4 * blocksPerSecond, 13000, f);
+                    return tracker;
+                };
+
+                for (const auto& c : { Case { 30.0f, 24.0f }, Case { -5.0f, 0.0f }, Case { -4000.0f, 0.0f }, Case { nan, 0.0f } })
+                {
+                    const auto given = fed (c.given, c.executed);
+                    const auto inRange = fed (c.executed, c.executed);
+                    const auto tag = "handed " + juce::String (c.given) + " dB: ";
+                    const auto e = given.evidenceAt (c.executed, fullDb, zeroDb);
+                    expect (e.valid(), tag + "the slices are evidence at the executed " + juce::String (c.executed) + " dB");
+                    expectWithinAbsoluteError (e.netGainDb(), c.executed, levelToleranceDb, tag + "the net gain is the executed gain");
+                    expect (sameReadings (given, inRange), tag + "readings bit-identical to handing in the executed value");
+
+                    const auto saved = given.createStateXml();
+                    const auto reference = inRange.createStateXml();
+                    Tracker restored;
+                    restored.prepare (rate);
+                    expect (saved != nullptr && reference != nullptr && saved->isEquivalentTo (reference.get(), false),
+                            tag + "the saved state is the same as with the executed value");
+                    expect (saved != nullptr && restored.restoreStateXml (*saved) && sameReadings (restored, given),
+                            tag + "and it restores (no infinite energy in it)");
+                }
+            }
+
+            // 10. 依据：OutputLevelTracker.h restoreStateXml「存档时的采样率和此刻（最近一次 prepare）的不同：段里的样本数对不上此刻的
+            //     时长，段累计清空（不打旧存档标记）」（外部第二意见 F5）。编排器在第一次 prepare 之前收到的档会等 prepare 之后按真实采样率
+            //     再读一遍，所以 44.1 kHz 存的工程在 48 kHz 下打开，走的就是这条路。
+            //     断言：存档的 sampleRate 属性 = prepare 的采样率；同一采样率读回，读数逐位相同；换成 44.1 kHz 读回：收下、不是旧存档、
+            //     段历史为空、没有证据；它再存时写的是 44.1 kHz。不清的话 48 kHz 记的 14 s 按 44.1 kHz 算成 15.2 s 证据。
+            void testSampleRateInState()
+            {
+                beginTest ("state carries the sample rate; restored at another rate the segment history is dropped (not flagged legacy)");
+
+                constexpr double otherRate = 44100.0;
+
+                Tracker donor;
+                donor.prepare (rate);
+                fillForState (donor);
+                const auto saved = donor.createStateXml();
+                expect (saved != nullptr);
+
+                if (saved == nullptr)
+                    return;
+
+                auto savedRate = 0.0;
+                glaze::xmlio::Reader reader (*saved);
+                reader.field ("sampleRate", savedRate);
+                expect (reader.ok && savedRate == rate, "the node records the rate it was prepared at: " + juce::String (savedRate));
+
+                Tracker same;
+                same.prepare (rate);
+                expect (same.restoreStateXml (*saved) && sameReadings (same, donor), "restored at the same rate: readings bit-identical");
+
+                Tracker other;
+                other.prepare (otherRate);
+                expect (other.restoreStateXml (*saved), "restored at another rate: accepted (the rest of the state is fine)");
+                expect (! other.restoredLegacyState(), "... not flagged legacy (the orchestrator keeps G_trim)");
+                expect (other.mainSamples() == 0 && ! other.openSegmentIsMain() && noEvidence (other.evidenceAt (2.5f, fullDb, zeroDb)),
+                        "... and the segment history is empty");
+
+                const auto again = other.createStateXml();
+                auto againRate = 0.0;
+
+                if (again != nullptr)
+                {
+                    glaze::xmlio::Reader againReader (*again);
+                    againReader.field ("sampleRate", againRate);
+                }
+
+                expect (againRate == otherRate, "saved again it records its own rate: " + juce::String (againRate));
+            }
+
+            // 11. 依据：OutputLevelTracker.cpp evidenceAt「折回 0 dB 的电平本身低到 −100 就不算读数（不让「−100 + 增益」冒充有效值）」。
+            //     线性以外的一条链：入口白噪声，出口压得极轻，记账的 Limit Gain 20 dB（录制增益就是 20 dB，参考 20 dB 时全算）。
+            //     出口折回 0 dB 的电平 −105 LUFS → 不是读数（出口电平 −100、valid 为假），入口照常有读数；−95 LUFS → 是读数，
+            //     出口电平 = −95 + 20 = −75 LUFS。少了这道门，−105 那份读成 −85 LUFS、valid 为真。出口的倍数按先量出来的入口电平算。
+            void testReadingFloorAtUnity()
+            {
+                beginTest ("an output level at or below -100 LUFS at 0 dB Limit Gain is not a reading, whatever gain it is referred to");
+
+                constexpr float gainDb = 20.0f;
+
+                Tracker pilot;
+                pilot.prepare (rate);
+                feed (pilot, 4 * blocksPerSecond, 14000, Feed {});
+                const auto inputLufs = pilot.evidenceAt (0.0f, fullDb, zeroDb).inputLufs;
+                expect (inputLufs > -40.0f && inputLufs < -10.0f, "fixture: the input reads " + juce::String (inputLufs, 2) + " LUFS");
+
+                for (const auto atUnity : { -105.0f, -95.0f })
+                {
+                    Tracker tracker;
+                    tracker.prepare (rate);
+                    Feed f;
+                    f.limitGainDb = gainDb;
+                    f.outputGain = juce::Decibels::decibelsToGain (atUnity + gainDb - inputLufs);
+                    feed (tracker, 4 * blocksPerSecond, 14000, f);
+                    const auto e = tracker.evidenceAt (gainDb, fullDb, zeroDb);
+                    const auto tag = "output at " + juce::String (atUnity, 0) + " LUFS at 0 dB: ";
+                    logMessage ("  " + tag + "output " + juce::String (e.levelLufs, 3) + " / input " + juce::String (e.inputLufs, 3) + " LUFS over "
+                                + juce::String (e.seconds, 3) + " s");
+                    expect (sameBits (e.inputLufs, inputLufs) && e.seconds > 3.9, tag + "the input side reads as usual, four seconds");
+
+                    if (atUnity < -100.0f)
+                        expect (e.levelLufs == -100.0f && ! e.valid(), tag + "no output reading (it would read -85 LUFS and count as valid)");
+                    else
+                    {
+                        expect (e.valid(), tag + "a reading");
+                        expectWithinAbsoluteError (e.levelLufs, atUnity + gainDb, 0.01f, tag + "the output level is that plus 20 dB");
+                    }
                 }
             }
         };

@@ -7633,7 +7633,7 @@ namespace celadon::test
         //    规格第 5 节「窗口状态不存」；GlazeController.h「restoreStateXml 之后、第一块音频之前调 createStateXml，返回的是刚恢复的内容」。
         //    main 3a7a367 的存档形状（git show 3a7a367 核对过）：CONTRAST_GUARD = reliefDb / floorDb / engaged / ringCount / ringWrite /
         //    samplesUntilPush / inputRing / outputRing；PSR_GUARD = reliefDb / floorDb / belowSeconds / engaged；CONTROL 没有
-        //    secondsSinceParamChange；OUTPUT_LEVEL 没有 T-106 的七个属性（见用例里的说明）；其余节点（LIVE_PROFILE、BUDGET_GUARD、CLAY）
+        //    secondsSinceParamChange；OUTPUT_LEVEL 没有 T-106 的八个属性（见用例里的说明）；其余节点（LIVE_PROFILE、BUDGET_GUARD、CLAY）
         //    与本分支同形。新写法把这些旧属性原样留着（128 笔环写 0），所以从新档里删掉 T-097、T-106 新增的属性，得到的就是 main 形状
         //    （环里的数旧版本身也不读）。
         //    「不冷启动」的判据同主类 testLiveRoundTrip：增量回到存档值、LIVE 画像 I 仍有效、没有旧工程提示；外加两个退让量回到
@@ -7690,7 +7690,7 @@ namespace celadon::test
                 logMessage ("  new LIVE round trip: whole container identical " + juce::String ((int) (again != nullptr && again->isEquivalentTo (saved.get(), false)))
                             + "; differing nodes:" + (differing.isEmpty() ? juce::String (" none") : differing));
 
-                // T-106：OUTPUT_LEVEL 多了七个属性（每段的折算能量、入口能量、输入侧读数），一并逐位核。
+                // T-106：OUTPUT_LEVEL 多了八个属性（每段的折算能量、入口能量、输入侧读数，存档时的采样率），一并逐位核。
                 for (const char* tag : { "CONTROL", "CONTRAST_GUARD", "PSR_GUARD", "OUTPUT_LEVEL" })
                     expect (t097SameChild (savedBody.get(), againBody.get(), tag), "new LIVE: " + juce::String (tag) + " round-trips bit-identically");
             }
@@ -7742,8 +7742,8 @@ namespace celadon::test
 
             expect (oldShape, "fixture: CONTRAST_GUARD / PSR_GUARD / CONTROL now have exactly the main 3a7a367 attributes");
 
-            // T-106（ADR-038）：0.1.8.10（与 main 3a7a367）的 OUTPUT_LEVEL 没有折算历史用的七个属性（OutputLevelTracker.cpp
-            // createStateXml 末尾那一组）；新档把旧属性原样留着，删掉这七个就是旧形状。读到旧形状：出口电平历史不知道是在什么增益下
+            // T-106（ADR-038）：0.1.8.10（与 main 3a7a367）的 OUTPUT_LEVEL 没有折算历史用的八个属性（OutputLevelTracker.cpp
+            // createStateXml 末尾那一组）；新档把旧属性原样留着，删掉这八个就是旧形状。读到旧形状：出口电平历史不知道是在什么增益下
             // 录的、折算不了，清空；G_trim 是旧口径积出来的（多半已经顶在钳位上），从 +0 重新收敛；其余照旧、不冷启动。
             // CONTROL 的 gTrim 写成可辨认的 +1.5 dB（xmlio float：符号 0、指数 127（0x7f）、尾数 .1b → 0x3fc00000）：供体这 24 s 里
             // 方案还没到位、G_trim 本来就是 +0，不改的话「读回是 +0」分不出是归零还是照读。新形状照读的对照在
@@ -7755,7 +7755,7 @@ namespace celadon::test
                 return;
 
             for (const char* attribute : { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum", "openInputSamples",
-                                           "openPairedSamples", "closedExtra" })
+                                           "openPairedSamples", "closedExtra", "sampleRate" })
             {
                 expect (levelNode->hasAttribute (attribute), "new LIVE: OUTPUT_LEVEL carries " + juce::String (attribute));
                 levelNode->removeAttribute (attribute);
@@ -7831,11 +7831,11 @@ namespace celadon::test
                         "old shape saved again: PSR_GUARD keeps the relief and writes aboveSeconds = 0");
                 expect (upControl != nullptr && upControl->getStringAttribute ("secondsSinceParamChange") == "3ff0000000000000",
                         "old shape saved again: CONTROL writes secondsSinceParamChange = 1 s");
-                // T-106：再存就是新形状——OUTPUT_LEVEL 带上七个属性（历史是空的），CONTROL 的 gTrim 是 +0（float +0 = 8 个 0）。
+                // T-106：再存就是新形状——OUTPUT_LEVEL 带上八个属性（历史是空的），CONTROL 的 gTrim 是 +0（float +0 = 8 个 0）。
                 const auto* upLevel = upgradedBody != nullptr ? upgradedBody->getChildByName ("OUTPUT_LEVEL") : nullptr;
-                expect (upLevel != nullptr && upLevel->getNumAttributes() == 15 && upLevel->hasAttribute ("closedExtra")
+                expect (upLevel != nullptr && upLevel->getNumAttributes() == 16 && upLevel->hasAttribute ("closedExtra")
                             && upLevel->getStringAttribute ("openPairedSamples") == "0",
-                        "old shape saved again: OUTPUT_LEVEL is upgraded (the seven T-106 attributes are written, empty history)");
+                        "old shape saved again: OUTPUT_LEVEL is upgraded (the eight T-106 attributes are written, empty history)");
                 expect (upControl != nullptr && upControl->getStringAttribute ("gTrim") == "00000000",
                         "old shape saved again: CONTROL writes gTrim = +0");
             }
@@ -9353,14 +9353,17 @@ namespace celadon::test
 //   8. 增益变了 3 dB 以上之后，旧增益下录的段不再当证据（仍是主段）。
 //   9. 抗饱和：G_trim 用不上的时候（手动 Limit Gain 已在 24 dB）积分状态不动。
 //  10. 回看重判：素材变响、参考跟上之后，之前录的段不再算主段。
-//  11. 「方案到位」也看 Tone：只有 Tone 没到位时 G_trim 也不动，Tone 到位后才积。
+//  11. 「方案到位」逐项看：Recover / Tame / Glue / Heat / Clip / Tone 任一项单独没到位，G_trim 都不动，到位后才积。
 //  12. 一个宿主块切成多片时，到没到位按块首那份设置判一次、各片沿用。
 //  13. 误差里的方案净增益用这一个宿主块执行的那份方案，不用这一块里刚重算出来的。
 //  14. 读数折算用的 Limit Gain 自动增量是这一个宿主块执行的那份，不是这一块里被速率限制推过的。
+//  15. 读档：CONTROL 里的浮点不是有限值、G_trim 超出 ±3 dB、CLAY 的 pressureScale 不是有限值，整份拒收（外部第二意见 F3）。
+//  16. 出口电平的段跟着输入侧段落账切，不连续点处也是（外部第二意见 F1）。
+//  17. 抗饱和的下界：G_trim 不低于「负的自动部分」；读回时已在范围外的，不往更外面走，也不被一下子拽回来。
 // 前五条只用 T-106 之前就有的探针字段，同一份用例能原样放到修之前的代码（3a16132）上跑：在那里都失败（DGX 2026-11-12 实测，
-// 数值写在各条的注释里），修之后都通过。第 6 ～ 14 条要读 T-106 的探针与存档属性，只在修之后的代码上有意义；它们各盯一个
+// 数值写在各条的注释里），修之后都通过。第 6 ～ 17 条要读 T-106 的探针与存档属性，只在修之后的代码上有意义；它们各盯一个
 // T-106 新加的条件，把那个条件改错（去掉、放宽、收紧）对应的用例就红（验证报告里有逐条的改错结果）。
-// 除第 5、9 条外，素材与设置同 T-097「改参数冻结」那一条：makeMusic 种子 33、峰值 0.2、通用曲风、放宽预算——三个守门全程 +0，
+// 除第 5、9、17 条外，素材与设置同 T-097「改参数冻结」那一条：makeMusic 种子 33、峰值 0.2、通用曲风、放宽预算——三个守门全程 +0，
 // 限幅器不动作，链给的净增益就是方案的净增益，G_trim 的稳态只剩 Limit Gain 死区里差的那 ≤ 0.1 dB。
 //
 // 出口电平跟踪器本身（T-106 的读数、入口配对、回看重判、存读档）单独测，在 tests/OutputLevelTrackerTests.cpp。
@@ -9385,10 +9388,13 @@ namespace celadon::test
                 testOldSegmentsStopCountingAfterAGainChange();
                 testDoesNotWindUpWhereItCannotAct();
                 testHistoryIsRejudgedAgainstTheCurrentReference();
-                testWaitsForToneToo();
+                testWaitsForEveryIncrement();
                 testJudgesInPlaceOncePerHostBlock();
                 testErrorUsesThePlanTheBlockExecuted();
                 testReferenceUsesTheIncrementTheBlockExecuted();
+                testRestoreRejectsBadControlValues();
+                testOutputSegmentsFollowTheInputLedger();
+                testDoesNotWindUpBelowWhatItCanUse();
             }
 
         private:
@@ -9653,8 +9659,8 @@ namespace celadon::test
                 expect (highest <= overshootDb, "G_trim does not shoot up during the cold start (without the rule: +1.15 dB; before T-106: +2.25)");
             }
 
-            // 6. 依据：T-106 存读档。OUTPUT_LEVEL 另写七个属性（OutputLevelTracker.cpp createStateXml 末尾那一组：每段折回 0 dB 的出口
-            //    能量、入口能量、输入侧读数），旧属性原样留着。读到没有这七个属性的旧存档（0.1.8.10 及更早）：出口电平历史不知道是在
+            // 6. 依据：T-106 存读档。OUTPUT_LEVEL 另写八个属性（OutputLevelTracker.cpp createStateXml 末尾那一组：每段折回 0 dB 的出口
+            //    能量、入口能量、输入侧读数），旧属性原样留着。读到没有这八个属性的旧存档（0.1.8.10 及更早）：出口电平历史不知道是在
             //    什么增益下录的、折算不了，清空；G_trim 是旧口径积出来的，从 +0 重新收敛；其余照旧、不冷启动（GlazeController.cpp
             //    restoreBody，ADR-035「GLAZE > 0 的旧工程允许变声」）。
             //    供体：恒定素材放 100 s（G_trim 已收敛到约 +0.10 dB，出口历史里有三十多秒主段）。
@@ -9710,9 +9716,9 @@ namespace celadon::test
                         expect (t097SameChild (body.get(), againBody.get(), tag), "new shape: " + juce::String (tag) + " round-trips bit-identically");
                 }
 
-                // ---- 旧形状：删掉 T-106 的七个属性 ----
+                // ---- 旧形状：删掉 T-106 的八个属性 ----
                 for (const char* attribute : { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum", "openInputSamples",
-                                               "openPairedSamples", "closedExtra" })
+                                               "openPairedSamples", "closedExtra", "sampleRate" })
                 {
                     expect (levelNode->hasAttribute (attribute), "new shape: OUTPUT_LEVEL carries " + juce::String (attribute));
                     levelNode->removeAttribute (attribute);
@@ -9962,78 +9968,83 @@ namespace celadon::test
                                                    "(the history cannot be longer than the time since)");
             }
 
-            // 11. 依据：T-106「方案到位才当证据、才积分」里 Tone 那一项（GlazeController.cpp planInPlace：已施加的 Tone 离目标 ≤ 0.1 dB
-            //     才算到位，trimPlanToneToleranceDb）。Tone 的自动量上行 0.2 dB/s，和 Limit Gain 同速、要走的路短得多，冷启动时它总比
-            //     Limit Gain 先到，第 5 条盯不到它（把 Tone 这一项去掉，第 5 条照样过）。这里把它单独拎出来：
-            //     恒定素材放 100 s（方案到位、G_trim 在积），存档；把 CONTROL 里已施加的 Tone 改低 1 dB，别的一个字不动，读回新的链
-            //     接着放 10 s。对照：同一份存档原样读回。两份只差这一个属性。
+            // 11. 依据：T-106「方案到位才当证据、才积分」逐项（GlazeController.cpp planInPlace：已施加的 Recover / Tame / Glue / Heat / Clip
+            //     离目标 ≤ 1 个单位（trimPlanUnitTolerance），Tone ≤ 0.1 dB（trimPlanToneToleranceDb））。冷启动时这几项和 Limit Gain 一起爬、
+            //     Limit Gain 最慢，第 5 条盯不住单独一项（去掉其中任一项第 5 条照样过；外部第二意见指出改错 C18 要六项一起去掉才红）。
+            //     这里每次只把一项拎出来：恒定素材放 100 s（方案到位、G_trim 在积），存档；把 CONTROL 里已施加的这一项改离目标、别的一个字
+            //     不动，读回新的链接着放 10 s。对照：同一份存档原样读回。
+            //       单位项：目标 ≥ 10.5 时改低 10（往上 2 /s，约 4.5 s 才进容差），否则改高 40（往下 10 /s，约 3.9 s）；
+            //       Tone 改低 1 dB（往上 0.2 dB/s，约 4.5 s）。
             //     断言（块长 480：一块一片，探针就是那一次 endBlock 之后的状态）：
-            //       对照——读回后 1 s 内 G_trim 就动了（读档本身不拦它：证据、主段、冻结都放行）。
-            //       改过的——上一块结束时 Tone 离目标还 > 0.11 dB（比容差略宽，只挑肯定没到位的块），这一块 appliedBiasDb 逐位不变；
-            //       这样的块不少于 3 s；这些块上别的六项都在到位的容差里（只差 Tone）；Tone 到位后 G_trim 又动了。
-            //     DGX 2026-11-12 实测：供体的 Tone 已施加 0、目标 0（这份素材方案不动 Tone），G_trim +0.094 dB；对照读回后第 2 块
-            //     （0.02 s）就积；改成 −1 dB 的那一份 Tone 离目标 4.45 s（0.2 dB/s 往回走），4.52 s 起积。去掉 Tone 这一项，
-            //     改过的那一份读回后同对照一样马上就积。
-            void testWaitsForToneToo()
+            //       对照——读回后 1 s 内 G_trim 就动了（读档本身不拦它：证据、主段、冻结都放行），也没有哪一项离得远。
+            //       每一项——上一块结束时这一项离目标超出容差的 1.1 倍（只挑肯定没到位的块），这一块 appliedBiasDb 逐位不变；这样的块
+            //       不少于 3 s；这些块上别的几项与 Limit Gain 都在到位的容差里（只差这一项）；这一项到位后 G_trim 又动了。
+            //     DGX 2026-11-13 实测：供体 G_trim +0.094 dB；对照读回后第 2 块（0.02 s）就积。Recover 17.04（改成 7.04）离目标 4.49 s、4.56 s
+            //     起积；Tame 24 → 14 与 Heat 12 → 2 各 4.44 s、4.51 s；Glue、Clip 目标 0（改成 40）各 3.89 s、3.92 s；Tone 0 → −1 dB 4.45 s、
+            //     4.52 s（只测 Tone 的那一版 2026-11-12 是同样的数）。
+            void testWaitsForEveryIncrement()
             {
-                beginTest ("G_trim also waits for the Tone increment: with only Tone away from the plan it holds bit-exactly, then integrates");
+                beginTest ("G_trim waits for every increment: with only one of Recover / Tame / Glue / Heat / Clip / Tone away from the plan "
+                           "it holds bit-exactly, then integrates");
 
                 constexpr double donorSeconds = 100.0;
                 constexpr double afterSeconds = 10.0;
                 constexpr double controlMovesWithinSeconds = 1.0;
                 constexpr double minimumHeldSeconds = 3.0;
                 constexpr double minimumEvidenceSeconds = 3.0;   // GlazeController.cpp trimEvidenceMinimumSeconds
-                constexpr float toneOffsetDb = -1.0f;
-                constexpr float toneFarDb = 0.11f;               // trimPlanToneToleranceDb = 0.1，略宽
-                constexpr float toneInPlaceDb = 0.1f;
+                constexpr float farFactor = 1.1f;                // 「肯定没到位」= 超出容差的 1.1 倍
                 constexpr float gainNearDb = 0.3f;               // Limit Gain 死区的出界门槛
-                constexpr float unitNear = 1.0f;                 // trimPlanUnitTolerance
                 constexpr double blockSeconds = (double) t097TrimBlock / defaultRate;
+
+                using Increments = glaze::AutoIncrements;
+
+                struct Item
+                {
+                    const char* attribute;        // CONTROL 里的属性名
+                    float Increments::* member;
+                    float tolerance;              // planInPlace 的容差
+                };
+
+                static constexpr Item items[] = { { "balanceRecover", &Increments::balanceRecover, 1.0f },
+                                                  { "balanceTame", &Increments::balanceTame, 1.0f },
+                                                  { "colorGlue", &Increments::colorGlue, 1.0f },
+                                                  { "colorHeat", &Increments::colorHeat, 1.0f },
+                                                  { "limitClip", &Increments::limitClip, 1.0f },
+                                                  { "colorToneDb", &Increments::colorToneDb, 0.1f } };
 
                 auto donor = makeQuietRig (100.0f, t097TrimBlock);
                 donor.run (donorSeconds);
                 const auto saved = donor.chain.createGlazeStateXml();
                 const auto donorProbe = donor.probe();
-                const auto* savedLive = saved != nullptr ? saved->getChildByName (glaze::liveTag) : nullptr;
-                auto body = saved != nullptr ? t097LiveBody (*saved) : std::unique_ptr<juce::XmlElement> {};
-                auto* control = body != nullptr ? body->getChildByName ("CONTROL") : nullptr;
-                const auto donorTone = donorProbe.increments.colorToneDb;
-                const auto targetTone = donorProbe.targetPlan.increments.colorToneDb;
-                const float editedTone = donorTone + toneOffsetDb;
 
-                logMessage ("  donor: applied Tone " + db (donorTone) + " dB, planned " + db (targetTone) + " dB, G_trim " + db (donorProbe.appliedBiasDb)
-                            + " dB, evidence " + juce::String (donorProbe.trimEvidenceSeconds, 2) + " s; edited Tone " + db (editedTone) + " dB");
-                expect (savedLive != nullptr && control != nullptr && control->hasAttribute ("colorToneDb"),
-                        "fixture: the donor state has a CONTROL node carrying colorToneDb");
-                expect (std::abs (targetTone - donorTone) <= toneInPlaceDb && donorProbe.appliedBiasDb != 0.0f
+                logMessage ("  donor: G_trim " + db (donorProbe.appliedBiasDb) + " dB, evidence " + juce::String (donorProbe.trimEvidenceSeconds, 2) + " s");
+                expect (saved != nullptr && planInPlaceBy (donorProbe) && donorProbe.appliedBiasDb != 0.0f
                             && donorProbe.trimEvidenceSeconds >= minimumEvidenceSeconds,
-                        "fixture: at the donor the plan is in place (Tone included) and G_trim has integrated on enough evidence");
+                        "fixture: at the donor the plan is in place and G_trim has integrated on enough evidence");
 
-                if (savedLive == nullptr || control == nullptr || ! control->hasAttribute ("colorToneDb"))
+                if (saved == nullptr)
                     return;
-
-                glaze::xmlio::Writer (*control).field ("colorToneDb", editedTone);
-                auto edited = std::make_unique<juce::XmlElement> (*saved);
-                edited->removeChildElement (edited->getChildByName (glaze::liveTag), true);
-                edited->addChildElement (glaze::compressLiveBody (*body, savedLive->getIntAttribute ("constantsVersion")).release());
 
                 struct Outcome
                 {
-                    bool restoredAsSaved = false;   // 读回后已施加的 Tone 就是存档里那个值，G_trim 同供体
+                    bool restoredAsSaved = false;   // 读回后这一项（对照：全部增量）就是存档里那个值，G_trim 同供体
                     int firstMove = -1;             // G_trim 第一次动的块（−1 = 没动过）
-                    int farBlocks = 0;              // 开头 Tone 离目标还远的块数
+                    int farBlocks = 0;              // 这一项（对照：任一项）离目标还远的块数
                     bool heldWhileFar = true;       // 这些块上 G_trim 逐位不变
-                    bool onlyToneAway = true;       // 这些块上别的六项都在容差里
-                    float toneAtEnd = 0.0f, targetAtEnd = 0.0f, trimAtEnd = 0.0f;
+                    bool onlyThisAway = true;       // 这些块上别的几项与 Limit Gain 都在容差里
+                    float awayAtEnd = 0.0f, trimAtEnd = 0.0f;
                 };
 
-                const auto follow = [&] (const juce::XmlElement* state, float expectedTone)
+                // item 为空 = 对照（原样读回）；否则 expected = 读回后这一项该是的值。
+                const auto follow = [&] (const juce::XmlElement* state, const Item* item, float expected)
                 {
                     Outcome out;
                     auto rig = makeQuietRig (100.0f, t097TrimBlock);
                     rig.chain.restoreGlazeStateXml (state);
                     auto previous = rig.probe();
-                    out.restoredAsSaved = sameBits (previous.increments.colorToneDb, expectedTone) && sameBits (previous.appliedBiasDb, donorProbe.appliedBiasDb);
+                    out.restoredAsSaved = (item == nullptr ? sameIncrements (previous.increments, donorProbe.increments)
+                                                           : sameBits (previous.increments.*(item->member), expected))
+                                       && sameBits (previous.appliedBiasDb, donorProbe.appliedBiasDb);
 
                     rig.run (afterSeconds, [&] (int b)
                     {
@@ -10045,18 +10056,23 @@ namespace celadon::test
                         {
                             const auto& applied = previous.increments;
                             const auto& target = previous.targetPlan.increments;
-                            const auto near = [] (float a, float t, float limit) { return std::abs (t - a) <= limit; };
+                            const auto away = [&] (const Item& i) { return std::abs (target.*(i.member) - applied.*(i.member)); };
+                            auto far = false;
+                            auto othersIn = std::abs (target.limitGainDb - applied.limitGainDb) <= gainNearDb;
 
-                            if (std::abs (target.colorToneDb - applied.colorToneDb) > toneFarDb)
+                            for (const auto& i : items)
+                            {
+                                if (item == nullptr || &i == item)
+                                    far = far || away (i) > farFactor * i.tolerance;
+                                else
+                                    othersIn = othersIn && away (i) <= i.tolerance;
+                            }
+
+                            if (far)
                             {
                                 ++out.farBlocks;
                                 out.heldWhileFar = out.heldWhileFar && ! moved;
-                                out.onlyToneAway = out.onlyToneAway && near (applied.limitGainDb, target.limitGainDb, gainNearDb)
-                                                && near (applied.balanceRecover, target.balanceRecover, unitNear)
-                                                && near (applied.balanceTame, target.balanceTame, unitNear)
-                                                && near (applied.colorGlue, target.colorGlue, unitNear)
-                                                && near (applied.colorHeat, target.colorHeat, unitNear)
-                                                && near (applied.limitClip, target.limitClip, unitNear);
+                                out.onlyThisAway = out.onlyThisAway && othersIn;
                             }
                         }
 
@@ -10066,30 +10082,53 @@ namespace celadon::test
                         previous = p;
                     });
 
-                    out.toneAtEnd = previous.increments.colorToneDb;
-                    out.targetAtEnd = previous.targetPlan.increments.colorToneDb;
+                    out.awayAtEnd = item != nullptr ? std::abs (previous.targetPlan.increments.*(item->member) - previous.increments.*(item->member)) : 0.0f;
                     out.trimAtEnd = previous.appliedBiasDb;
                     return out;
                 };
 
-                const auto asSaved = follow (saved.get(), donorTone);
-                const auto lagging = follow (edited.get(), editedTone);
                 const auto seconds = [=] (int block) { return block < 0 ? -1.0 : (double) (block + 1) * blockSeconds; };
+                const auto asSaved = follow (saved.get(), nullptr, 0.0f);
+                logMessage ("  restored as saved: G_trim first moves " + juce::String (seconds (asSaved.firstMove), 2) + " s after the restore");
+                expect (asSaved.restoredAsSaved && asSaved.farBlocks == 0 && asSaved.firstMove >= 0
+                            && seconds (asSaved.firstMove) <= controlMovesWithinSeconds,
+                        "control: restored as saved, nothing is away from the plan and G_trim integrates again within "
+                        + juce::String (controlMovesWithinSeconds, 0) + " s (the restore itself does not hold it)");
 
-                logMessage ("  restored as saved: G_trim first moves " + juce::String (seconds (asSaved.firstMove), 2) + " s after the restore (blocks with Tone away: "
-                            + juce::String (asSaved.farBlocks) + "); with Tone 1 dB low: Tone away for " + juce::String (lagging.farBlocks * blockSeconds, 2)
-                            + " s, G_trim first moves at " + juce::String (seconds (lagging.firstMove), 2) + " s; after " + juce::String (afterSeconds, 0)
-                            + " s Tone " + db (lagging.toneAtEnd) + " of " + db (lagging.targetAtEnd) + " dB, G_trim " + db (lagging.trimAtEnd) + " dB");
-                expect (asSaved.restoredAsSaved && lagging.restoredAsSaved, "fixture: both rigs start from the saved G_trim; only the applied Tone differs");
-                expect (asSaved.farBlocks == 0 && asSaved.firstMove >= 0 && seconds (asSaved.firstMove) <= controlMovesWithinSeconds,
-                        "control: restored as saved, G_trim integrates again within " + juce::String (controlMovesWithinSeconds, 0)
-                        + " s (the restore itself does not hold it)");
-                expect (lagging.farBlocks * blockSeconds >= minimumHeldSeconds,
-                        "fixture: the edit keeps Tone away from the plan for at least " + juce::String (minimumHeldSeconds, 0) + " s");
-                expect (lagging.onlyToneAway, "fixture: on those blocks every other increment is within its in-place tolerance (only Tone is away)");
-                expect (lagging.heldWhileFar, "a block that starts with only Tone away from the plan leaves appliedBiasDb bit-identical");
-                expect (std::abs (lagging.targetAtEnd - lagging.toneAtEnd) <= toneInPlaceDb && lagging.firstMove >= 0,
-                        "once Tone is in place G_trim integrates");
+                for (const auto& item : items)
+                {
+                    const auto applied = donorProbe.increments.*(item.member);
+                    const auto target = donorProbe.targetPlan.increments.*(item.member);
+                    const auto edited = item.tolerance < 1.0f ? applied - 1.0f
+                                                              : (target >= 10.5f ? applied - 10.0f : juce::jmin (100.0f, applied + 40.0f));
+                    const auto state = editedState (*saved, [&] (juce::XmlElement& body)
+                    {
+                        auto* control = body.getChildByName ("CONTROL");
+
+                        if (control == nullptr || ! control->hasAttribute (item.attribute))
+                            return false;
+
+                        glaze::xmlio::Writer (*control).field (item.attribute, edited);
+                        return true;
+                    });
+
+                    const auto label = juce::String (item.attribute);
+                    expect (state != nullptr, "fixture: CONTROL carries " + label);
+
+                    if (state == nullptr)
+                        continue;
+
+                    const auto lagging = follow (state.get(), &item, edited);
+                    logMessage ("  " + label + ": applied " + db (applied) + ", planned " + db (target) + ", edited to " + db (edited) + "; away for "
+                                + juce::String (lagging.farBlocks * blockSeconds, 2) + " s, G_trim first moves at " + juce::String (seconds (lagging.firstMove), 2)
+                                + " s; after " + juce::String (afterSeconds, 0) + " s " + db (lagging.awayAtEnd) + " from the plan, G_trim " + db (lagging.trimAtEnd) + " dB");
+                    expect (lagging.restoredAsSaved, label + ": fixture: the rig starts from the saved G_trim with the edited value");
+                    expect (lagging.farBlocks * blockSeconds >= minimumHeldSeconds,
+                            label + ": fixture: the edit keeps it away from the plan for at least " + juce::String (minimumHeldSeconds, 0) + " s");
+                    expect (lagging.onlyThisAway, label + ": fixture: on those blocks every other increment and the Limit Gain are within their tolerance");
+                    expect (lagging.heldWhileFar, label + ": a block that starts with only this increment away from the plan leaves appliedBiasDb bit-identical");
+                    expect (lagging.awayAtEnd <= item.tolerance && lagging.firstMove >= 0, label + ": once it is in place G_trim integrates");
+                }
             }
 
             // 12. 依据：T-106「到没到位在 beginBlock 定一次，这一个宿主块切出来的各片沿用」（GlazeController.cpp noteExecutedPlan /
@@ -10312,6 +10351,435 @@ namespace celadon::test
                 expect (std::abs (step - controlStep) <= sameStepWithinDb,
                         "G_trim moves as in the control: the reading stays referred to the increment the block executed "
                         "(referred to the slewed increment it would take about 0.017 dB more)");
+            }
+
+            // 解开存档里压缩的 LIVE、交给 edit 改、再打包成整份存档（同 GLAZE_STATE 的写法）。edit 返回 false 或解不开时返回空。
+            template <typename Edit>
+            static std::unique_ptr<juce::XmlElement> editedState (const juce::XmlElement& saved, Edit&& edit)
+            {
+                const auto* savedLive = saved.getChildByName (glaze::liveTag);
+                auto body = t097LiveBody (saved);
+
+                if (savedLive == nullptr || body == nullptr || ! edit (*body))
+                    return {};
+
+                auto state = std::make_unique<juce::XmlElement> (saved);
+                state->removeChildElement (state->getChildByName (glaze::liveTag), true);
+                state->addChildElement (glaze::compressLiveBody (*body, savedLive->getIntAttribute ("constantsVersion")).release());
+                return state;
+            }
+
+            // 存档里出口电平历史的出口能量整体乘 factor：实录能量与折回 0 dB 的能量一起乘，录制增益不变，出口电平高 10·log10 factor dB。
+            // 布局见 OutputLevelTracker.h：closed 32 段 × 24 字节（energy 在 +0），closedExtra 32 段 × 48 字节（unityEnergy 在 +0）。
+            static bool scaleOutputHistory (juce::XmlElement& body, double factor)
+            {
+                auto* level = body.getChildByName ("OUTPUT_LEVEL");
+
+                if (level == nullptr)
+                    return false;
+
+                const auto scaleBlock = [&] (const char* attribute, size_t stride)
+                {
+                    juce::MemoryOutputStream decoded;
+
+                    if (! juce::Base64::convertFromBase64 (decoded, level->getStringAttribute (attribute)) || decoded.getDataSize() != 32 * stride)
+                        return false;
+
+                    juce::MemoryBlock bytes (decoded.getData(), decoded.getDataSize());
+
+                    for (size_t i = 0; i < 32; ++i)
+                    {
+                        auto* at = static_cast<char*> (bytes.getData()) + i * stride;
+                        double value;
+                        std::memcpy (&value, at, sizeof (value));
+                        value *= factor;
+                        std::memcpy (at, &value, sizeof (value));
+                    }
+
+                    level->setAttribute (attribute, juce::Base64::toBase64 (bytes.getData(), bytes.getSize()));
+                    return true;
+                };
+
+                auto openEnergy = 0.0, openUnityEnergy = 0.0;
+                glaze::xmlio::Reader reader (*level);
+                reader.field ("openEnergy", openEnergy);
+                reader.field ("openUnityEnergy", openUnityEnergy);
+
+                if (! reader.ok || ! scaleBlock ("closed", 24) || ! scaleBlock ("closedExtra", 48))
+                    return false;
+
+                glaze::xmlio::Writer writer (*level);
+                writer.field ("openEnergy", openEnergy * factor);
+                writer.field ("openUnityEnergy", openUnityEnergy * factor);
+                return true;
+            }
+
+            // 15. 依据：T-106（外部第二意见 F3，Max 2026-11-13 定在 T-106 里修）GlazeController.cpp restoreBody「CONTROL 里的浮点逐项查
+            //     有限值，G_trim 另查 ±trimLimitDb」，CLAY 的 pressureScale 查有限值；不合规矩整份拒收、冷启动（同别的节点）。改前 xmlio
+            //     按位读，NaN / ∞ 也算读到了：G_trim 停在 NaN（之后不再积分），或越过 ±3 dB 直接加到限幅器上。
+            //     供体放 100 s、存档；每次只改一项，读进新的链：
+            //       收下（实时画像在、已施加的增量同供体）——原样；gTrim 正好 +3、−3 dB（界上），读回的 G_trim 就是它。
+            //       拒收（冷启动：实时画像清空、增量与 G_trim 归 +0）——gTrim 3.0001、−3.5、NaN、+∞、−∞；其余十三个浮点任一项 NaN 或 +∞；
+            //       CLAY 的 pressureScale NaN。
+            void testRestoreRejectsBadControlValues()
+            {
+                beginTest ("restore: a non-finite CONTROL value, a G_trim beyond +-3 dB or a non-finite Clay pressure scale is rejected (cold start); "
+                           "+-3 dB is accepted");
+
+                auto donor = makeQuietRig();
+                donor.run (100.0);
+                const auto saved = donor.chain.createGlazeStateXml();
+                const auto donorProbe = donor.probe();
+                expect (saved != nullptr && donorProbe.appliedBiasDb != 0.0f && donor.chain.getLiveProfile().getProfile().integratedLufs.valid,
+                        "fixture: the donor has a LIVE profile and a G_trim that has integrated");
+
+                if (saved == nullptr)
+                    return;
+
+                const auto withValue = [&] (const char* node, const char* attribute, float value)
+                {
+                    return editedState (*saved, [&] (juce::XmlElement& body)
+                    {
+                        auto* child = body.getChildByName (node);
+
+                        if (child == nullptr || ! child->hasAttribute (attribute))
+                            return false;
+
+                        glaze::xmlio::Writer (*child).field (attribute, value);
+                        return true;
+                    });
+                };
+
+                struct Restored
+                {
+                    bool accepted = false;      // 实时画像读回来了、已施加的增量同供体
+                    bool coldStarted = false;   // 实时画像清空、增量与 G_trim 都是 +0
+                    float trim = 0.0f;
+                };
+
+                const auto restore = [&] (const juce::XmlElement* state)
+                {
+                    Restored r;
+                    auto target = makeQuietRig();
+                    target.chain.restoreGlazeStateXml (state);
+                    const auto p = target.probe();
+                    const auto profileKept = target.chain.getLiveProfile().getProfile().integratedLufs.valid;
+                    r.accepted = state != nullptr && profileKept && sameIncrements (p.increments, donorProbe.increments);
+                    r.coldStarted = state != nullptr && ! profileKept && sameBits (p.appliedBiasDb, 0.0f) && sameIncrements (p.increments, glaze::AutoIncrements {});
+                    r.trim = p.appliedBiasDb;
+                    return r;
+                };
+
+                const auto asSaved = restore (saved.get());
+                expect (asSaved.accepted && sameBits (asSaved.trim, donorProbe.appliedBiasDb), "control: the state as saved is accepted with its G_trim");
+
+                for (const auto trim : { 3.0f, -3.0f })
+                {
+                    const auto r = restore (withValue ("CONTROL", "gTrim", trim).get());
+                    expect (r.accepted && sameBits (r.trim, trim), "gTrim " + juce::String (trim, 1) + " dB (on the limit): accepted as it is");
+                }
+
+                const auto nan = std::numeric_limits<float>::quiet_NaN();
+                const auto inf = std::numeric_limits<float>::infinity();
+
+                for (const auto trim : { 3.0001f, -3.5f, nan, inf, -inf })
+                {
+                    const auto r = restore (withValue ("CONTROL", "gTrim", trim).get());
+                    expect (r.coldStarted && ! r.accepted, "gTrim " + juce::String (trim, 4) + ": rejected, cold start");
+                }
+
+                for (const auto* attribute : { "balanceRecover", "balanceTame", "colorToneDb", "colorGlue", "colorHeat", "limitGainDb", "limitClip",
+                                               "warm", "punchy", "clean", "liveToneOffsetDb", "liveHeatReduction", "liveGlueReduction" })
+                    for (const auto value : { nan, inf })
+                    {
+                        const auto r = restore (withValue ("CONTROL", attribute, value).get());
+                        expect (r.coldStarted && ! r.accepted, "CONTROL " + juce::String (attribute) + " = " + juce::String (value) + ": rejected, cold start");
+                    }
+
+                const auto r = restore (withValue ("CLAY", "pressureScale", nan).get());
+                expect (r.coldStarted && ! r.accepted, "CLAY pressureScale NaN: rejected, cold start");
+            }
+
+            // 16. 依据：T-106（外部第二意见 F1）GlazeController.cpp endBlock「输入侧开了新的一段，出口这边也收段——两侧用同一组段边界」；
+            //     规格第 4 节第 3 条「输出侧用同一组段边界、同一个 m」。改前出口这边只在 m′ 跨 0.5、满 8 s 时切段：连着几段主段并成一段，
+            //     段里记的输入读数是几段的平均，回看重判时分不开。
+            //     读法：存档 OUTPUT_LEVEL 的 openSamples = 出口这边正开着的段已记的样本数（主段非主段都记），切段就从 0 记起。
+            //     (a) 恒定素材、宿主不报速度（实时段落账 2 s 一段），放 10 s 后每 0.1 s 读一次、读 20 s：开着的段从不超过 2 s + 一块，
+            //         期间切了不少于 9 次；也到过 1.9 s 以上（不是每块都切）。改前要满 8 s 才切。
+            //     (b) 不连续点：从头放 1 s，(i) 宿主 reset，(ii) 往后跳播 5 s，(iii) 循环回绕 0.8 s，再放 0.5 s：开着的段只有这 0.5 s，
+            //         不连续点之前那 1 s 没并进来。编排器不在这几处另收段：分析器在那里断开实时段落账，下一块开新段，段起点变了就收。
+            //     (c) 读档进正在放的链：读回的开着的段在读档后第一块收掉（见下面那一段的说明）。
+            //     DGX 2026-11-13 实测：(a) 最长 2.000 s、切 10 次；(b) 三种都是 1.000 s → 0.500 s；(c) 读回 1.000 s，下一块之后 480 个样本。
+            void testOutputSegmentsFollowTheInputLedger()
+            {
+                beginTest ("output level segments are cut where the input segment ledger starts a new segment, discontinuities included");
+
+                constexpr double settleSeconds = 10.0;
+                constexpr double watchSeconds = 20.0;
+                constexpr int readEveryBlocks = 10;
+                constexpr double ledgerSegmentSeconds = 2.0;   // SegmentLedger：宿主不报速度时 2 s 一段
+                constexpr int minimumCuts = 9;
+                constexpr double beforeBreakSeconds = 1.0;
+                constexpr double afterBreakSeconds = 0.5;
+
+                const auto openSamples = [] (Rig& rig) -> std::int64_t
+                {
+                    const auto state = rig.chain.createGlazeStateXml();
+                    auto body = state != nullptr ? t097LiveBody (*state) : std::unique_ptr<juce::XmlElement> {};
+                    const auto* level = body != nullptr ? body->getChildByName ("OUTPUT_LEVEL") : nullptr;
+                    return level != nullptr && level->hasAttribute ("openSamples") ? level->getStringAttribute ("openSamples").getLargeIntValue() : -1;
+                };
+
+                const auto samplesOf = [] (double seconds) { return (std::int64_t) std::llround (seconds * defaultRate); };
+
+                {
+                    auto rig = makeQuietRig (100.0f, t097TrimBlock);
+                    rig.run (settleSeconds);
+                    auto previous = openSamples (rig);
+                    auto longest = previous;
+                    auto readable = previous >= 0;
+                    auto cuts = 0;
+
+                    for (int b = 0; b < rig.blocksFor (watchSeconds); ++b)
+                    {
+                        rig.step();
+
+                        if ((b + 1) % readEveryBlocks != 0)
+                            continue;
+
+                        const auto now = openSamples (rig);
+                        readable = readable && now >= 0;
+                        longest = std::max (longest, now);
+                        cuts += now < previous ? 1 : 0;
+                        previous = now;
+                    }
+
+                    logMessage ("  (a) over " + juce::String (watchSeconds, 0) + " s the open output segment reached " + juce::String ((double) longest / defaultRate, 3)
+                                + " s at most and was cut " + juce::String (cuts) + " times");
+                    expect (readable, "(a) fixture: OUTPUT_LEVEL carries openSamples");
+                    expect (longest >= samplesOf (ledgerSegmentSeconds) - readEveryBlocks * t097TrimBlock,
+                            "(a) fixture: segments run to about 2 s (they are not cut on every block)");
+                    expect (longest <= samplesOf (ledgerSegmentSeconds) + t097TrimBlock,
+                            "(a) an output segment never runs longer than the input ledger's 2 s segment (before T-106's F1 fix: 8 s)");
+                    expect (cuts >= minimumCuts, "(a) ... and is cut at each of the ledger's boundaries: at least " + juce::String (minimumCuts) + " cuts in 20 s");
+                }
+
+                for (const auto kind : { 0, 1, 2 })
+                {
+                    static constexpr const char* names[] = { "(b-i) host reset", "(b-ii) transport jump", "(b-iii) loop wrap" };
+                    const auto label = juce::String (names[kind]);
+                    auto rig = makeQuietRig (100.0f, t097TrimBlock);
+                    rig.run (beforeBreakSeconds);
+                    const auto before = openSamples (rig);
+                    const auto counted = [&] { const auto p = rig.probe(); return p.hostResets + p.transportJumps + p.loopWraps; };
+                    const auto countedBefore = counted();
+
+                    if (kind == 0)
+                    {
+                        rig.chain.reset();
+                    }
+                    else if (kind == 1)
+                    {
+                        rig.position += samplesOf (5.0);
+                    }
+                    else
+                    {
+                        rig.host.hasLoop = true;
+                        rig.host.looping = true;
+                        rig.position -= samplesOf (0.8);
+                    }
+
+                    rig.run (afterBreakSeconds);
+                    const auto after = openSamples (rig);
+                    logMessage ("  " + label + ": open output segment " + juce::String ((double) before / defaultRate, 3) + " s before, "
+                                + juce::String ((double) after / defaultRate, 3) + " s " + juce::String (afterBreakSeconds, 1) + " s after");
+                    expect (counted() == countedBefore + 1, label + ": fixture: the controller counts exactly one discontinuity");
+                    expect (before >= samplesOf (beforeBreakSeconds) - t097TrimBlock, label + ": fixture: before it the open segment holds about 1 s");
+                    expect (after > 0 && after <= samplesOf (afterBreakSeconds) + t097TrimBlock,
+                            label + ": afterwards the open segment holds only what came after it");
+                }
+
+                // (c) 读档进正在放的链（GlazeController.cpp clearExecutedPlan 把「上一片看到的段起点」作废）：读回的那个开着的段属于存档时
+                //     的时间轴，读档后第一块就收掉，不接着往里记。放 21 s（开着的段 [20 s, 22 s) 已记 1 s）存档，再放 0.3 s（还在同一段里），
+                //     读回那一份，放一块：开着的段只有这一块。不作废的话段起点没变，读回的 1 s 接着记成 1.01 s。
+                {
+                    auto rig = makeQuietRig (100.0f, t097TrimBlock);
+                    rig.run (21.0);
+                    const auto saved = rig.chain.createGlazeStateXml();
+                    const auto savedOpen = openSamples (rig);
+                    rig.run (0.3);
+                    rig.chain.restoreGlazeStateXml (saved.get());
+                    const auto restoredOpen = openSamples (rig);
+                    rig.step();
+                    const auto after = openSamples (rig);
+                    logMessage ("  (c) restore into a running chain: saved open segment " + juce::String ((double) savedOpen / defaultRate, 3) + " s, "
+                                + juce::String ((double) restoredOpen / defaultRate, 3) + " s right after the restore, "
+                                + juce::String (after) + " samples after the next block");
+                    expect (savedOpen >= samplesOf (beforeBreakSeconds) - t097TrimBlock && restoredOpen == savedOpen,
+                            "(c) fixture: the restore brings back the saved open segment (about 1 s)");
+                    expect (after == t097TrimBlock, "(c) the first block after the restore starts a new output segment (the restored one is closed)");
+                }
+            }
+
+            // 17. 依据：T-106 抗饱和的下界与「已经在外面的不往回拽」（GlazeController.cpp usableTrimRange 下界 = −min(3, 自动加上去的部分)；
+            //     endBlock 往下走时新值不低于 min(当前, 下界)）。第 9 条只盯了上界（手动 24 dB，范围 [0, 0]）。
+            //     手动 Limit Gain 23 dB、素材峰值 0.05（+24 dB 之后仍到不了 Ceiling，限幅器不动作）：规划器把 Limit Gain 增量算到正好顶 24 dB
+            //     （1 dB），已施加的停在死区里——自动部分不到 1 dB（DGX 2026-11-13 实测 0.882 dB），G_trim 往下最多用得上这么多。下界按每块
+            //     探针里已施加的增量现算（−(min(24, 23 + 增量) − 23)），不写死。供体放 100 s、存档。
+            //     存档里出口电平历史的能量整体 ×2（+3.01 dB，见 scaleOutputHistory），读回新的链：旧段读成「出口比方案响 3 dB」，误差为负，
+            //     G_trim 往下积；新录的段是真值，旧段占的比例降下去之前误差一直为负。
+            //     (a) G_trim 从存档值出发，放 60 s：每块都不低于下界，也到过下界（± 0.001 dB，下界真起了作用）；停在下界上、误差仍 < −0.05 dB
+            //         的块合计 ≥ 10 s（没有下界的话这些块上还会接着往下）。
+            //     (b) 同一份历史、CONTROL 的 gTrim 改成 −2.5 dB（在用得上的范围外面）：放 20 s，G_trim 逐位停在 −2.5——误差要它往下，它不往
+            //         更外面走，也不被一下子拽回下界。
+            //     (c) 对照：gTrim −2.5、历史不改：误差为正，G_trim 往回走（积分开着，(b) 的不动归功于下界），每块不超过 0.05 dB/s × 0.01 s。
+            //     DGX 2026-11-13 实测：供体主段历史 65 s；(a) 误差最低 −2.92 dB，G_trim 最低 −0.8820 dB = 下界，停在下界上误差仍 < −0.05 dB 的
+            //     有 23.3 s；(b) 20 s 逐位 −2.5；(c) 20 s 回到 −1.50 dB，每块正好 0.0005 dB。
+            void testDoesNotWindUpBelowWhatItCanUse()
+            {
+                beginTest ("anti-windup, lower side: G_trim does not go below minus the automatic part, and one restored beyond it is not yanked back");
+
+                constexpr double donorSeconds = 100.0;
+                constexpr float manualGainDb = 23.0f;
+                constexpr double louderFactor = 2.0;             // +3.01 dB
+                constexpr double runSeconds = 60.0;
+                constexpr double heldSeconds = 20.0;
+                constexpr float outsideDb = -2.5f;
+                constexpr double minimumPushedSeconds = 10.0;
+                constexpr float pushingErrorDb = -0.05f;
+                constexpr double blockSeconds = (double) t097TrimBlock / defaultRate;
+                constexpr float maximumStepDb = 0.05f * (float) blockSeconds;   // GlazeController.cpp trimDbPerSecond × 一块
+
+                auto params = defaultParams (100.0f, 0);
+                params.limit.gainDb = manualGainDb;
+                const auto makeRig = [&] { return Rig (t097WithoutBudgetCaps (fastConstants()), makeMusic (defaultRate, 8.0, 33, 0.05f), params, defaultRate, t097TrimBlock); };
+                // usableTrimRange 的下界：负的「自动加上去的部分」（Limit Gain 先按手动 + 已施加增量钳进 0 ～ 24 dB）。
+                const auto lowerBoundOf = [] (const Probe& p) { return -(juce::jlimit (0.0f, 24.0f, manualGainDb + p.increments.limitGainDb) - manualGainDb); };
+
+                auto donor = makeRig();
+                donor.run (donorSeconds);
+                const auto saved = donor.chain.createGlazeStateXml();
+                const auto donorProbe = donor.probe();
+                logMessage ("  donor: Limit Gain increment " + db (donorProbe.increments.limitGainDb) + " dB (planned " + db (donorProbe.targetPlan.increments.limitGainDb)
+                            + "), planned net gain " + db (donorProbe.targetPlan.effectiveGainDb) + " dB, executed Limit Gain "
+                            + db (donor.chain.getEffectiveParams().limit.gainDb) + " dB, G_trim " + db (donorProbe.appliedBiasDb) + " dB, main history "
+                            + juce::String (donorProbe.trimMainSeconds, 2) + " s");
+                expect (saved != nullptr && lowerBoundOf (donorProbe) < -0.1f && lowerBoundOf (donorProbe) > -2.9f,
+                        "fixture: the automatic part is between 0 and 3 dB, so the lower bound is minus it and not the -3 dB clamp: "
+                        + db (-lowerBoundOf (donorProbe)) + " dB");
+                expect (donorProbe.trimEvidenceSeconds >= 10.0, "fixture: the donor has at least 10 s of evidence to carry over");
+
+                if (saved == nullptr)
+                    return;
+
+                const auto louder = editedState (*saved, [&] (juce::XmlElement& body) { return scaleOutputHistory (body, louderFactor); });
+                const auto louderOutside = editedState (*saved, [&] (juce::XmlElement& body)
+                {
+                    auto* control = body.getChildByName ("CONTROL");
+
+                    if (control == nullptr || ! scaleOutputHistory (body, louderFactor))
+                        return false;
+
+                    glaze::xmlio::Writer (*control).field ("gTrim", outsideDb);
+                    return true;
+                });
+                const auto outside = editedState (*saved, [&] (juce::XmlElement& body)
+                {
+                    auto* control = body.getChildByName ("CONTROL");
+
+                    if (control == nullptr)
+                        return false;
+
+                    glaze::xmlio::Writer (*control).field ("gTrim", outsideDb);
+                    return true;
+                });
+                expect (louder != nullptr && louderOutside != nullptr && outside != nullptr, "fixture: the three edited states are built");
+
+                if (louder == nullptr || louderOutside == nullptr || outside == nullptr)
+                    return;
+
+                const auto errorOf = [] (const Probe& p) { return p.trimPlanGainDb - (p.trimLevelLufs - p.trimInputLufs); };
+
+                // ---- (a) ----
+                {
+                    auto rig = makeRig();
+                    rig.chain.restoreGlazeStateXml (louder.get());
+                    auto lowest = rig.probe().appliedBiasDb;
+                    auto pushedBlocks = 0;
+                    auto mostNegativeError = 0.0f;
+                    auto reachedBound = false, belowBound = false;
+                    auto bound = 0.0f;
+
+                    rig.run (runSeconds, [&] (int)
+                    {
+                        const auto p = rig.probe();
+                        bound = lowerBoundOf (p);
+                        lowest = juce::jmin (lowest, p.appliedBiasDb);
+                        reachedBound = reachedBound || p.appliedBiasDb <= bound + 0.001f;
+                        belowBound = belowBound || p.appliedBiasDb < bound - 1.0e-6f;
+                        const auto integrating = ! p.trimFrozen && p.trimMainNow && p.trimPlanInPlace && std::isfinite (p.trimPlanGainDb)
+                                              && p.trimEvidenceSeconds >= 3.0 && p.trimLevelLufs > -100.0f && p.trimInputLufs > -100.0f;
+
+                        if (integrating)
+                            mostNegativeError = juce::jmin (mostNegativeError, errorOf (p));
+
+                        if (integrating && p.appliedBiasDb <= bound + 0.001f && errorOf (p) < pushingErrorDb)
+                            ++pushedBlocks;
+                    });
+
+                    logMessage ("  (a) history 3 dB louder: G_trim lowest " + db (lowest) + " dB (bound at the end " + db (bound) + " dB), error down to "
+                                + db (mostNegativeError) + " dB, " + juce::String (pushedBlocks * blockSeconds, 2) + " s at the bound with the error still below "
+                                + db (pushingErrorDb) + " dB");
+                    expect (reachedBound, "(a) fixture: G_trim reaches the bound (the edited history pushes it down that far)");
+                    expect (pushedBlocks * blockSeconds >= minimumPushedSeconds,
+                            "(a) fixture: at the bound the error keeps asking for more for at least " + juce::String (minimumPushedSeconds, 0) + " s");
+                    expect (! belowBound, "(a) G_trim never goes below minus the automatic part");
+                }
+
+                // ---- (b) ----
+                {
+                    auto rig = makeRig();
+                    rig.chain.restoreGlazeStateXml (louderOutside.get());
+                    auto held = sameBits (rig.probe().appliedBiasDb, outsideDb);
+                    auto pushedBlocks = 0;
+
+                    rig.run (heldSeconds, [&] (int)
+                    {
+                        const auto p = rig.probe();
+                        held = held && sameBits (p.appliedBiasDb, outsideDb);
+                        const auto integrating = ! p.trimFrozen && p.trimMainNow && p.trimPlanInPlace && std::isfinite (p.trimPlanGainDb)
+                                              && p.trimEvidenceSeconds >= 3.0 && p.trimLevelLufs > -100.0f && p.trimInputLufs > -100.0f;
+                        pushedBlocks += integrating && errorOf (p) < pushingErrorDb ? 1 : 0;
+                    });
+
+                    logMessage ("  (b) restored at " + db (outsideDb) + " dB with the louder history: " + juce::String (pushedBlocks * blockSeconds, 2)
+                                + " s with the error asking for more; G_trim at the end " + db (rig.probe().appliedBiasDb) + " dB");
+                    expect (pushedBlocks * blockSeconds >= minimumPushedSeconds, "(b) fixture: the error keeps asking G_trim to go down");
+                    expect (held, "(b) G_trim stays at -2.5 dB bit-exactly: not further out, not yanked back to the bound");
+                }
+
+                // ---- (c) ----
+                {
+                    auto rig = makeRig();
+                    rig.chain.restoreGlazeStateXml (outside.get());
+                    auto previous = rig.probe().appliedBiasDb;
+                    auto largestStep = 0.0f;
+                    auto lowest = previous;
+
+                    rig.run (heldSeconds, [&] (int)
+                    {
+                        const auto trim = rig.probe().appliedBiasDb;
+                        largestStep = juce::jmax (largestStep, std::abs (trim - previous));
+                        lowest = juce::jmin (lowest, trim);
+                        previous = trim;
+                    });
+
+                    logMessage ("  (c) restored at " + db (outsideDb) + " dB with the history as saved: G_trim " + db (previous) + " dB after "
+                                + juce::String (heldSeconds, 0) + " s, largest step " + juce::String (largestStep, 6) + " dB");
+                    expect (previous > outsideDb + 0.1f, "(c) control: with the error positive G_trim integrates back from -2.5 dB");
+                    expect (lowest >= outsideDb && largestStep <= maximumStepDb + 1.0e-6f,
+                            "(c) ... at no more than 0.05 dB/s, never below where it was restored");
+                }
             }
         };
 

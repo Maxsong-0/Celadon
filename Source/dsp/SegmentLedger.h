@@ -232,6 +232,9 @@ namespace celadon::glaze
         std::uint32_t getStoredRevision() const noexcept      { return storedRevision; }
         bool isCurrentSegmentFull() const noexcept;
         double getCurrentSegmentSeconds() const noexcept;
+        // T-106：此刻正在记的这一段（最新开的那段）在分析器时间轴上的起点；没有开着的段 = −1。编排器拿它判「输入侧换段了」，
+        // 出口电平跟踪器跟着收段（规格第 4 节第 3 条：输出侧用同一组段边界）。
+        std::int64_t getCurrentSegmentStart() const noexcept   { return openCount > 0 ? newest().start : -1; }
         // T-038 集成（评审 F1）：此刻正在播的这一段的暂判（文件头第五节）。measured = 读数可比（段响度 LUFS、低频占比，口径同定稿，
         // 写进两个输出）；quiet = 安静的段（有效音频不够），输出不改；none = 读不出（刚开始且同一段连续时间里没有定稿过的段、宿主停着），
         // 输出不改。编排器拿 measured 的读数与**已提交画像**比，判「此刻是否在主段落」（House 档只在主段落校准），quiet 就是不在——
