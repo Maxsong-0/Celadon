@@ -662,6 +662,9 @@ int main (int argc, char* argv[])
           { s.editor->setReleasePreviewEnabled (true); s.play (1.0); } },
         { "zh-glaze90",  celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 90.0f); }, none },
         { "zh-glaze0",   celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 0.0f); }, none },
+        // T-107 重构包 A 的备选版面：选择器一个像素不动（贴标题 470 / 730），侧板 454 宽、内缘贴选择器（给 Max 对照用）。
+        { "zh-default-wide", celadon::Language::chinese, none, [] (Session& s) { s.editor->setWideSidePanelsForPreview (true); } },
+        { "en-default-wide", celadon::Language::english, none, [] (Session& s) { s.editor->setWideSidePanelsForPreview (true); } },
         { "zh-zoom70",   celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); } },
         { "zh-zoom150",  celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (1.5); } },
         { "zh-reduced",  celadon::Language::chinese, [] (Session&) {}, none },
@@ -1145,6 +1148,26 @@ namespace
                        && ! genre.getBounds().intersects (cornerArea) && genre.getRight() <= delivery.getX(),
                    "genre / delivery sit either side of the GLAZE heading, clear of the knob (" + genre.getBounds().toString() + ", " + delivery.getBounds().toString() + ")");
 
+            // T-107：两块侧板从标题行起（表头那一条），压在选择器下面——按真实的命中测试，点选择器中间命中的是选择器本身，
+            //        点侧板表头的空白处不命中侧板（hitTest），点面板里命中侧板；两块侧板都不压主旋钮。
+            {
+                auto& nowPanel = find ("side_now");
+                auto& deliveryPanel = find ("side_delivery");
+                auto* canvas = genre.getParentComponent();
+                const auto hit = [canvas] (juce::Point<int> at) { return canvas != nullptr ? canvas->getComponentAt (at) : nullptr; };
+
+                check (hit (genre.getBounds().getCentre()) == &genre && hit (delivery.getBounds().getCentre()) == &delivery,
+                       "T-107 genre / delivery selectors stay clickable on top of the side-panel headers");
+                check (hit ({ nowPanel.getX() + 4, nowPanel.getY() + 13 }) != &nowPanel && hit ({ deliveryPanel.getRight() - 4, deliveryPanel.getY() + 13 }) != &deliveryPanel,
+                       "T-107 side-panel header strips do not take clicks");
+                check (hit (nowPanel.getBounds().getCentre()) == &nowPanel && hit (deliveryPanel.getBounds().getCentre()) == &deliveryPanel,
+                       "T-107 side panels take clicks inside the panel box");
+                check (! nowPanel.getBounds().intersects (knobArea) && ! deliveryPanel.getBounds().intersects (knobArea)
+                           && genre.getRight() <= nowPanel.getRight() && delivery.getX() >= deliveryPanel.getX(),
+                       "T-107 side panels clear the knob; selectors head their panels (" + nowPanel.getBounds().toString() + ", "
+                           + deliveryPanel.getBounds().toString() + ")");
+            }
+
             session.setParameter (celadon::param::glazeGenre, 0.0f);
             session.setParameter (celadon::param::glazeDelivery, 0.0f);
             check (static_cast<celadon::ui::Segmented&> (genre).getSelected() == 0 && static_cast<celadon::ui::Segmented&> (delivery).getSelected() == 0,
@@ -1383,8 +1406,9 @@ namespace
             editor.advanceForSnapshot (0.05);
             juce::SharedResourcePointer<celadon::ui::UiSettings> settings;
             check (settings->getLanguage() == celadon::Language::english, "language selector -> English");
-            check (static_cast<celadon::ui::CornerNote&> (corner).getFirstLine() == "Drives 7 parameters",
-                   "corner note follows the language (" + static_cast<celadon::ui::CornerNote&> (corner).getFirstLine() + ")");
+            // T-107：左下的静态说明删了，改看左侧板末行（把握 / 主段 / 保护）跟着语言走。
+            const auto& nowValues = static_cast<celadon::ui::GlazeNowPanel&> (find ("side_now")).getValues();
+            check (nowValues.details.startsWith ("Confidence "), "T-107 side panel follows the language (" + nowValues.details + ")");
             save (editor, scale, outDir.getChildFile ("check-english.png"));
             settings->setLanguage (celadon::Language::chinese);
         }
@@ -1775,13 +1799,14 @@ namespace
             dispatchEvents (400);
         }
 
-        // ⑭ R9-01：粒子带里的 10 个文字小部件（T-038 起多了曲风、交付两个选择）都挂着整数对齐的缓存；重画粒子带时从缓存读、不再重画进缓存。
+        // ⑭ R9-01：粒子带里的文字小部件（T-038 起多了曲风、交付两个选择；T-107 起多了两块侧板）都挂着整数对齐的缓存；
+        //    重画粒子带时从缓存读、不再重画进缓存。
         {
             int cached = 0;
             juce::StringArray missing;
 
             for (const auto* id : { "glaze_title", "glaze_style", "ab", "match", "monitoring", "corner_note", "legend",
-                                    "glaze_genre", "glaze_delivery" })
+                                    "glaze_genre", "glaze_delivery", "side_now", "side_delivery" })
             {
                 if (dynamic_cast<AlignedComponentCache*> (find (id).getCachedComponentImage()) != nullptr)
                     ++cached;
@@ -1789,7 +1814,7 @@ namespace
                     missing.add (id);
             }
 
-            check (cached == 9, "T-032 the 9 text widgets in the particle band have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
+            check (cached == 11, "T-032 the 11 text widgets in the particle band (T-107: incl. both side panels) have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
 
             PaintProbe probe;
             auto& title = find ("glaze_title");
@@ -1803,6 +1828,24 @@ namespace
             title.removeComponentListener (&probe);
             check (probe.paints == 5 && probe.cacheReads == 5 && probe.cacheWrites == 0,
                    "T-032 band repaints read the GLAZE title from its cache (" + juce::String (probe.cacheReads) + " reads, "
+                       + juce::String (probe.cacheWrites) + " re-renders of 5)");
+        }
+
+        // ⑭b T-107：两块侧板整个压在粒子带里（粒子每帧重画这条带的一部分）——重画粒子带时同样只从缓存贴、不重画进缓存。
+        for (const auto* id : { "side_now", "side_delivery" })
+        {
+            PaintProbe probe;
+            auto& panel = find (id);
+            panel.addComponentListener (&probe);
+            paintFrame (editor, target, 1.0f, band);
+            probe.reset();
+
+            for (int i = 0; i < 5; ++i)
+                paintFrame (editor, target, 1.0f, band);
+
+            panel.removeComponentListener (&probe);
+            check (probe.paints == 5 && probe.cacheReads == 5 && probe.cacheWrites == 0,
+                   "T-107 band repaints read " + juce::String (id) + " from its cache (" + juce::String (probe.cacheReads) + " reads, "
                        + juce::String (probe.cacheWrites) + " re-renders of 5)");
         }
 
@@ -1906,7 +1949,7 @@ namespace
                    "T-032 bottom row and latency label back to Chinese");
         }
 
-        // T-036（评审 R-01）：频谱仪的 5 个子组件（三个图例开关、斜率、响度小窗）挂整数对齐的缓存——频谱一秒重画 60 / 120 次时
+        // T-036（评审 R-01）：频谱仪的 4 个子组件（三个图例开关、斜率；响度小窗 T-107 起搬到右侧板）挂整数对齐的缓存——频谱一秒重画 60 / 120 次时
         //     它们从缓存贴；不能是 JUCE 自带的 setBufferedToImage（小数像素比下每帧双线性重采样、字发糊）。
         {
             auto* view = findFirst<SpectrumView> (editor);
@@ -1919,8 +1962,8 @@ namespace
                     aligned += dynamic_cast<AlignedComponentCache*> (child->getCachedComponentImage()) != nullptr ? 1 : 0;
                 }
 
-            check (view != nullptr && children == 5 && aligned == 5,
-                   "T-036 the spectrum's legend toggles, slope control and loudness HUD have aligned image caches ("
+            check (view != nullptr && children == 4 && aligned == 4,
+                   "T-036 the spectrum's legend toggles and slope control have aligned image caches ("
                        + juce::String (aligned) + " of " + juce::String (children) + ")");
         }
 

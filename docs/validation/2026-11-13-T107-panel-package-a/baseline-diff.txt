@@ -1,0 +1,40 @@
+en-advanced.png	不同 框 (0, 298, 1200, 560) 像素 129885
+en-default-wide.png	只有改后（新状态）
+en-default.png	不同 框 (0, 72, 1200, 560) 像素 236759
+en-guard-recovering.png	不同 框 (95, 0, 1176, 20) 像素 5069
+en-guard-tooltip.png	不同 框 (0, 0, 652, 16) 像素 649
+en-help.png	不同 框 (0, 298, 1200, 560) 像素 202260
+en-house-hint.png	不同 框 (0, 72, 1200, 560) 像素 234362
+en-house-layout.png	不同 框 (0, 72, 1200, 560) 像素 234345
+en-legacy-notice.png	不同 框 (0, 0, 556, 90) 像素 31711
+en-release.png	不同 框 (0, 298, 1200, 560) 像素 131888
+en-settings-zoom70.png	不同 框 (0, 208, 840, 392) 像素 80255
+en-settings.png	不同 框 (0, 110, 1200, 560) 像素 162632
+en-status-export.png	相同
+en-status-follow.png	相同
+en-status-guard.png	相同
+zh-advanced.png	不同 框 (0, 298, 1200, 560) 像素 130466
+zh-audition.png	不同 框 (0, 72, 1200, 560) 像素 240261
+zh-default-wide.png	只有改后（新状态）
+zh-default.png	不同 框 (0, 72, 1200, 560) 像素 237756
+zh-glaze0.png	不同 框 (0, 72, 1200, 554) 像素 234058
+zh-glaze90.png	不同 框 (0, 72, 1200, 560) 像素 237286
+zh-guard-recovering.png	不同 框 (95, 0, 1176, 20) 像素 5076
+zh-guard-tooltip.png	不同 框 (0, 0, 654, 16) 像素 633
+zh-help.png	不同 框 (0, 298, 1200, 560) 像素 220529
+zh-house-hint.png	不同 框 (0, 72, 1200, 560) 像素 237942
+zh-house-layout.png	不同 框 (0, 72, 1200, 560) 像素 237919
+zh-input.png	不同 框 (0, 72, 1200, 560) 像素 237979
+zh-legacy-notice.png	不同 框 (0, 0, 520, 90) 像素 31934
+zh-original.png	不同 框 (0, 72, 1200, 560) 像素 239646
+zh-preview.png	不同 框 (0, 72, 1200, 560) 像素 239106
+zh-reduced.png	不同 框 (0, 72, 1200, 554) 像素 234460
+zh-settings-zoom70.png	不同 框 (0, 208, 840, 392) 像素 80295
+zh-settings.png	不同 框 (0, 298, 1200, 560) 像素 162397
+zh-status-export.png	相同
+zh-status-follow.png	相同
+zh-status-guard.png	相同
+zh-target.png	不同 框 (0, 298, 1200, 560) 像素 130492
+zh-truepeak.png	不同 框 (0, 72, 1200, 560) 像素 237466
+zh-zoom150.png	不同 框 (0, 108, 1800, 840) 像素 531325
+zh-zoom70.png	不同 框 (0, 50, 840, 392) 像素 117177

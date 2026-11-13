@@ -4,10 +4,13 @@
     ParticleField.h
     中层（频谱仪与模块卡片之间、主旋钮两侧）的粒子流（V4 设计稿）：
 
-      - 左边 14 条流线从画面边缘汇向旋钮左侧的边缘，右边 14 条从旋钮右侧流向画面边缘——声音从左边流进 GLAZE、从右边流出；
-      - 每边最多 100 个粒子沿流线移动（约 15 % 是模糊的大颗粒），数量 = 100 × GLAZE^0.8：GLAZE 越大越密；
+      - 左边 14 条流线从通道左缘汇向旋钮左侧的边缘，右边 14 条从旋钮右侧流向通道右缘——声音从左边流进 GLAZE、从右边流出；
+        T-107 重构包 A 起两侧是侧板，流线只在侧板与旋钮之间的通道里（setChannel；默认 x 404 ～ 796，备选版面 470 ～ 730）；
+      - 每边最多 36 个粒子沿流线移动（约 15 % 是模糊的大颗粒），数量 = 36 × GLAZE^0.8：GLAZE 越大越密（T-107 前是 100，流线
+        横贯两侧时）；流线短了，各粒子走完一趟的时长按 0.45 倍缩短，速度看上去与原来相近；
+      - 旋钮外一圈圈扩散的波纹到通道边缘为止；
       - 速度与亮度跟着输出电平（最近一帧的 RMS）走，停止播放时平滑减速到停；听原声（B）时变慢、变暗；
-      - 旋钮外一圈圈扩散的波纹与柔光，强度也跟 GLAZE；
+      - 旋钮后面的柔光，强度也跟 GLAZE；
       - 「减少动效」：粒子与波纹都关掉，只留静止的流线与柔光。
 
     流线与粒子的参数（位置、时长、颜色、缓动）与设计稿用同一个线性同余种子生成，画出来一样。
@@ -47,6 +50,10 @@ namespace celadon::ui
         // 目标帧率（规格「界面刷新 30 Hz」）：按离 1 / maxFrameRate 最近的整数个 VBlank 画（isFrameDue）。
         static constexpr double maxFrameRate = 30.0;
 
+        // T-107：粒子与流线所在的通道（画布 x）：左边从 leftEdge 汇入旋钮，右边从旋钮流到 rightEdge。改了就重建流线（同一个种子）。
+        static constexpr float defaultLeftEdge = 404.0f, defaultRightEdge = 796.0f;
+        void setChannel (float leftEdge, float rightEdge);
+
         // 节流规则（纯函数，截图工具的检查直接测）：距上一帧 sinceLastFrame 秒、这次 VBlank 距上次 vblankInterval 秒时该不该画。
         // 容差半个 VBlank（最多半帧）：60 Hz 屏每 2 个 VBlank、90 Hz 每 3 个、120 Hz 每 4 个、144 Hz 每 5 个画一次。
         static bool isFrameDue (double sinceLastFrame, double vblankInterval) noexcept;
@@ -85,6 +92,7 @@ namespace celadon::ui
         };
 
         void build();
+        juce::Rectangle<int> channelArea() const noexcept;   // 通道在本组件里的矩形（动画帧只重画这一块）
         void onVBlank (double timestampSeconds);
         void step (double seconds);
         void renderLines (float pixelScale);
@@ -99,6 +107,7 @@ namespace celadon::ui
         AlignedImage glowImage;                         // 旋钮后面的柔光（全不透明度，柔光圆与这条带的交集）
         CacheStats cacheStats;
 
+        float channelLeft = defaultLeftEdge, channelRight = defaultRightEdge;
         float glaze = 0.35f;
         float energy = 0.0f;                            // 0 ～ 1：电平折算的「音乐有多满」
         bool playing = false, comparing = false, reduceMotion = false;

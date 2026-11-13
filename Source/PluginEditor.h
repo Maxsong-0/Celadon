@@ -4,9 +4,12 @@
     PluginEditor.h
     v0.1.8.0 界面改版（V4 设计稿「融合版」）：1200 × 820 的浅色画布，整体按 70 % ～ 200 % 等比缩放。
 
-      上层：左 IN 表 · 正中频谱仪（带响度小窗）· 右 OUT / GR 表；
-      中层：GLAZE 主旋钮在正中，两侧粒子流；下面一排 风格 | A / B · 等响；
-            旋钮左边「曲风」、右边「交付」两个选择（T-038，位置待 Max 看截图定）；
+      上层：左 IN 表 · 正中频谱仪 · 右 OUT / GR 表；
+      中层：GLAZE 主旋钮在正中；T-107 重构包 A（效果图，T-105 线 ③ 第 6.2 节）起两侧是两块侧板——左「此刻在推什么」（四个模块的
+            自动加量 + 状态句）、右「交付」（原来频谱仪右上角的响度小窗搬到这里放大，加最近 60 秒的短期响度与 GLAZE 自动增益），
+            粒子流收进侧板与旋钮之间的通道；「曲风」「交付」两个选择（T-038，Max 2026-10-01 选在 GLAZE 标题行左右）各外移 66 px
+            当两块侧板的表头（要 Max 看效果图点头；备选版面见 setWideSidePanelsForPreview）；
+            下面一排 操作提示 / 监听退出提示 · 风格 | A / B · 等响 · 颜色图例；
       下层：按处理顺序的四张卡片 BALANCE → CLAY → COLOR → LIMIT。
 
     画布（Canvas）是一个固定 1200 × 820 的子组件，编辑器按窗口大小给它一个缩放变换——所有文字与矢量在任何比例下都清晰，
@@ -89,6 +92,9 @@ public:
     // 截图工具用：频谱仪往前推 seconds 秒、立刻刷新一帧读数，并把粒子动画往前推 seconds 秒（离屏时没有垂直同步）。
     void advanceForSnapshot (double seconds);
 
+    // T-107 效果图：备选版面——选择器一个像素不动（贴标题 470 / 730），侧板 454 宽、内缘贴选择器，粒子通道只剩 30 px。截图工具用。
+    void setWideSidePanelsForPreview (bool wide);
+
     // 截图工具的基准用：上一次生成静态背景花的毫秒数（打开编辑器、缩放停下时在消息线程同步生成）。
     double getStaticLayerRenderMs() const noexcept;
 
@@ -141,7 +147,8 @@ private:
     std::unique_ptr<juce::MouseListener> cornerListener;   // 右下角缩放把手的按下 / 松开（显示大小提示）
 
     double lastTimerMs = 0.0;
-    float truePeakMaxDb = -120.0f;                 // 复位以来 OUT 的最大真峰值（响度小窗）
+    float truePeakMaxDb = -120.0f;                 // 复位以来 OUT 的最大真峰值（右侧板「交付」）
+    double historyPendingSeconds = 0.0;            // T-107 右侧板的历史：攒够 0.1 s 记一点（只在放音乐时攒）
     double lastSoundMs = -1.0e9;                   // 最近一次输出有声音的时刻（粒子据此判断「在播放」）
     double lastOverMs = -1.0e9;                    // 最近一次 OUT 真峰值超过 Ceiling 的时刻
     double nonFiniteWarningUntilMs = 0.0;

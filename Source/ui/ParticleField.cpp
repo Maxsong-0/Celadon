@@ -34,6 +34,8 @@ namespace celadon::ui
         constexpr float centreX = 600.0f, centreY = 422.0f, rimRadius = 96.43f;
         constexpr float bandWidth = 1200.0f;
         constexpr int linesPerSide = 14, particlesPerSide = 100, samplesPerLine = 48;
+        constexpr int shownPerSide = 36;                // T-107：通道里每侧最多画这么多（随机数仍按 100 个生成，序列与原来相同）
+        constexpr float durationScale = 0.45f;          // T-107：流线约是原来的 1/4 长，走一趟的时长缩短，看上去不至于慢成爬
         constexpr double ringDuration = 3.9;
         constexpr double ringBegins[] = { 0.0, -1.3, -2.6 };
 
@@ -89,16 +91,43 @@ namespace celadon::ui
 
     ParticleField::~ParticleField() = default;
 
+    void ParticleField::setChannel (float leftEdge, float rightEdge)
+    {
+        if (juce::exactlyEqual (leftEdge, channelLeft) && juce::exactlyEqual (rightEdge, channelRight))
+            return;
+
+        channelLeft = leftEdge;
+        channelRight = rightEdge;
+        build();
+        lineImage = {};
+        repaint();
+    }
+
+    juce::Rectangle<int> ParticleField::channelArea() const noexcept
+    {
+        // 两边各多留 10 px：通道边上的模糊大颗粒最大半径 4.8 + 3.2（渐变外沿）= 8，加抗锯齿余量。
+        return juce::Rectangle<float> (channelLeft, 0.0f, channelRight - channelLeft, (float) bandHeight).expanded (10.0f, 0.0f).getSmallestIntegerContainer();
+    }
+
     void ParticleField::build()
     {
         Lcg rng (0x50415254u);
+
+        for (auto& side : lines)
+            side.clear();
+
+        for (auto& side : particles)
+            side.clear();
+
+        leftCurves.clear();
+        rightCurves.clear();
 
         for (int i = 0; i < linesPerSide; ++i)
         {
             const auto u = ((double) i + 0.5) / (double) linesPerSide - 0.5;
 
-            // 左：从画面左缘（x 20 ～ 60）汇向旋钮左侧的边缘。
-            const auto x0 = 20.0 + rng.next() * 40.0;
+            // 左：从通道左缘（channelLeft 起往里 8 px 以内）汇向旋钮左侧的边缘。
+            const auto x0 = (double) channelLeft + rng.next() * 8.0;
             const auto y0 = (double) centreY + u * 212.0 + (rng.next() - 0.5) * 10.0;
             const auto theta = juce::MathConstants<double>::pi - u * 1.25;
             const auto ex = (double) centreX + (double) rimRadius * std::cos (theta);
@@ -109,10 +138,10 @@ namespace celadon::ui
                                                 { (float) (x0 + (ex - x0) * 0.8), (float) (y0 + (ey - y0) * 0.9) },
                                                 { (float) ex, (float) ey } };
 
-            // 右：从旋钮右侧的边缘流向画面右缘（x 1140 ～ 1180）。
+            // 右：从旋钮右侧的边缘流向通道右缘（channelRight 往里 8 px 以内）。
             const auto sx = (double) centreX + (double) rimRadius * std::cos (u * 1.25);
             const auto sy = (double) centreY + (double) rimRadius * std::sin (u * 1.25);
-            const auto x1 = 1180.0 - rng.next() * 40.0;
+            const auto x1 = (double) channelRight - rng.next() * 8.0;
             const auto y1 = (double) centreY + u * 212.0 + (rng.next() - 0.5) * 10.0;
 
             const juce::Point<float> right[] = { { (float) sx, (float) sy },
@@ -153,7 +182,7 @@ namespace celadon::ui
                 Particle p;
                 p.right = side == 1;
                 p.soft = rng.next() < 0.15;
-                p.duration = (float) (3.6 + rng.next() * 2.8);
+                p.duration = (float) (3.6 + rng.next() * 2.8) * durationScale;
                 p.opacity = (float) (p.soft ? 0.16 + rng.next() * 0.2 : 0.45 + rng.next() * 0.5);
                 p.line = juce::jlimit (0, linesPerSide - 1, (int) std::floor (rng.next() * (double) linesPerSide));
                 p.radius = (float) (p.soft ? 2.4 + rng.next() * 2.4 : 0.7 + rng.next() * 1.6);
@@ -235,7 +264,7 @@ namespace celadon::ui
         if (animating && (lastRepaint < 0.0 || isFrameDue (timestampSeconds - lastRepaint, dt)))
         {
             lastRepaint = timestampSeconds;
-            repaint();
+            repaint (channelArea());   // T-107：动的只有通道里的粒子与波纹，两侧板不跟着进脏区
         }
     }
 
@@ -262,12 +291,12 @@ namespace celadon::ui
         {
             g.addTransform (juce::AffineTransform::translation (0.0f, (float) -top));   // 流线按画布坐标
 
-            juce::ColourGradient leftGradient (juce::Colour (0x0033b3c4), 20.0f, 0.0f, juce::Colour (0xff0e6473), 492.0f, 0.0f, false);
+            juce::ColourGradient leftGradient (juce::Colour (0x0033b3c4), channelLeft, 0.0f, juce::Colour (0xff0e6473), 492.0f, 0.0f, false);
             leftGradient.addColour (0.6, juce::Colour (0x8c1799ab));
             g.setGradientFill (leftGradient);
             g.strokePath (leftCurves, juce::PathStrokeType (0.9f));
 
-            juce::ColourGradient rightGradient (juce::Colour (0xff0e6473), 708.0f, 0.0f, juce::Colour (0x0033b3c4), 1180.0f, 0.0f, false);
+            juce::ColourGradient rightGradient (juce::Colour (0xff0e6473), 708.0f, 0.0f, juce::Colour (0x0033b3c4), channelRight, 0.0f, false);
             rightGradient.addColour (0.4, juce::Colour (0x8c1799ab));
             g.setGradientFill (rightGradient);
             g.strokePath (rightCurves, juce::PathStrokeType (0.9f));
@@ -320,14 +349,15 @@ namespace celadon::ui
 
         g.addTransform (juce::AffineTransform::translation (0.0f, (float) -top));   // 以下按画布坐标画
 
-        // 波纹：三圈从旋钮边缘（r 106）向外扩到 r 236，前 20 % 淡入、之后淡出。
+        // 波纹：三圈从旋钮边缘（r 106）向外扩到通道边缘（T-107 前到 r 236），前 20 % 淡入、之后淡出。
         {
             const auto ringOpacity = 0.05f + 0.22f * glaze;
+            const auto ringReach = juce::jmax (0.0f, juce::jmin (centreX - channelLeft, channelRight - centreX) - 106.0f);
 
             for (const auto begin : ringBegins)
             {
                 const auto fraction = (float) (std::fmod (clock - begin, ringDuration) / ringDuration);
-                const auto radius = 106.0f + 130.0f * fraction;
+                const auto radius = 106.0f + ringReach * fraction;
                 const auto alpha = (fraction < 0.2f ? fraction / 0.2f : 1.0f - (fraction - 0.2f) / 0.8f) * ringOpacity * brightness;
 
                 if (alpha <= 0.002f)
@@ -339,7 +369,7 @@ namespace celadon::ui
         }
 
         // 粒子
-        const auto count = juce::roundToInt ((float) particlesPerSide * std::pow (glaze, 0.8f));
+        const auto count = juce::roundToInt ((float) shownPerSide * std::pow (glaze, 0.8f));
 
         for (int side = 0; side < 2; ++side)
         {
