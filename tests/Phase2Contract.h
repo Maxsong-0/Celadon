@@ -445,6 +445,8 @@ namespace celadon::phase2
     }
 
     // Q9：宿主 reset 不清。m′ < 0.5 的样本不进主段能量。能量是均方的占位，不是 K 加权。
+    // 这是阶段 2 契约的简化镜像，只给 Phase2OrchestratorTests 用，不跟真类走：T-106 之后真类（Source/dsp/OutputLevelTracker.h）
+    // 已经没有 mainLevelLufs()，读数换成 evidenceAt()（折算、入口配对、回看重判），它的测试在 OutputLevelTrackerTests.cpp。
     struct OutputLevelTracker
     {
         void prepare (double sampleRateIn) noexcept

@@ -1187,12 +1187,17 @@ namespace celadon::test
             }
         }
 
-        // 7. 学好的 LIVE 画像留着时，响度跟着 GLAZE 走，但 Limit Gain 上行只有 0.2 dB/s、G_trim 只有 0.05 dB/s
-        //    （INTERFACE-SKETCH / GlazeController::Impl）。10 s 里 50 / 75 / 100 的已施加增益都停在 2.5 dB
-        //    （2.0 + 0.5），这三档积分响度贴在一起；25 的目标还在这 10 s 的预算里，已施加增益没到 2.5，所以比它们轻。
-        //    目标净增益仍随档位上升。守门为 0，G_trim 停在这 10 s 的速率积分 0.5，
-        //    不是 ±3 dB 钳位；真峰值离 Ceiling −1 还远。40 s 后各档拉开，逐级 > 0.1 LU，GLAZE 100 的已施加增益
-        //    停在 10 dB（8 + 2），仍是同一条滑移，不是响度顶。
+        // 7. 学好的 LIVE 画像留着时，响度跟着 GLAZE 走，但 Limit Gain 上行只有 0.2 dB/s
+        //    （INTERFACE-SKETCH / GlazeController::Impl）。10 s 里 50 / 75 / 100 的已施加增益都停在 2.0 dB，
+        //    这三档积分响度贴在一起；25 的目标还在这 10 s 的预算里，已施加增益没到 2.0，所以比它们轻。
+        //    目标净增益仍随档位上升。守门为 0；真峰值离 Ceiling −1 还远。40 s 后各档拉开，逐级 > 0.1 LU，
+        //    GLAZE 100 的已施加增益停在 8 dB，仍是同一条滑移，不是响度顶。
+        //    T-106（ADR-038）：自动增量还在往方案走的块 G_trim 不积分（GlazeController.cpp planInPlace：实测净增益里缺的是还没
+        //    施加的那部分方案，不是链的偏差），所以滑移期间 G_trim 逐位停在 +0，已施加增益只有 0.2 dB/s 那一份。T-106 之前
+        //    G_trim 从第一块起按 0.05 dB/s 往上积，10 s 是 2.0 + 0.5 = 2.5 dB、40 s 是 8 + 2 = 10 dB（DGX 2026-11-12 同机实测，
+        //    改前 2.50 / 10.00，改后 2.00 / 8.00）。方案到位之后它才开始积：40 s 的 GLAZE 25（约 9 s 到位）这里链做到了方案，
+        //    G_trim 停在零点一 dB 上下；T-106 之前是 +2.0（画像是另一段素材学的，出口电平比「画像的输入响度 + 方案净增益」低，
+        //    它照着去追）。
         //    先读档再 prepare 与先 prepare 再读档必须是同一条曲线。画像被第一次 prepare 清掉时，10 s 会走出另一条
         //    低置信曲线（50 档还能比 25 响约 0.5 LU），那不是这份合同。
         void testLoudnessRisesWithGlaze()
@@ -1294,18 +1299,18 @@ namespace celadon::test
                 expect (early10[i].lufs >= early10[0].lufs - 0.02f,
                         "GLAZE " + juce::String (steps10[i], 1) + " must not be quieter than GLAZE 0");
 
-            // 10 s：50/75/100 都顶在 2.5 dB 滑移上，响度彼此贴住。25 的目标更小，这 10 s 还没走到那一档，所以更轻。
-            expect (early10[4].applied < 2.3f, "10 s GLAZE 25 has not reached the 2.5 dB slew cap");
+            // 10 s：50/75/100 都顶在 2.0 dB 滑移上，响度彼此贴住。25 的目标更小，这 10 s 还没走到那一档，所以更轻。
+            expect (early10[4].applied < 1.8f, "10 s GLAZE 25 has not reached the 2.0 dB slew cap");
             expect (early10[5].lufs > early10[4].lufs + 0.15f, "10 s GLAZE 25 is still quieter than the capped steps");
 
             for (int i = 5; i <= 7; ++i)
             {
                 expect (std::abs (early10[i].lufs - early10[5].lufs) < 0.05f,
                         "10 s GLAZE " + juce::String (steps10[i], 0) + " shares the slew-capped loudness");
-                expect (std::abs (early10[i].applied - 2.5f) < 0.05f,
-                        "10 s applied gain is the 0.2 dB/s + 0.05 dB/s budget (2.5 dB)");
-                expect (std::abs (early10[i].trim - 0.5f) < 0.02f,
-                        "10 s G_trim is the 0.05 dB/s integral, inside the +/-3 dB clamp");
+                expect (std::abs (early10[i].applied - 2.0f) < 0.05f,
+                        "10 s applied gain is the 0.2 dB/s slew (2.0 dB)");
+                expect (early10[i].trim == 0.0f,
+                        "10 s G_trim has not started: the increments are still slewing to the plan (T-106)");
                 expect (std::abs (early10[i].guard) < 0.001f, "10 s guard relief is zero");
                 expect (early10[i].truePeak <= ceilingDb + 0.01f, "10 s true peak stays at or under the ceiling");
                 expect (early10[i].truePeak < ceilingDb - 2.0f, "10 s true peak is not what flattens the curve");
@@ -1324,7 +1329,7 @@ namespace celadon::test
                 late40[i] = measure (false, steps40[i], input40);
                 expectSame (early40[i], late40[i], "40 s GLAZE " + juce::String (steps40[i], 0));
                 summary << " " << juce::String (steps40[i], 0) << " -> " << juce::String (early40[i].lufs, 2)
-                        << " (applied " << juce::String (early40[i].applied, 2) << ");";
+                        << " (applied " << juce::String (early40[i].applied, 2) << ", G_trim " << juce::String (early40[i].trim, 3) << ");";
 
                 if (i > 0)
                     expect (early40[i].lufs - previous > 0.1f,
@@ -1335,10 +1340,14 @@ namespace celadon::test
                 expect (std::abs (early40[i].guard) < 0.001f, "40 s guard relief is zero");
             }
 
-            expect (std::abs (early40[4].applied - 10.0f) < 0.05f,
-                    "40 s GLAZE 100 applied gain is the 0.2 dB/s + 0.05 dB/s budget (10 dB)");
-            expect (std::abs (early40[4].trim - 2.0f) < 0.05f,
-                    "40 s G_trim is the 0.05 dB/s integral, still inside +/-3 dB");
+            expect (std::abs (early40[4].applied - 8.0f) < 0.05f,
+                    "40 s GLAZE 100 applied gain is the 0.2 dB/s slew (8 dB)");
+            expect (early40[4].trim == 0.0f,
+                    "40 s GLAZE 100 G_trim has not started: Limit Gain is still slewing to the plan (T-106)");
+            // GLAZE 25：方案约 9 s 到位，之后 30 s G_trim 可以积（最多 1.5 dB），但链做到了方案，它只动一点。
+            expect (std::abs (early40[1].trim) <= 0.5f,
+                    "40 s GLAZE 25: with the plan in place and the chain delivering it, G_trim stays within 0.5 dB of 0 (before T-106: +2.0): "
+                    + juce::String (early40[1].trim, 4));
             logMessage (summary);
         }
 

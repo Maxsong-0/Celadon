@@ -458,6 +458,22 @@ namespace celadon::glaze
         static constexpr float unitDownPerSecond = 10.0f;
         static constexpr float trimDbPerSecond = 0.05f;
         static constexpr float trimLimitDb = 3.0f;
+        // T-106：G_trim 的读数只把「录的时候 Limit Gain 离参考增益不远」的段当证据（OutputLevelTracker::evidenceAt）。折算按
+        // 1 dB 增益 = 1 dB 电平，只在录制增益附近成立：限幅器越压越不到 1 : 1；冷启动、改参数时别的模块的自动量和 Limit Gain 一起
+        // 在变，那段时间录的段折算不回来。差 ≤ 1 dB 全算，≥ 3 dB 不算，中间线性；加权后不足 3 s（一个短期响度窗）不积分。
+        // 三个数是 T-106 定的（验证报告 docs/validation/2026-11-12-T106-gtrim-error-basis 第 9 节第 3 条）。
+        static constexpr float trimEvidenceFullDb = 1.0f;
+        static constexpr float trimEvidenceZeroDb = 3.0f;
+        static constexpr double trimEvidenceMinimumSeconds = 3.0;
+        // T-106：方案「到位」的容差（planInPlace）。自动增量还在往目标方案走的块，实测净增益里缺的是还没施加的那部分方案，不是链的
+        // 偏差：这些块不当证据、也不积分。Recover / Tame / Glue / Heat / Clip 差 ≤ 1 个单位（上行 2 / s，即到位前半秒以内）、
+        // Tone 差 ≤ 0.1 dB 算到位；Limit Gain 用它自己的死区状态（进了死区 = 到位，差 ≤ 0.3 dB）。容差是 T-106 定的（同上，
+        // 第 9 节第 4 条）。
+        static constexpr float trimPlanUnitTolerance = 1.0f;
+        static constexpr float trimPlanToneToleranceDb = 0.1f;
+        // Limit Gain 的范围，同限幅器（LimiterModule.cpp sanitised）与宿主参数（ParameterRanges.h limitGain()）。
+        static constexpr float limitGainLowDb = 0.0f;
+        static constexpr float limitGainHighDb = 24.0f;
         // T-097：改过参数之后 G_trim 冻结这么久（规格第 4 节「参数在 1 s 内变化过时冻结 G_trim」）。「改过」= 风格 / 曲风 / 交付 /
         // GLAZE / 规划相关手动值与上一块不同（beginBlock 的 changed 去掉「第一块」那一项：插件刚开不是用户改了参数）。按处理过的时长计
         // （宿主旁通、听原声期间也走）：GLAZE 0 时不计，但 GLAZE 从 0 拧上去本身就算改参数、会重新起算。
@@ -510,6 +526,17 @@ namespace celadon::glaze
         AutoIncrements applied {};
         bool gainInDeadband = false;
         float gTrim = 0.0f;
+        // T-106：这一个宿主块交给各模块执行的那份设置是不是「方案到位」（planInPlace），到位的是净增益多少的方案，执行的 Limit Gain
+        // 自动增量是多少。beginBlock 定下，这一块的各片（endBlock）沿用：链把一个宿主块切成多片时每片都调 endBlock，前面的片
+        // 已经把 targetPlan（replan）和 applied（slewApplied）往前推了，音频用的却还是块首那一份设置（CeladonChain::process
+        // 「every slice uses the same executed settings」）。没到位时净增益记 NaN（用不上）。不存档：读档、prepare、冷启动后清掉
+        // （增量记 NaN = 还没有执行过的块），下一次 beginBlock 重新定。
+        bool executedPlanInPlace = false;
+        float executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
+        float executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
+        // T-106（外部第二意见 F1，验证报告第 9 节第 18 条）：上一片看到的输入侧当前段的起点（SegmentLedger::getCurrentSegmentStart），变了就让出口跟踪器收段。
+        static constexpr std::int64_t notSeenSegmentStart = -2;
+        std::int64_t lastInputSegmentStart = notSeenSegmentStart;
         GuardOutput budgetOut {}, contrastOut {}, psrOut {};
         float currentMainness = 1.0f;
 
@@ -850,20 +877,113 @@ namespace celadon::glaze
             }
         }
 
+        // 手动 Limit Gain 加上自动增量，钳进 0 ～ 24 dB（同 applyIncrements）。
+        static float gainAfterIncrementDb (float manualGainDb, float incrementDb) noexcept
+        {
+            return juce::jlimit (limitGainLowDb, limitGainHighDb, manualGainDb + incrementDb);
+        }
+
+        // 自动加上去的那一截：钳过之后高出手动值的部分（不会是负的）。
+        static float automaticPartDb (float manualGainDb, float afterIncrementDb) noexcept
+        {
+            return juce::jmax (0.0f, afterIncrementDb - manualGainDb);
+        }
+
+        // 再叠上 G_trim：正的照加；负的最多撤掉自动加上去的那一截，不往手动值以下压（T-097 Q15 A）；结果钳进 0 ～ 24 dB。
+        // 执行（applyLimitExtras）、读数折算（trimReferenceGainDb）、守门的界（retreatBoundDb）都用这一条：三处对不上的话，
+        // 读数折算的就不是限幅器真正执行的增益，G_trim 会照一个并不存在的偏差去积。
+        static float gainWithTrimDb (float manualGainDb, float afterIncrementDb, float trimDb) noexcept
+        {
+            const auto trim = trimDb > 0.0f ? trimDb : juce::jmax (trimDb, -automaticPartDb (manualGainDb, afterIncrementDb));
+            return juce::jlimit (limitGainLowDb, limitGainHighDb, afterIncrementDb + trim);
+        }
+
         // T-097 Q15 A：两个守门再往下退的界 = −max(0, 增量.gain + G_trim)（同 applyLimitExtras 的 automaticTotal 算式，不含退让）。
         float retreatBoundDb() const noexcept
         {
-            // effective 此时已含上一次的执行退让，所以从已施加增量重算（同 applyIncrements：manual + 增量钳在 0 ～ 24）。
+            // effective 此时已含上一次的执行退让，所以从已施加增量重算。
             const auto manualGain = manual.limit.gainDb;
-            const auto afterIncrement = juce::jlimit (0.0f, 24.0f, manualGain + applied.limitGainDb);
+            const auto afterIncrement = gainAfterIncrementDb (manualGain, applied.limitGainDb);
 
             if (! active || ! isFinite (manualGain) || ! isFinite (afterIncrement))
                 return 0.0f;
 
-            const auto autoPart = juce::jmax (0.0f, afterIncrement - manualGain);
-            const auto trim = gTrim > 0.0f ? gTrim : juce::jmax (gTrim, -autoPart);
-            const auto withTrim = juce::jlimit (0.0f, 24.0f, afterIncrement + trim);
-            return -juce::jmax (0.0f, withTrim - manualGain);
+            return -juce::jmax (0.0f, gainWithTrimDb (manualGain, afterIncrement, gTrim) - manualGain);
+        }
+
+        // T-106：此刻已施加的自动增量是不是都已经到了目标方案（容差见常数）。只在 beginBlock 里调（noteExecutedPlan）：那一刻的
+        // applied / gainInDeadband 就是这一个宿主块要执行的设置，targetPlan 是它正在走向的方案。endBlock 不直接调它——一个宿主块
+        // 切成多片时，第 2 片起 applied 与 targetPlan 已经被前面的片推过了。
+        bool planInPlace() const noexcept
+        {
+            if (! haveTarget || ! gainInDeadband)
+                return false;
+
+            const auto within = [] (float appliedValue, float targetValue, float tolerance) noexcept
+            {
+                return isFinite (appliedValue) && isFinite (targetValue) && std::abs (targetValue - appliedValue) <= tolerance;
+            };
+            const auto& target = targetPlan.increments;
+
+            return within (applied.balanceRecover, target.balanceRecover, trimPlanUnitTolerance)
+                && within (applied.balanceTame, target.balanceTame, trimPlanUnitTolerance)
+                && within (applied.colorGlue, target.colorGlue, trimPlanUnitTolerance)
+                && within (applied.colorHeat, target.colorHeat, trimPlanUnitTolerance)
+                && within (applied.limitClip, target.limitClip, trimPlanUnitTolerance)
+                && within (applied.colorToneDb, target.colorToneDb, trimPlanToneToleranceDb);
+        }
+
+        // T-106：beginBlock 末尾调。记下这一个宿主块执行的设置到没到位、到位的那份方案的净增益、执行的 Limit Gain 自动增量
+        // （见成员处的说明）。
+        void noteExecutedPlan() noexcept
+        {
+            executedPlanInPlace = planInPlace();
+            executedPlanGainDb = executedPlanInPlace ? targetPlan.effectiveGainDb : std::numeric_limits<float>::quiet_NaN();
+            executedIncrementGainDb = applied.limitGainDb;
+        }
+
+        // 目标方案作废的地方（读档、prepare、冷启动）一并清：下一次 beginBlock 之前的 endBlock 不当证据。
+        void clearExecutedPlan() noexcept
+        {
+            executedPlanInPlace = false;
+            executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
+            executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
+            // 输入侧的段边界也从头看：下一次看到的段起点和读档前、prepare 前的不是一回事，见到第一个就让出口收一次段
+            // （读档读回的那个开着的段属于存档时的时间轴）。
+            lastInputSegmentStart = notSeenSegmentStart;
+        }
+
+        // T-106：G_trim 的读数折算到的 Limit Gain = 手动 + 这一个宿主块执行的自动增量 + G_trim（钳法同 applyLimitExtras），不含
+        // 守门退让。
+        // 自动增量取 beginBlock 记下的那一份（executedIncrementGainDb）：这一块的音频是照它录的。此刻的 applied.limitGainDb 在这
+        // 一块里可能已经被 slewApplied 推过了——重算把增量的目标挪出死区之后，剩下的片里它每秒走 0.2 ～ 1 dB；拿它折算，读数
+        // 跟着偏，G_trim 就照这个并不存在的偏差积。还没有执行过的块时（读档、prepare 之后）按此刻的 applied 读：那就是下一块
+        // 要执行的。
+        // G_trim 取此刻的值（这一片积过之后的），不取块首的快照：G_trim 每走一步，下一片的读数就要跟着变这一步，积分器才看得到
+        // 自己的动作。手动值或增量不是有限值时返回 NaN，evidenceAt 对它不给读数，这一块不积。
+        float trimReferenceGainDb() const noexcept
+        {
+            const auto manualGain = manual.limit.gainDb;
+            const auto increment = isFinite (executedIncrementGainDb) ? executedIncrementGainDb : applied.limitGainDb;
+            const auto afterIncrement = gainAfterIncrementDb (manualGain, increment);
+
+            if (! isFinite (manualGain) || ! isFinite (afterIncrement))
+                return std::numeric_limits<float>::quiet_NaN();
+
+            return gainWithTrimDb (manualGain, afterIncrement, gTrim);
+        }
+
+        // T-106：G_trim 实际用得上的范围（下界 ≤ 0 ≤ 上界）。负的最多撤掉自动加上去的部分，正的不把 Limit Gain 顶过 24 dB。
+        juce::Range<float> usableTrimRange() const noexcept
+        {
+            const auto manualGain = manual.limit.gainDb;
+            const auto afterIncrement = gainAfterIncrementDb (manualGain, applied.limitGainDb);
+
+            if (! isFinite (manualGain) || ! isFinite (afterIncrement))
+                return { -trimLimitDb, trimLimitDb };
+
+            return { juce::jmax (-trimLimitDb, -automaticPartDb (manualGain, afterIncrement)),
+                     juce::jmin (trimLimitDb, limitGainHighDb - afterIncrement) };
         }
 
         void applyLimitExtras() noexcept
@@ -877,9 +997,7 @@ namespace celadon::glaze
             if (! isFinite (manualGain) || ! isFinite (afterIncrement))
                 return;
 
-            const auto autoPart = juce::jmax (0.0f, afterIncrement - manualGain);
-            const auto trim = gTrim > 0.0f ? gTrim : juce::jmax (gTrim, -autoPart);
-            const auto withTrim = juce::jlimit (0.0f, 24.0f, afterIncrement + trim);
+            const auto withTrim = gainWithTrimDb (manualGain, afterIncrement, gTrim);
             auto relief = budgetOut.reliefDb;
             GuardCause cause = budgetOut.reliefDb < 0.0f ? budgetOut.cause : GuardCause::none;
 
@@ -897,7 +1015,7 @@ namespace celadon::glaze
             juce::ignoreUnused (cause);
             const auto automaticTotal = juce::jmax (0.0f, withTrim - manualGain);
             const auto reliefExecuted = juce::jmin (0.0f, juce::jmax (relief, -automaticTotal));
-            effective.limit.gainDb = juce::jlimit (0.0f, 24.0f, withTrim + reliefExecuted);
+            effective.limit.gainDb = juce::jlimit (limitGainLowDb, limitGainHighDb, withTrim + reliefExecuted);
         }
 
         void publishStatus() noexcept
@@ -974,6 +1092,7 @@ namespace celadon::glaze
         {
             snapAutomatic();
             haveTarget = false;
+            clearExecutedPlan();
             targetPlan = {};
             automaticWeights = {};
             timelineSamples = 0;
@@ -1050,8 +1169,19 @@ namespace celadon::glaze
             const auto timeline = control->getStringAttribute ("timelineSamples").getLargeIntValue();
             const auto nextGrid = control->getStringAttribute ("nextGridSample").getLargeIntValue();
 
+            // T-106（外部第二意见 F3，Max 2026-11-13 定在 T-106 里修）：CONTROL 里的浮点逐项查有限值，G_trim 另查 ±trimLimitDb。
+            // xmlio 按位模式读，NaN / ∞ 也算读到了：改前坏档能让 G_trim 停在 NaN（之后不再积分），或越过 ±3 dB 直接加到限幅器上。
+            // 其余几项只查有限值：它们的范围由下游再夹，0.1.8.10 存的正常值都在里面，查范围反而可能把好档拒掉。
+            const auto controlFinite = std::isfinite (restoredApplied.balanceRecover) && std::isfinite (restoredApplied.balanceTame)
+                                    && std::isfinite (restoredApplied.colorToneDb) && std::isfinite (restoredApplied.colorGlue)
+                                    && std::isfinite (restoredApplied.colorHeat) && std::isfinite (restoredApplied.limitGainDb)
+                                    && std::isfinite (restoredApplied.limitClip) && std::isfinite (restoredWeights.warm)
+                                    && std::isfinite (restoredWeights.punchy) && std::isfinite (restoredWeights.clean)
+                                    && std::isfinite (restoredTone) && std::isfinite (restoredHeat) && std::isfinite (restoredGlue)
+                                    && std::isfinite (restoredTrim) && std::abs (restoredTrim) <= trimLimitDb;
+
             if (! reader.ok || ! control->hasAttribute ("timelineSamples") || ! control->hasAttribute ("nextGridSample")
-                || ! std::isfinite (restoredChange) || restoredChange < 0.0)
+                || ! std::isfinite (restoredChange) || restoredChange < 0.0 || ! controlFinite)
                 return false;
 
             auto restoredScale = pressureScale;
@@ -1070,9 +1200,14 @@ namespace celadon::glaze
             clayReader.field ("phaseActive", restoredGuard.phaseActive);
             clayReader.field ("widthActive", restoredGuard.widthActive);
 
-            if (! clayReader.ok || ! budget.restoreStateXml (*budgetXml) || ! contrast.restoreStateXml (*contrastXml)
+            if (! clayReader.ok || ! std::isfinite (restoredScale) || ! budget.restoreStateXml (*budgetXml) || ! contrast.restoreStateXml (*contrastXml)
                 || ! psr.restoreStateXml (*psrXml) || ! outputLevel.restoreStateXml (*levelXml))
                 return false;
+
+            // T-106：旧存档（OUTPUT_LEVEL 没有折算字段）里的 G_trim 是旧口径积出来的，多半已经停在钳位上；出口电平历史也折算
+            // 不了（OutputLevelTracker 已清空）。两样一起从 0 重新收敛（ADR-035：GLAZE > 0 的旧工程允许变声）。
+            if (outputLevel.restoredLegacyState())
+                restoredTrim = 0.0f;
 
             // T-097 Q15 A：守门读档不采纳存档里的 floorDb（只写给 0.1.8.10）；这里再设一次安全下限，读回的退让也按它夹一次
             // （正常的存档碰不到 −24）。读档在第一次 prepare 之前时，下限也就此从默认的 −3 换成安全下限。
@@ -1098,6 +1233,7 @@ namespace celadon::glaze
             contrastOut = contrast.current();
             psrOut = psr.current();
             haveTarget = false;
+            clearExecutedPlan();
             legacyDiscarded.store (false, std::memory_order_relaxed);
             return true;
         }
@@ -1185,6 +1321,7 @@ namespace celadon::glaze
             timelineSamples = 0;
             nextGridSample = (std::int64_t) std::llround (sampleRate);
             haveTarget = false;
+            clearExecutedPlan();
             snapAutomatic();
             sinkProbe = false;
             externalSink = nullptr;
@@ -1273,6 +1410,8 @@ namespace celadon::glaze
 
             effective.clay = resolveClayParams (manual.claySettings, liveClay, manual.glazePercent);
             applyLimitExtras();
+            // T-106：effective 是照此刻的 applied 拼出来的，这一个宿主块的各片都执行它。到没到位在这里定一次，各片的 endBlock 沿用。
+            noteExecutedPlan();
             return effective;
         }
 
@@ -1368,20 +1507,51 @@ namespace celadon::glaze
             float loudness = 0.0f, lowShare = 0.0f;
             const auto reading = analyzer.getSegmentLedger().getCurrentReading (loudness, lowShare);
 
+            const auto measured = reading == SegmentLedger::Reading::measured && live != nullptr;
+
+            // T-106（外部第二意见 F1）：输入侧开了新的一段，出口这边也收段——两侧用同一组段边界（规格第 4 节第 3 条）。不收的话，
+            // 连着两段都算主段时它们被并进出口的同一段，段里记的输入读数是两段的平均，回看重判时分不开。
+            // 不连续点（循环回绕、跳播、宿主 reset）也只靠这一处：分析器在那里断开实时段落账，下一块从新的表时刻开段
+            // （MusicAnalyzer.cpp beginDiscontinuity → liveEndEpoch；链的 reset 不清表，表时刻只往前走），段起点必变。
+            // 起点从「没有开着的段」（−1，实时模式关着时）变过来也收：那段空档里的出口样本不并进输入侧的新段。
+            // notSeenSegmentStart = 读档、prepare、冷启动之后还没看过（和任何起点都不等，头一块必收：空段收了不留痕迹，
+            // 读回来的那一段收进账，最多把一段在读档处切成两截）。
+            const auto inputSegmentStart = analyzer.getSegmentLedger().getCurrentSegmentStart();
+
+            if (inputSegmentStart != lastInputSegmentStart)
+            {
+                outputLevel.closeSegment();
+                lastInputSegmentStart = inputSegmentStart;
+            }
+
             if (reading == SegmentLedger::Reading::quiet)
                 currentMainness = 0.0f;
-            else if (reading == SegmentLedger::Reading::measured && live != nullptr)
+            else if (measured)
                 currentMainness = live->mainnessFor (true, loudness, true, lowShare);
             else
                 currentMainness = 1.0f;
 
-            outputLevel.noteMainness (currentMainness);
+            // T-106：方案还没到位的块不当 G_trim 的证据——交 m′ = 0，这一片不进出口历史，G_trim 也不积分（它只在出口跟踪器
+            // 正开着主段时积）。到没到位用 beginBlock 记下的那一份（executedPlanInPlace）：这一片的音频执行的是块首的设置，
+            // 而一个宿主块切成多片时，此刻的 applied / targetPlan 已经被前面的片推过了。
+            // 连同算出 m′ 的那份读数一起交，出口历史里已收的段之后按此刻的参考回看重判（同输入侧实时画像）。
+            outputLevel.noteMainness (executedPlanInPlace ? currentMainness : 0.0f, measured, loudness, lowShare);
+
+            if (live != nullptr)
+                outputLevel.rejudge ([this] (float segmentLufs, float segmentLowShare) noexcept
+                                     { return live->mainnessFor (true, segmentLufs, true, segmentLowShare); });
 
             // 宿主旁通、听原声、Color / Limit 旁通时出口不是方案在听的信号。半格时隙留着会让链按 1 个样本切片。
             const auto guardFrozen = paused || manual.color.bypass || manual.limit.bypass;
 
+            // T-106：连同这一个宿主块交给限幅器的 Limit Gain 一起记（effective 是 beginBlock 交给链的那一份，各片相同）。
+            // 已知近似：这是限幅器的目标值，它自己另有 20 ms 平滑（LimiterModule gainSmoothed），出口还晚一个前瞻延迟；增益在变的
+            // 那几十毫秒按目标值折算会差一点（到位的块上增益只随 G_trim ≤ 0.05 dB/s、守门 ≤ 0.1 dB/s 动，差 ≤ 0.002 dB；
+            // 手动 Gain 跳 6 dB 时那 20 ms 在 8 s 的段里差 ≤ 0.02 dB）。同「入口比出口早一个链延迟」一样不对齐。
             if (output != nullptr && ! guardFrozen)
-                outputLevel.processOutput (*output);
+                outputLevel.processOutput (*output, effective.limit.gainDb);
+            else
+                outputLevel.discardInput();   // 这一片的出口不进账：analyzeInput 交来的入口能量一并作废
 
             if (live != nullptr)
             {
@@ -1439,12 +1609,38 @@ namespace celadon::glaze
                 secondsSinceChange = juce::jmin (changeFreezeSeconds, secondsSinceChange + dt);
                 probe.trimFrozen = guardHolding || recentlyChanged;
 
-                if (! guardFrozen && ! targetPlan.automaticLevelWithdrawn && ! guardHolding && ! recentlyChanged && outputLevel.mainLevelValid()
-                    && haveTarget && isFinite (targetPlan.effectiveTargetLufs))
+                // T-106（ADR-038）换误差口径：误差 = 方案净增益 − 实测净增益。实测净增益 = 出口主段电平 − 入口主段电平，两侧是
+                // 出口电平跟踪器里的同一批段、同样的权重（OutputLevelTracker::evidenceAt）；出口那一侧折算到「不含守门退让」
+                // 的 Limit Gain（trimReferenceGainDb）。改前是「方案目标响度 − 实录的出口主段电平」，两处不对：
+                //   一、历史各段是在当时的增益下录的，G_trim 自己把增益改了以后旧段不会跟着变：积分器看不到自己的动作，一路积到
+                //       钳位，等新段替换旧段读数反过来、再往另一头滑（T-097 报告第 4.1 节：+3.00 → −3.00）。折算后 G_trim 走 δ、
+                //       读数当块就变 δ。
+                //   二、方案目标响度 = 画像的输入响度 I + 方案净增益，I 是画像自己那套窗口算的，和出口历史不是同一批段
+                //       （其余曲风的 I 还是全部有效音频的门控积分，不是主段）。两边的差不是链的偏差，G_trim 不该去追。
+                //       同一批段上「目标 − 出口」就是「方案净增益 − (出口 − 入口)」，规格第 4 节第 3 条的式子在两侧对齐时的写法。
+                // 另五条：读数只收回看重判后此刻仍算主段的段（本函数开头的 rejudge）；只收方案到位时录的片，没到位的也不积
+                // （executedPlanInPlace：还没施加的那部分方案不是偏差）；录制增益离参考增益远的段降权、加权后不足 3 s 不积
+                // （常数见 Impl 开头）；只在这一片的出口交给了跟踪器（没冻结）、且它正开着的段是主段时才积——前奏、breakdown、
+                // 方案没到位的片交的 m′ < 0.5，开着的不是主段，G_trim 保持；积分状态不再往用不上的一侧多走（usableTrimRange），
+                // 已经在外面的不往回拽。
+                // 方案净增益用块首记下的那一份（executedPlanGainDb）：这一片的音频执行的是它、历史里到位的片也是照它到位的。这一片
+                // 刚重算出来的 targetPlan 要到下一个宿主块才执行，到没到位那时再按它判。
+                const auto mainNow = output != nullptr && outputLevel.openSegmentIsMain();
+
+                if (! guardFrozen && ! targetPlan.automaticLevelWithdrawn && ! guardHolding && ! recentlyChanged && mainNow
+                    && isFinite (executedPlanGainDb))
                 {
-                    const auto error = targetPlan.effectiveTargetLufs - outputLevel.mainLevelLufs();
-                    const auto step = trimDbPerSecond * (float) dt;
-                    gTrim = juce::jlimit (-trimLimitDb, trimLimitDb, gTrim + juce::jlimit (-step, step, error * (float) dt));
+                    const auto evidence = outputLevel.evidenceAt (trimReferenceGainDb(), trimEvidenceFullDb, trimEvidenceZeroDb);
+
+                    if (evidence.seconds >= trimEvidenceMinimumSeconds && evidence.valid())
+                    {
+                        const auto error = executedPlanGainDb - evidence.netGainDb();
+                        const auto step = trimDbPerSecond * (float) dt;
+                        const auto usable = usableTrimRange();
+                        const auto next = juce::jlimit (-trimLimitDb, trimLimitDb, gTrim + juce::jlimit (-step, step, error * (float) dt));
+                        gTrim = next < gTrim ? juce::jmax (next, juce::jmin (gTrim, usable.getStart()))
+                                             : juce::jmin (next, juce::jmax (gTrim, usable.getEnd()));
+                    }
                 }
 
                 updateFollowers (numSamples);
@@ -1632,6 +1828,17 @@ namespace celadon::glaze
             copy.secondsSinceParamChange = secondsSinceChange;
             copy.contrastFloorDb = contrast.getFloorDb();
             copy.psrFloorDb = psr.getFloorDb();
+            // T-106：G_trim 此刻会读到的量（读探针时现算，音频线程上不多做事）。
+            const auto evidence = outputLevel.evidenceAt (trimReferenceGainDb(), trimEvidenceFullDb, trimEvidenceZeroDb);
+            copy.trimLevelLufs = evidence.levelLufs;
+            copy.trimInputLufs = evidence.inputLufs;
+            copy.trimEvidenceSeconds = evidence.seconds;
+            copy.trimMainSeconds = (double) outputLevel.mainSamples() / sampleRate;
+            copy.trimMainNow = outputLevel.openSegmentIsMain();
+            copy.trimPlanInPlace = executedPlanInPlace;
+            copy.trimPlanGainDb = executedPlanGainDb;
+            copy.haveTargetPlan = haveTarget;
+            copy.gainInDeadband = gainInDeadband;
             return copy;
         }
     };
@@ -1668,7 +1875,11 @@ namespace celadon::glaze
     void GlazeController::analyzeInput (const juce::AudioBuffer<float>& input, const LoudnessMeter& inputMeter) noexcept
     {
         if (impl->prepared)
+        {
             impl->analyzer.processInput (input, inputMeter);
+            // T-106：G_trim 的入口一侧。同一片的 endBlock 把它和出口样本记进同一段（OutputLevelTracker::processOutput）。
+            impl->outputLevel.processInput (input);
+        }
     }
     void GlazeController::analyzeSpectrum (const BalanceModule& balance) noexcept
     {
