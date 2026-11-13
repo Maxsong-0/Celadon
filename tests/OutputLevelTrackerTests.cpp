@@ -12,16 +12,20 @@
          中间宿主 reset 了）；哪一侧有非有限样本的片不配对。
       4. 回看重判：只有此刻仍算主段的段进读数；没有读数（或读数不能用）的段保持当时的判定；可逆；判定函数收到的是段内平均；
          正开着的段不归它管。
-      5. 存读档：存 → 读 → 再存逐属性相同、读数逐位相同；0.1.8.10 就有的八个属性原样还在、整块数组的字节数不变。
-      6. 旧存档（没有 T-106 的八个属性）读成空历史并打上标记；新格式里属性不全、三个样本数不是严格的十进制、段本身或每段另记的
-         量有一项不合规矩的整节拒收，拒收时状态不动；正好在界上的收下。
+      5. 存读档：存 → 读 → 再存逐属性相同、读数逐位相同；0.1.8.10 就有的八个属性还在、closed 仍是 32 × 24 字节，全部的段在
+         history / historyExtra 里。
+      6. 旧存档（没有 T-106 的十个属性）读成空历史并打上标记；新格式里属性不全、三个样本数不是严格的十进制、historyCount 越界或
+         和 history 的长度对不上、段本身或每段另记的量有一项不合规矩的整节拒收，拒收时状态不动；正好在界上的收下。新格式里
+         closed 的内容不用（只验长度）。
       7. 主段门：只有 m′ ≥ 0.5 的段进账；主段 → 非主段 → 主段，中间那一截两侧都不留痕迹，新开的段从零记起。
       8. 没有出口能量的段（数字静音）不当证据，也不占证据时长。
       9. 折算用限幅器实际执行的 Limit Gain（钳进 0 ～ 24 dB、非有限值按 0 dB），拿真的 LimiterModule 逐位核对这条规矩。
      10. 存档带采样率：读回时采样率和此刻不同，段历史清空（不打旧存档标记）；采样率不是有限的正数整节拒收。
      11. 折回 0 dB 的出口电平本身 ≤ −100 LUFS 不算读数（不让「−100 + 增益」冒充有效值）；两个加权门槛的防护（全算门槛钳到 ≥ 0）。
-     12. 环回绕：已收的主段超过 32 段时只留最近的 32 段，每段另记的量、重判都跟着自己的段；回绕之后存读档逐位一致，读回的环接着
-         从对的格子写。
+     12. 环回绕：已收的主段超过 128 段时只留最近的 128 段，每段另记的量、重判都跟着自己的段；回绕之后存读档逐位一致，读回的环
+         接着从对的格子写。
+     13. 给 0.1.8.10 的那一份：closed / closedCount / closedWrite 是最新的至多 32 段，按 0.1.8.10 的读法（从 closedWrite 往前数
+         closedCount 段）读到的正是它们；不满 32 段、正好 32 段、超过 32 段、环回绕之后都对。
     跟踪器接进编排器之后的行为（G_trim 环路、读 0.1.8.10 存的整份 LIVE）见 GlazeControllerTests.cpp 的 GlazeControllerTrimLoop
     与 GlazeControllerGuardFamily 第 5 条。
 
@@ -71,6 +75,7 @@ namespace celadon::test
                 testSampleRateInState();
                 testReadingFloorAtUnity();
                 testRingWrapsAround();
+                testLegacyCopyForTheOldVersion();
             }
 
         private:
@@ -85,15 +90,20 @@ namespace celadon::test
             static constexpr double secondsTolerance = 1.0e-6;
             static constexpr float levelToleranceDb = 2.0e-3f;
 
-            // T-106 的八个属性（每段另记的量七个 + 存档时的采样率）与 0.1.8.10 就有的八个（OutputLevelTracker.cpp createStateXml）。
+            // T-106 的十个属性（开着的一段另记的量六个、存档时的采样率、全部已收的段三个）与 0.1.8.10 就有的八个
+            // （OutputLevelTracker.cpp createStateXml）。
             static constexpr const char* extraAttributes[] = { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum",
-                                                               "openInputSamples", "openPairedSamples", "closedExtra", "sampleRate" };
+                                                               "openInputSamples", "openPairedSamples", "sampleRate",
+                                                               "historyCount", "history", "historyExtra" };
             static constexpr const char* legacyAttributes[] = { "openEnergy", "openMainness", "closedCount", "closedWrite", "haveOpenMainness",
                                                                 "openWasMain", "openSamples", "closed" };
-            // 存档里两个整块数组的字节数：32 段 ×（Segment 24 字节 = double + int64 + float 补齐到 8；Extra 48 字节 = 4 个 double + 2 个 int64）。
-            // 0.1.8.10 按 768 字节读 closed；这两个数变了就是存档格式变了。
-            static constexpr size_t closedBytes = 32 * 24;
-            static constexpr size_t closedExtraBytes = 32 * 48;
+            // 一段在存档里的字节数：Segment 24 字节（double + int64 + float 补齐到 8），Extra 48 字节（4 个 double + 2 个 int64）。
+            // closed 固定 32 段（0.1.8.10 按 768 字节读）；history / historyExtra 是 historyCount 段。这几个数变了就是存档格式变了。
+            static constexpr size_t segmentBytes = 24;
+            static constexpr size_t extraBytes = 48;
+            static constexpr int legacySegments = 32;
+            static constexpr size_t closedBytes = legacySegments * segmentBytes;
+            static constexpr int ringCapacity = 128;   // OutputLevelTracker.h closedCapacity
             // 读档时一段样本数的上界（OutputLevelTracker.cpp stateMaximumSegmentSamples）：一段最长 8 s × 采样率上界 768 kHz。
             static constexpr std::int64_t maximumSegmentSamples = 8 * 768000;
 
@@ -584,11 +594,12 @@ namespace celadon::test
                 return same;
             }
 
-            // 5. 依据：OutputLevelTracker.h「段累计进 LIVE」「T-106 的量另写八个属性，上面那些原样不动，0.1.8.10 照旧读得了这一节」
-            //    「读回后各段先按当时的判定，下一次 rejudge() 起按此刻的参考」。
+            // 5. 依据：OutputLevelTracker.h「段累计进 LIVE」「0.1.8.10 就有的八个属性照它的格式写……T-106 另写十个属性，其中
+            //    historyCount / history / historyExtra 是全部已收的段」「读回后各段先按当时的判定，下一次 rejudge() 起按此刻的参考」。
             //    断言：存 → 读进另一个跟踪器 → 再存，两份 XML 逐属性相同；读数（五个参考增益下的证据、主段样本数）逐位相同；
-            //    十六个属性都在，两个整块数组的字节数是 768 / 1536；供体重判掉一段之后存的档，读回先按当时的判定（那一段还在），
-            //    做同样的重判后与供体一致。读回后接着喂，两边仍逐位一致（滤波器状态不存：两边都先清滤波器）。
+            //    十八个属性都在，closed 是 768 字节，historyCount 是 3、history / historyExtra 是 3 × 24 / 3 × 48 字节；供体重判掉一段
+            //    之后存的档，读回先按当时的判定（那一段还在），做同样的重判后与供体一致。读回后接着喂，两边仍逐位一致（滤波器状态
+            //    不存：两边都先清滤波器）。
             void testStateRoundTrip()
             {
                 beginTest ("state: create -> restore -> create is attribute-identical; readings are bit-identical; the eight 0.1.8.10 attributes are still written");
@@ -606,7 +617,7 @@ namespace celadon::test
                 if (saved == nullptr)
                     return;
 
-                auto allPresent = saved->getNumAttributes() == 16;
+                auto allPresent = saved->getNumAttributes() == 18;
 
                 for (const auto* attribute : legacyAttributes)
                     allPresent = allPresent && saved->hasAttribute (attribute);
@@ -614,15 +625,19 @@ namespace celadon::test
                 for (const auto* attribute : extraAttributes)
                     allPresent = allPresent && saved->hasAttribute (attribute);
 
-                expect (allPresent, "the node has the eight 0.1.8.10 attributes and the eight T-106 attributes, nothing else");
+                expect (allPresent, "the node has the eight 0.1.8.10 attributes and the ten T-106 attributes, nothing else");
 
-                juce::MemoryOutputStream closedData, extraData;
+                juce::MemoryOutputStream closedData, historyData, historyExtraData;
                 const auto closedDecoded = juce::Base64::convertFromBase64 (closedData, saved->getStringAttribute ("closed"));
-                const auto extraDecoded = juce::Base64::convertFromBase64 (extraData, saved->getStringAttribute ("closedExtra"));
+                const auto historyDecoded = juce::Base64::convertFromBase64 (historyData, saved->getStringAttribute ("history"));
+                const auto historyExtraDecoded = juce::Base64::convertFromBase64 (historyExtraData, saved->getStringAttribute ("historyExtra"));
                 expect (closedDecoded && closedData.getDataSize() == closedBytes,
                         "closed is still 32 segments x 24 bytes (what 0.1.8.10 reads): " + juce::String ((int) closedData.getDataSize()));
-                expect (extraDecoded && extraData.getDataSize() == closedExtraBytes,
-                        "closedExtra is 32 x 48 bytes: " + juce::String ((int) extraData.getDataSize()));
+                expect (saved->getStringAttribute ("historyCount") == "3", "historyCount is the three closed segments: " + saved->getStringAttribute ("historyCount"));
+                expect (historyDecoded && historyData.getDataSize() == 3 * segmentBytes,
+                        "history is 3 x 24 bytes: " + juce::String ((int) historyData.getDataSize()));
+                expect (historyExtraDecoded && historyExtraData.getDataSize() == 3 * extraBytes,
+                        "historyExtra is 3 x 48 bytes: " + juce::String ((int) historyExtraData.getDataSize()));
 
                 Tracker restored;
                 restored.prepare (rate);
@@ -659,7 +674,7 @@ namespace celadon::test
             }
 
             // 6. 依据：OutputLevelTracker.h「没有 T-106 字段的旧存档：旧字段照常校验，然后段累计清空、restoredLegacyState() 置 true」
-            //    「T-106 字段在但不全或坏了：整节拒收，同别的字段」。拒收时状态一点不动。
+            //    「T-106 字段在但不全或坏了：整节拒收，同别的字段」「新格式……closed 只验长度，内容不用」。拒收时状态一点不动。
             void testLegacyAndBrokenState()
             {
                 beginTest ("state: a node without the T-106 attributes restores as an empty history (legacy); a partial or broken set is rejected and changes nothing");
@@ -680,7 +695,7 @@ namespace celadon::test
                     feed (target, 5 * blocksPerSecond, 7000, linearChain (3.0f));
                 };
 
-                // ---- 旧形状：八个属性都没有 ----
+                // ---- 旧形状：十个属性都没有 ----
                 {
                     juce::XmlElement legacy (*saved);
 
@@ -701,7 +716,7 @@ namespace celadon::test
                     const auto upgraded = target.createStateXml();
                     Tracker next;
                     next.prepare (rate);
-                    expect (upgraded != nullptr && upgraded->getNumAttributes() == 16 && next.restoreStateXml (*upgraded) && ! next.restoredLegacyState(),
+                    expect (upgraded != nullptr && upgraded->getNumAttributes() == 18 && next.restoreStateXml (*upgraded) && ! next.restoredLegacyState(),
                             "legacy node: saved again it is in the new shape and no longer legacy");
 
                     // 旧字段坏了的旧档照旧拒收（closedCount 写成 99：环只有 32 段；整数字段是十进制）。
@@ -744,32 +759,71 @@ namespace celadon::test
                     expectRejected (wrongTag, "wrong tag");
                 }
 
+                for (const auto* attribute : { "history", "historyExtra" })
                 {
                     juce::XmlElement truncated (*saved);
-                    truncated.setAttribute ("closedExtra", juce::Base64::toBase64 ("short", (size_t) 5));
-                    expectRejected (truncated, "closedExtra of the wrong size");
+                    truncated.setAttribute (attribute, juce::Base64::toBase64 ("short", (size_t) 5));
+                    expectRejected (truncated, juce::String (attribute) + " of the wrong size");
+                }
+
+                // historyCount：越界（环只有 128 格）、不是十进制整数、和 history / historyExtra 的长度（3 段）对不上，都拒收。
+                for (const auto* text : { "-1", "129", "2", "4", "", "3x", "3.0" })
+                {
+                    juce::XmlElement node (*saved);
+                    node.setAttribute ("historyCount", text);
+                    expectRejected (node, "historyCount written as \"" + juce::String (text) + "\"");
+                }
+
+                {
+                    // 129 段、长度也对得上（第 0 段重复 129 次）：只有「historyCount ≤ 128」这一道拦，它也是读档时往 128 格的数组里拷之前
+                    // 那道防越界的门。
+                    juce::MemoryOutputStream firstSegment, firstExtra;
+                    juce::Base64::convertFromBase64 (firstSegment, saved->getStringAttribute ("history"));
+                    juce::Base64::convertFromBase64 (firstExtra, saved->getStringAttribute ("historyExtra"));
+                    juce::MemoryBlock segments, extras;
+
+                    for (int i = 0; i < ringCapacity + 1; ++i)
+                    {
+                        segments.append (firstSegment.getData(), segmentBytes);
+                        extras.append (firstExtra.getData(), extraBytes);
+                    }
+
+                    juce::XmlElement node (*saved);
+                    node.setAttribute ("historyCount", ringCapacity + 1);
+                    node.setAttribute ("history", juce::Base64::toBase64 (segments.getData(), segments.getSize()));
+                    node.setAttribute ("historyExtra", juce::Base64::toBase64 (extras.getData(), extras.getSize()));
+                    expectRejected (node, "129 segments in history (lengths consistent)");
                 }
 
                 // ---- 每段另记的六个量逐项验（OutputLevelTracker.cpp validExtra）----
-                // 开着的那一段（1 s = 48000 个样本）的量是六个属性；已收的段在 closedExtra 整块里，每段 48 字节：四个 double（折回 0 dB 的
+                // 开着的那一段（1 s = 48000 个样本）的量是六个属性；已收的段在 historyExtra 里，每段 48 字节：四个 double（折回 0 dB 的
                 // 出口能量、入口能量、段响度读数之和、低频占比读数之和），再两个 int64（有读数的样本数、配上入口的样本数）。
-                // 这里改第 0 段（fillForState 里最先收的那一段，2 s = 96000 个样本），它从字节 0 起。
+                // 这里改第 0 段（history 从旧到新排，第 0 段是 fillForState 里最先收的那一段，2 s = 96000 个样本），它从字节 0 起。
                 // 规矩：两个能量与低频占比之和不能为负；四个 double 都要是有限值（段响度之和可以为负，LUFS 本来就是负的）；
                 // 两个样本数在 0 ～ 该段样本数之间。合法的一侧由上一条的往返覆盖：存下来的状态里这些量都有值（两个样本数正好等于
-                // 段样本数），没用到的 29 段全是 0。
-                juce::MemoryOutputStream decodedExtra;
-                const auto extraDecoded = juce::Base64::convertFromBase64 (decodedExtra, saved->getStringAttribute ("closedExtra"));
-                expect (extraDecoded && decodedExtra.getDataSize() == closedExtraBytes, "fixture: closedExtra decodes to 32 x 48 bytes");
+                // 段样本数）。
+                juce::MemoryOutputStream decodedHistory, decodedHistoryExtra;
+                const auto historyDecoded = juce::Base64::convertFromBase64 (decodedHistory, saved->getStringAttribute ("history"));
+                const auto historyExtraDecoded = juce::Base64::convertFromBase64 (decodedHistoryExtra, saved->getStringAttribute ("historyExtra"));
+                const auto historyShaped = historyDecoded && decodedHistory.getDataSize() == 3 * segmentBytes && historyExtraDecoded
+                                        && decodedHistoryExtra.getDataSize() == 3 * extraBytes;
+                expect (historyShaped, "fixture: history and historyExtra decode to 3 x 24 and 3 x 48 bytes");
 
-                if (! extraDecoded || decodedExtra.getDataSize() != closedExtraBytes)
+                if (! historyShaped)
                     return;
 
-                const auto withClosedExtra = [&] (size_t offset, const void* value, size_t size)
+                // base 的 attribute（Base64）解开、从 offset 起改 size 个字节、再编回去，返回改过的副本；可以接着改上一次改出来的副本。
+                const auto withBytes = [] (const juce::XmlElement& base, const char* attribute, size_t offset, const void* value, size_t size)
                 {
-                    juce::MemoryBlock bytes (decodedExtra.getData(), decodedExtra.getDataSize());
-                    std::memcpy (static_cast<char*> (bytes.getData()) + offset, value, size);
-                    juce::XmlElement node (*saved);
-                    node.setAttribute ("closedExtra", juce::Base64::toBase64 (bytes.getData(), bytes.getSize()));
+                    juce::MemoryOutputStream decoded;
+                    juce::Base64::convertFromBase64 (decoded, base.getStringAttribute (attribute));
+                    juce::MemoryBlock bytes (decoded.getData(), decoded.getDataSize());
+
+                    if (offset + size <= bytes.getSize())
+                        std::memcpy (static_cast<char*> (bytes.getData()) + offset, value, size);
+
+                    juce::XmlElement node (base);
+                    node.setAttribute (attribute, juce::Base64::toBase64 (bytes.getData(), bytes.getSize()));
                     return node;
                 };
 
@@ -779,7 +833,7 @@ namespace celadon::test
                 struct BadDouble
                 {
                     const char* attribute;   // 开着的段：属性名
-                    size_t closedOffset;     // 已收的第 0 段：这个量在 closedExtra 里的字节位置
+                    size_t historyOffset;    // history 第 0 段：这个量在 historyExtra 里的字节位置
                     double value;
                     const char* what;
                 };
@@ -795,29 +849,31 @@ namespace celadon::test
                     juce::XmlElement openNode (*saved);
                     glaze::xmlio::Writer (openNode).field (bad.attribute, bad.value);
                     expectRejected (openNode, juce::String (bad.what) + " " + bad.attribute);
-                    expectRejected (withClosedExtra (bad.closedOffset, &bad.value, sizeof (bad.value)),
-                                    juce::String (bad.what) + " double at byte " + juce::String ((int) bad.closedOffset) + " of closedExtra");
+                    expectRejected (withBytes (*saved, "historyExtra", bad.historyOffset, &bad.value, sizeof (bad.value)),
+                                    juce::String (bad.what) + " double at byte " + juce::String ((int) bad.historyOffset) + " of historyExtra");
                 }
+
+                constexpr size_t inputSamplesAt = 32, pairedSamplesAt = 40;
 
                 struct BadCount
                 {
                     const char* attribute;
-                    size_t closedOffset;
-                    std::int64_t openValue;     // 开着的段有 48000 个样本
-                    std::int64_t closedValue;   // 第 0 段有 96000 个样本
+                    size_t historyOffset;
+                    std::int64_t openValue;      // 开着的段有 48000 个样本
+                    std::int64_t historyValue;   // history 第 0 段有 96000 个样本
                     const char* what;
                 };
 
-                for (const auto& bad : { BadCount { "openInputSamples", 32, -1, -1, "negative" },
-                                         BadCount { "openInputSamples", 32, 48001, 96001, "more than the segment's samples:" },
-                                         BadCount { "openPairedSamples", 40, -1, -1, "negative" },
-                                         BadCount { "openPairedSamples", 40, 48001, 96001, "more than the segment's samples:" } })
+                for (const auto& bad : { BadCount { "openInputSamples", inputSamplesAt, -1, -1, "negative" },
+                                         BadCount { "openInputSamples", inputSamplesAt, 48001, 96001, "more than the segment's samples:" },
+                                         BadCount { "openPairedSamples", pairedSamplesAt, -1, -1, "negative" },
+                                         BadCount { "openPairedSamples", pairedSamplesAt, 48001, 96001, "more than the segment's samples:" } })
                 {
                     juce::XmlElement openNode (*saved);
                     openNode.setAttribute (bad.attribute, juce::String (bad.openValue));
                     expectRejected (openNode, juce::String (bad.what) + " " + bad.attribute);
-                    expectRejected (withClosedExtra (bad.closedOffset, &bad.closedValue, sizeof (bad.closedValue)),
-                                    juce::String (bad.what) + " count at byte " + juce::String ((int) bad.closedOffset) + " of closedExtra");
+                    expectRejected (withBytes (*saved, "historyExtra", bad.historyOffset, &bad.historyValue, sizeof (bad.historyValue)),
+                                    juce::String (bad.what) + " count at byte " + juce::String ((int) bad.historyOffset) + " of historyExtra");
                 }
 
                 // 存档时的采样率（外部第二意见 F5）：不是有限的正数整节拒收。合法、但和此刻不同的见第 10 条。
@@ -829,26 +885,10 @@ namespace celadon::test
                 }
 
                 // ---- 新格式里段本身也验（OutputLevelTracker.cpp validSegment）、三个样本数严格按十进制读（parseCount）----
-                // closed 整块里每段 24 字节：double 能量（+0）、int64 样本数（+8）、float 主段度（+16）。第 0 段 = fillForState 最先收的
-                // 那一段（96000 个样本）；第 5 段没用到、全是 0，它另记的量也都是 0——样本数写成负的，别的检查（另记的样本数不超过
-                // 段样本数）拦不住，只有段本身这一道拦。
+                // history 里每段 24 字节：double 能量（+0）、int64 样本数（+8）、float 主段度（+16）。第 0 段 = fillForState 最先收的
+                // 那一段（96000 个样本）。样本数写成负的时，「另记的样本数不超过段样本数」那一道也会拦，所以先把它另记的两个样本数
+                // 改成 0（这样的段本身合法，收下），再改样本数：只剩段本身这一道拦。
                 // 规矩：能量有限且非负；样本数在 0 ～ 8 s × 768 kHz（6144000）；主段度有限。正好在界上的收下。
-                juce::MemoryOutputStream decodedClosed;
-                const auto closedDecoded = juce::Base64::convertFromBase64 (decodedClosed, saved->getStringAttribute ("closed"));
-                expect (closedDecoded && decodedClosed.getDataSize() == closedBytes, "fixture: closed decodes to 32 x 24 bytes");
-
-                if (! closedDecoded || decodedClosed.getDataSize() != closedBytes)
-                    return;
-
-                const auto withClosed = [&] (size_t offset, const void* value, size_t size)
-                {
-                    juce::MemoryBlock bytes (decodedClosed.getData(), decodedClosed.getDataSize());
-                    std::memcpy (static_cast<char*> (bytes.getData()) + offset, value, size);
-                    juce::XmlElement node (*saved);
-                    node.setAttribute ("closed", juce::Base64::toBase64 (bytes.getData(), bytes.getSize()));
-                    return node;
-                };
-
                 const auto expectAccepted = [&] (const juce::XmlElement& node, const juce::String& what)
                 {
                     Tracker target;
@@ -856,10 +896,10 @@ namespace celadon::test
                     expect (target.restoreStateXml (node) && ! target.restoredLegacyState(), what + ": accepted");
                 };
 
-                constexpr size_t segmentBytes = 24, energyAt = 0, samplesAt = 8, mainnessAt = 16;
-                constexpr size_t unusedSegment = 5;
+                constexpr size_t energyAt = 0, samplesAt = 8, mainnessAt = 16;
 
                 {
+                    // closed（给 0.1.8.10 的那一份）这一版不读内容，长度照旧验。
                     juce::XmlElement truncated (*saved);
                     truncated.setAttribute ("closed", juce::Base64::toBase64 ("short", (size_t) 5));
                     expectRejected (truncated, "closed of the wrong size");
@@ -870,7 +910,7 @@ namespace celadon::test
 
                 for (const auto& bad : { BadEnergy { -1.0, "negative" }, BadEnergy { notANumber, "NaN" }, BadEnergy { infinity, "infinite" } })
                 {
-                    expectRejected (withClosed (energyAt, &bad.value, sizeof (bad.value)), juce::String (bad.what) + " energy in closed segment 0");
+                    expectRejected (withBytes (*saved, "history", energyAt, &bad.value, sizeof (bad.value)), juce::String (bad.what) + " energy in history segment 0");
                     juce::XmlElement openNode (*saved);
                     glaze::xmlio::Writer (openNode).field ("openEnergy", bad.value);
                     expectRejected (openNode, juce::String (bad.what) + " openEnergy");
@@ -879,24 +919,38 @@ namespace celadon::test
                 for (const auto& bad : { BadMainness { std::numeric_limits<float>::quiet_NaN(), "NaN" },
                                          BadMainness { std::numeric_limits<float>::infinity(), "infinite" } })
                 {
-                    expectRejected (withClosed (mainnessAt, &bad.value, sizeof (bad.value)), juce::String (bad.what) + " mainness in closed segment 0");
+                    expectRejected (withBytes (*saved, "history", mainnessAt, &bad.value, sizeof (bad.value)), juce::String (bad.what) + " mainness in history segment 0");
                     juce::XmlElement openNode (*saved);
                     glaze::xmlio::Writer (openNode).field ("openMainness", bad.value);
                     expectRejected (openNode, juce::String (bad.what) + " openMainness");
                 }
 
                 {
-                    const std::int64_t negative = -1, atLimit = maximumSegmentSamples, pastLimit = maximumSegmentSamples + 1;
-                    expectRejected (withClosed (unusedSegment * segmentBytes + samplesAt, &negative, sizeof (negative)),
-                                    "negative sample count in an otherwise empty closed segment");
-                    expectRejected (withClosed (samplesAt, &pastLimit, sizeof (pastLimit)), "closed segment 0 with more samples than 8 s at 768 kHz");
-                    expectAccepted (withClosed (samplesAt, &atLimit, sizeof (atLimit)), "closed segment 0 with exactly 8 s at 768 kHz of samples");
+                    const std::int64_t zero = 0, negative = -1, atLimit = maximumSegmentSamples, pastLimit = maximumSegmentSamples + 1;
+                    const auto extrasZeroed = withBytes (withBytes (*saved, "historyExtra", inputSamplesAt, &zero, sizeof (zero)),
+                                                         "historyExtra", pairedSamplesAt, &zero, sizeof (zero));
+                    expectAccepted (extrasZeroed, "fixture: history segment 0 with its two extra sample counts at 0");
+                    expectRejected (withBytes (extrasZeroed, "history", samplesAt, &negative, sizeof (negative)),
+                                    "negative sample count in history segment 0 (its extra counts at 0)");
+                    expectRejected (withBytes (*saved, "history", samplesAt, &pastLimit, sizeof (pastLimit)), "history segment 0 with more samples than 8 s at 768 kHz");
+                    expectAccepted (withBytes (*saved, "history", samplesAt, &atLimit, sizeof (atLimit)), "history segment 0 with exactly 8 s at 768 kHz of samples");
 
                     juce::XmlElement openPast (*saved), openAtLimit (*saved);
                     openPast.setAttribute ("openSamples", juce::String (pastLimit));
                     openAtLimit.setAttribute ("openSamples", juce::String (atLimit));
                     expectRejected (openPast, "openSamples past 8 s at 768 kHz");
                     expectAccepted (openAtLimit, "openSamples of exactly 8 s at 768 kHz");
+                }
+
+                {
+                    // 新格式里 closed 的内容不用：第 0 段的能量改成 NaN 照样收下，读数同没改的（已收的段只从 history 读）。
+                    const auto closedBroken = withBytes (*saved, "closed", energyAt, &notANumber, sizeof (notANumber));
+                    Tracker clean, edited;
+                    clean.prepare (rate);
+                    edited.prepare (rate);
+                    expect (clean.restoreStateXml (*saved) && edited.restoreStateXml (closedBroken),
+                            "a NaN energy in closed (0.1.8.10's copy) is accepted in the new format");
+                    expect (sameReadings (clean, edited), "... and changes no reading: the closed segments come from history");
                 }
 
                 // 三个样本数：空、不是数字、数字后面带别的、前面带空格或正负号、小数——都拒收。juce 的 getLargeIntValue 会把
@@ -1183,39 +1237,43 @@ namespace celadon::test
                 }
             }
 
-            // 12. 依据：OutputLevelTracker.h「已收的主段放在 32 格的环里，满了挤掉最旧的」「每段另记的量与 Segment 同下标」。段边界跟输入侧之后出口
-            //     每个输入段（一小节、没有速度时 2 s）收一格，一分钟左右环就满，回绕是日常路径；之前的用例最多收 3 段（验证报告第 7 节，
-            //     独立复查第 1 轮 F9）。closed、closedExtra、closedNow 三组数组并排，下标要一起走；回绕后读回的环要接着从对的格子写。
-            //     40 段、每段 1 s，段与段之间收段、清滤波器（每段的能量只看自己的样本，几个跟踪器之间逐位可比）：偶数段录在 4 dB、
-            //     奇数段录在 12 dB（差 8 dB：按其中一类读，另一类全不算），入口幅度、输入侧读数逐段不同。对照跟踪器只喂其中几段、不回绕。
+            // 136 段、每段 1 s 的素材，环回绕和给 0.1.8.10 的那一份两条用例共用。段与段之间收段、清滤波器（每段的能量只看自己的
+            // 样本，几个跟踪器之间逐位可比）。偶数段录在 4 dB、奇数段录在 12 dB（差 8 dB：按其中一类读，另一类全不算）；入口幅度
+            // 逐段乘 1.02（0.5 → 7.4，最旧的 128 段与最新的 128 段读出来差 1 dB 以上）；输入侧读数逐段降 0.1 LU（−20 → −33.6）。
+            static void bookSegment (Tracker& tracker, int k)
+            {
+                auto f = linearChain (k % 2 == 0 ? 4.0f : 12.0f);
+                f.inputScale = 0.5f * std::pow (1.02f, (float) k);
+                f.inputLufs = -20.0f - 0.1f * (float) k;
+                tracker.resetFilters();
+                feed (tracker, blocksPerSecond, 20000 + 100 * k, f);
+                tracker.closeSegment();
+            }
+
+            static void bookRange (Tracker& tracker, int first, int last)
+            {
+                for (int k = first; k <= last; ++k)
+                    bookSegment (tracker, k);
+            }
+
+            // 12. 依据：OutputLevelTracker.h「已收的主段放在 128 格的环里，满了挤掉最旧的」「每段另记的量与 Segment 同下标」。出口每个
+            //     输入段（一小节、没有速度时 2 s）收一格，四分钟左右环就满，回绕是日常路径（验证报告第 7 节，独立复查第 1 轮 F9）。
+            //     closed、closedExtra、closedNow 三组数组并排，下标要一起走；回绕后存档按从旧到新写，读回的环要接着从对的格子写。
+            //     素材见 bookSegment。对照跟踪器只喂其中一段连续的段、不回绕。
             //     断言：
-            //       (a) 主段 32 s；按 4 / 5 / 6 / 11 / 12 dB 读，证据与只喂第 8 ～ 39 段的对照逐位相同；4 dB 只有 16 个偶数段（16 s），
-            //           6 dB 偶数段半算（8 s）。夹具有分辨力：只喂第 0 ～ 31 段的对照，4 dB 的入口电平差 1 dB 以上。
-            //       (b) 回绕之后存 → 读 → 再存逐属性相同、读数逐位相同；两边再各收一段（第 40 段，挤掉第 8 段），仍逐位相同，且与只喂
-            //           第 9 ～ 40 段的对照相同。
-            //       (c) 重判（输入侧读数 ≥ −27.6 LUFS 才算主段，即第 0 ～ 30 段）：回绕的、读回的、对照三个同样重判后逐位相同，主段只剩
-            //           第 9 ～ 30 段（22 s）——每段的判定读的是它自己的输入侧读数。
+            //       (a) 136 段之后主段 128 s；按 4 / 5 / 6 / 11 / 12 dB 读，证据与只喂第 8 ～ 135 段的对照逐位相同；4 dB 只有 64 个偶数段
+            //           （64 s），6 dB 偶数段半算（32 s）。夹具有分辨力：只喂第 0 ～ 127 段的对照，4 dB 的入口电平差 1 dB 以上。
+            //       (b) 回绕之后存 → 读 → 再存逐属性相同、读数逐位相同；两边再各收一段（第 136 段，挤掉第 8 段），仍逐位相同，且与只喂
+            //           第 9 ～ 136 段的对照相同。
+            //       (c) 重判（输入侧读数 ≥ −31.05 LUFS 才算主段，即第 0 ～ 110 段）：回绕的、读回的、对照三个同样重判后逐位相同，主段只剩
+            //           第 9 ～ 110 段（102 s）——每段的判定读的是它自己的输入侧读数。
             void testRingWrapsAround()
             {
-                beginTest ("the closed ring keeps the newest 32 segments when it wraps; extras stay with their segments; state round-trips after the wrap");
+                beginTest ("the closed ring keeps the newest 128 segments when it wraps; extras stay with their segments; state round-trips after the wrap");
 
-                constexpr int segments = 40;
-                constexpr int capacity = 32;
+                constexpr int segments = 136;
+                constexpr int capacity = ringCapacity;
 
-                const auto bookSegment = [] (Tracker& tracker, int k)
-                {
-                    auto f = linearChain (k % 2 == 0 ? 4.0f : 12.0f);
-                    f.inputScale = 0.5f + 0.03f * (float) k;
-                    f.inputLufs = -20.0f - 0.25f * (float) k;
-                    tracker.resetFilters();
-                    feed (tracker, blocksPerSecond, 20000 + 100 * k, f);
-                    tracker.closeSegment();
-                };
-                const auto bookRange = [&bookSegment] (Tracker& tracker, int first, int last)
-                {
-                    for (int k = first; k <= last; ++k)
-                        bookSegment (tracker, k);
-                };
                 const auto sameAt = [] (const Tracker& a, const Tracker& b)
                 {
                     auto same = a.mainSamples() == b.mainSamples();
@@ -1240,13 +1298,13 @@ namespace celadon::test
                 const auto at6 = wrapped.evidenceAt (6.0f, fullDb, zeroDb);
                 const auto oldestAt4 = oldest.evidenceAt (4.0f, fullDb, zeroDb);
                 logMessage ("  (a) wrapped: main " + juce::String ((double) wrapped.mainSamples() / rate, 3) + " s; at 4 dB input "
-                            + juce::String (at4.inputLufs, 4) + " LUFS over " + juce::String (at4.seconds, 3) + " s (the oldest 32 would read "
+                            + juce::String (at4.inputLufs, 4) + " LUFS over " + juce::String (at4.seconds, 3) + " s (the oldest 128 would read "
                             + juce::String (oldestAt4.inputLufs, 4) + "), at 6 dB " + juce::String (at6.seconds, 3) + " s");
-                expect (wrapped.mainSamples() == samplesFor (capacity), "(a) forty one-second segments booked, the newest thirty-two kept");
-                expectWithinAbsoluteError (at4.seconds, 16.0, secondsTolerance, "(a) at 4 dB only the sixteen even segments count");
-                expectWithinAbsoluteError (at6.seconds, 8.0, secondsTolerance, "(a) at 6 dB the even segments count half");
-                expect (std::abs (oldestAt4.inputLufs - at4.inputLufs) > 1.0f, "(a) fixture: the oldest thirty-two read differently from the newest");
-                expect (sameAt (wrapped, newest), "(a) after the wrap the readings are bit-identical to a tracker fed only segments 8..39");
+                expect (wrapped.mainSamples() == samplesFor (capacity), "(a) 136 one-second segments booked, the newest 128 kept");
+                expectWithinAbsoluteError (at4.seconds, 64.0, secondsTolerance, "(a) at 4 dB only the 64 even segments count");
+                expectWithinAbsoluteError (at6.seconds, 32.0, secondsTolerance, "(a) at 6 dB the even segments count half");
+                expect (std::abs (oldestAt4.inputLufs - at4.inputLufs) > 1.0f, "(a) fixture: the oldest 128 read differently from the newest");
+                expect (sameAt (wrapped, newest), "(a) after the wrap the readings are bit-identical to a tracker fed only segments 8..135");
 
                 // ---- (b) ----
                 const auto saved = wrapped.createStateXml();
@@ -1264,17 +1322,110 @@ namespace celadon::test
                 bookSegment (wrapped, segments);
                 bookSegment (restored, segments);
                 expect (sameAt (wrapped, restored), "(b) one more segment on both: still bit-identical");
-                expect (sameAt (restored, shifted), "(b) ... and segment 8 is the one evicted: equal to a tracker fed segments 9..40");
+                expect (sameAt (restored, shifted), "(b) ... and segment 8 is the one evicted: equal to a tracker fed segments 9..136");
 
                 // ---- (c) ----
-                const auto judge = [] (float lufs, float) noexcept { return lufs >= -27.6f ? 1.0f : 0.0f; };
+                const auto judge = [] (float lufs, float) noexcept { return lufs >= -31.05f ? 1.0f : 0.0f; };
 
                 for (auto* tracker : { &wrapped, &restored, &shifted })
                     tracker->rejudge (judge);
 
                 logMessage ("  (c) after the rejudge: main " + juce::String ((double) wrapped.mainSamples() / rate, 3) + " s");
-                expect (wrapped.mainSamples() == samplesFor (22), "(c) only segments 9..30 still count (each judged on its own input reading)");
+                expect (wrapped.mainSamples() == samplesFor (102), "(c) only segments 9..110 still count (each judged on its own input reading)");
                 expect (sameAt (wrapped, restored) && sameAt (wrapped, shifted), "(c) the three trackers agree bit for bit after the same rejudge");
+            }
+
+            // 13. 依据：OutputLevelTracker.h「closed 是最新的至多 32 段（从旧到新，closedCount 段、closedWrite 在最新一段的下一格），
+            //     0.1.8.10 读得了这一节」。0.1.8.10 的环就是 32 格：从 closedWrite 往前数 closedCount 段（下标对 32 取模）。
+            //     素材见 bookSegment。n = 3、32、40、128、136 段（不满 32、正好 32、超过 32 没回绕、环正好满、环回绕了）各喂一个跟踪器，
+            //     再各喂一个只收最新 min(n, 32) 段的对照——对照的环没回绕、也没超过 32 段，它的 closed 按时间次序放，一看便知对不对。
+            //     断言：closedCount = min(n, 32)、closedWrite = min(n, 32) mod 32；closed 与对照的逐字相同；照 0.1.8.10 的读法从 closed
+            //     里数出来的段，样本数合计 min(n, 32) s、每段 1 s、都是主段，数到的第一段（最新的）能量与只喂第 n − 1 段的跟踪器那一段
+            //     逐位相同（每段先清滤波器、种子只看段号，同一段在哪个跟踪器里能量都一样）。
+            void testLegacyCopyForTheOldVersion()
+            {
+                beginTest ("closed / closedCount / closedWrite hold the newest 32 segments in the layout 0.1.8.10 reads");
+
+                for (const auto n : { 3, 32, 40, 128, 136 })
+                {
+                    const auto kept = juce::jmin (n, legacySegments);
+                    const auto tag = juce::String (n) + " segments: ";
+                    Tracker all, lastOnes;
+                    all.prepare (rate);
+                    lastOnes.prepare (rate);
+                    bookRange (all, 0, n - 1);
+                    bookRange (lastOnes, n - kept, n - 1);
+                    const auto saved = all.createStateXml();
+                    const auto reference = lastOnes.createStateXml();
+
+                    expect (saved != nullptr && reference != nullptr, tag + "fixture: both states are written");
+
+                    if (saved == nullptr || reference == nullptr)
+                        continue;
+
+                    expect (saved->getStringAttribute ("closedCount") == juce::String (kept), tag + "closedCount is " + juce::String (kept)
+                                                                                                + ", written " + saved->getStringAttribute ("closedCount"));
+                    expect (saved->getStringAttribute ("closedWrite") == juce::String (kept % legacySegments),
+                            tag + "closedWrite is " + juce::String (kept % legacySegments) + ", written " + saved->getStringAttribute ("closedWrite"));
+                    expect (saved->getStringAttribute ("closed") == reference->getStringAttribute ("closed"),
+                            tag + "closed is the same as for a tracker fed only the newest " + juce::String (kept));
+                    expect (saved->getStringAttribute ("historyCount") == juce::String (juce::jmin (n, ringCapacity)),
+                            tag + "historyCount is " + juce::String (juce::jmin (n, ringCapacity)));
+
+                    // 照 0.1.8.10 的读法（OutputLevelTracker.cpp 0.1.8.10 版 forEachMainSegment：从写入位置往前数 closedCount 段）。
+                    juce::MemoryOutputStream decoded;
+                    const auto count = saved->getStringAttribute ("closedCount").getIntValue();
+                    const auto write = saved->getStringAttribute ("closedWrite").getIntValue();
+
+                    const auto closedShaped = juce::Base64::convertFromBase64 (decoded, saved->getStringAttribute ("closed")) && decoded.getDataSize() == closedBytes;
+                    expect (closedShaped, tag + "closed decodes to 32 x 24 bytes");
+
+                    if (! closedShaped)
+                        continue;
+
+                    const auto energyAt = [] (const juce::MemoryOutputStream& bytes, size_t index)
+                    {
+                        double energy = 0.0;
+                        std::memcpy (&energy, static_cast<const char*> (bytes.getData()) + index * segmentBytes, sizeof (energy));
+                        return energy;
+                    };
+
+                    Tracker single;
+                    single.prepare (rate);
+                    bookSegment (single, n - 1);
+                    const auto singleSaved = single.createStateXml();
+                    juce::MemoryOutputStream singleDecoded;
+                    const auto singleShaped = singleSaved != nullptr
+                                           && juce::Base64::convertFromBase64 (singleDecoded, singleSaved->getStringAttribute ("closed"))
+                                           && singleDecoded.getDataSize() == closedBytes;
+                    expect (singleShaped, tag + "fixture: the one-segment tracker's closed decodes");
+
+                    std::int64_t samples = 0;
+                    auto allMainOneSecond = true;
+                    double newestEnergy = -1.0;
+
+                    for (int age = 0; age < count; ++age)
+                    {
+                        const auto index = (size_t) ((write - 1 - age + legacySegments * 2) % legacySegments);
+                        const auto* at = static_cast<const char*> (decoded.getData()) + index * segmentBytes;
+                        double energy;
+                        std::int64_t segmentSamples;
+                        float mainness;
+                        std::memcpy (&energy, at, sizeof (energy));
+                        std::memcpy (&segmentSamples, at + 8, sizeof (segmentSamples));
+                        std::memcpy (&mainness, at + 16, sizeof (mainness));
+                        samples += segmentSamples;
+                        allMainOneSecond = allMainOneSecond && segmentSamples == samplesFor (1) && mainness >= 0.5f;
+
+                        if (age == 0)
+                            newestEnergy = energy;
+                    }
+
+                    expect (samples == samplesFor (kept) && allMainOneSecond,
+                            tag + "read the 0.1.8.10 way: " + juce::String (count) + " one-second main segments, " + juce::String ((double) samples / rate, 3) + " s");
+                    expect (singleShaped && newestEnergy == energyAt (singleDecoded, 0),
+                            tag + "read the 0.1.8.10 way, the first segment counted is segment " + juce::String (n - 1) + " (the newest)");
+                }
             }
         };
 

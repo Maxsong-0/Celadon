@@ -24,20 +24,21 @@
           它每块都按此刻的参考现判（调用方交来的 m′ 就是拿此刻的参考算的），跌到 0.5 以下当块就翻成非主段、之前攒的收进账。
       三、入口能量。每段另记同一批样本在模块处理前的 K 加权能量（processInput）。改前拿出口主段电平去比「画像的输入响度 I
           + 方案净增益」，可 I 是画像自己那套窗口算的：4/4 型是 512 段、按主段时长指数遗忘的主段加权平均，其余曲风是
-          全部有效音频的门控积分（规格第 1 节表）——和这里「最近 32 段里 m′ ≥ 0.5 的」不是同一批段。差出来的不是链的偏差，
+          全部有效音频的门控积分（规格第 1 节表）——和这里「环里 m′ ≥ 0.5 的段」不是同一批段。差出来的不是链的偏差，
           G_trim 却照着去追：通用曲风里前奏轻、后面响，I 还带着前奏、这里已经只剩响段，G_trim 被拉下去 1 ～ 2 dB 再慢慢回来。
           两侧都用这里的段，差值就只剩链实际做了什么。入口比出口早一个链延迟 L（CeladonChain.h：48 kHz、Lookahead 默认 2 ms 时
           1384 个样本、约 29 ms，随 Lookahead 1 ～ 10 ms 变），按段算能量时不对齐。连着的主段之间，错开的那一截前后抵掉；只在
           一串主段的开头（前面是非主段）差一截：出口那 L 是前一段的内容。读数是整个历史的和，每一串主段的开头差一份「L ÷ 历史里
-          的主段时长 × (前一段能量 ÷ 这一段能量 − 1)」。L 取 1384 个样本、一分钟的历史：前一段响 10 dB 约差 +0.02 dB，轻 10 dB
-          约差 −0.002 dB；跳得越大、历史里这样的开头越多，差得越多。单看 2 s 的一段，前一段响 10 dB 时约差 0.5 dB，但读数从不
-          只看一段。
-      四、历史多长。已收的主段放在 32 格的环里，满了挤掉最旧的（非主段不进账、不占格）。编排器在输入侧段落账换段时收段
+          的主段时长 × (前一段能量 ÷ 这一段能量 − 1)」。L 取 1384 个样本、一分钟的主段历史（刚开始攒的时候；攒满约四分钟时
+          只有四分之一）：前一段响 10 dB 约差 +0.02 dB，轻 10 dB 约差 −0.002 dB；跳得越大、历史里这样的开头越多，差得越多。
+          单看 2 s 的一段，前一段响 10 dB 时约差 0.5 dB，但读数从不只看一段。
+      四、历史多长。已收的主段放在 128 格的环里，满了挤掉最旧的（非主段不进账、不占格）。编排器在输入侧段落账换段时收段
           （验证报告 docs/validation/2026-11-12-T106-gtrim-error-basis 第 9 节第 18 条），一格约是一个输入段——4/4 型一小节，
-          没有速度时 2 s——环里装得下约一分钟的主段（124 BPM 约 62 s）；改成这样之前一段最长 8 s，最长约 256 s。主段 → 非主段
-          的翻转（含方案还没到位的块）也收一段、占一格。DGX 2026-11-13 探查（落差场景那首 6 分钟的合成曲，起播 2 分钟以后的
-          主段里）：House 平均 57 s、最少 37 s（改之前平均 101 s），通用曲风平均 40 s、最少 16 s（改之前 69 s），都没有证据
-          不足 3 s 的块。容量钉在 32：closed 属性按 32 × 24 字节存，0.1.8.10 按这个读。
+          没有速度时 2 s——环里装得下约四分钟的主段（124 BPM 约 248 s），同段边界改之前（一段最长 8 s、32 格，最长约 256 s）
+          相当。主段 → 非主段的翻转（含方案还没到位的块）也收一段、占一格。环只放 32 格时只装得下约一分钟，G_trim 跟着段落
+          起伏走：DGX 2026-11-13 重渲 20 首，≥ 60 s 的追踪里「60 s 内变化」最大从 0.96 dB 涨到 1.21 dB，128 格回到 0.95 dB
+          （同上，第 9 节第 25 条）。存档里 closed 属性照旧按 32 × 24 字节写最新的 32 段给 0.1.8.10 读，全部的段另写进
+          history / historyExtra（createStateXml）。
       当证据的段要三样齐全（evidenceAt）：入口配齐（每个样本都有入口能量，两侧的样本都是有限值）、有出口能量（量得出录制
       增益）、此刻仍算主段。缺一样就不算，也不占证据时长。
 
@@ -133,13 +134,17 @@ namespace celadon::glaze
         // 此刻计入电平的主段样本数（重判之后；含本段）。诊断与测试用。
         std::int64_t mainSamples() const noexcept;
 
+        // 存档：0.1.8.10 就有的八个属性照它的格式写——closed 是最新的至多 32 段（从旧到新，closedCount 段、closedWrite 在最新一段
+        // 的下一格），0.1.8.10 读得了这一节；T-106 另写十个属性，其中 historyCount / history / historyExtra 是全部已收的段（至多
+        // 128 段，从旧到新）。
         std::unique_ptr<juce::XmlElement> createStateXml() const;
         // 没有 T-106 字段的旧存档（0.1.8.10 及更早）：校验同 0.1.8.10（标签、六个标量属性、closed 的长度、closedCount /
         // closedWrite 的范围；段的内容不看），然后段累计清空、restoredLegacyState() 置 true（旧历史不知道是在什么增益下录的，
-        // 折算不了）。带 T-106 字段的新格式：八个属性要齐，用到的每一个量都验——三个样本数是严格的十进制非负整数，
-        // 开着的一段与已收的 32 段各自的能量有限且非负、样本数在 0 ～ 8 s × 768 kHz、主段度有限，每段另记的量见 validExtra，
-        // 存档时的采样率有限且为正；有一项不合规矩就整节拒收、状态不动，同别的节点。读回后各段先按当时的判定，下一次 rejudge()
-        // 起按此刻的参考。存档时的采样率和此刻（最近一次 prepare）的不同：段里的样本数对不上此刻的时长，段累计清空（不打旧存档标记）。
+        // 折算不了）。带 T-106 字段的新格式：旧的八个属性照上面那样验（closed 只验长度，内容不用），十个新属性要齐，用到的每一个
+        // 量都验——三个样本数是严格的十进制非负整数，historyCount 在 0 ～ 128、history / historyExtra 的长度正好对得上，开着的一段
+        // 与 history 里各段的能量有限且非负、样本数在 0 ～ 8 s × 768 kHz、主段度有限，每段另记的量见 validExtra，存档时的采样率
+        // 有限且为正；有一项不合规矩就整节拒收、状态不动，同别的节点。读回后各段先按当时的判定，下一次 rejudge() 起按此刻的参考。
+        // 存档时的采样率和此刻（最近一次 prepare）的不同：段里的样本数对不上此刻的时长，段累计清空（不打旧存档标记）。
         bool restoreStateXml (const juce::XmlElement&);
         bool restoredLegacyState() const noexcept { return legacyState; }
 
@@ -156,7 +161,8 @@ namespace celadon::glaze
         }
 
     private:
-        // 布局不能动：closed 数组整块 memcpy 进存档的 closed 属性，0.1.8.10 按这个大小读。T-106 的量另放 Extra。
+        // 布局不能动：存档的 closed 属性按这个布局存最新的至多 32 段（legacyClosedCapacity 格，0.1.8.10 按 32 × 24 字节读），
+        // history 属性按这个布局存全部已收的段。T-106 的量另放 Extra。
         struct Segment
         {
             double energy = 0.0;
@@ -168,7 +174,7 @@ namespace celadon::glaze
                            && offsetof (Segment, mainness) == 16,
                        "closed 属性按这个布局整块存，0.1.8.10 按 32 × 24 字节读");
 
-        // T-106 每段另记的量（与 Segment 同下标；布局固定，closedExtra 数组整块进存档的 closedExtra 属性）。
+        // T-106 每段另记的量（与 Segment 同下标；布局固定，存档的 historyExtra 属性按这个布局逐段存，次序同 history）。
         struct Extra
         {
             double unityEnergy = 0.0;         // 折回 0 dB Limit Gain 的出口能量
@@ -182,7 +188,7 @@ namespace celadon::glaze
         static_assert (std::is_trivially_copyable_v<Extra> && sizeof (Extra) == 48 && offsetof (Extra, inputEnergy) == 8
                            && offsetof (Extra, inputLufsSum) == 16 && offsetof (Extra, lowShareSum) == 24
                            && offsetof (Extra, inputSamples) == 32 && offsetof (Extra, pairedSamples) == 40,
-                       "closedExtra 属性按这个布局整块存（32 × 48 字节，没有填充）");
+                       "historyExtra 属性按这个布局逐段存（每段 48 字节，没有填充）");
 
         void pushClosed (const Segment& segment, const Extra& extra) noexcept;
         void clearSegments() noexcept;
@@ -194,7 +200,9 @@ namespace celadon::glaze
         static bool validSegment (const Segment& segment) noexcept;
         static bool validExtra (const Extra& extra, std::int64_t segmentSamples) noexcept;
 
-        static constexpr int closedCapacity = 32;
+        // 已收主段的环（文件头第四节）。存档另给 0.1.8.10 写一份 legacyClosedCapacity 格的（它的环就这么大，按 32 × 24 字节读）。
+        static constexpr int closedCapacity = 128;
+        static constexpr int legacyClosedCapacity = 32;
         static constexpr float mainnessGate = 0.5f;
 
         double sampleRate = 48000.0;
@@ -206,7 +214,7 @@ namespace celadon::glaze
         Segment open;
         std::array<Segment, (std::size_t) closedCapacity> closed {};
         Extra openExtra;                                                  // T-106：本段
-        std::array<Extra, (std::size_t) closedCapacity> closedExtra {};   // 与 closed 同下标
+        std::array<Extra, (std::size_t) closedCapacity> closedExtra {};   // 与 closed 同下标（存档里是 historyExtra）
         std::array<float, (std::size_t) closedCapacity> closedNow {};     // 重判后的 m′；不存档（读回后先等于当时的判定）
         int closedCount = 0;
         int closedWrite = 0;

@@ -7633,7 +7633,7 @@ namespace celadon::test
         //    规格第 5 节「窗口状态不存」；GlazeController.h「restoreStateXml 之后、第一块音频之前调 createStateXml，返回的是刚恢复的内容」。
         //    main 3a7a367 的存档形状（git show 3a7a367 核对过）：CONTRAST_GUARD = reliefDb / floorDb / engaged / ringCount / ringWrite /
         //    samplesUntilPush / inputRing / outputRing；PSR_GUARD = reliefDb / floorDb / belowSeconds / engaged；CONTROL 没有
-        //    secondsSinceParamChange；OUTPUT_LEVEL 没有 T-106 的八个属性（见用例里的说明）；其余节点（LIVE_PROFILE、BUDGET_GUARD、CLAY）
+        //    secondsSinceParamChange；OUTPUT_LEVEL 没有 T-106 的十个属性（见用例里的说明）；其余节点（LIVE_PROFILE、BUDGET_GUARD、CLAY）
         //    与本分支同形。新写法把这些旧属性原样留着（128 笔环写 0），所以从新档里删掉 T-097、T-106 新增的属性，得到的就是 main 形状
         //    （环里的数旧版本身也不读）。
         //    「不冷启动」的判据同主类 testLiveRoundTrip：增量回到存档值、LIVE 画像 I 仍有效、没有旧工程提示；外加两个退让量回到
@@ -7690,7 +7690,7 @@ namespace celadon::test
                 logMessage ("  new LIVE round trip: whole container identical " + juce::String ((int) (again != nullptr && again->isEquivalentTo (saved.get(), false)))
                             + "; differing nodes:" + (differing.isEmpty() ? juce::String (" none") : differing));
 
-                // T-106：OUTPUT_LEVEL 多了八个属性（每段的折算能量、入口能量、输入侧读数，存档时的采样率），一并逐位核。
+                // T-106：OUTPUT_LEVEL 多了十个属性（每段的折算能量、入口能量、输入侧读数，存档时的采样率，全部已收的段），一并逐位核。
                 for (const char* tag : { "CONTROL", "CONTRAST_GUARD", "PSR_GUARD", "OUTPUT_LEVEL" })
                     expect (t097SameChild (savedBody.get(), againBody.get(), tag), "new LIVE: " + juce::String (tag) + " round-trips bit-identically");
             }
@@ -7742,8 +7742,8 @@ namespace celadon::test
 
             expect (oldShape, "fixture: CONTRAST_GUARD / PSR_GUARD / CONTROL now have exactly the main 3a7a367 attributes");
 
-            // T-106（ADR-038）：0.1.8.10（与 main 3a7a367）的 OUTPUT_LEVEL 没有折算历史用的八个属性（OutputLevelTracker.cpp
-            // createStateXml 末尾那一组）；新档把旧属性原样留着，删掉这八个就是旧形状。读到旧形状：出口电平历史不知道是在什么增益下
+            // T-106（ADR-038）：0.1.8.10（与 main 3a7a367）的 OUTPUT_LEVEL 没有折算历史用的十个属性（OutputLevelTracker.cpp
+            // createStateXml 末尾那一组）；新档把旧属性照旧格式写着，删掉这十个就是旧形状。读到旧形状：出口电平历史不知道是在什么增益下
             // 录的、折算不了，清空；G_trim 是旧口径积出来的（多半已经顶在钳位上），从 +0 重新收敛；其余照旧、不冷启动。
             // CONTROL 的 gTrim 写成可辨认的 +1.5 dB（xmlio float：符号 0、指数 127（0x7f）、尾数 .1b → 0x3fc00000）：供体这 24 s 里
             // 方案还没到位、G_trim 本来就是 +0，不改的话「读回是 +0」分不出是归零还是照读。新形状照读的对照在
@@ -7755,7 +7755,7 @@ namespace celadon::test
                 return;
 
             for (const char* attribute : { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum", "openInputSamples",
-                                           "openPairedSamples", "closedExtra", "sampleRate" })
+                                           "openPairedSamples", "sampleRate", "historyCount", "history", "historyExtra" })
             {
                 expect (levelNode->hasAttribute (attribute), "new LIVE: OUTPUT_LEVEL carries " + juce::String (attribute));
                 levelNode->removeAttribute (attribute);
@@ -7831,11 +7831,11 @@ namespace celadon::test
                         "old shape saved again: PSR_GUARD keeps the relief and writes aboveSeconds = 0");
                 expect (upControl != nullptr && upControl->getStringAttribute ("secondsSinceParamChange") == "3ff0000000000000",
                         "old shape saved again: CONTROL writes secondsSinceParamChange = 1 s");
-                // T-106：再存就是新形状——OUTPUT_LEVEL 带上八个属性（历史是空的），CONTROL 的 gTrim 是 +0（float +0 = 8 个 0）。
+                // T-106：再存就是新形状——OUTPUT_LEVEL 带上十个属性（历史是空的：historyCount 0），CONTROL 的 gTrim 是 +0（float +0 = 8 个 0）。
                 const auto* upLevel = upgradedBody != nullptr ? upgradedBody->getChildByName ("OUTPUT_LEVEL") : nullptr;
-                expect (upLevel != nullptr && upLevel->getNumAttributes() == 16 && upLevel->hasAttribute ("closedExtra")
-                            && upLevel->getStringAttribute ("openPairedSamples") == "0",
-                        "old shape saved again: OUTPUT_LEVEL is upgraded (the eight T-106 attributes are written, empty history)");
+                expect (upLevel != nullptr && upLevel->getNumAttributes() == 18 && upLevel->hasAttribute ("historyExtra")
+                            && upLevel->getStringAttribute ("historyCount") == "0" && upLevel->getStringAttribute ("openPairedSamples") == "0",
+                        "old shape saved again: OUTPUT_LEVEL is upgraded (the ten T-106 attributes are written, empty history)");
                 expect (upControl != nullptr && upControl->getStringAttribute ("gTrim") == "00000000",
                         "old shape saved again: CONTROL writes gTrim = +0");
             }
@@ -9360,8 +9360,9 @@ namespace celadon::test
 //  15. 读档：CONTROL 里的浮点不是有限值、G_trim 超出 ±3 dB、CLAY 的 pressureScale 不是有限值，整份拒收（外部第二意见 F3）。
 //  16. 出口电平的段跟着输入侧段落账切，不连续点处也是（外部第二意见 F1）。
 //  17. 抗饱和的下界：G_trim 不低于「负的自动部分」；读回时已在范围外的，不往更外面走，也不被一下子拽回来。
+//  18. 手动 Limit Gain 抬高、已施加的增量还没退到位（手动 + 增量 > 24 dB）：自动部分按钳进 24 dB 之后的算，G_trim 不多往下走。
 // 前五条只用 T-106 之前就有的探针字段，同一份用例能原样放到修之前的代码（3a16132）上跑：在那里都失败（DGX 2026-11-12 实测，
-// 数值写在各条的注释里），修之后都通过。第 6 ～ 17 条要读 T-106 的探针与存档属性，只在修之后的代码上有意义；它们各盯一个
+// 数值写在各条的注释里），修之后都通过。第 6 ～ 18 条要读 T-106 的探针与存档属性，只在修之后的代码上有意义；它们各盯一个
 // T-106 新加的条件，把那个条件改错（去掉、放宽、收紧）对应的用例就红（验证报告里有逐条的改错结果）。
 // 除第 5、9、17 条外，素材与设置同 T-097「改参数冻结」那一条：makeMusic 种子 33、峰值 0.2、通用曲风、放宽预算——三个守门全程 +0，
 // 限幅器不动作，链给的净增益就是方案的净增益，G_trim 的稳态只剩 Limit Gain 死区里差的那 ≤ 0.1 dB。
@@ -9395,6 +9396,7 @@ namespace celadon::test
                 testRestoreRejectsBadControlValues();
                 testOutputSegmentsFollowTheInputLedger();
                 testDoesNotWindUpBelowWhatItCanUse();
+                testRaisedManualGainUsesTheClampedLimitGain();
             }
 
         private:
@@ -9659,8 +9661,8 @@ namespace celadon::test
                 expect (highest <= overshootDb, "G_trim does not shoot up during the cold start (without the rule: +1.15 dB; before T-106: +2.25)");
             }
 
-            // 6. 依据：T-106 存读档。OUTPUT_LEVEL 另写八个属性（OutputLevelTracker.cpp createStateXml 末尾那一组：每段折回 0 dB 的出口
-            //    能量、入口能量、输入侧读数），旧属性原样留着。读到没有这八个属性的旧存档（0.1.8.10 及更早）：出口电平历史不知道是在
+            // 6. 依据：T-106 存读档。OUTPUT_LEVEL 另写十个属性（OutputLevelTracker.cpp createStateXml 末尾那一组：每段折回 0 dB 的出口
+            //    能量、入口能量、输入侧读数，全部已收的段），旧属性照旧格式写着。读到没有这十个属性的旧存档（0.1.8.10 及更早）：出口电平历史不知道是在
             //    什么增益下录的、折算不了，清空；G_trim 是旧口径积出来的，从 +0 重新收敛；其余照旧、不冷启动（GlazeController.cpp
             //    restoreBody，ADR-035「GLAZE > 0 的旧工程允许变声」）。
             //    供体：恒定素材放 100 s（G_trim 已收敛到约 +0.10 dB，出口历史里有三十多秒主段）。
@@ -9716,9 +9718,9 @@ namespace celadon::test
                         expect (t097SameChild (body.get(), againBody.get(), tag), "new shape: " + juce::String (tag) + " round-trips bit-identically");
                 }
 
-                // ---- 旧形状：删掉 T-106 的八个属性 ----
+                // ---- 旧形状：删掉 T-106 的十个属性 ----
                 for (const char* attribute : { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum", "openInputSamples",
-                                               "openPairedSamples", "closedExtra", "sampleRate" })
+                                               "openPairedSamples", "sampleRate", "historyCount", "history", "historyExtra" })
                 {
                     expect (levelNode->hasAttribute (attribute), "new shape: OUTPUT_LEVEL carries " + juce::String (attribute));
                     levelNode->removeAttribute (attribute);
@@ -10370,7 +10372,8 @@ namespace celadon::test
             }
 
             // 存档里出口电平历史的出口能量整体乘 factor：实录能量与折回 0 dB 的能量一起乘，录制增益不变，出口电平高 10·log10 factor dB。
-            // 布局见 OutputLevelTracker.h：closed 32 段 × 24 字节（energy 在 +0），closedExtra 32 段 × 48 字节（unityEnergy 在 +0）。
+            // 布局见 OutputLevelTracker.h：history 每段 24 字节（energy 在 +0），historyExtra 每段 48 字节（unityEnergy 在 +0），段数
+            // 是 historyCount。给 0.1.8.10 的 closed（32 段 × 24 字节）这一版不读，也一起乘，让改过的存档前后一致。
             static bool scaleOutputHistory (juce::XmlElement& body, double factor)
             {
                 auto* level = body.getChildByName ("OUTPUT_LEVEL");
@@ -10378,16 +10381,16 @@ namespace celadon::test
                 if (level == nullptr)
                     return false;
 
-                const auto scaleBlock = [&] (const char* attribute, size_t stride)
+                const auto scaleBlock = [&] (const char* attribute, size_t stride, size_t segments)
                 {
                     juce::MemoryOutputStream decoded;
 
-                    if (! juce::Base64::convertFromBase64 (decoded, level->getStringAttribute (attribute)) || decoded.getDataSize() != 32 * stride)
+                    if (! juce::Base64::convertFromBase64 (decoded, level->getStringAttribute (attribute)) || decoded.getDataSize() != segments * stride)
                         return false;
 
                     juce::MemoryBlock bytes (decoded.getData(), decoded.getDataSize());
 
-                    for (size_t i = 0; i < 32; ++i)
+                    for (size_t i = 0; i < segments; ++i)
                     {
                         auto* at = static_cast<char*> (bytes.getData()) + i * stride;
                         double value;
@@ -10401,11 +10404,14 @@ namespace celadon::test
                 };
 
                 auto openEnergy = 0.0, openUnityEnergy = 0.0;
+                auto historyCount = 0;
                 glaze::xmlio::Reader reader (*level);
                 reader.field ("openEnergy", openEnergy);
                 reader.field ("openUnityEnergy", openUnityEnergy);
+                reader.field ("historyCount", historyCount);
 
-                if (! reader.ok || ! scaleBlock ("closed", 24) || ! scaleBlock ("closedExtra", 48))
+                if (! reader.ok || historyCount <= 0 || ! scaleBlock ("history", 24, (size_t) historyCount)
+                    || ! scaleBlock ("historyExtra", 48, (size_t) historyCount) || ! scaleBlock ("closed", 24, 32))
                     return false;
 
                 glaze::xmlio::Writer writer (*level);
@@ -10779,6 +10785,117 @@ namespace celadon::test
                     expect (previous > outsideDb + 0.1f, "(c) control: with the error positive G_trim integrates back from -2.5 dB");
                     expect (lowest >= outsideDb && largestStep <= maximumStepDb + 1.0e-6f,
                             "(c) ... at no more than 0.05 dB/s, never below where it was restored");
+                }
+            }
+
+            // 18. 依据：G_trim 的范围、读数折算、守门的界都先把「手动 + 已施加增量」钳进 0 ～ 24 dB（GlazeController.cpp gainAfterIncrementDb；
+            //     限幅器执行的也是钳过的值）。规划器给的增量本来就让手动 + 增量 ≤ 24 dB，第 17 条碰不到这道钳。用户在 GLAZE 开着时把手动
+            //     Limit Gain 往上拧，已施加的增量按速率退下来，退进死区时还比新目标高出不到 0.1 dB（gainDeadbandExitDb）、之后就停在那里：
+            //     这时手动 + 增量 > 24 dB，不钳的话「自动部分」多算这一截，G_trim 往下多走这一截。
+            //     供体：手动 20 dB，其余同第 17 条，放 100 s、存档。存档里出口电平历史的能量 ×2（+3.01 dB，误差为负），CONTROL 的 gTrim 改成
+            //     −1 dB：手动 23 dB 时自动部分最多 24 − 23 = 1 dB，钳过之后下界最低就到 −1 dB。
+            //     (a) 读进手动 23 dB 的链（供体留下的增量比新目标高 2 dB 以上），放 60 s：G_trim 一块也不低于 −1 dB（不留容差）。
+            //         夹具：积分开着、手动 + 已施加增量 > 24 dB、误差 < −0.05 dB 的块合计 ≥ 5 s（不钳的话这些块上 G_trim 会往 −1 dB 以下走）。
+            //     (b) 对照：同一份存档读进手动仍是 20 dB 的链：下界是 −3 dB，G_trim 从 −1 dB 往下走过 −1.1 dB（误差确实要它往下，积分开着）。
+            void testRaisedManualGainUsesTheClampedLimitGain()
+            {
+                beginTest ("manual Limit Gain raised while an increment is applied: G_trim's range uses manual + increment clamped to 24 dB");
+
+                constexpr double donorSeconds = 100.0;
+                constexpr float donorManualDb = 20.0f;
+                constexpr float raisedManualDb = 23.0f;
+                constexpr float restoredTrimDb = -1.0f;   // −(24 − 23)：手动 23 dB 时，钳过之后的下界最低到这里
+                constexpr double louderFactor = 2.0;      // +3.01 dB
+                constexpr double runSeconds = 60.0;
+                constexpr double minimumPushedSeconds = 5.0;
+                constexpr float pushingErrorDb = -0.05f;
+                constexpr double blockSeconds = (double) t097TrimBlock / defaultRate;
+
+                const auto makeRig = [] (float manualDb)
+                {
+                    auto params = defaultParams (100.0f, 0);
+                    params.limit.gainDb = manualDb;
+                    return Rig (t097WithoutBudgetCaps (fastConstants()), makeMusic (defaultRate, 8.0, 33, 0.05f), params, defaultRate, t097TrimBlock);
+                };
+                const auto errorOf = [] (const Probe& p) { return p.trimPlanGainDb - (p.trimLevelLufs - p.trimInputLufs); };
+                const auto integrating = [] (const Probe& p)
+                {
+                    return ! p.trimFrozen && p.trimMainNow && p.trimPlanInPlace && std::isfinite (p.trimPlanGainDb) && p.trimEvidenceSeconds >= 3.0
+                        && p.trimLevelLufs > -100.0f && p.trimInputLufs > -100.0f;
+                };
+
+                auto donor = makeRig (donorManualDb);
+                donor.run (donorSeconds);
+                const auto saved = donor.chain.createGlazeStateXml();
+                const auto donorProbe = donor.probe();
+                logMessage ("  donor (manual " + db (donorManualDb) + " dB): Limit Gain increment " + db (donorProbe.increments.limitGainDb) + " dB (planned "
+                            + db (donorProbe.targetPlan.increments.limitGainDb) + "), executed Limit Gain " + db (donor.chain.getEffectiveParams().limit.gainDb)
+                            + " dB, G_trim " + db (donorProbe.appliedBiasDb) + " dB, main history " + juce::String (donorProbe.trimMainSeconds, 2) + " s");
+                expect (saved != nullptr && raisedManualDb + donorProbe.increments.limitGainDb > 25.0f,
+                        "fixture: the donor's increment is above 2 dB, so manual 23 dB + it starts well above 24 dB: " + db (donorProbe.increments.limitGainDb) + " dB");
+
+                if (saved == nullptr)
+                    return;
+
+                const auto edited = editedState (*saved, [&] (juce::XmlElement& body)
+                {
+                    auto* control = body.getChildByName ("CONTROL");
+
+                    if (control == nullptr || ! scaleOutputHistory (body, louderFactor))
+                        return false;
+
+                    glaze::xmlio::Writer (*control).field ("gTrim", restoredTrimDb);
+                    return true;
+                });
+                expect (edited != nullptr, "fixture: the edited state is built");
+
+                if (edited == nullptr)
+                    return;
+
+                // ---- (a) ----
+                {
+                    auto rig = makeRig (raisedManualDb);
+                    rig.chain.restoreGlazeStateXml (edited.get());
+                    const auto restored = rig.probe();
+                    auto lowest = restored.appliedBiasDb;
+                    auto pushedAboveBlocks = 0;
+                    auto highestWhileIntegrating = 0.0f;
+                    auto finalIncrement = restored.increments.limitGainDb;
+
+                    rig.run (runSeconds, [&] (int)
+                    {
+                        const auto p = rig.probe();
+                        const auto manualPlusIncrement = raisedManualDb + p.increments.limitGainDb;
+                        lowest = juce::jmin (lowest, p.appliedBiasDb);
+                        finalIncrement = p.increments.limitGainDb;
+
+                        if (integrating (p))
+                            highestWhileIntegrating = juce::jmax (highestWhileIntegrating, manualPlusIncrement);
+
+                        pushedAboveBlocks += integrating (p) && manualPlusIncrement > 24.0f && errorOf (p) < pushingErrorDb ? 1 : 0;
+                    });
+
+                    logMessage ("  (a) restored into manual " + db (raisedManualDb) + " dB: increment " + db (restored.increments.limitGainDb) + " -> "
+                                + db (finalIncrement) + " dB, manual + increment up to " + db (highestWhileIntegrating) + " dB while integrating, "
+                                + juce::String (pushedAboveBlocks * blockSeconds, 2) + " s integrating above 24 dB with the error below " + db (pushingErrorDb)
+                                + " dB; G_trim lowest " + db (lowest) + " dB");
+                    expect (sameBits (restored.appliedBiasDb, restoredTrimDb), "(a) fixture: G_trim is restored at -1 dB");
+                    expect (pushedAboveBlocks * blockSeconds >= minimumPushedSeconds,
+                            "(a) fixture: integrating with manual + increment above 24 dB and the error asking for more for at least "
+                            + juce::String (minimumPushedSeconds, 0) + " s");
+                    expect (lowest >= restoredTrimDb, "(a) G_trim never goes below -1 dB: the automatic part counts only up to the 24 dB the limiter executes");
+                }
+
+                // ---- (b) ----
+                {
+                    auto rig = makeRig (donorManualDb);
+                    rig.chain.restoreGlazeStateXml (edited.get());
+                    auto lowest = rig.probe().appliedBiasDb;
+
+                    rig.run (runSeconds, [&] (int) { lowest = juce::jmin (lowest, rig.probe().appliedBiasDb); });
+
+                    logMessage ("  (b) control, restored into manual " + db (donorManualDb) + " dB: G_trim lowest " + db (lowest) + " dB");
+                    expect (lowest < restoredTrimDb - 0.1f, "(b) control: with the lower bound at -3 dB the same history pulls G_trim below -1.1 dB");
                 }
             }
         };

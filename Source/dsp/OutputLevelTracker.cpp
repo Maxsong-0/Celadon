@@ -414,21 +414,39 @@ namespace celadon::glaze
 
     std::unique_ptr<juce::XmlElement> OutputLevelTracker::createStateXml() const
     {
+        // 已收的段从旧到新排成一列（从环里最旧的那一格起）。
+        const auto stored = juce::jmin (closedCount, closedCapacity);
+        std::array<Segment, (std::size_t) closedCapacity> history {};
+        std::array<Extra, (std::size_t) closedCapacity> historyExtra {};
+
+        for (int i = 0; i < stored; ++i)
+        {
+            const auto index = (std::size_t) ((closedWrite - stored + i + closedCapacity) % closedCapacity);
+            history[(std::size_t) i] = closed[index];
+            historyExtra[(std::size_t) i] = closedExtra[index];
+        }
+
+        // 给 0.1.8.10 的那一份：最新的至多 32 段，从旧到新放在第 0 格起，写入位置是最新一段的下一格。0.1.8.10 从写入位置往前
+        // 数 closedCount 段，读到的正是这几段。
+        const auto legacyCount = juce::jmin (stored, legacyClosedCapacity);
+        std::array<Segment, (std::size_t) legacyClosedCapacity> legacy {};
+
+        for (int i = 0; i < legacyCount; ++i)
+            legacy[(std::size_t) i] = history[(std::size_t) (stored - legacyCount + i)];
+
         auto xml = std::make_unique<juce::XmlElement> ("OUTPUT_LEVEL");
         xmlio::Writer writer (*xml);
         writer.field ("openEnergy", open.energy);
         writer.field ("openMainness", open.mainness);
-        writer.field ("closedCount", closedCount);
-        writer.field ("closedWrite", closedWrite);
+        writer.field ("closedCount", legacyCount);
+        writer.field ("closedWrite", legacyCount % legacyClosedCapacity);
         writer.field ("haveOpenMainness", haveOpenMainness);
         writer.field ("openWasMain", openWasMain);
         xml->setAttribute ("openSamples", juce::String (open.samples));
+        xml->setAttribute ("closed", juce::Base64::toBase64 (legacy.data(), sizeof (legacy)));
 
-        juce::MemoryBlock packed ((size_t) closedCapacity * sizeof (Segment));
-        std::memcpy (packed.getData(), closed.data(), packed.getSize());
-        xml->setAttribute ("closed", juce::Base64::toBase64 (packed.getData(), packed.getSize()));
-
-        // T-106：每段另记的量与存档时的采样率另写八个属性。上面那些原样不动，0.1.8.10 不认识新属性、照旧读得了这一节。
+        // T-106：每段另记的量、存档时的采样率、全部已收的段另写十个属性。上面那些照 0.1.8.10 的格式写，0.1.8.10 不认识新属性、
+        // 照旧读得了这一节；这一版读新格式时只用下面这些，closed 只验大小（见 restoreStateXml）。
         writer.field ("openUnityEnergy", openExtra.unityEnergy);
         writer.field ("openInputEnergy", openExtra.inputEnergy);
         writer.field ("openInputLufsSum", openExtra.inputLufsSum);
@@ -436,10 +454,9 @@ namespace celadon::glaze
         writer.field ("sampleRate", sampleRate);   // 段里的样本数按它记；读回时采样率不同就不用这批段（见 restoreStateXml）
         xml->setAttribute ("openInputSamples", juce::String (openExtra.inputSamples));
         xml->setAttribute ("openPairedSamples", juce::String (openExtra.pairedSamples));
-
-        juce::MemoryBlock extraPacked ((size_t) closedCapacity * sizeof (Extra));
-        std::memcpy (extraPacked.getData(), closedExtra.data(), extraPacked.getSize());
-        xml->setAttribute ("closedExtra", juce::Base64::toBase64 (extraPacked.getData(), extraPacked.getSize()));
+        writer.field ("historyCount", stored);
+        xml->setAttribute ("history", juce::Base64::toBase64 (history.data(), (size_t) stored * sizeof (Segment)));
+        xml->setAttribute ("historyExtra", juce::Base64::toBase64 (historyExtra.data(), (size_t) stored * sizeof (Extra)));
         return xml;
     }
 
@@ -449,8 +466,8 @@ namespace celadon::glaze
             return false;
 
         Segment restoredOpen;
-        auto count = closedCount;
-        auto write = closedWrite;
+        auto count = 0;   // closedCount、closedWrite 只验（给 0.1.8.10 的那一份），这一版不用
+        auto write = 0;
         auto have = haveOpenMainness;
         auto wasMain = openWasMain;
         xmlio::Reader reader (xml);
@@ -462,13 +479,14 @@ namespace celadon::glaze
         reader.field ("openWasMain", wasMain);
 
         juce::MemoryOutputStream packed;
-        if (! reader.ok || count < 0 || count > closedCapacity || write < 0 || write >= closedCapacity
+        if (! reader.ok || count < 0 || count > legacyClosedCapacity || write < 0 || write >= legacyClosedCapacity
             || ! juce::Base64::convertFromBase64 (packed, xml.getStringAttribute ("closed"))
-            || packed.getDataSize() != (size_t) closedCapacity * sizeof (Segment))
+            || packed.getDataSize() != (size_t) legacyClosedCapacity * sizeof (Segment))
             return false;
 
         static constexpr const char* extraAttributes[] = { "openUnityEnergy", "openInputEnergy", "openInputLufsSum", "openLowShareSum",
-                                                           "openInputSamples", "openPairedSamples", "closedExtra", "sampleRate" };
+                                                           "openInputSamples", "openPairedSamples", "sampleRate",
+                                                           "historyCount", "history", "historyExtra" };
         int present = 0;
 
         for (const auto* name : extraAttributes)
@@ -477,7 +495,7 @@ namespace celadon::glaze
         if (present == 0)
         {
             // 旧存档：不知道每段是在什么增益下录的，折算不了。段累计清空、从头攒；滤波器照旧不动。
-            // 上面那几项的校验同 0.1.8.10；段的内容（closed 里各段、openSamples）反正不用，不看。
+            // 上面那几项的校验同 0.1.8.10（环 32 格）；段的内容（closed 里各段、openSamples）反正不用，不看。
             clearSegments();
             legacyState = true;
             return true;
@@ -487,7 +505,8 @@ namespace celadon::glaze
             return false;
 
         // 新格式：这里起读到的每一个量都要用，逐个校验，有一个不合规矩就整节拒收（同别的节点，坏数据不猜）。
-        // 三个样本数是十进制文本，严格解析；各段（开着的一段 + 已收的 32 段）连同它另记的量都验。
+        // 三个样本数是十进制文本，严格解析；各段（开着的一段 + history 里的 historyCount 段）连同它另记的量都验。
+        // 已收的段只从 history 读：closed 是给 0.1.8.10 的那一份（最新的至多 32 段），上面验过大小，内容不用。
         Extra restoredOpenExtra;
         xmlio::Reader extraReader (xml);
         extraReader.field ("openUnityEnergy", restoredOpenExtra.unityEnergy);
@@ -496,27 +515,35 @@ namespace celadon::glaze
         extraReader.field ("openLowShareSum", restoredOpenExtra.lowShareSum);
         auto savedRate = 0.0;
         extraReader.field ("sampleRate", savedRate);
+        auto historyCount = -1;
+        extraReader.field ("historyCount", historyCount);
 
-        juce::MemoryOutputStream extraPacked;
+        juce::MemoryOutputStream historyPacked, historyExtraPacked;
         std::array<Segment, (std::size_t) closedCapacity> restoredClosed {};
         std::array<Extra, (std::size_t) closedCapacity> restoredExtra {};
 
-        if (! extraReader.ok || ! std::isfinite (savedRate) || savedRate <= 0.0
+        if (! extraReader.ok || ! std::isfinite (savedRate) || savedRate <= 0.0 || historyCount < 0 || historyCount > closedCapacity
             || ! parseCount (xml.getStringAttribute ("openSamples"), stateMaximumSegmentSamples, restoredOpen.samples)
             || ! parseCount (xml.getStringAttribute ("openInputSamples"), stateMaximumSegmentSamples, restoredOpenExtra.inputSamples)
             || ! parseCount (xml.getStringAttribute ("openPairedSamples"), stateMaximumSegmentSamples, restoredOpenExtra.pairedSamples)
             || ! validSegment (restoredOpen) || ! validExtra (restoredOpenExtra, restoredOpen.samples)
-            || ! juce::Base64::convertFromBase64 (extraPacked, xml.getStringAttribute ("closedExtra"))
-            || extraPacked.getDataSize() != sizeof (restoredExtra))
+            || ! juce::Base64::convertFromBase64 (historyPacked, xml.getStringAttribute ("history"))
+            || historyPacked.getDataSize() != (size_t) historyCount * sizeof (Segment)
+            || ! juce::Base64::convertFromBase64 (historyExtraPacked, xml.getStringAttribute ("historyExtra"))
+            || historyExtraPacked.getDataSize() != (size_t) historyCount * sizeof (Extra))
             return false;
 
-        std::memcpy (restoredClosed.data(), packed.getData(), packed.getDataSize());
-        std::memcpy (restoredExtra.data(), extraPacked.getData(), extraPacked.getDataSize());
+        if (historyCount > 0)
+        {
+            std::memcpy (restoredClosed.data(), historyPacked.getData(), historyPacked.getDataSize());
+            std::memcpy (restoredExtra.data(), historyExtraPacked.getData(), historyExtraPacked.getDataSize());
+        }
 
-        for (std::size_t i = 0; i < restoredExtra.size(); ++i)
+        for (std::size_t i = 0; i < (std::size_t) historyCount; ++i)
             if (! validSegment (restoredClosed[i]) || ! validExtra (restoredExtra[i], restoredClosed[i].samples))
                 return false;
 
+        // 从旧到新放在第 0 格起，写入位置是最新一段的下一格（满 128 段时回到第 0 格，正是最旧的那一段）。
         closed = restoredClosed;
         closedExtra = restoredExtra;
 
@@ -525,8 +552,8 @@ namespace celadon::glaze
 
         open = restoredOpen;
         openExtra = restoredOpenExtra;
-        closedCount = count;
-        closedWrite = write;
+        closedCount = historyCount;
+        closedWrite = historyCount % closedCapacity;
         haveOpenMainness = have;
         openWasMain = wasMain;
         legacyState = false;
