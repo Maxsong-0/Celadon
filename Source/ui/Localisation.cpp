@@ -89,7 +89,7 @@ namespace celadon::ui
             { Text::legacyDiscarded,    "旧的聆听结果已丢弃，声音会变", "The old listening result was discarded, so the sound will change" },
             // T-108（ADR-039 Q2）：旧工程存着非默认的曲风 / 交付（T-038，已删），本次打开改回通用 + 标准。
             { Text::genreDeliveryReset, "曲风与交付已取消，已改回通用 + 标准，声音会变",
-                                        "Genre and delivery were removed; now General + Standard, so the sound will change" },
+                                        "Genre/delivery removed, now General + Standard; sound changes" },
             // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
            #if JUCE_MAC
             { Text::hintDrag,           "拖动调节 · \xe2\x8c\x98 精调",  "Drag \xc2\xb7 \xe2\x8c\x98 for fine" },

@@ -231,7 +231,7 @@ namespace celadon::test
             {
                 expectEquals (ui::tr (Text::genreDeliveryReset, Language::chinese), utf8 ("曲风与交付已取消，已改回通用 + 标准，声音会变"));
                 expectEquals (ui::tr (Text::genreDeliveryReset, Language::english),
-                              juce::String ("Genre and delivery were removed; now General + Standard, so the sound will change"));
+                              juce::String ("Genre/delivery removed, now General + Standard; sound changes"));
                 expectEquals (ui::tr (Text::legacyDiscarded, Language::chinese), utf8 ("旧的聆听结果已丢弃，声音会变"));
                 expectEquals (ui::tr (Text::legacyDiscarded, Language::english),
                               juce::String ("The old listening result was discarded, so the sound will change"));

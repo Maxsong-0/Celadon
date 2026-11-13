@@ -11,7 +11,7 @@ Nothing to click. GLAZE follows whatever is playing, the old song's statistics f
 
 From this version GLAZE no longer listens through a passage and then settles on a plan; it follows the music all the time. The listening result, plan and calibration saved in an old project are discarded on load and GLAZE starts following from scratch, so the sound changes; the bottom-left corner says so once: “The old listening result was discarded, so the sound will change”. Play through the main section once and it settles. New projects save the statistics gathered so far and carry on from them when reopened.
 
-0.1.8.11 removed the Genre and Delivery choices: an old project saved with a House genre, Streaming or Club loads as General + Standard, so it sounds different too, and the bottom-left corner says so once: “Genre and delivery were removed; now General + Standard, so the sound will change” (one line each when both notices apply). See [Genre and Delivery (removed)](/docs/glaze#genre-and-delivery-removed).
+0.1.8.11 removed the Genre and Delivery choices: an old project saved with a House genre, Streaming or Club loads as General + Standard, so it sounds different too, and the bottom-left corner says so once: “Genre/delivery removed, now General + Standard; sound changes” (one line each when both notices apply). See [Genre and Delivery (removed)](/docs/glaze#genre-and-delivery-removed).
 
 ## Why is everything under Advanced off in my old projects?
 

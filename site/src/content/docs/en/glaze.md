@@ -56,7 +56,7 @@ GLAZE doesn't listen to a stretch first and then decide; it keeps a tally part b
 
 From 0.1.8.8 to 0.1.8.10 two choices sat on either side of the GLAZE heading: Genre (General / Deep / Tech / Melodic) and Delivery (Standard / Streaming / Club). Both were removed in 0.1.8.11, and every song is now processed the way General + Standard always was: the main section is recognised by loudness, the tonal target and target loudness follow the style, and the true-peak ceiling is your Ceiling (minus any codec margin).
 
-- **Opening an old project saved with a House genre, Streaming or Club**: it loads as General + Standard, so it sounds different, and the bottom-left corner says so once: “Genre and delivery were removed; now General + Standard, so the sound will change”. Old projects saved with General + Standard don't show this notice.
+- **Opening an old project saved with a House genre, Streaming or Club**: it loads as General + Standard, so it sounds different, and the bottom-left corner says so once: “Genre/delivery removed, now General + Standard; sound changes”. Old projects saved with General + Standard don't show this notice.
 - **A version for streaming platforms**: Streaming used to cap the ceiling at −2 dBTP; now pull the Ceiling down yourself (to −2 dBTP, say), or add a codec margin under Advanced, then remeasure true peaks with an independent tool after encoding.
 - **A louder version** (what Club used to do): turn GLAZE up, or switch the style to Punchy.
 
