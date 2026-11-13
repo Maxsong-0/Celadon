@@ -2,7 +2,7 @@
   ==============================================================================
 
     SpectrumView.h
-    上半部分正中的频谱仪面板（V4 设计稿 1032 × 238）与右上角的响度小窗。
+    上半部分正中的频谱仪面板（V4 设计稿 1032 × 238）。右上角原来的响度小窗 T-107 起搬到中层右侧板（MiddleLayer.h 的 DeliveryPanel）。
 
       - 20 Hz ～ 20 kHz 对数横轴，−84 ～ −3 dB 纵轴；OUT 是插件最终输出（听原声时就是原声），填充按响度上色（T-036，见下）、
         白色细竖纹、往下渐隐；白线 = 平均；深青细线 = 峰值保持；虚线 = IN（链入口）。三者都可开关；
@@ -33,7 +33,7 @@
         最响是亮薄荷青；白色竖纹与往下渐隐照旧。颜色与竖纹合成一行图（prepareOutputRow），纵向平铺一次填进 OUT：原来横向渐变 +
         竖纹瓦片两遍填充，现在一遍。图例 OUT 色块同一条色带；
       - 曲线在屏上变了（按加斜率、钳位后的纵坐标比，0.1 像素）才重建、重画，只重画「新旧曲线的包围盒 ∪ 悬停光标」，安静段落
-        脏区小；在 paint 里重建的那一帧（换斜率）画出的区域也并进「旧区域」。图例开关、斜率、响度小窗用对齐缓存
+        脏区小；在 paint 里重建的那一帧（换斜率）画出的区域也并进「旧区域」。图例开关、斜率用对齐缓存
         （setBufferedToAlignedImage）——频谱一秒重画 60 / 120 次时它们从缓存贴、不重排文字，小数像素比下字也不糊；dB 刻度的白底框
         并进刻度那张缓存图，读数框的影子 / 白底 / 描边 / 文字并成一张。缓存图尺寸不变就复用、关掉备份（Direct2D 不回读）。
         半透明元素先画进透明图再贴，个别边缘像素与直接画差 1；
@@ -81,48 +81,6 @@ namespace celadon::ui
                                     const float* dashLengths, int numDashLengths, juce::Path& centre, juce::Path& dest);
 
     //==============================================================================
-    // 响度小窗（214 × 88）：整体响度（大字）、短期、真峰值（复位以来的最大值）、峰响比、流媒体归一量、目标响度标记。
-    class LoudnessHud  : public juce::Component,
-                         public juce::TooltipClient
-    {
-    public:
-        LoudnessHud();
-
-        void setLanguage (Language newLanguage);
-
-        struct Values
-        {
-            float integratedLufs = -100.0f;     // LoudnessMeter::noReading（−100）= 没有读数
-            float shortTermLufs = -100.0f;
-            float truePeakMaxDb = -100.0f;      // 复位以来 OUT 的最大真峰值
-            float ceilingDb = -1.0f;
-            bool hasTarget = false;             // GLAZE 此刻追的目标响度（锁定且 GLAZE > 0）
-            float targetLufs = 0.0f;
-        };
-
-        void setValues (const Values& newValues);
-
-        std::function<void()> onReset;
-
-        void paint (juce::Graphics&) override;
-        void mouseUp (const juce::MouseEvent&) override;
-        void mouseMove (const juce::MouseEvent&) override;
-        void mouseExit (const juce::MouseEvent&) override;
-        juce::String getTooltip() override;
-
-    private:
-        juce::Rectangle<float> resetIconBounds() const;
-        bool hasReading (float lufs) const noexcept   { return lufs > -99.0f; }
-
-        Language language = Language::chinese;
-        Values values;
-        juce::String shownKey;           // 上次重画时各项显示文字拼起来：没变就不重画
-        bool resetHovered = false;
-
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LoudnessHud)
-    };
-
-    //==============================================================================
     class SpectrumView  : public juce::Component,
                           public juce::SettableTooltipClient
     {
@@ -143,8 +101,6 @@ namespace celadon::ui
 
         // CLAY 此刻的实际频率（0 = 没在处理）；active = 修坯没被旁通。
         void setClayMarkers (float lowCutHz, float monoHz, bool active);
-
-        LoudnessHud& getLoudnessHud() noexcept   { return hud; }
 
         // 只读，给截图工具的检查用（T-070）：路径重建过多少次（buildCurvePaths 每次 +1）——「PEAK 关、只剩峰值在落时不重建」
         // 要数真的重建，不能拿脏区当代理；此刻读数框里的文字——悬停时读数必须是光标处此刻的值，工具按计算器的值独立算一份对。
@@ -296,7 +252,6 @@ namespace celadon::ui
                      inputToggle { LegendToggle::Swatch::input },
                      peakToggle { LegendToggle::Swatch::peak };
         SlopeControl slopeControl;
-        LoudnessHud hud;
         int readoutWidth = 250;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumView)

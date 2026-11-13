@@ -71,11 +71,8 @@ namespace celadon::ui
 
             // ---- 响度 ----
             { Text::loudness,           "响度",                     "LOUDNESS" },
-            { Text::truePeakShort,      "真峰值",                   "TP" },
-            { Text::shortTermShort,     "短期",                     "S" },
             { Text::peakToLoudness,     "峰响比",                   "PLR" },
             { Text::normalisation,      "归一",                     "Norm" },
-            { Text::streamingReference, "流媒体 \xe2\x88\x92" "14", "Stream \xe2\x88\x92" "14" },
             { Text::resetMeters,        "重新计量",                 "Reset meters" },
 
             // ---- GLAZE 中层 ----
@@ -89,9 +86,6 @@ namespace celadon::ui
             { Text::matchedBy,          "已等响 {0} dB",            "level-matched {0} dB" },
             { Text::notMatched,         "未等响（响度差 {0} dB）",  "not matched ({0} dB apart)" },
             { Text::differenceUnknown,  "播放几秒后测出响度差",     "play a few seconds to measure" },
-            { Text::drivesParameters,   "联动 7 项参数",            "Drives 7 parameters" },
-            { Text::glazeManual,        "只用手动设置",             "Manual settings only" },
-            { Text::cornerFollowing,    "跟着主段慢慢调整",         "Follows the main section" },
             { Text::legacyDiscarded,    "旧的聆听结果已丢弃，声音会变", "The old listening result was discarded, so the sound will change" },
             // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
            #if JUCE_MAC
@@ -256,6 +250,21 @@ namespace celadon::ui
             { Text::deliveryStandard,   "标准",                     "Standard" },
             { Text::deliveryStreaming,  "流媒体",                   "Streaming" },
             { Text::deliveryClub,       "俱乐部",                   "Club" },
+
+            // ---- T-107 重构包 A：中层两块侧板（左「此刻在推什么」、右「交付」）。措辞是效果图用的，T-086 定稿 ----
+            { Text::sideNowTitle,       "此刻在推什么",             "GLAZE now" },
+            { Text::sideTarget,         "目标 {0} LUFS",            "Target {0} LUFS" },
+            { Text::sideShortTerm,      "短期",                     "Short-term" },
+            { Text::sideTruePeak,       "真峰值",                   "True peak" },
+            { Text::sideConfidence,     "把握 {0} %",               "Confidence {0} %" },
+            { Text::sideMainSection,    "本段是主段",               "Main section" },
+            { Text::sideNotMainSection, "本段不是主段",             "Not the main section" },
+            { Text::sideProtection,     "保护 {0} dB",              "Protection {0} dB" },
+            { Text::sideHistory,        "短期响度 · 60 秒",         "Short-term · 60 s" },
+            { Text::sideTargetLegend,   "目标",                     "Target" },
+            { Text::sideAutoGain,       "GLAZE 自动增益",           "GLAZE auto gain" },
+            { Text::sideWaiting,        "播放后开始记录",           "Starts recording when audio plays" },
+            { Text::sideClayPartAuto,   "自动 {0} 项",              "{0} auto" },
         };
 
         static_assert (std::size (table) == (size_t) Text::numTexts, "Localisation 表的行数与 Text 的键数不一致：两边一起改");

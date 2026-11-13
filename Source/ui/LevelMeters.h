@@ -55,7 +55,7 @@ namespace celadon::ui
         void pushReadings (float peakDb, float reductionDb, float ceilingDb, bool planLimited, double elapsedSeconds);
         void resetHolds();
 
-        // 点下面的数字清零时回调（编辑器顺便把响度小窗里的真峰值最大值也清掉）。
+        // 点下面的数字清零时回调（编辑器顺便把右侧板「交付」里的真峰值最大值也清掉）。
         std::function<void()> onResetClicked;
 
         void paint (juce::Graphics&) override;
