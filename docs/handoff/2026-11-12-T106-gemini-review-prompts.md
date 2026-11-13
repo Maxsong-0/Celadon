@@ -1,12 +1,13 @@
 # T-106 给 Gemini 的复查提示词（2026-11-12）
 
 > 用途：Max 自己拿去给 Gemini 跑一轮只读复查。结果只当第二意见：拿回来先由主会话逐条核对「文件:行号」，再定改不改。
-> 材料：一份文本材料包 `t106-review-pack.txt`（主会话生成、发给 Max；不进仓库）。里面没有密钥；代码注释里有「Max」这个名字和日期。
+> 材料：一份文本材料包 `t106-review-pack-v2.txt`（主会话生成、发给 Max；不进仓库）。里面没有密钥；代码注释里有「Max」这个名字和日期。
+> 第一份 `t106-review-pack.txt`（20:3x 发的，对应提交 `7dc1526`）比 v2 少一处修正和几条测试，差别见文末「两份材料包的差别」。
 > 分支 `claude/t106-gtrim-error-basis`，对照提交 `3a16132`。计划、决定见 vault `04-协调/2026-11-12-T-106-G_trim换误差口径计划.md`、`03-记忆/ADR-038-G_trim换误差口径.md`。
 
 ## 怎么用
 
-1. 新开一个 Gemini 对话，上传 `t106-review-pack.txt`，发「提示词 1」。
+1. 新开一个 Gemini 对话，上传 `t106-review-pack-v2.txt`，发「提示词 1」。
 2. 它答完后，在同一个对话里依次发「提示词 2」「提示词 3」。
 3. 「提示词 4」放最后发：里面有 muse、Codex 两家已经提过的问题和处理，先发会让它先入为主。
 4. 把四段回答原样贴回主会话（或存成文件）。
@@ -23,12 +24,12 @@
 | PART 4 | 测试：4.1 新文件 `tests/OutputLevelTrackerTests.cpp` 全文；4.2 环路测试用的夹具；4.3 `tests/GlazeControllerTests.cpp` 里随行为改写的现有用例的差异；4.4 文件末尾新加的 `GlazeControllerTrimLoop` 全文；4.5 `tests/GlazeTests.cpp` 的差异 |
 | PART 5 | 意图说明：ADR-038 全文、规格第 4 节第 3 条和它的修订注 |
 
-材料包由 `make_review_pack.py` 从工作树和 vault 现读现拼（脚本在会话草稿目录，不进仓库）；代码再改就重新生成，别拿旧包去审。这一份对应的四个源文件 sha256 前 12 位：`GlazeController.cpp 568315410ce5`、`GlazeController.h bfa31493ee52`、`OutputLevelTracker.cpp 250140f55ddd`、`OutputLevelTracker.h 20f010bff79f`。
+材料包由 `make_review_pack.py` 从工作树和 vault 现读现拼（脚本在会话草稿目录，不进仓库）；代码再改就重新生成，别拿旧包去审。v2 对应的四个源文件 sha256 前 12 位：`GlazeController.cpp b053c7402a6d`、`GlazeController.h 37776d696d76`、`OutputLevelTracker.cpp 445bffe75049`、`OutputLevelTracker.h 20f010bff79f`（第一份的前三个是 `568315410ce5`、`bfa31493ee52`、`250140f55ddd`，最后一个没变）。材料包第 2 行写着它对应的提交号。
 
 ## 提示词 1：独立找问题
 
 ```text
-You are doing a read-only code review of one change ("T-106") in an audio mastering plugin (C++20, JUCE). The attached file t106-review-pack.txt holds everything; its first lines list the parts. Code comments and the design notes are in Chinese; identifiers are English. Please answer in Simplified Chinese and keep identifiers and file paths as they are.
+You are doing a read-only code review of one change ("T-106") in an audio mastering plugin (C++20, JUCE). The attached text file (the T-106 review pack) holds everything; its first lines list the parts. Code comments and the design notes are in Chinese; identifiers are English. Please answer in Simplified Chinese and keep identifiers and file paths as they are.
 
 Review what T-106 introduced or changed (PART 1 is the diff against base commit 3a16132; PART 2 has the full new files with line numbers; PART 3 is unchanged context). Read the code first and form your own view; read PART 5 (design notes) last and treat it as claims to check, not as facts.
 
@@ -36,9 +37,9 @@ Background. "G_trim" is a slow output-side trim added to the limiter's input gai
 
 What T-106 does (OutputLevelTracker = the sensor, GlazeController::Impl = the loop):
 1. Error = planned net gain - measured net gain. Measured net gain = output main level - input main level over the same segments with the same weights (OutputLevelTracker::evidenceAt). The tracker measures K-weighted input energy itself (processInput) and books it with the output samples of the same slice.
-2. Each segment also stores its output energy referred back to 0 dB Limit Gain. The reading is that level plus a reference gain = manual + applied increment + G_trim, excluding guard relief (trimReferenceGainDb), so a step of G_trim shows up in the reading immediately.
+2. Each segment also stores its output energy referred back to 0 dB Limit Gain. The reading is that level plus a reference gain = manual + the automatic Limit Gain increment the current host block executed + the live G_trim, excluding guard relief (trimReferenceGainDb), so a step of G_trim shows up in the reading immediately.
 3. A segment counts fully if its recording gain is within 1 dB of the reference, not at all beyond 3 dB, linearly in between; with less than 3 s of weighted evidence G_trim does not integrate. Segments whose input was not paired sample for sample, or that have no output energy, are not evidence.
-4. "Plan in place" gate: a host block whose applied automatic increments had not reached the target plan is not evidence and G_trim does not integrate on it. The flag and that plan's net gain are captured once per host block in beginBlock (noteExecutedPlan) and reused by every slice's endBlock.
+4. "Plan in place" gate: a host block whose applied automatic increments had not reached the target plan is not evidence and G_trim does not integrate on it. The flag, that plan's net gain and the executed Limit Gain increment are captured once per host block in beginBlock (noteExecutedPlan) and reused by every slice's endBlock.
 5. Closed segments are re-judged every block against the live reference (rejudge); only segments that still count as main are read.
 6. Integrate only while the tracker's open segment is main; anti-windup (usableTrimRange).
 7. State: the OUTPUT_LEVEL XML node gains 7 attributes; the 8 old ones are written unchanged.
@@ -107,7 +108,21 @@ R2-C2 (low) mainNow does not guarantee that this slice was booked. -> No code ch
 R2-D1..D3 (tests) The re-judge test did not cover the open segment; the broken-state tests only corrupted Extra; no test for zero-energy segments or non-finite samples. -> Tests added.
 R2-D4 (low) Loop test 2 asserts status().currentMainness instead of the tracker's own flag; loop test 9's "would integrate" predicate was incomplete. -> Test 9's predicate completed. Test 2 left as it is on purpose: tests 1-5 must compile and run unmodified on the base commit, which has none of the new probe fields.
 R2-E (comments) Four comments contradicted the code. -> Corrected.
+S-1 (low; found by the author after R1 and R2) trimReferenceGainDb() referred the reading to the live applied Limit Gain increment. After a replan inside a host block that increment is slewed by the remaining slices, while the block's audio was recorded with the increment from beginBlock. -> Fixed: beginBlock also captures executedIncrementGainDb and the reference uses it (before the first block after a restore it falls back to the live value). New test: GlazeControllerTrimLoop 14; loop test 6 now also checks that a restore drops these captured values.
+S-2 (nit; found by the author's mutation run) parseCount computed a digit as (int64) (c - '0'). juce_wchar is unsigned on aarch64 Linux and on Windows, so there a character below '0' produced a value of about 4.29e9 that the upper-bound check happened to reject: the lower-bound check `c < '0'` was dead code on those platforms (moving it by one changed nothing, so no test could guard it), while on platforms with a signed wchar_t it was the only thing rejecting such characters. -> Now (int64) c - (int64) '0'. The unmutated parser behaves the same as before on every platform; the existing malformed-count cases ("4800/" among them) now guard the lower bound on both architectures.
 ```
+
+## 两份材料包的差别
+
+| | 第一份 `t106-review-pack.txt` | `t106-review-pack-v2.txt` |
+|---|---|---|
+| 对应的代码 | 提交 `7dc1526` | `7dc1526` 之后的那一个提交 |
+| 读数折算用的自动增量 | 此刻的（块内可能已被速率限制推过）| 这一个宿主块执行的（上面的 S-1）|
+| 环路测试 | 13 条 | 14 条；第 6 条末尾多一段 |
+| 跟踪器测试 | 8 条 | 8 条；坏十进制多 3 种写法 |
+| 样本数解析里算数字的那一行 | `(std::int64_t) (c - '0')` | 两边先转成有符号 64 位再减（上面的 S-2；没改错的代码行为不变）|
+
+已经拿第一份跑了也可以接着用：提示词 1 ～ 3 原样发（其中「What T-106 does」第 2、4 条说的自动增量，第一份里还是此刻的值），提示词 4 发之前删掉 S-1、S-2 两行。Gemini 要是在第一份上指出 S-1 这件事，说明它读得细，这一处 v2 里已经改了。
 
 ## 拿回结果之后
 

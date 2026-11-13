@@ -31,7 +31,10 @@ namespace celadon::glaze
                 if (c < '0' || c > '9')
                     return false;
 
-                const auto digit = (std::int64_t) (c - '0');
+                // 两边先各自转成有符号 64 位再减。juce_wchar 带不带符号看平台（x86_64 Linux、macOS 带，aarch64 Linux、Windows 不带）：
+                // 直接相减的话，不带符号的平台上 '0' 以下的字符减出来是个四十多亿的数，碰巧被下面的上界检查拒掉，上面那道
+                // 下界检查成了摆设、测试也测不到它；带符号的平台上却是负数，全靠它。这样写，各平台都只由上面那一行把关。
+                const auto digit = (std::int64_t) c - (std::int64_t) '0';
 
                 if (digit > maximum || value > (maximum - digit) / 10)   // value × 10 + digit ≤ maximum
                     return false;

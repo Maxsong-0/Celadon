@@ -836,8 +836,10 @@ namespace celadon::test
 
                 // 三个样本数：空、不是数字、数字后面带别的、前面带空格或正负号、小数——都拒收。juce 的 getLargeIntValue 会把
                 // 「garbage」读成 0、把「48000x」读成 48000（都能混过后面的范围检查），所以这里不能用它。
+                // 后三个盯解析器自己的边界：'/' 与 ':' 是紧挨着 '0'、'9' 的字符（当数字算的话「4800/」= 47999、「480:」= 4810，
+                // 都在范围里）；最后一个是 2^64 + 48000，不查溢出、按 64 位回绕的话正好读成 48000。
                 for (const auto* attribute : { "openSamples", "openInputSamples", "openPairedSamples" })
-                    for (const auto* text : { "", "garbage", "48000x", " 48000", "+48000", "-0", "48000.0" })
+                    for (const auto* text : { "", "garbage", "48000x", " 48000", "+48000", "-0", "48000.0", "4800/", "480:", "18446744073709599616" })
                     {
                         juce::XmlElement node (*saved);
                         node.setAttribute (attribute, text);

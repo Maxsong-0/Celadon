@@ -9341,8 +9341,9 @@ namespace celadon::test
 //  11. 「方案到位」也看 Tone：只有 Tone 没到位时 G_trim 也不动，Tone 到位后才积。
 //  12. 一个宿主块切成多片时，到没到位按块首那份设置判一次、各片沿用。
 //  13. 误差里的方案净增益用这一个宿主块执行的那份方案，不用这一块里刚重算出来的。
+//  14. 读数折算用的 Limit Gain 自动增量是这一个宿主块执行的那份，不是这一块里被速率限制推过的。
 // 前五条只用 T-106 之前就有的探针字段，同一份用例能原样放到修之前的代码（3a16132）上跑：在那里都失败（DGX 2026-11-12 实测，
-// 数值写在各条的注释里），修之后都通过。第 6 ～ 13 条要读 T-106 的探针与存档属性，只在修之后的代码上有意义；它们各盯一个
+// 数值写在各条的注释里），修之后都通过。第 6 ～ 14 条要读 T-106 的探针与存档属性，只在修之后的代码上有意义；它们各盯一个
 // T-106 新加的条件，把那个条件改错（去掉、放宽、收紧）对应的用例就红（验证报告里有逐条的改错结果）。
 // 除第 5、9 条外，素材与设置同 T-097「改参数冻结」那一条：makeMusic 种子 33、峰值 0.2、通用曲风、放宽预算——三个守门全程 +0，
 // 限幅器不动作，链给的净增益就是方案的净增益，G_trim 的稳态只剩 Limit Gain 死区里差的那 ≤ 0.1 dB。
@@ -9372,6 +9373,7 @@ namespace celadon::test
                 testWaitsForToneToo();
                 testJudgesInPlaceOncePerHostBlock();
                 testErrorUsesThePlanTheBlockExecuted();
+                testReferenceUsesTheIncrementTheBlockExecuted();
             }
 
         private:
@@ -9646,6 +9648,7 @@ namespace celadon::test
             //      两个节点逐位相同。
             //      旧形状读回——增量同供体逐位相同、G_trim 是 +0（不是存档里的值）、出口历史为空、LIVE 画像的 I 仍有效、没有旧工程提示；
             //      接着放 60 s，G_trim 又积起来，回到供体那个值的 ±0.05 dB 之内（历史从头攒、照样收敛）。
+            //      最后把存档读回一个正在别的增量上跑的 Rig：「这一块执行的是什么」的快照不留着（用例末尾那一段）。
             void testLegacyOutputLevelShape()
             {
                 beginTest ("OUTPUT_LEVEL in the 0.1.8.10 shape: G_trim restarts from +0 with an empty history and nothing else cold-starts; "
@@ -9738,6 +9741,30 @@ namespace celadon::test
                 expect (std::abs (after.appliedBiasDb - donorProbe.appliedBiasDb) <= reconvergedWithinDb,
                         "old shape: " + juce::String (afterSeconds, 0) + " s later G_trim is back within " + db (reconvergedWithinDb)
                         + " dB of the donor's value");
+
+                // ---- 读档连「这一块执行的是什么」的快照一起作废（GlazeController.cpp clearExecutedPlan）----
+                // 供体把 GLAZE 改成 50 再放 20 s（Limit Gain 增量比存档时低 3 dB 以上，方案到位），然后把一开始存的那份读回自己。
+                // 断言：到没到位、方案净增益要等下一次 beginBlock 重新定（探针：trimPlanInPlace 为假、trimPlanGainDb 是 NaN、没有
+                // 目标方案）；读数按存档里的增量折算、同存的时候逐位相同——读档前最后一块执行的增量不留着（留着的话参考增益差
+                // 3 dB 以上，存档里的段全不当证据）。
+                constexpr double otherGlazeSeconds = 20.0;
+                constexpr float otherGlazePercent = 50.0f;
+                constexpr float minimumIncrementGapDb = 3.0f;
+
+                donor.params.glazePercent = otherGlazePercent;
+                donor.run (otherGlazeSeconds);
+                const auto elsewhere = donor.probe();
+                donor.chain.restoreGlazeStateXml (saved.get());
+                const auto reread = donor.probe();
+                expect (elsewhere.trimPlanInPlace
+                            && std::abs (elsewhere.increments.limitGainDb - donorProbe.increments.limitGainDb) >= minimumIncrementGapDb,
+                        "fixture: before this restore the donor runs in place with a Limit Gain increment at least "
+                        + db (minimumIncrementGapDb) + " dB away from the saved one");
+                expect (! reread.trimPlanInPlace && std::isnan (reread.trimPlanGainDb) && ! reread.haveTargetPlan,
+                        "a restore drops the executed-plan snapshot together with the target plan");
+                expect (sameBits (reread.trimLevelLufs, donorProbe.trimLevelLufs) && sameBits (reread.trimInputLufs, donorProbe.trimInputLufs)
+                            && reread.trimEvidenceSeconds == donorProbe.trimEvidenceSeconds,
+                        "... and the readings are referred to the restored increment, not to the one the last block before the restore executed");
             }
 
             // 7. 依据：T-106「加权后的证据不足 3 s（一个短期响度窗）不积分」（GlazeController.cpp trimEvidenceMinimumSeconds）。
@@ -10202,6 +10229,74 @@ namespace celadon::test
                         "on the block of the replan the error is taken against the old plan's net gain (the plan the block executed)");
                 expect (std::abs (step) < 0.5f * fullStepDb,
                         "... so G_trim barely moves on that block (against the recomputed plan it would take a full step)");
+            }
+
+            // 14. 依据：T-106「读数折算到的 Limit Gain 用这一个宿主块执行的那份自动增量」（GlazeController.cpp trimReferenceGainDb /
+            //     executedIncrementGainDb）。这一块的音频是照块首的增量录的；块内重算把增量的目标挪出死区之后，已施加的增量在
+            //     剩下的片里按速率往新目标走——那是下一个宿主块才执行的。
+            //     同第 13 条的换常数（恒定素材收敛后把常数换成出厂预算：方案净增益 12.7 → 18.1 dB，不算改参数），但宿主块长
+            //     36000（0.75 s，约 75 片），换常数的时刻取在 1 s 网格点之前 0.25 s：重算落在下一块的第 12000 个样本，之后这一块
+            //     还有 0.5 s 的片，已施加的 Limit Gain 增量在这 0.5 s 里按 0.2 dB/s 往上走约 0.1 dB。
+            //     对照：同样的 Rig 不换常数，取同一块。
+            //     断言——换常数之后的第一块：
+            //       前提：两个 Rig 块首的 G_trim 逐位相同且积过；方案净增益在这一块里变了 ≥ 0.5 dB；块首到位、没冻结、块末开着
+            //       主段、切成 ≥ 50 片；已施加的 Limit Gain 增量在这一块里走了 ≥ 0.08 dB，对照里逐位没动；
+            //       G_trim 在这一块的变化和对照差 ≤ 0.001 dB（按块首的增量折算，两个 Rig 这一块的读数是同一个）。
+            //     参考增益跟着此刻的增量走的话，读数被抬高同样多，误差过了 −0.05 dB 之后每片都按上限往下走：这一块比对照多走约
+            //     0.017 dB。
+            void testReferenceUsesTheIncrementTheBlockExecuted()
+            {
+                beginTest ("the reading is referred to the Limit Gain increment the host block executed, not the one slewed during it");
+
+                constexpr int hostBlock = 36000;     // 0.75 s
+                constexpr int settleBlocks = 133;    // 99.75 s：下一个 1 s 网格点（第 100 s）落在下一块的第 12000 个样本
+                constexpr int minimumSlices = 50;
+                constexpr float minimumPlanStepDb = 0.5f;
+                constexpr float minimumIncrementMoveDb = 0.08f;
+                constexpr float sameStepWithinDb = 0.001f;
+
+                auto rig = makeQuietRig (100.0f, hostBlock);
+                auto control = makeQuietRig (100.0f, hostBlock);
+
+                for (int b = 0; b < settleBlocks; ++b)
+                {
+                    rig.step();
+                    control.step();
+                }
+
+                const auto before = rig.probe();
+                const auto controlBefore = control.probe();
+                rig.chain.getGlazeController().setConstantsForTesting (fastConstants());
+                rig.step();
+                control.step();
+                const auto after = rig.probe();
+                const auto controlAfter = control.probe();
+                const auto slices = rig.chain.getLastProcessSliceCountForTesting();
+
+                const auto step = after.appliedBiasDb - before.appliedBiasDb;
+                const auto controlStep = controlAfter.appliedBiasDb - controlBefore.appliedBiasDb;
+                const auto incrementMove = after.increments.limitGainDb - before.increments.limitGainDb;
+
+                logMessage ("  block of " + juce::String (slices) + " slices: planned net gain " + juce::String (before.targetPlan.effectiveGainDb, 4)
+                            + " -> " + juce::String (after.targetPlan.effectiveGainDb, 4) + " dB, applied Limit Gain increment "
+                            + juce::String (before.increments.limitGainDb, 4) + " -> " + juce::String (after.increments.limitGainDb, 4)
+                            + " dB; G_trim " + juce::String (before.appliedBiasDb, 6) + " -> " + juce::String (after.appliedBiasDb, 6)
+                            + " dB (step " + juce::String (step, 6) + "), control step " + juce::String (controlStep, 6));
+                expect (sameBits (before.appliedBiasDb, controlBefore.appliedBiasDb) && before.appliedBiasDb != 0.0f,
+                        "fixture: both rigs reach the block with the same G_trim, and it has integrated");
+                expect (std::abs (after.targetPlan.effectiveGainDb - before.targetPlan.effectiveGainDb) >= minimumPlanStepDb,
+                        "fixture: the plan is recomputed during the block and its net gain differs by at least " + db (minimumPlanStepDb) + " dB");
+                expect (planInPlaceBy (before) && after.trimPlanInPlace && ! after.trimFrozen && after.trimMainNow && slices >= minimumSlices,
+                        "fixture: the block starts in place, nothing is frozen, a main segment is open and it is cut into at least "
+                        + juce::String (minimumSlices) + " slices");
+                expect (incrementMove >= minimumIncrementMoveDb,
+                        "fixture: during the block the applied Limit Gain increment slews at least " + db (minimumIncrementMoveDb)
+                        + " dB towards the new plan (the replan leaves most of the block still to run)");
+                expect (sameBits (controlAfter.increments.limitGainDb, controlBefore.increments.limitGainDb),
+                        "fixture: in the control the applied Limit Gain increment does not move");
+                expect (std::abs (step - controlStep) <= sameStepWithinDb,
+                        "G_trim moves as in the control: the reading stays referred to the increment the block executed "
+                        "(referred to the slewed increment it would take about 0.017 dB more)");
             }
         };
 

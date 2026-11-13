@@ -521,12 +521,14 @@ namespace celadon::glaze
         AutoIncrements applied {};
         bool gainInDeadband = false;
         float gTrim = 0.0f;
-        // T-106：这一个宿主块交给各模块执行的那份设置是不是「方案到位」（planInPlace），到位的是净增益多少的方案。beginBlock 定下，
-        // 这一块的各片（endBlock）沿用：链把一个宿主块切成多片时每片都调 endBlock，前面的片已经把 targetPlan（replan）和 applied
-        // （slewApplied）往前推了，音频用的却还是块首那一份设置（CeladonChain::process「every slice uses the same executed
-        // settings」）。没到位时净增益记 NaN（用不上）。不存档：读档、prepare、冷启动后清掉，下一次 beginBlock 重新定。
+        // T-106：这一个宿主块交给各模块执行的那份设置是不是「方案到位」（planInPlace），到位的是净增益多少的方案，执行的 Limit Gain
+        // 自动增量是多少。beginBlock 定下，这一块的各片（endBlock）沿用：链把一个宿主块切成多片时每片都调 endBlock，前面的片
+        // 已经把 targetPlan（replan）和 applied（slewApplied）往前推了，音频用的却还是块首那一份设置（CeladonChain::process
+        // 「every slice uses the same executed settings」）。没到位时净增益记 NaN（用不上）。不存档：读档、prepare、冷启动后清掉
+        // （增量记 NaN = 还没有执行过的块），下一次 beginBlock 重新定。
         bool executedPlanInPlace = false;
         float executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
+        float executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
         GuardOutput budgetOut {}, contrastOut {}, psrOut {};
         float currentMainness = 1.0f;
 
@@ -905,11 +907,13 @@ namespace celadon::glaze
                 && within (applied.colorToneDb, target.colorToneDb, trimPlanToneToleranceDb);
         }
 
-        // T-106：beginBlock 末尾调。记下这一个宿主块执行的设置到没到位、到位的那份方案的净增益（见成员处的说明）。
+        // T-106：beginBlock 末尾调。记下这一个宿主块执行的设置到没到位、到位的那份方案的净增益、执行的 Limit Gain 自动增量
+        // （见成员处的说明）。
         void noteExecutedPlan() noexcept
         {
             executedPlanInPlace = planInPlace();
             executedPlanGainDb = executedPlanInPlace ? targetPlan.effectiveGainDb : std::numeric_limits<float>::quiet_NaN();
+            executedIncrementGainDb = applied.limitGainDb;
         }
 
         // 目标方案作废的地方（读档、prepare、冷启动）一并清：下一次 beginBlock 之前的 endBlock 不当证据。
@@ -917,16 +921,22 @@ namespace celadon::glaze
         {
             executedPlanInPlace = false;
             executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
+            executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
         }
 
-        // T-106：G_trim 的读数折算到的 Limit Gain = 手动 + 已施加的自动增量 + G_trim（钳法同 applyLimitExtras），不含守门退让。
-        // 取此刻的值（这一片积过之后的 G_trim），不取块首的快照：G_trim 每走一步，下一片的读数就要跟着变这一步，积分器才看得到
-        // 自己的动作。只在方案到位的块上积分（executedPlanInPlace），到位时 Limit Gain 增量停在死区里不走，所以它就是块首执行的
-        // 那个值。手动值或增量不是有限值时返回 NaN，evidenceAt 对它不给读数，这一块不积。
+        // T-106：G_trim 的读数折算到的 Limit Gain = 手动 + 这一个宿主块执行的自动增量 + G_trim（钳法同 applyLimitExtras），不含
+        // 守门退让。
+        // 自动增量取 beginBlock 记下的那一份（executedIncrementGainDb）：这一块的音频是照它录的。此刻的 applied.limitGainDb 在这
+        // 一块里可能已经被 slewApplied 推过了——重算把增量的目标挪出死区之后，剩下的片里它每秒走 0.2 ～ 1 dB；拿它折算，读数
+        // 跟着偏，G_trim 就照这个并不存在的偏差积。还没有执行过的块时（读档、prepare 之后）按此刻的 applied 读：那就是下一块
+        // 要执行的。
+        // G_trim 取此刻的值（这一片积过之后的），不取块首的快照：G_trim 每走一步，下一片的读数就要跟着变这一步，积分器才看得到
+        // 自己的动作。手动值或增量不是有限值时返回 NaN，evidenceAt 对它不给读数，这一块不积。
         float trimReferenceGainDb() const noexcept
         {
             const auto manualGain = manual.limit.gainDb;
-            const auto afterIncrement = juce::jlimit (0.0f, 24.0f, manualGain + applied.limitGainDb);
+            const auto increment = isFinite (executedIncrementGainDb) ? executedIncrementGainDb : applied.limitGainDb;
+            const auto afterIncrement = juce::jlimit (0.0f, 24.0f, manualGain + increment);
 
             if (! isFinite (manualGain) || ! isFinite (afterIncrement))
                 return std::numeric_limits<float>::quiet_NaN();
