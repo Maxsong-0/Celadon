@@ -534,7 +534,7 @@ namespace celadon::glaze
         bool executedPlanInPlace = false;
         float executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
         float executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
-        // T-106（F1）：上一片看到的输入侧当前段的起点（SegmentLedger::getCurrentSegmentStart），变了就让出口跟踪器收段。
+        // T-106（外部第二意见 F1，验证报告第 9 节第 18 条）：上一片看到的输入侧当前段的起点（SegmentLedger::getCurrentSegmentStart），变了就让出口跟踪器收段。
         static constexpr std::int64_t notSeenSegmentStart = -2;
         std::int64_t lastInputSegmentStart = notSeenSegmentStart;
         GuardOutput budgetOut {}, contrastOut {}, psrOut {};
