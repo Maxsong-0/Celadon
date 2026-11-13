@@ -16,7 +16,7 @@
          history / historyExtra 里。
       6. 旧存档（没有 T-106 的十个属性）读成空历史并打上标记；新格式里属性不全、三个样本数不是严格的十进制、historyCount 越界或
          和 history 的长度对不上、段本身或每段另记的量有一项不合规矩的整节拒收，拒收时状态不动；正好在界上的收下。新格式里
-         closed 的内容不用（只验长度）。
+         closed 的内容不用（只验长度）；closedCount / closedWrite 新旧两种形状都照 0.1.8.10 的规矩验（0 ～ 32、0 ～ 31）。
       7. 主段门：只有 m′ ≥ 0.5 的段进账；主段 → 非主段 → 主段，中间那一截两侧都不留痕迹，新开的段从零记起。
       8. 没有出口能量的段（数字静音）不当证据，也不占证据时长。
       9. 折算用限幅器实际执行的 Limit Gain（钳进 0 ～ 24 dB、非有限值按 0 dB），拿真的 LimiterModule 逐位核对这条规矩。
@@ -793,6 +793,38 @@ namespace celadon::test
                     node.setAttribute ("history", juce::Base64::toBase64 (segments.getData(), segments.getSize()));
                     node.setAttribute ("historyExtra", juce::Base64::toBase64 (extras.getData(), extras.getSize()));
                     expectRejected (node, "129 segments in history (lengths consistent)");
+                }
+
+                {
+                    // 给 0.1.8.10 的 closedCount / closedWrite 照它的规矩验（环 32 格：0 ≤ closedCount ≤ 32、0 ≤ closedWrite < 32），新旧两种
+                    // 形状都一样；这一版新格式读后不用这两个值，验它是为了不收下 0.1.8.10 自己都不会写的档。正好在界上的收下。
+                    juce::XmlElement legacyShape (*saved);
+
+                    for (const auto* attribute : extraAttributes)
+                        legacyShape.removeAttribute (attribute);
+
+                    struct Bound { const char* attribute; const char* text; bool accepted; };
+
+                    for (const auto& shape : { std::pair<const juce::XmlElement*, const char*> { saved.get(), "new shape" },
+                                               std::pair<const juce::XmlElement*, const char*> { &legacyShape, "legacy shape" } })
+                        for (const auto& bound : { Bound { "closedCount", "-1", false }, Bound { "closedCount", "33", false }, Bound { "closedCount", "32", true },
+                                                   Bound { "closedWrite", "-1", false }, Bound { "closedWrite", "32", false }, Bound { "closedWrite", "31", true } })
+                        {
+                            juce::XmlElement node (*shape.first);
+                            node.setAttribute (bound.attribute, bound.text);
+                            const auto what = juce::String (shape.second) + ", " + bound.attribute + " written as " + bound.text;
+
+                            if (bound.accepted)
+                            {
+                                Tracker target;
+                                makeTarget (target);
+                                expect (target.restoreStateXml (node), what + ": accepted (on the bound)");
+                            }
+                            else
+                            {
+                                expectRejected (node, what);
+                            }
+                        }
                 }
 
                 // ---- 每段另记的六个量逐项验（OutputLevelTracker.cpp validExtra）----
