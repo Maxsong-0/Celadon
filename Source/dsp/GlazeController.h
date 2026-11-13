@@ -12,8 +12,8 @@
         CeladonChain::setParams     → p = controller.beginBlock (manual, dryPath);  // dryPath = 宿主旁通或听原声。再把 p 交给四个模块
                                                                                       //  （与 v0.5 同一时机，getLatencySamples 照样立即反映 Lookahead）
         CeladonChain::process       → controller.analyzeSpectrum (balance);        // 每个宿主块开头一次：上一块 Balance 新发布的帧（见该函数注释）
-                                      GLAZE > 0 时宿主块在预算环 10 ms 时隙边界处切片
-                                      （getGuardSamplesUntilBoundary；宿主在播、给了位置或拍点与速度时，后几片先
+                                      GLAZE > 0 时宿主块在预算环 10 ms 时隙边界与 OUT 表 100 ms 子块边界中较近的一个处切片
+                                      （getGuardSamplesUntilBoundary，T-097；子块边界 T-108 后只为不改声音而留；宿主在播、给了位置或拍点与速度时，后几片先
                                       setHostInfo 到片起点，走完再补到块尾；试听差值时另按差值缓冲长度切，与 GLAZE 无关），每片：
                                       inputMeter.process (io);
                                       controller.analyzeInput (io, inputMeter);     // 入口特征（模块处理前）
@@ -195,7 +195,8 @@ namespace celadon::glaze
         // G_trim、实时跟随、Clay 压力反馈，最后发布状态快照（顺序与条件见 .cpp Impl::endBlock）。stats = 本块模块统计。
         // balance、chainLatencySamples、spectrumDeferred 三个参数 T-048 阶段 2 起不再使用（签名留着，链照传）：频谱帧只在
         // analyzeSpectrum 里交给分析器，endBlock 不再代交——不经链、直接驱动编排器的调用方要自己调 analyzeSpectrum。
-        // inputMeter、outputMeter 原给 T-097 两扇守门按 100 ms 子块读表（T-108 随守门删掉），同样留着签名、不再读。
+        // inputMeter 原给 T-097 的落差守门读入口子块（T-108 随守门删掉），留着签名、不再读；outputMeter 只用来推算 100 ms 子块的
+        // 切片边界（getGuardSamplesUntilBoundary）。
         // output：出口母带（Listen 之前）。空指针时输出电平跟踪器本块不吃样本（不经链的测试）。
         void endBlock (const BalanceModule& balance, const LoudnessMeter& inputMeter, const LoudnessMeter& outputMeter,
                        const ModuleStats& stats, int chainLatencySamples, bool spectrumDeferred = false,

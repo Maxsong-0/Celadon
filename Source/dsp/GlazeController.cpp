@@ -571,6 +571,14 @@ namespace celadon::glaze
         static constexpr std::int64_t notSeenSegmentStart = -2;
         std::int64_t lastInputSegmentStart = notSeenSegmentStart;
         GuardOutput budgetOut {};
+
+        // 切片点（getGuardSamplesUntilBoundary）里的 OUT 表 100 ms 子块边界。T-097 给落差 / PSR 两扇守门加的；两扇守门随 T-108 删掉，
+        // 这条边界照旧切：切片位置决定各片的模块统计怎么落进预算环的时隙，删了它通用档 GLAZE > 0 的输出就不再与改前逐位相同
+        // （T-108 的 20 首对照：GLAZE 35 / 70 / 100 全部变了，最大 0.12 LU）。只读出口子块的 endSample 推算下一条边界，不做别的。
+        std::array<LoudnessMeter::SubBlock, (size_t) LoudnessMeter::subBlockRingCapacity> subBlockRead {};
+        std::int64_t subBlockCursor = 0;
+        std::int64_t lastSubBlockEnd = 0;        // 最近读到的出口子块 endSample
+        int samplesUntilSubBlock = 4800;
         float currentMainness = 1.0f;
 
         double secondsSinceChange = changeFreezeSeconds;   // 距上次改参数的秒数（封顶 changeFreezeSeconds；随工程保存）
@@ -1257,6 +1265,9 @@ namespace celadon::glaze
             positionTolerance = std::max<std::int64_t> (2, (std::int64_t) std::llround (sampleRate * 0.05));
             analyzer.prepare (spec);
             budget.prepare (sampleRate);
+            subBlockCursor = 0;
+            lastSubBlockEnd = 0;
+            samplesUntilSubBlock = juce::jmax (1, juce::roundToInt (sampleRate * 0.1));   // 同 LoudnessMeter::prepare 的子块长
             outputLevel.prepare (sampleRate);
             clayGuard.reset();
             clayGuard.setConstants (activeConstants());
@@ -1351,7 +1362,24 @@ namespace celadon::glaze
             return effective;
         }
 
-        void endBlock (const ModuleStats& stats, const juce::AudioBuffer<float>* output) noexcept
+        // 每个 endBlock 一次（同 T-097 的 stepSubBlockGuards 里推算边界的那几行，逐行照搬）：读这一块新出的出口子块、记下最后一个的
+        // endSample；表被 reset（处理过的样本数往回走）时从 0 重新数。
+        void trackSubBlockBoundary (const LoudnessMeter& outputMeter) noexcept
+        {
+            const auto outputs = outputMeter.readSubBlocksSince (subBlockCursor, subBlockRead.data(), LoudnessMeter::subBlockRingCapacity);
+            const auto processed = outputMeter.getProcessedSamples();
+            const auto length = (std::int64_t) juce::jmax (1, outputMeter.getSubBlockLength());
+
+            if (outputs != 0)
+                lastSubBlockEnd = subBlockRead[(size_t) (std::abs (outputs) - 1)].endSample;
+
+            if (lastSubBlockEnd > processed)
+                lastSubBlockEnd = 0;
+
+            samplesUntilSubBlock = (int) (length - (processed - lastSubBlockEnd) % length);
+        }
+
+        void endBlock (const ModuleStats& stats, const juce::AudioBuffer<float>* output, const LoudnessMeter& outputMeter) noexcept
         {
             if (! prepared)
                 return;
@@ -1429,6 +1457,7 @@ namespace celadon::glaze
             }
 
             probe.transitionActive = false;
+            trackSubBlockBoundary (outputMeter);
 
             if (! active)
             {
@@ -1685,9 +1714,9 @@ namespace celadon::glaze
     void GlazeController::hostReset() noexcept                                                  { impl->hostReset(); }
     int GlazeController::getGuardSamplesUntilBoundary() const noexcept
     {
-        // 预算环 10 ms 时隙边界（链在 GLAZE > 0 时按它切片）。T-097 另按 OUT 表 100 ms 子块边界切，给落差 / PSR 守门用；
-        // 两个守门随 T-108 删掉，子块切片一起去掉。
-        return impl->budget.getSamplesUntilSlotBoundary();
+        // 预算环 10 ms 时隙边界与 OUT 表 100 ms 子块边界里较近的一个（链在 GLAZE > 0 时按它切片）。子块边界原给 T-097 的落差 / PSR
+        // 守门用，守门随 T-108 删掉、边界照旧切（Impl::trackSubBlockBoundary 的注释：不切通用档的声音就变）。
+        return juce::jmin (impl->budget.getSamplesUntilSlotBoundary(), impl->samplesUntilSubBlock);
     }
     void GlazeController::handleDiscontinuity (Discontinuity kind) noexcept
     {
@@ -1719,10 +1748,10 @@ namespace celadon::glaze
         if (impl->prepared)
             impl->analyzer.processSpectrum (balance);
     }
-    void GlazeController::endBlock (const BalanceModule&, const LoudnessMeter&, const LoudnessMeter&,
+    void GlazeController::endBlock (const BalanceModule&, const LoudnessMeter&, const LoudnessMeter& outputMeter,
                                     const ModuleStats& stats, int, bool, const juce::AudioBuffer<float>* output) noexcept
     {
-        impl->endBlock (stats, output);
+        impl->endBlock (stats, output, outputMeter);
     }
     void GlazeController::requestRelearn() noexcept {}
     std::unique_ptr<juce::XmlElement> GlazeController::createStateXml() const                   { return impl->createStateXml(); }

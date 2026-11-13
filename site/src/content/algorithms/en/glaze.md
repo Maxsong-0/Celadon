@@ -63,7 +63,7 @@ GLAZE saves a single `GLAZE_STATE` (format 2) holding `LIVE`: the live profile w
 
 ## Guard statistics slots
 
-The guard approximates a p95 over 10 ms slot means. The chain is sliced at the protection layer's slot boundaries so module statistics never span slots; a whole host block still uses one set of execution parameters, and new control values apply from the next host block.
+The guard approximates a p95 over 10 ms slot means. The chain is sliced at the protection layer's slot boundaries and 100 ms sub-block boundaries (whichever comes first) so module statistics never span slots; a whole host block still uses one set of execution parameters, and new control values apply from the next host block.
 
 The protection layer's timing follows music time only: while the host is stopped, during silence and during host bypass, its statistics and observation periods are frozen, so it never absorbs feedback by mistake. After every target recomputation (once a second, or on a change of style), the limits of the protection layer and the upstream monitor update with it. For items where your manual settings alone already exceed the style budget (Heat drive, Glue mean / p95, Clip depth / activity), the protection layer and upstream monitor no longer apply a constraint — the automatic part of that item is already 0, so checking it against the style limit would only cause pointless back-off; the other items are still checked against the style limits (all three since 0.1.8.6).
 
