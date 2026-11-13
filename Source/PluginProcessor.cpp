@@ -62,6 +62,31 @@ namespace
     constexpr const char* stateFormatAttribute = "celadonStateFormat";
     constexpr const char* stateVersionAttribute = "celadonVersion";
     constexpr int currentStateFormat = 1;
+
+    // T-108（ADR-039 Q2、Q3）：旧工程的状态树里 T-038 的曲风 / 交付两个 PARAM 节点。参数已从参数表删掉，节点留在树里会被
+    // APVTS 原样存回去（下次读档又提示一次），所以读档时摘掉。返回其中有没有不是默认值的（下标 0 = 通用 / 标准）：那样的工程
+    // 声音会变（House 档的音色、主段模型与限幅跟拍，流媒体的 −2 dBTP、俱乐部的目标响度都没了），界面提示一次。
+    bool removeLegacyGenreDelivery (juce::XmlElement& xml)
+    {
+        auto changed = false;
+
+        for (auto* node = xml.getFirstChildElement(); node != nullptr;)
+        {
+            auto* next = node->getNextElement();
+            const auto id = node->getStringAttribute ("id");
+
+            if (node->hasTagName ("PARAM") && (id == celadon::param::legacy::glazeGenre || id == celadon::param::legacy::glazeDelivery))
+            {
+                const auto value = node->getDoubleAttribute ("value", 0.0);
+                changed = changed || ! std::isfinite (value) || juce::roundToInt (value) != 0;
+                xml.removeChildElement (node, true);
+            }
+
+            node = next;
+        }
+
+        return changed;
+    }
 }
 
 //==============================================================================
@@ -109,8 +134,6 @@ CeladonAudioProcessor::CeladonAudioProcessor()
 
     glazeAmount             = parameters.getRawParameterValue (celadon::param::glazeAmount);
     glazeStyle              = parameters.getRawParameterValue (celadon::param::glazeStyle);
-    glazeGenre              = parameters.getRawParameterValue (celadon::param::glazeGenre);
-    glazeDelivery           = parameters.getRawParameterValue (celadon::param::glazeDelivery);
 
     // Clay 修坯（v0.1.7.0）：三个 *_mode 是 AudioParameterChoice，原始值是选项下标（0 自动 / 1 关 / 2 手动）的 float，
     // 在 readParams 里按 clayModeFromRawValue 取整、钳到 0..2 转成 celadon::ClayMode。
@@ -139,7 +162,7 @@ CeladonAudioProcessor::CeladonAudioProcessor()
              && colorParams.mix != nullptr && colorParams.output != nullptr && colorParams.bypass != nullptr);
     jassert (balanceParams.recover != nullptr && balanceParams.tame != nullptr && balanceParams.brighten != nullptr
              && balanceParams.speed != nullptr && balanceParams.bypass != nullptr);
-    jassert (glazeAmount != nullptr && glazeStyle != nullptr && glazeGenre != nullptr && glazeDelivery != nullptr);
+    jassert (glazeAmount != nullptr && glazeStyle != nullptr);
     jassert (clayParams.lowCutMode != nullptr && clayParams.lowCutHz != nullptr && clayParams.monoMode != nullptr
              && clayParams.monoHz != nullptr && clayParams.widthMode != nullptr && clayParams.widthDb != nullptr
              && clayParams.bypass != nullptr);
@@ -283,7 +306,6 @@ CeladonAudioProcessor::CeladonAudioProcessor()
             fromTable.balance.bypass == truth.balance.bypass,
 
             same (fromTable.glazePercent, truth.glazePercent), fromTable.glazeStyle == truth.glazeStyle,
-            fromTable.glazeGenre == truth.glazeGenre, fromTable.glazeDelivery == truth.glazeDelivery,
 
             fromTable.claySettings.lowCutMode == truth.claySettings.lowCutMode,
             same (fromTable.claySettings.lowCutHz, truth.claySettings.lowCutHz),
@@ -451,12 +473,6 @@ celadon::CeladonChain::Params CeladonAudioProcessor::readParams() const noexcept
     // GLAZE 风格（v0.6，ADR-008）：四选一，原始值是选项下标的 float，取整方式同 Balance Speed，钳到 0..3（= glaze::Style）。
     p.glazeStyle = juce::jlimit (0, 3, juce::roundToInt (finiteOr (glazeStyle, (float) defaults::glazeStyleIndex)));
 
-    // 曲风与交付（T-038）：同上取整、钳到选项范围（= glaze::Genre / glaze::Delivery 的下标）。
-    p.glazeGenre = juce::jlimit (0, celadon::glaze::numGenres - 1,
-                                 juce::roundToInt (finiteOr (glazeGenre, (float) defaults::glazeGenreIndex)));
-    p.glazeDelivery = juce::jlimit (0, celadon::glaze::numDeliveries - 1,
-                                    juce::roundToInt (finiteOr (glazeDelivery, (float) defaults::glazeDeliveryIndex)));
-
     // 高级母带控制（0.1.9.0，设计规格-高级母带控制第 2 节）：三个选项按下标转枚举（取整同上、钳到选项范围）。
     const auto choice = [] (float value, int maximum) noexcept { return std::isfinite (value) ? juce::jlimit (0, maximum, juce::roundToInt (value)) : 0; };
     p.mastering.harshMode = static_cast<celadon::HarshMode> (choice (finiteOr (masteringParams.harshMode, (float) defaults::masterHarshModeIndex), 2));
@@ -507,8 +523,6 @@ void CeladonAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
         // 拖一次 Lookahead 引起的 VST3 重启就会把 Integrated LUFS 归零）。要清由用户点 Reset。
         chain.reset();
     }
-
-    chain.syncGlazeLiveModel (celadon::glaze::genreFromIndex (params.glazeGenre));
 
     // prepareToPlay 不在音频线程，可以直接上报；同时写 pendingLatency，免得定时器又报一次旧值。
     hostResetPending.store (false);
@@ -768,7 +782,7 @@ celadon::glaze::HostInfo CeladonAudioProcessor::readHostInfo() const noexcept
         info.loopEndSamples = toSamples (loop->ppqEnd);
     }
 
-    // 拍点（T-038：House 档按小节记账、限幅跟拍）。只收有限且合理的值；拿不到的项保持 has* = false。
+    // 拍点（T-038 起：实时段落账按小节分段）。只收有限且合理的值；拿不到的项保持 has* = false。
     if (bpm.hasValue() && std::isfinite (*bpm) && *bpm > 0.0)
     {
         info.hasTempo = true;
@@ -876,12 +890,18 @@ juce::AudioProcessorEditor* CeladonAudioProcessor::createEditor()
     if (getGlazeStatus().legacySessionDiscarded)
         editor->noteDiscardedLegacyGlaze();
 
+    if (genreDeliveryReset.load())
+        editor->noteGenreDeliveryReset();
+
     return editor;
 }
 
 void CeladonAudioProcessor::notifyLegacyDiscardIfEditorOpen()
 {
-    if (! getGlazeStatus().legacySessionDiscarded)
+    const auto discarded = getGlazeStatus().legacySessionDiscarded;
+    const auto genreDelivery = genreDeliveryReset.load();
+
+    if (! discarded && ! genreDelivery)
         return;
 
     if (auto* messages = juce::MessageManager::getInstanceWithoutCreating())
@@ -889,7 +909,13 @@ void CeladonAudioProcessor::notifyLegacyDiscardIfEditorOpen()
             return;
 
     if (auto* editor = dynamic_cast<CeladonAudioProcessorEditor*> (getActiveEditor()))
-        editor->noteDiscardedLegacyGlaze();
+    {
+        if (discarded)
+            editor->noteDiscardedLegacyGlaze();
+
+        if (genreDelivery)
+            editor->noteGenreDeliveryReset();
+    }
 }
 
 //==============================================================================
@@ -954,6 +980,8 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
             xml->removeAttribute (stateFormatAttribute);
             xml->removeAttribute (stateVersionAttribute);
 
+            genreDeliveryReset.store (removeLegacyGenreDelivery (*xml));
+
             auto newState = juce::ValueTree::fromXml (*xml);
             addMissingParameterNodes (newState, stateFormat);
             parameters.replaceState (newState);
@@ -1003,9 +1031,6 @@ void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState,
                 if (withId->paramID == celadon::param::masterTargetMode
                     || withId->paramID == celadon::param::masterCodecMarginDb
                     || withId->paramID == celadon::param::masterDither)
-                    node.setProperty ("value", 0.0f, nullptr);
-                // T-038：旧工程一律通用 + 标准（与默认下标相同，这里写明，不依赖默认值以后不变）。
-                if (withId->paramID == celadon::param::glazeGenre || withId->paramID == celadon::param::glazeDelivery)
                     node.setProperty ("value", 0.0f, nullptr);
                 newState.appendChild (node, nullptr);
             }

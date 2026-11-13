@@ -195,6 +195,7 @@ namespace celadon::glaze
         // G_trim、实时跟随、Clay 压力反馈，最后发布状态快照（顺序与条件见 .cpp Impl::endBlock）。stats = 本块模块统计。
         // balance、chainLatencySamples、spectrumDeferred 三个参数 T-048 阶段 2 起不再使用（签名留着，链照传）：频谱帧只在
         // analyzeSpectrum 里交给分析器，endBlock 不再代交——不经链、直接驱动编排器的调用方要自己调 analyzeSpectrum。
+        // inputMeter、outputMeter 原给 T-097 两扇守门按 100 ms 子块读表（T-108 随守门删掉），同样留着签名、不再读。
         // output：出口母带（Listen 之前）。空指针时输出电平跟踪器本块不吃样本（不经链的测试）。
         void endBlock (const BalanceModule& balance, const LoudnessMeter& inputMeter, const LoudnessMeter& outputMeter,
                        const ModuleStats& stats, int chainLatencySamples, bool spectrumDeferred = false,

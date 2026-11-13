@@ -1351,8 +1351,7 @@ namespace celadon::glaze
             return effective;
         }
 
-        void endBlock (const ModuleStats& stats, const juce::AudioBuffer<float>* output, const LoudnessMeter& inputMeter,
-                       const LoudnessMeter& outputMeter) noexcept
+        void endBlock (const ModuleStats& stats, const juce::AudioBuffer<float>* output) noexcept
         {
             if (! prepared)
                 return;
@@ -1720,10 +1719,10 @@ namespace celadon::glaze
         if (impl->prepared)
             impl->analyzer.processSpectrum (balance);
     }
-    void GlazeController::endBlock (const BalanceModule&, const LoudnessMeter& inputMeter, const LoudnessMeter& outputMeter,
+    void GlazeController::endBlock (const BalanceModule&, const LoudnessMeter&, const LoudnessMeter&,
                                     const ModuleStats& stats, int, bool, const juce::AudioBuffer<float>* output) noexcept
     {
-        impl->endBlock (stats, output, inputMeter, outputMeter);
+        impl->endBlock (stats, output);
     }
     void GlazeController::requestRelearn() noexcept {}
     std::unique_ptr<juce::XmlElement> GlazeController::createStateXml() const                   { return impl->createStateXml(); }

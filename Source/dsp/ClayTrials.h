@@ -43,9 +43,9 @@
     五、交齐的块（Block）：原始与各候选的块峰值、两个混合损失候选的两份 K 加权能量、块号，另有两种有效口径——
          valid      学习口径（= 原来的 TrialRecord::valid）：候选已过预热，块里每个组都在学习区间内且在有效音频门上；
          liveValid  实时口径（T-048）：候选已过预热，块里每个组都在有效音频门上（不看学习区间）。
-       哪些块进哪一份累计由调用方定（分析器：学习口径且交齐时还在学习的块进学习累计与 House 段落账，实时口径的块进实时段落账）。
+       哪些块进哪一份累计由调用方定（分析器：学习口径且交齐时还在学习的块进学习累计，实时口径的块进实时段落账）。
 
-    六、累计与代价（静态函数，纯逻辑，分析器的学习累计、House 段落账与画像合并共用）：
+    六、累计与代价（静态函数，纯逻辑，分析器的学习累计、段落账与实时画像共用）：
          insertTop / accumulate  每一路只留最大的 topCount（8）个块峰值（有序插入）、混合损失两份能量求和；
          percentileOfTop         线性插值的 P99（定义同 numpy.percentile 默认；逐位口径以「存全部 + nth_element + 同一插值」为准——numpy 的
                                  lerp 在 t ≥ 0.5 时换了写法，末位可能不同，审核 V4-04）：位置 0.99·(n − 1) 两侧的顺序统计量插值。n ≤ capacity（512）
@@ -181,7 +181,7 @@ namespace celadon::glaze
     class ClayTrials
     {
     public:
-        // ---- 口径常数（分析器的学习累计、SegmentLedger 的逐段记账与 House 画像合并都按它们；段落账的同名常数由分析器 static_assert 对齐）----
+        // ---- 口径常数（分析器的学习累计、SegmentLedger 的逐段记账与实时画像都按它们；段落账的同名常数由分析器 static_assert 对齐）----
         static constexpr int numMono = (int) clayMonoCandidateHz.size();     // 收单候选（分频点 = clayMonoCandidateHz）
         static constexpr int numCandidates = 2 + numMono;                    // 峰值候选：低切、收单 ×4、加宽
         static constexpr int lowCutSlot = 0, firstMonoSlot = 1, widthSlot = 1 + numMono;

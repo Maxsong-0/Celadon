@@ -28,9 +28,9 @@ namespace celadon::glaze
     //     让残差 Heat 表下的自动 Heat 与音乐无关地顶到 70 / 50 / 20）；R6-06 满强度增益按 Limit Gain 量程（24 − 手动 Gain）回算。
     //     两条新规则都按**快照**的 Constants::algorithmVersion ≥ 8 分流（GlazePlanner.cpp makeFullPlan / completeFullPlan，与 ≥ 3 那一处
     //     同一写法）：算法 6 / 7 的存档重开时 committed.constants 就是存档里的快照，方案走旧分支、增量逐位同存档。
-    // T-038（2026-10-01，曲风与交付）**不升**本常数：新行为全部按参数「曲风 ≠ 通用」或「交付 ≠ 标准」分流，不靠算法版本区分；
-    //     升号会让 0.1.8.x 存的方案（算法 8）与重算出的方案在 sameCalibrationPlan 里版本不等，旧工程重开走另一条路径、不再与 main
-    //     逐位相同（设计规格-曲风与交付 第 6 节，2026-10-01 阶段 1 更正）。
+    // T-038（2026-10-01，曲风与交付）**不升**本常数：当时的新行为全部按参数「曲风 ≠ 通用」或「交付 ≠ 标准」分流；升号会让 0.1.8.x
+    //     存的方案（算法 8）与重算出的方案在 sameCalibrationPlan 里版本不等，旧工程重开走另一条路径。T-108（ADR-039）删了曲风与交付，
+    //     同样不升：通用 + 标准那条路径原样留下，其余两档的工程读档后改走它（界面提示一次）。
     inline constexpr int currentAlgorithmVersion = 8;
 
     // 与本版本「行为相同」的最早算法版本。7 只在 6 上加了 Clay，而 6 保存的画像（格式 1）没有 Clay 所需特征 → Clay 中性，
@@ -197,7 +197,7 @@ namespace celadon::glaze
     // 方案：决策器（纯函数）的输出。
     struct Plan
     {
-        float requestedTargetLufs = 0.0f;   // 风格、交付（T-038）与 GLAZE 想要的响度
+        float requestedTargetLufs = 0.0f;   // 风格与 GLAZE 想要的响度（T-038 起另按交付档，T-108 删了交付）
         float effectiveTargetLufs = 0.0f;   // 经各模块约束后允许追求的响度
         float requestedGainDb = 0.0f;       // G_request
         float effectiveGainDb = 0.0f;       // 约束后的净提升目标

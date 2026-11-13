@@ -333,7 +333,7 @@ namespace celadon::ui
         void setFont (const juce::Font& newFont)                 { font = newFont; repaint(); }
         void setPrefix (int index, const juce::String& prefix);  // A / B 的「A」「B」：等宽粗体接在名字前
 
-        // 容器里最左边的一格灰字说明（T-038：GLAZE 两侧的「曲风」「交付」），不可点、后面一道细竖线，各项排在它右边。
+        // 容器里最左边的一格灰字说明（T-038 给 GLAZE 两侧的「曲风」「交付」做的；那两个选择已删，眼下没人用），不可点、后面一道细竖线，各项排在它右边。
         // 空串 = 没有（默认；其余选择器的样子与点按逐像素不变）。
         void setCaption (const juce::String& newCaption);
 

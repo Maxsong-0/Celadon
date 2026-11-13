@@ -7,7 +7,7 @@
       上层：左 IN 表 · 正中频谱仪 · 右 OUT / GR 表；
       中层：GLAZE 主旋钮在正中；T-107 重构包 A（效果图，T-105 线 ③ 第 6.2 节）起两侧是两块侧板——左「此刻在推什么」（四个模块的
             自动加量 + 状态句）、右「交付」（原来频谱仪右上角的响度小窗搬到这里放大，加最近 60 秒的短期响度与 GLAZE 自动增益），
-            粒子流收进侧板与旋钮之间的通道；GLAZE 标题行左右原来的「曲风」「交付」两个选择（T-038）删了（Max 2026-11-13），
+            粒子流收进侧板与旋钮之间的通道；GLAZE 标题行左右原来的「曲风」「交付」两个选择（T-038）删了（Max 2026-11-13；参数本身 T-108 删），
             参数还在、面板上不再有；
             下面一排 操作提示 / 监听退出提示 · 风格 | A / B · 等响 · 颜色图例；
       下层：按处理顺序的四张卡片 BALANCE → CLAY → COLOR → LIMIT。
@@ -16,7 +16,7 @@
     位图（背景、瓷面、流线）按当次绘制的物理像素比生成。窗口大小随工程存一份（uiZoom），另记为新窗口的默认大小（UiSettings）。
 
     GLAZE 的数据源由处理器在 createEditor 里注入：状态快照、本块交给模块的实际参数。
-    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。旧工程读档后处理器应调 noteDiscardedLegacyGlaze。
+    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。旧工程读档后处理器应调 noteDiscardedLegacyGlaze（存着非默认曲风 / 交付时还有 noteGenreDeliveryReset）。
 
   ==============================================================================
 */
@@ -72,6 +72,10 @@ public:
     // 不写入 LIVE。编辑器还没打开时由处理器记住，createEditor 里再调。本次打开左下角提示「旧的聆听结果已丢弃，声音会变」。
     void noteDiscardedLegacyGlaze();
 
+    // T-108（ADR-039 Q2）。读到的旧工程存着非默认的曲风 / 交付（T-038，已删）时处理器在消息线程调；时机同上。
+    // 本次打开左下角提示「曲风与交付已取消，已改回通用 + 标准，声音会变」。不进工程。
+    void noteGenreDeliveryReset();
+
     // 截图工具用：直接给状态行一份读数（c、m、冷导出、守护原因）。不进工程。clear 之后回到编排器快照。
     void setStatusLinePreview (const celadon::ui::glazestatus::Reading& reading);
     void clearStatusLinePreview();
@@ -124,6 +128,7 @@ private:
     GlazeStatusSource glazeStatusSource;
     GlazeEffectiveParamsSource glazeEffectiveParamsSource;
     bool legacyGlazeDiscarded = false;
+    bool genreDeliveryReset = false;
     bool statusLinePreviewOn = false;
     celadon::ui::glazestatus::Reading statusLinePreview;
 

@@ -40,10 +40,10 @@ namespace celadon::help
             { param::limitCeiling,
               "Ceiling · 输出上限",
               "限幅器按真峰值检测控制输出上限（dBTP）；不同测量器会有微小读数差异。",
-              "交付选「流媒体」时，交给限幅器的上限不高于 −2 dBTP，不用再往下拉；选「标准」或「俱乐部」时照你设的，常用 −1.0，想更保险用 −1.5。",
+              "常用 −1.0；想更保险用 −1.5。",
               "Ceiling · output limit",
               "The limiter keeps the output below this true-peak level (dBTP); other meters may read slightly differently.",
-              "With Delivery on Streaming, the ceiling handed to the limiter is kept at or below −2 dBTP, so there's no need to lower it; on Standard or Club it follows your setting: −1.0 is common, −1.5 to be extra safe." },
+              "−1.0 is common; −1.5 to be extra safe." },
 
             { param::limitRelease,
               "Release · 释放时间",
@@ -216,24 +216,6 @@ namespace celadon::help
               "Auto picks per song; Warm: thick, round, never harsh; Punchy: strong drums, louder; Clean: clear, less compression, more dynamics.",
               "When unsure, use Auto; the status at the top shows which way it is leaning." },
 
-            // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式；GLAZE 标题行左右两侧的两个选择，位置见 PluginEditor layoutGlazeChoices）。
-            // 选择器上 House 只写 Deep / Tech / Melodic，全名写在这里。
-            { param::glazeGenre,
-              "曲风 · 音色目标",
-              "通用按风格定音色目标；Deep House / Tech House / Melodic-Progressive 按子类定明暗、低切到 25 Hz、不自动加宽，自动释放跟着宿主速度收紧。House 档跟随主段时，状态行在前面加 House。",
-              "写的是哪种 House 就选哪种，拿不准选最接近的；不是 House 用通用。换曲风后目标按新的主段模型慢慢跟上。",
-              "Genre · tonal target",
-              "General sets the tonal target by style; Deep House / Tech House / Melodic-Progressive set brightness per sub-genre, cut below 25 Hz and never widen automatically, and Auto release tightens to the host tempo. While following in House mode the status line starts with House.",
-              "Pick the House type you wrote, or the closest one; use General for anything else. After a switch the target eases toward the new main-section model." },
-
-            { param::glazeDelivery,
-              "交付 · 响度与真峰值",
-              "标准：按风格定响度，上限照你设的；流媒体：约 −10 LUFS、真峰值不高于 −2 dBTP；俱乐部：约 −7 LUFS，给 DJ 和下载店，上限照你设的不变。House 档按 drop 的响度算。",
-              "同一首歌每档各导出一次，就得到两版母带；切换后如果主段统计还没热，先完整播放一遍 drop 再导出。",
-              "Delivery · loudness and true peak",
-              "Standard sets loudness by style and keeps your Ceiling; Streaming aims near −10 LUFS with true peak at or below −2 dBTP; Club aims near −7 LUFS for DJs and download stores and keeps your Ceiling. In House mode the target is the loudness of the drop.",
-              "Export once per setting to get both masters from one song; if the main section is still cold after switching, play the drop through once before exporting." },
-
             { uiid::glazeStatus,
               "GLAZE 状态",
               "显示起步、保持、跟随、导出冷启动与守护退让；频谱持续跟随，自动染色随段落慢慢收敛。",
@@ -353,18 +335,18 @@ namespace celadon::help
             { uiid::meterIn,
               "输入 / 输出真峰值",
               "8 倍插值测出的真实峰值（dBTP），比采样点峰值更准；下面数字是峰值保持。",
-              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量；交付选「流媒体」时不高于 −2 dBTP），超了会变橙。",
+              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量），超了会变橙。",
               "Input / output true peak",
               "True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold.",
-              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does." },
+              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin); it turns orange if it does." },
 
             { uiid::meterOut,
               "输入 / 输出真峰值",
               "8 倍插值测出的真实峰值（dBTP），比采样点峰值更准；下面数字是峰值保持。",
-              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量；交付选「流媒体」时不高于 −2 dBTP），超了会变橙。",
+              "点数字清零。OUT 不应超过实际生效的上限（已扣编码余量），超了会变橙。",
               "Input / output true peak",
               "True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold.",
-              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does." },
+              "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin); it turns orange if it does." },
 
             { uiid::meterGr,
               "Limit 压缩量",
@@ -545,17 +527,6 @@ namespace celadon::help
         }
     }
 
-    // T-038 House 反相提示里的损失（dB，≤ 0）→ 显示用的 0.1 dB 整数（正数，至少 1）；非有限 → 0（提示照亮，不写数）。
-    int houseLossTenthsFor (float lossDb) noexcept
-    {
-        if (! std::isfinite (lossDb))
-            return 0;
-
-        const auto limit = static_cast<double> (maxShownTenthsDb) / 10.0;
-        const auto magnitude = juce::jmin (std::abs (static_cast<double> (lossDb)), limit);
-        return juce::jlimit (1, maxShownTenthsDb, juce::roundToInt (magnitude * 10.0));
-    }
-
     //==============================================================================
     const juce::Array<Entry>& allEntries()
     {
@@ -611,22 +582,12 @@ namespace celadon::help
             && bypassed == other.bypassed
             && lowCutCostLimited == other.lowCutCostLimited
             && monoCostLimited == other.monoCostLimited
-            && widthCostLimited == other.widthCostLimited
-            && housePhaseHint == other.housePhaseHint
-            && housePhaseLossTenthsDb == other.housePhaseLossTenthsDb;
+            && widthCostLimited == other.widthCostLimited;
     }
 
     ClayReadout clayReadoutFor (const glaze::Status& status, const ClayUserState& user) noexcept
     {
         ClayReadout readout;
-
-        // T-038 House 档反相提示：说的是混音本身（俱乐部单声道回放会丢低频），修坯怎么设、旁通与否都改变不了它，所以不按三态与旁通筛；
-        // 曲风不是 House 时编排器不置这一项（houseActive = false 时一律不显示）。
-        if (status.houseActive && status.housePhaseHint)
-        {
-            readout.housePhaseHint = true;
-            readout.housePhaseLossTenthsDb = houseLossTenthsFor (status.housePhaseMonoLossDb);
-        }
 
         // 旁通：模块在往干信号淡化，交给它的实际值不代表在处理——全清零（三灯全暗、第 2 行写「修坯已旁通」）。
         // 清零后读数不随被旁通的实际值变动，气泡文字也不会白白重拼。
@@ -835,22 +796,10 @@ namespace celadon::help
         const auto title = entry != nullptr ? utf8 (english ? entry->titleEn : entry->title) : juce::String();
         const auto fullStop = english ? juce::String (".") : utf8 ("。");
 
-        // 第 3 行的优先级：House 反相提示 > 本曲的代价说明 > 文案表的建议。旧工程不再在这里写「重新聆听」。
-        juce::String advice;
-
-        if (readout.housePhaseHint)
-        {
-            // T-038 House 档反相提示（卡片上已写两行）：气泡里说为什么要回混音——收单只去掉侧声道，单声道回放听的是中声道，救不回来（ADR-015）。
-            advice = housePhaseHintLines (readout.housePhaseLossTenthsDb, language)[0]
-                   + (english ? utf8 ("; mono-ing cannot help mono playback, so narrow or phase-align the lows in the mix.")
-                              : utf8 ("：收单救不回单声道回放，请回混音把低频收窄或对齐相位。"));
-        }
-        else
-        {
-            const auto costLine = clayCostLine (readout, language);
-            advice = costLine.isNotEmpty() ? costLine + fullStop
-                                           : (entry != nullptr ? utf8 (english ? entry->adviceEn : entry->advice) : juce::String());
-        }
+        // 第 3 行的优先级：本曲的代价说明 > 文案表的建议。旧工程不再在这里写「重新聆听」。
+        const auto costLine = clayCostLine (readout, language);
+        const auto advice = costLine.isNotEmpty() ? costLine + fullStop
+                                                  : (entry != nullptr ? utf8 (english ? entry->adviceEn : entry->advice) : juce::String());
 
         return title + "\n" + clayLiveLine (readout, language) + "\n" + advice;
     }
@@ -880,38 +829,5 @@ namespace celadon::help
         }
 
         return {};
-    }
-
-    //==============================================================================
-    // T-038 House 档（设计规格-曲风-House学习方式 第 7、9 节）
-    //==============================================================================
-    juce::StringArray housePhaseHintLines (int lossTenthsDb, Language language)
-    {
-        const auto english = language == Language::english;
-        const auto withLoss = lossTenthsDb > 0;
-        const auto amount = formatTenths (juce::jmin (lossTenthsDb, maxShownTenthsDb));
-        juce::StringArray lines;
-
-        if (english)
-        {
-            lines.add (withLoss ? "Club mono loses low end (about " + amount + " dB)" : juce::String ("Club mono loses low end"));
-            lines.add ("Fix it in the mix");
-            return lines;
-        }
-
-        lines.add (withLoss ? utf8 ("俱乐部单声道会丢低频（约 ") + amount + utf8 (" dB）") : utf8 ("俱乐部单声道会丢低频"));
-        lines.add (utf8 ("请回混音修"));
-        return lines;
-    }
-
-    juce::String housePhaseHintText (int lossTenthsDb, Language language)
-    {
-        // 一行版：两句用逗号接上（中文全角「，」；英文第二句改小写接在「, 」后）。
-        const auto lines = housePhaseHintLines (lossTenthsDb, language);
-
-        if (language == Language::english)
-            return lines[0] + ", " + lines[1].substring (0, 1).toLowerCase() + lines[1].substring (1);
-
-        return lines[0] + utf8 ("，") + lines[1];
     }
 }

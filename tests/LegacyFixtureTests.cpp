@@ -12,6 +12,7 @@
     「v0.1.6.2 工程打开后，约束反馈触发之前逐位不变」（isCompatibleAlgorithm；审核 V2-01 的限定口径）。
 
     T-038（2026-10-01，曲风与交付）：夹具本身仍是通用 / 标准，历史 fromXml 不写 genre / delivery。
+    T-108（ADR-039）：曲风与交付删掉；旧存档里的 genre / delivery 属性读的时候忽略、再存不写。
     T-048 阶段 2（Q1）：这份 v1 聆听结果在读档时整份丢弃，冷启动，界面提示一次，提示不写入 LIVE。
     下面「打开工程前 20 块逐位相同」是阶段 1 编排器还在采用旧方案时的行为；阶段 2 的读档契约以 phase2::interpretState 为准。
 
@@ -236,21 +237,16 @@ namespace celadon::test
                 expect (! status.clayNeedsRelearn, "there is no relearn hint");
             }
 
-            // T-038（设计规格-曲风与交付 第 5、6 节；ADR-026）：旧存档没有曲风 / 交付——读成通用 / 标准；再存出去也不写这两个属性
-            // （参考条件只在不是默认值时写，旧工程重存逐字不变）。阳性对照：同一份已提交版本把参考条件改成 Deep House / 俱乐部，
-            // 存出来就有这两个属性、读回来是同样的值——证明上面的「没有」不是因为属性名查错了。
-            beginTest ("the v0.1.6.2 fixture reads as General / Standard and saves without genre / delivery attributes");
+            // T-108（ADR-039，取代 ADR-026）：参考条件里不再有曲风 / 交付。v0.1.6.2 夹具读得进来、再存不写 genre / delivery；T-038 时代
+            // 写过 genre="1" delivery="2" 的存档（这里在夹具上手工加这两个属性）照样读得进来，读出的其余字段与不加时逐项相同，再存也不写。
+            beginTest ("the v0.1.6.2 fixture and a T-038-era state with genre / delivery attributes read the same and save without them");
             {
                 glaze::CommittedState state;
                 expect (glaze::fromXml (*xml, state), "committed state reads");
-                expect (state.calibration.reference.genre == glaze::Genre::general, "calibration reference genre reads as General");
-                expect (state.calibration.reference.delivery == glaze::Delivery::standard, "calibration reference delivery reads as Standard");
 
                 const auto* executionXml = xml->getChildByName (glaze::executionTag);
                 glaze::ExecutionState execution;
                 expect (executionXml != nullptr && glaze::fromXml (*executionXml, execution), "execution snapshot reads");
-                expect (execution.reference.genre == glaze::Genre::general, "execution reference genre reads as General");
-                expect (execution.reference.delivery == glaze::Delivery::standard, "execution reference delivery reads as Standard");
 
                 const auto resavedState = glaze::toXml (state);
                 const auto resavedExecution = glaze::toXml (execution);
@@ -261,45 +257,33 @@ namespace celadon::test
                             && ! hasAttributeAnywhere (*resavedExecution, "delivery"),
                         "re-saving the execution snapshot writes no genre / delivery attribute");
 
-                // 阳性对照：非默认的参考条件真的写成 genre / delivery 两个属性（十进制下标），读回来不变。
-                auto house = state;
-                house.calibration.reference.genre = glaze::Genre::deepHouse;
-                house.calibration.reference.delivery = glaze::Delivery::club;
-                const auto houseXml = glaze::toXml (house);
-                const auto* calibrationXml = houseXml != nullptr ? houseXml->getChildByName ("CALIBRATION") : nullptr;
-                expect (calibrationXml != nullptr && calibrationXml->getStringAttribute ("genre") == "1"
-                            && calibrationXml->getStringAttribute ("delivery") == "2",
-                        "a Deep House / Club reference does write genre=\"1\" delivery=\"2\" (the attribute names checked above are right)");
+                auto tagged = std::make_unique<juce::XmlElement> (*xml);
+                auto* calibrationXml = tagged->getChildByName ("CALIBRATION");
+                expect (calibrationXml != nullptr, "the fixture has a CALIBRATION element");
 
-                glaze::CommittedState houseBack;
-                expect (houseXml != nullptr && glaze::fromXml (*houseXml, houseBack)
-                            && houseBack.calibration.reference.genre == glaze::Genre::deepHouse
-                            && houseBack.calibration.reference.delivery == glaze::Delivery::club,
-                        "the Deep House / Club reference reads back unchanged");
+                if (calibrationXml != nullptr)
+                {
+                    calibrationXml->setAttribute ("genre", 1);
+                    calibrationXml->setAttribute ("delivery", 2);
+                }
+
+                glaze::CommittedState taggedState;
+                expect (glaze::fromXml (*tagged, taggedState), "the tagged state still reads");
+                const auto plainXml = glaze::toXml (state);
+                const auto taggedXml = glaze::toXml (taggedState);
+                expect (plainXml != nullptr && taggedXml != nullptr && plainXml->isEquivalentTo (taggedXml.get(), false),
+                        "genre / delivery attributes are ignored: the state reads exactly as without them");
             }
 
-            // 整条链：读回旧存档、按通用 / 标准（旧工程读进来的参数）喂 20 块，再存出去的整棵 GLAZE 状态里没有 genre / delivery；
-            // 存档里的校准照样适用、不是 House 档。换成 Deep House 或俱乐部（参数变了、存档没变）：参考条件对不上，存档里的校准不再适用
-            // （规格第 4.3 节「换交付或曲风 → 方案重算、重新校准」）——同时证明读进来的参考条件确实按通用 / 标准参与了比较。
+            // 整条链：读回旧存档、喂 20 块，再存出去的整棵 GLAZE 状态里没有 genre / delivery；旧聆听结果丢弃、存档里的校准不适用。
             beginTest ("opening the v0.1.6.2 project re-saves without genre / delivery and does not keep the old calibration");
             {
                 const auto general = runFixture (*xml, fixtureParams(), 20);
                 expect (general.saved != nullptr && ! hasAttributeAnywhere (*general.saved, "genre")
                             && ! hasAttributeAnywhere (*general.saved, "delivery"),
                         "the re-saved GLAZE state of the old project has no genre / delivery attribute");
-                expect (general.status.legacySessionDiscarded, "General / Standard: the listen result is discarded");
-                expect (! general.status.calibrationValid, "General / Standard: the saved calibration is not applied");
-                expect (! general.status.houseActive, "General: no House status");
-
-                auto deepParams = fixtureParams();
-                deepParams.glazeGenre = (int) glaze::Genre::deepHouse;
-                expect (! runFixture (*xml, deepParams, 20).status.calibrationValid,
-                        "Deep House: the General reference no longer matches, the saved calibration does not apply");
-
-                auto clubParams = fixtureParams();
-                clubParams.glazeDelivery = (int) glaze::Delivery::club;
-                expect (! runFixture (*xml, clubParams, 20).status.calibrationValid,
-                        "Club: the Standard reference no longer matches, the saved calibration does not apply");
+                expect (general.status.legacySessionDiscarded, "the listen result is discarded");
+                expect (! general.status.calibrationValid, "the saved calibration is not applied");
             }
         }
     };

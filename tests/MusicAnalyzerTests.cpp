@@ -395,7 +395,7 @@ namespace celadon::test
                 || profile.onsetDensityPerSecond.valid || profile.onsetStrengthDb.valid || profile.subShareDb.valid
                 || profile.lowCorrelation.valid || profile.highCorrelation.valid || profile.lowSideToMidDb.valid
                 || profile.highSideToMidDb.valid || profile.lowCutPeakCostDb.valid || profile.widthPeakCostDb.valid
-                || profile.houseGate.valid || profile.representativeness != 0.0f || profile.effectiveSeconds != 0.0)
+                || profile.representativeness != 0.0f || profile.effectiveSeconds != 0.0)
                 return false;
 
             for (const auto& cost : profile.monoPeakCostDb)
@@ -3159,9 +3159,8 @@ namespace celadon::test
     static MusicAnalyzerClayTests musicAnalyzerClayTests;
 
     //==============================================================================
-    // ---- T-038 House 档（阶段 2 B 追加）----
-    // 分析器接上段落账（SegmentLedger）之后：House 档的候选画像由满编段门控算出（设计规格-曲风-House学习方式 第 2 节；MusicAnalyzer.cpp
-    // 「六」节）。只在文件末尾追加：上面的旧用例与工具一个不改，另起一个测试类（名字 MusicAnalyzerHouse），复用上面的 Rig 与逐位比较。
+    // ---- 合成的 House 素材与报拍点的宿主（T-038 给 House 档写的；T-108 删了 House 档与它的测试类 MusicAnalyzerHouse，
+    // 素材与宿主留给下面的实时模式用例：带拍点时实时段落账按小节分段）----
     namespace
     {
         constexpr double houseTrackBpm = 124.0;
@@ -3232,331 +3231,8 @@ namespace celadon::test
             return signal;
         }
 
-        bool sameHouseGate (const glaze::HouseGateSummary& a, const glaze::HouseGateSummary& b)
-        {
-            return a.valid == b.valid && a.mode == b.mode && sameFloat (a.referenceLufs, b.referenceLufs)
-                && sameFloat (a.lowShareReference, b.lowShareReference) && sameFloat (a.gateWidthLu, b.gateWidthLu)
-                && sameFloat (a.lowGateFactor, b.lowGateFactor) && a.heardSegments == b.heardSegments && a.fullSegments == b.fullSegments
-                && sameDouble (a.heardSeconds, b.heardSeconds) && sameDouble (a.fullSeconds, b.fullSeconds) && a.reopenCount == b.reopenCount;
-        }
-
-        // House 画像逐位相同：通用画像的全部字段 + 格式 2 的修坯字段 + 门控结果。
-        bool sameHouseProfile (const MusicProfile& a, const MusicProfile& b)
-        {
-            return sameProfile (a, b) && sameClayProfile (a, b) && sameHouseGate (a.houseGate, b.houseGate);
-        }
     }
 
-    class MusicAnalyzerHouseTests  : public juce::UnitTest
-    {
-    public:
-        MusicAnalyzerHouseTests() : juce::UnitTest ("MusicAnalyzerHouse", "Celadon") {}
-
-        void runTest() override
-        {
-            testIntroThenDrop();
-            testGeneralUntouched();
-            testBlockSizeIndependence();
-            testLedgerAfterLearning();
-            testNoAllocation();
-            testPerformance();
-        }
-
-    private:
-        // 依据：设计规格第 1、2 节。32 小节只有鼓的前奏接 16 小节 drop：House 档的画像取的是 drop——I、真峰值、低频占比与只听 drop
-        // 的通用画像相近（I 差 ≤ 0.5 LU：满编段的门块逐个过相对门、通用画像按 0.1 LU 格中心，又多了前奏 → drop 交界的几个门块）；
-        // 通用档的画像被前奏拉低。门控结果：已听 48 小节、满编 = drop 的 16 小节；代表性按「已听 48 ÷ 锁定所需 64」封顶 0.75；格式 3。
-        void testIntroThenDrop()
-        {
-            beginTest ("House: a 32-bar drums-only intro, then the drop - the House profile is the drop's, the general one is pulled down");
-
-            constexpr double sampleRate = 48000.0;
-            const auto track = makeHouseTrack (sampleRate, 32, 16, 1.0, 11);
-            const auto host = [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); };
-
-            Rig house (sampleRate);
-            house.analyzer.setGenre (glaze::Genre::deepHouse);
-            house.analyzer.startLearning();
-            house.feed (track, 512, 1, host);
-            const auto houseProfile = house.profile();
-            const auto& gate = houseProfile.houseGate;
-
-            Rig general (sampleRate);
-            general.analyzer.startLearning();
-            general.feed (track, 512, 1, host);
-            const auto& generalProfile = general.profile();
-
-            Rig dropOnly (sampleRate);
-            dropOnly.analyzer.startLearning();
-            dropOnly.feed (makeHouseTrack (sampleRate, 0, 16, 1.0, 12), 512, 1, host);
-            const auto& drop = dropOnly.profile();
-
-            logMessage ("  House I " + juce::String (houseProfile.integratedLufs.value, 2) + " LUFS (drop alone "
-                        + juce::String (drop.integratedLufs.value, 2) + ", general over the whole track "
-                        + juce::String (generalProfile.integratedLufs.value, 2) + "); lowShare " + juce::String (houseProfile.lowShare.value, 3)
-                        + " (drop " + juce::String (drop.lowShare.value, 3) + ", general " + juce::String (generalProfile.lowShare.value, 3)
-                        + "); S_ref " + juce::String (gate.referenceLufs, 2) + ", heard " + juce::String (gate.heardSegments)
-                        + ", full " + juce::String (gate.fullSegments) + ", representativeness " + juce::String (houseProfile.representativeness, 3));
-
-            (void) gate;
-            expect (candidateRetired (houseProfile) && candidateRetired (generalProfile) && candidateRetired (drop),
-                    "House recompute and the candidate profile are retired");
-            expect (house.analyzer.getHouseProfileGeneration() == 0, "house profile generation stays at 0");
-            expectEquals (house.analyzer.getSegmentLedger().getNumStored(), 0, "live mode off: the only ledger stays empty");
-            expect (! house.analyzer.isLearning());
-        }
-
-        // 依据：任务书「通用档完全不走这些代码（逐位不变）」。通用档下交宿主拍点、显式 setGenre(通用)：画像与辅助量与不交拍点、
-        // 从没调过 setGenre 的逐位相同；House 档里通用累计照常——学完换回通用档，候选画像与一直在通用档的逐位相同。
-        void testGeneralUntouched()
-        {
-            beginTest ("general mode is bit-identical with or without tempo info; the House run leaves the general accumulation untouched");
-
-            constexpr double sampleRate = 48000.0;
-            const auto track = makeHouseTrack (sampleRate, 6, 6, 1.0, 21);
-
-            Rig plain (sampleRate);
-            plain.analyzer.startLearning();
-            plain.feed (track, 512, 1, [] (std::int64_t fed, int) { return playingAt (fed); });
-
-            Rig tempo (sampleRate);
-            tempo.analyzer.setGenre (glaze::Genre::general);
-            tempo.analyzer.startLearning();
-            tempo.feed (track, 512, 1, [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); });
-
-            expect (sameProfile (plain.profile(), tempo.profile()) && sameClayProfile (plain.profile(), tempo.profile()),
-                    "general profile: tempo info changes nothing");
-            expect (sameAuxiliary (plain.analyzer.getAuxiliaryFeatures(), tempo.analyzer.getAuxiliaryFeatures()));
-            expectEquals (tempo.analyzer.getSegmentLedger().getNumStored(), 0, "the ledger is not touched in general mode");
-
-            Rig house (sampleRate);
-            house.analyzer.setGenre (glaze::Genre::techHouse);
-            house.analyzer.startLearning();
-            house.feed (track, 512, 1, [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); });
-            expectEquals (house.analyzer.getSegmentLedger().getNumStored(), 0, "live mode off: genre does not open a second ledger");
-            house.analyzer.setGenre (glaze::Genre::general);
-
-            expect (sameProfile (plain.profile(), house.profile()) && sameClayProfile (plain.profile(), house.profile()),
-                    "switching back to general returns the untouched general profile");
-            expect (sameAuxiliary (plain.analyzer.getAuxiliaryFeatures(), house.analyzer.getAuxiliaryFeatures()));
-        }
-
-        // 依据：设计规格第 2.1 节「恒定速度下，任意分块得到的画像逐位相同（测试覆盖）」。6 小节前奏 + 6 小节 drop：块长 512、1、333、
-        // 4096 与两种随机块长下 House 画像（含门控结果）与辅助量逐位相同。
-        void testBlockSizeIndependence()
-        {
-            beginTest ("House profile and gate are bit-identical for any host block size at a constant tempo (1 ... 4096, random)");
-
-            constexpr double sampleRate = 48000.0;
-            const auto track = makeHouseTrack (sampleRate, 6, 6, 1.0, 31);
-            const auto host = [] (std::int64_t fed, int) { return tempoHost (fed + 7777, sampleRate); };   // 不从小节线起播
-
-            Rig reference (sampleRate);
-            reference.analyzer.setGenre (glaze::Genre::melodicProgressive);
-            reference.analyzer.startLearning();
-            reference.feed (track, 512, 1, host);
-            expect (candidateRetired (reference.profile()) && reference.analyzer.getHouseProfileGeneration() == 0,
-                    "house profile recompute is retired");
-
-            for (const auto& [blockSize, seed] : { std::pair<int, juce::int64> { 1, 0 }, std::pair<int, juce::int64> { 333, 0 },
-                                                   std::pair<int, juce::int64> { 4096, 0 }, std::pair<int, juce::int64> { 0, 5 },
-                                                   std::pair<int, juce::int64> { 0, 77 } })
-            {
-                Rig rig (sampleRate);
-                rig.analyzer.setGenre (glaze::Genre::melodicProgressive);
-                rig.analyzer.startLearning();
-                rig.feed (track, blockSize, seed, host);
-                const auto tag = blockSize > 0 ? "block " + juce::String (blockSize) : "random blocks, seed " + juce::String (seed);
-                expect (sameHouseProfile (reference.profile(), rig.profile()), "House profile: " + tag);
-                expect (sameAuxiliary (reference.analyzer.getAuxiliaryFeatures(), rig.analyzer.getAuxiliaryFeatures()), "auxiliary: " + tag);
-            }
-        }
-
-        // 依据：设计规格第 4 节「锁定后继续按段记账」、MusicAnalyzer.h「不学习时冻结，编排器重开时 recomputeHouseProfile」。
-        // 学完前奏停止学习，再播 drop：段落账照记、画像不动；recomputeHouseProfile 之后画像取的是 drop。startLearning 清空段落账。
-        void testLedgerAfterLearning()
-        {
-            beginTest ("after stopLearning the ledger keeps recording and the profile stays frozen until recomputeHouseProfile");
-
-            constexpr double sampleRate = 48000.0;
-            const auto track = makeHouseTrack (sampleRate, 8, 8, 1.0, 41);
-            const auto barSamples = (int) std::lround (4.0 * 60.0 / houseTrackBpm * sampleRate);
-            const auto host = [] (std::int64_t fed, int) { return tempoHost (fed, sampleRate); };
-
-            Rig rig (sampleRate);
-            rig.analyzer.setGenre (glaze::Genre::deepHouse);
-            rig.analyzer.startLearning();
-            rig.feed (sliceOf (track, 0, 8 * barSamples), 512, 1, host);
-            rig.analyzer.stopLearning();
-            const auto introProfile = rig.profile();
-            const auto generation = rig.analyzer.getHouseProfileGeneration();
-
-            rig.feed (sliceOf (track, 8 * barSamples, (int) track.front().size() - 8 * barSamples), 512, 1, host);
-            expect (sameHouseProfile (introProfile, rig.profile()), "not learning: the House profile is frozen");
-            expect (rig.analyzer.getHouseProfileGeneration() == generation);
-            expectEquals (rig.analyzer.getSegmentLedger().getHeardSegments(), 0, "there is no separate house ledger");
-            expectEquals (rig.analyzer.getSegmentLedger().getNumStored(), 0, "live mode off records nothing");
-
-            rig.analyzer.recomputeHouseProfile();
-            const auto& regated = rig.profile();
-            logMessage ("  intro-only House I " + juce::String (introProfile.integratedLufs.value, 2) + " -> regated "
-                        + juce::String (regated.integratedLufs.value, 2) + " LUFS, full " + juce::String (regated.houseGate.fullSegments));
-            expect (candidateRetired (regated), "recomputeHouseProfile does not rebuild a profile");
-
-            rig.analyzer.startLearning();
-            expectEquals (rig.analyzer.getSegmentLedger().getNumStored(), 0, "a relearn clears the ledger");
-            expect (! rig.profile().houseGate.valid && ! rig.profile().integratedLufs.valid);
-        }
-
-        // 依据：MusicAnalyzer.h「音频线程不分配」。House 档：学习、三种不连续点、宿主 reset、停止学习、立即重算、清空段落账、换曲风，
-        // 每块都不经 operator new。
-        void testNoAllocation()
-        {
-            beginTest ("House: the audio-thread API does not allocate (ledger, gating, profile, genre switches)");
-
-            constexpr double sampleRate = 48000.0;
-            Rig rig (sampleRate);
-            const auto input = makeHouseTrack (sampleRate, 4, 4, 0.5, 51);
-            juce::AudioBuffer<float> block (numChannels, 4096);
-            juce::Random random (3);
-            std::uint64_t allocations = 0;
-            float sink = 0.0f;
-
-            for (int start = 0, index = 0; start < (int) input.front().size(); ++index)
-            {
-                const auto length = juce::jmin (1 + random.nextInt (4096), (int) input.front().size() - start);
-                block.setSize (numChannels, length, false, false, true);
-
-                for (int ch = 0; ch < numChannels; ++ch)
-                    block.copyFrom (ch, 0, input[(size_t) ch].data() + start, length);
-
-                const auto before = allocationCountOnThisThread();
-
-                rig.analyzer.setHostInfo (index % 50 == 49 ? playingAt (start) : tempoHost (start, sampleRate));
-                rig.analyzer.setGenre (index == 70 ? glaze::Genre::general : glaze::Genre::deepHouse);
-
-                if (index == 0)
-                    rig.analyzer.startLearning();
-
-                if (index == 20)
-                    rig.analyzer.handleDiscontinuity (Discontinuity::transportJump);
-
-                if (index == 30)
-                    rig.analyzer.handleDiscontinuity (Discontinuity::loopWrap);
-
-                if (index == 40)
-                {
-                    rig.analyzer.handleDiscontinuity (Discontinuity::hostReset);
-                    rig.meter.reset();
-                    rig.balance.reset();
-                }
-
-                rig.meter.process (block);
-                rig.analyzer.processInput (block, rig.meter);
-                rig.balance.process (block);
-                rig.analyzer.processSpectrum (rig.balance);
-                sink += rig.analyzer.getCandidateProfile().integratedLufs.value + rig.analyzer.getCandidateProfile().houseGate.referenceLufs
-                      + (float) rig.analyzer.getSegmentLedger().getCurrentSegmentSeconds()
-                      + (rig.analyzer.getSegmentLedger().isCurrentSegmentFull() ? 1.0f : 0.0f);
-
-                if (index == 60)
-                {
-                    rig.analyzer.stopLearning();
-                    rig.analyzer.recomputeHouseProfile();
-                }
-
-                if (index == 80)
-                    rig.analyzer.clearHouseLedger();
-
-                allocations += allocationCountOnThisThread() - before;
-                start += length;
-            }
-
-            expect (std::isfinite (sink));
-            expectEquals ((int) allocations, 0);
-        }
-
-        // 性能护栏（记录为主）：House 档学习中每块 512 样本的分析器开销（与通用档同一种量法：多遍取每块最短再求均值 / 最坏），以及段落账
-        // 满 512 段（全部满编、带先试后用的块）时一次 recomputeHouseProfile（门控之后的整份画像合并）的耗时——这是锁定后重开那一块的最坏情况。
-        // 门槛只拦大退化：每块均值 < learningGuardMicroseconds（同通用档学习中的门槛，2026-10-01 起 75 µs，依据见文件头）、满账本一次重算 < 1 ms。
-        void testPerformance()
-        {
-            beginTest ("performance guard: House mode per block (learning) and one recompute with a full 512-segment ledger");
-
-            constexpr double sampleRate = 48000.0;
-            constexpr int blockLength = 512;
-            const auto input = makeHouseTrack (sampleRate, 2, 4, 0.0, 61);
-            const auto numBlocks = (int) input.front().size() / blockLength;
-            juce::AudioBuffer<float> block (numChannels, blockLength);
-
-            std::vector<juce::int64> best ((size_t) numBlocks, std::numeric_limits<juce::int64>::max());
-
-            for (int pass = 0; pass < 3; ++pass)
-            {
-                Rig rig (sampleRate);
-                rig.analyzer.setGenre (glaze::Genre::deepHouse);
-                rig.analyzer.startLearning();
-
-                for (int b = 0; b < numBlocks; ++b)
-                {
-                    for (int ch = 0; ch < numChannels; ++ch)
-                        block.copyFrom (ch, 0, input[(size_t) ch].data() + b * blockLength, blockLength);
-
-                    rig.analyzer.setHostInfo (tempoHost ((std::int64_t) b * blockLength, sampleRate));
-                    rig.meter.process (block);
-                    const auto t0 = juce::Time::getHighResolutionTicks();
-                    rig.analyzer.processInput (block, rig.meter);
-                    const auto t1 = juce::Time::getHighResolutionTicks();
-                    rig.balance.process (block);
-                    const auto t2 = juce::Time::getHighResolutionTicks();
-                    rig.analyzer.processSpectrum (rig.balance);
-                    const auto t3 = juce::Time::getHighResolutionTicks();
-                    best[(size_t) b] = juce::jmin (best[(size_t) b], (t1 - t0) + (t3 - t2));
-                }
-            }
-
-            double sum = 0.0, worst = 0.0;
-
-            for (auto ticks : best)
-            {
-                const auto seconds = juce::Time::highResolutionTicksToSeconds (ticks);
-                sum += seconds;
-                worst = juce::jmax (worst, seconds);
-            }
-
-            const auto mean = 1.0e6 * sum / numBlocks;
-
-            // 满账本：把 2 秒一段的素材（不报拍点、带位置）喂满 512 段，学习一直开着（每段都有先试后用的块）。
-            Rig full (sampleRate);
-            full.analyzer.setGenre (glaze::Genre::techHouse);
-            full.analyzer.startLearning();
-            const auto loop = makeHouseTrack (sampleRate, 0, 8, 0.0, 62);
-
-            (void) loop;
-
-            juce::int64 bestRecompute = std::numeric_limits<juce::int64>::max();
-
-            for (int k = 0; k < 10; ++k)
-            {
-                const auto t0 = juce::Time::getHighResolutionTicks();
-                full.analyzer.recomputeHouseProfile();
-                bestRecompute = juce::jmin (bestRecompute, juce::Time::getHighResolutionTicks() - t0);
-            }
-
-            const auto recomputeMicroseconds = 1.0e6 * juce::Time::highResolutionTicksToSeconds (bestRecompute);
-            const auto& gate = full.profile().houseGate;
-            logMessage ("  House analyzer @48k block 512, learning: mean " + juce::String (mean, 2) + " us, worst block "
-                        + juce::String (1.0e6 * worst, 2) + " us (includes the per-bar gate / profile recompute); full ledger ("
-                        + juce::String (full.analyzer.getSegmentLedger().getNumStored()) + " segments, " + juce::String (gate.fullSegments)
-                        + " full, " + juce::String ((double) full.fed / sampleRate, 0) + " s fed): one recompute "
-                        + juce::String (recomputeMicroseconds, 1) + " us");
-            expect (mean < learningGuardMicroseconds, "House analyzer too slow while learning: " + juce::String (mean, 2) + " us per block");
-            expect (gate.fullSegments == 0 && full.analyzer.getHouseProfileGeneration() == 0, "recompute does not fill a house gate");
-            expect (recomputeMicroseconds < 1000.0, "one recompute with a full ledger: " + juce::String (recomputeMicroseconds, 1) + " us");
-        }
-    };
-
-    static MusicAnalyzerHouseTests musicAnalyzerHouseTests;
 }
 
 //==============================================================================
@@ -3619,8 +3295,7 @@ namespace celadon::test
                 && a.liveTrialBlocks == b.liveTrialBlocks && sameBytes (a.liveTrialTop, b.liveTrialTop)
                 && sameBytes (a.liveBlendIntended, b.liveBlendIntended) && sameBytes (a.liveBlendOutput, b.liveBlendOutput)
                 && sameBytes (a.effectiveSeconds, b.effectiveSeconds) && a.heard == b.heard && a.loudnessValid == b.loudnessValid
-                && sameBytes (a.loudnessLufs, b.loudnessLufs) && a.lowShareValid == b.lowShareValid && sameBytes (a.lowShare, b.lowShare)
-                && a.full == b.full;
+                && sameBytes (a.loudnessLufs, b.loudnessLufs) && a.lowShareValid == b.lowShareValid && sameBytes (a.lowShare, b.lowShare);
         }
 
         bool sameSegments (const std::vector<SegmentLedger::Segment>& a, const std::vector<SegmentLedger::Segment>& b)
@@ -3644,20 +3319,20 @@ namespace celadon::test
 
         bool sameEvent (const SegmentLedger::Event& a, const SegmentLedger::Event& b)
         {
-            return a.sequence == b.sequence && a.epoch == b.epoch && a.stored == b.stored && a.heard == b.heard && a.full == b.full
-                && a.surge == b.surge && a.loudnessValid == b.loudnessValid && sameFloat (a.loudnessLufs, b.loudnessLufs)
+            return a.sequence == b.sequence && a.epoch == b.epoch && a.stored == b.stored && a.heard == b.heard
+                && a.loudnessValid == b.loudnessValid && sameFloat (a.loudnessLufs, b.loudnessLufs)
                 && a.lowShareValid == b.lowShareValid && sameFloat (a.lowShare, b.lowShare);
         }
 
-        // House 档那一份段落账此刻能读到的一切（编排器、画像与状态读的全部读数）逐位相同。
+        // 段落账此刻能读到的一切逐位相同（T-108 删了 House 门控那几项读数：满编、突增、已听段数）。
         bool sameLedgerState (const SegmentLedger& a, const SegmentLedger& b)
         {
             if (a.getNumStored() != b.getNumStored() || a.isStoreFull() != b.isStoreFull() || a.getMode() != b.getMode()
-                || a.getHeardSegments() != b.getHeardSegments() || a.getEpoch() != b.getEpoch() || a.getSurgeCount() != b.getSurgeCount()
+                || a.getEpoch() != b.getEpoch()
                 || a.getFinalizedCount() != b.getFinalizedCount() || a.getStoredRevision() != b.getStoredRevision()
                 || a.getOpenSegments() != b.getOpenSegments() || a.getEventCount() != b.getEventCount()
-                || a.getAcceptFrom() != b.getAcceptFrom() || a.isCurrentSegmentFull() != b.isCurrentSegmentFull()
-                || ! sameDouble (a.getCurrentSegmentSeconds(), b.getCurrentSegmentSeconds()) || ! sameHouseGate (a.getSummary(), b.getSummary()))
+                || a.getAcceptFrom() != b.getAcceptFrom()
+                || ! sameDouble (a.getCurrentSegmentSeconds(), b.getCurrentSegmentSeconds()))
                 return false;
 
             float loudnessA = -1.0f, lowA = -1.0f, loudnessB = -1.0f, lowB = -1.0f;
@@ -3696,7 +3371,7 @@ namespace celadon::test
         // 分析器此刻能被编排器读到的一切逐位相同：候选画像（含修坯字段与门控结果）、辅助量、短期视图、House 档的段落账、画像版本号。
         juce::String differenceBetween (const MusicAnalyzer& a, const MusicAnalyzer& b)
         {
-            if (! sameHouseProfile (a.getCandidateProfile(), b.getCandidateProfile()))
+            if (! (sameProfile (a.getCandidateProfile(), b.getCandidateProfile()) && sameClayProfile (a.getCandidateProfile(), b.getCandidateProfile())))
                 return "candidate profile";
 
             if (! sameAuxiliary (a.getAuxiliaryFeatures(), b.getAuxiliaryFeatures()))
@@ -3705,13 +3380,13 @@ namespace celadon::test
             if (! sameShortTermView (a.getShortTermView(), b.getShortTermView()))
                 return "short-term view";
 
-            if (a.getHouseProfileGeneration() != b.getHouseProfileGeneration() || a.isLearning() != b.isLearning() || a.getGenre() != b.getGenre())
-                return "generation / learning / genre";
+            if (a.isLearning() != b.isLearning())
+                return "learning";
 
             return {};
         }
 
-        // 脚本的一步：在起点 ≥ at 的第一块之前对分析器做一件事（开始 / 停止学习、换曲风、不连续点……）。
+        // 脚本的一步：在起点 ≥ at 的第一块之前对分析器做一件事（开始 / 停止学习、不连续点……）。
         struct Step
         {
             std::int64_t at = 0;
@@ -3827,7 +3502,7 @@ namespace celadon::test
             return true;
         }
 
-        // 聆听 2 ～ 3 s（通用档很快提交）、House 锁定条件缩到 8 小节 / 满编 3 小节，过渡与校准都缩短：60 多秒里走得完两轮聆听。
+        // 聆听 2 ～ 3 s（很快提交），过渡与校准都缩短：60 多秒里走得完两轮聆听。
         glaze::Constants shortListenConstants()
         {
             auto c = glaze::factoryConstants();
@@ -3836,8 +3511,6 @@ namespace celadon::test
             c.planTransitionSeconds = 0.5;
             c.calibrationSettleSeconds = 0.5;
             c.calibrationWindowSeconds = 2.0;
-            c.house.lockSegments = 8;
-            c.house.requiredFullSegments = 3;
             return c;
         }
     }
@@ -3875,20 +3548,17 @@ namespace celadon::test
 
     private:
         //==============================================================================
-        // 依据：任务书「实时模式关着时插件一切输出不变；关：sink 一次都不被调；开 vs 关，候选画像（通用档与 House 档）逐位相同」、
-        // MusicAnalyzer.h「T-048」一节。两份分析器（关：交了接收者但没开实时模式；开）按同一份脚本逐块喂 65 s 合成 House 曲，**每一块之后**
-        // 比较编排器能读到的一切（候选画像全部字段与门控结果、辅助量、短期视图、House 档那一份段落账的全部读数与每一段的全部字段、事件、
-        // 计数）。三个脚本：House 档里学习 / 停止 / 立即重算 / 重新聆听 / 停止 / 清空段落账；通用档里学习 / 停止 / 重新聆听；混着来——
-        // 通用 → House → 通用 → 另一个 House 子类，中间开始 / 停止学习、跳播与回绕（House 那一份段落账跨换曲风留着，实时模式不许动它）。
+        // 依据：任务书「实时模式关着时插件一切输出不变；关：sink 一次都不被调；开 vs 关，候选画像逐位相同」、MusicAnalyzer.h「T-048」一节。
+        // 两份分析器（关：交了接收者但没开实时模式；开）按同一份脚本逐块喂 65 s 合成 House 曲，**每一块之后**比较编排器能读到的一切
+        //（候选画像全部字段、辅助量、短期视图、学习标志）。两个脚本：学习 / 停止 / 重新聆听；学习 / 停止中间夹跳播与回绕。
+        // T-108：原来还有 House 档的脚本与「换曲风」步骤（House 门控账、立即重算、清空段落账），随 House 档删掉。
         void testOffEqualsOnAnalyzer()
         {
             beginTest ("live mode off vs on: everything the controller reads from the analyzer is bit-identical, block by block (65 s, three scripts)");
 
             const auto track = makeHouseTrack (48000.0, 4, 30, 0.0, 71);   // 34 小节 ≈ 65.8 s
-            using G = glaze::Genre;
             const auto learn = [] (MusicAnalyzer& a) { a.startLearning(); };
             const auto stop = [] (MusicAnalyzer& a) { a.stopLearning(); };
-            const auto genre = [] (G g) { return [g] (MusicAnalyzer& a) { a.setGenre (g); }; };
 
             struct Script
             {
@@ -3901,19 +3571,12 @@ namespace celadon::test
             jumping.pieces = { { 0, 0 }, { samplesAt (24.0), samplesAt (29.0) }, { samplesAt (60.0), samplesAt (10.0) } };
 
             const std::vector<Script> scripts {
-                { "House: learn, stop, recompute, relearn, stop, clear", Transport {},
-                  { { 0, genre (G::deepHouse) }, { 0, learn }, { samplesAt (20.0), stop },
-                    { samplesAt (22.0), [] (MusicAnalyzer& a) { a.recomputeHouseProfile(); } },
-                    { samplesAt (40.0), learn }, { samplesAt (56.0), stop },
-                    { samplesAt (60.0), [] (MusicAnalyzer& a) { a.clearHouseLedger(); } } } },
-                { "general: learn, stop, relearn", Transport {},
+                { "learn, stop, relearn", Transport {},
                   { { 0, learn }, { samplesAt (18.0), stop }, { samplesAt (30.0), learn }, { samplesAt (50.0), stop } } },
-                { "mixed: genre switches, learning, a jump and a loop wrap", jumping,
-                  { { 0, learn }, { samplesAt (8.0), genre (G::deepHouse) }, { samplesAt (16.0), stop },
+                { "learning, a jump and a loop wrap", jumping,
+                  { { 0, learn }, { samplesAt (16.0), stop },
                     { samplesAt (24.0), [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::transportJump); } },
-                    { samplesAt (30.0), genre (G::general) }, { samplesAt (34.0), learn }, { samplesAt (42.0), genre (G::techHouse) },
-                    { samplesAt (50.0), stop }, { samplesAt (52.0), [] (MusicAnalyzer& a) { a.recomputeHouseProfile(); } },
-                    { samplesAt (56.0), genre (G::general) },
+                    { samplesAt (34.0), learn }, { samplesAt (50.0), stop },
                     { samplesAt (60.0), [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::loopWrap); } } } },
             };
 
@@ -3931,7 +3594,7 @@ namespace celadon::test
                                                         [&transport] (std::int64_t t) { return tempoHost (transport.positionAt (t), 48000.0); },
                                                         script.steps, what);
 
-                logMessage ("  " + juce::String (script.name) + ": " + juce::String (onCollector.calls) + " live segments, House ledger "
+                logMessage ("  " + juce::String (script.name) + ": " + juce::String (onCollector.calls) + " live segments, live ledger "
                             + juce::String (on.analyzer.getSegmentLedger().getNumStored()) + " stored, "
                             + juce::String (on.analyzer.getSegmentLedger().getFinalizedCount()) + " finalized");
                 expect (firstDifference < 0, juce::String (script.name) + ": first difference at block " + juce::String (firstDifference) + " (" + what + ")");
@@ -3943,23 +3606,21 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 依据：任务书「实时模式开 vs 关，CeladonChain 的输出逐位相同（House 档跑过学习 / 停止 / 重新聆听；时长 ≥ 60 s）」、
+        // 依据：任务书「实时模式开 vs 关，CeladonChain 的输出逐位相同（跑过学习 / 停止 / 重新聆听；时长 ≥ 60 s）」、
         // GlazeController::setLiveSegmentSink「编排器其余行为一律不变」。两条链（一条经 setLiveSegmentSink 开实时模式）按同一宿主走 69 s：
-        // 首次聆听 → 提交 → 过渡 → 校准，30 s 处「重新聆听」，50 s 处跳播 3 s；每一块的输出逐位相同，编排器的计数也相同。通用档（GLAZE 100）
-        // 与 Deep House（GLAZE 70）各一遍。
+        // 30 s 处「重新聆听」，50 s 处跳播 3 s。GLAZE 100 与 GLAZE 70 各一遍（T-108 前第二遍是 Deep House，随曲风删掉）。
         void testOffEqualsOnChain()
         {
-            beginTest ("live probe vs chain profile: external sink diverts segments (general and Deep House, relearn no-op / jump, 69 s)");
+            beginTest ("live probe vs chain profile: external sink diverts segments (GLAZE 100 and 70, relearn no-op / jump, 69 s)");
 
             const auto track = makeHouseTrack (48000.0, 4, 32, 0.0, 72);   // 36 小节 ≈ 69.7 s
             const auto blocks = (int) (track.front().size() / (size_t) preparedBlock);
 
-            for (const auto genre : { 0, 1 })
+            for (const auto glazePercent : { 100.0f, 70.0f })
             {
                 ChainParams params;
                 params.limit.ceilingDb = -1.0f;
-                params.glazePercent = genre == 0 ? 100.0f : 70.0f;
-                params.glazeGenre = genre;
+                params.glazePercent = glazePercent;
 
                 SegmentCollector collector;
                 ChainRun off (shortListenConstants(), params, nullptr), on (shortListenConstants(), params, &collector);
@@ -3989,7 +3650,7 @@ namespace celadon::test
 
                 const auto probeOff = off.chain->getGlazeController().getProbeForTesting();
                 const auto probeOn = on.chain->getGlazeController().getProbeForTesting();
-                const auto tag = juce::String (genre == 0 ? "general" : "Deep House");
+                const auto tag = "GLAZE " + juce::String (glazePercent, 0);
                 logMessage ("  " + tag + ": " + juce::String (probeOn.learningStarts) + " learning starts, " + juce::String (probeOn.commits)
                             + " commits, " + juce::String (probeOn.transportJumps) + " jumps, " + juce::String (collector.calls) + " live segments");
                 // 阶段 2 产品路径始终喂链上的 LiveProfile。外部 sink 是探针，会把段从决策器那份画像引走，所以两条输出不必逐位相同。
@@ -4003,32 +3664,28 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 依据：任务书「实时模式开：sink 收到的段按时间先后、每段恰好一次、[start, end) 首尾相接不漏（跨学习开始 / 停止 / 重新聆听、换曲风、
-        // 跳播与回绕）；通用档与 House 档都覆盖」、MusicAnalyzer.cpp「七」节「只在不连续点断开」。48 s：6 s 开始学习、12 s 换 Deep House、
-        // 18 s 停止、24 s 跳播（宿主位置 +5 s）、30 s 重新聆听、36 s 回绕（宿主位置回到 10 s）、42 s 换回通用、46 s 清空 House 段落账，
-        // 48 s 处 reset（开着的段先交出去）。期望：第一段从 0 起、最后一段止于 48 s、相邻两段首尾相接（同一条时间轴）；不完整的段只出现在
-        // 跳播 / 回绕 / 结尾三处的两侧，其余段都是整段（学习、换曲风、清空都不断开）；跳播与回绕之后段的连续时间段号变大。
+        // 依据：任务书「实时模式开：sink 收到的段按时间先后、每段恰好一次、[start, end) 首尾相接不漏（跨学习开始 / 停止 / 重新聆听、
+        // 跳播与回绕）」、MusicAnalyzer.cpp「七」节「只在不连续点断开」。48 s：6 s 开始学习、18 s 停止、24 s 跳播（宿主位置 +5 s）、
+        // 30 s 重新聆听、36 s 回绕（宿主位置回到 10 s），48 s 处 reset（开着的段先交出去）。期望：第一段从 0 起、最后一段止于 48 s、
+        // 相邻两段首尾相接（同一条时间轴）；不完整的段只出现在跳播 / 回绕 / 结尾三处的两侧，其余段都是整段（学习不断开）；跳播与回绕之后
+        // 段的连续时间段号变大。T-108：原来的换曲风、清空 House 段落账两步随 House 档删掉。
         // 宿主两种：恒定 124 BPM 的拍点（按小节）、只有位置（按位置的 2 秒格）。
         void testSegmentsContiguous()
         {
-            beginTest ("live mode: segments arrive in time order, once each, end-to-end contiguous across learning, genre switches, jumps and loops");
+            beginTest ("live mode: segments arrive in time order, once each, end-to-end contiguous across learning, jumps and loops");
 
             const auto jumpAt = samplesAt (24.0), loopAt = samplesAt (36.0), endAt = samplesAt (48.0);
             const auto track = sliceTo (makeHouseTrack (48000.0, 4, 22, 0.0, 73), endAt);
-            using G = glaze::Genre;
 
             Transport transport;
             transport.pieces = { { 0, 0 }, { jumpAt, jumpAt + samplesAt (5.0) }, { loopAt, samplesAt (10.0) } };
 
             const std::vector<Step> steps {
                 { samplesAt (6.0), [] (MusicAnalyzer& a) { a.startLearning(); } },
-                { samplesAt (12.0), [] (MusicAnalyzer& a) { a.setGenre (G::deepHouse); } },
                 { samplesAt (18.0), [] (MusicAnalyzer& a) { a.stopLearning(); } },
                 { jumpAt, [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::transportJump); } },
                 { samplesAt (30.0), [] (MusicAnalyzer& a) { a.startLearning(); } },
                 { loopAt, [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::loopWrap); } },
-                { samplesAt (42.0), [] (MusicAnalyzer& a) { a.setGenre (G::general); } },
-                { samplesAt (46.0), [] (MusicAnalyzer& a) { a.clearHouseLedger(); } },
             };
 
             for (const auto bars : { true, false })
@@ -4065,7 +3722,7 @@ namespace celadon::test
                 logMessage ("  " + tag + ": " + juce::String ((int) s.size()) + " segments over 48 s");
                 expect (collector.calls == (int) s.size() && s.size() >= 20, tag + ": every call stored (no overflow)");
                 expect (contiguous, tag + ": first starts at 0, last ends at 48 s, each one starts where the previous ended");
-                expect (partialOnlyAtCuts, tag + ": learning, genre switches and clearing never cut a segment; only the jump, the loop and the end do");
+                expect (partialOnlyAtCuts, tag + ": learning never cuts a segment; only the jump, the loop and the end do");
                 expect (modes, tag + ": segment mode follows the host");
                 expect (epochs, tag + ": the continuous-time index moves on exactly at the jump and the loop");
             }
@@ -4073,8 +3730,8 @@ namespace celadon::test
 
         //==============================================================================
         // 依据：任务书「交给 sink 的段序列与宿主切块无关：块长 7、32、480、512、4096 逐位相同（逐字段比 Segment）」。事件都放在
-        // 430080 样本（= 这五个块长的最小公倍数，8.96 s）的整数倍上，各种块长下发生在同一个样本：通用档起步，1 × 开始学习、2 × 换 Deep House、
-        // 3 × 停止学习、4 × 跳播（宿主位置 +777777）、5 × 重新聆听、6 × 处 reset（交出开着的段）。
+        // 430080 样本（= 这五个块长的最小公倍数，8.96 s）的整数倍上，各种块长下发生在同一个样本：1 × 开始学习、
+        // 3 × 停止学习（T-108 前 2 × 换 Deep House）、4 × 跳播（宿主位置 +777777）、5 × 重新聆听、6 × 处 reset（交出开着的段）。
         void testBlockSizeIndependence()
         {
             beginTest ("live mode: the delivered segments are bit-identical for host blocks of 7, 32, 480, 512 and 4096 samples");
@@ -4086,7 +3743,6 @@ namespace celadon::test
 
             const std::vector<Step> steps {
                 { 1 * unit, [] (MusicAnalyzer& a) { a.startLearning(); } },
-                { 2 * unit, [] (MusicAnalyzer& a) { a.setGenre (glaze::Genre::deepHouse); } },
                 { 3 * unit, [] (MusicAnalyzer& a) { a.stopLearning(); } },
                 { 4 * unit, [] (MusicAnalyzer& a) { a.handleDiscontinuity (Discontinuity::transportJump); } },
                 { 5 * unit, [] (MusicAnalyzer& a) { a.startLearning(); } },
@@ -4180,7 +3836,6 @@ namespace celadon::test
 
             {
                 Rig rig (sampleRate);
-                rig.analyzer.setGenre (glaze::Genre::deepHouse);
                 rig.analyzer.startLearning();
                 rig.feed (sliceOf (input, 0, (int) samplesAt (30.0)), 512, 1, [] (std::int64_t fed, int) { return tempoHost (fed, 48000.0); });
 
@@ -4201,11 +3856,11 @@ namespace celadon::test
 
         //==============================================================================
         // 依据：任务书「实时模式开着时 processInput / processSpectrum 不分配」、MusicAnalyzer.h「音频线程不分配」。实时模式开、随机块长：
-        // 学习 / 停止 / 重新聆听、通用与 House 来回换、三种不连续点（含表与 Balance 的 reset）、立即重算、清空段落账、分析器 reset，
-        // 每块都不经 operator new（接收者把段存进预先留好容量的 vector）。
+        // 学习 / 停止 / 重新聆听、三种不连续点（含表与 Balance 的 reset）、分析器 reset，每块都不经 operator new（接收者把段存进
+        // 预先留好容量的 vector）。T-108 删了换曲风、立即重算、清空 House 段落账三种动作。
         void testNoAllocation()
         {
-            beginTest ("live mode: the audio-thread API does not allocate (both ledgers, sink delivery, genre switches, discontinuities)");
+            beginTest ("live mode: the audio-thread API does not allocate (the live ledger, sink delivery, discontinuities)");
 
             constexpr double sampleRate = 48000.0;
             SegmentCollector collector (256);
@@ -4229,8 +3884,6 @@ namespace celadon::test
                 const auto before = allocationCountOnThisThread();
 
                 rig.analyzer.setHostInfo (index % 40 == 39 ? playingAt (start) : tempoHost (start, sampleRate));
-                rig.analyzer.setGenre (index >= 25 && index < 45 ? glaze::Genre::deepHouse
-                                       : index >= 70 ? glaze::Genre::techHouse : glaze::Genre::general);
 
                 if (index == 0 || index == 50)
                     rig.analyzer.startLearning();
@@ -4258,13 +3911,7 @@ namespace celadon::test
                 sink += rig.analyzer.getCandidateProfile().integratedLufs.value + rig.analyzer.getShortTermView().momentaryLufs.value;
 
                 if (index == 35 || index == 60)
-                {
                     rig.analyzer.stopLearning();
-                    rig.analyzer.recomputeHouseProfile();
-                }
-
-                if (index == 75)
-                    rig.analyzer.clearHouseLedger();
 
                 allocations += allocationCountOnThisThread() - before;
                 start += length;
@@ -4286,7 +3933,6 @@ namespace celadon::test
             ChainParams params;
             params.limit.ceilingDb = -1.0f;
             params.glazePercent = 50.0f;
-            params.glazeGenre = 1;
             SegmentCollector collector;
             ChainRun run (shortListenConstants(), params, &collector);
             const auto track = makeHouseTrack (48000.0, 4, 12, 0.0, 78);
@@ -4329,12 +3975,12 @@ namespace celadon::test
 
         //==============================================================================
         // 性能（依据：任务书「分析器每块均值（实时模式关：学习中 / 不学习；实时模式开），与现有 learningGuardMicroseconds 护栏对照」；
-        // 不改现有护栏）：同上面通用档护栏的量法（48 kHz 立体声、块 512、4 遍取每块最短再求均值 / 最坏）。四种：关 · 学习中、关 · 不学习、
-        // 开 · 不学习（通用档：候选一直跑 + 实时段落账）、开 · House 档学习中（候选 + 两份段落账 + 门控画像）。实时模式开着的两种都要低于
-        // learningGuardMicroseconds（它的工作量上限就是「学习中」再加一份段落账）。
+        // 不改现有护栏）：同上面护栏的量法（48 kHz 立体声、块 512、4 遍取每块最短再求均值 / 最坏）。四种：关 · 学习中、关 · 不学习、
+        // 开 · 不学习（候选一直跑 + 实时段落账）、开 · 学习中。实时模式开着的两种都要低于 learningGuardMicroseconds（它的工作量上限
+        // 就是「学习中」再加一份段落账）。T-108 前第四种是 House 档学习中（另有 House 门控账与门控画像），随 House 档删掉。
         void testPerformance()
         {
-            beginTest ("performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (general / House learning)");
+            beginTest ("performance: analyzer per 512-sample block at 48 kHz, live mode off (learning / not) and on (learning / not)");
 
             constexpr double sampleRate = 48000.0;
             constexpr int blockLength = 512;
@@ -4344,16 +3990,13 @@ namespace celadon::test
             juce::AudioBuffer<float> block (numChannels, blockLength);
             SegmentCollector collector (64);
 
-            auto measure = [&] (bool live, bool learn, bool house)
+            auto measure = [&] (bool live, bool learn)
             {
                 std::vector<juce::int64> best ((size_t) numBlocks, std::numeric_limits<juce::int64>::max());
 
                 for (int pass = 0; pass < 4; ++pass)
                 {
                     Rig rig (sampleRate);
-
-                    if (house)
-                        rig.analyzer.setGenre (glaze::Genre::deepHouse);
 
                     if (live)
                     {
@@ -4394,20 +4037,20 @@ namespace celadon::test
                 return std::pair<double, double> { 1.0e6 * sum / numBlocks, 1.0e6 * worst };
             };
 
-            const auto offLearning = measure (false, true, false);
-            const auto offIdle = measure (false, false, false);
-            const auto liveIdle = measure (true, false, false);
-            const auto liveHouse = measure (true, true, true);
+            const auto offLearning = measure (false, true);
+            const auto offIdle = measure (false, false);
+            const auto liveIdle = measure (true, false);
+            const auto liveLearning = measure (true, true);
             const auto text = [] (const std::pair<double, double>& m)
             {
                 return "mean " + juce::String (m.first, 2) + " us, worst " + juce::String (m.second, 2) + " us";
             };
 
             logMessage ("  analyzer @48k block 512 - live off, learning: " + text (offLearning) + "; live off, not learning: " + text (offIdle)
-                        + "; live on, general, not learning: " + text (liveIdle) + "; live on, House, learning: " + text (liveHouse)
+                        + "; live on, not learning: " + text (liveIdle) + "; live on, learning: " + text (liveLearning)
                         + " (guard " + juce::String (learningGuardMicroseconds, 0) + " us)");
-            expect (liveIdle.first < learningGuardMicroseconds, "live mode (general, not learning) too slow: " + juce::String (liveIdle.first, 2) + " us per block");
-            expect (liveHouse.first < learningGuardMicroseconds, "live mode (House, learning) too slow: " + juce::String (liveHouse.first, 2) + " us per block");
+            expect (liveIdle.first < learningGuardMicroseconds, "live mode (not learning) too slow: " + juce::String (liveIdle.first, 2) + " us per block");
+            expect (liveLearning.first < learningGuardMicroseconds, "live mode (learning) too slow: " + juce::String (liveLearning.first, 2) + " us per block");
             expect (collector.calls > 0, "the live runs delivered segments (positive control)");
         }
 
@@ -4521,28 +4164,17 @@ namespace celadon::test
         }
 
         // 一份分析器开着实时模式按 blockSize（≤ 0 = 随机 1 ～ 4096）喂完 input：宿主恒定 124 BPM，宿主位置 = startPosition + 已送样本数；
-        // 每块之前 beforeBlock（已送样本数在 rig.fed）；最后 setLiveMode (false, &balance) 交出开着的段。houseStored 非空时另存 House 那一份的段。
-        static std::unique_ptr<TimelineCollector> runLive (const Signal& input, int blockSize, glaze::Genre genre, std::int64_t startPosition,
-                                                          const std::function<void (Rig&)>& beforeBlock,
-                                                          std::vector<SegmentLedger::Segment>* houseStored = nullptr, juce::int64 seed = 1)
+        // 每块之前 beforeBlock（已送样本数在 rig.fed）；最后 setLiveMode (false, &balance) 交出开着的段。
+        static std::unique_ptr<TimelineCollector> runLive (const Signal& input, int blockSize, std::int64_t startPosition,
+                                                          const std::function<void (Rig&)>& beforeBlock, juce::int64 seed = 1)
         {
             auto collector = std::make_unique<TimelineCollector>();
             auto rig = std::make_unique<Rig> (48000.0);
-            rig->analyzer.setGenre (genre);
             rig->analyzer.setSegmentSink (collector.get());
             rig->analyzer.setLiveMode (true);
             rig->feed (input, blockSize, seed, [startPosition] (std::int64_t fed, int) { return tempoHost (startPosition + fed, 48000.0); },
                        beforeBlock);
             rig->analyzer.setLiveMode (false, &rig->balance);
-
-            if (houseStored != nullptr)
-            {
-                const auto& ledger = rig->analyzer.getSegmentLedger();
-
-                for (int i = 0; i < ledger.getNumStored(); ++i)
-                    houseStored->push_back (ledger.getStored (i));
-            }
-
             return collector;
         }
 
@@ -4589,19 +4221,18 @@ namespace celadon::test
             std::int64_t position = 0;
         };
 
-        static ChainParams liveChainParams (int genre)
+        // variant 0 = GLAZE 100、1 = GLAZE 70（T-108 前第二种是 Deep House GLAZE 70，曲风删掉后只留 GLAZE 的差别）。
+        static ChainParams liveChainParams (int variant)
         {
             ChainParams params;
             params.limit.ceilingDb = -1.0f;
-            params.glazePercent = genre == 0 ? 100.0f : 70.0f;
-            params.glazeGenre = genre;
+            params.glazePercent = variant == 0 ? 100.0f : 70.0f;
             return params;
         }
 
         //==============================================================================
         // 5 a（分析器一级）：学习在**真实的块边界**上停——各块长在 12.345 s 之后的第一个块边界上 stopLearning（不是各块长的公倍数，停的样本
-        // 各不相同），从头开始学习。实时段落账交来的段在块长 7 / 32 / 480 / 512 / 4096 下除学习期专用三项外逐字段相同；通用档与 Deep House
-        // 各一遍（House 那一份段落账同时在跑）。素材有一段压低 26 dB 与淡出（三道相对门的门边内容），阳性对照：压低那一段被实时参考的相对门挡住、
+        // 各不相同），从头开始学习。实时段落账交来的段在块长 7 / 32 / 480 / 512 / 4096 下除学习期专用三项外逐字段相同。素材有一段压低 26 dB 与淡出（三道相对门的门边内容），阳性对照：压低那一段被实时参考的相对门挡住、
         // 各块长停学习的样本确实不同。
         void testLearningStopsOnRealBlockBoundaries()
         {
@@ -4610,9 +4241,8 @@ namespace celadon::test
             const auto track = makeGatedTrack (91);
             const auto stopAt = samplesAt (12.345);
 
-            for (const auto genre : { glaze::Genre::general, glaze::Genre::deepHouse })
             {
-                const auto tag = juce::String (genre == glaze::Genre::general ? "general" : "Deep House");
+                const juce::String tag ("live ledger");
                 std::vector<SegmentLedger::Segment> reference;
                 std::int64_t referenceStop = -1;
                 auto stopsDiffer = false;
@@ -4620,7 +4250,7 @@ namespace celadon::test
                 for (const auto blockSize : { 512, 7, 32, 480, 4096 })
                 {
                     std::int64_t stoppedAt = -1;
-                    const auto collector = runLive (track, blockSize, genre, 0, [&stoppedAt, stopAt] (Rig& r)
+                    const auto collector = runLive (track, blockSize, 0, [&stoppedAt, stopAt] (Rig& r)
                     {
                         if (r.fed == 0)
                             r.analyzer.startLearning();
@@ -4652,7 +4282,7 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // 5 a（链一级）：编排器自己决定什么时候停学习（通用档提交、Deep House 锁定，都在它看到的块边界上），宿主块长 7 / 32 / 480 / 512 / 4096。
+        // 5 a（链一级）：宿主块长 7 / 32 / 480 / 512 / 4096，GLAZE 100 与 70 各一遍（T-108 前第二遍是 Deep House）。
         // 实时段落账交来的段除学习期专用三项外逐字段相同。setLiveSegmentSink (nullptr) 收尾（第 3 条：最后一块的帧也交了）。
         void testChainLearningStopsOnRealBlockBoundaries()
         {
@@ -4660,15 +4290,15 @@ namespace celadon::test
 
             const auto track = makeGatedTrack (93);
 
-            for (const auto genre : { 0, 1 })
+            for (const auto variant : { 0, 1 })
             {
-                const auto tag = juce::String (genre == 0 ? "general" : "Deep House");
+                const auto tag = juce::String (variant == 0 ? "GLAZE 100" : "GLAZE 70");
                 std::vector<SegmentLedger::Segment> reference;
 
                 for (const auto blockSize : { 512, 7, 32, 480, 4096 })
                 {
                     TimelineCollector collector;
-                    LiveChain run (shortListenConstants(), liveChainParams (genre), &collector);
+                    LiveChain run (shortListenConstants(), liveChainParams (variant), &collector);
                     run.play (track, blockSize);
                     run.chain->setLiveSegmentSink (nullptr);
                     const auto probe = run.chain->getGlazeController().getProbeForTesting();
@@ -4697,24 +4327,21 @@ namespace celadon::test
         //==============================================================================
         // 5 b（分析器一级）：同一段音频，「从头学习到底」与「读档后不学习」（从不学习；读档时编排器先来一次宿主 reset，这里在第一块之前同样调）
         // 交来的段除学习期专用三项外逐字段相同（连续时间段号也相同：第一块之前的断开什么都不做）。不学习的那一份 trialBlocks 处处为 0，学习的
-        // 那一份有；不学习时实时参考的相对门照样挡住压低的那一段。Deep House 那一遍另核对阳性对照：House 那一份段落账参考学习区间，两种状态下
-        // 确实不同（素材考到了门边）。
+        // 那一份有；不学习时实时参考的相对门照样挡住压低的那一段。（T-108 前 Deep House 那一遍另核对 House 那一份段落账，随 House 档删掉。）
         void testLearningStateIndependence()
         {
             beginTest ("B2 5b: the same audio gives identical live segments learning from the start and not learning after a state load");
 
             const auto track = makeGatedTrack (92);
 
-            for (const auto genre : { glaze::Genre::general, glaze::Genre::deepHouse })
             {
-                const auto tag = juce::String (genre == glaze::Genre::general ? "general" : "Deep House");
-                std::vector<SegmentLedger::Segment> houseLearning, houseIdle;
-                const auto learningRun = runLive (track, 512, genre, 0, [] (Rig& r) { if (r.fed == 0) r.analyzer.startLearning(); }, &houseLearning);
-                const auto idleRun = runLive (track, 512, genre, 0, [] (Rig& r)
+                const juce::String tag ("live ledger");
+                const auto learningRun = runLive (track, 512, 0, [] (Rig& r) { if (r.fed == 0) r.analyzer.startLearning(); });
+                const auto idleRun = runLive (track, 512, 0, [] (Rig& r)
                 {
                     if (r.fed == 0)
                         r.analyzer.handleDiscontinuity (Discontinuity::hostReset);
-                }, &houseIdle);
+                });
 
                 auto learningTrials = false, idleTrials = false;
 
@@ -4730,36 +4357,27 @@ namespace celadon::test
                 expect (! learningTrials && ! idleTrials, tag + ": trial* stays empty; live* is the only trial record");
                 expect (quietSectionGated (idleRun->segments), tag + ": not learning, the live relative gate still holds off the quiet section");
 
-                if (genre == glaze::Genre::deepHouse)
-                {
-                    auto houseSame = houseLearning.size() == houseIdle.size();
-
-                    for (size_t i = 0; houseSame && i < houseLearning.size(); ++i)
-                        houseSame = sameSegmentAll (withoutLearningTrial (houseLearning[i]), withoutLearningTrial (houseIdle[i]));
-
-                    expect (houseSame, tag + ": there is no second house ledger; both captures are the live one");
-                }
             }
         }
 
         //==============================================================================
         // 5 b（链一级，REPORT-C 2.5 的场景）：第一遍从头聆听、提交（学习），存档；第二遍新链读档（不学习）从头再走一遍。两遍交来的段除学习期
-        // 专用三项外逐字段相同（含连续时间段号）。通用档 GLAZE 100、Deep House GLAZE 70。
+        // 专用三项外逐字段相同（含连续时间段号）。GLAZE 100、GLAZE 70 各一遍。
         void testChainSecondPassMatchesFirst()
         {
             beginTest ("B2 5b: CeladonChain - the second pass (state restored, not learning) delivers the same live segments as the first (learning)");
 
             const auto track = makeGatedTrack (94);
 
-            for (const auto genre : { 0, 1 })
+            for (const auto variant : { 0, 1 })
             {
-                const auto tag = juce::String (genre == 0 ? "general" : "Deep House");
+                const auto tag = juce::String (variant == 0 ? "GLAZE 100" : "GLAZE 70");
                 TimelineCollector first, second;
                 std::unique_ptr<juce::XmlElement> state;
                 int secondLearningStarts = -1;
 
                 {
-                    LiveChain run (shortListenConstants(), liveChainParams (genre), &first);
+                    LiveChain run (shortListenConstants(), liveChainParams (variant), &first);
                     run.play (track, 512);
                     run.chain->setLiveSegmentSink (nullptr);
                     state = run.chain->createGlazeStateXml();
@@ -4767,7 +4385,7 @@ namespace celadon::test
                 }
 
                 {
-                    LiveChain run (shortListenConstants(), liveChainParams (genre), &second);
+                    LiveChain run (shortListenConstants(), liveChainParams (variant), &second);
                     run.chain->restoreGlazeStateXml (state.get());
                     run.play (track, 512);
                     run.chain->setLiveSegmentSink (nullptr);
@@ -4800,7 +4418,7 @@ namespace celadon::test
             int blocks = 0;
 
             // 每个事件在起点不早于它的第一块之前做（同 runScript）。
-            const auto collector = runLive (track, 0, glaze::Genre::general, 0, [&] (Rig& r)
+            const auto collector = runLive (track, 0, 0, [&] (Rig& r)
             {
                 ++blocks;
 
@@ -4824,7 +4442,7 @@ namespace celadon::test
                     if (event == Event::prepare)
                         r.analyzer.prepare (spec);
                 }
-            }, nullptr, 7);
+            }, 7);
 
             expect (next == events.size(), "every event happened");
 
@@ -4919,7 +4537,7 @@ namespace celadon::test
 
                 for (const auto blockSize : { 512, 4096 })
                 {
-                    const auto collector = runLive (track, blockSize, glaze::Genre::general, start, {});
+                    const auto collector = runLive (track, blockSize, start, {});
                     const auto& s = collector->segments;
                     const auto tag = "bar " + juce::String (bar) + ", block " + juce::String (blockSize);
                     auto wholeAndContiguous = s.size() >= 3;
@@ -4961,7 +4579,7 @@ namespace celadon::test
 
             for (const auto blockSize : { 512, 4096 })
             {
-                const auto collector = runLive (track, blockSize, glaze::Genre::general, 0, {});
+                const auto collector = runLive (track, blockSize, 0, {});
                 const auto& segments = collector->segments;
                 const auto tag = "block " + juce::String (blockSize);
                 const auto whole = [] (const SegmentLedger::Segment& s) { return s.end - s.start == s.nominalLength; };
@@ -5063,7 +4681,7 @@ namespace celadon::test
                 }
 
             const auto trackEnd = (double) track.front().size() / 48000.0;
-            const auto collector = runLive (track, 512, glaze::Genre::general, 0, {});
+            const auto collector = runLive (track, 512, 0, {});
             const auto& segments = collector->segments;
             const auto whole = [] (const SegmentLedger::Segment& s) { return s.end - s.start == s.nominalLength; };
 
@@ -5158,7 +4776,7 @@ namespace celadon::test
                 for (size_t i = (size_t) samplesAt (switchAt); i < channel.size(); ++i)
                     channel[i] *= quietGain;
 
-            const auto collector = runLive (track, 512, glaze::Genre::general, 0, {});
+            const auto collector = runLive (track, 512, 0, {});
             const auto& segments = collector->segments;
             const auto whole = [] (const SegmentLedger::Segment& s) { return s.end - s.start == s.nominalLength; };
             const auto trackSamples = (std::int64_t) track.front().size();

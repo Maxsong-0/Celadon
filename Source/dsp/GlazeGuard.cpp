@@ -303,7 +303,7 @@ namespace celadon::glaze
         lastOver = verdict.over;
         lastOvershootDb = juce::jmax (verdict.limitOvershootDb, verdict.otherOvershootDb);
         lastCause = (verdict.limitOver && verdict.limitOvershootDb >= verdict.otherOvershootDb)
-                        ? GuardCause::deliveryPeak : GuardCause::budget;
+                        ? GuardCause::limiterPeak : GuardCause::budget;
 
         slots[(size_t) indexFromNewest (0)].over = verdict.over;
         overSlotsInHistory += verdict.over ? 1 : 0;
@@ -606,7 +606,8 @@ namespace celadon::glaze
         reader.field ("lastCause", cause);
 
         juce::MemoryOutputStream packed;
-        if (! reader.ok || cause < 0 || cause > (int) GuardCause::psr
+        // 这一扇只写过 0 ～ 2（3 / 4 是 T-097 两扇已删的守护的原因，从没进过 GUARD_BUDGET 节点）。
+        if (! reader.ok || cause < 0 || cause > (int) GuardCause::limiterPeak
             || copy.writeIndex < 0 || copy.writeIndex >= slotCapacity
             || copy.historyCount < 0 || copy.historyCount > slotCapacity
             || copy.statsCount < 0 || copy.statsCount > copy.historyCount

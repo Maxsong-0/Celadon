@@ -13,14 +13,14 @@
               候选本身在 ClayTrials，T-048 阶段 1 原样抽出）。
     修坯 Clay 的特征（下面第「四」「五」节）挂在帧流与样本流上，不另起时间轴、不新增 FFT。
     画像只由各路的累计量按纯函数算出（每次有新数据就重算），停止学习后固定。
-    T-038 House 档（第「六」节）：三路数据另按段归进段落账（SegmentLedger），候选画像改由满编段门控算出；通用档不进第「六」节的任何代码。
-    T-048 实时模式（第「七」节，默认关）：另一份实时段落账，所有曲风都按第「六」节同一口径分段、记账，定稿的段交给 SegmentSink；
+    段落账（第「六」节，T-038 为 House 档做的口径；T-108 删了 House 档与它的门控画像）：三路数据按段归进段落账（SegmentLedger）。
+    T-048 实时模式（第「七」节，默认关）：实时段落账按第「六」节的口径分段、记账，定稿的段交给 SegmentSink；
     关着时实时段落账不分配、不跑，一切输出与 T-048 之前逐位相同。
 
     实时约束：全部状态在 Impl 里定长（构造时一次分配；先试后用的收单候选低通与 M / S 延迟环随采样率定长，prepare 时分配；
     实时段落账在打开实时模式与 prepare 时分配），音频线程上的函数不分配、不加锁、不做系统调用；时间常数一律按样本数折算。
-    reset 逐项清零，不在栈上构造整个 Impl（约 160 KB：其中 House 与实时两份段落账的定长成员各约 50 KB，实时一侧另有三道门的参考与
-    交段时换算用的一份 Segment 约 17 KB）。
+    reset 逐项清零，不在栈上构造整个 Impl（其中实时段落账的定长成员约 50 KB，另有三道门的参考与交段时换算用的一份 Segment 约 17 KB；
+    T-108 前还有 House 档的一份段落账）。
 
   ==============================================================================
 */
@@ -247,16 +247,17 @@ namespace celadon::glaze
         //     重新起跑（实时模式开着时也一样，所以学习期的代价与实时模式关着时逐位相同）；
         //   - 每个组算不算（noteGroup 的两种口径）：学习口径 = 过了重启预热、在学习区间内、在有效音频门上（与起音 / 真次声同一套边界）；
         //     实时口径 = 过了重启预热、在有效音频门上；
-        //   - 交齐的块进哪里（trialBlockCompleted）：学习口径有效、且交齐时还在学习的块进学习累计（最多 ClayTrials::capacity 块）与
-        //     House 段落账；实时口径有效的块进实时段落账（第「七」节）。实时模式关着时候选只在学习期间跑，「交齐时还在学习」恒成立，
+        //   - 交齐的块进哪里（trialBlockCompleted）：学习口径有效、且交齐时还在学习的块进学习累计（最多 ClayTrials::capacity 块）；
+        //     实时口径有效的块进实时段落账（第「七」节）。实时模式关着时候选只在学习期间跑，「交齐时还在学习」恒成立，
         //     与原来「有效就记」逐位相同；开着时学习停下之后才交齐的块（原来根本交不齐）不进学习累计。
-        //   - 代价（updateTrialProfile）= ClayTrials::costsOf（与 House 画像的 houseTrialProfile 同一份），置信度同其他特征：
+        //   - 代价（updateTrialProfile）= ClayTrials::costsOf（实时画像的试算 P99 同一口径），置信度同其他特征：
         //     min(观测充分度 = 有效块时长 / 10 s, 代表性)。
         static_assert (ClayTrials::warmUpSeconds == onsetWarmUpSeconds, "候选起跑的预热与起音的重启预热同长（同一套边界）");
         static_assert (maximumGroupLength <= ClayTrials::maxSegmentSamples, "候选一次处理一个组里的一段");
 
         //==============================================================================
-        // 六、T-038 House 档（设计规格-曲风-House学习方式 第 2 节；段的切分、定稿与门控见 SegmentLedger.h）。只在 setGenre 交来 House 子类时走。
+        // 六、段落账的口径（T-038 为 House 档定的，设计规格-曲风-House学习方式 第 2 节，T-108 起被 ADR-039 取代；段的切分与定稿见
+        //   SegmentLedger.h）。T-108 删了 House 档那一份门控账与 House 画像，只有实时段落账（第「七」节）还按这一口径记账。
         //   - 归段：三路数据各按自己的时间戳找所在的段，跨段边界的按起点归属——子块按子块起点（门块与 3 s 短期响度随产生它们的那个子块，
         //     窗口最早的样本早于段落账的起点就不收，同学习区间的口径）；帧按分析窗起点；起音组按组起点，起音事件按触发的那一组；
         //     先试后用的块按块起点（与原始同一个块网格，块网格的原点 = 起音组网格的原点）。
@@ -266,15 +267,6 @@ namespace celadon::glaze
         //   - 定稿：段尾早于「四路都越过的时刻」的段才定稿——子块（最后读到的子块末尾；表的响度计量关着时按此刻 − 两个子块）、帧（最后一帧
         //     分析窗起点 + hop；Balance 还没 prepare 时不等它）、起音（正在进行的事件的触发时刻，否则当前组的起点）、先试后用（学习中：
         //     还没交齐的最早一块的起点 = 已跑过的样本 − 最长的候选延迟，按块向下取整）。所以每段拿到的数据与宿主分块无关。
-        //   - 画像（computeHouseProfile）只由段落账按纯函数算出，各字段的公式与通用画像的同名函数逐项相同（update*Profile、finalizeConfidences），
-        //     只是累计量换成「满编段的和」（有效时长、代表性换成「全部段的和」；LRA 阶段 3 集成起也用满编段，起播位置无关）：
-        //       I：满编段的 400 ms 门块按 BS.1770 相对门（−10 LU）重新门限——门块功率逐个存着，相对门逐个比（通用画像按 0.1 LU 格中心比，
-        //          差 ≤ 0.05 LU）；真峰值 = 满编段的最大值；
-        //       先试后用：满编段按格序整段整段地取，满 512 块为止（同通用画像的 512 块上限），每一路合并各段最大的 8 个块峰值——≤ 512 块时
-        //          P99 只用到前 7 个，所以合并结果与把这些块全部存下再求 P99 逐位相同。满编段的块不够 10 s（锁定后才进来的段：学习停了，
-        //          候选不跑）时改用全部段的块；
-        //       代表性：全部段不重复的有效素材 / 15 s（不按位置的段封顶 0.75，同通用画像），再与「已听 ÷ 锁定所需」取小（小节：
-        //          已听小节 ÷ lockSegments；2 秒段：已听秒数 ÷ fallbackLockSeconds）。
         static_assert (SegmentLedger::lowRangeBins == lowRangeBins && SegmentLedger::lowShareLastBand == lowShareLastBand,
                        "段落账的低频直方图与低频段边界必须与分析器相同");
         static_assert (SegmentLedger::trialSeries == ClayTrials::numSeries && SegmentLedger::trialTopCount == ClayTrials::topCount
@@ -291,12 +283,9 @@ namespace celadon::glaze
 
         //==============================================================================
         // 七、T-048 实时模式（MusicAnalyzer.h 文件头「T-048」一节；设计规格-实时GLAZE 第 3 节）。默认关；关着时下面一项都不跑。
-        //   - 另一份段落账（liveLedger，与 House 档那一份同一个类、同一套常数）：所有曲风都分段，三路数据按第「六」节同一口径归段
-        //     （同样按起点归属、同样等四路都越过段尾才定稿），定稿的段交给 SegmentSink。它不进任何画像：通用画像、House 档那一份段落账与
-        //     House 画像、辅助量、短期视图与实时模式关着时逐位相同（House 那一份连 live* 四项也与关着时一样，只记学习期间的块）。
-        //     为什么不复用 House 那一份：它的定稿时刻、事件、计数与账本内容编排器每块都读（锁定后防漏网、此刻是否主段落），实时一侧要的
-        //     「不学习也等先试后用的块交齐再定稿」「通用档也记」「重新聆听不清」都会改动它们。
-        //   - 三道相对门的参考与学习无关（T-048 阶段 1 修订；REPORT-C 2.4、2.5、7.1）。House 那一份与通用画像的三道相对门参考学习区间：
+        //   - 实时段落账（liveLedger）：三路数据按第「六」节的口径归段（按起点归属、等四路都越过段尾才定稿），定稿的段交给 SegmentSink。
+        //     它不进任何画像：通用画像、辅助量、短期视图与实时模式关着时逐位相同。不学习也等先试后用的块交齐再定稿，重新聆听不清。
+        //   - 三道相对门的参考与学习无关（T-048 阶段 1 修订；REPORT-C 2.4、2.5、7.1）。通用画像的三道相对门参考学习区间：
         //     帧门 = 学习区间的帧均值（读档后不学习，learnFrames = 0，门就没了）；子块有效门 = 学习中学习区间的 I、不学习时画像的 I；
         //     起音组有效门 = 学习区间的平均功率。学习在宿主块边界上停、帧又晚一块才交，实时段落账若也用它们，交来的段就随块长、随学不学习变。
         //     实时段落账改用自己的三份长期参考（门的形状与学习区间那一份相同，只换参考）：
@@ -322,10 +311,10 @@ namespace celadon::glaze
         //          约 1.5 % 以下，新素材的门块才进得了积分）；快遗忘取 10 s 时子块门要 75～90 s。测试把「一直放开」卡在 60 s 以内，
         //          并另跑「之前响 300 s」：三道门仍要在 60 s 内放开（拍板 5.2）。普通 breakdown 只比主体轻 10 LU 左右、
         //          过得了相对门，碰不到这条；每一路只看自己的数据，与宿主切块无关（同 ①）。
-        //     House 门控那一份照旧用学习区间的参考（House 画像逐位不变）。实时帧门不再蕴含学习口径的帧门，所以一帧的频谱证据只算一次
-        //     （computeEvidence），按各自的门分给各收方：学习区间、短期视图与 House 段照旧在学习口径的帧门之上才收，实时段在实时帧门之上才收。
+        //     实时帧门不再蕴含学习口径的帧门，所以一帧的频谱证据只算一次（computeEvidence），按各自的门分给各收方：学习区间与短期视图
+        //     照旧在学习口径的帧门之上才收，实时段在实时帧门之上才收。
         //   - 先试后用：实时模式开着时候选一直跑；实时口径有效的块进 live*，其中学习口径有效、交齐时还在学习的块同时进 trial*（第「五」节）。
-        //     实时口径的组有效门用上面的实时参考。定稿要等先试后用的块交齐（与 House 档学习期间同一条），所以起点落在这一段里的有效块全都记进了
+        //     实时口径的组有效门用上面的实时参考。定稿要等先试后用的块交齐，所以起点落在这一段里的有效块全都记进了
         //     它的 live*，与宿主分块无关。trial* 三项按 SegmentLedger.h 的约定只记学习期间：它们随学习的起止变，实时画像不读。
         //     开始学习时候选照旧从零状态重新起跑：重启那一刻还没交齐的块作废、之后 250 ms 的块不算（实时一侧每次开始学习有这个空档）。
         //   - 时间轴与 advanceTo（SegmentSink）：交给接收者的段与时刻都在「实时时间轴」上 = 分析器时间轴 + 一个偏移。分析器时间轴（IN 表的
@@ -336,11 +325,11 @@ namespace celadon::glaze
         //     就地定稿（不连续点、reset、prepare、关实时模式）之后报一次此刻（数据只送到这里，开着的段都截到这里交出去了）。
         //   - 断开：只在不连续点（跳播、回绕、宿主 reset、时间轴断开、子块长变了）。开着的段截到此刻（此刻之后的数据不会再归它）、
         //     就地定稿交出去，下一块重新锚定——交出去的段 [start, end) 首尾相接。上一次断开之后还没收过一块数据（例如读档后第一块之前的
-        //     宿主 reset）时什么都不截，连续时间段号也不加：否则「读档后从头播」与「从头播」交来的段只差一个段号。重新聆听、clearHouseLedger、
-        //     换曲风都不碰它（段不丢、不截）。reset / prepare / setLiveMode (false) 先同样就地定稿交出去再清。
+        //     宿主 reset）时什么都不截，连续时间段号也不加：否则「读档后从头播」与「从头播」交来的段只差一个段号。重新聆听不碰它
+        //    （段不丢、不截）。reset / prepare / setLiveMode (false) 先同样就地定稿交出去再清。
         //   - 关实时模式时不丢最后一块的帧：链在下一块开头才把 Balance 的帧交给分析器（GlazeController::analyzeSpectrum），关的那一刻最后
         //     一块的帧还在 Balance 里。setLiveMode (false, &balance) 先把这些帧只交给实时段落账（帧流的核对与运行状态用一份副本，同一套函数），
-        //     再就地定稿：通用画像、House 账与短期视图一个不碰——它们下一块开头照常收这些帧，编排器看到的与没开过实时模式逐位相同。
+        //     再就地定稿：通用画像与短期视图一个不碰——它们下一块开头照常收这些帧，编排器看到的与没开过实时模式逐位相同。
         //   - 宿主走带信息只按 SegmentLedger 现有的规则用（小节锚定、位置分格），不另加按走带触发的逻辑。
         constexpr double liveGateMemorySeconds = 180.0;   // 实时段落账三道相对门参考的遗忘时间常数（按进来的音频计，见上 ④）
         constexpr double liveGateQuietSeconds = 20.0;     // 有声却没过相对门比过了门净多出这么久，就加快遗忘（见上 ⑥；同实时画像换歌判定的 20 s）
@@ -679,8 +668,8 @@ namespace celadon::glaze
         std::array<float, (size_t) numBands> measuredStereoBand {};
 
         //==============================================================================
-        // 六、House 档（第「六」节；通用档不读写下面任何一项）与 七、实时模式共用的「一份段落账的喂法」：三路数据各自读到哪里、
-        // 起音组网格原点是否已知、正在进行的起音事件、各路找段的缓存。House 那一份与实时那一份各一个，口径相同。
+        // 六、「一份段落账的喂法」（T-038 起，七、实时模式用）：三路数据各自读到哪里、起音组网格原点是否已知、正在进行的起音事件、
+        // 各路找段的缓存。原来 House 档与实时模式各一份；T-108 删掉曲风后只剩实时那一份。
         struct LedgerFeed
         {
             std::int64_t subBlockPosition = 0;    // 子块流读到的位置（最后一个子块的末尾）
@@ -699,52 +688,7 @@ namespace celadon::glaze
             }
         };
 
-        Genre genre = Genre::general;
-        bool houseActive = false;                 // isHouse (genre)
-        HouseConstants houseConstants;
-        SegmentLedger ledger;
-        MusicProfile houseProfile;                // House 档的候选画像（getCandidateProfile 在 House 档返回它）
-        AuxiliaryFeatures houseAux;
-        bool houseDirty = false;                  // 段落账有新定稿的段，画像还没按它重算（不学习时留着，等 recomputeHouseProfile）
-        std::uint32_t houseGeneration = 0;
-        LedgerFeed houseFeed;
-        std::int64_t onsetGridOrigin = 0;         // 起音组网格（也是先试后用的块网格）原点的分析器时间（House 档或实时模式开着时才更新）
-
-        // 画像合并用的累计量（computeHouseProfile 每次从段落账重新合并；口径同通用画像的同名累计量）。
-        struct HouseSums
-        {
-            double effectiveSeconds = 0.0, positionedSeconds = 0.0, unpositionedSeconds = 0.0, fullSeconds = 0.0;
-            float peak = 0.0f;
-            std::array<std::uint32_t, (size_t) histogramBins> rangeCount {};
-            double rangeTotalEnergy = 0.0;
-            std::uint64_t rangeTotalCount = 0;
-            int rangeTopBin = -1;
-            std::int64_t frames = 0;
-            std::array<double, (size_t) numBands> powerSum {}, tameSum {}, recoverSum {}, deficitWeight {}, validWeight {};
-            std::array<double, (size_t) numBands> stereoPowerSum {}, stereoCrossSum {}, stereoWeight {};
-            double lowStereoWeight = 0.0, highStereoWeight = 0.0;
-            std::array<std::uint32_t, (size_t) lowRangeBins> lowRangeCount {};
-            std::int64_t fluxFrames = 0, musicFluxFrames = 0, fluxEvents = 0;
-            double fluxSum = 0.0;
-            std::int64_t onsetEffectiveSamples = 0, onsetEvents = 0;
-            std::array<std::uint32_t, (size_t) strengthBins> strengthCount {};
-            double subEnergy = 0.0, midEnergy = 0.0;
-            ClayTrials::TopSeries trialTop {};
-            int trialCount = 0;
-            ClayTrials::BlendSums blendIntended {}, blendOutput {};   // 合并进来的块的两份 K 加权能量（T-043）
-        };
-
-        // House 画像各特征的观测充分度（口径同通用画像的 measured*）。
-        struct HouseMeasured
-        {
-            float integrated = 0.0f, range = 0.0f, peak = 0.0f, spectrum = 0.0f, onset = 0.0f, flux = 0.0f;
-            float sub = 0.0f, lowStereo = 0.0f, highStereo = 0.0f, trial = 0.0f;
-            std::array<float, (size_t) numBands> band {}, stereoBand {};
-        };
-
-        HouseSums houseSums;
-        HouseMeasured houseMeasured;
-        float houseRepresentativeness = 0.0f;
+        std::int64_t onsetGridOrigin = 0;         // 起音组网格（也是先试后用的块网格）原点的分析器时间（实时模式开着时才更新）
 
         //==============================================================================
         // 七、T-048 实时模式（第「七」节；关着时下面一项都不碰，实时段落账也不分配）
@@ -851,7 +795,7 @@ namespace celadon::glaze
 
         void prepareLiveLedger()
         {
-            liveLedger.setConstants (houseConstants);
+            liveLedger.setConstants (SegmentConstants {});
             liveLedger.prepare (sampleRate, subBlockLength);
             connectLiveSink();
         }
@@ -899,7 +843,6 @@ namespace celadon::glaze
             restartSpectrum();
             restartOnsets();
             clearLearning();
-            clearHouse (0);
 
             // T-048：实时段落账回到空（开着的段已由调用方先就地定稿交出去：MusicAnalyzer::reset / prepare）。
             if (liveMode)
@@ -1040,9 +983,7 @@ namespace celadon::glaze
             // 候选不跑的时候不做）。已记下的有效块不动（同其他累计）。
             trials.requestRestart();
 
-            // House 档（第「六」节）与实时段落账（第「七」节）：进行中的事件作废（与上面的事件状态一起），组网格的原点等下一个样本再定。
-            houseFeed.eventPending = false;
-            houseFeed.gridKnown = false;
+            // 实时段落账（第「七」节）：进行中的事件作废（与上面的事件状态一起），组网格的原点等下一个样本再定。
             liveFeed.eventPending = false;
             liveFeed.gridKnown = false;
         }
@@ -1056,11 +997,7 @@ namespace celadon::glaze
             restartSpectrum();
             restartOnsets();
 
-            // House 档：跨越不连续点的数据上面都丢了，段落账里没定稿的段已经交齐，就地定稿；下一块重新锚定。
-            if (houseActive)
-                houseEndEpoch (at);
-
-            // 实时段落账同理（第「七」节）：开着的段截到此刻、就地定稿交出去。
+            // 实时段落账（第「七」节）：跨越不连续点的数据上面都丢了，开着的段截到此刻、就地定稿交出去；下一块重新锚定。
             if (liveMode)
                 liveEndEpoch (at);
         }
@@ -1078,8 +1015,7 @@ namespace celadon::glaze
             if (meter.getSubBlockLength() != subBlockLength)
             {
                 subBlockLength = juce::jmax (1, meter.getSubBlockLength());
-                ledger.setSubBlockLength (subBlockLength);   // House 档段落账的「有效时长」按它折算（只存一个数）
-                liveLedger.setSubBlockLength (subBlockLength);   // 实时段落账同理（没分配时也只存一个数）
+                liveLedger.setSubBlockLength (subBlockLength);   // 实时段落账的「有效时长」按它折算（没分配时也只存一个数）
                 liveSubBlockForgetting.setItemSeconds ((double) subBlockLength / sampleRate);
                 beginDiscontinuity (blockStart);
             }
@@ -1115,9 +1051,7 @@ namespace celadon::glaze
             now = meterNow;
             lastBlockSamples = numSamples;
 
-            // House 档：先按宿主拍点把这一块盖进段里（锚点与整数段边界，第「六」节），三路数据再各自找段。实时段落账同一做法（第「七」节）。
-            if (houseActive)
-                ledger.beginBlock (blockStart, numSamples, host);
+            // 实时段落账：先按宿主拍点把这一块盖进段里（锚点与整数段边界，第「六」「七」节），三路数据再各自找段。
 
             if (liveMode && numSamples > 0)
             {
@@ -1164,9 +1098,6 @@ namespace celadon::glaze
                 finalizeConfidences();
             }
 
-            if (houseActive)
-                houseAdvance();
-
             if (liveMode)
                 liveAdvance();
         }
@@ -1197,9 +1128,7 @@ namespace celadon::glaze
             const auto length = (std::int64_t) subBlockLength;
             const auto start = subBlock.endSample - length;
 
-            // House 档与实时段落账：子块流读到这里了（丢掉的子块同样算读过：之后不会再有起点早于它的子块）。
-            if (houseActive)
-                houseFeed.subBlockPosition = juce::jmax (houseFeed.subBlockPosition, subBlock.endSample);
+            // 实时段落账：子块流读到这里了（丢掉的子块同样算读过：之后不会再有起点早于它的子块）。
 
             if (liveMode)
                 liveFeed.subBlockPosition = juce::jmax (liveFeed.subBlockPosition, subBlock.endSample);
@@ -1273,10 +1202,6 @@ namespace celadon::glaze
             const auto effective = gatingLufs >= absoluteGateLufs
                                    && (! haveReference || gatingLufs >= reference + effectiveRelativeGateLu);
             view.musicActive = effective;
-
-            // House 档：同一个子块按起点归段（学习与否都记：锁定后防漏网要看新段）。
-            if (houseActive)
-                noteSubBlock (ledger, houseFeed, subBlock, start, effective, gatingPower, gatingLufs, haveShortTerm, shortTermPower, shortTermLufs);
 
             // 实时段落账（第「七」节）：同一口径归段，只是有效门的参考换成实时段落账自己的长期 I（与学习无关）——先按它判这个子块，
             // 再把这个门块并进参考（窗口不早于实时段落账的起点、在绝对门之上，同学习区间 I 的收法）。
@@ -1414,17 +1339,12 @@ namespace celadon::glaze
                 const auto segmentLength = juce::jmin (numSamples - segmentStart, groupLength - groupFill);
                 const auto segmentPosition = groupsSinceRestart * (std::int64_t) groupLength + groupFill;   // 从重启起算的样本序号
 
-                // House 档与实时段落账：组网格（也是先试后用的块网格）原点的分析器时间 = 这一段首样本的时间 − 它在网格上的序号
-                // （两次重启之间不变，两份账算出的是同一个数）。
-                if (houseActive || liveMode)
+                // 实时段落账：组网格（也是先试后用的块网格）原点的分析器时间 = 这一段首样本的时间 − 它在网格上的序号
+                // （两次重启之间不变）。
+                if (liveMode)
                 {
                     onsetGridOrigin = blockStart + segmentStart - segmentPosition;
-
-                    if (houseActive)
-                        houseFeed.gridKnown = true;
-
-                    if (liveMode)
-                        liveFeed.gridKnown = true;
+                    liveFeed.gridKnown = true;
                 }
 
                 for (int i = segmentStart; i < segmentStart + segmentLength; ++i)
@@ -1560,10 +1480,6 @@ namespace celadon::glaze
                 midEnergy += groupMidEnergy;
             }
 
-            // House 档：同一组按组起点归段（有效门同上；学习与否都记）。
-            if (houseActive && effective)
-                noteGroupInto (ledger, houseFeed, groupEnd - (std::int64_t) groupLength);
-
             // 实时段落账（第「七」节）：同一口径归段，有效门的参考换成实时段落账自己的长期组平均功率（与学习无关）。
             const auto liveEffective = liveMode && liveOnsetEffective (meanPower, groupEnd - (std::int64_t) groupLength);
 
@@ -1586,13 +1502,7 @@ namespace celadon::glaze
                         eventPeakRatio = fast / denominator;
                         eventCounts = inside && effective;
 
-                        // House 档：事件归触发的那一组所在的段（在有效门上才计；事件结束前那一段不定稿）。实时段落账同理。
-                        if (houseActive)
-                        {
-                            houseFeed.eventPending = effective;
-                            houseFeed.eventTime = groupEnd - (std::int64_t) groupLength;
-                        }
-
+                        // 实时段落账：事件归触发的那一组所在的段（在有效门上才计；事件结束前那一段不定稿）。
                         if (liveMode)
                         {
                             liveFeed.eventPending = liveEffective;
@@ -1620,9 +1530,6 @@ namespace celadon::glaze
 
         void finishEvent() noexcept
         {
-            if (houseFeed.eventPending)
-                noteEventInto (ledger, houseFeed);
-
             if (liveFeed.eventPending)
                 noteEventInto (liveLedger, liveFeed);
 
@@ -1745,9 +1652,6 @@ namespace celadon::glaze
                 finalizeConfidences();
             }
 
-            if (houseActive)
-                houseAdvance();
-
             if (liveMode)
                 liveAdvance();
         }
@@ -1757,10 +1661,7 @@ namespace celadon::glaze
             frameClock.discardFramesBefore = at;
             restartSpectrum();
 
-            // House 档与实时段落账：分析窗早于 at 的帧不会再来了，帧流就算读到了 at。
-            if (houseActive)
-                houseFeed.framePosition = juce::jmax (houseFeed.framePosition, at);
-
+            // 实时段落账：分析窗早于 at 的帧不会再来了，帧流就算读到了 at。
             if (liveMode)
                 liveFeed.framePosition = juce::jmax (liveFeed.framePosition, at);
         }
@@ -1884,12 +1785,9 @@ namespace celadon::glaze
             if (step.restarted)
                 restartLiveView();   // 帧流重新开始：短期视图的频谱项同样从这一帧重新平滑（restartSpectrum 的另一半）
 
-            // House 档与实时段落账：帧流读到这里了（之后的帧分析窗起点都不早于它）。
+            // 实时段落账：帧流读到这里了（之后的帧分析窗起点都不早于它）。
             if (step.reachedPosition)
             {
-                if (houseActive)
-                    houseFeed.framePosition = juce::jmax (houseFeed.framePosition, step.windowStart + (std::int64_t) hop);
-
                 if (liveMode)
                     liveFeed.framePosition = juce::jmax (liveFeed.framePosition, step.windowStart + (std::int64_t) hop);
             }
@@ -1907,18 +1805,6 @@ namespace celadon::glaze
             const auto relativeOk = ! inside || learnFrames == 0
                                     || total >= frameRelativeGateRatio * learnTotalPowerSum / (double) learnFrames;
             const auto music = total >= frameAbsoluteGatePower && relativeOk;
-
-            // House 档：这一帧按分析窗起点归段。帧门同上，只是相对门不看「在不在学习区间里」——锁定后停止学习，按学习区间冻结的帧均值
-            // 接着用（学习中、窗在区间里时与 music 逐项相同；所以 houseMusic 为真时 music 也为真，频谱证据照常算到）。
-            SegmentLedger::Segment* houseSegment = nullptr;
-            auto houseMusic = false;
-
-            if (houseActive)
-            {
-                houseSegment = ledger.openSegmentAt (windowStart, houseFeed.frameHint);
-                houseMusic = total >= frameAbsoluteGatePower
-                          && (learnFrames == 0 || total >= frameRelativeGateRatio * learnTotalPowerSum / (double) learnFrames);
-            }
 
             // 实时段落账（第「七」节）：自己的帧门与参考（与学习无关）；这一帧所在的段收通量计数，过了门的帧收长期段功率。
             auto liveMusic = false;
@@ -1949,14 +1835,6 @@ namespace celadon::glaze
                 spectrumDirty = true;
             }
 
-            if (houseSegment != nullptr && step.haveFlux)   // House 档：同上，按段（含静音帧）
-            {
-                ++houseSegment->fluxFrames;
-
-                if (step.fluxEvent)
-                    ++houseSegment->fluxEvents;
-            }
-
             if (inside && music)
             {
                 ++learnFrames;
@@ -1982,15 +1860,11 @@ namespace celadon::glaze
                 spectrumDirty = true;
             }
 
-            if (houseMusic && houseSegment != nullptr)   // House 档：同上，按段
-                noteMusicFrame (*houseSegment, power, step.haveFlux, step.flux);
-
             // 频谱证据（长期画像按原来的学习边界累计；短期突出证据与学习状态无关，实时播放和离线渲染走同一路径）：一帧只算一次
-            // （computeEvidence，不增加 FFT），按各自的门分给各收方。学习区间、短期视图与 House 段照旧在学习口径的帧门之上、1 s 平均
+            // （computeEvidence，不增加 FFT），按各自的门分给各收方。学习区间与短期视图照旧在学习口径的帧门之上、1 s 平均
             // 已稳定时才收（与改前逐位相同）；实时段在实时帧门之上、已稳定时收（第「七」节）。
             const auto settled = frameRun.framesSinceRestart >= settleFrames;
             const auto viewEvidence = music && settled;
-            auto* const houseEvidence = viewEvidence && houseMusic ? houseSegment : nullptr;
             auto* const liveEvidence = liveMusic && settled ? liveSegment : nullptr;
 
             if (viewEvidence || liveEvidence != nullptr)
@@ -2005,9 +1879,8 @@ namespace celadon::glaze
                     addEvidence (evidence, tameSum, recoverSum, deficitWeight, validWeight);
                 }
 
-                for (auto* segment : { houseEvidence, liveEvidence })   // House 档与实时段落账：同一份残差、同一权重，加进段里
-                    if (segment != nullptr)
-                        noteSegmentEvidence (*segment, power, cross, evidence);
+                if (liveEvidence != nullptr)   // 实时段落账：同一份残差、同一权重，加进段里
+                    noteSegmentEvidence (*liveEvidence, power, cross, evidence);
 
                 if (viewEvidence)
                     updateEvidenceView (evidence, power);
@@ -2022,7 +1895,7 @@ namespace celadon::glaze
         }
 
         // 实时段落账收一帧（第「七」节 ①～④）：先按「实时帧均值」判帧门，再把这一帧并进参考（绝对门之上、分析窗不早于实时段落账的起点）；
-        // 这一帧所在的段收通量计数（含静音帧，同 House 段），过了门的帧收长期段功率（noteMusicFrame）。真跑（consumeFrame）与关实时模式
+        // 这一帧所在的段收通量计数（含静音帧，T-038 定的口径），过了门的帧收长期段功率（noteMusicFrame）。真跑（consumeFrame）与关实时模式
         // 时的补交（deliverPendingFramesToLive）共用。返回这一帧所在的段（没有就是 nullptr）；music = 过了实时帧门。
         SegmentLedger::Segment* takeLiveFrame (const FrameStep& step, bool& music) noexcept
         {
@@ -2141,7 +2014,7 @@ namespace celadon::glaze
             }
         }
 
-        // 一帧的证据并进一份累计（学习区间，或 House / 实时的一段）：超出 ±2 dB 容忍区间的正 / 负偏离按本段静音门权重分别累计，
+        // 一帧的证据并进一份累计（学习区间，或实时的一段）：超出 ±2 dB 容忍区间的正 / 负偏离按本段静音门权重分别累计，
         // 不互相抵消；缺失帧的权重与评估过的权重另记（Recover 的「持续缺失」系数用）。
         static void addEvidence (const EvidenceFrame& e, std::array<double, (size_t) numBands>& tame,
                                  std::array<double, (size_t) numBands>& recover, std::array<double, (size_t) numBands>& deficit,
@@ -2164,7 +2037,7 @@ namespace celadon::glaze
             }
         }
 
-        // House 段 / 实时段收一帧的立体声与频谱证据（同学习区间的 accumulateStereo + addEvidence，同一份残差、同一权重）。
+        // 实时段收一帧的立体声与频谱证据（同学习区间的 accumulateStereo + addEvidence，同一份残差、同一权重）。
         static void noteSegmentEvidence (SegmentLedger::Segment& segment, const std::array<double, (size_t) numBands>& currentPower,
                                          const std::array<double, (size_t) numBands>& currentCross, const EvidenceFrame& e) noexcept
         {
@@ -2693,7 +2566,7 @@ namespace celadon::glaze
             measuredOnset = fraction (seconds, onsetFullSeconds);
         }
 
-        // 先试后用（第「五」节）：代价字段只由记下的有效块按纯函数算出（ClayTrials::costsOf，与 House 画像同一份）。每记下一块重算一次
+        // 先试后用（第「五」节）：代价字段只由记下的有效块按纯函数算出（ClayTrials::costsOf，与实时画像同一口径）。每记下一块重算一次
         // （至多每 100 ms 音频一次，O(候选数)）。置信度在 finalizeConfidences 里按 min(观测充分度, 代表性) 给。
         void updateTrialProfile() noexcept
         {
@@ -2703,7 +2576,7 @@ namespace celadon::glaze
                              profile, aux, measuredTrial);
         }
 
-        // 一份代价写进画像的同名字段与辅助量的基准 P99（通用画像与 House 画像共用）。
+        // 一份代价写进画像的同名字段与辅助量的基准 P99（T-108 前通用画像与 House 画像共用，现在只有通用画像）。
         static void applyTrialCosts (const ClayTrials::Costs& costs, MusicProfile& target, AuxiliaryFeatures& targetAux, float& measured) noexcept
         {
             targetAux.trialPeakP99Db = costs.originalP99Db;
@@ -2790,38 +2663,12 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // 六、House 档（T-038；口径见本文件开头第「六」节与 SegmentLedger.h）。通用档不进这里的任何函数。
+        // 六、段落账的喂法（T-038 起；口径见本文件开头第「六」节与 SegmentLedger.h）。T-108 删掉曲风后只剩实时段落账在用，
+        // House 档那一份门控账、画像合并与重算随之删掉。
         //==============================================================================
-        // 段落账清空：账本、事件之外的读数归零，画像回到「什么都不知道」。不分配（段落账只把计数归零）。
-        void clearHouse (std::int64_t acceptFrom) noexcept
-        {
-            ledger.reset (acceptFrom);
-            houseDirty = false;
-            houseFeed.restart (acceptFrom);
-
-            houseProfile = MusicProfile {};
-            houseProfile.formatVersion = houseProfileFormatVersion;
-            houseProfile.houseGate = ledger.getSummary();
-            houseAux = AuxiliaryFeatures {};
-            houseRepresentativeness = 0.0f;
-            ++houseGeneration;
-        }
-
-        // 不连续点 / 换曲风：没定稿的段就地定稿，各路的位置从 at 重新数（宿主 reset 后表的时间轴从 0 起）。
-        void houseEndEpoch (std::int64_t at) noexcept
-        {
-            const auto before = ledger.getStoredRevision();   // 同 houseAdvance（评审 F3）：账本真变了才置脏
-            ledger.endEpoch (at);
-
-            if (ledger.getStoredRevision() != before)
-                houseDirty = true;
-
-            houseFeed.restart (at);
-        }
-
-        // 一份段落账（House 那一份或实时那一份）此刻四路数据都已越过的时刻：段尾不晚于它的段，数据已经交齐（第「六」节「定稿」）。
-        // trialsCount = 先试后用的块要不要等（House 那一份：学习中；实时那一份：一直要）。
-        std::int64_t completeBefore (const LedgerFeed& feed, bool trialsCount) const noexcept
+        // 实时段落账此刻四路数据都已越过的时刻：段尾不晚于它的段，数据已经交齐（第「六」节「定稿」）。先试后用的块一直要等
+        // （T-108 前还有 House 那一份，只在学习中等，所以原来带一个开关）。
+        std::int64_t completeBefore (const LedgerFeed& feed) const noexcept
         {
             // 子块：最后读到的子块末尾；表的响度计量关着（两个子块长都没有新子块）时按此刻 − 两个子块，免得段永远定不了稿。
             auto position = juce::jmax (feed.subBlockPosition, now - 2 * (std::int64_t) subBlockLength);
@@ -2837,35 +2684,14 @@ namespace celadon::glaze
                 position = juce::jmin (position, onsetGridOrigin + groupsSinceRestart * (std::int64_t) groupLength);
 
             // 先试后用（候选在跑）：第 k 块的最后一笔在网格位置 (k + 1)·块长 + 最长延迟交齐，还没交齐的最早一块的起点。
-            if (trialsCount && ! trials.isRestartPending() && feed.gridKnown)
+            if (! trials.isRestartPending() && feed.gridKnown)
                 position = juce::jmin (position, onsetGridOrigin
                                                      + trials.pendingBlockStart (groupsSinceRestart * (std::int64_t) groupLength + groupFill));
 
             return position;
         }
 
-        // 每次 processInput / processSpectrum 末尾：定稿交齐的段；学习中有新定稿就重算画像（不学习时留着，等 recomputeHouseProfile）。
-        void houseAdvance() noexcept
-        {
-            // T-038 评审 F3：只在账本真变了时置脏（新存进一段或覆盖了旧段）；没存进的段（静音、账本满、重放不如旧值）不触发 O(段数) 的重算。
-            const auto before = ledger.getStoredRevision();
-            ledger.finalizeBefore (completeBefore (houseFeed, learning));
-
-            if (ledger.getStoredRevision() != before)
-                houseDirty = true;
-
-            if (houseDirty && learning)
-                refreshHouseProfile();
-        }
-
-        void refreshHouseProfile() noexcept
-        {
-            computeHouseProfile();
-            houseDirty = false;
-            ++houseGeneration;
-        }
-
-        // ---- 归段（三路数据各自调；口径与通用画像的同一处累计相同。target / feed = House 那一份或实时那一份段落账）----
+        // ---- 归段（三路数据各自调；口径与通用画像的同一处累计相同。target / feed = 实时段落账；T-108 前也喂 House 那一份）----
 
         // 子块（consumeSubBlock）：子块数、有效子块的 K 加权能量、真峰值；门块功率与 3 s 短期响度随产生它们的子块，窗口最早的样本
         // 早于段落账的起点就不收（同学习区间）。
@@ -2996,640 +2822,6 @@ namespace celadon::glaze
             ++segment->liveTrialBlocks;
         }
 
-        // ---- 画像（只由段落账按纯函数算出；每个字段的公式与通用画像的同名函数逐项相同，只是累计量换成满编段 / 全部段的和）----
-
-        void clearHouseSums() noexcept
-        {
-            auto& s = houseSums;
-            s.effectiveSeconds = s.positionedSeconds = s.unpositionedSeconds = s.fullSeconds = 0.0;
-            s.peak = 0.0f;
-            s.rangeCount.fill (0);
-            s.rangeTotalEnergy = 0.0;
-            s.rangeTotalCount = 0;
-            s.rangeTopBin = -1;
-            s.frames = 0;
-
-            for (auto* sums : { &s.powerSum, &s.tameSum, &s.recoverSum, &s.deficitWeight, &s.validWeight,
-                                &s.stereoPowerSum, &s.stereoCrossSum, &s.stereoWeight })
-                sums->fill (0.0);
-
-            s.lowStereoWeight = s.highStereoWeight = 0.0;
-            s.lowRangeCount.fill (0);
-            s.fluxFrames = s.musicFluxFrames = s.fluxEvents = 0;
-            s.fluxSum = 0.0;
-            s.onsetEffectiveSamples = s.onsetEvents = 0;
-            s.strengthCount.fill (0);
-            s.subEnergy = s.midEnergy = 0.0;
-
-            for (auto& top : s.trialTop)
-                top.fill (0.0);
-
-            s.trialCount = 0;
-            s.blendIntended.fill (0.0);
-            s.blendOutput.fill (0.0);
-        }
-
-        // 先试后用的块：按格序整段整段地取（满 ClayTrials::capacity 块为止），每一路合并各段最大的 8 个（第「六」节）。
-        void mergeHouseTrial (bool fullOnly) noexcept
-        {
-            auto& s = houseSums;
-
-            for (auto& top : s.trialTop)
-                top.fill (0.0);
-
-            s.trialCount = 0;
-            s.blendIntended.fill (0.0);
-            s.blendOutput.fill (0.0);
-            auto inserted = 0;   // 已插入的个数（insertTop 的 filled 口径；每一路相同）
-
-            for (int i = 0; i < ledger.getNumStored(); ++i)
-            {
-                const auto& segment = ledger.getStored (i);
-
-                if ((fullOnly && ! segment.full) || segment.trialBlocks <= 0)
-                    continue;
-
-                if (s.trialCount + segment.trialBlocks > ClayTrials::capacity)
-                    break;
-
-                const auto values = juce::jmin (segment.trialBlocks, ClayTrials::topCount);
-
-                for (int k = 0; k < values; ++k)
-                {
-                    for (size_t series = 0; series < s.trialTop.size(); ++series)
-                        ClayTrials::insertTop (s.trialTop[series], inserted, segment.trialTop[series][(size_t) k]);
-
-                    ++inserted;
-                }
-
-                for (size_t c = 0; c < (size_t) ClayTrials::numBlend; ++c)   // 混合损失与峰值代价同一批块（同通用画像：同一批有效块）
-                {
-                    s.blendIntended[c] += segment.blendIntended[c];
-                    s.blendOutput[c] += segment.blendOutput[c];
-                }
-
-                s.trialCount += segment.trialBlocks;
-            }
-        }
-
-        // 小节：已听小节 ÷ lockSegments；2 秒段：已听秒数 ÷ fallbackLockSeconds（0 ～ 1）。暂定期代表性按它封顶。
-        double houseLockProgress (const HouseGateSummary& gate) const noexcept
-        {
-            if (gate.mode == SegmentMode::seconds)
-            {
-                const auto needed = houseConstants.fallbackLockSeconds;
-                return std::isfinite (needed) && needed > 0.0 ? juce::jlimit (0.0, 1.0, gate.heardSeconds / needed) : 1.0;
-            }
-
-            const auto needed = houseConstants.lockSegments;
-            return needed > 0 ? juce::jlimit (0.0, 1.0, (double) gate.heardSegments / (double) needed) : 1.0;
-        }
-
-        void computeHouseProfile() noexcept
-        {
-            const auto& gate = ledger.getSummary();
-            auto& s = houseSums;
-            clearHouseSums();
-
-            const auto count = ledger.getNumStored();
-            double gatingTotal = 0.0;
-            std::uint64_t gatingCount = 0;
-
-            for (int i = 0; i < count; ++i)
-            {
-                const auto& segment = ledger.getStored (i);
-
-                // 全部段：有效时长、代表性。
-                s.effectiveSeconds += segment.effectiveSeconds;
-                (segment.positioned ? s.positionedSeconds : s.unpositionedSeconds) += segment.effectiveSeconds;
-
-                if (! segment.full)
-                    continue;
-
-                // 满编段：LRA（3 s 短期响度）也只用满编段（T-038 阶段 3 集成改，原为全部段）。全部段的 LRA 取决于锁定前听到了哪些段落
-                // （从第 1 小节播时 breakdown 还没出现，从 drop 播时已经听到），LRA 修正因此随起播位置变，合成 Tech 曲上方案增益差 1.4 dB，
-                // 违反验收「从第 1 小节播与从 drop 播增益差 ≤ 0.5 dB」；只用满编段后两者听到的是同一批 drop。
-                for (int k = 0; k < segment.rangeCount; ++k)
-                {
-                    const auto bin = (int) segment.rangeBin[(size_t) k];
-                    ++s.rangeCount[(size_t) bin];
-                    s.rangeTopBin = juce::jmax (s.rangeTopBin, bin);
-                }
-
-                s.rangeTotalEnergy += segment.rangeEnergy;
-                s.rangeTotalCount += (std::uint64_t) segment.rangeCount;
-
-                // 满编段：其余全部。
-                s.fullSeconds += segment.effectiveSeconds;
-                s.peak = juce::jmax (s.peak, segment.truePeak);
-
-                for (int k = 0; k < segment.gatingCount; ++k)
-                {
-                    gatingTotal += (double) segment.gatingPower[(size_t) k];
-                    ++gatingCount;
-                }
-
-                s.frames += segment.frames;
-
-                for (size_t b = 0; b < (size_t) numBands; ++b)
-                {
-                    s.powerSum[b] += segment.powerSum[b];
-                    s.tameSum[b] += segment.tameSum[b];
-                    s.recoverSum[b] += segment.recoverSum[b];
-                    s.deficitWeight[b] += segment.deficitWeight[b];
-                    s.validWeight[b] += segment.validWeight[b];
-                    s.stereoPowerSum[b] += segment.stereoPowerSum[b];
-                    s.stereoCrossSum[b] += segment.stereoCrossSum[b];
-                    s.stereoWeight[b] += segment.stereoWeight[b];
-                }
-
-                s.lowStereoWeight += segment.lowStereoWeight;
-                s.highStereoWeight += segment.highStereoWeight;
-
-                for (int bin = segment.lowRangeFirst; bin <= segment.lowRangeLast; ++bin)
-                    s.lowRangeCount[(size_t) bin] += segment.lowRangeCount[(size_t) bin];
-
-                s.fluxFrames += segment.fluxFrames;
-                s.musicFluxFrames += segment.musicFluxFrames;
-                s.fluxEvents += segment.fluxEvents;
-                s.fluxSum += segment.fluxSum;
-                s.onsetEffectiveSamples += segment.onsetEffectiveSamples;
-                s.onsetEvents += segment.onsetEvents;
-
-                for (int k = 0; k < segment.strengthCount; ++k)
-                    ++s.strengthCount[(size_t) segment.strengthBin[(size_t) k]];
-
-                s.subEnergy += segment.subEnergy;
-                s.midEnergy += segment.midEnergy;
-            }
-
-            // 先试后用：满编段的块不够 10 s（锁定后才进来的段，候选不跑）就改用全部段的块。
-            mergeHouseTrial (true);
-
-            if ((double) s.trialCount * (double) trials.getBlockLength() / sampleRate < ClayTrials::minimumSeconds)
-                mergeHouseTrial (false);
-
-            // I：满编段的门块按 BS.1770 相对门重新门限（门块功率逐个与相对门比，第二遍）。
-            auto integratedValid = false;
-            double integrated = 0.0;
-
-            if (gatingCount > 0)
-            {
-                const auto relativeGate = energyToLufs (gatingTotal / (double) gatingCount) + integratedRelativeGateLu;
-                const auto gatePower = std::pow (10.0, 0.1 * (relativeGate + 0.691));
-                double gatedEnergy = 0.0;
-                std::uint64_t gated = 0;
-
-                for (int i = 0; i < count; ++i)
-                {
-                    const auto& segment = ledger.getStored (i);
-
-                    if (! segment.full)
-                        continue;
-
-                    for (int k = 0; k < segment.gatingCount; ++k)
-                    {
-                        const auto power = (double) segment.gatingPower[(size_t) k];
-
-                        if (power >= gatePower)
-                        {
-                            gatedEnergy += power;
-                            ++gated;
-                        }
-                    }
-                }
-
-                if (gated > 0)
-                {
-                    integratedValid = true;
-                    integrated = energyToLufs (gatedEnergy / (double) gated);
-                }
-            }
-
-            houseProfile = MusicProfile {};
-            houseProfile.formatVersion = houseProfileFormatVersion;
-            houseProfile.houseGate = gate;
-            houseAux = AuxiliaryFeatures {};
-            houseMeasured = HouseMeasured {};
-
-            houseLoudnessProfile (gate, integratedValid, integrated);
-            houseSpectrumProfile();
-            houseOnsetProfile();
-            houseTrialProfile();
-            houseSubProfile();
-            houseConfidences();
-        }
-
-        // 同 updateLoudnessProfile：I / 真峰值 / PLR / LRA 用满编段（LRA 阶段 3 集成改，见 computeHouseProfile），代表性另按锁定进度封顶。
-        void houseLoudnessProfile (const HouseGateSummary& gate, bool integratedValid, double integrated) noexcept
-        {
-            auto& p = houseProfile;
-            const auto& s = houseSums;
-            auto& m = houseMeasured;
-            const auto fullSeconds = s.fullSeconds;
-            p.effectiveSeconds = s.effectiveSeconds;
-
-            if (integratedValid)
-                setFeature (p.integratedLufs, integrated, fullSeconds);
-            else
-                invalidate (p.integratedLufs);
-
-            m.integrated = fraction (fullSeconds, loudnessFullSeconds);
-
-            const auto rangeSeconds = (double) s.rangeTotalCount * (double) subBlockLength / sampleRate;
-            invalidate (p.loudnessRangeLu);
-
-            if (s.rangeTotalCount > 0)
-            {
-                const auto relativeGate = energyToLufs (s.rangeTotalEnergy / (double) s.rangeTotalCount) + lraRelativeGateLu;
-                const auto firstBin = firstBinAtOrAbove (relativeGate);
-                std::uint64_t gated = 0;
-
-                for (int bin = firstBin; bin <= s.rangeTopBin; ++bin)
-                    gated += s.rangeCount[(size_t) bin];
-
-                if (gated >= (std::uint64_t) minimumLraValues)
-                {
-                    const auto lowIndex = (std::uint64_t) ((double) (gated - 1) * lraLowFraction + 0.5);
-                    const auto highIndex = (std::uint64_t) ((double) (gated - 1) * lraHighFraction + 0.5);
-                    double low = 0.0, high = 0.0;
-                    bool haveLow = false;
-                    std::uint64_t cumulative = 0;
-
-                    for (int bin = firstBin; bin <= s.rangeTopBin; ++bin)
-                    {
-                        cumulative += s.rangeCount[(size_t) bin];
-
-                        if (! haveLow && cumulative > lowIndex)
-                        {
-                            low = binCentreLufs (bin);
-                            haveLow = true;
-                        }
-
-                        if (cumulative > highIndex)
-                        {
-                            high = binCentreLufs (bin);
-                            break;
-                        }
-                    }
-
-                    setFeature (p.loudnessRangeLu, high - low, rangeSeconds);
-                }
-            }
-
-            p.loudnessRangeLu.effectiveSeconds = rangeSeconds;
-            m.range = fraction (rangeSeconds, lraFullSeconds);
-
-            if (s.peak > 0.0f)
-                setFeature (p.truePeakDbtp, juce::Decibels::gainToDecibels ((double) s.peak), fullSeconds);
-            else
-                invalidate (p.truePeakDbtp);
-
-            m.peak = fraction (fullSeconds, loudnessFullSeconds);
-
-            if (p.integratedLufs.valid && p.truePeakDbtp.valid)
-                setFeature (p.plrDb, (double) p.truePeakDbtp.value - integrated, fullSeconds);
-            else
-                invalidate (p.plrDb);
-
-            // 代表性：全部段不重复的有效素材 / 15 s（不按位置的段封顶按其占比在 1 与 0.75 之间插值），再按锁定进度封顶。
-            const auto distinctSeconds = s.positionedSeconds + s.unpositionedSeconds;
-            auto cap = 1.0;
-
-            if (s.unpositionedSeconds > 0.0)
-                cap = 1.0 - (1.0 - representativenessWithoutPosition) * s.unpositionedSeconds / distinctSeconds;
-
-            houseRepresentativeness = (float) juce::jmin (juce::jmin (cap, distinctSeconds / representativeSeconds), houseLockProgress (gate));
-        }
-
-        // 同 updateSpectrumProfile + updateStereoProfile（满编段的和）。
-        void houseSpectrumProfile() noexcept
-        {
-            auto& p = houseProfile;
-            auto& a = houseAux;
-            const auto& s = houseSums;
-            auto& m = houseMeasured;
-
-            const auto hopSeconds = hop > 0 ? (double) hop / sampleRate : 0.0;
-            const auto frameSeconds = (double) s.frames * hopSeconds;
-            std::array<double, (size_t) numBands> meanPower {}, levelDb {};
-            double total = 0.0, low = 0.0, high = 0.0;
-
-            for (int b = 0; b < numBands; ++b)
-            {
-                const auto i = (size_t) b;
-                meanPower[i] = s.frames > 0 ? s.powerSum[i] / (double) s.frames : 0.0;
-                levelDb[i] = meanPower[i] > 0.0 ? juce::jmax (noDataDb, 10.0 * std::log10 (meanPower[i])) : noDataDb;
-                p.bandLongTermDb[i] = (float) levelDb[i];
-
-                total += meanPower[i];
-
-                if (b <= lowShareLastBand)
-                    low += meanPower[i];
-
-                if (b >= highShareFirstBand)
-                    high += meanPower[i];
-            }
-
-            const auto enoughFrames = frameSeconds >= minimumSpectrumSeconds && total > 0.0;
-
-            if (enoughFrames)
-            {
-                setFeature (p.lowShare, low / total, frameSeconds);
-                setFeature (p.highShare, high / total, frameSeconds);
-            }
-            else
-            {
-                invalidate (p.lowShare);
-                invalidate (p.highShare);
-            }
-
-            {
-                double sx = 0.0, sy = 0.0, sxx = 0.0, sxy = 0.0;
-                int bands = 0;
-
-                for (int b = 0; b < numBands; ++b)
-                {
-                    if (levelDb[(size_t) b] < bandGateDb)
-                        continue;
-
-                    const auto x = (double) b / 3.0;
-                    const auto y = levelDb[(size_t) b];
-                    sx += x;
-                    sy += y;
-                    sxx += x * x;
-                    sxy += x * y;
-                    ++bands;
-                }
-
-                const auto denominator = (double) bands * sxx - sx * sx;
-
-                if (enoughFrames && bands >= minimumSlopeBands && denominator > 0.0)
-                    setFeature (p.spectralSlopeDbPerOct, ((double) bands * sxy - sx * sy) / denominator, frameSeconds);
-                else
-                    invalidate (p.spectralSlopeDbPerOct);
-            }
-
-            std::array<bool, (size_t) numBands> inBand {};
-            inBand.fill (true);
-            inBand[0] = false;
-            inBand[(size_t) numBands - 1] = false;
-
-            for (int b = numBands - 1; b > 0 && levelDb[(size_t) b] < levelDb[(size_t) b - 1] - rollOffStepDb; --b)
-                inBand[(size_t) b] = false;
-
-            for (int b = 0; b < numBands - 1 && levelDb[(size_t) b] < levelDb[(size_t) b + 1] - rollOffStepDb; ++b)
-                inBand[(size_t) b] = false;
-
-            for (int b = 1; b < numBands - 1; ++b)
-            {
-                const auto i = (size_t) b;
-
-                if (levelDb[i] < bandGateDb || levelDb[i - 1] < bandGateDb || levelDb[i + 1] < bandGateDb)
-                    inBand[i] = false;
-            }
-
-            for (size_t b = 0; b < (size_t) numBands; ++b)
-            {
-                const auto weight = s.validWeight[b];
-
-                if (weight <= 0.0)
-                {
-                    p.tameEvidenceDb[b] = 0.0f;
-                    p.recoverEvidenceDb[b] = 0.0f;
-                    m.band[b] = 0.0f;
-                    continue;
-                }
-
-                p.tameEvidenceDb[b] = (float) (s.tameSum[b] / weight);
-
-                const auto persistence = s.deficitWeight[b] / weight;
-                const auto persistenceGain = juce::jlimit (0.0, 1.0, (persistence - recoverPersistenceStart)
-                                                                         / (recoverPersistenceFull - recoverPersistenceStart));
-                p.recoverEvidenceDb[b] = inBand[b] ? (float) (s.recoverSum[b] / weight * persistenceGain) : 0.0f;
-                m.band[b] = fraction (weight * hopSeconds, spectrumFullSeconds);
-            }
-
-            m.spectrum = fraction (frameSeconds, spectrumFullSeconds);
-
-            const auto musicFluxSeconds = (double) s.musicFluxFrames * hopSeconds;
-            const auto fluxSeconds = (double) s.fluxFrames * hopSeconds;
-
-            if (musicFluxSeconds >= minimumSpectrumSeconds)
-                setFeature (a.highBandFluxDb, s.fluxSum / (double) s.musicFluxFrames, musicFluxSeconds);
-            else
-                invalidate (a.highBandFluxDb);
-
-            if (fluxSeconds >= minimumSpectrumSeconds)
-                setFeature (a.highBandFluxOnsetsPerSecond, (double) s.fluxEvents / fluxSeconds, fluxSeconds);
-            else
-                invalidate (a.highBandFluxOnsetsPerSecond);
-
-            m.flux = fraction (fluxSeconds, spectrumFullSeconds);
-
-            if (frameSeconds >= minimumSpectrumSeconds)
-            {
-                const auto lowIndex = (std::uint64_t) ((double) (s.frames - 1) * lowRangeLowFraction + 0.5);
-                const auto highIndex = (std::uint64_t) ((double) (s.frames - 1) * lowRangeHighFraction + 0.5);
-                std::uint64_t cumulative = 0;
-                int lowBin = -1, highBin = -1;
-
-                for (int bin = 0; bin < lowRangeBins && highBin < 0; ++bin)
-                {
-                    cumulative += s.lowRangeCount[(size_t) bin];
-
-                    if (lowBin < 0 && cumulative > lowIndex)
-                        lowBin = bin;
-
-                    if (cumulative > highIndex)
-                        highBin = bin;
-                }
-
-                if (lowBin >= 0 && highBin >= 0)
-                    setFeature (a.lowBandRangeDb, (double) (highBin - lowBin) * lowRangeBinDb, frameSeconds);
-                else
-                    invalidate (a.lowBandRangeDb);
-            }
-            else
-            {
-                invalidate (a.lowBandRangeDb);
-            }
-
-            // 立体声（同 updateStereoProfile / updateStereoGroup）。
-            for (size_t b = 0; b < (size_t) numBands; ++b)
-            {
-                const auto summedPower = s.stereoPowerSum[b];
-
-                if (s.stereoWeight[b] > 0.0 && summedPower > 0.0)
-                {
-                    p.bandSideToMidDb[b] = (float) sideToMidDbOf (summedPower, s.stereoCrossSum[b]);
-                    p.bandCorrelation[b] = (float) correlationOf (summedPower, s.stereoCrossSum[b]);
-                    m.stereoBand[b] = fraction (s.stereoWeight[b] * hopSeconds, stereoFullSeconds);
-                }
-                else
-                {
-                    p.bandSideToMidDb[b] = 0.0f;
-                    p.bandCorrelation[b] = 0.0f;
-                    m.stereoBand[b] = 0.0f;
-                }
-            }
-
-            houseStereoGroup (lowStereoFirstBand, lowStereoLastBand, s.lowStereoWeight * hopSeconds,
-                              p.lowSideToMidDb, p.lowCorrelation, m.lowStereo);
-            houseStereoGroup (highStereoFirstBand, highStereoLastBand, s.highStereoWeight * hopSeconds,
-                              p.highSideToMidDb, p.highCorrelation, m.highStereo);
-        }
-
-        void houseStereoGroup (int firstBand, int lastBand, double observedSeconds, Feature& sideToMid, Feature& correlation,
-                               float& measured) noexcept
-        {
-            const auto& s = houseSums;
-            double summedPower = 0.0, summedCross = 0.0;
-
-            for (int b = firstBand; b <= lastBand; ++b)
-            {
-                summedPower += s.stereoPowerSum[(size_t) b];
-                summedCross += s.stereoCrossSum[(size_t) b];
-            }
-
-            if (observedSeconds >= minimumStereoSeconds && summedPower > 0.0)
-            {
-                setFeature (sideToMid, sideToMidDbOf (summedPower, summedCross), observedSeconds);
-                setFeature (correlation, correlationOf (summedPower, summedCross), observedSeconds);
-            }
-            else
-            {
-                invalidate (sideToMid);
-                invalidate (correlation);
-            }
-
-            measured = fraction (observedSeconds, stereoFullSeconds);
-        }
-
-        // 同 updateOnsetProfile。
-        void houseOnsetProfile() noexcept
-        {
-            auto& p = houseProfile;
-            const auto& s = houseSums;
-            const auto seconds = (double) s.onsetEffectiveSamples / sampleRate;
-
-            if (seconds >= minimumOnsetSeconds)
-                setFeature (p.onsetDensityPerSecond, (double) s.onsetEvents / seconds, seconds);
-            else
-                invalidate (p.onsetDensityPerSecond);
-
-            if (s.onsetEvents >= minimumOnsetEvents)
-            {
-                const auto middle = (std::uint64_t) (s.onsetEvents - 1) / 2;
-                std::uint64_t cumulative = 0;
-                int medianBin = 0;
-
-                for (int bin = 0; bin < strengthBins; ++bin)
-                {
-                    cumulative += s.strengthCount[(size_t) bin];
-
-                    if (cumulative > middle)
-                    {
-                        medianBin = bin;
-                        break;
-                    }
-                }
-
-                setFeature (p.onsetStrengthDb, ((double) medianBin + 0.5) * strengthBinDb, seconds);
-            }
-            else
-            {
-                invalidate (p.onsetStrengthDb);
-            }
-
-            p.onsetDensityPerSecond.effectiveSeconds = seconds;
-            p.onsetStrengthDb.effectiveSeconds = seconds;
-            houseMeasured.onset = fraction (seconds, onsetFullSeconds);
-        }
-
-        // 同 updateTrialProfile（同一份 ClayTrials::costsOf；块数 = 合并进来的块数，满编段，不够 10 s 时全部段）。
-        void houseTrialProfile() noexcept
-        {
-            const auto& s = houseSums;
-            applyTrialCosts (ClayTrials::costsOf (s.trialTop, s.blendIntended, s.blendOutput, s.trialCount, trials.getBlockLength(), sampleRate),
-                             houseProfile, houseAux, houseMeasured.trial);
-        }
-
-        // 同 updateSubProfile。
-        void houseSubProfile() noexcept
-        {
-            const auto& s = houseSums;
-            const auto seconds = (double) s.onsetEffectiveSamples / sampleRate;
-
-            if (seconds >= minimumSubSeconds && s.midEnergy > 0.0)
-                setFeature (houseProfile.subShareDb, 10.0 * std::log10 (juce::jlimit (subShareFloor, 1.0, s.subEnergy / s.midEnergy)), seconds);
-            else
-                invalidate (houseProfile.subShareDb);
-
-            houseMeasured.sub = fraction (seconds, subFullSeconds);
-        }
-
-        // 同 finalizeConfidences（代表性用 House 的那一份）。
-        void houseConfidences() noexcept
-        {
-            auto& p = houseProfile;
-            auto& a = houseAux;
-            const auto& s = houseSums;
-            const auto& m = houseMeasured;
-            const auto rep = houseRepresentativeness;
-            p.representativeness = rep;
-
-            auto finalize = [rep] (Feature& feature, float measured, float factor = 1.0f)
-            {
-                feature.confidence = feature.valid ? juce::jmin (rep, measured) * factor : 0.0f;
-            };
-
-            finalize (p.integratedLufs, m.integrated);
-            finalize (p.loudnessRangeLu, m.range);
-            finalize (p.truePeakDbtp, m.peak);
-            finalize (p.plrDb, juce::jmin (m.integrated, m.peak));
-            finalize (p.spectralSlopeDbPerOct, m.spectrum);
-            finalize (p.lowShare, m.spectrum);
-            finalize (p.highShare, m.spectrum);
-
-            auto agreement = 1.0f;
-
-            if (s.onsetEvents > 0 && a.highBandFluxOnsetsPerSecond.valid && s.fluxEvents < s.onsetEvents)
-            {
-                const auto ratio = (double) s.fluxEvents / (double) s.onsetEvents;
-                agreement = (float) (minimumOnsetAgreement + (1.0 - minimumOnsetAgreement) * ratio);
-            }
-
-            a.onsetAgreement = agreement;
-            finalize (p.onsetDensityPerSecond, m.onset, agreement);
-            finalize (p.onsetStrengthDb, m.onset, agreement);
-            finalize (a.highBandFluxDb, m.flux);
-            finalize (a.highBandFluxOnsetsPerSecond, m.flux);
-            finalize (a.lowBandRangeDb, m.spectrum);
-            p.lowBandRangeDb = a.lowBandRangeDb;
-
-            finalize (p.subShareDb, m.sub);
-            finalize (p.lowSideToMidDb, m.lowStereo);
-            finalize (p.lowCorrelation, m.lowStereo);
-            finalize (p.highSideToMidDb, m.highStereo);
-            finalize (p.highCorrelation, m.highStereo);
-
-            finalize (p.lowCutPeakCostDb, m.trial);
-            for (auto& loss : p.lowCutBlendLossDb)
-                finalize (loss, m.trial);
-            finalize (p.widthPeakCostDb, m.trial);
-            finalize (a.trialPeakP99Db, m.trial);
-
-            for (auto& cost : p.monoPeakCostDb)
-                finalize (cost, m.trial);
-
-            for (size_t b = 0; b < (size_t) numBands; ++b)
-            {
-                p.bandConfidence[b] = juce::jmin (rep, m.band[b]);
-                p.bandStereoConfidence[b] = juce::jmin (rep, m.stereoBand[b]);
-            }
-        }
-
         //==============================================================================
         // 七、T-048 实时模式（口径见本文件开头第「七」节）。只在 liveMode 时调。
         //==============================================================================
@@ -3649,7 +2841,7 @@ namespace celadon::glaze
         }
 
         // 在 at 处断开：开着的段截到此刻（now：数据只送到这里，此刻之后的块归新段），就地定稿交给接收者，下一块重新锚定——
-        // 交出去的 [start, end) 首尾相接（SegmentLedger::endEpochAt；House 那一份照旧用不截段尾的 endEpoch）。之后报一次此刻：
+        // 交出去的 [start, end) 首尾相接（SegmentLedger::endEpochAt；不截段尾的 endEpoch 原给 House 那一份用）。之后报一次此刻：
         // 开着的段都截到这里交出去了。
         // 上一次断开 / 清空之后还没收过一块数据、新起点也不早于账本现在的起点时什么都不做（没有开着的段，连续时间段号不加，第「七」节
         // 「断开」）：账本的其余状态与就地定稿之后相同（还没锚定），起点不挪也一样——跨越 at 的窗口在分析器这边已经全丢了
@@ -3670,7 +2862,7 @@ namespace celadon::glaze
         // 再把交齐的位置报给接收者（advanceTo：end 不晚于它的段此刻都已交出）。
         void liveAdvance() noexcept
         {
-            const auto complete = completeBefore (liveFeed, true);
+            const auto complete = completeBefore (liveFeed);
             liveLedger.finalizeBefore (complete);
             liveAxis.report (complete);
         }
@@ -3690,7 +2882,7 @@ namespace celadon::glaze
         }
 
         // 关实时模式时不丢最后一块的帧（第「七」节）：balance 已发布、分析器还没读的帧只交给实时段落账。帧流的核对与运行状态用副本、
-        // 同一套函数（checkFrameTimeline / advanceFrameRun / takeLiveFrame / computeEvidence），通用画像、House 账与短期视图一个不碰——
+        // 同一套函数（checkFrameTimeline / advanceFrameRun / takeLiveFrame / computeEvidence），通用画像与短期视图一个不碰——
         // 它们下一块开头照常读到这些帧（游标也是副本）。消息线程、不与处理并发（setLiveMode）。
         // Balance 的 hop / 窗长与分析器记的不同 = 它在上一次交帧之后重新 prepare 过：环里只有 prepare 之后还没处理过一块的空状态，不交。
         void deliverPendingFramesToLive (const BalanceModule& balance) noexcept
@@ -3813,35 +3005,7 @@ namespace celadon::glaze
     const ShortTermView& MusicAnalyzer::getShortTermView() const noexcept       { return impl->view; }
     const AuxiliaryFeatures& MusicAnalyzer::getAuxiliaryFeatures() const noexcept { return impl->aux; }
 
-    //==============================================================================
-    // T-038 House 档
-    void MusicAnalyzer::setGenre (Genre genre) noexcept
-    {
-        // 阶段 2：曲风只存下来给调用方读。不再另挂 House 门控账，也不因换档重算画像。
-        impl->genre = genre;
-        impl->houseActive = false;
-    }
-
-    Genre MusicAnalyzer::getGenre() const noexcept   { return impl->genre; }
-
-    void MusicAnalyzer::setHouseConstants (const HouseConstants& constants) noexcept
-    {
-        impl->houseConstants = constants;
-        impl->liveLedger.setConstants (constants);   // 实时段落账的分段常数（门控常数它不再用来重算全账）
-    }
-
-    void MusicAnalyzer::recomputeHouseProfile() noexcept
-    {
-        // 阶段 2：House 画像重算退役。
-    }
-
-    void MusicAnalyzer::clearHouseLedger() noexcept
-    {
-        // 阶段 2：没有 House 门控账。实时段落账不在这里清（宿主 reset / 重新聆听都不断开它）。
-    }
-
     const SegmentLedger& MusicAnalyzer::getSegmentLedger() const noexcept   { return impl->liveLedger; }
-    std::uint32_t MusicAnalyzer::getHouseProfileGeneration() const noexcept  { return 0; }
 
     //==============================================================================
     // T-048 实时模式（文件头第「七」节）

@@ -789,7 +789,7 @@ namespace celadon::ui
                 break;
         }
 
-        // 说明格（T-038 GLAZE 两侧的「曲风」「交付」）：灰字 + 细竖线，不可点。
+        // 说明格（setCaption）：灰字 + 细竖线，不可点。
         if (caption.isNotEmpty())
         {
             const auto inset = look == Look::compact ? 0.0f : 2.0f;

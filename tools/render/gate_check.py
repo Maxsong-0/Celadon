@@ -10,7 +10,7 @@
 #   3. 修坯门槛（ADR-014 的阈值，ADR-016 的口径）：每首歌、每个 GLAZE > 0，「自动」对「重放全关」（同一份逐块参数、只差修坯）——
 #        - 限幅器入口峰值（max(GR − 本块实际 Limit Gain)）增加 ≤ 0.3 dB；
 #        - 整体响度下降 ≤ 0.1 LU；响度下降但入口峰值同降（差不超过 0.05 dB）= 切掉的是超低频能量、限幅器少压，列说明不算失败；
-#        - 反相提示时长占比（phase_guard_pct，列名沿用旧名；收单灯琥珀那条，不含 House 档反相提示）≤ 5 %：看「自动」行
+#        - 反相提示时长占比（phase_guard_pct，列名沿用旧名；收单灯琥珀那条）≤ 5 %：看「自动」行
 #          自己的值（重放全关是 GLAZE 0 的链，这一列恒为 0，不比差）。ADR-015 起反相只提示、不改声音，这条查的是提示误亮；
 #          只判插件慢路 ρ 从未 < −0.2 的歌，有真反相段的歌豁免、列出。
 #   4. 连续编排器（T-048 阶段 2）：行里有非空 confidence 时，有效音乐 ≥ 30 s、GLAZE > 0 的成品（不含重放行）
@@ -20,9 +20,10 @@
 # 参考（只打印，不判定）：「自动」对「全关」的跨链差——两条链各自跑 GLAZE，约束反馈发生的时刻不同就会走到不同的方案，
 # 差别里混着方案分岔（T-015：WTF g70 两条链反馈上限 1.145 / 0.274 dB），所以不再拿它判定。
 #
-# 配对：同一组「自动 / 全关 / 重放全关」按（歌, GLAZE, 风格）找；指标表有 T-038 追加列 genre / delivery / listen_from_bar 时
-# 这三列也并入配对键（--genre / --delivery / --listen-from-bar 多值网格里，同一首歌同一 GLAZE 有几组「自动」，各自成组）。
-# 某一维在表里取值不止一种时，分组标签与表格才写出它；只有一种取值（或没有这几列）时输出与只按（歌, GLAZE, 风格）配对时逐字节相同。
+# 配对：同一组「自动 / 全关 / 重放全关」按（歌, GLAZE, 风格）找；指标表有 T-038 追加列 listen_from_bar 时这一列也并入配对键
+# （--listen-from-bar 多值网格里，同一首歌同一 GLAZE 有几组「自动」，各自成组）。它在表里取值不止一种时，分组标签与表格才写出它；
+# 只有一种取值（或没有这列）时输出与只按（歌, GLAZE, 风格）配对时逐字节相同。T-108（ADR-039）删了曲风 / 交付：渲染工具不再写
+# genre / delivery 两列；T-108 之前的旧表里即使有这两列也不再并入配对键（那时多值网格的表要按曲风 / 交付先拆开再查）。
 import csv
 import math
 import sys
@@ -44,9 +45,9 @@ def phase2_confidence(row):
         return None
     return num(raw)
 
-# T-038 网格的另三维（celadon_render 只在用了新选项时把它们追加在 metrics.csv 末尾）。渲染工具自己也按这三维配对
+# T-038 网格的另一维（celadon_render 只在用了走带选项时把它追加在 metrics.csv 末尾）。渲染工具自己也按它配对
 # （RenderMain.cpp 的 checkGlazeZeroPairs；重放全关行沿用「自动」行的组合），这里与它一致。
-GRID_COLUMNS = ('genre', 'delivery', 'listen_from_bar')
+GRID_COLUMNS = ('listen_from_bar',)
 
 
 def num(value, default=math.nan):
@@ -74,12 +75,12 @@ def grid_value(row, column):
 
 
 def grid_sort_value(column, value):
-    """配对键里网格维度的排序值：聆听起点按小节号的数值排（2 在 10 前），曲风 / 交付按字符串排（与 house_gate.py 相同）。"""
+    """配对键里网格维度的排序值：聆听起点按小节号的数值排（2 在 10 前）。"""
     return num(value, math.inf) if column == 'listen_from_bar' else value
 
 
 def grid_label(column, value):
-    """分组标签里网格维度的写法：聆听起点照成品文件名写 from-b<小节>，曲风 / 交付写选项名（RenderMain.cpp 的 comboSuffix）。"""
+    """分组标签里网格维度的写法：聆听起点照成品文件名写 from-b<小节>（RenderMain.cpp 的 comboSuffix）。"""
     return f"from-b{value}" if column == 'listen_from_bar' else value
 
 

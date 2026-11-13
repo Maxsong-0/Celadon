@@ -355,9 +355,6 @@ public:
         addAndMakeVisible (styleSelector);
         styleAttachment = std::make_unique<SegmentedAttachment> (styleSelector, *state.getParameter (param::glazeStyle));
 
-        // T-107（Max 2026-11-13「直接删掉，不用再搞曲风这些的了」）：GLAZE 标题行左右的曲风 / 交付两个选择器（T-038）从面板上删掉。
-        // 参数 glaze_genre / glaze_delivery 还在（工程照存照读、宿主自动化照旧），面板上不再有改它们的地方。
-
         abSelector.setOptions ({ "", "" });
         abSelector.setEqualWidths (false);
         abSelector.setFont (uiFont (11.5f, Weight::medium));
@@ -951,6 +948,15 @@ void CeladonAudioProcessorEditor::noteDiscardedLegacyGlaze()
     timerCallback();
 }
 
+void CeladonAudioProcessorEditor::noteGenreDeliveryReset()
+{
+    if (genreDeliveryReset)
+        return;
+
+    genreDeliveryReset = true;
+    timerCallback();
+}
+
 void CeladonAudioProcessorEditor::setStatusLinePreview (const celadon::ui::glazestatus::Reading& reading)
 {
     statusLinePreview = reading;
@@ -1339,7 +1345,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto listenOn = rawValue (state, param::limitListen) >= 0.5f;
     const auto comparing = processor.isComparingOriginal();
     const auto mastering = processor.getMasteringStatus();
-    // T-078：橙色、右侧板「交付」与顶部胶囊用链发布的实际上限（流媒体封顶与编码余量已算进；旁通 / 干路是用户 Ceiling）。
+    // T-078：橙色、右侧板「交付」与顶部胶囊用链发布的实际上限（编码余量已算进；旁通 / 干路是用户 Ceiling）。
     const auto ceiling = mastering.effectiveCeilingDb;
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
@@ -1478,7 +1484,6 @@ void CeladonAudioProcessorEditor::timerCallback()
         {
             case Kind::manualOnly:      chip = Chip::manual;       break;
             case Kind::limitedByManual: chip = Chip::manualLimit;  break;
-            case Kind::housePhaseHint:  chip = Chip::phase;        break;
             case Kind::coldExport:      chip = Chip::coldExport;   break;
             case Kind::guardLimited:    chip = Chip::limited;      break;
             case Kind::starting:        chip = Chip::starting;     break;
@@ -1504,10 +1509,13 @@ void CeladonAudioProcessorEditor::timerCallback()
         {
             c.cornerNote.setLines (tr (c.isHintOnDial() ? Text::hintDial : Text::hintDrag, language), tr (Text::hintClick, language), true);
         }
-        else if (legacyGlazeDiscarded)
+        else if (legacyGlazeDiscarded || genreDeliveryReset)
         {
-            // 旧工程提示一次，只活在本次打开的界面里，不进状态行的七条，也不写入 LIVE。
-            c.cornerNote.setLines ({}, tr (Text::legacyDiscarded, language), false, true);
+            // 旧工程提示一次，只活在本次打开的界面里，不进状态行的七条，也不写入 LIVE。两条都有时各占一行。
+            const auto legacy = legacyGlazeDiscarded ? tr (Text::legacyDiscarded, language) : juce::String();
+            const auto reset = genreDeliveryReset ? tr (Text::genreDeliveryReset, language) : juce::String();
+            c.cornerNote.setLines (legacyGlazeDiscarded && genreDeliveryReset ? legacy : juce::String(),
+                                   genreDeliveryReset ? reset : legacy, false, true);
         }
         else
         {

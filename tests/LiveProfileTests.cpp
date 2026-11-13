@@ -52,7 +52,7 @@ namespace celadon::test
         using glaze::LiveDiagnostics;
         using glaze::LiveProfile;
         using glaze::LiveSegmentJudgement;
-        using glaze::MainSectionModel;
+        using glaze::LiveModelConstants;
         using glaze::MusicProfile;
         using glaze::SegmentLedger;
         using Segment = glaze::SegmentLedger::Segment;
@@ -113,7 +113,7 @@ namespace celadon::test
                 && sameFloats (a.bandSideToMidDb, b.bandSideToMidDb) && sameFloats (a.bandCorrelation, b.bandCorrelation)
                 && sameFloats (a.bandStereoConfidence, b.bandStereoConfidence)
                 && sameDouble (a.effectiveSeconds, b.effectiveSeconds) && sameFloat (a.representativeness, b.representativeness)
-                && a.houseGate.valid == b.houseGate.valid && a.formatVersion == b.formatVersion;
+                && a.formatVersion == b.formatVersion;
         }
 
         // 参考、M、c 逐位相同（breakdown 不变性比这几项：窗口里多了段，窗口的统计照常变）。
@@ -327,11 +327,31 @@ namespace celadon::test
             return makeSegment (spec, index);
         }
 
+        // T-108（ADR-039）：插件只剩一套主段常数（LiveConstants::loudness，响度型，不用低频门）。原 4/4 型那组数字（ΔG 3、斜坡 1.5、
+        // 低频门 0.6、P95、W_mem 48 小节、M0 6 小节）留在测试里当一组合法的常数（lowGate），这样低频门、按小节换算的记忆与 M0、
+        // 回看重判这些仍在 LiveProfile 里的路径照样有用例覆盖；被动型（有效音频 m = 1）删了。用 setModel 把选中的那组装进 loudness 再交给画像。
+        enum class Model { lowGate, loudness };
+
+        struct TestConstants  : LiveConstants
+        {
+            LiveModelConstants lowGate { 3.0f, 1.5f, 0.6f, 0.15f, 0.95f, 48.0, 90.0, 6.0, 16.0 };
+        };
+
+        void setModel (LiveProfile& live, const TestConstants& constants, Model model = Model::lowGate)
+        {
+            LiveConstants chosen = constants;
+
+            if (model == Model::lowGate)
+                chosen.loudness = constants.lowGate;
+
+            live.setConstants (chosen);
+        }
+
         // 准备好的实时画像（48 kHz）。LiveProfile 不可拷贝也不可移动，所以就地准备。
-        void setUp (LiveProfile& live, const LiveConstants& constants = {}, MainSectionModel model = MainSectionModel::fourOnFloor)
+        void setUp (LiveProfile& live, const TestConstants& constants = {}, Model model = Model::lowGate)
         {
             live.prepare (rate);
-            live.setConstants (constants, model);
+            setModel (live, constants, model);
         }
 
         // 交一段并让它发布（时间推到它的发布时刻）。
@@ -500,11 +520,11 @@ namespace celadon::test
         }
 
         // 遗忘全关（等价性）：W_mem、参考遗忘、无主段衰减、换歌都取 +∞；M0 取极小，c = 1（House 画像的代表性此时也是 1）。
-        LiveConstants noForgetting()
+        TestConstants noForgetting()
         {
-            LiveConstants c;
+            TestConstants c;
 
-            for (auto* model : { &c.fourOnFloor, &c.loudness, &c.passive })
+            for (auto* model : { &c.lowGate, &c.loudness })
             {
                 model->memoryBars = 0.0;
                 model->memorySeconds = infinity;
@@ -685,7 +705,7 @@ namespace celadon::test
 
         void runTest() override
         {
-            testHouseEquivalence();
+            testLiveLedgerAnchor();
             testBreakdownLeavesMainUntouched();
             testMainnessFormula();
             testRejudgeLowReference();
@@ -716,16 +736,15 @@ namespace celadon::test
 
     private:
         //==============================================================================
-        // a. 阶段 2 锚点。House 候选画像与 House 门控账已退役（startLearning / getCandidateProfile 不再产出画像）。
-        // 复现：AnalyzerRig，Deep House，setLiveMode(true) 之后再喂 makeIntroDrop(16, 16, 1.0)、块长 512、夹具自带的 124 BPM 宿主，
+        // a. 阶段 2 锚点。候选画像已退役（startLearning / getCandidateProfile 不再产出画像）；House 门控账随 T-108 删掉。
+        // 复现：AnalyzerRig，setLiveMode(true) 之后再喂 makeIntroDrop(16, 16, 1.0)、块长 512、夹具自带的 124 BPM 宿主，
         // 然后 setLiveMode(false) 让开口的段定稿。两份遗忘关掉的 LiveProfile 吃同一份实时账，画像与诊断必须逐位相同。
         // 不跟已退役的候选画像比，也不抄 trial* 去填 live*。
-        void testHouseEquivalence()
+        void testLiveLedgerAnchor()
         {
-            beginTest ("a. live-ledger anchor: the House candidate stays invalid; two LiveProfiles fed the live ledger are bit-identical");
+            beginTest ("a. live-ledger anchor: the candidate profile stays invalid; two LiveProfiles fed the live ledger are bit-identical");
 
             AnalyzerRig rig;
-            rig.analyzer.setGenre (glaze::Genre::deepHouse);
             rig.analyzer.setLiveMode (true);
             rig.feed (makeIntroDrop (16, 16, 1.0), 512);
             rig.analyzer.setLiveMode (false);
@@ -738,10 +757,9 @@ namespace celadon::test
                 trialBlocks += ledger.getStored (i).liveTrialBlocks;
 
             logMessage ("  stored " + juce::String (ledger.getNumStored()) + ", live trial blocks " + juce::String (trialBlocks)
-                        + "; candidate I valid " + juce::String ((int) candidate.integratedLufs.valid)
-                        + ", houseGate valid " + juce::String ((int) candidate.houseGate.valid));
+                        + "; candidate I valid " + juce::String ((int) candidate.integratedLufs.valid));
 
-            expect (! candidate.integratedLufs.valid && ! candidate.houseGate.valid, "the retired House candidate profile stays invalid");
+            expect (! candidate.integratedLufs.valid, "the retired candidate profile stays invalid");
             expect (ledger.getNumStored() >= 14, "live mode stored the bars");
             expect (trialBlocks > 0, "live trials were recorded on the stored segments");
 
@@ -765,7 +783,6 @@ namespace celadon::test
             const auto& profile = first.getProfile();
             expect (profile.integratedLufs.valid && std::isfinite (profile.integratedLufs.value), "I is finite");
             expect (profile.formatVersion == glaze::clayProfileFormatVersion, "format is the live clay profile");
-            expect (! profile.houseGate.valid, "houseGate is not filled");
             expect (profile.representativeness > 0.0f && profile.representativeness <= 1.0f, "representativeness is in (0, 1]");
             expect (first.getDiagnostics().confidence > 0.5f, "confidence is high after 16 drop bars: "
                         + juce::String (first.getDiagnostics().confidence, 3));
@@ -778,18 +795,19 @@ namespace celadon::test
                         "every m' is finite and inside [0, 1]");
 
             const auto before = first.getProfile();
-            first.setConstants (hard, MainSectionModel::loudness);
-            first.setConstants (hard, MainSectionModel::fourOnFloor);
+            setModel (first, hard, Model::loudness);
+            setModel (first, hard, Model::lowGate);
             expect (sameProfile (before, first.getProfile()), "switching the model back gives the same profile bitwise");
         }
 
         //==============================================================================
-        // b. breakdown（m′ = 0）里什么都不动（规格第 3 节；主段时钟只按此刻的 m′ 走）。出厂常数、4/4 型：24 小节 drop 之后 8 小节 breakdown
-        // （比 drop 轻 12 LU、低频占比 0.1：两个因子都是 0；8 小节 15.5 s，不到无主段的 60 s；更轻又没有低音，不算「换歌」）——每一份画像
-        // （4/4 型的 LRA 也是主段加权）、M、c、参考都与 breakdown 之前逐位相同；之后 16 小节更响、更多低频的新 drop：I 与 lowShare 向它移动。
+        // b. breakdown（m′ = 0）里主段的东西都不动（规格第 3 节；主段时钟只按此刻的 m′ 走）。带低频门的测试常数：24 小节 drop 之后 8 小节
+        // breakdown（比 drop 轻 12 LU、低频占比 0.1：两个因子都是 0；8 小节 15.5 s，不到无主段的 60 s；更轻，不算「换歌」）——画像里主段加权的
+        // 各项、M、c、参考都与 breakdown 之前逐位相同；I、PLR、LRA 是全部段的口径（T-108 前 4/4 型这三项也只用主段，随 4/4 型删掉），会把
+        // breakdown 算进去、往下走。之后 16 小节更响、更多低频的新 drop：I 与 lowShare 向它移动。
         void testBreakdownLeavesMainUntouched()
         {
-            beginTest ("b. a breakdown (m' = 0) leaves the published profile, M, c and the references bit-identical; a new drop moves it");
+            beginTest ("b. a breakdown (m' = 0) leaves the main-weighted profile, M, c and the references bit-identical; a new drop moves it");
 
             LiveProfile live;
             setUp (live);
@@ -802,17 +820,29 @@ namespace celadon::test
             const auto diagnosticsBefore = live.getDiagnostics();
             auto allZero = true, unchanged = true;
 
+            // 全部段口径的 I、PLR（= 真峰值 − I）不比；LRA 由 sameProfile 的 withRange = false 跳过。
+            const auto mainWeighted = [] (MusicProfile p)
+            {
+                p.integratedLufs = {};
+                p.plrDb = {};
+                return p;
+            };
+
             for (int i = 0; i < 8; ++i)
             {
                 feed (live, makeSegment (breakdownSpec(), index++));
                 allZero = allZero && sameFloat (lastRecord (live).mainness, 0.0f);
-                unchanged = unchanged && sameProfile (before, live.getProfile(), true) && sameMain (diagnosticsBefore, live.getDiagnostics());
+                unchanged = unchanged && sameProfile (mainWeighted (before), mainWeighted (live.getProfile()), false)
+                         && sameMain (diagnosticsBefore, live.getDiagnostics());
             }
 
             const auto diagnosticsAfter = live.getDiagnostics();
             expect (allZero, "the breakdown bars get m' = 0");
-            expect (unchanged, "every published profile (the 4/4 LRA included), M, c and the references stay bit-identical");
+            expect (unchanged, "every main-weighted feature of every published profile, M, c and the references stay bit-identical");
             expect (! diagnosticsAfter.timeDecayActive && diagnosticsAfter.newProgramCount == 0);
+            // breakdown 比 drop 轻 12 LU，门块落在 BS.1770 的 −10 LU 相对门之下，全部段口径的 I 也不往下走（只差遗忘的舍入）。
+            expect (std::abs (live.getProfile().integratedLufs.value - before.integratedLufs.value) <= 0.01f,
+                    "the all-segment I: the breakdown's blocks fall under the -10 LU relative gate, I stays");
 
             auto louder = dropSpec();
             louder.loudnessLufs = -6.03;
@@ -834,10 +864,10 @@ namespace celadon::test
         // c. 主段度（规格第 2 节；LiveProfile.h 文件头第一节）。
         void testMainnessFormula()
         {
-            beginTest ("c. mainness: two soft gates, ramp end points, cold start, passive / loudness models; admission = previous mainnessFor");
+            beginTest ("c. mainness: two soft gates, ramp end points, cold start, the factory loudness model; admission = previous mainnessFor");
 
-            const LiveConstants factory;
-            const auto& ff = factory.fourOnFloor;
+            const TestConstants factory;
+            const auto& ff = factory.lowGate;
 
             // 冷启动：以这一段自己为参考 → ramp(ΔG) × ramp(1 − g_low) = 1；读不出响度 → 0。
             {
@@ -847,8 +877,8 @@ namespace celadon::test
                 expect (sameFloat (live.mainnessFor (false, -8.0f, true, 0.6f), 0.0f), "no effective audio: m = 0");
 
                 auto c = factory;
-                c.fourOnFloor.gateWidthLu = 0.0f;
-                live.setConstants (c, MainSectionModel::fourOnFloor);
+                c.lowGate.gateWidthLu = 0.0f;
+                setModel (live, c, Model::lowGate);
                 expectWithinAbsoluteError (live.mainnessFor (true, -30.0f, true, 0.05f), 0.5f, 1.0e-6f, "cold start with dG = 0: ramp(0) = 0.5");
 
                 // 第一段的参考就是它自己（不用特例）：出厂常数下进账与这一份画像里都是 1。
@@ -908,25 +938,21 @@ namespace celadon::test
                 expect (same, "admission m = mainnessFor before; m' = mainnessFor after publication; w' = m' x effective seconds");
             }
 
-            // 响度型：只看响度（ΔG 6、斜坡 3、P90），低频读不读得出都一样；被动型：有效音频 m = 1。
+            // 出厂的响度型：只看响度（ΔG 6、斜坡 3、P90），低频读不读得出都一样。（被动型随 T-108 删掉。）
             {
-                live.setConstants (factory, MainSectionModel::loudness);
+                setModel (live, factory, Model::loudness);
                 const auto s90 = live.getDiagnostics().referenceLufs;
                 const auto& lm = factory.loudness;
                 expectWithinAbsoluteError (live.mainnessFor (true, s90 - lm.gateWidthLu, false, 0.0f), 0.5f, 1.0e-5f, "loudness model: 0.5 at S_ref - dG");
                 expect (sameFloat (live.mainnessFor (true, s90 - lm.gateWidthLu, false, 0.0f), live.mainnessFor (true, s90 - lm.gateWidthLu, true, 0.01f)),
                         "loudness model ignores lowShare");
-
-                live.setConstants (factory, MainSectionModel::passive);
-                expect (sameFloat (live.mainnessFor (true, -60.0f, false, 0.0f), 1.0f) && sameFloat (live.mainnessFor (false, 0.0f, true, 0.5f), 0.0f),
-                        "passive model: m = 1 for effective audio, 0 without");
             }
         }
 
         //==============================================================================
         // r1. lowRef 按此刻的 S_ref 选段（REPORT-C 第 5 节第 2 条，tech 0268597）：16 小节低音很重的前奏（lowShare 0.45），之后响 4 LU、
         // 低频占比只有 0.2 的 drop。前奏一掉到 S_ref − ΔG 之下就不再参与 lowRef，drop 不再被低频门挡：第 4 个 drop 小节起 m′ = 1，
-        // 前奏全部重判为 0，I 就是 drop 的。
+        // 前奏全部重判为 0，主段加权的 lowShare 就是 drop 的（I 是全部段口径，前奏也算在里面，落在两者之间）。
         void testRejudgeLowReference()
         {
             beginTest ("r. rejudge: a bass-heavy intro no longer pins lowRef; the drop passes the low gate within 4 bars");
@@ -970,7 +996,9 @@ namespace celadon::test
             expect (dropMainness[3] >= 0.99f && dropMainness.back() >= 0.99f, "from the 4th drop bar on the drop is main at its publication");
             expect (introOut && dropIn, "in the final profile the intro is rejudged out (m' = 0, weight 0) and every drop bar is main");
             expect (d.lowReferenceValid && std::abs (d.lowReference - 0.2f) < 0.01f, "lowRef is the drop's lowShare");
-            expect (std::abs (live.getProfile().integratedLufs.value + 8.03f) < 0.2f, "I is the drop's level");
+            expect (std::abs (live.getProfile().lowShare.value - 0.2f) < 0.01f, "the main-weighted lowShare is the drop's");
+            expect (live.getProfile().integratedLufs.value > -12.03f && live.getProfile().integratedLufs.value < -8.03f,
+                    "the all-segment I lies between the intro's and the drop's level");
         }
 
         // r2. 冷启动落在淡入小节上不卡住（REPORT-C 第 5 节第 3 条，tech 0343381）：第 1 小节 −34 LUFS 的淡入（lowShare 0.15），之后只有镲
@@ -1005,11 +1033,11 @@ namespace celadon::test
         }
 
         // r3. 前奏被重判出主段（REPORT-C 第 5 节第 1 条、M4）：32 小节前奏（−12 LUFS、低频 0.5），之后响 3.85 LU 的 drop。冷启动时前奏是
-        // 主段；drop 一来 S_ref 移上去、前奏掉出门外，第一个 drop 的 4 小节之后 I 离 drop 不到 1 LU（改前按进账遗忘要几十小节），前奏不再推
-        // 主段时钟（它的权重是 0）。c 在 drop 来时随 M 掉下来再爬回去（M 只剩 drop 的质量）。
+        // 主段；drop 一来 S_ref 移上去、前奏掉出门外，第一个 drop 的 4 小节之后主段加权的 lowShare 就是 drop 的（改前按进账遗忘要几十
+        // 小节；T-108 前 4/4 型的 I 也是主段加权、这里也比 I，现在 I 是全部段口径、前奏也算），前奏不再推主段时钟（它的权重是 0）。c 在 drop 来时随 M 掉下来再爬回去（M 只剩 drop 的质量）。
         void testRejudgeIntroLeavesMain()
         {
-            beginTest ("r. rejudge: the intro taken as main at cold start drops out when the drop comes; I is within 1 LU after 4 drop bars");
+            beginTest ("r. rejudge: the intro taken as main at cold start drops out when the drop comes; lowShare is the drop's after 4 drop bars");
 
             LiveProfile live;
             setUp (live);
@@ -1022,12 +1050,14 @@ namespace celadon::test
 
             const auto introLevel = live.getProfile().integratedLufs.value;
             const auto introConfidence = live.getDiagnostics().confidence;
-            std::vector<float> levels, confidences;
+            const auto introLowShare = live.getProfile().lowShare.value;
+            std::vector<float> levels, lowShares, confidences;
 
             for (int i = 0; i < 16; ++i)
             {
                 feed (live, makeSegment (dropSpec(), index++));
                 levels.push_back (live.getProfile().integratedLufs.value);
+                lowShares.push_back (live.getProfile().lowShare.value);
                 confidences.push_back (live.getDiagnostics().confidence);
             }
 
@@ -1035,9 +1065,12 @@ namespace celadon::test
             logMessage ("  intro I " + juce::String (introLevel, 2) + " (c " + juce::String (introConfidence, 3) + "); drop bars 1 ... 4: I "
                         + juce::String (levels[0], 2) + ", " + juce::String (levels[1], 2) + ", " + juce::String (levels[2], 2) + ", "
                         + juce::String (levels[3], 2) + " (c " + juce::String (confidences[3], 3) + "); after 16 bars I " + juce::String (dropLevel, 2)
-                        + " (c " + juce::String (confidences.back(), 3) + ")");
+                        + " (c " + juce::String (confidences.back(), 3) + "); lowShare " + juce::String (introLowShare, 3) + " -> "
+                        + juce::String (lowShares[3], 3) + " (4 bars) -> " + juce::String (lowShares.back(), 3));
             expect (introConfidence > 0.9f, "the intro alone was main (cold start) and confident");
-            expect (std::abs (levels[3] - dropLevel) <= 1.0f && std::abs (dropLevel + 8.03f) < 0.2f, "4 drop bars in, I is within 1 LU of the drop's");
+            expect (std::abs (lowShares[3] - lowShares.back()) <= 0.005f && std::abs (lowShares.back() - introLowShare) > 0.05f,
+                    "4 drop bars in, the main-weighted lowShare is the drop's (the intro is out)");
+            expect (dropLevel > introLevel && dropLevel < -8.03f, "the all-segment I moves toward the drop, the intro still counted");
 
             auto introWeight = 0.0;
 
@@ -1056,8 +1089,8 @@ namespace celadon::test
         {
             beginTest ("W_mem and M0 follow the segment mode: bars x the bar length, or the seconds constants for 2-second segments");
 
-            const LiveConstants factory;
-            const auto& ff = factory.fourOnFloor;
+            const TestConstants factory;
+            const auto& ff = factory.lowGate;
 
             for (const auto mode : { glaze::SegmentMode::bars, glaze::SegmentMode::seconds })
             {
@@ -1106,7 +1139,7 @@ namespace celadon::test
         {
             beginTest ("d. no main section for 60 s: main mass decays by effective time (tau 120 s) from the 60 s mark on, until a main bar");
 
-            LiveConstants c;
+            TestConstants c;
             c.newProgramLu = std::numeric_limits<float>::infinity();
             LiveProfile live;
             setUp (live, c);
@@ -1149,16 +1182,16 @@ namespace celadon::test
                     "a main bar stops the time decay");
         }
 
-        // d2. 换歌软遗忘（规格第 3 节；Max 2026-10-02「响的算、轻的要有低音」）。每段 1.9 s，第 11 段累计 20.9 s ≥ 20 s 时触发：全部更老的段
-        // × 0.2（M 正好 × 0.2）；第 10 段（19 s）不触发；中间夹一段只差 2 LU 的，清零重计。breakdown（轻 7 LU、没有低音）永不触发；
-        // 响度型里更轻的段永不触发；只响 5.9 LU 的永不触发。无主段衰减关掉。
+        // d2. 换歌软遗忘（规格第 3 节）。每段 1.9 s，第 11 段累计 20.9 s ≥ 20 s 时触发：全部更老的段 × 0.2（M 正好 × 0.2）；第 10 段（19 s）
+        // 不触发；中间夹一段只差 2 LU 的，清零重计；只响 5.9 LU 的永不触发；更轻的段（低音满也好、breakdown 也好）永不触发——「轻且有低音」
+        // 那一支（Max 2026-10-02）只给 4/4 型，随 T-108 删掉。无主段衰减关掉。
         // 「响」的那一支要 I 跟不上新素材才数得满 20 s：回看重判下更响的新素材一两小节就当上 S_ref、成了主段（I 立即跟上），这一支实际上
         // 用不上（用例 4 核对）；所以用冻结参考（只给测试用）把 I 钉在旧 drop 上来考这一支的规则本身。
         void testNewProgram()
         {
-            beginTest ("d. new program: louder by > 6 LU, or (4/4) quieter by > 6 LU with full bass, for 20 s scales every older mass by 0.2");
+            beginTest ("d. new program: louder by > 6 LU for 20 s scales every older mass by 0.2; quieter material never triggers");
 
-            LiveConstants c;
+            TestConstants c;
             c.noMainSeconds = infinity;
             const auto keep = (double) c.newProgramKeep;   // float 0.2f：换成 double 是 0.2000000030
 
@@ -1169,7 +1202,7 @@ namespace celadon::test
             };
 
             // 前 16 小节 drop 立起主段，返回此刻的 I。
-            const auto prime = [&] (LiveProfile& live, MainSectionModel model, std::int64_t& index)
+            const auto prime = [&] (LiveProfile& live, Model model, std::int64_t& index)
             {
                 setUp (live, c, model);
 
@@ -1179,14 +1212,23 @@ namespace celadon::test
                 return (double) live.getProfile().integratedLufs.value;
             };
 
-            const auto runBars = [&] (LiveProfile& live, const Spec& spec, int bars, std::int64_t& index)
+            // holdIntegrated：段不带门块（gatingCount = 0），进不了 I 的积分——I 是全部段的口径，带门块的更响新素材几小节就把 I 拉上去，
+            // 「响」的那一支数不满 20 s（用例 4）；考这一支的规则本身时用它把 I 钉在旧 drop 上（段响度照常从段能量算）。
+            const auto withoutGating = [] (Segment s)
+            {
+                s.gatingCount = 0;
+                return s;
+            };
+
+            const auto runBars = [&] (LiveProfile& live, const Spec& spec, int bars, std::int64_t& index, bool holdIntegrated = false)
             {
                 Run run;
 
                 for (int i = 0; i < bars; ++i)
                 {
                     const auto before = live.getDiagnostics().mainMassSeconds;
-                    feed (live, makeSegment (spec, index++));
+                    const auto segment = makeSegment (spec, index++);
+                    feed (live, holdIntegrated ? withoutGating (segment) : segment);
 
                     if (lastRecord (live).newProgram && run.triggeredAt < 0)
                     {
@@ -1199,100 +1241,93 @@ namespace celadon::test
                 return run;
             };
 
-            // 1. 4/4 型：轻 7 LU、低音满（lowShare 同 drop）、电平稳——像换成一首更轻的歌。这些段 m′ = 0（在 S_ref − ΔG 之下），M 只在触发时变。
+            // 1. 轻 7 LU、低音满（lowShare 同 drop）、电平稳——像换成一首更轻的歌：两套测试常数下都投 0、永不触发（T-108 前 4/4 型这里投 2、
+            // 第 11 段触发）。
+            for (const auto model : { Model::lowGate, Model::loudness })
             {
                 LiveProfile live;
                 std::int64_t index = 0;
-                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                const auto level = prime (live, model, index);
                 auto quieterWithBass = dropSpec();
                 quieterWithBass.loudnessLufs = level - 7.0;
-
-                auto run = runBars (live, quieterWithBass, 10, index);
-                expect (run.triggeredAt < 0 && live.getDiagnostics().newProgramCount == 0, "quieter with bass: 10 bars (19 s) do not trigger");
-                expect (lastRecord (live).newProgramVote == 2, "they vote 'quieter with bass'");
-
-                feed (live, segmentReading (index++, level - 2.0, 0.6));   // 只差 2 LU：不算，清零
-                expect (lastRecord (live).newProgramVote == 0);
-                run = runBars (live, quieterWithBass, 10, index);
-                expect (run.triggeredAt < 0, "a bar that does not count restarts the count: 10 more bars still do not trigger");
-
-                run = runBars (live, quieterWithBass, 1, index);
-                expect (run.triggeredAt == 1 && live.getDiagnostics().newProgramCount == 1, "quieter with bass: the 11th consecutive bar (20.9 s) triggers");
-                expect (std::abs (run.massAfter - keep * run.massBefore) <= 1.0e-12 * run.massBefore, "every older mass x newProgramKeep (main mass exactly)");
-                expect (lastRecord (live).newProgramRangeValid && lastRecord (live).newProgramRangeLu <= 0.01f, "the level-stable range was measured (flat)");
+                runBars (live, quieterWithBass, 1, index);
+                expect (lastRecord (live).newProgramVote == 0, "quieter with bass votes 0 (no quieter branch)");
+                runBars (live, quieterWithBass, 39, index);
+                expect (live.getDiagnostics().newProgramCount == 0,
+                        juce::String ("quieter with bass, 40 bars: never triggers (") + (model == Model::lowGate ? "low-gate" : "factory") + " constants)");
             }
 
-            // 2. 4/4 型：breakdown（轻 7 LU、没有低音）永不触发——规格「breakdown 里什么都不动」。
+            // 2. breakdown（轻 7 LU、没有低音）永不触发——规格「breakdown 里什么都不动」。
             {
                 LiveProfile live;
                 std::int64_t index = 0;
-                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                const auto level = prime (live, Model::lowGate, index);
                 auto breakdown = breakdownSpec();
                 breakdown.loudnessLufs = level - 7.0;
                 runBars (live, breakdown, 40, index);
                 expect (live.getDiagnostics().newProgramCount == 0, "a 40-bar breakdown (7 LU quieter, no bass) never triggers");
             }
 
-            // 3. 「响」的那一支（I 钉住：冻结参考在旧 drop 上，响 7 LU、低频 0.1 的段过不了冻结的低频门，m′ = 0）：第 11 段触发；之后只响
-            // 5.9 LU（不超过 6）的永不触发。
+            // 3. 「响」的那一支（I 钉住：段不带门块；冻结参考在旧 drop 上，响 7 LU、低频 0.1 的段过不了冻结的低频门，m′ = 0）：第 10 段（19 s）不触发、
+            // 第 11 段触发，M 正好 × 0.2；中间夹一段只差 2 LU 的清零重计；之后只响 5.9 LU（不超过 6）的永不触发。
             {
                 LiveProfile live;
                 std::int64_t index = 0;
-                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                const auto level = prime (live, Model::lowGate, index);
                 const auto d = live.getDiagnostics();
                 live.setFrozenReferencesForTesting (true, d.referenceLufs, d.lowReference);
                 auto louder = dropSpec();
                 louder.lowShare = 0.1;
                 louder.loudnessLufs = level + 7.0;
-                const auto run = runBars (live, louder, 11, index);
-                expect (run.triggeredAt == 11 && live.getDiagnostics().newProgramCount == 1, "louder by 7 LU (I held): the 11th bar triggers");
+                auto run = runBars (live, louder, 10, index, true);
+                expect (run.triggeredAt < 0 && live.getDiagnostics().newProgramCount == 0, "louder by 7 LU (I held): 10 bars (19 s) do not trigger");
+                expect (lastRecord (live).newProgramVote == 1, "they vote 'louder'");
+
+                feed (live, withoutGating (segmentReading (index++, level + 2.0, 0.1)));   // 只差 2 LU：不算，清零
+                expect (lastRecord (live).newProgramVote == 0);
+                run = runBars (live, louder, 10, index, true);
+                expect (run.triggeredAt < 0, "a bar that does not count restarts the count: 10 more bars still do not trigger");
+
+                run = runBars (live, louder, 1, index, true);
+                expect (run.triggeredAt == 1 && live.getDiagnostics().newProgramCount == 1, "louder by 7 LU (I held): the 11th consecutive bar (20.9 s) triggers");
+                expect (std::abs (run.massAfter - keep * run.massBefore) <= 1.0e-12 * run.massBefore, "every older mass x newProgramKeep (main mass exactly)");
 
                 auto nearby = louder;
                 nearby.loudnessLufs = (double) live.getProfile().integratedLufs.value + 5.9;
-                runBars (live, nearby, 40, index);
+                runBars (live, nearby, 40, index, true);
                 expect (live.getDiagnostics().newProgramCount == 1, "louder by 5.9 LU never triggers");
             }
 
-            // 4. 不冻结时，响 7 LU 的新素材一两小节就当上 S_ref、成了主段，I 立即跟上，「响」的那一支数不满 20 s——回看重判自己就把旧素材挤出去了。
+            // 4. 平常（段带门块、参考不冻结）：响 7 LU 的新素材一两小节就当上 S_ref、成了主段；I（全部段口径）随新素材的能量很快上来，
+            // 「响」的那一支数不满 20 s，从不触发——回看重判自己就让新素材当了主段。
             {
                 LiveProfile live;
                 std::int64_t index = 0;
-                const auto level = prime (live, MainSectionModel::fourOnFloor, index);
+                const auto level = prime (live, Model::lowGate, index);
                 auto louder = dropSpec();
                 louder.loudnessLufs = level + 7.0;
                 runBars (live, louder, 3, index);
                 const auto followed = live.getProfile().integratedLufs.value;
+                const auto mainness = lastRecord (live).mainness;
                 runBars (live, louder, 17, index);
-                logMessage ("  louder by 7 LU, references free: I after 3 bars " + juce::String (followed, 2) + " LUFS (new material "
-                            + juce::String (level + 7.0, 2) + ")");
-                expect (std::abs ((double) followed - (level + 7.0)) < 0.5 && live.getDiagnostics().newProgramCount == 0,
-                        "references free: the louder material is main within 3 bars and never needs the soft forget");
-            }
-
-            // 5. 响度型：轻 7 LU、低音满也永不触发（「轻」的那一支只给 4/4 型）。
-            {
-                LiveProfile live;
-                std::int64_t index = 0;
-                const auto level = prime (live, MainSectionModel::loudness, index);
-                auto quieterWithBass = dropSpec();
-                quieterWithBass.loudnessLufs = level - 7.0;
-                runBars (live, quieterWithBass, 40, index);
-                expect (live.getDiagnostics().newProgramCount == 0, "loudness model: quieter segments never trigger");
+                logMessage ("  louder by 7 LU, references free: after 3 bars m' " + juce::String (mainness, 3) + ", I " + juce::String (followed, 2)
+                            + " LUFS (old drop " + juce::String (level, 2) + ", new material " + juce::String (level + 7.0, 2) + ")");
+                expect (mainness >= 0.5f && (double) followed > level + 1.0 && live.getDiagnostics().newProgramCount == 0,
+                        "references free: the louder material is main within 3 bars, I moves up, and the soft forget never triggers");
             }
         }
 
-        // d3. 「轻的那一支要电平稳」（Max 2026-10-02；newProgramRangeLu 起点 2 LU）：轻 7 LU、低音满的一串，段响度在两个值之间交替——
-        // 起伏 1.9 LU 时第 11 段（20.9 s）触发，2.1 LU 时一直不触发；一路往下掉的淡出（每小节 −0.3 LU：20 s 里掉 3 LU）不触发，
-        // 同样的淡出在 newProgramRangeLu = ∞（改前）时第 11 段触发。
+        // d3. 起伏判据（Max 2026-10-02「轻的那一支要电平稳」；newProgramRangeLu 起点 2 LU）：那一串最近 newProgramSeconds 的段响度起伏照常
+        // 量、记进提交记录。T-108 起只有「响」这一支（票 1）投票，全是票 1 的一串不看起伏——起伏 1.9 LU 与 2.1 LU 都在第 11 段触发；起伏
+        // 判据只对读回的旧窗口里的票 2（4/4 型「轻且有低音」）还起作用。I 钉法同 d2 用例 3（段不带门块、冻结参考）。
         void testNewProgramLevelStable()
         {
-            beginTest ("d. new program, quieter branch: only a level-stable run counts (range 1.9 LU triggers, 2.1 LU does not, a fade-out never)");
+            beginTest ("d. new program: the level range is measured and recorded; an all-louder run triggers whatever its range");
 
-            const auto runAlternating = [this] (double rangeLu, double rangeLimit, int bars, bool fade)
+            const auto runAlternating = [this] (double rangeLu)
             {
-                LiveConstants c;
+                TestConstants c;
                 c.noMainSeconds = infinity;
-                c.newProgramRangeLu = (float) rangeLimit;
                 LiveProfile live;
                 setUp (live, c);
                 std::int64_t index = 0;
@@ -1300,16 +1335,21 @@ namespace celadon::test
                 for (int i = 0; i < 16; ++i)
                     feed (live, makeSegment (dropSpec(), index++));
 
+                const auto d = live.getDiagnostics();
+                live.setFrozenReferencesForTesting (true, d.referenceLufs, d.lowReference);
                 const auto level = (double) live.getProfile().integratedLufs.value;
                 int triggeredAt = -1;
-                float lastRange = 0.0f;
+                float lastRange = -1.0f;
 
-                for (int i = 0; i < bars; ++i)
+                for (int i = 0; i < 11; ++i)
                 {
                     auto spec = dropSpec();
-                    spec.loudnessLufs = fade ? level - 7.0 - 0.3 * (double) i : level - 7.0 - (i % 2 == 0 ? 0.0 : rangeLu);
+                    spec.lowShare = 0.1;
+                    spec.loudnessLufs = level + 7.0 + (i % 2 == 0 ? 0.0 : rangeLu);
                     spec.seed = (std::uint32_t) (200 + i);
-                    feed (live, makeSegment (spec, index++));
+                    auto segment = makeSegment (spec, index++);
+                    segment.gatingCount = 0;
+                    feed (live, segment);
                     const auto record = lastRecord (live);
 
                     if (record.newProgramRangeValid)
@@ -1319,24 +1359,22 @@ namespace celadon::test
                         triggeredAt = i + 1;
                 }
 
-                logMessage ("  " + juce::String (fade ? "fade-out -0.3 LU/bar" : "alternating " + juce::String (rangeLu, 1) + " LU")
-                            + ", limit " + juce::String (rangeLimit, 1) + ": triggered at bar " + juce::String (triggeredAt) + ", last range "
-                            + juce::String (lastRange, 3) + " LU");
-                return triggeredAt;
+                logMessage ("  louder, alternating " + juce::String (rangeLu, 1) + " LU: triggered at bar " + juce::String (triggeredAt)
+                            + ", recorded range " + juce::String (lastRange, 3) + " LU");
+                return std::abs ((double) lastRange - rangeLu) <= 0.05 && triggeredAt == 11;
             };
 
-            expect (runAlternating (1.9, 2.0, 30, false) == 11, "range 1.9 LU: triggers at the 11th bar (20.9 s)");
-            expect (runAlternating (2.1, 2.0, 30, false) < 0, "range 2.1 LU: never triggers");
-            expect (runAlternating (0.0, 2.0, 30, true) < 0, "a fade-out going down 0.3 LU per bar never triggers");
-            expect (runAlternating (0.0, infinity, 30, true) == 11, "the same fade-out triggers with newProgramRangeLu = inf (the old rule)");
+            expect (runAlternating (1.9), "range 1.9 LU: measured, triggers at the 11th bar (20.9 s)");
+            expect (runAlternating (2.1), "range 2.1 LU: measured, still triggers at the 11th bar (an all-louder run ignores the range)");
         }
 
         //==============================================================================
-        // 主段模型与格式字段：4/4 型的 I 用主段加权的门块；换成响度型时（窗口保留）I 立即换成全部段的 BS.1770 积分（遗忘关掉时等于测试里
-        // 按定义逐块算的参照）；格式 2、不填 houseGate；commitWithMainness 钳位并在每次重判都用钉死的值。
+        // I 与格式字段：I 是全部段的 BS.1770 积分（遗忘关掉时等于测试里按定义逐块算的参照），主段与否都算——T-108 前 4/4 型的 I 只用主段的
+        // 门块，随 4/4 型删掉；两套测试常数（带低频门 / 出厂）结果相同，换常数（窗口保留）不改 I；格式 2；commitWithMainness 钳位并在每次
+        // 重判都用钉死的值。
         void testModelsAndFormat()
         {
-            beginTest ("models: 4/4 I is main-weighted, the loudness model's I is every segment's BS.1770 integral; format 2; pinned mainness");
+            beginTest ("I is every segment's BS.1770 integral (main or not) under either set of constants; format 2; pinned mainness");
 
             LiveProfile live;
             setUp (live, noForgetting());
@@ -1352,8 +1390,9 @@ namespace celadon::test
             for (const auto& segment : segments)
                 feed (live, segment);
 
-            const auto mainI = live.getProfile().integratedLufs.value;
-            live.setConstants (noForgetting(), MainSectionModel::loudness);
+            const auto lowGateI = live.getProfile().integratedLufs.value;
+            const auto introMainness = lastRecord (live).mainness;
+            setModel (live, noForgetting(), Model::loudness);
             const auto allI = live.getProfile().integratedLufs.value;
 
             std::vector<double> blocks;
@@ -1380,14 +1419,15 @@ namespace celadon::test
                 }
 
             const auto reference = lufsOf (gated / (double) count);
-            logMessage ("  4/4 (main) I " + juce::String (mainI, 3) + ", loudness-model (all) I " + juce::String (allI, 3) + ", reference "
-                        + juce::String (reference, 3));
-            expect (mainI > allI + 1.0f, "the main-weighted I is the drop's, above the all-segment integral");
-            expect (std::abs ((double) allI - reference) <= 1.0e-4, "loudness model: the all-segment BS.1770 integral (per block, like House)");
+            logMessage ("  I with the low-gate constants " + juce::String (lowGateI, 3) + ", with the factory constants " + juce::String (allI, 3)
+                        + ", reference " + juce::String (reference, 3) + " (the intro bars' m' " + juce::String (introMainness, 3) + ")");
+            expect (sameFloat (introMainness, 0.0f), "the intro after the drop is not main");
+            expect (std::abs ((double) lowGateI - reference) <= 1.0e-4 && std::abs ((double) allI - reference) <= 1.0e-4,
+                    "both: the all-segment BS.1770 integral (per gating block), the non-main intro included");
 
-            expect (live.getProfile().formatVersion == glaze::clayProfileFormatVersion && ! live.getProfile().houseGate.valid);
+            expect (live.getProfile().formatVersion == glaze::clayProfileFormatVersion);
 
-            live.setConstants (noForgetting(), MainSectionModel::fourOnFloor);
+            setModel (live, noForgetting(), Model::lowGate);
             feedPinned (live, makeSegment (dropSpec(), index++), 2.0f);
             const auto high = lastRecord (live).mainness;
             feedPinned (live, makeSegment (dropSpec(), index++), -1.0f);
@@ -1407,12 +1447,12 @@ namespace celadon::test
         // 公开常数的取值表（LiveProfile.h visitLiveConstantPairs）：键数、每个坏值换成出厂值、合法的 ∞ 原样保留。
         void testConstantsTable()
         {
-            beginTest ("constants table: 37 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf");
+            beginTest ("constants table: 19 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf");
 
             const LiveConstants factory;
             int keys = 0;
             visitLiveConstants (factory, [&keys] (const char*, const char*, const auto&, glaze::LiveConstantDomain) { ++keys; });
-            expect (keys == 37, "37 keys: " + juce::String (keys));
+            expect (keys == 19, "19 keys (one model since T-108): " + juce::String (keys));
 
             // 每个键单独坏一次：NaN 一律坏；-1 在 ≥ 0 / > 0 / [0, 1] / (0, 1] 的范围里坏。
             LiveConstants damaged;
@@ -1434,30 +1474,30 @@ namespace celadon::test
 
             auto legal = factory;
             legal.noMainSeconds = infinity;
-            legal.fourOnFloor.memorySeconds = infinity;
+            legal.loudness.memorySeconds = infinity;
             legal.newProgramRangeLu = std::numeric_limits<float>::infinity();
             legal.loudness.memoryBars = -infinity;
             const auto kept = glaze::sanitiseLiveConstants (legal);
-            expect (std::isinf (kept.noMainSeconds) && std::isinf (kept.fourOnFloor.memorySeconds) && std::isinf (kept.newProgramRangeLu)
+            expect (std::isinf (kept.noMainSeconds) && std::isinf (kept.loudness.memorySeconds) && std::isinf (kept.newProgramRangeLu)
                         && std::isinf (kept.loudness.memoryBars) && kept.loudness.memoryBars < 0.0,
                     "legal infinities are kept");
 
             auto illegal = factory;
             illegal.publishDelaySeconds = infinity;
-            illegal.fourOnFloor.gateWidthLu = std::numeric_limits<float>::infinity();
+            illegal.loudness.gateWidthLu = std::numeric_limits<float>::infinity();
             const auto fixed = glaze::sanitiseLiveConstants (illegal);
-            expect (fixed.publishDelaySeconds == factory.publishDelaySeconds && fixed.fourOnFloor.gateWidthLu == factory.fourOnFloor.gateWidthLu,
+            expect (fixed.publishDelaySeconds == factory.publishDelaySeconds && fixed.loudness.gateWidthLu == factory.loudness.gateWidthLu,
                     "inf where it is not allowed goes back to the factory value");
 
             // 时间常数至少 1 ms（拍板 6.3）：更小的正数换出厂值，1 ms 与 +∞ 留下。
             auto tiny = factory;
             tiny.noMainDecaySeconds = 1.0e-300;
-            tiny.fourOnFloor.memorySeconds = 5.0e-4;
+            tiny.loudness.memorySeconds = 5.0e-4;
             tiny.newProgramSeconds = glaze::minimumLiveTimeConstantSeconds;
             tiny.referenceMemorySeconds = infinity;
             const auto tinyClean = glaze::sanitiseLiveConstants (tiny);
             expect (tinyClean.noMainDecaySeconds == factory.noMainDecaySeconds
-                        && tinyClean.fourOnFloor.memorySeconds == factory.fourOnFloor.memorySeconds,
+                        && tinyClean.loudness.memorySeconds == factory.loudness.memorySeconds,
                     "a positive time constant below 1 ms goes back to the factory value");
             expect (tinyClean.newProgramSeconds == glaze::minimumLiveTimeConstantSeconds && std::isinf (tinyClean.referenceMemorySeconds),
                     "1 ms and +inf stay inside the positive domain");
@@ -1471,22 +1511,22 @@ namespace celadon::test
         {
             beginTest ("e. state XML round trip is bit-exact (events, a full window, pending segments); the restored copy evolves identically");
 
-            LiveConstants eventful;
+            TestConstants eventful;
             eventful.noMainSeconds = 5.0;          // 时间衰减很快就开始
             eventful.newProgramSeconds = 4.0;      // 换歌很快就触发
 
             struct Variant
             {
                 const char* name;
-                LiveConstants constants;
+                TestConstants constants;
                 int segments;
                 int pending;
             };
 
-            const Variant variants[] = { { "factory constants, 40 bars", LiveConstants {}, 40, 0 },
+            const Variant variants[] = { { "factory constants, 40 bars", TestConstants {}, 40, 0 },
                                          { "events (new program, time decay)", eventful, 60, 0 },
-                                         { "full window (600 bars)", LiveConstants {}, 600, 0 },
-                                         { "3 segments not yet published", LiveConstants {}, 40, 3 } };
+                                         { "full window (600 bars)", TestConstants {}, 600, 0 },
+                                         { "3 segments not yet published", TestConstants {}, 40, 3 } };
 
             for (const auto& variant : variants)
             {
@@ -1571,7 +1611,7 @@ namespace celadon::test
 
                 LiveProfile b;
                 b.prepare (2.0 * rate);
-                b.setConstants (LiveConstants {}, MainSectionModel::fourOnFloor);
+                setModel (b, TestConstants {}, Model::lowGate);
                 expect (b.restoreStateXml (*a.createStateXml()), "restores at another sample rate");
                 const auto& pa = a.getProfile();
                 const auto& pb = b.getProfile();
@@ -1753,7 +1793,7 @@ namespace celadon::test
         {
             beginTest ("e. 400 randomly corrupted states: no crash; rejected ones cold-start; accepted ones keep every later reading finite");
 
-            LiveConstants eventful;
+            TestConstants eventful;
             eventful.noMainSeconds = 5.0;
             eventful.newProgramSeconds = 4.0;
             LiveProfile cold;
@@ -1764,7 +1804,7 @@ namespace celadon::test
 
             for (int trial = 0; trial < 400; ++trial)
             {
-                const auto constants = trial % 2 == 0 ? LiveConstants {} : eventful;
+                const auto constants = trial % 2 == 0 ? TestConstants {} : eventful;
                 const auto segments = mixedSequence (60, (std::uint32_t) (1500 + trial));
                 const auto count = 40 + rng.nextInt (15);
                 LiveProfile source;
@@ -1892,7 +1932,7 @@ namespace celadon::test
 
             LiveProfile converted;
             converted.prepare (2.0 * rate);
-            converted.setConstants (LiveConstants {}, MainSectionModel::fourOnFloor);
+            setModel (converted, TestConstants {}, Model::lowGate);
             const auto restored = converted.restoreStateXml (*xml);
             const auto d = converted.getDiagnostics();
             logMessage ("  near-int64 timestamps restored into a " + juce::String (2.0 * rate / 1000.0) + " kHz instance: returned "
@@ -2192,7 +2232,6 @@ namespace celadon::test
                 setUp (live);
                 Recorder recorder (live, 64);
                 live.setPublicationListener (&recorder);
-                rig.analyzer.setGenre (glaze::Genre::deepHouse);
                 rig.analyzer.setSegmentSink (&live);
                 rig.analyzer.setLiveMode (true);
                 rig.feed (track, blockSize);
@@ -2215,7 +2254,7 @@ namespace celadon::test
                     {
                         LiveProfile copy;
                         copy.prepare (restoreRate);
-                        copy.setConstants (LiveConstants {}, MainSectionModel::fourOnFloor);
+                        setModel (copy, TestConstants {}, Model::lowGate);
                         const auto restored = parsed != nullptr && copy.restoreStateXml (*parsed);
                         expect (restored && (restoreRate != rate || sameProfile (copy.getProfile(), live.getProfile())),
                                 "the analyzer's state restores at " + juce::String (restoreRate) + " Hz"
@@ -2237,7 +2276,7 @@ namespace celadon::test
         {
             beginTest ("old segments beyond the 512-segment window are dropped; with events off the profile depends only on the window");
 
-            LiveConstants c;
+            TestConstants c;
             c.noMainSeconds = infinity;
             c.newProgramLu = std::numeric_limits<float>::infinity();
             const auto segments = mixedSequence (600, 300);
@@ -2268,7 +2307,7 @@ namespace celadon::test
         {
             beginTest ("f. segmentFinalized / advanceTo / flush / reads / reset do not allocate (slices, publications, catch-up, a full queue)");
 
-            LiveConstants c;
+            TestConstants c;
             c.noMainSeconds = 5.0;                // 时间衰减很快就开始
             c.newProgramSeconds = 4.0;            // 换歌很快就触发
             LiveProfile live;
@@ -2276,14 +2315,20 @@ namespace celadon::test
             Recorder recorder (live, 4096);
             live.setPublicationListener (&recorder);
 
-            // 每 8 段：2 段 breakdown、3 段 drop、3 段「响 9 LU、没有低音」（换歌软遗忘真走到）。
+            // 每 8 段：2 段 breakdown、3 段 drop、3 段「响 9 LU、没有低音」（换歌软遗忘真走到：这 3 段不带门块，进不了全部段口径的 I，
+            // I 停在 drop 上——同 testNewProgram 用例 3）。
             auto louder = dropSpec();
             louder.loudnessLufs = 0.97;
             louder.lowShare = 0.1;
             std::vector<Segment> segments;
 
             for (int i = 0; i < 640; ++i)
+            {
                 segments.push_back (makeSegment (i % 8 < 2 ? breakdownSpec() : i % 8 < 5 ? dropSpec() : louder, i));
+
+                if (i % 8 >= 5)
+                    segments.back().gatingCount = 0;
+            }
 
             LiveCommitRecord records[LiveProfile::commitCapacity];
             LiveSegmentJudgement judgements[16];
@@ -2396,14 +2441,14 @@ namespace celadon::test
         {
             beginTest ("g. per-enqueue and per-slice time (mean / max, us), a synchronous full pass; wide guards against a 100x regression");
 
-            timeModel (MainSectionModel::fourOnFloor, 2000, true);
-            timeModel (MainSectionModel::loudness, 700, false);
+            timeModel (Model::lowGate, 2000, true);
+            timeModel (Model::loudness, 700, false);
         }
 
-        void timeModel (MainSectionModel model, int count, bool measurePasses)
+        void timeModel (Model model, int count, bool measurePasses)
         {
             LiveProfile live;
-            setUp (live, LiveConstants {}, model);
+            setUp (live, TestConstants {}, model);
             std::vector<Segment> segments;
 
             for (int i = 0; i < count; ++i)
@@ -2475,7 +2520,7 @@ namespace celadon::test
 
             const auto enqueue = stats (enqueueTimes);
             const auto slices = stats (sliceTimes);
-            const juce::String label (model == MainSectionModel::fourOnFloor ? "4/4" : "loudness");
+            const juce::String label (model == Model::lowGate ? "4/4" : "loudness");
             logMessage ("  [" + label + ", " + juce::String (count) + " bars] enqueue (segmentFinalized): mean " + juce::String (enqueue[0], 2)
                         + " us, median " + juce::String (enqueue[1], 2) + ", P99 " + juce::String (enqueue[2], 2) + ", P99.9 " + juce::String (enqueue[3], 2)
                         + ", max " + juce::String (enqueue[4], 1));
@@ -2494,7 +2539,7 @@ namespace celadon::test
                 for (const auto size : { 1, 64, 256, 512 })
                 {
                     LiveProfile sized;
-                    setUp (sized, LiveConstants {}, model);
+                    setUp (sized, TestConstants {}, model);
 
                     for (int i = 0; i < size; ++i)
                         feed (sized, segments[(size_t) i]);
@@ -2504,7 +2549,7 @@ namespace celadon::test
                     for (int repeat = 0; repeat < 5; ++repeat)
                     {
                         const auto passStart = Clock::now();
-                        sized.setConstants (LiveConstants {}, model);
+                        setModel (sized, TestConstants {}, model);
                         best = juce::jmin (best, microsecondsSince (passStart));
                     }
 
@@ -2518,11 +2563,11 @@ namespace celadon::test
                 // 每段的耗时按种类（标定 LiveProfile.cpp 的工作量估计）：窗口 512 段 drop，主段度钉成 1（全部主段）或 0（全部非主段），两种模型。
                 juce::String kinds ("  per-segment cost of a 512-segment pass (us / segment):");
 
-                for (const auto kindModel : { MainSectionModel::fourOnFloor, MainSectionModel::loudness })
+                for (const auto kindModel : { Model::lowGate, Model::loudness })
                     for (const auto pinned : { 0.0f, 1.0f })
                     {
                         LiveProfile sized;
-                        setUp (sized, LiveConstants {}, kindModel);
+                        setUp (sized, TestConstants {}, kindModel);
 
                         for (int i = 0; i < 512; ++i)
                             feedPinned (sized, makeSegment (dropSpec(), i), pinned);
@@ -2532,11 +2577,11 @@ namespace celadon::test
                         for (int repeat = 0; repeat < 5; ++repeat)
                         {
                             const auto passStart = Clock::now();
-                            sized.setConstants (LiveConstants {}, kindModel);
+                            setModel (sized, TestConstants {}, kindModel);
                             best = juce::jmin (best, microsecondsSince (passStart));
                         }
 
-                        kinds << " " << (kindModel == MainSectionModel::fourOnFloor ? "4/4" : "loudness") << (pinned > 0.5f ? " main " : " non-main ")
+                        kinds << " " << (kindModel == Model::lowGate ? "4/4" : "loudness") << (pinned > 0.5f ? " main " : " non-main ")
                               << juce::String (best / 512.0, 4) << ";";
                     }
 

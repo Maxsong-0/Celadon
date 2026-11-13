@@ -2,14 +2,14 @@
   ==============================================================================
 
     SegmentLedgerTests.cpp
-    T-038 House 档按小节记账（Source/dsp/SegmentLedger.h，设计规格-曲风-House学习方式 第 2、3 节）的自动测试。
+    段落账（Source/dsp/SegmentLedger.h；T-038 为 House 档写，T-048 起是实时画像的段来源）的自动测试。
 
     直接驱动段落账：一个小的「三路数据」模拟（Feeder）按分析器同样的规矩喂——每块先 beginBlock，再把这一块里交齐的 100 ms 子块
     按起点、10 ms 帧按分析窗起点找段累加，最后按两路都越过的时刻 finalizeBefore。子块的 K 加权均方与帧的低频占比由测试按时间给，
     所以每段的段响度与 lowShare 可以精确设计。覆盖：锚点与整数样本边界（从小节起点、从小节中途开始）、按位置覆盖（跳回重放、循环）、
-    2 秒退路（有位置按位置分格、没位置顺排）、容量上限、两道门（前奏 → drop、断奏、高频响段挡在低频门外）、新响段、
-    「已听」按标称长度的一半、不同宿主分块大小下逐位相同（恒定速度）、播放头小抖动不重新锚定而变速重新锚定、音频线程零分配。
-    分析器接上段落账之后的整体行为（三路真实数据、满编段画像）见 MusicAnalyzerTests 的 House 用例。
+    2 秒退路（有位置按位置分格、没位置顺排）、容量上限、每段自己的段响度、「已听」按标称长度的一半、不同宿主分块大小下逐位相同
+   （恒定速度）、播放头小抖动不重新锚定而变速重新锚定、音频线程零分配。T-108（ADR-039）删了 House 门控那几项（满编、新响段、
+    门控摘要、已听段数）与对应的断言。分析器接上段落账之后的整体行为见 MusicAnalyzerTests 的实时模式用例。
 
   ==============================================================================
 */
@@ -151,18 +151,11 @@ namespace celadon::test
                 && a.nominalLength == b.nominalLength && a.subBlocks == b.subBlocks && a.effectiveSubBlocks == b.effectiveSubBlocks
                 && sameDouble (a.effectiveEnergy, b.effectiveEnergy) && a.frames == b.frames && sameDouble (a.frameSeconds, b.frameSeconds)
                 && sameDouble (a.powerSum[0], b.powerSum[0]) && sameDouble (a.powerSum[12], b.powerSum[12])
-                && a.heard == b.heard && a.full == b.full && sameFloat (a.loudnessLufs, b.loudnessLufs) && sameFloat (a.lowShare, b.lowShare);
+                && a.heard == b.heard && sameFloat (a.loudnessLufs, b.loudnessLufs) && sameFloat (a.lowShare, b.lowShare);
         }
 
-        bool sameSummary (const glaze::HouseGateSummary& a, const glaze::HouseGateSummary& b)
-        {
-            return a.valid == b.valid && a.mode == b.mode && sameFloat (a.referenceLufs, b.referenceLufs)
-                && sameFloat (a.lowShareReference, b.lowShareReference) && a.heardSegments == b.heardSegments
-                && a.fullSegments == b.fullSegments && sameDouble (a.heardSeconds, b.heardSeconds) && sameDouble (a.fullSeconds, b.fullSeconds);
-        }
-
-        constexpr double houseBpm = 124.0;
-        const double samplesPerBar = 4.0 * rate * 60.0 / houseBpm;   // 92903.2258…（不是整数）
+        constexpr double testBpm = 124.0;
+        const double samplesPerBar = 4.0 * rate * 60.0 / testBpm;   // 92903.2258…（不是整数）
     }
 
     class SegmentLedgerTests  : public juce::UnitTest
@@ -178,7 +171,7 @@ namespace celadon::test
             testOverwriteByPosition();
             testFallbackSegments();
             testCapacity();
-            testGates();
+            testSegmentLoudness();
             testHeardNeedsHalfABar();
             testQuietSegmentIsNotInherited();
             testBlockSizeIndependence();
@@ -191,18 +184,15 @@ namespace celadon::test
     private:
         void testEmpty()
         {
-            beginTest ("empty after prepare and reset; mode none, no gate result");
+            beginTest ("empty after prepare and reset; mode none");
 
             SegmentLedger ledger;
             ledger.prepare (rate, subLength);
             expect (ledger.getMode() == SegmentMode::none);
-            expectEquals (ledger.getHeardSegments(), 0);
             expectEquals (ledger.getNumStored(), 0);
-            expect (! ledger.getSummary().valid);
-            expect (! ledger.isCurrentSegmentFull());
 
             ledger.reset();
-            expectEquals (ledger.getHeardSegments(), 0);
+            expectEquals (ledger.getNumStored(), 0);
             expect (ledger.getMode() == SegmentMode::none);
         }
 
@@ -214,7 +204,7 @@ namespace celadon::test
 
             Feeder f;
             std::int64_t position = 0;
-            f.play (position, 12.0 * samplesPerBar / rate + 0.5, 512, [] (std::int64_t p) { return barHost (p, houseBpm); });
+            f.play (position, 12.0 * samplesPerBar / rate + 0.5, 512, [] (std::int64_t p) { return barHost (p, testBpm); });
 
             expect (f.ledger.getMode() == SegmentMode::bars);
             expectEquals (f.ledger.getNumStored(), 12, "12 complete bars finalized");
@@ -241,17 +231,17 @@ namespace celadon::test
         {
             beginTest ("bars: playback from mid-bar - the first instance starts at the play position, the bar line stays on the grid");
 
-            const auto beat = rate * 60.0 / houseBpm;
+            const auto beat = rate * 60.0 / testBpm;
             const auto startPosition = (std::int64_t) std::llround (2.5 * beat);
 
             for (const auto withBarStart : { true, false })
             {
                 Feeder f;
                 auto position = startPosition;
-                f.play (position, 6.0, 1000, [withBarStart] (std::int64_t p) { return barHost (p, houseBpm, withBarStart); });
+                f.play (position, 6.0, 1000, [withBarStart] (std::int64_t p) { return barHost (p, testBpm, withBarStart); });
 
                 // 锚点：此刻（分析器时间 0）减去 2.5 拍的样本数（按宿主 PPQ 算，再取整）。
-                const auto ppq = (double) startPosition * houseBpm / (60.0 * rate);
+                const auto ppq = (double) startPosition * testBpm / (60.0 * rate);
                 const auto origin = -(std::int64_t) std::llround (ppq * beat);
                 const auto& first = f.ledger.getStored (0);
                 const auto& second = f.ledger.getStored (1);
@@ -274,13 +264,13 @@ namespace celadon::test
             {
                 Feeder f;
                 std::int64_t position = 0;
-                f.play (position, 6.0 * samplesPerBar / rate + 0.3, 777, [] (std::int64_t p) { return barHost (p, houseBpm); });
+                f.play (position, 6.0 * samplesPerBar / rate + 0.3, 777, [] (std::int64_t p) { return barHost (p, testBpm); });
                 expectEquals (f.ledger.getNumStored(), 6);
 
                 f.jump();
                 position = (std::int64_t) std::llround (2.0 * samplesPerBar);
                 f.loudnessAt = [] (std::int64_t) { return -6.0; };
-                f.play (position, 2.0 * samplesPerBar / rate + 0.3, 777, [] (std::int64_t p) { return barHost (p, houseBpm); });
+                f.play (position, 2.0 * samplesPerBar / rate + 0.3, 777, [] (std::int64_t p) { return barHost (p, testBpm); });
                 f.jump();
 
                 // 7 = 第 0 ～ 5 小节 + 第一次跳走时只听了 0.3 s 的第 6 小节；重放的第 2、3 小节就地覆盖，只听了 0.3 s 的第 4 小节不毁掉旧值。
@@ -299,7 +289,6 @@ namespace celadon::test
 
                 expect (replayedLoud, "the replayed bars carry the new loudness");
                 expect (othersQuiet, "bars that were not replayed keep theirs");
-                expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
             }
 
             {
@@ -310,12 +299,11 @@ namespace celadon::test
                 for (int pass = 0; pass < 4; ++pass)
                 {
                     position = 0;
-                    f.play (position, (double) loopLength / rate, 512, [] (std::int64_t p) { return barHost (p, houseBpm); });
+                    f.play (position, (double) loopLength / rate, 512, [] (std::int64_t p) { return barHost (p, testBpm); });
                     f.jump();
                 }
 
                 expectEquals (f.ledger.getNumStored(), 4, "a 4-bar loop played 4 times is 4 segments");
-                expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
             }
         }
 
@@ -382,39 +370,30 @@ namespace celadon::test
 
             expectEquals (f.ledger.getNumStored(), SegmentLedger::maxSegments);
             expect (f.ledger.isStoreFull(), "the store reports that it is full");
-            expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
         }
 
-        // 依据：第 2.3 节两道门。32 小节前奏（−14 LUFS、lowShare 0.2）之后接 16 小节 drop（−8 LUFS、0.5），再接 4 小节响但没有低频的
-        // 段（−8 LUFS、0.05）与 4 小节 breakdown（−20 LUFS、0.3）：
-        //   - 只听了前奏时前奏小节全部是满编段（门是相对的）；
-        //   - 听完之后 S_ref = drop 的响度（第 95 百分位），前奏、breakdown 掉出响度门；高频响段过了响度门、挡在低频门外；满编 = 16 小节；
-        //   - drop 的第一小节是新响段（比前奏的 S_ref 高 3 LU 以上且过低频门）；第二小节进来时 drop 只占 1/33 的时长，第 95 百分位还在
-        //     前奏，所以它也算；第三小节起 S_ref 已到 drop，不再算。
-        void testGates()
+        // 32 小节前奏（−14 LUFS、lowShare 0.2）之后接 16 小节 drop（−8 LUFS、0.5），再接 4 小节响但没有低频的段（−8 LUFS、0.05）与
+        // 4 小节 breakdown（−20 LUFS、0.3）：每段记的是自己的段响度。（T-038 时这里核对 House 的两道门、满编段与新响段，随 T-108 删掉。）
+        void testSegmentLoudness()
         {
-            beginTest ("segments keep their own loudness; the full-ledger gate is not recomputed");
+            beginTest ("segments keep their own loudness");
 
             Feeder f;
             const auto bar = [] (std::int64_t t) { return (int) ((double) t / samplesPerBar); };
             f.loudnessAt = [bar] (std::int64_t t) { const auto n = bar (t); return n < 32 ? -14.0 : n < 48 ? -8.0 : n < 52 ? -8.0 : -20.0; };
             f.lowShareAt = [bar] (std::int64_t t) { const auto n = bar (t); return n < 32 ? 0.2 : n < 48 ? 0.5 : n < 52 ? 0.05 : 0.3; };
             std::int64_t position = 0;
-            const auto host = [] (std::int64_t p) { return barHost (p, houseBpm); };
+            const auto host = [] (std::int64_t p) { return barHost (p, testBpm); };
 
             f.play (position, 32.0 * samplesPerBar / rate + 0.3, 512, host);
-            const auto intro = f.ledger.getSummary();
-            expect (! intro.valid && intro.fullSegments == 0, "no full-ledger gate after the intro");
-            expectEquals (f.ledger.getNumStored(), 32, "the 32 intro bars are still stored");
-            expect (f.ledger.getStored (0).heard && f.ledger.getStored (0).loudnessValid && ! f.ledger.getStored (0).full);
+            expectEquals (f.ledger.getNumStored(), 32, "the 32 intro bars are stored");
+            expect (f.ledger.getStored (0).heard && f.ledger.getStored (0).loudnessValid);
             expectWithinAbsoluteError (f.ledger.getStored (0).loudnessLufs, -14.0f, 0.051f);
 
             std::uint64_t cursor = f.ledger.getEventCount();
             f.play (position, 24.0 * samplesPerBar / rate, 512, host);
-            expect (! f.ledger.getSummary().valid, "the gate stays uncomputed after the drop");
 
             auto loudnessFollowsSection = true;
-            auto noneFull = true;
 
             for (int i = 0; i < f.ledger.getNumStored(); ++i)
             {
@@ -422,29 +401,20 @@ namespace celadon::test
                 const auto n = (int) (s.key / 64);
                 const auto expected = n < 32 ? -14.0f : n < 52 ? -8.0f : -20.0f;
                 loudnessFollowsSection = loudnessFollowsSection && std::abs (s.loudnessLufs - expected) < 0.051f;
-                noneFull = noneFull && ! s.full;
             }
 
             expect (loudnessFollowsSection, "each bar keeps its own loudness");
-            expect (noneFull, "full stays false without a ledger-wide gate");
 
             std::array<SegmentLedger::Event, SegmentLedger::eventCapacity> events {};
             const auto got = f.ledger.readEvents (cursor, events.data(), (int) events.size());
-            expect (got > 0);
-            auto surges = 0;
-
-            for (int i = 0; i < std::abs (got); ++i)
-                surges += events[(size_t) i].surge ? 1 : 0;
-
-            expectEquals (surges, 0, "no surge events without the full-ledger gate");
-            expect (f.ledger.getSurgeCount() == 0u);
+            expect (got > 0, "the drop bars are reported as events");
         }
 
         // 依据：SegmentLedger.h 文件头第五节（T-038 评审 F1 返修）。安静的 breakdown（有效音频为 0、不进账本）不得沿用前面 drop 的判定：
-        // 播够 0.5 s 就是 quiet、不是满编段；只有段刚开始才退回上一段，而上一段若也安静，退回的就是「安静」，不是很久以前的 drop。
+        // 播够 0.5 s 就是 quiet；只有段刚开始才退回上一段，而上一段若也安静，退回的就是「安静」，不是很久以前的 drop。
         void testQuietSegmentIsNotInherited()
         {
-            beginTest ("a quiet segment (no effective audio) reads quiet and is not full; only a just-started segment falls back to the last finalized one");
+            beginTest ("a quiet segment (no effective audio) reads quiet; only a just-started segment falls back to the last finalized one");
 
             Feeder f;
             const auto bar = [] (std::int64_t t) { return (int) ((double) t / samplesPerBar); };
@@ -452,7 +422,7 @@ namespace celadon::test
             f.lowShareAt = [bar] (std::int64_t t) { return bar (t) < 8 ? 0.2 : 0.5; };
             f.effectiveAt = [bar] (std::int64_t t) { const auto n = bar (t); return n < 24 || n >= 32; };   // 第 24 ～ 31 小节：安静
             std::int64_t position = 0;
-            const auto host = [] (std::int64_t p) { return barHost (p, houseBpm); };
+            const auto host = [] (std::int64_t p) { return barHost (p, testBpm); };
             const auto playTo = [&] (double bars, double extraSeconds)
             {
                 const auto target = (std::int64_t) std::llround (bars * samplesPerBar + extraSeconds * rate);
@@ -464,22 +434,18 @@ namespace celadon::test
             playTo (24.0, 0.2);   // drop 之后、安静段刚开始：退回上一段（drop 最后一小节）
             expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::measured, "just after the drop: falls back to the last drop bar");
             expectWithinAbsoluteError (loudness, -8.0f, 0.051f);
-            expect (! f.ledger.isCurrentSegmentFull(), "full-ledger full flag stays false");
 
             playTo (24.0, 1.0);   // 安静段播了 1 s
             loudness = lowShare = 123.0f;
             expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::quiet, "1 s into the quiet section: quiet");
             expect (loudness == 123.0f && lowShare == 123.0f, "quiet leaves the outputs unchanged");
-            expect (! f.ledger.isCurrentSegmentFull(), "a quiet section is not full");
 
             playTo (28.0, 0.2);   // 安静段中间的小节刚开始：上一段也安静
             expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::quiet, "inside the quiet section a new bar inherits quiet, not the old drop");
-            expect (! f.ledger.isCurrentSegmentFull());
 
             playTo (32.0, 1.0);   // drop 回来
             expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::measured, "the drop comes back: measured");
             expectWithinAbsoluteError (lowShare, 0.5f, 0.00051f);
-            expect (! f.ledger.isCurrentSegmentFull(), "a measured bar is not marked full without the ledger-wide gate");
         }
 
         // 依据：SegmentLedger.h「有效音频 ≥ 标称长度的一半才算已听」；没有有效音频的段不进账本。
@@ -497,18 +463,17 @@ namespace celadon::test
             };
 
             std::int64_t position = 0;
-            f.play (position, 4.0 * samplesPerBar / rate + 0.3, 512, [] (std::int64_t p) { return barHost (p, houseBpm); });
+            f.play (position, 4.0 * samplesPerBar / rate + 0.3, 512, [] (std::int64_t p) { return barHost (p, testBpm); });
 
             expectEquals (f.ledger.getNumStored(), 3, "the silent bar 2 is not stored");
             expect (f.ledger.getStored (0).heard && ! f.ledger.getStored (1).heard && f.ledger.getStored (2).heard);
-            expectEquals (f.ledger.getHeardSegments(), 0, "the summary count came from the retired full-ledger recompute");
         }
 
         // 依据：第 2.1 节「恒定速度下，任意分块得到的画像逐位相同」。同一段 30 小节的素材（响度、低频随时间变）按块长 512、1、333、
         // 4096 与两种随机块长喂：账本的每一段与门控结果逐位相同。
         void testBlockSizeIndependence()
         {
-            beginTest ("segments and gate results are bit-identical for any host block size at a constant tempo");
+            beginTest ("segments are bit-identical for any host block size at a constant tempo");
 
             const auto run = [] (int blockSize, juce::int64 seed)
             {
@@ -517,20 +482,19 @@ namespace celadon::test
                 f->lowShareAt = [] (std::int64_t t) { return 0.35 + 0.2 * std::sin ((double) t * 3.0e-6); };
                 std::int64_t position = 12345;   // 不从小节线起播
                 f->play (position, 30.0 * samplesPerBar / rate, blockSize,
-                         [] (std::int64_t p) { return barHost (p, houseBpm); }, seed);
+                         [] (std::int64_t p) { return barHost (p, testBpm); }, seed);
                 return f;
             };
 
             const auto reference = run (512, 1);
-            expect (reference->ledger.getNumStored() >= 28 && ! reference->ledger.getSummary().valid, "segments are stored; the gate is not recomputed");
+            expect (reference->ledger.getNumStored() >= 28, "segments are stored");
 
             for (const auto& [blockSize, seed] : { std::pair<int, juce::int64> { 1, 1 }, std::pair<int, juce::int64> { 333, 1 },
                                                    std::pair<int, juce::int64> { 4096, 1 }, std::pair<int, juce::int64> { 0, 5 },
                                                    std::pair<int, juce::int64> { 0, 77 } })
             {
                 const auto other = run (blockSize, seed);
-                auto same = other->ledger.getNumStored() == reference->ledger.getNumStored()
-                         && sameSummary (other->ledger.getSummary(), reference->ledger.getSummary());
+                auto same = other->ledger.getNumStored() == reference->ledger.getNumStored();
 
                 for (int i = 0; same && i < reference->ledger.getNumStored(); ++i)
                     same = sameSegment (other->ledger.getStored (i), reference->ledger.getStored (i));
@@ -549,12 +513,12 @@ namespace celadon::test
             const auto jittery = std::make_unique<Feeder>();
             std::int64_t a = 0, b = 0;
             int counter = 0;
-            steady->play (a, 10.0, 512, [] (std::int64_t p) { return barHost (p, houseBpm); });
+            steady->play (a, 10.0, 512, [] (std::int64_t p) { return barHost (p, testBpm); });
             jittery->play (b, 10.0, 512, [&counter] (std::int64_t p)
             {
-                auto h = barHost (p, houseBpm);
+                auto h = barHost (p, testBpm);
                 const auto k = counter++ % 3;   // 0、+1 ms、−1 ms 轮着来（第一块是准的：锚点两边相同）
-                h.ppqPosition += (k == 0 ? 0.0 : (k == 1 ? 0.001 : -0.001)) * houseBpm / 60.0;
+                h.ppqPosition += (k == 0 ? 0.0 : (k == 1 ? 0.001 : -0.001)) * testBpm / 60.0;
                 return h;
             });
 
@@ -567,9 +531,9 @@ namespace celadon::test
 
             Feeder f;
             std::int64_t position = 0;
-            f.play (position, 4.0 * samplesPerBar / rate, 512, [] (std::int64_t p) { return barHost (p, houseBpm); });
+            f.play (position, 4.0 * samplesPerBar / rate, 512, [] (std::int64_t p) { return barHost (p, testBpm); });
             const auto changeAt = f.now;
-            const auto ppqAtChange = (double) position * houseBpm / (60.0 * rate);
+            const auto ppqAtChange = (double) position * testBpm / (60.0 * rate);
             const auto faster = 128.0;
             const auto fastHost = [=] (std::int64_t p)
             {
@@ -602,20 +566,20 @@ namespace celadon::test
         // 依据：SegmentLedger.h「音频线程只拷贝、清零，不分配、不加锁」。
         void testNoAllocation()
         {
-            beginTest ("the audio-thread API does not allocate (segmenting, lookups, finalizing, gating, events, resets)");
+            beginTest ("the audio-thread API does not allocate (segmenting, lookups, finalizing, events, resets)");
 
             Feeder f;
             std::int64_t position = 0;
             std::array<SegmentLedger::Event, 8> events {};
             std::uint64_t cursor = 0;
-            const std::function<HostInfo (std::int64_t)> bars = [] (std::int64_t p) { return barHost (p, houseBpm); };
+            const std::function<HostInfo (std::int64_t)> bars = [] (std::int64_t p) { return barHost (p, testBpm); };
             const std::function<HostInfo (std::int64_t)> positions = [] (std::int64_t p) { return positionOnlyHost (p); };
             const auto before = allocationCountOnThisThread();
 
             for (int pass = 0; pass < 3; ++pass)
             {
                 f.play (position, 6.0, 512, bars);
-                juce::ignoreUnused (f.ledger.readEvents (cursor, events.data(), (int) events.size()), f.ledger.isCurrentSegmentFull(),
+                juce::ignoreUnused (f.ledger.readEvents (cursor, events.data(), (int) events.size()),
                                     f.ledger.getCurrentSegmentSeconds());
                 f.jump();
                 f.play (position, 3.0, 333, positions);
@@ -662,7 +626,7 @@ namespace celadon::test
                 {
                     Feeder f;
                     auto position = c.position;
-                    f.play (position, 7.0, blockSize, [] (std::int64_t p) { return barHost (p, houseBpm); }, 5);
+                    f.play (position, 7.0, blockSize, [] (std::int64_t p) { return barHost (p, testBpm); }, 5);
 
                     const auto tag = "start " + juce::String (c.position) + ", block " + juce::String (blockSize);
                     const auto& first = f.ledger.getStored (0);

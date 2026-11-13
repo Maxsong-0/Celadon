@@ -5,7 +5,7 @@
     修坯 Clay 的先试后用（口径见 ClayTrials.h）。T-048 阶段 1 从 MusicAnalyzer「五」节逐字搬来：restart = 原 restartTrial、
     process = 原 runTrial、noteGroup = 原 noteTrialGroup、snapStates = 原 snapTrialStates、recordFor / countWrite = 原 trialRecordFor /
     countTrialWrite（交齐的块改为交给 BlockReceiver；新增实时口径 liveValid），costsOf / percentileOfTop = 原 updateTrialProfile /
-    percentileOfTop（原来分析器里通用画像与 House 画像各写一份，现在共用这一份）。
+    percentileOfTop（原来分析器里通用画像与 House 画像各写一份，抽出来共用；T-108 删了 House 画像）。
 
   ==============================================================================
 */

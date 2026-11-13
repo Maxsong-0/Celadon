@@ -84,12 +84,10 @@ namespace celadon::glaze
         float automaticHeatFloor = 0.0f;
     };
 
-    // 段落账（SegmentLedger）的分段与门控常数。T-038 起原是 House 共用常数（HouseConstants）的一部分；T-108 删掉曲风后只剩实时段落账
-    // 还用这三项，数值不变。不进 Constants（不进标定快照与存档）：今天没有任何地方改它，段落账一律用这里的默认值。
+    // 段落账（SegmentLedger）的分段常数。T-038 起原是 House 共用常数（HouseConstants）的一项；T-108 删掉曲风与整本账的门控后
+    // 实时段落账只用这一项，数值不变。不进 Constants（不进标定快照与存档）：段落账一律用这里的默认值。
     struct SegmentConstants
     {
-        float gateWidthLu = 3.0f;                   // 响度门 ΔG：段响度 ≥ S_ref − 本项（SegmentLedger.h 第四节）
-        float lowGateFactor = 0.6f;                 // 低频门：段 lowShare ≥ 低频参考 × 本项
         double fallbackSegmentSeconds = 2.0;        // 宿主没给拍点时每段秒数
     };
 

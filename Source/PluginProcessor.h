@@ -179,7 +179,12 @@ private:
     void addMissingParameterNodes (juce::ValueTree& newState, int stateFormat) const;
 
     // Q1：旧聆听结果被丢掉时通知已经打开的编辑器。不写入 LIVE。不在消息线程就不碰界面，编辑器定时器会读同一份快照。
+    // T-108：读到的旧工程存着非默认的曲风 / 交付时同样通知（genreDeliveryReset）。
     void notifyLegacyDiscardIfEditorOpen();
+
+    // T-108（ADR-039 Q2）：最近一次读档读到的旧工程存着非默认的曲风或交付（T-038 的 glaze_genre / glaze_delivery，参数已删）。
+    // 只活在本次打开里，不写进存档；下一次读档重新判定。消息线程写，界面线程读。
+    std::atomic<bool> genreDeliveryReset { false };
     void processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed);
     void processBuses (juce::AudioBuffer<float>& buffer, bool hostBypassed);
 
@@ -297,8 +302,6 @@ private:
     ClayParameterPointers clayParams;
     std::atomic<float>* glazeAmount = nullptr;   // GLAZE 总旋钮 0 ～ 100 %（ADR-006）
     std::atomic<float>* glazeStyle = nullptr;    // GLAZE 风格：选项下标 0 ～ 3（自动 / 温润 / 冲击 / 通透，v0.6）
-    std::atomic<float>* glazeGenre = nullptr;    // T-038 曲风：选项下标 0 ～ 3（通用 / Deep / Tech / Melodic-Progressive）
-    std::atomic<float>* glazeDelivery = nullptr; // T-038 交付：选项下标 0 ～ 2（标准 / 流媒体 / 俱乐部）
 
     celadon::CeladonChain chain;   // 含两块表与 GLAZE 编排器（v0.6）
 

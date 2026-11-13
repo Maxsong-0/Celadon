@@ -8,7 +8,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 
 ## Meters and spectrum (top half)
 
-- **IN / OUT meters**: true peak measured with 8× interpolation (dBTP); the number below is the peak hold — click it to reset. OUT shouldn't exceed the ceiling in effect (at or below −2 dBTP with Delivery on Streaming); if it does, it turns orange.
+- **IN / OUT meters**: true peak measured with 8× interpolation (dBTP); the number below is the peak hold — click it to reset. OUT shouldn't exceed the ceiling in effect (your Ceiling minus any codec margin); if it does, it turns orange.
 - **GR meter**: how many dB the limiter is pulling down right now. If it stays above 6 dB for long stretches, Gain is pushed too far.
 - **Spectrum analyser**: 20 Hz – 20 kHz on a log axis, −84 to −3 dB. The OUT fill (the original, while you're listening to it; coloured by loudness), white line = average, thin dark cyan line = peak hold, dashed line = IN; each can be turned on or off. Display slope 0 / 3 / 4.5 dB/oct (pivoting at 1 kHz, 4.5 by default). While CLAY is working, it draws the low-cut frequency and, when Mono is on Manual, the mono frequency. Hovering reads out “dB | Hz | note + cents”.
 
@@ -20,7 +20,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 - The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now; as it turns, a cyan comet tail trails behind the pointer. See [Controls and shortcuts](/docs/controls) for how to turn it.
 - Particles: only in the channels between the side panels and the knob; streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
 - A row of buttons: style (Auto / Warm / Punchy / Clean) | A / B · Match.
-- The bottom row's left side is normally empty: it shows control hints while you hover or drag, and when you open an old project it shows “The old listening result was discarded, so the sound will change” in amber, for that session only. A colour legend sits at the right.
+- The bottom row's left side is normally empty: it shows control hints while you hover or drag, and when you open an old project it shows “The old listening result was discarded, so the sound will change” or “Genre and delivery were removed; now General + Standard, so the sound will change” in amber (one line each when both apply), for that session only. A colour legend sits at the right.
 - Exit hints for temporary monitoring also appear at the bottom left: listening to the original, listening to the difference and normalisation preview are mutually exclusive; while one is on, a clickable hint to leave it stays there. Closing the window exits all of them.
 
 ## The four cards (bottom half, in real processing order)
@@ -28,7 +28,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 | No. | Card | In one line | Main controls |
 |---|---|---|---|
 | 01 | **BALANCE** Dynamic EQ | Bring back what's buried, pull down what sticks out | 27-band correction curve (over a faint output spectrum) · Recover / Tame / Brighten · Speed |
-| 02 | **CLAY** Stereo | Clean-up: Low cut · Mono · Width | Three rows = lamp + name + current value + Auto / Off / Manual; a 10 Hz – 1 kHz mini graph (with a House genre, this slot becomes a two-line hint while the out-of-phase hint is lit) |
+| 02 | **CLAY** Stereo | Clean-up: Low cut · Mono · Width | Three rows = lamp + name + current value + Auto / Off / Manual; a 10 Hz – 1 kHz mini graph |
 | 03 | **COLOR** Tone | A little denser, a little warmer | Tone / Glue / Heat · Mix · Output · Glue GR meter |
 | 04 | **LIMIT** Limiter | Loud, without breaking up | Gain / Ceiling / Clip · Release (AUTO) · Lookahead · Limit GR meter · the headphones for Listen to difference |
 

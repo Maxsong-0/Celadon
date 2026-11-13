@@ -59,10 +59,10 @@ namespace celadon::ui
 
         // ---- GLAZE 中层 ----
         glazeSubtitle, processed, original, match, matchWithDifference, matchOff, listeningOriginal,
-        matchedBy, notMatched, differenceUnknown, legacyDiscarded,
+        matchedBy, notMatched, differenceUnknown, legacyDiscarded, genreDeliveryReset,
         hintDrag, hintDial, hintClick, fine,
         legendManual, legendAuto, legendAttention,
-        chipManual, chipManualLimit, chipPhase, chipExport, chipLimited, chipStarting, chipHolding, chipFollowing,
+        chipManual, chipManualLimit, chipExport, chipLimited, chipStarting, chipHolding, chipFollowing,
 
         // ---- 模块卡片 ----
         describeClay, describeBalance, describeColor, describeLimit, bypassModule, bypassedModule,
@@ -87,10 +87,6 @@ namespace celadon::ui
 
         // ---- 警告 ----
         warnTruePeak, warnNonFinite, debugBuild,
-
-        // ---- 曲风与交付（T-038，GLAZE 标题行左右的两个选择；设计规格-曲风与交付 第 5 节）----
-        genreCaption, genreGeneral, genreDeep, genreTech, genreMelodic,
-        deliveryCaption, deliveryStandard, deliveryStreaming, deliveryClub,
 
         // ---- T-107 重构包 A：中层两块侧板 ----
         sideNowTitle, sideTarget, sideShortTerm, sideTruePeak, sideConfidence, sideMainSection, sideNotMainSection,

@@ -8,7 +8,8 @@
     v0.1.7.0 追加 HelpTextClayTests（文件末尾）：修坯 7 个参数与两个界面 ID 的文案、三灯指示的颜色类别、
     气泡第 2 行的实时值（规格示例逐字对照、为 0 / 收窄 / 反相提示与宽度保护 / 旁通、显示精度、非有限值、第 3 行的重新聆听提示）。
     T-012 阶段 4（ADR-012）追加：第 3 行的「先试后用」代价说明（跳过 / 减量、多项、优先级、只算自动态、保护介入或反相提示时不写、旁通清零）。
-    T-038 追加 HelpTextHouseTests（文件末尾）：曲风 / 交付文案、House 反相提示的文字与读数（不按三态与旁通筛）、House 暂定期间的悬停气泡。
+    T-038 追加 HelpTextHouseTests（文件末尾）；T-108 删曲风与交付后改名 HelpTextGlazeTests：两个旧参数没有文案、上限与表头文案、
+    CLAY 气泡第 3 行、GLAZE 状态气泡。
 
     被测代码只依赖 juce_core（HelpText.cpp 进无头测试编译；HelpText.h 另带 dsp/GlazeTypes.h 的纯数据类型）。测试本身借
     TestHelpers.h 的 utf8Contains / utf8StartsWith（审核 V3-01：juce::String 的 contains / startsWith 对中文 needle 只比前 1/3
@@ -684,120 +685,66 @@ namespace celadon::test
     static HelpTextClayTests helpTextClayTests;
 
     //==============================================================================
-    // T-038 曲风与交付（设计规格-曲风与交付 第 2 ～ 5 节、设计规格-曲风-House学习方式 第 7、9 节）：两个参数的文案说的是对的、
-    // House 反相提示的文字（一行版给状态行、两行版给 CLAY 卡片）与读数、House 暂定期间 GLAZE 状态的悬停气泡。
-    class HelpTextHouseTests  : public juce::UnitTest
+    // T-108（ADR-039，取代 ADR-026）：曲风与交付两个参数整个删掉。这里核对文案表不再有这两条、上限与表头的文案不再提流媒体 / 俱乐部
+    // 交付、CLAY 卡片气泡第 3 行回到表里的建议（T-038 的 House 反相提示删掉）、GLAZE 状态气泡仍说旧项目只提示一次。
+    // （T-038 的 HelpTextHouseTests 改名为 HelpTextGlazeTests。）
+    class HelpTextGlazeTests  : public juce::UnitTest
     {
     public:
-        HelpTextHouseTests() : juce::UnitTest ("HelpTextHouse", "Celadon") {}
+        HelpTextGlazeTests() : juce::UnitTest ("HelpTextGlaze", "Celadon") {}
 
         void runTest() override
         {
-            beginTest ("genre and delivery entries name the House sub-genres and the delivery targets in both languages");
+            beginTest ("the retired genre and delivery ids have no help entry; ceiling and meter advice no longer depend on a delivery");
             {
-                const auto* genre = help::find (param::glazeGenre);
-                const auto* delivery = help::find (param::glazeDelivery);
-                expect (genre != nullptr && delivery != nullptr, "both entries exist");
+                expect (help::find (param::legacy::glazeGenre) == nullptr, "no genre entry");
+                expect (help::find (param::legacy::glazeDelivery) == nullptr, "no delivery entry");
 
-                if (genre != nullptr && delivery != nullptr)
+                const auto* ceiling = help::find (param::limitCeiling);
+                expect (ceiling != nullptr);
+
+                if (ceiling != nullptr)
                 {
-                    expect (utf8StartsWith (utf8 (genre->title), "曲风") && utf8StartsWith (utf8 (delivery->title), "交付"));
-                    expect (! utf8Contains (utf8 (genre->title), "学法"), "Chinese genre title matches the English tonal-target title");
-                    expect (juce::String (genre->titleEn).startsWith ("Genre") && juce::String (delivery->titleEn).startsWith ("Delivery"));
-                    expect (utf8Contains (utf8 (genre->effect), "按风格定音色目标") && juce::String (genre->effectEn).contains ("sets the tonal target by style"));
-                    expect (! utf8Contains (utf8 (genre->effect), "照原来") && ! juce::String (genre->effectEn).contains ("as before"));
+                    expectEquals (utf8 (ceiling->advice), utf8 ("常用 −1.0；想更保险用 −1.5。"));
+                    expectEquals (utf8 (ceiling->adviceEn), utf8 ("−1.0 is common; −1.5 to be extra safe."));
+                }
 
-                    const auto* listen = help::find (param::limitListen);
-                    expect (listen != nullptr && ! utf8Contains (utf8 (listen->advice), "校准"), "matched listening no longer says calibration continues");
+                for (const auto* id : { uiid::meterIn, uiid::meterOut })
+                {
+                    const auto* meter = help::find (id);
+                    expect (meter != nullptr && utf8Contains (utf8 (meter->advice), "（已扣编码余量）"), "meter advice: " + juce::String (id));
+                }
 
-                    for (const auto* word : { "Deep House", "Tech House", "Melodic-Progressive", "25 Hz" })
-                        expect (utf8Contains (utf8 (genre->effect), word) && utf8Contains (utf8 (genre->effectEn), word),
-                                "genre effect names " + juce::String (word));
+                const auto* listen = help::find (param::limitListen);
+                expect (listen != nullptr && ! utf8Contains (utf8 (listen->advice), "校准"), "matched listening no longer says calibration continues");
 
-                    for (const auto* target : { "\xe2\x88\x92" "10 LUFS", "\xe2\x88\x92" "2 dBTP", "\xe2\x88\x92" "7 LUFS" })
-                        expect (utf8Contains (utf8 (delivery->effect), target) && utf8Contains (utf8 (delivery->effectEn), target),
-                                "delivery effect names " + utf8 (target));
-
-                    expect (utf8Contains (utf8 (delivery->advice), "drop") && juce::String (delivery->adviceEn).contains ("drop"),
-                            "delivery advice: play the drop once after switching before exporting");
+                for (const auto& entryText : { help::tooltipFor (param::limitCeiling, Language::chinese),
+                                               help::tooltipFor (param::limitCeiling, Language::english),
+                                               help::tooltipFor (uiid::glazeStatus, Language::chinese),
+                                               help::tooltipFor (uiid::glazeStatus, Language::english) })
+                {
+                    expect (! entryText.containsIgnoreCase ("House") && ! utf8Contains (entryText, "流媒体") && ! utf8Contains (entryText, "俱乐部")
+                                && ! entryText.containsIgnoreCase ("streaming") && ! entryText.containsIgnoreCase ("club"),
+                            "no genre or delivery wording: " + entryText);
                 }
             }
 
-            beginTest ("House phase hint: the spec sentence in both languages, a two-line card version, no number when the loss is unknown");
+            beginTest ("Clay indicator line 3 is the table's advice, with or without the retired relearn flag");
             {
-                expectEquals (help::housePhaseHintText (16, Language::chinese), utf8 ("俱乐部单声道会丢低频（约 1.6 dB），请回混音修"));
-                expectEquals (help::housePhaseHintText (16, Language::english), juce::String ("Club mono loses low end (about 1.6 dB), fix it in the mix"));
-                expectEquals (help::housePhaseHintText (0, Language::chinese), utf8 ("俱乐部单声道会丢低频，请回混音修"));
-                expectEquals (help::housePhaseHintText (0, Language::english), juce::String ("Club mono loses low end, fix it in the mix"));
-                expectEquals (help::housePhaseHintText (231, Language::chinese), utf8 ("俱乐部单声道会丢低频（约 23.1 dB），请回混音修"));
-
-                const auto zh = help::housePhaseHintLines (16, Language::chinese);
-                const auto en = help::housePhaseHintLines (16, Language::english);
-                expectEquals (zh.size(), 2);
-                expectEquals (en.size(), 2);
-                expectEquals (zh[0], utf8 ("俱乐部单声道会丢低频（约 1.6 dB）"));
-                expectEquals (zh[1], utf8 ("请回混音修"));
-                expectEquals (en[0], juce::String ("Club mono loses low end (about 1.6 dB)"));
-                expectEquals (en[1], juce::String ("Fix it in the mix"));
-
-                // 损失 → 显示的 0.1 dB 整数：|x| × 10 四舍五入，至少 1、最多 999；非有限 → 0（不写数）。
-                expectEquals (help::houseLossTenthsFor (-1.62f), 16);
-                expectEquals (help::houseLossTenthsFor (-0.97f), 10);
-                expectEquals (help::houseLossTenthsFor (-0.001f), 1);
-                expectEquals (help::houseLossTenthsFor (-23.0f), 230);
-                expectEquals (help::houseLossTenthsFor (-1.0e6f), 999);
-                expectEquals (help::houseLossTenthsFor (std::numeric_limits<float>::quiet_NaN()), 0);
-                expectEquals (help::houseLossTenthsFor (-std::numeric_limits<float>::infinity()), 0);
-            }
-
-            beginTest ("Clay readout: the House hint shows whatever the Clay modes or bypass (it is about the mix); houseActive false hides it");
-            {
-                glaze::Status hinted;
-                hinted.clayLowCutHz = 25.0f;
-                hinted.clayMonoHz = 80.0f;
-                hinted.houseActive = true;
-                hinted.housePhaseHint = true;
-                hinted.housePhaseMonoLossDb = -1.62f;
-
-                help::ClayUserState bypassed, monoOff;
-                bypassed.bypassed = true;
-                monoOff.monoAuto = false;
-
-                for (const auto& user : { help::ClayUserState {}, bypassed, monoOff })
-                {
-                    const auto readout = help::clayReadoutFor (hinted, user);
-                    expect (readout.housePhaseHint && readout.housePhaseLossTenthsDb == 16, "shown with the loss in tenths");
-                }
-
-                auto general = hinted;
-                general.houseActive = false;
-                expect (! help::clayReadoutFor (general, {}).housePhaseHint, "not House: never shown");
-
-                auto quiet = hinted;
-                quiet.housePhaseHint = false;
-                const auto plain = help::clayReadoutFor (quiet, {});
-                const auto withHint = help::clayReadoutFor (hinted, {});
-                expect (! plain.housePhaseHint && plain.housePhaseLossTenthsDb == 0);
-                expect (plain != withHint, "the hint is part of the readout (the card repaints when it changes)");
-                expect (help::clayLampFor (plain, help::ClayStage::mono) == help::clayLampFor (withHint, help::ClayStage::mono),
-                        "the mono lamp keeps its own meaning (the ADR-015 phase warning), the hint has its own box");
-
-                // 气泡第 3 行：说为什么要回混音。旧的 clayNeedsRelearn 不再插到它前面。
+                glaze::Status status;
+                status.clayLowCutHz = 25.0f;
+                status.clayMonoHz = 80.0f;
                 const auto* entry = help::find (uiid::clayIndicator);
-                const auto third = juce::StringArray::fromLines (help::clayIndicatorTooltip (withHint))[2];
-                const auto thirdEn = juce::StringArray::fromLines (help::clayIndicatorTooltip (withHint, Language::english))[2];
-                expect (utf8StartsWith (third, "俱乐部单声道会丢低频（约 1.6 dB）") && utf8Contains (third, "收单救不回单声道回放"),
-                        "line 3 explains why to fix the mix: " + third);
-                expect (thirdEn.startsWith ("Club mono loses low end (about 1.6 dB)") && thirdEn.contains ("mono-ing cannot help"),
-                        "English line 3: " + thirdEn);
-                expect (entry != nullptr && juce::StringArray::fromLines (help::clayIndicatorTooltip (plain))[2] == utf8 (entry->advice),
-                        "positive control: without the hint line 3 is the table's advice");
+                expect (entry != nullptr);
 
-                auto oldProject = hinted;
+                auto oldProject = status;
                 oldProject.clayNeedsRelearn = true;
-                expect (utf8StartsWith (juce::StringArray::fromLines (help::clayIndicatorTooltip (help::clayReadoutFor (oldProject, {})))[2],
-                                        "俱乐部单声道会丢低频（约 1.6 dB）"),
-                        "the phase hint stays ahead of the retired relearn flag");
+
+                for (const auto& s : { status, oldProject })
+                {
+                    const auto readout = help::clayReadoutFor (s, {});
+                    expect (entry != nullptr && juce::StringArray::fromLines (help::clayIndicatorTooltip (readout))[2] == utf8 (entry->advice));
+                }
             }
 
             beginTest ("GLAZE status tooltip describes the live line and the one-time old-project note, without relearn or calibration");
@@ -817,5 +764,5 @@ namespace celadon::test
         }
     };
 
-    static HelpTextHouseTests helpTextHouseTests;
+    static HelpTextGlazeTests helpTextGlazeTests;
 }

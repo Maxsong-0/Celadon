@@ -4,12 +4,14 @@ Nothing to click. GLAZE follows whatever is playing, the old song's statistics f
 
 ## It stays on Starting?
 
-- Starting means it hasn't heard enough of the main section yet, so the plan stays cautious. A long intro, or looping a short stretch of intro, keeps it there longer; play through from the drop (or the chorus) once and it relaxes. A House genre recognises the main section the four-on-the-floor way; see [How House genres follow](/docs/glaze#how-house-genres-follow).
+- Starting means it hasn't heard enough of the main section yet, so the plan stays cautious. A long intro, or looping a short stretch of intro, keeps it there longer; play through from the drop (or the chorus) once and it relaxes; see [How it follows the main section](/docs/glaze#how-it-follows-the-main-section).
 - Material that's too short or mostly silent can't gather enough of the main section and stays on Starting. If you still run into it, please send the project and the song to Max.
 
 ## An old project sounds different when I open it?
 
 From this version GLAZE no longer listens through a passage and then settles on a plan; it follows the music all the time. The listening result, plan and calibration saved in an old project are discarded on load and GLAZE starts following from scratch, so the sound changes; the bottom-left corner says so once: “The old listening result was discarded, so the sound will change”. Play through the main section once and it settles. New projects save the statistics gathered so far and carry on from them when reopened.
+
+0.1.8.11 removed the Genre and Delivery choices: an old project saved with a House genre, Streaming or Club loads as General + Standard, so it sounds different too, and the bottom-left corner says so once: “Genre and delivery were removed; now General + Standard, so the sound will change” (one line each when both notices apply). See [Genre and Delivery (removed)](/docs/glaze#genre-and-delivery-removed).
 
 ## Why is everything under Advanced off in my old projects?
 
@@ -21,7 +23,7 @@ The host has the old binary cached. Save your project, then restart the host or 
 
 ## Turning GLAZE up doesn't make it any louder?
 
-Look at the “Target … LUFS” on the status line first: dynamics protection comes before loudness, so once each module's budget is used up GLAZE stops pushing and the target comes down; the status usually still reads “Following · … · Target … LUFS”. Two other cases: “Limited by manual settings” (label Manual limit) means your manual values have already used up a module's budget, so that module's automatic increment is withdrawn; “Limited · cause · backed off x dB” (label Limited) means a guard is pulling the automatic gain back during playback (cause: Budget / Delivery peak / Contrast / PSR; Budget and Delivery peak back off at most 3 dB, Contrast at most all of the automatic gain; PSR is off for all four genres at the factory, and even when on it takes back at most all of the automatic gain) and it eases back once the condition clears. Either accept it, lower GLAZE to keep more movement, or add Gain / Clip by hand — manual values are the floor, but they're still subject to each module's constraints.
+Look at the “Target … LUFS” on the status line first: dynamics protection comes before loudness, so once each module's budget is used up GLAZE stops pushing and the target comes down; the status usually still reads “Following · … · Target … LUFS”. Two other cases: “Limited by manual settings” (label Manual limit) means your manual values have already used up a module's budget, so that module's automatic increment is withdrawn; “Limited · cause · backed off x dB” (label Limited) means a guard is pulling the automatic gain back during playback (cause: Budget / Limiter; at most 3 dB) and it eases back once the condition clears. Either accept it, lower GLAZE to keep more movement, or add Gain / Clip by hand — manual values are the floor, but they're still subject to each module's constraints.
 
 ## OUT true peak occasionally reads 0.0x dB above the Ceiling?
 
@@ -33,7 +35,7 @@ Check whether Match is still on (it's saved with the project) and whether Normal
 
 ## How do I get both a Streaming and a Club version of one song?
 
-Set Delivery to Streaming, then to Club. After each switch, play from the drop until the “Target … LUFS” reading settles, then export; that gives you two masters. The steps and the reasons are in [Switching, and exporting two masters](/docs/glaze#switching-and-exporting-two-masters).
+The Delivery choice was removed in 0.1.8.11, so set the two versions up yourself: for streaming, pull the Ceiling down (to −2 dBTP, say) to leave room for lossy transcoding; for a louder version, turn GLAZE up or switch to the Punchy style. After each change, play from the drop until the “Target … LUFS” reading settles, then export. See [Genre and Delivery (removed)](/docs/glaze#genre-and-delivery-removed).
 
 ## Windows warns about an unknown publisher?
 

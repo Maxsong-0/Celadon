@@ -111,7 +111,6 @@ namespace celadon::ui
         {
             case Chip::manual:      chipLabel = tr (Text::chipManual, language);      chipBackground = palette::groove; chipForeground = palette::ink3; break;
             case Chip::manualLimit: chipLabel = tr (Text::chipManualLimit, language); chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
-            case Chip::phase:       chipLabel = tr (Text::chipPhase, language);       chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
             case Chip::coldExport:  chipLabel = tr (Text::chipExport, language);      chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
             case Chip::limited:     chipLabel = tr (Text::chipLimited, language);     chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
             case Chip::starting:    chipLabel = tr (Text::chipStarting, language);    break;
@@ -257,7 +256,7 @@ namespace celadon::ui
         // T-107：底排高 30，两行各 15。
         const auto lineHeight = (float) getHeight() * 0.5f;
         g.setFont (uiFont (11.0f));
-        g.setColour (hint ? palette::c700 : palette::ink3);
+        g.setColour (hint ? palette::c700 : (warning ? palette::warningText : palette::ink3));   // 两条旧工程提示同时在时第一行也是警告
         g.drawText (line1, juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), lineHeight), juce::Justification::centredLeft, false);
         g.setColour (hint ? palette::c700 : (warning ? palette::warningText : palette::ink3));
         g.drawText (line2, juce::Rectangle<float> (0.0f, lineHeight, (float) getWidth(), lineHeight), juce::Justification::centredLeft, false);
