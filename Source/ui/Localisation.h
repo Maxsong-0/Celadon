@@ -92,6 +92,10 @@ namespace celadon::ui
         genreCaption, genreGeneral, genreDeep, genreTech, genreMelodic,
         deliveryCaption, deliveryStandard, deliveryStreaming, deliveryClub,
 
+        // ---- T-107 重构包 A：中层两块侧板 ----
+        sideNowTitle, sideTarget, sideShortTerm, sideTruePeak, sideConfidence, sideMainSection, sideNotMainSection,
+        sideProtection, sideHistory, sideTargetLegend, sideAutoGain, sideWaiting, sideClayPartAuto,
+
         numTexts
     };
 

@@ -256,6 +256,21 @@ namespace celadon::ui
             { Text::deliveryStandard,   "标准",                     "Standard" },
             { Text::deliveryStreaming,  "流媒体",                   "Streaming" },
             { Text::deliveryClub,       "俱乐部",                   "Club" },
+
+            // ---- T-107 重构包 A：中层两块侧板（左「此刻在推什么」、右「交付」）。措辞是效果图用的，T-086 定稿 ----
+            { Text::sideNowTitle,       "此刻在推什么",             "GLAZE now" },
+            { Text::sideTarget,         "目标 {0} LUFS",            "Target {0} LUFS" },
+            { Text::sideShortTerm,      "短期",                     "Short-term" },
+            { Text::sideTruePeak,       "真峰值",                   "True peak" },
+            { Text::sideConfidence,     "把握 {0} %",               "Confidence {0} %" },
+            { Text::sideMainSection,    "本段是主段",               "Main section" },
+            { Text::sideNotMainSection, "本段不是主段",             "Not the main section" },
+            { Text::sideProtection,     "保护 {0} dB",              "Protection {0} dB" },
+            { Text::sideHistory,        "短期响度 · 60 秒",         "Short-term · 60 s" },
+            { Text::sideTargetLegend,   "目标",                     "Target" },
+            { Text::sideAutoGain,       "GLAZE 自动增益",           "GLAZE auto gain" },
+            { Text::sideWaiting,        "播放后开始记录",           "Starts recording when audio plays" },
+            { Text::sideClayPartAuto,   "自动 {0} 项",              "{0} auto" },
         };
 
         static_assert (std::size (table) == (size_t) Text::numTexts, "Localisation 表的行数与 Text 的键数不一致：两边一起改");

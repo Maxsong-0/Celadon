@@ -67,6 +67,138 @@ namespace
         return (value >= 0.05f ? "+" : "") + magnitude;
     }
 
+    float rawValue (juce::AudioProcessorValueTreeState& state, const char* id)
+    {
+        if (auto* value = state.getRawParameterValue (id))
+            return value->load();
+
+        jassertfalse;
+        return 0.0f;
+    }
+
+    // ---- T-107 重构包 A：左侧板「此刻在推什么」的内容 ----
+    // GLAZE 推给 7 个参数的自动加量 = 本块交给模块的实际值 − 手动值（与卡片旋钮旁的紫字同一口径，见 ParamKnob::autoAmountText）。
+    glaze::AutoIncrements sidePanelIncrements (juce::AudioProcessorValueTreeState& state, const ChainParams& effective, bool glazeActive)
+    {
+        glaze::AutoIncrements result;
+
+        if (! glazeActive)
+            return result;
+
+        result.balanceRecover = effective.balance.recover - rawValue (state, param::balanceRecover);
+        result.balanceTame    = effective.balance.tame    - rawValue (state, param::balanceTame);
+        result.colorToneDb    = effective.color.toneDb    - rawValue (state, param::colorTone);
+        result.colorGlue      = effective.color.glue      - rawValue (state, param::colorGlue);
+        result.colorHeat      = effective.color.heat      - rawValue (state, param::colorHeat);
+        result.limitGainDb    = effective.limit.gainDb    - rawValue (state, param::limitGain);
+        result.limitClip      = effective.limit.clip      - rawValue (state, param::limitClip);
+        return result;
+    }
+
+    struct SidePanelContext
+    {
+        juce::AudioProcessorValueTreeState& state;
+        const glaze::AutoIncrements& increments;
+        const help::ClayReadout& clay;
+        const help::ClayUserState& clayUser;
+        const glazestatus::Reading& reading;
+        float glazePercent;
+        Language language;
+        juce::String statusLine;
+        bool statusWarning = false;
+    };
+
+    // 一个模块那一行：各加量拼成「回补 +3 · 抑制 +13」（看不出变化的不写，门槛与卡片相同），出力条 = 各加量 ÷ 各自量程的最大值。
+    // 第一阶段的口径（T-105 6.2）；真预算（已用 ÷ 上限、到顶标记）要等 T-086 让 DSP 报上限（A2）。
+    struct Increment { Text label; float value; float range; int decimals; };
+
+    GlazeNowPanel::Row moduleRow (std::initializer_list<Increment> items, bool bypassed, Language language)
+    {
+        GlazeNowPanel::Row row;
+        row.bar = 0.0f;
+        row.bypassed = bypassed;
+        juce::StringArray parts;
+
+        for (const auto& item : items)
+        {
+            if (! std::isfinite (item.value))
+                continue;
+
+            const auto threshold = item.decimals == 0 ? 0.5f : 0.05f;
+            row.bar = juce::jmax (row.bar, juce::jmin (1.0f, std::abs (item.value) / item.range));
+
+            if (std::abs (item.value) < threshold)
+                continue;
+
+            const auto magnitude = item.decimals == 0 ? juce::String (juce::roundToInt (std::abs (item.value)))
+                                                      : juce::String (std::abs (item.value), item.decimals);
+            parts.add (tr (item.label, language) + " " + (item.value > 0.0f ? juce::String ("+") : minusSign()) + magnitude);
+        }
+
+        row.text = parts.joinIntoString (juce::String::fromUTF8 (" · "));
+        row.automatic = row.text.isNotEmpty();
+        return row;
+    }
+
+    // CLAY 不在 7 项联动里：不画出力条，条的位置写三项里哪几项在自动档，文字列写此刻在做的（低切 / 收单 / 加宽）。
+    GlazeNowPanel::Row clayRow (const help::ClayReadout& clay, const help::ClayUserState& user, Language language)
+    {
+        GlazeNowPanel::Row row;
+        row.bypassed = user.bypassed;
+
+        const auto autoCount = (user.lowCutAuto ? 1 : 0) + (user.monoAuto ? 1 : 0) + (user.widthAuto ? 1 : 0);
+        row.badge = autoCount == 3 ? tr (Text::modeAuto, language)
+                  : autoCount == 0 ? tr (Text::modeManual, language)
+                                   : trFormat (Text::sideClayPartAuto, language, { juce::String (autoCount) });
+
+        juce::StringArray parts;
+
+        if (clay.lowCutHz > 0)
+            parts.add (tr (Text::clayLowCut, language) + " " + juce::String (clay.lowCutHz) + " Hz");
+
+        if (clay.monoPercent > 0)
+            parts.add (tr (Text::clayMono, language) + " " + juce::String (clay.monoHz) + " Hz");
+
+        if (clay.widthTenthsDb != 0)
+            parts.add (tr (Text::clayWidth, language) + " " + signedOneDecimal ((float) clay.widthTenthsDb / 10.0f) + " dB");
+
+        row.text = parts.joinIntoString (juce::String::fromUTF8 (" · "));
+        return row;
+    }
+
+    GlazeNowPanel::Values glazeNowValues (const SidePanelContext& context)
+    {
+        const auto& inc = context.increments;
+        const auto language = context.language;
+        const auto bypassed = [&context] (const char* id) { return rawValue (context.state, id) >= 0.5f; };
+
+        GlazeNowPanel::Values values;
+        values.rows[0] = moduleRow ({ { Text::recover, inc.balanceRecover, 100.0f, 0 }, { Text::tame, inc.balanceTame, 100.0f, 0 } },
+                                    bypassed (param::balanceBypass), language);
+        values.rows[1] = clayRow (context.clay, context.clayUser, language);
+        values.rows[2] = moduleRow ({ { Text::tone, inc.colorToneDb, 3.0f, 1 }, { Text::glue, inc.colorGlue, 100.0f, 0 },
+                                      { Text::heat, inc.colorHeat, 100.0f, 0 } },
+                                    bypassed (param::colorBypass), language);
+        values.rows[3] = moduleRow ({ { Text::gain, inc.limitGainDb, 12.0f, 1 }, { Text::clip, inc.limitClip, 100.0f, 0 } },
+                                    bypassed (param::limitBypass), language);
+
+        values.statusLine = context.statusLine;
+        values.statusWarning = context.statusWarning;
+
+        if (context.glazePercent > 0.0f)
+        {
+            const auto& reading = context.reading;
+            const auto confidence = juce::roundToInt (100.0f * juce::jlimit (0.0f, 1.0f, std::isfinite (reading.confidence) ? reading.confidence : 0.0f));
+            juce::StringArray details;
+            details.add (trFormat (Text::sideConfidence, language, { juce::String (confidence) }));
+            details.add (tr (reading.currentMainness >= 0.5f ? Text::sideMainSection : Text::sideNotMainSection, language));
+            details.add (trFormat (Text::sideProtection, language, { signedOneDecimal (reading.protectionDb) }));
+            values.details = details.joinIntoString (juce::String::fromUTF8 (" · "));
+        }
+
+        return values;
+    }
+
     // 按「 · 」整体拆成几段（StringArray::fromTokens 会把多字节分隔符当成字符集合）。
     juce::StringArray splitSegments (const juce::String& text)
     {
@@ -95,15 +227,6 @@ namespace
         void mouseDown (const juce::MouseEvent&) override   { if (onDrag != nullptr) onDrag (true); }
         void mouseUp (const juce::MouseEvent&) override     { if (onDrag != nullptr) onDrag (false); }
     };
-
-    float rawValue (juce::AudioProcessorValueTreeState& state, const char* id)
-    {
-        if (auto* value = state.getRawParameterValue (id))
-            return value->load();
-
-        jassertfalse;
-        return 0.0f;
-    }
 
     // ---- 静态背景的面板阴影（T-032 R9-08）----
     // 设计稿 0 1px 2px rgba(13,40,48,.05), 0 8px 24px rgba(13,40,48,.06)：每块面板两层 DropShadow。
@@ -213,6 +336,9 @@ public:
         // ---- 中层 ----
         addAndMakeVisible (particles);
         particles.setBounds (0, ParticleField::top, baseWidth, ParticleField::bandHeight);
+        // T-107 重构包 A：两块侧板压在粒子带上、在选择器与标题下面（表头那一条不接鼠标，选择器照常点得到）。位置随版面变，见 layoutGlazeChoices。
+        addAndMakeVisible (glazeNowPanel);
+        addAndMakeVisible (deliveryPanel);
         addAndMakeVisible (glazeTitle);
         // T-038：标题收窄到曲风 / 交付两个选择之间（x 470 ～ 730，Max 2026-10-01 选「放在 GLAZE 标题行」）：三者的区域不重叠，
         // 点选择时不会被标题吃掉。标题内容按宽度居中（中心仍是 600），英文最长一版（GLAZE · Smart mastering · Manual limit）放得下。
@@ -252,8 +378,10 @@ public:
         abSelector.setSelectedColours (1, { palette::ink, juce::Colours::white });
         addAndMakeVisible (abSelector);
 
+        // T-107：监听退出提示与底排左边的操作提示共用一个位置，监听时显示它。和底排同高（y 524、高 30）：T-105 6.2 写的 (24, 522, 290, 34)
+        // 下沿离卡片只剩 4 px，效果图里贴着卡片。
         addAndMakeVisible (monitoringButton);
-        monitoringButton.setBounds (24, 452, 290, 34);
+        monitoringButton.setBounds (24, 524, 290, 30);
         monitoringButton.setLook (PillButton::Look::attention);
         monitoringButton.onClick = [this]
         {
@@ -269,7 +397,7 @@ public:
         matchButton.onClick = [this] { matchAttachment->setValueAsCompleteGesture (matchOn ? 0.0f : 1.0f); };
 
         addAndMakeVisible (cornerNote);
-        cornerNote.setBounds (24, 494, 330, 46);
+        cornerNote.setBounds (24, 524, 330, 30);
         addAndMakeVisible (legend);
 
         // ---- 下层：按处理顺序 ----
@@ -323,6 +451,8 @@ public:
         cornerNote.setComponentID ("corner_note");
         glazeTitle.setComponentID ("glaze_title");
         legend.setComponentID ("legend");
+        glazeNowPanel.setComponentID ("side_now");
+        deliveryPanel.setComponentID ("side_delivery");
         monitoringButton.setComponentID ("monitoring");
         valueEntry.setComponentID ("value_entry");
         bubble.setComponentID ("value_bubble");
@@ -335,7 +465,7 @@ public:
         // repaint，缓存随之作废重画。主旋钮自管整颗缓存（GlazeKnob），粒子的柔光与流线也是缓存图（ParticleField）。
         for (auto* widget : std::initializer_list<juce::Component*> { &glazeTitle, &styleSelector, &abSelector,
                                                                       &matchButton, &monitoringButton, &cornerNote, &legend,
-                                                                      &genreSelector, &deliverySelector })
+                                                                      &genreSelector, &deliverySelector, &glazeNowPanel, &deliveryPanel })
             setBufferedToAlignedImage (*widget);
 
         startTimerHz (10);
@@ -447,6 +577,9 @@ public:
         abSelector.setOptions ({ tr (Text::processed, language), tr (Text::original, language) });
         matchButton.setTooltip (help::tooltipFor (param::limitListen, language));
         legend.setLanguage (language);
+        glazeNowPanel.setLanguage (language);
+        glazeNowPanel.setTooltip (help::tooltipFor (uiid::glazeStatus, language));
+        deliveryPanel.setLanguage (language);
 
         for (auto* card : std::initializer_list<ModuleCard*> { &clayCard, &balanceCard, &colorCard, &limitCard })
             card->setLanguage (language);
@@ -485,21 +618,43 @@ public:
         x += abWidth + gap;
         matchButton.setBounds (x, y, matchWidth, h);
 
-        legend.setBounds (baseWidth - 24 - legendWidth, 504, legendWidth, 18);
+        legend.setBounds (baseWidth - 24 - legendWidth, 530, legendWidth, 18);   // T-107：从 y 504 挪到底排（右缘不变）
         repaint (0, y - 2, baseWidth, h + 4);
     }
 
     // T-038 曲风 / 交付：放在 GLAZE 标题行左右（Max 2026-10-01 看两种截图后选定；原默认的「主旋钮左右」作废）。按文字宽度
-    // （自然宽度随语言变，只在 setLanguage 里量），y 302 ～ 328，与标题（y 305 ～ 325）同一行：曲风右对齐到标题左沿 x = 470，
-    // 交付左对齐到标题右沿 x = 730。频谱区下沿（y 298）在它们上面，主旋钮的数值弧在它们下面，都不重叠。
+    // （自然宽度随语言变，只在 setLanguage 里量），y 302 ～ 328，与标题（y 305 ～ 325）同一行。频谱区下沿（y 298）在它们上面，
+    // 主旋钮的数值弧在它们下面，都不重叠。
+    // T-107 重构包 A：两个选择器变成两块侧板的表头——曲风右对齐到左侧板右缘 x = 404、交付左对齐到右侧板左缘 x = 796（各外移 66 px，
+    // 要 Max 点头）；侧板 (16 / 796, 302, 388, 214)，旋钮两侧各留 96 px 的粒子通道。备选版面（wideSidePanels，Max 要选择器一个像素
+    // 不动时用）：选择器照旧贴标题 470 / 730，侧板 454 宽、内缘贴 470 / 730，粒子通道只剩 30 px。
     void layoutGlazeChoices()
     {
-        constexpr int top = 302, h = 26, genreRight = 470, deliveryLeft = 730;
+        constexpr int top = 302, h = 26;
+        const auto genreRight = wideSidePanels ? 470 : 404, deliveryLeft = wideSidePanels ? 730 : 796;
+        const auto panelWidth = wideSidePanels ? 454 : 388;
         const auto genreWidth = genreSelector.getNaturalWidth();
         const auto deliveryWidth = deliverySelector.getNaturalWidth();
 
         genreSelector.setBounds (genreRight - genreWidth, top, genreWidth, h);
         deliverySelector.setBounds (deliveryLeft, top, deliveryWidth, h);
+
+        glazeNowPanel.setBounds (16, sidepanel::top, panelWidth, sidepanel::height);
+        deliveryPanel.setBounds (baseWidth - 16 - panelWidth, sidepanel::top, panelWidth, sidepanel::height);
+        glazeNowPanel.setHeaderLimit (genreSelector.getX() - 8 - glazeNowPanel.getX());
+        deliveryPanel.setHeaderLimit (deliverySelector.getRight() + 8 - deliveryPanel.getX());
+        particles.setChannel ((float) glazeNowPanel.getRight(), (float) deliveryPanel.getX());
+    }
+
+    // T-107 效果图：切换到备选版面（侧板 454 宽、选择器不动）。截图工具用。
+    void setWideSidePanels (bool wide)
+    {
+        if (wide == wideSidePanels)
+            return;
+
+        wideSidePanels = wide;
+        layoutGlazeChoices();
+        repaint();
     }
 
     void noteZoomChanged (double zoom, bool fromUser)
@@ -567,6 +722,9 @@ public:
     bool matchOn = false;
     CornerNote cornerNote;
     ColourLegend legend;
+    GlazeNowPanel glazeNowPanel;      // T-107 左侧板「此刻在推什么」
+    DeliveryPanel deliveryPanel;      // T-107 右侧板「交付」
+    bool wideSidePanels = false;      // T-107 备选版面（截图工具切换）
     ClayCard clayCard;
     BalanceCard balanceCard;
     ColorCard colorCard;
@@ -636,23 +794,12 @@ private:
             g.addTransform (toLayer);
             g.fillAll (palette::background);
 
-            // 旋钮后面的大片白光（半径 470，72 % 处淡完）+ 左右两团很淡的青色。
+            // 旋钮后面的大片白光（半径 470，72 % 处淡完）。原来左右还各有一团很淡的青色（x 216 / 984），T-107 起那里是侧板，删了。
             {
                 const juce::Point<float> centre (600.0f, 422.0f);
                 juce::ColourGradient white (juce::Colours::white.withAlpha (0.95f), centre, juce::Colours::white.withAlpha (0.0f), centre.translated (470.0f * 0.72f, 0.0f), true);
                 g.setGradientFill (white);
                 g.fillEllipse (juce::Rectangle<float> (940.0f, 940.0f).withCentre (centre));
-
-                for (const auto x : { 216.0f, 984.0f })
-                {
-                    juce::Graphics::ScopedSaveState saved (g);
-                    const juce::Point<float> blob (x, 422.0f);
-                    g.addTransform (juce::AffineTransform::scale (1.0f, 197.0f / 408.0f, blob.x, blob.y));
-                    juce::ColourGradient cyan (juce::Colour (23, 153, 171).withAlpha (0.09f), blob, juce::Colour (23, 153, 171).withAlpha (0.0f),
-                                               blob.translated (408.0f * 0.7f, 0.0f), true);
-                    g.setGradientFill (cyan);
-                    g.fillEllipse (juce::Rectangle<float> (816.0f, 816.0f).withCentre (blob));
-                }
             }
 
             // 点阵：每 14 px 一个半径 0.8 的小点（#0A4A57 8 %）。
@@ -756,7 +903,7 @@ CeladonAudioProcessorEditor::CeladonAudioProcessorEditor (CeladonAudioProcessor&
     canvas->advancedPanel.onClearReference = [this] { processor.clearReference(); };
     canvas->advancedPanel.onPreviewChange = [this] (bool enabled) { setReleasePreviewEnabled (enabled); };
     canvas->abSelector.onSelect = [this] (int index) { setListeningToOriginal (index == 1); };
-    canvas->spectrum.getLoudnessHud().onReset = [this] { resetMeters(); };
+    canvas->deliveryPanel.onReset = [this] { resetMeters(); };
     canvas->inputMeter.onResetClicked = [this] { resetMeters(); };
     canvas->outputMeter.onResetClicked = [this] { resetMeters(); };
     canvas->settingsPanel.onZoomChange = [this] (double zoom) { setZoom (zoom); };
@@ -1215,9 +1362,15 @@ void CeladonAudioProcessorEditor::advanceForSnapshot (double seconds)
     // 出图随机器快慢变（评审 R-06 想堵的就是这个；T-070 评审 F9 / T-072 查出没堵住）。
     snapshotDriven = true;
     lastAdvanceWasVBlank = false;
+    historyPendingSeconds += juce::jmax (0.0, seconds);   // T-107 右侧板的历史也按给定时长走（timerCallback 里在放音乐时才记点）
     advanceSpectrum (seconds, juce::Time::getMillisecondCounterHiRes());
     timerCallback();
     canvas->particles.advance (seconds);
+}
+
+void CeladonAudioProcessorEditor::setWideSidePanelsForPreview (bool wide)
+{
+    canvas->setWideSidePanels (wide);
 }
 
 double CeladonAudioProcessorEditor::getStaticLayerRenderMs() const noexcept
@@ -1258,6 +1411,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto auditioning = processor.isAuditioningDifference();
     const auto monitoring = comparing || auditioning || mastering.previewEnabled;
     c.monitoringButton.setVisible (monitoring);
+    c.cornerNote.setVisible (! monitoring);   // T-107：两者共用底排左边一个位置，监听时显示退出提示
     if (monitoring)
     {
         c.monitoringButton.setText (tr (comparing ? Text::listeningOriginal : auditioning ? Text::auditioningDifference : Text::releasePreview, language));
@@ -1289,7 +1443,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     if (! comparing && std::isfinite (outputPeak))
         truePeakMaxDb = juce::jmax (truePeakMaxDb, outputPeak);
 
-    LoudnessHud::Values loudness;
+    DeliveryPanel::Values loudness;
     loudness.integratedLufs = processor.getOutputIntegratedLufs();
     loudness.shortTermLufs = processor.getOutputShortTermLufs();
     loudness.truePeakMaxDb = truePeakMaxDb;
@@ -1298,7 +1452,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     // 目标标记：GLAZE > 0 且编排器给出了有限目标就画，不因状态行被琥珀条压住而藏起来（反相提示说的是混音，不改目标）。
     loudness.hasTarget = glazePercent > 0.0f && std::isfinite (reading.effectiveTargetLufs);
     loudness.targetLufs = reading.effectiveTargetLufs;
-    c.spectrum.getLoudnessHud().setValues (loudness);
+    c.deliveryPanel.setValues (loudness);
 
     // ---- 频谱仪：平时由垂直同步推（spectrumFrame，T-036）；垂直同步 100 ms 没来（离屏、宿主 / 系统不给）就由这里按 30 Hz 推；
     //      截图工具驱动的编辑器（snapshotDriven）每一帧都自己给时长，这里不补推 ----
@@ -1318,7 +1472,19 @@ void CeladonAudioProcessorEditor::timerCallback()
     c.particles.setGlaze (glazePercent / 100.0f);
     c.particles.setAudio (rms, playing);
 
+    // T-107 右侧板的 60 秒历史：在放音乐时才往前走（没有声音时不滚动）。截图工具驱动时按它给的时长走（advanceForSnapshot 已记进
+    // historyPendingSeconds），平时按定时器两次之间的墙钟。
+    if (! snapshotDriven && playing)
+        historyPendingSeconds += elapsed;
+
+    if (! playing)
+        historyPendingSeconds = 0.0;
+
     // ---- 卡片：GLAZE 的实际值（紫色）、修坯读数、Balance 的 27 段 ----
+    glaze::AutoIncrements increments;
+    help::ClayReadout clayReadout;
+    help::ClayUserState clayUser;
+
     {
         const auto glazeActive = glazePercent > 0.0f && glazeEffectiveParamsSource != nullptr;
         const auto effective = glazeEffectiveParamsSource != nullptr ? glazeEffectiveParamsSource() : ChainParams {};
@@ -1334,6 +1500,22 @@ void CeladonAudioProcessorEditor::timerCallback()
         const auto readout = help::clayReadoutFor (status, user);
         c.clayCard.setReadout (readout);
         c.spectrum.setClayMarkers ((float) readout.lowCutHz, readout.monoPercent > 0 ? (float) readout.monoHz : 0.0f, ! readout.bypassed);
+
+        // T-107 两块侧板：7 项自动加量与卡片紫字同一口径（实际值 − 手动值）；左侧板等状态句拼好之后再填（见中层一段）。
+        //      右侧板的历史每 100 ms 记一点：OUT 短期响度、GLAZE 推给 LIMIT 增益的自动加量、守护在不在退。
+        increments = sidePanelIncrements (state, effective, glazeActive);
+        clayReadout = readout;
+        clayUser = user;
+
+        while (historyPendingSeconds >= DeliveryPanel::historyStepSeconds)
+        {
+            historyPendingSeconds -= DeliveryPanel::historyStepSeconds;
+            DeliveryPanel::HistoryPoint point;
+            point.shortTermLufs = loudness.shortTermLufs;
+            point.autoGainDb = increments.limitGainDb;
+            point.guardEngaged = glazePercent > 0.0f && reading.guardEngaged;
+            c.deliveryPanel.pushHistory (point);
+        }
 
         BalanceModule::BandGains gains {};
         processor.getBalanceBandGainsDb (gains);
@@ -1372,6 +1554,8 @@ void CeladonAudioProcessorEditor::timerCallback()
             glazeTooltipValid = true;
         }
 
+        // 底排左边（T-107）：悬停 / 拖动时的操作提示、本次打开的旧工程警告；平时空着——静态的「联动 7 项参数 / 跟着主段慢慢调整」
+        // 删了，左侧板已经把 7 项列出来。
         if (c.isHintActive())
         {
             c.cornerNote.setLines (tr (c.isHintOnDial() ? Text::hintDial : Text::hintDrag, language), tr (Text::hintClick, language), true);
@@ -1379,12 +1563,11 @@ void CeladonAudioProcessorEditor::timerCallback()
         else if (legacyGlazeDiscarded)
         {
             // 旧工程提示一次，只活在本次打开的界面里，不进状态行的七条，也不写入 LIVE。
-            c.cornerNote.setLines (tr (Text::drivesParameters, language), tr (Text::legacyDiscarded, language), false, true);
+            c.cornerNote.setLines ({}, tr (Text::legacyDiscarded, language), false, true);
         }
         else
         {
-            const auto second = glazePercent > 0.0f ? tr (Text::cornerFollowing, language) : tr (Text::glazeManual, language);
-            c.cornerNote.setLines (tr (Text::drivesParameters, language), second, false);
+            c.cornerNote.setLines ({}, {}, false);
         }
 
         // 底排按文字宽度摆放：等响的文字改自然宽度，只在变了时重排（语言切换由 Canvas::setLanguage 重排），不每帧量字（T-032 R9-12）。
@@ -1405,6 +1588,14 @@ void CeladonAudioProcessorEditor::timerCallback()
             glazeSegmentsView = view;
             glazeSegmentsLanguage = language;
             glazeSegmentsValid = true;
+        }
+
+        // T-107 左侧板：四个模块的加量 + 状态句全文（不截断）+ 把握 / 主段 / 保护。
+        {
+            const SidePanelContext context { state, increments, clayReadout, clayUser, reading, glazePercent, language,
+                                             glazeSegments.joinIntoString (juce::String::fromUTF8 (" · ")),
+                                             glazestatus::toneFor (view.kind) == glazestatus::Tone::amber && glazePercent > 0.0f };
+            c.glazeNowPanel.setValues (glazeNowValues (context));
         }
 
         // ---- 顶部状态胶囊：需要注意 > 听原声 / 试听差值 > GLAZE 状态 ----
