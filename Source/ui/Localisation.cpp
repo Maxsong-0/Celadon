@@ -71,11 +71,8 @@ namespace celadon::ui
 
             // ---- 响度 ----
             { Text::loudness,           "响度",                     "LOUDNESS" },
-            { Text::truePeakShort,      "真峰值",                   "TP" },
-            { Text::shortTermShort,     "短期",                     "S" },
             { Text::peakToLoudness,     "峰响比",                   "PLR" },
             { Text::normalisation,      "归一",                     "Norm" },
-            { Text::streamingReference, "流媒体 \xe2\x88\x92" "14", "Stream \xe2\x88\x92" "14" },
             { Text::resetMeters,        "重新计量",                 "Reset meters" },
 
             // ---- GLAZE 中层 ----
@@ -89,9 +86,6 @@ namespace celadon::ui
             { Text::matchedBy,          "已等响 {0} dB",            "level-matched {0} dB" },
             { Text::notMatched,         "未等响（响度差 {0} dB）",  "not matched ({0} dB apart)" },
             { Text::differenceUnknown,  "播放几秒后测出响度差",     "play a few seconds to measure" },
-            { Text::drivesParameters,   "联动 7 项参数",            "Drives 7 parameters" },
-            { Text::glazeManual,        "只用手动设置",             "Manual settings only" },
-            { Text::cornerFollowing,    "跟着主段慢慢调整",         "Follows the main section" },
             { Text::legacyDiscarded,    "旧的聆听结果已丢弃，声音会变", "The old listening result was discarded, so the sound will change" },
             // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
            #if JUCE_MAC

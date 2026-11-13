@@ -2446,7 +2446,7 @@ namespace
         juce::RectangleList<int> repaintOnly (const juce::String& stage)   { return repaintAndCompare (stage, 0); }
 
         // 曲线帧：脏区够到频谱仪底边正中——setSpectrum 判变了、重建路径后 repaintCurves 的区域总是从最高的曲线顶到底边、横跨整块，
-        // 读数框与响度小窗的重画够不到；整块重画也算（与 --only spectrum-peak-bench 同一判据）。
+        // 读数框的重画够不到；整块重画也算（与 --only spectrum-peak-bench 同一判据）。
         bool isCurveFrame (const juce::RectangleList<int>& region) const   { return region.containsPoint (bottomCentre); }
 
         SpectrumRig& rig;
@@ -4073,7 +4073,7 @@ namespace
     //   停止：同样的正弦 4 s → 数字静音 10 s，斜率 0 与 4.5 各一遍——峰值保持 1.5 s 后按 12 dB/s 落过整块面板（6 kHz 的峰从约
     //         −12 dB 落到底边 −84 dB 要 6 s，斜率 4.5 时从顶边落、再多约 1 s），之后全静（每帧的「什么都没变」作对照）。
     // 各 × PEAK 关（被测）/ 开（对照）× 60 / 120 帧 × 1 / 2 倍。按秒打印：频谱仪被标脏的帧、其中「曲线帧」（脏区够到面板底边——
-    // setSpectrum 判变了、重建路径后 repaintCurves 的区域总是从最高的曲线顶到底边、横跨整块，读数框 / 响度小窗的重画够不到；
+    // setSpectrum 判变了、重建路径后 repaintCurves 的区域总是从最高的曲线顶到底边、横跨整块，读数框的重画够不到；
     // 整块重画也算在内）、脏区设备像素、advance 与增量重画的墙钟与本线程 CPU（advance 曲线帧与其余帧分开平均：差值约是一次
     // 比较之外的重建 + 标脏）。软件渲染器口径，绑单核跑更稳；Mac 的绝对值要 Max 实测。
     struct PeakBenchStats
@@ -4186,7 +4186,7 @@ namespace
             paintRegion (editor, screen, scale, juce::RectangleList<int> (editor.getLocalBounds()));   // 窗口第一次显示：整帧
             rig.takeDirty();
 
-            // 曲线帧的判据：频谱仪底边正中那个像素在脏区里（repaintCurves 的区域横跨整块、一直到底边；读数框与响度小窗在上沿）。
+            // 曲线帧的判据：频谱仪底边正中那个像素在脏区里（repaintCurves 的区域横跨整块、一直到底边；读数框在上沿）。
             const juce::Point<int> bottomCentre (rig.area.getCentreX(), rig.area.getBottom() - 1);
             SineSource sine (6000.0, -12.0);
             const SpectrumRig::AudioSource silence = [] (juce::AudioBuffer<float>& chunk) { chunk.clear(); };

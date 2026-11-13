@@ -519,7 +519,7 @@ namespace celadon::ui
     void SpectrumView::repaintCurves()
     {
         // 曲线变了（T-036）：只重画新旧曲线合起来的区域；悬停时光标圆点跟着曲线走，补上光标那一列（读数框由 refreshReadout 管）。
-        // 图例、斜率、响度小窗在脏区里的部分从各自的缓存图贴（构造函数里 setBufferedToAlignedImage）。
+        // 图例、斜率在脏区里的部分从各自的缓存图贴（构造函数里 setBufferedToAlignedImage）。
         const auto area = curveRegion();
         repaint (area.getUnion (curveArea).getSmallestIntegerContainer());
         curveArea = area;

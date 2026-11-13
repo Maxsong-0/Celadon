@@ -348,25 +348,16 @@ namespace celadon::ui
         repaint();
     }
 
-    void GlazeNowPanel::setHeaderLimit (int localRight)
-    {
-        if (localRight == headerLimit)
-            return;
-
-        headerLimit = localRight;
-        repaint();
-    }
-
     void GlazeNowPanel::paint (juce::Graphics& g)
     {
         using namespace sidepanel;
         const auto width = (float) getWidth();
         const auto left = (float) padX, right = width - (float) padX;
 
-        // 表头：画在标题行里、不带底，右边让给曲风选择器。
+        // 表头：画在标题行里、不带底。
         g.setColour (palette::ink2);
         drawFittedLine (g, uiFont (11.0f, Weight::medium), tr (Text::sideNowTitle, language),
-                        { left, 0.0f, juce::jmax (0.0f, (float) headerLimit - left), (float) headerHeight }, juce::Justification::centredLeft);
+                        { left, 0.0f, right - left, (float) headerHeight }, juce::Justification::centredLeft);
 
         drawSidePanelBox (g, width);
 
@@ -457,15 +448,6 @@ namespace celadon::ui
         repaint();
     }
 
-    void DeliveryPanel::setHeaderLimit (int localLeft)
-    {
-        if (localLeft == headerLimit)
-            return;
-
-        headerLimit = localLeft;
-        repaint();
-    }
-
     void DeliveryPanel::setValues (const Values& newValues)
     {
         values = newValues;
@@ -520,13 +502,13 @@ namespace celadon::ui
         const auto dash = juce::String::charToString ((juce::juce_wchar) 0x2014);
         const auto lufsText = [&] (float lufs) { return hasReading (lufs) ? signedText (lufs, 1) : dash; };
 
-        // 表头：「目标 −17.4 LUFS」右对齐，左边让给交付选择器。目标用深色（紫留给自动加量）。
+        // 表头：「目标 −17.4 LUFS」右对齐。目标用深色（紫留给自动加量）。
         {
             const auto text = values.hasTarget ? trFormat (Text::sideTarget, language, { signedText (values.targetLufs, 1) })
                                                : trFormat (Text::sideTarget, language, { dash });
             g.setColour (values.hasTarget ? palette::ink : palette::ink3);
             drawFittedLine (g, monoFont (11.0f, Weight::medium), text,
-                            { (float) headerLimit, 0.0f, juce::jmax (0.0f, right - (float) headerLimit), (float) headerHeight },
+                            { left, 0.0f, right - left, (float) headerHeight },
                             juce::Justification::centredRight);
         }
 

@@ -55,11 +55,11 @@ namespace celadon::ui
         showOutput, showInput, showPeak, slope, cents, markLowCut, markMono,
 
         // ---- 响度 ----
-        loudness, truePeakShort, shortTermShort, peakToLoudness, normalisation, streamingReference, resetMeters,
+        loudness, peakToLoudness, normalisation, resetMeters,
 
         // ---- GLAZE 中层 ----
         glazeSubtitle, processed, original, match, matchWithDifference, matchOff, listeningOriginal,
-        matchedBy, notMatched, differenceUnknown, drivesParameters, glazeManual, cornerFollowing, legacyDiscarded,
+        matchedBy, notMatched, differenceUnknown, legacyDiscarded,
         hintDrag, hintDial, hintClick, fine,
         legendManual, legendAuto, legendAttention,
         chipManual, chipManualLimit, chipPhase, chipExport, chipLimited, chipStarting, chipHolding, chipFollowing,

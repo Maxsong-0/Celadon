@@ -97,8 +97,8 @@ namespace celadon::ui
 
     //==============================================================================
     // T-107 重构包 A（T-105 线 ③ 第 6.2 节）：中层两侧的两块侧板。组件从标题行（画布 y 302）起：上面 26 px 是表头（画在标题行里、
-    // 不带底，另一头让给曲风 / 交付选择器），往下 6 px 是空隙，再往下是白底面板（画布 y 334 ～ 516）。表头那一条不接鼠标
-    // （hitTest），点得到下面的选择器。两块都挂整数对齐缓存（粒子带每帧重画时只贴图）。
+    // 不带底，占满一行），往下 6 px 是空隙，再往下是白底面板（画布 y 334 ～ 516）。表头那一条只是标题行里的字，不接鼠标
+    // （hitTest），和标题行别处一样点了没反应；能点的只有面板里的东西。两块都挂整数对齐缓存（粒子带每帧重画时只贴图）。
     namespace sidepanel
     {
         inline constexpr int top = 302;            // 组件上沿（画布 y）
@@ -142,8 +142,6 @@ namespace celadon::ui
         void setLanguage (Language newLanguage);
         void setValues (const Values& newValues);
         const Values& getValues() const noexcept   { return values; }   // 截图工具的检查读
-        // 表头右边界（组件内 x）：曲风选择器左缘前 8 px。
-        void setHeaderLimit (int localRight);
 
         bool hitTest (int x, int y) override   { return x >= 0 && y >= sidepanel::boxTop; }
         void paint (juce::Graphics&) override;
@@ -151,13 +149,12 @@ namespace celadon::ui
     private:
         Language language = Language::chinese;
         Values values;
-        int headerLimit = 140;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlazeNowPanel)
     };
 
     // 右侧板「交付」：整体响度大字、短期 / 真峰值 / 峰响比，−24 ～ −6 LUFS 的响度条（目标三角在条上、−14 虚线在条下），
-    // 最近 60 秒的短期响度与 GLAZE 自动增益。表头写「目标 −17.4 LUFS」（右对齐，左边让给交付选择器）。
+    // 最近 60 秒的短期响度与 GLAZE 自动增益。表头写「目标 −17.4 LUFS」（右对齐）。
     // 历史由编辑器每 100 ms 推一个点（pushHistory），600 点；没有声音时编辑器不推，画面不滚动。
     class DeliveryPanel  : public juce::Component,
                            public juce::TooltipClient
@@ -190,8 +187,6 @@ namespace celadon::ui
         void pushHistory (const HistoryPoint& point);
         void clearHistory();
         int getHistoryCount() const noexcept   { return historyCount; }
-        // 表头左边界（组件内 x）：交付选择器右缘后 8 px。
-        void setHeaderLimit (int localLeft);
 
         std::function<void()> onReset;
 
@@ -212,7 +207,6 @@ namespace celadon::ui
         juce::String shownKey;              // 上次重画时各项显示文字拼起来：没变就不重画
         std::array<HistoryPoint, historyLength> history {};
         int historyHead = 0, historyCount = 0;   // 环形缓冲：下一个写入位置、已有点数
-        int headerLimit = 200;
         bool resetHovered = false;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DeliveryPanel)

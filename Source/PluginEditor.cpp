@@ -601,14 +601,11 @@ public:
     }
 
     // T-107 重构包 A：两块侧板 (16 / 796, 302, 388, 214)，从标题行起（表头那一条画在标题行里），旋钮两侧各留 96 px 的粒子通道。
-    // 曲风 / 交付选择器删了之后，两块侧板的表头都能用满整行。
     void layoutSidePanels()
     {
         constexpr int panelWidth = 388;
         glazeNowPanel.setBounds (16, sidepanel::top, panelWidth, sidepanel::height);
         deliveryPanel.setBounds (baseWidth - 16 - panelWidth, sidepanel::top, panelWidth, sidepanel::height);
-        glazeNowPanel.setHeaderLimit (panelWidth - sidepanel::padX);
-        deliveryPanel.setHeaderLimit (sidepanel::padX);
         particles.setChannel ((float) glazeNowPanel.getRight(), (float) deliveryPanel.getX());
     }
 
@@ -1342,7 +1339,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto listenOn = rawValue (state, param::limitListen) >= 0.5f;
     const auto comparing = processor.isComparingOriginal();
     const auto mastering = processor.getMasteringStatus();
-    // T-078：橙色、响度小窗与顶部胶囊用链发布的实际上限（流媒体封顶与编码余量已算进；旁通 / 干路是用户 Ceiling）。
+    // T-078：橙色、右侧板「交付」与顶部胶囊用链发布的实际上限（流媒体封顶与编码余量已算进；旁通 / 干路是用户 Ceiling）。
     const auto ceiling = mastering.effectiveCeilingDb;
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
@@ -1381,7 +1378,7 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto limitGr = processor.getAndResetLimitGainReductionDb();
     const auto glueGr = processor.getAndResetGlueGainReductionDb();
 
-    // 听原声时 OUT 是原声：它超过 Ceiling 不算问题（不亮橙灯、不进响度小窗的最大值）。
+    // 听原声时 OUT 是原声：它超过 Ceiling 不算问题（不亮橙灯、不进右侧板的真峰值最大值）。
     c.inputMeter.pushReadings (inputPeak, 0.0f, std::numeric_limits<float>::infinity(), false, elapsed);
     c.outputMeter.pushReadings (outputPeak, limitGr, comparing ? std::numeric_limits<float>::infinity() : ceiling, guardLimited, elapsed);
     c.colorCard.setGlueReduction (glueGr);
