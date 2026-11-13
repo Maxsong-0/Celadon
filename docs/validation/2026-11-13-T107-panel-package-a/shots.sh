@@ -9,8 +9,8 @@ STATES="zh-default,en-default,zh-glaze90,zh-zoom70,zh-glaze0,zh-original,zh-true
 mkdir -p "$OUT/before" "$OUT/after" "$OUT/after-x2"
 
 "$SPARK" "$CACHE/src/t107-main" run bash -c "xvfb-run -a \"\$BUILD/celadon_ui_snapshot\" --deterministic --out '$OUT/before' --only '$STATES'"
-"$SPARK" "$CACHE/src/t107-work" run bash -c "xvfb-run -a \"\$BUILD/celadon_ui_snapshot\" --deterministic --out '$OUT/after' --only '$STATES,zh-default-wide,en-default-wide'"
-"$SPARK" "$CACHE/src/t107-work" run bash -c "xvfb-run -a \"\$BUILD/celadon_ui_snapshot\" --deterministic --scale 2 --out '$OUT/after-x2' --only 'zh-default,zh-default-wide'"
+"$SPARK" "$CACHE/src/t107-work" run bash -c "xvfb-run -a \"\$BUILD/celadon_ui_snapshot\" --deterministic --out '$OUT/after' --only '$STATES'"
+"$SPARK" "$CACHE/src/t107-work" run bash -c "xvfb-run -a \"\$BUILD/celadon_ui_snapshot\" --deterministic --scale 2 --out '$OUT/after-x2' --only 'zh-default'"
 "$SPARK" "$CACHE/src/t107-work" run bash -c "xvfb-run -a \"\$BUILD/celadon_ui_snapshot\" --out '$OUT/check-after' --only check" > "$OUT/check-after.log" 2>&1 || echo "check-after exit $?" >> "$OUT/check-after.log"
 "$SPARK" "$CACHE/src/t107-main" run bash -c "xvfb-run -a \"\$BUILD/celadon_ui_snapshot\" --out '$OUT/check-before' --only check" > "$OUT/check-before.log" 2>&1 || echo "check-before exit $?" >> "$OUT/check-before.log"
 echo "shots done"

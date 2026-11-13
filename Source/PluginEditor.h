@@ -7,8 +7,8 @@
       上层：左 IN 表 · 正中频谱仪 · 右 OUT / GR 表；
       中层：GLAZE 主旋钮在正中；T-107 重构包 A（效果图，T-105 线 ③ 第 6.2 节）起两侧是两块侧板——左「此刻在推什么」（四个模块的
             自动加量 + 状态句）、右「交付」（原来频谱仪右上角的响度小窗搬到这里放大，加最近 60 秒的短期响度与 GLAZE 自动增益），
-            粒子流收进侧板与旋钮之间的通道；「曲风」「交付」两个选择（T-038，Max 2026-10-01 选在 GLAZE 标题行左右）各外移 66 px
-            当两块侧板的表头（要 Max 看效果图点头；备选版面见 setWideSidePanelsForPreview）；
+            粒子流收进侧板与旋钮之间的通道；GLAZE 标题行左右原来的「曲风」「交付」两个选择（T-038）删了（Max 2026-11-13），
+            参数还在、面板上不再有；
             下面一排 操作提示 / 监听退出提示 · 风格 | A / B · 等响 · 颜色图例；
       下层：按处理顺序的四张卡片 BALANCE → CLAY → COLOR → LIMIT。
 
@@ -91,9 +91,6 @@ public:
 
     // 截图工具用：频谱仪往前推 seconds 秒、立刻刷新一帧读数，并把粒子动画往前推 seconds 秒（离屏时没有垂直同步）。
     void advanceForSnapshot (double seconds);
-
-    // T-107 效果图：备选版面——选择器一个像素不动（贴标题 470 / 730），侧板 454 宽、内缘贴选择器，粒子通道只剩 30 px。截图工具用。
-    void setWideSidePanelsForPreview (bool wide);
 
     // 截图工具的基准用：上一次生成静态背景花的毫秒数（打开编辑器、缩放停下时在消息线程同步生成）。
     double getStaticLayerRenderMs() const noexcept;

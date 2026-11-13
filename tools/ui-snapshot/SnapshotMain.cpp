@@ -465,7 +465,7 @@ namespace
         };
     }
 
-    // 曲风 Deep House、交付 俱乐部（建编辑器之前设：两个选择显示选中项）。
+    // 曲风 Deep House、交付 俱乐部（建编辑器之前设）。T-107 起面板上没有这两个选择了，参数照设：看 House 档的状态行与 CLAY 卡片。
     void houseParameters (Session& s)
     {
         s.setParameter (celadon::param::glazeGenre, 1.0f);
@@ -662,9 +662,6 @@ int main (int argc, char* argv[])
           { s.editor->setReleasePreviewEnabled (true); s.play (1.0); } },
         { "zh-glaze90",  celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 90.0f); }, none },
         { "zh-glaze0",   celadon::Language::chinese, [] (Session& s) { s.setParameter (celadon::param::glazeAmount, 0.0f); }, none },
-        // T-107 重构包 A 的备选版面：选择器一个像素不动（贴标题 470 / 730），侧板 454 宽、内缘贴选择器（给 Max 对照用）。
-        { "zh-default-wide", celadon::Language::chinese, none, [] (Session& s) { s.editor->setWideSidePanelsForPreview (true); } },
-        { "en-default-wide", celadon::Language::english, none, [] (Session& s) { s.editor->setWideSidePanelsForPreview (true); } },
         { "zh-zoom70",   celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (0.7); } },
         { "zh-zoom150",  celadon::Language::chinese, none, [] (Session& s) { s.editor->setZoom (1.5); } },
         { "zh-reduced",  celadon::Language::chinese, [] (Session&) {}, none },
@@ -1128,50 +1125,29 @@ namespace
                                                                          + juce::String (value (celadon::param::clayLowCutHz), 1) + " Hz)");
         }
 
-        // ⑦ 续（T-038）：曲风 / 交付两个选择——点最右一格选中最后一项（Melodic / 俱乐部），点左边的灰字说明格什么都不改；
-        //    两个都在 GLAZE 标题行两侧、不与主旋钮和左下说明重叠。查完放回通用 / 标准，后面的检查不受影响。
+        // ⑦ 续：T-038 的曲风 / 交付两个选择 T-107 起从面板上删了（Max 2026-11-13），原来那 5 条（点选、说明格不可点、位置、宿主改值跟上）
+        //    跟着删。面板上不能再有它们：两个参数 ID 的组件都找不到。
+        //    T-107 两块侧板从标题行起（表头那一条）——按真实的命中测试，点侧板表头的空白处不命中侧板（hitTest），点面板里命中侧板；
+        //    两块侧板都不压主旋钮与底排左边的提示。
         {
-            auto& genre = find (celadon::param::glazeGenre);
-            auto& delivery = find (celadon::param::glazeDelivery);
-            const auto genreY = (float) genre.getHeight() * 0.5f, deliveryY = (float) delivery.getHeight() * 0.5f;
+            check (findById (editor, celadon::param::glazeGenre) == nullptr && findById (editor, celadon::param::glazeDelivery) == nullptr,
+                   "T-107 genre / delivery selectors are gone from the panel");
 
-            click (genre, { (float) genre.getWidth() - 12.0f, genreY });
-            check (juce::roundToInt (value (celadon::param::glazeGenre)) == 3, "genre: last segment -> Melodic-Progressive");
-            click (genre, { 12.0f, genreY });
-            check (juce::roundToInt (value (celadon::param::glazeGenre)) == 3, "genre: the caption cell is not a choice");
-            click (delivery, { (float) delivery.getWidth() - 12.0f, deliveryY });
-            check (juce::roundToInt (value (celadon::param::glazeDelivery)) == 2, "delivery: last segment -> Club");
-
+            auto& nowPanel = find ("side_now");
+            auto& deliveryPanel = find ("side_delivery");
+            auto* canvas = nowPanel.getParentComponent();
+            const auto hit = [canvas] (juce::Point<int> at) { return canvas != nullptr ? canvas->getComponentAt (at) : nullptr; };
             const auto knobArea = juce::Rectangle<int> (500, 322, 200, 200);
             const auto cornerArea = find ("corner_note").getBounds();
-            check (! genre.getBounds().intersects (knobArea) && ! delivery.getBounds().intersects (knobArea)
-                       && ! genre.getBounds().intersects (cornerArea) && genre.getRight() <= delivery.getX(),
-                   "genre / delivery sit either side of the GLAZE heading, clear of the knob (" + genre.getBounds().toString() + ", " + delivery.getBounds().toString() + ")");
 
-            // T-107：两块侧板从标题行起（表头那一条），压在选择器下面——按真实的命中测试，点选择器中间命中的是选择器本身，
-            //        点侧板表头的空白处不命中侧板（hitTest），点面板里命中侧板；两块侧板都不压主旋钮。
-            {
-                auto& nowPanel = find ("side_now");
-                auto& deliveryPanel = find ("side_delivery");
-                auto* canvas = genre.getParentComponent();
-                const auto hit = [canvas] (juce::Point<int> at) { return canvas != nullptr ? canvas->getComponentAt (at) : nullptr; };
-
-                check (hit (genre.getBounds().getCentre()) == &genre && hit (delivery.getBounds().getCentre()) == &delivery,
-                       "T-107 genre / delivery selectors stay clickable on top of the side-panel headers");
-                check (hit ({ nowPanel.getX() + 4, nowPanel.getY() + 13 }) != &nowPanel && hit ({ deliveryPanel.getRight() - 4, deliveryPanel.getY() + 13 }) != &deliveryPanel,
-                       "T-107 side-panel header strips do not take clicks");
-                check (hit (nowPanel.getBounds().getCentre()) == &nowPanel && hit (deliveryPanel.getBounds().getCentre()) == &deliveryPanel,
-                       "T-107 side panels take clicks inside the panel box");
-                check (! nowPanel.getBounds().intersects (knobArea) && ! deliveryPanel.getBounds().intersects (knobArea)
-                           && genre.getRight() <= nowPanel.getRight() && delivery.getX() >= deliveryPanel.getX(),
-                       "T-107 side panels clear the knob; selectors head their panels (" + nowPanel.getBounds().toString() + ", "
-                           + deliveryPanel.getBounds().toString() + ")");
-            }
-
-            session.setParameter (celadon::param::glazeGenre, 0.0f);
-            session.setParameter (celadon::param::glazeDelivery, 0.0f);
-            check (static_cast<celadon::ui::Segmented&> (genre).getSelected() == 0 && static_cast<celadon::ui::Segmented&> (delivery).getSelected() == 0,
-                   "host changes show up on both selectors");
+            check (hit ({ nowPanel.getX() + 4, nowPanel.getY() + 13 }) != &nowPanel && hit ({ deliveryPanel.getRight() - 4, deliveryPanel.getY() + 13 }) != &deliveryPanel,
+                   "T-107 side-panel header strips do not take clicks");
+            check (hit (nowPanel.getBounds().getCentre()) == &nowPanel && hit (deliveryPanel.getBounds().getCentre()) == &deliveryPanel,
+                   "T-107 side panels take clicks inside the panel box");
+            check (! nowPanel.getBounds().intersects (knobArea) && ! deliveryPanel.getBounds().intersects (knobArea)
+                       && ! nowPanel.getBounds().intersects (cornerArea),
+                   "T-107 side panels clear the knob and the bottom-row hint (" + nowPanel.getBounds().toString() + ", "
+                       + deliveryPanel.getBounds().toString() + ")");
         }
 
         // ⑧ 电源键旁通、AUTO 小胶囊、等响、A / B。
@@ -1799,14 +1775,14 @@ namespace
             dispatchEvents (400);
         }
 
-        // ⑭ R9-01：粒子带里的文字小部件（T-038 起多了曲风、交付两个选择；T-107 起多了两块侧板）都挂着整数对齐的缓存；
+        // ⑭ R9-01：粒子带里的文字小部件（T-038 起多了曲风、交付两个选择；T-107 起这两个删了、多了两块侧板）都挂着整数对齐的缓存；
         //    重画粒子带时从缓存读、不再重画进缓存。
         {
             int cached = 0;
             juce::StringArray missing;
 
             for (const auto* id : { "glaze_title", "glaze_style", "ab", "match", "monitoring", "corner_note", "legend",
-                                    "glaze_genre", "glaze_delivery", "side_now", "side_delivery" })
+                                    "side_now", "side_delivery" })
             {
                 if (dynamic_cast<AlignedComponentCache*> (find (id).getCachedComponentImage()) != nullptr)
                     ++cached;
@@ -1814,7 +1790,7 @@ namespace
                     missing.add (id);
             }
 
-            check (cached == 11, "T-032 the 11 text widgets in the particle band (T-107: incl. both side panels) have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
+            check (cached == 9, "T-032 the 9 text widgets in the particle band (T-107: genre / delivery gone, both side panels in) have aligned image caches" + (missing.isEmpty() ? juce::String() : " (missing " + missing.joinIntoString (", ") + ")"));
 
             PaintProbe probe;
             auto& title = find ("glaze_title");
