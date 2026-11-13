@@ -75,11 +75,29 @@
     没旁通（beginBlock）。
 
     Limit Gain 附加项（applyLimitExtras，beginBlock 末尾）：
-      - G_trim：输出侧慢修正，取代校准器。endBlock 按「方案目标响度 − 出口主段电平」积分，≤ 0.05 dB/s，钳在 ±3 dB；施加时负的
-        G_trim 最多撤掉自动加上去的那部分。宿主旁通 / 听原声、Color 或 Limit 旁通、电平类自动全部撤回、还没有目标方案或出口主段
-        电平时不积分；T-097 起（抗积分饱和，ADR-036 决定 3）另有两类冻结：任一守门自己的退让量 < 0（在退、停住、回程中都算）
-        或这一块刚改过某个退让量；1 s 内改过参数（风格 / 曲风 / 交付 / GLAZE / 规划相关手动值与上一块不同，插件刚开的第一块不算；
-        按处理过的时长计，存进 CONTROL 的 secondsSinceParamChange）。
+      - G_trim：输出侧慢修正，取代校准器。endBlock 按「方案净增益 − 实测净增益」积分（T-106 起；改前是「方案目标响度 − 出口主段
+        电平」），≤ 0.05 dB/s，钳在 ±3 dB；施加时负的 G_trim 最多撤掉自动加上去的那部分。宿主旁通 / 听原声、Color 或 Limit 旁通、
+        电平类自动全部撤回、还没有目标方案或读数时不积分；T-097 起（抗积分饱和，ADR-036 决定 3）另有两类冻结：任一守门自己的
+        退让量 < 0（在退、停住、回程中都算）或这一块刚改过某个退让量；1 s 内改过参数（风格 / 曲风 / 交付 / GLAZE / 规划相关手动值
+        与上一块不同，插件刚开的第一块不算；按处理过的时长计，存进 CONTROL 的 secondsSinceParamChange）。
+        T-106（ADR-038）换误差口径，读数都来自 OutputLevelTracker::evidenceAt：
+          · 实测净增益 = 出口主段电平 − 入口主段电平，两侧是跟踪器里的同一批段、同样的权重（入口样本由 analyzeInput 交给
+            跟踪器，和同一片的出口样本记进同一段）。方案净增益 = Plan::effectiveGainDb。改前拿出口去比「画像的输入响度 I + 方案
+            净增益」，I 是画像自己那套窗口算的（其余曲风还是全部有效音频的门控积分），和出口历史不是同一批段。
+          · 出口那一侧不用实录值，而是折算到「手动 + 已施加的自动增量 + G_trim、不含守门退让」的 Limit Gain 上的值（每段按当块
+            执行的 Limit Gain 折回 0 dB 存着），所以 G_trim 走 δ、读数当块就变 δ。折算只在录制增益附近成立：录制增益离参考
+            增益 ≤ 1 dB 的段全算，≥ 3 dB 的不算，中间线性；加权后不足 3 s 不积分。
+          · 只收方案到位时录的片，没到位的也不积分：自动增量还在往目标方案走的时候，实测净增益里缺的是还没施加的那部分
+            方案，不是链的偏差（Recover / Tame / Glue / Heat / Clip 差 ≤ 1 个单位、Tone 差 ≤ 0.1 dB、Limit Gain 进了死区才算到位）。
+            到没到位、到位的是净增益多少的方案，在 beginBlock 定一次（那一刻的已施加增量就是这一个宿主块执行的设置），这一块
+            切出来的各片沿用；误差里的方案净增益也用这一份，这一片刚重算的方案下一个宿主块才执行。
+          · 出口历史里的段每块按实时画像此刻的参考回看重判（OutputLevelTracker::rejudge，每段记着当时输入侧的段响度与低频
+            占比），只有此刻仍算主段的才计入读数：从头播时先被暂判成主段的前奏，drop 来了以后和输入侧一样不再算数。
+          · 只在这一片的出口交给了跟踪器、且跟踪器正开着的段是主段时才积；积分状态不再往用不上的一侧多走（负的最多到撤光
+            自动加上去的部分，正的不把 Limit Gain 顶过 24 dB；已经在外面的不往回拽）。
+          · 已知近似：每片记的 Limit Gain 是交给限幅器的目标值（限幅器另有 20 ms 平滑与前瞻延迟），入口比出口早一个链延迟，
+            都不对齐；到位的片上差 ≤ 0.002 dB。
+        旧存档（OUTPUT_LEVEL 没有 T-106 的字段）读入时出口电平历史清空、G_trim 归 0 重新收敛。
       - 三个守门各出一份 ≤ 0 的退让：预算环 GlazeGuard、落差守门 ContrastGuard、PSR 守门 PsrGuard；取最小的一份，只退 G_trim 之后
         高出手动 Gain 的那部分。预算环按 10 ms 时隙走、−3 dB 封底；落差守门（入口 + 出口各一份 3 s 窗与 τ 180 s 直方图）与 PSR
         守门（出口 3 s PSR，闭环）每个 OUT 表 100 ms 子块走一步（stepSubBlockGuards 按 endSample 配对两只表的子块，每个子块只推进
@@ -391,6 +409,17 @@ namespace celadon::glaze
             std::int64_t guardSubBlocksDropped = 0;   // 因冻结 / 不连续 / 两表对不上而断开窗口、没推进的子块（或读取批次）数
             std::int64_t lastGuardSubBlockEnd = 0;    // 最近一个推进守门的子块的 endSample（OUT 表时间轴）
             float contrastFloorDb = 0.0f, psrFloorDb = 0.0f;   // 两个子块守门此刻的 floorDb（prepare、读档之后都是 −24 安全下限）
+
+            // ---- T-106 G_trim 的读数（读探针时现算）----
+            float trimLevelLufs = -100.0f;            // 出口主段电平折算到「手动 + 已施加增量 + G_trim、不含守门退让」的 Limit Gain，按录制增益的远近加权（没有证据 = −100）
+            float trimInputLufs = -100.0f;            // 同一批段、同样权重的入口主段电平；上一项减它 = 实测净增益，G_trim 的误差 = 方案净增益 − 实测净增益
+            double trimEvidenceSeconds = 0.0;         // 上一项加权后的主段时长（不足 3 s 时 G_trim 不积分）
+            double trimMainSeconds = 0.0;             // 出口历史里此刻计入电平的主段时长（回看重判之后、不加权，含正在开着的段）
+            bool trimMainNow = false;                 // 正在开着的段此刻暂判是主段（G_trim 只在这时积分）
+            bool trimPlanInPlace = false;             // 最近一次 beginBlock 记下的：这一个宿主块执行的设置是「方案到位」的（各片沿用）
+            float trimPlanGainDb = 0.0f;              //   到位的那份方案的净增益（G_trim 的误差 = 它 − 实测净增益）；没到位时是 NaN
+            bool haveTargetPlan = false;              // 此刻有目标方案（读档、prepare 之后到第一次重算之前没有）
+            bool gainInDeadband = false;              // 此刻 Limit Gain 的自动增量停在回差死区里（「到位」的条件之一）
         };
 
         TestProbe getProbeForTesting() const noexcept;
