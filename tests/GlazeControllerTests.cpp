@@ -8050,9 +8050,11 @@ namespace celadon::test
 //   PSR 守门用常数强开，预算环核对的七项上限 × 4（withRelaxedLimitBudgets，预算环不退）。判据：从 PSR 守门第一次退让 20 s 之后起，输出 3 s PSR
 //   ≥ F − 0.5（F = 7，流媒体下限）的时间占比 ≥ 95 %，且最低不低于 F − 1。main：守门不动作（它读入口，入口 PSR 健康），输出 PSR 在同一段
 //   里一直低于 F − 0.5。
-// 场景 2（Q10 / Q16）：124 BPM breakdown / drop 交替 12 段（16 小节一段，约 6 分 12 秒），Tech House、俱乐部、GLAZE 100、冲击。最后一对
+// 场景 2（Q10 / Q16）：124 BPM breakdown / drop 交替 12 段（16 小节一段，约 6 分 12 秒），Tech House、俱乐部、GLAZE 100、冲击。
 //   breakdown → drop 的落差损失（入口落差 − 出口落差，段落响度 = 段内子块 K 加权能量平均，出口按链延迟对齐）两轮都 ≤ 1.5 LU：① 出厂常数；
 //   ② 七项预算上限 × 4（预算环不退，落差守门成为唯一起作用的守门）。main：第②轮损失 > 1.5 LU（G_trim 抵消了落差守门的退让），第①轮只记录。
+//   判哪几对：Q16 定的是最后一对。T-106 起（Max 2026-11-12 定「按平均先合」）判守门开始判定之后各对的平均、负的损失按 0 算，最后一对只记
+//   日志；Q16 的最后一对判据等「修落差守门退让量来回摆」那个任务放回来（0.1.8.11 发版前要过）。理由与实测见用例里「判据」一段。
 //   本分支另查：第②轮之后换成通用档（落差守门出厂关），退让量每个推进的子块回 0.005 dB（或在非有效音乐时保持），中间不跳变。
 //   两个场景里，落差 / PSR 退让 < 0 的块都要 trimFrozen、G_trim 逐位不变（Q11，TrimFreezeCheck；预算环那一扇在 GlazeControllerGuardFamily 1a）；
 //   场景 1 另用块长 480（一块一片）再跑一遍，连 PSR 守门起退的那一块也核逐位。场景 2 两轮的 G_trim 在第一次退让之前就顶到 +3 钳位，逐位不变
@@ -8551,9 +8553,11 @@ namespace celadon::test
                 double outputDepthLu = std::numeric_limits<double>::quiet_NaN();   //           drop − breakdown（出口）
                 double lossLu = std::numeric_limits<double>::quiet_NaN();          //           入口落差 − 出口落差
                 // T-106：守门开始判定之后的各对（breakdown 起点不早于第一次 contrastJudged 的那些）损失的平均——判据用它，不只看最后一对。
+                // 判据用的平均里负的损失按 0 算（不许拿去抵别的对）；带符号的平均另记一份，只进日志。
                 double firstJudgedSeconds = -1.0;
                 int judgedPairs = 0;
-                double judgedMeanLossLu = std::numeric_limits<double>::quiet_NaN();
+                double judgedMeanLossLu = std::numeric_limits<double>::quiet_NaN();         // 负的按 0 算
+                double judgedSignedMeanLossLu = std::numeric_limits<double>::quiet_NaN();   // 带符号
                 int latencySamples = 0;
                 bool budgetActed = false, psrActed = false, dropped = false;
                 float deepestContrastReliefDb = 0.0f, endContrastReliefDb = 0.0f;
@@ -8959,18 +8963,20 @@ namespace celadon::test
             //      Q16：6 段（3 分钟）时守门判定后没几段歌就完了，加长到 12 段（约 6 分钟），判最后一对。第一个 breakdown 开头被当主段推响，
             //      会让输出直方图低端变宽、损失读数偏小，退让可能晚一些。DGX 实测（2026-10-11、10-23 两次相同）：最深 ① −4.49 / ② −5.04 dB；
             //      逐对损失在 0.8 ～ 2.2 LU 之间摆（守门按自己的直方图读数控在门槛附近，段落量法跟着滞后摆），最后一对 ① 1.35、② 0.81 LU。
-            //   T-106（ADR-038）判据改成不看相位的写法：守门开始判定之后各对损失的平均 ≤ 1.5 LU（两轮都是），最后一对只记日志。
+            //   T-106（ADR-038）判据改成不看相位的写法：守门开始判定之后各对损失的平均 ≤ 1.5 LU（两轮都是；负的损失按 0 算），最后一对只记
+            //      日志。Max 2026-11-12 定「按平均先合」：Q16 的「最后一对 ≤ 1.5 LU」等修守门退让量来回摆的任务放回来（0.1.8.11 发版前要过）。
             //      为什么：守门按自己的直方图读数（180 s 遗忘）退和回，读数比段落量法滞后半分钟到一分多钟，退让量因此来回摆、逐对损失跟着摆
             //      （上面 10-11 的记录就是 0.8 ～ 2.2 LU）；歌在摆动的哪一段结束，最后一对就落在哪——那是守门回差的相位，不是它守没守住。
             //      T-106 之前两轮的 G_trim 约 90 s 就顶在 +3 dB 钳位上，守门一直压在深处抵它，最后一对碰巧落在低处（① 1.35、② 0.81），
             //      而此前几对是 ① 3.52 / 2.20 / 1.10 / 1.65、② 3.63 / 2.12 / 2.24 / 1.53。T-106 之后 G_trim 停在 ① +1.29、② +1.89 dB
-            //      （起退前积到的值，之后冻结），守门要抵的少了，退让量摆得开：第①轮歌结束时刚好放回到 0，最后一对 1.58 LU，守门自己的
+            //      （起退前积到的值，之后冻结），守门要抵的少了，退让量摆得开：第①轮歌结束时刚好放回到 0，最后一对 1.57 LU，守门自己的
             //      读数 1.23 LU、还没到再退的门槛。DGX 2026-11-12 同机实测，判定后各对（第 3 ～ 6 对）：
             //        改前 ① 2.20 / 1.10 / 1.65 / 1.35（平均 1.58）  ② 2.12 / 2.24 / 1.53 / 0.81（平均 1.68）——按新判据两轮都不过；
-            //        改后 ① 2.22 / 0.94 / 0.67 / 1.58（平均 1.35）  ② 3.77 / −0.11 / −0.45 / −0.07（平均 0.79）。
-            //      平均不随相位偏：一对的损失里混着这一对之内退让量的变化（退的时候 drop 比 breakdown 多退、损失偏大，回的时候反过来），
-            //      几对加起来这一项约等于「窗口首尾退让量之差 ÷ 2」，窗口盖住一个来回时接近 0，剩下的就是限幅器真压掉的落差。
-            //      守门退让量来回摆本身（第②轮改后最深退到 −6.65 dB、把自动增益全收回）是守门读数滞后的事，不在 T-106 范围，已上报。
+            //        改后 ① 2.22 / 0.94 / 0.67 / 1.57（平均 1.35）  ② 3.77 / −0.11 / −0.45 / −0.07（负的按 0 算平均 0.94；带符号 0.79）。
+            //      一对的损失里混着这一对之内退让量的变化：退的时候 drop 比 breakdown 多退、损失偏大，回的时候反过来、能成负的。带符号
+            //      平均能把这一项大致抵掉（几对加起来约等于「窗口首尾退让量之差 ÷ 2」），但它也会让一对真丢的冲击被后面几对「多出来」的
+            //      落差抵掉（Codex 的反对意见，第②轮的 3.77 就是）。所以判据里负的按 0 算：只会比带符号的大，偏严；带符号的只进日志。
+            //      守门退让量来回摆本身（第②轮改后最深退到 −6.65 dB、把自动增益全收回）是守门读数滞后的事，不在 T-106 范围，另立任务。
             //   换通用：落差守门出厂关 → 每个推进的子块回 0.05 dB/s × 0.1 s = 0.005 dB；20 s = 200 个子块 → 从约 −3.8 回到约 −2.8 dB，不会碰到 0。
             //   G_trim 归零读回（第②轮放完之后，复查第 2 轮 R2-F10）：两轮的 G_trim 全程顶在 +3 钳位，逐位不变证明不了冻结；改成 +0 读回后
             //   跑 10 s（938 块），落差退让一直 < 0（读回时已在回程），G_trim 离钳位两端都远，冻结坏了一块就会动 0.05 dB/s × 块长。
@@ -9011,17 +9017,19 @@ namespace celadon::test
 
             if constexpr (guardsBySpec)
             {
-                // T-106：判守门开始判定之后各对的平均（理由与实测见上面「判据」一段）；最后一对只记日志。
+                // T-106：判守门开始判定之后各对的平均、负的损失按 0 算（理由与实测见上面「判据」一段）；最后一对和带符号的平均只记日志。
                 for (const auto* round : { &factoryRound, &relaxedRound })
                 {
                     const auto label = juce::String (round == &factoryRound ? "round 1 (factory)" : "round 2 (relaxed budgets, contrast guard alone)");
                     logMessage ("  " + label + ": first judged at " + num (round->firstJudgedSeconds, 1) + " s; " + juce::String (round->judgedPairs)
-                                + " pairs after it lose " + num (round->judgedMeanLossLu) + " LU on average; the last pair loses " + num (round->lossLu) + " LU");
+                                + " pairs after it lose " + num (round->judgedMeanLossLu) + " LU on average with negative losses counted as 0 (signed mean "
+                                + num (round->judgedSignedMeanLossLu) + " LU); the last pair loses " + num (round->lossLu) + " LU");
                     expect (round->judgedPairs >= minJudgedPairs,
                             label + ": (premise) at least " + juce::String (minJudgedPairs) + " breakdown -> drop pairs start after the guard's first judgement: "
                             + juce::String (round->judgedPairs));
                     expect (round->judgedMeanLossLu <= clubLossLimitLu + compareEpsilon,
-                            label + ": the pairs after the guard's first judgement lose <= 1.5 LU on average: " + num (round->judgedMeanLossLu));
+                            label + ": the pairs after the guard's first judgement lose <= 1.5 LU on average, negative losses counted as 0: "
+                            + num (round->judgedMeanLossLu));
                 }
 
                 expect (relaxedRound.deepestContrastReliefDb < 0.0f,
@@ -9194,7 +9202,7 @@ namespace celadon::test
                 result.outputLufs[(size_t) k] = sectionLoudness (outputTap.blocks, length, begin + latency, end + latency);
             }
 
-            auto judgedLossSum = 0.0;
+            auto judgedLossSum = 0.0, judgedSignedLossSum = 0.0;
 
             for (int k = 0; k + 1 < design.sections; k += 2)
             {
@@ -9206,7 +9214,11 @@ namespace celadon::test
 
                 if (judged)
                 {
-                    judgedLossSum += inputDepth - outputDepth;
+                    // 负的损失（这一对里出口的落差比入口还大：守门正在回程）按 0 算，不拿去抵别的对。写成三目而不是 jmax：
+                    // 段落响度缺读数时损失是 NaN，要原样带进平均、让下面的判据失败；jmax (0, NaN) 会悄悄给出 0。
+                    const auto loss = inputDepth - outputDepth;
+                    judgedLossSum += loss < 0.0 ? 0.0 : loss;
+                    judgedSignedLossSum += loss;
                     ++result.judgedPairs;
                 }
 
@@ -9217,7 +9229,10 @@ namespace celadon::test
             }
 
             if (result.judgedPairs > 0)
+            {
                 result.judgedMeanLossLu = judgedLossSum / (double) result.judgedPairs;
+                result.judgedSignedMeanLossLu = judgedSignedLossSum / (double) result.judgedPairs;
+            }
 
             const auto lastDrop = (size_t) design.sections - 1;
             result.inputDepthLu = result.inputLufs[lastDrop] - result.inputLufs[lastDrop - 1];

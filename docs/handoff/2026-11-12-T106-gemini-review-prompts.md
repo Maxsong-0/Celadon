@@ -95,7 +95,7 @@ Two other reviewers (call them R1 and R2) reviewed an earlier state of this chan
 R1-1 (medium) planInPlace() was evaluated in endBlock against live state, but every slice of a host block executes the settings from beginBlock; after a replan inside the block the error used the new target. -> Fixed: beginBlock captures executedPlanInPlace and executedPlanGainDb; endBlock uses them for the evidence gate and for the error. New tests: GlazeControllerTrimLoop 12 and 13.
 R1-2 (low) The recorded Limit Gain is the limiter's smoothing target, not the gain actually applied during a ramp. -> No code change. Comment corrected; kept as a documented approximation (about 0.002 dB on in-place blocks, at most about 0.02 dB for a 6 dB manual jump inside an 8 s segment).
 R1-3 (low) openInputSamples / openPairedSamples were parsed with juce::String::getLargeIntValue(), which reads garbage as 0. -> Fixed: strict decimal parsing (parseCount) for all three sample counts in the new-format path, with an upper bound of 8 s x 768 kHz.
-R1-4 (medium) The contrast scenario's criterion was changed from "last pair <= 1.5 LU" to a signed mean, which removes the original acceptance. -> Not changed; escalated to the product owner (see prompt 3).
+R1-4 (medium) The contrast scenario's criterion was changed from "last pair <= 1.5 LU" to a signed mean, which removes the original acceptance. -> Escalated to the product owner, who decided on 2026-11-12: this change merges with the mean criterion, and a follow-up task fixes the guard's oscillating relief and restores the last-pair criterion before the next release. After pack v2 was generated the mean was tightened to count negative losses as 0 (so a later pair cannot offset an earlier loss); the pack still shows the signed mean.
 R1-5 (low) The weighting test could not tell whether both energy sums used a wrong common weight. -> Fixed: the two segments now have different input levels and the test checks the weighted input level against a hand formula.
 R2-A1 (medium) Segments with no usable gain information (zero or non-finite energy) were given weight 1. -> Fixed: such segments are not evidence and add no evidence seconds.
 R2-A2 (medium) rejudge() does not re-judge the open segment. -> By design: the open segment is judged on every block with the current reference through noteMainness; comments now say so; a test documents it.
@@ -123,6 +123,14 @@ S-2 (nit; found by the author's mutation run) parseCount computed a digit as (in
 | 样本数解析里算数字的那一行 | `(std::int64_t) (c - '0')` | 两边先转成有符号 64 位再减（上面的 S-2；没改错的代码行为不变）|
 
 已经拿第一份跑了也可以接着用：提示词 1 ～ 3 原样发（其中「What T-106 does」第 2、4 条说的自动增量，第一份里还是此刻的值），提示词 4 发之前删掉 S-1、S-2 两行。Gemini 要是在第一份上指出 S-1 这件事，说明它读得细，这一处 v2 里已经改了。
+
+### v2 之后改了什么（材料包不用换）
+
+2026-11-12 21:1x Max 定了落差两轮用例的判据：T-106 按「判定之后各对的平均」先合，Q16 的「最后一对 ≤ 1.5 LU」等修守门来回摆的任务放回来。随后只改了这一条用例：平均里负的损失按 0 算（带符号的平均只进日志），实测两轮 1.35 / 0.94 LU。产品代码没动，四个源文件的 sha256 还是上面那一组。
+
+- 提示词 3 的 (b) 里问的还是材料包里那版「带符号的平均」，照发不用改；Gemini 要是指出正负相抵，这一点已经处理了。
+- 提示词 4 的 R1-4 一行已经写上这个决定。
+- `tests/GlazeControllerTests.cpp` 因此多了 15 行（都在第 8053 ～ 9236 行之间）：Gemini 引用这个文件第 9326 行之后的行号时，对到仓库里要往后挪 15 行；用 `git show d06cdb3:tests/GlazeControllerTests.cpp` 看材料包那一版最省事。
 
 ## 拿回结果之后
 
