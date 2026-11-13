@@ -39,15 +39,10 @@ PASS slider click at the middle -> Mix 50 % (50.0)
 PASS style segment 3 -> Punchy
 PASS Clay low cut -> Manual
 PASS manual low cut value drags (25.0 -> 35.8 Hz)
-PASS genre: last segment -> Melodic-Progressive
-PASS genre: the caption cell is not a choice
-PASS delivery: last segment -> Club
-PASS genre / delivery sit either side of the GLAZE heading, clear of the knob (167 302 237 26, 796 302 173 26)
-PASS T-107 genre / delivery selectors stay clickable on top of the side-panel headers
+PASS T-107 genre / delivery selectors are gone from the panel
 PASS T-107 side-panel header strips do not take clicks
 PASS T-107 side panels take clicks inside the panel box
-PASS T-107 side panels clear the knob; selectors head their panels (16 302 388 214, 796 302 388 214)
-PASS host changes show up on both selectors
+PASS T-107 side panels clear the knob and the bottom-row hint (16 302 388 214, 796 302 388 214)
 PASS COLOR power button bypasses
 PASS AUTO chip turns auto release off
 PASS Match turns loudness-matched listening on
@@ -99,7 +94,7 @@ PASS T-100 GLAZE knob: the reading springs to a new value, re-composing per movi
 PASS T-100 GLAZE knob: once the spring settles, 5 band repaints only blit its cached face (0 face renders)
 PASS T-032 GLAZE knob: listening to the original re-composes the face once (1)
 PASS T-100 GLAZE knob: once the motion stops the porcelain is regenerated exactly at the reading, even within the 0.004 tolerance (porcelain 0.63600 -> 0.63700, reading 0.63600 -> 0.63700, cracks 261)
-PASS T-032 the 11 text widgets in the particle band (T-107: incl. both side panels) have aligned image caches
+PASS T-032 the 9 text widgets in the particle band (T-107: genre / delivery gone, both side panels in) have aligned image caches
 PASS T-032 band repaints read the GLAZE title from its cache (5 reads, 0 re-renders of 5)
 PASS T-107 band repaints read side_now from its cache (5 reads, 0 re-renders of 5)
 PASS T-107 band repaints read side_delivery from its cache (5 reads, 0 re-renders of 5)

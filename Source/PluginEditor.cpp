@@ -336,12 +336,13 @@ public:
         // ---- 中层 ----
         addAndMakeVisible (particles);
         particles.setBounds (0, ParticleField::top, baseWidth, ParticleField::bandHeight);
-        // T-107 重构包 A：两块侧板压在粒子带上、在选择器与标题下面（表头那一条不接鼠标，选择器照常点得到）。位置随版面变，见 layoutGlazeChoices。
+        // T-107 重构包 A：两块侧板压在粒子带上、在标题下面（表头那一条不接鼠标）。坐标见 layoutSidePanels。
         addAndMakeVisible (glazeNowPanel);
         addAndMakeVisible (deliveryPanel);
+        layoutSidePanels();
         addAndMakeVisible (glazeTitle);
-        // T-038：标题收窄到曲风 / 交付两个选择之间（x 470 ～ 730，Max 2026-10-01 选「放在 GLAZE 标题行」）：三者的区域不重叠，
-        // 点选择时不会被标题吃掉。标题内容按宽度居中（中心仍是 600），英文最长一版（GLAZE · Smart mastering · Manual limit）放得下。
+        // 标题 x 470 ～ 730（T-038 时收窄到曲风 / 交付两个选择之间；T-107 删了两个选择，位置不动：两侧是侧板的表头）。
+        // 标题内容按宽度居中（中心仍是 600），英文最长一版（GLAZE · Smart mastering · Manual limit）放得下。
         glazeTitle.setBounds (470, 305, 260, 20);
         addAndMakeVisible (glazeKnob);
         // Keep the knob's interaction coordinates while giving more canvas space to the cards.
@@ -354,20 +355,8 @@ public:
         addAndMakeVisible (styleSelector);
         styleAttachment = std::make_unique<SegmentedAttachment> (styleSelector, *state.getParameter (param::glazeStyle));
 
-        // T-038 曲风与交付：与风格同一种选择器（带灰字说明格），分放 GLAZE 标题行左右（曲风在左、交付在右；Max 2026-10-01 选定，坐标见 layoutGlazeChoices）——
-        // 声音从左边流进 GLAZE、从右边流出，曲风说的是进来的音乐，交付说的是出去的母带。选项文字在 setLanguage 里填。
-        genreSelector.setOptions ({ "", "", "", "" });
-        deliverySelector.setOptions ({ "", "", "" });
-
-        for (auto* selector : { &genreSelector, &deliverySelector })
-        {
-            selector->setFont (uiFont (12.0f, Weight::medium));
-            selector->setEqualWidths (false);
-            addAndMakeVisible (*selector);
-        }
-
-        genreAttachment = std::make_unique<SegmentedAttachment> (genreSelector, *state.getParameter (param::glazeGenre));
-        deliveryAttachment = std::make_unique<SegmentedAttachment> (deliverySelector, *state.getParameter (param::glazeDelivery));
+        // T-107（Max 2026-11-13「直接删掉，不用再搞曲风这些的了」）：GLAZE 标题行左右的曲风 / 交付两个选择器（T-038）从面板上删掉。
+        // 参数 glaze_genre / glaze_delivery 还在（工程照存照读、宿主自动化照旧），面板上不再有改它们的地方。
 
         abSelector.setOptions ({ "", "" });
         abSelector.setEqualWidths (false);
@@ -444,8 +433,6 @@ public:
         // 组件 ID：截图工具按它找控件、模拟操作（卡片里的旋钮 / 滑条 / 三态 / 电源键按参数 ID 命名）。
         glazeKnob.setComponentID (param::glazeAmount);
         styleSelector.setComponentID (param::glazeStyle);
-        genreSelector.setComponentID (param::glazeGenre);
-        deliverySelector.setComponentID (param::glazeDelivery);
         abSelector.setComponentID ("ab");
         matchButton.setComponentID ("match");
         cornerNote.setComponentID ("corner_note");
@@ -465,7 +452,7 @@ public:
         // repaint，缓存随之作废重画。主旋钮自管整颗缓存（GlazeKnob），粒子的柔光与流线也是缓存图（ParticleField）。
         for (auto* widget : std::initializer_list<juce::Component*> { &glazeTitle, &styleSelector, &abSelector,
                                                                       &matchButton, &monitoringButton, &cornerNote, &legend,
-                                                                      &genreSelector, &deliverySelector, &glazeNowPanel, &deliveryPanel })
+                                                                      &glazeNowPanel, &deliveryPanel })
             setBufferedToAlignedImage (*widget);
 
         startTimerHz (10);
@@ -565,15 +552,6 @@ public:
         styleSelector.setOptions ({ glazestatus::styleName (glaze::Style::automatic, language), glazestatus::styleName (glaze::Style::warm, language),
                                     glazestatus::styleName (glaze::Style::punchy, language), glazestatus::styleName (glaze::Style::clean, language) });
         styleSelector.setTooltip (help::tooltipFor (param::glazeStyle, language));
-        genreSelector.setCaption (tr (Text::genreCaption, language));
-        genreSelector.setOptions ({ tr (Text::genreGeneral, language), tr (Text::genreDeep, language),
-                                    tr (Text::genreTech, language), tr (Text::genreMelodic, language) });
-        genreSelector.setTooltip (help::tooltipFor (param::glazeGenre, language));
-        deliverySelector.setCaption (tr (Text::deliveryCaption, language));
-        deliverySelector.setOptions ({ tr (Text::deliveryStandard, language), tr (Text::deliveryStreaming, language),
-                                       tr (Text::deliveryClub, language) });
-        deliverySelector.setTooltip (help::tooltipFor (param::glazeDelivery, language));
-        layoutGlazeChoices();
         abSelector.setOptions ({ tr (Text::processed, language), tr (Text::original, language) });
         matchButton.setTooltip (help::tooltipFor (param::limitListen, language));
         legend.setLanguage (language);
@@ -622,39 +600,16 @@ public:
         repaint (0, y - 2, baseWidth, h + 4);
     }
 
-    // T-038 曲风 / 交付：放在 GLAZE 标题行左右（Max 2026-10-01 看两种截图后选定；原默认的「主旋钮左右」作废）。按文字宽度
-    // （自然宽度随语言变，只在 setLanguage 里量），y 302 ～ 328，与标题（y 305 ～ 325）同一行。频谱区下沿（y 298）在它们上面，
-    // 主旋钮的数值弧在它们下面，都不重叠。
-    // T-107 重构包 A：两个选择器变成两块侧板的表头——曲风右对齐到左侧板右缘 x = 404、交付左对齐到右侧板左缘 x = 796（各外移 66 px，
-    // 要 Max 点头）；侧板 (16 / 796, 302, 388, 214)，旋钮两侧各留 96 px 的粒子通道。备选版面（wideSidePanels，Max 要选择器一个像素
-    // 不动时用）：选择器照旧贴标题 470 / 730，侧板 454 宽、内缘贴 470 / 730，粒子通道只剩 30 px。
-    void layoutGlazeChoices()
+    // T-107 重构包 A：两块侧板 (16 / 796, 302, 388, 214)，从标题行起（表头那一条画在标题行里），旋钮两侧各留 96 px 的粒子通道。
+    // 曲风 / 交付选择器删了之后，两块侧板的表头都能用满整行。
+    void layoutSidePanels()
     {
-        constexpr int top = 302, h = 26;
-        const auto genreRight = wideSidePanels ? 470 : 404, deliveryLeft = wideSidePanels ? 730 : 796;
-        const auto panelWidth = wideSidePanels ? 454 : 388;
-        const auto genreWidth = genreSelector.getNaturalWidth();
-        const auto deliveryWidth = deliverySelector.getNaturalWidth();
-
-        genreSelector.setBounds (genreRight - genreWidth, top, genreWidth, h);
-        deliverySelector.setBounds (deliveryLeft, top, deliveryWidth, h);
-
+        constexpr int panelWidth = 388;
         glazeNowPanel.setBounds (16, sidepanel::top, panelWidth, sidepanel::height);
         deliveryPanel.setBounds (baseWidth - 16 - panelWidth, sidepanel::top, panelWidth, sidepanel::height);
-        glazeNowPanel.setHeaderLimit (genreSelector.getX() - 8 - glazeNowPanel.getX());
-        deliveryPanel.setHeaderLimit (deliverySelector.getRight() + 8 - deliveryPanel.getX());
+        glazeNowPanel.setHeaderLimit (panelWidth - sidepanel::padX);
+        deliveryPanel.setHeaderLimit (sidepanel::padX);
         particles.setChannel ((float) glazeNowPanel.getRight(), (float) deliveryPanel.getX());
-    }
-
-    // T-107 效果图：切换到备选版面（侧板 454 宽、选择器不动）。截图工具用。
-    void setWideSidePanels (bool wide)
-    {
-        if (wide == wideSidePanels)
-            return;
-
-        wideSidePanels = wide;
-        layoutGlazeChoices();
-        repaint();
     }
 
     void noteZoomChanged (double zoom, bool fromUser)
@@ -713,8 +668,6 @@ public:
     GlazeKnob glazeKnob;
     Segmented styleSelector { Segmented::Look::bordered };
     std::unique_ptr<SegmentedAttachment> styleAttachment;
-    Segmented genreSelector { Segmented::Look::bordered }, deliverySelector { Segmented::Look::bordered };   // T-038
-    std::unique_ptr<SegmentedAttachment> genreAttachment, deliveryAttachment;
     Segmented abSelector { Segmented::Look::bordered };
     PillButton matchButton { PillButton::Icon::match };
     PillButton monitoringButton { PillButton::Icon::match };
@@ -724,7 +677,6 @@ public:
     ColourLegend legend;
     GlazeNowPanel glazeNowPanel;      // T-107 左侧板「此刻在推什么」
     DeliveryPanel deliveryPanel;      // T-107 右侧板「交付」
-    bool wideSidePanels = false;      // T-107 备选版面（截图工具切换）
     ClayCard clayCard;
     BalanceCard balanceCard;
     ColorCard colorCard;
@@ -1366,11 +1318,6 @@ void CeladonAudioProcessorEditor::advanceForSnapshot (double seconds)
     advanceSpectrum (seconds, juce::Time::getMillisecondCounterHiRes());
     timerCallback();
     canvas->particles.advance (seconds);
-}
-
-void CeladonAudioProcessorEditor::setWideSidePanelsForPreview (bool wide)
-{
-    canvas->setWideSidePanels (wide);
 }
 
 double CeladonAudioProcessorEditor::getStaticLayerRenderMs() const noexcept
