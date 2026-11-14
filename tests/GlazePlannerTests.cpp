@@ -533,19 +533,19 @@ namespace celadon::test
                 const auto plan = planWith (candidate, 35.0f);
                 const auto& a = plan.increments;
                 const auto& b = base.increments;
-                const auto name = juce::String (candidate == &x15 ? "x1.5" : "x2");
+                const auto candidateName = juce::String (candidate == &x15 ? "x1.5" : "x2");
 
                 expect (scaledLike (a.colorToneDb, b.colorToneDb * ratio) && scaledLike (a.balanceRecover, b.balanceRecover * ratio)
                             && scaledLike (a.balanceTame, b.balanceTame * ratio),
-                        name + ": Tone / Recover / Tame are the factory values times f(0.35) / 0.35");
+                        candidateName + ": Tone / Recover / Tame are the factory values times f(0.35) / 0.35");
                 expect (a.colorHeat >= b.colorHeat && a.colorHeat <= factoryConstants().warm.heatDriveCap,
-                        name + ": Heat never shrinks and stays under the style cap");
+                        candidateName + ": Heat never shrinks and stays under the style cap");
                 expect (sameBits (a.limitGainDb, b.limitGainDb) && sameBits (a.colorGlue, b.colorGlue) && sameBits (a.limitClip, b.limitClip)
                             && sameBits (plan.effectiveGainDb, base.effectiveGainDb) && sameBits (plan.requestedGainDb, base.requestedGainDb)
                             && sameBits (plan.effectiveTargetLufs, base.effectiveTargetLufs),
-                        name + ": level items (Gain, Glue, Clip, net gain, target) are bit for bit the factory ones");
-                expect (samePlan (planWith (candidate, 100.0f), planWith (nullptr, 100.0f)), name + ": GLAZE 100 is bit for bit the factory plan");
-                expect (allIncrementsZero (planWith (candidate, 0.0f).increments), name + ": GLAZE 0 has no increments");
+                        candidateName + ": level items (Gain, Glue, Clip, net gain, target) are bit for bit the factory ones");
+                expect (samePlan (planWith (candidate, 100.0f), planWith (nullptr, 100.0f)), candidateName + ": GLAZE 100 is bit for bit the factory plan");
+                expect (allIncrementsZero (planWith (candidate, 0.0f).increments), candidateName + ": GLAZE 0 has no increments");
             }
         }
 

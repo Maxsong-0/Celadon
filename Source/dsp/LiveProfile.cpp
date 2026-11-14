@@ -1521,10 +1521,10 @@ namespace celadon::glaze
                 return;
 
             const auto threshold = (double) level.value + (double) constants.catchUpMarginLu;
-            const auto louder = [this, threshold] (const Entry& x, float mainness) noexcept
+            const auto louder = [this, threshold] (const Entry& x, float admittedMainness) noexcept
             {
                 return x.usable && x.loudnessValid && std::isfinite (x.loudnessLufs) && (double) x.loudnessLufs > threshold
-                    && mainness >= constants.mainThreshold;
+                    && admittedMainness >= constants.mainThreshold;
             };
 
             if (! louder (e, m))
@@ -1546,9 +1546,9 @@ namespace celadon::glaze
             if (! (seconds >= constants.catchUpRunSeconds))
                 return;
 
-            const auto step = e.effectiveSeconds * catchUpLn2 / halfLife;
-            counters.mainClock += step;
-            counters.referenceClock += step;
+            const auto clockStep = e.effectiveSeconds * catchUpLn2 / halfLife;
+            counters.mainClock += clockStep;
+            counters.referenceClock += clockStep;
         }
 
         // 长时间无主段：上一次进账 m ≥ mainThreshold 之后的有效音频超过 noMainSeconds 的那一部分，按 ÷ noMainDecaySeconds 加进主段时钟
