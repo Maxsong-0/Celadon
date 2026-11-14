@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 在 Linux 测试服务器上装好 scripts/windows-wine.sh 要用的东西。只需装一次；重跑是安全的（已装的跳过）。
 # 在服务器上运行，不在 Mac 上：
-#   ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh
+#   ssh maxsong@100.84.85.68 'bash -s' < scripts/setup-windows-wine.sh      （108，tailnet 地址；109 已弃用）
 #
 # 装什么（都装在 maxsong 名下，只有第 1 步要 sudo；不碰 ghrunner 与 runner 服务）：
 #   1. Ubuntu 的 wine64 + msitools，以及 `ui` 模式要的 xvfb + fonts-noto-cjk（sudo apt）。中文字体不能省：JUCE 的字体回退
@@ -12,6 +12,8 @@
 #   3. Wine Mono（MSBuild 是 .NET Framework 程序），版本与 Wine 10 配套；
 #   4. Inno Setup 6.7.3 → Wine 里的 C:\InnoSetup6（安装包用）。它的安装程序要建窗口：先把 Wine 的图形驱动设成 null（不需要显示器）。
 #      这一步会 wineserver -k（结束本用户所有 Wine 进程）：别在有 Windows 构建或测试在跑时装。
+#   5. cmake + ninja（`test`、`ui` 两个模式用 CMake + Ninja 编）→ ~/opt/buildtools，不往系统里装：108 同时是 testbox 节点，
+#      系统里多一个 cmake 会改到沙盒看到的环境。用 uv 建虚拟环境（108 的系统 python3 没有 ensurepip，建不了带 pip 的 venv）。
 set -euo pipefail
 
 MSVC_WINE_COMMIT=514f8ea
@@ -21,6 +23,9 @@ WINE_MONO_VERSION=9.4.0
 WINE_MONO_SHA256=cf6173ae94b79e9de13d9a74cdb2560a886fc3d271f9489acb1cfdbd961cacb2
 INNO_VERSION=6.7.3
 INNO_SHA256=9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
+BUILDTOOLS_DIR="$HOME/opt/buildtools"   # windows-wine.sh 的远端 PATH 也指这里，两处要一致
+CMAKE_VERSION=4.4.4                     # PyPI 包的版本（2026-11-13 在 108 上装的）
+NINJA_VERSION=1.13.2
 export WINEDEBUG=-all
 # 不让 Wine 往服务器的 Linux 菜单里加快捷方式（Inno Setup 的安装程序会建一串开始菜单项）。
 export WINEDLLOVERRIDES="winemenubuilder.exe=d"
@@ -62,7 +67,20 @@ if [ ! -f "$HOME/.wine/drive_c/InnoSetup6/ISCC.exe" ]; then
   wine64 "$installer" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER '/DIR=C:\InnoSetup6'
 fi
 
+# 5. cmake + ninja（装在用户目录；uv 先找 PATH 里的，再找 testbox 节点自带的）
+if [ ! -x "$BUILDTOOLS_DIR/bin/cmake" ] || [ ! -x "$BUILDTOOLS_DIR/bin/ninja" ]; then
+  UV="$(command -v uv || true)"
+  if [ -z "$UV" ] && [ -x /opt/testbox/toolchains/uv/bin/uv ]; then
+    UV=/opt/testbox/toolchains/uv/bin/uv
+  fi
+  [ -n "$UV" ] || { echo "没有 uv：装 uv（https://docs.astral.sh/uv/）或在 PATH 里放一个，再重跑本脚本" >&2; exit 1; }
+  "$UV" venv --allow-existing "$BUILDTOOLS_DIR"
+  VIRTUAL_ENV="$BUILDTOOLS_DIR" "$UV" pip install "cmake==$CMAKE_VERSION" "ninja==$NINJA_VERSION"
+fi
+
 # 自检
+"$BUILDTOOLS_DIR/bin/cmake" --version | head -1
+echo "ninja $("$BUILDTOOLS_DIR/bin/ninja" --version)"
 PATH="$MSVC_DIR/bin/x64:$PATH" cl 2>&1 | head -1
 "$MSVC_DIR/bin/x64/msbuild" -version | tail -1
 ls "$HOME/.wine/drive_c/InnoSetup6/ISCC.exe"
