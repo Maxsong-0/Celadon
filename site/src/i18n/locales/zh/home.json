@@ -172,14 +172,14 @@
     "title": "同一首歌，<em>等响</em>对比。",
     "lead": "原声与 Celadon 两版逐样本对齐，默认对齐到同一响度播放：只比声音，不比音量。切换时位置不变；关掉「等响」听真实的响度差。建议戴耳机。",
     "disclaimer": "曲目均为 Max 的原创作品，仅供试听。页面里是 AAC 压缩后的片段；插件本身的处理不经过任何压缩。",
-    "link": "插件里怎么做等响 A / B",
+    "link": "插件里怎么做等响对比",
     "loadError": "音频没取到，稍后再试。",
     "tracks": "曲目",
     "play": "播放",
     "pause": "暂停",
     "version": "版本",
-    "original": "B 原声",
-    "celadon": "A Celadon",
+    "original": "原声",
+    "celadon": "Celadon",
     "match": "等响",
     "loudness": "响度",
     "truePeak": "真峰值",
@@ -191,8 +191,8 @@
     "lead": "母带最难的不是处理，是判断。Celadon 把「听清楚差别」当成功能来做：等响、差值、参考，外加一条写进测试里的逐位承诺。",
     "rows": [
       {
-        "title": "等响 A / B",
-        "en": "Level-matched A / B",
+        "title": "等响对比",
+        "en": "Level-matched comparison",
         "body": "测整条链的实测响度差，把较响的一边衰减到另一边；只衰减、不放大，表仍显示衰减前的母带。判断「变好了」还是「只是变响了」。"
       },
       {
@@ -206,8 +206,8 @@
         "body": "把参考曲接进宿主的外部侧链，累计 10 秒有效声音，得到 27 段相对频谱目标；参考曲不进主输出。"
       }
     ],
-    "artOriginal": "B 原声",
-    "artMatched": "A 等响后 −4.8 dB",
+    "artOriginal": "原声",
+    "artMatched": "母带 · 等响后 −4.8 dB",
     "artDiff": "只听被削掉的部分",
     "artRef": "侧链 10 / 10 s · 参考就绪",
     "link": "监听方式的完整说明",

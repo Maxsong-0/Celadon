@@ -10,7 +10,7 @@
 | GLAZE（施釉、总旋钮） | GLAZE | 「智能母带」= Smart mastering；「主段」= main section；「跟着主段慢慢调整」= Follows the main section（插件已没有「重新聆听 / Relearn」） |
 | BALANCE（平衡） | BALANCE | 卡片副题「动态均衡」= Dynamic EQ |
 | CLAY（修坯） | CLAY | 卡片副题「声像」= Stereo；「修坯」作动作讲时 = stereo clean-up / shaping |
-| COLOR（染色） | COLOR | 模块名保留美式 COLOR（插件就这么写）；正文里的「音色」= tone / colour |
+| COLOR（染色） | COLOR | 模块名保留美式 COLOR（插件就这么写）；正文里的「音色」= tone / colour；卡片英文副标题 Colour（0.1.8.11 起，不和第一个旋钮 Tone 同名） |
 | LIMIT（限幅） | LIMIT | 卡片副题「限幅」= Limiter |
 
 ## 参数（照插件）

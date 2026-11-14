@@ -29,7 +29,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 |---|---|---|---|
 | 01 | **BALANCE** Dynamic EQ | Bring back what's buried, pull down what sticks out | 27-band correction curve (over a faint output spectrum) · Recover / Tame / Brighten · Speed |
 | 02 | **CLAY** Stereo | Clean-up: Low cut · Mono · Width | Three rows = lamp + name + current value + Auto / Off / Manual; a 10 Hz – 1 kHz mini graph |
-| 03 | **COLOR** Tone | A little denser, a little warmer | Tone / Glue / Heat · Mix · Output · Glue GR meter |
+| 03 | **COLOR** Colour | A little denser, a little warmer | Tone / Glue / Heat · Mix · Output · Glue GR meter |
 | 04 | **LIMIT** Limiter | Loud, without breaking up | Gain / Ceiling / Clip · Release (AUTO) · Lookahead · Limit GR meter · the headphones for Listen to difference |
 
 Each card header shows the number, name, a one-line description and a power button (bypass; the card fades while bypassed). Bypass is latency-compensated: the latency stays the same and switching never clicks.

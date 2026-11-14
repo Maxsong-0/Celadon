@@ -172,14 +172,14 @@
     "title": "Same song, <em>level-matched</em>.",
     "lead": "The original and the Celadon version are aligned sample by sample and play at the same loudness by default: you compare the sound, not the volume. Switching keeps your place; turn Match off to hear the real loudness difference. Headphones recommended.",
     "disclaimer": "All tracks are Max's own work, for listening only. The clips on this page are AAC-compressed; the plugin's own processing involves no compression.",
-    "link": "How level-matched A / B works in the plugin",
+    "link": "How level-matched comparison works in the plugin",
     "loadError": "Couldn't load the audio. Try again in a moment.",
     "tracks": "Tracks",
     "play": "Play",
     "pause": "Pause",
     "version": "Version",
-    "original": "B Original",
-    "celadon": "A Celadon",
+    "original": "Original",
+    "celadon": "Celadon",
     "match": "Match",
     "loudness": "Loudness",
     "truePeak": "True peak",
@@ -191,7 +191,7 @@
     "lead": "The hardest part of mastering isn't the processing — it's the judgement. Celadon treats hearing the difference clearly as a feature: level matching, difference listening and a reference, plus a bit-exact promise written into the tests.",
     "rows": [
       {
-        "title": "Level-matched A / B",
+        "title": "Level-matched comparison",
         "en": "",
         "body": "Measures the real loudness difference across the whole chain and turns the louder side down to match; it only attenuates, never boosts, and the meters still show the master before attenuation. Tell “better” from “just louder”."
       },
@@ -206,8 +206,8 @@
         "body": "Route a reference track to the host's external sidechain; after 10 seconds of usable audio you get a 27-band relative spectral target. The reference never reaches the main output."
       }
     ],
-    "artOriginal": "B Original",
-    "artMatched": "A matched −4.8 dB",
+    "artOriginal": "Original",
+    "artMatched": "Master · matched −4.8 dB",
     "artDiff": "only what's removed",
     "artRef": "Sidechain 10 / 10 s · reference ready",
     "link": "Full guide to monitoring",
