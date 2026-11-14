@@ -118,9 +118,13 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://github.com/mstorsjo/msvc-wine) 把 Visual Studio 2022 的生成工具
 （MSVC v143、Windows SDK、MSBuild）装进 Wine：cl.exe、link.exe、MSBuild 与 Windows 上是同一套，编的就是 Projucer 生成的 `.sln`。
 
-- 装一次：`ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh`（Wine、msitools、Xvfb、中文字体
+- 机器：108（tailnet `maxsong@100.84.85.68`，两个脚本的默认主机；`CELADON_WIN_HOST` 可改）。109 已弃用（Max 2026-11-13 定）。
+- 装一次：`ssh maxsong@100.84.85.68 'bash -s' < scripts/setup-windows-wine.sh`（Wine、msitools、Xvfb、中文字体
   fonts-noto-cjk 要 sudo apt；下载 VS 工具即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
-- 日常：先在 Mac 上重新生成工程（命令见上面「目录与 Projucer」；`Builds/VisualStudio2022` 随源码同步过去），然后
+  `test`、`ui` 两个模式要的 cmake / ninja 由脚本第 5 步用 uv 装进 108 的 `~/opt/buildtools`（不往系统里装：108 同时是
+  testbox 节点），`windows-wine.sh` 远端会把它加进 PATH。
+- 日常：先重新生成工程（Mac 上命令见上面「目录与 Projucer」；没有 Mac 时用 DGX 上自编的 Linux 版 Projucer `--resave`，它写的
+  `JuceLibraryCode` 两个头只差十六进制大小写，换回仓库原样；`Builds/VisualStudio2022` 随源码同步过去），然后
   - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
   - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
   - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装（默认两项都装）、逐字节核对、
@@ -203,5 +207,5 @@ gh api -X POST repos/Maxsong-0/Celadon/actions/runners/registration-token --jq .
 ssh maxsong@$H 'sudo /usr/local/sbin/ci-runner-service enable-now celadon'
 ```
 
-再加一台机器进同一个池（比如 109 `github-2`）：把 `H` 换掉，整段再跑一遍。实例名仍叫 `celadon`、标签相同即同池，runner 名是
+再加一台机器进同一个池（比如另一台 x86 测试机）：把 `H` 换掉，整段再跑一遍。实例名仍叫 `celadon`、标签相同即同池，runner 名是
 `<主机名>-celadon`，不会撞名；池里的机器都要支持 x86-64-v3（AVX2 + FMA），否则那一遍全套会因非法指令崩掉。
