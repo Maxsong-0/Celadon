@@ -21,7 +21,7 @@ set -euo pipefail
 DEFAULT_CORE=5                 # Cortex-X925 3.9 GHz（docs/validation/2026-10-04-T058-spectrum-peak-off/round2-bench-before.txt）
 DEFAULT_ROUNDS=2               # 基线与当前交替各 ≥ 2 轮
 OBSERVE_INTERVAL_SECONDS=2     # 编译活动观察间隔
-# 一分钟负载上限：空 = 只记录不判。起点值 10 = DGX 20 核的一半（2026-11-14 T-114 首跑后填，终值由 Max 定，计划 §13 Q12）：
+# 一分钟负载上限：空 = 只记录不判。取 10 = DGX 20 核的一半（2026-11-14 T-114 首跑后填，Max 同日定为终值；计划 §13 Q12）：
 # 那次第 1 轮开跑时 8.38（上一个渲染任务的尾巴，那一轮结束时已降到 2.02），读数对第 2 轮（开跑 1.39）没有系统偏高
 # （64 行 structWorst 两轮之差均值 +0.002 个百分点、31 行为正）。见 docs/validation/2026-11-13-T113-listening/README.md 第 8.3 节。
 LOAD1_MAX="10"
