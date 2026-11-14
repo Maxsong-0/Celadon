@@ -343,23 +343,23 @@ public:
         addAndMakeVisible (deliveryPanel);
         layoutSidePanels();
         addAndMakeVisible (glazeTitle);
-        // 标题 x 470 ～ 730（T-038 时收窄到曲风 / 交付两个选择之间；T-107 删了两个选择，位置不动：两侧是侧板的表头）。
-        // 标题内容按宽度居中（中心仍是 600），英文最长一版（GLAZE · Smart mastering · Manual limit）放得下。
-        glazeTitle.setBounds (470, 305, 260, 20);
+        // 标题 x 420 ～ 780，中心仍是 600（T-112 字号放大后英文最长一版「GLAZE · Smart mastering · Manual limit」约 260 px，
+        // 原来的 470 ～ 730 只剩 3 px；两侧侧板在 404 / 796，不相交）。内容按宽度居中。
+        glazeTitle.setBounds (420, 305, 360, 20);
         addAndMakeVisible (glazeKnob);
         // Keep the knob's interaction coordinates while giving more canvas space to the cards.
         glazeKnob.setTopLeftPosition (0, 0);
         glazeKnob.setTransform (juce::AffineTransform::scale (200.0f / (float) GlazeKnob::size).translated (500.0f, 322.0f));
 
         styleSelector.setOptions ({ "", "", "", "" });
-        styleSelector.setFont (uiFont (12.0f, Weight::medium));
-        styleSelector.setSelectedColours (0, { palette::violetSoft, palette::violet });
+        styleSelector.setTextStyle (TextSize::body, Weight::medium);
+        styleSelector.setSelectedColours (0, { palette::violetSoft, palette::violetText });
         addAndMakeVisible (styleSelector);
         styleAttachment = std::make_unique<SegmentedAttachment> (styleSelector, *state.getParameter (param::glazeStyle));
 
         abSelector.setOptions ({ "", "" });
         abSelector.setEqualWidths (false);
-        abSelector.setFont (uiFont (11.5f, Weight::medium));
+        abSelector.setTextStyle (TextSize::body, Weight::medium);
         abSelector.setSelectedColours (0, { palette::c100, palette::c800 });
         abSelector.setSelectedColours (1, { palette::ink, juce::Colours::white });
         addAndMakeVisible (abSelector);
@@ -383,7 +383,7 @@ public:
         matchButton.onClick = [this] { matchAttachment->setValueAsCompleteGesture (matchOn ? 0.0f : 1.0f); };
 
         addAndMakeVisible (cornerNote);
-        cornerNote.setBounds (24, 524, 330, 30);
+        cornerNote.setBounds (24, 524, 290, 30);   // 宽度随底排在 layoutBottomRow 里收到风格选择左边
         addAndMakeVisible (legend);
 
         // ---- 下层：按处理顺序 ----
@@ -413,7 +413,7 @@ public:
 
         addChildComponent (bubble);
 
-        valueEntry.setFont (monoFont (12.0f));
+        valueEntry.setFont (monoFont (TextSize::value));
         valueEntry.setJustification (juce::Justification::centred);
         valueEntry.setSelectAllWhenFocused (true);
         valueEntry.setIndents (4, 2);
@@ -596,6 +596,10 @@ public:
         matchButton.setBounds (x, y, matchWidth, h);
 
         legend.setBounds (baseWidth - 24 - legendWidth, 530, legendWidth, 18);   // T-107：从 y 504 挪到底排（右缘不变）
+
+        // 左边的提示只到风格选择左边 gap 处（原来固定 330 宽、伸进风格选择底下；T-112 字号放大后英文旧工程提示会压到它上面）。
+        // 放不下的由 textfit 检查报出来。
+        cornerNote.setBounds (cornerNote.getX(), y, juce::jmax (0, styleSelector.getX() - gap - cornerNote.getX()), h);
         repaint (0, y - 2, baseWidth, h + 4);
     }
 
@@ -1646,7 +1650,7 @@ void CeladonAudioProcessorEditor::timerCallback()
         {
             pill.segments = glazeSegments;
             pill.accentSegment = view.styleSegment >= 0 ? view.styleSegment : (pill.segments.size() > 1 ? 1 : -1);
-            pill.accentColour = view.kind == Kind::following && style == glaze::Style::automatic ? palette::violet : palette::c800;
+            pill.accentColour = view.kind == Kind::following && style == glaze::Style::automatic ? palette::violetText : palette::c800;
             pill.dotColour = palette::c500;
             pill.pulse = view.kind == Kind::starting;
         }

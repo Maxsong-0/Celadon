@@ -264,9 +264,9 @@ namespace celadon::ui
         // 精调拖动时帽内数字下面的「精调」（不进缓存图：只在按住 ⌘ / Ctrl 拖的那几秒出现）。
         if (isFineDragging())
         {
-            g.setFont (uiFont (10.0f, Weight::medium));
+            g.setFont (uiFont (TextSize::caption, Weight::medium));
             g.setColour (palette::c200);
-            g.drawText (tr (Text::fine, language), juce::Rectangle<float> (centreXY - 30.0f, 128.0f, 60.0f, 12.0f), juce::Justification::centred, false);
+            drawTextLine (g, tr (Text::fine, language), juce::Rectangle<float> (centreXY - 30.0f, 128.0f, 60.0f, 12.0f), juce::Justification::centred);
         }
     }
 
@@ -344,10 +344,11 @@ namespace celadon::ui
             g.drawEllipse (dot.reduced (1.0f), 2.0f);
         }
 
-        // 帽子里的百分数：「45」细体 30 px 白色 +「%」11 px 浅青，基线对齐、整体居中。
+        // 帽子里的百分数：「45」细体（大显示档，旋钮的 224 px 设计坐标里 em 32）白色 +「%」（说明档）浅青，基线对齐、整体居中。
+        // 「100%」在 Linux 的 DejaVu 上约 69 px，帽子直径 72（T-112）。
         {
-            const auto numberFont = uiFont (30.0f, Weight::light);
-            const auto percentFont = uiFont (11.0f);
+            const auto numberFont = uiFont (TextSize::displayLarge, Weight::light);
+            const auto percentFont = uiFont (TextSize::caption);
             const auto number = juce::String (juce::roundToInt (getReadingValue()));
             const auto numberWidth = textWidth (withLetterSpacing (numberFont, -1.0f), number);
             const auto percentWidth = textWidth (percentFont, "%");

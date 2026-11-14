@@ -73,7 +73,7 @@ namespace celadon::ui
 
         constexpr FrequencyLabel frequencyLabels[] = { { 100.0f, "100 Hz" }, { 1000.0f, "1 kHz" }, { 10000.0f, "10 kHz" } };
 
-        juce::Font frequencyLabelFont()   { return monoFont (10.5f); }
+        juce::Font frequencyLabelFont()   { return monoFont (TextSize::micro); }
 
         // 底框：刻度线右边 2 px 起、底边上方，宽 = 字宽 + 6、高 14；字在框里左右各留 3。
         juce::Rectangle<float> frequencyLabelChip (const FrequencyLabel& label)
@@ -234,7 +234,7 @@ namespace celadon::ui
 
     int SpectrumView::LegendToggle::getNaturalWidth() const
     {
-        return (int) std::ceil (8.0f + 10.0f + 5.0f + textWidth (uiFont (11.0f), text) + 8.0f);
+        return (int) std::ceil (8.0f + 10.0f + 5.0f + textWidth (uiFont (TextSize::caption), text) + 8.0f);
     }
 
     void SpectrumView::LegendToggle::paint (juce::Graphics& g)
@@ -267,9 +267,9 @@ namespace celadon::ui
         else
             g.drawRoundedRectangle (chip.expanded (0.0f, 1.0f), 1.0f, 0.8f);   // 线形色块只有 1.5 px 高：空心款撑到 3.5 px 才看得出是框
 
-        g.setFont (uiFont (11.0f));
+        g.setFont (uiFont (TextSize::caption));
         g.setColour (on ? palette::ink2 : palette::ink3);
-        g.drawText (text, juce::Rectangle<float> (23.0f, 0.0f, bounds.getWidth() - 23.0f, (float) getHeight()), juce::Justification::centredLeft, false);
+        drawTextLine (g, text, juce::Rectangle<float> (23.0f, 0.0f, bounds.getWidth() - 23.0f, (float) getHeight()), juce::Justification::centredLeft);
     }
 
     //==============================================================================
@@ -277,7 +277,7 @@ namespace celadon::ui
     {
         choices.setOptions ({ "0", "3", "4.5" });
         choices.setEqualWidths (false);
-        choices.setFont (monoFont (10.5f));
+        choices.setTextStyle (TextSize::caption, Weight::regular, true);
         choices.setSelected (2);
         choices.onSelect = [this] (int) { if (onChange != nullptr) onChange(); };
         addAndMakeVisible (choices);
@@ -298,13 +298,13 @@ namespace celadon::ui
 
     int SpectrumView::SlopeControl::getNaturalWidth() const
     {
-        return (int) std::ceil (8.0f + textWidth (uiFont (11.0f), label) + 4.0f + (float) choices.getNaturalWidth()
-                                + 6.0f + textWidth (monoFont (10.0f), "dB/oct") + 4.0f);
+        return (int) std::ceil (8.0f + textWidth (uiFont (TextSize::caption), label) + 4.0f + (float) choices.getNaturalWidth()
+                                + 6.0f + textWidth (monoFont (TextSize::micro), "dB/oct") + 4.0f);
     }
 
     void SpectrumView::SlopeControl::resized()
     {
-        const auto labelWidth = textWidth (uiFont (11.0f), label);
+        const auto labelWidth = textWidth (uiFont (TextSize::caption), label);
         // 选项用满整行高（24）：点击区不小于 24 × 24（T-111 / 4-22，原来上下各让 3）。
         choices.setBounds ((int) std::ceil (8.0f + labelWidth + 4.0f), 0, choices.getNaturalWidth(), getHeight());
     }
@@ -317,14 +317,14 @@ namespace celadon::ui
         g.setColour (palette::controlBorder);
         g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
 
-        g.setFont (uiFont (11.0f));
+        g.setFont (uiFont (TextSize::caption));
         g.setColour (palette::ink2);
-        g.drawText (label, juce::Rectangle<float> (8.0f, 0.0f, 60.0f, (float) getHeight()), juce::Justification::centredLeft, false);
+        drawTextLine (g, label, juce::Rectangle<float> (8.0f, 0.0f, (float) choices.getX() - 8.0f, (float) getHeight()), juce::Justification::centredLeft);
 
-        g.setFont (monoFont (10.0f));
+        g.setFont (monoFont (TextSize::micro));
         g.setColour (palette::ink3);
-        g.drawText ("dB/oct", juce::Rectangle<float> ((float) choices.getRight() + 6.0f, 0.0f, 50.0f, (float) getHeight()),
-                    juce::Justification::centredLeft, false);
+        drawTextLine (g, "dB/oct", juce::Rectangle<float> ((float) choices.getRight() + 6.0f, 0.0f, 50.0f, (float) getHeight()),
+                      juce::Justification::centredLeft);
     }
 
     //==============================================================================
@@ -347,7 +347,7 @@ namespace celadon::ui
 
         // dB 刻度的底框位置与宽度（字是数字，不随语言变）：量一次，paint 里不再每帧量字宽。
         {
-            const auto font = monoFont (10.0f);
+            const auto font = monoFont (TextSize::micro);
             auto db = -12.0f;
 
             for (auto& chip : dbChips)
@@ -389,7 +389,7 @@ namespace celadon::ui
         slopeControl.setLabel (tr (Text::slope, language));
 
         // 读数框按最长的读数定宽，读数变化时后面的开关不跟着左右跳。
-        readoutWidth = (int) std::ceil (textWidth (monoFont (11.5f, Weight::semibold),
+        readoutWidth = (int) std::ceil (textWidth (monoFont (TextSize::value, Weight::semibold),
                                                     minusSign() + "88.8 dB | 88.88 kHz | C#8 " + minusSign() + "88 " + tr (Text::cents, language)) + 22.0f);
         shownReadout.clear();
         readoutString.clear();
@@ -625,7 +625,7 @@ namespace celadon::ui
     void SpectrumView::updateMarkerLabels()
     {
         // 标签文字与宽度只随频率与语言变：在这里算好，paint 里不再每帧拼串、量宽。
-        const auto font = uiFont (10.0f);
+        const auto font = uiFont (TextSize::caption);
         // 「低切 25 Hz」「收单 120 Hz」：补上单位（T-111 / 4-05）。
         lowCutLabel = tr (Text::markLowCut, language) + " " + juce::String (juce::roundToInt (clayLowCutHz)) + " Hz";
         monoLabel = tr (Text::markMono, language) + " " + juce::String (juce::roundToInt (clayMonoHz)) + " Hz";
@@ -917,7 +917,7 @@ namespace celadon::ui
                 g.setColour (palette::ink2);
 
                 for (const auto& label : frequencyLabels)
-                    g.drawText (label.text, frequencyLabelChip (label), juce::Justification::centred, false);
+                    drawTextLine (g, label.text, frequencyLabelChip (label), juce::Justification::centred);
 
                 break;
             }
@@ -931,14 +931,14 @@ namespace celadon::ui
                 for (const auto& chip : dbChips)
                     g.fillRoundedRectangle (chip, 3.0f);
 
-                const auto dbFont = monoFont (10.0f);
+                const auto dbFont = monoFont (TextSize::micro);
                 g.setFont (dbFont);
                 g.setColour (palette::ink2);
 
                 for (float db = -12.0f; db >= -72.0f; db -= 12.0f)
                 {
                     const auto label = dbLabelFor (db, dbFont);
-                    g.drawText (label.text, label.chip, juce::Justification::centred, false);
+                    drawTextLine (g, label.text, label.chip, juce::Justification::centred);
                 }
 
                 break;
@@ -952,9 +952,9 @@ namespace celadon::ui
                 g.fillRoundedRectangle (readoutBox(), 7.0f);
                 g.setColour (palette::controlBorder);
                 g.drawRoundedRectangle (readoutBox().reduced (0.5f), 6.5f, 1.0f);
-                g.setFont (monoFont (11.5f, Weight::semibold));
+                g.setFont (monoFont (TextSize::value, Weight::semibold));
                 g.setColour (palette::ink);
-                g.drawText (shownReadout, readoutBox().reduced (10.0f, 0.0f), juce::Justification::centredLeft, false);
+                drawTextLine (g, shownReadout, readoutBox().reduced (10.0f, 0.0f), juce::Justification::centredLeft);
                 break;
 
             case Layer::count:
@@ -1221,9 +1221,9 @@ namespace celadon::ui
 
                     g.setColour (juce::Colours::white.withAlpha (0.85f));
                     g.fillRoundedRectangle (chip, 4.0f);
-                    g.setFont (uiFont (10.0f));
+                    g.setFont (uiFont (TextSize::caption));
                     g.setColour (palette::c800);
-                    g.drawText (label, chip, juce::Justification::centred, false);
+                    drawTextLine (g, label, chip, juce::Justification::centred);
                 };
 
                 marker (clayLowCutHz, lowCutLabel, lowCutChip);

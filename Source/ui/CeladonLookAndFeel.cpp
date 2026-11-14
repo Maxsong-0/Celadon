@@ -12,6 +12,7 @@
 
 #include <array>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace celadon::ui
@@ -22,8 +23,6 @@ namespace celadon::ui
         constexpr float tooltipPadding     = 12.0f;
         constexpr float tooltipMaxWidth    = 360.0f;
         constexpr float tooltipCorner      = 8.0f;
-        constexpr float tooltipTitleHeight = 12.5f;
-        constexpr float tooltipBodyHeight  = 11.5f;
         constexpr float tooltipLineGap     = 4.0f;       // 行与行之间的额外间距（在字号本身之外）
         constexpr int   tooltipOffsetX     = 16;         // 相对鼠标热点的偏移：避开箭头光标
         constexpr int   tooltipOffsetY     = 20;
@@ -31,8 +30,7 @@ namespace celadon::ui
         constexpr int   tooltipShadowMargin = 10;        // 气泡窗口四周留给阴影的边（T-111 / 4-11）；翻转、贴边按里面的卡片算
 
         // ---- Label ----
-        constexpr float labelFontHeight        = 11.0f;
-        constexpr float defaultLabelFontHeight = 15.0f;  // juce::Label 构造时的默认字号（juce_Label.h）
+        constexpr float defaultLabelFontHeight = 15.0f;  // juce::Label 构造时的默认字号（juce_Label.h，JUCE 字高）
 
         //==============================================================================
         // 界面字体族（见头文件）。只查一次字体列表，之后用缓存。
@@ -111,12 +109,28 @@ namespace celadon::ui
             return family;
         }
 
-        juce::Font makeFont (const Family& family, float height, Weight weight, std::vector<juce::String> fallbacks = {})
+        juce::Font makeFont (const Family& family, TextSize size, Weight weight, std::vector<juce::String> fallbacks = {})
         {
             // 不能用不带名字的 FontOptions (height)——那是「默认无衬线」占位符，macOS 上落到 Lucida Grande。
             // FontOptions 默认 fallbackEnabled = true：字体里没有的字先按 fallbacks 找，再回退到系统字体。
-            return juce::Font (juce::FontOptions (family.name, family.styles[(size_t) weight], juce::jmax (1.0f, height))
+            // 按点高（= em 像素）给，不按 JUCE 字高：回退字体（等宽串里的中文、界面字里的 ⌘）换字体时保留点高，与主字体同 em
+            // （Font::findSuitableFontForText 拷贝整个 Font 再换字体）。
+            return juce::Font (juce::FontOptions (family.name, family.styles[(size_t) weight], 1.0f)
+                                   .withPointHeight (emOf (size))
                                    .withFallbacks (std::move (fallbacks)));
+        }
+
+        // textfit 的记录（只在消息线程用，见头文件）。
+        struct TextFitLog
+        {
+            bool recording = false;
+            std::vector<textfit::Overflow> overflows;
+        };
+
+        TextFitLog& textFitLog()
+        {
+            static TextFitLog log;
+            return log;
         }
 
         //==============================================================================
@@ -138,7 +152,7 @@ namespace celadon::ui
 
             for (int i = 0; i < lines.size(); ++i)
             {
-                const auto font = i == 0 ? uiFont (tooltipTitleHeight, Weight::medium) : uiFont (tooltipBodyHeight);
+                const auto font = i == 0 ? uiFont (TextSize::body, Weight::medium) : uiFont (TextSize::body);
 
                 juce::AttributedString attributed;
                 attributed.setJustification (juce::Justification::topLeft);
@@ -187,27 +201,22 @@ namespace celadon::ui
         return juce::Colour (mix (a.r, b.r), mix (a.g, b.g), mix (a.b, b.b));
     }
 
-    juce::Font uiFont (float height, Weight weight)
+    juce::Font uiFont (TextSize size, Weight weight)
     {
-        return makeFont (interfaceFamily(), height, weight);
+        return makeFont (interfaceFamily(), size, weight);
     }
 
-    juce::Font monoFont (float height, Weight weight)
+    juce::Font monoFont (TextSize size, Weight weight)
     {
        #if JUCE_WINDOWS
         // Consolas 没有中文：中文先回退到界面字体族（微软雅黑 UI，Consolas 用到的 Regular / Bold 它都有），与界面其余中文同一款字。
         // 不指定的话 Windows 按系统显示语言选回退字体（日文系统会拿日文字形写中文）。
         // 只在 Windows 上指定：JUCE 的首选回退只换字体族、不换字重名，macOS 上 Menlo 的「Bold」苹方里没有，会落到苹方的第一种
         // 字重再加假粗体——那边 CoreText 按字重配的级联回退更好。
-        return makeFont (monoFamily(), height, weight, { interfaceFamily().name });
+        return makeFont (monoFamily(), size, weight, { interfaceFamily().name });
        #else
-        return makeFont (monoFamily(), height, weight);
+        return makeFont (monoFamily(), size, weight);
        #endif
-    }
-
-    juce::Font celadonFont (float height, bool medium)
-    {
-        return uiFont (height, medium ? Weight::medium : Weight::regular);
     }
 
     float textWidth (const juce::Font& font, const juce::String& text)
@@ -217,8 +226,37 @@ namespace celadon::ui
 
     juce::Font withLetterSpacing (const juce::Font& font, float pixels)
     {
+        // JUCE 的字距 = 系数 × JUCE 字高（juce_SimpleShapedText.cpp），按点高给的字体 getHeight 照样是换算出的 JUCE 字高。
         const auto height = font.getHeight();
         return height > 0.0f ? font.withExtraKerningFactor (pixels / height) : font;
+    }
+
+    void drawTextLine (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
+                       juce::Justification justification, bool useEllipsis)
+    {
+        auto& log = textFitLog();
+
+        if (log.recording && text.isNotEmpty())
+        {
+            const auto width = textWidth (g.getCurrentFont(), text);
+
+            // drawText 按 addCurtailedLineOfText 截：字形右缘超过框宽就截。量的是同一种排版的总前进宽。
+            if (width > area.getWidth() + 0.01f)
+                log.overflows.push_back ({ text, width, area.getWidth() });
+        }
+
+        g.drawText (text, area, justification, useEllipsis);
+    }
+
+    namespace textfit
+    {
+        void setRecording (bool shouldRecord) noexcept   { textFitLog().recording = shouldRecord; }
+        bool isRecording() noexcept                      { return textFitLog().recording; }
+
+        std::vector<Overflow> takeOverflows()
+        {
+            return std::exchange (textFitLog().overflows, {});
+        }
     }
 
     //==============================================================================
@@ -322,19 +360,19 @@ namespace celadon::ui
     //==============================================================================
     juce::Font CeladonLookAndFeel::getLabelFont (juce::Label& label)
     {
-        // 没显式设过字体的 Label（还是 juce::Label 构造时的默认：15 px、默认无衬线占位名）统一成 11 px 界面字体；
+        // 没显式设过字体的 Label（还是 juce::Label 构造时的默认：JUCE 字高 15、默认无衬线占位名）统一成正文档界面字体；
         // 调用方 setFont 过别的就原样尊重。
         const auto requested = label.getFont();
 
         const bool isJuceDefault = juce::approximatelyEqual (requested.getHeight(), defaultLabelFontHeight)
                                     && requested.getTypefaceName() == juce::Font::getDefaultSansSerifFontName();
 
-        return isJuceDefault ? uiFont (labelFontHeight) : requested;
+        return isJuceDefault ? uiFont (TextSize::body) : requested;
     }
 
     juce::Font CeladonLookAndFeel::getPopupMenuFont()
     {
-        return uiFont (13.0f);
+        return uiFont (TextSize::body);
     }
 
     //==============================================================================

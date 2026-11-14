@@ -21,6 +21,7 @@
 
 #include <JuceHeader.h>
 
+#include "CeladonLookAndFeel.h"
 #include "DialMotion.h"
 #include "Localisation.h"
 
@@ -179,6 +180,10 @@ namespace celadon::ui
         // 精调：拖动与滚轮慢 8 倍（设计规格要求至少 4 倍）。
         static constexpr double fineFactor = 0.125;
 
+        // 所在模块旁通了（卡片设）：照样能调，只是数值弧 / 滑条填充去色（bypassLook），表示「没在处理」（T-112 / 4-19）。
+        void setModuleBypassed (bool shouldLookBypassed);
+        bool isModuleBypassed() const noexcept                     { return moduleBypassed; }
+
     protected:
         // 子类实现：数值气泡的锚点（本地坐标）与直接输入框的位置。
         virtual juce::Point<float> getBubbleAnchor() const = 0;
@@ -223,6 +228,7 @@ namespace celadon::ui
         float value = 0.0f;
         float defaultValue = 0.0f;
 
+        bool moduleBypassed = false;
         bool dragActive = false;       // 按下后还没松开
         bool gestureActive = false;    // 已经向宿主 beginGesture
         bool fine = false;
@@ -339,7 +345,9 @@ namespace celadon::ui
 
         // 每项等宽（true，默认）或按文字宽度（false，两边各留 padding）。
         void setEqualWidths (bool shouldBeEqual)                 { equalWidths = shouldBeEqual; repaint(); }
-        void setFont (const juce::Font& newFont)                 { font = newFont; repaint(); }
+
+        // 字号档与字重；monospaced = 选项是数字（频谱斜率）。前缀（setPrefix）用同一档的等宽半粗，与选项同 em。
+        void setTextStyle (TextSize size, Weight weight, bool monospaced = false);
         void setPrefix (int index, const juce::String& prefix);  // A / B 的「A」「B」：等宽粗体接在名字前
 
         // 按文字算出来的自然宽度（setEqualWidths (false) 时有用）。
@@ -360,7 +368,7 @@ namespace celadon::ui
         Look look;
         juce::StringArray labels, prefixes;
         juce::Array<std::optional<Colours>> selectedColours;
-        juce::Font font;
+        juce::Font font { juce::FontOptions {} }, prefixFont { juce::FontOptions {} };   // 构造时由 setTextStyle 设好（Font() 已弃用）
         int selected = 0;
         int hovered = -1;
         bool equalWidths = true;

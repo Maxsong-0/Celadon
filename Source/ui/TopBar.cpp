@@ -24,10 +24,10 @@ namespace celadon::ui
             return text;
         }
 
-        juce::Font pillFont (bool medium)   { return uiFont (12.0f, medium ? Weight::medium : Weight::regular); }
-        juce::Font brandFont()              { return withLetterSpacing (uiFont (14.0f, Weight::semibold), 3.0f); }
-        juce::Font subtitleFont()           { return withLetterSpacing (uiFont (11.0f), 1.0f); }
-        juce::Font advancedFont()           { return uiFont (12.0f); }
+        juce::Font pillFont (bool medium)   { return uiFont (TextSize::body, medium ? Weight::medium : Weight::regular); }
+        juce::Font brandFont()              { return withLetterSpacing (uiFont (TextSize::title, Weight::semibold), 3.0f); }
+        juce::Font subtitleFont()           { return withLetterSpacing (uiFont (TextSize::caption), 1.0f); }
+        juce::Font advancedFont()           { return uiFont (TextSize::body); }
 
         constexpr float pillInset = 14.0f;   // 胶囊放不下全部内容时两端留的边
 
@@ -258,7 +258,7 @@ namespace celadon::ui
             ++textDraws;
             g.setFont (item.font);
             g.setColour (item.colour);
-            g.drawText (item.text, item.area, juce::Justification::centredLeft, item.ellipsis);
+            drawTextLine (g, item.text, item.area, juce::Justification::centredLeft, item.ellipsis);
         }
     }
 
@@ -288,9 +288,9 @@ namespace celadon::ui
         }
         else
         {
-            g.setFont (monoFont (12.0f));
+            g.setFont (monoFont (TextSize::body));
             g.setColour (palette::ink2);
-            g.drawText ("?", bounds, juce::Justification::centred, false);
+            drawTextLine (g, "?", bounds, juce::Justification::centred);
         }
     }
 
@@ -337,8 +337,8 @@ namespace celadon::ui
 
         g.setFont (advancedFont());
         g.setColour (palette::ink);
-        g.drawText (text, juce::Rectangle<float> (icon.getRight() + 6.0f, 0.0f, textWidth (advancedFont(), text) + 2.0f, (float) getHeight()),
-                    juce::Justification::centredLeft, false);
+        drawTextLine (g, text, juce::Rectangle<float> (icon.getRight() + 6.0f, 0.0f, textWidth (advancedFont(), text) + 2.0f, (float) getHeight()),
+                      juce::Justification::centredLeft);
     }
 
     //==============================================================================
@@ -427,10 +427,10 @@ namespace celadon::ui
             ++textDraws;
             g.setFont (brandFont());
             g.setColour (palette::ink);
-            g.drawText ("CELADON", brandArea, juce::Justification::centredLeft, false);
+            drawTextLine (g, "CELADON", brandArea, juce::Justification::centredLeft);
         }
 
-        // 副标题字小一号，两者各自垂直居中时基线差约 0.8 px：下移 1 px 让两行字落在同一条基线上（T-111 / 4-25）。
+        // 副标题比品牌小两档，两者各自垂直居中时基线差约 1 px：下移 1 px 让两行字落在同一条基线上（T-111 / 4-25）。
         const juce::Rectangle<float> subtitleArea (46.0f + brandWidth + 10.0f, 1.0f, 160.0f, 52.0f);
 
         if (needsDrawing (g, subtitleArea))
@@ -438,7 +438,7 @@ namespace celadon::ui
             ++textDraws;
             g.setFont (subtitleFont());
             g.setColour (palette::ink3);
-            g.drawText (subtitleText, subtitleArea, juce::Justification::centredLeft, false);
+            drawTextLine (g, subtitleText, subtitleArea, juce::Justification::centredLeft);
         }
     }
 }

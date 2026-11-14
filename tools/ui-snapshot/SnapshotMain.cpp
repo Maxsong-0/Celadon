@@ -39,6 +39,10 @@
       T-111：主旋钮拖动不出气泡（①）、双击在第二次按下就回默认（③⑥）、高级浮层开着时母带 / 原声第一下就切换（⑩b，真实命中测试）、
       语言切换在设置面板里、顶栏没有语言与延迟（⑪⑰）、橙色规则（GLAZE 琥珀时 CLAY 守护灯不亮橙，接在 T-074 CLAY 灯那条后面）。
       新状态 zh-advanced-original、en-original。
+      T-112（字号与对比度包 B）：--only check 在旧工程那组之后多三组：⑪c 单行文字放得下（中英 × 70 / 125 / 100 % × 主界面、设置、帮助、
+      高级三页、听原声、状态行三句、旧工程提示三种，绘字时量宽，见 textfit）、⑪d 六档字号的 em（界面字体与等宽字体、等宽字体回退到汉字时
+      em 不变）、⑪e 新装默认大小（initialZoom 纯函数）与左下提示不伸进风格选择。新状态 zh-glaze-tooltip、en-glaze-tooltip（GLAZE 标题的
+      悬停气泡：showGlazeTooltip 自 T-048 删掉 House 气泡那两张后一直没人调，气泡本身还在界面上，字号放大后要看它）。
 
   ==============================================================================
 */
@@ -64,6 +68,8 @@
 #include <ctime>
 #include <functional>
 #include <iostream>
+#include <iterator>
+#include <limits>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -367,6 +373,9 @@ namespace
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check);
     void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check);
     void runOldProjectChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runTextFitChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runTypeScaleChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runZoomDefaultChecks (juce::Component& editor, const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
     void runSpectrumBench (int seconds);
     void runSpectrumPeakBench();
@@ -675,6 +684,9 @@ int main (int argc, char* argv[])
           [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::chinese, 0.42f); } },
         { "en-guard-tooltip", celadon::Language::english, none,
           [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::english, 0.42f); } },
+        // T-112：GLAZE 标题的悬停气泡（标题 / 正文两档字号）。范围由 showGlazeTooltip 按气泡实际大小定。
+        { "zh-glaze-tooltip", celadon::Language::chinese, none, [] (Session& s) { showGlazeTooltip (s); } },
+        { "en-glaze-tooltip", celadon::Language::english, none, [] (Session& s) { showGlazeTooltip (s); } },
 
         // T-048 状态行里截图工具单独摆出来的三句（起步是默认图）。只截顶栏胶囊。T-038 的 -house-layout 随 T-108 删掉。
         { "zh-status-follow", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, followReading()); }, pillCrop },
@@ -1446,7 +1458,8 @@ namespace
         }
 
         // ⑪b T-102：设置面板「减少动效」下面那行说明（单行画、放不下截成省略号）中英都放得下。按画它的字体与宽度、用 drawText
-        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同。字体随平台变：
+        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同。T-112 起字体是说明档
+        //（em 10，按 em 定字号后 Mac / Windows / Linux 同一档的汉字一样大，拉丁字母宽度仍随字体变）。字体随平台变：
         // JUCE 在 Linux 上只扫 .ttf / .otf，DGX 的 Noto Sans CJK 是 .ttc、不在字体列表里，界面字体落到 system-ui（DejaVu Sans，
         // 拉丁字母比苹方、雅黑 UI 都宽），汉字回退到 Noto Sans CJK JP（比雅黑 UI 窄）。所以英文这里过了 Mac / Windows 也放得下，中文还要看雅黑 UI——
         // 两者都按字体文件另算过：docs/validation/2026-10-18-T102-reduce-motion-note/。
@@ -1477,6 +1490,9 @@ namespace
         runSpectrumChecks (check);   // T-051：失败由 check 计入
         runClayGuardChecks (check);   // T-074：失败由 check 计入
         runOldProjectChecks (check);  // T-108：失败由 check 计入
+        runTextFitChecks (check);     // T-112 ⑪c：失败由 check 计入
+        runTypeScaleChecks (check);   // T-112 ⑪d
+        runZoomDefaultChecks (editor, check);   // T-112 ⑪e
 
         std::cout << (failures == 0 ? "all interaction checks passed" : juce::String (failures) + " interaction checks FAILED") << std::endl;
         return failures;
@@ -1493,6 +1509,177 @@ namespace
     // 整个字色（palette::warningText）的像素寥寥无几，正常时的字色（紫 / 青 / 灰）红都小于蓝，所以用「偏橙」判；行带是 y = 46 + 47 i 起 42 px
     //（ClayCard::rowBounds）。开着：低切行、收单行的灯各 ≥ 15 个（7 px 的实心圆约 38 个，抗锯齿后留一大半）、数值字各 ≥ 15 个，加宽行两样都是 0；
     // 关着（开之前、开之后）：三行两样都是 0。
+    //==============================================================================
+    // T-112 ⑪c 单行文字放得下：字号放大（正文 em 11）后，单行画的字（drawTextLine：名字、数值、说明、表头、提示……）比框宽就会被
+    // drawText 不出声地截掉尾巴（不带省略号的）或截成省略号。界面代码在绘字时量宽（textfit，平时关着、只在这里打开），
+    // 这里把会出字的场景都画一遍：中英 × 70 / 125 / 100 %（界面缩放是整体变换，逻辑宽度各档相同；三档都画是让缩放后重建的缓存层也量到）
+    // × 主界面、设置、帮助、高级三页、听原声、状态行三句、旧工程提示三种。每档每种语言一条：一处也没超才 PASS，超了列出场景、文字、字宽 / 框宽。
+    // 字体随平台变：Linux 上拉丁字母是 DejaVu Sans（按 em 比苹方、雅黑 UI、Noto 都宽），汉字回退 Noto Sans CJK（每字 1 em，各字体相同），
+    // 所以这里过了 Mac / Windows 也放得下（docs/validation/2026-11-13-T112-type-contrast/ 第 4 节）。
+    // 用自己的会话（预览旧工程提示后编辑器不再跟处理器的值，不能留给别的检查）；跑完放回中文、默认大小 1。
+    void runTextFitChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+        juce::SharedResourcePointer<UiSettings> settings;
+        resetUiSettings (*settings);
+
+        auto session = makeSession (45.0f);
+        auto& editor = *session->editor;
+        session->play (30.0);   // 与出图一样先听完，侧板、状态行、表上都是有数的时候
+
+        const auto selectAdvancedTab = [&editor] (int index)
+        {
+            if (auto* tabs = dynamic_cast<Segmented*> (findById (editor, "adv_tabs")))
+                tabs->setSelected (index, true);
+        };
+
+        struct Scene
+        {
+            const char* name;
+            std::function<void()> show, hide;
+        };
+
+        const auto nothing = [] {};
+        const Scene scenes[] =
+        {
+            { "main", nothing, nothing },
+            { "settings", [&] { editor.showSettings (true); }, [&] { editor.showSettings (false); } },
+            { "help", [&] { editor.showHelp (true); }, [&] { editor.showHelp (false); } },
+            { "advanced-tab1", [&] { editor.showAdvanced (true); selectAdvancedTab (0); }, nothing },
+            { "advanced-tab2", [&] { selectAdvancedTab (1); }, nothing },
+            { "advanced-tab3", [&] { selectAdvancedTab (2); }, [&] { selectAdvancedTab (0); editor.showAdvanced (false); } },
+            { "listening-original", [&] { editor.setListeningToOriginal (true); session->play (0.5); },
+                                    [&] { editor.setListeningToOriginal (false); session->play (0.5); } },
+            { "status-follow", [&] { editor.setStatusLinePreview (followReading()); }, [&] { editor.clearStatusLinePreview(); } },
+            { "status-guard", [&] { editor.setStatusLinePreview (guardReading()); }, [&] { editor.clearStatusLinePreview(); } },
+            { "status-export", [&] { editor.setStatusLinePreview (exportReading()); }, [&] { editor.clearStatusLinePreview(); } },
+            { "legacy-discarded", [&] { editor.setLegacyNoticesPreview (true, false); }, nothing },
+            { "legacy-genre-reset", [&] { editor.setLegacyNoticesPreview (false, true); }, nothing },
+            { "legacy-both", [&] { editor.setLegacyNoticesPreview (true, true); }, [&] { editor.setLegacyNoticesPreview (false, false); } },
+        };
+
+        // 整个编辑器重画一帧：先让所有子组件的缓存作废（AlignedComponentCache 等），字才会真的重新画、被量到。
+        const auto paintAll = [&editor]
+        {
+            std::vector<juce::Component*> all { &editor };
+            collectDescendants (editor, all);
+
+            for (auto* component : all)
+                component->repaint();
+
+            juce::Image image (juce::Image::ARGB, juce::jmax (1, editor.getWidth()), juce::jmax (1, editor.getHeight()), true);
+            paintFrame (editor, image, 1.0f, std::nullopt);
+        };
+
+        for (const auto zoom : { 0.7, 1.25, 1.0 })
+        {
+            // 录制从改大小之前开：缩放停下时同步重建的静态层（频谱刻度等）里的字也算进第一个场景。
+            textfit::setRecording (true);
+            textfit::takeOverflows();
+            editor.setZoom (zoom);
+            dispatchEvents (50);
+
+            for (const auto language : { celadon::Language::chinese, celadon::Language::english })
+            {
+                settings->setLanguage (language);
+                dispatchEvents (50);
+                editor.advanceForSnapshot (0.05);
+
+                juce::StringArray problems;
+
+                for (const auto& scene : scenes)
+                {
+                    scene.show();
+                    editor.advanceForSnapshot (0.05);
+                    paintAll();
+
+                    for (const auto& overflow : textfit::takeOverflows())
+                        problems.addIfNotAlreadyThere (juce::String (scene.name) + ": \"" + overflow.text + "\" " + juce::String (overflow.textWidth, 1)
+                                                       + " / " + juce::String (overflow.boxWidth, 1) + " px");
+
+                    scene.hide();
+                    editor.advanceForSnapshot (0.05);
+                }
+
+                const auto shownZoom = (double) editor.getWidth() / CeladonAudioProcessorEditor::baseWidth;
+                juce::String what ("T-112 single-line text fits its box (");
+                what << (language == celadon::Language::chinese ? "zh" : "en") << ", zoom " << juce::String (zoom, 2)
+                     << " -> " << juce::String (shownZoom, 3) << ", " << (int) std::size (scenes) << " scenes)";
+
+                if (! problems.isEmpty())
+                    what << ": " << problems.size() << " overflow(s): " << problems.joinIntoString ("; ");
+
+                check (problems.isEmpty(), what);
+            }
+
+            textfit::setRecording (false);
+        }
+
+        check (! textfit::isRecording() && textfit::takeOverflows().empty(), "T-112 text-fit recording is off again after the check");
+
+        session->editor.reset();
+        session->processor->releaseResources();
+        resetUiSettings (*settings);
+        dispatchEvents (50);   // 主检查的编辑器跟着语言回到中文
+    }
+
+    // T-112 ⑪d 六档字号：每一档界面字体、等宽字体的 em（点高度）都等于 typescale 里那个数（字号按 em 给，Mac / Windows / Linux 同一档的汉字一样大）；
+    // 等宽字体里夹汉字时回退到别的字体，回退字体的 em 不变（中文与数字同一个 em）。
+    void runTypeScaleChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+        const std::pair<TextSize, const char*> sizes[] =
+        {
+            { TextSize::micro, "micro" }, { TextSize::caption, "caption" }, { TextSize::body, "body" }, { TextSize::value, "value" },
+            { TextSize::title, "title" }, { TextSize::display, "display" }, { TextSize::displayLarge, "displayLarge" },
+        };
+        const auto chinese = juce::String::fromUTF8 ("\xe9\x9f\xb3");   // 「音」
+
+        for (const auto& [size, name] : sizes)
+        {
+            const auto em = emOf (size);
+            const auto ui = uiFont (size);
+            const auto mono = monoFont (size, Weight::medium);
+            const auto fallback = mono.findSuitableFontForText (chinese);
+            const auto near = [em] (float points) { return std::abs (points - em) < 0.01f; };
+
+            check (near (ui.getHeightInPoints()) && near (mono.getHeightInPoints()) && near (fallback.getHeightInPoints()),
+                   juce::String ("T-112 type scale ") + name + ": em " + juce::String (em, 1) + " (ui " + juce::String (ui.getHeightInPoints(), 2)
+                       + ", mono " + juce::String (mono.getHeightInPoints(), 2) + ", mono CJK fallback " + fallback.getTypefaceName() + " "
+                       + juce::String (fallback.getHeightInPoints(), 2) + ")");
+        }
+
+        check (emOf (TextSize::body) == 11.0f && emOf (TextSize::micro) < emOf (TextSize::caption) && emOf (TextSize::caption) < emOf (TextSize::body)
+                   && emOf (TextSize::body) < emOf (TextSize::title) && emOf (TextSize::title) < emOf (TextSize::display)
+                   && emOf (TextSize::display) < emOf (TextSize::displayLarge),
+               "T-112 type scale: body is em 11 and the tiers grow in order");
+    }
+
+    // T-112 ⑪e 新装默认大小（B4，Max 2026-11-12 定）：工程里存过的 > 用户设置里存过的默认 > 新装 125 %；钳到 70 ～ 200 %，非有限按 1。
+    // 屏幕放不下时再取屏幕放得下的最大值（fitZoomToScreen，与平台的屏幕有关，这里不查）。
+    // 另查左下角提示只到风格选择左边 8 px（T-112 以前伸进风格选择底下，字号放大后英文旧工程提示会压上去）。
+    void runZoomDefaultChecks (juce::Component& editor, const std::function<void (bool, const juce::String&)>& check)
+    {
+        using celadon::ui::initialZoom;
+        using celadon::ui::UiSettings;
+        const auto same = [] (double a, double b) { return std::abs (a - b) < 1.0e-9; };
+        const auto nan = std::numeric_limits<double>::quiet_NaN();
+
+        check (same (initialZoom ({}, {}), 1.25), "T-112 B4 first run (nothing stored) opens at 125 %");
+        check (same (initialZoom ({}, 1.0), 1.0), "T-112 B4 a stored default of 100 % stays 100 %");
+        check (same (initialZoom ({}, 1.5), 1.5), "T-112 B4 a stored default of 150 % stays 150 %");
+        check (same (initialZoom (0.8, {}), 0.8) && same (initialZoom (0.8, 1.5), 0.8), "T-112 B4 the project's own size wins");
+        check (same (initialZoom (nan, {}), 1.0), "T-112 B4 a non-finite project size opens at 100 % (as before)");
+        check (same (initialZoom ({}, 5.0), UiSettings::maxZoom) && same (initialZoom (0.1, {}), UiSettings::minZoom),
+               "T-112 B4 sizes are clamped to 70 - 200 %");
+
+        auto* corner = findById (editor, "corner_note");
+        auto* style = findById (editor, celadon::param::glazeStyle);
+        check (corner != nullptr && style != nullptr && corner->getRight() <= style->getX() - 8,
+               "T-112 corner note stops 8 px left of the style selector (corner right "
+                   + juce::String (corner != nullptr ? corner->getRight() : -1) + ", style x " + juce::String (style != nullptr ? style->getX() : -1) + ")");
+    }
+
     //==============================================================================
     // T-108（ADR-039 Q2、Q3）：存着曲风 / 交付的旧工程。参数表里已经没有 glaze_genre / glaze_delivery；读档时处理器把这两个 PARAM 节点
     // 摘掉，有一个不是默认值（下标 0 = 通用 / 标准）就让界面左下角提示一次「曲风与交付已取消…」，通用 + 标准的旧工程不提示。
@@ -1875,7 +2062,7 @@ namespace
             g.setColour (juce::Colour (0xff3e8f8a).withAlpha (0.35f + 0.65f * shade));
             g.fillEllipse (dot);
             g.setColour (juce::Colour (0xff1d3b3a));
-            g.setFont (celadon::ui::uiFont (12.0f));
+            g.setFont (celadon::ui::uiFont (celadon::ui::TextSize::body));   // T-112：字号只按档位给
             g.drawText (juce::String::fromUTF8 ("Aligned \xe5\xb7\xb2\xe9\x94\x81\xe5\xae\x9a"), juce::Rectangle<float> (64.0f, 0.0f, 80.0f, (float) getHeight()),
                         juce::Justification::centredLeft, false);
         }

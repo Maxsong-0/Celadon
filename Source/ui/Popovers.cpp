@@ -96,7 +96,7 @@ namespace celadon::ui
         // 语言：与原来顶栏同一种外观（灰底槽、选中项白底），两项按字宽。
         languageSelector.setOptions ({ juce::String::fromUTF8 ("中"), "EN" });
         languageSelector.setEqualWidths (false);
-        languageSelector.setFont (uiFont (11.0f, Weight::medium));
+        languageSelector.setTextStyle (TextSize::body, Weight::medium);
         languageSelector.onSelect = [this] (int index)
         {
             if (onLanguageChange != nullptr)
@@ -161,7 +161,7 @@ namespace celadon::ui
         return { card.getRight() - padding - 38.0f, card.getY() + reduceMotionRowY + 4.0f, 38.0f, 22.0f };
     }
 
-    juce::Font SettingsPanel::reduceMotionNoteFont()   { return uiFont (11.0f); }
+    juce::Font SettingsPanel::reduceMotionNoteFont()   { return uiFont (TextSize::caption); }
     float SettingsPanel::reduceMotionNoteWidth()       { return (float) cardWidth - 2.0f * padding - 50.0f; }   // 内容宽减去开关那 50
 
     double SettingsPanel::zoomAt (float x) const
@@ -180,26 +180,26 @@ namespace celadon::ui
         const auto innerWidth = right - left;
 
         // 标题 + 关闭
-        g.setFont (uiFont (13.0f, Weight::semibold));
+        g.setFont (uiFont (TextSize::title, Weight::semibold));
         g.setColour (palette::ink);
-        g.drawText (tr (Text::settings, language), juce::Rectangle<float> (left, card.getY() + 12.0f, 200.0f, 24.0f), juce::Justification::centredLeft, false);
+        drawTextLine (g, tr (Text::settings, language), juce::Rectangle<float> (left, card.getY() + 12.0f, 200.0f, 24.0f), juce::Justification::centredLeft);
         paintCloseButton (g);
 
         // 界面大小：125%  1500 × 1025
         {
             const auto y = card.getY() + 42.0f;
-            g.setFont (uiFont (12.0f, Weight::medium));
-            g.drawText (tr (Text::windowSize, language), juce::Rectangle<float> (left, y, 150.0f, 16.0f), juce::Justification::centredLeft, false);
+            g.setFont (uiFont (TextSize::body, Weight::medium));
+            drawTextLine (g, tr (Text::windowSize, language), juce::Rectangle<float> (left, y, 150.0f, 16.0f), juce::Justification::centredLeft);
 
-            const auto pxFont = monoFont (11.0f);
+            const auto pxFont = monoFont (TextSize::caption);
             const auto px = pixelText (zoom);
             const auto pxWidth = textWidth (pxFont, px);
             g.setFont (pxFont);
             g.setColour (palette::ink3);
-            g.drawText (px, juce::Rectangle<float> (right - pxWidth, y, pxWidth + 1.0f, 16.0f), juce::Justification::centredRight, false);
-            g.setFont (monoFont (12.0f, Weight::semibold));
+            drawTextLine (g, px, juce::Rectangle<float> (right - pxWidth, y, pxWidth + 1.0f, 16.0f), juce::Justification::centredRight);
+            g.setFont (monoFont (TextSize::value, Weight::semibold));
             g.setColour (palette::ink);
-            g.drawText (percentText (zoom), juce::Rectangle<float> (right - pxWidth - 8.0f - 60.0f, y, 60.0f, 16.0f), juce::Justification::centredRight, false);
+            drawTextLine (g, percentText (zoom), juce::Rectangle<float> (right - pxWidth - 8.0f - 60.0f, y, 60.0f, 16.0f), juce::Justification::centredRight);
         }
 
         // 五个档位
@@ -211,9 +211,9 @@ namespace celadon::ui
             g.fillRoundedRectangle (area, 6.0f);
             g.setColour (on ? palette::c700 : palette::controlBorder);
             g.drawRoundedRectangle (area.reduced (0.5f), 5.5f, 1.0f);
-            g.setFont (monoFont (11.0f, Weight::medium));
+            g.setFont (monoFont (TextSize::caption, Weight::medium));
             g.setColour (on ? juce::Colours::white : palette::ink);
-            g.drawText (percentText (presets[i]), area, juce::Justification::centred, false);
+            drawTextLine (g, percentText (presets[i]), area, juce::Justification::centred);
         }
 
         // 滑条 70 % ～ 200 %
@@ -233,10 +233,10 @@ namespace celadon::ui
             g.setColour (palette::c700);
             g.drawEllipse (thumb.reduced (1.0f), 2.0f);
 
-            g.setFont (monoFont (10.0f));
+            g.setFont (monoFont (TextSize::micro));
             g.setColour (palette::ink3);
-            g.drawText ("70%", juce::Rectangle<float> (left, slider.getBottom(), 40.0f, 14.0f), juce::Justification::centredLeft, false);
-            g.drawText ("200%", juce::Rectangle<float> (right - 40.0f, slider.getBottom(), 40.0f, 14.0f), juce::Justification::centredRight, false);
+            drawTextLine (g, "70%", juce::Rectangle<float> (left, slider.getBottom(), 40.0f, 14.0f), juce::Justification::centredLeft);
+            drawTextLine (g, "200%", juce::Rectangle<float> (right - 40.0f, slider.getBottom(), 40.0f, 14.0f), juce::Justification::centredRight);
         }
 
         // 屏幕预览：按屏幕比例缩进 256 × 144 的框，窗口按当前大小画进去；比屏幕大时变橙色并提醒。
@@ -266,17 +266,17 @@ namespace celadon::ui
                 g.drawRoundedRectangle (window, 2.0f, 1.5f);
             }
 
-            g.setFont (uiFont (10.0f));
+            g.setFont (uiFont (TextSize::caption));
             g.setColour (palette::ink3);
-            g.drawText (trFormat (Text::screenSize, language, { juce::String (screen.getWidth()), juce::String (screen.getHeight()) }),
-                        juce::Rectangle<float> (frame.getX(), frame.getY() - 15.0f, 160.0f, 12.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, trFormat (Text::screenSize, language, { juce::String (screen.getWidth()), juce::String (screen.getHeight()) }),
+                          juce::Rectangle<float> (frame.getX(), frame.getY() - 15.0f, 150.0f, 12.0f), juce::Justification::centredLeft);
 
             if (over)
             {
-                g.setFont (uiFont (10.0f, Weight::medium));
+                g.setFont (uiFont (TextSize::caption, Weight::medium));
                 g.setColour (palette::warningText);
-                g.drawText (tr (Text::tooBig, language), juce::Rectangle<float> (frame.getRight() - 100.0f, frame.getY() - 15.0f, 100.0f, 12.0f),
-                            juce::Justification::centredRight, false);
+                drawTextLine (g, tr (Text::tooBig, language), juce::Rectangle<float> (frame.getRight() - 104.0f, frame.getY() - 15.0f, 104.0f, 12.0f),
+                              juce::Justification::centredRight);
             }
         }
 
@@ -285,7 +285,7 @@ namespace celadon::ui
             juce::AttributedString note;
             note.setWordWrap (juce::AttributedString::byWord);
             note.setLineSpacing (3.0f);
-            note.append (tr (Text::sizeNote, language), uiFont (11.0f), palette::ink2);
+            note.append (tr (Text::sizeNote, language), uiFont (TextSize::caption), palette::ink2);
             juce::TextLayout layout;
             layout.createLayout (note, innerWidth);
             layout.draw (g, juce::Rectangle<float> (left, card.getY() + sizeNoteY, innerWidth, 40.0f));
@@ -297,13 +297,13 @@ namespace celadon::ui
         // 减少动效 + 开关
         {
             const auto y = card.getY() + reduceMotionRowY;
-            g.setFont (uiFont (12.0f, Weight::medium));
+            g.setFont (uiFont (TextSize::body, Weight::medium));
             g.setColour (palette::ink);
-            g.drawText (tr (Text::reduceMotion, language), juce::Rectangle<float> (left, y, 220.0f, 16.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, tr (Text::reduceMotion, language), juce::Rectangle<float> (left, y, 220.0f, 16.0f), juce::Justification::centredLeft);
             g.setFont (reduceMotionNoteFont());
             g.setColour (palette::ink3);
-            g.drawText (tr (Text::reduceMotionNote, language), juce::Rectangle<float> (left, y + 16.0f, reduceMotionNoteWidth(), 14.0f),
-                        juce::Justification::centredLeft, true);
+            drawTextLine (g, tr (Text::reduceMotionNote, language), juce::Rectangle<float> (left, y + 16.0f, reduceMotionNoteWidth(), 14.0f),
+                          juce::Justification::centredLeft, true);
 
             const auto area = switchBounds();
             g.setColour (reduceMotion ? palette::c700 : palette::divider);
@@ -319,9 +319,9 @@ namespace celadon::ui
         g.fillRect (left, card.getY() + secondDividerY, innerWidth, 1.0f);
 
         // 语言：名字在左，中 / EN 选择器（子组件，见 resized）在右
-        g.setFont (uiFont (12.0f, Weight::medium));
+        g.setFont (uiFont (TextSize::body, Weight::medium));
         g.setColour (palette::ink);
-        g.drawText (tr (Text::language, language), juce::Rectangle<float> (left, card.getY() + languageRowY, 200.0f, 16.0f), juce::Justification::centredLeft, false);
+        drawTextLine (g, tr (Text::language, language), juce::Rectangle<float> (left, card.getY() + languageRowY, 200.0f, 16.0f), juce::Justification::centredLeft);
 
         g.setColour (palette::track);
         g.fillRect (left, card.getY() + thirdDividerY, innerWidth, 1.0f);
@@ -329,12 +329,12 @@ namespace celadon::ui
         // 版本 · 延迟
         {
             const auto y = card.getY() + versionRowY;
-            g.setFont (monoFont (10.5f));
+            g.setFont (monoFont (TextSize::caption));
             g.setColour (palette::ink3);
-            g.drawText (tr (Text::version, language) + " " + juce::String (JucePlugin_VersionString),
-                        juce::Rectangle<float> (left, y, 160.0f, 14.0f), juce::Justification::centredLeft, false);
-            g.drawText (tr (Text::latency, language) + " " + juce::String (latencyMs, 1) + " ms",
-                        juce::Rectangle<float> (right - 160.0f, y, 160.0f, 14.0f), juce::Justification::centredRight, false);
+            drawTextLine (g, tr (Text::version, language) + " " + juce::String (JucePlugin_VersionString),
+                          juce::Rectangle<float> (left, y, 140.0f, 14.0f), juce::Justification::centredLeft);
+            drawTextLine (g, tr (Text::latency, language) + " " + juce::String (latencyMs, 1) + " ms",
+                          juce::Rectangle<float> (right - 140.0f, y, 140.0f, 14.0f), juce::Justification::centredRight);
         }
     }
 
@@ -438,7 +438,7 @@ namespace celadon::ui
             juce::AttributedString text;
             text.setWordWrap (juce::AttributedString::byWord);
             text.setLineSpacing (3.0f);
-            text.append (tr (lines[i], language), uiFont (11.5f), palette::ink2);
+            text.append (tr (lines[i], language), uiFont (TextSize::body), palette::ink2);
 
             Item item;
             item.layout.createLayout (text, bodyWidth);
@@ -456,23 +456,23 @@ namespace celadon::ui
         PopoverCard::paint (g);
 
         const auto card = getCardBounds();
-        g.setFont (uiFont (13.0f, Weight::semibold));
+        g.setFont (uiFont (TextSize::title, Weight::semibold));
         g.setColour (palette::ink);
-        g.drawText (tr (Text::helpTitle, language), juce::Rectangle<float> (card.getX() + padding, card.getY() + 12.0f, 200.0f, 24.0f),
-                    juce::Justification::centredLeft, false);
+        drawTextLine (g, tr (Text::helpTitle, language), juce::Rectangle<float> (card.getX() + padding, card.getY() + 12.0f, 200.0f, 24.0f),
+                      juce::Justification::centredLeft);
         paintCloseButton (g);
 
         const auto left = card.getX() + padding, top = card.getY() + 46.0f;
         const auto bodyWidth = card.getWidth() - 2.0f * padding - bulletIndent;
-        const auto bulletFont = uiFont (11.5f);
+        const auto bulletFont = uiFont (TextSize::body);
 
         for (const auto& item : items)
         {
             // 圆点与正文第一行同高居中（第一行行高取字体高度）。
             g.setFont (bulletFont);
             g.setColour (palette::c600);
-            g.drawText (juce::String::fromUTF8 ("•"), juce::Rectangle<float> (left, top + item.y, bulletIndent, bulletFont.getHeight()),
-                        juce::Justification::centredLeft, false);
+            drawTextLine (g, juce::String::fromUTF8 ("•"), juce::Rectangle<float> (left, top + item.y, bulletIndent, bulletFont.getHeight()),
+                          juce::Justification::centredLeft);
             item.layout.draw (g, juce::Rectangle<float> (left + bulletIndent, top + item.y, bodyWidth, item.layout.getHeight()));
         }
     }
@@ -498,8 +498,9 @@ namespace celadon::ui
             return std::isfinite (value) ? value : 0.0f;
         }
 
+        // 高级面板里的说明（可换行）：正文档，次要的说明用说明档（size）。
         void drawAdvancedNote (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
-                               juce::Colour colour = palette::ink2, float size = 12.5f)
+                               juce::Colour colour = palette::ink2, TextSize size = TextSize::body)
         {
             juce::AttributedString attributed;
             attributed.setWordWrap (juce::AttributedString::byWord);
@@ -542,12 +543,12 @@ namespace celadon::ui
         harshMode.setOptions ({ "", "", "" });
         targetMode.setOptions ({ "", "", "", "", "", "" });
         dither.setOptions ({ "", "", "" });
-        harshMode.setSelectedColours (0, { palette::violetSoft, palette::violet });
-        targetMode.setSelectedColours (1, { palette::violetSoft, palette::violet });
-        tabs.setFont (uiFont (13.0f, Weight::medium));
-        harshMode.setFont (uiFont (12.5f, Weight::medium));
-        targetMode.setFont (uiFont (12.5f, Weight::medium));
-        dither.setFont (uiFont (12.5f, Weight::medium));
+        harshMode.setSelectedColours (0, { palette::violetSoft, palette::violetText });
+        targetMode.setSelectedColours (1, { palette::violetSoft, palette::violetText });
+        tabs.setTextStyle (TextSize::body, Weight::medium);
+        harshMode.setTextStyle (TextSize::body, Weight::medium);
+        targetMode.setTextStyle (TextSize::body, Weight::medium);
+        dither.setTextStyle (TextSize::body, Weight::medium);
 
         harshAttachment = std::make_unique<SegmentedAttachment> (harshMode, advancedParameter (state, param::masterHarshMode));
         targetAttachment = std::make_unique<SegmentedAttachment> (targetMode, advancedParameter (state, param::masterTargetMode));
@@ -695,18 +696,18 @@ namespace celadon::ui
         const auto left = card.getX() + 22.0f, top = card.getY(), width = card.getWidth() - 44.0f;
         const auto area = [=] (float y, float height) { return juce::Rectangle<float> (left, top + y, width, height); };
         g.setColour (palette::ink);
-        g.setFont (uiFont (15.0f, Weight::semibold));
-        g.drawText (tr (Text::advanced, language), area (13.0f, 23.0f), juce::Justification::centredLeft, false);
+        g.setFont (uiFont (TextSize::title, Weight::semibold));
+        drawTextLine (g, tr (Text::advanced, language), area (13.0f, 23.0f).withTrimmedRight (40.0f), juce::Justification::centredLeft);
         paintCloseButton (g);
-        drawAdvancedNote (g, tr (Text::advancedSubtitle, language), area (38.0f, 20.0f), palette::ink3, 11.5f);
+        drawAdvancedNote (g, tr (Text::advancedSubtitle, language), area (38.0f, 20.0f), palette::ink3, TextSize::caption);
 
         if (page == 0)
         {
-            drawAdvancedNote (g, tr (Text::harshNote, language), area (117.0f, 36.0f), palette::ink, 14.0f);
-            g.setFont (monoFont (12.0f, Weight::medium));
+            drawAdvancedNote (g, tr (Text::harshNote, language), area (117.0f, 36.0f), palette::ink);
+            g.setFont (monoFont (TextSize::value, Weight::medium));
             g.setColour (palette::c700);
-            g.drawText (trFormat (Text::harshReduction, language, { juce::String (juce::jmax (0.0f, finiteReading (status.harshReductionDb)), 1) }),
-                        area (174.0f, 20.0f).withTrimmedLeft (326.0f), juce::Justification::centredRight, false);
+            drawTextLine (g, trFormat (Text::harshReduction, language, { juce::String (juce::jmax (0.0f, finiteReading (status.harshReductionDb)), 1) }),
+                          area (174.0f, 20.0f).withTrimmedLeft (316.0f), juce::Justification::centredRight);
             const auto note = harshMode.getSelected() == (int) celadon::HarshMode::automatic ? Text::harshAutoNote
                             : harshMode.getSelected() == (int) celadon::HarshMode::off ? Text::harshOffNote : Text::harshManualNote;
             g.setColour (palette::spectrumFloor);
@@ -716,38 +717,38 @@ namespace celadon::ui
         else if (page == 1)
         {
             drawAdvancedNote (g, tr (Text::targetNote, language), area (108.0f, 20.0f));
-            g.setFont (uiFont (11.5f, Weight::medium));
+            g.setFont (uiFont (TextSize::caption, Weight::medium));
             g.setColour (palette::ink3);
-            g.drawText (tr (Text::targetCurveTitle, language), area (207.0f, 19.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, tr (Text::targetCurveTitle, language), area (207.0f, 19.0f), juce::Justification::centredLeft);
             g.setColour (palette::c700);
-            g.setFont (uiFont (12.5f, Weight::medium));
-            g.drawText (referenceStatusText(), area (308.0f, 22.0f), juce::Justification::centredLeft, true);
-            drawAdvancedNote (g, tr (Text::referenceRouting, language), area (334.0f, 32.0f), palette::ink3, 11.5f);
+            g.setFont (uiFont (TextSize::body, Weight::medium));
+            drawTextLine (g, referenceStatusText(), area (308.0f, 22.0f), juce::Justification::centredLeft, true);
+            drawAdvancedNote (g, tr (Text::referenceRouting, language), area (334.0f, 32.0f), palette::ink3, TextSize::caption);
         }
         else
         {
-            drawAdvancedNote (g, tr (Text::codecNote, language), area (151.0f, 34.0f), palette::ink3, 12.0f);
+            drawAdvancedNote (g, tr (Text::codecNote, language), area (151.0f, 34.0f), palette::ink3, TextSize::caption);
             g.setColour (palette::divider);
             g.drawHorizontalLine ((int) (top + 190.0f), left, left + width);
             g.setColour (palette::ink);
-            g.setFont (uiFont (12.5f, Weight::medium));
-            g.drawText (tr (Text::ditherLabel, language), area (202.0f, 23.0f).withWidth (240.0f), juce::Justification::centredLeft, false);
-            drawAdvancedNote (g, tr (Text::ditherNote, language), area (240.0f, 35.0f), palette::ink3, 12.0f);
+            g.setFont (uiFont (TextSize::body, Weight::medium));
+            drawTextLine (g, tr (Text::ditherLabel, language), area (202.0f, 23.0f).withWidth (240.0f), juce::Justification::centredLeft);
+            drawAdvancedNote (g, tr (Text::ditherNote, language), area (240.0f, 35.0f), palette::ink3, TextSize::caption);
             g.setColour (palette::divider);
             g.drawHorizontalLine ((int) (top + 284.0f), left, left + width);
-            drawAdvancedNote (g, tr (Text::previewNote, language), area (339.0f, 36.0f), palette::ink2, 12.0f);
+            drawAdvancedNote (g, tr (Text::previewNote, language), area (339.0f, 36.0f), palette::ink2, TextSize::caption);
             if (status.previewEnabled)
             {
                 g.setColour (palette::c700);
-                g.setFont (monoFont (11.5f));
-                g.drawText (trFormat (Text::previewAttenuation, language, { juce::String (std::abs (finiteReading (status.previewGainDb)), 1) }),
-                            area (378.0f, 19.0f), juce::Justification::centredLeft, false);
+                g.setFont (monoFont (TextSize::value));
+                drawTextLine (g, trFormat (Text::previewAttenuation, language, { juce::String (std::abs (finiteReading (status.previewGainDb)), 1) }),
+                              area (378.0f, 19.0f), juce::Justification::centredLeft);
             }
         }
 
         g.setColour (palette::panelBorder);
         g.drawHorizontalLine ((int) (top + 409.0f), left, left + width);
-        drawAdvancedNote (g, tr (Text::advancedFooter, language), area (417.0f, 16.0f), palette::ink3, 11.0f);
+        drawAdvancedNote (g, tr (Text::advancedFooter, language), area (417.0f, 16.0f), palette::ink3, TextSize::caption);
     }
 
     void AdvancedPanel::TargetCurve::setValues (const std::array<float, 27>& newValues)
@@ -788,16 +789,17 @@ namespace celadon::ui
         }
         g.setColour (palette::c600);
         g.strokePath (line, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setFont (monoFont (9.5f));
+        g.setFont (monoFont (TextSize::micro));
         g.setColour (palette::ink3);
-        g.drawText ("+6", bounds.withWidth (28.0f).withHeight (20.0f), juce::Justification::centredRight, false);
-        g.drawText (juce::String::charToString ((juce::juce_wchar) 0x2212) + "6", juce::Rectangle<float> (0.0f, (float) getHeight() - 20.0f, 28.0f, 20.0f), juce::Justification::centredRight, false);
-        g.drawText ("dB", juce::Rectangle<float> ((float) getWidth() - 28.0f, 0.0f, 24.0f, 20.0f), juce::Justification::centredRight, false);
-        g.setFont (uiFont (9.5f));
+        drawTextLine (g, "+6", bounds.withWidth (28.0f).withHeight (20.0f), juce::Justification::centredRight);
+        drawTextLine (g, juce::String::charToString ((juce::juce_wchar) 0x2212) + "6", juce::Rectangle<float> (0.0f, (float) getHeight() - 20.0f, 28.0f, 20.0f),
+                      juce::Justification::centredRight);
+        drawTextLine (g, "dB", juce::Rectangle<float> ((float) getWidth() - 28.0f, 0.0f, 24.0f, 20.0f), juce::Justification::centredRight);
+        g.setFont (uiFont (TextSize::micro));
         const auto labels = juce::Rectangle<float> (plot.getX(), bounds.getBottom() - 14.0f, plot.getWidth(), 12.0f);
-        g.drawText (tr (Text::lowBand, language), labels, juce::Justification::centredLeft, false);
-        g.drawText (tr (Text::midBand, language), labels, juce::Justification::centred, false);
-        g.drawText (tr (Text::highBand, language), labels, juce::Justification::centredRight, false);
+        drawTextLine (g, tr (Text::lowBand, language), labels, juce::Justification::centredLeft);
+        drawTextLine (g, tr (Text::midBand, language), labels, juce::Justification::centred);
+        drawTextLine (g, tr (Text::highBand, language), labels, juce::Justification::centredRight);
     }
 
     void AdvancedPanel::mouseUp (const juce::MouseEvent& e)
@@ -825,10 +827,10 @@ namespace celadon::ui
 
     int ValueBubble::getPreferredWidth() const
     {
-        auto w = 9.0f + textWidth (monoFont (12.0f), text) + 9.0f;
+        auto w = 9.0f + textWidth (monoFont (TextSize::value), text) + 9.0f;
 
         if (fine)
-            w += 6.0f + textWidth (uiFont (10.0f), fineLabel) + 10.0f;
+            w += 6.0f + textWidth (uiFont (TextSize::caption), fineLabel) + 10.0f;
 
         return (int) std::ceil (w);
     }
@@ -839,21 +841,21 @@ namespace celadon::ui
         g.setColour (palette::ink);
         g.fillRoundedRectangle (bounds, 7.0f);
 
-        const auto font = monoFont (12.0f);
+        const auto font = monoFont (TextSize::value);
         g.setFont (font);
         g.setColour (juce::Colours::white);
-        g.drawText (text, juce::Rectangle<float> (9.0f, 0.0f, textWidth (font, text) + 2.0f, bounds.getHeight()), juce::Justification::centredLeft, false);
+        drawTextLine (g, text, juce::Rectangle<float> (9.0f, 0.0f, textWidth (font, text) + 2.0f, bounds.getHeight()), juce::Justification::centredLeft);
 
         if (fine)
         {
-            const auto labelFont = uiFont (10.0f);
+            const auto labelFont = uiFont (TextSize::caption);
             const juce::Rectangle<float> chip (9.0f + textWidth (font, text) + 6.0f, (bounds.getHeight() - 16.0f) * 0.5f,
                                                textWidth (labelFont, fineLabel) + 10.0f, 16.0f);
             g.setColour (palette::c400);
             g.fillRoundedRectangle (chip, 4.0f);
             g.setFont (labelFont);
             g.setColour (palette::c900);
-            g.drawText (fineLabel, chip, juce::Justification::centred, false);
+            drawTextLine (g, fineLabel, chip, juce::Justification::centred);
         }
     }
 
@@ -877,16 +879,16 @@ namespace celadon::ui
         g.setColour (juce::Colour (13, 27, 33).withAlpha (0.88f));
         g.fillRoundedRectangle (bounds, 16.0f);
 
-        g.setFont (uiFont (12.0f));
+        g.setFont (uiFont (TextSize::body));
         g.setColour (palette::c200);
-        g.drawText (title, juce::Rectangle<float> (0.0f, 22.0f, bounds.getWidth(), 16.0f), juce::Justification::centred, false);
+        drawTextLine (g, title, juce::Rectangle<float> (0.0f, 22.0f, bounds.getWidth(), 16.0f), juce::Justification::centred);
 
-        g.setFont (uiFont (36.0f, Weight::light));
+        g.setFont (uiFont (TextSize::displayLarge, Weight::light));
         g.setColour (juce::Colours::white);
-        g.drawText (percentText (zoom), juce::Rectangle<float> (0.0f, 38.0f, bounds.getWidth(), 42.0f), juce::Justification::centred, false);
+        drawTextLine (g, percentText (zoom), juce::Rectangle<float> (0.0f, 38.0f, bounds.getWidth(), 42.0f), juce::Justification::centred);
 
-        g.setFont (monoFont (12.0f));
+        g.setFont (monoFont (TextSize::value));
         g.setColour (palette::c100);
-        g.drawText (pixelText (zoom) + " px", juce::Rectangle<float> (0.0f, 82.0f, bounds.getWidth(), 16.0f), juce::Justification::centred, false);
+        drawTextLine (g, pixelText (zoom) + " px", juce::Rectangle<float> (0.0f, 82.0f, bounds.getWidth(), 16.0f), juce::Justification::centred);
     }
 }

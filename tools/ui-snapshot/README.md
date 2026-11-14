@@ -33,6 +33,7 @@
 | `zh-genre-reset-both.png` / `en-genre-reset-both.png` | 同上与「旧的预热结果已丢弃」同时出现：各占一行（上行旧预热结果、下行曲风与交付） |
 | `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯橙色（只存下半部分的四张卡片） |
 | `zh-guard-tooltip.png` / `en-guard-tooltip.png` | 同上状态下 CLAY 灯的悬停气泡：第 2 行末尾「峰值守护回收中：低切 / 收单实际只剩约 40%」（取 `help::clayIndicatorTooltip`，与界面同一个函数） |
+| `zh-glaze-tooltip.png` / `en-glaze-tooltip.png` | T-112：GLAZE 标题的悬停气泡（标题一行与正文都是正文档 em 11，标题用中等字重）。`showGlazeTooltip` 原来给 T-038 的 House 气泡用，T-048 删掉那两张后没人调；气泡本身一直在界面上，字号放大后要看它 |
 
 守护回收那几张的状态由编排器填；截图工具把处理器的状态快照改一改再交给编辑器（`setGlazeStatusSource`，见 `injectStatus`；
 T-038 为 House 那几张加的），验的是界面怎么按字段画，不是编排器什么时候置这些字段。T-108（ADR-039）删了曲风与交付：
@@ -77,6 +78,22 @@ T-102 在语言那条（⑪）之后加了 ⑪b：设置面板「减少动效」
 （`juce_Fonts_freetype.cpp`），DGX 的 Noto Sans CJK 只有 `.ttc` 合集，JUCE 的字体列表里没有它，界面字体落到 `system-ui` = DejaVu Sans，
 汉字由系统回退到 Noto Sans CJK JP。DejaVu 的拉丁字母比苹方、微软雅黑 UI 都宽，所以英文这里过了 Mac / Windows 也放得下；
 中文是微软雅黑 UI 最宽，那两种按字体文件另算（`docs/validation/2026-10-18-T102-reduce-motion-note/`）。
+
+T-112（字号与对比度包 B）在旧工程那组之后加了三组：
+
+- **⑪c 单行文字放得下**（`runTextFitChecks`）：界面里单行画的字都走 `drawTextLine`（`CeladonLookAndFeel.h`），`textfit` 打开时它在画之前
+  量一下字宽、比框宽就记下（平时关着，插件里从不打开）。检查用自己的会话（预览旧工程提示后编辑器不再跟处理器的值），按 70 / 125 / 100 %
+  × 中 / 英，把主界面、设置、帮助、高级三页、听原声、状态行三句（跟随 / 受限 / 冷导出）、旧工程提示三种各画一帧（先让所有子组件的缓存作废，
+  字才会真的重画），每档每种语言一条，一处也没超才过，超了列出场景、文字、字宽 / 框宽。界面缩放是整体变换，逻辑宽度各档相同；三档都画是让
+  缩放后重建的缓存层也量到。Linux 上拉丁字母是 DejaVu Sans（按 em 比苹方、雅黑 UI、Noto 都宽），汉字每字 1 em、各字体相同，所以这里过了
+  Mac / Windows 也放得下（`docs/validation/2026-11-13-T112-type-contrast/` 第 4 节）。
+- **⑪d 六档字号**（`runTypeScaleChecks`）：每一档界面字体与等宽字体的 em（`getHeightInPoints`）等于 `typescale` 里那个数，
+  等宽字体回退到汉字字体时 em 不变；正文 em 11，各档由小到大。
+- **⑪e 新装默认大小与左下提示**（`runZoomDefaultChecks`）：`initialZoom` 纯函数——什么都没存（新装）125 %，用户设置存过的照用（100 % 仍是 100 %），
+  工程里存过的优先，非有限按 100 %，钳到 70 ～ 200 %；屏幕放不下时再取屏幕放得下的最大值（`fitZoomToScreen`，与屏幕有关，不在这里查）。
+  另查左下角提示右缘到风格选择左边 8 px 为止（原来固定 330 宽、伸进风格选择底下）。
+
+出图状态仍按默认大小 1 倍出（每个状态之前 `setDefaultZoom (1.0)`），新装 125 % 不影响改前改后逐像素比。
 
 **存图之前一律停稳**：工具不跑消息循环，弹簧会停在半路，所以 `save` 先对所有旋钮调 `finishMotion()`（读数落到参数值、彗尾清零），
 存下的是真机静止时的样子，与没有动画时逐像素相同（`check-drag.png` 也是：拖动中途的读数在真机上本来就只落后约 60 ms）。

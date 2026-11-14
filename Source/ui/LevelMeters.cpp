@@ -190,7 +190,7 @@ namespace celadon::ui
         g.setColour (palette::panelBorder);
         g.drawRoundedRectangle (bounds.reduced (0.5f), 13.5f, 1.0f);
 
-        const auto titleFont = withLetterSpacing (uiFont (11.0f, Weight::semibold), kind == Kind::input ? 1.0f : 0.0f);
+        const auto titleFont = withLetterSpacing (uiFont (TextSize::caption, Weight::semibold), kind == Kind::input ? 1.0f : 0.0f);
 
         // 峰值表条：从下往上长，渐变下浅上深（填充自己的高度里）。
         const auto drawPeakBar = [&] (float x, bool warning)
@@ -225,32 +225,33 @@ namespace celadon::ui
         {
             g.setFont (titleFont);
             g.setColour (palette::ink2);
-            g.drawText (tr (Text::meterIn, language), juce::Rectangle<float> (0.0f, 10.0f, bounds.getWidth(), 14.0f), juce::Justification::centred, false);
+            drawTextLine (g, tr (Text::meterIn, language), juce::Rectangle<float> (0.0f, 10.0f, bounds.getWidth(), 14.0f), juce::Justification::centred);
 
             drawPeakBar (16.0f, false);
 
             // 刻度：0 / −6 / −12 / −24 / −48
-            g.setFont (monoFont (10.0f));
+            g.setFont (monoFont (TextSize::micro));
             g.setColour (palette::ink3);
 
             for (const auto db : { 0.0f, -6.0f, -12.0f, -24.0f, -48.0f })
             {
                 const auto y = barTop + barHeight * (1.0f - proportionOfDb (db)) - 6.0f;
                 const auto text = db == 0.0f ? juce::String ("0") : juce::String::charToString ((juce::juce_wchar) 0x2212) + juce::String (juce::roundToInt (-db));
-                g.drawText (text, juce::Rectangle<float> (29.0f, y, 30.0f, 12.0f), juce::Justification::centredLeft, false);
+                drawTextLine (g, text, juce::Rectangle<float> (29.0f, y, 30.0f, 12.0f), juce::Justification::centredLeft);
             }
 
-            g.setFont (monoFont (11.0f, Weight::medium));
+            // 表下的读数与 OUT / GR 同一档（说明档等宽）：表只有 60 px 宽，OUT 那一格 30 px 放得下「−59.9」（T-112）。
+            g.setFont (monoFont (TextSize::caption, Weight::medium));
             g.setColour (palette::ink);
-            g.drawText (shown.peakText, juce::Rectangle<float> (0.0f, (float) height - 29.0f, bounds.getWidth(), 16.0f), juce::Justification::centred, false);
+            drawTextLine (g, shown.peakText, juce::Rectangle<float> (0.0f, (float) height - 29.0f, bounds.getWidth(), 16.0f), juce::Justification::centred);
             return;
         }
 
         // ---- OUT + GR ----
         g.setFont (titleFont);
         g.setColour (palette::ink2);
-        g.drawText (tr (Text::meterOut, language), juce::Rectangle<float> (1.0f, 10.0f, 32.0f, 14.0f), juce::Justification::centred, false);
-        g.drawText (tr (Text::meterGr, language), juce::Rectangle<float> (27.0f, 10.0f, 32.0f, 14.0f), juce::Justification::centred, false);
+        drawTextLine (g, tr (Text::meterOut, language), juce::Rectangle<float> (1.0f, 10.0f, 32.0f, 14.0f), juce::Justification::centred);
+        drawTextLine (g, tr (Text::meterGr, language), juce::Rectangle<float> (27.0f, 10.0f, 32.0f, 14.0f), juce::Justification::centred);
 
         // 超限小灯
         g.setColour (shown.over ? palette::warning : palette::track);
@@ -288,11 +289,11 @@ namespace celadon::ui
             }
         }
 
-        const auto valueFont = withLetterSpacing (monoFont (10.5f, Weight::medium), -0.3f);
+        const auto valueFont = withLetterSpacing (monoFont (TextSize::caption, Weight::medium), -0.3f);
         g.setFont (valueFont);
         g.setColour (shown.over ? palette::warningText : palette::ink);
-        g.drawText (shown.peakText, juce::Rectangle<float> (2.0f, (float) height - 29.0f, 30.0f, 16.0f), juce::Justification::centred, false);
+        drawTextLine (g, shown.peakText, juce::Rectangle<float> (2.0f, (float) height - 29.0f, 30.0f, 16.0f), juce::Justification::centred);
         g.setColour (shown.planLimited ? palette::warningText : palette::c800);
-        g.drawText (shown.grText, juce::Rectangle<float> (31.0f, (float) height - 29.0f, 24.0f, 16.0f), juce::Justification::centred, false);
+        drawTextLine (g, shown.grText, juce::Rectangle<float> (31.0f, (float) height - 29.0f, 24.0f, 16.0f), juce::Justification::centred);
     }
 }

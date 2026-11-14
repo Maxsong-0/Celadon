@@ -66,11 +66,8 @@ namespace celadon::ui
                 font = font.withHorizontalScale (juce::jmax (0.86f, area.getWidth() / natural));
 
             g.setFont (font);
-            g.drawText (text, area, justification, true);
+            drawTextLine (g, text, area, justification, true);
         }
-
-        // 侧板文字里的紫色（T-105 3-10：#6A4DFF 当文字在白底上对比度不够，文字单独用 #5438D9）。
-        const juce::Colour violetText { 0xff5438d9 };
     }
 
     //==============================================================================
@@ -98,9 +95,9 @@ namespace celadon::ui
     void GlazeTitle::paint (juce::Graphics& g)
     {
         const auto h = (float) getHeight();
-        const auto titleFont = withLetterSpacing (uiFont (12.0f, Weight::semibold), 3.0f);
-        const auto subtitleFont = uiFont (12.0f);
-        const auto chipFont = uiFont (11.0f, Weight::medium);
+        const auto titleFont = withLetterSpacing (uiFont (TextSize::title, Weight::semibold), 3.0f);
+        const auto subtitleFont = uiFont (TextSize::body);
+        const auto chipFont = uiFont (TextSize::caption, Weight::medium);
         const juce::String title ("GLAZE");
         const auto subtitle = tr (Text::glazeSubtitle, language);
 
@@ -133,14 +130,15 @@ namespace celadon::ui
         const auto total = titleWidth + 9.0f + subtitleWidth + (chipWidth > 0.0f ? 9.0f + chipWidth : 0.0f);
         auto x = ((float) getWidth() - total) * 0.5f;
 
+        // 三段整体居中；合起来比框宽时 textfit 记一笔（框按 T-112 的字号放宽到 360，英文最长一版约 260）。
         g.setFont (titleFont);
         g.setColour (palette::ink);
-        g.drawText (title, juce::Rectangle<float> (x, 0.0f, titleWidth + 4.0f, h), juce::Justification::centredLeft, false);
+        drawTextLine (g, title, juce::Rectangle<float> (x, 0.0f, juce::jmin (titleWidth + 4.0f, (float) getWidth() - x), h), juce::Justification::centredLeft);
         x += titleWidth + 9.0f;
 
         g.setFont (subtitleFont);
         g.setColour (palette::ink2);
-        g.drawText (subtitle, juce::Rectangle<float> (x, 0.0f, subtitleWidth + 2.0f, h), juce::Justification::centredLeft, false);
+        drawTextLine (g, subtitle, juce::Rectangle<float> (x, 0.0f, juce::jmin (subtitleWidth + 2.0f, (float) getWidth() - x), h), juce::Justification::centredLeft);
         x += subtitleWidth + 9.0f;
 
         if (chipWidth <= 0.0f)
@@ -163,7 +161,8 @@ namespace celadon::ui
 
         g.setFont (chipFont);
         g.setColour (chipForeground);
-        g.drawText (chipLabel, juce::Rectangle<float> (chipX, chipArea.getY(), chipWidth, chipArea.getHeight()), juce::Justification::centredLeft, false);
+        drawTextLine (g, chipLabel, juce::Rectangle<float> (chipX, chipArea.getY(), juce::jmin (chipWidth, (float) getWidth() - chipX), chipArea.getHeight()),
+                      juce::Justification::centredLeft);
     }
 
     //==============================================================================
@@ -194,7 +193,7 @@ namespace celadon::ui
 
     int PillButton::getNaturalWidth() const
     {
-        const auto font = uiFont (icon == Icon::match ? 11.5f : 12.0f, Weight::medium);
+        const auto font = uiFont (TextSize::body, Weight::medium);
         return (int) std::ceil (12.0f + 12.0f + 6.0f + textWidth (font, text) + 12.0f);
     }
 
@@ -220,7 +219,7 @@ namespace celadon::ui
         g.setColour (border);
         g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
 
-        const auto font = uiFont (icon == Icon::match ? 11.5f : 12.0f, Weight::medium);
+        const auto font = uiFont (TextSize::body, Weight::medium);
         const auto contentWidth = 12.0f + 6.0f + textWidth (font, text);
         auto x = bounds.getCentreX() - contentWidth * 0.5f;
         const auto centreY = bounds.getCentreY();
@@ -273,7 +272,8 @@ namespace celadon::ui
 
         x += 12.0f + 6.0f;
         g.setFont (font);
-        g.drawText (text, juce::Rectangle<float> (x, 0.0f, textWidth (font, text) + 2.0f, (float) getHeight()), juce::Justification::centredLeft, false);
+        drawTextLine (g, text, juce::Rectangle<float> (x, 0.0f, juce::jmin (textWidth (font, text) + 2.0f, bounds.getRight() - x), (float) getHeight()),
+                      juce::Justification::centredLeft);
     }
 
     //==============================================================================
@@ -298,11 +298,11 @@ namespace celadon::ui
     {
         // T-107：底排高 30，两行各 15。
         const auto lineHeight = (float) getHeight() * 0.5f;
-        g.setFont (uiFont (11.0f));
+        g.setFont (uiFont (TextSize::caption));
         g.setColour (hint ? palette::c700 : (warning ? palette::warningText : palette::ink3));   // 两条旧工程提示同时在时第一行也是警告
-        g.drawText (line1, juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), lineHeight), juce::Justification::centredLeft, false);
+        drawTextLine (g, line1, juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), lineHeight), juce::Justification::centredLeft);
         g.setColour (hint ? palette::c700 : (warning ? palette::warningText : palette::ink3));
-        g.drawText (line2, juce::Rectangle<float> (0.0f, lineHeight, (float) getWidth(), lineHeight), juce::Justification::centredLeft, false);
+        drawTextLine (g, line2, juce::Rectangle<float> (0.0f, lineHeight, (float) getWidth(), lineHeight), juce::Justification::centredLeft);
     }
 
     //==============================================================================
@@ -319,7 +319,7 @@ namespace celadon::ui
 
     int ColourLegend::getNaturalWidth() const
     {
-        const auto font = uiFont (11.0f);
+        const auto font = uiFont (TextSize::caption);
         auto total = 0.0f;
 
         for (const auto key : { Text::legendManual, Text::legendAuto, Text::legendAttention })
@@ -330,7 +330,7 @@ namespace celadon::ui
 
     void ColourLegend::paint (juce::Graphics& g)
     {
-        const auto font = uiFont (11.0f);
+        const auto font = uiFont (TextSize::caption);
         const auto centreY = (float) getHeight() * 0.5f;
         auto x = (float) getWidth() - (float) getNaturalWidth();
 
@@ -349,7 +349,7 @@ namespace celadon::ui
             const auto text = tr (key, language);
             g.setFont (font);
             g.setColour (palette::ink2);
-            g.drawText (text, juce::Rectangle<float> (x, 0.0f, textWidth (font, text) + 2.0f, (float) getHeight()), juce::Justification::centredLeft, false);
+            drawTextLine (g, text, juce::Rectangle<float> (x, 0.0f, textWidth (font, text) + 2.0f, (float) getHeight()), juce::Justification::centredLeft);
             x += textWidth (font, text) + 14.0f;
         };
 
@@ -398,18 +398,20 @@ namespace celadon::ui
 
         // 表头：画在标题行里、不带底。
         g.setColour (palette::ink2);
-        drawFittedLine (g, uiFont (11.0f, Weight::medium), tr (Text::sideNowTitle, language),
+        drawFittedLine (g, uiFont (TextSize::caption, Weight::medium), tr (Text::sideNowTitle, language),
                         { left, 0.0f, right - left, (float) headerHeight }, juce::Justification::centredLeft);
 
         drawSidePanelBox (g, width);
 
         // 四行模块：第 i 行在面板内 y = boxTop + 10 + 25 i（画布 344 + 25 i），高 22。
+        // 出力条 84 px、文字列从 left + 176 起（T-112：数值档放大后「Tone −1.5 · Glue +12 · Heat +20」约 205 px，原来 176 px 的列
+        // 压到 0.86 也放不下；条短 12 px 不影响读，文字列宽到 188）。
         static const char* const numbers[] = { "01", "02", "03", "04" };
         static const char* const names[] = { "BALANCE", "CLAY", "COLOR", "LIMIT" };
-        const auto numberFont = monoFont (10.0f);
-        const auto nameFont = uiFont (11.0f, Weight::semibold);
-        const auto valueFont = monoFont (11.0f);
-        const auto barX = left + 80.0f, barWidth = 96.0f, textX = left + 188.0f;
+        const auto numberFont = monoFont (TextSize::micro);
+        const auto nameFont = uiFont (TextSize::caption, Weight::semibold);
+        const auto valueFont = monoFont (TextSize::value);
+        const auto barX = left + 80.0f, barWidth = 84.0f, textX = left + 176.0f;
 
         for (size_t i = 0; i < values.rows.size(); ++i)
         {
@@ -417,15 +419,18 @@ namespace celadon::ui
             const auto y = (float) boxTop + 10.0f + 25.0f * (float) i;
             const auto centreY = y + 11.0f;
 
+            // 旁通的那一行与卡片同一种「没在处理」：淡到 bypassLook::opacity，出力条与紫字去色（原来 0.35，字只剩约 2.2 : 1）。
             if (row.bypassed)
-                g.beginTransparencyLayer (0.35f);
+                g.beginTransparencyLayer (bypassLook::opacity);
+
+            const auto saturation = row.bypassed ? bypassLook::saturation : 1.0f;
 
             g.setFont (numberFont);
             g.setColour (palette::c600);
-            g.drawText (numbers[i], juce::Rectangle<float> (left, y, 18.0f, 22.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, numbers[i], juce::Rectangle<float> (left, y, 18.0f, 22.0f), juce::Justification::centredLeft);
             g.setFont (nameFont);
             g.setColour (palette::ink);
-            g.drawText (names[i], juce::Rectangle<float> (left + 18.0f, y, barX - left - 22.0f, 22.0f), juce::Justification::centredLeft, true);
+            drawTextLine (g, names[i], juce::Rectangle<float> (left + 18.0f, y, barX - left - 22.0f, 22.0f), juce::Justification::centredLeft, true);
 
             if (row.bar >= 0.0f)
             {
@@ -435,19 +440,20 @@ namespace celadon::ui
 
                 if (row.bar > 0.0f)
                 {
-                    g.setColour (palette::violet);
+                    g.setColour (palette::violet.withSaturation (palette::violet.getSaturation() * saturation));
                     g.fillRoundedRectangle (track.withWidth (juce::jmax (6.0f, barWidth * juce::jmin (1.0f, row.bar))), 3.0f);
                 }
             }
             else if (row.badge.isNotEmpty())
             {
-                g.setFont (uiFont (10.5f));
+                g.setFont (uiFont (TextSize::caption));
                 g.setColour (palette::ink3);
-                g.drawText (row.badge, juce::Rectangle<float> (barX, y, barWidth, 22.0f), juce::Justification::centredLeft, true);
+                drawTextLine (g, row.badge, juce::Rectangle<float> (barX, y, barWidth, 22.0f), juce::Justification::centredLeft, true);
             }
 
             const auto hasText = row.text.isNotEmpty();
-            g.setColour (hasText ? (row.automatic ? violetText : palette::ink2) : palette::ink3);
+            g.setColour (hasText ? (row.automatic ? palette::violetText.withSaturation (palette::violetText.getSaturation() * saturation) : palette::ink2)
+                                 : palette::ink3);
             drawFittedLine (g, valueFont, hasText ? row.text : juce::String::charToString ((juce::juce_wchar) 0x2014),
                             { textX, y, right - textX, 22.0f }, juce::Justification::centredLeft);
 
@@ -463,7 +469,7 @@ namespace celadon::ui
         {
             juce::AttributedString status;
             status.setWordWrap (juce::AttributedString::WordWrap::byChar);
-            status.append (values.statusLine, uiFont (11.5f), values.statusWarning ? palette::warningText : palette::ink);
+            status.append (values.statusLine, uiFont (TextSize::body), values.statusWarning ? palette::warningText : palette::ink);
             juce::TextLayout layout;
             layout.createLayout (status, right - left);
             layout.draw (g, { left, (float) boxTop + 121.0f, right - left, 34.0f });
@@ -472,7 +478,7 @@ namespace celadon::ui
         if (values.details.isNotEmpty())
         {
             g.setColour (palette::ink3);
-            drawFittedLine (g, monoFont (10.5f), values.details, { left, (float) boxTop + 158.0f, right - left, 14.0f },
+            drawFittedLine (g, monoFont (TextSize::caption), values.details, { left, (float) boxTop + 158.0f, right - left, 14.0f },
                             juce::Justification::centredLeft);
         }
     }
@@ -552,7 +558,7 @@ namespace celadon::ui
             const auto text = values.hasTarget ? trFormat (Text::sideTarget, language, { signedText (values.targetLufs, 1) })
                                                : trFormat (Text::sideTarget, language, { dash });
             g.setColour (values.hasTarget ? palette::ink : palette::ink3);
-            drawFittedLine (g, monoFont (11.0f, Weight::medium), text,
+            drawFittedLine (g, monoFont (TextSize::value, Weight::medium), text,
                             { left, 0.0f, right - left, (float) headerHeight },
                             juce::Justification::centredRight);
         }
@@ -561,7 +567,7 @@ namespace celadon::ui
 
         // ① 第一排（画布 y 344 ～ 384）：整体响度大字 + LUFS-I + 重新计量；右边三列各 80 px：短期、真峰值、峰响比。
         {
-            const auto big = withLetterSpacing (uiFont (30.0f, Weight::light), -1.0f);
+            const auto big = withLetterSpacing (uiFont (TextSize::display, Weight::light), -1.0f);
             const auto text = lufsText (values.integratedLufs);
             const auto baseline = juce::roundToInt (contentTop + 30.0f);
 
@@ -569,7 +575,7 @@ namespace celadon::ui
             g.setFont (big);
             g.drawSingleLineText (text, juce::roundToInt (left), baseline);
 
-            g.setFont (monoFont (10.0f));
+            g.setFont (monoFont (TextSize::micro));
             g.setColour (palette::ink3);
             g.drawSingleLineText ("LUFS-I", juce::roundToInt (left + textWidth (big, text) + 5.0f), baseline);
             drawResetIcon (g, resetIconBounds(), resetHovered ? palette::c600 : palette::ink3);
@@ -590,10 +596,10 @@ namespace celadon::ui
             for (const auto& column : columns)
             {
                 g.setColour (palette::ink3);
-                drawFittedLine (g, uiFont (10.5f), tr (column.label, language), { x, contentTop + 2.0f, 76.0f, 14.0f }, juce::Justification::centredLeft);
+                drawFittedLine (g, uiFont (TextSize::caption), tr (column.label, language), { x, contentTop + 2.0f, 76.0f, 14.0f }, juce::Justification::centredLeft);
                 g.setColour (column.colour);
-                g.setFont (monoFont (13.0f, Weight::medium));
-                g.drawText (column.value, juce::Rectangle<float> (x, contentTop + 18.0f, 78.0f, 18.0f), juce::Justification::centredLeft, false);
+                g.setFont (monoFont (TextSize::value, Weight::medium));
+                drawTextLine (g, column.value, juce::Rectangle<float> (x, contentTop + 18.0f, 78.0f, 18.0f), juce::Justification::centredLeft);
                 x += 80.0f;
             }
         }
@@ -633,18 +639,18 @@ namespace celadon::ui
             const float dashes[] = { 1.5f, 1.0f };
             g.setColour (palette::c800);
             g.drawDashedLine (juce::Line<float> (stream, barTop + 7.0f, stream, barTop + 13.0f), dashes, 2, 1.2f);
-            g.setFont (monoFont (9.5f));
+            g.setFont (monoFont (TextSize::micro));
             g.setColour (palette::ink3);
-            g.drawText (unicodeMinus() + "14", juce::Rectangle<float> (stream + 3.0f, barTop + 7.0f, 30.0f, 12.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, unicodeMinus() + "14", juce::Rectangle<float> (stream + 3.0f, barTop + 7.0f, 30.0f, 12.0f), juce::Justification::centredLeft);
 
-            const auto mono = monoFont (10.5f);
+            const auto mono = monoFont (TextSize::caption);
             const auto normLabel = tr (Text::normalisation, language) + " ";
             const auto norm = hasReading (values.integratedLufs) ? signedText (-14.0f - values.integratedLufs, 1, true) : dash;
             g.setFont (mono);
             g.setColour (palette::ink3);
-            g.drawText (normLabel, juce::Rectangle<float> (left, barTop + 8.0f, 80.0f, 13.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, normLabel, juce::Rectangle<float> (left, barTop + 8.0f, 80.0f, 13.0f), juce::Justification::centredLeft);
             g.setColour (palette::c800);
-            g.drawText (norm, juce::Rectangle<float> (left + textWidth (mono, normLabel), barTop + 8.0f, 60.0f, 13.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, norm, juce::Rectangle<float> (left + textWidth (mono, normLabel), barTop + 8.0f, 60.0f, 13.0f), juce::Justification::centredLeft);
         }
 
         // ③ 最近 60 秒（画布 y 420 ～ 506）：响度道（画布 y 420 ～ 478，−30 ～ −6 LUFS）画 OUT 短期响度与目标虚线；增益道（画布 y 482 ～ 502，
@@ -662,10 +668,10 @@ namespace celadon::ui
             g.setColour (palette::violetSoft.withAlpha (0.7f));
             g.fillRoundedRectangle (gainLane, 3.0f);
 
-            // 增益道的说明垫在填充下面（左边；最新的数据在右边）。
-            g.setFont (uiFont (9.5f));
-            g.setColour (violetText.withAlpha (0.8f));
-            g.drawText (tr (Text::sideAutoGain, language), gainLane.reduced (5.0f, 0.0f), juce::Justification::centredLeft, false);
+            // 增益道的说明垫在填充下面（左边；最新的数据在右边）。紫字不再压淡（原来 0.8，对增益道底只剩 4.26 : 1）。
+            g.setFont (uiFont (TextSize::micro));
+            g.setColour (palette::violetText);
+            drawTextLine (g, tr (Text::sideAutoGain, language), gainLane.reduced (5.0f, 0.0f), juce::Justification::centredLeft);
 
             const auto pointAt = [&] (int age) -> const HistoryPoint&   // age 0 = 最新
             {
@@ -674,9 +680,10 @@ namespace celadon::ui
 
             if (historyCount == 0)
             {
-                g.setFont (uiFont (10.5f));
-                g.setColour (palette::ink4);
-                g.drawText (tr (Text::sideWaiting, language), lane, juce::Justification::centred, false);
+                // 第三级灰：ink4 对频谱底只有 2.66 : 1，这是要读的字（T-112）。
+                g.setFont (uiFont (TextSize::caption));
+                g.setColour (palette::ink3);
+                drawTextLine (g, tr (Text::sideWaiting, language), lane, juce::Justification::centred);
             }
             else
             {
@@ -755,17 +762,17 @@ namespace celadon::ui
             }
 
             // 两道的说明：响度道左上、目标图例右上；增益道右边。
-            const auto small = uiFont (9.5f);
+            const auto small = uiFont (TextSize::micro);
             g.setFont (small);
             g.setColour (palette::ink3);
-            g.drawText (tr (Text::sideHistory, language), lane.reduced (5.0f, 3.0f).withHeight (12.0f), juce::Justification::centredLeft, false);
+            drawTextLine (g, tr (Text::sideHistory, language), lane.reduced (5.0f, 3.0f).withHeight (12.0f), juce::Justification::centredLeft);
 
             const auto legend = tr (Text::sideTargetLegend, language);
             const auto legendWidth = textWidth (small, legend);
             const auto legendRight = lane.getRight() - 5.0f;
             const float dashes[] = { 3.0f, 2.0f };
-            g.drawText (legend, juce::Rectangle<float> (legendRight - legendWidth - 1.0f, lane.getY() + 3.0f, legendWidth + 2.0f, 12.0f),
-                        juce::Justification::centredRight, false);
+            drawTextLine (g, legend, juce::Rectangle<float> (legendRight - legendWidth - 1.0f, lane.getY() + 3.0f, legendWidth + 2.0f, 12.0f),
+                          juce::Justification::centredRight);
             g.setColour (palette::ink.withAlpha (0.7f));
             g.drawDashedLine (juce::Line<float> (legendRight - legendWidth - 18.0f, lane.getY() + 9.5f, legendRight - legendWidth - 5.0f, lane.getY() + 9.5f),
                               dashes, 2, 1.0f);
