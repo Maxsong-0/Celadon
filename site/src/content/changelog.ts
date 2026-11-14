@@ -35,6 +35,49 @@ export interface ReleaseNote {
 
 export const CHANGELOG: ReleaseNote[] = [
   {
+    id: 'v0.1.8.11',
+    version: '0.1.8.11',
+    date: '2026-11-14',
+    title: { zh: '去掉曲风与交付，电平更稳，字更大', en: 'Genre and Delivery removed, steadier level, larger text' },
+    items: [
+      {
+        kind: 'sound',
+        text: {
+          zh: '去掉了「曲风」和「交付」两个选择，所有歌都按通用 + 标准处理。存着 Deep / Tech / Melodic 曲风或「流媒体」「俱乐部」交付的旧工程，打开后会改回通用 + 标准，声音会变（GLAZE 0 也一样），左下角会有提示。',
+          en: 'Genre and Delivery have been removed, and every song now uses General and Standard. Old projects saved with Deep, Tech or Melodic, or with Streaming or Club delivery, switch back to General and Standard when opened, so they will sound different (even at GLAZE 0); a notice in the lower-left corner says so.'
+        }
+      },
+      {
+        kind: 'sound',
+        text: {
+          zh: 'GLAZE 的电平更稳：慢速电平修正（把成品补到目标响度的那一点）不再整首慢慢漂，从哪里开始听，导出的成品都一样。会对很密的素材误退增益的 PSR 保护去掉了，这类很响、很密的歌可能比 0.1.8.10 响，最多约 3 dB。自动量还在往方案走的头几十秒里，慢速电平修正先不动，所以不到一分钟的短片会轻 0.5 ～ 1.4 LU。这几条只在 GLAZE > 0 时起作用，GLAZE > 0 的旧工程声音会有变化。',
+          en: 'GLAZE holds its level more steadily. The slow level trim (the amount that nudges the master toward its target loudness) no longer drifts across the whole song, so the export is the same wherever you started listening. The PSR guard, which could back off gain on dense material by mistake, is gone, so very loud, dense songs may come out up to about 3 dB louder than in 0.1.8.10. While the automatic settings are still ramping toward the plan (the first tens of seconds), the slow level trim now waits, so clips shorter than a minute come out 0.5–1.4 LU quieter. All of this applies only when GLAZE is above 0, and projects with GLAZE above 0 will sound different.'
+        }
+      },
+      {
+        kind: 'fix',
+        text: {
+          zh: '播放中保存工程或换预设，不再卡一下、断音，也不会存出坏数据；运行中换预设时，GLAZE 已经跟着这首歌调整的结果会留下来。离线导出时自动关掉等响、原声、试听差值这三种临时监听，导出的就是母带本身；宿主旁通期间，整体响度暂停累计。',
+          en: 'Saving a project or changing presets during playback no longer causes a hiccup or dropout, and can no longer save broken data; when you change presets while running, what GLAZE has already adjusted for the song is kept. Offline export now turns off the three temporary monitors (Match, Original and Listen to difference), so the export is always the master itself; while the host bypasses the plug-in, integrated loudness pauses.'
+        }
+      },
+      {
+        kind: 'ui',
+        text: {
+          zh: '字更大、更清楚：正文放大，小字的对比度提高；新装的默认窗口是 125 %（屏幕放不下就取放得下的最大），已经存过的大小不变。控件名、气泡和官网的说法统一了：「起步」改叫「预热」，「A 处理后 / B 原声」改叫「母带 / 原声」，语言切换移到了设置里。',
+          en: 'Larger, clearer text: body text is bigger and small text has more contrast. A new install opens at 125 % (or the largest size that fits your screen), and sizes you have already saved stay as they are. Control names, tooltips and the website now use the same words: Starting is now Warming up, A Processed / B Original are now Master / Original, and the language switch has moved to Settings.'
+        }
+      },
+      {
+        kind: 'compat',
+        text: {
+          zh: '0.1.8.10 存的工程照常打开，慢速电平修正从 0 重新收敛；0.1.8.11 存的工程在 0.1.8.10 里也能打开。',
+          en: 'Projects saved in 0.1.8.10 open as before, with the slow level trim starting again from 0; projects saved in 0.1.8.11 still open in 0.1.8.10.'
+        }
+      }
+    ]
+  },
+  {
     id: 'v0.1.8.10',
     version: '0.1.8.10',
     date: '2026-10-19',
