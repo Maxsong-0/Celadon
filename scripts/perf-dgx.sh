@@ -21,7 +21,10 @@ set -euo pipefail
 DEFAULT_CORE=5                 # Cortex-X925 3.9 GHz（docs/validation/2026-10-04-T058-spectrum-peak-off/round2-bench-before.txt）
 DEFAULT_ROUNDS=2               # 基线与当前交替各 ≥ 2 轮
 OBSERVE_INTERVAL_SECONDS=2     # 编译活动观察间隔
-LOAD1_MAX=""                   # 一分钟负载上限：空 = 只记录不判；起点值由主会话首跑后填（计划 §13 Q12「事先定的阈值」）
+# 一分钟负载上限：空 = 只记录不判。起点值 10 = DGX 20 核的一半（2026-11-14 T-114 首跑后填，终值由 Max 定，计划 §13 Q12）：
+# 那次第 1 轮开跑时 8.38（上一个渲染任务的尾巴，那一轮结束时已降到 2.02），读数对第 2 轮（开跑 1.39）没有系统偏高
+# （64 行 structWorst 两轮之差均值 +0.002 个百分点、31 行为正）。见 docs/validation/2026-11-13-T113-listening/README.md 第 8.3 节。
+LOAD1_MAX="10"
 EXPECTED_GOVERNOR=performance  # 不是它只在 VERDICT 里提示，不作废（要不要作废待定）
 BENCH_NAME=celadon_bench_portable
 # 观察的进程名（ps 的 comm，最长 15 字符）：编译器驱动、GCC 真正干活的 cc1plus、链接器、构建系统、别的会话的测试与渲染。

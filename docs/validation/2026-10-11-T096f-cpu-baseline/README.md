@@ -1,6 +1,8 @@
 # T-096f · 含实时 GLAZE 的新 CPU 基线：方法、口径与复现 · 2026-10-11
 
-> 状态：**工具代码改完·未验证**。DGX 构建 / 自检 / 预演 / 首跑由主会话在独占时段做；基线数字填在第 8 节骨架里。
+> 状态：**工具已实际验证**（2026-11-14 T-114：108 上 `celadon_bench_portable --selftest` 与 `compare_perf.py --selftest` 过；DGX 日常子集 2 轮
+> `3f43ea0` 对 `c311586` 判干净，结果与阈值起点见 `2026-11-13-T113-listening/README.md` 第 8.3 节）。第 8 节的正式基线报告
+> （Mac 读数、474 % 勘误的重跑归因、全量 96 个配置）还没做。
 > 依据：计划 `04-协调/2026-10-10-T-096-第1步工具任务计划.md` §13 Q2 / Q10 / Q12 / Q16；侦察档 (f)。本线不改插件源码 `Source/**`
 > （同批 T-096a 给 `LimiterModule` 加的渲染计数见 `2026-10-11-T096a-metrics/README.md`，基准不打开它）。
 > 2026-11-13 T-114 移植进 0.1.8.11 时按 ADR-039（删掉曲风与交付）裁过：场景只剩 `default` / `default-g0` / `manual` / `auto100` 四个，
@@ -132,7 +134,8 @@ python3 $SRC/t096f/tools/perf/compare_perf.py $OUTDIR/run-<UTC 时刻> > $OUTDIR
 
 - **判干净**：
   - `compile-activity.log` 必须为空，观察进程心跳 ≥ 1。否则整个目录改名 `contaminated-<时刻>/`，退出码 3，要重跑（Q12）。
-  - 一分钟负载上限 `LOAD1_MAX` 现在为空（只记录），起点值等首跑后由主会话填。
+  - 一分钟负载上限 `LOAD1_MAX` 起点值 10（DGX 20 核的一半；开跑前超过就作废），`compare_perf.py` 四个阈值的起点值也已按那次实测填上
+    （structWorst 0.35、avg 0.15、两轮极差 0.4 个百分点，切换次数 650）；取法见 `2026-11-13-T113-listening/README.md` 第 8.3 节，终值由 Max 定。
   - 调速器不是 `performance` 只提示。
 - **输出**：`run-<时刻>/` 下有 `machine.txt`（调速器、频率、负载、二进制 sha256、参数）、`runs.tsv`（每次的起止与负载）、`compile-activity.log`、`base-N.tsv` / `cur-N.tsv` 与日志、`VERDICT.txt`。归档时整目录拷进本目录。
 - **耗时**：

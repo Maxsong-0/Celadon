@@ -20,11 +20,16 @@ import os
 import re
 import sys
 
-# ---- 阈值（单位：百分点 = 块预算百分比之差）。None = 只列差值、不标；起点值由主会话首跑后填（计划 §13 Q10）----
-STRUCT_WORST_DELTA_PP = None   # 主判：每轮「当前 − 基线」的 structWorst 都超过它 → 「退步」；只有部分轮超 → 「不一致」
-AVG_DELTA_PP = None            # 均值，同上
-ROUND_SPREAD_PP = None         # 同一二进制各轮 structWorst 的极差超过它 → 「各轮不一致」（这一格读数不稳）
-INVOL_SWITCHES_MAX = None      # 任一轮 invol_switches 超过它 → 「有抢占」（这一格读数可疑）
+# ---- 阈值（单位：百分点 = 块预算百分比之差）。None = 只列差值、不标 ----
+# 起点值（2026-11-14 T-114 首跑后填；终值由 Max 定，计划 §13 Q10）。取法：那次 DGX 实测里对应量的最大值 × 2，往上取到 0.05 的整倍数
+# （切换次数取到 50 的整倍数）。那次是 3f43ea0 对 c311586 日常子集 2 轮、判干净；门槛内 64 行里每轮 Δ structWorst 最大 0.172、
+# Δ avg 最大 0.073，同一二进制两轮 structWorst 极差最大 0.187；invol_switches 全部行最大 315（192k / 32）。
+# 是绝对百分点：占用低的格（48k / 512 avg 约 1.3 %）要涨一成多才标，占用高的格（192k / 64 链层 avg 约 7 %）涨 2 % 就标。
+# 数字与理由见 docs/validation/2026-11-13-T113-listening/README.md 第 8.3 节。
+STRUCT_WORST_DELTA_PP = 0.35   # 主判：每轮「当前 − 基线」的 structWorst 都超过它 → 「退步」；只有部分轮超 → 「不一致」
+AVG_DELTA_PP = 0.15            # 均值，同上
+ROUND_SPREAD_PP = 0.4          # 同一二进制各轮 structWorst 的极差超过它 → 「各轮不一致」（这一格读数不稳）
+INVOL_SWITCHES_MAX = 650       # 任一轮 invol_switches 超过它 → 「有抢占」（这一格读数可疑）
 
 REPORT_ONLY_CONFIGS = {(192000, 32)}   # 192k / 32 只报不判（计划 §13 Q10）
 GATE_ESTIMATE_ROWS = False             # 估计行（分析器 + 控制层 ≈ GLAZE > 0 − GLAZE 0）是估计，只报不判

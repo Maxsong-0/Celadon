@@ -1,0 +1,5 @@
+label	round	start_utc	end_utc	load1_before	load1_after	exit	tsv
+base	1	2026-11-14T10:33:43Z	2026-11-14T10:43:03Z	8.38	2.02	0	base-1.tsv
+cur	1	2026-11-14T10:43:03Z	2026-11-14T10:52:26Z	2.02	1.39	0	cur-1.tsv
+base	2	2026-11-14T10:52:26Z	2026-11-14T11:01:46Z	1.39	1.39	0	base-2.tsv
+cur	2	2026-11-14T11:01:46Z	2026-11-14T11:11:09Z	1.39	1.24	0	cur-2.tsv
