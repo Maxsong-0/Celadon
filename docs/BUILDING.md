@@ -17,6 +17,10 @@ v0.1.8.0 起插件同时支持 Apple Silicon Mac、Intel Mac 与 64 位 Windows�
 - Projucer 从 JUCE 源码编：
   `cmake -S ../JUCE -B ../JUCE/build -DJUCE_BUILD_EXTRAS=ON && cmake --build ../JUCE/build --target Projucer --config Release`，
   产物在 `../JUCE/build/extras/Projucer/Projucer_artefacts/Release/`。
+- 改版本号要动这几处：`Celadon.jucer` 的 `version`；`JuceLibraryCode/` 里的 `JuceHeader.h` 与 `JucePluginDefines.h`；`CMakeLists.txt` 里的
+  `project(Celadon VERSION …)` 和截图工具那份 `ProjectInfo`（`versionString`、`versionNumber`）。安装包脚本从 `.jucer` 读版本号，不用改。
+  两个头文件要用 Projucer 重存生成，原样提交，不要手改。万一要手改，十六进制照 Projucer 的写法用小写，写 `0x1080b`，不写 `0x1080B`。
+  0.1.8.10、0.1.8.11 的版本号提交就是手改的，写成了大写：Mac 上每次重存都把这两行改回小写，工作区一直不干净，2026-11-14 因此挡住了 `git pull`，当天改回了小写。
 
 ## macOS：一个包同时跑在 Apple Silicon 与 Intel 上
 
@@ -123,8 +127,8 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
   fonts-noto-cjk 要 sudo apt；下载 VS 工具即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
   `test`、`ui` 两个模式要的 cmake / ninja 由脚本第 5 步用 uv 装进 108 的 `~/opt/buildtools`（不往系统里装：108 同时是
   testbox 节点），`windows-wine.sh` 远端会把它加进 PATH。
-- 日常：先重新生成工程（Mac 上命令见上面「目录与 Projucer」；没有 Mac 时用 DGX 上自编的 Linux 版 Projucer `--resave`，它写的
-  `JuceLibraryCode` 两个头只差十六进制大小写，换回仓库原样；`Builds/VisualStudio2022` 随源码同步过去），然后
+- 日常：先重新生成工程（Mac 上命令见上面「目录与 Projucer」；没有 Mac 时用 DGX 上自编的 Linux 版 Projucer，DGX 没有显示器，要用
+  `HOME=<空目录> xvfb-run -a <Projucer> --resave Celadon.jucer`，生成的 `JuceLibraryCode` 和 Mac 上的逐字节相同，2026-11-14 核对过；`Builds/VisualStudio2022` 随源码同步过去），然后
   - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
   - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
   - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装（默认两项都装）、逐字节核对、

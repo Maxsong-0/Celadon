@@ -80,7 +80,7 @@
  #define JucePlugin_Version                0.1.8.11
 #endif
 #ifndef  JucePlugin_VersionCode
- #define JucePlugin_VersionCode            0x1080B
+ #define JucePlugin_VersionCode            0x1080b
 #endif
 #ifndef  JucePlugin_VersionString
  #define JucePlugin_VersionString          "0.1.8.11"

@@ -12,7 +12,8 @@
   改指宿主 `/usr/lib/x86_64-linux-gnu/` 的运行库（运行库宿主已有，testbox-apt 不重复下）。
 - **DGX（aarch64）**：`~/.cache/celadon-spark/bin/spark-test.sh <源码副本> build|test|run …`（全机锁）。渲染、截图都在这里。
 - **108 主机 MSVC（Wine）**：`CELADON_WIN_HOST=maxsong@100.84.85.68 bash scripts/windows-wine.sh test|installer`，
-  VS2022 工程用 DGX 上自编的 Linux 版 Projucer `--resave` 生成（它写的两个 JuceLibraryCode 头只差十六进制大小写，换回仓库原样）。
+  VS2022 工程用 DGX 上自编的 Linux 版 Projucer `--resave` 生成（它写的两个 JuceLibraryCode 头只差十六进制大小写，换回仓库原样。
+  原因是仓库里那两行是手改的大写，11-14 查明并改回 Projucer 的小写，见第 15.1 节）。
 
 ## 1. 开工基线（main `93af3e0` = T-108 合入后）
 
@@ -378,3 +379,67 @@ C++ 在 `77c5ca3`（版本号）之后没再变：`34414cc` 只改更新日志�
 `tools/render/measure_lib.py` 的 `SUSPECT_TP_MARGIN_DB`、`tools/render/master_check.py` 标「暂定」的阈值）。
 
 本节随的提交只改文档与 `compare_perf.py`、`perf-dgx.sh` 各一行注释（逐行核过只动注释行），上面的验证结果照样成立。
+
+## 15. 发版（M7）
+
+### 15.1 两个生成头文件里版本号的大小写（11-14 查明，同日改回）
+
+- **现象**：11-14 Max 在 Mac 上 `git pull --ff-only` 被挡，因为 `JuceLibraryCode/JuceHeader.h` 和 `JucePluginDefines.h` 有本地改动。
+  先把改动存成补丁再还原，补丁里只有两行：`versionNumber` 和 `JucePlugin_VersionCode` 从 `0x1080A` 变成了 `0x1080a`。
+  这是之前在 0.1.8.10 上用 Projucer 重存留下的。
+- **原因**：Projucer 写十六进制用小写，同一个文件里的 `JucePlugin_ManufacturerCode 0x4d617873`、`JucePlugin_PluginCode 0x436c646e`
+  一直是小写。版本号的十六进制到 0.1.8.10 才第一次带字母（0.1.8.9 是 `0x10809`）。偏偏 0.1.8.10 的 `e0d509c` 和 0.1.8.11 的 `77c5ca3`
+  这两次版本号提交都是手改头文件，写成了大写。所以从 0.1.8.10 起，Mac 上每次重存都会把这两行改回小写，工作区一直不干净。
+- **核对**：
+  - DGX 上用 Linux 版 Projucer 重存 `161f417`：`JuceLibraryCode` 的 61 个文件里只有这两个头不同，而且只差这两行的大小写。
+  - Max 在 Mac 上重存同一个提交：两个头文件的 SHA-256 与 DGX 生成的相同（`shasum -c` 两个都是 OK）。也就是说，两边 Projucer 的输出逐字节一致。
+- **影响**：编出来的东西不变，理由有三条：
+  - `0x1080b` 和 `0x1080B` 是同一个整数字面量。
+  - JUCE 9.0.2 的 `modules/` 只把 `JucePlugin_VersionCode` 当整数用（赋值、比较、传参），没有一处转成字符串；本工程的 `Source/`、`tests/`、`tools/`
+    不用这两个宏。
+  - AU 的注册版本由 `scripts/au-version.sh` 从 `CFBundleShortVersionString` 算，不读这两个头文件。
+
+  所以 Windows 包（用 `e67663a` 编，头文件是大写）和 Mac 两个包（Projucer 重存后编，头文件是小写）的源码是等价的。
+- **修正**（本节随的提交）：
+  - 两个头文件换成 Projucer 生成的原样，SHA-256 分别是 `2fc6bbba…7093` 和 `f0cf42a9…c644`。
+  - `CMakeLists.txt` 里截图工具那份 `ProjectInfo` 也改成小写。
+  - `docs/BUILDING.md` 写明改版本号要改哪几处，以及头文件要用 Projucer 生成、不能手改。
+
+  交接里写过「发版只改 `release.ts`」，这次也改了生成文件，算偏离。偏离的理由：这个改动不改变编译结果，而 Mac 两个包正是用这两份头文件编的。
+
+### 15.2 三个安装包
+
+发布目录在 Max 的 Mac 上：`artifacts/release-0.1.8.11-2026-11-14/`。三个包和 `SHA256SUMS` 放在一起；部署脚本只认 `SHA256SUMS` 里列的文件。
+
+| 包 | 字节数 | SHA-256 | 出处 |
+|---|---|---|---|
+| `Celadon-0.1.8.11-macOS-AppleSilicon.pkg` | 7,192,112 | `afb0a96aed2c902128e8bd8dec196c5133f0149fd7f51bb26cf55bfa4b4baa91` | Max 在 Mac 上编，13:38 |
+| `Celadon-0.1.8.11-macOS-Intel.pkg` | 8,079,944 | `6aba68a9f0ff1ee3bfa316ffcb51424e0ad62b905fcfcf3ba63ec9f3bbd7a5f6` | 同上 |
+| `Celadon-0.1.8.11-Windows-x64-Setup.exe` | 7,555,247 | `4df84f97767167ba8190c89a4b0d94b5f8c410097d8339ea60b74551ff5dbbb3` | 108 主机，11:59 |
+
+- **Mac**：
+  - Max 在 Mac 上拉到 `161f417`，用 Projucer 重存。重存后的两个头文件就是 `88b5e85` 的原样（第 15.1 节）。然后 Xcode 编 Release 通用版，`scripts/package-mac.sh` 打包。
+  - 打包脚本自己卡了这几道关：三个插件必须是通用二进制，版本必须等于 `.jucer` 的 0.1.8.11；拆成单一架构后重新签名，并跑 `codesign --verify --strict`；最后检查拆出来的架构对不对。
+  - 拆包核对 6 个组件，全部符合：Max 在 Mac 上用 `pkgutil --expand-full` 拆开两个包。
+    - Apple Silicon 包：`hostArchitectures="arm64"`，三个组件都是单一的 `arm64`。
+    - Intel 包：`hostArchitectures="x86_64"`，三个组件都是单一的 `x86_64`。
+    - 6 个组件的版本都是 0.1.8.11；`PackageInfo` 里都是 `relocatable="false"`，`<relocate/>` 为空；`codesign -v --strict` 都通过。
+    - 两个 AU 的注册版本都是 67595。
+  - 本机由 Xcode 装上的 AU：`auval` 显示 `1.8.11 (0x1080B)`，arm64 和 x86_64（Rosetta）两次都是 `AU VALIDATION SUCCEEDED.`。
+  - T-112 的新字号：Max 在独立运行版里看了中文、英文、70 %、125 % 四种情况，没问题。
+  - `SHA256SUMS` 共 310 字节，三行和上表一致。Windows 包是 Max 从 DGX `scp` 过去的。
+- **Windows**：108 主机用 `e67663a` 的树跑 `windows-wine.sh all`，时间是 11:50～11:59。
+  - 结果：Wine 里 `celadon_tests` 136195 过 / 0 败；msbuild 编本工程源码和 JUCE 模块都是 0 警告；冒烟四步（安装、只选独立版重装、只选 VST3 重装、卸载）全过。
+  - 包取回 DGX `~/.cache/celadon-t114/release-win/`，和 108 上的原件哈希相同。
+  - `e67663a` 到 `161f417` 之间只多一份交接文档；`88b5e85` 只把头文件改成小写（第 15.1 节）。所以这个包不用重打。
+
+### 15.3 `release.ts` 与这次的验证（`c107449` 的树，108）
+
+`c107449` 把 `release.ts` 换成上面三个包。哈希和字节数用脚本核过：两个 Mac 包对 Max 贴回的 `SHA256SUMS` 和 `ls -l` 原文，Windows 包对 DGX 上的实际文件。`changelog.ts` 里 0.1.8.11 那条的日期本来就是 2026-11-14。
+
+| 项 | 结果 | 出处 |
+|---|---|---|
+| 基线全量 | 136195 过 / 0 败（与第 11 节 `77c5ca3` 相同） | `20261114-134444-9de2` |
+| x86-64-v3 全量 | 136195 过 / 0 败 | `20261114-134504-6fdd` |
+| 处理器测试 release | 208 过 / 0 败。从头构建 124 步，同时编出了 `celadon_ui_snapshot`；`CMakeLists.txt` 里改成小写的 `ProjectInfo` 就编进了这两个程序 | `20261114-134505-f074` |
+| 官网构建 | 全过：check-i18n、check-svg-text 37 项、check-dial-motion 110 项、tsc、vite、sitemap 46 条 | `20261114-134505-e8be` |
