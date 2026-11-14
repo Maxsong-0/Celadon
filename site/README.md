@@ -7,8 +7,8 @@
 ## 构建（不在 Mac 上）
 
 ```bash
-site/scripts/build-linux.sh          # 107 上 pnpm install + tsc + vite build，拉回 dist/ 与 pnpm-lock.yaml
-site/scripts/build-linux.sh serve    # 同上，并在 107 起静态服务 http://192.168.100.107:8787 供浏览器验收
+site/scripts/build-linux.sh          # 108 主机上 pnpm install + tsc + vite build，拉回 dist/ 与 pnpm-lock.yaml（107、109 已弃用）
+site/scripts/build-linux.sh serve    # 同上，并在 108 起静态服务（端口 8787，地址在最后一行打印）供浏览器验收
 site/scripts/build-linux.sh stop     # 停掉静态服务
 ```
 

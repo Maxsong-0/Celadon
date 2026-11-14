@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 把 site/dist/（在 107 上构建、已拉回本机）与这一版的安装包同步到 112，装用户态单元，重启静态服务，健康检查。
+# 把 site/dist/（build-linux.sh 在 108 主机上构建、已拉回本机）与这一版的安装包同步到 112，装用户态单元，重启静态服务，健康检查。
 #
 # 用法：site/deploy/deploy.sh          # 先 site/scripts/build-linux.sh 构建好 dist/
 #       site/deploy/deploy.sh check    # 只做本机检查（dist、发布目录、校验和、站点里写的安装包信息），不连服务器
