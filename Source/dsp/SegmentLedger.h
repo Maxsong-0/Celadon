@@ -179,7 +179,7 @@ namespace celadon::glaze
         void setSink (SegmentSink* newSink) noexcept   { sink = newSink; }
         SegmentSink* getSink() const noexcept          { return sink; }
 
-        // 清空段落账（「重新聆听」、宿主复位、读取工程）。acceptFrom = 门块 / 短期响度窗口最早的样本不早于它才收（同分析器学习区间）。
+        // 清空段落账（宿主复位、读取工程）。acceptFrom = 门块 / 短期响度窗口最早的样本不早于它才收（同分析器学习区间）。
         // 不分配、不清零账本的内容（只把计数归零）。事件序号跨 reset 单调。
         void reset (std::int64_t acceptFrom = 0) noexcept;
 

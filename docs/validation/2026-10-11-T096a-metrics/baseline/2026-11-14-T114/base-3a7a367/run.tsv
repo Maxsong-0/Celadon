@@ -1,0 +1,18 @@
+key	value
+commit	1452a917a9be81cbf3a5015c4d184ca7eb23907f（渲染器源码；run_quality_baseline.sh 在没有 .git 的源码副本里跑，原记 unknown，入库时补）
+celadon_render	~/.cache/celadon-spark/build/t114-q-base3a7-77e4791eb2/celadon_render
+celadon_render_sha256	b49094616bd9a3cf0be3d586ef63d8013c5ac309f985f8d4fdfc4c31efde05d4
+songs22_dir	~/.cache/celadon-t048-22songs/wav
+songs22_count	20
+cal45_dir	~/.cache/celadon-t048-cal
+cal45_count	45
+args_22	--glaze 0,35,70 --style auto --clay auto --trace
+args_45	--glaze 35,100 --style auto --clay auto --segments-csv --trace --bpm <tempo-manifest>
+labels	docs/validation/2026-10-01-T038-calibration/labels-auto.tsv ; docs/validation/2026-10-01-T038-calibration/labels-override.tsv
+python	~/.cache/celadon-spark/venv/bin/python
+jobs	12
+started_utc	2026-11-14T08:38:02Z
+render_failures	0
+quality_status	0
+finished_utc	2026-11-14T08:52:14Z
+metrics_commit	449340ae755f8e88e01bff810ad2733fa87abec2（quality_metrics.py 新口径：B9b = gain_reversals_per_min，2026-11-14 不重渲重算）

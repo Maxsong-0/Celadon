@@ -10,7 +10,7 @@
 | GLAZE（施釉、总旋钮） | GLAZE | 「智能母带」= Smart mastering；「主段」= main section；「跟着主段慢慢调整」= Follows the main section（插件已没有「重新聆听 / Relearn」） |
 | BALANCE（平衡） | BALANCE | 卡片副题「动态均衡」= Dynamic EQ |
 | CLAY（修坯） | CLAY | 卡片副题「声像」= Stereo；「修坯」作动作讲时 = stereo clean-up / shaping |
-| COLOR（染色） | COLOR | 模块名保留美式 COLOR（插件就这么写）；正文里的「音色」= tone / colour |
+| COLOR（染色） | COLOR | 模块名保留美式 COLOR（插件就这么写）；正文里的「音色」= tone / colour；卡片英文副标题 Colour（0.1.8.11 起，不和第一个旋钮 Tone 同名） |
 | LIMIT（限幅） | LIMIT | 卡片副题「限幅」= Limiter |
 
 ## 参数（照插件）
@@ -27,11 +27,11 @@
 
 风格：自动 Auto · 温润 Warm · 冲击 Punchy · 通透 Clean
 曲风 Genre（0.1.8.11 取消，只在更新日志与「已取消」说明里出现）：通用 General · Deep / Tech / Melodic（选择器上只写这三个简称；正文提到选项时照写简称，悬停气泡与专门介绍子类时写全名 Deep House / Tech House / Melodic-Progressive；三者合称 House genres）
-交付 Delivery（同上，0.1.8.11 取消）：标准 Standard · 流媒体 Streaming · 俱乐部 Club；旧工程提示原句：曲风与交付已取消，已改回通用 + 标准，声音会变 = Genre/delivery removed, now General + Standard; sound changes
+交付 Delivery（同上，0.1.8.11 取消）：标准 Standard · 流媒体 Streaming · 俱乐部 Club；旧工程提示原句：曲风与交付已取消，已改回通用 + 标准，声音会变 = Genre/delivery reset: General + Standard, sound changes
 主段：小节 bar · 主段落 main section（drop = drop，breakdown = breakdown，不译）· 逐小节的记录 = tally（「House ·」前缀、反相提示 out-of-phase hint、门控 gating 随 0.1.8.11 取消，只在更新日志里出现）
-状态（GLAZE 标题旁的阶段标签）：全手动 Manual · 受手动 Manual limit · 导出 Export · 受限 Limited · 起步 Starting · 保持 Holding · 跟随 Following；卡片旁通 已旁通 Bypassed
-状态行原句（照 GlazeStatusText.cpp 的英文）：受限 · 预算 / 限幅 · 已退 x dB = Limited · Budget / Limiter · backed off x dB · 受手动设置限制 = Limited by manual settings（标签 受手动 = Manual limit）· 起步 Starting · 保持 Holding · 跟随 Following
-监听：处理后 Processed · 原声 Original · 等响 Match（level-matched）· 试听差值 Listen to difference · 旁通 Bypass
+状态（GLAZE 标题旁的阶段标签）：全手动 Manual · 受手动 Manual limit · 导出 Export · 受限 Limited · 预热 Warming up（0.1.8.11 之前叫 起步 Starting）· 保持 Holding · 跟随 Following；卡片旁通 已旁通 Bypassed
+状态行原句（照 GlazeStatusText.cpp 的英文）：受限 · 预算 / 限幅 · 已退 x dB = Limited · Budget / Limiter · backed off x dB · 受手动设置限制 = Limited by manual settings（标签 受手动 = Manual limit）· 预热 Warming up · 保持 Holding · 跟随 Following
+监听：母带 Master · 原声 Original（0.1.8.11 之前叫「A 处理后 / B 原声」= A Processed / B Original，只在更新日志里出现）· 等响 Match（level-matched）· 试听差值 Listen to difference · 旁通 Bypass
 表：输入 / 输出 / 衰减 = IN / OUT / GR · 响度 Loudness · 真峰值 True peak（dBTP）· 短期 Short-term · 峰响比 PLR · 重新计量 Reset meters · 频谱仪 spectrum analyser
 
 ## 写法约定

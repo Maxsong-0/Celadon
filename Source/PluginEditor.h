@@ -9,14 +9,16 @@
             自动加量 + 状态句）、右「交付」（原来频谱仪右上角的响度小窗搬到这里放大，加最近 60 秒的短期响度与 GLAZE 自动增益），
             粒子流收进侧板与旋钮之间的通道；GLAZE 标题行左右原来的「曲风」「交付」两个选择（T-038）删了（Max 2026-11-13；参数本身 T-108 删），
             参数还在、面板上不再有；
-            下面一排 操作提示 / 监听退出提示 · 风格 | A / B · 等响 · 颜色图例；
+            下面一排 操作提示 / 监听退出提示 · 风格 | 母带 / 原声 · 等响 · 颜色图例（T-111 起「A 处理后 / B 原声」改叫「母带 / 原声」）；
+      顶栏：品牌 · 状态胶囊 · 设置 · 帮助 · 高级（T-111 包 D：语言切换挪进设置面板、延迟只在设置面板底行写）；
+      橙色同一时刻只归一件事（glazestatus::attentionOwner，编辑器计时器里分给各个源头）；
       下层：按处理顺序的四张卡片 BALANCE → CLAY → COLOR → LIMIT。
 
     画布（Canvas）是一个固定 1200 × 820 的子组件，编辑器按窗口大小给它一个缩放变换——所有文字与矢量在任何比例下都清晰，
     位图（背景、瓷面、流线）按当次绘制的物理像素比生成。窗口大小随工程存一份（uiZoom），另记为新窗口的默认大小（UiSettings）。
 
-    GLAZE 的数据源由处理器在 createEditor 里注入：状态快照、本块交给模块的实际参数。
-    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。两种旧工程提示（旧聆听结果已丢弃、曲风与交付已取消）由计时器每帧
+    GLAZE 的数据源由处理器在 createEditor 里注入：状态快照、本块交给模块的实际参数（「重新聆听」动作的注入随 T-098 删掉）。
+    两种旧工程提示（旧聆听结果已丢弃、曲风与交付已取消）由计时器每帧
     从处理器取当前值（状态快照里的 legacySessionDiscarded、注入的 genreDeliveryResetSource）。
 
   ==============================================================================
@@ -59,14 +61,11 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    // ---- GLAZE 的三个数据源（处理器在 createEditor 里注入；都在消息线程调、无锁）----
+    // ---- GLAZE 的两个数据源（处理器在 createEditor 里注入；都在消息线程调、无锁）----
     using GlazeStatusSource = std::function<celadon::glaze::Status()>;
-    using GlazeRelearnAction = std::function<void()>;
     using GlazeEffectiveParamsSource = std::function<celadon::ChainParams()>;
 
     void setGlazeStatusSource (GlazeStatusSource source);
-    // 阶段 2 没有重新聆听。处理器 createEditor 仍会注入：留着空实现，编排器删掉那一行之前这里什么都不做。
-    void setGlazeRelearnAction (GlazeRelearnAction action);
     void setGlazeEffectiveParamsSource (GlazeEffectiveParamsSource source);
 
     // 两种旧工程提示，左下角各占一行；都是 false 就不显示。不写入 LIVE、不进工程。

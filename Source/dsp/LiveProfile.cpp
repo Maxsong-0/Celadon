@@ -11,7 +11,8 @@
         新段只会盖掉比已发布窗口更老的格，所以已发布与在途那一遍读的段都不会被改（队列满时见 makeRoomInQueue）。
       - 每一段进账（admit）时定下、之后不变的：进账判断（按上一份已发布画像的参考）、换歌的票、两个事件时钟的印记。
       - 事件时钟（对数域，Counters::mainClock / referenceClock）：换歌软遗忘加 ln(1 ÷ keep)（主段与参考同加；keep = 0 记 800，exp(−800) = 0），
-        长时间无主段加「超出秒数 ÷ noMainDecaySeconds」（只主段）。段 i 的全局因子 = exp(−(这一份画像的时钟 − 印记_i))：乘在事件发生时
+        长时间无主段加「超出秒数 ÷ noMainDecaySeconds」（只主段），T-113 1-06 上行快通道加「本段有效时长 × ln2 ÷ catchUpHalfLifeSeconds」
+        （主段与参考同加；出厂半衰期 +∞ = 不加，见 noteCatchUp）。段 i 的全局因子 = exp(−(这一份画像的时钟 − 印记_i))：乘在事件发生时
         窗口里全部更老的段上，不碰它们存的量，之后重判也不撤销。
 
     二、一遍重算（第 k 份画像 = 前 k 段；按序的工作步，见 Step）
@@ -74,6 +75,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace celadon::glaze
@@ -177,6 +179,13 @@ namespace celadon::glaze
 
         // 换歌软遗忘 keep = 0 时事件时钟加这么多（exp(−800) 在 double 里就是 0，又不会让时钟变成 ∞ 之后相减出 NaN）。
         constexpr double maximumLogKeep = 800.0;
+
+        // T-113 1-06 上行快通道（noteCatchUp）：每有效音频秒给事件时钟加 ln2 ÷ 半衰期。读档的上界按半衰期的合法下限 1 ms 算
+        // （positive 域，minimumLiveTimeConstantSeconds）：ln2 ÷ 1 ms ≈ 693.15，往上取整到 694 给逐段相加的舍入留余量——
+        // 不依赖读档这一刻的常数（存档时开着快通道、读档时出厂值已经关了，照样读得回来）。
+        constexpr double catchUpLn2 = 0.69314718055994530942;
+        constexpr double maximumCatchUpLogPerSecond = 694.0;
+        static_assert (maximumCatchUpLogPerSecond >= catchUpLn2 / minimumLiveTimeConstantSeconds, "上界要盖住半衰期下限时的最大步长");
 
         // 一遍重算每一步的工作量估计（纳秒；只决定一片做几步，不影响结果）。107 实测（REPORT-A2）：窗口 512 段的一遍同步重算 70 µs，
         // 约每段 130 ns + 固定 4 µs；这里的估计比实测高约三成（每段约 170 ns、固定约 5 µs），一片按估计做满 8 µs 时实际约 6 µs。
@@ -1368,6 +1377,7 @@ namespace celadon::glaze
                 noteNewProgram (sequence, e);
                 noteMainness (m, e);
                 counters.activeSeconds += e.effectiveSeconds;
+                noteCatchUp (sequence, e, m);
             }
             else
             {
@@ -1489,6 +1499,56 @@ namespace celadon::glaze
             counters.runSeconds = 0.0;
             counters.runStart = sequence + 1;
             e.newProgram = true;
+        }
+
+        // T-113 1-06 上行快通道（GlazeConstants.h LiveConstants 的 catchUp* 注释；T-093 R5-04 A；ADR-042）。admitNewest 在本段的有效时长计入
+        // activeSeconds 之后调：本段与紧挨着它往前的那一串段都「比上一份已发布画像的 I 响 catchUpMarginLu 以上、进账 m ≥ mainThreshold」，
+        // 这一串的有效音频累计 ≥ catchUpRunSeconds，且 reset 以来的有效音频 ≤ catchUpActiveSeconds → 两个事件时钟各加
+        // 「本段有效时长 × ln2 ÷ 半衰期」：乘在更老的段（含前奏）上，同换歌软遗忘；本段的印记在这之后记，自己不被减权。
+        // 这一串从窗口与队列里的段现算，不另存计数（存档格式不变）：往前的段用它们自己进账时的 m、此刻的 I（I 被这条规则往上拉，
+        // 往前的段过得了此刻的门槛、进账时多半也过得了；偏保守）。每次加的量 ≤ 本段有效时长 × ln2 ÷ 1 ms（positive 域的下限），
+        // 读档的计数器上界（countersWithinBounds）按这个算。半衰期 +∞（出厂）时第一行就返回，与没有快通道时逐位相同。
+        void noteCatchUp (std::uint64_t sequence, const Entry& e, float m) noexcept
+        {
+            const auto halfLife = constants.catchUpHalfLifeSeconds;
+
+            if (! (halfLife < std::numeric_limits<double>::infinity()) || ! (counters.activeSeconds <= constants.catchUpActiveSeconds))
+                return;
+
+            const auto& level = publishedResult.profile.integratedLufs;
+
+            if (! level.valid || ! std::isfinite (level.value))
+                return;
+
+            const auto threshold = (double) level.value + (double) constants.catchUpMarginLu;
+            const auto louder = [this, threshold] (const Entry& x, float admittedMainness) noexcept
+            {
+                return x.usable && x.loudnessValid && std::isfinite (x.loudnessLufs) && (double) x.loudnessLufs > threshold
+                    && admittedMainness >= constants.mainThreshold;
+            };
+
+            if (! louder (e, m))
+                return;
+
+            // 往前数到这一串够长为止（最早到窗口开头；队列里还没发布的段都已进账，印记与进账 m 都有）。
+            auto seconds = e.effectiveSeconds;
+
+            for (auto s = sequence; seconds < constants.catchUpRunSeconds && s > work.first; --s)
+            {
+                const auto& previous = entryAt (s - 1);
+
+                if (! louder (previous, previous.admissionMainness))
+                    return;
+
+                seconds += previous.effectiveSeconds;
+            }
+
+            if (! (seconds >= constants.catchUpRunSeconds))
+                return;
+
+            const auto clockStep = e.effectiveSeconds * catchUpLn2 / halfLife;
+            counters.mainClock += clockStep;
+            counters.referenceClock += clockStep;
         }
 
         // 长时间无主段：上一次进账 m ≥ mainThreshold 之后的有效音频超过 noMainSeconds 的那一部分，按 ÷ noMainDecaySeconds 加进主段时钟
@@ -2604,8 +2664,8 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // 状态 XML（文件头第六节）。
-        void writeEntry (juce::MemoryOutputStream& out, const Entry& e, bool admittedPart) const
+        // 状态 XML（文件头第六节）。只读这一段本身（存档的编码在锁外对快照做，见 LiveProfile::encodeState）。
+        static void writeEntry (juce::MemoryOutputStream& out, const Entry& e, bool admittedPart)
         {
             out.writeInt64 (e.start);
             out.writeInt64 (e.end);
@@ -2912,42 +2972,17 @@ namespace celadon::glaze
             return true;
         }
 
-        std::unique_ptr<juce::XmlElement> createState() const
-        {
-            auto xml = std::make_unique<juce::XmlElement> (liveStateTag);
-            xml->setAttribute ("formatVersion", liveStateFormatVersion);
-            xml->setAttribute ("sampleRate", hexOf (sampleRate));
-
-            const auto& c = published.counters;
-            xml->setAttribute ("mainClock", hexOf (c.mainClock));
-            xml->setAttribute ("referenceClock", hexOf (c.referenceClock));
-            xml->setAttribute ("secondsSinceMain", hexOf (c.secondsSinceMain));
-            xml->setAttribute ("runSeconds", hexOf (c.runSeconds));
-            xml->setAttribute ("activeSeconds", hexOf (c.activeSeconds));
-            xml->setAttribute ("runStart", juce::String ((juce::uint64) c.runStart));
-            xml->setAttribute ("newProgramCount", juce::String ((juce::uint64) c.newProgramCount));
-            xml->setAttribute ("commits", juce::String ((juce::uint64) published.count));
-            xml->setAttribute ("window", published.size);
-            xml->setAttribute ("pending", (int) (arrived - published.count));
-
-            juce::MemoryOutputStream blob;
-
-            for (auto sequence = published.first; sequence < arrived; ++sequence)
-                writeEntry (blob, entryAt (sequence), sequence < published.count);
-
-            xml->setAttribute ("segments", juce::Base64::toBase64 (blob.getData(), blob.getDataSize()));
-            return xml;
-        }
-
         // 读回的计数器的量级与关系（文件头第六节「量级」）：进账过的有效音频 ≤ 段数 × 一段的上界；距上次主段、这一串换歌的有效音频
-        // 都是同一串加法里的一部分（舍入单调，逐位不超过它）；换歌每段至多触发一次；参考时钟只由换歌推进、每次 ≤ maximumLogKeep；
-        // 主段时钟 = 参考时钟再加无主段的衰减（舍入单调，不小于参考时钟）。时间常数至少 1 ms（positive 域），合法常数下这一步加不进 ∞。
-        // 它只以「时钟 − 印记」进 exp，印记与时钟的关系读完段再查。没有进账过的段（冷启动）时全是 0。
+        // 都是同一串加法里的一部分（舍入单调，逐位不超过它）；换歌每段至多触发一次；参考时钟只由换歌与上行快通道推进：换歌每次
+        // ≤ maximumLogKeep，快通道每有效秒 ≤ maximumCatchUpLogPerSecond（T-113；只在快通道开着时才有这一项，出厂时它恒为 0，
+        // 上界照旧只剩换歌那一项）；主段时钟 = 参考时钟再加无主段的衰减（舍入单调，不小于参考时钟）。时间常数至少 1 ms（positive 域），
+        // 合法常数下这一步加不进 ∞。它只以「时钟 − 印记」进 exp，印记与时钟的关系读完段再查。没有进账过的段（冷启动）时全是 0。
         static bool countersWithinBounds (const Counters& c, std::uint64_t commits) noexcept
         {
             return c.activeSeconds <= (double) commits * stateSegmentSeconds && c.secondsSinceMain <= c.activeSeconds
                 && c.runSeconds <= c.activeSeconds && c.newProgramCount <= commits
-                && c.referenceClock <= (double) c.newProgramCount * maximumLogKeep && c.mainClock >= c.referenceClock
+                && c.referenceClock <= (double) c.newProgramCount * maximumLogKeep + c.activeSeconds * maximumCatchUpLogPerSecond
+                && c.mainClock >= c.referenceClock
                 && (commits > 0 || c.mainClock == 0.0);
         }
 
@@ -3071,6 +3106,29 @@ namespace celadon::glaze
     };
 
     //==============================================================================
+    // 存档快照（T-099）：encodeState 要读的原始量。段按最大（窗口 + 队列）一次分配、写满初值（页面在拿锁之前就碰过），
+    // captureState 只做定长拷贝。
+    struct LiveProfile::SnapshotData
+    {
+        SnapshotData() : entries ((size_t) Impl::slotCount) {}
+
+        double sampleRate = 48000.0;
+        Impl::Counters counters;              // 已发布那一份的
+        std::uint64_t count = 0;              // 已发布那一份的段数（提交数）
+        std::uint64_t first = 0;              // 窗口最老一段的到达序号
+        std::uint64_t arrived = 0;            // 已交来的段数
+        int size = 0;                         // 窗口段数
+        int numEntries = 0;                   // entries 里有效的段 = arrived − first：窗口里的段，再是还没发布的段
+        std::vector<Impl::Entry> entries;
+    };
+
+    LiveProfile::StateSnapshot::StateSnapshot() : data (std::make_unique<SnapshotData>()) {}
+    LiveProfile::StateSnapshot::~StateSnapshot() = default;
+
+    LiveProfile::StagedState::StagedState() : impl (std::make_unique<Impl>()) {}
+    LiveProfile::StagedState::~StagedState() = default;
+
+    //==============================================================================
     LiveProfile::LiveProfile() : impl (std::make_unique<Impl>()) {}
     LiveProfile::~LiveProfile() = default;
 
@@ -3137,12 +3195,88 @@ namespace celadon::glaze
 
     std::unique_ptr<juce::XmlElement> LiveProfile::createStateXml() const
     {
-        return impl->createState();
+        StateSnapshot snapshot;
+        captureState (snapshot);
+        return encodeState (snapshot);
     }
 
     bool LiveProfile::restoreStateXml (const juce::XmlElement& xml)
     {
-        return impl->restoreState (xml);
+        StagedState staged;
+        const auto restored = stageState (xml, staged);
+        adoptState (staged);   // 坏档时暂存是冷启动的：换进来就是冷启动，同改前就地读坏档
+        return restored;
+    }
+
+    void LiveProfile::captureState (StateSnapshot& snapshot) const noexcept
+    {
+        const auto& m = *impl;
+        auto& d = *snapshot.data;
+        d.sampleRate = m.sampleRate;
+        d.counters = m.published.counters;
+        d.count = m.published.count;
+        d.first = m.published.first;
+        d.arrived = m.arrived;
+        d.size = m.published.size;
+
+        // 窗口 + 还没发布的段至多 slotCount 段（makeRoomInQueue 保证队列不超过 queueCapacity），环里的格不会被盖掉。
+        jassert (m.arrived - m.published.first <= (std::uint64_t) Impl::slotCount);
+        d.numEntries = (int) juce::jmin (m.arrived - m.published.first, (std::uint64_t) Impl::slotCount);
+
+        for (int k = 0; k < d.numEntries; ++k)
+            d.entries[(size_t) k] = m.entryAt (m.published.first + (std::uint64_t) k);
+    }
+
+    std::unique_ptr<juce::XmlElement> LiveProfile::encodeState (const StateSnapshot& snapshot)
+    {
+        // 文件头第六节。属性顺序与写法是存档格式的一部分：改一处，0.1.8.10 存的工程与新存的就不再逐字节相同。
+        const auto& d = *snapshot.data;
+        auto xml = std::make_unique<juce::XmlElement> (liveStateTag);
+        xml->setAttribute ("formatVersion", liveStateFormatVersion);
+        xml->setAttribute ("sampleRate", hexOf (d.sampleRate));
+
+        const auto& c = d.counters;
+        xml->setAttribute ("mainClock", hexOf (c.mainClock));
+        xml->setAttribute ("referenceClock", hexOf (c.referenceClock));
+        xml->setAttribute ("secondsSinceMain", hexOf (c.secondsSinceMain));
+        xml->setAttribute ("runSeconds", hexOf (c.runSeconds));
+        xml->setAttribute ("activeSeconds", hexOf (c.activeSeconds));
+        xml->setAttribute ("runStart", juce::String ((juce::uint64) c.runStart));
+        xml->setAttribute ("newProgramCount", juce::String ((juce::uint64) c.newProgramCount));
+        xml->setAttribute ("commits", juce::String ((juce::uint64) d.count));
+        xml->setAttribute ("window", d.size);
+        xml->setAttribute ("pending", (int) (d.arrived - d.count));
+
+        juce::MemoryOutputStream blob;
+
+        for (int k = 0; k < d.numEntries; ++k)
+            Impl::writeEntry (blob, d.entries[(size_t) k], d.first + (std::uint64_t) k < d.count);
+
+        xml->setAttribute ("segments", juce::Base64::toBase64 (blob.getData(), blob.getDataSize()));
+        return xml;
+    }
+
+    bool LiveProfile::stageState (const juce::XmlElement& xml, StagedState& staged) const
+    {
+        // 暂存按本实例的配置读档：常数（已清洗）与冻结参考先交，再按采样率换算（configure 末尾按常数算发布延迟）。这几项只在消息线程
+        // 改（prepare、setConstants、setFrozenReferencesForTesting），这里也在消息线程，不与音频线程争。
+        auto& s = *staged.impl;
+        s.constants = impl->constants;
+        s.frozen = impl->frozen;
+        s.frozenReference = impl->frozenReference;
+        s.frozenLowReference = impl->frozenLowReference;
+        s.configure (impl->sampleRate);
+        return s.restoreState (xml);
+    }
+
+    void LiveProfile::adoptState (StagedState& staged) noexcept
+    {
+        // 提交记录与序号「跨 reset 单调」、不进存档（读档也不另发提交记录），监听者是调用方设的：都留本实例的。
+        auto& s = *staged.impl;
+        s.records = impl->records;
+        s.recordTotal = impl->recordTotal;
+        s.listener = impl->listener;
+        std::swap (impl, staged.impl);
     }
 
     void LiveProfile::setFrozenReferencesForTesting (bool enabled, float referenceLufs, float lowReference) noexcept

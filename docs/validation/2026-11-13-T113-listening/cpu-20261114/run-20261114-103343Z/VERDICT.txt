@@ -1,0 +1,3 @@
+verdict=clean
+observer_ticks=1112
+finished_utc=2026-11-14T11:11:10Z

@@ -90,6 +90,11 @@ namespace celadon::ui
         // 每帧调：编排器快照里的 Clay 实际值与低频反相提示、宽度保护的状态（已按三态与旁通算好的读数）。
         void setReadout (const help::ClayReadout& readout);
 
+        // 橙色归 CLAY 守护灯时为 true（编辑器按 glazestatus::attentionOwner 每帧给）。为 false 时守护灯按「在处理」画、
+        // 数值不染橙：此刻别的事（真峰值、GLAZE 受限……）拿着橙色，不同的事不同时亮（T-111 / 4-06）。
+        void setAttentionAllowed (bool allowed);
+        bool hasGuardLamp() const noexcept;
+
         void paint (juce::Graphics&) override;
         juce::String getTooltip() override;
 
@@ -114,8 +119,11 @@ namespace celadon::ui
         juce::Rectangle<float> rowBounds (int index) const;
         juce::Rectangle<float> stripBounds() const;
 
+        bool showsGuard (help::ClayStage stage) const noexcept;
+
         std::array<Row, 3> rows;
         help::ClayReadout readout;
+        bool attentionAllowed = true;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ClayCard)
     };

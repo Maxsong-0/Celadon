@@ -172,9 +172,18 @@ namespace celadon
 
         manual = newParams;
 
+        // 离线导出（宿主渲染，setHostInfo 的 offline）时等响、听原声、试听差值三种监听一律不生效（T-095，R6-04a）：它们都只是
+        // 监听用的，成品必须是母带本身——等响是存进工程的参数，忘关就会把成品衰减掉「处理后比原声响的那部分」（最多 24 dB）；
+        // 原声 / 差值是界面状态，窗口开着导出同样会中招。归一化预听早已如此（下面的 previewRequested）。实时播放逐位不变。
+        // 「离线旁通哪几种」只在这三行定：后面一律用这三个量，不再直接读 limit.listen / compareOriginal / auditionDifference。
+        const auto monitorListen = newParams.limit.listen && ! offline;
+        const auto monitorOriginal = compareOriginal && ! offline;
+        const auto monitorDifference = auditionDifference && ! offline;
+
         // 听原声（A / B 的 B，v0.1.8.0）与宿主旁通走同一条干路：模块全旁通、编排器暂停校准（出口此刻是原声，校准器量它
-        // 就会把「原声的响度」当成方案的结果）、Listen 的测量冻结。两者只在 Listen 的监听增益上不同（updateListenTarget）。
-        const auto dryPath = hostBypassed || compareOriginal;
+        // 就会把「原声的响度」当成方案的结果）、Listen 的测量冻结、OUT 表的整体响度暂停积分（T-110）。两者只在 Listen 的监听增益上
+        // 不同（updateListenTarget）。
+        const auto dryPath = hostBypassed || monitorOriginal;
 
         // Listen 增益在输出测点之后独立施加，不反馈到方案、校准、保护层或响度估计。
         auto adjusted = newParams;
@@ -187,17 +196,19 @@ namespace celadon
         // 有限值原样交给 unit，与改动前同一个表达式。GLAZE 的非有限值由 unit 按 0 算（ChainParams 的默认就是 0）。
         constexpr MasteringSettings neutralMastering {};
         const auto finiteOr = [] (float value, float fallback) { return std::isfinite (value) ? value : fallback; };
-        const auto glaze = unit (newParams.glazePercent);
+        // 「自动」时推响不刺、目标频谱的强度跟 GLAZE 走；它们是音色类动作，按 f(GLAZE)（T-113 1-07，GlazeConstants.h timbreStrength，
+        // 与决策器的 Tone / Recover / Tame / Heat 同一映射）。出厂 f(g) = g，与改前的 unit (GLAZE) 逐位相同。
+        const auto timbreGlaze = glaze::timbreStrength (unit (newParams.glazePercent), controller.getListeningConstants());
         auto& advanced = adjusted.balance;
         advanced.harshAmount = mastering.harshMode == HarshMode::off ? 0.0f
                                : isResolved (mastering.harshResolved) ? juce::jmin (1.0f, mastering.harshResolved)
                                : unit (finiteOr (mastering.harshAmount, neutralMastering.harshAmount))
-                                   * (mastering.harshMode == HarshMode::automatic ? glaze : 1.0f);
+                                   * (mastering.harshMode == HarshMode::automatic ? timbreGlaze : 1.0f);
         advanced.transientPreserve = unit (finiteOr (mastering.transientPreserve, neutralMastering.transientPreserve));
         advanced.targetAmount = mastering.targetMode == TargetMode::off ? 0.0f
                                 : isResolved (mastering.targetResolved) ? juce::jmin (1.0f, mastering.targetResolved)
                                 : unit (finiteOr (mastering.targetAmount, neutralMastering.targetAmount))
-                                    * (mastering.targetMode == TargetMode::automatic ? glaze : 1.0f);
+                                    * (mastering.targetMode == TargetMode::automatic ? timbreGlaze : 1.0f);
         auto mode = mastering.targetMode;
         if (mode == TargetMode::automatic)
             mode = newParams.glazeStyle == 1 ? TargetMode::warm : (newParams.glazeStyle == 3 ? TargetMode::bright : TargetMode::neutral);
@@ -236,7 +247,7 @@ namespace celadon
         effective.balance.hasTargetReference = advanced.hasTargetReference;
         effective.balance.targetReferenceDb = advanced.targetReferenceDb;
         effective.limit.ceilingDb = adjusted.limit.ceilingDb;
-        releaseAllowed = ! dryPath && ! auditionDifference;
+        releaseAllowed = ! dryPath && ! monitorDifference;
         if (! releaseAllowed || offline) previewRequested.store (false, std::memory_order_relaxed);
         const auto nextPreview = releaseAllowed && ! offline && previewRequested.load (std::memory_order_relaxed);
         const auto leaving = previewActive && ! nextPreview;
@@ -259,7 +270,7 @@ namespace celadon
             //     监听增益）：先把此刻的衰减交给 Listen 的平滑器，再归一，随后 updateListenTarget 在 20 ms 内平滑到 Listen 的目标
             //     （Listen 关或干路 = 1），applyListenGain 在所有路径上都执行，斜坡落得了地。乘法平滑器的起点不能是 0，下限 1e-6。
             // 宿主旁通 / 听原声 / 试听差值期间每块都归一（与改动前相同：抖动随机序列也每块回到固定种子）。
-            const auto rampsItself = releaseAllowed && ! offline && ! newParams.limit.listen;
+            const auto rampsItself = releaseAllowed && ! offline && ! monitorListen;   // 离线时本就是 false：与读 limit.listen 等价
 
             if (! releaseAllowed || ((leaving || previewGainPending) && ! rampsItself))
             {
@@ -300,21 +311,28 @@ namespace celadon
         clay.setParams (clayParams);
         color.setParams (colorParams);
         limiter.setParams (limitParams);
-        listenRequested = newParams.limit.listen && ! previewActive;
+        // 离线时等响不生效，监听增益立即归一（不走 20 ms 斜坡，同预听的「离线立即归一」）：导出从第一个样本起就是母带。
+        // 等响的测量（processListen）照常跑，只供界面读数。
+        listenRequested = monitorListen && ! previewActive;
+        if (offline)
+            listenGain.setCurrentAndTargetValue (1.0f);
         const auto bypassChanged = hostIsBypassed != dryPath;
         hostIsBypassed = dryPath;
 
-        // 听原声期间 OUT 表的整体响度暂停积分（T-032 R8-03；设计规格-总体 2026-09-28 修订「三种临时监听……表与 GLAZE 照常按母带算」）：
-        // 出口此刻是原声，积进去就会把原声混进母带的整体读数，预听归一化也跟着偏。短期响度、真峰值、子块环照常（校准与 Listen 的配对不经直方图）。
-        // 宿主旁通接在同一个开关上，但要等 Max 确认口径（pauseIntegrationOnHostBypass，见 CeladonChain.h）：现在宿主旁通时照旧积分。
-        outputMeter.setIntegrationPaused (compareOriginal || (hostBypassed && pauseIntegrationOnHostBypass));
-        listenComparing = compareOriginal && ! hostBypassed;
+        // 走干路（宿主旁通，或实时听原声）期间 OUT 表的整体响度暂停积分（T-032 R8-03；设计规格-总体 2026-09-28 修订「三种临时监听……
+        // 表与 GLAZE 照常按母带算」；宿主旁通 T-110，Max 2026-11-12 定）：出口此刻是原声，积进去就会把原声混进母带的整体读数，
+        // 预听归一化也跟着偏。短期响度、真峰值、子块环照常（校准与 Listen 的配对不经直方图）。
+        // 离线导出时听原声不生效（monitorOriginal 为 false，T-095），整体响度照常积分母带；宿主旁通离线时照样走干路、照样暂停。
+        outputMeter.setIntegrationPaused (dryPath);
+        listenComparing = monitorOriginal && ! hostBypassed;
         if (listenSampleRate > 0.0 && (bypassChanged || listenLatency != getLatencySamples()))
             resetListenMeasurement (false);
         updateListenTarget();
 
         // 试听差值：LIMIT 此刻真的在处理才听得到它削掉的部分（limitParams.bypass 已含听原声与宿主旁通）。
-        differenceMix.setTargetValue (auditionDifference && ! limitParams.bypass ? 1.0f : 0.0f);
+        differenceMix.setTargetValue (monitorDifference && ! limitParams.bypass ? 1.0f : 0.0f);
+        if (offline)
+            differenceMix.setCurrentAndTargetValue (0.0f);   // 离线：差值的交叉淡化也立即落回母带，不留斜坡尾巴（T-095）
     }
 
     bool CeladonChain::process (juce::AudioBuffer<float>& io)

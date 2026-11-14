@@ -12,8 +12,8 @@
          都 ≤ 0.2 dB）：学完后低切、加宽自动值都 > 0 且在规格范围内、收单 = 0 且分频点为中性默认值（ADR-015：自动不收单）、
          不报代价受限；同一素材三项全「关」时三项为 0；输出 40 ～ 125 Hz 相关度与全关相差 < 0.02（不收单，低频立体声不被改动）；
          OUT 表真峰值 ≤ Ceiling + 0.01 dB。
-      3. 旧工程（算法 6、画像格式 1、存档里没有任何 Clay 字段）：这条链仍是阶段 1 编排器，Clay 实际值中性。
-         阶段 2 不再提示重新聆听、也不再沿用校准（见 Phase2OrchestratorTests）。合入后本条改成冷启动。
+      3. 旧工程（v1 聆听树：GLAZE_PROFILE / PLAN / CALIBRATION）：阶段 2 起整份丢弃、冷启动并亮旧工程提示，不提示重新聆听、
+         不沿用校准（阶段 1 时这条链还是旧编排器、Clay 实际值中性；契约见 Phase2OrchestratorTests）；GLAZE 0 的手动低切照样改变输出。
       4. 反相提示（ADR-015 起只提示、不改收单）：学完正常素材后插入 2 s 低频反相段 → 资格期 0.15 s + 分析帧与块的滞后内亮灯、
          再 0.1 s 提示强度到 1；段后至少保持 2 s、再按 2 s 线性退回 0；每一块的收单都不变；「关」「手动」态同样不变。
       5. 手动态：GLAZE 0 时手动低切 30 Hz 生效（实际值恰为 30、15 Hz 分量降约 24 dB、200 Hz 以上不变）；T-032 起另有手动加宽
@@ -23,7 +23,7 @@
       7. 执行快照：学习 + 反相提示满强度时保存 → 新链读取 → 首块 effective.clay 与保存前相同；实时 / 离线续渲逐样本相同，
          读回的提示照样按时退回。
       8. Clay 生效时整链音频路径 0 分配（三态轮换、手动扫值、Bypass、反相提示、宿主旁通、GLAZE 过 0、离线、reset、
-         重新聆听、读取存档都走到）。
+         读取存档都走到）。
       9. 根治修订 4(a) 已限幅（硬削顶）的底鼓素材：学完低切被「先试后用」否决（实际值 0、mask 置位、代价 ≥ 0.6 dB 而真次声
          需要度 > 0），四个收单候选代价 ≤ 0.3 dB；与修坯全关相比整链限幅 GR 最大增加 ≤ 0.3 dB。阳性对照：同一素材手动 20 Hz 低切
          让 GR 最大增加 > 1 dB（被拦下的确实是会抬高峰值的处理）。
@@ -658,7 +658,6 @@ namespace celadon::test
             Signal capture (int blocks)   { return capture (blocks, [] (int) {}); }
 
             glaze::Status status() const                        { return chain.getGlazeStatus(); }
-            Phase phase() const                                 { return chain.getGlazeController().getPhaseForTesting(); }
             glaze::CommittedState committed() const             { return chain.getGlazeController().getCommittedStateForTesting(); }
             glaze::GlazeController::TestProbe probe() const     { return chain.getGlazeController().getProbeForTesting(); }
             const ClayModule::Params& clay() const              { return chain.getEffectiveParams().clay; }
@@ -1328,7 +1327,7 @@ namespace celadon::test
 
         //==============================================================================
         // 阶段 2：v1 聆听树（formatVersion 1 + GLAZE_PROFILE / PLAN / CALIBRATION）冷启动，
-        // 并置 legacySessionDiscarded。requestRelearn 不再提交。GLAZE 0 的手动低切仍然必须改变输出。
+        // 并置 legacySessionDiscarded。GLAZE 0 的手动低切仍然必须改变输出。
         void testLegacyProject()
         {
             beginTest ("v1 listen/lock state cold-starts with the legacy notice; a manual low cut at GLAZE 0 still changes the output");
@@ -1348,11 +1347,6 @@ namespace celadon::test
             expect (s.legacySessionDiscarded, "v1 state raises the legacy notice");
             expect (s.phase == Phase::unlearned && ! s.calibrationValid && ! s.profileReady && ! s.clayNeedsRelearn,
                     "the old profile is discarded: no calibration, no relearn hint");
-            expectEquals (restored.probe().commits, 0, "the cold start does not commit");
-            expectEquals (restored.probe().calibrationBegins, 0, "the cold start does not calibrate");
-            restored.chain.requestGlazeRelearn();
-            restored.step();
-            expectEquals (restored.probe().commits, 0, "requestRelearn does not commit");
 
             auto manualParams = params;
             manualParams.glazePercent = 0.0f;
@@ -1821,7 +1815,8 @@ namespace celadon::test
         //      0 ～ 14 s 三态全「自动」（聆听 10 s 后低切、加宽的自动值生效），12 ～ 14 s 反相段（反相提示亮起）；
         //      14 ～ 46 s 三项各自在「自动 / 关 / 手动」间轮换、手动值扫满范围、Clay Bypass 来回切；
         //      26 s restartWithFadeIn；30 ～ 31 s 宿主旁通；32 ～ 34 s GLAZE 0（「手动」照样生效的那条路）；36 ～ 38 s 离线；
-        //      42 s 请求重新聆听；46 s 起回到全「自动」；50 s 读取存档（解析在计数区外，下一块接到它在计数区内）。
+        //      46 s 起回到全「自动」；50 s 读取存档（解析在计数区外，下一块接到它在计数区内）。（42 s 原有一次「重新聆听」请求，
+        //      阶段 2 起是空操作，随 T-098 删掉。）
         //    最后核对这些路径确实走到了（自动 Clay 非中性、手动、关、Bypass、反相提示都出现过）。
         void testAudioPathDoesNotAllocate()
         {
@@ -1854,7 +1849,7 @@ namespace celadon::test
             const auto total = static_cast<std::int64_t> (60.0 * kRate);
 
             std::uint64_t allocations = 0;
-            bool finite = true, restartDone = false, relearnDone = false, restoreDone = false;
+            bool finite = true, restartDone = false, restoreDone = false;
             int automaticBlocks = 0, manualBlocks = 0, offBlocks = 0, bypassBlocks = 0, protectedBlocks = 0;
             size_t readIndex = 0;
             std::int64_t processed = 0;
@@ -1877,12 +1872,6 @@ namespace celadon::test
                 const auto hostBypassed = seconds >= 30.0 && seconds < 31.0;
                 host.offline = seconds >= 36.0 && seconds < 38.0;
                 const auto& source = (seconds >= 12.0 && seconds < 14.0) ? antiPhase : material;
-
-                if (! relearnDone && seconds >= 42.0)
-                {
-                    chain.requestGlazeRelearn();
-                    relearnDone = true;
-                }
 
                 if (! restoreDone && seconds >= 50.0)
                 {
@@ -1940,7 +1929,7 @@ namespace celadon::test
                         + juce::String (protectedBlocks));
             expect (finite, "output finite throughout");
             expect (automaticBlocks > 0 && manualBlocks > 0 && offBlocks > 0 && bypassBlocks > 0 && protectedBlocks > 0
-                    && restartDone && relearnDone && restoreDone,
+                    && restartDone && restoreDone,
                     "the run went through the Clay paths it claims to cover");
             expectEquals (static_cast<juce::int64> (allocations), static_cast<juce::int64> (0), "audio thread must not allocate");
         }

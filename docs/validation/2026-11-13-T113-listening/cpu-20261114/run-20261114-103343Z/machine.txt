@@ -1,0 +1,77 @@
+date_utc=2026-11-14T10:33:43Z
+date_local=2026-11-14T02:33:43-0800
+host=max-spark
+uname=Linux max-spark 7.0.0-1019-nvidia #19~24.04.2-Ubuntu SMP PREEMPT_DYNAMIC Sun Sep  6 18:35:11 UTC 2 aarch64 aarch64 aarch64 GNU/Linux
+nproc=20
+core=5
+core_cpu_part=0xd85
+core_governor=performance
+core_cur_freq_khz=3900000
+core_max_freq_khz=3900000
+loadavg=8.38 9.42 15.63 1/2656 851375
+load1_max=unset
+rounds=2
+labels=base cur
+cur_bin=/home/maxsong/.cache/celadon-spark/build/t114-l7-c46fe7e904/celadon_bench_portable
+cur_sha256=818ee16d593e3f77ab3a13c421f95f3fba04b4dcbdd0767ac1f5b0b5e3300253
+base_bin=/home/maxsong/.cache/celadon-spark/build/t114-q-current-af7aff6715/celadon_bench_portable
+base_sha256=e5bf4fd1c183e441b4129ca16fc13e105e12786ef0854f928391b1f24fb704ad
+bench_args=--scenario default\,manual\,auto100 --sr 48000\,96000\,192000 
+spark_build=/home/maxsong/.cache/celadon-spark/build/t114-l7-c46fe7e904
+script_root=/home/maxsong/.cache/celadon-spark/src/t114-l7
+script_git_head=unknown（源码目录不是 git 仓库：提交号由主会话记进报告）
+---- lscpu ----
+Architecture:                            aarch64
+CPU op-mode(s):                          64-bit
+Byte Order:                              Little Endian
+CPU(s):                                  20
+On-line CPU(s) list:                     0-19
+Vendor ID:                               ARM
+Model name:                              Cortex-X925
+Model:                                   1
+Thread(s) per core:                      1
+Core(s) per socket:                      10
+Socket(s):                               1
+Stepping:                                r0p1
+Frequency boost:                         disabled
+CPU(s) scaling MHz:                      100%
+CPU max MHz:                             3900.0000
+CPU min MHz:                             1378.0000
+BogoMIPS:                                2000.00
+Flags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp sve2 sveaes svepmull svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti ecv afp wfxt
+Model name:                              Cortex-A725
+Model:                                   1
+Thread(s) per core:                      1
+Core(s) per socket:                      10
+Socket(s):                               1
+Stepping:                                r0p1
+CPU(s) scaling MHz:                      100%
+CPU max MHz:                             2808.0000
+CPU min MHz:                             338.0000
+BogoMIPS:                                2000.00
+Flags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm sb paca pacg dcpodp sve2 sveaes svepmull svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16 dgh bti ecv afp wfxt
+L1d cache:                               1.3 MiB (20 instances)
+L1i cache:                               1.3 MiB (20 instances)
+L2 cache:                                25 MiB (20 instances)
+L3 cache:                                24 MiB (2 instances)
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-19
+Vulnerability Gather data sampling:      Not affected
+Vulnerability Ghostwrite:                Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Not affected
+Vulnerability Old microcode:             Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Not affected
+Vulnerability Spec rstack overflow:      Not affected
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; CSV2, BHB
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Not affected

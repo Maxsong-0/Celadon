@@ -645,6 +645,10 @@ void CeladonAudioProcessor::processBuses (juce::AudioBuffer<float>& buffer, bool
     }
     auto main = getBusBuffer (buffer, false, 0);
     processChain (main, hostBypassed);
+
+    // 读档据此判断实例是否已在运行（keepsLiveStateOnLoad）。先读再写：每块只读一次，置位之后不再写这条缓存行。
+    if (buffer.getNumSamples() > 0 && ! processedAudio.load (std::memory_order_relaxed))
+        processedAudio.store (true, std::memory_order_relaxed);
 }
 
 void CeladonAudioProcessor::processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed)
@@ -858,14 +862,13 @@ juce::AudioProcessorEditor* CeladonAudioProcessor::createEditor()
 {
     auto* editor = new CeladonAudioProcessorEditor (*this);
 
-    // GLAZE 的三个数据源（v0.6，设计规格-GLAZE-界面与实现第 1 节）：编辑器每 30 ms 在消息线程调，全部无锁——
-    // 状态是编排器的无锁快照，「重新聆听」只置原子标志，实际值是音频线程每块写的 7 个原子量。
+    // GLAZE 的两个数据源（v0.6，设计规格-GLAZE-界面与实现第 1 节）：编辑器每 30 ms 在消息线程调，全部无锁——
+    // 状态是编排器的无锁快照，实际值是音频线程每块写的 7 个原子量。
     // 宿主保证编辑器先于处理器销毁，捕获 this 安全。
-    // 两种旧工程提示由编辑器的计时器每帧取（旧聆听结果在状态快照里，曲风与交付取这个原子量），读档不必通知编辑器、也不管在哪个线程
+    // 两种旧工程提示由编辑器的计时器每帧取（GLAZE 旧存档丢弃的那一种在状态快照里，曲风与交付取这个原子量），读档不必通知编辑器、也不管在哪个线程
     // （T-108 独立复查 F12、第 2 轮 R2-F1）。先交它再交状态源：setGlazeStatusSource 刷的那一帧就把两种提示都取到。
     editor->setGenreDeliveryResetSource ([this] { return genreDeliveryReset.load(); });
     editor->setGlazeStatusSource ([this] { return getGlazeStatus(); });
-    editor->setGlazeRelearnAction ([this] { requestGlazeRelearn(); });
     editor->setGlazeEffectiveParamsSource ([this] { return getGlazeEffectiveParamsForUi(); });
 
     return editor;
@@ -876,33 +879,68 @@ void CeladonAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     // DAW 存工程时调用：把整棵状态树存成 XML。根节点的属性（如界面缩放 celadon::uiid::uiScaleProperty）
     // 会写成根元素的 XML 属性，与参数一起随工程保存。
-    // GLAZE 的已提交版本与独立执行快照附在导出的 XML 末尾，不挂进 parameters.state：APVTS 的状态树里
-    // 只许有参数节点（addMissingParameterNodes 在 Debug 版核对这一点），也不该让宿主的撤销 / 预设机制去碰它。
+    // GLAZE 的存档（GLAZE_STATE：formatVersion 2 的 LIVE，实时画像、已施加增量与各守护状态，见 GlazeController.h）与参考频谱
+    // 附在导出的 XML 末尾，不挂进 parameters.state：APVTS 的状态树里只许有参数节点（addMissingParameterNodes 在 Debug 版核对
+    // 这一点），也不该让宿主的撤销 / 预设机制去碰它。
+    // 参数树由 APVTS 自己加锁复制（参数值是原子量），不必挡音频线程。
     const auto state = parameters.copyState();
+    const auto xml = state.createXml();
 
-    if (const auto xml = state.createXml())
+    if (xml == nullptr)
+        return;
+
+    // 存档格式号与写它的版本（T-032 R10-02）：以后按存档区分参数语义 / DSP 兼容的锚点。只写在导出的 XML 上，不进参数状态树。
+    xml->setAttribute (stateFormatAttribute, currentStateFormat);
+    xml->setAttribute (stateVersionAttribute, JucePlugin_VersionString);
+
+    // T-099（ADR-040）：编排器与实时画像的存档直接读音频线程每块在改的量，自己不加锁（GlazeController.h「线程」、
+    // LiveProfile.h 第三节），宿主却可能在播放中存档（自动保存、REAPER 每改一次参数取一次状态做撤销点）。宿主包装层处理每一块时
+    // 都持着回调锁（JUCE 9.0.2 的 VST3 / AU / AAX / Standalone），这里拿同一把锁，但锁里只把要存的量拷进快照（回看窗口满 512 段
+    // 时约 1.7 MB 的定长拷贝，不分配）：存出来的是某两块之间的完整状态，音频线程只等这一下拷贝。快照在拿锁之前建好（分配并写满
+    // 初值），拼 XML、base64、zlib 都在放锁之后。存出来的字节与两步连着做（createGlazeStateXml）逐字节相同。
+    // 每次存档建一份新快照、不复用成员：有的宿主在别的线程存档，两次存档可能同时进行。持锁时间见 docs/validation/2026-11-13-T099-state-lock。
+    celadon::glaze::GlazeController::StateSnapshot snapshot;
+
     {
-        // 存档格式号与写它的版本（T-032 R10-02）：以后按存档区分参数语义 / DSP 兼容的锚点。只写在导出的 XML 上，不进参数状态树。
-        xml->setAttribute (stateFormatAttribute, currentStateFormat);
-        xml->setAttribute (stateVersionAttribute, JucePlugin_VersionString);
-
-        if (auto glaze = chain.createGlazeStateXml())
-            xml->addChildElement (glaze.release());
-
-        if (auto reference = chain.createReferenceStateXml())
-            xml->addChildElement (reference.release());
-
-        copyXmlToBinary (*xml, destData);
+        const juce::ScopedLock audioStopped (getCallbackLock());
+        chain.captureGlazeState (snapshot);
     }
+
+    if (auto glaze = celadon::glaze::GlazeController::encodeState (snapshot))
+        xml->addChildElement (glaze.release());
+
+    // 参考频谱自带票号与逐字原子的发布（ReferenceSpectrum.h），与音频线程并发安全，不进锁。
+    if (auto reference = chain.createReferenceStateXml())
+        xml->addChildElement (reference.release());
+
+    copyXmlToBinary (*xml, destData);
+}
+
+bool CeladonAudioProcessor::keepsLiveStateOnLoad() const noexcept
+{
+    // 调用方持着回调锁：音频线程停着，才能读实时画像已发布的那一份（LiveProfile 的读数只许音频线程或音频停着时读）。
+    return processedAudio.load (std::memory_order_relaxed)
+        && chain.getLiveProfile().getDiagnostics().activeSeconds > 0.0;
 }
 
 void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // DAW 打开工程时调用：只接受本插件自己的状态格式。先把 GLAZE 节点摘出来（旧工程没有这个节点 = 未学习），剩下的整棵树
-    // 连同根属性一起换回来，最后把 GLAZE 节点交给编排器。缺席的参数（旧版本存的工程）由 addMissingParameterNodes 补齐：
+    // DAW 打开工程、换宿主预设、撤销时调用：只接受本插件自己的状态格式。先把 GLAZE 节点摘出来（旧工程没有这个节点 = 未学习），
+    // 剩下的整棵树连同根属性一起换回来，最后决定 GLAZE 节点读不读。缺席的参数（旧版本存的工程）由 addMissingParameterNodes 补齐：
     // GLAZE 回 0，其余（含 v0.1.7.0 的 clay_*）回默认。Clay 的画像特征、方案值与保护状态都在 GLAZE 节点里，由编排器读（旧格式按中性）。
-    // 顺序有讲究：参数先换、GLAZE 后交。音频线程若在两步之间跑了一块，它看到的是新参数配旧版本（比如风格变了会开始一次过渡），
-    // 下一块接到存档时整体直接落到位、覆盖掉这一块的中间状态；反过来的顺序则会让存档按旧参数落位、再被新参数当成「换风格」。
+    //
+    // T-099（ADR-040）：
+    //   - 解压、解析外层 XML、换参数都在锁外（APVTS 自己加锁，参数值是原子量）。GLAZE 那一段拆两步（GlazeController.h
+    //     「存读档拆两步」）：锁外 stage（解开 LIVE、解析、校验，实时画像在另一份工作区里读回并重算），锁里只判断「运行中」
+    //     并 commit（换入暂存，定长拷贝与指针交换）。换下来的旧画像工作区随暂存在放锁之后释放。
+    //   - 「运行中」判断两次，都在锁里：先判断一次，运行中就只清提示、不解档（换宿主预设、撤销是最常见的读档，不白解一份）；
+    //     不是运行中才去锁外解档，拿锁换入之前再判断一次——两次之间音频线程可能已经开始放音乐了（判据见 keepsLiveStateOnLoad）。
+    //   - 运行中的实例（keepsLiveStateOnLoad）读档：参数照换，GLAZE 存档整份不读——实时画像、已施加增量与各守护状态都是这台实例
+    //     从此刻的音乐里听来的，换宿主预设或撤销不该把它们换成存档那一刻（或别的歌）的（Max 2026-11-12 拍板第 4 项）。
+    //     这次没有冷启动，上一次读档点亮的旧工程提示（legacySessionDiscarded）随之清掉（keepGlazeStateOnLoad）。
+    //     目标方案按新参数重算：编排器每块 beginBlock 发现 GLAZE / 风格或影响方案的手动值变了就重算（GlazeController.h「目标方案」）。
+    //   - 顺序：参数先换、GLAZE 后落位。音频线程若在两步之间跑了一块，它看到的是新参数配旧的 GLAZE 运行状态；随后落位整份覆盖
+    //     编排器的运行状态，目标方案在下一块 GLAZE > 0 的 endBlock 按新参数重算。反过来的顺序会让存档先落位、再被新参数当成一次改动。
     if (const auto xml = getXmlFromBinary (data, sizeInBytes))
     {
         if (xml->hasTagName (parameters.state.getType()))
@@ -939,7 +977,32 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
             addMissingParameterNodes (newState, stateFormat);
             parameters.replaceState (newState);
 
-            chain.restoreGlazeStateXml (glaze.get());
+            auto running = false;
+
+            {
+                const juce::ScopedLock audioStopped (getCallbackLock());
+                running = keepsLiveStateOnLoad();
+
+                if (running)
+                    chain.keepGlazeStateOnLoad();
+            }
+
+            if (! running)
+            {
+                celadon::glaze::GlazeController::StagedRestore staged;
+                chain.stageGlazeRestore (glaze.get(), staged);
+
+                {
+                    const juce::ScopedLock audioStopped (getCallbackLock());
+
+                    if (keepsLiveStateOnLoad())
+                        chain.keepGlazeStateOnLoad();
+                    else
+                        chain.commitGlazeRestore (staged);
+                }
+            }
+
+            // 参考频谱是用户点「学习」得来的设置，随参数一起换；它的读档自带同步（ReferenceSpectrum.h），不进锁。
             chain.restoreReferenceStateXml (reference.get());
         }
     }
@@ -958,7 +1021,8 @@ void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState,
     // 回到旧版的 0（2026-09-25 评审 v0.4 R2-01）。新实例的 GLAZE 默认已改为 35，因此缺参恢复必须显式写 0；
     // 其余缺席参数补只带 id 的节点，由 setNewState 使用参数默认值（JUCE 9.0.2 setNewState：tree.getProperty (value, 默认值)）。
     // Clay 的 7 个参数（v0.1.7.0）正是走「只带 id → 默认值」这一支，有意不特判：三态默认「自动」、Bypass 关，
-    // 旧画像（格式 1）没有立体声 / 超低频特征，决策器给的自动值为 0 → 旧工程打开声音不变，点「重新聆听」后才启用（设计规格-Clay 第 7 节）；
+    // 自动值由 GLAZE 给：阶段 1 时旧画像（格式 1）没有立体声 / 超低频特征、自动值为 0，点「重新聆听」后才启用（设计规格-Clay 第 7 节）；
+    // T-048 阶段 2 起旧 GLAZE 存档整份丢弃、冷启动，自动 Clay 跟着这台实例的实时画像走（「重新聆听」已删，T-098）；
     // 已经在用的实例读旧预设时也回到「自动」，不沿用读之前 CLAY 卡片上的「手动 / 关」（与其余参数回默认一致）。
     // GLAZE 的特判只认 glaze_amount 这一个 ID，不会碰到 clay_*。
     // 节点类型与属性名是 APVTS 的状态格式（每个参数一个 PARAM 子节点，属性 id / value），与 copyState 存出来的一致。

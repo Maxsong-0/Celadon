@@ -19,24 +19,22 @@ const driven: { name: string; unit: string; manual: number; full: number; max: n
   { name: 'Clip', unit: '', manual: 0, full: 18, max: 100 }
 ];
 
-/** 互动段：拧 GLAZE，看开片生长、七项参数的紫色加量，以及起步 → 保持 → 跟随。 */
+/** 互动段：拧 GLAZE，看开片生长、七项参数的紫色加量，以及预热 → 保持 → 跟随。 */
 export default function GlazeSection() {
   const root = useRef<HTMLElement>(null);
   const [value, setValue] = useState(35);
   const [phase, setPhase] = useState(0);
   const v01 = clamp(value / 100, 0, 1);
-  const { t, i18n } = useTranslation('home');
-  // 阶段名跟插件状态行走。home.json 的 glaze.phases 仍是旧的四步，这一节不读它。
-  const phaseLabels = (i18n.resolvedLanguage ?? i18n.language).startsWith('zh')
-    ? (['起步', '保持', '跟随'] as const)
-    : (['Starting', 'Holding', 'Following'] as const);
+  const { t } = useTranslation('home');
+  // 阶段名跟插件状态行走（预热 → 保持 → 跟随），由 home.json 的 glaze.phases 提供，中英各一份。
+  const phaseLabels = t('glaze.phases', { returnObjects: true });
   const styles = t('glaze.styles', { returnObjects: true });
   useReveal(root);
 
   useGSAP(
     () => {
       if (!root.current) return;
-      // 进入视口后走一遍：起步（加量偏小）→ 保持（较轻段，加量回落）→ 跟随。
+      // 进入视口后走一遍：预热（加量偏小）→ 保持（较轻段，加量回落）→ 跟随。
       const hold = prefersReducedMotion() ? 0.01 : 1;
       const tl = gsap.timeline({
         repeat: -1,
@@ -67,7 +65,7 @@ export default function GlazeSection() {
     { scope: root }
   );
 
-  // 起步偏保守，保持时加量回落，跟随才到满刻度。示意比例，不是插件里的速率。
+  // 预热偏保守，保持时加量回落，跟随才到满刻度。示意比例，不是插件里的速率。
   const follow = phase === 2 ? 1 : phase === 1 ? 0.2 : 0.35;
   const targetLufs = -14 + v01 * 6.2; // 示意：风格与 GLAZE 想要的响度
   const styleWeights = [0.28 + 0.1 * Math.sin(v01 * 3), 0.42 - 0.12 * v01, 0.3 + 0.02 * v01];

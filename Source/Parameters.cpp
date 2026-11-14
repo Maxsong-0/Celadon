@@ -100,6 +100,9 @@ namespace celadon::param
         layout.add (makeBool (limitReleaseAuto, "Limit Auto Release", defaults::limitReleaseAuto));
 
         // 步进 0.5 ms（ParameterRanges.h）：每换一档都要重置限幅器并重新上报延迟。
+        // 不进宿主自动化（T-099，Max 2026-11-12 拍板第 11 项；ADR-040）：自动化它等于在播放中改延迟——换档那一刻输出整体挪几毫秒、
+        // 断一下，离线导出时新延迟还可能报不上去。JUCE 据此给 VST3 去掉 kCanAutomate、给 AU 标 NonRealTime；宿主照样能在界面上拧、
+        // 随工程存取。宿主若仍回放旧工程里已有的 Lookahead 自动化，处理器层的 LookaheadHold 照旧挡着（停稳 0.3 s 才换）。
         layout.add (makeFloat (limitLookahead, "Limit Lookahead",
                                ranges::limitLookahead(), defaults::limitLookaheadMs,
                                juce::AudioParameterFloatAttributes()
@@ -107,7 +110,8 @@ namespace celadon::param
                                    .withStringFromValueFunction ([] (float value, int)
                                                                  {
                                                                      return juce::String (value, 1);
-                                                                 })));
+                                                                 })
+                                   .withAutomatable (false)));
 
         layout.add (makeFloat (limitClip, "Limit Clip",
                                ranges::limitClip(), defaults::limitClip, integerAttributes()));

@@ -118,9 +118,13 @@ msbuild Builds\VisualStudio2022\Celadon.sln /p:Configuration=Release /p:Platform
 Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://github.com/mstorsjo/msvc-wine) 把 Visual Studio 2022 的生成工具
 （MSVC v143、Windows SDK、MSBuild）装进 Wine：cl.exe、link.exe、MSBuild 与 Windows 上是同一套，编的就是 Projucer 生成的 `.sln`。
 
-- 装一次：`ssh maxsong@192.168.100.109 'bash -s' < scripts/setup-windows-wine.sh`（Wine、msitools、Xvfb、中文字体
+- 机器：108（tailnet `maxsong@100.84.85.68`，两个脚本的默认主机；`CELADON_WIN_HOST` 可改）。109 已弃用（Max 2026-11-13 定）。
+- 装一次：`ssh maxsong@100.84.85.68 'bash -s' < scripts/setup-windows-wine.sh`（Wine、msitools、Xvfb、中文字体
   fonts-noto-cjk 要 sudo apt；下载 VS 工具即接受微软的 Visual Studio / Windows SDK 许可，装出来的编译器不可再分发）。
-- 日常：先在 Mac 上重新生成工程（命令见上面「目录与 Projucer」；`Builds/VisualStudio2022` 随源码同步过去），然后
+  `test`、`ui` 两个模式要的 cmake / ninja 由脚本第 5 步用 uv 装进 108 的 `~/opt/buildtools`（不往系统里装：108 同时是
+  testbox 节点），`windows-wine.sh` 远端会把它加进 PATH。
+- 日常：先重新生成工程（Mac 上命令见上面「目录与 Projucer」；没有 Mac 时用 DGX 上自编的 Linux 版 Projucer `--resave`，它写的
+  `JuceLibraryCode` 两个头只差十六进制大小写，换回仓库原样；`Builds/VisualStudio2022` 随源码同步过去），然后
   - `scripts/windows-wine.sh plugin`：msbuild 编 Release x64（VST3 + Standalone），本工程源码有任何警告或错误都算失败；
   - `scripts/windows-wine.sh test [--only 类名]`：CMake + Ninja + cl.exe 编 `celadon_tests`（静态运行库），在 Wine 里跑；
   - `scripts/windows-wine.sh installer`：plugin + 安装包，并在单独的 Wine 前缀里静默安装（默认两项都装）、逐字节核对、
@@ -143,6 +147,42 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 Windows 的 UCRT 还按 CPU 是否支持 FMA3 换超越函数的实现。所以 `tools/render` 的 `audio_hash` 只在同一台机器的同一种构建
 之间可比，跨平台对照用 `gate_check.py` 的 dB / LU 门槛（见 `tools/render/README.md`）。
 
+## 测试机：先 108（testbox），其次 DGX Spark（max-spark）
+
+Mac 上不编、不测、不渲染、不跑基准（Max 2026-10-04 定，2026-10-24 改成先 108 后 DGX）。编译、`celadon_tests`、`celadon_render` 与 Python 量尺
+先经 testbox 交 108（x86_64 执行节点，testbox 里叫 `x86-1`）；只有这几种交 DGX：结果跟架构有关、要 aarch64 的；108 不在线或自检没过
+（`testbox status` 的节点行）；超出 108 的单任务上限（节点行写着）；要用 DGX 主机本身的（Docker、systemd 用户单元这类沙盒里没有的）。
+不裸 ssh 上 108 或 DGX 去跑；全量测试同一时间只许一个会话跑。
+
+- **108（testbox）**：DGX 上 `testbox submit --arch x86_64 …`，Mac 上 `testbox --remote testbox@max-spark submit --arch x86_64 …`；任务由 DGX 的
+  守护进程派到 108，`testbox wait / logs / status` 照旧对 DGX。等结果只认 `^testbox · 结束：` 那一行。
+- **DGX 上的入口**：`~/.cache/celadon-spark/bin/spark-test.sh <源码目录> build|test|run|dir`，`dry <子命令…>` 预演（只打印构建目录与它的状态、JUCE 路径、
+  锁和要跑的命令，什么都不建）；只在 Linux aarch64 上跑，别的机器直接报错（仓库副本 `scripts/dgx/spark-test.sh`，两份保持一致，
+  以 DGX 上那份为准）。DGX 是 NVIDIA DGX Spark（aarch64，20 核 / 121 GB，Ubuntu 24.04，GCC 13.3，Release + Ninja，没有 LTO）。
+  源码放 `~/.cache/celadon-spark/src/<名>/`（用 `git archive` 取一份干净树，别和别的会话共用目录），构建目录
+  `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令先建好再打印，同别的子命令）；JUCE 用 DGX 上的 `/home/maxsong/All-Project/JUCE`
+  （`-DCELADON_JUCE_DIR`；同名环境变量 `CELADON_JUCE_DIR` 可改，按真实路径比，改了的路径并进构建目录的散列，同一构建目录换 JUCE 会直接报错）；
+  它把 venv 放进 PATH。`build` 默认目标 `celadon_tests celadon_render`；`test` 编 `celadon_tests` 后运行（可带 `--only 类名,…`）；`run <命令…>`
+  在锁里跑任意命令，命令里可写 `$BUILD`（单引号留给脚本里的 shell 展开）。`SPARK_JOBS` 并行编译数（默认 8，几个会话同时编给 4）；
+  `CELADON_CXX_FLAGS` 同 `test-linux.sh`。
+- **锁**：同一构建目录的编译互斥；`test` / `run` 走**全机串行锁** `~/.cache/celadon-spark/locks/run.lock`（别的会话的测试也排这把锁，计时护栏
+  不被干扰）；**编译不进全机锁**——跑 CPU 基准前要在 vault TASKS ② 登记独占、给在跑的会话发消息、另起进程观察编译活动，日志为空才算干净。
+- **Python**：版本钉在 `tools/render/requirements.txt`（numpy / scipy / soundfile / pyloudnorm）。DGX 用 venv 的全路径
+  `~/.cache/celadon-spark/venv/bin/python`，少了就 `venv/bin/pip install -r tools/render/requirements.txt`；108 的沙盒里按同一份清单装。
+  截图工具要的 freetype / fontconfig / x11 开发头：`spark-test.sh` 仍把 `~/.cache/celadon-spark/guidev/root` 加进 PKG_CONFIG_PATH。
+- **要界面库的目标**（截图工具 `celadon_ui_snapshot`、处理器层测试 `celadon_processor_tests`，T-099）：Linux 上要 freetype / fontconfig / x11
+  的开发头，共享机不往系统里 apt 装。`scripts/fetch-gui-dev.sh <目录>` 把官方 -dev 包解到用户目录、修好 `.pc` 与开发链接，按它打印的
+  `export PKG_CONFIG_PATH=…` 配置；testbox 沙盒里没有 apt 包列表，它自动改用 `testbox-apt`（解到 `/cache/apt-root`）。处理器层测试的
+  四种跑法（release / tsan / tsan-before / bench）在 `docs/validation/2026-11-13-T099-state-lock/run-processor-tests.sh`（工作目录 = 打包目录）：
+  ThreadSanitizer 版配 `-DCELADON_TSAN=ON`（界面版 JUCE 一起插桩），运行时 `setarch $(uname -m) -R` 关地址随机化、
+  `TSAN_OPTIONS=suppressions=tests/processor/tsan.supp`；`bench` 量持锁时间，要独占机器。
+- **语料**（都在 DGX 的 `~/.cache/`，不进 git、不出 DGX）：`celadon-t048-22songs/`（Max 的门槛曲：`wav/` + `batch.sh` + `manifest.tsv`）、
+  `celadon-t048-cal/<deep|tech|melodic>/<track>/<track>.wav`（Jamendo 45 首，44.1 kHz 24 bit，已裁到小节线；标签见
+  `docs/validation/2026-10-01-T038-calibration/`）、`celadon-t048-cal-syn/`（合成曲）。谁占着哪个目录看 vault TASKS ②。
+- **口径**：DGX 上已知固定失败 5 条——ColorModule 4 条是 NEON 快路径写死了融合乘加、与标量逐位对不上（Linux ARM 不是目标平台）；
+  BalancePerformance 1 条是立体声 / 单声道耗时比超出门槛。过 / 败一律对照同机基线只算新增；`audio_hash` 只在同机同构建内可比（见上一节）。
+  x86-64-v3 在 CI 上跑（下一节），Windows 见上面的 Windows 一节。
+
 ## CI（GitHub Actions，Studiolo 的自托管 runner）
 
 `.github/workflows/ci.yml`：每个 PR、每次合进 main，都在 Studiolo 的自托管 CI 服务器上原生编 `celadon_tests`，跑两遍全套——基线
@@ -160,6 +200,9 @@ JUCE 9.0.2 由工作流按提交钉死、取到 `Celadon/` 旁边；构建目录
 - 作业一直排队或 runner 离线：`gh api repos/Maxsong-0/Celadon/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'`
   看状态并告诉 Max；确认没有作业在跑才重启：`ssh maxsong@192.168.100.107 'sudo /usr/local/sbin/ci-runner-service restart celadon'`。
 - 编译工具用机器上的系统包：`cmake`（≥ 3.22）、`ninja`、`g++`。作业的 PATH 由实例目录里的 `.path` 给出，不含 `/snap/bin`。
+- 另有作业 `processor-tests`（T-099）：Release 与 ThreadSanitizer 两项，编整个插件跑 `celadon_processor_tests`。界面开发头由
+  `scripts/fetch-gui-dev.sh` 解到工作区的 `guidev/`（第一次下载、之后复用），要求机器有 apt 的包列表（`apt-get download` 不要 root）；
+  ThreadSanitizer 那项还要 `setarch`（util-linux）。
 
 装实例与注册（在 Mac 上执行；注册令牌只由 Max 本人经 stdin 送入，不回显、不落盘，1 小时有效；agent 不经手、不打印）。
 `V` / `SHA` 是 [actions/runner](https://github.com/actions/runner/releases) 最新发布的版本与发布说明里 linux-x64 包的 sha256，
@@ -175,5 +218,5 @@ gh api -X POST repos/Maxsong-0/Celadon/actions/runners/registration-token --jq .
 ssh maxsong@$H 'sudo /usr/local/sbin/ci-runner-service enable-now celadon'
 ```
 
-再加一台机器进同一个池（比如 109 `github-2`）：把 `H` 换掉，整段再跑一遍。实例名仍叫 `celadon`、标签相同即同池，runner 名是
+再加一台机器进同一个池（比如另一台 x86 测试机）：把 `H` 换掉，整段再跑一遍。实例名仍叫 `celadon`、标签相同即同池，runner 名是
 `<主机名>-celadon`，不会撞名；池里的机器都要支持 x86-64-v3（AVX2 + FMA），否则那一遍全套会因非法指令崩掉。

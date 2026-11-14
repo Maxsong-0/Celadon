@@ -2,17 +2,19 @@
   ==============================================================================
 
     TopBar.h
-    顶栏（V4 设计稿 1200 × 52）：左边品牌，正中的状态胶囊，右边延迟 · 中 / EN · 设置 · 帮助 · 高级。
+    顶栏（V4 设计稿 1200 × 52）：左边品牌，正中的状态胶囊，右边设置 · 帮助 · 高级。
+    T-111 包 D：语言切换挪进设置面板，延迟只在设置面板底行写（顶栏不再显示），胶囊两侧都留给内容。
 
-    状态胶囊只写此刻最要紧的一件事（优先级：需要注意 > 正在听原声 / 试听差值 > GLAZE 状态）：
-      - 需要注意（橙色，带三角）：方案受限 / 受手动设置限制 / 与聆听时的音乐差很多 / 真峰值超过上限 / 屏蔽了异常音频块 /
-        Debug 构建；
-      - 听原声（B）：「B · 正在听原声 · 已等响 4.8 dB」；试听差值：「LIMIT · 正在试听差值 · 只听被削掉的部分」；
-      - 其余：GLAZE 状态行（「● 已锁定 · 自动→温润 · 目标 −9.6 LUFS」），第二段风格在选「自动」时是紫色。
-    胶囊按内容定宽、居中在 x = 600，但不压到左边的品牌与右边的延迟读数；实在放不下时最后一段加省略号。
+    状态胶囊只写此刻最要紧的一件事（优先级：需要注意 > 正在听原声 / 试听差值 / 归一化预听 > GLAZE 状态）：
+      - 需要注意（橙色，带三角）：屏蔽了异常音频块 / 真峰值超过上限 / GLAZE 琥珀状态（受手动设置限制、导出时还没热、受限）/
+        Debug 构建；橙色同一时刻只属于一件事（见 GlazeStatusText.h attentionOwner）；
+      - 听原声：「正在听原声 · 已等响 4.8 dB」；试听差值：「LIMIT · 正在试听差值 · 只听被削掉的部分」；
+        归一化预听：「归一化预听 · 目标 −14.0 LUFS · 监听衰减 3.2 dB」——三者都是深色圆点，是一种模式，不是出了问题；
+      - 其余：GLAZE 状态行（「● 跟随 · 自动→温润 · 目标 −9.6 LUFS」），第二段风格在选「自动」时是紫色。
+    胶囊按内容定宽、居中在 x = 600，但不压到左边的品牌与右边的设置键；实在放不下时最后一段加省略号。
 
     编辑器每 33 ms 送一次内容与延迟（T-032 R9-12 / 13）：内容、数值都没变就什么都不做；各段文字的宽度与位置只在内容或
-    胶囊宽度变了时量一次。胶囊整颗是按物理像素的缓存图（AlignedComponentCache，整数对齐贴）：聆听 / 校准中圆点呼吸，
+    胶囊宽度变了时量一次。胶囊整颗是按物理像素的缓存图（AlignedComponentCache，整数对齐贴）：GLAZE 开头那段圆点呼吸，
     每帧只作废、重画圆点那一小块，别处引起的重画（macOS 的脏矩形包围盒）只贴图；胶囊与顶栏的 paint 跳过与脏区不相交的文字。
 
   ==============================================================================
@@ -45,7 +47,7 @@ namespace celadon::ui
             int accentSegment = -1;              // 哪一段上强调色（紫 = GLAZE 自动 / 深色 = B）
             juce::Colour accentColour;
             juce::Colour dotColour;
-            bool pulse = false;                  // 圆点呼吸（聆听中、校准中）
+            bool pulse = false;                  // 圆点呼吸（GLAZE 开局阶段 Kind::starting）
 
             bool operator== (const Content& other) const;
         };
@@ -141,22 +143,18 @@ namespace celadon::ui
         static constexpr int height = 52;
 
         void setLanguage (Language newLanguage);
-        void setLatency (double milliseconds);
         void setStatus (const StatusPill::Content& content);
         void setReduceMotion (bool shouldReduceMotion)     { pill.setReduceMotion (shouldReduceMotion); }
         void setSettingsOpen (bool open)                    { settingsButton.setActive (open); }
         void setHelpOpen (bool open)                        { helpButton.setActive (open); }
         void setAdvancedOpen (bool open)                    { advancedButton.setActive (open); }
 
-        std::function<void (Language)> onLanguageChange;
         std::function<void()> onSettings, onHelp, onAdvanced;
 
-        Segmented& getLanguageSelector() noexcept           { return languageSelector; }
         StatusPill& getStatusPill() noexcept                { return pill; }
         AdvancedButton& getAdvancedButton() noexcept        { return advancedButton; }
-        const juce::String& getLatencyText() const noexcept { return latencyText; }
 
-        // paint 里真正排版、画出的文字（品牌、副标题、延迟）累计次数（截图工具的检查读它）。
+        // paint 里真正排版、画出的文字（品牌、副标题）累计次数（截图工具的检查读它）。
         int getTextDraws() const noexcept                   { return textDraws; }
 
         void paint (juce::Graphics&) override;
@@ -164,17 +162,14 @@ namespace celadon::ui
 
     private:
         void layoutPill();
-        void updateLatencyText();
         float brandRight() const;
-        float latencyLeft() const;
+        float controlsLeft() const;     // 右边一排按钮（设置键）的左缘：胶囊右侧的边界
 
         Language language = Language::chinese;
-        double latencyMs = std::numeric_limits<double>::quiet_NaN();   // 还没收到过
-        juce::String latencyText, subtitleText;
-        float brandWidth = 0.0f, subtitleWidth = 0.0f, latencyWidth = 0.0f;
+        juce::String subtitleText;
+        float brandWidth = 0.0f, subtitleWidth = 0.0f;
         int textDraws = 0;
         StatusPill pill;
-        Segmented languageSelector { Segmented::Look::language };
         IconButton settingsButton { IconButton::Icon::settings }, helpButton { IconButton::Icon::help };
         AdvancedButton advancedButton;
 

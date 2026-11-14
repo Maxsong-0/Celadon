@@ -4,7 +4,7 @@
     Localisation.h
     界面语言（v0.1.8.0 界面改版：中文 / English 全部支持）。
 
-      - Language：全局只有两种，编辑器顶栏「中 / EN」切换，存在用户设置里（UiSettings），所有实例共用；
+      - Language：全局只有两种，在设置面板的「语言」一行切换（T-111 包 D 从顶栏挪进设置），存在用户设置里（UiSettings），所有实例共用；
       - tr (Text, Language)：界面上所有固定文字（标签、按钮、图例、设置面板……）都从这张表取，界面里不写字面量；
       - 提示气泡的三行文案在 HelpText（按参数 ID 查）、GLAZE 状态行在 GlazeStatusText，两者也都带 Language 参数。
 
@@ -77,13 +77,13 @@ namespace celadon::ui
         targetNote, targetWarm, targetNeutral, targetBright, targetReference, targetStrength, targetCurveTitle,
         referenceLearn, referenceCancel, referenceClear, referenceIdle, referenceWaiting, referenceLearning, referenceReady, referenceRouting,
         codecMargin, codecNote, ditherLabel, ditherNote, previewLevel, previewStart, previewStop, previewNote, previewAttenuation,
-        releasePreview, returnToMaster, advancedFooter, lowBand, midBand, highBand,
+        releasePreview, pillAttenuation, returnToMaster, advancedFooter, lowBand, midBand, highBand,
 
         // ---- 设置面板 ----
         windowSize, screenSize, tooBig, sizeNote, reduceMotion, reduceMotionNote, language,
 
         // ---- 帮助面板 ----
-        helpTitle, helpDrag, helpFine, helpReset, helpType, helpWheel, helpColours, helpAb, helpAudition,
+        helpTitle, helpDrag, helpSlider, helpFine, helpReset, helpType, helpWheel, helpColours, helpAb, helpAudition,
 
         // ---- 警告 ----
         warnTruePeak, warnNonFinite, debugBuild,

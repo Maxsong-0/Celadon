@@ -99,7 +99,7 @@ namespace celadon::glaze
 
     // 画像带 Clay 所需立体声 / 超低频特征（GlazeTypes.h MusicProfile「格式版本 2」那几项）的最低格式版本。与上面的
     // profileFormatVersion（本版本能读的上限）分开：以后格式再升，Clay 特征仍从 2 起就有。
-    // 用它的地方：画像 XML 写 / 读新字段、computeProfileId 是否把新字段并进哈希、编排器判断「旧画像 → 自动 Clay 中性、提示重新聆听」。
+    // 用它的地方：画像 XML 写 / 读新字段、computeProfileId 是否把新字段并进哈希、编排器判断「画像格式 < 2 → 自动 Clay 中性」（GlazeController 的 claySupported；实时画像恒按格式 2 交）。
     inline constexpr int clayProfileFormatVersion = 2;
 
     // ---- T-038 曲风追加（T-108 删掉曲风后只剩读旧画像用）----

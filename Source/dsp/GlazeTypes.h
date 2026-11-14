@@ -252,7 +252,8 @@ namespace celadon::glaze
     inline constexpr std::uint8_t continuousConditionsFormat = 2;   // 另有离散哈希与三个对数刻度值，比较按新口径
 
     // 校准的参考条件：任一改变即失效（设计规格-GLAZE-决策与校准 第 6 节）。比较见 referenceMatches（GlazeProfile.h），
-    // 手动参数这一部分由 setManualConditions（GlazeController.h）填。
+    // 手动参数这一部分原由 setManualConditions 按此刻的手动参数算哈希填；T-048 阶段 2（ADR-030）起没有校准，那个函数随 T-098 删掉，
+    // 这个结构只剩 GlazeProfile 读写旧存档的字段（格式不变：旧存档读得进、存出来逐字不变）。
     struct CalibrationReference
     {
         std::uint32_t profileId = 0;
@@ -342,14 +343,14 @@ namespace celadon::glaze
         bool planLimited = false;            // 「方案受限」
         bool limitedByManual = false;        // 「受手动设置限制」
         bool calibrationPaused = false;      // 宿主旁通中
-        bool relearnInProgress = false;      // 候选版本在建
+        bool relearnInProgress = false;      // 阶段 1 的旧字段，阶段 2 起恒为 false（「重新聆听」T-098 已删）：原义是候选版本在建
         Style resolvedStyle = Style::clean;  // 自动时此刻偏向哪种
         bool unlearnedOfflineWarning = false;
 
-        // v0.6 A4 追加：已提交方案是旧算法版本存的，此刻照用保存的自动增量（时间线与保存第 5 节「界面提示一次」要用；
-        // 拧 GLAZE、换风格或重新聆听后按新算法重算，这一项回到 false）。
+        // 阶段 1 的旧字段，阶段 2 起恒为 false（「重新聆听」T-098 已删）：原义是已提交方案为旧算法版本所存、此刻照用保存的
+        // 自动增量（v0.6 A4 追加）。阶段 2 起旧工程整份丢弃、冷启动，界面提示一次改看 legacySessionDiscarded。
         bool savedPlanFromOlderAlgorithm = false;
-        bool profileMismatch = false;        // 已提交画像与此刻的音乐严重不符（例如画像只听到安静前奏）：建议重新聆听
+        bool profileMismatch = false;        // 阶段 1 的旧字段，阶段 2 起恒为 false：原义是已提交画像与此刻的音乐严重不符
         bool waitingForPlayback = false;     // 宿主报告已停止播放：聆听与校准都在等音乐（状态行写「校准暂停（未播放）」）
         // ---- v0.1.7.0 修坯 Clay（ClayIndicator 与 CLAY 卡片每行的灯和数值读这些；都是上一块交给 ClayModule 的实际值）----
         float clayLowCutHz = 0.0f;           // 0 = 关
@@ -362,7 +363,7 @@ namespace celadon::glaze
         // 手动 / 自动都报（手动项恰恰没有别的反馈）；只说①②（加宽不进守护）；灯与数值读界面的实际值，这里只给「回收中」与保留比。
         bool clayPeakGuardActive = false;
         float clayPeakGuardKept = 1.0f;      // 平滑后的保留比 0 ～ 1（没有改动时 1）；亮着时气泡写成「实际只剩约 N %」
-        bool clayNeedsRelearn = false;       // 有自动态的项，但已提交画像缺立体声 / 超低频特征（旧工程）：提示点「重新聆听」
+        bool clayNeedsRelearn = false;       // 阶段 1 的旧字段，阶段 2 起恒为 false（「重新聆听」T-098 已删）：原义是已提交画像缺立体声 / 超低频特征
         std::uint8_t clayCostLimitedMask = 0;// ADR-012：自动态下哪几项因「试过会抬高峰值」被减量 / 否决（clayCostLimited* 位）
 
         // ---- T-048 阶段 2 连续调度（草图第 4 节；界面七条只读这些，不再另做一套 Phase）----

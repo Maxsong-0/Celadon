@@ -78,6 +78,8 @@ namespace celadon::glaze
         const Constants* constants = nullptr;    // 标定快照（为空时用出厂常数）
         float maxGainDb = 1.0e9f;                // 约束反馈给出的净提升上限（保护层 / 实测超限时降低）；默认不限
         const StyleWeights* lockedWeights = nullptr;   // 阶段 2：LIVE 里慢跟上 resolveAutomaticWeights 的权重，不再是「锁定那一次」
+        // T-113 1-07：音色类增量的强度映射（ListeningConstants::timbreScaleAtKnee）。为空 = 出厂值（ListeningConstants 的默认值）。
+        const ListeningConstants* listening = nullptr;
     };
 
     // 按画像算「自动」风格的混合权重（锁定画像时调一次，之后随画像保存）。置信不足时偏向通透（最保守）。

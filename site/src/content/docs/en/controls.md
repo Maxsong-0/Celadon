@@ -13,11 +13,11 @@ Every knob behaves the same way, and so does every slider; this text comes from 
 | Type a value | Option-click: Return confirms, Esc cancels, clicking elsewhere also confirms; full-width digits from a Chinese input method are accepted | Alt-click (releasing Alt won't activate the host's menu bar) |
 | Small steps | Mouse wheel | Mouse wheel |
 
-As a knob turns, a cyan comet tail trails behind its pointer, longer and thicker the faster it moves. When the value changes from a click on the ring, a double-click back to the default, host automation, a preset or undo, the pointer springs over to it and settles exactly on the parameter value. While you drag, a dark value bubble appears above the control (with a small “Fine” tag during fine adjustment). Every parameter goes through the host's parameter attachment: one drag = one gesture (the extra glide after a flick is part of it), and automation and undo are recorded per gesture.
+As a knob turns, a cyan comet tail trails behind its pointer, longer and thicker the faster it moves. When the value changes from a click on the ring, a double-click back to the default, host automation, a preset or undo, the pointer springs over to it and settles exactly on the parameter value. While you drag, a dark value bubble appears above the control (with a small “Fine” tag during fine adjustment); the big GLAZE knob already shows its value in the middle of the dial, so it has no bubble and shows “Fine” on the dial instead. Every parameter goes through the host's parameter attachment: one drag = one gesture (the extra glide after a flick is part of it), and automation and undo are recorded per gesture.
 
 ## Colours
 
-Cyan = your settings; violet = GLAZE's automatic increment right now; orange = needs attention (true peak over the ceiling, guard relief “Limited · …”, invalid (NaN / Inf) audio blocks caught…).
+Cyan = your settings; violet = GLAZE's automatic increment right now; orange = needs attention (true peak over the ceiling, guard relief “Limited · …”, invalid (NaN / Inf) audio blocks caught…). Only one thing is orange at a time, in the same order as the status pill at the top: invalid audio blocks > true peak over the ceiling > GLAZE limited > CLAY guard > old-project notice; anything else that applies at the same moment is shown in grey or its usual colour.
 
 ## Window
 
@@ -26,7 +26,7 @@ Cyan = your settings; violet = GLAZE's automatic increment right now; orange = n
 
 ## Settings and Help
 
-- **Language**: switch between `中` and `EN` in one click; every instance switches at once.
+- **Language**: in Settings, switch between `中` and `EN` in one click; every instance switches at once. The bottom row of Settings shows the version and the plugin's current latency.
 - **Reduce motion**: turns off particles, ripples and crack fade-ins; knobs show no comet tail and no spring, and a flick doesn't glide; the dot in the top bar's status pill doesn't pulse either.
 - **Help**: the original text of the control hints above.
 

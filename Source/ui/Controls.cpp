@@ -261,6 +261,15 @@ namespace celadon::ui
         return parameter.convertTo0to1 (value);
     }
 
+    void ParameterControl::setModuleBypassed (bool shouldLookBypassed)
+    {
+        if (moduleBypassed == shouldLookBypassed)
+            return;
+
+        moduleBypassed = shouldLookBypassed;
+        repaint();
+    }
+
     void ParameterControl::setValueFromAttachment (float newValue)
     {
         if (juce::exactlyEqual (newValue, value))
@@ -320,7 +329,7 @@ namespace celadon::ui
 
     void ParameterControl::updateBubble()
     {
-        if (dragActive && gestureActive)
+        if (dragActive && gestureActive && showsValueBubble())
             host.showValueBubble (*this, getBubbleAnchor(), getValueText (true), fine);
     }
 
@@ -355,30 +364,32 @@ namespace celadon::ui
             host.setControlHint (nullptr);
     }
 
-    void ParameterControl::mouseDoubleClick (const juce::MouseEvent& e)
+    bool ParameterControl::handleResetClick (const juce::MouseEvent& e)
     {
-        if (! isAdjustable() || e.mods.isAltDown())
-            return;
+        // 双击回默认在「第二次按下」就生效（T-111 / 4-13，与官网 T-103 同一做法）。JUCE 的 mouseDoubleClick 要到第二次松手之后才调：
+        // 双击外圈时参数先跳到所按角度、第二次松手才回默认，宿主多收两次改值。按着 Alt 的第二下仍是「直接输入」，不在这里。
+        if (e.getNumberOfClicks() < 2 || e.mods.isAltDown() || ! e.mods.isLeftButtonDown() || ! isAdjustable())
+            return false;
 
-        // 第二次按下已经 beginDrag（懒启动，没真正拖就还没 beginGesture）：在手势里就按手势的一部分设，否则当一次完整改动。
-        if (gestureActive)
-        {
-            dragProportion = parameter.convertTo0to1 (defaultValue);
-            attachment->setValueAsPartOfGesture (defaultValue);
-        }
-        else
-        {
-            setValueAsCompleteGesture (defaultValue);
-        }
+        if (dragActive)
+            endDrag();
 
-        // 这次按下剩下的拖动不再改值：双击回默认之后手一抖不该又拖走。
-        dragActive = false;
+        setValueAsCompleteGesture (defaultValue);
+
+        // 这次按下剩下的拖动不再改值（调用方不 beginDrag）：回默认之后手一抖不该又拖走，松手也不甩。
         host.hideValueBubble (*this);
+        return true;
+    }
+
+    void ParameterControl::mouseDoubleClick (const juce::MouseEvent&)
+    {
+        // 回默认已在第二次按下时做了（handleResetClick）；这里留空，免得 JUCE 在第二次松手后再设一次。
     }
 
     void ParameterControl::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
     {
-        if (! isAdjustable() || e.mods.isAnyMouseButtonDown())
+        // 触控板手抬起后的惯性段不算（T-111 / 4-24）：否则双指滑过旋钮、手已经离开，值还在继续变。
+        if (! isAdjustable() || e.mods.isAnyMouseButtonDown() || wheel.isInertial)
             return;
 
         const auto amount = (std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? -wheel.deltaX : wheel.deltaY)
@@ -467,11 +478,16 @@ namespace celadon::ui
         const auto proportion = getProportion();
         const auto track = getTrackArea();
         const auto alpha = dimmed ? 0.45f : 1.0f;
+        const auto saturation = isModuleBypassed() ? bypassLook::saturation : 1.0f;
+        const auto tint = [saturation, alpha] (juce::Colour colour)
+        {
+            return colour.withSaturation (colour.getSaturation() * saturation).withMultipliedAlpha (alpha);
+        };
 
         // 名字与数值分列，轨道垂直居中，24 px 高的整行均可操作。
-        g.setFont (uiFont (12.0f));
+        g.setFont (uiFont (TextSize::body));
         g.setColour (palette::ink3);
-        g.drawText (name, juce::Rectangle<float> (0.0f, 0.0f, (float) nameWidth, (float) getHeight()), juce::Justification::centredLeft, true);
+        drawTextLine (g, name, juce::Rectangle<float> (0.0f, 0.0f, (float) nameWidth, (float) getHeight()), juce::Justification::centredLeft, true);
 
         // 轨道（4 px）+ 填充（浅青 → 按深度加深）
         const auto bar = juce::Rectangle<float> (track.getX(), track.getCentreY() - 2.0f, track.getWidth(), 4.0f);
@@ -486,12 +502,12 @@ namespace celadon::ui
 
         if (fill.getWidth() > 0.5f)
         {
-            juce::ColourGradient gradient (palette::c200.withMultipliedAlpha (alpha), fill.getX(), 0.0f,
-                                           cyanAt (0.2f + 0.8f * depth).withMultipliedAlpha (alpha), fill.getRight(), 0.0f, false);
+            juce::ColourGradient gradient (tint (palette::c200), fill.getX(), 0.0f,
+                                           tint (cyanAt (0.2f + 0.8f * depth)), fill.getRight(), 0.0f, false);
 
             if (bipolar && proportion < 0.5f)   // 往左长时深色在左端
-                gradient = juce::ColourGradient (cyanAt (0.2f + 0.8f * depth).withMultipliedAlpha (alpha), fill.getX(), 0.0f,
-                                                 palette::c200.withMultipliedAlpha (alpha), fill.getRight(), 0.0f, false);
+                gradient = juce::ColourGradient (tint (cyanAt (0.2f + 0.8f * depth)), fill.getX(), 0.0f,
+                                                 tint (palette::c200), fill.getRight(), 0.0f, false);
 
             g.setGradientFill (gradient);
             g.fillRoundedRectangle (fill, 2.0f);
@@ -501,28 +517,38 @@ namespace celadon::ui
         const auto thumb = juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ bar.getX() + bar.getWidth() * proportion, bar.getCentreY() });
         g.setColour (juce::Colours::white.withMultipliedAlpha (alpha));
         g.fillEllipse (thumb);
-        g.setColour (cyanAt (0.3f + 0.7f * depth).withMultipliedAlpha (alpha));
+        g.setColour (tint (cyanAt (0.3f + 0.7f * depth)));
         g.drawEllipse (thumb.reduced (1.0f), 2.0f);
 
-        // 数值（等宽 12 px，右对齐）
-        g.setFont (monoFont (12.0f));
+        // 数值（等宽数值档，右对齐）
+        g.setFont (monoFont (TextSize::value));
         g.setColour (palette::ink.withMultipliedAlpha (dimmed ? 0.6f : 1.0f));
-        g.drawText (getValueText (true), juce::Rectangle<float> (track.getRight() + (float) gap, 0.0f, (float) valueAreaWidth, (float) getHeight()),
-                    juce::Justification::centredRight, false);
+        drawTextLine (g, getValueText (true), juce::Rectangle<float> (track.getRight() + (float) gap, 0.0f, (float) valueAreaWidth, (float) getHeight()),
+                      juce::Justification::centredRight);
     }
 
     void ParamSlider::mouseDown (const juce::MouseEvent& e)
     {
-        if (handleTextEntryClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
+        if (handleTextEntryClick (e) || handleResetClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
             return;
 
         fineDrag = e.mods.isCommandDown();
         lastDragX = e.position.x;
+        grabOffset = 0.0f;
         beginDrag (fineDrag);
 
         // 点在轨道上：滑块直接跳过去（设计稿：绝对位置）；按住 ⌘ 按下时不跳，只做相对的精调。
+        // 按在 14 px 的滑块圆上不跳，记下离圆心多远，拖动时扣掉（T-111 / 4-24：抓滑块边缘原来先跳最多 7 px）。
         if (! fineDrag && getTrackArea().expanded (0.0f, 4.0f).contains (e.position))
-            dragTo (proportionAtX (e.position.x), false);
+        {
+            const auto track = getTrackArea();
+            const auto thumbX = track.getX() + track.getWidth() * getProportion();
+
+            if (std::abs (e.position.x - thumbX) <= 7.0f)
+                grabOffset = e.position.x - thumbX;
+            else
+                dragTo (proportionAtX (e.position.x), false);
+        }
     }
 
     void ParamSlider::mouseDrag (const juce::MouseEvent& e)
@@ -546,7 +572,7 @@ namespace celadon::ui
             return;
         }
 
-        dragTo (proportionAtX (e.position.x), false);
+        dragTo (proportionAtX (e.position.x - grabOffset), false);
     }
 
     void ParamSlider::mouseUp (const juce::MouseEvent&)
@@ -595,11 +621,11 @@ namespace celadon::ui
     {
         const auto text = adjustable ? getValueText (true) : displayText;
         const auto colour = adjustable ? palette::ink : displayColour;
-        const auto font = monoFont (12.5f, Weight::medium);
+        const auto font = monoFont (TextSize::value, Weight::medium);
 
         g.setFont (font);
         g.setColour (colour);
-        g.drawText (text, getLocalBounds().toFloat(), juce::Justification::centredLeft, false);
+        drawTextLine (g, text, getLocalBounds().toFloat(), juce::Justification::centredLeft);
 
         // 可调时悬停给一条虚下划线，提示「这个数可以拖」。
         if (adjustable && (hovering || isDragging()))
@@ -614,7 +640,7 @@ namespace celadon::ui
 
     void DragValue::mouseDown (const juce::MouseEvent& e)
     {
-        if (handleTextEntryClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
+        if (handleTextEntryClick (e) || handleResetClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
             return;
 
         lastDragPosition = e.position;
@@ -644,9 +670,17 @@ namespace celadon::ui
 
     //==============================================================================
     Segmented::Segmented (Look l)
-        : look (l), font (uiFont (11.0f, Weight::medium))
+        : look (l)
     {
+        setTextStyle (TextSize::body, Weight::medium);
         setRepaintsOnMouseActivity (false);
+    }
+
+    void Segmented::setTextStyle (TextSize size, Weight weight, bool monospaced)
+    {
+        font = monospaced ? monoFont (size, weight) : uiFont (size, weight);
+        prefixFont = monoFont (size, Weight::semibold);
+        repaint();
     }
 
     void Segmented::setOptions (const juce::StringArray& newLabels)
@@ -696,11 +730,12 @@ namespace celadon::ui
 
     float Segmented::itemWidth (int index) const
     {
-        const auto padding = look == Look::compact ? 6.0f : (look == Look::language ? 9.0f : 10.0f);
+        // 紧凑款（频谱的斜率）每项左右 9：「0」「3」两项的点击区原来只有约 20 × 22（T-111 / 4-22）。
+        const auto padding = look == Look::compact ? 9.0f : (look == Look::language ? 9.0f : 10.0f);
         auto w = textWidth (font, labels[index]) + 2.0f * padding;
 
         if (prefixes[index].isNotEmpty())
-            w += textWidth (monoFont (font.getHeight(), Weight::semibold), prefixes[index]) + 5.0f;
+            w += textWidth (prefixFont, prefixes[index]) + 5.0f;
 
         return std::ceil (w);
     }
@@ -820,7 +855,6 @@ namespace celadon::ui
 
             // 文字（可带等宽粗体前缀，如 A / B）
             const auto prefix = prefixes[i];
-            const auto prefixFont = monoFont (font.getHeight(), Weight::semibold);
             const auto prefixWidth = prefix.isEmpty() ? 0.0f : textWidth (prefixFont, prefix) + 5.0f;
             const auto labelWidth = textWidth (font, labels[i]);
             auto x = segment.getCentreX() - (prefixWidth + labelWidth) * 0.5f;
@@ -830,12 +864,14 @@ namespace celadon::ui
             if (prefix.isNotEmpty())
             {
                 g.setFont (prefixFont);
-                g.drawText (prefix, juce::Rectangle<float> (x, segment.getY(), prefixWidth, segment.getHeight()), juce::Justification::centredLeft, false);
+                drawTextLine (g, prefix, juce::Rectangle<float> (x, segment.getY(), prefixWidth, segment.getHeight()), juce::Justification::centredLeft);
                 x += prefixWidth;
             }
 
+            // 框按字宽给（不会截字）；字比这一段宽时会压到邻段上——textfit 按段宽量，放不下照样记一笔。
             g.setFont (font);
-            g.drawText (labels[i], juce::Rectangle<float> (x, segment.getY(), labelWidth + 2.0f, segment.getHeight()), juce::Justification::centredLeft, false);
+            drawTextLine (g, labels[i], juce::Rectangle<float> (x, segment.getY(), juce::jmin (labelWidth + 2.0f, segment.getRight() - x), segment.getHeight()),
+                          juce::Justification::centredLeft);
         }
     }
 
@@ -1026,7 +1062,7 @@ namespace celadon::ui
 
     int ChipToggle::getNaturalWidth() const
     {
-        return (int) std::ceil (textWidth (withLetterSpacing (uiFont (11.5f, Weight::semibold), 0.3f), text) + 14.0f);
+        return (int) std::ceil (textWidth (withLetterSpacing (uiFont (TextSize::caption, Weight::semibold), 0.3f), text) + 14.0f);
     }
 
     void ChipToggle::paint (juce::Graphics& g)
@@ -1038,9 +1074,9 @@ namespace celadon::ui
         g.setColour (on ? palette::violetBorder : palette::controlBorder);
         g.drawRoundedRectangle (bounds, 5.0f, 1.0f);
 
-        g.setFont (withLetterSpacing (uiFont (11.5f, Weight::semibold), 0.3f));
-        g.setColour (on ? palette::violet : palette::ink3);
-        g.drawText (text, getLocalBounds().toFloat(), juce::Justification::centred, false);
+        g.setFont (withLetterSpacing (uiFont (TextSize::caption, Weight::semibold), 0.3f));
+        g.setColour (on ? palette::violetText : palette::ink3);
+        drawTextLine (g, text, getLocalBounds().toFloat(), juce::Justification::centred);
     }
 
     void ChipToggle::mouseUp (const juce::MouseEvent& e)
@@ -1089,9 +1125,9 @@ namespace celadon::ui
         const auto left = (float) (ParamSlider::nameWidth + ParamSlider::gap);
         const auto right = (float) getWidth() - (float) (ParamSlider::valueWidth + ParamSlider::gap);
 
-        g.setFont (uiFont (12.0f));
+        g.setFont (uiFont (TextSize::body));
         g.setColour (palette::ink3);
-        g.drawText (name, juce::Rectangle<float> (0.0f, 0.0f, (float) ParamSlider::nameWidth, h), juce::Justification::centredLeft, true);
+        drawTextLine (g, name, juce::Rectangle<float> (0.0f, 0.0f, (float) ParamSlider::nameWidth, h), juce::Justification::centredLeft, true);
 
         const auto bar = juce::Rectangle<float> (left, h * 0.5f - 2.0f, right - left, 4.0f);
         g.setColour (palette::track);
@@ -1106,9 +1142,9 @@ namespace celadon::ui
             g.fillRoundedRectangle (fill, 2.0f);
         }
 
-        g.setFont (monoFont (12.0f));
+        g.setFont (monoFont (TextSize::value));
         g.setColour (shownWarning ? palette::warningText : palette::c800);
-        g.drawText (shownText, juce::Rectangle<float> (right + (float) ParamSlider::gap, 0.0f, (float) ParamSlider::valueWidth, h),
-                    juce::Justification::centredRight, false);
+        drawTextLine (g, shownText, juce::Rectangle<float> (right + (float) ParamSlider::gap, 0.0f, (float) ParamSlider::valueWidth, h),
+                      juce::Justification::centredRight);
     }
 }

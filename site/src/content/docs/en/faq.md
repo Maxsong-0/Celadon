@@ -1,17 +1,17 @@
 ## I switched songs — what should I do?
 
-Nothing to click. GLAZE follows whatever is playing, the old song's statistics fade out as the new one plays, and the plan moves over gradually; until it has heard enough of the new song's main section, the status line reads Starting. Click Reset meters to clear the integrated loudness and the peak holds.
+Nothing to click. GLAZE follows whatever is playing, the old song's statistics fade out as the new one plays, and the plan moves over gradually; until it has heard enough of the new song's main section, the status line reads Warming up. Click Reset meters to clear the integrated loudness and the peak holds.
 
-## It stays on Starting?
+## It stays on Warming up?
 
-- Starting means it hasn't heard enough of the main section yet, so the plan stays cautious. A long intro, or looping a short stretch of intro, keeps it there longer; play through from the drop (or the chorus) once and it relaxes; see [How it follows the main section](/docs/glaze#how-it-follows-the-main-section).
-- Material that's too short or mostly silent can't gather enough of the main section and stays on Starting. If you still run into it, please send the project and the song to Max.
+- Warming up means it hasn't heard enough of the main section yet, so the plan stays cautious. A long intro, or looping a short stretch of intro, keeps it there longer; play through from the drop (or the chorus) once and it relaxes; see [How it follows the main section](/docs/glaze#how-it-follows-the-main-section).
+- Material that's too short or mostly silent can't gather enough of the main section and stays on Warming up. If you still run into it, please send the project and the song to Max.
 
 ## An old project sounds different when I open it?
 
-From this version GLAZE no longer listens through a passage and then settles on a plan; it follows the music all the time. The listening result, plan and calibration saved in an old project are discarded on load and GLAZE starts following from scratch, so the sound changes; the bottom-left corner says so once: “The old listening result was discarded, so the sound will change”. Play through the main section once and it settles. New projects save the statistics gathered so far and carry on from them when reopened.
+From this version GLAZE no longer listens through a passage and then settles on a plan; it follows the music all the time. The warm-up result, plan and calibration saved in an old project are discarded on load and GLAZE starts following from scratch, so the sound changes; the bottom-left corner says so once: “Old warm-up result discarded, so the sound will change”. Play through the main section once and it settles. New projects save the statistics gathered so far and carry on from them when reopened.
 
-0.1.8.11 removed the Genre and Delivery choices: an old project saved with a House genre, Streaming or Club loads as General + Standard, so it sounds different too, and the bottom-left corner says so once: “Genre/delivery removed, now General + Standard; sound changes” (one line each when both notices apply). See [Genre and Delivery (removed)](/docs/glaze#genre-and-delivery-removed).
+0.1.8.11 removed the Genre and Delivery choices: an old project saved with a House genre, Streaming or Club loads as General + Standard, so it sounds different too, and the bottom-left corner says so once: “Genre/delivery reset: General + Standard, sound changes” (one line each when both notices apply). See [Genre and Delivery (removed)](/docs/glaze#genre-and-delivery-removed).
 
 ## Why is everything under Advanced off in my old projects?
 
@@ -31,7 +31,7 @@ The plugin promises ≤ Ceiling + 0.01 dB as measured by its own 8× meter, plus
 
 ## The export is louder / quieter than what I heard?
 
-Check whether Match is still on (it's saved with the project) and whether Normalisation preview is off. Offline exports turn the preview off automatically; real-time exports don't.
+Match (saved with the project) and Normalisation preview only turn the monitoring down; they never change the master. An offline export bypasses both automatically, so if you were listening with them on, the offline export comes out louder than what you heard, and that's expected. The plugin can't tell a real-time export (recording while playing) from playback, so nothing is bypassed there: turn Match off and exit the preview first, or the export comes out quieter too.
 
 ## How do I get both a Streaming and a Club version of one song?
 
@@ -51,8 +51,8 @@ That's a debug build: it uses far more CPU than Release and is only for debuggin
 
 ## Will CLAY ruin the stereo image or mono compatibility?
 
-Mono and Width only touch the side channel S, so mono playback (L + R) is completely unchanged; Low cut removes only sub-bass below its 10–60 Hz setting (Auto cuts only when there's infrasound below 16 Hz). Auto never applies Mono; it only lights an amber warning when the lows are out of phase.
+Mono and Width only touch the side channel S, so mono playback (L + R) is completely unchanged; Low cut removes only sub-bass below its 10–60 Hz setting (Auto cuts only when there's infrasound below 16 Hz). Auto never applies Mono; it only lights an orange warning when the lows are out of phase.
 
 ## How do I check CPU use?
 
-There's no CPU meter next to Latency at the top right. For reference: on an M2 Pro with GLAZE 100 and the interface closed, about 1.3% of the audio-thread budget at 48 kHz. With the interface open there's roughly an extra quarter of a core for drawing; Reduce motion saves a little.
+There's no CPU meter in the interface (the bottom row of Settings shows only the version and the latency). For reference: on an M2 Pro with GLAZE 100 and the interface closed, about 1.3% of the audio-thread budget at 48 kHz. With the interface open there's roughly an extra quarter of a core for drawing; Reduce motion saves a little.

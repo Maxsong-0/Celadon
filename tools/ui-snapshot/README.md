@@ -14,12 +14,13 @@
 | 文件 | 状态 |
 |---|---|
 | `zh-default.png` / `en-default.png` | 默认（GLAZE 45 %、自动风格），中文 / 英文 |
-| `zh-original.png` | A / B 听原声（B）+ 等响 |
+| `zh-original.png` | 母带 / 原声切到原声 + 等响 |
 | `zh-audition.png` | Gain +8 dB 时 LIMIT 的耳机「试听差值」（只听限幅削掉的部分） |
 | `zh-truepeak.png` | 限幅器旁通 + Color 输出 +6 dB → 真峰值超限的橙色提示 |
 | `zh-settings.png` / `en-help.png` / `zh-help.png` | 设置面板 / 帮助面板（英文、中文；中文那张 T-100 加：旋钮的操作提示变长了） |
 | `en-settings.png` / `zh-settings-zoom70.png` / `en-settings-zoom70.png` | T-102：设置面板英文版，以及最小界面大小（70 %）下的中英两张（「减少动效」的说明补上旋钮后变长了） |
 | `zh-advanced.png` / `en-advanced.png` | 「高级」的推响不刺页（真实参数控制） |
+| `zh-advanced-original.png` / `en-original.png` | T-111：高级开着时点「原声」（不再被遮罩吞掉）；英文的听原声胶囊（「Listening to original · level-matched … dB」，去掉了「B」） |
 | `zh-target.png` | 目标频谱页，学习参考缺侧链时的等待状态 |
 | `en-release.png` / `zh-preview.png` | 发行安全页 / 主窗口的归一化预听提示 |
 | `zh-glaze90.png` / `zh-glaze0.png` | GLAZE 90 %（开片密、釉色深、粒子多）/ 0 %（无开片、全手动） |
@@ -27,11 +28,13 @@
 | `zh-reduced.png` | 减少动效（没有粒子与波纹） |
 | `zh-input.png` | 频谱仪 IN 虚线开着（默认关）。T-051 改 IN 虚线的建法时用 `--deterministic` 改前改后逐字节比过 |
 | `zh-status-follow.png` / `en-status-guard.png` / `zh-status-export.png` | T-048 状态行：跟随（自动→温润 · 目标 −9.6）、受限 · 预算 · 已退 1.5 dB、导出冷启动。只截顶栏胶囊 |
-| `zh-legacy-notice.png` / `en-legacy-notice.png` | 旧工程打开一次：左下角「旧的聆听结果已丢弃，声音会变」（不进状态行、不写入工程） |
+| `zh-legacy-notice.png` / `en-legacy-notice.png` | 旧工程打开一次：左下角「旧的预热结果已丢弃，声音会变」（不进状态行、不写入工程） |
 | `zh-genre-reset.png` / `en-genre-reset.png` | T-108：存着曲风 / 交付（非通用 + 标准）的旧工程打开一次：左下角「曲风与交付已取消，已改回通用 + 标准，声音会变」 |
-| `zh-genre-reset-both.png` / `en-genre-reset-both.png` | 同上与「旧的聆听结果已丢弃」同时出现：各占一行（上行旧聆听结果、下行曲风与交付） |
-| `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯琥珀（只存下半部分的四张卡片） |
+| `zh-genre-reset-both.png` / `en-genre-reset-both.png` | 同上与「旧的预热结果已丢弃」同时出现：各占一行（上行旧预热结果、下行曲风与交付） |
+| `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯橙色（只存下半部分的四张卡片） |
 | `zh-guard-tooltip.png` / `en-guard-tooltip.png` | 同上状态下 CLAY 灯的悬停气泡：第 2 行末尾「峰值守护回收中：低切 / 收单实际只剩约 40%」（取 `help::clayIndicatorTooltip`，与界面同一个函数） |
+| `zh-glaze-tooltip.png` / `en-glaze-tooltip.png` | T-112：GLAZE 标题的悬停气泡（标题一行与正文都是正文档 em 11，标题用中等字重）。`showGlazeTooltip` 原来给 T-038 的 House 气泡用，T-048 删掉那两张后没人调；气泡本身一直在界面上，字号放大后要看它 |
+| `zh-bypass.png` | T-112（4-19）：BALANCE / COLOR / CLAY 三块旁通、LIMIT 开着对照。旁通的卡片内容淡到 0.55、数值弧与滑条填充去色，中层左侧板对应的行同样淡、出力条与紫字去色（T-105 体检时没有旁通态的图，对比度是按代码算的） |
 
 守护回收那几张的状态由编排器填；截图工具把处理器的状态快照改一改再交给编辑器（`setGlazeStatusSource`，见 `injectStatus`；
 T-038 为 House 那几张加的），验的是界面怎么按字段画，不是编排器什么时候置这些字段。T-108（ADR-039）删了曲风与交付：
@@ -49,9 +52,18 @@ GLAZE 标题行左右的曲风 / 交付两个选择删了（Max 2026-11-13；参
 
 `--only check` 另跑一组交互检查：直接给真实控件发鼠标事件（拖动、⌘ 精调、双击回默认、Alt 单击输入（含中文输入法的全角数字、
 输入框开着时按键抬起不外传——Windows 上松开 Alt 会激活宿主菜单栏）、滚轮、滑条、
-分段选择、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
-逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中的数值气泡）、`check-original.png`、
-`check-audition.png`、`check-advanced.png`、`check-english.png`。
+分段选择、CLAY 手动值、电源键、AUTO、等响、母带 / 原声、试听差值与听原声互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
+逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中；T-111 起主旋钮不出数值气泡）、`check-original.png`、
+`check-audition.png`、`check-advanced.png`、`check-advanced-original.png`、`check-english-settings.png`、`check-english.png`。
+
+T-111（界面批第一段）改了这些检查，原因各一句：
+- ① 拖 GLAZE 时「出数值气泡」改成「不出」（4-18：帽子里就是同一个数，气泡在 35 % ～ 65 % 时压住标题行），另加一条卡片小旋钮照旧出气泡；
+- ③ ⑥ 双击回默认改在第二次按下就查（4-13：原来要到第二次松手、外圈还会先跳一下）；第二下按住再拖不改值；
+- ⑩b 新加：高级开着时按 `getComponentAt` 的真实命中测试，「原声」那一段接得到点击，第一下就切、高级不关，再点「高级」才关；设置开着时
+  照旧落在遮罩上（4-02）；
+- ⑪ 语言选择器在设置面板里（先打开设置再点 EN），顶栏没有分段选择器（包 D）；⑰ 删掉「顶栏延迟读数跟着语言走」两条（顶栏不再写延迟）；
+- CLAY 灯那条后面加一条橙色规则：GLAZE 橙色（受手动设置限制）时守护灯照样亮着、像素里却没有橙色，胶囊是警告样式（4-06）；
+- S12 悬停读数的探针容差 0.011 → 0.051（4-05：读数 dB 改一位小数）。
 
 T-100（ADR-037）起旋钮外圈换成 CometDial 的手感、读数带弹簧和彗尾，检查里多了一组（滚轮那条之后）：外圈 / 中间的分区、点外圈跳到所点角度、
 沿外圈拖值跟着角度走、快甩松手多滑一段（落点 0.5 → 约 0.698）、停 120 ms 再松手不多滑、拖进底部缺口锁在最大、⌘ 在外圈按下不跳
@@ -67,6 +79,22 @@ T-102 在语言那条（⑪）之后加了 ⑪b：设置面板「减少动效」
 （`juce_Fonts_freetype.cpp`），DGX 的 Noto Sans CJK 只有 `.ttc` 合集，JUCE 的字体列表里没有它，界面字体落到 `system-ui` = DejaVu Sans，
 汉字由系统回退到 Noto Sans CJK JP。DejaVu 的拉丁字母比苹方、微软雅黑 UI 都宽，所以英文这里过了 Mac / Windows 也放得下；
 中文是微软雅黑 UI 最宽，那两种按字体文件另算（`docs/validation/2026-10-18-T102-reduce-motion-note/`）。
+
+T-112（字号与对比度包 B）在旧工程那组之后加了三组：
+
+- **⑪c 单行文字放得下**（`runTextFitChecks`）：界面里单行画的字都走 `drawTextLine`（`CeladonLookAndFeel.h`），`textfit` 打开时它在画之前
+  量一下字宽、比框宽就记下（平时关着，插件里从不打开）。检查用自己的会话（预览旧工程提示后编辑器不再跟处理器的值），按 70 / 125 / 100 %
+  × 中 / 英，把主界面、设置、帮助、高级三页、听原声、状态行三句（跟随 / 受限 / 冷导出）、旧工程提示三种各画一帧（先让所有子组件的缓存作废，
+  字才会真的重画），每档每种语言一条，一处也没超才过，超了列出场景、文字、字宽 / 框宽。界面缩放是整体变换，逻辑宽度各档相同；三档都画是让
+  缩放后重建的缓存层也量到。Linux 上拉丁字母是 DejaVu Sans（按 em 比苹方、雅黑 UI、Noto 都宽），汉字每字 1 em、各字体相同，所以这里过了
+  Mac / Windows 也放得下（`docs/validation/2026-11-13-T112-type-contrast/` 第 4 节）。
+- **⑪d 六档字号**（`runTypeScaleChecks`）：每一档界面字体与等宽字体的 em（`getHeightInPoints`）等于 `typescale` 里那个数，
+  等宽字体回退到汉字字体时 em 不变；正文 em 11，各档由小到大。
+- **⑪e 新装默认大小与左下提示**（`runZoomDefaultChecks`）：`initialZoom` 纯函数——什么都没存（新装）125 %，用户设置存过的照用（100 % 仍是 100 %），
+  工程里存过的优先，非有限按 100 %，钳到 70 ～ 200 %；屏幕放不下时再取屏幕放得下的最大值（`fitZoomToScreen`，与屏幕有关，不在这里查）。
+  另查左下角提示右缘到风格选择左边 8 px 为止（原来固定 330 宽、伸进风格选择底下）。
+
+出图状态仍按默认大小 1 倍出（每个状态之前 `setDefaultZoom (1.0)`），新装 125 % 不影响改前改后逐像素比。
 
 **存图之前一律停稳**：工具不跑消息循环，弹簧会停在半路，所以 `save` 先对所有旋钮调 `finishMotion()`（读数落到参数值、彗尾清零），
 存下的是真机静止时的样子，与没有动画时逐像素相同（`check-drag.png` 也是：拖动中途的读数在真机上本来就只落后约 60 ms）。
@@ -144,8 +172,8 @@ T-070（夜间评审 `wf_3e784f42-2fa` 指出的覆盖缺口）再加：
   或改成「永远不算」，两个方向差都是 0、都败。PEAK 关 → 开、开 → 关时的重画（残影、此刻的数据）仍由 S9 / S9b / S10 / S12 守着。
   红绿证据见 `docs/validation/2026-10-05-T073-peak-off-dirty-region/`。下面 T-058 的红绿表与 S9 说明里的「② 第二道保险」是当时的口径（② 已去掉）。
 - **T-074：修坯守护回收指示**（`runClayGuardChecks`；出图状态 `zh / en-guard-recovering`、`zh / en-guard-tooltip`）。峰值守护把手动低切 / 收单的改动量收回去时，CLAY 卡片
-  低切、收单两盏灯与数值变琥珀，灯的气泡末尾写「实际只剩约 N%」（取舍见 vault 的 ADR-032，证据见 `docs/validation/2026-10-05-T074-guard-recovery-indicator/`）。
-  检查：同一个编辑器、同一份「低切 25 Hz、收单 120 Hz 在做」的状态，守护标志 关 → 开 → 关 各把 CLAY 卡片画成图，数灯那一列的灯色与数值那一列的字色（琥珀）像素——
+  低切、收单两盏灯与数值变橙，灯的气泡末尾写「实际只剩约 N%」（取舍见 vault 的 ADR-032，证据见 `docs/validation/2026-10-05-T074-guard-recovery-indicator/`）。
+  检查：同一个编辑器、同一份「低切 25 Hz、收单 120 Hz 在做」的状态，守护标志 关 → 开 → 关 各把 CLAY 卡片画成图，数灯那一列的灯色与数值那一列的字色（橙）像素——
   开着：低切 / 收单两行都有、加宽行没有（它不经峰值守护）；关着：三行都没有。同时守「标志变了会重画」：`ClayReadout::operator==` 漏比较守护字段时，低切 / 收单的值没变，
   `setReadout` 就当没变化、灯不跟着变。灯的气泡文字不在这里比（卡片的气泡要鼠标位置才出），由 `HelpTextTests` 比函数的输出、`zh / en-guard-tooltip` 的图看渲染。
 

@@ -38,8 +38,8 @@
     T-032（2026-09-29，A4；研究 / 核验见 docs/validation/2026-09-29-T032-deep-research）：
       - 退出归一化预听不再让监听增益单样本阶跃（R8-01 / R10-03）：在线、链照常出母带、Listen 关时由发行端自己 50 ms 斜坡回 0 dB；
         宿主旁通 / 听原声 / 试听差值 / Listen 开时先把此刻的衰减交给 Listen 的 20 ms 平滑器再归一；离线仍立即归一。
-      - 听原声期间 OUT 表的整体响度暂停积分，只积分母带（R8-03）；短期响度、真峰值、子块环照常。宿主旁通接在同一个开关上，
-        等 Max 确认口径（pauseIntegrationOnHostBypass，现为 false：宿主旁通时照旧积分）。
+      - 听原声期间 OUT 表的整体响度暂停积分，只积分母带（R8-03）；短期响度、真峰值、子块环照常。宿主旁通同样暂停
+        （T-110，Max 2026-11-12 定）：出口不是母带（走干路）的块一律不进整体响度。
       - reset() / restartWithFadeIn() 只把抖动随机序列回到固定种子，预听增益保留（核验漏项：改前同规格 prepareToPlay 后监听先回 0 dB）。
       - getEffectiveParams().mastering 回写交给模块的实际值（R10-01）：原样再喂给链（GLAZE 0）逐位复现推响不刺 / 目标频谱的强度与 Ceiling。
       - 非有限的参数（R8-02）：链自己要拿来算的字段——GLAZE、高级母带的百分比与预听目标、Limit Ceiling（先扣编码余量）——按该字段的
@@ -80,11 +80,6 @@ namespace celadon
         // v0.1.7.0：claySettings 是 CLAY 卡片上的三态设置与手动值；传进来的 clay（实际参数）不读——由编排器按三态合成。
         using Params = ChainParams;
 
-        // 宿主旁通时 OUT 表的整体响度是否也暂停积分（T-032 R8-03 的另一半）。听原声时一定暂停（规格已定）；宿主旁通「建议冻结」，
-        // 待 Max 确认——确认后改成 true，并把 GlazeTests::testGlazeZeroEqualsReferenceChain 的参照 OUT 表在宿主旁通的块同样
-        // setIntegrationPaused (true)（它逐位对照「链的 OUT 表 == 一块普通的表」，宿主旁通期间两边的口径要一起改）。
-        static constexpr bool pauseIntegrationOnHostBypass = false;
-
         // 滤波器余振（秒）：插件报给宿主的尾巴 = 链延迟 + 本项；离线渲染工具冲尾巴也用它（审核 V3-02：两处曾各写一份、不一致）。
         // 0.35 s 的推导：Clay 10 Hz 4 阶低切衰 60 dB 约 0.29 s，留余量（A7，v0.1.7.0）。
         static constexpr double filterRingOutSeconds = 0.35;
@@ -107,7 +102,8 @@ namespace celadon
 
         // 音频线程每块调一次。编排器按 GLAZE 算出实际参数，再交给各模块——各模块自带的 20 ms 平滑 / 开关交叉淡化照常生效，
         // 拧 GLAZE 不会有拉链噪声或咔哒。hostBypassed = 宿主旁通：强制旁通全部模块（含 Clay；各模块自带延迟补偿与 20 ms
-        // 交叉淡化，Clay 旁通时干路同样延迟 D + G），同时让编排器暂停校准；Listen 只影响测点后的监听增益，校准照常。
+        // 交叉淡化，Clay 旁通时干路同样延迟 D + G），同时让编排器暂停校准、OUT 表的整体响度暂停积分（T-110，同听原声）；
+        // Listen 只影响测点后的监听增益，校准照常。
         //
         // compareOriginal = 界面的 A / B 对比正在听 B（原声，v0.1.8.0）：输出与宿主旁通完全一样（延迟补偿过的干信号、
         // 20 ms 交叉淡化、校准暂停、Listen 的测量冻结），区别只在 Listen 打开时的监听增益——宿主旁通不补偿；
@@ -116,6 +112,13 @@ namespace celadon
         //
         // auditionDifference = 界面 LIMIT 卡片的「试听差值」（v0.1.8.0，见文件头）：送出去的信号换成限幅器削掉的部分，
         // 测点与处理都不变；听原声、宿主旁通或 LIMIT 旁通时不生效。默认 false 时逐位不变。
+        //
+        // 离线导出（setHostInfo 的 offline，T-095 / R6-04a）：limit.listen（等响）、compareOriginal、auditionDifference 三种监听一律
+        // 不生效，监听增益与差值交叉淡化立即落回母带（同归一化预听的「离线立即归一」）——成品永远是母带本身，等响忘关也不会把
+        // 导出衰减掉。听原声回母带走各模块自己的 20 ms 旁通交叉淡化：宿主切离线前调了 reset（处理器下一块先按离线的参数
+        // setParams、再 restartWithFadeIn，模块旁通直接落位）或 prepareToPlay 时，离线段与同样重启过的母带链逐位相同（开头照常是
+        // 重启的静音与淡入）；实时听 B 时宿主不停处理就直接切离线，离线开头 20 ms 是原声淡到母带。实时播放逐位不变。
+        // 宿主旁通不是监听而是宿主的决定，离线时照样生效：输出干信号、整体响度暂停积分（T-110）。
         void setParams (const Params& requested, bool hostBypassed, bool compareOriginal = false, bool auditionDifference = false);
 
         // 原地处理。GLAZE 活跃时按 Guard 实际 10 ms 时隙边界切片，让模块统计不跨窗口；不添加音频缓冲或延迟。
@@ -140,8 +143,9 @@ namespace celadon
         float getAndResetInputTruePeakDb() noexcept          { return inputMeter.getAndResetTruePeakDb(); }
         float getAndResetOutputTruePeakDb() noexcept         { return outputMeter.getAndResetTruePeakDb(); }
 
-        // OUT 的短期 / 整体响度（界面右侧读数）：Listen 监听补偿之前的母带输出。听原声期间整体响度暂停积分、停在母带的值
-        //（T-032 R8-03；宿主旁通见 pauseIntegrationOnHostBypass），短期响度照常显示此刻出口的信号。
+        // OUT 的短期 / 整体响度（界面右侧读数）：Listen 监听补偿之前的母带输出。走干路（宿主旁通、实时听原声）期间整体响度暂停积分、
+        // 停在母带的值（T-032 R8-03；宿主旁通 T-110）；离线导出时听原声不生效、照常积分（T-095），离线时宿主旁通照样暂停。
+        // 短期响度照常显示此刻出口的信号。
         float getOutputShortTermLufs() const noexcept        { return outputMeter.getShortTermLufs(); }
         float getOutputIntegratedLufs() const noexcept       { return outputMeter.getIntegratedLufs(); }
 
@@ -157,15 +161,24 @@ namespace celadon
 
         // Listen 测到的「处理结果 − 原声」响度差（dB，正 = 处理后更响；±24 封顶），界面的等响按钮与 A / B 状态显示用；
         // 还没测出第一份估计（prepare 之后要先攒满 1 s 窗口）时 hasListenDifference() 为 false。Listen 关着也照常测（与监听增益同一份估计）；
-        // 宿主旁通、听原声时冻结在最后一份。任何线程可读（两个原子量）。
+        // 宿主旁通、实时听原声时冻结在最后一份（离线导出时听原声不生效、照常测，T-095）。任何线程可读（两个原子量）。
         bool hasListenDifference() const noexcept           { return listenDifferenceValid.load (std::memory_order_relaxed); }
         float getListenDifferenceDb() const noexcept         { return listenDifferenceDb.load (std::memory_order_relaxed); }
 
         // ---- GLAZE（界面线程调用，无锁；存取在消息线程）----
         glaze::Status getGlazeStatus() const noexcept                    { return controller.getStatus(); }
-        void requestGlazeRelearn() noexcept                              { controller.requestRelearn(); }
         std::unique_ptr<juce::XmlElement> createGlazeStateXml() const    { return controller.createStateXml(); }
         void restoreGlazeStateXml (const juce::XmlElement* xml)          { controller.restoreStateXml (xml); }
+        void keepGlazeStateOnLoad() noexcept                             { controller.keepStateOnLoad(); }   // 运行中读档不读 GLAZE（T-099）
+
+        // 存读档拆两步（T-099，ADR-040；GlazeController.h「存读档拆两步」）：插件在回调锁里只调 capture / commit / keep，
+        // 编码（GlazeController::encodeState）与 stage 在锁外。上面两个 create / restore 是两步连着做的版本，给不跑音频的调用方。
+        void captureGlazeState (glaze::GlazeController::StateSnapshot& snapshot) const noexcept   { controller.captureState (snapshot); }
+        void stageGlazeRestore (const juce::XmlElement* xml, glaze::GlazeController::StagedRestore& staged) const
+        {
+            controller.stageRestore (xml, staged);
+        }
+        void commitGlazeRestore (glaze::GlazeController::StagedRestore& staged) noexcept         { controller.commitRestore (staged); }
 
         // T-048 阶段 1 直通（插件不调；测试与渲染工具用，见 GlazeController::setLiveSegmentSink）：非空 = 分析器实时模式开、定稿的段交给它，
         // nullptr = 关。消息线程，prepare 之后、处理之前调。链在下一块开头才把 Balance 的帧交给分析器（process 第一行），所以关的时候把
@@ -200,6 +213,9 @@ namespace celadon
         int getLastProcessSliceCountForTesting() const noexcept { return lastProcessSliceCount; }
         // 只给测试 / 离线工具：Clay 模块（读峰值守护的诊断统计，ADR-014）。
         ClayModule& getClayForTesting() noexcept { return clay; }
+        // 只给测试 / 离线工具：Limit 模块（T-096：渲染工具读限幅器的渲染计数，tools/render/RenderMain.cpp 用 SFINAE 探这个函数）。
+        // 插件不调。
+        LimiterModule& getLimiterForTesting() noexcept { return limiter; }
 
     private:
         bool processSlice (juce::AudioBuffer<float>& io);
@@ -243,9 +259,9 @@ namespace celadon
         int lastProcessSliceCount = 0;
 
         double listenSampleRate = 0.0;
-        // hostIsBypassed = 此刻走干路（宿主旁通，或 v0.1.8.0 起听原声）：Listen 的测量冻结、不补偿处理结果。
+        // hostIsBypassed = 此刻走干路（宿主旁通，或 v0.1.8.0 起实时听原声；离线时听原声不走干路，T-095）：Listen 的测量冻结、不补偿处理结果。
         bool listenRequested = false, hostIsBypassed = false, listenHasEstimate = false;
-        bool listenComparing = false;   // 听原声（A / B 的 B）且宿主没有旁通：Listen 的监听增益改用 listenOriginalDb
+        bool listenComparing = false;   // 实时听原声（A / B 的 B）且宿主没有旁通：Listen 的监听增益改用 listenOriginalDb
         int listenLatency = 0;
         std::int64_t listenInputCursor = 0, listenOutputCursor = 0, listenIgnoreThrough = 0;
         std::array<LoudnessMeter::SubBlock, LoudnessMeter::subBlockRingCapacity> listenInputHistory {};

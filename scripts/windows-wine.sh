@@ -11,11 +11,11 @@
 #       scripts/windows-wine.sh all                  # test + installer
 # 前置：① 拉了新提交或改过 Celadon.jucer 就先在 Mac 上用 Projucer 9.0.2 重新生成（命令见 docs/BUILDING.md「目录与 Projucer」，Projucer 要写全路径）：Builds/VisualStudio2022
 #          随源码同步过去；② 服务器上按 scripts/setup-windows-wine.sh 装好 Wine、msvc-wine（VS2022 / v143）、Wine Mono、Inno Setup。
-# 环境：CELADON_WIN_HOST 覆盖目标主机（默认 maxsong@192.168.100.109，需在家里网络或 VPN 下）。
+# 环境：CELADON_WIN_HOST 覆盖目标主机（默认 maxsong@100.84.85.68，即 108 的 tailnet 地址；109 已弃用）。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 JUCE_DIR="$(cd "$ROOT/../JUCE" && pwd -P)"
-HOST="${CELADON_WIN_HOST:-maxsong@192.168.100.109}"
+HOST="${CELADON_WIN_HOST:-maxsong@100.84.85.68}"
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15)
 
 MODE="${1:-}"
@@ -107,10 +107,13 @@ exec 9>"$HOME/.cache/celadon-locks/win-$(basename "$CELADON_REMOTE").lock"
 flock 9
 
 [ -x "$MSVC/bin/x64/cl" ] || { echo "服务器上没有 ${MSVC}：先跑 scripts/setup-windows-wine.sh" >&2; exit 1; }
-export PATH="$MSVC/bin/x64:$PATH"
+# cmake / ninja 装在 ~/opt/buildtools（setup-windows-wine.sh 第 5 步，不进系统目录）。
+export PATH="$MSVC/bin/x64:$HOME/opt/buildtools/bin:$PATH"
 export WINEDEBUG=-all
 
 configure_cmake() {
+  command -v cmake >/dev/null && command -v ninja >/dev/null \
+    || { echo "服务器上没有 cmake / ninja：先跑 scripts/setup-windows-wine.sh（第 5 步装进 ~/opt/buildtools）" >&2; return 1; }
   # 静态运行库（/MT，与插件相同）：测试程序在 Wine 里不依赖 VC++ 运行库 DLL。
   if [ ! -f "$BUILD/build.ninja" ]; then
     CC=cl CXX=cl nice -n 10 cmake -S Celadon -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Windows \

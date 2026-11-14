@@ -7,7 +7,7 @@ import { tracks, type ListenTrack, type ListenVersion } from '@/content/listen';
 
 type Which = 'original' | 'celadon';
 const BASE = import.meta.env.BASE_URL;
-const FADE = 0.025; // 切换 A / B 的交叉淡化（秒）：够短听不出空档，够长没有咔哒
+const FADE = 0.025; // 母带 / 原声切换的交叉淡化（秒）：够短听不出空档，够长没有咔哒
 
 /** 肆 · 试听：同一段音乐的原声与 Celadon 两版，默认等响；清单为空时整节不显示。 */
 export default function Listen() {
@@ -169,7 +169,7 @@ function Player() {
     setPlaying(false);
   }, [duration, stopSources]);
 
-  // A / B 或等响变化：只改增益（交叉淡化），不重启音源
+  // 母带 / 原声切换或等响变化：只改增益（交叉淡化），不重启音源
   useEffect(() => {
     const e = engine.current;
     if (!e || !playing) return;

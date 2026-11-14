@@ -101,3 +101,89 @@ jobs:
               fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # 处理器层测试（T-099）：把整个插件（处理器 + 编辑器 + 界面）编进来，测存读档语义、旧工程读档、Lookahead 不进自动化，
+  # 以及存读档与音频线程并发。两项：
+  #   - Release：全部用例（不含 --bench 的持锁时间基准：那个要独占机器、约 1 分钟，交给人在 testbox 上量）；
+  #   - ThreadSanitizer：同一批用例在 TSan 下跑。存读档与音频线程的竞争（T-099 修的那一类）看不见、偶发、用户无从自查，
+  #     不开 TSan 就没有别的手段抓回归；构建目录常驻，第二次起只重编改过的文件，用例约一两分钟，值得每次都跑。
+  # 界面模块要 freetype2 / fontconfig / x11 的开发头：runner 机器只有运行库，scripts/fetch-gui-dev.sh 把官方 -dev 包解到工作区
+  # （不往系统里装；第一次下载，之后复用）。
+  processor-tests:
+    name: celadon_processor_tests · ${{ matrix.label }}
+    runs-on: [self-hosted, linux, x64, celadon]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - key: processor
+            label: 处理器层（Release）
+            build_type: Release
+            tsan: "OFF"
+          - key: processor-tsan
+            label: 处理器层（ThreadSanitizer）
+            build_type: RelWithDebInfo
+            tsan: "ON"
+    env:
+      BUILD: build/${{ matrix.key }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: Celadon
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: juce-framework/JUCE
+          ref: 72782788ce18c2d4d760b28e0921d6ffc6431102 # 9.0.2
+          path: JUCE
+          persist-credentials: false
+
+      - name: 工具链
+        run: |
+          for tool in cmake ninja c++ setarch; do
+            command -v "$tool" >/dev/null || { echo "::error::CI 机器上没有 $tool（sudo apt-get install cmake ninja-build g++ util-linux）"; exit 1; }
+          done
+          cmake --version
+          c++ --version
+
+      # 解到工作区的 guidev/（两次 checkout 的目录之外，常驻）；打印的 export 行写进后面各步的环境。
+      - name: 界面开发头
+        run: |
+          Celadon/scripts/fetch-gui-dev.sh "$GITHUB_WORKSPACE/guidev" | tee "$RUNNER_TEMP/guidev.log"
+          sed -n 's/^export //p' "$RUNNER_TEMP/guidev.log" >> "$GITHUB_ENV"
+
+      - name: 配置
+        run: |
+          cmake -S Celadon -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DCELADON_TSAN=${{ matrix.tsan }}
+          grep -q 'celadon_processor_tests' "$BUILD/build.ninja" || { echo "::error::配置没生成 celadon_processor_tests（界面开发头没找到：看「界面开发头」一步）"; exit 1; }
+
+      - name: 编译
+        run: nice -n 10 cmake --build "$BUILD" --target celadon_processor_tests
+
+      # setarch -R 关掉这个进程的地址随机化：新内核的 mmap 随机位数大，TSan 的影子内存映射会撞上（"unexpected memory mapping"）。
+      - name: 用例
+        run: |
+          export TSAN_OPTIONS="suppressions=$GITHUB_WORKSPACE/Celadon/tests/processor/tsan.supp halt_on_error=0 second_deadlock_stack=1"
+          setarch "$(uname -m)" -R "$BUILD/celadon_processor_tests" 2>&1 | tee "$RUNNER_TEMP/celadon_processor_tests.log"
+
+      - name: 结果摘要
+        if: ${{ !cancelled() }}
+        run: |
+          log="$RUNNER_TEMP/celadon_processor_tests.log"
+          {
+            echo "### celadon_processor_tests · ${{ matrix.label }}"
+            if [ ! -f "$log" ]; then
+              echo '没有跑到用例：看「界面开发头」「配置」「编译」几步的日志。'
+            else
+              result="$(sed -n 's/^==== \(celadon_processor_tests: .*\) ====$/\1/p' "$log")"
+              echo "${result:-用例没有跑完：看「用例」一步的日志。}"
+              races="$(grep -c '^WARNING: ThreadSanitizer' "$log" || true)"
+              [ "${races:-0}" = 0 ] || echo "ThreadSanitizer 报告 ${races} 份（日志里搜 WARNING: ThreadSanitizer）"
+              failures="$(awk '/^Starting tests in: /{c=$0;s=0} /^!!! Test / && n<100 {if(!s){print c;s=1} print "    " $0; n++}' "$log")"
+              if [ -n "$failures" ]; then
+                printf '~~~\n%s\n~~~\n' "$failures"
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

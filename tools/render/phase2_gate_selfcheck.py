@@ -79,6 +79,16 @@ def main():
     ])
     check("legacy unlocked fails", code == 1 and "校准无效" in out, out)
 
+    # 真峰值是绝对门：成品行没有读数要失败，不能悄悄放过（T-114 复查 F10 的同类）。
+    no_tp = render("70", "auto", "locked", "1")
+    no_tp[6] = ""
+    code, out = run_gate([
+        input_row(),
+        no_tp,
+        render("70", "off", "locked", "1"),
+    ])
+    check("missing true peak fails", code == 1 and "真峰值没有读数" in out, out)
+
     # 空 confidence 列 = 还没填，退回阶段 1。
     code, out = run_gate([
         input_row(),

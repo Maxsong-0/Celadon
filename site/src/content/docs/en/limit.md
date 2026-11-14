@@ -9,7 +9,7 @@ LIMIT is a transparent lookahead true-peak limiter: 8× interpolation sees the p
 | **Clip** 0–100 | Gently rounds off peaks before the limiter, so it has less to do at the same loudness. | 0–30 is safe; above 50 it starts to sound grainy. |
 | **Release** 10–1000 ms | How fast the gain comes back after limiting: short is louder but can distort, long is smoother but can pump. Ignored while Auto is on. | Keep Auto; when setting it manually, start at 100 ms. |
 | **AUTO release** | Two-stage fast / slow release that also follows the period of sustained bass: drums recover quickly, lows stay smooth. | Leave it on most of the time. |
-| **Lookahead** 1–10 ms | How early the limiter sees peaks coming: longer is more transparent but adds latency. | 2 ms; songs with dense drums can try 3–5 ms. |
+| **Lookahead** 1–10 ms | How early the limiter sees peaks coming: longer is more transparent but adds latency. Because it changes the latency, hosts cannot automate it. | 2 ms; songs with dense drums can try 3–5 ms. |
 | **LIMIT GR** | How many dB the limiter is reducing right now. Turns orange while the guards are backing off (“Limited · …” on the status line). | Staying above 6 dB for long means Gain is pushed too far. |
 | **Power button** | Turns off only the limiter; latency stays the same and switching is click-free. | Use it to compare before and after limiting. |
 
@@ -17,7 +17,7 @@ LIMIT is a transparent lookahead true-peak limiter: 8× interpolation sees the p
 
 The headphones to the left of the card's power button: they replace the output with what LIMIT takes away (gain, clip and limiting together, at the level before the gain push, never louder than the original); meters, loudness and GLAZE keep measuring the master.
 
-Use it to hear whether anything important is being shaved off (flattened drums, dull bass). It turns off when you switch to the original, bypass LIMIT or close the window, and can't be turned on while LIMIT is bypassed.
+Use it to hear whether anything important is being shaved off (flattened drums, dull bass). It turns off when you switch to the original, bypass LIMIT or close the window, and can't be turned on while LIMIT is bypassed. It has no effect on an offline export, which renders the master; exit it before a real-time export.
 
 ## A few promises
 

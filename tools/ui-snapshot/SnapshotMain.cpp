@@ -36,6 +36,14 @@
       T-100（ADR-037）：旋钮的读数带弹簧与彗尾。--only check 在滚轮那条之后多一组外圈手感检查（⑤b），⑬ 按读数走弹簧改写；
       每次存图前所有旋钮先停稳（save 里调 finishMotion），存下的是静止时的样子。
       T-102：--only check 在语言那条（⑪）之后多一条 ⑪b：设置面板「减少动效」下面那行说明中英都单行放得下、不出省略号。
+      T-111：主旋钮拖动不出气泡（①）、双击在第二次按下就回默认（③⑥）、高级浮层开着时母带 / 原声第一下就切换（⑩b，真实命中测试）、
+      语言切换在设置面板里、顶栏没有语言与延迟（⑪⑰）、橙色规则（GLAZE 琥珀时 CLAY 守护灯不亮橙，接在 T-074 CLAY 灯那条后面）。
+      新状态 zh-advanced-original、en-original。
+      T-112（字号与对比度包 B）：--only check 在旧工程那组之后多三组：⑪c 单行文字放得下（中英 × 70 / 125 / 100 % × 主界面、设置、帮助、
+      高级三页、听原声、状态行三句、旧工程提示三种，绘字时量宽，见 textfit）、⑪d 六档字号的 em（界面字体与等宽字体、等宽字体回退到汉字时
+      em 不变）、⑪e 新装默认大小（initialZoom 纯函数）与左下提示不伸进风格选择。新状态 zh-glaze-tooltip、en-glaze-tooltip（GLAZE 标题的
+      悬停气泡：showGlazeTooltip 自 T-048 删掉 House 气泡那两张后一直没人调，气泡本身还在界面上，字号放大后要看它）、zh-bypass（4-19：
+      BALANCE / COLOR / CLAY 三块旁通、LIMIT 开着对照，看旁通的卡片与左侧板行淡到 0.55、弧线与填充去色）。
 
   ==============================================================================
 */
@@ -61,6 +69,8 @@
 #include <ctime>
 #include <functional>
 #include <iostream>
+#include <iterator>
+#include <limits>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -364,6 +374,9 @@ namespace
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check);
     void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check);
     void runOldProjectChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runTextFitChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runTypeScaleChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runZoomDefaultChecks (juce::Component& editor, const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
     void runSpectrumBench (int seconds);
     void runSpectrumPeakBench();
@@ -466,7 +479,7 @@ namespace
         };
     }
 
-    // 把 CLAY 灯的气泡（修坯 · 立体声像与超低频清理：第 2 行是此刻的实际值，守护回收中时末尾多一段）手动弹在 CLAY 卡片的右边缘旁（压在 COLOR
+    // 把 CLAY 灯的气泡（CLAY（修坯）· 立体声像与超低频清理：第 2 行是此刻的实际值，守护回收中时末尾多一段）手动弹在 CLAY 卡片的右边缘旁（压在 COLOR
     // 卡片上，不盖住 CLAY 的灯与数值；锚点在编辑器底部时气泡会翻到上方、盖住行里的字，英文版字多就是这样，所以不用卡片内的锚点）；
     // 文字取 celadon::help::clayIndicatorTooltip（与界面同一个函数、同一份读数），截图存卡片与气泡。
     void showClayIndicatorTooltip (Session& s, celadon::Language language, float kept)
@@ -622,6 +635,13 @@ int main (int argc, char* argv[])
         { "zh-help",     celadon::Language::chinese, none, [] (Session& s) { s.editor->showHelp (true); } },   // T-100：旋钮那条变长，中文也要看
         { "zh-advanced", celadon::Language::chinese, none, [] (Session& s) { s.editor->showAdvanced (true); } },
         { "en-advanced", celadon::Language::english, none, [] (Session& s) { s.editor->showAdvanced (true); } },
+        // T-111：高级开着时母带 / 原声照样能点（4-02），胶囊写「正在听原声 · 已等响 …」（去掉了「B」）；英文也看一张。
+        { "zh-advanced-original", celadon::Language::chinese,
+          [] (Session& s) { s.setParameter (celadon::param::limitListen, 1.0f); },
+          [] (Session& s) { s.editor->showAdvanced (true); s.editor->setListeningToOriginal (true); s.play (1.5); } },
+        { "en-original", celadon::Language::english,
+          [] (Session& s) { s.setParameter (celadon::param::limitListen, 1.0f); },
+          [] (Session& s) { s.editor->setListeningToOriginal (true); s.play (1.5); } },
         { "zh-target", celadon::Language::chinese, none, [] (Session& s)
           {
               s.editor->showAdvanced (true);
@@ -665,6 +685,17 @@ int main (int argc, char* argv[])
           [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::chinese, 0.42f); } },
         { "en-guard-tooltip", celadon::Language::english, none,
           [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::english, 0.42f); } },
+        // T-112：GLAZE 标题的悬停气泡（标题 / 正文两档字号）。范围由 showGlazeTooltip 按气泡实际大小定。
+        { "zh-glaze-tooltip", celadon::Language::chinese, none, [] (Session& s) { showGlazeTooltip (s); } },
+        { "en-glaze-tooltip", celadon::Language::english, none, [] (Session& s) { showGlazeTooltip (s); } },
+        // T-112（4-19）：BALANCE / COLOR / CLAY 三块旁通、LIMIT 开着作对照。卡片内容淡到 bypassLook::opacity、数值弧与滑条填充去色，
+        // 中层左侧板对应的行同样淡、出力条与紫字去色。T-105 体检时没有这种状态的图，4-19 的对比度是按代码算的。
+        { "zh-bypass", celadon::Language::chinese, [] (Session& s)
+          {
+              s.setParameter (celadon::param::balanceBypass, 1.0f);
+              s.setParameter (celadon::param::colorBypass, 1.0f);
+              s.setParameter (celadon::param::clayBypass, 1.0f);
+          }, none },
 
         // T-048 状态行里截图工具单独摆出来的三句（起步是默认图）。只截顶栏胶囊。T-038 的 -house-layout 随 T-108 删掉。
         { "zh-status-follow", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, followReading()); }, pillCrop },
@@ -763,26 +794,48 @@ namespace
         auto& corner = find ("corner_note");
         const juce::Point<float> centre (112.0f, 112.0f);
 
-        // ① 上下拖 GLAZE：250 px 走满量程，往上 50 px = +20 %；拖动中出气泡、左下角换成操作提示。
+        // ① 上下拖 GLAZE：250 px 走满量程，往上 50 px = +20 %；左下角换成操作提示。T-111 / 4-18 起主旋钮拖动时不出数值气泡
+        // （帽子里就是同一个数；气泡在 35 % ～ 65 % 时压住标题行），卡片上的小旋钮照旧出（见下面粘合那一段）。
         drag (knob, centre, centre.translated (0.0f, -50.0f), {}, false);
         check (std::abs (value (celadon::param::glazeAmount) - 65.0f) < 0.3f, "drag GLAZE +50 px -> 65 % (" + juce::String (value (celadon::param::glazeAmount), 2) + ")");
-        check (bubble.isVisible(), "value bubble visible while dragging");
+        check (! bubble.isVisible(), "T-111 4-18 no value bubble while dragging GLAZE (the cap shows the number)");
         check (static_cast<celadon::ui::CornerNote&> (corner).isShowingHint(), "corner note shows the interaction hint while dragging");
         save (editor, scale, outDir.getChildFile ("check-drag.png"));
         knob.mouseUp (mouseEvent (knob, centre.translated (0.0f, -50.0f), {}, centre, 1, true));
         check (! bubble.isVisible(), "value bubble hidden after release");
 
+        // 卡片上的小旋钮（COLOR 粘合）拖动时照旧出气泡，松手就收；再双击回默认，不改后面检查的起点。
+        {
+            auto& glue = find (celadon::param::colorGlue);
+            const juce::Point<float> glueCentre (36.0f, 48.0f);
+            drag (glue, glueCentre, glueCentre.translated (0.0f, -18.0f), {}, false);
+            check (bubble.isVisible(), "card knobs still show the value bubble while dragging");
+            glue.mouseUp (mouseEvent (glue, glueCentre.translated (0.0f, -18.0f), {}, glueCentre, 1, true));
+            check (! bubble.isVisible(), "card knob value bubble hidden after release");
+            glue.mouseDown (mouseEvent (glue, glueCentre, leftButton, glueCentre));
+            glue.mouseUp (mouseEvent (glue, glueCentre, {}, glueCentre));
+            glue.mouseDown (mouseEvent (glue, glueCentre, leftButton, glueCentre, 2));
+            glue.mouseUp (mouseEvent (glue, glueCentre, {}, glueCentre, 2));
+
+            auto& glueDial = static_cast<celadon::ui::DialControl&> (glue);
+
+            for (int i = 0; i < 600 && glueDial.isMotionRunning(); ++i)
+                glueDial.advanceMotion (1.0 / 60.0);
+        }
+
         // ② ⌘ / Ctrl 精调：同样 50 px 只走 1 / 8。
         drag (knob, centre, centre.translated (0.0f, -50.0f), juce::ModifierKeys (juce::ModifierKeys::commandModifier));
         check (std::abs (value (celadon::param::glazeAmount) - 67.5f) < 0.3f, "fine drag +50 px -> 67.5 % (" + juce::String (value (celadon::param::glazeAmount), 2) + ")");
 
-        // ③ 双击回默认 35 %。
+        // ③ 双击回默认 35 %：第二次按下当场就回（T-111 / 4-13；JUCE 的 mouseDoubleClick 要到第二次松手后才调，不再靠它）。
         knob.mouseDown (mouseEvent (knob, centre, leftButton, centre));
         knob.mouseUp (mouseEvent (knob, centre, {}, centre));
         knob.mouseDown (mouseEvent (knob, centre, leftButton, centre, 2));
-        knob.mouseDoubleClick (mouseEvent (knob, centre, leftButton, centre, 2));
-        knob.mouseUp (mouseEvent (knob, centre, {}, centre, 2));
-        check (std::abs (value (celadon::param::glazeAmount) - 35.0f) < 0.05f, "double-click -> default 35 %");
+        check (std::abs (value (celadon::param::glazeAmount) - 35.0f) < 0.05f, "T-111 4-13 double-click resets on the second press (35 %, got "
+                                                                                   + juce::String (value (celadon::param::glazeAmount), 2) + ")");
+        knob.mouseDrag (mouseEvent (knob, centre.translated (0.0f, -30.0f), leftButton, centre, 2, true));
+        knob.mouseUp (mouseEvent (knob, centre.translated (0.0f, -30.0f), {}, centre, 2, true));
+        check (std::abs (value (celadon::param::glazeAmount) - 35.0f) < 0.05f, "double-click -> default 35 %, and the rest of that press does not drag it away");
 
         // ④ Alt 单击直接输入 60，回车确认。
         click (knob, centre, juce::ModifierKeys (juce::ModifierKeys::altModifier));
@@ -829,11 +882,12 @@ namespace
             const auto start = juce::Time::getCurrentTime();
             double clockMs = 0.0;
 
-            const auto event = [&] (juce::Component& target, juce::Point<float> position, juce::ModifierKeys mods, juce::Point<float> down, bool dragged)
+            const auto event = [&] (juce::Component& target, juce::Point<float> position, juce::ModifierKeys mods, juce::Point<float> down, bool dragged,
+                                    int clicks = 1)
             {
                 const auto time = start + juce::RelativeTime::milliseconds ((juce::int64) clockMs);
                 return juce::MouseEvent { juce::Desktop::getInstance().getMainMouseSource(), position, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                          &target, &target, time, down, time, 1, dragged };
+                                          &target, &target, time, down, time, clicks, dragged };
             };
             const auto ringPoint = [] (juce::Point<float> dialCentre, float radius, float proportion)
             {
@@ -963,13 +1017,13 @@ namespace
                 settle (glazeDial);
             }
 
-            // ⑥ 外圈双击回默认 35 %（第一下点按先跳到所点角度）。
+            // ⑥ 外圈双击回默认 35 %（第一下点按先跳到所点角度；第二下按下就回，不再先跳一次，T-111 / 4-13）。
             {
                 const auto point = ringPoint (glazeCentre, onRing, 0.7f);
                 tap (glazeDial, point);
-                glazeDial.mouseDown (event (glazeDial, point, leftButton, point, false));
-                glazeDial.mouseDoubleClick (event (glazeDial, point, leftButton, point, false));
-                glazeDial.mouseUp (event (glazeDial, point, {}, point, false));
+                glazeDial.mouseDown (event (glazeDial, point, leftButton, point, false, 2));
+                check (std::abs (glazeAt() - 35.0f) < 0.05f, "T-111 4-13 the second press on the ring resets at once (35 %, got " + percent (glazeAt()) + ")");
+                glazeDial.mouseUp (event (glazeDial, point, {}, point, false, 2));
                 check (std::abs (glazeAt() - 35.0f) < 0.05f, "T-100 double-click on the ring -> default 35 % (got " + percent (glazeAt()) + ")");
                 settle (glazeDial);
             }
@@ -1193,6 +1247,33 @@ namespace
             check (! panel.isVisible(), "the close button hides the Advanced panel");
         }
 
+        // ⑩b T-111 / 4-02：高级浮层开着时不挂遮罩：按真实的命中测试，画布上「原声」那一段接得到点击，第一下就切换、浮层不关；
+        // 再点一次「高级」才关。设置浮层照旧「点别处关」（命中测试落在遮罩上）。
+        {
+            auto& panel = find ("advanced_panel");
+            auto& ab = find ("ab");
+            auto* canvas = ab.getParentComponent();
+            const juce::Point<int> atOriginal (ab.getRight() - 20, ab.getY() + 14);
+
+            editor.showAdvanced (true);
+            check (panel.isVisible() && canvas != nullptr && canvas->getComponentAt (atOriginal) == &ab,
+                   "T-111 4-02 with Advanced open, a click on Original reaches the selector (no dismiss layer)");
+            click (ab, { (float) ab.getWidth() - 20.0f, 14.0f });
+            check (session.processor->isComparingOriginal() && panel.isVisible(),
+                   "T-111 4-02 the first click switches to Original and Advanced stays open");
+            session.play (0.5);
+            save (editor, scale, outDir.getChildFile ("check-advanced-original.png"));
+            click (ab, { 20.0f, 14.0f });
+            check (! session.processor->isComparingOriginal() && panel.isVisible(), "T-111 4-02 back to Master, Advanced still open");
+            click (find (celadon::uiid::advanced), { 20.0f, 14.0f });
+            check (! panel.isVisible(), "T-111 4-02 clicking Advanced again closes it");
+
+            editor.showSettings (true);
+            check (canvas != nullptr && canvas->getComponentAt (atOriginal) != &ab,
+                   "T-111 4-02 Settings keeps click-elsewhere-to-close (the dismiss layer catches the click)");
+            editor.showSettings (false);
+        }
+
         // Advanced controls are exercised through the real widgets and Processor.
         {
             editor.showAdvanced (true);
@@ -1354,9 +1435,23 @@ namespace
             check (controlProcessor.getMasteringStatus().hasReference, "same-spec reprepare preserves learned reference");
         }
 
-        // ⑪ 语言：点 EN，用户设置变英文，界面在下一次消息循环里跟上。
+        // ⑪ 语言：打开设置，点「语言」一行的 EN，用户设置变英文，界面在下一次消息循环里跟上（T-111 包 D：语言切换从顶栏挪进设置）。
         {
             auto& language = find ("language");
+            check (dynamic_cast<celadon::ui::SettingsPanel*> (language.getParentComponent()) != nullptr,
+                   "T-111 package D: the language selector lives in the Settings panel");
+
+            if (auto* topBar = findFirst<celadon::ui::TopBar> (editor))
+            {
+                auto topBarHasSelector = false;
+
+                for (auto* child : topBar->getChildren())
+                    topBarHasSelector = topBarHasSelector || dynamic_cast<celadon::ui::Segmented*> (child) != nullptr;
+
+                check (! topBarHasSelector, "T-111 package D: the top bar has no language selector any more");
+            }
+
+            editor.showSettings (true);
             click (language, { (float) language.getWidth() - 12.0f, 13.0f });
             dispatchEvents (50);
             editor.advanceForSnapshot (0.05);
@@ -1365,12 +1460,15 @@ namespace
             // T-107：左下的静态说明删了，改看左侧板末行（把握 / 主段 / 保护）跟着语言走。
             const auto& nowValues = static_cast<celadon::ui::GlazeNowPanel&> (find ("side_now")).getValues();
             check (nowValues.details.startsWith ("Confidence "), "T-107 side panel follows the language (" + nowValues.details + ")");
+            save (editor, scale, outDir.getChildFile ("check-english-settings.png"));
+            editor.showSettings (false);
             save (editor, scale, outDir.getChildFile ("check-english.png"));
             settings->setLanguage (celadon::Language::chinese);
         }
 
         // ⑪b T-102：设置面板「减少动效」下面那行说明（单行画、放不下截成省略号）中英都放得下。按画它的字体与宽度、用 drawText
-        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同。字体随平台变：
+        // 同一个排版函数排一遍，与不限宽的一行逐字相同才算没截。界面缩放是整体变换，逻辑宽度各档位相同。T-112 起字体是说明档
+        //（em 10，按 em 定字号后 Mac / Windows / Linux 同一档的汉字一样大，拉丁字母宽度仍随字体变）。字体随平台变：
         // JUCE 在 Linux 上只扫 .ttf / .otf，DGX 的 Noto Sans CJK 是 .ttc、不在字体列表里，界面字体落到 system-ui（DejaVu Sans，
         // 拉丁字母比苹方、雅黑 UI 都宽），汉字回退到 Noto Sans CJK JP（比雅黑 UI 窄）。所以英文这里过了 Mac / Windows 也放得下，中文还要看雅黑 UI——
         // 两者都按字体文件另算过：docs/validation/2026-10-18-T102-reduce-motion-note/。
@@ -1401,6 +1499,9 @@ namespace
         runSpectrumChecks (check);   // T-051：失败由 check 计入
         runClayGuardChecks (check);   // T-074：失败由 check 计入
         runOldProjectChecks (check);  // T-108：失败由 check 计入
+        runTextFitChecks (check);     // T-112 ⑪c：失败由 check 计入
+        runTypeScaleChecks (check);   // T-112 ⑪d
+        runZoomDefaultChecks (editor, check);   // T-112 ⑪e
 
         std::cout << (failures == 0 ? "all interaction checks passed" : juce::String (failures) + " interaction checks FAILED") << std::endl;
         return failures;
@@ -1417,6 +1518,177 @@ namespace
     // 整个字色（palette::warningText）的像素寥寥无几，正常时的字色（紫 / 青 / 灰）红都小于蓝，所以用「偏橙」判；行带是 y = 46 + 47 i 起 42 px
     //（ClayCard::rowBounds）。开着：低切行、收单行的灯各 ≥ 15 个（7 px 的实心圆约 38 个，抗锯齿后留一大半）、数值字各 ≥ 15 个，加宽行两样都是 0；
     // 关着（开之前、开之后）：三行两样都是 0。
+    //==============================================================================
+    // T-112 ⑪c 单行文字放得下：字号放大（正文 em 11）后，单行画的字（drawTextLine：名字、数值、说明、表头、提示……）比框宽就会被
+    // drawText 不出声地截掉尾巴（不带省略号的）或截成省略号。界面代码在绘字时量宽（textfit，平时关着、只在这里打开），
+    // 这里把会出字的场景都画一遍：中英 × 70 / 125 / 100 %（界面缩放是整体变换，逻辑宽度各档相同；三档都画是让缩放后重建的缓存层也量到）
+    // × 主界面、设置、帮助、高级三页、听原声、状态行三句、旧工程提示三种。每档每种语言一条：一处也没超才 PASS，超了列出场景、文字、字宽 / 框宽。
+    // 字体随平台变：Linux 上拉丁字母是 DejaVu Sans（按 em 比苹方、雅黑 UI、Noto 都宽），汉字回退 Noto Sans CJK（每字 1 em，各字体相同），
+    // 所以这里过了 Mac / Windows 也放得下（docs/validation/2026-11-13-T112-type-contrast/ 第 4 节）。
+    // 用自己的会话（预览旧工程提示后编辑器不再跟处理器的值，不能留给别的检查）；跑完放回中文、默认大小 1。
+    void runTextFitChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+        juce::SharedResourcePointer<UiSettings> settings;
+        resetUiSettings (*settings);
+
+        auto session = makeSession (45.0f);
+        auto& editor = *session->editor;
+        session->play (30.0);   // 与出图一样先听完，侧板、状态行、表上都是有数的时候
+
+        const auto selectAdvancedTab = [&editor] (int index)
+        {
+            if (auto* tabs = dynamic_cast<Segmented*> (findById (editor, "adv_tabs")))
+                tabs->setSelected (index, true);
+        };
+
+        struct Scene
+        {
+            const char* name;
+            std::function<void()> show, hide;
+        };
+
+        const auto nothing = [] {};
+        const Scene scenes[] =
+        {
+            { "main", nothing, nothing },
+            { "settings", [&] { editor.showSettings (true); }, [&] { editor.showSettings (false); } },
+            { "help", [&] { editor.showHelp (true); }, [&] { editor.showHelp (false); } },
+            { "advanced-tab1", [&] { editor.showAdvanced (true); selectAdvancedTab (0); }, nothing },
+            { "advanced-tab2", [&] { selectAdvancedTab (1); }, nothing },
+            { "advanced-tab3", [&] { selectAdvancedTab (2); }, [&] { selectAdvancedTab (0); editor.showAdvanced (false); } },
+            { "listening-original", [&] { editor.setListeningToOriginal (true); session->play (0.5); },
+                                    [&] { editor.setListeningToOriginal (false); session->play (0.5); } },
+            { "status-follow", [&] { editor.setStatusLinePreview (followReading()); }, [&] { editor.clearStatusLinePreview(); } },
+            { "status-guard", [&] { editor.setStatusLinePreview (guardReading()); }, [&] { editor.clearStatusLinePreview(); } },
+            { "status-export", [&] { editor.setStatusLinePreview (exportReading()); }, [&] { editor.clearStatusLinePreview(); } },
+            { "legacy-discarded", [&] { editor.setLegacyNoticesPreview (true, false); }, nothing },
+            { "legacy-genre-reset", [&] { editor.setLegacyNoticesPreview (false, true); }, nothing },
+            { "legacy-both", [&] { editor.setLegacyNoticesPreview (true, true); }, [&] { editor.setLegacyNoticesPreview (false, false); } },
+        };
+
+        // 整个编辑器重画一帧：先让所有子组件的缓存作废（AlignedComponentCache 等），字才会真的重新画、被量到。
+        const auto paintAll = [&editor]
+        {
+            std::vector<juce::Component*> all { &editor };
+            collectDescendants (editor, all);
+
+            for (auto* component : all)
+                component->repaint();
+
+            juce::Image image (juce::Image::ARGB, juce::jmax (1, editor.getWidth()), juce::jmax (1, editor.getHeight()), true);
+            paintFrame (editor, image, 1.0f, std::nullopt);
+        };
+
+        for (const auto zoom : { 0.7, 1.25, 1.0 })
+        {
+            // 录制从改大小之前开：缩放停下时同步重建的静态层（频谱刻度等）里的字也算进第一个场景。
+            textfit::setRecording (true);
+            textfit::takeOverflows();
+            editor.setZoom (zoom);
+            dispatchEvents (50);
+
+            for (const auto language : { celadon::Language::chinese, celadon::Language::english })
+            {
+                settings->setLanguage (language);
+                dispatchEvents (50);
+                editor.advanceForSnapshot (0.05);
+
+                juce::StringArray problems;
+
+                for (const auto& scene : scenes)
+                {
+                    scene.show();
+                    editor.advanceForSnapshot (0.05);
+                    paintAll();
+
+                    for (const auto& overflow : textfit::takeOverflows())
+                        problems.addIfNotAlreadyThere (juce::String (scene.name) + ": \"" + overflow.text + "\" " + juce::String (overflow.textWidth, 1)
+                                                       + " / " + juce::String (overflow.boxWidth, 1) + " px");
+
+                    scene.hide();
+                    editor.advanceForSnapshot (0.05);
+                }
+
+                const auto shownZoom = (double) editor.getWidth() / CeladonAudioProcessorEditor::baseWidth;
+                juce::String what ("T-112 single-line text fits its box (");
+                what << (language == celadon::Language::chinese ? "zh" : "en") << ", zoom " << juce::String (zoom, 2)
+                     << " -> " << juce::String (shownZoom, 3) << ", " << (int) std::size (scenes) << " scenes)";
+
+                if (! problems.isEmpty())
+                    what << ": " << problems.size() << " overflow(s): " << problems.joinIntoString ("; ");
+
+                check (problems.isEmpty(), what);
+            }
+
+            textfit::setRecording (false);
+        }
+
+        check (! textfit::isRecording() && textfit::takeOverflows().empty(), "T-112 text-fit recording is off again after the check");
+
+        session->editor.reset();
+        session->processor->releaseResources();
+        resetUiSettings (*settings);
+        dispatchEvents (50);   // 主检查的编辑器跟着语言回到中文
+    }
+
+    // T-112 ⑪d 六档字号：每一档界面字体、等宽字体的 em（点高度）都等于 typescale 里那个数（字号按 em 给，Mac / Windows / Linux 同一档的汉字一样大）；
+    // 等宽字体里夹汉字时回退到别的字体，回退字体的 em 不变（中文与数字同一个 em）。
+    void runTypeScaleChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using namespace celadon::ui;
+        const std::pair<TextSize, const char*> sizes[] =
+        {
+            { TextSize::micro, "micro" }, { TextSize::caption, "caption" }, { TextSize::body, "body" }, { TextSize::value, "value" },
+            { TextSize::title, "title" }, { TextSize::display, "display" }, { TextSize::displayLarge, "displayLarge" },
+        };
+        const auto chinese = juce::String::fromUTF8 ("\xe9\x9f\xb3");   // 「音」
+
+        for (const auto& [size, name] : sizes)
+        {
+            const auto em = emOf (size);
+            const auto ui = uiFont (size);
+            const auto mono = monoFont (size, Weight::medium);
+            const auto fallback = mono.findSuitableFontForText (chinese);
+            const auto near = [em] (float points) { return std::abs (points - em) < 0.01f; };
+
+            check (near (ui.getHeightInPoints()) && near (mono.getHeightInPoints()) && near (fallback.getHeightInPoints()),
+                   juce::String ("T-112 type scale ") + name + ": em " + juce::String (em, 1) + " (ui " + juce::String (ui.getHeightInPoints(), 2)
+                       + ", mono " + juce::String (mono.getHeightInPoints(), 2) + ", mono CJK fallback " + fallback.getTypefaceName() + " "
+                       + juce::String (fallback.getHeightInPoints(), 2) + ")");
+        }
+
+        check (emOf (TextSize::body) == 11.0f && emOf (TextSize::micro) < emOf (TextSize::caption) && emOf (TextSize::caption) < emOf (TextSize::body)
+                   && emOf (TextSize::body) < emOf (TextSize::title) && emOf (TextSize::title) < emOf (TextSize::display)
+                   && emOf (TextSize::display) < emOf (TextSize::displayLarge),
+               "T-112 type scale: body is em 11 and the tiers grow in order");
+    }
+
+    // T-112 ⑪e 新装默认大小（B4，Max 2026-11-12 定）：工程里存过的 > 用户设置里存过的默认 > 新装 125 %；钳到 70 ～ 200 %，非有限按 1。
+    // 屏幕放不下时再取屏幕放得下的最大值（fitZoomToScreen，与平台的屏幕有关，这里不查）。
+    // 另查左下角提示只到风格选择左边 8 px（T-112 以前伸进风格选择底下，字号放大后英文旧工程提示会压上去）。
+    void runZoomDefaultChecks (juce::Component& editor, const std::function<void (bool, const juce::String&)>& check)
+    {
+        using celadon::ui::initialZoom;
+        using celadon::ui::UiSettings;
+        const auto same = [] (double a, double b) { return std::abs (a - b) < 1.0e-9; };
+        const auto nan = std::numeric_limits<double>::quiet_NaN();
+
+        check (same (initialZoom ({}, {}), 1.25), "T-112 B4 first run (nothing stored) opens at 125 %");
+        check (same (initialZoom ({}, 1.0), 1.0), "T-112 B4 a stored default of 100 % stays 100 %");
+        check (same (initialZoom ({}, 1.5), 1.5), "T-112 B4 a stored default of 150 % stays 150 %");
+        check (same (initialZoom (0.8, {}), 0.8) && same (initialZoom (0.8, 1.5), 0.8), "T-112 B4 the project's own size wins");
+        check (same (initialZoom (nan, {}), 1.0), "T-112 B4 a non-finite project size opens at 100 % (as before)");
+        check (same (initialZoom ({}, 5.0), UiSettings::maxZoom) && same (initialZoom (0.1, {}), UiSettings::minZoom),
+               "T-112 B4 sizes are clamped to 70 - 200 %");
+
+        auto* corner = findById (editor, "corner_note");
+        auto* style = findById (editor, celadon::param::glazeStyle);
+        check (corner != nullptr && style != nullptr && corner->getRight() <= style->getX() - 8,
+               "T-112 corner note stops 8 px left of the style selector (corner right "
+                   + juce::String (corner != nullptr ? corner->getRight() : -1) + ", style x " + juce::String (style != nullptr ? style->getX() : -1) + ")");
+    }
+
     //==============================================================================
     // T-108（ADR-039 Q2、Q3）：存着曲风 / 交付的旧工程。参数表里已经没有 glaze_genre / glaze_delivery；读档时处理器把这两个 PARAM 节点
     // 摘掉，有一个不是默认值（下标 0 = 通用 / 标准）就让界面左下角提示一次「曲风与交付已取消…」，通用 + 标准的旧工程不提示。
@@ -1663,6 +1935,44 @@ namespace
                "T-074 CLAY card: with the peak guard pulling back, the low cut and mono lamps and values turn amber and the width row does not; "
                "they go back when it stops (amber pixels per row, low cut / mono / width: guard off " + describe (before) + "; on " + describe (during)
                    + "; off again " + describe (after) + ")");
+
+        // T-111 / 4-06 橙色规则：不同的事不同时亮。GLAZE > 0 且状态行是琥珀（这里摆「受手动设置限制」）时橙色归 GLAZE，
+        // 守护灯照样开着、CLAY 那两行却不再用橙（按「在处理」画）；GLAZE 的标题标签与顶部胶囊用橙。
+        {
+            auto amberSession = makeSession (50.0f);
+            auto& amberEditor = *amberSession->editor;
+            auto* amberCard = findFirst<ClayCard> (amberEditor);
+            const auto* pill = findFirst<StatusPill> (amberEditor);
+
+            if (amberCard == nullptr || pill == nullptr)
+            {
+                check (false, "T-111 orange rule: the CLAY card or the status pill was not found");
+                return;
+            }
+
+            glazestatus::Reading limited;
+            limited.limitedByManual = true;
+            limited.confidence = 1.0f;
+            amberEditor.setStatusLinePreview (limited);
+
+            injectStatus (*amberSession, [] (celadon::glaze::Status& status)
+            {
+                clayPeakGuard (0.42f) (status);
+                status.clayPeakGuardActive = true;
+            });
+
+            const auto image = amberEditor.createComponentSnapshot (amberEditor.getLocalArea (amberCard, amberCard->getLocalBounds()), true, 1.0f);
+            int orangeLamps = 0;
+
+            for (int row = 0; row < 2; ++row)
+                for (int y = 46 + 47 * row; y < 46 + 47 * row + 42; ++y)
+                    for (int x = 10; x < 26; ++x)
+                        orangeLamps += isClose (image.getPixelAt (x, y), palette::warning) ? 1 : 0;
+
+            check (amberCard->hasGuardLamp() && orangeLamps == 0 && pill->getContent().warning,
+                   "T-111 orange rule: while GLAZE is amber the CLAY guard lamps stay neutral and the pill carries the warning (orange lamp pixels "
+                       + juce::String (orangeLamps) + ", guard lamp lit " + juce::String (amberCard->hasGuardLamp() ? "yes" : "no") + ")");
+        }
     }
 
     //==============================================================================
@@ -1761,7 +2071,7 @@ namespace
             g.setColour (juce::Colour (0xff3e8f8a).withAlpha (0.35f + 0.65f * shade));
             g.fillEllipse (dot);
             g.setColour (juce::Colour (0xff1d3b3a));
-            g.setFont (celadon::ui::uiFont (12.0f));
+            g.setFont (celadon::ui::uiFont (celadon::ui::TextSize::body));   // T-112：字号只按档位给
             g.drawText (juce::String::fromUTF8 ("Aligned \xe5\xb7\xb2\xe9\x94\x81\xe5\xae\x9a"), juce::Rectangle<float> (64.0f, 0.0f, 80.0f, (float) getHeight()),
                         juce::Justification::centredLeft, false);
         }
@@ -2059,17 +2369,14 @@ namespace
             settings->setLanguage (celadon::Language::english);
             dispatchEvents (50);
             editor.advanceForSnapshot (0.05);
-            auto& topBar = static_cast<TopBar&> (*find ("language").getParentComponent());
             check (laidOut() && match.getText().startsWith ("Match"),
                    "T-032 bottom row re-laid out for English (" + match.getText() + ")");
-            check (topBar.getLatencyText().startsWith (tr (Text::latency, celadon::Language::english) + " "),
-                   "T-032 latency label follows the language at once (" + topBar.getLatencyText() + ")");
 
+            // T-111 包 D：顶栏不再写延迟（原来这里查延迟读数跟着语言走；延迟只在设置面板底行写）。
             settings->setLanguage (celadon::Language::chinese);
             dispatchEvents (50);
             editor.advanceForSnapshot (0.05);
-            check (laidOut() && topBar.getLatencyText().startsWith (tr (Text::latency, celadon::Language::chinese) + " "),
-                   "T-032 bottom row and latency label back to Chinese");
+            check (laidOut(), "T-032 bottom row back to Chinese");
         }
 
         // T-036（评审 R-01）：频谱仪的 4 个子组件（三个图例开关、斜率；响度小窗 T-107 起搬到右侧板）挂整数对齐的缓存——频谱一秒重画 60 / 120 次时
@@ -3571,7 +3878,7 @@ namespace
     }
 
     // 悬停的读数：6 kHz 正弦 2 s → 停播 0.15 s（OUT 在落、平均线与峰值线还高：三条线在 6 kHz 各是各的值，读错来源会差好几 dB），
-    // 鼠标移到 6 kHz；读数框第一个数必须是计算器此刻 OUT 在 6 kHz 的值（加斜率），误差在两位小数的舍入以内。
+    // 鼠标移到 6 kHz；读数框第一个数必须是计算器此刻 OUT 在 6 kHz 的值（加斜率），误差在一位小数的舍入以内（T-111 起读数 dB 写一位）。
     ProbeResult probeHoverReadout (int slopeIndex)
     {
         using Stream = celadon::ui::SpectrumAnalyser::Stream;
@@ -3596,7 +3903,8 @@ namespace
         if (std::abs (expected - fromAverage) < 0.5f || std::abs (expected - fromPeak) < 0.5f)
             return { false, "probe is vacuous: OUT, average and peak read nearly the same at that moment (" + detail + ")" };
 
-        return { std::abs (shown - expected) <= 0.011f, detail };
+        // 读数 dB 一位小数（T-111 / 4-05，原两位）：误差在一位小数的舍入以内。
+        return { std::abs (shown - expected) <= 0.051f, detail };
     }
 
     // ---- T-072（T-070 评审 F9）：截图工具驱动的编辑器，定时器的看门狗不按墙钟补推频谱仪 ----

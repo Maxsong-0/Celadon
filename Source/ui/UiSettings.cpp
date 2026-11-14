@@ -37,6 +37,14 @@ namespace celadon::ui
         }
     }
 
+    double initialZoom (std::optional<double> projectZoom, std::optional<double> storedDefaultZoom) noexcept
+    {
+        if (projectZoom.has_value())
+            return clampZoom (*projectZoom);
+
+        return clampZoom (storedDefaultZoom.value_or (firstRunZoom));
+    }
+
     UiSettings::UiSettings()
         : file (std::make_unique<juce::PropertiesFile> (fileOptions()))
     {
@@ -44,7 +52,10 @@ namespace celadon::ui
         language = file->containsKey (languageKey) ? languageFromCode (file->getValue (languageKey))
                                                    : defaultLanguageForSystem();
         reduceMotion = file->getBoolValue (reduceMotionKey, false);
-        defaultZoom  = clampZoom (file->getDoubleValue (zoomKey, 1.0));
+
+        // 没存过默认大小 = 新装：留空，打开窗口时用 firstRunZoom。存过的（哪怕就是 1）照用（T-112 / B4）。
+        if (file->containsKey (zoomKey))
+            defaultZoom = clampZoom (file->getDoubleValue (zoomKey, 1.0));
     }
 
     UiSettings::~UiSettings()
@@ -77,13 +88,13 @@ namespace celadon::ui
     {
         const auto clamped = clampZoom (zoom);
 
-        if (std::abs (clamped - defaultZoom) < 1.0e-6)
+        if (defaultZoom.has_value() && std::abs (clamped - *defaultZoom) < 1.0e-6)
             return;
 
         defaultZoom = clamped;
 
         // 缩放拖动时每一帧都会来：只记下、不广播（别的窗口不跟着变大小）；写盘由 PropertiesFile 的 0.5 s 定时器合并。
-        file->setValue (zoomKey, defaultZoom);
+        file->setValue (zoomKey, clamped);
     }
 
     void UiSettings::save()

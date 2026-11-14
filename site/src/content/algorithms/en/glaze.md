@@ -6,7 +6,7 @@
 
 | Question | Decision |
 |---|---|
-| How it follows the music | It listens all the time: a live, main-section-weighted profile feeds the planner once a second, and the automatic increments move toward each new target under a rate limit and a ratchet, rising slowly and falling faster; there is no listening phase and nothing locks |
+| How it follows the music | It listens all the time: a live, main-section-weighted profile feeds the planner once a second, and the automatic increments move toward each new target under a rate limit and a ratchet, rising slowly and falling faster; it never waits through a passage before settling on a plan, and nothing locks |
 | What the knob means | Strength: how far to push toward this song's ideal master; 0 = nothing moves (equal to the manual result) |
 | Manual knobs | The algorithm's value is the floor and the knobs fine-tune it: actual value = clamp(manual value + automatic increment); it never automatically cancels out your changes |
 | When the profile updates | All the time, and it's saved with the project (`LIVE`); there's no Relearn, and it doesn't guess song changes from the host transport — old statistics fade out through soft forgetting |
@@ -21,7 +21,7 @@
 | **GlazeConstants** | Style preferences, module constraints, the Heat conversion table; no longer saved as a snapshot with the project |
 | **Rate limit and ratchet** | Moves the applied increments toward the target: gain rises slowly and falls faster; while m < 0.5 the net gain can only fall |
 | **G_trim + OutputLevelTracker** | A very slow output-side trim (at most 0.05 dB per second, within ±3 dB): it compares how much the plan means to change the level with how much the output actually differs from the input, both over the same main-section segments. It waits while the plan isn't in place yet, outside the main section and until it has 3 s of evidence, and it is frozen while the guard holds a relief or for 1 s after a parameter change. Replaces the calibrator |
-| **Guard** GlazeGuard | The budget loop: when glue / limiting / clipping goes over the style's budget, or the limiter works too hard, it gives a relief that never adds level (at most 3 dB), added to Limit Gain, and eases it back to 0 once the condition clears. The cause (Budget / Limiter) and the amount on the status line come from it. From 0.1.8.8 to 0.1.8.10 there were also a contrast guard and a PSR guard (used only with House genres); they went with Genre in 0.1.8.11 |
+| **Guard** GlazeGuard | The budget loop: when glue / limiting / clipping goes over the style's budget, or the limiter works too hard, it gives a relief that never adds level (at most 3 dB), added to Limit Gain, and eases it back to 0 once the condition clears. The cause (Budget / Limiter) and the amount on the status line come from it. In 0.1.8.9 and 0.1.8.10 there were also a contrast guard (Contrast on the status line) and a PSR guard, used with every genre; 0.1.8.11 removed them |
 | **GlazeController** | Continuous scheduling: recomputes or applies every block and writes the status snapshot; the project stores only `LIVE` |
 
 ![Continuous scheduling: the live profile feeds the planner every 1 s → rate limit and ratchet → output trim G_trim and guard relief](figure:glaze)
@@ -36,7 +36,7 @@
 6. The guard's relief is added to Limit Gain. True peak is still guaranteed by the limiter and the Ceiling.
 7. The status snapshot is written (the six status lines read only this).
 
-There is no listening, plan transition, calibration or lock. From a cold start c = 0 and the planner uses its cautious low-confidence plan; c rises with the quality of the main section heard.
+There is no listen-then-settle phase, plan transition, calibration or lock. From a cold start c = 0 and the planner uses its cautious low-confidence plan (shown as Warming up in the interface); c rises with the quality of the main section heard.
 
 ## The planner's targets and constraints
 
@@ -55,7 +55,7 @@ The live tally: one entry = one bar, placed by the host's position and time sign
 
 ## Genre and Delivery (removed in 0.1.8.11)
 
-From 0.1.8.8 to 0.1.8.10 there were two extra choices: Genre (General / Deep / Tech / Melodic; the three House genres changed the tonal target, Low cut, Width and the main-section model, and added a beat-following limiter release, an out-of-phase hint and the contrast guard) and Delivery (Standard / Streaming / Club; changed the target loudness, and Streaming capped the limiter ceiling at −2 dBTP). 0.1.8.11 removed both, with their constants and guards, leaving only the path General + Standard always took; that path sounds the same as before. An old project saved with any other setting loads as General + Standard, the interface says so once, and the sound changes.
+From 0.1.8.8 to 0.1.8.10 there were two extra choices: Genre (General / Deep / Tech / Melodic; the three House genres changed the tonal target, Low cut, Width and the main-section model, and added a beat-following limiter release and an out-of-phase hint) and Delivery (Standard / Streaming / Club; changed the target loudness, and Streaming capped the limiter ceiling at −2 dBTP). 0.1.8.11 removed both, with their constants, leaving only the path General + Standard always took; removing them doesn't change how that path sounds (other 0.1.8.11 changes at GLAZE above 0, such as the two guards dropped from the Guard row above, are in the changelog). An old project saved with any other setting loads as General + Standard, the interface says so once, and the sound changes.
 
 ## Saving and offline export
 

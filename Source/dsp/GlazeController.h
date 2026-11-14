@@ -41,12 +41,15 @@
 
     线程：
       - 音频线程：setHostInfo / beginBlock / analyzeSpectrum / analyzeInput / endBlock / handleDiscontinuity / hostReset。0 分配、0 锁。
-      - 消息线程：prepare / createStateXml / restoreStateXml / takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveConstants；
-        requestRelearn 已是空操作。
+      - 消息线程：prepare / createStateXml / restoreStateXml / captureState / stageRestore / commitRestore / keepStateOnLoad /
+        takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveConstants（encodeState 任何线程）。
       - 任何线程：getStatus（无锁快照，endBlock 每块发布一份；legacySessionDiscarded 另读一个原子标志）。
       编排器不再在两线程之间交换「已提交版本」（旧版音频线程 try-lock 发布、消息线程持锁读写的那一套随状态机删掉了）：
-      createStateXml / restoreStateXml 直接读写音频线程每块在改的量，编排器内部不加锁；其中 LiveProfile 要求自己的存读档不与
-      音频线程接口同时调用（LiveProfile.h 文件头第三节）。
+      存读档直接读写音频线程每块在改的量，编排器内部不加锁；其中 LiveProfile 要求自己的存读档不与音频线程接口同时调用
+      （LiveProfile.h 文件头第三节）。插件里由处理器保证（T-099，ADR-040）：存读档拆成两步（见下「存读档拆两步」），碰运行状态的
+      那一步（captureState / commitRestore / keepStateOnLoad）在宿主的回调锁里调、音频线程那时停在锁上，只做拷贝与交换；
+      编码、压缩、解压、解析、校验与重算画像（encodeState / stageRestore）在锁外。createStateXml / restoreStateXml 两步连着做，
+      给不跑音频的调用方（链的 prepare、测试、渲染工具）。
       restoreStateXml 之后、第一块音频之前调 createStateXml，返回的是刚恢复（或冷启动）的内容（不是旧值；例外：还没 prepare 时
       冷启动不清 LiveProfile，LIVE_PROFILE 照旧是它当时的内容，见 .cpp coldStart）。
 
@@ -111,7 +114,7 @@
     currentMainness、coldExport（离线且 c < 0.5）、guardCause / guardEngaged / protectionDb（预算环正在起作用时）、limitedByManual，
     以及 effectiveTargetLufs、resolvedStyle。planLimited（预算环退到下限
     仍超）照常发布，但状态行只认 guardEngaged、不读它（tests/GlazeStatusTextTests.cpp「planLimited does not stand in for
-    guardEngaged」）；legacySessionDiscarded 由编辑器读，点亮一次「旧的聆听结果已丢弃」提示。
+    guardEngaged」）；legacySessionDiscarded 由编辑器读，点亮一次旧工程提示（文字在 Source/ui）。
 
     工程：只存 LIVE（GLAZE_STATE formatVersion 2，LIVE 节点外层 zlib + base64）——实时画像、已施加增量（含 Limit Gain 的回差
     死区状态）、G_trim、风格权重、实时跟随量、时间线、预算环、出口主段电平、Clay 自动值 / ClayGuard 状态 / 压力反馈缩放（另给
@@ -145,7 +148,6 @@
 
 #include <juce_dsp/juce_dsp.h>
 
-#include <initializer_list>
 #include <memory>
 
 namespace celadon::glaze
@@ -211,11 +213,7 @@ namespace celadon::glaze
 
         // ---- 消息线程 ----
 
-        // T-048 阶段 2（ADR-030）起是空操作：没有「重新聆听」，不清实时画像、不改任何状态。签名留着，因为转发链
-        // CeladonChain::requestGlazeRelearn ← CeladonAudioProcessor::requestGlazeRelearn 与测试还在调；处理器仍把它交给编辑器的
-        // setGlazeRelearnAction，但编辑器收下就丢掉（PluginEditor.cpp），界面上已没有入口。
-        void requestRelearn() noexcept;
-
+        // createStateXml() = captureState + encodeState（下面「存读档拆两步」）。
         std::unique_ptr<juce::XmlElement> createStateXml() const;
 
         // xml 为空、formatVersion 高于本版本、或 LIVE 读坏 → 冷启动；formatVersion 2 → 恢复 LIVE 里的实时画像与各控制量
@@ -223,7 +221,64 @@ namespace celadon::glaze
         // EXECUTION）→ 整份丢弃、冷启动，并置 Status::legacySessionDiscarded；formatVersion 缺失或 ≤ 0、又没有这些旧节点的，
         // 同样冷启动、不置这个标志。不序列化滤波器 / 检测器的音频历史。
         // 第一次 prepare 之前调时另留一份原件给 takeStateRestoredBeforePrepare。
+        // restoreStateXml() = stageRestore + commitRestore（下面「存读档拆两步」）。
         void restoreStateXml (const juce::XmlElement* xml);
+
+        // 运行中的实例读档、不读 GLAZE 存档时调（T-099，ADR-040；处理器在回调锁里调，同 commitRestore）：实时画像、已施加增量与
+        // 各守护状态都接着用、不冷启动，只清掉上一次读档点亮的 Status::legacySessionDiscarded——那条提示说的是那次读档冷启动了，
+        // 这次没有；不清的话，读进干净的工程之后提示还一直亮着。
+        void keepStateOnLoad() noexcept;
+
+        // ---- 存读档拆两步（T-099，ADR-040）----
+        // 插件在宿主的回调锁里存读档（音频线程那时停在锁上）。锁里只做拷贝与交换，编码、压缩、解压、解析、校验、重算画像都在锁外：
+        //   存档 = captureState（锁里：把编码要读的量拷进事先分配好的快照，只拷不分配）
+        //          + encodeState（锁外、任何线程：拼 XML、LIVE 外层 zlib + base64）；
+        //   读档 = stageRestore（锁外、消息线程：解压、解析、校验，实时画像在另一份工作区里读回并重算，结果放进暂存）
+        //          + commitRestore（锁里：换入暂存；坏档 / 旧格式 / 空存档时冷启动，规则同 restoreStateXml）。
+        // createStateXml / restoreStateXml 就是这两对的组合：存出来的字节、读回来的状态与拆开调逐位相同。
+
+        // 存档快照（值类型）。构造时分配全部容量（含实时画像的整个回看窗口，约 1.7 MB），在拿锁之前建好；可以反复用。
+        class StateSnapshot
+        {
+        public:
+            StateSnapshot();
+            ~StateSnapshot();
+
+            struct Data;   // 不透明（.cpp 里定义）
+
+        private:
+            std::unique_ptr<Data> data;
+            friend class GlazeController;
+
+            JUCE_DECLARE_NON_COPYABLE (StateSnapshot)
+        };
+
+        // 不与音频线程接口同时调（插件里在回调锁里）：只拷不分配、不调宿主、不拿别的锁。
+        void captureState (StateSnapshot& snapshot) const noexcept;
+        // 任何线程，不碰任何实例：把快照编码成 GLAZE_STATE 节点。
+        static std::unique_ptr<juce::XmlElement> encodeState (const StateSnapshot& snapshot);
+
+        // 读档暂存。构造只分配外壳；stageRestore 按需要再分配（实时画像的工作区约 2.3 MB）——都在锁外。commitRestore 之后里面是
+        // 换下来的旧画像工作区与旧的「prepare 之前读进的原件」，随暂存一起在锁外释放。一份暂存只 commit 一次。
+        class StagedRestore
+        {
+        public:
+            StagedRestore();
+            ~StagedRestore();
+
+            struct Data;   // 不透明（.cpp 里定义）
+
+        private:
+            std::unique_ptr<Data> data;
+            friend class GlazeController;
+
+            JUCE_DECLARE_NON_COPYABLE (StagedRestore)
+        };
+
+        // 消息线程，可与音频线程接口同时调：只读消息线程才改的配置（是否已 prepare、采样率、实时画像的常数），不碰运行状态。
+        void stageRestore (const juce::XmlElement* xml, StagedRestore& staged) const;
+        // 不与音频线程接口同时调（插件里在回调锁里）：定长拷贝与指针交换，不分配、不释放、不调宿主、不拿别的锁。
+        void commitRestore (StagedRestore& staged) noexcept;
 
         // 第一次 prepare 之前读进的原始存档（宿主打开工程：setStateInformation 先于 prepareToPlay）。
         // 链在第一次 prepare 冷启动之后把它读回。已经 prepare 过再读档不进这里（换采样率时链自己先 createStateXml）。
@@ -243,10 +298,15 @@ namespace celadon::glaze
         void attachLiveProfile (LiveProfile* profile) noexcept;
 
         // 消息线程、音频已停时：把出厂 LiveConstants 交给 LiveProfile（LiveProfile::setConstants 同步重算已发布的那一份）。
+        // 交的是 setLiveConstantsForTesting 设过的那一份，没设过就是出厂值（插件从不设）。
         // CeladonChain::prepare 每次都调；插件的 prepareToPlay 不论整体重建还是同规格只 reset，最后都经 CeladonChain::syncGlazeLiveConstants
         // 再调一次（T-108 之前叫 syncLiveModel，另按曲风选主段模型；那时两处也都调）。
         void syncLiveConstants() noexcept;
         bool hasPrepared() const noexcept;
+
+        // T-113 听感批（1-05 / 1-07）此刻生效的常数：没设过就是出厂值（ListeningConstants 的默认值）。链的 setParams（音频线程）读它算
+        // 推响不刺 / 目标频谱「自动」的强度；返回的引用只在下一次 setListeningConstantsForTesting 之前有效。
+        const ListeningConstants& getListeningConstants() const noexcept;
 
         // ---- 任何线程 ----
 
@@ -259,124 +319,52 @@ namespace celadon::glaze
         // 替换出厂常数（测试用）：编排器读 activeConstants() 的地方——决策器、预算环上限与时长、ClayGuard、实时跟随——都改用它；
         // LiveProfile 的 LiveConstants 不在这里（见 syncLiveConstants）。在 prepare 之前调。
         void setConstantsForTesting (const Constants& constants);
+        // T-113 候选（插件不调；渲染工具 --candidate 与测试用）：换掉听感批的出厂常数。消息线程、音频已停时调（渲染工具在新链 prepare
+        // 之前调）。ListeningConstants 由编排器与链读（预算环主段门、音色强度映射）；LiveConstants 立刻交给链上的 LiveProfile
+        //（若已接上），之后每次 syncLiveConstants 也交这一份——链的 prepare 读档之前画像就已是这份常数，读档时还没发布的段按它进账。
+        void setListeningConstantsForTesting (const ListeningConstants& constants) noexcept;
+        void setLiveConstantsForTesting (const LiveConstants& constants) noexcept;
         // T-048 阶段 2 起没有「已提交版本」：按此刻拼一份——当前常数、「自动」风格权重（放在 lockedWeights）、目标方案、
         // 此刻跟随的实时画像（读到过才 hasProfile，profileId 按它算）；calibration 恒为默认值。渲染工具与测试读它。
         CommittedState getCommittedStateForTesting() const;
-        // 恒为 Phase::unlearned（没有状态机了）。渲染工具 --trace 的 glaze_phase 列与测试还在读。
-        Phase getPhaseForTesting() const noexcept;
-
         // ---- v0.6 A4 追加（只给测试用；都在音频线程读，测试里与处理同一线程）----
 
-        // 内部计数与此刻的中间量。T-048 阶段 2（ADR-030）起编排器只写其中一部分：probeForTesting 按此刻的值填 increments、
-        // targetPlan、G_trim 与预算环几项、Clay 几项、offline、实时 Heat / Glue 减量、guardLimits*（feedbackMaxGainDb 恒填 1.0e9），
-        // 另外累加 clayPressureSteps、hostResets、transportJumps、loopWraps，并借用 transitionActive 作重算标志
-        // （GlazeController.cpp Impl::probeForTesting 与各处 probe.）。
-        // 标「停用」的字段不再推进、恒为初值。留着是因为仍在跑的测试断言它们保持初值（如 GlazeControllerTests testContinuousPhase、
-        // GlazeTests 的「calibration stays retired」），tests/ 里不再调用的旧用例与渲染工具 --trace 也还引用它们。
+        // 内部计数与此刻的中间量：probeForTesting 按此刻的值填 increments、targetPlan、G_trim 与预算环几项、Clay 几项、
+        // 实时视图的低频相关度、offline、实时 Heat / Glue 减量、guardLimits*、G_trim 冻结与读数；编排器另外累加 clayPressureSteps、hostResets、transportJumps、loopWraps
+        // （GlazeController.cpp Impl::probeForTesting 与各处 probe.）。T-098 删掉了 T-048 阶段 2（ADR-030）起不再推进、恒为初值的
+        // 字段（聆听 / 提交 / 方案过渡 / 校准 / 约束反馈 / 画像失配 / 执行快照的计数与读数、旧参考条件哈希、Clay 的几项旧诊断）。
         struct TestProbe
         {
-            int learningStarts = 0;          // 停用（恒 0）。原为分析器 startLearning 的次数（首次聆听、重新聆听、首次聆听重来）
-            int commits = 0;                 // 停用（恒 0）。原为候选画像提交为已提交版本的次数
-            int planTransitions = 0;         // 停用（恒 0）。原为 3 s 方案过渡开始的次数（提交、换风格、约束反馈、旧算法方案改按新算法）
-            int learningUpdates = 0;         // 停用（恒 0）。原为首次聆听中低置信度方案按候选画像更新的次数
-            int calibrationBegins = 0;       // 停用（恒 0，下一行 calibrationFinishes 同）。原为校准器 begin 的次数（GlazeCalibrator 已删）
-            int calibrationFinishes = 0;
-            int feedbackSteps = 0;           // 停用（恒 0）。原为约束反馈真正下调了上限的次数
             int clayPressureSteps = 0;       // 修坯压力反馈把自动 Clay 缩放降了一档的次数（ADR-014）
-            int feedbackFromBudget = 0;      // 停用（恒 0，下三行同：都是约束反馈的触发来源）。原为：校准结束为「预算受限」
-            int feedbackFromGuardLimit = 0;  // 原为：保护层进入「方案受限」
-            int feedbackFromUpstream = 0;    // 原为：Glue / Heat 在 3 s 窗内累计超出 ≥ 1 s
-            int feedbackFromStuckGuard = 0;  // 原为：锁定且校准适用时保护层卡在同一退让值上
-            int mismatchSteps = 0;           // 停用（恒 0）。原为画像失配按「这一段当画像」重算的方案给净增益上限的次数（v0.6 验收 F-01）
-            int hostResets = 0, transportJumps = 0, loopWraps = 0;   // 仍写：hostReset 每次 +1；后两项只数 setHostInfo 自己识别出的跳播 / 回绕
-            // 仍写，但已不是「方案过渡中」：beginBlock 发现 GLAZE / 风格或影响方案的手动值变了就置 true，同一块 endBlock
-            // 读过就清回 false（GLAZE > 0 时据此重算目标方案）——endBlock 之后读到的恒为 false（--trace 的 plan_transition 列因此恒为 0）。
-            bool transitionActive = false;
-            float transitionProgress = 1.0f; // 停用（恒 1：没有方案过渡）
-            bool learning = false;           // 停用（恒 false，下一行 relearning 同）。原为分析器正在累计候选
-            bool relearning = false;
-            int calibratorState = 0;         // 停用（恒 0）。原为 GlazeCalibrator::State 的整数值（校准器已删）
-            float appliedBiasDb = 0.0f;      // 此刻的 G_trim（输出侧慢修正，取代校准偏差；未经 applyLimitExtras 按自动部分钳制）
-            float executedBiasDb = 0.0f;     // 阶段 2 起与 appliedBiasDb 相同，都是 G_trim（没有交给校准器的回馈量了）
+            int hostResets = 0, transportJumps = 0, loopWraps = 0;   // hostReset 每次 +1；后两项只数 setHostInfo 自己识别出的跳播 / 回绕
+            float appliedBiasDb = 0.0f;      // 此刻的 G_trim（输出侧慢修正；未经 applyLimitExtras 按自动部分钳制）
+            float executedBiasDb = 0.0f;     // 与 appliedBiasDb 相同，都是 G_trim（渲染工具 --trace 的 executed_bias_db 列照旧读它）
             float executedGuardDb = 0.0f;    // 预算环（GlazeGuard）最近交出的退让（budgetOut）；不是钳过后的执行量
             float guardDb = 0.0f;            // 预算环（GlazeGuard）自己的 g_保护
-            float feedbackMaxGainDb = 0.0f;  // 没有约束反馈了：probeForTesting 恒填 1.0e9（= 不限）
-            bool savedPlanMode = false;      // 停用（恒 false）。原为照用保存的旧算法方案
-            bool executionSnapshotActive = false; // 停用（恒 false）。原为同算法执行快照生效中（阶段 2 没有执行快照）
             bool offline = false;
             float liveHeatReduction = 0.0f, liveGlueReduction = 0.0f;
             AutoIncrements increments;       // 已施加的自动增量（速率限制 / 棘轮之后）；beginBlock 另加的 Tone / Tame / Heat / Glue 实时跟随不在内
             Plan targetPlan;                 // 目标方案（最近一次 makePlan；已施加增量按速率朝它走）
 
             // ---- v0.1.7.0 修坯 Clay（A6 追加）----
-            // T-048 阶段 2 起仍写的只有 clayPlanned、liveClay、clayGuard、clayAutomaticSupported、clayPressureScale；标「停用」的恒为初值
-            // （压力反馈与守护回收本身照常运行，只是读数不再抄进探针；界面的守护回收指示读 Status 的 clayPeakGuard*）。
-            // 渲染工具 RenderMain.cpp 的 Clay 追踪列与指标还在读其中几项（clayGuardSeconds、liveLowCorrelation*、clayPeakCost*、
-            // clayBlendLossSmoothedDb），所以那几列阶段 2 起恒为 0 / 无效。
             // clayPlanned = 最近一次 beginBlock 里目标方案的 plan.clay 经压力反馈缩放与范围收拾后的值（还没有目标方案时为中性）；
             // clayAutomaticSupported 为 false 时它照算，但交给 ClayGuard 的是中性方案。
             ClayPlan clayPlanned;            // 「自动」态值，ClayGuard 之前（口径见上两行）
             ClayPlan liveClay;               // 经 ClayGuard 之后、三态合成之前的自动值（随工程存进 LIVE 的 CLAY 节点）
             ClayGuardState clayGuard;        // ClayGuard 此刻的状态
-            float clayGuardSeconds = 0.0f;   // 停用（恒 0）。原为上一块交给 ClayGuard 推进的有效音频秒数
             bool clayAutomaticSupported = false; // GLAZE > 0、已读到实时画像且画像格式 ≥ clayProfileFormatVersion（不满足时自动 Clay 走中性方案）
-            bool clayRestoredFirstBlock = false; // 停用（恒 false）。原为上一块直接用了执行快照里的 Clay 值
-            std::uint32_t manualParamsHash = 0;  // 停用（恒 0）。原为按上一块手动参数算的校准参考条件哈希（旧口径，见 setManualConditions）
-            int legacyConditionsUpgrades = 0;    // 停用（恒 0）。原为读取工程后旧存档参考升成新口径的份数（BUG-004，upgradeLegacyConditions）
-            Feature liveLowCorrelation;          // 停用（恒无效，下一行 liveLowCorrelationFast 同）。原为分析器实时视图的低频相关度慢路 / 快路（诊断追踪用）
-            Feature liveLowCorrelationFast;
             float clayPressureScale = 1.0f;      // 修坯压力反馈给自动 Clay 的缩放（ADR-014；随工程保存）
-            double clayPeakCostDb = 0.0;         // 停用（恒 0）。原为压力反馈第一触发量此刻的代价（dB，与先试同口径，ADR-028）
-            int clayPeakCostBlocks = 0;          // 停用（恒 0）。原为自上次清零起攒下的有效峰值块数（每块 0.1 s）
-            double clayBlendLossSmoothedDb = 0.0;   // 停用（恒 0）。原为守护混合损失的平滑值（dB，T-043：ClayPressureMonitor::blendLossDb）
-            double clayGuardKeepChange = 0.0;       // 停用（恒 0，下两行同）。原为守护回收指示（T-074，ClayGuardKeepMonitor）：平滑后的 Σd² 与 Σ(g·d)²、
-            double clayGuardKeepKept = 0.0;         // 灭着时保留比连续低于亮灯线的秒数（诊断）
-            double clayGuardKeepBelowSeconds = 0.0;
+            // 分析器实时视图（MusicAnalyzer ShortTermView）此刻的 40 ～ 125 Hz 低频相关度：慢路 300 ms / 快路 120 ms。ClayGuard 的反相
+            // 提示在下一块 beginBlock 读的就是这两项（两次处理之间视图不变）；读探针时现取。T-098 之前这两项不再填、恒无效，渲染工具
+            // --trace 的 rho_slow / rho_fast 与 slow_inverted_pct（gate_check.py 的反相豁免）因此恒空 / 恒 0。
+            Feature liveLowCorrelation;
+            Feature liveLowCorrelationFast;
 
-            // ---- T-015（BUG-003）校准诊断：渲染工具 --trace 的校准列用（tools/render/README.md）----
-            // T-048 阶段 2（ADR-030）删掉校准器后整组停用、恒为初值。还在读的：渲染工具 --trace 的校准列占位（RenderMain.cpp
-            // calibrationTraceColumns，十项全读）；仍在跑的测试只有 GlazeChainTests 的 testManualHeatOverBudget 与
-            // testAutomaticLevelWithdrawn 断言 calibrationGateMask 第 16 位为 0，其余读者都在不再调用的旧用例里。各行「原为」之后
-            // 是阶段 2 之前的含义，只供对照旧的 --trace CSV。
-            bool roundActive = false;                 // 停用（恒 false）。原为校准轮进行中（阶段「校准中」）
-            bool calibrationApplicable = false;       // 停用（恒 false）。原为已提交的校准对此刻适用（= Status::calibrationValid）
-            int calibrationRoundsDone = 0;            // 停用（恒 0）。原为本次 begin 以来已完成的轮数（GlazeCalibrator::Progress::round）
-            int calibrationSubWindows = 0;            // 停用（恒 0）。原为本轮已完成、条件一致的子窗数（每轮 4 个）
-            double calibrationSubWindowSeconds = 0.0; // 停用（恒 0）。原为当前子窗已采到的有效配对时长（静音不推进）
-            double calibrationGuardSeconds = 0.0;     // 停用（恒 0）。原为本次 begin 以来保护层介入期间累计的有效音乐（到窗长即「预算受限」）
-            float calibrationLastErrorDb = 0.0f;      // 停用（恒 0）。原为最近一轮的修正量 e = 目标净提升 − 实测净提升
-            float calibrationSuggestedDb = 0.0f;      // 停用（恒 0）。原为校准器此刻的建议偏差（相对本轮基线）
-            // 停用（恒 0）。原为：
-            // 轮中本块作废当前子窗的原因（位或，上一块）：1 宿主旁通 / 暂停、2 GLAZE ≤ 0、4 方案过渡中、8 条件与本轮参考不一致、
-            // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；T-032 R6-02 收尾前是「受手动设置限制」）、32 保护层介入
-            // （GlazeGuard::isEngaged）、64 原为 House 档此刻不在主段落（T-038，曲风已随 T-108 删掉）。
-            // 偏差变了（换工作点）由校准器自己当作中断，看执行偏差列。
-            int calibrationInterruptMask = 0;
-            // 停用（恒 0）。原为：
-            // 不在轮中时没开新一轮的原因（位或，上一块）：1 没有已提交画像、2 GLAZE ≤ 0、4 宿主旁通 / 暂停、8 方案过渡中、
-            // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；R6-02 收尾前是「受手动设置限制」）、32 保护层在退让或恢复（未稳定
-            // 也未卡住），或编排器接着施加的退让（carry）还没淡完、64 参考条件未知、
-            // 128 已提交的校准适用（不需要）、256 用户条件稳定不足 1 s、512 刚对同一条件试过而结束为无效（T-032 R5-01 起放弃的轮、
-            // 换方案丢掉的轮不算）、1024 原为 House 档此刻不在主段落（T-038，已删）。0 = 本块开了新一轮或正在轮中。
-            int calibrationGateMask = 0;
-
-            // ---- T-032（R5-02 / R5-03 / R5-04 / R5-08）：保护层与约束反馈的运行量（上一块 endBlock 之后的值）----
-            // T-048 阶段 2 起只有 guardLimitsSet、guardLimits 仍由 probeForTesting 从预算环（GlazeGuard）读出；其余各项随约束反馈、
-            // 上游监视、执行快照与画像失配一起删掉，标「停用」、恒为初值。
+            // ---- 预算环的约束上限（上一块 endBlock 之后的值）----
             bool guardLimitsSet = false;              // 预算环已设过上限（GlazeGuard::hasLimits；第一次重算目标方案起为 true）
             // 预算环此刻生效的约束上限 = blendConstants(当前常数, 目标方案的权重)，其中目标方案 manualBudgetMask 标出的项
             // （手动单独已超预算）置 0 = 不设约束（T-032 A11；heatDriveCap 也在里面）。掩码为 0 时与混合常数逐位相同。
             StyleConstants guardLimits;
-            std::int64_t guardSteadySamples = 0;      // 停用（恒 0）。原为 g_保护 连续没变的有效音乐样本数
-            std::int64_t guardStuckSamples = 0;       // 停用（恒 0）。原为「卡住」门槛折算的样本数
-            std::int64_t samplesSinceFeedback = 0;    // 停用（恒 0）。原为上一次约束反馈以来的有效音乐样本数
-            int monitorWindowSlots = 0;               // 停用（恒 0，下一行同）。原为上游监视窗的时隙数（guardWindowSeconds / 100 ms）
-            int monitorTriggerSlots = 0;              // 原为上游监视的触发时隙数（guardTriggerSeconds / 100 ms）
-            float absorbedGuardDb = 0.0f;             // 停用（恒 0）。原为沿用执行快照时并进冻结方案的保护退让（≤ 0）
-            float guardCarryDb = 0.0f;                // 停用（恒 0）。原为编排器接着施加的退让（lowerGainCap 吸收 / 解除冻结的 carry 剩余量）
-            std::int64_t mismatchSamples = 0;         // 停用（恒 0）。原为画像失配此刻累计的有效音乐样本
-
-            std::int64_t transitionLengthSamples = 0; // 停用（恒 0）。原为正在进行的方案过渡的长度（样本；没在过渡为 0）
 
             // ---- T-097 G_trim 冻结（上一块 endBlock 之后的值）。T-097 的落差 / PSR 守门读数随两个守门一起删掉（T-108）----
             bool trimFrozen = false;                  // 上一块 G_trim 因预算环有退让量 / 刚改过退让、或 1 s 内改过参数而没积分
@@ -402,34 +390,4 @@ namespace celadon::glaze
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlazeController)
     };
-
-    // v0.1.7.0 修坯 Clay（A6）：方案过渡中 Clay 自动值的混合（纯函数、不分配）。T-048 阶段 2（ADR-030）起没有方案过渡，编排器
-    // 不再调用它，插件与渲染工具也都不调；tests/GlazeControllerTests.cpp 里核对它的 testClayTransitionBlend、
-    // testClayCostMaskReachesStatus 已不在 runTest 里、不再运行——函数只是还编着。下面是它原来的口径。
-    // t = 过渡进度 0 ～ 1（t ≤ 0 或 NaN 给 from、t ≥ 1 给 to，都是逐位原值）。
-    //   - 频率在对数域混合（线性混合在低频端听感不均匀）；monoAmount、widthDb 线性；
-    //   - lowCutHz = 0（关）的一端按 lowCutFloorHz 参与对数混合（两端都关 = 0）：从关到开是 floor → 目标，
-    //     10 Hz 的 4 阶高通在 20 Hz 只衰减 0.02 dB，起步无感；lowCutFloorHz 不是正的有限值时用 ClayModule 的最低低切频率；
-    //   - monoAmount = 0 的一端 monoHz 没有意义（GlazeTypes.h ClayPlan），按另一端的分频点参与：收单从无到有时分频点不扫动；
-    //   - 对数混合的结果钳在两端之间（舍入不越过端点：端点在合法范围内，结果也就在）；
-    //   - costLimitedMask（ADR-012，只给界面解释）过渡中（0 < t < 1）取目标方案 to 的；两端照上面的规则逐位原样（含各自的 mask）。
-    ClayPlan blendClayPlans (const ClayPlan& from, const ClayPlan& to, float t, float lowCutFloorHz) noexcept;
-
-    // BUG-004（ADR-018）：校准参考条件里手动参数这一部分。纯函数、不分配。T-048 阶段 2（ADR-030）起没有校准，编排器不再算
-    // 参考条件、不调用它；只剩下面的 upgradeLegacyConditions 在内部调（那个函数本身也没人调了）。tests/GlazeControllerTests.cpp
-    // 里核对它的用例（经 referenceFor 辅助：testReferenceSurvivesParameterRoundTrip、testManualConditionsCacheIsBitExact）已不在
-    // runTest 里、不再运行。
-    // 填 reference 的 conditionsFormat（新口径）、manualParamsHash（旧口径哈希，逐位同 v0.1.8.0）、discreteParamsHash 与
-    // 三个对数刻度值（limitReleaseMs；clayLowCutHz / clayMonoHz 只在 Clay 非默认设置且该项「手动」时取旋钮值，否则 0），
-    // 其余项不动。feedbackMaxGainDb = 约束反馈上限（它也在哈希里；阶段 2 已没有约束反馈）。
-    void setManualConditions (CalibrationReference& reference, const ChainParams& manual, float feedbackMaxGainDb) noexcept;
-
-    // 旧存档读回来的参考（conditionsFormat = legacyConditionsFormat，只有旧口径哈希）按此刻的手动参数升格：三个对数刻度值
-    // 各自前后 16 个 float 内可能取到的量化码逐组代进旧口径哈希，有一组等于参考的 manualParamsHash = 同一条件（只差往返漂移），
-    // 把它的手动参数部分换成 setManualConditions 算出的新口径；一组都不等 = 条件真的不同，原样保留（此后照旧只按旧口径哈希比，
-    // 与修前相同）。已是新口径的、空指针跳过。候选组合超过 1024（越界的坏值；范围内最多 693）就不升格。返回升格的份数。
-    // 纯函数、不分配。T-048 阶段 2（ADR-030）起旧存档整份丢弃、冷启动（restoreStateXml），编排器不再调用它；核对它的
-    // testReferenceSurvivesParameterRoundTrip（tests/GlazeControllerTests.cpp）已不在 runTest 里、不再运行。
-    int upgradeLegacyConditions (std::initializer_list<CalibrationReference*> references, const ChainParams& manual,
-                                 float feedbackMaxGainDb) noexcept;
 }

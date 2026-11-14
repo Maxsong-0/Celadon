@@ -21,7 +21,7 @@
            自动 Limit Gain 的量程是 24 − 手动 Gain（算法 8 起，T-032 R6-06）：请求放不进量程 → G_full′ 回算成量程顶值能交付的净增益、标受约束；
            Glue 的补偿本身就比 G_full′ 还多（偏响的素材）→ 不用自动 Glue（否则低强度时 Gain 得为负）；
       5. 按强度 s = GLAZE × κ 展开：Glue / Heat / Tone / Recover / Tame 的增量 = 满强度值 × s（Tone 的满强度值钳在
-         ±toneMaxDb）；
+         ±toneMaxDb）；音色类（Tone / Recover / Tame / Heat）的 GLAZE 换成 f(GLAZE)（T-113 1-07，ListeningConstants；出厂 f(g) = g）；
          Limit Gain 走 5 个折点的单调折线（各折点按前向模型求「净增益 = 中性链 + s × G_full′」所需的 Gain），
          中段的前馈误差也在 ±0.2 dB 内（实测，见 IMPL-A2）；Clip 在前段从 0 爬到满强度值，爬完之前峰值还到不了阈值的线性段；
       6. 叠加手动值后逐模块核对约束（前向链模型；输入本身已超的量不算手动的，也不因此停摆）：
@@ -1737,8 +1737,12 @@ namespace celadon::glaze
 
         const auto autoLevel = autoSettingsAt (fullPlan, strength, schedule);
 
-        // ---- 频谱类增量（与电平约束无关，只按 GLAZE × κ 缩放）----
-        const auto spectralStrength = glaze * kappa;
+        // ---- 频谱类增量（与电平约束无关，只按 f(GLAZE) × κ 缩放）----
+        // T-113 1-07：音色类动作的强度用 f(GLAZE)（GlazeConstants.h timbreStrength），出厂 f(g) = g，与改前同一个表达式、逐位不变。
+        const ListeningConstants factoryListening {};
+        const auto& listening = inputs.listening != nullptr ? *inputs.listening : factoryListening;
+        const auto timbreGlaze = timbreStrength (glaze, listening);
+        const auto spectralStrength = timbreGlaze * kappa;
         auto& inc = plan.increments;
 
         inc.colorGlue = autoLevel.glue;
@@ -1746,13 +1750,20 @@ namespace celadon::glaze
         inc.limitGainDb = autoLevel.gainDb;
         inc.limitClip = autoLevel.clip;
 
+        // T-113 1-07：Heat 也是音色类动作，但它走电平那一份强度（受约束反馈、可行性核对收紧过的 strength）：这里只把它按
+        // f(GLAZE) ÷ GLAZE 放大，收紧的比例照旧，再与有效上限（heatAllowance）取小——上限不变，GLAZE 100 时 f = 1、与改前相同。
+        // 残差 Heat 对峰值与响度的影响在换算表里 ≤ 0.003 dB（GlazeConstants.h heatLoudnessDb / heatPeakDb），不回头重做可行性核对。
+        // 出厂（f(g) = g）时整段跳过，inc.colorHeat 逐位等于改前。
+        if (timbreGlaze != glaze && glaze > 0.0f && ! schedule.withdrawn.heat && fullPlan.heat > 0.0f)
+            inc.colorHeat = juce::jmin (fullPlan.heat * strength * (timbreGlaze / glaze), schedule.heatAllowance);
+
         if (! ctx.colorBypassed && ctx.sc.toneMaxDb > 0.0f)
         {
             const auto slope = lerp (ctx.sc.toneReferenceSlopeDbPerOct,
                                      valueOr (profile, &MusicProfile::spectralSlopeDbPerOct, ctx.sc.toneReferenceSlopeDbPerOct), slopeTrust);
             const auto difference = ctx.sc.toneReferenceSlopeDbPerOct - slope;
             const auto outside = std::copysign (nonNegative (std::abs (difference) - automaticToneSlopeDeadbandDbPerOct), difference);
-            // 往暗往亮都是 toneMaxDb，两头同样 × GLAZE × κ。
+            // 往暗往亮都是 toneMaxDb，两头同样 × f(GLAZE) × κ。
             const auto toneFull = clampTo (outside * nonNegative (c.toneDbPerSlopeDb), -ctx.sc.toneMaxDb, ctx.sc.toneMaxDb);
             inc.colorToneDb = toneFull * spectralStrength;
         }

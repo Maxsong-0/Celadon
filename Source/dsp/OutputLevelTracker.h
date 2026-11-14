@@ -148,6 +148,14 @@ namespace celadon::glaze
         bool restoreStateXml (const juce::XmlElement&);
         bool restoredLegacyState() const noexcept { return legacyState; }
 
+        // 读档拆两步（T-099，ADR-040）：restoreStateXml = stageStateXml + adoptRestoredState，规则同上。
+        // stageStateXml 在 staged 里解码、校验（只写 staged；只读本对象的采样率——它只在 prepare 里改，可与音频线程同时调）；
+        // adoptRestoredState 把 staged 里读档定下的那些量（段累计、开着的一段、旧存档标记）换进来、待入账的入口作废
+        // （不与音频线程同时调；定长拷贝，不分配）。滤波器状态与本块的输入侧读数留本对象的，同改前就地读档。
+        // 存档在插件里对一份拷贝调 createStateXml（编排器在回调锁里整份值拷贝这个对象，锁外再编码；对象里没有堆上的东西）。
+        bool stageStateXml (const juce::XmlElement&, OutputLevelTracker& staged) const;
+        void adoptRestoredState (const OutputLevelTracker& staged) noexcept;
+
         // 限幅器对交来的 Limit Gain 实际执行的值：照抄 LimiterModule.cpp sanitised() 里 gainDb 那一行（finiteInRange (raw.gainDb,
         // 0, 24, 默认 0)）——有限值钳进 0 ～ 24 dB，非有限值回默认 0 dB。processOutput 按它折算；那一行改了这里要跟着改
         // （OutputLevelTrackerTests 第 9 条按这个规矩逐位核对）。
@@ -163,16 +171,21 @@ namespace celadon::glaze
     private:
         // 布局不能动：存档的 closed 属性按这个布局存最新的至多 32 段（legacyClosedCapacity 格，0.1.8.10 按 32 × 24 字节读），
         // history 属性按这个布局存全部已收的段。T-106 的量另放 Extra。
+        // reserved（T-109）：把原来 float 后面隐式的 4 字节填充写成显式的 0。整块存档时隐式填充里是什么由编译器决定：2026-11-13
+        // 在 108 上实测，MSVC 19.44 存出来这 4 字节不为 0、同一状态两次存出来不一样，读进来的非 0 值还会跟着再存出去；GCC 15 下碰巧
+        // 是 0。显式成员有初值、随每次拷贝一起走，存出来恒为 0。0.1.8.10 读 closed 时不看这 4 字节，布局与大小都没变。
         struct Segment
         {
             double energy = 0.0;
             std::int64_t samples = 0;
             float mainness = 0.0f;
+            std::uint32_t reserved = 0;
         };
 
         static_assert (std::is_trivially_copyable_v<Segment> && sizeof (Segment) == 24 && offsetof (Segment, samples) == 8
-                           && offsetof (Segment, mainness) == 16,
-                       "closed 属性按这个布局整块存，0.1.8.10 按 32 × 24 字节读");
+                           && offsetof (Segment, mainness) == 16 && offsetof (Segment, reserved) == 20
+                           && sizeof (Segment) == sizeof (double) + sizeof (std::int64_t) + sizeof (float) + sizeof (std::uint32_t),
+                       "closed 属性按这个布局整块存，0.1.8.10 按 32 × 24 字节读；四个成员正好排满 24 字节，没有隐式填充");
 
         // T-106 每段另记的量（与 Segment 同下标；布局固定，存档的 historyExtra 属性按这个布局逐段存，次序同 history）。
         struct Extra
@@ -190,6 +203,7 @@ namespace celadon::glaze
                            && offsetof (Extra, inputSamples) == 32 && offsetof (Extra, pairedSamples) == 40,
                        "historyExtra 属性按这个布局逐段存（每段 48 字节，没有填充）");
 
+        bool decodeState (const juce::XmlElement& xml);
         void pushClosed (const Segment& segment, const Extra& extra) noexcept;
         void clearSegments() noexcept;
         void resetChannel (int channel) noexcept;

@@ -108,7 +108,7 @@ namespace celadon::glaze
     {
         protection = 0.0;
         protectionDb = 0.0f;
-        retreating = recovering = changedThisBlock = false;
+        retreating = recovering = changedThisBlock = holdRecovery = false;
         planLimited = false;
         safeSlots = 0;
         clearWindows();
@@ -188,9 +188,10 @@ namespace celadon::glaze
         lastOvershootDb = 0.0f;
     }
 
-    GuardOutput GlazeGuard::process (const ModuleStats& stats) noexcept
+    GuardOutput GlazeGuard::process (const ModuleStats& stats, bool recoveryHeld) noexcept
     {
         retreating = recovering = changedThisBlock = false;
+        holdRecovery = recoveryHeld;
 
         auto output = [this]() noexcept
         {
@@ -332,6 +333,10 @@ namespace celadon::glaze
         else if (verdict.near)
         {
             safeSlots = 0;   // 接近上限（回差区内）：停止恢复，重新计安全时间
+        }
+        else if (holdRecovery)
+        {
+            // T-113 1-05：非主段里的安全时隙不算「安全的主段音乐」——不回程，安全计时也不往前走（不清零：下一个主段接着数）。
         }
         else
         {
@@ -573,10 +578,21 @@ namespace celadon::glaze
 
     bool GlazeGuard::restoreStateXml (const juce::XmlElement& xml)
     {
+        GlazeGuard staged;
+
+        if (! stageStateXml (xml, staged))
+            return false;
+
+        adoptRestoredState (staged);
+        return true;
+    }
+
+    bool GlazeGuard::stageStateXml (const juce::XmlElement& xml, GlazeGuard& staged)
+    {
         if (xml.getTagName() != "BUDGET_GUARD")
             return false;
 
-        auto copy = *this;
+        auto& copy = staged;
         auto cause = (int) copy.lastCause;
         xmlio::Reader reader (xml);
         reader.field ("protection", copy.protection);
@@ -632,8 +648,38 @@ namespace celadon::glaze
         }
 
         copy.lastCause = static_cast<GuardCause> (cause);
-        copy.retreating = copy.recovering = copy.changedThisBlock = false;
-        *this = copy;
         return true;
+    }
+
+    void GlazeGuard::adoptRestoredState (const GlazeGuard& r) noexcept
+    {
+        // 存档里有的量：与 createStateXml 写的、stageStateXml 读的一一对应（加字段三处一起改）。时隙的七项正是 Slot 的全部成员。
+        protection = r.protection;
+        protectionDb = r.protectionDb;
+        minimumDb = r.minimumDb;
+        planLimited = r.planLimited;
+        lastOver = r.lastOver;
+        lastOvershootDb = r.lastOvershootDb;
+        safeSlots = r.safeSlots;
+        writeIndex = r.writeIndex;
+        historyCount = r.historyCount;
+        statsCount = r.statsCount;
+        overSlotsInHistory = r.overSlotsInHistory;
+        partGlueSum = r.partGlueSum;
+        partLimitSum = r.partLimitSum;
+        partClipSum = r.partClipSum;
+        partLimitPeak = r.partLimitPeak;
+        partClipDepth = r.partClipDepth;
+        partSamples = r.partSamples;
+        sumGlue = r.sumGlue;
+        sumLimit = r.sumLimit;
+        sumClip = r.sumClip;
+        glueAboveCap = r.glueAboveCap;
+        glueAboveNear = r.glueAboveNear;
+        limitAboveCap = r.limitAboveCap;
+        limitAboveNear = r.limitAboveNear;
+        lastCause = r.lastCause;
+        slots = r.slots;
+        retreating = recovering = changedThisBlock = false;
     }
 }

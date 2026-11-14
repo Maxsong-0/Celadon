@@ -7,7 +7,7 @@
       G_实际 = G_参考 + g_保护，g_保护 ∈ [guardMinDb, 0]（出厂 −3 dB）。
       - 任一约束在 3 s 窗内持续超出 ≥ 1 s → 以 1 dB/s 退让；
       - 连续 ≥ 5 s 有效、安全的音乐 → 以 0.3 dB/s 恢复；恢复中再接近上限（留回差）就停止恢复；
-      - 静音、停播不计入恢复时间；
+      - 静音、停播不计入恢复时间；调用方说「这一块不放回」（process 的 recoveryHeld，T-113 1-05：编排器在非主段里给）的块也不计、不恢复；
       - 退到下限仍超约束 → isPlanLimited()（「方案受限」）；最终真峰值由限幅器与 Ceiling 硬保证，不归这里。
     速率全部按样本数折算（块长会变）。学习、过渡、校准期间同样生效。
 
@@ -63,8 +63,15 @@ namespace celadon::glaze
         void snapRelief() noexcept;                    // GLAZE ≤ 0：退让落到 0，统计窗保留
 
         // 消息线程。时隙环按 POD 打包成 base64，保护量按十六进制浮点。
+        // 存档在插件里对一份拷贝调（T-099：编排器在回调锁里整份值拷贝这个对象，锁外再编码；对象里没有堆上的东西）。
         std::unique_ptr<juce::XmlElement> createStateXml() const;
+        // restoreStateXml = stageStateXml + adoptRestoredState。坏数据（缺字段、越界、时隙长度不对）返回 false、状态不动。
         bool restoreStateXml (const juce::XmlElement&);
+        // 读档拆两步（T-099，ADR-040）：stageStateXml 把存档解码、校验进 staged（只写 staged，可与音频线程同时调）；
+        // adoptRestoredState 把 staged 里存档有的那些量换进来（不与音频线程同时调；定长拷贝，不分配），其余（采样率与时长折算、
+        // 约束上限与常数、重算节拍）留本对象的，本块的退让 / 恢复标志落回 false——同改前就地读档。
+        static bool stageStateXml (const juce::XmlElement&, GlazeGuard& staged);
+        void adoptRestoredState (const GlazeGuard& staged) noexcept;
 
         // 本方案生效的约束（风格常数按权重混合后的上限）。可以每块调：上限没变时什么都不做；
         // 变了只重算窗口里的超限计数（历史保留，g_保护不变）。constants 里的保护层时长 / 速率 / 下限同时生效。
@@ -73,7 +80,13 @@ namespace celadon::glaze
 
         // 每块调用：stats 是本块模块统计。退让按超限深度在 0.3～6 dB/s，回程按退让深度在 0.15～0.3 dB/s
         //（T-047，Q8；不再用 Constants 里的 1 / 0.3）。cause：限幅 GR 是超限来源时 limiterPeak，否则 budget。
-        GuardOutput process (const ModuleStats& stats) noexcept;
+        // 单参数版 = 不扣回程（recoveryHeld = false），即改前的行为；单元测试与不分主段的调用方用它。
+        GuardOutput process (const ModuleStats& stats) noexcept     { return process (stats, false); }
+        // T-113 1-05（ADR-042）：recoveryHeld = 这一块不放回退让——本块里完成的「安全」时隙既不回程、也不计安全时间（安全计时停住，
+        // 不清零）；超出照常退让、回差区照常清零安全计时。编排器在非主段（breakdown）里传 true，见 GlazeController.cpp endBlock 与
+        // ListeningConstants::guardRecoverMinMainness。为什么：breakdown 又轻又「安全」，按旧规则 5 s 后就把退让放回去，下一个 drop
+        // 头上再多压、再退一次。不进存档（每块由调用方给）。
+        GuardOutput process (const ModuleStats& stats, bool recoveryHeld) noexcept;
 
         float getProtectionDb() const noexcept;
         bool isRetreating() const noexcept;   // 本块在退让（校准据此作废子窗）
@@ -149,6 +162,7 @@ namespace celadon::glaze
         bool retreating = false;
         bool recovering = false;
         bool changedThisBlock = false;
+        bool holdRecovery = false;    // 本块的 recoveryHeld（process 开头设，completeSlot 读；不存档）
         bool planLimited = false;
         bool lastOver = false;
         GuardCause lastCause = GuardCause::none;

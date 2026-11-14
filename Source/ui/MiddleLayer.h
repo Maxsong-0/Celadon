@@ -2,9 +2,9 @@
   ==============================================================================
 
     MiddleLayer.h
-    中层（主旋钮一带）的小部件：GLAZE 标题行与阶段标签、重新聆听 / 等响按钮、底排左边的操作提示、右下角的颜色图例，
+    中层（主旋钮一带）的小部件：GLAZE 标题行与阶段标签、等响按钮、底排左边的操作提示、右下角的颜色图例，
     以及 T-107 重构包 A 的两块侧板（左「此刻在推什么」、右「交付」）。
-    风格与 A / B 用 Segmented（Controls.h），主旋钮见 GlazeKnob，粒子见 ParticleField。
+    风格与母带 / 原声用 Segmented（Controls.h），主旋钮见 GlazeKnob，粒子见 ParticleField。
 
   ==============================================================================
 */
@@ -29,23 +29,27 @@ namespace celadon::ui
         GlazeTitle();
 
         void setLanguage (Language newLanguage);
-        void setChip (Chip newChip);
+        // attention：橙色此刻归 GLAZE（编辑器按 glazestatus::attentionOwner 给）。为 false 时琥珀三种标签退成中性灰底。
+        void setChip (Chip newChip, bool attention = true);
 
         void paint (juce::Graphics&) override;
 
     private:
         Language language = Language::chinese;
         Chip chip = Chip::starting;
+        bool chipAttention = true;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GlazeTitle)
     };
 
-    // 带图标的胶囊按钮：圆箭头（参考学习的学 / 取消 / 清除）、等响（两道横线）。GLAZE 没有「重新聆听」。
+    // 带图标的胶囊按钮：圆箭头（学习参考）、停止（取消学习）、叉（清除参考）、返回（退出监听）、等响（两道横线）。
+    // 外观：normal 白底青边、off 灰（关着）、monitoring 深色（ink 底白字，退出听原声 / 试听差值 / 预听，与胶囊的深色圆点同一套；
+    // 监听是一种模式，不是问题，所以不用橙，T-111 / 4-06）。
     class PillButton  : public ClickableComponent
     {
     public:
-        enum class Icon { relearn, match };
-        enum class Look { normal, off, attention };
+        enum class Icon { relearn, stop, cross, back, match };
+        enum class Look { normal, off, monitoring };
 
         explicit PillButton (Icon icon);
 
@@ -171,6 +175,7 @@ namespace celadon::ui
             float ceilingDb = -1.0f;
             bool hasTarget = false;             // GLAZE > 0 且编排器给出了有限目标
             float targetLufs = 0.0f;
+            bool truePeakAttention = true;      // 橙色没被别的事占着（T-111 橙色规则）：真峰值最大值超过上限时才可以用橙字
         };
 
         struct HistoryPoint

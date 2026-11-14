@@ -39,9 +39,11 @@ namespace celadon::ui
         static constexpr int size = 224;
 
         void setComparing (bool listeningToOriginal);
+        void setLanguage (Language newLanguage)   { language = newLanguage; }   // 帽内「精调」两个字跟语言
 
         void paint (juce::Graphics&) override;
         bool hitTest (int x, int y) override;
+        void mouseUp (const juce::MouseEvent&) override;
 
         // 截图工具的检查与基准读它：paint 次数、整颗旋钮缓存图重新合成的次数、瓷面生成次数与分层重建次数、上次生成瓷面的毫秒数、
         // 此刻瓷面按哪个比例生成（还没生成过 −1）。
@@ -60,7 +62,12 @@ namespace celadon::ui
         Geometry getDialGeometry() const override;
         void dialMotionChanged() override;
 
+        // 主旋钮拖动时不出数值气泡（T-111 / 4-18）：帽子里本来就有同一个数（30 px），气泡在 35 % ～ 65 % 时压住标题行；
+        // 精调时在帽内数字下面写「精调」。
+        bool showsValueBubble() const override   { return false; }
+
     private:
+        Language language = Language::chinese;
         struct Rendered
         {
             juce::Image image;

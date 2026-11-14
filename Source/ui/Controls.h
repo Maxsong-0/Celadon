@@ -21,6 +21,7 @@
 
 #include <JuceHeader.h>
 
+#include "CeladonLookAndFeel.h"
 #include "DialMotion.h"
 #include "Localisation.h"
 
@@ -173,11 +174,15 @@ namespace celadon::ui
 
         void mouseEnter (const juce::MouseEvent&) override;
         void mouseExit (const juce::MouseEvent&) override;
-        void mouseDoubleClick (const juce::MouseEvent&) override;
+        void mouseDoubleClick (const juce::MouseEvent&) override;   // 留空：回默认在第二次按下时（handleResetClick）
         void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
         // 精调：拖动与滚轮慢 8 倍（设计规格要求至少 4 倍）。
         static constexpr double fineFactor = 0.125;
+
+        // 所在模块旁通了（卡片设）：照样能调，只是数值弧 / 滑条填充去色（bypassLook），表示「没在处理」（T-112 / 4-19）。
+        void setModuleBypassed (bool shouldLookBypassed);
+        bool isModuleBypassed() const noexcept                     { return moduleBypassed; }
 
     protected:
         // 子类实现：数值气泡的锚点（本地坐标）与直接输入框的位置。
@@ -195,14 +200,22 @@ namespace celadon::ui
         bool isDragging() const noexcept                   { return dragActive; }
         double getDragProportion() const noexcept          { return dragProportion; }
 
-        // 一次完整的改动（滚轮、双击、输入）。
+        // 一次完整的改动（滚轮、双击回默认、输入）。
         void setValueAsCompleteGesture (float newValue);
 
         // Alt / Option 单击：打开输入框。子类在 mouseDown 里先调它，返回 true 就不要再当成拖动。
         bool handleTextEntryClick (const juce::MouseEvent& e);
 
+        // 双击的第二次按下（没按 Alt）：当场回默认值，返回 true 时子类这次不再当成拖动（T-111 / 4-13）。子类在 mouseDown 里
+        // 紧接 handleTextEntryClick 调它。
+        bool handleResetClick (const juce::MouseEvent& e);
+
         // 参数回调之后给子类的机会（默认重画）。
         virtual void parameterValueChanged()               { repaint(); }
+
+        // 拖动时出不出数值气泡（主旋钮不出，见 GlazeKnob）；此刻是不是在精调拖动（已经开始改值且按着 ⌘ / Ctrl）。
+        virtual bool showsValueBubble() const              { return true; }
+        bool isFineDragging() const noexcept               { return dragActive && gestureActive && fine; }
 
         InteractionHost& host;
 
@@ -215,6 +228,7 @@ namespace celadon::ui
         float value = 0.0f;
         float defaultValue = 0.0f;
 
+        bool moduleBypassed = false;
         bool dragActive = false;       // 按下后还没松开
         bool gestureActive = false;    // 已经向宿主 beginGesture
         bool fine = false;
@@ -264,6 +278,7 @@ namespace celadon::ui
         int valueAreaWidth = valueWidth;
         juce::String name;
         float lastDragX = 0.0f;
+        float grabOffset = 0.0f;   // 按在滑块圆上时离圆心的水平距离（拖动时扣掉，不先跳）
         bool fineDrag = false;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParamSlider)
@@ -330,7 +345,9 @@ namespace celadon::ui
 
         // 每项等宽（true，默认）或按文字宽度（false，两边各留 padding）。
         void setEqualWidths (bool shouldBeEqual)                 { equalWidths = shouldBeEqual; repaint(); }
-        void setFont (const juce::Font& newFont)                 { font = newFont; repaint(); }
+
+        // 字号档与字重；monospaced = 选项是数字（频谱斜率）。前缀（setPrefix）用同一档的等宽半粗，与选项同 em。
+        void setTextStyle (TextSize size, Weight weight, bool monospaced = false);
         void setPrefix (int index, const juce::String& prefix);  // A / B 的「A」「B」：等宽粗体接在名字前
 
         // 按文字算出来的自然宽度（setEqualWidths (false) 时有用）。
@@ -351,7 +368,7 @@ namespace celadon::ui
         Look look;
         juce::StringArray labels, prefixes;
         juce::Array<std::optional<Colours>> selectedColours;
-        juce::Font font;
+        juce::Font font { juce::FontOptions {} }, prefixFont { juce::FontOptions {} };   // 构造时由 setTextStyle 设好（Font() 已弃用）
         int selected = 0;
         int hovered = -1;
         bool equalWidths = true;
@@ -475,7 +492,7 @@ namespace celadon::ui
     };
 
     //==============================================================================
-    // 卡片头的耳机键（LIMIT 的「试听差值」，22 × 22，挨在电源键左边）：关 = 白底灰图标（设计稿），开 = 深色底白图标——
+    // 卡片头的耳机键（LIMIT 的「试听差值」，28 × 28，挨在电源键左边）：关 = 白底灰图标（设计稿），开 = 深色底白图标——
     // 与 A / B 选中 B 同一种颜色：「此刻听到的不是母带」。不连参数（试听差值只是界面状态）；禁用时（模块旁通）35 % 淡、不接点击。
     class HeadphoneButton  : public ClickableComponent
     {

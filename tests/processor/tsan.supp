@@ -1,0 +1,11 @@
+# celadon_processor_tests 在 ThreadSanitizer 下的抑制清单（T-099）。
+# 用法：TSAN_OPTIONS="suppressions=<仓库>/tests/processor/tsan.supp halt_on_error=0 second_deadlock_stack=1" celadon_processor_tests
+#
+# 原则：只压「不是本插件代码、我们也测不到」的东西；凡是调用栈里有 celadon:: 或 CeladonAudioProcessor 的报告一律不压——
+# T-099 要抓的正是那一类。加一条之前先在 docs/validation/2026-11-13-T099-state-lock/README.md 写清是哪份报告、为什么是误报。
+#
+# 系统的图形库没有插桩（-dev 包解到用户目录，运行库用系统的）：它们内部的同步 TSan 看不见。处理器层测试不建窗口、不画字，
+# 正常碰不到它们；JUCE 初始化时若顺带加载了字体配置，报告的根在这几个库里，与存读档无关。
+called_from_lib:libfontconfig.so.1
+called_from_lib:libfreetype.so.6
+called_from_lib:libX11.so.6
