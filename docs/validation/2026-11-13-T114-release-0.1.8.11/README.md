@@ -115,3 +115,37 @@
 在本版按「对合并树 FAILS 21 不新增」判（计划第 10 节记了这处偏离）。
 
 **改动前就有的编译告警**（交 T-098）：`tests/MusicAnalyzerTests.cpp` 4 个未用函数、`tools/ui-snapshot/SnapshotMain.cpp` 的 `showGlazeTooltip` 未用（GCC 15 `-Wunused-function`，`93af3e0` 上就有）。
+
+## 7. 第二波前段：L4（T-099 拆锁 + T-098 剩余）与 L6（T-112 字号与对比度包 B）
+
+被测树 = 集成分支 `f4741f5` + L4 两笔（`778363c` T-099 存读档拆锁、`28ba340` T-098 剩余清理）+ L6 三笔（`9bd5ff0` / `faa8cba` / `e6a27f8`），
+三处无冲突；全量、处理器测试、DGX 都跑在 `e6a27f8`。主会话随后 4 笔，按改了什么定向复核：`1c7b8a6`（T-098：渲染器 NOTES 里删掉阶段 2 起
+每组都记、成了噪声的「第一遍没走到已锁定」；`ParameterRanges.h` 注释不再指向已删的接口）、`4f898da`（T-112：官网英文页引用的两句角落提示
+跟上插件改短后的原句）、`c56d74c`（T-099 记录第 6 节回填拆锁后的持锁时间）、`1e2ac53`（T-112：截图工具加 `zh-bypass`）。
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 108 全量 base（`e6a27f8`） | 136158 过 / 0 败 | `20261113-235614-c6eb` |
+| DGX 全量（aarch64） | 135900 过 / 5 败 = 已知 5 条 | `~/.cache/celadon-spark/logs/t114/int2-tests.log` |
+| DGX 编译告警 | 0 条（第 6 节末尾的 5 条未用函数：T-098 删了测试里 4 个没人调的函数，T-112 的新截图状态用上了 `showGlazeTooltip`） | `~/.cache/celadon-t114/int2/build-warnings.txt` |
+| 处理器测试 `release` / `tsan` | 208 / 0；208 / 0、TSan 报告 0 份 | `20261113-235615-405f` / `-235616-c278` |
+| `tsan-before`（去掉存读档的两处回调锁，只跑 `ProcessorConcurrency`） | 修前 TSan 报告 80 份（期望 > 0），栈里有 `LoudnessMeter::kWeight`、`GlazeController::Impl::endBlock`、`GlazeGuard::process`：对照成立 | `-235617-b362` |
+| 存档摘要 `digest`：拆锁后 vs 拆锁前（`f4741f5` + 同一份摘要测试，只本地） | 12 行逐行相同（empty / partial / full，各自读回、读回后放音，各两行），两边各 8 过 / 0 败：存档字节没变 | `-235619-bf21` / `-235621-fd89` |
+| 持锁基准 `bench`（独占 64 核） | 播放中存档等锁 138.6 → 0.001 ms、第一次读档 35.2 → 0.000 ms，25 次调用掉块 0；详见 T-099 记录第 6 节 | `20261114-000628-a50d` |
+| 108 界面定向 `--only HelpText,HelpTextClay,HelpTextGlaze,Localisation,GlazeStatusText,DialMotion` + 截图 `--only check` | 6212 过 / 0 败；all interaction checks passed | `-235622-72a8` |
+| DGX 截图 `--only check` | 全过，含 T-112 的 ⑪c 单行放得下（中英 × 70 / 125 / 100 %）、⑪d 六档字号的 em、⑪e 新装默认 125 % 与左下提示离风格选择 8 px | `~/.cache/celadon-t114/int2/ui-check/` |
+| 20 首 × GLAZE 0 / 35 / 70 / 100 × Clay auto / off | 240 行对开工基线：`audio_hash` 0 行不同；共有列 0 列不同（另忽略 `slow_inverted_pct`：改接了真信号，见下）；`clay_peak_cost_db` / `clay_peak_cost_s` 两列随死探针字段删掉（恒为空 / 0） | `~/.cache/celadon-t114/int2/songs/cmp-base.txt` |
+| `gate_check.py` | FAILS 21 → 0；NOTES 27，其中 21 条是反相豁免，见下 | `~/.cache/celadon-t114/int2/songs/gate_check.txt` |
+| 起播检查（合成 House / Tech 124，从第 1 / 33 小节） | 全部通过 | `~/.cache/celadon-t114/int2/listen/` |
+| T-096 冒烟（`--replay-override color.heat=0`、`master_check`） | 都跑通 | `~/.cache/celadon-t114/int2/smoke/` |
+| T-112 改前改后对比图（`--deterministic`） | 改前 `f4741f5` 27 态、改后 29 态（多 GLAZE 标题气泡中英两张） | `~/.cache/celadon-t114/int2/l6-shots/{before,after}/` |
+| 4-19 旁通：`zh-bypass`（BALANCE / COLOR / CLAY 旁通、LIMIT 开着），改前用 `f4741f5` + 同一状态的本地提交 `da33d6f` | 改后旁通卡片的滑条填充与圆圈由青变灰、字照样能读（这张图里三块的小旋钮都在 0，没有数值弧可看；弧线去色看上一行 L6 对比图里的 `zh-truepeak`：LIMIT 旁通，「上限」旋钮的弧由青变灰）；LIMIT 那张颜色照旧；中层左侧板旁通的三行变淡、LIMIT 行的出力条与紫字保留 | `~/.cache/celadon-t114/bypass/{before,after}/` |
+| 收尾 4 笔：`celadon_render --selftest` / `--selftest-transport` / `--selftest-live`（`c56d74c`） | 三条退出码都是 0 | `20261114-001235-6e2d` |
+| 收尾 4 笔：官网 `pnpm build`（`c56d74c`） | 通过（check-i18n、check-svg-text 37 项、check-dial-motion 110 项、tsc、vite、sitemap 46 条） | `20261114-001236-c846` |
+| 108 MSVC（Wine）全量 + 界面检查（`c56d74c`） | 136158 过 / 0 败；界面检查 190 条 PASS、all interaction checks passed（含 T-112 的 22 条：单行放得下中英 × 70 / 125 / 100 %、六档字号 em） | `windows-wine.sh test` / `ui` |
+
+**门槛 21 → 0**：第 6 节剩下的 21 条（7 首 × GLAZE 35 / 70 / 100，「反相提示时长 > 5 %，而插件慢路 ρ 从未 < −0.2」）是量法的问题，不是插件误触发：
+`metrics.csv` 的 `slow_inverted_pct` 从阶段 2 起读的是一个没人再写的探针字段，恒为 0，于是凡是反相提示亮过的歌都被判成「误触发」。L4（T-098）把这一列
+改接分析器实时视图的 `liveLowCorrelation`——ClayGuard 判反相用的同一个信号，阈值同为 `clayGuardPhaseCorrelation`（−0.2）。改接后这 7 首慢路 ρ < −0.2
+的块占 8.0 ～ 19.8 %，按 `gate_check` 的规则记成「有真反相段」的豁免（NOTES），FAILS 0。插件声音没变（上一行 `audio_hash` 0 行不同）。
+豁免条件是「ρ < −0.2 的块 > 0」，偏宽：这一批最小也有 7.98 %，判法宽窄不影响结果；要不要收紧成按比例比，记作后续。
