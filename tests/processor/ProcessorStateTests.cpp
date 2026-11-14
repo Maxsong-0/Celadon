@@ -47,9 +47,38 @@ namespace celadon::processortest
             testRunningInstanceKeepsLiveState (projectA, presetD);
             testFirstLoadRestores (projectA, presetD, summaryA);
             testLegacyProjects (projectA);
+            testRunningLoadClearsLegacyNotice (projectA);
         }
 
     private:
+        // ≤ 0.1.8.5 的工程：根元素没有格式号与版本，没有高级母带（master_*）与 Clay（clay_*）参数，GLAZE 节点是格式 1 的旧聆听结果
+        // （内容清空：处理器层只看「格式 1 → 整份丢弃、冷启动、提示一次」这条路，见文件头）。
+        static juce::MemoryBlock makeFormatOneProject (const juce::MemoryBlock& projectA)
+        {
+            auto xml = stateXml (projectA);
+            xml->removeAttribute ("celadonStateFormat");
+            xml->removeAttribute ("celadonVersion");
+
+            for (auto* node = xml->getFirstChildElement(); node != nullptr;)
+            {
+                auto* next = node->getNextElement();
+                const auto id = node->getStringAttribute ("id");
+
+                if (node->hasTagName ("PARAM") && (id.startsWith ("master_") || id.startsWith ("clay_")))
+                    xml->removeChildElement (node, true);
+
+                node = next;
+            }
+
+            if (auto* glazeNode = xml->getChildByName (glaze::stateTag))
+            {
+                glazeNode->deleteAllChildElements();
+                glazeNode->setAttribute ("formatVersion", 1);
+            }
+
+            return toBlock (*xml);
+        }
+
         void testLookaheadNotAutomatable()
         {
             beginTest ("Lookahead is not host-automatable, every other parameter still is");
@@ -212,27 +241,6 @@ namespace celadon::processortest
 
             beginTest ("<= 0.1.8.5 project (no format, no mastering / Clay parameters, GLAZE format 1): new processing neutral, old listening result discarded with a notice");
             {
-                auto xml = stateXml (projectA);
-                xml->removeAttribute ("celadonStateFormat");
-                xml->removeAttribute ("celadonVersion");
-
-                for (auto* node = xml->getFirstChildElement(); node != nullptr;)
-                {
-                    auto* next = node->getNextElement();
-                    const auto id = node->getStringAttribute ("id");
-
-                    if (node->hasTagName ("PARAM") && (id.startsWith ("master_") || id.startsWith ("clay_")))
-                        xml->removeChildElement (node, true);
-
-                    node = next;
-                }
-
-                if (auto* glazeNode = xml->getChildByName (glaze::stateTag))
-                {
-                    glazeNode->deleteAllChildElements();
-                    glazeNode->setAttribute ("formatVersion", 1);
-                }
-
                 // 读之前先把这几个新参数拧离旧版的值：旧版预设读进参数改过的实例时，新参数也要回到旧版的声音（不沿用读之前的值）。
                 Rig fresh;
                 fresh.setParameter (param::masterHarshMode, 2.0f);
@@ -240,7 +248,7 @@ namespace celadon::processortest
                 fresh.setParameter (param::masterCodecMarginDb, 1.0f);
                 fresh.setParameter (param::masterDither, 1.0f);
                 fresh.setParameter (param::clayLowCutMode, 2.0f);
-                fresh.load (toBlock (*xml));
+                fresh.load (makeFormatOneProject (projectA));
 
                 expectEquals (fresh.parameter (param::masterHarshMode), 1.0f);    // 关
                 expectEquals (fresh.parameter (param::masterTargetMode), 0.0f);
@@ -272,6 +280,41 @@ namespace celadon::processortest
                 Rig fresh;
                 fresh.load (toBlock (*xml));
                 expectEquals (fresh.parameter (param::glazeAmount), 0.0f);
+            }
+        }
+
+        void testRunningLoadClearsLegacyNotice (const juce::MemoryBlock& projectA)
+        {
+            // 运行中读档不读 GLAZE、不冷启动（ADR-040），上一次读档点亮的「旧的聆听结果已丢弃」提示跟着清（GlazeController::keepStateOnLoad）：
+            // 不清的话，读进干净的工程之后提示还一直亮着。另一侧（刚建的实例读格式 1 → 提示）见 testLegacyProjects。
+            const auto formatOne = makeFormatOneProject (projectA);
+
+            beginTest ("a running load clears the legacy notice an earlier load raised");
+            {
+                Rig rig;
+                rig.load (formatOne);
+                rig.prepare();
+                rig.playMusic (24.0);
+                expect (rig.processor->getGlazeStatus().legacySessionDiscarded, "rig precondition: the format-1 load raised the notice");
+                expect (summarise (rig.save()).window > 0, "rig precondition: the instance is running with a live profile");
+
+                rig.load (projectA);
+                expect (! rig.processor->getGlazeStatus().legacySessionDiscarded, "the notice survived a running load of a current project");
+            }
+
+            beginTest ("a running load of a format-1 project raises no notice (nothing cold-started)");
+            {
+                Rig rig;
+                rig.setParameter (param::glazeAmount, 80.0f);
+                rig.prepare();
+                rig.playMusic (24.0);
+                const auto before = summarise (rig.save());
+                expect (before.window > 0, "rig precondition: the instance is running with a live profile (" + describe (before) + ")");
+
+                rig.load (formatOne);
+                expect (! rig.processor->getGlazeStatus().legacySessionDiscarded, "a running load lit the legacy notice");
+                expectWithinAbsoluteError (rig.parameter (param::glazeAmount), 62.0f, 1.0e-3f);   // 参数照换
+                expect (summarise (rig.save()).glazeXml == before.glazeXml, "a running load of a format-1 project touched the GLAZE state");
             }
         }
     };

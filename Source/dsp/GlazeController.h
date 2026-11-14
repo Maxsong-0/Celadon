@@ -41,12 +41,14 @@
 
     线程：
       - 音频线程：setHostInfo / beginBlock / analyzeSpectrum / analyzeInput / endBlock / handleDiscontinuity / hostReset。0 分配、0 锁。
-      - 消息线程：prepare / createStateXml / restoreStateXml / takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveConstants；
+      - 消息线程：prepare / createStateXml / restoreStateXml / keepStateOnLoad / takeStateRestoredBeforePrepare / setLiveSegmentSink /
+        syncLiveConstants；
         requestRelearn 已是空操作。
       - 任何线程：getStatus（无锁快照，endBlock 每块发布一份；legacySessionDiscarded 另读一个原子标志）。
       编排器不再在两线程之间交换「已提交版本」（旧版音频线程 try-lock 发布、消息线程持锁读写的那一套随状态机删掉了）：
       createStateXml / restoreStateXml 直接读写音频线程每块在改的量，编排器内部不加锁；其中 LiveProfile 要求自己的存读档不与
-      音频线程接口同时调用（LiveProfile.h 文件头第三节）。
+      音频线程接口同时调用（LiveProfile.h 文件头第三节）。插件里由处理器保证：存读档那一段在宿主的回调锁里调（T-099，ADR-040），
+      音频线程那时停在锁上。
       restoreStateXml 之后、第一块音频之前调 createStateXml，返回的是刚恢复（或冷启动）的内容（不是旧值；例外：还没 prepare 时
       冷启动不清 LiveProfile，LIVE_PROFILE 照旧是它当时的内容，见 .cpp coldStart）。
 
@@ -224,6 +226,11 @@ namespace celadon::glaze
         // 同样冷启动、不置这个标志。不序列化滤波器 / 检测器的音频历史。
         // 第一次 prepare 之前调时另留一份原件给 takeStateRestoredBeforePrepare。
         void restoreStateXml (const juce::XmlElement* xml);
+
+        // 运行中的实例读档、不读 GLAZE 存档时调（T-099，ADR-040；处理器在回调锁里调，同 restoreStateXml）：实时画像、已施加增量与
+        // 各守护状态都接着用、不冷启动，只清掉上一次读档点亮的 Status::legacySessionDiscarded——那条提示说的是那次读档冷启动了，
+        // 这次没有；不清的话，读进干净的工程之后提示还一直亮着。
+        void keepStateOnLoad() noexcept;
 
         // 第一次 prepare 之前读进的原始存档（宿主打开工程：setStateInformation 先于 prepareToPlay）。
         // 链在第一次 prepare 冷启动之后把它读回。已经 prepare 过再读档不进这里（换采样率时链自己先 createStateXml）。

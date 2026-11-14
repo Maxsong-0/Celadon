@@ -1758,6 +1758,7 @@ namespace celadon::glaze
     void GlazeController::requestRelearn() noexcept {}
     std::unique_ptr<juce::XmlElement> GlazeController::createStateXml() const                   { return impl->createStateXml(); }
     void GlazeController::restoreStateXml (const juce::XmlElement* xml)                         { impl->restoreStateXml (xml); }
+    void GlazeController::keepStateOnLoad() noexcept                                            { impl->legacyDiscarded.store (false, std::memory_order_relaxed); }
     std::unique_ptr<juce::XmlElement> GlazeController::takeStateRestoredBeforePrepare()
     {
         return std::move (impl->stateRestoredBeforePrepare);

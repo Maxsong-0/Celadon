@@ -934,6 +934,7 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
     //     与音频线程互斥（理由同 getStateInformation）。编排器在 restoreGlazeStateXml 里自己解压 LIVE、重算画像，这段拆不出锁外。
     //   - 运行中的实例（keepsLiveStateOnLoad）读档：参数照换，GLAZE 存档整份不读——实时画像、已施加增量与各守护状态都是这台实例
     //     从此刻的音乐里听来的，换宿主预设或撤销不该把它们换成存档那一刻（或别的歌）的（Max 2026-11-12 拍板第 4 项）。
+    //     这次没有冷启动，上一次读档点亮的「旧的聆听结果已丢弃」提示随之清掉（keepGlazeStateOnLoad）。
     //     目标方案按新参数重算：编排器每块 beginBlock 发现 GLAZE / 风格或影响方案的手动值变了就重算（GlazeController.h「目标方案」）。
     //   - 顺序：参数先换、GLAZE 后落位。音频线程若在两步之间跑了一块，它看到的是新参数配旧的 GLAZE 运行状态；随后落位整份覆盖
     //     编排器的运行状态，目标方案在下一块 GLAZE > 0 的 endBlock 按新参数重算。反过来的顺序会让存档先落位、再被新参数当成一次改动。
@@ -976,7 +977,9 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
             {
                 const juce::ScopedLock audioStopped (getCallbackLock());
 
-                if (! keepsLiveStateOnLoad())
+                if (keepsLiveStateOnLoad())
+                    chain.keepGlazeStateOnLoad();
+                else
                     chain.restoreGlazeStateXml (glaze.get());
             }
 

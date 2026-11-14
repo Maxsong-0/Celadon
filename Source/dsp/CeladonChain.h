@@ -170,6 +170,7 @@ namespace celadon
         void requestGlazeRelearn() noexcept                              { controller.requestRelearn(); }
         std::unique_ptr<juce::XmlElement> createGlazeStateXml() const    { return controller.createStateXml(); }
         void restoreGlazeStateXml (const juce::XmlElement* xml)          { controller.restoreStateXml (xml); }
+        void keepGlazeStateOnLoad() noexcept                             { controller.keepStateOnLoad(); }   // 运行中读档不读 GLAZE（T-099）
 
         // T-048 阶段 1 直通（插件不调；测试与渲染工具用，见 GlazeController::setLiveSegmentSink）：非空 = 分析器实时模式开、定稿的段交给它，
         // nullptr = 关。消息线程，prepare 之后、处理之前调。链在下一块开头才把 Balance 的帧交给分析器（process 第一行），所以关的时候把
