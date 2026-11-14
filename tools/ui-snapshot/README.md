@@ -14,7 +14,7 @@
 | 文件 | 状态 |
 |---|---|
 | `zh-default.png` / `en-default.png` | 默认（GLAZE 45 %、自动风格），中文 / 英文 |
-| `zh-original.png` | A / B 听原声（B）+ 等响 |
+| `zh-original.png` | 母带 / 原声切到原声 + 等响 |
 | `zh-audition.png` | Gain +8 dB 时 LIMIT 的耳机「试听差值」（只听限幅削掉的部分） |
 | `zh-truepeak.png` | 限幅器旁通 + Color 输出 +6 dB → 真峰值超限的橙色提示 |
 | `zh-settings.png` / `en-help.png` / `zh-help.png` | 设置面板 / 帮助面板（英文、中文；中文那张 T-100 加：旋钮的操作提示变长了） |
@@ -50,7 +50,7 @@ GLAZE 标题行左右的曲风 / 交付两个选择删了（Max 2026-11-13；参
 
 `--only check` 另跑一组交互检查：直接给真实控件发鼠标事件（拖动、⌘ 精调、双击回默认、Alt 单击输入（含中文输入法的全角数字、
 输入框开着时按键抬起不外传——Windows 上松开 Alt 会激活宿主菜单栏）、滚轮、滑条、
-分段选择、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
+分段选择、CLAY 手动值、电源键、AUTO、等响、母带 / 原声、试听差值与听原声互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
 逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中；T-111 起主旋钮不出数值气泡）、`check-original.png`、
 `check-audition.png`、`check-advanced.png`、`check-advanced-original.png`、`check-english-settings.png`、`check-english.png`。
 
