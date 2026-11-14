@@ -363,7 +363,7 @@ namespace celadon::glaze
         // 手动 / 自动都报（手动项恰恰没有别的反馈）；只说①②（加宽不进守护）；灯与数值读界面的实际值，这里只给「回收中」与保留比。
         bool clayPeakGuardActive = false;
         float clayPeakGuardKept = 1.0f;      // 平滑后的保留比 0 ～ 1（没有改动时 1）；亮着时气泡写成「实际只剩约 N %」
-        bool clayNeedsRelearn = false;       // 有自动态的项，但已提交画像缺立体声 / 超低频特征（旧工程）：提示点「重新聆听」
+        bool clayNeedsRelearn = false;       // 阶段 1 的旧字段，阶段 2 起恒为 false（「重新聆听」T-098 已删）：原义是已提交画像缺立体声 / 超低频特征
         std::uint8_t clayCostLimitedMask = 0;// ADR-012：自动态下哪几项因「试过会抬高峰值」被减量 / 否决（clayCostLimited* 位）
 
         // ---- T-048 阶段 2 连续调度（草图第 4 节；界面七条只读这些，不再另做一套 Phase）----
