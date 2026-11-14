@@ -147,7 +147,7 @@ namespace celadon::processortest
 
         void testFirstLoadRestores (const juce::MemoryBlock& projectA, const juce::MemoryBlock& presetD, const GlazeSummary& summaryA)
         {
-            const auto expectRestored = [this, &summaryA] (Rig& rig, const juce::String& what)
+            const auto expectRestored = [this, &projectA, &summaryA] (Rig& rig, const juce::String& what)
             {
                 const auto restored = summarise (rig.save());
                 expectEquals (restored.window + restored.pending, summaryA.window + summaryA.pending,
