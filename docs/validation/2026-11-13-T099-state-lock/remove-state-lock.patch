@@ -1,0 +1,22 @@
+diff --git a/Source/PluginProcessor.cpp b/Source/PluginProcessor.cpp
+index 6a927e5..8029ad7 100644
+--- a/Source/PluginProcessor.cpp
++++ b/Source/PluginProcessor.cpp
+@@ -902,7 +902,7 @@ void CeladonAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+     std::unique_ptr<juce::XmlElement> glaze;
+ 
+     {
+-        const juce::ScopedLock audioStopped (getCallbackLock());
++        // T-099 修前演示：存读档不拿回调锁（只给 TSan 对照用，切勿提交）
+         glaze = chain.createGlazeStateXml();
+     }
+ 
+@@ -974,7 +974,7 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
+             parameters.replaceState (newState);
+ 
+             {
+-                const juce::ScopedLock audioStopped (getCallbackLock());
++                // T-099 修前演示：存读档不拿回调锁（只给 TSan 对照用，切勿提交）
+ 
+                 if (! keepsLiveStateOnLoad())
+                     chain.restoreGlazeStateXml (glaze.get());
