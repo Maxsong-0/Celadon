@@ -16,7 +16,7 @@
 #   4. 连续编排器（T-048 阶段 2）：行里有非空 confidence 时，有效音乐 ≥ 30 s、GLAZE > 0 的成品（不含重放行）
 #      末尾必须 c ≥ 0.5（主段统计已热，不再停在「起步」）。没有这列、或格子是空的，仍按阶段 1「已锁定 + 校准有效」
 #      （编排器还没把 c 写进指标表时，旧表的输出一字不差）。更短的列「时长不够」说明。
-#   5. 真峰值：所有成品 ≤ Ceiling + 0.01 dB（渲染工具一律用出厂 Ceiling −1.0 dBTP）。
+#   5. 真峰值：所有成品 ≤ Ceiling + 0.01 dB（渲染工具一律用出厂 Ceiling −1.0 dBTP）；成品行没有真峰值读数也算失败（没量过不能当通过）。
 # 参考（只打印，不判定）：「自动」对「全关」的跨链差——两条链各自跑 GLAZE，约束反馈发生的时刻不同就会走到不同的方案，
 # 差别里混着方案分岔（T-015：WTF g70 两条链反馈上限 1.145 / 0.274 dB），所以不再拿它判定。
 #
@@ -126,7 +126,9 @@ def main(path):
         # 5. 真峰值（每一行）
         for clay, r in pair.items():
             tp = num(r.get('true_peak_dbtp'))
-            if not math.isnan(tp) and tp > CEILING_DBTP + 0.01:
+            if math.isnan(tp):   # 绝对门：没有读数等于没量过，不能悄悄算通过
+                fails.append(f"{tag} clay-{clay}: 真峰值没有读数（算不出不能当通过）")
+            elif tp > CEILING_DBTP + 0.01:
                 fails.append(f"{tag} clay-{clay}: 真峰值 {tp:.3f} dBTP > Ceiling {CEILING_DBTP} + 0.01")
 
         if glaze == 0.0:

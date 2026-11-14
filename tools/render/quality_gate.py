@@ -6,7 +6,7 @@
 退出码（同 gate_check.py）：0 = 没有失败；1 = 有失败；2 = 用法或输入错（文件读不到、缺列、配对键重复）。
 
 口径与阈值出处：docs/validation/2026-10-11-T096a-metrics/GLOSSARY.md 第 2 节。配对键 = (song, kind, glaze, clay, style)。
-- A 组绝对：true_peak_dbtp − ceiling_dbtp ≤ 0.01；hard_clip_samples == 0。越线就失败，不看基线。
+- A 组绝对：true_peak_dbtp − ceiling_dbtp ≤ 0.01；hard_clip_samples == 0。越线就失败，不看基线；没有读数也失败（基线空也一样）。
 - B 组不退步：没越线 = 通过；越线但基线同一行也越线、且新值不比基线差 = 已知（K）；否则失败。
   基线有值、新值空 = 失败（算不出不能当通过）。两边都空 = N/A。新表缺基线里的行 = 失败；新表多出的行只判绝对的几条。
 - 「同组 P90」按基线表里同 (glaze, clay, style) 的行算（线性插值分位，同 numpy 默认）。
@@ -117,6 +117,8 @@ def judge(rule, new_row, base_row, group_limits):
     code, _name, field, direction, source, parameter = rule
     new, base = value_of(new_row, field), value_of(base_row, field)
     if math.isnan(new):
+        if source == 'hard':   # A 组是绝对门：没有读数等于没量过，不能当通过，与基线有没有读数无关
+            return FAIL, 'A 组没有读数（算不出不能当通过）'
         if not math.isnan(base):
             return FAIL, f'基线有值（{base:.3f}）、新值空'
         return NA, '两边都没有读数'
@@ -222,7 +224,7 @@ def print_report(table, fails, known, notes, na_count):
     hard = {rule[0] for rule in RULES if rule[4] == 'hard'}
     a_fails = sum(1 for _key, verdicts in table for c in hard if verdicts[c] == FAIL)
     b_fails = sum(1 for _key, verdicts in table for c in codes if c not in hard and verdicts[c] == FAIL)
-    print(f'汇总：A 组越线 {a_fails}、B 组退步 {b_fails}、新表缺行 {len(fails) - a_fails - b_fails}')
+    print(f'汇总：A 组越线（含没有读数）{a_fails}、B 组退步 {b_fails}、新表缺行 {len(fails) - a_fails - b_fails}')
 
 
 def main(argv):
@@ -271,10 +273,19 @@ def selftest_cases():
             rows.append(row)
         return rows
 
+    def both_empty(song, field):
+        """基线与新表同一行的同一列都留空：A 组也要判失败。"""
+        rows = changed(song, **{field: ''})
+        return rows, [dict(row) for row in rows]
+
+    tp_base, tp_new = both_empty('s8', 'true_peak_dbtp')
+    clip_base, clip_new = both_empty('s8', 'hard_clip_samples')
     return [
         ('基线对基线：0 失败（s9 泵感高于组 P90、over 的 S/M 越线都记已知）', baseline, same, 0, 2),
         ('真峰值超 Ceiling 0.02 dB：A1 失败', baseline, changed('s0', true_peak_dbtp='-0.980'), 1, 2),
         ('硬钳位 1 个样本：A2 失败', baseline, changed('s0', hard_clip_samples='1'), 1, 2),
+        ('真峰值两边都没有读数：A1 失败（没量过不能当通过）', tp_base, tp_new, 1, 2),
+        ('硬钳位两边都没有读数：A2 失败', clip_base, clip_new, 1, 2),
         ('落差 1.2 LU 恰在上限：通过', baseline, changed('s7', drop_loss_lu='1.200'), 0, 2),
         ('标准档落差 1.3 LU：B2a 失败', baseline, changed('s1', drop_loss_lu='1.300'), 1, 2),
         ('基线有值、新值空（泵感）：B4 失败', baseline, changed('s2', pump_db=''), 1, 2),

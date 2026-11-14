@@ -96,7 +96,7 @@ tools/render/run_quality_baseline.sh <celadon_render> <输出根> ~/.cache
 - 跑完把 `quality-22.csv`、`quality-45.csv`、`run.tsv` 复制进仓库 `docs/validation/2026-10-11-T096a-metrics/baseline/`（按需加日期子目录），
   音频（成品、trace、segments）留在 DGX 的输出根里，不进仓库。`run.tsv` 记提交号、`celadon_render` 的 sha256、网格参数与起止时间。
 - 以后改算法：同一网格跑一遍新 `quality.csv`，`quality_gate.py baseline/quality-22.csv new/quality-22.csv`（45 首同理）。
-  报告里「已知」（K）= 基线同一行就越线、这次没更差；「汇总」一行把 A 组越线、B 组退步、缺行分开数。
+  报告里「已知」（K）= 基线同一行就越线、这次没更差；「汇总」一行把 A 组越线（含没有读数）、B 组退步、缺行分开数。
 
 ## 已知限制
 
