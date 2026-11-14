@@ -1,0 +1,10 @@
+# Python dependencies for the measurement tools in tools/render/
+# (measure_lib.py, quality_metrics.py, blind_test.py, master_check.py and their self-checks).
+# Pinned exactly: measure_lib._k_weight uses pyloudnorm's private meter._filters,
+# so any version change must re-run measure_selfcheck.py before use.
+# Same versions as the T-085 run (docs/validation/2026-10-08-T085-codec-tp/requirements.txt).
+# quality_gate.py, heat_ab_report.py and the gate scripts use the standard library only.
+numpy==2.5.3
+scipy==1.18.1
+soundfile==0.14.0
+pyloudnorm==0.2.0

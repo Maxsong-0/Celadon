@@ -4,8 +4,8 @@
 #
 # 读 celadon_render 的 metrics.csv（要带 T-038 追加列：跑的时候给 --bpm 与 --listen-from-bar 1,<N>），按（歌, GLAZE, 修坯, 风格）分组，
 # 每组拿 listen_from_bar = 1 的一行与每个 > 1 的行比：第一遍（预热）结束时的方案增益 plan_gain_db 相差 ≤ 0.5 dB。
-#   - 行里有非空 confidence（连续编排器把 c 写进指标表之后）：两边都要 c ≥ 0.5，否则判失败（主段还没热）；
-#   - confidence 列缺或空（celadon_render 至今没填这一列，见 RenderMain.cpp csvRow 的说明）：只比方案增益，结论里注明「没核对 c」。
+#   - 行里有非空 confidence（T-096a 起 celadon_render 填成品末尾的 c）：两边都要 c ≥ 0.5，否则判失败（主段还没热）；
+#   - confidence 列缺或空（T-096a 之前的旧表）：只比方案增益，结论里注明「没核对 c」。
 #   阶段 1 的「两边都已锁定 + 方案增益加校准偏差」（评审 F2）随 ADR-030 没有了锁定与校准，这里不再实现。
 # 重放行（clay = replay-off）、GLAZE 0 的组不判（GLAZE 0 不做方案）。
 #
