@@ -662,6 +662,8 @@ namespace celadon::test
                     referenceIn.process (r);
                     const auto nonFiniteA = chain.process (a);
                     const auto nonFiniteR = reference.process (r);
+                    // 宿主旁通的块（mode 2）链的 OUT 表暂停整体响度积分（T-110，Max 2026-11-12 定），参照表口径跟着一起改。
+                    referenceOut.setIntegrationPaused (hostBypassed);
                     referenceOut.process (r);
 
                     mismatch (nonFiniteA == nonFiniteR, "non-finite report", b);
