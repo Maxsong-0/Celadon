@@ -2651,8 +2651,8 @@ namespace celadon::test
 
             for (const auto monitor : { original, difference })
             {
-                const auto name = monitor.compareOriginal ? juce::String ("original") : juce::String ("difference");
-                beginTest ("offline " + name + " with 24-bit dither renders the dithered master bit-exactly");
+                const auto monitorName = monitor.compareOriginal ? juce::String ("original") : juce::String ("difference");
+                beginTest ("offline " + monitorName + " with 24-bit dither renders the dithered master bit-exactly");
                 auto dithered = master;
                 dithered.mastering.dither = DitherMode::bits24;
                 CeladonChain chain, reference, undithered;
@@ -2666,7 +2666,7 @@ namespace celadon::test
                 expect (bitIdentical (a, b), "monitoring does not change the dithered master or its random sequence");
                 expect (! bitIdentical (b, c), "positive control: 24-bit dither really changes the output");
 
-                beginTest ("explicit realtime report equals no report while listening to the " + name);
+                beginTest ("explicit realtime report equals no report while listening to the " + monitorName);
                 CeladonChain reported, silent, wet;
                 prepareChain (reported, t032Rate, master);
                 prepareChain (silent, t032Rate, master);
