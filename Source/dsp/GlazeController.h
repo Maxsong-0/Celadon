@@ -298,10 +298,15 @@ namespace celadon::glaze
         void attachLiveProfile (LiveProfile* profile) noexcept;
 
         // 消息线程、音频已停时：把出厂 LiveConstants 交给 LiveProfile（LiveProfile::setConstants 同步重算已发布的那一份）。
+        // 交的是 setLiveConstantsForTesting 设过的那一份，没设过就是出厂值（插件从不设）。
         // CeladonChain::prepare 每次都调；插件的 prepareToPlay 不论整体重建还是同规格只 reset，最后都经 CeladonChain::syncGlazeLiveConstants
         // 再调一次（T-108 之前叫 syncLiveModel，另按曲风选主段模型；那时两处也都调）。
         void syncLiveConstants() noexcept;
         bool hasPrepared() const noexcept;
+
+        // T-113 听感批（1-05 / 1-07）此刻生效的常数：没设过就是出厂值（ListeningConstants 的默认值）。链的 setParams（音频线程）读它算
+        // 推响不刺 / 目标频谱「自动」的强度；返回的引用只在下一次 setListeningConstantsForTesting 之前有效。
+        const ListeningConstants& getListeningConstants() const noexcept;
 
         // ---- 任何线程 ----
 
@@ -314,6 +319,11 @@ namespace celadon::glaze
         // 替换出厂常数（测试用）：编排器读 activeConstants() 的地方——决策器、预算环上限与时长、ClayGuard、实时跟随——都改用它；
         // LiveProfile 的 LiveConstants 不在这里（见 syncLiveConstants）。在 prepare 之前调。
         void setConstantsForTesting (const Constants& constants);
+        // T-113 候选（插件不调；渲染工具 --candidate 与测试用）：换掉听感批的出厂常数。消息线程、音频已停时调（渲染工具在新链 prepare
+        // 之前调）。ListeningConstants 由编排器与链读（预算环主段门、音色强度映射）；LiveConstants 立刻交给链上的 LiveProfile
+        //（若已接上），之后每次 syncLiveConstants 也交这一份——链的 prepare 读档之前画像就已是这份常数，读档时还没发布的段按它进账。
+        void setListeningConstantsForTesting (const ListeningConstants& constants) noexcept;
+        void setLiveConstantsForTesting (const LiveConstants& constants) noexcept;
         // T-048 阶段 2 起没有「已提交版本」：按此刻拼一份——当前常数、「自动」风格权重（放在 lockedWeights）、目标方案、
         // 此刻跟随的实时画像（读到过才 hasProfile，profileId 按它算）；calibration 恒为默认值。渲染工具与测试读它。
         CommittedState getCommittedStateForTesting() const;

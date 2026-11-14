@@ -715,6 +715,7 @@ namespace celadon::test
             testNoMainDecay();
             testNewProgram();
             testNewProgramLevelStable();
+            testCatchUp();
             testModelsAndFormat();
             testConstantsTable();
             testStateRoundTrip();
@@ -1317,6 +1318,79 @@ namespace celadon::test
             }
         }
 
+        // d4. T-113 1-06 上行快通道（GlazeConstants.h LiveConstants::catchUp*；T-093 R5-04 A；ADR-042）。冷启动先听 32 小节只比 drop 轻
+        // 3 LU 的前奏（出厂主段模型 ΔG 6 LU 下它就是主段、I 停在它的电平），再进 drop。出厂（半衰期 +∞）I 按 90 s 的记忆慢慢跟；
+        // 半衰期 2 s 时第 3 个 drop 小节（这一串满 4 s）起每小节把更老的段减权，8 小节（15 s）后 I 离 drop 不到 1.5 LU、比出厂高 0.5 LU 以上。
+        // 另核：半衰期 +∞ 时其余三项怎么改都与出厂逐位相同；时限（catchUpActiveSeconds）在前奏里就过了时一次也不触发、与出厂逐位相同；
+        // 存档读回逐位相同，按出厂常数也读得回来（计数器上界放宽到「换歌 + 快通道」）。
+        void testCatchUp()
+        {
+            beginTest ("d. catch-up (T-113 1-06): a first drop 3 LU above the intro pulls I up within a few bars; off is the factory bit for bit");
+
+            auto intro = dropSpec();
+            intro.loudnessLufs = -11.03;   // 比 drop 轻 3 LU：远小于换歌的 6 LU，出厂主段模型下照样是主段
+            intro.seed = 5;
+            const auto drop = dropSpec();
+
+            const auto play = [&] (LiveProfile& live, const TestConstants& c, int dropBars)
+            {
+                setUp (live, c, Model::loudness);
+                std::int64_t index = 0;
+
+                for (int i = 0; i < 32; ++i)
+                    feed (live, makeSegment (intro, index++));
+
+                for (int i = 0; i < dropBars; ++i)
+                    feed (live, makeSegment (drop, index++));
+            };
+
+            const TestConstants factory;
+            auto fast = factory;
+            fast.catchUpHalfLifeSeconds = 2.0;
+
+            LiveProfile reference, caught;
+            play (reference, factory, 8);
+            play (caught, fast, 8);
+
+            const auto& iFactory = reference.getProfile().integratedLufs;
+            const auto& iFast = caught.getProfile().integratedLufs;
+            logMessage ("  catch-up: after 8 drop bars I " + juce::String (iFast.value, 2) + " LUFS (factory " + juce::String (iFactory.value, 2)
+                        + ", intro " + juce::String (intro.loudnessLufs, 2) + ", drop " + juce::String (drop.loudnessLufs, 2) + ")");
+            expect (iFactory.valid && iFast.valid);
+            expect ((double) iFast.value > (double) iFactory.value + 0.5, "half-life 2 s: I is at least 0.5 LU above the factory after 8 drop bars");
+            expect ((double) iFast.value > drop.loudnessLufs - 1.5, "half-life 2 s: I is within 1.5 LU of the drop after 8 bars");
+            expect ((double) iFactory.value < drop.loudnessLufs - 1.0, "factory: I is still more than 1 LU under the drop (the 1-06 lag this fixes)");
+
+            // 半衰期 +∞ = 关：门槛、时长、时限怎么改都与出厂逐位相同。
+            auto offButChanged = factory;
+            offButChanged.catchUpMarginLu = 0.0f;
+            offButChanged.catchUpRunSeconds = 0.0;
+            offButChanged.catchUpActiveSeconds = infinity;
+            LiveProfile off;
+            play (off, offButChanged, 8);
+            expect (sameProfile (off.getProfile(), reference.getProfile()) && sameDiagnostics (off.getDiagnostics(), reference.getDiagnostics()),
+                    "half-life +inf: the other three keys change nothing (bit for bit)");
+
+            // 时限：前奏 32 小节（60.8 s 有效音频）就超过 30 s，drop 里一次也不触发。
+            auto late = fast;
+            late.catchUpActiveSeconds = 30.0;
+            LiveProfile expired;
+            play (expired, late, 8);
+            expect (sameProfile (expired.getProfile(), reference.getProfile()) && sameDiagnostics (expired.getDiagnostics(), reference.getDiagnostics()),
+                    "past catchUpActiveSeconds the channel never fires (bit for bit the factory)");
+
+            // 存档：同常数读回逐位相同；按出厂常数（快通道关）也读得回来——参考时钟被快通道推过，读档的上界要认这一项。
+            const auto saved = caught.createStateXml();
+            LiveProfile again, factoryReader;
+            setUp (again, fast, Model::loudness);
+            setUp (factoryReader, factory, Model::loudness);
+            expect (again.restoreStateXml (*saved) && sameProfile (again.getProfile(), caught.getProfile())
+                        && sameDiagnostics (again.getDiagnostics(), caught.getDiagnostics(), false),
+                    "round trip with the channel on is bit for bit");
+            expect (factoryReader.restoreStateXml (*saved) && sameProfile (factoryReader.getProfile(), caught.getProfile()),
+                    "a state written with the channel on reads back under the factory constants (counter bound)");
+        }
+
         // d3. 起伏判据（Max 2026-10-02「轻的那一支要电平稳」；newProgramRangeLu 起点 2 LU）：那一串最近 newProgramSeconds 的段响度起伏照常
         // 量、记进提交记录。T-108 起只有「响」这一支（票 1）投票，全是票 1 的一串不看起伏——起伏 1.9 LU 与 2.1 LU 都在第 11 段触发；起伏
         // 判据只对读回的旧窗口里的票 2（4/4 型「轻且有低音」）还起作用。I 钉法同 d2 用例 3（段不带门块、冻结参考）。
@@ -1447,12 +1521,12 @@ namespace celadon::test
         // 公开常数的取值表（LiveProfile.h visitLiveConstantPairs）：键数、每个坏值换成出厂值、合法的 ∞ 原样保留。
         void testConstantsTable()
         {
-            beginTest ("constants table: 19 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf");
+            beginTest ("constants table: 23 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf");
 
             const LiveConstants factory;
             int keys = 0;
             visitLiveConstants (factory, [&keys] (const char*, const char*, const auto&, glaze::LiveConstantDomain) { ++keys; });
-            expect (keys == 19, "19 keys (one model since T-108): " + juce::String (keys));
+            expect (keys == 23, "23 keys (one model since T-108, 4 catch-up keys since T-113): " + juce::String (keys));
 
             // 每个键单独坏一次：NaN 一律坏；-1 在 ≥ 0 / > 0 / [0, 1] / (0, 1] 的范围里坏。
             LiveConstants damaged;

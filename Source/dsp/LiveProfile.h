@@ -128,6 +128,11 @@ namespace celadon::glaze
         visit (none, "newProgramRangeLu", a.newProgramRangeLu, b.newProgramRangeLu, LiveConstantDomain::nonNegative);
         visit (none, "peakTailSeconds", a.peakTailSeconds, b.peakTailSeconds, LiveConstantDomain::notNan);
         visit (none, "publishDelaySeconds", a.publishDelaySeconds, b.publishDelaySeconds, LiveConstantDomain::nonNegativeFinite);
+        // T-113 1-06 上行快通道（GlazeConstants.h LiveConstants 的 catchUp* 注释）：半衰期 +∞ = 关；门槛与时长写 inf = 永不触发 / 不设时限。
+        visit (none, "catchUpMarginLu", a.catchUpMarginLu, b.catchUpMarginLu, LiveConstantDomain::nonNegative);
+        visit (none, "catchUpRunSeconds", a.catchUpRunSeconds, b.catchUpRunSeconds, LiveConstantDomain::nonNegative);
+        visit (none, "catchUpHalfLifeSeconds", a.catchUpHalfLifeSeconds, b.catchUpHalfLifeSeconds, LiveConstantDomain::positive);
+        visit (none, "catchUpActiveSeconds", a.catchUpActiveSeconds, b.catchUpActiveSeconds, LiveConstantDomain::nonNegative);
     }
 
     // 一份常数逐字段访问：visit (模型名或 nullptr, 字段名, 字段, 取值范围)。

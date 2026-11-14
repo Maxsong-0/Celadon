@@ -27,6 +27,7 @@
 #include <juce_core/juce_core.h>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -131,7 +132,63 @@ namespace celadon::glaze
         // T-048 阶段 1 修订（回看重判）：第 k 段的实时画像在「段尾 + 本项」这一刻发布（分析器时间轴，LiveProfile.h 文件头第二节）。
         // 要盖住段定稿的延迟（先试后用的块交齐约 0.1 s + 候选延迟 + Balance 帧晚一块）与一遍回看重算的分片；越长决策器拿到新段越晚。③
         double publishDelaySeconds = 0.5;
+
+        // ---- T-113 1-06「冷启动第一个 drop」（T-093 R5-04 A 上行快通道；ADR-042）----
+        // 为什么要它：冷启动时画像只听过前奏，前奏当了主段、I 停在前奏的电平；第一个 drop 比 I 响几 LU，而 I 按 W_mem（90 s）遗忘，
+        // 要几十秒才跟上——方案照前奏算的推响在 drop 头上多压（每多 1 LU 约多压 1 dB，再由 1 dB/s 的下行与预算环慢慢收回）。
+        // 规则（LiveProfile.cpp noteCatchUp，进账时判一次）：本段与紧挨着它往前的那一串段都「比上一份已发布画像的 I 响 catchUpMarginLu 以上、
+        // 进账 m ≥ mainThreshold」，这一串的有效音频累计 ≥ catchUpRunSeconds，且 reset 以来的有效音频 ≤ catchUpActiveSeconds（只管冷启动
+        // 那一段，之后的 drop 不动）→ 两个事件时钟（主段、参考）各加「本段有效时长 × ln2 ÷ catchUpHalfLifeSeconds」：更老的段（含前奏）
+        // 的权重每过一个半衰期减半，I 与 S_ref 向此刻的响段靠；条件一不成立就停，往下（变轻）照旧慢。与换歌软遗忘同一套事件时钟，
+        // 印记随段存档，读回逐位相同；这一串从窗口里的段现算，不新增存档字段。
+        // 出厂 catchUpHalfLifeSeconds = +∞ = 关（与 0.1.8.10 逐位相同）；其余三项是候选 c106 的值，只在半衰期有限时才被读。
+        // 候选只在渲染工具里切（tools/render/RenderMain.cpp 的候选表）；盲听通过后把半衰期这一行改成候选值（ADR-042）。③
+        float catchUpMarginLu = 1.0f;            // δ：比 I 响多少才算「明显更响」（T-093 R5-04 的 1 LU）
+        double catchUpRunSeconds = 4.0;          // 这一串至少多长（约 2 小节 @ 124 BPM，同 R5-04 的 k = 2 段；按秒数与分段方式无关）
+        double catchUpHalfLifeSeconds = std::numeric_limits<double>::infinity();   // 旧段权重减半要的有效音频秒数；+∞ = 关
+        double catchUpActiveSeconds = 180.0;     // 只在 reset 以来有效音频不超过它时生效（3 分钟盖住常见的 32 ～ 64 小节前奏 + 第一个 drop）
     };
+
+    //==============================================================================
+    // T-113 听感批（1-05 / 1-07；ADR-042）的出厂常数。1-06 的在 LiveConstants（catchUp*，LiveProfile 读）。
+    // 不进 Constants（不进标定快照与存档，也不参加 bitwiseEqual）：新行为是出厂常数，旧工程读回来照此刻的出厂值走（ADR-035 决定 1、4）。
+    // 出厂值 = 0.1.8.10 的行为（每项写明出厂值时等于什么）；候选只在渲染工具里切（RenderMain.cpp 候选表，经
+    // GlazeController::setListeningConstantsForTesting），插件里没有参数、没有界面。盲听通过后把选中候选的值写成这里的默认值。
+    struct ListeningConstants
+    {
+        // 1-05 预算环主段门：主段度 m（编排器每块的 currentMainness，同 Limit Gain「非主段只降不升」用的那个）低于本项的块，预算环不放回
+        // 退让，安全计时也停住（不清零，下一个主段接着数）。为什么：安全计时原来只看有效音乐，breakdown 又轻又「安全」，5 s 后就把退让
+        // 放回去，下一个 drop 头上再多压、再退一次（每个 drop 头 1～3 s 多压最多 3 dB）。≤ 0 或非有限 = 不看主段（0.1.8.10，出厂）；
+        // 候选 c105 = 0.5（同 LiveConstants::mainThreshold）。
+        float guardRecoverMinMainness = 0.0f;
+
+        // 1-07 默认档音色：音色类自动动作（Tone、Recover、Tame、推响不刺、目标频谱、Heat；不含推响 Limit Gain、G_trim、Glue、Clip、Clay）
+        // 的强度按 f(GLAZE) 取，而不是 GLAZE 本身（timbreStrength）。f 是过 (0, 0)、(拐点, 倍数 × 拐点)、(1, 1) 的两段直线：
+        // 拐点以下是 GLAZE × 倍数，以上线性收到 GLAZE 100 时的现值——f(0) = 0、f(1) = 1、单调，GLAZE 100 不超过现上限，默认值 35 % 不改。
+        // 倍数 1 = f(GLAZE) = GLAZE（0.1.8.10，出厂）；候选 c107x15 = 1.5（f(0.35) = 0.525）、c107x2 = 2（f(0.35) = 0.7）。
+        float timbreScaleAtKnee = 1.0f;
+        float timbreKneeGlaze = 0.35f;           // 拐点 = 新实例默认 GLAZE（ParameterDefaults.h）
+    };
+
+    // 1-07 的强度映射 f(g)，g = GLAZE / 100。出厂（倍数 1）原样返回 g，逐位不变；坏常数（非有限、倍数 ≤ 0、拐点不在 (0, 1)、
+    // 倍数 × 拐点 > 1 会让 f 超过 1）同样按原样，不放大。g ≤ 0（含 NaN）与 g ≥ 1 原样返回（调用方本来就把它们当 0 / 钳到 1）。
+    inline float timbreStrength (float glaze, const ListeningConstants& c) noexcept
+    {
+        const auto scale = c.timbreScaleAtKnee;
+        const auto knee = c.timbreKneeGlaze;
+
+        if (! (scale != 1.0f) || ! std::isfinite (scale) || ! (scale > 0.0f) || ! (knee > 0.0f && knee < 1.0f) || ! (scale * knee <= 1.0f))
+            return glaze;
+
+        if (! (glaze > 0.0f) || glaze >= 1.0f)
+            return glaze;
+
+        if (glaze <= knee)
+            return scale * glaze;
+
+        const auto atKnee = scale * knee;
+        return juce::jmin (1.0f, atKnee + (1.0f - atKnee) * (glaze - knee) / (1.0f - knee));
+    }
 
     struct Constants
     {

@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <limits>
 #include <vector>
@@ -199,6 +200,7 @@ namespace celadon::test
             testGuardActualTransientStatistics();
             testGuardStopsRetreatWhenSatisfied();
             testGuardRecoveryAndSilence();
+            testGuardRecoveryHeldOutsideMain();
             testGuardRecoveryStopsNearLimit();
             testGuardPlanLimited();
             testGuardPeakNeedsPersistence();
@@ -858,6 +860,83 @@ namespace celadon::test
             expect (settled <= -2.0f && settled >= -2.5f, "settles within 0.5 dB beyond the needed retreat");
             expectWithinAbsoluteError (settled, atEight, 1.0e-6f, "and holds there");
             expect (! guard.isPlanLimited());
+        }
+
+        // T-113 1-05（ADR-042）：recoveryHeld 的块（编排器在非主段里给）不回程、安全计时停住（不清零，放开后接着数）；超出照常退让。
+        // 单参数 process 就是 recoveryHeld = false（出厂常数下编排器传的也是 false），轨迹逐位相同。
+        void testGuardRecoveryHeldOutsideMain()
+        {
+            beginTest ("guard (T-113 1-05): held slots neither recover nor count as safe time; the count resumes instead of restarting");
+
+            GlazeGuard guard;
+            guard.prepare (testRate);
+            guard.setLimits (limitPeakCap (6.0f), guardConstants());
+
+            auto slot = [&guard] (float peakDb, bool held)
+            {
+                auto stats = limitPeakStats (peakDb);
+                stats.numSamples = 480;
+                return (float) guard.process (stats, held);
+            };
+
+            // 超出时 held 不挡退让：照样退到底。
+            for (int k = 0; k < 200; ++k)
+                slot (8.0f, true);
+
+            expectEquals (guard.getProtectionDb(), -3.0f, "held blocks still retreat while over the cap");
+
+            for (int k = 0; k < 9; ++k)
+                slot (0.0f, false);   // 峰值保持：这 9 格仍判超出
+
+            // 250 格（2.5 s）正常的安全音乐 → 安全计时数到 250。
+            for (int k = 0; k < 250; ++k)
+                slot (0.0f, false);
+
+            // 1000 格（10 s，远超 5 s）held 的安全音乐：不回程、不计时。
+            bool movedWhileHeld = false;
+
+            for (int k = 0; k < 1000; ++k)
+            {
+                slot (0.0f, true);
+                movedWhileHeld = movedWhileHeld || guard.getProtectionDb() != -3.0f || guard.isRecovering();
+            }
+
+            expect (! movedWhileHeld, "no recovery while held, however long");
+
+            // 再 250 格正常的：安全计时从 250 接着数到 500，这期间还不回程；下一格开始回程。
+            // （held 若清零了计时，这里还要再等 250 格；held 若照常计时，上面 held 那段就已经回程了。）
+            bool movedEarly = false;
+
+            for (int k = 0; k < 250; ++k)
+            {
+                slot (0.0f, false);
+                movedEarly = movedEarly || guard.getProtectionDb() != -3.0f;
+            }
+
+            expect (! movedEarly, "the count resumed at 250, so 250 more safe slots are needed before the return");
+            expectWithinAbsoluteError (slot (0.0f, false), -2.997f, 1.0e-4f, "returns on the next safe slot at 0.3 dB/s");
+
+            // 单参数版 = recoveryHeld false：同一脚本两种调法的轨迹逐位相同。
+            GlazeGuard one, two;
+
+            for (auto* g : { &one, &two })
+            {
+                g->prepare (testRate);
+                g->setLimits (limitPeakCap (6.0f), guardConstants());
+            }
+
+            bool identical = true;
+
+            for (int k = 0; k < 1400; ++k)
+            {
+                auto stats = limitPeakStats (k < 200 ? 8.0f : 0.0f);
+                stats.numSamples = 480;
+                const auto a = one.process (stats);
+                const auto b = two.process (stats, false);
+                identical = identical && std::memcmp (&a.reliefDb, &b.reliefDb, sizeof (float)) == 0 && a.cause == b.cause && a.engaged == b.engaged;
+            }
+
+            expect (identical, "process (stats) is process (stats, false), bit for bit");
         }
 
         // 11. 恢复：峰值 8 dB（上限 6，超出 2 dB）持续 2 s，按 4.1 dB/s 退到地板 −3。

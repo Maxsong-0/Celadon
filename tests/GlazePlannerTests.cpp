@@ -448,6 +448,7 @@ namespace celadon::test
             testNoAllocation();
             testRetiredGenreDeliveryStorage();        // T-108：T-038 写进存档的曲风 / 交付 / House 字段读时不认、不写
             testMinimumDriveFloor();                  // T-089 之后只剩标准：3 dB 下限
+            testTimbreStrengthMapping();              // T-113 1-07：音色类强度 f(GLAZE)
 
             // v0.1.7.0 修坯 Clay（A5；ADR-012 根治修订 P3 改写 / 追加）
             testClayFormulas();
@@ -467,6 +468,87 @@ namespace celadon::test
         }
 
     private:
+        //==============================================================================
+        // T-113 1-07（ADR-042）：音色类增量（Tone、Recover、Tame、Heat）的强度按 f(GLAZE)（GlazeConstants.h timbreStrength）。
+        // f 本身：出厂与坏常数原样（逐位）、f(0) = 0、f(1) = 1、单调、不超过 1、候选 f(0.35) = 0.525 / 0.7。
+        // 方案：listening 为空与显式出厂值逐位相同；×1.5 时 GLAZE 35 的 Tone / Recover / Tame 正好是出厂的 1.5 倍（同一个 κ）、Heat 只多不少、
+        // 不超过风格上限，电平类（Gain、Glue、Clip、净增益与目标）逐位不变；GLAZE 100 与出厂逐位相同；GLAZE 0 全 0。
+        void testTimbreStrengthMapping()
+        {
+            beginTest ("T-113 1-07: timbre strength f(GLAZE) - factory identity, x1.5 / x2 at 35 %, identical at 100 %, level items untouched");
+
+            const ListeningConstants factory;
+            ListeningConstants x15, x2, tooBig;
+            x15.timbreScaleAtKnee = 1.5f;
+            x2.timbreScaleAtKnee = 2.0f;
+            tooBig.timbreScaleAtKnee = 3.0f;   // × 拐点 0.35 = 1.05 > 1：会越过上限，按原样
+
+            bool identity = true, shape = true;
+            float last15 = 0.0f, last2 = 0.0f;
+
+            for (int i = 0; i <= 1000; ++i)
+            {
+                const auto g = (float) i / 1000.0f;
+                identity = identity && sameBits (timbreStrength (g, factory), g) && sameBits (timbreStrength (g, tooBig), g);
+                const auto a = timbreStrength (g, x15), b = timbreStrength (g, x2);
+                shape = shape && a >= last15 && b >= last2 && a <= 1.0f && b <= 1.0f && a >= g && b >= a;
+                last15 = a;
+                last2 = b;
+            }
+
+            expect (identity, "factory and invalid constants: f(g) = g bit for bit");
+            expect (shape, "x1.5 and x2: monotone, never above 1, never below g, x2 at or above x1.5");
+            expectEquals (timbreStrength (0.0f, x2), 0.0f);
+            expectEquals (timbreStrength (1.0f, x2), 1.0f);
+            expectWithinAbsoluteError (timbreStrength (0.35f, x15), 0.525f, 1.0e-6f, "x1.5: f(0.35) = 0.525");
+            expectWithinAbsoluteError (timbreStrength (0.35f, x2), 0.7f, 1.0e-6f, "x2: f(0.35) = 0.7");
+            const auto nan = std::numeric_limits<float>::quiet_NaN();
+            expect (sameBits (timbreStrength (nan, x2), nan), "NaN passes through (callers treat it as 0)");
+
+            // 温润：参考斜率 −3.5，画像斜率 −0.5 → 超出容忍区，Tone 满强度值钳在 −0.75 dB；Recover / Tame 有底量；Heat 有风格底量。
+            auto profile = makeProfile (-14.0f, -3.0f, 5.0f);
+            setFeature (profile.spectralSlopeDbPerOct, -0.5f);
+
+            const auto planWith = [&profile] (const ListeningConstants* listening, float glaze)
+            {
+                PlanInputs in;
+                in.profile = &profile;
+                in.style = Style::warm;
+                in.glazePercent = glaze;
+                in.manual = defaultManual();
+                in.listening = listening;
+                return makePlan (in);
+            };
+
+            const auto base = planWith (nullptr, 35.0f);
+            expect (samePlan (base, planWith (&factory, 35.0f)), "listening = nullptr is the factory constants");
+            expect (base.increments.colorToneDb < 0.0f && base.increments.balanceRecover > 0.0f && base.increments.balanceTame > 0.0f,
+                    "fixture: Tone, Recover and Tame all move at GLAZE 35");
+
+            const auto scaledLike = [] (float actual, float expected) { return std::abs (actual - expected) <= 1.0e-5f * juce::jmax (1.0f, std::abs (expected)); };
+
+            for (const auto* candidate : { &x15, &x2 })
+            {
+                const auto ratio = timbreStrength (0.35f, *candidate) / 0.35f;
+                const auto plan = planWith (candidate, 35.0f);
+                const auto& a = plan.increments;
+                const auto& b = base.increments;
+                const auto name = juce::String (candidate == &x15 ? "x1.5" : "x2");
+
+                expect (scaledLike (a.colorToneDb, b.colorToneDb * ratio) && scaledLike (a.balanceRecover, b.balanceRecover * ratio)
+                            && scaledLike (a.balanceTame, b.balanceTame * ratio),
+                        name + ": Tone / Recover / Tame are the factory values times f(0.35) / 0.35");
+                expect (a.colorHeat >= b.colorHeat && a.colorHeat <= factoryConstants().warm.heatDriveCap,
+                        name + ": Heat never shrinks and stays under the style cap");
+                expect (sameBits (a.limitGainDb, b.limitGainDb) && sameBits (a.colorGlue, b.colorGlue) && sameBits (a.limitClip, b.limitClip)
+                            && sameBits (plan.effectiveGainDb, base.effectiveGainDb) && sameBits (plan.requestedGainDb, base.requestedGainDb)
+                            && sameBits (plan.effectiveTargetLufs, base.effectiveTargetLufs),
+                        name + ": level items (Gain, Glue, Clip, net gain, target) are bit for bit the factory ones");
+                expect (samePlan (planWith (candidate, 100.0f), planWith (nullptr, 100.0f)), name + ": GLAZE 100 is bit for bit the factory plan");
+                expect (allIncrementsZero (planWith (candidate, 0.0f).increments), name + ": GLAZE 0 has no increments");
+            }
+        }
+
         //==============================================================================
         void testGlazeZeroLeavesParametersUntouched()
         {

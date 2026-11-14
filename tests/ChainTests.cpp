@@ -2243,6 +2243,7 @@ namespace celadon::test
             testDitherRestartsOnReset();
             testNonFiniteReachingMeters();
             testEffectiveParamsReplay();
+            testListeningCandidates();
         }
 
     private:
@@ -2904,6 +2905,62 @@ namespace celadon::test
                 expect (listenedAfterOne == 0.0f && listenedAtEnd == 0.0f,
                         "phase 2 keeps listenedSeconds at 0; the meter above is what recovers");
             }
+        }
+
+        // T-113（ADR-042）：听感批的候选只在渲染工具里切（GlazeController::setListeningConstantsForTesting / setLiveConstantsForTesting）。
+        // ① GLAZE 0：三项候选全开（预算环主段门、上行快通道、音色 ×2），推响不刺 / 目标频谱都「自动」，输出与出厂逐位相同（ADR-035 决定 2）。
+        // ② GLAZE 35：显式设一遍出厂常数与不设逐位相同；×2 候选交给 Balance 的推响不刺 / 目标频谱强度正好是出厂的 2 倍（f(0.35) ÷ 0.35）。
+        void testListeningCandidates()
+        {
+            beginTest ("T-113 candidates: GLAZE 0 is bit for bit with every candidate on; x2 doubles the automatic harsh / target strength at GLAZE 35");
+
+            glaze::ListeningConstants all;
+            all.guardRecoverMinMainness = 0.5f;
+            all.timbreScaleAtKnee = 2.0f;
+            glaze::LiveConstants fastLive;
+            fastLive.catchUpHalfLifeSeconds = 2.0;
+
+            auto p = makeNeutralParams();
+            p.limit.gainDb = 4.0f;
+            p.mastering.harshMode = HarshMode::automatic;
+            p.mastering.harshAmount = 50.0f;
+            p.mastering.targetMode = TargetMode::automatic;
+            p.mastering.targetAmount = 35.0f;
+
+            const auto input = makeWideMaterial (t032Rate, 4.0, 77);
+            const auto render = [&] (const CeladonChain::Params& params, bool candidates)
+            {
+                CeladonChain chain;
+
+                if (candidates)
+                {
+                    chain.getGlazeController().setListeningConstantsForTesting (all);
+                    chain.getGlazeController().setLiveConstantsForTesting (fastLive);
+                }
+
+                prepareChain (chain, t032Rate, params);
+                return runChain (chain, input, maxBlock);
+            };
+
+            p.glazePercent = 0.0f;
+            expect (bitIdentical (render (p, false), render (p, true)), "GLAZE 0: every candidate on, output bit for bit the factory one");
+
+            p.glazePercent = 35.0f;
+            CeladonChain factory, explicitFactory, doubled;
+            explicitFactory.getGlazeController().setListeningConstantsForTesting (glaze::ListeningConstants {});
+            doubled.getGlazeController().setListeningConstantsForTesting (all);
+
+            for (auto* chain : { &factory, &explicitFactory, &doubled })
+                prepareChain (*chain, t032Rate, p);
+
+            const auto& f = factory.getEffectiveParams().balance;
+            const auto& e = explicitFactory.getEffectiveParams().balance;
+            const auto& d = doubled.getEffectiveParams().balance;
+            expect (f.harshAmount > 0.0f && f.targetAmount > 0.0f, "fixture: both automatic items are on at GLAZE 35");
+            expect (std::memcmp (&f.harshAmount, &e.harshAmount, sizeof (float)) == 0 && std::memcmp (&f.targetAmount, &e.targetAmount, sizeof (float)) == 0,
+                    "explicit factory constants are bit for bit no constants");
+            expectWithinAbsoluteError (d.harshAmount, 2.0f * f.harshAmount, 1.0e-6f, "x2: harsh strength doubles at the default GLAZE");
+            expectWithinAbsoluteError (d.targetAmount, 2.0f * f.targetAmount, 1.0e-6f, "x2: target strength doubles at the default GLAZE");
         }
 
         // R10-01：getEffectiveParams() 回写的是交给模块的实际值——GLAZE 35、推响不刺 / 目标频谱两项「自动」、编码余量 0.5 dB 的链，

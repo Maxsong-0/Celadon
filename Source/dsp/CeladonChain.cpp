@@ -196,17 +196,19 @@ namespace celadon
         // 有限值原样交给 unit，与改动前同一个表达式。GLAZE 的非有限值由 unit 按 0 算（ChainParams 的默认就是 0）。
         constexpr MasteringSettings neutralMastering {};
         const auto finiteOr = [] (float value, float fallback) { return std::isfinite (value) ? value : fallback; };
-        const auto glaze = unit (newParams.glazePercent);
+        // 「自动」时推响不刺、目标频谱的强度跟 GLAZE 走；它们是音色类动作，按 f(GLAZE)（T-113 1-07，GlazeConstants.h timbreStrength，
+        // 与决策器的 Tone / Recover / Tame / Heat 同一映射）。出厂 f(g) = g，与改前的 unit (GLAZE) 逐位相同。
+        const auto timbreGlaze = glaze::timbreStrength (unit (newParams.glazePercent), controller.getListeningConstants());
         auto& advanced = adjusted.balance;
         advanced.harshAmount = mastering.harshMode == HarshMode::off ? 0.0f
                                : isResolved (mastering.harshResolved) ? juce::jmin (1.0f, mastering.harshResolved)
                                : unit (finiteOr (mastering.harshAmount, neutralMastering.harshAmount))
-                                   * (mastering.harshMode == HarshMode::automatic ? glaze : 1.0f);
+                                   * (mastering.harshMode == HarshMode::automatic ? timbreGlaze : 1.0f);
         advanced.transientPreserve = unit (finiteOr (mastering.transientPreserve, neutralMastering.transientPreserve));
         advanced.targetAmount = mastering.targetMode == TargetMode::off ? 0.0f
                                 : isResolved (mastering.targetResolved) ? juce::jmin (1.0f, mastering.targetResolved)
                                 : unit (finiteOr (mastering.targetAmount, neutralMastering.targetAmount))
-                                    * (mastering.targetMode == TargetMode::automatic ? glaze : 1.0f);
+                                    * (mastering.targetMode == TargetMode::automatic ? timbreGlaze : 1.0f);
         auto mode = mastering.targetMode;
         if (mode == TargetMode::automatic)
             mode = newParams.glazeStyle == 1 ? TargetMode::warm : (newParams.glazeStyle == 3 ? TargetMode::bright : TargetMode::neutral);

@@ -330,6 +330,9 @@ namespace celadon::glaze
 
         Constants constantsOverride {};
         bool constantsOverridden = false;
+        // T-113 听感批的常数（出厂值 = 0.1.8.10 的行为；只有渲染工具 --candidate 与测试经 set*ForTesting 换）。不存档。
+        ListeningConstants listening {};
+        LiveConstants liveConstants {};
 
         double sampleRate = 48000.0;
         bool prepared = false;
@@ -408,6 +411,13 @@ namespace celadon::glaze
         const Constants& activeConstants() const noexcept
         {
             return constantsOverridden ? constantsOverride : factoryConstants();
+        }
+
+        // 音色类实时跟随（Tone 跟随与上限、Tame 实时证据）用的强度 f(GLAZE)（T-113 1-07，GlazeConstants.h timbreStrength；与决策器同一映射）。
+        // 出厂 f(g) = g：与改前的 jlimit (0, 1, GLAZE × 0.01) 逐位相同。
+        float timbreGlaze() const noexcept
+        {
+            return timbreStrength (juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f), listening);
         }
 
         bool hostPlaying() const noexcept
@@ -530,6 +540,7 @@ namespace celadon::glaze
             inputs.constants = &constants;
             inputs.maxGainDb = 1.0e9f;
             inputs.lockedWeights = &automaticWeights;
+            inputs.listening = &listening;
             targetPlan = makePlan (inputs);
             haveTarget = true;
 
@@ -620,7 +631,7 @@ namespace celadon::glaze
                 && isFinite (constants.toneDbPerSlopeDb))
             {
                 const auto caps = blendConstants (constants, targetPlan.weights);
-                const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * confidenceScale (&followed, constants);
+                const auto strength = timbreGlaze() * confidenceScale (&followed, constants);
 
                 if (strength > 0.0f && isFinite (caps.toneMaxDb) && caps.toneMaxDb > 0.0f)
                 {
@@ -1182,7 +1193,7 @@ namespace celadon::glaze
             {
                 const auto& constants = activeConstants();
                 const auto caps = blendConstants (constants, haveTarget ? targetPlan.weights : automaticWeights);
-                const auto strength = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f) * confidenceScale (&followed, constants);
+                const auto strength = timbreGlaze() * confidenceScale (&followed, constants);
                 const auto cap = caps.toneMaxDb;
 
                 if (isFinite (cap) && cap > 0.0f && strength > 0.0f)
@@ -1208,7 +1219,7 @@ namespace celadon::glaze
                 if (haveFollowed && evidence.valid && isFinite (evidence.value) && constants.tameEvidenceFullDb > 0.0f)
                 {
                     const auto caps = blendConstants (constants, haveTarget ? targetPlan.weights : automaticWeights);
-                    const auto glaze = juce::jlimit (0.0f, 1.0f, manual.glazePercent * 0.01f);
+                    const auto glaze = timbreGlaze();
                     const auto tameCap = isFinite (caps.tameCap) ? juce::jlimit (0.0f, 100.0f, caps.tameCap) : 0.0f;
                     const auto liveTame = tameCap * glaze * confidenceScale (&followed, constants)
                                         * juce::jlimit (0.0f, 1.0f, evidence.value / constants.tameEvidenceFullDb);
@@ -1334,10 +1345,15 @@ namespace celadon::glaze
                 guardStats.musicActive = music;
                 const auto budgetBefore = budgetOut.reliefDb;
 
+                // T-113 1-05：非主段（m 低于 guardRecoverMinMainness）里预算环不放回退让、安全计时停住——breakdown 不算「安全的主段音乐」，
+                // 退让留到下一个主段按那里的超限情况再定，不再「breakdown 里放回、下一个 drop 头上再退一次」。m 是本函数开头按开着的那一段
+                // 算的 currentMainness（同 slewGain 的「非主段只降不升」）。出厂门槛 0 = 不看主段，与改前逐位相同。
+                const auto recoveryHeld = listening.guardRecoverMinMainness > 0.0f && currentMainness < listening.guardRecoverMinMainness;
+
                 if (guardFrozen)
                     budget.discardPartialSlot();
                 else if (! targetPlan.automaticLevelWithdrawn)
-                    budgetOut = budget.process (guardStats);
+                    budgetOut = budget.process (guardStats, recoveryHeld);
 
                 slewApplied (currentMainness, dt);
 
@@ -1654,7 +1670,14 @@ namespace celadon::glaze
     void GlazeController::syncLiveConstants() noexcept
     {
         if (impl->live != nullptr)
-            impl->live->setConstants (LiveConstants {});
+            impl->live->setConstants (impl->liveConstants);
+    }
+    const ListeningConstants& GlazeController::getListeningConstants() const noexcept           { return impl->listening; }
+    void GlazeController::setListeningConstantsForTesting (const ListeningConstants& constants) noexcept { impl->listening = constants; }
+    void GlazeController::setLiveConstantsForTesting (const LiveConstants& constants) noexcept
+    {
+        impl->liveConstants = constants;
+        syncLiveConstants();
     }
     bool GlazeController::hasPrepared() const noexcept                                           { return impl->prepared; }
     Status GlazeController::getStatus() const noexcept

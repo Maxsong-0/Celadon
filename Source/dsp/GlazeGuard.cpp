@@ -108,7 +108,7 @@ namespace celadon::glaze
     {
         protection = 0.0;
         protectionDb = 0.0f;
-        retreating = recovering = changedThisBlock = false;
+        retreating = recovering = changedThisBlock = holdRecovery = false;
         planLimited = false;
         safeSlots = 0;
         clearWindows();
@@ -188,9 +188,10 @@ namespace celadon::glaze
         lastOvershootDb = 0.0f;
     }
 
-    GuardOutput GlazeGuard::process (const ModuleStats& stats) noexcept
+    GuardOutput GlazeGuard::process (const ModuleStats& stats, bool recoveryHeld) noexcept
     {
         retreating = recovering = changedThisBlock = false;
+        holdRecovery = recoveryHeld;
 
         auto output = [this]() noexcept
         {
@@ -332,6 +333,10 @@ namespace celadon::glaze
         else if (verdict.near)
         {
             safeSlots = 0;   // 接近上限（回差区内）：停止恢复，重新计安全时间
+        }
+        else if (holdRecovery)
+        {
+            // T-113 1-05：非主段里的安全时隙不算「安全的主段音乐」——不回程，安全计时也不往前走（不清零：下一个主段接着数）。
         }
         else
         {
