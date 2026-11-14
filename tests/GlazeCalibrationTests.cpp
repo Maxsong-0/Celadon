@@ -8,7 +8,7 @@
       - 保护层 GlazeGuard。退让不再读 Constants 里的 1 / 0.3 dB/s，改走 T-047：
         超限 0→3 dB 映射 0.3→6 dB/s，退让深度 0→下限映射回程 0.15→0.3 dB/s，地板仍是 −3 dB。
         触发仍是「3 s 窗内累计超出 ≥ 1 s」，恢复仍要连续 5 s 安全音乐。
-    process 返回 GuardOutput（可隐式当成退让 dB）。PSR 单列在 tests/Phase2OrchestratorTests.cpp。
+    process 返回 GuardOutput（可隐式当成退让 dB）。PSR 守门 T-108 已删，它的用例一起删了（存档里只留给 0.1.8.10 的占位节点）。
 
   ==============================================================================
 */
