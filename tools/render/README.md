@@ -67,6 +67,7 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
                [--bpm 124 [--meter 4/4] [--listen-from-bar 1,33]] [--segments-csv]
                [--live-trace [--live-only] [--live-constants 键=值,…] [--live-tag 名字]]
                [--replay-override color.heat=0]
+               [--candidate current|c105|c106|c105-106|c107x15|c107x2|all-x15|all-x2] [--cold]
 ```
 
 | 选项 | 默认 | 说明 |
@@ -90,6 +91,8 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--live-only` | 关 | T-048：只跑第一遍（预热）出追踪，不出成品、不做重放——最快的追踪跑法；要 `--live-trace` |
 | `--live-constants` | 不给 | T-048：覆盖实时画像常数 `LiveConstants` 的任意字段，`键=值` 逗号分隔（键表见下「T-048」）；不认识的键、不合法的值报错；要 `--live-trace` 与 `--live-tag` |
 | `--live-tag` | `default` | T-048：追踪的输出分组 `live/<标签>/`（字母、数字、`.` `_` `-`，不以 `.` 开头，≤ 64 个字符）；扫参时一组常数一个标签 |
+| `--candidate` | `current` | T-113 听感批：每条链换上候选常数（只在渲染工具里切，插件永远是出厂常数、存档里没有它们）。`c105` 预算环主段门、`c106` 冷启动上行快通道、`c105-106` 两项一起、`c107x15` / `c107x2` 默认档音色 ×1.5 / ×2、`all-x15` / `all-x2` 三项一起；一次一个，不同候选用不同的 `--out`（成品名不带候选）。与 `--live-trace` 一起用时要给 `--live-tag`，探针的常数从候选那份起算、`--live-constants` 叠在上面。候选表与强度在 `RenderMain.cpp` 开头（`renderCandidates`），设计见 `docs/validation/2026-11-13-T113-listening/` |
+| `--cold` | 关 | T-113：第二遍（成品）不读回第一遍的存档，从冷启动渲染（插件刚插上、从头播放；看 1-06「冷启动第一个 drop」用）。第一遍照跑、它的指标与追踪不变；不能与 `--live-only` 一起用 |
 | `--no-align` | 关 | 测量用：写未经整体等响的成品（默认仍按 `--match-lufs` 等响） |
 | `--selftest` | — | 只跑自检，不读歌（其余选项忽略） |
 | `--selftest-transport` | — | 只跑走带选项的自检（见下「T-038」；T-108 前叫 `--selftest-house`），不读歌；`render-linux.sh` 渲染前在 `--selftest` 之后跑它 |
@@ -500,7 +503,7 @@ live/<标签>/<歌名>__passes.csv                          逐遍比较（有�
 
 ### `--live-constants` 的键
 
-键名 = `GlazeConstants.h` 里 `LiveConstants` 的字段名，主段模型的 9 个字段带 `loudness.` 前缀，共 9 + 10 = 19 个（T-108 前另有 `fourOnFloor.` / `passive.` 两个模型，共 37 个）。
+键名 = `GlazeConstants.h` 里 `LiveConstants` 的字段名，主段模型的 9 个字段带 `loudness.` 前缀，共 9 + 14 = 23 个（T-108 前另有 `fourOnFloor.` / `passive.` 两个模型，共 37 个；T-113 加了 `catchUp*` 四个）。
 键与取值范围用 `LiveProfile.h` 的公开表（`visitLiveConstants` / `isInLiveConstantDomain`）——`LiveProfile` 的清洗（`sanitiseLiveConstants`）用的是同一张表：
 那边把坏值悄悄换成出厂值，这里直接报错（扫参时给错的值不能变成「其实跑的是出厂值」）。`inf` / `-inf` 只在表里允许的键上合法；同一个键给两次、
 少了 `=`、不是数（含 NaN、溢出）都报错。
@@ -523,6 +526,8 @@ live/<标签>/<歌名>__passes.csv                          逐遍比较（有�
 | `newProgramRangeLu`（「轻」的那一支要电平稳；inf = 不要求） | ≥ 0，可 inf | 2 |
 | `peakTailSeconds`（≤ 0 = 只取最大值） | 数，可 ±inf | 0.5 |
 | `publishDelaySeconds`（发布延迟） | ≥ 0 的有限数 | 0.5 |
+| `catchUpHalfLifeSeconds`（T-113 1-06 上行快通道：旧主段权重按有效时长减半的半衰期；inf = 关） | ≥ 1 ms，可 inf | inf（候选 `c106` 为 2） |
+| `catchUpMarginLu` / `catchUpRunSeconds` / `catchUpActiveSeconds`（比 I 响多少才算「更响」/ 连续多久才触发 / 歌开头多少有效秒内才管） | ≥ 0，可 inf | 1 / 4 / 180 |
 
 改了常数（`--live-constants`）必须给 `--live-tag`，免得与出厂常数的追踪混在 `live/default/` 里；这几个选项离开 `--live-trace` 都报错。
 
@@ -539,8 +544,9 @@ GLAZE 0、块长 512、出厂常数，走真歌同一套第一遍（T-108 前这
 
 | 项 | 期望 |
 |---|---|
-| `--live-constants` 解析 / 拒收坏值 | 改到 7 个字段（含 inf / -inf）、其余保持出厂值、键表 19 个键；13 种坏写法（含删掉的 `fourOnFloor.` 键）都报错 |
+| `--live-constants` 解析 / 拒收坏值 | 改到 7 个字段（含 inf / -inf）、其余保持出厂值、键表 23 个键；13 种坏写法（含删掉的 `fourOnFloor.` 键）都报错 |
 | 追踪选项的命令行约定 | 单独 `--live-only`、改常数不给标签、标签 `../x`、删掉的 `--live-model` / `--genre` 都报错；完整的一组解析对 |
+| `--candidate` / `--cold` 的命令行约定（T-113） | 8 个名字都认；`current` 与不给相同；候选的 `LiveConstants` 进探针、`--live-constants` 叠在上面（与先后无关）；不认识的名字、给两次、候选开追踪不给标签、`--cold` 配 `--live-only` 都报错 |
 | 追踪选项的命令行约定 | 单独 `--live-only`、改常数不给标签、标签 `../x` 都报错；完整的一组解析对 |
 | 段首尾相接 | 第一段从 0 起、相邻两段首尾相接、最后一段止于音频末尾（finish 交出了歌尾、flush 发布完）；没有读提交落后、没有配不上 |
 | 按小节对齐 | 36 小节 + 1 段尾巴，每段起止与工具的小节网格逐样本相同 |
@@ -568,6 +574,7 @@ Python 依赖钉在 `tools/render/requirements.txt`（numpy / scipy / soundfile 
 | `blind_test.py` | 盲测包（2AFC / ABX）：出包、登记、算答卷、自检 | `docs/validation/2026-10-11-T096b-blind-test/`；`selfcheck` 子命令 |
 | `master_check.py` | 母带检查单：直接量成品 wav，FAIL 只有「真峰值超 `--ceiling`」「原采样点削波」「读不了 / 非有限样本」三项，其余只报；多首时出 EP 汇总行 | `docs/validation/2026-10-11-T096c-master-check/`；自检 `master_check_selfcheck.py` |
 | `heat_ab_report.py` | 汇总 `--replay-override color.heat=0` 的 `heat_ab.csv`，每格给 2a / ABX 结论 | `docs/validation/2026-10-11-T096d-heat-ab/`（批跑 `run_heat_ab.sh`）；`--selftest` |
+| `drop_report.py` | T-113：两次渲染（基线 / `--candidate`，都带 `--trace`）逐首逐 drop 并排：预算环退让次数与退让量、Limit Gain 总变差、drop 前段增益、整首「非主段放退让」；`windows` 子命令按段落出盲听片段 JSON（`blind_test.py build --segments`），第一个 drop 必在。只用标准库 | `docs/validation/2026-11-13-T113-listening/`；文件头；`--selftest` |
 | `tools/perf/bench_portable.cpp`、`scripts/perf-dgx.sh`、`tools/perf/compare_perf.py` | 可移植 CPU 基准（处理器层 + 直接调 CeladonChain 的链层）与 DGX 上的同机不退步对比 | `docs/validation/2026-10-11-T096f-cpu-baseline/` |
 
 **`--trace` 追加的六列**（只在第二遍那份，接在 GLAZE 列之后）：`current_mainness`（本块主段度 m）、`protection_db`（状态行那扇守门的退让）、

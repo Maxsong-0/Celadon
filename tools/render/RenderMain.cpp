@@ -123,10 +123,75 @@ namespace
     // Clay 10 Hz 4 阶低切衰 60 dB 约 0.29 s 加余量；审核 V3-02：这里原来写死 0.3）。各组成品一样长，仍逐样本对齐。
     constexpr double ringOutSeconds = celadon::CeladonChain::filterRingOutSeconds;
 
-    // 出厂常数的链。T-085 的「测量覆盖流媒体基准目标」（--streaming-target-lufs）随 T-108 删掉交付一起删了。
+    // ---- T-113 听感批的候选（--candidate；设计与盲听方案见 docs/validation/2026-11-13-T113-listening/README.md）----
+    // 插件永远用出厂常数（ListeningConstants / LiveConstants 的默认值，存档里没有它们），候选只在渲染工具里切。候选的强度只写在这四个常数里；
+    // 某个候选通过盲听、要变成出厂行为时，改的是 GlazeConstants.h 里对应字段的默认值（那份 README「换成出厂」一节逐行写了改哪几行），
+    // 这张表不用动——那时 current 与该候选就是同一份声音。
+    constexpr float candidateGuardRecoverMinMainness = 0.5f;   // 1-05：主段度低于它时预算环不放退让（0.5 = 插件里「算主段」的同一条线）
+    constexpr double candidateCatchUpHalfLifeSeconds = 2.0;    // 1-06：冷启动上行快通道，旧主段权重按有效时长每 2 s 减半（T-093 R5-04）
+    constexpr float candidateTimbreScaleMild = 1.5f;           // 1-07：默认 35 % 处音色强度 ×1.5（f(0.35) = 0.525）
+    constexpr float candidateTimbreScaleStrong = 2.0f;         // 1-07：×2（f(0.35) = 0.7）
+
+    struct RenderCandidate
+    {
+        const char* name;    // --candidate 的取值
+        const char* text;    // --help 与 metrics.md 头部的说明
+        bool guardMainGate;  // 1-05 预算环主段门
+        bool fastCatchUp;    // 1-06 冷启动上行快通道
+        float timbreScale;   // 1-07 默认档音色：1 = 出厂（不改）
+    };
+
+    // 第 0 项 current = 出厂常数（不给 --candidate 时就是它，链与改动前逐位相同）。
+    constexpr std::array<RenderCandidate, 8> renderCandidates { {
+        { "current",   "出厂常数",                                         false, false, 1.0f },
+        { "c105",      "1-05 预算环主段门",                                 true,  false, 1.0f },
+        { "c106",      "1-06 冷启动上行快通道",                             false, true,  1.0f },
+        { "c105-106",  "1-05 + 1-06",                                       true,  true,  1.0f },
+        { "c107x15",   "1-07 默认档音色 ×1.5",                              false, false, candidateTimbreScaleMild },
+        { "c107x2",    "1-07 默认档音色 ×2",                                false, false, candidateTimbreScaleStrong },
+        { "all-x15",   "1-05 + 1-06 + 1-07 ×1.5",                           true,  true,  candidateTimbreScaleMild },
+        { "all-x2",    "1-05 + 1-06 + 1-07 ×2",                             true,  true,  candidateTimbreScaleStrong },
+    } };
+
+    // 本次运行的候选：main 解析完设一次（current 时为 nullptr，makeRenderChain 什么都不改），之后只读。放成全局是因为建链的地方
+    // （预热、成品、重放、自检）都只调 makeRenderChain()，不带 Options。
+    const RenderCandidate* activeCandidate = nullptr;
+
+    celadon::glaze::ListeningConstants listeningConstantsFor (const RenderCandidate& candidate) noexcept
+    {
+        celadon::glaze::ListeningConstants constants;
+
+        if (candidate.guardMainGate)
+            constants.guardRecoverMinMainness = candidateGuardRecoverMinMainness;
+
+        constants.timbreScaleAtKnee = candidate.timbreScale;
+        return constants;
+    }
+
+    celadon::glaze::LiveConstants liveConstantsFor (const RenderCandidate& candidate) noexcept
+    {
+        celadon::glaze::LiveConstants constants;
+
+        if (candidate.fastCatchUp)
+            constants.catchUpHalfLifeSeconds = candidateCatchUpHalfLifeSeconds;
+
+        return constants;
+    }
+
+    // 渲染用的链：出厂常数，给了 --candidate 时换上候选的听感批常数（建链之后、读档与 prepare 之前换，与插件的时序一样早）。
+    // T-085 的「测量覆盖流媒体基准目标」（--streaming-target-lufs）随 T-108 删掉交付一起删了。
     std::unique_ptr<celadon::CeladonChain> makeRenderChain()
     {
-        return std::make_unique<celadon::CeladonChain>();
+        auto chain = std::make_unique<celadon::CeladonChain>();
+
+        if (activeCandidate != nullptr)
+        {
+            auto& controller = chain->getGlazeController();
+            controller.setListeningConstantsForTesting (listeningConstantsFor (*activeCandidate));
+            controller.setLiveConstantsForTesting (liveConstantsFor (*activeCandidate));
+        }
+
+        return chain;
     }
 
     // 两个指标的分频点（设计规格-Clay-分析决策与验收 第 7 节「低频相关度、超低频能量」；次声口径按 ADR-012 改）。
@@ -249,6 +314,10 @@ namespace
 
         // ---- T-096d 重放覆盖（不给时一切输出与改动前逐字节相同：没有覆盖行、不写 heat_ab.csv、metrics.md 头部不多一行）----
         ReplayOverrides replayOverrides;   // --replay-override：每组重放之后另加 clay-replay-<覆盖> 一行，差信号写 heat_ab.csv
+
+        // ---- T-113 听感批（不给时一切输出与改动前逐字节相同：candidate = 0 即 current、metrics.md 头部不多一行）----
+        std::size_t candidate = 0;   // --candidate：renderCandidates 的下标，0 = current（出厂常数）
+        bool cold = false;           // --cold：第二遍（成品）不读回第一遍的存档，从冷启动渲染（1-06 冷启动第一个 drop 只在冷启动时出现）
     };
 
     struct Combo
@@ -595,6 +664,12 @@ namespace
                      "                      每组 GLAZE > 0 的修坯「自动」之后另加一行 clay-replay-heat0（修坯照填、prepare 前与每一块都只改\n"
                      "                      覆盖的键），与阳性对照 replay-copy 逐样本相减，差信号指标写 heat_ab.csv；不能与 --no-replay、\n"
                      "                      --live-only 一起用（不给时一切输出与改动前相同）\n"
+                     "  --candidate 名字    T-113 听感批：链换上候选常数（只在渲染工具里切，插件永远是出厂常数）：current（默认，出厂）、\n"
+                     "                      c105（1-05 预算环主段门）、c106（1-06 冷启动上行快通道）、c105-106、c107x15 / c107x2（1-07\n"
+                     "                      默认档音色 ×1.5 / ×2）、all-x15 / all-x2（三项一起）；一次一个，不同候选用不同的 --out；\n"
+                     "                      与 --live-trace 一起用时要给 --live-tag\n"
+                     "  --cold              T-113：第二遍（成品）不读回第一遍的存档，从冷启动渲染（看 1-06 冷启动第一个 drop 用）；\n"
+                     "                      不能与 --live-only 一起用\n"
                      "  --selftest          只跑自检（指标算法、文件名、延迟对齐、GLAZE 0 逐位直通、同决策重放、--trace 不改成品的阳性对照），不读歌\n"
                      "  --selftest-transport 只跑走带选项的自检（模拟走带、分段统计、预热起点穿到链上的阳性对照），不读歌\n"
                      "  --selftest-live     只跑 T-048 实时画像追踪的自检（合成 4/4 曲上段首尾相接、块长与 GLAZE 无关、外接探针的契约），不读歌\n"
@@ -813,6 +888,17 @@ namespace
         });
     }
 
+    // T-113：--candidate 认的名字（报错用），「current / c105 / …」。
+    std::string knownCandidateNames()
+    {
+        std::string known;
+
+        for (std::size_t k = 0; k < renderCandidates.size(); ++k)
+            known += (k > 0 ? " / " : "") + std::string (renderCandidates[k].name);
+
+        return known;
+    }
+
     enum class ParseResult { run, help, selfTest, selfTestTransport, selfTestLive, invalid };
 
     // 解析失败时把原因写进 error（中文，直接给用户看）。
@@ -821,6 +907,7 @@ namespace
         bool haveInput = false, haveOutput = false, haveMeter = false, haveListenFrom = false;
         bool haveLiveConstants = false, haveLiveTag = false;   // T-048：这两个与 --live-only 都要 --live-trace
         bool haveReplayOverride = false;                        // T-096d：只能给一次，要有同决策重放可覆盖
+        bool haveCandidate = false;                             // T-113：只能给一次
 
         for (int i = 1; i < argc; ++i)
         {
@@ -872,6 +959,12 @@ namespace
             if (name == "--metrics-only")   // 不带取值的运行选项（另外三个是 --trace、--no-replay、--segments-csv）
             {
                 options.metricsOnly = true;
+                continue;
+            }
+
+            if (name == "--cold")   // T-113：成品从冷启动渲染（不读回第一遍的存档）
+            {
+                options.cold = true;
                 continue;
             }
 
@@ -1076,6 +1169,26 @@ namespace
                 options.liveTag = value;
                 haveLiveTag = true;
             }
+            else if (name == "--candidate")
+            {
+                const auto found = std::find_if (renderCandidates.begin(), renderCandidates.end(),
+                                                 [&value] (const RenderCandidate& c) { return value == c.name; });
+
+                if (found == renderCandidates.end())
+                {
+                    error = "--candidate 只认 " + knownCandidateNames() + "，不认「" + value + "」";
+                    return ParseResult::invalid;
+                }
+
+                if (haveCandidate)
+                {
+                    error = "--candidate 只能给一次（一次运行只跑一个候选，不同候选用不同的 --out）";
+                    return ParseResult::invalid;
+                }
+
+                options.candidate = static_cast<std::size_t> (found - renderCandidates.begin());
+                haveCandidate = true;
+            }
             else if (name == "--replay-override")
             {
                 if (haveReplayOverride)
@@ -1113,6 +1226,32 @@ namespace
         if (haveLiveConstants && ! haveLiveTag)
         {
             error = "改了实时画像常数（--live-constants）时要给 --live-tag，免得与出厂常数的追踪混在 live/default/ 里";
+            return ParseResult::invalid;
+        }
+
+        // T-113：候选的链跑候选的 LiveConstants；追踪探针会把段从链自己的画像引走、链读的是探针那份画像，所以探针的常数也要从候选的
+        // 那份起算，--live-constants 再改在它上面（与参数先后无关）。候选的追踪同样不许混进 live/default/。
+        if (options.candidate != 0)
+        {
+            if (options.liveTrace && ! haveLiveTag)
+            {
+                error = std::string ("跑候选（--candidate ") + renderCandidates[options.candidate].name
+                      + "）又开 --live-trace 时要给 --live-tag，免得与出厂常数的追踪混在 live/default/ 里";
+                return ParseResult::invalid;
+            }
+
+            auto live = liveConstantsFor (renderCandidates[options.candidate]);
+
+            if (haveLiveConstants && ! parseLiveConstants (options.liveConstantsText, live, error))
+                return ParseResult::invalid;
+
+            options.liveConstants = live;
+        }
+
+        // T-113：--cold 只改第二遍从哪里起；只跑第一遍（--live-only）时没有第二遍。
+        if (options.cold && options.liveOnly)
+        {
+            error = "--cold 只改第二遍（成品）的起点，不能与只跑第一遍的 --live-only 一起用";
             return ParseResult::invalid;
         }
 
@@ -3500,6 +3639,15 @@ namespace
         }
 
         // T-096d：给了 --replay-override 才写这一行（不给时表头与改动前相同）。
+        // T-113：跑候选或冷启动成品时才写这一行（不给时表头与改动前相同）。
+        if (options.candidate != 0 || options.cold)
+        {
+            const auto& candidate = renderCandidates[options.candidate];
+            md += std::string ("- T-113 听感批：候选 ") + candidate.name + "（" + candidate.text + "）"
+                + (options.cold ? "；--cold：成品从冷启动渲染（不读回第一遍的存档）" : "；成品照常读回第一遍的存档")
+                + "；docs/validation/2026-11-13-T113-listening/README.md\n";
+        }
+
         if (! options.replayOverrides.empty())
             md += "- T-096d 重放覆盖：每组 GLAZE > 0 的修坯「自动」之后另加一行 clay-" + mdText (replayOverrideNames.id)
                 + "（同决策重放、修坯照填，prepare 前与每一块都另覆盖 " + mdText (replayOverrideNames.text)
@@ -5065,8 +5213,9 @@ namespace
             const auto replay = replaysAfter (options, combo);
             EffectiveLog effectiveLog;
             const auto renderTrace = makeLiveTracer (options, song.sampleRate, transport);
-            renderPass (song.audio, song.sampleRate, options.blockSize, params, listen.state.get(), options.trace, render,
-                        replay ? &effectiveLog : nullptr, transport, options.segmentsCsv, renderTrace.get());
+            // T-113 --cold：不读回存档，第二遍与插件刚插上、从头播放时一样从冷启动走（第一遍照跑：它的指标与追踪不变）。
+            renderPass (song.audio, song.sampleRate, options.blockSize, params, options.cold ? nullptr : listen.state.get(), options.trace,
+                        render, replay ? &effectiveLog : nullptr, transport, options.segmentsCsv, renderTrace.get());
 
             if (renderTrace != nullptr)
                 offerLiveTrace (options, report, liveBook, *renderTrace, "render", combo, 1, 0, failures);
@@ -6358,7 +6507,7 @@ namespace
     {
         SelfTest test;
 
-        // ---- --live-constants：键表 19 个键（LiveProfile.h 的公开表；T-108 前三个主段模型 37 个）；改得到字段、收 inf（只在允许的键上）；坏值一律拒收（不悄悄换出厂值）----
+        // ---- --live-constants：键表 23 个键（LiveProfile.h 的公开表；T-108 前三个主段模型 37 个，T-113 加了 catchUp* 四个）；改得到字段、收 inf（只在允许的键上）；坏值一律拒收（不悄悄换出厂值）----
         {
             celadon::glaze::LiveConstants c;
             std::string error;
@@ -6370,8 +6519,8 @@ namespace
             test.check (ok && c.loudness.gateWidthLu == 3.5f && c.newProgramLu == 8.0f && c.referenceMemorySeconds == 240.0
                             && std::isinf (c.noMainSeconds) && c.noMainSeconds > 0.0 && std::isinf (c.loudness.memoryBars) && c.loudness.memoryBars < 0.0
                             && std::isinf (c.newProgramRangeLu) && c.publishDelaySeconds == 0.25
-                            && c.loudness.lowGateFactor == celadon::glaze::LiveConstants {}.loudness.lowGateFactor && keys == 19,
-                        "--live-constants 解析", ok ? "改到 7 个字段（含 inf / -inf），其余保持出厂值；键表 " + std::to_string (keys) + " 个键（期望 19）"
+                            && c.loudness.lowGateFactor == celadon::glaze::LiveConstants {}.loudness.lowGateFactor && keys == 23,
+                        "--live-constants 解析", ok ? "改到 7 个字段（含 inf / -inf），其余保持出厂值；键表 " + std::to_string (keys) + " 个键（期望 23）"
                                                     : "解析失败：" + error);
 
             const std::array<const char*, 13> bad { { "nosuch=1", "mainThreshold=1.5", "loudness.gateWidthLu=inf", "newProgramLu=8,newProgramLu=9",
@@ -6415,6 +6564,63 @@ namespace
                             + (r4 == ParseResult::invalid ? "" : "标签 ../x 没报错；")
                             + (r5 == ParseResult::invalid && r6 == ParseResult::invalid ? "" : "删掉的 --live-model / --genre 没报错；")
                             + "单独 --live-only、改常数不给标签、标签 ../x、删掉的 --live-model / --genre 都报错，完整的一组解析对");
+        }
+
+        // ---- T-113 --candidate / --cold：名字全认、current 与不给相同、候选的 LiveConstants 进探针且 --live-constants 叠在上面（与先后无关）；
+        // 不认识的名字、给两次、候选开追踪不给标签、--cold 配 --live-only 都报错 ----
+        {
+            std::string names;
+
+            for (const auto& candidate : renderCandidates)
+            {
+                Options parsed;
+                std::string why;
+
+                if (parseWords ({ "--in", "a", "--out", "b", "--candidate", candidate.name }, parsed, why) != ParseResult::run
+                    || std::string (renderCandidates[parsed.candidate].name) != candidate.name)
+                    names += std::string (names.empty() ? "" : "、") + candidate.name;
+            }
+
+            Options plain, current, traced, tracedAfter, cold;
+            Options unknown, twice, tagless, coldOnly;
+            std::string e1, e2, e3, e4, e5, e6, e7, e8, e9;
+            const auto r1 = parseWords ({ "--in", "a", "--out", "b" }, plain, e1);
+            const auto r2 = parseWords ({ "--in", "a", "--out", "b", "--candidate", "current" }, current, e2);
+            const auto r3 = parseWords ({ "--in", "a", "--out", "b", "--live-trace", "--live-constants", "newProgramLu=8", "--live-tag", "c106np8",
+                                          "--candidate", "c106" }, traced, e3);
+            const auto r4 = parseWords ({ "--in", "a", "--out", "b", "--candidate", "c106", "--live-trace", "--live-tag", "c106" }, tracedAfter, e4);
+            const auto r5 = parseWords ({ "--in", "a", "--out", "b", "--cold", "--candidate", "c105-106" }, cold, e5);
+            const auto r6 = parseWords ({ "--in", "a", "--out", "b", "--candidate", "c999" }, unknown, e6);
+            const auto r7 = parseWords ({ "--in", "a", "--out", "b", "--candidate", "c105", "--candidate", "c106" }, twice, e7);
+            const auto r8 = parseWords ({ "--in", "a", "--out", "b", "--candidate", "c105", "--live-trace" }, tagless, e8);
+            const auto r9 = parseWords ({ "--in", "a", "--out", "b", "--cold", "--live-trace", "--live-only" }, coldOnly, e9);
+
+            const celadon::glaze::LiveConstants factory;
+            const auto plainOk = r1 == ParseResult::run && plain.candidate == 0 && ! plain.cold
+                              && r2 == ParseResult::run && current.candidate == 0 && ! current.extended;
+            const auto tracedOk = r3 == ParseResult::run && traced.liveConstants.newProgramLu == 8.0f
+                               && traced.liveConstants.catchUpHalfLifeSeconds == candidateCatchUpHalfLifeSeconds
+                               && r4 == ParseResult::run && tracedAfter.liveConstants.catchUpHalfLifeSeconds == candidateCatchUpHalfLifeSeconds
+                               && tracedAfter.liveConstants.newProgramLu == factory.newProgramLu;
+            const auto coldOk = r5 == ParseResult::run && cold.cold && std::string (renderCandidates[cold.candidate].name) == "c105-106"
+                             && ! cold.extended;
+            const auto rejected = r6 == ParseResult::invalid && r7 == ParseResult::invalid && r8 == ParseResult::invalid && r9 == ParseResult::invalid;
+            const auto c105 = listeningConstantsFor (renderCandidates[1]);
+            const auto currentListening = listeningConstantsFor (renderCandidates[0]);
+            const celadon::glaze::ListeningConstants factoryListening;
+            const auto tableOk = c105.guardRecoverMinMainness == candidateGuardRecoverMinMainness
+                              && currentListening.guardRecoverMinMainness == factoryListening.guardRecoverMinMainness
+                              && currentListening.timbreScaleAtKnee == factoryListening.timbreScaleAtKnee
+                              && liveConstantsFor (renderCandidates[0]).catchUpHalfLifeSeconds == factory.catchUpHalfLifeSeconds;
+
+            test.check (names.empty() && plainOk && tracedOk && coldOk && rejected && tableOk, "--candidate / --cold 的命令行约定",
+                        std::string (names.empty() ? "" : "这些名字没解析对：" + names + "；")
+                            + (plainOk ? "" : "不给 / current 不是出厂（" + e1 + e2 + "）；")
+                            + (tracedOk ? "" : "候选的 LiveConstants 没进探针或 --live-constants 没叠上（" + e3 + e4 + "）；")
+                            + (coldOk ? "" : "--cold 没解析对（" + e5 + "）；")
+                            + (rejected ? "" : "不认识的名字、给两次、候选开追踪不给标签、--cold 配 --live-only 有没报错的；")
+                            + (tableOk ? "" : "候选表的常数不对（current 应是出厂、c105 应是 0.5）；")
+                            + std::to_string (renderCandidates.size()) + " 个名字都认，current = 不给，候选常数进探针，坏写法都报错");
         }
 
         // ---- 合成 4/4 曲（tools/render/make_synthetic_house.py 同一类素材）：124 BPM、GLAZE 0、块长 512、出厂常数 ----
@@ -6648,6 +6854,15 @@ int main (int argc, char* argv[])
         case ParseResult::run:
             break;
     }
+
+    if (options.candidate != 0)   // T-113：之后建的每条链都换上候选常数（makeRenderChain 读）
+    {
+        activeCandidate = &renderCandidates[options.candidate];
+        std::cerr << "T-113 听感批：候选 " << activeCandidate->name << "（" << activeCandidate->text << "）\n";
+    }
+
+    if (options.cold)
+        std::cerr << "T-113 --cold：成品从冷启动渲染（不读回第一遍的存档）\n";
 
     if (! options.replayOverrides.empty())   // T-096d：覆盖行的标识与原文（clayId / statusText 读）
         replayOverrideNames = { replayOverrideId (options.replayOverrides), replayOverrideText (options.replayOverrides) };
