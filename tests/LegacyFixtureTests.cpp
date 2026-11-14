@@ -173,8 +173,7 @@ namespace celadon::test
                 expect (! phase2::isDiscardedListenTag ("GLAZE_CONSTANTS"), "constants are ignored, not a listen node");
 
                 const auto saved = phase2::saveLiveTree (glaze::currentAlgorithmVersion);
-                expect (saved != nullptr && ! phase2::treeWritesLegacyNotice (*saved));
-                expect (! saved->toString().contains (juce::String::fromUTF8 (phase2::legacySessionNoticeZh)));
+                expect (saved != nullptr && ! phase2::treeWritesLegacyNotice (*saved));   // 含中英两句提示文字
             }
 
             beginTest ("the v0.1.6.2 fixture reads back with the same profile id (format 1 hash unchanged)");

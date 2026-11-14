@@ -197,7 +197,16 @@ namespace celadon::test
 
             const auto opened = phase2::interpretState (legacy);
             expect (opened.coldStart && opened.sessionNotice && opened.planUsesFactoryConstants);
-            expectEquals (juce::String::fromUTF8 (phase2::legacySessionNoticeZh), utf8 ("旧的聆听结果已丢弃，声音会变"));
+            expect (phase2::legacySessionNotice (Language::chinese).isNotEmpty()
+                    && phase2::legacySessionNotice (Language::english).isNotEmpty());   // 文字由 LocalisationTests 钉住
+
+            // 阳性对照：提示文字（中、英各一句）真写进树里时，下面「没写进存档」的检查抓得住。
+            for (const auto language : { Language::chinese, Language::english })
+            {
+                juce::XmlElement withNotice { "GLAZE_STATE" };
+                withNotice.setAttribute ("note", phase2::legacySessionNotice (language));
+                expect (phase2::treeWritesLegacyNotice (withNotice), "the notice check misses a notice written into the tree");
+            }
 
             const auto saved = phase2::saveLiveTree (glaze::currentAlgorithmVersion);
             expect (saved != nullptr);

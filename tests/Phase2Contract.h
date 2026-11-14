@@ -27,6 +27,7 @@
 
 #include "../Source/dsp/GlazeTypes.h"
 #include "../Source/ui/HelpText.h"
+#include "../Source/ui/Localisation.h"
 
 #include <algorithm>
 #include <cmath>
@@ -112,9 +113,12 @@ namespace celadon::phase2
         bool operator!= (const View& other) const noexcept   { return ! operator== (other); }
     };
 
-    // Q1：只活在本次打开的界面里，不进 LIVE。
-    inline const char* legacySessionNoticeZh = "旧的聆听结果已丢弃，声音会变";
-    inline const char* legacySessionNoticeEn = "The old listen result was discarded; the sound will change.";
+    // Q1：只活在本次打开的界面里，不进 LIVE。文字直接取界面的本地化表（T-111 起叫「旧的预热结果已丢弃，声音会变」），不在这里
+    // 另抄一份：抄的那份跟界面改名脱节时，下面「提示没写进存档」的检查就成了永远成立的空检查。文字本身由 LocalisationTests 钉住。
+    inline juce::String legacySessionNotice (Language language)
+    {
+        return ui::tr (ui::Text::legacyDiscarded, language);
+    }
 
     inline bool glazeIsOff (float glazePercent) noexcept
     {
@@ -554,7 +558,9 @@ namespace celadon::phase2
 
     inline bool treeWritesLegacyNotice (const juce::XmlElement& xml)
     {
-        return xml.toString().contains (juce::String::fromUTF8 (legacySessionNoticeZh))
+        const auto text = xml.toString();
+        return text.contains (legacySessionNotice (Language::chinese))
+            || text.contains (legacySessionNotice (Language::english))
             || xml.getChildByName ("LEGACY_NOTICE") != nullptr
             || xml.getChildByName ("GLAZE_CONSTANTS") != nullptr
             || xml.getChildByName ("GLAZE_PROFILE") != nullptr
