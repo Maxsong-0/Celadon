@@ -939,21 +939,13 @@ void CeladonAudioProcessorEditor::setGlazeRelearnAction (GlazeRelearnAction)
 {
 }
 
-void CeladonAudioProcessorEditor::noteDiscardedLegacyGlaze()
+void CeladonAudioProcessorEditor::setLegacyNotices (bool newLegacyGlazeDiscarded, bool newGenreDeliveryReset)
 {
-    if (legacyGlazeDiscarded)
+    if (legacyGlazeDiscarded == newLegacyGlazeDiscarded && genreDeliveryReset == newGenreDeliveryReset)
         return;
 
-    legacyGlazeDiscarded = true;
-    timerCallback();
-}
-
-void CeladonAudioProcessorEditor::noteGenreDeliveryReset()
-{
-    if (genreDeliveryReset)
-        return;
-
-    genreDeliveryReset = true;
+    legacyGlazeDiscarded = newLegacyGlazeDiscarded;
+    genreDeliveryReset = newGenreDeliveryReset;
     timerCallback();
 }
 
@@ -1350,9 +1342,10 @@ void CeladonAudioProcessorEditor::timerCallback()
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
 
-    // 编辑器已经开着时读档：消息线程这一帧把「旧的聆听结果已丢弃」点亮。不进 LIVE，本次打开只提示一次。
+    // 编辑器已经开着、读档又不在消息线程（处理器没法当场通知）：这一帧照快照把「旧的聆听结果已丢弃」点亮。只点亮、不清——
+    // 清由处理器在读档后交 false（setLegacyNotices），截图工具摆出来的提示也不被这里覆盖。不进 LIVE。
     if (status.legacySessionDiscarded)
-        noteDiscardedLegacyGlaze();
+        setLegacyNotices (true, genreDeliveryReset);
 
     // 试听差值：LIMIT 被旁通（界面、宿主自动化都算）就退出；耳机跟着处理器的状态。
     if (processor.isAuditioningDifference() && rawValue (state, param::limitBypass) >= 0.5f)

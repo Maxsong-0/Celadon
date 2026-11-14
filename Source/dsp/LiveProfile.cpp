@@ -35,7 +35,7 @@
         - 真峰值：主段加权的「段最大值」直方图（0.1 dB 一格，每格记最大线性值），取其上主段质量 ≥ peakTailSeconds 的最高一格的最大值；
         - 试算 P99：每路一张加权直方图（0.01 dB 一格），每段交来的「每路最大的 8 个」按 f 计入、其余块只计入总块数，numpy 线性插值的
           加权推广（trialPercentileOf）；每个 P99 误差 ≤ 半格 0.005 dB；
-        - formatVersion = clayProfileFormatVersion（2）、houseGate 不填（理由见 finalizeProfile）。
+        - formatVersion = clayProfileFormatVersion（2，理由见 finalizeProfile）。
 
     五、老段（挤出窗口）：直接丢弃，不进「老账」。丢掉的那一截权重（相对于无限记忆）：
         - 主段：稳态下窗口最老一段之后有约 512 × φ 个主段小节（φ = 主段小节占比），它的 f ≈ exp(−512 φ × 1.94 s ÷ W_mem)，整截尾巴约占
@@ -147,7 +147,7 @@ namespace celadon::glaze
         static_assert (std::tuple_size<decltype (MusicProfile::monoPeakCostDb)>::value == (size_t) numMonoTrials
                            && std::tuple_size<decltype (MusicProfile::lowCutBlendLossDb)>::value == (size_t) numBlendTrials,
                        "每个试算候选都要有一个画像特征");
-        static_assert (clayProfileFormatVersion == 2, "实时画像按格式 2 交（含立体声 / 超低频字段，不含 houseGate）");
+        static_assert (clayProfileFormatVersion == 2, "实时画像按格式 2 交（含立体声 / 超低频字段，不含格式 3 的 House 门控结果）");
 
         //==============================================================================
         // 实时画像自己的直方图（「分位数一律用定长直方图」；格宽的理由写在各自旁边）。
@@ -1917,12 +1917,11 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // 画像（文件头第四节）。同 MusicAnalyzer.cpp computeHouseProfile 的分工。
+        // 画像（文件头第四节）。公式的来历是 T-038 的 House 门控画像（MusicAnalyzer.cpp 原 computeHouseProfile，T-108 随曲风删掉）。
         //
-        // formatVersion = clayProfileFormatVersion（2）、houseGate 不填（valid = false）：决策器（GlazePlanner.cpp）两项都不读——只读各特征的
-        // value / valid / confidence、representativeness、bandConfidence；编排器（GlazeController.cpp）用 formatVersion ≥ 2 判「方案源带
-        // Clay 特征」——实时画像带着，所以是 2；用 formatVersion ≥ 3 且 houseGate.valid 判「House 档锁定过的画像」——那是 T-038 学习 → 锁定
-        // 的机制，实时画像没有锁定；S_ref / lowRef 从 getDiagnostics 读。
+        // formatVersion = clayProfileFormatVersion（2）：决策器（GlazePlanner.cpp）不读它——只读各特征的 value / valid / confidence、
+        // representativeness、bandConfidence；编排器（GlazeController.cpp）用 formatVersion ≥ 2 判「方案源带 Clay 特征」——实时画像带着，
+        // 所以是 2。格式 3（带 House 门控结果）T-108 起不再写，只在读旧存档时认得（GlazeProfile.h）。S_ref / lowRef 从 getDiagnostics 读。
         void finalizeProfile() noexcept
         {
             auto& r = result;

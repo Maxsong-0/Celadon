@@ -16,7 +16,7 @@
     位图（背景、瓷面、流线）按当次绘制的物理像素比生成。窗口大小随工程存一份（uiZoom），另记为新窗口的默认大小（UiSettings）。
 
     GLAZE 的数据源由处理器在 createEditor 里注入：状态快照、本块交给模块的实际参数。
-    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。旧工程读档后处理器应调 noteDiscardedLegacyGlaze（存着非默认曲风 / 交付时还有 noteGenreDeliveryReset）。
+    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。每次读档后处理器调 setLegacyNotices 交两种旧工程提示的当前值（旧聆听结果已丢弃、曲风与交付已取消）。
 
   ==============================================================================
 */
@@ -68,13 +68,14 @@ public:
     void setGlazeRelearnAction (GlazeRelearnAction action);
     void setGlazeEffectiveParamsSource (GlazeEffectiveParamsSource source);
 
-    // T-048 Q1。旧工程（v1，或只有 GLAZE_PROFILE / PLAN / CALIBRATION / EXECUTION）读档后，处理器在消息线程调一次。
-    // 不写入 LIVE。编辑器还没打开时由处理器记住，createEditor 里再调。本次打开左下角提示「旧的聆听结果已丢弃，声音会变」。
-    void noteDiscardedLegacyGlaze();
-
-    // T-108（ADR-039 Q2）。读到的旧工程存着非默认的曲风 / 交付（T-038，已删）时处理器在消息线程调；时机同上。
-    // 本次打开左下角提示「曲风与交付已取消，已改回通用 + 标准，声音会变」。不进工程。
-    void noteGenreDeliveryReset();
+    // 两种旧工程提示的当前值，左下角各占一行；都是 false 就不显示。不写入 LIVE、不进工程。
+    //   legacyGlazeDiscarded（T-048 Q1）：读到的是旧聆听结果（v1，或只有 GLAZE_PROFILE / PLAN / CALIBRATION / EXECUTION），已丢弃，
+    //     提示「旧的聆听结果已丢弃，声音会变」；
+    //   genreDeliveryReset（T-108，ADR-039 Q2）：读到的旧工程存着非默认的曲风 / 交付（T-038，已删），提示「曲风与交付已取消，
+    //     已改回通用 + 标准，声音会变」。
+    // 处理器在消息线程调：createEditor 里一次（读档早于开窗口），编辑器开着时每次读档后一次——读到干净的工程时交 false，
+    // 上一个工程的提示随之消失（T-108 独立复查 F12：改前只会置上、不会清）。截图工具直接调它摆出提示。
+    void setLegacyNotices (bool legacyGlazeDiscarded, bool genreDeliveryReset);
 
     // 截图工具用：直接给状态行一份读数（c、m、冷导出、守护原因）。不进工程。clear 之后回到编排器快照。
     void setStatusLinePreview (const celadon::ui::glazestatus::Reading& reading);

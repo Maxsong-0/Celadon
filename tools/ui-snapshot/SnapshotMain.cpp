@@ -673,15 +673,15 @@ int main (int argc, char* argv[])
         { "zh-status-export", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
         { "en-status-export", celadon::Language::english, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
         // 旧工程提示一次：左下角琥珀色第二行，不进状态行。
-        { "zh-legacy-notice", celadon::Language::chinese, none, [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); }, juce::Rectangle<int> (0, 470, 520, 90) },
-        { "en-legacy-notice", celadon::Language::english, none, [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); }, juce::Rectangle<int> (0, 470, 560, 90) },
+        { "zh-legacy-notice", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNotices (true, false); }, juce::Rectangle<int> (0, 470, 520, 90) },
+        { "en-legacy-notice", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNotices (true, false); }, juce::Rectangle<int> (0, 470, 560, 90) },
         // T-108：存着曲风 / 交付的旧工程提示一次（左下角琥珀）；与旧聆听结果丢弃同时出现时各占一行。T-038 的 -house-hint 随 T-108 删掉。
-        { "zh-genre-reset", celadon::Language::chinese, none, [] (Session& s) { s.editor->noteGenreDeliveryReset(); }, juce::Rectangle<int> (0, 470, 620, 90) },
-        { "en-genre-reset", celadon::Language::english, none, [] (Session& s) { s.editor->noteGenreDeliveryReset(); }, juce::Rectangle<int> (0, 470, 760, 90) },
+        { "zh-genre-reset", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNotices (false, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
+        { "en-genre-reset", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNotices (false, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
         { "zh-genre-reset-both", celadon::Language::chinese, none,
-          [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); s.editor->noteGenreDeliveryReset(); }, juce::Rectangle<int> (0, 470, 620, 90) },
+          [] (Session& s) { s.editor->setLegacyNotices (true, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
         { "en-genre-reset-both", celadon::Language::english, none,
-          [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); s.editor->noteGenreDeliveryReset(); }, juce::Rectangle<int> (0, 470, 760, 90) },
+          [] (Session& s) { s.editor->setLegacyNotices (true, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
     };
 
     for (const auto& state : states)
@@ -1515,6 +1515,50 @@ namespace
                            + (corner == nullptr ? juce::String ("corner note missing") : "\"" + corner->getFirstLine() + "\" / \"" + corner->getSecondLine() + "\"")
                            + "), re-saved without the two nodes, GLAZE " + juce::String (glaze, 1) + " / style " + juce::String (style, 0) + " kept");
             }
+        }
+
+        // T-108 独立复查 F12：编辑器开着时连读几个工程，左下角只反映最近读的那一个——旧工程的提示在读到干净的工程后消失（改前编辑器
+        // 只会置上、不会清）。两种提示都查：曲风交付（House 旧工程）与旧聆听结果（GLAZE_STATE 格式号 1 的旧存档，读档时整份丢弃）。
+        {
+            const auto legacyGlaze = [&oldProject]
+            {
+                auto block = oldProject ("0", "0");
+                auto xml = juce::AudioProcessor::getXmlFromBinary (block.getData(), (int) block.getSize());
+
+                if (auto* glazeNode = xml->getChildByName (celadon::glaze::stateTag))
+                {
+                    glazeNode->deleteAllChildElements();
+                    glazeNode->setAttribute ("formatVersion", 1);
+                }
+
+                juce::MemoryBlock out;
+                juce::AudioProcessor::copyXmlToBinary (*xml, out);
+                return out;
+            }();
+
+            auto session = std::make_unique<Session>();
+            session->processor.reset (dynamic_cast<CeladonAudioProcessor*> (createPluginFilter()));
+            session->processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
+            session->processor->prepareToPlay (sampleRate, blockSize);
+            session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorIfNeeded()));
+
+            const auto cornerAfter = [&session] (const juce::MemoryBlock& blob)
+            {
+                session->processor->setStateInformation (blob.getData(), (int) blob.getSize());
+                session->editor->advanceForSnapshot (0.05);
+                auto* corner = dynamic_cast<CornerNote*> (findById (*session->editor, "corner_note"));
+                return corner == nullptr ? juce::String ("corner note missing") : corner->getFirstLine() + " | " + corner->getSecondLine();
+            };
+
+            const auto legacyText = celadon::ui::tr (celadon::ui::Text::legacyDiscarded, celadon::Language::chinese);
+            const auto house = cornerAfter (oldProject ("1", "0"));
+            const auto cleanAfterHouse = cornerAfter (oldProject ("0", "0"));
+            const auto discarded = cornerAfter (legacyGlaze);
+            const auto cleanAfterDiscarded = cornerAfter (oldProject (nullptr, nullptr));
+
+            check (house == " | " + expected && cleanAfterHouse == " | " && discarded == " | " + legacyText && cleanAfterDiscarded == " | ",
+                   "T-108 editor open, projects loaded in a row: the notice follows the latest one and clears on a clean project (House \"" + house
+                       + "\" -> clean \"" + cleanAfterHouse + "\" -> old listening result \"" + discarded + "\" -> clean \"" + cleanAfterDiscarded + "\")");
         }
     }
 

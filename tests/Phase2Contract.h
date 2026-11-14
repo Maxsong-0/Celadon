@@ -5,9 +5,9 @@
     T-048 阶段 2 的测试契约（docs/validation/2026-10-05-T048-phase2/INTERFACE-SKETCH.md，Max 对 Q1–Q12 全部「可以」）。
 
     编排器（代理 A）、分析器（代理 B）、状态行（代理 C）还没合进这条分支。本头文件把草图里测试要钉住的纯规则写成可执行规格：
-    状态行、速率与棘轮、G_trim、守门取最小、旧工程读档、1 s 网格、曲风模型切换折进后续分片。
+    状态行、速率与棘轮、G_trim、守门取最小、旧工程读档、1 s 网格。
     T-108（ADR-039）删了曲风与交付、落差 / PSR 两扇守门：House 反相提示一条、「House ·」前缀、保对比 / PSR 两个原因与它们的
-    G_trim 冻结输入随之删掉，「交付峰值」改叫限幅（limiterPeak）。
+    G_trim 冻结输入、曲风模型切换（Q4 的 ModelSwitch）随之删掉，「交付峰值」改叫限幅（limiterPeak）。
     生产类型已经有的部分（makePlan、LiveConstants 软遗忘）由
     Phase2OrchestratorTests 直接调生产代码，不在这里再写一遍。
 
@@ -490,25 +490,6 @@ namespace celadon::phase2
         const auto grid = samplesPerGrid (sampleRate);
         return sample / grid != previousSample / grid;
     }
-
-    // Q4：音频线程只记下新模型，已发布画像继续用旧的，切换折进后续 advanceTo 分片。
-    struct ModelSwitch
-    {
-        int published = 0;
-        int pending = 0;
-
-        void request (int model) noexcept
-        {
-            pending = model;
-        }
-
-        void advanceSlice() noexcept
-        {
-            published = pending;
-        }
-
-        bool waiting() const noexcept   { return published != pending; }
-    };
 
     // --------------------------------------------------------------------------
     // 第 5 节工程树。旧节点读到就丢。GLAZE_CONSTANTS 不参与 makePlan。

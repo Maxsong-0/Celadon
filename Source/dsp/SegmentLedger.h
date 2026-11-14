@@ -307,7 +307,7 @@ namespace celadon::glaze
 
     // T-048 段定稿的接收者（实时画像 LiveProfile 实现它；设计规格-实时GLAZE-主段与增益 第 1 节）。
     // SegmentLedger 每定稿一段调一次 segmentFinalized：不论这一段存没存进账本（没有有效音频、账本满了、重放不如旧值都照样交），
-    // 交的是 deriveSegment 之后的段（effectiveSeconds / loudnessLufs / lowShare / heard 已算好结果，接收者不用）。
+    // 交的是 deriveSegment 之后的段（effectiveSeconds / loudnessLufs / lowShare / heard 都已算好，接收者直接用）。
     // 不连续点（endEpoch）就地定稿的段同样交。音频线程调用：实现必须 0 分配、0 锁、不抛异常。
     class SegmentSink
     {

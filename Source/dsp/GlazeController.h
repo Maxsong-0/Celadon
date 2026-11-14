@@ -13,7 +13,7 @@
                                                                                       //  （与 v0.5 同一时机，getLatencySamples 照样立即反映 Lookahead）
         CeladonChain::process       → controller.analyzeSpectrum (balance);        // 每个宿主块开头一次：上一块 Balance 新发布的帧（见该函数注释）
                                       GLAZE > 0 时宿主块在预算环 10 ms 时隙边界与 OUT 表 100 ms 子块边界中较近的一个处切片
-                                      （getGuardSamplesUntilBoundary，T-097；子块边界 T-108 后只为不改声音而留；宿主在播、给了位置或拍点与速度时，后几片先
+                                      （getSamplesUntilSliceBoundary，T-097；子块边界 T-108 删守门后照旧切：每片一次 endBlock，少切一刀通用档的声音就变；宿主在播、给了位置或拍点与速度时，后几片先
                                       setHostInfo 到片起点，走完再补到块尾；试听差值时另按差值缓冲长度切，与 GLAZE 无关），每片：
                                       inputMeter.process (io);
                                       controller.analyzeInput (io, inputMeter);     // 入口特征（模块处理前）
@@ -129,7 +129,7 @@
 
     T-108（ADR-039）删掉曲风与交付：没有 House 档的主段模型、音色覆盖、限幅跟拍、守门开关与反相提示，也没有流媒体 / 俱乐部的
     目标响度与 −2 dBTP 封顶。主段模型只剩响度型（LiveConstants::loudness）；syncLiveConstants 在消息线程把出厂 LiveConstants
-    交给 LiveProfile（CeladonChain::prepare 调）。
+    交给 LiveProfile（CeladonChain::prepare 调；插件的 prepareToPlay 每次另经 CeladonChain::syncGlazeLiveConstants 再调一次，同规格重启也算）。
 
   ==============================================================================
 */
@@ -174,7 +174,7 @@ namespace celadon::glaze
         // 定稿），预算环丢掉未完成的时隙，出口电平跟踪器只清 K 加权滤波器，Clay 压力反馈的累计与守护回收指示清零。LIVE 里的统计
         // （实时画像、出口主段电平的段累计）不清（ADR-030 决定 6），已施加增量、G_trim、目标方案与预算环的退让也都不动。
         void hostReset() noexcept;
-        int getGuardSamplesUntilBoundary() const noexcept;
+        int getSamplesUntilSliceBoundary() const noexcept;
 
         // 不连续点（setHostInfo 自己能识别跳播与回绕；这里留给调用方直接报，目前链与测试都不调它——链遇到宿主 reset 直接调
         // hostReset）。hostReset 这一种等同 hostReset()；跳播 / 回绕：分析器断开短窗口，并把开着的实时段截到此刻、定稿交给 LiveProfile
@@ -196,7 +196,7 @@ namespace celadon::glaze
         // balance、chainLatencySamples、spectrumDeferred 三个参数 T-048 阶段 2 起不再使用（签名留着，链照传）：频谱帧只在
         // analyzeSpectrum 里交给分析器，endBlock 不再代交——不经链、直接驱动编排器的调用方要自己调 analyzeSpectrum。
         // inputMeter 原给 T-097 的落差守门读入口子块（T-108 随守门删掉），留着签名、不再读；outputMeter 只用来推算 100 ms 子块的
-        // 切片边界（getGuardSamplesUntilBoundary）。
+        // 切片边界（getSamplesUntilSliceBoundary）。
         // output：出口母带（Listen 之前）。空指针时输出电平跟踪器本块不吃样本（不经链的测试）。
         void endBlock (const BalanceModule& balance, const LoudnessMeter& inputMeter, const LoudnessMeter& outputMeter,
                        const ModuleStats& stats, int chainLatencySamples, bool spectrumDeferred = false,
@@ -243,7 +243,8 @@ namespace celadon::glaze
         void attachLiveProfile (LiveProfile* profile) noexcept;
 
         // 消息线程、音频已停时：把出厂 LiveConstants 交给 LiveProfile（LiveProfile::setConstants 同步重算已发布的那一份）。
-        // CeladonChain::prepare 每次都调（T-108 之前叫 syncLiveModel，另按曲风选主段模型）。
+        // CeladonChain::prepare 每次都调；插件的 prepareToPlay 不论整体重建还是同规格只 reset，最后都经 CeladonChain::syncGlazeLiveConstants
+        // 再调一次（T-108 之前叫 syncLiveModel，另按曲风选主段模型；那时两处也都调）。
         void syncLiveConstants() noexcept;
         bool hasPrepared() const noexcept;
 

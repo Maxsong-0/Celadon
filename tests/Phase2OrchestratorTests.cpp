@@ -50,7 +50,7 @@ namespace celadon::test
             testGuardTakesTheMostNegative();
             testTrimFreezesWhenAnyGuardHolds();
             testOutputLevelGateIgnoresHostReset();
-            testOneSecondGridAndModelSwitch();
+            testOneSecondGrid();
             testLegacyStateDropsListenNodes();
             testPlannerReadsLiveProfileNotALock();
             testSoftForgetStays();
@@ -159,9 +159,9 @@ namespace celadon::test
             expect (! tracker.hasLevel());
         }
 
-        void testOneSecondGridAndModelSwitch()
+        void testOneSecondGrid()
         {
-            beginTest ("Q3/Q4: the 1 s grid follows the analyzer clock, and a genre model waits for the next slice");
+            beginTest ("Q3: the 1 s grid follows the analyzer clock");
 
             expect (phase2::samplesPerGrid (48000.0) == 48000);
             expect (! phase2::crossedOneSecondGrid (0, 47999, 48000.0));
@@ -181,14 +181,6 @@ namespace celadon::test
             }
 
             expectEquals (crossings, 1, "a 333-sample block still crosses the 1 s grid once in 200 blocks");
-
-            phase2::ModelSwitch model;
-            model.request (2);
-            expect (model.waiting());
-            expectEquals (model.published, 0);
-            model.advanceSlice();
-            expect (! model.waiting());
-            expectEquals (model.published, 2);
         }
 
         void testLegacyStateDropsListenNodes()

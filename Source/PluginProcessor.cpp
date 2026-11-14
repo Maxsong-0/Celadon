@@ -9,6 +9,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "ParameterDefaults.h"
+#include "LegacyState.h"
 #include "ui/HelpText.h"
 #include "dsp/GlazePlanner.h"
 #include "dsp/GlazeProfile.h"
@@ -62,31 +63,6 @@ namespace
     constexpr const char* stateFormatAttribute = "celadonStateFormat";
     constexpr const char* stateVersionAttribute = "celadonVersion";
     constexpr int currentStateFormat = 1;
-
-    // T-108（ADR-039 Q2、Q3）：旧工程的状态树里 T-038 的曲风 / 交付两个 PARAM 节点。参数已从参数表删掉，节点留在树里会被
-    // APVTS 原样存回去（下次读档又提示一次），所以读档时摘掉。返回其中有没有不是默认值的（下标 0 = 通用 / 标准）：那样的工程
-    // 声音会变（House 档的音色、主段模型与限幅跟拍，流媒体的 −2 dBTP、俱乐部的目标响度都没了），界面提示一次。
-    bool removeLegacyGenreDelivery (juce::XmlElement& xml)
-    {
-        auto changed = false;
-
-        for (auto* node = xml.getFirstChildElement(); node != nullptr;)
-        {
-            auto* next = node->getNextElement();
-            const auto id = node->getStringAttribute ("id");
-
-            if (node->hasTagName ("PARAM") && (id == celadon::param::legacy::glazeGenre || id == celadon::param::legacy::glazeDelivery))
-            {
-                const auto value = node->getDoubleAttribute ("value", 0.0);
-                changed = changed || ! std::isfinite (value) || juce::roundToInt (value) != 0;
-                xml.removeChildElement (node, true);
-            }
-
-            node = next;
-        }
-
-        return changed;
-    }
 }
 
 //==============================================================================
@@ -524,6 +500,9 @@ void CeladonAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
         chain.reset();
     }
 
+    // 两条路都再交一次实时画像常数（见 CeladonChain::syncGlazeLiveConstants）：同规格重启也作废在途的那一遍，与 T-108 之前逐位相同。
+    chain.syncGlazeLiveConstants();
+
     // prepareToPlay 不在音频线程，可以直接上报；同时写 pendingLatency，免得定时器又报一次旧值。
     hostResetPending.store (false);
     lastBlockHostBypassed = false;
@@ -886,36 +865,21 @@ juce::AudioProcessorEditor* CeladonAudioProcessor::createEditor()
     editor->setGlazeRelearnAction ([this] { requestGlazeRelearn(); });
     editor->setGlazeEffectiveParamsSource ([this] { return getGlazeEffectiveParamsForUi(); });
 
-    // 读档发生在编辑器创建之前：本次打开补一次提示。编辑器已经开着时由 setStateInformation 通知。
-    if (getGlazeStatus().legacySessionDiscarded)
-        editor->noteDiscardedLegacyGlaze();
-
-    if (genreDeliveryReset.load())
-        editor->noteGenreDeliveryReset();
+    // 读档发生在编辑器创建之前：把两种旧工程提示的当前值交给新窗口。编辑器已经开着时由 setStateInformation 通知。
+    editor->setLegacyNotices (getGlazeStatus().legacySessionDiscarded, genreDeliveryReset.load());
 
     return editor;
 }
 
 void CeladonAudioProcessor::notifyLegacyDiscardIfEditorOpen()
 {
-    const auto discarded = getGlazeStatus().legacySessionDiscarded;
-    const auto genreDelivery = genreDeliveryReset.load();
-
-    if (! discarded && ! genreDelivery)
-        return;
-
     if (auto* messages = juce::MessageManager::getInstanceWithoutCreating())
         if (! messages->isThisTheMessageThread())
             return;
 
+    // 两个值都交，false 也交：读到干净的工程时把上一个工程的提示清掉（T-108 独立复查 F12）。
     if (auto* editor = dynamic_cast<CeladonAudioProcessorEditor*> (getActiveEditor()))
-    {
-        if (discarded)
-            editor->noteDiscardedLegacyGlaze();
-
-        if (genreDelivery)
-            editor->noteGenreDeliveryReset();
-    }
+        editor->setLegacyNotices (getGlazeStatus().legacySessionDiscarded, genreDeliveryReset.load());
 }
 
 //==============================================================================
@@ -980,7 +944,7 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
             xml->removeAttribute (stateFormatAttribute);
             xml->removeAttribute (stateVersionAttribute);
 
-            genreDeliveryReset.store (removeLegacyGenreDelivery (*xml));
+            genreDeliveryReset.store (celadon::legacystate::removeGenreDeliveryNodes (*xml));
 
             auto newState = juce::ValueTree::fromXml (*xml);
             addMissingParameterNodes (newState, stateFormat);

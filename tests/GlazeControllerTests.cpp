@@ -6948,7 +6948,7 @@ namespace celadon::test
             //    修之前：到 +3.00。
             void testQuietIntroDoesNotPullTrim()
             {
-                beginTest ("general genre, quiet intro then the full level: G_trim does not chase the input loudness catching up");
+                beginTest ("quiet intro then the full level: G_trim does not chase the input loudness catching up");
 
                 constexpr double introSeconds = 40.0;
                 constexpr double bodySeconds = 160.0;

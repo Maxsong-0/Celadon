@@ -352,7 +352,7 @@ namespace celadon
             // computed correction becomes audible at the next setParams.
             auto length = io.getNumSamples() - offset;
             if (glazeActive)
-                length = juce::jmin (length, juce::jmax (1, controller.getGuardSamplesUntilBoundary()));
+                length = juce::jmin (length, juce::jmax (1, controller.getSamplesUntilSliceBoundary()));
             length = juce::jmin (length, juce::jmax (1, sliceLimit));
             juce::AudioBuffer<float> slice (io.getArrayOfWritePointers(), io.getNumChannels(), offset, length);
             nonFinite = processSlice (slice) || nonFinite;

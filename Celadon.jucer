@@ -26,6 +26,8 @@
             file="Source/ParameterDefaults.h"/>
       <FILE id="jw4Ky9" name="AnalyzerTap.h" compile="0" resource="0"
             file="Source/AnalyzerTap.h"/>
+      <FILE id="Lg7sT1" name="LegacyState.h" compile="0" resource="0"
+            file="Source/LegacyState.h"/>
       <GROUP id="{1D8BEABE-7186-812B-FA28-E7FEEDE815CD}" name="dsp">
         <FILE id="hGr0lD" name="LimiterModule.cpp" compile="1" resource="0"
               file="Source/dsp/LimiterModule.cpp"/>

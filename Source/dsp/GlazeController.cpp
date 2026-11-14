@@ -572,9 +572,11 @@ namespace celadon::glaze
         std::int64_t lastInputSegmentStart = notSeenSegmentStart;
         GuardOutput budgetOut {};
 
-        // 切片点（getGuardSamplesUntilBoundary）里的 OUT 表 100 ms 子块边界。T-097 给落差 / PSR 两扇守门加的；两扇守门随 T-108 删掉，
-        // 这条边界照旧切：切片位置决定各片的模块统计怎么落进预算环的时隙，删了它通用档 GLAZE > 0 的输出就不再与改前逐位相同
-        // （T-108 的 20 首对照：GLAZE 35 / 70 / 100 全部变了，最大 0.12 LU）。只读出口子块的 endSample 推算下一条边界，不做别的。
+        // 切片点（getSamplesUntilSliceBoundary）里的 OUT 表 100 ms 子块边界。T-097 给落差 / PSR 两扇守门加的；两扇守门随 T-108 删掉，
+        // 这条边界照旧切，它不是死代码：链每切一片就调一次 endBlock，预算环统计、速率限制、出口电平跟踪器收段与 G_trim 积分都按片推进
+        //（各片执行的设置相同，只有统计的推进点不同），少切这一刀通用档 GLAZE > 0 的输出就不再与改前逐位相同（T-108 的 20 首对照：
+        // GLAZE 35 / 70 / 100 全部变了，最大 0.12 LU）。ChainTests 的 testSliceAtOutputSubBlockBoundary 钉住它。
+        // 只读出口子块的 endSample 推算下一条边界，不做别的。
         std::array<LoudnessMeter::SubBlock, (size_t) LoudnessMeter::subBlockRingCapacity> subBlockRead {};
         std::int64_t subBlockCursor = 0;
         std::int64_t lastSubBlockEnd = 0;        // 最近读到的出口子块 endSample
@@ -1712,10 +1714,10 @@ namespace celadon::glaze
     void GlazeController::prepare (const juce::dsp::ProcessSpec& spec)                         { impl->prepare (spec); }
     void GlazeController::setHostInfo (const HostInfo& info) noexcept                          { impl->setHostInfo (info); }
     void GlazeController::hostReset() noexcept                                                  { impl->hostReset(); }
-    int GlazeController::getGuardSamplesUntilBoundary() const noexcept
+    int GlazeController::getSamplesUntilSliceBoundary() const noexcept
     {
         // 预算环 10 ms 时隙边界与 OUT 表 100 ms 子块边界里较近的一个（链在 GLAZE > 0 时按它切片）。子块边界原给 T-097 的落差 / PSR
-        // 守门用，守门随 T-108 删掉、边界照旧切（Impl::trackSubBlockBoundary 的注释：不切通用档的声音就变）。
+        // 守门用，守门随 T-108 删掉、边界照旧切（为什么见 Impl 里 samplesUntilSubBlock 上方的注释：不切通用档的声音就变）。
         return juce::jmin (impl->budget.getSamplesUntilSlotBoundary(), impl->samplesUntilSubBlock);
     }
     void GlazeController::handleDiscontinuity (Discontinuity kind) noexcept

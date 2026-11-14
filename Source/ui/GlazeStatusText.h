@@ -20,7 +20,7 @@
     「交付峰值」改叫「限幅」（交付删了；意思不变：限幅 GR 是超限来源）。
     GLAZE ≤ 0 时状态行只写「GLAZE 0 · 只用手动设置」，上面六条都不显示。
     旧工程的两条提示（「旧的聆听结果已丢弃，声音会变」「曲风与交付已取消…」）不在这六条里：只活在本次打开的界面
-   （编辑器 noteDiscardedLegacyGlaze / noteGenreDeliveryReset），不进 Reading。
+   （编辑器 setLegacyNotices），不进 Reading。
 
     等响、听原声（「正在听原声」）是 A / B，不是学习，不在这里判定。
 

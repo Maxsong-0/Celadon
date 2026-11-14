@@ -203,6 +203,7 @@ add_executable(celadon_tests
     tests/ClayGuardTests.cpp
     tests/ClayGlazeTests.cpp
     tests/LegacyFixtureTests.cpp
+    tests/LegacyStateTests.cpp
     tests/AnalyzerTapTests.cpp
     tests/LocalisationTests.cpp
     tests/SegmentLedgerTests.cpp

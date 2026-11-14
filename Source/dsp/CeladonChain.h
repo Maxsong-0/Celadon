@@ -176,6 +176,11 @@ namespace celadon
         glaze::LiveProfile& getLiveProfile() noexcept                     { return liveProfile; }
         const glaze::LiveProfile& getLiveProfile() const noexcept         { return liveProfile; }
 
+        // 消息线程、音频已停（prepareToPlay 每次都调，含同规格只 reset 的那条）：把实时画像常数重新交给 LiveProfile。
+        // setConstants 会作废在途的那一遍、按已发布的数据重算画像。T-108 之前这一步叫 syncGlazeLiveModel（同时交曲风对应的主段模型），
+        // 通用档也每次都走；曲风删了模型不会再变，但「作废在途那一遍」影响之后的方案时机，照旧调才与改前逐位相同（T-108 独立复查 F3）。
+        void syncGlazeLiveConstants() noexcept                            { controller.syncLiveConstants(); }
+
         void processReference (const juce::AudioBuffer<float>& input, bool connected) noexcept { reference.process (input, connected); }
         void requestReferenceLearn() noexcept { reference.requestLearn(); }
         void cancelReferenceLearn() noexcept { reference.cancelLearn(); }
