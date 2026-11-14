@@ -260,6 +260,23 @@ namespace celadon::ui
         // 听原声：合成好的整颗旋钮按 55 % 贴，等价于原来把各元素画进 55 % 的透明图层（被瓷面盖住的影子、被把手盖住的轨道
         // 都不会透出来），但不再每次 paint 都开一层。
         face.draw (g, comparing ? comparingOpacity : 1.0f);
+
+        // 精调拖动时帽内数字下面的「精调」（不进缓存图：只在按住 ⌘ / Ctrl 拖的那几秒出现）。
+        if (isFineDragging())
+        {
+            g.setFont (uiFont (10.0f, Weight::medium));
+            g.setColour (palette::c200);
+            g.drawText (tr (Text::fine, language), juce::Rectangle<float> (centreXY - 30.0f, 128.0f, 60.0f, 12.0f), juce::Justification::centred, false);
+        }
+    }
+
+    void GlazeKnob::mouseUp (const juce::MouseEvent& e)
+    {
+        const auto wasFine = isFineDragging();
+        DialControl::mouseUp (e);
+
+        if (wasFine)
+            repaint();   // 「精调」两个字跟着松手消失（减少动效时松手后没有回弹来带出重画）
     }
 
     void GlazeKnob::paintFace (juce::Graphics& g, float pixelScale) const

@@ -85,12 +85,13 @@ namespace celadon::ui
         repaint();
     }
 
-    void GlazeTitle::setChip (Chip newChip)
+    void GlazeTitle::setChip (Chip newChip, bool attention)
     {
-        if (chip == newChip)
+        if (chip == newChip && chipAttention == attention)
             return;
 
         chip = newChip;
+        chipAttention = attention;
         repaint();
     }
 
@@ -103,22 +104,30 @@ namespace celadon::ui
         const juce::String title ("GLAZE");
         const auto subtitle = tr (Text::glazeSubtitle, language);
 
-        // 阶段标签：文字与颜色。琥珀（要动手）用警告色；起步用青；稳态用浅青；GLAZE 0 用灰。
+        // 阶段标签：文字与颜色。琥珀（要动手）用橙底，橙色此刻归别的事时退成灰底（T-111 橙色规则）；GLAZE 0 灰底；
+        // 起步 / 保持 / 跟随三种稳态只画「6 px 圆点 + 文字」、不带底色（T-111 / 4-16：原来的浅青底圆角和两侧分段选择器的
+        // 选中段一个样子，看着像能点）。
         juce::String chipLabel;
         auto chipBackground = palette::c100, chipForeground = palette::c700;
+        auto dotStyle = false;
+        const auto amberBackground = chipAttention ? palette::warningSoft : palette::groove;
+        const auto amberForeground = chipAttention ? palette::warningText : palette::ink2;
 
         switch (chip)
         {
             case Chip::manual:      chipLabel = tr (Text::chipManual, language);      chipBackground = palette::groove; chipForeground = palette::ink3; break;
-            case Chip::manualLimit: chipLabel = tr (Text::chipManualLimit, language); chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
-            case Chip::coldExport:  chipLabel = tr (Text::chipExport, language);      chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
-            case Chip::limited:     chipLabel = tr (Text::chipLimited, language);     chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
-            case Chip::starting:    chipLabel = tr (Text::chipStarting, language);    break;
-            case Chip::holding:     chipLabel = tr (Text::chipHolding, language);     break;
-            case Chip::following:   chipLabel = tr (Text::chipFollowing, language);   break;
+            case Chip::manualLimit: chipLabel = tr (Text::chipManualLimit, language); chipBackground = amberBackground; chipForeground = amberForeground; break;
+            case Chip::coldExport:  chipLabel = tr (Text::chipExport, language);      chipBackground = amberBackground; chipForeground = amberForeground; break;
+            case Chip::limited:     chipLabel = tr (Text::chipLimited, language);     chipBackground = amberBackground; chipForeground = amberForeground; break;
+            case Chip::starting:    chipLabel = tr (Text::chipStarting, language);    dotStyle = true; break;
+            case Chip::holding:     chipLabel = tr (Text::chipHolding, language);     dotStyle = true; break;
+            case Chip::following:   chipLabel = tr (Text::chipFollowing, language);   dotStyle = true; break;
         }
 
-        const auto chipWidth = chipLabel.isEmpty() ? 0.0f : 7.0f + textWidth (chipFont, chipLabel) + 7.0f;
+        constexpr float dotSize = 6.0f, dotGap = 5.0f;
+        const auto chipWidth = chipLabel.isEmpty() ? 0.0f
+                             : dotStyle ? dotSize + dotGap + textWidth (chipFont, chipLabel) + 2.0f
+                                        : 7.0f + textWidth (chipFont, chipLabel) + 7.0f;
         const auto titleWidth = textWidth (titleFont, title);
         const auto subtitleWidth = textWidth (subtitleFont, subtitle);
         const auto total = titleWidth + 9.0f + subtitleWidth + (chipWidth > 0.0f ? 9.0f + chipWidth : 0.0f);
@@ -138,10 +147,19 @@ namespace celadon::ui
             return;
 
         const juce::Rectangle<float> chipArea (x, (h - 19.0f) * 0.5f, chipWidth, 19.0f);
-        g.setColour (chipBackground);
-        g.fillRoundedRectangle (chipArea, 5.0f);
+        auto chipX = chipArea.getX() + 7.0f;
 
-        const auto chipX = chipArea.getX() + 7.0f;
+        if (dotStyle)
+        {
+            g.setColour (palette::c500);
+            g.fillEllipse (juce::Rectangle<float> (dotSize, dotSize).withCentre ({ chipArea.getX() + dotSize * 0.5f, chipArea.getCentreY() }));
+            chipX = chipArea.getX() + dotSize + dotGap;
+        }
+        else
+        {
+            g.setColour (chipBackground);
+            g.fillRoundedRectangle (chipArea, 5.0f);
+        }
 
         g.setFont (chipFont);
         g.setColour (chipForeground);
@@ -176,7 +194,7 @@ namespace celadon::ui
 
     int PillButton::getNaturalWidth() const
     {
-        const auto font = uiFont (icon == Icon::relearn ? 12.0f : 11.5f, Weight::medium);
+        const auto font = uiFont (icon == Icon::match ? 11.5f : 12.0f, Weight::medium);
         return (int) std::ceil (12.0f + 12.0f + 6.0f + textWidth (font, text) + 12.0f);
     }
 
@@ -189,19 +207,20 @@ namespace celadon::ui
         switch (look)
         {
             case Look::normal:    background = palette::panel;               border = palette::relearnBorder;   foreground = palette::c700;        break;
-            case Look::off:       background = juce::Colour (0xfff3f6f7);    border = palette::controlBorder;   foreground = palette::ink3;        break;
-            case Look::attention: background = palette::warningSoft;         border = palette::warning;         foreground = palette::warningText; break;
+            case Look::off:       background = palette::offFill;             border = palette::controlBorder;   foreground = palette::ink3;        break;
+            case Look::monitoring: background = palette::ink;                border = palette::ink;             foreground = juce::Colours::white; break;
         }
 
+        // 深色款悬停换 c900（与胶囊里深色圆点同一套），浅色款悬停往描边色靠一点。
         if (isHovering())
-            background = background.interpolatedWith (border, 0.12f);
+            background = look == Look::monitoring ? palette::c900 : background.interpolatedWith (border, 0.12f);
 
         g.setColour (background);
         g.fillRoundedRectangle (bounds, 8.0f);
         g.setColour (border);
         g.drawRoundedRectangle (bounds, 8.0f, 1.0f);
 
-        const auto font = uiFont (icon == Icon::relearn ? 12.0f : 11.5f, Weight::medium);
+        const auto font = uiFont (icon == Icon::match ? 11.5f : 12.0f, Weight::medium);
         const auto contentWidth = 12.0f + 6.0f + textWidth (font, text);
         auto x = bounds.getCentreX() - contentWidth * 0.5f;
         const auto centreY = bounds.getCentreY();
@@ -220,6 +239,30 @@ namespace celadon::ui
             head.lineTo (centre.x + 3.8f, centre.y - 1.6f);
             head.lineTo (centre.x + 1.4f, centre.y - 1.6f);
             g.strokePath (head, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else if (icon == Icon::stop)
+        {
+            // 停止：6 × 6 圆角方块（取消学习）
+            g.fillRoundedRectangle (juce::Rectangle<float> (6.0f, 6.0f).withCentre ({ x + 5.5f, centreY }), 1.2f);
+        }
+        else if (icon == Icon::cross)
+        {
+            // 叉（清除参考）
+            const juce::Point<float> centre (x + 5.5f, centreY);
+            g.drawLine (centre.x - 3.2f, centre.y - 3.2f, centre.x + 3.2f, centre.y + 3.2f, 1.5f);
+            g.drawLine (centre.x + 3.2f, centre.y - 3.2f, centre.x - 3.2f, centre.y + 3.2f, 1.5f);
+        }
+        else if (icon == Icon::back)
+        {
+            // 返回：左指的折角箭头（退出监听，回到母带）
+            juce::Path arrow;
+            arrow.startNewSubPath (x + 10.0f, centreY + 3.5f);
+            arrow.lineTo (x + 10.0f, centreY);
+            arrow.lineTo (x + 1.5f, centreY);
+            arrow.startNewSubPath (x + 4.5f, centreY - 3.0f);
+            arrow.lineTo (x + 1.5f, centreY);
+            arrow.lineTo (x + 4.5f, centreY + 3.0f);
+            g.strokePath (arrow, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
         else
         {
@@ -455,7 +498,7 @@ namespace celadon::ui
         juce::String key;
         key << juce::String (values.integratedLufs, 1) << '|' << juce::String (values.shortTermLufs, 1) << '|'
             << juce::String (values.truePeakMaxDb, 1) << '|' << juce::String (values.ceilingDb, 1) << '|'
-            << (values.hasTarget ? juce::String (values.targetLufs, 1) : juce::String ("-"));
+            << (values.hasTarget ? juce::String (values.targetLufs, 1) : juce::String ("-")) << '|' << (values.truePeakAttention ? 1 : 0);
 
         if (key == shownKey)
             return;
@@ -484,6 +527,9 @@ namespace celadon::ui
         // 面板内容区：左右各 12，上从面板上沿下 10（画布 y 344）、高 162（到画布 y 506）。
         return { (float) sidepanel::padX, (float) sidepanel::boxTop + 10.0f, (float) getWidth() - 2.0f * (float) sidepanel::padX, 162.0f };
     }
+
+    // 复位图标 14 × 14，点击区四周各外扩 5 = 24 × 24，与别的可点控件同一下限（T-111 / 4-22，原外扩 3 只有 20 × 20）。
+    static constexpr float resetHitMargin = 5.0f;
 
     juce::Rectangle<float> DeliveryPanel::resetIconBounds() const
     {
@@ -528,7 +574,7 @@ namespace celadon::ui
             g.drawSingleLineText ("LUFS-I", juce::roundToInt (left + textWidth (big, text) + 5.0f), baseline);
             drawResetIcon (g, resetIconBounds(), resetHovered ? palette::c600 : palette::ink3);
 
-            const auto over = values.truePeakMaxDb > values.ceilingDb + 0.05f;
+            const auto over = values.truePeakAttention && values.truePeakMaxDb > values.ceilingDb + 0.05f;
             const auto plr = hasReading (values.integratedLufs) && values.truePeakMaxDb > -99.0f
                                  ? juce::String (values.truePeakMaxDb - values.integratedLufs, 1) : dash;
             const struct { Text label; juce::String value; juce::Colour colour; } columns[] =
@@ -728,13 +774,13 @@ namespace celadon::ui
 
     void DeliveryPanel::mouseUp (const juce::MouseEvent& e)
     {
-        if (e.mouseWasClicked() && resetIconBounds().expanded (3.0f).contains (e.position) && onReset != nullptr)
+        if (e.mouseWasClicked() && resetIconBounds().expanded (resetHitMargin).contains (e.position) && onReset != nullptr)
             onReset();
     }
 
     void DeliveryPanel::mouseMove (const juce::MouseEvent& e)
     {
-        const auto hovered = resetIconBounds().expanded (3.0f).contains (e.position);
+        const auto hovered = resetIconBounds().expanded (resetHitMargin).contains (e.position);
 
         if (hovered != resetHovered)
         {
@@ -758,7 +804,7 @@ namespace celadon::ui
         const auto position = getMouseXYRelative().toFloat();
         const auto content = contentArea();
 
-        if (resetIconBounds().expanded (3.0f).contains (position))
+        if (resetIconBounds().expanded (resetHitMargin).contains (position))
             return help::tooltipFor (uiid::resetMeters, language);
 
         if (position.y < content.getY() + 40.0f)

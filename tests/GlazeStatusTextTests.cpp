@@ -226,6 +226,40 @@ namespace celadon::test
                 expect (gs::styleFromParameterValue (std::numeric_limits<float>::quiet_NaN()) == Style::automatic);
                 expect (gs::styleFromParameterValue (99.0f) == Style::clean);
             }
+
+            // T-111 / 3-05、4-27：顶部胶囊最窄约 495 px，英文那句原来 113 个字符、截掉的正是要用户做的那一步。
+            beginTest ("the English cold-export line fits the pill and keeps the action");
+            {
+                gs::Reading reading;
+                reading.coldExport = true;
+                const auto english = gs::textFor (gs::classify (reading, 50.0f, Style::automatic), Language::english);
+                expect (english.length() <= 60, english + " (" + juce::String (english.length()) + " characters)");
+                expect (english.contains ("play it once, then export"), english);
+            }
+
+            // T-111 / 4-06 橙色规则：同一时刻只有一件事拿到橙色，优先级与顶部胶囊一致。
+            beginTest ("attentionOwner picks one issue: non-finite > true peak > GLAZE amber > CLAY guard > old-project notice");
+            {
+                using gs::Attention;
+                gs::AttentionInputs inputs;
+                expect (gs::attentionOwner (inputs) == Attention::none);
+
+                inputs.legacyNotice = true;
+                expect (gs::attentionOwner (inputs) == Attention::legacyNotice);
+                inputs.clayGuard = true;
+                expect (gs::attentionOwner (inputs) == Attention::clayGuard);
+                inputs.glazeAmber = true;
+                expect (gs::attentionOwner (inputs) == Attention::glaze);
+                inputs.truePeakOver = true;
+                expect (gs::attentionOwner (inputs) == Attention::truePeak);
+                inputs.nonFinite = true;
+                expect (gs::attentionOwner (inputs) == Attention::nonFinite);
+
+                // 只有低一级的那件事成立时，它照样拿得到橙色（不因为别的事「曾经」成立而被压住）。
+                gs::AttentionInputs onlyClay;
+                onlyClay.clayGuard = true;
+                expect (gs::attentionOwner (onlyClay) == Attention::clayGuard);
+            }
         }
     };
 

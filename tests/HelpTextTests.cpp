@@ -67,6 +67,64 @@ namespace celadon::test
                 expect (help::find ("no_such_id") == nullptr);
                 expect (help::tooltipFor ("no_such_id").isEmpty());
             }
+
+            // T-111 / 4-03：中文气泡标题的第一个词就是控件上的字（Localisation 表里的中文），正文不再引用界面上没有的英文名。
+            beginTest ("Chinese titles start with the on-screen control name (T-111 4-03)");
+            {
+                using ui::Text;
+
+                const struct { const char* id; Text name; } controls[] =
+                {
+                    { param::limitGain, Text::gain },       { param::limitCeiling, Text::ceiling },  { param::limitRelease, Text::release },
+                    { param::limitLookahead, Text::lookahead }, { param::limitClip, Text::clip },
+                    { param::colorTone, Text::tone },       { param::colorGlue, Text::glue },        { param::colorHeat, Text::heat },
+                    { param::colorMix, Text::mix },         { param::colorOutput, Text::output },
+                    { param::balanceRecover, Text::recover }, { param::balanceTame, Text::tame },    { param::balanceBrighten, Text::brighten },
+                    { param::balanceSpeed, Text::speed },   { param::limitListen, Text::match },     { uiid::meterGr, Text::meterGr },
+                    { uiid::glueGr, Text::glueReduction },  { uiid::resetMeters, Text::resetMeters },
+                };
+
+                for (const auto& control : controls)
+                {
+                    const auto* entry = help::find (control.id);
+                    expect (entry != nullptr, "missing entry for " + juce::String (control.id));
+
+                    if (entry == nullptr)
+                        continue;
+
+                    const auto onScreen = ui::tr (control.name, Language::chinese);
+                    expect (utf8StartsWith (utf8 (entry->title), onScreen),
+                            juce::String (control.id) + ": title \"" + utf8 (entry->title) + "\" does not start with \"" + onScreen + "\"");
+                }
+
+                // 中文正文与建议里不再出现界面上没有的英文控件名，也不再叫「琥珀」（界面、帮助、图例都叫「橙」）。
+                for (const auto& entry : help::allEntries())
+                    for (const auto* line : { entry.effect, entry.advice })
+                        for (const auto* stale : { "Recover", "Tame", "Slow", "Mid ", "Fast", "Gain 推", "保持 Auto", "GR 小表", "琥珀", "A / B" })
+                            expect (! utf8Contains (utf8 (line), stale),
+                                    juce::String (entry.id) + " still says \"" + juce::String (stale) + "\": " + utf8 (line));
+            }
+
+            // T-095：离线导出自动旁通等响 / 试听差值；T-110：宿主旁通也暂停整体响度累计。气泡里写清楚，中英各一份。
+            beginTest ("export and host-bypass wording (T-095, T-110)");
+            {
+                const auto advice = [] (const char* id, Language language) { return tooltipLine (help::tooltipFor (id, language), 2); };
+                const auto effect = [] (const char* id, Language language) { return tooltipLine (help::tooltipFor (id, language), 1); };
+
+                expect (utf8Contains (advice (param::limitListen, Language::chinese), "离线导出自动旁通"));
+                expect (utf8Contains (advice (param::limitListen, Language::chinese), "实时导出前请关闭"));
+                expect (advice (param::limitListen, Language::english).contains ("Offline export bypasses it"));
+                expect (utf8Contains (advice (uiid::limitAudition, Language::chinese), "离线导出时不生效"));
+                expect (utf8Contains (advice (uiid::limitAudition, Language::chinese), "实时导出前请退出"));
+                expect (advice (uiid::limitAudition, Language::english).contains ("before a real-time export"));
+                expect (utf8Contains (effect (uiid::integrated, Language::chinese), "宿主旁通插件时暂停累计"));
+                expect (effect (uiid::integrated, Language::english).contains ("host bypasses the plugin"));
+            }
+        }
+
+        static juce::String tooltipLine (const juce::String& tooltip, int index)
+        {
+            return juce::StringArray::fromLines (tooltip)[index];
         }
 
     private:
@@ -221,8 +279,8 @@ namespace celadon::test
                     { param::clayLowCutMode, "低切" }, { param::clayLowCutHz, "低切" },
                     { param::clayMonoMode,   "收单" }, { param::clayMonoHz,   "收单" },
                     { param::clayWidthMode,  "加宽" }, { param::clayWidthDb,  "加宽" },
-                    { param::clayBypass,     "Bypass" },
-                    { uiid::clayIndicator,   "修坯" },
+                    { param::clayBypass,     "旁通" },     // T-111：标题先写界面上的字「旁通」
+                    { uiid::clayIndicator,   "CLAY" },     // T-111：卡片上写的是 CLAY，气泡写「CLAY（修坯）」
                 };
 
                 for (const auto& expectation : expectations)
@@ -236,7 +294,7 @@ namespace celadon::test
                 }
 
                 if (const auto* indicator = help::find (uiid::clayIndicator))
-                    expectEquals (utf8 (indicator->title), utf8 ("修坯 · 立体声像与超低频清理"));   // 规格第 5 节原文
+                    expectEquals (utf8 (indicator->title), utf8 ("CLAY（修坯）· 立体声像与超低频清理"));   // 规格第 5 节原文，T-111 / 4-03 起带上卡片名
 
                 // 三个三态参数的第 2 行把三种状态都讲到（ADR-009 第 4 条：自动 / 关 / 手动）。
                 for (const auto* id : { param::clayLowCutMode, param::clayMonoMode, param::clayWidthMode })
@@ -282,10 +340,10 @@ namespace celadon::test
                 expectEquals (liveLineFor (guarded),
                               utf8 ("低切 25 Hz · 120 Hz 以下收单 100% · 未加宽 · 低频反相：单声道播放会丢低音 · 宽度保护中"));
 
-                // 旁通：同一份快照（阳性对照是上一条的完整读数），旁通后只写「修坯已旁通」。
+                // 旁通：同一份快照（阳性对照是上一条的完整读数），旁通后只写「CLAY 已旁通」。
                 help::ClayUserState bypassed;
                 bypassed.bypassed = true;
-                expectEquals (liveLineFor (guarded, bypassed), utf8 ("修坯已旁通"));
+                expectEquals (liveLineFor (guarded, bypassed), utf8 ("CLAY 已旁通"));
             }
 
             // 依据：设计规格-Clay 第 5 节：实际值非 0 → 亮（on，「自动」紫圈、「手动」青色实心）；该项保护介入或反相提示亮着 → 琥珀（guard：反相提示对「单」、
@@ -377,10 +435,10 @@ namespace celadon::test
                 expectEquals (liveLineFor (all),
                               utf8 ("低切 25 Hz · 120 Hz 以下收单 100% · 未加宽 · 低频反相：单声道播放会丢低音 · 宽度保护中 · 峰值守护回收中：低切 / 收单实际只剩约 25%"));
 
-                // 旁通：同一份快照（阳性对照 = 上面的 guard），旁通后只写「修坯已旁通」、三灯全暗。
+                // 旁通：同一份快照（阳性对照 = 上面的 guard），旁通后只写「CLAY 已旁通」、三灯全暗。
                 help::ClayUserState bypassed;
                 bypassed.bypassed = true;
-                expectEquals (liveLineFor (recovering, bypassed), utf8 ("修坯已旁通"));
+                expectEquals (liveLineFor (recovering, bypassed), utf8 ("CLAY 已旁通"));
                 expect (lampFor (recovering, ClayStage::lowCut, bypassed) == ClayLamp::off && lampFor (recovering, ClayStage::mono, bypassed) == ClayLamp::off);
 
                 // 保留比取整到 5 %、钳到 0 ～ 100；非有限按 100（不写「只剩 0」）；读数在亮着时才有意义，灭着时记 100。
@@ -400,9 +458,9 @@ namespace celadon::test
                 expect (help::clayReadoutFor (with (working, true, 0.42f), {}) != help::clayReadoutFor (with (working, false, 0.42f), {}));
 
                 // 灯条目的第 3 行（界面上显示的那行）讲了新灯色。
-                expect (utf8Contains (thirdLineFor (recovering), "低切 / 收单灯琥珀 = 峰值守护"), "the lamp help explains the amber low cut / mono lamps");
-                expect (tooltipLine (help::clayIndicatorTooltip (help::clayReadoutFor (recovering, {}), Language::english), 2).contains ("amber low cut / mono = the peak guard"),
-                        "the English lamp help explains the amber low cut / mono lamps");
+                expect (utf8Contains (thirdLineFor (recovering), "低切 / 收单灯橙 = 峰值守护"), "the lamp help explains the orange low cut / mono lamps");
+                expect (tooltipLine (help::clayIndicatorTooltip (help::clayReadoutFor (recovering, {}), Language::english), 2).contains ("orange low cut / mono = the peak guard"),
+                        "the English lamp help explains the orange low cut / mono lamps");
             }
 
             // 依据：ADR-009 第 4 条、设计规格-Clay-分析决策与验收 第 3 节：宽度保护只管「自动」态的项，「手动」「关」态不受保护改动；
@@ -577,7 +635,7 @@ namespace celadon::test
                 const auto guardedWidth = withCostMask (clayStatus (0.0f, 80.0f, 0.0f, 0.0f, false, true), widthBit);
                 expectEquals (thirdLineFor (guardedWidth), advice, "width guard acting: no cost line for width");
 
-                // 旁通：什么都没在处理，代价说明一并清零（第 2 行「修坯已旁通」）。
+                // 旁通：什么都没在处理，代价说明一并清零（第 2 行「CLAY 已旁通」）。
                 help::ClayUserState bypassed;
                 bypassed.bypassed = true;
                 const auto limited = withCostMask (clayStatus (0.0f, 120.0f, 0.4f, 0.6f), lowCutBit | monoBit | widthBit);

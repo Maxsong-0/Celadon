@@ -184,10 +184,11 @@ namespace celadon::ui
     {
         const auto bounds = getLocalBounds().toFloat();
 
+        // 圆角 14：与频谱面板、模块卡片同一排同一个圆角（T-111 / 4-25，原 12；编辑器静态层的阴影一起改）。
         g.setColour (palette::panel);
-        g.fillRoundedRectangle (bounds, 12.0f);
+        g.fillRoundedRectangle (bounds, 14.0f);
         g.setColour (palette::panelBorder);
-        g.drawRoundedRectangle (bounds.reduced (0.5f), 11.5f, 1.0f);
+        g.drawRoundedRectangle (bounds.reduced (0.5f), 13.5f, 1.0f);
 
         const auto titleFont = withLetterSpacing (uiFont (11.0f, Weight::semibold), kind == Kind::input ? 1.0f : 0.0f);
 

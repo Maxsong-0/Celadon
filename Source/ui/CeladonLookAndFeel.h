@@ -7,7 +7,11 @@
     配色规则（V4 设计稿）：
       - 青色只有一种色相，从 c100（最浅）到 c900（最深）；数值越大颜色越深（cyanAt）；
       - 紫色只表示「GLAZE 此刻的自动加量 / 自动态」，别的地方不用；
-      - 橙色只表示「需要注意」（真峰值超限、方案受限、NaN……），界面上同一时刻最多出现在一处要紧的地方。
+      - 橙色只表示「需要注意」（真峰值超限、方案受限、NaN……）。T-111 起的写法（规格 V4 同一条）：同一件事可以在源头和顶部
+        状态胶囊两处同时亮橙；不同的事不同时亮——同一时刻只有一件事拿到橙色，由编辑器按 glazestatus::attentionOwner 的优先级定
+        （异常音频块 > 真峰值超限 > GLAZE 琥珀 > CLAY 守护灯 > 旧工程提示），别的源头退回中性色。两处例外不算「亮」：图例里
+        「橙 = 需要注意」的色块是钥匙；右侧板 60 秒历史里的守护刻度是已经过去的记录。听原声、试听差值、归一化预听是监听模式，
+        不是问题，一律用深色（ink），不用橙。
 
     全部矢量自绘，任何缩放比例都清晰。
 
@@ -30,6 +34,7 @@ namespace celadon::ui
         inline const juce::Colour controlBorder  { 0xffd0dde2 };
         inline const juce::Colour segmentBorder  { 0xffd8e3e7 };
         inline const juce::Colour groove         { 0xffeef3f5 };   // 分段选择器的底槽
+        inline const juce::Colour offFill        { 0xfff3f6f7 };   // 关着的胶囊按钮（等响 关、预听没开）的底色
         inline const juce::Colour languageGroove { 0xffe3ebee };
         inline const juce::Colour track          { 0xffe6eef1 };   // 电平表与滑条的轨道
         inline const juce::Colour knobTrack      { 0xffdce6e9 };   // 旋钮的 270° 轨道

@@ -20,6 +20,12 @@ namespace celadon::ui
     {
         constexpr double minZoom = 0.7, maxZoom = 2.0;
         constexpr float padding = 16.0f;
+        constexpr float bulletIndent = 14.0f;   // 帮助面板：圆点占的宽度，正文从这里起排
+
+        // 设置面板各行的纵坐标（卡片内）。T-111 重排：屏幕标签挪到预览框上方（4-10，原来画在框里会被窗口框穿过），
+        // 预览框 140 → 150、说明 292 → 300，下面各行依次下移，再加「语言」一行（包 D）。
+        constexpr float screenFrameY = 150.0f, sizeNoteY = 300.0f, firstDividerY = 348.0f, reduceMotionRowY = 356.0f,
+                        secondDividerY = 398.0f, languageRowY = 410.0f, thirdDividerY = 440.0f, versionRowY = 448.0f;
 
         juce::String percentText (double zoom)
         {
@@ -87,10 +93,34 @@ namespace celadon::ui
     //==============================================================================
     SettingsPanel::SettingsPanel()
     {
+        // 语言：与原来顶栏同一种外观（灰底槽、选中项白底），两项按字宽。
+        languageSelector.setOptions ({ juce::String::fromUTF8 ("中"), "EN" });
+        languageSelector.setEqualWidths (false);
+        languageSelector.setFont (uiFont (11.0f, Weight::medium));
+        languageSelector.onSelect = [this] (int index)
+        {
+            if (onLanguageChange != nullptr)
+                onLanguageChange (index == 1 ? Language::english : Language::chinese);
+        };
+        addAndMakeVisible (languageSelector);
+
         setSize (cardWidth + 2 * shadowMargin, cardHeight + 2 * shadowMargin);
     }
 
-    void SettingsPanel::setLanguage (Language newLanguage)   { language = newLanguage; repaint(); }
+    void SettingsPanel::setLanguage (Language newLanguage)
+    {
+        language = newLanguage;
+        languageSelector.setSelected (language == Language::english ? 1 : 0);
+        repaint();
+    }
+
+    void SettingsPanel::resized()
+    {
+        const auto card = getCardBounds();
+        const auto width = languageSelector.getNaturalWidth();
+        languageSelector.setBounds ((int) (card.getRight() - padding) - width, (int) (card.getY() + languageRowY) - 5, width, 26);
+    }
+
     void SettingsPanel::setReduceMotion (bool shouldReduce)  { reduceMotion = shouldReduce; repaint(); }
     void SettingsPanel::setScreenSize (juce::Rectangle<int> area)   { if (! area.isEmpty()) screen = area; repaint(); }
 
@@ -128,7 +158,7 @@ namespace celadon::ui
     juce::Rectangle<float> SettingsPanel::switchBounds() const
     {
         const auto card = getCardBounds();
-        return { card.getRight() - padding - 38.0f, card.getY() + 352.0f, 38.0f, 22.0f };
+        return { card.getRight() - padding - 38.0f, card.getY() + reduceMotionRowY + 4.0f, 38.0f, 22.0f };
     }
 
     juce::Font SettingsPanel::reduceMotionNoteFont()   { return uiFont (11.0f); }
@@ -196,7 +226,8 @@ namespace celadon::ui
             g.setGradientFill (juce::ColourGradient (palette::c200, bar.getX(), 0.0f, palette::c700, bar.getRight(), 0.0f, false));
             g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * proportion), 2.0f);
 
-            const auto thumb = juce::Rectangle<float> (12.0f, 12.0f).withCentre ({ bar.getX() + bar.getWidth() * proportion, bar.getCentreY() });
+            // 滑块 14 px：与卡片上的滑条同一尺寸（T-111 / 4-25，原 12）。
+            const auto thumb = juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ bar.getX() + bar.getWidth() * proportion, bar.getCentreY() });
             g.setColour (juce::Colours::white);
             g.fillEllipse (thumb);
             g.setColour (palette::c700);
@@ -209,8 +240,9 @@ namespace celadon::ui
         }
 
         // 屏幕预览：按屏幕比例缩进 256 × 144 的框，窗口按当前大小画进去；比屏幕大时变橙色并提醒。
+        // 「1280 × 1024 屏幕」与「超出屏幕」写在框的上方（框外），窗口再大也压不到字。
         {
-            const juce::Rectangle<float> frame (left + (innerWidth - 256.0f) * 0.5f, card.getY() + 140.0f, 256.0f, 144.0f);
+            const juce::Rectangle<float> frame (left + (innerWidth - 256.0f) * 0.5f, card.getY() + screenFrameY, 256.0f, 144.0f);
             const auto scale = juce::jmin (frame.getWidth() / (float) screen.getWidth(), frame.getHeight() / (float) screen.getHeight());
             const auto screenRect = juce::Rectangle<float> ((float) screen.getWidth() * scale, (float) screen.getHeight() * scale).withCentre (frame.getCentre());
             const auto windowSize = juce::Point<float> (1200.0f * (float) zoom * scale, 820.0f * (float) zoom * scale);
@@ -237,13 +269,13 @@ namespace celadon::ui
             g.setFont (uiFont (10.0f));
             g.setColour (palette::ink3);
             g.drawText (trFormat (Text::screenSize, language, { juce::String (screen.getWidth()), juce::String (screen.getHeight()) }),
-                        juce::Rectangle<float> (screenRect.getX() + 6.0f, screenRect.getY() + 5.0f, 160.0f, 12.0f), juce::Justification::centredLeft, false);
+                        juce::Rectangle<float> (frame.getX(), frame.getY() - 15.0f, 160.0f, 12.0f), juce::Justification::centredLeft, false);
 
             if (over)
             {
                 g.setFont (uiFont (10.0f, Weight::medium));
                 g.setColour (palette::warningText);
-                g.drawText (tr (Text::tooBig, language), juce::Rectangle<float> (screenRect.getRight() - 106.0f, screenRect.getY() + 5.0f, 100.0f, 12.0f),
+                g.drawText (tr (Text::tooBig, language), juce::Rectangle<float> (frame.getRight() - 100.0f, frame.getY() - 15.0f, 100.0f, 12.0f),
                             juce::Justification::centredRight, false);
             }
         }
@@ -256,15 +288,15 @@ namespace celadon::ui
             note.append (tr (Text::sizeNote, language), uiFont (11.0f), palette::ink2);
             juce::TextLayout layout;
             layout.createLayout (note, innerWidth);
-            layout.draw (g, juce::Rectangle<float> (left, card.getY() + 292.0f, innerWidth, 40.0f));
+            layout.draw (g, juce::Rectangle<float> (left, card.getY() + sizeNoteY, innerWidth, 40.0f));
         }
 
         g.setColour (palette::track);
-        g.fillRect (left, card.getY() + 340.0f, innerWidth, 1.0f);
+        g.fillRect (left, card.getY() + firstDividerY, innerWidth, 1.0f);
 
         // 减少动效 + 开关
         {
-            const auto y = card.getY() + 348.0f;
+            const auto y = card.getY() + reduceMotionRowY;
             g.setFont (uiFont (12.0f, Weight::medium));
             g.setColour (palette::ink);
             g.drawText (tr (Text::reduceMotion, language), juce::Rectangle<float> (left, y, 220.0f, 16.0f), juce::Justification::centredLeft, false);
@@ -284,11 +316,19 @@ namespace celadon::ui
         }
 
         g.setColour (palette::track);
-        g.fillRect (left, card.getY() + 390.0f, innerWidth, 1.0f);
+        g.fillRect (left, card.getY() + secondDividerY, innerWidth, 1.0f);
+
+        // 语言：名字在左，中 / EN 选择器（子组件，见 resized）在右
+        g.setFont (uiFont (12.0f, Weight::medium));
+        g.setColour (palette::ink);
+        g.drawText (tr (Text::language, language), juce::Rectangle<float> (left, card.getY() + languageRowY, 200.0f, 16.0f), juce::Justification::centredLeft, false);
+
+        g.setColour (palette::track);
+        g.fillRect (left, card.getY() + thirdDividerY, innerWidth, 1.0f);
 
         // 版本 · 延迟
         {
-            const auto y = card.getY() + 398.0f;
+            const auto y = card.getY() + versionRowY;
             g.setFont (monoFont (10.5f));
             g.setColour (palette::ink3);
             g.drawText (tr (Text::version, language) + " " + juce::String (JucePlugin_VersionString),
@@ -300,13 +340,9 @@ namespace celadon::ui
 
     void SettingsPanel::mouseDown (const juce::MouseEvent& e)
     {
+        // 关闭键在松手时关（mouseUp），与帮助、高级两块一致（T-111 / 4-24）。
         if (isOnCloseButton (e.position))
-        {
-            if (onClose != nullptr)
-                onClose();
-
             return;
-        }
 
         for (int i = 0; i < (int) std::size (presets); ++i)
             if (presetBounds (i).contains (e.position))
@@ -321,10 +357,17 @@ namespace celadon::ui
         {
             draggingSlider = true;
 
+            // 按在滑块圆上：记下偏移、不跳；按在轨道别处：照旧跳到按下点。
+            const auto slider = sliderBounds();
+            const auto proportion = (float) juce::jlimit (0.0, 1.0, (zoom - minZoom) / (maxZoom - minZoom));
+            const auto thumbX = slider.getX() + slider.getWidth() * proportion;
+            const auto onThumb = std::abs (e.position.x - thumbX) <= 7.0f;
+            sliderGrabOffset = onThumb ? e.position.x - thumbX : 0.0f;
+
             if (onZoomDragging != nullptr)
                 onZoomDragging (true);
 
-            if (onZoomChange != nullptr)
+            if (! onThumb && onZoomChange != nullptr)
                 onZoomChange (zoomAt (e.position.x));
 
             return;
@@ -341,18 +384,25 @@ namespace celadon::ui
     {
         // 缩放会让面板自己跟着变大变小：按屏幕坐标换回面板坐标，拖起来才不会「越拖越远」。
         if (draggingSlider && onZoomChange != nullptr)
-            onZoomChange (zoomAt (getLocalPoint (nullptr, e.getScreenPosition()).toFloat().x));
+            onZoomChange (zoomAt (getLocalPoint (nullptr, e.getScreenPosition()).toFloat().x - sliderGrabOffset));
     }
 
-    void SettingsPanel::mouseUp (const juce::MouseEvent&)
+    void SettingsPanel::mouseUp (const juce::MouseEvent& e)
     {
         if (draggingSlider)
         {
             draggingSlider = false;
+            sliderGrabOffset = 0.0f;
 
             if (onZoomDragging != nullptr)
                 onZoomDragging (false);
+
+            return;
         }
+
+        // 按下与松手都在关闭键上才关（按下后拖出去再松手不算）。
+        if (isOnCloseButton (e.mouseDownPosition) && isOnCloseButton (e.position) && onClose != nullptr)
+            onClose();
     }
 
     //==============================================================================
@@ -370,29 +420,34 @@ namespace celadon::ui
 
     void HelpPanel::layoutText()
     {
-        juce::AttributedString text;
-        text.setWordWrap (juce::AttributedString::byWord);
-        text.setLineSpacing (5.0f);
+        // 操作手法六条一组，「颜色 / 母带与原声 / 试听差值」三条一组；条间距 6，两组之间再加 6。
+        const Text lines[] = { Text::helpDrag, Text::helpSlider, Text::helpFine, Text::helpReset, Text::helpType, Text::helpWheel,
+                               Text::helpColours, Text::helpAb, Text::helpAudition };
+        constexpr size_t secondGroup = 6;
+        constexpr float itemGap = 6.0f, groupGap = 6.0f;
+        const auto bodyWidth = (float) cardWidth - 2.0f * padding - bulletIndent;
 
-        const auto bullet = juce::String::fromUTF8 ("•  ");
-        const Text lines[] = { Text::helpDrag, Text::helpFine, Text::helpReset, Text::helpType, Text::helpWheel, Text::helpColours, Text::helpAb,
-                               Text::helpAudition };
+        items.clear();
+        auto y = 0.0f;
 
         for (size_t i = 0; i < std::size (lines); ++i)
         {
             if (i > 0)
-                text.append ("\n", uiFont (11.5f), palette::ink2);
+                y += itemGap + (i == secondGroup ? groupGap : 0.0f);
 
-            // 操作手法与「颜色 / A-B」两组之间空半行。
-            if (i == 5)
-                text.append ("\n", uiFont (5.0f), palette::ink2);
-
-            text.append (bullet, uiFont (11.5f), palette::c600);
+            juce::AttributedString text;
+            text.setWordWrap (juce::AttributedString::byWord);
+            text.setLineSpacing (3.0f);
             text.append (tr (lines[i], language), uiFont (11.5f), palette::ink2);
+
+            Item item;
+            item.layout.createLayout (text, bodyWidth);
+            item.y = y;
+            y += item.layout.getHeight();
+            items.push_back (std::move (item));
         }
 
-        layout.createLayout (text, (float) cardWidth - 2.0f * padding);
-        cardHeight = (int) std::ceil (48.0f + layout.getHeight() + padding);
+        cardHeight = (int) std::ceil (48.0f + y + padding);
         setSize (cardWidth + 2 * shadowMargin, cardHeight + 2 * shadowMargin);
     }
 
@@ -407,7 +462,19 @@ namespace celadon::ui
                     juce::Justification::centredLeft, false);
         paintCloseButton (g);
 
-        layout.draw (g, juce::Rectangle<float> (card.getX() + padding, card.getY() + 46.0f, card.getWidth() - 2.0f * padding, layout.getHeight()));
+        const auto left = card.getX() + padding, top = card.getY() + 46.0f;
+        const auto bodyWidth = card.getWidth() - 2.0f * padding - bulletIndent;
+        const auto bulletFont = uiFont (11.5f);
+
+        for (const auto& item : items)
+        {
+            // 圆点与正文第一行同高居中（第一行行高取字体高度）。
+            g.setFont (bulletFont);
+            g.setColour (palette::c600);
+            g.drawText (juce::String::fromUTF8 ("•"), juce::Rectangle<float> (left, top + item.y, bulletIndent, bulletFont.getHeight()),
+                        juce::Justification::centredLeft, false);
+            item.layout.draw (g, juce::Rectangle<float> (left + bulletIndent, top + item.y, bodyWidth, item.layout.getHeight()));
+        }
     }
 
     void HelpPanel::mouseUp (const juce::MouseEvent& e)
@@ -724,7 +791,7 @@ namespace celadon::ui
         g.setFont (monoFont (9.5f));
         g.setColour (palette::ink3);
         g.drawText ("+6", bounds.withWidth (28.0f).withHeight (20.0f), juce::Justification::centredRight, false);
-        g.drawText ("-6", juce::Rectangle<float> (0.0f, (float) getHeight() - 20.0f, 28.0f, 20.0f), juce::Justification::centredRight, false);
+        g.drawText (juce::String::charToString ((juce::juce_wchar) 0x2212) + "6", juce::Rectangle<float> (0.0f, (float) getHeight() - 20.0f, 28.0f, 20.0f), juce::Justification::centredRight, false);
         g.drawText ("dB", juce::Rectangle<float> ((float) getWidth() - 28.0f, 0.0f, 24.0f, 20.0f), juce::Justification::centredRight, false);
         g.setFont (uiFont (9.5f));
         const auto labels = juce::Rectangle<float> (plot.getX(), bounds.getBottom() - 14.0f, plot.getWidth(), 12.0f);

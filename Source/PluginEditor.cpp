@@ -32,6 +32,7 @@ namespace
     constexpr double resizeHudHoldMs = 700.0;
     constexpr double nonFiniteWarningMs = 10000.0;  // 屏蔽了异常音频块：之后 10 s 内顶部提示
     constexpr double soundHangMs = 500.0;           // 电平掉到静音以下多久才算「停止播放」
+    constexpr int popoverRight = 1184, popoverTop = 60;   // 三个浮层卡片的右缘与上缘，与两侧电平表的外缘、面板上缘对齐（T-111 / 4-25）
 
     // waitingForPlayback 随聆听 / 校准删掉。字段还在时照旧读（停播时粒子别跟着响）；删掉之后只看电平。
     template <typename T, typename = void>
@@ -269,8 +270,9 @@ namespace
             masks.push_back (makeShadowMask (juce::DropShadow (palette::shadowTint.withAlpha (0.06f), 3, { 0, 1 }), shape, imageType));
         };
 
-        add ({ 16.0f, 60.0f, 60.0f, 238.0f }, 12.0f);
-        add ({ 1124.0f, 60.0f, 60.0f, 238.0f }, 12.0f);
+        // 同一排三块面板同一个圆角 14（T-111 / 4-25：电平表原来 12，LevelMeters.cpp 的描边一起改）。
+        add ({ 16.0f, 60.0f, 60.0f, 238.0f }, 14.0f);
+        add ({ 1124.0f, 60.0f, 60.0f, 238.0f }, 14.0f);
         add ({ 84.0f, 60.0f, 1032.0f, 238.0f }, 14.0f);
 
         for (const auto x : { 16.0f, 314.0f, 612.0f, 910.0f })
@@ -358,8 +360,6 @@ public:
         abSelector.setOptions ({ "", "" });
         abSelector.setEqualWidths (false);
         abSelector.setFont (uiFont (11.5f, Weight::medium));
-        abSelector.setPrefix (0, "A");
-        abSelector.setPrefix (1, "B");
         abSelector.setSelectedColours (0, { palette::c100, palette::c800 });
         abSelector.setSelectedColours (1, { palette::ink, juce::Colours::white });
         addAndMakeVisible (abSelector);
@@ -368,7 +368,7 @@ public:
         // 下沿离卡片只剩 4 px，效果图里贴着卡片。
         addAndMakeVisible (monitoringButton);
         monitoringButton.setBounds (24, 524, 290, 30);
-        monitoringButton.setLook (PillButton::Look::attention);
+        monitoringButton.setLook (PillButton::Look::monitoring);   // 深色：监听是一种模式，不是问题（T-111 / 4-06）
         monitoringButton.onClick = [this]
         {
             editor.setListeningToOriginal (false);
@@ -398,10 +398,11 @@ public:
         // ---- 浮在最上面的 ----
         addChildComponent (dismissLayer);
         dismissLayer.setBounds (getLocalBounds().withSize (baseWidth, baseHeight));
-        dismissLayer.onDismiss = [this] { editor.showSettings (false); editor.showHelp (false); editor.showAdvanced (false); };
+        dismissLayer.onDismiss = [this] { editor.showSettings (false); editor.showHelp (false); };   // 高级不挂遮罩，见 updateDismissLayer
 
         addChildComponent (settingsPanel);
-        settingsPanel.setTopLeftPosition (856 - PopoverCard::shadowMargin, 58 - PopoverCard::shadowMargin);
+        // 三个浮层右缘 x 1184、上缘 y 60，与面板对齐（T-111 / 4-25；原来右缘 1180、上缘 58，右边露出 4 px 的 OUT 表）。
+        settingsPanel.setTopLeftPosition (popoverRight - SettingsPanel::cardWidth - PopoverCard::shadowMargin, popoverTop - PopoverCard::shadowMargin);
         settingsPanel.onClose = [this] { editor.showSettings (false); };
 
         addChildComponent (helpPanel);
@@ -440,7 +441,7 @@ public:
         monitoringButton.setComponentID ("monitoring");
         valueEntry.setComponentID ("value_entry");
         bubble.setComponentID ("value_bubble");
-        topBar.getLanguageSelector().setComponentID ("language");
+        settingsPanel.getLanguageSelector().setComponentID ("language");   // T-111 包 D：语言切换在设置面板里
         topBar.getAdvancedButton().setComponentID (uiid::advanced);
         advancedPanel.setComponentID ("advanced_panel");
 
@@ -545,6 +546,7 @@ public:
         glazeTitle.setLanguage (language);
         glazeTitle.setTooltip (help::tooltipFor (uiid::glazeStatus, language));
         glazeKnob.setTooltip (help::tooltipFor (param::glazeAmount, language));
+        glazeKnob.setLanguage (language);
 
         styleSelector.setOptions ({ glazestatus::styleName (glaze::Style::automatic, language), glazestatus::styleName (glaze::Style::warm, language),
                                     glazestatus::styleName (glaze::Style::punchy, language), glazestatus::styleName (glaze::Style::clean, language) });
@@ -561,14 +563,14 @@ public:
 
         settingsPanel.setLanguage (language);
         helpPanel.setLanguage (language);
-        helpPanel.setTopLeftPosition (1180 - HelpPanel::cardWidth - PopoverCard::shadowMargin, 58 - PopoverCard::shadowMargin);
+        helpPanel.setTopLeftPosition (popoverRight - HelpPanel::cardWidth - PopoverCard::shadowMargin, popoverTop - PopoverCard::shadowMargin);
         advancedPanel.setLanguage (language);
-        advancedPanel.setTopLeftPosition (1180 - AdvancedPanel::cardWidth - PopoverCard::shadowMargin, 58 - PopoverCard::shadowMargin);
+        advancedPanel.setTopLeftPosition (popoverRight - AdvancedPanel::cardWidth - PopoverCard::shadowMargin, popoverTop - PopoverCard::shadowMargin);
         layoutBottomRow();
         repaint();
     }
 
-    // 风格 | A / B · 等响：一排、整体居中在 x = 600（间隔 8）。宽度都没变时什么都不做。
+    // 风格 | 母带 / 原声 · 等响：一排、整体居中在 x = 600（间隔 8）。宽度都没变时什么都不做。
     // 量宽度要排版文字：只在自然宽度可能变了时调——语言切换（setLanguage）、等响的文字变了（编辑器定时器看
     // PillButton::setText 的返回值），不每帧调（T-032 R9-12）。
     void layoutBottomRow()
@@ -664,7 +666,7 @@ public:
     std::unique_ptr<SegmentedAttachment> styleAttachment;
     Segmented abSelector { Segmented::Look::bordered };
     PillButton matchButton { PillButton::Icon::match };
-    PillButton monitoringButton { PillButton::Icon::match };
+    PillButton monitoringButton { PillButton::Icon::back };
     std::unique_ptr<juce::ParameterAttachment> matchAttachment;
     bool matchOn = false;
     CornerNote cornerNote;
@@ -676,7 +678,8 @@ public:
     ColorCard colorCard;
     LimitCard limitCard;
 
-    // 浮层打开时铺满画布、接住别处的点击来关闭浮层（点击本身不再往下传）。
+    // 设置或帮助打开时铺满画布、接住别处的点击来关闭浮层（点击本身不再往下传）。高级浮层不挂它（T-111 / 4-02）：调抑制 / 匹配力度
+    // 时要边调边点母带 / 原声、等响，第一下不能被吞；高级只靠 ✕ 和再点一次「高级」关。
     struct DismissLayer  : public juce::Component
     {
         std::function<void()> onDismiss;
@@ -790,20 +793,17 @@ private:
                 g.drawImageAt (shadow.image, shadow.position.x, shadow.position.y, true);
             }
 
-            // 卡片之间的小箭头：处理顺序
+            // 卡片之间的小箭头：处理顺序。只画箭头、不带白底圆和描边，颜色 c400（T-111 / 4-16：原来的白圆和顶栏图标键
+            // 一个画法，看着像能点的「下一页」）。
             for (const auto x : { 292.0f, 590.0f, 888.0f })
             {
                 const juce::Rectangle<float> circle (x, 674.0f, 20.0f, 20.0f);
-                g.setColour (palette::panel);
-                g.fillEllipse (circle);
-                g.setColour (palette::segmentBorder);
-                g.drawEllipse (circle.reduced (0.5f), 1.0f);
 
                 juce::Path arrow;
                 arrow.startNewSubPath (circle.getX() + 8.5f, circle.getY() + 7.0f);
                 arrow.lineTo (circle.getX() + 11.8f, circle.getY() + 10.0f);
                 arrow.lineTo (circle.getX() + 8.5f, circle.getY() + 13.0f);
-                g.setColour (palette::c600);
+                g.setColour (palette::c400);
                 g.strokePath (arrow, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
         }
@@ -839,7 +839,7 @@ CeladonAudioProcessorEditor::CeladonAudioProcessorEditor (CeladonAudioProcessor&
     canvas->setBounds (0, 0, baseWidth, baseHeight);
 
     // 画布上的按钮
-    canvas->topBar.onLanguageChange = [this] (celadon::Language language) { settings->setLanguage (language); };
+    canvas->settingsPanel.onLanguageChange = [this] (celadon::Language language) { settings->setLanguage (language); };
     canvas->topBar.onSettings = [this] { showSettings (! canvas->settingsPanel.isVisible()); };
     canvas->topBar.onHelp = [this] { showHelp (! canvas->helpPanel.isVisible()); };
     canvas->topBar.onAdvanced = [this] { showAdvanced (! canvas->advancedPanel.isVisible()); };
@@ -1119,8 +1119,9 @@ void CeladonAudioProcessorEditor::restartOutputSpectrum()
 
 void CeladonAudioProcessorEditor::updateDismissLayer()
 {
-    // 三个浮层同一时刻最多开一个；开着时铺一层透明的「点别处关闭」。
-    const auto anyOpen = canvas->settingsPanel.isVisible() || canvas->helpPanel.isVisible() || canvas->advancedPanel.isVisible();
+    // 三个浮层同一时刻最多开一个。设置、帮助开着时铺一层透明的「点别处关闭」；高级不铺（T-111 / 4-02）：它开着时
+    // 母带 / 原声、等响等画布上的控件照常一下就响应，高级只靠 ✕ 和再点一次「高级」关。
+    const auto anyOpen = canvas->settingsPanel.isVisible() || canvas->helpPanel.isVisible();
     canvas->dismissLayer.setVisible (anyOpen);
 }
 
@@ -1182,10 +1183,7 @@ void CeladonAudioProcessorEditor::showAdvanced (bool shouldShow)
     updateDismissLayer();
 
     if (shouldShow)
-    {
-        canvas->dismissLayer.toFront (false);
         canvas->advancedPanel.toFront (false);
-    }
 }
 
 void CeladonAudioProcessorEditor::resetMeters()
@@ -1388,11 +1386,49 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto limitGr = processor.getAndResetLimitGainReductionDb();
     const auto glueGr = processor.getAndResetGlueGainReductionDb();
 
-    // 听原声时 OUT 是原声：它超过 Ceiling 不算问题（不亮橙灯、不进右侧板的真峰值最大值）。
+    // ---- 橙色归谁（T-111 / 4-06，规格 V4「橙色规则」）：同一件事可以在源头和顶部胶囊两处亮橙，不同的事不同时亮。
+    //      先把此刻成立的几件事交给 attentionOwner 选出一件，下面各个源头只有属于它的才用橙 ----
+    help::ClayUserState clayUser;
+    clayUser.lowCutAuto = juce::roundToInt (rawValue (state, param::clayLowCutMode)) == 0;
+    clayUser.monoAuto   = juce::roundToInt (rawValue (state, param::clayMonoMode)) == 0;
+    clayUser.widthAuto  = juce::roundToInt (rawValue (state, param::clayWidthMode)) == 0;
+    clayUser.bypassed   = rawValue (state, param::clayBypass) >= 0.5f;
+    const auto clayReadout = help::clayReadoutFor (status, clayUser);
+    c.clayCard.setReadout (clayReadout);
+
+    const auto blocked = processor.getNonFiniteBlockCount();
+
+    if (blocked != lastNonFiniteBlocks)
+    {
+        lastNonFiniteBlocks = blocked;
+        nonFiniteWarningUntilMs = now + nonFiniteWarningMs;
+    }
+
+    // 真峰值超过 Ceiling：最近 3 s 内出现过才算（听原声时不算；与 OUT 表的超限灯同一个门槛、同样 3 s）。
+    if (! comparing && std::isfinite (outputPeak) && outputPeak > ceiling + 0.05f)
+        lastOverMs = now;
+
+    const auto glazeAmber = glazestatus::toneFor (view.kind) == glazestatus::Tone::amber && glazePercent > 0.0f;
+
+    glazestatus::AttentionInputs attentionInputs;
+    attentionInputs.nonFinite = blocked > 0 && now < nonFiniteWarningUntilMs;
+    attentionInputs.truePeakOver = ! comparing && now - lastOverMs < 3000.0;
+    attentionInputs.glazeAmber = glazeAmber;
+    attentionInputs.clayGuard = c.clayCard.hasGuardLamp();
+    // 旧工程提示只在左下角真的显示时算（监听时那里换成退出按钮，悬停 / 拖动时换成操作提示）。
+    attentionInputs.legacyNotice = (legacyGlazeDiscarded || genreDeliveryReset) && ! monitoring && ! c.isHintActive();
+    const auto attention = glazestatus::attentionOwner (attentionInputs);
+    using Attention = glazestatus::Attention;
+
+    // 听原声时 OUT 是原声：它超过 Ceiling 不算问题（不亮橙灯、不进右侧板的真峰值最大值）。异常音频块拿着橙色时 OUT 表也不报超限。
+    // OUT 表的 GR 段与 LIMIT 卡片的限幅衰减只在橙色归 GLAZE（受限）时染橙。
+    const auto meterCeiling = comparing || attention == Attention::nonFinite ? std::numeric_limits<float>::infinity() : ceiling;
+    const auto guardOrange = guardLimited && attention == Attention::glaze;
     c.inputMeter.pushReadings (inputPeak, 0.0f, std::numeric_limits<float>::infinity(), false, elapsed);
-    c.outputMeter.pushReadings (outputPeak, limitGr, comparing ? std::numeric_limits<float>::infinity() : ceiling, guardLimited, elapsed);
+    c.outputMeter.pushReadings (outputPeak, limitGr, meterCeiling, guardOrange, elapsed);
     c.colorCard.setGlueReduction (glueGr);
-    c.limitCard.setLimitReduction (limitGr, guardLimited);
+    c.limitCard.setLimitReduction (limitGr, guardOrange);
+    c.clayCard.setAttentionAllowed (attention == Attention::clayGuard);
 
     if (! comparing && std::isfinite (outputPeak))
         truePeakMaxDb = juce::jmax (truePeakMaxDb, outputPeak);
@@ -1402,6 +1438,8 @@ void CeladonAudioProcessorEditor::timerCallback()
     loudness.shortTermLufs = processor.getOutputShortTermLufs();
     loudness.truePeakMaxDb = truePeakMaxDb;
     loudness.ceilingDb = ceiling;
+    // 最大真峰值是复位以来的记录：此刻没有别的事拿着橙色（或拿着的正是真峰值超限）时，超过上限才写橙字。
+    loudness.truePeakAttention = attention == Attention::none || attention == Attention::truePeak;
 
     // 目标标记：GLAZE > 0 且编排器给出了有限目标就画，不因状态行被琥珀条压住而藏起来（反相提示说的是混音，不改目标）。
     loudness.hasTarget = glazePercent > 0.0f && std::isfinite (reading.effectiveTargetLufs);
@@ -1436,8 +1474,6 @@ void CeladonAudioProcessorEditor::timerCallback()
 
     // ---- 卡片：GLAZE 的实际值（紫色）、修坯读数、Balance 的 27 段 ----
     glaze::AutoIncrements increments;
-    help::ClayReadout clayReadout;
-    help::ClayUserState clayUser;
 
     {
         const auto glazeActive = glazePercent > 0.0f && glazeEffectiveParamsSource != nullptr;
@@ -1446,20 +1482,12 @@ void CeladonAudioProcessorEditor::timerCallback()
         c.colorCard.setEffective (effective, glazeActive);
         c.limitCard.setEffective (effective, glazeActive);
 
-        help::ClayUserState user;
-        user.lowCutAuto = juce::roundToInt (rawValue (state, param::clayLowCutMode)) == 0;
-        user.monoAuto   = juce::roundToInt (rawValue (state, param::clayMonoMode)) == 0;
-        user.widthAuto  = juce::roundToInt (rawValue (state, param::clayWidthMode)) == 0;
-        user.bypassed   = rawValue (state, param::clayBypass) >= 0.5f;
-        const auto readout = help::clayReadoutFor (status, user);
-        c.clayCard.setReadout (readout);
-        c.spectrum.setClayMarkers ((float) readout.lowCutHz, readout.monoPercent > 0 ? (float) readout.monoHz : 0.0f, ! readout.bypassed);
+        // CLAY 的读数在上面「橙色归谁」那一段已经算好、交给卡片（守护灯要先知道亮没亮）。
+        c.spectrum.setClayMarkers ((float) clayReadout.lowCutHz, clayReadout.monoPercent > 0 ? (float) clayReadout.monoHz : 0.0f, ! clayReadout.bypassed);
 
         // T-107 两块侧板：7 项自动加量与卡片紫字同一口径（实际值 − 手动值）；左侧板等状态句拼好之后再填（见中层一段）。
         //      右侧板的历史每 100 ms 记一点：OUT 短期响度、GLAZE 推给 LIMIT 增益的自动加量、守护在不在退。
         increments = sidePanelIncrements (state, effective, glazeActive);
-        clayReadout = readout;
-        clayUser = user;
 
         while (historyPendingSeconds >= DeliveryPanel::historyStepSeconds)
         {
@@ -1495,7 +1523,7 @@ void CeladonAudioProcessorEditor::timerCallback()
             case Kind::following:       chip = Chip::following;    break;
         }
 
-        c.glazeTitle.setChip (chip);
+        c.glazeTitle.setChip (chip, attention == Attention::glaze);
 
         // 气泡只在语言变了时重设（Canvas::setLanguage 会写回通用版，applyLanguage 让这里随后重设）。
         if (! glazeTooltipValid || language != glazeTooltipLanguage)
@@ -1519,7 +1547,7 @@ void CeladonAudioProcessorEditor::timerCallback()
             const auto legacy = legacyGlazeDiscarded ? tr (Text::legacyDiscarded, language) : juce::String();
             const auto reset = genreDeliveryReset ? tr (Text::genreDeliveryReset, language) : juce::String();
             c.cornerNote.setLines (legacyGlazeDiscarded && genreDeliveryReset ? legacy : juce::String(),
-                                   genreDeliveryReset ? reset : legacy, false, true);
+                                   genreDeliveryReset ? reset : legacy, false, attention == Attention::legacyNotice);
         }
         else
         {
@@ -1550,65 +1578,66 @@ void CeladonAudioProcessorEditor::timerCallback()
         {
             const SidePanelContext context { state, increments, clayReadout, clayUser, reading, glazePercent, language,
                                              glazeSegments.joinIntoString (juce::String::fromUTF8 (" · ")),
-                                             glazestatus::toneFor (view.kind) == glazestatus::Tone::amber && glazePercent > 0.0f };
+                                             glazeAmber && attention == Attention::glaze };
             c.glazeNowPanel.setValues (glazeNowValues (context));
         }
 
-        // ---- 顶部状态胶囊：需要注意 > 听原声 / 试听差值 > GLAZE 状态 ----
+        // ---- 顶部状态胶囊：需要注意（橙色归谁，见上）> 听原声 / 试听差值 / 归一化预听 > GLAZE 状态 ----
+        // CLAY 守护灯与旧工程提示拿着橙色时胶囊不跟着亮：它们各自在源头写清楚了，胶囊照常写下面几种。
         StatusPill::Content pill;
-        const auto blocked = processor.getNonFiniteBlockCount();
 
-        if (blocked != lastNonFiniteBlocks)
-        {
-            lastNonFiniteBlocks = blocked;
-            nonFiniteWarningUntilMs = now + nonFiniteWarningMs;
-        }
-
-        // 真峰值超过 Ceiling：最近 3 s 内出现过才提示（听原声时不算）。
-        if (! comparing && std::isfinite (outputPeak) && outputPeak > ceiling + 0.05f)
-            lastOverMs = now;
-
-        const auto truePeakOver = ! comparing && now - lastOverMs < 3000.0;
-
-        if (blocked > 0 && now < nonFiniteWarningUntilMs)
+        if (attention == Attention::nonFinite)
         {
             pill.warning = true;
             pill.segments.add (trFormat (Text::warnNonFinite, language, { juce::String (blocked) }));
         }
-        else if (truePeakOver)
+        else if (attention == Attention::truePeak)
         {
             pill.warning = true;
             pill.segments = splitSegments (trFormat (Text::warnTruePeak, language, { signedOneDecimal (juce::jmax (truePeakMaxDb, outputPeak)),
                                                                                        signedOneDecimal (ceiling) }));
         }
-        else if (glazestatus::toneFor (view.kind) == glazestatus::Tone::amber && glazePercent > 0.0f)
+        else if (attention == Attention::glaze)
         {
             pill.warning = true;
             pill.segments = glazeSegments;
         }
         else if (comparing)
         {
-            pill.segments.add ("B");
+            // 「正在听原声 · 已等响 4.8 dB」：去掉了原来打头的「B」（T-111：界面上那两段叫母带 / 原声，没有 A / B 字样了）。
+            // 等响量与底排的等响按钮一样写绝对值、不带正负号（T-111 / 4-05）。
             pill.segments.add (tr (Text::listeningOriginal, language));
 
             if (! hasDifference)
                 pill.segments.add (tr (Text::differenceUnknown, language));
             else if (listenOn)
-                pill.segments.add (trFormat (Text::matchedBy, language, { signedOneDecimal (difference) }));
+                pill.segments.add (trFormat (Text::matchedBy, language, { juce::String (std::abs (difference), 1) }));
             else
                 pill.segments.add (trFormat (Text::notMatched, language, { juce::String (std::abs (difference), 1) }));
 
-            pill.accentSegment = 1;
+            pill.accentSegment = 0;
             pill.accentColour = palette::ink;
             pill.dotColour = palette::ink;
         }
         else if (auditioning)
         {
-            // 与 B 同一种深色：此刻送出去的不是母带。表与响度仍是母带的（见 CeladonChain::setParams）。
+            // 与听原声同一种深色：此刻送出去的不是母带。表与响度仍是母带的（见 CeladonChain::setParams）。
             pill.segments.add ("LIMIT");
             pill.segments.add (tr (Text::auditioningDifference, language));
             pill.segments.add (tr (Text::auditionDifferenceNote, language));
             pill.accentSegment = 1;
+            pill.accentColour = palette::ink;
+            pill.dotColour = palette::ink;
+        }
+        else if (mastering.previewEnabled)
+        {
+            // 归一化预听（T-111 / 4-06）：原来没有这一支，预听开着时胶囊还写 GLAZE 状态。同一种深色：此刻听到的是被衰减过的监听。
+            // 「归一化预听 · 目标 −14.0 LUFS · 监听衰减 3.2 dB」，衰减量与高级面板里那一行同一个数。
+            const auto previewGain = mastering.previewGainDb;
+            pill.segments.add (tr (Text::releasePreview, language));
+            pill.segments.add (trFormat (Text::sideTarget, language, { signedOneDecimal (rawValue (state, param::masterPreviewLufs)) }));
+            pill.segments.add (trFormat (Text::pillAttenuation, language, { juce::String (std::isfinite (previewGain) ? std::abs (previewGain) : 0.0f, 1) }));
+            pill.accentSegment = 0;
             pill.accentColour = palette::ink;
             pill.dotColour = palette::ink;
         }
@@ -1634,8 +1663,6 @@ void CeladonAudioProcessorEditor::timerCallback()
         c.topBar.setStatus (pill);
     }
 
-    // ---- 顶栏与设置面板里的延迟 ----
-    const auto latency = processor.getLatencyMilliseconds();
-    c.topBar.setLatency (latency);
-    c.settingsPanel.setLatency (latency);
+    // ---- 设置面板底行的延迟（T-111 包 D：顶栏不再显示延迟）----
+    c.settingsPanel.setLatency (processor.getLatencyMilliseconds());
 }

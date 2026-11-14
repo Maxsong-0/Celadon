@@ -30,15 +30,15 @@ namespace celadon::help
         {
             // ---- LIMIT ----
             { param::limitGain,
-              "Gain · 推响度",
-              "往限幅器里加增益：越大越响，GR 表压得越深。",
-              "从 0 慢慢加，GR 偶尔跳 2～3 dB 就够；推到 −8 LUFS 一般要 +6～+10 dB。",
+              "增益 Gain · 推响度",
+              "往限幅器里加增益：越大越响，限幅衰减压得越深。",
+              "从 0 慢慢加，限幅衰减偶尔跳 2～3 dB 就够；推到 −8 LUFS 一般要 +6～+10 dB。",
               "Gain · push loudness",
               "Adds gain into the limiter: the more you add, the louder it gets and the deeper the GR meter goes.",
               "Raise it slowly from 0; occasional 2–3 dB of GR is plenty. Reaching −8 LUFS usually takes +6 to +10 dB." },
 
             { param::limitCeiling,
-              "Ceiling · 输出上限",
+              "上限 Ceiling · 真峰值上限",
               "限幅器按真峰值检测控制输出上限（dBTP）；不同测量器会有微小读数差异。",
               "常用 −1.0；想更保险用 −1.5。",
               "Ceiling · output limit",
@@ -46,15 +46,15 @@ namespace celadon::help
               "−1.0 is common; −1.5 to be extra safe." },
 
             { param::limitRelease,
-              "Release · 释放时间",
-              "压下去之后多快回来：短更响但易失真，长更平滑但易泵。Auto 打开时不起作用。",
-              "保持 Auto；手动时从 100 ms 起。",
+              "释放 Release · 释放时间",
+              "压下去之后多快回来：短更响但易失真，长更平滑但易泵。右边「自动」打开时不起作用。",
+              "保持自动；手动时从 100 ms 起。",
               "Release · recovery time",
               "How fast the gain comes back after limiting: short is louder but can distort, long is smoother but can pump. Ignored while Auto is on.",
               "Keep Auto; when setting it manually, start at 100 ms." },
 
             { param::limitLookahead,
-              "Lookahead · 提前量",
+              "预读 Lookahead · 提前看到峰值",
               "提前多久看到峰值：越长越透明，延迟也越大。",
               "2 ms；鼓很密的歌可试 3～5 ms。",
               "Lookahead · anticipation",
@@ -62,7 +62,7 @@ namespace celadon::help
               "2 ms; songs with dense drums can try 3–5 ms." },
 
             { param::limitClip,
-              "Clip · 削波",
+              "削波 Clip · 软削尖峰",
               "在限幅器前先把尖峰轻轻削圆，同样响度下限幅器压得更少。",
               "0～30 很安全；50 以上听得出颗粒感。",
               "Clip · soft clipping",
@@ -70,7 +70,7 @@ namespace celadon::help
               "0–30 is safe; above 50 it starts to sound grainy." },
 
             { param::limitReleaseAuto,
-              "Auto · 自动释放",
+              "自动 Auto · 自动释放",
               "快慢双段释放，并参考持续低音的周期；兼顾鼓点恢复与低频平滑。",
               "大多数时候保持打开。",
               "Auto · automatic release",
@@ -78,32 +78,32 @@ namespace celadon::help
               "Leave it on most of the time." },
 
             { param::limitListen,
-              "等响 · 等响度试听",
-              "测量整条处理链的响度差，把较响的一边衰减到另一边的响度（听处理后时衰减处理结果，听原声时衰减原声），A / B 对比不受音量差影响；输出表显示试听衰减前的母带。",
-              "播放数秒后再比较；只衰减不加大音量，自动处理照常进行。导出前关闭。",
+              "等响 Match · 等响度试听",
+              "测量整条处理链的响度差，把较响的一边衰减到另一边的响度（听母带时衰减母带，听原声时衰减原声），母带与原声对比不受音量差影响；输出表显示试听衰减前的母带。",
+              "播放数秒后再比较；只衰减不加大音量，自动处理照常进行。离线导出自动旁通（成品不会被衰减）；实时导出前请关闭。",
               "Match · loudness-matched listening",
-              "Measures the loudness difference across the whole chain and turns the louder side down to the other (the processed signal in A, the original in B), so A / B is not biased by level; the meters show the master before this attenuation.",
-              "Compare after a few seconds of playback; it only attenuates, never boosts, and automatic processing keeps running. Turn it off before exporting." },
+              "Measures the loudness difference across the whole chain and turns the louder side down to the other (the master while you listen to Master, the original while you listen to Original), so the comparison is not biased by level; the meters show the master before this attenuation.",
+              "Compare after a few seconds of playback; it only attenuates, never boosts, and automatic processing keeps running. Offline export bypasses it automatically (the render is never attenuated); turn it off before a real-time export." },
 
             { param::limitBypass,
-              "Bypass · 旁通 Limit",
+              "旁通 Bypass · 只关 LIMIT",
               "只关掉限幅器；延迟不变，切换没有咔哒。",
               "对比限幅前后时用。",
-              "Bypass · Limit",
+              "Bypass · LIMIT only",
               "Turns off only the limiter; latency stays the same and switching is click-free.",
               "Use it to compare before and after limiting." },
 
             { uiid::limitAudition,
               "试听差值 · 只听限幅削掉的部分",
               "送出去的信号换成 LIMIT 削掉的那部分（增益、削波、限幅一起算，按推响前的电平，不会比原声响）；表、响度与 GLAZE 照常按母带算。",
-              "用来听有没有削到不该削的（鼓点变扁、低音发闷）；听原声、旁通 LIMIT 或关掉窗口时自动退出。",
+              "用来听有没有削到不该削的（鼓点变扁、低音发闷）；听原声、旁通 LIMIT 或关掉窗口时自动退出。离线导出时不生效（导出的是母带），实时导出前请退出。",
               "Listen to difference · hear only what the limiter removes",
               "Replaces the output with what LIMIT takes away (gain, clip and limiting together, at the level before the gain push, never louder than the original); meters, loudness and GLAZE keep measuring the master.",
-              "Use it to hear whether anything important is being shaved off (flattened drums, dull bass); it turns off when you switch to the original, bypass LIMIT or close the window." },
+              "Use it to hear whether anything important is being shaved off (flattened drums, dull bass); it turns off when you switch to the original, bypass LIMIT or close the window. Offline export ignores it (the render is the master); turn it off before a real-time export." },
 
             // ---- COLOR ----
             { param::colorTone,
-              "Tone · 明暗",
+              "音调 Tone · 明暗倾斜",
               "跷跷板式均衡：往右高频提、低频减（更亮），往左相反（更暖）。",
               "±1 dB 以内就很明显。",
               "Tone · brightness tilt",
@@ -111,15 +111,15 @@ namespace celadon::help
               "Within ±1 dB is already clearly audible." },
 
             { param::colorGlue,
-              "Glue · 粘合",
+              "粘合 Glue · 总线压缩",
               "总线压缩：把各轨捏在一起、动态更紧；侧链低切减少低频触发的抽吸。",
-              "20～40；GR 小表跳 1～3 dB 最自然。",
+              "20～40；粘合衰减跳 1～3 dB 最自然。",
               "Glue · bus compression",
               "A bus compressor that binds the tracks together and tightens the dynamics; a sidechain low cut reduces bass-triggered pumping.",
               "20–40; 1–3 dB on the Glue GR meter sounds most natural." },
 
             { param::colorHeat,
-              "Heat · 温度",
+              "热度 Heat · 电子管染色",
               "保留低频主体的并联电子管染色；两侧采用更轻染色，新增高频谐波过量时自动收敛。",
               "20～50；超过 70 染色明显，可用「等响」对比。",
               "Heat · warmth",
@@ -127,32 +127,32 @@ namespace celadon::help
               "20–50; above 70 the colouring is obvious — compare with Match on." },
 
             { param::colorMix,
-              "Mix · 干湿",
-              "处理后与原声混合；低于 100% 就是并行处理，保留原来的冲击力。",
+              "干湿 Mix · 并行混合",
+              "处理过的声音与原声混合；低于 100% 就是并行处理，保留原来的冲击力。",
               "50～80% 有「厚而不闷」的效果。",
               "Mix · dry / wet",
               "Blends the processed and the original signal; below 100% it becomes parallel processing that keeps the original punch.",
               "50–80% gives a thick but open result." },
 
             { param::colorOutput,
-              "Output · 输出微调",
-              "调整 Color 送进 Limit 的音量。",
-              "让 Color 开关前后音量一致，再判断好坏。",
+              "输出 Output · 输出微调",
+              "调整 COLOR 送进 LIMIT 的音量。",
+              "让 COLOR 开关前后音量一致，再判断好坏。",
               "Output · trim",
               "Adjusts the level Color sends into Limit.",
               "Make Color on and off equally loud before judging it." },
 
             { param::colorBypass,
-              "Bypass · 旁通 Color",
-              "只关掉 Color；延迟不变，切换没有咔哒。",
+              "旁通 Bypass · 只关 COLOR",
+              "只关掉 COLOR；延迟不变，切换没有咔哒。",
               "对比染色前后时用。",
-              "Bypass · Color",
+              "Bypass · COLOR only",
               "Turns off only Color; latency stays the same and switching is click-free.",
               "Use it to compare with and without colouring." },
 
             // ---- BALANCE（v0.3）----
             { param::balanceRecover,
-              "Recover · 找回",
+              "回补 Recover · 找回被遮住的细节",
               "把被其他声音遮住的频段提起来，细节和空气感出来。",
               "从 20～40 起；超过 60 可能把底噪也提起来。",
               "Recover · bring back",
@@ -160,7 +160,7 @@ namespace celadon::help
               "Start at 20–40; above 60 it may lift the noise floor too." },
 
             { param::balanceTame,
-              "Tame · 驯服",
+              "抑制 Tame · 压下突出的频段",
               "把突出刺耳或发闷的频段压下去，箱音和刺耳感减少。",
               "GLAZE 的自动部分保护起音与有明确谐波支持的音色；手动从 30～50 起。",
               "Tame · calm down",
@@ -168,26 +168,26 @@ namespace celadon::help
               "GLAZE's automatic part protects attacks and clearly harmonic tones; manually, start at 30–50." },
 
             { param::balanceBrighten,
-              "Brighten · 倾向",
+              "提亮 Brighten · 再加一道倾斜",
               "再加一道倾斜：往右高频提、低频压（偏亮），往左相反。",
-              "独立生效：整体发闷时往右 20～40，偏刺耳时往左；不必先打开 Recover 或 Tame。",
+              "独立生效：整体发闷时往右 20～40，偏刺耳时往左；不必先打开回补或抑制。",
               "Brighten · tilt",
               "An extra tilt: to the right it lifts the highs and lowers the lows (brighter), to the left the opposite.",
               "Works on its own: 20–40 to the right when dull, to the left when harsh; Recover and Tame are not needed." },
 
             { param::balanceSpeed,
-              "Speed · 反应速度",
-              "Balance 跟随音乐变化的快慢：Slow 稳、Mid 均衡、Fast 灵敏但可能听出起伏。",
-              "大多数歌用 Mid；节奏密的电子乐可试 Fast。",
+              "速度 Speed · 反应快慢",
+              "BALANCE 跟随音乐变化的快慢：慢 = 稳，中 = 均衡，快 = 灵敏但可能听出起伏。",
+              "大多数歌用「中」；节奏密的电子乐可试「快」。",
               "Speed · reaction",
               "How quickly Balance follows the music: Slow is steady, Mid balanced, Fast responsive but its movement may be audible.",
               "Mid for most songs; try Fast for dense electronic music." },
 
             { param::balanceBypass,
-              "Bypass · 旁通 Balance",
-              "只关掉 Balance；它没有延迟，切换没有咔哒。",
+              "旁通 Bypass · 只关 BALANCE",
+              "只关掉 BALANCE；它没有延迟，切换没有咔哒。",
               "对比修正前后时用。",
-              "Bypass · Balance",
+              "Bypass · BALANCE only",
               "Turns off only Balance; it has no latency and switches click-free.",
               "Use it to compare before and after correction." },
 
@@ -201,10 +201,10 @@ namespace celadon::help
 
             // ---- 总览区 ----
             { param::glazeAmount,
-              "Glaze · 施釉（总旋钮）",
+              "GLAZE · 施釉（总旋钮）",
               "按歌曲自动推响度、修正持续共振、调整明暗并加入温和染色；动态保护排在响度前面，推到各模块的预算上限就不再加压，状态行里的「目标 … LUFS」随之降低。",
               "新实例默认 35% 和自动风格，播放时跟着主段走；按需要增加力度，0% 只用手动设置。",
-              "Glaze · the master knob",
+              "GLAZE · the master knob",
               "Adapts to the song: pushes loudness, corrects sustained resonances, adjusts brightness and adds gentle colour. Dynamics protection comes before loudness: once each module's budget is used up it stops pushing, and the “Target … LUFS” on the status line comes down.",
               "New instances start at 35% with Auto style and follow the main section during playback; raise it as needed, 0% uses manual settings only." },
 
@@ -226,7 +226,7 @@ namespace celadon::help
 
             { uiid::advanced,
               "高级 · 母带微调",
-              "展开推响不刺、目标频谱与发行设置；修坯的低切、收单、加宽仍在下方 CLAY 卡片上。",
+              "展开推响不刺、目标频谱与发行设置；CLAY 的低切、收单、加宽仍在下方卡片上。",
               "日常使用 GLAZE 即可；需要更具体的调整或准备最终导出时再展开。",
               "Advanced · mastering detail",
               "Opens harshness control, target spectrum and release settings; low cut, mono and width remain on the CLAY card.",
@@ -349,19 +349,19 @@ namespace celadon::help
               "Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin); it turns orange if it does." },
 
             { uiid::meterGr,
-              "Limit 压缩量",
-              "限幅器此刻压了多少 dB。",
-              "长时间超过 6 dB 说明 Gain 推太多了。",
+              "衰减 GR · 限幅器压了多少",
+              "限幅器此刻压了多少 dB（与 LIMIT 卡片上的「限幅衰减」同一个数）。",
+              "长时间超过 6 dB 说明增益推太多了。",
               "Limit gain reduction",
               "How many dB the limiter is reducing right now.",
               "Staying above 6 dB for long means Gain is pushed too far." },
 
             { uiid::integrated,
               "整体响度（LUFS）",
-              "从复位开始累计的平均响度，流媒体按它做音量归一。",
+              "从复位开始累计的平均响度，流媒体按它做音量归一；听原声或宿主旁通插件时暂停累计，不把原声算进来。",
               "流行 −9～−7；想保留动态 −14～−11。",
               "Integrated loudness (LUFS)",
-              "Average loudness since the last reset; streaming services normalise playback by it.",
+              "Average loudness since the last reset; streaming services normalise playback by it. It pauses while you listen to the original or the host bypasses the plugin, so the original is never counted.",
               "Pop −9 to −7; to keep dynamics, −14 to −11." },
 
             { uiid::shortTerm,
@@ -373,7 +373,7 @@ namespace celadon::help
               "2–4 LU between verse and chorus sounds natural." },
 
             { uiid::resetMeters,
-              "Reset · 重新计量",
+              "重新计量 Reset · 清零响度与峰值",
               "清零整体响度和所有峰值保持。",
               "换一首歌或从头播放前点一下。",
               "Reset · measure again",
@@ -381,8 +381,8 @@ namespace celadon::help
               "Click it before a new song or before playing from the top." },
 
             { uiid::glueGr,
-              "Glue 压缩量",
-              "Color 的 Glue 此刻压了多少 dB。",
+              "粘合衰减 · 粘合压了多少",
+              "COLOR 的粘合此刻压了多少 dB。",
               "1～3 dB 最自然。",
               "Glue gain reduction",
               "How many dB Color's Glue is compressing right now.",
@@ -410,10 +410,10 @@ namespace celadon::help
 
             { param::clayMonoMode,
               "收单 · 自动 / 关 / 手动",
-              "自动：不收单，只在低频反相（单声道播放会丢低音）时亮琥珀灯提醒；关：不收单、不提醒；手动：手动频率以下全部收单。",
+              "自动：不收单，只在低频反相（单声道播放会丢低音）时亮橙灯提醒；关：不收单、不提醒；手动：手动频率以下全部收单。",
               "收单只让立体声的低音更集中，改变不了单声道播放；想要更紧的低音时用手动，从 100～150 Hz 起。",
               "Mono · Auto / Off / Manual",
-              "Auto: no mono-ing, only an amber warning when the lows are out of phase (bass lost on mono playback); Off: no mono-ing, no warning; Manual: everything below your frequency becomes mono.",
+              "Auto: no mono-ing, only an orange warning when the lows are out of phase (bass lost on mono playback); Off: no mono-ing, no warning; Manual: everything below your frequency becomes mono.",
               "Mono-ing only focuses stereo bass and cannot change mono playback; for tighter lows use Manual, starting at 100–150 Hz." },
 
             { param::clayMonoHz,
@@ -441,22 +441,22 @@ namespace celadon::help
               "Within ±1 dB is clearly audible; above +2 dB it easily sounds hollow and phasey." },
 
             { param::clayBypass,
-              "Bypass · 旁通修坯",
-              "只关掉修坯（低切、收单、加宽）；延迟不变，切换没有咔哒。",
-              "对比修坯前后时用。",
-              "Bypass · Clay",
-              "Turns off only Clay (low cut, mono, width); latency stays the same and switching is click-free.",
+              "旁通 Bypass · 只关 CLAY",
+              "只关掉 CLAY（低切、收单、加宽）；延迟不变，切换没有咔哒。",
+              "对比 CLAY 前后时用。",
+              "Bypass · CLAY only",
+              "Turns off only CLAY (low cut, mono, width); latency stays the same and switching is click-free.",
               "Use it to compare with and without Clay." },
 
             // 三灯指示（v0.1.8.0 起是 CLAY 卡片每行的灯）：气泡第 2 行在界面上换成此刻的实际值（clayIndicatorTooltip），这里的第 2 行
             // 界面上从不显示（官网说明页首句手工与它保持一致，T-061，没有自动核对）；第 3 行照常显示，所以灯色的含义写在第 3 行。
             { uiid::clayIndicator,
-              "修坯 · 立体声像与超低频清理",
+              "CLAY（修坯）· 立体声像与超低频清理",
               "三盏灯自上而下：低切（清超低频）、收单（按你的需要把低频收成单声道）、加宽（窄歌的高频适度加宽）。低切与收单从不让峰值变高：会抬峰值的瞬间自动让开；加宽不经峰值守护，自动加宽由先试后用把关，运行中还有宽度保护盯着相关度。",
-              "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯琥珀 = 低频反相提醒（建议回混音检查），加宽灯琥珀 = 宽度保护介入；低切 / 收单灯琥珀 = 峰值守护把你设的量明显收回去了（气泡里写还剩约多少）。想手动覆盖，把该行切到「手动」。",
-              "Clay · stereo image and sub-bass cleanup",
+              "亮 = 在处理（紫色 = 自动，青色 = 手动）；收单灯橙 = 低频反相提醒（建议回混音检查），加宽灯橙 = 宽度保护介入；低切 / 收单灯橙 = 峰值守护把你设的量明显收回去了（气泡里写还剩约多少）。想手动覆盖，把该行切到「手动」。",
+              "CLAY · stereo image and sub-bass cleanup",
               "Three lamps from the top: low cut (clears sub-bass), mono (lows to mono when you ask for it), width (moderate widening of narrow highs). Low cut and mono never make peaks higher: they step aside at moments that would; width is not run through the peak guard; automatic width is kept in check by the trial and, while playing, by a width guard that watches correlation.",
-              "Lit = processing (violet = auto, cyan = manual); amber mono = out-of-phase lows warning (check the mix), amber width = width guard engaged; amber low cut / mono = the peak guard is clearly pulling your setting back (the tooltip says roughly how much is left). To override, switch a row to Manual." },
+              "Lit = processing (violet = auto, cyan = manual); orange mono = out-of-phase lows warning (check the mix), orange width = width guard engaged; orange low cut / mono = the peak guard is clearly pulling your setting back (the tooltip says roughly how much is left). To override, switch a row to Manual." },
         };
 
         //==============================================================================
@@ -589,7 +589,7 @@ namespace celadon::help
     {
         ClayReadout readout;
 
-        // 旁通：模块在往干信号淡化，交给它的实际值不代表在处理——全清零（三灯全暗、第 2 行写「修坯已旁通」）。
+        // 旁通：模块在往干信号淡化，交给它的实际值不代表在处理——全清零（三灯全暗、第 2 行写「CLAY 已旁通」）。
         // 清零后读数不随被旁通的实际值变动，气泡文字也不会白白重拼。
         if (user.bypassed)
         {
@@ -654,7 +654,7 @@ namespace celadon::help
         const auto english = language == Language::english;
 
         if (readout.bypassed)
-            return english ? juce::String ("Clay bypassed") : utf8 ("修坯已旁通");
+            return english ? juce::String ("CLAY bypassed") : utf8 ("CLAY 已旁通");
 
         // 三级按处理顺序（= 三盏灯自上而下）各写一段，再接低频反相提示与宽度保护两段（亮着才写）；段间「 · 」（规格示例的写法）。
         juce::StringArray parts;

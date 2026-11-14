@@ -323,7 +323,9 @@ namespace celadon::ui::glazestatus
                     return "Limited by manual settings";
 
                 case Kind::coldExport:
-                    return "Main-section stats are still cold at export, so the first drop may come out quiet: play through once, then export";
+                    // 顶部胶囊最窄约 495 px：整句压到 60 个字符以内，要用户做的那一步（先播一遍再导出）放得下、不被省略号吃掉
+                    //（T-111 / 3-05、4-27；原句 113 个字符）。左侧板的状态句与气泡写的是同一句。
+                    return "First drop may export quiet: play it once, then export";
 
                 case Kind::guardLimited:
                     return guardText (view, Language::english);
@@ -419,5 +421,16 @@ namespace celadon::ui::glazestatus
             return glaze::Style::automatic;
 
         return static_cast<glaze::Style> (juce::jlimit (0, 3, juce::roundToInt (rawValue)));
+    }
+
+    Attention attentionOwner (const AttentionInputs& inputs) noexcept
+    {
+        // 越靠前越要紧：坏数据先于超限，超限先于 GLAZE 自己的退让，模块灯与一次性提示排最后。
+        if (inputs.nonFinite)       return Attention::nonFinite;
+        if (inputs.truePeakOver)    return Attention::truePeak;
+        if (inputs.glazeAmber)      return Attention::glaze;
+        if (inputs.clayGuard)       return Attention::clayGuard;
+        if (inputs.legacyNotice)    return Attention::legacyNotice;
+        return Attention::none;
     }
 }

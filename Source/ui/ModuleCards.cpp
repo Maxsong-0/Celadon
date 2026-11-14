@@ -20,7 +20,11 @@ namespace celadon::ui
     namespace
     {
         constexpr int padX = 14, headerTop = 10, headerHeight = 32;
-        constexpr float bypassedAlpha = 0.35f;
+        // 旁通的模块照样能调、数值照样要读：0.55 让数值对白底还有约 3.9 : 1（T-111 / 4-19，原 0.35 只剩 2.2 : 1）。
+        constexpr float bypassedAlpha = 0.55f;
+
+        // BALANCE 速度行：与 COLOR / LIMIT 末行同一条线（y 218、高 24，T-111 / 4-25；原来 y 208、高 28，中心差 8 px）。
+        const juce::Rectangle<float> speedRow { 0.0f, 218.0f, 0.0f, 24.0f };
 
         juce::RangedAudioParameter& parameterFor (juce::AudioProcessorValueTreeState& state, const char* id)
         {
@@ -207,6 +211,30 @@ namespace celadon::ui
         repaint();
     }
 
+    void ClayCard::setAttentionAllowed (bool allowed)
+    {
+        if (allowed == attentionAllowed)
+            return;
+
+        attentionAllowed = allowed;
+        refreshRows();
+        repaint();
+    }
+
+    bool ClayCard::hasGuardLamp() const noexcept
+    {
+        for (const auto& row : rows)
+            if (help::clayLampFor (readout, row.stage) == help::ClayLamp::guard)
+                return true;
+
+        return false;
+    }
+
+    bool ClayCard::showsGuard (help::ClayStage stage) const noexcept
+    {
+        return attentionAllowed && help::clayLampFor (readout, stage) == help::ClayLamp::guard;
+    }
+
     void ClayCard::refreshRows()
     {
         const auto bypassed = ! power.isModuleOn();
@@ -223,7 +251,7 @@ namespace celadon::ui
             }
 
             const auto text = help::clayStageValue (readout, row.stage);
-            const auto guard = help::clayLampFor (readout, row.stage) == help::ClayLamp::guard;
+            const auto guard = showsGuard (row.stage);
 
             if (text.isEmpty())
                 row.value->setDisplay (tr (Text::clayNotActive, language), guard ? palette::warningText : palette::ink3);
@@ -280,11 +308,12 @@ namespace celadon::ui
             const auto mode = modeOf (rows[i]);
 
             // 灯：暗 = 灰圈；在处理 = 紫圈（自动）/ 青色实心（手动）；宽度保护介入（加宽）/ 低频反相提示（收单）= 橙色实心。
+            // 橙色此刻归别的事时（attentionAllowed = false），守护灯按「在处理」画。
             juce::Colour fill = palette::panel, ring = palette::lampIdle;
 
-            if (lamp == help::ClayLamp::guard)
+            if (showsGuard (rows[i].stage))
                 fill = ring = palette::warning;
-            else if (lamp == help::ClayLamp::on)
+            else if (lamp != help::ClayLamp::off)
                 std::tie (fill, ring) = mode == 2 ? std::make_pair (palette::c600, palette::c600) : std::make_pair (palette::panel, palette::violet);
 
             const auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ area.getX() + 3.5f, area.getCentreY() });
@@ -349,24 +378,44 @@ namespace celadon::ui
             if (mono > lowCut + 0.5f)
                 g.fillRect (mono - 0.6f, strip.getY() + 1.0f, 1.2f, 18.0f);
 
-            // 标签：低切频率、收单频率、右边「立体声」（加宽时接加宽量）。
-            g.setFont (monoFont (11.0f));
+            // 标签：低切频率、收单频率、右边「立体声」（加宽时接加宽量）。两个频率都带「 Hz」（T-111 / 4-05，低切原来只写数字）；
+            // 两个标签靠得太近会叠，这时合成一个「36 / 40 Hz」；收单标签也不压到右边的「立体声」（4-21）。
+            const auto labelFont = monoFont (11.0f);
+            g.setFont (labelFont);
             g.setColour (palette::ink3.withMultipliedAlpha (alpha));
             const auto labelY = strip.getBottom();
-
-            if (lowCut > strip.getX() + 0.5f)
-                g.drawText (juce::String (readout.lowCutHz), juce::Rectangle<float> (lowCut - 6.0f, labelY, 30.0f, 14.0f),
-                            juce::Justification::centredLeft, false);
-
-            if (mono > lowCut + 0.5f)
-                g.drawText (juce::String (readout.monoHz) + " Hz", juce::Rectangle<float> (mono - 16.0f, labelY, 60.0f, 14.0f),
-                            juce::Justification::centredLeft, false);
 
             auto stereoLabel = tr (Text::stripStereo, language);
 
             if (! bypassed)
                 if (const auto widthText = help::clayStageValue (readout, help::ClayStage::width); widthText.isNotEmpty())
                     stereoLabel << " " << widthText;
+
+            const auto stereoLeft = strip.getRight() - textWidth (labelFont, stereoLabel);
+            const auto showLow = lowCut > strip.getX() + 0.5f, showMono = mono > lowCut + 0.5f;
+            const auto lowText = juce::String (readout.lowCutHz) + " Hz", monoText = juce::String (readout.monoHz) + " Hz";
+            const auto labelArea = [&] (const juce::String& text, float x)
+            {
+                const auto w = textWidth (labelFont, text) + 2.0f;
+                return juce::Rectangle<float> (juce::jmin (x, stereoLeft - 8.0f - w), labelY, w, 14.0f);
+            };
+
+            const auto lowArea = labelArea (lowText, lowCut - 6.0f);
+            const auto monoArea = labelArea (monoText, mono - 16.0f);
+
+            if (showLow && showMono && lowArea.getRight() + 6.0f > monoArea.getX())
+            {
+                const auto merged = juce::String (readout.lowCutHz) + " / " + monoText;
+                g.drawText (merged, labelArea (merged, lowCut - 6.0f), juce::Justification::centredLeft, false);
+            }
+            else
+            {
+                if (showLow)
+                    g.drawText (lowText, lowArea, juce::Justification::centredLeft, false);
+
+                if (showMono)
+                    g.drawText (monoText, monoArea, juce::Justification::centredLeft, false);
+            }
 
             g.drawText (stereoLabel, juce::Rectangle<float> (strip.getRight() - 130.0f, labelY, 130.0f, 14.0f), juce::Justification::centredRight, false);
         }
@@ -470,7 +519,7 @@ namespace celadon::ui
     void BalanceCard::layoutContent()
     {
         layoutKnobs (90);
-        speed.setBounds (padX + ParamSlider::nameWidth + ParamSlider::gap, 208, 246 - ParamSlider::nameWidth - ParamSlider::gap, 28);
+        speed.setBounds (padX + ParamSlider::nameWidth + ParamSlider::gap, (int) speedRow.getY(), 246 - ParamSlider::nameWidth - ParamSlider::gap, (int) speedRow.getHeight());
     }
 
     juce::String BalanceCard::getTooltip()
@@ -480,7 +529,7 @@ namespace celadon::ui
         if (graphBounds().contains (position))
             return help::tooltipFor (uiid::balanceCurve, language);
 
-        if (position.y >= 208.0f && position.x < (float) (padX + ParamSlider::nameWidth))
+        if (position.y >= speedRow.getY() && position.x < (float) (padX + ParamSlider::nameWidth))
             return help::tooltipFor (param::balanceSpeed, language);
 
         return ModuleCard::getTooltip();
@@ -634,7 +683,7 @@ namespace celadon::ui
 
         g.setFont (uiFont (12.0f));
         g.setColour (palette::ink3.withMultipliedAlpha (alpha));
-        g.drawText (tr (Text::speed, language), juce::Rectangle<float> ((float) padX, 208.0f, (float) ParamSlider::nameWidth, 28.0f),
+        g.drawText (tr (Text::speed, language), speedRow.withX ((float) padX).withWidth ((float) ParamSlider::nameWidth),
                     juce::Justification::centredLeft, false);
     }
 

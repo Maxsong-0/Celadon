@@ -19,6 +19,7 @@
     T-108（ADR-039）删了 T-038 的「House 反相提示」一条与「House ·」前缀，T-097 两扇守护的原因「保对比 / PSR」，
     「交付峰值」改叫「限幅」（交付删了；意思不变：限幅 GR 是超限来源）。
     GLAZE ≤ 0 时状态行只写「GLAZE 0 · 只用手动设置」，上面六条都不显示。
+    颜色怎么分给各处见文件末尾的 attentionOwner（T-111 橙色规则）。
     旧工程的两条提示（「旧的聆听结果已丢弃，声音会变」「曲风与交付已取消…」）不在这六条里：只活在本次打开的界面
    （编辑器计时器每帧从处理器取，见 PluginEditor.h setGenreDeliveryResetSource），不进 Reading。
 
@@ -116,4 +117,23 @@ namespace celadon::ui::glazestatus
 
     // 参数 glaze_style 的原始值（选项下标的 float）→ 风格：取整方式同 AudioParameterChoice::getIndex，钳到 0 ～ 3，非有限值按「自动」。
     glaze::Style styleFromParameterValue (float rawValue) noexcept;
+
+    // ---- 橙色归谁（T-111 / 4-06，规格 V4「橙色规则」）----
+    // 同一件事可以在源头和顶部状态胶囊两处同时亮橙；不同的事不同时亮。编辑器每帧把此刻成立的几件事交给 attentionOwner，
+    // 只有返回的那一件的各个源头用橙，其余源头退回中性色（OUT 表不报超限、GR 不染橙、标题标签与左侧板状态句用中性色、
+    // CLAY 守护灯按「在处理」画、旧工程提示用灰字）。优先级与顶部胶囊一致：
+    //   异常音频块（NaN / Inf）> 真峰值超限 > GLAZE 琥珀（受手动设置限制、导出时还没热、受限）> CLAY 守护灯 > 旧工程提示。
+    // 图例「橙 = 需要注意」的色块与右侧板历史里的守护刻度不算（一个是钥匙，一个是过去的记录），不经过这里。
+    enum class Attention : int { none = 0, nonFinite, truePeak, glaze, clayGuard, legacyNotice };
+
+    struct AttentionInputs
+    {
+        bool nonFinite = false;       // 最近 10 s 屏蔽过异常音频块
+        bool truePeakOver = false;    // 最近 3 s 真峰值超过上限（听原声时不算）
+        bool glazeAmber = false;      // GLAZE > 0 且状态行是琥珀（toneFor == amber）
+        bool clayGuard = false;       // CLAY 三行里有一盏守护灯亮着
+        bool legacyNotice = false;    // 本次打开的旧工程提示还在左下角
+    };
+
+    Attention attentionOwner (const AttentionInputs& inputs) noexcept;
 }

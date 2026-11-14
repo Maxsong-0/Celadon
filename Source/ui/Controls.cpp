@@ -320,7 +320,7 @@ namespace celadon::ui
 
     void ParameterControl::updateBubble()
     {
-        if (dragActive && gestureActive)
+        if (dragActive && gestureActive && showsValueBubble())
             host.showValueBubble (*this, getBubbleAnchor(), getValueText (true), fine);
     }
 
@@ -355,30 +355,32 @@ namespace celadon::ui
             host.setControlHint (nullptr);
     }
 
-    void ParameterControl::mouseDoubleClick (const juce::MouseEvent& e)
+    bool ParameterControl::handleResetClick (const juce::MouseEvent& e)
     {
-        if (! isAdjustable() || e.mods.isAltDown())
-            return;
+        // 双击回默认在「第二次按下」就生效（T-111 / 4-13，与官网 T-103 同一做法）。JUCE 的 mouseDoubleClick 要到第二次松手之后才调：
+        // 双击外圈时参数先跳到所按角度、第二次松手才回默认，宿主多收两次改值。按着 Alt 的第二下仍是「直接输入」，不在这里。
+        if (e.getNumberOfClicks() < 2 || e.mods.isAltDown() || ! e.mods.isLeftButtonDown() || ! isAdjustable())
+            return false;
 
-        // 第二次按下已经 beginDrag（懒启动，没真正拖就还没 beginGesture）：在手势里就按手势的一部分设，否则当一次完整改动。
-        if (gestureActive)
-        {
-            dragProportion = parameter.convertTo0to1 (defaultValue);
-            attachment->setValueAsPartOfGesture (defaultValue);
-        }
-        else
-        {
-            setValueAsCompleteGesture (defaultValue);
-        }
+        if (dragActive)
+            endDrag();
 
-        // 这次按下剩下的拖动不再改值：双击回默认之后手一抖不该又拖走。
-        dragActive = false;
+        setValueAsCompleteGesture (defaultValue);
+
+        // 这次按下剩下的拖动不再改值（调用方不 beginDrag）：回默认之后手一抖不该又拖走，松手也不甩。
         host.hideValueBubble (*this);
+        return true;
+    }
+
+    void ParameterControl::mouseDoubleClick (const juce::MouseEvent&)
+    {
+        // 回默认已在第二次按下时做了（handleResetClick）；这里留空，免得 JUCE 在第二次松手后再设一次。
     }
 
     void ParameterControl::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
     {
-        if (! isAdjustable() || e.mods.isAnyMouseButtonDown())
+        // 触控板手抬起后的惯性段不算（T-111 / 4-24）：否则双指滑过旋钮、手已经离开，值还在继续变。
+        if (! isAdjustable() || e.mods.isAnyMouseButtonDown() || wheel.isInertial)
             return;
 
         const auto amount = (std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? -wheel.deltaX : wheel.deltaY)
@@ -513,16 +515,26 @@ namespace celadon::ui
 
     void ParamSlider::mouseDown (const juce::MouseEvent& e)
     {
-        if (handleTextEntryClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
+        if (handleTextEntryClick (e) || handleResetClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
             return;
 
         fineDrag = e.mods.isCommandDown();
         lastDragX = e.position.x;
+        grabOffset = 0.0f;
         beginDrag (fineDrag);
 
         // 点在轨道上：滑块直接跳过去（设计稿：绝对位置）；按住 ⌘ 按下时不跳，只做相对的精调。
+        // 按在 14 px 的滑块圆上不跳，记下离圆心多远，拖动时扣掉（T-111 / 4-24：抓滑块边缘原来先跳最多 7 px）。
         if (! fineDrag && getTrackArea().expanded (0.0f, 4.0f).contains (e.position))
-            dragTo (proportionAtX (e.position.x), false);
+        {
+            const auto track = getTrackArea();
+            const auto thumbX = track.getX() + track.getWidth() * getProportion();
+
+            if (std::abs (e.position.x - thumbX) <= 7.0f)
+                grabOffset = e.position.x - thumbX;
+            else
+                dragTo (proportionAtX (e.position.x), false);
+        }
     }
 
     void ParamSlider::mouseDrag (const juce::MouseEvent& e)
@@ -546,7 +558,7 @@ namespace celadon::ui
             return;
         }
 
-        dragTo (proportionAtX (e.position.x), false);
+        dragTo (proportionAtX (e.position.x - grabOffset), false);
     }
 
     void ParamSlider::mouseUp (const juce::MouseEvent&)
@@ -614,7 +626,7 @@ namespace celadon::ui
 
     void DragValue::mouseDown (const juce::MouseEvent& e)
     {
-        if (handleTextEntryClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
+        if (handleTextEntryClick (e) || handleResetClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
             return;
 
         lastDragPosition = e.position;
@@ -696,7 +708,8 @@ namespace celadon::ui
 
     float Segmented::itemWidth (int index) const
     {
-        const auto padding = look == Look::compact ? 6.0f : (look == Look::language ? 9.0f : 10.0f);
+        // 紧凑款（频谱的斜率）每项左右 9：「0」「3」两项的点击区原来只有约 20 × 22（T-111 / 4-22）。
+        const auto padding = look == Look::compact ? 9.0f : (look == Look::language ? 9.0f : 10.0f);
         auto w = textWidth (font, labels[index]) + 2.0f * padding;
 
         if (prefixes[index].isNotEmpty())

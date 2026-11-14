@@ -2,7 +2,9 @@
   ==============================================================================
 
     HelpText.h
-    全部控件的提示文案（设计规格-界面 第 4 节，逐字一致）。
+    全部控件的提示文案（设计规格-界面 第 4 节）。T-111 / 4-03 起中文标题一律「界面上的名字 + 英文名 · 一句话作用」
+   （「回补 Recover · 找回被遮住的细节」），正文只用界面上看得到的名字（回补 / 抑制 / 增益 / 自动 / 慢中快 / 粘合衰减……）；
+    CLAY 卡片在气泡里写「CLAY（修坯）」，灯色一律叫「橙」（与帮助、图例同一个词）。
 
     只依赖 juce_core 与 dsp/GlazeTypes.h（纯数据类型，不含 JUCE）：插件和无头测试都能编。测试会检查 ParameterIds.h 里的
     每个参数、每个界面元素、每个 Balance 占位都有三行非空文案。
@@ -88,7 +90,7 @@ namespace celadon::help
         // peakGuardKeptPercent = 保留比取整到 5 %（0 ～ 100；气泡写「实际只剩约 N %」；取整是为了读数不在每帧小幅抖动时让气泡文字白白重拼）。
         bool peakGuard = false;
         int peakGuardKeptPercent = 100;
-        bool bypassed = false;       // Bypass 修坯：以上各项的值与低频反相提示、宽度保护全清零，第 2 行写「修坯已旁通」
+        bool bypassed = false;       // Bypass 修坯：以上各项的值与低频反相提示、宽度保护全清零，第 2 行写「CLAY 已旁通」
         // ADR-012「先试后用」：该项（自动态）因本曲试过会抬高峰值而被决策器减量 / 否决（Status::clayCostLimitedMask）。
         // 加宽在宽度保护介入时不算（第 2 行已写「宽度保护中」，此刻的实际值由保护定，不是代价的结果）；收单在低频反相提示亮着时
         // 不算（第 2 行已写「低频反相」，ADR-015 起决策器不再置收单的代价位，留着只为读旧快照时口径一致）；旁通时全清零。
@@ -108,7 +110,7 @@ namespace celadon::help
     // 否则实际值非 0 → 亮（「自动」紫圈、「手动」青色实心，画法见 ModuleCards.cpp）；否则暗。旁通时 readout 里全是 0 → 全暗。
     ClayLamp clayLampFor (const ClayReadout& readout, ClayStage stage) noexcept;
 
-    // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接低频反相提示与宽度保护状态；旁通时写「修坯已旁通」。
+    // 气泡第 2 行：各级此刻的实际值（为 0 时写「未低切」「未收单」「未加宽」），再接低频反相提示与宽度保护状态；旁通时写「CLAY 已旁通」。
     juce::String clayLiveLine (const ClayReadout& readout, Language language = Language::chinese);
 
     // ADR-012 的代价说明（设计规格-Clay-根治修订 3.5）：「本曲试过：{低切 / 收单 / 加宽}会抬高峰值，已自动{减量 / 跳过}」（含低切时写

@@ -236,6 +236,34 @@ namespace celadon::test
                 expectEquals (ui::tr (Text::legacyDiscarded, Language::english),
                               juce::String ("The old listening result was discarded, so the sound will change"));
             }
+
+            // T-111：「A 处理后 / B 原声」改叫「母带 / 原声」；英文控件名首字母大写（全大写只留给模块名与表头）；
+            // 数字与单位之间空一格、百分号贴着数字（4-05、4-15）。
+            beginTest ("T-111 names: Master / Original, control-name case, number and unit spacing");
+            {
+                expectEquals (ui::tr (Text::processed, Language::chinese), utf8 ("母带"));
+                expectEquals (ui::tr (Text::processed, Language::english), juce::String ("Master"));
+                expectEquals (ui::tr (Text::original, Language::chinese), utf8 ("原声"));
+                expect (utf8Contains (ui::tr (Text::helpAb, Language::chinese), "母带 / 原声"));
+                expect (utf8Contains (ui::tr (Text::helpAb, Language::chinese), "离线导出一律出母带"));
+                expect (ui::tr (Text::helpAb, Language::english).startsWith ("Master / Original"));
+                expect (! ui::tr (Text::helpAb, Language::english).contains ("A / B"));
+
+                for (const auto key : { Text::speed, Text::mix, Text::output, Text::glueReduction, Text::release, Text::lookahead,
+                                        Text::limitReduction, Text::clayNotActive, Text::clayBypassed })
+                {
+                    const auto english = ui::tr (key, Language::english);
+                    expect (english != english.toUpperCase() && english.substring (0, 1) == english.substring (0, 1).toUpperCase(),
+                            "control names start with one capital: " + english);
+                }
+
+                expect (ui::tr (Text::describeColor, Language::english) != ui::tr (Text::tone, Language::english),
+                        "the COLOR card subtitle is not the same word as its first knob");
+                expectEquals (ui::tr (Text::cents, Language::english), juce::String ("cents"));
+                expectEquals (ui::trFormat (Text::sideConfidence, Language::chinese, { "80" }), utf8 ("把握 80%"));
+                expectEquals (ui::trFormat (Text::pillAttenuation, Language::english, { "3.2" }), juce::String ("monitor attenuation 3.2 dB"));
+                expect (! utf8Contains (ui::tr (Text::harshAutoNote, Language::chinese), "下方"), "the sliders are above this note");
+            }
         }
     };
 

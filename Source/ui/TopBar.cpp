@@ -31,6 +31,39 @@ namespace celadon::ui
 
         constexpr float pillInset = 14.0f;   // 胶囊放不下全部内容时两端留的边
 
+        // 设置键的齿轮轮廓：8 个梯形齿，齿顶半径 5.5、齿根半径 4，每齿顶部占 18°、根部占 27°。
+        juce::Path gearOutline (juce::Point<float> centre)
+        {
+            constexpr int teeth = 8;
+            constexpr float outer = 5.5f, inner = 4.0f;
+            const auto step = juce::MathConstants<float>::twoPi / (float) teeth;
+            const auto topHalf = juce::degreesToRadians (9.0f), rootHalf = juce::degreesToRadians (13.5f);
+            const auto at = [centre] (float radius, float angle)
+            {
+                return juce::Point<float> (centre.x + radius * std::sin (angle), centre.y - radius * std::cos (angle));
+            };
+
+            juce::Path path;
+
+            for (int i = 0; i < teeth; ++i)
+            {
+                const auto mid = step * (float) i;
+                const auto rootStart = at (inner, mid - rootHalf);
+
+                if (i == 0)
+                    path.startNewSubPath (rootStart);
+                else
+                    path.lineTo (rootStart);
+
+                path.lineTo (at (outer, mid - topHalf));
+                path.lineTo (at (outer, mid + topHalf));
+                path.lineTo (at (inner, mid + rootHalf));
+            }
+
+            path.closeSubPath();
+            return path;
+        }
+
         void drawWarningIcon (juce::Graphics& g, juce::Rectangle<float> area)
         {
             juce::Path triangle;
@@ -248,13 +281,9 @@ namespace celadon::ui
 
         if (icon == Icon::settings)
         {
-            // 齿轮：虚线圆（齿）+ 实线小圆（设计稿）。
-            juce::Path teeth, dashed;
-            teeth.addEllipse (juce::Rectangle<float> (9.2f, 9.2f).withCentre (centre));
-            const float dashes[] = { 2.1f, 1.52f };
-            juce::PathStrokeType (2.2f).createDashedStroke (dashed, teeth, dashes, 2);
+            // 齿轮：8 齿实线轮廓（外径 11、齿根 8、中孔 4、线宽 1.4）。原来的虚线圆在 1 倍下像雪花（T-111 / 4-23）。
             g.setColour (palette::ink2);
-            g.fillPath (dashed);
+            g.strokePath (gearOutline (centre), juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             g.drawEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre (centre), 1.4f);
         }
         else
@@ -321,16 +350,6 @@ namespace celadon::ui
         subtitleText = tr (Text::brandSubtitle, language);
         subtitleWidth = textWidth (subtitleFont(), subtitleText);
 
-        languageSelector.setOptions ({ juce::String::fromUTF8 ("中"), "EN" });
-        languageSelector.setEqualWidths (false);
-        languageSelector.setFont (uiFont (11.0f, Weight::medium));
-        languageSelector.onSelect = [this] (int index)
-        {
-            if (onLanguageChange != nullptr)
-                onLanguageChange (index == 1 ? Language::english : Language::chinese);
-        };
-        addAndMakeVisible (languageSelector);
-
         settingsButton.onClick = [this] { if (onSettings != nullptr) onSettings(); };
         helpButton.onClick = [this] { if (onHelp != nullptr) onHelp(); };
         advancedButton.onClick = [this] { if (onAdvanced != nullptr) onAdvanced(); };
@@ -342,7 +361,6 @@ namespace celadon::ui
     void TopBar::setLanguage (Language newLanguage)
     {
         language = newLanguage;
-        languageSelector.setSelected (language == Language::english ? 1 : 0);
         settingsButton.setTooltip (tr (Text::settings, language));
         helpButton.setTooltip (tr (Text::help, language));
         advancedButton.setText (tr (Text::advanced, language));
@@ -352,40 +370,13 @@ namespace celadon::ui
         subtitleText = tr (Text::brandSubtitle, language);
         subtitleWidth = textWidth (subtitleFont(), subtitleText);
 
-        // 延迟读数的「延迟」二字跟语言：数值没变也要当场换（setLatency 只在数值变了时才拼）。
-        if (std::isfinite (latencyMs))
-            updateLatencyText();
-
         resized();   // 「高级」与副标题的宽度随语言变
-        repaint();
-    }
-
-    void TopBar::setLatency (double milliseconds)
-    {
-        // 编辑器每帧都来：数值没变就不拼字符串（语言变了由 setLanguage 重拼）。
-        if (juce::exactlyEqual (milliseconds, latencyMs))
-            return;
-
-        latencyMs = milliseconds;
-        updateLatencyText();
-    }
-
-    void TopBar::updateLatencyText()
-    {
-        const auto text = tr (Text::latency, language) + " " + juce::String (latencyMs, 1) + " ms";
-
-        if (text == latencyText)
-            return;
-
-        latencyText = text;
-        latencyWidth = textWidth (monoFont (11.0f), latencyText);
-        layoutPill();   // 读数变长时胶囊可用的宽度跟着变
         repaint();
     }
 
     void TopBar::setStatus (const StatusPill::Content& content)
     {
-        // 内容没变时胶囊的首选宽度也不变；品牌与延迟的宽度变化各自在 setLanguage / updateLatencyText 里重新摆放。
+        // 内容没变时胶囊的首选宽度也不变；品牌与右边按钮的宽度变化在 setLanguage → resized 里重新摆放。
         if (pill.setContent (content))
             layoutPill();
     }
@@ -395,15 +386,15 @@ namespace celadon::ui
         return 46.0f + brandWidth + 10.0f + subtitleWidth;
     }
 
-    float TopBar::latencyLeft() const
+    float TopBar::controlsLeft() const
     {
-        return (float) languageSelector.getX() - 10.0f - latencyWidth;
+        return (float) settingsButton.getX();
     }
 
     void TopBar::layoutPill()
     {
-        // 居中在 x = 600，两边各离品牌与延迟读数至少 16 px（按较窄的一侧对称收窄）。
-        const auto room = 2.0f * juce::jmin (600.0f - (brandRight() + 16.0f), (latencyLeft() - 16.0f) - 600.0f);
+        // 居中在 x = 600，两边各离品牌与设置键至少 16 px（按较窄的一侧对称收窄）。
+        const auto room = 2.0f * juce::jmin (600.0f - (brandRight() + 16.0f), (controlsLeft() - 16.0f) - 600.0f);
         const auto w = juce::jmin (pill.getPreferredWidth(), juce::jmax (200, (int) std::floor (room)));
 
         if (w != pill.getWidth() || pill.getX() != 600 - w / 2)
@@ -416,8 +407,6 @@ namespace celadon::ui
         advancedButton.setBounds (1180 - advancedWidth, 12, advancedWidth, 28);
         helpButton.setBounds (advancedButton.getX() - 10 - 28, 12, 28, 28);
         settingsButton.setBounds (helpButton.getX() - 10 - 28, 12, 28, 28);
-        const auto languageWidth = languageSelector.getNaturalWidth();
-        languageSelector.setBounds (settingsButton.getX() - 10 - languageWidth, 13, languageWidth, 26);
         layoutPill();
     }
 
@@ -430,7 +419,7 @@ namespace celadon::ui
         g.setColour (palette::c500);
         g.drawEllipse (juce::Rectangle<float> (13.5f, 13.5f).withCentre (ring), 2.5f);
 
-        // 三段文字只在与脏区相交时画（状态胶囊呼吸时脏区只是胶囊里的圆点，这里什么都不用排版）。
+        // 两段文字只在与脏区相交时画（状态胶囊呼吸时脏区只是胶囊里的圆点，这里什么都不用排版）。
         const juce::Rectangle<float> brandArea (46.0f, 0.0f, 140.0f, 52.0f);
 
         if (needsDrawing (g, brandArea))
@@ -441,7 +430,8 @@ namespace celadon::ui
             g.drawText ("CELADON", brandArea, juce::Justification::centredLeft, false);
         }
 
-        const juce::Rectangle<float> subtitleArea (46.0f + brandWidth + 10.0f, 0.0f, 160.0f, 52.0f);
+        // 副标题字小一号，两者各自垂直居中时基线差约 0.8 px：下移 1 px 让两行字落在同一条基线上（T-111 / 4-25）。
+        const juce::Rectangle<float> subtitleArea (46.0f + brandWidth + 10.0f, 1.0f, 160.0f, 52.0f);
 
         if (needsDrawing (g, subtitleArea))
         {
@@ -449,17 +439,6 @@ namespace celadon::ui
             g.setFont (subtitleFont());
             g.setColour (palette::ink3);
             g.drawText (subtitleText, subtitleArea, juce::Justification::centredLeft, false);
-        }
-
-        // 延迟（等宽 11 px），紧挨在语言选择左边
-        const juce::Rectangle<float> latencyArea ((float) languageSelector.getX() - 10.0f - 160.0f, 0.0f, 160.0f, 52.0f);
-
-        if (needsDrawing (g, latencyArea))
-        {
-            ++textDraws;
-            g.setFont (monoFont (11.0f));
-            g.setColour (palette::ink3);
-            g.drawText (latencyText, latencyArea, juce::Justification::centredRight, false);
         }
     }
 }

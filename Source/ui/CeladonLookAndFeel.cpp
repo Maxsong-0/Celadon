@@ -28,6 +28,7 @@ namespace celadon::ui
         constexpr int   tooltipOffsetX     = 16;         // 相对鼠标热点的偏移：避开箭头光标
         constexpr int   tooltipOffsetY     = 20;
         constexpr int   tooltipFlipMargin  = 8;          // 翻到鼠标上方时与热点的距离
+        constexpr int   tooltipShadowMargin = 10;        // 气泡窗口四周留给阴影的边（T-111 / 4-11）；翻转、贴边按里面的卡片算
 
         // ---- Label ----
         constexpr float labelFontHeight        = 11.0f;
@@ -284,26 +285,36 @@ namespace celadon::ui
         if (y + h > parentArea.getBottom())
             y = screenPos.y - h - tooltipFlipMargin;
 
-        return juce::Rectangle<int> (x, y, w, h).constrainedWithin (parentArea);
+        // 卡片先按原来的规则贴边，窗口再往外扩一圈画阴影（阴影可以伸到父区域外，被裁掉也无妨）。
+        return juce::Rectangle<int> (x, y, w, h).constrainedWithin (parentArea).expanded (tooltipShadowMargin);
     }
 
     void CeladonLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height)
     {
-        const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
+        const auto bounds = juce::Rectangle<float> ((float) width, (float) height).reduced ((float) tooltipShadowMargin);
 
         // 编辑器把 TooltipWindow 设成了透明（setOpaque (false)），圆角外的四角由父组件画，这里不填底色。
+        // 三层很淡的阴影（下移 0 / 2 / 4、外扩 1 / 3 / 6）：压在白卡片上也分得开（T-111 / 4-11，原来只有一圈对白 1.39 : 1 的浅线）。
+        const struct { float down, spread; } shadows[] = { { 0.0f, 1.0f }, { 2.0f, 3.0f }, { 4.0f, 6.0f } };
+
+        for (const auto& shadow : shadows)
+        {
+            g.setColour (palette::shadowTint.withAlpha (0.05f));
+            g.fillRoundedRectangle (bounds.translated (0.0f, shadow.down).expanded (shadow.spread), tooltipCorner + shadow.spread);
+        }
+
         g.setColour (palette::panel);
         g.fillRoundedRectangle (bounds, tooltipCorner);
 
-        g.setColour (palette::controlBorder);
+        g.setColour (palette::divider);
         g.drawRoundedRectangle (bounds.reduced (0.5f), tooltipCorner, 1.0f);
 
         const auto layout = layoutTooltip (text);
-        auto rowY = tooltipPadding;
+        auto rowY = bounds.getY() + tooltipPadding;
 
         for (size_t i = 0; i < layout.rows.size(); ++i)
         {
-            layout.rows[i].draw (g, juce::Rectangle<float> (tooltipPadding, rowY, layout.width, layout.rowHeights[i]));
+            layout.rows[i].draw (g, juce::Rectangle<float> (bounds.getX() + tooltipPadding, rowY, layout.width, layout.rowHeights[i]));
             rowY += layout.rowHeights[i] + tooltipLineGap;
         }
     }

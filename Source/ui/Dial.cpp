@@ -203,6 +203,14 @@ namespace celadon::ui
         if (handleTextEntryClick (e) || ! e.mods.isLeftButtonDown() || ! isAdjustable())
             return;
 
+        // 双击的第二次按下：当场回默认（读数起弹簧），这次按下不抓外圈也不抓中间，松手不甩（T-111 / 4-13）。
+        if (handleResetClick (e))
+        {
+            grab = Grab::none;
+            ringMoved = false;
+            return;
+        }
+
         const auto fineAtStart = e.mods.isCommandDown();
         downPosition = lastDragPosition = e.position;
         ringMoved = false;
@@ -305,14 +313,6 @@ namespace celadon::ui
         // 中间上下拖：读数还落后 60 ms，从当前位置用点按的回弹停稳。外圈点按的弹簧在按下时已经起了。
         if (released == Grab::centre && wasDragging)
             settleFromRelease (dial::tapBounce, reading.getVelocity());
-    }
-
-    void DialControl::mouseDoubleClick (const juce::MouseEvent& e)
-    {
-        // 双击回默认是一次「外部」改值：读数起弹簧，这次按下剩下的拖动不再改值（ParameterControl 里收掉 dragActive）。
-        grab = Grab::none;
-        ringMoved = false;
-        ParameterControl::mouseDoubleClick (e);
     }
 
     void DialControl::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
@@ -479,14 +479,16 @@ namespace celadon::ui
             g.strokePath (pointer, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
-        // 数值（跟着读数走）+ 紫色的自动加量（等宽字，居中）
+        // 数值（跟着读数走）+ 紫色的自动加量（等宽字）。有加量时按旋钮轴线定位：数值右缘对齐 x = 36、加量从 x = 40 起，
+        // 加量位数变了（+9 → +10）数值不跟着左右挪（T-111 / 4-12，原来两段成组居中）；没有加量时数值居中。
         const auto valueFont = monoFont (13.0f, Weight::medium);
         const auto autoFont  = monoFont (12.0f);
         const auto valueText = formatParameterValue (getParameter(), getReadingValue(), false);
         const auto autoText  = hasEffective ? autoAmountText() : juce::String();
         const auto valueWidth = textWidth (valueFont, valueText);
         const auto autoWidth  = autoText.isEmpty() ? 0.0f : textWidth (autoFont, autoText) + 4.0f;
-        auto x = ((float) width - valueWidth - autoWidth) * 0.5f;
+        const auto axis = (float) width * 0.5f;
+        auto x = autoText.isEmpty() ? axis - valueWidth * 0.5f : axis - valueWidth;
         const juce::Rectangle<float> row (0.0f, 78.0f, (float) width, 22.0f);
 
         g.setFont (valueFont);
@@ -495,7 +497,7 @@ namespace celadon::ui
 
         if (autoText.isNotEmpty())
         {
-            x += valueWidth + 4.0f;
+            x = axis + 4.0f;
             g.setFont (autoFont);
             g.setColour (palette::violet);
             g.drawText (autoText, juce::Rectangle<float> (x, row.getY() + 0.5f, autoWidth + 2.0f, row.getHeight()), juce::Justification::centredLeft, false);

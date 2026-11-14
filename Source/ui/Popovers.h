@@ -6,7 +6,8 @@
     缩放窗口时的大小提示。
 
     设置面板（V4 设计稿）：界面大小 70 % ～ 200 %（五个常用档位 + 滑条 + 按屏幕比例画的预览，超出屏幕时提醒），
-    也可以拖窗口右下角自由缩放（宽高比不变）；「减少动效」关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹（T-100）。两项都记在用户设置里。
+    也可以拖窗口右下角自由缩放（宽高比不变）；「减少动效」关掉粒子、波纹与裂纹淡入，旋钮也不拖彗尾、不回弹（T-100）；
+    「语言」中 / EN（T-111 包 D 从顶栏挪进来）。三项都记在用户设置里。底行写版本与延迟（顶栏不再显示延迟）。
 
   ==============================================================================
 */
@@ -18,6 +19,8 @@
 #include "Controls.h"
 #include "MiddleLayer.h"
 #include "../dsp/MasteringFeatures.h"
+
+#include <vector>
 
 namespace celadon::ui
 {
@@ -47,7 +50,7 @@ namespace celadon::ui
         SettingsPanel();
 
         static constexpr int cardWidth = 324;
-        static constexpr int cardHeight = 426;
+        static constexpr int cardHeight = 478;   // T-111：屏幕标签挪到预览框外、加「语言」一行（原 426）
 
         void setLanguage (Language newLanguage);
         void setZoom (double newZoom);
@@ -58,8 +61,12 @@ namespace celadon::ui
         std::function<void (double)> onZoomChange;
         std::function<void (bool)> onZoomDragging;      // 拖滑条的开始 / 结束（编辑器据此显示大小提示）
         std::function<void (bool)> onReduceMotionChange;
+        std::function<void (Language)> onLanguageChange;
+
+        Segmented& getLanguageSelector() noexcept   { return languageSelector; }
 
         void paint (juce::Graphics&) override;
+        void resized() override;
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseUp (const juce::MouseEvent&) override;
@@ -83,6 +90,8 @@ namespace celadon::ui
         double latencyMs = 0.0;
         juce::Rectangle<int> screen { 0, 0, 2560, 1440 };
         bool draggingSlider = false;
+        float sliderGrabOffset = 0.0f;   // 按在滑块圆上时：按下点离滑块中心多远（拖动时扣掉，不先跳）
+        Segmented languageSelector { Segmented::Look::language };
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SettingsPanel)
     };
@@ -104,8 +113,15 @@ namespace celadon::ui
     private:
         void layoutText();
 
+        // 每条单独排版（T-111 / 4-09）：圆点画在左边，正文缩进 14 px，折行的续行与第一行对齐、不顶到圆点下面。
+        struct Item
+        {
+            juce::TextLayout layout;
+            float y = 0.0f;     // 相对正文区顶部
+        };
+
         Language language = Language::chinese;
-        juce::TextLayout layout;
+        std::vector<Item> items;
         int cardHeight = 300;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HelpPanel)
@@ -155,10 +171,11 @@ namespace celadon::ui
         static constexpr int cardHeight = 440;
         int page = 0;
         Segmented tabs { Segmented::Look::groove };
-        Segmented harshMode { Segmented::Look::bordered }, targetMode { Segmented::Look::bordered }, dither { Segmented::Look::groove };
+        Segmented harshMode { Segmented::Look::bordered }, targetMode { Segmented::Look::bordered }, dither { Segmented::Look::bordered };   // 与抑制 / 目标的模式选择同一种描边款（T-111 / 4-25）
         ParamSlider harshAmount, transientPreserve, targetAmount, codecMargin, previewLufs;
         TargetCurve targetCurve;
-        PillButton learn { PillButton::Icon::relearn }, cancel { PillButton::Icon::relearn }, clear { PillButton::Icon::relearn };
+        // 三个键三个图标（T-111 / 4-23）：学习 = 圆箭头，取消 = 停止方块，清除 = 叉。
+        PillButton learn { PillButton::Icon::relearn }, cancel { PillButton::Icon::stop }, clear { PillButton::Icon::cross };
         PillButton preview { PillButton::Icon::match };
         std::unique_ptr<SegmentedAttachment> harshAttachment, targetAttachment, ditherAttachment;
 

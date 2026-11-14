@@ -47,18 +47,39 @@ namespace celadon::ui
             const auto cents = (int) std::trunc ((midi - (double) nearest) * 100.0);
             const auto name = juce::String (names[((nearest % 12) + 12) % 12]) + juce::String ((int) std::floor ((double) nearest / 12.0) - 1);
 
-            return name + (cents >= 0 ? " + " : " " + minusSign() + " ") + juce::String (std::abs (cents)) + " " + tr (Text::cents, language);
+            // 「C2 −11 音分」：符号贴着数字（与别处的带号数一个写法，T-111 / 4-05）。
+            return name + " " + (cents >= 0 ? juce::String ("+") : minusSign()) + juce::String (std::abs (cents)) + " " + tr (Text::cents, language);
         }
 
+        // 数字与单位的写法（T-111 / 4-05，全界面同一条）：数与单位之间空一格；100 Hz 以下一位小数、100 ～ 999 Hz 取整、
+        // 1 kHz 起两位小数。频谱的分辨率撑不起 0.01 Hz，原来的「64.96Hz」多出来的位数只会跳。
         juce::String frequencyText (float frequency)
         {
-            return frequency >= 1000.0f ? juce::String (frequency / 1000.0f, 2) + "kHz" : juce::String (frequency, 2) + "Hz";
+            if (frequency >= 1000.0f)
+                return juce::String (frequency / 1000.0f, 2) + " kHz";
+
+            if (frequency >= 100.0f)
+                return juce::String (juce::roundToInt (frequency)) + " Hz";
+
+            return juce::String (frequency, 1) + " Hz";
         }
 
-        // 频率刻度文字（100Hz / 1kHz / 10kHz）的框：刻度线右边 5 px、底边上方。
-        juce::Rectangle<float> frequencyLabelBounds (float frequency)
+        // 频率刻度（100 Hz / 1 kHz / 10 kHz）：字画在和 dB 刻度同一种白色圆角底框上（T-111 / 4-08，原来没有底框、被曲线穿过）。
+        struct FrequencyLabel
         {
-            return { SpectrumView::xOf (frequency) + 5.0f, (float) SpectrumView::height - 20.0f, 60.0f, 14.0f };
+            float frequency;
+            const char* text;
+        };
+
+        constexpr FrequencyLabel frequencyLabels[] = { { 100.0f, "100 Hz" }, { 1000.0f, "1 kHz" }, { 10000.0f, "10 kHz" } };
+
+        juce::Font frequencyLabelFont()   { return monoFont (10.5f); }
+
+        // 底框：刻度线右边 2 px 起、底边上方，宽 = 字宽 + 6、高 14；字在框里左右各留 3。
+        juce::Rectangle<float> frequencyLabelChip (const FrequencyLabel& label)
+        {
+            return { SpectrumView::xOf (label.frequency) + 2.0f, (float) SpectrumView::height - 20.0f,
+                     textWidth (frequencyLabelFont(), label.text) + 6.0f, 14.0f };
         }
 
         // dB 刻度的一个标签：文字与白色圆角底框（面板左边缘）。
@@ -218,12 +239,12 @@ namespace celadon::ui
 
     void SpectrumView::LegendToggle::paint (juce::Graphics& g)
     {
+        // 关着时不再整体变淡（原来 0.45，文字只剩约 2 : 1，像「不可用」）：边框照常，文字退到第三级灰，色块画成空心（T-111 / 4-19）。
         const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-        const auto alpha = on ? 1.0f : 0.45f;
 
         g.setColour (juce::Colours::white.withAlpha (0.85f * (isHovering() ? 1.0f : 0.95f)));
         g.fillRoundedRectangle (bounds, 6.0f);
-        g.setColour (palette::controlBorder.withMultipliedAlpha (alpha));
+        g.setColour (palette::controlBorder);
         g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
 
         const auto centreY = bounds.getCentreY();
@@ -232,17 +253,22 @@ namespace celadon::ui
         if (swatch == Swatch::gradient)
         {
             // OUT 的色块：与填充同一条「按响度上色」的色带，左安静右响（不透明，色块太小，半透明看不清）。
-            juce::ColourGradient ramp (levelColour (0.2f).withAlpha (alpha), chip.getX(), 0.0f, levelColour (1.0f).withAlpha (alpha), chip.getRight(), 0.0f, false);
-            ramp.addColour (0.5, levelColour (0.6f).withAlpha (alpha));
+            juce::ColourGradient ramp (levelColour (0.2f), chip.getX(), 0.0f, levelColour (1.0f), chip.getRight(), 0.0f, false);
+            ramp.addColour (0.5, levelColour (0.6f));
             g.setGradientFill (ramp);
         }
         else
-            g.setColour ((swatch == Swatch::input ? palette::c600 : palette::c900).withMultipliedAlpha (alpha));
+            g.setColour (swatch == Swatch::input ? palette::c600 : palette::c900);
 
-        g.fillRoundedRectangle (chip, 1.0f);
+        if (on)
+            g.fillRoundedRectangle (chip, 1.0f);
+        else if (swatch == Swatch::gradient)
+            g.drawRoundedRectangle (chip.reduced (0.5f), 1.0f, 1.0f);
+        else
+            g.drawRoundedRectangle (chip.expanded (0.0f, 1.0f), 1.0f, 0.8f);   // 线形色块只有 1.5 px 高：空心款撑到 3.5 px 才看得出是框
 
         g.setFont (uiFont (11.0f));
-        g.setColour (palette::ink2.withMultipliedAlpha (alpha));
+        g.setColour (on ? palette::ink2 : palette::ink3);
         g.drawText (text, juce::Rectangle<float> (23.0f, 0.0f, bounds.getWidth() - 23.0f, (float) getHeight()), juce::Justification::centredLeft, false);
     }
 
@@ -279,7 +305,8 @@ namespace celadon::ui
     void SpectrumView::SlopeControl::resized()
     {
         const auto labelWidth = textWidth (uiFont (11.0f), label);
-        choices.setBounds ((int) std::ceil (8.0f + labelWidth + 4.0f), 3, choices.getNaturalWidth(), getHeight() - 6);
+        // 选项用满整行高（24）：点击区不小于 24 × 24（T-111 / 4-22，原来上下各让 3）。
+        choices.setBounds ((int) std::ceil (8.0f + labelWidth + 4.0f), 0, choices.getNaturalWidth(), getHeight());
     }
 
     void SpectrumView::SlopeControl::paint (juce::Graphics& g)
@@ -363,7 +390,7 @@ namespace celadon::ui
 
         // 读数框按最长的读数定宽，读数变化时后面的开关不跟着左右跳。
         readoutWidth = (int) std::ceil (textWidth (monoFont (11.5f, Weight::semibold),
-                                                    minusSign() + "88.88dB | 88.88kHz | C#8 " + minusSign() + " 88 " + tr (Text::cents, language)) + 22.0f);
+                                                    minusSign() + "88.8 dB | 88.88 kHz | C#8 " + minusSign() + "88 " + tr (Text::cents, language)) + 22.0f);
         shownReadout.clear();
         readoutString.clear();
         invalidate (Layer::readout);
@@ -599,8 +626,9 @@ namespace celadon::ui
     {
         // 标签文字与宽度只随频率与语言变：在这里算好，paint 里不再每帧拼串、量宽。
         const auto font = uiFont (10.0f);
-        lowCutLabel = tr (Text::markLowCut, language) + " " + juce::String (juce::roundToInt (clayLowCutHz));
-        monoLabel = tr (Text::markMono, language) + " " + juce::String (juce::roundToInt (clayMonoHz));
+        // 「低切 25 Hz」「收单 120 Hz」：补上单位（T-111 / 4-05）。
+        lowCutLabel = tr (Text::markLowCut, language) + " " + juce::String (juce::roundToInt (clayLowCutHz)) + " Hz";
+        monoLabel = tr (Text::markMono, language) + " " + juce::String (juce::roundToInt (clayMonoHz)) + " Hz";
         lowCutLabelWidth = textWidth (font, lowCutLabel);
         monoLabelWidth = textWidth (font, monoLabel);
     }
@@ -613,9 +641,10 @@ namespace celadon::ui
     juce::String SpectrumView::readoutTextFor (float frequency, float db) const
     {
         if (db <= SpectrumAnalyser::floorDb + 1.0f)
-            return juce::String::charToString ((juce::juce_wchar) 0x2014) + "dB | " + frequencyText (frequency) + " | " + noteText (frequency, language);
+            return juce::String::charToString ((juce::juce_wchar) 0x2014) + " dB | " + frequencyText (frequency) + " | " + noteText (frequency, language);
 
-        return signedText (db, 2) + "dB | " + frequencyText (frequency) + " | " + noteText (frequency, language);
+        // dB 一位小数（T-111 / 4-05，原来两位）。
+        return signedText (db, 1) + " dB | " + frequencyText (frequency) + " | " + noteText (frequency, language);
     }
 
     juce::Rectangle<int> SpectrumView::cursorBounds() const
@@ -798,8 +827,8 @@ namespace celadon::ui
             {
                 juce::Rectangle<float> area;
 
-                for (const auto frequency : { 100.0f, 1000.0f, 10000.0f })
-                    area = area.getUnion (frequencyLabelBounds (frequency));
+                for (const auto& label : frequencyLabels)
+                    area = area.getUnion (frequencyLabelChip (label));
 
                 return padded (area);
             }
@@ -879,11 +908,16 @@ namespace celadon::ui
 
             case Layer::frequencyText:
             {
-                g.setFont (monoFont (10.5f));
+                g.setColour (juce::Colours::white.withAlpha (0.8f));
+
+                for (const auto& label : frequencyLabels)
+                    g.fillRoundedRectangle (frequencyLabelChip (label), 3.0f);
+
+                g.setFont (frequencyLabelFont());
                 g.setColour (palette::ink2);
 
-                for (const auto& [frequency, label] : { std::pair<float, const char*> { 100.0f, "100Hz" }, { 1000.0f, "1kHz" }, { 10000.0f, "10kHz" } })
-                    g.drawText (label, frequencyLabelBounds (frequency), juce::Justification::centredLeft, false);
+                for (const auto& label : frequencyLabels)
+                    g.drawText (label.text, frequencyLabelChip (label), juce::Justification::centred, false);
 
                 break;
             }
@@ -1153,15 +1187,26 @@ namespace celadon::ui
             // ---- 修坯的频率标记 ----
             if (clayActive)
             {
-                const auto marker = [&] (float frequency, const juce::String& label, float labelTextWidth)
+                // 低于 20 Hz 的低切（自动低切常在 16 Hz 附近）画不出竖线：只在左边缘（避开 dB 刻度）写标签。
+                const auto markerX = [] (float frequency) { return std::round (xOf (juce::jmax (frequency, SpectrumAnalyser::minFrequency))) + 0.5f; };
+                const auto chipFor = [&] (float frequency, float labelTextWidth, float y)
+                {
+                    return juce::Rectangle<float> (juce::jmax (markerX (frequency) + 3.5f, 38.0f), y, labelTextWidth + 10.0f, 15.0f);
+                };
+
+                // 两个标签框相交时收单那个下移 17 px（T-111 / 4-21：低切与收单频率接近时原来叠在一起）。
+                const auto lowCutChip = chipFor (clayLowCutHz, lowCutLabelWidth, 46.0f);
+                const auto monoOverlaps = clayLowCutHz > 0.0f && clayMonoHz > 0.0f
+                                          && lowCutChip.intersects (chipFor (clayMonoHz, monoLabelWidth, 46.0f));
+                const auto monoChip = chipFor (clayMonoHz, monoLabelWidth, monoOverlaps ? 63.0f : 46.0f);
+
+                const auto marker = [&] (float frequency, const juce::String& label, juce::Rectangle<float> chip)
                 {
                     if (frequency <= 0.0f)
                         return;
 
-                    // 低于 20 Hz 的低切（自动低切常在 16 Hz 附近）画不出竖线：只在左边缘（避开 dB 刻度）写标签。
                     const auto inRange = frequency >= SpectrumAnalyser::minFrequency;
-                    const auto x = std::round (xOf (juce::jmax (frequency, SpectrumAnalyser::minFrequency))) + 0.5f;
-                    const juce::Rectangle<float> chip (juce::jmax (x + 3.5f, 38.0f), 46.0f, labelTextWidth + 10.0f, 15.0f);
+                    const auto x = markerX (frequency);
 
                     if (! intersects (chip.getUnion (juce::Rectangle<float> (x - 1.0f, 40.0f, 2.0f, h - 40.0f))))
                         return;
@@ -1181,8 +1226,8 @@ namespace celadon::ui
                     g.drawText (label, chip, juce::Justification::centred, false);
                 };
 
-                marker (clayLowCutHz, lowCutLabel, lowCutLabelWidth);
-                marker (clayMonoHz, monoLabel, monoLabelWidth);
+                marker (clayLowCutHz, lowCutLabel, lowCutChip);
+                marker (clayMonoHz, monoLabel, monoChip);
             }
 
             // ---- 悬停光标 ----
@@ -1213,8 +1258,9 @@ namespace celadon::ui
                 drawLayer (g, Layer::readout);
         }
 
+        // 描边内缩半像素，整条 1 px 线都在面板里（T-111 / 4-07：原来沿不内缩的路径描，一半落在组件外被裁掉，只有电平表、卡片的一半粗）。
         g.setColour (palette::panelBorder);
-        g.strokePath (panel, juce::PathStrokeType (1.0f));
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 13.5f, 1.0f);
     }
 
     void SpectrumView::mouseMove (const juce::MouseEvent& e)

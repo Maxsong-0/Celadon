@@ -20,6 +20,7 @@
 | `zh-settings.png` / `en-help.png` / `zh-help.png` | 设置面板 / 帮助面板（英文、中文；中文那张 T-100 加：旋钮的操作提示变长了） |
 | `en-settings.png` / `zh-settings-zoom70.png` / `en-settings-zoom70.png` | T-102：设置面板英文版，以及最小界面大小（70 %）下的中英两张（「减少动效」的说明补上旋钮后变长了） |
 | `zh-advanced.png` / `en-advanced.png` | 「高级」的推响不刺页（真实参数控制） |
+| `zh-advanced-original.png` / `en-original.png` | T-111：高级开着时点「原声」（不再被遮罩吞掉）；英文的听原声胶囊（「Listening to original · level-matched … dB」，去掉了「B」） |
 | `zh-target.png` | 目标频谱页，学习参考缺侧链时的等待状态 |
 | `en-release.png` / `zh-preview.png` | 发行安全页 / 主窗口的归一化预听提示 |
 | `zh-glaze90.png` / `zh-glaze0.png` | GLAZE 90 %（开片密、釉色深、粒子多）/ 0 %（无开片、全手动） |
@@ -50,8 +51,17 @@ GLAZE 标题行左右的曲风 / 交付两个选择删了（Max 2026-11-13；参
 `--only check` 另跑一组交互检查：直接给真实控件发鼠标事件（拖动、⌘ 精调、双击回默认、Alt 单击输入（含中文输入法的全角数字、
 输入框开着时按键抬起不外传——Windows 上松开 Alt 会激活宿主菜单栏）、滚轮、滑条、
 分段选择、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
-逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中的数值气泡）、`check-original.png`、
-`check-audition.png`、`check-advanced.png`、`check-english.png`。
+逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中；T-111 起主旋钮不出数值气泡）、`check-original.png`、
+`check-audition.png`、`check-advanced.png`、`check-advanced-original.png`、`check-english-settings.png`、`check-english.png`。
+
+T-111（界面批第一段）改了这些检查，原因各一句：
+- ① 拖 GLAZE 时「出数值气泡」改成「不出」（4-18：帽子里就是同一个数，气泡在 35 % ～ 65 % 时压住标题行），另加一条卡片小旋钮照旧出气泡；
+- ③ ⑥ 双击回默认改在第二次按下就查（4-13：原来要到第二次松手、外圈还会先跳一下）；第二下按住再拖不改值；
+- ⑩b 新加：高级开着时按 `getComponentAt` 的真实命中测试，「原声」那一段接得到点击，第一下就切、高级不关，再点「高级」才关；设置开着时
+  照旧落在遮罩上（4-02）；
+- ⑪ 语言选择器在设置面板里（先打开设置再点 EN），顶栏没有分段选择器（包 D）；⑰ 删掉「顶栏延迟读数跟着语言走」两条（顶栏不再写延迟）；
+- CLAY 灯那条后面加一条橙色规则：GLAZE 琥珀（受手动设置限制）时守护灯照样亮着、像素里却没有橙色，胶囊是警告样式（4-06）；
+- S12 悬停读数的探针容差 0.011 → 0.051（4-05：读数 dB 改一位小数）。
 
 T-100（ADR-037）起旋钮外圈换成 CometDial 的手感、读数带弹簧和彗尾，检查里多了一组（滚轮那条之后）：外圈 / 中间的分区、点外圈跳到所点角度、
 沿外圈拖值跟着角度走、快甩松手多滑一段（落点 0.5 → 约 0.698）、停 120 ms 再松手不多滑、拖进底部缺口锁在最大、⌘ 在外圈按下不跳
