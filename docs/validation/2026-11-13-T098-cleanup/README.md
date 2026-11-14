@@ -57,8 +57,9 @@ T-048 阶段 2 起编排器不再往探针里抄这一项，它恒无效 → `sl
   `calibrationPaused`、`relearnInProgress`、`unlearnedOfflineWarning`、`savedPlanFromOlderAlgorithm`、`profileMismatch`、`waitingForPlayback`、
   `clayNeedsRelearn`）：`PluginEditor.cpp`、`HelpTextTests`、`tools/perf/*.mm`、`Phase2OrchestratorTests` 都在读，不在本线写域。
 - 编排器里 Clay 压力反馈的代价、守护混合损失的平滑值、ClayGuard 每块推进的秒数并没有死，只是探针不再抄；按任务书删列，没有恢复抄写。
-- `Source/ParameterRanges.h:13-14` 的注释还指向已删的 `setManualConditions`（不在本线写域）。
-- 渲染工具 `listenNote`：GLAZE > 0 的每一组都会在 metrics.md 备注里记「第一遍没走到已锁定」（阶段 2 的 Phase 恒为 unlearned），是噪声。
+- `Source/ParameterRanges.h:13-14` 的注释还指向已删的 `setManualConditions`（不在本线写域）→ T-114 集成时主会话已改成现状。
+- 渲染工具 `listenNote`：GLAZE > 0 的每一组都会在 metrics.md 备注里记「第一遍没走到已锁定」（阶段 2 的 Phase 恒为 unlearned），是噪声
+  → T-114 集成时主会话删掉（同本批死列一类；`tools/render/README.md` 的说明一并改）。
 - 历史文档（`docs/handoff/`、`docs/one-knob-mastering-review.md`、`docs/validation/` 下的旧记录）里的「聆听」与旧接口名照旧，是当时的记录。
 
 ## 5. 验收（主会话统一跑；本线没编译、没跑）

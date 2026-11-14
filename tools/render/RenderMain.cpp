@@ -3551,29 +3551,6 @@ namespace
         return md;
     }
 
-    // 第一遍结束时还没到「已锁定」的说明（只对 GLAZE > 0 有意义：GLAZE 0 不校准，也不影响声音）。这是阶段 1 的备注：T-048 阶段 2 起
-    // Phase 恒为 unlearned，GLAZE > 0 的每组都会走到第一条，这句备注不再说明第一遍有什么问题（改文字或去掉这条备注要另改代码）。
-    std::string listenNote (Phase phase)
-    {
-        switch (phase)
-        {
-            case Phase::unlearned:
-            case Phase::listening:
-                return "第一遍结束时 GLAZE 还没学完（有效音频不够长？）：成品里 GLAZE 按插件同样的规则边听边学";
-
-            case Phase::planTransition:
-                return "第一遍结束时方案过渡还没走完：成品开头用执行快照里的量，过渡与校准在成品里接着走";
-
-            case Phase::calibrating:
-                return "第一遍结束时校准还没完成：成品开头用执行快照里的量，校准在成品里接着做";
-
-            case Phase::locked:
-                return {};
-        }
-
-        return {};
-    }
-
     // GLAZE 0 下修坯「自动」与「全关」两组成品应逐位相同（设计规格-Clay 第 4 节「逐位直通」：GLAZE 0 且抽屉默认 → 整链与
     // 改动前逐位相同；三项都「关」同样）。两组都在网格里时按对齐前成品的哈希核对（对齐增益由同一个响度算出，对齐前相同即
     // 对齐后相同），结果写进备注与 stderr——真歌上的阳性对照。
@@ -5154,11 +5131,8 @@ namespace
                 }
             }
 
-            // 备注：第一遍没走到「已锁定」（T-048 阶段 2 起 Phase 恒为 unlearned，GLAZE > 0 的每组都会记这条，见 listenNote）、
-            // 链输出出现非有限值、链延迟变化。
-            if (combo.glaze > 0.0f && listen.status.phase != Phase::locked)
-                report.notes.push_back (notePrefix + listenNote (listen.status.phase));
-
+            // 备注：链输出出现非有限值、链延迟变化。（阶段 1 还有一条「第一遍没走到已锁定」：T-048 阶段 2 起阶段恒为 unlearned、
+            // GLAZE > 0 的每组都会记，成了噪声，T-098 收尾时删掉；预热够不够看 metrics.csv 的 confidence 列与 gate_check 的 NOTES。）
             if (listen.nonFiniteBlocks + render.nonFiniteBlocks > 0)
                 report.notes.push_back (notePrefix + "链输出出现非有限值（内部溢出）"
                                         + std::to_string (listen.nonFiniteBlocks + render.nonFiniteBlocks)
