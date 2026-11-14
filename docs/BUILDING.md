@@ -161,7 +161,7 @@ Mac 上不编、不测、不渲染、不跑基准（Max 2026-10-04 定，2026-10
   以 DGX 上那份为准）。DGX 是 NVIDIA DGX Spark（aarch64，20 核 / 121 GB，Ubuntu 24.04，GCC 13.3，Release + Ninja，没有 LTO）。
   源码放 `~/.cache/celadon-spark/src/<名>/`（用 `git archive` 取一份干净树，别和别的会话共用目录），构建目录
   `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令先建好再打印，同别的子命令）；JUCE 用 DGX 上的 `/home/maxsong/All-Project/JUCE`
-  （`-DCELADON_JUCE_DIR`；同名环境变量 `CELADON_JUCE_DIR` 可改，改了的路径并进构建目录的散列，同一构建目录换 JUCE 会直接报错）；
+  （`-DCELADON_JUCE_DIR`；同名环境变量 `CELADON_JUCE_DIR` 可改，按真实路径比，改了的路径并进构建目录的散列，同一构建目录换 JUCE 会直接报错）；
   它把 venv 放进 PATH。`build` 默认目标 `celadon_tests celadon_render`；`test` 编 `celadon_tests` 后运行（可带 `--only 类名,…`）；`run <命令…>`
   在锁里跑任意命令，命令里可写 `$BUILD`（单引号留给脚本里的 shell 展开）。`SPARK_JOBS` 并行编译数（默认 8，几个会话同时编给 4）；
   `CELADON_CXX_FLAGS` 同 `test-linux.sh`。

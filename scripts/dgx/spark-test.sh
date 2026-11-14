@@ -9,12 +9,13 @@
 #       spark-test.sh <源码目录> dir                        打印构建目录（同别的子命令，先把它建好；同旧版）
 #       spark-test.sh <源码目录> dry <子命令 ...>           预演：打印构建目录、JUCE 路径、锁和要跑的命令，不建目录、不编、不跑
 # 环境：SPARK_JOBS 并行编译数（默认 8，几个代理同时编时别抢光 20 核）；CELADON_CXX_FLAGS 追加给 CMAKE_CXX_FLAGS（构建目录按它分开）；
-#       CELADON_JUCE_DIR 覆盖 JUCE 9.0.2 的位置（默认 DGX 上的 /home/maxsong/All-Project/JUCE；换了位置用另一个构建目录，
-#       默认位置不进构建目录名，旧的构建目录照用）。
+#       CELADON_JUCE_DIR 覆盖 JUCE 9.0.2 的位置（默认 DGX 上的 /home/maxsong/All-Project/JUCE；按真实路径比，换了位置用另一个
+#       构建目录，默认位置不进构建目录名，旧的构建目录照用）。
 # 锁：同一构建目录的编译互斥（<构建目录>.lock）；测试与 run 全机串行（locks/run.lock），让计时护栏不被别的测试干扰。编译不进全机锁。
 # 只在 DGX（Linux aarch64）上用：别的机器直接报错退出（Mac 上不编不测；x86 走 108 testbox）。
 set -euo pipefail
-[ "$#" -ge 2 ] || { sed -n 2,14p "$0"; exit 2; }
+# 用法 = 第 2 行到 set 那一行之前的注释块（不写死行号，文件头加行不用跟着改；复查第 3 轮 R3-F3）。
+[ "$#" -ge 2 ] || { awk 'NR > 1 { if (/^set -euo pipefail$/) exit; print }' "$0"; exit 2; }
 if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != aarch64 ]; then
   echo "spark-test.sh：只在 DGX（Linux aarch64）上用，这台是 $(uname -s) $(uname -m)；x86 走 108 testbox（docs/BUILDING.md）" >&2
   exit 2
@@ -28,12 +29,14 @@ if [ "$CMD" = dry ]; then
 fi
 CACHE="$HOME/.cache/celadon-spark"
 DEFAULT_JUCE_DIR=/home/maxsong/All-Project/JUCE
+# 目录在就换成真实路径：尾斜杠、相对路径、符号链接的不同写法算同一个（复查第 3 轮 R3-F5）；不在就原样留着，后面照旧报「JUCE 不在」。
+real_dir() { if [ -d "$1" ]; then (CDPATH='' cd -- "$1" && pwd -P); else printf '%s' "$1"; fi; }
 # 带项目前缀：环境里别的项目设的 JUCE_DIR 不会被悄悄用上（复查第 2 轮 R2-F4）。
-JUCE_DIR="${CELADON_JUCE_DIR:-$DEFAULT_JUCE_DIR}"
+JUCE_DIR="$(real_dir "${CELADON_JUCE_DIR:-$DEFAULT_JUCE_DIR}")"
 FLAGS="${CELADON_CXX_FLAGS:-}"
 # 构建目录按源码与编译参数分开；JUCE 换了位置也分开（CMake 只在第一次配置时记 JUCE 路径，同一个目录换了也不生效）。
 # 默认位置不进键，键与旧版逐字相同，已有的构建目录照用。
-if [ "$JUCE_DIR" = "$DEFAULT_JUCE_DIR" ]; then KEY_TEXT="$SRC|$FLAGS"; else KEY_TEXT="$SRC|$FLAGS|$JUCE_DIR"; fi
+if [ "$JUCE_DIR" = "$(real_dir "$DEFAULT_JUCE_DIR")" ]; then KEY_TEXT="$SRC|$FLAGS"; else KEY_TEXT="$SRC|$FLAGS|$JUCE_DIR"; fi
 KEY="$(printf '%s' "$KEY_TEXT" | sha256sum | cut -c1-10)"
 BUILD="$CACHE/build/$(basename "$SRC")-$KEY"
 export BUILD
@@ -58,7 +61,7 @@ build() {
   [ -d "$JUCE_DIR/modules" ] || { echo "spark-test.sh：JUCE 不在 $JUCE_DIR（设 CELADON_JUCE_DIR 指到 JUCE 9.0.2 的根目录）" >&2; exit 2; }
   local cached
   cached="$(cached_juce_dir)"
-  if [ -n "$cached" ] && [ "$cached" != "$JUCE_DIR" ]; then
+  if [ -n "$cached" ] && [ "$(real_dir "$cached")" != "$JUCE_DIR" ]; then
     echo "spark-test.sh：$BUILD 配置时用的 JUCE 是 $cached，这次要 $JUCE_DIR；删掉这个构建目录再编" >&2
     exit 2
   fi
@@ -66,7 +69,6 @@ build() {
     echo "spark-test.sh：没有界面开发头 $GUIDEV_PC；先跑 scripts/fetch-gui-dev.sh $CACHE/guidev" >&2
     exit 2
   fi
-  mkdir -p "$BUILD"
   (
     flock 9
     if [ ! -f "$BUILD/build.ninja" ]; then
@@ -121,9 +123,7 @@ case "$CMD" in
   dir)   echo "$BUILD" ;;
   build) if [ "$#" -eq 0 ]; then build celadon_tests celadon_render; else build "$@"; fi ;;
   test)  build celadon_tests
-         mkdir -p "$CACHE/locks"
          ( flock 8; "$BUILD/celadon_tests" "$@" ) 8>"$CACHE/locks/run.lock" ;;
-  run)   mkdir -p "$CACHE/locks"
-         ( flock 8; "$@" ) 8>"$CACHE/locks/run.lock" ;;
+  run)   ( flock 8; "$@" ) 8>"$CACHE/locks/run.lock" ;;
   *)     echo "spark-test.sh：未知子命令 $CMD" >&2; exit 2 ;;
 esac
