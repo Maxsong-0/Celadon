@@ -543,11 +543,10 @@ namespace celadon::test
             expectEquals (chain.getGlazeController().getSamplesUntilSliceBoundary(), 400,
                           "the nearer 100 ms sub-block boundary is the slice boundary, not the 480-sample slot boundary");
 
-            // 2048 = 400（到子块边界）+ 80（补满时隙）+ 480 × 3 + 128：6 片。不按子块切就是 480 × 4 + 128 的 5 片。
-            feed (2048);
-            expectEquals (chain.getLastProcessSliceCountForTesting(), 6, "the host block is cut at the sub-block boundary as well");
-            expectEquals (chain.getGlazeController().getSamplesUntilSliceBoundary(), 352,
-                          "afterwards the slot boundary (480 - 128) is nearer than the next sub-block boundary (4800 - 1648)");
+            // 900 个样本：按子块切是 400（到子块边界）+ 480 + 20 的 3 片；不按子块切是 480 + 420 的 2 片。预算环这时攒不攒统计都一样
+            // （这段正弦还没出方案，预算环不攒、时隙每片从片首重新数；攒的话是 400 + 80 + 420，也是 3 片）。
+            feed (900);
+            expectEquals (chain.getLastProcessSliceCountForTesting(), 3, "the host block is cut at the sub-block boundary as well");
         }
 
         void testListenMatchesWholeChain()

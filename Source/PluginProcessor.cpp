@@ -500,7 +500,7 @@ void CeladonAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
         chain.reset();
     }
 
-    // 两条路都再交一次实时画像常数（见 CeladonChain::syncGlazeLiveConstants）：同规格重启也作废在途的那一遍，与 T-108 之前逐位相同。
+    // 两条路都再交一次实时画像常数（见 CeladonChain::syncGlazeLiveConstants）：同规格重启也作废在途的那一遍，与 T-108 之前同一条调用路径。
     chain.syncGlazeLiveConstants();
 
     // prepareToPlay 不在音频线程，可以直接上报；同时写 pendingLatency，免得定时器又报一次旧值。

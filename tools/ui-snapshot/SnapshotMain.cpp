@@ -1492,14 +1492,14 @@ namespace
                 session->processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
                 session->processor->prepareToPlay (sampleRate, blockSize);
 
-                // 走宿主开窗口那条路（createEditorIfNeeded 登记成活动编辑器）：编辑器开着时读档，处理器才找得到它来提示。
+                // 走宿主开窗口那条路（createEditorAndMakeActive 登记成活动编辑器）：编辑器开着时读档，处理器才找得到它来提示。
                 if (editorFirst)
-                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorIfNeeded()));
+                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorAndMakeActive()));
 
                 session->processor->setStateInformation (blob.getData(), (int) blob.getSize());
 
                 if (! editorFirst)
-                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorIfNeeded()));
+                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorAndMakeActive()));
 
                 session->editor->advanceForSnapshot (0.05);
                 auto* corner = dynamic_cast<CornerNote*> (findById (*session->editor, "corner_note"));
@@ -1540,7 +1540,7 @@ namespace
             session->processor.reset (dynamic_cast<CeladonAudioProcessor*> (createPluginFilter()));
             session->processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
             session->processor->prepareToPlay (sampleRate, blockSize);
-            session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorIfNeeded()));
+            session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorAndMakeActive()));
 
             const auto cornerAfter = [&session] (const juce::MemoryBlock& blob)
             {

@@ -88,14 +88,14 @@ namespace celadon::test
         }
 
     private:
-        void expectCase (const char* genre, const char* delivery, bool expectedNonDefault, const juce::String& name)
+        void expectCase (const char* genre, const char* delivery, bool expectedNonDefault, const juce::String& label)
         {
             auto xml = makeState (genre, delivery);
             const auto nonDefault = legacystate::removeGenreDeliveryNodes (*xml);
 
-            expect (nonDefault == expectedNonDefault, name + ": " + (expectedNonDefault ? "should report a non-default genre / delivery" : "should stay silent"));
-            expectEquals (countLegacyParams (*xml), 0, name + ": both legacy PARAM nodes are removed");
-            expect (othersUntouched (*xml), name + ": the other nodes keep their order and values");
+            expect (nonDefault == expectedNonDefault, label + ": " + (expectedNonDefault ? "should report a non-default genre / delivery" : "should stay silent"));
+            expectEquals (countLegacyParams (*xml), 0, label + ": both legacy PARAM nodes are removed");
+            expect (othersUntouched (*xml), label + ": the other nodes keep their order and values");
         }
 
         void testFiveArchetypes()
