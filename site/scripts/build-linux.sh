@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# 在 107 上装依赖、类型检查、构建站点（ADR-002 / 全局纪律：本机 Mac 不装、不编、不测）。
+# 在 108 主机上装依赖、类型检查、构建站点（ADR-002 / 全局纪律：本机 Mac 不装、不编、不测；107、109 已弃用，Max 2026-11-14「全在 108 跑」）。
 # 做法照仓库 scripts/test-linux.sh：把 site/ rsync 到服务器，在那里 pnpm install + build，再把 dist/ 与 pnpm-lock.yaml 拉回来。
+# 为什么不交 testbox：testbox 只回日志，取不回 dist/。所以要部署的产物和 Windows 包一样，直接在 108 主机上构建；只做检查的构建照旧交 testbox。
 #
 # 用法：site/scripts/build-linux.sh            # install + typecheck + build，拉回 dist 与 lock
 #       site/scripts/build-linux.sh serve      # 同上，然后在服务器上用 python 起静态服务（端口 ${SITE_PORT}，默认 8787）供浏览器验收
 #       site/scripts/build-linux.sh stop       # 停掉上面那个静态服务
-# 环境：CELADON_TEST_HOST 覆盖目标主机（默认 maxsong@192.168.100.107）。
+# 环境：CELADON_TEST_HOST 覆盖目标主机，默认 maxsong@100.84.85.68，即 108 的 tailnet 地址。
+# 108 主机上的 node 和 pnpm 装在用户目录 ~/opt/node，不动系统：Node.js v26.8.1 加 pnpm 11.9.0，与 testbox 沙盒里构建官网用的版本相同。
+# 远端脚本会先把 ~/opt/node/bin 加进 PATH。
 set -euo pipefail
 SITE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-HOST="${CELADON_TEST_HOST:-maxsong@192.168.100.107}"
+HOST="${CELADON_TEST_HOST:-maxsong@100.84.85.68}"
 PORT="${SITE_PORT:-8787}"
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=15)
 KEY="$(printf '%s' "$SITE" | shasum -a 256 | cut -c1-12)"
@@ -34,6 +37,8 @@ set +e
 "${SSH[@]}" "$HOST" "CELADON_REMOTE=$(printf '%q' "$REMOTE") CELADON_VERSION=$(printf '%q' "$VERSION") bash -euo pipefail -s" <<'REMOTE_SCRIPT'
 cd "$HOME/$CELADON_REMOTE"
 export CI=1
+# node 和 pnpm 在用户目录里（见文件头）。非交互 ssh 起的 shell 读不到 ~/.bashrc 里设 PATH 的那段，所以在这里自己加。
+if [ -d "$HOME/opt/node/bin" ]; then export PATH="$HOME/opt/node/bin:$PATH"; fi
 if [ -f pnpm-lock.yaml ]; then
   # 锁文件与 package.json 对不上时才退回重解析；CI=1 下 pnpm 默认冻结锁文件，回退那句必须显式 --no-frozen-lockfile
   pnpm install --frozen-lockfile --prefer-offline 2>&1 | tail -n 5 || pnpm install --no-frozen-lockfile --prefer-offline 2>&1 | tail -n 5
