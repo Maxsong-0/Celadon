@@ -143,6 +143,9 @@ namespace celadon::glaze
         // 印记随段存档，读回逐位相同；这一串从窗口里的段现算，不新增存档字段。
         // 出厂 catchUpHalfLifeSeconds = +∞ = 关（与没有这条规则时逐位相同）；其余三项是候选 c106 的值，只在半衰期有限时才被读。
         // 候选只在渲染工具里切（tools/render/RenderMain.cpp 的候选表）；盲听通过后把半衰期这一行改成候选值（ADR-042）。③
+        // 打开之前先解决向下兼容（T-114 复查 F11）：快通道推进的时钟会写进存档的 Counters，0.1.8.10 读档时参考时钟的上界只算换歌
+        // （newProgramCount × 800），超了就把整份实时画像冷启动——「0.1.8.11 存的工程 0.1.8.10 照样能读」就不成立。要么存档里照旧口径
+        // 另写一份不含快通道的时钟与印记（新属性放含快通道的那份，旧版忽略），要么让 Max 认可这条降级代价，并在版本说明里写明。
         float catchUpMarginLu = 1.0f;            // δ：比 I 响多少才算「明显更响」（T-093 R5-04 的 1 LU）
         double catchUpRunSeconds = 4.0;          // 这一串至少多长（约 2 小节 @ 124 BPM，同 R5-04 的 k = 2 段；按秒数与分段方式无关）
         double catchUpHalfLifeSeconds = std::numeric_limits<double>::infinity();   // 旧段权重减半要的有效音频秒数；+∞ = 关
