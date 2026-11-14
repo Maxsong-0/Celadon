@@ -358,7 +358,7 @@ namespace celadon::glaze
         float liveColorAttackPerSecond = 0.10f; // 自动份额 / 秒
         float liveColorReleasePerSecond = 0.04f;
         // ---- v0.1.7.0 修坯 Clay（设计规格-Clay-分析决策与验收 第 2～3 节）：默认值就是出厂值（只在这里写一次）；全部【设计】，
-        // 待 Max 真歌试听标定。旧快照缺这些字段按 0 读（Clay 自动项因此为 0；重新聆听后换用出厂快照）。
+        // 待 Max 真歌试听标定。旧快照缺这些字段按 0 读（Clay 自动项因此为 0；阶段 2 起旧工程整份丢弃，编排器只用出厂常数）。
         // ramp(x, x0, x1) = clamp((x − x0) / (x1 − x0), 0, 1)（x1 < x0 即反向斜坡）；g = GLAZE / 100。
         // 决策器对取值的约定（GlazePlanner.cpp planClay；旧快照全按 0 读时三项因此全部中性）：
         //   clayGlazeFullAt ≤ 0 或非有限 → 不自动低切（ADR-015 起收单本来就恒为 0，不看它）；clayWidthMaxDb ≤ 0 → 不自动加宽；

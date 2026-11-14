@@ -343,14 +343,14 @@ namespace celadon::glaze
         bool planLimited = false;            // 「方案受限」
         bool limitedByManual = false;        // 「受手动设置限制」
         bool calibrationPaused = false;      // 宿主旁通中
-        bool relearnInProgress = false;      // 候选版本在建
+        bool relearnInProgress = false;      // 阶段 1 的旧字段，阶段 2 起恒为 false（「重新聆听」T-098 已删）：原义是候选版本在建
         Style resolvedStyle = Style::clean;  // 自动时此刻偏向哪种
         bool unlearnedOfflineWarning = false;
 
-        // v0.6 A4 追加：已提交方案是旧算法版本存的，此刻照用保存的自动增量（时间线与保存第 5 节「界面提示一次」要用；
-        // 拧 GLAZE、换风格或重新聆听后按新算法重算，这一项回到 false）。
+        // 阶段 1 的旧字段，阶段 2 起恒为 false（「重新聆听」T-098 已删）：原义是已提交方案为旧算法版本所存、此刻照用保存的
+        // 自动增量（v0.6 A4 追加）。阶段 2 起旧工程整份丢弃、冷启动，界面提示一次改看 legacySessionDiscarded。
         bool savedPlanFromOlderAlgorithm = false;
-        bool profileMismatch = false;        // 已提交画像与此刻的音乐严重不符（例如画像只听到安静前奏）：建议重新聆听
+        bool profileMismatch = false;        // 阶段 1 的旧字段，阶段 2 起恒为 false：原义是已提交画像与此刻的音乐严重不符
         bool waitingForPlayback = false;     // 宿主报告已停止播放：聆听与校准都在等音乐（状态行写「校准暂停（未播放）」）
         // ---- v0.1.7.0 修坯 Clay（ClayIndicator 与 CLAY 卡片每行的灯和数值读这些；都是上一块交给 ClayModule 的实际值）----
         float clayLowCutHz = 0.0f;           // 0 = 关

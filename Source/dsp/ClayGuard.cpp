@@ -72,7 +72,7 @@
         （ClayModule::Params{}.monoHz = 80 Hz，即 ClayPlan「monoAmount = 0 时 monoHz 保持默认 80」的约定），不取自动方案的
         monoHz：某一项不处理时，交给 ClayModule 的该项参数就是固定的中性常数——不会因为方案过渡里一个用不上的 monoHz 在变
         （或坏数据里无意义的分频点，比如 0 Hz 被钳成 40 Hz；ADR-015 起自动方案的分频点恒为默认 80 Hz）而让模块离开「逐位直通」的静止状态
-        （设计规格-Clay 第 4 节「逐位直通」、验收第 1 条：GLAZE 0 且三态默认 / 三项都关 / 旧工程未重新聆听）。
+        （设计规格-Clay 第 4 节「逐位直通」、验收第 1 条：GLAZE 0 且三态默认 / 三项都关；第三种「旧工程未重新聆听」随阶段 1 退役）。
       - 钳制：非有限值按中性；低切 ≤ 0 = 关（保持 0），否则钳到 10 ～ 60 Hz；其余钳到 ClayModule 的 min / max
         （模块自己也钳；这里钳是为了让 Status、执行快照与 CLAY 卡片每行的灯和数值看到的就是模块真正用的值）。
 
@@ -113,7 +113,7 @@ namespace celadon::glaze
         // clayWidthPowerScale（非有限 → 不许加宽，≤ −1 → 不限），不按 0 读。
         // ADR-012 新加的快路门与最短持续缺字段时同样读成 0 / 0（阶段 4 之前存的开发期快照；v0.1.7.0 未发布，已发布的 v0.1.6.2
         // 存档的 Clay 本来就中性）：门 0 = 快路只在慢路已低于 0 时参与（比出厂 0.1 更不爱触发），最短持续 0 = 条件一成立就攻击（比出厂 0.15 s 更爱触发）——合起来不失控，
-        // 重新聆听后换成出厂快照。
+        // 阶段 2 起旧工程整份丢弃、编排器只用出厂常数，缺字段只会出现在测试给的覆盖常数里。
         Tuning result;
         result.phaseCorrelation    = juce::jlimit (-1.0f, 1.0f, finiteOr (constants.clayGuardPhaseCorrelation, 0.0f));
         result.phaseFastGate       = juce::jlimit (-1.0f, 1.0f, finiteOr (constants.clayGuardPhaseFastGate, 0.0f));

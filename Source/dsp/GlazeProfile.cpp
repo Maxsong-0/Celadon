@@ -25,7 +25,7 @@
         可选字段同一口径）。执行快照里的 Clay 值另按 ClayModule 的参数范围核对，坏值整份拒收（与其他执行量同一做法）。
     ADR-012 修坯根治（设计规格-Clay-根治修订第 3 节；v0.1.7.0 未发布，画像格式仍为 2，字段在发布前追加）：
       - 画像格式 2 追加「先试后用」的三类峰值代价（lowCutPeakCostDb、monoPeakCostDb0 ～ 3、widthPeakCostDb），与格式 2 的
-        其他字段同样严格（缺一个整份拒收——开发期存的格式 2 画像没有它们、次声占比也是旧口径，读不进就按未学习、重新聆听）；
+        其他字段同样严格（缺一个整份拒收——开发期存的格式 2 画像没有它们、次声占比也是旧口径，读不进就按未学习）；
         格式 1 读入后同样清成「不知道」。computeProfileId 把它们接在格式 2 字段的最后（格式 1 的画像号仍与 v0.1.6.2 逐位相同）。
       - PLAN 多存 clayCostLimitedMask、EXECUTION 多存 liveClayCostLimitedMask（ClayPlan::costLimitedMask，十进制）：缺属性 = 0；
         属性在但不是 0 ～ 255 的整数照样拒收；执行快照另核对只含已定义的三位。
