@@ -141,7 +141,7 @@ namespace celadon::glaze
         // 那一段，之后的 drop 不动）→ 两个事件时钟（主段、参考）各加「本段有效时长 × ln2 ÷ catchUpHalfLifeSeconds」：更老的段（含前奏）
         // 的权重每过一个半衰期减半，I 与 S_ref 向此刻的响段靠；条件一不成立就停，往下（变轻）照旧慢。与换歌软遗忘同一套事件时钟，
         // 印记随段存档，读回逐位相同；这一串从窗口里的段现算，不新增存档字段。
-        // 出厂 catchUpHalfLifeSeconds = +∞ = 关（与 0.1.8.10 逐位相同）；其余三项是候选 c106 的值，只在半衰期有限时才被读。
+        // 出厂 catchUpHalfLifeSeconds = +∞ = 关（与没有这条规则时逐位相同）；其余三项是候选 c106 的值，只在半衰期有限时才被读。
         // 候选只在渲染工具里切（tools/render/RenderMain.cpp 的候选表）；盲听通过后把半衰期这一行改成候选值（ADR-042）。③
         float catchUpMarginLu = 1.0f;            // δ：比 I 响多少才算「明显更响」（T-093 R5-04 的 1 LU）
         double catchUpRunSeconds = 4.0;          // 这一串至少多长（约 2 小节 @ 124 BPM，同 R5-04 的 k = 2 段；按秒数与分段方式无关）
@@ -152,20 +152,20 @@ namespace celadon::glaze
     //==============================================================================
     // T-113 听感批（1-05 / 1-07；ADR-042）的出厂常数。1-06 的在 LiveConstants（catchUp*，LiveProfile 读）。
     // 不进 Constants（不进标定快照与存档，也不参加 bitwiseEqual）：新行为是出厂常数，旧工程读回来照此刻的出厂值走（ADR-035 决定 1、4）。
-    // 出厂值 = 0.1.8.10 的行为（每项写明出厂值时等于什么）；候选只在渲染工具里切（RenderMain.cpp 候选表，经
+    // 出厂值 = 加这三项之前的行为（每项写明出厂值时等于什么）；候选只在渲染工具里切（RenderMain.cpp 候选表，经
     // GlazeController::setListeningConstantsForTesting），插件里没有参数、没有界面。盲听通过后把选中候选的值写成这里的默认值。
     struct ListeningConstants
     {
         // 1-05 预算环主段门：主段度 m（编排器每块的 currentMainness，同 Limit Gain「非主段只降不升」用的那个）低于本项的块，预算环不放回
         // 退让，安全计时也停住（不清零，下一个主段接着数）。为什么：安全计时原来只看有效音乐，breakdown 又轻又「安全」，5 s 后就把退让
-        // 放回去，下一个 drop 头上再多压、再退一次（每个 drop 头 1～3 s 多压最多 3 dB）。≤ 0 或非有限 = 不看主段（0.1.8.10，出厂）；
+        // 放回去，下一个 drop 头上再多压、再退一次（每个 drop 头 1～3 s 多压最多 3 dB）。≤ 0 或非有限 = 不看主段（改前的行为，出厂）；
         // 候选 c105 = 0.5（同 LiveConstants::mainThreshold）。
         float guardRecoverMinMainness = 0.0f;
 
         // 1-07 默认档音色：音色类自动动作（Tone、Recover、Tame、推响不刺、目标频谱、Heat；不含推响 Limit Gain、G_trim、Glue、Clip、Clay）
         // 的强度按 f(GLAZE) 取，而不是 GLAZE 本身（timbreStrength）。f 是过 (0, 0)、(拐点, 倍数 × 拐点)、(1, 1) 的两段直线：
         // 拐点以下是 GLAZE × 倍数，以上线性收到 GLAZE 100 时的现值——f(0) = 0、f(1) = 1、单调，GLAZE 100 不超过现上限，默认值 35 % 不改。
-        // 倍数 1 = f(GLAZE) = GLAZE（0.1.8.10，出厂）；候选 c107x15 = 1.5（f(0.35) = 0.525）、c107x2 = 2（f(0.35) = 0.7）。
+        // 倍数 1 = f(GLAZE) = GLAZE（改前的行为，出厂）；候选 c107x15 = 1.5（f(0.35) = 0.525）、c107x2 = 2（f(0.35) = 0.7）。
         float timbreScaleAtKnee = 1.0f;
         float timbreKneeGlaze = 0.35f;           // 拐点 = 新实例默认 GLAZE（ParameterDefaults.h）
     };

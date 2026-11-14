@@ -330,7 +330,7 @@ namespace celadon::glaze
 
         Constants constantsOverride {};
         bool constantsOverridden = false;
-        // T-113 听感批的常数（出厂值 = 0.1.8.10 的行为；只有渲染工具 --candidate 与测试经 set*ForTesting 换）。不存档。
+        // T-113 听感批的常数（出厂值 = 改前的行为；只有渲染工具 --candidate 与测试经 set*ForTesting 换）。不存档。
         ListeningConstants listening {};
         LiveConstants liveConstants {};
 

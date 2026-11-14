@@ -1507,7 +1507,7 @@ namespace celadon::glaze
         // 「本段有效时长 × ln2 ÷ 半衰期」：乘在更老的段（含前奏）上，同换歌软遗忘；本段的印记在这之后记，自己不被减权。
         // 这一串从窗口与队列里的段现算，不另存计数（存档格式不变）：往前的段用它们自己进账时的 m、此刻的 I（I 被这条规则往上拉，
         // 往前的段过得了此刻的门槛、进账时多半也过得了；偏保守）。每次加的量 ≤ 本段有效时长 × ln2 ÷ 1 ms（positive 域的下限），
-        // 读档的计数器上界（countersWithinBounds）按这个算。半衰期 +∞（出厂）时第一行就返回，与 0.1.8.10 逐位相同。
+        // 读档的计数器上界（countersWithinBounds）按这个算。半衰期 +∞（出厂）时第一行就返回，与没有快通道时逐位相同。
         void noteCatchUp (std::uint64_t sequence, const Entry& e, float m) noexcept
         {
             const auto halfLife = constants.catchUpHalfLifeSeconds;

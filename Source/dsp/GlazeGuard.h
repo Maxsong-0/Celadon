@@ -80,7 +80,7 @@ namespace celadon::glaze
 
         // 每块调用：stats 是本块模块统计。退让按超限深度在 0.3～6 dB/s，回程按退让深度在 0.15～0.3 dB/s
         //（T-047，Q8；不再用 Constants 里的 1 / 0.3）。cause：限幅 GR 是超限来源时 limiterPeak，否则 budget。
-        // 单参数版 = 不扣回程（recoveryHeld = false），即 0.1.8.10 的行为；单元测试与不分主段的调用方用它。
+        // 单参数版 = 不扣回程（recoveryHeld = false），即改前的行为；单元测试与不分主段的调用方用它。
         GuardOutput process (const ModuleStats& stats) noexcept     { return process (stats, false); }
         // T-113 1-05（ADR-042）：recoveryHeld = 这一块不放回退让——本块里完成的「安全」时隙既不回程、也不计安全时间（安全计时停住，
         // 不清零）；超出照常退让、回差区照常清零安全计时。编排器在非主段（breakdown）里传 true，见 GlazeController.cpp endBlock 与
