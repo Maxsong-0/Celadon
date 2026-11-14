@@ -556,11 +556,28 @@ namespace celadon::phase2
         return state;
     }
 
+    // 树里任何一个属性值或文本节点含有 text（逐节点比解码后的字符串）。不能搜 toString() 的整段 XML：JUCE 把非 ASCII 字符写成
+    // &#x…; 实体，中文原句在那里永远搜不到（T-114 补阳性对照时发现，之前这条对中文一直是空检查）。
+    inline bool treeContainsText (const juce::XmlElement& xml, const juce::String& text)
+    {
+        for (int i = 0; i < xml.getNumAttributes(); ++i)
+            if (xml.getAttributeValue (i).contains (text))
+                return true;
+
+        if (xml.isTextElement() && xml.getText().contains (text))
+            return true;
+
+        for (auto* child : xml.getChildIterator())
+            if (treeContainsText (*child, text))
+                return true;
+
+        return false;
+    }
+
     inline bool treeWritesLegacyNotice (const juce::XmlElement& xml)
     {
-        const auto text = xml.toString();
-        return text.contains (legacySessionNotice (Language::chinese))
-            || text.contains (legacySessionNotice (Language::english))
+        return treeContainsText (xml, legacySessionNotice (Language::chinese))
+            || treeContainsText (xml, legacySessionNotice (Language::english))
             || xml.getChildByName ("LEGACY_NOTICE") != nullptr
             || xml.getChildByName ("GLAZE_CONSTANTS") != nullptr
             || xml.getChildByName ("GLAZE_PROFILE") != nullptr
