@@ -3,6 +3,8 @@
 # freetype2 / fontconfig / x11。共享机（108 的 CI runner 与 testbox 沙盒、DGX）不往系统里 apt 装：这里用 apt-get download 取
 # Ubuntu 官方的 -dev 包，dpkg -x 解到 <目标目录>/root，把 .pc 里的路径改到解出来的地方、把 libX.so 开发链接指到系统的运行库
 # （运行库各机器都有，只缺 -dev）。照 DGX 上 ~/.cache/celadon-spark/guidev 的做法（2026-10-04 起在用）写成脚本。
+# testbox 沙盒里没有 apt 的包列表、apt-get download 取不到包：改用沙盒自带的 testbox-apt（它把 .deb 解到 /cache/apt-root，
+# 跨任务保留），目标目录不用，后面改 .pc 与链接、自检照样做在 /cache/apt-root 上。
 #
 # 用法：scripts/fetch-gui-dev.sh <目标目录>
 #   幂等：包已下载就不再下；每次都重新解包、从原样改 .pc 与链接，重复跑结果相同。架构按 dpkg 自动取（amd64 / arm64 …）。
@@ -25,18 +27,28 @@ PACKAGES=(
 
 die() { echo "fetch-gui-dev.sh：$*" >&2; exit 1; }
 
-[ "$#" -eq 1 ] || { sed -n 2,14p "$0" >&2; exit 2; }
+[ "$#" -eq 1 ] || { sed -n 2,16p "$0" >&2; exit 2; }
 case "$1" in *[[:space:]:#]*) die "目标目录不能含空白、冒号或 #（要拼进 PKG_CONFIG_PATH 与 sed 表达式）：$1" ;; esac
 
-for tool in apt-get apt-cache dpkg dpkg-deb; do
-  command -v "$tool" >/dev/null || die "缺 $tool：这台机器不是 Debian / Ubuntu，或者精简掉了 apt / dpkg。没法按这个脚本取包，改在有 apt 的机器上跑、或请管理员装 ${PACKAGES[*]}"
-done
+# 包从哪来：有 apt 包列表的机器（CI runner、DGX）用 apt-get download；testbox 沙盒（有 testbox-apt、apt 列表是空的）用 testbox-apt。
+TESTBOX_APT_ROOT=/cache/apt-root   # testbox-apt 固定解到这里（testbox guide「系统包的用户态装法」）
+SOURCE=apt
+if command -v testbox-apt >/dev/null && ! apt-cache show "${PACKAGES[0]}" >/dev/null 2>&1; then
+  SOURCE=testbox
+fi
+
+if [ "$SOURCE" = apt ]; then
+  for tool in apt-get apt-cache dpkg dpkg-deb; do
+    command -v "$tool" >/dev/null || die "缺 $tool：这台机器不是 Debian / Ubuntu，或者精简掉了 apt / dpkg。没法按这个脚本取包，改在有 apt 的机器上跑、或请管理员装 ${PACKAGES[*]}"
+  done
+fi
 
 mkdir -p "$1"
 TARGET="$(cd "$1" && pwd -P)"
 DEBS="$TARGET/debs"
 ROOT="$TARGET/root"
-ARCH="$(dpkg --print-architecture)"
+[ "$SOURCE" = testbox ] && ROOT="$TESTBOX_APT_ROOT"
+ARCH="$(dpkg --print-architecture 2>/dev/null || true)"
 if command -v dpkg-architecture >/dev/null; then
   TRIPLET="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
 else
@@ -48,34 +60,47 @@ else
   esac
 fi
 LIBDIR="$ROOT/usr/lib/$TRIPLET"
-mkdir -p "$DEBS" "$ROOT"
+
+if [ "$SOURCE" = testbox ]; then
+  # 1～2（testbox）：testbox-apt 下载并解包（已装的跳过）；它的输出转到标准错误，标准输出只留最后的 export 行。
+  # 机器上没有 pkg-config 时一并装 pkgconf：/cache/apt-root 的 bin 已在沙盒的 PATH 上，装完就能用。
+  command -v pkg-config >/dev/null || PACKAGES+=(pkgconf)
+  echo "testbox 沙盒：用 testbox-apt 装 ${PACKAGES[*]}（解到 $ROOT）" >&2
+  testbox-apt install "${PACKAGES[@]}" >&2 || die "testbox-apt install 失败（看上面哪个包装不上）"
+  [ -d "$LIBDIR/pkgconfig" ] || die "testbox-apt 装完了，$LIBDIR/pkgconfig 却不在：testbox-apt 解包的位置变了？改脚本里的 TESTBOX_APT_ROOT"
+  command -v pkg-config >/dev/null || die "装了 pkgconf 还是找不到 pkg-config（$ROOT/usr/bin 不在 PATH 上？）"
+fi
 
 # 没有 pkg-config 的机器：顺带取 pkgconf（程序在 pkgconf-bin 里，它依赖的 libpkgconfN 的版本号按 apt 的依赖查）。
 NEED_PKGCONF=0
-if ! command -v pkg-config >/dev/null; then
+if [ "$SOURCE" = apt ] && ! command -v pkg-config >/dev/null; then
   NEED_PKGCONF=1
   PKGCONF_LIB="$(apt-cache depends pkgconf-bin 2>/dev/null | sed -n 's/^ *Depends: \(libpkgconf[0-9][0-9]*\)$/\1/p' | head -n 1)"
   [ -n "$PKGCONF_LIB" ] || die "机器上没有 pkg-config，apt 的缓存里也查不到 pkgconf-bin 依赖的 libpkgconf（apt 列表是空的？）"
   PACKAGES+=(pkgconf-bin "$PKGCONF_LIB")
 fi
 
-# 1. 下载（已有同名包的跳过）。apt-get download 不要 root，只要 apt 的包列表在（/var/lib/apt/lists）。
-missing=()
-for pkg in "${PACKAGES[@]}"; do
-  compgen -G "$DEBS/${pkg}_*_${ARCH}.deb" >/dev/null || compgen -G "$DEBS/${pkg}_*_all.deb" >/dev/null || missing+=("$pkg")
-done
-if [ "${#missing[@]}" -gt 0 ]; then
-  echo "下载：${missing[*]}" >&2
-  ( cd "$DEBS" && apt-get download "${missing[@]}" ) || die "apt-get download 失败（看上面哪个包找不到：包名在这个 Ubuntu 版本里改了，就改脚本里的 PACKAGES；网络不通就换一台能上 Ubuntu 源的机器跑，再把 $TARGET 整个拷过来）"
+if [ "$SOURCE" = apt ]; then
+  mkdir -p "$DEBS" "$ROOT"
+
+  # 1. 下载（已有同名包的跳过）。apt-get download 不要 root，只要 apt 的包列表在（/var/lib/apt/lists）。
+  missing=()
+  for pkg in "${PACKAGES[@]}"; do
+    compgen -G "$DEBS/${pkg}_*_${ARCH}.deb" >/dev/null || compgen -G "$DEBS/${pkg}_*_all.deb" >/dev/null || missing+=("$pkg")
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "下载：${missing[*]}" >&2
+    ( cd "$DEBS" && apt-get download "${missing[@]}" ) || die "apt-get download 失败（看上面哪个包找不到：包名在这个 Ubuntu 版本里改了，就改脚本里的 PACKAGES；网络不通就换一台能上 Ubuntu 源的机器跑，再把 $TARGET 整个拷过来）"
+  fi
+
+  # 2. 解包（覆盖式，重复跑结果相同）。
+  for deb in "$DEBS"/*.deb; do
+    dpkg-deb -x "$deb" "$ROOT"
+  done
 fi
 
-# 2. 解包（覆盖式，重复跑结果相同）。
-for deb in "$DEBS"/*.deb; do
-  dpkg-deb -x "$deb" "$ROOT"
-done
-
 # 3. .pc 里写死的 /usr 改到解包目录（只改 prefix 一类的变量；${prefix}/… 的相对写法跟着走）。第 2 步每次都解出原样的 .pc，
-#    所以这一步每次都从原样改起，重复跑不会叠加。
+#    所以这一步每次都从原样改起；testbox 沙盒里上次改过的 .pc 已不以「=/usr」开头、不会再改。重复跑都不叠加。
 for dir in "$LIBDIR/pkgconfig" "$ROOT/usr/share/pkgconfig"; do
   [ -d "$dir" ] || continue
   for pc in "$dir"/*.pc; do
@@ -85,7 +110,7 @@ for dir in "$LIBDIR/pkgconfig" "$ROOT/usr/share/pkgconfig"; do
 done
 
 # 4. -dev 包里的 libX.so 是指向同目录运行库（libX.so.6 …）的相对链接，运行库没解进来，链接悬空：改指系统里的同名运行库。
-#    第 2 步每次都把链接解回原样，这一步每次重做。
+#    第 2 步每次都把链接解回原样，这一步每次重做；testbox 沙盒里上次改好的链接已不悬空，跳过。
 unresolved=()
 if [ -d "$LIBDIR" ]; then
   for link in "$LIBDIR"/*.so; do
