@@ -64,8 +64,8 @@ export const CHANGELOG: ReleaseNote[] = [
       {
         kind: 'ui',
         text: {
-          zh: '字更大、更清楚：正文放大，小字的对比度提高；新装的默认窗口是 125 %（屏幕放不下就取放得下的最大），已经存过的大小不变。控件名、气泡和官网的说法统一了：「起步」改叫「预热」，「A 处理后 / B 原声」改叫「母带 / 原声」，语言切换移到了设置里。',
-          en: 'Larger, clearer text: body text is bigger and small text has more contrast. A new install opens at 125 % (or the largest size that fits your screen), and sizes you have already saved stay as they are. Control names, tooltips and the website now use the same words: Starting is now Warming up, A Processed / B Original are now Master / Original, and the language switch has moved to Settings.'
+          zh: '字更大、更清楚：正文放大，小字的对比度提高。没设过默认大小的，新开的实例改为 125 %（屏幕放不下就取放得下的最大）；工程里存着的大小、你设过的默认大小都不变。控件名、气泡和官网的说法统一了：「起步」改叫「预热」，「A 处理后 / B 原声」改叫「母带 / 原声」，语言切换移到了设置里。',
+          en: 'Larger, clearer text: body text is bigger and small text has more contrast. If you have never set a default size, new instances now open at 125 % (or the largest size that fits your screen); sizes stored in projects and a default size you have set stay as they are. Control names, tooltips and the website now use the same words: Starting is now Warming up, A Processed / B Original are now Master / Original, and the language switch has moved to Settings.'
         }
       },
       {
