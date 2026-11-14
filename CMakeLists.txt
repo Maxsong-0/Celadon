@@ -240,9 +240,21 @@ endif()
 # 把整个插件（处理器 + 编辑器）连同 JUCE 的界面模块编进一个命令行程序：喂合成的音乐、跑消息循环、把编辑器按几种状态
 #（中 / 英、A / B、警告、设置面板、不同缩放）离屏渲染成 PNG，用来对照 V4 设计稿。Mac 上照旧用 Xcode 看真插件。
 # Linux 依赖 freetype2 / fontconfig / X11 的开发包（JUCE 界面模块在 Linux 上的要求）；DISPLAY 可以没有（xvfb-run 更稳）。
+# 机器上没装、又不能 apt 装（共享机、CI runner、testbox 沙盒）时，scripts/fetch-gui-dev.sh 把 Ubuntu 官方的 -dev 包解到用户目录，
+# 按它打印的 PKG_CONFIG_PATH 配置即可（运行库用系统的）。处理器层测试 celadon_processor_tests（T-099）也在这一段。
 # Windows 不需要额外的包（JUCE 用系统的 DirectWrite / Direct2D）：也是验证界面代码在 Windows 上编得过、跑得起来的入口。
 # 用法：cmake --build <dir> --target celadon_ui_snapshot && <dir>/celadon_ui_snapshot --out <目录>（见 tools/ui-snapshot）。
 set(CELADON_CAN_BUILD_GUI OFF)
+
+# ThreadSanitizer 构建（T-099）：-DCELADON_TSAN=ON 时，界面版 JUCE（celadon_juce_gui）连同链接它的程序（处理器层测试、截图工具）
+# 全部带 -fsanitize=thread 编——TSan 要求进程里能碰到共享数据的代码都插桩，只插测试自己的源码会让 JUCE 内部的同步看不见、
+# 冒出假报告。celadon_tests 与渲染工具不受影响（链接的是无头的 celadon_juce）。用单独的构建目录，配 RelWithDebInfo。
+# 跑法与「修前报、修后不报」的做法见 docs/validation/2026-11-13-T099-state-lock/README.md；压掉的误报在 tests/processor/tsan.supp。
+option(CELADON_TSAN "用 ThreadSanitizer 编界面版 JUCE 与处理器层测试（T-099）" OFF)
+
+if(CELADON_TSAN AND MSVC)
+    message(FATAL_ERROR "CELADON_TSAN 只支持 GCC / clang（MSVC 没有 ThreadSanitizer）。")
+endif()
 
 if(WIN32)
     set(CELADON_CAN_BUILD_GUI ON)
@@ -255,7 +267,14 @@ elseif(NOT APPLE)
 
     if(CELADON_GUI_DEPS_FOUND)
         set(CELADON_CAN_BUILD_GUI ON)
+    else()
+        message(STATUS "没找到 freetype2 / fontconfig / x11 的开发包：不生成 celadon_ui_snapshot 与 celadon_processor_tests"
+                       "（scripts/fetch-gui-dev.sh 可以不用 sudo 解一份）")
     endif()
+endif()
+
+if(CELADON_TSAN AND NOT CELADON_CAN_BUILD_GUI)
+    message(WARNING "CELADON_TSAN=ON 但界面依赖不全：没有可插桩的目标（celadon_processor_tests 不生成）。")
 endif()
 
 if(CELADON_CAN_BUILD_GUI)
@@ -316,6 +335,12 @@ if(CELADON_CAN_BUILD_GUI)
         target_link_libraries(celadon_juce_gui PUBLIC PkgConfig::CELADON_GUI_DEPS Threads::Threads ${CMAKE_DL_LIBS} rt)
     endif()
 
+    if(CELADON_TSAN)
+        # PUBLIC：插桩随库传给每个链接它的程序（它们自己的源码也一起插桩），见上面 CELADON_TSAN 的说明。
+        target_compile_options(celadon_juce_gui PUBLIC -fsanitize=thread -fno-omit-frame-pointer)
+        target_link_options(celadon_juce_gui PUBLIC -fsanitize=thread)
+    endif()
+
     # 插件源码 #include <JuceHeader.h>：给截图工具一份只含上面这些模块的 JuceHeader（工程里的那份还包括插件外壳与设备模块）。
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/ui-snapshot-include/JuceHeader.h
 "#pragma once
@@ -334,23 +359,47 @@ namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char*
 
     file(GLOB CELADON_UI_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/*.cpp)
 
-    add_executable(celadon_ui_snapshot EXCLUDE_FROM_ALL
+    # 整个插件的源码（处理器 + 编辑器 + 界面 + DSP），一处清单：截图工具、处理器层测试（T-099）以及以后要编插件源码的命令行程序
+    # 都用它（PluginProcessor.cpp 实现 createEditor，链接就要编辑器与全部界面源码）。插件里加源文件时改这里与 Celadon.jucer。
+    set(CELADON_PLUGIN_SOURCES
         ${CELADON_DSP_SOURCES}
         ${CELADON_UI_SOURCES}
         Source/Parameters.cpp
         Source/PluginProcessor.cpp
-        Source/PluginEditor.cpp
+        Source/PluginEditor.cpp)
+
+    # 编插件源码的程序共用的设置：只含上面这些模块的 JuceHeader、强制包含插件宏（JucePluginDefines.h：插件名、版本号、总线配置）、
+    # 本工程的警告等级、链接界面版 JUCE。
+    function(celadon_use_plugin_build_settings target)
+        target_include_directories(${target} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ui-snapshot-include)
+
+        if(MSVC)
+            target_compile_options(${target} PRIVATE /FI${CMAKE_CURRENT_SOURCE_DIR}/JuceLibraryCode/JucePluginDefines.h ${CELADON_WARNING_FLAGS})
+        else()
+            target_compile_options(${target} PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/JuceLibraryCode/JucePluginDefines.h
+                                                     ${CELADON_WARNING_FLAGS})
+        endif()
+
+        target_link_libraries(${target} PRIVATE celadon_juce_gui)
+    endfunction()
+
+    # ---- 处理器层测试（T-099，EXCLUDE_FROM_ALL）----
+    # 编整个插件、不建编辑器：存读档语义（运行中读档参数照换、实时画像保留，ADR-040）、旧工程读档、Lookahead 不进自动化，
+    # 以及存读档与音频线程并发（按宿主包装层的样子持回调锁跑 processBlock）。不依赖显示器。
+    # 用法：cmake --build <dir> --target celadon_processor_tests && <dir>/celadon_processor_tests [--only 类名] [--bench]；
+    # ThreadSanitizer 版见上面 CELADON_TSAN。Linux 上的开发头：scripts/fetch-gui-dev.sh。
+    add_executable(celadon_processor_tests EXCLUDE_FROM_ALL
+        ${CELADON_PLUGIN_SOURCES}
+        tests/processor/ProcessorTestMain.cpp
+        tests/processor/ProcessorStateTests.cpp
+        tests/processor/ProcessorConcurrencyTests.cpp
+        tests/processor/ProcessorStateLockBench.cpp)
+    celadon_use_plugin_build_settings(celadon_processor_tests)
+
+    add_executable(celadon_ui_snapshot EXCLUDE_FROM_ALL
+        ${CELADON_PLUGIN_SOURCES}
         tools/ui-snapshot/SnapshotMain.cpp)
-    target_include_directories(celadon_ui_snapshot PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/ui-snapshot-include)
-
-    if(MSVC)
-        target_compile_options(celadon_ui_snapshot PRIVATE /FI${CMAKE_CURRENT_SOURCE_DIR}/JuceLibraryCode/JucePluginDefines.h ${CELADON_WARNING_FLAGS})
-    else()
-        target_compile_options(celadon_ui_snapshot PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/JuceLibraryCode/JucePluginDefines.h
-                                                           ${CELADON_WARNING_FLAGS})
-    endif()
-
-    target_link_libraries(celadon_ui_snapshot PRIVATE celadon_juce_gui)
+    celadon_use_plugin_build_settings(celadon_ui_snapshot)
 
     if(MSVC)
         target_link_options(celadon_ui_snapshot PRIVATE /STACK:16777216)
