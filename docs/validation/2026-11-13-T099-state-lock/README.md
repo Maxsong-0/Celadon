@@ -112,7 +112,11 @@ TSan 有额外报告时：先看栈里有没有 `celadon::` 或 `CeladonAudioPro
 
 ## 8. 已知边界
 
-- 运行中的实例读档跳过 GLAZE 时，左下角「旧聆听结果已丢弃」的提示（`Status::legacySessionDiscarded`）不随这次读档变：它只在编排器落位时改。运行中读入格式 1 的旧预设不提示（画像保留了，本来也没丢什么）；之前亮着的提示，运行中读入干净工程后不熄。要熄需要编排器给一个「清提示」的入口（`GlazeController`，另一条线的文件）。
+- 运行中的实例读档跳过 GLAZE 时，清掉上一次读档点亮的「旧的聆听结果已丢弃」提示（`Status::legacySessionDiscarded`）：
+  那条提示说的是那次读档冷启动了，这次没有冷启动。入口 `GlazeController::keepStateOnLoad`（T-114 集成时补，主会话定）。
+  运行中读入格式 1 的旧预设也不提示（画像保留了，没有冷启动）。用例：`ProcessorState` 的「a running load clears the legacy notice
+  an earlier load raised」「a running load of a format-1 project raises no notice」；另一侧（刚建的实例读格式 1 → 提示）是
+  「<= 0.1.8.5 project …」。
 - 互斥靠「宿主经 JUCE 包装层、处理每一块持回调锁」。不经包装层直接调 `processBlock` 的宿主（自写的测试台、离线工具）要自己持锁——测试台架照做了。
 - 锁里只调编排器的存读档，不回调宿主、不拿别的锁（APVTS 的锁在锁外用完），不会和音频线程互相等。
 - 持锁时间见第 6 节；数字出来之前，「播放中存档会不会掉块」是未知数。
