@@ -184,10 +184,11 @@ def measure_drop(trace, onsets, start_s, end_s, bar_s):
     falls = [guard[i - 1] - guard[i] for i in index if i > 0 and guard[i] < guard[i - 1] - GUARD_STEP_DB]
     pairs = [(i - 1, i) for i in index if i - 1 >= index[0]]
     early_end = start_s + EARLY_BARS * bar_s
+    # dB 量用 math.fsum：没有元素时也是浮点 0.0（内置 sum 给整数 0，CSV 会写成「0」而不是「0.000」）。
     return {
         'retreats': sum(1 for o in onsets if start_s <= times[o] < end_s),
-        'retreat_db': sum(falls),
-        'gain_tv_db': sum(abs(gain[b] - gain[a]) for a, b in pairs),
+        'retreat_db': math.fsum(falls),
+        'gain_tv_db': math.fsum(abs(gain[b] - gain[a]) for a, b in pairs),
         'early_gain_db': mean([gain[i] for i in index if times[i] < early_end]),
         'entry_guard_db': guard[index[0]],
         'min_guard_db': min(guard[i] for i in index),
@@ -204,7 +205,7 @@ def measure_song(trace, drops, bar_s):
     song = {
         'retreats_total': len(onsets),
         'retreats_in_drops': sum(d['retreats'] for d in per_drop if d is not None),
-        'non_main_release_db': sum(guard[i] - guard[i - 1] for i in range(1, len(guard))
+        'non_main_release_db': math.fsum(guard[i] - guard[i - 1] for i in range(1, len(guard))   # fsum：同 measure_drop
                                    if mainness[i] < MAINNESS_MAIN and guard[i] > guard[i - 1] + GUARD_STEP_DB),
     }
     return song, per_drop
