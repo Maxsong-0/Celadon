@@ -71,7 +71,11 @@ SPECTRUM_PERCENTILE = 95              # B8 取 |净改动| 的 P95
 BAND_COUNT = 27                       # B8 27 段 1/3 倍频程：中心 1000·2^((b − 14) / 3)，同 BalanceModule.cpp
 BAND_REFERENCE_INDEX = 14
 BAND_REFERENCE_HZ = 1000.0
-PSR_FLOOR_SPEC_DB = 8.5              # ① 规格值（设计规格-实时GLAZE-曲风.md:60 原型 A 的标准档；ADR-039 起交付只剩标准）
+# B9 拐点的回差：从上一个极值反向走够这么多才算一次拐点。trace 的 limit_gain_db 只记 3 位小数，逐块数正负翻转会数到 0.001 dB 的
+# 量化抖动（2026-11-14 实测：45 首 GLAZE 35 现行的 1984 次「变号」里 96.5 % 前后两步都只有 0.001 dB、超过 0.01 dB 的只有 11 次）；0.1 dB = 量化步长的 100 倍，
+# 又远低于听得出的电平变化，1-05 那种几 dB 的拉锯照样一次不漏。
+GAIN_REVERSAL_DB = 0.1
+PSR_FLOOR_SPEC_DB = 8.5             # ① 规格值（设计规格-实时GLAZE-曲风.md:60 原型 A 的标准档；ADR-039 起交付只剩标准）
 FACTORY_CEILING_DBTP = -1.0           # 指标表没有 effective_ceiling_dbtp 时的出厂 Ceiling（同 gate_check.py）
 T_SEC_DECIMALS = 4                    # trace 的 t_sec 只留 4 位小数（RenderMain.cpp renderPass）：块起点按整表拟合还原
 
@@ -96,7 +100,7 @@ QUALITY_FIELDS = (
     ('limit_diff_db', 3),
     ('low_corr_in', 4), ('low_corr_out', 4), ('low_corr_delta', 4), ('side_mid_delta_p95_db', 3),
     ('net_spectrum_p95_db', 3), ('net_spectrum_bands_db', 'text'),
-    ('gain_tv_db_per_min', 3), ('gain_sign_changes_per_min', 3), ('guard_engaged_pct', 2), ('guard_cause_hist', 'text'),
+    ('gain_tv_db_per_min', 3), ('gain_reversals_per_min', 3), ('guard_engaged_pct', 2), ('guard_cause_hist', 'text'),
     ('na_reason', 'text'),
 )
 QUALITY_FIELD_NAMES = tuple(name for name, _ in QUALITY_FIELDS)
@@ -602,19 +606,52 @@ def label_agreement(sample_mask, sr, bpm, labels, track):
 
 # ======== 控制质量（trace）========
 
+def main_runs(gain_db, main_blocks):
+    """连续主段（且增益是有限数）的各段增益，按时间先后；隔着非主段或非有限值就断开。"""
+    ok = np.asarray(main_blocks, dtype=bool) & np.isfinite(gain_db)
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], ok.astype(np.int8), [0]))))
+    for begin, end in zip(edges[0::2], edges[1::2]):
+        yield gain_db[begin:end]
+
+
+def gain_reversals(run, reversal_db=GAIN_REVERSAL_DB):
+    """一段增益折线的拐点数（回差计数）：从上一个极值反向走够 reversal_db 才算一次。第一次走够回差只定方向、不算拐点。"""
+    count = 0
+    direction = 0                       # 0 = 还没定方向；+1 = 在升；−1 = 在降
+    low = high = extreme = float(run[0]) if len(run) else 0.0
+    for value in run[1:]:
+        value = float(value)
+        if direction == 0:
+            low, high = min(low, value), max(high, value)
+            if value - low >= reversal_db:
+                direction, extreme = 1, value
+            elif high - value >= reversal_db:
+                direction, extreme = -1, value
+        elif direction > 0:
+            if value > extreme:
+                extreme = value
+            elif extreme - value >= reversal_db:
+                count, direction, extreme = count + 1, -1, value
+        else:
+            if value < extreme:
+                extreme = value
+            elif value - extreme >= reversal_db:
+                count, direction, extreme = count + 1, 1, value
+    return count
+
+
 def control_quality(gain_db, main_blocks, block_seconds):
-    """B9：相邻两块都在主段的 ΔGain——总变差与变号次数，各除以主段分钟数。变号只数同一段连续主段之内（隔着非主段不算），ΔGain = 0 的对跳过。"""
+    """B9：主段里的增益——总变差（前后两块都在主段的 Σ|ΔGain|）与拐点数（每段连续主段各自按回差 GAIN_REVERSAL_DB 计数，
+    隔着非主段不连），各除以主段分钟数。"""
     gain_db = np.asarray(gain_db, dtype=np.float64)
+    main_blocks = np.asarray(main_blocks, dtype=bool)
     minutes = np.count_nonzero(main_blocks) * block_seconds / 60.0
     if minutes <= 0.0:
         return math.nan, math.nan
     steps = np.diff(gain_db)
     paired = main_blocks[1:] & main_blocks[:-1] & np.isfinite(steps)
-    run = np.cumsum(~paired)   # 同一段连续主段里的相邻对共用一个编号
-    moving = paired & (steps != 0.0)
-    signs, runs = np.sign(steps[moving]), run[moving]
-    flips = np.count_nonzero((signs[1:] != signs[:-1]) & (runs[1:] == runs[:-1]))
-    return float(np.sum(np.abs(steps[paired]))) / minutes, flips / minutes
+    reversals = sum(gain_reversals(run) for run in main_runs(gain_db, main_blocks))
+    return float(np.sum(np.abs(steps[paired]))) / minutes, reversals / minutes
 
 
 def guard_stats(causes):
@@ -726,7 +763,7 @@ def trace_metrics(trace, y, n_input):
             values['limit_diff_db'] = -math.inf if numerator == 0.0 else 10.0 * math.log10(numerator / denominator)
         else:
             reasons.append('限幅差值：主段里限幅器入口没有能量')
-    values['gain_tv_db_per_min'], values['gain_sign_changes_per_min'] = control_quality(trace.gain_db, main_blocks,
+    values['gain_tv_db_per_min'], values['gain_reversals_per_min'] = control_quality(trace.gain_db, main_blocks,
                                                                                         trace.block / trace.sr)
     values['guard_engaged_pct'], values['guard_cause_hist'] = guard_stats([c for c, keep in zip(trace.causes, in_song) if keep])
     return values, reasons
@@ -1019,16 +1056,36 @@ def trace_main_mask_uses_chain_position():
 
 @selftest
 def control_quality_counts():
-    """控制质量：ΔGain = +0.1, +0.1, −0.1, +0.1, 0, −0.1（7 块全在主段、合 1 分钟）→ 总变差 0.5 dB / 分、变号 3 次 / 分；
-    第 4 块不是主段时只剩 +0.1, +0.1 | 0, −0.1 → 总变差 0.3 dB、变号 0（隔着非主段的那次翻转不算）。"""
-    gain = np.array([0.0, 0.1, 0.2, 0.1, 0.2, 0.2, 0.1])
+    """控制质量：ΔGain = +0.3, +0.3, −0.3, +0.3, 0, −0.3（7 块全在主段、合 1 分钟）→ 总变差 1.5 dB / 分、拐点 3 次 / 分；
+    第 4 块不是主段时剩两段 [0, 0.3, 0.6] | [0.6, 0.6, 0.3] → 总变差 0.9 dB、拐点 0（隔着非主段的那次反向不算，各段第一次走够回差只定方向）。"""
+    gain = np.array([0.0, 0.3, 0.6, 0.3, 0.6, 0.6, 0.3])
     block_seconds = 60.0 / len(gain)
-    tv, flips = control_quality(gain, np.ones(len(gain), dtype=bool), block_seconds)
+    tv, turns = control_quality(gain, np.ones(len(gain), dtype=bool), block_seconds)
     split = np.array([True, True, True, False, True, True, True])
-    tv2, flips2 = control_quality(gain, split, block_seconds)
+    tv2, turns2 = control_quality(gain, split, block_seconds)
     minutes2 = 6 * block_seconds / 60.0
-    ok = abs(tv - 0.5) <= 1e-9 and abs(flips - 3.0) <= 1e-9 and abs(tv2 * minutes2 - 0.3) <= 1e-9 and flips2 == 0.0
-    return ok, f'整段：TV {tv:.3f} dB、变号 {flips:.0f}；断开：TV {tv2 * minutes2:.3f} dB、变号 {flips2 * minutes2:.0f}'
+    ok = abs(tv - 1.5) <= 1e-9 and abs(turns - 3.0) <= 1e-9 and abs(tv2 * minutes2 - 0.9) <= 1e-9 and turns2 == 0.0
+    return ok, f'整段：TV {tv:.3f} dB、拐点 {turns:.0f}；断开：TV {tv2 * minutes2:.3f} dB、拐点 {turns2 * minutes2:.0f}'
+
+
+@selftest
+def control_quality_ignores_quantization_jitter():
+    """拐点只数走够回差的反向：700 块（合 1 分钟）= 平台 0 → 升到 1 dB → 平台 → 降到 0.5 dB → 平台 → 升到 1.5 dB，每块叠 0 / 0.001 dB 交替的抖动
+    并取 3 位小数（同 trace 的量化；实测里抖动就出在增益停住的平台上）→ 拐点 2 次 / 分，逐块数正负翻转却有两百多次。
+    同样的抖动叠在峰峰 0.08 dB 的小起伏上（不到回差）→ 0 次。"""
+    k = np.arange(700)
+    path = np.interp(k, [0, 150, 300, 350, 450, 500, 699], [0.0, 0.0, 1.0, 1.0, 0.5, 0.5, 1.5])
+    jitter = 0.001 * (k % 2)
+    block_seconds = 60.0 / len(k)
+    main = np.ones(len(k), dtype=bool)
+    quantized = np.round(path + jitter, 3)
+    _, turns = control_quality(quantized, main, block_seconds)
+    _, small = control_quality(np.round(0.04 * np.sin(k / 40.0) + jitter, 3), main, block_seconds)
+    steps = np.diff(quantized)
+    signs = np.sign(steps[steps != 0.0])
+    raw = int(np.count_nonzero(signs[1:] != signs[:-1]))
+    ok = abs(turns - 2.0) <= 1e-9 and small == 0.0 and raw > 100
+    return ok, f'1 dB 起伏 + 抖动：拐点 {turns:.0f}（逐块翻转 {raw} 次）；0.08 dB 起伏 + 抖动：拐点 {small:.0f}'
 
 
 @selftest
@@ -1115,7 +1172,7 @@ def fake_render(x, sr, gain, align_gain_db, block=480, latency=1392):
             writer.writerows(rows)
         n_blocks = (len(master) + latency) // block + 1
         mainness = [0.0 if k * block < 5 * sr else 1.0 for k in range(n_blocks)]
-        gain_db = [1.0 + 0.1 * (k % 2) for k in range(n_blocks)]
+        gain_db = [1.0 + 0.2 * (k % 2) for k in range(n_blocks)]   # 每块反向 0.2 dB（> 回差 GAIN_REVERSAL_DB）：每对相邻块一个拐点
         trace = fake_trace_rows(n_blocks, block, sr, latency, mainness, gain=gain_db, hard=[0] * n_blocks,
                                 diff=[1.0] * n_blocks, inn=[10.0] * n_blocks)
         with open(trace_path_of(root / 'out', name), 'w', encoding='utf-8', newline='') as stream:
@@ -1128,7 +1185,7 @@ def fake_render(x, sr, gain, align_gain_db, block=480, latency=1392):
 @selftest
 def end_to_end_pure_gain_render():
     """端到端：临时输出目录（成品 = 0.7 × 入口、对齐 +4.5 dB、余振 0.35 s、合成 trace）→ 一行质量表：对齐还原后差值项 ≈ 0（≤ 1e-4）、
-    主段 = 第 5 s 之后（20 s）、限幅差值 = −10 dB、每对相邻块变号一次、硬钳位 0、真峰值与 Ceiling 照抄 / 出厂 −1.0、无标注走 P90 − P25。"""
+    主段 = 第 5 s 之后（20 s）、限幅差值 = −10 dB、每对相邻块一个拐点、硬钳位 0、真峰值与 Ceiling 照抄 / 出厂 −1.0、无标注走 P90 − P25。"""
     sr = SELFTEST_SR
     x = synthetic_track(seconds=25.0)
     with fake_render(x, sr, 0.7, 4.5) as root:
@@ -1142,7 +1199,7 @@ def end_to_end_pure_gain_render():
         'lra≈0': abs(r['lra_delta_lu']) <= FLOAT32_ZERO, 'net≈0': abs(r['net_spectrum_p95_db']) <= FLOAT32_ZERO,
         'main_s=20': abs(r['main_s'] - 20.0) <= 1e-9, 'limit_diff=-10': abs(r['limit_diff_db'] + 10.0) <= 1e-9,
         'hard_clip=0': r['hard_clip_samples'] == 0, 'tp': r['true_peak_dbtp'] == -1.2 and r['ceiling_dbtp'] == -1.0,
-        'flips': abs(r['gain_sign_changes_per_min'] * (480 / sr / 60.0) - 1.0) <= 0.01,
+        'reversals': abs(r['gain_reversals_per_min'] * (480 / sr / 60.0) - 1.0) <= 0.01,
         'drop_method': r['drop_loss_method'] == 'p90_p25',
     }
     bad = [k for k, ok in checks.items() if not ok]

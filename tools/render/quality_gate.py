@@ -51,7 +51,7 @@ RULES = (
     ('B7a', '低频相关', 'low_corr_delta', 'min', 'absolute', lambda row: -LOW_CORR_ALLOWED_DROP),
     ('B7b', 'S/M', 'side_mid_delta_p95_db', 'max', 'absolute', lambda row: SIDE_MID_MAX_RISE_DB),
     ('B9a', '增益总变差', 'gain_tv_db_per_min', 'max', 'group', None),
-    ('B9b', '增益变号', 'gain_sign_changes_per_min', 'max', 'group', None),
+    ('B9b', '增益拐点', 'gain_reversals_per_min', 'max', 'group', None),
 )
 # 表里必须有的列（tp_over_ceiling 由 true_peak_dbtp − ceiling_dbtp 现算）。
 REQUIRED_COLUMNS = PAIR_KEY + ('true_peak_dbtp', 'ceiling_dbtp', 'psr_floor_spec_db') + tuple(
@@ -250,7 +250,7 @@ def synthetic_row(song, **values):
            'true_peak_dbtp': '-1.100', 'ceiling_dbtp': '-1.000', 'hard_clip_samples': '0', 'drop_loss_lu': '0.500', 'lra_delta_lu': '-0.300', 'psr_main_med_out_db': '9.000',
            'psr_floor_spec_db': '8.5', 'pump_db': '0.1000', 'lf_crest_db': '-0.100', 'limit_diff_db': '-30.000',
            'low_corr_delta': '0.0000', 'side_mid_delta_p95_db': '0.100', 'gain_tv_db_per_min': '5.000',
-           'gain_sign_changes_per_min': '10.000'}
+           'gain_reversals_per_min': '10.000'}
     row.update({k: str(v) for k, v in values.items()})
     return row
 

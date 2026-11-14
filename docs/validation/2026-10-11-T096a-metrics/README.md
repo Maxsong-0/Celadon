@@ -79,7 +79,7 @@ tools/render/run_quality_baseline.sh <celadon_render> <输出根> ~/.cache
 | B6 | `limit_diff_db` |
 | B7 | `low_corr_in` / `low_corr_out` / `low_corr_delta`、`side_mid_delta_p95_db` |
 | B8 | `net_spectrum_p95_db`、`net_spectrum_bands_db`（27 段，分号分隔，只报） |
-| B9 | `gain_tv_db_per_min`、`gain_sign_changes_per_min`；`guard_engaged_pct`、`guard_cause_hist`（只报） |
+| B9 | `gain_tv_db_per_min`、`gain_reversals_per_min`（回差 0.1 dB 的拐点；2026-11-14 前是逐块变号）；`guard_engaged_pct`、`guard_cause_hist`（只报） |
 | | `na_reason`：空值的原因，多条用「; 」连接 |
 
 写法：定点小数；算不出写空（绝不填 0）；`-inf` / `inf` 原样写（如纯增益时 `d_fast_db`）；`-0.000` 写成 `0.000`；按配对键排序。

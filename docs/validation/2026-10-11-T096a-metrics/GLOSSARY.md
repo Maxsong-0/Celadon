@@ -130,7 +130,7 @@ ADR-034 决定 6 要求「低频冲击、泵感、PSR 下限、起音保留各�
 | B7 | 低频相关度 ≥ 输入 − 0.05 | `low_corr_delta`（`low_corr_in`、`low_corr_out`；`measure_lib.low_band_correlation`，125 Hz，整曲） | 比值 | ≥ −`LOW_CORR_ALLOWED_DROP`（0.05） |
 | B7 | 逐段 S/M 出口 − 入口 ≤ 0.5 dB | `side_mid_delta_p95_db` | dB | ≤ `SIDE_MID_MAX_RISE_DB`（0.5） |
 | B8 | 净频谱改动 | `net_spectrum_p95_db`（`net_spectrum_bands_db` 写 27 段） | dB | 只报（没有目标时没有阈值；任务书门槛清单没列） |
-| B9 | 控制质量 | `gain_tv_db_per_min`、`gain_sign_changes_per_min`（`guard_engaged_pct`、`guard_cause_hist` 只报） | dB/min、次/min | 两项各 ≤ 同组基线 P90（`BASELINE_PERCENTILE` = 90） |
+| B9 | 控制质量 | `gain_tv_db_per_min`、`gain_reversals_per_min`（`guard_engaged_pct`、`guard_cause_hist` 只报） | dB/min、次/min | 两项各 ≤ 同组基线 P90（`BASELINE_PERCENTILE` = 90） |
 | B10 | 流媒体档编码后 TP | 不进 `quality.csv` | dBTP | 删：原由 (c) 交付检查单的编码回测出，ADR-039 删掉交付时一起删了；成品真峰值另由 `master_check.py --ceiling` 判 |
 
 A 组（绝对门，`quality_gate.py` 同时判）：`true_peak_dbtp`（`metrics.csv` 原值：插件表量的对齐前成品 8× 真峰值，与 `gate_check.py` 同一列）
@@ -159,8 +159,14 @@ A 组（绝对门，`quality_gate.py` 同时判）：`true_peak_dbtp`（`metrics
   取 |net_b| 的 P95（高于奈奎斯特、或任一边没能量的段不算）。「scipy 同口径滤波器 / 读 trace」二选一：选 FFT 按段积分（trace 里没有段功率；
   段边界与 bin 分摊规则跟 Balance 分析一样，离线用更长的窗把 40 Hz 段分得开）。出处：研究目录 `R5-control-evaluation.md:123`（S 组：主段 1/3 倍频程、
   200 Hz～1.2 kHz 锚区归一，没有目标时只报输出 − 输入）。
-- **`gain_tv_db_per_min` / `gain_sign_changes_per_min`**（B9）：trace `limit_gain_db`（每块实际交给限幅器的 Limit Gain，含 G_trim 与守门退让）。
-  「稳定段」= 主段块；只取前后两块都在主段的相邻对：总变差 = Σ|ΔGain|，变号 = 非零 ΔGain 序列里正负翻转的次数，都除以主段分钟数。
+- **`gain_tv_db_per_min` / `gain_reversals_per_min`**（B9）：trace `limit_gain_db`（每块实际交给限幅器的 Limit Gain，含 G_trim 与守门退让）。
+  「稳定段」= 主段块：总变差 = 前后两块都在主段的相邻对 Σ|ΔGain|；拐点 = 每段连续主段里，增益从上一个极值反向走够回差 `GAIN_REVERSAL_DB`（0.1 dB）
+  的次数（第一次走够回差只定方向；隔着非主段不连）；都除以主段分钟数。
+  2026-11-14 前第二项是「变号」：非零 ΔGain 序列里正负翻转的次数。trace 的增益只记 3 位小数，增益停住时在舍入边界上 0.001 dB 来回，
+  逐块数翻转数到的大多是量化抖动——45 首 GLAZE 35 现行的 1984 次「变号」里 1915 次（96.5 %）前后两步都只有一个量化步（0.001 dB），
+  超过 0.01 dB 的只有 11 次（最大 0.025 dB）；`3a7a367` → 现行的中位数看着从 0.83 涨到 9.26 次 / 分，按回差数的真拐点中位数反而从 0.31 降到 0
+  （均值 0.71 → 0.31；T-114 M4，见 `docs/validation/2026-11-13-T114-release-0.1.8.11/README.md` 第 8 节）。改名是为了让新旧两种口径的表
+  比不到一起（`quality_gate.py` 读不到旧列会报缺列）。
   出处：vault `01-框架/设计规格-实时GLAZE-主段与增益.md:136`（第 7 节第 5 条「不拉锯」）；研究目录 `R5-control-evaluation.md:134`（K 组）。
 - **`guard_engaged_pct` / `guard_cause_hist`**（B9，只报）：原曲时长内的块里 trace `guard_cause` ≠ none 的占比，与各原因（`budget` / `limiterPeak`；
   ADR-039 删了 contrast / psr 两扇守门，原 `deliveryPeak` 改名 `limiterPeak`）各占多少（%）。`guard_cause` 读 `Status.guardCause`（`Source/dsp/GlazeController.cpp:909-934`：几扇门都在退时退得最多的那扇）。
