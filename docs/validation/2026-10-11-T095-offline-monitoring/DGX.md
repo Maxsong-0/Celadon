@@ -42,8 +42,11 @@ Max 2026-10-11 15:09「全按推荐」的两条照旧：放行自写用例四项
   「offline: the monitored chain renders the master bit-exactly」、「the offline span equals the master from its first sample」、
   「offline original integrates the master bit-exactly」、「no difference crossfade tail in the offline span」等离线断言失败；
   显式实时与默认状态逐位相同那几条（回归对照）允许仍通过。
-- T-110：三个「host bypass freezes …」场景的「host bypass must not pull the integrated reading」与「back on the master …」失败
-  （`93af3e0` 宿主旁通时照旧积分，整体读数被 −6 dB 的干信号拉低约 2 LU）；「positive control」「short-term shows the dry signal」通过。
+- T-110：「realtime」「offline export」两个「host bypass freezes …」场景的「host bypass must not pull the integrated reading」与
+  「back on the master …」失败（`93af3e0` 宿主旁通时照旧积分，整体读数被 −6 dB 的干信号拉低约 2 LU）；「positive control」
+  「short-term shows the dry signal」通过。第三个场景「offline export while the UI listens to the original」在 `93af3e0` 上**通过**：
+  旧码听原声连离线时也暂停积分，把宿主旁通的影响盖住了，这个场景只在 T-095 之后才分得出 T-110（由下面的 `host-bypass` 变体验）。
+  （2026-11-13 实跑更正：本条原写「三个场景都失败」。）
 
 ## 3. 改坏变体（每项一个 detached worktree，从 `<集成>` 起，只改 `Source/dsp/CeladonChain.cpp`）
 
