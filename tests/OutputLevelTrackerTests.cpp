@@ -1496,9 +1496,10 @@ namespace celadon::test
             //     restoreStateXml「reserved 读进来是什么都清成 0」。素材见 bookSegment：40 段（超过 32、环没回绕）。
             //     断言：closed（32 段，含空格子）与 history（40 段）每段第 20～23 字节都是 0；把 history 每段这 4 字节改成 0xA5 再读进
             //     新的跟踪器，照收（这 4 字节不是数据），再存出来的 closed / history / historyExtra 与原来那份逐字相同。
-            //     T-109 之前这 4 字节是隐式填充，里面是什么、拷贝时带不带走，看编译器：MSVC 按成员拷贝时第一组就会失败（108 上
-            //     testLegacyCopyForTheOldVersion 的 40 / 128 / 136 段三条就是这样败的），整块拷贝的编译器上读进来的 0xA5 会跟着段
-            //     再存出来，第二组失败。
+            //     T-109 之前这 4 字节是隐式填充，里面是什么、拷贝时带不带走，看编译器。2026-11-13 在 108 上撤掉修复、留着本用例实测：
+            //     MSVC 19.44（Wine）两组都失败（closed 32 段、history 39 段这 4 字节不为 0；读进 0xA5 后再存与干净的那份不同），
+            //     testLegacyCopyForTheOldVersion 的 40 / 128 / 136 段三条也失败；GCC 15（x86-64）两组都过，撤掉修复在 GCC 上看不出
+            //     区别。所以 GCC 上防回退靠 OutputLevelTracker.h 的 static_assert（四个成员排满 24 字节、没有隐式填充）。
             void testStateBytesAreDeterministic()
             {
                 beginTest ("state bytes are deterministic: the 4 bytes after mainness are written as 0, and non-zero ones read in never come back out");
