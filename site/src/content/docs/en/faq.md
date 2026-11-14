@@ -31,7 +31,7 @@ The plugin promises ≤ Ceiling + 0.01 dB as measured by its own 8× meter, plus
 
 ## The export is louder / quieter than what I heard?
 
-Check whether Match is still on (it's saved with the project) and whether Normalisation preview is off. Offline exports turn the preview off automatically; real-time exports don't.
+Match (saved with the project) and Normalisation preview only turn the monitoring down; they never change the master. An offline export bypasses both automatically, so if you were listening with them on, the offline export comes out louder than what you heard, and that's expected. The plugin can't tell a real-time export (recording while playing) from playback, so nothing is bypassed there: turn Match off and exit the preview first, or the export comes out quieter too.
 
 ## How do I get both a Streaming and a Club version of one song?
 
@@ -51,8 +51,8 @@ That's a debug build: it uses far more CPU than Release and is only for debuggin
 
 ## Will CLAY ruin the stereo image or mono compatibility?
 
-Mono and Width only touch the side channel S, so mono playback (L + R) is completely unchanged; Low cut removes only sub-bass below its 10–60 Hz setting (Auto cuts only when there's infrasound below 16 Hz). Auto never applies Mono; it only lights an amber warning when the lows are out of phase.
+Mono and Width only touch the side channel S, so mono playback (L + R) is completely unchanged; Low cut removes only sub-bass below its 10–60 Hz setting (Auto cuts only when there's infrasound below 16 Hz). Auto never applies Mono; it only lights an orange warning when the lows are out of phase.
 
 ## How do I check CPU use?
 
-There's no CPU meter next to Latency at the top right. For reference: on an M2 Pro with GLAZE 100 and the interface closed, about 1.3% of the audio-thread budget at 48 kHz. With the interface open there's roughly an extra quarter of a core for drawing; Reduce motion saves a little.
+There's no CPU meter in the interface (the bottom row of Settings shows only the version and the latency). For reference: on an M2 Pro with GLAZE 100 and the interface closed, about 1.3% of the audio-thread budget at 48 kHz. With the interface open there's roughly an extra quarter of a core for drawing; Reduce motion saves a little.

@@ -250,7 +250,7 @@ namespace celadon::test
                 expect (! ui::tr (Text::helpAb, Language::english).contains ("A / B"));
 
                 for (const auto key : { Text::speed, Text::mix, Text::output, Text::glueReduction, Text::release, Text::lookahead,
-                                        Text::limitReduction, Text::clayNotActive, Text::clayBypassed })
+                                        Text::limitReduction, Text::clayNotActive, Text::clayBypassed, Text::latency })
                 {
                     const auto english = ui::tr (key, Language::english);
                     expect (english != english.toUpperCase() && english.substring (0, 1) == english.substring (0, 1).toUpperCase(),

@@ -12,7 +12,7 @@ In the middle row, to the right of the GLAZE knob.
 
 | Reading | What it shows | What to aim for |
 |---|---|---|
-| **Integrated loudness (LUFS)** | Average loudness since the last reset; streaming services normalise playback by it. | Pop −9 to −7; to keep dynamics, −14 to −11. |
+| **Integrated loudness (LUFS)** | Average loudness since the last reset; streaming services normalise playback by it. It pauses while you listen to the original or the host bypasses the plugin, so the original is never counted. | Pop −9 to −7; to keep dynamics, −14 to −11. |
 | **Short-term** | Loudness of the last 3 seconds, following the sections of the song. | 2–4 LU between verse and chorus sounds natural. |
 | **True peak** | The highest true peak since the last reset. | Should stay below the ceiling in effect (your Ceiling minus any codec margin). |
 | **Peak-to-loudness ratio (PLR)** | The difference between the true-peak maximum and integrated loudness — how much dynamics are left. | The smaller it is, the fuller it sounds. |

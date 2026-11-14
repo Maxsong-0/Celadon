@@ -31,7 +31,7 @@
 主段：小节 bar · 主段落 main section（drop = drop，breakdown = breakdown，不译）· 逐小节的记录 = tally（「House ·」前缀、反相提示 out-of-phase hint、门控 gating 随 0.1.8.11 取消，只在更新日志里出现）
 状态（GLAZE 标题旁的阶段标签）：全手动 Manual · 受手动 Manual limit · 导出 Export · 受限 Limited · 起步 Starting · 保持 Holding · 跟随 Following；卡片旁通 已旁通 Bypassed
 状态行原句（照 GlazeStatusText.cpp 的英文）：受限 · 预算 / 限幅 · 已退 x dB = Limited · Budget / Limiter · backed off x dB · 受手动设置限制 = Limited by manual settings（标签 受手动 = Manual limit）· 起步 Starting · 保持 Holding · 跟随 Following
-监听：处理后 Processed · 原声 Original · 等响 Match（level-matched）· 试听差值 Listen to difference · 旁通 Bypass
+监听：母带 Master · 原声 Original（0.1.8.11 之前叫「A 处理后 / B 原声」= A Processed / B Original，只在更新日志里出现）· 等响 Match（level-matched）· 试听差值 Listen to difference · 旁通 Bypass
 表：输入 / 输出 / 衰减 = IN / OUT / GR · 响度 Loudness · 真峰值 True peak（dBTP）· 短期 Short-term · 峰响比 PLR · 重新计量 Reset meters · 频谱仪 spectrum analyser
 
 ## 写法约定

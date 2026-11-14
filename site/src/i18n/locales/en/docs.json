@@ -55,7 +55,7 @@
       },
       "listening": {
         "title": "Monitoring",
-        "summary": "A / B, Match, Listen to difference, Normalisation preview."
+        "summary": "Master / Original, Match, Listen to difference, Normalisation preview."
       },
       "meters": {
         "title": "Meters and spectrum analyser",

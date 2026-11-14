@@ -150,8 +150,8 @@
         "body": "One knob. It listens for a while (usually 15–30 seconds) to settle on a plan, then pushes toward this song's ideal master; the denser the crackle, the further it's pushing."
       },
       {
-        "title": "A / B and Match",
-        "body": "Switch between processed and original in one click; with Match on, the louder side is turned down by the measured difference, so you compare tone, not volume."
+        "title": "Master / Original and Match",
+        "body": "Switch between the master and the original in one click; with Match on, the louder side is turned down by the measured difference, so you compare tone, not volume."
       },
       {
         "title": "Four cards",

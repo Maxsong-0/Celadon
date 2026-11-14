@@ -48,7 +48,7 @@ namespace celadon::ui
         {
             // ---- 顶栏 ----
             { Text::brandSubtitle,      "母带处理",                 "MASTERING" },
-            { Text::latency,            "延迟",                     "LAT" },
+            { Text::latency,            "延迟",                     "Latency" },
             { Text::settings,           "设置",                     "Settings" },
             { Text::help,               "帮助",                     "Help" },
             { Text::close,              "关闭",                     "Close" },

@@ -22,7 +22,7 @@ The stage label beside the GLAZE heading matches the status line at the top; onl
 | Label | Meaning |
 |---|---|
 | Manual limit | Orange; the status line reads “Limited by manual settings”: your manual settings alone already exceed a module's budget (or LIMIT is bypassed), so the matching automatic increment is withdrawn. Not shown at GLAZE 0 |
-| Export | Amber. The status line reads “Main-section stats are still cold at export, so the first drop may come out quiet: play through once, then export”. An offline export started before enough of the main section had been heard |
+| Export | Orange; the status line reads “First drop may export quiet: play it once, then export”. An offline export started before enough of the main section had been heard |
 | Limited | Orange; the status line reads “Limited · cause · backed off x dB”: during playback a guard is pulling GLAZE's automatic gain back, or has reached its floor and the problem persists (at most 3 dB). The cause is one of Budget (glue / limiting / clipping over the style's budget) or Limiter (the limiter working too hard). Once the condition clears it eases back and the status returns to Following. Not shown at GLAZE 0 |
 | Starting | The status line reads “Starting · main section not heard yet (staying conservative)”. Not enough of the main section heard yet (just started, or still in the intro): the plan stays cautious and relaxes as it hears more |
 | Holding | The status line reads “Holding · this section is quieter”. A lighter section is playing: gain can only fall, never rise, until the main section returns |
@@ -63,7 +63,7 @@ From 0.1.8.8 to 0.1.8.10 two choices sat on either side of the GLAZE heading: Ge
 ## How it relates to Advanced and CLAY
 
 - With “Loud, not harsh” and Target spectrum on Auto: strength = the amount you set × GLAZE / 100. At GLAZE 0 they're zero.
-- CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an amber warning when they are out of phase (at GLAZE 0 even the warning stays off); on Manual they work even at GLAZE 0; Off never processes.
+- CLAY's Low cut and Width on Auto are decided by the plan and do nothing at GLAZE 0; Mono on Auto never folds the lows, it only lights an orange warning when they are out of phase (at GLAZE 0 even the warning stays off); on Manual they work even at GLAZE 0; Off never processes.
 - Whenever an Advanced setting changes (or a manual parameter or the style does), GLAZE recomputes the target straight away and moves toward it by rising slowly and falling faster.
 
 ## Saving and reopening

@@ -17,7 +17,7 @@ LIMIT is a transparent lookahead true-peak limiter: 8× interpolation sees the p
 
 The headphones to the left of the card's power button: they replace the output with what LIMIT takes away (gain, clip and limiting together, at the level before the gain push, never louder than the original); meters, loudness and GLAZE keep measuring the master.
 
-Use it to hear whether anything important is being shaved off (flattened drums, dull bass). It turns off when you switch to the original, bypass LIMIT or close the window, and can't be turned on while LIMIT is bypassed.
+Use it to hear whether anything important is being shaved off (flattened drums, dull bass). It turns off when you switch to the original, bypass LIMIT or close the window, and can't be turned on while LIMIT is bypassed. It has no effect on an offline export, which renders the master; exit it before a real-time export.
 
 ## A few promises
 

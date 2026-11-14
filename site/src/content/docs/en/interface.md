@@ -3,8 +3,8 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 ## Top bar
 
 - Left: the brand and “MASTERING”.
-- Centre: the **status pill**, which shows only the single most important thing, in the priority order needs attention > listening to the original / listening to the difference > the GLAZE status line. For example, “B · Listening to original · level-matched 4.8 dB”.
-- Right: latency readout · `中 / EN` · Settings · Help · Advanced.
+- Centre: the **status pill**, which shows only the single most important thing, in the priority order needs attention > listening to the original / listening to the difference / normalisation preview > the GLAZE status line. For example, “Listening to original · level-matched 4.8 dB”.
+- Right: Settings · Help · Advanced. The language switch and the latency readout are both in Settings.
 
 ## Meters and spectrum (top half)
 
@@ -19,8 +19,8 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 - **Right side panel, “Delivery”**: the title shows the target loudness (“—” at GLAZE 0). Integrated loudness in large type, with short-term, true-peak maximum and peak-to-loudness ratio beside it; below that, a −24 to −6 LUFS loudness bar with the target as a triangle above it, −14 as a dashed line below it, and the streaming normalisation amount underneath; then the last 60 seconds of short-term loudness (with a dashed target line) and the automatic increment GLAZE adds to LIMIT's Gain (violet). The small icon at top right is Reset meters. It only records while audio plays, and stands still when playback stops.
 - The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now; as it turns, a cyan comet tail trails behind the pointer. See [Controls and shortcuts](/docs/controls) for how to turn it.
 - Particles: only in the channels between the side panels and the knob; streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
-- A row of buttons: style (Auto / Warm / Punchy / Clean) | A / B · Match.
-- The bottom row's left side is normally empty: it shows control hints while you hover or drag, and when you open an old project it shows “The old listening result was discarded, so the sound will change” or “Genre/delivery removed, now General + Standard; sound changes” in amber (one line each when both apply), for that session only. A colour legend sits at the right.
+- A row of buttons: style (Auto / Warm / Punchy / Clean) | Master / Original · Match.
+- The bottom row's left side is normally empty: it shows control hints while you hover or drag, and when you open an old project it shows “The old listening result was discarded, so the sound will change” or “Genre/delivery removed, now General + Standard; sound changes” in orange (one line each when both apply), for that session only. A colour legend sits at the right.
 - Exit hints for temporary monitoring also appear at the bottom left: listening to the original, listening to the difference and normalisation preview are mutually exclusive; while one is on, a clickable hint to leave it stays there. Closing the window exits all of them.
 
 ## The four cards (bottom half, in real processing order)
