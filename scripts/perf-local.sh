@@ -10,6 +10,10 @@
 #           电池 + 低电量模式下同一程序约慢 1.45 倍，验收门槛按接电源定。
 # 架构：默认本机硬件（Apple Silicon → arm64，Intel Mac → x86_64）。CELADON_PERF_ARCH=x86_64 在 Apple Silicon 上编 x86_64 版、
 #       经 Rosetta 跑——只能粗看 Intel 那一半的开销，不能当 Intel 真机的验收读数；ecore 模式在 Intel 上没有意义（没有能效核）。
+# 双口径（T-096f，计划 §13 Q10）：DGX 上的「同机不退步」基线另用 scripts/perf-dgx.sh（可移植基准 celadon_bench_portable）；
+#       Mac（M2 Pro）的绝对数由 Max 本人用本脚本跑，含实时 GLAZE 的基线命令：
+#       scripts/perf-local.sh XcodeRelease grid all 44100,48000,96000,192000 32,64,512 20 10 5
+#       （预算 48k/32 最慢块 ≤ 15 %、96k/64 ≤ 20 %、48k/512 均值 ≤ 6 % 只在这份 Mac 读数上判；见 docs/validation/2026-10-11-T096f-cpu-baseline/）
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 KEY="$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-12)"

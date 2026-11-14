@@ -143,6 +143,34 @@ Mac 上不编、不测（ADR-002）。测试服务器上用 [msvc-wine](https://
 Windows 的 UCRT 还按 CPU 是否支持 FMA3 换超越函数的实现。所以 `tools/render` 的 `audio_hash` 只在同一台机器的同一种构建
 之间可比，跨平台对照用 `gate_check.py` 的 dB / LU 门槛（见 `tools/render/README.md`）。
 
+## 测试机：先 108（testbox），其次 DGX Spark（max-spark）
+
+Mac 上不编、不测、不渲染、不跑基准（Max 2026-10-04 定，2026-10-24 改成先 108 后 DGX）。编译、`celadon_tests`、`celadon_render` 与 Python 量尺
+先经 testbox 交 108（x86_64 执行节点，testbox 里叫 `x86-1`）；只有这几种交 DGX：结果跟架构有关、要 aarch64 的；108 不在线或自检没过
+（`testbox status` 的节点行）；超出 108 的单任务上限（节点行写着）；要用 DGX 主机本身的（Docker、systemd 用户单元这类沙盒里没有的）。
+不裸 ssh 上 108 或 DGX 去跑；全量测试同一时间只许一个会话跑。
+
+- **108（testbox）**：DGX 上 `testbox submit --arch x86_64 …`，Mac 上 `testbox --remote testbox@max-spark submit --arch x86_64 …`；任务由 DGX 的
+  守护进程派到 108，`testbox wait / logs / status` 照旧对 DGX。等结果只认 `^testbox · 结束：` 那一行。
+- **DGX 上的入口**：`~/.cache/celadon-spark/bin/spark-test.sh <源码目录> build|test|run|dir`（仓库副本 `scripts/dgx/spark-test.sh`，两份保持一致，
+  以 DGX 上那份为准）。DGX 是 NVIDIA DGX Spark（aarch64，20 核 / 121 GB，Ubuntu 24.04，GCC 13.3，Release + Ninja，没有 LTO）。
+  源码放 `~/.cache/celadon-spark/src/<名>/`（用 `git archive` 取一份干净树，别和别的会话共用目录），构建目录
+  `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令打印）；JUCE 用 DGX 上的 `/home/maxsong/All-Project/JUCE`（`-DCELADON_JUCE_DIR`）；
+  它把 venv 放进 PATH。`build` 默认目标 `celadon_tests celadon_render`；`test` 编 `celadon_tests` 后运行（可带 `--only 类名,…`）；`run <命令…>`
+  在锁里跑任意命令，命令里可写 `$BUILD`（单引号留给脚本里的 shell 展开）。`SPARK_JOBS` 并行编译数（默认 8，几个会话同时编给 4）；
+  `CELADON_CXX_FLAGS` 同 `test-linux.sh`。
+- **锁**：同一构建目录的编译互斥；`test` / `run` 走**全机串行锁** `~/.cache/celadon-spark/locks/run.lock`（别的会话的测试也排这把锁，计时护栏
+  不被干扰）；**编译不进全机锁**——跑 CPU 基准前要在 vault TASKS ② 登记独占、给在跑的会话发消息、另起进程观察编译活动，日志为空才算干净。
+- **Python**：版本钉在 `tools/render/requirements.txt`（numpy / scipy / soundfile / pyloudnorm）。DGX 用 venv 的全路径
+  `~/.cache/celadon-spark/venv/bin/python`，少了就 `venv/bin/pip install -r tools/render/requirements.txt`；108 的沙盒里按同一份清单装。
+  截图工具要的 freetype / fontconfig / x11 开发头：`spark-test.sh` 仍把 `~/.cache/celadon-spark/guidev/root` 加进 PKG_CONFIG_PATH。
+- **语料**（都在 DGX 的 `~/.cache/`，不进 git、不出 DGX）：`celadon-t048-22songs/`（Max 的门槛曲：`wav/` + `batch.sh` + `manifest.tsv`）、
+  `celadon-t048-cal/<deep|tech|melodic>/<track>/<track>.wav`（Jamendo 45 首，44.1 kHz 24 bit，已裁到小节线；标签见
+  `docs/validation/2026-10-01-T038-calibration/`）、`celadon-t048-cal-syn/`（合成曲）。谁占着哪个目录看 vault TASKS ②。
+- **口径**：DGX 上已知固定失败 5 条——ColorModule 4 条是 NEON 快路径写死了融合乘加、与标量逐位对不上（Linux ARM 不是目标平台）；
+  BalancePerformance 1 条是立体声 / 单声道耗时比超出门槛。过 / 败一律对照同机基线只算新增；`audio_hash` 只在同机同构建内可比（见上一节）。
+  x86-64-v3 在 CI 上跑（下一节），Windows 见上面的 Windows 一节。
+
 ## CI（GitHub Actions，Studiolo 的自托管 runner）
 
 `.github/workflows/ci.yml`：每个 PR、每次合进 main，都在 Studiolo 的自托管 CI 服务器上原生编 `celadon_tests`，跑两遍全套——基线
