@@ -168,6 +168,12 @@ Mac 上不编、不测、不渲染、不跑基准（Max 2026-10-04 定，2026-10
 - **Python**：版本钉在 `tools/render/requirements.txt`（numpy / scipy / soundfile / pyloudnorm）。DGX 用 venv 的全路径
   `~/.cache/celadon-spark/venv/bin/python`，少了就 `venv/bin/pip install -r tools/render/requirements.txt`；108 的沙盒里按同一份清单装。
   截图工具要的 freetype / fontconfig / x11 开发头：`spark-test.sh` 仍把 `~/.cache/celadon-spark/guidev/root` 加进 PKG_CONFIG_PATH。
+- **要界面库的目标**（截图工具 `celadon_ui_snapshot`、处理器层测试 `celadon_processor_tests`，T-099）：Linux 上要 freetype / fontconfig / x11
+  的开发头，共享机不往系统里 apt 装。`scripts/fetch-gui-dev.sh <目录>` 把官方 -dev 包解到用户目录、修好 `.pc` 与开发链接，按它打印的
+  `export PKG_CONFIG_PATH=…` 配置；testbox 沙盒里没有 apt 包列表，它自动改用 `testbox-apt`（解到 `/cache/apt-root`）。处理器层测试的
+  四种跑法（release / tsan / tsan-before / bench）在 `docs/validation/2026-11-13-T099-state-lock/run-processor-tests.sh`（工作目录 = 打包目录）：
+  ThreadSanitizer 版配 `-DCELADON_TSAN=ON`（界面版 JUCE 一起插桩），运行时 `setarch $(uname -m) -R` 关地址随机化、
+  `TSAN_OPTIONS=suppressions=tests/processor/tsan.supp`；`bench` 量持锁时间，要独占机器。
 - **语料**（都在 DGX 的 `~/.cache/`，不进 git、不出 DGX）：`celadon-t048-22songs/`（Max 的门槛曲：`wav/` + `batch.sh` + `manifest.tsv`）、
   `celadon-t048-cal/<deep|tech|melodic>/<track>/<track>.wav`（Jamendo 45 首，44.1 kHz 24 bit，已裁到小节线；标签见
   `docs/validation/2026-10-01-T038-calibration/`）、`celadon-t048-cal-syn/`（合成曲）。谁占着哪个目录看 vault TASKS ②。
@@ -192,6 +198,9 @@ JUCE 9.0.2 由工作流按提交钉死、取到 `Celadon/` 旁边；构建目录
 - 作业一直排队或 runner 离线：`gh api repos/Maxsong-0/Celadon/actions/runners --jq '.runners[] | "\(.name) \(.status) busy=\(.busy)"'`
   看状态并告诉 Max；确认没有作业在跑才重启：`ssh maxsong@192.168.100.107 'sudo /usr/local/sbin/ci-runner-service restart celadon'`。
 - 编译工具用机器上的系统包：`cmake`（≥ 3.22）、`ninja`、`g++`。作业的 PATH 由实例目录里的 `.path` 给出，不含 `/snap/bin`。
+- 另有作业 `processor-tests`（T-099）：Release 与 ThreadSanitizer 两项，编整个插件跑 `celadon_processor_tests`。界面开发头由
+  `scripts/fetch-gui-dev.sh` 解到工作区的 `guidev/`（第一次下载、之后复用），要求机器有 apt 的包列表（`apt-get download` 不要 root）；
+  ThreadSanitizer 那项还要 `setarch`（util-linux）。
 
 装实例与注册（在 Mac 上执行；注册令牌只由 Max 本人经 stdin 送入，不回显、不落盘，1 小时有效；agent 不经手、不打印）。
 `V` / `SHA` 是 [actions/runner](https://github.com/actions/runner/releases) 最新发布的版本与发布说明里 linux-x64 包的 sha256，
