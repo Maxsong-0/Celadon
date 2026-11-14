@@ -35,7 +35,8 @@ namespace
         std::cout << "未知参数：" << unknown << "\n"
                   << "用法：celadon_processor_tests                 跑 " << testCategory << " 类别的全部用例\n"
                   << "      celadon_processor_tests --only A,B      只跑名字为 A、B 的用例类（如 ProcessorConcurrency）\n"
-                  << "      celadon_processor_tests --bench         只跑存读档持锁时间基准（约 1 分钟，要独占机器）" << std::endl;
+                  << "      celadon_processor_tests --bench         跑基准类别：存读档持锁时间（ProcessorStateLockBench，约 1 分钟，要独占机器）\n"
+                  << "                                              与 T-099 拆锁前后的存档摘要（ProcessorStateDigest）；配 --only 只跑其一" << std::endl;
         return 2;
     }
 }

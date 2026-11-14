@@ -896,17 +896,18 @@ void CeladonAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     // T-099（ADR-040）：编排器与实时画像的存档直接读音频线程每块在改的量，自己不加锁（GlazeController.h「线程」、
     // LiveProfile.h 第三节），宿主却可能在播放中存档（自动保存、REAPER 每改一次参数取一次状态做撤销点）。宿主包装层处理每一块时
-    // 都持着回调锁（JUCE 9.0.2 的 VST3 / AU / AAX / Standalone），这里拿同一把锁：取存档这一段音频线程在锁上等，存出来的
-    // 是某两块之间的完整状态。持锁时间见 docs/validation/2026-11-13-T099-state-lock（编排器在里面就把 LIVE 压缩好了，
-    // 拆不出锁外；挂到根元素、转二进制在锁外）。
-    std::unique_ptr<juce::XmlElement> glaze;
+    // 都持着回调锁（JUCE 9.0.2 的 VST3 / AU / AAX / Standalone），这里拿同一把锁，但锁里只把要存的量拷进快照（回看窗口满 512 段
+    // 时约 1.7 MB 的定长拷贝，不分配）：存出来的是某两块之间的完整状态，音频线程只等这一下拷贝。快照在拿锁之前建好（分配并写满
+    // 初值），拼 XML、base64、zlib 都在放锁之后。存出来的字节与两步连着做（createGlazeStateXml）逐字节相同。
+    // 每次存档建一份新快照、不复用成员：有的宿主在别的线程存档，两次存档可能同时进行。持锁时间见 docs/validation/2026-11-13-T099-state-lock。
+    celadon::glaze::GlazeController::StateSnapshot snapshot;
 
     {
         const juce::ScopedLock audioStopped (getCallbackLock());
-        glaze = chain.createGlazeStateXml();
+        chain.captureGlazeState (snapshot);
     }
 
-    if (glaze != nullptr)
+    if (auto glaze = celadon::glaze::GlazeController::encodeState (snapshot))
         xml->addChildElement (glaze.release());
 
     // 参考频谱自带票号与逐字原子的发布（ReferenceSpectrum.h），与音频线程并发安全，不进锁。
@@ -930,8 +931,11 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
     // GLAZE 回 0，其余（含 v0.1.7.0 的 clay_*）回默认。Clay 的画像特征、方案值与保护状态都在 GLAZE 节点里，由编排器读（旧格式按中性）。
     //
     // T-099（ADR-040）：
-    //   - 解压、解析外层 XML、换参数都在锁外（APVTS 自己加锁，参数值是原子量）；只有 GLAZE 的「判断要不要读 + 落位」在回调锁里，
-    //     与音频线程互斥（理由同 getStateInformation）。编排器在 restoreGlazeStateXml 里自己解压 LIVE、重算画像，这段拆不出锁外。
+    //   - 解压、解析外层 XML、换参数都在锁外（APVTS 自己加锁，参数值是原子量）。GLAZE 那一段拆两步（GlazeController.h
+    //     「存读档拆两步」）：锁外 stage（解开 LIVE、解析、校验，实时画像在另一份工作区里读回并重算），锁里只判断「运行中」
+    //     并 commit（换入暂存，定长拷贝与指针交换）。换下来的旧画像工作区随暂存在放锁之后释放。
+    //   - 「运行中」判断两次，都在锁里：先判断一次，运行中就只清提示、不解档（换宿主预设、撤销是最常见的读档，不白解一份）；
+    //     不是运行中才去锁外解档，拿锁换入之前再判断一次——两次之间音频线程可能已经开始放音乐了（判据见 keepsLiveStateOnLoad）。
     //   - 运行中的实例（keepsLiveStateOnLoad）读档：参数照换，GLAZE 存档整份不读——实时画像、已施加增量与各守护状态都是这台实例
     //     从此刻的音乐里听来的，换宿主预设或撤销不该把它们换成存档那一刻（或别的歌）的（Max 2026-11-12 拍板第 4 项）。
     //     这次没有冷启动，上一次读档点亮的「旧的聆听结果已丢弃」提示随之清掉（keepGlazeStateOnLoad）。
@@ -974,13 +978,29 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
             addMissingParameterNodes (newState, stateFormat);
             parameters.replaceState (newState);
 
+            auto running = false;
+
             {
                 const juce::ScopedLock audioStopped (getCallbackLock());
+                running = keepsLiveStateOnLoad();
 
-                if (keepsLiveStateOnLoad())
+                if (running)
                     chain.keepGlazeStateOnLoad();
-                else
-                    chain.restoreGlazeStateXml (glaze.get());
+            }
+
+            if (! running)
+            {
+                celadon::glaze::GlazeController::StagedRestore staged;
+                chain.stageGlazeRestore (glaze.get(), staged);
+
+                {
+                    const juce::ScopedLock audioStopped (getCallbackLock());
+
+                    if (keepsLiveStateOnLoad())
+                        chain.keepGlazeStateOnLoad();
+                    else
+                        chain.commitGlazeRestore (staged);
+                }
             }
 
             // 参考频谱是用户点「学习」得来的设置，随参数一起换；它的读档自带同步（ReferenceSpectrum.h），不进锁。

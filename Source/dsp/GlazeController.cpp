@@ -31,6 +31,7 @@
 #include <cstring>
 #include <limits>
 #include <type_traits>
+#include <utility>
 
 namespace celadon::glaze
 {
@@ -486,6 +487,54 @@ namespace celadon::glaze
             std::array<std::atomic<std::uint32_t>, numWords> words {};
         };
     }
+
+    //==============================================================================
+    // T-099（ADR-040）：存档快照 = encodeState 要读的全部量（值类型）。预算环与出口电平跟踪器整份值拷贝（对象里只有定长数组与标量，
+    // 没有堆上的东西）；实时画像的回看窗口在 LiveProfile::StateSnapshot 里，构造时按最大窗口分配好。
+    struct GlazeController::StateSnapshot::Data
+    {
+        bool hasLive = false;
+        LiveProfile::StateSnapshot live;
+        AutoIncrements applied {};
+        float gTrim = 0.0f;
+        StyleWeights automaticWeights {};
+        bool gainInDeadband = false;
+        float liveToneOffsetDb = 0.0f, liveHeatReduction = 0.0f, liveGlueReduction = 0.0f;
+        double secondsSinceChange = 0.0;
+        std::int64_t timelineSamples = 0, nextGridSample = 0;
+        GlazeGuard budget;
+        OutputLevelTracker outputLevel;
+        float pressureScale = 1.0f;
+        ClayPlan liveClay {};
+        ClayGuardState clayGuard {};
+    };
+
+    // 读档暂存：stageRestore 在锁外读好、校验好的结果，commitRestore 在锁里换入。
+    struct GlazeController::StagedRestore::Data
+    {
+        bool restored = false;                // false = commit 时冷启动（空存档、更高版本、坏档、旧格式）
+        bool legacy = false;                  // 冷启动的原因是旧格式（Status::legacySessionDiscarded）
+        bool keepOriginal = false;            // 还没 prepare：commit 时把 original 换给 stateRestoredBeforePrepare
+        std::unique_ptr<juce::XmlElement> original;
+        std::unique_ptr<LiveProfile::StagedState> live;   // 有实时画像时才分配（锁外）
+        AutoIncrements applied {};
+        float gTrim = 0.0f;
+        StyleWeights automaticWeights {};
+        bool gainInDeadband = false;
+        float liveToneOffsetDb = 0.0f, liveHeatReduction = 0.0f, liveGlueReduction = 0.0f;
+        double secondsSinceChange = 0.0;
+        std::int64_t timelineSamples = 0, nextGridSample = 0;
+        GlazeGuard budget;
+        OutputLevelTracker outputLevel;
+        float pressureScale = 1.0f;
+        ClayPlan liveClay {};
+        ClayGuardState clayGuard {};
+    };
+
+    GlazeController::StateSnapshot::StateSnapshot() : data (std::make_unique<Data>()) {}
+    GlazeController::StateSnapshot::~StateSnapshot() = default;
+    GlazeController::StagedRestore::StagedRestore() : data (std::make_unique<Data>()) {}
+    GlazeController::StagedRestore::~StagedRestore() = default;
 
     struct GlazeController::Impl
     {
@@ -1090,13 +1139,21 @@ namespace celadon::glaze
             legacyDiscarded.store (legacy, std::memory_order_relaxed);
         }
 
-        bool restoreBody (const juce::XmlElement& body)
+        // 锁外（T-099）：把 LIVE 节点解开后的内容读进暂存。只读消息线程才改的量（live 指针、实时画像与出口电平跟踪器的配置），
+        // 不碰运行状态；读不全、读坏返回 false（commit 时冷启动）。
+        bool stageBody (const juce::XmlElement& body, StagedRestore::Data& staged) const
         {
             if (live != nullptr)
             {
                 const auto* profile = body.getChildByName ("LIVE_PROFILE");
 
-                if (profile == nullptr || ! live->restoreStateXml (*profile))
+                if (profile == nullptr)
+                    return false;
+
+                if (staged.live == nullptr)
+                    staged.live = std::make_unique<LiveProfile::StagedState>();
+
+                if (! live->stageState (*profile, *staged.live))
                     return false;
             }
 
@@ -1110,14 +1167,16 @@ namespace celadon::glaze
             if (control == nullptr || budgetXml == nullptr || levelXml == nullptr || clayXml == nullptr)
                 return false;
 
-            auto restoredApplied = applied;
-            auto restoredWeights = automaticWeights;
-            auto restoredTrim = gTrim;
-            auto restoredDeadband = gainInDeadband;
-            auto restoredTone = liveToneOffsetDb;
-            auto restoredHeat = liveHeatReduction;
-            auto restoredGlue = liveGlueReduction;
-            auto restoredChange = secondsSinceChange;
+            // 初值无所谓：下面每一项都必须在存档里（缺一项 reader.ok 为假），只有 secondsSinceParamChange 可选、缺省值写明。
+            // 不拿运行中的量当初值——这一步在锁外，音频线程正在改它们。
+            AutoIncrements restoredApplied {};
+            StyleWeights restoredWeights {};
+            auto restoredTrim = 0.0f;
+            auto restoredDeadband = false;
+            auto restoredTone = 0.0f;
+            auto restoredHeat = 0.0f;
+            auto restoredGlue = 0.0f;
+            auto restoredChange = changeFreezeSeconds;
             xmlio::Reader reader (*control);
             reader.field ("balanceRecover", restoredApplied.balanceRecover);
             reader.field ("balanceTame", restoredApplied.balanceTame);
@@ -1155,8 +1214,8 @@ namespace celadon::glaze
                 || ! std::isfinite (restoredChange) || restoredChange < 0.0 || ! controlFinite)
                 return false;
 
-            auto restoredScale = pressureScale;
-            auto restoredClay = liveClay;
+            auto restoredScale = 1.0f;
+            ClayPlan restoredClay {};
             ClayGuardState restoredGuard;
             xmlio::Reader clayReader (*clayXml);
             clayReader.field ("pressureScale", restoredScale);
@@ -1171,81 +1230,130 @@ namespace celadon::glaze
             clayReader.field ("phaseActive", restoredGuard.phaseActive);
             clayReader.field ("widthActive", restoredGuard.widthActive);
 
-            if (! clayReader.ok || ! std::isfinite (restoredScale) || ! budget.restoreStateXml (*budgetXml)
-                || ! outputLevel.restoreStateXml (*levelXml))
+            if (! clayReader.ok || ! std::isfinite (restoredScale) || ! GlazeGuard::stageStateXml (*budgetXml, staged.budget)
+                || ! outputLevel.stageStateXml (*levelXml, staged.outputLevel))
                 return false;
 
             // T-106：旧存档（OUTPUT_LEVEL 没有折算字段）里的 G_trim 是旧口径积出来的，多半已经停在钳位上；出口电平历史也折算
             // 不了（OutputLevelTracker 已清空）。两样一起从 0 重新收敛（ADR-035：GLAZE > 0 的旧工程允许变声）。
-            if (outputLevel.restoredLegacyState())
+            if (staged.outputLevel.restoredLegacyState())
                 restoredTrim = 0.0f;
 
-            applied = restoredApplied;
-            automaticWeights = restoredWeights;
-            gTrim = restoredTrim;
-            gainInDeadband = restoredDeadband;
-            liveToneOffsetDb = restoredTone;
-            liveHeatReduction = restoredHeat;
-            liveGlueReduction = restoredGlue;
-            secondsSinceChange = juce::jmin (changeFreezeSeconds, restoredChange);
-            timelineSamples = timeline;
-            nextGridSample = nextGrid;
-            pressureScale = restoredScale;
-            liveClay = sanitizeClay (restoredClay);
-            clayGuard.setState (restoredGuard);
+            staged.applied = restoredApplied;
+            staged.automaticWeights = restoredWeights;
+            staged.gTrim = restoredTrim;
+            staged.gainInDeadband = restoredDeadband;
+            staged.liveToneOffsetDb = restoredTone;
+            staged.liveHeatReduction = restoredHeat;
+            staged.liveGlueReduction = restoredGlue;
+            staged.secondsSinceChange = juce::jmin (changeFreezeSeconds, restoredChange);
+            staged.timelineSamples = timeline;
+            staged.nextGridSample = nextGrid;
+            staged.pressureScale = restoredScale;
+            staged.liveClay = sanitizeClay (restoredClay);
+            staged.clayGuard = restoredGuard;
+            return true;
+        }
+
+        // 锁里（T-099）：把 stageBody 读好的暂存换进来。定长拷贝与指针交换，不分配、不释放。
+        void adoptBody (StagedRestore::Data& staged) noexcept
+        {
+            if (live != nullptr && staged.live != nullptr)
+                live->adoptState (*staged.live);
+
+            applied = staged.applied;
+            automaticWeights = staged.automaticWeights;
+            gTrim = staged.gTrim;
+            gainInDeadband = staged.gainInDeadband;
+            liveToneOffsetDb = staged.liveToneOffsetDb;
+            liveHeatReduction = staged.liveHeatReduction;
+            liveGlueReduction = staged.liveGlueReduction;
+            secondsSinceChange = staged.secondsSinceChange;
+            timelineSamples = staged.timelineSamples;
+            nextGridSample = staged.nextGridSample;
+            pressureScale = staged.pressureScale;
+            liveClay = staged.liveClay;
+            clayGuard.setState (staged.clayGuard);
+            budget.adoptRestoredState (staged.budget);
+            outputLevel.adoptRestoredState (staged.outputLevel);
             budgetOut.reliefDb = budget.getProtectionDb();
             budgetOut.cause = budget.getProtectionDb() < 0.0f ? GuardCause::budget : GuardCause::none;
             budgetOut.engaged = budget.isEngaged();
             haveTarget = false;
             clearExecutedPlan();
             legacyDiscarded.store (false, std::memory_order_relaxed);
-            return true;
         }
 
-        std::unique_ptr<juce::XmlElement> createStateXml() const
+        // 锁里（T-099）：只拷不分配。
+        void captureState (StateSnapshot::Data& snapshot) const noexcept
+        {
+            snapshot.hasLive = live != nullptr;
+
+            if (live != nullptr)
+                live->captureState (snapshot.live);
+
+            snapshot.applied = applied;
+            snapshot.gTrim = gTrim;
+            snapshot.automaticWeights = automaticWeights;
+            snapshot.gainInDeadband = gainInDeadband;
+            snapshot.liveToneOffsetDb = liveToneOffsetDb;
+            snapshot.liveHeatReduction = liveHeatReduction;
+            snapshot.liveGlueReduction = liveGlueReduction;
+            snapshot.secondsSinceChange = secondsSinceChange;
+            snapshot.timelineSamples = timelineSamples;
+            snapshot.nextGridSample = nextGridSample;
+            snapshot.budget = budget;
+            snapshot.outputLevel = outputLevel;
+            snapshot.pressureScale = pressureScale;
+            snapshot.liveClay = liveClay;
+            snapshot.clayGuard = clayGuard.getState();
+        }
+
+        // 锁外、任何线程（T-099）：只读快照。节点、属性的顺序与写法是存档格式的一部分（0.1.8.10 照读；改一处，新旧存档就不再逐字节相同）。
+        static std::unique_ptr<juce::XmlElement> encodeState (const StateSnapshot::Data& snapshot)
         {
             auto body = std::make_unique<juce::XmlElement> (liveBodyTag);
 
-            if (live != nullptr)
-                body->addChildElement (live->createStateXml().release());
+            if (snapshot.hasLive)
+                body->addChildElement (LiveProfile::encodeState (snapshot.live).release());
 
             auto control = std::make_unique<juce::XmlElement> ("CONTROL");
             xmlio::Writer writer (*control);
-            writer.field ("balanceRecover", applied.balanceRecover);
-            writer.field ("balanceTame", applied.balanceTame);
-            writer.field ("colorToneDb", applied.colorToneDb);
-            writer.field ("colorGlue", applied.colorGlue);
-            writer.field ("colorHeat", applied.colorHeat);
-            writer.field ("limitGainDb", applied.limitGainDb);
-            writer.field ("limitClip", applied.limitClip);
-            writer.field ("gTrim", gTrim);
-            writer.field ("warm", automaticWeights.warm);
-            writer.field ("punchy", automaticWeights.punchy);
-            writer.field ("clean", automaticWeights.clean);
-            writer.field ("gainDeadband", gainInDeadband);
-            writer.field ("liveToneOffsetDb", liveToneOffsetDb);
-            writer.field ("liveHeatReduction", liveHeatReduction);
-            writer.field ("liveGlueReduction", liveGlueReduction);
-            writer.optionalField ("secondsSinceParamChange", secondsSinceChange, changeFreezeSeconds);
-            control->setAttribute ("timelineSamples", juce::String (timelineSamples));
-            control->setAttribute ("nextGridSample", juce::String (nextGridSample));
+            writer.field ("balanceRecover", snapshot.applied.balanceRecover);
+            writer.field ("balanceTame", snapshot.applied.balanceTame);
+            writer.field ("colorToneDb", snapshot.applied.colorToneDb);
+            writer.field ("colorGlue", snapshot.applied.colorGlue);
+            writer.field ("colorHeat", snapshot.applied.colorHeat);
+            writer.field ("limitGainDb", snapshot.applied.limitGainDb);
+            writer.field ("limitClip", snapshot.applied.limitClip);
+            writer.field ("gTrim", snapshot.gTrim);
+            writer.field ("warm", snapshot.automaticWeights.warm);
+            writer.field ("punchy", snapshot.automaticWeights.punchy);
+            writer.field ("clean", snapshot.automaticWeights.clean);
+            writer.field ("gainDeadband", snapshot.gainInDeadband);
+            writer.field ("liveToneOffsetDb", snapshot.liveToneOffsetDb);
+            writer.field ("liveHeatReduction", snapshot.liveHeatReduction);
+            writer.field ("liveGlueReduction", snapshot.liveGlueReduction);
+            writer.optionalField ("secondsSinceParamChange", snapshot.secondsSinceChange, changeFreezeSeconds);
+            control->setAttribute ("timelineSamples", juce::String (snapshot.timelineSamples));
+            control->setAttribute ("nextGridSample", juce::String (snapshot.nextGridSample));
             body->addChildElement (control.release());
-            body->addChildElement (budget.createStateXml().release());
+            body->addChildElement (snapshot.budget.createStateXml().release());
             // T-108：0.1.8.10 读 LIVE 时 CONTRAST_GUARD / PSR_GUARD 缺一个就整份冷启动，这里照它的严格读法写两份「没有退让」的
             // 空节点（字段与 T-097 写给它的同一套），新版本读档时不看。
             body->addChildElement (legacyContrastGuardStub().release());
             body->addChildElement (legacyPsrGuardStub().release());
-            body->addChildElement (outputLevel.createStateXml().release());
+            body->addChildElement (snapshot.outputLevel.createStateXml().release());
 
             auto clay = std::make_unique<juce::XmlElement> ("CLAY");
             xmlio::Writer clayWriter (*clay);
-            clayWriter.field ("pressureScale", pressureScale);
-            clayWriter.field ("lowCutHz", liveClay.lowCutHz);
-            clayWriter.field ("monoHz", liveClay.monoHz);
-            clayWriter.field ("monoAmount", liveClay.monoAmount);
-            clayWriter.field ("widthDb", liveClay.widthDb);
-            clayWriter.field ("costLimitedMask", liveClay.costLimitedMask);
-            const auto guardState = clayGuard.getState();
+            clayWriter.field ("pressureScale", snapshot.pressureScale);
+            clayWriter.field ("lowCutHz", snapshot.liveClay.lowCutHz);
+            clayWriter.field ("monoHz", snapshot.liveClay.monoHz);
+            clayWriter.field ("monoAmount", snapshot.liveClay.monoAmount);
+            clayWriter.field ("widthDb", snapshot.liveClay.widthDb);
+            clayWriter.field ("costLimitedMask", snapshot.liveClay.costLimitedMask);
+            const auto& guardState = snapshot.clayGuard;
             clayWriter.field ("phaseFloor", guardState.phaseFloor);
             clayWriter.field ("phaseHoldSeconds", guardState.phaseHoldSeconds);
             clayWriter.field ("widthCapDb", guardState.widthCapDb);
@@ -1618,41 +1726,47 @@ namespace celadon::glaze
             ++probe.hostResets;
         }
 
-        void restoreStateXml (const juce::XmlElement* xml)
+        // 锁外（T-099）：读档的全部判断与解析，结果放进暂存。只读消息线程才改的量（prepared、live 指针、采样率与画像配置）。
+        void stageRestore (const juce::XmlElement* xml, StagedRestore::Data& staged) const
         {
+            staged.restored = false;
+            staged.legacy = false;
+
             // 第一次 prepare 之前留住调用方交来的那一份。此时 LiveProfile 还停在默认采样率，
             // 就地读档会按 48 kHz 折算；等 prepare 设好采样率再读同一份，才和「先 prepare 再读档」同一条路。
-            if (! prepared)
-                stateRestoredBeforePrepare = xml != nullptr ? std::make_unique<juce::XmlElement> (*xml) : nullptr;
+            staged.keepOriginal = ! prepared;
+            staged.original = (! prepared && xml != nullptr) ? std::make_unique<juce::XmlElement> (*xml) : nullptr;
 
             if (xml == nullptr)
-            {
-                coldStart (false);
                 return;
-            }
 
             const auto version = xml->getIntAttribute ("formatVersion", 0);
 
             if (version > liveContainerFormatVersion)
-            {
-                coldStart (false);
                 return;
-            }
 
             if (version == liveContainerFormatVersion)
             {
                 const auto* liveNode = xml->getChildByName (liveTag);
-                auto body = liveNode != nullptr ? decompressLiveBody (*liveNode) : std::unique_ptr<juce::XmlElement> {};
-
-                if (body == nullptr || ! restoreBody (*body))
-                    coldStart (false);
-
+                const auto body = liveNode != nullptr ? decompressLiveBody (*liveNode) : std::unique_ptr<juce::XmlElement> {};
+                staged.restored = body != nullptr && stageBody (*body, staged);
                 return;
             }
 
-            const auto legacy = version > 0 || xml->getChildByName (profileTag) != nullptr || xml->getChildByName ("PLAN") != nullptr
-                                || xml->getChildByName ("CALIBRATION") != nullptr || xml->getChildByName (executionTag) != nullptr;
-            coldStart (legacy);
+            staged.legacy = version > 0 || xml->getChildByName (profileTag) != nullptr || xml->getChildByName ("PLAN") != nullptr
+                            || xml->getChildByName ("CALIBRATION") != nullptr || xml->getChildByName (executionTag) != nullptr;
+        }
+
+        // 锁里（T-099）：换入暂存，或冷启动。prepare 之前读进的原件用交换换进来：换下来的旧原件留在暂存里、在锁外释放。
+        void commitRestore (StagedRestore::Data& staged) noexcept
+        {
+            if (staged.keepOriginal)
+                std::swap (stateRestoredBeforePrepare, staged.original);
+
+            if (staged.restored)
+                adoptBody (staged);
+            else
+                coldStart (staged.legacy);
         }
 
         CommittedState committedForTesting() const
@@ -1756,8 +1870,22 @@ namespace celadon::glaze
         impl->endBlock (stats, output, outputMeter);
     }
     void GlazeController::requestRelearn() noexcept {}
-    std::unique_ptr<juce::XmlElement> GlazeController::createStateXml() const                   { return impl->createStateXml(); }
-    void GlazeController::restoreStateXml (const juce::XmlElement* xml)                         { impl->restoreStateXml (xml); }
+    std::unique_ptr<juce::XmlElement> GlazeController::createStateXml() const
+    {
+        StateSnapshot snapshot;
+        captureState (snapshot);
+        return encodeState (snapshot);
+    }
+    void GlazeController::restoreStateXml (const juce::XmlElement* xml)
+    {
+        StagedRestore staged;
+        stageRestore (xml, staged);
+        commitRestore (staged);
+    }
+    void GlazeController::captureState (StateSnapshot& snapshot) const noexcept                 { impl->captureState (*snapshot.data); }
+    std::unique_ptr<juce::XmlElement> GlazeController::encodeState (const StateSnapshot& snapshot) { return Impl::encodeState (*snapshot.data); }
+    void GlazeController::stageRestore (const juce::XmlElement* xml, StagedRestore& staged) const { impl->stageRestore (xml, *staged.data); }
+    void GlazeController::commitRestore (StagedRestore& staged) noexcept                         { impl->commitRestore (*staged.data); }
     void GlazeController::keepStateOnLoad() noexcept                                            { impl->legacyDiscarded.store (false, std::memory_order_relaxed); }
     std::unique_ptr<juce::XmlElement> GlazeController::takeStateRestoredBeforePrepare()
     {

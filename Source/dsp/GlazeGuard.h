@@ -63,8 +63,15 @@ namespace celadon::glaze
         void snapRelief() noexcept;                    // GLAZE ≤ 0：退让落到 0，统计窗保留
 
         // 消息线程。时隙环按 POD 打包成 base64，保护量按十六进制浮点。
+        // 存档在插件里对一份拷贝调（T-099：编排器在回调锁里整份值拷贝这个对象，锁外再编码；对象里没有堆上的东西）。
         std::unique_ptr<juce::XmlElement> createStateXml() const;
+        // restoreStateXml = stageStateXml + adoptRestoredState。坏数据（缺字段、越界、时隙长度不对）返回 false、状态不动。
         bool restoreStateXml (const juce::XmlElement&);
+        // 读档拆两步（T-099，ADR-040）：stageStateXml 把存档解码、校验进 staged（只写 staged，可与音频线程同时调）；
+        // adoptRestoredState 把 staged 里存档有的那些量换进来（不与音频线程同时调；定长拷贝，不分配），其余（采样率与时长折算、
+        // 约束上限与常数、重算节拍）留本对象的，本块的退让 / 恢复标志落回 false——同改前就地读档。
+        static bool stageStateXml (const juce::XmlElement&, GlazeGuard& staged);
+        void adoptRestoredState (const GlazeGuard& staged) noexcept;
 
         // 本方案生效的约束（风格常数按权重混合后的上限）。可以每块调：上限没变时什么都不做；
         // 变了只重算窗口里的超限计数（历史保留，g_保护不变）。constants 里的保护层时长 / 速率 / 下限同时生效。

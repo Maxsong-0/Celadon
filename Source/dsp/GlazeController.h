@@ -41,14 +41,16 @@
 
     线程：
       - 音频线程：setHostInfo / beginBlock / analyzeSpectrum / analyzeInput / endBlock / handleDiscontinuity / hostReset。0 分配、0 锁。
-      - 消息线程：prepare / createStateXml / restoreStateXml / keepStateOnLoad / takeStateRestoredBeforePrepare / setLiveSegmentSink /
-        syncLiveConstants；
+      - 消息线程：prepare / createStateXml / restoreStateXml / captureState / stageRestore / commitRestore / keepStateOnLoad /
+        takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveConstants（encodeState 任何线程）；
         requestRelearn 已是空操作。
       - 任何线程：getStatus（无锁快照，endBlock 每块发布一份；legacySessionDiscarded 另读一个原子标志）。
       编排器不再在两线程之间交换「已提交版本」（旧版音频线程 try-lock 发布、消息线程持锁读写的那一套随状态机删掉了）：
-      createStateXml / restoreStateXml 直接读写音频线程每块在改的量，编排器内部不加锁；其中 LiveProfile 要求自己的存读档不与
-      音频线程接口同时调用（LiveProfile.h 文件头第三节）。插件里由处理器保证：存读档那一段在宿主的回调锁里调（T-099，ADR-040），
-      音频线程那时停在锁上。
+      存读档直接读写音频线程每块在改的量，编排器内部不加锁；其中 LiveProfile 要求自己的存读档不与音频线程接口同时调用
+      （LiveProfile.h 文件头第三节）。插件里由处理器保证（T-099，ADR-040）：存读档拆成两步（见下「存读档拆两步」），碰运行状态的
+      那一步（captureState / commitRestore / keepStateOnLoad）在宿主的回调锁里调、音频线程那时停在锁上，只做拷贝与交换；
+      编码、压缩、解压、解析、校验与重算画像（encodeState / stageRestore）在锁外。createStateXml / restoreStateXml 两步连着做，
+      给不跑音频的调用方（链的 prepare、测试、渲染工具）。
       restoreStateXml 之后、第一块音频之前调 createStateXml，返回的是刚恢复（或冷启动）的内容（不是旧值；例外：还没 prepare 时
       冷启动不清 LiveProfile，LIVE_PROFILE 照旧是它当时的内容，见 .cpp coldStart）。
 
@@ -218,6 +220,7 @@ namespace celadon::glaze
         // setGlazeRelearnAction，但编辑器收下就丢掉（PluginEditor.cpp），界面上已没有入口。
         void requestRelearn() noexcept;
 
+        // createStateXml() = captureState + encodeState（下面「存读档拆两步」）。
         std::unique_ptr<juce::XmlElement> createStateXml() const;
 
         // xml 为空、formatVersion 高于本版本、或 LIVE 读坏 → 冷启动；formatVersion 2 → 恢复 LIVE 里的实时画像与各控制量
@@ -225,12 +228,64 @@ namespace celadon::glaze
         // EXECUTION）→ 整份丢弃、冷启动，并置 Status::legacySessionDiscarded；formatVersion 缺失或 ≤ 0、又没有这些旧节点的，
         // 同样冷启动、不置这个标志。不序列化滤波器 / 检测器的音频历史。
         // 第一次 prepare 之前调时另留一份原件给 takeStateRestoredBeforePrepare。
+        // restoreStateXml() = stageRestore + commitRestore（下面「存读档拆两步」）。
         void restoreStateXml (const juce::XmlElement* xml);
 
-        // 运行中的实例读档、不读 GLAZE 存档时调（T-099，ADR-040；处理器在回调锁里调，同 restoreStateXml）：实时画像、已施加增量与
+        // 运行中的实例读档、不读 GLAZE 存档时调（T-099，ADR-040；处理器在回调锁里调，同 commitRestore）：实时画像、已施加增量与
         // 各守护状态都接着用、不冷启动，只清掉上一次读档点亮的 Status::legacySessionDiscarded——那条提示说的是那次读档冷启动了，
         // 这次没有；不清的话，读进干净的工程之后提示还一直亮着。
         void keepStateOnLoad() noexcept;
+
+        // ---- 存读档拆两步（T-099，ADR-040）----
+        // 插件在宿主的回调锁里存读档（音频线程那时停在锁上）。锁里只做拷贝与交换，编码、压缩、解压、解析、校验、重算画像都在锁外：
+        //   存档 = captureState（锁里：把编码要读的量拷进事先分配好的快照，只拷不分配）
+        //          + encodeState（锁外、任何线程：拼 XML、LIVE 外层 zlib + base64）；
+        //   读档 = stageRestore（锁外、消息线程：解压、解析、校验，实时画像在另一份工作区里读回并重算，结果放进暂存）
+        //          + commitRestore（锁里：换入暂存；坏档 / 旧格式 / 空存档时冷启动，规则同 restoreStateXml）。
+        // createStateXml / restoreStateXml 就是这两对的组合：存出来的字节、读回来的状态与拆开调逐位相同。
+
+        // 存档快照（值类型）。构造时分配全部容量（含实时画像的整个回看窗口，约 1.7 MB），在拿锁之前建好；可以反复用。
+        class StateSnapshot
+        {
+        public:
+            StateSnapshot();
+            ~StateSnapshot();
+
+            struct Data;   // 不透明（.cpp 里定义）
+
+        private:
+            std::unique_ptr<Data> data;
+            friend class GlazeController;
+
+            JUCE_DECLARE_NON_COPYABLE (StateSnapshot)
+        };
+
+        // 不与音频线程接口同时调（插件里在回调锁里）：只拷不分配、不调宿主、不拿别的锁。
+        void captureState (StateSnapshot& snapshot) const noexcept;
+        // 任何线程，不碰任何实例：把快照编码成 GLAZE_STATE 节点。
+        static std::unique_ptr<juce::XmlElement> encodeState (const StateSnapshot& snapshot);
+
+        // 读档暂存。构造只分配外壳；stageRestore 按需要再分配（实时画像的工作区约 2.3 MB）——都在锁外。commitRestore 之后里面是
+        // 换下来的旧画像工作区与旧的「prepare 之前读进的原件」，随暂存一起在锁外释放。一份暂存只 commit 一次。
+        class StagedRestore
+        {
+        public:
+            StagedRestore();
+            ~StagedRestore();
+
+            struct Data;   // 不透明（.cpp 里定义）
+
+        private:
+            std::unique_ptr<Data> data;
+            friend class GlazeController;
+
+            JUCE_DECLARE_NON_COPYABLE (StagedRestore)
+        };
+
+        // 消息线程，可与音频线程接口同时调：只读消息线程才改的配置（是否已 prepare、采样率、实时画像的常数），不碰运行状态。
+        void stageRestore (const juce::XmlElement* xml, StagedRestore& staged) const;
+        // 不与音频线程接口同时调（插件里在回调锁里）：定长拷贝与指针交换，不分配、不释放、不调宿主、不拿别的锁。
+        void commitRestore (StagedRestore& staged) noexcept;
 
         // 第一次 prepare 之前读进的原始存档（宿主打开工程：setStateInformation 先于 prepareToPlay）。
         // 链在第一次 prepare 冷启动之后把它读回。已经 prepare 过再读档不进这里（换采样率时链自己先 createStateXml）。

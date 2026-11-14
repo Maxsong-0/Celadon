@@ -526,6 +526,9 @@ namespace celadon::test
             testManualGlueOverBudget();
             testManualClipOverBudget();       // R6-02 收尾（A11）
             testAutomaticLevelWithdrawn();
+
+            // T-099：存读档拆两步
+            testStateSplitMatchesWholeCalls();
         }
 
     private:
@@ -1839,6 +1842,102 @@ namespace celadon::test
             expectEquals (probe.mismatchSteps, 0, "mismatch steps stay retired");
             expectEquals (rig.chain.getEffectiveParams().limit.gainDb, 20.0f, "Limit Gain is exactly the manual value");
             expectEquals (probe.calibrationGateMask & 16, 0, "the calibration gate is not driven");
+        }
+
+        //==============================================================================
+        // T-099（ADR-040）：存读档拆两步（GlazeController.h「存读档拆两步」）。插件在回调锁里只调 capture / commit，编码与解档在锁外；
+        // 两步连着做的 createGlazeStateXml / restoreGlazeStateXml 是同一对函数的组合。这里核对拆开调的语义：
+        //   - 快照编码出来的与 createGlazeStateXml 逐字相同；
+        //   - stage 不碰这台链（还没 commit 时存出来的照旧是它自己的状态，旧工程提示也不亮）；commit 之后与 restoreGlazeStateXml 相同；
+        //   - 坏档、旧格式的暂存 commit 时冷启动（旧格式点亮提示），同 restoreGlazeStateXml。
+        void testStateSplitMatchesWholeCalls()
+        {
+            beginTest ("state split: snapshot + encode == create; stage leaves the chain alone, commit == restore; bad and legacy states cold-start");
+
+            constexpr double sr = 48000.0;
+            constexpr int numChannels = 2;
+            const auto learned = learnState (makeMusicLikeSignal (numChannels, sr, 32.0, 9901, 0.3f), sr);
+            expect (learned != nullptr && learned->getIntAttribute ("formatVersion") == glaze::liveContainerFormatVersion);
+
+            const auto spec = makeSpec (sr, numChannels);
+            const auto prepared = [&spec] (CeladonChain& chain)
+            {
+                Params p;
+                p.limit.ceilingDb = -1.0f;
+                chain.setParams (p, false);
+                chain.prepare (spec);
+            };
+
+            const auto text = [] (const std::unique_ptr<juce::XmlElement>& xml) { return xml != nullptr ? xml->toString() : juce::String(); };
+
+            CeladonChain restoredWhole;
+            prepared (restoredWhole);
+            restoredWhole.restoreGlazeStateXml (learned.get());
+            const auto expectedRestored = text (restoredWhole.createGlazeStateXml());
+
+            CeladonChain cold;
+            prepared (cold);
+            const auto expectedCold = text (cold.createGlazeStateXml());
+            expect (expectedRestored != expectedCold, "the learned state differs from a cold start (otherwise the checks below prove nothing)");
+
+            {
+                glaze::GlazeController::StateSnapshot snapshot;
+                restoredWhole.captureGlazeState (snapshot);
+                expect (text (glaze::GlazeController::encodeState (snapshot)) == expectedRestored, "snapshot + encode == createGlazeStateXml");
+                restoredWhole.captureGlazeState (snapshot);   // 同一份快照可以反复用
+                expect (text (glaze::GlazeController::encodeState (snapshot)) == expectedRestored, "a reused snapshot encodes the same");
+            }
+
+            {
+                CeladonChain chain;
+                prepared (chain);
+                glaze::GlazeController::StagedRestore staged;
+                chain.stageGlazeRestore (learned.get(), staged);
+                expect (text (chain.createGlazeStateXml()) == expectedCold, "stage alone does not touch the chain");
+                chain.commitGlazeRestore (staged);
+                expect (text (chain.createGlazeStateXml()) == expectedRestored, "stage + commit == restoreGlazeStateXml");
+            }
+
+            {
+                // formatVersion 2 却没有 LIVE 子节点：坏档。对照 = 同样先读了画像、再整步读坏档的链。
+                juce::XmlElement broken (glaze::stateTag);
+                broken.setAttribute ("formatVersion", glaze::liveContainerFormatVersion);
+                CeladonChain whole;
+                prepared (whole);
+                whole.restoreGlazeStateXml (learned.get());
+                whole.restoreGlazeStateXml (&broken);
+                const auto expectedBroken = text (whole.createGlazeStateXml());
+                expect (expectedBroken != expectedRestored, "a broken state does not keep the learned profile");
+
+                CeladonChain chain;
+                prepared (chain);
+                chain.restoreGlazeStateXml (learned.get());
+                glaze::GlazeController::StagedRestore staged;
+                chain.stageGlazeRestore (&broken, staged);
+                expect (text (chain.createGlazeStateXml()) == expectedRestored, "staging a broken state leaves the restored chain alone");
+                chain.commitGlazeRestore (staged);
+                expect (text (chain.createGlazeStateXml()) == expectedBroken, "committing a broken state == restoreGlazeStateXml (cold start)");
+                expect (! chain.getGlazeStatus().legacySessionDiscarded, "a broken state is not a legacy session");
+            }
+
+            {
+                // formatVersion 1：旧格式整份丢弃、冷启动，提示亮；stage 时还不亮。
+                juce::XmlElement legacy (glaze::stateTag);
+                legacy.setAttribute ("formatVersion", 1);
+                CeladonChain whole;
+                prepared (whole);
+                whole.restoreGlazeStateXml (&legacy);
+                expect (whole.getGlazeStatus().legacySessionDiscarded, "restoreGlazeStateXml of a legacy state raises the notice");
+
+                CeladonChain chain;
+                prepared (chain);
+                glaze::GlazeController::StagedRestore staged;
+                chain.stageGlazeRestore (&legacy, staged);
+                expect (! chain.getGlazeStatus().legacySessionDiscarded, "staging a legacy state raises no notice yet");
+                chain.commitGlazeRestore (staged);
+                expect (chain.getGlazeStatus().legacySessionDiscarded, "committing a legacy state raises the notice");
+                expect (text (chain.createGlazeStateXml()) == text (whole.createGlazeStateXml()), "stage + commit of a legacy state == restoreGlazeStateXml");
+            }
         }
     };
 

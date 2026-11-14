@@ -5,9 +5,11 @@
 # 模式：
 #   release      Release 编 celadon_processor_tests 与 celadon_ui_snapshot（后者只编不跑：确认改了源清单之后照常编得过），跑全部用例
 #   tsan         ThreadSanitizer 编（RelWithDebInfo），跑全部用例；期望 0 份 TSan 报告、0 个失败
-#   tsan-before  「修前」：复制一份源码、做 remove-state-lock.patch 那处改动（存读档不拿回调锁），TSan 编，只跑 ProcessorConcurrency；
-#                期望有 TSan 报告（GlazeController / LiveProfile 上的数据竞争）。退出码 0 = 报了（对照成立），1 = 一份没报
-#   bench        Release 编，跑 --bench（最坏画像的持锁时间）；要独占机器数才准
+#   tsan-before  「修前」：复制一份源码、做 remove-state-lock.patch 那三处改动（存档拷快照、读档判断与换入都不拿回调锁），TSan 编，
+#                只跑 ProcessorConcurrency；期望有 TSan 报告（GlazeController / LiveProfile 上的数据竞争）。退出码 0 = 报了（对照成立），1 = 一份没报
+#   bench        Release 编，跑 --bench --only ProcessorStateLockBench（最坏画像的持锁时间）；要独占机器数才准
+#   digest       Release 编，跑 --bench --only ProcessorStateDigest（T-099 拆锁前后存档逐字节相同的证据：打印 state-digest 行，
+#                同一份测试文件放进拆锁前的树里再跑一遍，两边逐行比）；不必独占
 # 环境：JOBS 并行编译数（默认 nproc）；GUIDEV 界面开发头目录（默认 /cache/celadon-guidev，跨任务复用）。
 # 沙盒里没有 cmake / ninja：照 T-106 / T-107 的 run-ci.sh，用 testbox 自带的 python3.12 装进 /cache（第一次装，之后复用）。
 set -euo pipefail
@@ -60,9 +62,10 @@ case "$MODE" in
     before="$ROOT/Celadon-before"
     rm -rf "$before"
     cp -a "$SRC" "$before"
-    # 与 remove-state-lock.patch 同一处改动（沙盒里不一定有 patch / git，用 sed 改、再核对正好改了两处）。
+    # 与 remove-state-lock.patch 同样的改动（沙盒里不一定有 patch / git，用 sed 改、再核对正好改了三处：存档拷快照一处，
+    # 读档先判断一处、换入之前再判断并换入一处）。
     file="$before/Source/PluginProcessor.cpp"
-    [ "$(grep -c 'const juce::ScopedLock audioStopped (getCallbackLock());' "$file")" = 2 ] || { echo "PluginProcessor.cpp 里的两处锁对不上，修前对照做不了" >&2; exit 1; }
+    [ "$(grep -c 'const juce::ScopedLock audioStopped (getCallbackLock());' "$file")" = 3 ] || { echo "PluginProcessor.cpp 里的三处锁对不上，修前对照做不了" >&2; exit 1; }
     sed -i 's#^\( *\)const juce::ScopedLock audioStopped (getCallbackLock());#\1// T-099 修前演示：存读档不拿回调锁#' "$file"
     [ "$(grep -c 'ScopedLock audioStopped' "$file")" = 0 ] || { echo "去锁没去干净" >&2; exit 1; }
     configure_and_build "$before" "$ROOT/build/processor-tsan-before" RelWithDebInfo ON celadon_processor_tests
@@ -74,7 +77,11 @@ case "$MODE" in
     ;;
   bench)
     configure_and_build "$SRC" "$ROOT/build/processor-release" Release OFF celadon_processor_tests
-    "$ROOT/build/processor-release/celadon_processor_tests" --bench
+    "$ROOT/build/processor-release/celadon_processor_tests" --bench --only ProcessorStateLockBench
+    ;;
+  digest)
+    configure_and_build "$SRC" "$ROOT/build/processor-release" Release OFF celadon_processor_tests
+    "$ROOT/build/processor-release/celadon_processor_tests" --bench --only ProcessorStateDigest
     ;;
   *)
     sed -n 2,14p "$0" >&2

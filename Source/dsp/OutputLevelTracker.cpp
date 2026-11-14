@@ -462,6 +462,42 @@ namespace celadon::glaze
 
     bool OutputLevelTracker::restoreStateXml (const juce::XmlElement& xml)
     {
+        OutputLevelTracker staged;
+
+        if (! stageStateXml (xml, staged))
+            return false;
+
+        adoptRestoredState (staged);
+        return true;
+    }
+
+    void OutputLevelTracker::adoptRestoredState (const OutputLevelTracker& r) noexcept
+    {
+        // 读档定下的量 = clearSegments 清的那些再加旧存档标记（decodeState 两条路都只写这几项）。
+        open = r.open;
+        openExtra = r.openExtra;
+        closed = r.closed;
+        closedExtra = r.closedExtra;
+        closedNow = r.closedNow;
+        closedCount = r.closedCount;
+        closedWrite = r.closedWrite;
+        haveOpenMainness = r.haveOpenMainness;
+        openWasMain = r.openWasMain;
+        legacyState = r.legacyState;
+        discardInput();
+    }
+
+    bool OutputLevelTracker::stageStateXml (const juce::XmlElement& xml, OutputLevelTracker& staged) const
+    {
+        // 暂存从空的开始，只带本对象的采样率（新格式按它判断存档的段能不能用）。
+        staged = OutputLevelTracker {};
+        staged.sampleRate = sampleRate;
+        return staged.decodeState (xml);
+    }
+
+    // 读进本对象（只给 stageStateXml 对暂存调）：校验全过才写，写的只有 adoptRestoredState 换入的那几项。
+    bool OutputLevelTracker::decodeState (const juce::XmlElement& xml)
+    {
         if (xml.getTagName() != "OUTPUT_LEVEL")
             return false;
 

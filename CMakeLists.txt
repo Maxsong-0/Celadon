@@ -386,14 +386,16 @@ namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char*
     # ---- 处理器层测试（T-099，EXCLUDE_FROM_ALL）----
     # 编整个插件、不建编辑器：存读档语义（运行中读档参数照换、实时画像保留，ADR-040）、旧工程读档、Lookahead 不进自动化，
     # 以及存读档与音频线程并发（按宿主包装层的样子持回调锁跑 processBlock）。不依赖显示器。
-    # 用法：cmake --build <dir> --target celadon_processor_tests && <dir>/celadon_processor_tests [--only 类名] [--bench]；
+    # 用法：cmake --build <dir> --target celadon_processor_tests && <dir>/celadon_processor_tests [--only 类名] [--bench]
+    # （--bench 类别里有持锁基准 ProcessorStateLockBench 与 T-099 拆锁前后的存档摘要 ProcessorStateDigest，用 --only 挑一个）；
     # ThreadSanitizer 版见上面 CELADON_TSAN。Linux 上的开发头：scripts/fetch-gui-dev.sh。
     add_executable(celadon_processor_tests EXCLUDE_FROM_ALL
         ${CELADON_PLUGIN_SOURCES}
         tests/processor/ProcessorTestMain.cpp
         tests/processor/ProcessorStateTests.cpp
         tests/processor/ProcessorConcurrencyTests.cpp
-        tests/processor/ProcessorStateLockBench.cpp)
+        tests/processor/ProcessorStateLockBench.cpp
+        tests/processor/ProcessorStateDigestTests.cpp)
     celadon_use_plugin_build_settings(celadon_processor_tests)
 
     add_executable(celadon_ui_snapshot EXCLUDE_FROM_ALL

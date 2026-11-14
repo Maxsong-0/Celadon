@@ -172,6 +172,15 @@ namespace celadon
         void restoreGlazeStateXml (const juce::XmlElement* xml)          { controller.restoreStateXml (xml); }
         void keepGlazeStateOnLoad() noexcept                             { controller.keepStateOnLoad(); }   // 运行中读档不读 GLAZE（T-099）
 
+        // 存读档拆两步（T-099，ADR-040；GlazeController.h「存读档拆两步」）：插件在回调锁里只调 capture / commit / keep，
+        // 编码（GlazeController::encodeState）与 stage 在锁外。上面两个 create / restore 是两步连着做的版本，给不跑音频的调用方。
+        void captureGlazeState (glaze::GlazeController::StateSnapshot& snapshot) const noexcept   { controller.captureState (snapshot); }
+        void stageGlazeRestore (const juce::XmlElement* xml, glaze::GlazeController::StagedRestore& staged) const
+        {
+            controller.stageRestore (xml, staged);
+        }
+        void commitGlazeRestore (glaze::GlazeController::StagedRestore& staged) noexcept         { controller.commitRestore (staged); }
+
         // T-048 阶段 1 直通（插件不调；测试与渲染工具用，见 GlazeController::setLiveSegmentSink）：非空 = 分析器实时模式开、定稿的段交给它，
         // nullptr = 关。消息线程，prepare 之后、处理之前调。链在下一块开头才把 Balance 的帧交给分析器（process 第一行），所以关的时候把
         // balance 交过去：最后一块的帧先只进实时段落账再就地定稿（歌尾不用再补一个 0 样本的块）。

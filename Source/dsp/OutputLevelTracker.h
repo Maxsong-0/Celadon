@@ -148,6 +148,14 @@ namespace celadon::glaze
         bool restoreStateXml (const juce::XmlElement&);
         bool restoredLegacyState() const noexcept { return legacyState; }
 
+        // 读档拆两步（T-099，ADR-040）：restoreStateXml = stageStateXml + adoptRestoredState，规则同上。
+        // stageStateXml 在 staged 里解码、校验（只写 staged；只读本对象的采样率——它只在 prepare 里改，可与音频线程同时调）；
+        // adoptRestoredState 把 staged 里读档定下的那些量（段累计、开着的一段、旧存档标记）换进来、待入账的入口作废
+        // （不与音频线程同时调；定长拷贝，不分配）。滤波器状态与本块的输入侧读数留本对象的，同改前就地读档。
+        // 存档在插件里对一份拷贝调 createStateXml（编排器在回调锁里整份值拷贝这个对象，锁外再编码；对象里没有堆上的东西）。
+        bool stageStateXml (const juce::XmlElement&, OutputLevelTracker& staged) const;
+        void adoptRestoredState (const OutputLevelTracker& staged) noexcept;
+
         // 限幅器对交来的 Limit Gain 实际执行的值：照抄 LimiterModule.cpp sanitised() 里 gainDb 那一行（finiteInRange (raw.gainDb,
         // 0, 24, 默认 0)）——有限值钳进 0 ～ 24 dB，非有限值回默认 0 dB。processOutput 按它折算；那一行改了这里要跟着改
         // （OutputLevelTrackerTests 第 9 条按这个规矩逐位核对）。
@@ -195,6 +203,7 @@ namespace celadon::glaze
                            && offsetof (Extra, inputSamples) == 32 && offsetof (Extra, pairedSamples) == 40,
                        "historyExtra 属性按这个布局逐段存（每段 48 字节，没有填充）");
 
+        bool decodeState (const juce::XmlElement& xml);
         void pushClosed (const Segment& segment, const Extra& extra) noexcept;
         void clearSegments() noexcept;
         void resetChannel (int channel) noexcept;

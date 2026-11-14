@@ -48,6 +48,12 @@
       - segmentFinalized 只把段拷进队列（定长拷贝，O(1)）；重算全在 advanceTo 的分片里。
       - setConstants / createStateXml / restoreStateXml 在消息线程，且不与音频线程接口同时调用（setConstants 与 restore 同步重算一遍，
         约零点几毫秒）。
+      - 存读档拆成两步（T-099，ADR-040）：插件在宿主的回调锁里调存读档，锁里只许做拷贝与交换。
+          存档 = captureState（不与音频线程同时调：把编码要读的原始量拷进事先分配好的 StateSnapshot，只拷不分配）
+                 + encodeState（任何线程、不碰本实例：拼 XML、base64）；
+          读档 = stageState（消息线程、可与音频线程同时：在事先分配好的另一份工作区 StagedState 里解码、校验、重算）
+                 + adoptState（不与音频线程同时调：两份工作区交换指针）。
+        createStateXml / restoreStateXml 就是这两对的组合，存出来的字节、读回来的状态与拆开调逐位相同。
 
     四、冻结参考（测试用）
       setFrozenReferencesForTesting 把 S_ref / lowRef 钉住，测试拿它把重判与参考的漂移分开看。原来与分析器 House 档候选画像的等价性
@@ -211,6 +217,9 @@ namespace celadon::glaze
 
     class LiveProfile final : public SegmentSink
     {
+        struct Impl;
+        struct SnapshotData;
+
     public:
         static constexpr int commitCapacity = 64;            // readCommits 的环形缓冲
         static constexpr int windowCapacity = 512;           // 回看窗口（124 BPM 约 16.5 分钟；2 秒段约 17 分钟）
@@ -265,7 +274,7 @@ namespace celadon::glaze
         // 下一份要发布的画像的发布时刻（还没有交来的段 = noPublication）。渲染工具逐份取快照用：advanceTo 到它、读、再往后。
         std::int64_t getNextPublicationTime() const noexcept;
 
-        // ---- 读数（音频线程；只读已发布的那一份，返回的引用在下一次发布 / reset / setConstants 之前有效）----
+        // ---- 读数（音频线程；只读已发布的那一份，返回的引用在下一次发布 / reset / setConstants / 读档之前有效）----
 
         const MusicProfile& getProfile() const noexcept;
         LiveDiagnostics getDiagnostics() const noexcept;
@@ -285,6 +294,51 @@ namespace celadon::glaze
         // 见 .cpp 文件头第六节）→ 冷启动并返回 false。
         bool restoreStateXml (const juce::XmlElement& xml);
 
+        // ---- 状态拆两步（T-099，ADR-040；文件头第三节最后一条）----
+
+        // 存档快照：createStateXml 要读的原始量（已发布那一份的计数与时钟、窗口与还没发布的段），值类型。构造时按最大
+        // （窗口 + 队列 = 544 段）一次分配并写满初值（约 1.7 MB），在拿锁之前建好；可以反复用。
+        class StateSnapshot
+        {
+        public:
+            StateSnapshot();
+            ~StateSnapshot();
+
+        private:
+            std::unique_ptr<SnapshotData> data;
+            friend class LiveProfile;
+
+            JUCE_DECLARE_NON_COPYABLE (StateSnapshot)
+        };
+
+        // 不与音频线程接口同时调（插件里在回调锁里）：只拷不分配。
+        void captureState (StateSnapshot& snapshot) const noexcept;
+        // 任何线程，不碰任何实例：把快照编码成 LIVE_PROFILE 节点。createStateXml() = captureState + encodeState。
+        static std::unique_ptr<juce::XmlElement> encodeState (const StateSnapshot& snapshot);
+
+        // 读档暂存：一整份工作区（同构造时分配的那些，约 2.3 MB），在拿锁之前建好。adoptState 之后里面是换下来的旧工作区，
+        // 随暂存一起在锁外释放；可以再拿去 stageState。
+        class StagedState
+        {
+        public:
+            StagedState();
+            ~StagedState();
+
+        private:
+            std::unique_ptr<Impl> impl;
+            friend class LiveProfile;
+
+            JUCE_DECLARE_NON_COPYABLE (StagedState)
+        };
+
+        // 消息线程，可与音频线程接口同时调：按本实例的配置（采样率、常数、冻结参考——都只在消息线程改）在暂存里读档，
+        // 规则与结果同 restoreStateXml（返回 false = 坏档，暂存是冷启动的）。不碰本实例的运行状态。
+        bool stageState (const juce::XmlElement& xml, StagedState& staged) const;
+        // 不与音频线程接口同时调（插件里在回调锁里）：把暂存换进来——两份工作区交换指针，O(1)、不分配；提交记录、提交序号与
+        // 发布监听者留本实例的（读档不另发提交记录，同 restoreStateXml）。getProfile 之前给出的引用随旧工作区换走，换入后要重取。
+        // restoreStateXml() = stageState + adoptState。
+        void adoptState (StagedState& staged) noexcept;
+
         // ---- 只给测试用 ----
 
         // 冻结参考：enabled 时进账判断、重判、mainnessFor 都用给定的 S_ref / lowRef。
@@ -292,7 +346,6 @@ namespace celadon::glaze
         void setFrozenReferencesForTesting (bool enabled, float referenceLufs, float lowReference) noexcept;
 
     private:
-        struct Impl;
         std::unique_ptr<Impl> impl;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LiveProfile)
