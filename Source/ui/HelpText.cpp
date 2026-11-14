@@ -55,10 +55,10 @@ namespace celadon::help
 
             { param::limitLookahead,
               "预读 Lookahead · 提前看到峰值",
-              "提前多久看到峰值：越长越透明，延迟也越大。",
+              "提前多久看到峰值：越长越透明，延迟也越大。延迟跟着它变，所以不进宿主自动化。",
               "2 ms；鼓很密的歌可试 3～5 ms。",
               "Lookahead · anticipation",
-              "How early the limiter sees peaks coming: longer is more transparent but adds latency.",
+              "How early the limiter sees peaks coming: longer is more transparent but adds latency. Because it changes the latency, hosts cannot automate it.",
               "2 ms; songs with dense drums can try 3–5 ms." },
 
             { param::limitClip,
