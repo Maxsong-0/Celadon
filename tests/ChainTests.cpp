@@ -3075,32 +3075,64 @@ namespace celadon::test
         }
 
     private:
-        // R8-03 的宿主旁通一半接在同一个开关上，口径待 Max 确认（CeladonChain::pauseIntegrationOnHostBypass）：
-        // 现在（false）宿主旁通期间照旧积分——整体读数被原声拉低；改成 true 后与听原声一样冻结。
+        // R8-03 的宿主旁通一半（T-110，Max 2026-11-12 定：宿主旁通时整体响度暂停积分，同听原声）：母带 6 s → 宿主旁通 6 s → 母带 6 s，
+        // 旁通期间整体读数与切换前相差 < 0.01 LU（改前照旧积分、被原声拉低约 2 LU），短期读数是此刻出口的原声（与单独量原声的表相差
+        // < 0.1 LU），回到母带后整体读数接着母带的值。离线导出时宿主旁通照样是宿主旁通（T-095 只让三种临时监听在离线时不生效）：
+        // 离线下同样冻结；离线 + 宿主旁通 + 界面开着听原声，听原声离线不生效、宿主旁通照样冻结。
         void testHostBypassIntegrationPolicy()
         {
-            beginTest (juce::String ("host bypass: the OUT integrated loudness ")
-                       + (CeladonChain::pauseIntegrationOnHostBypass ? "freezes (confirmed policy)" : "keeps integrating until Max confirms the freeze"));
+            glaze::HostInfo offline;
+            offline.offline = true;
+            offline.hasPlayState = true;
+            offline.isPlaying = false;   // 真实宿主导出时常报「未播放」（同 testOfflineBypassesTemporaryMonitoring）
+            const glaze::HostInfo realtime;
+
+            struct Case { const char* name; const glaze::HostInfo* host; Monitor bypassed; };
+            const Case cases[] =
+            {
+                { "realtime",                                        &realtime, { true, false, false } },
+                { "offline export",                                  &offline,  { true, false, false } },
+                { "offline export while the UI listens to the original", &offline, { true, true, false } },
+            };
 
             auto p = makeNeutralParams();
             p.color.outputDb = 6.0f;
             const auto six = (int) (6.0 * t032Rate);
-            const auto input = makeSteadyTone (12.0);
-            auto output = makeSilence (numChannels, 2 * six);
+            const auto input = makeSteadyTone (18.0);
 
-            CeladonChain chain;
-            prepareChain (chain, t032Rate, p);
-            processSpan (chain, p, input, output, 0, six, maxBlock, {});
-            const auto masterIntegrated = chain.getOutputIntegratedLufs();
-            processSpan (chain, p, input, output, six, six, maxBlock, { true, false, false });
-            const auto bypassedIntegrated = chain.getOutputIntegratedLufs();
+            LoudnessMeter dry;
+            dry.prepare (makeSpec (t032Rate));
+            meterSpan (dry, input, 0, six, maxBlock);
 
-            logMessage ("  master " + juce::String (masterIntegrated, 3) + " LUFS, after 6 s of host bypass " + juce::String (bypassedIntegrated, 3));
+            for (const auto& c : cases)
+            {
+                beginTest (juce::String ("host bypass freezes the OUT integrated loudness at the master's value (T-110): ") + c.name);
 
-            if constexpr (CeladonChain::pauseIntegrationOnHostBypass)
-                expect (std::abs (bypassedIntegrated - masterIntegrated) < 0.01f, "host bypass freezes the integrated reading");
-            else
-                expect (bypassedIntegrated < masterIntegrated - 0.5f, "host bypass still integrates the dry signal (policy pending)");
+                auto output = makeSilence (numChannels, 3 * six);
+                CeladonChain chain;
+                prepareChain (chain, t032Rate, p);
+                processSpanWithHost (chain, p, input, output, 0, six, maxBlock, {}, *c.host);
+                const auto masterIntegrated = chain.getOutputIntegratedLufs();
+                processSpanWithHost (chain, p, input, output, six, six, maxBlock, c.bypassed, *c.host);
+                const auto bypassedIntegrated = chain.getOutputIntegratedLufs();
+                const auto bypassedShortTerm = chain.getOutputShortTermLufs();
+                processSpanWithHost (chain, p, input, output, 2 * six, six, maxBlock, {}, *c.host);
+                const auto backIntegrated = chain.getOutputIntegratedLufs();
+
+                logMessage ("  " + juce::String (c.name) + ": master " + juce::String (masterIntegrated, 3) + " LUFS; during host bypass integrated "
+                            + juce::String (bypassedIntegrated, 3) + ", short-term " + juce::String (bypassedShortTerm, 3) + " (original alone "
+                            + juce::String (dry.getShortTermLufs(), 3) + "); back on the master " + juce::String (backIntegrated, 3));
+
+                expect (masterIntegrated - dry.getIntegratedLufs() > 5.0f, "positive control: the master really is louder than the original (+6 dB)");
+                expect (std::abs (bypassedIntegrated - masterIntegrated) < 0.01f,
+                        "host bypass must not pull the integrated reading: " + juce::String (bypassedIntegrated - masterIntegrated, 4) + " LU");
+                expect (std::abs (bypassedShortTerm - dry.getShortTermLufs()) < 0.1f, "short-term shows the dry signal that is sent out");
+                expect (std::abs (backIntegrated - masterIntegrated) < 0.01f,
+                        "back on the master the integrated reading continues from the master's value: "
+                        + juce::String (backIntegrated - masterIntegrated, 4) + " LU");
+                expect (chain.getOutputMeter().getProcessedSamples() == (std::int64_t) (3 * six),
+                        "the OUT meter's sample clock keeps running through the host bypass");
+            }
         }
 
         // LoudnessMeter::setIntegrationPaused：只要有一个样本是在暂停中处理的，这个 100 ms 子块就不进任何门块——包括暂停开始 / 结束

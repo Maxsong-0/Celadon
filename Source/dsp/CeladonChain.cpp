@@ -181,7 +181,8 @@ namespace celadon
         const auto monitorDifference = auditionDifference && ! offline;
 
         // 听原声（A / B 的 B，v0.1.8.0）与宿主旁通走同一条干路：模块全旁通、编排器暂停校准（出口此刻是原声，校准器量它
-        // 就会把「原声的响度」当成方案的结果）、Listen 的测量冻结。两者只在 Listen 的监听增益上不同（updateListenTarget）。
+        // 就会把「原声的响度」当成方案的结果）、Listen 的测量冻结、OUT 表的整体响度暂停积分（T-110）。两者只在 Listen 的监听增益上
+        // 不同（updateListenTarget）。
         const auto dryPath = hostBypassed || monitorOriginal;
 
         // Listen 增益在输出测点之后独立施加，不反馈到方案、校准、保护层或响度估计。
@@ -316,10 +317,11 @@ namespace celadon
         const auto bypassChanged = hostIsBypassed != dryPath;
         hostIsBypassed = dryPath;
 
-        // 实时听原声期间 OUT 表的整体响度暂停积分（离线时听原声不生效、照常积分，T-095；T-032 R8-03；设计规格-总体 2026-09-28 修订「三种临时监听……表与 GLAZE 照常按母带算」）：
-        // 出口此刻是原声，积进去就会把原声混进母带的整体读数，预听归一化也跟着偏。短期响度、真峰值、子块环照常（校准与 Listen 的配对不经直方图）。
-        // 宿主旁通接在同一个开关上，但要等 Max 确认口径（pauseIntegrationOnHostBypass，见 CeladonChain.h）：现在宿主旁通时照旧积分。
-        outputMeter.setIntegrationPaused (monitorOriginal || (hostBypassed && pauseIntegrationOnHostBypass));
+        // 走干路（宿主旁通，或实时听原声）期间 OUT 表的整体响度暂停积分（T-032 R8-03；设计规格-总体 2026-09-28 修订「三种临时监听……
+        // 表与 GLAZE 照常按母带算」；宿主旁通 T-110，Max 2026-11-12 定）：出口此刻是原声，积进去就会把原声混进母带的整体读数，
+        // 预听归一化也跟着偏。短期响度、真峰值、子块环照常（校准与 Listen 的配对不经直方图）。
+        // 离线导出时听原声不生效（monitorOriginal 为 false，T-095），整体响度照常积分母带；宿主旁通离线时照样走干路、照样暂停。
+        outputMeter.setIntegrationPaused (dryPath);
         listenComparing = monitorOriginal && ! hostBypassed;
         if (listenSampleRate > 0.0 && (bypassChanged || listenLatency != getLatencySamples()))
             resetListenMeasurement (false);
