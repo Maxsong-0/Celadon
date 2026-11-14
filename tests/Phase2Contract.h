@@ -5,18 +5,20 @@
     T-048 阶段 2 的测试契约（docs/validation/2026-10-05-T048-phase2/INTERFACE-SKETCH.md，Max 对 Q1–Q12 全部「可以」）。
 
     编排器（代理 A）、分析器（代理 B）、状态行（代理 C）还没合进这条分支。本头文件把草图里测试要钉住的纯规则写成可执行规格：
-    七条状态行、速率与棘轮、G_trim、三守门取最小、旧工程读档、1 s 网格、曲风模型切换折进后续分片。
-    生产类型已经有的部分（makePlan、HouseConstants 死字段、LiveConstants 软遗忘、House 反相提示的现成文案）由
+    状态行、速率与棘轮、G_trim、守门取最小、旧工程读档、1 s 网格。
+    T-108（ADR-039）删了曲风与交付、落差 / PSR 两扇守门：House 反相提示一条、「House ·」前缀、保对比 / PSR 两个原因与它们的
+    G_trim 冻结输入、曲风模型切换（Q4 的 ModelSwitch）随之删掉，「交付峰值」改叫限幅（limiterPeak）。
+    生产类型已经有的部分（makePlan、LiveConstants 软遗忘）由
     Phase2OrchestratorTests 直接调生产代码，不在这里再写一遍。
 
     桩（不可避免，合入后删）：
-      - 状态行 Kind / classify 的生产签名仍是阶段 1。七条文案以 phase2::classify 为准；C 合入后让
+      - 状态行 Kind / classify 的生产签名仍是阶段 1。状态行文案以 phase2::classify 为准；C 合入后让
         glazestatus::classify 与它逐字相同，再把 GlazeStatusTextTests 的入口换过去。
       - LIVE 外层 zlib + base64 由编排器实现。这里只核对未压缩的树形、formatVersion、constantsVersion、
         旧节点丢弃。不把一份 Base64 冒充 zlib。
       - OutputLevelTracker 的 K 加权滤波器在编排器里。这里只钉「宿主 reset 不清、冷启动才 clear、m′ < 0.5 不计能量」。
 
-    不碰：HouseConstants 的 lock / reopen 死字段（Q12）、已退役的 clayMono* 名字（T-063，不得复用）。
+    不碰：已退役的 clayMono* 名字（T-063，不得复用）。
 
   ==============================================================================
 */
@@ -34,8 +36,8 @@
 
 namespace celadon::phase2
 {
-    // Q8：GuardCause 单列 PSR。文案用下面的中文名。
-    enum class GuardCause : std::uint8_t { none = 0, budget, deliveryPeak, contrast, psr };
+    // 文案用下面的中文名。T-108：contrast / psr 随两扇守门删掉，deliveryPeak 改名 limiterPeak（数值不变）。
+    enum class GuardCause : std::uint8_t { none = 0, budget, limiterPeak };
 
     struct GuardOutput
     {
@@ -44,15 +46,12 @@ namespace celadon::phase2
         bool engaged = false;
     };
 
-    // 草图第 4 节的 Status：没有 phase / 校准 / 聆听进度。界面七条只读这些。
+    // 草图第 4 节的 Status：没有 phase / 校准 / 聆听进度。界面状态行只读这些。
     struct Status
     {
         float effectiveTargetLufs = 0.0f;
         bool limitedByManual = false;
         glaze::Style resolvedStyle = glaze::Style::clean;
-        bool houseActive = false;
-        bool housePhaseHint = false;
-        float housePhaseMonoLossDb = 0.0f;
         float confidence = 0.0f;          // c
         float currentMainness = 1.0f;     // 正在播的这一段的 m
         bool coldExport = false;          // 离线且 c < 0.5
@@ -64,7 +63,6 @@ namespace celadon::phase2
     enum class Kind : int
     {
         manualLimit = 1,     // 1 琥珀 受手动设置限制
-        housePhaseHint,      // 2 琥珀 House 反相提示（现状文案）
         coldExport,          // 3 琥珀 导出冷启动
         guardRelief,         // 4 琥珀 受限
         starting,            // 5 梅子青 起步
@@ -84,10 +82,8 @@ namespace celadon::phase2
         int targetTenthsLufs = 0;
         GuardCause guardCause = GuardCause::none;
         int yieldedTenthsDb = 0;
-        int houseLossTenthsDb = 0;
-        bool housePrefix = false;
 
-        // 只比会写进这一行的字段。House 反相提示不带风格，跟随才带。
+        // 只比会写进这一行的字段。跟随才带风格。
         bool operator== (const View& other) const noexcept
         {
             if (kind != other.kind)
@@ -95,16 +91,12 @@ namespace celadon::phase2
 
             switch (kind)
             {
-                case Kind::housePhaseHint:
-                    return houseLossTenthsDb == other.houseLossTenthsDb;
-
                 case Kind::guardRelief:
                     return guardCause == other.guardCause && yieldedTenthsDb == other.yieldedTenthsDb;
 
                 case Kind::following:
                     return chosenStyle == other.chosenStyle && resolvedStyle == other.resolvedStyle
-                        && hasTarget == other.hasTarget && targetTenthsLufs == other.targetTenthsLufs
-                        && housePrefix == other.housePrefix;
+                        && hasTarget == other.hasTarget && targetTenthsLufs == other.targetTenthsLufs;
 
                 case Kind::glazeOff:
                 case Kind::manualLimit:
@@ -147,13 +139,6 @@ namespace celadon::phase2
             return view;
         }
 
-        if (status.houseActive && status.housePhaseHint)
-        {
-            view.kind = Kind::housePhaseHint;
-            view.houseLossTenthsDb = celadon::help::houseLossTenthsFor (status.housePhaseMonoLossDb);
-            return view;
-        }
-
         const auto confidence = std::isfinite (status.confidence) ? status.confidence : 0.0f;
         const auto mainness = std::isfinite (status.currentMainness) ? status.currentMainness : 1.0f;
 
@@ -185,7 +170,6 @@ namespace celadon::phase2
         }
 
         view.kind = Kind::following;
-        view.housePrefix = status.houseActive;
         view.resolvedStyle = chosenStyle == glaze::Style::automatic ? status.resolvedStyle : glaze::Style::automatic;
 
         if (std::isfinite (status.effectiveTargetLufs))
@@ -202,7 +186,6 @@ namespace celadon::phase2
         switch (kind)
         {
             case Kind::manualLimit:
-            case Kind::housePhaseHint:
             case Kind::coldExport:
             case Kind::guardRelief:
                 return Tone::amber;
@@ -263,9 +246,7 @@ namespace celadon::phase2
         switch (cause)
         {
             case GuardCause::budget:        return chinese ? utf8 ("预算") : juce::String ("budget");
-            case GuardCause::deliveryPeak:  return chinese ? utf8 ("交付峰值") : juce::String ("delivery peak");
-            case GuardCause::contrast:      return chinese ? utf8 ("保对比") : juce::String ("contrast");
-            case GuardCause::psr:           return chinese ? utf8 ("PSR") : juce::String ("PSR");
+            case GuardCause::limiterPeak:   return chinese ? utf8 ("限幅") : juce::String ("limiter");
             case GuardCause::none:          break;
         }
 
@@ -285,9 +266,6 @@ namespace celadon::phase2
 
             case Kind::manualLimit:
                 return chinese ? utf8 ("受手动设置限制") : juce::String ("Limited by manual settings");
-
-            case Kind::housePhaseHint:
-                return celadon::help::housePhaseHintText (view.houseLossTenthsDb, language);
 
             case Kind::coldExport:
                 return chinese ? utf8 ("导出时主段统计还没热，第一个 drop 可能偏轻：先播放一遍再导出")
@@ -318,7 +296,7 @@ namespace celadon::phase2
 
             case Kind::following:
             {
-                auto text = view.housePrefix ? juce::String ("House") + dot : juce::String();
+                juce::String text;
                 text << (chinese ? utf8 ("跟随") : juce::String ("Following")) << dot << stylePhrase (view, language);
 
                 if (view.hasTarget)
@@ -419,7 +397,7 @@ namespace celadon::phase2
         }
     };
 
-    // 状态行用的那一对：只看 engaged 的门。更负的退让胜出；平局留下先到的原因（预算、对比、PSR）；退让为 0 则原因 none。
+    // 状态行用的那一对：只看 engaged 的门。更负的退让胜出；平局留下先到的原因；退让为 0 则原因 none。
     // 没在起作用的更深退让（例如正在回升）不改这一行。音频上三扇取最小是另一条路径。
     inline GuardOutput minGuard (std::initializer_list<GuardOutput> guards) noexcept
     {
@@ -513,25 +491,6 @@ namespace celadon::phase2
         return sample / grid != previousSample / grid;
     }
 
-    // Q4：音频线程只记下新模型，已发布画像继续用旧的，切换折进后续 advanceTo 分片。
-    struct ModelSwitch
-    {
-        int published = 0;
-        int pending = 0;
-
-        void request (int model) noexcept
-        {
-            pending = model;
-        }
-
-        void advanceSlice() noexcept
-        {
-            published = pending;
-        }
-
-        bool waiting() const noexcept   { return published != pending; }
-    };
-
     // --------------------------------------------------------------------------
     // 第 5 节工程树。旧节点读到就丢。GLAZE_CONSTANTS 不参与 makePlan。
     inline bool isDiscardedListenTag (juce::StringRef tag) noexcept
@@ -610,9 +569,9 @@ namespace celadon::phase2
 // G_trim 把这段差当偏差、按 0.05 dB/s 约 60 s 推满 +3 dB 抵消掉退让。新口径把「该不该积分」单独成一个纯函数：
 // 任一条成立就不积分（G_trim 保持原值，不清零）——
 //   1. 预算环本块在退（isRetreating）；
-//   2. 预算 / 落差 / PSR 任一退让量 < 0（在退、停住、回程中都算，只要还没回到 0）；
-//   3. 这一块刚改过某个退让量（回到 0 的那一步也算：before 与 after 不同）；
-//   4. 距上次改参数不满 1 s（风格 / 曲风 / 交付 / GLAZE / 规划相关手动值，对应 CONTROL 的 secondsSinceParamChange）。
+//   2. 退让量 < 0（在退、停住、回程中都算，只要还没回到 0；T-108 起只剩预算环，落差 / PSR 两扇删掉）；
+//   3. 这一块刚改过退让量（回到 0 的那一步也算：before 与 after 不同）；
+//   4. 距上次改参数不满 1 s（风格 / GLAZE / 规划相关手动值，对应 CONTROL 的 secondsSinceParamChange）。
 // 与 Source/dsp/GlazeController.cpp 的 guardHolding / recentlyChanged 逐条对应；旧函数不动，积分本身直接复用旧 step。
 namespace celadon::phase2
 {
@@ -627,9 +586,7 @@ namespace celadon::phase2
     struct TrimFreezeInputs
     {
         bool budgetRetreatingThisBlock = false;
-        GuardReliefStep budget;
-        GuardReliefStep contrast;
-        GuardReliefStep psr;
+        GuardReliefStep budget;   // T-108 前还有 contrast / psr 两扇
         double secondsSinceParamChange = trimParamChangeFreezeSeconds;   // 默认「很久以前改的」，不冻结
     };
 
@@ -642,8 +599,7 @@ namespace celadon::phase2
     inline bool trimFrozenByGuards (const TrimFreezeInputs& inputs) noexcept
     {
         const auto holding = inputs.budgetRetreatingThisBlock
-                          || inputs.budget.afterDb < 0.0f || inputs.contrast.afterDb < 0.0f || inputs.psr.afterDb < 0.0f
-                          || reliefChanged (inputs.budget) || reliefChanged (inputs.contrast) || reliefChanged (inputs.psr);
+                          || inputs.budget.afterDb < 0.0f || reliefChanged (inputs.budget);
         const auto recentlyChanged = inputs.secondsSinceParamChange < trimParamChangeFreezeSeconds;
         return holding || recentlyChanged;
     }

@@ -355,9 +355,6 @@ public:
         addAndMakeVisible (styleSelector);
         styleAttachment = std::make_unique<SegmentedAttachment> (styleSelector, *state.getParameter (param::glazeStyle));
 
-        // T-107（Max 2026-11-13「直接删掉，不用再搞曲风这些的了」）：GLAZE 标题行左右的曲风 / 交付两个选择器（T-038）从面板上删掉。
-        // 参数 glaze_genre / glaze_delivery 还在（工程照存照读、宿主自动化照旧），面板上不再有改它们的地方。
-
         abSelector.setOptions ({ "", "" });
         abSelector.setEqualWidths (false);
         abSelector.setFont (uiFont (11.5f, Weight::medium));
@@ -942,12 +939,25 @@ void CeladonAudioProcessorEditor::setGlazeRelearnAction (GlazeRelearnAction)
 {
 }
 
-void CeladonAudioProcessorEditor::noteDiscardedLegacyGlaze()
+void CeladonAudioProcessorEditor::setGenreDeliveryResetSource (GenreDeliveryResetSource source)
 {
-    if (legacyGlazeDiscarded)
+    // 只存下来、不另刷一帧：处理器先注入它再注入状态源，setGlazeStatusSource 那一帧就把两种提示都取到。
+    genreDeliveryResetSource = std::move (source);
+}
+
+void CeladonAudioProcessorEditor::setLegacyNoticesPreview (bool newLegacyGlazeDiscarded, bool newGenreDeliveryReset)
+{
+    legacyNoticesPreviewOn = true;
+    setLegacyNotices (newLegacyGlazeDiscarded, newGenreDeliveryReset);
+}
+
+void CeladonAudioProcessorEditor::setLegacyNotices (bool newLegacyGlazeDiscarded, bool newGenreDeliveryReset)
+{
+    if (legacyGlazeDiscarded == newLegacyGlazeDiscarded && genreDeliveryReset == newGenreDeliveryReset)
         return;
 
-    legacyGlazeDiscarded = true;
+    legacyGlazeDiscarded = newLegacyGlazeDiscarded;
+    genreDeliveryReset = newGenreDeliveryReset;
     timerCallback();
 }
 
@@ -1339,14 +1349,14 @@ void CeladonAudioProcessorEditor::timerCallback()
     const auto listenOn = rawValue (state, param::limitListen) >= 0.5f;
     const auto comparing = processor.isComparingOriginal();
     const auto mastering = processor.getMasteringStatus();
-    // T-078：橙色、右侧板「交付」与顶部胶囊用链发布的实际上限（流媒体封顶与编码余量已算进；旁通 / 干路是用户 Ceiling）。
+    // T-078：橙色、右侧板「交付」与顶部胶囊用链发布的实际上限（编码余量已算进；旁通 / 干路是用户 Ceiling）。
     const auto ceiling = mastering.effectiveCeilingDb;
     c.advancedPanel.setStatus (mastering);
     const auto status = glazeStatusSource != nullptr ? glazeStatusSource() : glaze::Status {};
 
-    // 编辑器已经开着时读档：消息线程这一帧把「旧的聆听结果已丢弃」点亮。不进 LIVE，本次打开只提示一次。
-    if (status.legacySessionDiscarded)
-        noteDiscardedLegacyGlaze();
+    // 两种旧工程提示跟着处理器最近一次读档的结果，亮和清都在这里（见头文件 setGenreDeliveryResetSource）。截图工具摆的预览不覆盖。
+    if (! legacyNoticesPreviewOn)
+        setLegacyNotices (status.legacySessionDiscarded, genreDeliveryResetSource != nullptr && genreDeliveryResetSource());
 
     // 试听差值：LIMIT 被旁通（界面、宿主自动化都算）就退出；耳机跟着处理器的状态。
     if (processor.isAuditioningDifference() && rawValue (state, param::limitBypass) >= 0.5f)
@@ -1478,7 +1488,6 @@ void CeladonAudioProcessorEditor::timerCallback()
         {
             case Kind::manualOnly:      chip = Chip::manual;       break;
             case Kind::limitedByManual: chip = Chip::manualLimit;  break;
-            case Kind::housePhaseHint:  chip = Chip::phase;        break;
             case Kind::coldExport:      chip = Chip::coldExport;   break;
             case Kind::guardLimited:    chip = Chip::limited;      break;
             case Kind::starting:        chip = Chip::starting;     break;
@@ -1504,10 +1513,13 @@ void CeladonAudioProcessorEditor::timerCallback()
         {
             c.cornerNote.setLines (tr (c.isHintOnDial() ? Text::hintDial : Text::hintDrag, language), tr (Text::hintClick, language), true);
         }
-        else if (legacyGlazeDiscarded)
+        else if (legacyGlazeDiscarded || genreDeliveryReset)
         {
-            // 旧工程提示一次，只活在本次打开的界面里，不进状态行的七条，也不写入 LIVE。
-            c.cornerNote.setLines ({}, tr (Text::legacyDiscarded, language), false, true);
+            // 旧工程提示一次，只活在本次打开的界面里，不进状态行的七条，也不写入 LIVE。两条都有时各占一行。
+            const auto legacy = legacyGlazeDiscarded ? tr (Text::legacyDiscarded, language) : juce::String();
+            const auto reset = genreDeliveryReset ? tr (Text::genreDeliveryReset, language) : juce::String();
+            c.cornerNote.setLines (legacyGlazeDiscarded && genreDeliveryReset ? legacy : juce::String(),
+                                   genreDeliveryReset ? reset : legacy, false, true);
         }
         else
         {

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# T-048 阶段 2：gate_check.py / house_gate.py 的连续编排器判定。不编译插件。
+# T-048 阶段 2：gate_check.py / listen_start_check.py 的连续编排器判定。不编译插件。
+# （T-108 删了 house_gate.py，它的门槛 ① 按通用档挪进 listen_start_check.py，阶段 1 锁定 / 校准偏差那一支不再有。）
 # 旧表（没有 confidence，或格子是空的）走阶段 1 的锁定 / 校准偏差；有 confidence 就看 c ≥ 0.5、不再加校准偏差。
 import subprocess
 import sys
@@ -10,7 +11,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import gate_check  # noqa: E402
-import house_gate  # noqa: E402
+import listen_start_check  # noqa: E402
 
 
 BASE = (
@@ -110,30 +111,31 @@ def main():
     ], ",confidence", ",0.20")
     check("short song with low confidence is a note", code == 0 and "时长不够热起" in out, out)
 
-    # house_gate ①
-    legacy_row = {"listen_from_bar": "1", "plan_gain_db": "1.0", "listen_phase": "locked",
-                  "listen_calibration_valid": "1", "calibration_bias_db": "0.2"}
-    legacy_partner = {"listen_from_bar": "33", "plan_gain_db": "1.1", "listen_phase": "locked",
-                      "listen_calibration_valid": "1", "calibration_bias_db": "0.2"}
-    verdict, note = house_gate.gate_plan_gain(legacy_row, [legacy_partner])
-    check("legacy plan gain adds calibration bias", verdict == "PASS" and "方案 + 校准" in note, note)
+    # listen_start_check（原 house_gate ①）
+    head = {"listen_from_bar": "1", "plan_gain_db": "1.0", "confidence": "0.8"}
+    partner = {"listen_from_bar": "33", "plan_gain_db": "1.2", "confidence": "0.9"}
+    verdict, note = listen_start_check.compare(head, partner)
+    check("continuous plan gain within 0.5 dB passes", verdict == "PASS" and "方案增益" in note and "+0.20" in note, note)
 
-    unlocked = dict(legacy_partner)
-    unlocked["listen_phase"] = "listening"
-    verdict, note = house_gate.gate_plan_gain(legacy_row, [unlocked])
-    check("legacy plan gain still requires locked", verdict == "FAIL" and "没都锁定" in note, note)
+    far = dict(partner)
+    far["plan_gain_db"] = "1.7"
+    verdict, note = listen_start_check.compare(head, far)
+    check("plan gain 0.7 dB apart fails", verdict == "FAIL" and "+0.70" in note, note)
 
-    live_row = {"listen_from_bar": "1", "plan_gain_db": "1.0", "confidence": "0.8",
-                "listen_phase": "listening", "listen_calibration_valid": "1", "calibration_bias_db": "5"}
-    live_partner = {"listen_from_bar": "33", "plan_gain_db": "1.2", "confidence": "0.9",
-                    "listen_phase": "listening", "calibration_bias_db": "0"}
-    verdict, note = house_gate.gate_plan_gain(live_row, [live_partner])
-    check("continuous plan gain ignores calibration bias", verdict == "PASS" and "方案增益" in note and "+0.20" in note, note)
-
-    cold = dict(live_row)
+    cold = dict(head)
     cold["confidence"] = "0.2"
-    verdict, note = house_gate.gate_plan_gain(cold, [live_partner])
+    verdict, note = listen_start_check.compare(cold, partner)
     check("continuous plan gain requires both sides warm", verdict == "FAIL" and "主段还没热" in note, note)
+
+    blank_head = {"listen_from_bar": "1", "plan_gain_db": "1.0", "confidence": ""}
+    blank_partner = {"listen_from_bar": "33", "plan_gain_db": "1.3"}
+    verdict, note = listen_start_check.compare(blank_head, blank_partner)
+    check("blank confidence compares the plan gain only", verdict == "PASS" and "没核对 c" in note, note)
+
+    missing = dict(partner)
+    missing["plan_gain_db"] = ""
+    verdict, note = listen_start_check.compare(head, missing)
+    check("missing plan gain fails", verdict == "FAIL" and "没有方案" in note, note)
 
     check("gate_check confidence helper treats blank as absent",
           gate_check.phase2_confidence({"confidence": "  "}) is None

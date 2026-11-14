@@ -2,7 +2,7 @@
   ==============================================================================
 
     GlazeStatusTextTests.cpp
-    T-048 阶段 2 状态行：七条里取第一条，GLAZE 0 只写手动，导出冷启动与守护原因，House 前缀只加在「跟随」上。
+    T-048 阶段 2 状态行：六条里取第一条，GLAZE 0 只写手动，导出冷启动与守护原因（T-108 起只剩预算与限幅两种，House 前缀与反相提示删掉）。
 
     被测代码只依赖 juce_core。中文断言用 TestHelpers.h 的 utf8StartsWith / utf8Contains。
 
@@ -59,8 +59,6 @@ namespace celadon::test
             {
                 auto reading = ready();
                 reading.limitedByManual = true;
-                reading.houseActive = true;
-                reading.housePhaseHint = true;
                 reading.coldExport = true;
                 reading.guardEngaged = true;
                 reading.confidence = 0.0f;
@@ -74,13 +72,10 @@ namespace celadon::test
                 expect (gs::toneFor (Kind::manualOnly) == gs::Tone::dim);
             }
 
-            beginTest ("the seven lines: first match wins, amber then plum then grey-green");
+            beginTest ("the six lines: first match wins, amber then plum then grey-green");
             {
                 auto reading = ready();
                 reading.limitedByManual = true;
-                reading.houseActive = true;
-                reading.housePhaseHint = true;
-                reading.housePhaseMonoLossDb = -1.6f;
                 reading.coldExport = true;
                 reading.guardEngaged = true;
                 reading.guardCause = GuardCause::budget;
@@ -93,49 +88,45 @@ namespace celadon::test
                 expect (gs::toneFor (Kind::limitedByManual) == gs::Tone::amber);
 
                 reading.limitedByManual = false;
-                expect (kindOf (reading) == Kind::housePhaseHint, "2 phase hint");
-                expectEquals (show (reading), utf8 ("俱乐部单声道会丢低频（约 1.6 dB），请回混音修"));
-
-                reading.housePhaseHint = false;
-                expect (kindOf (reading) == Kind::coldExport, "3 cold export");
+                expect (kindOf (reading) == Kind::coldExport, "2 cold export");
                 expectEquals (show (reading), utf8 ("导出时主段统计还没热，第一个 drop 可能偏轻：先播放一遍再导出"));
                 expectEquals (gs::segmentsFor (gs::classify (reading, 50.0f, Style::automatic), Language::chinese).size(), 1);
 
                 reading.coldExport = false;
-                expect (kindOf (reading) == Kind::guardLimited, "4 guard");
+                expect (kindOf (reading) == Kind::guardLimited, "3 guard");
                 expectEquals (show (reading), utf8 ("受限 · 预算 · 已退 1.5 dB"));
                 expect (gs::toneFor (Kind::guardLimited) == gs::Tone::amber);
 
                 reading.guardEngaged = false;
-                expect (kindOf (reading) == Kind::starting, "5 low confidence");
+                expect (kindOf (reading) == Kind::starting, "4 low confidence");
                 expectEquals (show (reading), utf8 ("起步 · 还没听到主段落（偏保守）"));
                 expect (gs::toneFor (Kind::starting) == gs::Tone::accent);
 
                 reading.confidence = 0.5f;
-                expect (kindOf (reading) == Kind::holding, "6 light section; c == 0.5 is no longer starting");
+                expect (kindOf (reading) == Kind::holding, "5 light section; c == 0.5 is no longer starting");
                 expectEquals (show (reading), utf8 ("保持 · 本段较轻"));
                 expect (gs::toneFor (Kind::holding) == gs::Tone::dim);
 
                 reading.currentMainness = 0.5f;
-                reading.houseActive = false;
-                expect (kindOf (reading) == Kind::following, "7 m == 0.5 is not held");
+                expect (kindOf (reading) == Kind::following, "6 m == 0.5 is not held");
                 expectEquals (show (reading), utf8 ("跟随 · 自动→温润 · 目标 −9.6 LUFS"));
                 expect (gs::toneFor (Kind::following) == gs::Tone::dim);
             }
 
-            beginTest ("guard cause names, a zero relief omits the dB, House prefixes only Following");
+            beginTest ("guard cause names, a zero relief omits the dB, Following carries the style segment");
             {
                 auto reading = ready();
                 reading.guardEngaged = true;
                 reading.protectionDb = -1.54f;
 
-                reading.guardCause = GuardCause::deliveryPeak;
-                expectEquals (show (reading), utf8 ("受限 · 交付峰值 · 已退 1.5 dB"));
-                reading.guardCause = GuardCause::contrast;
-                expectEquals (show (reading), utf8 ("受限 · 保对比 · 已退 1.5 dB"));
-                reading.guardCause = GuardCause::psr;
+                reading.guardCause = GuardCause::budget;
+                expectEquals (show (reading), utf8 ("受限 · 预算 · 已退 1.5 dB"));
                 expectEquals (gs::textFor (gs::classify (reading, 50.0f, Style::automatic), Language::english),
-                              utf8 ("Limited \xc2\xb7 PSR \xc2\xb7 backed off 1.5 dB"));
+                              utf8 ("Limited \xc2\xb7 Budget \xc2\xb7 backed off 1.5 dB"));
+                reading.guardCause = GuardCause::limiterPeak;
+                expectEquals (show (reading), utf8 ("受限 · 限幅 · 已退 1.5 dB"));
+                expectEquals (gs::textFor (gs::classify (reading, 50.0f, Style::automatic), Language::english),
+                              utf8 ("Limited \xc2\xb7 Limiter \xc2\xb7 backed off 1.5 dB"));
 
                 reading.guardCause = GuardCause::none;
                 reading.protectionDb = 0.0f;
@@ -143,30 +134,28 @@ namespace celadon::test
 
                 reading.guardEngaged = false;
                 reading.confidence = 0.2f;
-                reading.houseActive = true;
-                expect (utf8StartsWith (show (reading), "起步"), "starting has no House prefix");
+                expect (utf8StartsWith (show (reading), "起步"));
 
                 reading.confidence = 1.0f;
                 reading.currentMainness = 0.2f;
                 expectEquals (show (reading), utf8 ("保持 · 本段较轻"));
 
                 reading.currentMainness = 1.0f;
-                const auto house = gs::classify (reading, 50.0f, Style::automatic);
-                expect (house.housePrefix && house.styleSegment == 2);
-                expectEquals (gs::textFor (house), utf8 ("House · 跟随 · 自动→温润 · 目标 −9.6 LUFS"));
-                expectEquals (gs::textFor (house, Language::english),
-                              utf8 ("House \xc2\xb7 Following \xc2\xb7 Auto\xe2\x86\x92Warm \xc2\xb7 Target \xe2\x88\x92" "9.6 LUFS"));
+                const auto following = gs::classify (reading, 50.0f, Style::automatic);
+                expect (following.styleSegment == 1);
+                expectEquals (gs::textFor (following), utf8 ("跟随 · 自动→温润 · 目标 −9.6 LUFS"));
+                expectEquals (gs::textFor (following, Language::english),
+                              utf8 ("Following \xc2\xb7 Auto\xe2\x86\x92Warm \xc2\xb7 Target \xe2\x88\x92" "9.6 LUFS"));
 
                 const auto punchy = gs::classify (reading, 50.0f, Style::punchy);
-                expectEquals (gs::textFor (punchy), utf8 ("House · 跟随 · 冲击 · 目标 −9.6 LUFS"));
-                expect (punchy.styleSegment == 2 && gs::toneFor (punchy.kind) == gs::Tone::dim);
+                expectEquals (gs::textFor (punchy), utf8 ("跟随 · 冲击 · 目标 −9.6 LUFS"));
+                expect (punchy.styleSegment == 1 && gs::toneFor (punchy.kind) == gs::Tone::dim);
 
-                reading.houseActive = false;
                 reading.effectiveTargetLufs = std::numeric_limits<float>::quiet_NaN();
                 expectEquals (show (reading, 50.0f, Style::warm), utf8 ("跟随 · 温润"));
             }
 
-            beginTest ("non-finite confidence starts; non-finite mainness does not hold; phase hint needs House");
+            beginTest ("non-finite confidence starts; non-finite mainness does not hold");
             {
                 auto reading = ready();
                 reading.confidence = std::numeric_limits<float>::quiet_NaN();
@@ -175,13 +164,6 @@ namespace celadon::test
                 reading.confidence = 1.0f;
                 reading.currentMainness = std::numeric_limits<float>::quiet_NaN();
                 expect (kindOf (reading) == Kind::following);
-
-                reading.housePhaseHint = true;
-                reading.houseActive = false;
-                expect (kindOf (reading) == Kind::following, "hint without House is ignored");
-
-                reading.houseActive = true;
-                expect (kindOf (reading) == Kind::housePhaseHint);
             }
 
             beginTest ("readingFromStatus copies the phase-2 fields; planLimited does not stand in for guardEngaged");
@@ -191,9 +173,6 @@ namespace celadon::test
                 status.protectionDb = -1.5f;
                 status.effectiveTargetLufs = -9.6f;
                 status.resolvedStyle = Style::warm;
-                status.houseActive = true;
-                status.housePhaseHint = true;
-                status.housePhaseMonoLossDb = -1.6f;
                 status.confidence = 0.8f;
                 status.currentMainness = 0.9f;
                 status.guardCause = glaze::GuardCause::budget;
@@ -201,10 +180,9 @@ namespace celadon::test
                 status.planLimited = false;
 
                 const auto reading = gs::readingFromStatus (status);
-                expect (reading.limitedByManual && reading.houseActive && reading.housePhaseHint);
+                expect (reading.limitedByManual);
                 expect (std::abs (reading.protectionDb - (-1.5f)) < 1.0e-5f);
                 expect (std::abs (reading.effectiveTargetLufs - (-9.6f)) < 1.0e-5f);
-                expect (std::abs (reading.housePhaseMonoLossDb - (-1.6f)) < 1.0e-5f);
                 expect (std::abs (reading.confidence - 0.8f) < 1.0e-5f);
                 expect (std::abs (reading.currentMainness - 0.9f) < 1.0e-5f);
                 expect (reading.resolvedStyle == Style::warm);
@@ -213,7 +191,6 @@ namespace celadon::test
 
                 auto guarded = reading;
                 guarded.limitedByManual = false;
-                guarded.housePhaseHint = false;
                 expectEquals (show (guarded), utf8 ("受限 · 预算 · 已退 1.5 dB"));
 
                 Status legacyFlag;

@@ -150,41 +150,6 @@ namespace celadon::glaze
             return false;
         }
 
-        // 画像格式 3（T-038 House 档门控结果，设计规格-曲风-House学习方式 第 5 节）：只在 formatVersion ≥ houseProfileFormatVersion 时
-        // 写 / 读，与格式 2 的字段同样严格（缺一个就整份拒收）。分段方式是枚举，按 0 ～ 2 的小整数存，存在但越界照样拒收。
-        void visitSegmentMode (xmlio::Writer& w, const SegmentMode& mode)
-        {
-            w.field ("houseGateMode", static_cast<std::uint8_t> (mode));
-        }
-
-        void visitSegmentMode (xmlio::Reader& r, SegmentMode& mode)
-        {
-            std::uint8_t value = 0;
-            r.field ("houseGateMode", value);
-
-            if (value > static_cast<std::uint8_t> (SegmentMode::seconds))
-                r.ok = false;
-            else
-                mode = static_cast<SegmentMode> (value);
-        }
-
-        template <typename Visitor, typename ProfileT>
-        void visitProfileHouse (Visitor& v, ProfileT& p)
-        {
-            auto& g = p.houseGate;
-            v.field ("houseGateValid", g.valid);
-            visitSegmentMode (v, g.mode);
-            v.field ("houseReferenceLufs", g.referenceLufs);
-            v.field ("houseLowShareReference", g.lowShareReference);
-            v.field ("houseGateWidthLu", g.gateWidthLu);
-            v.field ("houseLowGateFactor", g.lowGateFactor);
-            v.field ("houseHeardSegments", g.heardSegments);
-            v.field ("houseFullSegments", g.fullSegments);
-            v.field ("houseHeardSeconds", g.heardSeconds);
-            v.field ("houseFullSeconds", g.fullSeconds);
-            v.field ("houseReopenCount", g.reopenCount);
-        }
-
         // 格式 1 的旧画像没有 Clay 特征：读入后一律「不知道」（GlazeTypes.h：valid = false、数组全 0）。读取是在调用方给的
         // out 上覆盖字段，这几项格式 1 里读不到，必须显式清掉，不能沿用 out 里原来的值。
         void clearClayFeatures (MusicProfile& p) noexcept
@@ -267,34 +232,6 @@ namespace celadon::glaze
                 r.ok = false;
         }
 
-        // T-038：参考条件里的曲风与交付（ADR-026）。同 visitConditionsFormat：是默认值（通用 / 标准）时不写属性——旧存档读回来再存
-        // 出去逐字不变，通用 + 标准的参考条件也与 main 逐字节相同（整份状态不是：标定快照多写曲风 / House / 交付三组常数，评审 F8；
-        // 没有逻辑比较快照的字节，行为逐位相同）。读：缺属性 = 默认值；在但越界 → 整份拒收。
-        void visitGenreDelivery (xmlio::Writer& w, const CalibrationReference& reference)
-        {
-            if (reference.genre != Genre::general)
-                w.field ("genre", static_cast<std::uint8_t> (reference.genre));
-
-            if (reference.delivery != Delivery::standard)
-                w.field ("delivery", static_cast<std::uint8_t> (reference.delivery));
-        }
-
-        void visitGenreDelivery (xmlio::Reader& r, CalibrationReference& reference)
-        {
-            std::uint8_t genre = 0, delivery = 0;
-            r.optionalField ("genre", genre, std::uint8_t { 0 });
-            r.optionalField ("delivery", delivery, std::uint8_t { 0 });
-
-            if (genre >= static_cast<std::uint8_t> (numGenres) || delivery >= static_cast<std::uint8_t> (numDeliveries))
-            {
-                r.ok = false;
-                return;
-            }
-
-            reference.genre = static_cast<Genre> (genre);
-            reference.delivery = static_cast<Delivery> (delivery);
-        }
-
         template <typename Visitor, typename CalibrationT>
         void visitCalibration (Visitor& v, CalibrationT& c)
         {
@@ -322,7 +259,7 @@ namespace celadon::glaze
                 v.field ("clayMonoHz", c.reference.clayMonoHz);
             }
 
-            visitGenreDelivery (v, c.reference);   // T-038（见上）
+            // T-038 的 genre / delivery 属性随 T-108 删掉：旧存档里有也不读（读取只按名字取字段，多出来的属性忽略）。
         }
 
         // 读一个整数属性：必须存在、是十进制整数、在 [minimum, maximum] 内。
@@ -462,24 +399,6 @@ namespace celadon::glaze
                     addFeature (h, loss, levelStep);
         }
 
-        // T-038 House 档门控结果：只在格式 ≥ 3 时加，接在最后——格式 1 / 2 的画像号与 main 逐位相同。门控结果决定画像取了哪些段，
-        // 属于画像内容，变了校准就该失效。响度按电平口径，占比与系数按占比口径，时长按秒口径，计数按整数。
-        if (p.formatVersion >= houseProfileFormatVersion)
-        {
-            const auto& g = p.houseGate;
-            h.addInteger (g.valid ? 1 : 0);
-            h.addInteger (static_cast<int> (g.mode));
-            h.addQuantized ((double) g.referenceLufs, levelStep);
-            h.addQuantized ((double) g.lowShareReference, fractionStep);
-            h.addQuantized ((double) g.gateWidthLu, levelStep);
-            h.addQuantized ((double) g.lowGateFactor, fractionStep);
-            h.addInteger (g.heardSegments);
-            h.addInteger (g.fullSegments);
-            h.addQuantized (g.heardSeconds, secondsStep);
-            h.addQuantized (g.fullSeconds, secondsStep);
-            h.addInteger (g.reopenCount);
-        }
-
         return h.get();
     }
 
@@ -501,9 +420,6 @@ namespace celadon::glaze
                 if (! isUnsetFeature (profile.lowCutBlendLossDb[i]))
                     visitFeature (writer, blendLossNames[i], profile.lowCutBlendLossDb[i]);
         }
-
-        if (profile.formatVersion >= houseProfileFormatVersion)
-            visitProfileHouse (writer, profile);
 
         return xml;
     }
@@ -539,10 +455,9 @@ namespace celadon::glaze
             clearClayFeatures (parsed);          // 格式 1：没有这些特征 =「不知道」
         }
 
-        if (format >= houseProfileFormatVersion)
-            visitProfileHouse (reader, parsed);  // 格式 3：House 门控结果同样必须齐全
-        else
-            parsed.houseGate = HouseGateSummary {};   // 格式 1 / 2：没有门控结果（House 档下视为锁定条件未满足）
+        // 格式 3（T-038 House 档门控结果，T-108 删掉）：门控属性不读，按格式 2 用——画像号也就与同内容的格式 2 画像相同。
+        if (format >= legacyHouseProfileFormatVersion)
+            parsed.formatVersion = clayProfileFormatVersion;
 
         if (! reader.ok)
             return false;
@@ -845,8 +760,6 @@ namespace celadon::glaze
 
         return a.profileId == b.profileId
             && a.style == b.style
-            && a.genre == b.genre
-            && a.delivery == b.delivery
             && close (a.glazePercent, b.glazePercent)
             && manualMatches
             && close (a.ceilingDb, b.ceilingDb)

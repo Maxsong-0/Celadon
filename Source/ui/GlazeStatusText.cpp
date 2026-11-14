@@ -88,9 +88,7 @@ namespace celadon::ui::glazestatus
             switch (cause)
             {
                 case GuardCause::budget:       return english ? juce::String ("Budget") : utf8 ("预算");
-                case GuardCause::deliveryPeak: return english ? juce::String ("Delivery peak") : utf8 ("交付峰值");
-                case GuardCause::contrast:     return english ? juce::String ("Contrast") : utf8 ("保对比");
-                case GuardCause::psr:          return juce::String ("PSR");
+                case GuardCause::limiterPeak:  return english ? juce::String ("Limiter") : utf8 ("限幅");
                 case GuardCause::none:         break;
             }
 
@@ -122,10 +120,6 @@ namespace celadon::ui::glazestatus
         {
             const auto english = language == Language::english;
             juce::String text;
-
-            if (view.housePrefix)
-                text << "House" << dot();
-
             text << (english ? "Following" : utf8 ("跟随")) << dot() << styleText (view, language);
 
             if (view.hasTarget)
@@ -173,7 +167,7 @@ namespace celadon::ui::glazestatus
             if constexpr (HasGuardCause<T>::value)
             {
                 const auto raw = static_cast<std::uint8_t> (status.guardCause);
-                return raw <= static_cast<std::uint8_t> (GuardCause::psr) ? static_cast<GuardCause> (raw) : GuardCause::none;
+                return raw <= static_cast<std::uint8_t> (GuardCause::limiterPeak) ? static_cast<GuardCause> (raw) : GuardCause::none;
             }
             else
             {
@@ -197,14 +191,12 @@ namespace celadon::ui::glazestatus
     bool View::operator== (const View& other) const noexcept
     {
         return kind == other.kind
-            && housePrefix == other.housePrefix
             && chosenStyle == other.chosenStyle
             && resolvedStyle == other.resolvedStyle
             && hasTarget == other.hasTarget
             && targetTenthsLufs == other.targetTenthsLufs
             && guardCause == other.guardCause
             && yieldedTenthsDb == other.yieldedTenthsDb
-            && houseLossTenthsDb == other.houseLossTenthsDb
             && styleSegment == other.styleSegment;
     }
 
@@ -213,9 +205,6 @@ namespace celadon::ui::glazestatus
     {
         Reading reading;
         reading.limitedByManual = status.limitedByManual;
-        reading.houseActive = status.houseActive;
-        reading.housePhaseHint = status.housePhaseHint;
-        reading.housePhaseMonoLossDb = status.housePhaseMonoLossDb;
         reading.protectionDb = status.protectionDb;
         reading.effectiveTargetLufs = status.effectiveTargetLufs;
         reading.resolvedStyle = status.resolvedStyle;
@@ -246,22 +235,14 @@ namespace celadon::ui::glazestatus
             return view;
         }
 
-        // 2. 琥珀：House 反相提示（只亮灯，不自动收单）。压过后面所有条，压不过第 1 条。
-        if (reading.houseActive && reading.housePhaseHint)
-        {
-            view.kind = Kind::housePhaseHint;
-            view.houseLossTenthsDb = help::houseLossTenthsFor (reading.housePhaseMonoLossDb);
-            return view;
-        }
-
-        // 3. 琥珀：导出时主段统计还没热。coldExport 由编排器写成「离线且 c < 0.5」。
+        // 2. 琥珀：导出时主段统计还没热。coldExport 由编排器写成「离线且 c < 0.5」。
         if (reading.coldExport)
         {
             view.kind = Kind::coldExport;
             return view;
         }
 
-        // 4. 琥珀：守护族正在退，或已经退到底仍超。
+        // 3. 琥珀：预算守护正在退，或已经退到底仍超。
         if (reading.guardEngaged)
         {
             view.kind = Kind::guardLimited;
@@ -270,26 +251,25 @@ namespace celadon::ui::glazestatus
             return view;
         }
 
-        // 5. 梅子青：还没听到足够的主段落，方案偏保守。非有限的 c 也走这里。
+        // 4. 梅子青：还没听到足够的主段落，方案偏保守。非有限的 c 也走这里。
         if (confidenceLow (reading.confidence))
         {
             view.kind = Kind::starting;
             return view;
         }
 
-        // 6. 灰青：这一段较轻，净增益被棘轮按住（只降不升）。
+        // 5. 灰青：这一段较轻，净增益被棘轮按住（只降不升）。
         if (std::isfinite (reading.currentMainness) && reading.currentMainness < mainnessHold)
         {
             view.kind = Kind::holding;
             return view;
         }
 
-        // 7. 灰青：跟着已发布画像走。House 档在前面加「House ·」。
+        // 6. 灰青：跟着已发布画像走。
         view.kind = Kind::following;
-        view.housePrefix = reading.houseActive;
         view.chosenStyle = chosenStyle;
         view.resolvedStyle = chosenStyle == glaze::Style::automatic ? reading.resolvedStyle : glaze::Style::automatic;
-        view.styleSegment = (view.housePrefix ? 1 : 0) + 1;
+        view.styleSegment = 1;
 
         if (std::isfinite (reading.effectiveTargetLufs))
         {
@@ -310,9 +290,6 @@ namespace celadon::ui::glazestatus
 
             case Kind::limitedByManual:
                 return utf8 ("受手动设置限制");
-
-            case Kind::housePhaseHint:
-                return help::housePhaseHintText (view.houseLossTenthsDb, Language::chinese);
 
             case Kind::coldExport:
                 return utf8 ("导出时主段统计还没热，第一个 drop 可能偏轻：先播放一遍再导出");
@@ -344,9 +321,6 @@ namespace celadon::ui::glazestatus
 
                 case Kind::limitedByManual:
                     return "Limited by manual settings";
-
-                case Kind::housePhaseHint:
-                    return help::housePhaseHintText (view.houseLossTenthsDb, Language::english);
 
                 case Kind::coldExport:
                     return "Main-section stats are still cold at export, so the first drop may come out quiet: play through once, then export";
@@ -406,7 +380,6 @@ namespace celadon::ui::glazestatus
                 return Tone::accent;
 
             case Kind::limitedByManual:
-            case Kind::housePhaseHint:
             case Kind::coldExport:
             case Kind::guardLimited:
                 return Tone::amber;

@@ -87,6 +87,9 @@ namespace celadon::ui
             { Text::notMatched,         "未等响（响度差 {0} dB）",  "not matched ({0} dB apart)" },
             { Text::differenceUnknown,  "播放几秒后测出响度差",     "play a few seconds to measure" },
             { Text::legacyDiscarded,    "旧的聆听结果已丢弃，声音会变", "The old listening result was discarded, so the sound will change" },
+            // T-108（ADR-039 Q2）：旧工程存着非默认的曲风 / 交付（T-038，已删），本次打开改回通用 + 标准。
+            { Text::genreDeliveryReset, "曲风与交付已取消，已改回通用 + 标准，声音会变",
+                                        "Genre/delivery removed, now General + Standard; sound changes" },
             // 键位按平台写：精调是 isCommandDown()（Mac 的 ⌘、Windows 的 Ctrl），输入是 Alt（Mac 键盘上印的是 Option）。
            #if JUCE_MAC
             { Text::hintDrag,           "拖动调节 · \xe2\x8c\x98 精调",  "Drag \xc2\xb7 \xe2\x8c\x98 for fine" },
@@ -103,7 +106,6 @@ namespace celadon::ui
             { Text::legendAttention,    "需要注意",                 "Attention" },
             { Text::chipManual,         "全手动",                   "Manual" },
             { Text::chipManualLimit,    "受手动",                   "Manual limit" },
-            { Text::chipPhase,          "反相",                     "Phase" },
             { Text::chipExport,         "导出",                     "Export" },
             { Text::chipLimited,        "受限",                     "Limited" },
             { Text::chipStarting,       "起步",                     "Starting" },
@@ -238,18 +240,6 @@ namespace celadon::ui
             { Text::warnNonFinite,      "已屏蔽 {0} 个异常音频块（NaN/Inf）", "Blocked {0} invalid audio blocks (NaN/Inf)" },
             { Text::debugBuild,         "Debug 构建：CPU 远高于 Release，只供调试",
                                         "Debug build: far higher CPU than Release, for debugging only" },
-
-            // ---- 曲风与交付（T-038）：选项顺序 = 参数 glaze_genre / glaze_delivery 的下标（ParameterIds.h；只许在末尾追加）。
-            // 三种 House 的名字中英文都写英文简称（Deep / Tech / Melodic；全名在悬停气泡里）：曲风名本来就是英文，选择器也放得下。
-            { Text::genreCaption,       "曲风",                     "Genre" },
-            { Text::genreGeneral,       "通用",                     "General" },
-            { Text::genreDeep,          "Deep",                     "Deep" },
-            { Text::genreTech,          "Tech",                     "Tech" },
-            { Text::genreMelodic,       "Melodic",                  "Melodic" },
-            { Text::deliveryCaption,    "交付",                     "Delivery" },
-            { Text::deliveryStandard,   "标准",                     "Standard" },
-            { Text::deliveryStreaming,  "流媒体",                   "Streaming" },
-            { Text::deliveryClub,       "俱乐部",                   "Club" },
 
             // ---- T-107 重构包 A：中层两块侧板（左「此刻在推什么」、右「交付」）。措辞是效果图用的，T-086 定稿 ----
             { Text::sideNowTitle,       "此刻在推什么",             "GLAZE now" },

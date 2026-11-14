@@ -24,7 +24,7 @@ namespace celadon::ui
                         public juce::SettableTooltipClient
     {
     public:
-        enum class Chip { manual, manualLimit, phase, coldExport, limited, starting, holding, following };
+        enum class Chip { manual, manualLimit, coldExport, limited, starting, holding, following };
 
         GlazeTitle();
 
@@ -72,13 +72,14 @@ namespace celadon::ui
 
         void setLines (const juce::String& first, const juce::String& second, bool isHint, bool isWarning = false);
         const juce::String& getFirstLine() const noexcept   { return line1; }
+        const juce::String& getSecondLine() const noexcept  { return line2; }
         bool isShowingHint() const noexcept                 { return hint; }
         void paint (juce::Graphics&) override;
 
     private:
         juce::String line1, line2;
         bool hint = false;
-        bool warning = false;   // 第二行用琥珀色：本次打开的旧工程提示
+        bool warning = false;   // 用琥珀色：本次打开的旧工程提示（平时只有第二行有字）
     };
 
     // 右下角的颜色图例：手动设置（青色渐变）· GLAZE 自动调整（紫）· 需要注意（橙）。

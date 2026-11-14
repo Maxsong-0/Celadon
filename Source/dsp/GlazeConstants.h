@@ -58,7 +58,7 @@ namespace celadon::glaze
         float limitGrPeakCapDb = 0.0f;
         float recoverCap = 0.0f;             // Balance Recover 自动增量上限（0 ～ 100）
         float tameCap = 0.0f;                // Balance Tame 自动增量上限（0 ～ 100）
-        float toneMaxDb = 0.75f;             // Tone 自动增量绝对值上限（× GLAZE）；T-038 House 曲风往亮改用 GenreConstants::toneMaxBrightDb
+        float toneMaxDb = 0.75f;             // Tone 自动增量绝对值上限（× GLAZE）
                                              // （GlazePlanner toneBrightCapDb），往暗仍是本项
         // 分配权重：初始方案里超限估计按此分给四个模块（只影响初始方案，最终以约束与实测为准）
         float shareHeat = 0.0f, shareGlue = 0.0f, shareClip = 0.0f, shareLimit = 1.0f;
@@ -84,50 +84,11 @@ namespace celadon::glaze
         float automaticHeatFloor = 0.0f;
     };
 
-    // ---- T-038 曲风与交付（设计规格-曲风与交付 第 3、4 节，设计规格-曲风-House学习方式；ADR-026）----
-    // 默认值就是出厂值（只在这里写一次）。2026-10-01 按 Jamendo 45 首标定（规格第 3.2 节，报告 docs/validation/2026-10-01-T038-calibration/）：
-    // Tone 参考斜率改成 −2.25（三类相同）；门控 ΔG / 低频门系数、64 / 8 小节、重开条件数据支持起点值、未改；其余待 Max 试听再调。
-    // 标定快照存取同其他字段；旧快照缺字段按出厂值读
-    // （GlazeConstants.cpp visitGenre / visitHouse / visitDelivery）——通用 + 标准用不到这些字段，旧工程逐位不变。
-
-    // 一个 House 子类覆盖的音色字段（在风格权重混合之后覆盖；通用档不覆盖任何一项）。
-    struct GenreConstants
+    // 段落账（SegmentLedger）的分段常数。T-038 起原是 House 共用常数（HouseConstants）的一项；T-108 删掉曲风与整本账的门控后
+    // 实时段落账只用这一项，数值不变。不进 Constants（不进标定快照与存档）：段落账一律用这里的默认值。
+    struct SegmentConstants
     {
-        float toneReferenceSlopeDbPerOct = -2.25f;  // 覆盖 StyleConstants::toneReferenceSlopeDbPerOct（2026-10-01 标定，三类相同）
-        float toneMaxBrightDb = 0.4f;               // Tone 往亮的上限（往暗仍用 StyleConstants::toneMaxDb）
-        float clayLowCutTargetHz = 25.0f;           // 覆盖 StyleConstants::clayLowCutTargetHz（ADR-026 第 5 条）
-        float clayWidthStyleFactor = 0.0f;          // 覆盖 StyleConstants::clayWidthStyleFactor：House 档不自动加宽
-    };
-
-    // T-097：两个守门按曲风开关（设计规格-实时GLAZE-主段与增益 第 4 节第 4、5 条）。落差守门「4/4 型开、其余先关」；PSR 守门
-    // 「House / 通用关，留给以后的曲风」。关着的守门照常量测，已有的退让按它的回程速率放回 0（不跳变）。
-    struct GuardSwitches
-    {
-        bool contrast = false;   // 落差守门（ContrastGuard）
-        bool psr = false;        // PSR 守门（PsrGuard）
-    };
-
-    // 三个 House 子类共用的学习方式、锁定条件、限幅跟拍、反相提示常数（设计规格-曲风-House学习方式）。
-    struct HouseConstants
-    {
-        float gateWidthLu = 3.0f;                   // 响度门 ΔG：段响度 ≥ S_ref − 本项（第 2.3 节）
-        float lowGateFactor = 0.6f;                 // 低频门：段 lowShare ≥ 低频参考 × 本项
-        int lockSegments = 64;                      // 锁定条件 1：不重复的已听小节（第 3.1 节）
-        int requiredFullSegments = 8;               // 锁定条件 2：满编段小节
-        double fallbackSegmentSeconds = 2.0;        // 宿主没给拍点时每段秒数（第 2.1 节）
-        double fallbackLockSeconds = 124.0;         // 分 2 秒段时的锁定条件 1（不重复的有效音频秒数）
-        double fallbackFullSeconds = 16.0;          // 分 2 秒段时的锁定条件 2
-        double fastTransitionSeconds = 0.5;         // 新响段进来时的方案过渡（第 3.2 节；与 mismatchTransitionSeconds 同速）
-        float reopenAboveProfileLu = 3.0f;          // 锁定后重开：段响度 ≥ 画像 I + 本项（第 4 节）
-        int reopenSegments = 4;                     //   且连续这么多小节
-        int maxReopens = 2;                         //   每份画像最多重开次数
-        float beatReleaseDivisor = 3.0f;            // 限幅慢段释放上限 = 一拍 ÷ 本项（第 8 节）
-        float beatMinBpm = 100.0f;                  // 宿主 BPM 在 [Min, Max] 里才封顶
-        float beatMaxBpm = 140.0f;
-        float phaseHintCorrelation = 0.6f;          // 反相提示：慢路低频相关度 < 本项（第 9 节）
-        int phaseHintSegments = 4;                  //   持续这么多小节
-        double phaseHintFallbackSeconds = 8.0;      //   宿主没给拍点时改为持续这么多秒
-        GuardSwitches guards { true, false };       // T-097：House 三类落差守门开、PSR 守门关
+        double fallbackSegmentSeconds = 2.0;        // 宿主没给拍点时每段秒数
     };
 
     // T-048 实时画像的常数（设计规格-实时GLAZE-主段与增益 第 2、3、6 节）。阶段 1 插件不读，只给 LiveProfile、测试与渲染工具用。
@@ -136,7 +97,7 @@ namespace celadon::glaze
     {
         float gateWidthLu = 3.0f;            // 响度门 ΔG：段响度在 S_ref − ΔG 处 m 的响度因子 = 0.5
         float loudnessRampLu = 1.5f;         // 响度门斜坡宽：因子 = clamp(0.5 + (L_seg − (S_ref − ΔG)) ÷ 本项, 0, 1)
-        float lowGateFactor = 0.6f;          // 低频门系数（只 4/4 型用；≤ 0 = 不用低频门）
+        float lowGateFactor = 0.6f;          // 低频门系数（≤ 0 = 不用低频门；出厂的 loudness 模型不用）
         float lowRampWidth = 0.15f;          // 低频门斜坡宽（lowShare ÷ lowRef 的单位）
         float referencePercentile = 0.95f;   // S_ref = 全部段段响度（按有效时长加权）的这个分位；lowRef 同分位
         double memoryBars = 48.0;            // W_mem：按小节分段时 = 本项 × 小节秒数（≤ 0 = 不按小节，用 memorySeconds）
@@ -147,13 +108,8 @@ namespace celadon::glaze
 
     struct LiveConstants
     {
-        // 4/4 型（House 三类；以后 Techno、EDM / Trance、DnB / Bass）：ΔG 3、低频门 0.6、P95 ①；斜坡宽、W_mem ③。
-        // M0：Max 2026-10-04 拍板只上常数 A，原 T-038 标定的 8 小节改为 6，只动 c（结构与其余常数不动）。
-        LiveModelConstants fourOnFloor { 3.0f, 1.5f, 0.6f, 0.15f, 0.95f, 48.0, 90.0, 6.0, 16.0 };
-        // 响度型（通用；以后 Hip-Hop / Pop、Rock / Metal）：只用响度门 ③
+        // 主段模型（响度型：只用响度门 ③）。T-108 删掉曲风后只剩这一种；原来 House 用的 4/4 型（fourOnFloor）与没人用的被动型（passive）已删。
         LiveModelConstants loudness { 6.0f, 3.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
-        // 被动型（以后 Acoustic / Jazz、Classical、Ambient）：有效音频一律 m = 1，门与分位不用 ③
-        LiveModelConstants passive { 0.0f, 1.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
 
         double referenceMemorySeconds = 180.0;   // S_ref / lowRef / LRA 的直方图按有效音频时长遗忘的时间常数 ③
         float mainThreshold = 0.5f;              // 「主段」的 m 门：无主段判定、以后的棘轮都用它
@@ -177,26 +133,6 @@ namespace celadon::glaze
         double publishDelaySeconds = 0.5;
     };
 
-    // 交付三档（设计规格-曲风与交付 第 4.1 节）。「标准」不用这里的任何一项：仍按风格 preferredLufs 与 min / maxPreferredLufs。
-    struct DeliveryConstants
-    {
-        float streamingTargetLufs = -10.0f;
-        float streamingMinLufs = -12.0f;
-        float streamingMaxLufs = -8.0f;
-        float streamingTruePeakCapDbtp = -2.0f;     // 有效 Ceiling 不高于本项（Spotify / SoundCloud：响于 −14 LUFS 时 < −2 dBTP）
-        float clubTargetLufs = -7.0f;
-        float clubMinLufs = -9.0f;
-        float clubMaxLufs = -5.0f;
-        float styleOffsetReferenceLufs = -9.0f;     // 风格偏移 = 风格混合后的 preferredLufs − 本项（冲击 = 0）
-        // 俱乐部档放宽的限幅预算（Max 2026-10-01：风格预算内推不到 −7 LUFS 时「俱乐部档放宽预算」）：只在俱乐部档、只对风格里
-        // 生效的（> 0）限幅三项各加这么多 dB，方案与运行时保护层 / 上游监视用同一套（GlazePlanner blendConstants 四参数版）。
-        // Heat / Glue / Clip 预算不动。出厂值 2026-10-02 起为 0（T-045，ADR-029）：三种风格的预算本身已各放宽 +1 / +2 / +3 dB，正好等于原来的
-        // 俱乐部预算，再叠一层会让合成 House 曲 breakdown → drop 落差少 2.2 LU（门槛 1.5）；Max 选「不再叠加」。机制保留，快照里仍可设。
-        float clubLimitGrMeanExtraDb = 0.0f;
-        float clubLimitGrP95ExtraDb = 0.0f;
-        float clubLimitGrPeakExtraDb = 0.0f;
-    };
-
     struct Constants
     {
         int version = 1;             // 标定快照版本
@@ -204,11 +140,8 @@ namespace celadon::glaze
 
         StyleConstants warm, punchy, clean;
 
-        // T-038：三个 House 子类、House 共用常数、交付三档。出厂值见 GlazeConstants.cpp makeFactory（子类的音色起点值）。
-        GenreConstants deepHouse, techHouse, melodicProgressive;
-        HouseConstants house;
-        DeliveryConstants delivery;
-        GuardSwitches generalGuards;   // T-097：通用档两个守门都关（House 三类的在 house.guards）
+        // T-108：原来这里有三个 House 子类、House 共用常数、交付三档与守门开关（T-038 / T-097），随曲风与交付一起删掉。旧快照里的
+        // deepHouse_* / techHouse_* / melodicProgressive_* / house_* / delivery_* / general_*GuardOn 属性读的时候不认、直接忽略。
 
         // 目标：L_pref = clamp(L_style − lraSlope × max(0, LRA − lraReferenceLu), minPreferred, maxPreferred)
         float lraReferenceLu = 6.0f;
@@ -390,7 +323,7 @@ namespace celadon::glaze
         float clayWidthMaxDb = 1.5f;                  // widthDb = 本项 · need_w · c · g · 风格系数（随 g 线性），再 × 代价系数
         float clayMinCorrelationAfterWidth = 0.25f;   // 加宽后预测高频相关度下限（决策器按画像、ClayGuard 按实时视图）
         // ClayGuard
-        // 慢路低频相关度低于本项 → 反相提示（修坯「收单」灯那条；House 档的 housePhaseHint 另看 house.phaseHintCorrelation）。
+        // 慢路低频相关度低于本项 → 反相提示（修坯「收单」灯那条）。
         // ADR-012 定 −0.2：单声道回放低音损失 > 4 dB；ADR-015 起只提示、不改声音。
         float clayGuardPhaseCorrelation = -0.2f;
         double clayGuardPhaseAttackSeconds = 0.1;
@@ -402,8 +335,7 @@ namespace celadon::glaze
         // 代价 = 画像里「候选处理跑在原始输入上」量到的 100 ms 块峰值 P99 变化（dB，GlazeTypes.h MusicProfile 的 *PeakCostDb）；
         // 代价系数 f = ramp(代价, clayCostZeroDb, clayCostFullDb)（反向斜坡），乘在低切、加宽的需要度之后（ADR-015 起收单自动态不做，
         // 收单代价照测不用）。快照读写同其他 clay*：缺字段按 0 读——代价两端 0 / 0 → 判断不了 → 三项中性。（ADR-012 的收单损失两端
-        // clayMonoLossLowDb / HighDb 已随 ADR-015 的退役一起删，见上；决策器算 monoLossDb 的代码已在 T-018 删除。ClayGuard 的 House 反相提示
-        // （ClayGuard.cpp houseMonoLossDb）用的是同一个公式，但亮起的门限只读 house.phaseHintCorrelation，与这两项无关。）
+        // clayMonoLossLowDb / HighDb 已随 ADR-015 的退役一起删，见上；决策器算 monoLossDb 的代码已在 T-018 删除。）
         float clayCostFullDb = 0.2f;                  // 先试后用：代价 ≤ 本项 → 照做（系数 1）
         float clayCostZeroDb = 0.6f;                  // 代价 ≥ 本项 → 不做（系数 0）；两者之间线性
         // 慢路 < 本项时，快路 < clayGuardPhaseCorrelation 也算触发。ADR-014（2026-09-26 真歌门槛）：0.3 → 0.1——慢路在 0.1 ～ 0.3
@@ -441,20 +373,6 @@ namespace celadon::glaze
 
     // 某风格的常数（automatic 不对应单一常数：由决策器按权重混合）。
     const StyleConstants& constantsFor (const Constants&, Style concreteStyle) noexcept;
-
-    // T-038：某曲风覆盖的音色字段；通用档返回 nullptr（不覆盖）。
-    const GenreConstants* genreConstantsFor (const Constants&, Genre) noexcept;
-
-    // T-097：此曲风的守门开关（House 三类共用 house.guards，通用用 generalGuards）。
-    inline const GuardSwitches& guardSwitchesFor (const Constants& constants, Genre genre) noexcept
-    {
-        return isHouse (genre) ? constants.house.guards : constants.generalGuards;
-    }
-
-    // T-097 Q15 A：落差 / PSR 守门不再有 −3 dB 底（规格只给预算环写了 −3 封底），实际的底是编排器每个子块交进去的界（−自动部分）。
-    // 编排器给两个守门设的 floorDb 只剩这个绝对安全下限：Limit Gain 的范围是 0 ～ 24 dB（ParameterRanges::limitGain），
-    // 自动部分不会超过它，所以正常永远碰不到。
-    inline constexpr float guardSafetyFloorDb = -24.0f;
 
     // 保存 / 读取（读取失败返回 false，out 不变）。
     std::unique_ptr<juce::XmlElement> toXml (const Constants&);
@@ -500,7 +418,7 @@ namespace celadon::glaze
             // T-032 R6-02 追加：布尔字段（Plan::automaticLevelWithdrawn）同样可以「旧存档缺属性按默认值读」；默认值可以是另一个
             // 已读到的字段（visitPlan 里传 plan.limitedByManual），写的一方忽略它。字段类型必须正好是 bool。
             void optionalField (const char* name, const bool& value, bool legacyDefault);
-            // T-038 追加：整数字段（House 常数里的小节数）同样可以「旧快照缺字段按默认值读」。字段类型必须正好是 int。
+            // T-038 追加：整数字段同样可以「旧快照缺字段按默认值读」。字段类型必须正好是 int。
             void optionalField (const char* name, const int& value, int legacyDefault);
 
             template <size_t N>

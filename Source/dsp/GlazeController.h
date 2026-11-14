@@ -13,7 +13,7 @@
                                                                                       //  （与 v0.5 同一时机，getLatencySamples 照样立即反映 Lookahead）
         CeladonChain::process       → controller.analyzeSpectrum (balance);        // 每个宿主块开头一次：上一块 Balance 新发布的帧（见该函数注释）
                                       GLAZE > 0 时宿主块在预算环 10 ms 时隙边界与 OUT 表 100 ms 子块边界中较近的一个处切片
-                                      （getGuardSamplesUntilBoundary，T-097；宿主在播、给了位置或拍点与速度时，后几片先
+                                      （getSamplesUntilSliceBoundary，T-097；子块边界 T-108 删守门后照旧切：每片一次 endBlock，少切一刀通用档的声音就变；宿主在播、给了位置或拍点与速度时，后几片先
                                       setHostInfo 到片起点，走完再补到块尾；试听差值时另按差值缓冲长度切，与 GLAZE 无关），每片：
                                       inputMeter.process (io);
                                       controller.analyzeInput (io, inputMeter);     // 入口特征（模块处理前）
@@ -23,7 +23,7 @@
                                       各片都用本块 beginBlock 给的同一份参数；endBlock 新算出的量到下一块 setParams 才交给模块。
 
     实际参数 = clamp(手动值 + 已施加的自动增量)（applyIncrements）；Tone / Tame / Heat / Glue 另有实时跟随，Limit Gain 另加 G_trim
-    与三个守门的最小退让（见下面「实现口径」）。GLAZE ≤ 0（含 NaN）时已施加增量、G_trim、实时跟随量与守门退让当块落到 0
+    与预算环的退让（见下面「实现口径」）。GLAZE ≤ 0（含 NaN）时已施加增量、G_trim、实时跟随量与守门退让当块落到 0
     （snapAutomatic），applyIncrements 对 0 增量原样返回手动值，其余附加项都只在 GLAZE > 0 时做：GLAZE ≤ 0 时实际参数逐位等于
     手动值（不经任何额外运算；ADR-035 决定 2；Clay 按下面的三态合成）。
 
@@ -41,7 +41,7 @@
 
     线程：
       - 音频线程：setHostInfo / beginBlock / analyzeSpectrum / analyzeInput / endBlock / handleDiscontinuity / hostReset。0 分配、0 锁。
-      - 消息线程：prepare / createStateXml / restoreStateXml / takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveModel；
+      - 消息线程：prepare / createStateXml / restoreStateXml / takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveConstants；
         requestRelearn 已是空操作。
       - 任何线程：getStatus（无锁快照，endBlock 每块发布一份；legacySessionDiscarded 另读一个原子标志）。
       编排器不再在两线程之间交换「已提交版本」（旧版音频线程 try-lock 发布、消息线程持锁读写的那一套随状态机删掉了）：
@@ -62,7 +62,7 @@
     主段度 m：endBlock 每块用实时段落账正在开着的那一段的暂判读数算（LiveProfile::mainnessFor；静段为 0，其余读不到的情况为 1），
     交给出口电平跟踪器（OutputLevelTracker：m ≥ 0.5 的段才进出口主段电平），也决定增益棘轮。
 
-    目标方案：GLAZE > 0 时 makePlan 只在三种时候算——还没有目标方案；本块 beginBlock 发现 GLAZE / 风格 / 曲风 / 交付或影响方案的
+    目标方案：GLAZE > 0 时 makePlan 只在三种时候算——还没有目标方案；本块 beginBlock 发现 GLAZE / 风格或影响方案的
     手动值变了；编排器自己的时间线（已处理样本数，随工程保存）跨过 1 s 网格。不提交、不过渡，maxGainDb 恒为不限。每次重算时
     「自动」风格的权重朝 resolveAutomaticWeights 走一步（有实时画像时；步长 = weightPerSecond × 本块时长），混合后的风格常数
     交给预算环作上限，其中手动单独已超预算的项（Plan::manualBudgetMask）置 0 = 不设约束。
@@ -77,13 +77,13 @@
     Limit Gain 附加项（applyLimitExtras，beginBlock 末尾）：
       - G_trim：输出侧慢修正，取代校准器。endBlock 按「方案净增益 − 实测净增益」积分（T-106 起；改前是「方案目标响度 − 出口主段
         电平」），≤ 0.05 dB/s，钳在 ±3 dB；施加时负的 G_trim 最多撤掉自动加上去的那部分。宿主旁通 / 听原声、Color 或 Limit 旁通、
-        电平类自动全部撤回、还没有目标方案或读数时不积分；T-097 起（抗积分饱和，ADR-036 决定 3）另有两类冻结：任一守门自己的
-        退让量 < 0（在退、停住、回程中都算）或这一块刚改过某个退让量；1 s 内改过参数（风格 / 曲风 / 交付 / GLAZE / 规划相关手动值
+        电平类自动全部撤回、还没有目标方案或读数时不积分；T-097 起（抗积分饱和，ADR-036 决定 3）另有两类冻结：预算环的
+        退让量 < 0（在退、停住、回程中都算）或这一块刚改过退让量；1 s 内改过参数（风格 / GLAZE / 规划相关手动值
         与上一块不同，插件刚开的第一块不算；按处理过的时长计，存进 CONTROL 的 secondsSinceParamChange）。
         T-106（ADR-038）换误差口径，读数都来自 OutputLevelTracker::evidenceAt：
           · 实测净增益 = 出口主段电平 − 入口主段电平，两侧是跟踪器里的同一批段、同样的权重（入口样本由 analyzeInput 交给
             跟踪器，和同一片的出口样本记进同一段）。方案净增益 = Plan::effectiveGainDb。改前拿出口去比「画像的输入响度 I + 方案
-            净增益」，I 是画像自己那套窗口算的（其余曲风还是全部有效音频的门控积分），和出口历史不是同一批段。
+            净增益」，I 是画像自己那套窗口算的（全部有效音频的门控积分），和出口历史不是同一批段。
           · 出口那一侧不用实录值，而是折算到「手动 + 这一个宿主块执行的自动增量 + G_trim、不含守门退让」的 Limit Gain 上的值
             （每段按当块执行的 Limit Gain 折回 0 dB 存着），所以 G_trim 走 δ、读数当块就变 δ。折算只在录制增益附近成立：录制
             增益离参考增益 ≤ 1 dB 的段全算，≥ 3 dB 的不算，中间线性；加权后不足 3 s 不积分。
@@ -99,45 +99,37 @@
           · 已知近似：每片记的 Limit Gain 是交给限幅器的目标值（限幅器另有 20 ms 平滑与前瞻延迟），入口比出口早一个链延迟，
             都不对齐；到位的片上差 ≤ 0.002 dB。
         旧存档（OUTPUT_LEVEL 没有 T-106 的字段）读入时出口电平历史清空、G_trim 归 0 重新收敛。
-      - 三个守门各出一份 ≤ 0 的退让：预算环 GlazeGuard、落差守门 ContrastGuard、PSR 守门 PsrGuard；取最小的一份，只退 G_trim 之后
-        高出手动 Gain 的那部分。预算环按 10 ms 时隙走、−3 dB 封底；落差守门（入口 + 出口各一份 3 s 窗与 τ 180 s 直方图）与 PSR
-        守门（出口 3 s PSR，闭环）每个 OUT 表 100 ms 子块走一步（stepSubBlockGuards 按 endSample 配对两只表的子块，每个子块只推进
-        一次），没有固定的底，最多退到自动加上去的全部（界 −max(0, 增量.gain + G_trim) 每个子块交给守门；已比界更深时保持、不往回弹；
-        ADR-036 决定 1、2）。两个子块守门按曲风开关（guardSwitchesFor：落差守门 House 三类开、通用关；PSR 守门出厂全关），关着时
-        有效音乐里退让按该守门的回程速率放回 0。宿主旁通 / 听原声、Color 或 Limit 旁通时守门冻结、退让保持（预算环丢掉未完成的
-        时隙，两个子块守门断开 3 s 窗、不推进）。
+      - 守门：预算环 GlazeGuard 出一份 ≤ 0 的退让，只退 G_trim 之后高出手动 Gain 的那部分；按 10 ms 时隙走、−3 dB 封底。
+        宿主旁通 / 听原声、Color 或 Limit 旁通时冻结、退让保持（丢掉未完成的时隙）。T-097 另有落差守门 ContrastGuard 与 PSR 守门
+        PsrGuard（按 OUT 表 100 ms 子块走），只在 House 开或出厂全关；T-108 删掉曲风后通用档永远不跑，两个守门连代码一起删掉
+        （ADR-039，Q5 = A）。
       - 电平类自动全部撤回（Plan::automaticLevelWithdrawn）时守门不跑、G_trim 与退让都不加（Limit Gain 就是 applyIncrements 的结果）。
       - 加 G_trim、再加退让，两步各钳在 0 ～ 24 dB。
 
-    状态（getStatus）：phase 恒为 unlearned、calibrationValid 恒为 false，requiredSeconds 与 houseTargetSegments /
-    houseRequiredFullSegments / houseTargetSeconds 填 0，其余聆听 / 校准 / House 锁定的旧字段不写、停在结构默认值（GlazeTypes.h
-    Status；.cpp publishStatus）。界面状态行（GlazeStatusText readingFromStatus）读 confidence、currentMainness、coldExport
-    （离线且 c < 0.5）、guardCause / guardEngaged / protectionDb（三个守门里正在起作用、退得最深的那一扇）、limitedByManual，
-    以及 houseActive / housePhaseHint / housePhaseMonoLossDb、effectiveTargetLufs、resolvedStyle。planLimited（预算环退到下限
+    状态（getStatus）：phase 恒为 unlearned、calibrationValid 恒为 false，requiredSeconds 填 0，其余聆听 / 校准的旧字段不写、停在
+    结构默认值（GlazeTypes.h Status；.cpp publishStatus）。界面状态行（GlazeStatusText readingFromStatus）读 confidence、
+    currentMainness、coldExport（离线且 c < 0.5）、guardCause / guardEngaged / protectionDb（预算环正在起作用时）、limitedByManual，
+    以及 effectiveTargetLufs、resolvedStyle。planLimited（预算环退到下限
     仍超）照常发布，但状态行只认 guardEngaged、不读它（tests/GlazeStatusTextTests.cpp「planLimited does not stand in for
     guardEngaged」）；legacySessionDiscarded 由编辑器读，点亮一次「旧的聆听结果已丢弃」提示。
 
     工程：只存 LIVE（GLAZE_STATE formatVersion 2，LIVE 节点外层 zlib + base64）——实时画像、已施加增量（含 Limit Gain 的回差
-    死区状态）、G_trim、风格权重、实时跟随量、时间线、三个守门、出口主段电平、Clay 自动值 / ClayGuard 状态 / 压力反馈缩放。
+    死区状态）、G_trim、风格权重、实时跟随量、时间线、预算环、出口主段电平、Clay 自动值 / ClayGuard 状态 / 压力反馈缩放（另给
+    0.1.8.10 写两份空的 CONTRAST_GUARD / PSR_GUARD，读档时不看）。
     读到更高版本或坏档 → 冷启动；旧格式（formatVersion 1，或带 GLAZE_PROFILE / PLAN / CALIBRATION / EXECUTION）→ 整份丢弃、
     冷启动，Status::legacySessionDiscarded 让界面提示一次。读档后目标方案在第一块 GLAZE > 0 的 endBlock 重算。
 
     宿主 reset / 跳播 / 回绕：分析器在此刻断开短窗口，实时段落账开着的段截到此刻、就地定稿交给段接收者（插件里是
     LiveProfile；MusicAnalyzer handleDiscontinuity）；hostReset 另让预算环丢掉未完成的时隙、出口电平跟踪器清 K 加权滤波器、
-    Clay 压力反馈的累计与守护回收指示清零；三种都让落差 / PSR 守门断开 3 s 窗（跨过这一刻的子块不进窗，T-097）。LIVE 里的统计
-    不清（ADR-030 决定 6），已施加增量、G_trim、目标方案与守门的退让、计时、落差直方图也都不动。
+    Clay 压力反馈的累计与守护回收指示清零。LIVE 里的统计不清（ADR-030 决定 6），已施加增量、G_trim、目标方案与守门的退让、
+    计时也都不动。
 
     离线导出：与实时同一条路径，分析器把离线当作在播；c < 0.5 时 Status::coldExport 提示。先播一遍再导出才从头到位，重复导出
     不保证逐位相同（ADR-030 决定 6）。
 
-    曲风：每块 analyzer.setGenre 跟着此刻的曲风；曲风与交付都进 makePlan 与预算环上限。主段模型（mainSectionModelFor）由
-    syncLiveModel 在消息线程交给 LiveProfile；插件里只有 prepareToPlay 调到它（CeladonChain::prepare 与 syncGlazeLiveModel），
-    播放中换曲风，主段模型要到下一次 prepareToPlay 才切。House 子类在 GLAZE > 0 且自动 Clay 可用时另算反相提示
-    （ClayGuard::updateHouseHint：资格 = 此刻是满编段，条件须连续成立 phaseHintSegments 小节，不按小节分段时按
-    phaseHintFallbackSeconds 秒）。但阶段 2 起段落账不再算整本账的门控（SegmentLedger.cpp「读数」节：summary.valid 保持 false），
-    isCurrentSegmentFull 恒为 false，这条提示实际不会亮（端到端用例 testHousePhaseHintEndToEnd 现不在 runTest 里）；按规格「保留」
-    修代码还是规格追认取消，待 Max 定（T-094 复查发现）。T-038 的 House 锁定条件、暂定方案与锁定后防漏网都已删掉（ADR-030 取代
-    设计规格-曲风-House学习方式的锁定条件）。
+    T-108（ADR-039）删掉曲风与交付：没有 House 档的主段模型、音色覆盖、限幅跟拍、守门开关与反相提示，也没有流媒体 / 俱乐部的
+    目标响度与 −2 dBTP 封顶。主段模型只剩响度型（LiveConstants::loudness）；syncLiveConstants 在消息线程把出厂 LiveConstants
+    交给 LiveProfile（CeladonChain::prepare 调；插件的 prepareToPlay 每次另经 CeladonChain::syncGlazeLiveConstants 再调一次，同规格重启也算）。
 
   ==============================================================================
 */
@@ -167,7 +159,7 @@ namespace celadon::glaze
         GlazeController();
         ~GlazeController();
 
-        // 消息线程。分配全部固定容量状态。按新规格 prepare 分析器、三个守门与出口电平跟踪器，ClayGuard、压力反馈监视器的累计与
+        // 消息线程。分配全部固定容量状态。按新规格 prepare 分析器、预算环与出口电平跟踪器，ClayGuard、压力反馈监视器的累计与
         // 守护回收监视清零；时间线归 0、目标方案作废（第一块 GLAZE > 0 的 endBlock 重算），已施加增量、G_trim、实时跟随量与守门退让
         // 落到 0（snapAutomatic）。不碰 LiveProfile（链另外 prepare 它）、自动风格权重与压力反馈缩放；卸掉 setLiveSegmentSink 挂的
         // 外部接收者，有 LiveProfile 时把分析器重新绑回它。换采样率 / 块长时链先 createStateXml、prepare 之后立刻读回
@@ -180,9 +172,9 @@ namespace celadon::glaze
 
         // 宿主 reset / 播放中途重置（链的 reset 与 restartWithFadeIn 调）：分析器在此刻断开短窗口（同跳播：开着的实时段截到此刻
         // 定稿），预算环丢掉未完成的时隙，出口电平跟踪器只清 K 加权滤波器，Clay 压力反馈的累计与守护回收指示清零。LIVE 里的统计
-        // （实时画像、出口主段电平的段累计）不清（ADR-030 决定 6），已施加增量、G_trim、目标方案与三个守门的退让也都不动。
+        // （实时画像、出口主段电平的段累计）不清（ADR-030 决定 6），已施加增量、G_trim、目标方案与预算环的退让也都不动。
         void hostReset() noexcept;
-        int getGuardSamplesUntilBoundary() const noexcept;
+        int getSamplesUntilSliceBoundary() const noexcept;
 
         // 不连续点（setHostInfo 自己能识别跳播与回绕；这里留给调用方直接报，目前链与测试都不调它——链遇到宿主 reset 直接调
         // hostReset）。hostReset 这一种等同 hostReset()；跳播 / 回绕：分析器断开短窗口，并把开着的实时段截到此刻、定稿交给 LiveProfile
@@ -190,8 +182,7 @@ namespace celadon::glaze
         // G_trim、目标方案与守门退让不动，也不计入探针的 transportJumps / loopWraps。
         void handleDiscontinuity (Discontinuity kind) noexcept;
 
-        // 每块处理前调：manual = 用户在各模块旋钮上的值（含 glazePercent、glazeStyle、glazeGenre、glazeDelivery）；GLAZE / 风格 /
-        // 曲风 / 交付或影响方案的手动值相对上一块变了，就记下来让本块 endBlock 重算目标方案（GLAZE > 0 时）。
+        // 每块处理前调：manual = 用户在各模块旋钮上的值（含 glazePercent、glazeStyle）；GLAZE / 风格或影响方案的手动值相对上一块变了，就记下来让本块 endBlock 重算目标方案（GLAZE > 0 时）。
         // hostBypassed = 出口此刻不是母带（链传 dryPath = 宿主旁通或听原声）：endBlock 里守门与 G_trim 冻结、出口电平跟踪器不吃样本、
         // 实时跟随不走、ClayGuard 不推进时间。Listen（监听增益）在所有测点之后，不影响编排器。
         // 返回本块交给四个模块（Balance、Clay、Color、Limit）的实际参数（引用在下一次 beginBlock 之前有效）。时间只在 endBlock 里按 stats.numSamples 推进。
@@ -200,10 +191,12 @@ namespace celadon::glaze
         // 模块处理前：input = 链入口原始输入；inputMeter 已处理过这一块。
         void analyzeInput (const juce::AudioBuffer<float>& input, const LoudnessMeter& inputMeter) noexcept;
 
-        // 模块处理后：算此刻的主段度 m、出口主段电平吃样本、读实时画像、推进时间线（需要时重算目标方案）、三个守门、速率限制与棘轮、
+        // 模块处理后：算此刻的主段度 m、出口主段电平吃样本、读实时画像、推进时间线（需要时重算目标方案）、预算环、速率限制与棘轮、
         // G_trim、实时跟随、Clay 压力反馈，最后发布状态快照（顺序与条件见 .cpp Impl::endBlock）。stats = 本块模块统计。
         // balance、chainLatencySamples、spectrumDeferred 三个参数 T-048 阶段 2 起不再使用（签名留着，链照传）：频谱帧只在
         // analyzeSpectrum 里交给分析器，endBlock 不再代交——不经链、直接驱动编排器的调用方要自己调 analyzeSpectrum。
+        // inputMeter 原给 T-097 的落差守门读入口子块（T-108 随守门删掉），留着签名、不再读；outputMeter 只用来推算 100 ms 子块的
+        // 切片边界（getSamplesUntilSliceBoundary）。
         // output：出口母带（Listen 之前）。空指针时输出电平跟踪器本块不吃样本（不经链的测试）。
         void endBlock (const BalanceModule& balance, const LoudnessMeter& inputMeter, const LoudnessMeter& outputMeter,
                        const ModuleStats& stats, int chainLatencySamples, bool spectrumDeferred = false,
@@ -249,9 +242,10 @@ namespace celadon::glaze
         // 链在构造时交来它持有的 LiveProfile。prepare 把它绑成分析器的段接收者并打开实时模式。
         void attachLiveProfile (LiveProfile* profile) noexcept;
 
-        // 音频线程只记下曲风。syncLiveModel 在消息线程、音频已停时调 LiveProfile::setConstants。
-        void notePendingModel (Genre genre) noexcept;
-        void syncLiveModel() noexcept;
+        // 消息线程、音频已停时：把出厂 LiveConstants 交给 LiveProfile（LiveProfile::setConstants 同步重算已发布的那一份）。
+        // CeladonChain::prepare 每次都调；插件的 prepareToPlay 不论整体重建还是同规格只 reset，最后都经 CeladonChain::syncGlazeLiveConstants
+        // 再调一次（T-108 之前叫 syncLiveModel，另按曲风选主段模型；那时两处也都调）。
+        void syncLiveConstants() noexcept;
         bool hasPrepared() const noexcept;
 
         // ---- 任何线程 ----
@@ -262,8 +256,8 @@ namespace celadon::glaze
 
         // ---- 只给测试用 ----
 
-        // 替换出厂常数（测试用）：编排器读 activeConstants() 的地方——决策器、预算环上限与时长、ClayGuard、实时跟随、House 反相
-        // 提示——都改用它；LiveProfile 的 LiveConstants 不在这里（见 syncLiveModel）。在 prepare 之前调。
+        // 替换出厂常数（测试用）：编排器读 activeConstants() 的地方——决策器、预算环上限与时长、ClayGuard、实时跟随——都改用它；
+        // LiveProfile 的 LiveConstants 不在这里（见 syncLiveConstants）。在 prepare 之前调。
         void setConstantsForTesting (const Constants& constants);
         // T-048 阶段 2 起没有「已提交版本」：按此刻拼一份——当前常数、「自动」风格权重（放在 lockedWeights）、目标方案、
         // 此刻跟随的实时画像（读到过才 hasProfile，profileId 按它算）；calibration 恒为默认值。渲染工具与测试读它。
@@ -295,7 +289,7 @@ namespace celadon::glaze
             int feedbackFromStuckGuard = 0;  // 原为：锁定且校准适用时保护层卡在同一退让值上
             int mismatchSteps = 0;           // 停用（恒 0）。原为画像失配按「这一段当画像」重算的方案给净增益上限的次数（v0.6 验收 F-01）
             int hostResets = 0, transportJumps = 0, loopWraps = 0;   // 仍写：hostReset 每次 +1；后两项只数 setHostInfo 自己识别出的跳播 / 回绕
-            // 仍写，但已不是「方案过渡中」：beginBlock 发现 GLAZE / 风格 / 曲风 / 交付或影响方案的手动值变了就置 true，同一块 endBlock
+            // 仍写，但已不是「方案过渡中」：beginBlock 发现 GLAZE / 风格或影响方案的手动值变了就置 true，同一块 endBlock
             // 读过就清回 false（GLAZE > 0 时据此重算目标方案）——endBlock 之后读到的恒为 false（--trace 的 plan_transition 列因此恒为 0）。
             bool transitionActive = false;
             float transitionProgress = 1.0f; // 停用（恒 1：没有方案过渡）
@@ -304,7 +298,7 @@ namespace celadon::glaze
             int calibratorState = 0;         // 停用（恒 0）。原为 GlazeCalibrator::State 的整数值（校准器已删）
             float appliedBiasDb = 0.0f;      // 此刻的 G_trim（输出侧慢修正，取代校准偏差；未经 applyLimitExtras 按自动部分钳制）
             float executedBiasDb = 0.0f;     // 阶段 2 起与 appliedBiasDb 相同，都是 G_trim（没有交给校准器的回馈量了）
-            float executedGuardDb = 0.0f;    // 预算环（GlazeGuard）最近交出的退让（budgetOut）；不含落差 / PSR 守门，也不是取小、钳过后的执行量
+            float executedGuardDb = 0.0f;    // 预算环（GlazeGuard）最近交出的退让（budgetOut）；不是钳过后的执行量
             float guardDb = 0.0f;            // 预算环（GlazeGuard）自己的 g_保护
             float feedbackMaxGainDb = 0.0f;  // 没有约束反馈了：probeForTesting 恒填 1.0e9（= 不限）
             bool savedPlanMode = false;      // 停用（恒 false）。原为照用保存的旧算法方案
@@ -355,7 +349,7 @@ namespace celadon::glaze
             // 停用（恒 0）。原为：
             // 轮中本块作废当前子窗的原因（位或，上一块）：1 宿主旁通 / 暂停、2 GLAZE ≤ 0、4 方案过渡中、8 条件与本轮参考不一致、
             // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；T-032 R6-02 收尾前是「受手动设置限制」）、32 保护层介入
-            // （GlazeGuard::isEngaged）、64 House 档此刻不在主段落（T-038 评审 F1：House 门控画像只代表满编段，校准只在主段落采样）。
+            // （GlazeGuard::isEngaged）、64 原为 House 档此刻不在主段落（T-038，曲风已随 T-108 删掉）。
             // 偏差变了（换工作点）由校准器自己当作中断，看执行偏差列。
             int calibrationInterruptMask = 0;
             // 停用（恒 0）。原为：
@@ -363,14 +357,14 @@ namespace celadon::glaze
             // 16 电平类自动全部撤回（Plan::automaticLevelWithdrawn；R6-02 收尾前是「受手动设置限制」）、32 保护层在退让或恢复（未稳定
             // 也未卡住），或编排器接着施加的退让（carry）还没淡完、64 参考条件未知、
             // 128 已提交的校准适用（不需要）、256 用户条件稳定不足 1 s、512 刚对同一条件试过而结束为无效（T-032 R5-01 起放弃的轮、
-            // 换方案丢掉的轮不算）、1024 House 档此刻不在主段落或还读不到（T-038 评审 F1）。0 = 本块开了新一轮或正在轮中。
+            // 换方案丢掉的轮不算）、1024 原为 House 档此刻不在主段落（T-038，已删）。0 = 本块开了新一轮或正在轮中。
             int calibrationGateMask = 0;
 
             // ---- T-032（R5-02 / R5-03 / R5-04 / R5-08）：保护层与约束反馈的运行量（上一块 endBlock 之后的值）----
             // T-048 阶段 2 起只有 guardLimitsSet、guardLimits 仍由 probeForTesting 从预算环（GlazeGuard）读出；其余各项随约束反馈、
             // 上游监视、执行快照与画像失配一起删掉，标「停用」、恒为初值。
             bool guardLimitsSet = false;              // 预算环已设过上限（GlazeGuard::hasLimits；第一次重算目标方案起为 true）
-            // 预算环此刻生效的约束上限 = blendConstants(当前常数, 目标方案的权重, 曲风, 交付)，其中目标方案 manualBudgetMask 标出的项
+            // 预算环此刻生效的约束上限 = blendConstants(当前常数, 目标方案的权重)，其中目标方案 manualBudgetMask 标出的项
             // （手动单独已超预算）置 0 = 不设约束（T-032 A11；heatDriveCap 也在里面）。掩码为 0 时与混合常数逐位相同。
             StyleConstants guardLimits;
             std::int64_t guardSteadySamples = 0;      // 停用（恒 0）。原为 g_保护 连续没变的有效音乐样本数
@@ -382,34 +376,11 @@ namespace celadon::glaze
             float guardCarryDb = 0.0f;                // 停用（恒 0）。原为编排器接着施加的退让（lowerGainCap 吸收 / 解除冻结的 carry 剩余量）
             std::int64_t mismatchSamples = 0;         // 停用（恒 0）。原为画像失配此刻累计的有效音乐样本
 
-            // ---- T-038 House 档（上一块 endBlock 之后的值）----
-            // T-048 阶段 2（ADR-030）删掉 House 锁定条件、暂定方案、锁定后防漏网与方案过渡，整组（含 transitionLengthSamples）停用、
-            // 恒为初值。渲染工具不读；仍在跑的测试只有 GlazeControllerHouseTests 的 testHouseStaysUnlocked 断言 houseReopens 为 0，
-            // 其余读者都在不再调用的旧用例里。各行「原为」之后是阶段 2 之前的含义。House 反相提示的计算路径还在（Status::housePhaseHint），
-            // 但阶段 2 起满编段判定停用（SegmentLedger summary.valid 保持 false），实际不会亮——见文件头「曲风」段。
-            int houseListenStarts = 0;                // 停用（恒 0）。原为：为 House 锁定条件开的聆听次数（通用 → House、旧画像在 House 档）
-            int houseUpdates = 0;                     // 停用（恒 0）。原为首次聆听中暂定方案按新的门控结果更新的次数
-            int houseFastTransitions = 0;             // 停用（恒 0）。原为：上一项里由新响段触发的快过渡次数
-            int houseReopens = 0;                     // 停用（恒 0）。原为锁定后防漏网重开（按段落账门控重算并提交）的次数
-            int houseReopenRun = 0;                   // 停用（恒 0）。原为锁定后连续「更响更满」的段数
-            bool houseReopenArmed = false;            // 停用（恒 false）。原为已满足重开条件，等段落账够锁定条件
             std::int64_t transitionLengthSamples = 0; // 停用（恒 0）。原为正在进行的方案过渡的长度（样本；没在过渡为 0）
 
-            // ---- T-097 守护族（上一块 endBlock 之后的值；落差 / PSR 两个守门每个 100 ms 子块走一步）----
-            float contrastReliefDb = 0.0f;            // 落差守门的退让量（≤ 0）
-            float psrReliefDb = 0.0f;                 // PSR 守门的退让量（≤ 0）
-            bool outputPsrValid = false;              // PSR 守门最近一步读到的出口 3 s PSR 有效
-            float outputPsrDb = 0.0f;                 //   该读数（dB）
-            bool contrastJudged = false;              // 落差守门最近一步判定前提成立（两份直方图满 60 s、入口 P90 − P25 ≥ 3 LU）
-            float contrastLossLu = 0.0f;              //   落差损失 = 入口 − 出口的 P90 − P25（LU）
-            float contrastInputSpreadLu = 0.0f, contrastOutputSpreadLu = 0.0f;
-            double contrastHistogramSeconds = 0.0;    //   两份直方图遗忘后的累计时长（秒）
-            bool trimFrozen = false;                  // 上一块 G_trim 因守门有退让量 / 刚改过退让、或 1 s 内改过参数而没积分
+            // ---- T-097 G_trim 冻结（上一块 endBlock 之后的值）。T-097 的落差 / PSR 守门读数随两个守门一起删掉（T-108）----
+            bool trimFrozen = false;                  // 上一块 G_trim 因预算环有退让量 / 刚改过退让、或 1 s 内改过参数而没积分
             double secondsSinceParamChange = 0.0;     // 距上次改参数的秒数（封顶 1 s）
-            std::int64_t guardSubBlocks = 0;          // 交给两个守门推进的子块数（每个子块只推进一次）
-            std::int64_t guardSubBlocksDropped = 0;   // 因冻结 / 不连续 / 两表对不上而断开窗口、没推进的子块（或读取批次）数
-            std::int64_t lastGuardSubBlockEnd = 0;    // 最近一个推进守门的子块的 endSample（OUT 表时间轴）
-            float contrastFloorDb = 0.0f, psrFloorDb = 0.0f;   // 两个子块守门此刻的 floorDb（prepare、读档之后都是 −24 安全下限）
 
             // ---- T-106 G_trim 的读数（读探针时现算）----
             float trimLevelLufs = -100.0f;            // 出口主段电平折算到「手动 + 这一块执行的自动增量 + G_trim、不含守门退让」的 Limit Gain，按录制增益的远近加权（没有证据 = −100）

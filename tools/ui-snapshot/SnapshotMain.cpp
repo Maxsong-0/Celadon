@@ -10,8 +10,9 @@
       zh-truepeak（限幅旁通 → 真峰值超限）、zh-settings、en-settings、zh / en-settings-zoom70（T-102：设置面板，70 % 界面大小）、
       en-help、zh-help、zh-advanced、en-advanced（「高级」面板）、
       zh-glaze90、zh-glaze0、zh-zoom70、zh-zoom150、zh-reduced、zh-input（T-051：频谱仪 IN 虚线开着）；
-      T-038（曲风 Deep House、交付 俱乐部）：zh / en-house-layout（两个选择在 GLAZE 标题行左右）、-house-hint（反相提示）。
       T-048 状态行：-status-follow / -guard / -export（跟随、守护退让、导出冷启动，只截胶囊）、-legacy-notice（旧工程提示，左下角）。
+      T-108：-genre-reset（存着曲风 / 交付的旧工程提示一次，左下角）、-genre-reset-both（两条旧工程提示同时，各占一行）。T-038 的
+      -house-layout / -house-hint 随曲风与交付删掉。
       --only check 跑交互检查（末尾 ⑫～⑲ 是 T-032 的回归检查，另有 T-036 频谱仪子组件缓存类型一条：分层瓷面与原算法逐像素 ≤ 2 LSB、主旋钮 / 文字小部件 / 粒子缓存图
       命中、30 帧节流、底排与延迟读数的触发、「高级」面板关着时的状态、状态胶囊的缓存与呼吸帧不排版文字），⑲ 续与 ⑳ 是 T-041 的：
       小数像素比（0.7 ～ 2.5）下胶囊呼吸与对齐缓存的局部作废只重画作废区、结果与整块重画逐字节相同；其后两条是 T-051 的：
@@ -61,6 +62,7 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <thread>
 #include <vector>
 
 // PluginProcessor.cpp 里定义（插件外壳平时由 juce_audio_plugin_client 声明，截图工具不编它）。
@@ -361,6 +363,7 @@ namespace
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check);
     void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runOldProjectChecks (const std::function<void (bool, const juce::String&)>& check);
     void runBench (int frames);
     void runSpectrumBench (int seconds);
     void runSpectrumPeakBench();
@@ -404,8 +407,8 @@ namespace
     }
 
     //==============================================================================
-    // T-038 曲风与交付 / House 档的截图（README「T-038」一节）。House 档的 house* 字段由编排器（阶段 2 的 B 线）填，截图时把处理器的
-    // 状态快照改一改再交给编辑器（setGlazeStatusSource 是公开接口）：界面只按字段渲染，这里验的是渲染，不是编排器。
+    // 状态注入（T-038 为 House 档的截图加的；T-108 删了 House，修坯守护回收那几张还在用）：截图时把处理器的状态快照改一改再交给编辑器
+    // （setGlazeStatusSource 是公开接口）：界面只按字段渲染，这里验的是渲染，不是编排器。
     using StatusEdit = std::function<void (celadon::glaze::Status&)>;
 
     void injectStatus (Session& s, StatusEdit edit)
@@ -422,20 +425,19 @@ namespace
         s.editor->advanceForSnapshot (0.05);
     }
 
-    celadon::ui::glazestatus::Reading followReading (bool house)
+    celadon::ui::glazestatus::Reading followReading()
     {
         celadon::ui::glazestatus::Reading reading;
         reading.confidence = 1.0f;
         reading.currentMainness = 1.0f;
         reading.effectiveTargetLufs = -9.6f;
         reading.resolvedStyle = celadon::glaze::Style::warm;
-        reading.houseActive = house;
         return reading;
     }
 
     celadon::ui::glazestatus::Reading guardReading()
     {
-        auto reading = followReading (false);
+        auto reading = followReading();
         reading.guardEngaged = true;
         reading.guardCause = celadon::ui::glazestatus::GuardCause::budget;
         reading.protectionDb = -1.5f;
@@ -444,32 +446,10 @@ namespace
 
     celadon::ui::glazestatus::Reading exportReading()
     {
-        auto reading = followReading (false);
+        auto reading = followReading();
         reading.coldExport = true;
         reading.confidence = 0.2f;
         return reading;
-    }
-
-    // House 反相提示亮着（单声道低频损失 lossDb）。
-    StatusEdit housePhaseHint (float lossDb)
-    {
-        return [lossDb] (celadon::glaze::Status& status)
-        {
-            status.houseActive = true;
-            status.houseLockPending = false;
-            status.houseSegmentMode = celadon::glaze::SegmentMode::bars;
-            status.houseHeardSegments = 64;
-            status.houseFullSegments = 16;
-            status.housePhaseHint = true;
-            status.housePhaseMonoLossDb = lossDb;
-        };
-    }
-
-    // 曲风 Deep House、交付 俱乐部（建编辑器之前设）。T-107 起面板上没有这两个选择了，参数照设：看 House 档的状态行与 CLAY 卡片。
-    void houseParameters (Session& s)
-    {
-        s.setParameter (celadon::param::glazeGenre, 1.0f);
-        s.setParameter (celadon::param::glazeDelivery, 2.0f);
     }
 
     // T-074 修坯守护回收中：手动低切 25 Hz、手动收单 120 Hz 在做，峰值守护把它们的改动量大半收回（保留比 kept，0 ～ 1）。
@@ -509,7 +489,7 @@ namespace
         s.crop = window->getBounds().getUnion (card->getBounds()).expanded (16).getIntersection (s.editor->getLocalBounds());
     }
 
-    // 暂定期间的悬停气泡：取 GLAZE 标题此刻的气泡文字（编辑器定时器按 House 状态换好的那一版），在标题左下方手动弹出；
+    // GLAZE 标题的悬停气泡：取标题此刻的气泡文字（编辑器定时器按语言换好的那一版），在标题左下方手动弹出；
     // 截图只存标题与气泡那一块（编辑器 1 倍时画布坐标 = 编辑器坐标）。
     void showGlazeTooltip (Session& s)
     {
@@ -686,23 +666,23 @@ int main (int argc, char* argv[])
         { "en-guard-tooltip", celadon::Language::english, none,
           [] (Session& s) { injectStatus (s, clayPeakGuard (0.42f)); showClayIndicatorTooltip (s, celadon::Language::english, 0.42f); } },
 
-        // ---- T-038 曲风与交付 / House 档（曲风 Deep House、交付 俱乐部；House 的状态字段注入，见 injectStatus）----
-        // 版面：两个选择在 GLAZE 标题行左右（Max 2026-10-01 选定），整张。
-        { "zh-house-layout", celadon::Language::chinese, houseParameters, [] (Session& s) { previewLine (s, followReading (true)); }, upperCrop },
-        { "en-house-layout", celadon::Language::english, houseParameters, [] (Session& s) { previewLine (s, followReading (true)); }, upperCrop },
-        // T-048 七条里截图工具单独摆出来的三句（起步是默认图；反相提示仍是 -house-hint）。只截顶栏胶囊。
-        { "zh-status-follow", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, followReading (false)); }, pillCrop },
-        { "en-status-follow", celadon::Language::english, none, [] (Session& s) { previewLine (s, followReading (false)); }, pillCrop },
+        // T-048 状态行里截图工具单独摆出来的三句（起步是默认图）。只截顶栏胶囊。T-038 的 -house-layout 随 T-108 删掉。
+        { "zh-status-follow", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, followReading()); }, pillCrop },
+        { "en-status-follow", celadon::Language::english, none, [] (Session& s) { previewLine (s, followReading()); }, pillCrop },
         { "zh-status-guard", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, guardReading()); }, pillCrop },
         { "en-status-guard", celadon::Language::english, none, [] (Session& s) { previewLine (s, guardReading()); }, pillCrop },
         { "zh-status-export", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
         { "en-status-export", celadon::Language::english, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
         // 旧工程提示一次：左下角琥珀色第二行，不进状态行。
-        { "zh-legacy-notice", celadon::Language::chinese, none, [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); }, juce::Rectangle<int> (0, 470, 520, 90) },
-        { "en-legacy-notice", celadon::Language::english, none, [] (Session& s) { s.editor->noteDiscardedLegacyGlaze(); }, juce::Rectangle<int> (0, 470, 560, 90) },
-        // House 反相提示：状态胶囊（琥珀）+ CLAY 卡片两行提示，整张。
-        { "zh-house-hint", celadon::Language::chinese, houseParameters, [] (Session& s) { injectStatus (s, housePhaseHint (-1.62f)); } },
-        { "en-house-hint", celadon::Language::english, houseParameters, [] (Session& s) { injectStatus (s, housePhaseHint (-1.62f)); } },
+        { "zh-legacy-notice", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (true, false); }, juce::Rectangle<int> (0, 470, 520, 90) },
+        { "en-legacy-notice", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (true, false); }, juce::Rectangle<int> (0, 470, 560, 90) },
+        // T-108：存着曲风 / 交付的旧工程提示一次（左下角琥珀）；与旧聆听结果丢弃同时出现时各占一行。T-038 的 -house-hint 随 T-108 删掉。
+        { "zh-genre-reset", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (false, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
+        { "en-genre-reset", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (false, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
+        { "zh-genre-reset-both", celadon::Language::chinese, none,
+          [] (Session& s) { s.editor->setLegacyNoticesPreview (true, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
+        { "en-genre-reset-both", celadon::Language::english, none,
+          [] (Session& s) { s.editor->setLegacyNoticesPreview (true, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
     };
 
     for (const auto& state : states)
@@ -1130,7 +1110,7 @@ namespace
         //    T-107 两块侧板从标题行起（表头那一条）——按真实的命中测试，点侧板表头的空白处不命中侧板（hitTest），点面板里命中侧板；
         //    两块侧板都不压主旋钮与底排左边的提示。
         {
-            check (findById (editor, celadon::param::glazeGenre) == nullptr && findById (editor, celadon::param::glazeDelivery) == nullptr,
+            check (findById (editor, celadon::param::legacy::glazeGenre) == nullptr && findById (editor, celadon::param::legacy::glazeDelivery) == nullptr,
                    "T-107 genre / delivery selectors are gone from the panel");
 
             auto& nowPanel = find ("side_now");
@@ -1420,6 +1400,7 @@ namespace
         failures += runCacheChecks (session, check);
         runSpectrumChecks (check);   // T-051：失败由 check 计入
         runClayGuardChecks (check);   // T-074：失败由 check 计入
+        runOldProjectChecks (check);  // T-108：失败由 check 计入
 
         std::cout << (failures == 0 ? "all interaction checks passed" : juce::String (failures) + " interaction checks FAILED") << std::endl;
         return failures;
@@ -1436,6 +1417,172 @@ namespace
     // 整个字色（palette::warningText）的像素寥寥无几，正常时的字色（紫 / 青 / 灰）红都小于蓝，所以用「偏橙」判；行带是 y = 46 + 47 i 起 42 px
     //（ClayCard::rowBounds）。开着：低切行、收单行的灯各 ≥ 15 个（7 px 的实心圆约 38 个，抗锯齿后留一大半）、数值字各 ≥ 15 个，加宽行两样都是 0；
     // 关着（开之前、开之后）：三行两样都是 0。
+    //==============================================================================
+    // T-108（ADR-039 Q2、Q3）：存着曲风 / 交付的旧工程。参数表里已经没有 glaze_genre / glaze_delivery；读档时处理器把这两个 PARAM 节点
+    // 摘掉，有一个不是默认值（下标 0 = 通用 / 标准）就让界面左下角提示一次「曲风与交付已取消…」，通用 + 标准的旧工程不提示。
+    // 两种顺序都查：先读档再开编辑器、编辑器开着时读档（提示都由编辑器计时器从处理器取，读档不通知编辑器，所以消息线程与别的线程
+    // 读档走的是同一条路；T-108 独立复查第 2 轮 R2-F1）。再存出去不再有这两个节点，
+    // 其余参数照旧读回（这里看 GLAZE 与风格）。
+    void runOldProjectChecks (const std::function<void (bool, const juce::String&)>& check)
+    {
+        using celadon::ui::CornerNote;
+        namespace legacy = celadon::param::legacy;
+
+        // 一份「旧工程」：新实例存出来的状态，GLAZE 改成 62、风格温润，再按需要加上两个旧 PARAM 节点（nullptr = 不加）。
+        const auto oldProject = [] (const char* genre, const char* delivery)
+        {
+            auto donor = makeSession (62.0f);
+            donor->setParameter (celadon::param::glazeStyle, 1.0f);
+            juce::MemoryBlock block;
+            donor->processor->getStateInformation (block);
+            auto xml = juce::AudioProcessor::getXmlFromBinary (block.getData(), (int) block.getSize());
+
+            for (const auto& [id, value] : { std::pair<const char*, const char*> { legacy::glazeGenre, genre },
+                                             std::pair<const char*, const char*> { legacy::glazeDelivery, delivery } })
+            {
+                if (value == nullptr)
+                    continue;
+
+                auto* node = xml->createNewChildElement ("PARAM");
+                node->setAttribute ("id", id);
+                node->setAttribute ("value", value);
+            }
+
+            juce::MemoryBlock out;
+            juce::AudioProcessor::copyXmlToBinary (*xml, out);
+            return out;
+        };
+
+        const auto hasLegacyNode = [] (CeladonAudioProcessor& processor)
+        {
+            juce::MemoryBlock block;
+            processor.getStateInformation (block);
+            const auto xml = juce::AudioProcessor::getXmlFromBinary (block.getData(), (int) block.getSize());
+
+            if (xml == nullptr)
+                return true;
+
+            for (auto* node : xml->getChildIterator())
+                if (node->hasTagName ("PARAM") && (node->getStringAttribute ("id") == legacy::glazeGenre
+                                                   || node->getStringAttribute ("id") == legacy::glazeDelivery))
+                    return true;
+
+            return false;
+        };
+
+        {
+            auto fresh = makeSession (35.0f);
+            check (fresh->processor->getParameters().getParameter (legacy::glazeGenre) == nullptr
+                       && fresh->processor->getParameters().getParameter (legacy::glazeDelivery) == nullptr,
+                   "T-108 glaze_genre / glaze_delivery are no longer plugin parameters");
+        }
+
+        struct Case { const char* name; const char* genre; const char* delivery; bool notice; };
+        const Case cases[] = { { "House (genre 1)", "1", "0", true }, { "streaming (delivery 1)", "0", "1", true },
+                               { "club (delivery 2)", nullptr, "2", true }, { "General + Standard", "0", "0", false },
+                               { "no genre / delivery nodes", nullptr, nullptr, false } };
+        const auto expected = celadon::ui::tr (celadon::ui::Text::genreDeliveryReset, celadon::Language::chinese);
+
+        for (const auto& c : cases)
+        {
+            const auto blob = oldProject (c.genre, c.delivery);
+
+            for (const auto editorFirst : { false, true })
+            {
+                auto session = std::make_unique<Session>();
+                session->processor.reset (dynamic_cast<CeladonAudioProcessor*> (createPluginFilter()));
+                session->processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
+                session->processor->prepareToPlay (sampleRate, blockSize);
+
+                // 走宿主开窗口那条路（createEditorAndMakeActive 登记成活动编辑器）：编辑器开着时读档，处理器才找得到它来提示。
+                if (editorFirst)
+                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorAndMakeActive()));
+
+                session->processor->setStateInformation (blob.getData(), (int) blob.getSize());
+
+                if (! editorFirst)
+                    session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorAndMakeActive()));
+
+                session->editor->advanceForSnapshot (0.05);
+                auto* corner = dynamic_cast<CornerNote*> (findById (*session->editor, "corner_note"));
+                const auto shown = corner != nullptr && corner->getSecondLine() == expected;
+                const auto silent = corner != nullptr && corner->getSecondLine().isEmpty() && corner->getFirstLine().isEmpty();
+                const auto& state = session->processor->getParameters();
+                const auto glaze = state.getRawParameterValue (celadon::param::glazeAmount)->load();
+                const auto style = state.getRawParameterValue (celadon::param::glazeStyle)->load();
+
+                check ((c.notice ? shown : silent) && ! hasLegacyNode (*session->processor) && std::abs (glaze - 62.0f) < 1.0e-3f && style == 1.0f,
+                       juce::String ("T-108 old project, ") + c.name + (editorFirst ? ", editor open" : ", editor opened after loading") + ": "
+                           + (c.notice ? "one-time notice" : "no notice") + " ("
+                           + (corner == nullptr ? juce::String ("corner note missing") : "\"" + corner->getFirstLine() + "\" / \"" + corner->getSecondLine() + "\"")
+                           + "), re-saved without the two nodes, GLAZE " + juce::String (glaze, 1) + " / style " + juce::String (style, 0) + " kept");
+            }
+        }
+
+        // T-108 独立复查 F12：编辑器开着时连读几个工程，左下角只反映最近读的那一个——旧工程的提示在读到干净的工程后消失（改前编辑器
+        // 只会置上、不会清）。两种提示都查：曲风交付（House 旧工程）与旧聆听结果（GLAZE_STATE 格式号 1 的旧存档，读档时整份丢弃）。
+        {
+            const auto legacyGlaze = [&oldProject]
+            {
+                auto block = oldProject ("0", "0");
+                auto xml = juce::AudioProcessor::getXmlFromBinary (block.getData(), (int) block.getSize());
+
+                if (auto* glazeNode = xml->getChildByName (celadon::glaze::stateTag))
+                {
+                    glazeNode->deleteAllChildElements();
+                    glazeNode->setAttribute ("formatVersion", 1);
+                }
+
+                juce::MemoryBlock out;
+                juce::AudioProcessor::copyXmlToBinary (*xml, out);
+                return out;
+            }();
+
+            auto session = std::make_unique<Session>();
+            session->processor.reset (dynamic_cast<CeladonAudioProcessor*> (createPluginFilter()));
+            session->processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
+            session->processor->prepareToPlay (sampleRate, blockSize);
+            session->editor.reset (dynamic_cast<CeladonAudioProcessorEditor*> (session->processor->createEditorAndMakeActive()));
+
+            const auto cornerAfter = [&session] (const juce::MemoryBlock& blob)
+            {
+                session->processor->setStateInformation (blob.getData(), (int) blob.getSize());
+                session->editor->advanceForSnapshot (0.05);
+                auto* corner = dynamic_cast<CornerNote*> (findById (*session->editor, "corner_note"));
+                return corner == nullptr ? juce::String ("corner note missing") : corner->getFirstLine() + " | " + corner->getSecondLine();
+            };
+
+            const auto legacyText = celadon::ui::tr (celadon::ui::Text::legacyDiscarded, celadon::Language::chinese);
+            const auto house = cornerAfter (oldProject ("1", "0"));
+            const auto cleanAfterHouse = cornerAfter (oldProject ("0", "0"));
+            const auto discarded = cornerAfter (legacyGlaze);
+            const auto cleanAfterDiscarded = cornerAfter (oldProject (nullptr, nullptr));
+
+            check (house == " | " + expected && cleanAfterHouse == " | " && discarded == " | " + legacyText && cleanAfterDiscarded == " | ",
+                   "T-108 editor open, projects loaded in a row: the notice follows the latest one and clears on a clean project (House \"" + house
+                       + "\" -> clean \"" + cleanAfterHouse + "\" -> old listening result \"" + discarded + "\" -> clean \"" + cleanAfterDiscarded + "\")");
+
+            // 宿主不在消息线程读档（T-108 独立复查第 2 轮 R2-F1）：这时处理器碰不了界面，提示只能由编辑器计时器从处理器取。
+            // 读档在工作线程跑、消息线程在 join 上等着，不会和界面同时动（编辑器的状态树回调只 triggerAsyncUpdate）；读完推一帧再看。
+            const auto cornerAfterLoadOnWorker = [&session] (const juce::MemoryBlock& blob)
+            {
+                std::thread loader ([&session, &blob] { session->processor->setStateInformation (blob.getData(), (int) blob.getSize()); });
+                loader.join();
+                session->editor->advanceForSnapshot (0.05);
+                auto* corner = dynamic_cast<CornerNote*> (findById (*session->editor, "corner_note"));
+                return corner == nullptr ? juce::String ("corner note missing") : corner->getFirstLine() + " | " + corner->getSecondLine();
+            };
+
+            const auto clubOnWorker = cornerAfterLoadOnWorker (oldProject ("0", "2"));
+            const auto discardedOnWorker = cornerAfterLoadOnWorker (legacyGlaze);
+            const auto cleanOnWorker = cornerAfterLoadOnWorker (oldProject ("0", "0"));
+
+            check (clubOnWorker == " | " + expected && discardedOnWorker == " | " + legacyText && cleanOnWorker == " | ",
+                   "T-108 editor open, projects loaded off the message thread: the notice still follows the latest one and clears (club \""
+                       + clubOnWorker + "\" -> old listening result \"" + discardedOnWorker + "\" -> clean \"" + cleanOnWorker + "\")");
+        }
+    }
+
     void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check)
     {
         using namespace celadon::ui;
@@ -3824,8 +3971,7 @@ namespace
             else if (dynamic_cast<celadon::ui::StatusPill*> (component) != nullptr)      probe (component, "StatusPill");
             else if (component->getComponentID() == "match"
                      || component->getComponentID() == celadon::param::glazeStyle || component->getComponentID() == "ab"
-                     || component->getComponentID() == "monitoring"
-                     || component->getComponentID() == celadon::param::glazeGenre || component->getComponentID() == celadon::param::glazeDelivery)
+                     || component->getComponentID() == "monitoring")
                 probe (component, component->getComponentID());
         }
 

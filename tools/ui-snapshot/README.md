@@ -26,19 +26,22 @@
 | `zh-zoom70.png` / `zh-zoom150.png` | 界面大小 70 % / 150 %（含缩放提示） |
 | `zh-reduced.png` | 减少动效（没有粒子与波纹） |
 | `zh-input.png` | 频谱仪 IN 虚线开着（默认关）。T-051 改 IN 虚线的建法时用 `--deterministic` 改前改后逐字节比过 |
-| `zh-house-layout.png` / `en-house-layout.png` | T-038：曲风 Deep House、交付 俱乐部，两个选择在 GLAZE 标题行左右；状态行是「House · 跟随…」（只存上半，y < 560） |
 | `zh-status-follow.png` / `en-status-guard.png` / `zh-status-export.png` | T-048 状态行：跟随（自动→温润 · 目标 −9.6）、受限 · 预算 · 已退 1.5 dB、导出冷启动。只截顶栏胶囊 |
 | `zh-legacy-notice.png` / `en-legacy-notice.png` | 旧工程打开一次：左下角「旧的聆听结果已丢弃，声音会变」（不进状态行、不写入工程） |
-| `zh-house-hint.png` / `en-house-hint.png` | House 反相提示：状态胶囊琥珀 + CLAY 卡片两行提示 |
+| `zh-genre-reset.png` / `en-genre-reset.png` | T-108：存着曲风 / 交付（非通用 + 标准）的旧工程打开一次：左下角「曲风与交付已取消，已改回通用 + 标准，声音会变」 |
+| `zh-genre-reset-both.png` / `en-genre-reset-both.png` | 同上与「旧的聆听结果已丢弃」同时出现：各占一行（上行旧聆听结果、下行曲风与交付） |
 | `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯琥珀（只存下半部分的四张卡片） |
 | `zh-guard-tooltip.png` / `en-guard-tooltip.png` | 同上状态下 CLAY 灯的悬停气泡：第 2 行末尾「峰值守护回收中：低切 / 收单实际只剩约 40%」（取 `help::clayIndicatorTooltip`，与界面同一个函数） |
 
-T-038 那几张的 House 状态（`Status` 的 `house*` 字段）由编排器填；截图工具把处理器的状态快照改一改再交给编辑器
-（`setGlazeStatusSource`，见 `injectStatus`），验的是界面怎么按字段画，不是编排器什么时候置这些字段。
+守护回收那几张的状态由编排器填；截图工具把处理器的状态快照改一改再交给编辑器（`setGlazeStatusSource`，见 `injectStatus`；
+T-038 为 House 那几张加的），验的是界面怎么按字段画，不是编排器什么时候置这些字段。T-108（ADR-039）删了曲风与交付：
+`zh / en-house-layout`、`zh / en-house-hint` 四张随之删掉，加了上面 `-genre-reset` 四张；`--only check` 末尾加一组旧工程读档检查
+（两个参数不在参数表里；存着 House / 流媒体 / 俱乐部的旧工程提示一次、通用 + 标准与没有这两个节点的不提示；先读档再开编辑器、
+编辑器开着时读档两条路都查；再存出去没有这两个节点，GLAZE 与风格照旧读回）。
 
 T-107（重构包 A 效果图，只在分支上、不进 main）起中层两侧是两块侧板（左「此刻在推什么」`side_now`、右「交付」`side_delivery`），
 频谱仪右上角的响度小窗搬进右侧板，左下的静态两行说明删了（操作提示与监听退出提示挪到底排左边 y 524 一带），图例挪到 y 530；
-GLAZE 标题行左右的曲风 / 交付两个选择删了（Max 2026-11-13；参数还在，House 那几张照设参数）。检查随之改了：⑦ 续原来 T-038 的 5 条
+GLAZE 标题行左右的曲风 / 交付两个选择删了（Max 2026-11-13；参数随后在 T-108 删掉）。检查随之改了：⑦ 续原来 T-038 的 5 条
 （曲风 / 交付点选、说明格、位置、宿主改值）删掉，换成 4 条（两个选择不在面板上、点侧板表头空白不命中侧板、点面板里命中侧板、侧板不压
 主旋钮与底排提示）；⑪ 语言那条原来看左下说明「Drives 7 parameters」，改看左侧板末行「Confidence …」；⑭ 挂对齐缓存的小部件仍是 9 个
 （去掉两个选择、加两块侧板），并加 ⑭b 两条（重画粒子带时两块侧板只从缓存贴、5 次重画 0 次重画进缓存）；T-036 那条频谱仪子组件
@@ -46,7 +49,7 @@ GLAZE 标题行左右的曲风 / 交付两个选择删了（Max 2026-11-13；参
 
 `--only check` 另跑一组交互检查：直接给真实控件发鼠标事件（拖动、⌘ 精调、双击回默认、Alt 单击输入（含中文输入法的全角数字、
 输入框开着时按键抬起不外传——Windows 上松开 Alt 会激活宿主菜单栏）、滚轮、滑条、
-分段选择、曲风 / 交付两个选择（T-038：点选、说明格不可点、位置不压旋钮与左下说明）、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
+分段选择、CLAY 手动值、电源键、AUTO、等响、A / B、试听差值与 A / B 互斥、LIMIT 旁通时退出试听、「高级」面板开合、参考学习/取消、归一化预听互斥/离线/关窗清理、语言切换），
 逐项打印 PASS / FAIL，任何一项失败退出码为 1；同时存下 `check-drag.png`（拖动中的数值气泡）、`check-original.png`、
 `check-audition.png`、`check-advanced.png`、`check-english.png`。
 

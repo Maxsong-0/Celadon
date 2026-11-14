@@ -10,22 +10,22 @@
 
     一、回看重判（每一份画像怎么算）
       最近的段放在定长的回看窗口里（windowCapacity 段，124 BPM 约 16.5 分钟）。每来一段，就按「此刻」的参考把窗口里每一段重判一遍、
-      重新合并出画像——口径逐项同 MusicAnalyzer.cpp「六」节 House 门控画像那一族函数（computeHouseProfile …），只是每段的权重从
+      重新合并出画像——公式来自 T-038 的 House 门控画像（computeHouseProfile …，T-108 随曲风删掉），只是每段的权重从
       「满编 1 / 否则 0」换成带遗忘的软权重：
         - 参考：S_ref = 窗口里各段段响度的 referencePercentile 分位（权重 = 有效时长 × 参考遗忘）；lowRef = 「按此刻 S_ref 算响度因子 ≥ 0.5」
           的那些段的 lowShare 的同分位（同样的权重）。不再由「当时过没过响度门」决定。
-        - 主段度 m′ = 同一套软斜坡（规格第 2 节）按此刻的参考重算：4/4 型 ramp(L − (S_ref − ΔG)) × ramp(lowShare ÷ lowRef − g_low)，
-          响度型只有响度因子，被动型有效音频一律 1。冷启动不用特例：第一段的参考就是它自己。
+        - 主段度 m′ = 同一套软斜坡（规格第 2 节）按此刻的参考重算：只有响度因子 ramp(L − (S_ref − ΔG))（响度型主段模型）；低频因子
+          ramp(lowShare ÷ lowRef − 低频门系数) 只在系数 > 0 时乘上，出厂是 0（T-108 删了开着低频门的 4/4 型与被动型；门留作可调常数）。冷启动不用特例：第一段的参考就是它自己。
         - 段 i 的主段权重 f_i = m′_i × exp(−Σ_{j 比 i 新} m′_j × e_j ÷ W_mem,j) × 全局因子_i（e = 有效时长）：主段时钟只在主段进账时走，
           而且是按此刻的 m′ 走——breakdown（m′ = 0）不推时钟，画像、M、c 逐位不动；被重判成非主段的前奏也不再推时钟。
-          参考权重 = e_i × exp(−Σ_{j 比 i 新} e_j ÷ referenceMemorySeconds) × 全局因子_i（按有效音频）；响度型 / 被动型的 I 用的「全部段」
+          参考权重 = e_i × exp(−Σ_{j 比 i 新} e_j ÷ referenceMemorySeconds) × 全局因子_i（按有效音频）；I 用的「全部段」
           权重 = exp(−Σ_{j 比 i 新} e_j ÷ W_mem,j) × 全局因子_i。
         - 全局因子：换歌软遗忘（× newProgramKeep，主段、参考、全部段一起）与长时间无主段的时间衰减（只主段）是「事件」——在一段进账时
           判定，乘在当时窗口里全部更老的段上，之后不因重判撤销。
         - 主段质量 M = Σ f_i × e_i；c = 1 − exp(−M ÷ M0)；representativeness = c，effectiveSeconds = M；各特征 confidence =
-          min(c, 观测充分度)。LRA、I 按曲风分口径：4/4 型主段加权，响度型 / 被动型全部段（参考权重 / 全部段权重）。
+          min(c, 观测充分度)。LRA 用参考权重，I 用全部段权重。
       进账判断（只用于事件与提交记录）：一段进账时先按上一份已发布画像的参考算一次 m（冷启动以自己为参考），长时间无主段只看它；
-      换歌看「段响度与上一份画像的 I 之差」与它的低频因子，「轻」的那一支还要最近 newProgramSeconds 里段响度起伏 ≤ newProgramRangeLu。
+      换歌看「段响度比上一份画像的 I 响多少」（T-108 前 4/4 型还有「轻且有低音、电平稳」的一支，随 4/4 型删掉）。
       窗口满了以后，最老的段直接丢弃（不进「老账」）：它此刻的权重份额见 LiveDiagnostics::oldestMainShare / oldestReferenceShare，
       误差估计写在 .cpp 文件头。
 
@@ -49,9 +49,9 @@
       - setConstants / createStateXml / restoreStateXml 在消息线程，且不与音频线程接口同时调用（setConstants 与 restore 同步重算一遍，
         约零点几毫秒）。
 
-    四、等价性（测试锚点）
-      遗忘关掉（W_mem、参考遗忘都取无穷，事件关掉）、参考冻结为 House 账本最终的 S_ref / lowRef（setFrozenReferencesForTesting）、
-      斜坡宽取极小（硬门）时，回看重判的画像与分析器 House 档按同一批段算出的候选画像一致（容差逐项写在测试里）。
+    四、冻结参考（测试用）
+      setFrozenReferencesForTesting 把 S_ref / lowRef 钉住，测试拿它把重判与参考的漂移分开看。原来与分析器 House 档候选画像的等价性
+      锚点（T-048）随 House 画像一起删了（T-108）。
 
   ==============================================================================
 */
@@ -70,17 +70,6 @@
 
 namespace celadon::glaze
 {
-    // 主段模型（设计规格-实时GLAZE-主段与增益 第 2 节）。
-    enum class MainSectionModel : std::uint8_t
-    {
-        fourOnFloor = 0,   // 4/4 型：m = 响度因子 × 低频因子（T-038 两道门的软与）
-        loudness = 1,      // 响度型：m = 响度因子
-        passive = 2        // 被动型：有效音频一律 m = 1
-    };
-
-    // 曲风 → 主段模型。House 三类 = 4/4 型；通用 = 响度型（以后的新曲风在这里加）。
-    MainSectionModel mainSectionModelFor (Genre genre) noexcept;
-
     //==============================================================================
     // LiveConstants 每个字段的合法取值：LiveProfile 的清洗（坏值换出厂值）与渲染工具 --live-constants 的校验（坏值报错）共用这一张表
     // （T-048 REPORT-C 第 7 节第 3 条：原来工具照抄了一份）。+∞ 只在注明「含 ∞」的范围里合法（「不遗忘 / 永不触发」，等价性测试这么关）。
@@ -102,7 +91,7 @@ namespace celadon::glaze
 
     bool isInLiveConstantDomain (double value, LiveConstantDomain domain) noexcept;
 
-    // 两份常数逐字段并排访问：visit (模型名（"fourOnFloor" / "loudness" / "passive"；不属于主段模型的字段为 nullptr）, 字段名,
+    // 两份常数逐字段并排访问：visit (模型名（"loudness"；不属于主段模型的字段为 nullptr）, 字段名,
     // a 的字段, b 的字段, 取值范围)。字段是 float& 或 double&（a、b 可以是 const）。LiveConstants 加字段时只在这里加一行。
     template <typename A, typename B, typename Visitor>
     void visitLiveConstantPairs (A& a, B& b, Visitor&& visit)
@@ -120,9 +109,7 @@ namespace celadon::glaze
             visit (prefix, "confidenceSeconds", ma.confidenceSeconds, mb.confidenceSeconds, LiveConstantDomain::positive);
         };
 
-        model ("fourOnFloor", a.fourOnFloor, b.fourOnFloor);
-        model ("loudness", a.loudness, b.loudness);
-        model ("passive", a.passive, b.passive);
+        model ("loudness", a.loudness, b.loudness);   // T-108：4/4 型（fourOnFloor）与被动型（passive）随曲风删掉
 
         const char* const none = nullptr;
         visit (none, "referenceMemorySeconds", a.referenceMemorySeconds, b.referenceMemorySeconds, LiveConstantDomain::positive);
@@ -177,7 +164,7 @@ namespace celadon::glaze
         bool lowReferenceValid = false;      // 这一份画像的 lowRef
         float lowReference = 0.0f;
         bool mainLevelValid = false;
-        float mainLevelLufs = 0.0f;          // 这一份画像的 integratedLufs（4/4 型 = 主段电平）
+        float mainLevelLufs = 0.0f;          // 这一份画像的 integratedLufs
         double mainMassSeconds = 0.0;        // 这一份画像的主段质量 M
         float confidence = 0.0f;             // 这一份画像的 c
         bool timeDecay = false;              // 这一段进账时「长时间无主段」的时间衰减在生效
@@ -242,9 +229,9 @@ namespace celadon::glaze
         // 冷启动：清空窗口、队列、事件与已发布的画像，时间轴回到「不知道」（下一次 advanceTo 重新起算）。不分配。提交序号跨 reset 单调。
         void reset() noexcept;
 
-        // 常数与主段模型（处理之前交；换曲风时再交一次）。消息线程，不与音频线程接口同时调：已有的段保留，已发布的那一份按新常数
-        // 同步重算并就地替换（不另发提交记录），在途的那一遍从重算开头重来（进账判断不重做）。
-        void setConstants (const LiveConstants& constants, MainSectionModel model) noexcept;
+        // 常数（处理之前交；链每次 prepare 都交一次）。消息线程，不与音频线程接口同时调：已有的段保留，已发布的那一份按新常数
+        // 同步重算并就地替换（不另发提交记录），在途的那一遍从重算开头重来（进账判断不重做）。主段模型只有响度型（T-108）。
+        void setConstants (const LiveConstants& constants) noexcept;
 
         // ---- 音频线程 ----
 
@@ -300,7 +287,7 @@ namespace celadon::glaze
 
         // ---- 只给测试用 ----
 
-        // 冻结参考：enabled 时进账判断、重判、mainnessFor 都用给定的 S_ref / lowRef（等价性锚点：House 账本最终的参考）。
+        // 冻结参考：enabled 时进账判断、重判、mainnessFor 都用给定的 S_ref / lowRef。
         // 消息线程，与 setConstants 一样同步重算已发布的那一份。
         void setFrozenReferencesForTesting (bool enabled, float referenceLufs, float lowReference) noexcept;
 

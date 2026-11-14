@@ -111,7 +111,6 @@ namespace celadon::ui
         {
             case Chip::manual:      chipLabel = tr (Text::chipManual, language);      chipBackground = palette::groove; chipForeground = palette::ink3; break;
             case Chip::manualLimit: chipLabel = tr (Text::chipManualLimit, language); chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
-            case Chip::phase:       chipLabel = tr (Text::chipPhase, language);       chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
             case Chip::coldExport:  chipLabel = tr (Text::chipExport, language);      chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
             case Chip::limited:     chipLabel = tr (Text::chipLimited, language);     chipBackground = palette::warningSoft; chipForeground = palette::warningText; break;
             case Chip::starting:    chipLabel = tr (Text::chipStarting, language);    break;
@@ -257,7 +256,7 @@ namespace celadon::ui
         // T-107：底排高 30，两行各 15。
         const auto lineHeight = (float) getHeight() * 0.5f;
         g.setFont (uiFont (11.0f));
-        g.setColour (hint ? palette::c700 : palette::ink3);
+        g.setColour (hint ? palette::c700 : (warning ? palette::warningText : palette::ink3));   // 两条旧工程提示同时在时第一行也是警告
         g.drawText (line1, juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), lineHeight), juce::Justification::centredLeft, false);
         g.setColour (hint ? palette::c700 : (warning ? palette::warningText : palette::ink3));
         g.drawText (line2, juce::Rectangle<float> (0.0f, lineHeight, (float) getWidth(), lineHeight), juce::Justification::centredLeft, false);
@@ -498,7 +497,7 @@ namespace celadon::ui
         using namespace sidepanel;
         const auto width = (float) getWidth();
         const auto content = contentArea();
-        const auto left = content.getX(), right = content.getRight(), top = content.getY();
+        const auto left = content.getX(), right = content.getRight(), contentTop = content.getY();
         const auto dash = juce::String::charToString ((juce::juce_wchar) 0x2014);
         const auto lufsText = [&] (float lufs) { return hasReading (lufs) ? signedText (lufs, 1) : dash; };
 
@@ -518,7 +517,7 @@ namespace celadon::ui
         {
             const auto big = withLetterSpacing (uiFont (30.0f, Weight::light), -1.0f);
             const auto text = lufsText (values.integratedLufs);
-            const auto baseline = juce::roundToInt (top + 30.0f);
+            const auto baseline = juce::roundToInt (contentTop + 30.0f);
 
             g.setColour (palette::ink);
             g.setFont (big);
@@ -545,10 +544,10 @@ namespace celadon::ui
             for (const auto& column : columns)
             {
                 g.setColour (palette::ink3);
-                drawFittedLine (g, uiFont (10.5f), tr (column.label, language), { x, top + 2.0f, 76.0f, 14.0f }, juce::Justification::centredLeft);
+                drawFittedLine (g, uiFont (10.5f), tr (column.label, language), { x, contentTop + 2.0f, 76.0f, 14.0f }, juce::Justification::centredLeft);
                 g.setColour (column.colour);
                 g.setFont (monoFont (13.0f, Weight::medium));
-                g.drawText (column.value, juce::Rectangle<float> (x, top + 18.0f, 78.0f, 18.0f), juce::Justification::centredLeft, false);
+                g.drawText (column.value, juce::Rectangle<float> (x, contentTop + 18.0f, 78.0f, 18.0f), juce::Justification::centredLeft, false);
                 x += 80.0f;
             }
         }
@@ -557,7 +556,7 @@ namespace celadon::ui
         //    条下最左写归一量。
         {
             constexpr float lowLufs = -24.0f, highLufs = -6.0f;
-            const auto barTop = top + 52.0f, barWidth = right - left;
+            const auto barTop = contentTop + 52.0f, barWidth = right - left;
             const auto xOfLufs = [&] (float lufs) { return left + juce::jlimit (0.0f, 1.0f, (lufs - lowLufs) / (highLufs - lowLufs)) * barWidth; };
 
             g.setColour (palette::track);
@@ -606,8 +605,8 @@ namespace celadon::ui
         //    0 ～ +12 dB）画 GLAZE 自动增益（紫），守护退让的那一刻在增益道画 2 px 橙线。最新的点在右缘。
         //    （T-105 6.2 写的是响度道 64 px、增益道 14 px：+3 dB 的增益只有 3 px 高、看不出来，效果图里改成 58 / 20。）
         {
-            const juce::Rectangle<float> lane (left, top + 76.0f, right - left, 58.0f);
-            const juce::Rectangle<float> gainLane (left, top + 138.0f, right - left, 20.0f);
+            const juce::Rectangle<float> lane (left, contentTop + 76.0f, right - left, 58.0f);
+            const juce::Rectangle<float> gainLane (left, contentTop + 138.0f, right - left, 20.0f);
             constexpr float laneLow = -30.0f, laneHigh = -6.0f, gainHigh = 12.0f;
             const auto yOfLufs = [&] (float lufs) { return lane.getBottom() - juce::jlimit (0.0f, 1.0f, (lufs - laneLow) / (laneHigh - laneLow)) * lane.getHeight(); };
             const auto step = lane.getWidth() / (float) (historyLength - 1);

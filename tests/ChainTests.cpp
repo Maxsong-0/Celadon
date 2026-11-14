@@ -198,6 +198,7 @@ namespace celadon::test
             testAuditionDifference();
             testAuditionDifferenceIsSuppressedAndReversible();
             testFrozenGuardDoesNotFragmentDsp();
+            testSliceAtOutputSubBlockBoundary();
         }
 
     private:
@@ -483,7 +484,7 @@ namespace celadon::test
                 const auto input = makeSine (2, 48000.0, 997.0, 0.1f, 2.0);
                 runChain (chain, input, 480);
                 juce::AudioBuffer<float> block (2, 2048);
-                const auto partial = chain.getGlazeController().getGuardSamplesUntilBoundary() - 1;
+                const auto partial = chain.getGlazeController().getSamplesUntilSliceBoundary() - 1;
                 if (partial > 0)
                 {
                     block.setSize (2, partial, false, false, true);
@@ -492,7 +493,7 @@ namespace celadon::test
                     chain.setParams (p, false);
                     chain.process (block);
                 }
-                expectEquals (chain.getGlazeController().getGuardSamplesUntilBoundary(), 1,
+                expectEquals (chain.getGlazeController().getSamplesUntilSliceBoundary(), 1,
                               "fixture must begin with an actual one-sample active slot remainder");
                 if (mode == 1) p.color.bypass = true;
                 if (mode == 2) p.limit.bypass = true;
@@ -502,8 +503,50 @@ namespace celadon::test
                 chain.process (block);
                 expect (chain.getLastProcessSliceCountForTesting() <= 7,
                         "frozen detector must keep bounded work per callback, mode=" + juce::String (mode));
-                expectEquals (chain.getGlazeController().getGuardSamplesUntilBoundary(), 480);
+                expectEquals (chain.getGlazeController().getSamplesUntilSliceBoundary(), 480);
             }
+        }
+
+        // T-108 独立复查 F8：GLAZE > 0 时链在「预算环 10 ms 时隙边界」与「OUT 表 100 ms 子块边界」中较近的一个处切片。子块边界原给
+        // T-097 的两扇守门用，守门删了它照旧切：每片一次 endBlock，少切这一刀通用档 GLAZE > 0 的输出就变（T-108 的 20 首对照最大 0.12 LU），
+        // 所以不是死代码。两条边界平时重合（都从 prepare 起数，4800 是 480 的整数倍）；宿主 reset 让它们错开——reset 丢掉预算环没满的
+        // 时隙（时隙从此刻重新数），OUT 表不随 reset 清空、子块网格照旧。这里造出「子块边界比时隙边界近」的那一刻，查切片落在子块边界上。
+        void testSliceAtOutputSubBlockBoundary()
+        {
+            beginTest ("GLAZE > 0 slices at the OUT meter's 100 ms sub-block boundary when it is nearer than the 10 ms budget slot boundary");
+            CeladonChain chain;
+            auto p = makeNeutralParams();
+            p.glazePercent = 35.0f;
+            chain.setParams (p, false);
+            chain.prepare ({ 48000.0, 4096, 2 });
+            runChain (chain, makeSine (2, 48000.0, 997.0, 0.1f, 1.0), 480);   // 48000 个样本：时隙与子块都正好在边界上
+
+            const auto tone = makeSine (2, 48000.0, 997.0, 0.1f, 0.2);   // 9600 个样本，够下面每一块取用
+            const auto feed = [&] (int length)
+            {
+                juce::AudioBuffer<float> block (2, length);
+
+                for (int ch = 0; ch < 2; ++ch)
+                    block.copyFrom (ch, 0, tone[(size_t) ch].data(), length);
+
+                chain.setParams (p, false);
+                chain.process (block);
+            };
+
+            const auto subBlock = chain.getOutputMeter().getSubBlockLength();
+            expectEquals (subBlock, 4800, "fixture: 100 ms OUT sub-blocks at 48 kHz");
+
+            feed (4400);      // 子块里走到 4400（离下一条子块边界 400），时隙里走到 80
+            chain.reset();    // 同规格 prepareToPlay 的那一步：时隙从此刻重新数，离下一条时隙边界 480
+            expectEquals (subBlock - (int) (chain.getOutputMeter().getProcessedSamples() % subBlock), 400,
+                          "fixture: the OUT meter keeps its sub-block grid across a host reset");
+            expectEquals (chain.getGlazeController().getSamplesUntilSliceBoundary(), 400,
+                          "the nearer 100 ms sub-block boundary is the slice boundary, not the 480-sample slot boundary");
+
+            // 900 个样本：按子块切是 400（到子块边界）+ 480 + 20 的 3 片；不按子块切是 480 + 420 的 2 片。预算环这时攒不攒统计都一样
+            // （这段正弦还没出方案，预算环不攒、时隙每片从片首重新数；攒的话是 400 + 80 + 420，也是 3 片）。
+            feed (900);
+            expectEquals (chain.getLastProcessSliceCountForTesting(), 3, "the host block is cut at the sub-block boundary as well");
         }
 
         void testListenMatchesWholeChain()

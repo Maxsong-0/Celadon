@@ -72,7 +72,7 @@ namespace celadon::glaze
         void setLimits (const StyleConstants& blendedLimits, const Constants& constants) noexcept;
 
         // 每块调用：stats 是本块模块统计。退让按超限深度在 0.3～6 dB/s，回程按退让深度在 0.15～0.3 dB/s
-        //（T-047，Q8；不再用 Constants 里的 1 / 0.3）。cause：限幅 GR 是超限来源时 deliveryPeak，否则 budget。
+        //（T-047，Q8；不再用 Constants 里的 1 / 0.3）。cause：限幅 GR 是超限来源时 limiterPeak，否则 budget。
         GuardOutput process (const ModuleStats& stats) noexcept;
 
         float getProtectionDb() const noexcept;

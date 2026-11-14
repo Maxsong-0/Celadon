@@ -17,7 +17,7 @@
     二、一遍重算（第 k 份画像 = 前 k 段；按序的工作步，见 Step）
       admit（第 k 段进账）→ referenceSweep（新 → 老：参考权重 ρ、全部段权重 a、段响度直方图）→ referencePick（S_ref）→ lowSweep（按 S_ref 的
       响度因子 λ、lowShare 直方图）→ lowPick（lowRef）→ judgeSweep（新 → 老：m′、主段时钟、主段权重 f）→ accumulate（老 → 新：全部累计，
-      顺序同 House 按存进账本的先后求和）→ trialPick（每路一步：P99 与代价）→ gateSweep（老 → 新：I 的第二遍门限，顺手把这一遍写过的
+      按段进账的先后求和）→ trialPick（每路一步：P99 与代价）→ gateSweep（老 → 新：I 的第二遍门限，顺手把这一遍写过的
       试算格清零）→ finalize（画像、诊断、提交记录）→ clearHistograms（其余直方图清零）。
       每步有一个工作量估计（纳秒，costOf）；一片做到估计用完 sliceBudgetNanoseconds 为止（至少一步）。估计只决定 CPU 怎么摊：一遍的结果
       是窗口（段、印记、事件时钟）与常数的纯函数，分几片、几时做都一样，所以已发布的画像与分片无关。
@@ -25,18 +25,17 @@
     三、权重（LiveProfile.h 文件头第一节的公式；e = 有效时长，W_j = 第 j 段按它的分段方式换算的 W_mem）
       ρ_i = exp(−Σ_{j>i} e_j ÷ referenceMemorySeconds − Δ参考时钟_i)、参考权重 r_i = e_i × ρ_i；a_i = exp(−Σ_{j>i} e_j ÷ W_j − Δ参考时钟_i)；
       f_i = m′_i × exp(−Σ_{j>i} m′_j e_j ÷ W_j − Δ主段时钟_i)。遗忘与事件关掉时 ρ = a = 1、f = m′（exp(−0) = 1 精确）：硬门、冻结参考下 f
-      就是 House 的「满编 1 / 否则 0」，累计逐位同 House 的按段求和。
+      就是「满编 1 / 否则 0」，累计逐位同按段求和。
 
-    四、与 House 画像逐项的对应（MusicAnalyzer.cpp「六」节 computeHouseProfile / houseLoudnessProfile / houseSpectrumProfile /
-      houseStereoGroup / houseOnsetProfile / houseTrialProfile / houseSubProfile / houseConfidences；House 的整数计数在这里是加权的实数，
-      权重全为 1 时退回 House 的整数公式）。与 House 按设计的差别：
-        - I：4/4 型主段权重、响度型 / 被动型全部段权重；两遍门限都逐块做（窗口里有每个门块），与 House 同一公式、同一求和顺序；
-        - LRA 按曲风分口径（a3c1b0e）：4/4 型主段权重（同 House「只用满编段」），响度型 / 被动型参考权重（全部段）；
-        - effectiveSeconds = M、representativeness = c、各特征 confidence = min(c, 观测充分度)（混合损失也给，同 T-049 后的 House）；
+    四、各项公式（来历：T-038 的 House 画像，MusicAnalyzer.cpp 原「六」节 computeHouseProfile 等；T-108 删了 House 画像，公式留在
+      这里。整数计数在这里是加权的实数，权重全为 1 时退回整数公式）：
+        - I：全部段权重；两遍门限都逐块做（窗口里有每个门块）；
+        - LRA：参考权重（全部段；a3c1b0e 起按主段模型分口径，T-108 只剩响度型这一种）；
+        - effectiveSeconds = M、representativeness = c、各特征 confidence = min(c, 观测充分度)（混合损失也给）；
         - 真峰值：主段加权的「段最大值」直方图（0.1 dB 一格，每格记最大线性值），取其上主段质量 ≥ peakTailSeconds 的最高一格的最大值；
         - 试算 P99：每路一张加权直方图（0.01 dB 一格），每段交来的「每路最大的 8 个」按 f 计入、其余块只计入总块数，numpy 线性插值的
           加权推广（trialPercentileOf）；每个 P99 误差 ≤ 半格 0.005 dB；
-        - formatVersion = clayProfileFormatVersion（2）、houseGate 不填（理由见 finalizeProfile）。
+        - formatVersion = clayProfileFormatVersion（2，理由见 finalizeProfile）。
 
     五、老段（挤出窗口）：直接丢弃，不进「老账」。丢掉的那一截权重（相对于无限记忆）：
         - 主段：稳态下窗口最老一段之后有约 512 × φ 个主段小节（φ = 主段小节占比），它的 f ≈ exp(−512 φ × 1.94 s ÷ W_mem)，整截尾巴约占
@@ -148,7 +147,7 @@ namespace celadon::glaze
         static_assert (std::tuple_size<decltype (MusicProfile::monoPeakCostDb)>::value == (size_t) numMonoTrials
                            && std::tuple_size<decltype (MusicProfile::lowCutBlendLossDb)>::value == (size_t) numBlendTrials,
                        "每个试算候选都要有一个画像特征");
-        static_assert (clayProfileFormatVersion == 2, "实时画像按格式 2 交（含立体声 / 超低频字段，不含 houseGate）");
+        static_assert (clayProfileFormatVersion == 2, "实时画像按格式 2 交（含立体声 / 超低频字段，不含格式 3 的 House 门控结果）");
 
         //==============================================================================
         // 实时画像自己的直方图（「分位数一律用定长直方图」；格宽的理由写在各自旁边）。
@@ -183,13 +182,13 @@ namespace celadon::glaze
         // 约每段 130 ns + 固定 4 µs；这里的估计比实测高约三成（每段约 170 ns、固定约 5 µs），一片按估计做满 8 µs 时实际约 6 µs。
         constexpr double costAdmit = 625.0;                // 进账判断、换歌的回看（平常 ≤ 十几段）
         constexpr double costReferenceEntry = 11.0;        // 一段的参考权重（一个 exp）与直方图
-        constexpr double costAllEntry = 6.0;               // 响度型 / 被动型多一个 exp
+        constexpr double costAllEntry = 6.0;               // 全部段权重多一个 exp（响度型主段模型）
         constexpr double costPick = 450.0;                 // 一次分位（扫 800 / 1000 格）加清零
         constexpr double costLowEntry = 4.0;
         constexpr double costJudgeEntry = 11.0;            // m′ 与主段权重（一个 exp）
         constexpr double costAccumulateBase = 5.0;         // 累计时每段都有的开销（非主段只有这一点）
         constexpr double costMainAccumulate = 120.0;       // 主段：27 段 × 8 张表与零散的和（另按值的个数加，见 deriveEntry）
-        constexpr double costAllAccumulate = 20.0;         // 响度型 / 被动型：全部段的门块与 LRA（另按值的个数加）
+        constexpr double costAllAccumulate = 20.0;         // 全部段的门块与 LRA（另按值的个数加）
         constexpr double costPerValue = 0.5;               // 每个门块 / 短期响度 / 低频格 / 起音强度 / 试算值
         constexpr double costTrialSeries = 150.0;          // 一路试算 P99（从顶往下扫几格）
         constexpr double costGateEntry = 3.0;              // 一段的第二遍门限（另按门块数加）与清试算格
@@ -601,11 +600,6 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    MainSectionModel mainSectionModelFor (Genre genre) noexcept
-    {
-        return isHouse (genre) ? MainSectionModel::fourOnFloor : MainSectionModel::loudness;
-    }
-
     bool isInLiveConstantDomain (double value, LiveConstantDomain domain) noexcept
     {
         switch (domain)
@@ -713,12 +707,11 @@ namespace celadon::glaze
             Counters counters;
         };
 
-        // 一遍重算的累计（实值）。口径同 MusicAnalyzer.cpp HouseSums 的满编段部分，整数计数换成加权实数。
+        // 一遍重算的累计（实值）。口径同原 House 画像（T-038，T-108 删）满编段部分的和，整数计数换成加权实数。
+        // T-108 删了只给 4/4 型主段模型用的主段门块与主段 LRA 两组和；工作量估计（costOf）照旧算它们，分片与发布时刻不变。
         struct Sums
         {
-            double mass = 0.0;                      // M = Σ f × e（House 的 fullSeconds）
-            double gatingEnergy = 0.0, gatingCount = 0.0;          // 主段：门块功率与个数（相对门）
-            double rangeEnergy = 0.0, rangeCount = 0.0;            // 4/4 型 LRA
+            double mass = 0.0;                      // M = Σ f × e
             double frames = 0.0;
             std::array<std::array<double, (size_t) numBands>, (size_t) spectrumTables> spectrum {};
             double lowStereoWeight = 0.0, highStereoWeight = 0.0;
@@ -727,12 +720,12 @@ namespace celadon::glaze
             double subEnergy = 0.0, midEnergy = 0.0;
             double trialBlocks = 0.0;
             std::array<double, (size_t) numBlendTrials> blendIntended {}, blendOutput {};
-            double allMass = 0.0, allGatingEnergy = 0.0, allGatingCount = 0.0;   // 响度型 / 被动型的 I（全部段权重）
-            double referenceRangeEnergy = 0.0, referenceRangeCount = 0.0;        // 响度型 / 被动型的 LRA（参考权重）
+            double allMass = 0.0, allGatingEnergy = 0.0, allGatingCount = 0.0;   // I（全部段权重）
+            double referenceRangeEnergy = 0.0, referenceRangeCount = 0.0;        // LRA（参考权重）
             double referenceMass = 0.0;             // Σ r（可用的段）
         };
 
-        // House 画像各特征的观测充分度（同 MusicAnalyzer.cpp HouseMeasured）。
+        // 各特征的观测充分度（来自原 House 画像的 HouseMeasured）。
         struct Measured
         {
             float integrated = 0.0f, range = 0.0f, peak = 0.0f, spectrum = 0.0f, onset = 0.0f;
@@ -784,7 +777,6 @@ namespace celadon::glaze
         std::int64_t gridSamples = 240;
         std::int64_t delaySamples = 24000;
         LiveConstants constants;                // 已清洗
-        MainSectionModel model = MainSectionModel::loudness;
         bool frozen = false;                    // setFrozenReferencesForTesting
         float frozenReference = 0.0f, frozenLowReference = 0.0f;
 
@@ -814,7 +806,7 @@ namespace celadon::glaze
         double loudnessTotal = 0.0;
         std::array<double, (size_t) lowShareBins> lowShareWeights {};
         double lowShareTotal = 0.0;
-        std::array<double, (size_t) histogramBins> mainRange {}, referenceRange {};
+        std::array<double, (size_t) histogramBins> referenceRange {};
         std::array<double, (size_t) peakBins> peakWeight {};
         std::array<float, (size_t) peakBins> peakMax {};
         int peakTop = -1;
@@ -873,16 +865,6 @@ namespace celadon::glaze
             delaySamples = (std::int64_t) std::llround (juce::jmin (constants.publishDelaySeconds, 86400.0) * sampleRate);
         }
 
-        const LiveModelConstants& modelConstants() const noexcept
-        {
-            return model == MainSectionModel::fourOnFloor ? constants.fourOnFloor
-                 : model == MainSectionModel::passive ? constants.passive
-                                                      : constants.loudness;
-        }
-
-        bool fourOnFloor() const noexcept       { return model == MainSectionModel::fourOnFloor; }
-        bool needsAllDomain() const noexcept    { return model != MainSectionModel::fourOnFloor; }
-
         double nominalSecondsOf (const Entry& e) const noexcept
         {
             return e.nominalLength > 0 ? (double) e.nominalLength / sampleRate : 0.0;
@@ -891,7 +873,7 @@ namespace celadon::glaze
         // W_mem：按小节分段 = memoryBars × 小节秒数（段的标称长度），否则 memorySeconds（可为 +∞ = 不遗忘）。
         double memorySecondsOf (const Entry& e) const noexcept
         {
-            const auto& mc = modelConstants();
+            const auto& mc = constants.loudness;
             const auto nominal = nominalSecondsOf (e);
 
             if (e.mode == SegmentMode::bars && mc.memoryBars > 0.0 && nominal > 0.0)
@@ -903,7 +885,7 @@ namespace celadon::glaze
         // M0：同 W_mem 的换算（confidenceBars / confidenceSeconds），按窗口里最新一段的分段方式。
         double confidenceSecondsOf (const Entry* newest) const noexcept
         {
-            const auto& mc = modelConstants();
+            const auto& mc = constants.loudness;
 
             if (newest != nullptr && newest->mode == SegmentMode::bars && mc.confidenceBars > 0.0 && nominalSecondsOf (*newest) > 0.0)
                 return mc.confidenceBars * nominalSecondsOf (*newest);
@@ -1205,7 +1187,7 @@ namespace celadon::glaze
             switch (step)
             {
                 case Step::admit:           return costAdmit;
-                case Step::referenceSweep:  return costReferenceEntry + (needsAllDomain() ? costAllEntry : 0.0);
+                case Step::referenceSweep:  return costReferenceEntry + costAllEntry;
                 case Step::referencePick:
                 case Step::lowPick:         return costPick;
                 case Step::lowSweep:        return costLowEntry;
@@ -1222,7 +1204,8 @@ namespace celadon::glaze
             return 0.0;
         }
 
-        // 累计一段的估计：主段权重 > 0 的段才做主段那一大份（按段的内容，Entry::accumulateCost），响度型 / 被动型另有全部段的门块与 LRA。
+        // 累计一段的估计：主段权重 > 0 的段才做主段那一大份（按段的内容，Entry::accumulateCost），另有全部段的门块与 LRA。
+        // T-108 删了主段门块与主段 LRA 的累加，估计不跟着减：估计决定分片，分片决定画像几时发布，减了声音会变。
         double accumulateCostAt (int position) const noexcept
         {
             if (position >= work.size)
@@ -1234,7 +1217,7 @@ namespace celadon::glaze
             if (mainFactor[(size_t) position] > 0.0)
                 cost += e.accumulateCost;
 
-            if (needsAllDomain() && e.usable)
+            if (e.usable)
                 cost += costAllAccumulate + costPerValue * (double) (e.gatingCount + e.rangeCount);
 
             return cost;
@@ -1248,7 +1231,7 @@ namespace celadon::glaze
 
             const auto& e = entryAt (work.first + (std::uint64_t) position);
             const auto isMain = mainFactor[(size_t) position] > 0.0;
-            const auto weighted = fourOnFloor() ? isMain : e.usable;
+            const auto weighted = e.usable;
             auto cost = costGateEntry;
 
             if (weighted)
@@ -1410,13 +1393,7 @@ namespace celadon::glaze
             if (! loudnessValid || ! std::isfinite (loudnessLufs))
                 return f;   // 没有有效音频：不是主段
 
-            if (model == MainSectionModel::passive)
-            {
-                f.loudness = f.low = 1.0f;
-                return f;
-            }
-
-            const auto& mc = modelConstants();
+            const auto& mc = constants.loudness;
             const auto gate = (double) mc.gateWidthLu;
             const auto above = referenceValid ? (double) loudnessLufs - ((double) reference - gate) : gate;
             f.loudness = (float) ramp (above, (double) mc.loudnessRampLu);
@@ -1424,12 +1401,13 @@ namespace celadon::glaze
             return f;
         }
 
-        // 4/4 型的低频因子（其余模型、或低频门系数 ≤ 0：1）。低频读不出：过不了低频门（同 SegmentLedger）。
+        // 低频因子（低频门系数 ≤ 0：1）。原来只有 4/4 型（House，T-108 删掉）开低频门；出厂的响度型系数是 0、不用，门本身留作常数
+        // 可调的一项（--live-constants loudness.lowGateFactor=…，测试也用它）。低频读不出：过不了低频门（同 SegmentLedger）。
         float lowFactorOf (bool lowShareValid, float lowShare, bool lowReferenceValid, float lowReference) const noexcept
         {
-            const auto& mc = modelConstants();
+            const auto& mc = constants.loudness;
 
-            if (! fourOnFloor() || ! (mc.lowGateFactor > 0.0f))
+            if (! (mc.lowGateFactor > 0.0f))
                 return 1.0f;
 
             if (! lowShareValid || ! std::isfinite (lowShare))
@@ -1440,7 +1418,8 @@ namespace celadon::glaze
         }
 
         // 换歌软遗忘（Max 2026-10-02「响的算、轻的要有低音」+「轻的那一支要电平稳」）：
-        //   票 1 = 比上一份画像的 I 响 newProgramLu 以上；票 2 = 4/4 型里轻 newProgramLu 以上且低频因子 ≥ 0.5；票 0 = 都不是（清零重计）；
+        //   票 1 = 比上一份画像的 I 响 newProgramLu 以上；票 0 = 不是（清零重计）；票 2（4/4 型里轻 newProgramLu 以上且低频因子 ≥ 0.5）
+        //   随 4/4 型删掉（T-108）、不再投，读回的旧窗口里还可能有，下面的起伏判据就是给它留的；
         //   票 3 = 段响度或 I 读不出（不算数也不清零）。这一串（票 1 / 2）的有效音频累计满 newProgramSeconds 之后，每来一段量一次「最近
         //   newProgramSeconds 的那一截」：全是票 1，或段响度起伏（最大 − 最小）≤ newProgramRangeLu，才触发——带低音的淡出一路往下掉不算。
         //   触发：两个事件时钟加 ln(1 ÷ keep)（全部更老的段 × keep），这一串清零重来。比较都是严格大于。
@@ -1459,8 +1438,6 @@ namespace celadon::glaze
 
             if (difference > threshold)
                 e.vote = 1;
-            else if (fourOnFloor() && -difference > threshold && e.admissionLowFactor >= 0.5f)
-                e.vote = 2;
             else
                 e.vote = 0;
 
@@ -1553,7 +1530,7 @@ namespace celadon::glaze
             const auto clockGap = work.counters.referenceClock - e.referenceStamp;
             const auto rho = std::exp (-(sweepEffective / constants.referenceMemorySeconds) - clockGap);
             referenceFactor[(size_t) position] = rho;
-            allFactor[(size_t) position] = needsAllDomain() ? std::exp (-sweepAll - clockGap) : 0.0;
+            allFactor[(size_t) position] = std::exp (-sweepAll - clockGap);
             const auto weight = effective * rho;
 
             if (e.usable)
@@ -1589,7 +1566,7 @@ namespace celadon::glaze
             }
             else
             {
-                const auto bin = weightedPercentileBin (loudnessWeights, loudnessTotal, (double) modelConstants().referencePercentile);
+                const auto bin = weightedPercentileBin (loudnessWeights, loudnessTotal, (double) constants.loudness.referencePercentile);
                 passReferenceValid = bin >= 0;
                 passReference = passReferenceValid ? (float) binCentreLufs (bin) : 0.0f;
             }
@@ -1606,13 +1583,8 @@ namespace celadon::glaze
 
             if (e.usable && e.loudnessValid)
             {
-                if (model == MainSectionModel::passive)
                 {
-                    factor = 1.0f;
-                }
-                else
-                {
-                    const auto& mc = modelConstants();
+                    const auto& mc = constants.loudness;
                     const auto gate = (double) mc.gateWidthLu;
                     const auto above = passReferenceValid ? (double) e.loudnessLufs - ((double) passReference - gate) : gate;
                     factor = (float) ramp (above, (double) mc.loudnessRampLu);
@@ -1638,7 +1610,7 @@ namespace celadon::glaze
             }
             else
             {
-                const auto bin = weightedPercentileBin (lowShareWeights, lowShareTotal, (double) modelConstants().referencePercentile);
+                const auto bin = weightedPercentileBin (lowShareWeights, lowShareTotal, (double) constants.loudness.referencePercentile);
                 passLowReferenceValid = bin >= 0;
                 passLowReference = passLowReferenceValid ? (float) (((double) bin + 0.5) / (double) lowShareBins) : 0.0f;
             }
@@ -1684,7 +1656,7 @@ namespace celadon::glaze
 
             trialDirtyEnd = position + 1;
 
-            if (needsAllDomain() && e.usable)
+            if (e.usable)
             {
                 const auto a = allFactor[(size_t) position];
                 sums.allMass += a * e.effectiveSeconds;
@@ -1705,25 +1677,12 @@ namespace celadon::glaze
             }
         }
 
-        // 这一段 × f 并进主段的和。逐项同 MusicAnalyzer.cpp computeHouseProfile 对一个满编段做的累加（f = 1 时逐位相同）。
+        // 这一段 × f 并进主段的和（逐项同原 House 画像对一个满编段做的累加）。
         void addMain (const Entry& e, double f) noexcept
         {
             auto& s = sums;
             const auto weight = f * e.effectiveSeconds;
             s.mass += weight;
-
-            for (int k = 0; k < e.gatingCount; ++k)
-            {
-                s.gatingEnergy += f * (double) e.gatingPower[(size_t) k];
-                s.gatingCount += f;
-            }
-
-            // 4/4 型的 LRA（Max 2026-10-02「按曲风分口径」）：3 s 短期响度的格号按 f 计入（同 House「LRA 只用满编段」）。
-            for (int k = 0; k < e.rangeCount; ++k)
-                mainRange[(size_t) e.rangeBin[(size_t) k]] += f;
-
-            s.rangeEnergy += e.rangeEnergy * f;
-            s.rangeCount += (double) e.rangeCount * f;
 
             if (e.truePeak > 0.0f && weight > 0.0)
             {
@@ -1870,12 +1829,12 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // I 的第二遍门限（老 → 新）：同 House computeHouseProfile——门块功率逐个与相对门比（4/4 型主段权重，响度型 / 被动型全部段权重）；
+        // I 的第二遍门限（老 → 新）：门块功率逐个与相对门比（全部段权重）；
         // 顺手把这一段写过的试算格清零（下一遍从干净的直方图起）。
         void beginGateSweep() noexcept
         {
-            const auto energy = fourOnFloor() ? sums.gatingEnergy : sums.allGatingEnergy;
-            const auto count = fourOnFloor() ? sums.gatingCount : sums.allGatingCount;
+            const auto energy = sums.allGatingEnergy;
+            const auto count = sums.allGatingCount;
             gateValid = count > 0.0;
             gatedEnergy = gatedCount = 0.0;
 
@@ -1889,7 +1848,7 @@ namespace celadon::glaze
         void gateOne (int position) noexcept
         {
             const auto& e = entryAt (work.first + (std::uint64_t) position);
-            const auto weight = fourOnFloor() ? mainFactor[(size_t) position] : (e.usable ? allFactor[(size_t) position] : 0.0);
+            const auto weight = e.usable ? allFactor[(size_t) position] : 0.0;
 
             if (gateValid && weight > 0.0)
                 for (int k = 0; k < e.gatingCount; ++k)
@@ -1928,7 +1887,6 @@ namespace celadon::glaze
         // 其余直方图清零（下一遍从干净的起）。
         void clearHistograms() noexcept
         {
-            mainRange.fill (0.0);
             referenceRange.fill (0.0);
 
             if (peakTop >= 0)
@@ -1959,12 +1917,11 @@ namespace celadon::glaze
         }
 
         //==============================================================================
-        // 画像（文件头第四节）。同 MusicAnalyzer.cpp computeHouseProfile 的分工。
+        // 画像（文件头第四节）。公式的来历是 T-038 的 House 门控画像（MusicAnalyzer.cpp 原 computeHouseProfile，T-108 随曲风删掉）。
         //
-        // formatVersion = clayProfileFormatVersion（2）、houseGate 不填（valid = false）：决策器（GlazePlanner.cpp）两项都不读——只读各特征的
-        // value / valid / confidence、representativeness、bandConfidence；编排器（GlazeController.cpp）用 formatVersion ≥ 2 判「方案源带
-        // Clay 特征」——实时画像带着，所以是 2；用 formatVersion ≥ 3 且 houseGate.valid 判「House 档锁定过的画像」——那是 T-038 学习 → 锁定
-        // 的机制，实时画像没有锁定；S_ref / lowRef 从 getDiagnostics 读。
+        // formatVersion = clayProfileFormatVersion（2）：决策器（GlazePlanner.cpp）不读它——只读各特征的 value / valid / confidence、
+        // representativeness、bandConfidence；编排器（GlazeController.cpp）用 formatVersion ≥ 2 判「方案源带 Clay 特征」——实时画像带着，
+        // 所以是 2。格式 3（带 House 门控结果）T-108 起不再写，只在读旧存档时认得（GlazeProfile.h）。S_ref / lowRef 从 getDiagnostics 读。
         void finalizeProfile() noexcept
         {
             auto& r = result;
@@ -2094,14 +2051,14 @@ namespace celadon::glaze
             record.newProgramRangeLu = e.newProgramRangeLu;
         }
 
-        // 同 houseLoudnessProfile：I（gateSweep 的结果）、LRA（4/4 型主段，响度型 / 被动型参考权重）、真峰值、PLR。
+        // 响度组：I（gateSweep 的结果）、LRA（参考权重）、真峰值、PLR。
         void loudnessProfile (Measured& measured) noexcept
         {
             auto& p = result.profile;
             const auto mainSeconds = sums.mass;
             p.effectiveSeconds = mainSeconds;
 
-            const auto integratedSeconds = fourOnFloor() ? mainSeconds : sums.allMass;
+            const auto integratedSeconds = sums.allMass;
             const auto integratedValid = gateValid && gatedCount > 0.0;
             const auto integrated = integratedValid ? energyToLufs (gatedEnergy / gatedCount) : 0.0;
 
@@ -2112,10 +2069,10 @@ namespace celadon::glaze
 
             measured.integrated = fraction (integratedSeconds, loudnessFullSeconds);
 
-            // LRA：同 houseLoudnessProfile 的 LRA 段（整数个数换成加权的个数：index = ⌊(n − 1) × 分位 + 0.5⌋，累计 > index 的那一格）。
-            const auto& range = fourOnFloor() ? mainRange : referenceRange;
-            const auto rangeEnergy = fourOnFloor() ? sums.rangeEnergy : sums.referenceRangeEnergy;
-            const auto rangeCount = fourOnFloor() ? sums.rangeCount : sums.referenceRangeCount;
+            // LRA（整数个数换成加权的个数：index = ⌊(n − 1) × 分位 + 0.5⌋，累计 > index 的那一格）。
+            const auto& range = referenceRange;
+            const auto rangeEnergy = sums.referenceRangeEnergy;
+            const auto rangeCount = sums.referenceRangeCount;
             const auto subBlock = passSubBlock > 0 ? passSubBlock : defaultSubBlockLength;
             const auto rangeSeconds = rangeCount * (double) subBlock / sampleRate;
             invalidate (p.loudnessRangeLu);
@@ -3128,10 +3085,9 @@ namespace celadon::glaze
         impl->coldStart();
     }
 
-    void LiveProfile::setConstants (const LiveConstants& constants, MainSectionModel model) noexcept
+    void LiveProfile::setConstants (const LiveConstants& constants) noexcept
     {
         impl->constants = sanitiseLiveConstants (constants);
-        impl->model = model == MainSectionModel::fourOnFloor || model == MainSectionModel::passive ? model : MainSectionModel::loudness;
         impl->refreshDelay();
         impl->recomputePublished();
     }

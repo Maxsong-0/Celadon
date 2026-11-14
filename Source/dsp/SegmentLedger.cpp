@@ -2,7 +2,7 @@
   ==============================================================================
 
     SegmentLedger.cpp
-    T-038 House 档按小节记账（口径见 SegmentLedger.h）。T-048：每定稿一段交给 SegmentSink（finalizeOldest，含 endEpoch 就地定稿的段）；
+    按小节记账（T-038 起，原为 House 档；口径见 SegmentLedger.h）。T-048：每定稿一段交给 SegmentSink（finalizeOldest，含 endEpoch 就地定稿的段）；
     阶段 1 修订：锚定时块起点离下一条小节线不到半个样本就从那条小节线算起（anchor，不再开 1 个样本的碎段）。
     阶段 1 收口：同一段重新锚定时，这一次实例最长两段，超了就截断另开（anchor）。
 
@@ -60,25 +60,16 @@ namespace celadon::glaze
         subBlockLength = juce::jmax (1, newSubBlockLength);
     }
 
-    void SegmentLedger::setConstants (const HouseConstants& newConstants) noexcept
+    void SegmentLedger::setConstants (const SegmentConstants& newConstants) noexcept
     {
         constants = newConstants;
 
-        // 坏值按出厂值（HouseConstants 的默认值就是出厂值）；只防坏快照，合法范围内原样用。
-        const HouseConstants factory;
-        gateWidthLu = std::isfinite (constants.gateWidthLu) && constants.gateWidthLu >= 0.0f ? constants.gateWidthLu : factory.gateWidthLu;
-        lowGateFactor = std::isfinite (constants.lowGateFactor) && constants.lowGateFactor >= 0.0f
-                            ? juce::jmin (1.0f, constants.lowGateFactor) : factory.lowGateFactor;
+        // 坏值按出厂值（SegmentConstants 的默认值就是出厂值）；合法范围内原样用。
+        const SegmentConstants factory;
         const auto seconds = std::isfinite (constants.fallbackSegmentSeconds)
                                  ? juce::jlimit (minimumBarSeconds, maximumBarSeconds, constants.fallbackSegmentSeconds)
                                  : factory.fallbackSegmentSeconds;
         fallbackSamples = juce::jmax ((std::int64_t) 1, (std::int64_t) std::llround (seconds * sampleRate));
-
-        if (! summary.valid)
-        {
-            summary.gateWidthLu = gateWidthLu;   // 还没有门控结果：快照值跟着新常数（有结果时下次重算门控再换）
-            summary.lowGateFactor = lowGateFactor;
-        }
     }
 
     void SegmentLedger::reset (std::int64_t newAcceptFrom) noexcept
@@ -96,11 +87,6 @@ namespace celadon::glaze
         storeFull = false;
         lastStoredSlot = -1;
         lastFinal = LastFinal {};
-
-        summary = HouseGateSummary {};
-        summary.gateWidthLu = gateWidthLu;
-        summary.lowGateFactor = lowGateFactor;
-        lowReferenceValid = false;
     }
 
     //==============================================================================
@@ -445,7 +431,6 @@ namespace celadon::glaze
 
         segment.lowShareValid = segment.frameSeconds >= minimumLowShareSeconds && std::isfinite (total) && total > 0.0;
         segment.lowShare = segment.lowShareValid ? (float) (low / total) : 0.0f;
-        segment.full = false;
     }
 
     int SegmentLedger::commit (const Segment& segment) noexcept
@@ -482,13 +467,6 @@ namespace celadon::glaze
         return numStored++;
     }
 
-    bool SegmentLedger::passesGate (bool heard, bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept
-    {
-        return summary.valid && lowReferenceValid && heard && loudnessValid && lowShareValid
-            && loudnessLufs >= summary.referenceLufs - gateWidthLu
-            && lowShare >= summary.lowShareReference * lowGateFactor;
-    }
-
     void SegmentLedger::finalizeOldest() noexcept
     {
         const auto slot = order[(size_t) openHead];
@@ -499,15 +477,10 @@ namespace celadon::glaze
         deriveSegment (segment);
 
         // T-048：每定稿一段交一次给接收者（SegmentSink，文件头见 SegmentLedger.h 末尾）——存不存进账本都交（没有有效音频、账本满了、
-        // 重放不如旧值的段同样交），交的是算好有效时长 / 段响度 / 低频占比之后、门控之前的段（full 是账本自己的结果，接收者不用）。
+        // 重放不如旧值的段同样交），交的是算好有效时长 / 段响度 / 低频占比之后的段。
         // 只读这一段，账本的状态一个不改：没设接收者时与 T-048 之前逐位相同。
         if (sink != nullptr)
             sink->segmentFinalized (segment);
-
-        // 新响段：比「这一段并入之前」的 S_ref 高 ΔG 以上、且过了那时的低频门（设计规格第 3.2 节）。
-        const auto surge = summary.valid && lowReferenceValid && segment.heard && segment.loudnessValid && segment.lowShareValid
-                        && segment.loudnessLufs >= summary.referenceLufs + gateWidthLu
-                        && segment.lowShare >= summary.lowShareReference * lowGateFactor;
 
         const auto stored = commit (segment);
         poolUsed[(size_t) slot] = false;
@@ -525,19 +498,14 @@ namespace celadon::glaze
         {
             lastStoredSlot = stored;
             ++storedRevision;
-            // 阶段 2：不再对整本账做门控重算（S_ref / 满编）。段自身的响度、低频占比、已听仍在 deriveSegment 里算。
+            // 段自身的响度、低频占比、已听在 deriveSegment 里算（T-038 的整本账门控 S_ref / 满编 / 新响段已随 T-108 删掉）。
         }
-
-        if (surge)
-            ++surgeCount;
 
         Event event;
         event.sequence = eventTotal;
         event.epoch = segment.epoch;
         event.stored = stored >= 0;
         event.heard = segment.heard;
-        event.full = stored >= 0 && store[(size_t) stored].full;
-        event.surge = surge;
         event.loudnessValid = segment.loudnessValid;
         event.loudnessLufs = segment.loudnessLufs;
         event.lowShareValid = segment.lowShareValid;
@@ -547,8 +515,7 @@ namespace celadon::glaze
     }
 
     //==============================================================================
-    // 读数。阶段 2 不再重算整本账的门控：summary.valid 保持 false，segment.full 保持 false，
-    // isCurrentSegmentFull 因此为 false。正在播的这一段的暂判（getCurrentReading）照旧。
+    // 读数。正在播的这一段的暂判（getCurrentReading）。
     //==============================================================================
     SegmentMode SegmentLedger::getMode() const noexcept
     {
@@ -559,15 +526,6 @@ namespace celadon::glaze
             return newest().mode;
 
         return lastStoredSlot >= 0 ? store[(size_t) lastStoredSlot].mode : SegmentMode::none;
-    }
-
-    bool SegmentLedger::isCurrentSegmentFull() const noexcept
-    {
-        if (! summary.valid || ! lowReferenceValid)
-            return false;
-
-        float loudness = 0.0f, lowShareNow = 0.0f;
-        return getCurrentReading (loudness, lowShareNow) == Reading::measured && passesGate (true, true, loudness, true, lowShareNow);
     }
 
     SegmentLedger::Reading SegmentLedger::getCurrentReading (float& loudnessLufs, float& lowShareOut) const noexcept
@@ -602,9 +560,9 @@ namespace celadon::glaze
         return lastFinal.valid && lastFinal.epoch == epoch ? readLastFinal (loudnessLufs, lowShareOut) : Reading::none;
     }
 
-    // 正在播的段按它自己的数据暂判（文件头第五节）：有效音频与过帧门的帧都够 minimumProvisionalSeconds = measured；已经播了
+    // 正在播的段按它自己的数据暂判（文件头第四节）：有效音频与过帧门的帧都够 minimumProvisionalSeconds = measured；已经播了
     // minimumProvisionalSeconds、有效音频却不够 = quiet（过不了「有效音频」门的安静段落）；刚开始、或帧还没跟上 = none（调用方退回上一段）。
-    // 有效音频够了、读数却不是有限正数（异常数据）按 quiet：不当作满编、不在它上面校准（与改前 isCurrentSegmentFull 判「否」一致）。
+    // 有效音频够了、读数却不是有限正数（异常数据）按 quiet（不当作主段）。
     SegmentLedger::Reading SegmentLedger::readOpen (const Segment& open, float& loudnessLufs, float& lowShareOut) const noexcept
     {
         const auto seconds = [this] (int subBlocks) noexcept { return (double) subBlocks * (double) subBlockLength / sampleRate; };

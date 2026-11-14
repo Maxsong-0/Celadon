@@ -26,6 +26,8 @@
             file="Source/ParameterDefaults.h"/>
       <FILE id="jw4Ky9" name="AnalyzerTap.h" compile="0" resource="0"
             file="Source/AnalyzerTap.h"/>
+      <FILE id="Lg7sT1" name="LegacyState.h" compile="0" resource="0"
+            file="Source/LegacyState.h"/>
       <GROUP id="{1D8BEABE-7186-812B-FA28-E7FEEDE815CD}" name="dsp">
         <FILE id="hGr0lD" name="LimiterModule.cpp" compile="1" resource="0"
               file="Source/dsp/LimiterModule.cpp"/>
@@ -95,14 +97,6 @@
               file="Source/dsp/MusicAnalyzer.cpp"/>
         <FILE id="Ma6Anh" name="MusicAnalyzer.h" compile="0" resource="0"
               file="Source/dsp/MusicAnalyzer.h"/>
-        <FILE id="Ct8Cgc" name="ContrastGuard.cpp" compile="1" resource="0"
-              file="Source/dsp/ContrastGuard.cpp"/>
-        <FILE id="Ct8Cgh" name="ContrastGuard.h" compile="0" resource="0"
-              file="Source/dsp/ContrastGuard.h"/>
-        <FILE id="Ps8Pgc" name="PsrGuard.cpp" compile="1" resource="0"
-              file="Source/dsp/PsrGuard.cpp"/>
-        <FILE id="Ps8Pgh" name="PsrGuard.h" compile="0" resource="0"
-              file="Source/dsp/PsrGuard.h"/>
         <FILE id="Ol8Olc" name="OutputLevelTracker.cpp" compile="1" resource="0"
               file="Source/dsp/OutputLevelTracker.cpp"/>
         <FILE id="Ol8Olh" name="OutputLevelTracker.h" compile="0" resource="0"

@@ -2,7 +2,7 @@
 
 | Reading | What it shows | What to aim for |
 |---|---|---|
-| **IN / OUT true peak** | True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold. | Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin; at or below −2 dBTP with Delivery on Streaming); it turns orange if it does. |
+| **IN / OUT true peak** | True peak (dBTP) measured with 8× interpolation, more accurate than sample peaks; the number below is the peak hold. | Click the number to clear it. OUT should not exceed the ceiling in effect (after any codec margin); it turns orange if it does. |
 | **GR · Limit gain reduction** | How many dB the limiter is reducing right now. | Staying above 6 dB for long means Gain is pushed too far. |
 | **GLUE GR** | How many dB Color's Glue is compressing right now. | 1–3 dB is most natural. |
 
@@ -14,7 +14,7 @@ In the middle row, to the right of the GLAZE knob.
 |---|---|---|
 | **Integrated loudness (LUFS)** | Average loudness since the last reset; streaming services normalise playback by it. | Pop −9 to −7; to keep dynamics, −14 to −11. |
 | **Short-term** | Loudness of the last 3 seconds, following the sections of the song. | 2–4 LU between verse and chorus sounds natural. |
-| **True peak** | The highest true peak since the last reset. | Should stay below the ceiling in effect (at or below −2 dBTP with Delivery on Streaming). |
+| **True peak** | The highest true peak since the last reset. | Should stay below the ceiling in effect (your Ceiling minus any codec margin). |
 | **Peak-to-loudness ratio (PLR)** | The difference between the true-peak maximum and integrated loudness — how much dynamics are left. | The smaller it is, the fuller it sounds. |
 | **Loudness bar** | −24 to −6 LUFS, filled to the integrated loudness; the target loudness is a triangle above the bar and −14 a dashed line below it. | Shows at a glance how far you are from the target and from −14. |
 | **Norm** | Under the loudness bar: how much a platform normalising to −14 LUFS would turn your master up or down. | A strongly negative number means you've pushed it far louder than the platform will play it. |
@@ -24,7 +24,7 @@ In the middle row, to the right of the GLAZE knob.
 
 The meters read the master **before** any listening attenuation: Match and normalisation preview don't change them.
 
-The target loudness (the “Target” in the right side panel's title and on the status line, and the triangle on the loudness bar) is the loudness of the main section: the drop with a House genre, the loudest parts in General. The intro and breakdown pull the integrated loudness down, so reading lower than the target is normal; to compare with the target, watch the short-term loudness during the main section. See [Genre and Delivery](/docs/glaze#genre-and-delivery).
+The target loudness (the “Target” in the right side panel's title and on the status line, and the triangle on the loudness bar) is the loudness of the main section, the loudest parts of the song. The intro and breakdown pull the integrated loudness down, so reading lower than the target is normal; to compare with the target, watch the short-term loudness during the main section. See [How it follows the main section](/docs/glaze#how-it-follows-the-main-section).
 
 ## Spectrum analyser
 

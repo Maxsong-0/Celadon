@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# T-038 House 门槛的合成测试曲（设计规格-曲风与交付 第 7 节第 4 条；设计规格-曲风-House学习方式 第 1、2 节）。
+# 合成 House 风格测试曲（T-038 为 House 门槛写；T-108 / ADR-039 删掉曲风与 House 门禁后作普通素材留下）。
 #
-# 合成信号证明不了「好听」，但能把 House 的段落结构摆得清清楚楚：前奏没有 bass、breakdown 没有 kick / bass，
-# 用来跑通渲染工具的逐段统计（--segments-csv）与 tools/render/house_gate.py，也给门控阈值一个已知答案的对照。
-# 真正的门槛与阈值标定要用 Max 的 10～20 首 House（规格第 3.2、6 节），这两首只是脚本的阳性对照。
+# 合成信号证明不了「好听」，但能把 4/4 舞曲的段落结构摆得清清楚楚：前奏没有 bass、breakdown 没有 kick / bass，
+# 用来跑通渲染工具的逐段统计（--segments-csv）与「从第 1 小节播 vs 从 drop 播」的预热起点检查（tools/render/listen_start_check.py，
+# 通用档：--bpm 124 --listen-from-bar 1,33），也给实时画像的主段判断一个已知答案的对照。
 #
 # 用法：make_synthetic_house.py <输出目录> [--bpm 124] [--rate 48000] [--seed 20261001] [--peak-dbfs -3]
 # 产出（都在输出目录第一层：celadon_render --in 直接读；标注 .json 不是音频，渲染工具会跳过）：
@@ -13,7 +13,7 @@
 # 配比按「前奏 → drop 响 4～5 LU、breakdown 比 drop 轻 8 LU 左右」调（底鼓衰减 110 ms、bass 持续、pad 0.06）：底鼓太长时
 # 前奏与 drop 的段响度只差 1 LU、低频占比也一样，门控分不开，起不到对照作用（2026-10-01 第一版实测）。
 # 标注 JSON：{"song", "file", "bpm", "meter", "sample_rate", "bars", "sections": [{"name", "kind", "start_bar", "end_bar"}]}，
-#   小节从 1 起、两端都含；kind ∈ intro / drop / breakdown（house_gate.py 按它认段落）。最后一小节之后补 0.5 s 静音让鼓尾放完（不算小节）。
+#   小节从 1 起、两端都含；kind ∈ intro / drop / breakdown（T-038 的 house_gate.py 按它认段落；那个脚本随 T-108 删了，标注照旧写出供人工对照）。最后一小节之后补 0.5 s 静音让鼓尾放完（不算小节）。
 # 24 bit 立体声 PCM（标准库 wave 写），每首各自把采样峰值归一到 --peak-dbfs。依赖 numpy（109 上用 ~/.venvs/audio/bin/python）。
 # 同一组参数每次生成逐位相同（固定种子；只用 numpy 的确定性运算）。
 import argparse

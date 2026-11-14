@@ -9,9 +9,9 @@
       - 全部状态固定容量，prepare 里分配，音频线程不分配、不加锁；
       - 时间一律按新增有效音频样本计。
 
-    阶段 2（T-048）：聆听 / 候选画像 / House 门控重算已退役。startLearning / stopLearning / recomputeHouseProfile /
-    clearHouseLedger 是空操作，isLearning 恒为 false，getCandidateProfile 保持各特征 valid = false，
-    getHouseProfileGeneration 恒为 0。短期视图与实时立体声视图照常更新。唯一的段落账是实时那一份
+    阶段 2（T-048）：聆听 / 候选画像已退役。startLearning / stopLearning 是空操作，isLearning 恒为 false，getCandidateProfile
+    保持各特征 valid = false。短期视图与实时立体声视图照常更新。T-108（ADR-039）删了 T-038 的 House 档（setGenre、House 门控账与
+    House 画像，阶段 2 起本来就不走）。唯一的段落账是实时那一份
     （getSegmentLedger；live 模式开着才记账）。四个收单候选停算，低切 / 加宽 / 两个混合损失守护在实时模式里
     一直跑，结果只记进段的 live*。trial* 留在段布局里，分析器不再写。
 
@@ -66,28 +66,17 @@
         只有 pad 的段落里两路低频相关度因此无效（ClayGuard 冻结反相一路），不再跟着漏进来的分音摆。
         分析器只看入口，宿主旁通时入口照常，所以「宿主旁通时冻结」由 ClayGuard 按编排器给的时长 0 做（ClayGuard.h），不在这里。
 
-    ---- T-038 House 档（阶段 2 已退役；下面是阶段 1 的旧口径，实现不再走）----
-
-    编排器每块用 setGenre 告诉分析器此刻的曲风。阶段 2 只把枚举存下来，不再另挂 House 门控账，也不重算画像。旧口径：通用档：上面的一切照旧，下面这些一个都不起作用（逐位同改前）。House 档：
-      - 三路数据照常累计通用画像（换回通用档时用），另按各自的时间戳归进段落账（SegmentLedger：一段 = 一小节，跨段边界的按起点归属）；
-        段落账学习与否都记（锁定后防漏网要看新段），只在 startLearning（「重新聆听」）、reset、clearHouseLedger 时清空；
-      - 候选画像（getCandidateProfile）改由段落账的门控算出：I、PLR、真峰值、频谱、低 / 高频、起音、立体声、次声、先试后用代价只用
-        满编段，LRA 也只用满编段（阶段 3 集成改：全部段的 LRA 随起播位置变），有效时长、代表性用全部段；画像格式 houseProfileFormatVersion，houseGate = 门控结果；代表性另按「已听 ÷ 锁定所需」
-        封顶（暂定期的信心打折，决策器的 confidenceScale 据此自然收紧）。学习期间每定稿一段重算一次（O(段数)），不学习时冻结，
-        编排器重开时用 recomputeHouseProfile 立即重算。getAuxiliaryFeatures 同样换成满编段的一份。
-
     ---- T-048 实时模式（设计规格-实时GLAZE 第 3 节；ADR-030；实现口径见 MusicAnalyzer.cpp「七」节）----
 
     阶段 2 插件路径由编排器常开。setSegmentSink 交接收者（LiveProfile），setLiveMode (true) 打开（都在消息线程、处理之前调）。
     阶段 1 的「学习期 trial* 与 live* 两套」已并成 live* 这一套：
-      - 另起一份「实时段落账」（与 House 档门控那一份同一个 SegmentLedger 类、同一套分段与记账口径）：所有曲风都分段、都往段里累计，
-        每定稿一段交给接收者。它不进任何画像——候选画像（通用档与 House 档）、辅助量、短期视图、House 档那一份段落账（getSegmentLedger，
-        连段里的 live* 四项）都与实时模式关着时逐位相同；
+      - 「实时段落账」（SegmentLedger）：分段、往段里累计，每定稿一段交给接收者。它不进任何画像——候选画像、辅助量、短期视图
+        都与实时模式关着时逐位相同；
       - 先试后用的候选一直跑（不只在学习期间）：每个按有效音频门有效的块都进实时段的 liveTrialBlocks / liveTrialTop / liveBlend*；
         学习区间内的块同时进 trialBlocks / trialTop / blend*。开始学习时候选照旧从零状态重新起跑（学习期的代价与关着时逐位相同），
         所以实时一侧每次开始学习后有 250 ms 的预热空档；
       - 段落账的段只在不连续点断开（跳播、回绕、宿主 reset、时间轴断开）：开着的段截到此刻、就地定稿交出去再重新锚定，交出去的
-        [start, end) 首尾相接（上一次断开之后还没收过数据的断开什么都不做）。重新聆听、clearHouseLedger、换曲风都不断开它；
+        [start, end) 首尾相接（上一次断开之后还没收过数据的断开什么都不做）。重新聆听不断开它；
         reset / prepare / setLiveMode (false) 也是先把开着的段交出去再清。宿主走带信息只按 SegmentLedger 现有的规则用（小节锚定），
         不另加按走带触发的逻辑；
       - 段与宿主分块无关、与学不学习无关（T-048 阶段 1 修订）：实时段要等先试后用的块交齐才定稿；子块有效门、帧门、起音组有效门的
@@ -97,7 +86,7 @@
         从 0 重新数时偏移加大），在分析器的一生里单调不减。processInput / processSpectrum 末尾各调一次 advanceTo (T)：T = 此刻交齐的
         位置——end ≤ T 的段都已交出、之后交来的段 end > T；就地定稿之后报到此刻；
       - setLiveMode (false, &balance)：链在下一块开头才交 Balance 的帧，关的那一刻最后一块的帧还在 Balance 里——先把它们只交给实时
-        段落账（通用画像、House 账、短期视图下一块照常收），再就地定稿。GlazeController / CeladonChain::setLiveSegmentSink (nullptr) 这样调。
+        段落账（通用画像、短期视图下一块照常收），再就地定稿。GlazeController / CeladonChain::setLiveSegmentSink (nullptr) 这样调。
     关着时（默认）实时段落账不分配、不跑，接收者一次都不调；一切输出与 T-048 之前逐位相同。
 
   ==============================================================================
@@ -181,23 +170,8 @@ namespace celadon::glaze
         // v0.6 A1 追加：辅助量（学习区间内的高频谱通量统计）。
         const AuxiliaryFeatures& getAuxiliaryFeatures() const noexcept;
 
-        // ---- T-038 House 档（见文件头最后一节）----
-        // 此刻的曲风（编排器每块交；只存一个枚举，不变时不做任何事）。进 / 出 House 档时段落账在此刻断开（没定稿的段就地定稿）。
-        void setGenre (Genre genre) noexcept;
-        Genre getGenre() const noexcept;
-
-        // 门控与分段用的常数（编排器在 prepare / 换标定快照时交；只拷贝几个数）。
-        void setHouseConstants (const HouseConstants& constants) noexcept;
-
-        // 阶段 2 退役：空操作。不再按 House 门控重算候选画像。
-        void recomputeHouseProfile() noexcept;
-
-        // 阶段 2 退役：空操作。实时段落账不在这里清。
-        void clearHouseLedger() noexcept;
-
         // 唯一的段落账：实时那一份（live 模式开着才分配、才记账）。trial* 不再另记，试算只在 live* 里。
         const SegmentLedger& getSegmentLedger() const noexcept;
-        std::uint32_t getHouseProfileGeneration() const noexcept;   // 恒为 0：House 画像代际已退役
 
         // ---- T-048 实时模式（见文件头最后一节；消息线程、处理之前调，prepare / reset 之后保持设定）----
         // 开：分配实时段落账（约 2 MB），候选从此一直跑；关：pendingFrames 非空时先把它已发布、分析器还没读的帧只交给实时段落账

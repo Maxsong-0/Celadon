@@ -121,9 +121,7 @@ set(CELADON_DSP_SOURCES
     Source/dsp/ClayGuard.cpp
     Source/dsp/ClayModule.cpp
     Source/dsp/ColorModule.cpp
-    Source/dsp/ContrastGuard.cpp
     Source/dsp/OutputLevelTracker.cpp
-    Source/dsp/PsrGuard.cpp
     Source/dsp/GlazeConstants.cpp
     Source/dsp/GlazeController.cpp
     Source/dsp/GlazeGuard.cpp
@@ -199,13 +197,13 @@ add_executable(celadon_tests
     tests/GlazeCalibrationTests.cpp
     tests/Phase2OrchestratorTests.cpp
     tests/GlazeControllerTests.cpp
-    tests/GuardFamilyTests.cpp
     tests/OutputLevelTrackerTests.cpp
     tests/GlazeStatusTextTests.cpp
     tests/ClayTests.cpp
     tests/ClayGuardTests.cpp
     tests/ClayGlazeTests.cpp
     tests/LegacyFixtureTests.cpp
+    tests/LegacyStateTests.cpp
     tests/AnalyzerTapTests.cpp
     tests/LocalisationTests.cpp
     tests/SegmentLedgerTests.cpp
