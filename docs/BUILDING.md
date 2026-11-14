@@ -156,10 +156,11 @@ Mac 上不编、不测、不渲染、不跑基准（Max 2026-10-04 定，2026-10
 
 - **108（testbox）**：DGX 上 `testbox submit --arch x86_64 …`，Mac 上 `testbox --remote testbox@max-spark submit --arch x86_64 …`；任务由 DGX 的
   守护进程派到 108，`testbox wait / logs / status` 照旧对 DGX。等结果只认 `^testbox · 结束：` 那一行。
-- **DGX 上的入口**：`~/.cache/celadon-spark/bin/spark-test.sh <源码目录> build|test|run|dir`（仓库副本 `scripts/dgx/spark-test.sh`，两份保持一致，
+- **DGX 上的入口**：`~/.cache/celadon-spark/bin/spark-test.sh <源码目录> build|test|run|dir`，`dry <子命令…>` 预演（只打印构建目录、JUCE 路径、
+  锁和要跑的命令；`dir` 也不建目录）；只在 Linux aarch64 上跑，别的机器直接报错（仓库副本 `scripts/dgx/spark-test.sh`，两份保持一致，
   以 DGX 上那份为准）。DGX 是 NVIDIA DGX Spark（aarch64，20 核 / 121 GB，Ubuntu 24.04，GCC 13.3，Release + Ninja，没有 LTO）。
   源码放 `~/.cache/celadon-spark/src/<名>/`（用 `git archive` 取一份干净树，别和别的会话共用目录），构建目录
-  `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令打印）；JUCE 用 DGX 上的 `/home/maxsong/All-Project/JUCE`（`-DCELADON_JUCE_DIR`）；
+  `~/.cache/celadon-spark/build/<名>-<源码路径与标志的散列>/`（`dir` 子命令打印）；JUCE 用 DGX 上的 `/home/maxsong/All-Project/JUCE`（`-DCELADON_JUCE_DIR`；环境变量 `JUCE_DIR` 可改）；
   它把 venv 放进 PATH。`build` 默认目标 `celadon_tests celadon_render`；`test` 编 `celadon_tests` 后运行（可带 `--only 类名,…`）；`run <命令…>`
   在锁里跑任意命令，命令里可写 `$BUILD`（单引号留给脚本里的 shell 展开）。`SPARK_JOBS` 并行编译数（默认 8，几个会话同时编给 4）；
   `CELADON_CXX_FLAGS` 同 `test-linux.sh`。
