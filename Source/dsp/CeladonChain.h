@@ -167,7 +167,6 @@ namespace celadon
 
         // ---- GLAZE（界面线程调用，无锁；存取在消息线程）----
         glaze::Status getGlazeStatus() const noexcept                    { return controller.getStatus(); }
-        void requestGlazeRelearn() noexcept                              { controller.requestRelearn(); }
         std::unique_ptr<juce::XmlElement> createGlazeStateXml() const    { return controller.createStateXml(); }
         void restoreGlazeStateXml (const juce::XmlElement* xml)          { controller.restoreStateXml (xml); }
         void keepGlazeStateOnLoad() noexcept                             { controller.keepStateOnLoad(); }   // 运行中读档不读 GLAZE（T-099）

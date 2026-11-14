@@ -862,14 +862,13 @@ juce::AudioProcessorEditor* CeladonAudioProcessor::createEditor()
 {
     auto* editor = new CeladonAudioProcessorEditor (*this);
 
-    // GLAZE 的三个数据源（v0.6，设计规格-GLAZE-界面与实现第 1 节）：编辑器每 30 ms 在消息线程调，全部无锁——
-    // 状态是编排器的无锁快照，「重新聆听」只置原子标志，实际值是音频线程每块写的 7 个原子量。
+    // GLAZE 的两个数据源（v0.6，设计规格-GLAZE-界面与实现第 1 节）：编辑器每 30 ms 在消息线程调，全部无锁——
+    // 状态是编排器的无锁快照，实际值是音频线程每块写的 7 个原子量。
     // 宿主保证编辑器先于处理器销毁，捕获 this 安全。
-    // 两种旧工程提示由编辑器的计时器每帧取（旧聆听结果在状态快照里，曲风与交付取这个原子量），读档不必通知编辑器、也不管在哪个线程
+    // 两种旧工程提示由编辑器的计时器每帧取（GLAZE 旧存档丢弃的那一种在状态快照里，曲风与交付取这个原子量），读档不必通知编辑器、也不管在哪个线程
     // （T-108 独立复查 F12、第 2 轮 R2-F1）。先交它再交状态源：setGlazeStatusSource 刷的那一帧就把两种提示都取到。
     editor->setGenreDeliveryResetSource ([this] { return genreDeliveryReset.load(); });
     editor->setGlazeStatusSource ([this] { return getGlazeStatus(); });
-    editor->setGlazeRelearnAction ([this] { requestGlazeRelearn(); });
     editor->setGlazeEffectiveParamsSource ([this] { return getGlazeEffectiveParamsForUi(); });
 
     return editor;
@@ -938,7 +937,7 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
     //     不是运行中才去锁外解档，拿锁换入之前再判断一次——两次之间音频线程可能已经开始放音乐了（判据见 keepsLiveStateOnLoad）。
     //   - 运行中的实例（keepsLiveStateOnLoad）读档：参数照换，GLAZE 存档整份不读——实时画像、已施加增量与各守护状态都是这台实例
     //     从此刻的音乐里听来的，换宿主预设或撤销不该把它们换成存档那一刻（或别的歌）的（Max 2026-11-12 拍板第 4 项）。
-    //     这次没有冷启动，上一次读档点亮的「旧的聆听结果已丢弃」提示随之清掉（keepGlazeStateOnLoad）。
+    //     这次没有冷启动，上一次读档点亮的旧工程提示（legacySessionDiscarded）随之清掉（keepGlazeStateOnLoad）。
     //     目标方案按新参数重算：编排器每块 beginBlock 发现 GLAZE / 风格或影响方案的手动值变了就重算（GlazeController.h「目标方案」）。
     //   - 顺序：参数先换、GLAZE 后落位。音频线程若在两步之间跑了一块，它看到的是新参数配旧的 GLAZE 运行状态；随后落位整份覆盖
     //     编排器的运行状态，目标方案在下一块 GLAZE > 0 的 endBlock 按新参数重算。反过来的顺序会让存档先落位、再被新参数当成一次改动。
@@ -1022,7 +1021,8 @@ void CeladonAudioProcessor::addMissingParameterNodes (juce::ValueTree& newState,
     // 回到旧版的 0（2026-09-25 评审 v0.4 R2-01）。新实例的 GLAZE 默认已改为 35，因此缺参恢复必须显式写 0；
     // 其余缺席参数补只带 id 的节点，由 setNewState 使用参数默认值（JUCE 9.0.2 setNewState：tree.getProperty (value, 默认值)）。
     // Clay 的 7 个参数（v0.1.7.0）正是走「只带 id → 默认值」这一支，有意不特判：三态默认「自动」、Bypass 关，
-    // 旧画像（格式 1）没有立体声 / 超低频特征，决策器给的自动值为 0 → 旧工程打开声音不变，点「重新聆听」后才启用（设计规格-Clay 第 7 节）；
+    // 自动值由 GLAZE 给：阶段 1 时旧画像（格式 1）没有立体声 / 超低频特征、自动值为 0，点「重新聆听」后才启用（设计规格-Clay 第 7 节）；
+    // T-048 阶段 2 起旧 GLAZE 存档整份丢弃、冷启动，自动 Clay 跟着这台实例的实时画像走（「重新聆听」已删，T-098）；
     // 已经在用的实例读旧预设时也回到「自动」，不沿用读之前 CLAY 卡片上的「手动 / 关」（与其余参数回默认一致）。
     // GLAZE 的特判只认 glaze_amount 这一个 ID，不会碰到 clay_*。
     // 节点类型与属性名是 APVTS 的状态格式（每个参数一个 PARAM 子节点，属性 id / value），与 copyState 存出来的一致。

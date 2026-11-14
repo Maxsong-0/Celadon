@@ -1,3 +1,5 @@
+> 注（T-098，2026-11-13）：文中的 `tools/render/codec_tp_check.py` 已随 T-108 删除，历史版本见 git（删除提交 `93af3e0`）；通用量具在 `tools/render/measure_lib.py`。
+
 ## 逐曲成品（未经等响；TP 为 8×）
 
 | 曲目 | 目标 | LUFS-I | PSR 中位 | PLR | 峰值因数 | TP | 最坏编码后 TP |

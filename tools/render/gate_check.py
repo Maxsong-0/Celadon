@@ -75,12 +75,12 @@ def grid_value(row, column):
 
 
 def grid_sort_value(column, value):
-    """配对键里网格维度的排序值：聆听起点按小节号的数值排（2 在 10 前）。"""
+    """配对键里网格维度的排序值：预热起点按小节号的数值排（2 在 10 前）。"""
     return num(value, math.inf) if column == 'listen_from_bar' else value
 
 
 def grid_label(column, value):
-    """分组标签里网格维度的写法：聆听起点照成品文件名写 from-b<小节>（RenderMain.cpp 的 comboSuffix）。"""
+    """分组标签里网格维度的写法：预热起点照成品文件名写 from-b<小节>（RenderMain.cpp 的 comboSuffix）。"""
     return f"from-b{value}" if column == 'listen_from_bar' else value
 
 

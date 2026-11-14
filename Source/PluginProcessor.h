@@ -113,13 +113,11 @@ public:
     // 当前整条链的延迟（毫秒），顶栏显示用；还没 prepare 时返回 0。
     double getLatencyMilliseconds() const noexcept;
 
-    // ---- GLAZE（v0.6）：给界面的三个数据源（createEditor 里注入编辑器）。都在消息线程调、无锁、不等音频线程 ----
-    // 状态快照（状态行与「重新聆听」按钮；v0.1.7.0 起还带 Clay 四个实际值与反相提示、宽度保护状态，CLAY 卡片每行的灯与数值读它）；
-    // 「重新聆听」动作（只置原子标志）；
+    // ---- GLAZE（v0.6）：给界面的两个数据源（createEditor 里注入编辑器）。都在消息线程调、无锁、不等音频线程 ----
+    // 状态快照（状态行；v0.1.7.0 起还带 Clay 四个实际值与反相提示、宽度保护状态，CLAY 卡片每行的灯与数值读它）；
     // 本块交给模块的实际参数：只有受 GLAZE 叠加的 7 项是实际值（limit.gainDb 含校准偏差与保护偏移），其余字段是此刻的手动值
     // （clay 字段不是 Clay 的实际值——那在状态快照里）。
     celadon::glaze::Status getGlazeStatus() const noexcept         { return chain.getGlazeStatus(); }
-    void requestGlazeRelearn() noexcept                            { chain.requestGlazeRelearn(); }
     celadon::ChainParams getGlazeEffectiveParamsForUi() const noexcept;
 
     // ---- v0.1.8.0 界面改版：A / B 对比、等响读数、频谱仪（都在消息线程调、无锁）----

@@ -148,7 +148,7 @@ TSan 有额外报告时：先看栈里有没有 `celadon::` 或 `CeladonAudioPro
 
 ## 8. 已知边界
 
-- 运行中的实例读档跳过 GLAZE 时，清掉上一次读档点亮的「旧的聆听结果已丢弃」提示（`Status::legacySessionDiscarded`）：
+- 运行中的实例读档跳过 GLAZE 时，清掉上一次读档点亮的旧工程提示（`Status::legacySessionDiscarded`；界面文字在 `Source/ui`）：
   那条提示说的是那次读档冷启动了，这次没有冷启动。入口 `GlazeController::keepStateOnLoad`（T-114 集成时补，主会话定）。
   运行中读入格式 1 的旧预设也不提示（画像保留了，没有冷启动）。用例：`ProcessorState` 的「a running load clears the legacy notice
   an earlier load raised」「a running load of a format-1 project raises no notice」；另一侧（刚建的实例读格式 1 → 提示）是

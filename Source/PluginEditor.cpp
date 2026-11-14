@@ -935,10 +935,6 @@ void CeladonAudioProcessorEditor::setGlazeStatusSource (GlazeStatusSource source
     timerCallback();
 }
 
-void CeladonAudioProcessorEditor::setGlazeRelearnAction (GlazeRelearnAction)
-{
-}
-
 void CeladonAudioProcessorEditor::setGenreDeliveryResetSource (GenreDeliveryResetSource source)
 {
     // 只存下来、不另刷一帧：处理器先注入它再注入状态源，setGlazeStatusSource 那一帧就把两种提示都取到。

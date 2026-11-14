@@ -9,7 +9,7 @@
 #   阶段 1 的「两边都已锁定 + 方案增益加校准偏差」（评审 F2）随 ADR-030 没有了锁定与校准，这里不再实现。
 # 重放行（clay = replay-off）、GLAZE 0 的组不判（GLAZE 0 不做方案）。
 #
-# 用法：listen_start_check.py <metrics.csv> [<metrics.csv> …]；多份表（按聆听起点分开跑的）一起给，按上面的键合并。
+# 用法：listen_start_check.py <metrics.csv> [<metrics.csv> …]；多份表（按预热起点分开跑的）一起给，按上面的键合并。
 # 返回 0 = 没有失败（缺对照的组只列说明）；1 = 有失败；2 = 用法 / 输入错误。只用标准库。
 import csv
 import math

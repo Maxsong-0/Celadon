@@ -252,7 +252,8 @@ namespace celadon::glaze
     inline constexpr std::uint8_t continuousConditionsFormat = 2;   // 另有离散哈希与三个对数刻度值，比较按新口径
 
     // 校准的参考条件：任一改变即失效（设计规格-GLAZE-决策与校准 第 6 节）。比较见 referenceMatches（GlazeProfile.h），
-    // 手动参数这一部分由 setManualConditions（GlazeController.h）填。
+    // 手动参数这一部分原由 setManualConditions 按此刻的手动参数算哈希填；T-048 阶段 2（ADR-030）起没有校准，那个函数随 T-098 删掉，
+    // 这个结构只剩 GlazeProfile 读写旧存档的字段（格式不变：旧存档读得进、存出来逐字不变）。
     struct CalibrationReference
     {
         std::uint32_t profileId = 0;

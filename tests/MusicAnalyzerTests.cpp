@@ -425,84 +425,10 @@ namespace celadon::test
         }
 
         //==============================================================================
-        // EBU 参照（直接按定义：排序、精确能量，无直方图）。输入 = 表的连续子块均方（全部在学习区间内）。
+        // 均方 → LUFS（BS.1770 的 −0.691 偏移）。T-098 删了按定义算 I / LRA 的参照与取子块均方的辅助（早已没有用例调用，GCC 15 报 -Wunused-function）。
         double lufsOf (double meanSquare)
         {
             return -0.691 + 10.0 * std::log10 (meanSquare);
-        }
-
-        double referenceIntegrated (const std::vector<double>& meanSquares)
-        {
-            std::vector<double> blocks;
-
-            for (size_t k = 3; k < meanSquares.size(); ++k)
-            {
-                const auto power = (meanSquares[k] + meanSquares[k - 1] + meanSquares[k - 2] + meanSquares[k - 3]) / 4.0;
-
-                if (power > 0.0 && lufsOf (power) >= -70.0)
-                    blocks.push_back (power);
-            }
-
-            double sum = 0.0;
-            for (auto p : blocks)
-                sum += p;
-
-            const auto gate = lufsOf (sum / (double) blocks.size()) - 10.0;
-            double gated = 0.0;
-            int count = 0;
-
-            for (auto p : blocks)
-                if (lufsOf (p) >= gate)
-                {
-                    gated += p;
-                    ++count;
-                }
-
-            return lufsOf (gated / count);
-        }
-
-        double referenceLoudnessRange (const std::vector<double>& meanSquares)
-        {
-            std::vector<double> values;   // 绝对门以上的 S（能量）
-
-            for (size_t k = 29; k < meanSquares.size(); ++k)
-            {
-                double sum = 0.0;
-                for (size_t j = k - 29; j <= k; ++j)
-                    sum += meanSquares[j];
-
-                const auto power = sum / 30.0;
-
-                if (power > 0.0 && lufsOf (power) >= -70.0)
-                    values.push_back (power);
-            }
-
-            double sum = 0.0;
-            for (auto p : values)
-                sum += p;
-
-            const auto gate = lufsOf (sum / (double) values.size()) - 20.0;
-            std::vector<double> gated;
-
-            for (auto p : values)
-                if (lufsOf (p) >= gate)
-                    gated.push_back (lufsOf (p));
-
-            std::sort (gated.begin(), gated.end());
-            const auto n = gated.size();
-            const auto low = gated[(size_t) ((double) (n - 1) * 0.10 + 0.5)];
-            const auto high = gated[(size_t) ((double) (n - 1) * 0.95 + 0.5)];
-            return high - low;
-        }
-
-        std::vector<double> meanSquaresOf (const std::vector<LoudnessMeter::SubBlock>& subBlocks)
-        {
-            std::vector<double> result;
-
-            for (const auto& s : subBlocks)
-                result.push_back (s.meanSquare);
-
-            return result;
         }
 
         //==============================================================================
@@ -3317,49 +3243,6 @@ namespace celadon::test
                 && sameBytes (s.blendIntended, s.liveBlendIntended) && sameBytes (s.blendOutput, s.liveBlendOutput);
         }
 
-        bool sameEvent (const SegmentLedger::Event& a, const SegmentLedger::Event& b)
-        {
-            return a.sequence == b.sequence && a.epoch == b.epoch && a.stored == b.stored && a.heard == b.heard
-                && a.loudnessValid == b.loudnessValid && sameFloat (a.loudnessLufs, b.loudnessLufs)
-                && a.lowShareValid == b.lowShareValid && sameFloat (a.lowShare, b.lowShare);
-        }
-
-        // 段落账此刻能读到的一切逐位相同（T-108 删了 House 门控那几项读数：满编、突增、已听段数）。
-        bool sameLedgerState (const SegmentLedger& a, const SegmentLedger& b)
-        {
-            if (a.getNumStored() != b.getNumStored() || a.isStoreFull() != b.isStoreFull() || a.getMode() != b.getMode()
-                || a.getEpoch() != b.getEpoch()
-                || a.getFinalizedCount() != b.getFinalizedCount() || a.getStoredRevision() != b.getStoredRevision()
-                || a.getOpenSegments() != b.getOpenSegments() || a.getEventCount() != b.getEventCount()
-                || a.getAcceptFrom() != b.getAcceptFrom()
-                || ! sameDouble (a.getCurrentSegmentSeconds(), b.getCurrentSegmentSeconds()))
-                return false;
-
-            float loudnessA = -1.0f, lowA = -1.0f, loudnessB = -1.0f, lowB = -1.0f;
-
-            if (a.getCurrentReading (loudnessA, lowA) != b.getCurrentReading (loudnessB, lowB)
-                || ! sameFloat (loudnessA, loudnessB) || ! sameFloat (lowA, lowB))
-                return false;
-
-            for (int i = 0; i < a.getNumStored(); ++i)
-                if (! sameSegmentAll (a.getStored (i), b.getStored (i)))
-                    return false;
-
-            std::array<SegmentLedger::Event, (size_t) SegmentLedger::eventCapacity> eventsA {}, eventsB {};
-            std::uint64_t cursorA = 0, cursorB = 0;
-            const auto gotA = a.readEvents (cursorA, eventsA.data(), (int) eventsA.size());
-            const auto gotB = b.readEvents (cursorB, eventsB.data(), (int) eventsB.size());
-
-            if (gotA != gotB || cursorA != cursorB)
-                return false;
-
-            for (int i = 0; i < std::abs (gotA); ++i)
-                if (! sameEvent (eventsA[(size_t) i], eventsB[(size_t) i]))
-                    return false;
-
-            return true;
-        }
-
         bool sameShortTermView (const ShortTermView& a, const ShortTermView& b)
         {
             return sameFeature (a.momentaryLufs, b.momentaryLufs) && sameFeature (a.shortTermLufs, b.shortTermLufs)
@@ -3608,10 +3491,11 @@ namespace celadon::test
         //==============================================================================
         // 依据：任务书「实时模式开 vs 关，CeladonChain 的输出逐位相同（跑过学习 / 停止 / 重新聆听；时长 ≥ 60 s）」、
         // GlazeController::setLiveSegmentSink「编排器其余行为一律不变」。两条链（一条经 setLiveSegmentSink 开实时模式）按同一宿主走 69 s：
-        // 30 s 处「重新聆听」，50 s 处跳播 3 s。GLAZE 100 与 GLAZE 70 各一遍（T-108 前第二遍是 Deep House，随曲风删掉）。
+        // 50 s 处跳播 3 s。GLAZE 100 与 GLAZE 70 各一遍（T-108 前第二遍是 Deep House，随曲风删掉）。30 s 处原有一次「重新聆听」请求，
+        // 阶段 2 起是空操作，随 T-098 删掉；探针里恒为 0 的聆听 / 提交计数也一起删了，这里不再核对。
         void testOffEqualsOnChain()
         {
-            beginTest ("live probe vs chain profile: external sink diverts segments (GLAZE 100 and 70, relearn no-op / jump, 69 s)");
+            beginTest ("live probe vs chain profile: external sink diverts segments (GLAZE 100 and 70, jump, 69 s)");
 
             const auto track = makeHouseTrack (48000.0, 4, 32, 0.0, 72);   // 36 小节 ≈ 69.7 s
             const auto blocks = (int) (track.front().size() / (size_t) preparedBlock);
@@ -3631,12 +3515,6 @@ namespace celadon::test
                 {
                     const auto time = (std::int64_t) b * preparedBlock;
 
-                    if (time == samplesAt (30.0) - samplesAt (30.0) % preparedBlock)
-                    {
-                        off.chain->requestGlazeRelearn();
-                        on.chain->requestGlazeRelearn();
-                    }
-
                     if (time == samplesAt (50.0) - samplesAt (50.0) % preparedBlock)
                         position += samplesAt (3.0);   // 跳播：编排器自己从宿主位置认出来
 
@@ -3648,16 +3526,12 @@ namespace celadon::test
                         firstDifference = b;
                 }
 
-                const auto probeOff = off.chain->getGlazeController().getProbeForTesting();
                 const auto probeOn = on.chain->getGlazeController().getProbeForTesting();
                 const auto tag = "GLAZE " + juce::String (glazePercent, 0);
-                logMessage ("  " + tag + ": " + juce::String (probeOn.learningStarts) + " learning starts, " + juce::String (probeOn.commits)
-                            + " commits, " + juce::String (probeOn.transportJumps) + " jumps, " + juce::String (collector.calls) + " live segments");
+                logMessage ("  " + tag + ": " + juce::String (probeOn.transportJumps) + " jumps, " + juce::String (collector.calls) + " live segments");
                 // 阶段 2 产品路径始终喂链上的 LiveProfile。外部 sink 是探针，会把段从决策器那份画像引走，所以两条输出不必逐位相同。
                 expect (firstDifference >= 0, tag + ": the external sink diverts the profile, first different block "
                                              + juce::String (firstDifference));
-                expect (probeOff.learningStarts == 0 && probeOn.learningStarts == 0 && probeOff.commits == 0 && probeOn.commits == 0,
-                        tag + ": the listen / lock machine does not start");
                 expect (probeOn.transportJumps >= 1, tag + ": the jump is still noticed");
                 expect (collector.calls >= 30, tag + ": the live ledger delivered segments (positive control)");
             }
@@ -4301,10 +4175,6 @@ namespace celadon::test
                     LiveChain run (shortListenConstants(), liveChainParams (variant), &collector);
                     run.play (track, blockSize);
                     run.chain->setLiveSegmentSink (nullptr);
-                    const auto probe = run.chain->getGlazeController().getProbeForTesting();
-
-                    expect (probe.learningStarts == 0 && probe.commits == 0,
-                            tag + ", block " + juce::String (blockSize) + ": the listen machine stays idle");
 
                     if (reference.empty())
                     {
@@ -4374,14 +4244,12 @@ namespace celadon::test
                 const auto tag = juce::String (variant == 0 ? "GLAZE 100" : "GLAZE 70");
                 TimelineCollector first, second;
                 std::unique_ptr<juce::XmlElement> state;
-                int secondLearningStarts = -1;
 
                 {
                     LiveChain run (shortListenConstants(), liveChainParams (variant), &first);
                     run.play (track, 512);
                     run.chain->setLiveSegmentSink (nullptr);
                     state = run.chain->createGlazeStateXml();
-                    expect (run.chain->getGlazeController().getProbeForTesting().commits == 0, tag + ": nothing commits without a candidate");
                 }
 
                 {
@@ -4389,11 +4257,9 @@ namespace celadon::test
                     run.chain->restoreGlazeStateXml (state.get());
                     run.play (track, 512);
                     run.chain->setLiveSegmentSink (nullptr);
-                    secondLearningStarts = run.chain->getGlazeController().getProbeForTesting().learningStarts;
                 }
 
                 juce::String where;
-                (void) secondLearningStarts;
                 expect (first.segments.size() >= 20, tag + ": the first pass delivers the bars");
                 expect (sameLiveSegments (first.segments, second.segments, where), tag + ": first vs second pass: " + where);
             }

@@ -14,7 +14,7 @@
 
     用法：celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--clay auto,off]
                          [--style auto[,warm,punchy,clean]] [--block 512] [--match-lufs -16]
-                         [--metrics-only] [--trace] [--no-replay]
+                         [--metrics-only] [--trace] [--no-replay] [--no-align]
                          [--bpm 124 [--meter 4/4] [--listen-from-bar 1[,33]]] [--segments-csv]
                          [--live-trace [--live-only] [--live-constants 键=值,…] [--live-tag 名字]]
                          [--replay-override color.heat=0]   （T-096d：同决策重放另加一行「修坯照填 + 覆盖」，差信号写 heat_ab.csv）
@@ -34,7 +34,7 @@
     存档里的 LIVE 随之改变，GLAZE > 0 时成品也会变（--selftest-live「外接追踪改写 LIVE 存档」「追踪探针对输出的契约」）。
 
     每首歌、每组设置分两遍（「先完整播一遍再出成品」；ADR-030 决定 6：先播一遍再导出，导出从头就到位）：
-      1. 预热（第一遍；命令行、代码里的名字、文件名、CSV 列名与工具打印的文字仍沿用旧称 listen / 聆听）：新链 → setParams → prepare
+      1. 预热（第一遍；命令行、代码里的名字、文件名与 CSV 列名仍沿用旧称 listen，T-098 起 metrics.md、进度与备注里的文字都写「预热」）：新链 → setParams → prepare
          （与 PluginProcessor::prepareToPlay 同一顺序），按离线宿主口径（offline、在播、位置随块推进）把整首歌送进链，输出丢弃。
          T-048 阶段 2（ADR-030）起没有聆听 / 锁定 / 校准：GLAZE 在这一遍里按链上的实时画像连续调度（每 1 s 重算方案，增量按速率限制
          推向目标，Limit Gain 另加 G_trim 与预算守门的退让；GlazeController.cpp 文件头与 applyLimitExtras），主段统计、
@@ -229,9 +229,8 @@ namespace
         bool metricsOnly = false;   // --metrics-only：照常渲染、量指标，但不写成品 wav（大批歌做门槛验收时用，省几 GB 磁盘与传输）
         bool replay = true;         // 每组 GLAZE > 0 的「自动」之后加「同决策重放 · 修坯关」一行与阳性对照（ADR-016）；--no-replay 关掉
         bool trace = false;         // --trace：每组设置另写 trace/<成品名>.csv（第二遍逐块：限幅 GR、修坯方案值 / 宽度保护后 / 实际值、
-                                    // 反相提示、实时相关度、校准列）与 trace/<成品名>__listen.csv（第一遍逐块的 Limit Gain 与校准列），诊断用；
-                                    // T-048 阶段 2 起校准列多为占位（见 calibrationTraceHeader 上方的说明）；实时相关度、guard_seconds 与 Clay 代价 /
-                                    // 混合损失列探针也不再抄写、恒为 0 / 空（GlazeController.cpp probeForTesting；恢复抄写还是标成死列待 Max 定）
+                                    // 反相提示、实时相关度、GLAZE 列）与 trace/<成品名>__listen.csv（第一遍逐块的 Limit Gain 与 GLAZE 列），
+                                    // 诊断用。T-098 删掉了阶段 2 起恒为初值的列（见 glazeTraceHeader 上方）
 
         // ---- T-038 走带选项（曲风 / 交付两维随 T-108 删掉）----
         double bpm = 0.0;           // --bpm：模拟宿主走带的速度；0 = 不给拍点（HostInfo 与改动前逐位相同）
@@ -482,7 +481,7 @@ namespace
         {
             if (options.listenFromBars.size() > 1 || options.listenFromBars.front() != 1)
             {
-                text += " × 聆听起点 第 ";
+                text += " × 预热起点 第 ";
 
                 for (std::size_t i = 0; i < options.listenFromBars.size(); ++i)
                     text += (i > 0 ? " / " : "") + std::to_string (options.listenFromBars[i]);
@@ -571,21 +570,23 @@ namespace
                      "  --match-lufs -16    成品按整体响度只乘增益对齐到这个值（-60 ~ 0 LUFS），默认 -16\n"
                      "  --metrics-only      照常渲染并量指标，但不写成品 wav（大批歌做门槛验收时用）\n"
                      "  --trace             另写 trace/<成品名>.csv：第二遍逐块的限幅 GR、修坯方案值 / 宽度保护后 / 实际值、反相提示、\n"
-                     "                      实时低频相关度、校准状态；trace/<成品名>__listen.csv：第一遍逐块的校准状态（诊断用）\n"
+                     "                      实时低频相关度、实际 Limit Gain / Tone / Glue / Heat、目标方案净提升、G_trim、预算环退让、\n"
+                     "                      主段度与守门、限幅器渲染计数；trace/<成品名>__listen.csv：第一遍逐块的 Limit Gain、\n"
+                     "                      目标方案净提升、G_trim 与预算环退让（诊断用；列的说明见 README「逐块追踪」）\n"
                      "  --no-replay         不做「同决策重放」（默认每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链逐块照搬\n"
                      "                      它实际交给模块的参数、修坯换成「关」，出一行 clay-replay-off，并做阳性对照；ADR-016）\n"
                      "                      （阳性对照的判据：重放与自动链最大样本差 ≤ −180 dBFS，不要求逐位）\n"
                      "  --bpm 124           模拟宿主走带：每块给速度、PPQ（从 0 起按样本推进）、上一小节起点与拍号；不给就不给拍点（同改动前）\n"
                      "  --meter 4/4         拍号（要与 --bpm 一起用），默认 4/4\n"
-                     "  --listen-from-bar 1 第一遍（聆听）从第几小节起播（1 = 从头；可逗号分隔多个，网格的一维；要 --bpm）：\n"
+                     "  --listen-from-bar 1 第一遍（预热）从第几小节起播（1 = 从头；可逗号分隔多个，网格的一维；要 --bpm）：\n"
                      "                      「从第 1 小节播 vs 从 drop 播」的检查用，第二遍（成品）照旧从头渲染\n"
                      "  --segments-csv      逐段写统计到 segments/：<歌名>__input.csv（输入端：段响度、低频占比）与 <成品名>.csv\n"
                      "                      （成品同一套 + 逐段限幅 GR）；有 --bpm 时一段 = 一小节，否则每 2 秒一段\n"
-                     "  --live-trace        T-048：每一遍的链接上实时画像（分析器实时模式），每发布一份画像写一行追踪到\n"
+                     "  --live-trace        T-048：每一遍的链另接一个实时画像追踪探针（分析器实时模式），每发布一份画像写一行追踪到\n"
                      "                      live/<标签>/<歌名>[__from-b<N>].csv，另写 __final.csv 与 __judgements.csv（歌尾窗口里每段的最终判断；\n"
-                     "                      同一首歌、聆听起点、常数只写一份）\n"
-                     "  --live-only         只跑第一遍（聆听）出追踪：每首歌 × 每个聆听起点一遍，不出成品、不做重放（最快的跑法）\n"
-                     "  --no-align         测量用：写未经整体等响的成品，默认仍等响\n"
+                     "                      同一首歌、预热起点、常数只写一份）。探针会把段从链自己的实时画像引走：存档与 GLAZE > 0 的成品随之改变\n"
+                     "  --live-only         只跑第一遍（预热）出追踪：每首歌 × 每个预热起点一遍，不出成品、不做重放（最快的跑法）\n"
+                     "  --no-align          测量用：写未经整体等响的成品，默认仍等响\n"
                      "  --live-constants k=v,...  覆盖实时画像常数 LiveConstants 的任意字段（如 loudness.gateWidthLu=5,newProgramLu=8,\n"
                      "                      referenceMemorySeconds=240；键名同 GlazeConstants.h，主段模型的字段带 loudness. 前缀；\n"
                      "                      取值范围是 LiveProfile.h 的公开表）；不认识的键、取值不合法都报错\n"
@@ -594,9 +595,10 @@ namespace
                      "                      每组 GLAZE > 0 的修坯「自动」之后另加一行 clay-replay-heat0（修坯照填、prepare 前与每一块都只改\n"
                      "                      覆盖的键），与阳性对照 replay-copy 逐样本相减，差信号指标写 heat_ab.csv；不能与 --no-replay、\n"
                      "                      --live-only 一起用（不给时一切输出与改动前相同）\n"
-                     "  --selftest          只跑自检（指标算法、文件名、延迟对齐、GLAZE 0 逐位直通的阳性对照），不读歌\n"
+                     "  --selftest          只跑自检（指标算法、文件名、延迟对齐、GLAZE 0 逐位直通、同决策重放、--trace 不改成品的阳性对照），不读歌\n"
                      "  --selftest-transport 只跑走带选项的自检（模拟走带、分段统计、预热起点穿到链上的阳性对照），不读歌\n"
                      "  --selftest-live     只跑 T-048 实时画像追踪的自检（合成 4/4 曲上段首尾相接、块长与 GLAZE 无关、外接探针的契约），不读歌\n"
+                     "  --help              打印本说明\n"
                      "读 --in 目录第一层的 wav / aiff / flac，每首歌 × 每组设置写一个 32-bit float wav，另写 metrics.md 与\n"
                      "metrics.csv。进度与错误写 stderr；返回 0 成功、1 有文件读写失败（或自检失败）、2 参数错误。\n"
                      "详见 tools/render/README.md。\n";
@@ -2125,32 +2127,22 @@ namespace
         return std::make_unique<LiveTracer> (sampleRate, options.liveConstants, transport);
     }
 
-    // --trace 的校准列（两遍的追踪共用；列名与次序照旧，CSV 格式不变）。阶段 1 时是校准诊断：T-015 / BUG-003「整首停在校准中」由它们查出。
-    // ADR-030 / T-048 阶段 2 起没有校准器、方案过渡与约束反馈，这些列只是占位：探针（getProbeForTesting）里对应的字段不再被写入，
-    // glaze_phase 取 getPhaseForTesting() 恒为 0（unlearned），其余计数、掩码与校准量恒为 0，plan_transition 读的时候已被 endBlock
-    // 清掉、也恒为 0，feedback_max_db 恒为 99（探针给的是 1e9）。还有读数的只剩 cal_target_db（此刻目标方案的约束后净提升）、
-    // applied_bias_db / executed_bias_db（两列都是 G_trim）与 guard_db（预算环此刻的退让）。原定探针删掉之后把这组列换成
-    // confidence,g_trim_db,protection_db,guard_cause；那要改列名、改 CSV 格式，须另立任务（先问 Max）。
-    const char* calibrationTraceHeader() noexcept
+    // --trace 的 GLAZE 列（两遍的追踪共用）：cal_target_db = 此刻目标方案的约束后净提升，applied_bias_db / executed_bias_db = G_trim
+    // （两列同值，留两列是为了不改既有读者的列名），guard_db = 预算环此刻自己的 g_保护。列名沿用阶段 1 的叫法。
+    // 阶段 1 这里还有 18 列校准 / 方案过渡 / 约束反馈的诊断（glaze_phase、cal_round_active、cal_state、cal_interrupt_mask、cal_gate_mask、
+    // cal_rounds_done、cal_subwindows、cal_subwindow_s、cal_guard_s、cal_last_error_db、cal_suggested_db、cal_applicable、plan_transition、
+    // plan_transitions、cal_begins、cal_finishes、feedback_steps、feedback_max_db）。ADR-030 / T-048 阶段 2 起它们恒为初值，T-098 连同
+    // 探针字段一起删掉。
+    const char* glazeTraceHeader() noexcept
     {
-        return "glaze_phase,cal_round_active,cal_state,cal_interrupt_mask,cal_gate_mask,cal_rounds_done,cal_subwindows,"
-               "cal_subwindow_s,cal_guard_s,cal_last_error_db,cal_suggested_db,cal_target_db,cal_applicable,applied_bias_db,"
-               "executed_bias_db,guard_db,plan_transition,plan_transitions,cal_begins,cal_finishes,feedback_steps,feedback_max_db";
+        return "cal_target_db,applied_bias_db,executed_bias_db,guard_db";
     }
 
-    std::string calibrationTraceColumns (const celadon::glaze::GlazeController& controller)
+    std::string glazeTraceColumns (const celadon::glaze::GlazeController& controller)
     {
         const auto p = controller.getProbeForTesting();
-        return std::to_string (static_cast<int> (controller.getPhaseForTesting())) + "," + (p.roundActive ? "1" : "0") + ","
-             + std::to_string (p.calibratorState) + "," + std::to_string (p.calibrationInterruptMask) + ","
-             + std::to_string (p.calibrationGateMask) + "," + std::to_string (p.calibrationRoundsDone) + ","
-             + std::to_string (p.calibrationSubWindows) + "," + fixed (p.calibrationSubWindowSeconds, 2) + ","
-             + fixed (p.calibrationGuardSeconds, 2) + "," + fixed (p.calibrationLastErrorDb, 3) + ","
-             + fixed (p.calibrationSuggestedDb, 3) + "," + fixed (p.targetPlan.effectiveGainDb, 3) + ","
-             + (p.calibrationApplicable ? "1" : "0") + "," + fixed (p.appliedBiasDb, 4) + "," + fixed (p.executedBiasDb, 4) + ","
-             + fixed (p.guardDb, 3) + "," + (p.transitionActive ? "1" : "0") + "," + std::to_string (p.planTransitions) + ","
-             + std::to_string (p.calibrationBegins) + "," + std::to_string (p.calibrationFinishes) + ","
-             + std::to_string (p.feedbackSteps) + "," + fixed (juce::jmin (p.feedbackMaxGainDb, 99.0f), 3);   // 不限时是很大的数：写 99
+        return fixed (p.targetPlan.effectiveGainDb, 3) + "," + fixed (p.appliedBiasDb, 4) + "," + fixed (p.executedBiasDb, 4) + ","
+             + fixed (p.guardDb, 3);
     }
 
     struct ListenResult
@@ -2158,7 +2150,7 @@ namespace
         std::unique_ptr<juce::XmlElement> state;   // createGlazeStateXml：宿主存工程时 GLAZE 那一节
         Status status;                             // 第一遍结束时的状态
         int nonFiniteBlocks = 0;
-        std::string trace;                         // --trace：第一遍逐块的 Limit Gain 与校准列（不追踪时为空；校准列阶段 2 起多为占位）
+        std::string trace;                         // --trace：第一遍逐块的 Limit Gain 与 GLAZE 列（不追踪时为空）
         celadon::glaze::CommittedState committed;  // T-038：第一遍结束时的 getCommittedStateForTesting（方案增益、目标、权重、画像；
                                                    // 追加列用）。阶段 1 是已提交的版本；T-048 阶段 2 起是此刻的目标方案、
                                                    // 自动风格权重与编排器最近读到的实时画像（见 csvExtendedFields 上方）
@@ -2205,14 +2197,13 @@ namespace
 
             if (trace)
             {
-                // 一行 = 一块；t 按输入时间轴（块起点）。阶段 1 时聆听、方案过渡、校准、约束反馈都在这一遍走完，校准卡住先看这份；
-                // T-048 阶段 2 起校准列多为占位（见 calibrationTraceHeader 上方），还有读数的是 limit_gain_db 与那里列出的几列。
+                // 一行 = 一块；t 按输入时间轴（块起点）。预热这一遍里 GLAZE 按实时画像连续调度，看 Limit Gain、G_trim 与预算环怎么走。
                 if (result.trace.empty())
-                    result.trace = std::string ("t_sec,limit_gain_db,") + calibrationTraceHeader() + "\n";
+                    result.trace = std::string ("t_sec,limit_gain_db,") + glazeTraceHeader() + "\n";
 
                 result.trace += fixed (static_cast<double> (position) / sampleRate, 4) + ","
                               + fixed (chain->getEffectiveParams().limit.gainDb, 3) + ","
-                              + calibrationTraceColumns (chain->getGlazeController()) + "\n";
+                              + glazeTraceColumns (chain->getGlazeController()) + "\n";
             }
         }
 
@@ -2262,10 +2253,6 @@ namespace
         celadon::glaze::MusicProfile profile;
         float clayPressureScale = 1.0f;    // 成品末尾修坯压力反馈的缩放与降档次数（ADR-014）
         int clayPressureSteps = 0;
-        double clayPeakCostDb = 0.0;       // 成品末尾压力反馈第一触发量的代价（与先试同口径，ADR-028）与攒下的有效块数（每块 0.1 s）；
-                                           // T-048 阶段 2 起编排器探针不抄这两项（GlazeController.cpp probeForTesting），恒为 0 / 空——
-                                           // 恢复抄写还是标成死列待 Max 定
-        int clayPeakCostBlocks = 0;
 
         // ---- T-038（metrics.csv 的追加列，见 csvExtendedFields）----
         float effectiveCeilingDb = 0.0f;   // 最后一块交给限幅器的有效 Ceiling（编码余量已算进去）
@@ -2312,13 +2299,15 @@ namespace
                 result.limitInputPeakDb = std::max (result.limitInputPeakDb,
                                                     reduction - static_cast<double> (chain.getEffectiveParams().limit.gainDb));
 
+            // 分析器实时视图的慢路低频相关度（ClayGuard 的反相提示读的同一份，经探针现取）。T-098 之前探针不再填这一项、恒无效，
+            // slow_inverted_pct 恒为 0，gate_check.py 的反相豁免从不生效（7 首 × GLAZE 35 / 70 / 100 共 21 条 FAIL 的来由）。
             const auto probe = chain.getGlazeController().getProbeForTesting();
 
             if (probe.liveLowCorrelation.valid)
             {
                 ++slowValidBlocks;
 
-                if (probe.liveLowCorrelation.value < -0.2f)   // = 出厂 clayGuardPhaseCorrelation
+                if (probe.liveLowCorrelation.value < celadon::glaze::factoryConstants().clayGuardPhaseCorrelation)
                     ++slowInvertedBlocks;
             }
         }
@@ -2481,11 +2470,10 @@ namespace
                 if (result.trace.empty())
                     result.trace = "t_sec,limit_gr_db,planned_lowcut_hz,planned_mono_amount,planned_mono_hz,planned_width_db,"
                                    "live_mono_amount,live_width_db,guard_phase_floor,guard_phase_hold_s,guard_phase_active,"
-                                   "guard_seconds,rho_slow,rho_fast,clay_lowcut_hz,clay_mono_amount,clay_mono_hz,clay_width_db,"
+                                   "rho_slow,rho_fast,clay_lowcut_hz,clay_mono_amount,clay_mono_hz,clay_width_db,"
                                    "peak_guard_samples,peak_guard_min_gain,blend_intended_energy,blend_output_energy,"
-                                   "limit_gain_db,tone_db,glue,heat,clay_pressure_scale,clay_peak_cost_db,clay_peak_cost_blocks,"
-                                   "clay_blend_loss_db,"
-                                 + std::string (calibrationTraceHeader()) + "," + qualityTraceHeader + "\n";
+                                   "limit_gain_db,tone_db,glue,heat,clay_pressure_scale,"
+                                 + std::string (glazeTraceHeader()) + "," + qualityTraceHeader + "\n";
 
                 const auto feature = [] (const celadon::glaze::Feature& f)
                 {
@@ -2516,7 +2504,7 @@ namespace
                               + fixed (probe.clayPlanned.monoHz, 1) + "," + fixed (probe.clayPlanned.widthDb, 3) + ","
                               + fixed (probe.liveClay.monoAmount, 4) + "," + fixed (probe.liveClay.widthDb, 3) + ","
                               + fixed (probe.clayGuard.phaseFloor, 4) + "," + fixed (probe.clayGuard.phaseHoldSeconds, 3) + ","
-                              + (probe.clayGuard.phaseActive ? "1" : "0") + "," + fixed (probe.clayGuardSeconds, 5) + ","
+                              + (probe.clayGuard.phaseActive ? "1" : "0") + ","
                               + feature (probe.liveLowCorrelation) + "," + feature (probe.liveLowCorrelationFast) + ","
                               + fixed (blockStatus.clayLowCutHz, 2) + "," + fixed (blockStatus.clayMonoAmount, 4) + ","
                               + fixed (blockStatus.clayMonoHz, 1) + "," + fixed (blockStatus.clayWidthDb, 3) + ","
@@ -2525,9 +2513,7 @@ namespace
                               + fixed (effective.limit.gainDb, 3) + "," + fixed (effective.color.toneDb, 3) + ","
                               + fixed (effective.color.glue, 2) + "," + fixed (effective.color.heat, 2) + ","
                               + fixed (probe.clayPressureScale, 4) + ","
-                              + (probe.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks ? fixed (probe.clayPeakCostDb, 3) : std::string())
-                              + "," + std::to_string (probe.clayPeakCostBlocks) + "," + fixed (probe.clayBlendLossSmoothedDb, 3) + ","
-                              + calibrationTraceColumns (chain->getGlazeController()) + ","
+                              + glazeTraceColumns (chain->getGlazeController()) + ","
                               // T-096 (a) 末尾追加：这一块的主段度、保护退让与守门原因（Status，同 metrics.csv 末尾那几列的口径），再接限幅器计数。
                               + fixed (blockStatus.currentMainness, 3) + "," + fixed (blockStatus.protectionDb, 3) + ","
                               + guardCauseId (blockStatus.guardCause) + "," + limiterColumns + "\n";
@@ -2544,8 +2530,6 @@ namespace
         const auto finalProbe = chain->getGlazeController().getProbeForTesting();
         result.clayPressureScale = finalProbe.clayPressureScale;
         result.clayPressureSteps = finalProbe.clayPressureSteps;
-        result.clayPeakCostDb = finalProbe.clayPeakCostDb;
-        result.clayPeakCostBlocks = finalProbe.clayPeakCostBlocks;
         result.hasGuardLimits = finalProbe.guardLimitsSet;   // 风格预算（保护层此刻生效的约束上限）
         result.guardLimits = finalProbe.guardLimits;
 
@@ -3116,8 +3100,6 @@ namespace
         celadon::glaze::MusicProfile profile;
         float clayPressureScale = 1.0f;
         int clayPressureSteps = 0;
-        double clayPeakCostDb = 0.0;
-        int clayPeakCostBlocks = 0;
         std::string replayCheck;               // 「自动」行（GLAZE > 0）：同决策重放阳性对照 ok / mismatch / n/a（ADR-016）；其余行为空
         double replayMaxDifference = -1.0;     // 阳性对照的最大样本差（线性；< 0 = 没做）
 
@@ -3392,9 +3374,6 @@ namespace
             profileFeature (row, row.profile.lowCutBlendLossDb[1], 3),
             render && row.blendSamples > 0 && row.blendIntendedEnergy > 0.0 && row.blendOutputEnergy > 0.0
                 ? fixed (10.0 * std::log10 (row.blendIntendedEnergy / row.blendOutputEnergy), 3) : empty,
-            render && ! replay && row.clayPeakCostBlocks >= celadon::glaze::ClayPressureMonitor::minimumBlocks
-                ? fixed (row.clayPeakCostDb, 3) : empty,
-            render && ! replay ? fixed (0.1 * (double) row.clayPeakCostBlocks, 1) : empty,
             // T-048 阶段 2 / T-096 (a)（Q1）：成品末尾 Status 的阶段 2 字段（GlazeTypes.h Status 末尾），重放行与其余 GLAZE 状态列一样留空。
             // 有了 confidence，gate_check.py / listen_start_check.py 看 c ≥ 0.5；空 confidence 才退回阶段 1 的锁定判定（阶段 2 的 Phase 恒为
             // unlearned、calibrationValid 恒为 false，GlazeController.cpp publishStatus，退回去 GLAZE > 0 的格子会判失败）。status_line 仍留空。
@@ -3430,7 +3409,7 @@ namespace
                           "trial_mono80_cost_db,trial_mono120_cost_db,trial_mono160_cost_db,trial_width_cost_db,profile_sub_share_db,"
                           "profile_low_corr,trial_seconds,peak_guard_pct,peak_guard_min_gain,slow_inverted_pct,limit_input_peak_db,"
                           "clay_pressure_scale,clay_pressure_steps,replay_check,replay_max_diff_dbfs,music_seconds,trial_blend10_db,"
-                          "trial_blend20_db,clay_blend_loss_db,clay_peak_cost_db,clay_peak_cost_s,"
+                          "trial_blend20_db,clay_blend_loss_db,"
                           "confidence,current_mainness,cold_export,guard_cause,protection_db,status_line";
 
         if (options.extended)
@@ -3467,7 +3446,7 @@ namespace
                "宽度保护介入的时长占比（只在加宽为「自动」的组计；每块读一次状态）。"
                "格末若有「，代价限：…」，是成品末尾因代价被减量 / 否决的「自动」修坯项（lowcut、width 或 lowcut+width；metrics.csv 的 clay_cost_limited）：先试后用试出会抬高峰值、低切按守护混合损失封顶、压力反馈降过档，三处任一都会置位。\n"
                "- **GLAZE 状态**：成品末尾的阶段与「校准有效」；风格为「自动」且 GLAZE > 0 时附此刻偏向的风格。"
-               "第一遍（聆听）结束时的阶段在 metrics.csv 的 listen_phase 列。\n"
+               "第一遍（预热）结束时的阶段在 metrics.csv 的 listen_phase 列。\n"
                "- **成品文件**：`<歌名>__g<GLAZE>_clay-<auto|off|replay-off>_<风格>.wav`。metrics.csv 的 audio_hash 是对齐前成品"
                "（原始输入行是立体声化的输入）的 FNV-1a 哈希：同一首歌、同一组设置跨版本哈希相同 = 逐位不变。\n"
                "- **同决策重放（clay-replay-off，ADR-016）**：每组 GLAZE > 0 的修坯「自动」之后，另起一条 GLAZE 0 的链，逐块照搬"
@@ -3492,7 +3471,7 @@ namespace
         else
             md += "- 对齐：成品按整体响度只乘增益对齐到 " + fixed (options.matchLufs, 1)
             + " LUFS；32-bit float，允许超过 0 dBFS，不再限幅\n";
-        md += "- 流程：每组先完整聆听一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）"
+        md += "- 流程：每组先完整预热一遍（输出丢弃）→ 存 GLAZE 状态（createGlazeStateXml）→ 新链读回（restoreGlazeStateXml）"
               "后从头渲染第二遍作成品；丢掉开头的链延迟、末尾多冲 " + fixed (ringOutSeconds, 2) + " s 余振，成品与原曲逐样本对齐\n";
         md += "- 其余参数全是新实例默认（Ceiling -1.0 dBTP、Lookahead 2 ms、Limit Gain 0 等，见 Source/ParameterDefaults.h，"
               "插件参数表同一处真源）\n";
@@ -3514,7 +3493,7 @@ namespace
         // T-048：给了 --live-trace 才写这一行（不给时表头与改动前相同）。
         if (options.liveTrace)
         {
-            md += "- T-048 实时画像追踪：live/" + mdText (options.liveTag) + "/（每首歌 × 聆听起点一份，取第一次跑到的那一遍第一遍；主段模型 loudness"
+            md += "- T-048 实时画像追踪：live/" + mdText (options.liveTag) + "/（每首歌 × 预热起点一份，取第一次跑到的那一遍第一遍；主段模型 loudness"
                 + "；常数 " + (options.liveConstantsText.empty() ? std::string ("出厂值") : "出厂值改 " + mdText (options.liveConstantsText))
                 + (options.liveOnly ? std::string ("；--live-only：只跑第一遍，没有成品行") : std::string ("；追踪不改链的输出"))
                 + "；README「T-048 实时画像追踪」）\n";
@@ -5031,7 +5010,7 @@ namespace
             const auto listenStart = listenStartFor (combo, transport, numInput);
 
             if (listenStart >= numInput && combo.listenFromBar > 1)
-                report.notes.push_back (label + "：聆听起点第 " + std::to_string (combo.listenFromBar) + " 小节已超出歌曲长度，第一遍什么都没听到");
+                report.notes.push_back (label + "：预热起点第 " + std::to_string (combo.listenFromBar) + " 小节已超出歌曲长度，第一遍什么都没听到");
 
             std::cerr << "  [追踪] " << label << "：第一遍 " << std::flush;
             const auto started = nowSeconds();
@@ -5081,14 +5060,14 @@ namespace
             Row row;
             row.combo = combo;
 
-            std::cerr << "  [" << (c + 1) << "/" << combos.size() << "] " << label << "：聆听 " << std::flush;
+            std::cerr << "  [" << (c + 1) << "/" << combos.size() << "] " << label << "：预热 " << std::flush;
 
             // ① 第一遍（预热）：整首送进链，输出丢弃，最后存 GLAZE 状态（LIVE）。--listen-from-bar N（N > 1）从第 N 小节起播到歌尾
             // （宿主位置照实际样本给）。
             const auto listenStart = listenStartFor (combo, transport, numInput);
 
             if (listenStart >= numInput && combo.listenFromBar > 1)
-                report.notes.push_back (label + "：聆听起点第 " + std::to_string (combo.listenFromBar) + " 小节已超出歌曲长度，第一遍什么都没听到");
+                report.notes.push_back (label + "：预热起点第 " + std::to_string (combo.listenFromBar) + " 小节已超出歌曲长度，第一遍什么都没听到");
 
             auto started = nowSeconds();
             const auto listenTrace = makeLiveTracer (options, song.sampleRate, transport);
@@ -5133,8 +5112,6 @@ namespace
             row.profile = render.profile;
             row.clayPressureScale = render.clayPressureScale;
             row.clayPressureSteps = render.clayPressureSteps;
-            row.clayPeakCostDb = render.clayPeakCostDb;
-            row.clayPeakCostBlocks = render.clayPeakCostBlocks;
 
             // 对齐前的自动链成品留一份（measureAlignWrite 会原地乘对齐增益）：同决策重放的阳性对照逐样本比它。
             juce::AudioBuffer<float> autoAudio;
@@ -5166,7 +5143,7 @@ namespace
                     ++failures;
                 }
 
-                // 第一遍（预热）的逐块追踪（t_sec、limit_gain_db 与校准列）：trace/<成品名去掉 .wav>__listen.csv。
+                // 第一遍（预热）的逐块追踪（t_sec、limit_gain_db 与 GLAZE 列）：trace/<成品名去掉 .wav>__listen.csv。
                 const auto listenName = traceName.upToLastOccurrenceOf (".csv", false, false) + "__listen.csv";
 
                 if (! listen.trace.empty()
@@ -5271,7 +5248,8 @@ namespace
     }
 
     // 同决策重放自检用的信号（--selftest 的重放阳性对照与 T-096d 覆盖对照共用）：两路不相关白噪声（峰值 −26 dBFS）加两声道同相的
-    // 8 Hz 正弦（0.1），让自动低切有东西可切；20 s，够聆听（15 s）学完、方案过渡走到校准。
+    // 8 Hz 正弦（0.1），让自动低切有东西可切；20 s（阶段 1 时够聆听 15 s 学完、方案过渡走到校准；阶段 2 起编排器连续调度，见下面
+    // runSelfTest 同一信号处的说明）。
     juce::AudioBuffer<float> replaySelfTestSignal()
     {
         auto signal = testNoise (static_cast<int> (20.0 * selfTestRate), 0.05f);
@@ -6735,7 +6713,7 @@ int main (int argc, char* argv[])
 
     if (options.liveTrace)
         std::cerr << "T-048 实时画像追踪：live/" << options.liveTag << "/"
-                  << (options.liveOnly ? "（--live-only：只跑第一遍，每个曲风 × 聆听起点一遍）" : "") << "\n";
+                  << (options.liveOnly ? "（--live-only：只跑第一遍，每首歌 × 预热起点一遍）" : "") << "\n";
 
     if (! options.replayOverrides.empty())
         std::cerr << "T-096d 重放覆盖：" << replayOverrideNames.text << "（每组 GLAZE > 0 的修坯「自动」之后多一行 clay-"

@@ -285,7 +285,7 @@ namespace celadon::processortest
 
         void testRunningLoadClearsLegacyNotice (const juce::MemoryBlock& projectA)
         {
-            // 运行中读档不读 GLAZE、不冷启动（ADR-040），上一次读档点亮的「旧的聆听结果已丢弃」提示跟着清（GlazeController::keepStateOnLoad）：
+            // 运行中读档不读 GLAZE、不冷启动（ADR-040），上一次读档点亮的旧工程提示（legacySessionDiscarded）跟着清（GlazeController::keepStateOnLoad）：
             // 不清的话，读进干净的工程之后提示还一直亮着。另一侧（刚建的实例读格式 1 → 提示）见 testLegacyProjects。
             const auto formatOne = makeFormatOneProject (projectA);
 
