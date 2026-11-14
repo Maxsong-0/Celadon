@@ -28,9 +28,9 @@
 | `zh-reduced.png` | 减少动效（没有粒子与波纹） |
 | `zh-input.png` | 频谱仪 IN 虚线开着（默认关）。T-051 改 IN 虚线的建法时用 `--deterministic` 改前改后逐字节比过 |
 | `zh-status-follow.png` / `en-status-guard.png` / `zh-status-export.png` | T-048 状态行：跟随（自动→温润 · 目标 −9.6）、受限 · 预算 · 已退 1.5 dB、导出冷启动。只截顶栏胶囊 |
-| `zh-legacy-notice.png` / `en-legacy-notice.png` | 旧工程打开一次：左下角「旧的聆听结果已丢弃，声音会变」（不进状态行、不写入工程） |
+| `zh-legacy-notice.png` / `en-legacy-notice.png` | 旧工程打开一次：左下角「旧的预热结果已丢弃，声音会变」（不进状态行、不写入工程） |
 | `zh-genre-reset.png` / `en-genre-reset.png` | T-108：存着曲风 / 交付（非通用 + 标准）的旧工程打开一次：左下角「曲风与交付已取消，已改回通用 + 标准，声音会变」 |
-| `zh-genre-reset-both.png` / `en-genre-reset-both.png` | 同上与「旧的聆听结果已丢弃」同时出现：各占一行（上行旧聆听结果、下行曲风与交付） |
+| `zh-genre-reset-both.png` / `en-genre-reset-both.png` | 同上与「旧的预热结果已丢弃」同时出现：各占一行（上行旧预热结果、下行曲风与交付） |
 | `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯橙色（只存下半部分的四张卡片） |
 | `zh-guard-tooltip.png` / `en-guard-tooltip.png` | 同上状态下 CLAY 灯的悬停气泡：第 2 行末尾「峰值守护回收中：低切 / 收单实际只剩约 40%」（取 `help::clayIndicatorTooltip`，与界面同一个函数） |
 

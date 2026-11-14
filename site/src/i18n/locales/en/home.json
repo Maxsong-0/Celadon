@@ -115,10 +115,9 @@
     "title": "It listens to the song first,<br/>then decides <em>how far to push</em>.",
     "lead": "GLAZE doesn't just turn every knob up at once. While the song plays it keeps listening, measuring its loudness, dynamics, spectrum and attacks into a profile and recomputing the plan every second; the knob only sets how far to push toward this song's ideal master. At 0 nothing moves, and your manual settings are always the floor.",
     "phases": [
-      "Not learned",
-      "Listening",
-      "Calibrating",
-      "Locked"
+      "Warming up",
+      "Holding",
+      "Following"
     ],
     "statusLabel": "GLAZE status",
     "hint": "Spin the ring · drag the centre · ⌘ / Ctrl for fine · scroll for small steps · double-click resets to 35",
@@ -147,7 +146,7 @@
       },
       {
         "title": "GLAZE",
-        "body": "One knob. It listens for a while (usually 15–30 seconds) to settle on a plan, then pushes toward this song's ideal master; the denser the crackle, the further it's pushing."
+        "body": "One knob. It processes from the first beat and listens as the song plays, pushing toward this song's ideal master; until it has heard enough of the main section it warms up and stays cautious. The denser the crackle, the further it's pushing."
       },
       {
         "title": "Master / Original and Match",

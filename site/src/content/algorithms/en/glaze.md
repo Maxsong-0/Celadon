@@ -6,7 +6,7 @@
 
 | Question | Decision |
 |---|---|
-| How it follows the music | It listens all the time: a live, main-section-weighted profile feeds the planner once a second, and the automatic increments move toward each new target under a rate limit and a ratchet, rising slowly and falling faster; there is no listening phase and nothing locks |
+| How it follows the music | It listens all the time: a live, main-section-weighted profile feeds the planner once a second, and the automatic increments move toward each new target under a rate limit and a ratchet, rising slowly and falling faster; it never waits through a passage before settling on a plan, and nothing locks |
 | What the knob means | Strength: how far to push toward this song's ideal master; 0 = nothing moves (equal to the manual result) |
 | Manual knobs | The algorithm's value is the floor and the knobs fine-tune it: actual value = clamp(manual value + automatic increment); it never automatically cancels out your changes |
 | When the profile updates | All the time, and it's saved with the project (`LIVE`); there's no Relearn, and it doesn't guess song changes from the host transport — old statistics fade out through soft forgetting |
@@ -36,7 +36,7 @@
 6. The guard's relief is added to Limit Gain. True peak is still guaranteed by the limiter and the Ceiling.
 7. The status snapshot is written (the six status lines read only this).
 
-There is no listening, plan transition, calibration or lock. From a cold start c = 0 and the planner uses its cautious low-confidence plan; c rises with the quality of the main section heard.
+There is no listen-then-settle phase, plan transition, calibration or lock. From a cold start c = 0 and the planner uses its cautious low-confidence plan (shown as Warming up in the interface); c rises with the quality of the main section heard.
 
 ## The planner's targets and constraints
 

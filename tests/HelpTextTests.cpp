@@ -809,8 +809,8 @@ namespace celadon::test
             {
                 const auto zh = help::tooltipFor (uiid::glazeStatus, Language::chinese);
                 const auto en = help::tooltipFor (uiid::glazeStatus, Language::english);
-                expect (utf8Contains (zh, "旧的聆听结果已丢弃") && ! utf8Contains (zh, "重新聆听") && ! utf8Contains (zh, "校准"), zh);
-                expect (en.contains ("old listening result was discarded") && ! en.containsIgnoreCase ("relearn") && ! en.containsIgnoreCase ("calibrat"), en);
+                expect (utf8Contains (zh, "旧的预热结果已丢弃") && ! utf8Contains (zh, "重新聆听") && ! utf8Contains (zh, "校准"), zh);
+                expect (en.contains ("old warm-up result was discarded") && ! en.containsIgnoreCase ("relearn") && ! en.containsIgnoreCase ("calibrat"), en);
 
                 auto cjk = false;
 

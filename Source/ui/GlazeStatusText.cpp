@@ -298,7 +298,7 @@ namespace celadon::ui::glazestatus
                 return guardText (view, Language::chinese);
 
             case Kind::starting:
-                return utf8 ("起步 · 还没听到主段落（偏保守）");
+                return utf8 ("预热 · 还没听到主段落（偏保守）");
 
             case Kind::holding:
                 return utf8 ("保持 · 本段较轻");
@@ -331,7 +331,7 @@ namespace celadon::ui::glazestatus
                     return guardText (view, Language::english);
 
                 case Kind::starting:
-                    return "Starting" + dot() + "main section not heard yet (staying conservative)";
+                    return "Warming up" + dot() + "main section not heard yet (staying conservative)";
 
                 case Kind::holding:
                     return "Holding" + dot() + "this section is quieter";

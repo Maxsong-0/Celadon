@@ -232,9 +232,9 @@ namespace celadon::test
                 expectEquals (ui::tr (Text::genreDeliveryReset, Language::chinese), utf8 ("曲风与交付已取消，已改回通用 + 标准，声音会变"));
                 expectEquals (ui::tr (Text::genreDeliveryReset, Language::english),
                               juce::String ("Genre/delivery removed, now General + Standard; sound changes"));
-                expectEquals (ui::tr (Text::legacyDiscarded, Language::chinese), utf8 ("旧的聆听结果已丢弃，声音会变"));
+                expectEquals (ui::tr (Text::legacyDiscarded, Language::chinese), utf8 ("旧的预热结果已丢弃，声音会变"));
                 expectEquals (ui::tr (Text::legacyDiscarded, Language::english),
-                              juce::String ("The old listening result was discarded, so the sound will change"));
+                              juce::String ("The old warm-up result was discarded, so the sound will change"));
             }
 
             // T-111：「A 处理后 / B 原声」改叫「母带 / 原声」；英文控件名首字母大写（全大写只留给模块名与表头）；

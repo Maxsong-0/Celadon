@@ -1,15 +1,15 @@
 ## I switched songs — what should I do?
 
-Nothing to click. GLAZE follows whatever is playing, the old song's statistics fade out as the new one plays, and the plan moves over gradually; until it has heard enough of the new song's main section, the status line reads Starting. Click Reset meters to clear the integrated loudness and the peak holds.
+Nothing to click. GLAZE follows whatever is playing, the old song's statistics fade out as the new one plays, and the plan moves over gradually; until it has heard enough of the new song's main section, the status line reads Warming up. Click Reset meters to clear the integrated loudness and the peak holds.
 
-## It stays on Starting?
+## It stays on Warming up?
 
-- Starting means it hasn't heard enough of the main section yet, so the plan stays cautious. A long intro, or looping a short stretch of intro, keeps it there longer; play through from the drop (or the chorus) once and it relaxes; see [How it follows the main section](/docs/glaze#how-it-follows-the-main-section).
-- Material that's too short or mostly silent can't gather enough of the main section and stays on Starting. If you still run into it, please send the project and the song to Max.
+- Warming up means it hasn't heard enough of the main section yet, so the plan stays cautious. A long intro, or looping a short stretch of intro, keeps it there longer; play through from the drop (or the chorus) once and it relaxes; see [How it follows the main section](/docs/glaze#how-it-follows-the-main-section).
+- Material that's too short or mostly silent can't gather enough of the main section and stays on Warming up. If you still run into it, please send the project and the song to Max.
 
 ## An old project sounds different when I open it?
 
-From this version GLAZE no longer listens through a passage and then settles on a plan; it follows the music all the time. The listening result, plan and calibration saved in an old project are discarded on load and GLAZE starts following from scratch, so the sound changes; the bottom-left corner says so once: “The old listening result was discarded, so the sound will change”. Play through the main section once and it settles. New projects save the statistics gathered so far and carry on from them when reopened.
+From this version GLAZE no longer listens through a passage and then settles on a plan; it follows the music all the time. The warm-up result, plan and calibration saved in an old project are discarded on load and GLAZE starts following from scratch, so the sound changes; the bottom-left corner says so once: “The old warm-up result was discarded, so the sound will change”. Play through the main section once and it settles. New projects save the statistics gathered so far and carry on from them when reopened.
 
 0.1.8.11 removed the Genre and Delivery choices: an old project saved with a House genre, Streaming or Club loads as General + Standard, so it sounds different too, and the bottom-left corner says so once: “Genre/delivery removed, now General + Standard; sound changes” (one line each when both notices apply). See [Genre and Delivery (removed)](/docs/glaze#genre-and-delivery-removed).
 

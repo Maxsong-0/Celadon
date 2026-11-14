@@ -99,7 +99,7 @@ namespace celadon::test
 
                 reading.guardEngaged = false;
                 expect (kindOf (reading) == Kind::starting, "4 low confidence");
-                expectEquals (show (reading), utf8 ("起步 · 还没听到主段落（偏保守）"));
+                expectEquals (show (reading), utf8 ("预热 · 还没听到主段落（偏保守）"));
                 expect (gs::toneFor (Kind::starting) == gs::Tone::accent);
 
                 reading.confidence = 0.5f;
@@ -134,7 +134,7 @@ namespace celadon::test
 
                 reading.guardEngaged = false;
                 reading.confidence = 0.2f;
-                expect (utf8StartsWith (show (reading), "起步"));
+                expect (utf8StartsWith (show (reading), "预热"));
 
                 reading.confidence = 1.0f;
                 reading.currentMainness = 0.2f;

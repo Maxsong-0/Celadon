@@ -218,11 +218,11 @@ namespace celadon::help
 
             { uiid::glazeStatus,
               "GLAZE 状态",
-              "显示起步、保持、跟随、导出冷启动与守护退让；频谱持续跟随，自动染色随段落慢慢收敛。",
-              "受手动设置限制或守护退让时先看这里。旧工程打开会提示一次：旧的聆听结果已丢弃，声音会变。",
+              "显示预热、保持、跟随、导出冷启动与守护退让；频谱持续跟随，自动染色随段落慢慢收敛。",
+              "受手动设置限制或守护退让时先看这里。旧工程打开会提示一次：旧的预热结果已丢弃，声音会变。",
               "GLAZE status",
-              "Shows starting, holding, following, a cold export and guard relief; the spectrum keeps following, and the automatic colouring settles slowly with each section.",
-              "Look here first when manual settings or the guards are limiting the sound. Opening an old project shows once that the old listening result was discarded and the sound will change." },
+              "Shows warming up, holding, following, a cold export and guard relief; the spectrum keeps following, and the automatic colouring settles slowly with each section.",
+              "Look here first when manual settings or the guards are limiting the sound. Opening an old project shows once that the old warm-up result was discarded and the sound will change." },
 
             { uiid::advanced,
               "高级 · 母带微调",

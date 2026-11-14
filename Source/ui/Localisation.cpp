@@ -86,7 +86,7 @@ namespace celadon::ui
             { Text::matchedBy,          "已等响 {0} dB",            "level-matched {0} dB" },
             { Text::notMatched,         "未等响（响度差 {0} dB）",  "not matched ({0} dB apart)" },
             { Text::differenceUnknown,  "播放几秒后测出响度差",     "play a few seconds to measure" },
-            { Text::legacyDiscarded,    "旧的聆听结果已丢弃，声音会变", "The old listening result was discarded, so the sound will change" },
+            { Text::legacyDiscarded,    "旧的预热结果已丢弃，声音会变", "The old warm-up result was discarded, so the sound will change" },
             // T-108（ADR-039 Q2）：旧工程存着非默认的曲风 / 交付（T-038，已删），本次打开改回通用 + 标准。
             { Text::genreDeliveryReset, "曲风与交付已取消，已改回通用 + 标准，声音会变",
                                         "Genre/delivery removed, now General + Standard; sound changes" },
@@ -108,7 +108,7 @@ namespace celadon::ui
             { Text::chipManualLimit,    "受手动",                   "Manual limit" },
             { Text::chipExport,         "导出",                     "Export" },
             { Text::chipLimited,        "受限",                     "Limited" },
-            { Text::chipStarting,       "起步",                     "Starting" },
+            { Text::chipStarting,       "预热",                     "Warming up" },
             { Text::chipHolding,        "保持",                     "Holding" },
             { Text::chipFollowing,      "跟随",                     "Following" },
 

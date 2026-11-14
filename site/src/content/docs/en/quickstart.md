@@ -3,10 +3,10 @@ Day to day, Celadon takes three steps: insert it on the master bus, press play, 
 ## Three steps
 
 1. **Insert it last on the master (stereo) bus.** If you also use dither or loudness-meter plug-ins, put Celadon before them. Your host compensates the latency automatically (about 28.8 ms at 48 kHz).
-2. **Play the song.** New instances default to GLAZE 35% and the Auto style. GLAZE starts following as soon as playback starts: the status at the top first reads “Starting · main section not heard yet (staying conservative)”, then “Following · Auto→… · Target … LUFS” once it has heard enough of the main section, and “Holding · this section is quieter” in lighter sections. It keeps measuring the song's loudness, dynamics, spectrum and attacks, and the plan adjusts gradually as it goes.
+2. **Play the song.** New instances default to GLAZE 35% and the Auto style. GLAZE starts following as soon as playback starts: the status at the top first reads “Warming up · main section not heard yet (staying conservative)”, then “Following · Auto→… · Target … LUFS” once it has heard enough of the main section, and “Holding · this section is quieter” in lighter sections. It keeps measuring the song's loudness, dynamics, spectrum and attacks, and the plan adjusts gradually as it goes.
 3. **Turn GLAZE.** The knob sets how far to push toward this song's ideal master: 0 means nothing moves (fully manual); higher means louder, more correction and more colour. Dynamics protection comes before loudness: once each module's budget is used up it stops pushing, and the “Target … LUFS” on the status line comes down.
 
-> There's no listening phase to wait for: it processes from the first beat, stays cautious until it has heard enough of the main section and relaxes as it hears more; the spectral balance itself follows the music in real time all along.
+> Nothing to wait for: it processes from the first beat, stays cautious until it has heard enough of the main section and relaxes as it hears more; the spectral balance itself follows the music in real time all along.
 
 ## Is it better?
 
@@ -30,7 +30,7 @@ Give it a few seconds of playback before comparing; Match needs time to measure 
 ## Defaults
 
 - GLAZE 35%, Auto style; Ceiling −1.0 dBTP; Lookahead 2 ms; Auto release on.
-- “Loud, not harsh” and Target spectrum under Advanced default to Auto in new instances (linked to GLAZE, zero at GLAZE 0); old projects load with them off. An old project's GLAZE listening result is discarded on load, though, so its sound still changes; see [Saving and reopening](/docs/glaze#saving-and-reopening).
+- “Loud, not harsh” and Target spectrum under Advanced default to Auto in new instances (linked to GLAZE, zero at GLAZE 0); old projects load with them off. An old project's GLAZE warm-up result is discarded on load, though, so its sound still changes; see [Saving and reopening](/docs/glaze#saving-and-reopening).
 - CLAY's three controls default to Auto: Low cut and Width act only when this song really needs it and a trial run shows they won't raise the peaks; Mono on Auto never folds the lows — it only warns when they're out of phase.
 
 Next: [Install and compatibility](/docs/install). Curious what it's computing? See [Open algorithms](/algorithms).
