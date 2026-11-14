@@ -26,6 +26,10 @@ INNO_SHA256=9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
 BUILDTOOLS_DIR="$HOME/opt/buildtools"   # windows-wine.sh 的远端 PATH 也指这里，两处要一致
 CMAKE_VERSION=4.4.4                     # PyPI 包的版本（2026-11-13 在 108 上装的）
 NINJA_VERSION=1.13.2
+# 两个轮子的 sha256（PyPI 公布的 manylinux2014_x86_64 那一个，2026-11-14 取）：与上面 Wine Mono、Inno Setup 一样装前核对，
+# 换版本时连同哈希一起改（https://pypi.org/pypi/<包>/<版本>/json 的 digests.sha256）。
+CMAKE_WHEEL_SHA256=f773a0544c66370408f451acd487c2c643b0dfebb48c5d64f3638bc1bb820238
+NINJA_WHEEL_SHA256=65a24341b5ac09fcadcc37082660be40a94174e51a937fabf6e2cae26225fa2c
 export WINEDEBUG=-all
 # 不让 Wine 往服务器的 Linux 菜单里加快捷方式（Inno Setup 的安装程序会建一串开始菜单项）。
 export WINEDLLOVERRIDES="winemenubuilder.exe=d"
@@ -75,7 +79,12 @@ if [ ! -x "$BUILDTOOLS_DIR/bin/cmake" ] || [ ! -x "$BUILDTOOLS_DIR/bin/ninja" ];
   fi
   [ -n "$UV" ] || { echo "没有 uv：装 uv（https://docs.astral.sh/uv/）或在 PATH 里放一个，再重跑本脚本" >&2; exit 1; }
   "$UV" venv --allow-existing "$BUILDTOOLS_DIR"
-  VIRTUAL_ENV="$BUILDTOOLS_DIR" "$UV" pip install "cmake==$CMAKE_VERSION" "ninja==$NINJA_VERSION"
+  # 只装钉了哈希的轮子：哈希对不上、或只剩源码包可装，uv 都报错退出（set -e），不会装进没核对过的东西。
+  mkdir -p "$CACHE"
+  reqs="$CACHE/buildtools-requirements.txt"
+  printf 'cmake==%s --hash=sha256:%s\nninja==%s --hash=sha256:%s\n' \
+    "$CMAKE_VERSION" "$CMAKE_WHEEL_SHA256" "$NINJA_VERSION" "$NINJA_WHEEL_SHA256" > "$reqs"
+  VIRTUAL_ENV="$BUILDTOOLS_DIR" "$UV" pip install --require-hashes --only-binary :all: -r "$reqs"
 fi
 
 # 自检
