@@ -204,6 +204,9 @@ namespace celadon
         int getLastProcessSliceCountForTesting() const noexcept { return lastProcessSliceCount; }
         // 只给测试 / 离线工具：Clay 模块（读峰值守护的诊断统计，ADR-014）。
         ClayModule& getClayForTesting() noexcept { return clay; }
+        // 只给测试 / 离线工具：Limit 模块（T-096：渲染工具读限幅器的渲染计数，tools/render/RenderMain.cpp 用 SFINAE 探这个函数）。
+        // 插件不调。
+        LimiterModule& getLimiterForTesting() noexcept { return limiter; }
 
     private:
         bool processSlice (juce::AudioBuffer<float>& io);
