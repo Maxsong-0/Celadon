@@ -412,7 +412,8 @@ endif()
 # docs/validation/2026-10-11-T096f-cpu-baseline/README.md。同一个目标名、两种构建（看机器有没有界面库）：
 #   - 能编界面库（Linux 有 freetype2 / fontconfig / x11 开发包，即上面的 CELADON_CAN_BUILD_GUI）且没开 CELADON_BENCH_PORTABLE_CHAIN_ONLY：
 #     处理器层 + 链层。整个插件（处理器 + 编辑器——处理器的 createEditor 要它）链 celadon_juce_gui，源文件清单直接取 celadon_ui_snapshot 的
-#     （去掉截图工具自己的入口）：插件加源文件时只改那一处，这里跟着走；
+#     （去掉截图工具自己的入口）：插件加源文件时只改那一处，这里跟着走。不用上面的 CELADON_PLUGIN_SOURCES 与
+#     celadon_use_plugin_build_settings（T-099）：本段要能原样追加进还没有它们的基线树，所以那几项设置在这里照写一份；
 #   - 否则（含 macOS：上面只在 Linux / Windows 打开 CELADON_CAN_BUILD_GUI）：只有链层，只链 celadon_juce（无头，零额外依赖）。
 # Windows 不建：基准用 clock_gettime / getrusage（POSIX）。
 # 基线树里还没有这个目标：把本段从「开始」到「结束」两行原样追加进基线树的 CMakeLists.txt（README 有命令）。
