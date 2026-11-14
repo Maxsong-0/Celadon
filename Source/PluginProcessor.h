@@ -12,7 +12,11 @@
     不另加原子量。旧工程缺 clay_* 参数时回到默认「自动」（旧画像没有立体声特征，自动值为 0，声音不变）。
 
     v0.6（GLAZE，ADR-008）：两块表与 GLAZE 编排器挪进链里（dsp/CeladonChain）；这里每块从 AudioPlayHead 读播放位置、
-    是否在播、循环与离线渲染标志交给链，工程存取时把 GLAZE 的已提交版本附在导出的 XML 上，给界面注入 GLAZE 的三个数据源。
+    是否在播、循环与离线渲染标志交给链，工程存取时把 GLAZE 的存档（T-048 阶段 2 起是 LIVE：实时画像与各控制量）附在导出的
+    XML 上，给界面注入 GLAZE 的三个数据源。
+
+    T-099（ADR-040）：存读档与音频线程互斥。GLAZE 的存读档直接读写音频线程每块在改的量，取存档与落位都在回调锁里做
+    （宿主包装层处理每一块时持的就是这把锁）；运行中的实例读档时参数照换、实时画像保留（见 setStateInformation）。
 
     v0.5（性能优化，研究 P5）另外三件宿主集成的事也在这里：
       - 同规格的 prepareToPlay 只清状态、不整体重建（R8）：宿主每次重启都会调它，重建要 1.5 ～ 3.7 ms；
@@ -82,6 +86,10 @@ public:
     void changeProgramName (int index, const juce::String& newName) override;
 
     //==============================================================================
+    // 存读档（T-099，ADR-040）。宿主可能在任何非音频线程调、与 processBlock 同时进行（VST3 / AU 包装层直接转发）：
+    // GLAZE 那一段在回调锁里取 / 落位，其余（参数树、XML 转换与压缩外层、参考频谱）在锁外。
+    // 读档时：实例已经处理过音频、且实时画像里已经有听到的音频 → 只换参数与参考频谱，GLAZE 存档整份不读（实时画像、
+    // 已施加增量与各守护状态都接着用）；否则（刚建的实例、读第二份档之前还没处理过音频、只处理过静音）照常读回存档里的 GLAZE。
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
@@ -177,6 +185,12 @@ private:
     // 读入的状态树里缺哪个参数（旧版本存的状态），就补一个只带 id 的节点，让它回到默认值（少数参数特判成旧版的值）。
     // stateFormat = 存档根元素的 celadonStateFormat（没有 = 0，≤ 0.1.8.5；T-032 R10-02 起写 1），按存档区分回退规则的锚点。
     void addMissingParameterNodes (juce::ValueTree& newState, int stateFormat) const;
+
+    // 读档时要不要保留此刻的 GLAZE 运行状态（Max 2026-11-12 拍板第 4 项：运行中的实例读档，参数照换、实时画像保留；ADR-040）。
+    // 「运行中」= 处理过至少一块音频，且实时画像已发布的那一份里有过有效音频（LiveDiagnostics::activeSeconds > 0）。
+    // 只看「处理过音频」不够：有的宿主读工程之前就在送静音块，那样会把工程里存的画像丢掉；只看画像也不够：宿主打开工程时可能
+    // 连读两份档（都在第一块音频之前），第二份得照常读进来。调用方必须持着回调锁（读的是音频线程的量）。
+    bool keepsLiveStateOnLoad() const noexcept;
 
     // T-108（ADR-039 Q2）：最近一次读档读到的旧工程存着非默认的曲风或交付（T-038 的 glaze_genre / glaze_delivery，参数已删）。
     // 只活在本次打开里，不写进存档；下一次读档重新判定。读档的线程写（宿主不一定在消息线程调 setStateInformation），
@@ -324,6 +338,9 @@ private:
     std::atomic<bool> hostResetPending { false };
     std::atomic<bool> compareOriginal { false };  // 界面写（A / B 对比听 B），音频线程每块读
     std::atomic<bool> auditionDifference { false }; // 界面写（LIMIT 试听差值），音频线程每块读
+    // 处理过至少一块非空的音频（音频线程置位，读档在回调锁里读，见 keepsLiveStateOnLoad）。只置不清：prepareToPlay 不清实时画像，
+    // 换采样率 / 块长之后实例仍是「运行中」。
+    std::atomic<bool> processedAudio { false };
     bool lastBlockHostBypassed = false;           // 只在音频线程读写
 
     celadon::AnalyzerTap analyzerTap;             // 频谱仪取样口：音频线程推、界面线程取
