@@ -16,7 +16,8 @@
     位图（背景、瓷面、流线）按当次绘制的物理像素比生成。窗口大小随工程存一份（uiZoom），另记为新窗口的默认大小（UiSettings）。
 
     GLAZE 的数据源由处理器在 createEditor 里注入：状态快照、本块交给模块的实际参数。
-    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。每次读档后处理器调 setLegacyNotices 交两种旧工程提示的当前值（旧聆听结果已丢弃、曲风与交付已取消）。
+    「重新聆听」动作的注入还在，阶段 2 起是空操作（没有这个按钮）。两种旧工程提示（旧聆听结果已丢弃、曲风与交付已取消）由计时器每帧
+    从处理器取当前值（状态快照里的 legacySessionDiscarded、注入的 genreDeliveryResetSource）。
 
   ==============================================================================
 */
@@ -68,14 +69,18 @@ public:
     void setGlazeRelearnAction (GlazeRelearnAction action);
     void setGlazeEffectiveParamsSource (GlazeEffectiveParamsSource source);
 
-    // 两种旧工程提示的当前值，左下角各占一行；都是 false 就不显示。不写入 LIVE、不进工程。
+    // 两种旧工程提示，左下角各占一行；都是 false 就不显示。不写入 LIVE、不进工程。
     //   legacyGlazeDiscarded（T-048 Q1）：读到的是旧聆听结果（v1，或只有 GLAZE_PROFILE / PLAN / CALIBRATION / EXECUTION），已丢弃，
-    //     提示「旧的聆听结果已丢弃，声音会变」；
+    //     提示「旧的聆听结果已丢弃，声音会变」——取状态快照的 legacySessionDiscarded；
     //   genreDeliveryReset（T-108，ADR-039 Q2）：读到的旧工程存着非默认的曲风 / 交付（T-038，已删），提示「曲风与交付已取消，
-    //     已改回通用 + 标准，声音会变」。
-    // 处理器在消息线程调：createEditor 里一次（读档早于开窗口），编辑器开着时每次读档后一次——读到干净的工程时交 false，
-    // 上一个工程的提示随之消失（T-108 独立复查 F12：改前只会置上、不会清）。截图工具直接调它摆出提示。
-    void setLegacyNotices (bool legacyGlazeDiscarded, bool genreDeliveryReset);
+    //     已改回通用 + 标准，声音会变」——取这个数据源。
+    // 两个值都是处理器记下的「最近一次读档」的结果（原子量），计时器每帧取一次：读档在哪个线程、编辑器先开后开都一样，
+    // 读到干净的工程下一帧就清（T-108 独立复查 F12、第 2 轮 R2-F1：改前只会置上不会清，宿主不在消息线程读档时曲风提示不亮）。
+    using GenreDeliveryResetSource = std::function<bool()>;
+    void setGenreDeliveryResetSource (GenreDeliveryResetSource source);
+
+    // 截图工具用：直接摆出两种提示；摆了以后计时器不再跟处理器的值（截图会话用完即弃，不需要恢复）。不进工程。
+    void setLegacyNoticesPreview (bool legacyGlazeDiscarded, bool genreDeliveryReset);
 
     // 截图工具用：直接给状态行一份读数（c、m、冷导出、守护原因）。不进工程。clear 之后回到编排器快照。
     void setStatusLinePreview (const celadon::ui::glazestatus::Reading& reading);
@@ -104,6 +109,7 @@ private:
     class Canvas;
 
     void timerCallback() override;
+    void setLegacyNotices (bool legacyGlazeDiscarded, bool genreDeliveryReset);   // 有变化就重画一帧
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override;
     void valueTreeRedirected (juce::ValueTree&) override;
@@ -128,8 +134,10 @@ private:
 
     GlazeStatusSource glazeStatusSource;
     GlazeEffectiveParamsSource glazeEffectiveParamsSource;
+    GenreDeliveryResetSource genreDeliveryResetSource;
     bool legacyGlazeDiscarded = false;
     bool genreDeliveryReset = false;
+    bool legacyNoticesPreviewOn = false;
     bool statusLinePreviewOn = false;
     celadon::ui::glazestatus::Reading statusLinePreview;
 

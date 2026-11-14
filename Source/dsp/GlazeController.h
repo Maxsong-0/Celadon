@@ -41,7 +41,7 @@
 
     线程：
       - 音频线程：setHostInfo / beginBlock / analyzeSpectrum / analyzeInput / endBlock / handleDiscontinuity / hostReset。0 分配、0 锁。
-      - 消息线程：prepare / createStateXml / restoreStateXml / takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveModel；
+      - 消息线程：prepare / createStateXml / restoreStateXml / takeStateRestoredBeforePrepare / setLiveSegmentSink / syncLiveConstants；
         requestRelearn 已是空操作。
       - 任何线程：getStatus（无锁快照，endBlock 每块发布一份；legacySessionDiscarded 另读一个原子标志）。
       编排器不再在两线程之间交换「已提交版本」（旧版音频线程 try-lock 发布、消息线程持锁读写的那一套随状态机删掉了）：

@@ -25,8 +25,10 @@
 namespace celadon::legacystate
 {
     // 从读进来的状态树（APVTS 根元素）里摘掉曲风 / 交付两个 PARAM 节点（重复的也都摘），返回其中有没有不是默认值的。
-    // 旧值是 APVTS 存的选项下标（float 文本，"0" / "1" / "2"）：按 juce::roundToInt 取整，与 AudioParameterChoice::getIndex 同一口径；
-    // 值不是有限数（存档里写坏的 "nan" / "inf"）按「不是默认值」算：读不懂的旧档宁可提示一次，也不悄悄变声。
+    // 旧值是 APVTS 存的选项下标（float 文本，"0" / "1" / "2"）。判定照旧版读回下标的口径：AudioParameterChoice 先把存的值钳到
+    // [0, 选项数 − 1]（convertTo0to1），getIndex 再按 juce::roundToInt 取整——所以负数（含 "-inf"）读回仍是默认、旧版声音本来没变，
+    // 不提示；超出范围的大数（含 "inf"）读回是最后一档，提示。这里只问「是不是下标 0」，钳到 [0, 1] 结果相同，也免得极大的数取整溢出
+    // （T-108 独立复查第 2 轮 R2-F5）。"nan" 读回是哪一档说不准：读不懂的旧档宁可提示一次，也不悄悄变声。
     // 没有 value 属性的节点按 0（默认）读，与 APVTS 缺值时的回退一致。
     inline bool removeGenreDeliveryNodes (juce::XmlElement& stateXml)
     {
@@ -40,7 +42,8 @@ namespace celadon::legacystate
             if (node->hasTagName ("PARAM") && (id == param::legacy::glazeGenre || id == param::legacy::glazeDelivery))
             {
                 const auto value = node->getDoubleAttribute ("value", 0.0);
-                nonDefault = nonDefault || ! std::isfinite (value) || juce::roundToInt (value) != 0;
+                const auto readsAsDefault = ! std::isnan (value) && juce::roundToInt (juce::jlimit (0.0, 1.0, value)) == 0;
+                nonDefault = nonDefault || ! readsAsDefault;
                 stateXml.removeChildElement (node, true);
             }
 

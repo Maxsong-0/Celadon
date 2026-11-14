@@ -178,13 +178,9 @@ private:
     // stateFormat = 存档根元素的 celadonStateFormat（没有 = 0，≤ 0.1.8.5；T-032 R10-02 起写 1），按存档区分回退规则的锚点。
     void addMissingParameterNodes (juce::ValueTree& newState, int stateFormat) const;
 
-    // 每次读档后把两种旧工程提示的当前值交给已经打开的编辑器（Q1 旧聆听结果已丢弃；T-108 曲风与交付已取消，genreDeliveryReset），
-    // 读到干净的工程时交 false、清掉上一个工程的提示。不写入 LIVE。不在消息线程就不碰界面：这时开着的编辑器不更新，
-    // 下次开窗口（createEditor）再按当前值显示。
-    void notifyLegacyDiscardIfEditorOpen();
-
     // T-108（ADR-039 Q2）：最近一次读档读到的旧工程存着非默认的曲风或交付（T-038 的 glaze_genre / glaze_delivery，参数已删）。
-    // 只活在本次打开里，不写进存档；下一次读档重新判定。消息线程写，界面线程读。
+    // 只活在本次打开里，不写进存档；下一次读档重新判定。读档的线程写（宿主不一定在消息线程调 setStateInformation），
+    // 编辑器的计时器在消息线程每帧读（createEditor 注入的数据源），读到干净的工程下一帧提示就清。
     std::atomic<bool> genreDeliveryReset { false };
     void processChain (juce::AudioBuffer<float>& buffer, bool hostBypassed);
     void processBuses (juce::AudioBuffer<float>& buffer, bool hostBypassed);

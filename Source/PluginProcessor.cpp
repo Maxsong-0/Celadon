@@ -861,25 +861,14 @@ juce::AudioProcessorEditor* CeladonAudioProcessor::createEditor()
     // GLAZE 的三个数据源（v0.6，设计规格-GLAZE-界面与实现第 1 节）：编辑器每 30 ms 在消息线程调，全部无锁——
     // 状态是编排器的无锁快照，「重新聆听」只置原子标志，实际值是音频线程每块写的 7 个原子量。
     // 宿主保证编辑器先于处理器销毁，捕获 this 安全。
+    // 两种旧工程提示由编辑器的计时器每帧取（旧聆听结果在状态快照里，曲风与交付取这个原子量），读档不必通知编辑器、也不管在哪个线程
+    // （T-108 独立复查 F12、第 2 轮 R2-F1）。先交它再交状态源：setGlazeStatusSource 刷的那一帧就把两种提示都取到。
+    editor->setGenreDeliveryResetSource ([this] { return genreDeliveryReset.load(); });
     editor->setGlazeStatusSource ([this] { return getGlazeStatus(); });
     editor->setGlazeRelearnAction ([this] { requestGlazeRelearn(); });
     editor->setGlazeEffectiveParamsSource ([this] { return getGlazeEffectiveParamsForUi(); });
 
-    // 读档发生在编辑器创建之前：把两种旧工程提示的当前值交给新窗口。编辑器已经开着时由 setStateInformation 通知。
-    editor->setLegacyNotices (getGlazeStatus().legacySessionDiscarded, genreDeliveryReset.load());
-
     return editor;
-}
-
-void CeladonAudioProcessor::notifyLegacyDiscardIfEditorOpen()
-{
-    if (auto* messages = juce::MessageManager::getInstanceWithoutCreating())
-        if (! messages->isThisTheMessageThread())
-            return;
-
-    // 两个值都交，false 也交：读到干净的工程时把上一个工程的提示清掉（T-108 独立复查 F12）。
-    if (auto* editor = dynamic_cast<CeladonAudioProcessorEditor*> (getActiveEditor()))
-        editor->setLegacyNotices (getGlazeStatus().legacySessionDiscarded, genreDeliveryReset.load());
 }
 
 //==============================================================================
@@ -952,7 +941,6 @@ void CeladonAudioProcessor::setStateInformation (const void* data, int sizeInByt
 
             chain.restoreGlazeStateXml (glaze.get());
             chain.restoreReferenceStateXml (reference.get());
-            notifyLegacyDiscardIfEditorOpen();
         }
     }
 }

@@ -62,6 +62,7 @@
 #include <functional>
 #include <iostream>
 #include <optional>
+#include <thread>
 #include <vector>
 
 // PluginProcessor.cpp 里定义（插件外壳平时由 juce_audio_plugin_client 声明，截图工具不编它）。
@@ -673,15 +674,15 @@ int main (int argc, char* argv[])
         { "zh-status-export", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
         { "en-status-export", celadon::Language::english, none, [] (Session& s) { previewLine (s, exportReading()); }, pillCrop },
         // 旧工程提示一次：左下角琥珀色第二行，不进状态行。
-        { "zh-legacy-notice", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNotices (true, false); }, juce::Rectangle<int> (0, 470, 520, 90) },
-        { "en-legacy-notice", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNotices (true, false); }, juce::Rectangle<int> (0, 470, 560, 90) },
+        { "zh-legacy-notice", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (true, false); }, juce::Rectangle<int> (0, 470, 520, 90) },
+        { "en-legacy-notice", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (true, false); }, juce::Rectangle<int> (0, 470, 560, 90) },
         // T-108：存着曲风 / 交付的旧工程提示一次（左下角琥珀）；与旧聆听结果丢弃同时出现时各占一行。T-038 的 -house-hint 随 T-108 删掉。
-        { "zh-genre-reset", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNotices (false, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
-        { "en-genre-reset", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNotices (false, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
+        { "zh-genre-reset", celadon::Language::chinese, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (false, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
+        { "en-genre-reset", celadon::Language::english, none, [] (Session& s) { s.editor->setLegacyNoticesPreview (false, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
         { "zh-genre-reset-both", celadon::Language::chinese, none,
-          [] (Session& s) { s.editor->setLegacyNotices (true, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
+          [] (Session& s) { s.editor->setLegacyNoticesPreview (true, true); }, juce::Rectangle<int> (0, 470, 620, 90) },
         { "en-genre-reset-both", celadon::Language::english, none,
-          [] (Session& s) { s.editor->setLegacyNotices (true, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
+          [] (Session& s) { s.editor->setLegacyNoticesPreview (true, true); }, juce::Rectangle<int> (0, 470, 760, 90) },
     };
 
     for (const auto& state : states)
@@ -1419,7 +1420,8 @@ namespace
     //==============================================================================
     // T-108（ADR-039 Q2、Q3）：存着曲风 / 交付的旧工程。参数表里已经没有 glaze_genre / glaze_delivery；读档时处理器把这两个 PARAM 节点
     // 摘掉，有一个不是默认值（下标 0 = 通用 / 标准）就让界面左下角提示一次「曲风与交付已取消…」，通用 + 标准的旧工程不提示。
-    // 两条路都查：先读档再开编辑器（createEditor 补提示）与编辑器开着时读档（setStateInformation 通知）。再存出去不再有这两个节点，
+    // 两种顺序都查：先读档再开编辑器、编辑器开着时读档（提示都由编辑器计时器从处理器取，读档不通知编辑器，所以消息线程与别的线程
+    // 读档走的是同一条路；T-108 独立复查第 2 轮 R2-F1）。再存出去不再有这两个节点，
     // 其余参数照旧读回（这里看 GLAZE 与风格）。
     void runOldProjectChecks (const std::function<void (bool, const juce::String&)>& check)
     {
@@ -1559,6 +1561,25 @@ namespace
             check (house == " | " + expected && cleanAfterHouse == " | " && discarded == " | " + legacyText && cleanAfterDiscarded == " | ",
                    "T-108 editor open, projects loaded in a row: the notice follows the latest one and clears on a clean project (House \"" + house
                        + "\" -> clean \"" + cleanAfterHouse + "\" -> old listening result \"" + discarded + "\" -> clean \"" + cleanAfterDiscarded + "\")");
+
+            // 宿主不在消息线程读档（T-108 独立复查第 2 轮 R2-F1）：这时处理器碰不了界面，提示只能由编辑器计时器从处理器取。
+            // 读档在工作线程跑、消息线程在 join 上等着，不会和界面同时动（编辑器的状态树回调只 triggerAsyncUpdate）；读完推一帧再看。
+            const auto cornerAfterLoadOnWorker = [&session] (const juce::MemoryBlock& blob)
+            {
+                std::thread loader ([&session, &blob] { session->processor->setStateInformation (blob.getData(), (int) blob.getSize()); });
+                loader.join();
+                session->editor->advanceForSnapshot (0.05);
+                auto* corner = dynamic_cast<CornerNote*> (findById (*session->editor, "corner_note"));
+                return corner == nullptr ? juce::String ("corner note missing") : corner->getFirstLine() + " | " + corner->getSecondLine();
+            };
+
+            const auto clubOnWorker = cornerAfterLoadOnWorker (oldProject ("0", "2"));
+            const auto discardedOnWorker = cornerAfterLoadOnWorker (legacyGlaze);
+            const auto cleanOnWorker = cornerAfterLoadOnWorker (oldProject ("0", "0"));
+
+            check (clubOnWorker == " | " + expected && discardedOnWorker == " | " + legacyText && cleanOnWorker == " | ",
+                   "T-108 editor open, projects loaded off the message thread: the notice still follows the latest one and clears (club \""
+                       + clubOnWorker + "\" -> old listening result \"" + discardedOnWorker + "\" -> clean \"" + cleanOnWorker + "\")");
         }
     }
 

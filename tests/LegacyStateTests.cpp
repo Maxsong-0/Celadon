@@ -112,13 +112,17 @@ namespace celadon::test
 
         void testValueEdges()
         {
-            beginTest ("old projects: the stored index is rounded like AudioParameterChoice::getIndex; non-finite counts as changed, a missing value as default");
+            beginTest ("old projects: the stored index is clamped and rounded like AudioParameterChoice; NaN counts as changed, a missing value as default");
             expectCase ("0.4", "0", false, "genre 0.4 rounds to General");
             expectCase ("-0.4", "0", false, "genre -0.4 rounds to General");
             expectCase ("0.6", "0", true, "genre 0.6 rounds to Deep House");
             expectCase ("0", "1.6", true, "delivery 1.6 rounds to club");
+            expectCase ("-1", "0", false, "genre -1 is clamped to General, so the old sound did not change");
+            expectCase ("0", "-inf", false, "delivery -Inf is clamped to Standard");
+            expectCase ("0", "5", true, "delivery 5 is clamped to the last choice");
+            expectCase ("1e30", "0", true, "genre 1e30 is clamped to the last choice without overflowing");
             expectCase ("nan", "0", true, "genre NaN");
-            expectCase ("0", "inf", true, "delivery +Inf");
+            expectCase ("0", "inf", true, "delivery +Inf is clamped to the last choice");
             expectCase ("", "", false, "empty value attributes");
 
             auto missing = makeState (nullptr, nullptr);
