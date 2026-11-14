@@ -50,8 +50,8 @@ export const CHANGELOG: ReleaseNote[] = [
       {
         kind: 'sound',
         text: {
-          zh: 'GLAZE 的电平更稳：慢速电平修正（把成品补到目标响度的那一点）不再整首慢慢漂，从哪里开始听，导出的成品都一样。会对很密的素材误退增益的 PSR 保护去掉了，这类很响、很密的歌可能比 0.1.8.10 响，最多约 3 dB。自动量还在往方案走的头几十秒里，慢速电平修正先不动，所以不到一分钟的短片会轻 0.5 ～ 1.4 LU。这几条只在 GLAZE > 0 时起作用，GLAZE > 0 的旧工程声音会有变化。',
-          en: 'GLAZE holds its level more steadily. The slow level trim (the amount that nudges the master toward its target loudness) no longer drifts across the whole song, so the export is the same wherever you started listening. The PSR guard, which could back off gain on dense material by mistake, is gone, so very loud, dense songs may come out up to about 3 dB louder than in 0.1.8.10. While the automatic settings are still ramping toward the plan (the first tens of seconds), the slow level trim now waits, so clips shorter than a minute come out 0.5–1.4 LU quieter. All of this applies only when GLAZE is above 0, and projects with GLAZE above 0 will sound different.'
+          zh: 'GLAZE 的电平更稳：慢速电平修正（把成品补到目标响度的那一点）不再整首慢慢漂，从哪里开始听，导出的成品都一样。状态行原因写「保对比」「PSR」的两种退让去掉了（PSR 那种会在很密的素材上误把增益往回收），0.1.8.10 里被它们压过的歌可能更响，最多约 3 dB。GLAZE 刚开始自动调整、还没调到位的头几十秒里，慢速电平修正先不动，所以不到一分钟的短片会轻 0.5 ～ 1.4 LU。这几条只在 GLAZE > 0 时起作用，GLAZE > 0 的旧工程声音会有变化。',
+          en: 'GLAZE holds its level more steadily. The slow level correction (the amount that nudges the master toward its target loudness) no longer drifts across the whole song, so the export is the same wherever you started listening. The two back-offs the status line showed as Contrast and PSR are gone (the PSR one could pull gain back on dense material by mistake), so songs they held back in 0.1.8.10 may come out louder, by up to about 3 dB. During the first few tens of seconds, while GLAZE is still moving its automatic settings into place, the slow level correction waits, so clips shorter than a minute come out 0.5–1.4 LU quieter. All of this applies only when GLAZE is above 0, and projects with GLAZE above 0 will sound different.'
         }
       },
       {
@@ -72,7 +72,7 @@ export const CHANGELOG: ReleaseNote[] = [
         kind: 'compat',
         text: {
           zh: '0.1.8.10 存的工程照常打开，慢速电平修正从 0 重新收敛；0.1.8.11 存的工程在 0.1.8.10 里也能打开。',
-          en: 'Projects saved in 0.1.8.10 open as before, with the slow level trim starting again from 0; projects saved in 0.1.8.11 still open in 0.1.8.10.'
+          en: 'Projects saved in 0.1.8.10 open as before, with the slow level correction starting again from 0; projects saved in 0.1.8.11 still open in 0.1.8.10.'
         }
       }
     ]
