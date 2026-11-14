@@ -12,7 +12,8 @@
   改指宿主 `/usr/lib/x86_64-linux-gnu/` 的运行库（运行库宿主已有，testbox-apt 不重复下）。
 - **DGX（aarch64）**：`~/.cache/celadon-spark/bin/spark-test.sh <源码副本> build|test|run …`（全机锁）。渲染、截图都在这里。
 - **108 主机 MSVC（Wine）**：`CELADON_WIN_HOST=maxsong@100.84.85.68 bash scripts/windows-wine.sh test|installer`，
-  VS2022 工程用 DGX 上自编的 Linux 版 Projucer `--resave` 生成（它写的两个 JuceLibraryCode 头只差十六进制大小写，换回仓库原样）。
+  VS2022 工程用 DGX 上自编的 Linux 版 Projucer `--resave` 生成（它写的两个 JuceLibraryCode 头只差十六进制大小写，换回仓库原样。
+  原因是仓库里那两行是手改的大写，11-14 查明并改回 Projucer 的小写，见第 15.1 节）。
 
 ## 1. 开工基线（main `93af3e0` = T-108 合入后）
 
@@ -378,3 +379,30 @@ C++ 在 `77c5ca3`（版本号）之后没再变：`34414cc` 只改更新日志�
 `tools/render/measure_lib.py` 的 `SUSPECT_TP_MARGIN_DB`、`tools/render/master_check.py` 标「暂定」的阈值）。
 
 本节随的提交只改文档与 `compare_perf.py`、`perf-dgx.sh` 各一行注释（逐行核过只动注释行），上面的验证结果照样成立。
+
+## 15. 发版（M7）
+
+### 15.1 两个生成头文件里版本号的大小写（11-14 查明，同日改回）
+
+- **现象**：11-14 Max 在 Mac 上 `git pull --ff-only` 被挡，因为 `JuceLibraryCode/JuceHeader.h` 和 `JucePluginDefines.h` 有本地改动。
+  先把改动存成补丁再还原，补丁里只有两行：`versionNumber` 和 `JucePlugin_VersionCode` 从 `0x1080A` 变成了 `0x1080a`。
+  这是之前在 0.1.8.10 上用 Projucer 重存留下的。
+- **原因**：Projucer 写十六进制用小写，同一个文件里的 `JucePlugin_ManufacturerCode 0x4d617873`、`JucePlugin_PluginCode 0x436c646e`
+  一直是小写。版本号的十六进制到 0.1.8.10 才第一次带字母（0.1.8.9 是 `0x10809`）。偏偏 0.1.8.10 的 `e0d509c` 和 0.1.8.11 的 `77c5ca3`
+  这两次版本号提交都是手改头文件，写成了大写。所以从 0.1.8.10 起，Mac 上每次重存都会把这两行改回小写，工作区一直不干净。
+- **核对**：
+  - DGX 上用 Linux 版 Projucer 重存 `161f417`：`JuceLibraryCode` 的 61 个文件里只有这两个头不同，而且只差这两行的大小写。
+  - Max 在 Mac 上重存同一个提交：两个头文件的 SHA-256 与 DGX 生成的相同（`shasum -c` 两个都是 OK）。也就是说，两边 Projucer 的输出逐字节一致。
+- **影响**：编出来的东西不变，理由有三条：
+  - `0x1080b` 和 `0x1080B` 是同一个整数字面量。
+  - JUCE 9.0.2 的 `modules/` 只把 `JucePlugin_VersionCode` 当整数用（赋值、比较、传参），没有一处转成字符串；本工程的 `Source/`、`tests/`、`tools/`
+    不用这两个宏。
+  - AU 的注册版本由 `scripts/au-version.sh` 从 `CFBundleShortVersionString` 算，不读这两个头文件。
+
+  所以 Windows 包（用 `e67663a` 编，头文件是大写）和 Mac 两个包（Projucer 重存后编，头文件是小写）的源码是等价的。
+- **修正**（本节随的提交）：
+  - 两个头文件换成 Projucer 生成的原样，SHA-256 分别是 `2fc6bbba…7093` 和 `f0cf42a9…c644`。
+  - `CMakeLists.txt` 里截图工具那份 `ProjectInfo` 也改成小写。
+  - `docs/BUILDING.md` 写明改版本号要改哪几处，以及头文件要用 Projucer 生成、不能手改。
+
+  交接里写过「发版只改 `release.ts`」，这次也改了生成文件，算偏离。偏离的理由：这个改动不改变编译结果，而 Mac 两个包正是用这两份头文件编的。

@@ -354,7 +354,7 @@ if(CELADON_CAN_BUILD_GUI)
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_dsp/juce_dsp.h>
-namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char* const versionString = \"0.1.8.11\"; const int versionNumber = 0x1080B; }
+namespace ProjectInfo { const char* const projectName = \"Celadon\"; const char* const versionString = \"0.1.8.11\"; const int versionNumber = 0x1080b; }
 ")
 
     file(GLOB CELADON_UI_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/ui/*.cpp)
