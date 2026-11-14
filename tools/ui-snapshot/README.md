@@ -34,6 +34,7 @@
 | `zh-guard-recovering.png` / `en-guard-recovering.png` | T-074 守护回收指示：手动低切 25 Hz + 收单 120 Hz 在做、峰值守护把改动量明显收回（保留比 0.42，状态注入）——CLAY 卡片低切 / 收单两盏灯橙色（只存下半部分的四张卡片） |
 | `zh-guard-tooltip.png` / `en-guard-tooltip.png` | 同上状态下 CLAY 灯的悬停气泡：第 2 行末尾「峰值守护回收中：低切 / 收单实际只剩约 40%」（取 `help::clayIndicatorTooltip`，与界面同一个函数） |
 | `zh-glaze-tooltip.png` / `en-glaze-tooltip.png` | T-112：GLAZE 标题的悬停气泡（标题一行与正文都是正文档 em 11，标题用中等字重）。`showGlazeTooltip` 原来给 T-038 的 House 气泡用，T-048 删掉那两张后没人调；气泡本身一直在界面上，字号放大后要看它 |
+| `zh-bypass.png` | T-112（4-19）：BALANCE / COLOR / CLAY 三块旁通、LIMIT 开着对照。旁通的卡片内容淡到 0.55、数值弧与滑条填充去色，中层左侧板对应的行同样淡、出力条与紫字去色（T-105 体检时没有旁通态的图，对比度是按代码算的） |
 
 守护回收那几张的状态由编排器填；截图工具把处理器的状态快照改一改再交给编辑器（`setGlazeStatusSource`，见 `injectStatus`；
 T-038 为 House 那几张加的），验的是界面怎么按字段画，不是编排器什么时候置这些字段。T-108（ADR-039）删了曲风与交付：

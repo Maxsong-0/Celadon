@@ -42,7 +42,8 @@
       T-112（字号与对比度包 B）：--only check 在旧工程那组之后多三组：⑪c 单行文字放得下（中英 × 70 / 125 / 100 % × 主界面、设置、帮助、
       高级三页、听原声、状态行三句、旧工程提示三种，绘字时量宽，见 textfit）、⑪d 六档字号的 em（界面字体与等宽字体、等宽字体回退到汉字时
       em 不变）、⑪e 新装默认大小（initialZoom 纯函数）与左下提示不伸进风格选择。新状态 zh-glaze-tooltip、en-glaze-tooltip（GLAZE 标题的
-      悬停气泡：showGlazeTooltip 自 T-048 删掉 House 气泡那两张后一直没人调，气泡本身还在界面上，字号放大后要看它）。
+      悬停气泡：showGlazeTooltip 自 T-048 删掉 House 气泡那两张后一直没人调，气泡本身还在界面上，字号放大后要看它）、zh-bypass（4-19：
+      BALANCE / COLOR / CLAY 三块旁通、LIMIT 开着对照，看旁通的卡片与左侧板行淡到 0.55、弧线与填充去色）。
 
   ==============================================================================
 */
@@ -687,6 +688,14 @@ int main (int argc, char* argv[])
         // T-112：GLAZE 标题的悬停气泡（标题 / 正文两档字号）。范围由 showGlazeTooltip 按气泡实际大小定。
         { "zh-glaze-tooltip", celadon::Language::chinese, none, [] (Session& s) { showGlazeTooltip (s); } },
         { "en-glaze-tooltip", celadon::Language::english, none, [] (Session& s) { showGlazeTooltip (s); } },
+        // T-112（4-19）：BALANCE / COLOR / CLAY 三块旁通、LIMIT 开着作对照。卡片内容淡到 bypassLook::opacity、数值弧与滑条填充去色，
+        // 中层左侧板对应的行同样淡、出力条与紫字去色。T-105 体检时没有这种状态的图，4-19 的对比度是按代码算的。
+        { "zh-bypass", celadon::Language::chinese, [] (Session& s)
+          {
+              s.setParameter (celadon::param::balanceBypass, 1.0f);
+              s.setParameter (celadon::param::colorBypass, 1.0f);
+              s.setParameter (celadon::param::clayBypass, 1.0f);
+          }, none },
 
         // T-048 状态行里截图工具单独摆出来的三句（起步是默认图）。只截顶栏胶囊。T-038 的 -house-layout 随 T-108 删掉。
         { "zh-status-follow", celadon::Language::chinese, none, [] (Session& s) { previewLine (s, followReading()); }, pillCrop },
