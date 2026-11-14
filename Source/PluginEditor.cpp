@@ -1202,9 +1202,14 @@ double CeladonAudioProcessorEditor::readStoredZoom() const
 {
     const auto& state = processor.getParameters().state;
 
-    // 工程里存过就用工程的；没有（新实例、v0.1.7 的旧工程）用用户设置里的默认大小。
-    const auto stored = state.hasProperty (uiZoomId) ? (double) state.getProperty (uiZoomId) : settings->getDefaultZoom();
-    return std::isfinite (stored) ? juce::jlimit (minZoom, maxZoom, stored) : 1.0;
+    // 工程里存过就用工程的；没有（新实例、v0.1.7 的旧工程）用用户设置里的默认大小；用户设置也没存过（新装）用新装默认（125 %）。
+    // 放进屏幕（取小的那个）在 fitZoomToScreen 里做。
+    std::optional<double> projectZoom;
+
+    if (state.hasProperty (uiZoomId))
+        projectZoom = (double) state.getProperty (uiZoomId);
+
+    return initialZoom (projectZoom, settings->getStoredDefaultZoom());
 }
 
 const juce::Displays::Display* CeladonAudioProcessorEditor::currentDisplay() const
