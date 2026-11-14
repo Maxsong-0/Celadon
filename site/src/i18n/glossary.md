@@ -27,7 +27,7 @@
 
 风格：自动 Auto · 温润 Warm · 冲击 Punchy · 通透 Clean
 曲风 Genre（0.1.8.11 取消，只在更新日志与「已取消」说明里出现）：通用 General · Deep / Tech / Melodic（选择器上只写这三个简称；正文提到选项时照写简称，悬停气泡与专门介绍子类时写全名 Deep House / Tech House / Melodic-Progressive；三者合称 House genres）
-交付 Delivery（同上，0.1.8.11 取消）：标准 Standard · 流媒体 Streaming · 俱乐部 Club；旧工程提示原句：曲风与交付已取消，已改回通用 + 标准，声音会变 = Genre/delivery removed, now General + Standard; sound changes
+交付 Delivery（同上，0.1.8.11 取消）：标准 Standard · 流媒体 Streaming · 俱乐部 Club；旧工程提示原句：曲风与交付已取消，已改回通用 + 标准，声音会变 = Genre/delivery reset: General + Standard, sound changes
 主段：小节 bar · 主段落 main section（drop = drop，breakdown = breakdown，不译）· 逐小节的记录 = tally（「House ·」前缀、反相提示 out-of-phase hint、门控 gating 随 0.1.8.11 取消，只在更新日志里出现）
 状态（GLAZE 标题旁的阶段标签）：全手动 Manual · 受手动 Manual limit · 导出 Export · 受限 Limited · 预热 Warming up（0.1.8.11 之前叫 起步 Starting）· 保持 Holding · 跟随 Following；卡片旁通 已旁通 Bypassed
 状态行原句（照 GlazeStatusText.cpp 的英文）：受限 · 预算 / 限幅 · 已退 x dB = Limited · Budget / Limiter · backed off x dB · 受手动设置限制 = Limited by manual settings（标签 受手动 = Manual limit）· 预热 Warming up · 保持 Holding · 跟随 Following

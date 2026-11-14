@@ -56,7 +56,7 @@ GLAZE doesn't listen to a stretch first and then decide; it keeps a tally part b
 
 From 0.1.8.8 to 0.1.8.10 two choices sat on either side of the GLAZE heading: Genre (General / Deep / Tech / Melodic) and Delivery (Standard / Streaming / Club). Both were removed in 0.1.8.11, and every song is now processed the way General + Standard always was: the main section is recognised by loudness, the tonal target and target loudness follow the style, and the true-peak ceiling is your Ceiling (minus any codec margin).
 
-- **Opening an old project saved with a House genre, Streaming or Club**: it loads as General + Standard, so it sounds different, and the bottom-left corner says so once: “Genre/delivery removed, now General + Standard; sound changes”. Old projects saved with General + Standard don't show this notice.
+- **Opening an old project saved with a House genre, Streaming or Club**: it loads as General + Standard, so it sounds different, and the bottom-left corner says so once: “Genre/delivery reset: General + Standard, sound changes”. Old projects saved with General + Standard don't show this notice.
 - **A version for streaming platforms**: Streaming used to cap the ceiling at −2 dBTP; now pull the Ceiling down yourself (to −2 dBTP, say), or add a codec margin under Advanced, then remeasure true peaks with an independent tool after encoding.
 - **A louder version** (what Club used to do): turn GLAZE up, or switch the style to Punchy.
 
@@ -68,6 +68,6 @@ From 0.1.8.8 to 0.1.8.10 two choices sat on either side of the GLAZE heading: Ge
 
 ## Saving and reopening
 
-What GLAZE has gathered (the bar tally, the profile, the automatic increments being applied, the output trim, each guard's relief and CLAY's automatic values) is saved with the project, and after reopening it carries on from where it was saved instead of starting over. Offline export and real-time playback run through the same processing path and the statistics keep updating during an export, so two exports of the same project in a row aren't guaranteed to be bit-identical. Projects saved before 0.1.8.9 (when GLAZE started following while you play): the old warm-up result, plan and calibration are discarded on load, so GLAZE starts following from scratch and the sound will change; the bottom-left corner says so once when the project opens: “The old warm-up result was discarded, so the sound will change”.
+What GLAZE has gathered (the bar tally, the profile, the automatic increments being applied, the output trim, each guard's relief and CLAY's automatic values) is saved with the project, and after reopening it carries on from where it was saved instead of starting over. Offline export and real-time playback run through the same processing path and the statistics keep updating during an export, so two exports of the same project in a row aren't guaranteed to be bit-identical. Projects saved before 0.1.8.9 (when GLAZE started following while you play): the old warm-up result, plan and calibration are discarded on load, so GLAZE starts following from scratch and the sound will change; the bottom-left corner says so once when the project opens: “Old warm-up result discarded, so the sound will change”.
 
 For the algorithm details: [GLAZE · decisions and following](/algorithms/glaze).

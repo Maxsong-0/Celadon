@@ -20,7 +20,7 @@ The interface is a fixed 1200 × 820 canvas that scales with the window (70%–2
 - The main knob: the crackle in the porcelain grows denser and the glaze deeper as GLAZE goes up; the value arc grows and darkens; the thin violet arc is the automatic increment right now; as it turns, a cyan comet tail trails behind the pointer. See [Controls and shortcuts](/docs/controls) for how to turn it.
 - Particles: only in the channels between the side panels and the knob; streams flow into the knob on the left and out on the right (sound enters GLAZE from the left and leaves on the right); Reduce motion turns them off.
 - A row of buttons: style (Auto / Warm / Punchy / Clean) | Master / Original · Match.
-- The bottom row's left side is normally empty: it shows control hints while you hover or drag, and when you open an old project it shows “The old warm-up result was discarded, so the sound will change” or “Genre/delivery removed, now General + Standard; sound changes” in orange (one line each when both apply), for that session only. A colour legend sits at the right.
+- The bottom row's left side is normally empty: it shows control hints while you hover or drag, and when you open an old project it shows “Old warm-up result discarded, so the sound will change” or “Genre/delivery reset: General + Standard, sound changes” in orange (one line each when both apply), for that session only. A colour legend sits at the right.
 - Exit hints for temporary monitoring also appear at the bottom left: listening to the original, listening to the difference and normalisation preview are mutually exclusive; while one is on, a clickable hint to leave it stays there. Closing the window exits all of them.
 
 ## The four cards (bottom half, in real processing order)
