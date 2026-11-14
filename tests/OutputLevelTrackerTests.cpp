@@ -26,6 +26,8 @@
          接着从对的格子写。
      13. 给 0.1.8.10 的那一份：closed / closedCount / closedWrite 是最新的至多 32 段，按 0.1.8.10 的读法（从 closedWrite 往前数
          closedCount 段）读到的正是它们；不满 32 段、正好 32 段、超过 32 段、环回绕之后都对。
+     14. 存档字节确定（T-109）：closed / history 每段 mainness 后面那 4 字节存出来恒为 0；读进这 4 字节不为 0 的 history 照收，
+         再存出来与干净的那份逐字相同。
     跟踪器接进编排器之后的行为（G_trim 环路、读 0.1.8.10 存的整份 LIVE）见 GlazeControllerTests.cpp 的 GlazeControllerTrimLoop
     与 GlazeControllerGuardFamily 第 5 条。
 
@@ -76,6 +78,7 @@ namespace celadon::test
                 testReadingFloorAtUnity();
                 testRingWrapsAround();
                 testLegacyCopyForTheOldVersion();
+                testStateBytesAreDeterministic();
             }
 
         private:
@@ -97,9 +100,11 @@ namespace celadon::test
                                                                "historyCount", "history", "historyExtra" };
             static constexpr const char* legacyAttributes[] = { "openEnergy", "openMainness", "closedCount", "closedWrite", "haveOpenMainness",
                                                                 "openWasMain", "openSamples", "closed" };
-            // 一段在存档里的字节数：Segment 24 字节（double + int64 + float 补齐到 8），Extra 48 字节（4 个 double + 2 个 int64）。
+            // 一段在存档里的字节数：Segment 24 字节（double + int64 + float + 4 字节 reserved，T-109 起显式写 0），Extra 48 字节（4 个 double + 2 个 int64）。
             // closed 固定 32 段（0.1.8.10 按 768 字节读）；history / historyExtra 是 historyCount 段。这几个数变了就是存档格式变了。
             static constexpr size_t segmentBytes = 24;
+            static constexpr size_t segmentReservedOffset = 20;   // Segment::reserved 在段里的位置与长度（T-109）
+            static constexpr size_t segmentReservedBytes = 4;
             static constexpr size_t extraBytes = 48;
             static constexpr int legacySegments = 32;
             static constexpr size_t closedBytes = legacySegments * segmentBytes;
@@ -1484,6 +1489,86 @@ namespace celadon::test
                     expect (singleShaped && newestEnergy == energyAt (singleDecoded, 0),
                             tag + "read the 0.1.8.10 way, the first segment counted is segment " + juce::String (n - 1) + " (the newest)");
                 }
+            }
+
+            //==============================================================================
+            // 14. 依据：OutputLevelTracker.h Segment::reserved（T-109）「显式成员随每次拷贝一起走，存出来恒为 0」与 OutputLevelTracker.cpp
+            //     restoreStateXml「reserved 读进来是什么都清成 0」。素材见 bookSegment：40 段（超过 32、环没回绕）。
+            //     断言：closed（32 段，含空格子）与 history（40 段）每段第 20～23 字节都是 0；把 history 每段这 4 字节改成 0xA5 再读进
+            //     新的跟踪器，照收（这 4 字节不是数据），再存出来的 closed / history / historyExtra 与原来那份逐字相同。
+            //     T-109 之前这 4 字节是隐式填充，里面是什么、拷贝时带不带走，看编译器：MSVC 按成员拷贝时第一组就会失败（108 上
+            //     testLegacyCopyForTheOldVersion 的 40 / 128 / 136 段三条就是这样败的），整块拷贝的编译器上读进来的 0xA5 会跟着段
+            //     再存出来，第二组失败。
+            void testStateBytesAreDeterministic()
+            {
+                beginTest ("state bytes are deterministic: the 4 bytes after mainness are written as 0, and non-zero ones read in never come back out");
+
+                constexpr int segments = 40;
+
+                Tracker tracker;
+                tracker.prepare (rate);
+                bookRange (tracker, 0, segments - 1);
+                const auto saved = tracker.createStateXml();
+                expect (saved != nullptr, "fixture: the state is written");
+
+                if (saved == nullptr)
+                    return;
+
+                juce::MemoryOutputStream closedData, historyData;
+                const auto decoded = juce::Base64::convertFromBase64 (closedData, saved->getStringAttribute ("closed"))
+                                  && juce::Base64::convertFromBase64 (historyData, saved->getStringAttribute ("history"))
+                                  && closedData.getDataSize() == closedBytes
+                                  && historyData.getDataSize() == (size_t) segments * segmentBytes;
+                expect (decoded, "fixture: closed decodes to 32 segments and history to 40");
+
+                if (! decoded)
+                    return;
+
+                // 每段第 20～23 字节不为 0 的段数。
+                const auto dirtySegments = [] (const juce::MemoryOutputStream& bytes)
+                {
+                    auto dirty = 0;
+
+                    for (size_t s = 0; s < bytes.getDataSize() / segmentBytes; ++s)
+                    {
+                        const auto* at = static_cast<const unsigned char*> (bytes.getData()) + s * segmentBytes + segmentReservedOffset;
+                        auto clean = true;
+
+                        for (size_t b = 0; b < segmentReservedBytes; ++b)
+                            clean = clean && at[b] == 0;
+
+                        dirty += clean ? 0 : 1;
+                    }
+
+                    return dirty;
+                };
+
+                expect (dirtySegments (closedData) == 0, "closed: bytes 20..23 of every segment (empty slots too) are 0; "
+                                                             + juce::String (dirtySegments (closedData)) + " are not");
+                expect (dirtySegments (historyData) == 0, "history: bytes 20..23 of every segment are 0; "
+                                                              + juce::String (dirtySegments (historyData)) + " are not");
+
+                juce::MemoryBlock dirty (historyData.getData(), historyData.getDataSize());
+
+                for (size_t s = 0; s < (size_t) segments; ++s)
+                    for (size_t b = 0; b < segmentReservedBytes; ++b)
+                        static_cast<unsigned char*> (dirty.getData())[s * segmentBytes + segmentReservedOffset + b] = 0xA5;
+
+                juce::XmlElement dirtyXml (*saved);
+                dirtyXml.setAttribute ("history", juce::Base64::toBase64 (dirty.getData(), dirty.getSize()));
+
+                Tracker restored;
+                restored.prepare (rate);
+                expect (restored.restoreStateXml (dirtyXml), "a history whose bytes 20..23 are not 0 is still accepted (they carry no data)");
+                const auto resaved = restored.createStateXml();
+                expect (resaved != nullptr, "the restored tracker writes its state");
+
+                if (resaved == nullptr)
+                    return;
+
+                for (const auto* attribute : { "closed", "history", "historyExtra" })
+                    expect (resaved->getStringAttribute (attribute) == saved->getStringAttribute (attribute),
+                            juce::String (attribute) + " written after reading the dirty copy is the same as the clean save");
             }
         };
 

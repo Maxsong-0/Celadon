@@ -539,6 +539,10 @@ namespace celadon::glaze
             std::memcpy (restoredExtra.data(), historyExtraPacked.getData(), historyExtraPacked.getDataSize());
         }
 
+        // T-109：reserved 读进来是什么都清成 0（T-109 之前 MSVC 版存的这 4 字节是栈上的旧值），之后再存出来的字节才确定。
+        for (std::size_t i = 0; i < (std::size_t) historyCount; ++i)
+            restoredClosed[i].reserved = 0;
+
         for (std::size_t i = 0; i < (std::size_t) historyCount; ++i)
             if (! validSegment (restoredClosed[i]) || ! validExtra (restoredExtra[i], restoredClosed[i].samples))
                 return false;

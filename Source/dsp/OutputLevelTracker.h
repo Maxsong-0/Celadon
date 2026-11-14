@@ -163,16 +163,21 @@ namespace celadon::glaze
     private:
         // 布局不能动：存档的 closed 属性按这个布局存最新的至多 32 段（legacyClosedCapacity 格，0.1.8.10 按 32 × 24 字节读），
         // history 属性按这个布局存全部已收的段。T-106 的量另放 Extra。
+        // reserved（T-109）：把原来 float 后面隐式的 4 字节填充写成显式的 0。整块存档时隐式填充的内容由编译器决定——MSVC 按成员
+        // 拷贝、填充里是栈上的旧值，同一状态两次存出来的字节就不一样；显式成员随每次拷贝一起走，存出来恒为 0。0.1.8.10 读 closed
+        // 时不看这 4 字节，布局与大小都没变。
         struct Segment
         {
             double energy = 0.0;
             std::int64_t samples = 0;
             float mainness = 0.0f;
+            std::uint32_t reserved = 0;
         };
 
         static_assert (std::is_trivially_copyable_v<Segment> && sizeof (Segment) == 24 && offsetof (Segment, samples) == 8
-                           && offsetof (Segment, mainness) == 16,
-                       "closed 属性按这个布局整块存，0.1.8.10 按 32 × 24 字节读");
+                           && offsetof (Segment, mainness) == 16 && offsetof (Segment, reserved) == 20
+                           && sizeof (Segment) == sizeof (double) + sizeof (std::int64_t) + sizeof (float) + sizeof (std::uint32_t),
+                       "closed 属性按这个布局整块存，0.1.8.10 按 32 × 24 字节读；四个成员正好排满 24 字节，没有隐式填充");
 
         // T-106 每段另记的量（与 Segment 同下标；布局固定，存档的 historyExtra 属性按这个布局逐段存，次序同 history）。
         struct Extra
