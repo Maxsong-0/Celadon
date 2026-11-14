@@ -8,6 +8,7 @@
 #
 # 用法：scripts/fetch-gui-dev.sh <目标目录>
 #   幂等：包已下载就不再下；每次都重新解包、从原样改 .pc 与链接，重复跑结果相同。架构按 dpkg 自动取（amd64 / arm64 …）。
+#   同一个包在下载目录里有几个版本时报错退出（不按文件名顺序覆盖着解）。
 #   最后打印要设的环境变量（export 开头的行），例如：
 #     eval "$(scripts/fetch-gui-dev.sh "$HOME/.cache/celadon-guidev" | grep '^export ')"
 #   GitHub Actions 里：scripts/fetch-gui-dev.sh "$dir" | sed -n 's/^export //p' >> "$GITHUB_ENV"
@@ -93,9 +94,15 @@ if [ "$SOURCE" = apt ]; then
     ( cd "$DEBS" && apt-get download "${missing[@]}" ) || die "apt-get download 失败（看上面哪个包找不到：包名在这个 Ubuntu 版本里改了，就改脚本里的 PACKAGES；网络不通就换一台能上 Ubuntu 源的机器跑，再把 $TARGET 整个拷过来）"
   fi
 
-  # 2. 解包（覆盖式，重复跑结果相同）。
-  for deb in "$DEBS"/*.deb; do
-    dpkg-deb -x "$deb" "$ROOT"
+  # 2. 解包（覆盖式，重复跑结果相同）。只解清单上的包，每个包要正好一个 .deb：同一个包放着几个版本时按文件名顺序覆盖解，
+  #    旧版本可能盖住新版本、头文件与 .pc 和系统运行库对不上，所以直接报错（第 1 步自己不会下第二个版本，多出来的是手放进去的）。
+  for pkg in "${PACKAGES[@]}"; do
+    found=()
+    for deb in "$DEBS/${pkg}"_*_"${ARCH}".deb "$DEBS/${pkg}"_*_all.deb; do
+      [ -e "$deb" ] && found+=("$deb")
+    done
+    [ "${#found[@]}" -eq 1 ] || die "$pkg 在 $DEBS 里有 ${#found[@]} 个 .deb（要正好 1 个）：删掉多余的旧版本再跑"
+    dpkg-deb -x "${found[0]}" "$ROOT"
   done
 fi
 
