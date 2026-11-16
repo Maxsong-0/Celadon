@@ -25,7 +25,7 @@
 // ARM 上 Tone 搁架、Glue 侧链高通和分频、Heat 的 M/S 150 Hz 高通（T-032 R3-04）两声道打包成 float64x2 一起算
 // （v0.5 研究 P3 R4）；x64（Intel Mac、Windows）上同样的打包用 SSE2 的 __m128d。
 // 标量 processBiquad 里 b0·x + s1 会不会被编译器合并成融合乘加取决于目标与编译选项：
-// ARM 上确定是融合的（打包写 vfmaq），x64 上确定不融合（ADR-013；打包写先乘后加；目标带 FMA 又没关合并时不开打包），
+// NEON 构建下两边都是融合的（标量写死 std::fma、打包写 vfmaq；T-116 之前标量靠编译器合并，GCC 关了合并时不成立），x64 上确定不融合（ADR-013；打包写先乘后加；目标带 FMA 又没关合并时不开打包），
 // 两边都照抄出逐位相同的结果（ColorTests「立体声 L = R 与单声道逐位相同」「左右不同时打包与标量逐位相同」验证）。
 // 其他平台保留标量写法（结果本来就与 v0.4 逐位相同）。CELADON_FORCE_SCALAR_SIMD 只给验证用。
 #if ! defined (CELADON_FORCE_SCALAR_SIMD) && defined (__ARM_NEON)
@@ -163,7 +163,8 @@ namespace celadon
 
        #if CELADON_COLOR_NEON
         // 两声道共用一组双二阶系数、状态打包成 float64x2（低位 = 左、高位 = 右）。每一步与标量 ColorModule::processBiquad
-        // 在 ARM 上的编译结果相同：y = b0·x + s1 是一条融合乘加（编译器默认在同一表达式内合并），其余乘积各自舍入后再加减。
+        // 在 NEON 构建下逐位相同：y = b0·x + s1 两边都是融合乘加（这里 vfmaq_f64，标量那边写死 std::fma、不靠编译器合并，
+        // T-116），其余乘积各自舍入后再加减。
         using PackedPair = float64x2_t;
 
         inline PackedPair broadcast (double value) noexcept                         { return vdupq_n_f64 (value); }
@@ -283,7 +284,15 @@ namespace celadon
         // 转置直接 II 型。乘积先落到具名变量再相减：编译器默认只在同一表达式内做乘加融合，
         // 这样 b1·x − a1·y 在 b1 == a1、y == x 时是两个逐位相同的乘积之差 = 精确的 0，
         // Tone = 0 的直通滤波器状态才能恒为 0（推导见 updateToneCoefficients）。
+        // y = b0·x + s1 在打包的 NEON 路径里是 vfmaq_f64（融合乘加）。NEON 构建下这里写死同一种运算，不靠编译器合并：
+        // GCC 按 ADR-013 关了自动合并（-ffp-contract=off），不写死的话 aarch64 GCC 上单声道先乘后加、立体声融合，
+        // 「L = R 立体声与单声道逐位相同」就不成立（T-116；同 BalanceModule::processBiquad）。clang 在 ARM 上本来就把
+        // 这一行合并成同一条 fmadd，结果不变。x64 上这一行不合并（ADR-013），SSE2 打包路径照样先乘后加，两者逐位相同。
+       #if CELADON_COLOR_NEON
+        const auto y = std::fma (c.b0, x, s.s1);
+       #else
         const auto y = c.b0 * x + s.s1;
+       #endif
 
         const auto bx1 = c.b1 * x;
         const auto ay1 = c.a1 * y;
