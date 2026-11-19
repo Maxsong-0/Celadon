@@ -98,6 +98,19 @@ GPT 的写法是 `clamp01 (limiterP95Db (…) / c.clean.limitGrMeanCapDb)`：拿
 - 新增三条断言（`tests/GlazePlannerTests.cpp`，`testStyleDirections` 里带 `T-121` 的那组）：把通透档的平均上限放宽到 30 dB，自动风格的方案不变。
 - 反向验证：在 108 上把分母改回旧写法，其中两条断言按预期变红（有效增益 8.29386 对 8、Limit Gain 6.30006 对 5.71857），任务 `20261118-182722-7a0a`。
 
+### 另两个平台的补验（2026-11-19）
+
+被测的是分支头 `05aa77f`（比 `8e46965` 只多一份交接文档，代码相同）。
+
+| 内容 | 结果 |
+|---|---|
+| DGX aarch64 全量 `celadon_tests`（testbox 任务 `20261119-092448-0dc0`，GCC 13.3，0 条编译警告） | 136,035 过 / 5 败。5 条就是 DGX 上固定的那 5 条：ColorModule「stereo with L = R is bit-identical to mono」4 条、BalancePerformance「stereo balance costs 1.74 x mono (limit 1.40)」1 条（口径见 `docs/BUILDING.md`「测试机」一节）。新增失败 0 |
+| Windows `scripts/windows-wine.sh test`（108，MSVC 19.44.35230，Wine 里跑） | 136,293 过 / 0 败，退出码 0 |
+| Windows `scripts/windows-wine.sh plugin`（msbuild Release x64） | msbuild 退出码 0；本工程源码的警告与错误 0 条，JUCE 模块警告 0 条；产出 `Celadon.vst3` 与 `Celadon.exe` |
+
+- aarch64 上断言总数是 136,040，比 x86 的 136,293 少 253。main `6b37415` 上两边也差 253（DGX 135,937 过 / 5 败，x86 136,195 过 / 0 败），所以这个差额不是本批带来的；本批在两边都多 98 条。
+- `plugin` 用的 `Builds/VisualStudio2022` 是主检出里 2026-11-14 由 Projucer 生成的那份。本批没动 `Celadon.jucer`（和 main 逐字节相同），工程里的 99 个源文件与 `.jucer` 的清单一致，所以直接拷来用，没有重新生成。
+
 ### 还没人做的
 
 - **没有真人试听。** 会改变声音的四处：
@@ -105,6 +118,6 @@ GPT 的写法是 `clamp01 (limiterP95Db (…) / c.clean.limitGrMeanCapDb)`：拿
   2. 峰值吃紧时，「自动」要的响度比手选同一风格少。
   3. 冷启动的风格权重从「通透」起步（旧版约为三等分）。
   4. 积分响度读数最多差 0.05 LU（相对门限由 0.1 LU 细化到 1/16）。
-- DGX aarch64 全量、Windows（MSVC）编译、Mac 编译与 auval 没跑。
+- Mac 上的 Xcode 编译与 auval 没跑（ADR-002：只有 Max 能在 Mac 上编）。DGX aarch64 与 Windows 已在上一小节补上。
 - 65 首真曲没有重新渲染，复查只重算了 CSV。
 - 质量门现在要求评估掩码一致，没有 `evaluation_mask_sha256` 列的旧基线不能再拿来比。
