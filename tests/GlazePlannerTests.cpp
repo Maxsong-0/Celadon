@@ -1053,6 +1053,29 @@ namespace celadon::test
             expectEquals (automaticWarm.increments.colorToneDb, warm.increments.colorToneDb);
             expectEquals (automaticWarm.weights.warm, 1.0f);
 
+            // T-121：峰值压力的量程是算法常数 automaticPeakPressureFullDb，不跟通透档的限幅平均上限走。这段素材上通透档的请求
+            // 远没用到自己的平均上限（放宽它不改变通透档能交付的量），所以放宽以后自动风格的方案应当不变。
+            {
+                auto relaxed = factoryConstants();
+                relaxed.clean.limitGrMeanCapDb = 30.0f;
+                PlanInputs in;
+                in.profile = &profile;
+                in.constants = &relaxed;
+                in.glazePercent = 100.0f;
+                in.manual = defaultManual();
+                in.maxGainDb = 1.0e9f;
+                in.style = Style::clean;
+                expectEquals (makePlan (in).effectiveGainDb, clean.effectiveGainDb,
+                              "T-121 fixture: relaxing the clean mean cap must not change what clean itself delivers here");
+                in.style = Style::automatic;
+                in.lockedWeights = &allWarm;
+                const auto relaxedAutomatic = makePlan (in);
+                expectEquals (relaxedAutomatic.effectiveGainDb, automaticWarm.effectiveGainDb,
+                              "T-121: the peak-pressure scale does not follow the clean mean limiter cap");
+                expectEquals (relaxedAutomatic.increments.limitGainDb, automaticWarm.increments.limitGainDb,
+                              "T-121: Limit gain is unchanged when the clean mean limiter cap is relaxed");
+            }
+
             const auto mixed = planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &half);
             // T-032：底量三种风格相同时混合方案的 Heat 也是底量（blendConstants 对逐位相同的底量直接取原值）；上限按权重混合。
             expect (mixed.increments.colorHeat <= juce::jmax (warm.increments.colorHeat, clean.increments.colorHeat) + 1.0e-6f

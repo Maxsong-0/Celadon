@@ -1674,10 +1674,13 @@ namespace celadon::glaze
         {
             // 通透档自己的请求已会驱动限幅时，按峰值证据收回自动风格额外要求的推响。只调整满强度的电平目标，
             // Glue、Heat 和 Clip 仍按该风格在新目标下分工，GLAZE 继续使用原来的单调折线。
+            // 通透档的限幅平均上限只管这段的开关：没启用（标定、机制测试把限幅预算整体关掉）时不收回。收回多少看峰值压力，
+            // 量程是算法常数 automaticPeakPressureFullDb（T-121），不再除以那个上限本身。
+            static_assert (automaticPeakPressureFullDb > 0.0f, "the peak-pressure scale is a divisor and must be positive");
             const auto cleanRequest = juce::jmax (driveFloor, nonNegative (preferredLufsFor (c.clean, c, lraCorrection) - ctx.inputLufs));
             const auto excess = nonNegative (ctx.truePeakDb + cleanRequest - ctx.ceilingDb);
             const auto pressure = trustOf (profile, &MusicProfile::truePeakDbtp, full)
-                                * clamp01 (limiterP95Db (excess, c.limitP95KneeDb) / c.clean.limitGrMeanCapDb);
+                                * clamp01 (limiterP95Db (excess, c.limitP95KneeDb) / automaticPeakPressureFullDb);
             const auto premium = nonNegative (requestFull - cleanRequest);
             if (pressure > 0.0f && premium > 0.0f && ! ctx.limitBypassed)
             {

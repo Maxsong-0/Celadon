@@ -38,6 +38,11 @@ namespace celadon::glaze
     inline constexpr int constantsFormatVersion = 1;
     // 算法 v4 的宽带容忍区；属于算法语义，旧算法保存的计划不重新解释。
     inline constexpr float automaticToneSlopeDeadbandDbPerOct = 0.35f;
+    // 自动风格的峰值压力量程（T-121）：通透档自己的请求造成的限幅 p95 GR 估计（GlazePlanner 的 limiterP95Db）达到本值时，
+    // 自动风格相对通透档多要的推响全部收回，0 到本值之间按比例收回。属于算法语义，不跟任何风格的限幅上限走：最初的写法直接
+    // 除以 clean.limitGrMeanCapDb（拿 p95 估计去比平均值上限），重新标定那个上限、或读回带旧上限的工程，都会悄悄改掉这条曲线。
+    // 数值取自改名时那个上限的出厂值 2.5 dB，出厂常数下的方案逐位不变。
+    inline constexpr float automaticPeakPressureFullDb = 2.5f;
 
     // Heat 换算表的格点（设计规格-GLAZE-决策与校准 第 5 节「驱动 → 非线性程度」表）。
     inline constexpr int heatTableLevels = 5;    // Heat 入口真峰值格点数
