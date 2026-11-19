@@ -1,0 +1,142 @@
+==== bench: frames=120 (software renderer; wall and thread-CPU ms; Mac absolute numbers need Max)
+porcelain layered first render (builds layers)  scale=1  6.592 ms (cpu 6.591)
+porcelain scale=1 t=0.2  renderGlaze 3.063 ms (cpu 3.063)   layered 0.615 ms (cpu 0.615)
+porcelain scale=1 t=0.45  renderGlaze 3.537 ms (cpu 3.537)   layered 0.946 ms (cpu 0.946)
+porcelain scale=1 t=0.9  renderGlaze 4.217 ms (cpu 4.218)   layered 1.385 ms (cpu 1.385)
+porcelain layered first render (builds layers)  scale=2  11.773 ms (cpu 11.773)
+porcelain scale=2 t=0.2  renderGlaze 8.976 ms (cpu 8.977)   layered 1.821 ms (cpu 1.821)
+porcelain scale=2 t=0.45  renderGlaze 9.608 ms (cpu 9.608)   layered 2.275 ms (cpu 2.275)
+porcelain scale=2 t=0.9  renderGlaze 10.487 ms (cpu 10.487)   layered 2.935 ms (cpu 2.935)
+porcelain layered first render (builds layers)  scale=4  36.232 ms (cpu 36.232)
+porcelain scale=4 t=0.2  renderGlaze 27.147 ms (cpu 27.147)   layered 3.815 ms (cpu 3.815)
+porcelain scale=4 t=0.45  renderGlaze 28.086 ms (cpu 28.086)   layered 4.594 ms (cpu 4.594)
+porcelain scale=4 t=0.9  renderGlaze 29.395 ms (cpu 29.395)   layered 5.669 ms (cpu 5.669)
+porcelain scale=2 t=0.45 desaturated  renderGlaze 9.595 ms (cpu 9.595)   layered 2.275 ms (cpu 2.275)
+static layer, editor opened at scale=1: first frame 79.436 ms (cpu 79.436), second 0.114 ms (cpu 0.114) -> generating it 79.322 ms (cpu 79.323); renderStaticLayer's own timer 78.172 ms
+static layer, zoom 1 -> 2 in the same editor: message thread cpu 274.432 ms vs idle 6.675 ms -> regenerating it ~267.757 ms cpu; renderStaticLayer's own timer 270.380 ms
+static layer, editor opened at scale=2: first frame 290.475 ms (cpu 290.474), second 0.600 ms (cpu 0.601) -> generating it 289.875 ms (cpu 289.874); renderStaticLayer's own timer 285.934 ms
+editor opened at scale=1: first full frame 118.133 ms (cpu 118.094), second 7.686 ms (cpu 7.687)
+editor opened at scale=2: first full frame 364.991 ms (cpu 364.994), second 14.863 ms (cpu 14.865)
+---- steady GLAZE 45 %, playing, scale 1: 120 frames
+  editor timer callback avg 0.052 ms (cpu 0.052)
+  full-frame paint      avg 7.043 ms (cpu 7.042)
+  StatusPill     paints   120  total     3.816 ms  avg 0.032 ms  cacheReads 120  cacheWrites 29
+  ParticleField  paints   120  total    89.625 ms  avg 0.747 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints   120  total     2.362 ms  avg 0.020 ms  cacheReads 120  cacheWrites 0
+  GlazeKnob      paints   120  total    13.023 ms  avg 0.109 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints   120  total     2.275 ms  avg 0.019 ms  cacheReads 120  cacheWrites 0
+  ab             paints   120  total     0.939 ms  avg 0.008 ms  cacheReads 120  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints   120  total     0.813 ms  avg 0.007 ms  cacheReads 120  cacheWrites 0
+  CornerNote     paints   120  total     3.305 ms  avg 0.028 ms  cacheReads 120  cacheWrites 0
+  ColourLegend   paints   120  total     1.403 ms  avg 0.012 ms  cacheReads 120  cacheWrites 0
+  [full frames, scale 1, 120 frames] GlazeKnob face renders 0 of 120 paints; porcelain renders 0 (layer builds 0, last 3.693 ms); ParticleField line / glow renders 0 / 0
+  band-only paint       avg 1.412 ms (cpu 1.412)  (particle band dirty: macOS bounding-box case)
+  StatusPill     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  ParticleField  paints   120  total    87.380 ms  avg 0.728 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints   120  total     2.316 ms  avg 0.019 ms  cacheReads 120  cacheWrites 0
+  GlazeKnob      paints   120  total    12.821 ms  avg 0.107 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints   120  total     2.276 ms  avg 0.019 ms  cacheReads 120  cacheWrites 0
+  ab             paints   120  total     0.906 ms  avg 0.008 ms  cacheReads 120  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints   120  total     0.797 ms  avg 0.007 ms  cacheReads 120  cacheWrites 0
+  CornerNote     paints   120  total     3.288 ms  avg 0.027 ms  cacheReads 120  cacheWrites 0
+  ColourLegend   paints   120  total     1.382 ms  avg 0.012 ms  cacheReads 120  cacheWrites 0
+  [band frames, scale 1, 120 frames] GlazeKnob face renders 0 of 240 paints; porcelain renders 0 (layer builds 0, last 3.693 ms); ParticleField line / glow renders 0 / 0
+  status pill breathing frame (dirty 507 19 14 14) avg 0.044 ms (cpu 0.044); whole pill 425 12 350 28 avg 0.057 ms (cpu 0.057); whole pill after a content change avg 0.103 ms (cpu 0.103)
+---- steady GLAZE 45 %, playing, scale 2: 120 frames
+  editor timer callback avg 0.045 ms (cpu 0.045)
+  full-frame paint      avg 12.994 ms (cpu 12.994)
+  StatusPill     paints   120  total    14.229 ms  avg 0.119 ms  cacheReads 120  cacheWrites 49
+  ParticleField  paints   120  total   316.823 ms  avg 2.640 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints   120  total     9.035 ms  avg 0.075 ms  cacheReads 120  cacheWrites 0
+  GlazeKnob      paints   120  total    50.589 ms  avg 0.422 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints   120  total     8.844 ms  avg 0.074 ms  cacheReads 120  cacheWrites 0
+  ab             paints   120  total     3.908 ms  avg 0.033 ms  cacheReads 120  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints   120  total     3.117 ms  avg 0.026 ms  cacheReads 120  cacheWrites 0
+  CornerNote     paints   120  total    13.110 ms  avg 0.109 ms  cacheReads 120  cacheWrites 0
+  ColourLegend   paints   120  total     5.464 ms  avg 0.046 ms  cacheReads 120  cacheWrites 0
+  [full frames, scale 2, 120 frames] GlazeKnob face renders 0 of 120 paints; porcelain renders 0 (layer builds 0, last 8.844 ms); ParticleField line / glow renders 0 / 0
+  band-only paint       avg 5.235 ms (cpu 5.235)  (particle band dirty: macOS bounding-box case)
+  StatusPill     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  ParticleField  paints   120  total   312.270 ms  avg 2.602 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints   120  total     8.934 ms  avg 0.074 ms  cacheReads 120  cacheWrites 0
+  GlazeKnob      paints   120  total    50.115 ms  avg 0.418 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints   120  total     8.811 ms  avg 0.073 ms  cacheReads 120  cacheWrites 0
+  ab             paints   120  total     3.484 ms  avg 0.029 ms  cacheReads 120  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints   120  total     3.073 ms  avg 0.026 ms  cacheReads 120  cacheWrites 0
+  CornerNote     paints   120  total    12.850 ms  avg 0.107 ms  cacheReads 120  cacheWrites 0
+  ColourLegend   paints   120  total     5.326 ms  avg 0.044 ms  cacheReads 120  cacheWrites 0
+  [band frames, scale 2, 120 frames] GlazeKnob face renders 0 of 240 paints; porcelain renders 0 (layer builds 0, last 8.844 ms); ParticleField line / glow renders 0 / 0
+  status pill breathing frame (dirty 507 19 14 14) avg 0.083 ms (cpu 0.083); whole pill 425 12 350 28 avg 0.166 ms (cpu 0.166); whole pill after a content change avg 0.253 ms (cpu 0.253)
+---- steady GLAZE 45 %, playing, scale 4: 30 frames
+  editor timer callback avg 0.087 ms (cpu 0.087)
+  full-frame paint      avg 155.663 ms (cpu 155.663)
+  StatusPill     paints    30  total    14.547 ms  avg 0.485 ms  cacheReads 30  cacheWrites 30
+  ParticleField  paints    30  total   315.728 ms  avg 10.524 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints    30  total     9.176 ms  avg 0.306 ms  cacheReads 30  cacheWrites 0
+  GlazeKnob      paints    30  total    51.161 ms  avg 1.705 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints    30  total     9.078 ms  avg 0.303 ms  cacheReads 30  cacheWrites 0
+  ab             paints    30  total     3.499 ms  avg 0.117 ms  cacheReads 30  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints    30  total     3.231 ms  avg 0.108 ms  cacheReads 30  cacheWrites 0
+  CornerNote     paints    30  total    13.477 ms  avg 0.449 ms  cacheReads 30  cacheWrites 0
+  ColourLegend   paints    30  total     5.489 ms  avg 0.183 ms  cacheReads 30  cacheWrites 0
+  [full frames, scale 4, 30 frames] GlazeKnob face renders 0 of 30 paints; porcelain renders 0 (layer builds 0, last 29.060 ms); ParticleField line / glow renders 0 / 0
+  band-only paint       avg 57.816 ms (cpu 57.815)  (particle band dirty: macOS bounding-box case)
+  StatusPill     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  ParticleField  paints    30  total   299.846 ms  avg 9.995 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints    30  total     8.875 ms  avg 0.296 ms  cacheReads 30  cacheWrites 0
+  GlazeKnob      paints    30  total    49.482 ms  avg 1.649 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints    30  total     8.746 ms  avg 0.292 ms  cacheReads 30  cacheWrites 0
+  ab             paints    30  total     3.420 ms  avg 0.114 ms  cacheReads 30  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints    30  total     3.024 ms  avg 0.101 ms  cacheReads 30  cacheWrites 0
+  CornerNote     paints    30  total    13.021 ms  avg 0.434 ms  cacheReads 30  cacheWrites 0
+  ColourLegend   paints    30  total     5.283 ms  avg 0.176 ms  cacheReads 30  cacheWrites 0
+  [band frames, scale 4, 30 frames] GlazeKnob face renders 0 of 60 paints; porcelain renders 0 (layer builds 0, last 29.060 ms); ParticleField line / glow renders 0 / 0
+  status pill breathing frame (dirty 507 19 14 14) avg 0.076 ms (cpu 0.076); whole pill 425 12 350 28 avg 1.579 ms (cpu 1.579); whole pill after a content change avg 1.817 ms (cpu 1.817)
+---- drag GLAZE 35 -> 65 %, scale 2: 60 frames
+  band-only paint avg 6.353 ms (cpu 6.352)
+  message thread busy 474.438 ms cpu over 2369.170 ms wall (20.026 %; porcelain re-renders + paints + timer)
+  StatusPill     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  ParticleField  paints    60  total   171.192 ms  avg 2.853 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints    60  total     4.756 ms  avg 0.079 ms  cacheReads 60  cacheWrites 0
+  GlazeKnob      paints    60  total    66.332 ms  avg 1.106 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints    60  total     4.796 ms  avg 0.080 ms  cacheReads 60  cacheWrites 0
+  ab             paints    60  total     1.870 ms  avg 0.031 ms  cacheReads 60  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints    60  total     1.696 ms  avg 0.028 ms  cacheReads 60  cacheWrites 0
+  CornerNote     paints    60  total     6.999 ms  avg 0.117 ms  cacheReads 60  cacheWrites 0
+  ColourLegend   paints    60  total     2.886 ms  avg 0.048 ms  cacheReads 60  cacheWrites 0
+  [drag, scale 2, 60 frames] GlazeKnob face renders 60 of 60 paints; porcelain renders 35 (layer builds 0, last 2.738 ms); ParticleField line / glow renders 0 / 0
+---- drag GLAZE 35 -> 65 %, scale 4: 60 frames
+  band-only paint avg 59.699 ms (cpu 59.699)
+  message thread busy 3870.158 ms cpu over 5570.730 ms wall (69.473 %; porcelain re-renders + paints + timer)
+  StatusPill     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  ParticleField  paints    60  total   603.246 ms  avg 10.054 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints    60  total    17.919 ms  avg 0.299 ms  cacheReads 60  cacheWrites 0
+  GlazeKnob      paints    60  total   218.305 ms  avg 3.638 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints    60  total    17.624 ms  avg 0.294 ms  cacheReads 60  cacheWrites 0
+  ab             paints    60  total     6.835 ms  avg 0.114 ms  cacheReads 60  cacheWrites 0
+  monitoring     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  match          paints    60  total     5.972 ms  avg 0.100 ms  cacheReads 60  cacheWrites 0
+  CornerNote     paints    60  total    26.055 ms  avg 0.434 ms  cacheReads 60  cacheWrites 0
+  ColourLegend   paints    60  total    10.672 ms  avg 0.178 ms  cacheReads 60  cacheWrites 0
+  [drag, scale 4, 60 frames] GlazeKnob face renders 60 of 60 paints; porcelain renders 60 (layer builds 0, last 4.655 ms); ParticleField line / glow renders 0 / 0
+---- comparing (B), scale 2: 120 frames
+  band-only paint avg 5.526 ms (cpu 5.526)
+  StatusPill     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  ParticleField  paints   120  total   310.511 ms  avg 2.588 ms  cacheReads 0  cacheWrites 0
+  GlazeTitle     paints   120  total     8.963 ms  avg 0.075 ms  cacheReads 120  cacheWrites 0
+  GlazeKnob      paints   120  total    59.629 ms  avg 0.497 ms  cacheReads 0  cacheWrites 0
+  glaze_style    paints   120  total     8.757 ms  avg 0.073 ms  cacheReads 120  cacheWrites 0
+  ab             paints   120  total     3.477 ms  avg 0.029 ms  cacheReads 120  cacheWrites 0
+  monitoring     paints   120  total    10.825 ms  avg 0.090 ms  cacheReads 120  cacheWrites 0
+  match          paints   120  total     3.110 ms  avg 0.026 ms  cacheReads 120  cacheWrites 0
+  CornerNote     paints     0  total     0.000 ms  avg 0.000 ms  cacheReads 0  cacheWrites 0
+  ColourLegend   paints   120  total     5.294 ms  avg 0.044 ms  cacheReads 120  cacheWrites 0
+  [comparing, scale 2, 120 frames] GlazeKnob face renders 0 of 120 paints; porcelain renders 0 (layer builds 0, last 8.897 ms); ParticleField line / glow renders 0 / 0
+==== bench done

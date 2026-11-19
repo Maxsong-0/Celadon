@@ -1,0 +1,7 @@
+# T-123 M0 基线（8090ad3）：交互检查、逐位摘要、全套出图两遍（看哪些图两次运行逐字节相同）
+--out shots-check --only check
+--only digest --deterministic
+--out shots-a --deterministic
+--out shots-b --deterministic
+@sha shots-a
+@sha shots-b

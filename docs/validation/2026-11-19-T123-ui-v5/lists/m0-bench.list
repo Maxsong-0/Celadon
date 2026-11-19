@@ -1,0 +1,5 @@
+# T-123 M0 基线（8090ad3）：两个基准各两遍（看同机抖动）
+--only bench
+--only spectrum-bench --seconds 4
+--only bench
+--only spectrum-bench --seconds 4

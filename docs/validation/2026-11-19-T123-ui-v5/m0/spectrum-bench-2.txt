@@ -1,0 +1,8 @@
+==== spectrum bench: 4 s per case (software renderer; Mac absolute numbers need Max)
+---- 30 fps, scale 1, 120 frames: advance avg 0.245 ms (cpu 0.245); spectrum paint avg 1.496 ms (cpu 1.496); per second cpu: paint 44.872 ms, advance 7.357 ms
+---- 30 fps, scale 2, 120 frames: advance avg 0.246 ms (cpu 0.246); spectrum paint avg 3.584 ms (cpu 3.584); per second cpu: paint 107.518 ms, advance 7.367 ms
+---- 60 fps, scale 1, 240 frames: advance avg 0.242 ms (cpu 0.242); spectrum paint avg 1.486 ms (cpu 1.486); per second cpu: paint 89.164 ms, advance 14.518 ms
+---- 60 fps, scale 2, 240 frames: advance avg 0.242 ms (cpu 0.242); spectrum paint avg 3.585 ms (cpu 3.585); per second cpu: paint 215.074 ms, advance 14.534 ms
+---- 120 fps, scale 1, 480 frames: advance avg 0.239 ms (cpu 0.238); spectrum paint avg 1.476 ms (cpu 1.476); per second cpu: paint 177.158 ms, advance 28.619 ms
+---- 120 fps, scale 2, 480 frames: advance avg 0.241 ms (cpu 0.241); spectrum paint avg 3.578 ms (cpu 3.578); per second cpu: paint 429.349 ms, advance 28.954 ms
+==== spectrum bench done
