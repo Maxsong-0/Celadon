@@ -163,6 +163,8 @@
               file="Source/ui/MiddleLayer.cpp"/>
         <FILE id="LnN297" name="MiddleLayer.h" compile="0" resource="0"
               file="Source/ui/MiddleLayer.h"/>
+        <FILE id="Os5V5h" name="OpenState.h" compile="0" resource="0"
+              file="Source/ui/OpenState.h"/>
         <FILE id="LO0GPK" name="ModuleCards.cpp" compile="1" resource="0"
               file="Source/ui/ModuleCards.cpp"/>
         <FILE id="yuWQbA" name="ModuleCards.h" compile="0" resource="0"

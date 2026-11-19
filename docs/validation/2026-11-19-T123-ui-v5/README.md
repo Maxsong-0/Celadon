@@ -37,3 +37,24 @@ testbox --remote testbox@max-spark submit --arch x86_64 --recipe full --cmd './r
 - 出图那三张两遍不同是改动前就有的（工具文件头写着「两次运行逐像素相同，电平表除外」）。M1 ～ M5 判「V4 的画面没变」用：digest 逐行相同、`--only check` 全过、那 40 张的哈希不变。
 - 基准跑的时候 108 上还有别的项目的任务在跑（两遍之间差 1 ～ 2 %）。C6 的结论不拿这组数直接比：收尾时把 M0 的树和做完的树放进同一个任务里交替跑。
 - DGX aarch64 的已知失败 5 条（ColorModule 4 条、BalancePerformance 1 条）是固定的，口径见 `docs/BUILDING.md`「测试机」一节；T-123 的 aarch64 在 M9 跑。
+
+## M1 展开状态（`Source/ui/OpenState.h` 与两个工程属性）
+
+界面代码没动（编辑器还没读这两个属性），所以 digest 与出图不重跑。
+
+| 项 | 结果 |
+|---|---|
+| 先红：`OpenState.h` 用占位实现（`20261119-093551-90e6`） | `--only OpenState` 62 条失败 |
+| 先红（第二次，`fromStored` 改成吃属性文字之后）：把 `fromStored` 改成原样返回 | `--only OpenState` 38 条失败 |
+| 后绿：`./run.sh tests base --only OpenState` | 2,158 过 / 0 败 |
+| `celadon_processor_tests`（`20261119-094056-36ad`） | 264 过 / 0 败（= 基线 208 + 新增 56）；编译警告仍是基线那 1 条 |
+| `celadon_tests` 基线档全量（`20261119-094057-3faa`） | 138,353 过 / 0 败（= 基线 136,195 + 新增 2,158），0 条编译警告 |
+
+处理器层新增的四条（`tests/processor/ProcessorStateTests.cpp` 的 `testUiOpenStateProperties`）证的是：
+
+- 旧工程没有这两个属性，读出来是全部收起。
+- 带上这两个属性存出的 XML，根上只多两个属性；摘掉它们之后和不带时一字不差，GLAZE 节点也一字不差——参数与声音状态不受影响。
+- 存 → 读回来是同一页；再读一份旧工程，属性消失、回到全部收起。
+- 14 组非法存值（超范围、负数、小数、`nan`、`inf`、字母、空串、页号超出该模块页数……）都读成全部收起，参数照常读入。
+
+`-march=x86-64-v3` 档这一步没重跑：新增的是不含浮点的纯整数逻辑，留到 M9 统一跑。

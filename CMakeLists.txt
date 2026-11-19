@@ -210,7 +210,8 @@ add_executable(celadon_tests
     tests/LiveProfileTests.cpp
     tests/ClayTrialsTests.cpp
     tests/SpectrumAnalyserTests.cpp
-    tests/DialMotionTests.cpp)
+    tests/DialMotionTests.cpp
+    tests/OpenStateTests.cpp)
 
 # 只对我们自己的代码开严格警告，JUCE 模块按 JUCE 自己的标准编。
 target_compile_options(celadon_tests PRIVATE ${CELADON_WARNING_FLAGS})

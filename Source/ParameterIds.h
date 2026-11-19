@@ -129,6 +129,12 @@ namespace celadon::uiid
     inline constexpr const char* uiScaleProperty = "uiScale";
     inline constexpr const char* uiZoomProperty  = "uiZoom";
 
+    // V5「一釉」（T-123）：模块行里展开的是哪一块、它的面板停在哪一页，同样存在状态树根节点的属性里（不是参数，不进自动化，不改声音）。
+    // uiOpenModule：0 = 都收起，1 ～ 4 = BALANCE / CLAY / COLOR / LIMIT；uiOpenPage：展开的那个模块的页，从 0 起。
+    // 旧工程没有这两个属性；没有、或值不合法，都按全部收起（规则与钳位在 ui/OpenState.h）。旧版本不读它们，留在工程里无害。
+    inline constexpr const char* uiOpenModuleProperty = "uiOpenModule";
+    inline constexpr const char* uiOpenPageProperty   = "uiOpenPage";
+
     inline constexpr const char* allUiIds[] =
     {
         meterIn, meterOut, meterGr, integrated, shortTerm, resetMeters, glueGr, balanceCurve, glazeStatus,

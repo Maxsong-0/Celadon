@@ -21,6 +21,7 @@
 #include "ProcessorHarness.h"
 
 #include "../../Source/ParameterIds.h"
+#include "../../Source/ui/OpenState.h"
 
 #include <iterator>
 
@@ -48,6 +49,7 @@ namespace celadon::processortest
             testFirstLoadRestores (projectA, presetD, summaryA);
             testLegacyProjects (projectA);
             testRunningLoadClearsLegacyNotice (projectA);
+            testUiOpenStateProperties (projectA);
         }
 
     private:
@@ -315,6 +317,107 @@ namespace celadon::processortest
                 expect (! rig.processor->getGlazeStatus().legacySessionDiscarded, "a running load lit the legacy notice");
                 expectWithinAbsoluteError (rig.parameter (param::glazeAmount), 62.0f, 1.0e-3f);   // 参数照换
                 expect (summarise (rig.save()).glazeXml == before.glazeXml, "a running load of a format-1 project touched the GLAZE state");
+            }
+        }
+
+        void testUiOpenStateProperties (const juce::MemoryBlock& projectA)
+        {
+            // V5「一釉」（T-123）：模块行里展开的是哪一块、它的面板停在哪一页，存在状态树根节点的两个属性里（uiOpenModule / uiOpenPage，
+            // 存法同 uiZoom）。处理器不认识它们：随参数树原样存、原样读，参数与 GLAZE 存档不因多了这两个属性而变。
+            // 读进来的值怎么钳位是 ui/OpenState.h 的事（celadon_tests 的 OpenState），这里验的是「工程文件 → 状态树 → 钳位」这一整段。
+            using ui::openstate::State;
+            static const juce::Identifier moduleId { uiid::uiOpenModuleProperty }, pageId { uiid::uiOpenPageProperty };
+
+            const auto openStateOf = [] (CeladonAudioProcessor& processor)
+            {
+                const auto& tree = processor.getParameters().state;
+                return ui::openstate::fromStored (tree.getProperty (moduleId).toString().toStdString(), tree.getProperty (pageId).toString().toStdString());
+            };
+            const auto describeState = [] (State s) { return "{" + juce::String (s.module) + ", " + juce::String (s.page) + "}"; };
+
+            Rig first;
+            first.load (projectA);
+            first.prepare();
+            const auto plain = first.save();
+
+            beginTest ("ui open state: a project without the two properties opens collapsed");
+            {
+                const auto& tree = first.processor->getParameters().state;
+                expect (! tree.hasProperty (moduleId) && ! tree.hasProperty (pageId), "an old project carries neither property");
+                expect (openStateOf (*first.processor) == ui::openstate::collapsed());
+            }
+
+            first.processor->getParameters().state.setProperty (moduleId, ui::openstate::limit, nullptr);
+            first.processor->getParameters().state.setProperty (pageId, 1, nullptr);
+            const auto withUi = first.save();
+
+            beginTest ("ui open state: saved as two root attributes; parameters and the GLAZE state are byte-identical without them");
+            {
+                const auto plainXml = stateXml (plain);
+                auto uiXml = stateXml (withUi);
+                expect (plainXml != nullptr && uiXml != nullptr);
+
+                if (plainXml != nullptr && uiXml != nullptr)
+                {
+                    expect (! plainXml->hasAttribute (uiid::uiOpenModuleProperty) && ! plainXml->hasAttribute (uiid::uiOpenPageProperty));
+                    expectEquals (uiXml->getIntAttribute (uiid::uiOpenModuleProperty, -7), ui::openstate::limit);
+                    expectEquals (uiXml->getIntAttribute (uiid::uiOpenPageProperty, -7), 1);
+                    expect (summarise (withUi).glazeXml == summarise (plain).glazeXml, "the GLAZE node changed when the ui properties were added");
+
+                    // 摘掉这两个属性，剩下的整份存档（参数、格式号、GLAZE、参考频谱）与没带它们时一字不差。
+                    uiXml->removeAttribute (uiid::uiOpenModuleProperty);
+                    uiXml->removeAttribute (uiid::uiOpenPageProperty);
+                    expect (uiXml->toString() == plainXml->toString(), "something besides the two attributes differs");
+                }
+            }
+
+            beginTest ("ui open state: loads back the same, parameters untouched, and survives a second save");
+            {
+                Rig second;
+                second.load (withUi);
+                expect (openStateOf (*second.processor) == State { ui::openstate::limit, 1 }, "loaded " + describeState (openStateOf (*second.processor)));
+                expect (parameterMismatches (*second.processor, projectA).isEmpty(),
+                        "parameters differ after loading a state with ui properties: " + parameterMismatches (*second.processor, projectA).joinIntoString (", "));
+                second.prepare();
+                const auto again = second.save();
+
+                Rig third;
+                third.load (again);
+                expect (openStateOf (*third.processor) == State { ui::openstate::limit, 1 }, "second hop " + describeState (openStateOf (*third.processor)));
+                expect (summarise (again).glazeXml == summarise (plain).glazeXml, "the GLAZE node is not the fixed point it is without the ui properties");
+
+                // 开着模块的实例再读进一份没有这两个属性的旧工程：整棵树换掉，属性跟着没了 = 全部收起。
+                third.load (projectA);
+                expect (! third.processor->getParameters().state.hasProperty (moduleId), "loading an old project left the open module behind");
+                expect (openStateOf (*third.processor) == ui::openstate::collapsed());
+            }
+
+            beginTest ("ui open state: illegal stored values open collapsed and load everything else as usual");
+            {
+                struct Stored { const char* module; const char* page; };
+
+                for (const auto& stored : { Stored { "9", "0" }, Stored { "-1", "0" }, Stored { "abc", "0" }, Stored { "nan", "0" }, Stored { "inf", "0" },
+                                            Stored { "2.5", "0" }, Stored { "1e400", "0" }, Stored { "2abc", "0" }, Stored { "", "" }, Stored { "4", "2" },
+                                            Stored { "4", "-1" }, Stored { "1", "nan" }, Stored { "1", "x" }, Stored { "0", "1" } })
+                {
+                    auto xml = stateXml (withUi);
+                    expect (xml != nullptr);
+
+                    if (xml == nullptr)
+                        continue;
+
+                    xml->setAttribute (uiid::uiOpenModuleProperty, stored.module);
+                    xml->setAttribute (uiid::uiOpenPageProperty, stored.page);
+
+                    Rig rig;
+                    rig.load (toBlock (*xml));
+                    const auto opened = openStateOf (*rig.processor);
+                    const auto label = juce::String ("module \"") + stored.module + "\", page \"" + stored.page + "\"";
+
+                    expect (opened == ui::openstate::collapsed(), label + " -> " + describeState (opened));
+
+                    expect (parameterMismatches (*rig.processor, projectA).isEmpty(), label + ": parameters did not load");
+                }
             }
         }
     };
