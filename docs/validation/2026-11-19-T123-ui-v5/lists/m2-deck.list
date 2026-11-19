@@ -1,0 +1,3 @@
+# T-123 M2 定向：只跑 V5 频谱卡片的检查，并取回几张卡片的图
+--out deck --only deck
+@b64 deck

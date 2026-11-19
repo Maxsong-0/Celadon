@@ -18,7 +18,9 @@ namespace celadon::ui
 {
     namespace
     {
-        constexpr float barTop = 34.0f, barHeight = 166.0f, barWidth = 8.0f;
+        constexpr float panelBarTop = 34.0f, panelBarHeight = 166.0f, barWidth = 8.0f;   // V4 面板
+        constexpr float deckBarTop = 18.0f, deckBarWidth = 6.0f;                          // V5 卡片里的表：表条长 = 高度 − 40
+        constexpr float deckInputCentre = 22.0f, deckOutputCentre = 15.0f, deckReductionCentre = 43.0f;   // 各列中线
         constexpr float fallDbPerSecond = 20.0f;
         constexpr double holdSeconds = 1.2;
         constexpr float holdReleasePerSecond = 1.2f;   // 保持线停够之后向表条靠拢的速度（指数，1 / s）
@@ -90,10 +92,24 @@ namespace celadon::ui
             && peakText == other.peakText && grText == other.grText && over == other.over && planLimited == other.planLimited;
     }
 
-    LevelMeterPanel::LevelMeterPanel (Kind k)
-        : kind (k)
+    LevelMeterPanel::LevelMeterPanel (Kind k, Style s)
+        : kind (k), style (s)
     {
-        setSize (width, height);
+        if (style == Style::deck)
+            setSize (kind == Kind::input ? deckInputWidth : deckOutputWidth, height);   // 高由 SpectrumDeck 再定
+        else
+            setSize (width, height);
+    }
+
+    float LevelMeterPanel::barTop() const noexcept
+    {
+        return style == Style::deck ? deckBarTop : panelBarTop;
+    }
+
+    float LevelMeterPanel::barLength() const noexcept
+    {
+        // deck：标签一行（0 ～ 14）、空 4、表条、空 4、数字一行（16 高）、底下留 2。
+        return style == Style::deck ? juce::jmax (1.0f, (float) getHeight() - 40.0f) : panelBarHeight;
     }
 
     void LevelMeterPanel::setLanguage (Language newLanguage)
@@ -105,7 +121,8 @@ namespace celadon::ui
     LevelMeterPanel::Shown LevelMeterPanel::computeShown() const
     {
         // 表条位置按半个逻辑像素量化（190 px 高的表，比这更细的变化看不出来）：变了才重画。
-        const auto quantise = [] (float proportion) { return std::round (proportion * barHeight * 2.0f) / (barHeight * 2.0f); };
+        const auto barHeight = barLength();
+        const auto quantise = [barHeight] (float proportion) { return std::round (proportion * barHeight * 2.0f) / (barHeight * 2.0f); };
 
         Shown s;
         s.level = quantise (proportionOfDb (peak.getLevel()));
@@ -163,7 +180,8 @@ namespace celadon::ui
 
     void LevelMeterPanel::mouseUp (const juce::MouseEvent& e)
     {
-        if (e.mouseWasClicked() && e.position.y >= (float) height - 38.0f)
+        // 表条以下（数字那一行）才算点数字：V4 面板是最下面 38 px，deck 是最下面 22 px。
+        if (e.mouseWasClicked() && e.position.y >= barTop() + barLength())
         {
             resetHolds();
 
@@ -177,11 +195,91 @@ namespace celadon::ui
         if (kind == Kind::input)
             return help::tooltipFor (uiid::meterIn, language);
 
-        return help::tooltipFor (getMouseXYRelative().x < 30 ? uiid::meterOut : uiid::meterGr, language);
+        return help::tooltipFor (getMouseXYRelative().x < getWidth() / 2 ? uiid::meterOut : uiid::meterGr, language);
+    }
+
+    void LevelMeterPanel::resized()
+    {
+        // deck 的高度会换（266 / 92）：表条长变了，量化好的位置按新长度重算。V4 面板的大小不变，照旧等第一次读数。
+        if (style == Style::deck)
+            shown = computeShown();
+    }
+
+    void LevelMeterPanel::paintDeck (juce::Graphics& g)
+    {
+        // V5（规格 2.3）：直接画在卡片的白底上。一列 = 标签（说明档，三级灰）、6 px 宽圆头表条、数字（说明档等宽）。
+        const auto top = barTop(), length = barLength();
+        const auto valueY = top + length + 4.0f;
+        const auto labelFont = uiFont (TextSize::caption);
+        const auto valueFont = withLetterSpacing (monoFont (TextSize::caption, Weight::medium), -0.3f);
+
+        // 一根表条：fromTop = 衰减（从上往下长）。填充平涂；保持线 2 px 深色。
+        const auto drawBar = [&] (float centreX, float level, float hold, bool fromTop, juce::Colour fillColour)
+        {
+            const juce::Rectangle<float> bar (centreX - 0.5f * deckBarWidth, top, deckBarWidth, length);
+            g.setColour (palette::track);
+            g.fillRoundedRectangle (bar, 0.5f * deckBarWidth);
+
+            juce::Graphics::ScopedSaveState saved (g);
+            juce::Path clip;
+            clip.addRoundedRectangle (bar, 0.5f * deckBarWidth);
+            g.reduceClipRegion (clip);
+
+            const auto fillHeight = length * level;
+
+            if (fillHeight > 0.25f)
+            {
+                g.setColour (fillColour);
+                g.fillRect (fromTop ? bar.withHeight (fillHeight) : bar.withTop (bar.getBottom() - fillHeight));
+            }
+
+            if (hold > 0.0f)
+            {
+                const auto y = fromTop ? bar.getY() + length * hold : bar.getBottom() - length * hold;
+                g.setColour (palette::ink);
+                g.fillRect (bar.getX(), juce::jlimit (bar.getY(), bar.getBottom() - 2.0f, y - 1.0f), deckBarWidth, 2.0f);
+            }
+        };
+
+        const auto drawLabel = [&] (Text text, float centreX, float boxWidth)
+        {
+            g.setFont (labelFont);
+            g.setColour (palette::ink3);
+            drawTextLine (g, tr (text, language), juce::Rectangle<float> (centreX - 0.5f * boxWidth, 0.0f, boxWidth, 14.0f), juce::Justification::centred);
+        };
+
+        const auto drawValue = [&] (const juce::String& text, juce::Rectangle<float> box, juce::Colour colour)
+        {
+            g.setFont (valueFont);
+            g.setColour (colour);
+            drawTextLine (g, text, box, juce::Justification::centred);
+        };
+
+        if (kind == Kind::input)
+        {
+            drawLabel (Text::meterIn, deckInputCentre, (float) getWidth());
+            drawBar (deckInputCentre, shown.level, shown.hold, false, palette::c500);
+            drawValue (shown.peakText, juce::Rectangle<float> (0.0f, valueY, (float) getWidth(), 16.0f), palette::ink);
+            return;
+        }
+
+        // 输出 + 衰减：数字的两格 30 / 26 宽（「−59.9」要 30），表条在各自那一格的中线上。
+        drawLabel (Text::meterOut, deckOutputCentre, 30.0f);
+        drawLabel (Text::meterGr, deckReductionCentre, 26.0f);
+        drawBar (deckOutputCentre, shown.level, shown.hold, false, shown.over ? palette::warning : palette::c500);
+        drawBar (deckReductionCentre, shown.grLevel, shown.grHold, true, shown.planLimited ? palette::warning : palette::ink);
+        drawValue (shown.peakText, juce::Rectangle<float> (0.0f, valueY, 30.0f, 16.0f), shown.over ? palette::warningText : palette::ink);
+        drawValue (shown.grText, juce::Rectangle<float> (30.0f, valueY, 26.0f, 16.0f), shown.planLimited ? palette::warningText : palette::ink2);
     }
 
     void LevelMeterPanel::paint (juce::Graphics& g)
     {
+        if (style == Style::deck)
+        {
+            paintDeck (g);
+            return;
+        }
+
         const auto bounds = getLocalBounds().toFloat();
 
         // 圆角 14：与频谱面板、模块卡片同一排同一个圆角（T-111 / 4-25，原 12；编辑器静态层的阴影一起改）。
@@ -195,7 +293,7 @@ namespace celadon::ui
         // 峰值表条：从下往上长，渐变下浅上深（填充自己的高度里）。
         const auto drawPeakBar = [&] (float x, bool warning)
         {
-            const juce::Rectangle<float> bar (x, barTop, barWidth, barHeight);
+            const juce::Rectangle<float> bar (x, panelBarTop, barWidth, panelBarHeight);
             g.setColour (palette::track);
             g.fillRoundedRectangle (bar, 4.0f);
 
@@ -204,7 +302,7 @@ namespace celadon::ui
             clip.addRoundedRectangle (bar, 4.0f);
             g.reduceClipRegion (clip);
 
-            const auto fillHeight = barHeight * shown.level;
+            const auto fillHeight = panelBarHeight * shown.level;
 
             if (fillHeight > 0.25f)
             {
@@ -215,7 +313,7 @@ namespace celadon::ui
 
             if (shown.hold > 0.0f)
             {
-                const auto y = bar.getBottom() - barHeight * shown.hold;
+                const auto y = bar.getBottom() - panelBarHeight * shown.hold;
                 g.setColour (warning ? palette::warning : palette::ink);
                 g.fillRect (bar.getX(), juce::jlimit (bar.getY(), bar.getBottom() - 2.0f, y - 1.0f), barWidth, 2.0f);
             }
@@ -235,7 +333,7 @@ namespace celadon::ui
 
             for (const auto db : { 0.0f, -6.0f, -12.0f, -24.0f, -48.0f })
             {
-                const auto y = barTop + barHeight * (1.0f - proportionOfDb (db)) - 6.0f;
+                const auto y = panelBarTop + panelBarHeight * (1.0f - proportionOfDb (db)) - 6.0f;
                 const auto text = db == 0.0f ? juce::String ("0") : juce::String::charToString ((juce::juce_wchar) 0x2212) + juce::String (juce::roundToInt (-db));
                 drawTextLine (g, text, juce::Rectangle<float> (29.0f, y, 30.0f, 12.0f), juce::Justification::centredLeft);
             }
@@ -261,7 +359,7 @@ namespace celadon::ui
 
         // GR 表条：从上往下长，上深下浅；方案受限时橙色。
         {
-            const juce::Rectangle<float> bar (39.0f, barTop, barWidth, barHeight);
+            const juce::Rectangle<float> bar (39.0f, panelBarTop, barWidth, panelBarHeight);
             g.setColour (palette::track);
             g.fillRoundedRectangle (bar, 4.0f);
 
@@ -270,7 +368,7 @@ namespace celadon::ui
             clip.addRoundedRectangle (bar, 4.0f);
             g.reduceClipRegion (clip);
 
-            const auto fillHeight = barHeight * shown.grLevel;
+            const auto fillHeight = panelBarHeight * shown.grLevel;
 
             if (fillHeight > 0.25f)
             {
@@ -283,7 +381,7 @@ namespace celadon::ui
 
             if (shown.grHold > 0.0f)
             {
-                const auto y = bar.getY() + barHeight * shown.grHold;
+                const auto y = bar.getY() + panelBarHeight * shown.grHold;
                 g.setColour (palette::ink);
                 g.fillRect (bar.getX(), juce::jlimit (bar.getY(), bar.getBottom() - 2.0f, y - 1.0f), barWidth, 2.0f);
             }

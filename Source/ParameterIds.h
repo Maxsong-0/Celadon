@@ -115,6 +115,7 @@ namespace celadon::uiid
     // 面板写明这一点，并列出还在设计中的三个子项目（推响不刺 / 目标频谱 / 发行安全，ADR-005 只写「即将推出」）。
     inline constexpr const char* advanced      = "ui_advanced";
     inline constexpr const char* limitAudition = "ui_limit_audition"; // v0.1.8.0：LIMIT 卡片的耳机「试听差值」（界面状态，不是参数）
+    inline constexpr const char* spectrumEnlarge = "ui_spectrum_enlarge"; // V5（T-123）：频谱上的「放大频谱」键，有模块展开时才出现
 
     inline constexpr const char* masterTabs = "adv_tabs";
     inline constexpr const char* masterPreview = "adv_preview";
@@ -138,7 +139,7 @@ namespace celadon::uiid
     inline constexpr const char* allUiIds[] =
     {
         meterIn, meterOut, meterGr, integrated, shortTerm, resetMeters, glueGr, balanceCurve, glazeStatus,
-        clayIndicator, advanced, limitAudition,
+        clayIndicator, advanced, limitAudition, spectrumEnlarge,
         masterTabs, masterPreview, masterLearn, masterCancel, masterClear, masterCurve
     };
 }

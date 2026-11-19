@@ -8,15 +8,17 @@
 #                                                        行首写「@b64 <目录>」把该目录打成 tar.gz 以 base64 印出来（取图）
 #                                                        行首写「@sha <目录>」印出该目录每个文件的 sha256（比两次出图是否逐字节相同）
 # 环境：JOBS 并行编译数（默认 nproc）；BUILD_ROOT 构建目录的上级（默认 $PWD/build，每个任务全新；
-#       开发中的定向检查可设 /cache/…，跨任务增量编）。
+#       开发中的定向检查可设 /cache/…，跨任务增量编）；CELADON_SRC 被测源码的目录名（默认 Celadon；
+#       同一个任务里要编两棵树对比时，另一棵放在打包目录的别的名字下，如 Celadon-m0）。
 set -uo pipefail
 
 mode="${1:?用法见文件头}"; shift
 root="$PWD"
 jobs="${JOBS:-$(nproc)}"
 build_root="${BUILD_ROOT:-$root/build}"
+src="$root/${CELADON_SRC:-Celadon}"
 
-[ -d "$root/Celadon" ] && [ -d "$root/JUCE/modules" ] || { echo "工作目录要是打包目录（里面有 Celadon/ 与 JUCE/modules）" >&2; exit 2; }
+[ -d "$src" ] && [ -d "$root/JUCE/modules" ] || { echo "工作目录要是打包目录（里面有 ${CELADON_SRC:-Celadon}/ 与 JUCE/modules）" >&2; exit 2; }
 
 export PYTHONUSERBASE=/cache/local
 export PATH="/cache/local/bin:$PATH"
@@ -30,7 +32,7 @@ need_cmake() {
 configure() {   # <构建目录> <额外的 cmake 参数…>
   local build="$1"; shift
   mkdir -p "$build"
-  cmake -S "$root/Celadon" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCELADON_JUCE_DIR=$root/JUCE" "$@" \
+  cmake -S "$src" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCELADON_JUCE_DIR=$root/JUCE" "$@" \
     > "$build/configure.log" 2>&1 || { tail -40 "$build/configure.log"; echo "配置失败" >&2; exit 1; }
 }
 
@@ -44,7 +46,7 @@ build_targets() {   # <构建目录> <目标…>
 
 gui_env() {
   local guidev="${GUIDEV:-/cache/celadon-guidev}"
-  eval "$("$root/Celadon/scripts/fetch-gui-dev.sh" "$guidev" | grep '^export ')"
+  eval "$("$src/scripts/fetch-gui-dev.sh" "$guidev" | grep '^export ')"
   if ! command -v xvfb-run >/dev/null 2>&1; then
     testbox-apt install xvfb xauth x11-xkb-utils xkb-data >/dev/null 2>&1 || true
   fi

@@ -8,6 +8,12 @@
       - OUT 超过 Ceiling 时顶上的小灯、保持线与数字变橙色；方案受限（GLAZE 的保护退到底）时 GR 条变橙色；
       - 只有画面上看得出变化（移动 ≥ 半个物理像素或数字变了）才重画。
 
+    T-123（2026-11-19，界面 V5「一釉」，规格 V5 2.3）：两种样子（Style）。panel 是上面写的 V4 面板，画出来与改前逐字节相同。
+      deck 是 V5 频谱卡片（SpectrumDeck）里的表：没有自己的底和边（直接画在卡片的白底上），一列 = 小标签、6 px 宽的表条、数字；
+      输入表 44 宽，输出 + 衰减 56 宽；高度由卡片定（266 / 92），表条长 = 高度 − 40（226 / 52）；填充平涂——输入、输出用 c500，
+      衰减用深色；真峰值超限时输出的填充与数字变橙，方案受限时衰减的填充与数字变橙。没有刻度字与超限小灯。
+      换版面（M6）之后 V4 的 panel 一支在 M7 删掉。
+
   ==============================================================================
 */
 
@@ -46,8 +52,9 @@ namespace celadon::ui
     {
     public:
         enum class Kind { input, outputAndReduction };
+        enum class Style { panel, deck };   // panel = V4 的 60 × 238 面板；deck = V5 频谱卡片里的表（见文件头 T-123）
 
-        explicit LevelMeterPanel (Kind kind);
+        explicit LevelMeterPanel (Kind kind, Style style = Style::panel);
 
         void setLanguage (Language newLanguage);
 
@@ -59,11 +66,13 @@ namespace celadon::ui
         std::function<void()> onResetClicked;
 
         void paint (juce::Graphics&) override;
+        void resized() override;
         void mouseUp (const juce::MouseEvent&) override;
         juce::String getTooltip() override;
 
         static constexpr int width = 60;
         static constexpr int height = 238;
+        static constexpr int deckInputWidth = 44, deckOutputWidth = 56;   // deck 的宽；高由卡片定
 
     private:
         struct Shown
@@ -76,8 +85,12 @@ namespace celadon::ui
         };
 
         Shown computeShown() const;
+        float barTop() const noexcept;
+        float barLength() const noexcept;
+        void paintDeck (juce::Graphics&);
 
         Kind kind;
+        Style style;
         Language language = Language::chinese;
         MeterBallistics peak { false }, reduction { true };
         float ceiling = -1.0f;

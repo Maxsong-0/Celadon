@@ -56,6 +56,7 @@
 #include "../../Source/ui/HelpText.h"
 #include "../../Source/ui/ModuleCards.h"
 #include "../../Source/ui/Porcelain.h"
+#include "../../Source/ui/SpectrumDeck.h"
 #include "../../Source/ui/UiSettings.h"
 
 #if JUCE_MAC
@@ -337,9 +338,11 @@ namespace
     {
         std::vector<celadon::ui::ClickableComponent*> toggles;
 
+        // 「放大频谱」键（T-123）也是 ClickableComponent：它带组件 ID，图例开关不带。
         for (auto* child : view.getChildren())
             if (auto* toggle = dynamic_cast<celadon::ui::ClickableComponent*> (child))
-                toggles.push_back (toggle);
+                if (child->getComponentID().isEmpty())
+                    toggles.push_back (toggle);
 
         return toggles.size() == 3 ? toggles : std::vector<celadon::ui::ClickableComponent*> {};
     }
@@ -372,11 +375,14 @@ namespace
     int runChecks (Session& session, const juce::File& outDir, float scale);
     int runCacheChecks (Session& session, const std::function<void (bool, const juce::String&)>& check);
     void runSpectrumChecks (const std::function<void (bool, const juce::String&)>& check);
+    void runSpectrumDeckChecks (const std::function<void (bool, const juce::String&)>& check);
+    int runDeckOnly (const juce::File& outDir);
     void runClayGuardChecks (const std::function<void (bool, const juce::String&)>& check);
     void runOldProjectChecks (const std::function<void (bool, const juce::String&)>& check);
     void runTextFitChecks (const std::function<void (bool, const juce::String&)>& check);
     void runTypeScaleChecks (const std::function<void (bool, const juce::String&)>& check);
     void runZoomDefaultChecks (juce::Component& editor, const std::function<void (bool, const juce::String&)>& check);
+    int runCompare (const juce::File& dirA, const juce::File& dirB);
     void runBench (int frames);
     void runSpectrumBench (int seconds);
     void runSpectrumPeakBench();
@@ -531,10 +537,19 @@ int main (int argc, char* argv[])
     int benchFrames = 120;
     int benchSeconds = 3;
     juce::StringArray only;
+    juce::File compareA, compareB;
 
     for (int i = 1; i < argc; ++i)
     {
         const juce::String arg (argv[i]);
+
+        if (arg == "--compare" && i + 2 < argc)
+        {
+            compareA = juce::File::getCurrentWorkingDirectory().getChildFile (argv[i + 1]);
+            compareB = juce::File::getCurrentWorkingDirectory().getChildFile (argv[i + 2]);
+            i += 2;
+            continue;
+        }
 
         if (arg == "--out" && i + 1 < argc)         outDir = juce::File::getCurrentWorkingDirectory().getChildFile (argv[++i]);
         else if (arg == "--scale" && i + 1 < argc)  scale = (float) juce::String (argv[++i]).getDoubleValue();
@@ -543,6 +558,10 @@ int main (int argc, char* argv[])
         else if (arg == "--seconds" && i + 1 < argc) benchSeconds = juce::jlimit (1, 60, juce::String (argv[++i]).getIntValue());
         else if (arg == "--deterministic")          deterministic = true;
     }
+
+    // --compare <目录 A> <目录 B>（T-123）：两套出图逐像素比，不出新图。
+    if (compareA != juce::File())
+        return runCompare (compareA, compareB);
 
     outDir.createDirectory();
     juce::SharedResourcePointer<celadon::ui::UiSettings> settings;
@@ -575,6 +594,13 @@ int main (int argc, char* argv[])
         resetUiSettings (*settings);
         runDigest();
         return 0;
+    }
+
+    if (only.contains ("deck"))
+    {
+        // T-123 M2：只跑 V5 频谱卡片的检查并存几张卡片的图（换版面之前卡片不在编辑器里；M7 删）。
+        resetUiSettings (*settings);
+        return runDeckOnly (outDir) == 0 ? 0 : 1;
     }
 
     if (only.contains ("check"))
@@ -1497,6 +1523,7 @@ namespace
 
         failures += runCacheChecks (session, check);
         runSpectrumChecks (check);   // T-051：失败由 check 计入
+        runSpectrumDeckChecks (check);   // T-123 C2-j：V5 频谱卡片两种高度
         runClayGuardChecks (check);   // T-074：失败由 check 计入
         runOldProjectChecks (check);  // T-108：失败由 check 计入
         runTextFitChecks (check);     // T-112 ⑪c：失败由 check 计入
@@ -2379,7 +2406,8 @@ namespace
             check (laidOut(), "T-032 bottom row back to Chinese");
         }
 
-        // T-036（评审 R-01）：频谱仪的 4 个子组件（三个图例开关、斜率；响度小窗 T-107 起搬到右侧板）挂整数对齐的缓存——频谱一秒重画 60 / 120 次时
+        // T-036（评审 R-01）：频谱仪的 5 个子组件（三个图例开关、斜率；响度小窗 T-107 起搬到右侧板；T-123 起多一个「放大频谱」键，V4 的面板里
+        //     它一直藏着）挂整数对齐的缓存——频谱一秒重画 60 / 120 次时
         //     它们从缓存贴；不能是 JUCE 自带的 setBufferedToImage（小数像素比下每帧双线性重采样、字发糊）。
         {
             auto* view = findFirst<SpectrumView> (editor);
@@ -2392,8 +2420,8 @@ namespace
                     aligned += dynamic_cast<AlignedComponentCache*> (child->getCachedComponentImage()) != nullptr ? 1 : 0;
                 }
 
-            check (view != nullptr && children == 4 && aligned == 4,
-                   "T-036 the spectrum's legend toggles and slope control have aligned image caches ("
+            check (view != nullptr && children == 5 && aligned == 5,
+                   "T-036 the spectrum's legend toggles, slope control and enlarge key have aligned image caches ("
                        + juce::String (aligned) + " of " + juce::String (children) + ")");
         }
 
@@ -2729,22 +2757,45 @@ namespace
         enum Toggle { outputToggle = 0, inputToggle = 1, peakToggle = 2 };   // spectrumToggles 的顺序
         using AudioSource = std::function<void (juce::AudioBuffer<float>&)>;  // 往一块里写音频（块长 ≤ 512）
 
-        explicit SpectrumRig (float glazePercent)
-            : session (makeSession (glazePercent)), editor (*session->editor),
-              view (findFirst<celadon::ui::SpectrumView> (editor)), toggles (spectrumToggles (editor)),
+        // deckHeight 为空 = 编辑器（V4 的版面）。给了卡片的高度（288 / 114）= 单独一张 V5 频谱卡片（T-123 M2：换版面之前先单独验，
+        // 图高 266 / 92）：不要编辑器，处理器照常跑，「取样口 → 计算器 → 频谱仪」这一段由 advance() 照编辑器的 advanceSpectrum 走。
+        explicit SpectrumRig (float glazePercent, std::optional<int> deckHeight = {})
+            : session (makeSession (glazePercent)), deck (makeDeck (*session, deckHeight)), editor (session->editor.get()),
+              root (deck != nullptr ? static_cast<juce::Component&> (*deck) : static_cast<juce::Component&> (*editor)),
+              view (findFirst<celadon::ui::SpectrumView> (root)), toggles (spectrumToggles (root)),
               slope (view != nullptr ? findFirst<celadon::ui::Segmented> (*view) : nullptr)   // 斜率选择是频谱仪里唯一的 Segmented
         {
             if (view != nullptr)
-                area = editor.getLocalArea (view, view->getLocalBounds());
+                area = root.getLocalArea (view, view->getLocalBounds());
         }
 
         ~SpectrumRig()
         {
             if (recorder != nullptr)
-                editor.setCachedComponentImage (nullptr);   // 编辑器接管着 recorder，这里删掉
+                root.setCachedComponentImage (nullptr);   // root 接管着 recorder，这里删掉
 
+            deck.reset();
             session->editor.reset();
             session->processor->releaseResources();
+        }
+
+        static std::unique_ptr<celadon::ui::SpectrumDeck> makeDeck (Session& session, std::optional<int> deckHeight)
+        {
+            if (! deckHeight.has_value())
+                return nullptr;
+
+            session.editor.reset();   // 单独的卡片不要编辑器（它的定时器也会去取样口里拿样本）
+
+            // 编辑器析构时把取样口关了（关着时音频线程不往里写）：照编辑器构造时那几行重新打开，不然卡片一个样本都收不到
+            // （2026-11-19 第一次跑就是这样：场景全「通过」、出图里频谱是空的——所以卡片的检查另数路径重建次数，见 DirtyOutcome::totalBuilds）。
+            auto& tap = session.processor->getAnalyzerTap();
+            tap.discard (celadon::AnalyzerTap::Stream::input);
+            tap.discard (celadon::AnalyzerTap::Stream::output);
+            tap.setActive (true);
+
+            auto card = std::make_unique<celadon::ui::SpectrumDeck>();
+            card->setSize (celadon::ui::SpectrumDeck::width, *deckHeight);
+            return card;
         }
 
         bool isValid() const noexcept   { return view != nullptr && ! toggles.empty() && slope != nullptr; }
@@ -2760,9 +2811,9 @@ namespace
         // 宿主把编辑器设成可见；截图工具平时不设，离屏画不受影响）。没有对等体，设可见不会开窗口。
         void attach()
         {
-            editor.setVisible (true);
-            recorder = new DirtyRecorder (editor);
-            editor.setCachedComponentImage (recorder);
+            root.setVisible (true);
+            recorder = new DirtyRecorder (root);
+            root.setCachedComponentImage (recorder);
         }
 
         // 这一帧该送的样本数：1 / fps 秒，除不尽的余数累到下一帧（48 kHz 下 60 / 120 帧正好 800 / 400 个）。
@@ -2786,7 +2837,44 @@ namespace
             }
         }
 
-        void advance (double seconds)   { editor.advanceForSnapshot (seconds); }
+        void advance (double seconds)
+        {
+            if (editor != nullptr)
+            {
+                editor->advanceForSnapshot (seconds);
+                return;
+            }
+
+            // 单独的卡片：与 CeladonAudioProcessorEditor::advanceSpectrum 同一段（取样口里新到的样本 → 计算器 → 视图）。
+            using Tap = celadon::AnalyzerTap::Stream;
+            using Stream = celadon::ui::SpectrumAnalyser::Stream;
+            analyser.setSampleRate (session->processor->getSampleRateForUi());
+            auto& tap = session->processor->getAnalyzerTap();
+
+            for (const auto stream : { Tap::input, Tap::output })
+            {
+                const auto count = tap.pull (stream, pullBuffer.data(), (int) pullBuffer.size());
+                analyser.push (stream == Tap::input ? Stream::input : Stream::output, pullBuffer.data(), count);
+            }
+
+            analyser.update (seconds);
+            view->setSpectrum (analyser, seconds);
+        }
+
+        // 切到听原声（A → B）：送出去的信号换了来源，OUT 的曲线清零重来。
+        void listenToOriginal()
+        {
+            if (editor != nullptr)
+            {
+                editor->setListeningToOriginal (true);
+                return;
+            }
+
+            // 单独的卡片：与编辑器的 setListeningToOriginal → restartOutputSpectrum 同一段。
+            session->processor->setCompareOriginal (true);
+            session->processor->getAnalyzerTap().discard (celadon::AnalyzerTap::Stream::output);
+            analyser.restartOutput();
+        }
 
         // 取走到此刻为止记下的脏区（编辑器逻辑坐标；包括编辑器别处的，调用方按需 clipTo (area)）。
         juce::RectangleList<int> takeDirty()
@@ -2807,19 +2895,23 @@ namespace
         // 窗口后备图：不透明的 RGB，编辑器大小 × 像素比；内容由调用方画（第一次通常整帧，见 paintRegion）。
         juce::Image newBackingImage (float scale) const
         {
-            return { juce::Image::RGB, (int) std::ceil ((float) editor.getWidth() * scale), (int) std::ceil ((float) editor.getHeight() * scale), true };
+            return { juce::Image::RGB, (int) std::ceil ((float) root.getWidth() * scale), (int) std::ceil ((float) root.getHeight() * scale), true };
         }
 
         juce::Rectangle<int> deviceArea (float scale) const   { return (area.toFloat() * scale).getSmallestIntegerContainer(); }
 
         std::unique_ptr<Session> session;
-        CeladonAudioProcessorEditor& editor;
+        std::unique_ptr<celadon::ui::SpectrumDeck> deck;         // 单独的频谱卡片；编辑器模式下为空
+        CeladonAudioProcessorEditor* editor;                     // 编辑器模式才有；卡片模式下为空
+        juce::Component& root;                                   // 被画、挂记账缓存图的那个组件：编辑器或卡片
         celadon::ui::SpectrumView* view;
         std::vector<celadon::ui::ClickableComponent*> toggles;   // OUT / IN / PEAK；找不到为空
         celadon::ui::Segmented* slope;                           // 0 / 3 / 4.5 dB/oct = 下标 0 / 1 / 2
-        juce::Rectangle<int> area;                               // 频谱仪在编辑器里的区域（逻辑坐标）
-        DirtyRecorder* recorder = nullptr;                       // attach() 之后才有（编辑器持有）
+        juce::Rectangle<int> area;                               // 频谱仪在 root 里的区域（逻辑坐标）
+        DirtyRecorder* recorder = nullptr;                       // attach() 之后才有（root 持有）
         double owedSamples = 0.0;
+        celadon::ui::SpectrumAnalyser analyser;                  // 卡片模式用（编辑器模式下计算器在编辑器里）
+        std::vector<float> pullBuffer = std::vector<float> ((size_t) celadon::AnalyzerTap::capacity);
     };
 
     // 增量重画 vs 整帧的推进器（T-051 的 S8 起；T-058 把逐帧比较抽出来，S8、S9 与「播放」共用）：一个测试台（调用方已设好开关、
@@ -2843,7 +2935,7 @@ namespace
         void sync()
         {
             for (auto& screen : screens)
-                paintRegion (rig.editor, screen.image, scale, juce::RectangleList<int> (rig.editor.getLocalBounds()));
+                paintRegion (rig.root, screen.image, scale, juce::RectangleList<int> (rig.root.getLocalBounds()));
 
             rig.takeDirty();
         }
@@ -2925,10 +3017,10 @@ namespace
             {
                 auto clip = screen.boundingBox && ! region.isEmpty() ? juce::RectangleList<int> (region.getBounds()) : region;
                 clip.clipTo (rig.area);
-                paintRegion (rig.editor, screen.image, scale, clip);   // 画的时候又标脏的留在 recorder 里：真实窗口里留到下一帧画
+                paintRegion (rig.root, screen.image, scale, clip);   // 画的时候又标脏的留在 recorder 里：真实窗口里留到下一帧画
             }
 
-            rig.paintUnrecorded ([this] { paintRegion (rig.editor, reference, scale, juce::RectangleList<int> (rig.area)); });
+            rig.paintUnrecorded ([this] { paintRegion (rig.root, reference, scale, juce::RectangleList<int> (rig.area)); });
             ++framesCompared;
 
             for (auto& screen : screens)
@@ -2958,6 +3050,7 @@ namespace
         int framesCompared = 0;             // 各像素比合计
         std::vector<int> counted;           // DirtyRun::counted，每种像素比一个（×1、×2）
         std::vector<int> builds;            // DirtyRun::builds，同上
+        std::vector<int> totalBuilds;       // 整个场景里视图重建路径的总次数，同上（T-123：证明台子真的有数据在走，不是空转通过）
         juce::StringArray firstCurve;       // DirtyRun::firstCurveFrame，同上
         juce::String error;
 
@@ -3003,6 +3096,17 @@ namespace
             return error.isEmpty();
         }
 
+        // 每种像素比下整个场景的路径重建总次数里最少的那个（没跑成 = 0）。
+        int fewestTotalBuilds() const
+        {
+            int fewest = totalBuilds.empty() ? 0 : totalBuilds.front();
+
+            for (const auto value : totalBuilds)
+                fewest = juce::jmin (fewest, value);
+
+            return fewest;
+        }
+
         // 「×1 / ×2」两次数到的路径重建次数
         juce::String buildsText() const
         {
@@ -3046,19 +3150,21 @@ namespace
     };
 
     // 跑一个场景：×1（矩形列表、包围盒两张屏共用同一串帧）一遍，atTwiceScale 时再起一个会话按 ×2（矩形列表）跑一遍。
-    DirtyOutcome runDirtyScenario (const DirtyScenario& scenario)
+    // deckHeight 给了 = 在单独的 V5 频谱卡片上跑（见 SpectrumRig）。
+    DirtyOutcome runDirtyScenario (const DirtyScenario& scenario, std::optional<int> deckHeight = {})
     {
         DirtyOutcome outcome;
 
         const auto runAt = [&] (float scale, std::vector<DirtyScreen> screens)
         {
-            SpectrumRig rig (0.0f);   // GLAZE 0：链近乎直通
+            SpectrumRig rig (0.0f, deckHeight);   // GLAZE 0：链近乎直通
 
             if (! rig.isValid())
             {
                 outcome.error = "spectrum view, its three legend toggles or the slope control not found";
                 outcome.counted.push_back (0);
                 outcome.builds.push_back (0);
+                outcome.totalBuilds.push_back (0);
                 outcome.firstCurve.add ({});
                 return;
             }
@@ -3072,6 +3178,7 @@ namespace
             outcome.framesCompared += run.framesCompared;
             outcome.counted.push_back (run.counted);
             outcome.builds.push_back (run.builds);
+            outcome.totalBuilds.push_back ((int) rig.view->getCurveBuildCount());
             outcome.firstCurve.add (run.firstCurveFrame);
 
             for (auto& screen : run.screens)
@@ -3134,7 +3241,7 @@ namespace
 
                      rig.clickToggle (SpectrumRig::peakToggle);
                      run.repaintOnly ("peak on repaint");
-                     rig.editor.setListeningToOriginal (true);
+                     rig.listenToOriginal();
                      run.frames ("B", 30, silence);
                      run.firstCurveFrame = window;
                  },
@@ -3256,7 +3363,7 @@ namespace
                   rig.slope->setSelected (2, true);
                   run.repaintOnly ("slope 4.5 repaint");
 
-                  rig.editor.setListeningToOriginal (true);
+                  rig.listenToOriginal();
 
                   for (int i = 0; i < DirtyRun::framesPerSecond; ++i)
                       run.frame ("B", i, source);
@@ -3471,6 +3578,24 @@ namespace
         return true;
     }
 
+    // 频谱仪的三种摆法（T-123）：V4 的面板；V5 卡片里的图，高档 266 / 矮档 92。时间线、全新视图、空视图都按它建。
+    struct SpectrumVariant
+    {
+        celadon::ui::SpectrumView::Style style;
+        int height;
+    };
+
+    constexpr SpectrumVariant panelVariant { celadon::ui::SpectrumView::Style::panel, celadon::ui::SpectrumView::defaultHeight };
+    constexpr SpectrumVariant deckTallVariant { celadon::ui::SpectrumView::Style::deck, celadon::ui::SpectrumDeck::tallHeight - celadon::ui::SpectrumDeck::verticalPadding };
+    constexpr SpectrumVariant deckCompactVariant { celadon::ui::SpectrumView::Style::deck, celadon::ui::SpectrumDeck::compactHeight - celadon::ui::SpectrumDeck::verticalPadding };
+
+    std::unique_ptr<celadon::ui::SpectrumView> makeSpectrumView (SpectrumVariant variant)
+    {
+        auto view = std::make_unique<celadon::ui::SpectrumView> (variant.style);
+        view->setSize (celadon::ui::SpectrumView::width, variant.height);
+        return view;
+    }
+
     juce::Image snapshotOf (celadon::ui::SpectrumView& view)
     {
         juce::Image image (juce::Image::RGB, view.getWidth(), view.getHeight(), true);
@@ -3491,8 +3616,9 @@ namespace
         // 构造时先整帧画一次：视图第一次 paint 时（curvePathsValid 为假）会用「此刻」的值建路径——不先画，第一次比较那一刻才建，
         // 之前「看没看变化」少比的曲线从没更新过也不露馅。先画一次（此刻全是底线），之后的路径只能靠 setSpectrum 里的判变来更新，
         // 与真实窗口里从头一帧帧画一样。
-        SpectrumTimeline (bool peakOn, bool inputOn, int slopeIndex)
-            : peak (peakOn), input (inputOn), slope (slopeIndex), valid (configureSpectrumView (view, peakOn, inputOn, slopeIndex))
+        SpectrumTimeline (bool peakOn, bool inputOn, int slopeIndex, SpectrumVariant variantToUse = panelVariant)
+            : peak (peakOn), input (inputOn), slope (slopeIndex), variant (variantToUse), viewOwner (makeSpectrumView (variantToUse)),
+              view (*viewOwner), valid (configureSpectrumView (view, peakOn, inputOn, slopeIndex))
         {
             if (valid)
                 snapshotOf (view);
@@ -3542,11 +3668,18 @@ namespace
             hoverAt (view, frequency);
         }
 
+        // 同一个视图换高度（T-123：V5 的卡片在 266 与 92 两档之间换时，里面的频谱仪只是改了大小）。之后的全新视图、空视图按新高度建。
+        void resizeTo (SpectrumVariant newVariant)
+        {
+            variant = newVariant;
+            view.setSize (celadon::ui::SpectrumView::width, newVariant.height);
+        }
+
         // 此刻现起一个全新视图：画的是计算器此刻的数据。读数框的文字约 0.27 s 才刷新一次，而选斜率（configureSpectrumView）会把这个计时清零，
         // 所以数据不动、连着 setSpectrum 20 次（1 / 3 s）让它把读数刷新到此刻——长期运行的视图在曲线静止的时刻读数也早已是此刻的。
         std::unique_ptr<celadon::ui::SpectrumView> freshView()
         {
-            auto fresh = std::make_unique<celadon::ui::SpectrumView>();
+            auto fresh = makeSpectrumView (variant);
             configureSpectrumView (*fresh, peak, input, slope);
 
             for (int i = 0; i < 20; ++i)
@@ -3561,7 +3694,7 @@ namespace
         // 同开关、同斜率、从没喂过数据的视图：绝对探针的底。
         std::unique_ptr<celadon::ui::SpectrumView> emptyView() const
         {
-            auto empty = std::make_unique<celadon::ui::SpectrumView>();
+            auto empty = makeSpectrumView (variant);
             configureSpectrumView (*empty, peak, input, slope);
             return empty;
         }
@@ -3570,7 +3703,9 @@ namespace
         int slope;
         std::optional<float> hoverFrequency;
         celadon::ui::SpectrumAnalyser analyser;
-        celadon::ui::SpectrumView view;
+        SpectrumVariant variant;
+        std::unique_ptr<celadon::ui::SpectrumView> viewOwner;
+        celadon::ui::SpectrumView& view;
         bool valid;
         SineSource sine { 6000.0, -12.0 };
         juce::Random random { 20261004 };
@@ -3593,7 +3728,7 @@ namespace
             int worst = 0;
             juce::Point<int> at;
             const auto bounds = timeline.view.getLocalBounds();
-            const auto area = belowReadout ? bounds.withTrimmedTop (40) : bounds;
+            const auto area = belowReadout && ! timeline.view.isCompact() ? bounds.withTrimmedTop (40) : bounds;   // 矮档没有读数框（T-123）
             const auto different = countDifferences (snapshotOf (timeline.view), snapshotOf (*fresh), area, worst, at, tolerance);
 
             if (different > 0 && differing++ == 0)
@@ -3604,10 +3739,10 @@ namespace
 
     // S12a：6 kHz −12 dBFS 正弦 2 s → 数字静音。停播后 2 s、3 s、4 s（曲线都静止；PEAK 开着时只有峰值保持在落，视图每帧重建）各比一次，
     // 再把斜率换成 4.5（点击的重画先到、下一帧还没来：路径在 paint 里重建）立刻比，之后每帧比，共 10 帧；最后鼠标悬停在 6 kHz 再比一次。
-    FreshEquality runFreshAfterStop (bool peakOn)
+    FreshEquality runFreshAfterStop (bool peakOn, SpectrumVariant variant = panelVariant)
     {
         FreshEquality result;
-        SpectrumTimeline timeline (peakOn, false, 0);
+        SpectrumTimeline timeline (peakOn, false, 0, variant);
 
         if (! timeline.valid)
         {
@@ -3643,10 +3778,10 @@ namespace
     // 稳态那一刻本身不比：视图只在累计漂移超过 0.1 px 时才重建，画出来的与此刻的差不到 0.1 px（合法）；虚线的相位沿路径累计，
     // 这点差到尖峰处会放大成半个像素的相位差（实测 134 个像素差 40 级以上），与全新视图逐字节比不得。换斜率时视图用此刻的值整组重建，
     // 与全新视图逐位相同——要比的就是这些时刻。
-    FreshEquality runFreshSteadyInput (bool peakOn)
+    FreshEquality runFreshSteadyInput (bool peakOn, SpectrumVariant variant = panelVariant)
     {
         FreshEquality result;
-        SpectrumTimeline timeline (peakOn, true, 0);
+        SpectrumTimeline timeline (peakOn, true, 0, variant);
 
         if (! timeline.valid)
         {
@@ -3675,11 +3810,11 @@ namespace
     // 「看没看变化」少比 OUT 或平均线、不加斜率比，纯音全看不出来（停播后视图从没重建过，画的恰好也是底线）；宽带噪声 OUT 与平均线都在面板里，
     // 斜率 4.5 把高频的曲线抬高，落到底边附近时还看得见。停播前后若干时刻与全新视图比（噪声每帧都不同，视图每帧重建；之后落得慢，滞后不到 0.1 px，
     // 容差 24 级，理由见 FreshEquality::compare）。
-    FreshEquality runFreshDecay()
+    FreshEquality runFreshDecay (SpectrumVariant variant = panelVariant)
     {
         constexpr int tolerance = 24;
         FreshEquality result;
-        SpectrumTimeline timeline (false, false, 2);
+        SpectrumTimeline timeline (false, false, 2, variant);
 
         if (! timeline.valid)
         {
@@ -3706,14 +3841,52 @@ namespace
         return result;
     }
 
+    // S12e（T-123）：同一个视图换高度。6 kHz −12 dBFS 正弦 2 s → 静音 2 s（曲线静止；PEAK 开着时只有峰值保持在落），从 from 换到 to：
+    // 立刻比（下一帧还没来：路径要在 paint 里按新高度、此刻的值重建，几张缓存图要按新高度重画），再每帧比 5 帧；换回 from 同样比；
+    // 最后悬停在 6 kHz 再比一次。换高度时漏了作废路径或缓存图，画出来的还是旧高度的那一套，与全新视图差一大片。
+    FreshEquality runFreshAfterResize (bool peakOn, SpectrumVariant from, SpectrumVariant to)
+    {
+        FreshEquality result;
+        SpectrumTimeline timeline (peakOn, false, 2, from);
+
+        if (! timeline.valid)
+        {
+            result.error = "legend toggles or the slope control not found";
+            return result;
+        }
+
+        using Sound = SpectrumTimeline::Sound;
+        const auto second = SpectrumTimeline::framesPerSecond;
+        timeline.steps (2 * second, Sound::sine);
+        timeline.steps (2 * second, Sound::silence);
+        result.compare (timeline, "4 s, graph " + juce::String (from.height) + " before any resize");
+
+        for (const auto target : { to, from })
+        {
+            const auto name = "graph -> " + juce::String (target.height);
+            timeline.resizeTo (target);
+            result.compare (timeline, name + " before the next frame");
+
+            for (int i = 1; i <= 5; ++i)
+            {
+                timeline.step (Sound::silence);
+                result.compare (timeline, name + " + " + juce::String (i) + " frame(s)");
+            }
+        }
+
+        timeline.hover (6000.0f);
+        result.compare (timeline, "back at graph " + juce::String (from.height) + ", hover at 6 kHz");
+        return result;
+    }
+
     // S12d（评审 F3）：稳态正弦、PEAK 关、IN 关：OUT 在 6 kHz 有一根尖峰、平均线在面板外。「看没看变化」少比 OUT 时视图从没重建过、画的是底线，
     // 与全新视图的尖峰差几百个像素；S12a / S12c 的比较点都在 OUT 已经落到底边（或每帧都因别的曲线在变而重建）之后，看不出。
     // 容差与「只比读数框以下」同 S12c（实线的 0.1 px 滞后只差十几级）。
-    FreshEquality runFreshSteady (int slopeIndex)
+    FreshEquality runFreshSteady (int slopeIndex, SpectrumVariant variant = panelVariant)
     {
         constexpr int tolerance = 24;
         FreshEquality result;
-        SpectrumTimeline timeline (false, false, slopeIndex);
+        SpectrumTimeline timeline (false, false, slopeIndex, variant);
 
         if (! timeline.valid)
         {
@@ -3748,13 +3921,13 @@ namespace
         juce::Point<int> at;
     };
 
-    CurvePoint loudestPoint (const std::vector<float>& values)
+    CurvePoint loudestPoint (const std::vector<float>& values, const celadon::ui::SpectrumView& view)
     {
         CurvePoint point;
         point.index = (int) (std::max_element (values.begin(), values.end()) - values.begin());
         point.db = values[(size_t) point.index];
         point.at = { (int) std::lround (celadon::ui::SpectrumView::xOf (celadon::ui::SpectrumAnalyser::frequencyAt (point.index))),
-                     (int) std::lround (celadon::ui::SpectrumView::yOf (point.db)) };
+                     (int) std::lround (view.yOf (point.db)) };   // 纵坐标按这个视图此刻的高度（T-123 起 yOf 是实例方法）
         return point;
     }
 
@@ -3769,16 +3942,16 @@ namespace
 
     // OUT 的填充：1.5 s 稳态正弦，PEAK 关、IN 关、斜率 0；最响那个点正下方 11 × 50 个像素里至少 100 个与空视图不同（只有 OUT 画填充；
     // 填充带竖纹与按响度的渐变，实测约 190 / 550，OUT 整条不画时只剩平均线的零星几个像素）。
-    ProbeResult probeOutputFill()
+    ProbeResult probeOutputFill (SpectrumVariant variant = panelVariant)
     {
         using Stream = celadon::ui::SpectrumAnalyser::Stream;
-        SpectrumTimeline timeline (false, false, 0);
+        SpectrumTimeline timeline (false, false, 0, variant);
 
         if (! timeline.valid)
             return { false, "legend toggles or the slope control not found" };
 
         timeline.steps (90, SpectrumTimeline::Sound::sine);
-        const auto top = loudestPoint (timeline.analyser.getDisplayDb (Stream::output));
+        const auto top = loudestPoint (timeline.analyser.getDisplayDb (Stream::output), timeline.view);
         const auto differing = differingFromEmpty (timeline, { top.at.x - 5, top.at.y + 10, 11, 50 });
         return { differing >= 100, juce::String (differing) + " of 550 px under the OUT peak (x " + juce::String (top.at.x) + ", y "
                                        + juce::String (top.at.y) + ") differ from an empty view, needs >= 100" };
@@ -3787,10 +3960,10 @@ namespace
     // 平均线：白噪声 2 s → 静音（纯音的平均线沿频率平滑后只剩 −107 dB 的一个小包，在面板底边 −84 dB 之下，要宽带内容才看得见），找一个 OUT 已经落到
     // 面板底边以下、平均线还在面板里（高出底边 15 dB 以上）的时刻；平均线最响那个点的 13 × 7 个像素里至少 5 个与空视图不同（PEAK 关、没有填充，
     // 只有平均线能画在那里）。找不到这样的时刻 = 探针空转，也算失败。
-    ProbeResult probeAverage()
+    ProbeResult probeAverage (SpectrumVariant variant = panelVariant)
     {
         using Stream = celadon::ui::SpectrumAnalyser::Stream;
-        SpectrumTimeline timeline (false, false, 0);
+        SpectrumTimeline timeline (false, false, 0, variant);
 
         if (! timeline.valid)
             return { false, "legend toggles or the slope control not found" };
@@ -3808,7 +3981,7 @@ namespace
             if (outputMax > celadon::ui::SpectrumView::bottomDb - 3.0f || averageMax < celadon::ui::SpectrumView::bottomDb + 15.0f)
                 continue;
 
-            const auto top = loudestPoint (average);
+            const auto top = loudestPoint (average, timeline.view);
             const auto differing = differingFromEmpty (timeline, { top.at.x - 6, top.at.y - 3, 13, 7 });
             return { differing >= 5, juce::String (differing) + " of 91 px at the average line's peak (x " + juce::String (top.at.x) + ", y "
                                            + juce::String (top.at.y) + ", " + juce::String (averageMax, 1) + " dB, " + juce::String (i + 1)
@@ -3820,10 +3993,10 @@ namespace
 
     // 峰值线：6 kHz 正弦 2 s → 静音 2 s（PEAK 开）；OUT 与平均线都在面板底边以下、峰值线还在面板里时，峰值线最响那个点的 13 × 7 个
     // 像素里至少 5 个与空视图不同。
-    ProbeResult probePeak()
+    ProbeResult probePeak (SpectrumVariant variant = panelVariant)
     {
         using Stream = celadon::ui::SpectrumAnalyser::Stream;
-        SpectrumTimeline timeline (true, false, 0);
+        SpectrumTimeline timeline (true, false, 0, variant);
 
         if (! timeline.valid)
             return { false, "legend toggles or the slope control not found" };
@@ -3839,7 +4012,7 @@ namespace
             || *std::max_element (average.begin(), average.end()) > peakMax - 10.0f || peakMax < celadon::ui::SpectrumView::bottomDb + 15.0f)
             return { false, "the OUT curve and the average line are not both well below the peak hold line any more (probe is vacuous)" };
 
-        const auto top = loudestPoint (peak);
+        const auto top = loudestPoint (peak, timeline.view);
         const auto differing = differingFromEmpty (timeline, { top.at.x - 6, top.at.y - 3, 13, 7 });
         return { differing >= 5, juce::String (differing) + " of 91 px at the peak hold line's peak (x " + juce::String (top.at.x) + ", y "
                                        + juce::String (top.at.y) + ", " + juce::String (peakMax, 1) + " dB) differ from an empty view, needs >= 5" };
@@ -3847,17 +4020,17 @@ namespace
 
     // IN 虚线：两条同样的时间线（PEAK 关、斜率 0、1.5 s 稳态正弦），一个 IN 开、一个关；IN 最响那个点的 13 × 7 个像素里至少 3 个不同
     // （OUT 与 IN 送的是同一份音频，OUT 线两边相同，差别只能是 IN 的虚线）。
-    ProbeResult probeInput()
+    ProbeResult probeInput (SpectrumVariant variant = panelVariant)
     {
         using Stream = celadon::ui::SpectrumAnalyser::Stream;
-        SpectrumTimeline withInput (false, true, 0), withoutInput (false, false, 0);
+        SpectrumTimeline withInput (false, true, 0, variant), withoutInput (false, false, 0, variant);
 
         if (! withInput.valid || ! withoutInput.valid)
             return { false, "legend toggles or the slope control not found" };
 
         withInput.steps (90, SpectrumTimeline::Sound::sine);
         withoutInput.steps (90, SpectrumTimeline::Sound::sine);
-        const auto top = loudestPoint (withInput.analyser.getDisplayDb (Stream::input));
+        const auto top = loudestPoint (withInput.analyser.getDisplayDb (Stream::input), withInput.view);
         int worst = 0;
         juce::Point<int> at;
         const auto differing = countDifferences (snapshotOf (withInput.view), snapshotOf (withoutInput.view),
@@ -3879,10 +4052,10 @@ namespace
 
     // 悬停的读数：6 kHz 正弦 2 s → 停播 0.15 s（OUT 在落、平均线与峰值线还高：三条线在 6 kHz 各是各的值，读错来源会差好几 dB），
     // 鼠标移到 6 kHz；读数框第一个数必须是计算器此刻 OUT 在 6 kHz 的值（加斜率），误差在一位小数的舍入以内（T-111 起读数 dB 写一位）。
-    ProbeResult probeHoverReadout (int slopeIndex)
+    ProbeResult probeHoverReadout (int slopeIndex, SpectrumVariant variant = panelVariant)
     {
         using Stream = celadon::ui::SpectrumAnalyser::Stream;
-        SpectrumTimeline timeline (false, false, slopeIndex);
+        SpectrumTimeline timeline (false, false, slopeIndex, variant);
 
         if (! timeline.valid)
             return { false, "legend toggles or the slope control not found" };
@@ -3997,7 +4170,7 @@ namespace
                 mismatches += samePathBits (reused, fresh) ? 0 : 1;
             };
 
-            const auto h = (float) SpectrumView::height;
+            const auto h = (float) SpectrumView::defaultHeight;
 
             for (int n = 0; n < 40; ++n)
                 test ([&] (int) { return random.nextFloat() * h; }, n % 4 == 0);
@@ -4089,6 +4262,322 @@ namespace
         const auto regionWithoutPeak = probeRegionWithoutPeak();
         check (regionWithoutPeak.ok, "T-073 spectrum: the dirty curve region leaves out the peak line while PEAK is off and includes it while on (6 kHz -12 dBFS sine 1 s, silence 0.2 s: "
                                          + regionWithoutPeak.detail + ")");
+    }
+
+    //==============================================================================
+    // V5 频谱卡片（T-123 M2，计划 C2-j）：SpectrumDeck 的两种高度——卡片高 288（图高 266）与 114（图高 92，矮档）。
+    // 编辑器在换版面（M6）之前还是 V4，这里单独建卡片来验：
+    //   ① 版面：图与电平表的位置随卡片高度变；图例一排在图里、右缘离图右边 16，中英都排得下；矮档多一个「放大频谱」键，点了回调一次；
+    //   ② 矮档不画 dB 刻度与悬停读数框，高档画——同一个探针两个方向各一条（只验「矮档没有」的话，探针瞎了也是全过）；
+    //   ③ 增量重画 == 整帧重画：dirtyScenarios 的全部场景（S8、S9、S9b、S11、播放）在单独的卡片上各跑一遍；
+    //   ④ 长期运行的视图 == 没有历史的全新视图（S12a ～ d），外加曲线真的画出来了的绝对探针；
+    //   ⑤ 同一个视图在两档之间换高度之后，与按新高度现建的全新视图相同（S12e）。
+    void runSpectrumDeckChecks (const CheckFunction& check)
+    {
+        using namespace celadon::ui;
+
+        struct DeckCase
+        {
+            int cardHeight;
+            SpectrumVariant variant;
+            const char* name;
+        };
+
+        const DeckCase cases[] = { { SpectrumDeck::tallHeight, deckTallVariant, "deck 288 (graph 266)" },
+                                   { SpectrumDeck::compactHeight, deckCompactVariant, "deck 114 (graph 92)" } };
+
+        for (const auto& deckCase : cases)
+        {
+            const auto prefix = juce::String ("T-123 ") + deckCase.name + ": ";
+            const CheckFunction deckCheck = [&check, prefix] (bool ok, const juce::String& text) { check (ok, prefix + text); };
+            const auto compact = deckCase.cardHeight == SpectrumDeck::compactHeight;
+            const auto graphHeight = deckCase.variant.height;
+
+            // ---- ① 版面（中英各一遍）----
+            for (const auto language : { celadon::Language::chinese, celadon::Language::english })
+            {
+                const juce::String languageName (language == celadon::Language::chinese ? "zh" : "en");
+                SpectrumDeck deck;
+                deck.setLanguage (language);
+                deck.setSize (SpectrumDeck::width, deckCase.cardHeight);
+                auto& view = deck.spectrum;
+
+                deckCheck (view.getBounds() == juce::Rectangle<int> (68, 10, 1032, graphHeight) && view.isCompact() == compact
+                               && deck.inputMeter.getBounds() == juce::Rectangle<int> (14, 10, 44, graphHeight)
+                               && deck.outputMeter.getBounds() == juce::Rectangle<int> (1100, 10, 56, graphHeight),
+                           "layout " + languageName + ": graph " + view.getBounds().toString() + (view.isCompact() ? " compact" : " tall")
+                               + ", input meter " + deck.inputMeter.getBounds().toString() + ", output meter " + deck.outputMeter.getBounds().toString());
+
+                const auto toggles = legendToggles (view);
+                auto* slope = findFirst<Segmented> (view);
+                auto* enlarge = findById (deck, "spectrum_enlarge");
+
+                if (toggles.empty() || slope == nullptr || slope->getParentComponent() == nullptr || enlarge == nullptr)
+                {
+                    deckCheck (false, "legend " + languageName + ": the three toggles, the slope control or the enlarge key not found");
+                    continue;
+                }
+
+                // 图例一排从左到右：输出 / 输入 / 峰值、斜率（、放大频谱）。都在图里、同一行、互不相叠，最右一个的右缘 = 图宽 − 16。
+                std::vector<juce::Component*> row (toggles.begin(), toggles.end());
+                row.push_back (slope->getParentComponent());
+
+                if (compact)
+                    row.push_back (enlarge);
+
+                bool ordered = true;
+                juce::String rowText;
+
+                for (size_t i = 0; i < row.size(); ++i)
+                {
+                    const auto bounds = row[i]->getBounds();
+                    rowText << (i > 0 ? " " : "") << bounds.getX() << "-" << bounds.getRight();
+                    ordered = ordered && row[i]->isVisible() && view.getLocalBounds().contains (bounds)
+                              && bounds.getY() == row.front()->getY() && bounds.getHeight() == 24
+                              && (i == 0 || bounds.getX() >= row[i - 1]->getRight() + 4);
+                }
+
+                // 高档的读数框在左上（x 48 起、约 300 宽）：图例要在它右边。
+                deckCheck (ordered && row.back()->getRight() == SpectrumView::width - 16 && enlarge->isVisible() == compact
+                               && (compact || row.front()->getX() >= 400),
+                           "legend " + languageName + ": one row inside the graph, right edge at " + juce::String (row.back()->getRight())
+                               + " (needs " + juce::String (SpectrumView::width - 16) + "), x spans " + rowText + ", y " + juce::String (row.front()->getY())
+                               + ", enlarge key " + (enlarge->isVisible() ? "shown" : "hidden"));
+
+                if (compact)
+                {
+                    int clicks = 0;
+                    view.onEnlarge = [&clicks] { ++clicks; };
+                    click (*enlarge, enlarge->getLocalBounds().getCentre().toFloat());
+                    deckCheck (clicks == 1, "enlarge key " + languageName + ": one click calls onEnlarge once (" + juce::String (clicks) + ")");
+                }
+            }
+
+            // ---- ② dB 刻度与悬停读数框：高档有、矮档没有 ----
+            {
+                auto view = makeSpectrumView (deckCase.variant);
+                const auto empty = snapshotOf (*view);
+                const juce::Image::BitmapData pixels (empty, juce::Image::BitmapData::readOnly);
+
+                // x = 40 这一列在 dB 标签（x 5 ～ 约 30）与读数框（x 48 起）之间，最左的竖网格线在 x 61：只有底色的上下渐变（越往下越暗）
+                // 和 dB 刻度的横线。横线比上一行暗、下一行又亮回来：数「比上一行亮」的行 = 横线的条数。
+                int lines = 0, labelRows = 0;
+
+                for (int y = 1; y < empty.getHeight(); ++y)
+                    if (pixels.getPixelColour (40, y).getRed() > pixels.getPixelColour (40, y - 1).getRed())
+                        ++lines;
+
+                // dB 标签在 x 5 ～ 约 30：x 9 ～ 28 这一段里有像素与同一行 x = 40 的底色不同的行数（x < 9 在第一行、最后一行落进图的圆角，不取）。
+                for (int y = 0; y < empty.getHeight(); ++y)
+                {
+                    const auto base = pixels.getPixelColour (40, y);
+                    bool differs = false;
+
+                    for (int x = 9; x < 28 && ! differs; ++x)
+                        differs = pixels.getPixelColour (x, y) != base;
+
+                    labelRows += differs ? 1 : 0;
+                }
+
+                deckCheck (compact ? (lines == 0 && labelRows == 0) : (lines == 6 && labelRows >= 60),
+                           juce::String ("dB scale: ") + juce::String (lines) + " horizontal lines and " + juce::String (labelRows)
+                               + " rows of dB labels in an empty view, needs " + (compact ? "0 and 0" : "6 and >= 60 (six 14 px chips)"));
+
+                // 悬停在 3 kHz：光标那一列（±7 px）以外，高档的读数框换了字（有像素不同），矮档没有读数框（一个像素都不该变）。
+                hoverAt (*view, 3000.0f);
+                const auto hovered = snapshotOf (*view);
+                const auto cursorX = (int) std::lround (SpectrumView::xOf (3000.0f));
+                int worst = 0;
+                juce::Point<int> at;
+                const auto outside = countDifferences (empty, hovered, { 0, 0, cursorX - 7, empty.getHeight() }, worst, at)
+                                   + countDifferences (empty, hovered, { cursorX + 8, 0, empty.getWidth() - cursorX - 8, empty.getHeight() }, worst, at);
+                const auto inside = countDifferences (empty, hovered, { cursorX - 7, 0, 15, empty.getHeight() }, worst, at);
+
+                deckCheck (inside > 0 && (compact ? outside == 0 : outside > 0),
+                           "hover at 3 kHz: " + juce::String (inside) + " px change in the cursor column (needs > 0), " + juce::String (outside)
+                               + " px outside it (the readout box; needs " + (compact ? "0" : "> 0") + ")");
+            }
+
+            // ---- ③ 增量重画 == 整帧重画：与 V4 同一张场景表，换成单独的卡片 ----
+            // 另数每个场景里路径一共重建了多少次：台子没接上数据时（取样口关着、漏了推帧）曲线一动不动，上面那些「0 残影」全是空转通过。
+            // 每个场景都放了至少 1 s 的声音，起音那一段每帧都重建，少说几十次。
+            int scenarioIndex = 0, fewestBuilds = std::numeric_limits<int>::max();
+            juce::String buildCounts;
+
+            for (const auto& scenario : dirtyScenarios())
+            {
+                const auto outcome = runDirtyScenario (scenario, deckCase.cardHeight);
+                scenario.report (outcome, deckCheck);
+                fewestBuilds = juce::jmin (fewestBuilds, outcome.fewestTotalBuilds());
+                buildCounts << (scenarioIndex++ > 0 ? ", " : "") << outcome.fewestTotalBuilds();
+            }
+
+            deckCheck (fewestBuilds >= 20, "the standalone card really receives audio: path rebuilds per dirty scenario " + buildCounts
+                                               + " (fewest across scales; needs >= 20 each)");
+
+            // ---- ④ 长期运行的视图 == 全新视图（S12），与绝对探针 ----
+            const auto reportFresh = [&deckCheck] (const FreshEquality& result, const juce::String& what)
+            {
+                deckCheck (result.error.isEmpty() && result.differing == 0,
+                           "a long-running view draws what a view built from scratch draws (" + what + ": "
+                               + (result.error.isNotEmpty() ? result.error
+                                                            : juce::String (result.moments - result.differing) + " / " + juce::String (result.moments)
+                                                                  + " moments identical" + (result.differing > 0 ? "; first: " + result.firstDifference : juce::String()))
+                               + ")");
+            };
+
+            const auto variant = deckCase.variant;
+            reportFresh (runFreshAfterStop (false, variant), "S12a: 6 kHz -12 dBFS sine 2 s, silence, peak off, slope 0 -> 4.5, hover");
+            reportFresh (runFreshAfterStop (true, variant), "S12a: 6 kHz -12 dBFS sine 2 s, silence, peak on, slope 0 -> 4.5, hover");
+            reportFresh (runFreshSteadyInput (false, variant), "S12b: IN on, peak off, 6 kHz -12 dBFS sine 10 s steady, slope 0 -> 3 -> 4.5");
+            reportFresh (runFreshSteadyInput (true, variant), "S12b: IN on, peak on, 6 kHz -12 dBFS sine 10 s steady, slope 0 -> 3 -> 4.5");
+            reportFresh (runFreshDecay (variant), "S12c: white noise 2 s, silence, peak off, slope 4.5, tolerance 24 levels");
+            reportFresh (runFreshSteady (0, variant), "S12d: 6 kHz -12 dBFS sine steady, peak off, slope 0, tolerance 24 levels");
+            reportFresh (runFreshSteady (2, variant), "S12d: 6 kHz -12 dBFS sine steady, peak off, slope 4.5, tolerance 24 levels");
+
+            const auto reportProbe = [&deckCheck] (const ProbeResult& result, const juce::String& what)
+            {
+                deckCheck (result.ok, "the spectrum draws the data: " + what + " (" + result.detail + ")");
+            };
+
+            reportProbe (probeOutputFill (variant), "S12 probe OUT fill");
+            reportProbe (probeAverage (variant), "S12 probe average line");
+            reportProbe (probePeak (variant), "S12 probe peak hold line");
+            reportProbe (probeInput (variant), "S12 probe IN dashes");
+            reportProbe (probeHoverReadout (0, variant), "S12 probe hover readout, slope 0");
+            reportProbe (probeHoverReadout (2, variant), "S12 probe hover readout, slope 4.5");
+        }
+
+        // ---- ⑤ 同一个视图在两档之间换高度（展开 / 收起模块时就是这样），之后与按新高度现建的全新视图逐字节相同 ----
+        for (const auto peakOn : { false, true })
+            for (const auto startTall : { true, false })
+            {
+                const auto from = startTall ? deckTallVariant : deckCompactVariant, to = startTall ? deckCompactVariant : deckTallVariant;
+                const auto result = runFreshAfterResize (peakOn, from, to);
+                check (result.error.isEmpty() && result.differing == 0,
+                       "T-123 deck resize: a view resized between graph heights draws what a view built from scratch draws (S12e: 6 kHz -12 dBFS sine 2 s, silence 2 s, peak "
+                           + juce::String (peakOn ? "on" : "off") + ", " + juce::String (from.height) + " -> " + juce::String (to.height) + " -> "
+                           + juce::String (from.height) + ", hover: "
+                           + (result.error.isNotEmpty() ? result.error
+                                                        : juce::String (result.moments - result.differing) + " / " + juce::String (result.moments)
+                                                              + " moments identical" + (result.differing > 0 ? "; first: " + result.firstDifference : juce::String()))
+                           + ")");
+            }
+    }
+
+    // --compare <目录 A> <目录 B>（T-123）：两套出图逐像素比（改前的树与改后的树在同一个任务里各出一套，再用它比；隔着任务比文件哈希
+    // 不可靠——电平表的下落按墙钟算，机器忙闲不同时个别像素会变）。比的是解出来的像素，不是 PNG 的字节。每张图一行：相同，或不同的像素数、
+    // 最大通道差、不同像素的外框（图的像素坐标）；只在一边有的图、尺寸不同的图也算不同。全部相同返回 0。
+    int runCompare (const juce::File& dirA, const juce::File& dirB)
+    {
+        juce::StringArray names;
+
+        for (const auto& dir : { dirA, dirB })
+            for (const auto& file : dir.findChildFiles (juce::File::findFiles, false, "*.png"))
+                names.addIfNotAlreadyThere (file.getFileName());
+
+        names.sort (false);
+        int different = 0;
+
+        for (const auto& name : names)
+        {
+            const auto a = juce::ImageFileFormat::loadFrom (dirA.getChildFile (name));
+            const auto b = juce::ImageFileFormat::loadFrom (dirB.getChildFile (name));
+
+            if (! a.isValid() || ! b.isValid() || a.getBounds() != b.getBounds())
+            {
+                ++different;
+                std::cout << "compare " << name << ": " << (! a.isValid() ? "missing in A" : ! b.isValid() ? "missing in B" : "sizes differ") << std::endl;
+                continue;
+            }
+
+            const juce::Image::BitmapData da (a, juce::Image::BitmapData::readOnly), db (b, juce::Image::BitmapData::readOnly);
+            int count = 0, worst = 0;
+            juce::Rectangle<int> box;
+
+            for (int y = 0; y < a.getHeight(); ++y)
+                for (int x = 0; x < a.getWidth(); ++x)
+                {
+                    const auto p = da.getPixelColour (x, y), q = db.getPixelColour (x, y);
+
+                    if (p == q)
+                        continue;
+
+                    const juce::Rectangle<int> pixel (x, y, 1, 1);
+                    box = count++ == 0 ? pixel : box.getUnion (pixel);
+                    worst = juce::jmax (worst, std::abs ((int) p.getRed() - (int) q.getRed()), std::abs ((int) p.getGreen() - (int) q.getGreen()),
+                                        juce::jmax (std::abs ((int) p.getBlue() - (int) q.getBlue()), std::abs ((int) p.getAlpha() - (int) q.getAlpha())));
+                }
+
+            different += count > 0 ? 1 : 0;
+            std::cout << "compare " << name << ": "
+                      << (count == 0 ? juce::String ("identical")
+                                     : juce::String (count) + " px differ, worst " + juce::String (worst) + ", box " + box.toString())
+                      << std::endl;
+        }
+
+        std::cout << "==== compare: " << (names.size() - different) << " / " << names.size() << " identical" << std::endl;
+        return different == 0 && ! names.isEmpty() ? 0 : 1;
+    }
+
+    // --only deck（T-123 M2）：只跑上面这一组，再存几张卡片的图给人看（不比像素）：GLAZE 45 放 3 s 合成音乐，修坯标记、悬停光标、
+    // 电平表各给一组读数；两种高度 × 中英，外加一张「真峰值超限 + 方案受限」（输出与衰减变橙）。返回失败的检查数。
+    int runDeckOnly (const juce::File& outDir)
+    {
+        using namespace celadon::ui;
+        int failures = 0;
+
+        runSpectrumDeckChecks ([&failures] (bool ok, const juce::String& what)
+        {
+            std::cout << (ok ? "PASS " : "FAIL ") << what << std::endl;
+            failures += ok ? 0 : 1;
+        });
+
+        struct Still
+        {
+            int cardHeight;
+            celadon::Language language;
+            bool alert;
+            const char* name;
+        };
+
+        const Still stills[] = { { SpectrumDeck::tallHeight, celadon::Language::chinese, false, "deck-tall-zh" },
+                                 { SpectrumDeck::compactHeight, celadon::Language::chinese, false, "deck-compact-zh" },
+                                 { SpectrumDeck::tallHeight, celadon::Language::english, false, "deck-tall-en" },
+                                 { SpectrumDeck::compactHeight, celadon::Language::english, false, "deck-compact-en" },
+                                 { SpectrumDeck::compactHeight, celadon::Language::chinese, true, "deck-compact-zh-alert" } };
+
+        for (const auto& still : stills)
+        {
+            SpectrumRig rig (45.0f, still.cardHeight);
+
+            if (! rig.isValid())
+            {
+                std::cout << "FAIL deck still " << still.name << ": spectrum view not found" << std::endl;
+                ++failures;
+                continue;
+            }
+
+            rig.deck->setLanguage (still.language);
+            auto& music = rig.session->music;
+            const SpectrumRig::AudioSource source = [&music] (juce::AudioBuffer<float>& chunk) { music.render (chunk, chunk.getNumSamples()); };
+
+            for (int i = 0; i < 180; ++i)
+            {
+                rig.feed (rig.samplesForFrame (60), source);
+                rig.advance (1.0 / 60.0);
+                rig.deck->inputMeter.pushReadings (-4.7f, 0.0f, std::numeric_limits<float>::infinity(), false, 1.0 / 60.0);
+                rig.deck->outputMeter.pushReadings (still.alert ? -0.7f : -1.4f, still.alert ? 3.2f : 1.4f, -1.0f, still.alert, 1.0 / 60.0);
+            }
+
+            rig.view->setClayMarkers (25.0f, 120.0f, true);
+            hoverAt (*rig.view, 1250.0f);
+            const auto file = outDir.getChildFile (juce::String (still.name) + ".png");
+            std::cout << (save (*rig.deck, 2.0f, file) ? "saved " : "FAILED to save ") << file.getFileName() << std::endl;
+        }
+
+        std::cout << (failures == 0 ? "all deck checks passed" : juce::String (failures) + " deck checks FAILED") << std::endl;
+        return failures;
     }
 }
 
@@ -4635,7 +5124,7 @@ namespace
             rig.slope->setSelected (scenario == Scenario::stopSlope45 ? 2 : 0, true);
             rig.attach();
 
-            auto& editor = rig.editor;
+            auto& editor = *rig.editor;
             auto screen = rig.newBackingImage (scale);
             paintRegion (editor, screen, scale, juce::RectangleList<int> (editor.getLocalBounds()));   // 窗口第一次显示：整帧
             rig.takeDirty();

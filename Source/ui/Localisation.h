@@ -52,7 +52,7 @@ namespace celadon::ui
         meterIn, meterOut, meterGr,
 
         // ---- 频谱仪 ----
-        showOutput, showInput, showPeak, slope, cents, markLowCut, markMono,
+        showOutput, showInput, showPeak, slope, cents, markLowCut, markMono, enlargeSpectrum,
 
         // ---- 响度 ----
         loudness, peakToLoudness, normalisation, resetMeters,

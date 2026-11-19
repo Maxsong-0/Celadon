@@ -68,6 +68,7 @@ namespace celadon::ui
             { Text::cents,              "音分",                     "cents" },
             { Text::markLowCut,         "低切",                     "Low cut" },
             { Text::markMono,           "收单",                     "Mono" },
+            { Text::enlargeSpectrum,    "放大频谱",                 "Enlarge spectrum" },
 
             // ---- 响度 ----
             { Text::loudness,           "响度",                     "LOUDNESS" },

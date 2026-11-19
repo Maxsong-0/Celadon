@@ -59,6 +59,12 @@
       区域不含峰值线、开着时含）。buildEnvelope 仍无条件建峰值线路径：只省 517 个点（一次重建要走 3 千多个点），不值得多一条
       「峰值线路径可能是旧的」的不变量。
 
+    T-123（2026-11-19，界面 V5「一釉」，规格 V5 2.3）：两种样子（Style）。panel 是上面写的 V4 面板，画出来与改前逐字节相同。
+      deck 是 V5 频谱卡片（SpectrumDeck）里的那张图：宽仍是 1032，高由卡片定——都收起时 266，有模块展开时 92（矮档）；
+      圆角 8、自己不描边（边在卡片上）；图例一排靠右上；矮档不画 dB 刻度（横线与标签）和悬停读数框，频率刻度、图例、斜率、
+      修坯标记两档都有，另多一个「放大频谱」键（点了由编辑器收起当前模块）。纵向的东西都按实际高度排（yOf 是实例方法）。
+      换版面（M6）之后 V4 的 panel 一支在 M7 删掉。
+
   ==============================================================================
 */
 
@@ -85,12 +91,22 @@ namespace celadon::ui
                           public juce::SettableTooltipClient
     {
     public:
-        SpectrumView();
+        // panel = V4 的面板（1032 × 238）；deck = V5 频谱卡片里的图（高度由卡片定，见文件头 T-123）。
+        enum class Style { panel, deck };
+
+        explicit SpectrumView (Style styleToUse = Style::panel);
 
         static constexpr int width = 1032;
-        static constexpr int height = 238;
+        static constexpr int defaultHeight = 238;    // 构造时的高度，也是 V4 面板的高度；deck 由 SpectrumDeck 改成 266 / 92
+        static constexpr int compactBelow = 160;     // deck 的图比这矮就是矮档（92）；高档 266
         static constexpr float topDb = -3.0f;
         static constexpr float bottomDb = -84.0f;
+
+        // 矮档（只有 deck 有）：不画 dB 刻度与悬停读数框，多一个「放大频谱」键。
+        bool isCompact() const noexcept   { return compact; }
+
+        // 点了「放大频谱」（只在矮档出现）：编辑器收起当前展开的模块，卡片回到高档。
+        std::function<void()> onEnlarge;
 
         void setLanguage (Language newLanguage);
 
@@ -116,7 +132,7 @@ namespace celadon::ui
         void mouseExit (const juce::MouseEvent&) override;
 
         static float xOf (float frequency) noexcept;
-        static float yOf (float db) noexcept;
+        float yOf (float db) const noexcept;   // 按此刻的高度（T-123 起是实例方法：高度不再是常量）
 
     private:
         // 图例开关（OUT / IN / PEAK）：色块 + 名字；关掉时整颗变淡。
@@ -138,6 +154,21 @@ namespace celadon::ui
             Swatch swatch;
             juce::String text;
             bool on = true;
+        };
+
+        // 「放大频谱」键（T-123，只在 deck 的矮档出现）：和图例开关同一种白底描边的小块，只有字。
+        class TextKey  : public ClickableComponent
+        {
+        public:
+            TextKey();
+
+            void setText (const juce::String& newText);
+            int getNaturalWidth() const;
+
+            void paint (juce::Graphics&) override;
+
+        private:
+            juce::String text;
         };
 
         // 斜率选择：「斜率」+ 0 / 3 / 4.5 +「dB/oct」，一个描边的小容器。
@@ -181,6 +212,7 @@ namespace celadon::ui
             count
         };
 
+        void updateGeometry();
         float tiltAt (float frequency) const noexcept;
         void updateTilt();
         void setPeakShown (bool shouldShow);
@@ -209,7 +241,17 @@ namespace celadon::ui
         void prepareStripes (float pixelScale, juce::Colour colour);
         void drawLayer (juce::Graphics&, Layer which);
 
+        const Style style;
         Language language = Language::chinese;
+
+        // 随高度变的几个量（updateGeometry，resized 时算）。panel 与 deck 高档是 V4 的数；矮档往上收。
+        float graphHeight = (float) defaultHeight;   // = getHeight()，yOf 每帧要用上千次，存成 float
+        bool compact = false;
+        int fadeTop = 40;                             // OUT 往下渐隐从这里开始（以上全透明）
+        float markerTop = 40.0f;                      // 修坯频率标记的竖虚线从这里往下
+        float markerChipY = 46.0f, markerChipLowerY = 63.0f;   // 标记的标签；两个标签相交时收单那个用下面这一行
+        int legendY = 13;                             // 图例一排的上缘
+
         // 曲线的值都是未加斜率的 dB（SpectrumAnalyser 的 numPoints 个点）。画出来的那组：路径按它建，也是 setSpectrum 判「屏上
         // 变没变」的基准，只在重建时更新；latest* = 计算器此刻的值，每帧拷（只拷不比），重建时先换进画出来的那组（T-058）。
         std::vector<float> output, input, average, peak;
@@ -227,7 +269,7 @@ namespace celadon::ui
         bool clayActive = false;
         juce::String lowCutLabel, monoLabel;
         float lowCutLabelWidth = 0.0f, monoLabelWidth = 0.0f;
-        std::array<juce::Rectangle<float>, 6> dbChips;               // −12 … −72 dB 刻度的白色底框（构造时量好）
+        std::array<juce::Rectangle<float>, 6> dbChips;               // −12 … −72 dB 刻度的白色底框（高度变了重量，updateGeometry）
 
         juce::Path panel;                                            // 圆角面板（裁剪与描边）
         juce::Path outputLine, outputFill, averageLine, peakLine;   // 加了斜率的曲线；outputFill = outputLine 闭合到底边
@@ -252,6 +294,7 @@ namespace celadon::ui
                      inputToggle { LegendToggle::Swatch::input },
                      peakToggle { LegendToggle::Swatch::peak };
         SlopeControl slopeControl;
+        TextKey enlargeKey;
         int readoutWidth = 250;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumView)

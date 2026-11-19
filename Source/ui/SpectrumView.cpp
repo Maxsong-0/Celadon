@@ -75,10 +75,10 @@ namespace celadon::ui
 
         juce::Font frequencyLabelFont()   { return monoFont (TextSize::micro); }
 
-        // 底框：刻度线右边 2 px 起、底边上方，宽 = 字宽 + 6、高 14；字在框里左右各留 3。
-        juce::Rectangle<float> frequencyLabelChip (const FrequencyLabel& label)
+        // 底框：刻度线右边 2 px 起、底边上方，宽 = 字宽 + 6、高 14；字在框里左右各留 3。graphHeight = 图此刻的高度。
+        juce::Rectangle<float> frequencyLabelChip (const FrequencyLabel& label, float graphHeight)
         {
-            return { SpectrumView::xOf (label.frequency) + 2.0f, (float) SpectrumView::height - 20.0f,
+            return { SpectrumView::xOf (label.frequency) + 2.0f, graphHeight - 20.0f,
                      textWidth (frequencyLabelFont(), label.text) + 6.0f, 14.0f };
         }
 
@@ -89,10 +89,11 @@ namespace celadon::ui
             juce::Rectangle<float> chip;
         };
 
-        DbLabel dbLabelFor (float db, const juce::Font& font)
+        // y = 这条刻度线的纵坐标（SpectrumView::yOf (db)，随图的高度变）。
+        DbLabel dbLabelFor (float db, float y, const juce::Font& font)
         {
             auto text = minusSign() + juce::String (juce::roundToInt (-db));
-            const juce::Rectangle<float> chip (5.0f, std::round (SpectrumView::yOf (db)) - 7.0f, textWidth (font, text) + 6.0f, 14.0f);
+            const juce::Rectangle<float> chip (5.0f, std::round (y) - 7.0f, textWidth (font, text) + 6.0f, 14.0f);
             return { std::move (text), chip };
         }
 
@@ -273,6 +274,38 @@ namespace celadon::ui
     }
 
     //==============================================================================
+    SpectrumView::TextKey::TextKey()
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void SpectrumView::TextKey::setText (const juce::String& newText)
+    {
+        text = newText;
+        repaint();
+    }
+
+    int SpectrumView::TextKey::getNaturalWidth() const
+    {
+        return (int) std::ceil (8.0f + textWidth (uiFont (TextSize::caption), text) + 8.0f);
+    }
+
+    void SpectrumView::TextKey::paint (juce::Graphics& g)
+    {
+        // 与图例开关同一种小块：白底（压在曲线上要看得清）、1 px 描边；按下时底色换成浅青。
+        const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+
+        g.setColour (isPressed() ? palette::c100 : juce::Colours::white.withAlpha (0.85f * (isHovering() ? 1.0f : 0.95f)));
+        g.fillRoundedRectangle (bounds, 6.0f);
+        g.setColour (palette::controlBorder);
+        g.drawRoundedRectangle (bounds, 6.0f, 1.0f);
+
+        g.setFont (uiFont (TextSize::caption));
+        g.setColour (palette::ink2);
+        drawTextLine (g, text, getLocalBounds().toFloat(), juce::Justification::centred);
+    }
+
+    //==============================================================================
     SpectrumView::SlopeControl::SlopeControl()
     {
         choices.setOptions ({ "0", "3", "4.5" });
@@ -328,9 +361,10 @@ namespace celadon::ui
     }
 
     //==============================================================================
-    SpectrumView::SpectrumView()
+    SpectrumView::SpectrumView (Style styleToUse)
+        : style (styleToUse)
     {
-        setSize (width, height);
+        setSize (width, defaultHeight);   // resized → updateGeometry：圆角、dB 刻度底框等随高度的量在那里算
         setMouseCursor (juce::MouseCursor::CrosshairCursor);
 
         const auto points = (size_t) SpectrumAnalyser::numPoints;
@@ -345,18 +379,6 @@ namespace celadon::ui
             pointFrequency[(size_t) i] = SpectrumAnalyser::frequencyAt (i);
         }
 
-        // dB 刻度的底框位置与宽度（字是数字，不随语言变）：量一次，paint 里不再每帧量字宽。
-        {
-            const auto font = monoFont (TextSize::micro);
-            auto db = -12.0f;
-
-            for (auto& chip : dbChips)
-            {
-                chip = dbLabelFor (db, font).chip;
-                db -= 12.0f;
-            }
-        }
-
         for (auto* toggle : { &outputToggle, &inputToggle, &peakToggle })
             addAndMakeVisible (*toggle);
 
@@ -369,11 +391,16 @@ namespace celadon::ui
         slopeControl.onChange = [this] { updateTilt(); updatePeakReadout (latestOutput); refreshReadout(); repaint(); };
         addAndMakeVisible (slopeControl);
 
+        // 「放大频谱」（T-123）：只在 deck 的矮档显示（layoutControls）。组件 ID 让截图工具按名字找到它，也把它和三个图例开关分开。
+        enlargeKey.setComponentID ("spectrum_enlarge");
+        enlargeKey.onClick = [this] { if (onEnlarge != nullptr) onEnlarge(); };
+        addChildComponent (enlargeKey);
+
         // 频谱一秒重画 60 / 120 次（T-036）：图例开关、斜率都压在面板上（响度小窗 T-107 起搬到中层右侧板），曲线一动就在脏区里——各自缓存成图，
         // 自己没变时只贴图，不再每帧重排文字（它们自己 repaint 时缓存作废、下次重画）。用项目自己的对齐缓存（Controls.h，
         // T-032 A9）：按实际像素比生成、整数对齐贴图；JUCE 自带的 setBufferedToImage 在小数像素比（界面 70 % / 115 %、
         // Windows 125 % / 150 %）下每帧双线性重采样，字发糊。
-        for (auto* child : std::initializer_list<juce::Component*> { &outputToggle, &inputToggle, &peakToggle, &slopeControl })
+        for (auto* child : std::initializer_list<juce::Component*> { &outputToggle, &inputToggle, &peakToggle, &slopeControl, &enlargeKey })
             setBufferedToAlignedImage (*child);
 
         updateTilt();
@@ -387,6 +414,8 @@ namespace celadon::ui
         inputToggle.setText (tr (Text::showInput, language));
         peakToggle.setText (tr (Text::showPeak, language));
         slopeControl.setLabel (tr (Text::slope, language));
+        enlargeKey.setText (tr (Text::enlargeSpectrum, language));
+        enlargeKey.setTooltip (help::tooltipFor (uiid::spectrumEnlarge, language));
 
         // 读数框按最长的读数定宽，读数变化时后面的开关不跟着左右跳。
         readoutWidth = (int) std::ceil (textWidth (monoFont (TextSize::value, Weight::semibold),
@@ -402,23 +431,87 @@ namespace celadon::ui
 
     void SpectrumView::resized()
     {
-        panel.clear();
-        panel.addRoundedRectangle (getLocalBounds().toFloat(), 14.0f);
-        invalidate (Layer::back);
+        updateGeometry();
         layoutControls();
+    }
+
+    void SpectrumView::updateGeometry()
+    {
+        // 随高度变的量都在这里（T-123：deck 的高度会在 266 与 92 之间换）。panel 与 deck 高档用 V4 的数。
+        graphHeight = (float) getHeight();
+        compact = style == Style::deck && getHeight() < compactBelow;
+
+        panel.clear();
+        panel.addRoundedRectangle (getLocalBounds().toFloat(), style == Style::deck ? 8.0f : 14.0f);
+
+        // 矮档（92 高）从上到下：图例一排 8 ～ 32，修坯标记的标签 36 ～ 51（相交时收单那个 53 ～ 68），频率刻度 72 ～ 86。
+        // 渐隐起点按高度比例缩（40 / 238）。
+        fadeTop = compact ? juce::roundToInt (40.0f * graphHeight / (float) defaultHeight) : 40;
+        markerTop = compact ? 34.0f : 40.0f;
+        markerChipY = compact ? 36.0f : 46.0f;
+        markerChipLowerY = markerChipY + 17.0f;
+        legendY = compact ? 8 : 13;
+
+        // dB 刻度的底框位置与宽度（字是数字，不随语言变）：高度变了才量，paint 里不再每帧量字宽。
+        {
+            const auto font = monoFont (TextSize::micro);
+            auto db = -12.0f;
+
+            for (auto& chip : dbChips)
+            {
+                chip = dbLabelFor (db, yOf (db), font).chip;
+                db -= 12.0f;
+            }
+        }
+
+        // 每张缓存图的内容或位置都跟高度有关；曲线按新的高度重建（paint 里，按此刻的值），上一帧的曲线区域作废。
+        for (auto& cached : layers)
+            cached.valid = false;
+
+        curvePathsValid = false;
+        curveArea = {};
     }
 
     void SpectrumView::layoutControls()
     {
-        auto x = 48 + readoutWidth + 6;
+        constexpr int gap = 6, rowHeight = 24;
+
+        if (style == Style::deck)
+        {
+            // V5（规格 2.3）：图例一排靠图的右上，右缘离图右边 16：输出 / 输入 / 峰值、斜率；矮档（有模块展开）再多一个「放大频谱」。
+            enlargeKey.setVisible (compact);
+
+            auto total = slopeControl.getNaturalWidth();
+
+            for (auto* toggle : { &outputToggle, &inputToggle, &peakToggle })
+                total += toggle->getNaturalWidth() + gap;
+
+            if (compact)
+                total += gap + enlargeKey.getNaturalWidth();
+
+            auto x = width - 16 - total;
+
+            for (auto* toggle : { &outputToggle, &inputToggle, &peakToggle })
+            {
+                toggle->setBounds (x, legendY, toggle->getNaturalWidth(), rowHeight);
+                x += toggle->getWidth() + gap;
+            }
+
+            slopeControl.setBounds (x, legendY, slopeControl.getNaturalWidth(), rowHeight);
+            enlargeKey.setBounds (slopeControl.getRight() + gap, legendY, enlargeKey.getNaturalWidth(), rowHeight);
+            return;
+        }
+
+        // V4：读数框后面跟着排。
+        auto x = 48 + readoutWidth + gap;
 
         for (auto* toggle : { &outputToggle, &inputToggle, &peakToggle })
         {
-            toggle->setBounds (x, 13, toggle->getNaturalWidth(), 24);
-            x += toggle->getWidth() + 6;
+            toggle->setBounds (x, legendY, toggle->getNaturalWidth(), rowHeight);
+            x += toggle->getWidth() + gap;
         }
 
-        slopeControl.setBounds (x, 13, slopeControl.getNaturalWidth(), 24);
+        slopeControl.setBounds (x, legendY, slopeControl.getNaturalWidth(), rowHeight);
     }
 
     float SpectrumView::xOf (float frequency) noexcept
@@ -426,9 +519,9 @@ namespace celadon::ui
         return SpectrumAnalyser::positionOf (frequency) * (float) width;
     }
 
-    float SpectrumView::yOf (float db) noexcept
+    float SpectrumView::yOf (float db) const noexcept
     {
-        return juce::jlimit (0.0f, (float) height, (topDb - db) / (topDb - bottomDb) * (float) height);
+        return juce::jlimit (0.0f, graphHeight, (topDb - db) / (topDb - bottomDb) * graphHeight);
     }
 
     float SpectrumView::tiltAt (float frequency) const noexcept
@@ -654,7 +747,7 @@ namespace celadon::ui
             return {};
 
         const auto x = xOf (*hoverFrequency);
-        return juce::Rectangle<float> (x - 6.0f, 0.0f, 12.0f, (float) height).getSmallestIntegerContainer();
+        return juce::Rectangle<float> (x - 6.0f, 0.0f, 12.0f, graphHeight).getSmallestIntegerContainer();
     }
 
     void SpectrumView::setHoverFrequency (std::optional<float> frequency)
@@ -712,8 +805,8 @@ namespace celadon::ui
         // 隔一个点取一个看不出差别，描边少一半的段。
         buildLine (output, outputLine);
         buildLine (output, outputFill);   // 直接建（clear 保留容量），不拷贝 outputLine：播放中每帧建一次，拷贝就是一次分配
-        outputFill.lineTo ((float) width, (float) height);
-        outputFill.lineTo (0.0f, (float) height);
+        outputFill.lineTo ((float) width, graphHeight);
+        outputFill.lineTo (0.0f, graphHeight);
         outputFill.closeSubPath();
         buildLine (average, averageLine, 2);
         buildEnvelope (peak, peakLine);
@@ -764,7 +857,7 @@ namespace celadon::ui
             for (int j = juce::jmax (0, i - reach); j <= juce::jmin (last, i + reach); ++j)
                 best = juce::jmax (best, output[(size_t) j] + tilt[(size_t) j]);
 
-            columnLevel[(size_t) i] = 1.0f - yOf (best) / (float) height;
+            columnLevel[(size_t) i] = 1.0f - yOf (best) / graphHeight;
         }
 
         outputRowValid = false;
@@ -828,13 +921,16 @@ namespace celadon::ui
                 juce::Rectangle<float> area;
 
                 for (const auto& label : frequencyLabels)
-                    area = area.getUnion (frequencyLabelChip (label));
+                    area = area.getUnion (frequencyLabelChip (label, graphHeight));
 
                 return padded (area);
             }
 
             case Layer::dbLabels:
             {
+                if (compact)
+                    return {};   // 矮档不画 dB 刻度（规格 V5 2.3）
+
                 juce::Rectangle<float> area;
 
                 for (const auto& chip : dbChips)
@@ -844,6 +940,9 @@ namespace celadon::ui
             }
 
             case Layer::readout:
+                if (compact)
+                    return {};   // 矮档不画悬停读数框（规格 V5 2.3）；光标线与圆点照画
+
                 return padded (readoutShadowBounds (readoutBox()).getUnion (readoutBox()));
 
             case Layer::count:
@@ -855,7 +954,7 @@ namespace celadon::ui
 
     void SpectrumView::paintLayer (Layer which, juce::Graphics& g) const
     {
-        const auto w = (float) width, h = (float) height;
+        const auto w = (float) width, h = graphHeight;
 
         switch (which)
         {
@@ -881,8 +980,9 @@ namespace celadon::ui
                                       800.0f, 900.0f, 2000.0f, 3000.0f, 4000.0f, 5000.0f, 6000.0f, 7000.0f, 8000.0f, 9000.0f })
                     g.fillRect (std::round (xOf (f)), 0.0f, 1.0f, h);
 
-                for (float db = -12.0f; db >= -72.0f; db -= 12.0f)
-                    g.fillRect (0.0f, std::round (yOf (db)), w, 1.0f);
+                if (! compact)   // 矮档不画 dB 刻度的横线（规格 V5 2.3）
+                    for (float db = -12.0f; db >= -72.0f; db -= 12.0f)
+                        g.fillRect (0.0f, std::round (yOf (db)), w, 1.0f);
 
                 g.setColour (juce::Colour (0xff0d3b45).withAlpha (0.12f));
 
@@ -896,7 +996,7 @@ namespace celadon::ui
                 {
                     juce::Graphics::ScopedSaveState hatchState (g);
                     const auto right = xOf (clayLowCutHz);
-                    g.reduceClipRegion (juce::Rectangle<int> (0, 0, (int) std::ceil (right), height));
+                    g.reduceClipRegion (juce::Rectangle<int> (0, 0, (int) std::ceil (right), getHeight()));
                     g.setColour (palette::c800.withAlpha (0.16f));
 
                     for (float x = -h; x < right; x += 5.0f * std::sqrt (2.0f))
@@ -911,13 +1011,13 @@ namespace celadon::ui
                 g.setColour (juce::Colours::white.withAlpha (0.8f));
 
                 for (const auto& label : frequencyLabels)
-                    g.fillRoundedRectangle (frequencyLabelChip (label), 3.0f);
+                    g.fillRoundedRectangle (frequencyLabelChip (label, h), 3.0f);
 
                 g.setFont (frequencyLabelFont());
                 g.setColour (palette::ink2);
 
                 for (const auto& label : frequencyLabels)
-                    drawTextLine (g, label.text, frequencyLabelChip (label), juce::Justification::centred);
+                    drawTextLine (g, label.text, frequencyLabelChip (label, h), juce::Justification::centred);
 
                 break;
             }
@@ -937,7 +1037,7 @@ namespace celadon::ui
 
                 for (float db = -12.0f; db >= -72.0f; db -= 12.0f)
                 {
-                    const auto label = dbLabelFor (db, dbFont);
+                    const auto label = dbLabelFor (db, yOf (db), dbFont);
                     drawTextLine (g, label.text, label.chip, juce::Justification::centred);
                 }
 
@@ -982,6 +1082,17 @@ namespace celadon::ui
             // 图覆盖 area 在设备像素上的外接矩形，左上角取整到设备像素：逻辑坐标 q 画在图的 q × 像素比 − origin 处，
             // 与组件自己的设备像素网格同相位（组件原点在整数像素上时，贴回去与直接画逐像素相同）。
             const auto area = layerArea (which);
+
+            if (area.isEmpty())
+            {
+                // 这一层此刻不画（矮档的 dB 刻度与读数框，T-123）：不建图，drawLayer 见到无效的图直接返回。
+                cached.area = area;
+                cached.image = {};
+                cached.pixelScale = pixelScale;
+                cached.valid = true;
+                continue;
+            }
+
             const auto x0 = (int) std::floor ((float) area.getX() * pixelScale);
             const auto y0 = (int) std::floor ((float) area.getY() * pixelScale);
             const auto x1 = (int) std::ceil ((float) area.getRight() * pixelScale);
@@ -1053,12 +1164,13 @@ namespace celadon::ui
             juce::Graphics g (stripeRow);
             g.addTransform (juce::AffineTransform::scale (pixelScale));
             juce::Path wholeRow;
-            wholeRow.addRectangle (0.0f, 0.0f, (float) width + 4.0f, (float) height);
+            // 图只有一行：条纹画多高都盖满这一行，用构造时的高度（与图此刻的高度无关，换高度不用重做）。
+            wholeRow.addRectangle (0.0f, 0.0f, (float) width + 4.0f, (float) defaultHeight);
             g.reduceClipRegion (wholeRow);
             g.setColour (colour);
 
             for (float x = 0.0f; x < (float) width; x += 2.0f)
-                g.fillRect (x, 0.0f, 0.8f, (float) height);
+                g.fillRect (x, 0.0f, 0.8f, (float) defaultHeight);
         }
 
         // T-036：条纹不再单独填（与按响度上色合成一行图，prepareOutputRow），只要每个设备像素列的条纹不透明度——读一次存下，
@@ -1098,7 +1210,7 @@ namespace celadon::ui
             curveArea = curveArea.getUnion (curveRegion());
         }
 
-        const auto h = (float) height;
+        const auto h = graphHeight;
         const auto outputAlpha = outputToggle.isOn() ? 1.0f : 0.12f;
         const auto showInput = inputToggle.isOn() && inputReady;
 
@@ -1150,10 +1262,10 @@ namespace celadon::ui
                     g.fillPath (outputFill);
                 }
 
-                // 往下渐隐：同样直接填 OUT 的形状。y < 40 处渐隐全透明，先裁掉（曲线很响时少填十几 % 的像素）。
+                // 往下渐隐：同样直接填 OUT 的形状。y < fadeTop（40；矮档按高度比例缩）处渐隐全透明，先裁掉（曲线很响时少填十几 % 的像素）。
                 juce::Graphics::ScopedSaveState fadeState (g);
-                g.reduceClipRegion (juce::Rectangle<int> (0, 40, width, height - 40));
-                g.setGradientFill (juce::ColourGradient (palette::spectrumFloor.withAlpha (0.0f), 0.0f, 40.0f,
+                g.reduceClipRegion (juce::Rectangle<int> (0, fadeTop, width, getHeight() - fadeTop));
+                g.setGradientFill (juce::ColourGradient (palette::spectrumFloor.withAlpha (0.0f), 0.0f, (float) fadeTop,
                                                          palette::spectrumFloor.withAlpha (0.92f * outputAlpha), 0.0f, h, false));
                 g.fillPath (outputFill);
             }
@@ -1195,10 +1307,10 @@ namespace celadon::ui
                 };
 
                 // 两个标签框相交时收单那个下移 17 px（T-111 / 4-21：低切与收单频率接近时原来叠在一起）。
-                const auto lowCutChip = chipFor (clayLowCutHz, lowCutLabelWidth, 46.0f);
+                const auto lowCutChip = chipFor (clayLowCutHz, lowCutLabelWidth, markerChipY);
                 const auto monoOverlaps = clayLowCutHz > 0.0f && clayMonoHz > 0.0f
-                                          && lowCutChip.intersects (chipFor (clayMonoHz, monoLabelWidth, 46.0f));
-                const auto monoChip = chipFor (clayMonoHz, monoLabelWidth, monoOverlaps ? 63.0f : 46.0f);
+                                          && lowCutChip.intersects (chipFor (clayMonoHz, monoLabelWidth, markerChipY));
+                const auto monoChip = chipFor (clayMonoHz, monoLabelWidth, monoOverlaps ? markerChipLowerY : markerChipY);
 
                 const auto marker = [&] (float frequency, const juce::String& label, juce::Rectangle<float> chip)
                 {
@@ -1208,7 +1320,7 @@ namespace celadon::ui
                     const auto inRange = frequency >= SpectrumAnalyser::minFrequency;
                     const auto x = markerX (frequency);
 
-                    if (! intersects (chip.getUnion (juce::Rectangle<float> (x - 1.0f, 40.0f, 2.0f, h - 40.0f))))
+                    if (! intersects (chip.getUnion (juce::Rectangle<float> (x - 1.0f, markerTop, 2.0f, h - markerTop))))
                         return;
 
                     const float dashes[] = { 3.0f, 3.0f };
@@ -1216,7 +1328,7 @@ namespace celadon::ui
                     if (inRange)
                     {
                         g.setColour (palette::c800.withAlpha (0.45f));
-                        g.drawDashedLine (juce::Line<float> (x, 40.0f, x, h), dashes, 2, 1.0f);
+                        g.drawDashedLine (juce::Line<float> (x, markerTop, x, h), dashes, 2, 1.0f);
                     }
 
                     g.setColour (juce::Colours::white.withAlpha (0.85f));
@@ -1259,8 +1371,12 @@ namespace celadon::ui
         }
 
         // 描边内缩半像素，整条 1 px 线都在面板里（T-111 / 4-07：原来沿不内缩的路径描，一半落在组件外被裁掉，只有电平表、卡片的一半粗）。
-        g.setColour (palette::panelBorder);
-        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 13.5f, 1.0f);
+        // deck 不描：边在外面的卡片上（T-123）。
+        if (style == Style::panel)
+        {
+            g.setColour (palette::panelBorder);
+            g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 13.5f, 1.0f);
+        }
     }
 
     void SpectrumView::mouseMove (const juce::MouseEvent& e)

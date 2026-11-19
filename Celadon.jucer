@@ -185,6 +185,10 @@
               file="Source/ui/SpectrumAnalyser.cpp"/>
         <FILE id="nIF03E" name="SpectrumAnalyser.h" compile="0" resource="0"
               file="Source/ui/SpectrumAnalyser.h"/>
+        <FILE id="Sd5V5c" name="SpectrumDeck.cpp" compile="1" resource="0"
+              file="Source/ui/SpectrumDeck.cpp"/>
+        <FILE id="Sd5V5h" name="SpectrumDeck.h" compile="0" resource="0"
+              file="Source/ui/SpectrumDeck.h"/>
         <FILE id="p6g0jW" name="SpectrumView.cpp" compile="1" resource="0"
               file="Source/ui/SpectrumView.cpp"/>
         <FILE id="Xr9qG9" name="SpectrumView.h" compile="0" resource="0"

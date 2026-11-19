@@ -356,6 +356,14 @@ namespace celadon::help
               "How many dB the limiter is reducing right now.",
               "Staying above 6 dB for long means Gain is pushed too far." },
 
+            { uiid::spectrumEnlarge,
+              "放大频谱",
+              "收起下面展开的模块面板，把频谱放回整个下半屏；不改任何参数。",
+              "再点模块行的那一块可以重新展开，从它的第一页开始。",
+              "Enlarge spectrum",
+              "Collapses the open module panel so the spectrum fills the lower half again; no parameter changes.",
+              "Click the module in the row again to reopen it on its first page." },
+
             { uiid::integrated,
               "整体响度（LUFS）",
               "从复位开始累计的平均响度，流媒体按它做音量归一；听原声或宿主旁通插件时暂停累计，不把原声算进来。",

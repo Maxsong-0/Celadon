@@ -1,0 +1,34 @@
+::mutation-begin:: A 卡片测试台不打开取样口（应红：really receives audio）
+run.sh 退出码 0（清单里写了期望失败：0 = 检查按预期变红）
+FAIL T-123 deck 288 (graph 266): the standalone card really receives audio: path rebuilds per dirty scenario 2, 2, 2, 1, 1, 4, 1 (fewest across scales; needs >= 20 each)
+FAIL T-123 deck 114 (graph 92): the standalone card really receives audio: path rebuilds per dirty scenario 2, 2, 2, 1, 1, 4, 1 (fewest across scales; needs >= 20 each)
+2 deck checks FAILED
+PASS 行数：62
+::mutation-end:: A 卡片测试台不打开取样口（应红：really receives audio）
+::mutation-begin:: B paint 里重建后不把画出的区域并进旧区域（应红：S8 增量重画）
+run.sh 退出码 0（清单里写了期望失败：0 = 检查按预期变红）
+FAIL T-123 deck 288 (graph 266): T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 6 frame(s), worst 172 (first: B frame 0: 90 px, first at device (919, 10)); x1 bounding box 6 frame(s), worst 172 (first: B frame 0: 90 px, first at device (919, 10)); x2 rect list 6 frame(s), worst 196 (first: B frame 0: 271 px, first at device (18
+FAIL T-123 deck 288 (graph 266): T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; x1 rect list 30 frame(s), worst 96 (first: B frame 0: 13 px, first at device (913, 264)); x2 rect list 30 frame(s), worst 104 (first: B frame 0: 40 px, first at device (1827, 528)) over 124 frames)
+FAIL T-123 deck 288 (graph 266): T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 4.5, 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; x1 rect list 30 frame(s), worst 104 (first: B frame 0: 167 px, first at device (913, 226)); x2 rect list 30 frame(s), worst 105 (first: B frame 0: 522 px, first at device (1827, 453)) over 124 frames)
+FAIL T-123 deck 114 (graph 92): T-051 spectrum incremental repaint == full repaint (S8: GLAZE 0, peak off, 6 kHz -12 dBFS sine 12 s, slope 0 -> 4.5, then B; x1 rect list 5 frame(s), worst 165 (first: B frame 0: 26 px, first at device (919, 10)); x1 bounding box 5 frame(s), worst 165 (first: B frame 0: 26 px, first at device (919, 10)); x2 rect list 5 frame(s), worst 193 (first: B frame 0: 78 px, first at device (1839
+FAIL T-123 deck 114 (graph 92): T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 0, 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; x2 rect list 30 frame(s), worst 13 (first: B frame 0: 1 px, first at device (1827, 195)) over 124 frames)
+FAIL T-123 deck 114 (graph 92): T-058 spectrum incremental repaint == full repaint (S9: GLAZE 0, peak off, slope 4.5, 6 kHz -12 dBFS sine 2 s, silence 4 s, hover at 6 kHz, peak on, then B; x1 rect list 30 frame(s), worst 104 (first: B frame 0: 63 px, first at device (913, 85)); x2 rect list 30 frame(s), worst 105 (first: B frame 0: 196 px, first at device (1827, 169)) over 124 frames)
+6 deck checks FAILED
+PASS 行数：58
+::mutation-end:: B paint 里重建后不把画出的区域并进旧区域（应红：S8 增量重画）
+::mutation-begin:: C 矮档照画 dB 刻度横线（应红：deck 114 的 dB scale）
+run.sh 退出码 0（清单里写了期望失败：0 = 检查按预期变红）
+FAIL T-123 deck 114 (graph 92): dB scale: 6 horizontal lines and 0 rows of dB labels in an empty view, needs 0 and 0
+1 deck checks FAILED
+PASS 行数：63
+::mutation-end:: C 矮档照画 dB 刻度横线（应红：deck 114 的 dB scale）
+::mutation-begin:: D 换高度时不作废曲线路径（应红：S12e deck resize）
+run.sh 退出码 0（清单里写了期望失败：0 = 检查按预期变红）
+FAIL T-123 deck resize: a view resized between graph heights draws what a view built from scratch draws (S12e: 6 kHz -12 dBFS sine 2 s, silence 2 s, peak off, 266 -> 92 -> 266, hover: 8 / 14 moments identical; first: graph -> 92 before the next frame: 1024 px differ, worst 35, first at (4, 91))
+FAIL T-123 deck resize: a view resized between graph heights draws what a view built from scratch draws (S12e: 6 kHz -12 dBFS sine 2 s, silence 2 s, peak off, 92 -> 266 -> 92, hover: 8 / 14 moments identical; first: graph -> 266 before the next frame: 3088 px differ, worst 35, first at (0, 91))
+FAIL T-123 deck resize: a view resized between graph heights draws what a view built from scratch draws (S12e: 6 kHz -12 dBFS sine 2 s, silence 2 s, peak on, 266 -> 92 -> 266, hover: 12 / 14 moments identical; first: graph -> 92 before the next frame: 2413 px differ, worst 111, first at (852, 3))
+FAIL T-123 deck resize: a view resized between graph heights draws what a view built from scratch draws (S12e: 6 kHz -12 dBFS sine 2 s, silence 2 s, peak on, 92 -> 266 -> 92, hover: 12 / 14 moments identical; first: graph -> 266 before the next frame: 5801 px differ, worst 117, first at (852, 3))
+4 deck checks FAILED
+PASS 行数：60
+::mutation-end:: D 换高度时不作废曲线路径（应红：S12e deck resize）
+::mutations-done::
