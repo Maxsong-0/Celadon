@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # T-096a 质量基线：22 首门槛曲 + 45 首 Jamendo House 各渲一遍（带 --trace），再用 quality_metrics.py 出 quality-22.csv / quality-45.csv。
 #
-# 用法：run_quality_baseline.sh [--dry-run] <celadon_render 路径> <输出根> <语料根>
+# 用法：run_quality_baseline.sh [--dry-run] [--reference-root 基线输出根] [--candidate 名字] <celadon_render 路径> <输出根> <语料根>
 #   在 DGX 上经 ~/.cache/celadon-spark/bin/spark-test.sh 的 run 子命令跑（拿全机锁；Mac 上不跑）。--dry-run 只打印要跑的命令，不建目录、不建软链、不渲染。
 #   语料：22 首 = <语料根>/celadon-t048-22songs/wav（平铺），45 首 = <语料根>/celadon-t048-cal/<deep|tech|melodic>/<曲>/<曲>.wav；
 #   可用环境变量 SONGS22_DIR / CAL45_DIR 另指。Python 用 PY（默认 ~/.cache/celadon-spark/venv/bin/python），并行数 JOBS（默认 8）。
@@ -17,15 +17,21 @@
 set -euo pipefail
 
 usage() {
-  echo '用法：run_quality_baseline.sh [--dry-run] <celadon_render 路径> <输出根> <语料根>' >&2
+  echo '用法：run_quality_baseline.sh [--dry-run] [--reference-root 基线输出根] [--candidate 名字] <celadon_render 路径> <输出根> <语料根>' >&2
   exit 2
 }
 
 DRY_RUN=0
-if [[ ${1:-} == --dry-run ]]; then
-  DRY_RUN=1
-  shift
-fi
+REFERENCE_ROOT=
+CANDIDATE=
+while [[ ${1:-} == --* ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --reference-root) (( $# >= 2 )) || usage; REFERENCE_ROOT=$2; shift 2 ;;
+    --candidate) (( $# >= 2 )) || usage; CANDIDATE=$2; shift 2 ;;
+    *) usage ;;
+  esac
+done
 (( $# == 3 )) || usage
 RENDER=$1
 OUT=$2
@@ -50,6 +56,10 @@ JOBS=${JOBS:-8}
 # 网格参数集中在这里（run.tsv 照抄）
 ARGS_22=(--glaze 0,35,70 --style auto --clay auto --trace)
 ARGS_45=(--glaze 35,100 --style auto --clay auto --segments-csv --trace)   # 每首另加 --bpm
+if [[ -n $CANDIDATE ]]; then
+  ARGS_22+=(--candidate "$CANDIDATE")
+  ARGS_45+=(--candidate "$CANDIDATE")
+fi
 
 die() {
   echo "run_quality_baseline：$1" >&2
@@ -66,6 +76,14 @@ if (( ! DRY_RUN )); then
   if [[ -e $OUT ]] && [[ -n $(ls -A "$OUT") ]]; then
     die "输出根已存在且非空：$OUT（换一个目录；脚本不删东西）" 2
   fi
+fi
+
+REF_22=()
+REF_45=()
+if [[ -n $REFERENCE_ROOT ]]; then
+  [[ -d $REFERENCE_ROOT/22/runs && -d $REFERENCE_ROOT/45/runs ]] || die "参考根目录缺 22/runs 或 45/runs" 2
+  REF_22=(--reference-renders "$REFERENCE_ROOT"/22/runs/*)
+  REF_45=(--reference-renders "$REFERENCE_ROOT"/45/runs/*)
 fi
 
 # ---- 歌单（只读语料目录）----
@@ -128,6 +146,7 @@ if (( ! DRY_RUN )); then
     printf 'commit\t%s\n' "$COMMIT"
     printf 'celadon_render\t%s\n' "$RENDER"
     printf 'celadon_render_sha256\t%s\n' "$(sha256sum "$RENDER" | cut -d' ' -f1)"
+    printf 'reference_root\t%s\n' "${REFERENCE_ROOT:-$OUT}"
     printf 'songs22_dir\t%s\n' "$SONGS22_DIR"
     printf 'songs22_count\t%s\n' "${#SONGS22[@]}"
     printf 'cal45_dir\t%s\n' "$CAL45_DIR"
@@ -195,9 +214,9 @@ printf 'render_failures\t%s\n' "$failed" >>"$OUT/run.tsv"
 # ---- 指标 ----
 status=0
 "$PY" "$SCRIPT_DIR/quality_metrics.py" --renders "$OUT"/22/runs/* \
-  --sources "$SONGS22_DIR" --out "$OUT/quality-22.csv" --jobs "$JOBS" || status=1
+  "${REF_22[@]}" --sources "$SONGS22_DIR" --out "$OUT/quality-22.csv" --jobs "$JOBS" || status=1
 "$PY" "$SCRIPT_DIR/quality_metrics.py" --renders "$OUT"/45/runs/* --sources "$OUT/45/sources" \
-  --labels-auto "$LABELS_AUTO" --labels-override "$LABELS_OVERRIDE" --out "$OUT/quality-45.csv" --jobs "$JOBS" || status=1
+  "${REF_45[@]}" --labels-auto "$LABELS_AUTO" --labels-override "$LABELS_OVERRIDE" --out "$OUT/quality-45.csv" --jobs "$JOBS" || status=1
 printf 'quality_status\t%s\n' "$status" >>"$OUT/run.tsv"
 printf 'finished_utc\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$OUT/run.tsv"
 (( status == 0 )) || die "quality_metrics.py 失败（见上面的输出），没写全 quality-22.csv / quality-45.csv"

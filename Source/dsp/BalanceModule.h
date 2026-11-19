@@ -74,6 +74,8 @@ namespace celadon
     {
     public:
         static constexpr int numBands = 27;
+        // 自动判断把 40 / 50 Hz 当作一个低端观察区。两段保留各自的频谱读数、手动修正及滤波器。
+        static constexpr int sharedLowBands = 2;
 
         enum class Speed { slow = 0, mid = 1, fast = 2 };
 

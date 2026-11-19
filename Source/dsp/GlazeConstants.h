@@ -112,6 +112,8 @@ namespace celadon::glaze
         // 主段模型（响度型：只用响度门 ③）。T-108 删掉曲风后只剩这一种；原来 House 用的 4/4 型（fourOnFloor）与没人用的被动型（passive）已删。
         LiveModelConstants loudness { 6.0f, 3.0f, 0.0f, 0.15f, 0.90f, 0.0, 90.0, 0.0, 20.0 };
 
+        // rhythm-main 渲染候选：材料已有节奏、当前低频占比与起音密度同时下降时对主段度的衰减比例。
+        float rhythmMainAmount = 0.0f;
         double referenceMemorySeconds = 180.0;   // S_ref / lowRef / LRA 的直方图按有效音频时长遗忘的时间常数 ③
         float mainThreshold = 0.5f;              // 「主段」的 m 门：无主段判定、以后的棘轮都用它
         double noMainSeconds = 60.0;             // 连续这么多有效音频没有 m ≥ mainThreshold 的段 → 主段累计改按有效音频时长衰减 ③

@@ -1405,6 +1405,7 @@ namespace celadon::test
             constexpr int resonanceBand = 14; // 1 kHz
             bool finite = true;
             std::uint64_t allocations = 0;
+            float largestLiveIncrease = 0.0f, largestManualError = 0.0f;
 
             for (int start = 0; start < (int) (8.0 * sr); start += maxBlock)
             {
@@ -1424,11 +1425,16 @@ namespace celadon::test
                 }
 
                 host.positionSamples = start;
+                const auto planned = chain.getGlazeController().getProbeForTesting().increments.balanceTame;
                 const auto before = allocationCountOnThisThread();
                 chain.setHostInfo (host);
                 chain.setParams (p, false);
                 finite = ! chain.process (block) && finite;
                 allocations += allocationCountOnThisThread() - before;
+                const auto& balance = chain.getEffectiveParams().balance;
+                largestLiveIncrease = juce::jmax (largestLiveIncrease, balance.tame - p.balance.tame - planned);
+                largestManualError = juce::jmax (largestManualError,
+                    std::abs (balance.tame - balance.automaticTame - p.balance.tame));
             }
 
             BalanceModule::BandGains gains;
@@ -1437,6 +1443,8 @@ namespace celadon::test
             expect (finite);
             expect (allocations == 0, "automatic runtime processing adds no C++ heap allocations");
             expect (gains[(size_t) resonanceBand] < -0.1f, "the new resonance is attenuated by the live tame follower");
+            expect (largestLiveIncrease > 0.1f, "the short-term follower exceeds the applied plan");
+            expect (largestManualError < 1.0e-4f, "all additional live Tame reaches BALANCE as automatic");
             expect (saved != nullptr && saved->getIntAttribute ("formatVersion") == glaze::liveContainerFormatVersion,
                     "the saved state stays LIVE format 2");
         }

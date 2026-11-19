@@ -6,7 +6,8 @@
 
       - K 加权：高搁架预滤波 + RLB 高通，系数按采样率由模拟原型换算（48 kHz 时与标准表一致）；
       - 短期响度：最近 3 s；
-      - 整体响度：400 ms 门块、75% 重叠，−70 LUFS 绝对门 + −10 LU 相对门（0.1 LU 直方图，内存固定）；
+      - 整体响度：400 ms 门块、75% 重叠，−70 LUFS 绝对门 + −10 LU 相对门。0.1 LU 粗格另分 16 小格，
+        只在相对门穿过的小格用实际平均能量近似判定，避免按粗格中心将密集的稳定电平整体错分；
       - 真峰值：与限幅器同一个 TruePeakDetector（按块算，与逐样本逐位相同）；
       - 单声道按「左右相同的双声道」计量（设计规格-总体），能量计两次，读数与立体声一致；
       - 可以只算真峰值（setLoudnessEnabled (false)）：IN 表只显示真峰值，省掉 K 加权与 LUFS 统计；
@@ -24,9 +25,7 @@
             挡在直方图外；+Inf 能量则让 floor 转 int 成了未定义行为），GLAZE 分析与 Listen 停摆（改前改后对照实测见 IMPL-A4-chain.md）。
             现在子块能量非有限时只清掉状态已坏的声道、丢掉这个子块（也断开门块的连续性），短期窗口与直方图永不吃非有限值；
             子块环那边同样自愈（该子块按现有约定仍以非有限 meanSquare 发布，读者本来就跳过它）；
-          · updateIntegrated 两遍扫描只扫到直方图里有数的最高一格（R7-04）：多扫的格子都是 0.0 / 0，读数逐位不变。两遍合计从
-            1600 次格访问降到（最高格 + 1）+（最高格 − 相对门所在格 + 1），典型母带（最高格约 −4 LUFS、相对门约 −20 LUFS）约 820 次。
-          有限输入、从未暂停时，表的读数、子块环与改动前逐位相同。
+          · 相对门以上的粗格只扫到直方图里有数的最高一格（R7-04）；绝对门以上的总能量与数量随门块累计。
 
     音频线程只调 process()、reset() 与 setIntegrationPaused()；界面线程只读原子变量，不持锁、不阻塞音频线程。
 
@@ -66,7 +65,7 @@ namespace celadon
         // 暂停 / 恢复整体响度的积分（音频线程，与 process 串行；链在每块的 setParams 里调，按整块生效）。暂停期间：K 加权滤波器、
         // 短期窗口、子块环与样本计数、真峰值都照常推进，只是 400 ms 门块不进直方图、整体读数停在暂停前的值；任何一个样本在暂停中
         // 处理过的子块都不进门块（暂停中的那一块恰好在子块边界结束时，下一个子块也按碰过算——偏保守），恢复后要攒够 4 个完全在
-        // 暂停之外的子块才再成门块。默认不暂停；从未暂停过时读数逐位同 T-032 之前。
+        // 暂停之外的子块才再成门块。默认不暂停。
         void setIntegrationPaused (bool shouldPause) noexcept            { integrationPaused = shouldPause; }
         bool isIntegrationPaused() const noexcept                        { return integrationPaused; }
 
@@ -142,6 +141,21 @@ namespace celadon
         static constexpr float histogramMinLufs = -70.0f;
         static constexpr int histogramBinsPerLu = 10;
         static constexpr int histogramBins = 80 * histogramBinsPerLu;   // −70 ～ +10 LUFS
+        static constexpr int subdivisions = 16;
+
+        struct GateTotals
+        {
+            double energy = 0.0;
+            std::uint64_t count = 0;
+
+            void add (double sum, std::uint64_t blocks = 1) noexcept
+            {
+                energy += sum;
+                count += blocks;
+            }
+        };
+
+        static int fineBinAt (double lufs) noexcept;
 
         void clearMeasurement() noexcept;
         void clearFilterStates() noexcept;
@@ -167,9 +181,10 @@ namespace celadon
         int recentWriteIndex = 0;
         int recentCount = 0;
 
-        std::array<double, (size_t) histogramBins> histogramEnergy {};
-        std::array<juce::uint32, (size_t) histogramBins> histogramCount {};
-        int histogramTopBin = -1;          // 直方图里有数的最高一格（−1 = 空）：两遍扫描只扫到它（T-032 R7-04）
+        GateTotals aboveAbsoluteGate;
+        std::array<GateTotals, (size_t) histogramBins> histogram {};
+        std::vector<std::array<GateTotals, subdivisions>> fineHistogram;   // prepare 分配；每次清表后按需清各粗格
+        int histogramTopBin = -1;
 
         // 整体响度积分的暂停（T-032 R8-03）：暂停时门块不进直方图。pauseTouchedSubBlock = 正在累计的这个子块里有样本是在暂停中
         // 处理的；cleanSubBlocksInRow = 最近连续几个子块完全在暂停之外、也没因非有限值被丢掉（封顶 gatingSubBlocks）——门块要 4 个。

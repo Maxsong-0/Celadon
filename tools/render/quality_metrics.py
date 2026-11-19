@@ -21,6 +21,7 @@ import collections
 import concurrent.futures
 import contextlib
 import csv
+import hashlib
 import importlib
 import math
 import os
@@ -89,6 +90,7 @@ TRACE_REQUIRED = ('t_sec', 'limit_gr_db', 'limit_gain_db', 'current_mainness', '
 QUALITY_FIELDS = (
     ('song', 'text'), ('kind', 'text'), ('glaze', 'text'), ('clay', 'text'), ('style', 'text'),
     ('file', 'text'), ('source_file', 'text'), ('sample_rate', 'int'), ('duration_s', 3), ('align_gain_db', 3),
+    ('evaluation_mask_sha256', 'text'), ('evaluation_main_s', 1),
     ('main_s', 1), ('main_pct', 1), ('main_in_drop_pct', 1), ('drop_in_main_pct', 1),
     ('true_peak_dbtp', 3), ('ceiling_dbtp', 3), ('hard_clip_samples', 'int'),
     ('main_level_err_lu', 3),
@@ -190,8 +192,8 @@ class Trace:
             raise InfraError('trace 的 t_sec 不是递增的')
         self.latency = int(round(float(np.mean(index * self.block - positions))))
         self.starts = index * self.block - self.latency
-        tolerance = 0.5 * 10.0 ** -T_SEC_DECIMALS * sr + 1.0
-        if np.max(np.abs(self.starts - positions)) > tolerance:
+        self.position_tolerance = 0.5 * 10.0 ** -T_SEC_DECIMALS * sr + 1.0
+        if np.max(np.abs(self.starts - positions)) > self.position_tolerance:
             raise InfraError(f'trace 的块不等长（块长 {self.block}、链延迟 {self.latency} 拟合不上 t_sec）')
         if self.latency < 0:
             raise InfraError('trace 首行 t_sec > 0：不是从链里第 0 个样本起的逐块表')
@@ -206,10 +208,6 @@ class Trace:
 
     def main_blocks(self):
         return np.isfinite(self.mainness) & (self.mainness >= MAINNESS_MAIN)
-
-    def blocks_in_song(self, n_input):
-        """成品时间轴上与原曲 [0, n_input) 有交集的块（去掉开头延迟段与余振）。"""
-        return (self.starts < n_input) & (self.ends > 0)
 
 
 def main_mask_from_trace(trace, n_input):
@@ -645,7 +643,7 @@ def control_quality(gain_db, main_blocks, block_seconds):
     隔着非主段不连），各除以主段分钟数。"""
     gain_db = np.asarray(gain_db, dtype=np.float64)
     main_blocks = np.asarray(main_blocks, dtype=bool)
-    minutes = np.count_nonzero(main_blocks) * block_seconds / 60.0
+    minutes = float(np.sum(main_blocks * block_seconds)) / 60.0
     if minutes <= 0.0:
         return math.nan, math.nan
     steps = np.diff(gain_db)
@@ -744,32 +742,59 @@ def annotated_drop_loss(row, input_row, sections):
     return loss, [reason] if reason else []
 
 
-def trace_metrics(trace, y, n_input):
-    """trace 侧各项（成品时间轴；只看与原曲有交集的块）。返回 (字段 dict, 原因列表)。"""
+def evaluation_blocks(starts, block, sample_mask):
+    """各块与原曲的交集：按交集中点选主段，同时返回真实样本数（曲外整块长度为零）。"""
+    n = len(sample_mask)
+    lo, hi = np.clip(starts, 0, n), np.clip(starts + block, 0, n)
+    lengths = hi - lo
+    inside = lengths > 0
+    selected = np.zeros_like(inside)
+    selected[inside] = sample_mask[lo[inside] + lengths[inside] // 2]
+    return selected, lengths
+
+
+def trace_metrics(trace, y, sample_mask):
+    """限幅器和 GR 按成品样本找主段，控制增益按读入样本找主段。"""
     values, reasons = {}, []
-    in_song = trace.blocks_in_song(n_input)
-    main_blocks = trace.main_blocks() & in_song
+    output_main, output_lengths = evaluation_blocks(trace.starts, trace.block, sample_mask)
+    input_main, input_lengths = evaluation_blocks(trace.starts + trace.latency, trace.block, sample_mask)
     block_rate = trace.sr / trace.block
-    values['p_slow_db'] = p_slow_db(trace.gr_db, block_rate, main_blocks)
-    values['d_fast_db'] = d_fast_db(trace.gr_db, block_energy(y, trace.starts, trace.ends), block_rate, main_blocks)
+    values['p_slow_db'] = p_slow_db(trace.gr_db, block_rate, output_main)
+    values['d_fast_db'] = d_fast_db(trace.gr_db, block_energy(y, trace.starts, trace.ends), block_rate, output_main)
     if all(value not in (None, '') for value in trace.hard_clips):
         values['hard_clip_samples'] = sum(int(value) for value in trace.hard_clips)   # A 组：全部块（含开头延迟段与余振）
     else:
         reasons.append('硬钳位 / 限幅差值：限幅器计数未接通（链还没有 getLimiterForTesting）')
-    diff, inn = trace.diff_energy[main_blocks], trace.in_energy[main_blocks]
-    if np.any(main_blocks) and np.all(np.isfinite(diff)) and np.all(np.isfinite(inn)):
+    diff, inn = trace.diff_energy[output_main], trace.in_energy[output_main]
+    if np.any(output_main) and np.all(np.isfinite(diff)) and np.all(np.isfinite(inn)):
         denominator, numerator = float(np.sum(inn)), float(np.sum(diff))
         if denominator > 0.0:
             values['limit_diff_db'] = -math.inf if numerator == 0.0 else 10.0 * math.log10(numerator / denominator)
         else:
             reasons.append('限幅差值：主段里限幅器入口没有能量')
-    values['gain_tv_db_per_min'], values['gain_reversals_per_min'] = control_quality(trace.gain_db, main_blocks,
-                                                                                        trace.block / trace.sr)
-    values['guard_engaged_pct'], values['guard_cause_hist'] = guard_stats([c for c, keep in zip(trace.causes, in_song) if keep])
+    values['gain_tv_db_per_min'], values['gain_reversals_per_min'] = control_quality(trace.gain_db, input_main,
+                                                                                    input_lengths / trace.sr)
+    values['guard_engaged_pct'], values['guard_cause_hist'] = guard_stats([c for c, length in zip(trace.causes, output_lengths) if length > 0])
     return values, reasons
 
 
-def quality_row(row, input_row, inp, x, sr, labels):
+def load_trace(row, sr, n_input, n_output=None):
+    path = trace_path_of(row['_dir'], row['file'])
+    rows = read_csv(path)
+    require_columns(rows, TRACE_REQUIRED, str(path))
+    trace = Trace(rows, sr)
+    if trace.ends[-1] + trace.latency < n_input:
+        raise InfraError(f'{path} 的 trace 没有覆盖全部入口样本')
+    # 最后一块可只渲一部分，结束位置由成品帧数给定。拟合的延迟在 t_sec 舍入精度内可能相差几个样本。
+    if n_output is not None and (trace.ends[-1] < n_output - trace.position_tolerance
+                                 or trace.starts[-1] >= n_output + trace.position_tolerance):
+        raise InfraError(f'{path} 的 trace 末块与完整成品长度 {n_output} 对不上（含余振）')
+    if not np.all(np.isfinite(trace.mainness)):
+        raise InfraError(f'{path} 含无效的 current_mainness')
+    return trace
+
+
+def quality_row(row, input_row, inp, x, sr, labels, reference_row=None):
     """一行 metrics.csv（成品）→ 一行 quality.csv（dict）。x / inp 是这首歌的源文件与它的 SignalAnalysis。"""
     directory = Path(row['_dir'])
     if not row['file']:
@@ -781,10 +806,8 @@ def quality_row(row, input_row, inp, x, sr, labels):
         raise InfraError(f"{row['file']}：成品不是双声道")
     align = to_float(row['align_gain_db'])
     y = recover_output(master, align, len(x))
-    trace_path = trace_path_of(directory, row['file'])
-    trace_rows = read_csv(trace_path)
-    require_columns(trace_rows, TRACE_REQUIRED, str(trace_path))
-    trace = Trace(trace_rows, sr)
+    trace = load_trace(row, sr, len(x), len(master))
+    reference = trace if reference_row is None else load_trace(reference_row, sr, len(x))
 
     result = {name: None for name in QUALITY_FIELD_NAMES}
     result.update(song=row['song'], kind=row['kind'], glaze=row['glaze'], clay=row['clay'], style=row['style'],
@@ -792,10 +815,15 @@ def quality_row(row, input_row, inp, x, sr, labels):
                   duration_s=len(x) / sr, align_gain_db=align)
     reasons = []
 
-    # ⑤ 主段
-    mask = main_mask_from_trace(trace, len(x))
-    result['main_s'] = np.count_nonzero(mask) / sr
-    result['main_pct'] = 100.0 * np.count_nonzero(mask) / len(x)
+    # 识别表现仍量候选自己；声音与控制轨迹采用同一个参考时间轴。
+    detected = main_mask_from_trace(trace, len(x))
+    mask = detected if reference is trace else main_mask_from_trace(reference, len(x))
+    digest = hashlib.sha256(f'{sr}:{len(x)}:'.encode('ascii'))
+    digest.update(np.packbits(mask))
+    result['evaluation_mask_sha256'] = digest.hexdigest()
+    result['evaluation_main_s'] = np.count_nonzero(mask) / sr
+    result['main_s'] = np.count_nonzero(detected) / sr
+    result['main_pct'] = 100.0 * np.count_nonzero(detected) / len(x)
     if not np.any(mask):
         reasons.append('没有主段（current_mainness 从未 ≥ 0.5）：主段各项未测')
 
@@ -827,7 +855,7 @@ def quality_row(row, input_row, inp, x, sr, labels):
         reasons.extend(drop_reasons)
         bpm = to_float(row.get('bpm'))
         if math.isfinite(bpm) and bpm > 0.0:
-            result['main_in_drop_pct'], result['drop_in_main_pct'], reason = label_agreement(mask, sr, bpm, labels, row['song'])
+            result['main_in_drop_pct'], result['drop_in_main_pct'], reason = label_agreement(detected, sr, bpm, labels, row['song'])
             if reason:
                 reasons.append(reason)
         else:
@@ -840,7 +868,7 @@ def quality_row(row, input_row, inp, x, sr, labels):
             reasons.append(values['spread_reason'])
 
     # trace 侧各项
-    trace_values, trace_reasons = trace_metrics(trace, y, len(x))
+    trace_values, trace_reasons = trace_metrics(trace, y, mask)
     result.update(trace_values)
     reasons.extend(trace_reasons)
 
@@ -855,13 +883,21 @@ def process_source(task):
         audio, sr = read_audio(source_path)
         x = stereo_like_renderer(audio)
         inp = SignalAnalysis(x, sr)
-        return [quality_row(row, input_row, inp, x, sr, labels) for row, input_row in items], []
+        return [quality_row(row, input_row, inp, x, sr, labels, ref) for row, input_row, ref in items], []
     except InfraError as error:
         return [], [f'{source_path}: {error}']
 
 
-def collect_tasks(render_dirs, sources, labels):
+def collect_tasks(render_dirs, sources, labels, reference_dirs=None):
     """各输出目录的成品行按源文件分组（每组只带本组歌的标签）；同一配对键出现两次是基础设施错。"""
+    references = {}
+    for directory in reference_dirs or ():
+        inputs, renders = load_render_dir(directory)
+        for row in renders:
+            key = pair_key_of(row)
+            if key in references:
+                raise InfraError(f'参考渲染的配对键 {key} 重复')
+            references[key] = row, inputs.get(row['song'], {}).get('audio_hash')
     grouped, seen = collections.defaultdict(list), {}
     for directory in render_dirs:
         inputs, renders = load_render_dir(directory)
@@ -870,10 +906,18 @@ def collect_tasks(render_dirs, sources, labels):
             if key in seen:
                 raise InfraError(f'配对键 {key} 在 {seen[key]} 与 {directory} 里重复')
             seen[key] = directory
-            grouped[str(find_source(sources, row['source_file']))].append((row, inputs.get(row['song'])))
+            ref, ref_hash = references.get(key, (None, None))
+            input_row = inputs.get(row['song'])
+            if reference_dirs and (ref is None or ref['source_file'] != row['source_file']
+                                   or to_float(ref['sample_rate']) != to_float(row['sample_rate'])
+                                   or (ref.get('duration_s') and row.get('duration_s') != ref['duration_s'])):
+                raise InfraError(f'找不到同源同采样率同时长的参考渲染 {key}')
+            if ref_hash and input_row and input_row.get('audio_hash') and input_row['audio_hash'] != ref_hash:
+                raise InfraError(f'参考渲染 {key} 的入口音频哈希不同')
+            grouped[str(find_source(sources, row['source_file']))].append((row, input_row, ref))
     tasks = []
     for path, items in sorted(grouped.items()):
-        songs = {row['song'] for row, _ in items}
+        songs = {row['song'] for row, _, _ in items}
         tasks.append((path, items, {key: kind for key, kind in labels.items() if key[0] in songs}))
     return tasks
 
@@ -901,7 +945,7 @@ def load_labels(auto_path, override_path):
 def run(args):
     try:
         labels = load_labels(args.labels_auto, args.labels_override)
-        tasks = collect_tasks(args.renders, args.sources, labels)
+        tasks = collect_tasks(args.renders, args.sources, labels, args.reference_renders)
     except InfraError as error:
         print(f'quality_metrics：{error}', file=sys.stderr)
         return 1
@@ -1055,6 +1099,37 @@ def trace_main_mask_uses_chain_position():
 
 
 @selftest
+def reference_selects_audio_and_control_on_their_own_timelines():
+    """48 样本参考块 / 480 样本被测块、720 样本链延迟，曲末只剩 190 个入口样本。"""
+    sr, n, block = SELFTEST_SR, 1630, 480
+    reference_main = np.zeros(40)
+    reference_main[[5, 10, 15, 29, 31, 33]] = 1.0
+    reference = Trace(fake_trace_rows(40, 48, sr, 96, reference_main), sr)
+    mask = main_mask_from_trace(reference, n)
+    # 入口各交集中点 240、720、1200、1535，主段块为 0、1、3；成品中点 120、480、960、1415，主段块为 2、4。
+    # 第 33 个参考块（包含曲尾最后一个样本）也是主段，只要把曲外块钳回曲尾，余振也会被误收。
+    diff = np.full(40, 50.0)
+    diff[[2, 4]] = [2, 6]
+    rows = fake_trace_rows(40, block, sr, 720, np.zeros(40), gain=np.arange(40), hard=[1] * 40, diff=diff, inn=[10] * 40)
+    for i, row in enumerate(rows):
+        row['limit_gr_db'] = str(i % 3)
+        row['guard_cause'] = 'budget' if i in (1, 5) else 'none'
+    trace = Trace(rows, sr)
+    y = np.ones((n, 2))
+    values, _ = trace_metrics(trace, y, mask)
+    output_main = np.zeros(40, dtype=bool)
+    output_main[[2, 4]] = True
+    expected_slow = p_slow_db(trace.gr_db, sr / block, output_main)
+    expected_fast = d_fast_db(trace.gr_db, block_energy(y, trace.starts, trace.ends), sr / block, output_main)
+    control_minutes = (2 * block + 190) / sr / 60.0
+    ok = (math.isclose(values['limit_diff_db'], 10.0 * math.log10(8.0 / 20.0))
+          and math.isclose(values['p_slow_db'], expected_slow) and math.isclose(values['d_fast_db'], expected_fast)
+          and math.isclose(values['gain_tv_db_per_min'] * control_minutes, 1.0) and values['gain_reversals_per_min'] == 0.0
+          and values['guard_engaged_pct'] == 25.0 and values['hard_clip_samples'] == 40)
+    return ok, '限幅取成品块 2/4，增益取入口块 0/1/3，守门按原曲，硬钳位含余振'
+
+
+@selftest
 def control_quality_counts():
     """控制质量：ΔGain = +0.3, +0.3, −0.3, +0.3, 0, −0.3（7 块全在主段、合 1 分钟）→ 总变差 1.5 dB / 分、拐点 3 次 / 分；
     第 4 块不是主段时剩两段 [0, 0.3, 0.6] | [0.6, 0.6, 0.3] → 总变差 0.9 dB、拐点 0（隔着非主段的那次反向不算，各段第一次走够回差只定方向）。"""
@@ -1170,7 +1245,7 @@ def fake_render(x, sr, gain, align_gain_db, block=480, latency=1392):
             writer = csv.DictWriter(stream, fieldnames=list(METRICS_REQUIRED), lineterminator='\n')
             writer.writeheader()
             writer.writerows(rows)
-        n_blocks = (len(master) + latency) // block + 1
+        n_blocks = (len(master) + latency + block - 1) // block
         mainness = [0.0 if k * block < 5 * sr else 1.0 for k in range(n_blocks)]
         gain_db = [1.0 + 0.2 * (k % 2) for k in range(n_blocks)]   # 每块反向 0.2 dB（> 回差 GAIN_REVERSAL_DB）：每对相邻块一个拐点
         trace = fake_trace_rows(n_blocks, block, sr, latency, mainness, gain=gain_db, hard=[0] * n_blocks,
@@ -1207,6 +1282,71 @@ def end_to_end_pure_gain_render():
     return not bad, ('全部符合' if not bad else f'不符：{bad}') + f'（{detail}）'
 
 
+@selftest
+def reference_and_finished_trace_validation():
+    """参考输入哈希冲突、成品 trace 缺少曲尾余振，都要报告基础设施错。"""
+    sr = SELFTEST_SR
+    x = np.zeros((1234, 2))
+    with fake_render(x, sr, 1.0, 0.0) as a, fake_render(x, sr, 1.0, 0.0) as b:
+        for root, audio_hash in ((a, '00000000000000ab'), (b, '00000000000000cd')):
+            path = root / 'out' / 'metrics.csv'
+            rows = read_csv(path)
+            rows[0]['audio_hash'] = audio_hash
+            with path.open('w', encoding='utf-8', newline='') as stream:
+                writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+        try:
+            collect_tasks([b / 'out'], [a / 'src'], {}, [a / 'out'])
+        except InfraError as error:
+            rejected_source = '音频哈希不同' in str(error)
+        else:
+            rejected_source = False
+        row, = load_render_dir(a / 'out')[1]
+        finished_length = sf.info(str(a / 'out' / row['file'])).frames
+        load_trace(row, sr, len(x), finished_length)
+        path = trace_path_of(a / 'out', row['file'])
+        trace_rows = read_csv(path)
+        with path.open('w', encoding='utf-8', newline='') as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(trace_rows[0]))
+            writer.writeheader()
+            writer.writerows(trace_rows[:-2])
+        load_trace(row, sr, len(x))   # 参考 mask 所需的入口样本都还在。
+        try:
+            load_trace(row, sr, len(x), finished_length)
+        except InfraError as error:
+            rejected_tail = '含余振' in str(error)
+        else:
+            rejected_tail = False
+    return rejected_source and rejected_tail, '同名异源和成品缺尾均被拒绝，正常部分末块及参考入口覆盖仍可读'
+
+
+@selftest
+def frozen_reference_ignores_candidate_classification():
+    """同一成品、相反的主段判定：固定基线后，声学与控制指标相同，分类结果仍不同。"""
+    x = synthetic_track(seconds=12.0)
+    with fake_render(x, SELFTEST_SR, 0.7, 0.0) as a, fake_render(x, SELFTEST_SR, 0.7, 0.0) as b:
+        path = next((b / 'out' / 'trace').glob('*.csv'))
+        trace = read_csv(path)
+        for row in trace:
+            row['current_mainness'] = '0'
+        with path.open('w', newline='', encoding='utf-8') as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(trace[0]))
+            writer.writeheader()
+            writer.writerows(trace)
+        def measure(directory):
+            task, = collect_tasks([directory], [a / 'src'], {}, [a / 'out'])
+            rows, errors = process_source(task)
+            if errors:
+                raise InfraError(str(errors))
+            return rows[0]
+        base, candidate = measure(a / 'out'), measure(b / 'out')
+    keys = ('evaluation_mask_sha256', 'evaluation_main_s', 'psr_main_med_out_db', 'limit_diff_db',
+            'gain_reversals_per_min', 'gain_tv_db_per_min', 'pump_db', 'side_mid_delta_p95_db')
+    return (base['main_s'] > candidate['main_s'] == 0 and all(base[k] == candidate[k] for k in keys),
+            '同一成品共用时间轴，候选分类单独计量')
+
+
 def run_selftest():
     failed = 0
     for check in SELFTEST_CHECKS:
@@ -1224,6 +1364,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description='T-096a 质量指标管线（口径见 docs/validation/2026-10-11-T096a-metrics/GLOSSARY.md）')
     parser.add_argument('--selftest', action='store_true', help='只跑合成信号自检')
     parser.add_argument('--renders', nargs='+', type=Path, help='celadon_render 的输出目录（含 metrics.csv、成品、trace/）')
+    parser.add_argument('--reference-renders', nargs='+', type=Path, help='基线渲染目录，所有声音和控制指标使用该版本的主段区间')
     parser.add_argument('--sources', nargs='+', type=Path, help='源文件目录（按 metrics.csv 的 source_file 找）')
     parser.add_argument('--out', type=Path, help='写出的 quality.csv')
     parser.add_argument('--labels-auto', help='逐小节自动标签 labels-auto.tsv（Jamendo；有它才算段落口径与主段核对）')

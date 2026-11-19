@@ -752,7 +752,7 @@ namespace celadon::glaze
         {
             MusicProfile profile;
             bool referenceValid = false, lowReferenceValid = false;
-            float referenceLufs = 0.0f, lowReference = 0.0f;
+            float referenceLufs = 0.0f, lowReference = 0.0f, onsetReference = -1.0f;
             double mainMass = 0.0;
             float confidence = 0.0f;
             float oldestMainShare = 0.0f, oldestReferenceShare = 0.0f;
@@ -805,7 +805,9 @@ namespace celadon::glaze
         Step step = Step::idle;
         Context work;
         int cursor = 0;
-        float passReference = 0.0f, passLowReference = 0.0f;
+        float passReference = 0.0f, passLowReference = 0.0f, passOnsetReference = -1.0f;
+        static constexpr float minimumRhythmLowShare = 0.05f;
+        double rhythmSeconds = 0.0, rhythmEvents = 0.0;
         bool passReferenceValid = false, passLowReferenceValid = false;
         double sweepEffective = 0.0, sweepAll = 0.0, sweepMain = 0.0;   // 新 → 老扫时「比 i 新的段」的和
         int passHop = 0, passSubBlock = 0;      // 窗口里最新一段还原出的 hop / 子块长
@@ -1363,7 +1365,7 @@ namespace celadon::glaze
         {
             const auto sequence = work.count - 1;
             auto& e = entryAt (sequence);
-            const auto f = factorsFor (e.loudnessValid, e.loudnessLufs, e.lowShareValid, e.lowShare);
+            const auto f = factorsFor (e.loudnessValid, e.loudnessLufs, e.lowShareValid, e.lowShare, onsetRateOf (e));
             const auto m = ! e.usable ? 0.0f : e.pinned ? e.pinnedMainness : f.loudness * f.low;
             e.admissionLoudnessFactor = f.loudness;
             e.admissionLowFactor = f.low;
@@ -1392,7 +1394,7 @@ namespace celadon::glaze
         }
 
         // 主段度的两个因子：参考 = 已发布那一份（或冻结的）；没有参考时以这份读数自己为参考（两道参考各自冷启动）。
-        Factors factorsFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept
+        Factors factorsFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare, float onsetRate) const noexcept
         {
             const auto referenceValid = frozen || publishedResult.referenceValid;
             const auto reference = frozen ? frozenReference : publishedResult.referenceLufs;
@@ -1407,7 +1409,7 @@ namespace celadon::glaze
             const auto gate = (double) mc.gateWidthLu;
             const auto above = referenceValid ? (double) loudnessLufs - ((double) reference - gate) : gate;
             f.loudness = (float) ramp (above, (double) mc.loudnessRampLu);
-            f.low = lowFactorOf (lowShareValid, lowShare, lowReferenceValid, lowReference);
+            f.low = sectionFactor (lowShareValid, lowShare, lowReferenceValid, lowReference, onsetRate, publishedResult.onsetReference);
             return f;
         }
 
@@ -1425,6 +1427,24 @@ namespace celadon::glaze
 
             const auto ratio = lowReferenceValid ? (double) lowShare / (double) lowReference : 1.0;
             return (float) ramp (ratio - (double) mc.lowGateFactor, (double) mc.lowRampWidth);
+        }
+
+        float onsetRateOf (const Entry& e) const noexcept
+        {
+            return constants.rhythmMainAmount > 0.0f ? SegmentLedger::measuredOnsetRate (e.onsetEvents, e.onsetSamples, sampleRate) : -1.0f;
+        }
+
+        // 低音与起音各自对比本曲的参考。只要一项仍在，响度型就保留原权重。
+        float sectionFactor (bool lowValid, float low, bool lowRefValid, float lowRef, float onsetRate, float onsetRef) const noexcept
+        {
+            const auto base = lowFactorOf (lowValid, low, lowRefValid, lowRef);
+            if (constants.rhythmMainAmount <= 0.0f || ! lowValid || ! lowRefValid || ! std::isfinite (low)
+                || lowRef < minimumRhythmLowShare || ! std::isfinite (onsetRate) || onsetRate < 0.0f || ! (onsetRef > 0.0f))
+                return base;
+
+            const auto remaining = std::max (low / lowRef, onsetRate / onsetRef);
+            const auto keep = juce::jlimit (0.0f, 1.0f, (remaining - 0.25f) / (0.65f - 0.25f));
+            return base * (1.0f - constants.rhythmMainAmount * (1.0f - keep));
         }
 
         // 换歌软遗忘（Max 2026-10-02「响的算、轻的要有低音」+「轻的那一支要电平稳」）：
@@ -1633,6 +1653,7 @@ namespace celadon::glaze
 
             loudnessWeights.fill (0.0);
             lowShareTotal = 0.0;
+            rhythmSeconds = rhythmEvents = 0.0;
         }
 
         // 按此刻 S_ref 的响度因子 λ；λ ≥ 0.5 的段的 lowShare 进 lowRef 的直方图（Max 2026-10-02：不再由「当时过没过响度门」决定）。
@@ -1658,6 +1679,14 @@ namespace celadon::glaze
             {
                 lowShareWeights[(size_t) e.lowShareBin] += weight;
                 lowShareTotal += weight;
+
+                if (constants.rhythmMainAmount > 0.0f && e.lowShare >= minimumRhythmLowShare
+                    && e.onsetSamples >= sampleRate * SegmentLedger::minimumProvisionalSeconds)
+                {
+                    const auto ageWeight = referenceFactor[(size_t) position];
+                    rhythmSeconds += ageWeight * e.onsetSamples / sampleRate;
+                    rhythmEvents += ageWeight * e.onsetEvents;
+                }
             }
         }
 
@@ -1675,7 +1704,14 @@ namespace celadon::glaze
                 passLowReference = passLowReferenceValid ? (float) (((double) bin + 0.5) / (double) lowShareBins) : 0.0f;
             }
 
+            // 两项都是样本量门槛：稀疏节奏可用更长的观察时间攒够起音。
+            passOnsetReference = rhythmSeconds >= 8.0 && rhythmEvents >= 8.0 ? (float) (rhythmEvents / rhythmSeconds) : -1.0f;
             lowShareWeights.fill (0.0);
+        }
+
+        float passSectionFactor (const Entry& e) const noexcept
+        {
+            return sectionFactor (e.lowShareValid, e.lowShare, passLowReferenceValid, passLowReference, onsetRateOf (e), passOnsetReference);
         }
 
         // 重判（新 → 老）：m′ 与主段权重 f = m′ × exp(−比它新的主段进账 ÷ W_mem − Δ主段时钟)。
@@ -1686,7 +1722,7 @@ namespace celadon::glaze
 
             if (e.usable)
                 m = e.pinned ? e.pinnedMainness
-                             : lambda[(size_t) position] * lowFactorOf (e.lowShareValid, e.lowShare, passLowReferenceValid, passLowReference);
+                             : lambda[(size_t) position] * passSectionFactor (e);
 
             mainness[(size_t) position] = m;
             mainFactor[(size_t) position] = m > 0.0f ? (double) m * std::exp (-sweepMain - (work.counters.mainClock - e.mainStamp)) : 0.0;
@@ -1991,6 +2027,7 @@ namespace celadon::glaze
             r.referenceLufs = passReference;
             r.lowReferenceValid = passLowReferenceValid;
             r.lowReference = passLowReference;
+            r.onsetReference = passOnsetReference;
             r.mainMass = sums.mass;
 
             const auto* newest = work.size > 0 ? &entryAt (work.count - 1) : nullptr;
@@ -2093,7 +2130,7 @@ namespace celadon::glaze
             record.admissionLowFactor = e.admissionLowFactor;
             record.admissionMainness = e.admissionMainness;
             record.loudnessFactor = e.usable ? lambda[position] : 0.0f;
-            record.lowFactor = e.usable ? lowFactorOf (e.lowShareValid, e.lowShare, passLowReferenceValid, passLowReference) : 0.0f;
+            record.lowFactor = e.usable ? passSectionFactor (e) : 0.0f;
             record.mainness = mainness[position];
             record.weightSeconds = (double) mainness[position] * record.effectiveSeconds;
             record.referenceValid = passReferenceValid;
@@ -3170,9 +3207,9 @@ namespace celadon::glaze
         impl->enqueue (segment, true, std::isfinite (mainness) ? juce::jlimit (0.0f, 1.0f, mainness) : 0.0f);
     }
 
-    float LiveProfile::mainnessFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept
+    float LiveProfile::mainnessFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare, float onsetRate) const noexcept
     {
-        const auto f = impl->factorsFor (loudnessValid, loudnessLufs, lowShareValid, lowShare);
+        const auto f = impl->factorsFor (loudnessValid, loudnessLufs, lowShareValid, lowShare, onsetRate);
         return f.loudness * f.low;
     }
 

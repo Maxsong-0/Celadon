@@ -708,6 +708,7 @@ namespace celadon::test
             testLiveLedgerAnchor();
             testBreakdownLeavesMainUntouched();
             testMainnessFormula();
+            testRhythmMain();
             testRejudgeLowReference();
             testRejudgeFadeInColdStart();
             testRejudgeIntroLeavesMain();
@@ -862,6 +863,71 @@ namespace celadon::test
         }
 
         //==============================================================================
+        void testRhythmMain()
+        {
+            beginTest ("rhythm-main: equal-loudness breakdowns need both losses, an established reference and enough observation");
+
+            TestConstants candidate;
+            candidate.rhythmMainAmount = 1.0f;
+            LiveProfile live;
+            setUp (live, candidate, Model::loudness);
+            auto spec = dropSpec();
+            spec.events = 0;
+            spec.lowShare = 0.03;
+            const auto breakdown = makeSegment (spec, 11);
+            const auto onsetRate = SegmentLedger::measuredOnsetRate (breakdown.onsetEvents, (double) breakdown.onsetEffectiveSamples, rate);
+            const auto judgement = [&] (const LiveProfile& profile, float low, float eventsPerSecond)
+            {
+                return profile.mainnessFor (true, breakdown.loudnessLufs, true, low, eventsPerSecond);
+            };
+            expectEquals (judgement (live, breakdown.lowShare, onsetRate), 1.0f, "cold start retains the loudness decision");
+
+            feed (live, makeSegment (spec, 0));
+            expectEquals (lastRecord (live).admissionMainness, 1.0f, "accept the opening section without a reference");
+            for (int i = 1; i <= 10; ++i)
+                feed (live, makeSegment (dropSpec(), i));
+            const auto history = judgementsOf (live);
+            expect (history.size() == 11 && history.front().mainness == 0.0f, "revisit the opening section after the rhythm is established");
+
+            expectEquals (judgement (live, 0.6f, onsetRate), 1.0f, "steady bass alone protects a sustained section");
+            expectEquals (judgement (live, breakdown.lowShare, 4.0f), 1.0f, "steady rhythm alone protects a bass-light section");
+            expectEquals (judgement (live, breakdown.lowShare, -1.0f), 1.0f, "missing onset measurements retain the loudness decision");
+            expectEquals (live.mainnessFor (true, breakdown.loudnessLufs, false, 0.0f, onsetRate), 1.0f, "missing bass measurement");
+            expectEquals (judgement (live, breakdown.lowShare, onsetRate), 0.0f, "both drop while the loudness stays constant");
+            const auto partial = judgement (live, 0.27f, onsetRate);
+            expect (partial > 0.4f && partial < 0.6f, "a partial drop fades the main weight continuously");
+
+            const auto admission = judgement (live, breakdown.lowShare, onsetRate);
+            feed (live, breakdown);
+            const auto record = lastRecord (live);
+            expectEquals (record.admissionMainness, admission, "admission matches the provisional decision");
+            expectEquals (record.mainness, judgement (live, breakdown.lowShare, onsetRate), "history uses the newly published reference");
+
+            LiveProfile restored;
+            setUp (restored, candidate, Model::loudness);
+            expect (restored.restoreStateXml (*live.createStateXml()) && sameProfile (restored.getProfile(), live.getProfile())
+                    && sameFloat (judgement (restored, 0.27f, onsetRate), judgement (live, 0.27f, onsetRate)),
+                    "the saved raw evidence reconstructs the same reference");
+
+            for (const bool bassPresent : { false, true })
+            {
+                LiveProfile steady;
+                setUp (steady, candidate, Model::loudness);
+                auto source = dropSpec();
+                source.lowShare = bassPresent ? 0.6 : 0.02;
+                source.events = bassPresent ? 0 : 8;
+                for (int i = 0; i < 10; ++i)
+                    feed (steady, makeSegment (source, i));
+                expectEquals (judgement (steady, 0.005f, onsetRate), 1.0f, "sustained or bass-light material retains its reference");
+            }
+
+            LiveProfile factory;
+            setUp (factory, {}, Model::loudness);
+            for (int i = 0; i < 10; ++i)
+                feed (factory, makeSegment (dropSpec(), i));
+            expectEquals (judgement (factory, breakdown.lowShare, onsetRate), 1.0f, "factory keeps the loudness decision");
+        }
+
         // c. 主段度（规格第 2 节；LiveProfile.h 文件头第一节）。
         void testMainnessFormula()
         {
@@ -1521,12 +1587,12 @@ namespace celadon::test
         // 公开常数的取值表（LiveProfile.h visitLiveConstantPairs）：键数、每个坏值换成出厂值、合法的 ∞ 原样保留。
         void testConstantsTable()
         {
-            beginTest ("constants table: 23 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf");
+            beginTest ("constants table: 24 keys; sanitiseLiveConstants replaces every out-of-domain value by the factory value, keeps legal inf");
 
             const LiveConstants factory;
             int keys = 0;
             visitLiveConstants (factory, [&keys] (const char*, const char*, const auto&, glaze::LiveConstantDomain) { ++keys; });
-            expect (keys == 23, "23 keys (one model since T-108, 4 catch-up keys since T-113): " + juce::String (keys));
+            expect (keys == 24, "24 keys including the optional rhythm model amount: " + juce::String (keys));
 
             // 每个键单独坏一次：NaN 一律坏；-1 在 ≥ 0 / > 0 / [0, 1] / (0, 1] 的范围里坏。
             LiveConstants damaged;

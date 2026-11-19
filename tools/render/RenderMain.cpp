@@ -55,7 +55,7 @@
       - 这正是用户真实的流程「听一遍 → 存工程 → 重开 → 离线导出」，也是 Codex rendercheck（tools/perf/bench.mm）验过的路径：
         实时 / 离线逐样本一致、读回后第一块就保持已执行的控制量。那是阶段 1 的验收（tools/perf/bench.mm:978 的 rendercheck 至今仍核对
         存档里有 EXECUTION 节点，阶段 2 的存档已没有它，这一条会判失败、尚未改——归 T-096 (f)）。
-    所以成品从第一块起就接着第一遍末的 LIVE 处理（自动 Clay、Tone / Tame 实时跟随与守门退让要到第一块 endBlock 之后才接上；
+    所以成品从第一块起就接着第一遍末的 LIVE 处理（自动 Clay 首块沿用存档中的执行值，Tone / Tame 实时跟随与守门退让在第一块 endBlock 之后更新；
     阶段 1 的说法是「学好之后」）；之后 GLAZE 在成品里继续实时跟随：链上的实时画像
     接着收这一遍的段，方案每 1 s 重算。
 
@@ -139,10 +139,11 @@ namespace
         bool guardMainGate;  // 1-05 预算环主段门
         bool fastCatchUp;    // 1-06 冷启动上行快通道
         float timbreScale;   // 1-07 默认档音色：1 = 出厂（不改）
+        bool rhythmMain = false;
     };
 
     // 第 0 项 current = 出厂常数（不给 --candidate 时就是它，链与改动前逐位相同）。
-    constexpr std::array<RenderCandidate, 8> renderCandidates { {
+    constexpr std::array<RenderCandidate, 9> renderCandidates { {
         { "current",   "出厂常数",                                         false, false, 1.0f },
         { "c105",      "1-05 预算环主段门",                                 true,  false, 1.0f },
         { "c106",      "1-06 冷启动上行快通道",                             false, true,  1.0f },
@@ -151,6 +152,7 @@ namespace
         { "c107x2",    "1-07 默认档音色 ×2",                                false, false, candidateTimbreScaleStrong },
         { "all-x15",   "1-05 + 1-06 + 1-07 ×1.5",                           true,  true,  candidateTimbreScaleMild },
         { "all-x2",    "1-05 + 1-06 + 1-07 ×2",                             true,  true,  candidateTimbreScaleStrong },
+        { "rhythm-main", "低频占比与起音密度同时回落时降低主段权重",           false, false, 1.0f, true },
     } };
 
     // 本次运行的候选：main 解析完设一次（current 时为 nullptr，makeRenderChain 什么都不改），之后只读。放成全局是因为建链的地方
@@ -174,6 +176,9 @@ namespace
 
         if (candidate.fastCatchUp)
             constants.catchUpHalfLifeSeconds = candidateCatchUpHalfLifeSeconds;
+
+        if (candidate.rhythmMain)
+            constants.rhythmMainAmount = 1.0f;
 
         return constants;
     }
@@ -666,7 +671,7 @@ namespace
                      "                      --live-only 一起用（不给时一切输出与改动前相同）\n"
                      "  --candidate 名字    T-113 听感批：链换上候选常数（只在渲染工具里切，插件永远是出厂常数）：current（默认，出厂）、\n"
                      "                      c105（1-05 预算环主段门）、c106（1-06 冷启动上行快通道）、c105-106、c107x15 / c107x2（1-07\n"
-                     "                      默认档音色 ×1.5 / ×2）、all-x15 / all-x2（三项一起）；一次一个，不同候选用不同的 --out；\n"
+                     "                      默认档音色 ×1.5 / ×2）、all-x15 / all-x2（三项一起）、rhythm-main（低频与起音联合判断主段）；\n"
                      "                      与 --live-trace 一起用时要给 --live-tag\n"
                      "  --cold              T-113：第二遍（成品）不读回第一遍的存档，从冷启动渲染（看 1-06 冷启动第一个 drop 用）；\n"
                      "                      不能与 --live-only 一起用\n"
@@ -6507,7 +6512,7 @@ namespace
     {
         SelfTest test;
 
-        // ---- --live-constants：键表 23 个键（LiveProfile.h 的公开表；T-108 前三个主段模型 37 个，T-113 加了 catchUp* 四个）；改得到字段、收 inf（只在允许的键上）；坏值一律拒收（不悄悄换出厂值）----
+        // ---- --live-constants：键表 24 个键（LiveProfile.h 的公开表；T-108 前三个主段模型 37 个，T-113 加了 catchUp* 四个）；改得到字段、收 inf（只在允许的键上）；坏值一律拒收（不悄悄换出厂值）----
         {
             celadon::glaze::LiveConstants c;
             std::string error;
@@ -6519,8 +6524,8 @@ namespace
             test.check (ok && c.loudness.gateWidthLu == 3.5f && c.newProgramLu == 8.0f && c.referenceMemorySeconds == 240.0
                             && std::isinf (c.noMainSeconds) && c.noMainSeconds > 0.0 && std::isinf (c.loudness.memoryBars) && c.loudness.memoryBars < 0.0
                             && std::isinf (c.newProgramRangeLu) && c.publishDelaySeconds == 0.25
-                            && c.loudness.lowGateFactor == celadon::glaze::LiveConstants {}.loudness.lowGateFactor && keys == 23,
-                        "--live-constants 解析", ok ? "改到 7 个字段（含 inf / -inf），其余保持出厂值；键表 " + std::to_string (keys) + " 个键（期望 23）"
+                            && c.loudness.lowGateFactor == celadon::glaze::LiveConstants {}.loudness.lowGateFactor && keys == 24,
+                        "--live-constants 解析", ok ? "改到 7 个字段（含 inf / -inf），其余保持出厂值；键表 " + std::to_string (keys) + " 个键（期望 24）"
                                                     : "解析失败：" + error);
 
             const std::array<const char*, 13> bad { { "nosuch=1", "mainThreshold=1.5", "loudness.gateWidthLu=inf", "newProgramLu=8,newProgramLu=9",
@@ -6611,7 +6616,9 @@ namespace
             const auto tableOk = c105.guardRecoverMinMainness == candidateGuardRecoverMinMainness
                               && currentListening.guardRecoverMinMainness == factoryListening.guardRecoverMinMainness
                               && currentListening.timbreScaleAtKnee == factoryListening.timbreScaleAtKnee
-                              && liveConstantsFor (renderCandidates[0]).catchUpHalfLifeSeconds == factory.catchUpHalfLifeSeconds;
+                              && liveConstantsFor (renderCandidates[0]).catchUpHalfLifeSeconds == factory.catchUpHalfLifeSeconds
+                              && liveConstantsFor (renderCandidates[0]).rhythmMainAmount == 0.0f
+                              && liveConstantsFor (renderCandidates.back()).rhythmMainAmount == 1.0f;
 
             test.check (names.empty() && plainOk && tracedOk && coldOk && rejected && tableOk, "--candidate / --cold 的命令行约定",
                         std::string (names.empty() ? "" : "这些名字没解析对：" + names + "；")

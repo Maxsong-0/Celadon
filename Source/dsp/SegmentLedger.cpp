@@ -493,6 +493,8 @@ namespace celadon::glaze
         lastFinal.loudnessLufs = segment.loudnessLufs;
         lastFinal.lowShareValid = segment.lowShareValid;
         lastFinal.lowShare = segment.lowShare;
+        lastFinal.end = segment.end;
+        lastFinal.onsetRate = measuredOnsetRate (segment.onsetEvents, (double) segment.onsetEffectiveSamples, sampleRate);
 
         if (stored >= 0)
         {
@@ -528,12 +530,51 @@ namespace celadon::glaze
         return lastStoredSlot >= 0 ? store[(size_t) lastStoredSlot].mode : SegmentMode::none;
     }
 
-    SegmentLedger::Reading SegmentLedger::getCurrentReading (float& loudnessLufs, float& lowShareOut) const noexcept
+    float SegmentLedger::measuredOnsetRate (double events, double samples, double rate) noexcept
     {
+        return samples >= minimumProvisionalSeconds * rate && rate > 0.0 && events >= 0.0
+                 ? (float) (events * rate / samples) : -1.0f;
+    }
+
+    float SegmentLedger::onsetRateOf (const Segment& segment) const noexcept
+    {
+        const auto observed = measuredOnsetRate (segment.onsetEvents, (double) segment.onsetEffectiveSamples, sampleRate);
+        if (observed < 0.0f || &segment != &newest())
+            return observed;
+
+        const auto span = segment.end - segment.start;
+        if (span <= segment.onsetEffectiveSamples)
+            return observed;
+
+        // 暂判：尚未观察的部分沿用上一段的实测密度，观察齐后只用本段。
+        // 连续无起音时，小节线两边都是 0。跳播或起音数据不足时保留响度判定。
+        float previous = -1.0f;
+        if (openCount > 1)
+        {
+            const auto& prior = pool[(size_t) order[(size_t) ((openHead + openCount - 2) % maxOpenSegments)]];
+            if (prior.epoch == segment.epoch && prior.end == segment.start)
+                previous = measuredOnsetRate (prior.onsetEvents, (double) prior.onsetEffectiveSamples, sampleRate);
+        }
+        else if (lastFinal.valid && lastFinal.epoch == segment.epoch && lastFinal.end == segment.start)
+        {
+            previous = lastFinal.onsetRate;
+        }
+
+        if (previous < 0.0f)
+            return -1.0f;
+
+        const auto coverage = (float) ((double) segment.onsetEffectiveSamples / (double) span);
+        return previous + coverage * (observed - previous);
+    }
+
+    SegmentLedger::Reading SegmentLedger::getCurrentReading (float& loudnessLufs, float& lowShareOut, float* onsetRate) const noexcept
+    {
+        if (onsetRate != nullptr)
+            *onsetRate = -1.0f;
         if (openCount > 0)
         {
             const auto& open = newest();
-            const auto own = readOpen (open, loudnessLufs, lowShareOut);
+            const auto own = readOpen (open, loudnessLufs, lowShareOut, onsetRate);
 
             if (own != Reading::none)
                 return own;
@@ -548,22 +589,22 @@ namespace celadon::glaze
                 if (previous.epoch != open.epoch)
                     break;
 
-                const auto earlier = readOpen (previous, loudnessLufs, lowShareOut);
+                const auto earlier = readOpen (previous, loudnessLufs, lowShareOut, onsetRate);
 
                 if (earlier != Reading::none)
                     return earlier;
             }
 
-            return lastFinal.valid && lastFinal.epoch == open.epoch ? readLastFinal (loudnessLufs, lowShareOut) : Reading::none;
+            return lastFinal.valid && lastFinal.epoch == open.epoch ? readLastFinal (loudnessLufs, lowShareOut, onsetRate) : Reading::none;
         }
 
-        return lastFinal.valid && lastFinal.epoch == epoch ? readLastFinal (loudnessLufs, lowShareOut) : Reading::none;
+        return lastFinal.valid && lastFinal.epoch == epoch ? readLastFinal (loudnessLufs, lowShareOut, onsetRate) : Reading::none;
     }
 
     // 正在播的段按它自己的数据暂判（文件头第四节）：有效音频与过帧门的帧都够 minimumProvisionalSeconds = measured；已经播了
     // minimumProvisionalSeconds、有效音频却不够 = quiet（过不了「有效音频」门的安静段落）；刚开始、或帧还没跟上 = none（调用方退回上一段）。
     // 有效音频够了、读数却不是有限正数（异常数据）按 quiet（不当作主段）。
-    SegmentLedger::Reading SegmentLedger::readOpen (const Segment& open, float& loudnessLufs, float& lowShareOut) const noexcept
+    SegmentLedger::Reading SegmentLedger::readOpen (const Segment& open, float& loudnessLufs, float& lowShareOut, float* onsetRate) const noexcept
     {
         const auto seconds = [this] (int subBlocks) noexcept { return (double) subBlocks * (double) subBlockLength / sampleRate; };
 
@@ -590,12 +631,14 @@ namespace celadon::glaze
 
         loudnessLufs = loudness;
         lowShareOut = (float) (low / total);
+        if (onsetRate != nullptr)
+            *onsetRate = onsetRateOf (open);
         return Reading::measured;
     }
 
     // 最近定稿的那一段：没听到一半（heard = false，含有效音频为 0、没进账本的段）= quiet；听到了、读数齐 = measured；
     // 听到了、帧不够算低频占比 = none。
-    SegmentLedger::Reading SegmentLedger::readLastFinal (float& loudnessLufs, float& lowShareOut) const noexcept
+    SegmentLedger::Reading SegmentLedger::readLastFinal (float& loudnessLufs, float& lowShareOut, float* onsetRate) const noexcept
     {
         if (! lastFinal.heard)
             return Reading::quiet;
@@ -605,6 +648,8 @@ namespace celadon::glaze
 
         loudnessLufs = lastFinal.loudnessLufs;
         lowShareOut = lastFinal.lowShare;
+        if (onsetRate != nullptr)
+            *onsetRate = lastFinal.onsetRate;
         return Reading::measured;
     }
 

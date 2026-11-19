@@ -359,6 +359,9 @@ namespace celadon::glaze
         Plan targetPlan {};
         bool haveTarget = false;
         StyleWeights automaticWeights {};
+        StyleWeights styleRampStart {}, styleRampTarget {};
+        double styleRampLengthSamples = 0.0;
+        std::int64_t styleRampPosition = 0;
         AutoIncrements applied {};
         bool gainInDeadband = false;
         float gTrim = 0.0f;
@@ -395,7 +398,6 @@ namespace celadon::glaze
         ClayPlan liveClay {};
         ClayPlan plannedClay {};
         bool claySupported = false;
-        double lastMusicSeconds = 0.0;
 
         HostInfo host {};
         bool hostFresh = false;
@@ -507,30 +509,49 @@ namespace celadon::glaze
             slew (applied.limitGainDb, target, gainUpDbPerSecond, gainDownDbPerSecond, dt, mainness < 0.5f);
         }
 
-        void slewWeights (const StyleWeights& target, double dt) noexcept
+        void startStyleRamp (const MusicProfile& profile) noexcept
         {
-            slew (automaticWeights.warm, target.warm, weightPerSecond, weightPerSecond, dt, false);
-            slew (automaticWeights.punchy, target.punchy, weightPerSecond, weightPerSecond, dt, false);
-            slew (automaticWeights.clean, target.clean, weightPerSecond, weightPerSecond, dt, false);
-            automaticWeights.warm = juce::jlimit (0.0f, 1.0f, automaticWeights.warm);
-            automaticWeights.punchy = juce::jlimit (0.0f, 1.0f, automaticWeights.punchy);
-            automaticWeights.clean = juce::jlimit (0.0f, 1.0f, automaticWeights.clean);
-            const auto sum = automaticWeights.warm + automaticWeights.punchy + automaticWeights.clean;
+            const auto target = resolveAutomaticWeights (profile, activeConstants());
+            if (styleRampLengthSamples > 0.0 && target.warm == styleRampTarget.warm
+                && target.punchy == styleRampTarget.punchy && target.clean == styleRampTarget.clean)
+                return;
 
-            if (sum > 0.0f)
-            {
-                automaticWeights.warm /= sum;
-                automaticWeights.punchy /= sum;
-                automaticWeights.clean /= sum;
-            }
+            styleRampStart = weightsFor (Style::automatic, automaticWeights);
+            styleRampTarget = target;
+            const auto distance = std::max ({ std::abs (styleRampTarget.warm - styleRampStart.warm),
+                                              std::abs (styleRampTarget.punchy - styleRampStart.punchy),
+                                              std::abs (styleRampTarget.clean - styleRampStart.clean) });
+            styleRampLengthSamples = distance * sampleRate / weightPerSecond;
+            styleRampPosition = 0;
+            if (distance == 0.0f)
+                automaticWeights = target;
         }
 
-        void replan (const MusicProfile* profile, double dt) noexcept
+        void advanceStyleRamp (int samples) noexcept
+        {
+            if (styleRampLengthSamples <= 0.0 || samples <= 0)
+                return;
+
+            styleRampPosition += samples;
+            if ((double) styleRampPosition >= styleRampLengthSamples)
+            {
+                automaticWeights = styleRampTarget;
+                styleRampLengthSamples = 0.0;
+                return;
+            }
+
+            // 三个分量沿同一条线走，权重和保持为一，每项每秒最多变 0.05。按累计样本从起点插值，
+            // 避免在小缓冲上反复向接近 1 的 float 加极小的步长。
+            const auto fraction = (double) styleRampPosition / styleRampLengthSamples;
+            const auto mix = [fraction] (float start, float target) { return (float) (start + (target - start) * fraction); };
+            automaticWeights = { mix (styleRampStart.warm, styleRampTarget.warm),
+                                 mix (styleRampStart.punchy, styleRampTarget.punchy),
+                                 mix (styleRampStart.clean, styleRampTarget.clean) };
+        }
+
+        void replan (const MusicProfile* profile) noexcept
         {
             const auto& constants = activeConstants();
-
-            if (profile != nullptr)
-                slewWeights (resolveAutomaticWeights (*profile, constants), dt);
 
             PlanInputs inputs;
             inputs.profile = profile;
@@ -684,23 +705,24 @@ namespace celadon::glaze
             }
         }
 
-        void updateClay() noexcept
+        void prepareClayPlan() noexcept
         {
-            const auto seconds = lastMusicSeconds;
-            lastMusicSeconds = 0.0;
+            // LIVE 存的是已经过压力缩放和实时保护的执行值。到首片末才有新方案，首个宿主块沿用存档。
+            if (active && ! haveTarget && claySupported)
+                return;
+
             const auto& constants = activeConstants();
             const auto floorHz = isFinite (constants.clayLowCutFloorHz) && constants.clayLowCutFloorHz > 0.0f
                                      ? constants.clayLowCutFloorHz : ClayModule::minLowCutHz;
             plannedClay = haveTarget ? sanitizeClay (scaleClayPlan (targetPlan.clay, pressureScale, floorHz)) : ClayPlan {};
             claySupported = active && haveFollowed && followed.formatVersion >= clayProfileFormatVersion;
-            const auto& view = analyzer.getShortTermView();
+            updateClayGuard (0.0);   // 新方案沿用上一片积到的守护状态，GLAZE 关闭时立即复位。
+        }
 
-            if (claySupported)
-                liveClay = sanitizeClay (clayGuard.update (plannedClay, view, seconds, true));
-            else
-                liveClay = sanitizeClay (clayGuard.update (ClayPlan {}, view, seconds, active));
-
-            effective.clay = resolveClayParams (manual.claySettings, liveClay, manual.glazePercent);
+        void updateClayGuard (double seconds) noexcept
+        {
+            liveClay = sanitizeClay (clayGuard.update (claySupported ? plannedClay : ClayPlan {},
+                                                      analyzer.getShortTermView(), seconds, active));
         }
 
         // 手动 Limit Gain 加上自动增量，钳进 0 ～ 24 dB（同 applyIncrements）。
@@ -758,6 +780,7 @@ namespace celadon::glaze
         // 目标方案作废的地方（读档、prepare、冷启动）一并清：下一次 beginBlock 之前的 endBlock 不当证据。
         void clearExecutedPlan() noexcept
         {
+            styleRampLengthSamples = 0.0;   // 下一次规划从当前（或读回的）权重与画像重新计算剩余路程。
             executedPlanInPlace = false;
             executedPlanGainDb = std::numeric_limits<float>::quiet_NaN();
             executedIncrementGainDb = std::numeric_limits<float>::quiet_NaN();
@@ -885,6 +908,7 @@ namespace celadon::glaze
             pressureScale = 1.0f;
             liveClay = {};
             plannedClay = {};
+            claySupported = false;
             haveFollowed = false;
             followed = {};
             budget.clear();
@@ -1035,6 +1059,8 @@ namespace celadon::glaze
             nextGridSample = staged.nextGridSample;
             pressureScale = staged.pressureScale;
             liveClay = staged.liveClay;
+            plannedClay = liveClay;
+            claySupported = live != nullptr && live->getProfile().formatVersion >= clayProfileFormatVersion;
             clayGuard.setState (staged.clayGuard);
             budget.adoptRestoredState (staged.budget);
             outputLevel.adoptRestoredState (staged.outputLevel);
@@ -1143,6 +1169,9 @@ namespace celadon::glaze
             outputLevel.prepare (sampleRate);
             clayGuard.reset();
             clayGuard.setConstants (activeConstants());
+            liveClay = {};
+            plannedClay = {};
+            claySupported = false;
             clayPressure.reset();
             clayKeep.reset();
             timelineSamples = 0;
@@ -1186,7 +1215,7 @@ namespace celadon::glaze
             if (! active)
                 snapAutomatic();
 
-            updateClay();
+            prepareClayPlan();
             auto increments = applied;
 
             if (active && haveFollowed && ! manual.color.bypass && manual.color.mixPercent > 0.0f)
@@ -1203,14 +1232,6 @@ namespace celadon::glaze
                 }
             }
 
-            effective = applyIncrements (manual, active ? increments : AutoIncrements {});
-
-            if (active && ! manual.color.bypass && manual.color.mixPercent > 0.0f && isFinite (manual.color.heat))
-                effective.color.heat -= juce::jmax (0.0f, effective.color.heat - manual.color.heat) * liveHeatReduction;
-
-            if (active && ! manual.color.bypass && manual.color.mixPercent > 0.0f && isFinite (manual.color.glue))
-                effective.color.glue -= juce::jmax (0.0f, effective.color.glue - manual.color.glue) * liveGlueReduction;
-
             if (active && ! manual.balance.bypass)
             {
                 const auto& evidence = analyzer.getShortTermView().liveTameEvidenceDb;
@@ -1223,9 +1244,19 @@ namespace celadon::glaze
                     const auto tameCap = isFinite (caps.tameCap) ? juce::jlimit (0.0f, 100.0f, caps.tameCap) : 0.0f;
                     const auto liveTame = tameCap * glaze * confidenceScale (&followed, constants)
                                         * juce::jlimit (0.0f, 1.0f, evidence.value / constants.tameEvidenceFullDb);
-                    effective.balance.tame = juce::jlimit (0.0f, 100.0f, manual.balance.tame + juce::jmax (applied.balanceTame, liveTame));
+                    increments.balanceTame = juce::jmax (increments.balanceTame, liveTame);
                 }
             }
+
+            // Keep the live increase in the same automatic share as the long-term plan.
+            // BALANCE uses this share to distinguish permitted automatic cuts from manual ones.
+            effective = applyIncrements (manual, active ? increments : AutoIncrements {});
+
+            if (active && ! manual.color.bypass && manual.color.mixPercent > 0.0f && isFinite (manual.color.heat))
+                effective.color.heat -= juce::jmax (0.0f, effective.color.heat - manual.color.heat) * liveHeatReduction;
+
+            if (active && ! manual.color.bypass && manual.color.mixPercent > 0.0f && isFinite (manual.color.glue))
+                effective.color.glue -= juce::jmax (0.0f, effective.color.glue - manual.color.glue) * liveGlueReduction;
 
             effective.clay = resolveClayParams (manual.claySettings, liveClay, manual.glazePercent);
             applyLimitExtras();
@@ -1258,10 +1289,11 @@ namespace celadon::glaze
 
             const auto numSamples = std::max (0, stats.numSamples);
             const auto music = analyzer.getShortTermView().musicActive && ! paused && hostPlaying();
-            lastMusicSeconds = music ? (double) numSamples / sampleRate : 0.0;
 
             float loudness = 0.0f, lowShare = 0.0f;
-            const auto reading = analyzer.getSegmentLedger().getCurrentReading (loudness, lowShare);
+            float onsetRate = -1.0f;
+            const auto reading = analyzer.getSegmentLedger().getCurrentReading (loudness, lowShare,
+                                                                                liveConstants.rhythmMainAmount > 0.0f ? &onsetRate : nullptr);
 
             const auto measured = reading == SegmentLedger::Reading::measured && live != nullptr;
 
@@ -1283,7 +1315,7 @@ namespace celadon::glaze
             if (reading == SegmentLedger::Reading::quiet)
                 currentMainness = 0.0f;
             else if (measured)
-                currentMainness = live->mainnessFor (true, loudness, true, lowShare);
+                currentMainness = live->mainnessFor (true, loudness, true, lowShare, onsetRate);
             else
                 currentMainness = 1.0f;
 
@@ -1291,11 +1323,11 @@ namespace celadon::glaze
             // 正开着主段时积）。到没到位用 beginBlock 记下的那一份（executedPlanInPlace）：这一片的音频执行的是块首的设置，
             // 而一个宿主块切成多片时，此刻的 applied / targetPlan 已经被前面的片推过了。
             // 连同算出 m′ 的那份读数一起交，出口历史里已收的段之后按此刻的参考回看重判（同输入侧实时画像）。
-            outputLevel.noteMainness (executedPlanInPlace ? currentMainness : 0.0f, measured, loudness, lowShare);
+            outputLevel.noteMainness (executedPlanInPlace ? currentMainness : 0.0f, measured, loudness, lowShare, onsetRate);
 
             if (live != nullptr)
-                outputLevel.rejudge ([this] (float segmentLufs, float segmentLowShare) noexcept
-                                     { return live->mainnessFor (true, segmentLufs, true, segmentLowShare); });
+                outputLevel.rejudge ([this] (float segmentLufs, float segmentLowShare, float segmentOnsetRate) noexcept
+                                     { return live->mainnessFor (true, segmentLufs, true, segmentLowShare, segmentOnsetRate); });
 
             // 宿主旁通、听原声、Color / Limit 旁通时出口不是方案在听的信号。半格时隙留着会让链按 1 个样本切片。
             const auto guardFrozen = paused || manual.color.bypass || manual.limit.bypass;
@@ -1338,8 +1370,17 @@ namespace celadon::glaze
             }
             else
             {
+                if (music)
+                {
+                    advanceStyleRamp (numSamples);
+                    updateClayGuard (dt);
+                }
                 if (wantPlan)
-                    replan (haveFollowed ? &followed : nullptr, dt);
+                {
+                    if (haveFollowed)
+                        startStyleRamp (followed);   // 刚收到的画像只作用于下一片，不给新目标补算上一片的时长。
+                    replan (haveFollowed ? &followed : nullptr);
+                }
 
                 auto guardStats = stats;
                 guardStats.musicActive = music;

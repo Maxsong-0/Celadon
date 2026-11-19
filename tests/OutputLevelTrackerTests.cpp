@@ -69,6 +69,7 @@ namespace celadon::test
                 testEvidenceWeighting();
                 testInputPairing();
                 testRejudge();
+                testOnsetEvidence();
                 testStateRoundTrip();
                 testLegacyAndBrokenState();
                 testMainnessFlips();
@@ -122,6 +123,7 @@ namespace celadon::test
                 float lowShare = 0.3f;
                 bool withInput = true;         // 这一片交入口样本
                 float inputScale = 1.0f;       // 入口噪声幅度的倍数
+                float onsetRate = -1.0f;
             };
 
             // 喂 blocks 块。入口是白噪声（幅度 0.1 × inputScale；每块一个种子，从 seed 起逐块加 1），出口 = 入口 × outputGain。
@@ -145,7 +147,7 @@ namespace celadon::test
                     if (f.withInput)
                         tracker.processInput (input);
 
-                    tracker.noteMainness (f.mainness, f.measured, f.inputLufs, f.lowShare);
+                    tracker.noteMainness (f.mainness, f.measured, f.inputLufs, f.lowShare, f.onsetRate);
                     tracker.processOutput (output, f.limitGainDb);
                 }
             }
@@ -574,6 +576,75 @@ namespace celadon::test
                         "the open segment keeps the mainness it was fed: eight closed seconds plus its one");
                 tracker.rejudge ([] (float, float) noexcept { return 0.0f; });
                 expect (tracker.mainSamples() == samplesFor (4 + 1), "... also under a reference that rejects every closed segment with readings");
+            }
+
+            void testOnsetEvidence()
+            {
+                beginTest ("rejudge weights onset rates by observed samples and preserves missing evidence across a state restore");
+
+                Tracker tracker;
+                tracker.prepare (rate);
+                Feed f;
+                feed (tracker, 1, 61, f);
+                tracker.closeSegment();
+                f.onsetRate = 1.0f;
+                feed (tracker, 1, 62, f);
+                f.onsetRate = std::numeric_limits<float>::quiet_NaN();
+                feed (tracker, 1, 63, f);
+                f.measured = false;
+                f.onsetRate = 100.0f;
+                feed (tracker, 1, 64, f);
+
+                // 前一段缺测，这一段已有一块有效读数。两段都要随存档回来，开着的段还要能接着累计。
+                const auto saved = tracker.createStateXml();
+                Tracker resumed;
+                resumed.prepare (rate);
+                expect (saved->hasAttribute ("onsetEvidence") && resumed.restoreStateXml (*saved));
+                f.measured = true;
+                f.onsetRate = 4.0f;
+                feed (resumed, 2, 65, f);
+                resumed.closeSegment();
+
+                const auto checkRates = [&] (Tracker& subject, float secondRate)
+                {
+                    std::vector<float> seen;
+                    subject.rejudge ([&] (float, float, float onsetRate)
+                    {
+                        seen.push_back (onsetRate);
+                        return 1.0f;
+                    });
+                    expect (seen == std::vector<float> { -1.0f, secondRate });
+                };
+                checkRates (resumed, 3.0f);  // (1 × 1 + 4 × 2) / 3
+                const auto closed = resumed.createStateXml();
+                Tracker readClosed;
+                readClosed.prepare (rate);
+                expect (readClosed.restoreStateXml (*closed));
+                checkRates (readClosed, 3.0f);
+                expect (readClosed.createStateXml()->isEquivalentTo (closed.get(), false));
+
+                juce::XmlElement old (*closed);
+                old.removeAttribute ("onsetEvidence");
+                expect (readClosed.restoreStateXml (old));
+                checkRates (readClosed, -1.0f);
+                juce::XmlElement malformed (*closed);
+                malformed.setAttribute ("onsetEvidence", "AAAA");
+                expect (! readClosed.restoreStateXml (malformed));
+                checkRates (readClosed, -1.0f);
+
+                // 总长度正确时也要检查每段样本数：这里第一段只有一块取到了输入侧电平。
+                juce::MemoryOutputStream packed;
+                if (juce::Base64::convertFromBase64 (packed, closed->getStringAttribute ("onsetEvidence")) && packed.getDataSize() == 3 * 16)
+                {
+                    juce::MemoryBlock bytes (packed.getData(), packed.getDataSize());
+                    const std::int64_t tooMany = block + 1;
+                    std::memcpy (static_cast<char*> (bytes.getData()) + sizeof (double), &tooMany, sizeof (tooMany));
+                    malformed.setAttribute ("onsetEvidence", juce::Base64::toBase64 (bytes.getData(), bytes.getSize()));
+                    expect (! readClosed.restoreStateXml (malformed));
+                    checkRates (readClosed, -1.0f);
+                }
+                else
+                    expect (false, "two closed entries followed by the open entry");
             }
 
             // 一份有内容的状态：三段已收（其中一段读数偏轻）＋一段开着，录制增益各不相同。

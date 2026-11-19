@@ -2,8 +2,10 @@
 
 #include "GlazeConstants.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace celadon::glaze
 {
@@ -78,6 +80,7 @@ namespace celadon::glaze
         legacyState = false;
         blockMeasured = false;
         blockInputLufs = blockLowShare = 0.0f;
+        blockOnsetRate = -1.0f;
     }
 
     // 待入账的入口能量作废（这一片的出口样本若还进账，所在的段就算没配齐）。
@@ -91,8 +94,10 @@ namespace celadon::glaze
     {
         open = {};
         openExtra = {};
+        openOnset = {};
         closed.fill (Segment {});
         closedExtra.fill (Extra {});
+        closedOnsets.fill (OnsetEvidence {});
         closedNow.fill (0.0f);
         closedCount = 0;
         closedWrite = 0;
@@ -114,20 +119,25 @@ namespace celadon::glaze
         discardInput();   // 复位前那一片的入口能量与复位后的出口不是一回事
     }
 
-    void OutputLevelTracker::pushClosed (const Segment& segment, const Extra& extra) noexcept
+    void OutputLevelTracker::finishSegment() noexcept
     {
-        if (segment.samples <= 0 || ! (segment.mainness >= mainnessGate))
-            return;
+        if (openWasMain && open.samples > 0 && open.mainness >= mainnessGate)
+        {
+            const auto slot = (std::size_t) closedWrite;
+            closed[slot] = open;
+            closedExtra[slot] = openExtra;
+            closedOnsets[slot] = openOnset;
+            closedNow[slot] = open.mainness;   // 下一次 rejudge() 之前按当时的判定
+            closedWrite = (closedWrite + 1) % closedCapacity;
+            closedCount = juce::jmin (closedCapacity, closedCount + 1);
+        }
 
-        const auto slot = (std::size_t) closedWrite;
-        closed[slot] = segment;
-        closedExtra[slot] = extra;
-        closedNow[slot] = segment.mainness;   // 下一次 rejudge() 之前按当时的判定
-        closedWrite = (closedWrite + 1) % closedCapacity;
-        closedCount = juce::jmin (closedCapacity, closedCount + 1);
+        open = {};
+        openExtra = {};
+        openOnset = {};
     }
 
-    void OutputLevelTracker::noteMainness (float mainness, bool measured, float inputLufs, float lowShare) noexcept
+    void OutputLevelTracker::noteMainness (float mainness, bool measured, float inputLufs, float lowShare, float onsetRate) noexcept
     {
         if (! std::isfinite (mainness))
             mainness = 0.0f;
@@ -135,6 +145,7 @@ namespace celadon::glaze
         blockMeasured = measured && std::isfinite (inputLufs) && std::isfinite (lowShare) && lowShare >= 0.0f;
         blockInputLufs = blockMeasured ? inputLufs : 0.0f;
         blockLowShare = blockMeasured ? lowShare : 0.0f;
+        blockOnsetRate = blockMeasured && std::isfinite (onsetRate) && onsetRate >= 0.0f ? onsetRate : -1.0f;
 
         const auto main = mainness >= mainnessGate;
 
@@ -148,11 +159,7 @@ namespace celadon::glaze
 
         if (main != openWasMain)
         {
-            if (openWasMain)
-                pushClosed (open, openExtra);
-
-            open = {};
-            openExtra = {};
+            finishSegment();
             openWasMain = main;
         }
 
@@ -161,11 +168,7 @@ namespace celadon::glaze
 
     void OutputLevelTracker::closeSegment() noexcept
     {
-        if (openWasMain)
-            pushClosed (open, openExtra);
-
-        open = {};
-        openExtra = {};
+        finishSegment();
         haveOpenMainness = false;
         openWasMain = false;
     }
@@ -253,6 +256,7 @@ namespace celadon::glaze
         const auto paired = inputSamples == numSamples;
         const auto inputPerSample = paired ? inputEnergy / (double) numSamples : 0.0;
         const auto weight = channels == 1 ? 2.0 : 1.0;
+        int segmentStart = 0;
 
         for (int i = 0; i < numSamples; ++i)
         {
@@ -295,16 +299,13 @@ namespace celadon::glaze
             if (open.samples >= maxOpenSamples)
             {
                 const auto mainness = open.mainness;
-                const auto wasMain = openWasMain;
-                if (wasMain)
-                    pushClosed (open, openExtra);
-
-                open = {};
-                openExtra = {};
+                openOnset.add (blockOnsetRate, i + 1 - segmentStart);
+                segmentStart = i + 1;
+                finishSegment();
                 open.mainness = mainness;
-                openWasMain = wasMain;
             }
         }
+        openOnset.add (blockOnsetRate, numSamples - segmentStart);
     }
 
     template <typename Visit>
@@ -418,12 +419,17 @@ namespace celadon::glaze
         const auto stored = juce::jmin (closedCount, closedCapacity);
         std::array<Segment, (std::size_t) closedCapacity> history {};
         std::array<Extra, (std::size_t) closedCapacity> historyExtra {};
+        std::array<OnsetEvidence, (std::size_t) closedCapacity + 1> onsets {};
+        onsets[(std::size_t) stored] = openOnset;
+        bool haveOnsets = openOnset.samples > 0;
 
         for (int i = 0; i < stored; ++i)
         {
             const auto index = (std::size_t) ((closedWrite - stored + i + closedCapacity) % closedCapacity);
             history[(std::size_t) i] = closed[index];
             historyExtra[(std::size_t) i] = closedExtra[index];
+            onsets[(std::size_t) i] = closedOnsets[index];
+            haveOnsets = haveOnsets || closedOnsets[index].samples > 0;
         }
 
         // 给 0.1.8.10 的那一份：最新的至多 32 段，从旧到新放在第 0 格起，写入位置是最新一段的下一格。0.1.8.10 从写入位置往前
@@ -457,6 +463,8 @@ namespace celadon::glaze
         writer.field ("historyCount", stored);
         xml->setAttribute ("history", juce::Base64::toBase64 (history.data(), (size_t) stored * sizeof (Segment)));
         xml->setAttribute ("historyExtra", juce::Base64::toBase64 (historyExtra.data(), (size_t) stored * sizeof (Extra)));
+        if (haveOnsets)
+            xml->setAttribute ("onsetEvidence", juce::Base64::toBase64 (onsets.data(), (size_t) (stored + 1) * sizeof (OnsetEvidence)));
         return xml;
     }
 
@@ -476,8 +484,10 @@ namespace celadon::glaze
         // 读档定下的量 = clearSegments 清的那些再加旧存档标记（decodeState 两条路都只写这几项）。
         open = r.open;
         openExtra = r.openExtra;
+        openOnset = r.openOnset;
         closed = r.closed;
         closedExtra = r.closedExtra;
+        closedOnsets = r.closedOnsets;
         closedNow = r.closedNow;
         closedCount = r.closedCount;
         closedWrite = r.closedWrite;
@@ -530,6 +540,9 @@ namespace celadon::glaze
 
         if (present == 0)
         {
+            if (xml.hasAttribute ("onsetEvidence"))
+                return false;
+
             // 旧存档：不知道每段是在什么增益下录的，折算不了。段累计清空、从头攒；滤波器照旧不动。
             // 上面那几项的校验同 0.1.8.10（环 32 格）；段的内容（closed 里各段、openSamples）反正不用，不看。
             clearSegments();
@@ -583,15 +596,36 @@ namespace celadon::glaze
             if (! validSegment (restoredClosed[i]) || ! validExtra (restoredExtra[i], restoredClosed[i].samples))
                 return false;
 
+        std::array<OnsetEvidence, (std::size_t) closedCapacity + 1> onsets {};
+        if (xml.hasAttribute ("onsetEvidence"))
+        {
+            juce::MemoryOutputStream onsetPacked;
+            if (! juce::Base64::convertFromBase64 (onsetPacked, xml.getStringAttribute ("onsetEvidence"))
+                || onsetPacked.getDataSize() != (size_t) (historyCount + 1) * sizeof (OnsetEvidence))
+                return false;
+
+            std::memcpy (onsets.data(), onsetPacked.getData(), onsetPacked.getDataSize());
+            for (int i = 0; i <= historyCount; ++i)
+            {
+                const auto& onset = onsets[(std::size_t) i];
+                const auto measured = i == historyCount ? restoredOpenExtra.inputSamples : restoredExtra[(std::size_t) i].inputSamples;
+                if (onset.samples < 0 || onset.samples > measured || ! std::isfinite (onset.weightedRate) || onset.weightedRate < 0.0
+                    || onset.weightedRate > (double) std::numeric_limits<float>::max() * (double) onset.samples)
+                    return false;
+            }
+        }
+
         // 从旧到新放在第 0 格起，写入位置是最新一段的下一格（满 128 段时回到第 0 格，正是最旧的那一段）。
         closed = restoredClosed;
         closedExtra = restoredExtra;
+        std::copy_n (onsets.begin(), historyCount, closedOnsets.begin());
 
         for (std::size_t i = 0; i < closed.size(); ++i)
             closedNow[i] = closed[i].mainness;   // 下一次 rejudge() 起按此刻的参考
 
         open = restoredOpen;
         openExtra = restoredOpenExtra;
+        openOnset = onsets[(std::size_t) historyCount];
         closedCount = historyCount;
         closedWrite = historyCount % closedCapacity;
         haveOpenMainness = have;

@@ -1487,6 +1487,14 @@ namespace celadon
         const auto manualRecover = juce::jmax (0.0, recover - automaticRecover);
         PerBand<double> proposed {}, untilted {}, recoverPermit {};
 
+        // 在自动许可的邻域里，40 / 50 Hz 共用一个位置。用每段平均功率和别的一段比较，
+        // 直接求和会把低频参考抬高 3 dB。最底部没有更低的独立观察，两段均遵守边缘保护。
+        constexpr size_t lowEdge = sharedLowBands - 1;
+        const auto lowLevel = (automaticRecover > 0.0 || automaticTame > 0.0)
+                            ? 10.0 * std::log10 (juce::jmax (powerFloor, (averagedPower[0] + averagedPower[1]) * 0.5))
+                            : gateDb;
+        const auto lowQuickPower = (quickPower[0] + quickPower[1]) * 0.5;
+
         if (automaticTame > 0.0 || frameParams.harshAmount > 0.0f)
             updateHarmonicProtection();
         else
@@ -1498,7 +1506,7 @@ namespace celadon
             double automaticWeight = 0.0;
             double automaticTameWeight = 0.0;
 
-            if (automaticTame > 0.0)
+            if (automaticTame > 0.0 && b >= lowEdge + kernelRadius && b + kernelRadius < (size_t) numBands)
             {
                 const auto rising = bandPower[b] > automaticTameOnsetPowerRatio * juce::jmax (powerFloor, previousBandPower[b]);
                 automaticOnsetHoldSeconds[b] = rising ? automaticTameOnsetHoldSeconds
@@ -1511,11 +1519,14 @@ namespace celadon
                 {
                     const auto supported = [&] (size_t neighbour)
                     {
+                        if (neighbour == lowEdge)
+                            return lowLevel >= gateDb + 0.5 * gateFadeDb
+                                && lowQuickPower >= bandPower[b] * automaticTameSupportRatio;
                         return gateWeight[neighbour] >= 0.5
                             && quickPower[neighbour] >= bandPower[b] * automaticTameSupportRatio;
                     };
-                    if ((int) b >= distance && supported (b - (size_t) distance)) ++leftSupport;
-                    if (b + (size_t) distance < (size_t) numBands && supported (b + (size_t) distance)) ++rightSupport;
+                    if (supported (b - (size_t) distance)) ++leftSupport;
+                    if (supported (b + (size_t) distance)) ++rightSupport;
                 }
 
                 const auto persistentPeak = bandAlive[b] && leftSupport == 2 && rightSupport == 2
@@ -1553,7 +1564,7 @@ namespace celadon
 
             previousBandPower[b] = bandPower[b];
 
-            if (automaticRecover > 0.0 && bandAlive[b] && b > 0 && b + 1 < (size_t) numBands)
+            if (automaticRecover > 0.0 && bandAlive[b] && b > lowEdge && b + 1 < (size_t) numBands)
             {
                 // 两边各 ±3 段里必须有高于本段的有效内容。单调谱/自然滚降只有一边更响，
                 // 两端则没有外侧证据，都不给自动提升。原本的手动 Recover 与 Brighten 不受此限制。
@@ -1561,11 +1572,12 @@ namespace celadon
 
                 for (int distance = 1; distance <= kernelRadius; ++distance)
                 {
-                    if ((int) b - distance >= 0)
+                    if (b >= lowEdge + (size_t) distance)
                     {
                         const auto neighbour = b - (size_t) distance;
-                        if (bandAlive[neighbour])
-                            leftSupport = juce::jmax (leftSupport, levelDb[neighbour] - levelDb[b]);
+                        const auto level = neighbour == lowEdge ? lowLevel : levelDb[neighbour];
+                        if (level > gateDb)
+                            leftSupport = juce::jmax (leftSupport, level - levelDb[b]);
                     }
 
                     if (b + (size_t) distance < (size_t) numBands)

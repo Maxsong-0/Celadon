@@ -70,6 +70,7 @@ namespace celadon
         designKWeighting (sampleRate, shelf, highpass);
 
         channelStates.assign ((size_t) numChannels, ChannelState {});
+        fineHistogram.resize (histogramBins);
         truePeak.prepare (numChannels);
         subBlockLength = juce::jmax (1, juce::roundToInt (sampleRate * 0.1));
 
@@ -120,8 +121,8 @@ namespace celadon
         recentSubBlocks.fill (0.0);
         recentWriteIndex = 0;
         recentCount = 0;
-        histogramEnergy.fill (0.0);
-        histogramCount.fill (0);
+        aboveAbsoluteGate = {};
+        histogram.fill ({});
         histogramTopBin = -1;
 
         // 读数网格从这里重新起：正在累计的子块作废（samplesInSubBlock = 0），它没被暂停碰过；暂停中清表时 process 会在处理样本之前
@@ -353,69 +354,51 @@ namespace celadon
         }
 
         const auto meanSquare = gatingEnergy / (double) (gatingSubBlocks * subBlockLength);
-        const auto blockLufs = energyToLufs (meanSquare);
+        if (meanSquare <= 0.0)
+            return;
+        const auto blockLufs = -0.691 + 10.0 * std::log10 (meanSquare);
+        if (blockLufs <= histogramMinLufs)
+            return;
 
-        if (blockLufs < histogramMinLufs)
-            return;   // 绝对门：−70 LUFS 以下不计入
-
-        // blockLufs 一定有限且 ≥ −70（能量有限、绝对门已挡掉更小的），floor 转 int 不再有 ±Inf / NaN 的未定义行为。
-        const auto bin = juce::jlimit (0, histogramBins - 1,
-                                       (int) std::floor ((blockLufs - histogramMinLufs) * (float) histogramBinsPerLu));
-        histogramEnergy[(size_t) bin] += meanSquare;
-        ++histogramCount[(size_t) bin];
+        const auto fine = fineBinAt (blockLufs);
+        const auto bin = fine / subdivisions;
+        auto& coarse = histogram[(size_t) bin];
+        auto& detail = fineHistogram[(size_t) bin];
+        if (coarse.count == 0)
+            detail.fill ({});   // reset 只清粗格，在本轮第一次用到时清这 16 个小格。
+        coarse.add (meanSquare);
+        detail[(size_t) (fine % subdivisions)].add (meanSquare);
+        aboveAbsoluteGate.add (meanSquare);
         histogramTopBin = juce::jmax (histogramTopBin, bin);
 
         updateIntegrated();
     }
 
+    int LoudnessMeter::fineBinAt (double lufs) noexcept
+    {
+        return (int) juce::jlimit (0.0, (double) (histogramBins * subdivisions - 1),
+                                   (lufs - histogramMinLufs) * (histogramBinsPerLu * subdivisions));
+    }
+
     void LoudnessMeter::updateIntegrated() noexcept
     {
-        // 两遍扫描都只扫到有数的最高一格（T-032 R7-04）：更高的格子能量是 0.0、计数是 0，x + 0.0 == x（能量非负，没有 −0），
-        // 所以求和顺序、每一步的舍入都与扫满 800 格逐位相同；直方图为空时 topBin = −1，两个循环一次都不进。
-        const auto topBin = histogramTopBin;
-
-        // 第一步：绝对门以上所有门块的平均 → 相对门 = 平均响度 − 10 LU。
-        double energy = 0.0;
-        juce::uint64 count = 0;
-
-        for (int bin = 0; bin <= topBin; ++bin)
+        // −10 LU 在能量域就是乘 0.1。门限之外的整格无需近似；只有门穿过的小格可能混有两边的门块。
+        const auto gateEnergy = 0.1 * (aboveAbsoluteGate.energy / (double) aboveAbsoluteGate.count);
+        const auto fine = fineBinAt (-0.691 + 10.0 * std::log10 (gateEnergy));
+        const auto bin = fine / subdivisions;
+        GateTotals gated;
+        if (histogram[(size_t) bin].count > 0)
         {
-            energy += histogramEnergy[(size_t) bin];
-            count += histogramCount[(size_t) bin];
+            const auto& detail = fineHistogram[(size_t) bin];
+            const auto edge = fine % subdivisions;
+            const auto& boundary = detail[(size_t) edge];
+            if (boundary.energy > gateEnergy * (double) boundary.count)
+                gated = boundary;
+            for (int i = edge + 1; i < subdivisions; ++i)
+                gated.add (detail[(size_t) i].energy, detail[(size_t) i].count);
         }
-
-        if (count == 0)
-        {
-            integratedLufs.store (noReading);
-            return;
-        }
-
-        const auto relativeGate = energyToLufs (energy / (double) count) - 10.0f;
-
-        // 第二步：只取相对门以上的门块再平均（按 0.1 LU 直方图格中心判断，误差 < 0.05 LU）。
-        // 格中心随格号单调不减（(float) bin + 0.5f 精确，除以 10 与加常数都保序），「≥ 相对门」的格子是一段连续的上区间：
-        // 先按算式估个起点，再用与原判断同一个表达式向两边校正到区间的真正下界——纳入的格子与扫满 800 格时一模一样。
-        const auto binCentreOf = [] (int bin) noexcept
-        {
-            return histogramMinLufs + ((float) bin + 0.5f) / (float) histogramBinsPerLu;
-        };
-
-        auto firstBin = juce::jlimit (0, histogramBins,
-                                      (int) std::floor ((relativeGate - histogramMinLufs) * (float) histogramBinsPerLu - 0.5f) - 1);
-        while (firstBin > 0 && binCentreOf (firstBin - 1) >= relativeGate)
-            --firstBin;
-        while (firstBin < histogramBins && binCentreOf (firstBin) < relativeGate)
-            ++firstBin;
-
-        double gatedEnergy = 0.0;
-        juce::uint64 gatedCount = 0;
-
-        for (int bin = firstBin; bin <= topBin; ++bin)
-        {
-            gatedEnergy += histogramEnergy[(size_t) bin];
-            gatedCount += histogramCount[(size_t) bin];
-        }
-
-        integratedLufs.store (gatedCount > 0 ? energyToLufs (gatedEnergy / (double) gatedCount) : noReading);
+        for (int i = bin + 1; i <= histogramTopBin; ++i)
+            gated.add (histogram[(size_t) i].energy, histogram[(size_t) i].count);
+        integratedLufs.store (gated.count > 0 ? energyToLufs (gated.energy / (double) gated.count) : noReading);
     }
 }

@@ -528,6 +528,11 @@ namespace celadon::glaze
             return e;
         }
 
+        float limiterP95Db (float peakReductionDb, float kneeDb) noexcept
+        {
+            return peakReductionDb > 0.0f ? peakReductionDb * peakReductionDb / (peakReductionDb + nonNegative (kneeDb)) : 0.0f;
+        }
+
         // withUsage = false：只要净响度（求 Gain 时用），省掉只给约束核对用的量（活动占比的 pow 等）。
         ChainEstimate estimateLimit (const Context& ctx, const ColorEstimate& color, float gainDb, float clip, bool withUsage = true) noexcept
         {
@@ -559,7 +564,7 @@ namespace celadon::glaze
 
             e.limitGrPeakDb = limiterGr;
             e.limitGrMeanDb = c.limitMeanCoeff * limiterGr * limiterGr;
-            e.limitGrP95Db = limiterGr > 0.0f ? limiterGr * limiterGr / (limiterGr + nonNegative (c.limitP95KneeDb)) : 0.0f;
+            e.limitGrP95Db = limiterP95Db (limiterGr, c.limitP95KneeDb);
 
             const auto limiterShare = excess > 0.0f ? limiterGr / excess : 1.0f;
             e.netDb = color.loudnessDb + gainDb - limitLossDb (ctx, excess, limiterShare);
@@ -629,7 +634,6 @@ namespace celadon::glaze
 
         struct FullPlan
         {
-            float requestedGainDb = 0.0f;   // G_full（风格想要的）
             float gainDb = 0.0f;            // G_full′（约束后）
             float glue = 0.0f, heat = 0.0f, clip = 0.0f;
             float clipThresholdDb = 0.0f;   // clip 对应的削波阈值（Ceiling + 限幅器那一份）
@@ -858,18 +862,16 @@ namespace celadon::glaze
             return nonNegativeEverywhere;
         }
 
-        FullPlan makeFullPlan (const Context& ctx, float requestedGainDb) noexcept
+        struct PeakBudget
+        {
+            float gainDb;            // 在各级削峰容量内可交付的净增益
+            float excessDb;          // 要分给各模块的峰值超出量
+            float glueShare, heatShare, limiterFraction;
+        };
+
+        PeakBudget peakBudget (const Context& ctx, float requestedGainDb) noexcept
         {
             const auto& sc = ctx.sc;
-            FullPlan full;
-            full.requestedGainDb = requestedGainDb;
-            full.neutral = estimateChain (ctx, Settings {});
-
-            // Limit 旁通：没有限幅器兜底，自动不推响度（makePlan 标受手动限制）。
-            // 请求为 0（已经够响）照样往下走：不提响，但输入自己的超限仍按风格分给各模块。
-            if (ctx.limitBypassed)
-                return full;
-
             // 削峰分摊：Heat / Clip / Limit 三项归一（Color 旁通时 Heat 不可用，剩下两项重新归一）。
             auto shareHeat = ctx.colorBypassed ? 0.0f : nonNegative (sc.shareHeat);
             auto shareClip = nonNegative (sc.shareClip);
@@ -943,13 +945,28 @@ namespace celadon::glaze
                     excessCap = capacityAt (juce::jmin (excessCap, excessAtRequest));
 
                 gain = clampTo (excessCap + ctx.ceilingDb - ctx.truePeakDb, 0.0f, requestedGainDb);
-                full.constrained = gain < requestedGainDb;
             }
-
-            full.gainDb = gain;
 
             // 各模块按受约束的 E 换算参数；输入本身已超 Ceiling 太多（G 降到 0 仍放不下）时，各模块只拿容量内的份额。
             const auto excess = juce::jmin (nonNegative (ctx.truePeakDb + gain - ctx.ceilingDb), excessCap);
+
+            return { gain, excess, glueShare, shareHeat, limiterFraction };
+        }
+
+        FullPlan makeFullPlan (const Context& ctx, float requestedGainDb) noexcept
+        {
+            const auto& sc = ctx.sc;
+            FullPlan full;
+            full.neutral = estimateChain (ctx, Settings {});
+
+            // Limit 旁通：没有限幅器兜底，自动不推响度（makePlan 标受手动限制）。
+            // 请求为 0（已经够响）照样往下走：不提响，但输入自己的超限仍按风格分给各模块。
+            if (ctx.limitBypassed)
+                return full;
+
+            const auto [gain, excess, glueShare, shareHeat, limiterFraction] = peakBudget (ctx, requestedGainDb);
+            full.gainDb = gain;
+            full.constrained = gain < requestedGainDb;
 
             // ---- 3. Glue、Heat，再定 Gain / Clip / 折点。Glue 的补偿比整条方案要的增益还多（偏响的素材）时，
             //         低强度下 Gain 就得是负数才能对上目标（补偿随强度线性、GR 要到后段才起来）→ 把 Glue 降到「补偿 ≤ 满强度增益」
@@ -1087,6 +1104,13 @@ namespace celadon::glaze
         }
 
         //==============================================================================
+        // 40/50 Hz 来自同一片 FFT 主瓣，两段的置信合计只占一个独立观察区。
+        float bandEvidenceWeight (const MusicProfile& p, size_t band) noexcept
+        {
+            const auto confidence = clamp01 (p.bandConfidence[band]);
+            return band < BalanceModule::sharedLowBands ? confidence / (float) BalanceModule::sharedLowBands : confidence;
+        }
+
         // 证据的置信加权均方根（dB）。
         float evidenceScore (const MusicProfile& p, const std::array<float, (size_t) numBands>& evidence) noexcept
         {
@@ -1094,7 +1118,7 @@ namespace celadon::glaze
 
             for (size_t b = 0; b < (size_t) numBands; ++b)
             {
-                const auto w = clamp01 (p.bandConfidence[b]);
+                const auto w = bandEvidenceWeight (p, b);
                 const auto e = isFinite (evidence[b]) ? nonNegative (evidence[b]) : 0.0f;
                 weighted += w * e * e;
                 weights += w;
@@ -1107,10 +1131,10 @@ namespace celadon::glaze
         {
             float sum = 0.0f;
 
-            for (auto w : p.bandConfidence)
-                sum += clamp01 (w);
+            for (size_t b = 0; b < (size_t) numBands; ++b)
+                sum += bandEvidenceWeight (p, b);
 
-            return sum / (float) numBands;
+            return sum / (float) (numBands - BalanceModule::sharedLowBands + 1);
         }
 
         // 特征的可信度 0 ～ 1（到 fullConfidence 算满）；无效、非有限值 → 0。
@@ -1623,7 +1647,7 @@ namespace celadon::glaze
         const auto lraCorrection = nonNegative (c.lraSlopeDbPerLu) * nonNegative (lra - c.lraReferenceLu);
         const auto preferred = preferredLufsFor (ctx.sc, c, lraCorrection);
         const auto driveFloor = isFinite (c.minimumFullDriveDb) ? clampTo (c.minimumFullDriveDb, 0.0f, 24.0f) : 0.0f;
-        auto requestFull = juce::jmax (driveFloor, nonNegative (preferred - ctx.inputLufs));
+        const auto requestFull = juce::jmax (driveFloor, nonNegative (preferred - ctx.inputLufs));
 
         // ---- 手动值：只有它时的链（手动链的预计净增益、手动本身是否已超约束）----
         const auto manualSettings = manualSettingsOf (manual);
@@ -1645,7 +1669,27 @@ namespace celadon::glaze
         plan.clay = planClay (profile, c, ctx.sc, glaze, full);
 
         // ---- 满强度方案 ----
-        const auto fullPlan = makeFullPlan (ctx, requestFull);
+        auto levelRequest = requestFull;
+        if (inputs.style == Style::automatic && enforced (c.clean.limitGrMeanCapDb))
+        {
+            // 通透档自己的请求已会驱动限幅时，按峰值证据收回自动风格额外要求的推响。只调整满强度的电平目标，
+            // Glue、Heat 和 Clip 仍按该风格在新目标下分工，GLAZE 继续使用原来的单调折线。
+            const auto cleanRequest = juce::jmax (driveFloor, nonNegative (preferredLufsFor (c.clean, c, lraCorrection) - ctx.inputLufs));
+            const auto excess = nonNegative (ctx.truePeakDb + cleanRequest - ctx.ceilingDb);
+            const auto pressure = trustOf (profile, &MusicProfile::truePeakDbtp, full)
+                                * clamp01 (limiterP95Db (excess, c.limitP95KneeDb) / c.clean.limitGrMeanCapDb);
+            const auto premium = nonNegative (requestFull - cleanRequest);
+            if (pressure > 0.0f && premium > 0.0f && ! ctx.limitBypassed)
+            {
+                auto cleanContext = ctx;
+                cleanContext.sc = c.clean;
+                const auto cleanGain = peakBudget (cleanContext, cleanRequest).gainDb;
+                // 连通透档也交付不了的那部分只抵扣到风格额外请求的大小；两档请求接近时减量连续回到零。
+                const auto unmet = nonNegative (cleanRequest - cleanGain);
+                levelRequest -= pressure * (premium + juce::jmin (unmet, premium));
+            }
+        }
+        const auto fullPlan = makeFullPlan (ctx, levelRequest);
 
         // 手动本身已超约束（与「手动中性」时比：输入本身造成的超限不算手动的）→ 撤回该模块的自动增量、标受手动限制。
         Schedule schedule;
@@ -1687,7 +1731,7 @@ namespace celadon::glaze
 
         // ---- 强度：GLAZE × κ，再受约束反馈与叠加手动后的约束限制 ----
         auto strength = glaze * kappa;
-        bool constrained = fullPlan.constrained;
+        bool constrained = fullPlan.constrained || levelRequest < requestFull;
         bool limitedByManual = withdrawn.any() || ctx.limitBypassed;
         // 电平类自动全部撤回（T-032 R6-02）：只有下面三种情况——手动已让限幅器超约束、Limit 旁通、约束反馈上限低于手动链净增益——
         // 才没有自动加上去的增益。手动 Heat / Glue / Clip 单独超预算时只撤回那一个模块（v0.6 F-02 逐模块钳住），自动 Gain / 其余模块
@@ -1793,11 +1837,11 @@ namespace celadon::glaze
         }
 
         // ---- 目标（净增益含手动链的预计净增益：校准器拿它作目标，不会去抵消手动）----
-        plan.requestedGainDb = manualNetDb + glaze * fullPlan.requestedGainDb;
+        plan.requestedGainDb = manualNetDb + glaze * requestFull;
         plan.effectiveGainDb = manualNetDb + strength * fullPlan.gainDb;
         plan.requestedTargetLufs = measuredInputLufs + plan.requestedGainDb;
         plan.effectiveTargetLufs = measuredInputLufs + plan.effectiveGainDb;
-        plan.estimatedExcessDb = nonNegative (ctx.truePeakDb + manualNetDb + glaze * fullPlan.requestedGainDb - ctx.ceilingDb);
+        plan.estimatedExcessDb = nonNegative (ctx.truePeakDb + manualNetDb + glaze * requestFull - ctx.ceilingDb);
         plan.limitedByConstraints = constrained;
         plan.limitedByManual = limitedByManual;
         plan.automaticLevelWithdrawn = automaticLevelWithdrawn;
@@ -1945,7 +1989,6 @@ namespace celadon::glaze
         auto reference = inputs;
         reference.profile = &confident;
         reference.lockedWeights = &plan.weights;
-        reference.style = Style::automatic;   // 权重已定（plan.weights）：按锁定权重算，离散风格的独热权重同样适用
         limitPlanTo (plan, makePlanAtConfidence (reference));
 
         // 「自动」且权重没锁（首次聆听中的候选方案）：权重本身随置信度变（不确定时偏向通透），而通透的限幅上限比冲击宽，

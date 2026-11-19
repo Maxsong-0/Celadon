@@ -73,7 +73,9 @@ namespace celadon::glaze
         // （外部第二意见 F1：段边界跟输入侧对齐；回绕、跳播、宿主 reset 处段落账都会换段）；此外一段满 8 s 自己切。
         // measured = 这一块的 m′ 是拿输入侧读数（inputLufs 段响度、lowShare 低频占比）算的：读数按样本数计入本段的平均，
         // 留给 rejudge()。静段、读不出、没有实时画像时为假，这一块不计入平均。
-        void noteMainness (float mainness, bool measured = false, float inputLufs = 0.0f, float lowShare = 0.0f) noexcept;
+        // onsetRate 为起音次数/秒；负数表示缺测。只在有这项读数的样本上求平均。
+        void noteMainness (float mainness, bool measured = false, float inputLufs = 0.0f, float lowShare = 0.0f,
+                           float onsetRate = -1.0f) noexcept;
         void closeSegment() noexcept;
 
         // T-106：这一片的入口样本（模块处理前；链里 analyzeInput 那一刻的缓冲）。能量先记成「待入账」，等同一片的 processOutput
@@ -90,7 +92,7 @@ namespace celadon::glaze
         // 所在的段入口没配齐、不进 evidenceAt()。非有限的出口样本照旧计入段样本数、不计能量，也不算配上了入口。
         void processOutput (const juce::AudioBuffer<float>& output, float limitGainDb) noexcept;
 
-        // T-106 回看重判：judge (段内平均的输入侧段响度, 低频占比) → 按此刻的参考算的 m′（LiveProfile::mainnessFor）。
+        // 回看重判：judge (段内平均的输入侧段响度, 低频占比, 起音密度) → 按此刻的参考算的 m′。缺少起音证据时传 -1。
         // 只重判已收的段：之后 evidenceAt() / mainSamples() 在已收的段里只收重判后 m′ ≥ 0.5 的；没有读数的段保持当时的判定；
         // 不调它 = 一直按当时的判定。正开着的那一段不归它管，按 noteMainness 最近交来的 m′ 算（文件头第二条）。
         template <typename Judge>
@@ -107,7 +109,13 @@ namespace celadon::glaze
                 }
 
                 const auto count = (double) extra.inputSamples;
-                const auto now = (float) judge ((float) (extra.inputLufsSum / count), (float) (extra.lowShareSum / count));
+                const auto lufs = (float) (extra.inputLufsSum / count);
+                const auto lowShare = (float) (extra.lowShareSum / count);
+                float now;
+                if constexpr (std::is_invocable_v<Judge&, float, float, float>)
+                    now = (float) judge (lufs, lowShare, closedOnsets[i].rate());
+                else
+                    now = (float) judge (lufs, lowShare);
                 closedNow[i] = std::isfinite (now) ? now : 0.0f;
             }
         }
@@ -136,7 +144,7 @@ namespace celadon::glaze
 
         // 存档：0.1.8.10 就有的八个属性照它的格式写——closed 是最新的至多 32 段（从旧到新，closedCount 段、closedWrite 在最新一段
         // 的下一格），0.1.8.10 读得了这一节；T-106 另写十个属性，其中 historyCount / history / historyExtra 是全部已收的段（至多
-        // 128 段，从旧到新）。
+        // 128 段，从旧到新）。有起音证据时，onsetEvidence 按同一顺序记录已收各段，最后一项是开着的段；旧存档没有这项。
         std::unique_ptr<juce::XmlElement> createStateXml() const;
         // 没有 T-106 字段的旧存档（0.1.8.10 及更早）：校验同 0.1.8.10（标签、六个标量属性、closed 的长度、closedCount /
         // closedWrite 的范围；段的内容不看），然后段累计清空、restoredLegacyState() 置 true（旧历史不知道是在什么增益下录的，
@@ -203,8 +211,27 @@ namespace celadon::glaze
                            && offsetof (Extra, inputSamples) == 32 && offsetof (Extra, pairedSamples) == 40,
                        "historyExtra 属性按这个布局逐段存（每段 48 字节，没有填充）");
 
+        struct OnsetEvidence
+        {
+            double weightedRate = 0.0;
+            std::int64_t samples = 0;
+
+            void add (float rateUpper, int count) noexcept
+            {
+                if (rateUpper >= 0.0f)
+                {
+                    weightedRate += (double) rateUpper * count;
+                    samples += count;
+                }
+            }
+
+            float rate() const noexcept { return samples > 0 ? (float) (weightedRate / (double) samples) : -1.0f; }
+        };
+        static_assert (std::is_trivially_copyable_v<OnsetEvidence> && sizeof (OnsetEvidence) == 16
+                           && offsetof (OnsetEvidence, samples) == 8);
+
         bool decodeState (const juce::XmlElement& xml);
-        void pushClosed (const Segment& segment, const Extra& extra) noexcept;
+        void finishSegment() noexcept;
         void clearSegments() noexcept;
         void resetChannel (int channel) noexcept;
         void resetInputChannel (int channel) noexcept;
@@ -229,6 +256,8 @@ namespace celadon::glaze
         std::array<Segment, (std::size_t) closedCapacity> closed {};
         Extra openExtra;                                                  // T-106：本段
         std::array<Extra, (std::size_t) closedCapacity> closedExtra {};   // 与 closed 同下标（存档里是 historyExtra）
+        OnsetEvidence openOnset;
+        std::array<OnsetEvidence, (std::size_t) closedCapacity> closedOnsets {};
         std::array<float, (std::size_t) closedCapacity> closedNow {};     // 重判后的 m′；不存档（读回后先等于当时的判定）
         int closedCount = 0;
         int closedWrite = 0;
@@ -239,6 +268,7 @@ namespace celadon::glaze
         bool blockMeasured = false;
         float blockInputLufs = 0.0f;
         float blockLowShare = 0.0f;
+        float blockOnsetRate = -1.0f;
         // 这一片待入账的入口能量（processInput 交来，同一片的 processOutput 取走）。不存档。
         double pendingInputEnergy = 0.0;
         int pendingInputSamples = 0;

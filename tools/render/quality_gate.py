@@ -166,6 +166,7 @@ def evaluate(baseline_rows, new_rows):
     limits = group_percentiles(baseline_rows)
     table, fails, known, notes = [], [], [], []
     na_count = defaultdict(int)
+    legacy_masks = False
     for key in sorted(set(base) | set(new), key=lambda k: (k[0], num(k[2]), k[3:], k[1])):
         tag = ' / '.join(part for part in key if part)
         if key not in new:
@@ -173,6 +174,13 @@ def evaluate(baseline_rows, new_rows):
             continue
         if key not in base:
             notes.append(f'{tag}：基线没有这一行，只判 A 组与绝对阈值')
+        if key in base:
+            base_mask = base[key].get('evaluation_mask_sha256')
+            new_mask = new[key].get('evaluation_mask_sha256')
+            if base_mask is None and new_mask is None:
+                legacy_masks = True
+            elif not base_mask or base_mask != new_mask:
+                raise InputError(f'{tag} 的评测区间不同，请用同一份 --reference-renders 重算')
         verdicts = {}
         for rule in RULES:
             verdict, detail = judge(rule, new[key], base.get(key), limits)
@@ -184,6 +192,8 @@ def evaluate(baseline_rows, new_rows):
             elif verdict == NA:
                 na_count[rule[0]] += 1
         table.append((key, verdicts))
+    if legacy_masks:
+        notes.append('旧版质量表没有评测区间指纹，无法核实两版使用了同一段音频')
     return table, fails, known, notes, na_count
 
 
@@ -314,7 +324,19 @@ def run_selftest():
     rule_ok = abs(percentile([0.10 + 0.01 * i for i in range(10)], 90) - 0.181) <= 1e-12
     failed += 0 if rule_ok else 1
     print(f"{'ok  ' if rule_ok else 'FAIL'} 分位数：0.10 … 0.19 的 P90 = 0.181（线性插值）")
-    total = len(cases) + 1
+    old = synthetic_row('mask', evaluation_mask_sha256='old')
+    legacy = synthetic_row('mask')
+    mask_ok = True
+    for other in [dict(old, evaluation_mask_sha256='new'), dict(old, evaluation_mask_sha256=''), legacy]:
+        try:
+            evaluate([old], [other])
+        except InputError:
+            continue
+        mask_ok = False
+    mask_ok = mask_ok and any('旧版质量表' in note for note in evaluate([legacy], [legacy])[3])
+    failed += 0 if mask_ok else 1
+    print(f"{'ok  ' if mask_ok else 'FAIL'} 不同评测区间拒绝比较")
+    total = len(cases) + 2
     print(f'{total - failed} / {total} ok')
     return 0 if failed == 0 else 1
 

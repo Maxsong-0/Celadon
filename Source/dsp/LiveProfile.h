@@ -128,6 +128,7 @@ namespace celadon::glaze
         visit (none, "newProgramRangeLu", a.newProgramRangeLu, b.newProgramRangeLu, LiveConstantDomain::nonNegative);
         visit (none, "peakTailSeconds", a.peakTailSeconds, b.peakTailSeconds, LiveConstantDomain::notNan);
         visit (none, "publishDelaySeconds", a.publishDelaySeconds, b.publishDelaySeconds, LiveConstantDomain::nonNegativeFinite);
+        visit (none, "rhythmMainAmount", a.rhythmMainAmount, b.rhythmMainAmount, LiveConstantDomain::unit);
         // T-113 1-06 上行快通道（GlazeConstants.h LiveConstants 的 catchUp* 注释）：半衰期 +∞ = 关；门槛与时长写 inf = 永不触发 / 不设时限。
         visit (none, "catchUpMarginLu", a.catchUpMarginLu, b.catchUpMarginLu, LiveConstantDomain::nonNegative);
         visit (none, "catchUpRunSeconds", a.catchUpRunSeconds, b.catchUpRunSeconds, LiveConstantDomain::nonNegative);
@@ -274,7 +275,7 @@ namespace celadon::glaze
         void commitWithMainness (const SegmentLedger::Segment& segment, float mainness) noexcept;
 
         // 按已发布那一份画像的参考给一份读数算 m（不入队）：以后编排器给「正在播的这一段」暂判用。没有参考时以这份读数自己为参考。
-        float mainnessFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare) const noexcept;
+        float mainnessFor (bool loudnessValid, float loudnessLufs, bool lowShareValid, float lowShare, float onsetRate = -1.0f) const noexcept;
 
         // 下一份要发布的画像的发布时刻（还没有交来的段 = noPublication）。渲染工具逐份取快照用：advanceTo 到它、读、再往后。
         std::int64_t getNextPublicationTime() const noexcept;

@@ -28,14 +28,13 @@
     手动值（不经任何额外运算；ADR-035 决定 2；Clay 按下面的三态合成）。
 
     v0.1.7.0 修坯 Clay（设计规格-Clay、ADR-009；A6 接线）：Clay 不走「手动值 + 自动增量」，而是三态（自动 / 关 / 手动）：
-      自动值 = 目标方案的 plan.clay 经压力反馈缩放（scaleClayPlan，ADR-014）→ ClayGuard 实时保护（updateClay，每块 beginBlock 调；
-      编排器不对它做速率限制，也没有方案过渡混合）。GLAZE ≤ 0、还没读到实时画像、画像格式低于 clayProfileFormatVersion（实时画像
-      发布时恒填这一版，这条实际碰不到），或还没有目标方案（prepare / 读档之后的第一块：目标方案到这一块的 endBlock 才重算）时，
-      交给 ClayGuard 的是中性方案。
+      每个宿主块开头将目标方案的 plan.clay 按压力反馈缩放（scaleClayPlan，ADR-014），用此刻的 ClayGuard 状态合成自动值。
+      每个有效音乐切片结束时，用这一片的立体声读数和时长推进保护，下一宿主块使用积到的结果。冷启动、GLAZE ≤ 0 或画像格式低于
+      clayProfileFormatVersion 时自动值为中性。
       实际参数 effective.clay = resolveClayParams(用户三态设置, 保护后的自动值, GLAZE)。GLAZE ≤ 0 时也照算（「手动」照样
       生效；全「自动」时是中性，Clay 逐位直通）——原有 7 个参数在 GLAZE ≤ 0 时逐位等于手动值的保证不变。
-      保护后的自动值（liveClay）、ClayGuard 状态与压力反馈缩放随工程存进 LIVE 的 CLAY 节点；读档后第一块 beginBlock 就按上面的
-      中性方案重算 liveClay，读回的 ClayGuard 状态与缩放接着用。
+      保护后的自动值（liveClay）、ClayGuard 状态与压力反馈缩放随工程存进 LIVE 的 CLAY 节点。读档后首个宿主块用已保存的执行值，
+      第一片结束时重算目标，下一宿主块按新目标和当前保护状态执行。
       ADR-012：Status::clayCostLimitedMask = 上面经压力反馈缩放后的自动值（探针的 clayPlanned）里因「试过会抬高峰值」被减量 /
       否决的「自动」态项——决策器因代价置的位，加上压力反馈缩小了的项（scaleClayPlan 置位）；GLAZE > 0 才报。
 
@@ -66,8 +65,8 @@
     交给出口电平跟踪器（OutputLevelTracker：m ≥ 0.5 的段才进出口主段电平），也决定增益棘轮。
 
     目标方案：GLAZE > 0 时 makePlan 只在三种时候算——还没有目标方案；本块 beginBlock 发现 GLAZE / 风格或影响方案的
-    手动值变了；编排器自己的时间线（已处理样本数，随工程保存）跨过 1 s 网格。不提交、不过渡，maxGainDb 恒为不限。每次重算时
-    「自动」风格的权重朝 resolveAutomaticWeights 走一步（有实时画像时；步长 = weightPerSecond × 本块时长），混合后的风格常数
+    手动值变了；编排器自己的时间线（已处理样本数，随工程保存）跨过 1 s 网格。不提交、不过渡，maxGainDb 恒为不限。每次重算时用画像
+    确定「自动」风格的目标权重，每个有效音乐切片按累计样本数靠近该目标，每个分量每秒最多移动 0.05。规划使用此刻的权重，混合后的风格常数
     交给预算环作上限，其中手动单独已超预算的项（Plan::manualBudgetMask）置 0 = 不设约束。
     已施加增量：GLAZE > 0 时 endBlock 每块按速率限制朝目标方案的增量走——Recover / Tame / Glue / Heat / Clip 上 2、下 10（每秒，
     0 ～ 100 刻度），Tone 上 0.2、下 1 dB/s，Limit Gain 上 0.2、下 1 dB/s 并带回差死区（误差进 0.1 dB 停住、超过 0.3 dB 再走）。
@@ -347,7 +346,7 @@ namespace celadon::glaze
             Plan targetPlan;                 // 目标方案（最近一次 makePlan；已施加增量按速率朝它走）
 
             // ---- v0.1.7.0 修坯 Clay（A6 追加）----
-            // clayPlanned = 最近一次 beginBlock 里目标方案的 plan.clay 经压力反馈缩放与范围收拾后的值（还没有目标方案时为中性）；
+            // clayPlanned = 最近一次 beginBlock 里目标方案的 plan.clay 经压力反馈缩放与范围收拾后的值（冷启动为中性，读档首块沿用保存值）；
             // clayAutomaticSupported 为 false 时它照算，但交给 ClayGuard 的是中性方案。
             ClayPlan clayPlanned;            // 「自动」态值，ClayGuard 之前（口径见上两行）
             ClayPlan liveClay;               // 经 ClayGuard 之后、三态合成之前的自动值（随工程存进 LIVE 的 CLAY 节点）

@@ -494,6 +494,7 @@ namespace celadon::test
             testAutomaticTameHarmonicChannelCoherence();
             testAutomaticTameHarmonicReleaseAndIndependentPeak();
             testAutomaticTameManualAndSupport();
+            testSharedLowFrequencyEvidence();
             testAutomaticTameBlockSizesAndAllocations();
             testUpwardMaskingLiftsBuriedNeighbour();
         }
@@ -784,6 +785,31 @@ namespace celadon::test
             }
         }
 
+        void testSharedLowFrequencyEvidence()
+        {
+            beginTest ("40 and 50 Hz form one automatic neighbour for the 80 Hz band");
+            constexpr double rate = 48000.0;
+            auto input = makePinkNoise (numChannels, (int) (rate * 4), -26.0f, 9304);
+            addToneEvent (input, rate, 80.0, 0.3f, 1.0, 3.0);
+
+            // 80 Hz 的自动 Tame 需要两个独立的低侧支撑。40/50 Hz 只有一票，
+            // 手动 Tame 仍应在这段真实音频上压到峰，混合模式保留同一份手动增益。
+            constexpr int band80 = 3;
+            auto mixed = makeParams (0.0f, 100.0f);
+            mixed.automaticTame = 60.0f;
+            BalanceModule manual, withAutomatic;
+            prepareBalance (manual, rate, makeParams (0.0f, 40.0f));
+            prepareBalance (withAutomatic, rate, mixed);
+            std::vector<BandGains> manualFrames, mixedFrames;
+            runBalance (manual, input, maxBlock, &manualFrames, (int) (2 * rate));
+            runBalance (withAutomatic, input, maxBlock, &mixedFrames, (int) (2 * rate));
+            expect (meanGainOf (manualFrames, band80) < -0.3f);
+            float largestDifference = 0.0f;
+            for (size_t i = 0; i < manualFrames.size(); ++i)
+                largestDifference = juce::jmax (largestDifference, std::abs (manualFrames[i][band80] - mixedFrames[i][band80]));
+            expectWithinAbsoluteError (largestDifference, 0.0f, 1.0e-5f);
+        }
+
         void testAutomaticTameBlockSizesAndAllocations()
         {
             beginTest ("automatic Tame is bounded, block-size independent and allocation-free");
@@ -850,6 +876,7 @@ namespace celadon::test
             expect (maxDiffFrom (input, automaticOutput, (int) (8.0 * sampleRate)) > 1.0e-4f,
                     "the automatic correction must reach the audio output");
             expectEquals (maxAbsGainOf (automaticFrames, 0), 0.0f, "automatic Recover never boosts the low edge");
+            expectEquals (maxAbsGainOf (automaticFrames, 1), 0.0f, "50 Hz shares the low edge of the automatic analysis");
             expectEquals (maxAbsGainOf (automaticFrames, numBands - 1), 0.0f, "automatic Recover never boosts the high edge");
 
             for (int band = 23; band < numBands; ++band)

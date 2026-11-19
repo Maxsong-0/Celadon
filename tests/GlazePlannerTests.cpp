@@ -426,6 +426,7 @@ namespace celadon::test
             testExcessLowersTarget();
             testMaxGainFeedback();
             testStyleDirections();
+            testAutomaticPeakBudget();
             testHeatOnlyClaimsRealCrestReduction();   // T-032 R6-01
             testGainRangeBoundsEffectiveGain();       // T-032 R6-06
             testGlueLowFrequencyRisk();
@@ -795,6 +796,19 @@ namespace celadon::test
             expectEquals (bypassedPlan.increments.balanceRecover, 0.0f);
             expectEquals (bypassedPlan.increments.balanceTame, 0.0f);
 
+            // 同一个强度的证据在 40/50 Hz 同时出现，应和一个可分辨的中频段占同样权重。
+            // 两种决策都要落在底量和上限之间，否则钳位会掩盖重复计票。
+            auto lowPair = profile, oneMiddleBand = profile;
+            lowPair.tameEvidenceDb[0] = lowPair.tameEvidenceDb[1] = 4.0f;
+            lowPair.recoverEvidenceDb[0] = lowPair.recoverEvidenceDb[1] = 4.0f;
+            oneMiddleBand.tameEvidenceDb[14] = oneMiddleBand.recoverEvidenceDb[14] = 4.0f;
+            const auto low = planFor (&lowPair, Style::warm, 100.0f).increments;
+            const auto middle = planFor (&oneMiddleBand, Style::warm, 100.0f).increments;
+            expect (middle.balanceTame > c.automaticTameFloor && middle.balanceTame < c.warm.tameCap);
+            expect (middle.balanceRecover > c.automaticRecoverFloor && middle.balanceRecover < c.warm.recoverCap);
+            expectEquals (low.balanceTame, middle.balanceTame);
+            expectEquals (low.balanceRecover, middle.balanceRecover);
+
             for (size_t b = 0; b < (size_t) numBands; ++b)
             {
                 profile.recoverEvidenceDb[b] = 1.2f;
@@ -1025,10 +1039,19 @@ namespace celadon::test
             expect (punchyRun.clipDepthMaxDb > warmRun.clipDepthMaxDb && punchyRun.clipDepthMaxDb > cleanRun.clipDepthMaxDb, utf8 ("冲击应以 Clip 为主"));
             expect (warmRun.glueMeanDb > punchyRun.glueMeanDb && warmRun.glueMeanDb > cleanRun.glueMeanDb, utf8 ("温润的 Glue 压得最多"));
 
-            // 自动：锁定独热权重 = 对应的离散风格（逐位）；混合权重落在两者之间。
+            // 有峰值余量时，自动锁定独热权重与对应的手动风格逐位相同。
             const StyleWeights allWarm { 1.0f, 0.0f, 0.0f }, allClean { 0.0f, 0.0f, 1.0f }, half { 0.5f, 0.0f, 0.5f };
-            expect (samePlan (planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &allWarm), warm));
+            const auto headroom = makeProfile (-18.0f, -13.0f);
+            expect (samePlan (planFor (&headroom, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &allWarm),
+                              planFor (&headroom, Style::warm, 100.0f)));
             expect (samePlan (planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &allClean), clean));
+
+            const auto automaticWarm = planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &allWarm);
+            expectEquals (automaticWarm.requestedGainDb, warm.requestedGainDb, "the original style request is still reported");
+            expect (automaticWarm.limitedByConstraints && automaticWarm.effectiveGainDb < warm.effectiveGainDb);
+            expect (automaticWarm.effectiveGainDb > 0.5f * warm.effectiveGainDb && automaticWarm.increments.colorGlue > 0.0f);
+            expectEquals (automaticWarm.increments.colorToneDb, warm.increments.colorToneDb);
+            expectEquals (automaticWarm.weights.warm, 1.0f);
 
             const auto mixed = planFor (&profile, Style::automatic, 100.0f, defaultManual(), 1.0e9f, &half);
             // T-032：底量三种风格相同时混合方案的 Heat 也是底量（blendConstants 对逐位相同的底量直接取原值）；上限按权重混合。
@@ -1041,6 +1064,67 @@ namespace celadon::test
         }
 
         //==============================================================================
+        void testAutomaticPeakBudget()
+        {
+            beginTest ("automatic drive stays continuous when the clean reference is over capacity; Glue keeps its style share");
+            const auto profile = makeProfile (-18.0f, -1.0f);
+            const StyleWeights allWarm { 1.0f, 0.0f, 0.0f };
+            auto constants = factoryConstants();
+            // 让通透档发生容量约束而温润仍有余量。只改变温润的目标便能从两档请求相等处走过去。
+            constants.limitLossCoeff = 0.0f;
+            constants.clean.limitGrMeanCapDb = 0.2f;
+            constants.clean.limitGrP95CapDb = 0.4f;
+            constants.clean.limitGrPeakCapDb = 0.8f;
+            constants.warm.limitGrMeanCapDb = constants.warm.limitGrP95CapDb = constants.warm.limitGrPeakCapDb = 30.0f;
+            constants.warm.clipDepthCapDb = 30.0f;
+            constants.warm.clipActivityCap = 1.0f;
+            constants.warm.shareHeat = constants.warm.shareClip = 0.0f;
+            constants.warm.shareLimit = 1.0f;
+            constants.warm.preferredLufs = constants.clean.preferredLufs;
+            PlanInputs in;
+            in.profile = &profile;
+            in.constants = &constants;
+            in.lockedWeights = &allWarm;
+            in.glazePercent = 100.0f;
+            in.manual = defaultManual();
+            in.style = Style::clean;
+            const auto clean = makePlan (in);
+            expect (clean.requestedGainDb - clean.effectiveGainDb > 1.0f, "fixture requires an unattainable clean request");
+
+            in.style = Style::warm;
+            const auto forced = makePlan (in);
+            in.style = Style::automatic;
+            const auto atBoundary = makePlan (in);
+            expect (samePlan (atBoundary, forced), "equal drive requests keep the complete forced-warm plan, including Glue");
+            expect (atBoundary.increments.colorGlue > 0.0f);
+
+            constants.warm.preferredLufs += 0.001f;
+            const auto justAbove = makePlan (in);
+            expectWithinAbsoluteError (justAbove.effectiveGainDb, atBoundary.effectiveGainDb, 0.003f);
+            expect (justAbove.requestedGainDb > atBoundary.requestedGainDb);
+            expect (justAbove.effectiveGainDb < justAbove.requestedGainDb && justAbove.limitedByConstraints);
+
+            constants.warm.preferredLufs += 0.999f;
+            const auto protectedPlan = makePlan (in);
+            expect (protectedPlan.effectiveGainDb < atBoundary.effectiveGainDb - 0.1f);
+            expect (protectedPlan.effectiveGainDb > clean.effectiveGainDb);
+
+            // 同一有效目标给显式温润档时，全部模块仍按原分工：直接核对 Glue 与 Limit Gain。
+            in.style = Style::warm;
+            constants.warm.preferredLufs += protectedPlan.effectiveGainDb - protectedPlan.requestedGainDb;
+            const auto matchedTarget = makePlan (in);
+            expectWithinAbsoluteError (matchedTarget.effectiveGainDb, protectedPlan.effectiveGainDb, 1.0e-4f);
+            expectWithinAbsoluteError (matchedTarget.increments.colorGlue, protectedPlan.increments.colorGlue, 1.0e-3f);
+            expectWithinAbsoluteError (matchedTarget.increments.limitGainDb, protectedPlan.increments.limitGainDb, 1.0e-4f);
+
+            auto partial = profile;
+            partial.truePeakDbtp.confidence = 0.4f;
+            in.profile = &partial;
+            const auto partialForced = makePlan (in);
+            constants.clean.limitGrMeanCapDb = 0.1f;
+            expect (samePlan (partialForced, makePlan (in)), "explicit styles also ignore the clean reference at partial confidence");
+        }
+
         // T-032 R6-01（算法 8）：自动 Heat 只承担换算表里该电平、上限以内真能削掉的峰均比；削不到 heatUsefulCrestDb 就只留风格底量。
         void testHeatOnlyClaimsRealCrestReduction()
         {

@@ -326,11 +326,13 @@ namespace celadon::test
         void runTest() override
         {
             testRestoredLiveSurvivesFirstPrepare();
+            testRestoredClayOnFirstBlock();
             // 0.1.8.9 起 GLAZE 是连续编排器。原来断言聆听 → 锁定 → 校准的用例早已不调，T-098 连代码删掉（历史见 git）；
             // 等价行为在下面这些用例里，对照 Phase2Contract 与 GlazeController::Impl。
             testContinuousPhase();
             testGlazeZeroSnapAndSlew();
             testStyleChangeDoesNotCalibrate();
+            testAdaptiveClocksAcrossHostBlocks();
             testTransportAndHostReset();
             testLiveRoundTrip();
             testLegacyListenStateColdStarts();
@@ -434,6 +436,85 @@ namespace celadon::test
             const auto weights = automatic.committed().lockedWeights;
             expect (std::abs (weights.warm + weights.punchy + weights.clean - 1.0f) < 1.0e-4f,
                     "automatic weights stay normalised while they slew");
+        }
+
+        void testAdaptiveClocksAcrossHostBlocks()
+        {
+            beginTest ("automatic style weights advance in music time across host block sizes");
+            auto material = makeMusic (defaultRate, 4.0, 1301, 0.4f);
+            material[1] = material[0];
+            const auto constants = fastConstants();
+            Rig donor (constants, material, defaultParams(), defaultRate, 480);
+            donor.run (32.0);
+            auto& profile = donor.chain.getLiveProfile();
+            const auto goal = glaze::resolveAutomaticWeights (profile.getProfile(), constants);
+            expect (goal.clean < 0.8f, "the fixed drum profile requests a change of over 20 percentage points");
+
+            // 让各链读同一份已学好的画像；自身分析器照常处理音频，主段与频谱随各自的输入实时更新。
+            for (const auto block : { 64, 480, 1920 })
+            {
+                Rig rig (constants, material, defaultParams (35.0f), defaultRate, block);
+                rig.chain.getGlazeController().attachLiveProfile (&profile);
+                rig.run (1.0);
+                const auto start = rig.probe().targetPlan.weights;
+                rig.run (2.0);
+                const auto end = rig.probe().targetPlan.weights;
+                // 起点是 100% 通透，另两项都在增加；三个分量中通透离目标最远，正好每秒降 0.05。
+                expectWithinAbsoluteError (start.clean - end.clean, 0.1f, 0.001f,
+                                           "two active seconds at block size " + juce::String (block));
+                expectWithinAbsoluteError (end.warm + end.punchy + end.clean, 1.0f, 1.0e-6f);
+                const auto beforeBypass = rig.committed().lockedWeights.clean;
+                rig.hostBypassed = true;
+                rig.run (1.0);
+                expectEquals (rig.committed().lockedWeights.clean, beforeBypass, "host bypass freezes the style ramp");
+                rig.hostBypassed = false;
+                rig.host.isPlaying = false;
+                rig.run (1.0);
+                expectEquals (rig.committed().lockedWeights.clean, beforeBypass, "stopped transport freezes the style ramp");
+                rig.host.isPlaying = true;
+                rig.run (1.0);
+                expectWithinAbsoluteError (end.clean - rig.probe().targetPlan.weights.clean, 0.05f, 0.001f,
+                                           "resuming uses only the new active second");
+            }
+
+            beginTest ("Clay retracts the planned width on a wide section at small and multi-slice host blocks");
+            auto wide = makeSilence (numChannels, (int) defaultRate);
+            for (int i = 0; i < (int) defaultRate; ++i)
+            {
+                const auto phase = juce::MathConstants<double>::twoPi * (double) i / defaultRate;
+                const auto bass = (float) (0.15 * std::sin (80.0 * phase));
+                const auto side = (float) (0.35 * std::sin (4000.0 * phase));
+                wide[0][(size_t) i] = bass + side;
+                wide[1][(size_t) i] = bass - side;
+            }
+
+            for (const auto block : { 480, 1920 })
+            {
+                Rig rig (constants, material, defaultParams (100.0f, 3), defaultRate, block);
+                rig.chain.getGlazeController().attachLiveProfile (&profile);
+                rig.run (1.0);
+                const auto planned = rig.chain.getEffectiveParams().clay.widthDb;
+                expect (planned > 0.1f, "the narrow material receives an audible positive width plan");
+                rig.source = wide;
+                rig.sourceIndex = 0;
+                int belowThreeQuarters = -1, belowOneTenth = -1;
+                for (int i = 0; i < rig.blocksFor (2.0); ++i)
+                {
+                    rig.step();
+                    const auto appliedWidth = rig.chain.getEffectiveParams().clay.widthDb;
+                    if (belowThreeQuarters < 0 && appliedWidth <= 0.75f * planned)
+                        belowThreeQuarters = i;
+                    if (appliedWidth <= 0.1f * planned)
+                    {
+                        belowOneTenth = i;
+                        break;
+                    }
+                }
+                const auto blockSeconds = (double) block / defaultRate;
+                expect (belowThreeQuarters >= 0 && belowOneTenth >= belowThreeQuarters
+                        && (belowOneTenth - belowThreeQuarters) * blockSeconds <= constants.clayGuardWidthAttackSeconds + blockSeconds,
+                        "width retracts within the attack time plus one host block at " + juce::String (block));
+            }
         }
 
         void testTransportAndHostReset()
@@ -695,6 +776,54 @@ namespace celadon::test
         }
 
     private:
+        void testRestoredClayOnFirstBlock()
+        {
+            beginTest ("a restored first block uses the saved Clay once, with the current manual and off modes");
+            const auto automatic = defaultParams (35.0f);
+            const auto material = makeSilence (numChannels, blockSize);
+            Rig donor (fastConstants(), material, automatic);
+            auto saved = donor.chain.createGlazeStateXml();
+            auto* live = saved != nullptr ? saved->getChildByName (glaze::liveTag) : nullptr;
+            auto body = live != nullptr ? glaze::decompressLiveBody (*live) : nullptr;
+            auto* clay = body != nullptr ? body->getChildByName ("CLAY") : nullptr;
+            expect (clay != nullptr);
+            if (clay == nullptr)
+                return;
+
+            glaze::xmlio::Writer writer (*clay);
+            writer.field ("pressureScale", 0.5f);
+            writer.field ("lowCutHz", 24.0f);
+            writer.field ("widthDb", 0.75f);
+            const auto version = live->getIntAttribute ("constantsVersion");
+            saved->removeChildElement (live, true);
+            saved->addChildElement (glaze::compressLiveBody (*body, version).release());
+
+            for (const int block : { 64, 1920 })
+            {
+                Rig rig (fastConstants(), material, automatic, defaultRate, block);
+                rig.chain.restoreGlazeStateXml (saved.get());
+                rig.step();
+                const auto first = rig.chain.getEffectiveParams().clay;
+                expectEquals (first.lowCutHz, 24.0f, "first kick keeps the saved low cut");
+                expectEquals (first.widthDb, 0.75f, "the saved width has already been pressure-scaled");
+                rig.step();
+                expect (isNeutralClay (rig.chain.getEffectiveParams().clay), "the silent profile supplies the next plan");
+            }
+
+            Rig rig (fastConstants(), material, automatic);
+            rig.chain.restoreGlazeStateXml (saved.get());
+            rig.params.claySettings.lowCutMode = ClayMode::manual;
+            rig.params.claySettings.lowCutHz = 31.0f;
+            rig.params.claySettings.widthMode = ClayMode::off;
+            rig.step();
+            expectEquals (rig.chain.getEffectiveParams().clay.lowCutHz, 31.0f);
+            expectEquals (rig.chain.getEffectiveParams().clay.widthDb, 0.0f);
+            rig.chain.restoreGlazeStateXml (saved.get());
+            rig.params = defaultParams (0.0f);
+            rig.step();
+            expect (isNeutralClay (rig.chain.getEffectiveParams().clay), "GLAZE zero takes effect on the restored first block");
+        }
+
         // 打开工程的宿主顺序是 setStateInformation 再第一次 prepareToPlay。0.1.8.9（以及阶段 2 合入后、
         // 版本号还印着 0.1.8.8 的构建）写出的是 LIVE format 2，两种顺序必须留下同一个 I。
         // 发行的 0.1.8.8 仍是 format 1 聆听树：两种顺序都冷启动，I 同样无效，旧工程提示还在。
@@ -2024,6 +2153,7 @@ namespace celadon::test
                     expect (levelNode->hasAttribute (attribute), "new shape: OUTPUT_LEVEL carries " + juce::String (attribute));
                     levelNode->removeAttribute (attribute);
                 }
+                levelNode->removeAttribute ("onsetEvidence");
 
                 auto oldShape = levelNode->getNumAttributes() == 8;
 

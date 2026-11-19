@@ -16,6 +16,7 @@
 
 #include "TestHelpers.h"
 
+#include "../Source/dsp/LiveProfile.h"
 #include "../Source/dsp/SegmentLedger.h"
 
 #include <cmath>
@@ -90,6 +91,11 @@ namespace celadon::test
                         {
                             ++s->effectiveSubBlocks;
                             s->effectiveEnergy += energyFor (loudnessAt (subFed));
+                            if (onsetsAt)
+                            {
+                                s->onsetEffectiveSamples += subLength;
+                                s->onsetEvents += onsetsAt (subFed);
+                            }
                         }
                     }
                 }
@@ -139,6 +145,7 @@ namespace celadon::test
             int subHint = -1, frameHint = -1;
             std::function<double (std::int64_t)> loudnessAt = [] (std::int64_t) { return -12.0; };
             std::function<double (std::int64_t)> lowShareAt = [] (std::int64_t) { return 0.4; };
+            std::function<int (std::int64_t)> onsetsAt;
             std::function<bool (std::int64_t)> effectiveAt = [] (std::int64_t) { return true; };
         };
 
@@ -174,6 +181,8 @@ namespace celadon::test
             testSegmentLoudness();
             testHeardNeedsHalfABar();
             testQuietSegmentIsNotInherited();
+            testProvisionalOnsets();
+            testRhythmAcrossBars();
             testBlockSizeIndependence();
             testReanchoring();
             testNoAllocation();
@@ -446,6 +455,77 @@ namespace celadon::test
             playTo (32.0, 1.0);   // drop 回来
             expect (f.ledger.getCurrentReading (loudness, lowShare) == SegmentLedger::Reading::measured, "the drop comes back: measured");
             expectWithinAbsoluteError (lowShare, 0.5f, 0.00051f);
+        }
+
+        void testProvisionalOnsets()
+        {
+            beginTest ("open and inherited readings use onset evidence from the same segment as bass and loudness");
+            Feeder f;
+            const auto host = [] (std::int64_t p) { return barHost (p, 120.0); };
+            std::int64_t position = 0;
+            f.play (position, 1.0, 512, host);
+            int hint = -1;
+            auto* first = f.ledger.openSegmentAt (0, hint);
+            expect (first != nullptr);
+            if (first == nullptr)
+                return;
+
+            float loudness = 0.0f, lowShare = 0.0f, onsetRate = 123.0f;
+            const auto measured = [&] { return f.ledger.getCurrentReading (loudness, lowShare, &onsetRate) == SegmentLedger::Reading::measured; };
+            first->onsetEvents = 3;
+            first->onsetEffectiveSamples = (std::int64_t) (0.25 * rate);
+            expect (measured() && onsetRate == -1.0f, "a short onset observation remains unknown");
+            first->onsetEffectiveSamples = (std::int64_t) rate;
+            expect (measured() && onsetRate == -1.0f, "the first partial bar cannot borrow a rhythm estimate");
+
+            f.play (position, 1.25, 512, host);
+            expect (measured() && onsetRate == 3.0f, "the next bar inherits all three final readings together");
+            f.play (position, 0.75, 512, host);
+            expect (measured() && onsetRate == -1.0f, "the new bar has its own bass and loudness but no onset observations");
+        }
+
+        void testRhythmAcrossBars()
+        {
+            beginTest ("120 BPM quarter and half notes: no false return to main on a new breakdown bar");
+            for (const int beatsPerOnset : { 1, 2 })
+            {
+                glaze::LiveConstants constants;
+                constants.rhythmMainAmount = 1.0f;
+                glaze::LiveProfile live;
+                live.prepare (rate);
+                live.setConstants (constants);
+                Feeder f;
+                f.ledger.setSink (&live);
+
+                // 8 小节有鼓与低音，4 小节等响铺底，再回到鼓与低音。每 100 ms 检查一次实时读数。
+                const auto rhythmic = [] (std::int64_t t) { return t < 16 * 48000 || t >= 24 * 48000; };
+                f.lowShareAt = [rhythmic] (std::int64_t t) { return rhythmic (t) ? 0.6 : 0.02; };
+                f.onsetsAt = [rhythmic, beatsPerOnset] (std::int64_t t)
+                {
+                    return (int) (rhythmic (t) && t % (24000 * beatsPerOnset) == 0);
+                };
+                bool staysQuiet = true, keepsDrums = true;
+                for (int tick = 1; tick <= 280; ++tick)
+                {
+                    f.block (subLength, barHost (f.now, 120.0));
+                    live.advanceTo (f.now);
+                    float lufs = 0.0f, low = 0.0f, onsetRate = -1.0f;
+                    const auto measured = f.ledger.getCurrentReading (lufs, low, &onsetRate) == SegmentLedger::Reading::measured;
+                    const auto main = live.mainnessFor (measured, lufs, measured, low, onsetRate);
+                    if (tick >= 180 && tick <= 240)
+                        staysQuiet = staysQuiet && measured && onsetRate == 0.0f && main < 0.5f;
+                    if ((tick >= 140 && tick <= 160) || tick >= 250)
+                        keepsDrums = keepsDrums && measured && main == 1.0f;
+                }
+                expect (keepsDrums && staysQuiet, "provisional decisions remain stable across the silent bars and recover on the drop");
+                live.flush();
+                std::array<glaze::LiveSegmentJudgement, 16> history {};
+                const auto count = live.readJudgements (history.data(), (int) history.size());
+                bool historyMatches = count == 14;
+                for (int i = 0; i < count; ++i)
+                    historyMatches = historyMatches && history[(size_t) i].mainness == (i >= 8 && i < 12 ? 0.0f : 1.0f);
+                expect (historyMatches, "final event rates and retrospective classification agree on each whole bar");
+            }
         }
 
         // 依据：SegmentLedger.h「有效音频 ≥ 标称长度的一半才算已听」；没有有效音频的段不进账本。

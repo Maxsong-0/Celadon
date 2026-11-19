@@ -219,7 +219,9 @@ namespace celadon::glaze
         // 写进两个输出）；quiet = 安静的段（有效音频不够），输出不改；none = 读不出（刚开始且同一段连续时间里没有定稿过的段、宿主停着），
         // 输出不改。实时画像拿 measured 的读数算此刻的主段度，quiet 就是不在主段落。
         enum class Reading { none, quiet, measured };
-        Reading getCurrentReading (float& loudnessLufs, float& lowShare) const noexcept;
+        // 实测起音密度，单位为次/秒。有效观测不足为 -1。
+        static float measuredOnsetRate (double events, double samples, double rate) noexcept;
+        Reading getCurrentReading (float& loudnessLufs, float& lowShare, float* onsetRate = nullptr) const noexcept;
         int getOpenSegments() const noexcept                  { return openCount; }
 
         // 读 cursor 之后的事件（最多 maxCount 条），cursor 推进到读完的位置。读者落后超过环形容量：跳到能读到的最早一条，返回负的条数。
@@ -257,8 +259,9 @@ namespace celadon::glaze
         void finalizeOldest() noexcept;
         void deriveSegment (Segment& segment) const noexcept;
         int commit (const Segment& segment) noexcept;   // 返回存进的格（−1 = 没存）
-        Reading readOpen (const Segment& open, float& loudnessLufs, float& lowShare) const noexcept;
-        Reading readLastFinal (float& loudnessLufs, float& lowShare) const noexcept;
+        float onsetRateOf (const Segment& segment) const noexcept;
+        Reading readOpen (const Segment& open, float& loudnessLufs, float& lowShare, float* onsetRate) const noexcept;
+        Reading readLastFinal (float& loudnessLufs, float& lowShare, float* onsetRate) const noexcept;
 
         double sampleRate = 48000.0;
         int subBlockLength = 4800;
@@ -294,6 +297,8 @@ namespace celadon::glaze
             float loudnessLufs = 0.0f;
             bool lowShareValid = false;
             float lowShare = 0.0f;
+            float onsetRate = -1.0f;
+            std::int64_t end = 0;
         };
         LastFinal lastFinal;
 

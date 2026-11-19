@@ -67,7 +67,7 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
                [--bpm 124 [--meter 4/4] [--listen-from-bar 1,33]] [--segments-csv]
                [--live-trace [--live-only] [--live-constants 键=值,…] [--live-tag 名字]]
                [--replay-override color.heat=0]
-               [--candidate current|c105|c106|c105-106|c107x15|c107x2|all-x15|all-x2] [--cold]
+               [--candidate current|c105|c106|c105-106|c107x15|c107x2|all-x15|all-x2|rhythm-main] [--cold]
 ```
 
 | 选项 | 默认 | 说明 |
@@ -91,7 +91,7 @@ celadon_render --in <歌曲目录> --out <输出目录> [--glaze 0,35,70] [--cla
 | `--live-only` | 关 | T-048：只跑第一遍（预热）出追踪，不出成品、不做重放——最快的追踪跑法；要 `--live-trace` |
 | `--live-constants` | 不给 | T-048：覆盖实时画像常数 `LiveConstants` 的任意字段，`键=值` 逗号分隔（键表见下「T-048」）；不认识的键、不合法的值报错；要 `--live-trace` 与 `--live-tag` |
 | `--live-tag` | `default` | T-048：追踪的输出分组 `live/<标签>/`（字母、数字、`.` `_` `-`，不以 `.` 开头，≤ 64 个字符）；扫参时一组常数一个标签 |
-| `--candidate` | `current` | T-113 听感批：每条链换上候选常数（只在渲染工具里切，插件永远是出厂常数、存档里没有它们）。`c105` 预算环主段门、`c106` 冷启动上行快通道、`c105-106` 两项一起、`c107x15` / `c107x2` 默认档音色 ×1.5 / ×2、`all-x15` / `all-x2` 三项一起；一次一个，不同候选用不同的 `--out`（成品名不带候选）。与 `--live-trace` 一起用时要给 `--live-tag`，探针的常数从候选那份起算、`--live-constants` 叠在上面。候选表与强度在 `RenderMain.cpp` 开头（`renderCandidates`），设计见 `docs/validation/2026-11-13-T113-listening/` |
+| `--candidate` | `current` | T-113 听感批：每条链换上候选常数（只在渲染工具里切，插件永远是出厂常数、存档里没有它们）。`c105` 预算环主段门、`c106` 冷启动上行快通道、`c105-106` 两项一起、`c107x15` / `c107x2` 默认档音色 ×1.5 / ×2、`all-x15` / `all-x2` 三项一起。试验候选 `rhythm-main` 从本曲较响且有低频的段学习起音密度，低频占比与起音密度同时明显回落时降低主段权重。一次一个，不同候选用不同的 `--out`（成品名不带候选）。与 `--live-trace` 一起用时要给 `--live-tag`，探针的常数从候选那份起算、`--live-constants` 叠在上面。候选表与强度在 `RenderMain.cpp` 开头（`renderCandidates`），设计见 `docs/validation/2026-11-13-T113-listening/` |
 | `--cold` | 关 | T-113：第二遍（成品）不读回第一遍的存档，从冷启动渲染（插件刚插上、从头播放；看 1-06「冷启动第一个 drop」用）。第一遍照跑、它的指标与追踪不变；不能与 `--live-only` 一起用 |
 | `--no-align` | 关 | 测量用：写未经整体等响的成品（默认仍按 `--match-lufs` 等响） |
 | `--selftest` | — | 只跑自检，不读歌（其余选项忽略） |
@@ -123,14 +123,14 @@ stderr 也报一次；插件是在处理器层把含非有限值的整块清零�
    末尾补「链延迟 + 0.35 s 余振」个零把尾巴冲出来（余振与插件报给宿主的尾巴同一常量 CeladonChain::filterRingOutSeconds），丢掉开头「链延迟」个样本
    （48 kHz / Lookahead 2 ms 时 282 + Clay 的 1102（线性相位收单 574 + 峰值守护前瞻 528）= 1384 个，ADR-012 / ADR-014）。
    成品 = 原曲长度 + 0.35 s，与原曲、各组成品之间**逐样本对齐**（DAW 里并排放轨、solo 切换即可无缝对比）。
-   读回的 LIVE 在 `prepare` 冷启动之后套上（CeladonChain::prepare），所以成品第一块起就接着用读回的已施加增量、G_trim、Heat / Glue 跟随量、预算环退让（T-097 起另有落差 / PSR 退让，T-108 随两扇守门删掉）；自动 Clay、Tone / Tame 实时跟随要到第一块 endBlock 之后（第二块起）才接上；GLAZE 在这一遍里继续实时跟随
+   读回的 LIVE 在 `prepare` 冷启动之后套上（CeladonChain::prepare），所以成品第一块起就接着用读回的已施加增量、G_trim、Heat / Glue 跟随量、预算环退让（T-097 起另有落差 / PSR 退让，T-108 随两扇守门删掉）；自动 Clay 在首块沿用存档中的执行值，Tone / Tame 实时跟随从第二块起接上；GLAZE 在这一遍里继续实时跟随
    （链上的实时画像接着收这一遍的段，方案每 1 s 重算）。
 4. **量、对齐、写**：量对齐前成品的指标 → 只乘一个增益把整体响度对齐到 `--match-lufs` → 写 32-bit float wav。
 
 为什么第二遍用「存档 → 新链读回」而不是同一条链跳回位置 0：新链的模块、表、分析器都是干净的（同一条链跳回 0，限幅器延迟线与各滤波器里
 还留着歌尾，成品开头会先吐出一段歌尾）；而且这正是用户真实的「听一遍 → 存工程 → 重开 → 离线导出」流程，也是 rendercheck 验过的路径
 （阶段 1 时验的；`tools/perf/bench.mm` 的 rendercheck 在 T-114 改成核对阶段 2 的 LIVE 存档，原来核对的执行快照 EXECUTION 已随 ADR-030 取消）。
-成品从第一块起就接着第一遍末的 LIVE 处理（自动 Clay、Tone / Tame 实时跟随晚一块；阶段 1 的说法是「学好之后的处理」）。阶段 1 时第一遍没走到「已锁定」（歌太短等）会在备注里写明；
+成品从第一块起就接着第一遍末的 LIVE 处理（自动 Clay 首块接回，Tone / Tame 实时跟随晚一块；阶段 1 的说法是「学好之后的处理」）。阶段 1 时第一遍没走到「已锁定」（歌太短等）会在备注里写明；
 T-048 阶段 2 起状态里的阶段恒为 unlearned，那条备注对 GLAZE > 0 的每组都会出现、成了噪声，T-098 收尾时删掉。第一遍够不够热看 metrics.csv 的 `confidence` 列
 （`gate_check.py` 把有效音乐不够长、c < 0.5 的组记进 NOTES）。
 
@@ -503,7 +503,7 @@ live/<标签>/<歌名>__passes.csv                          逐遍比较（有�
 
 ### `--live-constants` 的键
 
-键名 = `GlazeConstants.h` 里 `LiveConstants` 的字段名，主段模型的 9 个字段带 `loudness.` 前缀，共 9 + 14 = 23 个（T-108 前另有 `fourOnFloor.` / `passive.` 两个模型，共 37 个；T-113 加了 `catchUp*` 四个）。
+键名 = `GlazeConstants.h` 里 `LiveConstants` 的字段名，主段模型的 9 个字段带 `loudness.` 前缀，共 9 + 15 = 24 个（T-108 前另有 `fourOnFloor.` / `passive.` 两个模型，共 37 个；T-113 加了 `catchUp*` 四个）。
 键与取值范围用 `LiveProfile.h` 的公开表（`visitLiveConstants` / `isInLiveConstantDomain`）——`LiveProfile` 的清洗（`sanitiseLiveConstants`）用的是同一张表：
 那边把坏值悄悄换成出厂值，这里直接报错（扫参时给错的值不能变成「其实跑的是出厂值」）。`inf` / `-inf` 只在表里允许的键上合法；同一个键给两次、
 少了 `=`、不是数（含 NaN、溢出）都报错。
@@ -519,6 +519,7 @@ live/<标签>/<歌名>__passes.csv                          逐遍比较（有�
 | `loudness.memorySeconds` | ≥ 1 ms，可 inf | 90 |
 | `loudness.confidenceBars`（≤ 0 = 用秒） | 数，可 ±inf | 0 |
 | `loudness.confidenceSeconds` | ≥ 1 ms，可 inf | 20 |
+| `rhythmMainAmount`（本曲低频与起音同时减弱时对主段的衰减比例） | [0, 1] | 0（候选 `rhythm-main` 为 1） |
 | `referenceMemorySeconds` | ≥ 1 ms，可 inf | 180 |
 | `mainThreshold` | [0, 1] | 0.5 |
 | `noMainSeconds` / `noMainDecaySeconds` | ≥ 0 可 inf / ≥ 1 ms 可 inf | 60 / 120 |
@@ -544,9 +545,9 @@ GLAZE 0、块长 512、出厂常数，走真歌同一套第一遍（T-108 前这
 
 | 项 | 期望 |
 |---|---|
-| `--live-constants` 解析 / 拒收坏值 | 改到 7 个字段（含 inf / -inf）、其余保持出厂值、键表 23 个键；13 种坏写法（含删掉的 `fourOnFloor.` 键）都报错 |
+| `--live-constants` 解析 / 拒收坏值 | 改到 7 个字段（含 inf / -inf）、其余保持出厂值、键表 24 个键；13 种坏写法（含删掉的 `fourOnFloor.` 键）都报错 |
 | 追踪选项的命令行约定 | 单独 `--live-only`、改常数不给标签、标签 `../x`、删掉的 `--live-model` / `--genre` 都报错；完整的一组解析对 |
-| `--candidate` / `--cold` 的命令行约定（T-113） | 8 个名字都认；`current` 与不给相同；候选的 `LiveConstants` 进探针、`--live-constants` 叠在上面（与先后无关）；不认识的名字、给两次、候选开追踪不给标签、`--cold` 配 `--live-only` 都报错 |
+| `--candidate` / `--cold` 的命令行约定（T-113） | 9 个名字都认；`current` 与不给相同；候选的 `LiveConstants` 进探针、`--live-constants` 叠在上面（与先后无关）；不认识的名字、给两次、候选开追踪不给标签、`--cold` 配 `--live-only` 都报错 |
 | 追踪选项的命令行约定 | 单独 `--live-only`、改常数不给标签、标签 `../x` 都报错；完整的一组解析对 |
 | 段首尾相接 | 第一段从 0 起、相邻两段首尾相接、最后一段止于音频末尾（finish 交出了歌尾、flush 发布完）；没有读提交落后、没有配不上 |
 | 按小节对齐 | 36 小节 + 1 段尾巴，每段起止与工具的小节网格逐样本相同 |
@@ -570,12 +571,28 @@ Python 依赖钉在 `tools/render/requirements.txt`（numpy / scipy / soundfile 
 | `section_lib.py` | 段落标注 JSON、Jamendo 逐小节标签（叠人工改标）、`--segments-csv` 逐段统计的读法与段落响度 | 原在 T-038 的 `house_gate.py` / `calibrate_house.py` 里，T-108 删脚本时搬到这里 |
 | `quality_metrics.py` | 渲染输出（要带 `--trace`）+ 源文件 → 每首 × 每组设置一行 `quality.csv`（B 组最小集） | `docs/validation/2026-10-11-T096a-metrics/`（GLOSSARY 是每个字段的唯一定义）；`--selftest` |
 | `quality_gate.py` | 新 `quality.csv` 对基线逐行判：A 组绝对、B 组不退步 | 同上；`--selftest`；退出码 0 / 1 / 2 |
+| `check_style_quality.py` | 生成一首等响鼓点与和弦交替的曲子及持续和弦对照，用旧版的主段区间检验新版默认与节奏候选的泵感、声像、峰值和硬钳位 | `python check_style_quality.py <旧版渲染器> <待测渲染器>` |
 | `run_quality_baseline.sh` | 22 首门槛曲 + 45 首 Jamendo 各渲一遍再出 `quality-22.csv` / `quality-45.csv` | 文件头；`--dry-run` 只打印命令 |
 | `blind_test.py` | 盲测包（2AFC / ABX）：出包、登记、算答卷、自检 | `docs/validation/2026-10-11-T096b-blind-test/`；`selfcheck` 子命令 |
 | `master_check.py` | 母带检查单：直接量成品 wav，FAIL 只有「真峰值超 `--ceiling`」「原采样点削波」「读不了 / 非有限样本」三项，其余只报；多首时出 EP 汇总行 | `docs/validation/2026-10-11-T096c-master-check/`；自检 `master_check_selfcheck.py` |
 | `heat_ab_report.py` | 汇总 `--replay-override color.heat=0` 的 `heat_ab.csv`，每格给 2a / ABX 结论 | `docs/validation/2026-10-11-T096d-heat-ab/`（批跑 `run_heat_ab.sh`）；`--selftest` |
 | `drop_report.py` | T-113：两次渲染（基线 / `--candidate`，都带 `--trace`）逐首逐 drop 并排：预算环退让次数与退让量、Limit Gain 总变差、drop 前段增益、整首「非主段放退让」；`windows` 子命令按段落出盲听片段 JSON（`blind_test.py build --segments`），第一个 drop 必在。只用标准库 | `docs/validation/2026-11-13-T113-listening/`；文件头；`--selftest` |
 | `tools/perf/bench_portable.cpp`、`scripts/perf-dgx.sh`、`tools/perf/compare_perf.py` | 可移植 CPU 基准（处理器层 + 直接调 CeladonChain 的链层）与 DGX 上的同机不退步对比 | `docs/validation/2026-10-11-T096f-cpu-baseline/` |
+
+比较两个主段识别算法时，用同一份基线圈定试听和测量区间。单个渲染目录的写法如下。
+
+```sh
+python3 tools/render/quality_metrics.py --renders baseline --reference-renders baseline --sources inputs --out baseline.csv
+python3 tools/render/quality_metrics.py --renders candidate --reference-renders baseline --sources inputs --out candidate.csv
+python3 tools/render/quality_gate.py baseline.csv candidate.csv
+```
+
+完整网格可给 `run_quality_baseline.sh --reference-root <基线输出根>`。同一渲染器里比较节奏候选时再加 `--candidate rhythm-main`。两侧共用基线的主段区间，各自的主段占比和 drop 标注命中率仍可用来比较识别能力。
+比较不同块长或链延迟时，控制增益按入口块中点挑段，GR 和限幅器差值按扣除链延迟后的成品块中点挑段。
+跨过曲头或曲尾的块取曲内部分的中点，全部落在曲外的块不进入主段统计。硬钳位总数覆盖整次渲染，含余振。
+质量脚本用成品 WAV 的总帧数检查被测 trace 的末块；参考 trace 至少要覆盖全部入口音频。
+
+试听主段识别候选时，给渲染器加 `--candidate rhythm-main`，用 `--candidate current` 作对照。这项候选会在一首歌已有低频和起音参考、且两项同时回落时降低主段权重。
 
 **`--trace` 追加的六列**（只在第二遍那份，接在 GLAZE 列之后）：`current_mainness`（本块主段度 m）、`protection_db`（状态行那扇守门的退让）、
 `guard_cause`（`none` / `budget` / `limiterPeak`）、`hard_clip_samples` / `limit_diff_energy` / `limit_in_energy`（限幅器渲染计数：本块硬钳位样本数、

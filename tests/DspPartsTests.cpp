@@ -21,6 +21,7 @@
 #include <cstring>
 #include <limits>
 #include <memory>
+#include <numeric>
 
 #if defined (__SSE2__) || defined (_M_X64) || defined (_M_AMD64)
  #include <xmmintrin.h>   // _mm_getcsr / _mm_setcsr：FTZ、DAZ 分开开关
@@ -644,12 +645,72 @@ namespace celadon::test
                 expectEquals (meter.getIntegratedLufs(), LoudnessMeter::noReading);
             }
 
+            testRelativeGateAtDenseLevels();
             testTruePeakOnlyMode();
             testSwitchingLoudnessOffAndOn();
             testTruePeakIndependentOfHostBlockSize();
         }
 
     private:
+        void testRelativeGateAtDenseLevels()
+        {
+            beginTest ("relative gate agrees with individual 400 ms windows near a dense level");
+            constexpr int rate = 48000, subBlockLength = rate / 10;
+            // One hundred complete 1 kHz cycles per block keep the level changes phase-continuous.
+            auto sine = [=] (double amplitude)
+            {
+                juce::AudioBuffer<float> block (1, subBlockLength);
+                for (int i = 0; i < subBlockLength; ++i)
+                    block.setSample (0, i, (float) (amplitude * std::sin (juce::MathConstants<double>::twoPi * (i % 48) / 48.0)));
+                return block;
+            };
+
+            const auto loud = sine (0.5619074371);    // −5.00 LUFS steady state (dual mono)
+            const auto quiet = sine (0.09900674444);  // −20.08 LUFS
+            const auto nearby = sine (0.09900674444 * std::pow (10.0, 0.04 / 20.0));   // −20.04 LUFS
+            LoudnessMeter meter;
+            meter.prepare ({ rate, subBlockLength, 1 });
+            for (bool splitQuietLevels : { false, true })
+            {
+                meter.reset();
+                std::int64_t cursor = 0;
+                std::array<double, 4> lastFour {};
+                std::vector<double> windows;
+                for (int i = 0; i < 1000; ++i)
+                {
+                    meter.process (i < 290 ? loud : (splitQuietLevels && i >= 640 ? nearby : quiet));
+                    LoudnessMeter::SubBlock sub;
+                    if (meter.readSubBlocksSince (cursor, &sub, 1) != 1)
+                    {
+                        expect (false, "missing 100 ms energy for gating reference");
+                        return;
+                    }
+                    lastFour[(size_t) (i % 4)] = sub.meanSquare;
+                    if (i >= 3)
+                        windows.push_back (0.25 * std::accumulate (lastFour.begin(), lastFour.end(), 0.0));
+                }
+
+                // All windows clear the absolute gate. Apply the relative gate to each real K-weighted window.
+                const auto gate = 0.1 * std::accumulate (windows.begin(), windows.end(), 0.0) / (double) windows.size();
+                double sum = 0.0;
+                int count = 0;
+                for (const auto energy : windows)
+                    if (energy > gate)
+                    {
+                        sum += energy;
+                        ++count;
+                    }
+                if (splitQuietLevels)
+                    expect (count > 600 && count < 700, "the quiet levels straddle the relative gate in one 0.1 LU bin");
+                else
+                    expectEquals (count, 290);
+                if (count == 0)
+                    return;
+                const auto exact = (float) (-0.691 + 10.0 * std::log10 (sum / (double) count));
+                expectWithinAbsoluteError (meter.getIntegratedLufs(), exact, 0.001f);
+            }
+        }
+
         static void feed (LoudnessMeter& meter, const Signal& signal, int blockSize = 512)
         {
             const auto numChannels = (int) signal.size();
