@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>A 一釉：收起态</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;border:0;background:none;padding:0;margin:0;cursor:pointer}
+.m{font-family:Menlo,Consolas,'DejaVu Sans Mono',monospace}
+</style>
+</helmet>
+<div style="width: 1200px; height: 820px; box-sizing: border-box; position: relative; overflow: hidden; background: #EDF2F4; color: #0D1B21; font-family: 'PingFang SC', 'Microsoft YaHei UI', 'Noto Sans CJK SC', 'Noto Sans SC', system-ui, sans-serif; font-size: 11px; line-height: 1.3">
+
+  <!-- 顶栏：品牌 · 状态胶囊（只在需要注意或监听时出现）· 设置 / 帮助 -->
+  <div style="position: absolute; left: 24px; top: 15px; display: flex; align-items: center; gap: 10px">
+    <svg viewBox="0 0 22 22" aria-hidden="true" style="width: 22px; height: 22px">
+      <circle cx="11" cy="11" r="8.5" style="fill: none; stroke: #1799AB; stroke-width: 2.2"></circle>
+      <path d="M6.5 13 L10.5 10.2 L15.5 12" style="fill: none; stroke: #1799AB; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round"></path>
+    </svg>
+    <span style="font-size: 15px; font-weight: 600; letter-spacing: 0.01em">Celadon</span>
+    <span style="font-size: 10px; color: #566A73">母带处理</span>
+  </div>
+
+  <sc-if value="{{ alertTruePeak }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: 320px; top: 12px; width: 560px; height: 28px; display: flex; justify-content: center">
+      <div style="height: 28px; box-sizing: border-box; padding: 0 14px; border-radius: 14px; background: #FFF4EC; border: 1px solid #F5B48A; color: #C2410C; display: flex; align-items: center; gap: 8px">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: #E8590C"></span>
+        <span style="font-weight: 600">真峰值 −0.7 dBTP</span><span>·</span><span>超出上限 −1.0</span>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ alertLimited }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: 320px; top: 12px; width: 560px; height: 28px; display: flex; justify-content: center">
+      <div style="height: 28px; box-sizing: border-box; padding: 0 14px; border-radius: 14px; background: #FFF4EC; border: 1px solid #F5B48A; color: #C2410C; display: flex; align-items: center; gap: 8px">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: #E8590C"></span>
+        <span style="font-weight: 600">受限</span><span>·</span><span>预算</span><span>·</span><span>已退 1.5 dB</span>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ alertOriginal }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: 320px; top: 12px; width: 560px; height: 28px; display: flex; justify-content: center">
+      <div style="height: 28px; box-sizing: border-box; padding: 0 14px; border-radius: 14px; background: #FFFFFF; border: 1px solid #DCE6E9; color: #4B5E66; display: flex; align-items: center; gap: 8px">
+        <span style="width: 6px; height: 6px; border-radius: 50%; background: #0D1B21"></span>
+        <span style="font-weight: 600; color: #0D1B21">正在听原声</span><span>·</span><span>已等响 4.8 dB</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="position: absolute; right: 16px; top: 11px; display: flex; align-items: center; gap: 8px">
+    <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid #D0DDE2; background: #FFFFFF; color: #4B5E66">设置</button>
+    <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid #D0DDE2; background: #FFFFFF; color: #4B5E66">帮助</button>
+  </div>
+
+  <!-- 主区 (16, 56) 1168 × 380 -->
+  <div style="position: absolute; left: 16px; top: 56px; width: 1168px; height: 380px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #DCE6E9; border-radius: 20px">
+
+    <!-- 左栏：GLAZE 此刻在做什么 -->
+    <div style="position: absolute; left: 40px; top: 28px; width: 380px">
+      <div style="color: #566A73; letter-spacing: 0.06em">GLAZE 此刻在做什么</div>
+      <sc-if value="{{ statusNormal }}" hint-placeholder-val="{{ true }}">
+        <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #1799AB"></span>
+          <span style="font-size: 22px; font-weight: 600; letter-spacing: 0.01em">跟随</span>
+        </div>
+        <div style="margin-top: 4px; height: 32px; color: #4B5E66; line-height: 16px">自动 → 通透 · 目标 −17.4 LUFS</div>
+      </sc-if>
+      <sc-if value="{{ alertLimited }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top: 8px; display: flex; align-items: center; gap: 10px">
+          <span style="width: 8px; height: 8px; border-radius: 50%; background: #E8590C"></span>
+          <span style="font-size: 22px; font-weight: 600; letter-spacing: 0.01em; color: #C2410C">受限</span>
+        </div>
+        <div style="margin-top: 4px; height: 32px; color: #C2410C; line-height: 16px">预算 · 已退 1.5 dB · 目标 −18.9 LUFS</div>
+      </sc-if>
+
+      <div style="margin-top: 8px; border-top: 1px solid #E6EEF1">
+        <div style="height: 33px; display: flex; align-items: center; border-bottom: 1px solid #E6EEF1">
+          <div style="width: 88px; display: flex; align-items: baseline; gap: 6px"><span class="m" style="font-size: 9px; color: #566A73">01</span><span style="font-weight: 600; letter-spacing: 0.04em">BALANCE</span></div>
+          <div style="width: 56px; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 22%; height: 4px; border-radius: 2px; background: #6A4DFF"></div></div>
+          <div class="m" style="flex: 1; padding-left: 10px; color: #5438D9">回补 +3 · 抑制 +13</div>
+        </div>
+        <div style="height: 33px; display: flex; align-items: center; border-bottom: 1px solid #E6EEF1">
+          <div style="width: 88px; display: flex; align-items: baseline; gap: 6px"><span class="m" style="font-size: 9px; color: #566A73">02</span><span style="font-weight: 600; letter-spacing: 0.04em">CLAY</span></div>
+          <div style="width: 56px; font-size: 10px; color: #566A73">自动</div>
+          <div class="m" style="flex: 1; padding-left: 10px; color: #5438D9">加宽 +0.6 dB</div>
+        </div>
+        <div style="height: 33px; display: flex; align-items: center; border-bottom: 1px solid #E6EEF1; opacity: {{ colorDim }}">
+          <div style="width: 88px; display: flex; align-items: baseline; gap: 6px"><span class="m" style="font-size: 9px; color: #566A73">03</span><span style="font-weight: 600; letter-spacing: 0.04em">COLOR</span></div>
+          <div style="width: 56px; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 37%; height: 4px; border-radius: 2px; background: {{ colorBarFill }}"></div></div>
+          <div class="m" style="flex: 1; padding-left: 10px; color: {{ colorRowText }}">音调 +0.1 · 粘合 +37 · 热度 +5</div>
+        </div>
+        <div style="height: 33px; display: flex; align-items: center; border-bottom: 1px solid #E6EEF1">
+          <div style="width: 88px; display: flex; align-items: baseline; gap: 6px"><span class="m" style="font-size: 9px; color: #566A73">04</span><span style="font-weight: 600; letter-spacing: 0.04em">LIMIT</span></div>
+          <div style="width: 56px; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 30%; height: 4px; border-radius: 2px; background: #6A4DFF"></div></div>
+          <div class="m" style="flex: 1; padding-left: 10px; color: #5438D9">增益 +2.9 · 削波 +30</div>
+        </div>
+      </div>
+      <div style="margin-top: 10px; color: #566A73">把握 70% · 本段是主段 · 保护 <span class="m">{{ protectionText }}</span> dB</div>
+    </div>
+
+    <!-- 中间：GLAZE 主旋钮 -->
+    <div style="position: absolute; left: 434px; top: 10px; width: 300px; text-align: center; letter-spacing: 0.2em; color: #4B5E66">GLAZE 智能母带</div>
+    <div style="position: absolute; left: 434px; top: 34px; width: 300px; height: 300px">
+      <svg viewBox="0 0 300 300" aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 300px; height: 300px">
+        <circle cx="150" cy="150" r="138" pathLength="100" transform="rotate(135 150 150)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+        <circle cx="150" cy="150" r="138" pathLength="100" transform="rotate(135 150 150)" style="fill: none; stroke: #1799AB; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 33.75 100"></circle>
+        <circle cx="117.8" cy="15.8" r="7" style="fill: #FFFFFF; stroke: #1799AB; stroke-width: 3"></circle>
+      </svg>
+      <div style="position: absolute; left: 34px; top: 34px; width: 232px; height: 232px; border-radius: 50%; overflow: hidden; background: radial-gradient(circle at 36% 30%, #F6FBF8 0%, #DCEAE3 36%, #B4CFC4 68%, #8FB5A8 100%); box-shadow: 0 18px 36px rgba(13, 40, 48, 0.18), 0 2px 4px rgba(13, 40, 48, 0.12)">
+        <svg viewBox="0 0 232 232" aria-hidden="true" style="position: absolute; left: 0; top: 0; width: 232px; height: 232px">
+          <path d="M20 96 L58 84 L92 100 L120 78 L160 92 L212 70 M58 84 L70 40 L104 22 M92 100 L84 140 L110 176 L96 214 M120 78 L132 44 L170 30 M160 92 L176 130 L150 168 L172 204 M84 140 L40 150 L18 136 M176 130 L214 142 M110 176 L150 168" style="fill: none; stroke: rgba(46, 92, 84, 0.26); stroke-width: 0.9; stroke-linejoin: round"></path>
+          <path d="M70 40 L50 30 M132 44 L118 24 M40 150 L44 186 M150 168 L140 198 M176 130 L196 112 M58 84 L36 66" style="fill: none; stroke: rgba(46, 92, 84, 0.15); stroke-width: 0.7"></path>
+        </svg>
+        <div style="position: absolute; left: 0; top: 0; width: 232px; height: 232px; border-radius: 50%; box-shadow: inset 0 8px 16px rgba(255, 255, 255, 0.7), inset 0 -14px 26px rgba(30, 80, 72, 0.22)"></div>
+      </div>
+      <div style="position: absolute; left: 104px; top: 104px; width: 92px; height: 92px; border-radius: 50%; background: radial-gradient(circle at 40% 32%, #1F4049 0%, #061519 78%); box-shadow: 0 6px 14px rgba(6, 21, 25, 0.35); display: flex; align-items: baseline; justify-content: center; color: #FFFFFF">
+        <span class="m" style="margin-top: 27px; font-size: 32px; font-weight: 500; letter-spacing: -0.02em">45</span><span style="margin-left: 2px; color: #A3E0E8">%</span>
+      </div>
+    </div>
+
+    <!-- 旋钮下面一排：风格 · 母带 / 原声 · 等响 -->
+    <div style="position: absolute; left: 0; top: 322px; width: 1166px; height: 36px; display: flex; align-items: center; justify-content: center; gap: 12px">
+      <div style="height: 36px; box-sizing: border-box; padding: 3px; border-radius: 10px; background: #EEF3F5; display: flex; gap: 2px">
+        <button aria-pressed="true" style="width: 66px; height: 30px; border-radius: 8px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); color: #5438D9; font-weight: 600">自动</button>
+        <button aria-pressed="false" style="width: 66px; height: 30px; border-radius: 8px; color: #4B5E66">温润</button>
+        <button aria-pressed="false" style="width: 66px; height: 30px; border-radius: 8px; color: #4B5E66">冲击</button>
+        <button aria-pressed="false" style="width: 66px; height: 30px; border-radius: 8px; color: #4B5E66">通透</button>
+      </div>
+      <sc-if value="{{ notListening }}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <div style="height: 36px; box-sizing: border-box; padding: 3px; border-radius: 10px; background: #EEF3F5; display: flex; gap: 2px">
+            <button aria-pressed="true" style="width: 66px; height: 30px; border-radius: 8px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); font-weight: 600">母带</button>
+            <button aria-pressed="false" style="width: 66px; height: 30px; border-radius: 8px; color: #4B5E66">原声</button>
+          </div>
+          <button aria-pressed="false" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid #D0DDE2; background: #F3F6F7; color: #4B5E66">等响 关</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ alertOriginal }}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <div style="height: 36px; box-sizing: border-box; padding: 3px; border-radius: 10px; background: #EEF3F5; display: flex; gap: 2px">
+            <button aria-pressed="false" style="width: 66px; height: 30px; border-radius: 8px; color: #4B5E66">母带</button>
+            <button aria-pressed="true" style="width: 66px; height: 30px; border-radius: 8px; background: #0D1B21; color: #FFFFFF; font-weight: 600">原声</button>
+          </div>
+          <button aria-pressed="true" style="height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid #1799AB; background: #FFFFFF; color: #0E6473">等响 <span class="m">4.8</span> dB</button>
+        </div>
+      </sc-if>
+    </div>
+
+    <!-- 左下：操作提示（悬停或拖动控件时）/ 监听退出提示 -->
+    <sc-if value="{{ showHint }}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; left: 40px; top: 325px; width: 264px; font-size: 10px; line-height: 15px; color: #566A73">
+        <div>转外圈 · 中间上下拖 · ⌘ 精调</div>
+        <div>双击复位 · Option 点击输入</div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ alertOriginal }}" hint-placeholder-val="{{ false }}">
+      <button style="position: absolute; left: 40px; top: 325px; height: 30px; padding: 0 14px 0 10px; border-radius: 15px; background: #0D1B21; color: #FFFFFF; display: flex; align-items: center; gap: 8px">
+        <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M9 7 L4 12 L9 17 M4 12 H15 a5 5 0 0 1 0 10 H12" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+        正在听原声 · 点击回到母带
+      </button>
+    </sc-if>
+
+    <!-- 右下：颜色图例 -->
+    <div style="position: absolute; right: 40px; top: 333px; height: 14px; display: flex; align-items: center; gap: 14px; font-size: 10px; color: #566A73">
+      <span style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 4px; border-radius: 2px; background: linear-gradient(90deg, #A3E0E8, #0A4A57)"></span>手动设置</span>
+      <span style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 4px; border-radius: 2px; background: #6A4DFF"></span>GLAZE 自动调整</span>
+      <span style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 4px; border-radius: 2px; background: #E8590C"></span>需要注意</span>
+    </div>
+
+    <!-- 右栏：交付 -->
+    <div style="position: absolute; left: 788px; top: 28px; width: 340px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <span style="color: #566A73; letter-spacing: 0.06em">交付</span>
+        <span class="m" style="color: #4B5E66">目标 −17.4 LUFS</span>
+      </div>
+      <div style="margin-top: 4px; display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: baseline; gap: 8px">
+          <span class="m" style="font-size: 44px; font-weight: 500; letter-spacing: -0.03em; line-height: 1">−18.4</span>
+          <span style="font-size: 10px; color: #566A73">LUFS-I</span>
+        </div>
+        <button aria-label="重新计量" style="width: 28px; height: 28px; border-radius: 8px; border: 1px solid #D0DDE2; display: flex; align-items: center; justify-content: center">
+          <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M5 12a7 7 0 1 0 2.2-5.1 M5 4v4h4" style="fill: none; stroke: #4B5E66; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+        </button>
+      </div>
+      <div style="margin-top: 12px; display: flex; gap: 28px">
+        <div><div style="font-size: 10px; color: #566A73">短期</div><div class="m" style="margin-top: 2px; font-size: 15px">−16.5</div></div>
+        <div><div style="font-size: 10px; color: #566A73">真峰值 dBTP</div><div class="m" style="margin-top: 2px; font-size: 15px; color: {{ tpColor }}">{{ tpText }}</div></div>
+        <div><div style="font-size: 10px; color: #566A73">峰响比</div><div class="m" style="margin-top: 2px; font-size: 15px">17.0</div></div>
+      </div>
+      <div style="margin-top: 14px; position: relative; height: 36px">
+        <svg viewBox="0 0 8 6" aria-hidden="true" style="position: absolute; left: 121px; top: 0; width: 8px; height: 6px"><path d="M0 0 H8 L4 6 Z" style="fill: #0D1B21"></path></svg>
+        <div style="position: absolute; left: 0; top: 9px; width: 340px; height: 6px; border-radius: 3px; background: #E6EEF1"></div>
+        <div style="position: absolute; left: 0; top: 9px; width: 106px; height: 6px; border-radius: 3px; background: linear-gradient(90deg, #67CAD7, #127F90)"></div>
+        <div style="position: absolute; left: 141px; top: 7px; width: 2px; height: 10px; background: #0D1B21"></div>
+        <div style="position: absolute; left: 189px; top: 7px; width: 0; height: 12px; border-left: 1px dashed #566A73"></div>
+        <div class="m" style="position: absolute; left: 0; top: 22px; font-size: 10px; color: #4B5E66">归一 +4.4 dB</div>
+        <div class="m" style="position: absolute; left: 180px; top: 22px; font-size: 10px; color: #566A73">−14</div>
+      </div>
+      <div style="margin-top: 10px; display: flex; justify-content: space-between; font-size: 10px; color: #566A73">
+        <span>短期响度 · 60 秒</span>
+        <span style="display: flex; align-items: center; gap: 10px"><span style="display: flex; align-items: center; gap: 4px"><span style="width: 10px; height: 0; border-top: 1px dashed #566A73"></span>目标</span><span style="display: flex; align-items: center; gap: 4px"><span style="width: 10px; height: 2px; background: #6A4DFF"></span>GLAZE 自动增益</span></span>
+      </div>
+      <svg viewBox="0 0 340 52" aria-hidden="true" style="margin-top: 4px; display: block; width: 340px; height: 52px">
+        <path d="M0 40 L0 30 L20 29 L40 31 L60 26 L80 27 L100 24 L120 25 L140 22 L160 23 L180 20 L200 21 L220 18 L240 19 L260 17 L280 18 L300 16 L320 17 L340 15 L340 40 Z" style="fill: #D5F1F5"></path>
+        <path d="M0 30 L20 29 L40 31 L60 26 L80 27 L100 24 L120 25 L140 22 L160 23 L180 20 L200 21 L220 18 L240 19 L260 17 L280 18 L300 16 L320 17 L340 15" style="fill: none; stroke: #127F90; stroke-width: 1.5; stroke-linejoin: round"></path>
+        <path d="M0 14 L340 14" style="fill: none; stroke: #566A73; stroke-width: 1; stroke-dasharray: 3 3"></path>
+        <path d="M0 51 L80 51 L120 50 L200 48 L280 47 L340 46" style="fill: none; stroke: #6A4DFF; stroke-width: 1.5"></path>
+      </svg>
+    </div>
+  </div>
+
+  <!-- 模块行：四个模块按处理顺序收成一排，位置固定；点一下展开 / 收起，同一时刻最多开一个 -->
+  <div style="position: absolute; left: 299px; top: 475px; width: 12px; height: 2px; background: #B8C7CD"></div>
+  <div style="position: absolute; left: 594px; top: 475px; width: 12px; height: 2px; background: #B8C7CD"></div>
+  <div style="position: absolute; left: 889px; top: 475px; width: 12px; height: 2px; background: #B8C7CD"></div>
+
+  <div style="position: absolute; left: 16px; top: 444px; width: 283px; height: 64px; box-sizing: border-box; border-radius: 14px; border: {{ pillBalance.border }}; background: {{ pillBalance.bg }}">
+    <button aria-expanded="{{ pillBalance.expanded }}" style="position: absolute; left: 0; top: 0; width: 232px; height: 62px; padding: 0 0 0 16px; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 7px">
+      <span style="display: flex; align-items: baseline; gap: 8px"><span class="m" style="font-size: 9px; color: #566A73">01</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">BALANCE</span><span style="font-size: 10px; color: #566A73">动态均衡</span></span>
+      <span style="display: flex; align-items: center; gap: 10px">
+        <svg viewBox="0 0 81 16" aria-hidden="true" style="width: 81px; height: 16px"><path d="M0 8H81" style="fill: none; stroke: #CFDCE1; stroke-width: 1"></path><path d="M0 8v-1.4h2v1.4z M3 8v-3.2h2v3.2z M6 8v-4.9h2v4.9z M9 8v-5.6h2v5.6z M12 8v-4.6h2v4.6z M15 8v-2.5h2v2.5z M21 8v2.8h2v-2.8z M24 8v5.6h2v-5.6z M27 8v7.4h2v-7.4z M30 8v7.7h2v-7.7z M33 8v6.3h2v-6.3z M36 8v4.2h2v-4.2z M39 8v2.1h2v-2.1z M42 8v0.7h2v-0.7z M48 8v1.1h2v-1.1z M51 8v3.2h2v-3.2z M54 8v5.3h2v-5.3z M57 8v6.3h2v-6.3z M60 8v4.9h2v-4.9z M63 8v2.5h2v-2.5z M69 8v-2.8h2v2.8z M72 8v-4.2h2v4.2z M75 8v-3.9h2v3.9z M78 8v-2.1h2v2.1z" style="fill: #1799AB"></path></svg>
+        <span class="m" style="color: #4B5E66">最大 2.2 dB</span>
+      </span>
+    </button>
+    <svg viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 228px; top: 25px; width: 12px; height: 12px"><path d="{{ pillBalance.chevron }}" style="fill: none; stroke: #8A9CA3; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+    <button aria-label="旁通 BALANCE" aria-pressed="false" style="position: absolute; right: 10px; top: 15px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center"><span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #1799AB; display: flex; align-items: center; justify-content: center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 12px; height: 12px"><path d="M12 4v7 M7.5 6.8a7 7 0 1 0 9 0" style="fill: none; stroke: #1799AB; stroke-width: 2.2; stroke-linecap: round"></path></svg></span></button>
+  </div>
+
+  <div style="position: absolute; left: 311px; top: 444px; width: 283px; height: 64px; box-sizing: border-box; border-radius: 14px; border: {{ pillClay.border }}; background: {{ pillClay.bg }}">
+    <button aria-expanded="{{ pillClay.expanded }}" style="position: absolute; left: 0; top: 0; width: 232px; height: 62px; padding: 0 0 0 16px; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 7px">
+      <span style="display: flex; align-items: baseline; gap: 8px"><span class="m" style="font-size: 9px; color: #566A73">02</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">CLAY</span><span style="font-size: 10px; color: #566A73">声像</span></span>
+      <span style="display: flex; align-items: center; gap: 10px">
+        <span style="display: flex; align-items: center; gap: 4px"><span style="width: 6px; height: 6px; border-radius: 50%; background: #1799AB"></span><span style="width: 6px; height: 6px; border-radius: 50%; background: #1799AB"></span><span style="width: 6px; height: 6px; border-radius: 50%; background: #1799AB"></span></span>
+        <span class="m" style="color: #4B5E66">36 Hz · 120 Hz · +0.6 dB</span>
+      </span>
+    </button>
+    <svg viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 228px; top: 25px; width: 12px; height: 12px"><path d="{{ pillClay.chevron }}" style="fill: none; stroke: #8A9CA3; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+    <button aria-label="旁通 CLAY" aria-pressed="false" style="position: absolute; right: 10px; top: 15px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center"><span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #1799AB; display: flex; align-items: center; justify-content: center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 12px; height: 12px"><path d="M12 4v7 M7.5 6.8a7 7 0 1 0 9 0" style="fill: none; stroke: #1799AB; stroke-width: 2.2; stroke-linecap: round"></path></svg></span></button>
+  </div>
+
+  <div style="position: absolute; left: 606px; top: 444px; width: 283px; height: 64px; box-sizing: border-box; border-radius: 14px; border: {{ pillColor.border }}; background: {{ pillColor.bg }}">
+    <button aria-expanded="{{ pillColor.expanded }}" style="position: absolute; left: 0; top: 0; width: 232px; height: 62px; padding: 0 0 0 16px; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 7px; opacity: {{ colorDim }}">
+      <span style="display: flex; align-items: baseline; gap: 8px"><span class="m" style="font-size: 9px; color: #566A73">03</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">COLOR</span><span style="font-size: 10px; color: #566A73">音色</span></span>
+      <sc-if value="{{ colorActive }}" hint-placeholder-val="{{ true }}">
+        <span style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 56px; height: 4px; border-radius: 2px; background: #E6EEF1"><span style="display: block; width: 13%; height: 4px; border-radius: 2px; background: #0D1B21"></span></span>
+          <span class="m" style="color: #4B5E66">粘合衰减 0.8 dB</span>
+        </span>
+      </sc-if>
+      <sc-if value="{{ colorBypassed }}" hint-placeholder-val="{{ false }}">
+        <span style="color: #566A73">已旁通</span>
+      </sc-if>
+    </button>
+    <svg viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 228px; top: 25px; width: 12px; height: 12px"><path d="{{ pillColor.chevron }}" style="fill: none; stroke: #8A9CA3; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+    <button aria-label="旁通 COLOR" aria-pressed="{{ colorPressed }}" style="position: absolute; right: 10px; top: 15px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center"><span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid {{ colorPower }}; display: flex; align-items: center; justify-content: center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 12px; height: 12px"><path d="M12 4v7 M7.5 6.8a7 7 0 1 0 9 0" style="fill: none; stroke: {{ colorPower }}; stroke-width: 2.2; stroke-linecap: round"></path></svg></span></button>
+  </div>
+
+  <div style="position: absolute; left: 901px; top: 444px; width: 283px; height: 64px; box-sizing: border-box; border-radius: 14px; border: {{ pillLimit.border }}; background: {{ pillLimit.bg }}">
+    <button aria-expanded="{{ pillLimit.expanded }}" style="position: absolute; left: 0; top: 0; width: 232px; height: 62px; padding: 0 0 0 16px; text-align: left; display: flex; flex-direction: column; justify-content: center; gap: 7px">
+      <span style="display: flex; align-items: baseline; gap: 8px"><span class="m" style="font-size: 9px; color: #566A73">04</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">LIMIT</span><span style="font-size: 10px; color: #566A73">限幅</span></span>
+      <span style="display: flex; align-items: center; gap: 10px">
+        <span style="width: 56px; height: 4px; border-radius: 2px; background: #E6EEF1"><span style="display: block; width: 12%; height: 4px; border-radius: 2px; background: {{ grFill }}"></span></span>
+        <span class="m" style="color: {{ grText }}">衰减 1.4 dB</span>
+      </span>
+    </button>
+    <svg viewBox="0 0 24 24" aria-hidden="true" style="position: absolute; left: 228px; top: 25px; width: 12px; height: 12px"><path d="{{ pillLimit.chevron }}" style="fill: none; stroke: #8A9CA3; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+    <button aria-label="旁通 LIMIT" aria-pressed="false" style="position: absolute; right: 10px; top: 15px; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center"><span style="width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #1799AB; display: flex; align-items: center; justify-content: center"><svg viewBox="0 0 24 24" aria-hidden="true" style="width: 12px; height: 12px"><path d="M12 4v7 M7.5 6.8a7 7 0 1 0 9 0" style="fill: none; stroke: #1799AB; stroke-width: 2.2; stroke-linecap: round"></path></svg></span></button>
+  </div>
+
+  <!-- 展开面板 (16, 516) 1168 × 166：紧贴模块行下方；它出现时频谱让出高度 -->
+  <sc-if value="{{ isOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position: absolute; left: {{ stubLeft }}px; top: 508px; width: 2px; height: 8px; background: #1799AB"></div>
+    <div style="position: absolute; left: 16px; top: 516px; width: 1168px; height: 166px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #DCE6E9; border-radius: 16px">
+
+      <!-- 面板头：序号 · 名字 · 说明 · 页签 · 右侧附件 · 收起 -->
+      <div style="position: absolute; left: 20px; top: 12px; right: 16px; height: 28px; display: flex; align-items: center; justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 16px">
+          <sc-if value="{{ openBalance }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: center; gap: 16px">
+              <div style="display: flex; align-items: baseline; gap: 10px"><span class="m" style="color: #566A73">01</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">BALANCE</span><span style="color: #566A73">动态均衡</span></div>
+              <div style="height: 28px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+                <button aria-pressed="{{ tabBalMain.pressed }}" style="height: 24px; padding: 0 12px; border-radius: 6px; background: {{ tabBalMain.bg }}; box-shadow: {{ tabBalMain.shadow }}; color: {{ tabBalMain.color }}; font-weight: {{ tabBalMain.weight }}">控制</button>
+                <button aria-pressed="{{ tabBalHarsh.pressed }}" style="height: 24px; padding: 0 12px; border-radius: 6px; background: {{ tabBalHarsh.bg }}; box-shadow: {{ tabBalHarsh.shadow }}; color: {{ tabBalHarsh.color }}; font-weight: {{ tabBalHarsh.weight }}">推响不刺</button>
+                <button aria-pressed="{{ tabBalTarget.pressed }}" style="height: 24px; padding: 0 12px; border-radius: 6px; background: {{ tabBalTarget.bg }}; box-shadow: {{ tabBalTarget.shadow }}; color: {{ tabBalTarget.color }}; font-weight: {{ tabBalTarget.weight }}">目标频谱</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ openClay }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: baseline; gap: 10px"><span class="m" style="color: #566A73">02</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">CLAY</span><span style="color: #566A73">声像</span></div>
+          </sc-if>
+          <sc-if value="{{ openColor }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: baseline; gap: 10px"><span class="m" style="color: #566A73">03</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">COLOR</span><span style="color: #566A73">音色</span></div>
+          </sc-if>
+          <sc-if value="{{ openLimit }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: center; gap: 16px">
+              <div style="display: flex; align-items: baseline; gap: 10px"><span class="m" style="color: #566A73">04</span><span style="font-size: 13px; font-weight: 600; letter-spacing: 0.05em">LIMIT</span><span style="color: #566A73">限幅</span></div>
+              <div style="height: 28px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+                <button aria-pressed="{{ tabLimMain.pressed }}" style="height: 24px; padding: 0 12px; border-radius: 6px; background: {{ tabLimMain.bg }}; box-shadow: {{ tabLimMain.shadow }}; color: {{ tabLimMain.color }}; font-weight: {{ tabLimMain.weight }}">控制</button>
+                <button aria-pressed="{{ tabLimRelease.pressed }}" style="height: 24px; padding: 0 12px; border-radius: 6px; background: {{ tabLimRelease.bg }}; box-shadow: {{ tabLimRelease.shadow }}; color: {{ tabLimRelease.color }}; font-weight: {{ tabLimRelease.weight }}">发行安全</button>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <sc-if value="{{ openLimit }}" hint-placeholder-val="{{ false }}">
+            <button aria-pressed="false" style="height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid #D0DDE2; color: #4B5E66; display: flex; align-items: center; gap: 6px">
+              <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 13px; height: 13px"><path d="M5 15v-3a7 7 0 0 1 14 0v3 M5 14h2.5v5H5z M16.5 14H19v5h-2.5z" style="fill: none; stroke: #4B5E66; stroke-width: 1.8; stroke-linejoin: round"></path></svg>
+              试听差值
+            </button>
+          </sc-if>
+          <button aria-label="收起" style="width: 28px; height: 28px; border-radius: 8px; border: 1px solid #D0DDE2; display: flex; align-items: center; justify-content: center">
+            <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 14px; height: 14px"><path d="M6 15 L12 9 L18 15" style="fill: none; stroke: #4B5E66; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- BALANCE · 控制 -->
+      <sc-if value="{{ bodyBalMain }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 52px; width: 1128px; height: 98px; display: flex; align-items: center">
+          <div style="display: flex; gap: 28px">
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #1799AB; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 15 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #6A4DFF; stroke-width: 5; stroke-dasharray: 2.25 100; stroke-dashoffset: -15"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M30.1 36.7 L19.2 35" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">回补</div><div class="m" style="margin-top: 2px; font-size: 15px">20</div><div class="m" style="margin-top: 2px; color: #5438D9">+3 自动</div></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #127F90; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 22.5 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #6A4DFF; stroke-width: 5; stroke-dasharray: 9.75 100; stroke-dashoffset: -22.5"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M31.5 33.3 L22.6 26.8" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">抑制</div><div class="m" style="margin-top: 2px; font-size: 15px">30</div><div class="m" style="margin-top: 2px; color: #5438D9">+13 自动</div></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M38 30 L38 19" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">提亮</div><div class="m" style="margin-top: 2px; font-size: 15px">0</div><div style="margin-top: 2px; color: #566A73">手动</div></div>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="width: 150px; display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #566A73"><span>速度</span><span>27 段</span></div>
+            <div style="height: 30px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">慢</button>
+              <button aria-pressed="true" style="flex: 1; height: 26px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); font-weight: 600">中</button>
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">快</button>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="flex: 1">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #566A73"><span>此刻的修正量</span><span class="m">±6 dB</span></div>
+            <svg viewBox="0 0 320 72" aria-hidden="true" style="margin-top: 6px; display: block; width: 320px; height: 72px">
+              <path d="M0 72 L0 60 L20 44 L44 30 L70 24 L100 27 L130 31 L160 34 L190 37 L220 40 L250 44 L280 50 L304 58 L320 66 L320 72 Z" style="fill: #EEF7F9"></path>
+              <path d="M74.5 0 V72 M181.5 0 V72 M287.5 0 V72" style="fill: none; stroke: #E6EEF1; stroke-width: 1"></path>
+              <path d="M0 36 H320" style="fill: none; stroke: #CFDCE1; stroke-width: 1"></path>
+              <path d="M14 33.6 L25.2 30.6 L36.5 27.6 L47.7 26.4 L58.9 28.2 L70.2 31.8 L81.4 36 L92.6 40.8 L103.8 45.6 L115.1 48.6 L126.3 49.2 L137.5 46.8 L148.8 43.2 L160 39.6 L171.2 37.2 L182.5 36 L193.7 37.8 L204.9 41.4 L216.1 45 L227.4 46.8 L238.6 44.4 L249.8 40.2 L261.1 35.4 L272.3 31.2 L283.5 28.8 L294.8 29.4 L306 32.4" style="fill: none; stroke: #127F90; stroke-width: 1.6; stroke-linejoin: round"></path>
+              <path d="M14 33.6h0 M25.2 30.6h0 M36.5 27.6h0 M47.7 26.4h0 M58.9 28.2h0 M70.2 31.8h0 M81.4 36h0 M92.6 40.8h0 M103.8 45.6h0 M115.1 48.6h0 M126.3 49.2h0 M137.5 46.8h0 M148.8 43.2h0 M160 39.6h0 M171.2 37.2h0 M182.5 36h0 M193.7 37.8h0 M204.9 41.4h0 M216.1 45h0 M227.4 46.8h0 M238.6 44.4h0 M249.8 40.2h0 M261.1 35.4h0 M272.3 31.2h0 M283.5 28.8h0 M294.8 29.4h0 M306 32.4h0" style="fill: none; stroke: #0E6473; stroke-width: 3.2; stroke-linecap: round"></path>
+            </svg>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- BALANCE · 推响不刺（原「高级」第一页） -->
+      <sc-if value="{{ bodyBalHarsh }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 52px; width: 1128px; height: 98px; display: flex; align-items: center">
+          <div style="width: 216px; display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 10px; color: #566A73">处理方式</div>
+            <div style="height: 30px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+              <button aria-pressed="true" style="flex: 1; height: 26px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); color: #5438D9; font-weight: 600">自动</button>
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">关</button>
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">手动</button>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="width: 420px; display: flex; flex-direction: column; gap: 20px">
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 56px; color: #566A73">抑制力度</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 50%; height: 4px; border-radius: 2px; background: #1799AB"></div><div style="position: absolute; left: 50%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #1799AB"></div></div>
+              <span class="m" style="width: 48px; text-align: right">50 %</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 56px; color: #566A73">瞬态保护</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 60%; height: 4px; border-radius: 2px; background: #127F90"></div><div style="position: absolute; left: 60%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #127F90"></div></div>
+              <span class="m" style="width: 48px; text-align: right">60 %</span>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="flex: 1">
+            <div style="font-size: 10px; color: #566A73">当前抑制</div>
+            <div class="m" style="margin-top: 2px; font-size: 22px">1.2<span style="font-size: 11px; color: #566A73; margin-left: 4px">dB</span></div>
+            <div style="margin-top: 8px; font-size: 10px; line-height: 15px; color: #566A73">自动力度随 GLAZE 缩放；上面的力度与瞬态保护仍可微调。</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- BALANCE · 目标频谱（原「高级」第二页） -->
+      <sc-if value="{{ bodyBalTarget }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 52px; width: 1128px; height: 98px; display: flex; align-items: center">
+          <div style="width: 336px; display: flex; flex-direction: column; gap: 14px">
+            <div style="height: 30px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">关</button>
+              <button aria-pressed="true" style="flex: 1; height: 26px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); color: #5438D9; font-weight: 600">自动</button>
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">温暖</button>
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">均衡</button>
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">明亮</button>
+              <button aria-pressed="false" style="flex: 1; height: 26px; border-radius: 6px; color: #4B5E66">参考</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 56px; color: #566A73">匹配力度</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 50%; height: 4px; border-radius: 2px; background: #1799AB"></div><div style="position: absolute; left: 50%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #1799AB"></div></div>
+              <span class="m" style="width: 48px; text-align: right">50 %</span>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="width: 330px; display: flex; flex-direction: column; gap: 10px">
+            <div style="font-size: 10px; line-height: 15px; color: #566A73">尚未学习参考；预设目标可直接使用。参考曲接入 DAW 外部侧链，累计 10 秒有效声音后完成，不混入母带。</div>
+            <div style="display: flex; gap: 8px">
+              <button style="height: 28px; padding: 0 12px 0 10px; border-radius: 14px; border: 1px solid #9FD7E0; background: #FFFFFF; color: #0E6473; display: flex; align-items: center; gap: 6px">
+                <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 13px; height: 13px"><path d="M5 12a7 7 0 1 0 2.2-5.1 M5 4v4h4" style="fill: none; stroke: #0E6473; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round"></path></svg>
+                学习参考
+              </button>
+              <button aria-disabled="true" style="height: 28px; padding: 0 12px 0 10px; border-radius: 14px; border: 1px solid #D0DDE2; background: #F3F6F7; color: #566A73; display: flex; align-items: center; gap: 6px">
+                <svg viewBox="0 0 24 24" aria-hidden="true" style="width: 12px; height: 12px"><path d="M6 6 L18 18 M18 6 L6 18" style="fill: none; stroke: #566A73; stroke-width: 2; stroke-linecap: round"></path></svg>
+                清除参考
+              </button>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="flex: 1">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #566A73"><span>当前目标修正 · 27 频带</span><span class="m">±3 dB</span></div>
+            <svg viewBox="0 0 364 72" aria-hidden="true" style="margin-top: 6px; display: block; width: 364px; height: 72px">
+              <path d="M84.5 0 V72 M206.5 0 V72 M327.5 0 V72" style="fill: none; stroke: #E6EEF1; stroke-width: 1"></path>
+              <path d="M0 36 H364" style="fill: none; stroke: #CFDCE1; stroke-width: 1"></path>
+              <path d="M14 30 L40 28 L66 29 L92 32 L118 36 L144 39 L170 41 L196 40 L222 37 L248 34 L274 33 L300 35 L326 40 L350 46" style="fill: none; stroke: #6A4DFF; stroke-width: 1.6; stroke-linejoin: round"></path>
+            </svg>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- CLAY -->
+      <sc-if value="{{ openClay }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 52px; width: 1128px; height: 98px; display: flex; align-items: center">
+          <div style="width: 404px; display: flex; flex-direction: column; gap: 7px">
+            <div style="height: 28px; display: flex; align-items: center; gap: 10px">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #1799AB"></span>
+              <span style="width: 40px; font-weight: 600">低切</span>
+              <span class="m" style="width: 92px; color: #5438D9">36 Hz</span>
+              <div style="width: 216px; height: 28px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+                <button aria-pressed="true" style="flex: 1; height: 24px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); color: #5438D9; font-weight: 600">自动</button>
+                <button aria-pressed="false" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">关</button>
+                <button aria-pressed="false" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">手动</button>
+              </div>
+            </div>
+            <div style="height: 28px; display: flex; align-items: center; gap: 10px">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #1799AB"></span>
+              <span style="width: 40px; font-weight: 600">收单</span>
+              <span class="m" style="width: 92px; color: #5438D9">120 Hz</span>
+              <div style="width: 216px; height: 28px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+                <button aria-pressed="true" style="flex: 1; height: 24px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); color: #5438D9; font-weight: 600">自动</button>
+                <button aria-pressed="false" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">关</button>
+                <button aria-pressed="false" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">手动</button>
+              </div>
+            </div>
+            <div style="height: 28px; display: flex; align-items: center; gap: 10px">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #1799AB"></span>
+              <span style="width: 40px; font-weight: 600">加宽</span>
+              <span class="m" style="width: 92px; color: #5438D9">+0.6 dB</span>
+              <div style="width: 216px; height: 28px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+                <button aria-pressed="true" style="flex: 1; height: 24px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); color: #5438D9; font-weight: 600">自动</button>
+                <button aria-pressed="false" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">关</button>
+                <button aria-pressed="false" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">手动</button>
+              </div>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="width: 675px">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #566A73">
+              <span>低频怎么处理 · 10 Hz – 1 kHz</span>
+              <span style="display: flex; align-items: center; gap: 12px"><span style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 8px; border-radius: 2px; background: repeating-linear-gradient(135deg, #9AABB2 0 1px, #F3F8F9 1px 4px)"></span>切掉</span><span style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 8px; border-radius: 2px; background: #A3E0E8"></span>单声道</span><span style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 8px; border-radius: 2px; background: #D5F1F5"></span>立体声</span></span>
+            </div>
+            <div style="margin-top: 6px; position: relative; width: 675px; height: 48px; border-radius: 8px; overflow: hidden; background: #F3F8F9">
+              <div style="position: absolute; left: 0; top: 0; width: 188px; height: 48px; background: repeating-linear-gradient(135deg, #B8C7CD 0 1px, #F3F8F9 1px 7px)"></div>
+              <div style="position: absolute; left: 188px; top: 0; width: 176px; height: 48px; background: #A3E0E8"></div>
+              <div style="position: absolute; left: 364px; top: 0; width: 311px; height: 48px; background: #D5F1F5"></div>
+              <div style="position: absolute; left: 187px; top: 0; width: 2px; height: 48px; background: #0E6473"></div>
+              <div style="position: absolute; left: 363px; top: 0; width: 2px; height: 48px; background: #0E6473"></div>
+              <div class="m" style="position: absolute; left: 196px; top: 6px; font-size: 10px; color: #06313A">低切 36 Hz</div>
+              <div class="m" style="position: absolute; left: 372px; top: 6px; font-size: 10px; color: #06313A">收单 120 Hz</div>
+              <div style="position: absolute; left: 372px; top: 28px; font-size: 10px; color: #0E6473">立体声</div>
+            </div>
+            <div class="m" style="margin-top: 4px; position: relative; height: 12px; font-size: 9px; color: #566A73">
+              <span style="position: absolute; left: 92px">20</span><span style="position: absolute; left: 227px">50</span><span style="position: absolute; left: 326px">100</span><span style="position: absolute; left: 428px">200</span><span style="position: absolute; left: 562px">500</span><span style="position: absolute; right: 0">1 kHz</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- COLOR -->
+      <sc-if value="{{ openColor }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 52px; width: 1128px; height: 98px; display: flex; align-items: center; opacity: {{ colorDim }}">
+          <div style="display: flex; gap: 28px">
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #6A4DFF; stroke-width: 5; stroke-dasharray: 1.25 100; stroke-dashoffset: -37.5"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M38 30 L38 19" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">音调</div><div class="m" style="margin-top: 2px; font-size: 15px">0.0<span style="font-size: 10px; color: #566A73; margin-left: 4px">dB</span></div><div class="m" style="margin-top: 2px; color: #5438D9">+0.1 自动</div></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #33B3C4; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 7.5 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #6A4DFF; stroke-width: 5; stroke-dasharray: 27.75 100; stroke-dashoffset: -7.5"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M30.4 40.5 L19.9 43.9" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">粘合</div><div class="m" style="margin-top: 2px; font-size: 15px">10</div><div class="m" style="margin-top: 2px; color: #5438D9">+37 自动</div></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #6A4DFF; stroke-width: 5; stroke-dasharray: 3.75 100"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M32.3 43.7 L24.6 51.4" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">热度</div><div class="m" style="margin-top: 2px; font-size: 15px">0</div><div class="m" style="margin-top: 2px; color: #5438D9">+5 自动</div></div>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="width: 250px; display: flex; flex-direction: column; gap: 16px">
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 52px; color: #566A73">干湿</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 100%; height: 4px; border-radius: 2px; background: #0A4A57"></div><div style="position: absolute; left: 100%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #0A4A57"></div></div>
+              <span class="m" style="width: 56px; text-align: right">100 %</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 52px; color: #566A73">输出</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="position: absolute; left: 50%; top: -3px; width: 1px; height: 10px; background: #9AABB2"></div><div style="position: absolute; left: 50%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #1799AB"></div></div>
+              <span class="m" style="width: 56px; text-align: right">0.0 dB</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 52px; color: #566A73">粘合衰减</span>
+              <div style="flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 13%; height: 4px; border-radius: 2px; background: #0D1B21"></div></div>
+              <span class="m" style="width: 56px; text-align: right">0.8 dB</span>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="flex: 1">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #566A73"><span>粘合衰减 · 最近 10 秒</span><span class="m">最大 1.1 dB</span></div>
+            <svg viewBox="0 0 220 60" aria-hidden="true" style="margin-top: 6px; display: block; width: 220px; height: 60px">
+              <path d="M0 0.5 H220" style="fill: none; stroke: #DCE6E9; stroke-width: 1"></path>
+              <path d="M0 1 L0 8 L12 10 L24 7 L36 11 L48 9 L60 6 L72 10 L84 12 L96 8 L108 9 L120 11 L132 7 L144 8 L156 10 L168 9 L180 6 L192 9 L204 11 L220 8 L220 1 Z" style="fill: #0D1B21"></path>
+            </svg>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- LIMIT · 控制 -->
+      <sc-if value="{{ bodyLimMain }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 52px; width: 1128px; height: 98px; display: flex; align-items: center">
+          <div style="display: flex; gap: 28px">
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #6A4DFF; stroke-width: 5; stroke-dasharray: 9 100"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M32.3 43.7 L24.6 51.4" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">增益</div><div class="m" style="margin-top: 2px; font-size: 15px">0.0<span style="font-size: 10px; color: #566A73; margin-left: 4px">dB</span></div><div class="m" style="margin-top: 2px; color: #5438D9">+2.9 自动</div></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #0A4A57; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 62.25 100"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M46 37.9 L57 37.7" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">上限</div><div class="m" style="margin-top: 2px; font-size: 15px">−1.0<span style="font-size: 10px; color: #566A73; margin-left: 4px">dBTP</span></div><div style="margin-top: 2px; color: #566A73">手动</div></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; width: 168px">
+              <svg viewBox="0 0 76 76" aria-hidden="true" style="width: 76px; height: 76px; flex: none">
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #DCE6E9; stroke-width: 5; stroke-linecap: round; stroke-dasharray: 75 100"></circle>
+                <circle cx="38" cy="38" r="31" pathLength="100" transform="rotate(135 38 38)" style="fill: none; stroke: #6A4DFF; stroke-width: 5; stroke-dasharray: 22.5 100"></circle>
+                <circle cx="38" cy="38" r="21" style="fill: #0D1B21"></circle>
+                <path d="M32.3 43.7 L24.6 51.4" style="fill: none; stroke: #FFFFFF; stroke-width: 2; stroke-linecap: round"></path>
+              </svg>
+              <div><div style="font-size: 10px; color: #566A73">削波</div><div class="m" style="margin-top: 2px; font-size: 15px">0</div><div class="m" style="margin-top: 2px; color: #5438D9">+30 自动</div></div>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="width: 250px; display: flex; flex-direction: column; gap: 16px">
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 52px; color: #566A73">释放</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 38%; height: 4px; border-radius: 2px; background: #B9ACFF"></div><div style="position: absolute; left: 38%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #B9ACFF"></div></div>
+              <span class="m" style="width: 44px; text-align: right; color: #4B5E66">100 ms</span>
+              <button aria-pressed="true" style="height: 20px; padding: 0 7px; border-radius: 6px; background: #EEEAFF; color: #5438D9; font-size: 10px; font-weight: 600">自动</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 52px; color: #566A73">预读</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 12%; height: 4px; border-radius: 2px; background: #1799AB"></div><div style="position: absolute; left: 12%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #1799AB"></div></div>
+              <span class="m" style="width: 86px; text-align: right">2.0 ms</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="width: 52px; color: #566A73">限幅衰减</span>
+              <div style="flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 12%; height: 4px; border-radius: 2px; background: {{ grFill }}"></div></div>
+              <span class="m" style="width: 86px; text-align: right; color: {{ grText }}">1.4 dB</span>
+            </div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 0 24px; background: #E6EEF1"></div>
+          <div style="flex: 1">
+            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #566A73"><span>限幅衰减 · 最近 10 秒</span><span class="m">最大 1.4 dB</span></div>
+            <svg viewBox="0 0 220 60" aria-hidden="true" style="margin-top: 6px; display: block; width: 220px; height: 60px">
+              <path d="M0 0.5 H220" style="fill: none; stroke: #DCE6E9; stroke-width: 1"></path>
+              <path d="M0 1v4h4v-4z M6 1v10h4v-10z M12 1v3h4v-3z M18 1v22h4v-22z M24 1v8h4v-8z M30 1v2h4v-2z M36 1v14h4v-14z M42 1v30h4v-30z M48 1v6h4v-6z M54 1v3h4v-3z M60 1v18h4v-18z M66 1v9h4v-9z M72 1v2h4v-2z M78 1v26h4v-26z M84 1v12h4v-12z M90 1v4h4v-4z M96 1v3h4v-3z M102 1v20h4v-20z M108 1v34h4v-34z M114 1v7h4v-7z M120 1v2h4v-2z M126 1v11h4v-11z M132 1v24h4v-24z M138 1v5h4v-5z M144 1v3h4v-3z M150 1v16h4v-16z M156 1v8h4v-8z M162 1v2h4v-2z M168 1v28h4v-28z M174 1v13h4v-13z M180 1v4h4v-4z M186 1v2h4v-2z M192 1v19h4v-19z M198 1v9h4v-9z M204 1v3h4v-3z M210 1v22h4v-22z M216 1v6h4v-6z" style="fill: #0D1B21"></path>
+            </svg>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- LIMIT · 发行安全（原「高级」第三页） -->
+      <sc-if value="{{ bodyLimRelease }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 20px; top: 52px; width: 1128px; height: 98px; display: flex; align-items: flex-start">
+          <div style="width: 330px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: center; gap: 10px; height: 28px">
+              <span style="width: 52px; font-weight: 600">编码余量</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 33%; height: 4px; border-radius: 2px; background: #1799AB"></div><div style="position: absolute; left: 33%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #1799AB"></div></div>
+              <span class="m" style="width: 52px; text-align: right">1.0 dB</span>
+            </div>
+            <div style="font-size: 10px; line-height: 15px; color: #566A73">只降低输出上限，预留有损编码的空间；不检测编码后的峰值。</div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 8px 24px 0; background: #E6EEF1"></div>
+          <div style="width: 330px; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: center; gap: 12px; height: 28px">
+              <span style="font-weight: 600">最终位深抖动</span>
+              <div style="flex: 1; height: 28px; box-sizing: border-box; padding: 2px; border-radius: 8px; background: #EEF3F5; display: flex; gap: 2px">
+                <button aria-pressed="true" style="flex: 1; height: 24px; border-radius: 6px; background: #FFFFFF; box-shadow: 0 1px 2px rgba(13, 40, 48, 0.14); font-weight: 600">关</button>
+                <button aria-pressed="false" class="m" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">16-bit</button>
+                <button aria-pressed="false" class="m" style="flex: 1; height: 24px; border-radius: 6px; color: #4B5E66">24-bit</button>
+              </div>
+            </div>
+            <div style="font-size: 10px; line-height: 15px; color: #566A73">默认关闭。只在末级导出 16 / 24 位整数音频时开启，避免重复抖动。</div>
+          </div>
+          <div style="width: 1px; height: 80px; margin: 8px 24px 0; background: #E6EEF1"></div>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 10px">
+            <div style="display: flex; align-items: center; gap: 10px; height: 28px">
+              <span style="width: 52px; font-weight: 600">预听响度</span>
+              <div style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #E6EEF1"><div style="width: 50%; height: 4px; border-radius: 2px; background: #1799AB"></div><div style="position: absolute; left: 50%; top: -5px; width: 14px; height: 14px; margin-left: -7px; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 2px solid #1799AB"></div></div>
+              <span class="m" style="width: 76px; text-align: right">−14.0 LUFS</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <button aria-pressed="false" style="flex: none; height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid #D0DDE2; background: #F3F6F7; color: #4B5E66">开启归一化预听</button>
+              <span style="font-size: 10px; line-height: 14px; color: #566A73">只用于监听；离线导出自动关闭。</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <!-- 频谱与电平表：收起时 (16, 516) 1168 × 288；有模块展开时 (16, 690) 1168 × 114 -->
+  <div style="position: absolute; left: 16px; top: {{ specTop }}px; width: 1168px; height: {{ specH }}px; box-sizing: border-box; background: #FFFFFF; border: 1px solid #DCE6E9; border-radius: 16px">
+    <div style="position: absolute; left: 14px; top: 10px; width: 44px; display: flex; flex-direction: column; align-items: center; gap: 4px">
+      <span style="font-size: 10px; color: #566A73">输入</span>
+      <div style="position: relative; width: 6px; height: {{ barH }}px; border-radius: 3px; background: #E6EEF1"><div style="position: absolute; left: 0; bottom: 0; width: 6px; height: 77%; border-radius: 3px; background: #1799AB"></div></div>
+      <span class="m">−4.7</span>
+    </div>
+    <svg viewBox="0 0 1032 92" preserveAspectRatio="none" aria-hidden="true" style="position: absolute; left: 68px; top: 10px; width: 1032px; height: {{ plotH }}px; border-radius: 8px; background: linear-gradient(180deg, #FFFFFF 0%, #F3F8F9 100%)">
+      <path d="M240.5 0 V92 M584.5 0 V92 M928.5 0 V92" style="vector-effect: non-scaling-stroke;fill: none; stroke: #E6EEF1; stroke-width: 1"></path>
+      <path d="M0 92 L0 84 L24 72 L48 54 L76 38 L104 30 L132 26 L160 31 L188 25 L216 33 L246 29 L276 36 L306 31 L336 38 L368 33 L400 40 L432 35 L464 42 L498 37 L532 43 L566 39 L600 45 L634 41 L668 47 L702 43 L736 50 L770 46 L804 52 L838 49 L872 56 L906 53 L940 60 L972 62 L1000 70 L1032 82 L1032 92 Z" style="fill: #BFE9EE"></path>
+      <path d="M0 84 L24 72 L48 54 L76 38 L104 30 L132 26 L160 31 L188 25 L216 33 L246 29 L276 36 L306 31 L336 38 L368 33 L400 40 L432 35 L464 42 L498 37 L532 43 L566 39 L600 45 L634 41 L668 47 L702 43 L736 50 L770 46 L804 52 L838 49 L872 56 L906 53 L940 60 L972 62 L1000 70 L1032 82" style="vector-effect: non-scaling-stroke;fill: none; stroke: #1799AB; stroke-width: 1.4; stroke-linejoin: round"></path>
+      <path d="M0 78 L48 48 L104 23 L160 24 L216 26 L276 29 L336 31 L400 33 L464 35 L532 36 L600 38 L668 40 L736 43 L804 45 L872 49 L940 53 L1000 63 L1032 76" style="vector-effect: non-scaling-stroke;fill: none; stroke: #06313A; stroke-width: 0.8; stroke-linejoin: round"></path>
+      <path d="M0 88 L48 62 L104 39 L160 40 L216 41 L276 44 L336 46 L400 48 L464 50 L532 52 L600 54 L668 56 L736 59 L804 62 L872 66 L940 70 L1000 78 L1032 88" style="vector-effect: non-scaling-stroke;fill: none; stroke: #566A73; stroke-width: 1; stroke-dasharray: 3 3"></path>
+    </svg>
+    <sc-if value="{{ isClosed }}" hint-placeholder-val="{{ true }}">
+      <div style="position: absolute; left: 68px; top: 79px; width: 1032px; height: 1px; background: rgba(207, 220, 225, 0.5)"></div>
+      <div style="position: absolute; left: 68px; top: 158px; width: 1032px; height: 1px; background: rgba(207, 220, 225, 0.5)"></div>
+      <div style="position: absolute; left: 68px; top: 237px; width: 1032px; height: 1px; background: rgba(207, 220, 225, 0.5)"></div>
+      <div class="m" style="position: absolute; left: 76px; top: 66px; font-size: 9px; color: #566A73">−24</div>
+      <div class="m" style="position: absolute; left: 76px; top: 145px; font-size: 9px; color: #566A73">−48</div>
+      <div class="m" style="position: absolute; left: 76px; top: 224px; font-size: 9px; color: #566A73">−72</div>
+      <div class="m" style="position: absolute; left: 76px; top: 16px; height: 22px; box-sizing: border-box; padding: 0 8px; border-radius: 6px; background: #FFFFFF; border: 1px solid #DCE6E9; display: flex; align-items: center; font-size: 10px; color: #0D1B21">−12.3 dB | 1.25 kHz | D#6 +14 cents</div>
+    </sc-if>
+    <div class="m" style="position: absolute; left: 313px; top: {{ labelTop }}px; font-size: 9px; color: #566A73">100 Hz</div>
+    <div class="m" style="position: absolute; left: 657px; top: {{ labelTop }}px; font-size: 9px; color: #566A73">1 kHz</div>
+    <div class="m" style="position: absolute; left: 1001px; top: {{ labelTop }}px; font-size: 9px; color: #566A73">10 kHz</div>
+    <div style="position: absolute; right: 84px; top: 8px; display: flex; align-items: center; gap: 12px; font-size: 10px; color: #4B5E66">
+      <button aria-pressed="true" style="display: flex; align-items: center; gap: 5px"><span style="width: 10px; height: 6px; border-radius: 2px; background: #1799AB"></span>输出</button>
+      <button aria-pressed="true" style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 0; border-top: 1px dashed #566A73"></span>输入</button>
+      <button aria-pressed="true" style="display: flex; align-items: center; gap: 5px"><span style="width: 12px; height: 0; border-top: 1px solid #06313A"></span>峰值</button>
+      <button style="height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid #D0DDE2; background: #FFFFFF">斜率 <span class="m">4.5</span></button>
+      <sc-if value="{{ isOpen }}" hint-placeholder-val="{{ false }}">
+        <button style="height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid #D0DDE2; background: #FFFFFF">放大频谱</button>
+      </sc-if>
+    </div>
+    <div style="position: absolute; right: 12px; top: 10px; width: 56px; display: flex; gap: 8px; justify-content: center">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+        <span style="font-size: 10px; color: #566A73">输出</span>
+        <div style="position: relative; width: 6px; height: {{ barH }}px; border-radius: 3px; background: #E6EEF1"><div style="position: absolute; left: 0; bottom: 0; width: 6px; height: 94%; border-radius: 3px; background: {{ outFill }}"></div></div>
+        <span class="m" style="color: {{ tpColor }}">{{ tpText }}</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+        <span style="font-size: 10px; color: #566A73">衰减</span>
+        <div style="position: relative; width: 6px; height: {{ barH }}px; border-radius: 3px; background: #E6EEF1"><div style="position: absolute; left: 0; top: 0; width: 6px; height: 13%; border-radius: 3px; background: {{ grFill }}"></div></div>
+        <span class="m" style="color: {{ grText }}">1.4</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"open":{"editor":"enum","options":["none","balance","clay","color","limit"],"default":"none","section":"状态"},"page":{"editor":"enum","options":["main","harsh","target","release"],"default":"main","section":"状态"},"alert":{"editor":"enum","options":["none","truepeak","limited","original"],"default":"none","section":"状态"},"bypass":{"editor":"enum","options":["none","color"],"default":"none","section":"状态"},"$preview":{"width":1200,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var open = this.props.open ?? 'none';
+    var page = this.props.page ?? 'main';
+    var alert = this.props.alert ?? 'none';
+    var bypass = this.props.bypass ?? 'none';
+
+    var isOpen = open !== 'none';
+    var balPage = page === 'harsh' || page === 'target' ? page : 'main';
+    var limPage = page === 'release' ? 'release' : 'main';
+    var limited = alert === 'limited';
+    var truePeak = alert === 'truepeak';
+    var listening = alert === 'original';
+    var colorBypassed = bypass === 'color';
+
+    function pill(id) {
+      var on = open === id;
+      return {
+        border: on ? '1.5px solid #1799AB' : '1px solid #DCE6E9',
+        bg: on ? '#F1FAFB' : '#FFFFFF',
+        expanded: on ? 'true' : 'false',
+        chevron: on ? 'M6 15 L12 9 L18 15' : 'M6 9 L12 15 L18 9'
+      };
+    }
+    function tab(on) {
+      return {
+        pressed: on ? 'true' : 'false',
+        bg: on ? '#FFFFFF' : 'transparent',
+        shadow: on ? '0 1px 2px rgba(13, 40, 48, 0.14)' : 'none',
+        color: on ? '#0D1B21' : '#4B5E66',
+        weight: on ? 600 : 400
+      };
+    }
+    var stubs = { balance: 156, clay: 451, color: 746, limit: 1041 };
+    var specH = isOpen ? 114 : 288;
+
+    return {
+      isOpen: isOpen,
+      isClosed: !isOpen,
+      openBalance: open === 'balance',
+      openClay: open === 'clay',
+      openColor: open === 'color',
+      openLimit: open === 'limit',
+      bodyBalMain: open === 'balance' && balPage === 'main',
+      bodyBalHarsh: open === 'balance' && balPage === 'harsh',
+      bodyBalTarget: open === 'balance' && balPage === 'target',
+      bodyLimMain: open === 'limit' && limPage === 'main',
+      bodyLimRelease: open === 'limit' && limPage === 'release',
+      pillBalance: pill('balance'),
+      pillClay: pill('clay'),
+      pillColor: pill('color'),
+      pillLimit: pill('limit'),
+      tabBalMain: tab(balPage === 'main'),
+      tabBalHarsh: tab(balPage === 'harsh'),
+      tabBalTarget: tab(balPage === 'target'),
+      tabLimMain: tab(limPage === 'main'),
+      tabLimRelease: tab(limPage === 'release'),
+      stubLeft: stubs[open] ?? 156,
+      specTop: isOpen ? 690 : 516,
+      specH: specH,
+      plotH: specH - 22,
+      barH: specH - 62,
+      labelTop: specH - 26,
+      alertTruePeak: truePeak,
+      alertLimited: limited,
+      alertOriginal: listening,
+      statusNormal: !limited,
+      notListening: !listening,
+      showHint: open === 'limit' && limPage === 'main' && alert === 'none',
+      protectionText: limited ? '−1.5' : '0.0',
+      tpText: truePeak ? '−0.7' : '−1.4',
+      tpColor: truePeak ? '#C2410C' : '#0D1B21',
+      outFill: truePeak ? '#E8590C' : '#1799AB',
+      grFill: limited ? '#E8590C' : '#0D1B21',
+      grText: limited ? '#C2410C' : '#4B5E66',
+      colorActive: !colorBypassed,
+      colorBypassed: colorBypassed,
+      colorPressed: colorBypassed ? 'true' : 'false',
+      colorDim: colorBypassed ? 0.55 : 1,
+      colorBarFill: colorBypassed ? '#B8C7CD' : '#6A4DFF',
+      colorRowText: colorBypassed ? '#566A73' : '#5438D9',
+      colorPower: colorBypassed ? '#8A9CA3' : '#1799AB'
+    };
+  }
+}
+</script>
+</body>
+</html>
